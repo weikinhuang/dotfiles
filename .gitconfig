@@ -1,0 +1,41 @@
+[gui]
+	fontdiff = -family Consolas -size 9 -weight normal -slant roman -underline 0 -overstrike 0
+[color]
+	ui = auto
+[advice]
+	pushNonFastForward = false
+	statusHints = false
+[core]
+	whitespace = trailing-space,space-before-tab
+	editor = nppedit
+[diff]
+	renames = copies
+	mnemonicprefix = true
+[branch]
+	autosetupmerge = true
+[push]
+	default = tracking
+[rerere]
+	enabled = true
+[diff]
+	tool = araxis
+[merge]
+	stat = true
+	tool = araxis
+[help]
+	autocorrect = 1
+[alias]
+	st = status
+	ci = commit
+	br = branch
+	co = checkout
+	df = diff
+	lg = log -p
+[difftool]
+	prompt = false
+[mergetool]
+	prompt = false
+[difftool "araxis"]
+	cmd = compare /2 /wait $LOCAL $REMOTE
+[mergetool "araxis"]
+	cmd = compare /3 /a2 /wait $REMOTE $BASE $LOCAL $MERGED
