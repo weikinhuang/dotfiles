@@ -214,6 +214,17 @@ if [ -f "/etc/bash_completion" ]; then
 fi
 
 GIT_PS1_SHOWDIRTYSTATE=true
-PS1='[\[\e[37m\]$(date +"%r" | sed -n "s/ [AMPamp]\+//p" | tr " " "0")\[\e[m\] \[\e[0;35m\]$(printf "%05s" $(typeperf -sc 1 "\processor(_total)\% processor time" | sed -n "s/.\+,\"\([0-9]\+\.[0-9][0-9]\).\+/\1/p"))%\[\e[m\] \[\e[32m\]\u@\h\[\e[m\] \[\e[33m\]\W\[\e[m\]\[\e[31m\]$(__git_ps1)\[\e[m\]]\$ '
+
+TITLEBAR='\[\033]0;\u@\h:\w\007\]'
+
+PS1='\
+${TITLEBAR}\
+[\
+\[\e[37m\]$(date +"%r" | sed -n "s/ [AMPamp]\+//p" | tr " " "0")\[\e[m\] \
+\[\e[0;35m\]$(printf "%05s" $(typeperf -sc 1 "\processor(_total)\% processor time" | sed -n "s/.\+,\"\([0-9]\+\.[0-9][0-9]\).\+/\1/p"))%\[\e[m\] \
+\[\e[32m\]\u@\h\[\e[m\] \
+\[\e[33m\]\W\[\e[m\]\
+\[\e[31m\]$(__git_ps1)\[\e[m\]\
+]\$ '
 
 export EDITOR=$(which nppedit)
