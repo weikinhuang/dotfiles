@@ -197,6 +197,9 @@
 # 
 # alias cd=cd_func
 
+if [ -d "/usr/local/shortcut" ] ; then
+  PATH="${PATH}:/usr/local/shortcut"
+fi
 
 if [ -f "${HOME}/.bash_aliases" ]; then
   source "${HOME}/.bash_aliases"

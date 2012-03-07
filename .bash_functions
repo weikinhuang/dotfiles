@@ -6,10 +6,10 @@ cf() {
 	find "$1" -type f | wc -l
 }
 
-np() {
-	find "$1" -type f | wc -l
-}
-
 trim () {
 	echo $1;
+}
+
+findhere () {
+	find . -iname "$1"
 }
