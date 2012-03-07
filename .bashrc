@@ -214,11 +214,8 @@ if [ -f "/etc/bash_completion" ]; then
 fi
 
 GIT_PS1_SHOWDIRTYSTATE=true
-
-TITLEBAR='\[\033]0;\u@\h:\w\007\]'
-
 PS1='\
-${TITLEBAR}\
+\[\e]0;\u@\h:\w\007\]\
 [\
 \[\e[37m\]$(date +"%r" | sed -n "s/ [AMPamp]\+//p" | tr " " "0")\[\e[m\] \
 \[\e[0;35m\]$(printf "%05s" $(typeperf -sc 1 "\processor(_total)\% processor time" | sed -n "s/.\+,\"\([0-9]\+\.[0-9][0-9]\).\+/\1/p"))%\[\e[m\] \
