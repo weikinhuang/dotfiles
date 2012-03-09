@@ -58,27 +58,27 @@ alias cd=cd_func
 # Special repo status function for git and svn
 __repo_ps1 () {
 	local info=$(svn info 2> /dev/null)
-
+	
 	# if not a svn repo, then try the git method
 	if [[ -z "$info" ]] ; then
 		echo $(__git_ps1)
 		return
 	fi
-
+	
 	# if it is a svn repo, then strip info out of it
 	local svnrev=$(echo "$info" | awk '/Revision:/ {print $2}')
 	local flag=
-
+	
 	# if we want to show dirty state then exec svn status
 	if [ $SVN_PS1_SHOWDIRTYSTATE ] ; then
-		local state=$(svn status --ignore-externals -q "$(echo "$info" | sed -n "s/Working Copy Root Path: \(.\+\)/\1/p")" 2> /dev/null)
+		local state=$(svn status --ignore-externals "$(echo "$info" | sed -n "s/Working Copy Root Path: \(.\+\)/\1/p")" 2> /dev/null)
 		
 		# make the file status conditions unique if there are changes
 		if [ -n "$state" ]; then
-			flag=" *"$(echo "$state" | awk '{print $1}' | uniq | sort | tr -d '\n')
+			flag=" *$(echo "$state" | awk '{print $1}' | uniq | sort | tr -d '\n')"
 		fi
 	fi
-
+	
 	echo -n " ($svnrev$flag)"
 }
 
