@@ -61,7 +61,7 @@ __repo_ps1 () {
 	
 	# if not a svn repo, then try the git method
 	if [[ -z "$info" ]] ; then
-		echo $(__git_ps1)
+		echo -n "$(__git_ps1)"
 		return
 	fi
 	
