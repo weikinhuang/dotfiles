@@ -86,8 +86,8 @@
 # umask 077
 
 # wrapped shortcuts to windows programs
-if [ -d "/usr/local/shortcut" ] ; then
-  PATH="${PATH}:/usr/local/shortcut"
+if [ -d "/winprogs" ] ; then
+  PATH="${PATH}:/winprogs"
 fi
 
 if [ -f "${HOME}/.bash_aliases" ]; then
