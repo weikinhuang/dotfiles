@@ -116,25 +116,28 @@ export HISTIGNORE=$'[ \t]*:&:[fb]g:exit:ls' # Ignore the ls command as well
 
 # show git status
 GIT_PS1_SHOWDIRTYSTATE=true
-SVN_PS1_SHOWDIRTYSTATE=true
 
 # bash prompt
 #   titlebar
 #   open bracket
+#	show exit code
+#	show number of background jobs
 #   time
 #   load
 #   user@host
 #   working directory
-#   repository status
+#   git status
 #   close bracket
 PS1='\
 \[\e]0;\u@\h:\W\007\]\
 [\
+`EXIT_CODE=$?; if [ ${EXIT_CODE} != 0 ]; then echo "\[\e[31m\]E:${EXIT_CODE}\[\e[0m\] "; fi`\
+`if [ \j != 0 ]; then echo "\[\e[0;36m\]bg:\j\[\e[m\] "; fi`\
 \[\e[37m\]$(date +"%r" | sed -n "s/ [AMPamp]\+//p" | tr " " "0")\[\e[m\] \
 \[\e[0;35m\]$(printf "%05s" $(typeperf -sc 1 "\processor(_total)\% processor time" | sed -n "s/.\+,\"\([0-9]\+\.[0-9][0-9]\).\+/\1/p"))%\[\e[m\] \
 \[\e[32m\]\u@\h\[\e[m\] \
 \[\e[33m\]\W\[\e[m\]\
-\[\e[31m\]$(__repo_ps1)\[\e[m\]\
+\[\e[31m\]$(__git_ps1)\[\e[m\]\
 ]\$ '
 
 # set default editor to notepad++
