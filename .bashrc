@@ -86,8 +86,8 @@
 # umask 077
 
 # wrapped shortcuts to windows programs
-if [ -d "/winprogs" ] ; then
-  PATH="${PATH}:/winprogs"
+if [ -d "/usr/local/winprogs" ] ; then
+  PATH="${PATH}:/usr/local/winprogs"
 fi
 
 if [ -f "${HOME}/.bash_aliases" ]; then
