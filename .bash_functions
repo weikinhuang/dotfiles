@@ -82,10 +82,6 @@ __repo_ps1 () {
 	echo -n " ($svnrev$flag)"
 }
 
-dusort() {
-	du -ka --max-depth=$1 | sort -nr | cut -f2 | xargs -d '\n' du -sh
-}
-
 cf() {
 	find "$1" -type f | wc -l
 }
@@ -96,4 +92,24 @@ trim () {
 
 findhere () {
 	find . -iname "$1"
+}
+
+execlist () {
+	if [[ $1 =~ "{}" ]] ; then
+		ls -1 | xargs -I {} -P 4 sh -c "$1"
+	else
+		echo "Missing argument identifier {}."
+	fi
+}
+
+execfind () {
+	if [[ -n $1 ]] ; then
+		if [[ $2 =~ "{}" ]] ; then
+			find . -iname "$1" | xargs -I {} -P 4 sh -c "$2"
+		else
+			echo "Missing argument identifier {}."
+		fi
+	else
+		echo "Missing search term."
+	fi
 }
