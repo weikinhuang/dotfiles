@@ -96,7 +96,7 @@ findhere () {
 
 execlist () {
 	if [[ $1 =~ "{}" ]] ; then
-		ls -1 | xargs -I {} -P 4 sh -c "$1"
+		ls -1 | xargs -I {} -P $PROC_CORES sh -c "$1"
 	else
 		echo "Missing argument identifier {}."
 	fi
@@ -105,7 +105,7 @@ execlist () {
 execfind () {
 	if [[ -n $1 ]] ; then
 		if [[ $2 =~ "{}" ]] ; then
-			find . -iname "$1" | xargs -I {} -P 4 sh -c "$2"
+			find . -iname "$1" | xargs -I {} -P $PROC_CORES sh -c "$2"
 		else
 			echo "Missing argument identifier {}."
 		fi

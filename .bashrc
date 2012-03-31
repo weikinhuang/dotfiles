@@ -85,6 +85,9 @@
 # Paranoid: neither group nor others have any perms:
 # umask 077
 
+# special variables
+PROC_CORES=$(grep "^processor" -c /proc/cpuinfo)
+
 # wrapped shortcuts to windows programs
 if [ -d "/usr/local/winprogs" ] ; then
   PATH="${PATH}:/usr/local/winprogs"
