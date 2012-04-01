@@ -13,3 +13,4 @@ alias mv='mv -i'
 
 alias which='alias | /usr/bin/which --tty-only --read-alias --show-dot --show-tilde'
 
+alias open='cygstart'
