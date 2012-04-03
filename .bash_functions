@@ -95,10 +95,23 @@ findhere () {
 }
 
 execlist () {
-	if [[ "$1" =~ "{}" ]] ; then
-		ls -1 | xargs -I {} -P $PROC_CORES sh -c "$1"
-	else
-		echo "Missing argument identifier {}."
+	if [[ $# = 1 ]] ; then
+		if [[ "$1" =~ "{}" ]] ; then
+			ls -1A | xargs -I {} -P $PROC_CORES sh -c "$1"
+		else
+			echo "Missing argument identifier {}."
+		fi
+	fi
+	if [[ $# = 2 ]] ; then
+		if [[ -d "$1" ]] ; then
+			if [[ "$2" =~ "{}" ]] ; then
+				ls -1A "$1" | xargs -I {} -P $PROC_CORES sh -c "$2"
+			else
+				echo "Missing argument identifier {}."
+			fi
+		else
+			echo "Directory not found!"
+		fi
 	fi
 }
 
