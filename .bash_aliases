@@ -20,3 +20,5 @@ alias kill='/bin/kill.exe -f'
 alias ps='ps -W'
 
 alias vi='nppedit'
+
+alias yum="apt-cyg"

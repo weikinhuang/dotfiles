@@ -94,10 +94,22 @@ findhere () {
 	find . -iname "$1"
 }
 
+psf () {
+	if [ -n "$1" ] ; then
+		ps -aW | grep -v "\\bSystem$" | grep -Pi "(\\\|/)[^\\/]*$1[^\\/]*(\.exe)?\$"
+	fi
+}
+
+pskill () {
+	if [ -n "$1" ] ; then
+		ps -aW | grep -v "\\bSystem$" | grep -Pi "(\\\|/)[^\\/]*$1[^\\/]*(\.exe)?\$" | awk '{ print $1 }' | xargs -r -I {} -P $PROC_CORES sh -c "/bin/kill -f {};"
+	fi
+}
+
 execlist () {
 	if [[ $# = 1 ]] ; then
 		if [[ "$1" =~ "{}" ]] ; then
-			ls -1A | xargs -I {} -P $PROC_CORES sh -c "$1"
+			ls -1A | xargs -r -I {} -P $PROC_CORES sh -c "$1"
 		else
 			echo "Missing argument identifier {}."
 		fi
@@ -105,7 +117,7 @@ execlist () {
 	if [[ $# = 2 ]] ; then
 		if [[ -d "$1" ]] ; then
 			if [[ "$2" =~ "{}" ]] ; then
-				ls -1A "$1" | xargs -I {} -P $PROC_CORES sh -c "$2"
+				ls -1A "$1" | xargs -r -I {} -P $PROC_CORES sh -c "$2"
 			else
 				echo "Missing argument identifier {}."
 			fi
@@ -118,7 +130,7 @@ execlist () {
 execfind () {
 	if [[ -n "$1" ]] ; then
 		if [[ "$2" =~ "{}" ]] ; then
-			find . -iname "$1" | xargs -I {} -P $PROC_CORES sh -c "$2"
+			find . -iname "$1" | xargs -r -I {} -P $PROC_CORES sh -c "$2"
 		else
 			echo "Missing argument identifier {}."
 		fi
@@ -130,7 +142,7 @@ execfind () {
 execcat () {
 	if [[ ( -n "$1" ) && ( -f "$1" ) ]] ; then
 		if [[ "$2" =~ "{}" ]] ; then
-			cat "$1" | tr -d '\r' | xargs -I {} -P $PROC_CORES -r sh -c "$2"
+			cat "$1" | tr -d '\r' | xargs -r -I {} -P $PROC_CORES -r sh -c "$2"
 		else
 			echo "Missing argument identifier {}."
 		fi
