@@ -14,3 +14,7 @@ alias mv='mv -i'
 alias which='alias | /usr/bin/which --tty-only --read-alias --show-dot --show-tilde'
 
 alias open='cygstart'
+
+alias kill='/bin/kill.exe -f'
+
+alias ps='ps -W'
