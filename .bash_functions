@@ -96,9 +96,11 @@ findhere () {
 
 psf () {
 	if [ -n "$1" ] ; then
+		echo "      PID    PPID    PGID     WINPID   TTY     UID    STIME COMMAND"
 		ps -aW | grep -v "\\bSystem$" | grep -Pi "(\\\|/)[^\\/]*$1[^\\/]*(\.exe)?\$"
 	fi
 }
+alias psf=psfind
 
 pskill () {
 	if [ -n "$1" ] ; then
@@ -110,8 +112,8 @@ olib () {
 	if [ -z "$1" ] ; then
 		return 1
 	fi
-	local library="C:\Users\\$(whoami)\AppData\Roaming\Microsoft\Windows\Libraries\\$1.library-ms"
-	if [ ! -e $(cygpath -u "$1") ] ; then
+	local library="/c/Users/$(whoami)/AppData/Roaming/Microsoft/Windows/Libraries/$1.library-ms"
+	if [ ! -e "$library" ] ; then
 		return 2
 	fi
 	open $library
@@ -165,3 +167,24 @@ execcat () {
 alias els='execlist'
 alias efind='execfind'
 alias ecat='execcat'
+
+# Completion Options
+_list_libraries () {
+	local cur list
+	COMPREPLY=()
+	cur=${COMP_WORDS[COMP_CWORD]}
+	list=$(ls "/c/Users/$(whoami)/AppData/Roaming/Microsoft/Windows/Libraries" | grep ".library-ms" | sed "s/\.library-ms$//")
+	COMPREPLY=( $(compgen -W "$list" -- $cur) )
+	return 0
+}
+complete -F _list_libraries olib
+
+_list_processes () {
+	local cur list
+	COMPREPLY=()
+	cur=${COMP_WORDS[COMP_CWORD]}
+	list=$(ps -aW | grep -v "System\$" | grep -v "WINPID" | sed "s/^.\+[\\/]\(.\+\)\$/\1/" | sed "s/\.exe$//" | sort | uniq | grep -v "^ps$")
+	COMPREPLY=( $(compgen -W "$list" -- $cur) )
+	return 0
+}
+complete -F _list_processes psf psfind pskill
