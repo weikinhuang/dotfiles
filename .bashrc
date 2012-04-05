@@ -88,6 +88,12 @@
 # special variables
 PROC_CORES=$(grep "^processor" -c /proc/cpuinfo)
 
+# Shell Options
+# Use case-insensitive filename globbing
+shopt -s nocaseglob
+# When changing directory small typos can be ignored by bash
+shopt -s cdspell
+
 # wrapped shortcuts to windows programs
 if [ -d "/usr/local/winprogs" ] ; then
   PATH="${PATH}:/usr/local/winprogs"

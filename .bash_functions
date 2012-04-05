@@ -106,6 +106,17 @@ pskill () {
 	fi
 }
 
+olib () {
+	if [ -z "$1" ] ; then
+		return 1
+	fi
+	local library="C:\Users\\$(whoami)\AppData\Roaming\Microsoft\Windows\Libraries\\$1.library-ms"
+	if [ ! -e $(cygpath -u "$1") ] ; then
+		return 2
+	fi
+	open $library
+}
+
 execlist () {
 	if [[ $# = 1 ]] ; then
 		if [[ "$1" =~ "{}" ]] ; then
