@@ -31,7 +31,10 @@
 	co = checkout
 	df = diff
 	lg = log -p
+	com = checkout master
 	sync = !"git pull upstream master && git push origin master"
+	diffall = !"git diff --name-only "$@" | while read filename; do git difftool "$@" --no-prompt "$filename" & done"
+	pob = !"git push "$@" origin $(git branch | grep '^* ' | sed 's/^* //')"
 [difftool]
 	prompt = false
 [mergetool]
