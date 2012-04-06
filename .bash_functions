@@ -94,6 +94,10 @@ findhere () {
 	find . -iname "$1"
 }
 
+grip () {
+	grep -ir "$1" .
+}
+
 psf () {
 	if [ -n "$1" ] ; then
 		echo "      PID    PPID    PGID     WINPID   TTY     UID    STIME COMMAND"
