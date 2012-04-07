@@ -133,7 +133,7 @@ GIT_PS1_SHOWDIRTYSTATE=true
 #	show number of background jobs
 #   time
 #   load
-#   user@host
+#   user@[host|screen session]
 #   working directory
 #   git status
 #   close bracket
@@ -144,7 +144,7 @@ PS1='\
 \[\e[0;36m\]$(if [ \j -ne 0 ]; then echo -n "bg:\j "; fi)\[\e[0m\]\
 \[\e[37m\]$(date +"%r" | sed -n "s/ [AMPamp]\+//p" | tr " " "0")\[\e[m\] \
 \[\e[0;35m\]$(printf "%05s" $(typeperf -sc 1 "\processor(_total)\% processor time" | sed -n "s/.\+,\"\([0-9]\+\.[0-9][0-9]\).\+/\1/p"))%\[\e[m\] \
-\[\e[32m\]\u@\h\[\e[m\] \
+\[\e[32m\]\u\[\e[m\]@$(if [ "$TERM" != "screen" ] ; then echo -n "\[\e[32m\]\h"; else echo -n "\[\e[32;4m\]$STY" ;fi)\[\e[m\] \
 \[\e[33m\]\W\[\e[m\]\
 \[\e[31m\]$(type __git_ps1 &> /dev/null && __git_ps1)\[\e[m\]\
 ]\$ '
