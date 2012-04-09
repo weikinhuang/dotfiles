@@ -2,7 +2,7 @@
 alias ..="cd .."
 alias ...="cd ../.."
 alias ~="cd ~"
-alias --="cd -"
+alias -- -="cd -"
 
 # Shortcuts
 alias docs="cd ~/Documents"
