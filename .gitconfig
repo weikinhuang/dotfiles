@@ -25,15 +25,28 @@
 [help]
 	autocorrect = 1
 [alias]
+	# Basic shortcuts
 	st = status
 	ci = commit
 	br = branch
 	co = checkout
 	df = diff
 	lg = log -p
+	# go to master branch
 	com = checkout master
+	# Switch to a branch, creating it if necessary
+	go = checkout -B
+	# Undo a `git push`
+	undopush = push -f origin HEAD^:master
+	# View the SHA, description, and history graph of the latest 20 commits
+	l = log --pretty=oneline -n 20 --graph
+	# Pull in remote changes for the current repository and all its submodules
+	p = !"git pull; git submodule foreach git pull origin master"
+	# Go to the master branch then sync local and origin with upstream
 	sync = !"git checkout master && git pull upstream master && git push origin master"
+	# Open the difftool for all files that are currently modified
 	diffall = !"git diff --name-only "$@" | while read filename; do git difftool "$@" --no-prompt "$filename" & done"
+	# Push the current branch to origin with the same branch name
 	pob = !"git push "$@" origin $(git branch | grep '^* ' | sed 's/^* //')"
 [difftool]
 	prompt = false
