@@ -2,7 +2,7 @@
 alias ..="cd .."
 alias ...="cd ../.."
 alias ~="cd ~"
-alias -- -="cd -"
+alias --="cd -"
 
 # Shortcuts
 alias docs="cd ~/Documents"
@@ -10,8 +10,12 @@ alias desk="cd ~/Documents/Desktop"
 alias dl="cd ~/Documents/Downloads"
 alias d="cd ~/Documents/Dropbox"
 alias p="cd ~/Documents/Projects"
+
+# useful shortcuts
 alias h="history"
 alias f="findhere"
+alias md5="md5sum"
+alias open="cygstart"
 
 # cd replacement to show cd history with cd --
 alias cd="__cd_func"
@@ -37,9 +41,6 @@ alias grep="grep --color=auto"
 # allow which command to expand
 alias which="alias | /usr/bin/which --tty-only --read-alias --show-dot --show-tilde"
 
-# alias cygstart to the more common open command
-alias open="cygstart"
-
 # Ability to kill windows applications
 alias kill="/bin/kill.exe -f"
 
@@ -47,9 +48,9 @@ alias kill="/bin/kill.exe -f"
 alias ps="ps -W"
 
 # shortcuts to custom xargs pipes and process commands
-alias els='execlist'
-alias efind='execfind'
-alias ecat='execcat'
+alias els="execlist"
+alias efind="execfind"
+alias ecat="execcat"
 alias psf="psfind"
 
 # Alias vi to notepad++
