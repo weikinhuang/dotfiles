@@ -1,9 +1,5 @@
-# This function defines a 'cd' replacement function capable of keeping, 
-# displaying and accessing history of visited directories, up to 10 entries.
-# To use it, uncomment it, source this file and try 'cd --'.
-# acd_func 1.0.5, 10-nov-2004
-# Petar Marinov, http:/geocities.com/h2428, this is public domain
-cd_func () {
+# Special cd replacement that shows up to the last 10 directories with 'cd --'.
+function __cd_func() {
 	local x2 the_new_dir adir index
 	local -i cnt
 
@@ -25,21 +21,17 @@ cd_func () {
 		the_new_dir=$adir
 	fi
 
-	#
 	# '~' has to be substituted by ${HOME}
 	[[ ${the_new_dir:0:1} == '~' ]] && the_new_dir="${HOME}${the_new_dir:1}"
 
-	#
 	# Now change to the new dir and add to the top of the stack
 	pushd "${the_new_dir}" > /dev/null
 	[[ $? -ne 0 ]] && return 1
 	the_new_dir=$(pwd)
 
-	#
 	# Trim down everything beyond 11th entry
 	popd -n +11 2>/dev/null 1>/dev/null
 
-	#
 	# Remove any other occurence of this dir, skipping the top of the stack
 	for ((cnt=1; cnt <= 10; cnt++)); do
 		x2=$(dirs +${cnt} 2>/dev/null)
@@ -53,10 +45,9 @@ cd_func () {
 
 	return 0
 }
-alias cd=cd_func
 
 # Special repo status function for git and svn
-__repo_ps1 () {
+function __repo_ps1() {
 	local info=$(svn info 2> /dev/null)
 	
 	# if not a svn repo, then try the git method
@@ -82,37 +73,8 @@ __repo_ps1 () {
 	echo -n " ($svnrev$flag)"
 }
 
-cf() {
-	find "$1" -type f | wc -l
-}
-
-trim () {
-	echo "$1";
-}
-
-findhere () {
-	find . -iname "$1"
-}
-
-grip () {
-	grep -ir "$1" .
-}
-
-psf () {
-	if [ -n "$1" ] ; then
-		echo "      PID    PPID    PGID     WINPID   TTY     UID    STIME COMMAND"
-		ps -aW | grep -v "\\bSystem$" | grep -Pi "(\\\|/)[^\\/]*$1[^\\/]*(\.exe)?\$"
-	fi
-}
-alias psf=psfind
-
-pskill () {
-	if [ -n "$1" ] ; then
-		ps -aW | grep -v "\\bSystem$" | grep -Pi "(\\\|/)[^\\/]*$1[^\\/]*(\.exe)?\$" | awk '{ print $1 }' | xargs -r -I {} -P $PROC_CORES sh -c "/bin/kill -f {};"
-	fi
-}
-
-olib () {
+# Open a Windows (Vista/7) Libraries
+function olib() {
 	if [ -z "$1" ] ; then
 		return 1
 	fi
@@ -121,12 +83,56 @@ olib () {
 		return 2
 	fi
 	open $library
+	return $?
 }
 
-execlist () {
+# Count the number of files in a directory
+function cf() {
+	if [ -n "$1" ] ; then
+		find "$1" -type f | wc -l
+		return $?
+	fi
+	find . -type f | wc -l
+	return $?
+}
+
+# find files with case-insensetive matching in current directory
+function findhere() {
+	find . -iname "$1"
+	return $?
+}
+
+# do a case-insensetive grep on all the files in a directory
+function grip() {
+	grep -ir "$1" .
+	return $?
+}
+
+# Find processes by name match
+function psf() {
+	if [ -n "$1" ] ; then
+		echo "      PID    PPID    PGID     WINPID   TTY     UID    STIME COMMAND"
+		ps -aW | grep -v "\\bSystem$" | grep -Pi "(\\\|/)[^\\/]*$1[^\\/]*(\.exe)?\$"
+		return $?
+	fi
+	return 1
+}
+
+# Kill processes by name match
+function pskill() {
+	if [ -n "$1" ] ; then
+		ps -aW | grep -v "\\bSystem$" | grep -Pi "(\\\|/)[^\\/]*$1[^\\/]*(\.exe)?\$" | awk '{ print $1 }' | xargs -r -I {} -P $PROC_CORES sh -c "/bin/kill -f {};"
+		return $?
+	fi
+	return 1
+}
+
+# Execute a command against each file in a directory
+function execlist() {
 	if [[ $# = 1 ]] ; then
 		if [[ "$1" =~ "{}" ]] ; then
 			ls -1A | xargs -r -I {} -P $PROC_CORES sh -c "$1"
+			return $?
 		else
 			echo "Missing argument identifier {}."
 		fi
@@ -135,6 +141,7 @@ execlist () {
 		if [[ -d "$1" ]] ; then
 			if [[ "$2" =~ "{}" ]] ; then
 				ls -1A "$1" | xargs -r -I {} -P $PROC_CORES sh -c "$2"
+				return $?
 			else
 				echo "Missing argument identifier {}."
 			fi
@@ -142,53 +149,68 @@ execlist () {
 			echo "Directory not found!"
 		fi
 	fi
+	return 1
 }
 
-execfind () {
+# Execute a command against each file found in the current directory matching the search term
+function execfind() {
 	if [[ -n "$1" ]] ; then
 		if [[ "$2" =~ "{}" ]] ; then
 			find . -iname "$1" | xargs -r -I {} -P $PROC_CORES sh -c "$2"
+			return $?
 		else
 			echo "Missing argument identifier {}."
 		fi
 	else
 		echo "Missing search term."
 	fi
+	return 1
 }
 
-execcat () {
+# Execute a command for each line in a file
+function execcat() {
 	if [[ ( -n "$1" ) && ( -f "$1" ) ]] ; then
 		if [[ "$2" =~ "{}" ]] ; then
 			cat "$1" | tr -d '\r' | xargs -r -I {} -P $PROC_CORES -r sh -c "$2"
+			return $?
 		else
 			echo "Missing argument identifier {}."
 		fi
 	else
 		echo "File not found."
 	fi
+	return 1
 }
 
-alias els='execlist'
-alias efind='execfind'
-alias ecat='execcat'
-
-# Completion Options
-_list_libraries () {
-	local cur list
-	COMPREPLY=()
-	cur=${COMP_WORDS[COMP_CWORD]}
-	list=$(ls "/c/Users/$(whoami)/AppData/Roaming/Microsoft/Windows/Libraries" | grep ".library-ms" | sed "s/\.library-ms$//")
-	COMPREPLY=( $(compgen -W "$list" -- $cur) )
-	return 0
+# Create a new directory and enter it
+function md() {
+	mkdir -p "$@" && cd "$@"
 }
-complete -F _list_libraries olib
 
-_list_processes () {
-	local cur list
-	COMPREPLY=()
-	cur=${COMP_WORDS[COMP_CWORD]}
-	list=$(ps -aW | grep -v "System\$" | grep -v "WINPID" | sed "s/^.\+[\\/]\(.\+\)\$/\1/" | sed "s/\.exe$//" | sort | uniq | grep -v "^ps$")
-	COMPREPLY=( $(compgen -W "$list" -- $cur) )
-	return 0
+# Create a data URL from an image (works for other file types too, if you tweak the Content-Type afterwards)
+function dataurl() {
+	echo "data:image/${1##*.};base64,$(openssl base64 -in "$1")" | tr -d '\n'
 }
-complete -F _list_processes psf psfind pskill
+
+# Gzip-enabled `curl`
+function gurl() {
+	curl -sH "Accept-Encoding: gzip" "$@" | gunzip
+}
+
+# Escape UTF-8 characters into their 3-byte format
+function escape() {
+	printf "\\\x%s" $(printf "$@" | xxd -p -c1 -u)
+	echo # newline
+}
+
+# Decode \x{ABCD}-style Unicode escape sequences
+function unidecode() {
+	perl -e "binmode(STDOUT, ':utf8'); print \"$@\""
+	echo # newline
+}
+
+# Get a character’s Unicode code point
+function codepoint() {
+	perl -e "use utf8; print sprintf('U+%04X', ord(\"$@\"))"
+	echo # newline
+}

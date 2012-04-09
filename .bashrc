@@ -4,7 +4,7 @@
 [[ "$-" != *i* ]] && return
 
 # Source ~/.exports, ~/.functions, ~/.aliases, ~/.prompt, ~/.extra if they exist
-for file in ~/.{exports,functions,aliases,prompt,extra,cygwin}; do
+for file in ~/.{exports,functions,aliases,completion,prompt,extra,cygwin}; do
 	[ -r "$file" ] && source "$file"
 done
 unset file

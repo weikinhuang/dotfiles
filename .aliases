@@ -1,24 +1,69 @@
+# Easier navigation: .., ..., ~ and -
+alias ..="cd .."
+alias ...="cd ../.."
+alias ~="cd ~"
+alias -- -="cd -"
+
+# Shortcuts
+alias docs="cd ~/Documents"
+alias desk="cd ~/Documents/Desktop"
+alias dl="cd ~/Documents/Downloads"
+alias d="cd ~/Documents/Dropbox"
+alias p="cd ~/Documents/Projects"
+alias h="history"
+alias f="findhere"
+
+# cd replacement to show cd history with cd --
+alias cd="__cd_func"
+
+# Specialized directory listings
+alias la="ls -lA --color=auto" 2> /dev/null
+alias ll="ls -l --color=auto" 2> /dev/null
+alias l.="ls -d .* --color=auto" 2> /dev/null
+alias ls="ls --color=auto" 2> /dev/null
 alias lf="ls -l --color=auto | grep '^d'" 2> /dev/null
-alias la='ls -A --color=auto' 2> /dev/null
-alias ll='ls -l --color=auto' 2> /dev/null
-alias l.='ls -d .* --color=auto' 2> /dev/null
-alias ls='ls --color=auto' 2> /dev/null
 
-alias dir='ls --color=auto --format=vertical'
-alias vdir='ls --color=auto --format=long'
+alias dir="ls --color=auto --format=vertical"
+alias vdir="ls --color=auto --format=long"
 
-alias rm='rm -i'
-alias cp='cp -i'
-alias mv='mv -i'
+# Interactive rm, cp, and mv
+alias rm="rm -i"
+alias cp="cp -i"
+alias mv="mv -i"
 
-alias which='alias | /usr/bin/which --tty-only --read-alias --show-dot --show-tilde'
+# Colorize grep matches
+alias grep="grep --color=auto"
 
-alias open='cygstart'
+# allow which command to expand
+alias which="alias | /usr/bin/which --tty-only --read-alias --show-dot --show-tilde"
 
-alias kill='/bin/kill.exe -f'
+# alias cygstart to the more common open command
+alias open="cygstart"
 
-alias ps='ps -W'
+# Ability to kill windows applications
+alias kill="/bin/kill.exe -f"
 
-alias vi='nppedit'
+# List windows applications with ps
+alias ps="ps -W"
 
+# shortcuts to custom xargs pipes and process commands
+alias els='execlist'
+alias efind='execfind'
+alias ecat='execcat'
+alias psf="psfind"
+
+# Alias vi to notepad++
+alias vi="nppedit"
+
+# Alias apt-cyg to yum
 alias yum="apt-cyg"
+
+# Enable aliases to be sudo’ed
+alias sudo="sudo "
+
+# Shortcuts to the clipboard
+alias wcopy="putclip"
+alias wpaste="getclip"
+
+# Networking shortcuts
+alias ip="curl -s http://checkip.dyndns.com/ | sed 's/[^0-9\.]//g'"
