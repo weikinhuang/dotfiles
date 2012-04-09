@@ -1,0 +1,12 @@
+# wrapped shortcuts to windows programs
+if [ -d "/usr/local/winprogs" ] ; then
+  PATH="${PATH}:/usr/local/winprogs"
+fi
+
+# redirect to Documents folder if starting in home
+if [ `pwd` == ${HOME} ]; then
+	cd ${HOME}/Documents
+fi
+
+# set default editor to notepad++
+export EDITOR=$(which nppedit)

@@ -1,0 +1,26 @@
+# LC_ configuration
+export LC_ALL=en_US.UTF-8
+# Set user-defined locale
+export LANG=$(locale -uU)
+
+# Number of threads that is available
+export PROC_CORES=$(grep "^processor" -c /proc/cpuinfo)
+
+# Completion options
+COMP_CVS_REMOTE=1
+# Define to avoid stripping description in --option=description of './configure --help'
+COMP_CONFIGURE_HINTS=1
+# Define to avoid flattening internal contents of tar files
+COMP_TAR_INTERNAL_PATHS=1
+
+# History Options
+# Don't put duplicate lines in the history.
+export HISTCONTROL=$HISTCONTROL${HISTCONTROL+,}ignoredups
+# Ignore some controlling instructions: exit, ls, empty cd, pwd, date, help pages
+export HISTIGNORE=$'[ \t]*:&:[fb]g:exit:ls:ls *:cd:cd -:pwd:date:* --help'
+# Larger bash history (allow 32³ entries; default is 500)
+export HISTSIZE=32768
+export HISTFILESIZE=$HISTSIZE
+
+# Don’t clear the screen after quitting a manual page
+export MANPAGER="less -X"
