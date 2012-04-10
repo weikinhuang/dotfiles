@@ -25,15 +25,17 @@ function __ps1_create() {
 	# show number of background jobs
 	PS1="$PS1"'\[\e[0;36m\]$(__ps1_jobs_run "\j")\[\e[0m\]'
 	# time
-	PS1="$PS1"'\[\e[37m\]\T\[\e[m\] '
+	PS1="$PS1"'\[\e[37m\]\T\[\e[0m\] '
 	# load
-	PS1="$PS1"'\[\e[0;35m\]$(__ps1_proc_use)\[\e[m\]'
-	# user@[host|screen session]
-	PS1="$PS1"'\[\e[32m\]\u\[\e[m\]@$(if [ "$TERM" != "screen" ] ; then echo -n "\[\e[32m\]\h"; else echo -n "\[\e[32;4m\]$STY" ;fi)\[\e[m\] '
+	PS1="$PS1"'\[\e[0;35m\]$(__ps1_proc_use)\[\e[0m\]'
+	# user
+	PS1="$PS1"'\[\e[32m\]\u\[\e[0m\]'
+	# @[host|screen session]
+	PS1="$PS1"'@$(if [ "$TERM" != "screen" ] ; then echo -n "\[\e[32m\]\h"; else echo -n "\[\e[32;4m\]$STY" ;fi)\[\e[0m\] '
 	# working directory
-	PS1="$PS1"'\[\e[33m\]\W\[\e[m\]'
+	PS1="$PS1"'\[\e[33m\]\W\[\e[0m\]'
 	# git status
-	PS1="$PS1"'\[\e[31m\]$(__ps1_repo_info)\[\e[m\]'
+	PS1="$PS1"'\[\e[31m\]$(__ps1_repo_info)\[\e[0m\]'
 	# close bracket
 	PS1="$PS1"']\$ '
 
