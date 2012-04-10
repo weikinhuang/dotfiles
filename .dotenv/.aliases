@@ -31,12 +31,15 @@ alias mv="mv -i"
 
 # Colorize grep matches
 alias grep="grep --color=auto"
+alias fgrep="fgrep --color=auto"
+alias egrep="egrep --color=auto"
 
 # allow which command to expand
 alias which="alias | /usr/bin/which --tty-only --read-alias --show-dot --show-tilde"
 
 # shortcuts to custom xargs pipes and process commands
 alias els="execlist"
+alias elsc="execlistcontext"
 alias efind="execfind"
 alias ecat="execcat"
 

@@ -1,34 +1,57 @@
+# Output the number of current jobs running in the background
+function __ps1_exit_status() {
+	local exit_status=$1
+	[ $exit_status -ne 0 ] && echo -n "E:${exit_status} "
+}
+
+# Output the number of current jobs running in the background
+function __ps1_jobs_run() {
+	local job_count=$1
+	[ $job_count -gt 0 ] && echo -n "bg:${job_count} "
+}
+
+# Output information about the current directory's repository
+function __ps1_repo_info() {
+	type __git_ps1 &> /dev/null && __git_ps1
+}
+
+# generate the bash prompt
+function __ps1_create() {
+	PS1=''
+	# open bracket
+	PS1="$PS1"'['
+	# show exit code
+	PS1="$PS1"'\[\e[31m\]$(__ps1_exit_status "$?")\[\e[0m\]'
+	# show number of background jobs
+	PS1="$PS1"'\[\e[0;36m\]$(__ps1_jobs_run "\j")\[\e[0m\]'
+	# time
+	PS1="$PS1"'\[\e[37m\]\T\[\e[m\] '
+	# load
+	PS1="$PS1"'\[\e[0;35m\]$(__ps1_proc_use)\[\e[m\]'
+	# user@[host|screen session]
+	PS1="$PS1"'\[\e[32m\]\u\[\e[m\]@$(if [ "$TERM" != "screen" ] ; then echo -n "\[\e[32m\]\h"; else echo -n "\[\e[32;4m\]$STY" ;fi)\[\e[m\] '
+	# working directory
+	PS1="$PS1"'\[\e[33m\]\W\[\e[m\]'
+	# git status
+	PS1="$PS1"'\[\e[31m\]$(__ps1_repo_info)\[\e[m\]'
+	# close bracket
+	PS1="$PS1"']\$ '
+
+	# Set the title bar if we are in xterm
+	case "$TERM" in
+		xterm*|rxvt*)
+			PS1="\[\e]0;\u@\h:\W\007\]$PS1"
+			;;
+		*)
+			;;
+	esac
+}
+# Execute the prompt creation function
+__ps1_create
+
 # show git status
-GIT_PS1_SHOWDIRTYSTATE=true
-
-# bash prompt
-#   open bracket
-#	show exit code
-#	show number of background jobs
-#   time
-#   load
-#   user@[host|screen session]
-#   working directory
-#   git status
-#   close bracket
-PS1='\
-[\
-\[\e[31m\]$(E=$?; [ $E -ne 0 ] && echo -n "E:$E ")\[\e[0m\]\
-\[\e[0;36m\]$([ \j -ne 0 ] && echo -n "bg:\j ")\[\e[0m\]\
-\[\e[37m\]\T\[\e[m\] \
-\[\e[0;35m\]$(__proc_use_ps1)\[\e[m\] \
-\[\e[32m\]\u\[\e[m\]@$(if [ "$TERM" != "screen" ] ; then echo -n "\[\e[32m\]\h"; else echo -n "\[\e[32;4m\]$STY" ;fi)\[\e[m\] \
-\[\e[33m\]\W\[\e[m\]\
-\[\e[31m\]$(type __git_ps1 &> /dev/null && __git_ps1)\[\e[m\]\
-]\$ '
-
-# Set the title bar if we are in xterm
-case "$TERM" in
-	xterm*|rxvt*)
-		PS1="\[\e]0;\u@\h:\W\007\]$PS1"
-		;;
-	*)
-		;;
-esac
+export GIT_PS1_SHOWDIRTYSTATE=true
+export GIT_PS1_SHOWSTASHSTATE=true
+export GIT_PS1_SHOWUPSTREAM="auto"
 
 export PS1

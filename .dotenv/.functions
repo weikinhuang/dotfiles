@@ -120,6 +120,19 @@ function execlist() {
 	return 1
 }
 
+# Execute a command against each file in a directory
+function execlistcontext() {
+	if [[ $# = 1 ]] ; then
+		find . -mindepth 1 -maxdepth 1 -type d | xargs -r -I {} -P $PROC_CORES sh -c "cd \"{}\"; $1"
+		return $?
+	fi
+	if [[ $# = 2 ]] ; then
+		find "$1" -mindepth 1 -maxdepth 1 -type d | xargs -r -I {} -P $PROC_CORES sh -c "cd \"{}\"; $2"
+		return $?
+	fi
+	return 1
+}
+
 # Execute a command against each file found in the current directory matching the search term
 function execfind() {
 	if [[ -n "$1" ]] ; then

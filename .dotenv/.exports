@@ -1,7 +1,7 @@
 # LC_ configuration
 export LC_ALL=en_US.UTF-8
 # Set user-defined locale
-export LANG=$(locale -uU)
+export LANG=en_US.UTF-8
 
 # Number of threads that is available
 export PROC_CORES=$(grep "^processor" -c /proc/cpuinfo)

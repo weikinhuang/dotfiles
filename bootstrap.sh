@@ -1,6 +1,6 @@
 #!/bin/bash
 
 for file in {bash_profile,bashrc,dotenv,inputrc,screenrc,wgetrc}; do
-	[ -f "$HOME/.$file" ] && mv "$HOME/.$file" "$HOME/.$file.bak"
-	[ -f "$PWD/.$file" ] && ln -s "$PWD/.$file" "$HOME/.$file"
+	[ -e "$HOME/.$file" ] && mv "$HOME/.$file" "$HOME/.$file.bak"
+	[ -e "$PWD/.$file" ] && echo "linking up '$PWD/.$file' => '$HOME/.$file'" && ln -s "$PWD/.$file" "$HOME/.$file"
 done
