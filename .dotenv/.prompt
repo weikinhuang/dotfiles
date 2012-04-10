@@ -30,8 +30,23 @@ function __ps1_create() {
 	PS1="$PS1"'\[\e[0;35m\]$(__ps1_proc_use)\[\e[0m\]'
 	# user
 	PS1="$PS1"'\[\e[32m\]\u\[\e[0m\]'
-	# @[host|screen session]
-	PS1="$PS1"'@$(if [ "$TERM" != "screen" ] ; then echo -n "\[\e[32m\]\h"; else echo -n "\[\e[32;4m\]$STY" ;fi)\[\e[0m\] '
+	# [@] based on environment
+	# If ssh connection
+	if [ -n "${SSH_CONNECTION:-}" ]; then
+		PS1="$PS1"'@'
+	else
+		# otherwise
+		PS1="$PS1"'@'
+	fi
+	# [host|screen session]
+	if [ "$TERM" != "screen" ]; then
+		PS1="$PS1"'\[\e[32m\]\h\[\e[0m\]'
+	else
+		# otherwise
+		PS1="$PS1"'\[\e[32;4m\]$STY\[\e[0m\]'
+	fi
+	# space
+	PS1="$PS1"' '
 	# working directory
 	PS1="$PS1"'\[\e[33m\]\W\[\e[0m\]'
 	# git status
@@ -50,10 +65,9 @@ function __ps1_create() {
 }
 # Execute the prompt creation function
 __ps1_create
+export PS1
 
 # show git status
 export GIT_PS1_SHOWDIRTYSTATE=true
 export GIT_PS1_SHOWSTASHSTATE=true
 export GIT_PS1_SHOWUPSTREAM="auto"
-
-export PS1
