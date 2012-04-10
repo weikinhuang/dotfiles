@@ -16,8 +16,8 @@ esac
 
 # Source ~/.exports, ~/.functions, ~/.aliases, ~/.completion, ~/.prompt, ~/.extra, ~/.env if they exist
 for file in {exports,functions,aliases,completion,prompt,extra,env}; do
-	[ -r "$HOME/.dotenv/.$file" ] && source "$HOME/.dotenv/.$file"
-	[ -r "$HOME/.dotenv/$DOTENV/.$file" ] && source "$HOME/.dotenv/$DOTENV/.$file"
+	[ -r "${HOME}/.dotenv/.${file}" ] && source "${HOME}/.dotenv/.${file}"
+	[ -r "${HOME}/.dotenv/${DOTENV}/.${file}" ] && source "${HOME}/.dotenv/${DOTENV}/.${file}"
 done
 unset file
 unset DOTENV

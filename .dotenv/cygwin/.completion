@@ -17,4 +17,4 @@ _list_processes () {
 	COMPREPLY=( $(compgen -W "$list" -- $cur) )
 	return 0
 }
-complete -F _list_processes psf psfind pskill
+complete -F _list_processes psf psfind psk pskill

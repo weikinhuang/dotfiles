@@ -73,19 +73,6 @@ function __repo_ps1() {
 	echo -n " ($svnrev$flag)"
 }
 
-# Open a Windows (Vista/7) Libraries
-function olib() {
-	if [ -z "$1" ] ; then
-		return 1
-	fi
-	local library="/c/Users/$(whoami)/AppData/Roaming/Microsoft/Windows/Libraries/$1.library-ms"
-	if [ ! -e "$library" ] ; then
-		return 2
-	fi
-	open $library
-	return $?
-}
-
 # Count the number of files in a directory
 function cf() {
 	if [ -n "$1" ] ; then
@@ -106,25 +93,6 @@ function findhere() {
 function grip() {
 	grep -ir "$1" .
 	return $?
-}
-
-# Find processes by name match
-function psf() {
-	if [ -n "$1" ] ; then
-		echo "      PID    PPID    PGID     WINPID   TTY     UID    STIME COMMAND"
-		ps -aW | grep -v "\\bSystem$" | grep -Pi "(\\\|/)[^\\/]*$1[^\\/]*(\.exe)?\$"
-		return $?
-	fi
-	return 1
-}
-
-# Kill processes by name match
-function pskill() {
-	if [ -n "$1" ] ; then
-		ps -aW | grep -v "\\bSystem$" | grep -Pi "(\\\|/)[^\\/]*$1[^\\/]*(\.exe)?\$" | awk '{ print $1 }' | xargs -r -I {} -P $PROC_CORES sh -c "/bin/kill -f {};"
-		return $?
-	fi
-	return 1
 }
 
 # Execute a command against each file in a directory

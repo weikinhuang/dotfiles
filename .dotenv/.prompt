@@ -2,7 +2,6 @@
 GIT_PS1_SHOWDIRTYSTATE=true
 
 # bash prompt
-#   titlebar
 #   open bracket
 #	show exit code
 #	show number of background jobs
@@ -13,7 +12,6 @@ GIT_PS1_SHOWDIRTYSTATE=true
 #   git status
 #   close bracket
 PS1='\
-\[\e]0;\u@\h:\W\007\]\
 [\
 \[\e[31m\]$(E=$?; [ $E -ne 0 ] && echo -n "E:$E ")\[\e[0m\]\
 \[\e[0;36m\]$([ \j -ne 0 ] && echo -n "bg:\j ")\[\e[0m\]\
@@ -23,3 +21,14 @@ PS1='\
 \[\e[33m\]\W\[\e[m\]\
 \[\e[31m\]$(type __git_ps1 &> /dev/null && __git_ps1)\[\e[m\]\
 ]\$ '
+
+# Set the title bar if we are in xterm
+case "$TERM" in
+	xterm*|rxvt*)
+		PS1="\[\e]0;\u@\h:\W\007\]$PS1"
+		;;
+	*)
+		;;
+esac
+
+export PS1

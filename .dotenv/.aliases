@@ -5,17 +5,11 @@ alias ~="cd ~"
 alias -- -="cd -"
 
 # Shortcuts
-alias docs="cd ~/Documents"
-alias desk="cd ~/Documents/Desktop"
-alias dl="cd ~/Documents/Downloads"
-alias d="cd ~/Documents/Dropbox"
-alias p="cd ~/Documents/Projects"
 
 # useful shortcuts
 alias h="history"
 alias f="findhere"
 alias md5="md5sum"
-alias open="cygstart"
 
 # cd replacement to show cd history with cd --
 alias cd="__cd_func"
@@ -41,31 +35,13 @@ alias grep="grep --color=auto"
 # allow which command to expand
 alias which="alias | /usr/bin/which --tty-only --read-alias --show-dot --show-tilde"
 
-# Ability to kill windows applications
-alias kill="/bin/kill.exe -f"
-
-# List windows applications with ps
-alias ps="ps -W"
-
 # shortcuts to custom xargs pipes and process commands
 alias els="execlist"
 alias efind="execfind"
 alias ecat="execcat"
-alias psf="psfind"
-
-# Alias vi to notepad++
-alias vi="nppedit"
-
-# Alias apt-cyg to yum
-alias yum="apt-cyg"
 
 # Enable aliases to be sudo’ed
 alias sudo="sudo "
 
-# Shortcuts to the clipboard
-alias wcopy="putclip"
-alias wpaste="getclip"
-
 # Networking shortcuts
 alias ip="curl -s http://checkip.dyndns.com/ | sed 's/[^0-9\.]//g'"
-alias ips="ipconfig | grep 'IPv4 Address' | perl -nle'/(\d+\.\d+\.\d+\.\d+)/ && print $1'"
