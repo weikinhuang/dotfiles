@@ -1,13 +1,26 @@
-# User dependent .bashrc file
+# ~/.bashrc: executed by bash(1) for non-login shells.
 
 # If not running interactively, don't do anything
-[[ "$-" != *i* ]] && return
+[ -z "$PS1" ] && return
 
-# Source ~/.exports, ~/.functions, ~/.aliases, ~/.prompt, ~/.extra if they exist
-for file in ~/.{exports,functions,aliases,completion,prompt,extra,cygwin}; do
-	[ -r "$file" ] && source "$file"
+# Check out which env this bash is running in
+DOTENV="linux"
+case "$(uname -s)" in
+    CYGWIN* )
+        DOTENV="cygwin"
+		;;
+    Darwin )
+        DOTENV="darwin"
+		;;
+esac
+
+# Source ~/.exports, ~/.functions, ~/.aliases, ~/.completion, ~/.prompt, ~/.extra, ~/.env if they exist
+for file in {exports,functions,aliases,completion,prompt,extra,env}; do
+	[ -r "$HOME/.dotenv/.$file" ] && source "$HOME/.dotenv/.$file"
+	[ -r "$HOME/.dotenv/$DOTENV/.$file" ] && source "$HOME/.dotenv/$DOTENV/.$file"
 done
 unset file
+unset DOTENV
 
 # Shell Options
 # Use case-insensitive filename globbing
@@ -20,6 +33,4 @@ shopt -s cdspell
 shopt -s histappend
 
 # Completion options
-if [ -f "/etc/bash_completion" ]; then
-  source "/etc/bash_completion"
-fi
+[ -f "/etc/bash_completion" ] && source "/etc/bash_completion"
