@@ -195,3 +195,21 @@ function codepoint() {
 	perl -e "use utf8; print sprintf('U+%04X', ord(\"$@\"))"
 	echo # newline
 }
+
+# Convert a unix timestamp to a date string
+function unix2date() {
+	if [[ -n "$1" ]] ; then
+		echo "$1" | awk '{print strftime("%c", $1)}'
+		return
+	fi
+	date
+}
+
+# Convert a date string to a unix timestamp
+function date2unix() {
+	if [[ -n "$1" ]] ; then
+		date --date "$*" +%s
+		return
+	fi
+	date +%s
+}

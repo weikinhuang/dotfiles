@@ -37,14 +37,16 @@ alias egrep="egrep --color=auto"
 # allow which command to expand
 alias which="alias | /usr/bin/which --tty-only --read-alias --show-dot --show-tilde"
 
-# shortcuts to custom xargs pipes and process commands
+# shortcuts to custom xargs pipes and process commands and other functions
 alias els="execlist"
 alias elsc="execlistcontext"
 alias efind="execfind"
 alias ecat="execcat"
+alias totime="date2unix"
+alias fromtime="unix2date"
 
 # Enable aliases to be sudo’ed
 alias sudo="sudo "
 
 # Networking shortcuts
-alias ip="curl -s http://checkip.dyndns.com/ | sed 's/[^0-9\.]//g'"
+alias ip="dig +short myip.opendns.com @resolver1.opendns.com"
