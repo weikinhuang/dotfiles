@@ -1,2 +1,4 @@
 # Disable the startup message
 startup_message off
+# 256 color term
+term screen-256color

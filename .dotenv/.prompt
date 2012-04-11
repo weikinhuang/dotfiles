@@ -1,7 +1,21 @@
+case "$TERM" in
+	xterm*)
+		export TERM="xterm-256color"
+		;;
+	rxvt*)
+		export TERM="rxvt-256color"
+		;;
+	screen*)
+		export TERM="screen-256color"
+		;;
+	*)
+		;;
+esac
+	
 # Output the number of current jobs running in the background
 function __ps1_exit_status() {
 	local exit_status=$1
-	[ $exit_status -ne 0 ] && echo -n "E:${exit_status} "
+	[ $exit_status -ne 0 ] && echo -n "(E:${exit_status}) "
 }
 
 # Output the number of current jobs running in the background
@@ -17,6 +31,21 @@ function __ps1_repo_info() {
 
 # generate the bash prompt
 function __ps1_create() {
+	# quick reference to colors
+	local COLOR_BOLD='\[\e[1m\]'
+	local COLOR_UNDERLINE='\[\e[4m\]'
+	local COLOR_RESET='\[\e[0m\]'
+	local COLOR_GREY='\[\e[38;5;244m\]'
+	local COLOR_DARK_GREY='\[\e[38;5;235m\]'
+	# colors for individual parts of the bash prompt
+	local COLOR_EXIT_ERROR='\[\e[38;5;196m\]'
+	local COLOR_BG_JOBS='\[\e[38;5;42m\]'
+	local COLOR_USER='\[\e[38;5;197m\]'
+	local COLOR_HOST='\[\e[38;5;208m\]'
+	local COLOR_HOST_SCREEN='\[\e[4m\]\[\e[38;5;214m\]'
+	local COLOR_WORK_DIR='\[\e[38;5;142m\]'
+	local COLOR_GIT='\[\e[38;5;135m\]'
+	
 	# load avg colorization
 	local loadavg='
 		load=$(__ps1_proc_use);
@@ -40,29 +69,38 @@ function __ps1_create() {
 			"\[\e[38;5;131m\]"
 			"\[\e[38;5;124m\]"
 		)
-		echo "${loadcolors[$loadmod]}$load\[\e[0m\] "
+		echo "${loadcolors[$loadmod]}$load'"${COLOR_RESET}"' "
 	';
+	if [ -n "$_PS1_HIDE_LOAD" ] ; then
+		loadavg=''
+	fi
 	
 	# datetime colorization
 	local datetime='
-		
+		time=$(date +"%H")
+		color="\[\e[38;5;153m\]"
+		if [ ${time} -ge 8 -a ${time} -le 18 ]; then
+		   color="\[\e[38;5;251m\]"
+		fi
+		echo "${color}\T'"${COLOR_RESET}"'"
 	';
 
 	# Start PS1 description
 	PS1=''
 	# open bracket
-	PS1="$PS1"'['
+	PS1="$PS1""${COLOR_BOLD}${COLOR_GREY}"'['"${COLOR_RESET}"
 	# show exit code
-	PS1="$PS1"'\[\e[38;5;196m\]$(__ps1_exit_status "$?")\[\e[0m\]'
+	PS1="$PS1""${COLOR_EXIT_ERROR}"'$(__ps1_exit_status "$?")'"${COLOR_RESET}"
 	# show number of background jobs
-	PS1="$PS1"'\[\e[0;36m\]$(__ps1_jobs_run "\j")\[\e[0m\]'
+	PS1="$PS1""${COLOR_BG_JOBS}"'$(__ps1_jobs_run "\j")'"${COLOR_RESET}"
 	# time
-	PS1="$PS1"'\[\e[37m\]\T\[\e[0m\] '
+	PS1="$PS1\$($datetime)"' '
 	# load
 	PS1="$PS1\$($loadavg)"
 	# user
-	PS1="$PS1"'\[\e[32m\]\u\[\e[0m\]'
+	PS1="$PS1""${COLOR_USER}"'\u'"${COLOR_RESET}"
 	# [@] based on environment
+	PS1="$PS1""${COLOR_GREY}"
 	# If ssh connection
 	if [ -n "${SSH_CONNECTION:-}" ]; then
 		PS1="$PS1"'@'
@@ -70,21 +108,24 @@ function __ps1_create() {
 		# otherwise
 		PS1="$PS1"'#'
 	fi
+	PS1="$PS1""${COLOR_RESET}"
 	# [host|screen session]
-	if [ "$TERM" != "screen" ]; then
-		PS1="$PS1"'\[\e[32m\]\h\[\e[0m\]'
-	else
-		# otherwise
-		PS1="$PS1"'\[\e[32;4m\]$STY\[\e[0m\]'
-	fi
+	case "$TERM" in
+		screen*)
+			PS1="$PS1""${COLOR_HOST_SCREEN}""$STY"
+			;;
+		*)
+			PS1="$PS1""${COLOR_HOST}"'\h'
+			;;
+	esac
 	# space
-	PS1="$PS1"' '
+	PS1="$PS1""${COLOR_RESET}"' '
 	# working directory
-	PS1="$PS1"'\[\e[33m\]\W\[\e[0m\]'
+	PS1="$PS1""${COLOR_WORK_DIR}"'\W'"${COLOR_RESET}"
 	# git status
-	PS1="$PS1"'\[\e[31m\]$(__ps1_repo_info " (%s)")\[\e[0m\]'
+	PS1="$PS1""${COLOR_GIT}"'$(__ps1_repo_info " (%s)")'"${COLOR_RESET}"
 	# close bracket
-	PS1="$PS1"']\$ '
+	PS1="$PS1""${COLOR_BOLD}${COLOR_GREY}"']'"${COLOR_RESET}"'\$ '
 
 	# Set the title bar if we are in xterm
 	case "$TERM" in
