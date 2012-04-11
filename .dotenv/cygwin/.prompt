@@ -1,5 +1,5 @@
 # function to get cpu load
 function __ps1_proc_use() {
 	local cpu=$(typeperf -sc 1 "\processor(_total)\% processor time" 2> /dev/null | sed -n "s/.\+,\"\([0-9]\+\.[0-9][0-9]\).\+/\1/p")
-	echo -n "$(printf "%05s" "${cpu}")% "
+	echo -n "$(printf "%05s" "${cpu}")%"
 }

@@ -13,6 +13,7 @@ case "$(uname -s)" in
         DOTENV="darwin"
 		;;
 esac
+export DOTENV
 
 # Source ~/.exports, ~/.functions, ~/.aliases, ~/.completion, ~/.prompt, ~/.extra, ~/.env if they exist
 for file in {exports,functions,aliases,completion,prompt,extra,env}; do
@@ -20,7 +21,6 @@ for file in {exports,functions,aliases,completion,prompt,extra,env}; do
 	[ -r "${HOME}/.dotenv/${DOTENV}/.${file}" ] && source "${HOME}/.dotenv/${DOTENV}/.${file}"
 done
 unset file
-unset DOTENV
 
 # Shell Options
 # Use case-insensitive filename globbing

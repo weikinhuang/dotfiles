@@ -12,22 +12,54 @@ function __ps1_jobs_run() {
 
 # Output information about the current directory's repository
 function __ps1_repo_info() {
-	type __git_ps1 &> /dev/null && __git_ps1
+	type __git_ps1 &> /dev/null && __git_ps1 "$@"
 }
 
 # generate the bash prompt
 function __ps1_create() {
+	# load avg colorization
+	local loadavg='
+		load=$(__ps1_proc_use);
+		if [ "$DOTENV" == "cygwin" ]; then
+			loadmod=$(expr $(echo "${load}" | sed "s/^0*\([0-9]\+\)\..\+\$/\1/") / 10 )
+		else
+			loadmod=$(echo "${load}" | sed "s/^0*\([0-9]\+\)\..\+\$/\1/")
+		fi
+		if [ $loadmod -gt 9 ]; then
+			loadmod=9
+		fi
+		loadcolors=(
+			"\[\e[38;5;159m\]"
+			"\[\e[38;5;153m\]"
+			"\[\e[38;5;152m\]"
+			"\[\e[38;5;146m\]"
+			"\[\e[38;5;145m\]"
+			"\[\e[38;5;139m\]"
+			"\[\e[38;5;138m\]"
+			"\[\e[38;5;137m\]"
+			"\[\e[38;5;131m\]"
+			"\[\e[38;5;124m\]"
+		)
+		echo "${loadcolors[$loadmod]}$load\[\e[0m\] "
+	';
+	
+	# datetime colorization
+	local datetime='
+		
+	';
+
+	# Start PS1 description
 	PS1=''
 	# open bracket
 	PS1="$PS1"'['
 	# show exit code
-	PS1="$PS1"'\[\e[31m\]$(__ps1_exit_status "$?")\[\e[0m\]'
+	PS1="$PS1"'\[\e[38;5;196m\]$(__ps1_exit_status "$?")\[\e[0m\]'
 	# show number of background jobs
 	PS1="$PS1"'\[\e[0;36m\]$(__ps1_jobs_run "\j")\[\e[0m\]'
 	# time
 	PS1="$PS1"'\[\e[37m\]\T\[\e[0m\] '
 	# load
-	PS1="$PS1"'\[\e[0;35m\]$(__ps1_proc_use)\[\e[0m\]'
+	PS1="$PS1\$($loadavg)"
 	# user
 	PS1="$PS1"'\[\e[32m\]\u\[\e[0m\]'
 	# [@] based on environment
@@ -36,7 +68,7 @@ function __ps1_create() {
 		PS1="$PS1"'@'
 	else
 		# otherwise
-		PS1="$PS1"'@'
+		PS1="$PS1"'#'
 	fi
 	# [host|screen session]
 	if [ "$TERM" != "screen" ]; then
@@ -50,7 +82,7 @@ function __ps1_create() {
 	# working directory
 	PS1="$PS1"'\[\e[33m\]\W\[\e[0m\]'
 	# git status
-	PS1="$PS1"'\[\e[31m\]$(__ps1_repo_info)\[\e[0m\]'
+	PS1="$PS1"'\[\e[31m\]$(__ps1_repo_info " (%s)")\[\e[0m\]'
 	# close bracket
 	PS1="$PS1"']\$ '
 
@@ -66,8 +98,10 @@ function __ps1_create() {
 # Execute the prompt creation function
 __ps1_create
 export PS1
+unset __ps1_create
 
 # show git status
 export GIT_PS1_SHOWDIRTYSTATE=true
 export GIT_PS1_SHOWSTASHSTATE=true
+export GIT_PS1_SHOWUNTRACKEDFILES=true
 export GIT_PS1_SHOWUPSTREAM="auto"
