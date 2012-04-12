@@ -15,6 +15,9 @@ case "$(uname -s)" in
 esac
 export DOTENV
 
+# load a local specific sources before the scripts
+[ -r "${HOME}/.bash_local_exports" ] && source "${HOME}/.bash_local_exports"
+
 # Source ~/.exports, ~/.functions, ~/.aliases, ~/.completion, ~/.prompt, ~/.extra, ~/.env if they exist
 for file in {exports,functions,aliases,completion,prompt,extra,env}; do
 	[ -r "${HOME}/.dotenv/.${file}" ] && source "${HOME}/.dotenv/.${file}"
@@ -22,7 +25,7 @@ for file in {exports,functions,aliases,completion,prompt,extra,env}; do
 done
 unset file
 
-# load a local specific sources
+# load a local specific sources before the scripts
 [ -r "${HOME}/.bash_local" ] && source "${HOME}/.bash_local"
 
 # Shell Options
