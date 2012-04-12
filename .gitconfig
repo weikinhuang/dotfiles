@@ -40,10 +40,12 @@
 	undopush = push -f origin HEAD^:master
 	# View the SHA, description, and history graph of the latest 20 commits
 	l = log --pretty=oneline -n 20 --graph
+	# Go to master and pull in origin master
+	pm = !"git checkout master && git pull origin master"
 	# Pull in remote changes for the current repository and all its submodules
 	p = !"git pull; git submodule foreach git pull origin master"
-	# Go to the master branch then sync local and origin with upstream
-	sync = !"git checkout master && git pull upstream master && git push origin master"
+	# Go to the master branch then sync local and origin with [upstream|origin]
+	sync = !"git checkout master && git pull $(R="$(git remote -v | grep '^upstream\\>')"; if [ $? -eq 0  ]; then echo 'upstream'; else echo 'origin'; fi) master && git submodule update && git push origin master"
 	# Open the difftool for all files that are currently modified
 	diffall = !"git diff --name-only "$@" | while read filename; do git difftool "$@" --no-prompt "$filename" & done"
 	# Push the current branch to origin with the same branch name
