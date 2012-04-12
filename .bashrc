@@ -18,6 +18,9 @@ export DOTENV
 # load a local specific sources before the scripts
 [ -r "${HOME}/.bash_local_exports" ] && source "${HOME}/.bash_local_exports"
 
+# Completion options
+[ -f "/etc/bash_completion" ] && source "/etc/bash_completion"
+
 # Source ~/.exports, ~/.functions, ~/.aliases, ~/.completion, ~/.prompt, ~/.extra, ~/.env if they exist
 for file in {exports,functions,aliases,completion,prompt,extra,env}; do
 	[ -r "${HOME}/.dotenv/.${file}" ] && source "${HOME}/.dotenv/.${file}"
@@ -37,9 +40,6 @@ shopt -s cdspell
 
 # Append to the Bash history file, rather than overwriting it
 shopt -s histappend
-
-# Completion options
-[ -f "/etc/bash_completion" ] && source "/etc/bash_completion"
 
 # exit with a success status code
 return 0
