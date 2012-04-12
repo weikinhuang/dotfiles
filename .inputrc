@@ -30,12 +30,28 @@ set input-meta on
 set output-meta on
 set convert-meta off
 
-# the following line is actually
-# equivalent to "\C-?": delete-char
-"\e[3~": delete-char
-
 # Use Alt/Meta + Delete to delete the preceding word
 "\e[3;3~": kill-word
 
 # Use Crtl + V to paste from clipboard
 "\C-v": paste-from-clipboard
+
+# vt
+"\e[1~": beginning-of-line
+"\e[4~": end-of-line
+"\e[5~": beginning-of-history
+"\e[6~": end-of-history
+"\e[3~": delete-char
+"\e[2~": quoted-insert
+
+# rxvt
+"\e[7~": beginning-of-line      
+"\e[8~": end-of-line           
+
+# xterm
+"\eOH": beginning-of-line
+"\eOF": end-of-line
+
+# kvt
+"\e[H": beginning-of-line
+"\e[F": end-of-line
