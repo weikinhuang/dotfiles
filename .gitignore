@@ -1,0 +1,16 @@
+# ignore everything
+*
+# except:
+!.bash_profile
+!.bashrc
+!.dotenv
+!.dotenv/*
+!.git
+!.gitconfig
+!.gitignore
+!.inputrc
+!.screenrc
+!.wgetrc
+!bootstrap.sh
+!install.sh
+!README.md

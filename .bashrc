@@ -40,3 +40,6 @@ shopt -s histappend
 
 # Completion options
 [ -f "/etc/bash_completion" ] && source "/etc/bash_completion"
+
+# exit with a success status code
+return 0

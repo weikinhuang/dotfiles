@@ -213,3 +213,21 @@ function date2unix() {
 	fi
 	date +%s
 }
+
+# Convert the parameters or STDIN to lowercase.
+function lc () {
+	if [ $# -eq 0 ]; then
+		tr '[:upper:]' '[:lower:]';
+	else
+		tr '[:upper:]' '[:lower:]' <<< "$@";
+	fi;
+}
+
+# Convert the parameters or STDIN to uppercase.
+function uc () {
+	if [ $# -eq 0 ]; then
+		tr '[:lower:]' '[:upper:]';
+	else
+		tr '[:lower:]' '[:upper:]' <<< "$@";
+	fi;
+}
