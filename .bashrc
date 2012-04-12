@@ -22,6 +22,9 @@ for file in {exports,functions,aliases,completion,prompt,extra,env}; do
 done
 unset file
 
+# load a local specific sources
+[ -r "${HOME}/.bash_local" ] && source "${HOME}/.bash_local"
+
 # Shell Options
 # Use case-insensitive filename globbing
 shopt -s nocaseglob
