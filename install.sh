@@ -80,3 +80,5 @@ download_files "${FILES_DOTENV_OS}" ".dotenv/${DOTENV}" "${HOME}/.dotenv/${DOTEN
 
 download_apps "${FILES_DOTENV_BIN}" ".dotenv/bin" "${HOME}/.dotenv/bin"
 download_apps "${FILES_DOTENV_OS_BIN}" ".dotenv/${DOTENV}/bin" "${HOME}/.dotenv/${DOTENV}/bin"
+
+source "${HOME}/.bashrc"
