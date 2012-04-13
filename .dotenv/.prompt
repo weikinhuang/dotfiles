@@ -44,6 +44,7 @@ function __ps1_create() {
 	local COLOR_HOST='\[\e[38;5;208m\]'
 	local COLOR_HOST_SCREEN='\[\e[4m\]\[\e[38;5;214m\]'
 	local COLOR_WORK_DIR='\[\e[38;5;142m\]'
+	local COLOR_WORK_DIRINFO='\[\e[38;5;35m\]'
 	local COLOR_GIT='\[\e[38;5;135m\]'
 	
 	# load avg colorization
@@ -122,6 +123,8 @@ function __ps1_create() {
 	PS1="$PS1""${COLOR_RESET}"' '
 	# working directory
 	PS1="$PS1""${COLOR_WORK_DIR}"'\W'"${COLOR_RESET}"
+	# working directory information (number of files | total file size)
+	PS1="$PS1""${COLOR_WORK_DIRINFO}"'<$(/bin/ls -1 | /usr/bin/wc -l | /bin/sed "s/ //g")|$(/bin/ls -lah | /bin/grep -m 1 total | /bin/sed "s/total //")b>'"${COLOR_RESET}"
 	# git status
 	PS1="$PS1""${COLOR_GIT}"'$(__ps1_repo_info " (%s)")'"${COLOR_RESET}"
 	# close bracket
