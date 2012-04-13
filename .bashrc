@@ -32,7 +32,7 @@ unset file
 [ -r "${HOME}/.bash_local" ] && source "${HOME}/.bash_local"
 
 # modify path to include useful scripts
-[ -d "${HOME}/.dotenv/bin/${DOTENV}" ] && PATH="$PATH:${HOME}/.dotenv/bin/${DOTENV}"
+[ -d "${HOME}/.dotenv/${DOTENV}/bin" ] && PATH="$PATH:${HOME}/.dotenv/${DOTENV}/bin"
 [ -d "${HOME}/.dotenv/bin" ] && PATH="$PATH:${HOME}/.dotenv/bin"
 export PATH
 
