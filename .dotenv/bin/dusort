@@ -1,0 +1,98 @@
+#!/usr/bin/env node
+
+var exec = require('child_process').exec;
+
+var depth = parseInt(process.argv[2] || 1, 10);
+var bar_len = parseInt(process.argv[2] || 50, 10);
+
+var color = (function() {
+	var c, term = {}, colors = {
+		black : '30',
+		dgray : '1;30',
+		red : '31',
+		lred : '1;31',
+		green : '32',
+		lgreen : '1;32',
+		brown : '33',
+		yellow : '1;33',
+		blue : '34',
+		lblue : '1;34',
+		purple : '35',
+		lpurple : '1;35',
+		cyan : '36',
+		lcyan : '1;36',
+		lgray : '37',
+		white : '1;37',
+		none : ''
+	};
+	for (c in colors) {
+		term[c] = (function(color) {
+			return function(str) {
+				return "\033[" + color + "m" + str + "\033[m";
+			}
+		})(colors[c]);
+	}
+	return term;
+})();
+
+function roundFileSize(b, d) {
+	var i = 0;
+	while ((b / 1000) >= 1) {
+		b /= 1000;
+		i++;
+	}
+	return b.toFixed((d === 0 || d) ? d : 2) + " " + [ "B", "KB", "MB", "GB", "TB" ][i];
+}
+
+String.prototype.pad = function(character, length, direction) {
+	var pad = character.toString().times(length - this.length + 1);
+	return (direction && direction === "right") ? this + pad : pad + this;
+};
+String.prototype.times = function(count) {
+	return count < 1 ? "" : [].fill(count, "").join(this);
+};
+
+Array.prototype.fill = function(length, value) {
+	this.length = 0;
+	while (length--) {
+		this.push(value);
+	}
+	return this;
+};
+
+// execute du to get file listing
+exec("du -a -d " + depth, function(stderr, stdout) {
+	var total, files = [];
+	stdout.split("\n").forEach(function(line) {
+		if (!line) {
+			return;
+		}
+		var data = line.split("\t");
+		if (data[1] === '.') {
+			total = parseInt(data[0], 10) * 1000;
+			return;
+		}
+		files.push({
+			size : parseInt(data[0], 10) * 1000,
+			name : data[1]
+		});
+	});
+	files.forEach(function(file) {
+		file.percentage = (file.size / total);
+		file.stdsize = roundFileSize(file.size, 2);
+	});
+	files.sort(function(left, right) {
+		var a = left.size, b = right.size;
+		return a < b ? -1 : a > b ? 1 : 0;
+	});
+	files.forEach(function(file) {
+		var bar = (new Array(51)).join("#").split(""), active = bar.splice(0, Math.ceil(file.percentage * 50)), progressbar = "";
+		progressbar += color.green(active.splice(0, 25).join(""));
+		progressbar += color.brown(active.splice(0, 15).join(""));
+		progressbar += color.red(active.splice(0, 10).join(""));
+		progressbar += color.lgray(bar.join(""));
+
+		console.log("[" + progressbar + "] " + file.stdsize.pad(" ", 9) + "  " + file.name);
+	});
+	console.log("Summary: " + roundFileSize(total, 2) + " used");
+});

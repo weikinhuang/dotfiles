@@ -31,6 +31,11 @@ unset file
 # load a local specific sources before the scripts
 [ -r "${HOME}/.bash_local" ] && source "${HOME}/.bash_local"
 
+# modify path to include useful scripts
+[ -d "${HOME}/.dotenv/bin/${DOTENV}" ] && PATH="$PATH:${HOME}/.dotenv/bin/${DOTENV}"
+[ -d "${HOME}/.dotenv/bin" ] && PATH="$PATH:${HOME}/.dotenv/bin"
+export PATH
+
 # Shell Options
 # Use case-insensitive filename globbing
 shopt -s nocaseglob

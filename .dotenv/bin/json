@@ -1,0 +1,83 @@
+#!/usr/bin/env php
+<?php
+$data = '';
+if(isset($_SERVER['argv']) && count($_SERVER['argv']) > 1) {
+	$args = $_SERVER['argv'];
+	array_shift($args);
+	$data = array_shift($args);
+	if($data === '-f') {
+		$data = file_get_contents(array_shift($args));
+	}
+} else {
+	$data = file_get_contents('php://stdin');
+}
+
+const COLOR_RESET = "\33[0m";
+const COLOR_BOLD = "\33[1m";
+const COLOR_ERROR = "\033[38;5;196m";
+const COLOR_BOOLEAN = "\033[38;5;27m";
+const COLOR_NUMBER = "\033[38;5;160m";
+const COLOR_STRING = "\033[38;5;29m";
+const COLOR_DATE = "\033[38;5;107m";
+const COLOR_NULL = "\033[38;5;21m";
+const COLOR_KEYWORD = "\033[38;5;69m";
+const COLOR_KEY = "\033[38;5;239m";
+const COLOR_COMMENT = "\033[38;5;248m";
+const TAB_SIZE = '  ';
+
+function process($data, $level = 0) {
+	// using 2 spaces as a tab
+	$padding = str_repeat(TAB_SIZE, $level + 1);
+	// process scalar values
+	switch(gettype($data)) {
+		case 'boolean':
+			return COLOR_BOOLEAN . ($data ? 'true' : 'false') . COLOR_RESET;
+		case 'integer':
+		case 'double':
+			return COLOR_NUMBER . $data . COLOR_RESET;
+		case 'string':
+			// if this is a iso date object then
+			if(preg_match('/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2}(?:\.\d*)?)Z$/', $data)) {
+				return COLOR_KEYWORD . 'new ' . COLOR_RESET . COLOR_BOLD . 'Date' . COLOR_RESET . '(' . COLOR_DATE . '"' . $data . '"' . COLOR_RESET . ')' . COLOR_COMMENT . ' // ' . date('r', strtotime($data)) . COLOR_RESET;
+			}
+			return COLOR_STRING . '"' . $data . '"' . COLOR_RESET;
+		case 'NULL':
+		case 'null':
+			return COLOR_NULL . 'null' . COLOR_RESET;
+		case 'array':
+			if(empty($data)) {
+				return '[]';
+			}
+			foreach($data as $v) {
+				$concat[] = $padding . process($v, $level + 1);
+			}
+			return '[' . PHP_EOL . implode(',' . PHP_EOL, $concat) . PHP_EOL . str_repeat(TAB_SIZE, $level) . ']';
+		case 'object':
+			$properties = get_object_vars($data);
+			if(empty($properties)) {
+				return '{}';
+			}
+			foreach($data as $k => $v) {
+				$concat[] = $padding . COLOR_KEY . $k . COLOR_RESET . ' : ' . process($v, $level + 1);
+			}
+			return '{' . PHP_EOL . implode(',' . PHP_EOL, $concat) . PHP_EOL . str_repeat(TAB_SIZE, $level) . '}';
+	}
+	return '';
+}
+
+if(preg_match('/^(\d+|null|".+")$/i', $data)) {
+	echo process($data);
+	echo PHP_EOL;
+	exit(0);
+}
+
+$json = json_decode($data);
+if($json === null) {
+	echo COLOR_BOLD . COLOR_ERROR . 'Invalid JSON data!' . COLOR_RESET;
+	echo PHP_EOL;
+	exit(1);
+}
+// we need to unserialize into a object so we can tell the difference between an object and an array
+echo process($json);
+echo PHP_EOL;
+exit(0);
