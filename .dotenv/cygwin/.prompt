@@ -1,5 +1,17 @@
 # function to get cpu load
 function __ps1_proc_use() {
-	local cpu=$(typeperf -sc 1 "\processor(_total)\% processor time" 2> /dev/null | sed -n "s/.\+,\"\([0-9]\+\.[0-9][0-9]\).\+/\1/p")
-	echo -n "$(printf "%05s" "${cpu}")%"
+	echo -n "$(printf "%05s" "${__ps1_var_load}")%"
 }
+
+# caching the cpu load for cygwin prompt, greatly speeds up the bash PS1 otherwise getting he cpu will take 1 second per call
+__ps1_var_load="0.00"
+__ps1_var_loadtime=0
+__ps1_var_loadreloadtime=5
+function __ps1_proc_wrapper() {
+	# refresh every 5 seconds
+	if [ $(( $(date +%s) - $__ps1_var_loadreloadtime )) -gt $__ps1_var_loadtime ]; then
+		__ps1_var_load=$(typeperf -sc 1 "\processor(_total)\% processor time" 2> /dev/null | sed -n "s/.\+,\"\([0-9]\+\.[0-9][0-9]\).\+/\1/p")
+		__ps1_var_loadtime=$(date +%s)
+	fi
+}
+PROMPT_COMMAND="$PROMPT_COMMAND __ps1_proc_wrapper;"

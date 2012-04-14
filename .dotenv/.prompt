@@ -29,6 +29,27 @@ function __ps1_repo_info() {
 	type __git_ps1 &> /dev/null && __git_ps1 "$@"
 }
 
+# caching the directory information for bash prompt to reduce disk reads
+__ps1_var_dirinfo="0|0b"
+__ps1_var_dirinfotime=0
+__ps1_var_dirinfoprev=0
+__ps1_var_dirinforeloadtime=60
+function __ps1_dir_wrapper() {
+	local lsout lsnum lssize curdir
+	curdir="$(pwd)"
+	# refresh every minute or on directory change
+	if [[ $(( $(date +%s) - $__ps1_var_dirinforeloadtime )) -gt $__ps1_var_dirinfotime || "$curdir" != "$__ps1_var_dirinfoprev" ]]; then
+		lsout=$(/bin/ls -lAh)
+		lsnum=$(($(echo "${lsout}" | /usr/bin/wc -l | /bin/sed "s/ //g") - 1))
+		lssize="$(echo "${lsout}" | /bin/grep -m 1 total | /bin/sed "s/total //")b"
+	
+		__ps1_var_dirinfo="${lsnum}|${lssize}"
+		__ps1_var_dirinfoprev="$curdir"
+		__ps1_var_dirinfotime=$(date +%s)
+	fi
+}
+PROMPT_COMMAND="$PROMPT_COMMAND __ps1_dir_wrapper;"
+
 # generate the bash prompt
 function __ps1_create() {
 	# quick reference to colors
@@ -85,14 +106,6 @@ function __ps1_create() {
 		fi
 		echo "${color}\T'"${COLOR_RESET}"'"
 	';
-	
-	# work dir information
-	local dirinfo='
-		lsout=$(/bin/ls -lAh)
-		lsnum=$(($(echo "${lsout}" | /usr/bin/wc -l | /bin/sed "s/ //g") - 1))
-		lssize="$(echo "${lsout}" | /bin/grep -m 1 total | /bin/sed "s/total //")b"
-		echo "<${lsnum}|${lssize}>"
-	'
 
 	# Start PS1 description
 	PS1=''
@@ -132,7 +145,7 @@ function __ps1_create() {
 	# working directory
 	PS1="$PS1""${COLOR_WORK_DIR}"'\W'"${COLOR_RESET}"
 	# working directory information (number of files | total file size)
-	PS1="$PS1""${COLOR_WORK_DIRINFO}""\$($dirinfo)""${COLOR_RESET}"
+	PS1="$PS1""${COLOR_WORK_DIRINFO}"'<${__ps1_var_dirinfo}>'"${COLOR_RESET}"
 	# git status
 	PS1="$PS1""${COLOR_GIT}"'$(__ps1_repo_info " (%s)")'"${COLOR_RESET}"
 	# close bracket
