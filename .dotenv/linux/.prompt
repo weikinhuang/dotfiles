@@ -1,5 +1,8 @@
 # function to get cpu load
+__ps1_var_loadmod=0
 function __ps1_proc_use() {
 	local loadavg=$(sed -n "s/\([0-9]\.[0-9][0-9]\).\+/\1/p" /proc/loadavg)
 	echo -n "${loadavg}"
+	__ps1_var_loadmod=$(echo "${loadavg}" | sed "s/^0*\([0-9]\+\)\..\+\$/\1/")
+	[ $__ps1_var_loadmod -gt 9 ] && __ps1_var_loadmod=9
 }

@@ -12,6 +12,8 @@ COMP_CVS_REMOTE=1
 COMP_CONFIGURE_HINTS=1
 # Define to avoid flattening internal contents of tar files
 COMP_TAR_INTERNAL_PATHS=1
+# Make = a wordbreak character
+COMP_WORDBREAKS=${COMP_WORDBREAKS/=/}
 
 # History Options
 # Don't put duplicate lines in the history.

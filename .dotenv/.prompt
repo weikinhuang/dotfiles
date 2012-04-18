@@ -14,14 +14,12 @@ esac
 	
 # Output the number of current jobs running in the background
 function __ps1_exit_status() {
-	local exit_status=$1
-	[ $exit_status -ne 0 ] && echo -n "(E:${exit_status}) "
+	[ $1 -ne 0 ] && echo -n "(E:${1}) "
 }
 
 # Output the number of current jobs running in the background
 function __ps1_jobs_run() {
-	local job_count=$1
-	[ $job_count -gt 0 ] && echo -n "bg:${job_count} "
+	[ $1 -gt 0 ] && echo -n "bg:${1} "
 }
 
 # Output information about the current directory's repository
@@ -29,23 +27,29 @@ function __ps1_repo_info() {
 	type __git_ps1 &> /dev/null && __git_ps1 "$@"
 }
 
+# Keep a cached date variable for prompt testing
+PROMPT_COMMAND="__ps1_var_date=\$(/bin/date +%s); $PROMPT_COMMAND"
+
 # caching the directory information for bash prompt to reduce disk reads
 __ps1_var_dirinfo="0|0b"
 __ps1_var_dirinfotime=0
 __ps1_var_dirinfoprev=0
-__ps1_var_dirinforeloadtime=60
+[ -z $__ps1_var_dirinforeloadtime ] && __ps1_var_dirinforeloadtime=60
 function __ps1_dir_wrapper() {
 	local lsout lsnum lssize curdir
-	curdir="$(pwd)"
+	curdir="$(/bin/pwd)"
+
 	# refresh every minute or on directory change
-	if [[ $(( $(date +%s) - $__ps1_var_dirinforeloadtime )) -gt $__ps1_var_dirinfotime || "$curdir" != "$__ps1_var_dirinfoprev" ]]; then
+	if [[ $(( $__ps1_var_date - $__ps1_var_dirinforeloadtime )) -gt $__ps1_var_dirinfotime || "$curdir" != "$__ps1_var_dirinfoprev" ]]; then
 		lsout=$(/bin/ls -lAh)
 		lsnum=$(($(echo "${lsout}" | /usr/bin/wc -l | /bin/sed "s/ //g") - 1))
 		lssize="$(echo "${lsout}" | /bin/grep -m 1 total | /bin/sed "s/total //")b"
 	
 		__ps1_var_dirinfo="${lsnum}|${lssize}"
 		__ps1_var_dirinfoprev="$curdir"
-		__ps1_var_dirinfotime=$(date +%s)
+		__ps1_var_dirinfotime=$(/bin/date +%s)
+		# update the prompt time
+		__ps1_var_date=$__ps1_var_dirinfotime
 	fi
 }
 PROMPT_COMMAND="$PROMPT_COMMAND __ps1_dir_wrapper;"
@@ -71,14 +75,6 @@ function __ps1_create() {
 	# load avg colorization
 	local loadavg='
 		load=$(__ps1_proc_use);
-		if [ "$DOTENV" == "cygwin" ]; then
-			loadmod=$(expr $(echo "${load}" | sed "s/^0*\([0-9]\+\)\..\+\$/\1/") / 10 )
-		else
-			loadmod=$(echo "${load}" | sed "s/^0*\([0-9]\+\)\..\+\$/\1/")
-		fi
-		if [ $loadmod -gt 9 ]; then
-			loadmod=9
-		fi
 		loadcolors=(
 			"\[\e[38;5;159m\]"
 			"\[\e[38;5;153m\]"
@@ -91,7 +87,7 @@ function __ps1_create() {
 			"\[\e[38;5;131m\]"
 			"\[\e[38;5;124m\]"
 		)
-		echo "${loadcolors[$loadmod]}$load'"${COLOR_RESET}"' "
+		echo "${loadcolors[$__ps1_var_loadmod]}$load'"${COLOR_RESET}"' "
 	';
 	if [ -n "$_PS1_HIDE_LOAD" ] ; then
 		loadavg=''
@@ -99,7 +95,7 @@ function __ps1_create() {
 	
 	# datetime colorization
 	local datetime='
-		time=$(date +"%H")
+		time=$(/bin/date +"%H")
 		color="\[\e[38;5;153m\]"
 		if [ ${time} -ge 8 -a ${time} -le 18 ]; then
 		   color="\[\e[38;5;251m\]"
@@ -145,7 +141,9 @@ function __ps1_create() {
 	# working directory
 	PS1="$PS1""${COLOR_WORK_DIR}"'\W'"${COLOR_RESET}"
 	# working directory information (number of files | total file size)
-	PS1="$PS1""${COLOR_WORK_DIRINFO}"'<${__ps1_var_dirinfo}>'"${COLOR_RESET}"
+	if [ -z "$_PS1_HIDE_DIR_INFO" ] ; then
+		PS1="$PS1""${COLOR_WORK_DIRINFO}"'<${__ps1_var_dirinfo}>'"${COLOR_RESET}"
+	fi
 	# git status
 	PS1="$PS1""${COLOR_GIT}"'$(__ps1_repo_info " (%s)")'"${COLOR_RESET}"
 	# close bracket
