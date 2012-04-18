@@ -52,7 +52,10 @@ function __ps1_dir_wrapper() {
 		__ps1_var_date=$__ps1_var_dirinfotime
 	fi
 }
-PROMPT_COMMAND="$PROMPT_COMMAND __ps1_dir_wrapper;"
+# only run working directory information command when enabled
+if [ -z "$_PS1_HIDE_DIR_INFO" ] ; then
+	PROMPT_COMMAND="$PROMPT_COMMAND __ps1_dir_wrapper;"
+fi
 
 # generate the bash prompt
 function __ps1_create() {
