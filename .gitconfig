@@ -32,8 +32,20 @@
 	co = checkout
 	df = diff
 	lg = log -p
+	# stash changes
+	ss = stash
+	# list stashes
+	sl = stash list
+	# apply stash (restore changes)
+	sa = stash apply
 	# go to master branch
 	com = checkout master
+	# rebase with master branch
+	rem = rebase master
+	# remove files from index (tracking)
+	unstage = reset HEAD
+	# go back before last commit, with files in uncommitted state
+	uncommit = reset --soft HEAD^
 	# Switch to a branch, creating it if necessary
 	go = checkout -B
 	# Undo a `git push`

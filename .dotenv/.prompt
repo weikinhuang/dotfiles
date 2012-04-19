@@ -79,16 +79,16 @@ function __ps1_create() {
 	local loadavg='
 		load=$(__ps1_proc_use);
 		loadcolors=(
-			"\[\e[38;5;159m\]"
-			"\[\e[38;5;153m\]"
-			"\[\e[38;5;152m\]"
-			"\[\e[38;5;146m\]"
-			"\[\e[38;5;145m\]"
-			"\[\e[38;5;139m\]"
-			"\[\e[38;5;138m\]"
-			"\[\e[38;5;137m\]"
-			"\[\e[38;5;131m\]"
-			"\[\e[38;5;124m\]"
+			"\[\e[38;5;111m\]"
+			"\[\e[38;5;110m\]"
+			"\[\e[38;5;109m\]"
+			"\[\e[38;5;108m\]"
+			"\[\e[38;5;107m\]"
+			"\[\e[38;5;106m\]"
+			"\[\e[38;5;178m\]"
+			"\[\e[38;5;172m\]"
+			"\[\e[38;5;166m\]"
+			"\[\e[38;5;167m\]"
 		)
 		echo "${loadcolors[$__ps1_var_loadmod]}$load'"${COLOR_RESET}"' "
 	';
@@ -99,9 +99,9 @@ function __ps1_create() {
 	# datetime colorization
 	local datetime='
 		time=$(/bin/date +"%H")
-		color="\[\e[38;5;153m\]"
+		color="\[\e[38;5;033m\]"
 		if [ ${time} -ge 8 -a ${time} -le 18 ]; then
-		   color="\[\e[38;5;251m\]"
+		   color="\[\e[38;5;244m\]"
 		fi
 		echo "${color}\T'"${COLOR_RESET}"'"
 	';
