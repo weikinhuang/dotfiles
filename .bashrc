@@ -37,7 +37,7 @@ unset file
 export PATH
 
 # include solarized dir colors theme
-[ -n $__term_solarized_light ] eval $(dircolors "$HOME/.dotenv/other/dircolors.solarized.ansi-light")
+[ -n $__term_solarized_light ] eval "$(dircolors "$HOME/.dotenv/other/dircolors.solarized.ansi-light")"
 
 # Shell Options
 # Use case-insensitive filename globbing
