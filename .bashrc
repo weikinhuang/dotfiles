@@ -36,6 +36,9 @@ unset file
 [ -d "${HOME}/.dotenv/bin" ] && PATH="$PATH:${HOME}/.dotenv/bin"
 export PATH
 
+# include solarized dir colors theme
+[ -n $__term_solarized_light ] eval $(dircolors "$HOME/.dotenv/other/dircolors.solarized.ansi-light")
+
 # Shell Options
 # Use case-insensitive filename globbing
 shopt -s nocaseglob
