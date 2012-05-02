@@ -150,7 +150,18 @@ function __ps1_create() {
 	# git status
 	PS1="$PS1""${COLOR_GIT}"'$(__ps1_repo_info " (%s)")'"${COLOR_RESET}"
 	# close bracket
-	PS1="$PS1""${COLOR_BOLD}${COLOR_GREY}"']'"${COLOR_RESET}"'\$ '
+	PS1="$PS1""${COLOR_BOLD}${COLOR_GREY}"']'"${COLOR_RESET}"
+	# prompt symbol
+	case "$UID" in
+		0 )
+			PS1="$PS1""$(echo -e "\xCE\xBC")"
+			;;
+		* )
+			PS1="$PS1""$(echo -e "\xCE\xBB")"
+			;;
+	esac
+	# space
+	PS1="$PS1"' '
 
 	# Set the title bar if we are in xterm
 	case "$TERM" in
