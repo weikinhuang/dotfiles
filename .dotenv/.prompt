@@ -154,10 +154,10 @@ function __ps1_create() {
 	# prompt symbol
 	case "$UID" in
 		0 )
-			PS1="$PS1""$(echo -e "\xCE\xBC")"
+			PS1="$PS1""${COLOR_BOLD}$(echo -e "\xCE\xBC")${COLOR_RESET}"
 			;;
 		* )
-			PS1="$PS1""$(echo -e "\xCE\xBB")"
+			PS1="$PS1""${COLOR_BOLD}$(echo -e "\xCE\xBB")${COLOR_RESET}"
 			;;
 	esac
 	# space
