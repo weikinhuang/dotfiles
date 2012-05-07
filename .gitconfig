@@ -52,6 +52,8 @@
 	undopush = push -f origin HEAD^:master
 	# View the SHA, description, and history graph of the latest 20 commits
 	l = log --pretty=oneline -n 20 --graph
+	# show tree view of the git log
+	tree = log --graph --decorate --pretty=oneline --abbrev-commit --all
 	# Go to master and pull in origin master
 	pm = !"git checkout master && git pull origin master"
 	# Pull in remote changes for the current repository and all its submodules
@@ -62,6 +64,8 @@
 	diffall = !"git diff --name-only "$@" | while read filename; do git difftool "$@" --no-prompt "$filename" & done"
 	# Push the current branch to origin with the same branch name
 	pob = !"git push "$@" origin $(git branch | grep '^* ' | sed 's/^* //')"
+	# Merge and squash commits from remote branches
+	pulley = !"git checkout master && git checkout -b "$3" && git pull "$1" "$2" && git checkout master && git merge --no-commit --squash "$3" && git commit -a && git branch -D "$3""
 [difftool]
 	prompt = false
 [mergetool]
