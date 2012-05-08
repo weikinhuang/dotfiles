@@ -8,6 +8,8 @@
 [core]
 	whitespace = trailing-space,space-before-tab
 	editor = nppedit
+	autocrlf = input
+	filemode = false
 [diff]
 	renames = copies
 	mnemonicprefix = true
@@ -42,6 +44,8 @@
 	com = checkout master
 	# rebase with master branch
 	rem = rebase master
+	# resets the file to clean copy
+	undo = checkout --
 	# remove files from index (tracking)
 	unstage = reset HEAD
 	# go back before last commit, with files in uncommitted state
@@ -50,22 +54,32 @@
 	go = checkout -B
 	# Undo a `git push`
 	undopush = push -f origin HEAD^:master
-	# View the SHA, description, and history graph of the latest 20 commits
-	l = log --pretty=oneline -n 20 --graph
+	# View the SHA, description, and history graph of the latest commits
+	l = log --pretty=oneline --graph --decorate --all
 	# show tree view of the git log
 	tree = log --graph --decorate --pretty=oneline --abbrev-commit --all
 	# Go to master and pull in origin master
 	pm = !"git checkout master && git pull origin master"
 	# Pull in remote changes for the current repository and all its submodules
 	p = !"git pull; git submodule foreach git pull origin master"
-	# Go to the master branch then sync local and origin with [upstream|origin]
-	sync = !"git checkout master && git pull $(R="$(git remote -v | grep '^upstream\\>')"; if [ $? -eq 0  ]; then echo 'upstream'; else echo 'origin'; fi) master && git submodule update && git push origin master"
 	# Open the difftool for all files that are currently modified
 	diffall = !"git diff --name-only "$@" | while read filename; do git difftool "$@" --no-prompt "$filename" & done"
 	# Push the current branch to origin with the same branch name
 	pob = !"git push "$@" origin $(git branch | grep '^* ' | sed 's/^* //')"
 	# Merge and squash commits from remote branches
 	pulley = !"git checkout master && git checkout -b "$3" && git pull "$1" "$2" && git checkout master && git merge --no-commit --squash "$3" && git commit -a && git branch -D "$3""
+	# searches for all detached commits
+	lost = !"git fsck | awk '/dangling commit/ {print $3}' | git show --format='SHA1: %C(yellow)%h%Creset %f' --stdin | awk '/SHA1/ {sub(\"SHA1: \", \"\"); print}'"
+	
+	########### GITHUB based aliases
+	# Go to the master branch then sync local and origin with [upstream|origin]
+	sync = !"git checkout master && git pull $(R="$(git remote -v | grep '^upstream\\>')"; if [ $? -eq 0  ]; then echo 'upstream'; else echo 'origin'; fi) master && git submodule update && git push origin master"
+	# Pushes current branch to origin and then issues a pull request to upstream
+	pr = !"BRANCH=$(git branch | grep '^* ' | sed 's/^* //'); UPSTREAM=$(git remote -v | grep origin | head -n1 | sed 's/^.\\+github.com[:\\/]\\(.\\+\\) \\(.\\+\\)$/\\1/' | sed 's/\\.git$//'); git push origin $BRANCH && curl -H \"Authorization: token $(git config --get github.apitoken)\" https://api.github.com/repos/$UPSTREAM/pulls -d \"{\\\"head\\\":\\\"$(git config --get github.user):$BRANCH\\\",\\\"base\\\":\\\"master\\\",\\\"title\\\":\\\"$1\\\"}\" | grep 'html_url' | head -n1 | sed 's/.\\+"html_url": "\\(.\\+\\)",/\\1/'"
+	# Gets the github url for current repo
+	hub = !"echo "https://github.com/"$(git config remote.origin.url) | sed -E s/[a-z]+@github\\.com:// | sed s/\\.git$//"
+	# Gets the url to github of the current commit
+	url = !"sh -c 'HEAD=$(git rev-parse HEAD) && SHA1=$([ "$0" = "sh" ] && echo $HEAD || echo $0) && echo $(git hub)"/commit/"${SHA1}'"
 [difftool]
 	prompt = false
 [mergetool]
