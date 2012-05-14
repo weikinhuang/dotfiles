@@ -39,7 +39,12 @@ function download_files () {
 		if [ -f '${dl_dest}/{}' ] ; then
 			mv '${dl_dest}/{}' '${dl_dest}/{}.bak'; \
 		fi; \
-		curl -s -o '${dl_dest}/{}' '${REMOTE_BASE_URL}/${dl_root}/{}';"
+		if [ -n '${dl_root}' ] ; then
+			curl -s -o '${dl_dest}/{}' '${REMOTE_BASE_URL}/${dl_root}/{}';
+		else
+			curl -s -o '${dl_dest}/{}' '${REMOTE_BASE_URL}/{}';
+		fi
+		"
 }
 function download_apps () {
 	local dl_list="$1"
