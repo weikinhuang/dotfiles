@@ -15,7 +15,6 @@ function __ps1_proc_wrapper() {
 		__ps1_var_loadtime=$(/bin/date +%s)
 		__ps1_var_date=$__ps1_var_loadtime
 		__ps1_var_loadmod=$(expr $(echo "${__ps1_var_load}" | /bin/sed "s/^0*\([0-9]\+\)\..\+\$/\1/") / 10 )
-		[ $__ps1_var_loadmod -gt 9 ] && __ps1_var_loadmod=9
 	fi
 }
 # only append to the prompt command when we want to show load

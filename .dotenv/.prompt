@@ -78,20 +78,29 @@ function __ps1_create() {
 	# load avg colorization
 	local loadavg='
 		load=$(__ps1_proc_use);
-		loadcolors=(
-			"\[\e[38;5;111m\]"
-			"\[\e[38;5;110m\]"
-			"\[\e[38;5;109m\]"
-			"\[\e[38;5;108m\]"
-			"\[\e[38;5;107m\]"
-			"\[\e[38;5;106m\]"
-			"\[\e[38;5;178m\]"
-			"\[\e[38;5;172m\]"
-			"\[\e[38;5;166m\]"
-			"\[\e[38;5;167m\]"
-		)
-		echo "${loadcolors[$__ps1_var_loadmod]}$load'"${COLOR_RESET}"' "
-	';
+		loadcolors_0="\[\e[38;5;111m\]"
+		loadcolors_1="\[\e[38;5;110m\]"
+		loadcolors_2="\[\e[38;5;109m\]"
+		loadcolors_3="\[\e[38;5;108m\]"
+		loadcolors_4="\[\e[38;5;107m\]"
+		loadcolors_5="\[\e[38;5;106m\]"
+		loadcolors_6="\[\e[38;5;178m\]"
+		loadcolors_7="\[\e[38;5;172m\]"
+		loadcolors_8="\[\e[38;5;166m\]"
+		loadcolors_9="\[\e[38;5;167m\]"
+	'
+	case "$DOTENV" in
+		darwin|linux)
+			loadavg=$loadavg'
+				__ps1_var_loadmod=$(echo "${load}" | sed "s/^0*\([0-9]\+\)\..\+\$/\1/")
+			'
+			;;
+	esac
+	loadavg=$loadavg'
+		[ $__ps1_var_loadmod -gt 9 ] && __ps1_var_loadmod=9
+		loadcolor="loadcolors_${__ps1_var_loadmod}"
+		echo "${!loadcolor}${load}'"${COLOR_RESET}"' "
+	'
 	if [ -n "$_PS1_HIDE_LOAD" ] ; then
 		loadavg=''
 	fi

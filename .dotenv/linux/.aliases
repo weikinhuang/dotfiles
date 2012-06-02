@@ -1,3 +1,6 @@
 # Shortcuts to the clipboard
 alias wcopy="pbcopy"
 alias wpaste="pbpaste"
+
+# useful shortcuts
+alias open="nautilus"
