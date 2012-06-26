@@ -30,7 +30,7 @@
 	# Basic shortcuts
 	st = status
 	ci = commit
-	ci = commit -m
+	cm = commit -m
 	br = branch
 	co = checkout
 	df = diff
@@ -64,7 +64,7 @@
 	# Pull in remote changes for the current repository and all its submodules
 	p = !"git pull; git submodule foreach git pull origin master"
 	# Open the difftool for all files that are currently modified
-	diffall = !"git diff --name-only "$@" | while read filename; do git difftool "$@" --no-prompt "$filename" & done"
+	diffall = !"git diff --name-only "$@" | while read filename; do git difftool "$@" --no-prompt "$filename" & done | true"
 	# Push the current branch to origin with the same branch name
 	pob = !"git push "$@" origin $(git branch | grep '^* ' | sed 's/^* //')"
 	# Merge and squash commits from remote branches
