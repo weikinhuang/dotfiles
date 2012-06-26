@@ -30,7 +30,7 @@
 	# Basic shortcuts
 	st = status
 	ci = commit
-	ci = commit -m
+	cm = commit -m
 	br = branch
 	co = checkout
 	df = diff
