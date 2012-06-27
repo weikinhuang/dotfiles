@@ -49,27 +49,27 @@ function __cd_func() {
 # Special repo status function for git and svn
 function __repo_ps1() {
 	local info=$(svn info 2> /dev/null)
-	
+
 	# if not a svn repo, then try the git method
 	if [[ -z "$info" ]] ; then
 		echo -n "$(__git_ps1)"
 		return
 	fi
-	
+
 	# if it is a svn repo, then strip info out of it
 	local svnrev=$(echo "$info" | awk '/Revision:/ {print $2}')
 	local flag=
-	
+
 	# if we want to show dirty state then exec svn status
 	if [ $SVN_PS1_SHOWDIRTYSTATE ] ; then
 		local state=$(svn status --ignore-externals "$(echo "$info" | sed -n "s/Working Copy Root Path: \(.\+\)/\1/p")" 2> /dev/null)
-		
+
 		# make the file status conditions unique if there are changes
 		if [ -n "$state" ]; then
 			flag=" *$(echo "$state" | awk '{print $1}' | uniq | sort | tr -d '\n')"
 		fi
 	fi
-	
+
 	echo -n " ($svnrev$flag)"
 }
 
@@ -161,6 +161,52 @@ function execcat() {
 		echo "File not found."
 	fi
 	return 1
+}
+
+# Extract archives automatically
+function extract () {
+	if [ -f "$1" ] ; then
+		case "$1" in
+		*.tar.bz2)
+			tar xjf "$@"
+			;;
+		*.tar.gz)
+			tar xzf "$@"
+			;;
+		*.bz2)
+			bunzip2 "$@"
+			;;
+		*.rar)
+			rar x "$@"
+			;;
+		*.gz)
+			gunzip "$@"
+			;;
+		*.tar)
+			tar xf "$@"
+			;;
+		*.tbz2)
+			tar xjf "$@"
+			;;
+		*.tgz)
+			tar xzf "$@"
+			;;
+		*.zip)
+			unzip "$@"
+			;;
+		*.Z)
+			uncompress "$@"
+			;;
+		*.7z)
+			7z x "$@"
+			;;
+		*)
+			echo "'$1' cannot be extracted via extract()"
+			;;
+		esac
+	else
+		echo "'$1' is not a valid file"
+	fi
 }
 
 # Create a new directory and enter it
