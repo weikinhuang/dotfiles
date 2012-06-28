@@ -1,83 +1,132 @@
-#!/usr/bin/env php
-<?php
-$data = '';
-if(isset($_SERVER['argv']) && count($_SERVER['argv']) > 1) {
-	$args = $_SERVER['argv'];
-	array_shift($args);
-	$data = array_shift($args);
-	if($data === '-f') {
-		$data = file_get_contents(array_shift($args));
-	}
+#! /usr/bin/env node
+
+var fs = require("fs");
+var args = Array.prototype.slice.call(process.argv, 2);
+var key = null;
+
+// CONSTANTS
+var COLOR_RESET = "\x1B[0m";
+var COLOR_BOLD = "\x1B[1m";
+var COLOR_ERROR = "\x1B[38;5;196m";
+var COLOR_BOOLEAN = "\x1B[38;5;27m";
+var COLOR_NUMBER = "\x1B[38;5;160m";
+var COLOR_STRING = "\x1B[38;5;29m";
+var COLOR_DATE = "\x1B[38;5;107m";
+var COLOR_NULL = "\x1B[38;5;21m";
+var COLOR_UNDEFINED = "\x1B[38;5;93m";
+var COLOR_KEYWORD = "\x1B[38;5;69m";
+var COLOR_KEY = "\x1B[38;5;239m";
+var COLOR_COMMENT = "\x1B[38;5;248m";
+var TAB_SIZE = '  ';
+
+// if we are asking for a key then store it
+if (args.indexOf("-k") > -1) {
+	key = args.splice(args.indexOf("-k"), 2)[1] || null;
+}
+
+// get it from the fs or std in if nothing
+if (args.length > 0 && fs.existsSync(args[0])) {
+	fs.readFile(args[0], "utf8", function(err, text) {
+		if (err) {
+			throw err;
+		}
+		parse(text, key);
+	});
 } else {
-	$data = file_get_contents('php://stdin');
+	var text = "", stdin = process.openStdin();
+	stdin.setEncoding("utf8");
+	stdin.on("data", function(chunk) {
+		text += chunk;
+	});
+	stdin.on("end", function() {
+		parse(text, key);
+	});
 }
 
-const COLOR_RESET = "\33[0m";
-const COLOR_BOLD = "\33[1m";
-const COLOR_ERROR = "\033[38;5;196m";
-const COLOR_BOOLEAN = "\033[38;5;27m";
-const COLOR_NUMBER = "\033[38;5;160m";
-const COLOR_STRING = "\033[38;5;29m";
-const COLOR_DATE = "\033[38;5;107m";
-const COLOR_NULL = "\033[38;5;21m";
-const COLOR_KEYWORD = "\033[38;5;69m";
-const COLOR_KEY = "\033[38;5;239m";
-const COLOR_COMMENT = "\033[38;5;248m";
-const TAB_SIZE = '  ';
+function repeat(string, count) {
+	return count < 1 ? "" : (new Array(count + 1)).join(string);
+}
 
-function process($data, $level = 0) {
-	// using 2 spaces as a tab
-	$padding = str_repeat(TAB_SIZE, $level + 1);
-	// process scalar values
-	switch(gettype($data)) {
-		case 'boolean':
-			return COLOR_BOOLEAN . ($data ? 'true' : 'false') . COLOR_RESET;
-		case 'integer':
-		case 'double':
-			return COLOR_NUMBER . $data . COLOR_RESET;
-		case 'string':
-			// if this is a iso date object then
-			if(preg_match('/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2}(?:\.\d*)?)Z$/', $data)) {
-				return COLOR_KEYWORD . 'new ' . COLOR_RESET . COLOR_BOLD . 'Date' . COLOR_RESET . '(' . COLOR_DATE . '"' . $data . '"' . COLOR_RESET . ')' . COLOR_COMMENT . ' // ' . date('r', strtotime($data)) . COLOR_RESET;
-			}
-			return COLOR_STRING . '"' . $data . '"' . COLOR_RESET;
-		case 'NULL':
-		case 'null':
-			return COLOR_NULL . 'null' . COLOR_RESET;
-		case 'array':
-			if(empty($data)) {
-				return '[]';
-			}
-			foreach($data as $v) {
-				$concat[] = $padding . process($v, $level + 1);
-			}
-			return '[' . PHP_EOL . implode(',' . PHP_EOL, $concat) . PHP_EOL . str_repeat(TAB_SIZE, $level) . ']';
-		case 'object':
-			$properties = get_object_vars($data);
-			if(empty($properties)) {
-				return '{}';
-			}
-			foreach($data as $k => $v) {
-				$concat[] = $padding . COLOR_KEY . $k . COLOR_RESET . ' : ' . process($v, $level + 1);
-			}
-			return '{' . PHP_EOL . implode(',' . PHP_EOL, $concat) . PHP_EOL . str_repeat(TAB_SIZE, $level) . '}';
+function parse(text, key) {
+	try {
+		var data = JSON.parse(text);
+		if (key) {
+			console.log(getKey(data, key));
+		} else {
+			console.log(printJson(data, 0, true));
+		}
+	} catch (e) {
+		console.log(e.message);
+		// we failed or this is not json, then they echo it out
+		console.log(text);
 	}
-	return '';
 }
 
-if(preg_match('/^(\d+|null|".+")$/i', $data)) {
-	echo process($data);
-	echo PHP_EOL;
-	exit(0);
+function getKey(data, key) {
+	var temp = data, parts = key.split("."), i = 0, l = parts.length;
+
+	for (; i < l; i++) {
+		if (typeof temp === "object" && temp !== null && Object.prototype.hasOwnProperty.call(temp, parts[i])) {
+			if (i === l - 1) {
+				return printJson(temp[parts[i]], 0, false);
+			} else {
+				temp = temp[parts[i]];
+			}
+		} else {
+			// nothing to print
+			return;
+		}
+	}
 }
 
-$json = json_decode($data);
-if($json === null) {
-	echo COLOR_BOLD . COLOR_ERROR . 'Invalid JSON data!' . COLOR_RESET;
-	echo PHP_EOL;
-	exit(1);
+function printJson(data, depth, quote) {
+	depth = depth || 0;
+	var padding = repeat(TAB_SIZE, depth);
+	var padding1 = repeat(TAB_SIZE, depth + 1);
+	var temp, i, k, l;
+
+	switch (typeof data) {
+		case "undefined":
+			return COLOR_UNDEFINED + JSON.stringify(data) + COLOR_RESET;
+		case "boolean":
+			return COLOR_BOOLEAN + JSON.stringify(data) + COLOR_RESET;
+		case "number":
+			return COLOR_NUMBER + JSON.stringify(data) + COLOR_RESET;
+		case "string":
+			// if this is a iso date object then
+			if (/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2}(?:\.\d*)?)Z$/.test(data)) {
+				return COLOR_KEYWORD + 'new ' + COLOR_RESET + COLOR_BOLD + 'Date' + COLOR_RESET + '(' + COLOR_DATE + '"' + data + '"' + COLOR_RESET + ')' + COLOR_COMMENT + ' // ' + new Date(Date.parse(data)).toString() + COLOR_RESET;
+			}
+			if (quote || depth > 0) {
+				return COLOR_STRING + JSON.stringify(String(data)) + COLOR_RESET;
+			} else {
+				return COLOR_STRING + String(data) + COLOR_RESET;
+			}
+			break;
+	}
+	if (data === null) {
+		return COLOR_STRING + JSON.stringify(String(data)) + COLOR_RESET;
+	}
+	if (Object.prototype.toString.call(data) === "[object Array]") {
+		l = data.length;
+		if (l.length === 0) {
+			return COLOR_BOLD + "[]" + COLOR_RESET;
+		}
+		temp = [];
+		for (i = 0; i < l; i++) {
+			temp.push(printJson(data[i], depth + 1));
+		}
+		return COLOR_BOLD + "[" + COLOR_RESET + "\n" + padding1 + temp.join(",\n" + padding1) + "\n" + padding + COLOR_BOLD + "]" + COLOR_RESET;
+	}
+	// otherwise this is an object
+	var keys = Object.keys(data);
+	l = keys.length;
+	if (l === 0) {
+		return COLOR_BOLD + "{}" + COLOR_RESET;
+	}
+	temp = [];
+	keys.forEach(function(k) {
+		temp.push(COLOR_KEY + "\"" + k + "\"" + COLOR_RESET + " : " + printJson(data[k], depth + 1));
+	});
+	return COLOR_BOLD + "{" + COLOR_RESET + "\n" + padding1 + temp.join(",\n" + padding1) + "\n" + padding + COLOR_BOLD + "}" + COLOR_RESET;
 }
-// we need to unserialize into a object so we can tell the difference between an object and an array
-echo process($json);
-echo PHP_EOL;
-exit(0);
