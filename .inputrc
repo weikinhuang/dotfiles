@@ -55,3 +55,7 @@ set convert-meta off
 # kvt
 "\e[H": beginning-of-line
 "\e[F": end-of-line
+
+# securecrt
+"\777": backward-word
+"\002": forward-word

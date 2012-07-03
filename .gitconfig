@@ -33,6 +33,8 @@
 [help]
 	autocorrect = 1
 [alias]
+	# Typo shortcuts
+	git = !git
 	# Basic shortcuts
 	st = status
 	ci = commit
