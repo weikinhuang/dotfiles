@@ -90,9 +90,14 @@ function __ps1_create() {
 		loadcolors_9="\[\e[38;5;167m\]"
 	'
 	case "$DOTENV" in
-		darwin|linux)
+		linux)
 			loadavg=$loadavg'
-				__ps1_var_loadmod=$(echo "${load}" | sed "s/^0*\\([0-9]\\+\\)\\..\\+\\$/\\1/")
+				__ps1_var_loadmod=$(echo "${load}" | \sed "s/^0*\\([0-9]\\+\\)\\..\\+\\$/\\1/")
+			'
+			;;
+		darwin)
+			loadavg=$loadavg'
+				__ps1_var_loadmod=$(echo "${load}" | \sed "s/^0*\\([0-9][0-9]*\\)\\..*\\$/\\1/")
 			'
 			;;
 	esac
