@@ -28,7 +28,7 @@ function __ps1_repo_info() {
 }
 
 # Keep a cached date variable for prompt testing
-PROMPT_COMMAND="__ps1_var_date=\$(/bin/date +%s); $PROMPT_COMMAND"
+PROMPT_COMMAND="__ps1_var_date=\$(\date +%s); $PROMPT_COMMAND"
 
 # caching the directory information for bash prompt to reduce disk reads
 __ps1_var_dirinfo="0|0b"
@@ -37,17 +37,17 @@ __ps1_var_dirinfoprev=0
 [ -z $__ps1_var_dirinforeloadtime ] && __ps1_var_dirinforeloadtime=60
 function __ps1_dir_wrapper() {
 	local lsout lsnum lssize curdir
-	curdir="$(/bin/pwd)"
+	curdir="$(\pwd)"
 
 	# refresh every minute or on directory change
 	if [[ $(( $__ps1_var_date - $__ps1_var_dirinforeloadtime )) -gt $__ps1_var_dirinfotime || "$curdir" != "$__ps1_var_dirinfoprev" ]]; then
-		lsout=$(/bin/ls -lAh)
-		lsnum=$(($(echo "${lsout}" | /usr/bin/wc -l | /bin/sed "s/ //g") - 1))
-		lssize="$(echo "${lsout}" | /bin/grep -m 1 total | /bin/sed "s/total //")b"
+		lsout=$(\ls -lAh)
+		lsnum=$(($(echo "${lsout}" | \wc -l | \sed "s/ //g") - 1))
+		lssize="$(echo "${lsout}" | \grep -m 1 total | \sed "s/total //")b"
 	
 		__ps1_var_dirinfo="${lsnum}|${lssize}"
 		__ps1_var_dirinfoprev="$curdir"
-		__ps1_var_dirinfotime=$(/bin/date +%s)
+		__ps1_var_dirinfotime=$(\date +%s)
 		# update the prompt time
 		__ps1_var_date=$__ps1_var_dirinfotime
 	fi
@@ -107,7 +107,7 @@ function __ps1_create() {
 	
 	# datetime colorization
 	local datetime='
-		time=$(/bin/date +"%H")
+		time=$(\date +"%H")
 		color="\[\e[38;5;033m\]"
 		if [ ${time} -ge 8 -a ${time} -le 18 ]; then
 		   color="\[\e[38;5;244m\]"
