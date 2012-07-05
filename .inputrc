@@ -44,6 +44,14 @@ set convert-meta off
 "\e[3~": delete-char
 "\e[2~": quoted-insert
 
+# word movement
+"\e[5C": forward-word
+"\e[5D": backward-word
+"\e\e[C": forward-word
+"\e\e[D": backward-word
+"\e[1;5D": backward-word
+"\e[1;5C": forward-word
+
 # rxvt
 "\e[7~": beginning-of-line      
 "\e[8~": end-of-line           
