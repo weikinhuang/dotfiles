@@ -3,9 +3,6 @@ export LC_ALL=en_US.UTF-8
 # Set user-defined locale
 export LANG=en_US.UTF-8
 
-# Number of threads that is available
-export PROC_CORES=$(grep "^processor" -c /proc/cpuinfo)
-
 # Completion options
 COMP_CVS_REMOTE=1
 # Define to avoid stripping description in --option=description of './configure --help'
