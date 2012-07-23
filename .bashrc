@@ -34,7 +34,10 @@ unset file
 # modify path to include useful scripts
 [ -d "${HOME}/.dotenv/${DOTENV}/bin" ] && PATH="$PATH:${HOME}/.dotenv/${DOTENV}/bin"
 [ -d "${HOME}/.dotenv/bin" ] && PATH="$PATH:${HOME}/.dotenv/bin"
-export PATH
+[ -d "${HOME}/bin" ] && PATH="$PATH:${HOME}/bin"
+
+# Remove duplicate entries from PATH and retain the original order
+export PATH=$(echo "$PATH" | tr : '\n' | nl | sort -u -k 2,2 | sort -n | cut -f 2- | tr '\n' : | sed -e 's/:$//' -e 's/^://')
 
 # include solarized dir colors theme
 [ -n "$__term_solarized_light" ] && eval "$(dircolors "$HOME/.dotenv/other/dircolors.solarized.ansi-light")"
