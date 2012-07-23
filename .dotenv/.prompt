@@ -11,16 +11,6 @@ case "$TERM" in
 	*)
 		;;
 esac
-	
-# Output the number of current jobs running in the background
-function __ps1_exit_status() {
-	[ $1 -ne 0 ] && echo -n "(E:${1}) "
-}
-
-# Output the number of current jobs running in the background
-function __ps1_jobs_run() {
-	[ $1 -gt 0 ] && echo -n "bg:${1} "
-}
 
 # Output information about the current directory's repository
 function __ps1_repo_info() {
@@ -125,9 +115,9 @@ function __ps1_create() {
 	# open bracket
 	PS1="$PS1""${COLOR_BOLD}${COLOR_GREY}"'['"${COLOR_RESET}"
 	# show exit code
-	PS1="$PS1""${COLOR_EXIT_ERROR}"'$(__ps1_exit_status "$?")'"${COLOR_RESET}"
+	PS1="$PS1""${COLOR_EXIT_ERROR}"'$(EXIT="$?"; [ $EXIT -ne 0 ] && echo -n "(E:${EXIT}) ")'"${COLOR_RESET}"
 	# show number of background jobs
-	PS1="$PS1""${COLOR_BG_JOBS}"'$(__ps1_jobs_run "\j")'"${COLOR_RESET}"
+	PS1="$PS1""${COLOR_BG_JOBS}"'$([ \j -gt 0 ] && echo -n "bg:\j ")'"${COLOR_RESET}"
 	# time
 	PS1="$PS1\$($datetime)"' '
 	# load
@@ -186,11 +176,109 @@ function __ps1_create() {
 			;;
 	esac
 }
+
+# generate the bash prompt
+function __ps2_create() {
+	PS2="$(echo -e "\xe2\x86\x92") "
+}
+
+# generate the sudo bash prompt
+function __sudo_ps1_create() {
+	# quick reference to colors
+	local COLOR_BOLD='\[\e[1m\]'
+	local COLOR_RESET='\[\e[0m\]'
+	local COLOR_GREY='\[\e[38;5;244m\]'
+	# colors for individual parts of the bash prompt
+	local COLOR_EXIT_ERROR='\[\e[38;5;196m\]'
+	local COLOR_BG_JOBS='\[\e[38;5;42m\]'
+	local COLOR_USER='\[\e[38;5;197m\]'
+	local COLOR_HOST='\[\e[38;5;208m\]'
+	local COLOR_HOST_SCREEN='\[\e[4m\]\[\e[38;5;214m\]'
+	local COLOR_WORK_DIR='\[\e[38;5;142m\]'
+	
+	# datetime colorization
+	local datetime='
+		time=$(\\date +"%H")
+		color="\[\e[38;5;033m\]"
+		if [ ${time} -ge 8 -a ${time} -le 18 ]; then
+		   color="\[\e[38;5;244m\]"
+		fi
+		echo "${color}\T'"${COLOR_RESET}"'"
+	';
+
+	# Start SUDO_PS1 description
+	SUDO_PS1=''
+	# open bracket
+	SUDO_PS1="$SUDO_PS1""${COLOR_BOLD}${COLOR_GREY}"'['"${COLOR_RESET}"
+	# show exit code
+	SUDO_PS1="$SUDO_PS1""${COLOR_EXIT_ERROR}"'$(EXIT="$?"; [ $EXIT -ne 0 ] && echo -n "(E:${EXIT}) ")'"${COLOR_RESET}"
+	# show number of background jobs
+	SUDO_PS1="$SUDO_PS1""${COLOR_BG_JOBS}"'$([ \j -gt 0 ] && echo -n "bg:\j ")'"${COLOR_RESET}"
+	# time
+	SUDO_PS1="$SUDO_PS1\$($datetime)"' '
+	# user
+	SUDO_PS1="$SUDO_PS1""${COLOR_USER}"'\u'"${COLOR_RESET}"
+	# [@] based on environment
+	SUDO_PS1="$SUDO_PS1""${COLOR_GREY}"
+	# If ssh connection
+	if [ -n "${SSH_CONNECTION:-}" ]; then
+		SUDO_PS1="$SUDO_PS1"'@'
+	else
+		# otherwise
+		SUDO_PS1="$SUDO_PS1"'#'
+	fi
+	SUDO_PS1="$SUDO_PS1""${COLOR_RESET}"
+	# [host|screen session]
+	case "$TERM" in
+		screen*)
+			SUDO_PS1="$SUDO_PS1""${COLOR_HOST_SCREEN}""$STY"
+			;;
+		*)
+			SUDO_PS1="$SUDO_PS1""${COLOR_HOST}"'\h'
+			;;
+	esac
+	# space
+	SUDO_PS1="$SUDO_PS1""${COLOR_RESET}"' '
+	# working directory
+	SUDO_PS1="$SUDO_PS1""${COLOR_WORK_DIR}"'\W'"${COLOR_RESET}"
+	# close bracket
+	SUDO_PS1="$SUDO_PS1""${COLOR_BOLD}${COLOR_GREY}"']'"${COLOR_RESET}"
+	# prompt symbol
+	case "$UID" in
+		0 )
+			SUDO_PS1="$SUDO_PS1""${COLOR_BOLD}$(echo -e "\xCE\xBC")${COLOR_RESET}"
+			;;
+		* )
+			SUDO_PS1="$SUDO_PS1""${COLOR_BOLD}$(echo -e "\xCF\x80\x0A")${COLOR_RESET}"
+			;;
+	esac
+	# space
+	SUDO_PS1="$SUDO_PS1"' '
+
+	# Set the title bar if we are in xterm
+	case "$TERM" in
+		xterm*|rxvt*)
+			SUDO_PS1="\[\e]0;\u@\h:\W\007\]$SUDO_PS1"
+			;;
+		*)
+			;;
+	esac
+}
+
 # Execute the prompt creation function
 __ps1_create
 export PS1
-export PS2="$(echo -e "\xe2\x86\x92") "
 unset __ps1_create
+
+# export the interactive prompt line of the shell
+__ps2_create
+export PS2
+unset __ps2_create
+
+# export the sudo'd bash prompt
+__sudo_ps1_create
+export SUDO_PS1
+unset __sudo_ps1_create
 
 # show git status
 export GIT_PS1_SHOWDIRTYSTATE=true

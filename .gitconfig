@@ -1,11 +1,11 @@
 [gui]
 	fontdiff = -family Consolas -size 9 -weight normal -slant roman -underline 0 -overstrike 0
 [user]
-	name = 
-	email = 
+	name =
+	email =
 [github]
 	# To get the token: curl -i https://api.github.com/authorizations -u "GITHUB_USERNAME_HERE" -d '{"scopes":"repo","note":"GITHUB_TOKEN_NAME"}'
-	apitoken = 
+	apitoken =
 [color]
 	ui = auto
 [advice]
@@ -84,7 +84,7 @@
 	amend = !"git log -n 1 --pretty=tformat:%s | git commit -F - --amend"
 	# Adds a file to be ignored
 	ignore = !"echo "$1" >> .gitignore && true"
-	
+
 	########### GITHUB based aliases
 	# Go to the master branch then sync local and origin with [upstream|origin]
 	sync = !"git checkout master && git pull $(R="$(git remote -v | grep '^upstream\\>')"; if [ $? -eq 0  ]; then echo 'upstream'; else echo 'origin'; fi) master && git submodule update && git push origin master && true"
