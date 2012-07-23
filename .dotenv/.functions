@@ -209,6 +209,14 @@ function extract () {
 	fi
 }
 
+# Get gzipped file size
+function gz() {
+	echo "orig size (bytes): "
+	cat "$1" | wc -c
+	echo "gzipped size (bytes): "
+	gzip -c "$1" | wc -c
+}
+
 # Create a new directory and enter it
 function md() {
 	mkdir -p "$@" && cd "$@"

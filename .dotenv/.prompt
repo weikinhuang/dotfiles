@@ -189,6 +189,7 @@ function __ps1_create() {
 # Execute the prompt creation function
 __ps1_create
 export PS1
+export PS2="$(echo -e "\xe2\x86\x92") "
 unset __ps1_create
 
 # show git status
