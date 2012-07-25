@@ -34,54 +34,103 @@
 [help]
 	autocorrect = 1
 [alias]
-	# Typo shortcuts
-	git = !git
-	# Basic shortcuts
+	### Basic shortcuts
 	st = status
-	ci = commit
-	cm = commit -m
 	br = branch
 	co = checkout
 	df = diff
 	lg = log -p
-	# stash changes
+	cp = cherry-pick
 	ss = stash
-	# list stashes
 	sl = stash list
-	# apply stash (restore changes)
 	sa = stash apply
+
+	### Committing
+	# Commit
+	ci = commit
+	# Commit w/ message
+	cim = commit -m
+	# Amend commit
+	cia = commit --amend
+	# Amend commit w/message
+	ciam = commit --amend -m
+	# Add changed files and then commit w/message
+	cam = commit -a -m
+	# Commit and add files
+	ca = commit -a
+	# These are the same as cam, ca and squish, except it adds new files as well
+	acam = !git add -A && git commit -m
+	aca = !git add -A && git commit
+	asquish = !git add -A && git commit --amend -C HEAD
+	# Adds all changed files into the last commit
+	squish = commit -a --amend -C HEAD
+	# Adds only staged files into the last commit
+	squeeze = commit --amend -C HEAD
+	# Amends last commit using the same commit message
+	amend = !"git log -n 1 --pretty=tformat:%s | git commit -F - --amend"
+
+	### Checkout / Branching
 	# go to master branch
 	com = checkout master
+	# Checkout last branch
+	col = checkout -
+	# Switch to a branch, creating it if necessary
+	go = checkout -B
+	# Get the current branch name
+	brn = "!git branch "$@" | grep '^*' | sed 's/^* //' && true"
+	# Update current branch from origin
+	ubo = !"git pull origin $(git brn) && true"
+
+	### Rebase
+	rb = rebase
+	# Abort rebase
+	rba = rebase --abort
+	# Continue rebase
+	rbc = rebase --continue
+	# Skip patch
+	rbs = rebase --skip
+	# Rebase interactively
+	rbi = rebase -i
 	# rebase with master branch
-	rem = rebase master
+	rbm = rebase master
+	# rebase with master branch
+	rbim = rebase -i master
+
+	### Resetting
 	# resets the file to clean copy
 	undo = checkout --
 	# remove files from index (tracking)
 	unstage = reset HEAD
 	# go back before last commit, with files in uncommitted state
 	uncommit = reset --soft HEAD^
-	# Switch to a branch, creating it if necessary
-	go = checkout -B
-	# Undo a `git push`
-	undopush = push -f origin HEAD^:master
+
+	### Logging
 	# View the SHA, description, and history graph of the latest commits
 	l = log --pretty=oneline --graph --decorate --all
 	# show tree view of the git log
 	tree = log --graph --decorate --pretty=oneline --abbrev-commit --all
+
+	### Diffing
+	# Open the difftool for all files that are currently modified
+	diffall = !"git diff --name-only "$@" | while read filename; do git difftool "$@" --no-prompt "$filename" & done && true"
+
+	### Pushing
+	# Undo a `git push`
+	undopush = push -f origin HEAD^:master
+
+	### Syncing
 	# Go to master and pull in origin master
 	pm = !"git checkout master && git pull origin master && true"
 	# Pull in remote changes for the current repository and all its submodules
 	p = !"git pull; git submodule foreach git pull origin master && true"
-	# Open the difftool for all files that are currently modified
-	diffall = !"git diff --name-only "$@" | while read filename; do git difftool "$@" --no-prompt "$filename" & done && true"
 	# Push the current branch to origin with the same branch name
-	pob = !"git push "$@" origin $(git branch | grep '^* ' | sed 's/^* //') && true"
+	pob = !"git push "$@" origin $(git brn) && true"
+
+	### Misc
 	# Merge and squash commits from remote branches
 	pulley = !"git checkout master && git checkout -b "$3" && git pull "$1" "$2" && git checkout master && git merge --no-commit --squash "$3" && git commit -a && git branch -D "$3""
 	# searches for all detached commits
 	lost = !"git fsck | awk '/dangling commit/ {print $3}' | git show --format='SHA1: %C(yellow)%h%Creset %f' --stdin | awk '/SHA1/ {sub(\"SHA1: \", \"\"); print}' && true"
-	# Amends last commit using the same commit message
-	amend = !"git log -n 1 --pretty=tformat:%s | git commit -F - --amend"
 	# Adds a file to be ignored
 	ignore = !"echo "$1" >> .gitignore && true"
 
