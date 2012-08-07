@@ -39,8 +39,11 @@ unset file
 # Remove duplicate entries from PATH and retain the original order
 export PATH=$(echo "$PATH" | tr : '\n' | nl | sort -u -k 2,2 | sort -n | cut -f 2- | tr '\n' : | sed -e 's/:$//' -e 's/^://')
 
+# include git __git_ps1 if not already included elsewhere
+type __git_ps1 &> /dev/null || source "${HOME}/.dotenv/other/git-prompt.sh"
+
 # include solarized dir colors theme
-[ -n "$__term_solarized_light" ] && eval "$(dircolors "$HOME/.dotenv/other/dircolors.solarized.ansi-light")"
+[ -n "$__term_solarized_light" ] && eval "$(dircolors "${HOME}/.dotenv/other/dircolors.solarized.ansi-light")"
 
 # Shell Options
 # Use case-insensitive filename globbing
