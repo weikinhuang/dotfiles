@@ -1,4 +1,4 @@
-#!/usr/bin/bash
+#!/bin/bash
 # 
 # Ability to get specific arguments or test it's existience
 # will return the first found argument
