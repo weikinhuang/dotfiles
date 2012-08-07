@@ -1,0 +1,52 @@
+#!/bin/sh
+# Retieve a github token if not already generated
+# To get the token: curl -i https://api.github.com/authorizations -u "GITHUB_USERNAME_HERE" -d '{"scopes":"repo","note":"GITHUB_TOKEN_NAME"}'
+
+# if the -n flag is passed in, don't use the local store, just generate a new token
+if [ "$1" != "-n" ]; then
+	EXISTING_TOKEN=$(git config --get github.apitoken)
+	if [ -n "$EXISTING_TOKEN" ]; then
+		echo "$EXISTING_TOKEN"
+		exit 0
+	fi
+fi
+
+# Generate a token for the following username
+read -p "Github username: " GITHUB_USERNAME
+if [ -z "$GITHUB_USERNAME" ]; then
+	echo "Github username required"
+	exit 1
+fi
+
+HOSTNAME=$(hostname)
+# Grab the app token name, using hostname as the default
+read -p "Github token name ($HOSTNAME): " GITHUB_TOKEN_NAME
+if [ -z "$GITHUB_TOKEN_NAME" ]; then
+	GITHUB_TOKEN_NAME="$HOSTNAME"
+fi
+
+GITHUB_TOKEN_RESPONSE=$(curl -i https://api.github.com/authorizations -u "$GITHUB_USERNAME" -d '{"scopes":"repo","note":"'$GITHUB_TOKEN_NAME'"}')
+
+if [ -z "$GITHUB_TOKEN_RESPONSE" ]; then
+	exit 1
+fi
+
+# output the curl request to stderr
+echo $GITHUB_TOKEN_RESPONSE > /dev/stderr
+
+# If the response doesn't contain a token then exit with an error
+if [ -z "$(echo "$GITHUB_TOKEN_RESPONSE" | grep '"token":')" ]; then
+	exit 1
+fi
+
+# just grab out the token
+GITHUB_TOKEN=$(echo "$GITHUB_TOKEN_RESPONSE" | grep '"token":' | sed 's/\s\+"token": "\(\w\+\)".*/\1/')
+
+echo "$GITHUB_TOKEN"
+
+# Write the token to the user's git config
+if [ "$1" != "-n" ]; then
+	git config --global github.apitoken "$GITHUB_TOKEN"
+fi
+
+exit 0
