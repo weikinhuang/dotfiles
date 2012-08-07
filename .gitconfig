@@ -138,7 +138,7 @@
 	# Go to the master branch then sync local and origin with [upstream|origin]
 	sync = !"git checkout master && git pull $(R="$(git remote -v | grep '^upstream\\>')"; if [ $? -eq 0  ]; then echo 'upstream'; else echo 'origin'; fi) master && git submodule update && git push origin master && true"
 	# Pushes current branch to origin and then issues a pull request to upstream
-	pr = !"BRANCH=$(git branch | grep '^* ' | sed 's/^* //'); UPSTREAM=$(git remote -v | grep upstream | head -n1 | sed 's/^.\\+github.com[:\\/]\\(.\\+\\) \\(.\\+\\)$/\\1/' | sed 's/\\.git$//'); git push origin $BRANCH && curl -H \"Authorization: token $(git config --get github.apitoken)\" https://api.github.com/repos/$UPSTREAM/pulls -d \"{\\\"head\\\":\\\"$(git config --get github.user):$BRANCH\\\",\\\"base\\\":\\\"master\\\",\\\"title\\\":\\\"$1\\\"}\" && true"
+	pr = hub-pull-request
 	# Gets the github url for current repo
 	hub = !"echo "https://github.com/"$(git config remote.origin.url) | sed -E s/[a-z]+@github\\.com:// | sed s/\\.git$// && true"
 	# Gets the url to github of the current commit

@@ -1,0 +1,91 @@
+#!/bin/sh
+
+USAGE='[-b|--branch=[master]] [-m|--message=[latest commit]] [-f|--force] [-o|--open]'
+SUBDIRECTORY_OK=Yes
+. git-sh-setup
+require_work_tree
+
+# get the current branch
+BRANCH=$(git branch | grep '^* ' | sed 's/^* //')
+
+# no pull requests allowed against master unless -f option is on
+getopt_assert -f:--force "$@"
+if [ $? != 0 ] && [ "$BRANCH" == "master" ]; then
+	echo "Pull requests cannot be made from the master branch, override with -f."
+	exit 1
+fi
+
+# get the github based upstream and origin
+UPSTREAM=$(git remote -v | grep upstream | head -n1 | sed 's/^.*github.com[:\/]\(.*\) \(.*\)$/\1/' | sed 's/\.git$//')
+ORIGIN=$(git remote -v | grep origin | head -n1 | sed 's/^.*github.com[:\/]\(.*\) \(.*\)$/\1/' | sed 's/\.git$//')
+if [ -z "$UPSTREAM" ]; then
+	UPSTREAM="$ORIGIN"
+fi
+
+# if we don't have a upstream, then don't do anything
+if [ -z "$UPSTREAM" ]; then
+	echo "No Github based upstream or origin to issue pull requests against."
+	exit 128
+fi
+
+# push this branch to origin first
+git push origin "$BRANCH"
+BRANCH_EXIT_STATUS=$?
+if [ $BRANCH_EXIT_STATUS != 0 ]; then
+	echo "Unable to push current branch to Github origin."
+	exit $BRANCH_EXIT_STATUS
+fi
+
+# get the base of the github fork to issue a pr against
+GITHUB_FORK_BASE="$(echo "$ORIGIN" | sed 's/\/.*//')"
+if [ -z "$GITHUB_FORK_BASE" ]; then
+	echo "Unable to determine fork of remote repo."
+	exit 1
+fi
+
+# get the github token
+GITHUB_TOKEN="$(git hub-token)"
+if [ $? != 0 ]; then
+	echo "Github api token required."
+	exit 1
+fi
+
+REMOTE_BRANCH=$(getopt_assert -b:--branch "$@")
+if [ -z "$REMOTE_BRANCH" ]; then
+	REMOTE_BRANCH="master"
+fi
+
+MESSAGE=$(getopt_assert -m:--message "$@")
+if [ -z "$MESSAGE" ]; then
+	MESSAGE="$(git log -1 --pretty=format:'%s')"
+fi
+
+
+PR_RESPONSE=$(curl -vvv \
+	-H 'Authorization: token '$GITHUB_TOKEN \
+	https://api.github.com/repos/$UPSTREAM/pulls \
+	-d '{"head":"'"$GITHUB_FORK_BASE"':'"$BRANCH"'","base":"'"$REMOTE_BRANCH"'","title":"'"$MESSAGE"'"}')
+
+CURL_EXIT_CODE=$?
+	
+# output result to std error
+echo "$PR_RESPONSE" > /dev/stderr
+
+URL_EXPR="$(echo "$PR_RESPONSE" | grep '^  "html_url": "')"
+if [ -z "$URL_EXPR" ]; then
+	exit 1
+fi
+URL="$(echo "$URL_EXPR" | sed 's/.*"\(htt.*\)".*/\1/')"
+if [ -z "$URL" ]; then
+	exit 1
+fi
+
+echo "$URL"
+
+# open in the browser if specified
+getopt_assert -o:--open "$@"
+if [ $? == 0 ] && [ -n "$BROWSER" ]; then
+	$BROWSER "$URL"
+fi
+
+exit $CURL_EXIT_CODE

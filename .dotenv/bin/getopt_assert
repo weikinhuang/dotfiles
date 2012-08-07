@@ -14,60 +14,80 @@
 # implied warranty.
 # 
 # usage: getopt_assert flagname[-a] -arg1 -a rg2 --longarg3 --longarg4=something
+# to check multiple arguments delimit by : --longarg:-a:-b
+# will return the first found flag
+
+
+# function to iterate through arguments
+function getopt_loop() {
+	# the first argument is our search term
+	local SEARCH=$1
+	shift
+
+	# short circuit to prevent looping if there are no args that look like the search term
+	if [[ ! "$@" =~ "$SEARCH" ]]; then
+		return 1
+	fi
+
+	while test $# -gt 0
+	do
+		if [[ "$1" == $SEARCH* ]]; then
+			# get the substring of the argument sans the arg name itself
+			local SUBARG="${1#$SEARCH}"
+
+			# search for longopt 
+			if [[ "$1" == --* ]]; then
+				# eg. --longopt something OR --longopt eol
+				if [[ -z "$SUBARG" && "$2" != -* && -n "$2" ]]; then
+					echo "$2"
+					return 0
+				fi
+				# eg. --longopt
+				if [[ -z "$SUBARG" ]]; then
+					return 0
+				fi
+				# eg. --longopt=abcqwrer
+				if [[ "${SUBARG:0:1}" == "=" ]]; then
+					echo "${SUBARG#=}"
+					return 0
+				fi
+				# not quite right eg. --longopt1
+				shift
+				continue
+			fi
+			# search for shortopt
+			if [[ "$1" == -* ]]; then
+				# eg. -a something
+				if [[ -z "$SUBARG" && "$2" != -* && -n "$2" ]]; then
+					echo "$2"
+					return 0
+				fi
+				# eg. -a
+				if [[ -z "$SUBARG" ]]; then
+					return 0
+				fi
+				# eg. -asomething
+				echo "$SUBARG"
+				return 0
+			fi
+		fi
+		shift
+	done
+	return 1
+}
 
 # the first argument is our search term
 SEARCH=$1
 shift
 
-# short circuit to prevent looping if there are no args that look like the search term
-if [[ ! "$@" =~ "$SEARCH" ]]; then
-echo "hi";
-	exit 1
-fi
-
-while test $# -gt 0
+# explode the search phrase by ":"
+for arg in $(echo "$SEARCH" | tr ":" "\n")
 do
-	if [[ "$1" == $SEARCH* ]]; then
-		# get the substring of the argument sans the arg name itself
-		SUBARG="${1#$SEARCH}"
-
-		# search for longopt 
-		if [[ "$1" == --* ]]; then
-			# eg. --longopt something OR --longopt eol
-			if [[ -z "$SUBARG" && "$2" != -* && -n "$2" ]]; then
-				echo "$2"
-				exit 0
-			fi
-			# eg. --longopt
-			if [[ -z "$SUBARG" ]]; then
-				exit 0
-			fi
-			# eg. --longopt=abcqwrer
-			if [[ "${SUBARG:0:1}" == "=" ]]; then
-				echo "${SUBARG#=}"
-				exit 0
-			fi
-			# not quite right eg. --longopt1
-			shift
-			continue
-		fi
-		# search for shortopt
-		if [[ "$1" == -* ]]; then
-			# eg. -a something
-			if [[ -z "$SUBARG" && "$2" != -* && -n "$2" ]]; then
-				echo "$2"
-				exit 0
-			fi
-			# eg. -a
-			if [[ -z "$SUBARG" ]]; then
-				exit 0
-			fi
-			# eg. -asomething
-			echo "$SUBARG"
-			exit 0
-		fi
+	# process each of the search terms
+	getopt_loop "$arg" "$@"
+	if [[ $? == 0 ]]; then
+		exit 0
 	fi
-	shift
 done
 
 exit 1
