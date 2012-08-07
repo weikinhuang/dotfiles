@@ -61,7 +61,7 @@ if [ -z "$MESSAGE" ]; then
 fi
 
 
-PR_RESPONSE=$(curl -vvv \
+PR_RESPONSE=$(curl \
 	-H 'Authorization: token '$GITHUB_TOKEN \
 	https://api.github.com/repos/$UPSTREAM/pulls \
 	-d '{"head":"'"$GITHUB_FORK_BASE"':'"$BRANCH"'","base":"'"$REMOTE_BRANCH"'","title":"'"$MESSAGE"'"}')
