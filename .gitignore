@@ -9,6 +9,7 @@
 !.gitconfig
 !.gitignore
 !.inputrc
+!.mongorc.js
 !.screenrc
 !.wgetrc
 !bootstrap.sh
