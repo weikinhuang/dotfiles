@@ -1,6 +1,7 @@
 # Easier navigation: .., ..., ~ and -
 alias ..="cd .."
 alias ...="cd ../.."
+alias ....="cd ../../.."
 alias ~="cd ~"
 alias -- -="cd -"
 
@@ -9,6 +10,8 @@ alias -- -="cd -"
 # useful shortcuts
 alias h="history"
 alias f="findhere"
+alias o="open"
+alias oo="open ."
 
 # cd replacement to show cd history with cd --
 alias cd="__cd_func"

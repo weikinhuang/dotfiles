@@ -22,7 +22,7 @@
 			}
 			status = dbState + ":[" + dbStatus.setName + "]#";
 		}
-		return status + host + "[" + db + "]> ";
+		return status + host + " [" + db + "]> ";
 	};
 })();
 

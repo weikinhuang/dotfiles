@@ -5,8 +5,10 @@
 
 ### Install dotfiles with Git
 
-You can clone the repository wherever you want.
+You can clone the repository wherever you want, the home directory is recommended.
+
 The bootstrapper script will create symlinks in the home directory to the proper files.
+
 When the git repo is updated, the files will be automatically updated when the session is restarted.
 
 ```bash
@@ -78,6 +80,7 @@ as sudo ----------------|
 When on screen host is replaced with session name and is underlined.
  
 load = cpu% on cygwin
+
 load = 1 min load avg on *nix/osx
 
 ### Custom options for the PS1
@@ -109,5 +112,5 @@ user@host [database]→
 
 ```
 host[database]> 
-state[repl]#host[database]> 
+state[repl]#host [database]> 
 ```
