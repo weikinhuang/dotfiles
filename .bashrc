@@ -52,5 +52,13 @@ shopt -s cdspell
 # Append to the Bash history file, rather than overwriting it
 shopt -s histappend
 
+# Try to enable some bash 4 functionality
+# Attempt to auto cd to a directory
+shopt -s autocd 2> /dev/null
+# Recursive globbing, e.g. `echo **/*.txt`
+shopt -s globstar 2> /dev/null
+# If any jobs are running, this causes the exit to be deferred until a second exit is attempted
+shopt -s checkjobs 2> /dev/null
+
 # exit with a success status code
 return 0
