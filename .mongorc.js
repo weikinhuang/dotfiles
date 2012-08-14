@@ -2,9 +2,12 @@
 (function() {
 	"use strict";
 	var states = [ "STARTUP", "PRIMARY", "SECONDARY", "RECOVERING", "FATAL", "STARTUP2", "UNKNOWN", "ARBITER", "DOWN", "ROLLBACK" ];
-	var host = db.serverStatus().host;
+	var host = typeof db === "undefined" ? "" : db.serverStatus().host;
 
 	prompt = function() {
+		if (typeof db === "undefined") {
+			return "> ";
+		}
 		var dbState, status = "", dbStatus = db.isMaster();
 		if (dbStatus.setName) {
 			if (dbStatus.ismaster) {
