@@ -15,6 +15,7 @@
 	whitespace = trailing-space,space-before-tab
 	autocrlf = input
 	filemode = false
+	pager = less -x5,9 -iFXRS
 [diff]
 	renames = copies
 	mnemonicprefix = true
@@ -44,6 +45,11 @@
 	ss = stash
 	sl = stash list
 	sa = stash apply
+
+	### Verbose output about tags, branches or remotes
+	tags = tag -l
+	branches = branch -a
+	remotes = remote -v
 
 	### Committing
 	# Commit
