@@ -82,6 +82,8 @@ load = 1 min load avg on *nix/osx
 
 ### Custom options for the PS1
 
+Place these options in `~/.bash_local_exports`
+
 Turn off the load indicator (speeds up the cygwin prompt by a bit)
 ```bash
 export _PS1_HIDE_LOAD=1

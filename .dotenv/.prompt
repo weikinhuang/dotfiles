@@ -55,6 +55,7 @@ function __ps1_create() {
 	local COLOR_RESET='\[\e[0m\]'
 	local COLOR_GREY='\[\e[38;5;244m\]'
 	local COLOR_DARK_GREY='\[\e[38;5;235m\]'
+
 	# colors for individual parts of the bash prompt
 	local COLOR_EXIT_ERROR='\[\e[38;5;196m\]'
 	local COLOR_BG_JOBS='\[\e[38;5;42m\]'
@@ -64,7 +65,9 @@ function __ps1_create() {
 	local COLOR_WORK_DIR='\[\e[38;5;142m\]'
 	local COLOR_WORK_DIRINFO='\[\e[38;5;35m\]'
 	local COLOR_GIT='\[\e[38;5;135m\]'
-	
+	local COLOR_TIME_AM='\[\e[38;5;244m\]'
+	local COLOR_TIME_PM='\[\e[38;5;033m\]'
+
 	# load avg colorization
 	local loadavg='
 		load=$(__ps1_proc_use);
@@ -79,6 +82,36 @@ function __ps1_create() {
 		loadcolors_8="\[\e[38;5;166m\]"
 		loadcolors_9="\[\e[38;5;167m\]"
 	'
+
+	if [ -n "$_PS1_MONOCHROME" ]; then
+		# colors for individual parts of the bash prompt
+		local COLOR_EXIT_ERROR='\[\e[38;5;244m\]'
+		local COLOR_BG_JOBS='\[\e[38;5;244m\]'
+		local COLOR_USER='\[\e[38;5;244m\]'
+		local COLOR_HOST='\[\e[38;5;244m\]'
+		local COLOR_HOST_SCREEN='\[\e[4m\]\[\e[38;5;244m\]'
+		local COLOR_WORK_DIR='\[\e[38;5;244m\]'
+		local COLOR_WORK_DIRINFO='\[\e[38;5;244m\]'
+		local COLOR_GIT='\[\e[38;5;244m\]'
+		local COLOR_TIME_AM='\[\e[38;5;244m\]'
+		local COLOR_TIME_PM='\[\e[38;5;244m\]'
+
+		# load avg colorization
+		local loadavg='
+			load=$(__ps1_proc_use);
+			loadcolors_0="\[\e[38;5;244m\]"
+			loadcolors_1="\[\e[38;5;244m\]"
+			loadcolors_2="\[\e[38;5;244m\]"
+			loadcolors_3="\[\e[38;5;244m\]"
+			loadcolors_4="\[\e[38;5;244m\]"
+			loadcolors_5="\[\e[38;5;244m\]"
+			loadcolors_6="\[\e[38;5;244m\]"
+			loadcolors_7="\[\e[38;5;244m\]"
+			loadcolors_8="\[\e[38;5;244m\]"
+			loadcolors_9="\[\e[38;5;244m\]"
+		'
+	fi
+
 	case "$DOTENV" in
 		linux)
 			loadavg=$loadavg'
@@ -103,9 +136,9 @@ function __ps1_create() {
 	# datetime colorization
 	local datetime='
 		time=$(\\date +"%H")
-		color="\[\e[38;5;033m\]"
+		color="'"${COLOR_TIME_PM}"'"
 		if [ ${time} -ge 8 -a ${time} -le 18 ]; then
-		   color="\[\e[38;5;244m\]"
+		   color="'"${COLOR_TIME_AM}"'"
 		fi
 		echo "${color}\T'"${COLOR_RESET}"'"
 	';
@@ -195,13 +228,27 @@ function __sudo_ps1_create() {
 	local COLOR_HOST='\[\e[38;5;208m\]'
 	local COLOR_HOST_SCREEN='\[\e[4m\]\[\e[38;5;214m\]'
 	local COLOR_WORK_DIR='\[\e[38;5;142m\]'
-	
+	local COLOR_TIME_AM='\[\e[38;5;244m\]'
+	local COLOR_TIME_PM='\[\e[38;5;033m\]'
+
+	if [ -n "$_PS1_MONOCHROME" ]; then
+		# colors for individual parts of the bash prompt
+		local COLOR_EXIT_ERROR='\[\e[38;5;244m\]'
+		local COLOR_BG_JOBS='\[\e[38;5;244m\]'
+		local COLOR_USER='\[\e[38;5;244m\]'
+		local COLOR_HOST='\[\e[38;5;244m\]'
+		local COLOR_HOST_SCREEN='\[\e[4m\]\[\e[38;5;244m\]'
+		local COLOR_WORK_DIR='\[\e[38;5;244m\]'
+		local COLOR_TIME_AM='\[\e[38;5;244m\]'
+		local COLOR_TIME_PM='\[\e[38;5;244m\]'
+	fi
+
 	# datetime colorization
 	local datetime='
 		time=$(\\date +"%H")
-		color="\[\e[38;5;033m\]"
+		color="'"${COLOR_TIME_PM}"'"
 		if [ ${time} -ge 8 -a ${time} -le 18 ]; then
-		   color="\[\e[38;5;244m\]"
+		   color="'"${COLOR_TIME_AM}"'"
 		fi
 		echo "${color}\T'"${COLOR_RESET}"'"
 	';
