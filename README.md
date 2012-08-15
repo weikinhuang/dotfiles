@@ -48,25 +48,25 @@ The prompt
 
 When on ssh
 ```bash
-on ssh ------------|
+on ssh ------------┐
 [06:00:00 0.00 user@host dir<4|2.4Mb> (master %)]λ 
 ```
 
 When logged in as root user
 ```bash
-as root -----------------------------------------|
+as root -----------------------------------------┐
 [06:00:00 0.00 root@host dir<4|2.4Mb> (master %)]μ 
 ```
 
 When sudo'd
 ```bash
-as sudo ----------------|
+as sudo ----------------┐
 [06:00:00 user@host dir]π 
 ```
 
 When on screen
 ```bash
-in screen [screen name] -----------|
+in screen [screen name] -----------┐
 [06:00:00 0.00 user@12345.pts-01.host01 dir<4|2.4Mb> (master %)]λ 
 ```
 
