@@ -8,6 +8,7 @@
 !.git
 !.gitconfig
 !.gitignore
+!.hushlogin
 !.inputrc
 !.mongorc.js
 !.screenrc
