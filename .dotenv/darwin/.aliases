@@ -7,6 +7,6 @@ alias wpaste="xclip --out"
 # Specialized directory listings
 alias la="ls -lAG" 2> /dev/null
 alias ll="ls -lG" 2> /dev/null
-alias l.="ls -d .* --color=auto" 2> /dev/null
+alias l.="ls -d .* -G" 2> /dev/null
 alias ls="ls -G" 2> /dev/null
 alias lf="ls -lG | grep '^d'" 2> /dev/null

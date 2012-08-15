@@ -72,7 +72,6 @@ in screen [screen name] -----------|
 
 PS2 prompt
 ```bash
-as sudo ----------------|
 [06:00:00 0.00 user#host dir<4|2.4Mb> (master %)]λ a '\
 → bcd'
 ```
