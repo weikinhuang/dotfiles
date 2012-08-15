@@ -1,4 +1,4 @@
 # function to get cpu load
 function __ps1_proc_use() {
-	echo -n "$(\uptime | \cut -d" " -f10)"
+	echo -n "$(\uptime | \sed 's/^..*: //' | \cut -d' ' -f1)"
 }
