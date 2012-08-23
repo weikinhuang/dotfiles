@@ -15,7 +15,7 @@
 	whitespace = trailing-space,space-before-tab
 	autocrlf = input
 	filemode = false
-	pager = less -x5,9 -iFXRS
+	pager = less -x1,4 -iFXRS
 [diff]
 	renames = copies
 	mnemonicprefix = true
@@ -36,6 +36,8 @@
 	autocorrect = 1
 [alias]
 	### Basic shortcuts
+	git = !git
+	cl = clone --recursive
 	st = status
 	br = branch
 	co = checkout
@@ -43,8 +45,10 @@
 	lg = log -p
 	cp = cherry-pick
 	ss = stash
+	sp = stash pop
 	sl = stash list
 	sa = stash apply
+	si = stash --keep-index
 
 	### Verbose output about tags, branches or remotes
 	tags = tag -l
@@ -86,6 +90,9 @@
 	brn = "!git branch "$@" | grep '^*' | sed 's/^* //' && true"
 	# Update current branch from origin
 	ubo = !"git pull origin $(git brn) && true"
+	# Get the merge base for this branch
+	branch-root = !"git merge-base $(git brn) master && true"
+	brt = !"git branch-root"
 
 	### Rebase
 	rb = rebase
