@@ -52,7 +52,12 @@ set grepprg=ack
 set runtimepath^=~/.vim/bundle/ctrlp.vim
 
 " Keyboard remappings
-set pastetoggle=<F2>			" Press F2 to enable pastemode nd disable auto formatting
+set pastetoggle=<F2>			" Press F2 to enable pastemode and disable auto formatting
+" Mousemode shortcuts
+if has('mouse')
+	map <F11> :set mouse=a<CR>	" Press F11 to enable mousemode
+	map <F12> :set mouse-=a<CR>	" Press F12 to disable mousemode
+endif
 nnoremap ; :
 
 
