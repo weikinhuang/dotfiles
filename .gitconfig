@@ -154,7 +154,9 @@
 	# Go to master and pull in origin master
 	pm = !"git checkout master && git pull origin master && true"
 	# Pull in remote changes for the current repository and all its submodules
-	p = !"git pull; git submodule foreach git submodule update --init --recursive && true"
+	p = !"git pull; git submodule foreach git pull origin master && true"
+	# Pull in remote changes for the current repository and update all submodules
+	ps = !"git pull; git submodule foreach git submodule update --init --recursive && true"
 	# Push the current branch to origin with the same branch name
 	pob = !"git push "$@" origin $(git brn) && true"
 
