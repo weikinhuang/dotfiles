@@ -47,3 +47,9 @@ set noswapfile
 
 " traditional grepping with ack
 set grepprg=ack
+
+" Include the ctrl+p plugin
+set runtimepath^=~/.vim/bundle/ctrlp.vim
+
+" Keyboard remappings
+nnoremap ; :
