@@ -53,3 +53,18 @@ set runtimepath^=~/.vim/bundle/ctrlp.vim
 
 " Keyboard remappings
 nnoremap ; :
+
+
+
+
+
+
+
+" Plugin options
+
+" Ctrl+P
+" change default behavior to open a tab
+let g:ctrlp_prompt_mappings = {
+	\ 'AcceptSelection("e")': ['<c-t>'],
+	\ 'AcceptSelection("t")': ['<cr>', '<2-LeftMouse>'],
+	\ }
