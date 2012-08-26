@@ -27,6 +27,26 @@ cd; mkdir ~/.dotfiles 2> /dev/null && curl -#L https://github.com/weikinhuang/do
 
 To update later on, just run that command again, and will create backups to the current files with a *.bak extension.
 
+### Additional options
+
+Including .gitconfig in the setup with the `--git` options in the bootstrap
+
+```bash
+cd; git clone https://github.com/weikinhuang/dotfiles.git .dotfiles && cd .dotfiles && ./bootstrap.sh --git
+```
+
+Including .vim and .vimrc in the setup with the `--vim` options in the bootstrap
+
+```bash
+cd; git clone https://github.com/weikinhuang/dotfiles.git .dotfiles && cd .dotfiles && ./bootstrap.sh --vim
+```
+
+Including all options
+
+```bash
+cd; git clone https://github.com/weikinhuang/dotfiles.git .dotfiles && cd .dotfiles && ./bootstrap.sh --vim --git
+```
+
 ### Add custom commands
 
 If `~/.bash_local_exports` exists, it will be sourced before the includes are sourced.
