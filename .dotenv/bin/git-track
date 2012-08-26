@@ -1,0 +1,29 @@
+#!/bin/sh
+# Sets up auto-tracking of a remote branch with same base name.
+
+USAGE='[-r|--remote=[origin]] [-f|--force]'
+SUBDIRECTORY_OK=Yes
+. git-sh-setup
+require_work_tree
+
+# get the current branch
+BRANCH=$(git branch | grep '^* ' | sed 's/^* //')
+
+# no pull requests allowed against master unless -f option is on
+getopt_assert -f:--force "$@"
+if [ $? != 0 ] && [ "$BRANCH" == "master" ]; then
+	echo "Tracking modifications cannot be made on the master branch, override with -f."
+	exit 1
+fi
+
+REMOTE=$(getopt_assert -r:--remote "$@")
+if [ -z "$REMOTE" ]; then
+	REMOTE="origin"
+fi
+
+git config branch.$BRANCH.remote $REMOTE
+git config branch.$BRANCH.merge refs/heads/$BRANCH
+
+echo "tracking $REMOTE/$BRANCH"
+
+exit 0

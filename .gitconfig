@@ -12,10 +12,12 @@
 	pushNonFastForward = false
 	statusHints = false
 [core]
-	whitespace = trailing-space,space-before-tab
+	whitespace = fix,trailing-space,space-before-tab,indent-with-non-tab
 	autocrlf = input
 	filemode = false
 	pager = less -x1,4 -iFXRS
+[apply]
+	whitespace = nowarn
 [diff]
 	renames = copies
 	mnemonicprefix = true
@@ -34,6 +36,9 @@
 	prompt = false
 [help]
 	autocorrect = 1
+[branch "master"]
+	merge = refs/heads/master
+	remote = origin
 [alias]
 	### Basic shortcuts
 	git = !git
@@ -54,6 +59,9 @@
 	tags = tag -l
 	branches = branch -a
 	remotes = remote -v
+
+	### Adding
+	au = add -u .
 
 	### Committing
 	# Commit
@@ -84,8 +92,10 @@
 	com = checkout master
 	# Checkout last branch
 	col = checkout -
-	# Switch to a branch, creating it if necessary
+	# Switch to a branch and reset it, creating it if necessary
 	go = checkout -B
+	# create a branch by name, or if it exists, checkout the branch
+	cb = "!f() { git checkout -b "$1" 2> /dev/null && echo Created new branch \\'$1\\' || git checkout "$1"; }; f"
 	# Get the current branch name
 	brn = "!git branch "$@" | grep '^*' | sed 's/^* //' && true"
 	# Update current branch from origin
@@ -122,6 +132,9 @@
 	l = log --pretty=oneline --graph --decorate --all
 	# show tree view of the git log
 	tree = log --graph --decorate --pretty=oneline --abbrev-commit --all
+	# searching the history
+	search = log -p -S
+	rsearch = log -p -G
 
 	### Diffing
 	# Open the difftool for all files that are currently modified
@@ -131,11 +144,17 @@
 	# Undo a `git push`
 	undopush = push -f origin HEAD^:master
 
+	### Submodules
+	# Update submodules
+	subu = submodule update
+	# Update submodules and initialize them
+	subi = submodule update --init
+
 	### Syncing
 	# Go to master and pull in origin master
 	pm = !"git checkout master && git pull origin master && true"
 	# Pull in remote changes for the current repository and all its submodules
-	p = !"git pull; git submodule foreach git pull origin master && true"
+	p = !"git pull; git submodule foreach git submodule update --init --recursive && true"
 	# Push the current branch to origin with the same branch name
 	pob = !"git push "$@" origin $(git brn) && true"
 
@@ -146,6 +165,13 @@
 	lost = !"git fsck | awk '/dangling commit/ {print $3}' | git show --format='SHA1: %C(yellow)%h%Creset %f' --stdin | awk '/SHA1/ {sub(\"SHA1: \", \"\"); print}' && true"
 	# Adds a file to be ignored
 	ignore = !"echo "$1" >> .gitignore && true"
+
+	### Editing
+	# Editing and adding conflicted files: when we get many merge conflicts
+	# and want to quickly solve them using an editor, then add the files.
+	# Customize this by replacing "emacs" with your preferred editor.
+	edit-unmerged = "!f() { git ls-files --unmerged | cut -f2 | sort -u ; }; $EDITOR "$(f)""
+	add-unmerged = "!f() { git ls-files --unmerged | cut -f2 | sort -u ; }; git add "$(f)""
 
 	########### GITHUB based aliases
 	# Go to the master branch then sync local and origin with [upstream|origin]
