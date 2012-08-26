@@ -113,3 +113,17 @@ user@host [database]→
 host[database]> 
 state[repl]#host [database]> 
 ```
+
+## .gitconfig
+
+If using the gitconfig included in this repository, it is recommended that the user specific configurations be included in environment variables in `~/.bash_local_exports` for portability.
+```bash
+# git based configurations for portable .gitconfig
+export GIT_AUTHOR_NAME=""
+export GIT_AUTHOR_EMAIL=""
+export GIT_HUB_API_TOKEN=""
+```
+
+```bash
+cd; ln -s ~/.dotfiles/.gitconfig
+```

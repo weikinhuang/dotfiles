@@ -4,6 +4,12 @@
 
 # if the -n flag is passed in, don't use the local store, just generate a new token
 if [ "$1" != "-n" ]; then
+	# check the environment first
+	if [ -n "$GIT_HUB_API_TOKEN" ]; then
+		echo "$GIT_HUB_API_TOKEN"
+		exit 0
+	fi
+	# then check the gitconfig file
 	EXISTING_TOKEN=$(git config --get github.apitoken)
 	if [ -n "$EXISTING_TOKEN" ]; then
 		echo "$EXISTING_TOKEN"
