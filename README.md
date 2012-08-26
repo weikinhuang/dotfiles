@@ -141,6 +141,8 @@ If using the gitconfig included in this repository, it is recommended that the u
 # git based configurations for portable .gitconfig
 export GIT_AUTHOR_NAME=""
 export GIT_AUTHOR_EMAIL=""
+export GIT_COMMITTER_NAME="$GIT_AUTHOR_NAME";
+export GIT_COMMITTER_EMAIL="$GIT_AUTHOR_EMAIL";
 export GIT_HUB_API_TOKEN=""
 ```
 
