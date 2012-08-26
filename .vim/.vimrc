@@ -52,6 +52,7 @@ set grepprg=ack
 set runtimepath^=~/.vim/bundle/ctrlp.vim
 
 " Keyboard remappings
+set pastetoggle=<F2>			" Press F2 to enable pastemode nd disable auto formatting
 nnoremap ; :
 
 
