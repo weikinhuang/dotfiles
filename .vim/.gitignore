@@ -1,0 +1,6 @@
+# ignore everything
+*
+# except:
+!.gitignore
+!.vimrc
+!colors/solarized.vim
