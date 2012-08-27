@@ -22,6 +22,7 @@ set hidden
 syntax enable					" synyax highlighting
 set ruler						" show ruler
 set cursorline					" highlight current line
+set cursorcolumn				" highlight the current column
 
 set history=1000				" remember more commands and search history
 set undolevels=1000				" use many muchos levels of undo
@@ -94,8 +95,38 @@ nmap <leader>s<right>  :rightbelow vnew<CR>
 nmap <leader>s<up>     :leftabove  new<CR>
 nmap <leader>s<down>   :rightbelow new<CR>
 
+" map simple ctrl keys for split/window movement and sizing
+map <C-J> <C-W>j<C-W>_
+map <C-K> <C-W>k<C-W>_
+map <C-L> <C-W>l<C-W>_
+map <C-H> <C-W>h<C-W>_
+
 nnoremap <C-Left> :tabprevious<CR>	" Move to the previous tab
 nnoremap <C-Right> :tabnext<CR>		" Move to the next tab
+
+" new tab
+map <C-t>n :tabnew<CR>
+" close tab
+map <C-t>c :tabclose<CR>
+
+" ================ Misc ===================+++=======
+if has("autocmd")
+	" Restore cursor position
+	autocmd BufReadPost * if line("'\"") > 0|if line("'\"") <= line("$")|exe("norm '\"")|else|exe "norm $"|endif|endif
+
+	" Highlight JSON as javascript -- usefull if you don't want to load json.vim
+	autocmd BufNewFile,BufRead *.json set ft=javascript
+
+	" Also load indent files, to automatically do language-dependent indenting.
+	filetype plugin indent on
+endif
+
+" Convenient command to see the difference between the current buffer and the
+" file it was loaded from, thus the changes you made.
+" Only define it when not defined already.
+if !exists(":DiffOrig")
+	command DiffOrig vert new | set bt=nofile | r # | 0d_ | diffthis | wincmd p | diffthis
+endif
 
 " ================ Plugins ==========================
 " Ctrl+P
