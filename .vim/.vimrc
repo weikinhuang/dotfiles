@@ -39,9 +39,11 @@ set nobackup
 set nowb
 
 " ================ Persistent Undo ==================
-silent !mkdir ~/.vim/backups > /dev/null 2>&1
-set undodir=~/.vim/backups
-set undofile
+if has('undodir')
+	silent !mkdir ~/.vim/backups > /dev/null 2>&1
+	set undodir=~/.vim/backups
+	set undofile
+endif
 
 " ================ Indentation ======================
 set tabstop=4					" a tab is four spaces
@@ -51,9 +53,6 @@ set copyindent					" copy the previous indentation on autoindenting
 set smarttab					" insert tabs on the start of a line according to shiftwidth, not tabstop
 set shiftwidth=4				" number of spaces to use for autoindenting
 set shiftround					" use multiple of shiftwidth when indenting with '<' and '>'
-
-" Display tabs and trailing spaces visually
-set list listchars=trail:·
 
 " ================ Mouse Support ====================
 " Enable mouse support
@@ -78,12 +77,18 @@ set pastetoggle=<F2>			" Press F2 to enable pastemode and disable auto formattin
 nnoremap ; :					" Save a keypress
 
 " ================ Plugins ==========================
-" Include the ctrl+p plugin
+" Ctrl+P
 set runtimepath^=~/.vim/bundle/ctrlp.vim
 
-" Ctrl+P
 " change default behavior to open a tab
 let g:ctrlp_prompt_mappings = {
 	\ 'AcceptSelection("e")': ['<c-t>'],
 	\ 'AcceptSelection("t")': ['<cr>', '<2-LeftMouse>'],
 	\ }
+
+" VIM-powerline
+set runtimepath^=~/.vim/bundle/vim-powerline
+
+set laststatus=2				" always show the status line (for vim-powerline)
+set t_Co=256					" Tell powerline we're in 265 color mode
+let g:Powerline_symbols='unicode'	" Use unicode symbols for vim-powerline
