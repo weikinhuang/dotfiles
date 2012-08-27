@@ -11,6 +11,9 @@ set showbreak=↪					" Arrow wrap character
 set showcmd						" show incomplete cmds down the bottom
 set showmode					" show current mode down the bottom
 set autoread					" reload files changed outside vim
+set magic						" For regular expressions turn magic on
+set wildmenu					" autocomplete anywhere
+set wildmode=list:longest
 
 " This makes vim act like all other editors, buffers can
 " exist in the background without being in a window.
@@ -24,6 +27,10 @@ set history=1000				" remember more commands and search history
 set undolevels=1000				" use many muchos levels of undo
 set title						" change the terminal's title
 set noerrorbells				" don't beep
+set novisualbell				" don't beep
+
+set encoding=utf8				" Set utf8 as standard encoding and en_US as the standard language
+set ffs=unix,dos,mac			" Use Unix as the standard file type
 
 " ================ Search Settings  =================
 set ignorecase					" ignore case when searching
@@ -91,4 +98,10 @@ set runtimepath^=~/.vim/bundle/vim-powerline
 
 set laststatus=2				" always show the status line (for vim-powerline)
 set t_Co=256					" Tell powerline we're in 265 color mode
-let g:Powerline_symbols='unicode'	" Use unicode symbols for vim-powerline
+" let g:Powerline_symbols='unicode'	" Use unicode symbols for vim-powerline
+
+" VIM-autocomplpop
+set runtimepath^=~/.vim/bundle/vim-autocomplpop
+
+" VIM-fugitive
+set runtimepath^=~/.vim/bundle/vim-fugitive
