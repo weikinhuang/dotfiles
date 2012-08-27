@@ -129,7 +129,7 @@ if !exists(":DiffOrig")
 endif
 
 " ================ Plugins ==========================
-" Ctrl+P
+" ==================== Ctrl+P
 set runtimepath^=~/.vim/bundle/ctrlp.vim
 
 " change default behavior to open a tab
@@ -138,15 +138,36 @@ let g:ctrlp_prompt_mappings = {
 	\ 'AcceptSelection("t")': ['<cr>', '<2-LeftMouse>'],
 	\ }
 
-" VIM-powerline
+" ==================== VIM-powerline
 set runtimepath^=~/.vim/bundle/vim-powerline
 
 set laststatus=2				" always show the status line (for vim-powerline)
 set t_Co=256					" Tell powerline we're in 265 color mode
 " let g:Powerline_symbols='unicode'	" Use unicode symbols for vim-powerline
 
-" VIM-autocomplpop
-set runtimepath^=~/.vim/bundle/vim-autocomplpop
+" ==================== neocomplcache
+set runtimepath^=~/.vim/bundle/neocomplcache
 
-" VIM-fugitive
+" Use neocomplcache.
+let g:neocomplcache_enable_at_startup=1
+" Use smartcase.
+let g:neocomplcache_enable_smart_case = 1
+" Use camel case completion.
+let g:neocomplcache_enable_camel_case_completion = 1
+" Use underbar completion.
+let g:neocomplcache_enable_underbar_completion = 1
+" Set minimum syntax keyword length.
+let g:neocomplcache_min_syntax_length = 2
+let g:neocomplcache_lock_buffer_name_pattern = '\*ku\*'
+
+" Enable omni completion.
+if has("autocmd")
+	autocmd FileType css setlocal omnifunc=csscomplete#CompleteCSS
+	autocmd FileType html,markdown setlocal omnifunc=htmlcomplete#CompleteTags
+	autocmd FileType javascript setlocal omnifunc=javascriptcomplete#CompleteJS
+	autocmd FileType python setlocal omnifunc=pythoncomplete#Complete
+	autocmd FileType xml setlocal omnifunc=xmlcomplete#CompleteTags
+endif
+
+" ==================== VIM-fugitive
 set runtimepath^=~/.vim/bundle/vim-fugitive
