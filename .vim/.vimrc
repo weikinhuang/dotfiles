@@ -77,8 +77,10 @@ set sidescroll=1
 
 " ================ Themes ===========================
 " Solarized color scheme
-set background=light
-colorscheme solarized
+if !empty($__term_solarized_light)
+	set background=light
+	colorscheme solarized
+endif
 
 " ================ Keyboard remappings ==============
 set pastetoggle=<F2>			" Press F2 to enable pastemode and disable auto formatting
