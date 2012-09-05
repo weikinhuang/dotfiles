@@ -191,3 +191,9 @@
 	hub = !"echo "https://github.com/"$(git config remote.origin.url) | sed -E s/[a-z]+@github\\.com:// | sed s/\\.git$// && true"
 	# Gets the url to github of the current commit
 	hub-url = !"sh -c 'HEAD=$(git rev-parse HEAD) && SHA1=$([ "$0" = "sh" ] && echo $HEAD || echo $0) && echo $(git hub)"/commit/"${SHA1}' && true"
+
+# custom diff chunk headers
+[diff "js"]
+	xfuncname = "^[ \\t]*((((.+) *: *function *\\()|(function .+ *\\()).+)$"
+[diff "css"]
+	xfuncname = "^[ \\t]*(.+ *{ *)$"
