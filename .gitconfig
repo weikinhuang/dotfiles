@@ -69,6 +69,7 @@
 
 	### Adding
 	au = add -u .
+	rml = rm --cached
 
 	### Committing
 	# Commit
