@@ -1,5 +1,17 @@
 #!/bin/bash
 
+# show help message
+getopt_assert -?:--help "$@"
+if [[ $? == 0 ]]; then
+	echo 'usage symlink-reflow [-?|--help] [-c:--cygwin] [-f:--force]
+Convert cygwin symlinks to Windows NTFS links and vice versa
+
+-f, --force           do not prompt before each relink
+-c, --cygwin          convert to cygwin symlinks (default is windows links)
+-?, --help            display this message'
+	exit 0
+fi
+
 # Spaces do not count as new delimiters
 IFS=$'\n'
 # keep reference to where we are now
