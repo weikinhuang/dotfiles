@@ -1,30 +1,107 @@
 #!/bin/bash
-# http://www.castledragmire.com/Posts/Symlinks_in_a_Windows_programming_environment
-IFS=$'\n' #Spaces do not count as new delimiters
 
-function makewinlink
-{
-	LINK=$1
+# Spaces do not count as new delimiters
+IFS=$'\n'
+# keep reference to where we are now
+CURRENT_PWD="$(pwd)"
+
+# see if we want to convert to a windows link or a cygwin link
+LINK_TYPE="winlink"
+getopt_assert -c:--cygwin "$@"
+if [[ $? == 0 ]]; then
+	LINK_TYPE="cyglink"
+fi
+
+# see if we have to ask for each symlink
+FORCE=
+getopt_assert -f:--force "$@"
+if [[ $? == 0 ]]; then
+	FORCE=1
+fi
+
+# make windows ntfs symlinks
+function winlink () {
+	# params
+	LINK="$1"
 	OPTIONS=$2
-	TARGET=`find $LINK -maxdepth 0 -printf %l`
-	LASTMODTIME=`find $LINK -maxdepth 0 -printf "%t"`
-	LINKDIR=`find $LINK -maxdepth 0 -printf %h`
-	TARGET=`echo $LINKDIR/$TARGET`
-	rm -f $LINK
-	cmd /c mklink $OPTIONS "$(cygpath -wa $LINK)" "$(cygpath -wa $TARGET)"
-	touch -h -d $LASTMODTIME $LINK
+	LASTMODTIME="$(find "$LINK" -maxdepth 0 -printf "%t")"
+	TARGET="$(readlink "$LINK")"
+	DIRNAME="$(dirname "$LINK")"
+	BASENAME="$(basename "$LINK")"
+
+	# delete the existing link
+	rm -f "$LINK"
+
+	# we want to make relative links whenever possible, so we should try going going into the directory first
+	cd "$DIRNAME"
+
+	if [[ ${TARGET:0:1} == "/" ]]; then
+		# if absolute path then run it against cygpath
+		cmd /c mklink $OPTIONS "$BASENAME" "$(cygpath -wa "$TARGET")"
+	else
+		# otherwise replace unix path separator with windows versions
+		cmd /c mklink $OPTIONS "$BASENAME" "${TARGET//\//\\}"
+	fi
+
+	# give the new link the same file mod time as the previous link
+	touch -h -d "$LASTMODTIME" "$BASENAME"
+
+	# go back to the previous working directory
+	cd "$CURRENT_PWD"
 }
 
-#Relink all directories
-FILES=`find -type l -print0 | xargs -0 -i find -L {} -type d -maxdepth 0`
-for f in $FILES
+# make cygwin symlinks
+function cyglink () {
+	# params
+	LINK="$1"
+	LASTMODTIME="$(find "$LINK" -maxdepth 0 -printf "%t")"
+	TARGET="$(readlink "$LINK")"
+	DIRNAME="$(dirname "$LINK")"
+	BASENAME="$(basename "$LINK")"
+
+	# delete the existing link
+	rm -f "$LINK"
+
+	# we want to make relative links whenever possible, so we should try going going into the directory first
+	cd "$DIRNAME"
+
+	# otherwise replace unix path separator with windows versions
+	ln -s "$TARGET" "$BASENAME"
+	if [[ $? == 0 ]]; then
+		echo "symbolic link created for $LINK <<===>> $TARGET"
+	fi
+
+	# give the new link the same file mod time as the previous link
+	touch -h -d "$LASTMODTIME" "$BASENAME"
+
+	# go back to the previous working directory
+	cd "$CURRENT_PWD"
+}
+
+# confirm that we want to create a symlink
+function confirm () {
+	# do we need to prompt?
+	if [[ -z $FORCE ]]; then
+		read -p "Relink '$1'? " CONFIRM
+		if [[ $CONFIRM != y* ]]; then
+			echo "1"
+			return;
+		fi
+	fi
+}
+
+# Relink all directories
+for dir in $(find -type l -print0 | xargs -0 -i find -L {} -type d -maxdepth 0)
 do
-	makewinlink $f /D
+	if [[ -z $(confirm "$dir") ]]; then
+		$LINK_TYPE "$dir" /D
+	fi
 done
 
-#Relink all files
-FILES=`find -type l -print0 | xargs -0 -i find -L {} -type f -maxdepth 0`
-for f in $FILES
+# Relink all files
+for file in $(find -type l -print0 | xargs -0 -i find -L {} -type f -maxdepth 0)
 do
-	makewinlink $f
+	if [[ -z $(confirm "$file") ]]; then
+		$LINK_TYPE "$file"
+	fi
 done
