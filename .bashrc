@@ -46,6 +46,9 @@ export PATH=$(echo "$PATH" | tr : '\n' | nl | sort -u -k 2,2 | sort -n | cut -f 
 # Use case-insensitive filename globbing
 shopt -s nocaseglob
 
+# Include . files when globing (ie. mv, cp, etc.)
+shopt -s dotglob
+
 # When changing directory small typos can be ignored by bash
 shopt -s cdspell
 
