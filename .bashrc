@@ -3,6 +3,21 @@
 # If not running interactively, don't do anything
 [ -z "$PS1" ] && return
 
+# Force usage of 256 color terminal
+case "$TERM" in
+	xterm*)
+		export TERM="xterm-256color"
+		;;
+	rxvt*)
+		export TERM="rxvt-256color"
+		;;
+	screen*)
+		export TERM="screen-256color"
+		;;
+	*)
+		;;
+esac
+
 # Check out which env this bash is running in
 DOTENV="linux"
 case "$(uname -s)" in
