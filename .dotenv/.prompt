@@ -63,6 +63,14 @@ if [[ -n $_PS1_MONOCHROME ]]; then
 	'
 fi
 
+# ---------- SYMBOLS AND VARIABLES FOR PROMPTS ----------
+PS1_GIT_BRANCH_SYMBOL="${PS1_COLOR_BOLD}$(echo -e '\xD5\xAF')${PS1_COLOR_NORMAL} "
+PS1_DAY_START=8
+PS1_DAY_END=18
+
+# ---------- SYMBOL, VARIABLES, AND COLOR OVERRIDES ----------
+[[ -r "${HOME}/.prompt_exports" ]] && source "${HOME}/.prompt_exports"
+
 # ---------- FUNCTIONS AND REUSED STATEMENTS FOR PROMPTS ----------
 
 # Keep a cached date variable for prompt testing
@@ -97,11 +105,11 @@ fi
 # datetime colorization in prompt
 PS1_DATETIME='
 	time=$(/bin/date +"%H" | sed 's/^0//')
-	color="'"${PS1_COLOR_TIME_PM}"'"
-	if [[ ${time} -ge 8 && ${time} -le 18 ]]; then
-	   color="'"${PS1_COLOR_TIME_AM}"'"
+	color="'${PS1_COLOR_TIME_PM}'"
+	if [[ ${time} -ge '${PS1_DAY_START}' && ${time} -le '${PS1_DAY_END}' ]]; then
+	   color="'${PS1_COLOR_TIME_AM}'"
 	fi
-	echo "${color}\T'"${PS1_COLOR_RESET}"'"
+	echo "${color}\T'${PS1_COLOR_RESET}'"
 ';
 
 # Set the title bar if we are in xterm
@@ -124,20 +132,20 @@ function __ps1_create() {
 	# special case for osx systems with older sed
 	case $DOTENV in
 		linux)
-			loadavg=$loadavg'
+			loadavg=${loadavg}'
 				__ps1_var_loadmod=$(echo "${load}" | \\sed "s/^0*\\([0-9]\\+\\)\\..\\+\\$/\\1/")
 			'
 			;;
 		darwin)
-			loadavg=$loadavg'
+			loadavg=${loadavg}'
 				__ps1_var_loadmod=$(echo "${load}" | \\sed "s/^0*\\([0-9][0-9]*\\)\\..*\\$/\\1/")
 			'
 			;;
 	esac
-	loadavg=$loadavg$PS1_COLOR_LOAD'
+	loadavg=${loadavg}${PS1_COLOR_LOAD}'
 		[[ $__ps1_var_loadmod -gt 9 ]] && __ps1_var_loadmod=9
 		loadcolor="loadcolors_${__ps1_var_loadmod}"
-		echo "${!loadcolor}${load}'"${PS1_COLOR_RESET}"' "
+		echo "${!loadcolor}${load}'${PS1_COLOR_RESET}' "
 	'
 	if [[ -n "$_PS1_HIDE_LOAD" ]] ; then
 		loadavg=''
@@ -186,7 +194,7 @@ function __ps1_create() {
 	fi
 	# git status only if the git repo status function is installed
 	if type __git_ps1 &> /dev/null; then
-		PS1="$PS1""${PS1_COLOR_GIT}"'$(__git_ps1 " (%s)")'"${PS1_COLOR_RESET}"
+		PS1="$PS1""${PS1_COLOR_GIT}"'$(__git_ps1 " ('"${PS1_GIT_BRANCH_SYMBOL}${PS1_COLOR_RESET}${PS1_COLOR_GIT}"'%s)")'"${PS1_COLOR_RESET}"
 	fi
 	# close bracket
 	PS1="$PS1""${PS1_COLOR_BOLD}${PS1_COLOR_GREY}"']'"${PS1_COLOR_RESET}"
@@ -200,7 +208,7 @@ function __ps1_create() {
 			;;
 	esac
 	# space & title bar
-	PS1="$PROMPT_TITLE$PS1"' '
+	PS1=${PROMPT_TITLE}${PS1}' '
 }
 
 # generate the sudo bash prompt
@@ -252,7 +260,7 @@ function __sudo_ps1_create() {
 			;;
 	esac
 	# space & title bar
-	SUDO_PS1="$PROMPT_TITLE$SUDO_PS1"' '
+	SUDO_PS1=${PROMPT_TITLE}${SUDO_PS1}' '
 }
 
 # ---------- EXPORT PROMPTS ----------
