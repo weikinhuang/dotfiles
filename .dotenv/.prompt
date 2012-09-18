@@ -64,11 +64,20 @@ if [[ -n $_PS1_MONOCHROME ]]; then
 fi
 
 # ---------- SYMBOLS AND VARIABLES FOR PROMPTS ----------
-PS1_GIT_BRANCH_SYMBOL="${PS1_COLOR_BOLD}$(echo -e '\xD5\xAF')${PS1_COLOR_NORMAL} "
+
+PS1_SYMBOL_GIT_BRANCH="${PS1_COLOR_BOLD}$(echo -e '\xD5\xAF')${PS1_COLOR_NORMAL} "
+PS1_SYMBOL_SSH='@'
+PS1_SYMBOL_LOCAL='#'
+
+PS1_SYMBOL_USER="$(echo -e "\xCE\xBB")"
+PS1_SYMBOL_ROOT="$(echo -e "\xCE\xBC")"
+PS1_SYMBOL_SU="$(echo -e "\xCF\x80\x0A")"
+
 PS1_DAY_START=8
 PS1_DAY_END=18
 
 # ---------- SYMBOL, VARIABLES, AND COLOR OVERRIDES ----------
+
 [[ -r "${HOME}/.prompt_exports" ]] && source "${HOME}/.prompt_exports"
 
 # ---------- FUNCTIONS AND REUSED STATEMENTS FOR PROMPTS ----------
@@ -112,6 +121,14 @@ PS1_DATETIME='
 	echo "${color}\T'${PS1_COLOR_RESET}'"
 ';
 
+# [@|#] based on environment If ssh connection
+if [[ -n "${SSH_CONNECTION:-}" ]]; then
+	PS1_SESSION_TYPE="${PS1_SYMBOL_SSH}"
+else
+	# otherwise
+	PS1_SESSION_TYPE="${PS1_SYMBOL_LOCAL}"
+fi
+
 # Set the title bar if we are in xterm
 case "$TERM" in
 	xterm*|rxvt*)
@@ -147,7 +164,7 @@ function __ps1_create() {
 		loadcolor="loadcolors_${__ps1_var_loadmod}"
 		echo "${!loadcolor}${load}'${PS1_COLOR_RESET}' "
 	'
-	if [[ -n "$_PS1_HIDE_LOAD" ]] ; then
+	if [[ -n $_PS1_HIDE_LOAD ]] ; then
 		loadavg=''
 	fi
 
@@ -166,15 +183,7 @@ function __ps1_create() {
 	# user
 	PS1="$PS1""${PS1_COLOR_USER}"'\u'"${PS1_COLOR_RESET}"
 	# [@] based on environment
-	PS1="$PS1""${PS1_COLOR_GREY}"
-	# If ssh connection
-	if [[ -n "${SSH_CONNECTION:-}" ]]; then
-		PS1="$PS1"'@'
-	else
-		# otherwise
-		PS1="$PS1"'#'
-	fi
-	PS1="$PS1""${PS1_COLOR_RESET}"
+	PS1=${PS1}${PS1_COLOR_GREY}${PS1_SESSION_TYPE}${PS1_COLOR_RESET}
 	# [host|screen session]
 	case "$TERM" in
 		screen*)
@@ -194,19 +203,12 @@ function __ps1_create() {
 	fi
 	# git status only if the git repo status function is installed
 	if type __git_ps1 &> /dev/null; then
-		PS1="$PS1""${PS1_COLOR_GIT}"'$(__git_ps1 " ('"${PS1_GIT_BRANCH_SYMBOL}${PS1_COLOR_RESET}${PS1_COLOR_GIT}"'%s)")'"${PS1_COLOR_RESET}"
+		PS1="$PS1""${PS1_COLOR_GIT}"'$(__git_ps1 " ('"${PS1_SYMBOL_GIT_BRANCH}${PS1_COLOR_RESET}${PS1_COLOR_GIT}"'%s)")'"${PS1_COLOR_RESET}"
 	fi
 	# close bracket
 	PS1="$PS1""${PS1_COLOR_BOLD}${PS1_COLOR_GREY}"']'"${PS1_COLOR_RESET}"
 	# prompt symbol
-	case "$UID" in
-		0 )
-			PS1="$PS1""${PS1_COLOR_BOLD}$(echo -e "\xCE\xBC")${PS1_COLOR_RESET}"
-			;;
-		* )
-			PS1="$PS1""${PS1_COLOR_BOLD}$(echo -e "\xCE\xBB")${PS1_COLOR_RESET}"
-			;;
-	esac
+	PS1=${PS1}${PS1_COLOR_BOLD}$([[ $UID == 0 ]] && echo ${PS1_SYMBOL_ROOT} || echo ${PS1_SYMBOL_USER})${PS1_COLOR_RESET}
 	# space & title bar
 	PS1=${PROMPT_TITLE}${PS1}' '
 }
@@ -226,15 +228,7 @@ function __sudo_ps1_create() {
 	# user
 	SUDO_PS1="$SUDO_PS1""${PS1_COLOR_USER}"'\u'"${PS1_COLOR_RESET}"
 	# [@] based on environment
-	SUDO_PS1="$SUDO_PS1""${PS1_COLOR_GREY}"
-	# If ssh connection
-	if [[ -n "${SSH_CONNECTION:-}" ]]; then
-		SUDO_PS1="$SUDO_PS1"'@'
-	else
-		# otherwise
-		SUDO_PS1="$SUDO_PS1"'#'
-	fi
-	SUDO_PS1="$SUDO_PS1""${PS1_COLOR_RESET}"
+	SUDO_PS1=${SUDO_PS1}${PS1_COLOR_GREY}${PS1_SESSION_TYPE}${PS1_COLOR_RESET}
 	# [host|screen session]
 	case "$TERM" in
 		screen*)
@@ -251,14 +245,7 @@ function __sudo_ps1_create() {
 	# close bracket
 	SUDO_PS1="$SUDO_PS1""${PS1_COLOR_BOLD}${PS1_COLOR_GREY}"']'"${PS1_COLOR_RESET}"
 	# prompt symbol
-	case "$UID" in
-		0 )
-			SUDO_PS1="$SUDO_PS1""${PS1_COLOR_BOLD}$(echo -e "\xCE\xBC")${PS1_COLOR_RESET}"
-			;;
-		* )
-			SUDO_PS1="$SUDO_PS1""${PS1_COLOR_BOLD}$(echo -e "\xCF\x80\x0A")${PS1_COLOR_RESET}"
-			;;
-	esac
+	SUDO_PS1="$SUDO_PS1""${PS1_COLOR_BOLD}\$([[ \$UID == 0 ]] && echo ${PS1_SYMBOL_ROOT} || echo ${PS1_SYMBOL_SU})${PS1_COLOR_RESET}"
 	# space & title bar
 	SUDO_PS1=${PROMPT_TITLE}${SUDO_PS1}' '
 }
@@ -283,7 +270,8 @@ unset __ps1_create \
 	__sudo_ps1_create
 
 # unset variables so they don't leak out to the bash shell
-unset PS1_COLOR_BOLD \
+unset PS1_COLOR_NORMAL \
+	PS1_COLOR_BOLD \
 	PS1_COLOR_UNDERLINE \
 	PS1_COLOR_RESET \
 	PS1_COLOR_GREY \
@@ -299,7 +287,16 @@ unset PS1_COLOR_BOLD \
 	PS1_COLOR_TIME_AM \
 	PS1_COLOR_TIME_PM \
 	PS1_COLOR_LOAD \
-	PS1_DATETIME
+	PS1_DATETIME \
+	PS1_DAY_END \
+	PS1_DAY_START \
+	PS1_SYMBOL_GIT_BRANCH \
+	PS1_SYMBOL_SSH \
+	PS1_SYMBOL_LOCAL \
+	PS1_SYMBOL_USER \
+	PS1_SYMBOL_ROOT \
+	PS1_SYMBOL_SU \
+	PS1_SESSION_TYPE
 
 # ---------- OTHER VARIABLES ----------
 
