@@ -135,7 +135,7 @@ function __ps1_create() {
 			;;
 	esac
 	loadavg=$loadavg$PS1_COLOR_LOAD'
-		[ $__ps1_var_loadmod -gt 9 ] && __ps1_var_loadmod=9
+		[[ $__ps1_var_loadmod -gt 9 ]] && __ps1_var_loadmod=9
 		loadcolor="loadcolors_${__ps1_var_loadmod}"
 		echo "${!loadcolor}${load}'"${PS1_COLOR_RESET}"' "
 	'
@@ -203,11 +203,6 @@ function __ps1_create() {
 	PS1="$PROMPT_TITLE$PS1"' '
 }
 
-# generate the bash prompt
-function __ps2_create() {
-	PS2="$(echo -e "\xe2\x86\x92") "
-}
-
 # generate the sudo bash prompt
 function __sudo_ps1_create() {
 	# Start SUDO_PS1 description
@@ -266,19 +261,17 @@ function __sudo_ps1_create() {
 __ps1_create
 export PS1
 
-# export the interactive prompt line of the shell
-__ps2_create
-export PS2
-
 # export the sudo'd bash prompt
 __sudo_ps1_create
 export SUDO_PS1
+
+# export the interactive prompt line of the shell
+export PS2="$(echo -e "\xe2\x86\x92") "
 
 # ---------- CLEANUP ----------
 
 # clean up these functions
 unset __ps1_create \
-	__ps2_create \
 	__sudo_ps1_create
 
 # unset variables so they don't leak out to the bash shell
