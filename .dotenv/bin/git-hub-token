@@ -46,7 +46,7 @@ if [ -z "$(echo "$GITHUB_TOKEN_RESPONSE" | grep '"token":')" ]; then
 fi
 
 # just grab out the token
-GITHUB_TOKEN=$(echo "$GITHUB_TOKEN_RESPONSE" | grep '"token":' | sed 's/\s\s*"token":\s*"\(\w\w*\)".*/\1/')
+GITHUB_TOKEN=$(echo "$GITHUB_TOKEN_RESPONSE" | grep '"token":' | sed 's/  *"token": *"\([A-Za-z0-9_][A-Za-z0-9_]*\)".*/\1/')
 
 echo "$GITHUB_TOKEN"
 

@@ -2,7 +2,7 @@
 type __git_ps1 &> /dev/null || source "${HOME}/.dotenv/other/git-prompt.sh"
 
 # include solarized dir colors theme
-[ -n "$__term_solarized_light" ] && eval "$(dircolors "${HOME}/.dotenv/other/dircolors.solarized.ansi-light")"
+[[ -n "$__term_solarized_light" ]] && eval "$(dircolors "${HOME}/.dotenv/other/dircolors.solarized.ansi-light")"
 
 # include special mysql client customizations
-[ -r "${HOME}/.dotenv/other/mysql-client.sh" ] && source "${HOME}/.dotenv/other/mysql-client.sh"
+[[ -r "${HOME}/.dotenv/other/mysql-client.sh" ]] && source "${HOME}/.dotenv/other/mysql-client.sh"

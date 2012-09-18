@@ -1,9 +1,5 @@
-# Output information about the current directory's repository
-function __ps1_repo_info() {
-	type __git_ps1 &> /dev/null && __git_ps1 "$@"
-}
-
 # quick reference to colors
+PS1_COLOR_NORMAL='\[\e[m\]'
 PS1_COLOR_BOLD='\[\e[1m\]'
 PS1_COLOR_UNDERLINE='\[\e[4m\]'
 PS1_COLOR_RESET='\[\e[0m\]'
@@ -74,17 +70,16 @@ __ps1_var_dirinfotime=0
 __ps1_var_dirinfoprev=0
 [[ -z $__ps1_var_dirinforeloadtime ]] && __ps1_var_dirinforeloadtime=60
 function __ps1_dir_wrapper() {
-	local lsout lsnum lssize curdir
-	curdir="$(/bin/pwd)"
+	local lsout lsnum lssize
 
 	# refresh every minute or on directory change
-	if [[ $(( $__ps1_var_date - $__ps1_var_dirinforeloadtime )) -gt $__ps1_var_dirinfotime || "$curdir" != "$__ps1_var_dirinfoprev" ]]; then
+	if [[ $(( $__ps1_var_date - $__ps1_var_dirinforeloadtime )) -gt $__ps1_var_dirinfotime || "$PWD" != "$__ps1_var_dirinfoprev" ]]; then
 		lsout=$(/bin/ls -lAh)
 		lsnum=$(($(echo "${lsout}" | \wc -l | \sed "s/ //g") - 1))
 		lssize="$(echo "${lsout}" | \grep -m 1 total | \sed "s/total //")b"
 	
 		__ps1_var_dirinfo="${lsnum}|${lssize}"
-		__ps1_var_dirinfoprev="$curdir"
+		__ps1_var_dirinfoprev="$PWD"
 		__ps1_var_dirinfotime=$(/bin/date +%s)
 		# update the prompt time
 		__ps1_var_date=$__ps1_var_dirinfotime
@@ -173,8 +168,11 @@ function __ps1_create() {
 	if [[ -z "$_PS1_HIDE_DIR_INFO" ]] ; then
 		PS1="$PS1""${PS1_COLOR_WORK_DIRINFO}"'<${__ps1_var_dirinfo}>'"${PS1_COLOR_RESET}"
 	fi
-	# git status
-	PS1="$PS1""${PS1_COLOR_GIT}"'$(__ps1_repo_info " (%s)")'"${PS1_COLOR_RESET}"
+	# git status only if the git repo status function is installed
+	type __git_ps1 &> /dev/null
+	if [[ $? == 0 ]]; then
+		PS1="$PS1""${PS1_COLOR_GIT}"'$(__git_ps1 " (%s)")'"${PS1_COLOR_RESET}"
+	fi
 	# close bracket
 	PS1="$PS1""${PS1_COLOR_BOLD}${PS1_COLOR_GREY}"']'"${PS1_COLOR_RESET}"
 	# prompt symbol

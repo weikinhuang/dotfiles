@@ -1,10 +1,10 @@
 # Open a Windows (Vista/7) Libraries
 function olib() {
-	if [ -z "$1" ] ; then
+	if [[ -z "$1" ]] ; then
 		return 1
 	fi
 	local library="/c/Users/$(whoami)/AppData/Roaming/Microsoft/Windows/Libraries/$1.library-ms"
-	if [ ! -e "$library" ] ; then
+	if [[ ! -e "$library" ]] ; then
 		return 2
 	fi
 	open $library
@@ -14,7 +14,7 @@ function olib() {
 # Find processes by name match
 function psfind() {
 	local psout
-	if [ -n "$1" ] ; then
+	if [[ -n "$1" ]] ; then
 		psout="$(ps -aW)"
 		echo "${psout}" | head -n 1
 		echo "${psout}" | grep -v "\\bSystem$" | grep -Pi "(\\\|/)[^\\/]*$1[^\\/]*(\.exe)?\$"
@@ -25,7 +25,7 @@ function psfind() {
 
 # Kill processes by name match
 function pskill() {
-	if [ -n "$1" ] ; then
+	if [[ -n "$1" ]] ; then
 		ps -aW | grep -v "\\bSystem$" | grep -Pi "(\\\|/)[^\\/]*$1[^\\/]*(\.exe)?\$" | awk '{ print $1 }' | xargs -r -I {} -P $PROC_CORES sh -c "/bin/kill -f {};"
 		return $?
 	fi
