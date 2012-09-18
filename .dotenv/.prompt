@@ -1,3 +1,5 @@
+# ---------- COLOR REFERENCES AND OPTIONS ----------
+
 # quick reference to colors
 PS1_COLOR_NORMAL='\[\e[m\]'
 PS1_COLOR_BOLD='\[\e[1m\]'
@@ -35,31 +37,33 @@ PS1_COLOR_LOAD='
 # If we want a monochrome bash prompt
 if [[ -n $_PS1_MONOCHROME ]]; then
 	# colors for individual parts of the bash prompt
-	COLOR_EXIT_ERROR='\[\e[38;5;244m\]'
-	COLOR_BG_JOBS='\[\e[38;5;244m\]'
-	COLOR_USER='\[\e[38;5;244m\]'
-	COLOR_HOST='\[\e[38;5;244m\]'
-	COLOR_HOST_SCREEN=$PS1_COLOR_UNDERLINE'\[\e[38;5;244m\]'
-	COLOR_WORK_DIR='\[\e[38;5;244m\]'
-	COLOR_WORK_DIRINFO='\[\e[38;5;244m\]'
-	COLOR_GIT='\[\e[38;5;244m\]'
-	COLOR_TIME_AM='\[\e[38;5;244m\]'
-	COLOR_TIME_PM='\[\e[38;5;244m\]'
+	PS1_COLOR_EXIT_ERROR=''
+	PS1_COLOR_BG_JOBS=''
+	PS1_COLOR_USER=''
+	PS1_COLOR_HOST=''
+	PS1_COLOR_HOST_SCREEN=$PS1_COLOR_UNDERLINE''
+	PS1_COLOR_WORK_DIR=''
+	PS1_COLOR_WORK_DIRINFO=''
+	PS1_COLOR_GIT=''
+	PS1_COLOR_TIME_AM=''
+	PS1_COLOR_TIME_PM=''
 
 	# load avg colorization
 	PS1_COLOR_LOAD='
-		loadcolors_0="\[\e[38;5;244m\]"
-		loadcolors_1="\[\e[38;5;244m\]"
-		loadcolors_2="\[\e[38;5;244m\]"
-		loadcolors_3="\[\e[38;5;244m\]"
-		loadcolors_4="\[\e[38;5;244m\]"
-		loadcolors_5="\[\e[38;5;244m\]"
-		loadcolors_6="\[\e[38;5;244m\]"
-		loadcolors_7="\[\e[38;5;244m\]"
-		loadcolors_8="\[\e[38;5;244m\]"
-		loadcolors_9="\[\e[38;5;244m\]"
+		loadcolors_0=""
+		loadcolors_1=""
+		loadcolors_2=""
+		loadcolors_3=""
+		loadcolors_4=""
+		loadcolors_5=""
+		loadcolors_6=""
+		loadcolors_7=""
+		loadcolors_8=""
+		loadcolors_9=""
 	'
 fi
+
+# ---------- FUNCTIONS AND REUSED STATEMENTS FOR PROMPTS ----------
 
 # Keep a cached date variable for prompt testing
 __push_prompt_command '__ps1_var_date=$(/bin/date +%s)'
@@ -90,6 +94,28 @@ if [[ -z $_PS1_HIDE_DIR_INFO ]] ; then
 	__push_prompt_command '__ps1_dir_wrapper'
 fi
 
+# datetime colorization in prompt
+PS1_DATETIME='
+	time=$(/bin/date +"%H" | sed 's/^0//')
+	color="'"${PS1_COLOR_TIME_PM}"'"
+	if [[ ${time} -ge 8 && ${time} -le 18 ]]; then
+	   color="'"${PS1_COLOR_TIME_AM}"'"
+	fi
+	echo "${color}\T'"${PS1_COLOR_RESET}"'"
+';
+
+# Set the title bar if we are in xterm
+case "$TERM" in
+	xterm*|rxvt*)
+		PROMPT_TITLE="\[\e]0;\u@\h:\W\007\]"
+		;;
+	*)
+		PROMPT_TITLE=""
+		;;
+esac
+
+# ---------- PROMPT GENERATION ----------
+
 # generate the bash prompt
 function __ps1_create() {
 	# load avg colorization
@@ -116,16 +142,6 @@ function __ps1_create() {
 	if [[ -n "$_PS1_HIDE_LOAD" ]] ; then
 		loadavg=''
 	fi
-	
-	# datetime colorization
-	local datetime='
-		time=$(/bin/date +"%H" | sed 's/^0//')
-		color="'"${PS1_COLOR_TIME_PM}"'"
-		if [[ ${time} -ge 8 && ${time} -le 18 ]]; then
-		   color="'"${PS1_COLOR_TIME_AM}"'"
-		fi
-		echo "${color}\T'"${PS1_COLOR_RESET}"'"
-	';
 
 	# Start PS1 description
 	PS1=''
@@ -136,7 +152,7 @@ function __ps1_create() {
 	# show number of background jobs
 	PS1="$PS1""${PS1_COLOR_BG_JOBS}"'$([ \j -gt 0 ] && echo -n "bg:\j ")'"${PS1_COLOR_RESET}"
 	# time
-	PS1="$PS1\$($datetime)"' '
+	PS1="$PS1\$($PS1_DATETIME)"' '
 	# load
 	PS1="$PS1\$($loadavg)"
 	# user
@@ -169,8 +185,7 @@ function __ps1_create() {
 		PS1="$PS1""${PS1_COLOR_WORK_DIRINFO}"'<${__ps1_var_dirinfo}>'"${PS1_COLOR_RESET}"
 	fi
 	# git status only if the git repo status function is installed
-	type __git_ps1 &> /dev/null
-	if [[ $? == 0 ]]; then
+	if type __git_ps1 &> /dev/null; then
 		PS1="$PS1""${PS1_COLOR_GIT}"'$(__git_ps1 " (%s)")'"${PS1_COLOR_RESET}"
 	fi
 	# close bracket
@@ -184,17 +199,8 @@ function __ps1_create() {
 			PS1="$PS1""${PS1_COLOR_BOLD}$(echo -e "\xCE\xBB")${PS1_COLOR_RESET}"
 			;;
 	esac
-	# space
-	PS1="$PS1"' '
-
-	# Set the title bar if we are in xterm
-	case "$TERM" in
-		xterm*|rxvt*)
-			PS1="\[\e]0;\u@\h:\W\007\]$PS1"
-			;;
-		*)
-			;;
-	esac
+	# space & title bar
+	PS1="$PROMPT_TITLE$PS1"' '
 }
 
 # generate the bash prompt
@@ -204,16 +210,6 @@ function __ps2_create() {
 
 # generate the sudo bash prompt
 function __sudo_ps1_create() {
-	# datetime colorization
-	local datetime='
-		time=$(/bin/date +"%H" | sed 's/^0//')
-		color="'"${PS1_COLOR_TIME_PM}"'"
-		if [[ ${time} -ge 8 && ${time} -le 18 ]]; then
-		   color="'"${PS1_COLOR_TIME_AM}"'"
-		fi
-		echo "${color}\T'"${PS1_COLOR_RESET}"'"
-	';
-
 	# Start SUDO_PS1 description
 	SUDO_PS1=''
 	# open bracket
@@ -223,7 +219,7 @@ function __sudo_ps1_create() {
 	# show number of background jobs
 	SUDO_PS1="$SUDO_PS1""${PS1_COLOR_BG_JOBS}"'$([ \j -gt 0 ] && echo -n "bg:\j ")'"${PS1_COLOR_RESET}"
 	# time
-	SUDO_PS1="$SUDO_PS1\$($datetime)"' '
+	SUDO_PS1="$SUDO_PS1\$($PS1_DATETIME)"' '
 	# user
 	SUDO_PS1="$SUDO_PS1""${PS1_COLOR_USER}"'\u'"${PS1_COLOR_RESET}"
 	# [@] based on environment
@@ -260,18 +256,11 @@ function __sudo_ps1_create() {
 			SUDO_PS1="$SUDO_PS1""${PS1_COLOR_BOLD}$(echo -e "\xCF\x80\x0A")${PS1_COLOR_RESET}"
 			;;
 	esac
-	# space
-	SUDO_PS1="$SUDO_PS1"' '
-
-	# Set the title bar if we are in xterm
-	case "$TERM" in
-		xterm*|rxvt*)
-			SUDO_PS1="\[\e]0;\u@\h:\W\007\]$SUDO_PS1"
-			;;
-		*)
-			;;
-	esac
+	# space & title bar
+	SUDO_PS1="$PROMPT_TITLE$SUDO_PS1"' '
 }
+
+# ---------- EXPORT PROMPTS ----------
 
 # Execute the prompt creation function
 __ps1_create
@@ -284,6 +273,8 @@ export PS2
 # export the sudo'd bash prompt
 __sudo_ps1_create
 export SUDO_PS1
+
+# ---------- CLEANUP ----------
 
 # clean up these functions
 unset __ps1_create \
@@ -306,7 +297,10 @@ unset PS1_COLOR_BOLD \
 	PS1_COLOR_GIT \
 	PS1_COLOR_TIME_AM \
 	PS1_COLOR_TIME_PM \
-	PS1_COLOR_LOAD
+	PS1_COLOR_LOAD \
+	PS1_DATETIME
+
+# ---------- OTHER VARIABLES ----------
 
 # show git status
 export GIT_PS1_SHOWDIRTYSTATE=true
