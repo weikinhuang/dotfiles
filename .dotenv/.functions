@@ -73,6 +73,12 @@ function __repo_ps1() {
 	echo -n " ($svnrev$flag)"
 }
 
+# push a command to the prompt command
+function __push_prompt_command() {
+	local command="${1/%;/}"
+	PROMPT_COMMAND="$(echo "$(echo "${PROMPT_COMMAND/%;/}" | tr ';' '\n' | grep -v -F "$command" | grep -v '^ *$' | tr '\n' ';')${command};" | sed 's/;;/;/' | sed 's/^;//')"
+}
+
 # Count the number of files in a directory
 function cf() {
 	if [ -n "$1" ] ; then

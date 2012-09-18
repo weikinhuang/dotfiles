@@ -19,5 +19,5 @@ function __ps1_proc_wrapper() {
 }
 # only append to the prompt command when we want to show load
 if [ -z "$_PS1_HIDE_LOAD" ] ; then
-	PROMPT_COMMAND="$PROMPT_COMMAND __ps1_proc_wrapper;"
+	__push_prompt_command '__ps1_proc_wrapper'
 fi

@@ -66,7 +66,7 @@ if [[ -n $_PS1_MONOCHROME ]]; then
 fi
 
 # Keep a cached date variable for prompt testing
-PROMPT_COMMAND="__ps1_var_date=\$(/bin/date +%s); "$(echo "$PROMPT_COMMAND" | sed 's/__ps1_var_date=\$(date +%s);//')
+__push_prompt_command '__ps1_var_date=$(/bin/date +%s)'
 
 # caching the directory information for bash prompt to reduce disk reads
 __ps1_var_dirinfo="0|0b"
@@ -92,7 +92,7 @@ function __ps1_dir_wrapper() {
 }
 # only run working directory information command when enabled
 if [[ -z $_PS1_HIDE_DIR_INFO ]] ; then
-	PROMPT_COMMAND="$PROMPT_COMMAND __ps1_dir_wrapper;"
+	__push_prompt_command '__ps1_dir_wrapper'
 fi
 
 # generate the bash prompt
@@ -124,7 +124,7 @@ function __ps1_create() {
 	
 	# datetime colorization
 	local datetime='
-		time=$(/bin/date +"%H")
+		time=$(/bin/date +"%H" | sed 's/^0//')
 		color="'"${PS1_COLOR_TIME_PM}"'"
 		if [[ ${time} -ge 8 && ${time} -le 18 ]]; then
 		   color="'"${PS1_COLOR_TIME_AM}"'"
@@ -208,7 +208,7 @@ function __ps2_create() {
 function __sudo_ps1_create() {
 	# datetime colorization
 	local datetime='
-		time=$(/bin/date +"%H")
+		time=$(/bin/date +"%H" | sed 's/^0//')
 		color="'"${PS1_COLOR_TIME_PM}"'"
 		if [[ ${time} -ge 8 && ${time} -le 18 ]]; then
 		   color="'"${PS1_COLOR_TIME_AM}"'"
