@@ -24,6 +24,16 @@ case "$(uname -s)" in
     CYGWIN* )
         DOTENV="cygwin"
 		;;
+	MINGW32_NT* )
+		# we'll just pretend to use the cygwin functions
+		DOTENV="cygwin"
+		# we can only have monochrome prompts
+		_PS1_MONOCHROME=1
+		# force the usage of /bin/bash instead of /bin/sh
+		if [ $BASH == '/bin/sh' ]; then
+			BASH='/bin/bash'
+		fi
+		;;
     Darwin )
         DOTENV="darwin"
 		;;

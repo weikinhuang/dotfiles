@@ -1,2 +1,8 @@
 # Number of threads that is available
-export PROC_CORES=$(grep "^processor" -c /proc/cpuinfo)
+if [[ -r /proc/cpuinfo ]]; then
+	# for cygwin based environments
+	export PROC_CORES=$(grep "^processor" -c /proc/cpuinfo)
+else
+	# for mingw based environments
+	export PROC_CORES=$(/c/Windows/syswow64/WindowsPowerShell/v1.0/powershell.exe get-wmiobject Win32_ComputerSystem\|format-list *proc* | grep 'Logical' | sed 's/^.\+ : //')
+fi

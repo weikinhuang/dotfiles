@@ -36,17 +36,21 @@ PS1_COLOR_LOAD='
 
 # If we want a monochrome bash prompt
 if [[ -n $_PS1_MONOCHROME ]]; then
+# quick reference to colors
+	PS1_COLOR_GREY=
+	PS1_COLOR_DARK_GREY=
+
 	# colors for individual parts of the bash prompt
-	PS1_COLOR_EXIT_ERROR=''
-	PS1_COLOR_BG_JOBS=''
-	PS1_COLOR_USER=''
-	PS1_COLOR_HOST=''
-	PS1_COLOR_HOST_SCREEN=$PS1_COLOR_UNDERLINE''
-	PS1_COLOR_WORK_DIR=''
-	PS1_COLOR_WORK_DIRINFO=''
-	PS1_COLOR_GIT=''
-	PS1_COLOR_TIME_AM=''
-	PS1_COLOR_TIME_PM=''
+	PS1_COLOR_EXIT_ERROR=
+	PS1_COLOR_BG_JOBS=
+	PS1_COLOR_USER=
+	PS1_COLOR_HOST=
+	PS1_COLOR_HOST_SCREEN=$PS1_COLOR_UNDERLINE
+	PS1_COLOR_WORK_DIR=
+	PS1_COLOR_WORK_DIRINFO=
+	PS1_COLOR_GIT=
+	PS1_COLOR_TIME_AM=
+	PS1_COLOR_TIME_PM=
 
 	# load avg colorization
 	PS1_COLOR_LOAD='
@@ -97,7 +101,7 @@ function __ps1_dir_wrapper() {
 	if [[ $(( $__ps1_var_date - $__ps1_var_dirinforeloadtime )) -gt $__ps1_var_dirinfotime || "$PWD" != "$__ps1_var_dirinfoprev" ]]; then
 		lsout=$(/bin/ls -lAh)
 		lsnum=$(($(echo "${lsout}" | \wc -l | \sed "s/ //g") - 1))
-		lssize="$(echo "${lsout}" | \grep -m 1 total | \sed "s/total //")b"
+		lssize="$(echo "${lsout}" | \grep '^total ' | \sed 's/^total //')b"
 	
 		__ps1_var_dirinfo="${lsnum}|${lssize}"
 		__ps1_var_dirinfoprev="$PWD"
