@@ -33,6 +33,7 @@ fi
 
 # make windows ntfs symlinks
 function winlink () {
+	local LINK OPTIONS LASTMODTIME TARGET DIRNAME BASENAME
 	# params
 	LINK="$1"
 	OPTIONS=$2
@@ -40,6 +41,10 @@ function winlink () {
 	TARGET="$(readlink "$LINK")"
 	DIRNAME="$(dirname "$LINK")"
 	BASENAME="$(basename "$LINK")"
+
+	if [[ -n $(confirm "$LINK" "$TARGET") ]]; then
+		return 0
+	fi
 
 	# delete the existing link
 	rm -f "$LINK"
@@ -64,12 +69,17 @@ function winlink () {
 
 # make cygwin symlinks
 function cyglink () {
+	local LINK LASTMODTIME TARGET DIRNAME BASENAME
 	# params
 	LINK="$1"
 	LASTMODTIME="$(find "$LINK" -maxdepth 0 -printf "%t")"
 	TARGET="$(readlink "$LINK")"
 	DIRNAME="$(dirname "$LINK")"
 	BASENAME="$(basename "$LINK")"
+
+	if [[ -n $(confirm "$LINK" "$TARGET") ]]; then
+		return 0
+	fi
 
 	# delete the existing link
 	rm -f "$LINK"
@@ -94,7 +104,7 @@ function cyglink () {
 function confirm () {
 	# do we need to prompt?
 	if [[ -z $FORCE ]]; then
-		read -p "Relink '$1'? " CONFIRM
+		read -p "Relink '$1' => '$2'? " CONFIRM
 		if [[ $CONFIRM != y* ]]; then
 			echo "1"
 			return;
@@ -103,17 +113,13 @@ function confirm () {
 }
 
 # Relink all directories
-for dir in $(find -type l -print0 | xargs -0 -i find -L {} -type d -maxdepth 0)
+for dir in $(find "$CURRENT_PWD" -type l -print0 | xargs -0 -i find -L {} -type d -maxdepth 0)
 do
-	if [[ -z $(confirm "$dir") ]]; then
-		$LINK_TYPE "$dir" /D
-	fi
+	$LINK_TYPE "$dir" /D
 done
 
 # Relink all files
-for file in $(find -type l -print0 | xargs -0 -i find -L {} -type f -maxdepth 0)
+for file in $(find "$CURRENT_PWD" -type l -print0 | xargs -0 -i find -L {} -type f -maxdepth 0)
 do
-	if [[ -z $(confirm "$file") ]]; then
-		$LINK_TYPE "$file"
-	fi
+	$LINK_TYPE "$file"
 done
