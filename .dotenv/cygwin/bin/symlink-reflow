@@ -1,34 +1,43 @@
 #!/bin/bash
 
 # show help message
-getopt_assert -?:--help "$@"
-if [[ $? == 0 ]]; then
-	echo 'usage symlink-reflow [-?|--help] [-c:--cygwin] [-f:--force]
+if getopt_assert -?:--help "$@" > /dev/null; then
+	echo 'usage symlink-reflow [-?|--help] [-c:--cygwin] [-f:--force] [-m:--maxdepth=levels] [FILE]
 Convert cygwin symlinks to Windows NTFS links and vice versa
+If FILE is passed in:
+    If FILE is a symlink, it will be converted.
+    If FILE is a directory, it will be searched instead of the current directory
 
--f, --force           do not prompt before each relink
--c, --cygwin          convert to cygwin symlinks (default is windows links)
--?, --help            display this message'
+-f, --force              do not prompt before each relink
+-c, --cygwin             convert to cygwin symlinks (default is windows links)
+-m, --maxdepth=levels    descend at most levels (a non-negative integer) levels of directories from FILE
+-?, --help               display this message'
 	exit 0
 fi
 
 # Spaces do not count as new delimiters
 IFS=$'\n'
 # keep reference to where we are now
-CURRENT_PWD="$(pwd)"
+CURRENT_PWD="$(readlink "$(pwd)")"
 
 # see if we want to convert to a windows link or a cygwin link
 LINK_TYPE="winlink"
-getopt_assert -c:--cygwin "$@"
-if [[ $? == 0 ]]; then
+if getopt_assert -c:--cygwin "$@" > /dev/null; then
 	LINK_TYPE="cyglink"
 fi
 
 # see if we have to ask for each symlink
 FORCE=
-getopt_assert -f:--force "$@"
-if [[ $? == 0 ]]; then
+if getopt_assert -f:--force "$@" > /dev/null; then
 	FORCE=1
+fi
+
+# see if we passed in a parameter to limit the depth of the search for symlinks
+MAX_DEPTH_FLAG='-maxdepth'
+MAX_DEPTH=$(getopt_assert -m:--maxdepth "$@")
+if [[ -z $MAX_DEPTH || $MAX_DEPTH -lt 1 ]]; then
+	MAX_DEPTH=
+	MAX_DEPTH_FLAG=
 fi
 
 # make windows ntfs symlinks
@@ -41,7 +50,7 @@ function winlink () {
 	TARGET="$(readlink "$LINK")"
 	DIRNAME="$(dirname "$LINK")"
 	BASENAME="$(basename "$LINK")"
-
+	
 	if [[ -n $(confirm "$LINK" "$TARGET") ]]; then
 		return 0
 	fi
@@ -76,7 +85,7 @@ function cyglink () {
 	TARGET="$(readlink "$LINK")"
 	DIRNAME="$(dirname "$LINK")"
 	BASENAME="$(basename "$LINK")"
-
+	
 	if [[ -n $(confirm "$LINK" "$TARGET") ]]; then
 		return 0
 	fi
@@ -112,14 +121,49 @@ function confirm () {
 	fi
 }
 
+# loop through arguments and see if we specified a path, a file, or nothing
+while test $# -gt 0
+do
+	ARG="$1"
+	shift
+	# ignore arguments
+	if [[ $ARG == -* ]]; then
+		continue
+	fi
+	# if it's a link, then we need 
+	if [[ -L "$ARG" ]]; then
+		IS_LINK="$ARG"
+		break
+	fi
+	# if it's a directory, let's search it
+	if [[ -d "$ARG" ]]; then
+		CURRENT_PWD="$(readlink -f "$ARG")"
+		break
+	fi
+	
+	# we don't know what to do
+	echo "Invalid option: $ARG"
+	exit 1
+done
+
+# if we're just converting a symlink
+if [[ -n $IS_LINK ]]; then
+	if [[ -d "$IS_LINK" ]]; then
+		$LINK_TYPE "$IS_LINK" /D
+	else
+		$LINK_TYPE "$IS_LINK"
+	fi
+	exit 0
+fi
+
 # Relink all directories
-for dir in $(find "$CURRENT_PWD" -type l -print0 | xargs -0 -i find -L {} -type d -maxdepth 0)
+for dir in $(find "$CURRENT_PWD" $MAX_DEPTH_FLAG $MAX_DEPTH -type l -print0 | xargs -0 -i find -L {} -type d -maxdepth 0)
 do
 	$LINK_TYPE "$dir" /D
 done
 
 # Relink all files
-for file in $(find "$CURRENT_PWD" -type l -print0 | xargs -0 -i find -L {} -type f -maxdepth 0)
+for file in $(find "$CURRENT_PWD" $MAX_DEPTH_FLAG $MAX_DEPTH -type l -print0 | xargs -0 -i find -L {} -type f -maxdepth 0)
 do
 	$LINK_TYPE "$file"
 done

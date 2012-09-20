@@ -84,8 +84,7 @@ shift
 for arg in $(echo "$SEARCH" | tr ":" "\n")
 do
 	# process each of the search terms
-	getopt_loop "$arg" "$@"
-	if [[ $? == 0 ]]; then
+	if getopt_loop "$arg" "$@"; then
 		exit 0
 	fi
 done
