@@ -62,7 +62,9 @@ unset file
 [[ -d "${HOME}/bin" ]] && PATH="$PATH:${HOME}/bin"
 
 # Remove duplicate entries from PATH and retain the original order
-export PATH=$(echo "$PATH" | tr : '\n' | nl | sort -u -k 2,2 | sort -n | cut -f 2- | tr '\n' : | sed -e 's/:$//' -e 's/^://')
+if type nl &> /dev/null; then
+	export PATH=$(echo "$PATH" | tr : '\n' | nl | sort -u -k 2,2 | sort -n | cut -f 2- | tr '\n' : | sed -e 's/:$//' -e 's/^://')
+fi
 
 # include utility settings file (git PS1, solarized, mysql, etc...)
 [[ -r "${HOME}/.dotenv/.utility" ]] && source "${HOME}/.dotenv/.utility"
