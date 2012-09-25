@@ -81,7 +81,6 @@ PS1_SYMBOL_SU="$(echo -e "\xCF\x80\x0A")"
 PS1_DAY_START=8
 PS1_DAY_END=18
 
-
 # ---------- SYMBOL, VARIABLES, AND COLOR OVERRIDES ----------
 
 [[ -r "${HOME}/.prompt_exports" ]] && source "${HOME}/.prompt_exports"
@@ -128,7 +127,7 @@ PS1_DATETIME='
 '
 
 # show icon if the directory is not writable for the user
-PS1_PWD_WRITABLE='$([[ -w "$PWD" ]] && echo -n "'${PS1_SYMBOL_NO_WRITE_PWD}'")'
+PS1_PWD_WRITABLE='$([[ ! -w "$PWD" ]] && echo -n "'${PS1_SYMBOL_NO_WRITE_PWD}'")'
 
 # show the exit status of the previous command
 PS1_EXIT_STATUS='$(EXIT="$?"; [[ $EXIT -ne 0 ]] && echo -n "(E:${EXIT}) ")'
