@@ -16,7 +16,7 @@ COMP_WORDBREAKS=${COMP_WORDBREAKS/=/}
 # Don't put duplicate lines in the history.
 export HISTCONTROL=$HISTCONTROL${HISTCONTROL+,}ignoredups
 # Ignore some controlling instructions: exit, ls, empty cd, pwd, date, help pages
-export HISTIGNORE=$'[ \t]*:&:[fb]g:exit:ls:ls *:cd:cd -:pwd:date:* --help'
+export HISTIGNORE=$'[ \t]*:&:[fb]g:exit:ls:ls -?::ls -??:ll:history:cd:cd -:cd ~:cd ..:..:pwd:date:* --help'
 # Larger bash history (allow 32³ entries; default is 500)
 export HISTSIZE=32768
 export HISTFILESIZE=$HISTSIZE
