@@ -1,0 +1,29 @@
+#!/bin/bash
+
+# show help message
+if getopt_assert -?:--help "$@" > /dev/null; then
+	echo 'usage genpasswd [-?|--help] [-c:--chars:--charlist] [-a:--alpha] [-l:--length]
+Generate a random password
+
+-l, --length              the length of the password to generate
+-c, --chars, --charlist   the character set that can be chosen from defaults to [a-zA-Z0-9-_!@#$%^&*()_+{}[]|:<>?=]
+-a, --alpha               only use alpha numeric characters [a-zA-Z0-9] cannot be used with --charlist
+-?, --help                display this message'
+	exit 0
+fi
+
+LENGTH=$(getopt_assert -l:--length:--len "$@")
+if [ -z "$LENGTH" ]; then
+	LENGTH=12
+fi
+
+CHARS=$(getopt_assert -c:--chars:--charlist "$@")
+if [ -z "$CHARS" ]; then
+	if getopt_assert -a:--alpha "$@"; then
+		CHARS='a-zA-Z0-9'
+	else
+		CHARS='a-zA-Z0-9-_!@#$%^&*()_+{}[]|:<>?='
+	fi
+fi
+
+cat /dev/urandom | tr -dc "$CHARS" | fold -w $LENGTH | head -n 1

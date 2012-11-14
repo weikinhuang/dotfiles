@@ -61,7 +61,7 @@ Array.prototype.fill = function(length, value) {
 };
 
 // execute du to get file listing
-exec("du -a -d " + depth, function(stderr, stdout) {
+exec("du -a --max-depth " + depth, function(stderr, stdout) {
 	var total, files = [];
 	stdout.split("\n").forEach(function(line) {
 		if (!line) {
