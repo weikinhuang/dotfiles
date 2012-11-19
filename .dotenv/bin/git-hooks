@@ -1,0 +1,18 @@
+#!/bin/sh
+
+USAGE='hook'
+SUBDIRECTORY_OK=Yes
+. git-sh-setup
+require_work_tree
+
+if [[ -z $1 ]]; then
+	echo "Please select a hook to execute."
+	exit 1
+fi
+
+if [[ ! -x "$GIT_DIR/hooks/$1" ]]; then
+	echo "Unable to execute hook '$1'."
+	exit 1
+fi
+
+"$GIT_DIR/hooks/$1"
