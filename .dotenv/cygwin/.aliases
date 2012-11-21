@@ -21,7 +21,9 @@ alias ps="ps -W"
 alias psf="psfind"
 
 # Alias vi to notepad++
-alias vi="nppedit"
+if type nppedit &> /dev/null; then
+	alias vi="nppedit"
+fi
 
 # Alias apt-cyg to yum
 alias yum="apt-cyg"
