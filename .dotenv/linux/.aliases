@@ -9,3 +9,8 @@ alias open="nautilus"
 
 # useful shortcuts
 alias md5="md5sum"
+
+# Alias vi to vim
+if type vim &> /dev/null; then
+	alias vi="vim"
+fi

@@ -3,3 +3,8 @@ alias wcopy="xclip --in"
 alias wpaste="xclip --out"
 
 # Shortcuts
+
+# Alias vi to vim
+if type vim &> /dev/null; then
+	alias vi="vim"
+fi
