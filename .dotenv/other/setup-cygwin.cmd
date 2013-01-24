@@ -10,14 +10,14 @@ REM -- Configure our paths
 SET SITE=http://cygwin.mirrors.pair.com/
 SET ROOTDIR=C:\cygwin
 SET LOCALDIR=%ROOTDIR%\setup
-SET SETUP_PATH=C:\setup.exe
+SET SETUP_PATH=setup.exe
 SET SSHD_PORT=13610
 
 mkdir "%ROOTDIR%"
 mkdir "%LOCALDIR%"
 
 REM -- These are the packages we will install (in addition to the default packages)
-SET PACKAGES=bash-completion,bc,bind,ca-certificates,curl,fdupes,git,git-completion
+SET PACKAGES=bash-completion,bc,bind,ca-certificates,curl,fdupes,git,git-completion,git-svn
 SET PACKAGES=%PACKAGES%,inetutils,ncurses,openssh,openssl,procps,rsync,screen,vim,wget,xxd
 
 REM -- Do it!
@@ -62,6 +62,7 @@ ECHO setup sshd for local user only
 %ROOTDIR%\bin\bash.exe --login -c "sed -i 's/^#ListenAddress 0.0.0.0$/ListenAddress 127.0.0.1/' /etc/sshd_config"
 %ROOTDIR%\bin\bash.exe --login -c "sed -i 's/^#ListenAddress ::$/ListenAddress ::1/' /etc/sshd_config"
 %ROOTDIR%\bin\bash.exe --login -c "sed -i 's/^#PasswordAuthentication yes$/PasswordAuthentication no/' /etc/sshd_config"
+%ROOTDIR%\bin\bash.exe --login -c "sed -i 's/^UsePrivilegeSeparation sandbox/UsePrivilegeSeparation no/' /etc/sshd_config"
 %ROOTDIR%\bin\bash.exe --login -c "if [[ ! -f ~/.ssh/id_rsa ]]; then ssh-keygen -q -t rsa -N '' -f ~/.ssh/id_rsa && cat ~/.ssh/id_rsa.pub >> ~/.ssh/authorized_keys && chmod 0600 ~/.ssh/authorized_keys; fi;"
 %ROOTDIR%\bin\bash.exe --login -c "echo '' > /etc/motd"
 ECHO.
