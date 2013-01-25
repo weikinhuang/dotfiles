@@ -31,3 +31,204 @@ function pskill() {
 	fi
 	return 1
 }
+
+# give the ability to wrap applications
+function __cygexewrap() {
+	local PROGRAM BINARY extraargs extraparams
+	# the name of the program
+	PROGRAM=$(cygpath -u "$1")
+	BINARY="$2"
+	extraparams=""
+
+	if [[ ! -f "$PROGRAM" ]]; then
+		echo "Application $1 does not exist."
+		return 1
+	fi
+
+	if [[ -z "$BINARY" ]]; then
+		echo "Function name missing."
+		return 1
+	fi
+
+	# collect any extra arguments
+	shift 2
+	for extraargs in "$@"
+	do
+		extraparams="$extraparams "'"'$extraargs'"'
+	done
+
+	eval 'function '$BINARY' () {
+		local args arg
+		# if there are any baked in arguments they are defined here
+		args=( '$extraparams' )
+
+		for arg in "$@"
+		do
+			# if argument is a file, then expand it to windows paths
+			if [ -e "$arg" ]
+			then
+				# echo "arg $arg is a file"
+				args=("${args[@]}" "$(cygpath -w "$arg")")
+			else
+				# echo "arg $arg is not a file"
+				args=("${args[@]}" "$arg")
+			fi
+		done
+
+		# test if we are in a pipe and pass stdin as last argument if we are piping in
+		if [ ! -t 0 ]
+		then
+			args=("${args[@]}" "$(cat -)");
+		fi
+
+		"'$PROGRAM'" "${args[@]}"
+		return $?
+	}'
+}
+
+# give the ability to wrap windows cli applications
+if type winpty &> /dev/null; then
+	function __cygcliwrap() {
+		local PROGRAM BINARY extraargs extraparams
+		# the name of the program
+		PROGRAM=$(cygpath -u "$1")
+		BINARY="$2"
+		extraparams=""
+
+		if [[ ! -f "$PROGRAM" ]]; then
+			echo "Application $1 does not exist."
+			return 1
+		fi
+
+		if [[ -z "$BINARY" ]]; then
+			echo "Function name missing."
+			return 1
+		fi
+
+		# collect any extra arguments
+		shift 2
+		for extraargs in "$@"
+		do
+			extraparams="$extraparams "'"'$extraargs'"'
+		done
+
+		eval 'function '$BINARY' () {
+			local args arg
+			# if there are any baked in arguments they are defined here
+			args=( '$extraparams' )
+
+			for arg in "$@"
+			do
+				# if argument is a file, then expand it to windows paths
+				if [ -e "$arg" ]
+				then
+					# echo "arg $arg is a file"
+					args=("${args[@]}" "$(cygpath -w "$arg")")
+				else
+					# echo "arg $arg is not a file"
+					args=("${args[@]}" "$arg")
+				fi
+			done
+
+			# test if we are in a pipe and pass stdin as last argument if we are piping in
+			if [ ! -t 0 ]
+			then
+				"'$PROGRAM'" "${args[@]}" <<< "$(cat -)"
+			else
+				if [ ${#args[@]} -eq 0 ]
+				then
+					winpty "'$PROGRAM'" "${args[@]}"
+				else
+					"'$PROGRAM'" "${args[@]}"
+				fi
+			fi
+
+			return $?
+		}'
+	}
+
+	function __cygphpwrap() {
+		local PROGRAM
+		# the name of the program
+		if [[ -n $1 ]]; then
+			PROGRAM=$(cygpath -u "$1")
+		elif [[ -f $(cygpath -u "c:/Program Files (x86)/PHP/php.exe") ]]; then
+			PROGRAM=$(cygpath -u "c:/Program Files (x86)/PHP/php.exe")
+		elif [[ -f $(cygpath -u "c:/Program Files/PHP/php.exe") ]]; then
+			PROGRAM=$(cygpath -u "c:/Program Files/PHP/php.exe")
+		elif [[ -f $(cygpath -u "c:/PHP/php.exe") ]]; then
+			PROGRAM=$(cygpath -u "c:/PHP/php.exe")
+		fi
+		# attempt to wrap php as well if found
+		eval 'function php() {
+			local arg args IS_REPL_SHELL
+
+			# if there are any baked in arguments they are defined here
+			args=(  )
+
+			IS_REPL_SHELL=""
+			for arg in "$@"
+			do
+				# if argument is a file, then expand it to windows paths
+				if [ -e "$arg" ]
+				then
+					# echo "arg $arg is a file"
+					args=("${args[@]}" "$(cygpath -w "$arg")")
+				else
+					# echo "arg $arg is not a file"
+					args=("${args[@]}" "$arg")
+					if [ "$arg" == "-a" ]; then
+						IS_REPL_SHELL=1
+					fi
+				fi
+			done
+
+			# test if we are in a pipe and pass stdin as last argument if we are piping in
+			if [ ! -t 0 ]
+			then
+				"'$PROGRAM'" "${args[@]}" <<< "$(cat -)"
+			else
+				if [[ ${#args[@]} -eq 0 || -n $IS_REPL_SHELL ]]
+				then
+					# php script to simulate repl in cygwin, as php is compiled without readline
+					winpty "'$PROGRAM'" -r '"'"'
+			echo "Interactive mode enabled" . PHP_EOL . PHP_EOL;
+			$fp = fopen("php://stdin", "r");
+			$in = "";
+			do {
+				if(!$in) {
+					echo "php> ";
+				}
+				$in = $in . trim(fgets($fp));
+				if($in) {
+					if(substr($in, -1) === chr(92)) {
+						$in = substr($in, 0, -1);
+					} else {
+						ob_start();
+						eval($in);
+						$res = ob_get_clean();
+						echo $res;
+						if(ord(substr($res, -1)) !== 10) {
+							// the real shell does not do this as well
+							// echo PHP_EOL;
+						}
+						$in = "";
+					}
+				}
+
+			} while($in !== "quit");'"'"'
+				else
+					"'$PROGRAM'" "${args[@]}"
+				fi
+			fi
+
+			return $?
+		}'
+	}
+
+else
+	function __cygcliwrap() {
+		echo "Package winpty required. Please visit https://github.com/rprichard/winpty and compile application."
+		exit 1
+	}
+fi
