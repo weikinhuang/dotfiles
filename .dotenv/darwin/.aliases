@@ -8,3 +8,8 @@ alias wpaste="xclip --out"
 if type vim &> /dev/null; then
 	alias vi="vim"
 fi
+
+# Alias clamscan with avscan
+if type clamscan &> /dev/null; then
+	alias avscan="clamscan"
+fi
