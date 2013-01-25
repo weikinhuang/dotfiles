@@ -3,7 +3,8 @@ function __createcygwinwrappers() {
 	local OFFICE_VER X86_PGM_PATH ZEND_VERSION
 
 	# variables
-	OFFICE_VER=15
+	OFFICE_VER=${__CYG_OFFICE_VERSION-15}
+	unset __CYG_OFFICE_VERSION
 	X86_PGM_PATH="Program Files"
 	if [[ -d "/c/Program Files (x86)/" ]]; then
 		X86_PGM_PATH="Program Files (x86)"
