@@ -13,7 +13,7 @@
 	pushNonFastForward = false
 	statusHints = false
 [core]
-	whitespace = fix,trailing-space,space-before-tab,indent-with-non-tab
+	whitespace = fix,trailing-space,space-before-tab
 	autocrlf = input
 	filemode = false
 	pager = less -x1,4 -iFXRS

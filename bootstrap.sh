@@ -2,26 +2,51 @@
 
 # variables
 REPO_BASE="https://github.com/weikinhuang/dotfiles"
-DOTFILES_ROOT="$HOME/.dotfiles"
+LINKED_FILES="bash_profile bashrc dotenv hushlogin inputrc mongorc.js screenrc wgetrc"
+INSTALL_ROOT="$HOME"
+
+# link up gitconfig and vim if specified
+if [[ -z $# ]]; then
+	for arg in "$@"; do
+		case "$arg" in
+		--git|-g)
+			LINKED_FILES="$LINKED_FILES gitconfig"
+			;;
+		--vim|-v)
+			LINKED_FILES="$LINKED_FILES vimrc vim"
+			;;
+		--dir|-d)
+			shift 1
+			echo "$1"
+		esac
+	done
+else
+	[[ -z $DT_GIT ]] && LINKED_FILES="$LINKED_FILES gitconfig"
+	[[ -z $DT_VIM ]] && LINKED_FILES="$LINKED_FILES vimrc vim"
+	[[ -n $DT_DIR ]] && INSTALL_ROOT="$DT_DIR"
+fi
+
+# root directory to install into
+DOTFILES_ROOT="$INSTALL_ROOT/.dotfiles"
 
 # check if git exists
 HAS_GIT=
 if type git &> /dev/null; then
-	HAS_GIT=
+	HAS_GIT=1
 fi
 
 # link up files
-function link_files () {
+function link_file () {
 	file="$1"
 	# remove the backup first
-	[[ -e "$HOME/$file.bak" ]] && rm -f "$HOME/$file.bak"
+	[[ -e "$INSTALL_ROOT/$file.bak" ]] && rm -f "$INSTALL_ROOT/$file.bak"
 	# create the backup file
-	[[ -e "$HOME/$file" ]] && mv "$HOME/$file" "$HOME/$file.bak"
+	[[ -e "$INSTALL_ROOT/$file" ]] && mv "$INSTALL_ROOT/$file" "$INSTALL_ROOT/$file.bak"
 	# link up the file
 	if [[ -e "$DOTFILES_ROOT/$file" ]]; then
-		echo "linking up '$DOTFILES_ROOT/$file' => '$HOME/$file'"
-		if ! ln -sf "$DOTFILES_ROOT/$file" "$HOME/$file"; then
-			echo "Unable to symlink '$HOME/$file'"
+		echo "linking up '$DOTFILES_ROOT/$file' => '$INSTALL_ROOT/$file'"
+		if ! ln -sf "$DOTFILES_ROOT/$file" "$INSTALL_ROOT/$file"; then
+			echo "Unable to symlink '$INSTALL_ROOT/$file'"
 		fi
 	fi
 }
@@ -69,7 +94,7 @@ function update_dotfiles () {
 }
 
 # we want to install this in the home directory
-cd "$HOME"
+cd "$INSTALL_ROOT"
 
 # make the dotfiles directory
 if [[ ! -d "$DOTFILES_ROOT" ]]; then
@@ -85,21 +110,8 @@ if ! $DOTFILES_EXEC; then
 fi
 
 # symlink all the files
-for file in {bash_profile,bashrc,dotenv,hushlogin,inputrc,mongorc.js,screenrc,wgetrc}; do
-	link_files ".$file"
-done
-
-# link up gitconfig and vim if specified
-for arg in "$@"; do
-	case "$arg" in
-	--git)
-		link_files ".gitconfig"
-		;;
-	--vim)
-		link_files ".vimrc"
-		link_files ".vim"
-		;;
-	esac
+for file in $LINKED_FILES; do
+	link_file ".$file"
 done
 
 # done
