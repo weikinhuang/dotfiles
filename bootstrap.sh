@@ -6,7 +6,7 @@ LINKED_FILES="bash_profile bashrc dotenv hushlogin inputrc mongorc.js screenrc w
 INSTALL_ROOT="$HOME"
 
 # link up gitconfig and vim if specified
-if [[ -z $# ]]; then
+if [[ -n $# ]] && [[ -t 0 ]]; then
 	for arg in "$@"; do
 		case "$arg" in
 		--git|-g)
@@ -17,7 +17,7 @@ if [[ -z $# ]]; then
 			;;
 		--dir|-d)
 			shift 1
-			echo "$1"
+			INSTALL_ROOT="$1"
 		esac
 	done
 else
@@ -98,8 +98,13 @@ cd "$INSTALL_ROOT"
 
 # make the dotfiles directory
 if [[ ! -d "$DOTFILES_ROOT" ]]; then
+	# we don't have anything
 	DOTFILES_EXEC=install_dotfiles
+elif [[ ! -d "$DOTFILES_ROOT/.git" ]] && [[ $HAS_GIT == 1 ]]; then
+	# we are upgrading from no git to git managed
+	mv "$DOTFILES_ROOT" "$DOTFILES_ROOT.bak"
 else
+	# just update
 	DOTFILES_EXEC=update_dotfiles
 fi
 
