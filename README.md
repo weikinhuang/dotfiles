@@ -85,6 +85,8 @@ If `~/.bash_local` exists, it will be sourced after the includes are sourced.
 [exitstatus jobs time load user@host workdir<dirinfo> (git info)]user symbol
 ```
 
+<img src="https://github.com/weikinhuang/dotfiles/raw/master/assets/prompt-example.png">
+
 The prompt
 ```bash
 [06:00:00 0.00 user#host dir<4|2.4Mb> (կ master %)]λ 
@@ -184,7 +186,6 @@ PS1_COLOR_LOAD='
 '
 ```
 
-# ---------- SYMBOLS AND VARIABLES FOR PROMPTS ----------
 Custom symbols and variables for the bash prompt
 ```bash
 # the symbol to be displayed when current the directory is readonly: "*"
