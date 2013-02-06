@@ -42,7 +42,6 @@ function __createcygwinwrappers() {
 	__cygexewrap "c:/Program Files/Microsoft Office/Office${OFFICE_VER}/WINWORD.EXE" word
 	
 	__cygexewrap "c:/Program Files/Charles/Charles.exe" charles
-	__cygexewrap "c:/${X86_PGM_PATH}/Notepad++/notepad++.exe" npp
 	__cygexewrap "c:/${X86_PGM_PATH}/Notepad++/notepad++.exe" nppedit
 	__cygexewrap "c:/${X86_PGM_PATH}/Pidgin/pidgin.exe" pidgin
 	__cygexewrap "c:/Program Files/WinRAR/Rar.exe" rar

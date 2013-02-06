@@ -1,0 +1,29 @@
+#!/bin/bash
+
+# the name of the program
+PROGRAM=$(cygpath -u "c:/Program Files (x86)/Notepad++/notepad++.exe")
+
+# if there are any baked in arguments they are defined here
+args=(  )
+
+for arg in "$@"
+do
+	# if argument is a file, then expand it to windows paths
+	if [ -e "$arg" ]
+	then
+		# echo "arg $arg is a file"
+		args=("${args[@]}" "$(cygpath -w "$arg")")
+	else
+		# echo "arg $arg is not a file"
+		args=("${args[@]}" "$arg")
+	fi
+done
+
+# test if we are in a pipe and pass stdin as last argument if we are piping in
+if [ ! -t 0 ]
+then
+	args=("${args[@]}" "$(cat -)");
+fi
+
+"${PROGRAM}" "${args[@]}"
+exit $?
