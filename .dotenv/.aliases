@@ -34,7 +34,7 @@ fi
 # Detect which `ls` flavor is in use
 if ls --color > /dev/null 2>&1; then
 	# GNU ls
-	LS_COLOR_FLAG="--color"
+	LS_COLOR_FLAG="--color=auto"
 else
 	# darwin ls
 	LS_COLOR_FLAG="-G"
