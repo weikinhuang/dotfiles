@@ -21,8 +21,8 @@ esac
 # Check out which env this bash is running in
 DOTENV="linux"
 case "$(uname -s)" in
-    CYGWIN* )
-        DOTENV="cygwin"
+	CYGWIN* )
+		DOTENV="cygwin"
 		;;
 	MINGW32_NT* )
 		# we'll just pretend to use the cygwin functions
@@ -34,8 +34,8 @@ case "$(uname -s)" in
 			BASH='/bin/bash'
 		fi
 		;;
-    Darwin )
-        DOTENV="darwin"
+	Darwin )
+		DOTENV="darwin"
 		;;
 esac
 export DOTENV
@@ -46,16 +46,6 @@ export DOTENV
 # Completion options
 [[ -f "/etc/bash_completion" ]] && source "/etc/bash_completion"
 
-# Source ~/.exports, ~/.functions, ~/.aliases, ~/.completion, ~/.prompt, ~/.extra, ~/.env if they exist
-for file in {exports,functions,aliases,completion,prompt,extra,env}; do
-	[[ -r "${HOME}/.dotenv/.${file}" ]] && source "${HOME}/.dotenv/.${file}"
-	[[ -r "${HOME}/.dotenv/${DOTENV}/.${file}" ]] && source "${HOME}/.dotenv/${DOTENV}/.${file}"
-done
-unset file
-
-# load a local specific sources before the scripts
-[[ -r "${HOME}/.bash_local" ]] && source "${HOME}/.bash_local"
-
 # modify path to include useful scripts
 [[ -d "${HOME}/.dotenv/${DOTENV}/bin" ]] && PATH="$PATH:${HOME}/.dotenv/${DOTENV}/bin"
 [[ -d "${HOME}/.dotenv/bin" ]] && PATH="$PATH:${HOME}/.dotenv/bin"
@@ -65,6 +55,16 @@ unset file
 if type nl &> /dev/null; then
 	export PATH=$(echo "$PATH" | tr : '\n' | nl | sort -u -k 2,2 | sort -n | cut -f 2- | tr '\n' : | sed -e 's/:$//' -e 's/^://')
 fi
+
+# Source ~/.exports, ~/.functions, ~/.aliases, ~/.completion, ~/.prompt, ~/.extra, ~/.env if they exist
+for file in {exports,functions,aliases,completion,prompt,extra,env}; do
+	[[ -r "${HOME}/.dotenv/.${file}" ]] && source "${HOME}/.dotenv/.${file}"
+	[[ -r "${HOME}/.dotenv/${DOTENV}/.${file}" ]] && source "${HOME}/.dotenv/${DOTENV}/.${file}"
+done
+unset file
+
+# load a local specific sources before the scripts
+[[ -r "${HOME}/.bash_local" ]] && source "${HOME}/.bash_local"
 
 # include utility settings file (git PS1, solarized, mysql, etc...)
 [[ -r "${HOME}/.dotenv/.utility" ]] && source "${HOME}/.dotenv/.utility"
