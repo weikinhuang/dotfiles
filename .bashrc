@@ -71,6 +71,7 @@ unset file
 
 # set $EDITOR to vi(m) if not already set
 [[ -z $EDITOR ]] && EDITOR=$(type vim &> /dev/null && echo vim || echo vi)
+export EDITOR=$EDITOR
 
 # write to .bash_history after each command
 __push_prompt_command 'history -a'
