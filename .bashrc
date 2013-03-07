@@ -69,6 +69,9 @@ unset file
 # include utility settings file (git PS1, solarized, mysql, etc...)
 [[ -r "${HOME}/.dotenv/.utility" ]] && source "${HOME}/.dotenv/.utility"
 
+# set $EDITOR to vi(m) if not already set
+[[ -z $EDITOR ]] && EDITOR=$(type vim &> /dev/null && echo vim || echo vi)
+
 # write to .bash_history after each command
 __push_prompt_command 'history -a'
 
