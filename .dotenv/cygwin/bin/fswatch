@@ -1,0 +1,13 @@
+#!/bin/bash
+
+DIRECTORY="$(cygpath -w "${1}")"
+TARGETDIR="$(cygpath -u "${DIRECTORY}")"
+shift
+
+inotifywait -mrq --format '%e %w %f' \
+"$DIRECTORY" \
+| \
+while read event path file; do
+	cd "$TARGETDIR"
+	"$@"
+done
