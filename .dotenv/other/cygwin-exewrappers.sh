@@ -61,7 +61,7 @@ function __createcygwinwrappers() {
 	__cygexewrap "c:/${X86_PGM_PATH}/Windows NT/Accessories/wordpad.exe" wordpad
 
 	# cli based applications
-	__cygcliwrap "c:/Program Files/nodejs/node.exe" node
+	# __cygcliwrap "c:/Program Files/nodejs/node.exe" node # we don't do this because we want # ! /usr/bin/env node to work
 	__cygcliwrap "c:/${X86_PGM_PATH}/phantomjs/phantomjs.exe" phantomjs
 	__cygcliwrap "c:/Windows/System32/cmd.exe" wcmd
 	__cygcliwrap "c:/Windows/System32/WindowsPowerShell/v1.0/powershell.exe" wpowershell
