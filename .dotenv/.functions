@@ -339,3 +339,6 @@ function __request () {
 	esac
 	curl -X "$method" "${options[@]}" "$@" "$url"
 }
+
+# include git __git_ps1 if not already included elsewhere
+type __git_ps1 &> /dev/null || source "${HOME}/.dotenv/other/git-prompt.sh"

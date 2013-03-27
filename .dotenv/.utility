@@ -1,6 +1,3 @@
-# include git __git_ps1 if not already included elsewhere
-type __git_ps1 &> /dev/null || source "${HOME}/.dotenv/other/git-prompt.sh"
-
 # include solarized dir colors theme
 [[ -n "$__term_solarized_light" ]] && type dircolors &> /dev/null && eval "$(dircolors "${HOME}/.dotenv/other/dircolors.solarized.ansi-light")"
 
