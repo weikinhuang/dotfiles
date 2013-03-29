@@ -40,6 +40,7 @@ set hlsearch					" highlight search terms
 set incsearch					" show search matches as you type
 set viminfo='100,f1				" save up to 100 marks, enable capital marks
 set grepprg=ack					" traditional grepping with ack
+command! -nargs=+ G execute 'silent grep! -R <args>' | copen
 
 " ================ Turn Off Swap Files ==============
 set noswapfile
@@ -139,6 +140,8 @@ let g:ctrlp_prompt_mappings = {
 	\ 'AcceptSelection("e")': ['<c-t>'],
 	\ 'AcceptSelection("t")': ['<cr>', '<2-LeftMouse>'],
 	\ }
+" ignore certain files
+let g:ctrlp_custom_ignore = 'node_modules\|DS_Store\|git'
 
 " ==================== VIM-powerline
 set runtimepath^=~/.vim/bundle/vim-powerline
