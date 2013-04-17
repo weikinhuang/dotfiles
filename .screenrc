@@ -17,6 +17,9 @@ nonblock on
 # 256 color term
 term screen-256color
 
+# use the login shell
+shell $SHELL
+
 # change scrollback buffer
 defscrollback 10000
 
@@ -25,8 +28,8 @@ defscrollback 10000
 #  in bug #134198)
 termcapinfo xterm*|gnome* 'is=\E[r\E[m\E[2J\E[H\E[?7h\E[?1;4;6l'
 
-hardstatus alwayslastline
-hardstatus string "%{= kw}%-w%{= BW}%n %t%{-}%+w %-= [$h] %C%a "
+#hardstatus alwayslastline
+#hardstatus string "%{= kw}%-w%{= BW}%n %t%{-}%+w %-= [$h] %C%a "
 
 # remap the escape key
 escape ``
@@ -37,7 +40,7 @@ bindkey -k k7 prev
 bindkey -k k8 next
 
 # open a new shell with `n
-bind n
+bind n screen
 
 # rename screen window with `r
 bind r title

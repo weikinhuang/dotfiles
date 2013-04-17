@@ -114,8 +114,8 @@ as sudo ----------------┐
 
 When on screen
 ```bash
-in screen [screen name] -----------┐
-[06:00:00 0.00 user@12345.pts-01.host01 dir<4|2.4Mb> (կ master %)]λ 
+in screen [screen name] -----------┐    ┌---window id
+[06:00:00 0.00 user@12345.pts-01.host01[1] dir<4|2.4Mb> (կ master %)]λ 
 ```
 
 PS2 prompt

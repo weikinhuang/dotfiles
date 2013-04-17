@@ -146,7 +146,7 @@ fi
 # [host|screen session]
 case "$TERM" in
 	screen*)
-		PS1_HOST_NAME="${PS1_COLOR_HOST_SCREEN}${STY}"
+		PS1_HOST_NAME="${PS1_COLOR_HOST_SCREEN}${STY}[${WINDOW}]"
 		;;
 	*)
 		PS1_HOST_NAME="${PS1_COLOR_HOST}"'\h'
@@ -157,6 +157,9 @@ esac
 case "$TERM" in
 	xterm*|rxvt*)
 		PROMPT_TITLE="\[\e]0;\u@\h:\W\007\]"
+		;;
+	screen*)
+		PROMPT_TITLE="\[\e]0;\u@${STY}[${WINDOW}]:\W\007\]"
 		;;
 	*)
 		PROMPT_TITLE=""
