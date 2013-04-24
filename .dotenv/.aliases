@@ -74,7 +74,7 @@ alias sudo="sudo "
 alias less="less -X -R"
 
 # Networking shortcuts
-alias ip="curl -s http://checkip.dyndns.com/ | sed 's/[^0-9\.]//g'"
+alias extip="curl -s http://checkip.dyndns.com/ | sed 's/[^0-9\.]//g'"
 
 # shortcuts to restful style curl requests
 for method in GET HEAD POST PUT DELETE TRACE OPTIONS; do

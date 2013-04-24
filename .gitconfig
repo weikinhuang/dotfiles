@@ -30,6 +30,7 @@
 	renames = copies
 	mnemonicprefix = true
 	tool = auto-difftool
+	algorithm = patience
 [merge]
 	stat = true
 	tool = auto-mergetool
@@ -56,11 +57,14 @@
 	df = diff
 	lg = log -p
 	cp = cherry-pick
+	
+	### Stashing
 	ss = stash
 	sp = stash pop
 	sl = stash list
 	sa = stash apply
 	si = stash --keep-index
+	snapshot = !git stash save "snapshot: $(date) $*" && git stash apply "stash@{0}"
 
 	### Verbose output about tags, branches or remotes
 	tags = tag -l
@@ -70,6 +74,10 @@
 	### Adding
 	au = add -u .
 	rml = rm --cached
+	# file level ignoring
+	assume = update-index --assume-unchanged
+	unassume = update-index --no-assume-unchanged
+	assumed = "!git ls-files -v | grep ^h | cut -c 3-"
 
 	### Committing
 	# Commit
@@ -126,6 +134,9 @@
 	rbm = rebase master
 	# rebase with master branch
 	rbim = rebase -i master
+	# pull complete versions of our changes or their changes
+	ours = "!f() { git checkout --ours "$@" && git add "$@"; }; f"
+	theirs = "!f() { git checkout --theirs "$@" && git add "$@"; }; f"
 
 	### Resetting
 	# resets the file to clean copy
