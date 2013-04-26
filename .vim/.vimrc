@@ -143,6 +143,15 @@ let g:ctrlp_prompt_mappings = {
 " ignore certain files
 let g:ctrlp_custom_ignore = 'node_modules\|DS_Store\|git'
 
+" ==================== nerdtree
+set runtimepath^=~/.vim/bundle/nerdtree
+
+" remap nerdtree
+map <C-n> :NERDTreeToggle<CR>
+
+" close vim when NERDTree is the only window left
+autocmd bufenter * if (winnr("$") == 1 && exists("b:NERDTreeType") && b:NERDTreeType == "primary") | q | endif
+
 " ==================== VIM-powerline
 set runtimepath^=~/.vim/bundle/vim-powerline
 
