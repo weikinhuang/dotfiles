@@ -1,0 +1,124 @@
+#!/bin/bash
+# set -e
+
+usage()
+{
+cat << EOF
+Usage: $0 [-t <delay>] [-q] [-n]
+
+This script updates or deletes a puppet environment branch.
+
+OPTIONS:
+    -t [5]        Number of seconds to delay before syncing on change
+    -q            Quiet mode
+    -n            Do not delete files on remote host
+EOF
+}
+
+QUIET=
+CHANGE_DELAY=5
+DELETE="--delete --delete-excluded"
+SHIFT_SIZE=0
+
+while getopts "t::qn" opt; do
+	case $opt in
+		q)
+			QUIET=1
+			SHIFT_SIZE=$(($SHIFT_SIZE + 1))
+			;;
+		n)
+			DELETE=
+			SHIFT_SIZE=$(($SHIFT_SIZE + 1))
+			;;
+		t)
+			CHANGE_DELAY=$OPTARG
+			SHIFT_SIZE=$(($SHIFT_SIZE + 2))
+			;;
+		?)
+			usage
+			exit 1
+		;;  
+		\?)
+			echo "Invalid option: -$OPTARG" >&2
+			exit 1
+			;;
+		:)
+			echo "Option -$opt requires an argument." >&2
+			exit 1
+			;;
+	esac
+done
+
+shift $SHIFT_SIZE
+
+if [[ $# == 2 ]]; then
+	DIRECTORY="$1"
+	REMOTE_PATH="$2"
+else
+	DIRECTORY="$(pwd)"
+	REMOTE_PATH="$1"
+fi
+
+# if we're in cygwin, clean up for windows inotifywait
+if type cygpath &> /dev/null; then
+	DIRECTORY="$(cygpath -w "$DIRECTORY")"
+fi
+
+if [[ -z "$DIRECTORY" ]] || [[ -z $REMOTE_PATH ]]; then
+	echo "$0 DIRECTORY REMOTE_DIRECTORY"
+	exit 1;
+fi
+
+DIRMD5=$(echo "$DIRECTORY" | md5sum -t | cut -f1 -d' ')
+LOCKFILE="/tmp/syncdev-$DIRMD5"
+cd "$DIRECTORY"
+
+echo "Syncing \"$DIRECTORY\" with \"$REMOTE_PATH\""
+
+function sync() {
+	# sync to remote server if necessary
+	rsync -av $DELETE --links -K \
+		-e 'ssh -o ConnectTimeout=1' \
+		--chmod a+rwx,g+rx,o+rx,g-w,o-w \
+		--exclude '.git' \
+		--exclude '.DS_Store' \
+		--exclude '.buildpath' \
+		--exclude '.project' \
+		--exclude '.settings' \
+		--exclude '.cache' \
+		. \
+		$REMOTE_PATH/
+}
+
+function sync-files() {
+	if [[ -e "$LOCKFILE" ]]; then
+		return 1
+	fi
+	touch "$LOCKFILE"
+	sleep $CHANGE_DELAY
+	if [[ -z $QUIET ]]; then
+		sync
+	else
+		sync >/dev/null
+	fi
+	rm -f "$LOCKFILE"
+}
+
+# cleanup from previous process
+rm -f "$LOCKFILE"
+
+# auto rsync daemon similar to lsyncd
+if type inotifywait &> /dev/null; then
+
+inotifywait -mrq --format '%e %w %f' \
+"$DIRECTORY" \
+| \
+while read event path file; do
+	sleep 0.2
+	sync-files &
+done
+
+els
+	echo "Cannot find inotifywait"
+	exit 1
+fi
