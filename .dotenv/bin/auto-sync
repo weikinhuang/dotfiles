@@ -4,7 +4,7 @@
 usage()
 {
 cat << EOF
-Usage: $0 [-t <delay>] [-q] [-n]
+Usage: $0 [-t <delay>] [-q] [-n] [-e file] [SRC] TARGET
 
 This script updates or deletes a puppet environment branch.
 
@@ -12,6 +12,7 @@ OPTIONS:
     -t [5]        Number of seconds to delay before syncing on change
     -q            Quiet mode
     -n            Do not delete files on remote host
+    -e FILE       Exclude a file to be synced, can be defined multiple times
 EOF
 }
 
@@ -19,8 +20,9 @@ QUIET=
 CHANGE_DELAY=5
 DELETE="--delete --delete-excluded"
 SHIFT_SIZE=0
+EXCLUDE=(  )
 
-while getopts "t::qn" opt; do
+while getopts "t:e:qn" opt; do
 	case $opt in
 		q)
 			QUIET=1
@@ -32,6 +34,10 @@ while getopts "t::qn" opt; do
 			;;
 		t)
 			CHANGE_DELAY=$OPTARG
+			SHIFT_SIZE=$(($SHIFT_SIZE + 2))
+			;;
+		e)
+			EXCLUDE=("${EXCLUDE[@]}" "--exclude" "$OPTARG")
 			SHIFT_SIZE=$(($SHIFT_SIZE + 2))
 			;;
 		?)
@@ -80,7 +86,7 @@ function sync() {
 	rsync -av $DELETE --links -K \
 		-e 'ssh -o ConnectTimeout=1' \
 		--chmod a+rwx,g+rx,o+rx,g-w,o-w \
-		--exclude '.git' \
+		"$EXCLUDE[@]" \
 		--exclude '.DS_Store' \
 		--exclude '.buildpath' \
 		--exclude '.project' \
