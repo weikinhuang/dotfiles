@@ -86,7 +86,7 @@ function sync() {
 	rsync -av $DELETE --links -K \
 		-e 'ssh -o ConnectTimeout=1' \
 		--chmod a+rwx,g+rx,o+rx,g-w,o-w \
-		"$EXCLUDE[@]" \
+		"${EXCLUDE[@]}" \
 		--exclude '.DS_Store' \
 		--exclude '.buildpath' \
 		--exclude '.project' \
