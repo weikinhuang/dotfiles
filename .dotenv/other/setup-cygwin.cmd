@@ -124,9 +124,13 @@ ECHO setup sshd for local user only
 
 REM -- download hstart
 IF NOT EXIST "%ROOTDIR%\startup\%HSTART_BIN%" (
-	"%ROOTDIR%\bin\bash.exe" --login -c "mkdir /startup; wget -O /tmp/hstart.zip %HSTART_URL% && unzip -p /tmp/hstart.zip %HSTART_BIN% > /startup/%HSTART_BIN%; rm -f /tmp/hstart.zip"
+	"%ROOTDIR%\bin\bash.exe" --login -c "mkdir /startup"
+	"%ROOTDIR%\bin\bash.exe" --login -c "wget -O /tmp/hstart.zip %HSTART_URL% && unzip -p /tmp/hstart.zip %HSTART_BIN% > /startup/%HSTART_BIN%"
+	"%ROOTDIR%\bin\bash.exe" --login -c "rm -f /tmp/hstart.zip"
 )
+
 REM -- create the startup entry for ssh to run on login
+IF NOT EXIST "%STARTUP_DIR%\sshd.cmd" (
 echo ^
 SET PATH=%%PATH%%;%ROOTDIR%\bin^
 
@@ -134,6 +138,7 @@ chdir %ROOTDIR%^
 
 start "" "%ROOTDIR%\startup\%HSTART_BIN%" /noconsole /elevate "%ROOTDIR%\usr\sbin\sshd.exe -D"^
  > "%STARTUP_DIR%\sshd.cmd"
+)
 
 ECHO.
 ECHO.
