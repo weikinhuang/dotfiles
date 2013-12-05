@@ -9,9 +9,13 @@ fi
 
 # The windows userprofile directory
 if [[ -z "$USERPROFILE" ]]; then
-	if [[ -d "$(cygpath -u "C:\Users\\$USER")" ]]; then
-		export USERPROFILE="$(cygpath -u "C:\Users\\$USER")"
+	if [[ -d "$(cygpath -u 'C:\Users\'$USER)" ]]; then
+		export USERPROFILE='C:\Users\'$USER
 	else
 		export USERPROFILE="$HOME"
 	fi
+fi
+
+if [[ -z "$APPDATA" ]] && [[ -d "$(cygpath -u 'C:\Users\'$USER'\AppData\Roaming')" ]]; then
+	export APPDATA='C:\Users\'$USER'\AppData\Roaming'
 fi
