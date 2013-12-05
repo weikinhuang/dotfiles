@@ -6,3 +6,12 @@ else
 	# for mingw based environments
 	export PROC_CORES=$(/c/Windows/syswow64/WindowsPowerShell/v1.0/powershell.exe get-wmiobject Win32_ComputerSystem\|format-list *proc* | grep 'Logical' | sed 's/^.\+ : //')
 fi
+
+# The windows userprofile directory
+if [[ -z "$USERPROFILE" ]]; then
+	if [[ -d "$(cygpath -u "C:\Users\\$USER")" ]]; then
+		export USERPROFILE="$(cygpath -u "C:\Users\\$USER")"
+	else
+		export USERPROFILE="$HOME"
+	fi
+fi
