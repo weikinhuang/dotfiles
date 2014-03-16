@@ -96,6 +96,7 @@ ECHO.
 ECHO.
 ECHO updating cygdrive fstab
 "%ROOTDIR%\bin\bash.exe" --login -c "sed -i 's/# none \/cygdrive cygdrive /none \/ cygdrive /' /etc/fstab"
+"%ROOTDIR%\bin\bash.exe" --login -c "sed -i 's/none \/cygdrive cygdrive /none \/ cygdrive /' /etc/fstab"
 ECHO.
 ECHO.
 
