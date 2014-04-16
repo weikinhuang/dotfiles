@@ -16,7 +16,7 @@ SET ADD_ARGS="-K http://cygwinports.org/ports.gpg -s ftp://ftp.cygwinports.org/p
 SET LOCALDIR="%ROOTDIR%\setup"
 set HSTART_URL=http://files.ntwind.com/download/Hstart_4.2-bin.zip
 IF "%PROCESSOR_ARCHITECTURE%" == "x86" (
-	SET SETUP_NAME=setup.exe
+	SET SETUP_NAME=setup-x86.exe
 	SET HSTART_BIN=hstart.exe
 ) else (
 	SET SETUP_NAME=setup-x86_64.exe
@@ -137,7 +137,7 @@ SET PATH=%%PATH%%;%ROOTDIR%\bin^
 
 chdir %ROOTDIR%^
 
-start "" "%ROOTDIR%\startup\%HSTART_BIN%" /noconsole /elevate "%ROOTDIR%\usr\sbin\sshd.exe -D"^
+start "" "%ROOTDIR%\startup\%HSTART_BIN%" /noconsole /elevate "%ROOTDIR%\bin\bash.exe --login -c '/usr/sbin/sshd.exe -D'"^
  > "%STARTUP_DIR%\sshd.cmd"
 )
 
