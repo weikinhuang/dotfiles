@@ -50,8 +50,6 @@ function __createcygwinwrappers() {
 	__cygexewrap "c:/${X86_PGM_PATH}/TuneUp Utilities 2007/Integrator.exe" tuneup
 	__cygexewrap "c:/${X86_PGM_PATH}/UltraISO/UltraISO.exe" ultraiso
 	__cygexewrap "c:/Program Files/WinRAR/UnRAR.exe" unrar
-	__cygexewrap "c:/${X86_PGM_PATH}/VMware/VMware Workstation/vmrun.exe" vmrun
-	__cygexewrap "c:/${X86_PGM_PATH}/VMware/VMware Workstation/vmware.exe" vmware
 	__cygexewrap "c:/Program Files/WinRAR/WinRAR.exe" winrar
 	__cygexewrap "c:/${X86_PGM_PATH}/WinSCP/WinSCP.exe" winscp
 	__cygexewrap "c:/${X86_PGM_PATH}/Symantec/Symantec Endpoint Protection/DoScan.exe" avscan
@@ -59,6 +57,15 @@ function __createcygwinwrappers() {
 	__cygexewrap "c:/Windows/system32/notepad.exe" np
 	__cygexewrap "c:/${X86_PGM_PATH}/Windows Media Player/wmplayer.exe" wmplayer "/prefetch:1"
 	__cygexewrap "c:/${X86_PGM_PATH}/Windows NT/Accessories/wordpad.exe" wordpad
+
+	# vmware applications
+	if [[ -d "/c/${X86_PGM_PATH}/VMware/VMware Workstation/" ]]; then
+		__cygexewrap "c:/${X86_PGM_PATH}/VMware/VMware Workstation/vmrun.exe" vmrun
+		__cygexewrap "c:/${X86_PGM_PATH}/VMware/VMware Workstation/vmware.exe" vmware
+	else
+		__cygexewrap "c:/${X86_PGM_PATH}/VMware/VMware Player/vmrun.exe" vmrun
+		__cygexewrap "c:/${X86_PGM_PATH}/VMware/VMware Player/vmplayer.exe" vmware
+	fi
 
 	# cli based applications
 	# __cygcliwrap "c:/Program Files/nodejs/node.exe" node # we don't do this because we want # ! /usr/bin/env node to work
