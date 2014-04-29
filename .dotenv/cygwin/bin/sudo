@@ -1,0 +1,27 @@
+#!/bin/bash
+
+# if there are any baked in arguments they are defined here
+args=(  )
+
+for arg in "$@"
+do
+	# if argument is a file, then expand it to windows paths
+	if [ -e "$arg" ]
+	then
+		# echo "arg $arg is a file"
+		args=("${args[@]}" "$(cygpath -w "$arg")")
+	else
+		# echo "arg $arg is not a file"
+		args=("${args[@]}" "$arg")
+	fi
+done
+
+# test if we are in a pipe and pass stdin as last argument if we are piping in
+if [ ! -t 0 ]
+then
+	cygstart --action=runas "${args[@]}" <<< "$(cat -)"
+else
+	cygstart --action=runas "${args[@]}"
+fi
+
+exit $?
