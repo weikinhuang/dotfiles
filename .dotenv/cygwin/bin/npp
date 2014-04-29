@@ -1,7 +1,12 @@
 #!/bin/bash
 
-# the name of the program
-PROGRAM=$(cygpath -u "c:/Program Files (x86)/Notepad++/notepad++.exe")
+# make sure we go to the right path
+X86_PGM_PATH="Program Files"
+if [[ -d "/c/Program Files (x86)/" ]]; then
+	X86_PGM_PATH="Program Files (x86)"
+fi
+
+PROGRAM=$(cygpath -u "c:/${X86_PGM_PATH}/Notepad++/notepad++.exe")
 
 # if there are any baked in arguments they are defined here
 args=(  )

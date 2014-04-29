@@ -121,7 +121,7 @@ ECHO setup sshd for local user only
 "%ROOTDIR%\bin\bash.exe" --login -c "sed -i 's/^#PasswordAuthentication yes$/PasswordAuthentication no/' /etc/sshd_config"
 "%ROOTDIR%\bin\bash.exe" --login -c "sed -i 's/^UsePrivilegeSeparation sandbox/UsePrivilegeSeparation no/' /etc/sshd_config"
 "%ROOTDIR%\bin\bash.exe" --login -c "if [[ ! -f ~/.ssh/id_rsa ]]; then ssh-keygen -q -t rsa -N '' -f ~/.ssh/id_rsa && cat ~/.ssh/id_rsa.pub >> ~/.ssh/authorized_keys && chmod 0600 ~/.ssh/authorized_keys; fi;"
-"%ROOTDIR%\bin\bash.exe" --login -c "echo '' > /etc/motd"
+"%ROOTDIR%\bin\bash.exe" --login -c "echo > /etc/motd"
 
 REM -- download hstart
 IF NOT EXIST "%ROOTDIR%\startup\%HSTART_BIN%" (
@@ -131,14 +131,22 @@ IF NOT EXIST "%ROOTDIR%\startup\%HSTART_BIN%" (
 )
 
 REM -- create the startup entry for ssh to run on login
-IF NOT EXIST "%STARTUP_DIR%\sshd.cmd" (
+IF NOT EXIST "%ROOTDIR%\startup\sshd.cmd" (
 echo ^
 SET PATH=%%PATH%%;%ROOTDIR%\bin^
 
 chdir %ROOTDIR%^
 
 start "" "%ROOTDIR%\startup\%HSTART_BIN%" /noconsole /elevate "%ROOTDIR%\bin\bash.exe --login -c '/usr/sbin/sshd.exe -D'"^
- > "%STARTUP_DIR%\sshd.cmd"
+ > "%ROOTDIR%\startup\sshd.cmd"
+)
+
+IF NOT EXIST "%STARTUP_DIR%\sshd.cmd" (
+	mklink "%STARTUP_DIR%\sshd.cmd" "%ROOTDIR%\startup\sshd.cmd"
+)
+
+IF NOT EXIST "%ROOTDIR%\cygsetup.cmd" (
+	echo "%ROOTDIR%\%SETUP_NAME%" -s "%SITE%" -l "%LOCALDIR%" -R "%ROOTDIR%" "%ADD_ARGS%" > "%ROOTDIR%\cygsetup.cmd"
 )
 
 ECHO.
