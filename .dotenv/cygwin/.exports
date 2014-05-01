@@ -19,3 +19,10 @@ fi
 if [[ -z "$APPDATA" ]] && [[ -d "$(cygpath -u 'C:\Users\'$USER'\AppData\Roaming')" ]]; then
 	export APPDATA='C:\Users\'$USER'\AppData\Roaming'
 fi
+
+# use native symlinks when possible
+if [[ -z "$CYGWIN" ]]; then
+	export CYGWIN="winsymlinks:native nodosfilewarning"
+else
+	export CYGWIN="${CYGWIN} winsymlinks:native nodosfilewarning"
+fi
