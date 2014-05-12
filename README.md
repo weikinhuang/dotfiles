@@ -8,19 +8,19 @@
 This will by default install dotfiles in the home directory with all options enabled
 
 ```bash
-curl https://raw.github.com/weikinhuang/dotfiles/master/bootstrap.sh | sh
+curl https://raw.githubusercontent.com/weikinhuang/dotfiles/master/bootstrap.sh | sh
 ```
 
 To change the install directory
 
 ```bash
-export DT_DIR=/tmp; curl https://raw.github.com/weikinhuang/dotfiles/master/bootstrap.sh | sh
+export DT_DIR=/tmp; curl https://raw.githubusercontent.com/weikinhuang/dotfiles/master/bootstrap.sh | sh
 ```
 
 To disable git or vim
 
 ```bash
-export DT_GIT=1; export DT_VIM=1; curl https://raw.github.com/weikinhuang/dotfiles/master/bootstrap.sh | sh
+export DT_GIT=1; export DT_VIM=1; curl https://raw.githubusercontent.com/weikinhuang/dotfiles/master/bootstrap.sh | sh
 ```
 
 ### Install dotfiles with Git
