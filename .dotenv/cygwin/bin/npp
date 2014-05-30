@@ -30,5 +30,5 @@ then
 	args=("${args[@]}" "$(cat -)");
 fi
 
-"${PROGRAM}" "${args[@]}"
+"${PROGRAM}" -multiInst -nosession "${args[@]}"
 exit $?
