@@ -151,6 +151,5 @@ if type winpty &> /dev/null; then
 else
 	function __cygcliwrap() {
 		echo "Package winpty required. Please visit https://github.com/rprichard/winpty and compile application."
-		exit 1
 	}
 fi
