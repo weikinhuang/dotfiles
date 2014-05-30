@@ -47,6 +47,7 @@ export DOTENV
 [[ -f "/etc/bash_completion" ]] && source "/etc/bash_completion"
 
 # modify path to include useful scripts
+[[ "${DOTENV}" == "cygwin" ]] && [[ -d "${HOME}/.dotenv/${DOTENV}/bin.$(uname -m)" ]] && PATH="$PATH:${HOME}/.dotenv/${DOTENV}/bin.$(uname -m)"
 [[ -d "${HOME}/.dotenv/${DOTENV}/bin" ]] && PATH="$PATH:${HOME}/.dotenv/${DOTENV}/bin"
 [[ -d "${HOME}/.dotenv/bin" ]] && PATH="$PATH:${HOME}/.dotenv/bin"
 [[ -d "${HOME}/bin" ]] && PATH="$PATH:${HOME}/bin"
