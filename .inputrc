@@ -67,3 +67,6 @@ set convert-meta off
 # securecrt
 "\777": backward-word
 "\002": forward-word
+
+# for zsh/cmd style tab completion
+# TAB: menu-complete
