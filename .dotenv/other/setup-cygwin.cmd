@@ -71,7 +71,7 @@ REM -- cleanup temp files
 del "%DLOAD_SCRIPT%"
 
 REM -- These are the packages we will install (in addition to the default packages)
-SET PACKAGES=bash-completion,bc,bind,ca-certificates,curl,fdupes,git,git-completion,git-svn
+SET PACKAGES=bash-completion,bc,bind,ca-certificates,curl,cygutils-extra,fdupes,git,git-completion,git-svn
 SET PACKAGES=%PACKAGES%,inetutils,nc,nc6,ncurses,openssh,openssl,procps,rsync,screen,unzip,vim,wget,xxd
 REM -- Extra packages
 SET PACKAGES=%PACKAGES%,heimdal
