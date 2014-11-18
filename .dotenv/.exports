@@ -16,7 +16,15 @@ COMP_WORDBREAKS=${COMP_WORDBREAKS/=/}
 # Don't put duplicate lines in the history.
 export HISTCONTROL=$HISTCONTROL${HISTCONTROL+,}ignoredups
 # Ignore some controlling instructions: exit, ls, empty cd, pwd, date, help pages
-export HISTIGNORE=$'[ \t]*:&:[fb]g:exit:ls:ls -?::ls -??:ll:history:cd:cd -:cd ~:cd ..:..:pwd:date:* --help'
+HISTIGNORE_BASE=$'[ \t]*:&:[fb]g:exit:ls:ls -?::ls -??:ll:history:cd:cd -:cd ~:cd ..:..:pwd:date:* --help'
+# Ignore basic git commands
+HISTIGNORE_GIT='git +([a-z]):git co -:git add -?:git pob -f:git pr -o:git undo .:git diff --staged'
+# Ignore common local commands
+HISTIGNORE_LOCAL='o:oo'
+# Ignore common dev commands
+HISTIGNORE_DEV='npm install:bower install'
+# export combined HISTIGNORE
+export HISTIGNORE=${HISTIGNORE_BASE}:${HISTIGNORE_GIT}:${HISTIGNORE_LOCAL}:${HISTIGNORE_DEV}
 # Larger bash history (allow 32³ entries; default is 500)
 export HISTSIZE=32768
 export HISTFILESIZE=$HISTSIZE
