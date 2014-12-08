@@ -299,6 +299,11 @@ function uc () {
 	fi;
 }
 
+# regex match and replace from: https://gist.github.com/opsb/4409156
+function regex {
+	gawk 'match($0, '$1', ary) { print ary['${2:-'0'}'] }';
+}
+
 # functionality to simplify making restful curl requests
 export __request_host=""
 function __request () {
