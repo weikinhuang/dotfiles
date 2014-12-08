@@ -292,3 +292,8 @@ Installing ack
 ```bash
 ~/.dotfiles/.dotenv/other/install-ack-all.sh
 ```
+
+Installing youtube-dl
+```bash
+~/.dotfiles/.dotenv/other/install-youtube-dl-all.sh
+```
