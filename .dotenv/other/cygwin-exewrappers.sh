@@ -47,11 +47,9 @@ function __createcygwinwrappers() {
 	__cygexewrap "c:/Program Files/WinRAR/Rar.exe" rar
 	__cygexewrap "c:/Program Files/VanDyke Software/SecureCRT/SecureCRT.exe" securecrt
 	__cygexewrap "c:/${X86_PGM_PATH}/Symantec/Symantec Endpoint Protection/12.1.1000.157.105/Bin/SymCorpUI.exe" symantec
-	__cygexewrap "c:/${X86_PGM_PATH}/TuneUp Utilities 2007/Integrator.exe" tuneup
 	__cygexewrap "c:/${X86_PGM_PATH}/UltraISO/UltraISO.exe" ultraiso
 	__cygexewrap "c:/Program Files/WinRAR/UnRAR.exe" unrar
 	__cygexewrap "c:/Program Files/WinRAR/WinRAR.exe" winrar
-	__cygexewrap "c:/${X86_PGM_PATH}/WinSCP/WinSCP.exe" winscp
 	__cygexewrap "c:/${X86_PGM_PATH}/Symantec/Symantec Endpoint Protection/DoScan.exe" avscan
 	
 	__cygexewrap "c:/Windows/system32/notepad.exe" np
@@ -74,8 +72,10 @@ function __createcygwinwrappers() {
 	__cygcliwrap "c:/Windows/System32/WindowsPowerShell/v1.0/powershell.exe" wpowershell
 
 	# special case for getting the latest zend studio
-	ZEND_VERSION=$(find "$(cygpath -u "c:/${X86_PGM_PATH}/Zend/")" -maxdepth 2 -name "ZendStudio.exe" -type f | cut -d'/' -f5 | cut -d' ' -f3 | sort -n | tail -n1)
-	__cygexewrap "c:/${X86_PGM_PATH}/Zend/Zend Studio ${VERSION}/ZendStudio.exe"
+	if [[ -d "/c/${X86_PGM_PATH}/Zend/" ]]; then
+		ZEND_VERSION=$(find "$(cygpath -u "c:/${X86_PGM_PATH}/Zend/")" -maxdepth 2 -name "ZendStudio.exe" -type f | cut -d'/' -f5 | cut -d' ' -f3 | sort -n | tail -n1)
+		__cygexewrap "c:/${X86_PGM_PATH}/Zend/Zend Studio ${VERSION}/ZendStudio.exe"
+	fi
 }
 __createcygwinwrappers >> /dev/null
 unset __createcygwinwrappers

@@ -22,7 +22,7 @@ HISTIGNORE_GIT='git +([a-z]):git co -:git add -?:git pob -f:git pr -o:git undo .
 # Ignore common local commands
 HISTIGNORE_LOCAL='o:oo'
 # Ignore common dev commands
-HISTIGNORE_DEV='npm install:bower install'
+HISTIGNORE_DEV='p:npm install:bower install'
 # export combined HISTIGNORE
 export HISTIGNORE=${HISTIGNORE_BASE}:${HISTIGNORE_GIT}:${HISTIGNORE_LOCAL}:${HISTIGNORE_DEV}
 # Larger bash history (allow 32³ entries; default is 500)

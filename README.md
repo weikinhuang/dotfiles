@@ -226,7 +226,7 @@ state[repl]#host [database]>
 
 ## .gitconfig
 
-If using the gitconfig included in this repository, it is recommended that the user specific configurations be included in environment variables in `~/.bash_local_exports` for portability.
+If using the gitconfig included in this repository, it is recommended that the user specific configurations be included in environment variables in `~/.bash_local` for portability.
 ```bash
 # git based configurations for portable .gitconfig
 export GIT_AUTHOR_NAME=""
@@ -238,4 +238,40 @@ export GIT_HUB_API_TOKEN=""
 
 ```bash
 cd; ln -s ~/.dotfiles/.gitconfig
+```
+
+## common variables for ~/.bash_local
+
+Use to tell common commands to use solarized-light colors
+
+```bash
+export __term_solarized_light=true
+```
+
+## cygwin addons
+
+Additional variables that can be used with cygwin cli
+
+In `~/.bash_local_exports`, cd to this dir on login
+
+```bash
+START_DIR='~/Documents'
+```
+
+In `~/.bash_local_exports`, use to determine a projects directory (shortcut with `p`)
+
+```bash
+PROJECT_DIR='~/Documents/Projects'
+```
+
+In `~/.bash_local_exports`, use to wrap common applications with cli usage
+
+```bash
+export __CYG_LOAD_WRAPPERS=true
+```
+
+In `~/.bash_local`, use to reduce load poll time
+
+```bash
+export __ps1_var_loadreloadtime=15
 ```

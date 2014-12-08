@@ -1,0 +1,105 @@
+#!/bin/bash
+
+SCRIPT_NAME="$(basename $0)"
+HOSTFILE_TARGET=/c/Windows/System32/drivers/etc/hosts
+
+function show-help () {
+	echo 'Usage: '"${SCRIPT_NAME}"' [OPTION=build]
+Rebuilds the hosts file with ad blocking
+
+  build                 creates the hosts file
+  rollback              goes back to the previous hosts file
+  disable               disables the hosts file
+  enable                re-enables the hosts file
+  no-dev                builds the hosts file without the dev hosts
+  -h, -?, --help        display this help and exit
+'
+}
+
+# show help message
+if getopt_assert -?:--help:-h "$@" > /dev/null; then
+	show-help
+	exit 0
+fi
+
+function backup-hosts () {
+	if [[ -f "${HOSTFILE_TARGET}.bak" ]]; then
+		rm -f "${HOSTFILE_TARGET}.bak"
+	fi
+
+	mv "${HOSTFILE_TARGET}" "${HOSTFILE_TARGET}.bak"
+}
+
+function rollback-hosts () {
+	if [[ -f "${HOSTFILE_TARGET}" ]]; then
+		rm -f "${HOSTFILE_TARGET}"
+	fi
+
+	mv "${HOSTFILE_TARGET}.bak" "${HOSTFILE_TARGET}"
+}
+
+function enable-hosts () {
+	if [[ ! -e "${HOSTFILE_TARGET}.disabled" ]]; then
+		echo "Hosts file not disabled"
+		return 0
+	fi
+	mv "${HOSTFILE_TARGET}.disabled" "${HOSTFILE_TARGET}"
+}
+
+function disable-hosts () {
+	if [[ -e "${HOSTFILE_TARGET}.disabled" ]]; then
+		echo "Hosts file already disabled"
+		return 0
+	fi
+	mv "${HOSTFILE_TARGET}" "${HOSTFILE_TARGET}.disabled"
+}
+
+function build-hosts () {
+	get-adblock-hosts > /c/Windows/System32/drivers/etc/hosts
+}
+
+function build-hosts-with-dev () {
+	if [[ ! -z "$PROJECT_DIR" && -e "$PROJECT_DIR/hosts.dev.txt" ]]; then
+		get-adblock-hosts | cat "$PROJECT_DIR/hosts.dev.txt" - > "${HOSTFILE_TARGET}"
+	else
+		build-hosts
+	fi
+}
+
+function get-adblock-hosts () {
+	curl -s http://winhelp2002.mvps.org/hosts.txt
+}
+
+function echo-rollback () {
+	echo "Use ${SCRIPT_NAME} rollback to undo this update"
+}
+
+if [[ $# -eq 0 ]]; then
+	backup-hosts
+	build-hosts-with-dev
+	exit 0
+fi
+
+case "$1" in
+	"build")
+		backup-hosts
+		build-hosts-with-dev
+	;;
+	"rollback")
+		rollback-hosts
+	;;
+	"disable")
+		disable-hosts
+	;;
+	"enable")
+		enable-hosts
+	;;
+	"no-dev")
+		backup-hosts
+		build-hosts
+	;;
+	*)
+		show-help
+		exit 0
+	;;
+esac
