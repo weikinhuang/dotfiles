@@ -276,6 +276,8 @@ In `~/.bash_local`, use to reduce load poll time
 export __ps1_var_loadreloadtime=15
 ```
 
+## Installers
+
 Installing php on windows
 ```bash
 ~/.dotfiles/.dotenv/other/install-php-windows.sh
@@ -284,4 +286,9 @@ Installing php on windows
 Installing nodejs on windows
 ```bash
 ~/.dotfiles/.dotenv/other/install-nodejs-windows.sh
+```
+
+Installing ack
+```bash
+~/.dotfiles/.dotenv/other/install-ack-all.sh
 ```
