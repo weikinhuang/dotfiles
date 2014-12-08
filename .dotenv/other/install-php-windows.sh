@@ -51,10 +51,10 @@ function get-php () {
 	mv PHP "${INSTALL_PATH}"
 }
 
-# go to word dir
+# go to work dir
 cd /tmp
 
-if [[ -d "${INSTALL_PATH}" ]] && type php &> /dev/null; then
+if [[ -d "${INSTALL_PATH}" ]] && type php &> /dev/null && php -v &> /dev/null; then
 	# this is a upgrade
 	if [[ "$(php -r 'echo phpversion();')" != "${PHP_VERSION_FULL}" ]]; then
 		cp "${INSTALL_PATH}/php.ini" php.ini.bak

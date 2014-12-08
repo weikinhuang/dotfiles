@@ -275,3 +275,13 @@ In `~/.bash_local`, use to reduce load poll time
 ```bash
 export __ps1_var_loadreloadtime=15
 ```
+
+Installing php on windows
+```bash
+~/.dotfiles/.dotenv/other/install-php-windows.sh
+```
+
+Installing nodejs on windows
+```bash
+~/.dotfiles/.dotenv/other/install-nodejs-windows.sh
+```
