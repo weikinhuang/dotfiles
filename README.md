@@ -104,7 +104,7 @@ on ssh ------------┐
 
 When logged in as root user
 ```bash
-as root -----------------------------------------┐
+as root -------------------------------------------┐
 [06:00:00 0.00 root@host dir<4|2.4Mb> (կ master %)]μ 
 ```
 
@@ -262,7 +262,7 @@ Use to determine a projects directory (shortcut with `p`)
 export PROJECT_DIR='~/Documents/Projects'
 ```
 
-Use to wrap common applications with cli usage (cygwin)
+Use to wrap common applications with cli usage (cygwin) will load [dotenv/other/cygwin-exewrappers.sh](dotenv/other/cygwin-exewrappers.sh)
 
 ```bash
 export __CYG_LOAD_WRAPPERS=true
@@ -274,24 +274,6 @@ Use to reduce load poll time (cygwin)
 export __ps1_var_loadreloadtime=15
 ```
 
-## Installers (will install only to `~/bin`)
+## [Installers](INSTALLERS.md)
 
-Installing php on windows (global install)
-```bash
-~/.dotenv/other/install-php-windows.sh
-```
-
-Installing nodejs on windows (global install)
-```bash
-~/.dotenv/other/install-nodejs-windows.sh
-```
-
-Installing ack
-```bash
-~/.dotenv/other/install-ack-all.sh
-```
-
-Installing youtube-dl
-```bash
-~/.dotenv/other/install-youtube-dl-all.sh
-```
+[See available installers.](INSTALLERS.md)
