@@ -57,6 +57,9 @@ fi
 
 "/c/Program Files/nodejs/npm.cmd" install -g npm@latest
 
+# fix path for npm command
+PATH="/c/Program Files/nodejs:$PATH"
+
 if [[ -e "/c/Users/$USER/AppData/Roaming/npm/npm.cmd" ]]; then
 	LOCAL_NPM_CMD="/c/Users/$USER/AppData/Roaming/npm/npm.cmd"
 else

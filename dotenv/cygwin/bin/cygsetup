@@ -1,0 +1,3 @@
+#!/bin/bash
+
+cmd /C start 'C:\cygwin\cygsetup.cmd'

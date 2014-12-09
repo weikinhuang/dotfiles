@@ -75,8 +75,6 @@ cd; git clone https://github.com/weikinhuang/dotfiles.git .dotfiles && cd .dotfi
 
 ### Add custom commands
 
-If `~/.bash_local_exports` exists, it will be sourced before the includes are sourced.
-
 If `~/.bash_local` exists, it will be sourced after the includes are sourced.
 
 ## The Bash Prompt
@@ -282,20 +280,20 @@ export CYGWIN=winsymlinks:native
 
 Installing php on windows (global install)
 ```bash
-~/.dotfiles/.dotenv/other/install-php-windows.sh
+~/.dotenv/other/install-php-windows.sh
 ```
 
 Installing nodejs on windows (global install)
 ```bash
-~/.dotfiles/.dotenv/other/install-nodejs-windows.sh
+~/.dotenv/other/install-nodejs-windows.sh
 ```
 
 Installing ack
 ```bash
-~/.dotfiles/.dotenv/other/install-ack-all.sh
+~/.dotenv/other/install-ack-all.sh
 ```
 
 Installing youtube-dl
 ```bash
-~/.dotfiles/.dotenv/other/install-youtube-dl-all.sh
+~/.dotenv/other/install-youtube-dl-all.sh
 ```

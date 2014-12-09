@@ -38,15 +38,16 @@ fi
 # link up files
 function link_file () {
 	file="$1"
+	target="$2"
 	# remove the backup first
-	[[ -e "$INSTALL_ROOT/$file.bak" ]] && rm -f "$INSTALL_ROOT/$file.bak"
+	[[ -e "$INSTALL_ROOT/$target.bak" ]] && rm -f "$INSTALL_ROOT/$target.bak"
 	# create the backup file
-	[[ -e "$INSTALL_ROOT/$file" ]] && mv "$INSTALL_ROOT/$file" "$INSTALL_ROOT/$file.bak"
+	[[ -e "$INSTALL_ROOT/$target" ]] && mv "$INSTALL_ROOT/$target" "$INSTALL_ROOT/$target.bak"
 	# link up the file
 	if [[ -e "$DOTFILES_ROOT/$file" ]]; then
-		echo "linking up '$DOTFILES_ROOT/$file' => '$INSTALL_ROOT/$file'"
-		if ! ln -sf "$DOTFILES_ROOT/$file" "$INSTALL_ROOT/$file"; then
-			echo "Unable to symlink '$INSTALL_ROOT/$file'"
+		echo "linking up '$DOTFILES_ROOT/$file' => '$INSTALL_ROOT/$target'"
+		if ! ln -sf "$DOTFILES_ROOT/$file" "$INSTALL_ROOT/$target"; then
+			echo "Unable to symlink '$INSTALL_ROOT/$target'"
 		fi
 	fi
 }
@@ -116,7 +117,7 @@ fi
 
 # symlink all the files
 for file in $LINKED_FILES; do
-	link_file ".$file"
+	link_file "$file" ".$file"
 done
 
 # done
