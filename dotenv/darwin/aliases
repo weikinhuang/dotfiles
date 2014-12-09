@@ -1,7 +1,3 @@
-# Shortcuts to the clipboard
-alias wcopy="xclip --in"
-alias wpaste="xclip --out"
-
 # Shortcuts
 
 # Alias vi to vim

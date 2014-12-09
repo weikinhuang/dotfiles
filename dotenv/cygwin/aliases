@@ -25,12 +25,12 @@ if type nppedit &> /dev/null; then
 	alias vi="nppedit"
 fi
 
-# Alias apt-cyg to yum
-alias yum="apt-cyg"
+# Alias apt-cyg to apt-get
+alias apt-get="apt-cyg"
 
 # Shortcuts to the clipboard
-alias wcopy="putclip"
-alias wpaste="getclip"
+alias pbcopy="putclip"
+alias pbpaste="getclip"
 
 # Networking shortcuts
 alias ips="ipconfig | grep 'IPv4 Address' | perl -nle'/(\d+\.\d+\.\d+\.\d+)/ && print $1'"

@@ -17,6 +17,10 @@
 
 `diff` uses git's diff command with color when possible
 
+`pbcopy` and `pbpaste` for cross-platform copy/paste from cli
+
+`open` for cross-platform open in native application
+
 ### Navigation
 
 ```bash
@@ -133,4 +137,10 @@ git remove-history       => Permanently delete files/folders from repository
 git repl                 => Start a repl where all commands are prefixed with "git"
 git touch                => Make a new file and add it
 git track                => Sets up auto-tracking of a remote branch with same base name
+```
+
+## New Global Variables
+
+```bash
+PROC_CORES               => number of threads (cores)
 ```

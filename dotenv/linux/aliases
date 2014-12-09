@@ -1,11 +1,15 @@
 # Shortcuts to the clipboard
-alias wcopy="pbcopy"
-alias wpaste="pbpaste"
+alias pbcopy="xclip -selection clipboard"
+alias pbpaste="xclip -selection clipboard -o"
 
-# useful shortcuts
-alias open="nautilus"
-
-# Shortcuts
+# open command shortcuts
+if type xdg-open &> /dev/null; then
+	alias open="xdg-open"
+elif type gnome-open &> /dev/null; then
+	alias open="gnome-open"
+else
+	alias open="nautilus"
+fi
 
 # useful shortcuts
 alias md5="md5sum"
