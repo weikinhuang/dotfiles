@@ -29,4 +29,4 @@ alias pbcopy="putclip"
 alias pbpaste="getclip"
 
 # Networking shortcuts
-alias ips="ipconfig | grep 'IPv4 Address' | perl -nle'/(\d+\.\d+\.\d+\.\d+)/ && print $1'"
+alias ips="ipconfig | grep 'IPv4 Address' | perl -nle'/(\d+\.\d+\.\d+\.\d+)/ && print \$1'"
