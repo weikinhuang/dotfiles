@@ -65,6 +65,7 @@ x                => parallel-xargs
 ## Networking
 
 ```bash
+ips              => Get all bound internal ips
 extip            => Get the current external ip address
 
 gcurl            => Make gzip enabled curl requests
@@ -118,6 +119,8 @@ totime           => date2unix
 fromtime         => unix2date
 
 parallel-xargs   => Run a command through xargs with that is sh wrapped (parallel-xargs cat {})
+
+hosts-rebuild    => Build hosts file with dev hosts and ad blocking
 ```
 
 ### Git Utilities
@@ -143,4 +146,5 @@ git track                => Sets up auto-tracking of a remote branch with same b
 
 ```bash
 PROC_CORES               => number of threads (cores)
+DOTENV                   => Simple access to os platform
 ```

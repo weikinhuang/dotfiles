@@ -1,7 +1,11 @@
 #!/bin/bash
 
 SCRIPT_NAME="$(basename $0)"
-HOSTFILE_TARGET=/c/Windows/System32/drivers/etc/hosts
+
+HOSTFILE_TARGET=/etc/hosts
+if [[ "$DOTENV" == "cygwin" ]]; then
+	HOSTFILE_TARGET=/c/Windows/System32/drivers/etc/hosts
+fi
 
 function show-help () {
 	echo 'Usage: '"${SCRIPT_NAME}"' [OPTION=build]
