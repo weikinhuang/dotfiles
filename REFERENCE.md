@@ -41,6 +41,10 @@ findhere         => Case insensitive find in current directory (find -iname "*ar
 grip             => Case-insensetive grep on all the files in current directory
 
 md               => Create a new directory and enter it
+
+dusort           => Bar chart of all files and relative size
+
+rename           => Renames files according to modification rules. http://plasmasturm.org/code/rename/
 ```
 
 ### Shortcuts
@@ -89,6 +93,8 @@ lc               => Convert to lowercase
 uc               => Convert to uppercase
 
 regex            => Regex match and replace from: https://gist.github.com/opsb/4409156
+
+json             => Pretty print json output
 ```
 
 ### Utilities
@@ -100,6 +106,7 @@ extract          => Extracts a archive with autodetect based on extension
 gz               => Get the gzip'ed filesize
 
 dataurl          => Create a data URL from an image
+genpasswd        => Generate a random string of a certain length
 
 unix2date        => Convert a unix timestamp to a date string (unix2date 1234567890 => Fri, Feb 13, 2009  6:31:30 PM)
 date2unix        => Convert a date string to a unix timestamp (date2unix Fri, Feb 13, 2009  6:31:30 PM => 1234567890)
@@ -107,4 +114,23 @@ totime           => date2unix
 fromtime         => unix2date
 
 parallel-xargs   => Run a command through xargs with that is sh wrapped (parallel-xargs cat {})
+```
+
+### Git Utilities
+
+```bash
+git auto-difftool        => Use araxis merge when possible otherwise use vimdiff
+git auto-mergetool       => Use araxis merge when possible otherwise use vimdiff
+git branch-prune         => Remove branches locally and remotely if already merged into master
+git changelog            => Generate a changelog from git tags
+git gh-pages             => Setup a new branch called gh-pages following github's procedure
+git hooks                => Execute a git hook
+git hub-pull-request     => Open a pull request on github
+git hub-token            => Generate a github api access token
+git ignore               => Add a file/path to .gitignore
+git ls-dir               => List files in a git repo tree together with the latest commit
+git remove-history       => Permanently delete files/folders from repository
+git repl                 => Start a repl where all commands are prefixed with "git"
+git touch                => Make a new file and add it
+git track                => Sets up auto-tracking of a remote branch with same base name
 ```
