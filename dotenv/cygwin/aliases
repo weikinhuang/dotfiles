@@ -21,8 +21,8 @@ alias ps="ps -W"
 alias psf="psfind"
 
 # Alias vi to notepad++
-if type nppedit &> /dev/null; then
-	alias vi="nppedit"
+if type npp &> /dev/null; then
+	alias vi="npp"
 fi
 
 # Alias apt-cyg to apt-get

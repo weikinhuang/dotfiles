@@ -274,12 +274,6 @@ Use to reduce load poll time (cygwin)
 export __ps1_var_loadreloadtime=15
 ```
 
-Use native symlinks whenever possible (cygwin, requires admin)
-
-```bash
-export CYGWIN=winsymlinks:native
-```
-
 ## Installers (will install only to `~/bin`)
 
 Installing php on windows (global install)
