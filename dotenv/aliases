@@ -59,11 +59,10 @@ if which --tty-only which > /dev/null 2>&1; then
 	alias which="alias | /usr/bin/which --tty-only --read-alias --show-dot --show-tilde"
 fi
 
-# shortcuts to custom xargs pipes and process commands and other functions
-alias els="execlist"
-alias elsc="execlistcontext"
-alias efind="execfind"
-alias ecat="execcat"
+# shortcut to parallel-xargs
+alias x="parallel-xargs"
+
+# alias for date conversion
 alias totime="date2unix"
 alias fromtime="unix2date"
 
@@ -71,7 +70,7 @@ alias fromtime="unix2date"
 alias sudo="sudo "
 
 # Make 'less' not clear the screen upon exit and process colors
-alias less="less -X -R"
+alias less="less -XR"
 
 # Networking shortcuts
 alias extip="curl -s http://whatismyip.akamai.com/ | sed 's/[^0-9\.]//g'"

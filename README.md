@@ -73,6 +73,10 @@ Including all options
 cd; git clone https://github.com/weikinhuang/dotfiles.git .dotfiles && cd .dotfiles && ./bootstrap.sh --vim --git
 ```
 
+## [Documentation](REFERENCE.md)
+
+[See all commands and changes.](REFERENCE.md)
+
 ### Add custom commands
 
 If `~/.bash_local` exists, it will be sourced after the includes are sourced.
@@ -83,7 +87,7 @@ If `~/.bash_local` exists, it will be sourced after the includes are sourced.
 [exitstatus jobs time load user@host workdir<dirinfo> (git info)]user symbol
 ```
 
-<img src="https://github.com/weikinhuang/dotfiles/raw/master/assets/prompt-example.png">
+<img src="raw/master/assets/prompt-example.png">
 
 The prompt
 ```bash

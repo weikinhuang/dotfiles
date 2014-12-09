@@ -46,33 +46,6 @@ function __cd_func() {
 	return 0
 }
 
-# Special repo status function for git and svn
-function __repo_ps1() {
-	local info=$(svn info 2> /dev/null)
-
-	# if not a svn repo, then try the git method
-	if [[ -z "$info" ]] ; then
-		echo -n "$(__git_ps1)"
-		return
-	fi
-
-	# if it is a svn repo, then strip info out of it
-	local svnrev=$(echo "$info" | awk '/Revision:/ {print $2}')
-	local flag=
-
-	# if we want to show dirty state then exec svn status
-	if [ $SVN_PS1_SHOWDIRTYSTATE ] ; then
-		local state=$(svn status --ignore-externals "$(echo "$info" | sed -n "s/Working Copy Root Path: \(.\+\)/\1/p")" 2> /dev/null)
-
-		# make the file status conditions unique if there are changes
-		if [ -n "$state" ]; then
-			flag=" *$(echo "$state" | awk '{print $1}' | uniq | sort | tr -d '\n')"
-		fi
-	fi
-
-	echo -n " ($svnrev$flag)"
-}
-
 # push a command to the prompt command
 function __push_prompt_command() {
 	local command="${1/%;/}"
@@ -81,92 +54,26 @@ function __push_prompt_command() {
 
 # Count the number of files in a directory
 function cf() {
-	if [ -n "$1" ] ; then
-		find "$1" -type f | wc -l
-		return $?
-	fi
-	find . -type f | wc -l
-	return $?
+	find "${1-.}" -type f | wc -l
 }
 
 # find files with case-insensetive matching in current directory
 function findhere() {
 	find -iname "*$1*"
-	return $?
 }
 
 # do a case-insensetive grep on all the files in a directory
 function grip() {
 	grep -ir "$1" .
-	return $?
 }
 
-# Execute a command against each file in a directory
-function execlist() {
-	if [[ $# = 1 ]] ; then
-		if [[ "$1" =~ "{}" ]] ; then
-			ls -1A | xargs -r -I {} -P $PROC_CORES sh -c "$1"
-			return $?
-		else
-			echo "Missing argument identifier {}."
-		fi
+# xargs wrapper for running PROC_CORES parallel processes
+function parallel-xargs () {
+	local cmd="$*"
+	if [[ ! "$cmd" =~ "{}" ]] ; then
+		cmd="$cmd {}"
 	fi
-	if [[ $# = 2 ]] ; then
-		if [[ -d "$1" ]] ; then
-			if [[ "$2" =~ "{}" ]] ; then
-				ls -1A "$1" | xargs -r -I {} -P $PROC_CORES sh -c "$2"
-				return $?
-			else
-				echo "Missing argument identifier {}."
-			fi
-		else
-			echo "Directory not found!"
-		fi
-	fi
-	return 1
-}
-
-# Execute a command against each file in a directory
-function execlistcontext() {
-	if [[ $# = 1 ]] ; then
-		find . -mindepth 1 -maxdepth 1 -type d | xargs -r -I {} -P $PROC_CORES sh -c "cd \"{}\"; $1"
-		return $?
-	fi
-	if [[ $# = 2 ]] ; then
-		find "$1" -mindepth 1 -maxdepth 1 -type d | xargs -r -I {} -P $PROC_CORES sh -c "cd \"{}\"; $2"
-		return $?
-	fi
-	return 1
-}
-
-# Execute a command against each file found in the current directory matching the search term
-function execfind() {
-	if [[ -n "$1" ]] ; then
-		if [[ "$2" =~ "{}" ]] ; then
-			find . -iname "$1" | xargs -r -I {} -P $PROC_CORES sh -c "$2"
-			return $?
-		else
-			echo "Missing argument identifier {}."
-		fi
-	else
-		echo "Missing search term."
-	fi
-	return 1
-}
-
-# Execute a command for each line in a file
-function execcat() {
-	if [[ ( -n "$1" ) && ( -f "$1" ) ]] ; then
-		if [[ "$2" =~ "{}" ]] ; then
-			cat "$1" | tr -d '\r' | xargs -r -I {} -P $PROC_CORES -r sh -c "$2"
-			return $?
-		else
-			echo "Missing argument identifier {}."
-		fi
-	else
-		echo "File not found."
-	fi
-	return 1
+	xargs -r -I {} -P $PROC_CORES sh -c "$cmd"
 }
 
 # Extract archives automatically
@@ -217,9 +124,9 @@ function extract () {
 
 # Get gzipped file size
 function gz() {
-	echo "orig size (bytes): "
+	echo -n "original (bytes): "
 	cat "$1" | wc -c
-	echo "gzipped size (bytes): "
+	echo -n "gzipped (bytes):  "
 	gzip -c "$1" | wc -c
 }
 
@@ -241,7 +148,7 @@ function dataurl() {
 }
 
 # Gzip-enabled `curl`
-function gurl() {
+function gcurl() {
 	curl -sH "Accept-Encoding: gzip" "$@" | gunzip
 }
 
@@ -281,22 +188,14 @@ function date2unix() {
 	date +%s
 }
 
-# Convert the parameters or STDIN to lowercase.
+# Convert to lowercase.
 function lc () {
-	if [ $# -eq 0 ]; then
-		tr '[:upper:]' '[:lower:]';
-	else
-		tr '[:upper:]' '[:lower:]' <<< "$@";
-	fi;
+	tr '[:upper:]' '[:lower:]'
 }
 
-# Convert the parameters or STDIN to uppercase.
+# Convert to uppercase.
 function uc () {
-	if [ $# -eq 0 ]; then
-		tr '[:lower:]' '[:upper:]';
-	else
-		tr '[:lower:]' '[:upper:]' <<< "$@";
-	fi;
+	tr '[:lower:]' '[:upper:]'
 }
 
 # regex match and replace from: https://gist.github.com/opsb/4409156
@@ -344,6 +243,3 @@ function __request () {
 	esac
 	curl -X "$method" "${options[@]}" "$@" "$url"
 }
-
-# include git __git_ps1 if not already included elsewhere
-type __git_ps1 &> /dev/null || source "${HOME}/.dotenv/other/git-prompt.sh"
