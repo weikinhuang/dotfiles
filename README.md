@@ -248,42 +248,44 @@ Use to tell common commands to use solarized-light colors
 export __term_solarized_light=true
 ```
 
-## cygwin addons
-
-Additional variables that can be used with cygwin cli
-
-In `~/.bash_local_exports`, cd to this dir on login
+cd to this dir on login
 
 ```bash
-START_DIR='~/Documents'
+export  START_DIR='~/Documents'
 ```
 
-In `~/.bash_local_exports`, use to determine a projects directory (shortcut with `p`)
+Use to determine a projects directory (shortcut with `p`)
 
 ```bash
-PROJECT_DIR='~/Documents/Projects'
+export PROJECT_DIR='~/Documents/Projects'
 ```
 
-In `~/.bash_local_exports`, use to wrap common applications with cli usage
+Use to wrap common applications with cli usage (cygwin)
 
 ```bash
 export __CYG_LOAD_WRAPPERS=true
 ```
 
-In `~/.bash_local`, use to reduce load poll time
+Use to reduce load poll time (cygwin)
 
 ```bash
 export __ps1_var_loadreloadtime=15
 ```
 
-## Installers
+Use native symlinks whenever possible (cygwin, requires admin)
 
-Installing php on windows
+```bash
+export CYGWIN=winsymlinks:native
+```
+
+## Installers (will install only to `~/bin`)
+
+Installing php on windows (global install)
 ```bash
 ~/.dotfiles/.dotenv/other/install-php-windows.sh
 ```
 
-Installing nodejs on windows
+Installing nodejs on windows (global install)
 ```bash
 ~/.dotfiles/.dotenv/other/install-nodejs-windows.sh
 ```

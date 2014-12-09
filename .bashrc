@@ -40,9 +40,6 @@ case "$(uname -s)" in
 esac
 export DOTENV
 
-# load a local specific sources before the scripts
-[[ -r "${HOME}/.bash_local_exports" ]] && source "${HOME}/.bash_local_exports"
-
 # Completion options
 [[ -f "/etc/bash_completion" ]] && source "/etc/bash_completion"
 
@@ -57,8 +54,8 @@ if type nl &> /dev/null; then
 	export PATH=$(echo "$PATH" | tr : '\n' | nl | sort -u -k 2,2 | sort -n | cut -f 2- | tr '\n' : | sed -e 's/:$//' -e 's/^://')
 fi
 
-# Source ~/.exports, ~/.functions, ~/.aliases, ~/.completion, ~/.prompt, ~/.extra, ~/.env if they exist
-for file in {exports,functions,aliases,completion,prompt,extra,env}; do
+# Source ~/.exports, ~/.functions, ~/.aliases, ~/.completion, ~/.extra, ~/.env if they exist
+for file in {exports,functions,aliases,completion,extra,env}; do
 	[[ -r "${HOME}/.dotenv/.${file}" ]] && source "${HOME}/.dotenv/.${file}"
 	[[ -r "${HOME}/.dotenv/${DOTENV}/.${file}" ]] && source "${HOME}/.dotenv/${DOTENV}/.${file}"
 done
@@ -66,6 +63,13 @@ unset file
 
 # load a local specific sources before the scripts
 [[ -r "${HOME}/.bash_local" ]] && source "${HOME}/.bash_local"
+
+# Source ~/.post-local, ~/.prompt if they exist
+for file in {post-local,prompt}; do
+	[[ -r "${HOME}/.dotenv/.${file}" ]] && source "${HOME}/.dotenv/.${file}"
+	[[ -r "${HOME}/.dotenv/${DOTENV}/.${file}" ]] && source "${HOME}/.dotenv/${DOTENV}/.${file}"
+done
+unset file
 
 # include utility settings file (git PS1, solarized, mysql, etc...)
 [[ -r "${HOME}/.dotenv/.utility" ]] && source "${HOME}/.dotenv/.utility"
@@ -97,6 +101,9 @@ shopt -s autocd 2> /dev/null
 shopt -s globstar 2> /dev/null
 # If any jobs are running, this causes the exit to be deferred until a second exit is attempted
 shopt -s checkjobs 2> /dev/null
+
+# redirect to a starting directory folder if starting in home
+[[ "$(pwd)" == "${HOME}" ]] && [[ -n "${START_DIR}" ]] && [[ -e "${START_DIR}" ]] && cd "${START_DIR}"
 
 # exit with a success status code
 return 0
