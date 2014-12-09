@@ -87,7 +87,7 @@ If `~/.bash_local` exists, it will be sourced after the includes are sourced.
 [exitstatus jobs time load user@host workdir<dirinfo> (git info)]user symbol
 ```
 
-<img src="raw/master/assets/prompt-example.png">
+<img src="assets/prompt-example.png">
 
 The prompt
 ```bash
