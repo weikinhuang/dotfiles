@@ -16,9 +16,6 @@ alias kill="/bin/kill.exe -f"
 # List windows applications with ps
 alias ps="ps -W"
 
-# shortcuts to custom xargs pipes and process commands
-alias psf="psfind"
-
 # Alias vi to notepad++
 if type npp &> /dev/null; then
 	alias vi="npp"

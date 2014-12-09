@@ -36,25 +36,4 @@ if [[ -d "/c/Users/$USER/AppData/Roaming/npm" ]]; then
 		fi
 	}
 	export -f npm
-
-	# special method to run npm scripts with real nodejs binary
-	function npm-run () {
-		local tmp_PATH="$PATH"
-		local tmp_APPDATA=$APPDATA
-		PATH="/c/Program Files/nodejs:$PATH"
-		if [[ -d "C:\\Users\\$USER\\AppData\\Roaming" ]]; then
-			export APPDATA="C:\\Users\\$USER\\AppData\\Roaming"
-		else
-			export APPDATA="C:\\Program Files\\nodejs"
-		fi
-		"$@"
-		PATH="$tmp_PATH"
-		# cleanup
-		if [[ -z $tmp_APPDATA ]]; then
-			unset APPDATA
-		else
-			APPDATA=$tmp_APPDATA
-		fi
-	}
-	export -f npm-run
 fi

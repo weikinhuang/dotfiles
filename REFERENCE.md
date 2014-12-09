@@ -1,9 +1,7 @@
 ﻿
 # weikinhuang's dotfiles reference
 
-## all platforms
-
-### Changes
+## Changes
 
 `sudo` works on aliases
 
@@ -22,6 +20,15 @@
 `open` for cross-platform open in native application
 
 `md5` for cross-platform `md5sum`
+
+## New Global Variables
+
+```bash
+PROC_CORES               => number of threads (cores)
+DOTENV                   => Simple access to os platform
+```
+
+## All Platforms
 
 ### Navigation
 
@@ -146,9 +153,38 @@ git touch                => Make a new file and add it
 git track                => Sets up auto-tracking of a remote branch with same base name
 ```
 
-## New Global Variables
+## CYGWIN specific
+
+### Utilities
 
 ```bash
-PROC_CORES               => number of threads (cores)
-DOTENV                   => Simple access to os platform
+olib                     => Open a Windows (Vista/7/8) Libraries
+psfind                   => Find processes by name match
+pskill                   => Kill processes by name match
+__cygexewrap             => Give the ability to wrap applications and set up Windows paths (GUI)
+__cygcliwrap             => Give the ability to wrap applications and set up Windows paths (CLI)
+apt-cyg                  => CLI for cygwin installer https://github.com/transcode-open/apt-cyg
+apt-get                  => apt-cyg
+
+docs                     => cd ~/Documents
+desk                     => cd ~/Documents/Desktop
+dl                       => cd ~/Documents/Downloads
+d                        => cd ~/Documents/Dropbox
+
+winpty                   => Provide a proper pty for Windows console apps https://github.com/rprichard/winpty
+inotifywait              => FS watcher
+chattr                   => Change Windows file attributes
+cygsetup                 => Open cygwin setup
+lnw                      => Create a windows symlink
+npp                      => Open a sandboxed instance of notepad++
+rc                       => Send a file to the recycle bin
+symlink-reflow           => Convert all symlinks in a directory between cygwin and Windows style
+```
+
+### Global Variables
+
+```bash
+USERPROFILE              => Path to the windows user profile directory
+APPDATA                  => Path to the windows user AppData directory
+CYGWIN                   => Cygwin configuration https://cygwin.com/cygwin-ug-net/using-cygwinenv.html
 ```
