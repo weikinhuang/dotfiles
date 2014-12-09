@@ -74,7 +74,7 @@ extip            => Get the current external ip address
 
 gcurl            => Make gzip enabled curl requests
 
-make "rest" requests
+# make "rest" requests
 GET              => Make a GET request
 HEAD             => Make a HEAD request
 POST             => Make a POST request
@@ -112,7 +112,7 @@ json             => Pretty print json output
 __push_prompt_command => Pushes a new command to the PROMPT_COMMAND variable
 
 extract          => Extracts a archive with autodetect based on extension
-gz               => Get the gzip'ed filesize
+gz               => Get the gzipped filesize
 
 dataurl          => Create a data URL from an image
 genpasswd        => Generate a random string of a certain length
@@ -134,7 +134,7 @@ git auto-difftool        => Use araxis merge when possible otherwise use vimdiff
 git auto-mergetool       => Use araxis merge when possible otherwise use vimdiff
 git branch-prune         => Remove branches locally and remotely if already merged into master
 git changelog            => Generate a changelog from git tags
-git gh-pages             => Setup a new branch called gh-pages following github's procedure
+git gh-pages             => Setup a new branch called gh-pages following github procedure
 git hooks                => Execute a git hook
 git hub-pull-request     => Open a pull request on github
 git hub-token            => Generate a github api access token

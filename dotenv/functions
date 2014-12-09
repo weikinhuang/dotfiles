@@ -59,7 +59,7 @@ function cf() {
 
 # find files with case-insensetive matching in current directory
 function findhere() {
-	find -iname "*$1*"
+	find . -iname "*$1*"
 }
 
 # do a case-insensetive grep on all the files in a directory
