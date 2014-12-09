@@ -13,6 +13,9 @@ alias f="findhere"
 alias o="open"
 alias oo="open ."
 
+# common folder shortcuts
+alias p="cd '${PROJECT_DIR-$HOME}"
+
 # cd replacement to show cd history with cd --
 alias cd="__cd_func"
 

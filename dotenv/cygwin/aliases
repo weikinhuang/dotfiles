@@ -3,7 +3,6 @@ alias docs="cd ~/Documents"
 alias desk="cd ~/Documents/Desktop"
 alias dl="cd ~/Documents/Downloads"
 alias d="cd ~/Documents/Dropbox"
-alias p="cd '${PROJECT_DIR-~/Documents/Projects}"
 
 # Shortcuts
 

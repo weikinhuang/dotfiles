@@ -7,7 +7,7 @@
 
 `sudo` works on aliases
 
-`rm` `cp` `mv` are always inteactive (use `-f` to override)
+`rm` `cp` `mv` are always inteactive `-i` (use `-f` to override)
 
 `ls` and `grep` always has color (use `--color=never` to override)
 
@@ -20,6 +20,8 @@
 `pbcopy` and `pbpaste` for cross-platform copy/paste from cli
 
 `open` for cross-platform open in native application
+
+`md5` for cross-platform `md5sum`
 
 ### Navigation
 
@@ -60,6 +62,8 @@ o                => open (show in GUI file explorer)
 oo               => open . (show cwd in GUI file explorer)
 -                => cd -
 x                => parallel-xargs
+
+p                => cd $PROJECT_DIR
 ```
 
 ## Networking
