@@ -34,7 +34,11 @@ function cleanup-download () {
 }
 
 function install-app () {
+	download-files
+
 	msiexec /i "$(get-download-file-name)" /norestart /passive
+
+	cleanup-download
 }
 
 function post-install () {
@@ -59,9 +63,12 @@ function post-install () {
 }
 
 function application-exists () {
-	type node && node -v
+	type node &> /dev/null && node -v &> /dev/null
 }
 
 function get-current-version () {
+	if ! application-exists; then
+		return
+	fi
 	node -v | sed 's/^v//'
 }

@@ -9,7 +9,7 @@ elif [[ -f "$(cygpath -u "c:/PHP/php.exe")" ]]; then
 	PROGRAM=$(cygpath -u "c:/PHP/php.exe")
 else
 	# php binary not found
-	return 1
+	exit 1
 fi
 
 # if there are any baked in arguments they are defined here
