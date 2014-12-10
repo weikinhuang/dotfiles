@@ -1,9 +1,21 @@
 #!/bin/bash
 
-if [[ ! -d ~/bin ]]; then
-	mkdir ~/bin
-fi
+function process-latest-version () {
+	github-tags rg3/youtube-dl | head -n 1
+}
 
-YT_DL_VERSION_FULL="$(curl -s https://api.github.com/repos/rg3/youtube-dl/tags | grep '"name": "' | grep -v "RC\|beta\|alpha" | sort -r --version-sort | head -n 1 | sed 's/.*"name": "\([0123456789._]\+\)",.*/\1/')"
+function install-app () {
+	make-target ~/bin
+	curl "https://yt-dl.org/downloads/$(get-latest-version)/youtube-dl" > ~/bin/youtube-dl && chmod 0755 ~/bin/youtube-dl
+}
 
-curl "https://yt-dl.org/downloads/${YT_DL_VERSION_FULL}/youtube-dl" > ~/bin/youtube-dl && chmod 0755 ~/bin/youtube-dl
+function application-exists () {
+	type youtube-dl &> /dev/null
+}
+
+function get-current-version () {
+	if ! application-exists; then
+		return
+	fi
+	youtube-dl --version
+}
