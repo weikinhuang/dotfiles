@@ -49,8 +49,8 @@ function get-cached-latest-version () {
 		return 1
 	fi
 	local CACHED_VERSION_DATA="$(cat $TMP_FILE)"
-	# 1 hr expiry
-	if [[ $(cat $TMP_FILE | head -n 1) > $(( $(date +%s) - 3600 )) ]]; then
+	# 1d expiry
+	if [[ $(cat $TMP_FILE | head -n 1) > $(( $(date +%s) - 86400 )) ]]; then
 		cat $TMP_FILE | head -n 2 | tail -n 1
 		return 0
 	fi
