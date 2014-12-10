@@ -71,5 +71,10 @@ function get-latest-version () {
 }
 
 function need-upgrade-or-install () {
-	return ! application-exists &> /dev/null || [[ $(get-current-version) != $(get-latest-version) ]]
+	if ! application-exists &> /dev/null; then
+		return 0
+	elif [[ "$(get-current-version)" != "$(get-latest-version)" ]]; then
+		return 0
+	fi
+	return 1
 }
