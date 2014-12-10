@@ -3,15 +3,12 @@
 
 ## All platforms
 
-Installing ack to `~/bin`
+To check what can be installed with this environment
 ```bash
-~/.dotenv/other/install-ack-all.sh
+~/.dotenv/other/dev-check.sh
 ```
 
-Installing youtube-dl to `~/bin`
-```bash
-~/.dotenv/other/install-youtube-dl-all.sh
-```
+Currently included: `ack`, `youtube-dl`
 
 ## Windows/cygwin
 
@@ -19,15 +16,12 @@ Install cygwin (2 step)
 
 Download install script: [/dotenv/other/setup-cygwin.cmd](https://raw.githubusercontent.com/weikinhuang/dotfiles/master/dotenv/other/setup-cygwin.cmd) and run as administrator.
 
-Installing php on windows (global install)
+To check what can be installed with this environment
 ```bash
-~/.dotenv/other/install-php-windows.sh
+~/.dotenv/other/dev-check.sh
 ```
 
-Installing nodejs on windows (global install)
-```bash
-~/.dotenv/other/install-nodejs-windows.sh
-```
+Currently included: `apt-cyg`, `mongodb`, `nodejs`, `php`, `redis`
 
 ## OSX
 
@@ -54,5 +48,22 @@ brew install git
 brew install wget --enable-iri
 ```
 
+Use the `brew` to install most applications, otherwise:
+
+To check what can be installed with this environment (after installing above)
+```bash
+~/.dotenv/other/dev-check.sh
+```
+
+Currently included: Coming soon
+
 ## Linux
 
+Use the standard package manager to install most applications
+
+To check what can be installed with this environment (after installing above)
+```bash
+~/.dotenv/other/dev-check.sh
+```
+
+Currently included: Coming soon
