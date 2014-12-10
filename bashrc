@@ -64,15 +64,15 @@ unset file
 # load a local specific sources before the scripts
 [[ -r "${HOME}/.bash_local" ]] && source "${HOME}/.bash_local"
 
+# include utility settings file (git PS1, solarized, mysql, etc...)
+[[ -r "${HOME}/.dotenv/utility" ]] && source "${HOME}/.dotenv/utility"
+
 # Source ~/.post-local, ~/.prompt if they exist
 for file in {post-local,prompt}; do
 	[[ -r "${HOME}/.dotenv/${file}" ]] && source "${HOME}/.dotenv/${file}"
 	[[ -r "${HOME}/.dotenv/${DOTENV}/${file}" ]] && source "${HOME}/.dotenv/${DOTENV}/${file}"
 done
 unset file
-
-# include utility settings file (git PS1, solarized, mysql, etc...)
-[[ -r "${HOME}/.dotenv/utility" ]] && source "${HOME}/.dotenv/utility"
 
 # set $EDITOR to vi(m) if not already set
 [[ -z $EDITOR ]] && EDITOR=$(type vim &> /dev/null && echo vim || echo vi)
