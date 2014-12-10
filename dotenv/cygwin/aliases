@@ -5,6 +5,7 @@ alias dl="cd ~/Documents/Downloads"
 alias d="cd ~/Documents/Dropbox"
 
 # Shortcuts
+alias s="winstart"
 
 # useful shortcuts
 alias open="cygstart"

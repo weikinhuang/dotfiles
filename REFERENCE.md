@@ -179,6 +179,9 @@ lnw                      => Create a windows symlink
 npp                      => Open a sandboxed instance of notepad++
 rc                       => Send a file to the recycle bin
 symlink-reflow           => Convert all symlinks in a directory between cygwin and Windows style
+
+winstart                 => shortcut to `cygstart ...` and makes all file references absolute
+s                        => winstart
 ```
 
 ### Global Variables
