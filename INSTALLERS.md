@@ -21,7 +21,7 @@ To check what can be installed with this environment
 ~/.dotenv/other/dev-check.sh
 ```
 
-Currently included: `apt-cyg`, `mongodb`, `nodejs`, `php`, `redis`
+Currently included: `apt-cyg`, `ffmpeg`, `mongodb`, `nodejs`, `php`, `redis`
 
 ## OSX
 
