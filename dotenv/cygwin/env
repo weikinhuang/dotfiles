@@ -12,11 +12,9 @@ PATH=$(echo "$PATH" | sed "s/\/c\/Users\/$USER\/AppData\/Roaming\/npm\/\?:\?//")
 
 # add npmjs to path if possible
 if [[ -d "/c/Users/$USER/AppData/Roaming/npm" ]]; then
-	PATH="$PATH:/c/Users/$USER/AppData/Roaming/npm/"
+	PATH="$PATH:/c/Program Files/nodejs:/c/Users/$USER/AppData/Roaming/npm/"
 	function npm () {
-		local tmp_PATH="$PATH"
 		local tmp_APPDATA=$APPDATA
-		PATH="/c/Program Files/nodejs:$PATH"
 		if [[ -d "C:\\Users\\$USER\\AppData\\Roaming" ]]; then
 			export APPDATA="C:\\Users\\$USER\\AppData\\Roaming"
 		else
@@ -27,7 +25,6 @@ if [[ -d "/c/Users/$USER/AppData/Roaming/npm" ]]; then
 		else
 			"/c/Program Files/nodejs/npm.cmd" "$@"
 		fi
-		PATH="$tmp_PATH"
 		# cleanup
 		if [[ -z $tmp_APPDATA ]]; then
 			unset APPDATA

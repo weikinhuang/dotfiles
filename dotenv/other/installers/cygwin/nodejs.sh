@@ -18,15 +18,15 @@ function download-files () {
 	local LATEST_VERSION=$(get-latest-version)
 	local DOWNLOAD_URL=
 	if [[ "$(uname -m)" == "x86_64" ]]; then
-		DOWNLOAD_URL="http://nodejs.org/dist/v${NODE_VERSION_LATEST}/x64/${NODE_FILE}"
+		DOWNLOAD_URL="http://nodejs.org/dist/v${LATEST_VERSION}/x64/${NODE_FILE}"
 	else
-		DOWNLOAD_URL="http://nodejs.org/dist/v${NODE_VERSION_LATEST}/${NODE_FILE}"
+		DOWNLOAD_URL="http://nodejs.org/dist/v${LATEST_VERSION}/${NODE_FILE}"
 	fi
 	
 	if [[ -e "${NODE_FILE}" ]]; then
 		return 0
 	fi
-	wget "${NODE_DOWNLOAD_URL}"
+	wget "${DOWNLOAD_URL}"
 }
 
 function cleanup-download () {
