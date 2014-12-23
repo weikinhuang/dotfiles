@@ -72,9 +72,9 @@ del "%DLOAD_SCRIPT%"
 
 REM -- These are the packages we will install (in addition to the default packages)
 SET PACKAGES=bash-completion,bc,bind,ca-certificates,curl,cygutils-extra,fdupes,git,git-completion,git-svn
-SET PACKAGES=%PACKAGES%,inetutils,nc,nc6,ncurses,openssh,openssl,p7zip,procps,rsync,screen,unzip,vim,wget,xxd
+SET PACKAGES=%PACKAGES%,inetutils,nc,nc6,ncurses,openssh,openssl,procps,rsync,screen,unzip,vim,wget,xxd
 REM -- Extra packages
-SET PACKAGES=%PACKAGES%,heimdal
+SET PACKAGES=%PACKAGES%,GraphicsMagick,ImageMagick,aspell,aspell-en,heimdal,p7zip
 
 REM -- Do it!
 ECHO *** INSTALLING DEFAULT PACKAGES
