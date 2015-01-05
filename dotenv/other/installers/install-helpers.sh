@@ -22,6 +22,28 @@ function github-tags () {
 	echo "$OUTPUT" | grep '"name": "' | grep -vi "RC\|beta\|alpha" | sed 's/.*"name": "\([^"]\+\)",.*/\1/' | sort -r --version-sort
 }
 
+function github-releases () {
+	local REPO_PATH="$1"
+	if [[ -z $REPO_PATH ]]; then
+		return 1
+	fi
+
+	local DONE=0
+	local COUNTER=1
+	local OUTPUT=""
+
+	while [ $DONE -eq 0 ]; do
+		CURL_OUTPUT="$(curl -is https://api.github.com/repos/$REPO_PATH/releases?page=$COUNTER)"
+		if ! (grep '^Link: ' <<< "$CURL_OUTPUT" | grep 'rel="next"') &> /dev/null; then
+			DONE=1
+		fi
+		OUTPUT="$OUTPUT$CURL_OUTPUT"
+		COUNTER=$(($COUNTER + 1))
+	done
+
+	echo "$OUTPUT" | grep '"tag_name": "' | grep -vi "RC\|beta\|alpha\|pre" | sed 's/.*"tag_name": "\([^"]\+\)",.*/\1/' | sort -r --version-sort
+}
+
 function go-to-workdir () {
 	cd /tmp
 }

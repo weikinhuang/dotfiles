@@ -5,18 +5,21 @@ function get-install-target () {
 }
 
 function process-latest-version () {
-	github-tags MSOpenTech/redis | grep '^[0-9]\+\.[0-9]\+\.[0-9]\+' | head -n 1
+	github-releases MSOpenTech/redis | sed 's/^win-//' | grep '^[0-9]\+\.[0-9]\+\.[0-9]\+' | head -n 1
 }
 
 function get-download-file-name () {
 	local LATEST_VERSION=$(get-latest-version)
+	if echo "$LATEST_VERSION" | grep '^[0-9]\+\.[0-9]\+\.[0-9]\+\.[0-9]\+$' >/dev/null; then
+		LATEST_VERSION=$(echo "$LATEST_VERSION" | sed 's/\.[0-9]\+$//')
+	fi
 	echo redis-${LATEST_VERSION}.zip
 }
 
 function download-files () {
 	local DL_FILE=$(get-download-file-name)
-	local MAJOR_VER=$(get-latest-version | cut -d. -f1-2)
-	local DOWNLOAD_URL="https://raw.githubusercontent.com/MSOpenTech/redis/${MAJOR_VER}/bin/release/${DL_FILE}"
+	local LATEST_VERSION=$(get-latest-version)
+	local DOWNLOAD_URL="https://github.com/MSOpenTech/redis/releases/download/win-${LATEST_VERSION}/${DL_FILE}"
 
 	if [[ -e "${DL_FILE}" ]]; then
 		return 0
