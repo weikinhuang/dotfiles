@@ -199,8 +199,13 @@ function uc () {
 }
 
 # regex match and replace from: https://gist.github.com/opsb/4409156
-function regex {
+function regex () {
 	gawk 'match($0, '$1', ary) { print ary['${2:-'0'}'] }';
+}
+
+# binary diff
+function binarydiff () {
+	vimdiff <(xxd "$1") <(xxd "$2")
 }
 
 # functionality to simplify making restful curl requests
