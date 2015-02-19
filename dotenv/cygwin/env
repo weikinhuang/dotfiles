@@ -12,7 +12,11 @@ PATH=$(echo "$PATH" | sed "s/\/c\/Users\/$USER\/AppData\/Roaming\/npm\/\?:\?//")
 
 # add npm & nodejs to path if possible
 if [[ -d "/c/Users/$USER/AppData/Roaming/npm" ]]; then
-	PATH="$PATH:/c/Program Files/nodejs:/c/Users/$USER/AppData/Roaming/npm/"
+	NODE_PATH=$(cygpath -u "c:/Program Files/nodejs/")
+	if [[ -d "$(cygpath -u "c:/Program Files/iojs/")" ]]; then
+		NODE_PATH=$(cygpath -u "c:/Program Files/iojs/")
+	fi
+	PATH="$PATH:$NODE_PATH:/c/Users/$USER/AppData/Roaming/npm/"
 	function npm () {
 		local tmp_APPDATA=$APPDATA
 		local tmp_TMP=$TMP
@@ -21,7 +25,7 @@ if [[ -d "/c/Users/$USER/AppData/Roaming/npm" ]]; then
 		if [[ -d "C:\\Users\\$USER\\AppData\\Roaming" ]]; then
 			tmp_APPDATA="C:\\Users\\$USER\\AppData\\Roaming"
 		else
-			tmp_APPDATA="C:\\Program Files\\nodejs"
+			tmp_APPDATA="$(cygpath -w "$NODE_PATH")"
 		fi
 		if [[ -d "C:\\Users\\$USER\\AppData\\Local\\Temp" ]]; then
 			tmp_TMP="C:\\Users\\$USER\\AppData\\Local\\Temp"
@@ -31,13 +35,13 @@ if [[ -d "/c/Users/$USER/AppData/Roaming/npm" ]]; then
 		if [[ -f "$APPDATA\\npm\\node_modules\\npm\\bin\\npm.cmd" ]]; then
 			NPM_CMD="/c/Users/$USER/AppData/Roaming/npm/npm.cmd"
 		else
-			NPM_CMD="/c/Program Files/nodejs/npm.cmd"
+			NPM_CMD="$NODE_PATH/npm.cmd"
 		fi
 
 		TMP="$tmp_TMP" \
 		TEMP="$tmp_TEMP" \
 		APPDATA="$tmp_APPDATA" \
-		PATH="/c/Program Files/nodejs:/c/Users/$USER/AppData/Roaming/npm/:$PATH" \
+		PATH="$NODE_PATH:/c/Users/$USER/AppData/Roaming/npm/:$PATH" \
 			"$NPM_CMD" "$@"
 	}
 	export -f npm

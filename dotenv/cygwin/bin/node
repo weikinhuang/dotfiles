@@ -2,6 +2,9 @@
 
 # the name of the program
 PROGRAM=$(cygpath -u "c:/Program Files/nodejs/node.exe")
+if [[ -e "$(cygpath -u "c:/Program Files/iojs/node.exe")" ]]; then
+	PROGRAM=$(cygpath -u "c:/Program Files/iojs/node.exe")
+fi
 
 if [[ ! -f "$PROGRAM" ]]; then
 	exit 1;
