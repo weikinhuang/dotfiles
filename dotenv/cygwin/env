@@ -16,32 +16,51 @@ if [[ -d "/c/Users/$USER/AppData/Roaming/npm" ]]; then
 	if [[ -d "$(cygpath -u "c:/Program Files/iojs/")" ]]; then
 		NODE_PATH=$(cygpath -u "c:/Program Files/iojs/")
 	fi
+	# mysygit uses _netrc rather than .netrc
+	if [[ ! -e "$HOME/_netrc" && -e "$HOME/.netrc" ]]; then
+		# this must be a windows symlink
+		CYGWIN="winsymlinks:native" \
+			ln -s "$HOME/.netrc" "$HOME/_netrc"
+	fi
 	PATH="$PATH:$NODE_PATH:/c/Users/$USER/AppData/Roaming/npm/"
 	function npm () {
-		local tmp_APPDATA=$APPDATA
-		local tmp_TMP=$TMP
-		local tmp_TEMP=$TEMP
+		local NPM_APPDATA=$APPDATA
+		local NPM_TMP=$TMP
+		local NPM_TEMP=$TEMP
 		local NPM_CMD
-		if [[ -d "C:\\Users\\$USER\\AppData\\Roaming" ]]; then
-			tmp_APPDATA="C:\\Users\\$USER\\AppData\\Roaming"
-		else
-			tmp_APPDATA="$(cygpath -w "$NODE_PATH")"
-		fi
-		if [[ -d "C:\\Users\\$USER\\AppData\\Local\\Temp" ]]; then
-			tmp_TMP="C:\\Users\\$USER\\AppData\\Local\\Temp"
-			tmp_TEMP="C:\\Users\\$USER\\AppData\\Local\\Temp"
+		local NPM_RUN_PATH=$PATH
+
+		# if we want to run npm install/update with git paths, cygwin git
+		# cannot handle the windows paths, so instead we must rely on msysgit
+		# to be installed
+		if [[ -d "/c/Program Files (x86)/Git/bin/" ]]; then
+			NPM_RUN_PATH="/c/Program Files (x86)/Git/bin/:/c/Program Files (x86)/Git/lib-exec/git-core/"
 		fi
 
+		# add the proper APPDATA directory
+		if [[ -d "C:\\Users\\$USER\\AppData\\Roaming" ]]; then
+			NPM_APPDATA="C:\\Users\\$USER\\AppData\\Roaming"
+		else
+			NPM_APPDATA="$(cygpath -w "$NODE_PATH")"
+		fi
+
+		# use the windows %TMP% and %TEMP% dirs
+		if [[ -d "C:\\Users\\$USER\\AppData\\Local\\Temp" ]]; then
+			NPM_TMP="C:\\Users\\$USER\\AppData\\Local\\Temp"
+			NPM_TEMP="C:\\Users\\$USER\\AppData\\Local\\Temp"
+		fi
+
+		# make sure we're using the latest npm command
 		if [[ -f "$APPDATA\\npm\\node_modules\\npm\\bin\\npm.cmd" ]]; then
 			NPM_CMD="/c/Users/$USER/AppData/Roaming/npm/npm.cmd"
 		else
 			NPM_CMD="$NODE_PATH/npm.cmd"
 		fi
 
-		TMP="$tmp_TMP" \
-		TEMP="$tmp_TEMP" \
-		APPDATA="$tmp_APPDATA" \
-		PATH="$NODE_PATH:/c/Users/$USER/AppData/Roaming/npm/:$PATH" \
+		TMP="$NPM_TMP" \
+		TEMP="$NPM_TEMP" \
+		APPDATA="$NPM_APPDATA" \
+		PATH="$NODE_PATH:/c/Users/$USER/AppData/Roaming/npm/:$NPM_RUN_PATH" \
 			"$NPM_CMD" "$@"
 	}
 	export -f npm
