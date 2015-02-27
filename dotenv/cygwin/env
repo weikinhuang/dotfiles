@@ -12,9 +12,11 @@ PATH=$(echo "$PATH" | sed "s/\/c\/Users\/$USER\/AppData\/Roaming\/npm\/\?:\?//")
 
 # add npm & nodejs to path if possible
 if [[ -d "/c/Users/$USER/AppData/Roaming/npm" ]]; then
-	NODE_PATH=$(cygpath -u "c:/Program Files/nodejs/")
+	NODE_BIN_PATH=$(cygpath -w "c:/Program Files/nodejs/")
+	# for looking up global variables
+	export NODE_PATH=$(cygpath -wa "/c/Users/$USER/AppData/Roaming/npm")
 	if [[ -d "$(cygpath -u "c:/Program Files/iojs/")" ]]; then
-		NODE_PATH=$(cygpath -u "c:/Program Files/iojs/")
+		NODE_BIN_PATH=$(cygpath -u "c:/Program Files/iojs/")
 	fi
 	# mysygit uses _netrc rather than .netrc
 	if [[ ! -e "$HOME/_netrc" && -e "$HOME/.netrc" ]]; then
@@ -22,7 +24,7 @@ if [[ -d "/c/Users/$USER/AppData/Roaming/npm" ]]; then
 		CYGWIN="winsymlinks:native" \
 			ln -s "$HOME/.netrc" "$HOME/_netrc"
 	fi
-	PATH="$PATH:$NODE_PATH:/c/Users/$USER/AppData/Roaming/npm/"
+	PATH="$PATH:$NODE_BIN_PATH:/c/Users/$USER/AppData/Roaming/npm/"
 	function npm () {
 		local NPM_APPDATA=$APPDATA
 		local NPM_TMP=$TMP
@@ -41,7 +43,7 @@ if [[ -d "/c/Users/$USER/AppData/Roaming/npm" ]]; then
 		if [[ -d "C:\\Users\\$USER\\AppData\\Roaming" ]]; then
 			NPM_APPDATA="C:\\Users\\$USER\\AppData\\Roaming"
 		else
-			NPM_APPDATA="$(cygpath -w "$NODE_PATH")"
+			NPM_APPDATA="$(cygpath -w "$NODE_BIN_PATH")"
 		fi
 
 		# use the windows %TMP% and %TEMP% dirs
@@ -54,13 +56,13 @@ if [[ -d "/c/Users/$USER/AppData/Roaming/npm" ]]; then
 		if [[ -f "$APPDATA\\npm\\node_modules\\npm\\bin\\npm.cmd" ]]; then
 			NPM_CMD="/c/Users/$USER/AppData/Roaming/npm/npm.cmd"
 		else
-			NPM_CMD="$NODE_PATH/npm.cmd"
+			NPM_CMD="$NODE_BIN_PATH/npm.cmd"
 		fi
 
 		TMP="$NPM_TMP" \
 		TEMP="$NPM_TEMP" \
 		APPDATA="$NPM_APPDATA" \
-		PATH="$NODE_PATH:/c/Users/$USER/AppData/Roaming/npm/:$NPM_RUN_PATH" \
+		PATH="$NODE_BIN_PATH:/c/Users/$USER/AppData/Roaming/npm/:$NPM_RUN_PATH" \
 			"$NPM_CMD" "$@"
 	}
 	export -f npm
