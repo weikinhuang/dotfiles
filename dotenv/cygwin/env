@@ -12,17 +12,11 @@ PATH=$(echo "$PATH" | sed "s/\/c\/Users\/$USER\/AppData\/Roaming\/npm\/\?:\?//")
 
 # add npm & nodejs to path if possible
 if [[ -d "/c/Users/$USER/AppData/Roaming/npm" ]]; then
-	NODE_BIN_PATH=$(cygpath -w "c:/Program Files/nodejs/")
+	NODE_BIN_PATH=$(cygpath -u "c:/Program Files/nodejs/")
 	# for looking up global variables
 	export NODE_PATH=$(cygpath -wa "/c/Users/$USER/AppData/Roaming/npm")
 	if [[ -d "$(cygpath -u "c:/Program Files/iojs/")" ]]; then
 		NODE_BIN_PATH=$(cygpath -u "c:/Program Files/iojs/")
-	fi
-	# mysygit uses _netrc rather than .netrc
-	if [[ ! -e "$HOME/_netrc" && -e "$HOME/.netrc" ]]; then
-		# this must be a windows symlink
-		CYGWIN="winsymlinks:native" \
-			ln -s "$HOME/.netrc" "$HOME/_netrc"
 	fi
 	PATH="$PATH:$NODE_BIN_PATH:/c/Users/$USER/AppData/Roaming/npm/"
 	function npm () {
@@ -33,11 +27,9 @@ if [[ -d "/c/Users/$USER/AppData/Roaming/npm" ]]; then
 		local NPM_RUN_PATH=$PATH
 
 		# if we want to run npm install/update with git paths, cygwin git
-		# cannot handle the windows paths, so instead we must rely on msysgit
+		# cannot handle the windows paths, so instead we must rely on a wrapper
 		# to be installed
-		if [[ -d "/c/Program Files (x86)/Git/bin/" ]]; then
-			NPM_RUN_PATH="/c/Program Files (x86)/Git/bin/:/c/Program Files (x86)/Git/lib-exec/git-core/:$PATH"
-		fi
+		NPM_RUN_PATH="$HOME/.dotenv/cygwin/npm-fix/:$PATH"
 
 		# add the proper APPDATA directory
 		if [[ -d "C:\\Users\\$USER\\AppData\\Roaming" ]]; then
