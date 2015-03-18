@@ -54,7 +54,7 @@ if [[ -d "/c/Users/$USER/AppData/Roaming/npm" ]]; then
 		TMP="$NPM_TMP" \
 		TEMP="$NPM_TEMP" \
 		APPDATA="$NPM_APPDATA" \
-		PATH="$NODE_BIN_PATH:/c/Users/$USER/AppData/Roaming/npm/:$NPM_RUN_PATH" \
+		PATH="$NODE_BIN_PATH:/c/Users/$USER/AppData/Roaming/npm/:/c/Python27/:$NPM_RUN_PATH" \
 			"$NPM_CMD" "$@"
 	}
 	export -f npm
