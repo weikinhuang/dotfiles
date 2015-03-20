@@ -18,6 +18,7 @@ if [[ -d "/c/Users/$USER/AppData/Roaming/npm" ]]; then
 	if [[ -d "$(cygpath -u "c:/Program Files/iojs/")" ]]; then
 		NODE_BIN_PATH=$(cygpath -u "c:/Program Files/iojs/")
 	fi
+	export NODE_BIN_PATH
 	PATH="$PATH:$NODE_BIN_PATH:/c/Users/$USER/AppData/Roaming/npm/"
 	function npm () {
 		local NPM_APPDATA=$APPDATA
@@ -48,7 +49,7 @@ if [[ -d "/c/Users/$USER/AppData/Roaming/npm" ]]; then
 		if [[ -f "$APPDATA\\npm\\node_modules\\npm\\bin\\npm.cmd" ]]; then
 			NPM_CMD="/c/Users/$USER/AppData/Roaming/npm/npm.cmd"
 		else
-			NPM_CMD="$NODE_BIN_PATH/npm.cmd"
+			NPM_CMD="${NODE_BIN_PATH%/}/npm.cmd"
 		fi
 
 		TMP="$NPM_TMP" \
