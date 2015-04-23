@@ -73,6 +73,7 @@ extension=php_gd2.dll
 extension=php_mbstring.dll
 extension=php_xsl.dll
 extension=php_memcache.dll
+extension=php_openssl.dll
 zend_extension="php_xdebug.dll"
 
 date.timezone = America/New_York
