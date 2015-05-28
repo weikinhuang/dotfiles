@@ -12,8 +12,8 @@ if [[ -z $@ || $# != "4" ]] ; then
 fi
 
 # First try to see if we have araxis merge in a cygwin env
-if type compare &> /dev/null; then
-	compare -wait -merge -3 -a1 "$BASE" "$LOCAL" "$REMOTE" "$MERGED" >/dev/null 2>&1
+if type _git-mergetool &> /dev/null; then
+	_git-mergetool "$BASE" "$LOCAL" "$REMOTE" "$MERGED" >/dev/null 2>&1
 	EXIT=$?
 else
 	# fallback to vimdiff

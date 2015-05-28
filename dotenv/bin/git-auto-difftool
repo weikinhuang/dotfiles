@@ -10,8 +10,8 @@ if [[ -z $@ || $# != "2" ]] ; then
 fi
 
 # First try to see if we have araxis merge in a cygwin env
-if type compare &> /dev/null; then
-	compare -wait -2 "$LOCAL" "$REMOTE" >/dev/null 2>&1
+if type _git-difftool &> /dev/null; then
+	_git-difftool "$LOCAL" "$REMOTE"
 	EXIT=$?
 else
 	# fallback to vimdiff
