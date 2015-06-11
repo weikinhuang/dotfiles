@@ -23,24 +23,18 @@ function __createcygwinwrappers() {
 	__cygexewrap "c:/${X86_PGM_PATH}/Adobe/Adobe OnLocation CS5.1/Adobe OnLocation.exe" onlocation
 	__cygexewrap "c:/Program Files/Adobe/Adobe Premiere Pro CS5.5/Adobe Premiere Pro.exe" premiere
 	__cygexewrap "c:/Program Files/Adobe/Adobe Photoshop CS5.1 (64 Bit)/Photoshop.exe" photoshop
-	
-	__cygexewrap "c:/Program Files/Araxis/Araxis Merge/Compare.exe" compare
-	__cygexewrap "c:/Program Files/Araxis/Araxis Merge/AraxisSVNDiff.exe" comparesvndiff
-	__cygexewrap "c:/Program Files/Araxis/Araxis Merge/AraxisSVNDiff3.exe" comparesvndiff3
-	__cygexewrap "c:/Program Files/Araxis/Araxis Merge/AraxisSVNMerge.exe" comparesvnmerge
-	__cygexewrap "c:/Program Files/Araxis/Araxis Merge/Merge.exe" merge
-	
+
 	__cygexewrap "c:/${X86_PGM_PATH}/Google/Chrome/Application/chrome.exe" chrome
 	__cygexewrap "c:/Users/$(whoami)/AppData/Local/Google/Chrome SxS/Application/chrome.exe" chromecanary
 	__cygexewrap "c:/Windows/system32/explorer.exe" explorer
 	__cygexewrap "c:/${X86_PGM_PATH}/Mozilla Firefox/firefox.exe" firefox
 	__cygexewrap "c:/${X86_PGM_PATH}/Internet Explorer/iexplore.exe" ie
 	__cygexewrap "c:/Program Files/Internet Explorer/iexplore.exe" ie64
-	
+
 	__cygexewrap "c:/Program Files/Microsoft Office/Office${OFFICE_VER}/EXCEL.EXE" excel
 	__cygexewrap "c:/Program Files/Microsoft Office/Office${OFFICE_VER}/POWERPNT.EXE" powerpoint
 	__cygexewrap "c:/Program Files/Microsoft Office/Office${OFFICE_VER}/WINWORD.EXE" word
-	
+
 	__cygexewrap "c:/Program Files/Charles/Charles.exe" charles
 	__cygexewrap "c:/${X86_PGM_PATH}/Notepad++/notepad++.exe" nppedit
 	__cygexewrap "c:/${X86_PGM_PATH}/Pidgin/pidgin.exe" pidgin
@@ -51,7 +45,7 @@ function __createcygwinwrappers() {
 	__cygexewrap "c:/Program Files/WinRAR/UnRAR.exe" unrar
 	__cygexewrap "c:/Program Files/WinRAR/WinRAR.exe" winrar
 	__cygexewrap "c:/${X86_PGM_PATH}/Symantec/Symantec Endpoint Protection/DoScan.exe" avscan
-	
+
 	__cygexewrap "c:/Windows/system32/notepad.exe" np
 	__cygexewrap "c:/${X86_PGM_PATH}/Windows Media Player/wmplayer.exe" wmplayer "/prefetch:1"
 	__cygexewrap "c:/${X86_PGM_PATH}/Windows NT/Accessories/wordpad.exe" wordpad
@@ -70,12 +64,6 @@ function __createcygwinwrappers() {
 	__cygcliwrap "c:/${X86_PGM_PATH}/phantomjs/phantomjs.exe" phantomjs
 	__cygcliwrap "c:/Windows/System32/cmd.exe" wcmd
 	__cygcliwrap "c:/Windows/System32/WindowsPowerShell/v1.0/powershell.exe" wpowershell
-
-	# special case for getting the latest zend studio
-	if [[ -d "/c/${X86_PGM_PATH}/Zend/" ]]; then
-		ZEND_VERSION=$(find "$(cygpath -u "c:/${X86_PGM_PATH}/Zend/")" -maxdepth 2 -name "ZendStudio.exe" -type f | cut -d'/' -f5 | cut -d' ' -f3 | sort -n | tail -n1)
-		__cygexewrap "c:/${X86_PGM_PATH}/Zend/Zend Studio ${VERSION}/ZendStudio.exe"
-	fi
 }
 __createcygwinwrappers >> /dev/null
 unset __createcygwinwrappers
