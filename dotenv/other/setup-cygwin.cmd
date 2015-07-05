@@ -12,7 +12,7 @@ SET SITE=http://cygwin.mirrors.pair.com/
 SET SSHD_PORT=13610
 
 REM -- Additional variables
-SET ADD_ARGS="-K http://cygwinports.org/ports.gpg -s ftp://ftp.cygwinports.org/pub/cygwinports"
+SET ADD_ARGS=""
 SET LOCALDIR="%ROOTDIR%\setup"
 set HSTART_URL=http://files.ntwind.com/download/Hstart_4.2-bin.zip
 IF "%PROCESSOR_ARCHITECTURE%" == "x86" (
