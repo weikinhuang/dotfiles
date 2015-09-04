@@ -60,16 +60,17 @@ if [ -z "$MESSAGE" ]; then
 	MESSAGE="$(git log -1 --pretty=format:'%s')"
 fi
 
-
 PR_RESPONSE=$(curl \
 	-H 'Authorization: token '$GITHUB_TOKEN \
 	https://api.github.com/repos/$UPSTREAM/pulls \
 	-d '{"head":"'"$GITHUB_FORK_BASE"':'"$BRANCH"'","base":"'"$REMOTE_BRANCH"'","title":"'"$MESSAGE"'"}')
 
 CURL_EXIT_CODE=$?
-	
+
 # output result to std error
-echo "$PR_RESPONSE" > /dev/stderr
+if getopt_assert -v:--verbose "$@"; then
+	echo "$PR_RESPONSE" > /dev/stderr
+fi
 
 URL_EXPR="$(echo "$PR_RESPONSE" | grep '^  "html_url": "')"
 if [ -z "$URL_EXPR" ]; then
