@@ -1,6 +1,6 @@
 #!/bin/sh
 
-USAGE='[-b|--branch=[master]] [-m|--message=[latest commit]] [-f|--force] [-o|--open]'
+USAGE='[-b|--branch=[master]] [-m|--message=[latest commit]] [-f|--force] [-v|--verbose] [-o|--open]'
 SUBDIRECTORY_OK=Yes
 . git-sh-setup
 require_work_tree

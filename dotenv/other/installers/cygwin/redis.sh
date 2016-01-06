@@ -13,7 +13,7 @@ function get-download-file-name () {
 	if echo "$LATEST_VERSION" | grep '^[0-9]\+\.[0-9]\+\.[0-9]\+\.[0-9]\+$' >/dev/null; then
 		LATEST_VERSION=$(echo "$LATEST_VERSION" | sed 's/\.[0-9]\+$//')
 	fi
-	echo redis-${LATEST_VERSION}.zip
+	echo Redis-x64-${LATEST_VERSION}.zip
 }
 
 function download-files () {
