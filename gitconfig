@@ -16,7 +16,7 @@
 	whitespace = fix,trailing-space,space-before-tab
 	autocrlf = input
 	filemode = false
-	pager = less -x1,4 -iFXRS
+	pager = less -x1,5 -iFXRS
 	# editor = $EDITOR
 [apply]
 	whitespace = nowarn
@@ -31,6 +31,8 @@
 	mnemonicprefix = true
 	tool = auto-difftool
 	algorithm = patience
+[rebase]
+	autostash = true
 [merge]
 	stat = true
 	tool = auto-mergetool
