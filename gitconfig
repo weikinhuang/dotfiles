@@ -18,6 +18,7 @@
 	filemode = false
 	pager = less -x1,5 -iFXRS
 	# editor = $EDITOR
+	excludesfile = "~/.gitignore"
 [apply]
 	whitespace = nowarn
 [branch]
