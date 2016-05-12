@@ -42,6 +42,10 @@ export DOTENV
 
 # Completion options
 [[ -f "/etc/bash_completion" ]] && source "/etc/bash_completion"
+# add local completion
+if [[ -d "${HOME}/.completion.d" ]]; then
+    source $HOME/.completion.d/*
+fi
 
 # modify path to include useful scripts
 [[ "${DOTENV}" == "cygwin" ]] && [[ -d "${HOME}/.dotenv/${DOTENV}/bin.$(uname -m)" ]] && PATH="$PATH:${HOME}/.dotenv/${DOTENV}/bin.$(uname -m)"
