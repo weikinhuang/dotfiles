@@ -27,4 +27,6 @@ if [[ -n $INCLUDE_BREW_PATH ]]; then
     done
     unset p
     export MANPATH
+
+    unset INCLUDE_BREW_PATH
 fi

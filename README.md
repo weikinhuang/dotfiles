@@ -253,7 +253,7 @@ export __term_solarized_light=true
 cd to this dir on login
 
 ```bash
-export  START_DIR='~/Documents'
+export START_DIR='~/Documents'
 ```
 
 Use to determine a projects directory (shortcut with `p`)
@@ -272,6 +272,12 @@ Use to reduce load poll time (cygwin)
 
 ```bash
 export __ps1_var_loadreloadtime=15
+```
+
+Use to homebrew utilities without the `g` prefix (OSX)
+
+```bash
+export INCLUDE_BREW_PATH=1
 ```
 
 ## [Installers](INSTALLERS.md)
