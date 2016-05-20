@@ -212,3 +212,6 @@
 	xfuncname = "^[ \\t]*((((.+) *: *function *\\()|(function .+ *\\()).+)$"
 [diff "css"]
 	xfuncname = "^[ \\t]*(.+ *{ *)$"
+
+[include]
+    path = ~/.gitconfig.local
