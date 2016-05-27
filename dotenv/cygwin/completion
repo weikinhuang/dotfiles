@@ -1,3 +1,6 @@
+# Completion options
+[[ -f "/etc/bash_completion" ]] && source "/etc/bash_completion"
+
 # Completion Options
 _list_libraries () {
 	local cur list

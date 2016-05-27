@@ -40,13 +40,6 @@ case "$(uname -s)" in
 esac
 export DOTENV
 
-# Completion options
-[[ -f "/etc/bash_completion" ]] && source "/etc/bash_completion"
-# add local completion
-if [[ -d "${HOME}/.completion.d" ]]; then
-    source $HOME/.completion.d/*
-fi
-
 # modify path to include useful scripts
 [[ "${DOTENV}" == "cygwin" ]] && [[ -d "${HOME}/.dotenv/${DOTENV}/bin.$(uname -m)" ]] && PATH="$PATH:${HOME}/.dotenv/${DOTENV}/bin.$(uname -m)"
 [[ -d "${HOME}/.dotenv/${DOTENV}/bin" ]] && PATH="$PATH:${HOME}/.dotenv/${DOTENV}/bin"
@@ -64,6 +57,11 @@ for file in {exports,functions,aliases,completion,extra,env}; do
 	[[ -r "${HOME}/.dotenv/${DOTENV}/${file}" ]] && source "${HOME}/.dotenv/${DOTENV}/${file}"
 done
 unset file
+
+# add local completion
+if [[ -d "${HOME}/.completion.d" ]]; then
+    source $HOME/.completion.d/*
+fi
 
 # load a local specific sources before the scripts
 [[ -r "${HOME}/.bash_local" ]] && source "${HOME}/.bash_local"
