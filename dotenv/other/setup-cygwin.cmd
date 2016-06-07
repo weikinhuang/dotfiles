@@ -8,7 +8,7 @@ CD %~dp0
 
 REM -- Configure our paths
 SET ROOTDIR=C:\cygwin
-SET SITE=http://cygwin.mirrors.pair.com/
+SET SITE=http://mirrors.kernel.org/sourceware/cygwin/
 SET SSHD_PORT=13610
 
 REM -- Additional variables
@@ -78,11 +78,11 @@ SET PACKAGES=%PACKAGES%,GraphicsMagick,ImageMagick,aspell,aspell-en,bzip2,fdupes
 
 REM -- Do it!
 ECHO *** INSTALLING DEFAULT PACKAGES
-"%ROOTDIR%\%SETUP_NAME%" -q -d -D -L -X -s "%SITE%" -l "%LOCALDIR%" -R "%ROOTDIR%" "%ADD_ARGS%"
+"%ROOTDIR%\%SETUP_NAME%" -q -d -D -L -X -s "%SITE%" -l "%LOCALDIR%" -R "%ROOTDIR%" %ADD_ARGS%
 ECHO.
 ECHO.
 ECHO *** INSTALLING CUSTOM PACKAGES
-"%ROOTDIR%\%SETUP_NAME%" -q -d -D -L -X -s "%SITE%" -l "%LOCALDIR%" -R "%ROOTDIR%" "%ADD_ARGS%" -P "%PACKAGES%"
+"%ROOTDIR%\%SETUP_NAME%" -q -d -D -L -X -s "%SITE%" -l "%LOCALDIR%" -R "%ROOTDIR%" -P "%PACKAGES%" %ADD_ARGS%
 
 REM -- Show what we did
 ECHO.
@@ -137,7 +137,7 @@ SET PATH=%%PATH%%;%ROOTDIR%\bin^
 
 chdir %ROOTDIR%^
 
-start "" "%ROOTDIR%\startup\%HSTART_BIN%" /noconsole /elevate "%ROOTDIR%\bin\bash.exe --login -c '/usr/sbin/sshd.exe -D'"^
+start "" "%ROOTDIR%\startup\%HSTART_BIN%" /noconsole /elevate ""%ROOTDIR%\bin\bash.exe" --login -c '/usr/sbin/sshd.exe -D'"^
  > "%ROOTDIR%\startup\sshd.cmd"
 )
 
