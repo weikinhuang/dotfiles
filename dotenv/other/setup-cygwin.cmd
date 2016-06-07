@@ -10,17 +10,18 @@ REM -- Configure our paths
 SET ROOTDIR=C:\cygwin
 SET SITE=http://mirrors.kernel.org/sourceware/cygwin/
 SET SSHD_PORT=13610
+SET SSH_TASK_TEMPLATE_URL=https://raw.githubusercontent.com/weikinhuang/dotfiles/master/dotenv/other/win-schtasks-ssh.xml
 
 REM -- Additional variables
 SET ADD_ARGS=""
 SET LOCALDIR="%ROOTDIR%\setup"
 set HSTART_URL=http://files.ntwind.com/download/Hstart_4.2-bin.zip
 IF "%PROCESSOR_ARCHITECTURE%" == "x86" (
-	SET SETUP_NAME=setup-x86.exe
-	SET HSTART_BIN=hstart.exe
-) else (
-	SET SETUP_NAME=setup-x86_64.exe
-	SET HSTART_BIN=hstart64.exe
+    SET SETUP_NAME=setup-x86.exe
+    SET HSTART_BIN=hstart.exe
+) ELSE (
+    SET SETUP_NAME=setup-x86_64.exe
+    SET HSTART_BIN=hstart64.exe
 )
 
 REM -- STARTING SCRIPT
@@ -45,8 +46,8 @@ ECHO http.Send                                                          >> %DLOA
 ECHO status = http.Status                                               >> %DLOAD_SCRIPT%
 ECHO.                                                                   >> %DLOAD_SCRIPT%
 ECHO If status ^<^> 200 Then                                            >> %DLOAD_SCRIPT%
-ECHO 	WScript.Echo "FAILED to download: HTTP Status " ^& status       >> %DLOAD_SCRIPT%
-ECHO 	WScript.Quit 1                                                  >> %DLOAD_SCRIPT%
+ECHO     WScript.Echo "FAILED to download: HTTP Status " ^& status      >> %DLOAD_SCRIPT%
+ECHO     WScript.Quit 1                                                 >> %DLOAD_SCRIPT%
 ECHO End If                                                             >> %DLOAD_SCRIPT%
 ECHO.                                                                   >> %DLOAD_SCRIPT%
 ECHO Set adoStream = CreateObject("ADODB.Stream")                       >> %DLOAD_SCRIPT%
@@ -125,9 +126,9 @@ ECHO setup sshd for local user only
 
 REM -- download hstart
 IF NOT EXIST "%ROOTDIR%\startup\%HSTART_BIN%" (
-	"%ROOTDIR%\bin\bash.exe" --login -c "mkdir /startup"
-	"%ROOTDIR%\bin\bash.exe" --login -c "wget -O /tmp/hstart.zip %HSTART_URL% && unzip -p /tmp/hstart.zip %HSTART_BIN% > /startup/%HSTART_BIN%"
-	"%ROOTDIR%\bin\bash.exe" --login -c "rm -f /tmp/hstart.zip"
+    "%ROOTDIR%\bin\bash.exe" --login -c "mkdir /startup"
+    "%ROOTDIR%\bin\bash.exe" --login -c "wget -O /tmp/hstart.zip %HSTART_URL% && unzip -p /tmp/hstart.zip %HSTART_BIN% > /startup/%HSTART_BIN%"
+    "%ROOTDIR%\bin\bash.exe" --login -c "rm -f /tmp/hstart.zip"
 )
 
 REM -- create the startup entry for ssh to run on login
@@ -141,12 +142,26 @@ start "" "%ROOTDIR%\startup\%HSTART_BIN%" /noconsole /elevate ""%ROOTDIR%\bin\ba
  > "%ROOTDIR%\startup\sshd.cmd"
 )
 
-IF NOT EXIST "%STARTUP_DIR%\sshd.cmd" (
-	mklink "%STARTUP_DIR%\sshd.cmd" "%ROOTDIR%\startup\sshd.cmd"
+REM -- Sadly in the newest Windows 10: http://www.thewindowsclub.com/create-elevated-shortcut-run-programs-bypass-uac instead
+for /f "tokens=4-5 delims=. " %%i in ('ver') do set WINVERSION=%%i.%%j
+IF "%WINVERSION%" GEQ "10.0" (
+    "%ROOTDIR%\bin\bash.exe" --login -c "wget -O /startup/ssh-task.xml %SSH_TASK_TEMPLATE_URL%"
+    ECHO PLEASE UPDATE THE FILE "%ROOTDIR%\startup\ssh-task.xml" WITH
+    "%ROOTDIR%\bin\bash.exe" --login -c "hostname"
+    "%ROOTDIR%\bin\bash.exe" --login -c "whoami"
+    PAUSE
+REM    "%ROOTDIR%\bin\bash.exe" --login -c "sed -i 's/##HOSTNAME##/'$(hostname)'/' /startup/ssh-task.xml"
+REM    "%ROOTDIR%\bin\bash.exe" --login -c "sed -i 's/##USER##/'$(whoami)'/' /startup/ssh-task.xml"
+    schtasks /delete /f /tn cygwinsshd
+    schtasks /create /xml "%ROOTDIR%\startup\ssh-task.xml" /tn cygwinsshd
+) ELSE (
+    IF NOT EXIST "%STARTUP_DIR%\sshd.cmd" (
+        mklink "%STARTUP_DIR%\sshd.cmd" "%ROOTDIR%\startup\sshd.cmd"
+    )
 )
 
 IF NOT EXIST "%ROOTDIR%\cygsetup.cmd" (
-	echo "%ROOTDIR%\%SETUP_NAME%" -s "%SITE%" -l "%LOCALDIR%" -R "%ROOTDIR%" "%ADD_ARGS%" > "%ROOTDIR%\cygsetup.cmd"
+    echo "%ROOTDIR%\%SETUP_NAME%" -s "%SITE%" -l "%LOCALDIR%" -R "%ROOTDIR%" "%ADD_ARGS%" > "%ROOTDIR%\cygsetup.cmd"
 )
 
 ECHO.
