@@ -3,9 +3,9 @@
 SCRIPT_NAME="$(basename $0)"
 
 HOSTFILE_TARGET=/etc/hosts
-if [[ "$DOTENV" == "cygwin" ]]; then
-	HOSTFILE_TARGET=/c/Windows/System32/drivers/etc/hosts
-fi
+case `uname` in
+	*CYGWIN*) HOSTFILE_TARGET="$(cygpath --sysdir)/drivers/etc/hosts";;
+esac
 
 function show-help () {
 	echo 'Usage: '"${SCRIPT_NAME}"' [OPTION=build]
@@ -59,7 +59,7 @@ function disable-hosts () {
 }
 
 function build-hosts () {
-	get-adblock-hosts > /c/Windows/System32/drivers/etc/hosts
+	get-adblock-hosts > "${HOSTFILE_TARGET}"
 }
 
 function build-hosts-with-dev () {
