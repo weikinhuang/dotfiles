@@ -10,7 +10,7 @@ REM -- Configure our paths
 SET ROOTDIR=C:\cygwin
 SET SITE=http://mirrors.kernel.org/sourceware/cygwin/
 SET SSHD_PORT=13610
-SET SSH_TASK_TEMPLATE_URL=https://raw.githubusercontent.com/weikinhuang/dotfiles/master/dotenv/other/win-schtasks-ssh.xml
+SET SSH_TASK_TEMPLATE_URL=https://raw.githubusercontent.com/weikinhuang/dotfiles/master/dotenv/other/cygwin/win-schtasks-ssh.xml
 
 REM -- Additional variables
 SET ADD_ARGS=""
