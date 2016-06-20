@@ -22,7 +22,7 @@ function download-files () {
 	else
 		DOWNLOAD_URL="http://nodejs.org/dist/v${LATEST_VERSION}/${NODE_FILE}"
 	fi
-	
+
 	if [[ -e "${NODE_FILE}" ]]; then
 		return 0
 	fi
@@ -43,19 +43,19 @@ function install-app () {
 
 function post-install () {
 	# link up npm to appdata folder and install common modules
-	if [[ ! -d "/c/Users/$USER/AppData/Roaming/npm" ]]; then
-		mkdir /c/Users/$USER/AppData/Roaming/npm
+	if [[ ! -d "$(cygpath --homeroot)/${USER}/AppData/Roaming/npm" ]]; then
+		mkdir "$(cygpath --homeroot)/${USER}/AppData/Roaming/npm"
 	fi
 
-	"/c/Program Files/nodejs/npm.cmd" install -g npm@latest
+	"$(cygpath --unix c:)/Program Files/nodejs/npm.cmd" install -g npm@latest
 
 	# fix path for npm command
-	PATH="/c/Program Files/nodejs:$PATH"
+	PATH="$(cygpath --unix c:)/Program Files/nodejs:$PATH"
 
-	if [[ -e "/c/Users/$USER/AppData/Roaming/npm/npm.cmd" ]]; then
-		LOCAL_NPM_CMD="/c/Users/$USER/AppData/Roaming/npm/npm.cmd"
+	if [[ -e "$(cygpath --homeroot)/${USER}/AppData/Roaming/npm/npm.cmd" ]]; then
+		LOCAL_NPM_CMD="$(cygpath --homeroot)/${USER}/AppData/Roaming/npm/npm.cmd"
 	else
-		LOCAL_NPM_CMD="/c/Program Files/nodejs/npm.cmd"
+		LOCAL_NPM_CMD="$(cygpath --unix c:)/Program Files/nodejs/npm.cmd"
 	fi
 
 	$LOCAL_NPM_CMD install -g bower node-inspector grunt-cli node-gyp

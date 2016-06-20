@@ -1,13 +1,17 @@
 #!/bin/bash
 
-PHP_VERION_MAJOR=5.6
-PECL_MEMCACHE_VERSION=3.0.8
+PHP_VERION_MAJOR=7.0
+VC_VERSION=vc14
 
 function get-install-target () {
+    echo "$(cygpath --unix c:)/Program Files/PHP"
+}
+
+function get-install-arch () {
 	if [[ "$(uname -m)" == "x86_64" ]]; then
-		echo '/c/Program Files (x86)/PHP'
+        echo x64
 	else
-		echo '/c/Program Files/PHP'
+        echo x86
 	fi
 }
 
@@ -20,30 +24,28 @@ function process-latest-xdebug-version () {
 }
 
 function get-download-file-name () {
-	echo php-$(get-latest-version)-nts-Win32-VC11-x86.zip
-}
-
-function get-pecl-memcache-file-name () {
-	echo php_memcache-${PECL_MEMCACHE_VERSION}-${PHP_VERION_MAJOR}-nts-vc11-x86.zip
+	echo php-$(get-latest-version)-nts-Win32-$(echo $VC_VERSION | tr '[:lower:]' '[:upper:]')-$(get-install-arch).zip
 }
 
 function download-files () {
 	local DL_FILE=$(get-download-file-name)
-	
-	wget http://windows.php.net/downloads/releases/${DL_FILE}
-	wget http://windows.php.net/downloads/pecl/releases/memcache/${PECL_MEMCACHE_VERSION}/$(get-pecl-memcache-file-name)
 
-	curl http://xdebug.org/files/php_xdebug-$(process-latest-xdebug-version)-${PHP_VERION_MAJOR}-vc11-nts.dll > php_xdebug.dll
+	wget http://windows.php.net/downloads/releases/${DL_FILE}
+
+    local XDEBUG_ARCH=
+    if [[ "$(uname -m)" == "x86_64" ]]; then
+        XDEBUG_ARCH='-x86_64'
+    fi
+	curl http://xdebug.org/files/php_xdebug-$(process-latest-xdebug-version)-${PHP_VERION_MAJOR}-$VC_VERSION-nts$XDEBUG_ARCH.dll > php_xdebug.dll
 }
 
 function cleanup-download () {
 	rm -f "$(get-download-file-name)"
-	rm -f "$(get-pecl-memcache-file-name)"
 }
 
 function install-app () {
 	download-files
-	
+
 	local INSTALL_PATH="$(get-install-target)"
 
 	if [[ -e "${INSTALL_PATH}/php.ini" ]]; then
@@ -51,9 +53,7 @@ function install-app () {
 	fi
 
 	unzip $(get-download-file-name) -d PHP
-	unzip $(get-pecl-memcache-file-name) php_memcache.dll
 
-	mv php_memcache.dll PHP/ext/php_memcache.dll
 	mv php_xdebug.dll PHP/ext/php_xdebug.dll
 
 	if [[ -e php.ini.bak ]]; then
@@ -72,7 +72,6 @@ extension=php_fileinfo.dll
 extension=php_gd2.dll
 extension=php_mbstring.dll
 extension=php_xsl.dll
-extension=php_memcache.dll
 extension=php_openssl.dll
 zend_extension="php_xdebug.dll"
 

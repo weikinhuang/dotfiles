@@ -6,7 +6,7 @@ _list_libraries () {
 	local cur list
 	COMPREPLY=()
 	cur=${COMP_WORDS[COMP_CWORD]}
-	list=$(ls "/c/Users/$(whoami)/AppData/Roaming/Microsoft/Windows/Libraries" | grep ".library-ms" | sed "s/\.library-ms$//")
+	list=$(ls "$(cygpath --homeroot)/$(whoami)/AppData/Roaming/Microsoft/Windows/Libraries" | grep ".library-ms" | sed "s/\.library-ms$//")
 	COMPREPLY=( $(compgen -W "$list" -- $cur) )
 	return 0
 }
