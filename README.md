@@ -262,12 +262,6 @@ Use to determine a projects directory (shortcut with `p`)
 export PROJECT_DIR='~/Documents/Projects'
 ```
 
-Use to wrap common applications with cli usage (cygwin) will load [dotenv/other/cygwin-exewrappers.sh](dotenv/other/cygwin-exewrappers.sh)
-
-```bash
-export __CYG_LOAD_WRAPPERS=true
-```
-
 Use to reduce load poll time (cygwin)
 
 ```bash

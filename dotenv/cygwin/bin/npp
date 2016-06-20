@@ -2,7 +2,7 @@
 
 # make sure we go to the right path
 X86_PGM_PATH="Program Files"
-if [[ -d "/c/Program Files (x86)/" ]]; then
+if [[ -d "$(cygpath --unix c:)/Program Files (x86)/" ]]; then
 	X86_PGM_PATH="Program Files (x86)"
 fi
 

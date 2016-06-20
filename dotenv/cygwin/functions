@@ -3,7 +3,7 @@ function olib() {
 	if [[ -z "$1" ]] ; then
 		return 1
 	fi
-	local library="/c/Users/$(whoami)/AppData/Roaming/Microsoft/Windows/Libraries/$1.library-ms"
+	local library="$(cygpath --homeroot)/$(whoami)/AppData/Roaming/Microsoft/Windows/Libraries/$1.library-ms"
 	if [[ ! -e "$library" ]] ; then
 		return 2
 	fi

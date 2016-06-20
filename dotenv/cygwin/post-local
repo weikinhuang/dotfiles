@@ -1,3 +1,0 @@
-# load up cygwin wrappers
-[[ -n $__CYG_LOAD_WRAPPERS ]] && [[ -r "${HOME}/.dotenv/other/cygwin-exewrappers.sh" ]] && source "${HOME}/.dotenv/other/cygwin-exewrappers.sh"
-unset __CYG_LOAD_WRAPPERS
