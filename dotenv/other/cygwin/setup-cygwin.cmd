@@ -146,10 +146,6 @@ REM -- Sadly in the newest Windows 10: http://www.thewindowsclub.com/create-elev
 for /f "tokens=4-5 delims=. " %%i in ('ver') do set WINVERSION=%%i.%%j
 IF "%WINVERSION%" GEQ "10.0" (
     "%ROOTDIR%\bin\bash.exe" --login -c "wget -O /startup/ssh-task.xml %SSH_TASK_TEMPLATE_URL%"
-REM    ECHO PLEASE UPDATE THE FILE "%ROOTDIR%\startup\ssh-task.xml" WITH
-REM    "%ROOTDIR%\bin\bash.exe" --login -c "hostname"
-REM    "%ROOTDIR%\bin\bash.exe" --login -c "whoami"
-REM    PAUSE
     "%ROOTDIR%\bin\bash.exe" --login -c "sed -i 's/##HOSTNAME##/'$(hostname)'/' /startup/ssh-task.xml"
     "%ROOTDIR%\bin\bash.exe" --login -c "sed -i 's/##USER##/'$(whoami)'/' /startup/ssh-task.xml"
     schtasks /delete /f /tn cygwinsshd
