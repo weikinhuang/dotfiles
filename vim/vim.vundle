@@ -10,7 +10,7 @@ call vundle#begin()
 " let Vundle manage Vundle, required
 Plugin 'VundleVim/Vundle.vim'
 
-Plugin 'ctrlpvim/ctrlp'
+Plugin 'ctrlpvim/ctrlp.vim'
 Plugin 'editorconfig/editorconfig-vim'
 Plugin 'powerline/powerline'
 Plugin 'scrooloose/nerdtree'
