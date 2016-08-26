@@ -143,7 +143,7 @@
 
 	### Resetting
 	# resets the file to clean copy
-	undo = checkout --
+	undo = undo-index
 	# remove files from index (tracking)
 	unstage = reset HEAD
 	# go back before last commit, with files in uncommitted state
