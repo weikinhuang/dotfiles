@@ -81,8 +81,8 @@ function install_dotfiles () {
         cd "$DOTFILES_ROOT/vim/bundle"
         git clone https://github.com/VundleVim/Vundle.vim.git
         cd "$DOTFILES_ROOT"
-        if type vim &>/dev/null && [[ -e /dev/tty ]]; then
-            vim +BundleInstall +qall < /dev/tty
+        if type vim &>/dev/null; then
+            echo "--------------- Please Run: 'vim +BundleInstall +qall' after installation"
         fi
     fi
 }
@@ -110,8 +110,8 @@ function update_dotfiles () {
             git pull origin master
             cd "$DOTFILES_ROOT"
             vim +PluginInstall +qall
-            if type vim &>/dev/null && [[ -e /dev/tty ]]; then
-                vim +BundleInstall +qall < /dev/tty
+            if type vim &>/dev/null; then
+                echo "--------------- Please Run: 'vim +BundleInstall +qall' after installation"
             fi
         fi
     else
