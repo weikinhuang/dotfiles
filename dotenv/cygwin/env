@@ -19,6 +19,7 @@ if [[ -d "$(cygpath --homeroot)/$USER/AppData/Roaming/npm" ]]; then
 	PATH="$PATH:$NODE_BIN_PATH:$(cygpath --homeroot)/$USER/AppData/Roaming/npm/"
 	function npm () {
 		local NPM_APPDATA=$APPDATA
+		local NPM_LOCALAPPDATA=$LOCALAPPDATA
 		local NPM_TMP=$TMP
 		local NPM_TEMP=$TEMP
 		local NPM_CMD
@@ -34,6 +35,10 @@ if [[ -d "$(cygpath --homeroot)/$USER/AppData/Roaming/npm" ]]; then
 			NPM_APPDATA="$(cygpath -w "$(cygpath --homeroot)/$USER/AppData/Roaming")"
 		else
 			NPM_APPDATA="$(cygpath -w "$NODE_BIN_PATH")"
+		fi
+
+		if [[ -d "$(cygpath --homeroot)/$USER/AppData/Local" ]]; then
+			NPM_LOCALAPPDATA="$(cygpath -w "$(cygpath --homeroot)/$USER/AppData/Local")"
 		fi
 
 		# use the windows %TMP% and %TEMP% dirs
@@ -52,8 +57,9 @@ if [[ -d "$(cygpath --homeroot)/$USER/AppData/Roaming/npm" ]]; then
 		TMP="$NPM_TMP" \
 		TEMP="$NPM_TEMP" \
 		APPDATA="$NPM_APPDATA" \
+		LOCALAPPDATA="$NPM_LOCALAPPDATA" \
 		PATH="$NODE_BIN_PATH:$(cygpath --homeroot)/$USER/AppData/Roaming/npm/:$(cygpath --unix c:)/Python27/:$NPM_RUN_PATH" \
-			"$NPM_CMD" "$@"
+			winpty "$NPM_CMD" "$@"
 	}
 	export -f npm
 fi

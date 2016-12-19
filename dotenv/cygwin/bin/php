@@ -7,8 +7,8 @@ elif [[ -f "$(cygpath -u "c:/Program Files (x86)/PHP/php.exe")" ]]; then
 	PROGRAM=$(cygpath -u "c:/Program Files (x86)/PHP/php.exe")
 elif [[ -f "$(cygpath -u "c:/PHP/php.exe")" ]]; then
 	PROGRAM=$(cygpath -u "c:/PHP/php.exe")
-elif [[ -f "$HOME/bin/PHP/php.exe" ]]; then
-	PROGRAM="$HOME/bin/PHP/php.exe"
+elif [[ -f "$HOME/bin/php/php.exe" ]]; then
+	PROGRAM="$HOME/bin/php/php.exe"
 else
 	# php binary not found
 	exit 1
