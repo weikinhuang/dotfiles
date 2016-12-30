@@ -28,12 +28,7 @@ if [ ! -t 0 ]
 then
 	"${PROGRAM}" "${args[@]}" <<< "$(cat -)"
 else
-	if [ ${#args[@]} -eq 0 ]
-	then
-		winpty "${PROGRAM}" "${args[@]}"
-	else
-		"${PROGRAM}" "${args[@]}"
-	fi
+	winpty "${PROGRAM}" "${args[@]}"
 fi
 
 exit $?
