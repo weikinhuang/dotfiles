@@ -15,19 +15,14 @@ SET SSH_TASK_TEMPLATE_URL=https://raw.githubusercontent.com/weikinhuang/dotfiles
 REM -- Additional variables
 SET ADD_ARGS=""
 SET LOCALDIR="%ROOTDIR%\setup"
-set HSTART_URL=http://files.ntwind.com/download/Hstart_4.2-bin.zip
 IF "%PROCESSOR_ARCHITECTURE%" == "x86" (
     SET SETUP_NAME=setup-x86.exe
-    SET HSTART_BIN=hstart.exe
 ) ELSE (
     SET SETUP_NAME=setup-x86_64.exe
-    SET HSTART_BIN=hstart64.exe
 )
 
 REM -- STARTING SCRIPT
 set DLOAD_SCRIPT=download.vbs
-REM -- Get the user's startup directory
-for /F "skip=2 tokens=2*" %%j in ('reg query "HKEY_CURRENT_USER\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Shell Folders" /v "Startup"') do set STARTUP_DIR=%%k
 
 REM -- pure batch downloader: https://semitwist.com/articles/article/view/downloading-files-from-plain-batch-with-zero-dependencies
 REM -- Windows has no built-in wget or curl, so generate a VBS script to do it:
@@ -124,37 +119,12 @@ ECHO setup sshd for local user only
 "%ROOTDIR%\bin\bash.exe" --login -c "if [[ ! -f ~/.ssh/id_rsa ]]; then ssh-keygen -q -t rsa -N '' -f ~/.ssh/id_rsa && cat ~/.ssh/id_rsa.pub >> ~/.ssh/authorized_keys && chmod 0600 ~/.ssh/authorized_keys; fi;"
 "%ROOTDIR%\bin\bash.exe" --login -c "echo > /etc/motd"
 
-REM -- download hstart
-IF NOT EXIST "%ROOTDIR%\startup\%HSTART_BIN%" (
-    "%ROOTDIR%\bin\bash.exe" --login -c "mkdir /startup"
-    "%ROOTDIR%\bin\bash.exe" --login -c "wget -O /tmp/hstart.zip %HSTART_URL% && unzip -p /tmp/hstart.zip %HSTART_BIN% > /startup/%HSTART_BIN%"
-    "%ROOTDIR%\bin\bash.exe" --login -c "rm -f /tmp/hstart.zip"
-)
-
-REM -- create the startup entry for ssh to run on login
-IF NOT EXIST "%ROOTDIR%\startup\sshd.cmd" (
-echo ^
-SET PATH=%%PATH%%;%ROOTDIR%\bin^
-
-chdir %ROOTDIR%^
-
-start "" "%ROOTDIR%\startup\%HSTART_BIN%" /noconsole /elevate ""%ROOTDIR%\bin\bash.exe" --login -c '/usr/sbin/sshd.exe -D'"^
- > "%ROOTDIR%\startup\sshd.cmd"
-)
-
 REM -- Sadly in the newest Windows 10: http://www.thewindowsclub.com/create-elevated-shortcut-run-programs-bypass-uac instead
-for /f "tokens=4-5 delims=. " %%i in ('ver') do set WINVERSION=%%i.%%j
-IF "%WINVERSION%" GEQ "10.0" (
-    "%ROOTDIR%\bin\bash.exe" --login -c "wget -O /startup/ssh-task.xml %SSH_TASK_TEMPLATE_URL%"
-    "%ROOTDIR%\bin\bash.exe" --login -c "sed -i 's/##HOSTNAME##/'$(hostname)'/' /startup/ssh-task.xml"
-    "%ROOTDIR%\bin\bash.exe" --login -c "sed -i 's/##USER##/'$(whoami)'/' /startup/ssh-task.xml"
-    schtasks /delete /f /tn cygwinsshd
-    schtasks /create /xml "%ROOTDIR%\startup\ssh-task.xml" /tn cygwinsshd
-) ELSE (
-    IF NOT EXIST "%STARTUP_DIR%\sshd.cmd" (
-        mklink "%STARTUP_DIR%\sshd.cmd" "%ROOTDIR%\startup\sshd.cmd"
-    )
-)
+"%ROOTDIR%\bin\bash.exe" --login -c "wget -O /startup/ssh-task.xml %SSH_TASK_TEMPLATE_URL%"
+"%ROOTDIR%\bin\bash.exe" --login -c "sed -i 's/##HOSTNAME##/'$(hostname)'/' /startup/ssh-task.xml"
+"%ROOTDIR%\bin\bash.exe" --login -c "sed -i 's/##USER##/'$(whoami)'/' /startup/ssh-task.xml"
+schtasks /delete /f /tn cygwinsshd
+schtasks /create /xml "%ROOTDIR%\startup\ssh-task.xml" /tn cygwinsshd
 
 IF NOT EXIST "%ROOTDIR%\cygsetup.cmd" (
     echo "%ROOTDIR%\%SETUP_NAME%" -s "%SITE%" -l "%LOCALDIR%" -R "%ROOTDIR%" "%ADD_ARGS%" > "%ROOTDIR%\cygsetup.cmd"

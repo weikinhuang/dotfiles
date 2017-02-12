@@ -15,7 +15,7 @@
     <Settings>
         <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
         <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
-        <StopIfGoingOnBatteries>true</StopIfGoingOnBatteries>
+        <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
         <AllowHardTerminate>true</AllowHardTerminate>
         <StartWhenAvailable>false</StartWhenAvailable>
         <RunOnlyIfNetworkAvailable>false</RunOnlyIfNetworkAvailable>
@@ -35,8 +35,8 @@
     </Settings>
     <Actions Context="Author">
         <Exec>
-            <Command>C:\cygwin\startup\hstart64.exe</Command>
-            <Arguments>/noconsole /elevate "C:\cygwin\bin\bash.exe --login -c '/usr/sbin/sshd.exe -D'"</Arguments>
+            <Command>c:\cygwin\bin\run.exe</Command>
+            <Arguments>C:\cygwin\bin\bash.exe --login -c '/usr/sbin/sshd.exe -D'</Arguments>
             <WorkingDirectory>C:\cygwin</WorkingDirectory>
         </Exec>
     </Actions>
