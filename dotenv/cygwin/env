@@ -12,11 +12,11 @@ PATH=$(echo "$PATH" | sed "s/$(cygpath --homeroot | sed 's#\/#\\\/#g')\/$USER\/A
 
 # add npm & nodejs to path if possible
 if [[ -d "$(cygpath --homeroot)/$USER/AppData/Roaming/npm" ]]; then
-	NODE_BIN_PATH=$(cygpath -u "c:/Program Files/nodejs/")
+	NODE_BIN_PATH=$(cygpath -u "c:/Program Files/nodejs")
 	# for looking up global variables
 	export NODE_PATH=$(cygpath -wa "$(cygpath --homeroot)/$USER/AppData/Roaming/npm")
 	export NODE_BIN_PATH
-	PATH="$PATH:$NODE_BIN_PATH:$(cygpath --homeroot)/$USER/AppData/Roaming/npm/"
+	PATH="$PATH:$NODE_BIN_PATH:$(cygpath --homeroot)/$USER/AppData/Roaming/npm"
 	function npm () {
 		local NPM_APPDATA=$APPDATA
 		local NPM_LOCALAPPDATA=$LOCALAPPDATA
@@ -28,7 +28,7 @@ if [[ -d "$(cygpath --homeroot)/$USER/AppData/Roaming/npm" ]]; then
 		# if we want to run npm install/update with git paths, cygwin git
 		# cannot handle the windows paths, so instead we must rely on a wrapper
 		# to be installed
-		NPM_RUN_PATH="$HOME/.dotenv/cygwin/npm-fix/:$PATH"
+		NPM_RUN_PATH="$HOME/.dotenv/cygwin/npm-fix:$PATH"
 
 		# add the proper APPDATA directory
 		if [[ -d "$(cygpath --homeroot)/$USER/AppData/Roaming" ]]; then
