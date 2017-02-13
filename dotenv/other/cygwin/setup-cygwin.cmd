@@ -120,6 +120,7 @@ ECHO setup sshd for local user only
 "%ROOTDIR%\bin\bash.exe" --login -c "echo > /etc/motd"
 
 REM -- Sadly in the newest Windows 10: http://www.thewindowsclub.com/create-elevated-shortcut-run-programs-bypass-uac instead
+"%ROOTDIR%\bin\bash.exe" --login -c "mkdir -p /startup"
 "%ROOTDIR%\bin\bash.exe" --login -c "wget -O /startup/ssh-task.xml %SSH_TASK_TEMPLATE_URL%"
 "%ROOTDIR%\bin\bash.exe" --login -c "sed -i 's/##HOSTNAME##/'$(hostname)'/' /startup/ssh-task.xml"
 "%ROOTDIR%\bin\bash.exe" --login -c "sed -i 's/##USER##/'$(whoami)'/' /startup/ssh-task.xml"
