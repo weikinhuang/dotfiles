@@ -115,7 +115,7 @@ ECHO setup sshd for local user only
 "%ROOTDIR%\bin\bash.exe" --login -c "sed -i 's/^#ListenAddress 0.0.0.0$/ListenAddress 127.0.0.1/' /etc/sshd_config"
 "%ROOTDIR%\bin\bash.exe" --login -c "sed -i 's/^#ListenAddress ::$/ListenAddress ::1/' /etc/sshd_config"
 "%ROOTDIR%\bin\bash.exe" --login -c "sed -i 's/^#PasswordAuthentication yes$/PasswordAuthentication no/' /etc/sshd_config"
-"%ROOTDIR%\bin\bash.exe" --login -c "sed -i 's/^UsePrivilegeSeparation sandbox/UsePrivilegeSeparation no/' /etc/sshd_config"
+"%ROOTDIR%\bin\bash.exe" --login -c "sed -i 's/^UsePrivilegeSeparation sandbox/#UsePrivilegeSeparation sandbox/' /etc/sshd_config"
 "%ROOTDIR%\bin\bash.exe" --login -c "if [[ ! -f ~/.ssh/id_rsa ]]; then ssh-keygen -q -t rsa -N '' -f ~/.ssh/id_rsa && cat ~/.ssh/id_rsa.pub >> ~/.ssh/authorized_keys && chmod 0600 ~/.ssh/authorized_keys; fi;"
 "%ROOTDIR%\bin\bash.exe" --login -c "echo > /etc/motd"
 
