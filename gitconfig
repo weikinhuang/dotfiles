@@ -1,217 +1,217 @@
 [user]
-	# name = $GIT_AUTHOR_NAME
-	name =
-	# email = $GIT_AUTHOR_EMAIL
-	email =
+  # name = $GIT_AUTHOR_NAME
+  name =
+  # email = $GIT_AUTHOR_EMAIL
+  email =
 [github]
-	# To get the token: git hub-token
-	# apitoken = $GIT_HUB_API_TOKEN
-	apitoken =
+  # To get the token: git hub-token
+  # apitoken = $GIT_HUB_API_TOKEN
+  apitoken =
 [color]
-	ui = auto
+  ui = auto
 [advice]
-	pushNonFastForward = false
-	statusHints = false
+  pushNonFastForward = false
+  statusHints = false
 [core]
-	whitespace = fix,trailing-space,space-before-tab
-	autocrlf = input
-	filemode = false
-	pager = less -x1,5 -iFXRS
-	# editor = $EDITOR
-	excludesfile = "~/.gitignore"
+  whitespace = fix,trailing-space,space-before-tab
+  autocrlf = input
+  filemode = false
+  pager = less -x1,5 -iFXRS
+  # editor = $EDITOR
+  excludesfile = "~/.gitignore"
 [apply]
-	whitespace = nowarn
+  whitespace = nowarn
 [branch]
-	autosetupmerge = true
+  autosetupmerge = true
 [push]
-	default = tracking
+  default = tracking
 [rerere]
-	enabled = true
+  enabled = true
 [diff]
-	renames = copies
-	mnemonicprefix = true
-	tool = auto-difftool
-	algorithm = patience
+  renames = copies
+  mnemonicprefix = true
+  tool = auto-difftool
+  algorithm = patience
 [rebase]
-	autostash = true
+  autostash = true
 [merge]
-	stat = true
-	tool = auto-mergetool
+  stat = true
+  tool = auto-mergetool
 [difftool]
-	prompt = false
+  prompt = false
 [mergetool]
-	prompt = false
+  prompt = false
 [difftool "auto-difftool"]
-	cmd = git-auto-difftool $LOCAL $REMOTE
+  cmd = git-auto-difftool $LOCAL $REMOTE
 [mergetool "auto-mergetool"]
-	cmd = git-auto-mergetool $BASE $LOCAL $REMOTE $MERGED
+  cmd = git-auto-mergetool $BASE $LOCAL $REMOTE $MERGED
 [help]
-	autocorrect = 1
+  autocorrect = 1
 [branch "master"]
-	merge = refs/heads/master
-	remote = origin
+  merge = refs/heads/master
+  remote = origin
 [alias]
-	### Basic shortcuts
-	git = !git
-	cl = clone --recursive
-	st = status
-	br = branch
-	co = checkout
-	df = diff
-	lg = log -p
-	cp = cherry-pick
-	
-	### Stashing
-	ss = stash
-	sp = stash pop
-	sl = stash list
-	sa = stash apply
-	si = stash --keep-index
-	snapshot = !git stash save "snapshot: $(date) $*" && git stash apply "stash@{0}"
+  ### Basic shortcuts
+  git = !git
+  cl = clone --recursive
+  st = status
+  br = branch
+  co = checkout
+  df = diff
+  lg = log -p
+  cp = cherry-pick
 
-	### Verbose output about tags, branches or remotes
-	tags = tag -l
-	branches = branch -a
-	remotes = remote -v
+  ### Stashing
+  ss = stash
+  sp = stash pop
+  sl = stash list
+  sa = stash apply
+  si = stash --keep-index
+  snapshot = !git stash save "snapshot: $(date) $*" && git stash apply "stash@{0}"
 
-	### Adding
-	au = add -u .
-	rml = rm --cached
-	# file level ignoring
-	assume = update-index --assume-unchanged
-	unassume = update-index --no-assume-unchanged
-	assumed = "!git ls-files -v | grep ^h | cut -c 3-"
+  ### Verbose output about tags, branches or remotes
+  tags = tag -l
+  branches = branch -a
+  remotes = remote -v
 
-	### Committing
-	# Commit
-	ci = commit
-	# Commit w/ message
-	cim = commit -m
-	# Amend commit
-	cia = commit --amend
-	# Amend commit w/message
-	ciam = commit --amend -m
-	# Add changed files and then commit w/message
-	cam = commit -a -m
-	# Commit and add files
-	ca = commit -a
-	# These are the same as cam, ca and squish, except it adds new files as well
-	acam = !git add -A && git commit -m
-	aca = !git add -A && git commit
-	asquish = !git add -A && git commit --amend -C HEAD
-	# Adds all changed files into the last commit
-	squish = commit -a --amend -C HEAD
-	# Adds only staged files into the last commit
-	squeeze = commit --amend -C HEAD
-	# Amends last commit using the same commit message
-	amend = !"git log -n 1 --pretty=tformat:%s | git commit -F - --amend"
+  ### Adding
+  au = add -u .
+  rml = rm --cached
+  # file level ignoring
+  assume = update-index --assume-unchanged
+  unassume = update-index --no-assume-unchanged
+  assumed = "!git ls-files -v | grep ^h | cut -c 3-"
 
-	### Checkout / Branching
-	# go to master branch
-	com = checkout master
-	# Checkout last branch
-	col = checkout -
-	# Switch to a branch and reset it, creating it if necessary
-	go = checkout -B
-	# create a branch by name, or if it exists, checkout the branch
-	cb = "!f() { git checkout -b "$1" 2> /dev/null && echo Created new branch \\'$1\\' || git checkout "$1"; }; f"
-	# Get the current branch name
-	brn = "!git branch "$@" | grep '^*' | sed 's/^* //' && true"
-	# Update current branch from origin
-	ubo = !"git pull origin $(git brn) && true"
-	# Get the merge base for this branch
-	branch-root = !"git merge-base $(git brn) master && true"
-	brt = !"git branch-root"
+  ### Committing
+  # Commit
+  ci = commit
+  # Commit w/ message
+  cim = commit -m
+  # Amend commit
+  cia = commit --amend
+  # Amend commit w/message
+  ciam = commit --amend -m
+  # Add changed files and then commit w/message
+  cam = commit -a -m
+  # Commit and add files
+  ca = commit -a
+  # These are the same as cam, ca and squish, except it adds new files as well
+  acam = !git add -A && git commit -m
+  aca = !git add -A && git commit
+  asquish = !git add -A && git commit --amend -C HEAD
+  # Adds all changed files into the last commit
+  squish = commit -a --amend -C HEAD
+  # Adds only staged files into the last commit
+  squeeze = commit --amend -C HEAD
+  # Amends last commit using the same commit message
+  amend = !"git log -n 1 --pretty=tformat:%s | git commit -F - --amend"
 
-	### Rebase
-	rb = rebase
-	# Abort rebase
-	rba = rebase --abort
-	# Continue rebase
-	rbc = rebase --continue
-	# Skip patch
-	rbs = rebase --skip
-	# Rebase interactively
-	rbi = rebase -i
-	# rebase with master branch
-	rbm = rebase master
-	# rebase with master branch
-	rbim = rebase -i master
-	# pull complete versions of our changes or their changes
-	ours = "!f() { git checkout --ours "$@" && git add "$@"; }; f"
-	theirs = "!f() { git checkout --theirs "$@" && git add "$@"; }; f"
+  ### Checkout / Branching
+  # go to master branch
+  com = checkout master
+  # Checkout last branch
+  col = checkout -
+  # Switch to a branch and reset it, creating it if necessary
+  go = checkout -B
+  # create a branch by name, or if it exists, checkout the branch
+  cb = "!f() { git checkout -b "$1" 2> /dev/null && echo Created new branch \\'$1\\' || git checkout "$1"; }; f"
+  # Get the current branch name
+  brn = "!git branch "$@" | grep '^*' | sed 's/^* //' && true"
+  # Update current branch from origin
+  ubo = !"git pull origin $(git brn) && true"
+  # Get the merge base for this branch
+  branch-root = !"git merge-base $(git brn) master && true"
+  brt = !"git branch-root"
 
-	### Resetting
-	# resets the file to clean copy
-	undo = undo-index
-	# remove files from index (tracking)
-	unstage = reset HEAD
-	# go back before last commit, with files in uncommitted state
-	uncommit = reset --soft HEAD^
+  ### Rebase
+  rb = rebase
+  # Abort rebase
+  rba = rebase --abort
+  # Continue rebase
+  rbc = rebase --continue
+  # Skip patch
+  rbs = rebase --skip
+  # Rebase interactively
+  rbi = rebase -i
+  # rebase with master branch
+  rbm = rebase master
+  # rebase with master branch
+  rbim = rebase -i master
+  # pull complete versions of our changes or their changes
+  ours = "!f() { git checkout --ours "$@" && git add "$@"; }; f"
+  theirs = "!f() { git checkout --theirs "$@" && git add "$@"; }; f"
 
-	### Logging
-	# View the SHA, description, and history graph of the latest commits
-	l = log --pretty=oneline --graph --decorate --all
-	# show tree view of the git log
-	tree = log --graph --decorate --pretty=oneline --abbrev-commit --all
-	# searching the history
-	search = log -p -S
-	rsearch = log -p -G
+  ### Resetting
+  # resets the file to clean copy
+  undo = undo-index
+  # remove files from index (tracking)
+  unstage = reset HEAD
+  # go back before last commit, with files in uncommitted state
+  uncommit = reset --soft HEAD^
 
-	### Diffing
-	# Open the difftool for all files that are currently modified
-	diffall = !"git diff --name-only "$@" | while read filename; do git difftool "$@" --no-prompt "$filename" & done && true"
+  ### Logging
+  # View the SHA, description, and history graph of the latest commits
+  l = log --pretty=oneline --graph --decorate --all
+  # show tree view of the git log
+  tree = log --graph --decorate --pretty=oneline --abbrev-commit --all
+  # searching the history
+  search = log -p -S
+  rsearch = log -p -G
 
-	### Pushing
-	# Undo a `git push`
-	undopush = push -f origin HEAD^:master
+  ### Diffing
+  # Open the difftool for all files that are currently modified
+  diffall = !"git diff --name-only "$@" | while read filename; do git difftool "$@" --no-prompt "$filename" & done && true"
 
-	### Submodules
-	# Update submodules
-	subu = submodule update
-	# Update submodules and initialize them
-	subi = submodule update --init
+  ### Pushing
+  # Undo a `git push`
+  undopush = push -f origin HEAD^:master
 
-	### Syncing
-	# Go to master and pull in origin master
-	pm = !"git checkout master && git pull origin master && true"
-	# Pull in remote changes for the current repository and all its submodules
-	p = !"git pull; git submodule foreach git pull origin master && true"
-	# Pull in remote changes for the current repository and update all submodules
-	ps = !"git pull; git submodule foreach git submodule update --init --recursive && true"
-	# Push the current branch to origin with the same branch name
-	pob = !"git push "$@" origin $(git brn) && true"
+  ### Submodules
+  # Update submodules
+  subu = submodule update
+  # Update submodules and initialize them
+  subi = submodule update --init
 
-	### Misc
-	# Merge and squash commits from remote branches
-	pulley = !"git checkout master && git checkout -b "$3" && git pull "$1" "$2" && git checkout master && git merge --no-commit --squash "$3" && git commit -a && git branch -D "$3""
-	# searches for all detached commits
-	lost = !"git fsck | awk '/dangling commit/ {print $3}' | git show --format='SHA1: %C(yellow)%h%Creset %f' --stdin | awk '/SHA1/ {sub(\"SHA1: \", \"\"); print}' && true"
-	# Adds a file to be ignored
-	ignore = !"echo "$1" >> .gitignore && true"
+  ### Syncing
+  # Go to master and pull in origin master
+  pm = !"git checkout master && git pull origin master && true"
+  # Pull in remote changes for the current repository and all its submodules
+  p = !"git pull; git submodule foreach git pull origin master && true"
+  # Pull in remote changes for the current repository and update all submodules
+  ps = !"git pull; git submodule foreach git submodule update --init --recursive && true"
+  # Push the current branch to origin with the same branch name
+  pob = !"git push "$@" origin $(git brn) && true"
 
-	### Editing
-	# Editing and adding conflicted files: when we get many merge conflicts
-	# and want to quickly solve them using an editor, then add the files.
-	# Customize this by replacing "emacs" with your preferred editor.
-	edit-unmerged = "!f() { git ls-files --unmerged | cut -f2 | sort -u ; }; $EDITOR "$(f)""
-	add-unmerged = "!f() { git ls-files --unmerged | cut -f2 | sort -u ; }; git add "$(f)""
+  ### Misc
+  # Merge and squash commits from remote branches
+  pulley = !"git checkout master && git checkout -b "$3" && git pull "$1" "$2" && git checkout master && git merge --no-commit --squash "$3" && git commit -a && git branch -D "$3""
+  # searches for all detached commits
+  lost = !"git fsck | awk '/dangling commit/ {print $3}' | git show --format='SHA1: %C(yellow)%h%Creset %f' --stdin | awk '/SHA1/ {sub(\"SHA1: \", \"\"); print}' && true"
+  # Adds a file to be ignored
+  ignore = !"echo "$1" >> .gitignore && true"
 
-	########### GITHUB based aliases
-	# Go to the master branch then sync local and origin with [upstream|origin]
-	sync = "!f() { local PREV_BR="$(git brn)"; [[ "$PREV_BR" != "master" ]] && git checkout master; git pull $(R="$(git remote -v | grep '^upstream\\>')"; if [ $? -eq 0  ]; then echo 'upstream'; else echo 'origin'; fi) master; git submodule update; git push origin master; [[ "$PREV_BR" != "master" ]] && git co "$PREV_BR" || git co; }; f"
-	# Pushes current branch to origin and then issues a pull request to upstream
-	pr = hub-pull-request
-	# Gets the github url for current repo
-	hub = !"echo "https://github.com/"$(git config remote.origin.url) | sed -E s/[a-z]+@github\\.com:// | sed s/\\.git$// && true"
-	# Gets the url to github of the current commit
-	hub-url = !"sh -c 'HEAD=$(git rev-parse HEAD) && SHA1=$([ "$0" = "sh" ] && echo $HEAD || echo $0) && echo $(git hub)"/commit/"${SHA1}' && true"
+  ### Editing
+  # Editing and adding conflicted files: when we get many merge conflicts
+  # and want to quickly solve them using an editor, then add the files.
+  # Customize this by replacing "emacs" with your preferred editor.
+  edit-unmerged = "!f() { git ls-files --unmerged | cut -f2 | sort -u ; }; $EDITOR "$(f)""
+  add-unmerged = "!f() { git ls-files --unmerged | cut -f2 | sort -u ; }; git add "$(f)""
+
+  ########### GITHUB based aliases
+  # Go to the master branch then sync local and origin with [upstream|origin]
+  sync = "!f() { local PREV_BR="$(git brn)"; [[ "$PREV_BR" != "master" ]] && git checkout master; git pull $(R="$(git remote -v | grep '^upstream\\>')"; if [ $? -eq 0  ]; then echo 'upstream'; else echo 'origin'; fi) master; git submodule update; git push origin master; [[ "$PREV_BR" != "master" ]] && git co "$PREV_BR" || git co; }; f"
+  # Pushes current branch to origin and then issues a pull request to upstream
+  pr = hub-pull-request
+  # Gets the github url for current repo
+  hub = !"echo "https://github.com/"$(git config remote.origin.url) | sed -E s/[a-z]+@github\\.com:// | sed s/\\.git$// && true"
+  # Gets the url to github of the current commit
+  hub-url = !"sh -c 'HEAD=$(git rev-parse HEAD) && SHA1=$([ "$0" = "sh" ] && echo $HEAD || echo $0) && echo $(git hub)"/commit/"${SHA1}' && true"
 
 # custom diff chunk headers
 [diff "js"]
-	xfuncname = "^[ \\t]*((((.+) *: *function *\\()|(function .+ *\\()).+)$"
+  xfuncname = "^[ \\t]*((((.+) *: *function *\\()|(function .+ *\\()).+)$"
 [diff "css"]
-	xfuncname = "^[ \\t]*(.+ *{ *)$"
+  xfuncname = "^[ \\t]*(.+ *{ *)$"
 
 [include]
     path = ~/.gitconfig.local
