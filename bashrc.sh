@@ -18,15 +18,24 @@ case "${TERM:-xterm}" in
     ;;
 esac
 
+# load configuration from installation
+if [[ -e "${HOME}/.config/dotfiles/.install" ]]; then
+  source "${HOME}/.config/dotfiles/.install"
+fi
+readonly DOTFILES__ROOT="${DOTFILES__INSTALL_ROOT:-${HOME}}"
+
 # Check out which env this bash is running in
 DOTENV="linux"
+IS_NIX=1 # check if we can load generic unix utils
 case "$(uname -s)" in
   CYGWIN*)
     DOTENV="cygwin"
+    IS_NIX=0
     ;;
   MINGW32_NT*)
     # we'll just pretend to use the cygwin functions
     DOTENV="cygwin"
+    IS_NIX=0
     # we can only have monochrome prompts
     _PS1_MONOCHROME=1
     # force the usage of /bin/bash instead of /bin/sh
@@ -41,9 +50,9 @@ esac
 export DOTENV
 
 # modify path to include useful scripts
-[[ -d "${HOME}/.dotenv/${DOTENV}/bin.$(uname -m)" ]] && PATH="${PATH}:${HOME}/.dotenv/${DOTENV}/bin.$(uname -m)"
-[[ -d "${HOME}/.dotenv/${DOTENV}/bin" ]] && PATH="${PATH}:${HOME}/.dotenv/${DOTENV}/bin"
-[[ -d "${HOME}/.dotenv/bin" ]] && PATH="${PATH}:${HOME}/.dotenv/bin"
+[[ -d "${DOTFILES__ROOT}/.dotenv/${DOTENV}/bin.$(uname -m)" ]] && PATH="${PATH}:${DOTFILES__ROOT}/.dotenv/${DOTENV}/bin.$(uname -m)"
+[[ -d "${DOTFILES__ROOT}/.dotenv/${DOTENV}/bin" ]] && PATH="${PATH}:${DOTFILES__ROOT}/.dotenv/${DOTENV}/bin"
+[[ -d "${DOTFILES__ROOT}/.dotenv/bin" ]] && PATH="${PATH}:${DOTFILES__ROOT}/.dotenv/bin"
 [[ -d "${HOME}/bin" ]] && PATH="${PATH}:${HOME}/bin"
 
 # Remove duplicate entries from PATH and retain the original order
@@ -53,8 +62,8 @@ fi
 
 # Source ~/.exports, ~/.functions, ~/.aliases, ~/.completion, ~/.extra, ~/.env if they exist
 for file in {exports,functions,aliases,completion,extra,env}; do
-  [[ -r "${HOME}/.dotenv/${file}" ]] && source "${HOME}/.dotenv/${file}"
-  [[ -r "${HOME}/.dotenv/${DOTENV}/${file}" ]] && source "${HOME}/.dotenv/${DOTENV}/${file}"
+  [[ -r "${DOTFILES__ROOT}/.dotenv/${file}.sh" ]] && source "${DOTFILES__ROOT}/.dotenv/${file}.sh"
+  [[ -r "${DOTFILES__ROOT}/.dotenv/${DOTENV}/${file}.sh" ]] && source "${DOTFILES__ROOT}/.dotenv/${DOTENV}/${file}.sh"
 done
 unset file
 
@@ -67,12 +76,12 @@ fi
 [[ -r "${HOME}/.bash_local" ]] && source "${HOME}/.bash_local"
 
 # include utility settings file (git PS1, solarized, mysql, etc...)
-[[ -r "${HOME}/.dotenv/utility" ]] && source "${HOME}/.dotenv/utility"
+[[ -r "${DOTFILES__ROOT}/.dotenv/utility" ]] && source "${DOTFILES__ROOT}/.dotenv/utility"
 
 # Source ~/.post-local, ~/.prompt if they exist
 for file in {post-local,prompt}; do
-  [[ -r "${HOME}/.dotenv/${file}" ]] && source "${HOME}/.dotenv/${file}"
-  [[ -r "${HOME}/.dotenv/${DOTENV}/${file}" ]] && source "${HOME}/.dotenv/${DOTENV}/${file}"
+  [[ -r "${DOTFILES__ROOT}/.dotenv/${file}.sh" ]] && source "${DOTFILES__ROOT}/.dotenv/${file}.sh"
+  [[ -r "${DOTFILES__ROOT}/.dotenv/${DOTENV}/${file}.sh" ]] && source "${DOTFILES__ROOT}/.dotenv/${DOTENV}/${file}.sh"
 done
 unset file
 

@@ -1,8 +1,0 @@
-# include solarized dir colors theme
-[[ -n "$__term_solarized_light" ]] && type dircolors &> /dev/null && eval "$(dircolors "${HOME}/.dotenv/other/dircolors.solarized.ansi-light")"
-
-# include special mysql client customizations
-[[ -r "${HOME}/.dotenv/other/mysql-client.sh" ]] && source "${HOME}/.dotenv/other/mysql-client.sh"
-
-# include git __git_ps1 if not already included elsewhere
-type __git_ps1 &> /dev/null || source "${HOME}/.dotenv/other/git-prompt.sh"
