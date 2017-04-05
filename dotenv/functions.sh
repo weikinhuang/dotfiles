@@ -164,7 +164,7 @@ function unidecode() {
 	echo # newline
 }
 
-# Get a character’s Unicode code point
+# Get a character's Unicode code point
 function codepoint() {
 	perl -e "use utf8; print sprintf('U+%04X', ord(\"$@\"))"
 	echo # newline
@@ -206,45 +206,4 @@ function regex () {
 # binary diff
 function binarydiff () {
 	vimdiff <(xxd "$1") <(xxd "$2")
-}
-
-# functionality to simplify making restful curl requests
-export __request_host=""
-function __request () {
-	local options method url
-	options=( )
-	method="GET"
-	# check what type of request we're making headers or body
-	case "$1" in
-		body )
-			shift
-			;;
-		headers )
-			options=("${options[@]}" "-s" "-S" "-D" "-" "-o" "/dev/null")
-			shift
-			;;
-	esac
-	# check what request method we are making
-	case "$1" in
-		HEAD|OPTIONS|GET|DELETE|POST|PUT|TRACE )
-			method="$1"
-			shift
-			;;
-	esac
-	# this next parameter is always the url
-	case "$1" in
-		http://*|https://* )
-			url="$1"
-			__request_host="$(echo "$1" | perl -ane '/^(https?:\/\/[^\/]+)/; print $1')"
-			echo "Future requests will be prepended with  '${__request_host}' if no host specified" > /dev/tty
-			export __request_host
-			shift
-			;;
-		* )
-			url="${__request_host}/$(echo "$1" | sed 's/^\///')"
-			echo "Requesting '${url}'" > /dev/tty
-			shift
-			;;
-	esac
-	curl -X "$method" "${options[@]}" "$@" "$url"
 }

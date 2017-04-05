@@ -14,7 +14,7 @@ COMP_WORDBREAKS=${COMP_WORDBREAKS/=/}
 
 # History Options
 # Don't put duplicate lines in the history.
-export HISTCONTROL=$HISTCONTROL${HISTCONTROL+,}ignoredups
+export HISTCONTROL="${HISTCONTROL}${HISTCONTROL+,}ignoredups"
 # Ignore some controlling instructions: exit, ls, empty cd, pwd, date, help pages
 HISTIGNORE_BASE=$'[ \t]*:&:[fb]g:exit:ls:ls -?::ls -??:ll:history:cd:cd -:cd ~:cd ..:..:pwd:date:* --help:* help'
 # Ignore basic git commands
@@ -25,7 +25,7 @@ HISTIGNORE_LOCAL='o:oo'
 HISTIGNORE_DEV='p:npm install:bower install'
 # export combined HISTIGNORE
 export HISTIGNORE=${HISTIGNORE}:${HISTIGNORE_BASE}:${HISTIGNORE_GIT}:${HISTIGNORE_LOCAL}:${HISTIGNORE_DEV}
-# Larger bash history (allow 32³ entries; default is 500)
+# Larger bash history (allow 32Â³ entries; default is 500)
 export HISTSIZE=32768
 export HISTFILESIZE=$HISTSIZE
 
@@ -33,5 +33,5 @@ export HISTFILESIZE=$HISTSIZE
 export MANPAGER="less -iFXRS -x4"
 # Highlight section titles in manual pages if possible
 if tput setaf 1 &> /dev/null; then
-	export LESS_TERMCAP_md="$(tput bold)$(tput setaf 33)"
+  export LESS_TERMCAP_md="$(tput bold)$(tput setaf 33)"
 fi

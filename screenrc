@@ -20,8 +20,11 @@ term screen-256color
 # use the login shell
 shell $SHELL
 
-# change scrollback buffer
-defscrollback 10000
+# Set a large scrollback buffer
+defscrollback 32000
+
+# Always start `screen` with UTF-8 enabled (`screen -U`)
+defutf8 on
 
 # Change the xterm initialization string from is2=\E[!p\E[?3;4l\E[4l\E>
 # (This fixes the "Aborted because of window size change" konsole symptoms found
