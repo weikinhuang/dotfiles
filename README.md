@@ -42,7 +42,17 @@ To update later on, just run `git pull` in `~/.dotfiles`.
 To source these files, type:
 
 ```bash
-cd; mkdir ~/.dotfiles 2> /dev/null && curl -#L https://github.com/weikinhuang/dotfiles/tarball/master | tar -C ~/.dotfiles -xzv --strip-components 1 && cd ~/.dotfiles && ./bootstrap.sh
+cd; mkdir ~/.dotfiles 2> /dev/null \
+  && curl -#L https://github.com/weikinhuang/dotfiles/tarball/master \
+    | tar -C ~/.dotfiles -xzv --strip-components 1 \
+  && ln -sf ~/.dotfiles/bash_profile.sh ~/.bash_profile \
+  && ln -sf ~/.dotfiles/bashrc.sh ~/.bashrc \
+  && ln -sf ~/.dotfiles/dotenv ~/.dotenv \
+  && ln -sf ~/.dotfiles/hushlogin .~/hushlogin \
+  && ln -sf ~/.dotfiles/inputrc ~/.inputrc \
+  && ln -sf ~/.dotfiles/mongorc.js ~/.mongorc.js \
+  && ln -sf ~/.dotfiles/screenrc ~/.screenrc \
+  && ln -sf ~/.dotfiles/wgetrc ~/.wgetrc
 ```
 
 To update later on, just run that command again, and will create backups to the current files with a *.bak extension.
@@ -55,22 +65,16 @@ Changing the install directory
 cd; git clone https://github.com/weikinhuang/dotfiles.git .dotfiles && cd .dotfiles && ./bootstrap.sh --dir /tmp
 ```
 
-Including .gitconfig in the setup with the `--git` options in the bootstrap
+Excluding .gitconfig in the setup with the `--no-git` options in the bootstrap
 
 ```bash
-cd; git clone https://github.com/weikinhuang/dotfiles.git .dotfiles && cd .dotfiles && ./bootstrap.sh --git
+cd; git clone https://github.com/weikinhuang/dotfiles.git .dotfiles && cd .dotfiles && ./bootstrap.sh --no-git
 ```
 
-Including .vim and .vimrc in the setup with the `--vim` options in the bootstrap
+Excluding .vim and .vimrc in the setup with the `--no-vim` options in the bootstrap
 
 ```bash
-cd; git clone https://github.com/weikinhuang/dotfiles.git .dotfiles && cd .dotfiles && ./bootstrap.sh --vim
-```
-
-Including all options
-
-```bash
-cd; git clone https://github.com/weikinhuang/dotfiles.git .dotfiles && cd .dotfiles && ./bootstrap.sh --vim --git
+cd; git clone https://github.com/weikinhuang/dotfiles.git .dotfiles && cd .dotfiles && ./bootstrap.sh --no-vim
 ```
 
 ## [Documentation](REFERENCE.md)
@@ -84,46 +88,69 @@ If `~/.bash_local` exists, it will be sourced after the includes are sourced.
 ## The Bash Prompt
 
 ```bash
-[exitstatus jobs time load user@host workdir<dirinfo> (git info)]user symbol
+[exitstatus jobs time load user#host workdir<dirinfo> (git info)]user symbol
 ```
 
 <img src="assets/prompt-example.png">
 
 The prompt
 ```bash
-[06:00:00 0.00 user#host dir<4|2.4Mb> (կ master %)]λ 
-[(E:1) 06:00:00 0.00 user#host dir<4|2.4Mb> (կ master %)]λ 
-[(E:1) bg:2 06:00:00 0.00 user#host dir<4|2.4Mb> (կ master %)]λ 
+    ┌─ Time              ┌─ The current working directory
+    │     ┌─ System load │   ┌─ Number of files in directory
+    │     │              │   │ ┌─ Size of files (non-recursive) in directory
+    │     │              │   │ │
+[06:00:00 0.00 user#host dir<4|2.4Mb>]λ ──── The λ symbol denotes non sudo'ed user/session
+                │  │ │
+                │  │ └─ The hostname of the session
+                │  └─ The # symbol denotes local session
+                └─ Logged in user
+
+    ┌── Exit status of previous command
+[(E:1) 06:00:00 0.00 user#host dir<4|2.4Mb>]λ 
+
+          ┌── Number of running background jobs
+[(E:1) bg:2 06:00:00 0.00 user#host dir<4|2.4Mb>]λ 
+
 ```
 
 When on ssh
 ```bash
-on ssh ------------┐
-[06:00:00 0.00 user@host dir<4|2.4Mb> (կ master %)]λ 
+on ssh ────────────┐
+[06:00:00 0.00 user@host dir<4|2.4Mb>]λ 
+                   └─────── The # symbol is replace with @
 ```
 
 When logged in as root user
 ```bash
-as root -------------------------------------------┐
-[06:00:00 0.00 root@host dir<4|2.4Mb> (կ master %)]μ 
+as root ──────────────────────────────┐
+[06:00:00 0.00 root@host dir<4|2.4Mb>]μ 
+                                      └── The λ symbol is replace with μ
 ```
 
 When sudo'd
 ```bash
-as sudo ----------------┐
+as sudo ────────────────┐
 [06:00:00 user@host dir]π 
+                        └── The λ symbol is replace with π
 ```
 
 When on screen
 ```bash
-in screen [screen name] -----------┐    ┌---window id
-[06:00:00 0.00 user@12345.pts-01.host01[1] dir<4|2.4Mb> (կ master %)]λ 
+in screen                               ┌── window id
+[06:00:00 0.00 user@12345.pts-01.host01[1] dir<4|2.4Mb>]λ 
+                    └─────────────────┴──── Screen session name
 ```
 
 PS2 prompt
 ```bash
-[06:00:00 0.00 user#host dir<4|2.4Mb> (կ master %)]λ a '\
+[06:00:00 0.00 user#host dir<4|2.4Mb>]λ a '\
 → bcd'
+```
+
+Git prompt
+```bash
+branch name──────────────────────────────┐      ┌───git status flags
+[06:00:00 0.00 root@host dir<4|2.4Mb> (կ master %)]μ 
 ```
 
 When on screen host is replaced with session name and is underlined.
