@@ -1,29 +1,33 @@
-﻿// generate a MONGO_PS1 DB_STATE#host[dbname]> 
+﻿// generate a MONGO_PS1 DB_STATE#host[dbname]>
 (function() {
-	"use strict";
-	var states = [ "STARTUP", "PRIMARY", "SECONDARY", "RECOVERING", "FATAL", "STARTUP2", "UNKNOWN", "ARBITER", "DOWN", "ROLLBACK" ];
-	var host = typeof db === "undefined" ? "" : db.serverStatus().host;
+  'use strict';
+  var states = ['STARTUP', 'PRIMARY', 'SECONDARY', 'RECOVERING', 'FATAL', 'STARTUP2', 'UNKNOWN', 'ARBITER', 'DOWN', 'ROLLBACK'];
+  var host = typeof db === 'undefined' ? '' : db.serverStatus().host;
 
-	prompt = function() {
-		if (typeof db === "undefined") {
-			return "> ";
-		}
-		var dbState, status = "", dbStatus = db.isMaster();
-		if (dbStatus.setName) {
-			if (dbStatus.ismaster) {
-				dbState = 'PRIMARY';
-			} else if (dbStatus.secondary) {
-				dbState = 'SECONDARY';
-			} else {
-				dbState = states[rs.status().myState];
-			}
-			if(dbStatus.hidden) {
-				dbState = dbState.toLowerCase();
-			}
-			status = dbState + ":[" + dbStatus.setName + "]#";
-		}
-		return status + host + " [" + db + "]> ";
-	};
+  prompt = function() {
+    if (typeof db === 'undefined') {
+      return '> ';
+    }
+
+    var dbState;
+    var status = '';
+    var dbStatus = db.isMaster();
+
+    if (dbStatus.setName) {
+      if (dbStatus.ismaster) {
+        dbState = 'PRIMARY';
+      } else if (dbStatus.secondary) {
+        dbState = 'SECONDARY';
+      } else {
+        dbState = states[rs.status().myState];
+      }
+      if (dbStatus.hidden) {
+        dbState = dbState.toLowerCase();
+      }
+      status = dbState + ':[' + dbStatus.setName + ']#';
+    }
+    return status + host + ' [' + db + ']> ';
+  };
 })();
 
 // always enable pretty print
