@@ -84,41 +84,51 @@ function dotfiles::link () {
 
 # abstract updating from git or curl
 function dotfiles::repo::get::git () {
-  git clone "${REPO_BASE}" "${1}"
+  local GITHUB_URL="${1}"
+  local DIR="${2}"
+  git clone "${GITHUB_URL}" "${DIR}"
 }
 
 function dotfiles::repo::get::curl () {
-  curl -#L "$REPO_BASE/tarball/master" | tar -C "${1}" -xzv --strip-components 1
+  local GITHUB_URL="${1}"
+  local DIR="${2}"
+  mkdir -p "${DIR}"
+  curl -#L "${GITHUB_URL}/tarball/master" | tar -C "${DIR}" -xzv --strip-components 1
 }
 
 function dotfiles::repo::get () {
+  local GITHUB_URL="${1}"
+  local DIR="${2}"
   # sanity check, git is now required for auto install
   if type git &>/dev/null; then
-    dotfiles::repo::get::git "${DOTFILES_ROOT}"
+    dotfiles::repo::get::git "${GITHUB_URL}" "${DIR}"
   else
-    dotfiles::repo::get::curl "${DOTFILES_ROOT}"
+    dotfiles::repo::get::curl "${GITHUB_URL}" "${DIR}"
   fi
 }
 
 function dotfiles::repo::update::git () {
+  local DIR="${1}"
   # check if there are git changes
-  if git -C "${1}" diff-index --quiet HEAD -- &> /dev/null; then
+  if git -C "${DIR}" diff-index --quiet HEAD -- &> /dev/null; then
     # no changes
-    git -C "${1}" pull origin master || return 1
+    git -C "${DIR}" pull origin master || return 1
   else
     # changes
-    git -C "${1}" stash || true
-    git -C "${1}" pull origin master || return 1
-    git -C "${1}" stash pop || true
+    git -C "${DIR}" stash || true
+    git -C "${DIR}" pull origin master || return 1
+    git -C "${DIR}" stash pop || true
   fi
 }
 
 function dotfiles::repo::update () {
+  local GITHUB_URL="${1}"
+  local DIR="${2}"
   # sanity check, git is now required for auto install
   if type git &>/dev/null; then
-    dotfiles::repo::update::git "${DOTFILES_ROOT}"
+    dotfiles::repo::update::git "${DIR}"
   else
-    dotfiles::repo::get::curl "${DOTFILES_ROOT}"
+    dotfiles::repo::get::curl "${GITHUB_URL}" "${DIR}"
   fi
 }
 
@@ -128,11 +138,11 @@ function dotfiles::install () {
   mkdir -p "${DOTFILES_ROOT}" || return 1
 
   # download the latest version
-  dotfiles::repo::get
+  dotfiles::repo::get "${REPO_BASE}" "${DOTFILES_ROOT}"
 
   # Install vundle
-  if [[ "${DOTFILES__INSTALL_VIMRC}" -eq 1 ]] && type git &>/dev/null; then
-    git clone https://github.com/VundleVim/Vundle.vim.git "${DOTFILES_ROOT}/vim/bundle/Vundle.vim"
+  if [[ "${DOTFILES__INSTALL_VIMRC}" -eq 1 ]]; then
+    dotfiles::repo::get https://github.com/VundleVim/Vundle.vim "${DOTFILES_ROOT}/vim/bundle/Vundle.vim"
     if type vim &>/dev/null; then
       echo "--------------- Please Run: 'vim +BundleInstall +qall' after installation"
     fi
@@ -142,11 +152,11 @@ function dotfiles::install () {
 # update the dotfiles
 function dotfiles::update () {
   ## update to the latest version
-  dotfiles::repo::update
+  dotfiles::repo::update "${REPO_BASE}" "${DOTFILES_ROOT}"
 
   # Update vundle
-  if [[ -e "${DOTFILES_ROOT}/vim/bundle/Vundle.vim" ]] && type git &>/dev/null; then
-    git -C "${DOTFILES_ROOT}/vim/bundle/Vundle.vim" pull origin master
+  if [[ -e "${DOTFILES_ROOT}/vim/bundle/Vundle.vim" ]]; then
+    dotfiles::repo::update https://github.com/VundleVim/Vundle.vim "${DOTFILES_ROOT}/vim/bundle/Vundle.vim"
     vim +PluginInstall +qall
     if type vim &>/dev/null; then
       echo "--------------- Please Run: 'vim +BundleInstall +qall' after installation"
