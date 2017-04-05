@@ -11,6 +11,7 @@ DOTFILES__INSTALL_ROOT="${DOTFILES__INSTALL_ROOT:-${HOME}}"
 LINKED_FILES=(
   "bash_profile.sh .bash_profile"
   "bashrc.sh .bashrc"
+  "curlrc .curlrc"
   "dotenv .dotenv"
   "hushlogin .hushlogin"
   "inputrc .inputrc"
