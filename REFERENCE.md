@@ -23,7 +23,7 @@
 
 ## New Global Variables
 
-```bash
+```text
 PROC_CORES               => number of threads (cores)
 DOTENV                   => Simple access to os platform
 ```
@@ -32,7 +32,7 @@ DOTENV                   => Simple access to os platform
 
 ### Navigation
 
-```bash
+```text
 ..               => cd ..
 ...              => cd ../..
 ....             => cd ../../..
@@ -43,7 +43,7 @@ cd --            => List last 10 traversed directories
 
 ### Directory Commands
 
-```bash
+```text
 la               => Show all files in list format
 ll               => Show files in list format
 l.               => Show files starting with .
@@ -62,7 +62,7 @@ rename           => Renames files according to modification rules. http://plasma
 
 ### Shortcuts
 
-```bash
+```text
 h                => history
 f                => findhere
 o                => open (show in GUI file explorer)
@@ -75,7 +75,7 @@ p                => cd $PROJECT_DIR
 
 ## Networking
 
-```bash
+```text
 ips              => Get all bound internal ips
 extip            => Get the current external ip address
 
@@ -100,10 +100,10 @@ hOPTIONS         => Make a OPTIONS request and just show headers
 
 ### String Manipulation
 
-```bash
+```text
 escape           => Escape UTF-8 characters into their 3-byte format (escape λ => \xCE\xBB)
 unidecode        => Decode \x{ABCD}-style Unicode escape sequences
-codepoint        => Get a character’s Unicode code point
+codepoint        => Get a character's Unicode code point
 
 lc               => Convert to lowercase
 uc               => Convert to uppercase
@@ -115,8 +115,8 @@ json             => Pretty print json output
 
 ### Utilities
 
-```bash
-__push_prompt_command => Pushes a new command to the PROMPT_COMMAND variable
+```text
+__dotfiles::fn::push_prompt_command => Pushes a new command to the PROMPT_COMMAND variable
 
 extract          => Extracts a archive with autodetect based on extension
 gz               => Get the gzipped filesize
@@ -136,7 +136,7 @@ hosts-rebuild    => Build hosts file with dev hosts and ad blocking
 
 ### Git Utilities
 
-```bash
+```text
 git auto-difftool        => Use araxis merge when possible otherwise use vimdiff
 git auto-mergetool       => Use araxis merge when possible otherwise use vimdiff
 git branch-prune         => Remove branches locally and remotely if already merged into master
@@ -157,7 +157,7 @@ git track                => Sets up auto-tracking of a remote branch with same b
 
 ### Utilities
 
-```bash
+```text
 olib                     => Open a Windows (Vista/7/8) Libraries
 psfind                   => Find processes by name match
 pskill                   => Kill processes by name match
@@ -186,7 +186,7 @@ s                        => winstart
 
 ### Global Variables
 
-```bash
+```text
 USERPROFILE              => Path to the windows user profile directory
 APPDATA                  => Path to the windows user AppData directory
 CYGWIN                   => Cygwin configuration https://cygwin.com/cygwin-ug-net/using-cygwinenv.html
