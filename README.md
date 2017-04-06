@@ -42,17 +42,10 @@ To update later on, just run `git pull` in `~/.dotfiles`.
 To source these files, type:
 
 ```bash
-cd; mkdir ~/.dotfiles 2> /dev/null \
+cd; mkdir -p ~/.dotfiles \
   && curl -#L https://github.com/weikinhuang/dotfiles/tarball/master \
     | tar -C ~/.dotfiles -xzv --strip-components 1 \
-  && ln -sf ~/.dotfiles/bash_profile.sh ~/.bash_profile \
-  && ln -sf ~/.dotfiles/bashrc.sh ~/.bashrc \
-  && ln -sf ~/.dotfiles/dotenv ~/.dotenv \
-  && ln -sf ~/.dotfiles/hushlogin .~/hushlogin \
-  && ln -sf ~/.dotfiles/inputrc ~/.inputrc \
-  && ln -sf ~/.dotfiles/mongorc.js ~/.mongorc.js \
-  && ln -sf ~/.dotfiles/screenrc ~/.screenrc \
-  && ln -sf ~/.dotfiles/wgetrc ~/.wgetrc
+  && ~/.dotfiles/bootstrap.sh
 ```
 
 To update later on, just run that command again, and will create backups to the current files with a *.bak extension.

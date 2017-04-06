@@ -63,7 +63,7 @@ echo "DOTFILES__INSTALL_VIMRC=${DOTFILES__INSTALL_VIMRC}" >> "${CONFIG_FILE}"
 echo "DOTFILES__INSTALL_GITCONFIG=${DOTFILES__INSTALL_GITCONFIG}" >> "${CONFIG_FILE}"
 
 # link up files
-function dotfiles::link () {
+function dotfiles::install::link () {
   local file="$(echo "${1}" | cut -d' ' -f1)"
   local target="$(echo "${1}" | cut -d' ' -f2)"
 
@@ -84,31 +84,31 @@ function dotfiles::link () {
 }
 
 # abstract updating from git or curl
-function dotfiles::repo::get::git () {
+function dotfiles::install::repo::get::git () {
   local GITHUB_URL="${1}"
   local DIR="${2}"
   git clone "${GITHUB_URL}" "${DIR}"
 }
 
-function dotfiles::repo::get::curl () {
+function dotfiles::install::repo::get::curl () {
   local GITHUB_URL="${1}"
   local DIR="${2}"
   mkdir -p "${DIR}"
   curl -#L "${GITHUB_URL}/tarball/master" | tar -C "${DIR}" -xzv --strip-components 1
 }
 
-function dotfiles::repo::get () {
+function dotfiles::install::repo::get () {
   local GITHUB_URL="${1}"
   local DIR="${2}"
   # sanity check, git is now required for auto install
   if type git &>/dev/null; then
-    dotfiles::repo::get::git "${GITHUB_URL}" "${DIR}"
+    dotfiles::install::repo::get::git "${GITHUB_URL}" "${DIR}"
   else
-    dotfiles::repo::get::curl "${GITHUB_URL}" "${DIR}"
+    dotfiles::install::repo::get::curl "${GITHUB_URL}" "${DIR}"
   fi
 }
 
-function dotfiles::repo::update::git () {
+function dotfiles::install::repo::update::git () {
   local DIR="${1}"
   # check if there are git changes
   if git -C "${DIR}" diff-index --quiet HEAD -- &> /dev/null; then
@@ -122,28 +122,28 @@ function dotfiles::repo::update::git () {
   fi
 }
 
-function dotfiles::repo::update () {
+function dotfiles::install::repo::update () {
   local GITHUB_URL="${1}"
   local DIR="${2}"
   # sanity check, git is now required for auto install
   if type git &>/dev/null; then
-    dotfiles::repo::update::git "${DIR}"
+    dotfiles::install::repo::update::git "${DIR}"
   else
-    dotfiles::repo::get::curl "${GITHUB_URL}" "${DIR}"
+    dotfiles::install::repo::get::curl "${GITHUB_URL}" "${DIR}"
   fi
 }
 
 # this is a fresh install
-function dotfiles::install () {
+function dotfiles::install::install () {
   # attempt to make the dotfiles directory
   mkdir -p "${DOTFILES_ROOT}" || return 1
 
   # download the latest version
-  dotfiles::repo::get "${REPO_BASE}" "${DOTFILES_ROOT}"
+  dotfiles::install::repo::get "${REPO_BASE}" "${DOTFILES_ROOT}"
 
   # Install vundle
   if [[ "${DOTFILES__INSTALL_VIMRC}" -eq 1 ]]; then
-    dotfiles::repo::get https://github.com/VundleVim/Vundle.vim "${DOTFILES_ROOT}/vim/bundle/Vundle.vim"
+    dotfiles::install::repo::get https://github.com/VundleVim/Vundle.vim "${DOTFILES_ROOT}/vim/bundle/Vundle.vim"
     if type vim &>/dev/null; then
       echo "--------------- Please Run: 'vim +BundleInstall +qall' after installation"
     fi
@@ -151,13 +151,13 @@ function dotfiles::install () {
 }
 
 # update the dotfiles
-function dotfiles::update () {
+function dotfiles::install::update () {
   ## update to the latest version
-  dotfiles::repo::update "${REPO_BASE}" "${DOTFILES_ROOT}"
+  dotfiles::install::repo::update "${REPO_BASE}" "${DOTFILES_ROOT}"
 
   # Update vundle
   if [[ -e "${DOTFILES_ROOT}/vim/bundle/Vundle.vim" ]]; then
-    dotfiles::repo::update https://github.com/VundleVim/Vundle.vim "${DOTFILES_ROOT}/vim/bundle/Vundle.vim"
+    dotfiles::install::repo::update https://github.com/VundleVim/Vundle.vim "${DOTFILES_ROOT}/vim/bundle/Vundle.vim"
     vim +PluginInstall +qall
     if type vim &>/dev/null; then
       echo "--------------- Please Run: 'vim +BundleInstall +qall' after installation"
@@ -168,10 +168,10 @@ function dotfiles::update () {
 # make the dotfiles directory
 if [[ ! -d "${DOTFILES_ROOT}" ]]; then
   # we don't have anything
-  DOTFILES_EXEC=dotfiles::install
+  DOTFILES_EXEC=dotfiles::install::install
 else
   # just update
-  DOTFILES_EXEC=dotfiles::update
+  DOTFILES_EXEC=dotfiles::install::update
 fi
 
 # try to install or update the files
@@ -182,7 +182,7 @@ fi
 
 # symlink all the files
 for file in "${LINKED_FILES[@]}"; do
-  dotfiles::link "${file}"
+  dotfiles::install::link "${file}"
 done
 
 # done
