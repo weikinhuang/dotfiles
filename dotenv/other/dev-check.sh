@@ -1,7 +1,7 @@
 #!/bin/bash
 
 if [[ "$1" == "install" ]]; then
-	~/.dotenv/other/exec-installer.sh $2 install
+	~/.dotfiles/dotenv/other/exec-installer.sh $2 install
 	EXIT_STATUS=$?
 	if [[ $EXIT_STATUS -eq 2 ]]; then
 		echo "Already installed and latest"
@@ -12,10 +12,10 @@ fi
 shopt -s nullglob
 LINE='                                 '
 
-function print-info() {
+function print-info () {
 	local APPNAME=$(basename $file | sed 's/\.sh$//')
 	local IS_INSTALLED
-	if ~/.dotenv/other/exec-installer.sh $APPNAME exists; then
+	if ~/.dotfiles/dotenv/other/exec-installer.sh $APPNAME exists; then
 		IS_INSTALLED=$(echo -e "\033[0;32mINSTALLED\033[0m")
 	else
 		IS_INSTALLED=$(echo -e "\033[0;31mMISSING\033[0m")
@@ -25,10 +25,10 @@ function print-info() {
 
 echo "Set up dev environment applications!"
 echo
-for file in ~/.dotenv/other/installers/$DOTENV/*.sh; do
+for file in ~/.dotfiles/dotenv/other/installers/$DOTENV/*.sh; do
 	print-info $file
 done
-for file in ~/.dotenv/other/installers/all/*.sh; do
+for file in ~/.dotfiles/dotenv/other/installers/all/*.sh; do
 	print-info $file
 done
 unset file

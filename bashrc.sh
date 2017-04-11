@@ -50,9 +50,9 @@ esac
 export DOTENV
 
 # modify path to include useful scripts
-[[ -d "${DOTFILES__ROOT}/.dotenv/${DOTENV}/bin.$(uname -m)" ]] && PATH="${PATH}:${DOTFILES__ROOT}/.dotenv/${DOTENV}/bin.$(uname -m)"
-[[ -d "${DOTFILES__ROOT}/.dotenv/${DOTENV}/bin" ]] && PATH="${PATH}:${DOTFILES__ROOT}/.dotenv/${DOTENV}/bin"
-[[ -d "${DOTFILES__ROOT}/.dotenv/bin" ]] && PATH="${PATH}:${DOTFILES__ROOT}/.dotenv/bin"
+[[ -d "${DOTFILES__ROOT}/.dotfiles/dotenv/${DOTENV}/bin.$(uname -m)" ]] && PATH="${PATH}:${DOTFILES__ROOT}/.dotfiles/dotenv/${DOTENV}/bin.$(uname -m)"
+[[ -d "${DOTFILES__ROOT}/.dotfiles/dotenv/${DOTENV}/bin" ]] && PATH="${PATH}:${DOTFILES__ROOT}/.dotfiles/dotenv/${DOTENV}/bin"
+[[ -d "${DOTFILES__ROOT}/.dotfiles/dotenv/bin" ]] && PATH="${PATH}:${DOTFILES__ROOT}/.dotfiles/dotenv/bin"
 [[ -d "${HOME}/bin" ]] && PATH="${PATH}:${HOME}/bin"
 
 # Remove duplicate entries from PATH and retain the original order
@@ -62,8 +62,8 @@ fi
 
 # Source ~/.exports, ~/.functions, ~/.aliases, ~/.completion, ~/.extra, ~/.env if they exist
 for file in {exports,functions,aliases,completion,extra,env}; do
-  [[ -r "${DOTFILES__ROOT}/.dotenv/${file}.sh" ]] && source "${DOTFILES__ROOT}/.dotenv/${file}.sh"
-  [[ -r "${DOTFILES__ROOT}/.dotenv/${DOTENV}/${file}.sh" ]] && source "${DOTFILES__ROOT}/.dotenv/${DOTENV}/${file}.sh"
+  [[ -r "${DOTFILES__ROOT}/.dotfiles/dotenv/${file}.sh" ]] && source "${DOTFILES__ROOT}/.dotfiles/dotenv/${file}.sh"
+  [[ -r "${DOTFILES__ROOT}/.dotfiles/dotenv/${DOTENV}/${file}.sh" ]] && source "${DOTFILES__ROOT}/.dotfiles/dotenv/${DOTENV}/${file}.sh"
 done
 unset file
 
@@ -76,12 +76,12 @@ fi
 [[ -r "${HOME}/.bash_local" ]] && source "${HOME}/.bash_local"
 
 # include utility settings file (git PS1, solarized, mysql, etc...)
-[[ -r "${DOTFILES__ROOT}/.dotenv/utility" ]] && source "${DOTFILES__ROOT}/.dotenv/utility"
+[[ -r "${DOTFILES__ROOT}/.dotfiles/dotenv/utility" ]] && source "${DOTFILES__ROOT}/.dotfiles/dotenv/utility"
 
 # Source ~/.post-local, ~/.prompt if they exist
 for file in {post-local,prompt}; do
-  [[ -r "${DOTFILES__ROOT}/.dotenv/${file}.sh" ]] && source "${DOTFILES__ROOT}/.dotenv/${file}.sh"
-  [[ -r "${DOTFILES__ROOT}/.dotenv/${DOTENV}/${file}.sh" ]] && source "${DOTFILES__ROOT}/.dotenv/${DOTENV}/${file}.sh"
+  [[ -r "${DOTFILES__ROOT}/.dotfiles/dotenv/${file}.sh" ]] && source "${DOTFILES__ROOT}/.dotfiles/dotenv/${file}.sh"
+  [[ -r "${DOTFILES__ROOT}/.dotfiles/dotenv/${DOTENV}/${file}.sh" ]] && source "${DOTFILES__ROOT}/.dotfiles/dotenv/${DOTENV}/${file}.sh"
 done
 unset file
 

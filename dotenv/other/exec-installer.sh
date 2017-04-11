@@ -2,12 +2,12 @@
 
 APPLICATION_NAME=$1
 
-. ~/.dotenv/other/installers/install-helpers.sh
+. ~/.dotfiles/dotenv/other/installers/install-helpers.sh
 
-if [[ -x ~/.dotenv/other/installers/$DOTENV/$APPLICATION_NAME.sh ]]; then
-	. ~/.dotenv/other/installers/$DOTENV/$APPLICATION_NAME.sh
-elif [[ -x ~/.dotenv/other/installers/all/$APPLICATION_NAME.sh ]]; then
-	. ~/.dotenv/other/installers/all/$APPLICATION_NAME.sh
+if [[ -x ~/.dotfiles/dotenv/other/installers/$DOTENV/$APPLICATION_NAME.sh ]]; then
+	. ~/.dotfiles/dotenv/other/installers/$DOTENV/$APPLICATION_NAME.sh
+elif [[ -x ~/.dotfiles/dotenv/other/installers/all/$APPLICATION_NAME.sh ]]; then
+	. ~/.dotfiles/dotenv/other/installers/all/$APPLICATION_NAME.sh
 else
 	exit 1
 fi

@@ -5,7 +5,7 @@
 
 To check what can be installed with this environment
 ```bash
-~/.dotenv/other/dev-check.sh
+~/.dotfiles/dotenv/other/dev-check.sh
 ```
 
 Currently included: `ack`, `youtube-dl`
@@ -18,7 +18,7 @@ Download install script: [/dotenv/other/setup-cygwin.cmd](https://raw.githubuser
 
 To check what can be installed with this environment
 ```bash
-~/.dotenv/other/dev-check.sh
+~/.dotfiles/dotenv/other/dev-check.sh
 ```
 
 Currently included: `apt-cyg`, `ffmpeg`, `mongodb`, `nodejs`, `php`, `redis`
@@ -52,7 +52,7 @@ Use the `brew` to install most applications, otherwise:
 
 To check what can be installed with this environment (after installing above)
 ```bash
-~/.dotenv/other/dev-check.sh
+~/.dotfiles/dotenv/other/dev-check.sh
 ```
 
 Currently included: Coming soon
@@ -63,7 +63,7 @@ Use the standard package manager to install most applications
 
 To check what can be installed with this environment (after installing above)
 ```bash
-~/.dotenv/other/dev-check.sh
+~/.dotfiles/dotenv/other/dev-check.sh
 ```
 
 Currently included: Coming soon

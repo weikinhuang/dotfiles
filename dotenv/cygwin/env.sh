@@ -28,7 +28,7 @@ if [[ -d "$(cygpath --homeroot)/${USER}/AppData/Roaming/npm" ]]; then
     # if we want to run npm install/update with git paths, cygwin git
     # cannot handle the windows paths, so instead we must rely on a wrapper
     # to be installed
-    NPM_RUN_PATH="${DOTFILES__ROOT}/.dotenv/cygwin/npm-fix:${PATH}"
+    NPM_RUN_PATH="${DOTFILES__ROOT}/.dotfiles/dotenv/cygwin/npm-fix:${PATH}"
 
     # add the proper APPDATA directory
     if [[ -d "$(cygpath --homeroot)/${USER}/AppData/Roaming" ]]; then

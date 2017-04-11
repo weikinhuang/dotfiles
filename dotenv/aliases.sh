@@ -72,3 +72,6 @@ alias less="less -XR"
 
 # Networking shortcuts
 alias extip="curl -s http://whatismyip.akamai.com/ | sed 's/[^0-9\.]//g'"
+
+# Reload the current shell
+alias reload="exec $SHELL -l"

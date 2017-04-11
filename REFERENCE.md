@@ -102,6 +102,8 @@ json             => Pretty print json output
 ```text
 __dotfiles::fn::push_prompt_command => Pushes a new command to the PROMPT_COMMAND variable
 
+reload           => Reload the current environment
+
 extract          => Extracts a archive with autodetect based on extension
 gz               => Get the gzipped filesize
 
