@@ -79,23 +79,7 @@ p                => cd $PROJECT_DIR
 ips              => Get all bound internal ips
 extip            => Get the current external ip address
 
-gcurl            => Make gzip enabled curl requests
-
-# make "rest" requests
-GET              => Make a GET request
-HEAD             => Make a HEAD request
-POST             => Make a POST request
-PUT              => Make a PUT request
-DELETE           => Make a DELETE request
-TRACE            => Make a TRACE request
-OPTIONS          => Make a OPTIONS request
-hGET             => Make a GET request and just show headers
-hHEAD            => Make a HEAD request and just show headers
-hPOST            => Make a POST request and just show headers
-hPUT             => Make a PUT request and just show headers
-hDELETE          => Make a DELETE request and just show headers
-hTRACE           => Make a TRACE request and just show headers
-hOPTIONS         => Make a OPTIONS request and just show headers
+curl-gz          => Make gzip enabled curl requests
 ```
 
 ### String Manipulation
