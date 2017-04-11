@@ -5,9 +5,9 @@
 _list_libraries() {
   local cur list
   COMPREPLY=()
-  cur=${COMP_WORDS[COMP_CWORD]}
+  cur="${COMP_WORDS[COMP_CWORD]}"
   list=$(ls "$(cygpath --homeroot)/$(whoami)/AppData/Roaming/Microsoft/Windows/Libraries" | grep ".library-ms" | sed "s/\.library-ms$//")
-  COMPREPLY=( $(compgen -W "$list" -- $cur) )
+  COMPREPLY=( $(compgen -W "${list}" -- "${cur}") )
   return 0
 }
 complete -F _list_libraries olib
@@ -15,9 +15,9 @@ complete -F _list_libraries olib
 _list_processes() {
   local cur list
   COMPREPLY=()
-  cur=${COMP_WORDS[COMP_CWORD]}
+  cur="${COMP_WORDS[COMP_CWORD]}"
   list=$(ps -aW | grep -v "System\$" | grep -v "WINPID" | sed "s/^.\+[\\/]\(.\+\)\$/\1/" | sed "s/\.exe$//" | sort | uniq | grep -v "^ps$")
-  COMPREPLY=( $(compgen -W "$list" -- $cur) )
+  COMPREPLY=( $(compgen -W "${list}" -- "${cur}") )
   return 0
 }
 complete -F _list_processes psf psfind psk pskill

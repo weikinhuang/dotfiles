@@ -3,21 +3,22 @@ function __ps1_proc_use() {
   echo -n "$(printf "%05s" "${__ps1_var_load}")%"
 }
 
-# caching the cpu load for cygwin prompt, greatly speeds up the bash PS1 otherwise getting he cpu will take 1 second per call
-__ps1_var_load="0.00"
-__ps1_var_loadmod=0
-__ps1_var_loadtime=0
-[[ -z $__ps1_var_loadreloadtime ]] && __ps1_var_loadreloadtime=5
-function __ps1_proc_wrapper() {
-  # refresh every 5 seconds
-  if [[ $(( $__ps1_var_date - $__ps1_var_loadreloadtime )) -gt $__ps1_var_loadtime ]]; then
-    __ps1_var_load=$("$(cygpath --windir)/system32/typeperf" -sc 1 "\processor(_total)\% processor time" 2> /dev/null | \sed -n "s/.\+,\"\([0-9]\+\.[0-9][0-9]\).\+/\1/p")
-    __ps1_var_loadtime=$(/bin/date +%s)
-    __ps1_var_date=$__ps1_var_loadtime
-    __ps1_var_loadmod=$(expr $(echo "${__ps1_var_load}" | \sed "s/^0*\([0-9]\+\)\..\+\$/\1/") / 10 )
-  fi
-}
 # only append to the prompt command when we want to show load
-if [[ -z "$_PS1_HIDE_LOAD" ]] ; then
+if [[ -z "${_PS1_HIDE_LOAD}" ]] ; then
+  # caching the cpu load for cygwin prompt, greatly speeds up the bash PS1 otherwise getting he cpu will take 1 second per call
+  __ps1_var_load="0.00"
+  __ps1_var_loadmod=0
+  __ps1_var_loadtime=0
+  __ps1_var_loadreloadtime==${__ps1_var_loadreloadtime:-5}
+  function __ps1_proc_wrapper() {
+    # refresh every 5 seconds
+    if [[ $(( ${__ps1_var_date} - ${__ps1_var_loadreloadtime} )) -gt ${__ps1_var_loadtime} ]]; then
+      __ps1_var_load=$("$(cygpath --windir)/system32/typeperf" -sc 1 "\processor(_total)\% processor time" 2> /dev/null | \sed -n "s/.\+,\"\([0-9]\+\.[0-9][0-9]\).\+/\1/p")
+      __ps1_var_loadtime=$(/bin/date +%s)
+      __ps1_var_date="${__ps1_var_loadtime}"
+      __ps1_var_loadmod=$(expr $(echo "${__ps1_var_load}" | \sed "s/^0*\([0-9]\+\)\..\+\$/\1/") / 10 )
+    fi
+  }
+
   __push_prompt_command '__ps1_proc_wrapper'
 fi

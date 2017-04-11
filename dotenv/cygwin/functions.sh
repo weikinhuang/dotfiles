@@ -1,23 +1,23 @@
 # Open a Windows (Vista/7/8) Libraries
 function olib() {
-  if [[ -z "$1" ]] ; then
+  if [[ -z "${1}" ]] ; then
     return 1
   fi
-  local library="$(cygpath --homeroot)/$(whoami)/AppData/Roaming/Microsoft/Windows/Libraries/$1.library-ms"
-  if [[ ! -e "$library" ]] ; then
+  local library="$(cygpath --homeroot)/$(whoami)/AppData/Roaming/Microsoft/Windows/Libraries/${1}.library-ms"
+  if [[ ! -e "${library}" ]] ; then
     return 2
   fi
-  open $library
+  open "${library}"
   return $?
 }
 
 # Find processes by name match
 function psfind() {
   local psout
-  if [[ -n "$1" ]] ; then
+  if [[ -n "${1}" ]] ; then
     psout="$(ps -aW)"
     echo "${psout}" | head -n 1
-    echo "${psout}" | grep -v "\\bSystem$" | grep -Pi "(\\\|/)[^\\/]*$1[^\\/]*(\.exe)?\$"
+    echo "${psout}" | grep -v "\\bSystem$" | grep -Pi "(\\\|/)[^\\/]*${1}[^\\/]*(\.exe)?\$"
     return $?
   fi
   return 1

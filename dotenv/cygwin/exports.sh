@@ -8,21 +8,17 @@ else
 fi
 
 # The windows userprofile directory
-if [[ -z "$USERPROFILE" ]]; then
-  if [[ -d "$(cygpath --homeroot)/$USER" ]]; then
-    export USERPROFILE="$(cygpath -w "$(cygpath --homeroot)/$USER")"
+if [[ -z "${USERPROFILE}" ]]; then
+  if [[ -d "$(cygpath --homeroot)/${USER}" ]]; then
+    export USERPROFILE="$(cygpath -w "$(cygpath --homeroot)/${USER}")"
   else
     export USERPROFILE="$(cygpath -w ~)"
   fi
 fi
 
-if [[ -z "$APPDATA" ]] && [[ -d "$(cygpath --homeroot)/$USER/AppData/Roaming" ]]; then
-  export APPDATA="$(cygpath -w "$(cygpath --homeroot)/$USER/AppData/Roaming")"
+if [[ -z "${APPDATA}" ]] && [[ -d "$(cygpath --homeroot)/${USER}/AppData/Roaming" ]]; then
+  export APPDATA="$(cygpath -w "$(cygpath --homeroot)/${USER}/AppData/Roaming")"
 fi
 
 # use native symlinks when possible
-if [[ -z "$CYGWIN" ]]; then
-  export CYGWIN="winsymlinks:native nodosfilewarning"
-else
-  export CYGWIN="${CYGWIN} winsymlinks:native nodosfilewarning"
-fi
+export CYGWIN="${CYGWIN}${CYGWIN+ }winsymlinks:native nodosfilewarning"
