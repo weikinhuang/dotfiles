@@ -6,27 +6,27 @@
 
 # remove brew installed g prefix
 if [[ -n $INCLUDE_BREW_PATH ]]; then
-    [[ -d "/usr/local/sbin" ]] && PATH="/usr/local/sbin:$PATH"
+  [[ -d "/usr/local/sbin" ]] && PATH="/usr/local/sbin:$PATH"
 
-    # Build PATH variable for brew utils
-    for p in /usr/local/Cellar/*/*/bin; do
-        PATH="$p:$PATH"
-    done
-    for p in /usr/local/Cellar/*/*/libexec/gnubin; do
-        PATH="$p:$PATH"
-    done
-    unset p
+  # Build PATH variable for brew utils
+  for p in /usr/local/Cellar/*/*/bin; do
+    PATH="$p:$PATH"
+  done
+  for p in /usr/local/Cellar/*/*/libexec/gnubin; do
+    PATH="$p:$PATH"
+  done
+  unset p
 
-    # update man path for brew utils
-    export MANPATH="${MANPATH-/usr/share/man}"
-    for p in /usr/local/Cellar/*/*/share/man; do
-        MANPATH="$p:$MANPATH"
-    done
-    for p in /usr/local/Cellar/*/*/libexec/gnuman; do
-        MANPATH="$p:$MANPATH"
-    done
-    unset p
-    export MANPATH
+  # update man path for brew utils
+  export MANPATH="${MANPATH-/usr/share/man}"
+  for p in /usr/local/Cellar/*/*/share/man; do
+    MANPATH="$p:$MANPATH"
+  done
+  for p in /usr/local/Cellar/*/*/libexec/gnuman; do
+    MANPATH="$p:$MANPATH"
+  done
+  unset p
+  export MANPATH
 
-    unset INCLUDE_BREW_PATH
+  unset INCLUDE_BREW_PATH
 fi
