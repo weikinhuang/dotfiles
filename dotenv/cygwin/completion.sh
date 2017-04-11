@@ -2,7 +2,7 @@
 [[ -f "/etc/bash_completion" ]] && source "/etc/bash_completion"
 
 # Completion Options
-_list_libraries () {
+_list_libraries() {
   local cur list
   COMPREPLY=()
   cur=${COMP_WORDS[COMP_CWORD]}
@@ -12,7 +12,7 @@ _list_libraries () {
 }
 complete -F _list_libraries olib
 
-_list_processes () {
+_list_processes() {
   local cur list
   COMPREPLY=()
   cur=${COMP_WORDS[COMP_CWORD]}

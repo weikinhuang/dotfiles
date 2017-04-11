@@ -1,14 +1,14 @@
 #!/bin/bash
 
-function get-install-target () {
+function get-install-target() {
 	echo "$HOME/bin/"
 }
 
-function process-latest-version () {
+function process-latest-version() {
 	github-tags mongodb/mongo | grep '^r' | sed 's/^r//' | awk -F. '$2 % 2 == 0 { print $0 }' | head -n 1
 }
 
-function get-download-file-name () {
+function get-download-file-name() {
 	local LATEST_VERSION=$(get-latest-version)
 
 	if [[ "$(uname -m)" == "x86_64" ]]; then
@@ -18,7 +18,7 @@ function get-download-file-name () {
 	fi
 }
 
-function download-files () {
+function download-files() {
 	local MONGO_FILE=$(get-download-file-name)
 	local MONGO_DOWNLOAD_URL="https://fastdl.mongodb.org/win32/${MONGO_FILE}.zip"
 
@@ -28,11 +28,11 @@ function download-files () {
 	wget "${MONGO_DOWNLOAD_URL}"
 }
 
-function cleanup-download () {
+function cleanup-download() {
 	rm -f "$(get-download-file-name).zip"
 }
 
-function install-app () {
+function install-app() {
 	local INSTALL_TARGET="$(get-install-target)"
 	local MONGO_FILE=$(get-download-file-name)
 	make-target "$INSTALL_TARGET"
@@ -51,11 +51,11 @@ function install-app () {
 	cleanup-download
 }
 
-function application-exists () {
+function application-exists() {
 	type mongod &> /dev/null
 }
 
-function get-current-version () {
+function get-current-version() {
 	if ! application-exists; then
 		return
 	fi

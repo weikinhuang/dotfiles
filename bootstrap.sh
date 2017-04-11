@@ -63,7 +63,7 @@ echo "DOTFILES__INSTALL_VIMRC=${DOTFILES__INSTALL_VIMRC}" >> "${CONFIG_FILE}"
 echo "DOTFILES__INSTALL_GITCONFIG=${DOTFILES__INSTALL_GITCONFIG}" >> "${CONFIG_FILE}"
 
 # link up files
-function dotfiles::install::link () {
+function dotfiles::install::link() {
   local file="$(echo "${1}" | cut -d' ' -f1)"
   local target="$(echo "${1}" | cut -d' ' -f2)"
 
@@ -84,20 +84,20 @@ function dotfiles::install::link () {
 }
 
 # abstract updating from git or curl
-function dotfiles::install::repo::get::git () {
+function dotfiles::install::repo::get::git() {
   local GITHUB_URL="${1}"
   local DIR="${2}"
   git clone "${GITHUB_URL}" "${DIR}"
 }
 
-function dotfiles::install::repo::get::curl () {
+function dotfiles::install::repo::get::curl() {
   local GITHUB_URL="${1}"
   local DIR="${2}"
   mkdir -p "${DIR}"
   curl -#L "${GITHUB_URL}/tarball/master" | tar -C "${DIR}" -xzv --strip-components 1
 }
 
-function dotfiles::install::repo::get () {
+function dotfiles::install::repo::get() {
   local GITHUB_URL="${1}"
   local DIR="${2}"
   # sanity check, git is now required for auto install
@@ -108,7 +108,7 @@ function dotfiles::install::repo::get () {
   fi
 }
 
-function dotfiles::install::repo::update::git () {
+function dotfiles::install::repo::update::git() {
   local DIR="${1}"
   # check if there are git changes
   if git -C "${DIR}" diff-index --quiet HEAD -- &> /dev/null; then
@@ -122,7 +122,7 @@ function dotfiles::install::repo::update::git () {
   fi
 }
 
-function dotfiles::install::repo::update () {
+function dotfiles::install::repo::update() {
   local GITHUB_URL="${1}"
   local DIR="${2}"
   # sanity check, git is now required for auto install
@@ -134,7 +134,7 @@ function dotfiles::install::repo::update () {
 }
 
 # this is a fresh install
-function dotfiles::install::install () {
+function dotfiles::install::install() {
   # attempt to make the dotfiles directory
   mkdir -p "${DOTFILES_ROOT}" || return 1
 
@@ -151,7 +151,7 @@ function dotfiles::install::install () {
 }
 
 # update the dotfiles
-function dotfiles::install::update () {
+function dotfiles::install::update() {
   ## update to the latest version
   dotfiles::install::repo::update "${REPO_BASE}" "${DOTFILES_ROOT}"
 

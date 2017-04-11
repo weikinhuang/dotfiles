@@ -17,7 +17,7 @@ if [[ -d "$(cygpath --homeroot)/$USER/AppData/Roaming/npm" ]]; then
   export NODE_PATH=$(cygpath -wa "$(cygpath --homeroot)/$USER/AppData/Roaming/npm")
   export NODE_BIN_PATH
   PATH="$PATH:$NODE_BIN_PATH:$(cygpath --homeroot)/$USER/AppData/Roaming/npm"
-  function npm () {
+  function npm() {
     local NPM_APPDATA=$APPDATA
     local NPM_LOCALAPPDATA=$LOCALAPPDATA
     local NPM_TMP=$TMP

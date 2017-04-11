@@ -1,14 +1,14 @@
 #!/bin/bash
 
-function get-install-target () {
+function get-install-target() {
 	echo "$HOME/bin/"
 }
 
-function process-latest-version () {
+function process-latest-version() {
 	github-releases MSOpenTech/redis | sed 's/^win-//' | grep '^[0-9]\+\.[0-9]\+\.[0-9]\+' | head -n 1
 }
 
-function get-download-file-name () {
+function get-download-file-name() {
 	local LATEST_VERSION=$(get-latest-version)
 	if echo "$LATEST_VERSION" | grep '^[0-9]\+\.[0-9]\+\.[0-9]\+\.[0-9]\+$' >/dev/null; then
 		LATEST_VERSION=$(echo "$LATEST_VERSION" | sed 's/\.[0-9]\+$//')
@@ -16,7 +16,7 @@ function get-download-file-name () {
 	echo Redis-x64-${LATEST_VERSION}.zip
 }
 
-function download-files () {
+function download-files() {
 	local DL_FILE=$(get-download-file-name)
 	local LATEST_VERSION=$(get-latest-version)
 	local DOWNLOAD_URL="https://github.com/MSOpenTech/redis/releases/download/win-${LATEST_VERSION}/${DL_FILE}"
@@ -27,11 +27,11 @@ function download-files () {
 	wget "${DOWNLOAD_URL}"
 }
 
-function cleanup-download () {
+function cleanup-download() {
 	rm -f "$(get-download-file-name)"
 }
 
-function install-app () {
+function install-app() {
 	local INSTALL_TARGET="$(get-install-target)"
 	local REDIS_FILE=$(get-download-file-name)
 	make-target "$INSTALL_TARGET"
@@ -46,7 +46,7 @@ function install-app () {
 	unzip ${REDIS_FILE} redis-cli.exe
 	chmod +x redis-cli.exe
 	mv redis-cli.exe "$INSTALL_TARGET"
-	
+
 	if [[ ! -e "$INSTALL_TARGET/redis.conf" ]]; then
 		unzip ${REDIS_FILE} redis.windows.conf
 		chmod -x redis.windows.conf
@@ -56,11 +56,11 @@ function install-app () {
 	cleanup-download
 }
 
-function application-exists () {
+function application-exists() {
 	type redis-cli &> /dev/null
 }
 
-function get-current-version () {
+function get-current-version() {
 	if ! application-exists; then
 		return
 	fi

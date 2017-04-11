@@ -12,7 +12,7 @@ fi
 shopt -s nullglob
 LINE='                                 '
 
-function print-info () {
+function print-info() {
 	local APPNAME=$(basename $file | sed 's/\.sh$//')
 	local IS_INSTALLED
 	if ~/.dotenv/other/exec-installer.sh $APPNAME exists; then

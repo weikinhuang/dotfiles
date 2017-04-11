@@ -7,7 +7,7 @@ case `uname` in
 	*CYGWIN*) HOSTFILE_TARGET="$(cygpath --sysdir)/drivers/etc/hosts";;
 esac
 
-function show-help () {
+function show-help() {
 	echo 'Usage: '"${SCRIPT_NAME}"' [OPTION=build]
 Rebuilds the hosts file with ad blocking
 
@@ -26,7 +26,7 @@ if getopt_assert -?:--help:-h "$@" > /dev/null; then
 	exit 0
 fi
 
-function backup-hosts () {
+function backup-hosts() {
 	if [[ -f "${HOSTFILE_TARGET}.bak" ]]; then
 		rm -f "${HOSTFILE_TARGET}.bak"
 	fi
@@ -34,7 +34,7 @@ function backup-hosts () {
 	mv "${HOSTFILE_TARGET}" "${HOSTFILE_TARGET}.bak"
 }
 
-function rollback-hosts () {
+function rollback-hosts() {
 	if [[ -f "${HOSTFILE_TARGET}" ]]; then
 		rm -f "${HOSTFILE_TARGET}"
 	fi
@@ -42,7 +42,7 @@ function rollback-hosts () {
 	mv "${HOSTFILE_TARGET}.bak" "${HOSTFILE_TARGET}"
 }
 
-function enable-hosts () {
+function enable-hosts() {
 	if [[ ! -e "${HOSTFILE_TARGET}.disabled" ]]; then
 		echo "Hosts file not disabled"
 		return 0
@@ -50,7 +50,7 @@ function enable-hosts () {
 	mv "${HOSTFILE_TARGET}.disabled" "${HOSTFILE_TARGET}"
 }
 
-function disable-hosts () {
+function disable-hosts() {
 	if [[ -e "${HOSTFILE_TARGET}.disabled" ]]; then
 		echo "Hosts file already disabled"
 		return 0
@@ -58,11 +58,11 @@ function disable-hosts () {
 	mv "${HOSTFILE_TARGET}" "${HOSTFILE_TARGET}.disabled"
 }
 
-function build-hosts () {
+function build-hosts() {
 	get-adblock-hosts > "${HOSTFILE_TARGET}"
 }
 
-function build-hosts-with-dev () {
+function build-hosts-with-dev() {
 	if [[ ! -z "$PROJECT_DIR" && -e "$PROJECT_DIR/hosts.dev.txt" ]]; then
 		get-adblock-hosts | cat "$PROJECT_DIR/hosts.dev.txt" - > "${HOSTFILE_TARGET}"
 	else
@@ -70,11 +70,11 @@ function build-hosts-with-dev () {
 	fi
 }
 
-function get-adblock-hosts () {
+function get-adblock-hosts() {
 	curl -s http://winhelp2002.mvps.org/hosts.txt
 }
 
-function echo-rollback () {
+function echo-rollback() {
 	echo "Use ${SCRIPT_NAME} rollback to undo this update"
 }
 

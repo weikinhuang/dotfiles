@@ -41,7 +41,7 @@ if [[ -z $MAX_DEPTH || $MAX_DEPTH -lt 1 ]]; then
 fi
 
 # make windows ntfs symlinks
-function winlink () {
+function winlink() {
 	local LINK OPTIONS LASTMODTIME TARGET DIRNAME BASENAME
 	# params
 	LINK="$1"
@@ -50,7 +50,7 @@ function winlink () {
 	TARGET="$(readlink "$LINK")"
 	DIRNAME="$(dirname "$LINK")"
 	BASENAME="$(basename "$LINK")"
-	
+
 	if [[ -n $(confirm "$LINK" "$TARGET") ]]; then
 		return 0
 	fi
@@ -77,7 +77,7 @@ function winlink () {
 }
 
 # make cygwin symlinks
-function cyglink () {
+function cyglink() {
 	local LINK LASTMODTIME TARGET DIRNAME BASENAME
 	# params
 	LINK="$1"
@@ -85,7 +85,7 @@ function cyglink () {
 	TARGET="$(readlink "$LINK")"
 	DIRNAME="$(dirname "$LINK")"
 	BASENAME="$(basename "$LINK")"
-	
+
 	if [[ -n $(confirm "$LINK" "$TARGET") ]]; then
 		return 0
 	fi
@@ -110,7 +110,7 @@ function cyglink () {
 }
 
 # confirm that we want to create a symlink
-function confirm () {
+function confirm() {
 	# do we need to prompt?
 	if [[ -z $FORCE ]]; then
 		read -p "Relink '$1' => '$2'? " CONFIRM
@@ -130,7 +130,7 @@ do
 	if [[ $ARG == -* ]]; then
 		continue
 	fi
-	# if it's a link, then we need 
+	# if it's a link, then we need
 	if [[ -L "$ARG" ]]; then
 		IS_LINK="$ARG"
 		break
@@ -140,7 +140,7 @@ do
 		CURRENT_PWD="$(readlink -f "$ARG")"
 		break
 	fi
-	
+
 	# we don't know what to do
 	echo "Invalid option: $ARG"
 	exit 1

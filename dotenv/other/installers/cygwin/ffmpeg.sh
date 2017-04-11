@@ -1,14 +1,14 @@
 #!/bin/bash
 
-function get-install-target () {
+function get-install-target() {
 	echo "$HOME/bin/"
 }
 
-function process-latest-version () {
+function process-latest-version() {
 	get-download-file-name | sed 's/ffmpeg-\([0-9]\+\)-git-\([a-f0-9]\+\)-.\+$/\2/'
 }
 
-function get-download-file-name () {
+function get-download-file-name() {
 	local FFMPEG_ARCH
 	if [[ "$(uname -m)" == "x86_64" ]]; then
 		FFMPEG_ARCH=win64
@@ -18,7 +18,7 @@ function get-download-file-name () {
 	curl -s http://ffmpeg.zeranoe.com/builds/ | grep 'class="latest"' | grep static | sed 's/^.\+href=".\/\(.\+\?\)".\+$/\1/' | grep -vi readme | grep $FFMPEG_ARCH | head -n 1 | cut -d/ -f3
 }
 
-function download-files () {
+function download-files() {
 	local DL_FILE=$(get-download-file-name)
 	local FFMPEG_ARCH
 	if [[ "$(uname -m)" == "x86_64" ]]; then
@@ -34,11 +34,11 @@ function download-files () {
 	wget "${DOWNLOAD_URL}"
 }
 
-function cleanup-download () {
+function cleanup-download() {
 	rm -f "$(get-download-file-name)"
 }
 
-function install-app () {
+function install-app() {
 	local INSTALL_TARGET="$(get-install-target)"
 	local ARCHIVE_FILE=$(get-download-file-name)
 	local ARCHIVE_NAME=$(get-download-file-name | sed 's/\.7z$//')
@@ -64,11 +64,11 @@ function install-app () {
 	cleanup-download
 }
 
-function application-exists () {
+function application-exists() {
 	type ffmpeg &> /dev/null
 }
 
-function get-current-version () {
+function get-current-version() {
 	if ! application-exists; then
 		return
 	fi

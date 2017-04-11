@@ -1,10 +1,10 @@
 #!/bin/bash
 
-function process-latest-version () {
+function process-latest-version() {
 	github-tags joyent/node | grep '^v' | sed 's/^v//' | awk -F. '$2 % 2 == 0 { print $0 }' | head -n 1
 }
 
-function get-download-file-name () {
+function get-download-file-name() {
 	local LATEST_VERSION=$(get-latest-version)
 	if [[ "$(uname -m)" == "x86_64" ]]; then
 		echo "node-v${LATEST_VERSION}-x64.msi"
@@ -13,7 +13,7 @@ function get-download-file-name () {
 	fi
 }
 
-function download-files () {
+function download-files() {
 	local NODE_FILE=$(get-download-file-name)
 	local LATEST_VERSION=$(get-latest-version)
 	local DOWNLOAD_URL=
@@ -29,11 +29,11 @@ function download-files () {
 	wget "${DOWNLOAD_URL}"
 }
 
-function cleanup-download () {
+function cleanup-download() {
 	rm -f "$(get-download-file-name)"
 }
 
-function install-app () {
+function install-app() {
 	download-files
 
 	msiexec /i "$(get-download-file-name)" /norestart /passive
@@ -41,7 +41,7 @@ function install-app () {
 	cleanup-download
 }
 
-function post-install () {
+function post-install() {
 	# link up npm to appdata folder and install common modules
 	if [[ ! -d "$(cygpath --homeroot)/${USER}/AppData/Roaming/npm" ]]; then
 		mkdir "$(cygpath --homeroot)/${USER}/AppData/Roaming/npm"
@@ -62,11 +62,11 @@ function post-install () {
 	$LOCAL_NPM_CMD update -g
 }
 
-function application-exists () {
+function application-exists() {
 	type node &> /dev/null && node -v &> /dev/null
 }
 
-function get-current-version () {
+function get-current-version() {
 	if ! application-exists; then
 		return
 	fi

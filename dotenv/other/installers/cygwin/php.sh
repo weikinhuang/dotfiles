@@ -3,11 +3,11 @@
 PHP_VERION_MAJOR=7.0
 VC_VERSION=vc14
 
-function get-install-target () {
+function get-install-target() {
     echo "$(cygpath --unix c:)/Program Files/PHP"
 }
 
-function get-install-arch () {
+function get-install-arch() {
 	if [[ "$(uname -m)" == "x86_64" ]]; then
         echo x64
 	else
@@ -15,19 +15,19 @@ function get-install-arch () {
 	fi
 }
 
-function process-latest-version () {
+function process-latest-version() {
 	github-tags php/php-src | grep '^php-'${PHP_VERION_MAJOR} | sed 's/^php-//' | sort -r --version-sort | head -n 1
 }
 
-function process-latest-xdebug-version () {
+function process-latest-xdebug-version() {
 	github-tags xdebug/xdebug | grep '^XDEBUG_' | sed 's/^XDEBUG_//' | tr _ . | sort -r --version-sort | head -n 1
 }
 
-function get-download-file-name () {
+function get-download-file-name() {
 	echo php-$(get-latest-version)-nts-Win32-$(echo $VC_VERSION | tr '[:lower:]' '[:upper:]')-$(get-install-arch).zip
 }
 
-function download-files () {
+function download-files() {
 	local DL_FILE=$(get-download-file-name)
 
 	wget http://windows.php.net/downloads/releases/${DL_FILE}
@@ -39,11 +39,11 @@ function download-files () {
 	curl http://xdebug.org/files/php_xdebug-$(process-latest-xdebug-version)-${PHP_VERION_MAJOR}-$VC_VERSION-nts$XDEBUG_ARCH.dll > php_xdebug.dll
 }
 
-function cleanup-download () {
+function cleanup-download() {
 	rm -f "$(get-download-file-name)"
 }
 
-function install-app () {
+function install-app() {
 	download-files
 
 	local INSTALL_PATH="$(get-install-target)"
@@ -90,7 +90,7 @@ date.timezone = America/New_York
 	cleanup-download
 }
 
-function post-install () {
+function post-install() {
 	# install composer to a local bin dir
 	if [[ ! -x ~/bin/composer ]]; then
 		curl -sS https://getcomposer.org/installer | php
@@ -101,11 +101,11 @@ function post-install () {
 	fi
 }
 
-function application-exists () {
+function application-exists() {
 	type php &> /dev/null && php -v &> /dev/null
 }
 
-function get-current-version () {
+function get-current-version() {
 	if ! application-exists; then
 		return
 	fi

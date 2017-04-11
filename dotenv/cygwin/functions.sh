@@ -57,7 +57,7 @@ function __cygexewrap() {
     extraparams="$extraparams "'"'$extraargs'"'
   done
 
-  eval 'function '$BINARY' () {
+  eval 'function '$BINARY'() {
     local args arg
     # if there are any baked in arguments they are defined here
     args=( '$extraparams' )
@@ -113,7 +113,7 @@ if type winpty &> /dev/null; then
       extraparams="$extraparams "'"'$extraargs'"'
     done
 
-    eval 'function '$BINARY' () {
+    eval 'function '$BINARY'() {
       local args arg
       # if there are any baked in arguments they are defined here
       args=( '$extraparams' )

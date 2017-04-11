@@ -1,6 +1,6 @@
 #!/bin/bash
 
-function github-tags () {
+function github-tags() {
 	local REPO_PATH="$1"
 	if [[ -z $REPO_PATH ]]; then
 		return 1
@@ -22,7 +22,7 @@ function github-tags () {
 	echo "$OUTPUT" | grep '"name": "' | grep -vi "RC\|beta\|alpha" | sed 's/.*"name": "\([^"]\+\)",.*/\1/' | sort -r --version-sort
 }
 
-function github-releases () {
+function github-releases() {
 	local REPO_PATH="$1"
 	if [[ -z $REPO_PATH ]]; then
 		return 1
@@ -44,28 +44,28 @@ function github-releases () {
 	echo "$OUTPUT" | grep '"tag_name": "' | grep -vi "RC\|beta\|alpha\|pre" | sed 's/.*"tag_name": "\([^"]\+\)",.*/\1/' | sort -r --version-sort
 }
 
-function go-to-workdir () {
+function go-to-workdir() {
 	cd /tmp
 }
 
-function make-target () {
+function make-target() {
 	if [[ ! -e "$1" ]]; then
 		mkdir -p "$1"
 	fi
 }
 
-function get-cache-tmp-file () {
+function get-cache-tmp-file() {
 	echo /tmp/.installer-ver-file-${APPLICATION_NAME}
 }
 
-function cache-latest-version () {
+function cache-latest-version() {
 	local TMP_FILE=$(get-cache-tmp-file)
 	touch $TMP_FILE
 	date +%s > $TMP_FILE
 	echo "$1" >> $TMP_FILE
 }
 
-function get-cached-latest-version () {
+function get-cached-latest-version() {
 	local TMP_FILE=$(get-cache-tmp-file)
 	if [[ ! -e $TMP_FILE ]]; then
 		return 1
@@ -81,7 +81,7 @@ function get-cached-latest-version () {
 
 # @TODO: replace with a file
 LATEST_VERSION=
-function get-latest-version () {
+function get-latest-version() {
 	if [[ -z $LATEST_VERSION ]]; then
 		LATEST_VERSION=$(get-cached-latest-version)
 		if [[ -z $LATEST_VERSION ]]; then
@@ -92,7 +92,7 @@ function get-latest-version () {
 	echo $LATEST_VERSION
 }
 
-function need-upgrade-or-install () {
+function need-upgrade-or-install() {
 	if ! application-exists &> /dev/null; then
 		return 0
 	elif [[ "$(get-current-version)" != "$(get-latest-version)" ]]; then
