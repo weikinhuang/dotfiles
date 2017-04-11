@@ -150,11 +150,6 @@ __cygcliwrap             => Give the ability to wrap applications and set up Win
 apt-cyg                  => CLI for cygwin installer https://github.com/transcode-open/apt-cyg
 apt-get                  => apt-cyg
 
-docs                     => cd ~/Documents
-desk                     => cd ~/Documents/Desktop
-dl                       => cd ~/Documents/Downloads
-d                        => cd ~/Documents/Dropbox
-
 winpty                   => Provide a proper pty for Windows console apps https://github.com/rprichard/winpty
 inotifywait              => FS watcher
 chattr                   => Change Windows file attributes

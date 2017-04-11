@@ -1,10 +1,4 @@
 # Shortcuts
-alias docs="cd ~/Documents"
-alias desk="cd ~/Documents/Desktop"
-alias dl="cd ~/Documents/Downloads"
-alias d="cd ~/Documents/Dropbox"
-
-# Shortcuts
 alias s="winstart"
 
 # useful shortcuts
@@ -19,7 +13,7 @@ alias ps="ps -W"
 
 # Alias vi to notepad++
 if type npp &> /dev/null; then
-	alias vi="npp"
+  alias vi="npp"
 fi
 
 # Alias apt-cyg to apt-get
