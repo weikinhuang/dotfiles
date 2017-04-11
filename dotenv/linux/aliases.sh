@@ -4,11 +4,11 @@ alias pbpaste="xclip -selection clipboard -o"
 
 # open command shortcuts
 if type xdg-open &> /dev/null; then
-	alias open="xdg-open"
+  alias open="xdg-open"
 elif type gnome-open &> /dev/null; then
-	alias open="gnome-open"
+  alias open="gnome-open"
 else
-	alias open="nautilus"
+  alias open="nautilus"
 fi
 
 # useful shortcuts
@@ -16,12 +16,12 @@ alias md5="md5sum"
 
 # Alias vi to vim
 if type vim &> /dev/null; then
-	alias vi="vim"
+  alias vi="vim"
 fi
 
 # Alias clamscan with avscan
 if type clamscan &> /dev/null; then
-	alias avscan="clamscan"
+  alias avscan="clamscan"
 fi
 
 # Networking shortcuts

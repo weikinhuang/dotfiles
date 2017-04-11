@@ -11,6 +11,6 @@ inotifywait -mrs --timefmt '%s' --format '%T %e %w %f' \
 "$DIRECTORY" \
 | \
 while read time event dir file; do
-	cd "$DIRECTORY"
-	"$@"
+  cd "$DIRECTORY"
+  "$@"
 done
