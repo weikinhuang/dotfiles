@@ -9,7 +9,7 @@ if [[ -z "${_PS1_HIDE_LOAD}" ]] ; then
   __ps1_var_load="0.00"
   __ps1_var_loadmod=0
   __ps1_var_loadtime=0
-  __ps1_var_loadreloadtime==${__ps1_var_loadreloadtime:-5}
+  __ps1_var_loadreloadtime=${__ps1_var_loadreloadtime:-5}
   function __ps1_proc_wrapper() {
     # refresh every 5 seconds
     if [[ $(( ${__ps1_var_date} - ${__ps1_var_loadreloadtime} )) -gt ${__ps1_var_loadtime} ]]; then

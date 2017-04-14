@@ -76,7 +76,7 @@ fi
 [[ -r "${HOME}/.bash_local" ]] && source "${HOME}/.bash_local"
 
 # include utility settings file (git PS1, solarized, mysql, etc...)
-[[ -r "${DOTFILES__ROOT}/.dotfiles/dotenv/utility" ]] && source "${DOTFILES__ROOT}/.dotfiles/dotenv/utility"
+[[ -r "${DOTFILES__ROOT}/.dotfiles/dotenv/utility.sh" ]] && source "${DOTFILES__ROOT}/.dotfiles/dotenv/utility.sh"
 
 # Source ~/.post-local, ~/.prompt if they exist
 for file in {post-local,prompt}; do
