@@ -32,6 +32,9 @@
   mnemonicprefix = true
   tool = auto-difftool
   algorithm = patience
+  # Enable an experimental heuristic that shifts the hunk boundary in an
+  # attempt to make the resulting patch easier to read.
+  indentHeuristic = true
 [rebase]
   autostash = true
 [merge]
@@ -148,6 +151,8 @@
   unstage = reset HEAD
   # go back before last commit, with files in uncommitted state
   uncommit = reset --soft HEAD^
+  # reset file mode only
+  undo-filemode = !"git diff -p -R --no-color "$@" | grep -E '^(diff|(old|new) mode)' --color=never | git apply"
 
   ### Logging
   # View the SHA, description, and history graph of the latest commits
@@ -212,6 +217,9 @@
   xfuncname = "^[ \\t]*((((.+) *: *function *\\()|(function .+ *\\()).+)$"
 [diff "css"]
   xfuncname = "^[ \\t]*(.+ *{ *)$"
+[diff "bin"]
+  # Use `hexdump` to diff binary files
+  textconv = hexdump -v -C
 
 [include]
     path = ~/.gitconfig.local
