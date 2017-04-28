@@ -93,8 +93,6 @@ lc               => Convert to lowercase
 uc               => Convert to uppercase
 
 regex            => Regex match and replace from: https://gist.github.com/opsb/4409156
-
-json             => Pretty print json output
 ```
 
 ### Utilities
