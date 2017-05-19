@@ -147,7 +147,7 @@ fi
 case "$TERM" in
   screen*)
     if [[ -n "${TMUX}" ]]; then
-      PS1_HOST_NAME="${PS1_COLOR_HOST_SCREEN}$(echo "${TMUX}" | cut -d/ -f 3,4)[${TMUX_PANE}]"
+      PS1_HOST_NAME="${PS1_COLOR_HOST_SCREEN}$(echo "${TMUX}" | cut -f4 -d/)[${TMUX_PANE}]"
     else
       PS1_HOST_NAME="${PS1_COLOR_HOST_SCREEN}${STY}[${WINDOW}]"
     fi
