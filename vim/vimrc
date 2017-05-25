@@ -22,7 +22,7 @@ set hidden
 syntax enable                     " synyax highlighting
 set ruler                         " show ruler
 set cursorline                    " highlight current line
-set cursorcolumn                  " highlight the current column
+"set cursorcolumn                  " highlight the current column
 
 set history=1000                  " remember more commands and search history
 set undolevels=1000               " use many muchos levels of undo
