@@ -118,6 +118,9 @@ ECHO setup sshd for local user only
 "%ROOTDIR%\bin\bash.exe" --login -c "sed -i 's/^UsePrivilegeSeparation sandbox/#UsePrivilegeSeparation sandbox/' /etc/sshd_config"
 "%ROOTDIR%\bin\bash.exe" --login -c "if [[ ! -f ~/.ssh/id_rsa ]]; then ssh-keygen -q -t rsa -N '' -f ~/.ssh/id_rsa && cat ~/.ssh/id_rsa.pub >> ~/.ssh/authorized_keys && chmod 0600 ~/.ssh/authorized_keys; fi;"
 "%ROOTDIR%\bin\bash.exe" --login -c "echo > /etc/motd"
+"%ROOTDIR%\bin\bash.exe" --login -c "if [[ ! -f /etc/passwd ]]; then touch /etc/passwd; fi;"
+"%ROOTDIR%\bin\bash.exe" --login -c "if [[ ! -f /etc/group ]]; then touch /etc/group; fi;"
+"%ROOTDIR%\bin\bash.exe" --login -c "if ! grep -q sshd /etc/passwd; then echo 'sshd:x:74:74:Privilege-separated SSH:/var/empty/sshd:/sbin/nologin' >> /etc/passwd; echo 'sshd:x:74:' >> /etc/group; fi;"
 
 REM -- Sadly in the newest Windows 10: http://www.thewindowsclub.com/create-elevated-shortcut-run-programs-bypass-uac instead
 "%ROOTDIR%\bin\bash.exe" --login -c "mkdir -p /startup"
