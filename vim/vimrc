@@ -29,9 +29,14 @@ set undolevels=1000               " use many muchos levels of undo
 set title                         " change the terminal's title
 set noerrorbells                  " don't beep
 set novisualbell                  " don't beep
+set clipboard=unnamed             " Use OS's clipboard
 
 set encoding=utf8                 " Set utf8 as standard encoding and en_US as the standard language
 set ffs=unix,dos,mac              " Use Unix as the standard file type
+
+" Splits
+set splitbelow
+set splitright
 
 " ================ Search Settings  =================
 set ignorecase                    " ignore case when searching
@@ -187,3 +192,21 @@ let g:syntastic_always_populate_loc_list = 1
 let g:syntastic_auto_loc_list = 1
 let g:syntastic_check_on_open = 1
 let g:syntastic_check_on_wq = 0
+
+" ==================== ale
+let g:airline#extensions#ale#enabled = 1
+
+let g:ale_echo_msg_format = '%linter%: %s'
+" let g:ale_lint_on_text_changed = 'never'
+let g:ale_sign_column_always = 1
+
+let g:ale_linters = {
+  \ 'vue': ['eslint', 'stylelint'],
+\ }
+let g:ale_linter_aliases = {'vue': ['css', 'javascript']}
+
+" ==================== vim-jsx
+let g:jsx_ext_required = 0
+
+" ==================== vim-json
+let g:vim_json_syntax_conceal = 0
