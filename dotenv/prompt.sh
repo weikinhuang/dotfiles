@@ -73,10 +73,11 @@ PS1_SYMBOL_NO_WRITE_PWD='*'
 PS1_SYMBOL_GIT_BRANCH="${PS1_COLOR_BOLD}$(echo -e '\xD5\xAF')${PS1_COLOR_NORMAL} "
 PS1_SYMBOL_SSH='@'
 PS1_SYMBOL_LOCAL='#'
+PS1_SYMBOL_DOCKER="$(echo -e "\xE2\x9A\x93 ")" # ⚓
 
-PS1_SYMBOL_USER="$(echo -e "\xCE\xBB")"
-PS1_SYMBOL_ROOT="$(echo -e "\xCE\xBC")"
-PS1_SYMBOL_SU="$(echo -e "\xCF\x80\x0A")"
+PS1_SYMBOL_USER="$(echo -e "\xCE\xBB")" # λ
+PS1_SYMBOL_ROOT="$(echo -e "\xCE\xBC")" # μ
+PS1_SYMBOL_SU="$(echo -e "\xCF\x80\x0A")" # π
 
 PS1_DAY_START=8
 PS1_DAY_END=18
@@ -138,13 +139,15 @@ PS1_BG_JOBS='$([[ \j -gt 0 ]] && echo -n "bg:\j ")'
 # [@|#] based on environment If ssh connection
 if [[ -n "${SSH_CONNECTION:-}" || "$(who am i | cut -f2  -d\( | cut -f1 -d:)" != "" ]]; then
   PS1_SESSION_TYPE="${PS1_SYMBOL_SSH}"
+elif __ps1_is_docker; then
+  PS1_SESSION_TYPE="${PS1_SYMBOL_DOCKER}"
 else
   # otherwise
   PS1_SESSION_TYPE="${PS1_SYMBOL_LOCAL}"
 fi
 
 # [host|screen session]
-case "$TERM" in
+case "${TERM}" in
   screen*)
     if [[ -n "${TMUX}" ]]; then
       PS1_HOST_NAME="${PS1_COLOR_HOST_SCREEN}$(echo "${TMUX}" | cut -f4 -d/)[${TMUX_PANE}]"

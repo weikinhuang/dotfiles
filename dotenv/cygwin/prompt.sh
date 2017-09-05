@@ -22,3 +22,8 @@ if [[ -z "${_PS1_HIDE_LOAD}" ]] ; then
 
   __push_prompt_command '__ps1_proc_wrapper'
 fi
+
+# function to test for docker
+function __ps1_is_docker() {
+  false
+}
