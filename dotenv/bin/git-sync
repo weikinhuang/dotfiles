@@ -1,0 +1,41 @@
+#!/bin/bash
+
+# verbose mode
+GIT_SYNC_TRACE=${GIT_SYNC_TRACE:-}
+
+# Go to the master branch then sync local and origin with [upstream|origin]
+function sync_one() {
+    local PREV_BR="$(git brn)"
+    git diff-index --quiet HEAD --
+    local HAS_CHANGES=$?
+    if [[ $HAS_CHANGES != 0 ]]; then
+        [[ -n $GIT_SYNC_TRACE ]] && echo -e "\e[35m ===== Stashing changes ===== \e[0m"
+        git stash save "sync-$(date +%s)"
+    fi
+    if [[ "$PREV_BR" != "master" ]]; then
+        [[ -n $GIT_SYNC_TRACE ]] && echo -e "\e[35m ===== Checkout to master ===== \e[0m"
+        git checkout master
+    fi
+    if git remote -v | grep '^upstream' -q; then
+        [[ -n $GIT_SYNC_TRACE ]] && echo -e "\e[34m ===== Pulling upstream ===== \e[0m"
+        git pull upstream master
+        [[ -n $GIT_SYNC_TRACE ]] && echo -e "\e[34m ===== Pushing origin ===== \e[0m"
+        git push origin master
+    else
+        [[ -n $GIT_SYNC_TRACE ]] && echo -e "\e[34m ===== Pulling origin ===== \e[0m"
+        git pull origin master
+    fi
+    git submodule update
+    if [[ "$PREV_BR" != "master" ]]; then
+        [[ -n $GIT_SYNC_TRACE ]] && echo -ne "\e[35m ===== Checkout to "
+        [[ -n $GIT_SYNC_TRACE ]] && echo -n "$PREV_BR"
+        [[ -n $GIT_SYNC_TRACE ]] && echo -e " ===== \e[0m"
+        git checkout "$PREV_BR"
+    fi
+    if [[ $HAS_CHANGES != 0 ]]; then
+        [[ -n $GIT_SYNC_TRACE ]] && echo -e "\e[35m ===== Reapply stashed changes ===== \e[0m"
+        git stash pop
+    fi
+}
+
+sync_one
