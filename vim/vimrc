@@ -81,6 +81,12 @@ set scrolloff=4                   " start scrolling when we're 4 lines away from
 set sidescrolloff=15
 set sidescroll=1
 
+" ================ Invisible ========================
+set list
+set list listchars=tab:▸\ ,trail:·,precedes:←,extends:→,eol:¬,nbsp:␣
+"hi NonText ctermbg=NONE
+"hi SpecialKey ctermbg=NONE
+
 " ================ Themes ===========================
 " Solarized color scheme
 if !empty($__term_solarized_light)
