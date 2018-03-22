@@ -1,5 +1,5 @@
 # include solarized dir colors theme
-[[ -n "${__term_solarized_light}" ]] && type dircolors &> /dev/null && eval "$(dircolors "${DOTFILES__ROOT}/.dotfiles/dotenv/other/dircolors.solarized.ansi-light")"
+[[ -n "${__term_solarized_light}" ]] && type dircolors &> /dev/null && eval $(dircolors "${DOTFILES__ROOT}/.dotfiles/dotenv/other/dircolors.solarized.ansi-light")
 
 # include special mysql client customizations
 source "${DOTFILES__ROOT}/.dotfiles/dotenv/other/mysql-client.sh"
