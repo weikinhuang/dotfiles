@@ -1,0 +1,33 @@
+#!/bin/sh
+
+USAGE='../other-git-project/ git-sha [--] [paths]'
+SUBDIRECTORY_OK=Yes
+. git-sh-setup
+require_work_tree
+
+set -euo pipefail
+
+OTHER_PROJECT_DIR="$1"
+OTHER_PROJECT_SHA="$2"
+
+if [[ ! -d "${OTHER_PROJECT_DIR}/.git" ]]; then
+  exit 1
+fi
+
+if ! git --git-dir="${OTHER_PROJECT_DIR}/.git" cat-file -e "${OTHER_PROJECT_SHA}"; then
+  exit 1
+fi
+
+shift
+shift
+
+# clean up file separator
+if [[ "${1:-}" == '--' ]]; then
+  shift
+fi
+
+git --git-dir="${OTHER_PROJECT_DIR}/.git" \
+    format-patch -k -1 --stdout \
+    "${OTHER_PROJECT_SHA}" \
+    -- "$@" \
+  | git am -3 -k
