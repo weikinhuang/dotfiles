@@ -220,7 +220,7 @@ function __ps1_create() {
   # working directory
   PS1="${PS1}""${PS1_COLOR_WORK_DIR}${PS1_PWD_WRITABLE}"'\W'"${PS1_COLOR_RESET}"
   # working directory information (number of files | total file size)
-  if [[ -z "${_PS1_HIDE_DIR_INFO}" ]] ; then
+  if [[ -z "${_PS1_HIDE_DIR_INFO}" ]]; then
     PS1="${PS1}""${PS1_COLOR_WORK_DIRINFO}"'<${__ps1_var_dirinfo}>'"${PS1_COLOR_RESET}"
   fi
   # git status only if the git repo status function is installed
@@ -229,6 +229,10 @@ function __ps1_create() {
   fi
   # close bracket
   PS1="${PS1}""${PS1_COLOR_BOLD}${PS1_COLOR_GREY}"']'"${PS1_COLOR_RESET}"
+  # newline before the user symbol
+  if [[ -n ${_PS1_MULTILINE:-} ]]; then
+    PS1="${PS1}\n"
+  fi
   # prompt symbol
   PS1=${PS1}${PS1_COLOR_BOLD}$([[ $UID == 0 ]] && echo ${PS1_SYMBOL_ROOT} || echo ${PS1_SYMBOL_USER})${PS1_COLOR_RESET}
   # space & title bar
@@ -257,6 +261,10 @@ function __sudo_ps1_create() {
   SUDO_PS1="${SUDO_PS1}""${PS1_COLOR_WORK_DIR}${PS1_PWD_WRITABLE}"'\W'"${PS1_COLOR_RESET}"
   # close bracket
   SUDO_PS1="${SUDO_PS1}""${PS1_COLOR_BOLD}${PS1_COLOR_GREY}"']'"${PS1_COLOR_RESET}"
+  # newline before the user symbol
+  if [[ -n ${_PS1_MULTILINE:-} ]]; then
+    SUDO_PS1="${SUDO_PS1}\n"
+  fi
   # prompt symbol
   SUDO_PS1="${SUDO_PS1}""${PS1_COLOR_BOLD}\$([[ \$UID == 0 ]] && echo ${PS1_SYMBOL_ROOT} || echo ${PS1_SYMBOL_SU})${PS1_COLOR_RESET}"
   # space & title bar

@@ -171,6 +171,11 @@ Monochrome prompt
 export _PS1_MONOCHROME=1
 ```
 
+Multiline prompt
+```bash
+export _PS1_MULTILINE=1
+```
+
 Custom colors for prompt
 ```bash
 # general colors
