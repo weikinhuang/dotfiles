@@ -16,10 +16,12 @@ if [[ $? != 0 ]] && [[ "${BRANCH}" == "master" ]]; then
 fi
 
 # get the github based upstream and origin
-UPSTREAM=$(git remote -v | grep upstream | head -n1 | sed 's/^.*github.com[:\/]\(.*\) \(.*\)$/\1/' | sed 's/\.git$//')
-ORIGIN=$(git remote -v | grep origin | head -n1 | sed 's/^.*github.com[:\/]\(.*\) \(.*\)$/\1/' | sed 's/\.git$//')
+UPSTREAM=$(git remote -v | grep upstream | head -n1 | awk '{print $2}' | perl -pe 's#^(?:https?://.+?/|.+@.+?:)(.+?)(\.git)?$#\1#')
+ORIGIN=$(git remote -v | grep origin | head -n1 | awk '{print $2}' | perl -pe 's#^(?:https?://.+?/|.+@.+?:)(.+?)(\.git)?$#\1#')
+REMOTE_REPO=upstream
 if [[ -z "${UPSTREAM}" ]]; then
   UPSTREAM="${ORIGIN}"
+  REMOTE_REPO=origin
 fi
 
 # if we don't have a upstream, then don't do anything
@@ -60,9 +62,15 @@ if [[ -z "${MESSAGE}" ]]; then
   MESSAGE="$(git log -1 --pretty=format:'%s')"
 fi
 
+GITHUB_API_BASE=api.github.com
+UPSTREAM_HOST=$(git remote -v | grep "${REMOTE_REPO}" | head -n1 | awk '{print $2}' | perl -pe 's#^(?:https?://|.+?@)(.+?)[/:].+$#\1#')
+if [[ "${UPSTREAM_HOST}" != *github.com ]]; then
+  GITHUB_API_BASE="${UPSTREAM_HOST}/api/v3"
+fi
+
 PR_RESPONSE=$(curl \
   -H "Authorization: token ${GITHUB_TOKEN}" \
-  https://api.github.com/repos/${UPSTREAM}/pulls \
+  "https://${GITHUB_API_BASE}/repos/${UPSTREAM}/pulls" \
   -d '{"head":"'"${GITHUB_FORK_BASE}"':'"${BRANCH}"'","base":"'"${REMOTE_BRANCH}"'","title":"'"${MESSAGE}"'"}')
 
 CURL_EXIT_CODE=$?
