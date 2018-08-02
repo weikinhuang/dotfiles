@@ -1,0 +1,36 @@
+#!/bin/bash
+
+USAGE='[-c|--checkout]'
+SUBDIRECTORY_OK=Yes
+. git-sh-setup
+require_work_tree
+
+# last argument is the pull request
+PR_NUMBER_ARG="${@: -1}"
+PR_NUMBER="${PR_NUMBER_ARG}"
+if ! grep -E '^\d+$' -q <<< "${PR_NUMBER_ARG}"; then
+  PR_NUMBER="$(perl -pe 's#^.+/pull/(\d+).*$#\1#' <<< "${PR_NUMBER_ARG}")"
+fi
+
+# get the github based upstream and origin
+UPSTREAM=$(git remote -v | grep upstream)
+REMOTE_REPO=upstream
+if [[ -z "${UPSTREAM}" ]]; then
+  REMOTE_REPO=origin
+fi
+
+# if we don't have a upstream, then don't do anything
+if [[ -z "${UPSTREAM}" ]]; then
+  echo "No Github based upstream or origin to read pull requests from."
+  exit 128
+fi
+
+git fetch "${REMOTE_REPO}" "pull/${PR_NUMBER}/head:pr-${PR_NUMBER}"
+FETCH_EXIT_CODE=$?
+
+# checkout branch if asked
+if getopt_assert -c:--checkout "$@"; then
+  git checkout "pr-${PR_NUMBER}"
+fi
+
+exit ${FETCH_EXIT_CODE}
