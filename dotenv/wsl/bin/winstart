@@ -1,0 +1,22 @@
+#!/bin/bash
+
+# the name of the program
+PROGRAM=$1
+shift
+
+# if there are any baked in arguments they are defined here
+args=(  )
+
+for arg in "$@"
+do
+  # if argument is a file, then expand it to windows paths
+  if [[ ! "$arg" =~ ^/[a-z]$ ]] && [[ -e "$arg" ]] && is-volfs-readable "$arg"; then
+    # echo "arg $arg is a file"
+    args=("${args[@]}" "$(wslpath -wa "$arg")")
+  else
+    # echo "arg $arg is not a file"
+    args=("${args[@]}" "$arg")
+  fi
+done
+
+cmd.exe /c start /b cmd /c start "" "${PROGRAM}" "${args[@]}"
