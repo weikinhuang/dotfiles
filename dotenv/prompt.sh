@@ -100,7 +100,7 @@ function __ps1_dir_wrapper() {
 
   # refresh every minute or on directory change
   if [[ $(( ${__ps1_var_date} - ${__ps1_var_dirinforeloadtime} )) -gt ${__ps1_var_dirinfotime} || "${PWD}" != "${__ps1_var_dirinfoprev}" ]]; then
-    lsout=$(/bin/ls -lAh)
+    lsout=$(/bin/ls -lAh 2>/dev/null)
     lsnum=$(($(echo "${lsout}" | \wc -l | \sed "s/ //g") - 1))
     lssize="$(echo "${lsout}" | \grep '^total ' | \sed 's/^total //')b"
 
