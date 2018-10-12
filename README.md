@@ -200,16 +200,16 @@ PS1_COLOR_TIME_PM='\[\e[38;5;033m\]'
 
 # load avg colorization
 PS1_COLOR_LOAD='
-	loadcolors_0="\[\e[38;5;111m\]"
-	loadcolors_1="\[\e[38;5;110m\]"
-	loadcolors_2="\[\e[38;5;109m\]"
-	loadcolors_3="\[\e[38;5;108m\]"
-	loadcolors_4="\[\e[38;5;107m\]"
-	loadcolors_5="\[\e[38;5;106m\]"
-	loadcolors_6="\[\e[38;5;178m\]"
-	loadcolors_7="\[\e[38;5;172m\]"
-	loadcolors_8="\[\e[38;5;166m\]"
-	loadcolors_9="\[\e[38;5;167m\]"
+    loadcolors_0="\[\e[38;5;111m\]"
+    loadcolors_1="\[\e[38;5;110m\]"
+    loadcolors_2="\[\e[38;5;109m\]"
+    loadcolors_3="\[\e[38;5;108m\]"
+    loadcolors_4="\[\e[38;5;107m\]"
+    loadcolors_5="\[\e[38;5;106m\]"
+    loadcolors_6="\[\e[38;5;178m\]"
+    loadcolors_7="\[\e[38;5;172m\]"
+    loadcolors_8="\[\e[38;5;166m\]"
+    loadcolors_9="\[\e[38;5;167m\]"
 '
 ```
 
