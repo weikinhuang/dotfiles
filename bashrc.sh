@@ -27,6 +27,7 @@ readonly DOTFILES__ROOT="${DOTFILES__INSTALL_ROOT:-${HOME}}"
 # Check out which env this bash is running in
 DOTENV="linux"
 IS_NIX=1 # check if we can load generic unix utils
+IS_WSL=0
 case "$(uname -s)" in
   CYGWIN*)
     DOTENV="cygwin"
@@ -46,12 +47,21 @@ case "$(uname -s)" in
   Darwin)
     DOTENV="darwin"
     ;;
+  Linux)
+    if uname -r | grep -q Microsoft; then
+      IS_WSL=1
+    fi
+    ;;
 esac
 export DOTENV
 
 # modify path to include useful scripts
 [[ -d "${DOTFILES__ROOT}/.dotfiles/dotenv/${DOTENV}/bin.$(uname -m)" ]] && PATH="${PATH}:${DOTFILES__ROOT}/.dotfiles/dotenv/${DOTENV}/bin.$(uname -m)"
 [[ -d "${DOTFILES__ROOT}/.dotfiles/dotenv/${DOTENV}/bin" ]] && PATH="${PATH}:${DOTFILES__ROOT}/.dotfiles/dotenv/${DOTENV}/bin"
+if [[ ${IS_WSL} == 1 ]]; then
+  [[ -d "${DOTFILES__ROOT}/.dotfiles/dotenv/wsl/bin.$(uname -m)" ]] && PATH="${PATH}:${DOTFILES__ROOT}/.dotfiles/dotenv/wsl/bin.$(uname -m)"
+  [[ -d "${DOTFILES__ROOT}/.dotfiles/dotenv/wsl/bin" ]] && PATH="${PATH}:${DOTFILES__ROOT}/.dotfiles/dotenv/wsl/bin"
+fi
 [[ -d "${DOTFILES__ROOT}/.dotfiles/dotenv/bin" ]] && PATH="${PATH}:${DOTFILES__ROOT}/.dotfiles/dotenv/bin"
 [[ -d "${HOME}/bin" ]] && PATH="${PATH}:${HOME}/bin"
 
@@ -63,6 +73,9 @@ fi
 # Source ~/.exports, ~/.functions, ~/.aliases, ~/.completion, ~/.extra, ~/.env if they exist
 for file in {exports,functions,aliases,completion,extra,env}; do
   [[ -r "${DOTFILES__ROOT}/.dotfiles/dotenv/${file}.sh" ]] && source "${DOTFILES__ROOT}/.dotfiles/dotenv/${file}.sh"
+  if [[ ${IS_WSL} == 1 ]]; then
+    [[ -r "${DOTFILES__ROOT}/.dotfiles/dotenv/wsl/${file}.sh" ]] && source "${DOTFILES__ROOT}/.dotfiles/dotenv/wsl/${file}.sh"
+  fi
   [[ -r "${DOTFILES__ROOT}/.dotfiles/dotenv/${DOTENV}/${file}.sh" ]] && source "${DOTFILES__ROOT}/.dotfiles/dotenv/${DOTENV}/${file}.sh"
 done
 unset file
@@ -81,6 +94,9 @@ fi
 # Source ~/.post-local, ~/.prompt if they exist
 for file in {post-local,prompt}; do
   [[ -r "${DOTFILES__ROOT}/.dotfiles/dotenv/${file}.sh" ]] && source "${DOTFILES__ROOT}/.dotfiles/dotenv/${file}.sh"
+  if [[ ${IS_WSL} == 1 ]]; then
+    [[ -r "${DOTFILES__ROOT}/.dotfiles/dotenv/wsl/${file}.sh" ]] && source "${DOTFILES__ROOT}/.dotfiles/dotenv/wsl/${file}.sh"
+  fi
   [[ -r "${DOTFILES__ROOT}/.dotfiles/dotenv/${DOTENV}/${file}.sh" ]] && source "${DOTFILES__ROOT}/.dotfiles/dotenv/${DOTENV}/${file}.sh"
 done
 unset file

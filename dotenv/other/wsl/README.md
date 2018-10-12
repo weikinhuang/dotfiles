@@ -93,7 +93,7 @@ Installing sshd lets us use other terminal emulators other than the default one.
     PermitRootLogin no
     AllowUsers WSLUSERNAME
     PasswordAuthentication no
-    #UsePrivilegeSeparation no 
+    #UsePrivilegeSeparation no # needed for older versions of WSL
     ```
 
 1. Restart the sshd service
@@ -101,3 +101,43 @@ Installing sshd lets us use other terminal emulators other than the default one.
     ```bash
     sudo service ssh --full-restart
     ```
+
+## Install useful utilities
+
+```bash
+sudo apt-get update && sudo apt-get install -y --no-install-recommends \
+    bash-completion \
+    bc \
+    ca-certificates \
+    curl \
+    direnv \
+    dnsutils \
+    fasd \
+    git \
+    gnupg \
+    htop \
+    jq \
+    netcat \
+    openssl \
+    procps \
+    rsync \
+    screen \
+    socat \
+    unzip \
+    vim \
+    wget \
+    xxd
+```
+
+## Updating Packages in WSL
+
+```bash
+sudo apt-get update && sudo apt-get upgrade
+```
+
+## Updating the Ubuntu OS
+
+```bash
+sudo -S apt-mark hold procps strace sudo
+sudo -S env RELEASE_UPGRADER_NO_SCREEN=1 do-release-upgrade
+```
