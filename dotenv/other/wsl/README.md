@@ -36,7 +36,7 @@ root = /mnt/
 options = "metadata,umask=22,fmask=11"
 mountFsTab = true
 
-# Let's enable DNS – even though these are turned on by default, we’ll specify here just to be explicit.
+# Let's enable DNS – even though these are turned on by default, we'll specify here just to be explicit.
 [network]
 generateHosts = true
 generateResolvConf = true
