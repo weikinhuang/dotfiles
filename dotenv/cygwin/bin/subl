@@ -8,21 +8,21 @@ args=(  )
 
 for arg in "$@"
 do
-	# if argument is a file, then expand it to windows paths
-	if [ -e "$arg" ]
-	then
-		# echo "arg $arg is a file"
-		args=("${args[@]}" "$(cygpath -w "$arg")")
-	else
-		# echo "arg $arg is not a file"
-		args=("${args[@]}" "$arg")
-	fi
+  # if argument is a file, then expand it to windows paths
+  if [ -e "$arg" ]
+  then
+    # echo "arg $arg is a file"
+    args=("${args[@]}" "$(cygpath -w "$arg")")
+  else
+    # echo "arg $arg is not a file"
+    args=("${args[@]}" "$arg")
+  fi
 done
 
 # test if we are in a pipe and pass stdin as last argument if we are piping in
 if [ ! -t 0 ]
 then
-	args=("${args[@]}" "$(cat -)");
+  args=("${args[@]}" "$(cat -)");
 fi
 
 "${PROGRAM}" "${args[@]}"

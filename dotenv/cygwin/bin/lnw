@@ -2,7 +2,7 @@
 
 # show help message
 if getopt_assert -?:--help "$@" > /dev/null; then
-	echo 'Usage: ln [OPTION]... TARGET LINK_NAME   (1st form)
+  echo 'Usage: ln [OPTION]... TARGET LINK_NAME   (1st form)
   or:  ln [OPTION]... TARGET                  (2nd form)
 In the 1st form, create a link to TARGET with the name LINK_NAME.
 In the 2nd form, create a link to TARGET in the current directory.
@@ -15,63 +15,63 @@ Mandatory arguments to long options are mandatory for short options too.
   -f, --force                 remove existing destination files
   -s, --symbolic              make symbolic links instead of hard links
       --help                  display this help and exit'
-	exit 0
+  exit 0
 fi
 
 # if there are any baked in arguments they are defined here
 targets=(  )
 for arg in "$@"
 do
-	# remove all options
-	if [[ "$arg" != -* ]]; then
-		# echo "arg $arg is a file"
-		targets=("${targets[@]}" "${arg}")
-	fi
+  # remove all options
+  if [[ "$arg" != -* ]]; then
+    # echo "arg $arg is a file"
+    targets=("${targets[@]}" "${arg}")
+  fi
 done
 
 if [[ ${#targets[@]} == 2 ]]; then
-	TARGET="${targets[0]}"
-	LINK="${targets[1]}"
+  TARGET="${targets[0]}"
+  LINK="${targets[1]}"
 elif [[ ${#targets[@]} == 1 ]]; then
-	TARGET="${targets[0]}"
-	LINK="$(basename "${targets[0]}")"
+  TARGET="${targets[0]}"
+  LINK="$(basename "${targets[0]}")"
 else
-	exit 1
+  exit 1
 fi
 
 # we can't make a link to the same target
 if [[ "$LINK" == "$TARGET" ]]; then
-	exit 1
+  exit 1
 fi
 
 # do we need to prompt?
 if ! getopt_assert -f:--force "$@" > /dev/null && [[ -e $LINK ]]; then
-	read -p "Owerwrite '$LINK'? " CONFIRM
-	if [[ $CONFIRM != y* ]]; then
-		exit 0
-	fi
+  read -p "Owerwrite '$LINK'? " CONFIRM
+  if [[ $CONFIRM != y* ]]; then
+    exit 0
+  fi
 fi
 
 # collect arguments
 args=(  )
 # check the type of link we're making
 if [[ -d "$TARGET" ]]; then
-	# in windows we can only make junctions or symbolic links
-	args=("${args[@]}" "/D")
+  # in windows we can only make junctions or symbolic links
+  args=("${args[@]}" "/D")
 elif ! getopt_assert -s:--symbolic "$@" > /dev/null; then
-	# if not creating a symbolic link, we're making a hard link
-	args=("${args[@]}" "/H")
+  # if not creating a symbolic link, we're making a hard link
+  args=("${args[@]}" "/H")
 fi
 
 # in windows' mklink command, the link comes first
 args=("${args[@]}" "$LINK")
 
 if [[ ${TARGET:0:1} == "/" ]]; then
-	# if absolute path then run it against cygpath
-	args=("${args[@]}" "$(cygpath -wa "$TARGET")")
+  # if absolute path then run it against cygpath
+  args=("${args[@]}" "$(cygpath -wa "$TARGET")")
 else
-	# otherwise replace unix path separator with windows versions
-	args=("${args[@]}" "${TARGET//\//\\}")
+  # otherwise replace unix path separator with windows versions
+  args=("${args[@]}" "${TARGET//\//\\}")
 fi
 
 # run the windows command

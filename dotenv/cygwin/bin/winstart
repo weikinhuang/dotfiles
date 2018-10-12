@@ -9,14 +9,14 @@ args=(  )
 
 for arg in "$@"
 do
-	# if argument is a file, then expand it to windows paths
-	if [[ ! "$arg" =~ ^/[a-z]$ ]] && [[ -e "$arg" ]]; then
-		# echo "arg $arg is a file"
-		args=("${args[@]}" "$(cygpath -wa "$arg")")
-	else
-		# echo "arg $arg is not a file"
-		args=("${args[@]}" "$arg")
-	fi
+  # if argument is a file, then expand it to windows paths
+  if [[ ! "$arg" =~ ^/[a-z]$ ]] && [[ -e "$arg" ]]; then
+    # echo "arg $arg is a file"
+    args=("${args[@]}" "$(cygpath -wa "$arg")")
+  else
+    # echo "arg $arg is not a file"
+    args=("${args[@]}" "$arg")
+  fi
 done
 
 cygstart "${PROGRAM}" "${args[@]}"

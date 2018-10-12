@@ -1,12 +1,12 @@
 #!/bin/bash
 
 if [[ "$1" == -u ]]; then
-	CYGWIN_SETUP="setup-x86.exe"
-	if [[ $(uname -m) == x86_64 ]]; then
-		CYGWIN_SETUP="setup-x86_64.exe"
-	fi
+  CYGWIN_SETUP="setup-x86.exe"
+  if [[ $(uname -m) == x86_64 ]]; then
+    CYGWIN_SETUP="setup-x86_64.exe"
+  fi
 
-	curl "http://cygwin.com/${CYGWIN_SETUP}" > "/${CYGWIN_SETUP}"
+  curl "http://cygwin.com/${CYGWIN_SETUP}" > "/${CYGWIN_SETUP}"
 fi
 
 cmd /C start "$(cygpath -w /)\\cygsetup.cmd"

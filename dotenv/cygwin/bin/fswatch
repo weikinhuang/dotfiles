@@ -8,6 +8,6 @@ inotifywait -mrq --format '%e %w %f' \
 "$DIRECTORY" \
 | \
 while read event path file; do
-	cd "$TARGETDIR"
-	"$@"
+  cd "$TARGETDIR"
+  "$@"
 done
