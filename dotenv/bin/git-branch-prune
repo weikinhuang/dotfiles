@@ -4,35 +4,35 @@
 
 CHECK_ORIGIN=$(git remote -v | grep '^origin.\+(push)$')
 if [ -z "$CHECK_ORIGIN" ]; then
-	echo "You need to be in a git repo with a pushable \"origin\" remote!"
-	exit 1
+  echo "You need to be in a git repo with a pushable \"origin\" remote!"
+  exit 1
 fi
 
 if [ "$1" = "-i" ]; then
-	INTERACTIVE="yes"
+  INTERACTIVE="yes"
 else
-	INTERACTIVE=""
+  INTERACTIVE=""
 fi
 
 for BRANCH in $(git branch --merged master | grep -v '\<master\>\|^\*'); do
-	if [ -n "$INTERACTIVE" ]; then
-		read -p "$(basename $0): remove branch '$BRANCH'? (y)" RESPONSE
-		if [  "$RESPONSE" != 'y' ] && [ "$RESPONSE" != '' ]; then
-			continue
-		fi
-	fi
-	ST=$(git branch -d "$BRANCH" 2>&1)
-	if [ $? -eq 0 ]; then
-		echo -n "Pruned \"$BRANCH\"; removing from origin..."
-		RST=$(git push origin ":$BRANCH" 2>&1)
-		if [ $? -eq 0 ]; then
-			echo " Removed."
-		else
-			echo
-			echo "Branch \"$BRANCH\" not removed from origin: $RST"
-		fi
-	else
-		ST=$(echo "$ST" | head -n 1 | sed 's/error: //')
-		echo "Branch \"$BRANCH\" not removed: $ST"
-	fi
+  if [ -n "$INTERACTIVE" ]; then
+    read -p "$(basename $0): remove branch '$BRANCH'? (y)" RESPONSE
+    if [  "$RESPONSE" != 'y' ] && [ "$RESPONSE" != '' ]; then
+      continue
+    fi
+  fi
+  ST=$(git branch -d "$BRANCH" 2>&1)
+  if [ $? -eq 0 ]; then
+    echo -n "Pruned \"$BRANCH\"; removing from origin..."
+    RST=$(git push origin ":$BRANCH" 2>&1)
+    if [ $? -eq 0 ]; then
+      echo " Removed."
+    else
+      echo
+      echo "Branch \"$BRANCH\" not removed from origin: $RST"
+    fi
+  else
+    ST=$(echo "$ST" | head -n 1 | sed 's/error: //')
+    echo "Branch \"$BRANCH\" not removed: $ST"
+  fi
 done

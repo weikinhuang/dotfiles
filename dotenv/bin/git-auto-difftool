@@ -5,17 +5,17 @@ REMOTE="$2"
 EXIT=0
 
 if [[ -z $@ || $# != "2" ]] ; then
-	echo -e "Usage: $0 \$LOCAL \$REMOTE"
-	exit 1
+  echo -e "Usage: $0 \$LOCAL \$REMOTE"
+  exit 1
 fi
 
 # First try to see if we have araxis merge in a cygwin env
 if type _git-difftool &> /dev/null; then
-	_git-difftool "$LOCAL" "$REMOTE"
-	EXIT=$?
+  _git-difftool "$LOCAL" "$REMOTE"
+  EXIT=$?
 else
-	# fallback to vimdiff
-	vimdiff -d "$LOCAL" "$REMOTE"
-	EXIT=$?
+  # fallback to vimdiff
+  vimdiff -d "$LOCAL" "$REMOTE"
+  EXIT=$?
 fi
 exit $EXIT

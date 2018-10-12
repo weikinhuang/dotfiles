@@ -7,17 +7,17 @@ MERGED="$4"
 EXIT=0
 
 if [[ -z $@ || $# != "4" ]] ; then
-	echo -e "Usage: $0 \$BASE \$LOCAL \$REMOTE \$MERGED"
-	exit 1
+  echo -e "Usage: $0 \$BASE \$LOCAL \$REMOTE \$MERGED"
+  exit 1
 fi
 
 # First try to see if we have araxis merge in a cygwin env
 if type _git-mergetool &> /dev/null; then
-	_git-mergetool "$BASE" "$LOCAL" "$REMOTE" "$MERGED" >/dev/null 2>&1
-	EXIT=$?
+  _git-mergetool "$BASE" "$LOCAL" "$REMOTE" "$MERGED" >/dev/null 2>&1
+  EXIT=$?
 else
-	# fallback to vimdiff
-	vimdiff -f -d -c 'wincmd J' "$MERGED" "$LOCAL" "$BASE" "$REMOTE" >/dev/null 2>&1
-	EXIT=$?
+  # fallback to vimdiff
+  vimdiff -f -d -c 'wincmd J' "$MERGED" "$LOCAL" "$BASE" "$REMOTE" >/dev/null 2>&1
+  EXIT=$?
 fi
 exit $EXIT
