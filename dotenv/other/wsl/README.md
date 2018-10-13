@@ -73,6 +73,12 @@ WSLUSERNAME:x:1000:1000:,,,:/mnt/c/Users/WINDOWSUSERNAME:/bin/bash
 
 Installing sshd lets us use other terminal emulators other than the default one.
 
+1. Generate ssh keys for this user if not already there
+
+    ```bash
+    ssh-keygen -t rsa
+    ```
+
 1. Reinstall sshd
 
     ```bash
@@ -83,7 +89,7 @@ Installing sshd lets us use other terminal emulators other than the default one.
 1. Update the sshd config, comment in or add the following lines:
 
     ```bash
-    sudo vi /etc/ssh/sshd_config 
+    sudo vi /etc/ssh/sshd_config
     ```
     
     ```text
@@ -96,10 +102,37 @@ Installing sshd lets us use other terminal emulators other than the default one.
     #UsePrivilegeSeparation no # needed for older versions of WSL
     ```
 
+    ```bash
+    # on newer versions of ubuntu, instead of "UsePrivilegeSeparation no" create this directory
+    sudo mkdir -p /run/sshd
+    ```
+
 1. Restart the sshd service
 
     ```bash
     sudo service ssh --full-restart
+    ```
+
+## Start up sshd on user logon
+
+1. Set up `/etc/sudoers` file with sudo permissions for sshd
+
+    ```bash
+    sudo visudo
+    ```
+
+    Append the following lines before `#includedir /etc/sudoers.d`
+
+    ```text
+    # Allow base user to start up sshd on windows login
+    WSLUSERNAME ALL=(ALL) NOPASSWD: /usr/sbin/sshd
+    WSLUSERNAME ALL=(ALL) NOPASSWD: /bin/mkdir -p /run/sshd
+    ```
+
+1. Install the windows scheduled task, change the path to the dotfiles installation path if necessary.
+
+    ```bash
+    bash ~/.dotfiles/dotenv/other/wsl/sshd-on-boot.sh
     ```
 
 ## Install useful utilities
