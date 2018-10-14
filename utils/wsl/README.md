@@ -174,3 +174,26 @@ sudo apt-get update && sudo apt-get upgrade
 sudo -S apt-mark hold procps strace sudo
 sudo -S env RELEASE_UPGRADER_NO_SCREEN=1 do-release-upgrade
 ```
+
+## Git wrapper for IntelliJ (ie. Webstorm) based IDEs
+
+Set the git path to the git wrapper:
+
+```text
+Settings > Version Control > Git > Path to Git executable: [DOTFILES_PATH\utils\wsl\native-wrappers\git.bat]
+```
+
+## Git wrapper for VSCode IDE
+
+Set the git path to the git wrapper:
+
+```text
+Edit > Preferences > Settings
+```
+
+```json
+{
+    "git.path": "DOTFILES_PATH\\utils\\wsl\\native-wrappers\\git.bat",
+    "terminal.integrated.shell.windows": "C:\\Windows\\System32\\wsl.exe"
+}
+```

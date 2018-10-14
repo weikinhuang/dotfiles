@@ -19,7 +19,7 @@ do
   fi
 done
 
-echo "${args[@]}" >> /tmp/wslgit-runlog
+# echo "${args[@]}" >> /tmp/wslgit-runlog
 
 # vscode uses the output of this command to determine if the repo is a git repo, but vscode also expects a windows
 # path as the response
