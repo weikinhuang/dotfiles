@@ -125,6 +125,7 @@ git auto-difftool        => Use araxis merge when possible otherwise use vimdiff
 git auto-mergetool       => Use araxis merge when possible otherwise use vimdiff
 git branch-prune         => Remove branches locally and remotely if already merged into master
 git changelog            => Generate a changelog from git tags
+git cherry-pick-from     => Cherry pick commits from a different git repo
 git gh-pages             => Setup a new branch called gh-pages following github procedure
 git hooks                => Execute a git hook
 git hub-pull-request     => Open a pull request on github
@@ -133,6 +134,7 @@ git ignore               => Add a file/path to .gitignore
 git ls-dir               => List files in a git repo tree together with the latest commit
 git remove-history       => Permanently delete files/folders from repository
 git repl                 => Start a repl where all commands are prefixed with "git"
+git sync                 => Sync origin with upstream remote
 git touch                => Make a new file and add it
 git track                => Sets up auto-tracking of a remote branch with same base name
 ```
@@ -169,4 +171,21 @@ s                        => winstart
 USERPROFILE              => Path to the windows user profile directory
 APPDATA                  => Path to the windows user AppData directory
 CYGWIN                   => Cygwin configuration https://cygwin.com/cygwin-ug-net/using-cygwinenv.html
+```
+
+## Windows Subsystem Linux (WSL) specific
+
+### Utilities
+
+```text
+is-drvfs-readable        => Check if WSL processes can read this file
+is-volfs-readable        => Check if Windows processes can read this file
+
+chattr                   => Change Windows file attributes
+cmd0                     => Run a command via the windows cmd prompt processor
+npp                      => Open a sandboxed instance of notepad++
+run.exe                  => Run a windows command without the cmd window (see: http://www.straightrunning.com/projectrun.php)
+
+winstart                 => Open/run a file using the native windows logic and associations
+winsudo                  => Run a process with elevated windows privileges
 ```

@@ -150,7 +150,7 @@ When on screen host is replaced with session name and is underlined.
  
 load = cpu% on cygwin
 
-load = 1 min load avg on *nix/osx
+load = 1 min load avg on *nix/osx/wsl
 
 ### Custom options for the PS1
 
@@ -298,7 +298,3 @@ Use to homebrew utilities without the `g` prefix (OSX)
 ```bash
 export INCLUDE_BREW_PATH=1
 ```
-
-## [Installers](INSTALLERS.md)
-
-[See available installers.](INSTALLERS.md)
