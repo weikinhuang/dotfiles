@@ -1,7 +1,7 @@
 # ~/.bashrc: executed by bash(1) for non-login shells.
 
 # If not running interactively, don't do anything
-[[ -z "${PS1}" ]] && return
+[[ -z "${PS1}" && -z "${BASHRC_NONINTERACTIVE_BYPASS:-}" ]] && return
 
 # Force usage of 256 color terminal
 case "${TERM:-xterm}" in
