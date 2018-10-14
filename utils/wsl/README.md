@@ -132,7 +132,7 @@ Installing sshd lets us use other terminal emulators other than the default one.
 1. Install the windows scheduled task, change the path to the dotfiles installation path if necessary.
 
     ```bash
-    bash ~/.dotfiles/dotenv/other/wsl/sshd-on-boot.sh
+    bash ~/.dotfiles/utils/wsl/sshd-on-boot.sh
     ```
 
 ## Install useful utilities
