@@ -1,10 +1,6 @@
 #!/bin/bash
 
-# the name of the program
-PROGRAM=$1
-shift
-
-# if there are any baked in arguments they are defined here
+# argument translation
 args=(  )
 
 for arg in "$@"
@@ -19,4 +15,4 @@ do
   fi
 done
 
-cmd.exe /c start /b cmd /c start "" "${PROGRAM}" "${args[@]}"
+cmd.exe /c start /b cmd /c start "" "${args[@]}"
