@@ -45,7 +45,7 @@ function internal::escape-args() {
   #echo "${args[@]}" >&2
 }
 
-SSH_OPTIONS=( -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -o ConnectTimeout=5 -p ${SSHD_SUDO_PID_PORT} )
+SSH_OPTIONS=( -q -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -o ConnectTimeout=5 -p ${SSHD_SUDO_PID_PORT} )
 function internal::ssh() {
   if [[ ! -t 0 && ! -t 1 ]]; then
     # pipe mode
