@@ -30,25 +30,10 @@ if [[ -z "${UPSTREAM}" ]]; then
   exit 128
 fi
 
-# push this branch to origin first
-git push origin "${BRANCH}"
-BRANCH_EXIT_STATUS=$?
-if [[ ${BRANCH_EXIT_STATUS} != 0 ]]; then
-  echo "Unable to push current branch to Github origin."
-  exit ${BRANCH_EXIT_STATUS}
-fi
-
 # get the base of the github fork to issue a pr against
 GITHUB_FORK_BASE="$(echo "${ORIGIN}" | sed 's/\/.*//')"
 if [[ -z "${GITHUB_FORK_BASE}" ]]; then
   echo "Unable to determine fork of remote repo."
-  exit 1
-fi
-
-# get the github token
-GITHUB_TOKEN="$(git hub-token)"
-if [[ $? != 0 ]]; then
-  echo "Github api token required."
   exit 1
 fi
 
@@ -68,6 +53,21 @@ if [[ "${UPSTREAM_HOST}" != *github.com ]]; then
   GITHUB_API_BASE="${UPSTREAM_HOST}/api/v3"
 fi
 
+# get the github token
+GITHUB_TOKEN="$(git hub-token "$UPSTREAM_HOST")"
+if [[ $? != 0 ]]; then
+  echo "Github api token required."
+  exit 1
+fi
+
+# push this branch to origin first
+git push origin "${BRANCH}"
+BRANCH_EXIT_STATUS=$?
+if [[ ${BRANCH_EXIT_STATUS} != 0 ]]; then
+  echo "Unable to push current branch to Github origin."
+  exit ${BRANCH_EXIT_STATUS}
+fi
+
 PR_RESPONSE=$(curl \
   -H "Authorization: token ${GITHUB_TOKEN}" \
   "https://${GITHUB_API_BASE}/repos/${UPSTREAM}/pulls" \
@@ -77,7 +77,7 @@ CURL_EXIT_CODE=$?
 
 # output result to std error
 if getopt_assert -v:--verbose "$@"; then
-  echo "${PR_RESPONSE}" > /dev/stderr
+  echo "${PR_RESPONSE}" >&2
 fi
 
 URL_EXPR="$(echo "${PR_RESPONSE}" | grep '^  "html_url": "')"
