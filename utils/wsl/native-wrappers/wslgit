@@ -3,7 +3,9 @@
 # if there are any baked in arguments they are defined here
 args=(  )
 IS_REMAIN_ARGS=0
+IS_WSLPATH_TRANSLATE_CMD=0
 
+# echo NATIVE_ARGS= "$@" >> /tmp/wslgit-runlog
 for arg in "$@"
 do
   # if argument is a file, then expand it to windows paths
@@ -17,13 +19,17 @@ do
   if [[ "$arg" == "--" ]]; then
     IS_REMAIN_ARGS=1
   fi
+  # in vscode, config options are passed before the git command
+  if [[ "$arg" == "rev-parse" ]]; then
+    IS_WSLPATH_TRANSLATE_CMD=1
+  fi
 done
 
-# echo "${args[@]}" >> /tmp/wslgit-runlog
+# echo PROCESSED_ARGS= "${args[@]}" >> /tmp/wslgit-runlog
 
 # vscode uses the output of this command to determine if the repo is a git repo, but vscode also expects a windows
 # path as the response
-if [[ "${args[0]}" == "rev-parse" ]]; then
+if [[ "${IS_WSLPATH_TRANSLATE_CMD}" == 1 ]]; then
   wslpath -w "$(git "${args[@]}")"
 else
   exec git "${args[@]}"
