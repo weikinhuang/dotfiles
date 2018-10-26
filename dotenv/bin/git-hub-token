@@ -1,7 +1,6 @@
 #!/bin/bash
 # Retieve a github token if not already generated
 # To get the token: curl -i https://api.github.com/authorizations -u "GITHUB_USERNAME_HERE" -d '{"scopes":"repo","note":"GITHUB_TOKEN_NAME"}'
-set -x
 
 REUSE_EXISTING=1
 if [[ "$1" == "-n" ]]; then
