@@ -64,6 +64,13 @@ Or in the ~/.ssh/config file
 
     Host git.corp.example.com
         ProxyCommand=nc -X 5 -x corp-proxy:1080 %h %p
+
+Certain remotes can be bypassed on a case by case basis using the
+GIT_SSH_NO_PROXY environment variable. Any remotes found in this variable will
+ignore any proxy settings configured in the gitconfig file above.
+
+    GIT_SSH_NO_PROXY=git.corp.example.com,foo.com,bar.com \
+        git pull origin master
 HELPDOC
   exit 1
 fi
@@ -142,7 +149,7 @@ fi
 
 # Execute the ssh command with a netcat proxy if necessary
 PROXY_ARGS=( )
-if [[ -n "${__GIT_PROXY_HOSTNAME}" ]]; then
+if [[ -n "${__GIT_PROXY_HOSTNAME}" ]] && ! ( echo "${GIT_SSH_NO_PROXY:-}" | tr ',' '\n' | grep -q "${SSH_HOSTNAME}" ); then
   PROXY_ARGS=( -o ProxyCommand="${NETCAT_COMMAND} ${__GIT_PROXY_NC_ARGS} -X ${__GIT_PROXY_PROTOCOL} -x ${__GIT_PROXY_HOSTNAME} %h %p" )
 fi
 exec ssh "${PROXY_ARGS[@]}" "$@"
