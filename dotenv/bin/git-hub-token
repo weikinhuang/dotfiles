@@ -23,9 +23,9 @@ if [[ "${REUSE_EXISTING}" == 1 ]]; then
   fi
   # then check the gitconfig file
   if [[ "${UPSTREAM_HOST}" != "github.com" ]]; then
-    EXISTING_TOKEN=$(git config --get "github.apitoken")
-  else
     EXISTING_TOKEN=$(git config --get "github.${UPSTREAM_HOST}.apitoken")
+  else
+    EXISTING_TOKEN=$(git config --get "github.apitoken")
   fi
   if [[ -n "$EXISTING_TOKEN" ]]; then
     echo "$EXISTING_TOKEN"
