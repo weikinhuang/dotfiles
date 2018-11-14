@@ -21,7 +21,7 @@ Before installing any Linux distros for WSL, you must ensure that the "Windows S
 See [Automatically Configuring WSL](https://blogs.msdn.microsoft.com/commandline/2018/02/07/automatically-configuring-wsl/) on microsoft.com for explanation of options.
 
 Edit `/etc/wsl.conf` with:
- 
+
 ```bash
 sudo vi /etc/wsl.conf
 ```
@@ -85,13 +85,13 @@ Installing sshd lets us use other terminal emulators other than the default one.
     sudo apt-get remove --purge openssh-server
     sudo apt-get install openssh-server
     ```
-    
+
 1. Update the sshd config, comment in or add the following lines:
 
     ```bash
     sudo vi /etc/ssh/sshd_config
     ```
-    
+
     ```text
     Port 2222
     ListenAddress 127.0.0.1
