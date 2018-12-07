@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 
 USAGE='../other-git-project/ git-sha [--] [paths]'
 SUBDIRECTORY_OK=Yes

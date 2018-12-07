@@ -223,6 +223,10 @@ function __ps1_create() {
   if [[ -z "${_PS1_HIDE_DIR_INFO}" ]]; then
     PS1="${PS1}""${PS1_COLOR_WORK_DIRINFO}"'<${__ps1_var_dirinfo}>'"${PS1_COLOR_RESET}"
   fi
+  # any additional blocks from the local prompt config
+  if [[ -n "${PS1_ADDITIONAL_INFO:-}" ]]; then
+    PS1="${PS1}""${PS1_ADDITIONAL_INFO}${PS1_COLOR_RESET}"
+  fi
   # git status only if the git repo status function is installed
   if type __git_ps1 &> /dev/null; then
     PS1="${PS1}""${PS1_COLOR_GIT}"'$(__git_ps1 " ('"${PS1_SYMBOL_GIT_BRANCH}${PS1_COLOR_RESET}${PS1_COLOR_GIT}"'%s)")'"${PS1_COLOR_RESET}"
@@ -322,7 +326,8 @@ unset PS1_COLOR_NORMAL \
   PS1_SYMBOL_ROOT \
   PS1_SYMBOL_SU \
   PS1_SESSION_TYPE \
-  PS1_HOST_NAME
+  PS1_HOST_NAME \
+  PS1_ADDITIONAL_INFO
 
 # ---------- OTHER VARIABLES ----------
 
