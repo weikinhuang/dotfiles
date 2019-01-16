@@ -1,5 +1,4 @@
-# brew install bash binutils coreutils diffutils findutils gnu-sed gnutls moreutils
-# brew install homebrew/dupes/grep homebrew/dupes/less
+# brew install bash binutils coreutils diffutils findutils gnu-sed gnutls moreutils grep less
 # brew install jq
 
 # Install Bash 4.
