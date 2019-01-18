@@ -6,11 +6,12 @@ GIT_SYNC_TRACE=${GIT_SYNC_TRACE:-}
 # Go to the master branch then sync local and origin with [upstream|origin]
 function sync_one() {
     local PREV_BR="$(git brn)"
+    local STASH_NAME="$(date +%s)"
     git diff-index --quiet HEAD --
     local HAS_CHANGES=$?
     if [[ $HAS_CHANGES != 0 ]]; then
         [[ -n $GIT_SYNC_TRACE ]] && echo -e "\e[35m ===== Stashing changes ===== \e[0m"
-        git stash save "sync-$(date +%s)"
+        git stash save "sync-$STASH_NAME"
     fi
     if [[ "$PREV_BR" != "master" ]]; then
         [[ -n $GIT_SYNC_TRACE ]] && echo -e "\e[35m ===== Checkout to master ===== \e[0m"
@@ -32,7 +33,8 @@ function sync_one() {
         [[ -n $GIT_SYNC_TRACE ]] && echo -e " ===== \e[0m"
         git checkout "$PREV_BR"
     fi
-    if [[ $HAS_CHANGES != 0 ]]; then
+    # reapply any stashes made
+    if [[ $HAS_CHANGES != 0 ]] && git stash list -1 | grep -q "$STASH_NAME"; then
         [[ -n $GIT_SYNC_TRACE ]] && echo -e "\e[35m ===== Reapply stashed changes ===== \e[0m"
         git stash pop
     fi
