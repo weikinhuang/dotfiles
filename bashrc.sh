@@ -81,8 +81,8 @@ done
 unset file
 
 # add local completion
-if [[ -d "${HOME}/.completion.d" ]]; then
-    source ${HOME}/.completion.d/*
+if [[ -e "${HOME}"/.config/completion.d/* ]]; then
+    source ${HOME}/.config/completion.d/*
 fi
 
 # load a local specific sources before the scripts
