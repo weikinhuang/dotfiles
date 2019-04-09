@@ -1,3 +1,4 @@
+#!/bin/bash
 # ~/.bashrc: executed by bash(1) for non-login shells.
 
 # If not running interactively, don't do anything
@@ -82,7 +83,7 @@ unset file
 
 # add local completion
 if [[ -e "${HOME}"/.config/completion.d/* ]]; then
-    source ${HOME}/.config/completion.d/*
+    source "${HOME}"/.config/completion.d/*
 fi
 
 # load a local specific sources before the scripts
