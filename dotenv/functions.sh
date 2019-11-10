@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # Special cd replacement that shows up to the last 10 directories with 'cd --'.
 function __cd_func() {
   local x2 the_new_dir adir index

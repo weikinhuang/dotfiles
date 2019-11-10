@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # Number of threads that is available
 if [[ -r /proc/cpuinfo ]]; then
   # for cygwin based environments

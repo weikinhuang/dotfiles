@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # custom mysql prompt
 export MYSQL_PS1='\u@\h [\d]'$(echo -e "\xe2\x86\x92")' '
 

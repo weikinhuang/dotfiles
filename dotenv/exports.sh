@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # LC_ configuration
 export LC_ALL=en_US.UTF-8
 # Set user-defined locale

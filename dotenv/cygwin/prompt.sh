@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # function to get cpu load
 function __ps1_proc_use() {
   echo -n "$(printf "%05s" "${__ps1_var_load}")%"

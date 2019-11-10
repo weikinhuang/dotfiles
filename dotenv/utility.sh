@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # include solarized dir colors theme
 [[ -n "${__term_solarized_light}" ]] && type dircolors &> /dev/null && eval $(dircolors "${DOTFILES__ROOT}/.dotfiles/dotenv/other/dircolors.solarized.ansi-light")
 [[ -n "${__term_solarized_256}" ]] && type dircolors &> /dev/null && eval $(dircolors "${DOTFILES__ROOT}/.dotfiles/dotenv/other/dircolors.solarized.256dark")

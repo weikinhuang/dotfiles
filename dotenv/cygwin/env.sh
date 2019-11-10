@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # make sure sbin is included
 [[ -d "/usr/sbin" ]] && PATH="${PATH}:/usr/sbin"
 

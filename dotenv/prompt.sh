@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # ---------- COLOR REFERENCES AND OPTIONS ----------
 
 # quick reference to colors

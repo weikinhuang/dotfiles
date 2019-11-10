@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # Open a Windows (Vista/7/8) Libraries
 function olib() {
   if [[ -z "${1}" ]] ; then

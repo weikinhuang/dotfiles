@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # get the windows username
 function winwhoami() {
   /mnt/c/Windows/System32/cmd.exe /c 'echo %USERNAME%' | sed -e 's/\r//g'

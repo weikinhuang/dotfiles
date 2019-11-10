@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # function to get cpu load
 if [[ -r /proc/loadavg ]]; then
   function __ps1_proc_use() {

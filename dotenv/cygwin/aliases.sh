@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # Shortcuts
 alias s="winstart"
 
