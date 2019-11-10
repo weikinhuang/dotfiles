@@ -23,7 +23,8 @@ esac
 if [[ -e "${HOME}/.config/dotfiles/.install" ]]; then
   source "${HOME}/.config/dotfiles/.install"
 fi
-readonly DOTFILES__ROOT="${DOTFILES__INSTALL_ROOT:-${HOME}}"
+DOTFILES__ROOT="${DOTFILES__INSTALL_ROOT:-${HOME}}"
+readonly DOTFILES__ROOT
 
 # Check out which env this bash is running in
 DOTENV="linux"
