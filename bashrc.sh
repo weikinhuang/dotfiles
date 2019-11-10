@@ -30,6 +30,7 @@ readonly DOTFILES__ROOT
 DOTENV="linux"
 IS_NIX=1 # check if we can load generic unix utils
 IS_WSL=0
+IS_TERMUX=0
 case "$(uname -s)" in
   CYGWIN*)
     DOTENV="cygwin"
@@ -52,6 +53,8 @@ case "$(uname -s)" in
   Linux)
     if uname -r | grep -q Microsoft; then
       IS_WSL=1
+    elif type kubectl &>/dev/null; then
+      IS_TERMUX=1
     fi
     ;;
 esac
@@ -61,6 +64,10 @@ export DOTENV
 if [[ ${IS_WSL} == 1 ]]; then
   [[ -d "${DOTFILES__ROOT}/.dotfiles/dotenv/wsl/bin.$(uname -m)" ]] && PATH="${PATH}:${DOTFILES__ROOT}/.dotfiles/dotenv/wsl/bin.$(uname -m)"
   [[ -d "${DOTFILES__ROOT}/.dotfiles/dotenv/wsl/bin" ]] && PATH="${PATH}:${DOTFILES__ROOT}/.dotfiles/dotenv/wsl/bin"
+fi
+if [[ ${IS_TERMUX} == 1 ]]; then
+  [[ -d "${DOTFILES__ROOT}/.dotfiles/dotenv/termux/bin.$(uname -m)" ]] && PATH="${PATH}:${DOTFILES__ROOT}/.dotfiles/dotenv/termux/bin.$(uname -m)"
+  [[ -d "${DOTFILES__ROOT}/.dotfiles/dotenv/termux/bin" ]] && PATH="${PATH}:${DOTFILES__ROOT}/.dotfiles/dotenv/termux/bin"
 fi
 [[ -d "${DOTFILES__ROOT}/.dotfiles/dotenv/${DOTENV}/bin.$(uname -m)" ]] && PATH="${PATH}:${DOTFILES__ROOT}/.dotfiles/dotenv/${DOTENV}/bin.$(uname -m)"
 [[ -d "${DOTFILES__ROOT}/.dotfiles/dotenv/${DOTENV}/bin" ]] && PATH="${PATH}:${DOTFILES__ROOT}/.dotfiles/dotenv/${DOTENV}/bin"
@@ -78,6 +85,9 @@ for file in {exports,functions,aliases,completion,extra,env}; do
   [[ -r "${DOTFILES__ROOT}/.dotfiles/dotenv/${DOTENV}/${file}.sh" ]] && source "${DOTFILES__ROOT}/.dotfiles/dotenv/${DOTENV}/${file}.sh"
   if [[ ${IS_WSL} == 1 ]]; then
     [[ -r "${DOTFILES__ROOT}/.dotfiles/dotenv/wsl/${file}.sh" ]] && source "${DOTFILES__ROOT}/.dotfiles/dotenv/wsl/${file}.sh"
+  fi
+  if [[ ${IS_TERMUX} == 1 ]]; then
+    [[ -r "${DOTFILES__ROOT}/.dotfiles/dotenv/termux/${file}.sh" ]] && source "${DOTFILES__ROOT}/.dotfiles/dotenv/termux/${file}.sh"
   fi
 done
 unset file
@@ -99,6 +109,9 @@ for file in {post-local,prompt}; do
   [[ -r "${DOTFILES__ROOT}/.dotfiles/dotenv/${DOTENV}/${file}.sh" ]] && source "${DOTFILES__ROOT}/.dotfiles/dotenv/${DOTENV}/${file}.sh"
   if [[ ${IS_WSL} == 1 ]]; then
     [[ -r "${DOTFILES__ROOT}/.dotfiles/dotenv/wsl/${file}.sh" ]] && source "${DOTFILES__ROOT}/.dotfiles/dotenv/wsl/${file}.sh"
+  fi
+  if [[ ${IS_TERMUX} == 1 ]]; then
+    [[ -r "${DOTFILES__ROOT}/.dotfiles/dotenv/termux/${file}.sh" ]] && source "${DOTFILES__ROOT}/.dotfiles/dotenv/termux/${file}.sh"
   fi
 done
 unset file
