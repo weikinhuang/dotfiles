@@ -11,6 +11,7 @@ pkg install \
   direnv \
   findutils \
   git \
+  ncurses-utils \
   net-tools \
   openssh \
   openssl \
