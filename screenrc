@@ -31,6 +31,9 @@ defutf8 on
 #  in bug #134198)
 termcapinfo xterm*|gnome* 'is=\E[r\E[m\E[2J\E[H\E[?7h\E[?1;4;6l'
 
+# Enable mouse scrolling and scroll bar history scrolling
+termcapinfo xterm* ti@:te@
+
 hardstatus string ""
 #hardstatus alwayslastline
 #hardstatus string "%{= kw}%-w%{= BW}%n %t%{-}%+w %-= [$h] %C%a "
