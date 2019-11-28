@@ -99,38 +99,38 @@ The prompt
                 └─ Logged in user
 
     ┌── Exit status of previous command
-[(E:1) 06:00:00 0.00 user#host dir<4|2.4Mb>]λ 
+[(E:1) 06:00:00 0.00 user#host dir<4|2.4Mb>]λ
 
           ┌── Number of running background jobs
-[(E:1) bg:2 06:00:00 0.00 user#host dir<4|2.4Mb>]λ 
+[(E:1) bg:2 06:00:00 0.00 user#host dir<4|2.4Mb>]λ
 
 ```
 
 When on ssh
 ```bash
 on ssh ────────────┐
-[06:00:00 0.00 user@host dir<4|2.4Mb>]λ 
+[06:00:00 0.00 user@host dir<4|2.4Mb>]λ
                    └─────── The # symbol is replace with @
 ```
 
 When logged in as root user
 ```bash
 as root ──────────────────────────────┐
-[06:00:00 0.00 root@host dir<4|2.4Mb>]μ 
+[06:00:00 0.00 root@host dir<4|2.4Mb>]μ
                                       └── The λ symbol is replace with μ
 ```
 
 When sudo'd
 ```bash
 as sudo ────────────────┐
-[06:00:00 user@host dir]π 
+[06:00:00 user@host dir]π
                         └── The λ symbol is replace with π
 ```
 
 When on screen
 ```bash
 in screen                               ┌── window id
-[06:00:00 0.00 user@12345.pts-01.host01[1] dir<4|2.4Mb>]λ 
+[06:00:00 0.00 user@12345.pts-01.host01[1] dir<4|2.4Mb>]λ
                     └─────────────────┴──── Screen session name
 ```
 
@@ -143,11 +143,11 @@ PS2 prompt
 Git prompt
 ```bash
 branch name──────────────────────────────┐      ┌───git status flags
-[06:00:00 0.00 root@host dir<4|2.4Mb> (կ master %)]μ 
+[06:00:00 0.00 root@host dir<4|2.4Mb> (կ master %)]μ
 ```
 
 When on screen host is replaced with session name and is underlined.
- 
+
 load = cpu% on cygwin
 
 load = 1 min load avg on *nix/osx/wsl
@@ -241,14 +241,14 @@ PS1_DAY_END=18
 ### The MySQL client Prompt
 
 ```
-user@host [database]→ 
+user@host [database]→
 ```
 
 ### The Mongo client Prompt
 
 ```
-host[database]> 
-state[repl]#host [database]> 
+host[database]>
+state[repl]#host [database]>
 ```
 
 ## .gitconfig
@@ -297,4 +297,10 @@ Use to homebrew utilities without the `g` prefix (OSX)
 
 ```bash
 export INCLUDE_BREW_PATH=1
+```
+
+Automatically start up ssh-agent when starting a new shell, and reuse any existing agent instances
+
+```bash
+export AUTOLOAD_SSH_AGENT=1
 ```
