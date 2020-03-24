@@ -48,10 +48,13 @@ Setup can be set up to only specific host/port combinations, ex.:
 In the above example [ssh-socks "*"] is equal to [ssh-socks].
 
 In addition, each of these config blocks, can take a proxy version argument
-via "version = ", the support netcat values are "5" for socks5, "4" for socks4,
+via "version = ", the supported netcat values are "5" for socks5, "4" for socks4,
 "connect" for a http proxy.
 
 Additional args can be passed via "nc = " to be passed into netcat.
+
+The proxy can also be set up as optional via "optional = true" in which case it
+will try to see if the proxy server is accepting connections before using it.
 
 This script is the equivalent of setting ProxyCommand via other options instead:
 
@@ -114,30 +117,35 @@ fi
 __GIT_PROXY_PROTOCOL=5
 __GIT_PROXY_HOSTNAME=
 __GIT_PROXY_NC_ARGS=
+__GIT_PROXY_OPTIONAL=false
 
 # Try matching HOSTNAME:PORT
 if [[ -z "${__GIT_PROXY_HOSTNAME}" ]] && git config --get "ssh-socks.${SSH_HOSTNAME}:${SSH_PORT}.proxy" &>/dev/null; then
   __GIT_PROXY_HOSTNAME="$(git config --get "ssh-socks.${SSH_HOSTNAME}:${SSH_PORT}.proxy" 2>/dev/null || true)"
   __GIT_PROXY_PROTOCOL="$(git config --get "ssh-socks.${SSH_HOSTNAME}:${SSH_PORT}.version" 2>/dev/null || true)"
   __GIT_PROXY_NC_ARGS="$(git config --get "ssh-socks.${SSH_HOSTNAME}:${SSH_PORT}.nc" 2>/dev/null || true)"
+  __GIT_PROXY_OPTIONAL="$(git config --get "ssh-socks.${SSH_HOSTNAME}:${SSH_PORT}.optional" 2>/dev/null || true)"
 fi
 # Try matching HOSTNAME
 if [[ -z "${__GIT_PROXY_HOSTNAME}" ]] && git config --get "ssh-socks.${SSH_HOSTNAME}.proxy" &>/dev/null; then
   __GIT_PROXY_HOSTNAME="$(git config --get "ssh-socks.${SSH_HOSTNAME}.proxy" 2>/dev/null || true)"
   __GIT_PROXY_PROTOCOL="$(git config --get "ssh-socks.${SSH_HOSTNAME}.version" 2>/dev/null || true)"
   __GIT_PROXY_NC_ARGS="$(git config --get "ssh-socks.${SSH_HOSTNAME}.nc" 2>/dev/null || true)"
+  __GIT_PROXY_OPTIONAL="$(git config --get "ssh-socks.${SSH_HOSTNAME}.optional" 2>/dev/null || true)"
 fi
 # Try matching *
 if [[ -z "${__GIT_PROXY_HOSTNAME}" ]] && git config --get "ssh-socks.*.proxy" &>/dev/null; then
   __GIT_PROXY_HOSTNAME="$(git config --get "ssh-socks.*.proxy" 2>/dev/null || true)"
   __GIT_PROXY_PROTOCOL="$(git config --get "ssh-socks.*.version" 2>/dev/null || true)"
   __GIT_PROXY_NC_ARGS="$(git config --get "ssh-socks.*.nc" 2>/dev/null || true)"
+  __GIT_PROXY_OPTIONAL="$(git config --get "ssh-socks.*.optional" 2>/dev/null || true)"
 fi
 # Try matching general
 if [[ -z "${__GIT_PROXY_HOSTNAME}" ]] && git config --get "ssh-socks.proxy" &>/dev/null; then
   __GIT_PROXY_HOSTNAME="$(git config --get "ssh-socks.proxy" 2>/dev/null || true)"
   __GIT_PROXY_PROTOCOL="$(git config --get "ssh-socks.version" 2>/dev/null || true)"
   __GIT_PROXY_NC_ARGS="$(git config --get "ssh-socks.nc" 2>/dev/null || true)"
+  __GIT_PROXY_OPTIONAL="$(git config --get "ssh-socks.optional" 2>/dev/null || true)"
 fi
 if [[ -z "${__GIT_PROXY_NC_ARGS}" ]] && git config --get "ssh-socks.nc" &>/dev/null; then
   __GIT_PROXY_NC_ARGS="$(git config --get "ssh-socks.nc" 2>/dev/null || true)"
@@ -147,9 +155,18 @@ if [[ -z "${__GIT_PROXY_PROTOCOL}" ]]; then
   __GIT_PROXY_PROTOCOL=5
 fi
 
+__GIT_PROXY_USE=
+if [[ -n "${__GIT_PROXY_HOSTNAME}" ]] && ! ( echo "${GIT_SSH_NO_PROXY:-}" | tr ',' '\n' | grep -q "${SSH_HOSTNAME}" ); then
+  __GIT_PROXY_USE=1
+  # disable proxy if we can't connect
+  if [[ "${__GIT_PROXY_OPTIONAL}" == 'true' ]] && ! ${NETCAT_COMMAND} -w1 $(cut -d: -f1 <<< ${__GIT_PROXY_HOSTNAME}) $(cut -d: -f2 <<< ${__GIT_PROXY_HOSTNAME}); then
+    __GIT_PROXY_USE=
+  fi
+fi
+
 # Execute the ssh command with a netcat proxy if necessary
 PROXY_ARGS=( )
-if [[ -n "${__GIT_PROXY_HOSTNAME}" ]] && ! ( echo "${GIT_SSH_NO_PROXY:-}" | tr ',' '\n' | grep -q "${SSH_HOSTNAME}" ); then
+if [[ -n "${__GIT_PROXY_USE}" ]]; then
   PROXY_ARGS=( -o ProxyCommand="${NETCAT_COMMAND} ${__GIT_PROXY_NC_ARGS} -X ${__GIT_PROXY_PROTOCOL} -x ${__GIT_PROXY_HOSTNAME} %h %p" )
 fi
 exec ssh "${PROXY_ARGS[@]}" "$@"
