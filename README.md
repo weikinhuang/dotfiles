@@ -148,15 +148,13 @@ branch name───────────────────────
 
 When on screen host is replaced with session name and is underlined.
 
-load = cpu% on cygwin
-
 load = 1 min load avg on *nix/osx/wsl
 
 ### Custom options for the PS1
 
 Place these options in `~/.prompt_exports`
 
-Turn off the load indicator (speeds up the cygwin prompt by a bit)
+Turn off the load indicator
 ```bash
 export _PS1_HIDE_LOAD=1
 ```
@@ -285,12 +283,6 @@ Use to determine a projects directory (shortcut with `p`)
 
 ```bash
 export PROJECT_DIR='~/Documents/Projects'
-```
-
-Use to reduce load poll time (cygwin)
-
-```bash
-export __ps1_var_loadreloadtime=15
 ```
 
 Use to homebrew utilities without the `g` prefix (OSX)

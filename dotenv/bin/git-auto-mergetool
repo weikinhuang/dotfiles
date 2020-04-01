@@ -11,7 +11,7 @@ if [[ -z $@ || $# != "4" ]] ; then
   exit 1
 fi
 
-# First try to see if we have araxis merge in a cygwin env
+# See if we have a mergetool specified
 if type _git-mergetool &> /dev/null; then
   _git-mergetool "$BASE" "$LOCAL" "$REMOTE" "$MERGED" >/dev/null 2>&1
   EXIT=$?

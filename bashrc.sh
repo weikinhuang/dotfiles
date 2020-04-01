@@ -32,21 +32,6 @@ IS_NIX=1 # check if we can load generic unix utils
 IS_WSL=0
 IS_TERMUX=0
 case "$(uname -s)" in
-  CYGWIN*)
-    DOTENV="cygwin"
-    IS_NIX=0
-    ;;
-  MINGW32_NT*)
-    # we'll just pretend to use the cygwin functions
-    DOTENV="cygwin"
-    IS_NIX=0
-    # we can only have monochrome prompts
-    _PS1_MONOCHROME=1
-    # force the usage of /bin/bash instead of /bin/sh
-    if [[ "${BASH}" == "/bin/sh" ]]; then
-      BASH="/bin/bash"
-    fi
-    ;;
   Darwin)
     DOTENV="darwin"
     ;;

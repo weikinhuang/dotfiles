@@ -114,8 +114,6 @@ totime           => date2unix
 fromtime         => unix2date
 
 parallel-xargs   => Run a command through xargs with that is sh wrapped (parallel-xargs cat {})
-
-hosts-rebuild    => Build hosts file with dev hosts and ad blocking
 ```
 
 ### Git Utilities
@@ -137,40 +135,6 @@ git repl                 => Start a repl where all commands are prefixed with "g
 git sync                 => Sync origin with upstream remote
 git touch                => Make a new file and add it
 git track                => Sets up auto-tracking of a remote branch with same base name
-```
-
-## CYGWIN specific
-
-### Utilities
-
-```text
-olib                     => Open a Windows (Vista/7/8) Libraries
-psfind                   => Find processes by name match
-pskill                   => Kill processes by name match
-__cygexewrap             => Give the ability to wrap applications and set up Windows paths (GUI)
-__cygcliwrap             => Give the ability to wrap applications and set up Windows paths (CLI)
-apt-cyg                  => CLI for cygwin installer https://github.com/transcode-open/apt-cyg
-apt-get                  => apt-cyg
-
-winpty                   => Provide a proper pty for Windows console apps https://github.com/rprichard/winpty
-inotifywait              => FS watcher
-chattr                   => Change Windows file attributes
-cygsetup                 => Open cygwin setup
-lnw                      => Create a windows symlink
-npp                      => Open a sandboxed instance of notepad++
-rc                       => Send a file to the recycle bin
-symlink-reflow           => Convert all symlinks in a directory between cygwin and Windows style
-
-winstart                 => shortcut to `cygstart ...` and makes all file references absolute
-s                        => winstart
-```
-
-### Global Variables
-
-```text
-USERPROFILE              => Path to the windows user profile directory
-APPDATA                  => Path to the windows user AppData directory
-CYGWIN                   => Cygwin configuration https://cygwin.com/cygwin-ug-net/using-cygwinenv.html
 ```
 
 ## Windows Subsystem Linux (WSL) specific

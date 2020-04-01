@@ -55,11 +55,6 @@ fi
 # root directory to install into
 readonly DOTFILES_ROOT="${DOTFILES__INSTALL_ROOT}/.dotfiles"
 
-# try to use native symlinks
-if uname -s | grep -iq cygwin; then
-  CYGWIN="winsymlinks:native nodosfilewarning"
-fi
-
 # store the configuration of for future reference
 mkdir -p "$(dirname "${CONFIG_FILE}")"
 echo "DOTFILES__INSTALL_ROOT=\"${DOTFILES__INSTALL_ROOT}\"" > "${CONFIG_FILE}"

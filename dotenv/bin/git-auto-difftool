@@ -9,7 +9,7 @@ if [[ -z $@ || $# != "2" ]] ; then
   exit 1
 fi
 
-# First try to see if we have araxis merge in a cygwin env
+# See if we have a difftool specified
 if type _git-difftool &> /dev/null; then
   _git-difftool "$LOCAL" "$REMOTE"
   EXIT=$?
