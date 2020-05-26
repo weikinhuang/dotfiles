@@ -164,6 +164,11 @@ Turn off the directory info
 export _PS1_HIDE_DIR_INFO=1
 ```
 
+Turn off the time
+```bash
+export _PS1_HIDE_TIME=1
+```
+
 Monochrome prompt
 ```bash
 export _PS1_MONOCHROME=1

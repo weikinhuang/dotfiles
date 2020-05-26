@@ -124,7 +124,7 @@ PS1_DATETIME='
   if [[ ${time} -ge '${PS1_DAY_START}' && ${time} -le '${PS1_DAY_END}' ]]; then
      color="'${PS1_COLOR_TIME_AM}'"
   fi
-  echo "${color}\T'${PS1_COLOR_RESET}'"
+  echo "${color}\T'${PS1_COLOR_RESET}' "
 '
 
 # show icon if the directory is not writable for the user
@@ -199,6 +199,9 @@ function __ps1_create() {
   if [[ -n ${_PS1_HIDE_LOAD} ]] ; then
     loadavg=''
   fi
+  if [[ -n ${_PS1_HIDE_TIME} ]] ; then
+    PS1_DATETIME=''
+  fi
 
   # Start PS1 description
   PS1=''
@@ -209,7 +212,7 @@ function __ps1_create() {
   # show number of background jobs
   PS1="${PS1}""${PS1_COLOR_BG_JOBS}${PS1_BG_JOBS}${PS1_COLOR_RESET}"
   # time
-  PS1="${PS1}\$(${PS1_DATETIME})"' '
+  PS1="${PS1}\$(${PS1_DATETIME})"
   # load
   PS1="${PS1}\$(${loadavg})"
   # user
@@ -246,6 +249,10 @@ function __ps1_create() {
 
 # generate the sudo bash prompt
 function __sudo_ps1_create() {
+  if [[ -n ${_PS1_HIDE_TIME} ]] ; then
+    PS1_DATETIME=''
+  fi
+
   # Start SUDO_PS1 description
   SUDO_PS1=''
   # open bracket
@@ -255,7 +262,7 @@ function __sudo_ps1_create() {
   # show number of background jobs
   SUDO_PS1="${SUDO_PS1}""${PS1_COLOR_BG_JOBS}${PS1_BG_JOBS}${PS1_COLOR_RESET}"
   # time
-  SUDO_PS1="${SUDO_PS1}\$(${PS1_DATETIME})"' '
+  SUDO_PS1="${SUDO_PS1}\$(${PS1_DATETIME})"
   # user
   SUDO_PS1="${SUDO_PS1}""${PS1_COLOR_USER}"'\u'"${PS1_COLOR_RESET}"
   # [@] based on environment
