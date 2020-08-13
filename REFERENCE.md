@@ -98,7 +98,7 @@ regex            => Regex match and replace from: https://gist.github.com/opsb/4
 ### Utilities
 
 ```text
-__dotfiles::fn::push_prompt_command => Pushes a new command to the PROMPT_COMMAND variable
+__push_prompt_command => Pushes a new command to the PROMPT_COMMAND variable
 
 reload           => Reload the current environment
 

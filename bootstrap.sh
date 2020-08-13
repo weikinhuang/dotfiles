@@ -16,6 +16,7 @@ LINKED_FILES=(
   "inputrc .inputrc"
   "mongorc.js .mongorc.js"
   "screenrc .screenrc"
+  "tmux.conf .tmux.conf"
   "wgetrc .wgetrc"
 )
 DOTFILES__INSTALL_VIMRC=1

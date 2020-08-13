@@ -38,7 +38,7 @@ case "$(uname -s)" in
   Linux)
     if uname -r | grep -q Microsoft; then
       IS_WSL=1
-    elif type kubectl &>/dev/null; then
+    elif type termux-setup-storage &>/dev/null; then
       IS_TERMUX=1
     fi
     ;;

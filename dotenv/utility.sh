@@ -39,3 +39,11 @@ function _ssh-agent-start() {
 if [[ -n "${AUTOLOAD_SSH_AGENT:-}" ]]; then
   _ssh-agent-start
 fi
+
+# reloads env vars from tmux
+function _reload-tmux-env() {
+  eval $(tmux show-env -s)
+}
+if [[ "${TERM:-}" == screen* ]] && [[ -n "${TMUX:-}" ]] && type tmux &>/dev/null; then
+  __push_prompt_command '_reload-tmux-env'
+fi
