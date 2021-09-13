@@ -2,8 +2,8 @@
 
 # if there are any baked in arguments they are defined here
 args=(  )
-IS_REMAIN_ARGS=0
-IS_WSLPATH_TRANSLATE_CMD=0
+IS_REMAIN_ARGS=
+IS_WSLPATH_TRANSLATE_CMD=
 
 # echo NATIVE_ARGS= "$@" >> /tmp/wslgit-runlog
 for arg in "$@"

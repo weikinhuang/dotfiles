@@ -4,28 +4,27 @@
 PROGRAM=$(wslpath -u "c:/Windows/system32/attrib.exe")
 
 # if there are any baked in arguments they are defined here
-args=(  )
-attr=(  )
-opts=(  )
+args=()
+attr=()
+opts=()
 FILE=""
 
-for arg in "$@"
-do
+for arg in "$@"; do
   case "$arg" in
-    [+-][RASHIrashi] )
+    [+-][RASHIrashi])
       attr=("${attr[@]}" $(echo "$arg" | tr '[:lower:]' '[:upper:]'))
       ;;
 
-    /[SDLsdl] )
+    /[SDLsdl])
       opts=("${opts[@]}" $(echo "$arg" | tr '[:lower:]' '[:upper:]'))
       ;;
 
-    --all )
+    --all)
       # special command to process recursively
       opts=("${opts[@]}" "/S" "/D")
       ;;
 
-    -\?|--help|-h|/\? )
+    -\? | --help | -h | /\?)
       # run the help command
       "${PROGRAM}" "/?"
       exit 0
@@ -33,7 +32,7 @@ do
 
     *)
       # this is the file we're working on
-      if [[ -e "$arg" ]] ; then
+      if [[ -e "$arg" ]]; then
         FILE="$(wslpath -wa "$arg")"
       else
         echo "Path ${arg} not found."
@@ -44,14 +43,14 @@ do
 done
 
 # make all arguments unique
-attr=( $( printf "%s\n" "${attr[@]}" | awk 'x[$0]++ == 0' ) )
-opts=( $( printf "%s\n" "${opts[@]}" | awk 'x[$0]++ == 0' ) )
+attr=($(printf "%s\n" "${attr[@]}" | awk 'x[$0]++ == 0'))
+opts=($(printf "%s\n" "${opts[@]}" | awk 'x[$0]++ == 0'))
 
 # merge all the arguments in the right order
 args=("${attr[@]}" "$FILE" "${opts[@]}")
 
 # no file specified, then just run the program
-if [[ -z "$FILE" ]] ; then
+if [[ -z "$FILE" ]]; then
   "${PROGRAM}"
   exit 0
 fi

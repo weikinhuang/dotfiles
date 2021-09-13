@@ -147,6 +147,7 @@ is-volfs-readable        => Check if Windows processes can read this file
 
 chattr                   => Change Windows file attributes
 cmd0                     => Run a command via the windows cmd prompt processor
+mklink                   => Shortcut to the windows MKLINK command, with ln style args
 npp                      => Open a sandboxed instance of notepad++
 run.exe                  => Run a windows command without the cmd window (see: http://www.straightrunning.com/projectrun.php)
 

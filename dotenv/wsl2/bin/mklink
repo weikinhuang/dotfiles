@@ -1,0 +1,93 @@
+#!/bin/bash
+
+OPT_HARDLINK=
+OPT_JUNCTION=
+OPT_END=
+
+targets=()
+
+for arg in "$@"; do
+  case "$arg" in
+    -s | --symbolic | /s | /S) ;;
+    -H | --hard | /h | /H)
+      OPT_HARDLINK=1
+      ;;
+    -j | --junction | /j | /J)
+      OPT_JUNCTION=1
+      ;;
+    -\? | --help | /\?)
+      cat - <<-EOF
+Creates a symbolic link.
+
+mklink [OPTION]... TARGET LINK_NAME
+
+Mandatory arguments to long options are mandatory for short options too.
+  -H, --hard                  make hard links directly to symbolic links
+  -j, --junction              create a directory junction
+  -s, --symbolic              make symbolic links instead of hard links (default behavior)
+      --help     display this help and exit
+EOF
+      exit 0
+      ;;
+    --)
+      OPT_END=1
+      ;;
+    -*)
+      if [[ -n ${OPT_END} ]]; then
+        targets=("${targets[@]}" "${arg}")
+        continue
+      fi
+      echo >&2 "Unknown option ${arg}"
+      exit 1
+      ;;
+    *)
+      targets=("${targets[@]}" "${arg}")
+      ;;
+  esac
+done
+
+if [[ ${#targets[@]} != 2 ]]; then
+  if [[ "${targets[0]}" != */* ]]; then
+    echo >&2 "Missing link name"
+    exit 1
+  else
+    targets=("${targets[0]}" "$(basename "${targets[0]}")")
+  fi
+fi
+
+# options for mkink windows command
+opts=()
+
+# symlink directories need a additional flag
+if [[ -z ${OPT_HARDLINK} ]] && [[ -z ${OPT_JUNCTION} ]] && [[ -d "${targets[0]}" ]]; then
+  opts=("${opts[@]}" "/d")
+fi
+if [[ -n ${OPT_HARDLINK} ]]; then
+  opts=("${opts[@]}" "/h")
+fi
+if [[ -n ${OPT_JUNCTION} ]]; then
+  opts=("${opts[@]}" "/j")
+fi
+
+# test for relative vs absolute
+if [[ "${targets[1]}" == /* ]]; then
+  opts=("${opts[@]}" "$(wslpath -w "${targets[1]}")")
+else
+  opts=("${opts[@]}" "$(tr '/' '\\' <<<"${targets[1]}")")
+fi
+
+# mklink can only be called on windows drives
+if [[ "$(wslpath -w "${targets[0]}" 2>/dev/null)" == '\\wsl$\'* ]]; then
+  echo >&2 "target cannot be a WSL file"
+  exit 1
+fi
+if [[ "$(wslpath -w "${targets[1]}" 2>/dev/null)" == '\\wsl$\'* ]]; then
+  echo >&2 "target cannot be a WSL file"
+  exit 1
+fi
+
+# add a windows path formatted target
+opts=("${opts[@]}" "$(wslpath -w "${targets[0]}" || tr '/' '\\' <<<"${targets[0]}")")
+
+/mnt/c/Windows/System32/cmd.exe /c mklink "${opts[@]}"
+exit $?

@@ -32,10 +32,10 @@ if [[ -n $# ]]; then
   for arg in "$@"; do
     case "${arg}" in
       --no-git)
-        DOTFILES__INSTALL_GITCONFIG=0
+        DOTFILES__INSTALL_GITCONFIG=
         ;;
       --no-vim)
-        DOTFILES__INSTALL_VIMRC=0
+        DOTFILES__INSTALL_VIMRC=
         ;;
       --dir|-d)
         shift 1

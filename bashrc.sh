@@ -15,8 +15,8 @@ case "${TERM:-xterm}" in
   screen*)
     export TERM="screen-256color"
     ;;
-  *)
-    ;;
+  *) ;;
+
 esac
 
 # load configuration from installation
@@ -29,15 +29,19 @@ readonly DOTFILES__ROOT
 # Check out which env this bash is running in
 DOTENV="linux"
 IS_NIX=1 # check if we can load generic unix utils
-IS_WSL=0
-IS_TERMUX=0
+IS_WSL=
+IS_WSL2=
+IS_TERMUX=
 case "$(uname -s)" in
   Darwin)
     DOTENV="darwin"
     ;;
   Linux)
-    if uname -r | grep -q Microsoft; then
+    if uname -r | grep -qi Microsoft; then
       IS_WSL=1
+      if uname -r | grep -qi WSL2; then
+        IS_WSL2=1
+      fi
     elif type termux-setup-storage &>/dev/null; then
       IS_TERMUX=1
     fi
@@ -50,6 +54,10 @@ if [[ ${IS_WSL} == 1 ]]; then
   [[ -d "${DOTFILES__ROOT}/.dotfiles/dotenv/wsl/bin.$(uname -m)" ]] && PATH="${PATH}:${DOTFILES__ROOT}/.dotfiles/dotenv/wsl/bin.$(uname -m)"
   [[ -d "${DOTFILES__ROOT}/.dotfiles/dotenv/wsl/bin" ]] && PATH="${PATH}:${DOTFILES__ROOT}/.dotfiles/dotenv/wsl/bin"
 fi
+if [[ ${IS_WSL2} == 1 ]]; then
+  [[ -d "${DOTFILES__ROOT}/.dotfiles/dotenv/wsl2/bin.$(uname -m)" ]] && PATH="${PATH}:${DOTFILES__ROOT}/.dotfiles/dotenv/wsl2/bin.$(uname -m)"
+  [[ -d "${DOTFILES__ROOT}/.dotfiles/dotenv/wsl2/bin" ]] && PATH="${PATH}:${DOTFILES__ROOT}/.dotfiles/dotenv/wsl2/bin"
+fi
 if [[ ${IS_TERMUX} == 1 ]]; then
   [[ -d "${DOTFILES__ROOT}/.dotfiles/dotenv/termux/bin.$(uname -m)" ]] && PATH="${PATH}:${DOTFILES__ROOT}/.dotfiles/dotenv/termux/bin.$(uname -m)"
   [[ -d "${DOTFILES__ROOT}/.dotfiles/dotenv/termux/bin" ]] && PATH="${PATH}:${DOTFILES__ROOT}/.dotfiles/dotenv/termux/bin"
@@ -60,7 +68,7 @@ fi
 [[ -d "${HOME}/bin" ]] && PATH="${PATH}:${HOME}/bin"
 
 # Remove duplicate entries from PATH and retain the original order
-if type nl &> /dev/null; then
+if type nl &>/dev/null; then
   export PATH=$(echo "${PATH}" | tr : '\n' | nl | sort -u -k 2,2 | sort -n | cut -f 2- | tr '\n' : | sed -e 's/:$//' -e 's/^://')
 fi
 
@@ -71,6 +79,9 @@ for file in {exports,functions,aliases,completion,extra,env}; do
   if [[ ${IS_WSL} == 1 ]]; then
     [[ -r "${DOTFILES__ROOT}/.dotfiles/dotenv/wsl/${file}.sh" ]] && source "${DOTFILES__ROOT}/.dotfiles/dotenv/wsl/${file}.sh"
   fi
+  if [[ ${IS_WSL2} == 1 ]]; then
+    [[ -r "${DOTFILES__ROOT}/.dotfiles/dotenv/wsl2/${file}.sh" ]] && source "${DOTFILES__ROOT}/.dotfiles/dotenv/wsl2/${file}.sh"
+  fi
   if [[ ${IS_TERMUX} == 1 ]]; then
     [[ -r "${DOTFILES__ROOT}/.dotfiles/dotenv/termux/${file}.sh" ]] && source "${DOTFILES__ROOT}/.dotfiles/dotenv/termux/${file}.sh"
   fi
@@ -79,7 +90,7 @@ unset file
 
 # add local completion
 if [[ -e "${HOME}"/.config/completion.d/* ]]; then
-    source "${HOME}"/.config/completion.d/*
+  source "${HOME}"/.config/completion.d/*
 fi
 
 # load a local specific sources before the scripts
@@ -95,6 +106,9 @@ for file in {post-local,prompt}; do
   if [[ ${IS_WSL} == 1 ]]; then
     [[ -r "${DOTFILES__ROOT}/.dotfiles/dotenv/wsl/${file}.sh" ]] && source "${DOTFILES__ROOT}/.dotfiles/dotenv/wsl/${file}.sh"
   fi
+  if [[ ${IS_WSL2} == 1 ]]; then
+    [[ -r "${DOTFILES__ROOT}/.dotfiles/dotenv/wsl2/${file}.sh" ]] && source "${DOTFILES__ROOT}/.dotfiles/dotenv/wsl2/${file}.sh"
+  fi
   if [[ ${IS_TERMUX} == 1 ]]; then
     [[ -r "${DOTFILES__ROOT}/.dotfiles/dotenv/termux/${file}.sh" ]] && source "${DOTFILES__ROOT}/.dotfiles/dotenv/termux/${file}.sh"
   fi
@@ -102,7 +116,7 @@ done
 unset file
 
 # set $EDITOR to vi(m) if not already set
-export EDITOR="${EDITOR:-$(type vim &> /dev/null && echo vim || echo vi)}"
+export EDITOR="${EDITOR:-$(type vim &>/dev/null && echo vim || echo vi)}"
 
 # write to .bash_history after each command
 __push_prompt_command 'history -a'
@@ -122,11 +136,11 @@ shopt -s histappend
 
 # Try to enable some bash 4 functionality
 # Attempt to auto cd to a directory
-shopt -s autocd 2> /dev/null
+shopt -s autocd 2>/dev/null
 # Recursive globbing, e.g. `echo **/*.txt`
-shopt -s globstar 2> /dev/null
+shopt -s globstar 2>/dev/null
 # If any jobs are running, this causes the exit to be deferred until a second exit is attempted
-shopt -s checkjobs 2> /dev/null
+shopt -s checkjobs 2>/dev/null
 
 # redirect to a starting directory folder if starting in home
 [[ "$(pwd)" == "${HOME}" ]] && [[ -n "${START_DIR}" && -e "${START_DIR}" ]] && cd "${START_DIR}"
