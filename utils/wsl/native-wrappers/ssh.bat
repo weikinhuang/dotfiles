@@ -66,9 +66,7 @@ set v_params=%v_params:c:=/mnt/c%
 REM set v_params=%v_params:"=\"%
 
 If %PROCESSOR_ARCHITECTURE% == x86 (
-  :: C:\Windows\Sysnative\wsl.exe %~n0 %v_params%
-  C:\Windows\Sysnative\bash.exe -ic "%~n0 %v_params%"
+  C:\Windows\Sysnative\wsl.exe bash -ic "exec %~n0 %v_params%"
 ) Else (
-  :: C:\Windows\System32\wsl.exe %~n0 %v_params%
-  C:\Windows\system32\bash.exe -ic "%~n0 %v_params%"
+  C:\Windows\system32\wsl.exe bash -ic "exec %~n0 %v_params%"
 )
