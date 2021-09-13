@@ -17,7 +17,7 @@ function _ssh-agent-start() {
 
   SSH_AGENT_ENV="${HOME}/.ssh/agent.env"
 
-  test -f "${SSH_AGENT_ENV}" && . "${SSH_AGENT_ENV}" >|/dev/null;
+  test -f "${SSH_AGENT_ENV}" && . "${SSH_AGENT_ENV}" >|/dev/null
 
   # agent_run_state: 0=agent running w/ key; 1=agent w/o key; 2= agent not running
   agent_run_state=$(

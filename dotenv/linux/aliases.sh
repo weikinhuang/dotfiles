@@ -4,9 +4,9 @@ alias pbcopy="xclip -selection clipboard"
 alias pbpaste="xclip -selection clipboard -o"
 
 # open command shortcuts
-if type xdg-open &> /dev/null; then
+if type xdg-open &>/dev/null; then
   alias open="xdg-open"
-elif type gnome-open &> /dev/null; then
+elif type gnome-open &>/dev/null; then
   alias open="gnome-open"
 else
   alias open="nautilus"
@@ -16,12 +16,12 @@ fi
 alias md5="md5sum"
 
 # Alias vi to vim
-if type vim &> /dev/null; then
+if type vim &>/dev/null; then
   alias vi="vim"
 fi
 
 # Alias clamscan with avscan
-if type clamscan &> /dev/null; then
+if type clamscan &>/dev/null; then
   alias avscan="clamscan"
 fi
 

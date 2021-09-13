@@ -46,7 +46,7 @@ alias ls="ls ${LS_COLOR_FLAG}"
 alias lf="ls -l ${LS_COLOR_FLAG} | grep '^d'"
 
 # check if we can display in long format
-if ls --format=long > /dev/null 2>&1; then
+if ls --format=long >/dev/null 2>&1; then
   alias dir="ls ${LS_COLOR_FLAG} --format=vertical"
   alias vdir="ls ${LS_COLOR_FLAG} --format=long"
 fi
@@ -54,7 +54,7 @@ fi
 unset LS_COLOR_FLAG
 
 # allow which command to expand
-if which --tty-only which > /dev/null 2>&1; then
+if which --tty-only which >/dev/null 2>&1; then
   alias which="alias | /usr/bin/which --tty-only --read-alias --show-dot --show-tilde"
 fi
 

@@ -27,7 +27,7 @@ if [[ "${1:-}" == '--' ]]; then
 fi
 
 git --git-dir="${OTHER_PROJECT_DIR}/.git" \
-    format-patch -k -1 --stdout \
-    "${OTHER_PROJECT_SHA}" \
-    -- "$@" \
+  format-patch -k -1 --stdout \
+  "${OTHER_PROJECT_SHA}" \
+  -- "$@" \
   | git am -3 -k

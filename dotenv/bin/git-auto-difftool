@@ -4,13 +4,13 @@ LOCAL="$1"
 REMOTE="$2"
 EXIT=0
 
-if [[ -z $@ || $# != "2" ]] ; then
+if [[ -z $@ || $# != "2" ]]; then
   echo -e "Usage: $0 \$LOCAL \$REMOTE"
   exit 1
 fi
 
 # See if we have a difftool specified
-if type _git-difftool &> /dev/null; then
+if type _git-difftool &>/dev/null; then
   _git-difftool "$LOCAL" "$REMOTE"
   EXIT=$?
 else

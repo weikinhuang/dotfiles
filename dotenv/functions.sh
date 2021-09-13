@@ -4,7 +4,7 @@ function __cd_func() {
   local x2 the_new_dir adir index
   local -i cnt
 
-  if [[ $1 ==  "--" ]]; then
+  if [[ $1 == "--" ]]; then
     dirs -v
     return 0
   fi
@@ -26,7 +26,7 @@ function __cd_func() {
   [[ ${the_new_dir:0:1} == '~' ]] && the_new_dir="${HOME}${the_new_dir:1}"
 
   # Now change to the new dir and add to the top of the stack
-  pushd "${the_new_dir}" > /dev/null
+  pushd "${the_new_dir}" >/dev/null
   [[ $? -ne 0 ]] && return 1
   the_new_dir=$(pwd)
 
@@ -34,7 +34,7 @@ function __cd_func() {
   popd -n +11 2>/dev/null 1>/dev/null
 
   # Remove any other occurence of this dir, skipping the top of the stack
-  for ((cnt=1; cnt <= 10; cnt++)); do
+  for ((cnt = 1; cnt <= 10; cnt++)); do
     x2=$(dirs +${cnt} 2>/dev/null)
     [[ $? -ne 0 ]] && return 0
     [[ ${x2:0:1} == '~' ]] && x2="${HOME}${x2:1}"
@@ -71,7 +71,7 @@ function grip() {
 # xargs wrapper for running PROC_CORES parallel processes
 function parallel-xargs() {
   local cmd="$*"
-  if [[ ! "$cmd" =~ "{}" ]] ; then
+  if [[ ! "$cmd" =~ "{}" ]]; then
     cmd="$cmd {}"
   fi
   xargs -r -I {} -P "${PROC_CORES:-1}" sh -c "${cmd}"
@@ -79,44 +79,44 @@ function parallel-xargs() {
 
 # Extract archives automatically
 function extract() {
-  if [ -f "$1" ] ; then
+  if [ -f "$1" ]; then
     case "$1" in
-    *.tar.bz2)
-      tar xjf "$@"
-      ;;
-    *.tar.gz)
-      tar xzf "$@"
-      ;;
-    *.bz2)
-      bunzip2 "$@"
-      ;;
-    *.rar)
-      rar x "$@"
-      ;;
-    *.gz)
-      gunzip "$@"
-      ;;
-    *.tar)
-      tar xf "$@"
-      ;;
-    *.tbz2)
-      tar xjf "$@"
-      ;;
-    *.tgz)
-      tar xzf "$@"
-      ;;
-    *.zip)
-      unzip "$@"
-      ;;
-    *.Z)
-      uncompress "$@"
-      ;;
-    *.7z)
-      7z x "$@"
-      ;;
-    *)
-      echo "'$1' cannot be extracted via extract()"
-      ;;
+      *.tar.bz2)
+        tar xjf "$@"
+        ;;
+      *.tar.gz)
+        tar xzf "$@"
+        ;;
+      *.bz2)
+        bunzip2 "$@"
+        ;;
+      *.rar)
+        rar x "$@"
+        ;;
+      *.gz)
+        gunzip "$@"
+        ;;
+      *.tar)
+        tar xf "$@"
+        ;;
+      *.tbz2)
+        tar xjf "$@"
+        ;;
+      *.tgz)
+        tar xzf "$@"
+        ;;
+      *.zip)
+        unzip "$@"
+        ;;
+      *.Z)
+        uncompress "$@"
+        ;;
+      *.7z)
+        7z x "$@"
+        ;;
+      *)
+        echo "'$1' cannot be extracted via extract()"
+        ;;
     esac
   else
     echo "'$1' is not a valid file"
@@ -137,7 +137,7 @@ function md() {
 }
 
 # Use Git's colored diff when available
-if type git &> /dev/null; then
+if type git &>/dev/null; then
   function diff() {
     git diff --no-index --color "$@"
   }
@@ -173,7 +173,7 @@ function codepoint() {
 
 # Convert a unix timestamp to a date string
 function unix2date() {
-  if [[ -n "$1" ]] ; then
+  if [[ -n "$1" ]]; then
     echo "$1" | awk '{print strftime("%c", $1)}'
     return
   fi
@@ -182,7 +182,7 @@ function unix2date() {
 
 # Convert a date string to a unix timestamp
 function date2unix() {
-  if [[ -n "$1" ]] ; then
+  if [[ -n "$1" ]]; then
     date --date "$*" +%s
     return
   fi
@@ -201,7 +201,7 @@ function uc() {
 
 # regex match and replace from: https://gist.github.com/opsb/4409156
 function regex() {
-  gawk "match(\$0, /${1}/, ary) { print ary[${2:-0}] }";
+  gawk "match(\$0, /${1}/, ary) { print ary[${2:-0}] }"
 }
 
 # binary diff

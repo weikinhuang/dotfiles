@@ -8,8 +8,8 @@ require_work_tree
 # last argument is the pull request
 PR_NUMBER_ARG="${@: -1}"
 PR_NUMBER="${PR_NUMBER_ARG}"
-if ! grep -E '^\d+$' -q <<< "${PR_NUMBER_ARG}"; then
-  PR_NUMBER="$(perl -pe 's#^.+/pull/(\d+).*$#\1#' <<< "${PR_NUMBER_ARG}")"
+if ! grep -E '^\d+$' -q <<<"${PR_NUMBER_ARG}"; then
+  PR_NUMBER="$(perl -pe 's#^.+/pull/(\d+).*$#\1#' <<<"${PR_NUMBER_ARG}")"
 fi
 
 # get the github based upstream and origin

@@ -37,7 +37,7 @@ PS1_COLOR_LOAD='
 
 # If we want a monochrome bash prompt
 if [[ -n ${_PS1_MONOCHROME} ]]; then
-# quick reference to colors
+  # quick reference to colors
   PS1_COLOR_GREY=
   PS1_COLOR_DARK_GREY=
 
@@ -100,7 +100,7 @@ function __ps1_dir_wrapper() {
   local lsout lsnum lssize
 
   # refresh every minute or on directory change
-  if [[ $(( ${__ps1_var_date} - ${__ps1_var_dirinforeloadtime} )) -gt ${__ps1_var_dirinfotime} || "${PWD}" != "${__ps1_var_dirinfoprev}" ]]; then
+  if [[ $((${__ps1_var_date} - ${__ps1_var_dirinforeloadtime})) -gt ${__ps1_var_dirinfotime} || "${PWD}" != "${__ps1_var_dirinfoprev}" ]]; then
     lsout=$(/bin/ls -lAh 2>/dev/null)
     lsnum=$(($(echo "${lsout}" | \wc -l | \sed "s/ //g") - 1))
     lssize="$(echo "${lsout}" | \grep '^total ' | \sed 's/^total //')b"
@@ -113,7 +113,7 @@ function __ps1_dir_wrapper() {
   fi
 }
 # only run working directory information command when enabled
-if [[ -z ${_PS1_HIDE_DIR_INFO} ]] ; then
+if [[ -z ${_PS1_HIDE_DIR_INFO} ]]; then
   __push_prompt_command '__ps1_dir_wrapper'
 fi
 
@@ -137,7 +137,7 @@ PS1_EXIT_STATUS='$(EXIT="$?"; [[ $EXIT -ne 0 ]] && echo -n "(E:${EXIT}) ")'
 PS1_BG_JOBS='$([[ \j -gt 0 ]] && echo -n "bg:\j ")'
 
 # [@|#] based on environment If ssh connection
-if [[ -n "${SSH_CONNECTION:-}" || "$(who am i | cut -f2  -d\( | cut -f1 -d:)" != "" ]]; then
+if [[ -n "${SSH_CONNECTION:-}" || "$(who am i | cut -f2 -d\( | cut -f1 -d:)" != "" ]]; then
   PS1_SESSION_TYPE="${PS1_SYMBOL_SSH}"
 else
   # otherwise
@@ -160,7 +160,7 @@ esac
 
 # Set the title bar if we are in xterm
 case "${TERM}" in
-  xterm*|rxvt*)
+  xterm* | rxvt*)
     PROMPT_TITLE="\[\e]0;\u@\h:\W\007\]"
     ;;
   screen*)
@@ -196,10 +196,10 @@ function __ps1_create() {
     loadcolor="loadcolors_${__ps1_var_loadmod}"
     echo "${!loadcolor}${load}'${PS1_COLOR_RESET}' "
   '
-  if [[ -n ${_PS1_HIDE_LOAD} ]] ; then
+  if [[ -n ${_PS1_HIDE_LOAD} ]]; then
     loadavg=''
   fi
-  if [[ -n ${_PS1_HIDE_TIME} ]] ; then
+  if [[ -n ${_PS1_HIDE_TIME} ]]; then
     PS1_DATETIME=''
   fi
 
@@ -232,7 +232,7 @@ function __ps1_create() {
     PS1="${PS1}""${PS1_ADDITIONAL_INFO}${PS1_COLOR_RESET}"
   fi
   # git status only if the git repo status function is installed
-  if type __git_ps1 &> /dev/null; then
+  if type __git_ps1 &>/dev/null; then
     PS1="${PS1}""${PS1_COLOR_GIT}"'$(__git_ps1 " ('"${PS1_SYMBOL_GIT_BRANCH}${PS1_COLOR_RESET}${PS1_COLOR_GIT}"'%s)")'"${PS1_COLOR_RESET}"
   fi
   # close bracket
@@ -249,7 +249,7 @@ function __ps1_create() {
 
 # generate the sudo bash prompt
 function __sudo_ps1_create() {
-  if [[ -n ${_PS1_HIDE_TIME} ]] ; then
+  if [[ -n ${_PS1_HIDE_TIME} ]]; then
     PS1_DATETIME=''
   fi
 

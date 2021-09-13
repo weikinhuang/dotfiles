@@ -33,6 +33,6 @@ export HISTFILESIZE=$HISTSIZE
 # Don't clear the screen after quitting a manual page
 export MANPAGER="less -iFXRS -x4"
 # Highlight section titles in manual pages if possible
-if tput setaf 1 &> /dev/null; then
+if tput setaf 1 &>/dev/null; then
   export LESS_TERMCAP_md="$(tput bold)$(tput setaf 33)"
 fi

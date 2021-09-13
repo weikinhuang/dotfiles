@@ -3,7 +3,7 @@
 alias open="winstart"
 
 # Alias vi to notepad++
-if type npp &> /dev/null; then
+if type npp &>/dev/null; then
   alias vi="npp"
 fi
 

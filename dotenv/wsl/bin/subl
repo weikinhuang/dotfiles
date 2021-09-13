@@ -4,13 +4,11 @@
 PROGRAM=$(wslpath -u "c:/Program Files/Sublime Text 3/subl.exe")
 
 # if there are any baked in arguments they are defined here
-args=(  )
+args=()
 
-for arg in "$@"
-do
+for arg in "$@"; do
   # if argument is a file, then expand it to windows paths
-  if [ -e "$arg" ]
-  then
+  if [ -e "$arg" ]; then
     # echo "arg $arg is a file"
     args=("${args[@]}" "$(wslpath -w "$arg")")
   else
@@ -20,9 +18,8 @@ do
 done
 
 # test if we are in a pipe and pass stdin as last argument if we are piping in
-if [ ! -t 0 ]
-then
-  args=("${args[@]}" "$(cat -)");
+if [ ! -t 0 ]; then
+  args=("${args[@]}" "$(cat -)")
 fi
 
 "${PROGRAM}" "${args[@]}"

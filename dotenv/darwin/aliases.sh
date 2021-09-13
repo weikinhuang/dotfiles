@@ -2,12 +2,12 @@
 # Shortcuts
 
 # Alias vi to vim
-if type vim &> /dev/null; then
+if type vim &>/dev/null; then
   alias vi="vim"
 fi
 
 # Alias clamscan with avscan
-if type clamscan &> /dev/null; then
+if type clamscan &>/dev/null; then
   alias avscan="clamscan"
 fi
 

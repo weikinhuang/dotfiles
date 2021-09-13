@@ -14,7 +14,7 @@ IFS=$'\n\t'
 #==============================================================================
 # global variables
 #==============================================================================
-SSHD_SUDO_PID_PORT=$(( $$ + 32222 ))
+SSHD_SUDO_PID_PORT=$(($$ + 32222))
 
 #==============================================================================
 # internal functions
@@ -35,17 +35,17 @@ function internal::escape-args() {
   if [[ $# == 0 ]]; then
     return
   fi
-  local args=( )
+  local args=()
   for arg in "$@"; do
     # clean up weird windows issue
-    args+=( "$(printf '%q' "$arg" | sed "s/\\\\r'\$/'/")" )
+    args+=("$(printf '%q' "$arg" | sed "s/\\\\r'\$/'/")")
   done
   echo "${args[@]}"
   # for debugging arguments
   #echo "${args[@]}" >&2
 }
 
-SSH_OPTIONS=( -q -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -o ConnectTimeout=5 -p ${SSHD_SUDO_PID_PORT} )
+SSH_OPTIONS=(-q -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -o ConnectTimeout=5 -p ${SSHD_SUDO_PID_PORT})
 function internal::ssh() {
   if [[ ! -t 0 && ! -t 1 ]]; then
     # pipe mode
@@ -84,13 +84,11 @@ function internal::main() {
   sudo echo 1 >/dev/null
 
   # run sshd proxy under a elevated session
-  if ! \
-    /mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe \
-      Start-Process \
-      -Verb RunAs \
-      -WindowStyle Hidden \
-      wsl.exe \"bash\", \"$(realpath "$(which __winsudoproxy.sh)")\", \"${SSHD_SUDO_PID_PORT}\"
-  then
+  if ! /mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe \
+    Start-Process \
+    -Verb RunAs \
+    -WindowStyle Hidden \
+    wsl.exe \"bash\", \"$(realpath "$(which __winsudoproxy.sh)")\", \"${SSHD_SUDO_PID_PORT}\"; then
     echo "UAC elevation was canceled" >&2
     return 1
   fi

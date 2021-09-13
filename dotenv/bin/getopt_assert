@@ -17,7 +17,6 @@
 # to check multiple arguments delimit by : --longarg:-a:-b
 # will return the first found flag
 
-
 # function to iterate through arguments
 function getopt_loop() {
   # the first argument is our search term
@@ -29,8 +28,7 @@ function getopt_loop() {
     return 1
   fi
 
-  while test $# -gt 0
-  do
+  while test $# -gt 0; do
     if [[ "$1" == $SEARCH* ]]; then
       # get the substring of the argument sans the arg name itself
       local SUBARG="${1#$SEARCH}"
@@ -81,8 +79,7 @@ SEARCH=$1
 shift
 
 # explode the search phrase by ":"
-for arg in $(echo "$SEARCH" | tr ":" "\n")
-do
+for arg in $(echo "$SEARCH" | tr ":" "\n"); do
   # process each of the search terms
   if getopt_loop "$arg" "$@"; then
     exit 0

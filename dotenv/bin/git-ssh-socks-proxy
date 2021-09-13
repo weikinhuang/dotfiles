@@ -11,7 +11,7 @@ set -euo pipefail
 IFS=$'\n\t'
 
 if [[ "$1" == "-h" ]] || [[ "$1" == "--help" ]] || [[ "$1" == "-?" ]]; then
-cat <<HELPDOC
+  cat <<HELPDOC
 usage: usage: git-ssh-socks-proxy [-46AaCfGgKkMNnqsTtVvXxYy] [-b bind_address]
            [-c cipher_spec] [-D [bind_address:]port] [-E log_file]
            [-e escape_char] [-F configfile] [-I pkcs11] [-i identity_file]
@@ -81,7 +81,7 @@ fi
 NETCAT_COMMAND=
 if type nc &>/dev/null; then
   NETCAT_COMMAND=nc
-elif type netcat %>/dev/null; then
+elif type netcat % >/dev/null; then
   NETCAT_COMMAND=netcat
 else
   # netcat not found, we can't do anything
@@ -98,12 +98,12 @@ function pecho() {
 #ssh -vvvv -o ProxyCommand='nc -X 5 -x adobe-proxy.i.weikinhuang.com:15081 %h %p'
 
 # try to find the hostname via the first instance of user@host
-REAL_ARGS=( "$@" )
+REAL_ARGS=("$@")
 SSH_HOSTNAME=
 for arg in "${REAL_ARGS[@]}"; do
   if [[ "$arg" == *@* ]]; then
     SSH_HOSTNAME="$(echo "${arg}" | cut -d@ -f2)"
-    break;
+    break
   fi
 done
 
@@ -156,17 +156,17 @@ if [[ -z "${__GIT_PROXY_PROTOCOL}" ]]; then
 fi
 
 __GIT_PROXY_USE=
-if [[ -n "${__GIT_PROXY_HOSTNAME}" ]] && ! ( echo "${GIT_SSH_NO_PROXY:-}" | tr ',' '\n' | grep -q "${SSH_HOSTNAME}" ); then
+if [[ -n "${__GIT_PROXY_HOSTNAME}" ]] && ! (echo "${GIT_SSH_NO_PROXY:-}" | tr ',' '\n' | grep -q "${SSH_HOSTNAME}"); then
   __GIT_PROXY_USE=1
   # disable proxy if we can't connect
-  if [[ "${__GIT_PROXY_OPTIONAL}" == 'true' ]] && ! ${NETCAT_COMMAND} -w1 $(cut -d: -f1 <<< ${__GIT_PROXY_HOSTNAME}) $(cut -d: -f2 <<< ${__GIT_PROXY_HOSTNAME}); then
+  if [[ "${__GIT_PROXY_OPTIONAL}" == 'true' ]] && ! ${NETCAT_COMMAND} -w1 $(cut -d: -f1 <<<${__GIT_PROXY_HOSTNAME}) $(cut -d: -f2 <<<${__GIT_PROXY_HOSTNAME}); then
     __GIT_PROXY_USE=
   fi
 fi
 
 # Execute the ssh command with a netcat proxy if necessary
-PROXY_ARGS=( )
+PROXY_ARGS=()
 if [[ -n "${__GIT_PROXY_USE}" ]]; then
-  PROXY_ARGS=( -o ProxyCommand="${NETCAT_COMMAND} ${__GIT_PROXY_NC_ARGS} -X ${__GIT_PROXY_PROTOCOL} -x ${__GIT_PROXY_HOSTNAME} %h %p" )
+  PROXY_ARGS=(-o ProxyCommand="${NETCAT_COMMAND} ${__GIT_PROXY_NC_ARGS} -X ${__GIT_PROXY_PROTOCOL} -x ${__GIT_PROXY_HOSTNAME} %h %p")
 fi
 exec ssh "${PROXY_ARGS[@]}" "$@"

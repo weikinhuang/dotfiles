@@ -37,7 +37,7 @@ if [[ -n $# ]]; then
       --no-vim)
         DOTFILES__INSTALL_VIMRC=
         ;;
-      --dir|-d)
+      --dir | -d)
         shift 1
         DOTFILES__INSTALL_ROOT="${1}"
         ;;
@@ -49,7 +49,7 @@ fi
 if [[ "${DOTFILES__INSTALL_VIMRC}" -eq 1 ]]; then
   LINKED_FILES+=("vimrc .vimrc" "vim .vim")
 fi
-if [[ "${DOTFILES__INSTALL_GITCONFIG}" -eq 1  ]]; then
+if [[ "${DOTFILES__INSTALL_GITCONFIG}" -eq 1 ]]; then
   LINKED_FILES+=("gitconfig .gitconfig")
 fi
 
@@ -58,9 +58,9 @@ readonly DOTFILES_ROOT="${DOTFILES__INSTALL_ROOT}/.dotfiles"
 
 # store the configuration of for future reference
 mkdir -p "$(dirname "${CONFIG_FILE}")"
-echo "DOTFILES__INSTALL_ROOT=\"${DOTFILES__INSTALL_ROOT}\"" > "${CONFIG_FILE}"
-echo "DOTFILES__INSTALL_VIMRC=${DOTFILES__INSTALL_VIMRC}" >> "${CONFIG_FILE}"
-echo "DOTFILES__INSTALL_GITCONFIG=${DOTFILES__INSTALL_GITCONFIG}" >> "${CONFIG_FILE}"
+echo "DOTFILES__INSTALL_ROOT=\"${DOTFILES__INSTALL_ROOT}\"" >"${CONFIG_FILE}"
+echo "DOTFILES__INSTALL_VIMRC=${DOTFILES__INSTALL_VIMRC}" >>"${CONFIG_FILE}"
+echo "DOTFILES__INSTALL_GITCONFIG=${DOTFILES__INSTALL_GITCONFIG}" >>"${CONFIG_FILE}"
 
 # link up files
 function dotfiles::install::link() {
@@ -111,7 +111,7 @@ function dotfiles::install::repo::get() {
 function dotfiles::install::repo::update::git() {
   local DIR="${1}"
   # check if there are git changes
-  if git -C "${DIR}" diff-index --quiet HEAD -- &> /dev/null; then
+  if git -C "${DIR}" diff-index --quiet HEAD -- &>/dev/null; then
     # no changes
     git -C "${DIR}" pull origin master || return 1
   else
