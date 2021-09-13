@@ -1,5 +1,4 @@
-﻿
-# weikinhuang's dotfiles
+﻿# weikinhuang's dotfiles
 
 ## Installation
 
@@ -48,7 +47,7 @@ cd; mkdir -p ~/.dotfiles \
   && ~/.dotfiles/bootstrap.sh
 ```
 
-To update later on, just run that command again, and will create backups to the current files with a *.bak extension.
+To update later on, just run that command again, and will create backups to the current files with a \*.bak extension.
 
 ### Additional options
 
@@ -84,9 +83,10 @@ If `~/.bash_local` exists, it will be sourced after the includes are sourced.
 [exitstatus jobs time load user#host workdir<dirinfo> (git info)]user symbol
 ```
 
-<img src="assets/prompt-example.png">
+![Prompt example](./assets/prompt-example.png)
 
 The prompt
+
 ```bash
     ┌─ Time              ┌─ The current working directory
     │     ┌─ System load │   ┌─ Number of files in directory
@@ -107,6 +107,7 @@ The prompt
 ```
 
 When on ssh
+
 ```bash
 on ssh ────────────┐
 [06:00:00 0.00 user@host dir<4|2.4Mb>]λ
@@ -114,6 +115,7 @@ on ssh ────────────┐
 ```
 
 When logged in as root user
+
 ```bash
 as root ──────────────────────────────┐
 [06:00:00 0.00 root@host dir<4|2.4Mb>]μ
@@ -121,6 +123,7 @@ as root ────────────────────────
 ```
 
 When sudo'd
+
 ```bash
 as sudo ────────────────┐
 [06:00:00 user@host dir]π
@@ -128,6 +131,7 @@ as sudo ────────────────┐
 ```
 
 When on screen
+
 ```bash
 in screen                               ┌── window id
 [06:00:00 0.00 user@12345.pts-01.host01[1] dir<4|2.4Mb>]λ
@@ -135,12 +139,14 @@ in screen                               ┌── window id
 ```
 
 PS2 prompt
+
 ```bash
 [06:00:00 0.00 user#host dir<4|2.4Mb>]λ a '\
 → bcd'
 ```
 
 Git prompt
+
 ```bash
 branch name──────────────────────────────┐      ┌───git status flags
 [06:00:00 0.00 root@host dir<4|2.4Mb> (կ master %)]μ
@@ -148,38 +154,44 @@ branch name───────────────────────
 
 When on screen host is replaced with session name and is underlined.
 
-load = 1 min load avg on *nix/osx/wsl
+load = 1 min load avg on \*nix/osx/wsl
 
 ### Custom options for the PS1
 
 Place these options in `~/.prompt_exports`
 
 Turn off the load indicator
+
 ```bash
 export _PS1_HIDE_LOAD=1
 ```
 
 Turn off the directory info
+
 ```bash
 export _PS1_HIDE_DIR_INFO=1
 ```
 
 Turn off the time
+
 ```bash
 export _PS1_HIDE_TIME=1
 ```
 
 Monochrome prompt
+
 ```bash
 export _PS1_MONOCHROME=1
 ```
 
 Multiline prompt
+
 ```bash
 export _PS1_MULTILINE=1
 ```
 
 Custom colors for prompt
+
 ```bash
 # general colors
 PS1_COLOR_NORMAL='\[\e[m\]'
@@ -217,6 +229,7 @@ PS1_COLOR_LOAD='
 ```
 
 Custom symbols and variables for the bash prompt
+
 ```bash
 # the symbol to be displayed when current the directory is readonly: "*"
 PS1_SYMBOL_NO_WRITE_PWD='*'
@@ -243,13 +256,13 @@ PS1_DAY_END=18
 
 ### The MySQL client Prompt
 
-```
+```text
 user@host [database]→
 ```
 
 ### The Mongo client Prompt
 
-```
+```text
 host[database]>
 state[repl]#host [database]>
 ```
@@ -257,6 +270,7 @@ state[repl]#host [database]>
 ## .gitconfig
 
 If using the gitconfig included in this repository, it is recommended that the user specific configurations be included in environment variables in `~/.bash_local` for portability.
+
 ```bash
 # git based configurations for portable .gitconfig
 export GIT_AUTHOR_NAME=""

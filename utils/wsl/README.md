@@ -1,22 +1,15 @@
-# Windows Subsystem Linux misc files
+# Windows Subsystem Linux setup
+
+For full documentation see [docs.microsoft.com](https://docs.microsoft.com/en-us/windows/wsl/install-win10).
 
 ## Install the Windows Subsystem for Linux
 
-Before installing any Linux distros for WSL, you must ensure that the "Windows Subsystem for Linux" optional feature is enabled:
-
-1. Open PowerShell as Administrator and run:
-    ```powershell
-    Enable-WindowsOptionalFeature -Online -FeatureName Microsoft-Windows-Subsystem-Linux
-    ```
-1. Restart your computer when prompted.
-1. Download and install from the Windows Store: search `Run Linux on Windows`
-    - [Ubuntu](https://www.microsoft.com/store/p/ubuntu/9nblggh4msv6)
-1. From the distro's page, select "Get"
-1. Now that your Linux distro is installed, you must initialize your new distro instance once, before it can be used.
+- For **WSL 1** see [./WSL1/README.md](./WSL1/README.md)
+- For **WSL 2** see [./WSL2/README.md](./WSL2/README.md)
 
 ## Set up wsl configurations
 
-#### Setup `wsl.conf`
+### Setup `wsl.conf`
 
 See [Automatically Configuring WSL](https://blogs.msdn.microsoft.com/commandline/2018/02/07/automatically-configuring-wsl/) on microsoft.com for explanation of options.
 
@@ -47,93 +40,27 @@ enabled = true
 appendWindowsPath = true
 ```
 
-## Change home directory to the Windows home dir
+## Allow the `sudo` group to use sudo without a password
 
-Changing the current user's home directory to be the equivalent windows home dir to persist settings on reinstall of WSL.
-
-Edit `/etc/passwd` with:
+Edit the sudoers file
 
 ```bash
-sudo vi /etc/passwd
+sudo visudo
 ```
 
-Change the line:
+Change the following block:
 
 ```text
-WSLUSERNAME:x:1000:1000:,,,:/home/WSLUSERNAME:/bin/bash
+# Allow members of group sudo to execute any command
+%sudo   ALL=(ALL:ALL) ALL
 ```
 
-to
+to:
 
 ```text
-WSLUSERNAME:x:1000:1000:,,,:/mnt/c/Users/WINDOWSUSERNAME:/bin/bash
+# Allow members of group sudo to execute any command
+%sudo   ALL=(ALL:ALL) NOPASSWD: ALL
 ```
-
-## Install sshd
-
-Installing sshd lets us use other terminal emulators other than the default one.
-
-1. Generate ssh keys for this user if not already there
-
-    ```bash
-    ssh-keygen -t rsa
-    ```
-
-1. Reinstall sshd
-
-    ```bash
-    sudo apt-get remove --purge openssh-server
-    sudo apt-get install openssh-server
-    ```
-
-1. Update the sshd config, comment in or add the following lines:
-
-    ```bash
-    sudo vi /etc/ssh/sshd_config
-    ```
-
-    ```text
-    Port 2222
-    ListenAddress 127.0.0.1
-    ListenAddress ::1
-    PermitRootLogin no
-    AllowUsers WSLUSERNAME
-    PasswordAuthentication no
-    #UsePrivilegeSeparation no # needed for older versions of WSL
-    ```
-
-    ```bash
-    # on newer versions of ubuntu, instead of "UsePrivilegeSeparation no" create this directory
-    sudo mkdir -p /run/sshd
-    ```
-
-1. Restart the sshd service
-
-    ```bash
-    sudo service ssh --full-restart
-    ```
-
-## Start up sshd on user logon
-
-1. Set up `/etc/sudoers` file with sudo permissions for sshd
-
-    ```bash
-    sudo visudo
-    ```
-
-    Append the following lines before `#includedir /etc/sudoers.d`
-
-    ```text
-    # Allow base user to start up sshd on windows login
-    WSLUSERNAME ALL=(ALL) NOPASSWD: /usr/sbin/sshd
-    WSLUSERNAME ALL=(ALL) NOPASSWD: /bin/mkdir -p /run/sshd
-    ```
-
-1. Install the windows scheduled task, change the path to the dotfiles installation path if necessary.
-
-    ```bash
-    bash ~/.dotfiles/utils/wsl/sshd-on-boot.sh
-    ```
 
 ## Install useful utilities
 
