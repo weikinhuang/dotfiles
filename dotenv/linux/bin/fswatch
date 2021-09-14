@@ -3,13 +3,14 @@
 DIRECTORY="$(readlink -f "${1}")"
 shift
 
+# shellcheck disable=SC2034
 inotifywait -mrs --timefmt '%s' --format '%T %e %w %f' \
   --event modify \
   --event move \
   --event create \
   --event delete \
-  "$DIRECTORY" \
-  | while read time event dir file; do
-    cd "$DIRECTORY"
+  "${DIRECTORY}" \
+  | while read -r time event dir file; do
+    cd "${DIRECTORY}" || exit
     "$@"
   done

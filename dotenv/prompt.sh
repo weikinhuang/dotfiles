@@ -7,7 +7,6 @@ PS1_COLOR_BOLD='\[\e[1m\]'
 PS1_COLOR_UNDERLINE='\[\e[4m\]'
 PS1_COLOR_RESET='\[\e[0m\]'
 PS1_COLOR_GREY='\[\e[38;5;244m\]'
-PS1_COLOR_DARK_GREY='\[\e[38;5;235m\]'
 
 # colors for individual parts of the bash prompt
 PS1_COLOR_EXIT_ERROR='\[\e[38;5;196m\]'
@@ -39,7 +38,6 @@ PS1_COLOR_LOAD='
 if [[ -n ${_PS1_MONOCHROME} ]]; then
   # quick reference to colors
   PS1_COLOR_GREY=
-  PS1_COLOR_DARK_GREY=
 
   # colors for individual parts of the bash prompt
   PS1_COLOR_EXIT_ERROR=
@@ -84,11 +82,13 @@ PS1_DAY_END=18
 
 # ---------- SYMBOL, VARIABLES, AND COLOR OVERRIDES ----------
 
+# shellcheck source=/dev/null
 [[ -r "${HOME}/.prompt_exports" ]] && source "${HOME}/.prompt_exports"
 
 # ---------- FUNCTIONS AND REUSED STATEMENTS FOR PROMPTS ----------
 
 # Keep a cached date variable for prompt testing
+# shellcheck disable=SC2016
 __push_prompt_command '__ps1_var_date=$(/bin/date +%s)'
 
 # caching the directory information for bash prompt to reduce disk reads
@@ -100,7 +100,7 @@ function __ps1_dir_wrapper() {
   local lsout lsnum lssize
 
   # refresh every minute or on directory change
-  if [[ $((${__ps1_var_date} - ${__ps1_var_dirinforeloadtime})) -gt ${__ps1_var_dirinfotime} || "${PWD}" != "${__ps1_var_dirinfoprev}" ]]; then
+  if [[ $((__ps1_var_date - __ps1_var_dirinforeloadtime)) -gt ${__ps1_var_dirinfotime} || "${PWD}" != "${__ps1_var_dirinfoprev}" ]]; then
     lsout=$(/bin/ls -lAh 2>/dev/null)
     lsnum=$(($(echo "${lsout}" | \wc -l | \sed "s/ //g") - 1))
     lssize="$(echo "${lsout}" | \grep '^total ' | \sed 's/^total //')b"
@@ -118,6 +118,7 @@ if [[ -z ${_PS1_HIDE_DIR_INFO} ]]; then
 fi
 
 # datetime colorization in prompt
+# shellcheck disable=SC2016
 PS1_DATETIME='
   time=$(/bin/date +"%H" | sed 's/^0//')
   color="'${PS1_COLOR_TIME_PM}'"
@@ -128,12 +129,15 @@ PS1_DATETIME='
 '
 
 # show icon if the directory is not writable for the user
+# shellcheck disable=SC2016
 PS1_PWD_WRITABLE='$([[ ! -w "$PWD" ]] && echo -n "'${PS1_SYMBOL_NO_WRITE_PWD}'")'
 
 # show the exit status of the previous command
+# shellcheck disable=SC2016,SC2089
 PS1_EXIT_STATUS='$(EXIT="$?"; [[ $EXIT -ne 0 ]] && echo -n "(E:${EXIT}) ")'
 
 # show the number of running background jobs
+# shellcheck disable=SC2016
 PS1_BG_JOBS='$([[ \j -gt 0 ]] && echo -n "bg:\j ")'
 
 # [@|#] based on environment If ssh connection
@@ -176,21 +180,26 @@ esac
 # generate the bash prompt
 function __ps1_create() {
   # load avg colorization
+  # shellcheck disable=SC2016
   local loadavg='load=$(__ps1_proc_use)'
 
   # special case for osx systems with older sed
   case ${DOTENV} in
     linux)
+      # shellcheck disable=SC2016
       loadavg=${loadavg}'
         __ps1_var_loadmod=$(echo "${load}" | \\sed "s/^0*\\([0-9]\\+\\)\\..\\+\\$/\\1/")
       '
       ;;
     darwin)
+      # shellcheck disable=SC2016
       loadavg=${loadavg}'
         __ps1_var_loadmod=$(echo "${load}" | \\sed "s/^0*\\([0-9][0-9]*\\)\\..*\\$/\\1/")
       '
       ;;
   esac
+
+  # shellcheck disable=SC2016
   loadavg=${loadavg}${PS1_COLOR_LOAD}'
     [[ $__ps1_var_loadmod -gt 9 ]] && __ps1_var_loadmod=9
     loadcolor="loadcolors_${__ps1_var_loadmod}"
@@ -242,9 +251,9 @@ function __ps1_create() {
     PS1="${PS1}\n"
   fi
   # prompt symbol
-  PS1=${PS1}${PS1_COLOR_BOLD}$([[ $UID == 0 ]] && echo ${PS1_SYMBOL_ROOT} || echo ${PS1_SYMBOL_USER})${PS1_COLOR_RESET}
+  PS1="${PS1}${PS1_COLOR_BOLD}$([[ $UID == 0 ]] && echo "${PS1_SYMBOL_ROOT}" || echo "${PS1_SYMBOL_USER}")${PS1_COLOR_RESET}"
   # space & title bar
-  PS1=${PROMPT_TITLE}${PS1}' '
+  PS1="${PROMPT_TITLE}${PS1} "
 }
 
 # generate the sudo bash prompt
@@ -287,14 +296,17 @@ function __sudo_ps1_create() {
 
 # Execute the prompt creation function
 __ps1_create
+# shellcheck disable=SC2090
 export PS1
 
 # export the sudo'd bash prompt
 __sudo_ps1_create
+# shellcheck disable=SC2090
 export SUDO_PS1
 
 # export the interactive prompt line of the shell
-export PS2="$(echo -e "\xe2\x86\x92") "
+PS2="$(echo -e "\xe2\x86\x92") "
+export PS2
 
 # ---------- CLEANUP ----------
 
@@ -308,7 +320,6 @@ unset PS1_COLOR_NORMAL \
   PS1_COLOR_UNDERLINE \
   PS1_COLOR_RESET \
   PS1_COLOR_GREY \
-  PS1_COLOR_DARK_GREY \
   PS1_COLOR_EXIT_ERROR \
   PS1_COLOR_BG_JOBS \
   PS1_COLOR_USER \

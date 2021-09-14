@@ -27,5 +27,5 @@ export -f is-drvfs-readable
 # run a command under the windows shell
 function cmd0() {
   cmd.exe /c "$@" | sed 's/\r$//'
-  return ${PIPESTATUS[0]}
+  return "${PIPESTATUS[0]}"
 }

@@ -24,6 +24,7 @@ DOTFILES__INSTALL_GITCONFIG=1
 
 # pull info from previous installation
 if [[ -e "${CONFIG_FILE}" ]]; then
+  # shellcheck source=/dev/null
   source "${CONFIG_FILE}"
 fi
 
@@ -64,8 +65,9 @@ echo "DOTFILES__INSTALL_GITCONFIG=${DOTFILES__INSTALL_GITCONFIG}" >>"${CONFIG_FI
 
 # link up files
 function dotfiles::install::link() {
-  local file="$(echo "${1}" | cut -d' ' -f1)"
-  local target="$(echo "${1}" | cut -d' ' -f2)"
+  local file target
+  file="$(echo "${1}" | cut -d' ' -f1)"
+  target="$(echo "${1}" | cut -d' ' -f2)"
 
   # remove the backup first
   [[ -e "${DOTFILES__INSTALL_ROOT}/${target}.bak" ]] && rm -f "${DOTFILES__INSTALL_ROOT}/${target}.bak"

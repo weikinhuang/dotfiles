@@ -39,21 +39,29 @@ else
   LS_COLOR_FLAG="-G"
 fi
 # Specialized directory listings
+# shellcheck disable=SC2139
 alias la="ls -lA ${LS_COLOR_FLAG}"
+# shellcheck disable=SC2139
 alias ll="ls -l ${LS_COLOR_FLAG}"
+# shellcheck disable=SC2139
 alias l.="ls -d ${LS_COLOR_FLAG} .*"
+# shellcheck disable=SC2139
 alias ls="ls ${LS_COLOR_FLAG}"
+# shellcheck disable=SC2139
 alias lf="ls -l ${LS_COLOR_FLAG} | grep '^d'"
 
 # check if we can display in long format
 if ls --format=long >/dev/null 2>&1; then
+  # shellcheck disable=SC2139
   alias dir="ls ${LS_COLOR_FLAG} --format=vertical"
+  # shellcheck disable=SC2139
   alias vdir="ls ${LS_COLOR_FLAG} --format=long"
 fi
 
 unset LS_COLOR_FLAG
 
 # allow which command to expand
+# shellcheck disable=SC2230
 if which --tty-only which >/dev/null 2>&1; then
   alias which="alias | /usr/bin/which --tty-only --read-alias --show-dot --show-tilde"
 fi
@@ -75,4 +83,5 @@ alias less="less -XR"
 alias extip="curl -s http://whatismyip.akamai.com/ | sed 's/[^0-9\.]//g'"
 
 # Reload the current shell
-alias reload="exec $SHELL -l"
+# shellcheck disable=SC2139
+alias reload="exec ${SHELL} -l"

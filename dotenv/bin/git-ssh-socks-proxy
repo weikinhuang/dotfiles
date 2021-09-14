@@ -159,7 +159,7 @@ __GIT_PROXY_USE=
 if [[ -n "${__GIT_PROXY_HOSTNAME}" ]] && ! (echo "${GIT_SSH_NO_PROXY:-}" | tr ',' '\n' | grep -q "${SSH_HOSTNAME}"); then
   __GIT_PROXY_USE=1
   # disable proxy if we can't connect
-  if [[ "${__GIT_PROXY_OPTIONAL}" == 'true' ]] && ! ${NETCAT_COMMAND} -w1 $(cut -d: -f1 <<<${__GIT_PROXY_HOSTNAME}) $(cut -d: -f2 <<<${__GIT_PROXY_HOSTNAME}); then
+  if [[ "${__GIT_PROXY_OPTIONAL}" == 'true' ]] && ! ${NETCAT_COMMAND} -w1 "$(cut -d: -f1 <<<"${__GIT_PROXY_HOSTNAME}")" "$(cut -d: -f2 <<<"${__GIT_PROXY_HOSTNAME}")"; then
     __GIT_PROXY_USE=
   fi
 fi
@@ -167,6 +167,6 @@ fi
 # Execute the ssh command with a netcat proxy if necessary
 PROXY_ARGS=()
 if [[ -n "${__GIT_PROXY_USE}" ]]; then
-  PROXY_ARGS=(-o ProxyCommand="${NETCAT_COMMAND} ${__GIT_PROXY_NC_ARGS} -X ${__GIT_PROXY_PROTOCOL} -x ${__GIT_PROXY_HOSTNAME} %h %p")
+  PROXY_ARGS=(-o "ProxyCommand=${NETCAT_COMMAND} ${__GIT_PROXY_NC_ARGS} -X ${__GIT_PROXY_PROTOCOL} -x ${__GIT_PROXY_HOSTNAME} %h %p")
 fi
 exec ssh "${PROXY_ARGS[@]}" "$@"

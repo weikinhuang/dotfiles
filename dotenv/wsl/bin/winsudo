@@ -45,7 +45,7 @@ function internal::escape-args() {
   #echo "${args[@]}" >&2
 }
 
-SSH_OPTIONS=(-q -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -o ConnectTimeout=5 -p ${SSHD_SUDO_PID_PORT})
+SSH_OPTIONS=(-q -o "UserKnownHostsFile=/dev/null" -o "StrictHostKeyChecking=no" -o "ConnectTimeout=5" -p "${SSHD_SUDO_PID_PORT}")
 function internal::ssh() {
   if [[ ! -t 0 && ! -t 1 ]]; then
     # pipe mode
@@ -57,7 +57,7 @@ function internal::ssh() {
 }
 
 function internal::ssh-with-cwd() {
-  internal::ssh cd $(printf '%q' "$(pwd)") \&\>/dev/null\ \|\|\ true\ \; "$@"
+  internal::ssh cd "$(printf '%q' "$(pwd)")" \&\>/dev/null\ \|\|\ true\ \; "$@"
 }
 
 function internal::ssh-with-login() {
@@ -88,7 +88,7 @@ function internal::main() {
     Start-Process \
     -Verb RunAs \
     -WindowStyle Hidden \
-    wsl.exe \"bash\", \"$(realpath "$(which __winsudoproxy.sh)")\", \"${SSHD_SUDO_PID_PORT}\"; then
+    wsl.exe \"bash\", \""$(realpath "$(command -v __winsudoproxy.sh)")"\", \"${SSHD_SUDO_PID_PORT}\"; then
     echo "UAC elevation was canceled" >&2
     return 1
   fi
@@ -104,6 +104,7 @@ function internal::main() {
     internal::ssh-with-cwd \$SHELL -l
   else
     # run process elevated
+    # shellcheck disable=SC2046
     internal::ssh-with-login $(internal::escape-args "$@")
   fi
 }

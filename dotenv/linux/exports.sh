@@ -1,3 +1,4 @@
 # shellcheck shell=bash
 # Number of threads that is available
-export PROC_CORES=$(grep "^processor" -c /proc/cpuinfo)
+PROC_CORES=$(grep "^processor" -c /proc/cpuinfo)
+export PROC_CORES

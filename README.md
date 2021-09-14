@@ -199,7 +199,6 @@ PS1_COLOR_BOLD='\[\e[1m\]'
 PS1_COLOR_UNDERLINE='\[\e[4m\]'
 PS1_COLOR_RESET='\[\e[0m\]'
 PS1_COLOR_GREY='\[\e[38;5;244m\]'
-PS1_COLOR_DARK_GREY='\[\e[38;5;235m\]'
 
 # colors for individual parts of the bash prompt
 PS1_COLOR_EXIT_ERROR='\[\e[38;5;196m\]'

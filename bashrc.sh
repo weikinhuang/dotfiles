@@ -21,6 +21,7 @@ esac
 
 # load configuration from installation
 if [[ -e "${HOME}/.config/dotfiles/.install" ]]; then
+  # shellcheck source=/dev/null
   source "${HOME}/.config/dotfiles/.install"
 fi
 DOTFILES__ROOT="${DOTFILES__INSTALL_ROOT:-${HOME}}"
@@ -28,7 +29,6 @@ readonly DOTFILES__ROOT
 
 # Check out which env this bash is running in
 DOTENV="linux"
-IS_NIX=1 # check if we can load generic unix utils
 IS_WSL=
 IS_WSL2=
 IS_TERMUX=
@@ -69,47 +69,61 @@ fi
 
 # Remove duplicate entries from PATH and retain the original order
 if type nl &>/dev/null; then
-  export PATH=$(echo "${PATH}" | tr : '\n' | nl | sort -u -k 2,2 | sort -n | cut -f 2- | tr '\n' : | sed -e 's/:$//' -e 's/^://')
+  PATH=$(echo "${PATH}" | tr : '\n' | nl | sort -u -k 2,2 | sort -n | cut -f 2- | tr '\n' : | sed -e 's/:$//' -e 's/^://')
+  export PATH
 fi
 
 # Source ~/.exports, ~/.functions, ~/.aliases, ~/.completion, ~/.extra, ~/.env if they exist
 for file in {exports,functions,aliases,completion,extra,env}; do
+  # shellcheck source=/dev/null
   [[ -r "${DOTFILES__ROOT}/.dotfiles/dotenv/${file}.sh" ]] && source "${DOTFILES__ROOT}/.dotfiles/dotenv/${file}.sh"
+  # shellcheck source=/dev/null
   [[ -r "${DOTFILES__ROOT}/.dotfiles/dotenv/${DOTENV}/${file}.sh" ]] && source "${DOTFILES__ROOT}/.dotfiles/dotenv/${DOTENV}/${file}.sh"
   if [[ ${IS_WSL} == 1 ]]; then
+    # shellcheck source=/dev/null
     [[ -r "${DOTFILES__ROOT}/.dotfiles/dotenv/wsl/${file}.sh" ]] && source "${DOTFILES__ROOT}/.dotfiles/dotenv/wsl/${file}.sh"
   fi
   if [[ ${IS_WSL2} == 1 ]]; then
+    # shellcheck source=/dev/null
     [[ -r "${DOTFILES__ROOT}/.dotfiles/dotenv/wsl2/${file}.sh" ]] && source "${DOTFILES__ROOT}/.dotfiles/dotenv/wsl2/${file}.sh"
   fi
   if [[ ${IS_TERMUX} == 1 ]]; then
+    # shellcheck source=/dev/null
     [[ -r "${DOTFILES__ROOT}/.dotfiles/dotenv/termux/${file}.sh" ]] && source "${DOTFILES__ROOT}/.dotfiles/dotenv/termux/${file}.sh"
   fi
 done
 unset file
 
 # add local completion
-if [[ -e "${HOME}"/.config/completion.d/* ]]; then
-  source "${HOME}"/.config/completion.d/*
+if [[ -d "${HOME}"/.config/completion.d ]]; then
+  # shellcheck source=/dev/null
+  source "${HOME}"/.config/completion.d/* || true
 fi
 
 # load a local specific sources before the scripts
+# shellcheck source=/dev/null
 [[ -r "${HOME}/.bash_local" ]] && source "${HOME}/.bash_local"
 
 # include utility settings file (git PS1, solarized, mysql, etc...)
+# shellcheck source=/dev/null
 [[ -r "${DOTFILES__ROOT}/.dotfiles/dotenv/utility.sh" ]] && source "${DOTFILES__ROOT}/.dotfiles/dotenv/utility.sh"
 
 # Source ~/.post-local, ~/.prompt if they exist
 for file in {post-local,prompt}; do
+  # shellcheck source=/dev/null
   [[ -r "${DOTFILES__ROOT}/.dotfiles/dotenv/${file}.sh" ]] && source "${DOTFILES__ROOT}/.dotfiles/dotenv/${file}.sh"
+  # shellcheck source=/dev/null
   [[ -r "${DOTFILES__ROOT}/.dotfiles/dotenv/${DOTENV}/${file}.sh" ]] && source "${DOTFILES__ROOT}/.dotfiles/dotenv/${DOTENV}/${file}.sh"
   if [[ ${IS_WSL} == 1 ]]; then
+    # shellcheck source=/dev/null
     [[ -r "${DOTFILES__ROOT}/.dotfiles/dotenv/wsl/${file}.sh" ]] && source "${DOTFILES__ROOT}/.dotfiles/dotenv/wsl/${file}.sh"
   fi
   if [[ ${IS_WSL2} == 1 ]]; then
+    # shellcheck source=/dev/null
     [[ -r "${DOTFILES__ROOT}/.dotfiles/dotenv/wsl2/${file}.sh" ]] && source "${DOTFILES__ROOT}/.dotfiles/dotenv/wsl2/${file}.sh"
   fi
   if [[ ${IS_TERMUX} == 1 ]]; then
+    # shellcheck source=/dev/null
     [[ -r "${DOTFILES__ROOT}/.dotfiles/dotenv/termux/${file}.sh" ]] && source "${DOTFILES__ROOT}/.dotfiles/dotenv/termux/${file}.sh"
   fi
 done
@@ -143,7 +157,9 @@ shopt -s globstar 2>/dev/null
 shopt -s checkjobs 2>/dev/null
 
 # redirect to a starting directory folder if starting in home
-[[ "$(pwd)" == "${HOME}" ]] && [[ -n "${START_DIR}" && -e "${START_DIR}" ]] && cd "${START_DIR}"
+if [[ "$(pwd)" == "${HOME}" ]] && [[ -n "${START_DIR}" && -e "${START_DIR}" ]]; then
+  cd "${START_DIR}" || true
+fi
 
 # exit with a success status code
 return 0

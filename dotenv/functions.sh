@@ -26,8 +26,7 @@ function __cd_func() {
   [[ ${the_new_dir:0:1} == '~' ]] && the_new_dir="${HOME}${the_new_dir:1}"
 
   # Now change to the new dir and add to the top of the stack
-  pushd "${the_new_dir}" >/dev/null
-  [[ $? -ne 0 ]] && return 1
+  pushd "${the_new_dir}" >/dev/null || return 1
   the_new_dir=$(pwd)
 
   # Trim down everything beyond 11th entry
@@ -35,12 +34,13 @@ function __cd_func() {
 
   # Remove any other occurence of this dir, skipping the top of the stack
   for ((cnt = 1; cnt <= 10; cnt++)); do
-    x2=$(dirs +${cnt} 2>/dev/null)
+    x2=$(dirs "+${cnt}" 2>/dev/null)
+    # shellcheck disable=SC2181
     [[ $? -ne 0 ]] && return 0
     [[ ${x2:0:1} == '~' ]] && x2="${HOME}${x2:1}"
     if [[ "${x2}" == "${the_new_dir}" ]]; then
-      popd -n +$cnt 2>/dev/null 1>/dev/null
-      cnt=cnt-1
+      popd -n "+${cnt}" 2>/dev/null 1>/dev/null
+      cnt=$((cnt - 1))
     fi
   done
 
@@ -126,14 +126,14 @@ function extract() {
 # Get gzipped file size
 function gz-size() {
   echo -n "original (bytes): "
-  cat "${1}" | wc -c
+  wc -c <"${1}"
   echo -n "gzipped (bytes):  "
   gzip -c "${1}" | wc -c
 }
 
 # Create a new directory and enter it
 function md() {
-  mkdir -p "$@" && cd "$@"
+  mkdir -p "$@" && cd "$@" || return 1
 }
 
 # Use Git's colored diff when available
@@ -155,19 +155,20 @@ function curl-gz() {
 
 # Escape UTF-8 characters into their 3-byte format
 function escape() {
+  # shellcheck disable=SC2046,SC2059
   printf "\\\x%s" $(printf "$@" | xxd -p -c1 -u)
   echo # newline
 }
 
 # Decode \x{ABCD}-style Unicode escape sequences
 function unidecode() {
-  perl -e "binmode(STDOUT, ':utf8'); print \"$@\""
+  perl -e "binmode(STDOUT, ':utf8'); print \"$*\""
   echo # newline
 }
 
 # Get a character's Unicode code point
 function codepoint() {
-  perl -e "use utf8; print sprintf('U+%04X', ord(\"$@\"))"
+  perl -e "use utf8; print sprintf('U+%04X', ord(\"$*\"))"
   echo # newline
 }
 

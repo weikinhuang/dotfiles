@@ -12,4 +12,6 @@ if type clamscan &>/dev/null; then
 fi
 
 # Networking shortcuts
-alias ips="ifconfig | grep 'inet\>' | perl -nle'/(\d+\.\d+\.\d+\.\d+)/ && print \$1'"
+function ips() {
+  ifconfig | grep 'inet\>' | perl -nle'/(\d+\.\d+\.\d+\.\d+)/ && print $1'
+}

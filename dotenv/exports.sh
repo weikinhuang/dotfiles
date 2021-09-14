@@ -6,10 +6,13 @@ export LANG=en_US.UTF-8
 
 # Completion options
 COMP_CVS_REMOTE=1
+export COMP_CVS_REMOTE
 # Define to avoid stripping description in --option=description of './configure --help'
 COMP_CONFIGURE_HINTS=1
+export COMP_CONFIGURE_HINTS
 # Define to avoid flattening internal contents of tar files
 COMP_TAR_INTERNAL_PATHS=1
+export COMP_TAR_INTERNAL_PATHS
 # Make = a wordbreak character
 COMP_WORDBREAKS=${COMP_WORDBREAKS/=/}
 
@@ -34,5 +37,6 @@ export HISTFILESIZE=$HISTSIZE
 export MANPAGER="less -iFXRS -x4"
 # Highlight section titles in manual pages if possible
 if tput setaf 1 &>/dev/null; then
-  export LESS_TERMCAP_md="$(tput bold)$(tput setaf 33)"
+  LESS_TERMCAP_md="$(tput bold)$(tput setaf 33)"
+  export LESS_TERMCAP_md
 fi

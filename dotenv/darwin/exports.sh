@@ -1,3 +1,4 @@
 # shellcheck shell=bash
 # Number of threads that is available
-export PROC_CORES=$(/usr/sbin/sysctl -n hw.ncpu)
+PROC_CORES=$(/usr/sbin/sysctl -n hw.ncpu)
+export PROC_CORES

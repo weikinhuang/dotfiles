@@ -8,5 +8,5 @@
 #requires           : sshd, sudo
 #==============================================================================
 
-PARENT_PID_PORT=$1
-sudo /usr/sbin/sshd -D -p ${PARENT_PID_PORT} -o ListenAddress=127.0.0.1 -o PidFile=/var/run/winsudo.${PARENT_PID_PORT}.pid
+PARENT_PID_PORT="$1"
+sudo /usr/sbin/sshd -D -p "${PARENT_PID_PORT}" -o ListenAddress=127.0.0.1 -o PidFile="/var/run/winsudo.${PARENT_PID_PORT}.pid"

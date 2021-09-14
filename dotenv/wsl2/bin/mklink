@@ -73,20 +73,24 @@ fi
 if [[ "${targets[1]}" == /* ]]; then
   opts=("${opts[@]}" "$(wslpath -w "${targets[1]}")")
 else
+  # shellcheck disable=SC1003
   opts=("${opts[@]}" "$(tr '/' '\\' <<<"${targets[1]}")")
 fi
 
 # mklink can only be called on windows drives
+# shellcheck disable=SC1003
 if [[ "$(wslpath -w "${targets[0]}" 2>/dev/null)" == '\\wsl$\'* ]]; then
   echo >&2 "target cannot be a WSL file"
   exit 1
 fi
+# shellcheck disable=SC1003
 if [[ "$(wslpath -w "${targets[1]}" 2>/dev/null)" == '\\wsl$\'* ]]; then
   echo >&2 "target cannot be a WSL file"
   exit 1
 fi
 
 # add a windows path formatted target
+# shellcheck disable=SC1003
 opts=("${opts[@]}" "$(wslpath -w "${targets[0]}" || tr '/' '\\' <<<"${targets[0]}")")
 
 /mnt/c/Windows/System32/cmd.exe /c mklink "${opts[@]}"
