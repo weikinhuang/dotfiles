@@ -26,4 +26,4 @@ if [ -z "$CHARS" ]; then
   fi
 fi
 
-cat /dev/urandom | tr -dc "$CHARS" | fold -w $LENGTH | head -n 1
+openssl rand -base64 $((LENGTH * 2)) | tr -dc "$CHARS" | fold -w "$LENGTH" | head -n 1
