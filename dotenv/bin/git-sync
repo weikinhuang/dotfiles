@@ -5,8 +5,9 @@ GIT_SYNC_TRACE=${GIT_SYNC_TRACE:-}
 
 # Go to the master branch then sync local and origin with [upstream|origin]
 function sync_one() {
-  local PREV_BR="$(git brn)"
-  local STASH_NAME="$(date +%s)"
+  local PREV_BR STASH_NAME
+  PREV_BR="$(git brn)"
+  STASH_NAME="$(date +%s)"
   git diff-index --quiet HEAD --
   local HAS_CHANGES=$?
   if [[ $HAS_CHANGES != 0 ]]; then

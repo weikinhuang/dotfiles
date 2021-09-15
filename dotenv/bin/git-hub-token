@@ -40,7 +40,7 @@ if [[ "${UPSTREAM_HOST}" != *github.com ]]; then
 fi
 
 # Generate a token for the following username
-read -p "Github username: " GITHUB_USERNAME
+read -p -r "Github username: " GITHUB_USERNAME
 if [[ -z "$GITHUB_USERNAME" ]]; then
   echo "Github username required" >&2
   exit 1
@@ -48,22 +48,22 @@ fi
 
 HOSTNAME=$(hostname)
 # Grab the app token name, using hostname as the default
-read -p "Github token name ($HOSTNAME): " GITHUB_TOKEN_NAME
+read -p -r "Github token name ($HOSTNAME): " GITHUB_TOKEN_NAME
 if [[ -z "$GITHUB_TOKEN_NAME" ]]; then
   GITHUB_TOKEN_NAME="$HOSTNAME"
 fi
 
-GITHUB_TOKEN_RESPONSE=$(curl -i https://api.github.com/authorizations -u "$GITHUB_USERNAME" -d '{"scopes":"repo","note":"'$GITHUB_TOKEN_NAME'"}')
+GITHUB_TOKEN_RESPONSE=$(curl -i https://api.github.com/authorizations -u "$GITHUB_USERNAME" -d '{"scopes":"repo","note":"'"$GITHUB_TOKEN_NAME"'"}')
 
 if [[ -z "$GITHUB_TOKEN_RESPONSE" ]]; then
   exit 1
 fi
 
 # output the curl request to stderr
-echo $GITHUB_TOKEN_RESPONSE >&2
+echo "$GITHUB_TOKEN_RESPONSE" >&2
 
 # If the response doesn't contain a token then exit with an error
-if [[ -z "$(echo "$GITHUB_TOKEN_RESPONSE" | grep '"token":')" ]]; then
+if ! grep -q '"token":' <<<"$GITHUB_TOKEN_RESPONSE"; then
   exit 1
 fi
 

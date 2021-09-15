@@ -24,7 +24,8 @@ function getopt_loop() {
   shift
 
   # short circuit to prevent looping if there are no args that look like the search term
-  if [[ ! "$@" =~ "$SEARCH" ]]; then
+  # shellcheck disable=SC2076
+  if [[ ! "$*" =~ "${SEARCH}" ]]; then
     return 1
   fi
 

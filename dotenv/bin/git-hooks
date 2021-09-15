@@ -1,7 +1,9 @@
-#!/bin/sh
+#!/bin/bash
 
+# shellcheck disable=SC2034
 USAGE='hook'
 SUBDIRECTORY_OK=Yes
+# shellcheck source=/dev/null
 . git-sh-setup
 require_work_tree
 

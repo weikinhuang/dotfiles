@@ -1,11 +1,14 @@
 #!/bin/bash
 
+# shellcheck disable=SC2034
 USAGE='[-c|--checkout]'
 SUBDIRECTORY_OK=Yes
+# shellcheck source=/dev/null
 . git-sh-setup
 require_work_tree
 
 # last argument is the pull request
+# shellcheck disable=SC2124
 PR_NUMBER_ARG="${@: -1}"
 PR_NUMBER="${PR_NUMBER_ARG}"
 if ! grep -E '^\d+$' -q <<<"${PR_NUMBER_ARG}"; then

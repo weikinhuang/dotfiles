@@ -12,11 +12,11 @@ FILE=""
 for arg in "$@"; do
   case "$arg" in
     [+-][RASHIrashi])
-      attr=("${attr[@]}" $(echo "$arg" | tr '[:lower:]' '[:upper:]'))
+      attr=("${attr[@]}" "$(tr '[:lower:]' '[:upper:]' <<<"$arg")")
       ;;
 
     /[SDLsdl])
-      opts=("${opts[@]}" $(echo "$arg" | tr '[:lower:]' '[:upper:]'))
+      opts=("${opts[@]}" "$(tr '[:lower:]' '[:upper:]' <<<"$arg")")
       ;;
 
     --all)
@@ -43,7 +43,9 @@ for arg in "$@"; do
 done
 
 # make all arguments unique
+# shellcheck disable=2207
 attr=($(printf "%s\n" "${attr[@]}" | awk 'x[$0]++ == 0'))
+# shellcheck disable=2207
 opts=($(printf "%s\n" "${opts[@]}" | awk 'x[$0]++ == 0'))
 
 # merge all the arguments in the right order

@@ -5,11 +5,11 @@ function show_contents {
 }
 
 function show_global {
-  show_contents Global $(git config --global core.excludesfile)
+  show_contents Global "$(git config --global core.excludesfile)"
 }
 
 function add_global {
-  add_patterns $(git config --global core.excludesfile) "$@"
+  add_patterns "$(git config --global core.excludesfile)" "$@"
 }
 
 function show_local {

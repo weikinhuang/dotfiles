@@ -4,7 +4,7 @@ LOCAL="$1"
 REMOTE="$2"
 EXIT=0
 
-if [[ -z $@ || $# != "2" ]]; then
+if [[ -z $* || $# != "2" ]]; then
   echo -e "Usage: $0 \$LOCAL \$REMOTE"
   exit 1
 fi

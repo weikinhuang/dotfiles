@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 # Delete all branches that have been merged to master && push deletes to remote origin
 # from: https://github.com/SnapInteractive/git-tools
 
@@ -16,12 +16,13 @@ fi
 
 for BRANCH in $(git branch --merged master | grep -v '\<master\>\|^\*'); do
   if [ -n "$INTERACTIVE" ]; then
-    read -p "$(basename $0): remove branch '$BRANCH'? (y)" RESPONSE
+    read -p -r "$(basename "$0"): remove branch '$BRANCH'? (y)" RESPONSE
     if [  "$RESPONSE" != 'y' ] && [ "$RESPONSE" != '' ]; then
       continue
     fi
   fi
   ST=$(git branch -d "$BRANCH" 2>&1)
+  # shellcheck disable=SC2181
   if [ $? -eq 0 ]; then
     echo -n "Pruned \"$BRANCH\"; removing from origin..."
     RST=$(git push origin ":$BRANCH" 2>&1)
