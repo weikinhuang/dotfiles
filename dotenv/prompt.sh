@@ -152,9 +152,9 @@ fi
 case "$TERM" in
   screen*)
     if [[ -n "${TMUX}" ]]; then
-      PS1_HOST_NAME="${PS1_COLOR_HOST_SCREEN}$(echo "${TMUX}" | cut -f4 -d/)[${TMUX_PANE}]"
+      PS1_HOST_NAME="${PS1_COLOR_HOST_SCREEN}$(test -n "${SSH_CONNECTION:-}" && echo '\h,')$(echo "${TMUX}" | cut -f4 -d/)[${TMUX_PANE}]"
     else
-      PS1_HOST_NAME="${PS1_COLOR_HOST_SCREEN}${STY}[${WINDOW}]"
+      PS1_HOST_NAME="${PS1_COLOR_HOST_SCREEN}$(test -n "${SSH_CONNECTION:-}" && echo '\h,')${STY}[${WINDOW}]"
     fi
     ;;
   *)
@@ -168,7 +168,11 @@ case "${TERM}" in
     PROMPT_TITLE="\[\e]0;\u@\h:\W\007\]"
     ;;
   screen*)
-    PROMPT_TITLE="\[\e]0;\u@${STY}[${WINDOW}]:\W\007\]"
+    if [[ -n "${TMUX}" ]]; then
+      PROMPT_TITLE="\[\e]0;\u@\h:\W\007\]"
+    else
+      PROMPT_TITLE="\[\e]0;\u@${STY}[${WINDOW}]:\W\007\]"
+    fi
     ;;
   *)
     PROMPT_TITLE=""
