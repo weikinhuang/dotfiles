@@ -53,6 +53,18 @@ function __push_prompt_command() {
   PROMPT_COMMAND="$(echo "$(echo "${PROMPT_COMMAND/%;/}" | tr ';' '\n' | grep -v -F "${command}" | grep -v '^ *$' | tr '\n' ';')${command};" | sed 's/;;/;/' | sed 's/^;//')"
 }
 
+# internal prompt command stack to simplify the PROMPT_COMMAND variable
+__prompt_actions=()
+function __push_internal_prompt_command() {
+  local command="${1/%;/}"
+  __prompt_actions+=("${command}")
+}
+function __run_prompt_command() {
+  for l in "${__prompt_actions[@]}"; do
+    eval "$l"
+  done
+}
+
 # Count the number of files in a directory
 function cf() {
   find "${1-.}" -type f | wc -l

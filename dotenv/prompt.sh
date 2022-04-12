@@ -89,7 +89,7 @@ PS1_DAY_END=18
 
 # Keep a cached date variable for prompt testing
 # shellcheck disable=SC2016
-__push_prompt_command '__ps1_var_date=$(/bin/date +%s)'
+__push_internal_prompt_command '__ps1_var_date=$(/bin/date +%s)'
 
 # caching the directory information for bash prompt to reduce disk reads
 __ps1_var_dirinfo="0|0b"
@@ -114,7 +114,7 @@ function __ps1_dir_wrapper() {
 }
 # only run working directory information command when enabled
 if [[ -z ${_PS1_HIDE_DIR_INFO} ]]; then
-  __push_prompt_command '__ps1_dir_wrapper'
+  __push_internal_prompt_command '__ps1_dir_wrapper'
 fi
 
 # datetime colorization in prompt

@@ -51,5 +51,5 @@ function _reload-tmux-env() {
   eval $(tmux show-env -s)
 }
 if [[ "${TERM:-}" == screen* ]] && [[ -n "${TMUX:-}" ]] && type tmux &>/dev/null; then
-  __push_prompt_command '_reload-tmux-env'
+  __push_internal_prompt_command '_reload-tmux-env'
 fi

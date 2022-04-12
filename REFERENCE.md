@@ -98,20 +98,21 @@ regex            => Regex match and replace from: https://gist.github.com/opsb/4
 ### Utilities
 
 ```text
-__push_prompt_command => Pushes a new command to the PROMPT_COMMAND variable
+__push_prompt_command           => Pushes a new command to the PROMPT_COMMAND variable
+__push_internal_prompt_command  => Pushes a new command to the internal stack to execute during PROMPT_COMMAND
 
-reload           => Reload the current environment
+reload                          => Reload the current environment
 
-extract          => Extracts a archive with autodetect based on extension
-gz               => Get the gzipped filesize
+extract                         => Extracts a archive with autodetect based on extension
+gz                              => Get the gzipped filesize
 
-dataurl          => Create a data URL from an image
-genpasswd        => Generate a random string of a certain length
+dataurl                         => Create a data URL from an image
+genpasswd                       => Generate a random string of a certain length
 
-unix2date        => Convert a unix timestamp to a date string (unix2date 1234567890 => Fri, Feb 13, 2009  6:31:30 PM)
-date2unix        => Convert a date string to a unix timestamp (date2unix Fri, Feb 13, 2009  6:31:30 PM => 1234567890)
-totime           => date2unix
-fromtime         => unix2date
+unix2date                       => Convert a unix timestamp to a date string (unix2date 1234567890 => Fri, Feb 13, 2009  6:31:30 PM)
+date2unix                       => Convert a date string to a unix timestamp (date2unix Fri, Feb 13, 2009  6:31:30 PM => 1234567890)
+totime                          => date2unix
+fromtime                        => unix2date
 
 parallel-xargs   => Run a command through xargs with that is sh wrapped (parallel-xargs cat {})
 ```

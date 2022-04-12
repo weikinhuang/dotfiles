@@ -129,11 +129,14 @@ for file in {post-local,prompt}; do
 done
 unset file
 
+# internal prompt command stack to simplify the PROMPT_COMMAND variable
+__push_prompt_command '__run_prompt_command'
+
 # set $EDITOR to vi(m) if not already set
 export EDITOR="${EDITOR:-$(type vim &>/dev/null && echo vim || echo vi)}"
 
 # write to .bash_history after each command
-__push_prompt_command 'history -a'
+__push_internal_prompt_command 'history -a'
 
 # Shell Options
 # Use case-insensitive filename globbing
