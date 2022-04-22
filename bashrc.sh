@@ -159,6 +159,10 @@ shopt -s globstar 2>/dev/null
 # If any jobs are running, this causes the exit to be deferred until a second exit is attempted
 shopt -s checkjobs 2>/dev/null
 
+# check the window size after each command and, if necessary,
+# update the values of LINES and COLUMNS.
+shopt -s checkwinsize
+
 # redirect to a starting directory folder if starting in home
 if [[ "$(pwd)" == "${HOME}" ]] && [[ -n "${START_DIR}" && -e "${START_DIR}" ]]; then
   cd "${START_DIR}" || true
