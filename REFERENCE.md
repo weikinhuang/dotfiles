@@ -69,8 +69,6 @@ o                => open (show in GUI file explorer)
 oo               => open . (show cwd in GUI file explorer)
 -                => cd -
 x                => parallel-xargs
-
-p                => cd $PROJECT_DIR
 ```
 
 ## Networking

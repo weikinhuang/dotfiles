@@ -66,20 +66,23 @@ to:
 
 ```bash
 sudo apt-get update && sudo apt-get install -y --no-install-recommends \
+    apt-transport-https \
     bash-completion \
     bc \
     ca-certificates \
     curl \
     direnv \
     dnsutils \
-    fasd \
     git \
     gnupg \
     htop \
     jq \
+    make \
     netcat \
     openssl \
     procps \
+    python3-venv \
+    python3-pip \
     rsync \
     screen \
     socat \
