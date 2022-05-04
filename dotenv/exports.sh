@@ -40,3 +40,6 @@ if tput setaf 1 &>/dev/null; then
   LESS_TERMCAP_md="$(tput bold)$(tput setaf 33)"
   export LESS_TERMCAP_md
 fi
+
+# set $EDITOR to vi(m) if not already set
+export EDITOR="${EDITOR:-$(type vim &>/dev/null && echo vim || echo vi)}"
