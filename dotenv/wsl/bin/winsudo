@@ -21,11 +21,22 @@ WINSUDO_WORKDIR="${HOME}/.ssh/winsudosshd"
 # internal functions
 #==============================================================================
 function internal::is-elevated-process() {
-  local ret
+  local ret out
+
+  # try using powershell to determine elevated status
+  out="$(powershell.exe -c '(New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)' | tr -d '\r')"
+  ret=$?
+  if [[ ${ret} -eq 0 ]]; then
+    if [[ "${out}" == "True" ]]; then
+      return 0
+    fi
+    return 1
+  fi
+
   # Query admin rights http://stackoverflow.com/a/21295806/1641422
   fsutil.exe dirty query c: &>/dev/null
   ret=$?
-  if [ ${ret} -eq 127 ]; then
+  if [[ ${ret} -eq 127 ]]; then
     # If fail try another way http://stackoverflow.com/a/28268802
     fltMC.exe &>/dev/null
     ret=$?

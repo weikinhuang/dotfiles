@@ -29,3 +29,19 @@ function cmd0() {
   cmd.exe /c "$@" | sed 's/\r$//'
   return "${PIPESTATUS[0]}"
 }
+
+# checks if the current process (sesison) is running with Administrator privileges.
+function is-elevated-session() {
+  local ret out
+
+  # try using powershell to determine elevated status
+  out="$(powershell.exe -c '(New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)' | tr -d '\r')"
+  ret=$?
+  if [[ ${ret} -ne 0 ]]; then
+    return 255
+  fi
+  if [[ "${out}" == "True" ]]; then
+    return 0
+  fi
+  return 1
+}
