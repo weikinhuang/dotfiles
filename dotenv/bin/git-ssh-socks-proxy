@@ -79,9 +79,9 @@ HELPDOC
 fi
 
 NETCAT_COMMAND=
-if type nc &>/dev/null; then
+if command -v nc &>/dev/null; then
   NETCAT_COMMAND=nc
-elif type netcat % >/dev/null; then
+elif command -v netcat &>/dev/null; then
   NETCAT_COMMAND=netcat
 else
   # netcat not found, we can't do anything

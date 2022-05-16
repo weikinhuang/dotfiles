@@ -245,7 +245,7 @@ function __ps1_create() {
     PS1="${PS1}""${PS1_ADDITIONAL_INFO}${PS1_COLOR_RESET}"
   fi
   # git status only if the git repo status function is installed
-  if type __git_ps1 &>/dev/null; then
+  if command -v __git_ps1 &>/dev/null; then
     PS1="${PS1}""${PS1_COLOR_GIT}"'$(__git_ps1 " ('"${PS1_SYMBOL_GIT_BRANCH}${PS1_COLOR_RESET}${PS1_COLOR_GIT}"'%s)")'"${PS1_COLOR_RESET}"
   fi
   # close bracket

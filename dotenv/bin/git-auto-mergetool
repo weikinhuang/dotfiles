@@ -12,7 +12,7 @@ if [[ -z $* || $# != "4" ]]; then
 fi
 
 # See if we have a mergetool specified
-if type _git-mergetool &>/dev/null; then
+if command -v _git-mergetool &>/dev/null; then
   _git-mergetool "$BASE" "$LOCAL" "$REMOTE" "$MERGED" >/dev/null 2>&1
   EXIT=$?
 else

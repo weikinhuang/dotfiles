@@ -10,7 +10,7 @@ if [[ -z $* || $# != "2" ]]; then
 fi
 
 # See if we have a difftool specified
-if type _git-difftool &>/dev/null; then
+if command -v _git-difftool &>/dev/null; then
   _git-difftool "$LOCAL" "$REMOTE"
   EXIT=$?
 else

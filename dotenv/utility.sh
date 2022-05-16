@@ -1,7 +1,7 @@
 # shellcheck shell=bash
 # include solarized dir colors theme
-[[ -n "${__term_solarized_light:-}" ]] && type dircolors &>/dev/null && eval "$(dircolors "${DOTFILES__ROOT}/.dotfiles/dotenv/other/dircolors.solarized.ansi-light")"
-[[ -n "${__term_solarized_256:-}" ]] && type dircolors &>/dev/null && eval "$(dircolors "${DOTFILES__ROOT}/.dotfiles/dotenv/other/dircolors.solarized.256dark")"
+[[ -n "${__term_solarized_light:-}" ]] && command -v dircolors &>/dev/null && eval "$(dircolors "${DOTFILES__ROOT}/.dotfiles/dotenv/other/dircolors.solarized.ansi-light")"
+[[ -n "${__term_solarized_256:-}" ]] && command -v dircolors &>/dev/null && eval "$(dircolors "${DOTFILES__ROOT}/.dotfiles/dotenv/other/dircolors.solarized.256dark")"
 
 # include special mysql client customizations
 # shellcheck source=/dev/null
@@ -9,7 +9,7 @@ source "${DOTFILES__ROOT}/.dotfiles/dotenv/other/mysql-client.sh"
 
 # include git __git_ps1 if not already included elsewhere
 # shellcheck source=/dev/null
-type __git_ps1 &>/dev/null || source "${DOTFILES__ROOT}/.dotfiles/dotenv/other/git-prompt.sh"
+command -v __git_ps1 &>/dev/null || source "${DOTFILES__ROOT}/.dotfiles/dotenv/other/git-prompt.sh"
 
 # setup ssh agent automatically
 # https://help.github.com/en/github/authenticating-to-github/working-with-ssh-key-passphrases#auto-launching-ssh-agent-on-msysgit
@@ -50,6 +50,6 @@ function _reload-tmux-env() {
   # shellcheck disable=SC2046
   eval $(tmux show-env -s)
 }
-if [[ "${TERM:-}" == screen* ]] && [[ -n "${TMUX:-}" ]] && type tmux &>/dev/null; then
+if [[ "${TERM:-}" == screen* ]] && [[ -n "${TMUX:-}" ]] && command -v tmux &>/dev/null; then
   __push_internal_prompt_command '_reload-tmux-env'
 fi

@@ -42,7 +42,7 @@ case "$(uname -s)" in
       if uname -r | grep -qi WSL2; then
         IS_WSL2=1
       fi
-    elif type termux-setup-storage &>/dev/null; then
+    elif command -v termux-setup-storage &>/dev/null; then
       IS_TERMUX=1
     fi
     ;;
@@ -68,7 +68,7 @@ fi
 [[ -d "${HOME}/bin" ]] && PATH="${PATH}:${HOME}/bin"
 
 # Remove duplicate entries from PATH and retain the original order
-if type nl &>/dev/null; then
+if command -v nl &>/dev/null; then
   PATH=$(echo "${PATH}" | tr : '\n' | nl | sort -u -k 2,2 | sort -n | cut -f 2- | tr '\n' : | sed -e 's/:$//' -e 's/^://')
   export PATH
 fi

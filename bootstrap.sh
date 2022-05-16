@@ -103,7 +103,7 @@ function dotfiles::install::repo::get() {
   local GITHUB_URL="${1}"
   local DIR="${2}"
   # sanity check, git is now required for auto install
-  if type git &>/dev/null; then
+  if command -v git &>/dev/null; then
     dotfiles::install::repo::get::git "${GITHUB_URL}" "${DIR}"
   else
     dotfiles::install::repo::get::curl "${GITHUB_URL}" "${DIR}"
@@ -128,7 +128,7 @@ function dotfiles::install::repo::update() {
   local GITHUB_URL="${1}"
   local DIR="${2}"
   # sanity check, git is now required for auto install
-  if type git &>/dev/null; then
+  if command -v git &>/dev/null; then
     dotfiles::install::repo::update::git "${DIR}"
   else
     dotfiles::install::repo::get::curl "${GITHUB_URL}" "${DIR}"
@@ -147,7 +147,7 @@ function dotfiles::install::install() {
   if [[ "${DOTFILES__INSTALL_VIMRC}" -eq 1 ]]; then
     dotfiles::install::repo::get https://github.com/VundleVim/Vundle.vim "${DOTFILES_ROOT}/vim/bundle/Vundle.vim"
     vim +PluginInstall +qall &>/dev/null
-    if type vim &>/dev/null; then
+    if command -v vim &>/dev/null; then
       echo "--------------- Please Run: 'vim +BundleInstall +qall' after installation"
     fi
   fi
@@ -162,7 +162,7 @@ function dotfiles::install::update() {
   if [[ -e "${DOTFILES_ROOT}/vim/bundle/Vundle.vim" ]]; then
     dotfiles::install::repo::update https://github.com/VundleVim/Vundle.vim "${DOTFILES_ROOT}/vim/bundle/Vundle.vim"
     vim +PluginInstall +qall &>/dev/null
-    if type vim &>/dev/null; then
+    if command -v vim &>/dev/null; then
       echo "--------------- Please Run: 'vim +BundleInstall +qall' after installation"
     fi
   fi

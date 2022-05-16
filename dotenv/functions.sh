@@ -149,7 +149,7 @@ function md() {
 }
 
 # Use Git's colored diff when available
-if type git &>/dev/null; then
+if command -v git &>/dev/null; then
   function diff() {
     git diff --no-index --color "$@"
   }

@@ -42,4 +42,4 @@ if tput setaf 1 &>/dev/null; then
 fi
 
 # set $EDITOR to vi(m) if not already set
-export EDITOR="${EDITOR:-$(type vim &>/dev/null && echo vim || echo vi)}"
+export EDITOR="${EDITOR:-$(command -v vim &>/dev/null && echo vim || echo vi)}"
