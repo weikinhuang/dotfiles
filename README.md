@@ -283,7 +283,9 @@ export GIT_HUB_API_TOKEN=""
 cd; ln -s ~/.dotfiles/.gitconfig
 ```
 
-## common variables for ~/.bash_local
+> If a `~/.gitconfig.local` file exists, it will also be sourced overriding any setting defined in this repo.
+
+## Other variables for ~/.bash_local
 
 Use to tell common commands to use solarized-light colors
 
