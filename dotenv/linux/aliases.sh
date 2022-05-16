@@ -12,17 +12,9 @@ else
   alias open="nautilus"
 fi
 
-# useful shortcuts
-alias md5="md5sum"
-
 # Alias vi to vim
 if command -v vim &>/dev/null; then
   alias vi="vim"
-fi
-
-# Alias clamscan with avscan
-if command -v clamscan &>/dev/null; then
-  alias avscan="clamscan"
 fi
 
 # Networking shortcuts
