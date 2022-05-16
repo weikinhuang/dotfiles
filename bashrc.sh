@@ -75,6 +75,9 @@ fi
 
 # Source ~/.exports, ~/.functions, ~/.aliases, ~/.completion, ~/.extra, ~/.env if they exist
 for file in {exports,functions,aliases,completion,extra,env}; do
+  if [[ "${file}" == "completion" ]] && ! command -v complete &>/dev/null; then
+    continue
+  fi
   # shellcheck source=/dev/null
   [[ -r "${DOTFILES__ROOT}/.dotfiles/dotenv/${file}.sh" ]] && source "${DOTFILES__ROOT}/.dotfiles/dotenv/${file}.sh"
   # shellcheck source=/dev/null
@@ -95,7 +98,7 @@ done
 unset file
 
 # add local completion
-if [[ -d "${HOME}"/.config/completion.d ]]; then
+if command -v complete &>/dev/null && [[ -d "${HOME}"/.config/completion.d ]]; then
   # shellcheck source=/dev/null
   source "${HOME}"/.config/completion.d/* || true
 fi
@@ -137,16 +140,16 @@ __push_internal_prompt_command 'history -a'
 
 # Shell Options
 # Use case-insensitive filename globbing
-shopt -s nocaseglob
+shopt -s nocaseglob 2>/dev/null
 
 # Include . files when globing (ie. mv, cp, etc.)
-shopt -s dotglob
+shopt -s dotglob 2>/dev/null
 
 # When changing directory small typos can be ignored by bash
-shopt -s cdspell
+shopt -s cdspell 2>/dev/null
 
 # Append to the Bash history file, rather than overwriting it
-shopt -s histappend
+shopt -s histappend 2>/dev/null
 
 # Try to enable some bash 4 functionality
 # Attempt to auto cd to a directory
@@ -158,12 +161,7 @@ shopt -s checkjobs 2>/dev/null
 
 # check the window size after each command and, if necessary,
 # update the values of LINES and COLUMNS.
-shopt -s checkwinsize
-
-# redirect to a starting directory folder if starting in home
-if [[ "$(pwd)" == "${HOME}" ]] && [[ -n "${START_DIR}" && -e "${START_DIR}" ]]; then
-  cd "${START_DIR}" || true
-fi
+shopt -s checkwinsize 2>/dev/null
 
 # exit with a success status code
 return 0

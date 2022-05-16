@@ -4,8 +4,13 @@ set completion-ignore-case on
 # Don't prompt unless there are over 500 possible completions
 set completion-query-items 200
 
+# Displays the common prefix of the list of possible completions (which may be
+# empty) before cycling through the list.
+set menu-complete-display-prefix on
+
 # List all matches in case multiple possible completions are possible
 set show-all-if-ambiguous on
+set show-all-if-unmodified on
 
 # Immediately add a trailing slash when autocompleting symlinks to directories
 set mark-symlinked-directories on
@@ -53,8 +58,8 @@ set convert-meta off
 "\e[1;5C": forward-word
 
 # rxvt
-"\e[7~": beginning-of-line      
-"\e[8~": end-of-line           
+"\e[7~": beginning-of-line
+"\e[8~": end-of-line
 
 # xterm
 "\eOH": beginning-of-line
@@ -69,4 +74,4 @@ set convert-meta off
 "\002": forward-word
 
 # for zsh/cmd style tab completion
-# TAB: menu-complete
+TAB: menu-complete

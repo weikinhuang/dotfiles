@@ -14,21 +14,28 @@ Before installing any Linux distros for WSL, you must ensure that the "Windows S
         dism.exe /online /enable-feature /featurename:Microsoft-Windows-Subsystem-Linux /all /norestart
         ```
 
-    2. Enable Virtual Machine feature
+    1. Enable Virtual Machine feature
 
         ```powershell
         dism.exe /online /enable-feature /featurename:VirtualMachinePlatform /all /norestart
         dism.exe /online /enable-feature /featurename:Microsoft-Hyper-V-Management-PowerShell /all /norestart
         ```
 
-2. Install the Linux kernel update package
+1. Install the Linux kernel update package
     1. Download [WSL2 Linux kernel update package for x64 machines](https://wslstorestorage.blob.core.windows.net/wslblob/wsl_update_x64.msi)
     2. Install package.
-3. Restart your computer.
-4. Download and install from the Windows Store: search `Run Linux on Windows`
+1. Restart your computer.
+1. Install `Ubuntu`
+   1. Download and install from the Windows Store: search `Run Linux on Windows`
     - [Ubuntu](https://www.microsoft.com/en-us/p/ubuntu-2004-lts/9n6svws3rx71)
-5. From the distro's page, select "Get"
-6. Now that your Linux distro is installed, you must initialize your new distro instance once, before it can be used.
+    - From the distro's page, select "Get"
+   1. Using `winget`
+
+      ```powershell
+      winget install -e --id Canonical.Ubuntu
+      ```
+
+1. Now that your Linux distro is installed, you must initialize your new distro instance once, before it can be used.
 
 ## Setting WSL to version 2
 

@@ -10,11 +10,18 @@ Before installing any Linux distros for WSL, you must ensure that the "Windows S
     Enable-WindowsOptionalFeature -Online -FeatureName Microsoft-Windows-Subsystem-Linux
     ```
 
-2. Restart your computer when prompted.
-3. Download and install from the Windows Store: search `Run Linux on Windows`
+1. Restart your computer when prompted.
+1. Install `Ubuntu`
+   1. Download and install from the Windows Store: search `Run Linux on Windows`
     - [Ubuntu](https://www.microsoft.com/en-us/p/ubuntu-2004-lts/9n6svws3rx71)
-4. From the distro's page, select "Get"
-5. Now that your Linux distro is installed, you must initialize your new distro instance once, before it can be used.
+    - From the distro's page, select "Get"
+   1. Using `winget`
+
+      ```powershell
+      winget install -e --id Canonical.Ubuntu
+      ```
+
+1. Now that your Linux distro is installed, you must initialize your new distro instance once, before it can be used.
 
 ## Set up wsl configurations
 

@@ -146,6 +146,7 @@ function dotfiles::install::install() {
   # Install vundle
   if [[ "${DOTFILES__INSTALL_VIMRC}" -eq 1 ]]; then
     dotfiles::install::repo::get https://github.com/VundleVim/Vundle.vim "${DOTFILES_ROOT}/vim/bundle/Vundle.vim"
+    vim +PluginInstall +qall &>/dev/null
     if type vim &>/dev/null; then
       echo "--------------- Please Run: 'vim +BundleInstall +qall' after installation"
     fi
@@ -160,7 +161,7 @@ function dotfiles::install::update() {
   # Update vundle
   if [[ -e "${DOTFILES_ROOT}/vim/bundle/Vundle.vim" ]]; then
     dotfiles::install::repo::update https://github.com/VundleVim/Vundle.vim "${DOTFILES_ROOT}/vim/bundle/Vundle.vim"
-    vim +PluginInstall +qall
+    vim +PluginInstall +qall &>/dev/null
     if type vim &>/dev/null; then
       echo "--------------- Please Run: 'vim +BundleInstall +qall' after installation"
     fi

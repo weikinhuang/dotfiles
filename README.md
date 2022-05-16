@@ -291,18 +291,6 @@ Use to tell common commands to use solarized-light colors
 export __term_solarized_light=true
 ```
 
-cd to this dir on login
-
-```bash
-export START_DIR='~/Documents'
-```
-
-Use to determine a projects directory (shortcut with `p`)
-
-```bash
-export PROJECT_DIR='~/Documents/Projects'
-```
-
 Use to homebrew utilities without the `g` prefix (OSX)
 
 ```bash
