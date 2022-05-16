@@ -131,14 +131,16 @@
 
 ### WSL Utilities
 
-| Command             | Description                                                                                                            |
-| ------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| `is-drvfs-readable` | Check if WSL processes can read this file                                                                              |
-| `is-volfs-readable` | Check if Windows processes can read this file                                                                          |
-| `chattr`            | Change Windows file attributes                                                                                         |
-| `cmd0`              | Run a command via the windows cmd prompt processor                                                                     |
-| `mklink`            | Shortcut to the windows MKLINK command, with ln style args                                                             |
-| `npp`               | Open a sandboxed instance of notepad++                                                                                 |
-| `run.exe`           | Run a windows command without the cmd window. See [straightrunning.com](http://www.straightrunning.com/projectrun.php) |
-| `winstart`          | Open/run a file using the native windows logic and associations                                                        |
-| `winsudo`           | Run a process with elevated windows privileges                                                                         |
+| Command             | Description                                                                                                               |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `is-drvfs-readable` | Check if WSL processes can read this file                                                                                 |
+| `is-volfs-readable` | Check if Windows processes can read this file                                                                             |
+| `chattr`            | Change Windows file attributes                                                                                            |
+| `cmd0`              | Run a command via the windows cmd prompt processor                                                                        |
+| `mklink`            | Shortcut to the windows MKLINK command, with ln style args                                                                |
+| `npp`               | Open a sandboxed instance of notepad++                                                                                    |
+| `run.exe`           | Run a windows command without the cmd window. See [straightrunning.com](http://www.straightrunning.com/projectrun.php)    |
+| `winstart`          | Open/run a file using the native windows logic and associations                                                           |
+| `winsudo`           | Run a process with elevated windows privileges. See [utils/wsl/README.md](./utils/wsl/README.md#winsudo-setup) for setup. |
+| `wudo`              | Alias to `winsudo`                                                                                                        |
+| `wsl-sudo`          | Alias to `winsudo`                                                                                                        |

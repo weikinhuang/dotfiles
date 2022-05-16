@@ -105,7 +105,37 @@ sudo -S apt-mark hold procps strace sudo
 sudo -S env RELEASE_UPGRADER_NO_SCREEN=1 do-release-upgrade
 ```
 
-## Git wrapper for IntelliJ (ie. Webstorm) based IDEs
+## `winsudo` setup
+
+`winsudo` allows you to run applications in Windows elevated user mode from a non-elevated wsl shell.
+
+The only requirement is that `openssh-server` is installed.
+
+**How it works**: When run, `winsudo` uses `powershell` to start a elevated wsl process running `sshd` under the current linux user with a random port and a generated ssh key. It then forwards the command through an `ssh` connection from the non-elevated to the elevated `sshd` server. Any process that works under `ssh` should work with `winsudo`.
+
+You can test if `winsudo` is working properly with `winsudo net.exe sessions` and comparing the output with just running `net.exe sessions`. Running without elevated permissions should result in `Access is denied.`.
+
+## Native process proxy wrappers
+
+Wrapper `bat` files are provided for `git` and `ssh` to allow programs to use the WSL version of these programs instead of the Windows versions. If an application can specify the binary path for these programs, then these `bat` scripts can be used.
+
+Below are some usage examples.
+
+### SSH wrapper for VSCode IDE
+
+Set the ssh path to the ssh wrapper:
+
+```text
+Edit > Preferences > Settings
+```
+
+```json
+{
+    "remote.SSH.path": "DOTFILES_PATH\\utils\\wsl\\native-wrappers\\ssh.bat",
+}
+```
+
+### Git wrapper for IntelliJ (ie. Webstorm) based IDEs
 
 Set the git path to the git wrapper:
 
@@ -113,7 +143,7 @@ Set the git path to the git wrapper:
 Settings > Version Control > Git > Path to Git executable: [DOTFILES_PATH\utils\wsl\native-wrappers\git.bat]
 ```
 
-## Git wrapper for VSCode IDE
+### Git wrapper for VSCode IDE
 
 Set the git path to the git wrapper:
 
