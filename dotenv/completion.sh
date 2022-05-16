@@ -1,6 +1,6 @@
 #!/bin/bash
 # SSH auto-completion based on entries in known_hosts.
-if ! complete | grep ' ssh$' -q; then
+if ! complete | grep -q ' ssh$'; then
   complete -o default -W "$(
     (
       grep '^Host ' "${HOME}/.ssh/config" "${HOME}"/.ssh/config.d/* 2>/dev/null | grep -v no-complete | cut -d ' ' -f 2- | tr ' ' '\n' | grep -v '[?*]'

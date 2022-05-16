@@ -27,7 +27,7 @@ Before installing any Linux distros for WSL, you must ensure that the "Windows S
 
 ## Change home directory to the Windows home dir
 
-Changing the current user's home directory to be the equivalent windows home dir to persist settings on reinstall of WSL.
+Changing the current user's home directory to be the equivalent windows home dir to persist settings on reinstall of WSL. Optionally, several symlinks can also be setup in the `~/` directory to replicate the same effect.
 
 Edit `/etc/passwd` with:
 
@@ -47,9 +47,11 @@ to
 WSLUSERNAME:x:1000:1000:,,,:/mnt/c/Users/WINDOWSUSERNAME:/bin/bash
 ```
 
-## Install sshd
+## sshd
 
-Installing sshd lets us use other terminal emulators other than the default one.
+Setting up `sshd` lets us use terminal emulators that don't support WSL natively (ex. SecureCRT)
+
+### Install sshd
 
 1. Generate ssh keys for this user if not already there
 
@@ -91,7 +93,7 @@ Installing sshd lets us use other terminal emulators other than the default one.
     sudo service ssh --full-restart
     ```
 
-## Start up sshd on user logon
+### Start up sshd on user logon
 
 1. Set up `/etc/sudoers` file with sudo permissions for sshd
 

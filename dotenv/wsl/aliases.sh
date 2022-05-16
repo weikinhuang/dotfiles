@@ -12,6 +12,8 @@ elif command -v npp &>/dev/null; then
 fi
 
 # Shortcuts to the clipboard
-# @todo: Figure this out
-#alias pbcopy="putclip"
-#alias pbpaste="getclip"
+alias pbcopy="clip.exe"
+
+function pbpaste() {
+  powershell.exe -c Get-Clipboard
+}

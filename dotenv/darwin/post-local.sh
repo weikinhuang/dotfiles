@@ -3,27 +3,32 @@
 # brew install jq
 
 # Install Bash 4.
-# Note: don’t forget to add `/usr/local/bin/bash` to `/etc/shells` before
+# Note: don’t forget to add `/usr/local/bin/bash` to `/etc/shells` before continuing
 
 # remove brew installed g prefix
-if [[ -n "${INCLUDE_BREW_PATH}" ]]; then
-  [[ -d "/usr/local/sbin" ]] && PATH="/usr/local/sbin:${PATH}"
+if command -v brew &>/dev/null && [[ -n "${INCLUDE_BREW_PATH}" ]]; then
+  if [[ -d "$(brew --prefix)/opt" ]] && ! echo "${PATH}" | tr ':' '\n' | grep -q "^$(brew --prefix)/opt$"; then
+    PATH="$(brew --prefix)/opt:${PATH}"
+  fi
+  if [[ -d "$(brew --prefix)/sbin" ]] && ! echo "${PATH}" | tr ':' '\n' | grep -q "^$(brew --prefix)/sbin$"; then
+    PATH="$(brew --prefix)/sbin:${PATH}"
+  fi
+  if [[ -d "$(brew --prefix)/bin" ]] && ! echo "${PATH}" | tr ':' '\n' | grep -q "^$(brew --prefix)/bin$"; then
+    PATH="$(brew --prefix)/bin:${PATH}"
+  fi
 
-  # Build PATH variable for brew utils
-  for p in /usr/local/Cellar/*/*/bin; do
-    PATH="${p}:${PATH}"
-  done
-  for p in /usr/local/Cellar/*/*/libexec/gnubin; do
+  # Build PATH variable for brew gnu utils
+  for p in "$(brew --prefix)"/Cellar/*/*/libexec/gnubin; do
     PATH="${p}:${PATH}"
   done
   unset p
 
-  # update man path for brew utils
   export MANPATH="${MANPATH-/usr/share/man}"
-  for p in /usr/local/Cellar/*/*/share/man; do
-    MANPATH="${p}:${MANPATH}"
-  done
-  for p in /usr/local/Cellar/*/*/libexec/gnuman; do
+  if [[ -d "$(brew --prefix)/share/man" ]]; then
+    MANPATH="$(brew --prefix)/share/man:${MANPATH}"
+  fi
+  # update man path for brew gnu utils
+  for p in "$(brew --prefix)"/Cellar/*/*/libexec/gnuman; do
     MANPATH="${p}:${MANPATH}"
   done
   unset p
