@@ -152,7 +152,7 @@ fi
 case "$TERM" in
   screen*)
     if [[ -n "${TMUX}" ]]; then
-      PS1_HOST_NAME="${PS1_COLOR_HOST_SCREEN}$(test -n "${SSH_CONNECTION:-}" && echo '\h,')$(echo "${TMUX}" | cut -f4 -d/)[${TMUX_PANE}]"
+      PS1_HOST_NAME="${PS1_COLOR_HOST_SCREEN}$(test -n "${SSH_CONNECTION:-}" && echo '\h,')$(tmux display-message -p '#S')[${TMUX_PANE}]"
     else
       PS1_HOST_NAME="${PS1_COLOR_HOST_SCREEN}$(test -n "${SSH_CONNECTION:-}" && echo '\h,')${STY}[${WINDOW}]"
     fi

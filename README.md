@@ -59,9 +59,9 @@ See [PROMPT.md](PROMPT.md) for configuration options.
 
 ![Prompt example](./assets/prompt-example.png)
 
-### Add custom commands
+## Add custom commands with ~/.bash_local
 
-If `~/.bash_local` exists, it will be sourced after the includes are sourced.
+If `~/.bash_local` exists, it will be sourced after the includes are sourced. Any additional env vars or settings can be placed in this file.
 
 ## .gitconfig.local
 

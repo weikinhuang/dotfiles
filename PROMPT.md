@@ -6,7 +6,7 @@
 
 ![Prompt example](./assets/prompt-example.png)
 
-The prompt
+## The basic prompt
 
 ```text
     ┌─ Time              ┌─ The current working directory
@@ -19,23 +19,14 @@ The prompt
                 │  └─ The # symbol denotes local session
                 └─ Logged in user
 
-    ┌── Exit status of previous command
+    ┌── Exit status of previous command, shows only when $? != 0
 [(E:1) 06:00:00 0.00 user#host dir<4|2.4Mb>]λ
 
           ┌── Number of running background jobs
 [(E:1) bg:2 06:00:00 0.00 user#host dir<4|2.4Mb>]λ
-
 ```
 
-When on ssh
-
-```text
-on ssh ────────────┐
-[06:00:00 0.00 user@host dir<4|2.4Mb>]λ
-                   └─────── The # symbol is replace with @
-```
-
-When logged in as root user
+## root and sudo prompt
 
 ```text
 as root ──────────────────────────────┐
@@ -46,12 +37,27 @@ as root ────────────────────────
 When sudo'd
 
 ```text
-as sudo ────────────────┐
+when sudo ──────────────┐
 [06:00:00 user@host dir]π
                         └── The λ symbol is replace with π
 ```
 
-When on screen
+WSL with elevated permissions
+
+```text
+elevated rights ──────────────────────┐
+[06:00:00 0.00 root@host dir<4|2.4Mb>]W*
+                                      └── The λ symbol is replace with W*
+```
+
+## SSH prompt
+
+```text
+[06:00:00 0.00 user@host dir<4|2.4Mb>]λ
+                   └─────── The # symbol is replace with @
+```
+
+## Screen and Tmux
 
 ```text
 in screen                               ┌── window id
@@ -59,14 +65,22 @@ in screen                               ┌── window id
                     └─────────────────┴──── Screen session name
 ```
 
-PS2 prompt
+```text
+in tmux                             ┌── tmux pane
+[06:00:00 0.00 user@host,tmux-86751[%0] dir<4|2.4Mb>]λ
+                         └────────┴──── tmux session name
+```
+
+## `PS2` prompt
 
 ```text
 [06:00:00 0.00 user#host dir<4|2.4Mb>]λ a '\
 → bcd'
 ```
 
-Git prompt
+## Git status
+
+The contents of this portion of the prompt is in the [git/git](https://github.com/git/git/blob/master/contrib/completion/git-prompt.sh) repo.
 
 ```text
 branch name──────────────────────────────┐      ┌───git status flags
