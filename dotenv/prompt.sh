@@ -255,7 +255,11 @@ function __ps1_create() {
     PS1="${PS1}\n"
   fi
   # prompt symbol
-  PS1="${PS1}${PS1_COLOR_BOLD}$([[ $UID == 0 ]] && echo "${PS1_SYMBOL_ROOT}" || echo "${PS1_SYMBOL_USER}")${PS1_COLOR_RESET}"
+  if [[ -n "${IS_WSL}" ]] && command -v powershell.exe &>/dev/null && is-elevated-session; then
+    PS1="${PS1}${PS1_COLOR_BOLD}W*${PS1_COLOR_RESET}"
+  else
+    PS1="${PS1}${PS1_COLOR_BOLD}$([[ $UID == 0 ]] && echo "${PS1_SYMBOL_ROOT}" || echo "${PS1_SYMBOL_USER}")${PS1_COLOR_RESET}"
+  fi
   # space & title bar
   PS1="${PROMPT_TITLE}${PS1} "
 }
