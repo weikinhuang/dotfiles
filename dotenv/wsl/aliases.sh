@@ -18,7 +18,4 @@ fi
 
 # Shortcuts to the clipboard
 alias pbcopy="clip.exe"
-
-function pbpaste() {
-  powershell.exe -c Get-Clipboard
-}
+alias pbpaste="powershell.exe -c Get-Clipboard"

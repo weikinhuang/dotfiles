@@ -65,6 +65,7 @@ if [[ -n ${_PS1_MONOCHROME} ]]; then
     loadcolors_9=""
   '
 fi
+PS1_COLOR_LOAD="$(tr -d '\n' <<<"${PS1_COLOR_LOAD}")"
 
 # ---------- SYMBOLS AND VARIABLES FOR PROMPTS ----------
 
@@ -119,14 +120,14 @@ fi
 
 # datetime colorization in prompt
 # shellcheck disable=SC2016
-PS1_DATETIME='
-  time=$(/bin/date +"%H" | sed 's/^0//')
-  color="'${PS1_COLOR_TIME_PM}'"
+PS1_DATETIME="$(tr -d '\n' <<<'
+  time=$(/bin/date +"%H" | sed 's/^0//');
+  color="'${PS1_COLOR_TIME_PM}'";
   if [[ ${time} -ge '${PS1_DAY_START}' && ${time} -le '${PS1_DAY_END}' ]]; then
-     color="'${PS1_COLOR_TIME_AM}'"
-  fi
+     color="'${PS1_COLOR_TIME_AM}'";
+  fi;
   echo "${color}\T'${PS1_COLOR_RESET}' "
-'
+')"
 
 # show icon if the directory is not writable for the user
 # shellcheck disable=SC2016
@@ -184,34 +185,36 @@ esac
 # generate the bash prompt
 function __ps1_create() {
   # load avg colorization
-  # shellcheck disable=SC2016
-  local loadavg='load=$(__ps1_proc_use)'
+  local loadavg=''
+  if [[ -z ${_PS1_HIDE_LOAD} ]]; then
+    # shellcheck disable=SC2016
+    local loadavg='load=$(__ps1_proc_use)'
 
-  # special case for osx systems with older sed
-  case ${DOTENV} in
-    linux)
-      # shellcheck disable=SC2016
-      loadavg=${loadavg}'
-        __ps1_var_loadmod=$(echo "${load}" | \\sed "s/^0*\\([0-9]\\+\\)\\..\\+\\$/\\1/")
-      '
-      ;;
-    darwin)
-      # shellcheck disable=SC2016
-      loadavg=${loadavg}'
-        __ps1_var_loadmod=$(echo "${load}" | \\sed "s/^0*\\([0-9][0-9]*\\)\\..*\\$/\\1/")
-      '
-      ;;
-  esac
+    # special case for osx systems with older sed
+    case ${DOTENV} in
+      linux)
+        # shellcheck disable=SC2016
+        loadavg=${loadavg}'
+          __ps1_var_loadmod=$(echo "${load}" | \\sed "s/^0*\\([0-9]\\+\\)\\..\\+\\$/\\1/")
+        '
+        ;;
+      darwin)
+        # shellcheck disable=SC2016
+        loadavg=${loadavg}'
+          __ps1_var_loadmod=$(echo "${load}" | \\sed "s/^0*\\([0-9][0-9]*\\)\\..*\\$/\\1/")
+        '
+        ;;
+    esac
 
-  # shellcheck disable=SC2016
-  loadavg=${loadavg}${PS1_COLOR_LOAD}'
-    [[ $__ps1_var_loadmod -gt 9 ]] && __ps1_var_loadmod=9
-    loadcolor="loadcolors_${__ps1_var_loadmod}"
-    echo "${!loadcolor}${load}'${PS1_COLOR_RESET}' "
-  '
-  if [[ -n ${_PS1_HIDE_LOAD} ]]; then
-    loadavg=''
+    # shellcheck disable=SC2016
+    loadavg=${loadavg}${PS1_COLOR_LOAD}';
+      [[ $__ps1_var_loadmod -gt 9 ]] && __ps1_var_loadmod=9;
+      loadcolor="loadcolors_${__ps1_var_loadmod}";
+      echo "${!loadcolor}${load}'${PS1_COLOR_RESET}' ";
+    '
+    loadavg="$(tr -d '\n' <<<"${loadavg}")"
   fi
+
   if [[ -n ${_PS1_HIDE_TIME} ]]; then
     PS1_DATETIME=''
   fi

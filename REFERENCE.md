@@ -133,8 +133,8 @@
 
 | Command               | Description                                                                                                               |
 | --------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| `is-drvfs-readable`   | Check if WSL processes can read this file                                                                                 |
-| `is-volfs-readable`   | Check if Windows processes can read this file                                                                             |
+| `is-drvfs-readable`   | Check if Windows processes can read this file                                                                             |
+| `is-volfs-readable`   | Check if WSL processes can read this file                                                                                 |
 | `is-elevated-session` | Check if the current shell is running with elevated Windows permissions                                                   |
 | `chattr`              | Change Windows file attributes                                                                                            |
 | `cmd0`                | Run a command via the windows cmd prompt processor                                                                        |
