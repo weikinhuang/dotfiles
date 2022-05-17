@@ -13,17 +13,17 @@
     │     ┌─ System load │   ┌─ Number of files in directory
     │     │              │   │ ┌─ Size of files (non-recursive) in directory
     │     │              │   │ │
-[06:00:00 0.00 user#host dir<4|2.4Mb>]λ ──── The λ symbol denotes non sudo'ed user/session
-                │  │ │
+[06:00:00 0.00 user#host dir<4|2.4Mb> 6.3ms]λ ──── The λ symbol denotes non sudo'ed user/session
+                │  │ │                └─ Process timings
                 │  │ └─ The hostname of the session
                 │  └─ The # symbol denotes local session
                 └─ Logged in user
 
     ┌── Exit status of previous command, shows only when $? != 0
-[(E:1) 06:00:00 0.00 user#host dir<4|2.4Mb>]λ
+[(E:1) 06:00:00 0.00 user#host dir<4|2.4Mb> 6.3ms]λ
 
           ┌── Number of running background jobs
-[(E:1) bg:2 06:00:00 0.00 user#host dir<4|2.4Mb>]λ
+[(E:1) bg:2 06:00:00 0.00 user#host dir<4|2.4Mb> 6.3ms]λ
 ```
 
 ## root and sudo prompt
@@ -111,6 +111,12 @@ Turn off the time
 
 ```bash
 export _PS1_HIDE_TIME=1
+```
+
+Turn off process execution timer
+
+```bash
+export _PS1_HIDE_EXEC_TIME=1
 ```
 
 Monochrome prompt

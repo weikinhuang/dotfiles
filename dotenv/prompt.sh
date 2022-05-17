@@ -17,6 +17,7 @@ PS1_COLOR_HOST_SCREEN=${PS1_COLOR_UNDERLINE}'\[\e[38;5;214m\]'
 PS1_COLOR_WORK_DIR='\[\e[38;5;142m\]'
 PS1_COLOR_WORK_DIRINFO='\[\e[38;5;35m\]'
 PS1_COLOR_GIT='\[\e[38;5;135m\]'
+PS1_COLOR_EXEC_TIME='\[\e[38;5;245m\]'
 PS1_COLOR_TIME_AM='\[\e[38;5;244m\]'
 PS1_COLOR_TIME_PM='\[\e[38;5;033m\]'
 
@@ -92,35 +93,65 @@ PS1_DAY_END=18
 # shellcheck disable=SC2016
 __push_internal_prompt_command '__ps1_var_date=$(/bin/date +%s)'
 
+if [[ -z ${_PS1_HIDE_LOAD} ]]; then
+  # shellcheck disable=SC2016
+  PS1_LOAD_AVG='load=$(__ps1_proc_use)'
+
+  # special case for osx systems with older sed
+  case ${DOTENV} in
+    linux)
+      # shellcheck disable=SC2016
+      PS1_LOAD_AVG=${PS1_LOAD_AVG}'
+          __ps1_var_loadmod=$(echo "${load}" | \\sed "s/^0*\\([0-9]\\+\\)\\..\\+\\$/\\1/")
+        '
+      ;;
+    darwin)
+      # shellcheck disable=SC2016
+      PS1_LOAD_AVG=${PS1_LOAD_AVG}'
+          __ps1_var_loadmod=$(echo "${load}" | \\sed "s/^0*\\([0-9][0-9]*\\)\\..*\\$/\\1/")
+        '
+      ;;
+  esac
+
+  # shellcheck disable=SC2016
+  PS1_LOAD_AVG=${PS1_LOAD_AVG}${PS1_COLOR_LOAD}';
+      [[ $__ps1_var_loadmod -gt 9 ]] && __ps1_var_loadmod=9;
+      loadcolor="loadcolors_${__ps1_var_loadmod}";
+      echo "${!loadcolor}${load}'${PS1_COLOR_RESET}' ";
+    '
+  PS1_LOAD_AVG="$(tr -d '\n' <<<"${PS1_LOAD_AVG}")"
+fi
+
 # caching the directory information for bash prompt to reduce disk reads
-__ps1_var_dirinfo="0|0b"
-__ps1_var_dirinfotime=0
-__ps1_var_dirinfoprev=0
-[[ -z ${__ps1_var_dirinforeloadtime} ]] && __ps1_var_dirinforeloadtime=60
-function __ps1_dir_wrapper() {
-  local lsout lsnum lssize
-
-  # refresh every minute or on directory change
-  if [[ $((__ps1_var_date - __ps1_var_dirinforeloadtime)) -gt ${__ps1_var_dirinfotime} || "${PWD}" != "${__ps1_var_dirinfoprev}" ]]; then
-    lsout=$(/bin/ls -lAh 2>/dev/null)
-    lsnum=$(($(echo "${lsout}" | \wc -l | \sed "s/ //g") - 1))
-    lssize="$(echo "${lsout}" | \grep '^total ' | \sed 's/^total //')b"
-
-    __ps1_var_dirinfo="${lsnum}|${lssize}"
-    __ps1_var_dirinfoprev="${PWD}"
-    __ps1_var_dirinfotime=$(/bin/date +%s)
-    # update the prompt time
-    __ps1_var_date=${__ps1_var_dirinfotime}
-  fi
-}
-# only run working directory information command when enabled
 if [[ -z ${_PS1_HIDE_DIR_INFO} ]]; then
-  __push_internal_prompt_command '__ps1_dir_wrapper'
+  __ps1_var_dirinfo="0|0b"
+  __ps1_var_dirinfotime=0
+  __ps1_var_dirinfoprev=0
+  [[ -z ${__ps1_var_dirinforeloadtime} ]] && __ps1_var_dirinforeloadtime=60
+  function __ps1_dir_wrapper() {
+    local lsout lsnum lssize
+
+    # refresh every minute or on directory change
+    if [[ $((__ps1_var_date - __ps1_var_dirinforeloadtime)) -gt ${__ps1_var_dirinfotime} || "${PWD}" != "${__ps1_var_dirinfoprev}" ]]; then
+      lsout=$(/bin/ls -lAh 2>/dev/null)
+      lsnum=$(($(echo "${lsout}" | \wc -l | \sed "s/ //g") - 1))
+      lssize="$(echo "${lsout}" | \grep '^total ' | \sed 's/^total //')b"
+
+      __ps1_var_dirinfo="${lsnum}|${lssize}"
+      __ps1_var_dirinfoprev="${PWD}"
+      __ps1_var_dirinfotime=$(/bin/date +%s)
+      # update the prompt time
+      __ps1_var_date=${__ps1_var_dirinfotime}
+    fi
+  }
+
+  __push_internal_prompt_command __ps1_dir_wrapper
 fi
 
 # datetime colorization in prompt
-# shellcheck disable=SC2016
-PS1_DATETIME="$(tr -d '\n' <<<'
+if [[ -z ${_PS1_HIDE_TIME} ]]; then
+  # shellcheck disable=SC2016,SC2086
+  PS1_DATETIME="$(tr -d '\n' <<<'
   time=$(/bin/date +"%H" | sed 's/^0//');
   color="'${PS1_COLOR_TIME_PM}'";
   if [[ ${time} -ge '${PS1_DAY_START}' && ${time} -le '${PS1_DAY_END}' ]]; then
@@ -128,6 +159,7 @@ PS1_DATETIME="$(tr -d '\n' <<<'
   fi;
   echo "${color}\T'${PS1_COLOR_RESET}' "
 ')"
+fi
 
 # show icon if the directory is not writable for the user
 # shellcheck disable=SC2016
@@ -136,6 +168,48 @@ PS1_PWD_WRITABLE='$([[ ! -w "$PWD" ]] && echo -n "'${PS1_SYMBOL_NO_WRITE_PWD}'")
 # show the exit status of the previous command
 # shellcheck disable=SC2016,SC2089
 PS1_EXIT_STATUS='$(EXIT="$?"; [[ $EXIT -ne 0 ]] && echo -n "(E:${EXIT}) ")'
+
+# show information about the last process
+if [[ -z "${_PS1_HIDE_EXEC_TIME:-}" ]]; then
+  __ps1_var_exectimer=0
+  __ps1_var_execduration=
+  function __ps1_exec_timer_start {
+    if [[ __ps1_var_exectimer -gt 0 ]]; then
+      return 0
+    fi
+    __ps1_var_exectimer=$(date +%s%N)
+  }
+  trap '__ps1_exec_timer_start' DEBUG
+
+  function __ps1_exec_timer_stop {
+    local delta_us=$((($(date +%s%N) - __ps1_var_exectimer) / 1000))
+    local us=$((delta_us % 1000))
+    local ms=$(((delta_us / 1000) % 1000))
+    local s=$(((delta_us / 1000000) % 60))
+    local m=$(((delta_us / 60000000) % 60))
+    local h=$((delta_us / 3600000000))
+    if ((h > 0)); then
+      __ps1_var_execduration=${h}h${m}m
+    elif ((m > 0)); then
+      __ps1_var_execduration=${m}m${s}s
+    elif ((s >= 10)); then
+      __ps1_var_execduration=${s}.$((ms / 100))s
+    elif ((s > 0)); then
+      __ps1_var_execduration=${s}.$(printf %03d $ms)s
+    elif ((ms >= 100)); then
+      __ps1_var_execduration=${ms}ms
+    elif ((ms > 0)); then
+      __ps1_var_execduration=${ms}.$((us / 100))ms
+    else
+      __ps1_var_execduration=${us}us
+    fi
+    __ps1_var_exectimer=0
+  }
+  __push_internal_prompt_command __ps1_exec_timer_stop
+
+  # shellcheck disable=SC2016
+  PS1_EXEC_TIME='$(echo "${__ps1_var_execduration}")'
+fi
 
 # show the number of running background jobs
 # shellcheck disable=SC2016
@@ -184,41 +258,6 @@ esac
 
 # generate the bash prompt
 function __ps1_create() {
-  # load avg colorization
-  local loadavg=''
-  if [[ -z ${_PS1_HIDE_LOAD} ]]; then
-    # shellcheck disable=SC2016
-    local loadavg='load=$(__ps1_proc_use)'
-
-    # special case for osx systems with older sed
-    case ${DOTENV} in
-      linux)
-        # shellcheck disable=SC2016
-        loadavg=${loadavg}'
-          __ps1_var_loadmod=$(echo "${load}" | \\sed "s/^0*\\([0-9]\\+\\)\\..\\+\\$/\\1/")
-        '
-        ;;
-      darwin)
-        # shellcheck disable=SC2016
-        loadavg=${loadavg}'
-          __ps1_var_loadmod=$(echo "${load}" | \\sed "s/^0*\\([0-9][0-9]*\\)\\..*\\$/\\1/")
-        '
-        ;;
-    esac
-
-    # shellcheck disable=SC2016
-    loadavg=${loadavg}${PS1_COLOR_LOAD}';
-      [[ $__ps1_var_loadmod -gt 9 ]] && __ps1_var_loadmod=9;
-      loadcolor="loadcolors_${__ps1_var_loadmod}";
-      echo "${!loadcolor}${load}'${PS1_COLOR_RESET}' ";
-    '
-    loadavg="$(tr -d '\n' <<<"${loadavg}")"
-  fi
-
-  if [[ -n ${_PS1_HIDE_TIME} ]]; then
-    PS1_DATETIME=''
-  fi
-
   # Start PS1 description
   PS1=''
   # open bracket
@@ -228,9 +267,13 @@ function __ps1_create() {
   # show number of background jobs
   PS1="${PS1}""${PS1_COLOR_BG_JOBS}${PS1_BG_JOBS}${PS1_COLOR_RESET}"
   # time
-  PS1="${PS1}\$(${PS1_DATETIME})"
+  if [[ -z ${_PS1_HIDE_TIME} ]]; then
+    PS1="${PS1}\$(${PS1_DATETIME})"
+  fi
   # load
-  PS1="${PS1}\$(${loadavg})"
+  if [[ -z ${_PS1_HIDE_LOAD} ]]; then
+    PS1="${PS1}\$(${PS1_LOAD_AVG})"
+  fi
   # user
   PS1="${PS1}""${PS1_COLOR_USER}"'\u'"${PS1_COLOR_RESET}"
   # [@] based on environment
@@ -251,6 +294,10 @@ function __ps1_create() {
   if command -v __git_ps1 &>/dev/null; then
     PS1="${PS1}""${PS1_COLOR_GIT}"'$(__git_ps1 " ('"${PS1_SYMBOL_GIT_BRANCH}${PS1_COLOR_RESET}${PS1_COLOR_GIT}"'%s)")'"${PS1_COLOR_RESET}"
   fi
+  # process information
+  if [[ -z "${_PS1_HIDE_EXEC_TIME:-}" ]]; then
+    PS1="${PS1}"" ${PS1_COLOR_EXEC_TIME}${PS1_EXEC_TIME}${PS1_COLOR_RESET}"
+  fi
   # close bracket
   PS1="${PS1}""${PS1_COLOR_BOLD}${PS1_COLOR_GREY}"']'"${PS1_COLOR_RESET}"
   # newline before the user symbol
@@ -269,10 +316,6 @@ function __ps1_create() {
 
 # generate the sudo bash prompt
 function __sudo_ps1_create() {
-  if [[ -n ${_PS1_HIDE_TIME} ]]; then
-    PS1_DATETIME=''
-  fi
-
   # Start SUDO_PS1 description
   SUDO_PS1=''
   # open bracket
@@ -282,7 +325,9 @@ function __sudo_ps1_create() {
   # show number of background jobs
   SUDO_PS1="${SUDO_PS1}""${PS1_COLOR_BG_JOBS}${PS1_BG_JOBS}${PS1_COLOR_RESET}"
   # time
-  SUDO_PS1="${SUDO_PS1}\$(${PS1_DATETIME})"
+  if [[ -z ${_PS1_HIDE_TIME} ]]; then
+    SUDO_PS1="${SUDO_PS1}\$(${PS1_DATETIME})"
+  fi
   # user
   SUDO_PS1="${SUDO_PS1}""${PS1_COLOR_USER}"'\u'"${PS1_COLOR_RESET}"
   # [@] based on environment
@@ -339,6 +384,7 @@ unset PS1_COLOR_NORMAL \
   PS1_COLOR_WORK_DIR \
   PS1_COLOR_WORK_DIRINFO \
   PS1_COLOR_GIT \
+  PS1_COLOR_EXEC_TIME \
   PS1_COLOR_TIME_AM \
   PS1_COLOR_TIME_PM \
   PS1_COLOR_LOAD \
@@ -346,7 +392,9 @@ unset PS1_COLOR_NORMAL \
   PS1_DAY_END \
   PS1_DAY_START \
   PS1_EXIT_STATUS \
+  PS1_EXEC_TIME \
   PS1_BG_JOBS \
+  PS1_LOAD_AVG \
   PS1_PWD_WRITABLE \
   PS1_SYMBOL_NO_WRITE_PWD \
   PS1_SYMBOL_GIT_BRANCH \
@@ -357,7 +405,8 @@ unset PS1_COLOR_NORMAL \
   PS1_SYMBOL_SU \
   PS1_SESSION_TYPE \
   PS1_HOST_NAME \
-  PS1_ADDITIONAL_INFO
+  PS1_ADDITIONAL_INFO \
+  PROMPT_TITLE
 
 # ---------- OTHER VARIABLES ----------
 
