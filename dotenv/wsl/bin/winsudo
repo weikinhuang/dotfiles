@@ -1,47 +1,69 @@
-#!/bin/bash
+#!/usr/bin/env bash
 #title              : winsudo
-#description        : This script allows running a process with elevated windows privileges
+#description        : Run commands with elevated windows privileges
 #author             : Wei Kin Huang
 #date               : 2018-10-13
 #version            : 1.0.0
 #usage              : winsudo [args...]
-#requires           : powershell.exe, fsutil.exe, fltMC.exe ssh sshd
-#==============================================================================
+#requires           : powershell.exe net.exe nc ssh sshd wslpath
+#===============================================================================
 
 set -euo pipefail
 IFS=$'\n\t'
 
-#==============================================================================
+#===============================================================================
 # global variables
-#==============================================================================
+#===============================================================================
 SSHD_PID_PORT=$(($$ + 32222))
 WINSUDO_WORKDIR="${HOME}/.ssh/winsudosshd"
+if command -v powershell.exe &>/dev/null; then
+  POWERSHELL_EXEC="$(command -v powershell.exe)"
+else
+  # this is the default path to windows powershell
+  POWERSHELL_EXEC="$(wslpath -u c:)/Windows/System32/WindowsPowerShell/v1.0/powershell.exe"
+fi
+SSHD_EXEC="$(command -v sshd)"
+SCRIPT_NAME="$(basename "$0")"
 
-#==============================================================================
+#===============================================================================
 # internal functions
-#==============================================================================
+#===============================================================================
+
 function internal::is-elevated-process() {
   local ret out
 
   # try using powershell to determine elevated status
-  out="$(powershell.exe -c '(New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)' | tr -d '\r')"
+  out="$("${POWERSHELL_EXEC}" -c '(New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)' </dev/null | tr -d '\r')"
   ret=$?
-  if [[ ${ret} -eq 0 ]]; then
-    if [[ "${out}" == "True" ]]; then
-      return 0
-    fi
-    return 1
-  fi
+  test ${ret} -eq 0 && test "${out}" == "True"
 
-  # Query admin rights http://stackoverflow.com/a/21295806/1641422
-  fsutil.exe dirty query c: &>/dev/null
-  ret=$?
-  if [[ ${ret} -eq 127 ]]; then
-    # If fail try another way http://stackoverflow.com/a/28268802
-    fltMC.exe &>/dev/null
-    ret=$?
+  # alternative approach
+  # net.exe sessions </dev/null &>/dev/null
+}
+
+function internal::cleanup() {
+  if [[ ! -e "${WINSUDO_WORKDIR}/winsudo.${SSHD_PID_PORT}.pid" ]]; then
+    return 0
   fi
-  return $ret
+  kill "$(cat "${WINSUDO_WORKDIR}/winsudo.${SSHD_PID_PORT}.pid")" || true
+  rm -f "${WINSUDO_WORKDIR}/winsudo.${SSHD_PID_PORT}.pid"
+}
+
+function internal::ssh-gen-keys() {
+  # setup winsudo workdir
+  if [[ ! -d "${WINSUDO_WORKDIR}" ]]; then
+    mkdir -p ~/.ssh/winsudosshd
+  fi
+  # setup winsudo sshd host key
+  if [[ ! -e "${WINSUDO_WORKDIR}/ssh_host_ed25519_key" ]]; then
+    ssh-keygen -q -N "" -t ed25519 -f "${WINSUDO_WORKDIR}/ssh_host_ed25519_key"
+  fi
+  # setup winsudo sshd client key
+  if [[ ! -e "${WINSUDO_WORKDIR}/authorized_keys" ]] || [[ ! -e "${WINSUDO_WORKDIR}/ssh_ed25519_key" ]]; then
+    rm -f "${WINSUDO_WORKDIR}/ssh_ed25519_key"
+    ssh-keygen -q -N "" -t ed25519 -f "${WINSUDO_WORKDIR}/ssh_ed25519_key"
+    cat "${WINSUDO_WORKDIR}/ssh_ed25519_key.pub" >"${WINSUDO_WORKDIR}/authorized_keys"
+  fi
 }
 
 function internal::escape-args() {
@@ -56,14 +78,6 @@ function internal::escape-args() {
   echo "${args[@]}"
   # for debugging arguments
   #echo "${args[@]}" >&2
-}
-
-function internal::cleanup() {
-  if [[ ! -e "${WINSUDO_WORKDIR}/winsudo.${SSHD_PID_PORT}.pid" ]]; then
-    return 0
-  fi
-  kill "$(cat "${WINSUDO_WORKDIR}/winsudo.${SSHD_PID_PORT}.pid")" || true
-  rm -f "${WINSUDO_WORKDIR}/winsudo.${SSHD_PID_PORT}.pid"
 }
 
 function internal::ssh() {
@@ -93,30 +107,13 @@ function internal::ssh-with-login() {
   internal::ssh-with-cwd BASHRC_NONINTERACTIVE_BYPASS=1 source \~/.bashrc \&\>/dev/null\ \|\|\ true\ \; "$@"
 }
 
-function internal::ssh-gen-keys() {
-  # setup winsudo workdir
-  if [[ ! -d "${WINSUDO_WORKDIR}" ]]; then
-    mkdir -p ~/.ssh/winsudosshd
-  fi
-  # setup winsudo sshd host key
-  if [[ ! -e "${WINSUDO_WORKDIR}/ssh_host_ed25519_key" ]]; then
-    ssh-keygen -q -N "" -t ed25519 -f "${WINSUDO_WORKDIR}/ssh_host_ed25519_key"
-  fi
-  # setup winsudo sshd client key
-  if [[ ! -e "${WINSUDO_WORKDIR}/authorized_keys" ]] || [[ ! -e "${WINSUDO_WORKDIR}/ssh_ed25519_key" ]]; then
-    rm -f "${WINSUDO_WORKDIR}/ssh_ed25519_key"
-    ssh-keygen -q -N "" -t ed25519 -f "${WINSUDO_WORKDIR}/ssh_ed25519_key"
-    cat "${WINSUDO_WORKDIR}/ssh_ed25519_key.pub" >"${WINSUDO_WORKDIR}/authorized_keys"
-  fi
-}
-
-function internal::run-sshd() {
+function internal::start-privileged-server() {
   # run sshd proxy under a elevated session
-  if ! powershell.exe \
+  if ! "${POWERSHELL_EXEC}" \
     Start-Process \
     -Verb RunAs \
     -WindowStyle Hidden \
-    wsl.exe \"bash\", \""$(realpath "$(command -v __winsudoproxy.sh)")"\", \"${SSHD_PID_PORT}\" &>/dev/null; then
+    wsl.exe \"bash\", \""$(realpath "$(command -v "${SCRIPT_NAME}")")"\", \"--privileged\", \"${SSHD_PID_PORT}\" </dev/null &>/dev/null; then
     echo "UAC elevation was canceled" >&2
     return 1
   fi
@@ -127,9 +124,40 @@ function internal::run-sshd() {
   done
 }
 
-function internal::main() {
+#===============================================================================
+# entrypoint functions
+#===============================================================================
+
+function internal::privileged-process() {
+  local PARENT_PID_PORT="$1"
+  # override for clean up purposes
+  SSHD_PID_PORT="${PARENT_PID_PORT}"
+
+  # if we're not in an elevated prompt, exit
+  if ! internal::is-elevated-process </dev/null &>/dev/null; then
+    return 1
+  fi
+
+  # use preset config with a blank slate
+  # https://infosec.mozilla.org/guidelines/openssh
+  "${SSHD_EXEC}" -D \
+    -f /dev/null \
+    -p "${PARENT_PID_PORT}" \
+    -o AuthenticationMethods=publickey \
+    -o AuthorizedKeysFile="${WINSUDO_WORKDIR}/authorized_keys" \
+    -o Ciphers="chacha20-poly1305@openssh.com,aes256-gcm@openssh.com,aes128-gcm@openssh.com,aes256-ctr,aes192-ctr,aes128-ctr" \
+    -o HostKey="${WINSUDO_WORKDIR}/ssh_host_ed25519_key" \
+    -o KexAlgorithms="curve25519-sha256@libssh.org,ecdh-sha2-nistp521,ecdh-sha2-nistp384,ecdh-sha2-nistp256,diffie-hellman-group-exchange-sha256" \
+    -o ListenAddress=127.0.0.1 \
+    -o MACs="hmac-sha2-512-etm@openssh.com,hmac-sha2-256-etm@openssh.com,umac-128-etm@openssh.com,hmac-sha2-512,hmac-sha2-256,umac-128@openssh.com" \
+    -o MaxSessions=1 \
+    -o PermitRootLogin=No \
+    -o PidFile="${WINSUDO_WORKDIR}/winsudo.${PARENT_PID_PORT}.pid"
+}
+
+function internal::unprivileged-process() {
   # if we're already an elevated, just execute the command
-  if internal::is-elevated-process </dev/null; then
+  if internal::is-elevated-process </dev/null &>/dev/null; then
     if [[ $# == 0 ]]; then
       return 0
     fi
@@ -138,7 +166,9 @@ function internal::main() {
 
   # run elevated sshd server and wait for active connection
   # need to set stdin, otherwise powershell will read stdin and it will be lost by the next process
-  internal::run-sshd </dev/null
+  if ! internal::start-privileged-server </dev/null; then
+    return 1
+  fi
 
   # if we're not running elevated processes, ssh into the elevated process
   if [[ $# == 0 ]]; then
@@ -151,9 +181,19 @@ function internal::main() {
   fi
 }
 
-#==============================================================================
+#===============================================================================
 # main
-#==============================================================================
+#===============================================================================
+
+function internal::main() {
+  if [[ "${1:-}" == "--privileged" ]]; then
+    shift
+    internal::privileged-process "$@"
+  else
+    internal::unprivileged-process "$@"
+  fi
+}
+
 # clean sshd process that was created for a elevated prompt
 trap internal::cleanup EXIT
 
