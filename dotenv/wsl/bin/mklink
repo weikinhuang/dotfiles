@@ -93,5 +93,5 @@ fi
 # shellcheck disable=SC1003
 opts=("${opts[@]}" "$(wslpath -w "${targets[0]}" || tr '/' '\\' <<<"${targets[0]}")")
 
-/mnt/c/Windows/System32/cmd.exe /c mklink "${opts[@]}"
+"$(wslpath -u c:)/Windows/System32/cmd.exe" /c mklink "${opts[@]}"
 exit $?

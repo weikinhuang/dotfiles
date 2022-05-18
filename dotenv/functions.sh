@@ -54,7 +54,7 @@ function __push_prompt_command() {
 }
 
 # internal prompt command stack to simplify the PROMPT_COMMAND variable
-__prompt_actions=()
+declare -a __prompt_actions
 function __push_internal_prompt_command() {
   local command="${1/%;/}"
   __prompt_actions+=("${command}")

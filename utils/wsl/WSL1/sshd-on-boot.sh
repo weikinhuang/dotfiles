@@ -8,11 +8,13 @@
 
 # get the windows username
 function winwhoami() {
-  /mnt/c/Windows/System32/cmd.exe /c 'echo %USERNAME%' | sed -e 's/\r//g'
+  # shellcheck disable=SC2016
+  powershell.exe -c '$env:USERNAME' </dev/null | tr -d '\r'
 }
 
 function win-profile-dir() {
-  wslpath -u "$(/mnt/c/Windows/System32/cmd.exe /c 'echo %USERPROFILE%' | sed -e 's/\r//g')"
+  # shellcheck disable=SC2016
+  powershell.exe -c '$env:USERPROFILE' </dev/null | tr -d '\r'
 }
 
 WORKDIR="$(dirname "$(realpath "$0")")"

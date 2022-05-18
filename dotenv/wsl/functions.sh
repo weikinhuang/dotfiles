@@ -1,7 +1,8 @@
 # shellcheck shell=bash
 # get the windows username
 function winwhoami() {
-  /mnt/c/Windows/System32/cmd.exe /c 'echo %USERNAME%' | sed -e 's/\r//g'
+  # shellcheck disable=SC2016
+  powershell.exe -c '$env:USERNAME' </dev/null | tr -d '\r'
 }
 
 # check if this is a wsl path
@@ -27,10 +28,11 @@ function is-elevated-session() {
   local ret out
 
   # try using powershell to determine elevated status
-  out="$(powershell.exe -c '(New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)' | tr -d '\r')"
+  out="$(powershell.exe -c '(New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)' </dev/null | tr -d '\r')"
   ret=$?
   if [[ ${ret} -ne 0 ]]; then
     return 255
   fi
-  [[ "${out}" == "True" ]]
+  test "${out}" == "True"
 }
+export -f is-elevated-session

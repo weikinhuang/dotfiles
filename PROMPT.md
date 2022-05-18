@@ -95,6 +95,12 @@ load = 1 min load avg on \*nix/osx/wsl
 
 Place these options in `~/.prompt_exports`
 
+Disable this prompt
+
+```bash
+export _PS1_DISABLED=1
+```
+
 Turn off the load indicator
 
 ```bash

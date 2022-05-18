@@ -1,6 +1,11 @@
 # shellcheck shell=bash
 # ---------- COLOR REFERENCES AND OPTIONS ----------
 
+if [[ -n "${_PS1_DISABLED:-}" ]]; then
+  unset _PS1_DISABLED
+  return
+fi
+
 # quick reference to colors
 PS1_COLOR_NORMAL='\[\e[m\]'
 PS1_COLOR_BOLD='\[\e[1m\]'
@@ -36,7 +41,7 @@ PS1_COLOR_LOAD='
 '
 
 # If we want a monochrome bash prompt
-if [[ -n ${_PS1_MONOCHROME} ]]; then
+if [[ -n "${_PS1_MONOCHROME:-}" ]]; then
   # quick reference to colors
   PS1_COLOR_GREY=
 
@@ -93,7 +98,7 @@ PS1_DAY_END=18
 # shellcheck disable=SC2016
 __push_internal_prompt_command '__ps1_var_date=$(/bin/date +%s)'
 
-if [[ -z ${_PS1_HIDE_LOAD} ]]; then
+if [[ -z "${_PS1_HIDE_LOAD:-}" ]]; then
   # shellcheck disable=SC2016
   PS1_LOAD_AVG='load=$(__ps1_proc_use)'
 
@@ -123,7 +128,7 @@ if [[ -z ${_PS1_HIDE_LOAD} ]]; then
 fi
 
 # caching the directory information for bash prompt to reduce disk reads
-if [[ -z ${_PS1_HIDE_DIR_INFO} ]]; then
+if [[ -z "${_PS1_HIDE_DIR_INFO:-}" ]]; then
   __ps1_var_dirinfo="0|0b"
   __ps1_var_dirinfotime=0
   __ps1_var_dirinfoprev=0
@@ -149,7 +154,7 @@ if [[ -z ${_PS1_HIDE_DIR_INFO} ]]; then
 fi
 
 # datetime colorization in prompt
-if [[ -z ${_PS1_HIDE_TIME} ]]; then
+if [[ -z "${_PS1_HIDE_TIME:-}" ]]; then
   # shellcheck disable=SC2016,SC2086
   PS1_DATETIME="$(tr -d '\n' <<<'
   time=$(/bin/date +"%H" | sed 's/^0//');
@@ -267,11 +272,11 @@ function __ps1_create() {
   # show number of background jobs
   PS1="${PS1}""${PS1_COLOR_BG_JOBS}${PS1_BG_JOBS}${PS1_COLOR_RESET}"
   # time
-  if [[ -z ${_PS1_HIDE_TIME} ]]; then
+  if [[ -z "${_PS1_HIDE_TIME:-}" ]]; then
     PS1="${PS1}\$(${PS1_DATETIME})"
   fi
   # load
-  if [[ -z ${_PS1_HIDE_LOAD} ]]; then
+  if [[ -z "${_PS1_HIDE_LOAD:-}" ]]; then
     PS1="${PS1}\$(${PS1_LOAD_AVG})"
   fi
   # user
@@ -283,7 +288,7 @@ function __ps1_create() {
   # working directory
   PS1="${PS1}""${PS1_COLOR_WORK_DIR}${PS1_PWD_WRITABLE}"'\W'"${PS1_COLOR_RESET}"
   # working directory information (number of files | total file size)
-  if [[ -z "${_PS1_HIDE_DIR_INFO}" ]]; then
+  if [[ -z "${_PS1_HIDE_DIR_INFO:-}" ]]; then
     PS1="${PS1}""${PS1_COLOR_WORK_DIRINFO}"'<${__ps1_var_dirinfo}>'"${PS1_COLOR_RESET}"
   fi
   # any additional blocks from the local prompt config
@@ -301,7 +306,7 @@ function __ps1_create() {
   # close bracket
   PS1="${PS1}""${PS1_COLOR_BOLD}${PS1_COLOR_GREY}"']'"${PS1_COLOR_RESET}"
   # newline before the user symbol
-  if [[ -n ${_PS1_MULTILINE:-} ]]; then
+  if [[ -n "${_PS1_MULTILINE:-}" ]]; then
     PS1="${PS1}\n"
   fi
   # prompt symbol
@@ -325,7 +330,7 @@ function __sudo_ps1_create() {
   # show number of background jobs
   SUDO_PS1="${SUDO_PS1}""${PS1_COLOR_BG_JOBS}${PS1_BG_JOBS}${PS1_COLOR_RESET}"
   # time
-  if [[ -z ${_PS1_HIDE_TIME} ]]; then
+  if [[ -z "${_PS1_HIDE_TIME:-}" ]]; then
     SUDO_PS1="${SUDO_PS1}\$(${PS1_DATETIME})"
   fi
   # user
@@ -339,7 +344,7 @@ function __sudo_ps1_create() {
   # close bracket
   SUDO_PS1="${SUDO_PS1}""${PS1_COLOR_BOLD}${PS1_COLOR_GREY}"']'"${PS1_COLOR_RESET}"
   # newline before the user symbol
-  if [[ -n ${_PS1_MULTILINE:-} ]]; then
+  if [[ -n "${_PS1_MULTILINE:-}" ]]; then
     SUDO_PS1="${SUDO_PS1}\n"
   fi
   # prompt symbol

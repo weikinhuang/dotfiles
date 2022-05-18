@@ -115,3 +115,5 @@ Setting up `sshd` lets us use terminal emulators that don't support WSL natively
     ```bash
     bash ~/.dotfiles/utils/wsl/WSL1/sshd-on-boot.sh
     ```
+
+    > Note: This will cause a Powershell window to open momentarily during login.
