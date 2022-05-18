@@ -107,6 +107,7 @@ Setting up `sshd` lets us use terminal emulators that don't support WSL natively
     # Allow base user to start up sshd on windows login
     WSLUSERNAME ALL=(ALL) NOPASSWD: /usr/sbin/sshd
     WSLUSERNAME ALL=(ALL) NOPASSWD: /bin/mkdir -p /run/sshd
+    WSLUSERNAME ALL=(ALL) NOPASSWD: /usr/bin/rm -f /var/run/sshd.pid
     ```
 
 1. Install the windows scheduled task, change the path to the dotfiles installation path if necessary.

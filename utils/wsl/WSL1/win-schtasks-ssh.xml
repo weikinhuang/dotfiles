@@ -34,8 +34,8 @@
     </Settings>
     <Actions Context="Author">
         <Exec>
-            <Command>##RUN_EXE##</Command>
-            <Arguments>C:\Windows\System32\wsl.exe -wait bash "##SSHD_RUN_SCRIPT##"</Arguments>
+            <Command>powershell.exe</Command>
+            <Arguments>-Command "&amp; {powershell.exe Start-Process -WindowStyle Hidden wsl.exe -ArgumentList "bash","##SSHD_RUN_SCRIPT##"}"</Arguments>
             <WorkingDirectory>C:\Windows\System32</WorkingDirectory>
         </Exec>
     </Actions>
