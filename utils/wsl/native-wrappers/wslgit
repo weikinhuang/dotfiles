@@ -1,13 +1,12 @@
 #!/bin/bash
 
 # if there are any baked in arguments they are defined here
-args=(  )
+args=()
 IS_REMAIN_ARGS=
 IS_WSLPATH_TRANSLATE_CMD=
 
 # echo NATIVE_ARGS= "$@" >> /tmp/wslgit-runlog
-for arg in "$@"
-do
+for arg in "$@"; do
   # if argument is a file, then expand it to windows paths
   if [[ ${IS_REMAIN_ARGS} == 1 ]] || [[ "$arg" != -* && -e "$(wslpath -u "$arg" 2>/dev/null)" ]]; then
     # echo "arg $arg is a file"

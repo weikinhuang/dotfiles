@@ -4,7 +4,7 @@ DATE=$(date +'%Y-%m-%d')
 HEAD="\nn.n.n / $DATE \n==================\n\n"
 
 case "$1" in
-  -l|--list)
+  -l | --list)
     version=$(git describe --tags --abbrev=0 "$(git rev-list --tags --max-count=1)")
     if test -z "$version"; then
       git log --pretty="format:  * %s"
@@ -20,10 +20,10 @@ case "$1" in
       if test "$CHANGELOG" = ""; then CHANGELOG='History.md'; fi
     fi
     tmp="/tmp/changelog"
-    printf "%s" "$HEAD" > $tmp
-    git-changelog --list >> $tmp
-    printf '\n' >> $tmp
-    if [ -f $CHANGELOG ]; then cat $CHANGELOG >> $tmp; fi
+    printf "%s" "$HEAD" >$tmp
+    git-changelog --list >>$tmp
+    printf '\n' >>$tmp
+    if [ -f $CHANGELOG ]; then cat $CHANGELOG >>$tmp; fi
     mv $tmp $CHANGELOG
     test -n "$EDITOR" && $EDITOR $CHANGELOG
     ;;
