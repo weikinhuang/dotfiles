@@ -43,6 +43,7 @@ function _ssh-agent-start() {
 # only start the agent if we don't already have a SSH_AUTH_SOCK
 if [[ -n "${AUTOLOAD_SSH_AGENT:-}" ]] && [[ -z "${SSH_AUTH_SOCK:-}" ]]; then
   _ssh-agent-start
+  unset AUTOLOAD_SSH_AGENT
 fi
 
 # reloads env vars from tmux

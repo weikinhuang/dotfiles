@@ -1,4 +1,4 @@
-﻿# weikinhuang's dotfiles
+# weikinhuang's dotfiles
 
 My `$SHELL`, mostly bash, works everywhere, `*nix`, `osx`, `wsl`.
 
@@ -59,9 +59,15 @@ See [PROMPT.md](PROMPT.md) for configuration options.
 
 ![Prompt example](./assets/prompt-example.png)
 
-## Add custom commands with ~/.bash_local
+## Custom hook points
 
-If `~/.bash_local` exists, it will be sourced after the includes are sourced. Any additional env vars or settings can be placed in this file.
+### `~/.bash_local`
+
+If `~/.bash_local` exists, it will be sourced after the built-ins are sourced, but before the prompt. Any additional env vars or settings can be placed in this file.
+
+### `~/.bash_local.d/*.sh`
+
+All files ending with `.sh` located in `~/.bash_local.d` will be loaded at the end, this is a good place to put include scripts that set up additional applications in separate files. See the [plugins/](./plugins/) directory for examples.
 
 ## .gitconfig.local
 
@@ -71,7 +77,7 @@ If a file `~/.gitconfig.local` exists, it will be sourced in addition to the bui
 
 Setup and configuration of Window's WSL is documented in [utils/wsl/README.md](utils/wsl/README.md).
 
-## Other variables for ~/.bash_local
+## Configuration Options
 
 To use these variables, export them to `~/.bash_local`.
 
@@ -82,6 +88,9 @@ export AUTOLOAD_SSH_AGENT=1
 
 | exported ENV var              | Description                                                                                        |
 | ----------------------------- | -------------------------------------------------------------------------------------------------- |
+| `__term_solarized_256=true`   | Use to tell common commands to use solarized-dark 256 colors                                       |
 | `__term_solarized_light=true` | Use to tell common commands to use solarized-light colors                                          |
-| `INCLUDE_BREW_PATH=1`         | Use to homebrew utilities without the `g` prefix (OSX)                                             |
 | `AUTOLOAD_SSH_AGENT=1`        | Automatically start up ssh-agent when starting a new shell, and reuse any existing agent instances |
+| `BASH_RESOLVE_PATHS=1`        | Set bash option `set -o physical` to not resolve symlink paths                                     |
+| `INCLUDE_BREW_PATH=1`         | Use to homebrew utilities without the `g` prefix (OSX)                                             |
+| `INCLUDE_BUILTIN_PLUGINS=1`        | Loads files in dotfiles/plugins                                     |

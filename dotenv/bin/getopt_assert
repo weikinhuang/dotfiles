@@ -32,7 +32,7 @@ function getopt_loop() {
   while test $# -gt 0; do
     if [[ "$1" == $SEARCH* ]]; then
       # get the substring of the argument sans the arg name itself
-      local SUBARG="${1#$SEARCH}"
+      local SUBARG="${1#"$SEARCH"}"
 
       # search for longopt
       if [[ "$1" == --* ]]; then

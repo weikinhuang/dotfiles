@@ -50,15 +50,15 @@ esac
 export DOTENV
 
 # modify path to include useful scripts
-if [[ ${IS_WSL} == 1 ]]; then
+if [[ -n "${IS_WSL}" ]]; then
   [[ -d "${DOTFILES__ROOT}/.dotfiles/dotenv/wsl/bin.$(uname -m)" ]] && PATH="${PATH}:${DOTFILES__ROOT}/.dotfiles/dotenv/wsl/bin.$(uname -m)"
   [[ -d "${DOTFILES__ROOT}/.dotfiles/dotenv/wsl/bin" ]] && PATH="${PATH}:${DOTFILES__ROOT}/.dotfiles/dotenv/wsl/bin"
 fi
-if [[ ${IS_WSL2} == 1 ]]; then
+if [[ -n "${IS_WSL2}" ]]; then
   [[ -d "${DOTFILES__ROOT}/.dotfiles/dotenv/wsl2/bin.$(uname -m)" ]] && PATH="${PATH}:${DOTFILES__ROOT}/.dotfiles/dotenv/wsl2/bin.$(uname -m)"
   [[ -d "${DOTFILES__ROOT}/.dotfiles/dotenv/wsl2/bin" ]] && PATH="${PATH}:${DOTFILES__ROOT}/.dotfiles/dotenv/wsl2/bin"
 fi
-if [[ ${IS_TERMUX} == 1 ]]; then
+if [[ -n "${IS_TERMUX}" ]]; then
   [[ -d "${DOTFILES__ROOT}/.dotfiles/dotenv/termux/bin.$(uname -m)" ]] && PATH="${PATH}:${DOTFILES__ROOT}/.dotfiles/dotenv/termux/bin.$(uname -m)"
   [[ -d "${DOTFILES__ROOT}/.dotfiles/dotenv/termux/bin" ]] && PATH="${PATH}:${DOTFILES__ROOT}/.dotfiles/dotenv/termux/bin"
 fi
@@ -82,15 +82,15 @@ for file in {exports,functions,aliases,completion,extra,env}; do
   [[ -r "${DOTFILES__ROOT}/.dotfiles/dotenv/${file}.sh" ]] && source "${DOTFILES__ROOT}/.dotfiles/dotenv/${file}.sh"
   # shellcheck source=/dev/null
   [[ -r "${DOTFILES__ROOT}/.dotfiles/dotenv/${DOTENV}/${file}.sh" ]] && source "${DOTFILES__ROOT}/.dotfiles/dotenv/${DOTENV}/${file}.sh"
-  if [[ ${IS_WSL} == 1 ]]; then
+  if [[ -n "${IS_WSL}" ]]; then
     # shellcheck source=/dev/null
     [[ -r "${DOTFILES__ROOT}/.dotfiles/dotenv/wsl/${file}.sh" ]] && source "${DOTFILES__ROOT}/.dotfiles/dotenv/wsl/${file}.sh"
   fi
-  if [[ ${IS_WSL2} == 1 ]]; then
+  if [[ -n "${IS_WSL2}" ]]; then
     # shellcheck source=/dev/null
     [[ -r "${DOTFILES__ROOT}/.dotfiles/dotenv/wsl2/${file}.sh" ]] && source "${DOTFILES__ROOT}/.dotfiles/dotenv/wsl2/${file}.sh"
   fi
-  if [[ ${IS_TERMUX} == 1 ]]; then
+  if [[ -n "${IS_TERMUX}" ]]; then
     # shellcheck source=/dev/null
     [[ -r "${DOTFILES__ROOT}/.dotfiles/dotenv/termux/${file}.sh" ]] && source "${DOTFILES__ROOT}/.dotfiles/dotenv/termux/${file}.sh"
   fi
@@ -117,20 +117,39 @@ for file in {post-local,prompt}; do
   [[ -r "${DOTFILES__ROOT}/.dotfiles/dotenv/${file}.sh" ]] && source "${DOTFILES__ROOT}/.dotfiles/dotenv/${file}.sh"
   # shellcheck source=/dev/null
   [[ -r "${DOTFILES__ROOT}/.dotfiles/dotenv/${DOTENV}/${file}.sh" ]] && source "${DOTFILES__ROOT}/.dotfiles/dotenv/${DOTENV}/${file}.sh"
-  if [[ ${IS_WSL} == 1 ]]; then
+  if [[ -n "${IS_WSL}" ]]; then
     # shellcheck source=/dev/null
     [[ -r "${DOTFILES__ROOT}/.dotfiles/dotenv/wsl/${file}.sh" ]] && source "${DOTFILES__ROOT}/.dotfiles/dotenv/wsl/${file}.sh"
   fi
-  if [[ ${IS_WSL2} == 1 ]]; then
+  if [[ -n "${IS_WSL2}" ]]; then
     # shellcheck source=/dev/null
     [[ -r "${DOTFILES__ROOT}/.dotfiles/dotenv/wsl2/${file}.sh" ]] && source "${DOTFILES__ROOT}/.dotfiles/dotenv/wsl2/${file}.sh"
   fi
-  if [[ ${IS_TERMUX} == 1 ]]; then
+  if [[ -n "${IS_TERMUX}" ]]; then
     # shellcheck source=/dev/null
     [[ -r "${DOTFILES__ROOT}/.dotfiles/dotenv/termux/${file}.sh" ]] && source "${DOTFILES__ROOT}/.dotfiles/dotenv/termux/${file}.sh"
   fi
 done
 unset file
+
+# load plugin hooks
+if [[ -n "${INCLUDE_BUILTIN_PLUGINS:-}" ]]; then
+  for f in "${DOTFILES__ROOT}/.dotfiles/plugins"/*.sh; do
+    if [[ -e "${f}" ]]; then
+      # shellcheck source=/dev/null
+      source "$f"
+    fi
+  done
+fi
+if [[ -d "${HOME}/.bash_local.d" ]]; then
+  for f in "${HOME}/.bash_local.d"/*.sh; do
+    if [[ -e "${f}" ]]; then
+      # shellcheck source=/dev/null
+      source "$f"
+    fi
+  done
+fi
+unset INCLUDE_BUILTIN_PLUGINS
 
 # internal prompt command stack to simplify the PROMPT_COMMAND variable
 __push_prompt_command '__run_prompt_command'

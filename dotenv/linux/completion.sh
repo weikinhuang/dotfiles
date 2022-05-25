@@ -1,3 +1,7 @@
 # shellcheck shell=bash
+
 # Completion options
-[[ -f /etc/bash_completion ]] && source /etc/bash_completion
+if [[ -f /etc/bash_completion ]]; then
+  # shellcheck source=/dev/null
+  source /etc/bash_completion
+fi
