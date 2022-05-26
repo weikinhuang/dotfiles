@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+#title              : is-elevated-session
+#description        : Checks if the current process (sesison) is running with Administrator privileges.
+#author             : Wei Kin Huang
+#date               : 2022-05-26
+#version            : 1.0.0
+#usage              : is-elevated-session [args...]
+#requires           : powershell.exe
+#===============================================================================
+set -euo pipefail
+IFS=$'\n\t'
+
+# try using powershell to determine elevated status
+out="$(powershell.exe -c '(New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)' </dev/null | tr -d '\r')"
+ret=$?
+if [[ ${ret} -ne 0 ]]; then
+  return 255
+fi
+test "${out}" == "True"

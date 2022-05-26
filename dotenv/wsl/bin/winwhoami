@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+#title              : winwhoami
+#description        : Print the user name associated with the current windows session.
+#author             : Wei Kin Huang
+#date               : 2022-05-26
+#version            : 1.0.0
+#usage              : winwhoami [args...]
+#requires           : powershell.exe
+#===============================================================================
+set -euo pipefail
+IFS=$'\n\t'
+
+# shellcheck disable=SC2016
+powershell.exe -c '$env:USERNAME' </dev/null | tr -d '\r'
