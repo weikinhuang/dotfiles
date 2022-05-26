@@ -1,0 +1,116 @@
+#!/usr/bin/env bash
+#
+# A git checkout -- replacement that stores changes in the reflog
+#
+# Copyright (c) 2016 Wei Kin Huang
+# MIT Licensed
+#
+# @see https://github.com/weikinhuang/git-undo-index/
+
+# colors
+COLOR_BOLD=
+COLOR_RESET=
+if type tput &>/dev/null; then
+  COLOR_BOLD=$(tput bold)
+  COLOR_RESET=$(tput sgr0)
+fi
+
+# variables
+UNIXTIME="$(date +%s)"
+RANDOM="$(cat /dev/urandom | tr -dc 'a-zA-Z0-9' | fold -w 8 | head -n 1)"
+TEMP_BRANCH_NAME="__undo_${RANDOM}_${UNIXTIME}"
+CURRENT_HEAD_FULL="$(git rev-parse HEAD)"
+CURRENT_HEAD="$(git rev-parse --symbolic-full-name --abbrev-ref --short HEAD)"
+if [ "${CURRENT_HEAD}" == 'HEAD' ]; then
+  CURRENT_HEAD="$(git rev-parse --short HEAD)"
+fi
+COMMIT_MESSAGE="$(git log --format=%s -n 1)"
+
+#set -x
+
+# create the patch of the changes to undo to apply later
+GIT_DIFF="$(git diff -- "$@")"
+
+# check if we can go to a new branch
+#echo "${COLOR_BOLD}Switching to temp branch: ${TEMP_BRANCH_NAME}${COLOR_RESET}" 1>&2
+if ! git checkout -b "$TEMP_BRANCH_NAME" &>/dev/null; then
+  echo "Unable to create temp branch!" >/dev/stderr
+  exit 1
+fi
+
+# actually undo all changes that were specified
+git checkout -- "$@" &>/dev/null
+#git status
+
+# determine if there are any changes to stash
+USE_STASH="$(git status --porcelain --untracked-files=no)"
+
+# create a temp stash for changes we're actually keeping
+if [ -n "$USE_STASH" ]; then
+  git stash save "temp stash: ${TEMP_BRANCH_NAME}" &>/dev/null
+  #git status
+
+  # reapply the changes we're keeping so we can keep cherry-pick from the reflog happy
+  git stash apply --index "stash@{0}" &>/dev/null
+  #git status
+
+  # commit changes that we're keeping also for cherry-pick purposes
+  git commit --no-verify -a -m"WIP ${TEMP_BRANCH_NAME}" &>/dev/null || true
+  #git status
+fi
+
+# apply the changes we're discarding
+echo "$GIT_DIFF" | git apply &>/dev/null
+#git status
+
+# add all the files we're discarding
+#echo "${COLOR_BOLD}Adding files to undo:${COLOR_RESET}" 1>&2
+git add --verbose --update "$@" &>/dev/null
+#git status
+
+# commit all the files we're discarding
+#echo "${COLOR_BOLD}Creating commit entry for reflog${COLOR_RESET}" 1>&2
+git commit --no-verify -m"Undoing changes for ${CURRENT_HEAD}: ${COMMIT_MESSAGE} on $(date)"
+#git status
+
+# prevent any unnecessary change detection when going back to the previous branch
+git reset --hard "${CURRENT_HEAD_FULL}" &>/dev/null
+#git status
+
+# go back to the previous working branch
+git checkout - &>/dev/null
+#git status
+
+# reapply all the changes we're keeping along with the staged state of each file
+if [ -n "$USE_STASH" ]; then
+  git stash pop --index "stash@{0}" &>/dev/null
+  #git status
+fi
+
+# remove the temp branch
+git branch -D "$TEMP_BRANCH_NAME" &>/dev/null
+#git status
+
+# clean up wip reflog entries
+# remove the reflog entry
+if git reflog | grep 'checkout: moving from ' | grep -q " to ${TEMP_BRANCH_NAME}\$"; then
+  #echo "${COLOR_BOLD}Removing \"$(git reflog | grep 'checkout: moving from ' | grep " to ${TEMP_BRANCH_NAME}\$" | head -n1 | cut -f3- -d' ')\" from reflog${COLOR_RESET}"
+  git reflog delete "$(git reflog | grep 'checkout: moving from ' | grep " to ${TEMP_BRANCH_NAME}\$" | head -n1 | cut -f2 -d' ' | tr -d ':')" &>/dev/null
+fi
+# remove the reflog entry for the wip commit, as it is not needed
+if git reflog | grep -q "commit: WIP ${TEMP_BRANCH_NAME}\$"; then
+  #echo "${COLOR_BOLD}Removing \"$(git reflog | grep "commit: WIP ${TEMP_BRANCH_NAME}\$" | head -n1 | cut -f3- -d' ')\" from reflog${COLOR_RESET}" 1>&2
+  git reflog delete "$(git reflog | grep "commit: WIP ${TEMP_BRANCH_NAME}\$" | head -n1 | cut -f2 -d' ' | tr -d ':')" &>/dev/null
+fi
+# remove the reflog entry for the reset operation
+if git reflog | grep -q "reset: moving to ${CURRENT_HEAD_FULL}\$"; then
+  #echo "${COLOR_BOLD}Removing \"$(git reflog | grep "reset: moving to ${CURRENT_HEAD_FULL}\$" | head -n1 | cut -f3- -d' ')\" from reflog${COLOR_RESET}" 1>&2
+  git reflog delete "$(git reflog | grep "reset: moving to ${CURRENT_HEAD_FULL}\$" | head -n1 | cut -f2 -d' ' | tr -d ':')" &>/dev/null
+fi
+
+# DO NOT DELETE THIS REFLOG ENTRY
+# deleting this entry will rewrite the "Undoing changes for" commit to the current HEAD instead
+#if git reflog | grep -q "checkout: moving from ${TEMP_BRANCH_NAME} to"; then
+#    #echo "${COLOR_BOLD}Removing \"$(git reflog | grep "checkout: moving from ${TEMP_BRANCH_NAME} to" | head -n1 | cut -f3- -d' ')\" from reflog${COLOR_RESET}" 1>&2
+#    git reflog delete "$(git reflog | grep "checkout: moving from ${TEMP_BRANCH_NAME} to" | head -n1 | cut -f2 -d' ' | tr -d ':')" &>/dev/null
+#fi
