@@ -28,9 +28,9 @@
 
 | ENV var          | Description                                                     |
 | ---------------- | --------------------------------------------------------------- |
-| `PROC_CORES`     | Number of threads (cores)                                       |
 | `DOTENV`         | Simple access to os platform                                    |
 | `DOTFILES__ROOT` | Root where dotfiles directory is installed (ex. `/home/ubuntu`) |
+| `PROC_CORES`     | Number of threads (cores)                                       |
 
 ## All Platforms
 
@@ -49,63 +49,63 @@
 
 | Command    | Description                                                                                  |
 | ---------- | -------------------------------------------------------------------------------------------- |
-| `la`       | Show all files in list format                                                                |
-| `ll`       | Show files in list format                                                                    |
-| `l.`       | Show files starting with `.`                                                                 |
-| `lf`       | Show directories in list format                                                              |
 | `cf`       | Count the number of files in a directory                                                     |
+| `dusort`   | Bar chart of all files and relative size                                                     |
 | `findhere` | Case insensitive find in current directory (`find -iname "_arg_"`)                           |
 | `grip`     | Case-insensetive grep on all the files in current directory                                  |
+| `l.`       | Show files starting with `.`                                                                 |
+| `la`       | Show all files in list format                                                                |
+| `lf`       | Show directories in list format                                                              |
+| `ll`       | Show files in list format                                                                    |
 | `md`       | Create a new directory and enter it                                                          |
-| `dusort`   | Bar chart of all files and relative size                                                     |
 
 ### Shortcuts
 
 | Command | Description                              |
 | ------- | ---------------------------------------- |
-| `h`     | `history`                                |
+| `-`     | `cd -`                                   |
 | `f`     | `findhere`                               |
+| `h`     | `history`                                |
 | `o`     | `open` (show in GUI file explorer)       |
 | `oo`    | `open .` (show cwd in GUI file explorer) |
-| `-`     | `cd -`                                   |
 | `x`     | `parallel-xargs`                         |
 
 ## Networking
 
 | Command   | Description                         |
 | --------- | ----------------------------------- |
-| `ips`     | Get all bound internal ips          |
-| `extip`   | Get the current external ip address |
 | `curl-gz` | Make gzip enabled curl requests     |
+| `extip`   | Get the current external ip address |
+| `ips`     | Get all bound internal ips          |
 
 ### String Manipulation
 
 | Command     | Description                                                                       |
 | ----------- | --------------------------------------------------------------------------------- |
-| `escape`    | Escape UTF-8 characters into their 3-byte format (escape `λ` => `\xCE\xBB`)       |
-| `unidecode` | Decode `\x{ABCD}`-style Unicode escape sequences                                  |
 | `codepoint` | Get a character's Unicode code point                                              |
+| `escape`    | Escape UTF-8 characters into their 3-byte format (escape `λ` => `\xCE\xBB`)       |
 | `lc`        | Convert to lowercase                                                              |
-| `uc`        | Convert to uppercase                                                              |
 | `regex`     | Regex match and replace from [opsb/4409156](https://gist.github.com/opsb/4409156) |
+| `uc`        | Convert to uppercase                                                              |
+| `unidecode` | Decode `\x{ABCD}`-style Unicode escape sequences                                  |
 
 ### Utilities
 
 | Command                          | Description                                                                                          |
 | -------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| `__push_prompt_command`          | Pushes a new command to the `PROMPT_COMMAND` variable                                                |
 | `__push_internal_prompt_command` | Pushes a new command to the internal stack to execute during `PROMPT_COMMAND`                        |
-| `reload`                         | Reload the current environment                                                                       |
-| `extract`                        | Extracts a archive with autodetect based on extension                                                |
-| `gz`                             | Get the gzipped file size                                                                            |
-| `dataurl`                        | Create a data URL from an image                                                                      |
-| `genpasswd`                      | Generate a random string of a certain length                                                         |
-| `unix2date`                      | Convert a unix timestamp to a date string (`unix2date 1234567890` => `Fri, Feb 13, 2009 6:31:30 PM`) |
-| `date2unix`                      | Convert a date string to a unix timestamp (`date2unix Fri, Feb 13, 2009 6:31:30 PM` => `1234567890`) |
-| `totime`                         | `date2unix`                                                                                          |
-| `fromtime`                       | `unix2date`                                                                                          |
-| `parallel-xargs`                 | Run a command through xargs with that is sh wrapped (`parallel-xargs cat {}`)                        |
+| `__push_prompt_command`          | Pushes a new command to the `PROMPT_COMMAND` variable                                                |
 | `clipboard-server`               | Forward local clipboard access over a socket                                                         |
+| `dataurl`                        | Create a data URL from an image                                                                      |
+| `date2unix`                      | Convert a date string to a unix timestamp (`date2unix Fri, Feb 13, 2009 6:31:30 PM` => `1234567890`) |
+| `extract`                        | Extracts a archive with autodetect based on extension                                                |
+| `fromtime`                       | `unix2date`                                                                                          |
+| `genpasswd`                      | Generate a random string of a certain length                                                         |
+| `gz`                             | Get the gzipped file size                                                                            |
+| `parallel-xargs`                 | Run a command through xargs with that is sh wrapped (`parallel-xargs cat {}`)                        |
+| `reload`                         | Reload the current environment                                                                       |
+| `totime`                         | `date2unix`                                                                                          |
+| `unix2date`                      | Convert a unix timestamp to a date string (`unix2date 1234567890` => `Fri, Feb 13, 2009 6:31:30 PM`) |
 
 ### Git Utilities
 
@@ -134,12 +134,12 @@
 
 | Command               | Description                                                                                                               |
 | --------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| `is-elevated-session` | Check if the current shell is running with elevated Windows permissions                                                   |
 | `chattr`              | Change Windows file attributes                                                                                            |
 | `cmd0`                | Run a command via the windows cmd prompt processor                                                                        |
+| `is-elevated-session` | Check if the current shell is running with elevated Windows permissions                                                   |
 | `mklink`              | Shortcut to the windows MKLINK command, with ln style args                                                                |
 | `npp`                 | Open a sandboxed instance of notepad++                                                                                    |
 | `winstart`            | Open/run a file using the native windows logic and associations                                                           |
 | `winsudo`             | Run a process with elevated windows privileges. See [utils/wsl/README.md](./utils/wsl/README.md#winsudo-setup) for setup. |
-| `wudo`                | Alias to `winsudo`                                                                                                        |
 | `wsl-sudo`            | Alias to `winsudo`                                                                                                        |
+| `wudo`                | Alias to `winsudo`                                                                                                        |
