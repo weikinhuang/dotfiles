@@ -231,7 +231,7 @@ fi
 # [host|screen session]
 case "$TERM" in
   screen*)
-    if [[ -n "${TMUX}" ]]; then
+    if [[ -n "${TMUX:-}" ]]; then
       PS1_HOST_NAME="${PS1_COLOR_HOST_SCREEN}$(test -n "${SSH_CONNECTION:-}" && echo '\h,')$(tmux display-message -p '#S')[${TMUX_PANE}]"
     else
       PS1_HOST_NAME="${PS1_COLOR_HOST_SCREEN}$(test -n "${SSH_CONNECTION:-}" && echo '\h,')${STY}[${WINDOW}]"
@@ -248,7 +248,7 @@ case "${TERM}" in
     PROMPT_TITLE="\[\e]0;\u@\h:\W\007\]"
     ;;
   screen*)
-    if [[ -n "${TMUX}" ]]; then
+    if [[ -n "${TMUX:-}" ]]; then
       PROMPT_TITLE="\[\e]0;\u@\h:\W\007\]"
     else
       PROMPT_TITLE="\[\e]0;\u@${STY}[${WINDOW}]:\W\007\]"

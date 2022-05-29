@@ -4,21 +4,6 @@
 # If not running interactively, don't do anything
 [[ -z "${PS1}" && -z "${BASHRC_NONINTERACTIVE_BYPASS:-}" ]] && return
 
-# Force usage of 256 color terminal
-case "${TERM:-xterm}" in
-  xterm*)
-    export TERM="xterm-256color"
-    ;;
-  rxvt*)
-    export TERM="rxvt-256color"
-    ;;
-  screen*)
-    export TERM="screen-256color"
-    ;;
-  *) ;;
-
-esac
-
 # load configuration from installation
 if [[ -e "${HOME}/.config/dotfiles/.install" ]]; then
   # shellcheck source=/dev/null
@@ -32,6 +17,7 @@ DOTENV="linux"
 IS_WSL=
 IS_WSL2=
 IS_TERMUX=
+IS_SCREEN=
 case "$(uname -s)" in
   Darwin)
     DOTENV="darwin"
@@ -48,6 +34,21 @@ case "$(uname -s)" in
     ;;
 esac
 export DOTENV
+
+# Force usage of 256 color terminal
+case "${TERM:-xterm}" in
+  xterm*)
+    export TERM="xterm-256color"
+    ;;
+  rxvt*)
+    export TERM="rxvt-256color"
+    ;;
+  screen*)
+    export TERM="screen-256color"
+    IS_SCREEN=1
+    ;;
+  *) ;;
+esac
 
 # check if this is a ssh session
 IS_SSH=
@@ -68,6 +69,14 @@ fi
 if [[ -n "${IS_TERMUX}" ]]; then
   [[ -d "${DOTFILES__ROOT}/.dotfiles/dotenv/termux/bin.$(uname -m)" ]] && PATH="${PATH}:${DOTFILES__ROOT}/.dotfiles/dotenv/termux/bin.$(uname -m)"
   [[ -d "${DOTFILES__ROOT}/.dotfiles/dotenv/termux/bin" ]] && PATH="${PATH}:${DOTFILES__ROOT}/.dotfiles/dotenv/termux/bin"
+fi
+if [[ -n "${TMUX:-}" ]]; then
+  [[ -d "${DOTFILES__ROOT}/.dotfiles/dotenv/tmux/bin.$(uname -m)" ]] && PATH="${PATH}:${DOTFILES__ROOT}/.dotfiles/dotenv/tmux/bin.$(uname -m)"
+  [[ -d "${DOTFILES__ROOT}/.dotfiles/dotenv/tmux/bin" ]] && PATH="${PATH}:${DOTFILES__ROOT}/.dotfiles/dotenv/tmux/bin"
+fi
+if [[ -n "${IS_SCREEN}" ]]; then
+  [[ -d "${DOTFILES__ROOT}/.dotfiles/dotenv/screen/bin.$(uname -m)" ]] && PATH="${PATH}:${DOTFILES__ROOT}/.dotfiles/dotenv/screen/bin.$(uname -m)"
+  [[ -d "${DOTFILES__ROOT}/.dotfiles/dotenv/screen/bin" ]] && PATH="${PATH}:${DOTFILES__ROOT}/.dotfiles/dotenv/screen/bin"
 fi
 if [[ -n "${IS_SSH}" ]]; then
   [[ -d "${DOTFILES__ROOT}/.dotfiles/dotenv/ssh/bin.$(uname -m)" ]] && PATH="${PATH}:${DOTFILES__ROOT}/.dotfiles/dotenv/ssh/bin.$(uname -m)"
@@ -104,6 +113,14 @@ for file in {exports,functions,aliases,completion,extra,env}; do
   if [[ -n "${IS_TERMUX}" ]]; then
     # shellcheck source=/dev/null
     [[ -r "${DOTFILES__ROOT}/.dotfiles/dotenv/termux/${file}.sh" ]] && source "${DOTFILES__ROOT}/.dotfiles/dotenv/termux/${file}.sh"
+  fi
+  if [[ -n "${TMUX:-}" ]]; then
+    # shellcheck source=/dev/null
+    [[ -r "${DOTFILES__ROOT}/.dotfiles/dotenv/tmux/${file}.sh" ]] && source "${DOTFILES__ROOT}/.dotfiles/dotenv/tmux/${file}.sh"
+  fi
+  if [[ -n "${IS_SCREEN}" ]]; then
+    # shellcheck source=/dev/null
+    [[ -r "${DOTFILES__ROOT}/.dotfiles/dotenv/screen/${file}.sh" ]] && source "${DOTFILES__ROOT}/.dotfiles/dotenv/screen/${file}.sh"
   fi
   if [[ -n "${IS_SSH}" ]]; then
     # shellcheck source=/dev/null
@@ -143,6 +160,14 @@ for file in {post-local,prompt}; do
   if [[ -n "${IS_TERMUX}" ]]; then
     # shellcheck source=/dev/null
     [[ -r "${DOTFILES__ROOT}/.dotfiles/dotenv/termux/${file}.sh" ]] && source "${DOTFILES__ROOT}/.dotfiles/dotenv/termux/${file}.sh"
+  fi
+  if [[ -n "${TMUX:-}" ]]; then
+    # shellcheck source=/dev/null
+    [[ -r "${DOTFILES__ROOT}/.dotfiles/dotenv/tmux/${file}.sh" ]] && source "${DOTFILES__ROOT}/.dotfiles/dotenv/tmux/${file}.sh"
+  fi
+  if [[ -n "${IS_SCREEN}" ]]; then
+    # shellcheck source=/dev/null
+    [[ -r "${DOTFILES__ROOT}/.dotfiles/dotenv/screen/${file}.sh" ]] && source "${DOTFILES__ROOT}/.dotfiles/dotenv/screen/${file}.sh"
   fi
   if [[ -n "${IS_SSH}" ]]; then
     # shellcheck source=/dev/null
