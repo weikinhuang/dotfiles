@@ -88,10 +88,16 @@ set list listchars=tab:▸\ ,trail:·,precedes:←,extends:→,eol:¬,nbsp:␣
 "hi SpecialKey ctermbg=NONE
 
 " ================ Themes ===========================
+" Set terminal colors as true-color
+set termguicolors
 " Solarized color scheme
 if !empty($__term_solarized_light)
   set background=light
-  colorscheme solarized
+  colorscheme solarized8
+endif
+if !empty($__term_solarized_256)
+  set background=dark
+  colorscheme solarized8
 endif
 
 " ================ Keyboard remappings ==============
@@ -161,6 +167,7 @@ autocmd bufenter * if (winnr("$") == 1 && exists("b:NERDTreeType") && b:NERDTree
 
 " ==================== vim-airline
 let g:airline#extensions#tabline#enabled = 1
+"let g:airline_powerline_fonts = 1
 
 " Theming options
 let g:airline_theme='solarized'
