@@ -58,7 +58,6 @@
 | `grip`     | Case-insensetive grep on all the files in current directory                                  |
 | `md`       | Create a new directory and enter it                                                          |
 | `dusort`   | Bar chart of all files and relative size                                                     |
-| `rename`   | Renames files according to modification rules. [rename](http://plasmasturm.org/code/rename/) |
 
 ### Shortcuts
 
