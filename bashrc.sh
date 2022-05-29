@@ -11,6 +11,7 @@ if [[ -e "${HOME}/.config/dotfiles/.install" ]]; then
 fi
 DOTFILES__ROOT="${DOTFILES__INSTALL_ROOT:-${HOME}}"
 readonly DOTFILES__ROOT
+export DOTFILES__ROOT
 
 # Check out which env this bash is running in
 DOTENV="linux"
@@ -33,6 +34,7 @@ case "$(uname -s)" in
     fi
     ;;
 esac
+readonly DOTENV
 export DOTENV
 
 # Force usage of 256 color terminal
@@ -86,6 +88,11 @@ fi
 [[ -d "${DOTFILES__ROOT}/.dotfiles/dotenv/${DOTENV}/bin" ]] && PATH="${PATH}:${DOTFILES__ROOT}/.dotfiles/dotenv/${DOTENV}/bin"
 [[ -d "${DOTFILES__ROOT}/.dotfiles/dotenv/bin" ]] && PATH="${PATH}:${DOTFILES__ROOT}/.dotfiles/dotenv/bin"
 [[ -d "${HOME}/bin" ]] && PATH="${PATH}:${HOME}/bin"
+# python user pip packages
+if command -v python3 &>/dev/null && python3 -m site --user-base &>/dev/null && [[ -d "$(python3 -m site --user-base)/bin" ]]; then
+  # usually ~/.local/bin
+  PATH="${PATH}:$(python3 -m site --user-base)/bin"
+fi
 
 # Remove duplicate entries from PATH and retain the original order
 if command -v nl &>/dev/null; then

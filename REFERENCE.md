@@ -26,10 +26,11 @@
 
 ## New Global Variables
 
-| ENV var      | Description                  |
-| ------------ | ---------------------------- |
-| `PROC_CORES` | Number of threads (cores)    |
-| `DOTENV`     | Simple access to os platform |
+| ENV var          | Description                                                     |
+| ---------------- | --------------------------------------------------------------- |
+| `PROC_CORES`     | Number of threads (cores)                                       |
+| `DOTENV`         | Simple access to os platform                                    |
+| `DOTFILES__ROOT` | Root where dotfiles directory is installed (ex. `/home/ubuntu`) |
 
 ## All Platforms
 
