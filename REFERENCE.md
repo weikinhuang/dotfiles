@@ -105,6 +105,7 @@
 | `totime`                         | `date2unix`                                                                                          |
 | `fromtime`                       | `unix2date`                                                                                          |
 | `parallel-xargs`                 | Run a command through xargs with that is sh wrapped (`parallel-xargs cat {}`)                        |
+| `clipboard-server`               | Forward local clipboard access over a socket                                                         |
 
 ### Git Utilities
 

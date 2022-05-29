@@ -15,7 +15,3 @@ elif command -v code &>/dev/null && echo "${PATH}" | grep -q "/.vscode-server/bi
 elif command -v npp &>/dev/null; then
   alias vi="npp"
 fi
-
-# Shortcuts to the clipboard
-alias pbcopy="clip.exe"
-alias pbpaste="powershell.exe -c Get-Clipboard"

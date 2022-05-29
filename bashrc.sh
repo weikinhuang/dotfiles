@@ -49,6 +49,13 @@ case "$(uname -s)" in
 esac
 export DOTENV
 
+# check if this is a ssh session
+IS_SSH=
+# alternate check requires looking up parent pids
+if [[ -n "${SSH_CONNECTION:-}" || "$(who am i | cut -f2 -d\( | cut -f1 -d:)" != "" ]]; then
+  IS_SSH=1
+fi
+
 # modify path to include useful scripts
 if [[ -n "${IS_WSL}" ]]; then
   [[ -d "${DOTFILES__ROOT}/.dotfiles/dotenv/wsl/bin.$(uname -m)" ]] && PATH="${PATH}:${DOTFILES__ROOT}/.dotfiles/dotenv/wsl/bin.$(uname -m)"
@@ -61,6 +68,10 @@ fi
 if [[ -n "${IS_TERMUX}" ]]; then
   [[ -d "${DOTFILES__ROOT}/.dotfiles/dotenv/termux/bin.$(uname -m)" ]] && PATH="${PATH}:${DOTFILES__ROOT}/.dotfiles/dotenv/termux/bin.$(uname -m)"
   [[ -d "${DOTFILES__ROOT}/.dotfiles/dotenv/termux/bin" ]] && PATH="${PATH}:${DOTFILES__ROOT}/.dotfiles/dotenv/termux/bin"
+fi
+if [[ -n "${IS_SSH}" ]]; then
+  [[ -d "${DOTFILES__ROOT}/.dotfiles/dotenv/ssh/bin.$(uname -m)" ]] && PATH="${PATH}:${DOTFILES__ROOT}/.dotfiles/dotenv/ssh/bin.$(uname -m)"
+  [[ -d "${DOTFILES__ROOT}/.dotfiles/dotenv/ssh/bin" ]] && PATH="${PATH}:${DOTFILES__ROOT}/.dotfiles/dotenv/ssh/bin"
 fi
 [[ -d "${DOTFILES__ROOT}/.dotfiles/dotenv/${DOTENV}/bin.$(uname -m)" ]] && PATH="${PATH}:${DOTFILES__ROOT}/.dotfiles/dotenv/${DOTENV}/bin.$(uname -m)"
 [[ -d "${DOTFILES__ROOT}/.dotfiles/dotenv/${DOTENV}/bin" ]] && PATH="${PATH}:${DOTFILES__ROOT}/.dotfiles/dotenv/${DOTENV}/bin"
@@ -93,6 +104,10 @@ for file in {exports,functions,aliases,completion,extra,env}; do
   if [[ -n "${IS_TERMUX}" ]]; then
     # shellcheck source=/dev/null
     [[ -r "${DOTFILES__ROOT}/.dotfiles/dotenv/termux/${file}.sh" ]] && source "${DOTFILES__ROOT}/.dotfiles/dotenv/termux/${file}.sh"
+  fi
+  if [[ -n "${IS_SSH}" ]]; then
+    # shellcheck source=/dev/null
+    [[ -r "${DOTFILES__ROOT}/.dotfiles/dotenv/ssh/${file}.sh" ]] && source "${DOTFILES__ROOT}/.dotfiles/dotenv/ssh/${file}.sh"
   fi
 done
 unset file
@@ -128,6 +143,10 @@ for file in {post-local,prompt}; do
   if [[ -n "${IS_TERMUX}" ]]; then
     # shellcheck source=/dev/null
     [[ -r "${DOTFILES__ROOT}/.dotfiles/dotenv/termux/${file}.sh" ]] && source "${DOTFILES__ROOT}/.dotfiles/dotenv/termux/${file}.sh"
+  fi
+  if [[ -n "${IS_SSH}" ]]; then
+    # shellcheck source=/dev/null
+    [[ -r "${DOTFILES__ROOT}/.dotfiles/dotenv/ssh/${file}.sh" ]] && source "${DOTFILES__ROOT}/.dotfiles/dotenv/ssh/${file}.sh"
   fi
 done
 unset file

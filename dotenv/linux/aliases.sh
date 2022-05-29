@@ -1,7 +1,4 @@
 # shellcheck shell=bash
-# Shortcuts to the clipboard
-alias pbcopy="xclip -selection clipboard"
-alias pbpaste="xclip -selection clipboard -o"
 
 # open command shortcuts
 if command -v xdg-open &>/dev/null; then

@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+#title              : pbpaste
+#description        : Cross-platform paste from clipboard
+#author             : Wei Kin Huang
+#date               : 2022-05-29
+#version            : 1.0.0
+#usage              : pbpaste [args...]
+#requires           : xclip or xsel
+#===============================================================================
+
+set -euo pipefail
+IFS=$'\n\t'
+
+# if tty, then try to pipe it to the X clipboard of the primary display
+# otherwise: Error: Can't open display: (null)
+if [[ -z "${DISPLAY:-}" ]]; then
+  export DISPLAY=:0
+fi
+
+if command -v xclip &>/dev/null; then
+  exec xclip -selection clipboard -o
+elif command -v xsel &>/dev/null; then
+  exec xsel -o --clipboard
+fi

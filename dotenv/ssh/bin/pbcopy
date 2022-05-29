@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+#title              : pbcopy
+#description        : Access clipboard provided by clipboard-server (copy)
+#author             : Wei Kin Huang
+#date               : 2022-05-29
+#version            : 1.0.0
+#usage              : pbcopy [args...]
+#requires           : curl pbcopy
+#===============================================================================
+
+set -euo pipefail
+IFS=$'\n\t'
+
+CURL_OPTS=(-sSL)
+CURL_HOST="http://localhost"
+if [[ -n "${CLIPBOARD_SERVER_PORT:-}" ]]; then
+  CURL_HOST="http://localhost:${CLIPBOARD_SERVER_PORT}"
+else
+  CURL_OPTS+=(--unix-socket "${CLIPBOARD_SERVER_SOCK:-/tmp/clipboard-server.sock}")
+fi
+
+if
+  [[ -S "${CLIPBOARD_SERVER_SOCK:-/tmp/clipboard-server.sock}" ]] \
+    && curl "${CURL_OPTS[@]}" "${CURL_HOST}/ping" &>/dev/null </dev/null
+then
+
+  exec curl "${CURL_OPTS[@]}" -X POST "${CURL_HOST}/clipboard" --data-binary @-
+
+fi
+
+# fallback to local clipboard
+PATH="$(echo "${PATH}" | tr ':' '\n' | grep -v dotenv/ssh/bin | tr '\n' : | sed -e 's/:$//' -e 's/^://')"
+exec pbcopy "$@"

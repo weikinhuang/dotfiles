@@ -221,7 +221,7 @@ fi
 PS1_BG_JOBS='$([[ \j -gt 0 ]] && echo -n "bg:\j ")'
 
 # [@|#] based on environment If ssh connection
-if [[ -n "${SSH_CONNECTION:-}" || "$(who am i | cut -f2 -d\( | cut -f1 -d:)" != "" ]]; then
+if [[ -n "${IS_SSH:-}" ]]; then
   PS1_SESSION_TYPE="${PS1_SYMBOL_SSH}"
 else
   # otherwise

@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+#title              : pbcopy
+#description        : Copy stdin into windows clipboard
+#author             : Wei Kin Huang
+#date               : 2022-05-29
+#version            : 1.0.0
+#usage              : pbcopy [args...]
+#requires           : clip.exe
+#===============================================================================
+
+set -euo pipefail
+IFS=$'\n\t'
+
+exec clip.exe "$@"

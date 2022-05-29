@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+#title              : pbpaste
+#description        : Get windows clipboard into stdout
+#author             : Wei Kin Huang
+#date               : 2022-05-29
+#version            : 1.0.0
+#usage              : pbpaste [args...]
+#requires           : powershell.exe sed
+#===============================================================================
+
+set -euo pipefail
+IFS=$'\n\t'
+
+powershell.exe -c Get-Clipboard </dev/null | sed 's/\r\n$/\n/'

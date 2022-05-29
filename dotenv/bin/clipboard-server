@@ -1,0 +1,263 @@
+#!/usr/bin/env node
+// title              : clipboard-server
+// description        : Forward clipboard access over a http socket
+// author             : Wei Kin Huang
+// date               : 2022-05-28
+// version            : 1.0.0
+// usage              : clipboard-server start|stop|server [--pidfile FILE] [--socket FILE|PORT]
+// requires           : node pbcopy pbpaste
+// ===============================================================================
+// ssh -o StreamLocalBindMask=0277 -R /tmp/clipboard-server.sock:/tmp/clipboard-server.sock user@HOST
+// if the remote host doesn't have StreamLocalBindUnlink=yes in sshd_config, use a port
+// ssh -R 127.0.0.1:29009:/tmp/clipboard-server.sock user@HOST
+// ssh -o StreamLocalBindMask=0077 -o StreamLocalBindUnlink=yes -R 127.0.0.1:3306:/tmp/clipboard-server.sock vmware@192.168.249.134 -vv
+
+const http = require("http");
+const childProcess = require("child_process");
+const fs = require("fs/promises");
+const { unlinkSync } = require("fs");
+
+// set umask for files to be 0600
+process.umask(0o0177);
+
+async function setClipboard(req, res) {
+  return await new Promise((resolve, reject) => {
+    const subprocess = childProcess.spawn("pbcopy", {
+      stdio: ["pipe", "pipe", process.stderr],
+    });
+
+    subprocess.on("exit", resolve);
+    subprocess.on("error", reject);
+    req.on("error", reject);
+    req.on("end", resolve);
+
+    // echo 123 | curl -i 127.0.0.1:9999/clipboard --data-binary @-
+    req.pipe(subprocess.stdin);
+    subprocess.stdout.pipe(res);
+  });
+}
+
+// @TODO: option to disable forwarding clipboard contents to remote
+async function getClipboard(res) {
+  return await new Promise((resolve, reject) => {
+    const subprocess = childProcess.spawn("pbpaste", {
+      stdio: ["pipe", "pipe", process.stderr],
+    });
+
+    subprocess.on("exit", resolve);
+    subprocess.on("error", reject);
+    res.on("error", reject);
+    res.on("end", resolve);
+
+    // curl -i 127.0.0.1:9999/clipboard
+    subprocess.stdout.pipe(res);
+  });
+}
+
+async function getPidFromPidFile(pidFile) {
+  try {
+    const pid = parseInt(await (await fs.readFile(pidFile, "utf8")).trim(), 10);
+    if (isNaN(pid) || pid < 1) {
+      return -1;
+    }
+    return pid;
+  } catch {
+    // pidfile doesn't exist
+    return -1;
+  }
+}
+
+function isRunning(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+function socketIsFile(socket) {
+  return /^\/.+\.sock/.test(socket);
+}
+
+function isValidSocket(socket) {
+  return socketIsFile(socket) || /^\d+$/.test(socket);
+}
+
+async function isListening(socket) {
+  return await new Promise((resolve, reject) => {
+    const options = {
+      path: "/ping",
+    };
+    if (socketIsFile(socket)) {
+      options.socketPath = socket;
+    } else {
+      options.host = "localhost";
+      options.port = parseInt(socket, 10);
+    }
+    const req = http.get(options, (res) => {
+      if (res.statusCode === 200) {
+        resolve();
+      } else {
+        reject(res);
+      }
+    });
+    req.on("error", reject);
+    req.end();
+  });
+}
+
+async function start({ pidFile, socket }) {
+  // check if pid file exists
+  const existingPid = await getPidFromPidFile(pidFile);
+  // check if already running
+  if (existingPid > 0 && isRunning(existingPid)) {
+    // process already running
+    return;
+  }
+
+  // spawn detached process
+  const subprocess = childProcess.spawn(
+    process.argv[0],
+    [process.argv[1], "server", "--pidfile", pidFile, "--socket", socket],
+    {
+      detached: true,
+      stdio: "ignore",
+    }
+  );
+
+  // detach process fully
+  subprocess.unref();
+
+  // wait for socket ready
+  let ready = false;
+  for (let i = 0; i < 30; i++) {
+    try {
+      await isListening(socket);
+      ready = true;
+      break;
+    } catch {}
+    await new Promise((r) => setTimeout(r, 20));
+  }
+
+  if (!ready) {
+    // kill process and exit
+    try {
+      subprocess.kill();
+    } catch {}
+    throw new Error("Unable to start server");
+  }
+
+  // write child pid to file
+  // console.log(subprocess.pid);
+  await fs.writeFile(pidFile, String(subprocess.pid), "utf8");
+}
+
+async function stop({ pidFile }) {
+  // check if pid file exists
+  const existingPid = await getPidFromPidFile(pidFile);
+  // check if already running
+  if (existingPid <= 0 || !isRunning(existingPid)) {
+    // process not running, clean up
+    try {
+      await fs.unlink(pidFile);
+    } catch {}
+    return;
+  }
+  // kill child process
+  process.kill(existingPid, "SIGHUP");
+  // clean up pid file
+  try {
+    await fs.unlink(pidFile);
+  } catch {}
+}
+
+async function server({ socket }) {
+  // cleanup
+  process.on("SIGHUP", () => {
+    try {
+      if (socketIsFile(socket)) {
+        unlinkSync(socket);
+      }
+    } catch {}
+    process.exit();
+  });
+
+  // ============================ plaintext h1 server
+  const h1Server = http.createServer({});
+  h1Server.on("error", (err) => console.error(err));
+  h1Server.on("connection", () => {
+    // connectLogger('connect: h1');
+  });
+  h1Server.on("request", async (req, res) => {
+    try {
+      switch (req.url) {
+        case "/clipboard":
+          if (req.method === "GET") {
+            res.setHeader("content-type", "application/octet-stream");
+            await getClipboard(res);
+          } else if (req.method === "POST") {
+            res.setHeader("content-type", "text/plain");
+            res.statusCode = 200;
+            await setClipboard(req, res);
+            res.end();
+          } else {
+            throw new Error("Unknown request method");
+          }
+          break;
+        case "/ping":
+          res.statusCode = 200;
+          res.end("ok\n");
+          break;
+        default:
+          res.statusCode = 400;
+          res.end();
+          break;
+      }
+    } catch (e) {
+      res.statusCode = 500;
+      res.end();
+    }
+  });
+  h1Server.listen(socket, () => console.log("ready"));
+}
+
+async function main([_1, _2, subcommand, ...args]) {
+  const opts = {
+    pidFile: "/tmp/clipboard-server.pid",
+    socket: "/tmp/clipboard-server.sock",
+  };
+  for (let i = 0; i < args.length; i++) {
+    switch (args[i]) {
+      case "-p":
+      case "--pidfile":
+        opts.pidFile = args[++i];
+        break;
+      case "--socket":
+      case "-s":
+        opts.socket = args[++i];
+        if (!isValidSocket(opts.socket)) {
+          throw new Error("socket must be a file or a port.");
+        }
+        break;
+    }
+  }
+
+  switch (subcommand) {
+    case "start":
+      await start(opts);
+      break;
+    case "stop":
+      await stop(opts);
+      break;
+    case "server":
+      await server(opts);
+      break;
+    default:
+      throw new Error("Unknown command");
+  }
+}
+main(process.argv).catch((err) => {
+  console.error(err);
+  process.exit(1);
+});
