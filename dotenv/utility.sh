@@ -1,7 +1,7 @@
 # shellcheck shell=bash
 # include solarized dir colors theme
-[[ -n "${__term_solarized_light:-}" ]] && command -v dircolors &>/dev/null && eval "$(dircolors "${DOTFILES__ROOT}/.dotfiles/dotenv/other/dircolors.solarized.ansi-light")"
-[[ -n "${__term_solarized_256:-}" ]] && command -v dircolors &>/dev/null && eval "$(dircolors "${DOTFILES__ROOT}/.dotfiles/dotenv/other/dircolors.solarized.256dark")"
+[[ -n "${DOT_SOLARIZED_LIGHT:-}" ]] && command -v dircolors &>/dev/null && eval "$(dircolors "${DOTFILES__ROOT}/.dotfiles/dotenv/other/dircolors.solarized.ansi-light")"
+[[ -n "${DOT_SOLARIZED_DARK:-}" ]] && command -v dircolors &>/dev/null && eval "$(dircolors "${DOTFILES__ROOT}/.dotfiles/dotenv/other/dircolors.solarized.256dark")"
 
 # include special mysql client customizations
 # shellcheck source=/dev/null
@@ -41,9 +41,9 @@ function _ssh-agent-start() {
   fi
 }
 # only start the agent if we don't already have a SSH_AUTH_SOCK
-if [[ -n "${AUTOLOAD_SSH_AGENT:-}" ]] && [[ -z "${SSH_AUTH_SOCK:-}" ]]; then
+if [[ -n "${DOT_AUTOLOAD_SSH_AGENT:-}" ]] && [[ -z "${SSH_AUTH_SOCK:-}" ]]; then
   _ssh-agent-start
-  unset AUTOLOAD_SSH_AGENT
+  unset DOT_AUTOLOAD_SSH_AGENT
 fi
 
 # reloads env vars from tmux

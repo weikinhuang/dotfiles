@@ -1,7 +1,7 @@
 # shellcheck shell=bash
 
 # @see https://www.gnu.org/software/bash/manual/bash.html#The-Set-Builtin
-if [[ -z "${BASH_RESOLVE_PATHS:-}" ]]; then
+if [[ -z "${DOT_BASH_RESOLVE_PATHS:-}" ]]; then
   return
 fi
 
@@ -11,4 +11,4 @@ fi
 # the current directory.
 set -o physical
 
-unset BASH_RESOLVE_PATHS
+unset DOT_BASH_RESOLVE_PATHS

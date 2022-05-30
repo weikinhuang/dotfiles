@@ -184,7 +184,7 @@ done
 unset file
 
 # load plugin hooks
-if [[ -n "${INCLUDE_BUILTIN_PLUGINS:-}" ]]; then
+if [[ -n "${DOT_INCLUDE_BUILTIN_PLUGINS:-}" ]]; then
   for f in "${DOTFILES__ROOT}/.dotfiles/plugins"/*.sh; do
     if [[ -e "${f}" ]]; then
       # shellcheck source=/dev/null
@@ -200,7 +200,7 @@ if [[ -d "${HOME}/.bash_local.d" ]]; then
     fi
   done
 fi
-unset INCLUDE_BUILTIN_PLUGINS
+unset DOT_INCLUDE_BUILTIN_PLUGINS
 
 # internal prompt command stack to simplify the PROMPT_COMMAND variable
 __push_prompt_command '__run_prompt_command'

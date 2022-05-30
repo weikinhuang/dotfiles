@@ -12,6 +12,8 @@
   - [Git Utilities](#git-utilities)
 - [Windows Subsystem Linux (WSL) specific](#windows-subsystem-linux-wsl-specific)
   - [WSL Utilities](#wsl-utilities)
+- [Additional tools](#additional-tools)
+  - [clipboard-server](#clipboard-server)
 
 ## Changes
 
@@ -21,7 +23,7 @@
 - `which` command expands full path when possible
 - `less` does not clear the screen upon exit and process colors (with options `-XR`)
 - `diff` uses git's diff command with color when possible
-- `pbcopy` and `pbpaste` for cross-platform copy/paste from cli
+- `pbcopy` and `pbpaste` for cross-platform copy/paste from cli, and optionally over ssh
 - `open` for cross-platform open in native application
 
 ## New Global Variables
@@ -47,17 +49,17 @@
 
 ### Directory Commands
 
-| Command    | Description                                                                                  |
-| ---------- | -------------------------------------------------------------------------------------------- |
-| `cf`       | Count the number of files in a directory                                                     |
-| `dusort`   | Bar chart of all files and relative size                                                     |
-| `findhere` | Case insensitive find in current directory (`find -iname "_arg_"`)                           |
-| `grip`     | Case-insensetive grep on all the files in current directory                                  |
-| `l.`       | Show files starting with `.`                                                                 |
-| `la`       | Show all files in list format                                                                |
-| `lf`       | Show directories in list format                                                              |
-| `ll`       | Show files in list format                                                                    |
-| `md`       | Create a new directory and enter it                                                          |
+| Command    | Description                                                        |
+| ---------- | ------------------------------------------------------------------ |
+| `cf`       | Count the number of files in a directory                           |
+| `dusort`   | Bar chart of all files and relative size                           |
+| `findhere` | Case insensitive find in current directory (`find -iname "_arg_"`) |
+| `grip`     | Case-insensetive grep on all the files in current directory        |
+| `l.`       | Show files starting with `.`                                       |
+| `la`       | Show all files in list format                                      |
+| `lf`       | Show directories in list format                                    |
+| `ll`       | Show files in list format                                          |
+| `md`       | Create a new directory and enter it                                |
 
 ### Shortcuts
 
@@ -91,21 +93,21 @@
 
 ### Utilities
 
-| Command                          | Description                                                                                          |
-| -------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| `__push_internal_prompt_command` | Pushes a new command to the internal stack to execute during `PROMPT_COMMAND`                        |
-| `__push_prompt_command`          | Pushes a new command to the `PROMPT_COMMAND` variable                                                |
-| `clipboard-server`               | Forward local clipboard access over a socket                                                         |
-| `dataurl`                        | Create a data URL from an image                                                                      |
-| `date2unix`                      | Convert a date string to a unix timestamp (`date2unix Fri, Feb 13, 2009 6:31:30 PM` => `1234567890`) |
-| `extract`                        | Extracts a archive with autodetect based on extension                                                |
-| `fromtime`                       | `unix2date`                                                                                          |
-| `genpasswd`                      | Generate a random string of a certain length                                                         |
-| `gz`                             | Get the gzipped file size                                                                            |
-| `parallel-xargs`                 | Run a command through xargs with that is sh wrapped (`parallel-xargs cat {}`)                        |
-| `reload`                         | Reload the current environment                                                                       |
-| `totime`                         | `date2unix`                                                                                          |
-| `unix2date`                      | Convert a unix timestamp to a date string (`unix2date 1234567890` => `Fri, Feb 13, 2009 6:31:30 PM`) |
+| Command                                 | Description                                                                                          |
+| --------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `__push_internal_prompt_command`        | Pushes a new command to the internal stack to execute during `PROMPT_COMMAND`                        |
+| `__push_prompt_command`                 | Pushes a new command to the `PROMPT_COMMAND` variable                                                |
+| [`clipboard-server`](#clipboard-server) | Forward local clipboard access over a socket                                                         |
+| `dataurl`                               | Create a data URL from an image                                                                      |
+| `date2unix`                             | Convert a date string to a unix timestamp (`date2unix Fri, Feb 13, 2009 6:31:30 PM` => `1234567890`) |
+| `extract`                               | Extracts a archive with autodetect based on extension                                                |
+| `fromtime`                              | `unix2date`                                                                                          |
+| `genpasswd`                             | Generate a random string of a certain length                                                         |
+| `gz`                                    | Get the gzipped file size                                                                            |
+| `parallel-xargs`                        | Run a command through xargs with that is sh wrapped (`parallel-xargs cat {}`)                        |
+| `reload`                                | Reload the current environment                                                                       |
+| `totime`                                | `date2unix`                                                                                          |
+| `unix2date`                             | Convert a unix timestamp to a date string (`unix2date 1234567890` => `Fri, Feb 13, 2009 6:31:30 PM`) |
 
 ### Git Utilities
 
@@ -143,3 +145,39 @@
 | `winsudo`             | Run a process with elevated windows privileges. See [utils/wsl/README.md](./utils/wsl/README.md#winsudo-setup) for setup. |
 | `wsl-sudo`            | Alias to `winsudo`                                                                                                        |
 | `wudo`                | Alias to `winsudo`                                                                                                        |
+
+## Additional tools
+
+### clipboard-server
+
+[`clipboard-server`](./dotenv/bin/clipboard-server) is a server that sets up forward clipboard access over a http socket. This is useful if you want to copy/paste from over a ssh session.
+
+To set up on the local machine
+
+```bash
+clipboard-server start
+# this will create a socket file at $HOME/.config/clipboard-server/clipboard-server.sock
+```
+
+With the server running, you can now SSH into the remote machine, forwarding the socket
+
+```bash
+ssh -R 127.0.0.1:29009:$HOME/.config/clipboard-server/clipboard-server.sock user@HOST
+```
+
+Or through the `~/.ssh/config` file
+
+```text
+Host HOSTNAME
+    RemoteForward 29009 /home/USERNAME/.config/clipboard-server/clipboard-server.sock
+```
+
+The on the remote machine, the port needs to be specified with the `CLIPBOARD_SERVER_PORT` env variable.
+
+```bash
+export CLIPBOARD_SERVER_PORT=29009
+
+# then use the clipboard
+date | pbcopy
+pbpaste | sed ...
+```

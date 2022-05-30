@@ -91,11 +91,11 @@ set list listchars=tab:▸\ ,trail:·,precedes:←,extends:→,eol:¬,nbsp:␣
 " Set terminal colors as true-color
 set termguicolors
 " Solarized color scheme
-if !empty($__term_solarized_light)
+if !empty($DOT_SOLARIZED_LIGHT)
   set background=light
   colorscheme solarized8
 endif
-if !empty($__term_solarized_256)
+if !empty($DOT_SOLARIZED_DARK)
   set background=dark
   colorscheme solarized8
 endif

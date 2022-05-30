@@ -83,14 +83,14 @@ To use these variables, export them to `~/.bash_local`.
 
 ```bash
 # EXAMPLE
-export AUTOLOAD_SSH_AGENT=1
+export DOT_AUTOLOAD_SSH_AGENT=1
 ```
 
-| exported ENV var              | Description                                                                                        |
-| ----------------------------- | -------------------------------------------------------------------------------------------------- |
-| `__term_solarized_256=true`   | Use to tell common commands to use solarized-dark 256 colors                                       |
-| `__term_solarized_light=true` | Use to tell common commands to use solarized-light colors                                          |
-| `AUTOLOAD_SSH_AGENT=1`        | Automatically start up ssh-agent when starting a new shell, and reuse any existing agent instances |
-| `BASH_RESOLVE_PATHS=1`        | Set bash option `set -o physical` to not resolve symlink paths                                     |
-| `INCLUDE_BREW_PATH=1`         | Use to homebrew utilities without the `g` prefix (OSX)                                             |
-| `INCLUDE_BUILTIN_PLUGINS=1`        | Loads files in dotfiles/plugins                                     |
+| exported ENV var              | Set Value To | Description                                                                                        |
+| ----------------------------- | ------------ | -------------------------------------------------------------------------------------------------- |
+| `DOT_AUTOLOAD_SSH_AGENT`      | `1`          | Automatically start up ssh-agent when starting a new shell, and reuse any existing agent instances |
+| `DOT_BASH_RESOLVE_PATHS`      | `1`          | Set bash option `set -o physical` to not resolve symlink paths                                     |
+| `DOT_INCLUDE_BREW_PATH`       | `1`          | Use to homebrew utilities without the `g` prefix (OSX)                                             |
+| `DOT_INCLUDE_BUILTIN_PLUGINS` | `1`          | Loads files in dotfiles/plugins                                                                    |
+| `DOT_SOLARIZED_DARK`          | `1`          | Use to tell common commands to use solarizeddark colors                                            |
+| `DOT_SOLARIZED_LIGHT`         | `1`          | Use to tell common commands to use solarized light colors                                          |

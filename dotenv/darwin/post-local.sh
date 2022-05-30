@@ -6,7 +6,7 @@
 # Note: don’t forget to add `/usr/local/bin/bash` to `/etc/shells` before continuing
 
 # remove brew installed g prefix
-if command -v brew &>/dev/null && [[ -n "${INCLUDE_BREW_PATH}" ]]; then
+if command -v brew &>/dev/null && [[ -n "${DOT_INCLUDE_BREW_PATH:-}" ]]; then
   if [[ -d "$(brew --prefix)/opt" ]] && ! echo "${PATH}" | tr ':' '\n' | grep -q "^$(brew --prefix)/opt$"; then
     PATH="$(brew --prefix)/opt:${PATH}"
   fi
@@ -23,7 +23,7 @@ if command -v brew &>/dev/null && [[ -n "${INCLUDE_BREW_PATH}" ]]; then
   done
   unset p
 
-  export MANPATH="${MANPATH-/usr/share/man}"
+  export MANPATH="${MANPATH:-/usr/share/man}"
   if [[ -d "$(brew --prefix)/share/man" ]]; then
     MANPATH="$(brew --prefix)/share/man:${MANPATH}"
   fi
@@ -34,5 +34,5 @@ if command -v brew &>/dev/null && [[ -n "${INCLUDE_BREW_PATH}" ]]; then
   unset p
   export MANPATH
 
-  unset INCLUDE_BREW_PATH
+  unset DOT_INCLUDE_BREW_PATH
 fi
