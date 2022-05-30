@@ -11,16 +11,19 @@
 set -euo pipefail
 IFS=$'\n\t'
 
+CLIPBOARD_SERVER_CHECK=
 CURL_OPTS=(-sSL)
 CURL_HOST="http://localhost"
 if [[ -n "${CLIPBOARD_SERVER_PORT:-}" ]]; then
   CURL_HOST="http://localhost:${CLIPBOARD_SERVER_PORT}"
-else
+  CLIPBOARD_SERVER_CHECK=1
+elif [[ -S "${CLIPBOARD_SERVER_SOCK:-/tmp/clipboard-server.sock}" ]]; then
   CURL_OPTS+=(--unix-socket "${CLIPBOARD_SERVER_SOCK:-/tmp/clipboard-server.sock}")
+  CLIPBOARD_SERVER_CHECK=1
 fi
 
 if
-  [[ -S "${CLIPBOARD_SERVER_SOCK:-/tmp/clipboard-server.sock}" ]] \
+  [[ -n "${CLIPBOARD_SERVER_CHECK}" ]] \
     && curl "${CURL_OPTS[@]}" "${CURL_HOST}/ping" &>/dev/null </dev/null
 then
 

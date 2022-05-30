@@ -8,12 +8,12 @@
 # @see https://github.com/weikinhuang/git-undo-index/
 
 # colors
-COLOR_BOLD=
-COLOR_RESET=
-if type tput &>/dev/null; then
-  COLOR_BOLD=$(tput bold)
-  COLOR_RESET=$(tput sgr0)
-fi
+# COLOR_BOLD=
+# COLOR_RESET=
+# if type tput &>/dev/null; then
+#   COLOR_BOLD=$(tput bold)
+#   COLOR_RESET=$(tput sgr0)
+# fi
 
 # variables
 UNIXTIME="$(date +%s)"

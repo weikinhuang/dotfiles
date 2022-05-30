@@ -1,20 +1,62 @@
 #!/usr/bin/env node
-// title              : clipboard-server
-// description        : Forward clipboard access over a http socket
-// author             : Wei Kin Huang
-// date               : 2022-05-28
-// version            : 1.0.0
-// usage              : clipboard-server start|stop|server [--pidfile FILE] [--socket FILE|PORT]
-// requires           : node pbcopy pbpaste
-// ===============================================================================
-// ssh -o StreamLocalBindMask=0277 -R /tmp/clipboard-server.sock:/tmp/clipboard-server.sock user@HOST
-// if the remote host doesn't have StreamLocalBindUnlink=yes in sshd_config, use a port
-// ssh -R 127.0.0.1:29009:/tmp/clipboard-server.sock user@HOST
-// ssh -o StreamLocalBindMask=0077 -o StreamLocalBindUnlink=yes -R 127.0.0.1:3306:/tmp/clipboard-server.sock vmware@192.168.249.134 -vv
+/**
+ * title              : clipboard-server
+ * description        : Forward clipboard access over a http socket
+ * author             : Wei Kin Huang
+ * date               : 2022-05-28
+ * version            : 1.0.0
+ * requires           : node pbcopy pbpaste
+ * =============================================================================
+ * Usage: clipboard-server COMMAND [OPTION]...
+ * Forward clipboard access over a http socket.
+ * Example: clipboard-server start --disable-paste
+ *
+ * Commands:
+ *   start                     Run the server in the background
+ *   stop                      Stop the server if it is running
+ *   restart                   Restart the server
+ *   server                    Start the server in the foreground
+ *
+ * Options:
+ *   -d, --disable-paste       Disable local clipboard access, only alloys the remote
+ *                               server to send contents to local clipboard.
+ *                               default: false
+ *   -p, --pidfile FILE        Path to the pid file for the server.
+ *                               default: ~/.config/clipboard-server/clipboard-server.pid
+ *   -s, --socket FILE|PORT    A port number or path to the socket file location
+ *                               default: ~/.config/clipboard-server/clipboard-server.sock
+ *
+ * Using over SSH
+ *
+ * Via binding a socket on the remote host
+ * ssh -o StreamLocalBindMask=0177 -R /tmp/clipboard-server.sock:$HOME/.config/clipboard-server/clipboard-server.sock user@HOST
+ * If the remote host doesn't have StreamLocalBindUnlink=yes in sshd_config, it will not clean up the socket file, in
+ * this case use a port instead
+ *
+ * Via binding a port on the remote host
+ * ssh -R 127.0.0.1:29009:$HOME/.config/clipboard-server/clipboard-server.sock user@HOST
+ *
+ * This server is integrated with the dotfiles provided pbcopy/pbpaste commands when used over ssh, additionally a env
+ * var must be exported on the remote host to make use of this server:
+ *
+ * export CLIPBOARD_SERVER_PORT=29009 # the remote bound port
+ * or if using a socket (the default is /tmp/clipboard-server.sock if not set)
+ * export CLIPBOARD_SERVER_SOCK=/tmp/clipboard-server.sock
+ *
+ * Testing
+ *
+ * To read from the clipboard
+ * curl -sSLi --unix-socket ~/.config/clipboard-server/clipboard-server.sock -X GET http://localhost/clipboard
+ *
+ * To write to the clipboard
+ * date | curl -i -sSL --unix-socket ~/.config/clipboard-server/clipboard-server.sock http://localhost/clipboard --data-binary @-
+ */
 
 const http = require("http");
 const childProcess = require("child_process");
 const fs = require("fs/promises");
+const os = require("os");
+const path = require("path");
 const { unlinkSync } = require("fs");
 
 // set umask for files to be 0600
@@ -37,7 +79,6 @@ async function setClipboard(req, res) {
   });
 }
 
-// @TODO: option to disable forwarding clipboard contents to remote
 async function getClipboard(res) {
   return await new Promise((resolve, reject) => {
     const subprocess = childProcess.spawn("pbpaste", {
@@ -52,6 +93,17 @@ async function getClipboard(res) {
     // curl -i 127.0.0.1:9999/clipboard
     subprocess.stdout.pipe(res);
   });
+}
+
+async function createBaseDir(filepath) {
+  const dirname = path.dirname(filepath);
+  try {
+    await fs.stat(dirname);
+    return;
+  } catch {}
+  const mask = process.umask(0o0077);
+  await fs.mkdir(dirname, { recursive: true, mode: 0o700 });
+  process.umask(mask);
 }
 
 async function getPidFromPidFile(pidFile) {
@@ -107,7 +159,7 @@ async function isListening(socket) {
   });
 }
 
-async function start({ pidFile, socket }) {
+async function start({ pidFile, socket, disablePaste }) {
   // check if pid file exists
   const existingPid = await getPidFromPidFile(pidFile);
   // check if already running
@@ -116,10 +168,15 @@ async function start({ pidFile, socket }) {
     return;
   }
 
+  const args = ["--pidfile", pidFile, "--socket", socket];
+  if (disablePaste) {
+    args.push("--disable-paste");
+  }
+
   // spawn detached process
   const subprocess = childProcess.spawn(
     process.argv[0],
-    [process.argv[1], "server", "--pidfile", pidFile, "--socket", socket],
+    [process.argv[1], "server", ...args],
     {
       detached: true,
       stdio: "ignore",
@@ -150,6 +207,7 @@ async function start({ pidFile, socket }) {
 
   // write child pid to file
   // console.log(subprocess.pid);
+  await createBaseDir(pidFile);
   await fs.writeFile(pidFile, String(subprocess.pid), "utf8");
 }
 
@@ -172,30 +230,36 @@ async function stop({ pidFile }) {
   } catch {}
 }
 
-async function server({ socket }) {
-  // cleanup
-  process.on("SIGHUP", () => {
-    try {
-      if (socketIsFile(socket)) {
+async function server({ socket, disablePaste }) {
+  if (socketIsFile(socket)) {
+    await createBaseDir(socket);
+    // cleanup
+    process.on("SIGHUP", () => {
+      try {
         unlinkSync(socket);
-      }
-    } catch {}
-    process.exit();
-  });
+      } catch {}
+      process.exit();
+    });
+  }
 
-  // ============================ plaintext h1 server
-  const h1Server = http.createServer({});
-  h1Server.on("error", (err) => console.error(err));
-  h1Server.on("connection", () => {
+  const server = http.createServer({});
+  server.on("error", (err) => console.error(err));
+  server.on("connection", () => {
     // connectLogger('connect: h1');
   });
-  h1Server.on("request", async (req, res) => {
+  server.on("request", async (req, res) => {
     try {
       switch (req.url) {
         case "/clipboard":
           if (req.method === "GET") {
             res.setHeader("content-type", "application/octet-stream");
-            await getClipboard(res);
+            if (!disablePaste) {
+              await getClipboard(res);
+            } else {
+              res.statusMessage = "Forbidden";
+              res.statusCode = 403;
+              res.end();
+            }
           } else if (req.method === "POST") {
             res.setHeader("content-type", "text/plain");
             res.statusCode = 200;
@@ -206,29 +270,63 @@ async function server({ socket }) {
           }
           break;
         case "/ping":
+          res.setHeader("content-type", "text/plain");
           res.statusCode = 200;
           res.end("ok\n");
           break;
         default:
-          res.statusCode = 400;
+          res.statusMessage = "Not Found";
+          res.statusCode = 404;
           res.end();
           break;
       }
     } catch (e) {
+      res.statusMessage = "Forbidden";
       res.statusCode = 500;
       res.end();
     }
   });
-  h1Server.listen(socket, () => console.log("ready"));
+  server.listen(socket, () => console.log("ready"));
+}
+
+function help() {
+  return `
+Usage: clipboard-server COMMAND [OPTION]...
+Forward clipboard access over a http socket.
+Example: clipboard-server start --disable-paste
+
+Commands:
+  start                     Run the server in the background
+  stop                      Stop the server if it is running
+  restart                   Restart the server
+  server                    Start the server in the foreground
+
+Options:
+  -d, --disable-paste       Disable local clipboard access, only alloys the remote
+                              server to send contents to local clipboard.
+                              default: false
+  -p, --pidfile FILE        Path to the pid file for the server.
+                              default: ~/.config/clipboard-server/clipboard-server.pid
+  -s, --socket FILE|PORT    A port number or path to the socket file location
+                              default: ~/.config/clipboard-server/clipboard-server.sock
+  --help                    Show this message
+`.trim();
 }
 
 async function main([_1, _2, subcommand, ...args]) {
+  const userInfo = os.userInfo();
+  let showHelp = subcommand == "--help";
   const opts = {
-    pidFile: "/tmp/clipboard-server.pid",
-    socket: "/tmp/clipboard-server.sock",
+    pidFile: `${userInfo.homedir}/.config/clipboard-server/clipboard-server.pid`,
+    socket: `${userInfo.homedir}/.config/clipboard-server/clipboard-server.sock`,
+    disablePaste: false,
   };
   for (let i = 0; i < args.length; i++) {
     switch (args[i]) {
+      case "-d":
+      case "--disable-paste":
+        opts.disablePaste = true;
+        break;
       case "-p":
       case "--pidfile":
         opts.pidFile = args[++i];
@@ -240,7 +338,15 @@ async function main([_1, _2, subcommand, ...args]) {
           throw new Error("socket must be a file or a port.");
         }
         break;
+      case "--help":
+        showHelp = true;
+        break;
     }
+  }
+
+  if (showHelp) {
+    console.log(help());
+    return;
   }
 
   switch (subcommand) {
@@ -249,6 +355,12 @@ async function main([_1, _2, subcommand, ...args]) {
       break;
     case "stop":
       await stop(opts);
+      break;
+    case "restart":
+      try {
+        await stop(opts);
+      } catch {}
+      await start(opts);
       break;
     case "server":
       await server(opts);
