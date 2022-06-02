@@ -9,7 +9,7 @@
  * =============================================================================
  * Usage: clipboard-server COMMAND [OPTION]...
  * Forward clipboard access over a http socket.
- * Example: clipboard-server start --disable-paste
+ * Example: clipboard-server start --enable-paste
  *
  * Commands:
  *   start                     Run the server in the background
@@ -18,7 +18,7 @@
  *   server                    Start the server in the foreground
  *
  * Options:
- *   -d, --disable-paste       Disable local clipboard access, only alloys the remote
+ *   -e, --enable-paste        Disable local clipboard access, only alloys the remote
  *                               server to send contents to local clipboard.
  *                               default: false
  *   -p, --pidfile FILE        Path to the pid file for the server.
@@ -123,7 +123,7 @@ function isRunning(pid) {
   try {
     process.kill(pid, 0);
     return true;
-  } catch (e) {
+  } catch {
     return false;
   }
 }
@@ -159,7 +159,7 @@ async function isListening(socket) {
   });
 }
 
-async function start({ pidFile, socket, disablePaste }) {
+async function start({ pidFile, socket, enablePaste }) {
   // check if pid file exists
   const existingPid = await getPidFromPidFile(pidFile);
   // check if already running
@@ -168,9 +168,16 @@ async function start({ pidFile, socket, disablePaste }) {
     return;
   }
 
+  // clean up previous socket file
+  if (socketIsFile(socket)) {
+    try {
+      await fs.unlink(socket);
+    } catch {}
+  }
+
   const args = ["--pidfile", pidFile, "--socket", socket];
-  if (disablePaste) {
-    args.push("--disable-paste");
+  if (enablePaste) {
+    args.push("--enable-paste");
   }
 
   // spawn detached process
@@ -230,7 +237,7 @@ async function stop({ pidFile }) {
   } catch {}
 }
 
-async function server({ socket, disablePaste }) {
+async function server({ socket, enablePaste }) {
   if (socketIsFile(socket)) {
     await createBaseDir(socket);
     // cleanup
@@ -253,7 +260,7 @@ async function server({ socket, disablePaste }) {
         case "/clipboard":
           if (req.method === "GET") {
             res.setHeader("content-type", "application/octet-stream");
-            if (!disablePaste) {
+            if (enablePaste) {
               await getClipboard(res);
             } else {
               res.statusMessage = "Forbidden";
@@ -293,7 +300,7 @@ function help() {
   return `
 Usage: clipboard-server COMMAND [OPTION]...
 Forward clipboard access over a http socket.
-Example: clipboard-server start --disable-paste
+Example: clipboard-server start --enable-paste
 
 Commands:
   start                     Run the server in the background
@@ -302,7 +309,7 @@ Commands:
   server                    Start the server in the foreground
 
 Options:
-  -d, --disable-paste       Disable local clipboard access, only alloys the remote
+  -e, --enable-paste        Disable local clipboard access, only alloys the remote
                               server to send contents to local clipboard.
                               default: false
   -p, --pidfile FILE        Path to the pid file for the server.
@@ -319,13 +326,13 @@ async function main([_1, _2, subcommand, ...args]) {
   const opts = {
     pidFile: `${userInfo.homedir}/.config/clipboard-server/clipboard-server.pid`,
     socket: `${userInfo.homedir}/.config/clipboard-server/clipboard-server.sock`,
-    disablePaste: false,
+    enablePaste: false,
   };
   for (let i = 0; i < args.length; i++) {
     switch (args[i]) {
-      case "-d":
-      case "--disable-paste":
-        opts.disablePaste = true;
+      case "-e":
+      case "--enable-paste":
+        opts.enablePaste = true;
         break;
       case "-p":
       case "--pidfile":
