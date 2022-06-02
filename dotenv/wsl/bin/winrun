@@ -5,7 +5,7 @@ args=()
 
 for arg in "$@"; do
   # if argument is a file, then expand it to windows paths
-  if [[ ! "$arg" =~ ^/[a-z]$ ]] && [[ -e "$arg" ]] && is-volfs-readable "$arg"; then
+  if [[ ! "$arg" =~ ^/[a-z]$ ]] && [[ -e "$arg" ]]; then
     # echo "arg $arg is a file"
     args=("${args[@]}" "$(wslpath -wa "$arg")")
   else
