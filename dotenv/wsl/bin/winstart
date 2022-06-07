@@ -1,4 +1,14 @@
-#!/bin/bash
+#!/usr/bin/env bash
+#title              : winstart
+#description        : Open arguments in native handler
+#author             : Wei Kin Huang
+#date               : 2022-06-07
+#version            : 1.0.0
+#usage              : winstart [args...]
+#requires           : powershell.exe
+#===============================================================================
+set -euo pipefail
+IFS=$'\n\t'
 
 # argument translation
 args=()
@@ -7,11 +17,31 @@ for arg in "$@"; do
   # if argument is a file, then expand it to windows paths
   if [[ ! "$arg" =~ ^/[a-z]$ ]] && [[ -e "$arg" ]]; then
     # echo "arg $arg is a file"
-    args=("${args[@]}" "$(wslpath -wa "$arg")")
+    # shellcheck disable=SC2016
+    args+=(\""$(printf '%q' "$(wslpath -wa "$arg")" | sed -e 's#`#``#g' -e 's#"#`"#g')"\")
   else
     # echo "arg $arg is not a file"
-    args=("${args[@]}" "$arg")
+    # shellcheck disable=SC2016
+    args+=(\""$(printf '%q' "$arg" | sed -e 's#`#``#g' -e 's#"#`"#g')"\")
   fi
 done
 
-cmd.exe /c start cmd /c start "${args[@]}"
+# using legacy cmd style start
+# cmd.exe /c start cmd /c start "${args[@]}"
+
+cmd="${args[0]}"
+psargs=()
+len=$((${#args[@]} - 1))
+i=1
+for arg in "${args[@]:1}"; do
+  echo $i $len
+  if [[ $i -ne $len ]]; then
+    psargs+=("$arg,")
+  else
+    psargs+=("$arg")
+  fi
+  i=$((i + 1))
+done
+
+# shellcheck disable=SC2145
+exec powershell.exe -Command "Start-Process ${cmd} ${psargs[@]}"

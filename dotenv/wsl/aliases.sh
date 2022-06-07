@@ -1,6 +1,4 @@
 # shellcheck shell=bash
-# useful shortcuts
-alias open="winstart"
 
 # shortcut for wsl-sudo
 # test by running `net.exe sessions` vs winsudo net.exe sessions
