@@ -105,6 +105,7 @@
 | `genpasswd`                             | Generate a random string of a certain length                                                         |
 | `gz`                                    | Get the gzipped file size                                                                            |
 | `parallel-xargs`                        | Run a command through xargs with that is sh wrapped (`parallel-xargs cat {}`)                        |
+| `quick-toast`                           | Show a simple notification using OS primitives `quick-toast TITLE [BODY]`                            |
 | `reload`                                | Reload the current environment                                                                       |
 | `totime`                                | `date2unix`                                                                                          |
 | `unix2date`                             | Convert a unix timestamp to a date string (`unix2date 1234567890` => `Fri, Feb 13, 2009 6:31:30 PM`) |

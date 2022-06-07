@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+#title              : quick-toast
+#description        : Show a toast notification
+#author             : Wei Kin Huang
+#date               : 2022-06-02
+#version            : 1.0.0
+#usage              : quick-toast title [body]
+#requires           : powershell.exe sed
+#===============================================================================
+set -euo pipefail
+IFS=$'\n\t'
+
+# shellcheck disable=SC2016
+cat << EOF | powershell.exe -Command -
+[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] > \$null
+\$Template = [Windows.UI.Notifications.ToastNotificationManager]::GetTemplateContent([Windows.UI.Notifications.ToastTemplateType]::ToastText02)
+
+\$TITLE = "$(echo "${1:-ALERT FROM TERMINAL}" | sed -e 's#`#``#g' -e 's#"#`"#g')"
+\$BODY = "$([[ -n "${2:-}" ]] && ( echo "${2}" | sed -e 's#`#``#g' -e 's#"#`"#g' ))"
+
+\$RawXml = [xml] \$Template.GetXml()
+(\$RawXml.toast.visual.binding.text|where {\$_.id -eq "1"}).AppendChild(\$RawXml.CreateTextNode(\$TITLE)) > \$null
+(\$RawXml.toast.visual.binding.text|where {\$_.id -eq "2"}).AppendChild(\$RawXml.CreateTextNode(\$BODY)) > \$null
+
+\$SerializedXml = New-Object Windows.Data.Xml.Dom.XmlDocument
+\$SerializedXml.LoadXml(\$RawXml.OuterXml)
+
+\$Toast = [Windows.UI.Notifications.ToastNotification]::new(\$SerializedXml)
+\$Toast.Tag = "WSL: quick-toast"
+\$Toast.Group = "WSL: quick-toast"
+\$Toast.ExpirationTime = [DateTimeOffset]::Now.AddMinutes(1)
+
+\$Notifier = [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier("PowerShell")
+\$Notifier.Show(\$Toast);
+EOF

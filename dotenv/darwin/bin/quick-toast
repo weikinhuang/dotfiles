@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+#title              : quick-toast
+#description        : Show a toast notification
+#author             : Wei Kin Huang
+#date               : 2022-06-02
+#version            : 1.0.0
+#usage              : quick-toast title [body]
+#requires           : powershell.exe sed
+#===============================================================================
+set -euo pipefail
+IFS=$'\n\t'
+
+if [[ $# -eq 0 ]]; then
+  TITLE="Terminal Notification"
+  BODY="ALERT FROM TERMINAL"
+elif [[ $# -eq 1 ]]; then
+  TITLE="Terminal Notification"
+  BODY="${1}"
+elif [[ $# -gt 1 ]]; then
+  TITLE="${1}"
+  BODY="${2}"
+fi
+
+osascript - "${TITLE}" "${BODY}" <<EOF
+  on run argv -- argv is a list of strings
+    display notification (item 2 of argv) with title (item 1 of argv)
+  end run
+EOF

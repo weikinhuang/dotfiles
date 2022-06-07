@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+#title              : quick-toast
+#description        : Show a toast notification
+#author             : Wei Kin Huang
+#date               : 2022-06-02
+#version            : 1.0.0
+#usage              : quick-toast title [body]
+#requires           : powershell.exe sed
+#===============================================================================
+set -euo pipefail
+IFS=$'\n\t'
+
+if [[ $# -eq 0 ]]; then
+  set -- "ALERT FROM TERMINAL"
+fi
+
+if ! command -v notify-send &>/dev/null; then
+  printf '\a'
+  exit 1
+fi
+
+# if tty, then try to show notif on the primary display
+if [[ -z "${DISPLAY:-}" ]]; then
+  export DISPLAY=:0
+fi
+
+notify-send "$@"
