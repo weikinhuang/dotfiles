@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+#title              : open
+#description        : Alias to xdg-open/gnome-open/nautilus, cross-platform "open"
+#                     command, if a native open exists, that is used instead.
+#author             : Wei Kin Huang
+#date               : 2022-06-07
+#version            : 1.0.0
+#usage              : open [args...]
+#requires           : nautilus, xdg-open, gnome-open
+#===============================================================================
+set -euo pipefail
+IFS=$'\n\t'
+
+# default to only open file paths
+cmd=nautilus
+if command -v xdg-open &>/dev/null; then
+  cmd=xdg-open
+elif command -v gnome-open &>/dev/null; then
+  cmd=gnome-open
+fi
+
+exec "${cmd}" "$@"
