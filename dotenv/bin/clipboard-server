@@ -5,7 +5,7 @@
  * author             : Wei Kin Huang
  * date               : 2022-05-28
  * version            : 1.0.0
- * requires           : node pbcopy pbpaste
+ * requires           : node pbcopy pbpaste quick-toast
  * =============================================================================
  * Usage: clipboard-server COMMAND [OPTION]...
  * Forward clipboard access over a http socket.
@@ -20,6 +20,8 @@
  * Options:
  *   -e, --enable-paste        Disable local clipboard access, only alloys the remote
  *                               server to send contents to local clipboard.
+ *                               default: false
+ *   -n, --notify              Show a notification when the clipboard is accessed
  *                               default: false
  *   -p, --pidfile FILE        Path to the pid file for the server.
  *                               default: ~/.config/clipboard-server/clipboard-server.pid
@@ -95,6 +97,17 @@ async function getClipboard(res) {
   });
 }
 
+async function showNotification(message) {
+  return await new Promise((resolve, reject) => {
+    const subprocess = childProcess.spawn("quick-toast", ["Clipboard Server", message], {
+      stdio: "ignore",
+    });
+
+    subprocess.on("exit", resolve);
+    subprocess.on("error", reject);
+  });
+}
+
 async function createBaseDir(filepath) {
   const dirname = path.dirname(filepath);
   try {
@@ -159,7 +172,7 @@ async function isListening(socket) {
   });
 }
 
-async function start({ pidFile, socket, enablePaste }) {
+async function start({ pidFile, socket, enablePaste, notify }) {
   // check if pid file exists
   const existingPid = await getPidFromPidFile(pidFile);
   // check if already running
@@ -178,6 +191,9 @@ async function start({ pidFile, socket, enablePaste }) {
   const args = ["--pidfile", pidFile, "--socket", socket];
   if (enablePaste) {
     args.push("--enable-paste");
+  }
+  if (notify) {
+    args.push("--notify");
   }
 
   // spawn detached process
@@ -237,7 +253,7 @@ async function stop({ pidFile }) {
   } catch {}
 }
 
-async function server({ socket, enablePaste }) {
+async function server({ socket, enablePaste, notify }) {
   if (socketIsFile(socket)) {
     await createBaseDir(socket);
     // cleanup
@@ -251,14 +267,14 @@ async function server({ socket, enablePaste }) {
 
   const server = http.createServer({});
   server.on("error", (err) => console.error(err));
-  server.on("connection", () => {
-    // connectLogger('connect: h1');
-  });
   server.on("request", async (req, res) => {
     try {
       switch (req.url) {
         case "/clipboard":
           if (req.method === "GET") {
+            if (notify) {
+              showNotification("Clipboard read").catch(() => {});
+            }
             res.setHeader("content-type", "application/octet-stream");
             if (enablePaste) {
               await getClipboard(res);
@@ -268,6 +284,9 @@ async function server({ socket, enablePaste }) {
               res.end();
             }
           } else if (req.method === "POST") {
+            if (notify) {
+              showNotification("Clipboard written").catch(() => {});
+            }
             res.setHeader("content-type", "text/plain");
             res.statusCode = 200;
             await setClipboard(req, res);
@@ -312,6 +331,8 @@ Options:
   -e, --enable-paste        Disable local clipboard access, only alloys the remote
                               server to send contents to local clipboard.
                               default: false
+  -n, --notify              Show a notification when the clipboard is accessed
+                              default: false
   -p, --pidfile FILE        Path to the pid file for the server.
                               default: ~/.config/clipboard-server/clipboard-server.pid
   -s, --socket FILE|PORT    A port number or path to the socket file location
@@ -333,6 +354,10 @@ async function main([_1, _2, subcommand, ...args]) {
       case "-e":
       case "--enable-paste":
         opts.enablePaste = true;
+        break;
+      case "-n":
+      case "--notify":
+        opts.notify = true;
         break;
       case "-p":
       case "--pidfile":
