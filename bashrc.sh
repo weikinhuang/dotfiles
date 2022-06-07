@@ -60,6 +60,18 @@ if [[ -n "${SSH_CONNECTION:-}" || "$(who am i | cut -f2 -d\( | cut -f1 -d:)" != 
 fi
 
 # modify path to include useful scripts
+if [[ -n "${TMUX:-}" ]]; then
+  [[ -d "${DOTFILES__ROOT}/.dotfiles/dotenv/tmux/bin.$(uname -m)" ]] && PATH="${DOTFILES__ROOT}/.dotfiles/dotenv/tmux/bin.$(uname -m):${PATH}"
+  [[ -d "${DOTFILES__ROOT}/.dotfiles/dotenv/tmux/bin" ]] && PATH="${DOTFILES__ROOT}/.dotfiles/dotenv/tmux/bin:${PATH}"
+fi
+if [[ -n "${IS_SCREEN}" ]]; then
+  [[ -d "${DOTFILES__ROOT}/.dotfiles/dotenv/screen/bin.$(uname -m)" ]] && PATH="${DOTFILES__ROOT}/.dotfiles/dotenv/screen/bin.$(uname -m):${PATH}"
+  [[ -d "${DOTFILES__ROOT}/.dotfiles/dotenv/screen/bin" ]] && PATH="${DOTFILES__ROOT}/.dotfiles/dotenv/screen/bin:${PATH}"
+fi
+if [[ -n "${IS_SSH}" ]]; then
+  [[ -d "${DOTFILES__ROOT}/.dotfiles/dotenv/ssh/bin.$(uname -m)" ]] && PATH="${DOTFILES__ROOT}/.dotfiles/dotenv/ssh/bin.$(uname -m):${PATH}"
+  [[ -d "${DOTFILES__ROOT}/.dotfiles/dotenv/ssh/bin" ]] && PATH="${DOTFILES__ROOT}/.dotfiles/dotenv/ssh/bin:${PATH}"
+fi
 if [[ -n "${IS_WSL}" ]]; then
   [[ -d "${DOTFILES__ROOT}/.dotfiles/dotenv/wsl/bin.$(uname -m)" ]] && PATH="${PATH}:${DOTFILES__ROOT}/.dotfiles/dotenv/wsl/bin.$(uname -m)"
   [[ -d "${DOTFILES__ROOT}/.dotfiles/dotenv/wsl/bin" ]] && PATH="${PATH}:${DOTFILES__ROOT}/.dotfiles/dotenv/wsl/bin"
@@ -71,18 +83,6 @@ fi
 if [[ -n "${IS_TERMUX}" ]]; then
   [[ -d "${DOTFILES__ROOT}/.dotfiles/dotenv/termux/bin.$(uname -m)" ]] && PATH="${PATH}:${DOTFILES__ROOT}/.dotfiles/dotenv/termux/bin.$(uname -m)"
   [[ -d "${DOTFILES__ROOT}/.dotfiles/dotenv/termux/bin" ]] && PATH="${PATH}:${DOTFILES__ROOT}/.dotfiles/dotenv/termux/bin"
-fi
-if [[ -n "${TMUX:-}" ]]; then
-  [[ -d "${DOTFILES__ROOT}/.dotfiles/dotenv/tmux/bin.$(uname -m)" ]] && PATH="${PATH}:${DOTFILES__ROOT}/.dotfiles/dotenv/tmux/bin.$(uname -m)"
-  [[ -d "${DOTFILES__ROOT}/.dotfiles/dotenv/tmux/bin" ]] && PATH="${PATH}:${DOTFILES__ROOT}/.dotfiles/dotenv/tmux/bin"
-fi
-if [[ -n "${IS_SCREEN}" ]]; then
-  [[ -d "${DOTFILES__ROOT}/.dotfiles/dotenv/screen/bin.$(uname -m)" ]] && PATH="${PATH}:${DOTFILES__ROOT}/.dotfiles/dotenv/screen/bin.$(uname -m)"
-  [[ -d "${DOTFILES__ROOT}/.dotfiles/dotenv/screen/bin" ]] && PATH="${PATH}:${DOTFILES__ROOT}/.dotfiles/dotenv/screen/bin"
-fi
-if [[ -n "${IS_SSH}" ]]; then
-  [[ -d "${DOTFILES__ROOT}/.dotfiles/dotenv/ssh/bin.$(uname -m)" ]] && PATH="${PATH}:${DOTFILES__ROOT}/.dotfiles/dotenv/ssh/bin.$(uname -m)"
-  [[ -d "${DOTFILES__ROOT}/.dotfiles/dotenv/ssh/bin" ]] && PATH="${PATH}:${DOTFILES__ROOT}/.dotfiles/dotenv/ssh/bin"
 fi
 [[ -d "${DOTFILES__ROOT}/.dotfiles/dotenv/${DOTENV}/bin.$(uname -m)" ]] && PATH="${PATH}:${DOTFILES__ROOT}/.dotfiles/dotenv/${DOTENV}/bin.$(uname -m)"
 [[ -d "${DOTFILES__ROOT}/.dotfiles/dotenv/${DOTENV}/bin" ]] && PATH="${PATH}:${DOTFILES__ROOT}/.dotfiles/dotenv/${DOTENV}/bin"
