@@ -178,7 +178,7 @@ PS1_EXIT_STATUS='$(EXIT="$?"; [[ $EXIT -ne 0 ]] && echo -n "(E:${EXIT}) ")'
 if [[ -z "${_PS1_HIDE_EXEC_TIME:-}" ]]; then
   __ps1_var_exectimer=0
   __ps1_var_execduration=
-  function __ps1_exec_timer_start {
+  function __ps1_exec_timer_start() {
     if [[ __ps1_var_exectimer -gt 0 ]]; then
       return 0
     fi
@@ -186,7 +186,7 @@ if [[ -z "${_PS1_HIDE_EXEC_TIME:-}" ]]; then
   }
   trap '__ps1_exec_timer_start' DEBUG
 
-  function __ps1_exec_timer_stop {
+  function __ps1_exec_timer_stop() {
     local delta_us=$((($(date +%s%N) - __ps1_var_exectimer) / 1000))
     local us=$((delta_us % 1000))
     local ms=$(((delta_us / 1000) % 1000))

@@ -90,6 +90,7 @@ export DOT_AUTOLOAD_SSH_AGENT=1
 | ----------------------------- | ------------ | -------------------------------------------------------------------------------------------------- |
 | `DOT_AUTOLOAD_SSH_AGENT`      | `1`          | Automatically start up ssh-agent when starting a new shell, and reuse any existing agent instances |
 | `DOT_BASH_RESOLVE_PATHS`      | `1`          | Set bash option `set -o physical` to not resolve symlink paths                                     |
+| `DOT_DISABLE_PREEXEC`         | `1`          | Disables loading [`bash-preexec.sh`](https://github.com/rcaloras/bash-preexec) functionality       |
 | `DOT_INCLUDE_BREW_PATH`       | `1`          | Use to homebrew utilities without the `g` prefix (OSX)                                             |
 | `DOT_INCLUDE_BUILTIN_PLUGINS` | `1`          | Loads files in dotfiles/plugins                                                                    |
 | `DOT_SOLARIZED_DARK`          | `1`          | Use to tell common commands to use solarizeddark colors                                            |

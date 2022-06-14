@@ -4,6 +4,12 @@
 # If not running interactively, don't do anything
 [[ -z "${PS1}" && -z "${BASHRC_NONINTERACTIVE_BYPASS:-}" ]] && return
 
+# Make sure this is bash that's running and return otherwise.
+# Use POSIX syntax for this line:
+if [ -z "${BASH_VERSION-}" ]; then
+    return 1;
+fi
+
 # load configuration from installation
 if [[ -e "${HOME}/.config/dotfiles/.install" ]]; then
   # shellcheck source=/dev/null
@@ -24,7 +30,8 @@ case "$(uname -s)" in
     DOTENV="darwin"
     ;;
   Linux)
-    if uname -r | grep -qi Microsoft; then
+    # need test for wslpath because we could be in a container
+    if uname -r | grep -qi Microsoft && type wslpath &>/dev/null; then
       IS_WSL=1
       if uname -r | grep -qi WSL2; then
         IS_WSL2=1
@@ -51,6 +58,11 @@ case "${TERM:-xterm}" in
     ;;
   *) ;;
 esac
+
+# These arrays are used to add functions to be run before, or after, prompts.
+# they are set higher up in case the dotfiles scripts want to set hooks
+declare -a precmd_functions
+declare -a preexec_functions
 
 # check if this is a ssh session
 IS_SSH=
@@ -232,6 +244,20 @@ shopt -s checkjobs 2>/dev/null
 # check the window size after each command and, if necessary,
 # update the values of LINES and COLUMNS.
 shopt -s checkwinsize 2>/dev/null
+
+# emulate zsh's hook functions for "precmd" and "preexec"
+# see https://github.com/rcaloras/bash-preexec
+# see https://zsh.sourceforge.io/Doc/Release/Functions.html#Hook-Functions
+if [[ -z "${DOT_DISABLE_PREEXEC:-}" ]]; then
+  # shellcheck source=/dev/null
+  source "${DOTFILES__ROOT}/.dotfiles/dotenv/other/bash-preexec.sh"
+fi
+
+# Add a hook that can be defined in .bash_local to run after everything is fully loaded
+if type dotfiles_complete &>/dev/null; then
+  { dotfiles_complete; }
+  unset -f dotfiles_complete
+fi
 
 # exit with a success status code
 return 0

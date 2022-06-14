@@ -1,8 +1,10 @@
 # shellcheck shell=bash
+
+# supress "bash: warning: setlocale: LC_ALL: cannot change locale (en_US.UTF-8): No such file or directory"
 # LC_ configuration
-export LC_ALL=en_US.UTF-8
+export LC_ALL=en_US.UTF-8 &>/dev/null
 # Set user-defined locale
-export LANG=en_US.UTF-8
+export LANG=en_US.UTF-8 &>/dev/null
 
 # Completion options
 COMP_CVS_REMOTE=1
