@@ -120,10 +120,6 @@ if command -v complete &>/dev/null; then
   fi
 fi
 
-# include utility settings file (git PS1, solarized, mysql, etc...)
-# shellcheck source=/dev/null
-[[ -r "${DOTFILES__ROOT}/.dotfiles/dotenv/utility.sh" ]] && source "${DOTFILES__ROOT}/.dotfiles/dotenv/utility.sh"
-
 # load plugin hooks
 if [[ -n "${DOT_INCLUDE_BUILTIN_PLUGINS:-}" ]]; then
   __dot_load_plugins
@@ -148,31 +144,6 @@ __push_prompt_command '__run_prompt_command'
 
 # write to .bash_history after each command
 __push_internal_prompt_command 'history -a'
-
-# Shell Options
-# Use case-insensitive filename globbing
-shopt -s nocaseglob 2>/dev/null
-
-# Include . files when globing (ie. mv, cp, etc.)
-shopt -s dotglob 2>/dev/null
-
-# When changing directory small typos can be ignored by bash
-shopt -s cdspell 2>/dev/null
-
-# Append to the Bash history file, rather than overwriting it
-shopt -s histappend 2>/dev/null
-
-# Try to enable some bash 4 functionality
-# Attempt to auto cd to a directory
-shopt -s autocd 2>/dev/null
-# Recursive globbing, e.g. `echo **/*.txt`
-shopt -s globstar 2>/dev/null
-# If any jobs are running, this causes the exit to be deferred until a second exit is attempted
-shopt -s checkjobs 2>/dev/null
-
-# check the window size after each command and, if necessary,
-# update the values of LINES and COLUMNS.
-shopt -s checkwinsize 2>/dev/null
 
 # emulate zsh's hook functions for "precmd" and "preexec"
 # see https://github.com/rcaloras/bash-preexec
