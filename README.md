@@ -1,4 +1,4 @@
-# weikinhuang's dotfiles
+﻿# weikinhuang's dotfiles
 
 My `$SHELL`, mostly bash, works everywhere, `*nix`, `osx`, `wsl`.
 
@@ -191,3 +191,99 @@ $ env -i PS1=1 TERM="$TERM" PATH="$PATH" HOME="$HOME" SHELL="$SHELL" bash -l
 # shfmt
 ( git ls-files -z | xargs -0 grep -l 'shellcheck shell=\|^#!.\+sh'; git ls-files | grep '\.sh$' ) | grep -v '\.md$' | grep -v .gitlab-ci.yml | sort | uniq | xargs -n1 shfmt -ln bash -ci -bn -i 2 -d -w
 ```
+
+### Layout
+
+Each layout folder contains the following files
+
+| File         | Description                                                            |
+| ------------ | ---------------------------------------------------------------------- |
+| `exports`    | environment vars that are exported via `export`                        |
+| `functions`  | bash function declarations, can be exported via `export -f FN_NAME`    |
+| `aliases`    | bash aliases declared via `alias="some command`                        |
+| `completion` | bash completion functions for `complete`                               |
+| `extra`      | any additional bash-isms that don't fall in the above category         |
+| `prompt`     | scripts to generate or modify the prompt vars `PS1`, `PS2`, `SUDO_PS1` |
+
+#### Folder layout
+
+```text
+- dotenv
+    # common across all platforms
+    - LISTED FILES^^
+    # bin dir to append to path
+    - `bin`
+    - `bin.$(uname -m)`
+    # non shell config files
+    - config
+        - git
+    - darwin
+        # only sourced on OSX
+        - LISTED FILES^^
+        # bin dir to append to path
+        - `bin`
+        - `bin.$(uname -m)`
+    - lib
+      - library scripts
+    - linux
+        # only sourced on linux
+        - LISTED FILES^^
+        # bin dir to append to path
+        - `bin`
+        - `bin.$(uname -m)`
+    - screen
+        # only sourced on when screen is active
+        - LISTED FILES^^
+        # bin dir to append to path
+        - `bin`
+        - `bin.$(uname -m)`
+    - ssh
+        # only sourced on when ssh is active
+        - LISTED FILES^^
+        # bin dir to append to path
+        - `bin`
+        - `bin.$(uname -m)`
+    - tmux
+        # only sourced on when tmux is active
+        - LISTED FILES^^
+        # bin dir to append to path
+        - `bin`
+        - `bin.$(uname -m)`
+    - wsl
+        # only sourced on WSL (1 & 2)
+        - LISTED FILES^^
+        # bin dir to append to path
+        - `bin`
+        - `bin.$(uname -m)`
+    - wsl2
+        # only sourced on WSL 2
+        - LISTED FILES^^
+        # bin dir to append to path
+        - `bin`
+        - `bin.$(uname -m)`
+```
+
+### File loading order
+
+The core `~/.bashrc` will import each of the files in the layout table, first in the common top level `dotenv` folder. then platform specific files, and finally if a file is name with a `.` prefix in your `HOME` directory (ex. `.exports`).
+
+`dotenv` environments are loaded in the following order:
+
+1. `dotenv/*.sh`
+1. `dotenv/{darwin,linux}/*.sh`
+1. `dotenv/wsl/*.sh`
+1. `dotenv/wsl2/*.sh`
+1. `dotenv/tmux/*.sh`
+1. `dotenv/screen/*.sh`
+1. `dotenv/ssh/*.sh`
+
+`dotenv` scripts are loaded in the following order:
+
+1. `exports`
+1. `functions`
+1. `aliases`
+1. `completion`
+1. `extra`
+1. `env`
+1. `plugins`
+1. `prompt`
