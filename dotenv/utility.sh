@@ -1,15 +1,15 @@
 # shellcheck shell=bash
 # include solarized dir colors theme
-[[ -n "${DOT_SOLARIZED_LIGHT:-}" ]] && command -v dircolors &>/dev/null && eval "$(dircolors "${DOTFILES__ROOT}/.dotfiles/dotenv/other/dircolors.solarized.ansi-light")"
-[[ -n "${DOT_SOLARIZED_DARK:-}" ]] && command -v dircolors &>/dev/null && eval "$(dircolors "${DOTFILES__ROOT}/.dotfiles/dotenv/other/dircolors.solarized.256dark")"
+[[ -n "${DOT_SOLARIZED_LIGHT:-}" ]] && command -v dircolors &>/dev/null && eval "$(dircolors "${DOTFILES__ROOT}/.dotfiles/external/dircolors.solarized.ansi-light")"
+[[ -n "${DOT_SOLARIZED_DARK:-}" ]] && command -v dircolors &>/dev/null && eval "$(dircolors "${DOTFILES__ROOT}/.dotfiles/external/dircolors.solarized.256dark")"
 
 # include special mysql client customizations
 # shellcheck source=/dev/null
-source "${DOTFILES__ROOT}/.dotfiles/dotenv/other/mysql-client.sh"
+source "${DOTFILES__ROOT}/.dotfiles/external/mysql-client.sh"
 
 # include git __git_ps1 if not already included elsewhere
 # shellcheck source=/dev/null
-command -v __git_ps1 &>/dev/null || source "${DOTFILES__ROOT}/.dotfiles/dotenv/other/git-prompt.sh"
+command -v __git_ps1 &>/dev/null || source "${DOTFILES__ROOT}/.dotfiles/external/git-prompt.sh"
 
 # setup ssh agent automatically
 # https://help.github.com/en/github/authenticating-to-github/working-with-ssh-key-passphrases#auto-launching-ssh-agent-on-msysgit

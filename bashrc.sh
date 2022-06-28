@@ -342,7 +342,7 @@ shopt -s checkwinsize 2>/dev/null
 # see https://zsh.sourceforge.io/Doc/Release/Functions.html#Hook-Functions
 if [[ -z "${DOT_DISABLE_PREEXEC:-}" ]]; then
   # shellcheck source=/dev/null
-  source "${DOTFILES__ROOT}/.dotfiles/dotenv/other/bash-preexec.sh"
+  source "${DOTFILES__ROOT}/.dotfiles/external/bash-preexec.sh"
 fi
 
 # Add a hook that can be defined in .bash_local to run after everything is fully loaded

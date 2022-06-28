@@ -1,4 +1,4 @@
-﻿# weikinhuang's dotfiles
+# weikinhuang's dotfiles
 
 My `$SHELL`, mostly bash, works everywhere, `*nix`, `osx`, `wsl`.
 
@@ -182,7 +182,7 @@ $ env -i PS1=1 TERM="$TERM" PATH="$PATH" HOME="$HOME" SHELL="$SHELL" bash -l
 
 ### shellcheck and shfmt
 
-[`shellcheck`](https://github.com/koalaman/shellcheck) and [`shfmt`](https://github.com/mvdan/sh) are used to ensure consistency of the scripts in this repo. Files in `dotenv/other` are ignored, since they are external scripts.
+[`shellcheck`](https://github.com/koalaman/shellcheck) and [`shfmt`](https://github.com/mvdan/sh) are used to ensure consistency of the scripts in this repo. Files in `/external` are ignored, since they are external scripts.
 
 ```bash
 # shellcheck
