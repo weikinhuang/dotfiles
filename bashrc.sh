@@ -169,6 +169,8 @@ for file in {exports,functions,aliases,completion,extra,env}; do
     # shellcheck source=/dev/null
     [[ -r "${DOTFILES__ROOT}/.dotfiles/dotenv/ssh/${file}.sh" ]] && source "${DOTFILES__ROOT}/.dotfiles/dotenv/ssh/${file}.sh"
   fi
+  # shellcheck source=/dev/null
+  [[ -r "${HOME}/.${file}" ]] && source "${HOME}/.${file}"
 
   # Add a hook that can be defined in .bash_local to run after each phase
   _DOT_HOOK_NAME="dotfiles_hook_${file//-/_}_post_functions"
@@ -232,6 +234,8 @@ for file in {post-local,prompt}; do
     # shellcheck source=/dev/null
     [[ -r "${DOTFILES__ROOT}/.dotfiles/dotenv/ssh/${file}.sh" ]] && source "${DOTFILES__ROOT}/.dotfiles/dotenv/ssh/${file}.sh"
   fi
+  # shellcheck source=/dev/null
+  [[ -r "${HOME}/.${file}" ]] && source "${HOME}/.${file}"
 
   # Add a hook that can be defined in .bash_local to run after each phase
   _DOT_HOOK_NAME="dotfiles_hook_${file//-/_}_post_functions"
