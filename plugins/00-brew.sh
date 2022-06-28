@@ -38,3 +38,9 @@ for p in "$(brew --prefix)"/Cellar/*/*/libexec/gnuman; do
 done
 unset p
 export MANPATH
+
+# Completion options
+if [[ -f "$(brew --prefix)/etc/bash_completion" ]]; then
+  # shellcheck source=/dev/null
+  source "$(brew --prefix)/etc/bash_completion"
+fi
