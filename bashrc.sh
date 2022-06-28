@@ -121,76 +121,31 @@ if [[ -d "${HOME}/.bash_local.d" ]]; then
   for f in "${HOME}/.bash_local.d"/*.sh; do
     if [[ -e "${f}" ]]; then
       # shellcheck source=/dev/null
-      source "$f"
+      source "${f}"
     fi
   done
   unset f
 fi
 
+# library functions, load after .bash_local, so it can't be overridden
+# shellcheck source=/dev/null
+source "${DOTFILES__ROOT}/.dotfiles/dotenv/lib/"*.sh
+
 # Source ~/.exports, ~/.functions, ~/.aliases, ~/.completion, ~/.extra, ~/.env if they exist
-_DOT_FILES_TO_LOAD=(exports functions aliases completion extra env)
-for file in "${_DOT_FILES_TO_LOAD[@]}"; do
-  if [[ "${file}" == "completion" ]] && ! command -v complete &>/dev/null; then
-    continue
-  fi
+__dot_load exports
+__dot_load functions
+__dot_load aliases
+__dot_load extra
+__dot_load env
 
-  # Add a hook that can be defined in .bash_local to run before each phase
-  _DOT_HOOK_NAME="dotfiles_hook_${file//-/_}_pre_functions"
-  # if declared in function format
-  if type "dotfiles_hook_${file}_pre" &>/dev/null; then
-    eval "${_DOT_HOOK_NAME}+=('dotfiles_hook_${file}_pre')"
-  fi
-  # shellcheck disable=SC2125
-  _DOT_HOOK_TMP=${_DOT_HOOK_NAME}[@]
-  for _hook in "${!_DOT_HOOK_TMP}"; do
-    { "${_hook}"; }
-  done
+# add completion
+if command -v complete &>/dev/null; then
+  __dot_load completion
 
-  # shellcheck source=/dev/null
-  [[ -r "${DOTFILES__ROOT}/.dotfiles/dotenv/${file}.sh" ]] && source "${DOTFILES__ROOT}/.dotfiles/dotenv/${file}.sh"
-  # shellcheck source=/dev/null
-  [[ -r "${DOTFILES__ROOT}/.dotfiles/dotenv/${DOTENV}/${file}.sh" ]] && source "${DOTFILES__ROOT}/.dotfiles/dotenv/${DOTENV}/${file}.sh"
-  if [[ -n "${IS_WSL}" ]]; then
+  if [[ -d "${HOME}"/.config/completion.d ]]; then
     # shellcheck source=/dev/null
-    [[ -r "${DOTFILES__ROOT}/.dotfiles/dotenv/wsl/${file}.sh" ]] && source "${DOTFILES__ROOT}/.dotfiles/dotenv/wsl/${file}.sh"
+    source "${HOME}"/.config/completion.d/* || true
   fi
-  if [[ -n "${IS_WSL2}" ]]; then
-    # shellcheck source=/dev/null
-    [[ -r "${DOTFILES__ROOT}/.dotfiles/dotenv/wsl2/${file}.sh" ]] && source "${DOTFILES__ROOT}/.dotfiles/dotenv/wsl2/${file}.sh"
-  fi
-  if [[ -n "${TMUX:-}" ]]; then
-    # shellcheck source=/dev/null
-    [[ -r "${DOTFILES__ROOT}/.dotfiles/dotenv/tmux/${file}.sh" ]] && source "${DOTFILES__ROOT}/.dotfiles/dotenv/tmux/${file}.sh"
-  fi
-  if [[ -n "${IS_SCREEN}" ]]; then
-    # shellcheck source=/dev/null
-    [[ -r "${DOTFILES__ROOT}/.dotfiles/dotenv/screen/${file}.sh" ]] && source "${DOTFILES__ROOT}/.dotfiles/dotenv/screen/${file}.sh"
-  fi
-  if [[ -n "${IS_SSH}" ]]; then
-    # shellcheck source=/dev/null
-    [[ -r "${DOTFILES__ROOT}/.dotfiles/dotenv/ssh/${file}.sh" ]] && source "${DOTFILES__ROOT}/.dotfiles/dotenv/ssh/${file}.sh"
-  fi
-  # shellcheck source=/dev/null
-  [[ -r "${HOME}/.${file}" ]] && source "${HOME}/.${file}"
-
-  # Add a hook that can be defined in .bash_local to run after each phase
-  _DOT_HOOK_NAME="dotfiles_hook_${file//-/_}_post_functions"
-  # if declared in function format
-  if type "dotfiles_hook_${file}_post" &>/dev/null; then
-    eval "${_DOT_HOOK_NAME}+=('dotfiles_hook_${file}_post')"
-  fi
-  # shellcheck disable=SC2125
-  _DOT_HOOK_TMP=${_DOT_HOOK_NAME}[@]
-  for _hook in "${!_DOT_HOOK_TMP}"; do
-    { "${_hook}"; }
-  done
-done
-unset file
-
-# add local completion
-if command -v complete &>/dev/null && [[ -d "${HOME}"/.config/completion.d ]]; then
-  # shellcheck source=/dev/null
-  source "${HOME}"/.config/completion.d/* || true
 fi
 
 # include utility settings file (git PS1, solarized, mysql, etc...)
@@ -199,103 +154,12 @@ fi
 
 # load plugin hooks
 if [[ -n "${DOT_INCLUDE_BUILTIN_PLUGINS:-}" ]]; then
-  # Add a hook that can be defined in .bash_local to run before each phase
-  # if declared in function format
-  if type dotfiles_hook_plugins_pre &>/dev/null; then
-    dotfiles_hook_plugins_pre_functions+=(dotfiles_hook_plugins_pre)
-  fi
-  for _hook in "${dotfiles_hook_plugins_pre_functions[@]}"; do
-    { "${_hook}"; }
-  done
-
-  for f in "${DOTFILES__ROOT}/.dotfiles/plugins"/*.sh; do
-    _DOT_PLUGIN_DISABLE_NAME="DOT_PLUGIN_DISABLE_$(basename "${f}" | sed 's#.sh$##; s#-#_#g')"
-    if [[ -z "${!_DOT_PLUGIN_DISABLE_NAME:-}" ]] && [[ -e "${f}" ]]; then
-      # shellcheck source=/dev/null
-      source "$f"
-    fi
-    unset "${_DOT_PLUGIN_DISABLE_NAME}"
-  done
-
-  if [[ -d "${HOME}/.bash_local.d" ]]; then
-    for f in "${HOME}/.bash_local.d"/*.plugin; do
-      _DOT_PLUGIN_DISABLE_NAME="DOT_PLUGIN_DISABLE_$(basename "${f}" | sed 's#.plugin$##; s#-#_#g')"
-      if [[ -z "${!_DOT_PLUGIN_DISABLE_NAME:-}" ]] && [[ -e "${f}" ]]; then
-        # shellcheck source=/dev/null
-        source "$f"
-      fi
-      unset "${_DOT_PLUGIN_DISABLE_NAME}"
-    done
-  fi
-  unset f
-  unset _DOT_PLUGIN_DISABLE_NAME
-
-  # Add a hook that can be defined in .bash_local to run after each phase
-  # if declared in function format
-  if type dotfiles_hook_plugins_post &>/dev/null; then
-    dotfiles_hook_plugins_post_functions+=(dotfiles_hook_plugins_post)
-  fi
-  for _hook in "${dotfiles_hook_plugins_post_functions[@]}"; do
-    { "${_hook}"; }
-  done
+  __dot_load_plugins
 fi
 unset DOT_INCLUDE_BUILTIN_PLUGINS
 
 # Source ~/.prompt if they exist
-_DOT_FILES_TO_LOAD=(prompt)
-for file in "${_DOT_FILES_TO_LOAD[@]}"; do
-  # Add a hook that can be defined in .bash_local to run before each phase
-  _DOT_HOOK_NAME="dotfiles_hook_${file//-/_}_pre_functions"
-  # if declared in function format
-  if type "dotfiles_hook_${file}_pre" &>/dev/null; then
-    eval "${_DOT_HOOK_NAME}+=('dotfiles_hook_${file}_pre')"
-  fi
-  # shellcheck disable=SC2125
-  _DOT_HOOK_TMP=${_DOT_HOOK_NAME}[@]
-  for _hook in "${!_DOT_HOOK_TMP}"; do
-    { "${_hook}"; }
-  done
-
-  # shellcheck source=/dev/null
-  [[ -r "${DOTFILES__ROOT}/.dotfiles/dotenv/${file}.sh" ]] && source "${DOTFILES__ROOT}/.dotfiles/dotenv/${file}.sh"
-  # shellcheck source=/dev/null
-  [[ -r "${DOTFILES__ROOT}/.dotfiles/dotenv/${DOTENV}/${file}.sh" ]] && source "${DOTFILES__ROOT}/.dotfiles/dotenv/${DOTENV}/${file}.sh"
-  if [[ -n "${IS_WSL}" ]]; then
-    # shellcheck source=/dev/null
-    [[ -r "${DOTFILES__ROOT}/.dotfiles/dotenv/wsl/${file}.sh" ]] && source "${DOTFILES__ROOT}/.dotfiles/dotenv/wsl/${file}.sh"
-  fi
-  if [[ -n "${IS_WSL2}" ]]; then
-    # shellcheck source=/dev/null
-    [[ -r "${DOTFILES__ROOT}/.dotfiles/dotenv/wsl2/${file}.sh" ]] && source "${DOTFILES__ROOT}/.dotfiles/dotenv/wsl2/${file}.sh"
-  fi
-  if [[ -n "${TMUX:-}" ]]; then
-    # shellcheck source=/dev/null
-    [[ -r "${DOTFILES__ROOT}/.dotfiles/dotenv/tmux/${file}.sh" ]] && source "${DOTFILES__ROOT}/.dotfiles/dotenv/tmux/${file}.sh"
-  fi
-  if [[ -n "${IS_SCREEN}" ]]; then
-    # shellcheck source=/dev/null
-    [[ -r "${DOTFILES__ROOT}/.dotfiles/dotenv/screen/${file}.sh" ]] && source "${DOTFILES__ROOT}/.dotfiles/dotenv/screen/${file}.sh"
-  fi
-  if [[ -n "${IS_SSH}" ]]; then
-    # shellcheck source=/dev/null
-    [[ -r "${DOTFILES__ROOT}/.dotfiles/dotenv/ssh/${file}.sh" ]] && source "${DOTFILES__ROOT}/.dotfiles/dotenv/ssh/${file}.sh"
-  fi
-  # shellcheck source=/dev/null
-  [[ -r "${HOME}/.${file}" ]] && source "${HOME}/.${file}"
-
-  # Add a hook that can be defined in .bash_local to run after each phase
-  _DOT_HOOK_NAME="dotfiles_hook_${file//-/_}_post_functions"
-  # if declared in function format
-  if type "dotfiles_hook_${file}_post" &>/dev/null; then
-    eval "${_DOT_HOOK_NAME}+=('dotfiles_hook_${file}_post')"
-  fi
-  # shellcheck disable=SC2125
-  _DOT_HOOK_TMP=${_DOT_HOOK_NAME}[@]
-  for _hook in "${!_DOT_HOOK_TMP}"; do
-    { "${_hook}"; }
-  done
-done
-unset file
+__dot_load prompt
 
 for hook in {exports,functions,aliases,completion,extra,env,post_local,prompt,plugins}; do
   unset -f "dotfiles_hook_${hook}_pre"
@@ -304,10 +168,7 @@ for hook in {exports,functions,aliases,completion,extra,env,post_local,prompt,pl
   unset "dotfiles_hook_${hook}_post_functions"
 done
 unset hook
-unset _hook
-unset _DOT_HOOK_NAME
-unset _DOT_HOOK_TMP
-unset _DOT_FILES_TO_LOAD
+__dot_load_cleanup
 
 # internal prompt command stack to simplify the PROMPT_COMMAND variable
 __push_prompt_command '__run_prompt_command'

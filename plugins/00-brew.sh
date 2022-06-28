@@ -7,8 +7,10 @@
 
 # remove brew installed g prefix
 if [[ "${DOTENV}" != "darwin" ]] || ! command -v brew &>/dev/null || [[ -z "${DOT_INCLUDE_BREW_PATH:-}" ]]; then
+  unset DOT_INCLUDE_BREW_PATH
   return
 fi
+unset DOT_INCLUDE_BREW_PATH
 
 if [[ -d "$(brew --prefix)/opt" ]] && ! echo "${PATH}" | tr ':' '\n' | grep -q "^$(brew --prefix)/opt$"; then
   PATH="$(brew --prefix)/opt:${PATH}"
@@ -36,5 +38,3 @@ for p in "$(brew --prefix)"/Cellar/*/*/libexec/gnuman; do
 done
 unset p
 export MANPATH
-
-unset DOT_INCLUDE_BREW_PATH
