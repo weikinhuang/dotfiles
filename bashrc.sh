@@ -21,9 +21,9 @@ export DOTFILES__ROOT
 
 # Check out which env this bash is running in
 DOTENV="linux"
-IS_WSL=
-IS_WSL2=
-IS_SCREEN=
+export DOT___IS_WSL=
+export DOT___IS_WSL2=
+export DOT___IS_SCREEN=
 case "$(uname -s)" in
   Darwin)
     DOTENV="darwin"
@@ -31,9 +31,9 @@ case "$(uname -s)" in
   Linux)
     # need test for wslpath because we could be in a container
     if uname -r | grep -qi Microsoft && type wslpath &>/dev/null; then
-      IS_WSL=1
+      DOT___IS_WSL=1
       if uname -r | grep -qi WSL2; then
-        IS_WSL2=1
+        DOT___IS_WSL2=1
       fi
     fi
     ;;
@@ -51,10 +51,21 @@ case "${TERM:-xterm}" in
     ;;
   screen*)
     export TERM="screen-256color"
-    IS_SCREEN=1
+    DOT___IS_SCREEN=1
     ;;
   *) ;;
 esac
+
+# check if this is a ssh session
+export DOT___IS_SSH=
+# alternate check requires looking up parent pids
+if [[ -n "${SSH_CONNECTION:-}" || "$(who am i | cut -f2 -d\( | cut -f1 -d:)" != "" ]]; then
+  DOT___IS_SSH=1
+fi
+readonly DOT___IS_WSL
+readonly DOT___IS_WSL2
+readonly DOT___IS_SCREEN
+readonly DOT___IS_SSH
 
 # These arrays are used to add functions to be run before, or after, prompts.
 # they are set higher up in case the dotfiles scripts want to set hooks
@@ -70,49 +81,10 @@ for hook in {exports,functions,aliases,completion,extra,env,post_local,prompt,pl
 done
 unset hook
 
-# check if this is a ssh session
-IS_SSH=
-# alternate check requires looking up parent pids
-if [[ -n "${SSH_CONNECTION:-}" || "$(who am i | cut -f2 -d\( | cut -f1 -d:)" != "" ]]; then
-  IS_SSH=1
-fi
-
 # modify path to include useful scripts
-if [[ -n "${TMUX:-}" ]]; then
-  [[ -d "${DOTFILES__ROOT}/.dotfiles/dotenv/tmux/bin.$(uname -m)" ]] && PATH="${DOTFILES__ROOT}/.dotfiles/dotenv/tmux/bin.$(uname -m):${PATH}"
-  [[ -d "${DOTFILES__ROOT}/.dotfiles/dotenv/tmux/bin" ]] && PATH="${DOTFILES__ROOT}/.dotfiles/dotenv/tmux/bin:${PATH}"
-fi
-if [[ -n "${IS_SCREEN}" ]]; then
-  [[ -d "${DOTFILES__ROOT}/.dotfiles/dotenv/screen/bin.$(uname -m)" ]] && PATH="${DOTFILES__ROOT}/.dotfiles/dotenv/screen/bin.$(uname -m):${PATH}"
-  [[ -d "${DOTFILES__ROOT}/.dotfiles/dotenv/screen/bin" ]] && PATH="${DOTFILES__ROOT}/.dotfiles/dotenv/screen/bin:${PATH}"
-fi
-if [[ -n "${IS_SSH}" ]]; then
-  [[ -d "${DOTFILES__ROOT}/.dotfiles/dotenv/ssh/bin.$(uname -m)" ]] && PATH="${DOTFILES__ROOT}/.dotfiles/dotenv/ssh/bin.$(uname -m):${PATH}"
-  [[ -d "${DOTFILES__ROOT}/.dotfiles/dotenv/ssh/bin" ]] && PATH="${DOTFILES__ROOT}/.dotfiles/dotenv/ssh/bin:${PATH}"
-fi
-if [[ -n "${IS_WSL}" ]]; then
-  [[ -d "${DOTFILES__ROOT}/.dotfiles/dotenv/wsl/bin.$(uname -m)" ]] && PATH="${PATH}:${DOTFILES__ROOT}/.dotfiles/dotenv/wsl/bin.$(uname -m)"
-  [[ -d "${DOTFILES__ROOT}/.dotfiles/dotenv/wsl/bin" ]] && PATH="${PATH}:${DOTFILES__ROOT}/.dotfiles/dotenv/wsl/bin"
-fi
-if [[ -n "${IS_WSL2}" ]]; then
-  [[ -d "${DOTFILES__ROOT}/.dotfiles/dotenv/wsl2/bin.$(uname -m)" ]] && PATH="${PATH}:${DOTFILES__ROOT}/.dotfiles/dotenv/wsl2/bin.$(uname -m)"
-  [[ -d "${DOTFILES__ROOT}/.dotfiles/dotenv/wsl2/bin" ]] && PATH="${PATH}:${DOTFILES__ROOT}/.dotfiles/dotenv/wsl2/bin"
-fi
-[[ -d "${DOTFILES__ROOT}/.dotfiles/dotenv/${DOTENV}/bin.$(uname -m)" ]] && PATH="${PATH}:${DOTFILES__ROOT}/.dotfiles/dotenv/${DOTENV}/bin.$(uname -m)"
-[[ -d "${DOTFILES__ROOT}/.dotfiles/dotenv/${DOTENV}/bin" ]] && PATH="${PATH}:${DOTFILES__ROOT}/.dotfiles/dotenv/${DOTENV}/bin"
-[[ -d "${DOTFILES__ROOT}/.dotfiles/dotenv/bin" ]] && PATH="${PATH}:${DOTFILES__ROOT}/.dotfiles/dotenv/bin"
-[[ -d "${HOME}/bin" ]] && PATH="${PATH}:${HOME}/bin"
-# python user pip packages
-if command -v python3 &>/dev/null && python3 -m site --user-base &>/dev/null && [[ -d "$(python3 -m site --user-base)/bin" ]]; then
-  # usually ~/.local/bin
-  PATH="${PATH}:$(python3 -m site --user-base)/bin"
-fi
-
-# Remove duplicate entries from PATH and retain the original order
-if command -v nl &>/dev/null; then
-  PATH=$(echo "${PATH}" | tr : '\n' | nl | sort -u -k 2,2 | sort -n | cut -f 2- | tr '\n' : | sed -e 's/:$//' -e 's/^://')
-  export PATH
-fi
+# shellcheck source=/dev/null
+source "${DOTFILES__ROOT}/.dotfiles/dotenv/lib/path.sh"
+__dot_path_setup
 
 # load a local specific sources before the scripts
 # shellcheck source=/dev/null
@@ -129,7 +101,7 @@ fi
 
 # library functions, load after .bash_local, so it can't be overridden
 # shellcheck source=/dev/null
-source "${DOTFILES__ROOT}/.dotfiles/dotenv/lib/"*.sh
+source "${DOTFILES__ROOT}/.dotfiles/dotenv/lib/load.sh"
 
 # Source ~/.exports, ~/.functions, ~/.aliases, ~/.completion, ~/.extra, ~/.env if they exist
 __dot_load exports
@@ -168,6 +140,7 @@ for hook in {exports,functions,aliases,completion,extra,env,post_local,prompt,pl
   unset "dotfiles_hook_${hook}_post_functions"
 done
 unset hook
+__dot_path_cleanup
 __dot_load_cleanup
 
 # internal prompt command stack to simplify the PROMPT_COMMAND variable

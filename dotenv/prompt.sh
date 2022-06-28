@@ -221,7 +221,7 @@ fi
 PS1_BG_JOBS='$([[ \j -gt 0 ]] && echo -n "bg:\j ")'
 
 # [@|#] based on environment If ssh connection
-if [[ -n "${IS_SSH:-}" ]]; then
+if [[ -n "${DOT___IS_SSH}" ]]; then
   PS1_SESSION_TYPE="${PS1_SYMBOL_SSH}"
 else
   # otherwise
@@ -310,7 +310,7 @@ function __ps1_create() {
     PS1="${PS1}\n"
   fi
   # prompt symbol
-  if [[ -n "${IS_WSL}" ]] && command -v powershell.exe &>/dev/null && is-elevated-session; then
+  if [[ -n "${DOT___IS_WSL}" ]] && command -v powershell.exe &>/dev/null && is-elevated-session; then
     PS1="${PS1}${PS1_COLOR_BOLD}W*${PS1_COLOR_RESET}"
   else
     PS1="${PS1}${PS1_COLOR_BOLD}$([[ $UID == 0 ]] && echo "${PS1_SYMBOL_ROOT}" || echo "${PS1_SYMBOL_USER}")${PS1_COLOR_RESET}"

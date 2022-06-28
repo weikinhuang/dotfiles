@@ -6,7 +6,7 @@ if ! command -v podman &>/dev/null; then
 fi
 
 # fix for: WARN[0000] "/" is not a shared mount, this could cause issues or missing mounts with rootless containers
-if [[ -n "${IS_WSL2}" ]] && ! (grep ' / / ' /proc/1/mountinfo | grep -q 'shared:'); then
+if [[ -n "${DOT___IS_WSL2}" ]] && ! (grep ' / / ' /proc/1/mountinfo | grep -q 'shared:'); then
   # please add this to sudoers
   sudo mount --make-rshared / &>/dev/null || true
 fi
