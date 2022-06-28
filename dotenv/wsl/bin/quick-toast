@@ -11,12 +11,12 @@ set -euo pipefail
 IFS=$'\n\t'
 
 # shellcheck disable=SC2016
-cat << EOF | powershell.exe -Command -
+cat <<EOF | powershell.exe -Command -
 [Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] > \$null
 \$Template = [Windows.UI.Notifications.ToastNotificationManager]::GetTemplateContent([Windows.UI.Notifications.ToastTemplateType]::ToastText02)
 
 \$TITLE = "$(echo "${1:-ALERT FROM TERMINAL}" | sed -e 's#`#``#g' -e 's#"#`"#g')"
-\$BODY = "$([[ -n "${2:-}" ]] && ( echo "${2}" | sed -e 's#`#``#g' -e 's#"#`"#g' ))"
+\$BODY = "$([[ -n "${2:-}" ]] && (echo "${2}" | sed -e 's#`#``#g' -e 's#"#`"#g'))"
 
 \$RawXml = [xml] \$Template.GetXml()
 (\$RawXml.toast.visual.binding.text|where {\$_.id -eq "1"}).AppendChild(\$RawXml.CreateTextNode(\$TITLE)) > \$null

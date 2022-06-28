@@ -7,7 +7,7 @@
 # Make sure this is bash that's running and return otherwise.
 # Use POSIX syntax for this line:
 if [ -z "${BASH_VERSION-}" ]; then
-    return 1;
+  return 1
 fi
 
 # load configuration from installation
@@ -285,7 +285,7 @@ if [[ -n "${DOT_INCLUDE_BUILTIN_PLUGINS:-}" ]]; then
   if [[ -d "${HOME}/.bash_local.d" ]]; then
     for f in "${HOME}/.bash_local.d"/*.plugin; do
       _DOT_PLUGIN_DISABLE_NAME="DOT_PLUGIN_DISABLE_$(basename "${f}" | sed 's#.plugin$##; s#-#_#g')"
-      if  [[ -z "${!_DOT_PLUGIN_DISABLE_NAME:-}" ]] && [[ -e "${f}" ]]; then
+      if [[ -z "${!_DOT_PLUGIN_DISABLE_NAME:-}" ]] && [[ -e "${f}" ]]; then
         # shellcheck source=/dev/null
         source "$f"
       fi

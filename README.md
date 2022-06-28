@@ -1,4 +1,4 @@
-# weikinhuang's dotfiles
+﻿# weikinhuang's dotfiles
 
 My `$SHELL`, mostly bash, works everywhere, `*nix`, `osx`, `wsl`.
 
@@ -94,14 +94,100 @@ If a file `~/.gitconfig.local` exists, it will be sourced in addition to the bui
 
 ## Plugins
 
-TODO
+Plugins are scripts that are loaded near the end of the dotfiles initialization process. They usually contain hooks, setup, or configuration for external programs.
 
-See the [plugins/](./plugins/) directory for examples.
+See the [plugins/](./plugins/) directory for the built-in examples.
+
+Plugins are also loaded from `~/.bash_local.d/` with any file ending in `.plugin`.
+
+Example plugin for [`direnv`](https://direnv.net/):
+
+```bash
+# check if direnv exists
+if ! command -v direnv &>/dev/null; then
+  return
+fi
+# load direnv program hook
+source <(direnv hook bash 2>/dev/null)
+```
+
+Specific plugins can be disabled with an environment variable: `DOT_PLUGIN_DISABLE_${PLUGIN_FILE_NAME}`.
+
+Example disable direnv hook:
+
+```bash
+export DOT_PLUGIN_DISABLE_direnv=1
+```
 
 ## Hooks
 
-TODO
+Hooks are available before and after each part of the dotfiles repo is loaded. This allows for customization between steps or overrides at point in time loading. They should be declared in `~/.bash_local` or `~/.bash_local.d/*.sh` so that they are available by the time the dotfiles are loaded.
+
+Hook points are available before and after the steps:
+
+- `exports`
+- `functions`
+- `aliases`
+- `completion`
+- `extra`
+- `env`
+- `post_local`
+- `prompt`
+- `plugins`
+
+They can be declared as either a single function `dotfiles_hook_${HOOK}_{pre,post}` or pushed into the arrays `dotfiles_hook_${HOOK}_{pre,post}_functions`.
+
+Example
+
+```bash
+# add a hook to run before the "functions" segment is loaded
+function dotfiles_hook_functions_pre() {
+    echo "I'm loading before functions"
+    export FOO=123
+}
+
+# add a hook to run after the "alias" segment is loaded
+function foobar() {
+    echo "I'm loading after aliases"
+    alias curl-help="curl --help"
+}
+# append to array
+dotfiles_hook_alias_post_functions+=(foobar)
+```
 
 ## [WSL configuration](utils/wsl/README.md)
 
 Setup and configuration of Window's WSL is documented in [utils/wsl/README.md](utils/wsl/README.md).
+
+## Development
+
+You can try out this repo in `docker` easily to test your plugins or hooks.
+
+```bash
+$ docker run -it --rm -v "$(pwd):/root/.dotfiles:ro" -v "$HOME/.bash_local:/root/.bash_local:ro" -v "$HOME/.bash_local.d:/root/.bash_local.d:ro" ubuntu:latest bash
+# OR with overrides set locally in the dotfiles repo
+$ docker run -it --rm -v "$(pwd):/root/.dotfiles:ro" -v "$(pwd)/.bash_local:/root/.bash_local:ro" -v "$(pwd)/.bash_local.d:/root/.bash_local.d:ro" ubuntu:latest bash
+
+# in the docker shell
+$ (cd ~ && .dotfiles/bootstrap.sh)
+# install any dependencies you might need, ex.
+$ apt-get update && apt-get install -y --no-install-recommends curl git tar nodejs
+
+# start a new shell with the dotfiles loaded, to reload, exit this shell and run this command again
+$ env -i PS1=1 TERM="$TERM" PATH="$PATH" HOME="$HOME" SHELL="$SHELL" bash -l
+$ CTRL+d
+$ env -i PS1=1 TERM="$TERM" PATH="$PATH" HOME="$HOME" SHELL="$SHELL" bash -l
+...
+```
+
+### shellcheck and shfmt
+
+[`shellcheck`](https://github.com/koalaman/shellcheck) and [`shfmt`](https://github.com/mvdan/sh) are used to ensure consistency of the scripts in this repo. Files in `dotenv/other` are ignored, since they are external scripts.
+
+```bash
+# shellcheck
+( git ls-files -z | xargs -0 grep -l 'shellcheck shell=\|^#!.\+sh'; git ls-files | grep '\.sh$' ) | grep -v '\.md$' | grep -v .gitlab-ci.yml | sort | uniq | xargs -n1 shellcheck -f gcc --source-path=SCRIPTDIR
+
+# shfmt
+( git ls-files -z | xargs -0 grep -l 'shellcheck shell=\|^#!.\+sh'; git ls-files | grep '\.sh$' ) | grep -v '\.md$' | grep -v .gitlab-ci.yml | sort | uniq | xargs -n1 shfmt -ln bash -ci -bn -i 2 -d -w
+```
