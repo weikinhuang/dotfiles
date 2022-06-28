@@ -61,8 +61,17 @@ esac
 
 # These arrays are used to add functions to be run before, or after, prompts.
 # they are set higher up in case the dotfiles scripts want to set hooks
+# shellcheck disable=SC2034
 declare -a precmd_functions
+# shellcheck disable=SC2034
 declare -a preexec_functions
+
+# These arrays are used to add functions to be run before, or after, loading parts of the dotfiles builtin.
+for hook in {exports,functions,aliases,completion,extra,env,post_local,prompt,plugins}; do
+  declare -a "dotfiles_hook_${hook}_pre_functions"
+  declare -a "dotfiles_hook_${hook}_post_functions"
+done
+unset hook
 
 # check if this is a ssh session
 IS_SSH=
@@ -112,11 +121,37 @@ if command -v nl &>/dev/null; then
   export PATH
 fi
 
+# load a local specific sources before the scripts
+# shellcheck source=/dev/null
+[[ -r "${HOME}/.bash_local" ]] && source "${HOME}/.bash_local"
+if [[ -d "${HOME}/.bash_local.d" ]]; then
+  for f in "${HOME}/.bash_local.d"/*.sh; do
+    if [[ -e "${f}" ]]; then
+      # shellcheck source=/dev/null
+      source "$f"
+    fi
+  done
+  unset f
+fi
+
 # Source ~/.exports, ~/.functions, ~/.aliases, ~/.completion, ~/.extra, ~/.env if they exist
 for file in {exports,functions,aliases,completion,extra,env}; do
   if [[ "${file}" == "completion" ]] && ! command -v complete &>/dev/null; then
     continue
   fi
+
+  # Add a hook that can be defined in .bash_local to run before each phase
+  _DOT_HOOK_NAME="dotfiles_hook_${file//-/_}_pre_functions"
+  # if declared in function format
+  if type "dotfiles_hook_${file}_pre" &>/dev/null; then
+    eval "${_DOT_HOOK_NAME}+=('dotfiles_hook_${file}_pre')"
+  fi
+  # shellcheck disable=SC2125
+  _DOT_HOOK_TMP=${_DOT_HOOK_NAME}[@]
+  for _hook in "${!_DOT_HOOK_TMP}"; do
+    { "${_hook}"; }
+  done
+
   # shellcheck source=/dev/null
   [[ -r "${DOTFILES__ROOT}/.dotfiles/dotenv/${file}.sh" ]] && source "${DOTFILES__ROOT}/.dotfiles/dotenv/${file}.sh"
   # shellcheck source=/dev/null
@@ -145,6 +180,18 @@ for file in {exports,functions,aliases,completion,extra,env}; do
     # shellcheck source=/dev/null
     [[ -r "${DOTFILES__ROOT}/.dotfiles/dotenv/ssh/${file}.sh" ]] && source "${DOTFILES__ROOT}/.dotfiles/dotenv/ssh/${file}.sh"
   fi
+
+  # Add a hook that can be defined in .bash_local to run after each phase
+  _DOT_HOOK_NAME="dotfiles_hook_${file//-/_}_post_functions"
+  # if declared in function format
+  if type "dotfiles_hook_${file}_post" &>/dev/null; then
+    eval "${_DOT_HOOK_NAME}+=('dotfiles_hook_${file}_post')"
+  fi
+  # shellcheck disable=SC2125
+  _DOT_HOOK_TMP=${_DOT_HOOK_NAME}[@]
+  for _hook in "${!_DOT_HOOK_TMP}"; do
+    { "${_hook}"; }
+  done
 done
 unset file
 
@@ -154,16 +201,24 @@ if command -v complete &>/dev/null && [[ -d "${HOME}"/.config/completion.d ]]; t
   source "${HOME}"/.config/completion.d/* || true
 fi
 
-# load a local specific sources before the scripts
-# shellcheck source=/dev/null
-[[ -r "${HOME}/.bash_local" ]] && source "${HOME}/.bash_local"
-
 # include utility settings file (git PS1, solarized, mysql, etc...)
 # shellcheck source=/dev/null
 [[ -r "${DOTFILES__ROOT}/.dotfiles/dotenv/utility.sh" ]] && source "${DOTFILES__ROOT}/.dotfiles/dotenv/utility.sh"
 
 # Source ~/.post-local, ~/.prompt if they exist
 for file in {post-local,prompt}; do
+  # Add a hook that can be defined in .bash_local to run before each phase
+  _DOT_HOOK_NAME="dotfiles_hook_${file//-/_}_pre_functions"
+  # if declared in function format
+  if type "dotfiles_hook_${file}_pre" &>/dev/null; then
+    eval "${_DOT_HOOK_NAME}+=('dotfiles_hook_${file}_pre')"
+  fi
+  # shellcheck disable=SC2125
+  _DOT_HOOK_TMP=${_DOT_HOOK_NAME}[@]
+  for _hook in "${!_DOT_HOOK_TMP}"; do
+    { "${_hook}"; }
+  done
+
   # shellcheck source=/dev/null
   [[ -r "${DOTFILES__ROOT}/.dotfiles/dotenv/${file}.sh" ]] && source "${DOTFILES__ROOT}/.dotfiles/dotenv/${file}.sh"
   # shellcheck source=/dev/null
@@ -192,27 +247,75 @@ for file in {post-local,prompt}; do
     # shellcheck source=/dev/null
     [[ -r "${DOTFILES__ROOT}/.dotfiles/dotenv/ssh/${file}.sh" ]] && source "${DOTFILES__ROOT}/.dotfiles/dotenv/ssh/${file}.sh"
   fi
+
+  # Add a hook that can be defined in .bash_local to run after each phase
+  _DOT_HOOK_NAME="dotfiles_hook_${file//-/_}_post_functions"
+  # if declared in function format
+  if type "dotfiles_hook_${file}_post" &>/dev/null; then
+    eval "${_DOT_HOOK_NAME}+=('dotfiles_hook_${file}_post')"
+  fi
+  # shellcheck disable=SC2125
+  _DOT_HOOK_TMP=${_DOT_HOOK_NAME}[@]
+  for _hook in "${!_DOT_HOOK_TMP}"; do
+    { "${_hook}"; }
+  done
 done
 unset file
 
 # load plugin hooks
 if [[ -n "${DOT_INCLUDE_BUILTIN_PLUGINS:-}" ]]; then
-  for f in "${DOTFILES__ROOT}/.dotfiles/plugins"/*.sh; do
-    if [[ -e "${f}" ]]; then
-      # shellcheck source=/dev/null
-      source "$f"
-    fi
+  # Add a hook that can be defined in .bash_local to run before each phase
+  # if declared in function format
+  if type dotfiles_hook_plugins_pre &>/dev/null; then
+    dotfiles_hook_plugins_pre_functions+=(dotfiles_hook_plugins_pre)
+  fi
+  for _hook in "${dotfiles_hook_plugins_pre_functions[@]}"; do
+    { "${_hook}"; }
   done
-fi
-if [[ -d "${HOME}/.bash_local.d" ]]; then
-  for f in "${HOME}/.bash_local.d"/*.sh; do
-    if [[ -e "${f}" ]]; then
+
+  for f in "${DOTFILES__ROOT}/.dotfiles/plugins"/*.sh; do
+    _DOT_PLUGIN_DISABLE_NAME="DOT_PLUGIN_DISABLE_$(basename "${f}" | sed 's#.sh$##; s#-#_#g')"
+    if [[ -z "${!_DOT_PLUGIN_DISABLE_NAME:-}" ]] && [[ -e "${f}" ]]; then
       # shellcheck source=/dev/null
       source "$f"
     fi
+    unset "${_DOT_PLUGIN_DISABLE_NAME}"
+  done
+
+  if [[ -d "${HOME}/.bash_local.d" ]]; then
+    for f in "${HOME}/.bash_local.d"/*.plugin; do
+      _DOT_PLUGIN_DISABLE_NAME="DOT_PLUGIN_DISABLE_$(basename "${f}" | sed 's#.plugin$##; s#-#_#g')"
+      if  [[ -z "${!_DOT_PLUGIN_DISABLE_NAME:-}" ]] && [[ -e "${f}" ]]; then
+        # shellcheck source=/dev/null
+        source "$f"
+      fi
+      unset "${_DOT_PLUGIN_DISABLE_NAME}"
+    done
+  fi
+  unset f
+  unset _DOT_PLUGIN_DISABLE_NAME
+
+  # Add a hook that can be defined in .bash_local to run after each phase
+  # if declared in function format
+  if type dotfiles_hook_plugins_post &>/dev/null; then
+    dotfiles_hook_plugins_post_functions+=(dotfiles_hook_plugins_post)
+  fi
+  for _hook in "${dotfiles_hook_plugins_post_functions[@]}"; do
+    { "${_hook}"; }
   done
 fi
 unset DOT_INCLUDE_BUILTIN_PLUGINS
+
+for hook in {exports,functions,aliases,completion,extra,env,post_local,prompt,plugins}; do
+  unset -f "dotfiles_hook_${hook}_pre"
+  unset -f "dotfiles_hook_${hook}_post"
+  unset "dotfiles_hook_${hook}_pre_functions"
+  unset "dotfiles_hook_${hook}_post_functions"
+done
+unset hook
+unset _hook
+unset _DOT_HOOK_NAME
+unset _DOT_HOOK_TMP
 
 # internal prompt command stack to simplify the PROMPT_COMMAND variable
 __push_prompt_command '__run_prompt_command'

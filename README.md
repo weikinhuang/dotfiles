@@ -59,24 +59,6 @@ See [PROMPT.md](PROMPT.md) for configuration options.
 
 ![Prompt example](./assets/prompt-example.png)
 
-## Custom hook points
-
-### `~/.bash_local`
-
-If `~/.bash_local` exists, it will be sourced after the built-ins are sourced, but before the prompt. Any additional env vars or settings can be placed in this file.
-
-### `~/.bash_local.d/*.sh`
-
-All files ending with `.sh` located in `~/.bash_local.d` will be loaded at the end, this is a good place to put include scripts that set up additional applications in separate files. See the [plugins/](./plugins/) directory for examples.
-
-## .gitconfig.local
-
-If a file `~/.gitconfig.local` exists, it will be sourced in addition to the built in git settings. Configurations in this file will be set with the highest priority.
-
-## [WSL configuration](utils/wsl/README.md)
-
-Setup and configuration of Window's WSL is documented in [utils/wsl/README.md](utils/wsl/README.md).
-
 ## Configuration Options
 
 To use these variables, export them to `~/.bash_local`.
@@ -95,3 +77,31 @@ export DOT_AUTOLOAD_SSH_AGENT=1
 | `DOT_INCLUDE_BUILTIN_PLUGINS` | `1`          | Loads files in dotfiles/plugins                                                                    |
 | `DOT_SOLARIZED_DARK`          | `1`          | Use to tell common commands to use solarizeddark colors                                            |
 | `DOT_SOLARIZED_LIGHT`         | `1`          | Use to tell common commands to use solarized light colors                                          |
+
+## Custom hook points
+
+### `~/.bash_local`
+
+If `~/.bash_local` exists, it will be sourced before the built-ins are sourced. Env vars, configuration vars, and hooks can be placed in this file.
+
+### `~/.bash_local.d/*.sh`
+
+All files ending with `.sh` located in `~/.bash_local.d` will be loaded right after `~/.bash_local`, this is a good place to put include scripts that setup additional environments in separate files.
+
+## .gitconfig.local
+
+If a file `~/.gitconfig.local` exists, it will be sourced in addition to the built in git settings. Configurations in this file will be set with the highest priority.
+
+## Plugins
+
+TODO
+
+See the [plugins/](./plugins/) directory for examples.
+
+## Hooks
+
+TODO
+
+## [WSL configuration](utils/wsl/README.md)
+
+Setup and configuration of Window's WSL is documented in [utils/wsl/README.md](utils/wsl/README.md).
