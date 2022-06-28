@@ -23,7 +23,6 @@ export DOTFILES__ROOT
 DOTENV="linux"
 IS_WSL=
 IS_WSL2=
-IS_TERMUX=
 IS_SCREEN=
 case "$(uname -s)" in
   Darwin)
@@ -36,8 +35,6 @@ case "$(uname -s)" in
       if uname -r | grep -qi WSL2; then
         IS_WSL2=1
       fi
-    elif command -v termux-setup-storage &>/dev/null; then
-      IS_TERMUX=1
     fi
     ;;
 esac
@@ -101,10 +98,6 @@ if [[ -n "${IS_WSL2}" ]]; then
   [[ -d "${DOTFILES__ROOT}/.dotfiles/dotenv/wsl2/bin.$(uname -m)" ]] && PATH="${PATH}:${DOTFILES__ROOT}/.dotfiles/dotenv/wsl2/bin.$(uname -m)"
   [[ -d "${DOTFILES__ROOT}/.dotfiles/dotenv/wsl2/bin" ]] && PATH="${PATH}:${DOTFILES__ROOT}/.dotfiles/dotenv/wsl2/bin"
 fi
-if [[ -n "${IS_TERMUX}" ]]; then
-  [[ -d "${DOTFILES__ROOT}/.dotfiles/dotenv/termux/bin.$(uname -m)" ]] && PATH="${PATH}:${DOTFILES__ROOT}/.dotfiles/dotenv/termux/bin.$(uname -m)"
-  [[ -d "${DOTFILES__ROOT}/.dotfiles/dotenv/termux/bin" ]] && PATH="${PATH}:${DOTFILES__ROOT}/.dotfiles/dotenv/termux/bin"
-fi
 [[ -d "${DOTFILES__ROOT}/.dotfiles/dotenv/${DOTENV}/bin.$(uname -m)" ]] && PATH="${PATH}:${DOTFILES__ROOT}/.dotfiles/dotenv/${DOTENV}/bin.$(uname -m)"
 [[ -d "${DOTFILES__ROOT}/.dotfiles/dotenv/${DOTENV}/bin" ]] && PATH="${PATH}:${DOTFILES__ROOT}/.dotfiles/dotenv/${DOTENV}/bin"
 [[ -d "${DOTFILES__ROOT}/.dotfiles/dotenv/bin" ]] && PATH="${PATH}:${DOTFILES__ROOT}/.dotfiles/dotenv/bin"
@@ -163,10 +156,6 @@ for file in {exports,functions,aliases,completion,extra,env}; do
   if [[ -n "${IS_WSL2}" ]]; then
     # shellcheck source=/dev/null
     [[ -r "${DOTFILES__ROOT}/.dotfiles/dotenv/wsl2/${file}.sh" ]] && source "${DOTFILES__ROOT}/.dotfiles/dotenv/wsl2/${file}.sh"
-  fi
-  if [[ -n "${IS_TERMUX}" ]]; then
-    # shellcheck source=/dev/null
-    [[ -r "${DOTFILES__ROOT}/.dotfiles/dotenv/termux/${file}.sh" ]] && source "${DOTFILES__ROOT}/.dotfiles/dotenv/termux/${file}.sh"
   fi
   if [[ -n "${TMUX:-}" ]]; then
     # shellcheck source=/dev/null
@@ -230,10 +219,6 @@ for file in {post-local,prompt}; do
   if [[ -n "${IS_WSL2}" ]]; then
     # shellcheck source=/dev/null
     [[ -r "${DOTFILES__ROOT}/.dotfiles/dotenv/wsl2/${file}.sh" ]] && source "${DOTFILES__ROOT}/.dotfiles/dotenv/wsl2/${file}.sh"
-  fi
-  if [[ -n "${IS_TERMUX}" ]]; then
-    # shellcheck source=/dev/null
-    [[ -r "${DOTFILES__ROOT}/.dotfiles/dotenv/termux/${file}.sh" ]] && source "${DOTFILES__ROOT}/.dotfiles/dotenv/termux/${file}.sh"
   fi
   if [[ -n "${TMUX:-}" ]]; then
     # shellcheck source=/dev/null
