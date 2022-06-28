@@ -28,11 +28,15 @@
 
 ## New Global Variables
 
-| ENV var          | Description                                                     |
-| ---------------- | --------------------------------------------------------------- |
-| `DOTENV`         | Simple access to os platform                                    |
-| `DOTFILES__ROOT` | Root where dotfiles directory is installed (ex. `/home/ubuntu`) |
-| `PROC_CORES`     | Number of threads (cores)                                       |
+| ENV var           | Description                                                     |
+| ----------------- | --------------------------------------------------------------- |
+| `DOT___IS_SCREEN` | Set when the current environment is a screen session            |
+| `DOT___IS_SSH`    | Set when the current environment is a ssh session               |
+| `DOT___IS_WSL`    | Set when the current environment is running inside WSL          |
+| `DOT___IS_WSL2`   | Set when the current environment is running inside WSL 2        |
+| `DOTENV`          | Simple access to os platform                                    |
+| `DOTFILES__ROOT`  | Root where dotfiles directory is installed (ex. `/home/ubuntu`) |
+| `PROC_CORES`      | Number of threads (cores)                                       |
 
 ## All Platforms
 
