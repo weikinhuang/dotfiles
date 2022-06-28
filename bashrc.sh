@@ -128,7 +128,8 @@ if [[ -d "${HOME}/.bash_local.d" ]]; then
 fi
 
 # Source ~/.exports, ~/.functions, ~/.aliases, ~/.completion, ~/.extra, ~/.env if they exist
-for file in {exports,functions,aliases,completion,extra,env}; do
+_DOT_FILES_TO_LOAD=(exports functions aliases completion extra env)
+for file in "${_DOT_FILES_TO_LOAD[@]}"; do
   if [[ "${file}" == "completion" ]] && ! command -v complete &>/dev/null; then
     continue
   fi
@@ -196,8 +197,53 @@ fi
 # shellcheck source=/dev/null
 [[ -r "${DOTFILES__ROOT}/.dotfiles/dotenv/utility.sh" ]] && source "${DOTFILES__ROOT}/.dotfiles/dotenv/utility.sh"
 
-# Source ~/.post-local, ~/.prompt if they exist
-for file in {post-local,prompt}; do
+# load plugin hooks
+if [[ -n "${DOT_INCLUDE_BUILTIN_PLUGINS:-}" ]]; then
+  # Add a hook that can be defined in .bash_local to run before each phase
+  # if declared in function format
+  if type dotfiles_hook_plugins_pre &>/dev/null; then
+    dotfiles_hook_plugins_pre_functions+=(dotfiles_hook_plugins_pre)
+  fi
+  for _hook in "${dotfiles_hook_plugins_pre_functions[@]}"; do
+    { "${_hook}"; }
+  done
+
+  for f in "${DOTFILES__ROOT}/.dotfiles/plugins"/*.sh; do
+    _DOT_PLUGIN_DISABLE_NAME="DOT_PLUGIN_DISABLE_$(basename "${f}" | sed 's#.sh$##; s#-#_#g')"
+    if [[ -z "${!_DOT_PLUGIN_DISABLE_NAME:-}" ]] && [[ -e "${f}" ]]; then
+      # shellcheck source=/dev/null
+      source "$f"
+    fi
+    unset "${_DOT_PLUGIN_DISABLE_NAME}"
+  done
+
+  if [[ -d "${HOME}/.bash_local.d" ]]; then
+    for f in "${HOME}/.bash_local.d"/*.plugin; do
+      _DOT_PLUGIN_DISABLE_NAME="DOT_PLUGIN_DISABLE_$(basename "${f}" | sed 's#.plugin$##; s#-#_#g')"
+      if [[ -z "${!_DOT_PLUGIN_DISABLE_NAME:-}" ]] && [[ -e "${f}" ]]; then
+        # shellcheck source=/dev/null
+        source "$f"
+      fi
+      unset "${_DOT_PLUGIN_DISABLE_NAME}"
+    done
+  fi
+  unset f
+  unset _DOT_PLUGIN_DISABLE_NAME
+
+  # Add a hook that can be defined in .bash_local to run after each phase
+  # if declared in function format
+  if type dotfiles_hook_plugins_post &>/dev/null; then
+    dotfiles_hook_plugins_post_functions+=(dotfiles_hook_plugins_post)
+  fi
+  for _hook in "${dotfiles_hook_plugins_post_functions[@]}"; do
+    { "${_hook}"; }
+  done
+fi
+unset DOT_INCLUDE_BUILTIN_PLUGINS
+
+# Source ~/.prompt if they exist
+_DOT_FILES_TO_LOAD=(prompt)
+for file in "${_DOT_FILES_TO_LOAD[@]}"; do
   # Add a hook that can be defined in .bash_local to run before each phase
   _DOT_HOOK_NAME="dotfiles_hook_${file//-/_}_pre_functions"
   # if declared in function format
@@ -251,50 +297,6 @@ for file in {post-local,prompt}; do
 done
 unset file
 
-# load plugin hooks
-if [[ -n "${DOT_INCLUDE_BUILTIN_PLUGINS:-}" ]]; then
-  # Add a hook that can be defined in .bash_local to run before each phase
-  # if declared in function format
-  if type dotfiles_hook_plugins_pre &>/dev/null; then
-    dotfiles_hook_plugins_pre_functions+=(dotfiles_hook_plugins_pre)
-  fi
-  for _hook in "${dotfiles_hook_plugins_pre_functions[@]}"; do
-    { "${_hook}"; }
-  done
-
-  for f in "${DOTFILES__ROOT}/.dotfiles/plugins"/*.sh; do
-    _DOT_PLUGIN_DISABLE_NAME="DOT_PLUGIN_DISABLE_$(basename "${f}" | sed 's#.sh$##; s#-#_#g')"
-    if [[ -z "${!_DOT_PLUGIN_DISABLE_NAME:-}" ]] && [[ -e "${f}" ]]; then
-      # shellcheck source=/dev/null
-      source "$f"
-    fi
-    unset "${_DOT_PLUGIN_DISABLE_NAME}"
-  done
-
-  if [[ -d "${HOME}/.bash_local.d" ]]; then
-    for f in "${HOME}/.bash_local.d"/*.plugin; do
-      _DOT_PLUGIN_DISABLE_NAME="DOT_PLUGIN_DISABLE_$(basename "${f}" | sed 's#.plugin$##; s#-#_#g')"
-      if [[ -z "${!_DOT_PLUGIN_DISABLE_NAME:-}" ]] && [[ -e "${f}" ]]; then
-        # shellcheck source=/dev/null
-        source "$f"
-      fi
-      unset "${_DOT_PLUGIN_DISABLE_NAME}"
-    done
-  fi
-  unset f
-  unset _DOT_PLUGIN_DISABLE_NAME
-
-  # Add a hook that can be defined in .bash_local to run after each phase
-  # if declared in function format
-  if type dotfiles_hook_plugins_post &>/dev/null; then
-    dotfiles_hook_plugins_post_functions+=(dotfiles_hook_plugins_post)
-  fi
-  for _hook in "${dotfiles_hook_plugins_post_functions[@]}"; do
-    { "${_hook}"; }
-  done
-fi
-unset DOT_INCLUDE_BUILTIN_PLUGINS
-
 for hook in {exports,functions,aliases,completion,extra,env,post_local,prompt,plugins}; do
   unset -f "dotfiles_hook_${hook}_pre"
   unset -f "dotfiles_hook_${hook}_post"
@@ -305,6 +307,7 @@ unset hook
 unset _hook
 unset _DOT_HOOK_NAME
 unset _DOT_HOOK_TMP
+unset _DOT_FILES_TO_LOAD
 
 # internal prompt command stack to simplify the PROMPT_COMMAND variable
 __push_prompt_command '__run_prompt_command'
