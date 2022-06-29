@@ -1,11 +1,16 @@
 # shellcheck shell=bash
-# ---------- COLOR REFERENCES AND OPTIONS ----------
 
-if [[ -n "${_PS1_DISABLED:-}" ]]; then
-  unset _PS1_DISABLED
+# ------------------------------------------------------------------------------
+# DISABLE PROMPT
+# ------------------------------------------------------------------------------
+if [[ -n "${DOT_DISABLE_PS1:-}" ]]; then
+  unset DOT_DISABLE_PS1
   return
 fi
 
+# ------------------------------------------------------------------------------
+# COLOR REFERENCES AND OPTIONS
+# ------------------------------------------------------------------------------
 # quick reference to colors
 PS1_COLOR_NORMAL='\[\e[m\]'
 PS1_COLOR_BOLD='\[\e[1m\]'
@@ -27,18 +32,18 @@ PS1_COLOR_TIME_AM='\[\e[38;5;244m\]'
 PS1_COLOR_TIME_PM='\[\e[38;5;033m\]'
 
 # load avg colorization
-PS1_COLOR_LOAD='
-  loadcolors_0="\[\e[38;5;111m\]"
-  loadcolors_1="\[\e[38;5;110m\]"
-  loadcolors_2="\[\e[38;5;109m\]"
-  loadcolors_3="\[\e[38;5;108m\]"
-  loadcolors_4="\[\e[38;5;107m\]"
-  loadcolors_5="\[\e[38;5;106m\]"
-  loadcolors_6="\[\e[38;5;178m\]"
-  loadcolors_7="\[\e[38;5;172m\]"
-  loadcolors_8="\[\e[38;5;166m\]"
-  loadcolors_9="\[\e[38;5;167m\]"
-'
+PS1_COLOR_LOAD=(
+  '\[\e[38;5;111m\]'
+  '\[\e[38;5;110m\]'
+  '\[\e[38;5;109m\]'
+  '\[\e[38;5;108m\]'
+  '\[\e[38;5;107m\]'
+  '\[\e[38;5;106m\]'
+  '\[\e[38;5;178m\]'
+  '\[\e[38;5;172m\]'
+  '\[\e[38;5;166m\]'
+  '\[\e[38;5;167m\]'
+)
 
 # If we want a monochrome bash prompt
 if [[ -n "${_PS1_MONOCHROME:-}" ]]; then
@@ -50,7 +55,7 @@ if [[ -n "${_PS1_MONOCHROME:-}" ]]; then
   PS1_COLOR_BG_JOBS=
   PS1_COLOR_USER=
   PS1_COLOR_HOST=
-  PS1_COLOR_HOST_SCREEN=${PS1_COLOR_UNDERLINE}
+  PS1_COLOR_HOST_SCREEN="${PS1_COLOR_UNDERLINE}"
   PS1_COLOR_WORK_DIR=
   PS1_COLOR_WORK_DIRINFO=
   PS1_COLOR_GIT=
@@ -58,135 +63,134 @@ if [[ -n "${_PS1_MONOCHROME:-}" ]]; then
   PS1_COLOR_TIME_PM=
 
   # load avg colorization
-  PS1_COLOR_LOAD='
-    loadcolors_0=""
-    loadcolors_1=""
-    loadcolors_2=""
-    loadcolors_3=""
-    loadcolors_4=""
-    loadcolors_5=""
-    loadcolors_6=""
-    loadcolors_7=""
-    loadcolors_8=""
-    loadcolors_9=""
-  '
+  PS1_COLOR_LOAD=()
 fi
-PS1_COLOR_LOAD="$(tr -d '\n' <<<"${PS1_COLOR_LOAD}")"
 
-# ---------- SYMBOLS AND VARIABLES FOR PROMPTS ----------
-
+# ------------------------------------------------------------------------------
+# SYMBOLS AND VARIABLES FOR PROMPTS
+# ------------------------------------------------------------------------------
 PS1_SYMBOL_NO_WRITE_PWD='*'
 PS1_SYMBOL_GIT_BRANCH="${PS1_COLOR_BOLD}$(echo -e '\xD5\xAF')${PS1_COLOR_NORMAL} "
 PS1_SYMBOL_SSH='@'
 PS1_SYMBOL_LOCAL='#'
 
-PS1_SYMBOL_USER="$(echo -e "\xCE\xBB")"
-PS1_SYMBOL_ROOT="$(echo -e "\xCE\xBC")"
-PS1_SYMBOL_SU="$(echo -e "\xCF\x80\x0A")"
+PS1_SYMBOL_USER="$(echo -e "\xCE\xBB")"   # λ
+PS1_SYMBOL_ROOT="$(echo -e "\xCE\xBC")"   # μ
+PS1_SYMBOL_SU="$(echo -e "\xCF\x80\x0A")" # π
 
 PS1_DAY_START=8
 PS1_DAY_END=18
 
-# ---------- SYMBOL, VARIABLES, AND COLOR OVERRIDES ----------
+PS1_NEW_LINE_THRESHOLD=120
 
-# shellcheck source=/dev/null
-[[ -r "${HOME}/.prompt_exports" ]] && source "${HOME}/.prompt_exports"
+# ------------------------------------------------------------------------------
+# FUNCTIONS AND REUSED STATEMENTS FOR PROMPTS
+# ------------------------------------------------------------------------------
 
-# ---------- FUNCTIONS AND REUSED STATEMENTS FOR PROMPTS ----------
+# show the exit status of the previous command
+# shellcheck disable=SC2016,SC2089
+PS1_EXIT_STATUS='$(EXIT="$?"; [[ $EXIT -ne 0 ]] && echo -n "(E:${EXIT}) ")'
 
-# Keep a cached date variable for prompt testing
+# show the number of running background jobs
 # shellcheck disable=SC2016
-__push_internal_prompt_command '__ps1_var_date=$(/bin/date +%s)'
+PS1_BG_JOBS='$([[ \j -gt 0 ]] && echo -n "bg:\j ")'
 
-if [[ -z "${_PS1_HIDE_LOAD:-}" ]]; then
-  # shellcheck disable=SC2016
-  PS1_LOAD_AVG='load=$(__ps1_proc_use)'
-
-  # special case for osx systems with older sed
-  case ${DOTENV} in
-    linux)
-      # shellcheck disable=SC2016
-      PS1_LOAD_AVG=${PS1_LOAD_AVG}'
-          __ps1_var_loadmod=$(echo "${load}" | \\sed "s/^0*\\([0-9]\\+\\)\\..\\+\\$/\\1/")
-        '
-      ;;
-    darwin)
-      # shellcheck disable=SC2016
-      PS1_LOAD_AVG=${PS1_LOAD_AVG}'
-          __ps1_var_loadmod=$(echo "${load}" | \\sed "s/^0*\\([0-9][0-9]*\\)\\..*\\$/\\1/")
-        '
-      ;;
-  esac
-
-  # shellcheck disable=SC2016
-  PS1_LOAD_AVG=${PS1_LOAD_AVG}${PS1_COLOR_LOAD}';
-      [[ $__ps1_var_loadmod -gt 9 ]] && __ps1_var_loadmod=9;
-      loadcolor="loadcolors_${__ps1_var_loadmod}";
-      echo "${!loadcolor}${load}'${PS1_COLOR_RESET}' ";
-    '
-  PS1_LOAD_AVG="$(tr -d '\n' <<<"${PS1_LOAD_AVG}")"
-fi
-
-# caching the directory information for bash prompt to reduce disk reads
-if [[ -z "${_PS1_HIDE_DIR_INFO:-}" ]]; then
-  __ps1_var_dirinfo="0|0b"
-  __ps1_var_dirinfotime=0
-  __ps1_var_dirinfoprev=0
-  [[ -z ${__ps1_var_dirinforeloadtime} ]] && __ps1_var_dirinforeloadtime=60
-  function __ps1_dir_wrapper() {
-    local lsout lsnum lssize
-
-    # refresh every minute or on directory change
-    if [[ $((__ps1_var_date - __ps1_var_dirinforeloadtime)) -gt ${__ps1_var_dirinfotime} || "${PWD}" != "${__ps1_var_dirinfoprev}" ]]; then
-      lsout=$(/bin/ls -lAh 2>/dev/null)
-      lsnum=$(($(echo "${lsout}" | \wc -l | \sed "s/ //g") - 1))
-      lssize="$(echo "${lsout}" | \grep '^total ' | \sed 's/^total //')b"
-
-      __ps1_var_dirinfo="${lsnum}|${lssize}"
-      __ps1_var_dirinfoprev="${PWD}"
-      __ps1_var_dirinfotime=$(/bin/date +%s)
-      # update the prompt time
-      __ps1_var_date=${__ps1_var_dirinfotime}
-    fi
-  }
-
-  __push_internal_prompt_command __ps1_dir_wrapper
-fi
-
-# datetime colorization in prompt
-if [[ -z "${_PS1_HIDE_TIME:-}" ]]; then
-  # shellcheck disable=SC2016,SC2086
-  PS1_DATETIME="$(tr -d '\n' <<<'
-  time=$(/bin/date +"%H" | sed 's/^0//');
-  color="'${PS1_COLOR_TIME_PM}'";
-  if [[ ${time} -ge '${PS1_DAY_START}' && ${time} -le '${PS1_DAY_END}' ]]; then
-     color="'${PS1_COLOR_TIME_AM}'";
-  fi;
-  echo "${color}\T'${PS1_COLOR_RESET}' "
-')"
+# session type symbol [@|#]
+PS1_SESSION_TYPE="${PS1_SYMBOL_LOCAL}"
+if [[ -n "${DOT___IS_SSH}" ]]; then
+  PS1_SESSION_TYPE="${PS1_SYMBOL_SSH}"
 fi
 
 # show icon if the directory is not writable for the user
 # shellcheck disable=SC2016
 PS1_PWD_WRITABLE='$([[ ! -w "$PWD" ]] && echo -n "'${PS1_SYMBOL_NO_WRITE_PWD}'")'
 
-# show the exit status of the previous command
-# shellcheck disable=SC2016,SC2089
-PS1_EXIT_STATUS='$(EXIT="$?"; [[ $EXIT -ne 0 ]] && echo -n "(E:${EXIT}) ")'
+# hostname or session info
+PS1_HOST_NAME="${PS1_COLOR_HOST}\h"
+case "$TERM" in
+  screen*)
+    if [[ -n "${TMUX:-}" ]]; then
+      PS1_HOST_NAME="${PS1_COLOR_HOST_SCREEN}$([[ -n "${DOT___IS_SSH:-}" ]] && echo '\h,')$(tmux display-message -p '#S')[${TMUX_PANE}]"
+    else
+      PS1_HOST_NAME="${PS1_COLOR_HOST_SCREEN}$([[ -n "${DOT___IS_SSH:-}" ]] && echo '\h,')${STY}[${WINDOW}]"
+    fi
+    ;;
+esac
+
+# PROMPT_TITLE -- Set the title bar if we are in xterm
+if ! declare -p PROMPT_TITLE &>/dev/null; then
+  PROMPT_TITLE=
+  case "${TERM}" in
+    xterm* | rxvt*)
+      PROMPT_TITLE="\[\e]0;\u@\h:\W\007\]"
+      ;;
+    screen*)
+      if [[ -n "${TMUX:-}" ]]; then
+        PROMPT_TITLE="\[\e]0;\u@\h:\W\007\]"
+      else
+        PROMPT_TITLE="\[\e]0;\u@${STY}[${WINDOW}]:\W\007\]"
+      fi
+      ;;
+  esac
+fi
+
+# show time with color highlight
+# shellcheck disable=SC2016
+PS1_DATETIME="$(tr -d '\n' <<<'
+  time=$(/bin/date +"%H" | sed 's/^0//');
+  color="'"${PS1_COLOR_TIME_PM}"'";
+  if [[ ${time} -ge '${PS1_DAY_START}' && ${time} -le '${PS1_DAY_END}' ]]; then
+     color="'"${PS1_COLOR_TIME_AM}"'";
+  fi;
+  echo "${color}\T'"${PS1_COLOR_RESET}"' "
+')"
+
+# show load average with highlight
+# shellcheck disable=SC2016,SC2046
+PS1_LOAD_AVG="$(tr -d '\n' <<<'
+  load=$(__ps1_proc_use);
+  loadcolors=('$(printf "'%s' " "${PS1_COLOR_LOAD[@]}")');
+  __ps1_var_loadmod="$(echo "${load}" | cut -f1 -d.)";
+  [[ -z "${__ps1_var_loadmod}" ]] && __ps1_var_loadmod=0;
+  [[ "${__ps1_var_loadmod}" -gt '$((${#PS1_COLOR_LOAD[@]} - 1))' ]] && __ps1_var_loadmod='$((${#PS1_COLOR_LOAD[@]} - 1))';
+  echo "${loadcolors[$__ps1_var_loadmod]}${load}'"${PS1_COLOR_RESET}"' ";
+')"
+
+# caching the directory information for bash prompt to reduce disk reads
+if [[ -z "${_PS1_HIDE_DIR_INFO:-}" ]]; then
+  __ps1_var_dirinfo=
+  function __ps1_dir_info_wrapper() {
+    local lsout lsnum lssize
+
+    lsout=$(\ls -lAh 2>/dev/null)
+    lsnum=$(($(echo "${lsout}" | \wc -l) - 1))
+    lssize="$(echo "${lsout}" | \grep '^total ' | \awk '{ print $2 }')b"
+
+    __ps1_var_dirinfo="<${lsnum}|${lssize}>"
+  }
+  chpwd_functions+=(__ps1_dir_info_wrapper)
+fi
 
 # show information about the last process
 if [[ -z "${_PS1_HIDE_EXEC_TIME:-}" ]]; then
   __ps1_var_exectimer=0
   __ps1_var_execduration=
   function __ps1_exec_timer_start() {
+    # set on first command in the stack only
     if [[ __ps1_var_exectimer -gt 0 ]]; then
-      return 0
+      return
     fi
     __ps1_var_exectimer=$(date +%s%N)
   }
-  trap '__ps1_exec_timer_start' DEBUG
+  preexec_functions+=(__ps1_exec_timer_start)
 
   function __ps1_exec_timer_stop() {
+    # only show if there was a prior command
+    if [[ __ps1_var_exectimer -eq 0 ]]; then
+      __ps1_var_execduration=
+      return
+    fi
+    local duration
     local delta_us=$((($(date +%s%N) - __ps1_var_exectimer) / 1000))
     local us=$((delta_us % 1000))
     local ms=$(((delta_us / 1000) % 1000))
@@ -194,224 +198,173 @@ if [[ -z "${_PS1_HIDE_EXEC_TIME:-}" ]]; then
     local m=$(((delta_us / 60000000) % 60))
     local h=$((delta_us / 3600000000))
     if ((h > 0)); then
-      __ps1_var_execduration=${h}h${m}m
+      duration=${h}h${m}m
     elif ((m > 0)); then
-      __ps1_var_execduration=${m}m${s}s
+      duration=${m}m${s}s
     elif ((s >= 10)); then
-      __ps1_var_execduration=${s}.$((ms / 100))s
+      duration=${s}.$((ms / 100))s
     elif ((s > 0)); then
-      __ps1_var_execduration=${s}.$(printf %03d $ms)s
+      duration=${s}.$(printf %03d $ms)s
     elif ((ms >= 100)); then
-      __ps1_var_execduration=${ms}ms
+      duration=${ms}ms
     elif ((ms > 0)); then
-      __ps1_var_execduration=${ms}.$((us / 100))ms
+      duration=${ms}.$((us / 100))ms
     else
-      __ps1_var_execduration=${us}us
+      duration=${us}us
     fi
+
+    # reset timer
     __ps1_var_exectimer=0
+    # add space
+    __ps1_var_execduration=" ${duration}"
   }
   __push_internal_prompt_command __ps1_exec_timer_stop
-
-  # shellcheck disable=SC2016
-  PS1_EXEC_TIME='$(echo "${__ps1_var_execduration}")'
 fi
 
-# show the number of running background jobs
-# shellcheck disable=SC2016
-PS1_BG_JOBS='$([[ \j -gt 0 ]] && echo -n "bg:\j ")'
-
-# [@|#] based on environment If ssh connection
-if [[ -n "${DOT___IS_SSH}" ]]; then
-  PS1_SESSION_TYPE="${PS1_SYMBOL_SSH}"
-else
-  # otherwise
-  PS1_SESSION_TYPE="${PS1_SYMBOL_LOCAL}"
-fi
-
-# [host|screen session]
-case "$TERM" in
-  screen*)
-    if [[ -n "${TMUX:-}" ]]; then
-      PS1_HOST_NAME="${PS1_COLOR_HOST_SCREEN}$(test -n "${SSH_CONNECTION:-}" && echo '\h,')$(tmux display-message -p '#S')[${TMUX_PANE}]"
-    else
-      PS1_HOST_NAME="${PS1_COLOR_HOST_SCREEN}$(test -n "${SSH_CONNECTION:-}" && echo '\h,')${STY}[${WINDOW}]"
-    fi
-    ;;
-  *)
-    PS1_HOST_NAME="${PS1_COLOR_HOST}"'\h'
-    ;;
-esac
-
-# Set the title bar if we are in xterm
-case "${TERM}" in
-  xterm* | rxvt*)
-    PROMPT_TITLE="\[\e]0;\u@\h:\W\007\]"
-    ;;
-  screen*)
-    if [[ -n "${TMUX:-}" ]]; then
-      PROMPT_TITLE="\[\e]0;\u@\h:\W\007\]"
-    else
-      PROMPT_TITLE="\[\e]0;\u@${STY}[${WINDOW}]:\W\007\]"
-    fi
-    ;;
-  *)
-    PROMPT_TITLE=""
-    ;;
-esac
-
-# ---------- PROMPT GENERATION ----------
-
+# ------------------------------------------------------------------------------
+# PROMPT GENERATION
+# ------------------------------------------------------------------------------
 # generate the bash prompt
 function __ps1_create() {
-  # Start PS1 description
-  PS1=''
-  # open bracket
-  PS1="${PS1}""${PS1_COLOR_BOLD}${PS1_COLOR_GREY}"'['"${PS1_COLOR_RESET}"
-  # show exit code
-  PS1="${PS1}""${PS1_COLOR_EXIT_ERROR}${PS1_EXIT_STATUS}${PS1_COLOR_RESET}"
-  # show number of background jobs
-  PS1="${PS1}""${PS1_COLOR_BG_JOBS}${PS1_BG_JOBS}${PS1_COLOR_RESET}"
+  local PS1=""
+
+  # [ -- open bracket
+  PS1="${PS1}${PS1_COLOR_BOLD}${PS1_COLOR_GREY}[${PS1_COLOR_RESET}"
+
+  # (E:1) -- exit code
+  PS1="${PS1}${PS1_COLOR_EXIT_ERROR}${PS1_EXIT_STATUS}${PS1_COLOR_RESET}"
+
+  # bg:1 -- number of background jobs
+  PS1="${PS1}${PS1_COLOR_BG_JOBS}${PS1_BG_JOBS}${PS1_COLOR_RESET}"
+
   # time
   if [[ -z "${_PS1_HIDE_TIME:-}" ]]; then
     PS1="${PS1}\$(${PS1_DATETIME})"
   fi
-  # load
+
+  # load average
   if [[ -z "${_PS1_HIDE_LOAD:-}" ]]; then
     PS1="${PS1}\$(${PS1_LOAD_AVG})"
   fi
-  # user
-  PS1="${PS1}""${PS1_COLOR_USER}"'\u'"${PS1_COLOR_RESET}"
-  # [@] based on environment
-  PS1=${PS1}${PS1_COLOR_GREY}${PS1_SESSION_TYPE}${PS1_COLOR_RESET}
-  # [host|screen session] + space
-  PS1=${PS1}${PS1_HOST_NAME}${PS1_COLOR_RESET}' '
+
+  # current user
+  PS1="${PS1}${PS1_COLOR_USER}\u${PS1_COLOR_RESET}"
+
+  # @|# - session type
+  PS1="${PS1}${PS1_COLOR_GREY}${PS1_SESSION_TYPE}${PS1_COLOR_RESET}"
+  # hostname or session info
+  PS1="${PS1}${PS1_HOST_NAME}${PS1_COLOR_RESET} "
+
   # working directory
-  PS1="${PS1}""${PS1_COLOR_WORK_DIR}${PS1_PWD_WRITABLE}"'\W'"${PS1_COLOR_RESET}"
+  PS1="${PS1}${PS1_COLOR_WORK_DIR}${PS1_PWD_WRITABLE}\W${PS1_COLOR_RESET}"
+
   # working directory information (number of files | total file size)
   if [[ -z "${_PS1_HIDE_DIR_INFO:-}" ]]; then
-    PS1="${PS1}""${PS1_COLOR_WORK_DIRINFO}"'<${__ps1_var_dirinfo}>'"${PS1_COLOR_RESET}"
+    PS1="${PS1}${PS1_COLOR_WORK_DIRINFO}\${__ps1_var_dirinfo}${PS1_COLOR_RESET}"
   fi
-  # any additional blocks from the local prompt config
-  if [[ -n "${PS1_ADDITIONAL_INFO:-}" ]]; then
-    PS1="${PS1}""${PS1_ADDITIONAL_INFO}${PS1_COLOR_RESET}"
-  fi
+
   # git status only if the git repo status function is installed
   if command -v __git_ps1 &>/dev/null; then
-    PS1="${PS1}""${PS1_COLOR_GIT}"'$(__git_ps1 " ('"${PS1_SYMBOL_GIT_BRANCH}${PS1_COLOR_RESET}${PS1_COLOR_GIT}"'%s)")'"${PS1_COLOR_RESET}"
+    PS1="${PS1}${PS1_COLOR_GIT}\$(__git_ps1 \" (${PS1_SYMBOL_GIT_BRANCH}${PS1_COLOR_RESET}${PS1_COLOR_GIT}%s)\")${PS1_COLOR_RESET}"
   fi
+
+  # any additional blocks from the local prompt config
+  if [[ -n "${PS1_ADDITIONAL_INFO:-}" ]]; then
+    PS1="${PS1}${PS1_ADDITIONAL_INFO}${PS1_COLOR_RESET}"
+  fi
+
   # process information
   if [[ -z "${_PS1_HIDE_EXEC_TIME:-}" ]]; then
-    PS1="${PS1}"" ${PS1_COLOR_EXEC_TIME}${PS1_EXEC_TIME}${PS1_COLOR_RESET}"
+    PS1="${PS1}${PS1_COLOR_EXEC_TIME}\${__ps1_var_execduration}${PS1_COLOR_RESET}"
   fi
-  # close bracket
-  PS1="${PS1}""${PS1_COLOR_BOLD}${PS1_COLOR_GREY}"']'"${PS1_COLOR_RESET}"
-  # newline before the user symbol
+
+  # ] -- close bracket
+  PS1="${PS1}${PS1_COLOR_BOLD}${PS1_COLOR_GREY}]${PS1_COLOR_RESET}"
+
+  # newline before the user symbol if necessary
   if [[ -n "${_PS1_MULTILINE:-}" ]]; then
     PS1="${PS1}\n"
+  elif command -v tput &>/dev/null && [[ $(tput cols) -lt ${PS1_NEW_LINE_THRESHOLD} ]]; then
+    PS1="${PS1}\n"
   fi
-  # prompt symbol
+
+  # prompt status symbol
+  PS1="${PS1}${PS1_COLOR_BOLD}"
   if [[ -n "${DOT___IS_WSL}" ]] && command -v powershell.exe &>/dev/null && is-elevated-session; then
-    PS1="${PS1}${PS1_COLOR_BOLD}W*${PS1_COLOR_RESET}"
+    # W* -- windows elevated session
+    PS1="${PS1}W*"
+  elif [[ "$(id -u)" == 0 ]]; then
+    PS1="${PS1}${PS1_SYMBOL_ROOT}"
   else
-    PS1="${PS1}${PS1_COLOR_BOLD}$([[ $UID == 0 ]] && echo "${PS1_SYMBOL_ROOT}" || echo "${PS1_SYMBOL_USER}")${PS1_COLOR_RESET}"
+    PS1="${PS1}${PS1_SYMBOL_USER}"
   fi
-  # space & title bar
-  PS1="${PROMPT_TITLE}${PS1} "
+  PS1="${PS1}${PS1_COLOR_RESET}"
+
+  # terminal title + spacer
+  echo "${PROMPT_TITLE}${PS1} "
 }
 
 # generate the sudo bash prompt
 function __sudo_ps1_create() {
-  # Start SUDO_PS1 description
-  SUDO_PS1=''
-  # open bracket
-  SUDO_PS1="${SUDO_PS1}""${PS1_COLOR_BOLD}${PS1_COLOR_GREY}"'['"${PS1_COLOR_RESET}"
-  # show exit code
-  SUDO_PS1="${SUDO_PS1}""${PS1_COLOR_EXIT_ERROR}${PS1_EXIT_STATUS}${PS1_COLOR_RESET}"
-  # show number of background jobs
-  SUDO_PS1="${SUDO_PS1}""${PS1_COLOR_BG_JOBS}${PS1_BG_JOBS}${PS1_COLOR_RESET}"
+  local PS1=""
+
+  # [ -- open bracket
+  PS1="${PS1}${PS1_COLOR_BOLD}${PS1_COLOR_GREY}[${PS1_COLOR_RESET}"
+  # (E:1) -- exit code
+  PS1="${PS1}${PS1_COLOR_EXIT_ERROR}${PS1_EXIT_STATUS}${PS1_COLOR_RESET}"
+  # bg:1 -- number of background jobs
+  PS1="${PS1}${PS1_COLOR_BG_JOBS}${PS1_BG_JOBS}${PS1_COLOR_RESET}"
   # time
   if [[ -z "${_PS1_HIDE_TIME:-}" ]]; then
-    SUDO_PS1="${SUDO_PS1}\$(${PS1_DATETIME})"
+    PS1="${PS1}\$(${PS1_DATETIME})"
   fi
-  # user
-  SUDO_PS1="${SUDO_PS1}""${PS1_COLOR_USER}"'\u'"${PS1_COLOR_RESET}"
-  # [@] based on environment
-  SUDO_PS1=${SUDO_PS1}${PS1_COLOR_GREY}${PS1_SESSION_TYPE}${PS1_COLOR_RESET}
-  # [host|screen session] + space
-  SUDO_PS1=${SUDO_PS1}${PS1_HOST_NAME}${PS1_COLOR_RESET}' '
+  # current user
+  PS1="${PS1}${PS1_COLOR_USER}\u${PS1_COLOR_RESET}"
+  # @|# - session type
+  PS1="${PS1}${PS1_COLOR_GREY}${PS1_SESSION_TYPE}${PS1_COLOR_RESET}"
+  # hostname or session info
+  PS1="${PS1}${PS1_HOST_NAME}${PS1_COLOR_RESET} "
   # working directory
-  SUDO_PS1="${SUDO_PS1}""${PS1_COLOR_WORK_DIR}${PS1_PWD_WRITABLE}"'\W'"${PS1_COLOR_RESET}"
-  # close bracket
-  SUDO_PS1="${SUDO_PS1}""${PS1_COLOR_BOLD}${PS1_COLOR_GREY}"']'"${PS1_COLOR_RESET}"
-  # newline before the user symbol
+  PS1="${PS1}${PS1_COLOR_WORK_DIR}${PS1_PWD_WRITABLE}\W${PS1_COLOR_RESET}"
+  # ] -- close bracket
+  PS1="${PS1}${PS1_COLOR_BOLD}${PS1_COLOR_GREY}]${PS1_COLOR_RESET}"
+
+  # newline before the user symbol if necessary
   if [[ -n "${_PS1_MULTILINE:-}" ]]; then
-    SUDO_PS1="${SUDO_PS1}\n"
+    PS1="${PS1}\n"
+  elif command -v tput &>/dev/null && [[ $(tput cols) -lt ${PS1_NEW_LINE_THRESHOLD} ]]; then
+    PS1="${PS1}\n"
   fi
-  # prompt symbol
-  SUDO_PS1="${SUDO_PS1}""${PS1_COLOR_BOLD}\$([[ \$UID == 0 ]] && echo ${PS1_SYMBOL_ROOT} || echo ${PS1_SYMBOL_SU})${PS1_COLOR_RESET}"
-  # space & title bar
-  SUDO_PS1=${PROMPT_TITLE}${SUDO_PS1}' '
+
+  # prompt status symbol
+  PS1="${PS1}${PS1_COLOR_BOLD}"
+  if [[ -n "${DOT___IS_WSL}" ]] && command -v powershell.exe &>/dev/null && is-elevated-session; then
+    # W* -- windows elevated session
+    PS1="${PS1}W*"
+  elif [[ "$(id -u)" == 0 ]]; then
+    PS1="${PS1}${PS1_SYMBOL_ROOT}"
+  else
+    PS1="${PS1}${PS1_SYMBOL_SU}"
+  fi
+  PS1="${PS1}${PS1_COLOR_RESET}"
+
+  # terminal title + spacer
+  echo "${PROMPT_TITLE}${PS1} "
 }
 
-# ---------- EXPORT PROMPTS ----------
-
-# Execute the prompt creation function
-__ps1_create
-# shellcheck disable=SC2090
+# ------------------------------------------------------------------------------
+# EXPORT PROMPTS
+# ------------------------------------------------------------------------------
+PS1="$(__ps1_create)"
 export PS1
 
 # export the sudo'd bash prompt
-__sudo_ps1_create
-# shellcheck disable=SC2090
+SUDO_PS1="$(__sudo_ps1_create)"
 export SUDO_PS1
 
-# export the interactive prompt line of the shell
+# export the interactive prompt line of the shell (→)
 PS2="$(echo -e "\xe2\x86\x92") "
 export PS2
-
-# ---------- CLEANUP ----------
-
-# clean up these functions
-unset __ps1_create \
-  __sudo_ps1_create
-
-# unset variables so they don't leak out to the bash shell
-unset PS1_COLOR_NORMAL \
-  PS1_COLOR_BOLD \
-  PS1_COLOR_UNDERLINE \
-  PS1_COLOR_RESET \
-  PS1_COLOR_GREY \
-  PS1_COLOR_EXIT_ERROR \
-  PS1_COLOR_BG_JOBS \
-  PS1_COLOR_USER \
-  PS1_COLOR_HOST \
-  PS1_COLOR_HOST_SCREEN \
-  PS1_COLOR_WORK_DIR \
-  PS1_COLOR_WORK_DIRINFO \
-  PS1_COLOR_GIT \
-  PS1_COLOR_EXEC_TIME \
-  PS1_COLOR_TIME_AM \
-  PS1_COLOR_TIME_PM \
-  PS1_COLOR_LOAD \
-  PS1_DATETIME \
-  PS1_DAY_END \
-  PS1_DAY_START \
-  PS1_EXIT_STATUS \
-  PS1_EXEC_TIME \
-  PS1_BG_JOBS \
-  PS1_LOAD_AVG \
-  PS1_PWD_WRITABLE \
-  PS1_SYMBOL_NO_WRITE_PWD \
-  PS1_SYMBOL_GIT_BRANCH \
-  PS1_SYMBOL_SSH \
-  PS1_SYMBOL_LOCAL \
-  PS1_SYMBOL_USER \
-  PS1_SYMBOL_ROOT \
-  PS1_SYMBOL_SU \
-  PS1_SESSION_TYPE \
-  PS1_HOST_NAME \
-  PS1_ADDITIONAL_INFO \
-  PROMPT_TITLE
 
 # ---------- OTHER VARIABLES ----------
 
@@ -420,3 +373,49 @@ export GIT_PS1_SHOWDIRTYSTATE=true
 export GIT_PS1_SHOWSTASHSTATE=true
 export GIT_PS1_SHOWUNTRACKEDFILES=true
 export GIT_PS1_SHOWUPSTREAM="auto"
+
+# ---------- CLEANUP ----------
+
+# clean up functions
+unset -f __ps1_create
+unset -f __sudo_ps1_create
+
+# unset variables so they don't leak out to the bash shell
+unset -v \
+  PS1_ADDITIONAL_INFO \
+  PS1_BG_JOBS \
+  PS1_COLOR_BG_JOBS \
+  PS1_COLOR_BOLD \
+  PS1_COLOR_EXEC_TIME \
+  PS1_COLOR_EXIT_ERROR \
+  PS1_COLOR_GIT \
+  PS1_COLOR_GREY \
+  PS1_COLOR_HOST \
+  PS1_COLOR_HOST_SCREEN \
+  PS1_COLOR_LOAD \
+  PS1_COLOR_NORMAL \
+  PS1_COLOR_RESET \
+  PS1_COLOR_TIME_AM \
+  PS1_COLOR_TIME_PM \
+  PS1_COLOR_UNDERLINE \
+  PS1_COLOR_USER \
+  PS1_COLOR_WORK_DIR \
+  PS1_COLOR_WORK_DIRINFO \
+  PS1_DATETIME \
+  PS1_DAY_END \
+  PS1_DAY_START \
+  PS1_EXEC_TIME \
+  PS1_EXIT_STATUS \
+  PS1_HOST_NAME \
+  PS1_LOAD_AVG \
+  PS1_NEW_LINE_THRESHOLD \
+  PS1_PWD_WRITABLE \
+  PS1_SESSION_TYPE \
+  PS1_SYMBOL_GIT_BRANCH \
+  PS1_SYMBOL_LOCAL \
+  PS1_SYMBOL_NO_WRITE_PWD \
+  PS1_SYMBOL_ROOT \
+  PS1_SYMBOL_SSH \
+  PS1_SYMBOL_SU \
+  PS1_SYMBOL_USER \
+  PROMPT_TITLE
