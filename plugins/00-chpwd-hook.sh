@@ -2,7 +2,7 @@
 
 # Avoid duplicate inclusion
 if [[ -n "${bash_chpwd_imported:-}" ]]; then
-    return
+  return
 fi
 bash_chpwd_imported="defined"
 
@@ -18,7 +18,7 @@ function __dot_chpwd_hook() {
   local hook
 
   # Don't invoke chpwd if we are inside of another chpwd.
-  if (( __dot_inside_chpwd > 0 )); then
+  if ((__dot_inside_chpwd > 0)); then
     return
   fi
   local __dot_inside_chpwd=1

@@ -9,6 +9,14 @@ if [[ -n "${DOT_DISABLE_PS1:-}" ]]; then
 fi
 
 # ------------------------------------------------------------------------------
+# CONFIGURE PROMPT
+# ------------------------------------------------------------------------------
+# check if date supports nanoseconds (provided by coreutils)
+if [[ -z "$(date +%N)" ]] || [[ "$(date +%N)" == "N" ]]; then
+  PS1_OPT_HIDE_EXEC_TIME=1
+fi
+
+# ------------------------------------------------------------------------------
 # COLOR REFERENCES AND OPTIONS
 # ------------------------------------------------------------------------------
 # quick reference to colors
@@ -77,7 +85,7 @@ fi
 [[ -z "${PS1_SYMBOL_USER+x}" ]] && PS1_SYMBOL_USER="$(echo -e "\xCE\xBB")" # λ
 [[ -z "${PS1_SYMBOL_ROOT+x}" ]] && PS1_SYMBOL_ROOT="$(echo -e "\xCE\xBC")" # μ
 [[ -z "${PS1_SYMBOL_SU+x}" ]] && PS1_SYMBOL_SU="$(echo -e "\xCF\x80\x0A")" # π
-[[ -z "${PS1_SYMBOL_WIN_PRIV+x}" ]] && PS1_SYMBOL_WIN_PRIV="W*" # W*
+[[ -z "${PS1_SYMBOL_WIN_PRIV+x}" ]] && PS1_SYMBOL_WIN_PRIV="W*"            # W*
 
 [[ -z "${PS1_OPT_DAY_START+x}" ]] && PS1_OPT_DAY_START=8
 [[ -z "${PS1_OPT_DAY_END+x}" ]] && PS1_OPT_DAY_END=18
@@ -172,10 +180,6 @@ if [[ -z "${PS1_OPT_HIDE_DIR_INFO:-}" ]]; then
   chpwd_functions+=(__ps1_dir_info_wrapper)
 fi
 
-# check if date supports nanoseconds (provided by coreutils)
-if [[ -z "$(date +%N)" ]] || [[ "$(date +%N)" == "N" ]]; then
-  PS1_OPT_HIDE_EXEC_TIME=1
-fi
 # show information about the last process
 if [[ -z "${PS1_OPT_HIDE_EXEC_TIME:-}" ]]; then
   __ps1_var_exectimer=0
