@@ -17,7 +17,7 @@
 
 # variables
 UNIXTIME="$(date +%s)"
-RANDOM="$(cat /dev/urandom | tr -dc 'a-zA-Z0-9' | fold -w 8 | head -n 1)"
+RANDOM="$(dd bs=64 count=1 if=/dev/urandom 2>/dev/null | tr -dc 'a-zA-Z0-9' | fold -w 8 | head -n 1)"
 TEMP_BRANCH_NAME="__undo_${RANDOM}_${UNIXTIME}"
 CURRENT_HEAD_FULL="$(git rev-parse HEAD)"
 CURRENT_HEAD="$(git rev-parse --symbolic-full-name --abbrev-ref --short HEAD)"

@@ -90,7 +90,7 @@ fi
 [[ -z "${PS1_SYMBOL_USER+x}" ]] && PS1_SYMBOL_USER="$(echo -e "\xCE\xBB")" # λ
 [[ -z "${PS1_SYMBOL_ROOT+x}" ]] && PS1_SYMBOL_ROOT="$(echo -e "\xCE\xBC")" # μ
 [[ -z "${PS1_SYMBOL_SU+x}" ]] && PS1_SYMBOL_SU="$(echo -e "\xCF\x80\x0A")" # π
-[[ -z "${PS1_SYMBOL_WIN_PRIV+x}" ]] && PS1_SYMBOL_WIN_PRIV="W*" # W*
+[[ -z "${PS1_SYMBOL_WIN_PRIV+x}" ]] && PS1_SYMBOL_WIN_PRIV="W*"            # W*
 
 [[ -z "${PS1_OPT_DAY_START+x}" ]] && PS1_OPT_DAY_START=8
 [[ -z "${PS1_OPT_DAY_END+x}" ]] && PS1_OPT_DAY_END=18
