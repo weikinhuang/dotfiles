@@ -164,14 +164,14 @@ Setup and configuration of Window's WSL is documented in [utils/wsl/README.md](u
 You can try out this repo in `docker` easily to test your plugins or hooks.
 
 ```bash
-$ docker run -it --rm -v "$(pwd):/root/.dotfiles:ro" -v "$HOME/.bash_local:/root/.bash_local:ro" -v "$HOME/.bash_local.d:/root/.bash_local.d:ro" ubuntu:latest bash
+$ docker run -it --rm -v "$(pwd):/root/.dotfiles:ro" -v "$HOME/.bash_local:/root/.bash_local:ro" -v "$HOME/.bash_local.d:/root/.bash_local.d:ro" bash:latest bash
 # OR with overrides set locally in the dotfiles repo
-$ docker run -it --rm -v "$(pwd):/root/.dotfiles:ro" -v "$(pwd)/.bash_local:/root/.bash_local:ro" -v "$(pwd)/.bash_local.d:/root/.bash_local.d:ro" ubuntu:latest bash
+$ docker run -it --rm -v "$(pwd):/root/.dotfiles:ro" -v "$(pwd)/.bash_local:/root/.bash_local:ro" -v "$(pwd)/.bash_local.d:/root/.bash_local.d:ro" bash:latest bash
 
 # in the docker shell
 $ (cd ~ && .dotfiles/bootstrap.sh)
 # install any dependencies you might need, ex.
-$ apt-get update && apt-get install -y --no-install-recommends curl git tar nodejs
+$ apk add --no-cache coreutils curl git tar nodejs
 
 # start a new shell with the dotfiles loaded, to reload, exit this shell and run this command again
 $ env -i PS1=1 TERM="$TERM" PATH="$PATH" HOME="$HOME" SHELL="$SHELL" bash -l

@@ -59,7 +59,8 @@ esac
 # check if this is a ssh session
 export DOT___IS_SSH=
 # alternate check requires looking up parent pids
-if [[ -n "${SSH_CONNECTION:-}" || "$(who am i | cut -f2 -d\( | cut -f1 -d:)" != "" ]]; then
+# `who` command found in `coreutils`
+if [[ -n "${SSH_CONNECTION:-}" ]] || (command -v who &>/dev/null && [[ "$(who am i | cut -f2 -d\( | cut -f1 -d:)" != "" ]]); then
   DOT___IS_SSH=1
 fi
 readonly DOT___IS_WSL
