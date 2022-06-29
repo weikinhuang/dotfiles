@@ -73,6 +73,8 @@ readonly DOT___IS_SSH
 declare -a precmd_functions
 # shellcheck disable=SC2034
 declare -a preexec_functions
+# shellcheck disable=SC2034
+declare -a chpwd_functions
 
 # These arrays are used to add functions to be run before, or after, loading parts of the dotfiles builtin.
 for hook in {exports,functions,aliases,completion,extra,env,post_local,prompt,plugins}; do
@@ -123,6 +125,12 @@ fi
 # load plugin hooks
 if [[ -n "${DOT_INCLUDE_BUILTIN_PLUGINS:-}" ]]; then
   __dot_load_plugins
+else
+  # load required plugins
+  # shellcheck source=/dev/null
+  source "${DOTFILES__ROOT}/.dotfiles/plugins/00-bash-opts.sh"
+  # shellcheck source=/dev/null
+  source "${DOTFILES__ROOT}/.dotfiles/plugins/00-chpwd-hook.sh"
 fi
 unset DOT_INCLUDE_BUILTIN_PLUGINS
 

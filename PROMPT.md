@@ -1,10 +1,16 @@
 # The Bash Prompt
 
 ```bash
-[exitstatus jobs time load user#host workdir<dirinfo> (git info)]user symbol
+[exitstatus jobs time load user#host workdir<dirinfo> (git info) lastcmdtime]user symbol
 ```
 
-![Prompt example](./assets/prompt-example.png)
+Example:
+
+<!-- markdownlint-disable no-inline-html -->
+<pre>
+<span style="color: #808080; font-weight: bold">[</span><span style="color: #ff0000">(E:146) </span><span style="color: #00d787">bg:1 </span><span style="color: #808080">11:58:49 </span><span style="color: #87afaf">2.59 </span><span style="color: #ff005f">whuang</span><span style="color: #808080">@</span><span style="color: #ff8700">whuang-PC</span><span style="color: #afaf00"> dotfiles</span><span style="color: #00af5f">&lt;15|56Kb&gt;</span><span style="color: #af5fff"> (կ master %)</span><span style="color: #8a8a8a"> 6.3ms</span><span style="color: #808080; font-weight: bold">]</span><span style="color: #808080; font-weight: bold">λ</span> echo foo
+</pre>
+<!-- markdownlint-enable no-inline-html -->
 
 ## The basic prompt
 
@@ -91,114 +97,87 @@ When on screen host is replaced with session name and is underlined.
 
 load = 1 min load avg on \*nix/osx/wsl
 
-## Custom options for the PS1
+## Configuration
 
-Place these options in `~/.prompt_exports`
+The prompt can be configured in the `~/.bash_local` configuration file by setting the following environment variables.
 
-Disable this prompt
+### Disable the custom prompt
+
+The custom prompt can be disabled with the following export.
 
 ```bash
-export _PS1_DISABLED=1
+export DOT_DISABLE_PS1=1
 ```
 
-Turn off the load indicator
+### Custom options for the PS1
+
+| Option                      |         Default | Description                                                                                                         |
+| --------------------------- | --------------: | ------------------------------------------------------------------------------------------------------------------- |
+| `PS1_OPT_DAY_START`         |             `8` | 24 hour format for start of the daytime color                                                                       |
+| `PS1_OPT_DAY_END`           |            `18` | 24 hour format for start of the nighttime color                                                                     |
+| `PS1_OPT_HIDE_DIR_INFO`     |         `UNSET` | When set, hide segment showing directory file count and size                                                        |
+| `PS1_OPT_HIDE_EXEC_TIME`    |         `UNSET` | When set, hide segment showing last command execution time                                                          |
+| `PS1_OPT_HIDE_GIT`          |         `UNSET` | When set, hide segment showing git info                                                                             |
+| `PS1_OPT_HIDE_LOAD`         |         `UNSET` | When set, hide segment showing the 1m load                                                                          |
+| `PS1_OPT_HIDE_TIME`         |         `UNSET` | When set, hide segment showing the current time                                                                     |
+| `PS1_OPT_MONOCHROME`        |         `UNSET` | When set, remove all colors                                                                                         |
+| `PS1_OPT_MULTILINE`         |         `UNSET` | When set, force prompt to be 2 lines                                                                                |
+| `PS1_OPT_NEWLINE_THRESHOLD` |           `120` | When the terminal exceeds this many cols, force prompt to be 2 lines                                                |
+| `PS1_OPT_SEGMENT_EXTRA`     |         `UNSET` | Additional segments to be placed after the `git` segment, but before the cmd execution time, in `PS1` string format |
+| `PROMPT_TITLE`              | `user@host:dir` | Terminal title                                                                                                      |
+
+### Custom symbols for the PS1
+
+| Option                    | Default | Description                                                         |
+| ------------------------- | :------ | ------------------------------------------------------------------- |
+| `PS1_SYMBOL_NO_WRITE_PWD` | `*`     | Symbol placed after directory name when directory is not writable   |
+| `PS1_SYMBOL_GIT`          | `կ`     | Symbol placed before git branch name                                |
+| `PS1_SYMBOL_SSH`          | `@`     | Session symbol used between `user@hostname` when connected over ssh |
+| `PS1_SYMBOL_LOCAL`        | `#`     | Session symbol used between `user@hostname` on local sessions       |
+| `PS1_SYMBOL_USER`         | `λ`     | Symbol to denote a regular user session                             |
+| `PS1_SYMBOL_ROOT`         | `μ`     | Symbol to denote a root user session                                |
+| `PS1_SYMBOL_SU`           | `π`     | Symbol to denote a regular user session                             |
+| `PS1_SYMBOL_WIN_PRIV`     | `W*`    | Symbol to denote an elevated Windows session (Administrator)        |
+
+### Custom colors for the PS1
+
+<!-- markdownlint-disable no-inline-html -->
+
+Color values must be defined as ansi color escapes:
 
 ```bash
-export _PS1_HIDE_LOAD=1
-```
-
-Turn off the directory info
-
-```bash
-export _PS1_HIDE_DIR_INFO=1
-```
-
-Turn off the time
-
-```bash
-export _PS1_HIDE_TIME=1
-```
-
-Turn off process execution timer
-
-```bash
-export _PS1_HIDE_EXEC_TIME=1
-```
-
-Monochrome prompt
-
-```bash
-export _PS1_MONOCHROME=1
-```
-
-Multiline prompt
-
-```bash
-export _PS1_MULTILINE=1
-```
-
-Custom colors for prompt
-
-```bash
-# general colors
-PS1_COLOR_NORMAL='\[\e[m\]'
-PS1_COLOR_BOLD='\[\e[1m\]'
-PS1_COLOR_UNDERLINE='\[\e[4m\]'
-PS1_COLOR_RESET='\[\e[0m\]'
-PS1_COLOR_GREY='\[\e[38;5;244m\]'
-
-# colors for individual parts of the bash prompt
-PS1_COLOR_EXIT_ERROR='\[\e[38;5;196m\]'
-PS1_COLOR_BG_JOBS='\[\e[38;5;42m\]'
-PS1_COLOR_USER='\[\e[38;5;197m\]'
-PS1_COLOR_HOST='\[\e[38;5;208m\]'
-PS1_COLOR_HOST_SCREEN=$PS1_COLOR_UNDERLINE'\[\e[38;5;214m\]'
-PS1_COLOR_WORK_DIR='\[\e[38;5;142m\]'
 PS1_COLOR_WORK_DIRINFO='\[\e[38;5;35m\]'
-PS1_COLOR_GIT='\[\e[38;5;135m\]'
-PS1_COLOR_TIME_AM='\[\e[38;5;244m\]'
-PS1_COLOR_TIME_PM='\[\e[38;5;033m\]'
-
-# load avg colorization
-PS1_COLOR_LOAD='
-    loadcolors_0="\[\e[38;5;111m\]"
-    loadcolors_1="\[\e[38;5;110m\]"
-    loadcolors_2="\[\e[38;5;109m\]"
-    loadcolors_3="\[\e[38;5;108m\]"
-    loadcolors_4="\[\e[38;5;107m\]"
-    loadcolors_5="\[\e[38;5;106m\]"
-    loadcolors_6="\[\e[38;5;178m\]"
-    loadcolors_7="\[\e[38;5;172m\]"
-    loadcolors_8="\[\e[38;5;166m\]"
-    loadcolors_9="\[\e[38;5;167m\]"
-'
 ```
 
-Custom symbols and variables for the bash prompt
+| Option                   |                                                                      Default | Description                                                                                                            |
+| ------------------------ | ---------------------------------------------------------------------------: | ---------------------------------------------------------------------------------------------------------------------- |
+| `PS1_COLOR_GREY`         |                             <span style="color: #808080"><b>VALUE</b></span> | Default gray color for brackets                                                                                        |
+| `PS1_COLOR_BG_JOBS`      |                             <span style="color: #00d787"><b>VALUE</b></span> | Color used for background job info                                                                                     |
+| `PS1_COLOR_EXEC_TIME`    |                             <span style="color: #8a8a8a"><b>VALUE</b></span> | Color used for the last command execution time                                                                         |
+| `PS1_COLOR_EXIT_ERROR`   |                             <span style="color: #ff0000"><b>VALUE</b></span> | Color used for the last command exit code when not `0`                                                                 |
+| `PS1_COLOR_GIT`          |                             <span style="color: #af5fff"><b>VALUE</b></span> | Color used for the `git` info                                                                                          |
+| `PS1_COLOR_HOST_SCREEN`  | <span style="color: #ffaf00; text-decoration: underline"><b>VALUE</b></span> | Color used for the screen session info (after the `user@`)                                                             |
+| `PS1_COLOR_HOST`         |                             <span style="color: #ff8700"><b>VALUE</b></span> | Color used for the hostname (after the `user@`)                                                                        |
+| `PS1_COLOR_TIME_DAY`     |                             <span style="color: #808080"><b>VALUE</b></span> | Color used for the time during daytime                                                                                 |
+| `PS1_COLOR_TIME_NIGHT`   |                             <span style="color: #0087ff"><b>VALUE</b></span> | Color used for the time during nighttime                                                                               |
+| `PS1_COLOR_USER`         |                             <span style="color: #ff005f"><b>VALUE</b></span> | Color used for the current username                                                                                    |
+| `PS1_COLOR_WORK_DIR`     |                             <span style="color: #afaf00"><b>VALUE</b></span> | Color used for the current directory                                                                                   |
+| `PS1_COLOR_WORK_DIRINFO` |                             <span style="color: #00af5f"><b>VALUE</b></span> | Color used for showing the current directory file count and size                                                       |
+| `PS1_COLOR_LOAD`         |                                                                    See below | Color array for load averages. This is defined as an array value `PS1_COLOR_LOAD=( color1, color2, ...)` and 0 indexed |
 
-```bash
-# the symbol to be displayed when current the directory is readonly: "*"
-PS1_SYMBOL_NO_WRITE_PWD='*'
-# symbol to display when in a git branch: "կ "
-PS1_SYMBOL_GIT_BRANCH="${PS1_COLOR_BOLD}$(echo -e '\xD5\xAF')${PS1_COLOR_NORMAL} "
+Load average colors:
+<span style="color: #87afff"><b>0</b></span>
+<span style="color: #87afd7"><b>1</b></span>
+<span style="color: #87afaf"><b>2</b></span>
+<span style="color: #87af87"><b>3</b></span>
+<span style="color: #87af5f"><b>4</b></span>
+<span style="color: #87af00"><b>5</b></span>
+<span style="color: #d7af00"><b>6</b></span>
+<span style="color: #d78700"><b>7</b></span>
+<span style="color: #d75f00"><b>8</b></span>
+<span style="color: #d75f5f"><b>9+</b></span>
 
-# symbol to display when in ssh shell: "@"
-PS1_SYMBOL_SSH='@'
-# symbol to use when in a local shell: "#"
-PS1_SYMBOL_LOCAL='#'
-
-# symbol to use when user is a normal user: λ""
-PS1_SYMBOL_USER="$(echo -e "\xCE\xBB")"
-# symbol to use when user root: "μ"
-PS1_SYMBOL_ROOT="$(echo -e "\xCE\xBC")"
-# symbol to use when sudo'd as a normal user: "π"
-PS1_SYMBOL_SU="$(echo -e "\xCF\x80\x0A")"
-
-# hour to start the day color for time: 8:00am
-PS1_DAY_START=8
-# hour to start the night color for time: 6:00pm
-PS1_DAY_END=18
-```
+<!-- markdownlint-enable no-inline-html -->
 
 ## The MySQL client Prompt
 
