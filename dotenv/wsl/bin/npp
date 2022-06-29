@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 # make sure we go to the right path
 PGM_PATH="Program Files"

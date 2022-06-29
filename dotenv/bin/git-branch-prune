@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Delete all branches that have been merged to master && push deletes to remote origin
 # from: https://github.com/SnapInteractive/git-tools
 

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 # verbose mode
 GIT_SYNC_TRACE=${GIT_SYNC_TRACE:-}

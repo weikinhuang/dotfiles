@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 # show help message
 if getopt_assert -?:--help "$@" >/dev/null; then

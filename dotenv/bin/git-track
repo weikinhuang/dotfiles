@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Sets up auto-tracking of a remote branch with same base name.
 
 # shellcheck disable=SC2034

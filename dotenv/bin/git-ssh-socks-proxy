@@ -1,4 +1,4 @@
-#!/bin/bash -
+#!/usr/bin/env bash -
 #title              : git-ssh-socks-proxy
 #description        : This script forwards git ssh connections through a socks proxy based on gitconfigs
 #author             : Wei Kin Huang

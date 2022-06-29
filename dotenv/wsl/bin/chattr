@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 # the name of the program
 PROGRAM=$(wslpath -u "c:/Windows/system32/attrib.exe")

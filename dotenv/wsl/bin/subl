@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 # make sure we go to the right path
 PROGRAM=$(wslpath -u "c:/Program Files/Sublime Text 3/subl.exe")

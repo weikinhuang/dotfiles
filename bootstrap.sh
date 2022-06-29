@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 # Strict mode http://redsymbol.net/articles/unofficial-bash-strict-mode/
 set -euo pipefail
