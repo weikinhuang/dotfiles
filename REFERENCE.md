@@ -12,6 +12,10 @@
   - [Git Utilities](#git-utilities)
 - [Windows Subsystem Linux (WSL) specific](#windows-subsystem-linux-wsl-specific)
   - [WSL Utilities](#wsl-utilities)
+- [Bash hooks](#bash-hooks)
+  - [Usage Examples](#usage-examples)
+    - [When defined as a singular function](#when-defined-as-a-singular-function)
+    - [Function Arrays](#function-arrays)
 - [Additional tools](#additional-tools)
   - [clipboard-server](#clipboard-server)
 
@@ -150,6 +154,49 @@
 | `winsudo`             | Run a process with elevated windows privileges. See [utils/wsl/README.md](./utils/wsl/README.md#winsudo-setup) for setup. |
 | `wsl-sudo`            | Alias to `winsudo`                                                                                                        |
 | `wudo`                | Alias to `winsudo`                                                                                                        |
+
+## Bash hooks
+
+Hooks with similar behavior to [**Zsh**](https://zsh.sourceforge.io/Doc/Release/Functions.html#Hook-Functions) are included for `chpwd`, `precmd`, and `preexec`.
+
+`chpwd` hooks are setup with [00-chpwd-hook.sh](./plugins/00-chpwd-hook.sh).
+
+`preexec` and `precmd` hooks are provided by [bash-preexec](https://github.com/rcaloras/bash-preexec).
+
+They aim to emulate the behavior as described for Zsh.
+
+### Usage Examples
+
+#### When defined as a singular function
+
+- `chpwd` Executed just before each prompt when the directory changes.
+- `preexec` Executed just after a command has been read and is about to be executed. The string that the user typed is passed as the first argument.
+- `precmd` Executed just before each prompt. Equivalent to PROMPT_COMMAND, but more flexible and resilient.
+
+```bash
+# using defined functions
+chpwd() { echo "now in $(pwd)"; }
+preexec() { echo "just typed $1"; }
+precmd() { echo "printing the prompt"; }
+```
+
+#### Function Arrays
+
+Multiple functions can also be defined to be invoked by appending them to the hook array variables. This is useful if there are multiple functions to be invoked for either hook.
+
+- `$chpwd_functions` Array of functions invoked by chpwd.
+- `$preexec_functions` Array of functions invoked by preexec.
+- `$precmd_functions` Array of functions invoked by precmd.
+
+```bash
+precmd_hello_one() { echo "This is invoked on precmd first"; }
+precmd_hello_two() { echo "This is invoked on precmd second"; }
+precmd_functions+=(precmd_hello_one)
+precmd_functions+=(precmd_hello_two)
+
+chpwd_ls() { ls -1; }
+chpwd_functions+=(chpwd_ls_one)
+```
 
 ## Additional tools
 

@@ -49,7 +49,7 @@ cd; mkdir -p ~/.dotfiles \
 | `--no-git`   | Skip setting up `.gitconfig`        |
 | `--no-vim`   | Skip setting up `.vimrc` and `.vim` |
 
-## [Reference for aliases and functions](REFERENCE.md)
+## [Reference for aliases, functions, and changes](REFERENCE.md)
 
 See [REFERENCE.md](REFERENCE.md) for all added commands, overrides, and changes to built-ins.
 
