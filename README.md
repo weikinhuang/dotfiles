@@ -99,7 +99,7 @@ Plugins are scripts that are loaded near the end of the dotfiles initialization 
 
 See the [plugins/](./plugins/) directory for the built-in examples.
 
-Plugins are also loaded from `~/.bash_local.d/` with any file ending in `.plugin`.
+Plugins are also loaded from `~/.bash_local.d/` with any file ending in `.plugin`. Sorting is preserved via the combination of both directories.
 
 Example plugin for [`direnv`](https://direnv.net/):
 
