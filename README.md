@@ -124,15 +124,14 @@ export DOT_PLUGIN_DISABLE_direnv=1
 
 Hooks are available before and after each part of the dotfiles repo is loaded. This allows for customization between steps or overrides at point in time loading. They should be declared in `~/.bash_local` or `~/.bash_local.d/*.sh` so that they are available by the time the dotfiles are loaded.
 
-Hook points are available before and after the steps:
+Hook points are available before and after the following steps:
 
-- `exports`
-- `functions`
 - `aliases`
 - `completion`
-- `extra`
 - `env`
-- `post_local`
+- `exports`
+- `extra`
+- `functions`
 - `plugins`
 - `prompt`
 
@@ -199,11 +198,12 @@ Each layout folder contains the following files
 
 | File         | Description                                                            |
 | ------------ | ---------------------------------------------------------------------- |
-| `exports`    | environment vars that are exported via `export`                        |
-| `functions`  | bash function declarations, can be exported via `export -f FN_NAME`    |
 | `aliases`    | bash aliases declared via `alias="some command`                        |
 | `completion` | bash completion functions for `complete`                               |
+| `env`        | any additional bash-isms that don't fall in the above category         |
+| `exports`    | environment vars that are exported via `export`                        |
 | `extra`      | any additional bash-isms that don't fall in the above category         |
+| `functions`  | bash function declarations, can be exported via `export -f FN_NAME`    |
 | `prompt`     | scripts to generate or modify the prompt vars `PS1`, `PS2`, `SUDO_PS1` |
 
 #### Folder layout
@@ -283,8 +283,8 @@ The core `~/.bashrc` will import each of the files in the layout table, first in
 1. `exports`
 1. `functions`
 1. `aliases`
-1. `completion`
 1. `extra`
 1. `env`
+1. `completion`
 1. `plugins`
 1. `prompt`
