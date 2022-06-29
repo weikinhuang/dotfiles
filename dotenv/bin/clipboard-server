@@ -56,10 +56,20 @@
 
 const http = require("http");
 const childProcess = require("child_process");
-const fs = require("fs/promises");
+// const fs = require("fs/promises");
 const os = require("os");
 const path = require("path");
-const { unlinkSync } = require("fs");
+const legacyFs = require("fs");
+const { promisify } = require("util");
+
+// proxy for fs/promises until node 18 is standard
+const fs = {
+  stat: promisify(legacyFs.stat),
+  mkdir: promisify(legacyFs.mkdir),
+  readFile: promisify(legacyFs.readFile),
+  unlink: promisify(legacyFs.unlink),
+  writeFile: promisify(legacyFs.writeFile),
+}
 
 // set umask for files to be 0600
 process.umask(0o0177);
@@ -259,7 +269,7 @@ async function server({ socket, enablePaste, notify }) {
     // cleanup
     process.on("SIGHUP", () => {
       try {
-        unlinkSync(socket);
+        legacyFs.unlinkSync(socket);
       } catch {}
       process.exit();
     });
