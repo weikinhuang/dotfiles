@@ -77,17 +77,19 @@ function __dot_load_plugins() {
   __dot_load_hook pre plugin
 
   # load plugins from all directories while respecting filename ordering
-  {
-    find "${DOTFILES__ROOT}/.dotfiles/plugins" -type f -name '*.sh'
-    [[ -d "${HOME}/.bash_local.d" ]] && find "${HOME}/.bash_local.d" -type f -name '*.plugin'
-  } \
-    | awk -F/ '{ print $NF"|"$0 }' \
-    | sort -t"|" -k1 \
-    | awk -F"|" '{ print $NF }' \
-    | awk 'BEGIN { ORS="\000"; }; { print $0 }' \
-    | while IFS= read -r -d '' file; do
-        __dot_load_plugin "${file}"
-      done
+  while IFS= read -r -d '' file; do
+    # this must not be run in a subshell
+    __dot_load_plugin "${file}"
+  done < <(
+    {
+      find "${DOTFILES__ROOT}/.dotfiles/plugins" -type f -name '*.sh'
+      [[ -d "${HOME}/.bash_local.d" ]] && find "${HOME}/.bash_local.d" -type f -name '*.plugin'
+    } \
+      | awk -F/ '{ print $NF"|"$0 }' \
+      | sort -t"|" -k1 \
+      | awk -F"|" '{ print $NF }' \
+      | awk 'BEGIN { ORS="\000"; }; { print $0 }'
+  )
 
   # Add a hook that can be defined in .bash_local to run after each phase
   __dot_load_hook post plugin
