@@ -172,6 +172,10 @@ if [[ -z "${PS1_OPT_HIDE_DIR_INFO:-}" ]]; then
   chpwd_functions+=(__ps1_dir_info_wrapper)
 fi
 
+# check if date supports nanoseconds (provided by coreutils)
+if [[ -z "$(date +%N)" ]] || [[ "$(date +%N)" == "N" ]]; then
+  PS1_OPT_HIDE_EXEC_TIME=1
+fi
 # show information about the last process
 if [[ -z "${PS1_OPT_HIDE_EXEC_TIME:-}" ]]; then
   __ps1_var_exectimer=0
