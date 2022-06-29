@@ -16,6 +16,11 @@ if [[ -z "$(date +%N)" ]] || [[ "$(date +%N)" == "N" ]]; then
   PS1_OPT_HIDE_EXEC_TIME=1
 fi
 
+# bash 3 and below doesn't properly eacape the array when inlined
+if [[ "${BASH_VERSION/.*/}" -lt 4 ]]; then
+  PS1_COLOR_LOAD=('')
+fi
+
 # ------------------------------------------------------------------------------
 # COLOR REFERENCES AND OPTIONS
 # ------------------------------------------------------------------------------
@@ -71,7 +76,7 @@ if [[ -n "${PS1_OPT_MONOCHROME:-}" ]]; then
   PS1_COLOR_TIME_NIGHT=
 
   # load avg colorization
-  PS1_COLOR_LOAD=()
+  PS1_COLOR_LOAD=('')
 fi
 
 # ------------------------------------------------------------------------------
@@ -85,7 +90,7 @@ fi
 [[ -z "${PS1_SYMBOL_USER+x}" ]] && PS1_SYMBOL_USER="$(echo -e "\xCE\xBB")" # λ
 [[ -z "${PS1_SYMBOL_ROOT+x}" ]] && PS1_SYMBOL_ROOT="$(echo -e "\xCE\xBC")" # μ
 [[ -z "${PS1_SYMBOL_SU+x}" ]] && PS1_SYMBOL_SU="$(echo -e "\xCF\x80\x0A")" # π
-[[ -z "${PS1_SYMBOL_WIN_PRIV+x}" ]] && PS1_SYMBOL_WIN_PRIV="W*"            # W*
+[[ -z "${PS1_SYMBOL_WIN_PRIV+x}" ]] && PS1_SYMBOL_WIN_PRIV="W*" # W*
 
 [[ -z "${PS1_OPT_DAY_START+x}" ]] && PS1_OPT_DAY_START=8
 [[ -z "${PS1_OPT_DAY_END+x}" ]] && PS1_OPT_DAY_END=18
