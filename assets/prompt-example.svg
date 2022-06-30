@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<svg version="1.1"
+     xmlns="http://www.w3.org/2000/svg"
+     xmlns:xlink="http://www.w3.org/1999/xlink"
+     width="820" height="32"
+     style="background-color: #002b36"
+>
+  <style>
+    .prompt {
+      font-family: MonoLisa, Consolas, Menlo, Monaco, 'Courier New', monospace, 'Segoe UI Emoji';
+      font-size: 12px;
+    }
+    .bold { font-weight: bold; }
+  </style>
+  <text x="10" y="20" class="prompt">
+    <tspan fill="#808080" class="bold">[</tspan><tspan fill="#ff0000">(E:146) </tspan><tspan fill="#00d787">bg:1 </tspan><tspan fill="#808080">11:58:49 </tspan><tspan fill="#87afaf">2.59 </tspan><tspan fill="#ff005f">whuang</tspan><tspan fill="#808080">@</tspan><tspan fill="#ff8700">whuang-PC</tspan><tspan fill="#afaf00"> dotfiles</tspan><tspan fill="#00af5f">&lt;15|56Kb&gt;</tspan><tspan fill="#af5fff"> (կ master %)</tspan><tspan fill="#8a8a8a"> 6.3ms</tspan><tspan fill="#808080" class="bold">]</tspan><tspan fill="#808080" class="bold">λ</tspan><tspan fill="#ffffff"> echo "hello world"</tspan>
+  </text>
+</svg>

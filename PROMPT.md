@@ -6,11 +6,7 @@
 
 Example:
 
-<!-- markdownlint-disable no-inline-html -->
-<pre>
-<span style="color: #808080; font-weight: bold">[</span><span style="color: #ff0000">(E:146) </span><span style="color: #00d787">bg:1 </span><span style="color: #808080">11:58:49 </span><span style="color: #87afaf">2.59 </span><span style="color: #ff005f">whuang</span><span style="color: #808080">@</span><span style="color: #ff8700">whuang-PC</span><span style="color: #afaf00"> dotfiles</span><span style="color: #00af5f">&lt;15|56Kb&gt;</span><span style="color: #af5fff"> (կ master %)</span><span style="color: #8a8a8a"> 6.3ms</span><span style="color: #808080; font-weight: bold">]</span><span style="color: #808080; font-weight: bold">λ</span> echo foo
-</pre>
-<!-- markdownlint-enable no-inline-html -->
+![Prompt example](./assets/prompt-example.svg)
 
 ## The basic prompt
 
