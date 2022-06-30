@@ -49,15 +49,29 @@ cd; mkdir -p ~/.dotfiles \
 | `--no-git`   | Skip setting up `.gitconfig`        |
 | `--no-vim`   | Skip setting up `.vimrc` and `.vim` |
 
-## [Reference for aliases, functions, and changes](REFERENCE.md)
+## [Reference for aliases, functions, and changes](./REFERENCE.md)
 
-See [REFERENCE.md](REFERENCE.md) for all added commands, overrides, and changes to built-ins.
+See [REFERENCE.md](./REFERENCE.md) for all added commands, overrides, and changes to built-ins.
 
-## [The Bash Prompt](PROMPT.md)
+### High level overview
 
-See [PROMPT.md](PROMPT.md) for configuration options.
+- `cd --` list last 10 traversed directories
+- `chpwd`, `precmd`, and `preexec` hooks with similar behavior to [**Zsh**](https://zsh.sourceforge.io/Doc/Release/Functions.html#Hook-Functions)
+- `sudo` works on aliases
+- `rm` `cp` `mv` are always inteactive `-i` (use `-f` to override)
+- `ls` and `grep` always has color (use `--color=never` to override)
+- `which` command expands full path when possible
+- `less` does not clear the screen upon exit and process colors (with options `-XR`)
+- `diff` uses git's diff command with color when possible
+- `pbcopy` and `pbpaste` for cross-platform copy/paste from cli, and optionally over ssh
+- `open` for cross-platform open in native application
+- `chattr`, `mklink`, `is-elevated-session`, `winstart`, `winsudo` WSL tools
 
-![Prompt example](./assets/prompt-example.png)
+## [The Bash Prompt](./PROMPT.md)
+
+See [PROMPT.md](./PROMPT.md) for configuration options.
+
+![Prompt example](./assets/prompt-example.svg)
 
 ## Configuration Options
 
