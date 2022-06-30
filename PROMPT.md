@@ -149,35 +149,37 @@ Color values must be defined as ansi color escapes:
 PS1_COLOR_WORK_DIRINFO='\[\e[38;5;35m\]'
 ```
 
-| Option                   |                                                                      Default | Description                                                                                                            |
-| ------------------------ | ---------------------------------------------------------------------------: | ---------------------------------------------------------------------------------------------------------------------- |
-| `PS1_COLOR_GREY`         |                             <span style="color: #808080"><b>VALUE</b></span> | Default gray color for brackets                                                                                        |
-| `PS1_COLOR_BG_JOBS`      |                             <span style="color: #00d787"><b>VALUE</b></span> | Color used for background job info                                                                                     |
-| `PS1_COLOR_EXEC_TIME`    |                             <span style="color: #8a8a8a"><b>VALUE</b></span> | Color used for the last command execution time                                                                         |
-| `PS1_COLOR_EXIT_ERROR`   |                             <span style="color: #ff0000"><b>VALUE</b></span> | Color used for the last command exit code when not `0`                                                                 |
-| `PS1_COLOR_GIT`          |                             <span style="color: #af5fff"><b>VALUE</b></span> | Color used for the `git` info                                                                                          |
-| `PS1_COLOR_HOST_SCREEN`  | <span style="color: #ffaf00; text-decoration: underline"><b>VALUE</b></span> | Color used for the screen session info (after the `user@`)                                                             |
-| `PS1_COLOR_HOST`         |                             <span style="color: #ff8700"><b>VALUE</b></span> | Color used for the hostname (after the `user@`)                                                                        |
-| `PS1_COLOR_TIME_DAY`     |                             <span style="color: #808080"><b>VALUE</b></span> | Color used for the time during daytime                                                                                 |
-| `PS1_COLOR_TIME_NIGHT`   |                             <span style="color: #0087ff"><b>VALUE</b></span> | Color used for the time during nighttime                                                                               |
-| `PS1_COLOR_USER`         |                             <span style="color: #ff005f"><b>VALUE</b></span> | Color used for the current username                                                                                    |
-| `PS1_COLOR_WORK_DIR`     |                             <span style="color: #afaf00"><b>VALUE</b></span> | Color used for the current directory                                                                                   |
-| `PS1_COLOR_WORK_DIRINFO` |                             <span style="color: #00af5f"><b>VALUE</b></span> | Color used for showing the current directory file count and size                                                       |
-| `PS1_COLOR_LOAD`         |                                                                    See below | Color array for load averages. This is defined as an array value `PS1_COLOR_LOAD=( color1, color2, ...)` and 0 indexed |
+| Option                   |                                                                                 Default | Description                                                                                                            |
+| ------------------------ | --------------------------------------------------------------------------------------: | ---------------------------------------------------------------------------------------------------------------------- |
+| `PS1_COLOR_GREY`         |             ![#808080](https://via.placeholder.com/15/808080/808080.png) `\e[38;5;244m` | Default gray color for brackets                                                                                        |
+| `PS1_COLOR_BG_JOBS`      |              ![#00d787](https://via.placeholder.com/15/00d787/00d787.png) `\e[38;5;042m` | Color used for background job info                                                                                     |
+| `PS1_COLOR_EXEC_TIME`    |             ![#8a8a8a](https://via.placeholder.com/15/8a8a8a/8a8a8a.png) `\e[38;5;245m` | Color used for the last command execution time                                                                         |
+| `PS1_COLOR_EXIT_ERROR`   |             ![#ff0000](https://via.placeholder.com/15/ff0000/ff0000.png) `\e[38;5;196m` | Color used for the last command exit code when not `0`                                                                 |
+| `PS1_COLOR_GIT`          |             ![#af5fff](https://via.placeholder.com/15/af5fff/af5fff.png) `\e[38;5;135m` | Color used for the `git` info                                                                                          |
+| `PS1_COLOR_HOST_SCREEN`  | underline + ![#ffaf00](https://via.placeholder.com/15/ffaf00/ffaf00.png) `\e[38;5;214m` | Color used for the screen session info (after the `user@`)                                                             |
+| `PS1_COLOR_HOST`         |             ![#ff8700](https://via.placeholder.com/15/ff8700/ff8700.png) `\e[38;5;208m` | Color used for the hostname (after the `user@`)                                                                        |
+| `PS1_COLOR_TIME_DAY`     |             ![#808080](https://via.placeholder.com/15/808080/808080.png) `\e[38;5;245m` | Color used for the time during daytime                                                                                 |
+| `PS1_COLOR_TIME_NIGHT`   |             ![#0087ff](https://via.placeholder.com/15/0087ff/0087ff.png) `\e[38;5;033m` | Color used for the time during nighttime                                                                               |
+| `PS1_COLOR_USER`         |             ![#ff005f](https://via.placeholder.com/15/ff005f/ff005f.png) `\e[38;5;197m` | Color used for the current username                                                                                    |
+| `PS1_COLOR_WORK_DIR`     |             ![#afaf00](https://via.placeholder.com/15/afaf00/afaf00.png) `\e[38;5;142m` | Color used for the current directory                                                                                   |
+| `PS1_COLOR_WORK_DIRINFO` |              ![#00af5f](https://via.placeholder.com/15/00af5f/00af5f.png) `\e[38;5;035m` | Color used for showing the current directory file count and size                                                       |
+| `PS1_COLOR_LOAD`         |                                                                               See below | Color array for load averages. This is defined as an array value `PS1_COLOR_LOAD=( color1, color2, ...)` and 0 indexed |
 
 Load average colors:
-<span style="color: #87afff"><b>0</b></span>
-<span style="color: #87afd7"><b>1</b></span>
-<span style="color: #87afaf"><b>2</b></span>
-<span style="color: #87af87"><b>3</b></span>
-<span style="color: #87af5f"><b>4</b></span>
-<span style="color: #87af00"><b>5</b></span>
-<span style="color: #d7af00"><b>6</b></span>
-<span style="color: #d78700"><b>7</b></span>
-<span style="color: #d75f00"><b>8</b></span>
-<span style="color: #d75f5f"><b>9+</b></span>
+![#87afff](https://via.placeholder.com/15/87afff/87afff.png) `0`
+![#87afd7](https://via.placeholder.com/15/87afd7/87afd7.png) `1`
+![#87afaf](https://via.placeholder.com/15/87afaf/87afaf.png) `2`
+![#87af87](https://via.placeholder.com/15/87af87/87af87.png) `3`
+![#87af5f](https://via.placeholder.com/15/87af5f/87af5f.png) `4`
+![#87af00](https://via.placeholder.com/15/87af00/87af00.png) `5`
+![#d7af00](https://via.placeholder.com/15/d7af00/d7af00.png) `6`
+![#d78700](https://via.placeholder.com/15/d78700/d78700.png) `7`
+![#d75f00](https://via.placeholder.com/15/d75f00/d75f00.png) `8`
+![#d75f5f](https://via.placeholder.com/15/d75f5f/d75f5f.png) `9+`
 
 <!-- markdownlint-enable no-inline-html -->
+
+See [ditig.com/256-colors-cheat-sheet](https://www.ditig.com/256-colors-cheat-sheet) for reference to xterm 256 colors.
 
 ## The MySQL client Prompt
 

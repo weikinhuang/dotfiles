@@ -32,17 +32,17 @@ PS1_COLOR_RESET='\[\e[0m\]'
 [[ -z "${PS1_COLOR_GREY+x}" ]] && PS1_COLOR_GREY='\[\e[38;5;244m\]'
 
 # colors for individual parts of the bash prompt
-[[ -z "${PS1_COLOR_EXIT_ERROR+x}" ]] && PS1_COLOR_EXIT_ERROR='\[\e[38;5;196m\]'
-[[ -z "${PS1_COLOR_BG_JOBS+x}" ]] && PS1_COLOR_BG_JOBS='\[\e[38;5;42m\]'
-[[ -z "${PS1_COLOR_USER+x}" ]] && PS1_COLOR_USER='\[\e[38;5;197m\]'
-[[ -z "${PS1_COLOR_HOST+x}" ]] && PS1_COLOR_HOST='\[\e[38;5;208m\]'
-[[ -z "${PS1_COLOR_HOST_SCREEN+x}" ]] && PS1_COLOR_HOST_SCREEN=${PS1_COLOR_UNDERLINE}'\[\e[38;5;214m\]'
-[[ -z "${PS1_COLOR_WORK_DIR+x}" ]] && PS1_COLOR_WORK_DIR='\[\e[38;5;142m\]'
-[[ -z "${PS1_COLOR_WORK_DIRINFO+x}" ]] && PS1_COLOR_WORK_DIRINFO='\[\e[38;5;35m\]'
-[[ -z "${PS1_COLOR_GIT+x}" ]] && PS1_COLOR_GIT='\[\e[38;5;135m\]'
+[[ -z "${PS1_COLOR_BG_JOBS+x}" ]] && PS1_COLOR_BG_JOBS='\[\e[38;5;042m\]'
 [[ -z "${PS1_COLOR_EXEC_TIME+x}" ]] && PS1_COLOR_EXEC_TIME='\[\e[38;5;245m\]'
+[[ -z "${PS1_COLOR_EXIT_ERROR+x}" ]] && PS1_COLOR_EXIT_ERROR='\[\e[38;5;196m\]'
+[[ -z "${PS1_COLOR_GIT+x}" ]] && PS1_COLOR_GIT='\[\e[38;5;135m\]'
+[[ -z "${PS1_COLOR_HOST_SCREEN+x}" ]] && PS1_COLOR_HOST_SCREEN=${PS1_COLOR_UNDERLINE}'\[\e[38;5;214m\]'
+[[ -z "${PS1_COLOR_HOST+x}" ]] && PS1_COLOR_HOST='\[\e[38;5;208m\]'
 [[ -z "${PS1_COLOR_TIME_DAY+x}" ]] && PS1_COLOR_TIME_DAY='\[\e[38;5;244m\]'
 [[ -z "${PS1_COLOR_TIME_NIGHT+x}" ]] && PS1_COLOR_TIME_NIGHT='\[\e[38;5;033m\]'
+[[ -z "${PS1_COLOR_USER+x}" ]] && PS1_COLOR_USER='\[\e[38;5;197m\]'
+[[ -z "${PS1_COLOR_WORK_DIR+x}" ]] && PS1_COLOR_WORK_DIR='\[\e[38;5;142m\]'
+[[ -z "${PS1_COLOR_WORK_DIRINFO+x}" ]] && PS1_COLOR_WORK_DIRINFO='\[\e[38;5;035m\]'
 
 # load avg colorization
 declare -p PS1_COLOR_LOAD &>/dev/null || PS1_COLOR_LOAD=(
