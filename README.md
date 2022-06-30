@@ -178,9 +178,11 @@ Setup and configuration of Window's WSL is documented in [utils/wsl/README.md](u
 You can try out this repo in `docker` easily to test your plugins or hooks.
 
 ```bash
-$ docker run -it --rm -v "$(pwd):/root/.dotfiles:ro" -v "$HOME/.bash_local:/root/.bash_local:ro" -v "$HOME/.bash_local.d:/root/.bash_local.d:ro" bash:latest bash
+$ docker run -it --rm -v "$(pwd):/root/.dotfiles:ro" -v "$HOME/.bash_local:/root/.bash_local:ro" -v "$HOME/.bash_local.d:/root/.bash_local.d:ro" -v "$(pwd)/dev/docker-entrypoint.sh:/docker-entrypoint.sh:ro" --entrypoint /docker-entrypoint.sh bash:latest bash
 # OR with overrides set locally in the dotfiles repo
-$ docker run -it --rm -v "$(pwd):/root/.dotfiles:ro" -v "$(pwd)/.bash_local:/root/.bash_local:ro" -v "$(pwd)/.bash_local.d:/root/.bash_local.d:ro" bash:latest bash
+mkdir -p bash_local_d_sample
+touch bash_local_d_sample/bash_local
+$ docker run -it --rm -v "$(pwd):/root/.dotfiles:ro" -v "$(pwd)/bash_local_d_sample/bash_local:/root/.bash_local:ro" -v "$(pwd)/bash_local_d_sample:/root/.bash_local.d:ro" -v "$(pwd)/dev/docker-entrypoint.sh:/docker-entrypoint.sh:ro" --entrypoint /docker-entrypoint.sh bash:latest bash
 
 # in the docker shell
 $ (cd ~ && .dotfiles/bootstrap.sh)
@@ -204,6 +206,13 @@ $ env -i PS1=1 TERM="$TERM" PATH="$PATH" HOME="$HOME" SHELL="$SHELL" bash -l
 
 # shfmt
 ( git ls-files -z | xargs -0 grep -l 'shellcheck shell=\|^#!.\+sh'; git ls-files | grep '\.sh$' ) | grep -v '\.md$' | grep -v .gitlab-ci.yml | sort | uniq | xargs -n1 shfmt -ln bash -ci -bn -i 2 -d -w
+```
+
+Validate the codebase with the following script, it should return with `OK` on success.
+
+```bash
+$ ./dev/lint.sh
+OK
 ```
 
 ### Layout
