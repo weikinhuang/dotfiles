@@ -182,7 +182,7 @@ $ docker run -it --rm -v "$(pwd):/root/.dotfiles:ro" -v "$HOME/.bash_local:/root
 # OR with overrides set locally in the dotfiles repo
 mkdir -p bash_local_d_sample
 touch bash_local_d_sample/bash_local
-$ docker run -it --rm -v "$(pwd):/root/.dotfiles:ro" -v "$(pwd)/bash_local_d_sample/bash_local:/root/.bash_local:ro" -v "$(pwd)/bash_local_d_sample:/root/.bash_local.d:ro" -v "$(pwd)/dev/docker-entrypoint.sh:/docker-entrypoint.sh:ro" --entrypoint /docker-entrypoint.sh bash:latest bash
+$ docker run -it --rm -v "$(pwd):/root/.dotfiles:ro" -v "$(pwd)/bash_local_d_sample/bash_local:/root/.bash_local:ro" -v "$(pwd)/bash_local_d_sample:/root/.bash_local.d:ro" -v "$(pwd)/dev/docker-entrypoint.sh:/docker-entrypoint.sh:ro" -v "$(pwd)/bash_local_d_sample/.bash_history:/root/.bash_history" --entrypoint /docker-entrypoint.sh bash:latest bash
 
 # in the docker shell
 $ (cd ~ && .dotfiles/bootstrap.sh)

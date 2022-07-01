@@ -62,7 +62,7 @@ function __dot_load_plugin() {
   local file="$1"
   local DOT_PLUGIN_DISABLE_NAME
 
-  DOT_PLUGIN_DISABLE_NAME="DOT_PLUGIN_DISABLE_$(basename "${file}" | sed 's#.plugin$##; s#.sh$##; s#-#_#g')"
+  DOT_PLUGIN_DISABLE_NAME="DOT_PLUGIN_DISABLE_$(basename "${file}" | sed 's#.plugin$##; s#.sh$##; s#[^[:alnum:]_]#_#g')"
   if [[ -z "${!DOT_PLUGIN_DISABLE_NAME:-}" ]] && [[ -e "${file}" ]]; then
     # shellcheck source=/dev/null
     source "${file}"
@@ -71,7 +71,7 @@ function __dot_load_plugin() {
 }
 
 function __dot_load_plugins() {
-  local file PLUGIN_FILES_STR
+  local file PLUGIN_FILES_STR IFSSAVE IFS
 
   # Add a hook that can be defined in .bash_local to run before each phase
   __dot_load_hook pre plugin
@@ -87,12 +87,12 @@ function __dot_load_plugins() {
       | awk -F"|" '{ print $NF }'
   )"
 
-  # convert this to an array, unable to use a read <<< in bash 5 with this loop
-  # shellcheck disable=SC2206
-  IFS=$'\n;' PLUGIN_FILES=($PLUGIN_FILES_STR)
-
-  for file in "${PLUGIN_FILES[@]}"; do
+  IFSSAVE="${IFS:-}"
+  IFS=$'\n;'
+  for file in ${PLUGIN_FILES_STR}; do
+    IFS="${IFSSAVE:-}"
     __dot_load_plugin "${file}"
+    IFS=$'\n;'
   done
 
   # Add a hook that can be defined in .bash_local to run after each phase
