@@ -28,3 +28,6 @@ if [[ -s "${NVM_DIR}/bash_completion" ]]; then
   # shellcheck source=/dev/null
   source "${NVM_DIR}/bash_completion"
 fi
+
+# try to use default stable
+nvm use stable &>/dev/null
