@@ -53,7 +53,7 @@ shopt -s cmdhist 2>/dev/null
 
 # remove dupicate line higher in history before appending
 # Don't put duplicate lines in the history.
-export HISTCONTROL="${HISTCONTROL}${HISTCONTROL+,}erasedups:ignoreboth"
+export HISTCONTROL="${HISTCONTROL}${HISTCONTROL+:}erasedups:ignoreboth"
 # Ignore some controlling instructions: exit, ls, empty cd, pwd, date, help pages
 HISTIGNORE_BASE=$'[ \t]*:&:[fb]g:exit:jobs:ls:ls -?::ls -??:ll:history:cd:cd -:cd ~:cd ..:..:pwd:date:* --help:* help'
 # Ignore basic git commands

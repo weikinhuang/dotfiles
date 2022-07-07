@@ -65,9 +65,16 @@ function __dot_path_setup() {
   __push_path "${HOME}/bin"
 
   # python user pip packages
-  if command -v python3 &>/dev/null && python3 -m site --user-base &>/dev/null; then
-    # usually ~/.local/bin
-    __push_path "$(python3 -m site --user-base)/bin"
+  if command -v python3 &>/dev/null; then
+    # optimization, this otherwise takes ~500ms
+    # usually ~/.local
+    local python_site_path="${HOME}/.local"
+    if [[ ! -d "${python_site_path}" ]]; then
+      python_site_path="$(python3 -m site --user-base &>/dev/null)"
+    fi
+    if [[ -n "${python_site_path}" ]] && [[ -d "${python_site_path}/bin" ]]; then
+      __push_path "${python_site_path}/bin"
+    fi
   fi
 }
 

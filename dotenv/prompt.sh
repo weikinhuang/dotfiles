@@ -115,6 +115,14 @@ if [[ -n "${DOT___IS_SSH}" ]]; then
   _PS1_SEGMENT_SESSION_TYPE="${PS1_SYMBOL_SSH}"
 fi
 
+# wsl Administrator check
+_PS1_SEGMENT_WIN_ELEVATED=""
+# minor optimization, calls to powershell is slow ~500ms, so cache value of is-elevated-session
+if [[ -n "${DOT___IS_WSL}" ]] && command -v powershell.exe &>/dev/null && is-elevated-session; then
+  # W* -- windows elevated session
+  _PS1_SEGMENT_WIN_ELEVATED=1
+fi
+
 # show icon if the directory is not writable for the user
 # shellcheck disable=SC2016
 _PS1_SEGMENT_PWD_WRITABLE='$([[ ! -w "$PWD" ]] && echo -n "'${PS1_SYMBOL_NO_WRITE_PWD}'")'
@@ -304,7 +312,7 @@ function __ps1_create() {
 
   # prompt status symbol
   PS1="${PS1}${PS1_COLOR_BOLD}"
-  if [[ -n "${DOT___IS_WSL}" ]] && command -v powershell.exe &>/dev/null && is-elevated-session; then
+  if [[ -n "${PS1_SEGMENT_WIN_ELEVATED}" ]]; then
     # W* -- windows elevated session
     PS1="${PS1}${PS1_SYMBOL_WIN_PRIV}"
   elif [[ "$(id -u)" == 0 ]]; then
@@ -352,7 +360,7 @@ function __sudo_ps1_create() {
 
   # prompt status symbol
   PS1="${PS1}${PS1_COLOR_BOLD}"
-  if [[ -n "${DOT___IS_WSL}" ]] && command -v powershell.exe &>/dev/null && is-elevated-session; then
+  if [[ -n "${PS1_SEGMENT_WIN_ELEVATED}" ]]; then
     # W* -- windows elevated session
     PS1="${PS1}${PS1_SYMBOL_WIN_PRIV}"
   elif [[ "$(id -u)" == 0 ]]; then
@@ -403,6 +411,7 @@ unset -v \
   _PS1_SEGMENT_LOADAVG \
   _PS1_SEGMENT_PWD_WRITABLE \
   _PS1_SEGMENT_SESSION_TYPE \
+  _PS1_SEGMENT_WIN_ELEVATED \
   PS1_COLOR_BG_JOBS \
   PS1_COLOR_BOLD \
   PS1_COLOR_EXEC_TIME \
