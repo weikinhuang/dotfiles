@@ -19,6 +19,17 @@ DOTFILES__ROOT="${DOTFILES__INSTALL_ROOT:-${HOME}}"
 readonly DOTFILES__ROOT
 export DOTFILES__ROOT
 
+# create cache dir
+DOTFILES__CONFIG_DIR="${XDG_CONFIG_HOME:-"${HOME}/.config"}/dotfiles"
+readonly DOTFILES__CONFIG_DIR
+export DOTFILES__CONFIG_DIR
+if [[ ! -d "${DOTFILES__CONFIG_DIR}/cache" ]]; then
+  mkdir -p "${DOTFILES__CONFIG_DIR}/cache"
+fi
+if [[ ! -d "${DOTFILES__CONFIG_DIR}/cache/completions" ]]; then
+  mkdir -p "${DOTFILES__CONFIG_DIR}/cache/completions"
+fi
+
 # Check out which env this bash is running in
 DOTENV="linux"
 export DOT___IS_WSL=

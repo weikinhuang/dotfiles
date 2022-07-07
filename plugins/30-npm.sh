@@ -5,9 +5,17 @@ if ! command -v npm &>/dev/null; then
   return
 fi
 
-# autocomplete for npm
-# shellcheck source=/dev/null
-source <(npm completion bash 2>/dev/null)
+# If the completion file does not exist, generate it and then source it
+# Otherwise, source it and regenerate in the background
+if [[ ! -f "${DOTFILES__CONFIG_DIR}/cache/completions/npm.bash" ]]; then
+  npm completion bash 2>/dev/null | tee "${DOTFILES__CONFIG_DIR}/cache/completions/npm.bash" >/dev/null
+  # shellcheck source=/dev/null
+  source "${DOTFILES__CONFIG_DIR}/cache/completions/npm.bash"
+else
+  # shellcheck source=/dev/null
+  source "${DOTFILES__CONFIG_DIR}/cache/completions/npm.bash"
+  (npm completion bash 2>/dev/null | tee "${DOTFILES__CONFIG_DIR}/cache/completions/npm.bash" >/dev/null) &
+fi
 
 # global node_modules without sudo
 # @see https://github.com/sindresorhus/guides/blob/master/npm-global-without-sudo.md

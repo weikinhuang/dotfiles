@@ -89,8 +89,8 @@ function __dot_load_plugins() {
     } \
       | awk -F/ '{ print $NF"|"$0 }' \
       | sort -t"|" -k1 \
-      | awk -F"|" '{ print $NF }' | \
-      uniq
+      | awk -F"|" '{ print $NF }' \
+      | uniq
   )"
 
   IFSSAVE="${IFS:-}"

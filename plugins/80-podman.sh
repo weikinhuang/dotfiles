@@ -11,8 +11,17 @@ if [[ -n "${DOT___IS_WSL2}" ]] && ! (grep ' / / ' /proc/1/mountinfo | grep -q 's
   sudo mount --make-rshared / &>/dev/null || true
 fi
 
-# shellcheck source=/dev/null
-source <(podman completion bash 2>/dev/null)
+# If the completion file does not exist, generate it and then source it
+# Otherwise, source it and regenerate in the background
+if [[ ! -f "${DOTFILES__CONFIG_DIR}/cache/completions/podman.bash" ]]; then
+  podman completion bash 2>/dev/null | tee "${DOTFILES__CONFIG_DIR}/cache/completions/podman.bash" >/dev/null
+  # shellcheck source=/dev/null
+  source "${DOTFILES__CONFIG_DIR}/cache/completions/podman.bash"
+else
+  # shellcheck source=/dev/null
+  source "${DOTFILES__CONFIG_DIR}/cache/completions/podman.bash"
+  (podman completion bash 2>/dev/null | tee "${DOTFILES__CONFIG_DIR}/cache/completions/podman.bash" >/dev/null) &
+fi
 
 # default build behavior to run as docker image spec
 # https://docs.podman.io/en/latest/markdown/podman-build.1.html#format
@@ -25,8 +34,14 @@ if ! command -v docker &>/dev/null; then
   complete -o default -F __start_podman docker
 else
   # use podman with fallback to docker if docker env vars are set or is running
-  __podman_docker_autopath="$(unset -f docker &>/dev/null && command -v docker)"
-  __podman_docker_compose_autopath="$(unset -f docker-compose &>/dev/null command -v docker-compose)"
+  __podman_docker_autopath="$(
+    unset -f docker &>/dev/null
+    command -v docker
+  )"
+  __podman_docker_compose_autopath="$(
+    unset -f docker-compose &>/dev/null
+    command -v docker-compose
+  )"
   function docker() {
     if [[ -n "${DOCKER_HOST:-}" ]] || [[ -S /var/run/docker.sock ]]; then
       "${__podman_docker_autopath}" "$@"
