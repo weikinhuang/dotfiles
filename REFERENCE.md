@@ -104,6 +104,7 @@
 | Command                                 | Description                                                                                          |
 | --------------------------------------- | ---------------------------------------------------------------------------------------------------- |
 | `__push_internal_prompt_command`        | Pushes a new command to the internal stack to execute during `PROMPT_COMMAND`                        |
+| `__push_path`                           | Pushes a new path to the `PATH` variable if directory exists (use `--prepend` to add to the front).  |
 | `__push_prompt_command`                 | Pushes a new command to the `PROMPT_COMMAND` variable                                                |
 | [`clipboard-server`](#clipboard-server) | Forward local clipboard access over a socket                                                         |
 | `dataurl`                               | Create a data URL from an image                                                                      |

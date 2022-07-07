@@ -15,7 +15,7 @@ NPM_PACKAGES="${HOME}/.npm-packages"
 if ! command -v nvm &>/dev/null; then
   # https://docs.npmjs.com/cli/v8/commands/npm#directories
   export NPM_CONFIG_PREFIX="${HOME}/.npm-packages"
-  export PATH="$PATH:$NPM_PACKAGES/bin"
+  __push_path "$NPM_PACKAGES/bin"
 fi
 
 # shellcheck disable=SC2155

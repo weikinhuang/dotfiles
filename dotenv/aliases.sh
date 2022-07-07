@@ -83,7 +83,7 @@ alias fromtime="unix2date"
 alias sudo="sudo "
 
 # Networking shortcuts
-alias extip="curl -s http://whatismyip.akamai.com/ | sed 's/[^0-9\.]//g'"
+alias extip="curl -s https://api.ipify.org/?format=text"
 
 # Reload the current shell
 # shellcheck disable=SC2139
