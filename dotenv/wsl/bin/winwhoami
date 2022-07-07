@@ -11,4 +11,4 @@ set -euo pipefail
 IFS=$'\n\t'
 
 # shellcheck disable=SC2016
-powershell.exe -c '$env:USERNAME' </dev/null | tr -d '\r'
+powershell.exe -NoProfile -NonInteractive -Command '$env:USERNAME' </dev/null | tr -d '\r'

@@ -11,4 +11,4 @@
 set -euo pipefail
 IFS=$'\n\t'
 
-powershell.exe -c Get-Clipboard </dev/null | sed 's/\r\n$/\n/'
+powershell.exe -NoProfile -NonInteractive -Command Get-Clipboard </dev/null | sed 's/\r\n$/\n/'

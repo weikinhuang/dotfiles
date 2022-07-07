@@ -11,7 +11,7 @@ set -euo pipefail
 IFS=$'\n\t'
 
 # try using powershell to determine elevated status
-out="$(powershell.exe -c '(New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)' </dev/null | tr -d '\r')"
+out="$(powershell.exe -NoProfile -NonInteractive -Command '(New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)' </dev/null | tr -d '\r')"
 ret=$?
 if [[ ${ret} -ne 0 ]]; then
   return 255

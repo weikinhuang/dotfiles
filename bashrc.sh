@@ -87,6 +87,8 @@ declare -a precmd_functions
 declare -a preexec_functions
 # shellcheck disable=SC2034
 declare -a chpwd_functions
+# shellcheck disable=SC2034
+declare -a dotfiles_complete_functions
 
 # These arrays are used to add functions to be run before, or after, loading parts of the dotfiles builtin.
 for hook in {exports,functions,aliases,completion,extra,env,prompt,plugin}; do
@@ -166,9 +168,15 @@ fi
 
 # Add a hook that can be defined in .bash_local to run after everything is fully loaded
 if command -v dotfiles_complete &>/dev/null; then
-  { dotfiles_complete; }
-  unset -f dotfiles_complete
+  dotfiles_complete_functions+=(dotfiles_complete)
 fi
+# shellcheck disable=SC2125
+for hook in "${dotfiles_complete_functions[@]}"; do
+  { "${hook}"; }
+done
+unset dotfiles_complete
+unset dotfiles_complete_functions
+unset hook
 
 # exit with a success status code
 return 0

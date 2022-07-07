@@ -9,12 +9,12 @@
 # get the windows username
 function winwhoami() {
   # shellcheck disable=SC2016
-  powershell.exe -c '$env:USERNAME' </dev/null | tr -d '\r'
+  powershell.exe -NoProfile -NonInteractive -Command '$env:USERNAME' </dev/null | tr -d '\r'
 }
 
 function win-profile-dir() {
   # shellcheck disable=SC2016
-  powershell.exe -c '$env:USERPROFILE' </dev/null | tr -d '\r'
+  powershell.exe -NoProfile -NonInteractive -Command '$env:USERPROFILE' </dev/null | tr -d '\r'
 }
 
 WORKDIR="$(dirname "$(realpath "$0")")"
