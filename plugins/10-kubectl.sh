@@ -14,7 +14,7 @@ if [[ ! -f "${DOTFILES__CONFIG_DIR}/cache/completions/kubectl.bash" ]]; then
 else
   # shellcheck source=/dev/null
   source "${DOTFILES__CONFIG_DIR}/cache/completions/kubectl.bash"
-  (kubectl completion bash 2>/dev/null | tee "${DOTFILES__CONFIG_DIR}/cache/completions/kubectl.bash" >/dev/null) &
+  (kubectl completion bash 2>/dev/null | tee "${DOTFILES__CONFIG_DIR}/cache/completions/kubectl.bash" >/dev/null &)
 fi
 
 # create alias
@@ -32,6 +32,6 @@ if command -v kind &>/dev/null; then
   else
     # shellcheck source=/dev/null
     source "${DOTFILES__CONFIG_DIR}/cache/completions/kind.bash"
-    (kind completion bash 2>/dev/null | tee "${DOTFILES__CONFIG_DIR}/cache/completions/kind.bash" >/dev/null) &
+    (kind completion bash 2>/dev/null | tee "${DOTFILES__CONFIG_DIR}/cache/completions/kind.bash" >/dev/null &)
   fi
 fi

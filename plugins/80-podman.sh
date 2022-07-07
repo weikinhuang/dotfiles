@@ -20,7 +20,7 @@ if [[ ! -f "${DOTFILES__CONFIG_DIR}/cache/completions/podman.bash" ]]; then
 else
   # shellcheck source=/dev/null
   source "${DOTFILES__CONFIG_DIR}/cache/completions/podman.bash"
-  (podman completion bash 2>/dev/null | tee "${DOTFILES__CONFIG_DIR}/cache/completions/podman.bash" >/dev/null) &
+  (podman completion bash 2>/dev/null | tee "${DOTFILES__CONFIG_DIR}/cache/completions/podman.bash" >/dev/null &)
 fi
 
 # default build behavior to run as docker image spec

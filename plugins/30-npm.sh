@@ -14,7 +14,7 @@ if [[ ! -f "${DOTFILES__CONFIG_DIR}/cache/completions/npm.bash" ]]; then
 else
   # shellcheck source=/dev/null
   source "${DOTFILES__CONFIG_DIR}/cache/completions/npm.bash"
-  (npm completion bash 2>/dev/null | tee "${DOTFILES__CONFIG_DIR}/cache/completions/npm.bash" >/dev/null) &
+  (npm completion bash 2>/dev/null | tee "${DOTFILES__CONFIG_DIR}/cache/completions/npm.bash" >/dev/null &)
 fi
 
 # global node_modules without sudo

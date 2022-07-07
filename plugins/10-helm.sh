@@ -14,5 +14,5 @@ if [[ ! -f "${DOTFILES__CONFIG_DIR}/cache/completions/helm.bash" ]]; then
 else
   # shellcheck source=/dev/null
   source "${DOTFILES__CONFIG_DIR}/cache/completions/helm.bash"
-  (helm completion bash 2>/dev/null | tee "${DOTFILES__CONFIG_DIR}/cache/completions/helm.bash" >/dev/null) &
+  (helm completion bash 2>/dev/null | tee "${DOTFILES__CONFIG_DIR}/cache/completions/helm.bash" >/dev/null &)
 fi
