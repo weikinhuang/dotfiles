@@ -14,51 +14,57 @@ alias f="findhere"
 alias o="open"
 alias oo="open ."
 
-# cd replacement to show cd history with cd --
-alias cd="__cd_func"
-
 # Interactive rm, cp, and mv
 alias rm="rm -i"
 alias cp="cp -i"
 alias mv="mv -i"
 
-# Colorize grep matches
-# test if color is supported, if it is, always add color
-if echo | grep --color=auto &>/dev/null; then
-  alias grep="grep --color=auto"
-  alias fgrep="fgrep --color=auto"
-  alias egrep="egrep --color=auto"
-fi
+# run this after plugins are loaded in case gnu grep and gnu ls is added to path in plugins
+function __grep_ls_colors() {
+  local LS_COLOR_FLAG LS_BIN GREP_BIN
+  LS_BIN="$(unalias ls &>/dev/null; command -v ls)"
+  GREP_BIN="$(unalias grep &>/dev/null; command -v grep)"
 
-# Detect which `ls` flavor is in use
-if ls --color &>/dev/null; then
-  # GNU ls
-  LS_COLOR_FLAG="--color=auto"
-else
-  # darwin ls
-  LS_COLOR_FLAG="-G"
-fi
-# Specialized directory listings
-# shellcheck disable=SC2139
-alias la="ls -lA ${LS_COLOR_FLAG}"
-# shellcheck disable=SC2139
-alias ll="ls -l ${LS_COLOR_FLAG}"
-# shellcheck disable=SC2139
-alias l.="ls -d ${LS_COLOR_FLAG} .*"
-# shellcheck disable=SC2139
-alias ls="ls ${LS_COLOR_FLAG}"
-# shellcheck disable=SC2139
-alias lf="ls -l ${LS_COLOR_FLAG} | grep '^d'"
+  # Colorize grep matches
+  # test if color is supported, if it is, always add color
+  if echo | "${GREP_BIN}" --color=auto &>/dev/null; then
+    # shellcheck disable=SC2139
+    alias grep="${GREP_BIN} --color=auto"
+    alias fgrep="fgrep --color=auto"
+    alias egrep="egrep --color=auto"
+  fi
 
-# check if we can display in long format
-if ls --format=long >/dev/null 2>&1; then
+  # Detect which `ls` flavor is in use
+  if "${LS_BIN}" --color &>/dev/null; then
+    # GNU ls
+    LS_COLOR_FLAG="--color=auto"
+  else
+    # darwin ls
+    LS_COLOR_FLAG="-G"
+  fi
+  # Specialized directory listings
   # shellcheck disable=SC2139
-  alias dir="ls ${LS_COLOR_FLAG} --format=vertical"
+  alias la="${LS_BIN} -lA ${LS_COLOR_FLAG}"
   # shellcheck disable=SC2139
-  alias vdir="ls ${LS_COLOR_FLAG} --format=long"
-fi
+  alias ll="${LS_BIN} -l ${LS_COLOR_FLAG}"
+  # shellcheck disable=SC2139
+  alias l.="${LS_BIN} -d ${LS_COLOR_FLAG} .*"
+  # shellcheck disable=SC2139
+  alias ls="${LS_BIN} ${LS_COLOR_FLAG}"
+  # shellcheck disable=SC2139
+  alias lf="${LS_BIN} -l ${LS_COLOR_FLAG} | grep '^d'"
 
-unset LS_COLOR_FLAG
+  # check if we can display in long format
+  if "${LS_BIN}" --format=long &>/dev/null; then
+    # shellcheck disable=SC2139
+    alias dir="ls ${LS_COLOR_FLAG} --format=vertical"
+    # shellcheck disable=SC2139
+    alias vdir="ls ${LS_COLOR_FLAG} --format=long"
+  fi
+
+  unset -f __grep_ls_colors
+}
+dotfiles_hook_plugin_post_functions+=(__grep_ls_colors)
 
 # allow which command to expand
 # shellcheck disable=SC2230

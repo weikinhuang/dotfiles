@@ -79,12 +79,18 @@ function __dot_load_plugins() {
   # load plugins from all directories while respecting filename ordering
   PLUGIN_FILES_STR="$(
     {
-      find "${DOTFILES__ROOT}/.dotfiles/plugins" -type f -name '*.sh'
+      # required plugins
+      echo "${DOTFILES__ROOT}/.dotfiles/plugins/00-bash-opts.sh"
+      echo "${DOTFILES__ROOT}/.dotfiles/plugins/00-chpwd-hook.sh"
+      # built-in plugins
+      [[ -n "${DOT_INCLUDE_BUILTIN_PLUGINS:-}" ]] && find "${DOTFILES__ROOT}/.dotfiles/plugins" -type f -name '*.sh'
+      # user plugins
       [[ -d "${HOME}/.bash_local.d" ]] && find "${HOME}/.bash_local.d" -type f -name '*.plugin'
     } \
       | awk -F/ '{ print $NF"|"$0 }' \
       | sort -t"|" -k1 \
-      | awk -F"|" '{ print $NF }'
+      | awk -F"|" '{ print $NF }' | \
+      uniq
   )"
 
   IFSSAVE="${IFS:-}"
@@ -97,6 +103,8 @@ function __dot_load_plugins() {
 
   # Add a hook that can be defined in .bash_local to run after each phase
   __dot_load_hook post plugin
+
+  unset DOT_INCLUDE_BUILTIN_PLUGINS
 }
 
 # clean up vars and functions declared

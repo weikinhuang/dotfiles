@@ -78,7 +78,7 @@ declare -a preexec_functions
 declare -a chpwd_functions
 
 # These arrays are used to add functions to be run before, or after, loading parts of the dotfiles builtin.
-for hook in {exports,functions,aliases,completion,extra,env,prompt,plugins}; do
+for hook in {exports,functions,aliases,completion,extra,env,prompt,plugin}; do
   declare -a "dotfiles_hook_${hook}_pre_functions"
   declare -a "dotfiles_hook_${hook}_post_functions"
 done
@@ -124,21 +124,12 @@ if command -v complete &>/dev/null; then
 fi
 
 # load plugin hooks
-if [[ -n "${DOT_INCLUDE_BUILTIN_PLUGINS:-}" ]]; then
-  __dot_load_plugins
-else
-  # load required plugins
-  # shellcheck source=/dev/null
-  source "${DOTFILES__ROOT}/.dotfiles/plugins/00-bash-opts.sh"
-  # shellcheck source=/dev/null
-  source "${DOTFILES__ROOT}/.dotfiles/plugins/00-chpwd-hook.sh"
-fi
-unset DOT_INCLUDE_BUILTIN_PLUGINS
+__dot_load_plugins
 
 # Source ~/.prompt if they exist
 __dot_load prompt
 
-for hook in {exports,functions,aliases,completion,extra,env,prompt,plugins}; do
+for hook in {exports,functions,aliases,completion,extra,env,prompt,plugin}; do
   unset -f "dotfiles_hook_${hook}_pre"
   unset -f "dotfiles_hook_${hook}_post"
   unset "dotfiles_hook_${hook}_pre_functions"
