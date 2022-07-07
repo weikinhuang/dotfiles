@@ -10,7 +10,7 @@
 # colors
 # COLOR_BOLD=
 # COLOR_RESET=
-# if type tput &>/dev/null; then
+# if command -v tput &>/dev/null; then
 #   COLOR_BOLD=$(tput bold)
 #   COLOR_RESET=$(tput sgr0)
 # fi

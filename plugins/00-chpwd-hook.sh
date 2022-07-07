@@ -30,7 +30,7 @@ function __dot_chpwd_hook() {
   __dot_inside_chpwd_last="${PWD}"
 
   # if declared in function format
-  if type chpwd &>/dev/null; then
+  if command -v chpwd &>/dev/null; then
     { chpwd; }
   fi
   # shellcheck disable=SC2125

@@ -9,7 +9,7 @@ function __dot_load_hook() {
   # Add a hook that can be defined in .bash_local to run before/after each phase
   DOT_HOOK_NAME="dotfiles_hook_${file}_${type}_functions"
   # if declared in function format
-  if type "dotfiles_hook_${file}_${type}" &>/dev/null; then
+  if command -v "dotfiles_hook_${file}_${type}" &>/dev/null; then
     eval "${DOT_HOOK_NAME}+=('dotfiles_hook_${file}_${type}')"
   fi
   # shellcheck disable=SC2125

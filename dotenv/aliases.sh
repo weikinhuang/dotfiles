@@ -76,9 +76,6 @@ alias fromtime="unix2date"
 # Enable aliases to be sudo'ed
 alias sudo="sudo "
 
-# Make 'less' not clear the screen upon exit and process colors
-alias less="less -XR"
-
 # Networking shortcuts
 alias extip="curl -s http://whatismyip.akamai.com/ | sed 's/[^0-9\.]//g'"
 

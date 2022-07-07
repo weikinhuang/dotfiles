@@ -30,7 +30,7 @@ case "$(uname -s)" in
     ;;
   Linux)
     # need test for wslpath because we could be in a container
-    if uname -r | grep -qi Microsoft && type wslpath &>/dev/null; then
+    if uname -r | grep -qi Microsoft && command -v wslpath &>/dev/null; then
       DOT___IS_WSL=1
       if uname -r | grep -qi WSL2; then
         DOT___IS_WSL2=1
@@ -163,7 +163,7 @@ if [[ -z "${DOT_DISABLE_PREEXEC:-}" ]]; then
 fi
 
 # Add a hook that can be defined in .bash_local to run after everything is fully loaded
-if type dotfiles_complete &>/dev/null; then
+if command -v dotfiles_complete &>/dev/null; then
   { dotfiles_complete; }
   unset -f dotfiles_complete
 fi

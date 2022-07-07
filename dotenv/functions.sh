@@ -4,16 +4,18 @@ function __cd_func() {
   local x2 the_new_dir adir index
   local -i cnt
 
-  if [[ $1 == "--" ]]; then
+  if [[ $1 == "--" ]] && [[ $# -eq 1 ]]; then
     dirs -v
     return 0
+  fi
+  if [[ $1 == "--" ]]; then
+    shift
   fi
 
   the_new_dir=$1
   [[ -z $1 ]] && the_new_dir=$HOME
 
   if [[ ${the_new_dir:0:1} == '-' ]]; then
-    #
     # Extract dir N from dirs
     index=${the_new_dir:1}
     [[ -z $index ]] && index=1

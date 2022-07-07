@@ -1,8 +1,14 @@
 # Make Tab autocomplete regardless of filename case
 set completion-ignore-case on
 
+# Treat hyphens and underscores as equivalent
+set completion-map-case on
+
 # Don't prompt unless there are over 500 possible completions
 set completion-query-items 200
+
+# Skip text that's already in the completion result
+set skip-completed-text on
 
 # Displays the common prefix of the list of possible completions (which may be
 # empty) before cycling through the list.
@@ -26,7 +32,11 @@ set mark-symlinked-directories on
 set match-hidden-files off
 
 # Show extra file information when completing, like `ls -F` does
+# Show character denoting a file's type is appended to the filename when listing possible completions.
 set visible-stats on
+# Show completions using different colors to indicate their file type.
+# The color definitions are taken from the value of the LS_COLORS environment variable.
+set colored-stats on
 
 # blinks the matching parens on line input
 set blink-matching-paren on
@@ -37,11 +47,22 @@ set input-meta on
 set output-meta on
 set convert-meta off
 
+# Enable history expansion with space
+# E.g. typing !!<space> will replace the !! with your last command
+Space: magic-space
+
 # Use Alt/Meta + Delete to delete the preceding word
 "\e[3;3~": kill-word
 
+# Ctrl + W to delete word boundary instead of to space
+# set bind-tty-special-chars fff # this breaks vim
+"\C-w": backward-kill-word
+
 # Use Crtl + V to paste from clipboard
 "\C-v": paste-from-clipboard
+
+# Disable Ctrl + S terminal locking
+"\C-s":
 
 # vt
 "\e[1~": beginning-of-line
