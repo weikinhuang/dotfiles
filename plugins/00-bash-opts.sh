@@ -41,7 +41,7 @@ unset DOT_BASH_RESOLVE_PATHS
 stty -ixon
 # Allow C-W mapping in inputrc to work
 # see https://unix.stackexchange.com/q/296822/63527
-stty werase undef
+# stty werase undef
 
 # ------------------------------------------------------------------------------
 # History Options

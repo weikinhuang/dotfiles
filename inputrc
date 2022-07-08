@@ -55,8 +55,8 @@ Space: magic-space
 "\e[3;3~": kill-word
 
 # Ctrl + W to delete word boundary instead of to space
-# set bind-tty-special-chars fff # this breaks vim
-"\C-w": backward-kill-word
+# set bind-tty-special-chars on # this breaks vim
+# "\C-w": backward-kill-word
 
 # Use Crtl + V to paste from clipboard
 "\C-v": paste-from-clipboard
