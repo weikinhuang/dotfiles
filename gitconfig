@@ -1,5 +1,5 @@
 [include]
-  path = ~/.dotfiles/dotenv/config/git/core.gitconfig.conf
-  path = ~/.dotfiles/dotenv/config/git/attributes.gitconfig.conf
-  path = ~/.dotfiles/dotenv/config/git/alias.gitconfig.conf
+  path = ~/.dotfiles/config/git/core.gitconfig.conf
+  path = ~/.dotfiles/config/git/attributes.gitconfig.conf
+  path = ~/.dotfiles/config/git/alias.gitconfig.conf
   path = ~/.gitconfig.local
