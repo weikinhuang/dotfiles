@@ -1,0 +1,236 @@
+﻿" ==============================================================================
+" => General
+" ==============================================================================
+" remember more commands and search history
+set history=1000
+
+" Enable filetype plugins
+filetype plugin on
+filetype indent on
+
+" Set to auto read when a file is changed from the outside
+set autoread
+au FocusGained,BufEnter * checktime
+
+" With a map leader it's possible to do extra key combinations
+" like <leader>w saves the current file
+let mapleader = ","
+
+" Fast saving
+nmap <leader>w :w!<cr>
+
+" :W sudo saves the file
+" (useful for handling the permission-denied error)
+command! W execute 'w !sudo tee % > /dev/null' <bar> edit!
+
+" ==============================================================================
+" => UI
+" ==============================================================================
+
+" always show line numbers
+set number
+
+" Set 7 lines to the cursor - when moving vertically using j/k
+set so=7
+
+" Avoid garbled characters in Chinese language windows OS
+let $LANG='en'
+set langmenu=en
+source $VIMRUNTIME/delmenu.vim
+source $VIMRUNTIME/menu.vim
+
+" Turn on the Wild menu (autocomplete anywhere)
+set wildmenu
+set wildmode=list:longest
+
+" Ignore compiled files
+set wildignore=*.o,*~,*.pyc
+if has("win16") || has("win32")
+  set wildignore+=.git\*,.hg\*,.svn\*
+else
+  set wildignore+=*/.git/*,*/.hg/*,*/.svn/*,*/.DS_Store
+endif
+
+" Always show current position
+set ruler                         " show ruler
+" Always highlight current line
+set cursorline
+"set cursorcolumn                  " highlight the current column
+
+" Height of the command bar
+set cmdheight=1
+
+" A buffer becomes hidden when it is abandoned
+set hid
+" This makes vim act like all other editors, buffers can
+" exist in the background without being in a window.
+set hidden
+
+" Configure backspace so it acts as it should act
+set backspace=eol,start,indent
+set whichwrap+=<,>,h,l
+
+" Don't redraw while executing macros (good performance config)
+set lazyredraw
+
+" For regular expressions turn magic on
+set magic
+
+" Show matching brackets when text indicator is over them
+set showmatch
+" How many tenths of a second to blink when matching brackets
+set mat=2
+
+" change the terminal's title
+set title
+
+" No annoying sound on errors
+set noerrorbells
+set novisualbell
+set t_vb=
+set tm=500
+" Properly disable sound on errors on MacVim
+if has("gui_macvim")
+  autocmd GUIEnter * set vb t_vb=
+endif
+
+" Add a bit extra margin to the left
+set foldcolumn=1
+
+" show incomplete cmds down the bottom
+set showcmd
+" show current mode down the bottom
+set showmode
+
+" Scrolling
+set scrolloff=4                   " start scrolling when we're 4 lines away from margins
+set sidescrolloff=15
+set sidescroll=1
+
+" Enable mouse support
+if has('mouse')
+  set mouse=a
+  map <F11> :set mouse=a<CR>      " Press F11 to enable mousemode
+  map <F12> :set mouse-=a<CR>     " Press F12 to disable mousemode
+endif
+
+" ==============================================================================
+" => Search Settings
+" ==============================================================================
+
+" Ignore case when searching
+set ignorecase
+
+" When searching try to be smart about cases
+set smartcase
+
+" Highlight search results
+set hlsearch
+
+" Makes search act like search in modern browsers
+set incsearch
+
+" ==============================================================================
+" => Colors and Fonts
+" ==============================================================================
+
+" Enable syntax highlighting
+syntax enable
+
+" Enable 256 colors
+set t_Co=256
+
+" Set extra options when running in GUI mode
+if has("gui_running")
+    set guioptions-=T
+    set guioptions-=e
+    set guitablabel=%M\ %t
+endif
+
+" Set terminal colors as true-color
+set termguicolors
+" Solarized color scheme
+if !empty($DOT_SOLARIZED_LIGHT)
+  set background=light
+  colorscheme solarized8
+endif
+if !empty($DOT_SOLARIZED_DARK)
+  set background=dark
+  colorscheme solarized8
+endif
+
+" Set utf8 as standard encoding and en_US as the standard language
+set encoding=utf8
+
+" Use Unix as the standard file type
+set ffs=unix,dos,mac
+
+" Invisible characters
+set list
+set list listchars=tab:▸\ ,trail:·,precedes:←,extends:→,eol:¬,nbsp:␣
+"hi NonText ctermbg=NONE
+"hi SpecialKey ctermbg=NONE
+
+" =====================================
+" => Visual mode related
+" =====================================
+" Visual mode pressing * or # searches for the current selection
+" Super useful! From an idea by Michael Naumann
+vnoremap <silent> * :<C-u>call VisualSelection('', '')<CR>/<C-R>=@/<CR><CR>
+vnoremap <silent> # :<C-u>call VisualSelection('', '')<CR>?<C-R>=@/<CR><CR>
+
+" ==============================================================================
+" => Files, backups and undo
+" ==============================================================================
+" Turn backup off, since most stuff is in SVN, git etc. anyway...
+set nobackup
+set nowb
+set noswapfile
+
+" set more levels of undo
+set undolevels=1000
+
+" Persistent Undo
+if has('undodir')
+  try
+    silent !mkdir ~/.vim/backups > /dev/null 2>&1
+    set undodir=~/.vim/backups
+    set undofile
+  catch
+  endtry
+endif
+
+" ==============================================================================
+" => Text, tab and indent related
+" ==============================================================================
+" Use spaces instead of tabs
+set expandtab
+
+" insert tabs on the start of a line according to shiftwidth, not tabstop
+set smarttab
+set smartindent
+
+" 1 tab == 4 spaces
+set shiftwidth=4
+set tabstop=4
+
+" Linebreak
+set linebreak                     " wrap lines at convenient points
+set showbreak=↵                   " Arrow wrap character
+
+set autoindent                    " always set autoindenting on
+set copyindent                    " copy the previous indentation on autoindenting
+set shiftround                    " use multiple of shiftwidth when indenting with '<' and '>'
+set wrap                          " wrap text
+
+" ==============================================================================
+" => Spell checking
+"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+" Pressing ,ss will toggle and untoggle spell checking
+map <leader>ss :setlocal spell!<cr>
+
+" Shortcuts using <leader>
+map <leader>sn ]s
+map <leader>sp [s
+map <leader>sa zg
+map <leader>s? z=

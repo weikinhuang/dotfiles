@@ -1,13 +1,31 @@
+" This must be first, because it changes other options as side effect
+if !has('nvim')
+  set nocompatible
+endif
+
 " source plugin configurations
-if filereadable(expand('~/.vim.vundle.local'))
-  source ~/.vim.vundle.local
-elseif filereadable(expand('~/.vim/vim.vundle'))
-  source ~/.vim/vim.vundle
+if filereadable(expand('~/.vim.plugins.local'))
+  source ~/.vim.plugins.local
+elseif filereadable(expand('~/.vim/plugins.vim'))
+  source ~/.vim/plugins.vim
+elseif filereadable(expand('~/.dotfiles/config/vim/plugins.vim'))
+  source ~/.dotfiles/config/vim/plugins.vim
 endif
 
 " Source the dotfiles vimrc file
-if filereadable(expand('~/.vim/vimrc'))
-  source ~/.vim/vimrc
+if filereadable(expand('~/.dotfiles/config/vim/vimrc'))
+  source ~/.dotfiles/config/vim/vimrc
+  source ~/.dotfiles/config/vim/mappings.vim
+  " Source the dotfiles nvim config file
+  if has('nvim')
+    source ~/.dotfiles/config/vim/nvim.vim
+  endif
+  " Source the dotfiles vim only config file
+  if !has('nvim')
+    source ~/.dotfiles/config/vim/vim.vim
+  endif
+  " Configure plugins
+  source ~/.dotfiles/config/vim/pluginconf.vim
 endif
 
 " source any local vimrc files

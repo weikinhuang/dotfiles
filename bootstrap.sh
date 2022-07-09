@@ -48,7 +48,7 @@ fi
 
 # clean up
 if [[ "${DOTFILES__INSTALL_VIMRC}" -eq 1 ]]; then
-  LINKED_FILES+=("vimrc .vimrc" "vim .vim")
+  LINKED_FILES+=("vimrc .vimrc")
 fi
 if [[ "${DOTFILES__INSTALL_GITCONFIG}" -eq 1 ]]; then
   LINKED_FILES+=("gitconfig .gitconfig")
@@ -124,6 +124,49 @@ function dotfiles::install::repo::update::git() {
   fi
 }
 
+function dotfiles::install::vim() {
+  local VIM_BIN
+
+  # check if install vim configs is set
+  if [[ -z "${DOTFILES__INSTALL_VIMRC:-}" ]]; then
+    return 0
+  fi
+
+  # Setup Vundle
+  if [[ ! -d "${DOTFILES__INSTALL_ROOT}/.vim/bundle/Vundle.vim" ]]; then
+    dotfiles::install::repo::get https://github.com/VundleVim/Vundle.vim "${DOTFILES__INSTALL_ROOT}/.vim/bundle/Vundle.vim"
+  fi
+  if [[ -d "${DOTFILES__INSTALL_ROOT}/.vim/bundle/Vundle.vim" ]]; then
+    dotfiles::install::repo::update https://github.com/VundleVim/Vundle.vim "${DOTFILES__INSTALL_ROOT}/.vim/bundle/Vundle.vim"
+  fi
+
+  # create nvim pointer to .vimrc
+  # https://neovim.io/doc/user/nvim.html#nvim-from-vim
+  if command -v nvim &>/dev/null && [[ ! -e "${DOTFILES__INSTALL_ROOT}/.config/nvim/init.vim" ]]; then
+    mkdir -p "${DOTFILES__INSTALL_ROOT}/.config/nvim/"
+    echo "Writing default nvim config"
+    {
+      echo 'set runtimepath^=~/.vim runtimepath+=~/.vim/after'
+      echo 'let &packpath = &runtimepath'
+      echo 'source ~/.vimrc'
+    } | tee "${DOTFILES__INSTALL_ROOT}/.config/nvim/init.vim"
+  fi
+
+  VIM_BIN="$(which nvim vim | head -1)"
+  echo $VIM_BIN
+  if [[ -n "${VIM_BIN:-}" ]]; then
+    # install vim plugins
+    echo "Installing vim plugins"
+    echo "${VIM_BIN}" -Es -u "${DOTFILES__INSTALL_ROOT}/.vimrc" +PluginInstall +qall
+    if ! "${VIM_BIN}" -Es -u "${DOTFILES__INSTALL_ROOT}/.vimrc" +PluginInstall +qall; then
+      echo "--------------- Please Run: '$(basename "${VIM_BIN}") +BundleInstall +qall' after installation"
+    fi
+  else
+    echo "--------------- Please Run: 'vim +BundleInstall +qall' after installing vim"
+  fi
+
+}
+
 function dotfiles::install::repo::update() {
   local GITHUB_URL="${1}"
   local DIR="${2}"
@@ -143,29 +186,17 @@ function dotfiles::install::install() {
   # download the latest version
   dotfiles::install::repo::get "${REPO_BASE}" "${DOTFILES_ROOT}"
 
-  # Install vundle
-  if [[ "${DOTFILES__INSTALL_VIMRC}" -eq 1 ]]; then
-    dotfiles::install::repo::get https://github.com/VundleVim/Vundle.vim "${DOTFILES_ROOT}/vim/bundle/Vundle.vim"
-    vim +PluginInstall +qall &>/dev/null </dev/null
-    if command -v vim &>/dev/null </dev/null; then
-      echo "--------------- Please Run: 'vim +BundleInstall +qall' after installation"
-    fi
-  fi
+  # Install vim configs
+  dotfiles::install::vim
 }
 
 # update the dotfiles
 function dotfiles::install::update() {
-  ## update to the latest version
+  # update to the latest version
   dotfiles::install::repo::update "${REPO_BASE}" "${DOTFILES_ROOT}"
 
-  # Update vundle
-  if [[ -e "${DOTFILES_ROOT}/vim/bundle/Vundle.vim" ]]; then
-    dotfiles::install::repo::update https://github.com/VundleVim/Vundle.vim "${DOTFILES_ROOT}/vim/bundle/Vundle.vim"
-    vim +PluginInstall +qall &>/dev/null </dev/null
-    if command -v vim &>/dev/null; then
-      echo "--------------- Please Run: 'vim +BundleInstall +qall' after installation"
-    fi
-  fi
+  # Install vim configs
+  dotfiles::install::vim
 }
 
 # make the dotfiles directory
