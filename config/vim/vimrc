@@ -5,6 +5,7 @@
 set history=1000
 
 " Enable filetype plugins
+filetype on
 filetype plugin on
 filetype indent on
 
@@ -120,8 +121,6 @@ set sidescroll=1
 " Enable mouse support
 if has('mouse')
   set mouse=a
-  map <F11> :set mouse=a<CR>      " Press F11 to enable mousemode
-  map <F12> :set mouse-=a<CR>     " Press F12 to disable mousemode
 endif
 
 " Improve smoothness
@@ -134,6 +133,13 @@ set splitbelow splitright
 
 " Don't pass messages to |ins-completion-menu|.
 set shortmess+=c
+
+" Disable showing intro message (:intro)
+set shortmess+=I
+
+" Open files always in new tabs
+autocmd VimEnter * tab all
+autocmd BufAdd * exe 'tablast | tabe "' . expand( "<afile") .'"'
 
 " ==============================================================================
 " => Search Settings
@@ -154,6 +160,15 @@ set incsearch
 " Display number of matches in the lower right corner
 " From: https://vi.stackexchange.com/a/23296/3079
 set shortmess-=S
+
+" save up to 100 marks, enable capital marks
+set viminfo='100,f1
+
+" External program to use for grep command
+if executable('rg')
+  set grepprg=rg\ --vimgrep\ --no-heading\ --smart-case
+  set grepformat=%f:%l:%c:%m
+endif
 
 " ==============================================================================
 " => Colors and Fonts
@@ -253,6 +268,33 @@ set wrapmargin=0
 
 " Do not fold
 set nofoldenable
+
+" Correctly break multi-byte characters such as CJK,
+" see https://stackoverflow.com/q/32669814/6064933
+set formatoptions+=mM
+
+" Use OS's clipboard
+set clipboard=unnamed
+if has('nvim')
+  " Clipboard settings, always use clipboard for all delete, yank, change, put
+  " operation, see https://stackoverflow.com/q/30691466/6064933
+  if !empty(provider#clipboard#Executable())
+    set clipboard+=unnamedplus
+  endif
+endif
+
+" Delete trailing white space on save, useful for some filetypes ;)
+fun! CleanExtraSpaces()
+    let save_cursor = getpos(".")
+    let old_query = getreg('/')
+    silent! %s/\s\+$//e
+    call setpos('.', save_cursor)
+    call setreg('/', old_query)
+endfun
+
+if has("autocmd")
+    autocmd BufWritePre *.txt,*.js,*.py,*.wiki,*.sh,*.coffee :call CleanExtraSpaces()
+endif
 
 " ==============================================================================
 " => Spell checking
