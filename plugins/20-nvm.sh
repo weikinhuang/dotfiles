@@ -83,3 +83,14 @@ cdnvm() {
   fi
 }
 chpwd_functions+=(cdnvm)
+
+# manual upgrade function
+# https://github.com/nvm-sh/nvm#manual-upgrade
+function nvm-upgrade() {
+  (
+    # shellcheck disable=SC2164
+    cd "$NVM_DIR"
+    git fetch --tags origin
+    git checkout "$(git describe --abbrev=0 --tags --match "v[0-9]*" "$(git rev-list --tags --max-count=1)")"
+  )
+}
