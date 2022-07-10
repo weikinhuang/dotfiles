@@ -45,7 +45,7 @@ set wildmode=list:longest
 
 " Ignore compiled files
 set wildignore=*.o,*~,*.pyc
-if has("win16") || has("win32")
+if has("win16") || has("win32") || has("win64")
   set wildignore+=.git\*,.hg\*,.svn\*
 else
   set wildignore+=*/.git/*,*/.hg/*,*/.svn/*,*/.DS_Store
@@ -80,6 +80,8 @@ set magic
 set showmatch
 " How many tenths of a second to blink when matching brackets
 set mat=2
+" Consider < and > a pair
+set matchpairs+=<:>
 
 " change the terminal's title
 set title
@@ -114,6 +116,14 @@ if has('mouse')
   map <F12> :set mouse-=a<CR>     " Press F12 to disable mousemode
 endif
 
+" Improve smoothness
+if !has('nvim')
+  set ttyfast
+endif
+
+" Split window below/right when creating horizontal/vertical windows
+set splitbelow splitright
+
 " ==============================================================================
 " => Search Settings
 " ==============================================================================
@@ -129,6 +139,10 @@ set hlsearch
 
 " Makes search act like search in modern browsers
 set incsearch
+
+" Display number of matches in the lower right corner
+" From: https://vi.stackexchange.com/a/23296/3079
+set shortmess-=S
 
 " ==============================================================================
 " => Colors and Fonts
@@ -222,6 +236,11 @@ set autoindent                    " always set autoindenting on
 set copyindent                    " copy the previous indentation on autoindenting
 set shiftround                    " use multiple of shiftwidth when indenting with '<' and '>'
 set wrap                          " wrap text
+set textwidth=0                   " Never insert line-breaks in text
+set wrapmargin=0
+
+" Do not fold
+set nofoldenable
 
 " ==============================================================================
 " => Spell checking
