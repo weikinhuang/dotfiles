@@ -99,6 +99,8 @@ unset hook
 
 # modify path to include useful scripts
 # shellcheck source=/dev/null
+source "${DOTFILES__ROOT}/.dotfiles/dotenv/lib/utils.sh"
+# shellcheck source=/dev/null
 source "${DOTFILES__ROOT}/.dotfiles/dotenv/lib/path.sh"
 __dot_path_setup
 

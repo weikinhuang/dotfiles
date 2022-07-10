@@ -18,5 +18,6 @@ export COMP_TAR_INTERNAL_PATHS
 # Make = a wordbreak character
 COMP_WORDBREAKS=${COMP_WORDBREAKS/=/}
 
-# set $EDITOR to vi(m) if not already set
-export EDITOR="${EDITOR:-$(command -v vim &>/dev/null && echo vim || echo vi)}"
+# set $EDITOR to a if not already set
+EDITOR="${EDITOR:-$(__find_editor)}"
+export EDITOR

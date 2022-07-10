@@ -22,8 +22,14 @@ alias mv="mv -i"
 # run this after plugins are loaded in case gnu grep and gnu ls is added to path in plugins
 function __grep_ls_colors() {
   local LS_COLOR_FLAG LS_BIN GREP_BIN
-  LS_BIN="$(unalias ls &>/dev/null; command -v ls)"
-  GREP_BIN="$(unalias grep &>/dev/null; command -v grep)"
+  LS_BIN="$(
+    unalias ls &>/dev/null
+    command -v ls
+  )"
+  GREP_BIN="$(
+    unalias grep &>/dev/null
+    command -v grep
+  )"
 
   # Colorize grep matches
   # test if color is supported, if it is, always add color
@@ -88,3 +94,7 @@ alias extip="curl -s https://api.ipify.org/?format=text"
 # Reload the current shell
 # shellcheck disable=SC2139
 alias reload="exec ${SHELL} -l"
+
+# Alias vi to a found editor
+# shellcheck disable=SC2139
+alias vi="$(__find_editor)"

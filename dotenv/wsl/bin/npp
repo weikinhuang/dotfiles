@@ -7,6 +7,10 @@ if [[ -d "$(wslpath -ua "c:/")Program Files (x86)/Notepad++/" ]]; then
 fi
 
 PROGRAM="$(wslpath -ua "c:/${PGM_PATH}/Notepad++/notepad++.exe")"
+if [[ ! -e "${PROGRAM}" ]]; then
+  # fallback to a vi program
+  exec "$(which nvim vim vi | head -1)" "$@"
+fi
 
 # if there are any baked in arguments they are defined here
 args=()
