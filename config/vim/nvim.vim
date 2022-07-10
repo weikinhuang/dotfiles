@@ -75,3 +75,34 @@ require("indent_blankline").setup({
   show_current_context_start = true,
 })
 EOF
+
+" =====================================
+" => lsp-installer
+" =====================================
+lua << EOF
+require("nvim-lsp-installer").setup({
+  automatic_installation = true, -- automatically detect which servers to install (based on which servers are set up via lspconfig)
+  max_concurrent_installers = 10,
+})
+EOF
+
+" =====================================
+" => nvim-treesitter
+" =====================================
+" requires curl gcc g++ tar
+lua << EOF
+require("nvim-treesitter.configs").setup({
+  auto_install = true, -- automatically detect which servers to install (based on which servers are set up via lspconfig)
+  highlight = {
+    enable = true,
+  }
+})
+EOF
+
+" =====================================
+" => Comment.nvim
+" =====================================
+lua << EOF
+require("Comment").setup({
+})
+EOF

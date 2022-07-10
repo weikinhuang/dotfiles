@@ -132,13 +132,8 @@ function dotfiles::install::vim() {
     return 0
   fi
 
-  # Setup Vundle
-  if [[ ! -d "${DOTFILES__INSTALL_ROOT}/.vim/bundle/Vundle.vim" ]]; then
-    dotfiles::install::repo::get https://github.com/VundleVim/Vundle.vim "${DOTFILES__INSTALL_ROOT}/.vim/bundle/Vundle.vim"
-  fi
-  if [[ -d "${DOTFILES__INSTALL_ROOT}/.vim/bundle/Vundle.vim" ]]; then
-    dotfiles::install::repo::update https://github.com/VundleVim/Vundle.vim "${DOTFILES__INSTALL_ROOT}/.vim/bundle/Vundle.vim"
-  fi
+  # create vim config dir
+  mkdir -p "${DOTFILES__INSTALL_ROOT}/.vim"
 
   # create nvim pointer to .vimrc
   # https://neovim.io/doc/user/nvim.html#nvim-from-vim
@@ -157,14 +152,18 @@ function dotfiles::install::vim() {
   if [[ -n "${VIM_BIN:-}" ]]; then
     # install vim plugins
     echo "Installing vim plugins"
-    echo "${VIM_BIN}" -Es -u "${DOTFILES__INSTALL_ROOT}/.vimrc" +PluginInstall +qall
-    if ! "${VIM_BIN}" -Es -u "${DOTFILES__INSTALL_ROOT}/.vimrc" +PluginInstall +qall; then
-      echo "--------------- Please Run: '$(basename "${VIM_BIN}") +BundleInstall +qall' after installation"
+    echo "${VIM_BIN}" -Es -u "${DOTFILES__INSTALL_ROOT}/.vimrc" +PlugInstall +qall
+    if ! "${VIM_BIN}" -Es -u "${DOTFILES__INSTALL_ROOT}/.vimrc" +PlugInstall +qall; then
+      echo "--------------- Please Run: '$(basename "${VIM_BIN}") +PlugInstall +qall' after installation"
     fi
   else
-    echo "--------------- Please Run: 'vim +BundleInstall +qall' after installing vim"
+    echo "--------------- Please Run: 'vim +PlugInstall +qall' after installing vim"
   fi
 
+  # symlink coc-settings.json file
+  dotfiles::install::link "config/vim/ftplugins .vim/ftplugins"
+  dotfiles::install::link "config/vim/coc-settings.json .vim/coc-settings.json"
+  dotfiles::install::link "config/vim/coc-settings.json .config/nvim/coc-settings.json"
 }
 
 function dotfiles::install::repo::update() {

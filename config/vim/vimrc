@@ -27,8 +27,16 @@ command! W execute 'w !sudo tee % > /dev/null' <bar> edit!
 " => UI
 " ==============================================================================
 
+" Having longer updatetime (default is 4000 ms = 4 s) leads to noticeable
+" delays and poor user experience.
+set updatetime=300
+
 " always show line numbers
 set number
+
+" Always show the signcolumn, otherwise it would shift the text each time
+" diagnostics appear/become resolved.
+set signcolumn=yes
 
 " Set 7 lines to the cursor - when moving vertically using j/k
 set so=7
@@ -124,6 +132,9 @@ endif
 " Split window below/right when creating horizontal/vertical windows
 set splitbelow splitright
 
+" Don't pass messages to |ins-completion-menu|.
+set shortmess+=c
+
 " ==============================================================================
 " => Search Settings
 " ==============================================================================
@@ -200,6 +211,7 @@ vnoremap <silent> # :<C-u>call VisualSelection('', '')<CR>?<C-R>=@/<CR><CR>
 set nobackup
 set nowb
 set noswapfile
+set nowritebackup
 
 " set more levels of undo
 set undolevels=1000

@@ -21,6 +21,7 @@ set laststatus=2                " always show the status line (for vim-powerline
 " =====================================
 " => ale
 " =====================================
+" Integrate with airline
 let g:airline#extensions#ale#enabled = 1
 
 "  let g:ale_statusline_format = ['⨉ %d', '⚠ %d', '⬥ ok']
@@ -29,12 +30,18 @@ let g:ale_echo_msg_format = '%linter%: %s'
 " let g:ale_lint_on_text_changed = 'never'
 let g:ale_sign_column_always = 1
 
+" Use coc to provide completion
+let g:ale_disable_lsp = 1
+
+" disabling highlighting
+"  let g:ale_set_highlights = 0
+
 let g:ale_linters = {
-\   'javascript': ['eslint'],
-\   'typescript': ['eslint'],
-\   'vue': ['eslint', 'stylelint'],
+\   'vue': ['eslint', 'vls'],
 \ }
-let g:ale_linter_aliases = {'vue': ['css', 'javascript']}
+let g:ale_linter_aliases = {
+\   'vue': ['vue', 'javascript'],
+\ }
 
 " =====================================
 " => fzf
@@ -63,13 +70,3 @@ omap <leader><tab> <plug>(fzf-maps-o)
 imap <c-x><c-k> <plug>(fzf-complete-word)
 imap <c-x><c-f> <plug>(fzf-complete-path)
 imap <c-x><c-l> <plug>(fzf-complete-line)
-
-" =====================================
-" => vim-jsx
-" =====================================
-let g:jsx_ext_required = 0
-
-" =====================================
-" => vim-json
-" =====================================
-let g:vim_json_syntax_conceal = 0

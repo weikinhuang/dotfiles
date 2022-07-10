@@ -1,0 +1,4 @@
+{
+  // use ale to display lint errors
+  "diagnostic.displayByAle": true,
+}
