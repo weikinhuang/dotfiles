@@ -18,6 +18,14 @@ function __run_prompt_command() {
   done
 }
 
+# update the dotfiles repo
+function dotfiles-update() (
+  # shellcheck disable=SC2164
+  cd "${DOTFILES__ROOT}/.dotfiles"
+  git pull origin master
+  ./bootstrap.sh
+)
+
 # Count the number of files in a directory
 function cf() {
   find "${1-.}" -type f | wc -l
