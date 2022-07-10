@@ -8,7 +8,7 @@ fi
 
 # include solarized dir colors theme
 if [[ -n "${DOT_SOLARIZED_LIGHT:-}" ]]; then
-  eval "$(dircolors "${DOTFILES__ROOT}/.dotfiles/external/dircolors.solarized.ansi-light")"
+  eval "$(SHELL="$(command -v bash)" dircolors "${DOTFILES__ROOT}/.dotfiles/external/dircolors.solarized.ansi-light")"
 elif [[ -n "${DOT_SOLARIZED_DARK:-}" ]]; then
-  eval "$(dircolors "${DOTFILES__ROOT}/.dotfiles/external/dircolors.solarized.256dark")"
+  eval "$(SHELL="$(command -v bash)" dircolors "${DOTFILES__ROOT}/.dotfiles/external/dircolors.solarized.256dark")"
 fi
