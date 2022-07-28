@@ -189,15 +189,18 @@ endif
 
 " Set terminal colors as true-color
 set termguicolors
-" Solarized color scheme
-if !empty($DOT_SOLARIZED_LIGHT)
-  set background=light
-  colorscheme solarized8
-endif
-if !empty($DOT_SOLARIZED_DARK)
-  set background=dark
-  colorscheme solarized8
-endif
+try
+  " Solarized color scheme
+  if !empty($DOT_SOLARIZED_LIGHT)
+    set background=light
+    colorscheme solarized8
+  endif
+  if !empty($DOT_SOLARIZED_DARK)
+    set background=dark
+    colorscheme solarized8
+  endif
+catch
+endtry
 
 " Set utf8 as standard encoding and en_US as the standard language
 set encoding=utf8
