@@ -10,6 +10,6 @@ function _reload-tmux-env() {
   # shellcheck disable=SC2046
   eval $(tmux show-env -s)
 }
-if [[ "${TERM:-}" == screen* ]] && [[ -n "${TMUX:-}" ]]; then
+if [[ "${TERM:-}" == screen* || "${TERM:-}" == tmux* ]] && [[ -n "${TMUX:-}" ]]; then
   __push_internal_prompt_command '_reload-tmux-env'
 fi
