@@ -42,6 +42,8 @@ else
     unset -f docker-compose &>/dev/null
     command -v docker-compose
   )"
+  export __podman_docker_autopath
+  export __podman_docker_compose_autopath
   function docker() {
     if [[ -n "${DOCKER_HOST:-}" ]] || [[ -S /var/run/docker.sock ]]; then
       "${__podman_docker_autopath}" "$@"
