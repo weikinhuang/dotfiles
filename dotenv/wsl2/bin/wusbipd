@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+
+# make sure we go to the right path
+PGM_PATH="Program Files"
+if [[ -d "$(wslpath -ua "c:/")Program Files (x86)/usbipd-win/" ]]; then
+  PGM_PATH="Program Files (x86)"
+fi
+
+PROGRAM="$(wslpath -ua "c:/${PGM_PATH}/usbipd-win/usbipd.exe")"
+if [[ ! -e "${PROGRAM}" ]]; then
+  exit 1
+fi
+
+winsudo "${PROGRAM}" "$@"
+exit $?
