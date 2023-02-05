@@ -51,22 +51,22 @@ alias pbpaste="termux-clipboard-get"
 Symlink `.bash_history`
 
 ```bash
-touch ~/storage/downloads/Sync/.bash_history
-ln -sf ~/storage/downloads/Sync/.bash_history
+touch ~/storage/downloads/Sync/termux/.bash_history
+ln -sf ~/storage/downloads/Sync/termux/.bash_history
 ```
 
 Symlink `.bash_local`
 
 ```bash
-touch ~/storage/downloads/Sync/.bash_local
-ln -sf ~/storage/downloads/Sync/.bash_local
+touch ~/storage/downloads/Sync/termux/.bash_local
+ln -sf ~/storage/downloads/Sync/termux/.bash_local
 ```
 
 Symlink `.gitconfig.local`
 
 ```bash
-touch ~/storage/downloads/Sync/.gitconfig.local
-ln -sf ~/storage/downloads/Sync/.gitconfig.local
+touch ~/storage/downloads/Sync/termux/.gitconfig.local
+ln -sf ~/storage/downloads/Sync/termux/.gitconfig.local
 ```
 
 ## Setup a `proot` linux environment
