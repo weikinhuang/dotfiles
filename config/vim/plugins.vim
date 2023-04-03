@@ -47,6 +47,7 @@ Plug 'Yggdroot/indentLine', !has('nvim') ? {} : { 'on': [] }
 " => neovim only plugins
 " =====================================
 Plug 'akinsho/bufferline.nvim', has('nvim') ? {} : { 'on': [] }
+Plug 'github/copilot.vim', has('nvim') ? {} : { 'on': [] }
 Plug 'kyazdani42/nvim-tree.lua', has('nvim') ? {} : { 'on': [] }
 Plug 'kyazdani42/nvim-web-devicons', has('nvim') ? {} : { 'on': [] } " Recommended (for coloured icons)
 Plug 'lewis6991/gitsigns.nvim', has('nvim') ? {} : { 'on': [] }

@@ -7,17 +7,19 @@
 " =====================================
 lua << EOF
 require("bufferline").setup({
-  show_tab_indicators = true,
-  enforce_regular_tabs = false,
-  always_show_bufferline = true,
-  offsets = {
-    {
-      filetype = "NvimTree",
-      text = function()
-        return vim.fn.getcwd()
-      end,
-      highlight = "Directory",
-      text_align = "left"
+  options = {
+    show_tab_indicators = true,
+    enforce_regular_tabs = false,
+    always_show_bufferline = true,
+    offsets = {
+      {
+        filetype = "NvimTree",
+        text = function()
+          return vim.fn.getcwd()
+        end,
+        highlight = "Directory",
+        text_align = "left"
+      }
     }
   }
 })
