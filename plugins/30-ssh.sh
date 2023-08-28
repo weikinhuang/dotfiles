@@ -1,6 +1,5 @@
 # shellcheck shell=bash
 
-# @see https://direnv.net/
 if ! command -v ssh &>/dev/null; then
   return
 fi
