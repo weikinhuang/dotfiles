@@ -3,9 +3,10 @@
 # verbose mode
 GIT_SYNC_TRACE=${GIT_SYNC_TRACE:-}
 
-# Go to the master branch then sync local and origin with [upstream|origin]
+# Go to the main branch then sync local and origin with [upstream|origin]
 function sync_one() {
-  local PREV_BR STASH_NAME
+  local MAIN_BRANCH PREV_BR STASH_NAME
+  MAIN_BRANCH="$(git branch --list | grep 'master\|main' | sed 's/\** *//' | head -1)"
   PREV_BR="$(git brn)"
   STASH_NAME="$(date +%s)"
   git diff-index --quiet HEAD --
@@ -14,21 +15,21 @@ function sync_one() {
     [[ -n $GIT_SYNC_TRACE ]] && echo -e "\e[35m ===== Stashing changes ===== \e[0m"
     git stash save "sync-$STASH_NAME"
   fi
-  if [[ "$PREV_BR" != "master" ]]; then
-    [[ -n $GIT_SYNC_TRACE ]] && echo -e "\e[35m ===== Checkout to master ===== \e[0m"
-    git checkout master
+  if [[ "$PREV_BR" != "${MAIN_BRANCH}" ]]; then
+    [[ -n $GIT_SYNC_TRACE ]] && echo -e "\e[35m ===== Checkout to ${MAIN_BRANCH} ===== \e[0m"
+    git checkout "${MAIN_BRANCH}"
   fi
   if git remote -v | grep '^upstream' -q; then
     [[ -n $GIT_SYNC_TRACE ]] && echo -e "\e[34m ===== Pulling upstream ===== \e[0m"
-    git pull upstream master
+    git pull upstream "${MAIN_BRANCH}"
     [[ -n $GIT_SYNC_TRACE ]] && echo -e "\e[34m ===== Pushing origin ===== \e[0m"
-    git push origin master
+    git push origin "${MAIN_BRANCH}"
   else
     [[ -n $GIT_SYNC_TRACE ]] && echo -e "\e[34m ===== Pulling origin ===== \e[0m"
-    git pull origin master
+    git pull origin "${MAIN_BRANCH}"
   fi
   git submodule update
-  if [[ "$PREV_BR" != "master" ]]; then
+  if [[ "$PREV_BR" != "${MAIN_BRANCH}" ]]; then
     [[ -n $GIT_SYNC_TRACE ]] && echo -ne "\e[35m ===== Checkout to "
     [[ -n $GIT_SYNC_TRACE ]] && echo -n "$PREV_BR"
     [[ -n $GIT_SYNC_TRACE ]] && echo -e " ===== \e[0m"

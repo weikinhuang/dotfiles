@@ -73,7 +73,7 @@ GIT_SSH_NO_PROXY environment variable. Any remotes found in this variable will
 ignore any proxy settings configured in the gitconfig file above.
 
     GIT_SSH_NO_PROXY=git.corp.example.com,foo.com,bar.com \
-        git pull origin master
+        git pull origin main
 HELPDOC
   exit 1
 fi

@@ -10,12 +10,13 @@ require_work_tree
 
 # get the current branch
 BRANCH=$(git branch | grep '^* ' | sed 's/^* //')
+MAIN_BRANCH="$(git branch --list | grep 'master\|main' | sed 's/\** *//' | head -1)"
 
 # no pull requests allowed against master unless -f option is on
 getopt_assert -f:--force "$@"
 # shellcheck disable=SC2181
-if [ $? != 0 ] && [ "$BRANCH" == "master" ]; then
-  echo "Tracking modifications cannot be made on the master branch, override with -f."
+if [ $? != 0 ] && [ "$BRANCH" == "${MAIN_BRANCH}" ]; then
+  echo "Tracking modifications cannot be made on the ${MAIN_BRANCH} branch, override with -f."
   exit 1
 fi
 
