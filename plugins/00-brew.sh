@@ -37,7 +37,10 @@ fi
 unset DOT_INCLUDE_BREW_PATH
 
 # Completion options
-if [[ -f "$(brew --prefix)/etc/bash_completion" ]]; then
+if [[ -f "$(brew --prefix)/share/bash-completion/bash_completion" ]]; then
+  # shellcheck source=/dev/null
+  source "$(brew --prefix)/share/bash-completion/bash_completion"
+elif [[ -f "$(brew --prefix)/etc/bash_completion" ]]; then
   # shellcheck source=/dev/null
   source "$(brew --prefix)/etc/bash_completion"
 fi
