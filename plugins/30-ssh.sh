@@ -41,7 +41,7 @@ function _ssh-agent-start() {
 }
 
 # only start the agent if we don't already have a SSH_AUTH_SOCK
-if [[ -n "${DOT_AUTOLOAD_SSH_AGENT:-}" ]] && [[ -z "${SSH_AUTH_SOCK:-}" ]] && command -v ssh-agent &>/dev/null; then
+if [[ -n "${DOT_AUTOLOAD_SSH_AGENT:-}" ]] && { [[ -z "${SSH_AUTH_SOCK:-}" ]] || [[ ! -e "${SSH_AUTH_SOCK:-}" ]]; } && command -v ssh-agent &>/dev/null; then
   _ssh-agent-start
   unset DOT_AUTOLOAD_SSH_AGENT
 fi
