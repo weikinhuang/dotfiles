@@ -78,7 +78,7 @@ sudo apt-get update && sudo apt-get install -y --no-install-recommends \
     htop \
     jq \
     make \
-    netcat \
+    netcat-openbsd \
     openssl \
     procps \
     python3-venv \
