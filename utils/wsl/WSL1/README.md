@@ -13,7 +13,7 @@ Before installing any Linux distros for WSL, you must ensure that the "Windows S
 1. Restart your computer when prompted.
 1. Install `Ubuntu`
    1. Download and install from the Windows Store: search `Run Linux on Windows`
-    - [Ubuntu](https://www.microsoft.com/en-us/p/ubuntu-2004-lts/9n6svws3rx71)
+    - [Ubuntu](https://apps.microsoft.com/detail/9pdxgncfsczv) (latest LTS)
     - From the distro's page, select "Get"
    1. Using `winget`
 

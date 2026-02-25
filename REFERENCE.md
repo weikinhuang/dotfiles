@@ -1,4 +1,4 @@
-﻿# weikinhuang's dotfiles reference <!-- omit in toc -->
+# weikinhuang's dotfiles reference <!-- omit in toc -->
 
 - [Changes](#changes)
 - [New Global Variables](#new-global-variables)
@@ -16,6 +16,11 @@
   - [Usage Examples](#usage-examples)
     - [When defined as a singular function](#when-defined-as-a-singular-function)
     - [Function Arrays](#function-arrays)
+- [Troubleshooting](#troubleshooting)
+  - [Slow shell startup](#slow-shell-startup)
+  - [Prompt symbols display as boxes or question marks](#prompt-symbols-display-as-boxes-or-question-marks)
+  - [`date2unix` doesn't work](#date2unix-doesnt-work)
+  - [Local overrides](#local-overrides)
 - [Additional tools](#additional-tools)
   - [clipboard-server](#clipboard-server)
 
@@ -26,7 +31,7 @@
 - `ls` and `grep` always has color (use `--color=never` to override)
 - `which` command expands full path when possible
 - `less` does not clear the screen upon exit and process colors (with options `-XR`)
-- `diff` uses git's diff command with color when possible
+- `gdiff` uses git's diff command with color when possible
 - `pbcopy` and `pbpaste` for cross-platform copy/paste from cli, and optionally over ssh
 - `open` for cross-platform open in native application
 
@@ -98,6 +103,7 @@
 | `regex`     | Regex match and replace from [opsb/4409156](https://gist.github.com/opsb/4409156) |
 | `uc`        | Convert to uppercase                                                              |
 | `unidecode` | Decode `\x{ABCD}`-style Unicode escape sequences                                  |
+| `binarydiff`| Binary diff two files using `vimdiff` and `xxd`                                   |
 
 ### Utilities
 
@@ -109,9 +115,11 @@
 | [`clipboard-server`](#clipboard-server) | Forward local clipboard access over a socket                                                         |
 | `dataurl`                               | Create a data URL from an image                                                                      |
 | `date2unix`                             | Convert a date string to a unix timestamp (`date2unix Fri, Feb 13, 2009 6:31:30 PM` => `1234567890`) |
-| `extract`                               | Extracts a archive with autodetect based on extension                                                |
+| `extract`                               | Extracts an archive with autodetect based on extension                                               |
 | `fromtime`                              | `unix2date`                                                                                          |
+| `gdiff`                                 | Git-powered colored diff for comparing any two files (`gdiff file1 file2`)                           |
 | `genpasswd`                             | Generate a random string of a certain length                                                         |
+| `gz-size`                               | Get original and gzipped file size in bytes                                                          |
 | `gz`                                    | Get the gzipped file size                                                                            |
 | `parallel-xargs`                        | Run a command through xargs with that is sh wrapped (`parallel-xargs cat {}`)                        |
 | `quick-toast`                           | Show a simple notification using OS primitives `quick-toast TITLE [BODY]`                            |
@@ -130,8 +138,8 @@
 | `git cherry-pick-from` | Cherry pick commits from a different git repo                      |
 | `git gh-pages`         | Setup a new branch called gh-pages following github procedure      |
 | `git hooks`            | Execute a git hook                                                 |
-| `git hub-pull-request` | Open a pull request on github                                      |
-| `git hub-token`        | Generate a github api access token                                 |
+| `git pr`               | Create a pull request on GitHub (opens web UI via `gh`)            |
+| `git pr-get`           | Checkout a pull request locally via `gh`                           |
 | `git ignore`           | Add a file/path to .gitignore                                      |
 | `git ls-dir`           | List files in a git repo tree together with the latest commit      |
 | `git remove-history`   | Permanently delete files/folders from repository                   |
@@ -198,6 +206,34 @@ precmd_functions+=(precmd_hello_two)
 chpwd_ls() { ls -1; }
 chpwd_functions+=(chpwd_ls_one)
 ```
+
+## Troubleshooting
+
+### Slow shell startup
+
+If shell startup takes more than a second, common culprits include:
+
+- **nvm**: The nvm plugin sources nvm on every shell. If startup is slow, check if lazy loading is enabled in `plugins/20-nvm.sh`.
+- **completions**: Completion scripts for tools like `kubectl`, `helm`, `gh` can add up. Completions are cached where possible; see `plugins/` for details.
+- **prompt segments**: The load average and exec timer segments spawn subprocesses. Disable with `PS1_OPT_HIDE_LOAD=1` or `PS1_OPT_HIDE_EXEC_TIME=1` before sourcing.
+
+To profile startup time:
+
+```bash
+time bash -i -c exit
+```
+
+### Prompt symbols display as boxes or question marks
+
+The prompt uses UTF-8 symbols (lambda, mu, pi). Your terminal and font must support Unicode. Recommended fonts: Nerd Font variants (e.g., `JetBrainsMono Nerd Font`, `FiraCode Nerd Font`).
+
+### `date2unix` doesn't work
+
+On macOS, the function supports common date formats. For GNU-style free-form dates, install `coreutils` via Homebrew (`brew install coreutils`) and use `gdate` instead.
+
+### Local overrides
+
+Machine-specific configuration should go in `~/.bash_local`, which is sourced automatically if it exists. This keeps the dotfiles repo portable.
 
 ## Additional tools
 

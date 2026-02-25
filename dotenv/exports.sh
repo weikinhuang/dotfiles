@@ -18,6 +18,10 @@ export COMP_TAR_INTERNAL_PATHS
 # Make = a wordbreak character
 COMP_WORDBREAKS=${COMP_WORDBREAKS/=/}
 
-# set $EDITOR to a if not already set
+# set $EDITOR if not already set
 EDITOR="${EDITOR:-$(__find_editor)}"
 export EDITOR
+VISUAL="${VISUAL:-$EDITOR}"
+export VISUAL
+PAGER="${PAGER:-less}"
+export PAGER

@@ -2,10 +2,12 @@
 # function to get cpu load
 if [[ -r /proc/loadavg ]]; then
   function __ps1_proc_use() {
-    echo -n "$(\sed -n "s/\([0-9]\.[0-9][0-9]\).\+/\1/p" /proc/loadavg)"
+    local loadavg
+    read -r loadavg _ < /proc/loadavg
+    echo -n "${loadavg}"
   }
 else
   function __ps1_proc_use() {
-    echo -n "$(uptime | rev | cut -d' ' -f 3 | rev | \sed -n "s/\([0-9]\.[0-9][0-9]\).\+/\1/p")"
+    echo -n "$(uptime | awk '{print $(NF-2)}' | tr -d ',')"
   }
 fi

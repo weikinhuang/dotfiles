@@ -37,18 +37,16 @@ require("nvim-tree").setup({
   hijack_netrw = true,
   hijack_cursor = true,
   hijack_unnamed_buffer_when_opening = false,
-  update_cwd = true,
+  sync_root_with_cwd = true,
   update_focused_file = {
     enable = true,
-    update_cwd = false,
+    update_root = false,
   },
-  view = {
-    mappings = {
-      list = {
-        { key = "<C-e>", action = "NvimTreeToggle" }
-      }
-    }
-  }
+  on_attach = function(bufnr)
+    local api = require("nvim-tree.api")
+    api.config.mappings.default_on_attach(bufnr)
+    vim.keymap.set("n", "<C-e>", api.tree.toggle, { buffer = bufnr, noremap = true, silent = true })
+  end,
 })
 EOF
 
@@ -72,19 +70,16 @@ EOF
 " => Indent Blankline
 " =====================================
 lua << EOF
-require("indent_blankline").setup({
-  show_current_context = true,
-  show_current_context_start = true,
-})
+require("ibl").setup()
 EOF
 
 " =====================================
-" => lsp-installer
+" => mason + mason-lspconfig
 " =====================================
 lua << EOF
-require("nvim-lsp-installer").setup({
-  automatic_installation = true, -- automatically detect which servers to install (based on which servers are set up via lspconfig)
-  max_concurrent_installers = 10,
+require("mason").setup()
+require("mason-lspconfig").setup({
+  automatic_installation = true,
 })
 EOF
 

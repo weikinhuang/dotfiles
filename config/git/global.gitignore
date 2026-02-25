@@ -1,0 +1,30 @@
+# OS files
+.DS_Store
+.DS_Store?
+._*
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Editor files
+*.swp
+*.swo
+*~
+*.bak
+*.tmp
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# Environment / secrets
+.env
+.env.local
+.env.*.local
+
+# Dependencies
+node_modules/
+vendor/
+
+# Build output
+*.log

@@ -1,6 +1,6 @@
 # Windows Subsystem Linux setup
 
-For full documentation see [docs.microsoft.com](https://docs.microsoft.com/en-us/windows/wsl/install-win10).
+For full documentation see [learn.microsoft.com](https://learn.microsoft.com/en-us/windows/wsl/install).
 
 ## Install the Windows Subsystem for Linux
 

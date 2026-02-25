@@ -12,9 +12,11 @@ fi
 # CONFIGURE PROMPT
 # ------------------------------------------------------------------------------
 # check if date supports nanoseconds (provided by coreutils)
-if [[ -z "$(date +%N)" ]] || [[ "$(date +%N)" == "N" ]]; then
+_ns_check="$(date +%N)"
+if [[ -z "$_ns_check" ]] || [[ "$_ns_check" == "N" ]]; then
   PS1_OPT_HIDE_EXEC_TIME=1
 fi
+unset -v _ns_check
 
 # bash 3 and below doesn't properly eacape the array when inlined
 if [[ "${BASH_VERSION/.*/}" -lt 4 ]]; then
@@ -83,14 +85,14 @@ fi
 # SYMBOLS AND VARIABLES FOR PROMPTS
 # ------------------------------------------------------------------------------
 [[ -z "${PS1_SYMBOL_NO_WRITE_PWD+x}" ]] && PS1_SYMBOL_NO_WRITE_PWD='*'
-[[ -z "${PS1_SYMBOL_GIT+x}" ]] && PS1_SYMBOL_GIT="${PS1_COLOR_BOLD}$(echo -e '\xD5\xAF')${PS1_COLOR_NORMAL} "
+[[ -z "${PS1_SYMBOL_GIT+x}" ]] && PS1_SYMBOL_GIT="${PS1_COLOR_BOLD}"$'\xD5\xAF'"${PS1_COLOR_NORMAL} "
 [[ -z "${PS1_SYMBOL_SSH+x}" ]] && PS1_SYMBOL_SSH='@'
 [[ -z "${PS1_SYMBOL_LOCAL+x}" ]] && PS1_SYMBOL_LOCAL='#'
 
-[[ -z "${PS1_SYMBOL_USER+x}" ]] && PS1_SYMBOL_USER="$(echo -e "\xCE\xBB")" # λ
-[[ -z "${PS1_SYMBOL_ROOT+x}" ]] && PS1_SYMBOL_ROOT="$(echo -e "\xCE\xBC")" # μ
-[[ -z "${PS1_SYMBOL_SU+x}" ]] && PS1_SYMBOL_SU="$(echo -e "\xCF\x80\x0A")" # π
-[[ -z "${PS1_SYMBOL_WIN_PRIV+x}" ]] && PS1_SYMBOL_WIN_PRIV="W*"            # W*
+[[ -z "${PS1_SYMBOL_USER+x}" ]] && PS1_SYMBOL_USER=$'\xCE\xBB' # λ
+[[ -z "${PS1_SYMBOL_ROOT+x}" ]] && PS1_SYMBOL_ROOT=$'\xCE\xBC' # μ
+[[ -z "${PS1_SYMBOL_SU+x}" ]] && PS1_SYMBOL_SU=$'\xCF\x80'     # π
+[[ -z "${PS1_SYMBOL_WIN_PRIV+x}" ]] && PS1_SYMBOL_WIN_PRIV="W*" # W*
 
 [[ -z "${PS1_OPT_DAY_START+x}" ]] && PS1_OPT_DAY_START=8
 [[ -z "${PS1_OPT_DAY_END+x}" ]] && PS1_OPT_DAY_END=18
@@ -159,7 +161,8 @@ fi
 # show time with color highlight
 # shellcheck disable=SC2016
 _PS1_SEGMENT_DATETIME="$(tr -d '\n' <<<'
-  time=$(/bin/date +"%H" | sed 's/^0//');
+  printf -v time "%(%H)T" -1;
+  time=${time#0};
   color="'"${PS1_COLOR_TIME_NIGHT}"'";
   if [[ ${time} -ge '${PS1_OPT_DAY_START}' && ${time} -le '${PS1_OPT_DAY_END}' ]]; then
      color="'"${PS1_COLOR_TIME_DAY}"'";
@@ -312,7 +315,7 @@ function __ps1_create() {
 
   # prompt status symbol
   PS1="${PS1}${PS1_COLOR_BOLD}"
-  if [[ -n "${PS1_SEGMENT_WIN_ELEVATED}" ]]; then
+  if [[ -n "${_PS1_SEGMENT_WIN_ELEVATED}" ]]; then
     # W* -- windows elevated session
     PS1="${PS1}${PS1_SYMBOL_WIN_PRIV}"
   elif [[ "$(id -u)" == 0 ]]; then
@@ -360,7 +363,7 @@ function __sudo_ps1_create() {
 
   # prompt status symbol
   PS1="${PS1}${PS1_COLOR_BOLD}"
-  if [[ -n "${PS1_SEGMENT_WIN_ELEVATED}" ]]; then
+  if [[ -n "${_PS1_SEGMENT_WIN_ELEVATED}" ]]; then
     # W* -- windows elevated session
     PS1="${PS1}${PS1_SYMBOL_WIN_PRIV}"
   elif [[ "$(id -u)" == 0 ]]; then
@@ -385,7 +388,7 @@ SUDO_PS1="$(__sudo_ps1_create)"
 export SUDO_PS1
 
 # export the interactive prompt line of the shell (→)
-PS2="$(echo -e "\xe2\x86\x92") "
+PS2=$'\xe2\x86\x92 '
 export PS2
 
 # ---------- OTHER VARIABLES ----------

@@ -9,12 +9,13 @@ function __push_prompt_command() {
 # internal prompt command stack to simplify the PROMPT_COMMAND variable
 declare -a __prompt_actions
 function __push_internal_prompt_command() {
-  local command="${1/%;/}"
-  __prompt_actions+=("${command}")
+  local cmd="${1/%;/}"
+  __prompt_actions+=("${cmd}")
 }
 function __run_prompt_command() {
-  for l in "${__prompt_actions[@]}"; do
-    eval "$l"
+  local cmd
+  for cmd in "${__prompt_actions[@]}"; do
+    eval "$cmd"
   done
 }
 

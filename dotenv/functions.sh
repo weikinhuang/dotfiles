@@ -34,48 +34,34 @@ function parallel-xargs() {
 
 # Extract archives automatically
 function extract() {
-  if [ -f "$1" ]; then
-    case "$1" in
-      *.tar.bz2)
-        tar xjf "$@"
-        ;;
-      *.tar.gz)
-        tar xzf "$@"
-        ;;
-      *.bz2)
-        bunzip2 "$@"
-        ;;
-      *.rar)
-        rar x "$@"
-        ;;
-      *.gz)
-        gunzip "$@"
-        ;;
-      *.tar)
-        tar xf "$@"
-        ;;
-      *.tbz2)
-        tar xjf "$@"
-        ;;
-      *.tgz)
-        tar xzf "$@"
-        ;;
-      *.zip)
-        unzip "$@"
-        ;;
-      *.Z)
-        uncompress "$@"
-        ;;
-      *.7z)
-        7z x "$@"
-        ;;
-      *)
-        echo "'$1' cannot be extracted via extract()"
-        ;;
-    esac
-  else
-    echo "'$1' is not a valid file"
+  if [ ! -f "$1" ]; then
+    echo "'$1' is not a valid file" >&2
+    return 1
   fi
+  local cmd
+  case "$1" in
+    *.tar.bz2) cmd="tar xjf" ;;
+    *.tar.gz) cmd="tar xzf" ;;
+    *.bz2) cmd="bunzip2" ;;
+    *.rar) cmd="rar x" ;;
+    *.gz) cmd="gunzip" ;;
+    *.tar) cmd="tar xf" ;;
+    *.tbz2) cmd="tar xjf" ;;
+    *.tgz) cmd="tar xzf" ;;
+    *.zip) cmd="unzip" ;;
+    *.Z) cmd="uncompress" ;;
+    *.7z) cmd="7z x" ;;
+    *)
+      echo "'$1' cannot be extracted via extract()" >&2
+      return 1
+      ;;
+  esac
+  local tool="${cmd%% *}"
+  if ! command -v "$tool" &>/dev/null; then
+    echo "extract: '$tool' is not installed" >&2
+    return 1
+  fi
+  $cmd "$@"
 }
 
 # Get gzipped file size
@@ -91,9 +77,9 @@ function md() {
   mkdir -p "$@" && cd "$@" || return 1
 }
 
-# Use Git's colored diff when available
+# Git's colored diff (avoids overriding system diff)
 if command -v git &>/dev/null; then
-  function diff() {
+  function gdiff() {
     git diff --no-index --color "$@"
   }
 fi
@@ -139,8 +125,15 @@ function unix2date() {
 # Convert a date string to a unix timestamp
 function date2unix() {
   if [[ -n "$1" ]]; then
-    date --date "$*" +%s
-    return
+    if date --date "$*" +%s 2>/dev/null; then
+      return
+    fi
+    # BSD/macOS fallback
+    date -j -f "%a, %b %d, %Y %I:%M:%S %p" "$*" +%s 2>/dev/null && return
+    date -j -f "%Y-%m-%d %H:%M:%S" "$*" +%s 2>/dev/null && return
+    date -j -f "%Y-%m-%d" "$*" +%s 2>/dev/null && return
+    echo "date2unix: unable to parse '$*'" >&2
+    return 1
   fi
   date +%s
 }

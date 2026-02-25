@@ -1,4 +1,4 @@
-﻿" make sure vundle is installed first
+" make sure vundle is installed first
 if !has('nvim')
   set nocompatible
 endif
@@ -55,7 +55,8 @@ Plug 'lukas-reineke/indent-blankline.nvim', has('nvim') ? {} : { 'on': [] }
 Plug 'neovim/nvim-lspconfig', has('nvim') ? {} : { 'on': [] }
 Plug 'numToStr/Comment.nvim', has('nvim') ? {} : { 'on': [] }
 Plug 'nvim-treesitter/nvim-treesitter', has('nvim') ? {'do': ':TSUpdate'} : { 'on': [] }
-Plug 'williamboman/nvim-lsp-installer', has('nvim') ? {} : { 'on': [] }
+Plug 'williamboman/mason.nvim', has('nvim') ? {} : { 'on': [] }
+Plug 'williamboman/mason-lspconfig.nvim', has('nvim') ? {} : { 'on': [] }
 
 " All of your Plugins must be added before the following line
 call plug#end()              " Initialize plugin system
