@@ -7,7 +7,6 @@ NVM_DIR="$([ -z "${XDG_CONFIG_HOME-}" ] && printf %s "${HOME}/.nvm" || printf %s
 if ! command -v nvm &>/dev/null && [[ ! -s "${NVM_DIR}/nvm.sh" ]]; then
   # clean up if we're not using nvm
   unset NVM_DIR
-
   return
 fi
 
@@ -17,31 +16,64 @@ unset NPM_CONFIG_PREFIX
 # shellcheck disable=SC2155
 export NVM_DIR
 
-# load nvm if not loaded
-if ! command -v nvm &>/dev/null && [[ -s "${NVM_DIR}/nvm.sh" ]]; then
-  # shellcheck source=/dev/null
-  source "${NVM_DIR}/nvm.sh"
+# ---------------------------------------------------------------------------
+# Lazy loading: defer sourcing nvm.sh (~200-500ms) until first use.
+# The default node version's bin dir is cached so node/npm/npx are on PATH
+# immediately without loading nvm.
+# ---------------------------------------------------------------------------
+_nvm_cache="${DOTFILES__CONFIG_DIR}/cache/nvm_default_path"
+if [[ -s "$_nvm_cache" ]]; then
+  read -r _nvm_cached_path < "$_nvm_cache"
+  if [[ -d "$_nvm_cached_path" ]]; then
+    __push_path --prepend "$_nvm_cached_path"
+  fi
+  unset _nvm_cached_path
+else
+  # No cache yet: source nvm eagerly this one time to seed it
+  if ! command -v nvm &>/dev/null && [[ -s "${NVM_DIR}/nvm.sh" ]]; then
+    # shellcheck source=/dev/null
+    source "${NVM_DIR}/nvm.sh"
+    # shellcheck source=/dev/null
+    [[ -s "${NVM_DIR}/bash_completion" ]] && source "${NVM_DIR}/bash_completion"
+  fi
+  _df_NVM_VER="$(nvm version default 2>/dev/null)"
+  if [[ -n "${_df_NVM_VER}" ]] && [[ "${_df_NVM_VER}" != "N/A" ]]; then
+    __push_path --prepend "${NVM_DIR}/versions/node/${_df_NVM_VER}/bin"
+    printf '%s' "${NVM_DIR}/versions/node/${_df_NVM_VER}/bin" > "$_nvm_cache" 2>/dev/null
+  fi
+  unset _df_NVM_VER
 fi
+unset _nvm_cache
 
-# Setup nvm bash_completion
-if [[ -s "${NVM_DIR}/bash_completion" ]]; then
+__nvm_lazy_load() {
+  unset -f nvm node npm npx __nvm_lazy_load
   # shellcheck source=/dev/null
-  source "${NVM_DIR}/bash_completion"
-fi
+  [[ -s "${NVM_DIR}/nvm.sh" ]] && source "${NVM_DIR}/nvm.sh"
+  # shellcheck source=/dev/null
+  [[ -s "${NVM_DIR}/bash_completion" ]] && source "${NVM_DIR}/bash_completion"
+  # refresh cached default for next startup
+  local ver
+  ver="$(nvm version default 2>/dev/null)"
+  if [[ -n "$ver" ]] && [[ "$ver" != "N/A" ]]; then
+    printf '%s' "${NVM_DIR}/versions/node/${ver}/bin" \
+      > "${DOTFILES__CONFIG_DIR}/cache/nvm_default_path"
+  fi
+}
 
-# try to use default stable
-_df_NVM_VER="$(nvm version default)"
-if [[ -n "${_df_NVM_VER}" ]]; then
-  # minor optimization, "nvm use" takes ~200ms to run
-  __push_path --prepend "${NVM_DIR}/versions/node/${_df_NVM_VER}/bin"
-  # let this be taken care of in the chpwd func
-  # nvm use default &>/dev/null
+if ! command -v nvm &>/dev/null; then
+  nvm()  { __nvm_lazy_load; nvm  "$@"; }
+  node() { __nvm_lazy_load; node "$@"; }
+  npm()  { __nvm_lazy_load; npm  "$@"; }
+  npx()  { __nvm_lazy_load; npx  "$@"; }
 fi
-unset _df_NVM_VER
 
 # automatically load nvm as needed
 # https://github.com/nvm-sh/nvm#automatically-call-nvm-use
 cdnvm() {
+  if ! command -v nvm_find_up &>/dev/null; then
+    __nvm_lazy_load 2>/dev/null || true
+  fi
+
   nvm_path=$(nvm_find_up .nvmrc | tr -d '\n')
 
   # If there are no .nvmrc file, use the default nvm version

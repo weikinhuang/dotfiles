@@ -175,7 +175,7 @@ _PS1_SEGMENT_DATETIME="$(tr -d '\n' <<<'
 _PS1_SEGMENT_LOADAVG="$(tr -d '\n' <<<'
   load=$(__ps1_proc_use);
   loadcolors=('$(printf "'%s' " "${PS1_COLOR_LOAD[@]}")');
-  __ps1_var_loadmod="$(echo "${load}" | cut -f1 -d.)";
+  __ps1_var_loadmod="${load%%.*}";
   [[ -z "${__ps1_var_loadmod}" ]] && __ps1_var_loadmod=0;
   [[ "${__ps1_var_loadmod}" -gt '$((${#PS1_COLOR_LOAD[@]} - 1))' ]] && __ps1_var_loadmod='$((${#PS1_COLOR_LOAD[@]} - 1))';
   echo "${loadcolors[$__ps1_var_loadmod]}${load}'"${PS1_COLOR_RESET}"' ";
@@ -185,13 +185,12 @@ _PS1_SEGMENT_LOADAVG="$(tr -d '\n' <<<'
 if [[ -z "${PS1_OPT_HIDE_DIR_INFO:-}" ]]; then
   __ps1_var_dirinfo=
   function __ps1_dir_info_wrapper() {
-    local lsout lsnum lssize
-
-    lsout=$(\ls -lAh 2>/dev/null)
-    lsnum=$(($(echo "${lsout}" | \wc -l) - 1))
-    lssize="$(echo "${lsout}" | \grep '^total ' | \awk '{ print $2 }')b"
-
-    __ps1_var_dirinfo="<${lsnum}|${lssize}>"
+    local lsout lssize
+    local -a lines
+    lsout=$(\ls -lAh 2>/dev/null) || return
+    mapfile -t lines <<< "$lsout"
+    lssize="${lines[0]#total }"
+    __ps1_var_dirinfo="<$(( ${#lines[@]} - 1 ))|${lssize}b>"
   }
   chpwd_functions+=(__ps1_dir_info_wrapper)
 fi
@@ -244,6 +243,20 @@ if [[ -z "${PS1_OPT_HIDE_EXEC_TIME:-}" ]]; then
     __ps1_var_execduration=" ${duration}"
   }
   __push_internal_prompt_command __ps1_exec_timer_stop
+fi
+
+# dynamic newline: re-evaluates on each prompt so terminal resize is respected
+if [[ -z "${PS1_OPT_MULTILINE:-}" ]]; then
+  __ps1_newline_threshold="${PS1_OPT_NEWLINE_THRESHOLD:-120}"
+  __ps1_var_newline=""
+  function __ps1_newline_check() {
+    if [[ ${COLUMNS:-0} -lt ${__ps1_newline_threshold} ]]; then
+      __ps1_var_newline=$'\n'
+    else
+      __ps1_var_newline=""
+    fi
+  }
+  __push_internal_prompt_command __ps1_newline_check
 fi
 
 # ------------------------------------------------------------------------------
@@ -309,8 +322,8 @@ function __ps1_create() {
   # newline before the user symbol if necessary
   if [[ -n "${PS1_OPT_MULTILINE:-}" ]]; then
     PS1="${PS1}\n"
-  elif command -v tput &>/dev/null && [[ $(tput cols) -lt ${PS1_OPT_NEWLINE_THRESHOLD} ]]; then
-    PS1="${PS1}\n"
+  else
+    PS1="${PS1}\${__ps1_var_newline}"
   fi
 
   # prompt status symbol

@@ -41,12 +41,14 @@ case "$(uname -s)" in
     ;;
   Linux)
     # need test for wslpath because we could be in a container
-    if uname -r | grep -qi Microsoft && command -v wslpath &>/dev/null; then
+    _uname_r="$(uname -r)"
+    if [[ "$_uname_r" == *[Mm]icrosoft* ]] && command -v wslpath &>/dev/null; then
       DOT___IS_WSL=1
-      if uname -r | grep -qi WSL2; then
+      if [[ "$_uname_r" == *WSL2* ]]; then
         DOT___IS_WSL2=1
       fi
     fi
+    unset _uname_r
     ;;
 esac
 readonly DOTENV
@@ -69,10 +71,18 @@ esac
 
 # check if this is a ssh session
 export DOT___IS_SSH=
-# alternate check requires looking up parent pids
-# `who` command found in `coreutils`
-if [[ -n "${SSH_CONNECTION:-}" ]] || (command -v who &>/dev/null && [[ "$(who am i | cut -f2 -d\( | cut -f1 -d:)" != "" ]]); then
+if [[ -n "${SSH_CONNECTION:-}" ]] || [[ -n "${SSH_TTY:-}" ]]; then
   DOT___IS_SSH=1
+elif command -v who &>/dev/null; then
+  _who_out="$(who am i 2>/dev/null)"
+  if [[ "$_who_out" == *\(*\)* ]]; then
+    _who_host="${_who_out##*(}"
+    _who_host="${_who_host%%)*}"
+    _who_host="${_who_host%%:*}"
+    [[ -n "$_who_host" ]] && DOT___IS_SSH=1
+    unset _who_host
+  fi
+  unset _who_out
 fi
 readonly DOT___IS_WSL
 readonly DOT___IS_WSL2
