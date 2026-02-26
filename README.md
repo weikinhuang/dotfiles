@@ -1,4 +1,4 @@
-﻿# weikinhuang's dotfiles
+# weikinhuang's dotfiles
 
 My `$SHELL`, mostly bash, works everywhere, `*nix`, `osx`, `wsl`.
 
@@ -58,11 +58,11 @@ See [REFERENCE.md](./REFERENCE.md) for all added commands, overrides, and change
 - `cd --` list last 10 traversed directories
 - `chpwd`, `precmd`, and `preexec` hooks with similar behavior to [**Zsh**](https://zsh.sourceforge.io/Doc/Release/Functions.html#Hook-Functions)
 - `sudo` works on aliases
-- `rm` `cp` `mv` are always inteactive `-i` (use `-f` to override)
+- `rm` `cp` `mv` are always interactive `-i` (use `-f` to override)
 - `ls` and `grep` always has color (use `--color=never` to override)
 - `which` command expands full path when possible
 - `less` does not clear the screen upon exit and process colors (with options `-XR`)
-- `diff` uses git's diff command with color when possible
+- `gdiff` uses git's diff command with color when possible
 - `pbcopy` and `pbpaste` for cross-platform copy/paste from cli, and optionally over ssh
 - `open` for cross-platform open in native application
 - `chattr`, `mklink`, `is-elevated-session`, `winstart`, `winsudo` WSL tools
@@ -196,19 +196,19 @@ $ env -i PS1=1 TERM="$TERM" PATH="$PATH" HOME="$HOME" SHELL="$SHELL" bash -l
 ...
 ```
 
-### shellcheck and shfmt
+### Brewfile
 
-[`shellcheck`](https://github.com/koalaman/shellcheck) and [`shfmt`](https://github.com/mvdan/sh) are used to ensure consistency of the scripts in this repo. Files in `/external` are ignored, since they are external scripts.
+A [`Brewfile`](./Brewfile) is included for declaratively managing core Homebrew packages on macOS. Install with:
 
 ```bash
-# shellcheck
-( git ls-files -z | xargs -0 grep -l 'shellcheck shell=\|^#!.\+sh'; git ls-files | grep '\.sh$' ) | grep -v '\.md$' | grep -v .gitlab-ci.yml | sort | uniq | xargs -n1 shellcheck -f gcc --source-path=SCRIPTDIR
-
-# shfmt
-( git ls-files -z | xargs -0 grep -l 'shellcheck shell=\|^#!.\+sh'; git ls-files | grep '\.sh$' ) | grep -v '\.md$' | grep -v .gitlab-ci.yml | sort | uniq | xargs -n1 shfmt -ln bash -ci -bn -i 2 -d -w
+brew bundle --file=~/.dotfiles/Brewfile
 ```
 
-Validate the codebase with the following script, it should return with `OK` on success.
+### Linting
+
+[`shellcheck`](https://github.com/koalaman/shellcheck) and [`shfmt`](https://github.com/mvdan/sh) are used to ensure consistency of the scripts in this repo. Files in `external/` are excluded since they are third-party.
+
+Validate the codebase locally:
 
 ```bash
 $ ./dev/lint.sh

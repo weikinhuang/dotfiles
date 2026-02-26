@@ -1,6 +1,7 @@
 # weikinhuang's dotfiles reference <!-- omit in toc -->
 
 - [Changes](#changes)
+- [Tool Defaults](#tool-defaults)
 - [New Global Variables](#new-global-variables)
 - [All Platforms](#all-platforms)
   - [Navigation](#navigation)
@@ -10,6 +11,9 @@
   - [String Manipulation](#string-manipulation)
   - [Utilities](#utilities)
   - [Git Utilities](#git-utilities)
+- [Prompt Customization](#prompt-customization)
+  - [Prompt Options](#prompt-options)
+  - [Prompt Symbols](#prompt-symbols)
 - [Windows Subsystem Linux (WSL) specific](#windows-subsystem-linux-wsl-specific)
   - [WSL Utilities](#wsl-utilities)
 - [Bash hooks](#bash-hooks)
@@ -27,25 +31,47 @@
 ## Changes
 
 - `sudo` works on aliases
-- `rm` `cp` `mv` are always inteactive `-i` (use `-f` to override)
+- `rm` `cp` `mv` are always interactive `-i` (use `-f` to override)
 - `ls` and `grep` always has color (use `--color=never` to override)
 - `which` command expands full path when possible
 - `less` does not clear the screen upon exit and process colors (with options `-XR`)
+- `vi` is aliased to the best available editor (`nvim` > `vim` > system default)
+- `cat` is aliased to `bat --paging=never` when `bat` is installed (use `command cat` to bypass)
 - `gdiff` uses git's diff command with color when possible
 - `pbcopy` and `pbpaste` for cross-platform copy/paste from cli, and optionally over ssh
 - `open` for cross-platform open in native application
 
+## Tool Defaults
+
+Plugins in `plugins/` configure sensible defaults for common tools when they're installed. All settings respect existing values — if you've already set an env var, it won't be overridden.
+
+| Tool       | What's configured                                                                                  |
+| ---------- | -------------------------------------------------------------------------------------------------- |
+| **ripgrep** | Smart-case, hidden files, common glob exclusions (`.git`, `node_modules`, etc.), max column width. Config at `config/ripgrep/config`, loaded via `RIPGREP_CONFIG_PATH`. |
+| **fzf**    | Reverse layout, 40% height, border, inline info. `CTRL-T` and `ALT-C` use `fd` when available. File preview via `bat`, directory preview via `tree`. |
+| **bat**    | Line numbers + git changes style. Used as `MANPAGER` for colored man pages. `cat` aliased to `bat --paging=never`. |
+| **less**   | Colored man pages via `LESS_TERMCAP_*`. Does not clear screen on exit (`-XR`).                     |
+| **direnv** | Silent log format, bash hook loaded automatically.                                                  |
+| **curl**   | Follow redirects, auto-referer, compressed responses, HTTPS default, 60s timeout, 3 retries.       |
+| **wget**   | Timestamping, 60s timeout, 3 retries, retry on refused, modern user-agent string.                  |
+
+Override any of these by setting the relevant env var in `~/.bash_local` before the dotfiles are sourced.
+
 ## New Global Variables
 
-| ENV var           | Description                                                     |
-| ----------------- | --------------------------------------------------------------- |
-| `DOT___IS_SCREEN` | Set when the current environment is a screen session            |
-| `DOT___IS_SSH`    | Set when the current environment is a ssh session               |
-| `DOT___IS_WSL`    | Set when the current environment is running inside WSL          |
-| `DOT___IS_WSL2`   | Set when the current environment is running inside WSL 2        |
-| `DOTENV`          | Simple access to os platform                                    |
-| `DOTFILES__ROOT`  | Root where dotfiles directory is installed (ex. `/home/ubuntu`) |
-| `PROC_CORES`      | Number of threads (cores)                                       |
+| ENV var              | Description                                                            |
+| -------------------- | ---------------------------------------------------------------------- |
+| `DOT___IS_SCREEN`    | Set when the current environment is a screen session                   |
+| `DOT___IS_SSH`       | Set when the current environment is a ssh session                      |
+| `DOT___IS_WSL`       | Set when the current environment is running inside WSL                 |
+| `DOT___IS_WSL2`      | Set when the current environment is running inside WSL 2               |
+| `DOTENV`             | Simple access to os platform (`darwin` or `linux`)                     |
+| `DOTFILES__ROOT`     | Root where dotfiles directory is installed (ex. `/home/ubuntu`)        |
+| `DOTFILES__CONFIG_DIR` | Config/cache directory (default `~/.config/dotfiles`)                |
+| `EDITOR`             | Preferred editor, auto-detected if not set                             |
+| `VISUAL`             | Visual editor, defaults to `$EDITOR`                                   |
+| `PAGER`              | Preferred pager, defaults to `less`                                    |
+| `PROC_CORES`         | Number of threads (cores)                                              |
 
 ## All Platforms
 
@@ -81,8 +107,10 @@
 | `-`     | `cd -`                                   |
 | `f`     | `findhere`                               |
 | `h`     | `history`                                |
+| `kc`    | `kubectl`                                |
 | `o`     | `open` (show in GUI file explorer)       |
 | `oo`    | `open .` (show cwd in GUI file explorer) |
+| `vi`    | Opens the best available editor          |
 | `x`     | `parallel-xargs`                         |
 
 ## Networking
@@ -115,12 +143,14 @@
 | [`clipboard-server`](#clipboard-server) | Forward local clipboard access over a socket                                                         |
 | `dataurl`                               | Create a data URL from an image                                                                      |
 | `date2unix`                             | Convert a date string to a unix timestamp (`date2unix Fri, Feb 13, 2009 6:31:30 PM` => `1234567890`) |
+| `dotfiles-update`                       | Pull latest changes and re-run `bootstrap.sh`                                                        |
 | `extract`                               | Extracts an archive with autodetect based on extension                                               |
 | `fromtime`                              | `unix2date`                                                                                          |
 | `gdiff`                                 | Git-powered colored diff for comparing any two files (`gdiff file1 file2`)                           |
 | `genpasswd`                             | Generate a random string of a certain length                                                         |
 | `gz-size`                               | Get original and gzipped file size in bytes                                                          |
 | `gz`                                    | Get the gzipped file size                                                                            |
+| `nvm-upgrade`                           | Upgrade nvm to the latest tagged release                                                             |
 | `parallel-xargs`                        | Run a command through xargs with that is sh wrapped (`parallel-xargs cat {}`)                        |
 | `quick-toast`                           | Show a simple notification using OS primitives `quick-toast TITLE [BODY]`                            |
 | `reload`                                | Reload the current environment                                                                       |
@@ -129,24 +159,71 @@
 
 ### Git Utilities
 
-| Command                | Description                                                        |
-| ---------------------- | ------------------------------------------------------------------ |
-| `git auto-difftool`    | Use araxis merge when possible otherwise use `vimdiff`             |
-| `git auto-mergetool`   | Use araxis merge when possible otherwise use `vimdiff`             |
-| `git branch-prune`     | Remove branches locally and remotely if already merged into master |
-| `git changelog`        | Generate a changelog from git tags                                 |
-| `git cherry-pick-from` | Cherry pick commits from a different git repo                      |
-| `git gh-pages`         | Setup a new branch called gh-pages following github procedure      |
-| `git hooks`            | Execute a git hook                                                 |
-| `git pr`               | Create a pull request on GitHub (opens web UI via `gh`)            |
-| `git pr-get`           | Checkout a pull request locally via `gh`                           |
-| `git ignore`           | Add a file/path to .gitignore                                      |
-| `git ls-dir`           | List files in a git repo tree together with the latest commit      |
-| `git remove-history`   | Permanently delete files/folders from repository                   |
-| `git repl`             | Start a repl where all commands are prefixed with `git`            |
-| `git sync`             | Sync origin with upstream remote                                   |
-| `git touch`            | Make a new file and add it                                         |
-| `git track`            | Sets up auto-tracking of a remote branch with same base name       |
+| Command                  | Description                                                        |
+| ------------------------ | ------------------------------------------------------------------ |
+| `git auto-difftool`      | Use araxis merge when possible otherwise use `vimdiff`             |
+| `git auto-mergetool`     | Use araxis merge when possible otherwise use `vimdiff`             |
+| `git branch-prune`       | Remove branches locally and remotely if already merged into master |
+| `git changelog`          | Generate a changelog from git tags                                 |
+| `git cherry-pick-from`   | Cherry pick commits from a different git repo                      |
+| `git gh-pages`           | Setup a new branch called gh-pages following github procedure      |
+| `git hooks`              | Execute a git hook                                                 |
+| `git hub`                | Open the repo in the browser via `gh browse`                       |
+| `git ignore`             | Add a file/path to .gitignore                                      |
+| `git ls-dir`             | List files in a git repo tree together with the latest commit      |
+| `git pr`                 | Create a pull request on GitHub (opens web UI via `gh`)            |
+| `git pr-get`             | Checkout a pull request locally via `gh`                           |
+| `git remove-history`     | Permanently delete files/folders from repository                   |
+| `git repl`               | Start a repl where all commands are prefixed with `git`            |
+| `git ssh-socks-proxy`    | Forward git SSH connections through a SOCKS proxy                  |
+| `git sync`               | Sync origin with upstream remote                                   |
+| `git touch`              | Make a new file and add it                                         |
+| `git track`              | Sets up auto-tracking of a remote branch with same base name       |
+| `git undo-index`         | Undo staged changes, storing them in the reflog                    |
+
+## Prompt Customization
+
+The prompt segments and appearance can be customized by setting variables in `~/.bash_local` **before** the dotfiles are sourced. All options are optional.
+
+### Prompt Options
+
+| Variable                     | Description                                                              | Default |
+| ---------------------------- | ------------------------------------------------------------------------ | ------- |
+| `DOT_DISABLE_PS1`           | Skip prompt setup entirely                                               |         |
+| `PS1_OPT_MONOCHROME`        | Disable all prompt colors                                                |         |
+| `PS1_OPT_MULTILINE`         | Always place the prompt symbol on a new line                             |         |
+| `PS1_OPT_NEWLINE_THRESHOLD` | Terminal width below which the prompt wraps to a new line                | `120`   |
+| `PS1_OPT_HIDE_TIME`         | Hide the clock segment                                                   |         |
+| `PS1_OPT_HIDE_LOAD`         | Hide the load average segment                                            |         |
+| `PS1_OPT_HIDE_DIR_INFO`     | Hide the directory file count / size segment                             |         |
+| `PS1_OPT_HIDE_GIT`          | Hide the git branch / status segment                                     |         |
+| `PS1_OPT_HIDE_EXEC_TIME`    | Hide the command execution time segment                                  |         |
+| `PS1_OPT_DAY_START`         | Hour (24h) when daytime color starts                                     | `8`     |
+| `PS1_OPT_DAY_END`           | Hour (24h) when daytime color ends                                       | `18`    |
+| `PS1_OPT_SEGMENT_EXTRA`     | Arbitrary PS1 string appended after the git segment                      |         |
+
+Set any `_HIDE_` variable to `1` to disable that segment. Example:
+
+```bash
+# ~/.bash_local
+PS1_OPT_HIDE_LOAD=1
+PS1_OPT_NEWLINE_THRESHOLD=100
+```
+
+### Prompt Symbols
+
+Symbols can be overridden by setting these before sourcing:
+
+| Variable             | Default | Description              |
+| -------------------- | ------- | ------------------------ |
+| `PS1_SYMBOL_USER`   | `λ`     | Normal user prompt       |
+| `PS1_SYMBOL_ROOT`   | `μ`     | Root prompt              |
+| `PS1_SYMBOL_SU`     | `π`     | Sudo prompt              |
+| `PS1_SYMBOL_GIT`    | `կ`     | Git branch prefix        |
+| `PS1_SYMBOL_SSH`    | `@`     | SSH session indicator     |
+| `PS1_SYMBOL_LOCAL`  | `#`     | Local session indicator   |
+
+All `PS1_COLOR_*` variables can also be overridden. See `dotenv/prompt.sh` for the full list.
 
 ## Windows Subsystem Linux (WSL) specific
 
@@ -213,9 +290,9 @@ chpwd_functions+=(chpwd_ls_one)
 
 If shell startup takes more than a second, common culprits include:
 
-- **nvm**: The nvm plugin sources nvm on every shell. If startup is slow, check if lazy loading is enabled in `plugins/20-nvm.sh`.
+- **nvm**: The nvm plugin lazy-loads `nvm.sh` on first use. The default node version's bin dir is cached in `~/.config/dotfiles/cache/nvm_default_path` so `node`/`npm`/`npx` are available immediately. If the cache is missing (first run), nvm is sourced eagerly once to seed it. Delete the cache file to force a refresh.
 - **completions**: Completion scripts for tools like `kubectl`, `helm`, `gh` can add up. Completions are cached where possible; see `plugins/` for details.
-- **prompt segments**: The load average and exec timer segments spawn subprocesses. Disable with `PS1_OPT_HIDE_LOAD=1` or `PS1_OPT_HIDE_EXEC_TIME=1` before sourcing.
+- **prompt segments**: The load average and exec timer segments spawn subprocesses. Disable with `PS1_OPT_HIDE_LOAD=1` or `PS1_OPT_HIDE_EXEC_TIME=1` in `~/.bash_local`.
 
 To profile startup time:
 

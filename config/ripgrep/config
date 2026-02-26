@@ -1,0 +1,36 @@
+# Smart case: case-insensitive when pattern is all lowercase
+--smart-case
+
+# Search hidden files and directories
+--hidden
+
+# Follow symbolic links
+--follow
+
+# Exclude version control directories
+--glob=!.git
+--glob=!.svn
+--glob=!.hg
+--glob=!CVS
+
+# Exclude dependency / build directories
+--glob=!node_modules
+--glob=!vendor
+--glob=!.bundle
+--glob=!__pycache__
+--glob=!*.pyc
+--glob=!.cache
+--glob=!target
+
+# Exclude minified / generated files
+--glob=!*.min.js
+--glob=!*.min.css
+
+# Exclude editor / OS metadata
+--glob=!.DS_Store
+--glob=!*.swp
+--glob=!*.swo
+
+# Max columns: truncate long lines instead of printing huge minified blobs
+--max-columns=200
+--max-columns-preview

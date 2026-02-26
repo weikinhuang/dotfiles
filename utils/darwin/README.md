@@ -33,38 +33,16 @@ See [brew.sh](https://brew.sh/) for the latest instructions.
 
 ## Install useful utilities
 
+A [`Brewfile`](../../Brewfile) is included in the repo with all recommended packages. Install everything at once with:
+
 ```bash
-brew install \
-  bash \
-  bash-completion@2 \
-  binutils \
-  ca-certificates \
-  coreutils \
-  curl \
-  diffutils \
-  direnv \
-  findutils \
-  git \
-  git-lfs \
-  gnu-tar \
-  gnupg \
-  gnutls \
-  grep \
-  htop \
-  jq \
-  less \
-  moreutils \
-  nmap \
-  openssh \
-  screen \
-  socat \
-  wget
+brew bundle --file=~/.dotfiles/Brewfile
 ```
 
-Install `vim` with system override
+Or install a subset manually:
 
 ```bash
-brew install vim --with-override-system-vi
+brew install bash bash-completion@2 coreutils findutils git vim neovim
 ```
 
 ## Change the default $SHELL

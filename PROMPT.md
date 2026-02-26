@@ -118,7 +118,7 @@ export DOT_DISABLE_PS1=1
 | `PS1_OPT_HIDE_TIME`         |         `UNSET` | When set, hide segment showing the current time                                                                     |
 | `PS1_OPT_MONOCHROME`        |         `UNSET` | When set, remove all colors                                                                                         |
 | `PS1_OPT_MULTILINE`         |         `UNSET` | When set, force prompt to be 2 lines                                                                                |
-| `PS1_OPT_NEWLINE_THRESHOLD` |           `120` | When the terminal exceeds this many cols, force prompt to be 2 lines                                                |
+| `PS1_OPT_NEWLINE_THRESHOLD` |           `120` | When the terminal is narrower than this many cols, force prompt to be 2 lines                                       |
 | `PS1_OPT_SEGMENT_EXTRA`     |         `UNSET` | Additional segments to be placed after the `git` segment, but before the cmd execution time, in `PS1` string format |
 | `PROMPT_TITLE`              | `user@host:dir` | Terminal title                                                                                                      |
 

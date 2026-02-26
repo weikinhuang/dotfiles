@@ -28,6 +28,8 @@ function __push_internal_prompt_command() {
   __prompt_actions+=("${cmd}")
 }
 function __run_prompt_command() {
+  # eval is required: entries may contain arguments (e.g. "history -a")
+  # that break under direct invocation "$cmd"
   local cmd
   for cmd in "${__prompt_actions[@]}"; do
     eval "$cmd"
