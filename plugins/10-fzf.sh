@@ -28,8 +28,9 @@ if [[ -z "${FZF_DEFAULT_OPTS+x}" ]]; then
     --height=40%
     --layout=reverse
     --border
-    --info=inline
+    --info=inline-right
     --cycle
+    --highlight-line
     --marker='*'
     --bind='ctrl-d:half-page-down,ctrl-u:half-page-up'
   "
@@ -37,7 +38,8 @@ fi
 
 # CTRL-T: file/dir picker with bat preview and walker-skip fallback
 # --walker-skip applies when fd is not installed and fzf uses its built-in walker
-_fzf_ct_opts="--walker-skip .git,node_modules,target"
+# --scheme=path gives bonus points to characters after path separators
+_fzf_ct_opts="--scheme=path --walker-skip .git,node_modules,target"
 if command -v bat &>/dev/null; then
   _fzf_ct_opts="${_fzf_ct_opts} --preview 'bat -n --color=always --line-range :300 {} 2>/dev/null || cat {}'"
   _fzf_ct_opts="${_fzf_ct_opts} --bind 'ctrl-/:change-preview-window(down|hidden|)'"
@@ -52,6 +54,9 @@ if command -v tree &>/dev/null; then
 fi
 export FZF_ALT_C_OPTS="${_fzf_ac_opts}"
 unset _fzf_ac_opts
+
+# CTRL-R: history search with chronological scoring
+export FZF_CTRL_R_OPTS="--scheme=history --bind='ctrl-y:execute-silent(echo -n {2..} | clipboard-copy)+abort' --header='Press CTRL-Y to copy command to clipboard'"
 
 # load completion to get shell integration without first calling fzf<TAB>
 if command -v __load_completion &>/dev/null && ! command -v _fzf_setup_completion &>/dev/null; then

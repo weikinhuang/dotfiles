@@ -50,6 +50,8 @@ stty -ixon
 shopt -s histappend 2>/dev/null
 # Use one command per line in histfile
 shopt -s cmdhist 2>/dev/null
+# Preview history expansion before executing (e.g. !! shows the expansion first)
+shopt -s histverify 2>/dev/null
 
 # remove dupicate line higher in history before appending
 # Don't put duplicate lines in the history.

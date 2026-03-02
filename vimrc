@@ -1,6 +1,10 @@
 " This must be first, because it changes other options as side effect
 if !has('nvim')
   set nocompatible
+  " Preserve Vim's built-in defaults (creating .vimrc disables defaults.vim)
+  if filereadable(expand('$VIMRUNTIME/defaults.vim'))
+    source $VIMRUNTIME/defaults.vim
+  endif
 endif
 
 " source plugin configurations

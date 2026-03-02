@@ -1,4 +1,4 @@
-﻿" ==============================================================================
+" ==============================================================================
 " => General
 " ==============================================================================
 " remember more commands and search history
@@ -34,6 +34,7 @@ set updatetime=300
 
 " always show line numbers
 set number
+set relativenumber
 
 " Always show the signcolumn, otherwise it would shift the text each time
 " diagnostics appear/become resolved.
@@ -114,7 +115,7 @@ set showcmd
 set showmode
 
 " Scrolling
-set scrolloff=4                   " start scrolling when we're 4 lines away from margins
+set scrolloff=8                   " start scrolling when we're 8 lines away from margins
 set sidescrolloff=15
 set sidescroll=1
 

@@ -22,6 +22,11 @@
 --glob=!.cache
 --glob=!target
 
+# Exclude common build output directories
+--glob=!dist
+--glob=!build
+--glob=!.terraform
+
 # Exclude minified / generated files
 --glob=!*.min.js
 --glob=!*.min.css

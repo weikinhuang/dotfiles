@@ -3,6 +3,9 @@
 # Don't clear the screen after quitting a manual page
 export MANPAGER="less -iFXRS -x4"
 
+# Set global less defaults: raw control chars, quit-if-one-screen, don't clear screen
+export LESS="${LESS:--iFRX}"
+
 # Highlight section titles in manual pages if possible
 if tput setaf 1 &>/dev/null; then
   : "${LESS_TERMCAP_mb:=$'\e[1;32m'}"
@@ -13,10 +16,8 @@ if tput setaf 1 &>/dev/null; then
   : "${LESS_TERMCAP_ue:=$'\e[0m'}"
   : "${LESS_TERMCAP_us:=$'\e[1;4;31m'}"
 
-  : "${LESS:=}"
   export "${!LESS_TERMCAP@}"
-  export LESS="R${LESS#-}"
 fi
 
 # Make 'less' not clear the screen upon exit and process colors
-alias less="less -XR"
+alias less="less -FRX"

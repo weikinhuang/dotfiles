@@ -1,3 +1,12 @@
+# Include system-wide defaults first
+$include /etc/inputrc
+
+# Disable the bell on tab-completion failures
+set bell-style none
+
+# Suppress ^C display on Ctrl-C
+set echo-control-characters off
+
 # Make Tab autocomplete regardless of filename case
 set completion-ignore-case on
 
@@ -37,6 +46,9 @@ set visible-stats on
 # Show completions using different colors to indicate their file type.
 # The color definitions are taken from the value of the LS_COLORS environment variable.
 set colored-stats on
+
+# Highlight the common prefix of possible completions with color
+set colored-completion-prefix on
 
 # blinks the matching parens on line input
 set blink-matching-paren on
@@ -98,3 +110,4 @@ Space: magic-space
 
 # for zsh/cmd style tab completion
 TAB: menu-complete
+"\e[Z": menu-complete-backward
