@@ -5,11 +5,22 @@ if ! command -v eza &>/dev/null; then
   return
 fi
 
-# Adjust eza-specific UI element colors for light backgrounds; eza's built-in
-# defaults are already readable on dark terminals so we only override for light.
-if [[ -z "${EZA_COLORS+x}" ]] && [[ -n "${DOT_SOLARIZED_LIGHT:-}" ]]; then
-  export EZA_COLORS="da=36:uu=2;33:un=1;31:gu=2;32:gn=1;35:sn=32:sb=36:xx=2"
+# Symlink the appropriate solarized eza theme to ~/.config/eza/theme.yml
+# Theme files: config/eza/solarized-{dark,light}.yml
+if [[ -n "${DOT_SOLARIZED_LIGHT:-}" ]]; then
+  _eza_theme="${DOTFILES__ROOT}/.dotfiles/config/eza/solarized-light.yml"
+elif [[ -n "${DOT_SOLARIZED_DARK:-}" ]]; then
+  _eza_theme="${DOTFILES__ROOT}/.dotfiles/config/eza/solarized-dark.yml"
+else
+  _eza_theme=""
 fi
+if [[ -n "${_eza_theme}" ]] && [[ -f "${_eza_theme}" ]]; then
+  mkdir -p "${HOME}/.config/eza"
+  if [[ ! -e "${HOME}/.config/eza/theme.yml" ]] || [[ -L "${HOME}/.config/eza/theme.yml" ]]; then
+    ln -sf "${_eza_theme}" "${HOME}/.config/eza/theme.yml"
+  fi
+fi
+unset _eza_theme
 
 # Override ls aliases with eza after the default __grep_ls_colors runs
 function __eza_ls_aliases() {
