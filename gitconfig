@@ -4,4 +4,6 @@
   path = ~/.dotfiles/config/git/alias.gitconfig.conf
   # managed by plugins/30-delta.sh when delta is installed
   path = ~/.config/dotfiles/git-delta.gitconfig
+  # managed by plugins/30-difftastic.sh when difft is installed
+  path = ~/.config/dotfiles/git-difftastic.gitconfig
   path = ~/.gitconfig.local
