@@ -16,13 +16,13 @@ if [[ -z "${BAT_CONFIG_PATH+x}" ]] && [[ -f "${DOTFILES__ROOT}/.dotfiles/config/
 fi
 
 # include solarized color theme
-if [[ -n "${DOT_SOLARIZED_LIGHT:-}" ]]; then
+if [[ -n "${DOT_SOLARIZED_DARK:-}" ]]; then
   export BAT_THEME="Solarized (dark)"
-elif [[ -n "${DOT_SOLARIZED_DARK:-}" ]]; then
+elif [[ -n "${DOT_SOLARIZED_LIGHT:-}" ]]; then
   export BAT_THEME="Solarized (light)"
 fi
 
-# use bat as a colorizing pager for man pages
+# Override MANPAGER from 10-less.sh with bat for syntax-highlighted man pages
 if [[ -z "${MANPAGER+x}" ]] || [[ "${MANPAGER}" == *less* ]]; then
   export MANPAGER="sh -c 'col -bx | bat -l man -p'"
   export MANROFFOPT="-c"

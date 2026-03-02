@@ -13,16 +13,6 @@ function cf() {
   find "${1-.}" -type f | wc -l
 }
 
-# find files with case-insensetive matching in current directory
-function findhere() {
-  find . -iname "*$1*"
-}
-
-# do a case-insensetive grep on all the files in a directory
-function grip() {
-  grep -ir "$1" .
-}
-
 # xargs wrapper for running PROC_CORES parallel processes
 function parallel-xargs() {
   local cmd="$*"
@@ -42,9 +32,13 @@ function extract() {
   case "$1" in
     *.tar.bz2) cmd="tar xjf" ;;
     *.tar.gz) cmd="tar xzf" ;;
+    *.tar.xz) cmd="tar xJf" ;;
+    *.tar.zst) cmd="tar --zstd -xf" ;;
     *.bz2) cmd="bunzip2" ;;
     *.rar) cmd="rar x" ;;
     *.gz) cmd="gunzip" ;;
+    *.xz) cmd="unxz" ;;
+    *.zst) cmd="unzstd" ;;
     *.tar) cmd="tar xf" ;;
     *.tbz2) cmd="tar xjf" ;;
     *.tgz) cmd="tar xzf" ;;
@@ -128,6 +122,10 @@ function date2unix() {
     if date --date "$*" +%s 2>/dev/null; then
       return
     fi
+    # GNU coreutils date on macOS (brew install coreutils)
+    if command -v gdate &>/dev/null && gdate --date "$*" +%s 2>/dev/null; then
+      return
+    fi
     # BSD/macOS fallback
     date -j -f "%a, %b %d, %Y %I:%M:%S %p" "$*" +%s 2>/dev/null && return
     date -j -f "%Y-%m-%d %H:%M:%S" "$*" +%s 2>/dev/null && return
@@ -156,4 +154,30 @@ function regex() {
 # binary diff
 function binarydiff() {
   vimdiff <(xxd "${1}") <(xxd "${2}")
+}
+
+# Profile dotfiles startup time; use --trace for per-command breakdown (bash 5+)
+function dotfiles-profile() {
+  if [[ "${1:-}" == "--trace" ]]; then
+    if ((BASH_VERSINFO[0] < 5)); then
+      echo "dotfiles-profile: --trace requires bash 5+ for EPOCHREALTIME" >&2
+      return 1
+    fi
+    local tmp
+    tmp=$(mktemp)
+    PS4='+ $EPOCHREALTIME\011 ' bash -xi -c exit 2>"$tmp"
+    echo "Top 30 slowest operations:"
+    awk 'NR>1 {
+      split(prev, a, /\t/); split($0, b, /\t/)
+      gsub(/^\++ /, "", a[1]); gsub(/^\++ /, "", b[1])
+      dt = b[1] - a[1]
+      if (dt > 0.01) printf "%6.3fs  %s\n", dt, a[2]
+    } { prev = $0 }' "$tmp" | sort -rn | head -30
+    rm -f "$tmp"
+  else
+    time bash -i -c exit
+    if ((BASH_VERSINFO[0] >= 5)); then
+      echo "(use 'dotfiles-profile --trace' for per-command breakdown)"
+    fi
+  fi
 }

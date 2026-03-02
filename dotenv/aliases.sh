@@ -57,8 +57,6 @@ function __grep_ls_colors() {
   alias l.="${LS_BIN} -d ${LS_COLOR_FLAG} .*"
   # shellcheck disable=SC2139
   alias ls="${LS_BIN} ${LS_COLOR_FLAG}"
-  # shellcheck disable=SC2139
-  alias lf="${LS_BIN} -l ${LS_COLOR_FLAG} | grep '^d'"
 
   # check if we can display in long format
   if "${LS_BIN}" --format=long &>/dev/null; then

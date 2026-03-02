@@ -37,6 +37,9 @@ if [[ -n "${DOT_BASH_RESOLVE_PATHS:-}" ]]; then
 fi
 unset DOT_BASH_RESOLVE_PATHS
 
+# Ensure consistent file permissions across environments (owner rw, group r, other r)
+umask 022
+
 # disable terminal locking with CTRL+s
 stty -ixon
 # Allow C-W mapping in inputrc to work

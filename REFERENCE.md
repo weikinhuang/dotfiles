@@ -50,8 +50,13 @@ Plugins in `plugins/` configure sensible defaults for common tools when they're 
 | **ripgrep** | Smart-case, hidden files, common glob exclusions (`.git`, `node_modules`, etc.), max column width. Config at `config/ripgrep/config`, loaded via `RIPGREP_CONFIG_PATH`. |
 | **fzf**    | Reverse layout, 40% height, border, inline info. `CTRL-T` and `ALT-C` use `fd` when available. File preview via `bat`, directory preview via `tree`. |
 | **bat**    | Line numbers + git changes style. Used as `MANPAGER` for colored man pages. `cat` aliased to `bat --paging=never`. |
+| **delta**  | When installed, configured as the git pager with syntax highlighting and word-level diffs. Managed via `~/.config/dotfiles/git-delta.gitconfig`. |
 | **less**   | Colored man pages via `LESS_TERMCAP_*`. Does not clear screen on exit (`-XR`).                     |
 | **direnv** | Silent log format, bash hook loaded automatically.                                                  |
+| **eza**    | When installed, replaces `ls`/`la`/`ll`/`ld` aliases with git-aware, colorized equivalents. Adds `lt` for tree view. |
+| **jq**     | Themed output colors via `JQ_COLORS`.                                                               |
+| **zoxide** | Smart directory jumping via `z` and `zi` commands (frecency-based `cd` replacement).               |
+| **mise**   | Polyglot version manager shell hook loaded automatically.                                           |
 | **curl**   | Follow redirects, auto-referer, compressed responses, HTTPS default, 60s timeout, 3 retries.       |
 | **wget**   | Timestamping, 60s timeout, 3 retries, retry on refused, modern user-agent string.                  |
 
@@ -72,6 +77,10 @@ Override any of these by setting the relevant env var in `~/.bash_local` before 
 | `VISUAL`             | Visual editor, defaults to `$EDITOR`                                   |
 | `PAGER`              | Preferred pager, defaults to `less`                                    |
 | `PROC_CORES`         | Number of threads (cores)                                              |
+| `XDG_CONFIG_HOME`    | XDG config directory (default `~/.config`)                             |
+| `XDG_DATA_HOME`      | XDG data directory (default `~/.local/share`)                          |
+| `XDG_STATE_HOME`     | XDG state directory (default `~/.local/state`)                         |
+| `XDG_CACHE_HOME`     | XDG cache directory (default `~/.cache`)                               |
 
 ## All Platforms
 
@@ -88,30 +97,30 @@ Override any of these by setting the relevant env var in `~/.bash_local` before 
 
 ### Directory Commands
 
-| Command    | Description                                                        |
-| ---------- | ------------------------------------------------------------------ |
-| `cf`       | Count the number of files in a directory                           |
-| `dusort`   | Bar chart of all files and relative size                           |
-| `findhere` | Case insensitive find in current directory (`find -iname "_arg_"`) |
-| `grip`     | Case-insensetive grep on all the files in current directory        |
-| `l.`       | Show files starting with `.`                                       |
-| `la`       | Show all files in list format                                      |
-| `lf`       | Show directories in list format                                    |
-| `ll`       | Show files in list format                                          |
-| `md`       | Create a new directory and enter it                                |
+| Command    | Description                                                                    |
+| ---------- | ------------------------------------------------------------------------------ |
+| `cf`       | Count the number of files in a directory                                       |
+| `grip`     | Alias for `grepdir` (when the `grip` tool is not installed)                    |
+| `l.`       | Show files starting with `.`                                                   |
+| `la`       | Show all files in list format                                                  |
+| `ll`       | Show files in list format                                                      |
+| `lt`       | Tree view (2 levels deep, when `eza` is installed)                             |
+| `md`       | Create a new directory and enter it                                            |
 
 ### Shortcuts
 
-| Command | Description                              |
-| ------- | ---------------------------------------- |
-| `-`     | `cd -`                                   |
-| `f`     | `findhere`                               |
-| `h`     | `history`                                |
-| `kc`    | `kubectl`                                |
-| `o`     | `open` (show in GUI file explorer)       |
-| `oo`    | `open .` (show cwd in GUI file explorer) |
-| `vi`    | Opens the best available editor          |
-| `x`     | `parallel-xargs`                         |
+| Command | Description                                                     |
+| ------- | --------------------------------------------------------------- |
+| `-`     | `cd -`                                                          |
+| `f`     | `findhere`                                                      |
+| `h`     | `history`                                                       |
+| `kc`    | `kubectl`                                                       |
+| `o`     | `open` (show in GUI file explorer)                              |
+| `oo`    | `open .` (show cwd in GUI file explorer)                        |
+| `vi`    | Opens the best available editor                                 |
+| `x`     | `parallel-xargs`                                                |
+| `z`     | Smart directory jump via zoxide (when installed)                |
+| `zi`    | Interactive directory jump via zoxide (when installed)          |
 
 ## Networking
 
@@ -143,13 +152,13 @@ Override any of these by setting the relevant env var in `~/.bash_local` before 
 | [`clipboard-server`](#clipboard-server) | Forward local clipboard access over a socket                                                         |
 | `dataurl`                               | Create a data URL from an image                                                                      |
 | `date2unix`                             | Convert a date string to a unix timestamp (`date2unix Fri, Feb 13, 2009 6:31:30 PM` => `1234567890`) |
+| `dotfiles-profile`                      | Profile shell startup time (use `--trace` for per-command breakdown, requires bash 5+)               |
 | `dotfiles-update`                       | Pull latest changes and re-run `bootstrap.sh`                                                        |
-| `extract`                               | Extracts an archive with autodetect based on extension                                               |
+| `extract`                               | Extracts an archive with autodetect based on extension (supports tar.xz, tar.zst, xz, zst, and more)|
 | `fromtime`                              | `unix2date`                                                                                          |
 | `gdiff`                                 | Git-powered colored diff for comparing any two files (`gdiff file1 file2`)                           |
 | `genpasswd`                             | Generate a random string of a certain length                                                         |
 | `gz-size`                               | Get original and gzipped file size in bytes                                                          |
-| `gz`                                    | Get the gzipped file size                                                                            |
 | `nvm-upgrade`                           | Upgrade nvm to the latest tagged release                                                             |
 | `parallel-xargs`                        | Run a command through xargs with that is sh wrapped (`parallel-xargs cat {}`)                        |
 | `quick-toast`                           | Show a simple notification using OS primitives `quick-toast TITLE [BODY]`                            |
@@ -297,7 +306,11 @@ If shell startup takes more than a second, common culprits include:
 To profile startup time:
 
 ```bash
-time bash -i -c exit
+# quick overall timing
+dotfiles-profile
+
+# detailed per-command breakdown (bash 5+)
+dotfiles-profile --trace
 ```
 
 ### Prompt symbols display as boxes or question marks
@@ -306,7 +319,7 @@ The prompt uses UTF-8 symbols (lambda, mu, pi). Your terminal and font must supp
 
 ### `date2unix` doesn't work
 
-On macOS, the function supports common date formats. For GNU-style free-form dates, install `coreutils` via Homebrew (`brew install coreutils`) and use `gdate` instead.
+On macOS, the function tries `gdate` (from `brew install coreutils`) automatically for GNU-style free-form dates, then falls back to BSD `date` with common format strings.
 
 ### Local overrides
 
