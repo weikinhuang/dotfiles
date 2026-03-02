@@ -1,0 +1,9 @@
+# Show line numbers and git changes, auto-detect header from context
+--style="numbers,changes,header"
+
+# Improve syntax detection for common config files
+--map-syntax="*.conf:INI"
+--map-syntax=".ignore:Git Ignore"
+--map-syntax=".gitignore:Git Ignore"
+--map-syntax=".dockerignore:Git Ignore"
+--map-syntax=".env*:Bourne Again Shell (bash)"
