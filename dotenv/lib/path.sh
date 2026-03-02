@@ -1,9 +1,8 @@
 # shellcheck shell=bash
 
-# helper function to add to path if dir exists, and set by unique value
+# helper function to add to path if dir exists, with pure-bash deduplication
 function __push_path() {
   local prepend=
-  local path__tmp="$PATH"
   if [[ "$1" == "--prepend" ]] || [[ "$1" == "-p" ]]; then
     prepend=1
     shift
@@ -12,26 +11,14 @@ function __push_path() {
   if [[ ! -d "${path}" ]]; then
     return
   fi
+  case ":${PATH}:" in
+    *:"${path}":*) return ;;
+  esac
   if [[ -n "${prepend}" ]]; then
-    path__tmp="${path}:${path__tmp}"
+    PATH="${path}:${PATH}"
   else
-    path__tmp="${path__tmp}:${path}"
+    PATH="${PATH}:${path}"
   fi
-
-  # Remove duplicate entries from PATH and retain the original order
-  if command -v nl &>/dev/null; then
-    path__tmp="$(
-      echo "${path__tmp}" \
-        | tr : '\n' \
-        | nl \
-        | sort -u -k 2,2 \
-        | sort -n \
-        | cut -f 2- \
-        | tr '\n' : \
-        | sed -e 's/:$//' -e 's/^://'
-    )"
-  fi
-  PATH="${path__tmp}"
   export PATH
 }
 
