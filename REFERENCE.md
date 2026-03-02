@@ -56,7 +56,6 @@ Plugins in `plugins/` configure sensible defaults for common tools when they're 
 | **eza**    | When installed, replaces `ls`/`la`/`ll`/`ld` aliases with git-aware, colorized equivalents. Adds `lt` for tree view. |
 | **jq**     | Themed output colors via `JQ_COLORS`.                                                               |
 | **zoxide** | Smart directory jumping via `z` and `zi` commands (frecency-based `cd` replacement).               |
-| **mise**   | Polyglot version manager shell hook loaded automatically.                                           |
 | **curl**   | Follow redirects, auto-referer, compressed responses, HTTPS default, 60s timeout, 3 retries.       |
 | **wget**   | Timestamping, 60s timeout, 3 retries, retry on refused, modern user-agent string.                  |
 
