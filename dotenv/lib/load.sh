@@ -99,9 +99,10 @@ function __dot_load_plugins() {
   fi
 
   # sort by basename to interleave built-in and user plugins by priority prefix
-  while IFS='|' read -r _ file; do
+  # read from fd 3 so sourced plugins keep stdin attached to the terminal
+  while IFS='|' read -r -u 3 _ file; do
     __dot_load_plugin "$file"
-  done < <(printf '%s\n' "${_tagged[@]}" | sort -t'|' -k1,1)
+  done 3< <(printf '%s\n' "${_tagged[@]}" | sort -t'|' -k1,1)
 
   __dot_load_hook post plugin
 

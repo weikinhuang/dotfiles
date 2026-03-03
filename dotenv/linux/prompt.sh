@@ -3,8 +3,8 @@
 if [[ -r /proc/loadavg ]]; then
   function __ps1_proc_use() {
     local loadavg
-    read -r loadavg _ < /proc/loadavg
-    echo -n "${loadavg}"
+    read -r loadavg < /proc/loadavg
+    echo -n "${loadavg%% *}"
   }
 else
   function __ps1_proc_use() {
