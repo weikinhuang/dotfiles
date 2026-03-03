@@ -36,13 +36,18 @@ function __run_prompt_command() {
   done
 }
 
-# helper function get the closest base editor
+# helper function get the closest base editor (memoized after first call)
+__dot_find_editor_result=
 function __find_editor() {
+  if [[ -n "${__dot_find_editor_result}" ]]; then
+    echo "${__dot_find_editor_result}"
+    return
+  fi
   local editor=""
   if command -v vi &>/dev/null; then
-    editor=vi
+    editor="vi"
   elif command -v nano &>/dev/null; then
-    editor=nano
+    editor="nano"
   fi
 
   if command -v code-insiders &>/dev/null && [[ "$PATH" == */.vscode-server-insiders/bin/* ]] && [[ "$PATH" != */.vscode-server/bin/* ]]; then
@@ -50,14 +55,38 @@ function __find_editor() {
   elif command -v code &>/dev/null && [[ "$PATH" == */.vscode-server/bin/* ]]; then
     editor="code --wait"
   elif [[ -n "${DOT___IS_WSL}" ]] && command -v npp &>/dev/null; then
-    editor=npp
+    editor="npp"
   elif command -v nvim &>/dev/null; then
-    editor=nvim
+    editor="nvim"
   elif command -v vim &>/dev/null; then
-    editor=vim
+    editor="vim"
   fi
 
+  __dot_find_editor_result="${editor}"
   echo "${editor}"
+}
+
+# Cache and source shell init scripts with version-based invalidation
+# Usage: __dot_cached_eval <tool> <generate-cmd>
+function __dot_cached_eval() {
+  local tool="$1"
+  local gen_cmd="$2"
+  local cache_file="${DOTFILES__CONFIG_DIR}/cache/${tool}.init.bash"
+
+  if [[ -f "$cache_file" ]]; then
+    # shellcheck source=/dev/null
+    source "$cache_file"
+    local tool_bin
+    tool_bin="$(command -v "$tool" 2>/dev/null)" || true
+    if [[ -n "$tool_bin" && "$tool_bin" -nt "$cache_file" ]]; then
+      (eval "$gen_cmd" 2>/dev/null > "$cache_file" &)
+    fi
+  else
+    mkdir -p "${cache_file%/*}"
+    eval "$gen_cmd" 2>/dev/null | tee "$cache_file" >/dev/null
+    # shellcheck source=/dev/null
+    source "$cache_file"
+  fi
 }
 
 # Cache and source shell completions with version-based invalidation

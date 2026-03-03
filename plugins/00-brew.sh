@@ -6,13 +6,19 @@
 # Note: don’t forget to add `/usr/local/bin/bash` to `/etc/shells` before continuing
 
 # remove brew installed g prefix
-if [[ "${DOTENV}" != "darwin" ]] || ! env PATH="/opt/homebrew/bin:${PATH}" command -v brew &>/dev/null; then
+if [[ "${DOTENV}" != "darwin" ]]; then
   unset DOT_INCLUDE_BREW_PATH
   return
 fi
 
-# check brew from the old and new homebrew install paths
-__BREW_PREFIX="$(env PATH="/opt/homebrew/bin:${PATH}" brew --prefix)"
+# derive prefix from brew binary location (avoids ~300ms `brew --prefix` Ruby boot)
+_brew_bin="$(env PATH="/opt/homebrew/bin:${PATH}" command -v brew 2>/dev/null)"
+if [[ -z "${_brew_bin}" ]]; then
+  unset DOT_INCLUDE_BREW_PATH _brew_bin
+  return
+fi
+__BREW_PREFIX="${_brew_bin%/bin/brew}"
+unset _brew_bin
 
 # automate including brew path
 if [[ -n "${DOT_INCLUDE_BREW_PATH:-}" ]]; then

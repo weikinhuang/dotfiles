@@ -11,12 +11,15 @@ fi
 # ------------------------------------------------------------------------------
 # CONFIGURE PROMPT
 # ------------------------------------------------------------------------------
-# check if date supports nanoseconds (provided by coreutils)
-_ns_check="$(date +%N)"
-if [[ -z "$_ns_check" ]] || [[ "$_ns_check" == "N" ]]; then
-  PS1_OPT_HIDE_EXEC_TIME=1
+# check if we can measure command execution time
+# bash 5+ provides EPOCHREALTIME as a built-in; otherwise fall back to GNU date %N
+if [[ -z "${EPOCHREALTIME:-}" ]]; then
+  _ns_check="$(date +%N)"
+  if [[ -z "$_ns_check" ]] || [[ "$_ns_check" == "N" ]]; then
+    PS1_OPT_HIDE_EXEC_TIME=1
+  fi
+  unset -v _ns_check
 fi
-unset -v _ns_check
 
 # bash 3 and below doesn't properly eacape the array when inlined
 if [[ "${BASH_VERSION/.*/}" -lt 4 ]]; then
@@ -199,23 +202,31 @@ fi
 if [[ -z "${PS1_OPT_HIDE_EXEC_TIME:-}" ]]; then
   __ps1_var_exectimer=0
   __ps1_var_execduration=
-  function __ps1_exec_timer_start() {
-    # set on first command in the stack only
-    if [[ __ps1_var_exectimer -gt 0 ]]; then
-      return
-    fi
-    __ps1_var_exectimer=$(date +%s%N)
-  }
+  if [[ -n "${EPOCHREALTIME:-}" ]]; then
+    # bash 5+: built-in microsecond timer (no fork per command)
+    function __ps1_exec_timer_start() {
+      [[ __ps1_var_exectimer -gt 0 ]] && return
+      __ps1_var_exectimer="${EPOCHREALTIME/./}"
+    }
+  else
+    function __ps1_exec_timer_start() {
+      [[ __ps1_var_exectimer -gt 0 ]] && return
+      __ps1_var_exectimer=$(date +%s%N)
+    }
+  fi
   preexec_functions+=(__ps1_exec_timer_start)
 
   function __ps1_exec_timer_stop() {
-    # only show if there was a prior command
     if [[ __ps1_var_exectimer -eq 0 ]]; then
       __ps1_var_execduration=
       return
     fi
-    local duration
-    local delta_us=$((($(date +%s%N) - __ps1_var_exectimer) / 1000))
+    local duration delta_us
+    if [[ -n "${EPOCHREALTIME:-}" ]]; then
+      delta_us=$((${EPOCHREALTIME/./} - __ps1_var_exectimer))
+    else
+      delta_us=$((($(date +%s%N) - __ps1_var_exectimer) / 1000))
+    fi
     local us=$((delta_us % 1000))
     local ms=$(((delta_us / 1000) % 1000))
     local s=$(((delta_us / 1000000) % 60))
@@ -237,9 +248,7 @@ if [[ -z "${PS1_OPT_HIDE_EXEC_TIME:-}" ]]; then
       duration=${us}us
     fi
 
-    # reset timer
     __ps1_var_exectimer=0
-    # add space
     __ps1_var_execduration=" ${duration}"
   }
   __push_internal_prompt_command __ps1_exec_timer_stop

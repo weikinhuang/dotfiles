@@ -6,5 +6,4 @@ if ! command -v direnv &>/dev/null; then
 fi
 
 export DIRENV_LOG_FORMAT=
-# shellcheck source=/dev/null
-source <(direnv hook bash 2>/dev/null)
+__dot_cached_eval direnv "direnv hook bash"

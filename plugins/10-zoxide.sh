@@ -5,4 +5,4 @@ if ! command -v zoxide &>/dev/null; then
   return
 fi
 
-eval "$(zoxide init bash)"
+__dot_cached_eval zoxide "zoxide init bash"
