@@ -75,37 +75,34 @@ function __dot_load_plugin() {
 }
 
 function __dot_load_plugins() {
-  local file PLUGIN_FILES_STR IFSSAVE IFS
+  local file
+  local -a _tagged=()
 
-  # Add a hook that can be defined in .bash_local to run before each phase
   __dot_load_hook pre plugin
 
-  # load plugins from all directories while respecting filename ordering
-  PLUGIN_FILES_STR="$(
-    {
-      # required plugins
-      echo "${DOTFILES__ROOT}/.dotfiles/plugins/00-bash-opts.sh"
-      echo "${DOTFILES__ROOT}/.dotfiles/plugins/00-chpwd-hook.sh"
-      # built-in plugins
-      [[ -n "${DOT_INCLUDE_BUILTIN_PLUGINS:-}" ]] && find "${DOTFILES__ROOT}/.dotfiles/plugins" -type f -name '*.sh'
-      # user plugins
-      [[ -d "${HOME}/.bash_local.d" ]] && find "${HOME}/.bash_local.d" -type f -name '*.plugin'
-    } \
-      | awk -F/ '{ print $NF"|"$0 }' \
-      | sort -t"|" -k1 \
-      | awk -F"|" '{ print $NF }' \
-      | uniq
-  )"
+  # bash globs return sorted results; tag each with basename for cross-dir sorting
+  if [[ -n "${DOT_INCLUDE_BUILTIN_PLUGINS:-}" ]]; then
+    for file in "${DOTFILES__ROOT}/.dotfiles/plugins/"*.sh; do
+      [[ -e "$file" ]] || continue
+      _tagged+=("${file##*/}|${file}")
+    done
+  else
+    _tagged+=("00-bash-opts.sh|${DOTFILES__ROOT}/.dotfiles/plugins/00-bash-opts.sh")
+    _tagged+=("00-chpwd-hook.sh|${DOTFILES__ROOT}/.dotfiles/plugins/00-chpwd-hook.sh")
+  fi
 
-  IFSSAVE="${IFS:-}"
-  IFS=$'\n;'
-  for file in ${PLUGIN_FILES_STR}; do
-    IFS="${IFSSAVE:-}"
-    __dot_load_plugin "${file}"
-    IFS=$'\n;'
-  done
+  if [[ -d "${HOME}/.bash_local.d" ]]; then
+    for file in "${HOME}/.bash_local.d/"*.plugin; do
+      [[ -e "$file" ]] || continue
+      _tagged+=("${file##*/}|${file}")
+    done
+  fi
 
-  # Add a hook that can be defined in .bash_local to run after each phase
+  # sort by basename to interleave built-in and user plugins by priority prefix
+  while IFS='|' read -r _ file; do
+    __dot_load_plugin "$file"
+  done < <(printf '%s\n' "${_tagged[@]}" | sort -t'|' -k1,1)
+
   __dot_load_hook post plugin
 
   unset DOT_INCLUDE_BUILTIN_PLUGINS

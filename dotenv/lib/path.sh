@@ -24,30 +24,33 @@ function __push_path() {
 
 # generate paths according to environment
 function __dot_path_setup() {
+  local _arch
+  _arch="$(uname -m)"
+
   # modify path to include useful scripts
   if [[ -n "${TMUX:-}" ]]; then
     __push_path --prepend "${DOTFILES__ROOT}/.dotfiles/dotenv/tmux/bin"
-    __push_path --prepend "${DOTFILES__ROOT}/.dotfiles/dotenv/tmux/bin.$(uname -m)"
+    __push_path --prepend "${DOTFILES__ROOT}/.dotfiles/dotenv/tmux/bin.${_arch}"
   fi
   if [[ -n "${DOT___IS_SCREEN}" ]]; then
     __push_path --prepend "${DOTFILES__ROOT}/.dotfiles/dotenv/screen/bin"
-    __push_path --prepend "${DOTFILES__ROOT}/.dotfiles/dotenv/screen/bin.$(uname -m)"
+    __push_path --prepend "${DOTFILES__ROOT}/.dotfiles/dotenv/screen/bin.${_arch}"
   fi
   if [[ -n "${DOT___IS_SSH}" ]]; then
     __push_path --prepend "${DOTFILES__ROOT}/.dotfiles/dotenv/ssh/bin"
-    __push_path --prepend "${DOTFILES__ROOT}/.dotfiles/dotenv/ssh/bin.$(uname -m)"
+    __push_path --prepend "${DOTFILES__ROOT}/.dotfiles/dotenv/ssh/bin.${_arch}"
   fi
   if [[ -n "${DOT___IS_WSL}" ]]; then
-    __push_path "${DOTFILES__ROOT}/.dotfiles/dotenv/wsl/bin.$(uname -m)"
+    __push_path "${DOTFILES__ROOT}/.dotfiles/dotenv/wsl/bin.${_arch}"
     __push_path "${DOTFILES__ROOT}/.dotfiles/dotenv/wsl/bin"
   fi
   if [[ -n "${DOT___IS_WSL2}" ]]; then
-    __push_path "${DOTFILES__ROOT}/.dotfiles/dotenv/wsl2/bin.$(uname -m)"
+    __push_path "${DOTFILES__ROOT}/.dotfiles/dotenv/wsl2/bin.${_arch}"
     __push_path "${DOTFILES__ROOT}/.dotfiles/dotenv/wsl2/bin"
   fi
-  __push_path "${DOTFILES__ROOT}/.dotfiles/dotenv/${DOTENV}/bin.$(uname -m)"
+  __push_path "${DOTFILES__ROOT}/.dotfiles/dotenv/${DOTENV}/bin.${_arch}"
   __push_path "${DOTFILES__ROOT}/.dotfiles/dotenv/${DOTENV}/bin"
-  __push_path "${DOTFILES__ROOT}/.dotfiles/dotenv/bin.$(uname -m)"
+  __push_path "${DOTFILES__ROOT}/.dotfiles/dotenv/bin.${_arch}"
   __push_path "${DOTFILES__ROOT}/.dotfiles/dotenv/bin"
   __push_path "${HOME}/bin"
 
