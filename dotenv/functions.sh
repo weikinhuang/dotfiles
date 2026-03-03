@@ -165,14 +165,39 @@ function dotfiles-profile() {
     fi
     local tmp
     tmp=$(mktemp)
-    PS4='+ $EPOCHREALTIME\011 ' bash -xi -c exit 2>"$tmp"
+    PS4='+ $EPOCHREALTIME ${BASH_SOURCE[0]:-shell}:$LINENO\011 ' "$BASH" -xi -c exit 2>|"$tmp"
     echo "Top 30 slowest operations:"
-    awk 'NR>1 {
-      split(prev, a, /\t/); split($0, b, /\t/)
-      gsub(/^\++ /, "", a[1]); gsub(/^\++ /, "", b[1])
-      dt = b[1] - a[1]
-      if (dt > 0.01) printf "%6.3fs  %s\n", dt, a[2]
-    } { prev = $0 }' "$tmp" | sort -rn | head -30
+    LC_ALL=C awk -F'\t' -v home="$HOME" '/^\++ [0-9]+\./ {
+      gsub(/^\++ /, "", $1)
+      n = split($1, parts, " ")
+      ts = parts[1]
+      src = (n > 1) ? parts[2] : ""
+      gsub(home, "~", src)
+      cmd = $2
+      sub(/^ +/, "", cmd)
+      gsub(home, "~", cmd)
+      gsub(/=[^ ]{60,}/, "=<...>", cmd)
+      noise = (cmd ~ /^\[?\[/ || cmd ~ /^[A-Za-z_]+=[^ ]*$/ || \
+               cmd ~ /^(local|return|shift|case|for|while|do|done|if|then|else|fi|unset|readonly|printf|echo|alias|shopt|set|type) / || \
+               cmd ~ /^(true|false|:|done|fi|return)$/)
+      if (prev_ts) {
+        dt = ts - prev_ts
+        if (dt > 0.001) {
+          ctx = prev_cmd
+          for (i = pipe_n; i >= 1; i--) ctx = pipe_cmds[i] " | " ctx
+          if (pipe_n == 0 && prev_prev)
+            ctx = prev_prev " | " ctx
+          printf "%6.3fs  %s  (%s)\n", dt, ctx, prev_src
+        }
+      }
+      if (prev_ts && ts - prev_ts < 0.0001) {
+        if (!noise && pipe_n < 3) pipe_cmds[++pipe_n] = prev_cmd
+      } else {
+        pipe_n = 0
+      }
+      if (!noise) prev_prev = prev_cmd
+      prev_ts = ts; prev_cmd = cmd; prev_src = src
+    }' "$tmp" | sort -rn | head -30
     rm -f "$tmp"
   else
     time bash -i -c exit
