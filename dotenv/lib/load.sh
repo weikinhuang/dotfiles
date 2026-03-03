@@ -98,11 +98,17 @@ function __dot_load_plugins() {
     done
   fi
 
-  # sort by basename to interleave built-in and user plugins by priority prefix
-  # read from fd 3 so sourced plugins keep stdin attached to the terminal
-  while IFS='|' read -r -u 3 _ file; do
-    __dot_load_plugin "$file"
-  done 3< <(printf '%s\n' "${_tagged[@]}" | sort -t'|' -k1,1)
+  # Load plugins; sort only needed to interleave multiple directories.
+  # Read from fd 3 so sourced plugins keep stdin attached to the terminal.
+  if (( ${#_tagged[@]} )) && [[ "${_tagged[*]}" == *".bash_local.d/"* ]]; then
+    while IFS='|' read -r -u 3 _ file; do
+      __dot_load_plugin "$file"
+    done 3< <(printf '%s\n' "${_tagged[@]}" | sort -t'|' -k1,1)
+  else
+    for file in "${_tagged[@]}"; do
+      __dot_load_plugin "${file#*|}"
+    done
+  fi
 
   __dot_load_hook post plugin
 
