@@ -5,7 +5,7 @@ if ! command -v npm &>/dev/null; then
   return
 fi
 
-__dot_cached_completion npm "npm completion bash" "npm --version"
+__dot_cached_completion npm "npm completion bash"
 
 # global node_modules without sudo
 # @see https://github.com/sindresorhus/guides/blob/master/npm-global-without-sudo.md

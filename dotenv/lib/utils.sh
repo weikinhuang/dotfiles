@@ -61,29 +61,24 @@ function __find_editor() {
 }
 
 # Cache and source shell completions with version-based invalidation
-# Usage: __dot_cached_completion <tool> <generate-cmd> [version-cmd]
+# Usage: __dot_cached_completion <tool> <generate-cmd>
 function __dot_cached_completion() {
   local tool="$1"
   local gen_cmd="$2"
-  local ver_cmd="${3:-"$tool --version"}"
   local cache_file="${DOTFILES__CONFIG_DIR}/cache/completions/${tool}.bash"
-  local ver_file="${DOTFILES__CONFIG_DIR}/cache/completions/${tool}.version"
-
-  local current_ver
-  current_ver="$(eval "$ver_cmd" 2>/dev/null | head -1)" || true
 
   if [[ -f "$cache_file" ]]; then
     # shellcheck source=/dev/null
     source "$cache_file"
-    local cached_ver=""
-    [[ -f "$ver_file" ]] && read -r cached_ver < "$ver_file"
-    if [[ "$current_ver" != "$cached_ver" ]]; then
-      (eval "$gen_cmd" 2>/dev/null > "$cache_file" && printf '%s' "$current_ver" > "$ver_file" &)
+    local tool_bin
+    tool_bin="$(command -v "$tool" 2>/dev/null)" || true
+    if [[ -n "$tool_bin" && "$tool_bin" -nt "$cache_file" ]]; then
+      (eval "$gen_cmd" 2>/dev/null > "$cache_file" &)
     fi
   else
+    mkdir -p "${cache_file%/*}"
     eval "$gen_cmd" 2>/dev/null | tee "$cache_file" >/dev/null
     # shellcheck source=/dev/null
     source "$cache_file"
-    printf '%s' "$current_ver" > "$ver_file" 2>/dev/null
   fi
 }

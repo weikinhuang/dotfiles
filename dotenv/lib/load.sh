@@ -62,7 +62,11 @@ function __dot_load_plugin() {
   local file="$1"
   local DOT_PLUGIN_DISABLE_NAME
 
-  DOT_PLUGIN_DISABLE_NAME="DOT_PLUGIN_DISABLE_$(basename "${file}" | sed 's#.plugin$##; s#.sh$##; s#[^[:alnum:]_]#_#g')"
+  local _name="${file##*/}"
+  _name="${_name%.plugin}"
+  _name="${_name%.sh}"
+  _name="${_name//[^[:alnum:]_]/_}"
+  DOT_PLUGIN_DISABLE_NAME="DOT_PLUGIN_DISABLE_${_name}"
   if [[ -z "${!DOT_PLUGIN_DISABLE_NAME:-}" ]] && [[ -e "${file}" ]]; then
     # shellcheck source=/dev/null
     source "${file}"

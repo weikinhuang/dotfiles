@@ -71,18 +71,9 @@ esac
 
 # check if this is a ssh session
 export DOT___IS_SSH=
-if [[ -n "${SSH_CONNECTION:-}" ]] || [[ -n "${SSH_TTY:-}" ]]; then
+if [[ -n "${SSH_CONNECTION:-}" ]] || [[ -n "${SSH_TTY:-}" ]] || \
+   [[ -n "${SSH_CLIENT:-}" ]]; then
   DOT___IS_SSH=1
-elif command -v who &>/dev/null; then
-  _who_out="$(who am i 2>/dev/null)"
-  if [[ "$_who_out" == *\(*\)* ]]; then
-    _who_host="${_who_out##*(}"
-    _who_host="${_who_host%%)*}"
-    _who_host="${_who_host%%:*}"
-    [[ -n "$_who_host" ]] && DOT___IS_SSH=1
-    unset _who_host
-  fi
-  unset _who_out
 fi
 readonly DOT___IS_WSL
 readonly DOT___IS_WSL2

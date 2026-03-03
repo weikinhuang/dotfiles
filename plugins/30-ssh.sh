@@ -47,13 +47,28 @@ if [[ -n "${DOT_AUTOLOAD_SSH_AGENT:-}" ]] && { [[ -z "${SSH_AUTH_SOCK:-}" ]] || 
 fi
 unset -f _ssh-agent-start
 
-# SSH auto-completion based on entries in known_hosts.
+# SSH auto-completion based on entries in known_hosts and config.
 if command -v complete &>/dev/null && ! complete | grep -q ' ssh$'; then
-  complete -o default -W "$(
-    (
-      grep '^Host ' "${HOME}/.ssh/config" "${HOME}"/.ssh/config.d/* 2>/dev/null | grep -v no-complete | cut -d ' ' -f 2- | tr ' ' '\n' | grep -v '[?*]'
-      [[ -e "${HOME}/.ssh/known_hosts" ]] && sed 's/[, ].*//' <"${HOME}/.ssh/known_hosts" | tr -d '[]' | sed 's/:[0-9]\+$//' | grep -v '|'
-    ) \
-      | sort | uniq
-  )" ssh
+  _ssh_hosts=()
+  while IFS= read -r _line; do
+    [[ "$_line" == Host\ * ]] || continue
+    [[ "$_line" == *no-complete* ]] && continue
+    set -f
+    for _h in ${_line#Host }; do
+      [[ "$_h" == *['?*']* ]] || _ssh_hosts+=("$_h")
+    done
+    set +f
+  done < <(cat "${HOME}/.ssh/config" "${HOME}"/.ssh/config.d/* 2>/dev/null)
+  if [[ -e "${HOME}/.ssh/known_hosts" ]]; then
+    while IFS=', ' read -r _h _; do
+      _h="${_h%%]*}"
+      _h="${_h#\[}"
+      _h="${_h%%:*}"
+      [[ "$_h" == *\|* ]] || _ssh_hosts+=("$_h")
+    done < "${HOME}/.ssh/known_hosts"
+  fi
+  # shellcheck disable=SC2207
+  IFS=$'\n' _ssh_hosts=($(printf '%s\n' "${_ssh_hosts[@]}" | sort -u))
+  complete -o default -W "${_ssh_hosts[*]}" ssh
+  unset _ssh_hosts _line _h
 fi
