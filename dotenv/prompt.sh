@@ -271,6 +271,7 @@ fi
 # git prompt segment caching
 [[ -z "${DOT_GIT_PROMPT_CACHE_TTL_MS+x}" ]] && DOT_GIT_PROMPT_CACHE_TTL_MS=1000
 [[ -z "${DOT_GIT_PROMPT_CACHE_MAX_AGE_MS+x}" ]] && DOT_GIT_PROMPT_CACHE_MAX_AGE_MS=10000
+[[ -z "${DOT_GIT_PROMPT_INVALIDATE_ON_GIT+x}" ]] && DOT_GIT_PROMPT_INVALIDATE_ON_GIT=1
 __dot_git_ps1_format=" (${PS1_SYMBOL_GIT}${PS1_COLOR_RESET}${PS1_COLOR_GIT}%s)"
 
 # Timestamp in milliseconds.
@@ -348,12 +349,46 @@ function __dot_git_ps1_cache_invalidate() {
 __dot_git_ps1_cache_invalidate
 chpwd_functions+=(__dot_git_ps1_cache_invalidate)
 
+# Mark git prompt cache as dirty when the next command appears git-related.
+function __dot_git_ps1_preexec_mark_dirty() {
+  [[ "${DOT_GIT_PROMPT_INVALIDATE_ON_GIT:-1}" == 0 ]] && return
+
+  local cmd="${1:-}" token
+  cmd="${cmd#"${cmd%%[![:space:]]*}"}"
+  token="${cmd%%[[:space:];|&]*}"
+  case "$token" in
+    git | */git)
+      __dot_git_ps1_cache_dirty=1
+      ;;
+    command | builtin | env)
+      cmd="${cmd#"$token"}"
+      cmd="${cmd#"${cmd%%[![:space:]]*}"}"
+      token="${cmd%%[[:space:];|&]*}"
+      if [[ "$token" == git ]] || [[ "$token" == */git ]]; then
+        __dot_git_ps1_cache_dirty=1
+      fi
+      ;;
+    sudo)
+      cmd="${cmd#"$token"}"
+      if [[ "$cmd" =~ (^|[[:space:]])(git|[^[:space:]]*/git)([[:space:];|&]|$) ]]; then
+        __dot_git_ps1_cache_dirty=1
+      fi
+      ;;
+  esac
+}
+preexec_functions+=(__dot_git_ps1_preexec_mark_dirty)
+
 # Update cached git prompt state before PS1 is rendered.
 __ps1_var_git_segment=
 function __dot_git_ps1_update() {
   if ! command -v __git_ps1 &>/dev/null; then
     __ps1_var_git_segment=
     return
+  fi
+
+  if [[ -n "${__dot_git_ps1_cache_dirty:-}" ]]; then
+    __dot_git_ps1_cache_invalidate
+    unset __dot_git_ps1_cache_dirty
   fi
 
   local now_ms ttl_ms max_age_ms
@@ -394,8 +429,13 @@ function __dot_git_ps1_update() {
     return
   fi
 
-  local segment
+  local segment segment_render
   segment="$(__git_ps1 "${__dot_git_ps1_format}")"
+  # __git_ps1 returns PS1-style escapes (\[...\]); when stored in a variable
+  # we need prompt-ready control chars so readline tracks visual width correctly.
+  segment_render="${segment//\\[/$'\001'}"
+  segment_render="${segment_render//\\]/$'\002'}"
+  segment_render="$(printf '%b' "$segment_render")"
   __dot_git_ps1_cache_pwd="$PWD"
   __dot_git_ps1_cache_last_check_ms="$now_ms"
   __dot_git_ps1_cache_last_refresh_ms="$now_ms"
@@ -403,8 +443,8 @@ function __dot_git_ps1_update() {
   __dot_git_ps1_cache_head_mtime="$head_mtime"
   __dot_git_ps1_cache_index_mtime="$index_mtime"
   __dot_git_ps1_cache_stash_mtime="$stash_mtime"
-  __dot_git_ps1_cache_segment="$segment"
-  __ps1_var_git_segment="$segment"
+  __dot_git_ps1_cache_segment="$segment_render"
+  __ps1_var_git_segment="$segment_render"
 }
 __dot_git_ps1_update
 __push_internal_prompt_command __dot_git_ps1_update

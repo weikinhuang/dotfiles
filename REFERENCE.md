@@ -196,22 +196,23 @@ The prompt segments and appearance can be customized by setting variables in `~/
 
 ### Prompt Options
 
-| Variable                          | Description                                                             | Default |
-| --------------------------------- | ----------------------------------------------------------------------- | ------- |
-| `DOT_GIT_PROMPT_CACHE_TTL_MS`     | Skip re-checking git prompt state if last check is newer than this (ms) | `1000`  |
-| `DOT_GIT_PROMPT_CACHE_MAX_AGE_MS` | Force a full `__git_ps1` refresh at least this often (ms)               | `10000` |
-| `DOT_DISABLE_PS1`                 | Skip prompt setup entirely                                              |         |
-| `PS1_OPT_MONOCHROME`              | Disable all prompt colors                                               |         |
-| `PS1_OPT_MULTILINE`               | Always place the prompt symbol on a new line                            |         |
-| `PS1_OPT_NEWLINE_THRESHOLD`       | Terminal width below which the prompt wraps to a new line               | `120`   |
-| `PS1_OPT_HIDE_TIME`               | Hide the clock segment                                                  |         |
-| `PS1_OPT_HIDE_LOAD`               | Hide the load average segment                                           |         |
-| `PS1_OPT_HIDE_DIR_INFO`           | Hide the directory file count / size segment                            |         |
-| `PS1_OPT_HIDE_GIT`                | Hide the git branch / status segment                                    |         |
-| `PS1_OPT_HIDE_EXEC_TIME`          | Hide the command execution time segment                                 |         |
-| `PS1_OPT_DAY_START`               | Hour (24h) when daytime color starts                                    | `8`     |
-| `PS1_OPT_DAY_END`                 | Hour (24h) when daytime color ends                                      | `18`    |
-| `PS1_OPT_SEGMENT_EXTRA`           | Arbitrary PS1 string appended after the git segment                     |         |
+| Variable                           | Description                                                               | Default |
+| ---------------------------------- | ------------------------------------------------------------------------- | ------- |
+| `DOT_GIT_PROMPT_CACHE_TTL_MS`      | Skip re-checking git prompt state if last check is newer than this (ms)   | `1000`  |
+| `DOT_GIT_PROMPT_CACHE_MAX_AGE_MS`  | Force a full `__git_ps1` refresh at least this often (ms)                 | `10000` |
+| `DOT_GIT_PROMPT_INVALIDATE_ON_GIT` | Invalidate git prompt cache on the next prompt after git-related commands | `1`     |
+| `DOT_DISABLE_PS1`                  | Skip prompt setup entirely                                                |         |
+| `PS1_OPT_MONOCHROME`               | Disable all prompt colors                                                 |         |
+| `PS1_OPT_MULTILINE`                | Always place the prompt symbol on a new line                              |         |
+| `PS1_OPT_NEWLINE_THRESHOLD`        | Terminal width below which the prompt wraps to a new line                 | `120`   |
+| `PS1_OPT_HIDE_TIME`                | Hide the clock segment                                                    |         |
+| `PS1_OPT_HIDE_LOAD`                | Hide the load average segment                                             |         |
+| `PS1_OPT_HIDE_DIR_INFO`            | Hide the directory file count / size segment                              |         |
+| `PS1_OPT_HIDE_GIT`                 | Hide the git branch / status segment                                      |         |
+| `PS1_OPT_HIDE_EXEC_TIME`           | Hide the command execution time segment                                   |         |
+| `PS1_OPT_DAY_START`                | Hour (24h) when daytime color starts                                      | `8`     |
+| `PS1_OPT_DAY_END`                  | Hour (24h) when daytime color ends                                        | `18`    |
+| `PS1_OPT_SEGMENT_EXTRA`            | Arbitrary PS1 string appended after the git segment                       |         |
 
 Set any `_HIDE_` variable to `1` to disable that segment. Example:
 
