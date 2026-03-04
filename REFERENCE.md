@@ -175,14 +175,12 @@ Override any of these by setting the relevant env var in `~/.bash_local` before 
 | `git branch-prune`     | Remove branches locally and remotely if already merged into master |
 | `git changelog`        | Generate a changelog from git tags                                 |
 | `git cherry-pick-from` | Cherry pick commits from a different git repo                      |
-| `git gh-pages`         | Setup a new branch called gh-pages following github procedure      |
 | `git hooks`            | Execute a git hook                                                 |
 | `git hub`              | Open the repo in the browser via `gh browse`                       |
 | `git ignore`           | Add a file/path to .gitignore                                      |
 | `git ls-dir`           | List files in a git repo tree together with the latest commit      |
 | `git pr`               | Create a pull request on GitHub (opens web UI via `gh`)            |
 | `git pr-get`           | Checkout a pull request locally via `gh`                           |
-| `git remove-history`   | Permanently delete files/folders from repository                   |
 | `git repl`             | Start a repl where all commands are prefixed with `git`            |
 | `git ssh-socks-proxy`  | Forward git SSH connections through a SOCKS proxy                  |
 | `git sync`             | Sync origin with upstream remote                                   |
