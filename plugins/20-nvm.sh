@@ -1,7 +1,15 @@
 # shellcheck shell=bash
 
-# setup nvm base dir
-NVM_DIR="$([ -z "${XDG_CONFIG_HOME-}" ] && printf %s "${HOME}/.nvm" || printf %s "${XDG_CONFIG_HOME}/nvm")"
+# setup nvm base dir — prefer XDG location, fall back to ~/.nvm
+if [[ -n "${XDG_CONFIG_HOME-}" ]] && [[ -s "${XDG_CONFIG_HOME}/nvm/nvm.sh" ]]; then
+  NVM_DIR="${XDG_CONFIG_HOME}/nvm"
+elif [[ -s "${HOME}/.nvm/nvm.sh" ]]; then
+  NVM_DIR="${HOME}/.nvm"
+elif [[ -n "${XDG_CONFIG_HOME-}" ]]; then
+  NVM_DIR="${XDG_CONFIG_HOME}/nvm"
+else
+  NVM_DIR="${HOME}/.nvm"
+fi
 
 # @see https://github.com/nvm-sh/nvm
 if ! command -v nvm &>/dev/null && [[ ! -s "${NVM_DIR}/nvm.sh" ]]; then

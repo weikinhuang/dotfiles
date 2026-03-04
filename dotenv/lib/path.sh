@@ -7,18 +7,41 @@ function __push_path() {
     prepend=1
     shift
   fi
-  local path="$1"
+  local path="${1%/}"
+  [[ -z "$path" ]] && path="/"
   if [[ ! -d "${path}" ]]; then
     return
   fi
   case ":${PATH}:" in
-    *:"${path}":*) return ;;
+    *:"${path}":* | *:"${path}/":*) return ;;
   esac
   if [[ -n "${prepend}" ]]; then
     PATH="${path}:${PATH}"
   else
     PATH="${PATH}:${path}"
   fi
+  export PATH
+}
+
+# remove duplicate PATH entries and normalize trailing slashes
+function __dedup_path() {
+  local -A _seen=()
+  local _result="" _rest="$PATH" _entry _key
+  while [[ -n "$_rest" ]]; do
+    _entry="${_rest%%:*}"
+    if [[ "$_rest" == *:* ]]; then
+      _rest="${_rest#*:}"
+    else
+      _rest=""
+    fi
+    [[ -z "$_entry" ]] && continue
+    _key="${_entry%/}"
+    [[ -z "$_key" ]] && _key="/"
+    [[ -n "${_seen[$_key]+x}" ]] && continue
+    _seen[$_key]=1
+    _result="${_result:+${_result}:}${_key}"
+  done
+  PATH="$_result"
   export PATH
 }
 
@@ -70,6 +93,7 @@ function __dot_path_setup() {
 
 # clean up vars and functions declared
 function __dot_path_cleanup() {
+  __dedup_path
   unset -f __dot_path_setup
   unset -f __dot_path_cleanup
 }
