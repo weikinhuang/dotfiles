@@ -83,7 +83,7 @@ function __dot_path_setup() {
     # usually ~/.local
     local python_site_path="${HOME}/.local"
     if [[ ! -d "${python_site_path}" ]]; then
-      python_site_path="$(python3 -m site --user-base &>/dev/null)"
+      python_site_path="$(python3 -m site --user-base 2>/dev/null || true)"
     fi
     if [[ -n "${python_site_path}" ]] && [[ -d "${python_site_path}/bin" ]]; then
       __push_path "${python_site_path}/bin"

@@ -21,12 +21,12 @@ function __dot_chpwd_hook() {
   if ((__dot_inside_chpwd > 0)); then
     return
   fi
-  local __dot_inside_chpwd=1
 
   # check if directory has changed
   if [[ "${PWD}" == "${__dot_inside_chpwd_last}" ]]; then
     return
   fi
+  __dot_inside_chpwd=1
   __dot_inside_chpwd_last="${PWD}"
 
   # if declared in function format
@@ -37,6 +37,8 @@ function __dot_chpwd_hook() {
   for hook in "${chpwd_functions[@]}"; do
     { "${hook}"; }
   done
+
+  __dot_inside_chpwd=0
 }
 
 # check on each prompt command
