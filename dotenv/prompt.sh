@@ -268,6 +268,147 @@ if [[ -z "${PS1_OPT_MULTILINE:-}" ]]; then
   __push_internal_prompt_command __ps1_newline_check
 fi
 
+# git prompt segment caching
+[[ -z "${DOT_GIT_PROMPT_CACHE_TTL_MS+x}" ]] && DOT_GIT_PROMPT_CACHE_TTL_MS=1000
+[[ -z "${DOT_GIT_PROMPT_CACHE_MAX_AGE_MS+x}" ]] && DOT_GIT_PROMPT_CACHE_MAX_AGE_MS=10000
+__dot_git_ps1_format=" (${PS1_SYMBOL_GIT}${PS1_COLOR_RESET}${PS1_COLOR_GIT}%s)"
+
+# Timestamp in milliseconds.
+function __dot_git_prompt_now_ms() {
+  if [[ -n "${EPOCHREALTIME:-}" ]]; then
+    echo "$(( ${EPOCHREALTIME/./} / 1000 ))"
+  else
+    echo "$(( SECONDS * 1000 ))"
+  fi
+}
+
+# Cross-platform mtime helper (seconds since epoch).
+function __dot_git_prompt_mtime() {
+  local path="$1"
+  local mtime
+  [[ -e "$path" ]] || {
+    echo 0
+    return
+  }
+  if mtime="$(stat -f %m "$path" 2>/dev/null)"; then
+    echo "$mtime"
+    return
+  fi
+  if mtime="$(stat -c %Y "$path" 2>/dev/null)"; then
+    echo "$mtime"
+    return
+  fi
+  echo 0
+}
+
+# Resolve current repository gitdir by walking from $PWD upward.
+function __dot_git_prompt_gitdir() {
+  local dir="$PWD"
+  local dotgit line gitdir
+  while true; do
+    dotgit="${dir}/.git"
+    if [[ -d "$dotgit" ]]; then
+      echo "$dotgit"
+      return 0
+    fi
+    if [[ -f "$dotgit" ]]; then
+      IFS= read -r line < "$dotgit" || return 1
+      case "$line" in
+        "gitdir: "*)
+          gitdir="${line#gitdir: }"
+          if [[ "$gitdir" != /* ]]; then
+            gitdir="${dir}/${gitdir}"
+          fi
+          if [[ -d "$gitdir" ]]; then
+            echo "$gitdir"
+            return 0
+          fi
+          ;;
+      esac
+      return 1
+    fi
+    [[ "$dir" == "/" ]] && break
+    dir="${dir%/*}"
+    [[ -z "$dir" ]] && dir="/"
+  done
+  return 1
+}
+
+# Invalidate cached git prompt state.
+function __dot_git_ps1_cache_invalidate() {
+  __dot_git_ps1_cache_pwd=
+  __dot_git_ps1_cache_last_check_ms=0
+  __dot_git_ps1_cache_last_refresh_ms=0
+  __dot_git_ps1_cache_gitdir=
+  __dot_git_ps1_cache_head_mtime=0
+  __dot_git_ps1_cache_index_mtime=0
+  __dot_git_ps1_cache_stash_mtime=0
+  __dot_git_ps1_cache_segment=
+}
+__dot_git_ps1_cache_invalidate
+chpwd_functions+=(__dot_git_ps1_cache_invalidate)
+
+# Update cached git prompt state before PS1 is rendered.
+__ps1_var_git_segment=
+function __dot_git_ps1_update() {
+  if ! command -v __git_ps1 &>/dev/null; then
+    __ps1_var_git_segment=
+    return
+  fi
+
+  local now_ms ttl_ms max_age_ms
+  now_ms="$(__dot_git_prompt_now_ms)"
+  ttl_ms="${DOT_GIT_PROMPT_CACHE_TTL_MS:-1000}"
+  max_age_ms="${DOT_GIT_PROMPT_CACHE_MAX_AGE_MS:-10000}"
+  [[ "$ttl_ms" =~ ^[0-9]+$ ]] || ttl_ms=1000
+  [[ "$max_age_ms" =~ ^[0-9]+$ ]] || max_age_ms=10000
+
+  if [[ "${__dot_git_ps1_cache_pwd:-}" == "$PWD" ]] &&
+     ((now_ms - __dot_git_ps1_cache_last_check_ms < ttl_ms)); then
+    __ps1_var_git_segment="${__dot_git_ps1_cache_segment:-}"
+    return
+  fi
+
+  local gitdir
+  if ! gitdir="$(__dot_git_prompt_gitdir)"; then
+    __dot_git_ps1_cache_invalidate
+    __dot_git_ps1_cache_pwd="$PWD"
+    __dot_git_ps1_cache_last_check_ms="$now_ms"
+    __ps1_var_git_segment=
+    return
+  fi
+
+  local head_mtime index_mtime stash_mtime
+  head_mtime="$(__dot_git_prompt_mtime "${gitdir}/HEAD")"
+  index_mtime="$(__dot_git_prompt_mtime "${gitdir}/index")"
+  stash_mtime="$(__dot_git_prompt_mtime "${gitdir}/refs/stash")"
+
+  if [[ "${__dot_git_ps1_cache_gitdir:-}" == "$gitdir" ]] &&
+     [[ "${__dot_git_ps1_cache_head_mtime:-0}" == "$head_mtime" ]] &&
+     [[ "${__dot_git_ps1_cache_index_mtime:-0}" == "$index_mtime" ]] &&
+     [[ "${__dot_git_ps1_cache_stash_mtime:-0}" == "$stash_mtime" ]] &&
+     ((now_ms - __dot_git_ps1_cache_last_refresh_ms < max_age_ms)); then
+    __dot_git_ps1_cache_pwd="$PWD"
+    __dot_git_ps1_cache_last_check_ms="$now_ms"
+    __ps1_var_git_segment="${__dot_git_ps1_cache_segment:-}"
+    return
+  fi
+
+  local segment
+  segment="$(__git_ps1 "${__dot_git_ps1_format}")"
+  __dot_git_ps1_cache_pwd="$PWD"
+  __dot_git_ps1_cache_last_check_ms="$now_ms"
+  __dot_git_ps1_cache_last_refresh_ms="$now_ms"
+  __dot_git_ps1_cache_gitdir="$gitdir"
+  __dot_git_ps1_cache_head_mtime="$head_mtime"
+  __dot_git_ps1_cache_index_mtime="$index_mtime"
+  __dot_git_ps1_cache_stash_mtime="$stash_mtime"
+  __dot_git_ps1_cache_segment="$segment"
+  __ps1_var_git_segment="$segment"
+}
+__dot_git_ps1_update
+__push_internal_prompt_command __dot_git_ps1_update
+
 # ------------------------------------------------------------------------------
 # PROMPT GENERATION
 # ------------------------------------------------------------------------------
@@ -312,7 +453,7 @@ function __ps1_create() {
 
   # git status only if the git repo status function is installed
   if [[ -z "${PS1_OPT_HIDE_GIT:-}" ]] && command -v __git_ps1 &>/dev/null; then
-    PS1="${PS1}${PS1_COLOR_GIT}\$(__git_ps1 \" (${PS1_SYMBOL_GIT}${PS1_COLOR_RESET}${PS1_COLOR_GIT}%s)\")${PS1_COLOR_RESET}"
+    PS1="${PS1}${PS1_COLOR_GIT}\${__ps1_var_git_segment}${PS1_COLOR_RESET}"
   fi
 
   # any additional blocks from the local prompt config
