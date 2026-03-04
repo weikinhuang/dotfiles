@@ -25,8 +25,8 @@ function __push_path() {
 
 # remove duplicate PATH entries and normalize trailing slashes
 function __dedup_path() {
-  local -A _seen=()
   local _result="" _rest="$PATH" _entry _key
+  local _seen=":"
   while [[ -n "$_rest" ]]; do
     _entry="${_rest%%:*}"
     if [[ "$_rest" == *:* ]]; then
@@ -37,8 +37,8 @@ function __dedup_path() {
     [[ -z "$_entry" ]] && continue
     _key="${_entry%/}"
     [[ -z "$_key" ]] && _key="/"
-    [[ -n "${_seen[$_key]+x}" ]] && continue
-    _seen[$_key]=1
+    [[ "$_seen" == *:"${_key}":* ]] && continue
+    _seen="${_seen}${_key}:"
     _result="${_result:+${_result}:}${_key}"
   done
   PATH="$_result"

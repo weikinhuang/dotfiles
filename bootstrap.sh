@@ -29,22 +29,25 @@ if [[ -e "${CONFIG_FILE}" ]]; then
 fi
 
 # link up gitconfig and vim if specified
-if [[ -n $# ]]; then
-  for arg in "$@"; do
-    case "${arg}" in
-      --no-git)
-        DOTFILES__INSTALL_GITCONFIG=
-        ;;
-      --no-vim)
-        DOTFILES__INSTALL_VIMRC=
-        ;;
-      --dir | -d)
-        shift 1
-        DOTFILES__INSTALL_ROOT="${1}"
-        ;;
-    esac
-  done
-fi
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --no-git)
+      DOTFILES__INSTALL_GITCONFIG=
+      ;;
+    --no-vim)
+      DOTFILES__INSTALL_VIMRC=
+      ;;
+    --dir | -d)
+      if [[ $# -lt 2 ]]; then
+        echo "Missing value for $1" >&2
+        exit 1
+      fi
+      DOTFILES__INSTALL_ROOT="$2"
+      shift
+      ;;
+  esac
+  shift
+done
 
 # clean up
 if [[ "${DOTFILES__INSTALL_VIMRC}" -eq 1 ]]; then
@@ -161,7 +164,7 @@ function dotfiles::install::vim() {
   fi
 
   # symlink coc-settings.json file
-  dotfiles::install::link "config/vim/ftplugins .vim/ftplugins"
+  dotfiles::install::link "config/vim/ftplugin .vim/ftplugin"
   dotfiles::install::link "config/vim/coc-settings.json .vim/coc-settings.json"
   dotfiles::install::link "config/vim/coc-settings.json .config/nvim/coc-settings.json"
 }
