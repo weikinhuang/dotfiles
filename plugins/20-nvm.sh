@@ -77,49 +77,81 @@ fi
 
 # automatically load nvm as needed
 # https://github.com/nvm-sh/nvm#automatically-call-nvm-use
+__cdnvm_last_scope=
+__cdnvm_last_resolved=
+__cdnvm_default_version=
+
+__cdnvm_current_version() {
+  if [[ -n "${NVM_BIN:-}" ]]; then
+    local current_path="${NVM_BIN%/bin}"
+    echo "${current_path##*/}"
+    return
+  fi
+  echo ""
+}
+
+__cdnvm_resolve_default_version() {
+  if [[ -n "${__cdnvm_default_version:-}" ]] && [[ "${__cdnvm_default_version}" != "N/A" ]]; then
+    echo "${__cdnvm_default_version}"
+    return
+  fi
+
+  __cdnvm_default_version="$(nvm version default 2>/dev/null || true)"
+  if [[ "${__cdnvm_default_version}" == "N/A" ]]; then
+    nvm alias default node >/dev/null 2>&1 || true
+    __cdnvm_default_version="$(nvm version default 2>/dev/null || true)"
+  fi
+  echo "${__cdnvm_default_version}"
+}
+
 cdnvm() {
+  local nvm_path nvmrc_path nvm_version scope current_version resolved_version default_version
+
   if ! command -v nvm_find_up &>/dev/null; then
     __nvm_lazy_load 2>/dev/null || true
   fi
 
-  nvm_path=$(nvm_find_up .nvmrc | tr -d '\n')
+  nvm_path="$(nvm_find_up .nvmrc | tr -d '\n')"
 
   # If there are no .nvmrc file, use the default nvm version
-  if [[ ! $nvm_path = *[^[:space:]]* ]]; then
+  if [[ ! "${nvm_path}" = *[^[:space:]]* ]]; then
+    scope="__default__"
+    current_version="$(__cdnvm_current_version)"
+    default_version="$(__cdnvm_resolve_default_version)"
 
-    local default_version
-    default_version=$(nvm version default)
-
-    # If there is no default version, set it to `node`
-    # This will use the latest version on your machine
-    if [[ $default_version == "N/A" ]]; then
-      nvm alias default node
-      default_version=$(nvm version default)
+    if [[ "${__cdnvm_last_scope}" == "${scope}" ]] && [[ "${current_version}" == "${default_version}" ]]; then
+      return
     fi
 
-    # If the current version is not the default version, set it to use the default version
-    if [[ $(nvm current) != "$default_version" ]]; then
-      nvm use default
+    if [[ -n "${default_version}" ]] && [[ "${current_version}" != "${default_version}" ]]; then
+      nvm use default >/dev/null
+    fi
+    __cdnvm_last_scope="${scope}"
+    __cdnvm_last_resolved="${default_version}"
+    return
+  fi
+
+  nvmrc_path="${nvm_path}/.nvmrc"
+  if [[ -s "${nvmrc_path}" ]] && [[ -r "${nvmrc_path}" ]]; then
+    nvm_version="$(<"${nvmrc_path}")"
+    scope="${nvm_path}:${nvm_version}"
+    current_version="$(__cdnvm_current_version)"
+
+    if [[ "${__cdnvm_last_scope}" == "${scope}" ]] && [[ "${current_version}" == "${__cdnvm_last_resolved}" ]]; then
+      return
     fi
 
-  elif [[ -s $nvm_path/.nvmrc && -r $nvm_path/.nvmrc ]]; then
-    local nvm_version
-    nvm_version=$(<"$nvm_path"/.nvmrc)
-
-    local locally_resolved_nvm_version
-    # `nvm ls` will check all locally-available versions
-    # If there are multiple matching versions, take the latest one
-    # Remove the `->` and `*` characters and spaces
-    # `locally_resolved_nvm_version` will be `N/A` if no local versions are found
-    locally_resolved_nvm_version=$(nvm ls --no-colors "$nvm_version" | tail -1 | tr -d '\->*' | tr -d '[:space:]')
-
-    # If it is not already installed, install it
-    # `nvm install` will implicitly use the newly-installed version
-    if [[ "$locally_resolved_nvm_version" == "N/A" ]]; then
-      nvm install "$nvm_version"
-    elif [[ $(nvm current) != "$locally_resolved_nvm_version" ]]; then
-      nvm use "$nvm_version"
+    # `nvm version` resolves to an installed concrete version or N/A.
+    resolved_version="$(nvm version "${nvm_version}" 2>/dev/null || true)"
+    if [[ "${resolved_version}" == "N/A" ]]; then
+      nvm install "${nvm_version}"
+      resolved_version="$(nvm version "${nvm_version}" 2>/dev/null || true)"
+    elif [[ "${current_version}" != "${resolved_version}" ]]; then
+      nvm use "${nvm_version}" >/dev/null
     fi
+
+    __cdnvm_last_scope="${scope}"
+    __cdnvm_last_resolved="${resolved_version}"
   fi
 }
 chpwd_functions+=(cdnvm)
