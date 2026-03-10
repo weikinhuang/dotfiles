@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
+set -euo pipefail
+IFS=$'\n\t'
 
-DATE=$(date +'%Y-%m-%d')
-HEAD="\nn.n.n / $DATE \n==================\n\n"
+DATE="$(date +'%Y-%m-%d')"
+HEAD="$(printf '\nn.n.n / %s\n==================\n\n' "${DATE}")"
 
 case "$1" in
   -l | --list)
@@ -16,15 +18,17 @@ case "$1" in
     CHANGELOG=$1
     if test "$CHANGELOG" = ""; then
       # shellcheck disable=SC2010
-      CHANGELOG=$(ls | grep -E 'change|history' -i)
+      CHANGELOG="$(ls | grep -E 'change|history' -i | head -n 1 || true)"
       if test "$CHANGELOG" = ""; then CHANGELOG='History.md'; fi
     fi
-    tmp="/tmp/changelog"
-    printf "%s" "$HEAD" >$tmp
-    git-changelog --list >>$tmp
-    printf '\n' >>$tmp
-    if [ -f $CHANGELOG ]; then cat $CHANGELOG >>$tmp; fi
-    mv $tmp $CHANGELOG
-    test -n "$EDITOR" && $EDITOR $CHANGELOG
+    tmp="$(mktemp "${TMPDIR:-/tmp}/git-changelog.XXXXXX")"
+    trap 'rm -f "${tmp}"' EXIT
+    printf "%s" "$HEAD" >"${tmp}"
+    git-changelog --list >>"${tmp}"
+    printf '\n' >>"${tmp}"
+    if [ -f "$CHANGELOG" ]; then cat "$CHANGELOG" >>"${tmp}"; fi
+    mv "${tmp}" "$CHANGELOG"
+    trap - EXIT
+    test -n "${EDITOR:-}" && "$EDITOR" "$CHANGELOG"
     ;;
 esac

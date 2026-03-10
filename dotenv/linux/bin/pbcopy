@@ -22,3 +22,6 @@ if command -v xclip &>/dev/null; then
 elif command -v xsel &>/dev/null; then
   exec xsel -i --clipboard
 fi
+
+echo "pbcopy: requires xclip or xsel" >&2
+exit 1

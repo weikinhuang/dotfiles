@@ -63,6 +63,9 @@ $ cat /etc/shells
 /bin/zsh
 ```
 
+Homebrew installs Bash to `/opt/homebrew/bin/bash` on Apple Silicon and
+`/usr/local/bin/bash` on Intel. `$(brew --prefix)/bin/bash` works for both.
+
 Find the path to the shell you want to use, then append it to the file:
 
 ```bash
@@ -72,13 +75,13 @@ $ sudo vi /etc/shells
 .
 /bin/tcsh
 /bin/zsh
-/usr/local/bin/bash # <--- path to the new shell
+$(brew --prefix)/bin/bash # <--- path to the new shell
 ```
 
 Then change the default login shell current user:
 
 ```bash
-chsh -s /usr/local/bin/bash
+chsh -s "$(brew --prefix)/bin/bash"
 ```
 
 Single command for brew bash
@@ -135,7 +138,7 @@ Force the `HOME` and `END` keys to have the same behavior as on other platforms
 
 ```bash
 mkdir -p ~/Library/KeyBindings
-cp ~/.dotfiles/utils/darwin/DefaultKeyBindings.dict ~/Library/KeyBindings/
+cp ~/.dotfiles/utils/darwin/DefaultKeyBinding.dict ~/Library/KeyBindings/
 OR
 ln -sf ~/.dotfiles/utils/darwin/DefaultKeyBinding.dict ~/Library/KeyBindings/DefaultKeyBinding.dict
 ```
