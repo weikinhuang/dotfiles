@@ -170,13 +170,10 @@ Override any of these by setting the relevant env var in `~/.bash_local` before 
 
 | Command                | Description                                                            |
 | ---------------------- | ---------------------------------------------------------------------- |
-| `git auto-difftool`    | Use araxis merge when possible otherwise use `vimdiff`                 |
-| `git auto-mergetool`   | Use araxis merge when possible otherwise use `vimdiff`                 |
 | `git branch-prune`     | Remove branches locally/remotely if already merged into default branch |
 | `git changelog`        | Generate a changelog from git tags                                     |
 | `git cherry-pick-from` | Cherry pick commits from a different git repo                          |
 | `git default-branch`   | Print the repository default branch                                    |
-| `git hooks`            | Execute a git hook                                                     |
 | `git hub`              | Open the repo in the browser via `gh browse`                           |
 | `git ignore`           | Add a file/path to .gitignore                                          |
 | `git ls-dir`           | List files in a git repo tree together with the latest commit          |
@@ -185,8 +182,6 @@ Override any of these by setting the relevant env var in `~/.bash_local` before 
 | `git repl`             | Start a repl where all commands are prefixed with `git`                |
 | `git ssh-socks-proxy`  | Forward git SSH connections through a SOCKS proxy                      |
 | `git sync`             | Sync origin with upstream remote                                       |
-| `git touch`            | Make a new file and add it                                             |
-| `git track`            | Sets up auto-tracking of a remote branch with same base name           |
 | `git undo-index`       | Undo staged changes, storing them in the reflog                        |
 
 ## Prompt Customization

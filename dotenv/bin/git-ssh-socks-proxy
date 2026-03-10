@@ -77,15 +77,6 @@ ignore any proxy settings configured in the gitconfig file above.
 HELPDOC
 }
 
-for arg in "$@"; do
-  case "$arg" in
-    -h | --help | -\?)
-      print_help
-      exit 0
-      ;;
-  esac
-done
-
 NETCAT_COMMAND=
 if command -v nc &>/dev/null; then
   NETCAT_COMMAND=nc
@@ -108,6 +99,7 @@ function pecho() {
 # try to find the hostname via the first instance of user@host
 REAL_ARGS=("$@")
 SSH_HOSTNAME=
+SSH_PORT=22
 for arg in "${REAL_ARGS[@]}"; do
   if [[ "$arg" == *@* ]]; then
     SSH_HOSTNAME="$(echo "${arg}" | cut -d@ -f2)"
@@ -115,8 +107,38 @@ for arg in "${REAL_ARGS[@]}"; do
   fi
 done
 
-# try to find the port via the first instance of -p
-SSH_PORT=$(getopt_assert -p:--port "$@" || true)
+for ((i = 0; i < ${#REAL_ARGS[@]}; i++)); do
+  arg="${REAL_ARGS[i]}"
+  case "$arg" in
+    -h | --help | -\?)
+      print_help
+      exit 0
+      ;;
+    -p)
+      if ((i + 1 < ${#REAL_ARGS[@]})); then
+        SSH_PORT="${REAL_ARGS[i + 1]}"
+        ((i++))
+      else
+        SSH_PORT=
+      fi
+      ;;
+    -p?*)
+      SSH_PORT="${arg#-p}"
+      ;;
+    --port)
+      if ((i + 1 < ${#REAL_ARGS[@]})); then
+        SSH_PORT="${REAL_ARGS[i + 1]}"
+        ((i++))
+      else
+        SSH_PORT=
+      fi
+      ;;
+    --port=*)
+      SSH_PORT="${arg#*=}"
+      ;;
+  esac
+done
+
 if [[ -z "${SSH_PORT}" ]]; then
   SSH_PORT=22
 fi
