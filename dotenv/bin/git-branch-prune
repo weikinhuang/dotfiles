@@ -1,22 +1,43 @@
 #!/usr/bin/env bash
-# Delete all branches that have been merged to master && push deletes to remote origin
+# Delete all branches that have been merged to default branch && push deletes to remote origin
 # from: https://github.com/SnapInteractive/git-tools
 
-CHECK_ORIGIN=$(git remote -v | grep '^origin.\+(push)$')
-if [ -z "$CHECK_ORIGIN" ]; then
+if ! git remote get-url --push origin >/dev/null 2>&1; then
   echo "You need to be in a git repo with a pushable \"origin\" remote!"
   exit 1
 fi
 
-if [ "$1" = "-i" ]; then
-  INTERACTIVE="yes"
-else
-  INTERACTIVE=""
+INTERACTIVE=
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -i | --interactive)
+      INTERACTIVE="yes"
+      ;;
+    -h | --help)
+      echo "Usage: $(basename "$0") [-i|--interactive]"
+      exit 0
+      ;;
+    *)
+      echo "Unknown argument: $1" >&2
+      echo "Usage: $(basename "$0") [-i|--interactive]" >&2
+      exit 1
+      ;;
+  esac
+  shift
+done
+
+MAIN_BRANCH="$(git-default-branch)"
+if [ -z "${MAIN_BRANCH}" ]; then
+  echo "Unable to determine default branch." >&2
+  exit 1
 fi
 
-for BRANCH in $(git branch --merged master | grep -v '\<master\>\|^\*'); do
+while IFS= read -r BRANCH; do
+  if [ -z "${BRANCH}" ] || [ "${BRANCH}" = "${MAIN_BRANCH}" ]; then
+    continue
+  fi
   if [ -n "$INTERACTIVE" ]; then
-    read -p -r "$(basename "$0"): remove branch '$BRANCH'? (y)" RESPONSE
+    read -p -r "$(basename "$0"): remove branch '$BRANCH'? (y) " RESPONSE </dev/tty
     if [ "$RESPONSE" != 'y' ] && [ "$RESPONSE" != '' ]; then
       continue
     fi
@@ -36,4 +57,4 @@ for BRANCH in $(git branch --merged master | grep -v '\<master\>\|^\*'); do
     ST=$(echo "$ST" | head -n 1 | sed 's/error: //')
     echo "Branch \"$BRANCH\" not removed: $ST"
   fi
-done
+done < <(git branch --merged "${MAIN_BRANCH}" --format='%(refname:short)')

@@ -9,8 +9,12 @@ SUBDIRECTORY_OK=Yes
 require_work_tree
 
 # get the current branch
-BRANCH=$(git branch | grep '^* ' | sed 's/^* //')
-MAIN_BRANCH="$(git branch --list | grep 'master\|main' | sed 's/\** *//' | head -1)"
+BRANCH="$(git symbolic-ref --quiet --short HEAD 2>/dev/null || true)"
+if [ -z "${BRANCH}" ]; then
+  echo "Not on a branch (detached HEAD)." >&2
+  exit 1
+fi
+MAIN_BRANCH="$(git-default-branch)"
 
 # no pull requests allowed against master unless -f option is on
 getopt_assert -f:--force "$@"

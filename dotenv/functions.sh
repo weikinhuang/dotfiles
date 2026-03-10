@@ -15,11 +15,25 @@ function cf() {
 
 # xargs wrapper for running PROC_CORES parallel processes
 function parallel-xargs() {
-  local cmd="$*"
-  if [[ ! "$cmd" =~ "{}" ]]; then
-    cmd="$cmd {}"
+  if [[ $# -eq 0 ]]; then
+    echo "Usage: parallel-xargs <command> [args...]" >&2
+    return 1
   fi
-  xargs -r -I {} -P "${PROC_CORES:-1}" sh -c "${cmd}"
+
+  local -a cmd=("$@")
+  local has_placeholder=
+  local arg
+  for arg in "${cmd[@]}"; do
+    if [[ "${arg}" == "{}" ]]; then
+      has_placeholder=1
+      break
+    fi
+  done
+  if [[ -z "${has_placeholder}" ]]; then
+    cmd+=("{}")
+  fi
+
+  xargs -r -I {} -P "${PROC_CORES:-1}" "${cmd[@]}"
 }
 
 # Extract archives automatically

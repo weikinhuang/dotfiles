@@ -26,21 +26,43 @@ if [[ -n "${DOT_INCLUDE_BREW_PATH:-}" ]]; then
   __push_path --prepend "${__BREW_PREFIX}/sbin"
   __push_path --prepend "${__BREW_PREFIX}/bin"
 
-  # Build PATH variable for brew gnu utils
-  for p in "${__BREW_PREFIX}"/Cellar/*/*/libexec/gnubin; do
-    __push_path --prepend "${p}"
-  done
-  unset p
+  # Cache gnubin/gnuman scans and refresh when Cellar metadata changes.
+  __brew_cellar_dir="${__BREW_PREFIX}/Cellar"
+  __brew_cache_key="${__BREW_PREFIX//\//_}"
+  __brew_gnu_cache_file="${DOTFILES__CONFIG_DIR}/cache/brew_gnu_paths.${__brew_cache_key}.cache"
+  if [[ ! -f "${__brew_gnu_cache_file}" ]] \
+    || { [[ -d "${__brew_cellar_dir}" ]] && [[ "${__brew_cellar_dir}" -nt "${__brew_gnu_cache_file}" ]]; }; then
+    __brew_gnu_tmp="${__brew_gnu_cache_file}.tmp.$$.$RANDOM"
+    mkdir -p "${__brew_gnu_cache_file%/*}"
+    {
+      for p in "${__BREW_PREFIX}"/Cellar/*/*/libexec/gnubin; do
+        [[ -d "${p}" ]] && printf 'PATH:%s\n' "${p}"
+      done
+      for p in "${__BREW_PREFIX}"/Cellar/*/*/libexec/gnuman; do
+        [[ -d "${p}" ]] && printf 'MAN:%s\n' "${p}"
+      done
+    } >"${__brew_gnu_tmp}"
+    mv -f "${__brew_gnu_tmp}" "${__brew_gnu_cache_file}"
+    unset __brew_gnu_tmp
+  fi
 
   export MANPATH="${MANPATH:-/usr/share/man}"
   if [[ -d "${__BREW_PREFIX}/share/man" ]]; then
     MANPATH="${__BREW_PREFIX}/share/man:${MANPATH}"
   fi
-  # update man path for brew gnu utils
-  for p in "${__BREW_PREFIX}"/Cellar/*/*/libexec/gnuman; do
-    MANPATH="${p}:${MANPATH}"
-  done
-  unset p
+  if [[ -s "${__brew_gnu_cache_file}" ]]; then
+    while IFS= read -r p; do
+      case "${p}" in
+        PATH:*)
+          __push_path --prepend "${p#PATH:}"
+          ;;
+        MAN:*)
+          MANPATH="${p#MAN:}:${MANPATH}"
+          ;;
+      esac
+    done <"${__brew_gnu_cache_file}"
+  fi
+  unset p __brew_cellar_dir __brew_cache_key __brew_gnu_cache_file
   export MANPATH
 fi
 unset DOT_INCLUDE_BREW_PATH

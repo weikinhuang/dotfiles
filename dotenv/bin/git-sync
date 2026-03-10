@@ -6,7 +6,11 @@ GIT_SYNC_TRACE=${GIT_SYNC_TRACE:-}
 # Go to the main branch then sync local and origin with [upstream|origin]
 function sync_one() {
   local MAIN_BRANCH PREV_BR STASH_NAME
-  MAIN_BRANCH="$(git branch --list | grep 'master\|main' | sed 's/\** *//' | head -1)"
+  MAIN_BRANCH="$(git-default-branch)"
+  if [[ -z "${MAIN_BRANCH}" ]]; then
+    echo "Unable to determine default branch" >&2
+    return 1
+  fi
   PREV_BR="$(git brn)"
   STASH_NAME="$(date +%s)"
   git diff-index --quiet HEAD --

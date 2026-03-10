@@ -10,7 +10,7 @@
 set -euo pipefail
 IFS=$'\n\t'
 
-if [[ "$1" == "-h" ]] || [[ "$1" == "--help" ]] || [[ "$1" == "-?" ]]; then
+function print_help() {
   cat <<HELPDOC
 usage: usage: git-ssh-socks-proxy [-46AaCfGgKkMNnqsTtVvXxYy] [-b bind_address]
            [-c cipher_spec] [-D [bind_address:]port] [-E log_file]
@@ -75,8 +75,16 @@ ignore any proxy settings configured in the gitconfig file above.
     GIT_SSH_NO_PROXY=git.corp.example.com,foo.com,bar.com \
         git pull origin main
 HELPDOC
-  exit 1
-fi
+}
+
+for arg in "$@"; do
+  case "$arg" in
+    -h | --help | -\?)
+      print_help
+      exit 0
+      ;;
+  esac
+done
 
 NETCAT_COMMAND=
 if command -v nc &>/dev/null; then

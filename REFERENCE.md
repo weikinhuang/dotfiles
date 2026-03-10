@@ -160,7 +160,7 @@ Override any of these by setting the relevant env var in `~/.bash_local` before 
 | `genpasswd`                             | Generate a random string of a certain length                                                          |
 | `gz-size`                               | Get original and gzipped file size in bytes                                                           |
 | `nvm-upgrade`                           | Upgrade nvm to the latest tagged release                                                              |
-| `parallel-xargs`                        | Run a command through xargs with that is sh wrapped (`parallel-xargs cat {}`)                         |
+| `parallel-xargs`                        | Run a command through xargs in parallel without shell eval (`parallel-xargs cat {}`)                  |
 | `quick-toast`                           | Show a simple notification using OS primitives `quick-toast TITLE [BODY]`                             |
 | `reload`                                | Reload the current environment                                                                        |
 | `totime`                                | `date2unix`                                                                                           |
@@ -168,25 +168,26 @@ Override any of these by setting the relevant env var in `~/.bash_local` before 
 
 ### Git Utilities
 
-| Command                | Description                                                        |
-| ---------------------- | ------------------------------------------------------------------ |
-| `git auto-difftool`    | Use araxis merge when possible otherwise use `vimdiff`             |
-| `git auto-mergetool`   | Use araxis merge when possible otherwise use `vimdiff`             |
-| `git branch-prune`     | Remove branches locally and remotely if already merged into master |
-| `git changelog`        | Generate a changelog from git tags                                 |
-| `git cherry-pick-from` | Cherry pick commits from a different git repo                      |
-| `git hooks`            | Execute a git hook                                                 |
-| `git hub`              | Open the repo in the browser via `gh browse`                       |
-| `git ignore`           | Add a file/path to .gitignore                                      |
-| `git ls-dir`           | List files in a git repo tree together with the latest commit      |
-| `git pr`               | Create a pull request on GitHub (opens web UI via `gh`)            |
-| `git pr-get`           | Checkout a pull request locally via `gh`                           |
-| `git repl`             | Start a repl where all commands are prefixed with `git`            |
-| `git ssh-socks-proxy`  | Forward git SSH connections through a SOCKS proxy                  |
-| `git sync`             | Sync origin with upstream remote                                   |
-| `git touch`            | Make a new file and add it                                         |
-| `git track`            | Sets up auto-tracking of a remote branch with same base name       |
-| `git undo-index`       | Undo staged changes, storing them in the reflog                    |
+| Command                | Description                                                            |
+| ---------------------- | ---------------------------------------------------------------------- |
+| `git auto-difftool`    | Use araxis merge when possible otherwise use `vimdiff`                 |
+| `git auto-mergetool`   | Use araxis merge when possible otherwise use `vimdiff`                 |
+| `git branch-prune`     | Remove branches locally/remotely if already merged into default branch |
+| `git changelog`        | Generate a changelog from git tags                                     |
+| `git cherry-pick-from` | Cherry pick commits from a different git repo                          |
+| `git default-branch`   | Print the repository default branch                                    |
+| `git hooks`            | Execute a git hook                                                     |
+| `git hub`              | Open the repo in the browser via `gh browse`                           |
+| `git ignore`           | Add a file/path to .gitignore                                          |
+| `git ls-dir`           | List files in a git repo tree together with the latest commit          |
+| `git pr`               | Create a pull request on GitHub (opens web UI via `gh`)                |
+| `git pr-get`           | Checkout a pull request locally via `gh`                               |
+| `git repl`             | Start a repl where all commands are prefixed with `git`                |
+| `git ssh-socks-proxy`  | Forward git SSH connections through a SOCKS proxy                      |
+| `git sync`             | Sync origin with upstream remote                                       |
+| `git touch`            | Make a new file and add it                                             |
+| `git track`            | Sets up auto-tracking of a remote branch with same base name           |
+| `git undo-index`       | Undo staged changes, storing them in the reflog                        |
 
 ## Prompt Customization
 

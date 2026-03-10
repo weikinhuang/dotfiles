@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+#title              : git-default-branch
+#description        : Prints the default branch for the current repository
+#author             : Wei Kin Huang
+#date               : 2026-03-04
+#version            : 1.0.0
+#usage              : git-default-branch
+#requires           : git
+#==============================================================================
+set -euo pipefail
+IFS=$'\n\t'
+
+if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  echo "Not in a git repository" >&2
+  exit 1
+fi
+
+default_ref="$(git symbolic-ref --quiet refs/remotes/origin/HEAD 2>/dev/null || true)"
+if [[ -n "${default_ref}" ]]; then
+  echo "${default_ref##*/}"
+  exit 0
+fi
+
+for branch in main master; do
+  if git show-ref --verify --quiet "refs/heads/${branch}" \
+    || git show-ref --verify --quiet "refs/remotes/origin/${branch}"; then
+    echo "${branch}"
+    exit 0
+  fi
+done
+
+current_branch="$(git symbolic-ref --quiet --short HEAD 2>/dev/null || true)"
+if [[ -n "${current_branch}" ]]; then
+  echo "${current_branch}"
+  exit 0
+fi
+
+fallback_branch="$(
+  git for-each-ref --format='%(refname:short)' refs/heads refs/remotes/origin \
+    | awk '$0 !~ /\/HEAD$/ { print; exit }'
+)"
+if [[ -n "${fallback_branch}" ]]; then
+  echo "${fallback_branch##origin/}"
+  exit 0
+fi
+
+echo "Unable to determine default branch" >&2
+exit 1
