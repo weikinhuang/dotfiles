@@ -151,7 +151,7 @@ function dotfiles::install::vim() {
   fi
 
   VIM_BIN="$(which nvim vim | head -1)"
-  echo $VIM_BIN
+  echo "$VIM_BIN"
   if [[ -n "${VIM_BIN:-}" ]]; then
     # install vim plugins
     echo "Installing vim plugins"

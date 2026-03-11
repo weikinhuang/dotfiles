@@ -20,7 +20,7 @@ function __cd_func() {
     # Extract dir N from dirs
     index=${the_new_dir:1}
     [[ -z $index ]] && index=1
-    adir=$(dirs +$index)
+    adir=$(dirs +"$index")
     [[ -z $adir ]] && return 1
     the_new_dir=$adir
   fi

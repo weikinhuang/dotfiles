@@ -167,7 +167,7 @@ _PS1_SEGMENT_DATETIME="$(tr -d '\n' <<<'
   printf -v time "%(%H)T" -1;
   time=${time#0};
   color="'"${PS1_COLOR_TIME_NIGHT}"'";
-  if [[ ${time} -ge '${PS1_OPT_DAY_START}' && ${time} -le '${PS1_OPT_DAY_END}' ]]; then
+  if [[ ${time} -ge '"${PS1_OPT_DAY_START}"' && ${time} -le '"${PS1_OPT_DAY_END}"' ]]; then
      color="'"${PS1_COLOR_TIME_DAY}"'";
   fi;
   echo "${color}\T'"${PS1_COLOR_RESET}"' "
