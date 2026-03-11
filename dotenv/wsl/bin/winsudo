@@ -62,7 +62,7 @@ function internal::ssh-gen-keys() {
   if [[ ! -e "${WINSUDO_WORKDIR}/authorized_keys" ]] || [[ ! -e "${WINSUDO_WORKDIR}/ssh_ed25519_key" ]]; then
     rm -f "${WINSUDO_WORKDIR}/ssh_ed25519_key"
     ssh-keygen -q -N "" -t ed25519 -f "${WINSUDO_WORKDIR}/ssh_ed25519_key"
-    cat "${WINSUDO_WORKDIR}/ssh_ed25519_key.pub" >"${WINSUDO_WORKDIR}/authorized_keys"
+    cat "${WINSUDO_WORKDIR}/ssh_ed25519_key.pub" >|"${WINSUDO_WORKDIR}/authorized_keys"
   fi
 }
 

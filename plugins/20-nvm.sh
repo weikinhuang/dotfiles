@@ -47,7 +47,7 @@ else
   _df_NVM_VER="$(nvm version default 2>/dev/null)"
   if [[ -n "${_df_NVM_VER}" ]] && [[ "${_df_NVM_VER}" != "N/A" ]]; then
     __push_path --prepend "${NVM_DIR}/versions/node/${_df_NVM_VER}/bin"
-    printf '%s' "${NVM_DIR}/versions/node/${_df_NVM_VER}/bin" >"$_nvm_cache" 2>/dev/null
+    printf '%s' "${NVM_DIR}/versions/node/${_df_NVM_VER}/bin" >|"$_nvm_cache" 2>/dev/null
   fi
   unset _df_NVM_VER
 fi
@@ -64,7 +64,7 @@ __nvm_lazy_load() {
   ver="$(nvm version default 2>/dev/null)"
   if [[ -n "$ver" ]] && [[ "$ver" != "N/A" ]]; then
     printf '%s' "${NVM_DIR}/versions/node/${ver}/bin" \
-      >"${DOTFILES__CONFIG_DIR}/cache/nvm_default_path"
+      >|"${DOTFILES__CONFIG_DIR}/cache/nvm_default_path"
   fi
 }
 

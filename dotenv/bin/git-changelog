@@ -23,7 +23,7 @@ case "$1" in
     fi
     tmp="$(mktemp "${TMPDIR:-/tmp}/git-changelog.XXXXXX")"
     trap 'rm -f "${tmp}"' EXIT
-    printf "%s" "$HEAD" >"${tmp}"
+    printf "%s" "$HEAD" >|"${tmp}"
     git-changelog --list >>"${tmp}"
     printf '\n' >>"${tmp}"
     if [ -f "$CHANGELOG" ]; then cat "$CHANGELOG" >>"${tmp}"; fi
