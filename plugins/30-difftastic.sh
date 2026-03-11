@@ -24,7 +24,7 @@ export DFT_PARSE_ERROR_LIMIT="${DFT_PARSE_ERROR_LIMIT:-3}"
 
 # Generate a git include config for difftastic if not already present
 if [[ ! -f "${DOTFILES__CONFIG_DIR}/git-difftastic.gitconfig" ]]; then
-  cat > "${DOTFILES__CONFIG_DIR}/git-difftastic.gitconfig" << 'GITCONFIG'
+  cat >"${DOTFILES__CONFIG_DIR}/git-difftastic.gitconfig" <<'GITCONFIG'
 [diff]
   tool = difftastic
 

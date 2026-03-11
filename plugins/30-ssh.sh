@@ -84,14 +84,14 @@ function __dot_ssh_completion_refresh_cache() {
       _h="${_h#\[}"
       _h="${_h%%:*}"
       [[ "${_h}" == *\|* ]] || _ssh_hosts+=("${_h}")
-    done < "${HOME}/.ssh/known_hosts"
+    done <"${HOME}/.ssh/known_hosts"
   fi
 
   mkdir -p "${cache_file%/*}"
   if [[ ${#_ssh_hosts[@]} -eq 0 ]]; then
-    : > "${tmp_file}"
+    : >"${tmp_file}"
   else
-    printf '%s\n' "${_ssh_hosts[@]}" | sort -u > "${tmp_file}"
+    printf '%s\n' "${_ssh_hosts[@]}" | sort -u >"${tmp_file}"
   fi
   mv -f "${tmp_file}" "${cache_file}"
 }
@@ -103,7 +103,7 @@ if command -v complete &>/dev/null && ! complete | grep -q ' ssh$'; then
     __dot_ssh_completion_refresh_cache "${_ssh_cache_file}"
   fi
   if [[ -s "${_ssh_cache_file}" ]]; then
-    _ssh_host_words="$(tr '\n' ' ' < "${_ssh_cache_file}")"
+    _ssh_host_words="$(tr '\n' ' ' <"${_ssh_cache_file}")"
     complete -o default -W "${_ssh_host_words}" ssh
     unset _ssh_host_words
   fi

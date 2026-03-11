@@ -304,7 +304,7 @@ function __dot_now_us() {
     echo "$((ns / 1000))"
     return
   fi
-  echo "$(( $(date +%s) * 1000000 ))"
+  echo "$(($(date +%s) * 1000000))"
 }
 
 # Profile prompt rendering time in the current shell; use --trace for per-command breakdown (bash 5+)

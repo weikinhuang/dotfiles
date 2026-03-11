@@ -92,9 +92,9 @@ fi
 [[ -z "${PS1_SYMBOL_SSH+x}" ]] && PS1_SYMBOL_SSH='@'
 [[ -z "${PS1_SYMBOL_LOCAL+x}" ]] && PS1_SYMBOL_LOCAL='#'
 
-[[ -z "${PS1_SYMBOL_USER+x}" ]] && PS1_SYMBOL_USER=$'\xCE\xBB' # λ
-[[ -z "${PS1_SYMBOL_ROOT+x}" ]] && PS1_SYMBOL_ROOT=$'\xCE\xBC' # μ
-[[ -z "${PS1_SYMBOL_SU+x}" ]] && PS1_SYMBOL_SU=$'\xCF\x80'     # π
+[[ -z "${PS1_SYMBOL_USER+x}" ]] && PS1_SYMBOL_USER=$'\xCE\xBB'  # λ
+[[ -z "${PS1_SYMBOL_ROOT+x}" ]] && PS1_SYMBOL_ROOT=$'\xCE\xBC'  # μ
+[[ -z "${PS1_SYMBOL_SU+x}" ]] && PS1_SYMBOL_SU=$'\xCF\x80'      # π
 [[ -z "${PS1_SYMBOL_WIN_PRIV+x}" ]] && PS1_SYMBOL_WIN_PRIV="W*" # W*
 
 [[ -z "${PS1_OPT_DAY_START+x}" ]] && PS1_OPT_DAY_START=8
@@ -191,9 +191,9 @@ if [[ -z "${PS1_OPT_HIDE_DIR_INFO:-}" ]]; then
     local lsout lssize
     local -a lines
     lsout=$(\ls -lAh 2>/dev/null) || return
-    mapfile -t lines <<< "$lsout"
+    mapfile -t lines <<<"$lsout"
     lssize="${lines[0]#total }"
-    __ps1_var_dirinfo="<$(( ${#lines[@]} - 1 ))|${lssize}b>"
+    __ps1_var_dirinfo="<$((${#lines[@]} - 1))|${lssize}b>"
   }
   chpwd_functions+=(__ps1_dir_info_wrapper)
 fi
@@ -277,9 +277,9 @@ __dot_git_ps1_format=" (${PS1_SYMBOL_GIT}${PS1_COLOR_RESET}${PS1_COLOR_GIT}%s)"
 # Timestamp in milliseconds.
 function __dot_git_prompt_now_ms() {
   if [[ -n "${EPOCHREALTIME:-}" ]]; then
-    echo "$(( ${EPOCHREALTIME/./} / 1000 ))"
+    echo "$((${EPOCHREALTIME/./} / 1000))"
   else
-    echo "$(( SECONDS * 1000 ))"
+    echo "$((SECONDS * 1000))"
   fi
 }
 
@@ -313,7 +313,7 @@ function __dot_git_prompt_gitdir() {
       return 0
     fi
     if [[ -f "$dotgit" ]]; then
-      IFS= read -r line < "$dotgit" || return 1
+      IFS= read -r line <"$dotgit" || return 1
       case "$line" in
         "gitdir: "*)
           gitdir="${line#gitdir: }"
@@ -398,8 +398,8 @@ function __dot_git_ps1_update() {
   [[ "$ttl_ms" =~ ^[0-9]+$ ]] || ttl_ms=1000
   [[ "$max_age_ms" =~ ^[0-9]+$ ]] || max_age_ms=10000
 
-  if [[ "${__dot_git_ps1_cache_pwd:-}" == "$PWD" ]] &&
-     ((now_ms - __dot_git_ps1_cache_last_check_ms < ttl_ms)); then
+  if [[ "${__dot_git_ps1_cache_pwd:-}" == "$PWD" ]] \
+    && ((now_ms - __dot_git_ps1_cache_last_check_ms < ttl_ms)); then
     __ps1_var_git_segment="${__dot_git_ps1_cache_segment:-}"
     return
   fi
@@ -418,11 +418,11 @@ function __dot_git_ps1_update() {
   index_mtime="$(__dot_git_prompt_mtime "${gitdir}/index")"
   stash_mtime="$(__dot_git_prompt_mtime "${gitdir}/refs/stash")"
 
-  if [[ "${__dot_git_ps1_cache_gitdir:-}" == "$gitdir" ]] &&
-     [[ "${__dot_git_ps1_cache_head_mtime:-0}" == "$head_mtime" ]] &&
-     [[ "${__dot_git_ps1_cache_index_mtime:-0}" == "$index_mtime" ]] &&
-     [[ "${__dot_git_ps1_cache_stash_mtime:-0}" == "$stash_mtime" ]] &&
-     ((now_ms - __dot_git_ps1_cache_last_refresh_ms < max_age_ms)); then
+  if [[ "${__dot_git_ps1_cache_gitdir:-}" == "$gitdir" ]] \
+    && [[ "${__dot_git_ps1_cache_head_mtime:-0}" == "$head_mtime" ]] \
+    && [[ "${__dot_git_ps1_cache_index_mtime:-0}" == "$index_mtime" ]] \
+    && [[ "${__dot_git_ps1_cache_stash_mtime:-0}" == "$stash_mtime" ]] \
+    && ((now_ms - __dot_git_ps1_cache_last_refresh_ms < max_age_ms)); then
     __dot_git_ps1_cache_pwd="$PWD"
     __dot_git_ps1_cache_last_check_ms="$now_ms"
     __ps1_var_git_segment="${__dot_git_ps1_cache_segment:-}"

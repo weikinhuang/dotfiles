@@ -8,7 +8,7 @@ fi
 
 # Generate a git include config for delta if not already present
 if [[ ! -f "${DOTFILES__CONFIG_DIR}/git-delta.gitconfig" ]]; then
-  cat > "${DOTFILES__CONFIG_DIR}/git-delta.gitconfig" << 'GITCONFIG'
+  cat >"${DOTFILES__CONFIG_DIR}/git-delta.gitconfig" <<'GITCONFIG'
 [core]
   pager = delta
 

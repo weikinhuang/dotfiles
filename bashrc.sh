@@ -71,8 +71,8 @@ esac
 
 # check if this is a ssh session
 export DOT___IS_SSH=
-if [[ -n "${SSH_CONNECTION:-}" ]] || [[ -n "${SSH_TTY:-}" ]] || \
-   [[ -n "${SSH_CLIENT:-}" ]]; then
+if [[ -n "${SSH_CONNECTION:-}" ]] || [[ -n "${SSH_TTY:-}" ]] \
+  || [[ -n "${SSH_CLIENT:-}" ]]; then
   DOT___IS_SSH=1
 fi
 readonly DOT___IS_WSL

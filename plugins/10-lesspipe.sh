@@ -6,10 +6,10 @@ if ! command -v lesspipe.sh &>/dev/null; then
 fi
 
 _lesspipe_cache="${DOTFILES__CONFIG_DIR}/cache/lesspipe.bash"
-if [[ ! -f "$_lesspipe_cache" ]] || \
-   [[ "$(command -v lesspipe.sh)" -nt "$_lesspipe_cache" ]]; then
+if [[ ! -f "$_lesspipe_cache" ]] \
+  || [[ "$(command -v lesspipe.sh)" -nt "$_lesspipe_cache" ]]; then
   mkdir -p "${DOTFILES__CONFIG_DIR}/cache"
-  SHELL=/bin/bash lesspipe.sh 2>/dev/null > "$_lesspipe_cache"
+  SHELL=/bin/bash lesspipe.sh 2>/dev/null >"$_lesspipe_cache"
 fi
 # shellcheck source=/dev/null
 source "$_lesspipe_cache"
