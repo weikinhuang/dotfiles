@@ -7,13 +7,8 @@ setup() {
 }
 
 @test "pbpaste: prefers xclip and sets DISPLAY when it is missing" {
-  export PATH="${MOCK_BIN}"
-
-  stub_command xclip <<'EOF'
-#!/usr/bin/env bash
-printf 'DISPLAY=%s\n' "${DISPLAY:-}"
-printf '%s\n' "$@"
-EOF
+  use_mock_bin_path
+  stub_env_passthrough_command "xclip" "DISPLAY"
 
   run /bin/bash -c "unset DISPLAY; /bin/bash '${SCRIPT}'"
   assert_success
@@ -24,13 +19,8 @@ EOF
 }
 
 @test "pbpaste: falls back to xsel when xclip is absent" {
-  export PATH="${MOCK_BIN}"
-
-  stub_command xsel <<'EOF'
-#!/usr/bin/env bash
-printf 'DISPLAY=%s\n' "${DISPLAY:-}"
-printf '%s\n' "$@"
-EOF
+  use_mock_bin_path
+  stub_env_passthrough_command "xsel" "DISPLAY"
 
   run /bin/bash -c "unset DISPLAY; /bin/bash '${SCRIPT}'"
   assert_success
@@ -39,8 +29,20 @@ EOF
   assert_line --index 2 "--clipboard"
 }
 
+@test "pbpaste: preserves an existing DISPLAY value" {
+  use_mock_bin_path
+  stub_env_passthrough_command "xclip" "DISPLAY"
+
+  run env DISPLAY=:99 /bin/bash "${SCRIPT}"
+  assert_success
+  assert_line --index 0 "DISPLAY=:99"
+  assert_line --index 1 "-selection"
+  assert_line --index 2 "clipboard"
+  assert_line --index 3 "-o"
+}
+
 @test "pbpaste: exits with an error when no clipboard backend is installed" {
-  export PATH="${MOCK_BIN}"
+  use_mock_bin_path
 
   run bash "${SCRIPT}"
   assert_failure

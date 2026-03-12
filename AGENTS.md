@@ -20,7 +20,7 @@ Cross-platform bash dotfiles for Linux, macOS, and WSL. Shell scripts, git utili
 | `dotenv/lib/` | Internal loader and utility libraries |
 | `plugins/` | Numbered shell plugins loaded near end of init (e.g. `10-fzf.sh`) |
 | `external/` | Vendored third-party scripts -- do not edit |
-| `tests/` | Bats test files mirroring `dotenv/` structure |
+| `tests/` | Bats test files mirroring `dotenv/` structure ([tests/AGENTS.md](./tests/AGENTS.md)) |
 | `tests/helpers/common.bash` | Shared test setup: mock stubs, git helpers, isolated HOME |
 | `config/` | Non-shell config files (git, vim, tmux, ripgrep, bat) |
 | `utils/` | Platform setup guides and native wrappers (WSL, macOS, Termux) |
@@ -51,7 +51,7 @@ The dotfiles provide `chpwd`, `precmd`, and `preexec` hooks with Zsh-like semant
 
 ### Shell style
 
-shfmt flags: `-ln bash -ci -bn -i 2` for shell files, `-ln bats -ci -bn -i 2` for `.bats` files. shellcheck runs with `--source-path=SCRIPTDIR`. Add shellcheck directives for valid exceptions only.
+shfmt flags: `-ln bash -ci -bn -i 2` for shell files, `-ln bats -ci -bn -i 2` for `.bats` files. shellcheck runs with `--source-path=SCRIPTDIR`, and `.bats` files are checked with `shellcheck -s bats -S warning`. Add shellcheck directives for valid exceptions only.
 
 ### Customization model
 

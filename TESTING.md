@@ -176,8 +176,8 @@ Defined in `tests/helpers/common.bash`:
 ## Linting
 
 [shellcheck](https://github.com/koalaman/shellcheck) and [shfmt](https://github.com/mvdan/sh) validate
-all shell scripts. Bats files are checked by `shfmt` (with `-ln bats`) but excluded from `shellcheck`
-since it does not support the `@test` syntax.
+all shell scripts. Bats files are formatted with `shfmt -ln bats` and also checked by ShellCheck
+using its Bats parser (`shellcheck -s bats -S warning`).
 
 ```bash
 ./dev/lint.sh

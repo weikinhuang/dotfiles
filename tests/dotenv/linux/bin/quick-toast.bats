@@ -7,7 +7,7 @@ setup() {
 }
 
 @test "quick-toast: rings the terminal bell and exits 1 when notify-send is unavailable" {
-  export PATH="${MOCK_BIN}"
+  use_mock_bin_path
 
   run bash "${SCRIPT}"
   assert_failure
@@ -15,11 +15,8 @@ setup() {
 }
 
 @test "quick-toast: supplies a default message and DISPLAY when notify-send is available" {
-  stub_command notify-send <<'EOF'
-#!/usr/bin/env bash
-printf 'DISPLAY=%s\n' "${DISPLAY:-}"
-printf '%s\n' "$@"
-EOF
+  use_mock_bin_path
+  stub_env_passthrough_command "notify-send" "DISPLAY"
 
   run env -u DISPLAY bash "${SCRIPT}"
   assert_success
@@ -28,11 +25,8 @@ EOF
 }
 
 @test "quick-toast: preserves DISPLAY and forwards all notification arguments" {
-  stub_command notify-send <<'EOF'
-#!/usr/bin/env bash
-printf 'DISPLAY=%s\n' "${DISPLAY:-}"
-printf '%s\n' "$@"
-EOF
+  use_mock_bin_path
+  stub_env_passthrough_command "notify-send" "DISPLAY"
 
   run env DISPLAY=:99 bash "${SCRIPT}" "Build done" "All checks passed"
   assert_success

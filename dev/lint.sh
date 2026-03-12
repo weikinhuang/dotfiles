@@ -21,14 +21,23 @@ get_shell_files() {
     | uniq
 }
 
+get_bats_files() {
+  local deleted
+  deleted="$(git ls-files -d | paste -sd '|' -)"
+  git ls-files '*.bats' \
+    | grep -vE "^${deleted:-.^}$" \
+    | sort \
+    | uniq
+}
+
 echo "==> Running shellcheck..."
 get_shell_files | xargs -n1 shellcheck -f gcc --source-path=SCRIPTDIR
+get_bats_files | xargs -n1 shellcheck -S warning -s bats -f gcc
 
 echo "==> Running shfmt..."
 get_shell_files | xargs -n1 shfmt -ln bash -ci -bn -i 2 -d -w
 
-# bats files use bash syntax but shellcheck does not support them
 echo "==> Running shfmt on bats files..."
-git ls-files '*.bats' | xargs -n1 shfmt -ln bats -ci -bn -i 2 -d -w
+get_bats_files | xargs -n1 shfmt -ln bats -ci -bn -i 2 -d -w
 
 echo "OK"

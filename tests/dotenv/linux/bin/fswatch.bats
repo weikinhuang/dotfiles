@@ -29,3 +29,14 @@ EOF
   assert_line --index 1 "ARG:alpha"
   assert_line --index 2 "ARG:beta"
 }
+
+@test "fswatch: returns the callback exit status when the handler fails" {
+  stub_command handler <<'EOF'
+#!/usr/bin/env bash
+exit 7
+EOF
+
+  run bash "${SCRIPT}" "${WATCH_LINK}" handler
+  assert_failure
+  [[ "${status}" -eq 7 ]]
+}

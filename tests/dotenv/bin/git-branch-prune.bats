@@ -56,8 +56,10 @@ create_origin_clone() {
   assert_success
   assert_output --partial 'Pruned "merged-feature"; removing from origin... Removed.'
 
-  ! git -C "${TEST_REPO}" show-ref --verify --quiet refs/heads/merged-feature
+  run git -C "${TEST_REPO}" show-ref --verify --quiet refs/heads/merged-feature
+  assert_failure
   git -C "${TEST_REPO}" show-ref --verify --quiet refs/heads/unmerged-feature
-  ! git -C "${TEST_REPO}" ls-remote --exit-code --heads origin merged-feature >/dev/null 2>&1
+  run git -C "${TEST_REPO}" ls-remote --exit-code --heads origin merged-feature >/dev/null 2>&1
+  assert_failure
   git -C "${TEST_REPO}" ls-remote --exit-code --heads origin unmerged-feature >/dev/null 2>&1
 }

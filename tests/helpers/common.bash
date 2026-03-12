@@ -30,11 +30,190 @@ setup_isolated_home() {
   mkdir -p "${HOME}" "${XDG_CONFIG_HOME}"
 }
 
+# Writes an executable file at an arbitrary path from stdin.
+write_executable() {
+  local path="$1"
+  mkdir -p "$(dirname "${path}")"
+  cat >"${path}"
+  chmod +x "${path}"
+}
+
 # Writes an executable stub into MOCK_BIN from stdin.
 stub_command() {
   local name="$1"
-  cat >"${MOCK_BIN}/${name}"
-  chmod +x "${MOCK_BIN}/${name}"
+  write_executable "${MOCK_BIN}/${name}"
+}
+
+# Restricts PATH to the mock bin plus /bin for core test tools like bash/cat.
+use_mock_bin_path() {
+  export PATH="${MOCK_BIN}:/bin"
+}
+
+# Stubs a command that prints each argument on its own line.
+stub_passthrough_command() {
+  local name="$1"
+  stub_command "${name}" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$@"
+EOF
+}
+
+# Stubs a command that prints its own name and then each argument.
+stub_named_passthrough_command() {
+  local name="$1"
+  stub_command "${name}" <<EOF
+#!/usr/bin/env bash
+printf '%s\n' "${name}"
+printf '%s\n' "\$@"
+EOF
+}
+
+# Stubs a command that prints each argument and then forwards stdin.
+stub_passthrough_command_with_stdin() {
+  local name="$1"
+  stub_command "${name}" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$@"
+cat
+EOF
+}
+
+# Stubs a command that prints VAR=value and then each argument.
+stub_env_passthrough_command() {
+  local name="$1"
+  local env_name="$2"
+  stub_command "${name}" <<EOF
+#!/usr/bin/env bash
+printf '${env_name}=%s\n' "\${${env_name}:-}"
+printf '%s\n' "\$@"
+EOF
+}
+
+# Stubs a command that prints VAR=value, each argument, and then stdin.
+stub_env_passthrough_command_with_stdin() {
+  local name="$1"
+  local env_name="$2"
+  stub_command "${name}" <<EOF
+#!/usr/bin/env bash
+printf '${env_name}=%s\n' "\${${env_name}:-}"
+printf '%s\n' "\$@"
+cat
+EOF
+}
+
+# Stubs a command that writes a fixed string to stdout.
+stub_fixed_output_command() {
+  local name="$1"
+  local output="$2"
+  local status="${3:-0}"
+  stub_command "${name}" <<EOF
+#!/usr/bin/env bash
+printf '%s' $(printf '%q' "${output}")
+exit ${status}
+EOF
+}
+
+# Stubs curl for clipboard-server tests.
+# Flags:
+#   --stdin      Forward stdin to stdout for non-/ping requests.
+#   --fail-ping  Make /ping exit non-zero instead of succeeding.
+stub_clipboard_server_curl() {
+  local passthrough_stdin=
+  local ping_status=0
+  local arg
+  for arg in "$@"; do
+    case "${arg}" in
+      --stdin)
+        passthrough_stdin=1
+        ;;
+      --fail-ping)
+        ping_status=1
+        ;;
+    esac
+  done
+  stub_command "curl" <<EOF
+#!/usr/bin/env bash
+for arg in "\$@"; do
+  if [[ "\$arg" == */ping ]]; then
+    exit ${ping_status}
+  fi
+done
+printf '%s\n' "\$@"
+$(if [[ -n "${passthrough_stdin}" ]]; then echo 'cat'; fi)
+EOF
+}
+
+# Starts a minimal Unix socket listener at the requested path and prints its pid.
+start_unix_socket_listener() {
+  local socket_path="$1"
+  perl -MSocket -e '
+    use strict;
+    use warnings;
+    my $path = shift;
+    unlink $path;
+    socket(my $sock, AF_UNIX, SOCK_STREAM, 0) or die $!;
+    bind($sock, sockaddr_un($path)) or die $!;
+    listen($sock, SOMAXCONN) or die $!;
+    $SIG{TERM} = sub { unlink $path; exit 0 };
+    $SIG{INT} = sub { unlink $path; exit 0 };
+    while (accept(my $client, $sock)) {
+      close $client;
+    }
+  ' "${socket_path}" </dev/null >/dev/null 2>&1 &
+  local pid=$!
+  local _i
+  for _i in {1..50}; do
+    if [[ -S "${socket_path}" ]]; then
+      echo "${pid}"
+      return 0
+    fi
+    sleep 0.02
+  done
+  kill "${pid}" 2>/dev/null || true
+  wait "${pid}" 2>/dev/null || true
+  return 1
+}
+
+# Creates a fake Windows root anchored at BATS_TEST_TMPDIR for WSL path tests.
+setup_mock_windows_root() {
+  export MOCK_WIN_ROOT="${BATS_TEST_TMPDIR}/winroot"
+  mkdir -p "${MOCK_WIN_ROOT}/mnt/c"
+}
+
+# Stubs wslpath for tests that only need generic C: and /mnt/X conversions.
+stub_mock_wslpath() {
+  stub_command "wslpath" <<'EOF'
+#!/usr/bin/env bash
+mode="${1:-}"
+path="${@: -1}"
+case "$mode" in
+  -u | -ua)
+    case "$path" in
+      [cC]:/)
+        printf '%s/mnt/c/\n' "${MOCK_WIN_ROOT}"
+        ;;
+      [cC]:)
+        printf '%s/mnt/c\n' "${MOCK_WIN_ROOT}"
+        ;;
+      [cC]:/*)
+        printf '%s/mnt/c/%s\n' "${MOCK_WIN_ROOT}" "${path#?:/}"
+        ;;
+    esac
+    ;;
+  -w | -wa)
+    if [[ "$path" == /wsl/* ]]; then
+      rest="${path#/wsl}"
+      printf '\\\\wsl$\\Ubuntu%s\n' "${rest//\//\\}"
+    elif [[ "$path" =~ ^/mnt/([a-zA-Z])(/.*)?$ ]]; then
+      drive="${BASH_REMATCH[1]^^}"
+      rest="${BASH_REMATCH[2]:-}"
+      printf '%s\n' "${drive}:${rest//\//\\}"
+    else
+      printf '%s\n' "C:${path//\//\\}"
+    fi
+    ;;
+esac
+EOF
 }
 
 # Sets up a mock bin directory prepended to PATH that provides stubs for
@@ -47,7 +226,7 @@ setup_mock_bin() {
   setup_test_bin
 
   # wslpath stub: /mnt/X/rest → X:\rest, anything else → C:\path
-  cat >"${MOCK_BIN}/wslpath" <<'EOF'
+  write_executable "${MOCK_BIN}/wslpath" <<'EOF'
 #!/usr/bin/env bash
 path="${*: -1}"
 if [[ "$path" =~ ^/mnt/([a-z])(/.*)?$ ]]; then
@@ -61,18 +240,10 @@ echo "${result//\//\\}"
 EOF
 
   # cmd.exe stub: prints each argument on its own line
-  cat >"${MOCK_BIN}/cmd.exe" <<'EOF'
-#!/usr/bin/env bash
-printf '%s\n' "$@"
-EOF
+  stub_passthrough_command "cmd.exe"
 
   # powershell.exe stub: prints each argument on its own line
-  cat >"${MOCK_BIN}/powershell.exe" <<'EOF'
-#!/usr/bin/env bash
-printf '%s\n' "$@"
-EOF
-
-  chmod +x "${MOCK_BIN}/wslpath" "${MOCK_BIN}/cmd.exe" "${MOCK_BIN}/powershell.exe"
+  stub_passthrough_command "powershell.exe"
 }
 
 # Source a script's function definitions without executing its main entrypoint.
@@ -86,12 +257,7 @@ source_without_main() {
 
 # Override the cmd.exe stub to also cat stdin, enabling stdin-passthrough tests.
 setup_mock_cmd_stdin() {
-  cat >"${MOCK_BIN}/cmd.exe" <<'EOF'
-#!/usr/bin/env bash
-printf '%s\n' "$@"
-cat
-EOF
-  chmod +x "${MOCK_BIN}/cmd.exe"
+  stub_passthrough_command_with_stdin "cmd.exe"
 }
 
 # Configures a repo with deterministic author info for test commits.

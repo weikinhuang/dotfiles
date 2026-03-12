@@ -206,7 +206,7 @@ brew bundle --file=~/.dotfiles/Brewfile
 
 ### Linting
 
-[`shellcheck`](https://github.com/koalaman/shellcheck) and [`shfmt`](https://github.com/mvdan/sh) are used to ensure consistency of the scripts in this repo. Files in `external/` are excluded since they are third-party.
+[`shellcheck`](https://github.com/koalaman/shellcheck) and [`shfmt`](https://github.com/mvdan/sh) are used to ensure consistency of the scripts in this repo. Files in `external/` are excluded since they are third-party. `.bats` tests are also checked with ShellCheck using its Bats parser.
 
 Validate the codebase locally:
 

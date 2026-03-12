@@ -1,0 +1,95 @@
+#!/usr/bin/env bats
+
+setup() {
+  load '../helpers/common'
+  setup_test_bin
+
+  export SHELL=/bin/bash
+  dotfiles_hook_plugin_post_functions=()
+
+  __find_editor() {
+    echo "stub-editor"
+  }
+
+  cat >"${MOCK_BIN}/ls" <<'EOF'
+#!/usr/bin/env bash
+case "${1:-}" in
+  --color | --color=auto | --format=long)
+    exit 0
+    ;;
+esac
+exit 0
+EOF
+  chmod +x "${MOCK_BIN}/ls"
+
+  cat >"${MOCK_BIN}/grep" <<'EOF'
+#!/usr/bin/env bash
+if [[ "${1:-}" == "--color=auto" ]]; then
+  exit 0
+fi
+exec /usr/bin/grep "$@"
+EOF
+  chmod +x "${MOCK_BIN}/grep"
+
+  source "${REPO_ROOT}/dotenv/aliases.sh"
+}
+
+@test "aliases: defines navigation and editor aliases" {
+  [[ "$(alias ..)" == "alias ..='cd ..'" ]]
+  [[ "$(alias oo)" == "alias oo='open .'" ]]
+  [[ "$(alias reload)" == "alias reload='exec /bin/bash -l'" ]]
+  [[ "$(alias vi)" == "alias vi='stub-editor'" ]]
+}
+
+@test "aliases: registers and executes the post-plugin color hook" {
+  [[ " ${dotfiles_hook_plugin_post_functions[*]} " == *" __grep_ls_colors "* ]]
+
+  __grep_ls_colors
+
+  [[ "$(alias ls)" == "alias ls='${MOCK_BIN}/ls --color=auto'" ]]
+  [[ "$(alias la)" == "alias la='${MOCK_BIN}/ls -lA --color=auto'" ]]
+  [[ "$(type -t __grep_ls_colors 2>/dev/null || true)" == "" ]]
+}
+
+@test "aliases: color hook falls back to BSD ls flags and skips unsupported color aliases" {
+  stub_command ls <<'EOF'
+#!/usr/bin/env bash
+case "${1:-}" in
+  --color | --color=auto | --format=long)
+    exit 1
+    ;;
+esac
+exit 0
+EOF
+
+  stub_command grep <<'EOF'
+#!/usr/bin/env bash
+if [[ "${1:-}" == "--color=auto" ]]; then
+  exit 1
+fi
+exec /usr/bin/grep "$@"
+EOF
+
+  unalias ls grep fgrep egrep la ll l. dir vdir 2>/dev/null || true
+
+  __grep_ls_colors
+
+  [[ "$(alias ls)" == "alias ls='${MOCK_BIN}/ls -G'" ]]
+  [[ "$(alias la)" == "alias la='${MOCK_BIN}/ls -lA -G'" ]]
+  [[ -z "$(alias grep 2>/dev/null || true)" ]]
+  [[ -z "$(alias dir 2>/dev/null || true)" ]]
+  [[ -z "$(alias vdir 2>/dev/null || true)" ]]
+}
+
+@test "aliases: enables tty-aware which expansion when which supports alias lookup" {
+  run bash -c '
+    __find_editor() { echo "stub-editor"; }
+    dotfiles_hook_plugin_post_functions=()
+    which() { return 0; }
+    source "$1"
+    alias which
+  ' _ "${REPO_ROOT}/dotenv/aliases.sh"
+
+  assert_success
+  assert_output --partial "--tty-only --read-alias --show-dot --show-tilde"
+}

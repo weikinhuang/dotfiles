@@ -79,6 +79,17 @@ SUDO
   chmod +x "${MOCK_BIN}/sudo.exe"
 }
 
+_enable_native_sudo_config_failure() {
+  cat >"${MOCK_BIN}/sudo.exe" <<'SUDO'
+#!/usr/bin/env bash
+if [[ "${1:-}" == "config" ]]; then
+  exit 7
+fi
+printf 'SUDO_CALLED %s\n' "$@"
+SUDO
+  chmod +x "${MOCK_BIN}/sudo.exe"
+}
+
 # ---------------------------------------------------------------------------
 # main: argument routing
 # ---------------------------------------------------------------------------
@@ -261,6 +272,19 @@ SUDO
   assert_output --partial "openssh-server"
 }
 
+@test "winsudo: legacy-init falls back to the Windows PowerShell path when powershell.exe is unavailable" {
+  rm -f "${MOCK_BIN}/powershell.exe"
+  stub_command wslpath <<'EOF'
+#!/usr/bin/env bash
+printf '/mnt/c\n'
+EOF
+
+  source_without_main "${SCRIPT}"
+  internal::legacy-init
+
+  [ "${POWERSHELL_EXEC}" = "/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe" ]
+}
+
 # ---------------------------------------------------------------------------
 # internal::validate-native-sudo
 # ---------------------------------------------------------------------------
@@ -288,11 +312,56 @@ SUDO
 @test "winsudo: validate-native-sudo with verbose warns about non-inline mode" {
   _enable_native_sudo_non_inline
   source_without_main "${SCRIPT}"
+  # shellcheck disable=SC2034
   WINSUDO_VERBOSE=1
   run internal::validate-native-sudo
   assert_failure
   assert_output --partial "not in inline mode"
   assert_output --partial "sudo config --enable normal"
+}
+
+@test "winsudo: validate-native-sudo returns 1 when sudo.exe config fails" {
+  _enable_native_sudo_config_failure
+  source_without_main "${SCRIPT}"
+  run internal::validate-native-sudo
+  assert_failure
+}
+
+# ---------------------------------------------------------------------------
+# internal::is-elevated-process / internal::unprivileged-process
+# ---------------------------------------------------------------------------
+
+@test "winsudo: is-elevated-process succeeds only when powershell returns True" {
+  source_without_main "${SCRIPT}"
+  POWERSHELL_EXEC="${MOCK_BIN}/powershell.exe"
+
+  stub_fixed_output_command "powershell.exe" $'True\r\n'
+  run internal::is-elevated-process
+  assert_success
+
+  stub_fixed_output_command "powershell.exe" $'False\r\n'
+  run internal::is-elevated-process
+  assert_failure
+
+  stub_fixed_output_command "powershell.exe" "" 9
+  run internal::is-elevated-process
+  assert_failure
+}
+
+@test "winsudo: unprivileged-process short-circuits when already elevated" {
+  source_without_main "${SCRIPT}"
+
+  internal::is-elevated-process() {
+    return 0
+  }
+
+  run internal::unprivileged-process
+  assert_success
+  assert_output ""
+
+  run internal::unprivileged-process echo hello
+  assert_success
+  assert_output "hello"
 }
 
 # ---------------------------------------------------------------------------
@@ -309,6 +378,20 @@ PS
 
   run bash "${SCRIPT}" --privileged 44444
   assert_failure
+}
+
+@test "winsudo: --privileged invokes sshd when the elevated check succeeds" {
+  cat >"${MOCK_BIN}/powershell.exe" <<'PS'
+#!/usr/bin/env bash
+echo "True"
+PS
+  chmod +x "${MOCK_BIN}/powershell.exe"
+
+  run bash "${SCRIPT}" --privileged 44444
+  assert_success
+  assert_output --partial "SSHD_CALLED -D"
+  assert_output --partial "SSHD_CALLED -p"
+  assert_output --partial "SSHD_CALLED 44444"
 }
 
 # ---------------------------------------------------------------------------

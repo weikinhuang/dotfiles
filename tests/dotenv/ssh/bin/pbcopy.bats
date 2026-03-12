@@ -6,17 +6,15 @@ setup() {
   SCRIPT="${REPO_ROOT}/dotenv/ssh/bin/pbcopy"
 }
 
-@test "pbcopy: posts stdin to the clipboard server when a listening port is configured" {
-  stub_command curl <<'EOF'
-#!/usr/bin/env bash
-for arg in "$@"; do
-  if [[ "$arg" == */ping ]]; then
-    exit 0
+teardown() {
+  if [[ -n "${SOCKET_PID:-}" ]]; then
+    kill "${SOCKET_PID}" 2>/dev/null || true
+    wait "${SOCKET_PID}" 2>/dev/null || true
   fi
-done
-printf '%s\n' "$@"
-cat
-EOF
+}
+
+@test "pbcopy: posts stdin to the clipboard server when a listening port is configured" {
+  stub_clipboard_server_curl --stdin
 
   run bash -c "printf 'copied text' | CLIPBOARD_SERVER_PORT=4567 bash '${SCRIPT}'"
   assert_success
@@ -29,15 +27,40 @@ EOF
   assert_line --index 6 "copied text"
 }
 
+@test "pbcopy: posts stdin through the configured Unix socket when it exists" {
+  local socket_path="${BATS_TEST_TMPDIR}/clipboard-server.sock"
+  SOCKET_PID="$(start_unix_socket_listener "${socket_path}")"
+  stub_clipboard_server_curl --stdin
+
+  run bash -c "printf 'copied text' | CLIPBOARD_SERVER_SOCK='${socket_path}' bash '${SCRIPT}'"
+  assert_success
+  assert_line --index 0 "-sSL"
+  assert_line --index 1 "--unix-socket"
+  assert_line --index 2 "${socket_path}"
+  assert_line --index 3 "-X"
+  assert_line --index 4 "POST"
+  assert_line --index 5 "http://localhost/clipboard"
+  assert_line --index 6 "--data-binary"
+  assert_line --index 7 "@-"
+  assert_line --index 8 "copied text"
+}
+
+@test "pbcopy: falls back to the local pbcopy when the server ping fails" {
+  export PATH="${REPO_ROOT}/dotenv/ssh/bin:${MOCK_BIN}:/usr/bin:/bin"
+  stub_clipboard_server_curl --fail-ping
+  stub_env_passthrough_command_with_stdin "pbcopy" "PATH"
+
+  run bash -c "printf 'copied text' | CLIPBOARD_SERVER_PORT=4567 bash '${SCRIPT}' extra"
+  assert_success
+  assert_line --index 1 "extra"
+  assert_line --index 2 "copied text"
+  refute_output --partial "dotenv/ssh/bin"
+}
+
 @test "pbcopy: falls back to the local pbcopy after removing dotenv/ssh/bin from PATH" {
   export PATH="${REPO_ROOT}/dotenv/ssh/bin:${MOCK_BIN}:/usr/bin:/bin"
 
-  stub_command pbcopy <<'EOF'
-#!/usr/bin/env bash
-printf 'PATH=%s\n' "${PATH}"
-printf '%s\n' "$@"
-cat
-EOF
+  stub_env_passthrough_command_with_stdin "pbcopy" "PATH"
 
   run bash -c "printf 'copied text' | bash '${SCRIPT}' extra"
   assert_success
