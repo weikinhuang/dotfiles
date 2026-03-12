@@ -3,7 +3,6 @@ set -euo pipefail
 IFS=$'\n\t'
 
 DATE="$(date +'%Y-%m-%d')"
-HEAD="$(printf '\nn.n.n / %s\n==================\n\n' "${DATE}")"
 
 case "$1" in
   -l | --list)
@@ -23,7 +22,7 @@ case "$1" in
     fi
     tmp="$(mktemp "${TMPDIR:-/tmp}/git-changelog.XXXXXX")"
     trap 'rm -f "${tmp}"' EXIT
-    printf "%s" "$HEAD" >|"${tmp}"
+    printf '\nn.n.n / %s\n==================\n\n' "${DATE}" >|"${tmp}"
     git-changelog --list >>"${tmp}"
     printf '\n' >>"${tmp}"
     if [ -f "$CHANGELOG" ]; then cat "$CHANGELOG" >>"${tmp}"; fi

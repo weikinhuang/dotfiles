@@ -52,6 +52,10 @@ tests/
   helpers/
     common.bash                  # shared setup: mock stubs, bats library loading
   dotenv/
+    bin/
+      git-changelog.bats        # tests for dotenv/bin/git-changelog
+      git-default-branch.bats   # tests for dotenv/bin/git-default-branch
+      ...                        # one .bats file per script in dotenv/bin/
     wsl/
       bin/
         winrun.bats              # tests for dotenv/wsl/bin/winrun
@@ -66,31 +70,67 @@ tests/
 ### Conventions
 
 - Place test files alongside their source counterpart under `tests/`, using the `.bats` extension.
-- Use `setup()` to call `load '../../../helpers/common'` (adjust depth to match) and `setup_mock_bin`.
+- Use `setup()` to call `load '../../helpers/common'` (adjust depth to match).
+- Use 2-space indentation in `.bats` and helper `.bash` files (enforced by `shfmt -i 2`).
+- Prefix every `@test` name with the script name and a colon, e.g. `@test "git-sync: restores dirty changes ..."`.
 - Use `run` + `assert_success` / `assert_failure` / `assert_output` / `assert_line` for assertions.
 - Use `source_without_main` to unit-test internal functions without triggering the script's entrypoint.
+- Prefer real operations (actual git repos, real files) over mocking when feasible. Use `init_git_repo` and friends to set up deterministic repos.
+- When a test needs external commands stubbed out, use `setup_test_bin` + `stub_command` to create lightweight fakes.
+- When a test writes to `HOME` or reads git global config, use `setup_isolated_home` to prevent host/system config leakage.
+- Place reusable repo-creation logic in a helper function at the top of the file (e.g. `create_origin_clone()`) to keep individual tests focused.
+- Add a `teardown()` function when tests start background processes to ensure cleanup.
 
-### Example
+### Example: Simple Script Test
 
 ```bash
 #!/usr/bin/env bats
 
 setup() {
-  load '../../../helpers/common'
-  setup_mock_bin
-  SCRIPT="${REPO_ROOT}/dotenv/wsl/bin/my-script"
+	load '../../../helpers/common'
+	setup_mock_bin
+	SCRIPT="${REPO_ROOT}/dotenv/wsl/bin/my-script"
 }
 
 @test "my-script: no arguments prints usage" {
-  run bash "${SCRIPT}"
-  assert_failure
-  assert_output --partial "Usage:"
+	run bash "${SCRIPT}"
+	assert_failure
+	assert_output --partial "Usage:"
 }
 
 @test "my-script: passes arguments through" {
-  run bash "${SCRIPT}" hello world
-  assert_success
-  assert_line "hello"
+	run bash "${SCRIPT}" hello world
+	assert_success
+	assert_line "hello"
+}
+```
+
+### Example: Git-Dependent Script Test
+
+```bash
+#!/usr/bin/env bats
+
+setup() {
+	load '../../helpers/common'
+	setup_test_bin
+	setup_isolated_home
+	prepend_path "${REPO_ROOT}/dotenv/bin"
+	SCRIPT="${REPO_ROOT}/dotenv/bin/git-my-tool"
+}
+
+create_test_repo() {
+	TEST_REPO="${BATS_TEST_TMPDIR}/repo"
+	init_git_repo "${TEST_REPO}"
+	echo "base" >"${TEST_REPO}/tracked.txt"
+	git_commit_all "${TEST_REPO}" "initial commit"
+}
+
+@test "git-my-tool: detects default branch" {
+	create_test_repo
+	cd "${TEST_REPO}"
+	run bash "${SCRIPT}"
+	assert_success
+	assert_output "main"
 }
 ```
 
@@ -98,11 +138,32 @@ setup() {
 
 Defined in `tests/helpers/common.bash`:
 
+#### General
+
 | Helper | Description |
 | --- | --- |
-| `setup_mock_bin` | Creates mock stubs for `wslpath`, `cmd.exe`, and `powershell.exe` in a temp directory prepended to `PATH` |
-| `setup_mock_cmd_stdin` | Replaces the `cmd.exe` stub with one that also forwards stdin |
-| `source_without_main` | Sources a script without executing its final entrypoint line, allowing individual functions to be called in tests |
+| `setup_test_bin` | Creates `MOCK_BIN` temp directory and prepends it to `PATH`. Call before `stub_command` or any manual stub creation. |
+| `prepend_path <dir>` | Prepends an arbitrary directory to `PATH`. |
+| `setup_isolated_home` | Sets `HOME`, `XDG_CONFIG_HOME`, and `GIT_CONFIG_NOSYSTEM=1` to a temp directory, preventing host config leakage. |
+| `stub_command <name>` | Writes an executable stub into `MOCK_BIN` from stdin (use with a heredoc). Requires `setup_test_bin` first. |
+| `source_without_main` | Sources a script without executing its final entrypoint line, allowing individual functions to be called in tests. |
+
+#### WSL Mocks
+
+| Helper | Description |
+| --- | --- |
+| `setup_mock_bin` | Calls `setup_test_bin`, then creates stubs for `wslpath`, `cmd.exe`, and `powershell.exe`. |
+| `setup_mock_cmd_stdin` | Replaces the `cmd.exe` stub with one that also forwards stdin. |
+
+#### Git Helpers
+
+| Helper | Description |
+| --- | --- |
+| `init_git_repo <path> [branch]` | Creates a non-bare repo with a deterministic test identity. Default branch is `main`. |
+| `init_bare_git_repo <path> [branch]` | Creates a bare repo (for use as a remote). Default branch is `main`. |
+| `configure_git_identity <path>` | Sets `user.name` and `user.email` to test values in an existing repo. |
+| `git_commit_all <path> <message>` | Stages all changes and commits with `--no-gpg-sign`. |
+| `add_git_exec_path` | Prepends `git --exec-path` to `PATH`, making helpers like `git-sh-setup` available to sourced scripts. |
 
 ### Mock Behavior
 
