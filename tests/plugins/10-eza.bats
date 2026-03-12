@@ -12,6 +12,7 @@ setup() {
   source "${REPO_ROOT}/plugins/10-eza.sh"
 
   [ "$(readlink "${HOME}/.config/eza/theme.yml")" = "${DOTFILES__ROOT}/.dotfiles/config/eza/solarized-dark.yml" ]
+  # shellcheck disable=SC2154
   [ "${dotfiles_hook_plugin_post_functions[0]}" = "__eza_ls_aliases" ]
 
   __eza_ls_aliases

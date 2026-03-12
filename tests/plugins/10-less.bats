@@ -12,7 +12,9 @@ setup() {
 
   [ "${MANPAGER}" = "less -iFXRS -x4" ]
   [ "${LESS}" = "-iFRX" ]
+  # shellcheck disable=SC2154
   [ "${LESS_TERMCAP_md}" = $'\e[1;32m' ]
+  # shellcheck disable=SC2154
   [ "${LESS_TERMCAP_so}" = $'\e[01;33m' ]
   [ "$(alias less)" = "alias less='less -FRX'" ]
 }

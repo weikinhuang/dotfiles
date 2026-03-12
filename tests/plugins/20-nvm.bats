@@ -84,6 +84,7 @@ setup() {
   [ "${NVM_BASH_COMPLETION_LOADED}" = "1" ]
   [[ ":${PATH}:" == *":${NVM_DIR}/versions/node/${TEST_NVM_DEFAULT_VERSION}/bin:"* ]]
   [ "$(cat "${DOTFILES__CONFIG_DIR}/cache/nvm_default_path")" = "${NVM_DIR}/versions/node/${TEST_NVM_DEFAULT_VERSION}/bin" ]
+  # shellcheck disable=SC2154
   [[ " ${chpwd_functions[*]} " == *" cdnvm "* ]]
 }
 
@@ -125,6 +126,8 @@ setup() {
   cdnvm
 
   [ "$(cat "${TEST_NVM_LOG}")" = "install:lts/*" ]
+  # shellcheck disable=SC2154
   [ "${__cdnvm_last_scope}" = "${project}:lts/*" ]
+  # shellcheck disable=SC2154
   [ "${__cdnvm_last_resolved}" = "v20.11.1" ]
 }

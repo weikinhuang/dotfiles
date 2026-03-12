@@ -11,5 +11,6 @@ setup() {
 
   source "${REPO_ROOT}/plugins/90-iterm.sh"
 
+  # shellcheck disable=SC2154
   [ "${#dotfiles_complete_functions[@]}" -eq 0 ]
 }

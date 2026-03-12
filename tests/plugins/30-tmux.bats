@@ -16,6 +16,7 @@ EOF
 @test "30-tmux: refreshes the environment from tmux inside tmux sessions" {
   source "${REPO_ROOT}/plugins/30-tmux.sh"
 
+  # shellcheck disable=SC2154
   [ "${__prompt_actions[0]}" = "_reload-tmux-env" ]
   _reload-tmux-env
   [ "${TMUX_PLUGIN_ENV}" = "1" ]

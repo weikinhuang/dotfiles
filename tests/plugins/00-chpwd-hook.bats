@@ -9,7 +9,9 @@ setup() {
   source "${REPO_ROOT}/plugins/00-chpwd-hook.sh"
   source "${REPO_ROOT}/plugins/00-chpwd-hook.sh"
 
+  # shellcheck disable=SC2154
   [ "${bash_chpwd_imported}" = "defined" ]
+  # shellcheck disable=SC2154
   [ "${#__prompt_actions[@]}" -eq 1 ]
   [ "${__prompt_actions[0]}" = "__dot_chpwd_hook" ]
   [ "$(declare -p chpwd_functions)" = "declare -a chpwd_functions=()" ]
