@@ -10,5 +10,22 @@
 set -euo pipefail
 IFS=$'\n\t'
 
+function print_help() {
+  cat <<'EOF'
+Usage: winwhoami [OPTION]...
+Print the Windows username for the current session.
+
+Options:
+  -h, --help                  show this help and exit
+EOF
+}
+
+case "${1:-}" in
+  -h | --help)
+    print_help
+    exit 0
+    ;;
+esac
+
 # shellcheck disable=SC2016
 powershell.exe -NoProfile -NonInteractive -Command '$env:USERNAME' </dev/null | tr -d '\r'

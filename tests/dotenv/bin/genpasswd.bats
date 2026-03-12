@@ -12,10 +12,15 @@ printf '%s' 'abcXYZ123_-!abcXYZ123_-!'
 EOF
 }
 
-@test "genpasswd: help prints usage" {
-  run bash "${SCRIPT}" --help
-  assert_success
-  assert_output --partial "usage genpasswd"
+@test "genpasswd: -h and --help print usage" {
+  for flag in -h --help; do
+    run bash "${SCRIPT}" "${flag}"
+    assert_success
+    assert_output --partial "Usage: genpasswd"
+    assert_output --partial "Options:"
+    assert_output --partial "--len LENGTH"
+    assert_output --partial "-h, -?, --help"
+  done
 }
 
 @test "genpasswd: alpha mode filters output to alphanumeric characters and respects length" {

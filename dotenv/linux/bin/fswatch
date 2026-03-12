@@ -1,5 +1,25 @@
 #!/usr/bin/env bash
 
+function print_help() {
+  cat <<'EOF'
+Usage: fswatch [OPTION]... DIRECTORY COMMAND [ARG...]
+Watch DIRECTORY with inotifywait and run COMMAND from that directory after each event.
+
+Options:
+  -h, --help                  show this help and exit
+
+COMMAND and remaining ARG... are invoked after each modify, move, create, or
+delete event.
+EOF
+}
+
+case "${1:-}" in
+  -h | --help)
+    print_help
+    exit 0
+    ;;
+esac
+
 DIRECTORY="$(readlink -f "${1}")"
 shift
 

@@ -28,6 +28,20 @@ IFS=$'\n\t'
 SCRIPT_NAME="$(basename "$0")"
 WINSUDO_VERBOSE=""
 
+function print_help() {
+  cat <<'EOF'
+Usage: winsudo [OPTION]... [COMMAND [ARG...]]
+Run Windows commands with elevated privileges from WSL.
+
+Options:
+  -v                          enable verbose fallback diagnostics
+  -h, --help                  show this help and exit
+
+With no COMMAND, starts an elevated login shell.
+Remaining arguments are treated as the command to elevate.
+EOF
+}
+
 #===============================================================================
 # native sudo functions
 #===============================================================================
@@ -229,9 +243,19 @@ function internal::unprivileged-process() {
 #===============================================================================
 
 function internal::main() {
+  if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+    print_help
+    return 0
+  fi
+
   if [[ "${1:-}" == "-v" ]]; then
     WINSUDO_VERBOSE=1
     shift
+  fi
+
+  if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+    print_help
+    return 0
   fi
 
   # internal entrypoint for legacy elevated SSHD server

@@ -24,6 +24,14 @@ create_source_and_dest_repos() {
   git_commit_all "${DEST_REPO}" "dest base"
 }
 
+@test "git-cherry-pick-from: -h and --help print usage" {
+  for flag in -h --help; do
+    run bash "${SCRIPT}" "${flag}"
+    assert_success
+    assert_output --partial "Usage: git-cherry-pick-from"
+  done
+}
+
 @test "git-cherry-pick-from: exits when the other repo does not exist" {
   local repo="${BATS_TEST_TMPDIR}/dest"
   init_git_repo "${repo}"

@@ -328,32 +328,35 @@ async function server({ socket, enablePaste, notify }) {
 function help() {
   return `
 Usage: clipboard-server COMMAND [OPTION]...
-Forward clipboard access over a http socket.
-Example: clipboard-server start --enable-paste
+Forward clipboard access over an HTTP socket.
 
 Commands:
-  start                     Run the server in the background
-  stop                      Stop the server if it is running
-  restart                   Restart the server
-  server                    Start the server in the foreground
+  start                      run the server in the background
+  stop                       stop the server if it is running
+  restart                    restart the server
+  server                     start the server in the foreground
+
+Mandatory arguments to long options are also mandatory for the
+corresponding short options.
 
 Options:
-  -e, --enable-paste        Disable local clipboard access, only alloys the remote
-                              server to send contents to local clipboard.
-                              default: false
-  -n, --notify              Show a notification when the clipboard is accessed
-                              default: false
-  -p, --pidfile FILE        Path to the pid file for the server.
-                              default: ~/.config/clipboard-server/clipboard-server.pid
-  -s, --socket FILE|PORT    A port number or path to the socket file location
-                              default: ~/.config/clipboard-server/clipboard-server.sock
-  --help                    Show this message
+  -e, --enable-paste         allow remote clipboard reads; disabled by default
+  -n, --notify               show a notification when the clipboard is accessed
+  -p, --pidfile FILE         write the background server PID to FILE
+                               default: ~/.config/clipboard-server/clipboard-server.pid
+  -s, --socket FILE|PORT     listen on FILE or TCP PORT
+                               default: ~/.config/clipboard-server/clipboard-server.sock
+  -h, --help                 display this help and exit
+
+Examples:
+  clipboard-server start --enable-paste
+  clipboard-server server --socket 29009
 `.trim();
 }
 
 async function main([_1, _2, subcommand, ...args]) {
   const userInfo = os.userInfo();
-  let showHelp = subcommand == "--help";
+  let showHelp = subcommand == "--help" || subcommand == "-h";
   const opts = {
     pidFile: `${userInfo.homedir}/.config/clipboard-server/clipboard-server.pid`,
     socket: `${userInfo.homedir}/.config/clipboard-server/clipboard-server.sock`,
@@ -380,6 +383,7 @@ async function main([_1, _2, subcommand, ...args]) {
           throw new Error("socket must be a file or a port.");
         }
         break;
+      case "-h":
       case "--help":
         showHelp = true;
         break;

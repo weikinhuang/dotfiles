@@ -11,6 +11,25 @@
 set -euo pipefail
 IFS=$'\n\t'
 
+function print_help() {
+  cat <<'EOF'
+Usage: open [OPTION]... [PATH-OR-URL...]
+Open files or URLs with xdg-open, gnome-open, or nautilus.
+
+Options:
+  -h, --help                  show this help and exit
+
+All remaining arguments are forwarded to the first available opener.
+EOF
+}
+
+case "${1:-}" in
+  -h | --help)
+    print_help
+    exit 0
+    ;;
+esac
+
 # default to only open file paths
 cmd=nautilus
 if command -v xdg-open &>/dev/null; then

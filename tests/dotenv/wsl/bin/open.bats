@@ -8,6 +8,16 @@ setup() {
   stub_passthrough_command "winstart"
 }
 
+@test "open: -h and --help print usage" {
+  for flag in -h --help; do
+    run bash "${SCRIPT}" "${flag}"
+    assert_success
+    assert_output --partial "Usage: open [OPTION]... [PATH-OR-URL...]"
+    assert_output --partial "Options:"
+    assert_output --partial "-h, --help"
+  done
+}
+
 @test "open: delegates all arguments to winstart" {
   run bash "${SCRIPT}" https://example.com "two words"
   assert_success

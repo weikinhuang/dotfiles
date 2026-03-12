@@ -6,6 +6,14 @@ setup() {
   SCRIPT="${REPO_ROOT}/dotenv/bin/git-default-branch"
 }
 
+@test "git-default-branch: -h and --help print usage" {
+  for flag in -h --help; do
+    run bash "${SCRIPT}" "${flag}"
+    assert_success
+    assert_output --partial "Usage: git-default-branch"
+  done
+}
+
 @test "git-default-branch: outside a repository exits 1" {
   cd "${BATS_TEST_TMPDIR}"
   run bash "${SCRIPT}"

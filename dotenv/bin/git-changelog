@@ -2,9 +2,26 @@
 set -euo pipefail
 IFS=$'\n\t'
 
+function print_help() {
+  cat <<'EOF'
+Usage: git-changelog [OPTION]... [CHANGELOG]
+Print commits since the latest tag, or prepend a new changelog header to a file.
+
+If CHANGELOG is omitted, the first matching change/history file in the
+current directory is used, falling back to History.md.
+
+Options:
+  -l, --list                 print commits since the latest tag
+  -h, --help                 display this help and exit
+EOF
+}
+
 DATE="$(date +'%Y-%m-%d')"
 
-case "$1" in
+case "${1:-}" in
+  -h | --help)
+    print_help
+    ;;
   -l | --list)
     version=$(git describe --tags --abbrev=0 "$(git rev-list --tags --max-count=1)")
     if test -z "$version"; then
@@ -14,7 +31,7 @@ case "$1" in
     fi
     ;;
   *)
-    CHANGELOG=$1
+    CHANGELOG="${1:-}"
     if test "$CHANGELOG" = ""; then
       # shellcheck disable=SC2010
       CHANGELOG="$(ls | grep -E 'change|history' -i | head -n 1 || true)"

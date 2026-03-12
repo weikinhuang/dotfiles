@@ -15,6 +15,16 @@ setup() {
 # usage / error handling
 # ---------------------------------------------------------------------------
 
+@test "winstart: -h and --help print usage" {
+  for flag in -h --help; do
+    run bash "${SCRIPT}" "${flag}"
+    assert_success
+    assert_output --partial "Usage: winstart [OPTION]... COMMAND [ARG...]"
+    assert_output --partial "Options:"
+    assert_output --partial "-h, --help"
+  done
+}
+
 @test "winstart: no arguments prints usage to stderr and exits 1" {
   run bash "${SCRIPT}"
   assert_failure

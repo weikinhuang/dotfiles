@@ -17,6 +17,16 @@ exit 0
 EOF
 }
 
+@test "wusbipd: -h and --help print usage" {
+  for flag in -h --help; do
+    run bash "${SCRIPT}" "${flag}"
+    assert_success
+    assert_output --partial "Usage: wusbipd [OPTION]... [USBIPD-ARG...]"
+    assert_output --partial "Options:"
+    assert_output --partial "-h, --help"
+  done
+}
+
 @test "wusbipd: invokes winsudo with the default Program Files executable" {
   run bash "${SCRIPT}" list --json
   assert_success

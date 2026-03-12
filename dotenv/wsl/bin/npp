@@ -1,5 +1,26 @@
 #!/usr/bin/env bash
 
+function print_help() {
+  cat <<'EOF'
+Usage: npp [OPTION]... [FILE-OR-ARG...]
+Open Notepad++ from WSL, translating existing file paths to Windows paths.
+
+Options:
+  -h, --help                  show this help and exit
+
+All remaining arguments are forwarded to Notepad++.
+If stdin is piped, it is appended as the final argument.
+If Notepad++ is unavailable, falls back to nvim, vim, or vi.
+EOF
+}
+
+case "${1:-}" in
+  -h | --help)
+    print_help
+    exit 0
+    ;;
+esac
+
 # make sure we go to the right path
 PGM_PATH="Program Files"
 if [[ -d "$(wslpath -ua "c:/")Program Files (x86)/Notepad++/" ]]; then

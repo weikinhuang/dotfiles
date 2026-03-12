@@ -1,5 +1,22 @@
 #!/usr/bin/env bash
 
+function print_help() {
+  cat <<'EOF'
+Usage: git-sync [OPTION]...
+Sync the repository default branch from origin or upstream, then restore the starting branch and dirty state.
+
+Options:
+  -h, --help                 display this help and exit
+EOF
+}
+
+case "${1:-}" in
+  -h | --help)
+    print_help
+    exit 0
+    ;;
+esac
+
 # verbose mode
 GIT_SYNC_TRACE=${GIT_SYNC_TRACE:-}
 

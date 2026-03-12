@@ -2,10 +2,16 @@
 # Delete all branches that have been merged to default branch && push deletes to remote origin
 # from: https://github.com/SnapInteractive/git-tools
 
-if ! git remote get-url --push origin >/dev/null 2>&1; then
-  echo "You need to be in a git repo with a pushable \"origin\" remote!"
-  exit 1
-fi
+function print_help() {
+  cat <<'EOF'
+Usage: git-branch-prune [OPTION]...
+Delete local branches already merged into the default branch and remove them from origin.
+
+Options:
+  -i, --interactive          confirm each branch before deleting it
+  -h, --help                 display this help and exit
+EOF
+}
 
 INTERACTIVE=
 while [[ $# -gt 0 ]]; do
@@ -14,17 +20,22 @@ while [[ $# -gt 0 ]]; do
       INTERACTIVE="yes"
       ;;
     -h | --help)
-      echo "Usage: $(basename "$0") [-i|--interactive]"
+      print_help
       exit 0
       ;;
     *)
       echo "Unknown argument: $1" >&2
-      echo "Usage: $(basename "$0") [-i|--interactive]" >&2
+      print_help >&2
       exit 1
       ;;
   esac
   shift
 done
+
+if ! git remote get-url --push origin >/dev/null 2>&1; then
+  echo "You need to be in a git repo with a pushable \"origin\" remote!"
+  exit 1
+fi
 
 MAIN_BRANCH="$(git-default-branch)"
 if [ -z "${MAIN_BRANCH}" ]; then

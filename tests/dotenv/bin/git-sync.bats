@@ -24,6 +24,14 @@ create_origin_clone() {
   git -C "${TEST_REPO}" config alias.brn 'rev-parse --abbrev-ref HEAD'
 }
 
+@test "git-sync: -h and --help print usage" {
+  for flag in -h --help; do
+    run bash "${SCRIPT}" "${flag}"
+    assert_success
+    assert_output --partial "Usage: git-sync"
+  done
+}
+
 @test "git-sync: restores dirty changes and returns to the starting branch after syncing origin" {
   create_origin_clone
 

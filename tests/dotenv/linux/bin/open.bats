@@ -6,6 +6,18 @@ setup() {
   SCRIPT="${REPO_ROOT}/dotenv/linux/bin/open"
 }
 
+@test "open: -h and --help print usage" {
+  use_mock_bin_path
+
+  for flag in -h --help; do
+    run bash "${SCRIPT}" "${flag}"
+    assert_success
+    assert_output --partial "Usage: open [OPTION]... [PATH-OR-URL...]"
+    assert_output --partial "Options:"
+    assert_output --partial "-h, --help"
+  done
+}
+
 @test "open: prefers xdg-open when it is available" {
   use_mock_bin_path
   stub_named_passthrough_command "xdg-open"

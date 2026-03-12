@@ -10,6 +10,25 @@
 set -euo pipefail
 IFS=$'\n\t'
 
+function print_help() {
+  cat <<'EOF'
+Usage: quick-toast [OPTION]... [TITLE] [BODY]
+Show a Windows toast notification from WSL.
+
+Options:
+  -h, --help                  show this help and exit
+
+If no arguments are provided, a default alert title is used.
+EOF
+}
+
+case "${1:-}" in
+  -h | --help)
+    print_help
+    exit 0
+    ;;
+esac
+
 # shellcheck disable=SC2016
 cat <<EOF | powershell.exe -Command -
 [Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] > \$null

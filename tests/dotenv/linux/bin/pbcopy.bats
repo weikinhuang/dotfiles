@@ -6,6 +6,18 @@ setup() {
   SCRIPT="${REPO_ROOT}/dotenv/linux/bin/pbcopy"
 }
 
+@test "pbcopy: -h and --help print usage" {
+  use_mock_bin_path
+
+  for flag in -h --help; do
+    run bash "${SCRIPT}" "${flag}"
+    assert_success
+    assert_output --partial "Usage: pbcopy"
+    assert_output --partial "Options:"
+    assert_output --partial "-h, --help"
+  done
+}
+
 @test "pbcopy: prefers xclip and sets DISPLAY when it is missing" {
   use_mock_bin_path
   stub_env_passthrough_command_with_stdin "xclip" "DISPLAY"

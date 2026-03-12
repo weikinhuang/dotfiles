@@ -12,15 +12,14 @@ printf '%s\n' "$@"
 EOF
 }
 
-@test "git-ssh-socks-proxy: help prints usage" {
-  stub_command nc <<'EOF'
-#!/usr/bin/env bash
-exit 0
-EOF
-
-  run bash "${SCRIPT}" --help
-  assert_success
-  assert_output --partial "This command takes in the same options as the ssh command."
+@test "git-ssh-socks-proxy: -h and --help print usage" {
+  for flag in -h --help; do
+    run bash "${SCRIPT}" "${flag}"
+    assert_success
+    assert_output --partial "Run ssh with an automatically configured ProxyCommand"
+    assert_output --partial "-p, --port PORT"
+    assert_output --partial "-h, -?, --help"
+  done
 }
 
 @test "git-ssh-socks-proxy: falls back to plain ssh when netcat is unavailable" {

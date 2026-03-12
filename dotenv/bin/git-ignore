@@ -1,5 +1,20 @@
 #!/usr/bin/env bash
 
+function print_help() {
+  cat <<'EOF'
+Usage: git-ignore [OPTION]... [PATTERN...]
+Show the current ignore files, or append patterns to the local or global gitignore.
+
+With no options and no PATTERN values, both the global and local ignore files
+are shown.
+
+Options:
+  -l, --local                use .gitignore in the current directory
+  -g, --global               use the configured global excludes file
+  -h, --help                 display this help and exit
+EOF
+}
+
 function show_contents {
   test -f "$2" && echo "$1 gitignore: $2" && cat "$2"
 }
@@ -34,6 +49,9 @@ if test $# -eq 0; then
   show_local
 else
   case "$1" in
+    -h | --help)
+      print_help
+      ;;
     -l | --local)
       test $# -gt 1 && add_local "${@:2}" && echo
       show_local

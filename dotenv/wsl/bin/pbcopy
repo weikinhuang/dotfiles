@@ -11,4 +11,23 @@
 set -euo pipefail
 IFS=$'\n\t'
 
+function print_help() {
+  cat <<'EOF'
+Usage: pbcopy [OPTION]... [CLIP-ARG...]
+Copy stdin to the Windows clipboard with clip.exe.
+
+Options:
+  -h, --help                  show this help and exit
+
+All remaining arguments are forwarded to clip.exe.
+EOF
+}
+
+case "${1:-}" in
+  -h | --help)
+    print_help
+    exit 0
+    ;;
+esac
+
 exec clip.exe "$@"

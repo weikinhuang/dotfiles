@@ -6,6 +6,14 @@ setup() {
   SCRIPT="${REPO_ROOT}/dotenv/bin/git-diff-highlight"
 }
 
+@test "git-diff-highlight: -h and --help print usage" {
+  for flag in -h --help; do
+    run perl "${SCRIPT}" "${flag}"
+    assert_success
+    assert_output --partial "Usage: git-diff-highlight"
+  done
+}
+
 @test "git-diff-highlight: leaves unmatched removals unchanged" {
   run bash -lc "printf '%s\n' '@@ -1 +1 @@' '-only old' ' context' | perl '${SCRIPT}'"
   assert_success

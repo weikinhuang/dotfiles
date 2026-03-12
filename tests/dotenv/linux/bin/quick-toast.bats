@@ -6,6 +6,18 @@ setup() {
   SCRIPT="${REPO_ROOT}/dotenv/linux/bin/quick-toast"
 }
 
+@test "quick-toast: -h and --help print usage" {
+  use_mock_bin_path
+
+  for flag in -h --help; do
+    run bash "${SCRIPT}" "${flag}"
+    assert_success
+    assert_output --partial "Usage: quick-toast [OPTION]... [SUMMARY] [BODY]"
+    assert_output --partial "Options:"
+    assert_output --partial "-h, --help"
+  done
+}
+
 @test "quick-toast: rings the terminal bell and exits 1 when notify-send is unavailable" {
   use_mock_bin_path
 

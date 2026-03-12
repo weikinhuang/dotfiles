@@ -22,6 +22,16 @@ printf 'ARG:%s\n' "$@"
 EOF
 }
 
+@test "fswatch: -h and --help print usage" {
+  for flag in -h --help; do
+    run bash "${SCRIPT}" "${flag}"
+    assert_success
+    assert_output --partial "Usage: fswatch [OPTION]... DIRECTORY COMMAND [ARG...]"
+    assert_output --partial "Options:"
+    assert_output --partial "-h, --help"
+  done
+}
+
 @test "fswatch: resolves the watched directory and runs the callback from that directory" {
   run bash "${SCRIPT}" "${WATCH_LINK}" handler alpha beta
   assert_success

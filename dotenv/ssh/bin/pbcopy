@@ -11,6 +11,25 @@
 set -euo pipefail
 IFS=$'\n\t'
 
+function print_help() {
+  cat <<'EOF'
+Usage: pbcopy [OPTION]...
+Copy stdin to clipboard-server when available, otherwise fall back to the local pbcopy.
+
+Options:
+  -h, --help                  show this help and exit
+
+When the local fallback is used, any remaining arguments are passed to pbcopy.
+EOF
+}
+
+case "${1:-}" in
+  -h | --help)
+    print_help
+    exit 0
+    ;;
+esac
+
 CLIPBOARD_SERVER_CHECK=
 CURL_OPTS=(-sSL)
 CURL_HOST="http://localhost"

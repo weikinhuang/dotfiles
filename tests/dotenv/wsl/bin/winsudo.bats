@@ -94,6 +94,17 @@ SUDO
 # main: argument routing
 # ---------------------------------------------------------------------------
 
+@test "winsudo: -h and --help print usage" {
+  for flag in -h --help; do
+    run bash "${SCRIPT}" "${flag}"
+    assert_success
+    assert_output --partial "Usage: winsudo [OPTION]... [COMMAND [ARG...]]"
+    assert_output --partial "Options:"
+    assert_output --partial "-v"
+    assert_output --partial "-h, --help"
+  done
+}
+
 @test "winsudo: -v flag enables verbose mode (visible in fallback warning)" {
   _enable_native_sudo_non_inline
   run bash "${SCRIPT}" -v echo test
@@ -109,6 +120,13 @@ SUDO
   assert_line "SUDO_CALLED echo"
   assert_line "SUDO_CALLED hello"
   refute_output --partial "SUDO_CALLED -v"
+}
+
+@test "winsudo: -v with help prints usage" {
+  run bash "${SCRIPT}" -v --help
+  assert_success
+  assert_output --partial "Usage: winsudo [OPTION]... [COMMAND [ARG...]]"
+  assert_output --partial "Options:"
 }
 
 # ---------------------------------------------------------------------------

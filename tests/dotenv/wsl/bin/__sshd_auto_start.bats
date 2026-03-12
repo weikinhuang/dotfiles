@@ -12,6 +12,16 @@ printf 'SUDO %s\n' "$*"
 EOF
 }
 
+@test "__sshd_auto_start: -h and --help print usage" {
+  for flag in -h --help; do
+    run bash "${SCRIPT}" "${flag}"
+    assert_success
+    assert_output --partial "Usage: __sshd_auto_start.sh"
+    assert_output --partial "Options:"
+    assert_output --partial "-h, --help"
+  done
+}
+
 @test "__sshd_auto_start: provisions sshd when no pid file is present" {
   [[ ! -e /var/run/sshd.pid ]] || skip "/var/run/sshd.pid exists on this host"
 

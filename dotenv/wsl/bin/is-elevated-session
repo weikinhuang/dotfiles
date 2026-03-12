@@ -10,6 +10,25 @@
 set -euo pipefail
 IFS=$'\n\t'
 
+function print_help() {
+  cat <<'EOF'
+Usage: is-elevated-session [OPTION]...
+Exit successfully when the current Windows session has Administrator privileges.
+
+Options:
+  -h, --help                  show this help and exit
+
+Exit status 0 indicates Administrator privileges.
+EOF
+}
+
+case "${1:-}" in
+  -h | --help)
+    print_help
+    exit 0
+    ;;
+esac
+
 # try using powershell to determine elevated status
 if ! out="$(powershell.exe -NoProfile -NonInteractive -Command '(New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)' </dev/null 2>/dev/null | tr -d '\r')"; then
   exit 255

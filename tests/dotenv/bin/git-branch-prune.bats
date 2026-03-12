@@ -34,6 +34,17 @@ create_origin_clone() {
   assert_output --partial "pushable \"origin\" remote"
 }
 
+@test "git-branch-prune: -h and --help print usage before repo checks" {
+  cd "${BATS_TEST_TMPDIR}"
+
+  for flag in -h --help; do
+    run bash "${SCRIPT}" "${flag}"
+    assert_success
+    assert_output --partial "Usage: git-branch-prune"
+    assert_output --partial "-i, --interactive"
+  done
+}
+
 @test "git-branch-prune: removes merged branches locally and from origin" {
   create_origin_clone
 

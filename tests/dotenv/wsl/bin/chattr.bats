@@ -19,10 +19,16 @@ EOF
   echo "content" >"${TEST_FILE}"
 }
 
-@test "chattr: help delegates to attrib with /?" {
-  run bash "${SCRIPT}" --help
-  assert_success
-  assert_output "ATTRIB /?"
+@test "chattr: -h and --help print wrapper help with documented options" {
+  for flag in -h --help; do
+    run bash "${SCRIPT}" "${flag}"
+    assert_success
+    assert_output --partial "Usage: chattr [OPTION]... [FILE]"
+    assert_output --partial "Options:"
+    assert_output --partial "+H, -H"
+    assert_output --partial "--all"
+    assert_output --partial "-h, -?, --help, /?"
+  done
 }
 
 @test "chattr: existing files are translated and duplicate flags are deduplicated" {

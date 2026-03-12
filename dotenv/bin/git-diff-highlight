@@ -287,6 +287,21 @@ sub is_pair_interesting {
 
 package main;
 
+sub usage {
+	print <<'EOUSAGE';
+Usage: git-diff-highlight [OPTION]... < diff-output
+Highlight changed characters within matching removed and added diff lines.
+
+Options:
+  -h, --help                 display this help and exit
+EOUSAGE
+}
+
+if (@ARGV && ($ARGV[0] eq '-h' || $ARGV[0] eq '--help')) {
+	usage();
+	exit 0;
+}
+
 # Some scripts may not realize that SIGPIPE is being ignored when launching the
 # pager--for instance scripts written in Python.
 $SIG{PIPE} = 'DEFAULT';

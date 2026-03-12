@@ -10,6 +10,23 @@
 set -euo pipefail
 IFS=$'\n\t'
 
+function print_help() {
+  cat <<'EOF'
+Usage: git-default-branch [OPTION]...
+Print the default branch for the current repository.
+
+Options:
+  -h, --help                 display this help and exit
+EOF
+}
+
+case "${1:-}" in
+  -h | --help)
+    print_help
+    exit 0
+    ;;
+esac
+
 if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   echo "Not in a git repository" >&2
   exit 1

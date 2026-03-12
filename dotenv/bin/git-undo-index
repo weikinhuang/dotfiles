@@ -7,6 +7,23 @@
 #
 # @see https://github.com/weikinhuang/git-undo-index/
 
+function print_help() {
+  cat <<'EOF'
+Usage: git-undo-index [OPTION]... [PATH...]
+Discard tracked changes while storing an undo commit in the reflog.
+
+Options:
+  -h, --help                 display this help and exit
+EOF
+}
+
+case "${1:-}" in
+  -h | --help)
+    print_help
+    exit 0
+    ;;
+esac
+
 # colors
 # COLOR_BOLD=
 # COLOR_RESET=

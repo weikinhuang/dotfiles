@@ -60,10 +60,15 @@ wait_for_notification() {
   return 1
 }
 
-@test "clipboard-server: help prints usage" {
-  run "${NODE_BIN}" "${SCRIPT}" --help
-  assert_success
-  assert_output --partial "Usage: clipboard-server COMMAND"
+@test "clipboard-server: -h and --help print usage" {
+  for flag in -h --help; do
+    run "${NODE_BIN}" "${SCRIPT}" "${flag}"
+    assert_success
+    assert_output --partial "Usage: clipboard-server COMMAND"
+    assert_output --partial "Options:"
+    assert_output --partial "-e, --enable-paste"
+    assert_output --partial "-h, --help"
+  done
 }
 
 @test "clipboard-server: GET /clipboard is forbidden unless paste is enabled" {

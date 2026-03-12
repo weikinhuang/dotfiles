@@ -13,6 +13,16 @@ teardown() {
   fi
 }
 
+@test "pbcopy: -h and --help print usage" {
+  for flag in -h --help; do
+    run bash "${SCRIPT}" "${flag}"
+    assert_success
+    assert_output --partial "Usage: pbcopy"
+    assert_output --partial "Options:"
+    assert_output --partial "-h, --help"
+  done
+}
+
 @test "pbcopy: posts stdin to the clipboard server when a listening port is configured" {
   stub_clipboard_server_curl --stdin
 

@@ -6,6 +6,14 @@ setup() {
   SCRIPT="${REPO_ROOT}/dotenv/bin/git-undo-index"
 }
 
+@test "git-undo-index: -h and --help print usage" {
+  for flag in -h --help; do
+    run bash "${SCRIPT}" "${flag}"
+    assert_success
+    assert_output --partial "Usage: git-undo-index"
+  done
+}
+
 @test "git-undo-index: reverts only the requested paths and leaves other changes intact" {
   local repo="${BATS_TEST_TMPDIR}/repo"
   init_git_repo "${repo}"

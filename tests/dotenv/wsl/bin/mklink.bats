@@ -16,11 +16,15 @@ printf '%s\n' "$@"
 EOF
 }
 
-@test "mklink: help prints usage text" {
-  run bash "${SCRIPT}" --help
-  assert_success
-  assert_output --partial "Creates a symbolic link."
-  assert_output --partial "mklink [OPTION]... TARGET LINK_NAME"
+@test "mklink: -h and --help print usage text" {
+  for flag in -h --help; do
+    run bash "${SCRIPT}" "${flag}"
+    assert_success
+    assert_output --partial "Usage: mklink [OPTION]... TARGET [LINK_NAME]"
+    assert_output --partial "Options:"
+    assert_output --partial "-s, --symbolic, /s, /S"
+    assert_output --partial "-h, -?, --help, /?"
+  done
 }
 
 @test "mklink: directory targets add /d and translate absolute link paths" {

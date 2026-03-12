@@ -13,10 +13,13 @@ setup() {
   SHORT_SHA="$(git -C "${REPO}" rev-parse --short=8 HEAD)"
 }
 
-@test "git-ls-dir: help prints usage" {
-  run perl "${SCRIPT}" --help
-  assert_failure
-  assert_output --partial "Usage:"
+@test "git-ls-dir: -h and --help print usage" {
+  for flag in -h --help; do
+    run perl "${SCRIPT}" "${flag}"
+    assert_success
+    assert_output --partial "Usage: git-ls-dir"
+    assert_output --partial "-c, --commitish COMMIT-ISH"
+  done
 }
 
 @test "git-ls-dir: missing tree entries abort with a helpful error" {

@@ -10,8 +10,27 @@
 set -euo pipefail
 IFS=$'\n\t'
 
+function print_help() {
+  cat <<'EOF'
+Usage: winrun [OPTION]... COMMAND [ARG...]
+Run a Windows command under cmd.exe, translating existing WSL file paths.
+
+Options:
+  -h, --help                  show this help and exit
+
+All remaining arguments are forwarded to cmd.exe /c after path translation.
+EOF
+}
+
+case "${1:-}" in
+  -h | --help)
+    print_help
+    exit 0
+    ;;
+esac
+
 if [[ $# -eq 0 ]]; then
-  echo "Usage: winrun <command> [args...]" >&2
+  print_help >&2
   exit 1
 fi
 

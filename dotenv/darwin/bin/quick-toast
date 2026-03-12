@@ -10,6 +10,26 @@
 set -euo pipefail
 IFS=$'\n\t'
 
+function print_help() {
+  cat <<'EOF'
+Usage: quick-toast [OPTION]... [TITLE] [BODY]
+Show a macOS notification via osascript.
+
+Options:
+  -h, --help                  show this help and exit
+
+If only BODY is provided, the default title is used.
+If no arguments are provided, the default title and alert body are used.
+EOF
+}
+
+case "${1:-}" in
+  -h | --help)
+    print_help
+    exit 0
+    ;;
+esac
+
 if [[ $# -eq 0 ]]; then
   TITLE="Terminal Notification"
   BODY="ALERT FROM TERMINAL"

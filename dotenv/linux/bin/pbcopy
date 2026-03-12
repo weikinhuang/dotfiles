@@ -11,6 +11,23 @@
 set -euo pipefail
 IFS=$'\n\t'
 
+function print_help() {
+  cat <<'EOF'
+Usage: pbcopy
+Copy stdin to the X clipboard using xclip or xsel.
+
+Options:
+  -h, --help                  show this help and exit
+EOF
+}
+
+case "${1:-}" in
+  -h | --help)
+    print_help
+    exit 0
+    ;;
+esac
+
 # if tty, then try to pipe it to the X clipboard of the primary display
 # otherwise: Error: Can't open display: (null)
 if [[ -z "${DISPLAY:-}" ]]; then

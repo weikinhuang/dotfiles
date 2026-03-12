@@ -13,6 +13,16 @@ teardown() {
   fi
 }
 
+@test "pbpaste: -h and --help print usage" {
+  for flag in -h --help; do
+    run bash "${SCRIPT}" "${flag}"
+    assert_success
+    assert_output --partial "Usage: pbpaste"
+    assert_output --partial "Options:"
+    assert_output --partial "-h, --help"
+  done
+}
+
 @test "pbpaste: reads from the clipboard server when a listening port is configured" {
   stub_clipboard_server_curl
 

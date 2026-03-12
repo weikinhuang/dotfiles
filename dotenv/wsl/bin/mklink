@@ -15,17 +15,20 @@ for arg in "$@"; do
     -j | --junction | /j | /J)
       OPT_JUNCTION=1
       ;;
-    -\? | --help | /\?)
+    -h | -\? | --help | /\?)
       cat - <<-EOF
-Creates a symbolic link.
+Usage: mklink [OPTION]... TARGET [LINK_NAME]
+Create Windows links from WSL via cmd.exe /c mklink.
 
-mklink [OPTION]... TARGET LINK_NAME
+Options:
+  -s, --symbolic, /s, /S      create symbolic links (default)
+  -H, --hard, /h, /H          create hard links
+  -j, --junction, /j, /J      create directory junctions
+  -h, -?, --help, /?          show this help and exit
+      --                      stop option parsing
 
-Mandatory arguments to long options are mandatory for short options too.
-  -H, --hard                  make hard links directly to symbolic links
-  -j, --junction              create a directory junction
-  -s, --symbolic              make symbolic links instead of hard links (default behavior)
-      --help     display this help and exit
+If LINK_NAME is omitted and TARGET contains a slash, the basename of TARGET is
+used as the link name.
 EOF
       exit 0
       ;;

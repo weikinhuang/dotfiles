@@ -9,8 +9,34 @@ attr=()
 opts=()
 FILE=""
 
+function print_help() {
+  cat <<'EOF'
+Usage: chattr [OPTION]... [FILE]
+Set Windows file attributes from WSL using attrib.exe.
+
+Options:
+  +R, -R                      set or clear the read-only attribute
+  +A, -A                      set or clear the archive attribute
+  +S, -S                      set or clear the system attribute
+  +H, -H                      set or clear the hidden attribute
+  +I, -I                      set or clear the not-content-indexed attribute
+  /S, /s                      process matching files in the current directory
+                                and all subdirectories
+  /D, /d                      process directories as well as files
+  /L, /l                      work on the symbolic link itself instead of its
+                                target
+      --all                   equivalent to /S /D
+  -h, -?, --help, /?          show this help and exit
+EOF
+}
+
 for arg in "$@"; do
   case "$arg" in
+    -h | -\? | --help | /\?)
+      print_help
+      exit 0
+      ;;
+
     [+-][RASHIrashi])
       attr=("${attr[@]}" "$(tr '[:lower:]' '[:upper:]' <<<"$arg")")
       ;;
@@ -22,12 +48,6 @@ for arg in "$@"; do
     --all)
       # special command to process recursively
       opts=("${opts[@]}" "/S" "/D")
-      ;;
-
-    -\? | --help | -h | /\?)
-      # run the help command
-      "${PROGRAM}" "/?"
-      exit 0
       ;;
 
     *)

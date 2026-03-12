@@ -11,4 +11,21 @@
 set -euo pipefail
 IFS=$'\n\t'
 
+function print_help() {
+  cat <<'EOF'
+Usage: pbpaste [OPTION]...
+Write the Windows clipboard contents to stdout.
+
+Options:
+  -h, --help                  show this help and exit
+EOF
+}
+
+case "${1:-}" in
+  -h | --help)
+    print_help
+    exit 0
+    ;;
+esac
+
 powershell.exe -NoProfile -NonInteractive -Command Get-Clipboard </dev/null | sed 's/\r$//'

@@ -10,6 +10,25 @@
 set -euo pipefail
 IFS=$'\n\t'
 
+function print_help() {
+  cat <<'EOF'
+Usage: winstart [OPTION]... COMMAND [ARG...]
+Start a Windows process with Start-Process, translating existing WSL file paths.
+
+Options:
+  -h, --help                  show this help and exit
+
+All remaining arguments are forwarded to Start-Process after path translation.
+EOF
+}
+
+case "${1:-}" in
+  -h | --help)
+    print_help
+    exit 0
+    ;;
+esac
+
 args=()
 for arg in "$@"; do
   if [[ ! "$arg" =~ ^/[a-z]$ ]] && [[ -e "$arg" ]]; then
@@ -20,7 +39,7 @@ for arg in "$@"; do
 done
 
 if [[ ${#args[@]} -eq 0 ]]; then
-  echo "Usage: $(basename "$0") [args...]" >&2
+  print_help >&2
   exit 1
 fi
 

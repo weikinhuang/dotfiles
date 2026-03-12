@@ -31,13 +31,39 @@ use Getopt::Long;
 use Term::ANSIColor qw(:constants colorstrip);
 
 sub usage {
-    warn @_, "\n" if @_;
+    my ($exit_code, @message) = @_;
+
+    if (!defined $exit_code || $exit_code !~ /^\d+$/) {
+        unshift @message, $exit_code if defined $exit_code;
+        $exit_code = 255;
+    }
+
+    warn @message, "\n" if @message;
 
     (my $ME = $0) =~ s,.*/,,;
 
-    die <<EOUSAGE;
-Usage: $ME [-c COMMIT-ISH] [options to git ls-tree]
+    my $usage = <<EOUSAGE;
+Usage: $ME [OPTION]... [PATHSPEC...]
+List files in a git tree together with the commits that most recently touched them.
+
+Mandatory arguments to long options are also mandatory for the
+corresponding short options.
+
+Options:
+  -c, --commitish COMMIT-ISH inspect COMMIT-ISH instead of HEAD
+  -h, --help                 display this help and exit
+
+Remaining arguments are passed to git ls-tree.
 EOUSAGE
+
+    if ($exit_code == 0) {
+        print $usage;
+    }
+    else {
+        print STDERR $usage;
+    }
+
+    exit $exit_code;
 }
 
 sub get_file_list {
@@ -148,8 +174,8 @@ sub main {
 
     Getopt::Long::Configure('pass_through');
 
-    GetOptions(\%opts, 'help|h', 'commitish|c=s') or usage();
-    usage() if $opts{help};
+    GetOptions(\%opts, 'help|h', 'commitish|c=s') or usage(1);
+    usage(0) if $opts{help};
 
     my $unknown = get_file_list($opts{commitish});
     my $attributed = find_commits($opts{commitish}, $unknown);

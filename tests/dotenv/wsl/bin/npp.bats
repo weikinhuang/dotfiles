@@ -16,6 +16,16 @@ printf '%s\n' "$@"
 EOF
 }
 
+@test "npp: -h and --help print usage" {
+  for flag in -h --help; do
+    run bash "${SCRIPT}" "${flag}"
+    assert_success
+    assert_output --partial "Usage: npp [OPTION]... [FILE-OR-ARG...]"
+    assert_output --partial "Options:"
+    assert_output --partial "-h, --help"
+  done
+}
+
 @test "npp: translates file paths and appends piped stdin" {
   local test_file="${BATS_TEST_TMPDIR}/sample.txt"
   echo "content" >"${test_file}"

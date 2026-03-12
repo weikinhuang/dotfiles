@@ -6,6 +6,16 @@ setup() {
   SCRIPT="${REPO_ROOT}/dotenv/darwin/bin/quick-toast"
 }
 
+@test "quick-toast: -h and --help print usage" {
+  for flag in -h --help; do
+    run bash "${SCRIPT}" "${flag}"
+    assert_success
+    assert_output --partial "Usage: quick-toast [OPTION]... [TITLE] [BODY]"
+    assert_output --partial "Options:"
+    assert_output --partial "-h, --help"
+  done
+}
+
 @test "quick-toast: uses the default notification title and body when called without arguments" {
   stub_passthrough_command_with_stdin osascript
   run bash "${SCRIPT}"

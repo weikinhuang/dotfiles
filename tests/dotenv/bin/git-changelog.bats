@@ -20,6 +20,16 @@ create_repo_with_tagged_history() {
   git_commit_all "${TEST_REPO}" "add third change"
 }
 
+@test "git-changelog: -h and --help print usage" {
+  for flag in -h --help; do
+    run bash "${SCRIPT}" "${flag}"
+    assert_success
+    assert_output --partial "Usage: git-changelog"
+    assert_output --partial "Options:"
+    assert_output --partial "-l, --list"
+  done
+}
+
 @test "git-changelog: --list prints commits since the latest tag" {
   create_repo_with_tagged_history
 

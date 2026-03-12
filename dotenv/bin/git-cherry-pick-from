@@ -1,13 +1,41 @@
 #!/usr/bin/env bash
 
+function print_help() {
+  cat <<'EOF'
+Usage: git-cherry-pick-from [OPTION]... OTHER_PROJECT_DIR GIT_SHA [--] [PATH...]
+Cherry-pick a commit from another git repository, optionally limited to selected paths.
+
+Options:
+  -h, --help                 display this help and exit
+
+Operands:
+  OTHER_PROJECT_DIR          path to the source git repository
+  GIT_SHA                    commit to cherry-pick from the source repository
+  PATH                       optional path filter applied to format-patch
+EOF
+}
+
+case "${1:-}" in
+  -h | --help)
+    print_help
+    exit 0
+    ;;
+esac
+
 # shellcheck disable=SC2034
 USAGE='../other-git-project/ git-sha [--] [paths]'
+# shellcheck disable=SC2034
 SUBDIRECTORY_OK=Yes
 # shellcheck source=/dev/null
 . git-sh-setup
 require_work_tree
 
 set -euo pipefail
+
+if [[ $# -lt 2 ]]; then
+  print_help >&2
+  exit 1
+fi
 
 OTHER_PROJECT_DIR="$1"
 OTHER_PROJECT_SHA="$2"

@@ -2,13 +2,25 @@
 
 function print_help() {
   cat <<'HELPDOC'
-usage genpasswd [-?|--help] [-c:--chars:--charlist] [-a:--alpha] [-l:--length]
+Usage: genpasswd [OPTION]...
 Generate a random password
 
--l, --length              the length of the password to generate
--c, --chars, --charlist   the character set that can be chosen from defaults to [a-zA-Z0-9-_!@#$%^&*()_+{}[]|:<>?=]
--a, --alpha               only use alpha numeric characters [a-zA-Z0-9] cannot be used with --charlist
--?, --help                display this message
+Mandatory arguments to long options are also mandatory for the
+corresponding short options.
+
+Options:
+  -a, --alpha                use only alphanumeric characters [a-zA-Z0-9]
+  -c, --chars CHARS          use CHARS as the allowed character set
+      --charlist CHARS         alias for --chars
+      --chars=CHARS            set the character set inline
+      --charlist=CHARS         set the character set inline
+  -l, --length LENGTH        generate a password of LENGTH characters
+      --len LENGTH             alias for --length
+      --length=LENGTH          set the length inline
+      --len=LENGTH             set the length inline
+  -h, -?, --help             display this help and exit
+
+Short forms \`-cVALUE\` and \`-lVALUE\` are also accepted.
 HELPDOC
 }
 
@@ -18,7 +30,7 @@ ALPHA=
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    -\? | --help)
+    -h | -\? | --help)
       print_help
       exit 0
       ;;

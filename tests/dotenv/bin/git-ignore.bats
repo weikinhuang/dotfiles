@@ -8,6 +8,16 @@ setup() {
   git config --global core.excludesfile "${HOME}/.gitignore_global"
 }
 
+@test "git-ignore: -h and --help print usage" {
+  for flag in -h --help; do
+    run bash "${SCRIPT}" "${flag}"
+    assert_success
+    assert_output --partial "Usage: git-ignore"
+    assert_output --partial "-l, --local"
+    assert_output --partial "-g, --global"
+  done
+}
+
 @test "git-ignore: no arguments show both global and local ignore files" {
   local repo="${BATS_TEST_TMPDIR}/repo"
   mkdir -p "${repo}"
