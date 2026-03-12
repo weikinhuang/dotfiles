@@ -1,0 +1,31 @@
+#!/usr/bin/env bats
+
+setup() {
+  load '../../../helpers/common'
+  setup_test_bin
+  SCRIPT="${REPO_ROOT}/dotenv/linux/bin/fswatch"
+
+  WATCH_TARGET="${BATS_TEST_TMPDIR}/watch-target"
+  WATCH_LINK="${BATS_TEST_TMPDIR}/watch-link"
+  mkdir -p "${WATCH_TARGET}"
+  ln -s "${WATCH_TARGET}" "${WATCH_LINK}"
+
+  stub_command inotifywait <<EOF
+#!/usr/bin/env bash
+printf '1700000000 CREATE %s/ file.txt\n' "${WATCH_TARGET}"
+EOF
+
+  stub_command handler <<'EOF'
+#!/usr/bin/env bash
+printf 'PWD=%s\n' "${PWD}"
+printf 'ARG:%s\n' "$@"
+EOF
+}
+
+@test "fswatch: resolves the watched directory and runs the callback from that directory" {
+  run bash "${SCRIPT}" "${WATCH_LINK}" handler alpha beta
+  assert_success
+  assert_line --index 0 "PWD=${WATCH_TARGET}"
+  assert_line --index 1 "ARG:alpha"
+  assert_line --index 2 "ARG:beta"
+}
