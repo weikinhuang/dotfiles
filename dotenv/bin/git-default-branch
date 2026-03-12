@@ -1,12 +1,7 @@
 #!/usr/bin/env bash
-#title              : git-default-branch
-#description        : Prints the default branch for the current repository
-#author             : Wei Kin Huang
-#date               : 2026-03-04
-#version            : 1.0.0
-#usage              : git-default-branch
-#requires           : git
-#==============================================================================
+# Print the default branch for the current repository.
+# SPDX-License-Identifier: MIT
+
 set -euo pipefail
 IFS=$'\n\t'
 

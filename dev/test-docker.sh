@@ -1,9 +1,7 @@
 #!/usr/bin/env bash
-#title              : test-docker.sh
-#description        : Run the bats test suite inside a Docker container
-#usage              : ./dev/test-docker.sh [bats options] [test file or dir...]
-#requires           : docker
-#===============================================================================
+# Run the Bats test suite inside a Docker container.
+# SPDX-License-Identifier: MIT
+
 set -euo pipefail
 IFS=$'\n\t'
 

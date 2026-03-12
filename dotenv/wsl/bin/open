@@ -1,12 +1,7 @@
 #!/usr/bin/env bash
-#title              : open
-#description        : Alias to winstart, cross-platform "start" command
-#author             : Wei Kin Huang
-#date               : 2022-06-07
-#version            : 1.0.0
-#usage              : open [args...]
-#requires           : powershell.exe
-#===============================================================================
+# Open paths with the native Windows handler from WSL.
+# SPDX-License-Identifier: MIT
+
 set -euo pipefail
 IFS=$'\n\t'
 

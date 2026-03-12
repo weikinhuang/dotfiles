@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Run the Windows usbipd.exe CLI through winsudo from WSL.
+# SPDX-License-Identifier: MIT
 
 function print_help() {
   cat <<'EOF'

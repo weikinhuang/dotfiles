@@ -1,12 +1,7 @@
 #!/usr/bin/env bash
-#title              : winwhoami
-#description        : Print the user name associated with the current windows session.
-#author             : Wei Kin Huang
-#date               : 2022-05-26
-#version            : 1.0.0
-#usage              : winwhoami [args...]
-#requires           : powershell.exe
-#===============================================================================
+# Print the Windows user name for the current session.
+# SPDX-License-Identifier: MIT
+
 set -euo pipefail
 IFS=$'\n\t'
 

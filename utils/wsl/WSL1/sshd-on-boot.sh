@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Install the WSL1 scheduled task that starts sshd at boot.
+# SPDX-License-Identifier: MIT
 
 #env
 # list tasks with powershell:

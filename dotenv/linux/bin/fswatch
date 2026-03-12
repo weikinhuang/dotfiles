@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Watch a directory and rerun a command after each change.
+# SPDX-License-Identifier: MIT
 
 function print_help() {
   cat <<'EOF'

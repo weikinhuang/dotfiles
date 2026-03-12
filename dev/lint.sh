@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Run shellcheck and shfmt on tracked shell files.
+# SPDX-License-Identifier: MIT
+
 set -euo pipefail
 IFS=$'\n\t'
 

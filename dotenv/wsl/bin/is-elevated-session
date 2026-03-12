@@ -1,12 +1,7 @@
 #!/usr/bin/env bash
-#title              : is-elevated-session
-#description        : Checks if the current process (sesison) is running with Administrator privileges.
-#author             : Wei Kin Huang
-#date               : 2022-05-26
-#version            : 1.0.0
-#usage              : is-elevated-session [args...]
-#requires           : powershell.exe
-#===============================================================================
+# Check whether the current WSL session has Administrator privileges.
+# SPDX-License-Identifier: MIT
+
 set -euo pipefail
 IFS=$'\n\t'
 

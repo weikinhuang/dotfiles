@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Start sshd under sudo when it is not already running.
+# SPDX-License-Identifier: MIT
 
 function print_help() {
   cat <<'EOF'

@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Set Windows file attributes from WSL using attrib.exe.
+# SPDX-License-Identifier: MIT
 
 # the name of the program
 PROGRAM=$(wslpath -u "c:/Windows/system32/attrib.exe")

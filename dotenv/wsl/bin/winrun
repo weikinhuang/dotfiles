@@ -1,12 +1,7 @@
 #!/usr/bin/env bash
-#title              : winrun
-#description        : Run a command in cmd.exe with WSL path translation
-#author             : Wei Kin Huang
-#date               : 2022-06-07
-#version            : 2.0.0
-#usage              : winrun <command> [args...]
-#requires           : cmd.exe wslpath
-#===============================================================================
+# Run a command in cmd.exe with WSL path translation.
+# SPDX-License-Identifier: MIT
+
 set -euo pipefail
 IFS=$'\n\t'
 

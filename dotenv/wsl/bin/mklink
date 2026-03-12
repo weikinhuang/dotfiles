@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Create Windows links from WSL via cmd.exe /c mklink.
+# SPDX-License-Identifier: MIT
 
 OPT_HARDLINK=
 OPT_JUNCTION=

@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Generate a random password.
+# SPDX-License-Identifier: MIT
 
 function print_help() {
   cat <<'HELPDOC'

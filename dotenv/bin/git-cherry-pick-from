@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Cherry-pick a commit from another git repository.
+# SPDX-License-Identifier: MIT
 
 function print_help() {
   cat <<'EOF'

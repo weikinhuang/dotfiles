@@ -1,12 +1,6 @@
 #!/usr/bin/env bash
-#title              : pbcopy
-#description        : Access clipboard provided by clipboard-server (copy)
-#author             : Wei Kin Huang
-#date               : 2022-05-29
-#version            : 1.0.0
-#usage              : pbcopy [args...]
-#requires           : curl pbcopy
-#===============================================================================
+# Copy stdin to the remote clipboard-server clipboard.
+# SPDX-License-Identifier: MIT
 
 set -euo pipefail
 IFS=$'\n\t'

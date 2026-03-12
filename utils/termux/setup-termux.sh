@@ -1,4 +1,6 @@
 #!/data/data/com.termux/files/usr/bin/bash
+# Install the base Termux packages for the dotfiles environment.
+# SPDX-License-Identifier: MIT
 
 pkg upgrade
 

@@ -1,11 +1,6 @@
 #!/usr/bin/env bash
-#title              : winsudo
-#description        : Run commands with elevated Windows privileges from WSL
-#author             : Wei Kin Huang
-#date               : 2018-10-13
-#version            : 2.0.0
-#usage              : winsudo [-v] [args...]
-#requires           : sudo.exe (Windows 11 24H2+) or powershell.exe net.exe nc ssh sshd wslpath
+# Run commands with elevated Windows privileges from WSL.
+# SPDX-License-Identifier: MIT
 #
 # Prefers native Windows sudo.exe when available and configured for inline
 # mode (Windows 11 24H2+). Falls back to an SSH-based elevation mechanism

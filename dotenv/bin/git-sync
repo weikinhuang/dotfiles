@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Sync the repository default branch and restore the starting state.
+# SPDX-License-Identifier: MIT
 
 function print_help() {
   cat <<'EOF'

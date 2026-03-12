@@ -1,9 +1,6 @@
 #!/usr/bin/env bash
-#
-# A git checkout -- replacement that stores changes in the reflog
-#
-# Copyright (c) 2016 Wei Kin Huang
-# MIT Licensed
+# Discard tracked changes while storing an undo commit in the reflog.
+# SPDX-License-Identifier: MIT
 #
 # @see https://github.com/weikinhuang/git-undo-index/
 

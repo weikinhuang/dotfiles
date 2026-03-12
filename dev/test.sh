@@ -1,9 +1,7 @@
 #!/usr/bin/env bash
-#title              : test.sh
-#description        : Run the bats test suite
-#usage              : ./dev/test.sh [-q|--quiet] [bats options] [test file or dir...]
-#requires           : bats bats-support bats-assert (apt install bats bats-support bats-assert)
-#===============================================================================
+# Run the Bats test suite locally.
+# SPDX-License-Identifier: MIT
+
 set -euo pipefail
 IFS=$'\n\t'
 

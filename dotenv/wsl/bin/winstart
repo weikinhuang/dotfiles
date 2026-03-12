@@ -1,12 +1,7 @@
 #!/usr/bin/env bash
-#title              : winstart
-#description        : Open arguments in native handler
-#author             : Wei Kin Huang
-#date               : 2026-03-11
-#version            : 2.0.0
-#usage              : winstart [args...]
-#requires           : powershell.exe wslpath
-#===============================================================================
+# Open arguments with their native Windows handler from WSL.
+# SPDX-License-Identifier: MIT
+
 set -euo pipefail
 IFS=$'\n\t'
 

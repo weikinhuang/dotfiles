@@ -1,13 +1,7 @@
 #!/usr/bin/env bash
-#title              : open
-#description        : Alias to xdg-open/gnome-open/nautilus, cross-platform "open"
-#                     command, if a native open exists, that is used instead.
-#author             : Wei Kin Huang
-#date               : 2022-06-07
-#version            : 1.0.0
-#usage              : open [args...]
-#requires           : nautilus, xdg-open, gnome-open
-#===============================================================================
+# Open paths with the platform's native application launcher.
+# SPDX-License-Identifier: MIT
+
 set -euo pipefail
 IFS=$'\n\t'
 

@@ -1,12 +1,7 @@
 #!/usr/bin/env bash
-#title              : git-ssh-socks-proxy
-#description        : This script forwards git ssh connections through a socks proxy based on gitconfigs
-#author             : Wei Kin Huang
-#date               : 2018-10-20
-#version            : 1.0.0
-#usage              : git-ssh-socks-proxy [ssh-args...]
-#requires           : git, ssh, nc
-#==============================================================================
+# Forward git SSH connections through a SOCKS proxy from git config.
+# SPDX-License-Identifier: MIT
+
 set -euo pipefail
 IFS=$'\n\t'
 

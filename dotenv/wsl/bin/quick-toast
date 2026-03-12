@@ -1,12 +1,7 @@
 #!/usr/bin/env bash
-#title              : quick-toast
-#description        : Show a toast notification
-#author             : Wei Kin Huang
-#date               : 2022-06-02
-#version            : 1.0.0
-#usage              : quick-toast title [body]
-#requires           : powershell.exe sed
-#===============================================================================
+# Show a Windows toast notification from WSL.
+# SPDX-License-Identifier: MIT
+
 set -euo pipefail
 IFS=$'\n\t'
 

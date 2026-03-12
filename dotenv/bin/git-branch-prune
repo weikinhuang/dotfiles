@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Delete all branches that have been merged to default branch && push deletes to remote origin
-# from: https://github.com/SnapInteractive/git-tools
+# Delete branches already merged into the default branch and prune them from origin.
+# SPDX-License-Identifier: MIT
 
 function print_help() {
   cat <<'EOF'
@@ -16,18 +16,18 @@ EOF
 INTERACTIVE=
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    -i | --interactive)
-      INTERACTIVE="yes"
-      ;;
-    -h | --help)
-      print_help
-      exit 0
-      ;;
-    *)
-      echo "Unknown argument: $1" >&2
-      print_help >&2
-      exit 1
-      ;;
+  -i | --interactive)
+    INTERACTIVE="yes"
+    ;;
+  -h | --help)
+    print_help
+    exit 0
+    ;;
+  *)
+    echo "Unknown argument: $1" >&2
+    print_help >&2
+    exit 1
+    ;;
   esac
   shift
 done

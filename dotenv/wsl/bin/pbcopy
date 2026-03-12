@@ -1,12 +1,6 @@
 #!/usr/bin/env bash
-#title              : pbcopy
-#description        : Copy stdin into windows clipboard
-#author             : Wei Kin Huang
-#date               : 2022-05-29
-#version            : 1.0.0
-#usage              : pbcopy [args...]
-#requires           : clip.exe
-#===============================================================================
+# Copy stdin to the Windows clipboard from WSL.
+# SPDX-License-Identifier: MIT
 
 set -euo pipefail
 IFS=$'\n\t'

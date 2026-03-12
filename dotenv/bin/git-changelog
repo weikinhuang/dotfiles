@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Print commits since the latest tag or prepend a new changelog header.
+# SPDX-License-Identifier: MIT
+
 set -euo pipefail
 IFS=$'\n\t'
 

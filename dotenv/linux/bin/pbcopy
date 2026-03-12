@@ -1,12 +1,6 @@
 #!/usr/bin/env bash
-#title              : pbcopy
-#description        : Cross-platform copy to clipboard
-#author             : Wei Kin Huang
-#date               : 2022-05-29
-#version            : 1.0.0
-#usage              : pbcopy [args...]
-#requires           : xclip or xsel
-#===============================================================================
+# Copy stdin to the system clipboard on Linux.
+# SPDX-License-Identifier: MIT
 
 set -euo pipefail
 IFS=$'\n\t'
