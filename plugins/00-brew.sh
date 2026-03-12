@@ -12,7 +12,7 @@ if [[ "${DOTENV}" != "darwin" ]]; then
 fi
 
 # derive prefix from brew binary location (avoids ~300ms `brew --prefix` Ruby boot)
-_brew_bin="$(env PATH="/opt/homebrew/bin:${PATH}" command -v brew 2>/dev/null)"
+_brew_bin="$(PATH="/opt/homebrew/bin:${PATH}" command -v brew 2>/dev/null)"
 if [[ -z "${_brew_bin}" ]]; then
   unset DOT_INCLUDE_BREW_PATH _brew_bin
   return

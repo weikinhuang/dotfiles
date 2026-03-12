@@ -1,0 +1,22 @@
+#!/usr/bin/env bats
+
+setup() {
+  load '../helpers/common'
+  setup_plugin_test_env
+  export TERM=tmux-256color
+  export TMUX=/tmp/tmux.sock
+  stub_command tmux <<'EOF'
+#!/usr/bin/env bash
+if [[ "${1:-}" == "show-env" ]] && [[ "${2:-}" == "-s" ]]; then
+  printf 'export TMUX_PLUGIN_ENV=1\n'
+fi
+EOF
+}
+
+@test "30-tmux: refreshes the environment from tmux inside tmux sessions" {
+  source "${REPO_ROOT}/plugins/30-tmux.sh"
+
+  [ "${__prompt_actions[0]}" = "_reload-tmux-env" ]
+  _reload-tmux-env
+  [ "${TMUX_PLUGIN_ENV}" = "1" ]
+}

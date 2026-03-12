@@ -30,6 +30,77 @@ setup_isolated_home() {
   mkdir -p "${HOME}" "${XDG_CONFIG_HOME}"
 }
 
+# Sets up the shared environment used by sourced plugin tests.
+setup_plugin_test_env() {
+  setup_test_bin
+  setup_isolated_home
+
+  export DOTENV="${DOTENV:-linux}"
+  export DOTFILES__ROOT="${BATS_TEST_TMPDIR}/root"
+  export DOTFILES__CONFIG_DIR="${XDG_CONFIG_HOME}/dotfiles"
+
+  mkdir -p "${DOTFILES__ROOT}" "${DOTFILES__CONFIG_DIR}/cache"
+  ln -s "${REPO_ROOT}" "${DOTFILES__ROOT}/.dotfiles"
+
+  # shellcheck disable=SC2034
+  __prompt_actions=()
+  # shellcheck disable=SC2034
+  chpwd_functions=()
+  # shellcheck disable=SC2034
+  dotfiles_complete_functions=()
+  # shellcheck disable=SC2034
+  dotfiles_hook_plugin_post_functions=()
+  DOT_TEST_CACHED_COMPLETIONS=()
+  DOT_TEST_CACHED_EVALS=()
+}
+
+# Minimal __push_path shim for plugin tests.
+__push_path() {
+  local mode=append
+  if [[ "${1:-}" == --prepend ]]; then
+    mode=prepend
+    shift
+  elif [[ "${1:-}" == --append ]]; then
+    shift
+  fi
+
+  local dir="${1:-}"
+  [[ -n "${dir}" ]] || return 0
+
+  case ":${PATH}:" in
+    *":${dir}:"*)
+      return 0
+      ;;
+  esac
+
+  if [[ "${mode}" == prepend ]]; then
+    export PATH="${dir}${PATH:+:${PATH}}"
+  else
+    export PATH="${PATH:+${PATH}:}${dir}"
+  fi
+}
+
+# Records prompt hooks registered by plugins.
+__push_internal_prompt_command() {
+  __prompt_actions+=("$1")
+}
+
+# Records cached completion calls from plugins.
+__dot_cached_completion() {
+  DOT_TEST_CACHED_COMPLETIONS+=("$1|$2")
+}
+
+# Evaluates cached shell snippets and records the request.
+__dot_cached_eval() {
+  local key="$1"
+  local command_string="$2"
+  local output
+
+  DOT_TEST_CACHED_EVALS+=("${key}|${command_string}")
+  output="$(eval "${command_string}")" || return
+  [[ -n "${output}" ]] && eval "${output}"
+}
+
 # Writes an executable file at an arbitrary path from stdin.
 write_executable() {
   local path="$1"
