@@ -2,6 +2,9 @@
 # Generate a random password.
 # SPDX-License-Identifier: MIT
 
+set -euo pipefail
+IFS=$'\n\t'
+
 function print_help() {
   cat <<'HELPDOC'
 Usage: genpasswd [OPTION]...
@@ -83,4 +86,5 @@ if [[ -z "${CHARS}" ]]; then
   fi
 fi
 
-openssl rand -base64 $((LENGTH * 2)) | tr -dc "$CHARS" | fold -w "$LENGTH" | head -n 1
+PASSWORD="$(openssl rand -base64 "$((LENGTH * 2))" | tr -dc "$CHARS")"
+printf '%s\n' "${PASSWORD:0:LENGTH}"

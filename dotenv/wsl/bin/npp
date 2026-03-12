@@ -2,6 +2,9 @@
 # Open Notepad++ from WSL with path translation.
 # SPDX-License-Identifier: MIT
 
+set -euo pipefail
+IFS=$'\n\t'
+
 function print_help() {
   cat <<'EOF'
 Usage: npp [OPTION]... [FILE-OR-ARG...]
@@ -32,7 +35,13 @@ fi
 PROGRAM="$(wslpath -ua "c:/${PGM_PATH}/Notepad++/notepad++.exe")"
 if [[ ! -e "${PROGRAM}" ]]; then
   # fallback to a vi program
-  exec "$(which nvim vim vi | head -1)" "$@"
+  FALLBACK_EDITOR="$(which nvim vim vi 2>/dev/null || true)"
+  FALLBACK_EDITOR="${FALLBACK_EDITOR%%$'\n'*}"
+  if [[ -z "${FALLBACK_EDITOR}" ]]; then
+    echo "Unable to find a fallback editor." >&2
+    exit 1
+  fi
+  exec "${FALLBACK_EDITOR}" "$@"
 fi
 
 # if there are any baked in arguments they are defined here
@@ -55,4 +64,3 @@ if [ ! -t 0 ]; then
 fi
 
 "${PROGRAM}" -multiInst -nosession "${args[@]}"
-exit $?

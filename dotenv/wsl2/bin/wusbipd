@@ -2,6 +2,9 @@
 # Run the Windows usbipd.exe CLI through winsudo from WSL.
 # SPDX-License-Identifier: MIT
 
+set -euo pipefail
+IFS=$'\n\t'
+
 function print_help() {
   cat <<'EOF'
 Usage: wusbipd [OPTION]... [USBIPD-ARG...]
@@ -33,4 +36,3 @@ if [[ ! -e "${PROGRAM}" ]]; then
 fi
 
 winsudo "${PROGRAM}" "$@"
-exit $?

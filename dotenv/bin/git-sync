@@ -2,6 +2,9 @@
 # Sync the repository default branch and restore the starting state.
 # SPDX-License-Identifier: MIT
 
+set -euo pipefail
+IFS=$'\n\t'
+
 function print_help() {
   cat <<'EOF'
 Usage: git-sync [OPTION]...
@@ -32,8 +35,15 @@ function sync_one() {
   fi
   PREV_BR="$(git brn)"
   STASH_NAME="$(date +%s)"
-  git diff-index --quiet HEAD --
-  local HAS_CHANGES=$?
+  local HAS_CHANGES=0
+  if git diff-index --quiet HEAD --; then
+    HAS_CHANGES=0
+  else
+    HAS_CHANGES=$?
+    if [[ ${HAS_CHANGES} -ne 1 ]]; then
+      return "${HAS_CHANGES}"
+    fi
+  fi
   if [[ $HAS_CHANGES != 0 ]]; then
     [[ -n $GIT_SYNC_TRACE ]] && echo -e "\e[35m ===== Stashing changes ===== \e[0m"
     git stash save "sync-$STASH_NAME"

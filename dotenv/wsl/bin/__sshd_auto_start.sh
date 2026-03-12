@@ -2,6 +2,9 @@
 # Start sshd under sudo when it is not already running.
 # SPDX-License-Identifier: MIT
 
+set -euo pipefail
+IFS=$'\n\t'
+
 function print_help() {
   cat <<'EOF'
 Usage: __sshd_auto_start.sh [OPTION]...

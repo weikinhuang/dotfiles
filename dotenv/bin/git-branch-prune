@@ -2,6 +2,9 @@
 # Delete branches already merged into the default branch and prune them from origin.
 # SPDX-License-Identifier: MIT
 
+set -euo pipefail
+IFS=$'\n\t'
+
 function print_help() {
   cat <<'EOF'
 Usage: git-branch-prune [OPTION]...
@@ -48,24 +51,21 @@ while IFS= read -r BRANCH; do
     continue
   fi
   if [ -n "$INTERACTIVE" ]; then
-    read -p -r "$(basename "$0"): remove branch '$BRANCH'? (y) " RESPONSE </dev/tty
+    read -r -p "$(basename "$0"): remove branch '$BRANCH'? (y) " RESPONSE </dev/tty
     if [ "$RESPONSE" != 'y' ] && [ "$RESPONSE" != '' ]; then
       continue
     fi
   fi
-  ST=$(git branch -d "$BRANCH" 2>&1)
-  # shellcheck disable=SC2181
-  if [ $? -eq 0 ]; then
+  if ST="$(git branch -d "$BRANCH" 2>&1)"; then
     echo -n "Pruned \"$BRANCH\"; removing from origin..."
-    RST=$(git push origin ":$BRANCH" 2>&1)
-    if [ $? -eq 0 ]; then
+    if RST="$(git push origin ":$BRANCH" 2>&1)"; then
       echo " Removed."
     else
       echo
       echo "Branch \"$BRANCH\" not removed from origin: $RST"
     fi
   else
-    ST=$(echo "$ST" | head -n 1 | sed 's/error: //')
+    ST="$(sed -n '1s/^error: //p' <<<"$ST")"
     echo "Branch \"$BRANCH\" not removed: $ST"
   fi
 done < <(git branch --merged "${MAIN_BRANCH}" --format='%(refname:short)')

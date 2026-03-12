@@ -2,6 +2,9 @@
 # Show or append patterns to the local or global gitignore.
 # SPDX-License-Identifier: MIT
 
+set -euo pipefail
+IFS=$'\n\t'
+
 function print_help() {
   cat <<'EOF'
 Usage: git-ignore [OPTION]... [PATTERN...]
@@ -18,15 +21,34 @@ EOF
 }
 
 function show_contents {
-  test -f "$2" && echo "$1 gitignore: $2" && cat "$2"
+  if [[ -f "$2" ]]; then
+    echo "$1 gitignore: $2"
+    cat "$2"
+  fi
+}
+
+function get_global_ignore_file {
+  git config --global core.excludesfile 2>/dev/null || true
 }
 
 function show_global {
-  show_contents Global "$(git config --global core.excludesfile)"
+  local global_ignore_file
+
+  global_ignore_file="$(get_global_ignore_file)"
+  [[ -n "${global_ignore_file}" ]] || return 0
+  show_contents Global "${global_ignore_file}"
 }
 
 function add_global {
-  add_patterns "$(git config --global core.excludesfile)" "$@"
+  local global_ignore_file
+
+  global_ignore_file="$(get_global_ignore_file)"
+  if [[ -z "${global_ignore_file}" ]]; then
+    echo "Global gitignore file is not configured." >&2
+    return 1
+  fi
+
+  add_patterns "${global_ignore_file}" "$@"
 }
 
 function show_local {
@@ -38,10 +60,17 @@ function add_local {
 }
 
 function add_patterns {
-  echo "Adding pattern(s) to: $1"
+  local file="$1"
+  local pattern
+
+  echo "Adding pattern(s) to: ${file}"
   for pattern in "${@:2}"; do
+    [[ -n "${pattern}" ]] || continue
     echo "... adding '$pattern'"
-    (test -f "$1" && test "$pattern" && grep -q "$pattern" "$1") || echo "$pattern" >>"$1"
+    if [[ -f "${file}" ]] && grep -Fqx -- "${pattern}" "${file}"; then
+      continue
+    fi
+    printf '%s\n' "${pattern}" >>"${file}"
   done
 }
 

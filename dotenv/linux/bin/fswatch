@@ -2,6 +2,9 @@
 # Watch a directory and rerun a command after each change.
 # SPDX-License-Identifier: MIT
 
+set -euo pipefail
+IFS=$'\n\t'
+
 function print_help() {
   cat <<'EOF'
 Usage: fswatch [OPTION]... DIRECTORY COMMAND [ARG...]
@@ -22,6 +25,11 @@ case "${1:-}" in
     ;;
 esac
 
+if [[ $# -lt 2 ]]; then
+  print_help >&2
+  exit 1
+fi
+
 DIRECTORY="$(readlink -f "${1}")"
 shift
 
@@ -32,7 +40,7 @@ inotifywait -mrs --timefmt '%s' --format '%T %e %w %f' \
   --event create \
   --event delete \
   "${DIRECTORY}" \
-  | while read -r time event dir file; do
-    cd "${DIRECTORY}" || exit
+  | while IFS=' ' read -r time event dir file; do
+    cd "${DIRECTORY}"
     "$@"
   done

@@ -33,6 +33,7 @@ SUBDIRECTORY_OK=Yes
 require_work_tree
 
 set -euo pipefail
+IFS=$'\n\t'
 
 if [[ $# -lt 2 ]]; then
   print_help >&2

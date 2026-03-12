@@ -2,8 +2,11 @@
 # Set Windows file attributes from WSL using attrib.exe.
 # SPDX-License-Identifier: MIT
 
+set -euo pipefail
+IFS=$'\n\t'
+
 # the name of the program
-PROGRAM=$(wslpath -u "c:/Windows/system32/attrib.exe")
+PROGRAM="$(wslpath -u "c:/Windows/system32/attrib.exe")"
 
 # if there are any baked in arguments they are defined here
 args=()
@@ -65,10 +68,8 @@ for arg in "$@"; do
 done
 
 # make all arguments unique
-# shellcheck disable=2207
-attr=($(printf "%s\n" "${attr[@]}" | awk 'x[$0]++ == 0'))
-# shellcheck disable=2207
-opts=($(printf "%s\n" "${opts[@]}" | awk 'x[$0]++ == 0'))
+mapfile -t attr < <(printf '%s\n' "${attr[@]}" | awk 'NF && !seen[$0]++')
+mapfile -t opts < <(printf '%s\n' "${opts[@]}" | awk 'NF && !seen[$0]++')
 
 # merge all the arguments in the right order
 args=("${attr[@]}" "$FILE" "${opts[@]}")
