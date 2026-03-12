@@ -1,0 +1,36 @@
+FROM ubuntu:latest
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
+RUN set -ex \
+    && export DEBIAN_FRONTEND=noninteractive \
+    && apt-get update -qq \
+    && apt-get install -y --no-install-recommends \
+        # test framework
+        bats \
+        bats-assert \
+        bats-support \
+        # linting
+        shellcheck \
+        shfmt \
+        # used by tests (skip-guarded)
+        nodejs \
+        perl \
+        # general utilities
+        curl \
+        git \
+        jq \
+        sudo \
+        tini \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /dotfiles
+
+ENTRYPOINT [ "tini", "-s", "-g", "--" ]
+
+LABEL org.opencontainers.image.authors="Wei Kin Huang"
+LABEL org.opencontainers.image.description="My \$SHELL, mostly bash, works everywhere, *nix, osx, wsl."
+LABEL org.opencontainers.image.documentation="https://github.com/weikinhuang/dotfiles/blob/master/README.md"
+LABEL org.opencontainers.image.source="https://github.com/weikinhuang/dotfiles"
+LABEL org.opencontainers.image.title="dotfiles"
+LABEL org.opencontainers.image.vendor="Wei Kin Huang"
+LABEL org.opencontainers.image.version="1.0.0"

@@ -7,7 +7,10 @@ get_shell_files() {
   local deleted
   deleted="$(git ls-files -d | paste -sd '|' -)"
   {
-    git ls-files -z | xargs -0 grep -l 'shellcheck shell=\|^#!.\+sh'
+    git ls-files -z \
+      | grep -zv 'external/' \
+      | grep -zv '\.bats$' \
+      | xargs -0 grep -l 'shellcheck shell=\|^#!.\+sh' 2>/dev/null || true
     git ls-files | grep '\.sh$'
   } \
     | grep -vE "^${deleted:-.^}$" \
@@ -23,5 +26,9 @@ get_shell_files | xargs -n1 shellcheck -f gcc --source-path=SCRIPTDIR
 
 echo "==> Running shfmt..."
 get_shell_files | xargs -n1 shfmt -ln bash -ci -bn -i 2 -d -w
+
+# bats files use bash syntax but shellcheck does not support them
+echo "==> Running shfmt on bats files..."
+git ls-files '*.bats' | xargs -n1 shfmt -ln bats -ci -bn -i 2 -d -w
 
 echo "OK"

@@ -1,17 +1,27 @@
 #!/usr/bin/env bash
+#title              : winrun
+#description        : Run a command in cmd.exe with WSL path translation
+#author             : Wei Kin Huang
+#date               : 2022-06-07
+#version            : 2.0.0
+#usage              : winrun <command> [args...]
+#requires           : cmd.exe wslpath
+#===============================================================================
+set -euo pipefail
+IFS=$'\n\t'
 
-# argument translation
+if [[ $# -eq 0 ]]; then
+  echo "Usage: winrun <command> [args...]" >&2
+  exit 1
+fi
+
 args=()
-
 for arg in "$@"; do
-  # if argument is a file, then expand it to windows paths
   if [[ ! "$arg" =~ ^/[a-z]$ ]] && [[ -e "$arg" ]]; then
-    # echo "arg $arg is a file"
-    args=("${args[@]}" "$(wslpath -wa "$arg")")
+    args+=("$(wslpath -wa "$arg")")
   else
-    # echo "arg $arg is not a file"
-    args=("${args[@]}" "$arg")
+    args+=("$arg")
   fi
 done
 
-cmd.exe /c "${args[@]}"
+exec cmd.exe /c "${args[@]}"

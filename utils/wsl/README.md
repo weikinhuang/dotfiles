@@ -107,11 +107,41 @@ sudo -S env RELEASE_UPGRADER_NO_SCREEN=1 do-release-upgrade
 
 ## `winsudo` setup
 
-`winsudo` allows you to run applications in Windows elevated user mode from a non-elevated wsl shell.
+`winsudo` allows you to run applications in Windows elevated user mode from a non-elevated WSL shell.
 
-The only requirement is that `openssh-server` is installed.
+### Native sudo (Windows 11 24H2+)
 
-**How it works**: When run, `winsudo` uses `powershell` to start a elevated wsl process running `sshd` under the current linux user with a random port and a generated ssh key. It then forwards the command through an `ssh` connection from the non-elevated to the elevated `sshd` server. Any process that works under `ssh` should work with `winsudo`.
+On Windows 11 24H2 and later, `winsudo` uses the native `sudo.exe` for elevation. This is the preferred method.
+
+**Setup:**
+
+1. Enable sudo in **Windows Settings > System > Advanced**
+2. Set inline mode from an elevated (admin) prompt:
+
+```powershell
+sudo config --enable normal
+```
+
+3. Verify the configuration:
+
+```powershell
+sudo config
+# Expected output: "Sudo is currently in Inline mode on this machine"
+```
+
+### Legacy fallback (pre-24H2)
+
+On older Windows versions without `sudo.exe`, or when `sudo.exe` is not configured for inline mode, `winsudo` falls back to an SSH-based elevation mechanism.
+
+**Requirements:** `openssh-server` must be installed for `sshd`:
+
+```bash
+sudo apt-get install openssh-server
+```
+
+**How it works**: `winsudo` uses PowerShell `Start-Process -Verb RunAs` to launch an elevated WSL process running `sshd` with a random port and generated SSH key. It then forwards commands through an SSH connection from the non-elevated to the elevated `sshd` server. Any process that works under SSH should work with this fallback.
+
+### Testing
 
 You can test if `winsudo` is working properly with `winsudo net.exe sessions` and comparing the output with just running `net.exe sessions`. Running without elevated permissions should result in `Access is denied.`.
 

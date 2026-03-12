@@ -243,7 +243,7 @@ All `PS1_COLOR_*` variables can also be overridden. See `dotenv/prompt.sh` for t
 | `mklink`              | Shortcut to the windows MKLINK command, with ln style args                                                                |
 | `npp`                 | Open a sandboxed instance of notepad++                                                                                    |
 | `winstart`            | Open/run a file using the native windows logic and associations                                                           |
-| `winsudo`             | Run a process with elevated windows privileges. See [utils/wsl/README.md](./utils/wsl/README.md#winsudo-setup) for setup. |
+| `winsudo`             | Run a process with elevated Windows privileges. Uses native `sudo.exe` (Win 11 24H2+) or SSH-based fallback. See [utils/wsl/README.md](./utils/wsl/README.md#winsudo-setup) for setup. |
 | `wsl-sudo`            | Alias to `winsudo`                                                                                                        |
 | `wudo`                | Alias to `winsudo`                                                                                                        |
 
