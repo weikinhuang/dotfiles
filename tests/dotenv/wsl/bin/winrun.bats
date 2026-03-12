@@ -1,5 +1,6 @@
 #!/usr/bin/env bats
-# Tests for dotenv/wsl/bin/winrun
+# Tests for dotenv/wsl/bin/winrun.
+# SPDX-License-Identifier: MIT
 
 setup() {
   load '../../../helpers/common'

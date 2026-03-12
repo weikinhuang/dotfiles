@@ -1,4 +1,6 @@
 #!/usr/bin/env bats
+# Tests for dotenv/wsl/functions.sh.
+# SPDX-License-Identifier: MIT
 
 setup() {
   load '../../helpers/common'

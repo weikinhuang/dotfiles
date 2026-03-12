@@ -1,4 +1,7 @@
 # shellcheck shell=bash
+# Define Linux-specific prompt helpers.
+# SPDX-License-Identifier: MIT
+
 # function to get cpu load
 if [[ -r /proc/loadavg ]]; then
   function __ps1_proc_use() {

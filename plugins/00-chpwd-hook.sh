@@ -1,4 +1,6 @@
 # shellcheck shell=bash
+# Initialize chpwd hook support.
+# SPDX-License-Identifier: MIT
 
 # Avoid duplicate inclusion
 if [[ -n "${bash_chpwd_imported:-}" ]]; then

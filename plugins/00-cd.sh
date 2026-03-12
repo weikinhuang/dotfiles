@@ -1,4 +1,6 @@
 # shellcheck shell=bash
+# Override cd with directory history helpers.
+# SPDX-License-Identifier: MIT
 
 # Special cd replacement that shows up to the last 10 directories with 'cd --'.
 function __cd_func() {

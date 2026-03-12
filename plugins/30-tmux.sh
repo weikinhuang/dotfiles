@@ -1,4 +1,6 @@
 # shellcheck shell=bash
+# Configure tmux environment integration.
+# SPDX-License-Identifier: MIT
 
 # @see https://github.com/tmux/tmux/wiki
 if ! command -v tmux &>/dev/null; then

@@ -1,5 +1,6 @@
 #!/usr/bin/env bats
-# Tests for dotenv/wsl/bin/winsudo
+# Tests for dotenv/wsl/bin/winsudo.
+# SPDX-License-Identifier: MIT
 
 setup() {
   load '../../../helpers/common'

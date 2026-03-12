@@ -1,5 +1,6 @@
 #!/usr/bin/env bats
-# Tests for dotenv/wsl/bin/__sshd_auto_start.sh
+# Tests for dotenv/wsl/bin/__sshd_auto_start.sh.
+# SPDX-License-Identifier: MIT
 
 setup() {
   load '../../../helpers/common'

@@ -1,4 +1,6 @@
 # shellcheck shell=bash
+# Configure MySQL prompt defaults.
+# SPDX-License-Identifier: MIT
 
 # @see https://www.mysql.com/
 if ! command -v mysql &>/dev/null; then

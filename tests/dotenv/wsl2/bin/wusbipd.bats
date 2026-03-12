@@ -1,5 +1,6 @@
 #!/usr/bin/env bats
-# Tests for dotenv/wsl2/bin/wusbipd
+# Tests for dotenv/wsl2/bin/wusbipd.
+# SPDX-License-Identifier: MIT
 
 setup() {
   load '../../../helpers/common'

@@ -1,4 +1,7 @@
 # shellcheck shell=bash
+# Define common shell aliases.
+# SPDX-License-Identifier: MIT
+
 # Easier navigation: .., ..., ~ and -
 alias ..="cd .."
 alias ...="cd ../.."

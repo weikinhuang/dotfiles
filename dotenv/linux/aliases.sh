@@ -1,4 +1,6 @@
 # shellcheck shell=bash
+# Define Linux-specific aliases.
+# SPDX-License-Identifier: MIT
 
 # Networking shortcuts
 function ips() {

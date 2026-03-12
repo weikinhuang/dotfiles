@@ -1,4 +1,6 @@
 # shellcheck shell=bash
+# Configure ripgrep defaults.
+# SPDX-License-Identifier: MIT
 
 # @see https://github.com/BurntSushi/ripgrep
 if ! command -v rg &>/dev/null; then

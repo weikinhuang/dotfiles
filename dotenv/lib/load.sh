@@ -1,4 +1,6 @@
 # shellcheck shell=bash
+# Load dotfiles phases, hooks, and platform-specific files.
+# SPDX-License-Identifier: MIT
 
 # execute dotfile load hooks
 function __dot_load_hook() {

@@ -1,4 +1,6 @@
 #!/usr/bin/env bats
+# Tests for utils/wsl/native-wrappers/wslgit.
+# SPDX-License-Identifier: MIT
 
 stub_wslgit_wslpath() {
   stub_command wslpath <<'EOF'

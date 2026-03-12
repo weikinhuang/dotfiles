@@ -1,5 +1,6 @@
 #!/usr/bin/env bats
-# Tests for dotenv/wsl/bin/pbpaste
+# Tests for dotenv/wsl/bin/pbpaste.
+# SPDX-License-Identifier: MIT
 
 setup() {
   load '../../../helpers/common'

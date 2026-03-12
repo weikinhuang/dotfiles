@@ -1,5 +1,6 @@
 #!/usr/bin/env bats
-# Tests for dotenv/bin/git-sync
+# Tests for dotenv/bin/git-sync.
+# SPDX-License-Identifier: MIT
 
 setup() {
   load '../../helpers/common'

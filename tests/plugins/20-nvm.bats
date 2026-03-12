@@ -1,4 +1,6 @@
 #!/usr/bin/env bats
+# Tests for plugins/20-nvm.sh.
+# SPDX-License-Identifier: MIT
 
 create_mock_nvm_install() {
   local base_dir="$1"

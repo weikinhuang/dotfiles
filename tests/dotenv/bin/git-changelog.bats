@@ -1,5 +1,6 @@
 #!/usr/bin/env bats
-# Tests for dotenv/bin/git-changelog
+# Tests for dotenv/bin/git-changelog.
+# SPDX-License-Identifier: MIT
 
 setup() {
   load '../../helpers/common'

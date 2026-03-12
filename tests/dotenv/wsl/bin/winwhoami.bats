@@ -1,5 +1,6 @@
 #!/usr/bin/env bats
-# Tests for dotenv/wsl/bin/winwhoami
+# Tests for dotenv/wsl/bin/winwhoami.
+# SPDX-License-Identifier: MIT
 
 setup() {
   load '../../../helpers/common'

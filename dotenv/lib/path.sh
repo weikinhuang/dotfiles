@@ -1,4 +1,6 @@
 # shellcheck shell=bash
+# Provide PATH helper functions for the dotfiles loader.
+# SPDX-License-Identifier: MIT
 
 # helper function to add to path if dir exists, with pure-bash deduplication
 function __push_path() {

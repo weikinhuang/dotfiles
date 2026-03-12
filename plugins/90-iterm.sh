@@ -1,4 +1,6 @@
 # shellcheck shell=bash
+# Configure iTerm shell integration.
+# SPDX-License-Identifier: MIT
 
 # @see https://iterm2.com/
 if [[ "${DOTENV}" != darwin ]] || [[ -z "${ITERM_SESSION_ID:-}" ]]; then

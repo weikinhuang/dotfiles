@@ -1,4 +1,6 @@
 #!/usr/bin/env bats
+# Tests for bashrc.sh.
+# SPDX-License-Identifier: MIT
 
 write_fixture_file() {
   local path="$1"

@@ -1,4 +1,6 @@
 # shellcheck shell=bash
+# Configure npm completion and defaults.
+# SPDX-License-Identifier: MIT
 
 # @see https://www.npmjs.com/
 if ! command -v npm &>/dev/null; then

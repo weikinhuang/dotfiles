@@ -1,4 +1,6 @@
 # shellcheck shell=bash
+# Configure nvm lazy loading and PATH setup.
+# SPDX-License-Identifier: MIT
 
 # setup nvm base dir — prefer XDG location, fall back to ~/.nvm
 if [[ -n "${XDG_CONFIG_HOME-}" ]] && [[ -s "${XDG_CONFIG_HOME}/nvm/nvm.sh" ]]; then

@@ -1,4 +1,6 @@
 # shellcheck shell=bash
+# Configure fzf completions and key bindings.
+# SPDX-License-Identifier: MIT
 
 # @see https://github.com/junegunn/fzf
 if ! command -v fzf &>/dev/null; then

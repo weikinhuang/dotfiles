@@ -1,5 +1,6 @@
 #!/usr/bin/env bats
-# Tests for dotenv/wsl/bin/mklink
+# Tests for dotenv/wsl/bin/mklink.
+# SPDX-License-Identifier: MIT
 
 setup() {
   load '../../../helpers/common'

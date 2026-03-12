@@ -1,5 +1,6 @@
 #!/usr/bin/env bats
-# Tests for dotenv/bin/git-default-branch
+# Tests for dotenv/bin/git-default-branch.
+# SPDX-License-Identifier: MIT
 
 setup() {
   load '../../helpers/common'

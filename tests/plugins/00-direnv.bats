@@ -1,4 +1,6 @@
 #!/usr/bin/env bats
+# Tests for plugins/00-direnv.sh.
+# SPDX-License-Identifier: MIT
 
 setup() {
   load '../helpers/common'

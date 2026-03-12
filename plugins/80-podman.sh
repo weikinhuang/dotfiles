@@ -1,4 +1,6 @@
 # shellcheck shell=bash
+# Configure Podman defaults.
+# SPDX-License-Identifier: MIT
 
 # @see https://podman.io/
 if ! command -v podman &>/dev/null; then

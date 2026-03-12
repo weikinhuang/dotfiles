@@ -1,5 +1,6 @@
 #!/usr/bin/env bats
-# Tests for dotenv/bin/git-cherry-pick-from
+# Tests for dotenv/bin/git-cherry-pick-from.
+# SPDX-License-Identifier: MIT
 
 setup() {
   load '../../helpers/common'

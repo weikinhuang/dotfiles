@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Install and symlink the dotfiles into the target home directory.
+# SPDX-License-Identifier: MIT
+
 set -euo pipefail
 IFS=$'\n\t'
 

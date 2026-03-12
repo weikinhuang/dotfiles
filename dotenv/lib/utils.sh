@@ -1,4 +1,6 @@
 # shellcheck shell=bash
+# Provide shared utility functions for the dotfiles loader.
+# SPDX-License-Identifier: MIT
 
 # push a command to the prompt command
 function __push_prompt_command() {

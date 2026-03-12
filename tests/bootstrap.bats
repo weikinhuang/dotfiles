@@ -1,4 +1,6 @@
 #!/usr/bin/env bats
+# Tests for bootstrap.sh.
+# SPDX-License-Identifier: MIT
 
 create_bootstrap_template_repo() {
   export BOOTSTRAP_TEMPLATE_REPO="${BATS_TEST_TMPDIR}/template-repo"

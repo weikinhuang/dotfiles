@@ -1,4 +1,6 @@
-# Tests
+#!/usr/bin/env bats
+# Tests for AGENTS.md.
+# SPDX-License-Identifier: MIT
 
 Bats test suite for the dotfiles. Tests run in Docker (`ubuntu:24.04`) for isolation. See root [AGENTS.md](../AGENTS.md) for project-wide conventions.
 

@@ -1,4 +1,7 @@
 # shellcheck shell=bash
+# Configure Homebrew Bash and GNU tool integration on macOS.
+# SPDX-License-Identifier: MIT
+
 # brew install bash binutils coreutils diffutils findutils gnu-sed gnutls moreutils grep less
 # brew install jq
 

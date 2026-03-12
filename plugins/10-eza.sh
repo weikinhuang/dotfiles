@@ -1,4 +1,6 @@
 # shellcheck shell=bash
+# Configure eza integration and theme setup.
+# SPDX-License-Identifier: MIT
 
 # @see https://github.com/eza-community/eza
 if ! command -v eza &>/dev/null; then

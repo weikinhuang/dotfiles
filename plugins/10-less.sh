@@ -1,4 +1,6 @@
 # shellcheck shell=bash
+# Configure less defaults for interactive shells.
+# SPDX-License-Identifier: MIT
 
 # Don't clear the screen after quitting a manual page
 export MANPAGER="less -iFXRS -x4"

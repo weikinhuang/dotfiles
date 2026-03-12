@@ -1,4 +1,6 @@
 # shellcheck shell=bash
+# Configure difftastic git integration.
+# SPDX-License-Identifier: MIT
 
 # @see https://github.com/Wilfred/difftastic
 if ! command -v difft &>/dev/null; then

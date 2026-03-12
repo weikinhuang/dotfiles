@@ -1,4 +1,6 @@
 # shellcheck shell=bash
+# Configure direnv integration.
+# SPDX-License-Identifier: MIT
 
 # @see https://direnv.net/
 if ! command -v direnv &>/dev/null; then

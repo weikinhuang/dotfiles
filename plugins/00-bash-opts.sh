@@ -1,4 +1,6 @@
 # shellcheck shell=bash
+# Configure baseline Bash shell options.
+# SPDX-License-Identifier: MIT
 
 # ------------------------------------------------------------------------------
 # Shell Options

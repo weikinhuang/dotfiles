@@ -1,5 +1,6 @@
 #!/usr/bin/env bats
-# Tests for dotenv/bin/git-diff-highlight
+# Tests for dotenv/bin/git-diff-highlight.
+# SPDX-License-Identifier: MIT
 
 setup() {
   load '../../helpers/common'

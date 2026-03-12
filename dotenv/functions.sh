@@ -1,4 +1,6 @@
 # shellcheck shell=bash
+# Define common shell functions for the dotfiles.
+# SPDX-License-Identifier: MIT
 
 # update the dotfiles repo
 function dotfiles-update() (

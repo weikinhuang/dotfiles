@@ -1,4 +1,6 @@
 # shellcheck shell=bash
+# Configure lesspipe integration.
+# SPDX-License-Identifier: MIT
 
 # @see https://github.com/wofr06/lesspipe
 if ! command -v lesspipe.sh &>/dev/null; then

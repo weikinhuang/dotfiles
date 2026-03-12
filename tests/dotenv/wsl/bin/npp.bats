@@ -1,5 +1,6 @@
 #!/usr/bin/env bats
-# Tests for dotenv/wsl/bin/npp
+# Tests for dotenv/wsl/bin/npp.
+# SPDX-License-Identifier: MIT
 
 setup() {
   load '../../../helpers/common'

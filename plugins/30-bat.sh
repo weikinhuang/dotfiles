@@ -1,4 +1,6 @@
 # shellcheck shell=bash
+# Configure bat integration and defaults.
+# SPDX-License-Identifier: MIT
 
 # @see https://github.com/sharkdp/bat
 # On Debian/Ubuntu the binary is installed as batcat

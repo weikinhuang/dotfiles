@@ -1,5 +1,6 @@
 #!/usr/bin/env bats
-# Tests for dotenv/bin/clipboard-server
+# Tests for dotenv/bin/clipboard-server.
+# SPDX-License-Identifier: MIT
 
 setup() {
   load '../../helpers/common'

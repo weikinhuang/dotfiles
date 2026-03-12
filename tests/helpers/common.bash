@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
-# Shared setup helpers for all bats test suites.
+# Shared setup helpers for Bats test suites.
+# SPDX-License-Identifier: MIT
 
 # Absolute path to the repo root (tests/helpers/ → tests/ → repo root)
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"

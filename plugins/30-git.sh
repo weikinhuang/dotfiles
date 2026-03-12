@@ -1,4 +1,6 @@
 # shellcheck shell=bash
+# Configure Git integration and prompt helpers.
+# SPDX-License-Identifier: MIT
 
 # @see https://git-scm.com/
 if ! command -v git &>/dev/null; then

@@ -1,5 +1,6 @@
 #!/usr/bin/env bats
-# Tests for dotenv/bin/git-undo-index
+# Tests for dotenv/bin/git-undo-index.
+# SPDX-License-Identifier: MIT
 
 setup() {
   load '../../helpers/common'

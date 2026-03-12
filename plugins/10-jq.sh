@@ -1,4 +1,6 @@
 # shellcheck shell=bash
+# Configure jq output defaults.
+# SPDX-License-Identifier: MIT
 
 # @see https://jqlang.github.io/jq/
 if ! command -v jq &>/dev/null; then

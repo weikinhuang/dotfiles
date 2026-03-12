@@ -1,4 +1,6 @@
 # shellcheck shell=bash
+# Export WSL-specific environment defaults.
+# SPDX-License-Identifier: MIT
 
 # include the system path for easy access to tools, it is already included in the 2018 fall creator's update
 _win_root="$(wslpath -u c:/ 2>/dev/null)" || _win_root="/mnt/c/"

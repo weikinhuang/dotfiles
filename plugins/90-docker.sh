@@ -1,4 +1,6 @@
 # shellcheck shell=bash
+# Configure Docker defaults and history filtering.
+# SPDX-License-Identifier: MIT
 
 # @see https://www.docker.com/
 if ! command -v docker &>/dev/null; then

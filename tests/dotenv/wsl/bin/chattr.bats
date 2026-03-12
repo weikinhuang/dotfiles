@@ -1,5 +1,6 @@
 #!/usr/bin/env bats
-# Tests for dotenv/wsl/bin/chattr
+# Tests for dotenv/wsl/bin/chattr.
+# SPDX-License-Identifier: MIT
 
 setup() {
   load '../../../helpers/common'

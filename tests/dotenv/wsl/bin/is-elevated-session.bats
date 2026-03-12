@@ -1,5 +1,6 @@
 #!/usr/bin/env bats
-# Tests for dotenv/wsl/bin/is-elevated-session
+# Tests for dotenv/wsl/bin/is-elevated-session.
+# SPDX-License-Identifier: MIT
 
 setup() {
   load '../../../helpers/common'

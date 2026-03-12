@@ -1,5 +1,6 @@
 #!/usr/bin/env bats
-# Tests for dotenv/bin/genpasswd
+# Tests for dotenv/bin/genpasswd.
+# SPDX-License-Identifier: MIT
 
 setup() {
   load '../../helpers/common'

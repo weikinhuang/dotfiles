@@ -1,4 +1,6 @@
 #!/usr/bin/env bats
+# Tests for plugins/10-lesspipe.sh.
+# SPDX-License-Identifier: MIT
 
 setup() {
   load '../helpers/common'

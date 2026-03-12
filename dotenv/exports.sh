@@ -1,4 +1,6 @@
 # shellcheck shell=bash
+# Export shared environment defaults.
+# SPDX-License-Identifier: MIT
 
 # supress "bash: warning: setlocale: LC_ALL: cannot change locale (en_US.UTF-8): No such file or directory"
 # LC_ configuration

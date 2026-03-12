@@ -1,4 +1,6 @@
 # shellcheck shell=bash
+# Build and export the interactive shell prompt.
+# SPDX-License-Identifier: MIT
 
 # ------------------------------------------------------------------------------
 # DISABLE PROMPT

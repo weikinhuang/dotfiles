@@ -1,4 +1,6 @@
 # shellcheck shell=bash
+# Configure kubectl completion.
+# SPDX-License-Identifier: MIT
 
 # @see https://kubernetes.io/
 if ! command -v kubectl &>/dev/null; then

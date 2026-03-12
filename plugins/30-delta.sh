@@ -1,4 +1,6 @@
 # shellcheck shell=bash
+# Configure delta git integration.
+# SPDX-License-Identifier: MIT
 
 # @see https://github.com/dandavison/delta
 if ! command -v delta &>/dev/null; then

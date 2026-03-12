@@ -1,4 +1,6 @@
 # shellcheck shell=bash
+# Configure dircolors integration.
+# SPDX-License-Identifier: MIT
 
 # @see https://www.gnu.org/software/coreutils/manual/html_node/dircolors-invocation.html
 # @see https://linux.die.net/man/5/dir_colors

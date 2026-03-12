@@ -1,4 +1,6 @@
 # shellcheck shell=bash
+# Configure SSH agent and completion helpers.
+# SPDX-License-Identifier: MIT
 
 if ! command -v ssh &>/dev/null; then
   return

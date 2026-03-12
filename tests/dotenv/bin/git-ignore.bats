@@ -1,5 +1,6 @@
 #!/usr/bin/env bats
-# Tests for dotenv/bin/git-ignore
+# Tests for dotenv/bin/git-ignore.
+# SPDX-License-Identifier: MIT
 
 setup() {
   load '../../helpers/common'

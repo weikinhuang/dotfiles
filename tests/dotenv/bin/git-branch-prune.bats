@@ -1,5 +1,6 @@
 #!/usr/bin/env bats
-# Tests for dotenv/bin/git-branch-prune
+# Tests for dotenv/bin/git-branch-prune.
+# SPDX-License-Identifier: MIT
 
 setup() {
   load '../../helpers/common'

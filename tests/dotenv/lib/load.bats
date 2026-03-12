@@ -1,4 +1,6 @@
 #!/usr/bin/env bats
+# Tests for dotenv/lib/load.sh.
+# SPDX-License-Identifier: MIT
 
 write_trace_file() {
   local path="$1"

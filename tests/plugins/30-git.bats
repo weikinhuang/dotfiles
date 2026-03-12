@@ -1,4 +1,6 @@
 #!/usr/bin/env bats
+# Tests for plugins/30-git.sh.
+# SPDX-License-Identifier: MIT
 
 setup() {
   load '../helpers/common'

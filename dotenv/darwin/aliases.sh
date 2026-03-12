@@ -1,4 +1,7 @@
 # shellcheck shell=bash
+# Define macOS-specific aliases.
+# SPDX-License-Identifier: MIT
+
 # Shortcuts
 
 # Networking shortcuts

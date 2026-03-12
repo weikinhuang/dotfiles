@@ -1,5 +1,6 @@
 #!/usr/bin/env bats
-# Tests for dotenv/wsl/bin/quick-toast
+# Tests for dotenv/wsl/bin/quick-toast.
+# SPDX-License-Identifier: MIT
 
 setup() {
   load '../../../helpers/common'
