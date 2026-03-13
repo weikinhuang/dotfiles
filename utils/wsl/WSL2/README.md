@@ -1,109 +1,80 @@
-# Windows Subsystem Linux 2 misc files
+# Windows Subsystem for Linux 2 notes
 
-For full documentation see [learn.microsoft.com](https://learn.microsoft.com/en-us/windows/wsl/install).
+This page covers WSL 2-specific notes. For the normal install flow, start with [../README.md](../README.md).
 
-## Install the Windows Subsystem for Linux
+## Install WSL 2
 
-Before installing any Linux distros for WSL, you must ensure that the "Windows Subsystem for Linux" optional feature is enabled:
-
-1. Open PowerShell as Administrator and run:
-
-    1. Enable the Windows Subsystem for Linux
-
-        ```powershell
-        dism.exe /online /enable-feature /featurename:Microsoft-Windows-Subsystem-Linux /all /norestart
-        ```
-
-    1. Enable Virtual Machine feature
-
-        ```powershell
-        dism.exe /online /enable-feature /featurename:VirtualMachinePlatform /all /norestart
-        dism.exe /online /enable-feature /featurename:Microsoft-Hyper-V-Management-PowerShell /all /norestart
-        ```
-
-1. Install the Linux kernel update package
-    1. Download [WSL2 Linux kernel update package for x64 machines](https://wslstorestorage.blob.core.windows.net/wslblob/wsl_update_x64.msi)
-    2. Install package.
-1. Restart your computer.
-1. Install `Ubuntu`
-   1. Download and install from the Windows Store: search `Run Linux on Windows`
-    - [Ubuntu](https://apps.microsoft.com/detail/9pdxgncfsczv) (latest LTS)
-    - From the distro's page, select "Get"
-   1. Using `winget`
-
-      ```powershell
-      winget install -e --id Canonical.Ubuntu
-      ```
-
-1. Now that your Linux distro is installed, you must initialize your new distro instance once, before it can be used.
-
-## Setting WSL to version 2
-
-Open PowerShell as Administrator and run:
+For a fresh WSL 2 install on current Windows builds, use an elevated PowerShell prompt:
 
 ```powershell
-# to show all installed WSL distributions
-wsl --list --verbose
-# change the version
-wsl --set-version <distribution name> <versionNumber>
-# ex.
-wsl --set-version Ubuntu 2
+wsl --install -d Ubuntu
 ```
 
-Optionally, setting WSL2 as the default is also possible
+Restart Windows if the install command prompts for it, then launch Ubuntu once to finish distro initialization.
+
+Future distro installs already default to WSL 2 on current WSL. To set that explicitly:
 
 ```powershell
 wsl --set-default-version 2
 ```
 
-## Optimize VHDX file to reclaim space
-
-Open PowerShell as Administrator and run:
+If you already have a distro installed and want to convert it to WSL 2:
 
 ```powershell
-# zero out empty space
-# https://github.com/microsoft/WSL/issues/4699#issuecomment-722547552
-wsl -e sudo fstrim /
-
-# shutdown all WSL2 instances
-wsl --shutdown
-
-# find all vhd files
-Set-Location $env:LOCALAPPDATA\Packages
-get-childitem -recurse -filter "ext4.vhdx" -ErrorAction SilentlyContinue
-
-# go through each directory and optimize the vhd
-# Set-Location C:\Users\USERNAME\AppData\Local\Packages\CanonicalGroupLimited.UbuntuonWindows_79rhkp1fndgsc\LocalState
-optimize-vhd -Path .\ext4.vhdx -Mode full
+wsl --set-version Ubuntu 2
 ```
 
-### Docker Desktop for Windows
+If `wsl --install` is unavailable on your Windows build, use Microsoft's legacy guidance: [Manual installation steps for older versions of WSL](https://learn.microsoft.com/en-us/windows/wsl/install-manual).
 
-```powershell
-# Docker wsl2 vhdx files are located in a different directory
-Set-Location $env:LOCALAPPDATA\Docker
-get-childitem -recurse -filter "ext4.vhdx" -ErrorAction SilentlyContinue
+## Manage VHDX disk usage
+
+WSL 2 stores each distro in an `ext4.vhdx` virtual disk. On current WSL releases, that disk grows automatically as needed and has a 1 TB default maximum size.
+
+### Enable sparse VHDs for newly created distros
+
+For new WSL 2 distros, you can opt into sparse VHD creation in `%UserProfile%\.wslconfig`:
+
+```ini
+[experimental]
+sparseVhd=true
 ```
 
-### Windows 10 Home edition
-
-Windows 10 Home does not include `optimize-vhd`, so a different set of commands must be run
-
-Open PowerShell as Administrator and run:
+Apply the change:
 
 ```powershell
-# zero out empty space
-# https://github.com/microsoft/WSL/issues/4699#issuecomment-722547552
-wsl -e sudo fstrim /
-
-# shutdown all WSL2 instances
 wsl --shutdown
+```
 
-# open window Diskpart
+### Compact an existing distro after deleting files
+
+First reclaim free blocks from inside Linux:
+
+```bash
+sudo fstrim -av
+```
+
+Then shut WSL down from an elevated PowerShell prompt:
+
+```powershell
+wsl --shutdown
+```
+
+Locate the distro VHD path:
+
+```powershell
+(Get-ChildItem -Path HKCU:\Software\Microsoft\Windows\CurrentVersion\Lxss |
+  Where-Object { $_.GetValue("DistributionName") -eq "Ubuntu" }).GetValue("BasePath") + "\ext4.vhdx"
+```
+
+Compact it with `diskpart`:
+
+```powershell
 diskpart
-select vdisk file="C:\WSL-Distros\...\ext4.vhdx"
+select vdisk file="C:\Users\USERNAME\AppData\Local\Packages\...\LocalState\ext4.vhdx"
 attach vdisk readonly
 compact vdisk
 detach vdisk
 exit
 ```
+
+This is the broadest manual compaction flow and works on Windows Home as well as Pro.

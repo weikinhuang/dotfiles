@@ -1,17 +1,44 @@
-# Windows Subsystem Linux setup
+# Windows Subsystem for Linux setup
 
-For full documentation see [learn.microsoft.com](https://learn.microsoft.com/en-us/windows/wsl/install).
+For current platform guidance, start with [Install WSL](https://learn.microsoft.com/en-us/windows/wsl/install).
 
-## Install the Windows Subsystem for Linux
+## Install WSL
 
-- For **WSL 1** see [./WSL1/README.md](./WSL1/README.md)
-- For **WSL 2** see [./WSL2/README.md](./WSL2/README.md)
+On current Windows 10/11 builds, install WSL from an elevated PowerShell prompt:
 
-## Set up wsl configurations
+```powershell
+wsl --install
+```
 
-### Setup `wsl.conf`
+If WSL is already installed and you only want to add a distro:
 
-See [Automatically Configuring WSL](https://blogs.msdn.microsoft.com/commandline/2018/02/07/automatically-configuring-wsl/) on microsoft.com for explanation of options.
+```powershell
+wsl --list --online
+wsl --install -d Ubuntu
+```
+
+New distro installs default to WSL 2. To change the default for future installs:
+
+```powershell
+wsl --set-default-version 2
+# or
+wsl --set-default-version 1
+```
+
+Check or update the WSL runtime itself with:
+
+```powershell
+wsl --status
+wsl --version
+wsl --update
+```
+
+- For WSL 1-specific notes see [./WSL1/README.md](./WSL1/README.md)
+- For WSL 2-specific notes see [./WSL2/README.md](./WSL2/README.md)
+
+## Set up WSL configuration
+
+See [Advanced settings configuration in WSL](https://learn.microsoft.com/en-us/windows/wsl/wsl-config) for the current option reference.
 
 Edit `/etc/wsl.conf` with:
 
@@ -19,36 +46,48 @@ Edit `/etc/wsl.conf` with:
 sudo vi /etc/wsl.conf
 ```
 
-Add contents:
+Example baseline config:
 
 ```text
-# Let's enable extra metadata options by default
 [automount]
 enabled = true
 root = /mnt/
 options = "metadata,umask=22,fmask=11"
 mountFsTab = true
 
-# Let's enable DNS – even though these are turned on by default, we'll specify here just to be explicit.
 [network]
 generateHosts = true
 generateResolvConf = true
 
-# Set up windows/linux interop
 [interop]
 enabled = true
 appendWindowsPath = true
 ```
 
+If you are on WSL 2, running WSL `0.67.6+`, and want `systemd`-managed services, add:
+
+```text
+[boot]
+systemd = true
+```
+
+Apply changes from PowerShell:
+
+```powershell
+wsl.exe --shutdown
+```
+
 ## Allow the `sudo` group to use sudo without a password
 
-Edit the sudoers file
+Convenient for a personal dev box, but not a good default on shared machines.
+
+Edit the sudoers file:
 
 ```bash
 sudo visudo
 ```
 
-Change the following block:
+Change:
 
 ```text
 # Allow members of group sudo to execute any command
@@ -66,7 +105,6 @@ to:
 
 ```bash
 sudo apt-get update && sudo apt-get install -y --no-install-recommends \
-    apt-transport-https \
     bash-completion \
     bc \
     ca-certificates \
@@ -79,43 +117,52 @@ sudo apt-get update && sudo apt-get install -y --no-install-recommends \
     jq \
     make \
     netcat-openbsd \
+    openssh-client \
     openssl \
     procps \
-    python3-venv \
     python3-pip \
+    python3-venv \
+    ripgrep \
     rsync \
     screen \
     socat \
+    tree \
     unzip \
     vim \
     wget \
-    xxd
+    xxd \
+    zip \
+    zstd
 ```
 
-## Updating Packages in WSL
+## Update packages inside WSL
 
 ```bash
-sudo apt-get update && sudo apt-get upgrade
+sudo apt-get update && sudo apt-get upgrade -y
 ```
 
-## Updating the Ubuntu OS
+## Upgrade the Ubuntu distro release
 
 ```bash
-sudo -S apt-mark hold procps strace sudo
-sudo -S env RELEASE_UPGRADER_NO_SCREEN=1 do-release-upgrade
+sudo do-release-upgrade
 ```
 
 ## `winsudo` setup
 
-`winsudo` allows you to run applications in Windows elevated user mode from a non-elevated WSL shell.
+`winsudo` allows you to run Windows applications with elevated privileges from a non-elevated WSL shell.
 
 ### Native sudo (Windows 11 24H2+)
 
-On Windows 11 24H2 and later, `winsudo` uses the native `sudo.exe` for elevation. This is the preferred method.
+On Windows 11 24H2 and later, `winsudo` prefers the native `sudo.exe` flow.
+
+`winsudo` requires inline mode (`normal`). Microsoft recommends `forceNewWindow`
+by default for security, so only switch to inline mode if you understand that tradeoff.
 
 **Setup:**
 
-1. Enable sudo in **Windows Settings > System > Advanced**
+1. Enable sudo in Windows Settings.
+   On Windows 11 24H2 this appears under **System > For Developers**.
+   On Windows 11 25H2 and later it is surfaced under **System > Advanced**.
 2. Set inline mode from an elevated (admin) prompt:
 
 ```powershell
@@ -126,64 +173,59 @@ sudo config --enable normal
 
 ```powershell
 sudo config
-# Expected output: "Sudo is currently in Inline mode on this machine"
+# Expected output mentions "Inline" mode
 ```
 
 ### Legacy fallback (pre-24H2)
 
 On older Windows versions without `sudo.exe`, or when `sudo.exe` is not configured for inline mode, `winsudo` falls back to an SSH-based elevation mechanism.
 
-**Requirements:** `openssh-server` must be installed for `sshd`:
+**Requirements:** `openssh-server` must be installed so `sshd` is available:
 
 ```bash
 sudo apt-get install openssh-server
 ```
 
-**How it works**: `winsudo` uses PowerShell `Start-Process -Verb RunAs` to launch an elevated WSL process running `sshd` with a random port and generated SSH key. It then forwards commands through an SSH connection from the non-elevated to the elevated `sshd` server. Any process that works under SSH should work with this fallback.
+**How it works:** `winsudo` uses PowerShell `Start-Process -Verb RunAs` to launch an elevated WSL process running `sshd` on a random port with a generated SSH key, then forwards commands through that SSH session.
 
 ### Testing
 
-You can test if `winsudo` is working properly with `winsudo net.exe sessions` and comparing the output with just running `net.exe sessions`. Running without elevated permissions should result in `Access is denied.`.
+Test with `winsudo net.exe sessions` and compare it with plain `net.exe sessions`. The non-elevated version should return `Access is denied.`.
 
 ## Native process proxy wrappers
 
-Wrapper `bat` files are provided for `git` and `ssh` to allow programs to use the WSL version of these programs instead of the Windows versions. If an application can specify the binary path for these programs, then these `bat` scripts can be used.
+Wrapper `.bat` files are provided for `git` and `ssh` so Windows-native tools can delegate to the WSL versions instead of the Windows ones.
 
-Below are some usage examples.
+### SSH wrapper for VS Code
 
-### SSH wrapper for VSCode IDE
-
-Set the ssh path to the ssh wrapper:
-
-```text
-Edit > Preferences > Settings
-```
+Point the SSH client path at the wrapper:
 
 ```json
 {
-    "remote.SSH.path": "DOTFILES_PATH\\utils\\wsl\\native-wrappers\\ssh.bat",
+  "remote.SSH.path": "DOTFILES_PATH\\utils\\wsl\\native-wrappers\\ssh.bat"
 }
 ```
 
-### Git wrapper for IntelliJ (ie. Webstorm) based IDEs
+### Git wrapper for JetBrains IDEs
 
-Set the git path to the git wrapper:
-
-```text
-Settings > Version Control > Git > Path to Git executable: [DOTFILES_PATH\utils\wsl\native-wrappers\git.bat]
-```
-
-### Git wrapper for VSCode IDE
-
-Set the git path to the git wrapper:
+Set the Git executable path to:
 
 ```text
-Edit > Preferences > Settings
+DOTFILES_PATH\utils\wsl\native-wrappers\git.bat
 ```
+
+### Git wrapper for VS Code
+
+Set the Git path to the wrapper. If you also want Windows-hosted VS Code terminals to open in WSL by default, use a terminal profile instead of the deprecated `terminal.integrated.shell.windows` setting:
 
 ```json
 {
-    "git.path": "DOTFILES_PATH\\utils\\wsl\\native-wrappers\\git.bat",
-    "terminal.integrated.shell.windows": "C:\\Windows\\System32\\wsl.exe"
+  "git.path": "DOTFILES_PATH\\utils\\wsl\\native-wrappers\\git.bat",
+  "terminal.integrated.profiles.windows": {
+    "WSL": {
+      "path": "C:\\Windows\\System32\\wsl.exe"
+    }
+  },
+  "terminal.integrated.defaultProfile.windows": "WSL"
 }
 ```

@@ -1,119 +1,116 @@
-# Windows Subsystem Linux misc files
+# Windows Subsystem for Linux 1 notes
 
-## Install the Windows Subsystem for Linux
+This page is only for intentionally running a distro on WSL 1. For the normal install flow, start with [../README.md](../README.md).
 
-Before installing any Linux distros for WSL, you must ensure that the "Windows Subsystem for Linux" optional feature is enabled:
+## Install WSL 1
 
-1. Open PowerShell as Administrator and run:
+For a fresh WSL 1 install on current Windows builds, use an elevated PowerShell prompt:
 
-    ```powershell
-    Enable-WindowsOptionalFeature -Online -FeatureName Microsoft-Windows-Subsystem-Linux
-    ```
+```powershell
+wsl --install --enable-wsl1 --no-distribution
+wsl --set-default-version 1
+wsl --install -d Ubuntu
+```
 
-1. Restart your computer when prompted.
-1. Install `Ubuntu`
-   1. Download and install from the Windows Store: search `Run Linux on Windows`
-    - [Ubuntu](https://apps.microsoft.com/detail/9pdxgncfsczv) (latest LTS)
-    - From the distro's page, select "Get"
-   1. Using `winget`
+Restart Windows if the first command prompts for it, then continue with the remaining steps.
 
-      ```powershell
-      winget install -e --id Canonical.Ubuntu
-      ```
+If you already have a distro installed and want to convert it to WSL 1:
 
-1. Now that your Linux distro is installed, you must initialize your new distro instance once, before it can be used.
+```powershell
+wsl --set-version Ubuntu 1
+```
 
-## Set up wsl configurations
+If `wsl --install` is unavailable on your Windows build, use Microsoft's legacy guidance: [Manual installation steps for older versions of WSL](https://learn.microsoft.com/en-us/windows/wsl/install-manual).
 
-## Change home directory to the Windows home dir
+## Optional: change the Linux home directory to the Windows profile
 
-Changing the current user's home directory to be the equivalent windows home dir to persist settings on reinstall of WSL. Optionally, several symlinks can also be setup in the `~/` directory to replicate the same effect.
+Microsoft recommends keeping Linux project files in the Linux filesystem for the best compatibility and performance. Only point `$HOME` into `/mnt/c/...` if you specifically want your shell config to live in the Windows profile and you accept the tradeoff.
 
-Edit `/etc/passwd` with:
+Edit `/etc/passwd`:
 
 ```bash
 sudo vi /etc/passwd
 ```
 
-Change the line:
+Change:
 
 ```text
 WSLUSERNAME:x:1000:1000:,,,:/home/WSLUSERNAME:/bin/bash
 ```
 
-to
+to:
 
 ```text
 WSLUSERNAME:x:1000:1000:,,,:/mnt/c/Users/WINDOWSUSERNAME:/bin/bash
 ```
 
-## sshd
+## `sshd`
 
-Setting up `sshd` lets us use terminal emulators that don't support WSL natively (ex. SecureCRT)
+Setting up `sshd` is useful if you want to connect to WSL from tools that do not speak WSL directly.
 
-### Install sshd
+### Install and configure `sshd`
 
-1. Generate ssh keys for this user if not already there
+Install the server:
 
-    ```bash
-    ssh-keygen -t rsa
-    ```
+```bash
+sudo apt-get install openssh-server
+```
 
-1. Reinstall sshd
+Update the SSH server config:
 
-    ```bash
-    sudo apt-get remove --purge openssh-server
-    sudo apt-get install openssh-server
-    ```
+```bash
+sudo vi /etc/ssh/sshd_config
+```
 
-1. Update the sshd config, comment in or add the following lines:
+Recommended baseline:
 
-    ```bash
-    sudo vi /etc/ssh/sshd_config
-    ```
+```text
+Port 2222
+ListenAddress 127.0.0.1
+ListenAddress ::1
+PermitRootLogin no
+AllowUsers WSLUSERNAME
+PasswordAuthentication no
+PubkeyAuthentication yes
+```
 
-    ```text
-    Port 2222
-    ListenAddress 127.0.0.1
-    ListenAddress ::1
-    PermitRootLogin no
-    AllowUsers WSLUSERNAME
-    PasswordAuthentication no
-    #UsePrivilegeSeparation no # needed for older versions of WSL
-    ```
+Make sure the runtime directory exists, then restart the service:
 
-    ```bash
-    # on newer versions of ubuntu, instead of "UsePrivilegeSeparation no" create this directory
-    sudo mkdir -p /run/sshd
-    ```
+```bash
+sudo mkdir -p /run/sshd
+sudo service ssh --full-restart
+```
 
-1. Restart the sshd service
+Copy your client public key into `~/.ssh/authorized_keys` and keep the usual permissions:
 
-    ```bash
-    sudo service ssh --full-restart
-    ```
+```bash
+mkdir -p ~/.ssh
+chmod 700 ~/.ssh
+vi ~/.ssh/authorized_keys
+chmod 600 ~/.ssh/authorized_keys
+```
 
-### Start up sshd on user logon
+### Start `sshd` on Windows logon
 
-1. Set up `/etc/sudoers` file with sudo permissions for sshd
+1. Allow the base user to start `sshd` without a password:
 
-    ```bash
-    sudo visudo
-    ```
+```bash
+sudo visudo
+```
 
-    Append the following lines before `#includedir /etc/sudoers.d`
+Append the following lines before `#includedir /etc/sudoers.d`:
 
-    ```text
-    # Allow base user to start up sshd on windows login
-    WSLUSERNAME ALL=(ALL) NOPASSWD: /usr/sbin/sshd
-    WSLUSERNAME ALL=(ALL) NOPASSWD: /bin/mkdir -p /run/sshd
-    WSLUSERNAME ALL=(ALL) NOPASSWD: /usr/bin/rm -f /var/run/sshd.pid
-    ```
+```text
+# Allow base user to start up sshd on Windows login
+WSLUSERNAME ALL=(ALL) NOPASSWD: /usr/sbin/sshd
+WSLUSERNAME ALL=(ALL) NOPASSWD: /bin/mkdir -p /run/sshd
+WSLUSERNAME ALL=(ALL) NOPASSWD: /usr/bin/rm -f /var/run/sshd.pid
+```
 
-1. Install the windows scheduled task, change the path to the dotfiles installation path if necessary.
+2. Install the Windows scheduled task. Adjust the repo path first if needed:
 
-    ```bash
-    bash ~/.dotfiles/utils/wsl/WSL1/sshd-on-boot.sh
-    ```
+```bash
+bash ~/.dotfiles/utils/wsl/WSL1/sshd-on-boot.sh
+```
 
-    > Note: This will cause a Powershell window to open momentarily during login.
+Note: this causes a short-lived PowerShell window to appear during login.

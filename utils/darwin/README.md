@@ -1,16 +1,16 @@
-# MacOS setup
+# macOS setup
 
 ## Install the base command line tools
 
 ### Install Xcode Command Line Tools
 
-This is needed as it contains base tooling like `gcc`, `git`, and `make`.
+This provides core tooling such as `clang`, `git`, and `make`.
 
 ```bash
 xcode-select --install
 ```
 
-To get the path to the cli tools:
+To print the install path:
 
 ```bash
 xcode-select --print-path
@@ -23,12 +23,25 @@ Verify the install with:
 git --version
 ```
 
-### Install homebrew
+### Install Homebrew
 
-See [brew.sh](https://brew.sh/) for the latest instructions.
+See [brew.sh](https://brew.sh/) for the latest installer and support policy.
 
 ```bash
 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+```
+
+Homebrew prints a required post-install step to add `brew` to your shell config.
+If you skip it, `brew` will not work in new shells. For Bash, that is typically:
+
+```bash
+# Apple Silicon
+echo 'eval "$(/opt/homebrew/bin/brew shellenv bash)"' >> ~/.bash_profile
+eval "$(/opt/homebrew/bin/brew shellenv bash)"
+
+# Intel
+echo 'eval "$(/usr/local/bin/brew shellenv bash)"' >> ~/.bash_profile
+eval "$(/usr/local/bin/brew shellenv bash)"
 ```
 
 ## Install useful utilities
@@ -45,72 +58,34 @@ Or install a subset manually:
 brew install bash bash-completion@2 coreutils findutils git vim neovim
 ```
 
-## Change the default $SHELL
+## Change the default shell
 
-Any new shell must exist in `/etc/shells`.
-
-```bash
-$ cat /etc/shells
-# List of acceptable shells for chpass(1).
-# Ftpd will not allow users to connect who are not using
-# one of these shells.
-
-/bin/bash
-/bin/csh
-/bin/ksh
-/bin/sh
-/bin/tcsh
-/bin/zsh
-```
-
-Homebrew installs Bash to `/opt/homebrew/bin/bash` on Apple Silicon and
-`/usr/local/bin/bash` on Intel. `$(brew --prefix)/bin/bash` works for both.
-
-Find the path to the shell you want to use, then append it to the file:
+macOS defaults to `zsh`. If you want to use the Homebrew Bash from this repo as
+your login shell, it must be listed in `/etc/shells` first.
 
 ```bash
-$ sudo vi /etc/shells
-.
-.
-.
-/bin/tcsh
-/bin/zsh
-$(brew --prefix)/bin/bash # <--- path to the new shell
-```
-
-Then change the default login shell current user:
-
-```bash
-chsh -s "$(brew --prefix)/bin/bash"
-```
-
-Single command for brew bash
-
-```bash
-# Switch to using brew-installed bash as default shell
-if ! grep -q "$(brew --prefix)/bin/bash" /etc/shells; then
-  echo "$(brew --prefix)/bin/bash" | sudo tee -a /etc/shells
-  chsh -s "$(brew --prefix)/bin/bash"
-fi;
+brew_bash="$(brew --prefix)/bin/bash"
+grep -qxF "$brew_bash" /etc/shells || echo "$brew_bash" | sudo tee -a /etc/shells
+chsh -s "$brew_bash"
 ```
 
 ## Other tweaks
 
 ### System settings
 
-Tips from [mathiasbynens/dotfiles](https://github.com/mathiasbynens/dotfiles/blob/main/.macos).
+Tips adapted from [mathiasbynens/dotfiles](https://github.com/mathiasbynens/dotfiles/blob/main/.macos).
 
 ```bash
 # Disable automatic termination of inactive apps
 defaults write NSGlobalDomain NSDisableAutomaticTermination -bool true
 
-# Disable automatic capitalization as it’s annoying when typing code
+# Disable automatic capitalization as it is annoying when typing code
 defaults write NSGlobalDomain NSAutomaticCapitalizationEnabled -bool false
-# Disable smart dashes as they’re annoying when typing code
+# Disable smart dashes as they are annoying when typing code
 defaults write NSGlobalDomain NSAutomaticDashSubstitutionEnabled -bool false
-# Disable automatic period substitution as it’s annoying when typing code
+# Disable automatic period substitution as it is annoying when typing code
 defaults write NSGlobalDomain NSAutomaticPeriodSubstitutionEnabled -bool false
-# Disable smart quotes as they’re annoying when typing code
+# Disable smart quotes as they are annoying when typing code
 defaults write NSGlobalDomain NSAutomaticQuoteSubstitutionEnabled -bool false
 
 # Trackpad: map bottom right corner to right-click
@@ -134,11 +109,14 @@ defaults write NSGlobalDomain AppleShowAllExtensions -bool true
 
 ### Fix `HOME` and `END` keys
 
-Force the `HOME` and `END` keys to have the same behavior as on other platforms
+Force the `HOME` and `END` keys to behave more like other platforms:
 
 ```bash
 mkdir -p ~/Library/KeyBindings
-cp ~/.dotfiles/utils/darwin/DefaultKeyBinding.dict ~/Library/KeyBindings/
-OR
+
+# Copy once
+cp ~/.dotfiles/utils/darwin/DefaultKeyBinding.dict ~/Library/KeyBindings/DefaultKeyBinding.dict
+
+# Or keep it symlinked to the repo checkout
 ln -sf ~/.dotfiles/utils/darwin/DefaultKeyBinding.dict ~/Library/KeyBindings/DefaultKeyBinding.dict
 ```
