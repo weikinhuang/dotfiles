@@ -56,20 +56,12 @@
 
 const http = require("http");
 const childProcess = require("child_process");
-// const fs = require("fs/promises");
+const fs = require("fs/promises");
+const fsSync = require("fs");
 const os = require("os");
 const path = require("path");
-const legacyFs = require("fs");
-const { promisify } = require("util");
 
-// proxy for fs/promises until node 18 is standard
-const fs = {
-  stat: promisify(legacyFs.stat),
-  mkdir: promisify(legacyFs.mkdir),
-  readFile: promisify(legacyFs.readFile),
-  unlink: promisify(legacyFs.unlink),
-  writeFile: promisify(legacyFs.writeFile),
-}
+const MAX_BODY_SIZE = 10 * 1024 * 1024; // 10MB
 
 // set umask for files to be 0600
 process.umask(0o0177);
@@ -78,6 +70,16 @@ async function setClipboard(req, res) {
   return await new Promise((resolve, reject) => {
     const subprocess = childProcess.spawn("pbcopy", {
       stdio: ["pipe", "pipe", process.stderr],
+    });
+
+    let size = 0;
+    req.on("data", (chunk) => {
+      size += chunk.length;
+      if (size > MAX_BODY_SIZE) {
+        req.destroy();
+        subprocess.kill();
+        reject(new Error("Request body too large"));
+      }
     });
 
     subprocess.on("exit", resolve);
@@ -269,7 +271,7 @@ async function server({ socket, enablePaste, notify }) {
     // cleanup
     process.on("SIGHUP", () => {
       try {
-        legacyFs.unlinkSync(socket);
+        fsSync.unlinkSync(socket);
       } catch {}
       process.exit();
     });

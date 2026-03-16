@@ -44,6 +44,16 @@ then
 
 fi
 
-# fallback to local clipboard
-PATH="$(echo "${PATH}" | tr ':' '\n' | grep -v dotenv/ssh/bin | tr '\n' : | sed -e 's/:$//' -e 's/^://')"
-exec pbcopy "$@"
+# fallback to local clipboard: find pbcopy in PATH, skipping this script's own directory
+_self_dir="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
+_remaining="${PATH}"
+while [[ -n "${_remaining}" ]]; do
+  _dir="${_remaining%%:*}"
+  [[ "${_remaining}" == *:* ]] && _remaining="${_remaining#*:}" || _remaining=""
+  [[ "${_dir}" == "${_self_dir}" ]] && continue
+  if [[ -x "${_dir}/pbcopy" ]]; then
+    exec "${_dir}/pbcopy" "$@"
+  fi
+done
+echo "pbcopy: no fallback clipboard command found in PATH" >&2
+exit 1
