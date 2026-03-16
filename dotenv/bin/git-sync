@@ -46,7 +46,7 @@ function sync_one() {
   fi
   if [[ $HAS_CHANGES != 0 ]]; then
     [[ -n $GIT_SYNC_TRACE ]] && echo -e "\e[35m ===== Stashing changes ===== \e[0m"
-    git stash save "sync-$STASH_NAME"
+    git stash push -m "sync-$STASH_NAME"
   fi
   if [[ "$PREV_BR" != "${MAIN_BRANCH}" ]]; then
     [[ -n $GIT_SYNC_TRACE ]] && echo -e "\e[35m ===== Checkout to ${MAIN_BRANCH} ===== \e[0m"

@@ -40,7 +40,7 @@ inotifywait -mrs --timefmt '%s' --format '%T %e %w %f' \
   --event create \
   --event delete \
   "${DIRECTORY}" \
-  | while IFS=' ' read -r time event dir file; do
+  | while IFS=' ' read -r time event rest; do
     cd "${DIRECTORY}"
     "$@"
   done

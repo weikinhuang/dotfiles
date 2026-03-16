@@ -11,9 +11,6 @@ shopt -s nocaseglob 2>/dev/null
 # Include . files when globing (ie. mv, cp, etc.)
 shopt -s dotglob 2>/dev/null
 
-# When changing directory small typos can be ignored by bash
-shopt -s cdspell 2>/dev/null
-
 # Try to enable some bash 4 functionality
 
 # Recursive globbing, e.g. `echo **/*.txt`

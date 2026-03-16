@@ -562,7 +562,7 @@ function __sudo_ps1_create() {
   # newline before the user symbol if necessary
   if [[ -n "${PS1_OPT_MULTILINE:-}" ]]; then
     PS1="${PS1}\n"
-  elif command -v tput &>/dev/null && [[ $(tput cols) -lt ${PS1_OPT_NEWLINE_THRESHOLD} ]]; then
+  elif [[ ${COLUMNS:-0} -lt ${PS1_OPT_NEWLINE_THRESHOLD} ]]; then
     PS1="${PS1}\n"
   fi
 

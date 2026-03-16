@@ -85,7 +85,7 @@ USE_STASH="$(git status --porcelain --untracked-files=no)"
 
 # create a temp stash for changes we're actually keeping
 if [ -n "$USE_STASH" ]; then
-  git stash save "temp stash: ${TEMP_BRANCH_NAME}" &>/dev/null
+  git stash push -m "temp stash: ${TEMP_BRANCH_NAME}" &>/dev/null
   #git status
 
   # reapply the changes we're keeping so we can keep cherry-pick from the reflog happy

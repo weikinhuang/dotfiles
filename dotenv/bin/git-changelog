@@ -24,6 +24,7 @@ DATE="$(date +'%Y-%m-%d')"
 case "${1:-}" in
   -h | --help)
     print_help
+    exit 0
     ;;
   -l | --list)
     version=$(git describe --tags --abbrev=0 "$(git rev-list --tags --max-count=1)")

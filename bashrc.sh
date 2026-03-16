@@ -136,9 +136,13 @@ __dot_load env
 if command -v complete &>/dev/null; then
   __dot_load completion
 
-  if [[ -d "${HOME}"/.config/completion.d ]]; then
-    # shellcheck source=/dev/null
-    source "${HOME}"/.config/completion.d/* || true
+  if [[ -d "${HOME}/.config/completion.d" ]]; then
+    for __dot_f in "${HOME}"/.config/completion.d/*; do
+      [[ -e "${__dot_f}" ]] || continue
+      # shellcheck source=/dev/null
+      source "${__dot_f}"
+    done
+    unset __dot_f
   fi
 fi
 

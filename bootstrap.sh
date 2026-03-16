@@ -70,8 +70,7 @@ echo "DOTFILES__INSTALL_GITCONFIG=${DOTFILES__INSTALL_GITCONFIG}" >>"${CONFIG_FI
 # link up files
 function dotfiles::install::link() {
   local file target
-  file="$(echo "${1}" | cut -d' ' -f1)"
-  target="$(echo "${1}" | cut -d' ' -f2)"
+  read -r file target <<<"${1}"
 
   # remove the backup first
   [[ -e "${DOTFILES__INSTALL_ROOT}/${target}.bak" ]] && rm -f "${DOTFILES__INSTALL_ROOT}/${target}.bak"

@@ -71,7 +71,9 @@ function extract() {
     echo "extract: '$tool' is not installed" >&2
     return 1
   fi
-  $cmd "$@"
+  local -a cmd_arr
+  read -ra cmd_arr <<<"$cmd"
+  "${cmd_arr[@]}" "$@"
 }
 
 # Get gzipped file size
@@ -113,13 +115,13 @@ function escape() {
 
 # Decode \x{ABCD}-style Unicode escape sequences
 function unidecode() {
-  perl -e "binmode(STDOUT, ':utf8'); print \"$*\""
+  perl -e 'binmode(STDOUT, ":utf8"); print @ARGV' -- "$*"
   echo # newline
 }
 
 # Get a character's Unicode code point
 function codepoint() {
-  perl -e "use utf8; print sprintf('U+%04X', ord(\"$*\"))"
+  perl -e 'use utf8; print sprintf("U+%04X", ord($ARGV[0]))' -- "$*"
   echo # newline
 }
 
