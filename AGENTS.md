@@ -41,6 +41,11 @@ Plugins live in `plugins/` with numeric prefixes controlling load order (e.g. `0
 
 Scripts in `dotenv/bin/` and platform `bin/` dirs are added to `$PATH`. Git subcommands use the naming convention `git-<name>` and are invoked as `git <name>`. Include `#!/usr/bin/env bash` and `set -euo pipefail`.
 
+Argument parsing patterns — use `genpasswd` as the reference implementation:
+
+- **Help-only** (no other flags): use a leading `case "${1:-}" in -h | --help) ... esac`
+- **Multiple options**: use a `while [[ $# -gt 0 ]]; do case "$1" in` loop with `shift`; support both `--flag value` and `--flag=value` forms; print an error and exit 1 on unknown args; always `exit 0` after `print_help`
+
 ### Tests
 
 Tests mirror source paths: `dotenv/bin/git-sync` → `tests/dotenv/bin/git-sync.bats`. Prefix `@test` names with the script name and colon (e.g. `@test "git-sync: restores dirty state"`). Use `source_without_main` to unit-test internal functions. See [TESTING.md](./TESTING.md) for the full helper API and examples.

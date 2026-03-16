@@ -82,16 +82,19 @@ To use these variables, export them to `~/.bash_local`.
 export DOT_AUTOLOAD_SSH_AGENT=1
 ```
 
-| exported ENV var              | Default | Description                                                                                                                                      |
-| ----------------------------- | ------: | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `DOT_AUTOLOAD_SSH_AGENT`      | `UNSET` | Automatically start up `ssh-agent` when starting a new shell, or reuse any existing agent instances                                              |
-| `DOT_BASH_RESOLVE_PATHS`      | `UNSET` | Set bash option `set -o physical` to not resolve symlink paths                                                                                   |
-| `DOT_DISABLE_PREEXEC`         | `UNSET` | Disables loading [`bash-preexec.sh`](https://github.com/rcaloras/bash-preexec) functionality. This is needed for some bash prompt functionality. |
-| `DOT_DISABLE_PS1`             | `UNSET` | Disables the custom bash prompt                                                                                                                  |
-| `DOT_INCLUDE_BREW_PATH`       | `UNSET` | Use to homebrew utilities without the `g` prefix (OSX)                                                                                           |
-| `DOT_INCLUDE_BUILTIN_PLUGINS` | `UNSET` | Loads files in dotfiles/plugins. This is needed for some bash prompt functionality.                                                              |
-| `DOT_SOLARIZED_DARK`          | `UNSET` | Use to tell common commands to use solarized dark (ex. LS_COLORS, vim) colors                                                                    |
-| `DOT_SOLARIZED_LIGHT`         | `UNSET` | Use to tell common commands to use solarized light (ex. LS_COLORS, vim) colors                                                                   |
+| exported ENV var                   | Default | Description                                                                                                                                      |
+| ---------------------------------- | ------: | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `DOT_AUTOLOAD_SSH_AGENT`           | `UNSET` | Automatically start up `ssh-agent` when starting a new shell, or reuse any existing agent instances                                              |
+| `DOT_BASH_RESOLVE_PATHS`           | `UNSET` | Set bash option `set -o physical` to not resolve symlink paths                                                                                   |
+| `DOT_DISABLE_PREEXEC`              | `UNSET` | Disables loading [`bash-preexec.sh`](https://github.com/rcaloras/bash-preexec) functionality. This is needed for some bash prompt functionality. |
+| `DOT_DISABLE_PS1`                  | `UNSET` | Disables the custom bash prompt                                                                                                                  |
+| `DOT_INCLUDE_BREW_PATH`            | `UNSET` | Use to homebrew utilities without the `g` prefix (OSX)                                                                                           |
+| `DOT_INCLUDE_BUILTIN_PLUGINS`      | `UNSET` | Loads files in dotfiles/plugins. This is needed for some bash prompt functionality.                                                              |
+| `DOT_SOLARIZED_DARK`               | `UNSET` | Use to tell common commands to use solarized dark (ex. LS_COLORS, vim) colors                                                                    |
+| `DOT_SOLARIZED_LIGHT`              | `UNSET` | Use to tell common commands to use solarized light (ex. LS_COLORS, vim) colors                                                                   |
+| `DOT_GIT_PROMPT_CACHE_TTL_MS`      |  `1000` | Milliseconds to serve a cached git prompt without re-checking (per-PWD TTL)                                                                      |
+| `DOT_GIT_PROMPT_CACHE_MAX_AGE_MS`  | `10000` | Maximum milliseconds to serve a stale git prompt cache before forcing a refresh                                                                  |
+| `DOT_GIT_PROMPT_INVALIDATE_ON_GIT` |     `1` | Set to `0` to disable automatic cache invalidation after git commands                                                                            |
 
 ## Custom hook points
 
