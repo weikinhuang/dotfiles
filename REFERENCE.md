@@ -49,6 +49,7 @@ Plugins in `plugins/` configure sensible defaults for common tools when they're 
 | ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **ripgrep** | Smart-case, hidden files, common glob exclusions (`.git`, `node_modules`, etc.), max column width. Config at `config/ripgrep/config`, loaded via `RIPGREP_CONFIG_PATH`. |
 | **fzf**     | Reverse layout, 40% height, border, inline info. `CTRL-T` and `ALT-C` use `fd` when available. File preview via `bat`, directory preview via `tree`.                    |
+| **fd**      | Adds a `findhere` helper powered by `fd`, with automatic `fdfind` fallback on Debian-family systems.                                                                    |
 | **bat**     | Line numbers + git changes style. Used as `MANPAGER` for colored man pages. `cat` aliased to `bat --paging=never`.                                                      |
 | **delta**   | When installed, configured as the git pager with syntax highlighting and word-level diffs. Managed via `~/.config/dotfiles/git-delta.gitconfig`.                        |
 | **less**    | Colored man pages via `LESS_TERMCAP_*`. Does not clear screen on exit (`-XR`).                                                                                          |
@@ -111,7 +112,6 @@ Override any of these by setting the relevant env var in `~/.bash_local` before 
 | Command | Description                                            |
 | ------- | ------------------------------------------------------ |
 | `-`     | `cd -`                                                 |
-| `f`     | `findhere`                                             |
 | `h`     | `history`                                              |
 | `kc`    | `kubectl`                                              |
 | `o`     | `open` (show in GUI file explorer)                     |

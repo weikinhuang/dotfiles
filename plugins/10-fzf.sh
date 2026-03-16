@@ -18,11 +18,21 @@ fi
 
 # https://github.com/junegunn/fzf#environment-variables
 # use fd in place of find if available
-if [[ -z "${FZF_DEFAULT_COMMAND+x}" ]] && command -v fd &>/dev/null; then
-  export FZF_DEFAULT_COMMAND='fd --type f --hidden --follow --exclude .git'
-  export FZF_CTRL_T_COMMAND="${FZF_DEFAULT_COMMAND}"
-  export FZF_ALT_C_COMMAND='fd --type d --hidden --follow --exclude .git'
+_dot_fd_bin="${DOTFILES__FD_COMMAND:-}"
+if [[ -z "${_dot_fd_bin}" ]]; then
+  if command -v fd &>/dev/null; then
+    _dot_fd_bin="fd"
+  elif command -v fdfind &>/dev/null; then
+    _dot_fd_bin="fdfind"
+  fi
 fi
+
+if [[ -z "${FZF_DEFAULT_COMMAND+x}" ]] && [[ -n "${_dot_fd_bin}" ]]; then
+  export FZF_DEFAULT_COMMAND="${_dot_fd_bin} --type f --hidden --follow --exclude .git"
+  export FZF_CTRL_T_COMMAND="${FZF_DEFAULT_COMMAND}"
+  export FZF_ALT_C_COMMAND="${_dot_fd_bin} --type d --hidden --follow --exclude .git"
+fi
+unset _dot_fd_bin
 
 # sensible default options
 if [[ -z "${FZF_DEFAULT_OPTS+x}" ]]; then

@@ -35,3 +35,13 @@ EOF
   [[ "${FZF_CTRL_R_OPTS}" == *"clipboard-copy"* ]]
   [ "${FZF_COMPLETION_LOADED}" = "fzf" ]
 }
+
+@test "10-fzf: honors DOTFILES__FD_COMMAND when fd uses a distro-specific binary name" {
+  stub_fixed_output_command fzf ""
+  export DOTFILES__FD_COMMAND="fdfind"
+
+  source "${REPO_ROOT}/plugins/10-fzf.sh"
+
+  [ "${FZF_DEFAULT_COMMAND}" = "fdfind --type f --hidden --follow --exclude .git" ]
+  [ "${FZF_ALT_C_COMMAND}" = "fdfind --type d --hidden --follow --exclude .git" ]
+}

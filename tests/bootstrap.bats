@@ -11,14 +11,14 @@ create_bootstrap_template_repo() {
   printf 'curl\n' >"${BOOTSTRAP_TEMPLATE_REPO}/curlrc"
   printf 'quiet\n' >"${BOOTSTRAP_TEMPLATE_REPO}/hushlogin"
   printf 'input\n' >"${BOOTSTRAP_TEMPLATE_REPO}/inputrc"
-  printf 'mongo\n' >"${BOOTSTRAP_TEMPLATE_REPO}/mongorc.js"
+  printf 'mongosh\n' >"${BOOTSTRAP_TEMPLATE_REPO}/mongoshrc.js"
   printf 'screen\n' >"${BOOTSTRAP_TEMPLATE_REPO}/screenrc"
   printf 'tmux\n' >"${BOOTSTRAP_TEMPLATE_REPO}/tmux.conf"
   printf 'wget\n' >"${BOOTSTRAP_TEMPLATE_REPO}/wgetrc"
   printf 'gitconfig\n' >"${BOOTSTRAP_TEMPLATE_REPO}/gitconfig"
   printf 'vimrc\n' >"${BOOTSTRAP_TEMPLATE_REPO}/vimrc"
   printf 'setlocal shiftwidth=2\n' >"${BOOTSTRAP_TEMPLATE_REPO}/config/vim/ftplugin/test.vim"
-  printf '{"ts":"ok"}\n' >"${BOOTSTRAP_TEMPLATE_REPO}/config/vim/coc-settings.json"
+  printf 'vim.g.bootstrap_test = true\n' >"${BOOTSTRAP_TEMPLATE_REPO}/config/vim/nvim-init.lua"
 }
 
 stub_bootstrap_git() {
@@ -100,10 +100,16 @@ setup() {
   [ "$(cat "${install_root}/.bashrc.bak")" = "old bashrc" ]
   [ -L "${install_root}/.gitconfig" ]
   [ "$(readlink "${install_root}/.gitconfig")" = "${install_root}/.dotfiles/gitconfig" ]
+  [ -L "${install_root}/.mongoshrc.js" ]
+  [ "$(readlink "${install_root}/.mongoshrc.js")" = "${install_root}/.dotfiles/mongoshrc.js" ]
   [ -L "${install_root}/.vimrc" ]
+  [ -L "${install_root}/.config/nvim/init.lua" ]
+  [ "$(readlink "${install_root}/.config/nvim/init.lua")" = "${install_root}/.dotfiles/config/vim/nvim-init.lua" ]
+  [ ! -e "${install_root}/.vim/coc-settings.json" ]
+  [ ! -e "${install_root}/.config/nvim/coc-settings.json" ]
   [ "$(cat "${HOME}/.config/dotfiles/.install")" = $'DOTFILES__INSTALL_ROOT="'"${install_root}"$'"\nDOTFILES__INSTALL_VIMRC=1\nDOTFILES__INSTALL_GITCONFIG=1' ]
   grep -Fx "clone https://github.com/weikinhuang/dotfiles ${install_root}/.dotfiles" "${BOOTSTRAP_GIT_LOG}"
-  grep -F -- "-Es -u ${install_root}/.vimrc +PlugInstall +qall" "${BOOTSTRAP_VIM_LOG}"
+  grep -F -- "--headless +Lazy! sync +qa" "${BOOTSTRAP_VIM_LOG}"
 }
 
 @test "bootstrap: updates dirty repos by stashing before pull and restoring after" {
@@ -115,6 +121,10 @@ setup() {
   export BOOTSTRAP_GIT_DIRTY=1
   mkdir -p "${install_root}"
   cp -R "${BOOTSTRAP_TEMPLATE_REPO}" "${install_root}/.dotfiles"
+  mkdir -p "${install_root}/.config/nvim" "${install_root}/.vim"
+  ln -s "${install_root}/.dotfiles/mongorc.js" "${install_root}/.mongorc.js"
+  ln -s "${install_root}/.dotfiles/config/vim/coc-settings.json" "${install_root}/.vim/coc-settings.json"
+  ln -s "${install_root}/.dotfiles/config/vim/coc-settings.json" "${install_root}/.config/nvim/coc-settings.json"
 
   run env HOME="${HOME}" PATH="${MOCK_BIN}:${PATH}" bash "${REPO_ROOT}/bootstrap.sh" --dir "${install_root}"
 
@@ -126,4 +136,8 @@ setup() {
   assert_line --index 2 "-C ${install_root}/.dotfiles pull origin master"
   assert_line --index 3 "-C ${install_root}/.dotfiles stash pop"
   [ -L "${install_root}/.bashrc" ]
+  [ -L "${install_root}/.mongoshrc.js" ]
+  [ ! -e "${install_root}/.mongorc.js" ]
+  [ ! -e "${install_root}/.vim/coc-settings.json" ]
+  [ ! -e "${install_root}/.config/nvim/coc-settings.json" ]
 }

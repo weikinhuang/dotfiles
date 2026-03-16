@@ -13,7 +13,6 @@ alias -- -="cd -"
 
 # useful shortcuts
 alias h="history"
-alias f="findhere"
 alias o="open"
 alias oo="open ."
 
