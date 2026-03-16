@@ -381,9 +381,15 @@ function __dot_git_ps1_preexec_mark_dirty() {
 preexec_functions+=(__dot_git_ps1_preexec_mark_dirty)
 
 # Update cached git prompt state before PS1 is rendered.
+# Check once at setup time whether __git_ps1 is available, avoiding a fork on every prompt render.
+if command -v __git_ps1 &>/dev/null; then
+  __dot_has_git_ps1=1
+else
+  __dot_has_git_ps1=
+fi
 __ps1_var_git_segment=
 function __dot_git_ps1_update() {
-  if ! command -v __git_ps1 &>/dev/null; then
+  if [[ -z "${__dot_has_git_ps1:-}" ]]; then
     __ps1_var_git_segment=
     return
   fi

@@ -50,7 +50,7 @@ function __dedup_path() {
 # generate paths according to environment
 function __dot_path_setup() {
   local _arch
-  _arch="$(uname -m)"
+  _arch="${DOTFILES__ARCH:-$(uname -m)}"
 
   # modify path to include useful scripts
   if [[ -n "${TMUX:-}" ]]; then

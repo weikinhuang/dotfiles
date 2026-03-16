@@ -57,6 +57,10 @@ esac
 readonly DOTENV
 export DOTENV
 
+DOTFILES__ARCH="$(uname -m)"
+readonly DOTFILES__ARCH
+export DOTFILES__ARCH
+
 # Force usage of 256 color terminal
 case "${TERM:-xterm}" in
   xterm*)

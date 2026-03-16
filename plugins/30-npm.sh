@@ -18,8 +18,10 @@ if ! command -v nvm &>/dev/null; then
   __push_path "$NPM_PACKAGES/bin"
 fi
 
-# shellcheck disable=SC2155
-export MANPATH="$(manpath 2>/dev/null):$NPM_PACKAGES/share/man" || true
+if [[ -d "$NPM_PACKAGES/share/man" ]]; then
+  MANPATH="${MANPATH:+${MANPATH}:}$NPM_PACKAGES/share/man"
+  export MANPATH
+fi
 
 # Remove ad spam from npm install...
 export OPEN_SOURCE_CONTRIBUTOR="true"
