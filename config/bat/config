@@ -7,3 +7,8 @@
 --map-syntax=".gitignore:Git Ignore"
 --map-syntax=".dockerignore:Git Ignore"
 --map-syntax=".env*:Bourne Again Shell (bash)"
+--map-syntax=".ripgreprc:Plain Text"
+--map-syntax="Makefile.*:Makefile"
+--map-syntax="*.mk:Makefile"
+--map-syntax="Dockerfile.*:Dockerfile"
+--map-syntax="docker-compose*.yml:YAML"

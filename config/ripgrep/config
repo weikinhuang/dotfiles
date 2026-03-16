@@ -31,6 +31,23 @@
 --glob=!*.min.js
 --glob=!*.min.css
 
+# Exclude lock files
+--glob=!package-lock.json
+--glob=!yarn.lock
+--glob=!pnpm-lock.yaml
+--glob=!Gemfile.lock
+--glob=!Cargo.lock
+--glob=!go.sum
+--glob=!composer.lock
+
+# Exclude coverage output
+--glob=!coverage
+--glob=!.nyc_output
+
+# Exclude IDE directories
+--glob=!.idea
+--glob=!.vscode
+
 # Exclude editor / OS metadata
 --glob=!.DS_Store
 --glob=!*.swp
