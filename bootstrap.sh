@@ -15,7 +15,7 @@ LINKED_FILES=(
   "curlrc .curlrc"
   "hushlogin .hushlogin"
   "inputrc .inputrc"
-  "mongorc.js .mongorc.js"
+  "mongoshrc.js .mongoshrc.js"
   "screenrc .screenrc"
   "tmux.conf .tmux.conf"
   "wgetrc .wgetrc"
@@ -70,7 +70,7 @@ echo "DOTFILES__INSTALL_GITCONFIG=${DOTFILES__INSTALL_GITCONFIG}" >>"${CONFIG_FI
 # link up files
 function dotfiles::install::link() {
   local file target
-  read -r file target <<<"${1}"
+  IFS=' ' read -r file target <<<"${1}"
 
   # remove the backup first
   [[ -e "${DOTFILES__INSTALL_ROOT}/${target}.bak" ]] && rm -f "${DOTFILES__INSTALL_ROOT}/${target}.bak"
@@ -85,6 +85,21 @@ function dotfiles::install::link() {
     if ! ln -sf "${DOTFILES_ROOT}/${file}" "${DOTFILES__INSTALL_ROOT}/${target}"; then
       echo "Unable to symlink '${DOTFILES__INSTALL_ROOT}/${target}'"
     fi
+  fi
+}
+
+function dotfiles::install::remove_managed_legacy_link() {
+  local target expected_target current_target
+  target="${DOTFILES__INSTALL_ROOT}/$1"
+  expected_target="${DOTFILES_ROOT}/$2"
+
+  if [[ ! -L "${target}" ]]; then
+    return 0
+  fi
+
+  current_target="$(readlink "${target}")"
+  if [[ "${current_target}" == "${expected_target}" ]]; then
+    rm -f "${target}"
   fi
 }
 
@@ -137,36 +152,38 @@ function dotfiles::install::vim() {
 
   # create vim config dir
   mkdir -p "${DOTFILES__INSTALL_ROOT}/.vim"
+  mkdir -p "${DOTFILES__INSTALL_ROOT}/.config/nvim"
 
-  # create nvim pointer to .vimrc
-  # https://neovim.io/doc/user/nvim.html#nvim-from-vim
-  if command -v nvim &>/dev/null && [[ ! -e "${DOTFILES__INSTALL_ROOT}/.config/nvim/init.vim" ]]; then
-    mkdir -p "${DOTFILES__INSTALL_ROOT}/.config/nvim/"
-    echo "Writing default nvim config"
-    {
-      echo 'set runtimepath^=~/.vim runtimepath+=~/.vim/after'
-      echo 'let &packpath = &runtimepath'
-      echo 'source ~/.vimrc'
-    } | tee "${DOTFILES__INSTALL_ROOT}/.config/nvim/init.vim"
+  dotfiles::install::link "config/vim/nvim-init.lua .config/nvim/init.lua"
+
+  if command -v nvim &>/dev/null; then
+    VIM_BIN="nvim"
+  elif command -v vim &>/dev/null; then
+    VIM_BIN="vim"
+  else
+    VIM_BIN=
   fi
 
-  VIM_BIN="$(which nvim vim | head -1)"
-  echo "$VIM_BIN"
-  if [[ -n "${VIM_BIN:-}" ]]; then
-    # install vim plugins
-    echo "Installing vim plugins"
+  if [[ "${VIM_BIN}" == "nvim" ]]; then
+    echo "Installing Neovim plugins"
+    echo "${VIM_BIN}" --headless "+Lazy! sync" +qa
+    if ! "${VIM_BIN}" --headless "+Lazy! sync" +qa; then
+      echo "--------------- Please Run: 'nvim --headless \"+Lazy! sync\" +qa' after installation"
+    fi
+  elif [[ "${VIM_BIN}" == "vim" ]]; then
+    echo "Installing Vim plugins"
     echo "${VIM_BIN}" -Es -u "${DOTFILES__INSTALL_ROOT}/.vimrc" +PlugInstall +qall
     if ! "${VIM_BIN}" -Es -u "${DOTFILES__INSTALL_ROOT}/.vimrc" +PlugInstall +qall; then
-      echo "--------------- Please Run: '$(basename "${VIM_BIN}") +PlugInstall +qall' after installation"
+      echo "--------------- Please Run: 'vim +PlugInstall +qall' after installation"
     fi
   else
-    echo "--------------- Please Run: 'vim +PlugInstall +qall' after installing vim"
+    echo "--------------- Please Run: 'nvim --headless \"+Lazy! sync\" +qa' after installing Neovim"
+    echo "--------------- Please Run: 'vim +PlugInstall +qall' after installing Vim"
   fi
 
-  # symlink coc-settings.json file
   dotfiles::install::link "config/vim/ftplugin .vim/ftplugin"
-  dotfiles::install::link "config/vim/coc-settings.json .vim/coc-settings.json"
-  dotfiles::install::link "config/vim/coc-settings.json .config/nvim/coc-settings.json"
+  dotfiles::install::remove_managed_legacy_link ".vim/coc-settings.json" "config/vim/coc-settings.json"
+  dotfiles::install::remove_managed_legacy_link ".config/nvim/coc-settings.json" "config/vim/coc-settings.json"
 }
 
 function dotfiles::install::repo::update() {
@@ -220,6 +237,7 @@ fi
 for file in "${LINKED_FILES[@]}"; do
   dotfiles::install::link "${file}"
 done
+dotfiles::install::remove_managed_legacy_link ".mongorc.js" "mongorc.js"
 
 # done
 echo

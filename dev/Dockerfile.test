@@ -17,6 +17,7 @@ RUN set -ex \
         # used by tests (skip-guarded)
         nodejs \
         perl \
+        vim \
         # general utilities
         curl \
         git \
