@@ -26,6 +26,73 @@ print_colored_text() {
   printf '%b%s%b' "$color" "$text" "$RESET"
 }
 
+resolve_script_path() {
+  local source_path="${BASH_SOURCE[0]}"
+  local source_dir
+
+  while [[ -L "${source_path}" ]]; do
+    source_dir="$(cd -P "$(dirname "${source_path}")" && pwd)"
+    source_path="$(readlink "${source_path}")"
+    [[ "${source_path}" != /* ]] && source_path="${source_dir}/${source_path}"
+  done
+
+  printf '%s\n' "${source_path}"
+}
+
+load_git_prompt_helper() {
+  local dotfiles_root="${DOTFILES_ROOT:-}"
+  local script_path git_prompt_script
+
+  if [[ -z "${dotfiles_root}" ]]; then
+    script_path="$(resolve_script_path)"
+    dotfiles_root="$(cd -P "$(dirname "${script_path}")/../.." && pwd)"
+  fi
+
+  git_prompt_script="${dotfiles_root}/external/git-prompt.sh"
+  if [[ -r "${git_prompt_script}" ]]; then
+    # shellcheck source=/dev/null
+    source "${git_prompt_script}"
+    HAS_GIT_PS1=1
+  else
+    HAS_GIT_PS1=
+  fi
+}
+
+format_git_segment() {
+  local cwd="$1"
+  local git_segment branch_only
+
+  [[ -n "${cwd}" ]] || return 0
+
+  if [[ -n "${HAS_GIT_PS1:-}" ]]; then
+    git_segment="$(
+      cd "${cwd}" 2>/dev/null || exit 0
+      GIT_PS1_SHOWDIRTYSTATE=true \
+        GIT_PS1_SHOWSTASHSTATE=true \
+        GIT_PS1_SHOWUNTRACKEDFILES=true \
+        GIT_PS1_SHOWUPSTREAM=auto \
+        __git_ps1 " (%s)"
+    )"
+    if [[ -n "${git_segment}" ]]; then
+      printf '%s' "${git_segment}"
+      return 0
+    fi
+  fi
+
+  if git -C "${cwd}" rev-parse --is-inside-work-tree --no-optional-locks >/dev/null 2>&1; then
+    branch_only="$(
+      git -C "${cwd}" symbolic-ref --short HEAD 2>/dev/null \
+        || git -C "${cwd}" rev-parse --short HEAD 2>/dev/null
+    )"
+    if [[ -n "${branch_only}" ]]; then
+      printf ' (%s)' "${branch_only}"
+    fi
+  fi
+}
+
+HAS_GIT_PS1=
+load_git_prompt_helper
+
 # Format numbers with k/M suffixes for readability without external deps.
 fmt_si() {
   local n="$1"
@@ -71,15 +138,8 @@ main() {
   # Just the directory name, not the full path.
   short_cwd="${cwd##*/}"
 
-  # Git branch (skip optional locks to avoid contention).
-  git_branch=""
-  if [[ -n "${cwd}" ]] && git -C "${cwd}" rev-parse --is-inside-work-tree --no-optional-locks >/dev/null 2>&1; then
-    git_branch=$(git -C "${cwd}" symbolic-ref --short HEAD 2>/dev/null \
-      || git -C "${cwd}" rev-parse --short HEAD 2>/dev/null)
-    if [[ -n "${git_branch}" ]]; then
-      git_branch=" (${git_branch})"
-    fi
-  fi
+  # Reuse git-prompt.sh so branch flags match the interactive PS1 prompt.
+  git_branch="$(format_git_segment "${cwd}")"
 
   # Context remaining.
   ctx_part=""

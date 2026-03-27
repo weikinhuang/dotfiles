@@ -28,6 +28,7 @@ export OPEN_SOURCE_CONTRIBUTOR="true"
 # optionally also works
 # export ADBLOCK=1
 
-# force colors in node scripts
+# To force color in node scripts locally, set `export FORCE_COLOR=3` in
+# `~/.bash_local` or `~/.bash_local.d/*.sh`. See README.md: `~/.bash_local`.
 # https://nodejs.org/api/cli.html#force_color1-2-3
-export FORCE_COLOR=3
+# export FORCE_COLOR=3

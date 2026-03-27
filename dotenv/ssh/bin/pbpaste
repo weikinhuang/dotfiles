@@ -44,16 +44,37 @@ then
 
 fi
 
-# fallback to local clipboard: find pbpaste in PATH, skipping this script's own directory
-_self_dir="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
-_remaining="${PATH}"
-while [[ -n "${_remaining}" ]]; do
-  _dir="${_remaining%%:*}"
-  [[ "${_remaining}" == *:* ]] && _remaining="${_remaining#*:}" || _remaining=""
-  [[ "${_dir}" == "${_self_dir}" ]] && continue
-  if [[ -x "${_dir}/pbpaste" ]]; then
-    exec "${_dir}/pbpaste" "$@"
-  fi
-done
-echo "pbpaste: no fallback clipboard command found in PATH" >&2
-exit 1
+function exec_local_fallback() {
+  local command_name="$1"
+  shift
+
+  local self_dir stripped_path=
+  local dir candidate_dir
+  local -a path_entries=()
+  local -a fallback_entries=()
+
+  self_dir="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
+  IFS=: read -r -a path_entries <<<"${PATH}"
+
+  for dir in "${path_entries[@]}"; do
+    [[ "${dir}" == "${self_dir}" ]] && continue
+    fallback_entries+=("${dir}")
+    if [[ -z "${stripped_path}" ]]; then
+      stripped_path="${dir}"
+    else
+      stripped_path="${stripped_path}:${dir}"
+    fi
+  done
+
+  for dir in "${fallback_entries[@]}"; do
+    candidate_dir="${dir:-.}"
+    if [[ -x "${candidate_dir}/${command_name}" ]]; then
+      PATH="${stripped_path}" exec "${candidate_dir}/${command_name}" "$@"
+    fi
+  done
+
+  echo "${command_name}: no fallback clipboard command found in PATH" >&2
+  exit 1
+}
+
+exec_local_fallback pbpaste "$@"
