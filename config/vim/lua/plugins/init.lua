@@ -4,8 +4,31 @@ return {
   { "godlygeek/tabular" },
   {
     "junegunn/fzf",
-    build = function()
-      vim.fn["fzf#install"]()
+    build = function(plugin)
+      local install_cmd
+
+      if vim.fn.has("win32") == 1 or vim.fn.has("win64") == 1 then
+        local powershell = vim.fn.executable("pwsh") == 1 and "pwsh" or "powershell"
+        install_cmd = {
+          powershell,
+          "-NoProfile",
+          "-ExecutionPolicy",
+          "Bypass",
+          "-File",
+          plugin.dir .. "/install.ps1",
+          "-Bin",
+        }
+      else
+        install_cmd = {
+          plugin.dir .. "/install",
+          "--bin",
+        }
+      end
+
+      local out = vim.fn.system(install_cmd)
+      if vim.v.shell_error ~= 0 then
+        error(out)
+      end
     end,
   },
   { "junegunn/fzf.vim" },
@@ -108,6 +131,7 @@ return {
   },
   {
     "nvim-treesitter/nvim-treesitter",
+    branch = "master",
     build = ":TSUpdate",
     config = function()
       require("nvim-treesitter.configs").setup({

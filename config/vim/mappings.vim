@@ -5,7 +5,12 @@
 nnoremap ; :
 
 " Press F2 to enable pastemode and disable auto formatting
-set pastetoggle=<F2>
+if has('nvim')
+  nnoremap <F2> :set invpaste paste?<CR>
+  inoremap <F2> <C-o>:set invpaste paste?<CR>
+else
+  set pastetoggle=<F2>
+endif
 
 " Enable mouse support
 if has('mouse')
@@ -72,4 +77,3 @@ if has("mac") || has("macunix")
   vnoremap <D-j> <A-j>
   vnoremap <D-k> <A-k>
 endif
-
