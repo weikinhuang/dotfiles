@@ -7,6 +7,7 @@ RUN set -ex \
     && export DEBIAN_FRONTEND=noninteractive \
     && apt-get update -qq \
     && apt-get install -y --no-install-recommends \
+        ca-certificates \
         # test framework
         bats \
         bats-assert \
@@ -15,6 +16,7 @@ RUN set -ex \
         shellcheck \
         shfmt \
         # used by tests (skip-guarded)
+        neovim \
         nodejs \
         perl \
         vim \

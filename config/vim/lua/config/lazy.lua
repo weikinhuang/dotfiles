@@ -1,16 +1,38 @@
 local lazypath = vim.fn.stdpath("data") .. "/lazy/lazy.nvim"
 local config_root = vim.fn.fnamemodify(debug.getinfo(1, "S").source:sub(2), ":p:h:h:h")
+local is_windows = vim.fn.has("win32") == 1 or vim.fn.has("win64") == 1
+local git_null_device = is_windows and "NUL" or "/dev/null"
+
+local function with_sanitized_git_env(fn)
+  local git_config_global = vim.env.GIT_CONFIG_GLOBAL
+  local git_config_nosystem = vim.env.GIT_CONFIG_NOSYSTEM
+
+  vim.env.GIT_CONFIG_GLOBAL = git_null_device
+  vim.env.GIT_CONFIG_NOSYSTEM = "1"
+
+  local ok, result = pcall(fn)
+
+  vim.env.GIT_CONFIG_GLOBAL = git_config_global
+  vim.env.GIT_CONFIG_NOSYSTEM = git_config_nosystem
+
+  if not ok then
+    error(result)
+  end
+
+  return result
+end
 
 if not (vim.uv or vim.loop).fs_stat(lazypath) then
-  local out = vim.fn.system({
-    "git",
-    "clone",
-    "--filter=blob:none",
-    "--no-tags",
-    "--branch=stable",
-    "https://github.com/folke/lazy.nvim.git",
-    lazypath,
-  })
+  local out = with_sanitized_git_env(function()
+    return vim.fn.system({
+      "git",
+      "clone",
+      "--filter=blob:none",
+      "--branch=stable",
+      "https://github.com/folke/lazy.nvim.git",
+      lazypath,
+    })
+  end)
 
   if vim.v.shell_error ~= 0 then
     vim.api.nvim_echo({
@@ -32,7 +54,8 @@ if not vim.g.dotfiles_lazy_git_env_patched then
 
     if cmd == "git" then
       opts.env = vim.tbl_extend("force", opts.env or {}, {
-        GIT_CONFIG_GLOBAL = "/dev/null",
+        GIT_CONFIG_GLOBAL = git_null_device,
+        GIT_CONFIG_NOSYSTEM = "1",
       })
     end
 
