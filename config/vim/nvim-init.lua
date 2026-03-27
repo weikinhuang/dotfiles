@@ -11,6 +11,7 @@ end
 source_file(dotfiles_root .. "/vimrc")
 source_file(dotfiles_root .. "/mappings.vim")
 source_file(dotfiles_root .. "/pluginconf.vim")
+source_file(dotfiles_root .. "/vscode.vim")
 source_file(dotfiles_root .. "/filetypes.vim")
 source_file(dotfiles_root .. "/autocommands.vim")
 
@@ -19,3 +20,4 @@ if vim.g.dotfiles_ssh_clipboard_provider and not vim.o.clipboard:match("(^|,)unn
 end
 
 require("config.lazy")
+require("config.vscode").setup()

@@ -48,9 +48,6 @@ let g:ale_linter_aliases = {
 " =====================================
 " => fzf
 " =====================================
-" Remap Ctrl+P to fzf
-nnoremap <C-p> :FZF<cr>
-
 " [Buffers] Jump to the existing window if possible
 let g:fzf_buffers_jump = 1
 

@@ -5,9 +5,6 @@
 " =====================================
 " => NERDTree
 " =====================================
-" remap nerdtree
-map <C-e> :NERDTreeToggle<CR>
-
 " close vim when NERDTree is the only window left
 autocmd bufenter * if (winnr("$") == 1 && exists("b:NERDTreeType") && b:NERDTreeType == "primary") | q | endif
 

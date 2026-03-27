@@ -35,6 +35,7 @@ if filereadable(expand('~/.dotfiles/config/vim/vimrc'))
   endif
   " Configure plugins
   source ~/.dotfiles/config/vim/pluginconf.vim
+  source ~/.dotfiles/config/vim/vscode.vim
   source ~/.dotfiles/config/vim/filetypes.vim
   source ~/.dotfiles/config/vim/autocommands.vim
 endif
