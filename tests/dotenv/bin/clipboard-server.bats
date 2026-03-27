@@ -89,6 +89,24 @@ wait_for_notification() {
   wait_for_notification "Clipboard written"
 }
 
+@test "clipboard-server: POST /clipboard waits for pbcopy to finish writing UTF-8 payloads" {
+  stub_command pbcopy <<'EOF'
+#!/usr/bin/env bash
+sleep 0.2
+cat >"${CLIPBOARD_WRITE_FILE}"
+EOF
+
+  start_server
+
+  run bash -c "printf '%s' 'héλ' | curl -sS --unix-socket '${SOCKET}' http://localhost/clipboard --data-binary @-"
+  assert_success
+  assert_output ""
+
+  run cat "${CLIPBOARD_WRITE_FILE}"
+  assert_success
+  assert_output "héλ"
+}
+
 @test "clipboard-server: GET /clipboard returns pbpaste output when paste is enabled" {
   export MOCK_PBPASTE_CONTENT="clipboard from stub"
   start_server --enable-paste --notify

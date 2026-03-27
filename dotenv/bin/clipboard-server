@@ -60,53 +60,79 @@ const fs = require("fs/promises");
 const fsSync = require("fs");
 const os = require("os");
 const path = require("path");
+const stream = require("stream");
+const util = require("util");
 
 const MAX_BODY_SIZE = 10 * 1024 * 1024; // 10MB
+const pipeline = util.promisify(stream.pipeline);
 
 // set umask for files to be 0600
 process.umask(0o0177);
 
-async function setClipboard(req, res) {
+async function waitForChildProcess(subprocess, command) {
   return await new Promise((resolve, reject) => {
-    const subprocess = childProcess.spawn("pbcopy", {
-      stdio: ["pipe", "pipe", process.stderr],
-    });
-
-    let size = 0;
-    req.on("data", (chunk) => {
-      size += chunk.length;
-      if (size > MAX_BODY_SIZE) {
-        req.destroy();
-        subprocess.kill();
-        reject(new Error("Request body too large"));
-      }
-    });
-
-    subprocess.on("exit", resolve);
     subprocess.on("error", reject);
-    req.on("error", reject);
-    req.on("end", resolve);
-
-    // echo 123 | curl -i 127.0.0.1:9999/clipboard --data-binary @-
-    req.pipe(subprocess.stdin);
-    subprocess.stdout.pipe(res);
+    subprocess.on("close", (code, signal) => {
+      if (code === 0) {
+        resolve();
+        return;
+      }
+      reject(new Error(`${command} exited with code ${code ?? "null"} signal ${signal ?? "none"}`));
+    });
   });
 }
 
-async function getClipboard(res) {
-  return await new Promise((resolve, reject) => {
-    const subprocess = childProcess.spawn("pbpaste", {
-      stdio: ["pipe", "pipe", process.stderr],
-    });
-
-    subprocess.on("exit", resolve);
-    subprocess.on("error", reject);
-    res.on("error", reject);
-    res.on("end", resolve);
-
-    // curl -i 127.0.0.1:9999/clipboard
-    subprocess.stdout.pipe(res);
+async function setClipboard(req) {
+  const subprocess = childProcess.spawn("pbcopy", {
+    stdio: ["pipe", "ignore", process.stderr],
   });
+  const childClosed = waitForChildProcess(subprocess, "pbcopy");
+
+  let size = 0;
+  const sizeLimiter = new stream.Transform({
+    transform(chunk, _encoding, callback) {
+      size += chunk.length;
+      if (size > MAX_BODY_SIZE) {
+        callback(new Error("Request body too large"));
+        return;
+      }
+      callback(null, chunk);
+    },
+  });
+
+  try {
+    // echo 123 | curl -i 127.0.0.1:9999/clipboard --data-binary @-
+    await pipeline(req, sizeLimiter, subprocess.stdin);
+    await childClosed;
+  } catch (err) {
+    try {
+      subprocess.kill();
+    } catch {}
+    try {
+      await childClosed;
+    } catch {}
+    throw err;
+  }
+}
+
+async function getClipboard(res) {
+  const subprocess = childProcess.spawn("pbpaste", {
+    stdio: ["ignore", "pipe", process.stderr],
+  });
+  const childClosed = waitForChildProcess(subprocess, "pbpaste");
+
+  try {
+    // curl -i 127.0.0.1:9999/clipboard
+    await Promise.all([pipeline(subprocess.stdout, res), childClosed]);
+  } catch (err) {
+    try {
+      subprocess.kill();
+    } catch {}
+    try {
+      await childClosed;
+    } catch {}
+    throw err;
+  }
 }
 
 async function showNotification(message) {
