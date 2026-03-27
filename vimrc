@@ -1,3 +1,12 @@
+" Use the Lua-first Neovim configuration when available.
+if has('nvim')
+  let s:nvim_init = expand('~/.dotfiles/config/vim/nvim-init.lua')
+  if filereadable(s:nvim_init)
+    execute 'luafile ' . fnameescape(s:nvim_init)
+    finish
+  endif
+endif
+
 " This must be first, because it changes other options as side effect
 if !has('nvim')
   set nocompatible
@@ -20,17 +29,12 @@ endif
 if filereadable(expand('~/.dotfiles/config/vim/vimrc'))
   source ~/.dotfiles/config/vim/vimrc
   source ~/.dotfiles/config/vim/mappings.vim
-  " Source the dotfiles nvim config file
-  if has('nvim')
-    source ~/.dotfiles/config/vim/nvim.vim
-  endif
   " Source the dotfiles vim only config file
   if !has('nvim')
     source ~/.dotfiles/config/vim/vim.vim
   endif
   " Configure plugins
   source ~/.dotfiles/config/vim/pluginconf.vim
-  source ~/.dotfiles/config/vim/coc.vim
   source ~/.dotfiles/config/vim/filetypes.vim
   source ~/.dotfiles/config/vim/autocommands.vim
 endif
