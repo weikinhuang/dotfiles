@@ -1,2 +1,4 @@
 node_modules
+
+config/vim/ftplugin/ftplugin
 vim/autoload/plug.vim
