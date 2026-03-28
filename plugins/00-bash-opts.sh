@@ -39,8 +39,10 @@ unset DOT_BASH_RESOLVE_PATHS
 # Ensure consistent file permissions across environments (owner rw, group r, other r)
 umask 022
 
-# disable terminal locking with CTRL+s
-stty -ixon
+# disable terminal locking with CTRL+s (stty needs a TTY on stdin)
+if [[ -t 0 ]]; then
+  stty -ixon
+fi
 # Allow C-W mapping in inputrc to work
 # see https://unix.stackexchange.com/q/296822/63527
 # stty werase undef
