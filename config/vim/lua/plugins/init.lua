@@ -132,7 +132,7 @@ return {
   {
     "nvim-treesitter/nvim-treesitter",
     branch = "master",
-    build = ":TSUpdate",
+    build = ":TSUpdateSync",
     config = function()
       require("nvim-treesitter.configs").setup({
         auto_install = true,

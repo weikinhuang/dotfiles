@@ -65,3 +65,39 @@ EOF
   assert_output --partial "clone --filter=blob:none --branch=stable"
   [[ "${output}" != *"--no-tags"* ]]
 }
+
+@test "lazy.lua: removes stale tree-sitter temp directories before setup" {
+  mkdir -p "${XDG_CONFIG_HOME}/nvim"
+  ln -s "${REPO_ROOT}/config/vim/nvim-init.lua" "${XDG_CONFIG_HOME}/nvim/init.lua"
+
+  mkdir -p "${XDG_DATA_HOME}/nvim/tree-sitter-markdown-tmp"
+  mkdir -p "${XDG_DATA_HOME}/nvim/tree-sitter-markdown"
+  touch "${XDG_DATA_HOME}/nvim/tree-sitter-markdown-tmp/stale"
+  touch "${XDG_DATA_HOME}/nvim/tree-sitter-markdown/keep"
+
+  run env \
+    HOME="${HOME}" \
+    XDG_CONFIG_HOME="${XDG_CONFIG_HOME}" \
+    XDG_DATA_HOME="${XDG_DATA_HOME}" \
+    PATH="${MOCK_BIN}:${PATH}" \
+    nvim --headless +qa
+
+  assert_success
+  [ ! -e "${XDG_DATA_HOME}/nvim/tree-sitter-markdown-tmp" ]
+  [ -e "${XDG_DATA_HOME}/nvim/tree-sitter-markdown/keep" ]
+}
+
+@test "plugins/init.lua: uses synchronous tree-sitter updates" {
+  mkdir -p "${XDG_CONFIG_HOME}/nvim"
+  ln -s "${REPO_ROOT}/config/vim/nvim-init.lua" "${XDG_CONFIG_HOME}/nvim/init.lua"
+
+  run env \
+    HOME="${HOME}" \
+    XDG_CONFIG_HOME="${XDG_CONFIG_HOME}" \
+    XDG_DATA_HOME="${XDG_DATA_HOME}" \
+    PATH="${MOCK_BIN}:${PATH}" \
+    nvim --headless '+lua for _, spec in ipairs(require("plugins")) do if spec[1] == "nvim-treesitter/nvim-treesitter" then print(spec.build) end end' +qa
+
+  assert_success
+  assert_output --partial ":TSUpdateSync"
+}

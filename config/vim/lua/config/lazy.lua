@@ -1,7 +1,9 @@
 local lazypath = vim.fn.stdpath("data") .. "/lazy/lazy.nvim"
 local config_root = vim.fn.fnamemodify(debug.getinfo(1, "S").source:sub(2), ":p:h:h:h")
+local uv = vim.uv or vim.loop
 local is_windows = vim.fn.has("win32") == 1 or vim.fn.has("win64") == 1
 local git_null_device = is_windows and "NUL" or "/dev/null"
+local path_sep = package.config:sub(1, 1)
 
 local function with_sanitized_git_env(fn)
   local git_config_global = vim.env.GIT_CONFIG_GLOBAL
@@ -20,6 +22,29 @@ local function with_sanitized_git_env(fn)
   end
 
   return result
+end
+
+local function cleanup_treesitter_temp_dirs()
+  local cache_root = vim.fn.stdpath("data")
+  local scan = uv.fs_scandir(cache_root)
+
+  if not scan then
+    return
+  end
+
+  while true do
+    local name, entry_type = uv.fs_scandir_next(scan)
+
+    if not name then
+      break
+    end
+
+    -- Async parser updates can leave stale temp directories behind, which
+    -- blocks later installs for repos shared across multiple parsers.
+    if entry_type == "directory" and name:match("^tree%-sitter%-.+%-tmp$") then
+      vim.fn.delete(cache_root .. path_sep .. name, "rf")
+    end
+  end
 end
 
 if not (vim.uv or vim.loop).fs_stat(lazypath) then
@@ -64,6 +89,8 @@ if not vim.g.dotfiles_lazy_git_env_patched then
 
   vim.g.dotfiles_lazy_git_env_patched = true
 end
+
+cleanup_treesitter_temp_dirs()
 
 require("lazy").setup(require("plugins"), {
   change_detection = {
