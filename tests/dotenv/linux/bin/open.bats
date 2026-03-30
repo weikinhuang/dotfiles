@@ -2,6 +2,8 @@
 # Tests for dotenv/linux/bin/open.
 # SPDX-License-Identifier: MIT
 
+bats_require_minimum_version 1.5.0
+
 setup() {
   load '../../../helpers/common'
   setup_test_bin
@@ -54,7 +56,6 @@ setup() {
 @test "open: exits with a command error when no opener is installed" {
   use_mock_bin_path
 
-  run bash "${SCRIPT}" target.txt
-  assert_failure
-  [[ "${status}" -eq 127 ]]
+  run -127 bash "${SCRIPT}" target.txt
+  assert_failure 127
 }

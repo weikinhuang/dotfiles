@@ -45,18 +45,47 @@ function __find_editor() {
     echo "${__dot_find_editor_result}"
     return
   fi
+
   local editor=""
+  local found_editor=0
+  # set a reasonable default
   if command -v vi &>/dev/null; then
-    editor="vi"
+    editor="$(command -v vi)"
   elif command -v nano &>/dev/null; then
-    editor="nano"
+    editor="$(command -v nano)"
   fi
 
-  if command -v code-insiders &>/dev/null && [[ "$PATH" == */.vscode-server-insiders/bin/* ]] && [[ "$PATH" != */.vscode-server/bin/* ]]; then
+  # check if we are running in a vscode environment
+  if [[ "${TERM_PROGRAM}" == "vscode" ]]; then
+    if command -v code-insiders &>/dev/null && [[ "${GIT_ASKPASS}" == *"/.vscode-server-insiders/"* ]] \
+      || [[ "${GIT_ASKPASS}" == *"/Visual Studio Code - Insiders.app/"* ]]; then
+      editor="code-insiders --wait"
+      found_editor=1
+    elif command -v cursor &>/dev/null && [[ "${GIT_ASKPASS}" == *"/.cursor-server/"* ]] \
+      || [[ "${GIT_ASKPASS}" == *"/Cursor.app/"* ]]; then
+      editor="cursor --wait"
+      found_editor=1
+    elif command -v code &>/dev/null && [[ "${GIT_ASKPASS}" == *"/.vscode-server/"* ]] \
+      || [[ "${GIT_ASKPASS}" == *"/Visual Studio Code.app/"* ]]; then
+      editor="code --wait"
+      found_editor=1
+    fi
+
+    if [[ "${found_editor}" -eq 1 ]]; then
+      __dot_find_editor_result="${editor}"
+      echo "${editor}"
+      return
+    fi
+  fi
+
+  if command -v code-insiders &>/dev/null || [[ "${PATH}" == */.vscode-server-insiders/bin/* ]]; then
     editor="code-insiders --wait"
-  elif command -v code &>/dev/null && [[ "$PATH" == */.vscode-server/bin/* ]]; then
+  elif command -v cursor &>/dev/null || [[ "${PATH}" == */.cursor-server/bin/* ]]; then
+    editor="cursor --wait"
+  elif command -v code &>/dev/null || [[ "${PATH}" == */.vscode-server/bin/* ]]; then
     editor="code --wait"
-  elif [[ -n "${DOT___IS_WSL}" ]] && command -v npp &>/dev/null; then
+  elif [[ -n "${DOT___IS_WSL}" ]] \
+    && command -v npp &>/dev/null; then
     editor="npp"
   elif command -v nvim &>/dev/null; then
     editor="nvim"
