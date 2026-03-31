@@ -64,6 +64,8 @@ The dotfiles provide `chpwd`, `precmd`, and `preexec` hooks with Zsh-like semant
 
 shfmt flags: `-ln bash -ci -bn -i 2` for shell files, `-ln bats -ci -bn -i 2` for `.bats` files. shellcheck runs with `--source-path=SCRIPTDIR`, and `.bats` files are checked with `shellcheck -s bats -S warning`. Add shellcheck directives for valid exceptions only.
 
+For sourced shell code, use `__dot_*` for internal variables and `internal::...` for internal functions. Scoped variable families like `__dot_ps1_*` and `__dot_ssh_*` are preferred over one-off prefixes.
+
 ### Customization model
 
 Users customize via `~/.bash_local` (sourced before built-ins) and `~/.bash_local.d/*.sh` (sourced after). Plugins also load from `~/.bash_local.d/*.plugin`. The entry points are `bash_profile.sh` → `bashrc.sh` → `dotenv/lib/load.sh`. Configuration is controlled by `DOT_*` environment variables documented in [README.md](./README.md#configuration-options).
