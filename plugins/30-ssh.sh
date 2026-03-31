@@ -65,8 +65,11 @@ function __dot_ssh_completion_needs_refresh() {
 }
 
 function __dot_ssh_completion_refresh_cache() {
-  local cache_file="$1"
-  local tmp_file="${cache_file}.tmp.$$.$RANDOM"
+  __dot_cache_write_atomic "$1" "__dot_ssh_completion_generate_cache"
+}
+
+# shellcheck disable=SC2329  # Invoked indirectly via __dot_cache_write_atomic.
+function __dot_ssh_completion_generate_cache() {
   local _line _h
   local _ssh_hosts=()
 
@@ -89,13 +92,9 @@ function __dot_ssh_completion_refresh_cache() {
     done <"${HOME}/.ssh/known_hosts"
   fi
 
-  mkdir -p "${cache_file%/*}"
-  if [[ ${#_ssh_hosts[@]} -eq 0 ]]; then
-    : >"${tmp_file}"
-  else
-    printf '%s\n' "${_ssh_hosts[@]}" | sort -u >"${tmp_file}"
+  if [[ ${#_ssh_hosts[@]} -gt 0 ]]; then
+    printf '%s\n' "${_ssh_hosts[@]}" | sort -u
   fi
-  mv -f "${tmp_file}" "${cache_file}"
 }
 
 # SSH auto-completion based on entries in known_hosts and config.
@@ -114,3 +113,4 @@ fi
 
 unset -f __dot_ssh_completion_needs_refresh
 unset -f __dot_ssh_completion_refresh_cache
+unset -f __dot_ssh_completion_generate_cache

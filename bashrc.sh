@@ -22,15 +22,13 @@ DOTFILES__ROOT="${DOTFILES__INSTALL_ROOT:-${HOME}}"
 readonly DOTFILES__ROOT
 export DOTFILES__ROOT
 
-# create cache dir
+# create the dotfiles config root for plugins that write non-cache files.
+# cache subdirectories are still created lazily by the shared cache helper.
 DOTFILES__CONFIG_DIR="${XDG_CONFIG_HOME:-"${HOME}/.config"}/dotfiles"
 readonly DOTFILES__CONFIG_DIR
 export DOTFILES__CONFIG_DIR
-if [[ ! -d "${DOTFILES__CONFIG_DIR}/cache" ]]; then
-  mkdir -p "${DOTFILES__CONFIG_DIR}/cache"
-fi
-if [[ ! -d "${DOTFILES__CONFIG_DIR}/cache/completions" ]]; then
-  mkdir -p "${DOTFILES__CONFIG_DIR}/cache/completions"
+if [[ ! -d "${DOTFILES__CONFIG_DIR}" ]]; then
+  mkdir -p "${DOTFILES__CONFIG_DIR}"
 fi
 
 # Check out which env this bash is running in

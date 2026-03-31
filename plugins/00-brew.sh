@@ -33,20 +33,20 @@ if [[ -n "${DOT_INCLUDE_BREW_PATH:-}" ]]; then
   __brew_cellar_dir="${__BREW_PREFIX}/Cellar"
   __brew_cache_key="${__BREW_PREFIX//\//_}"
   __brew_gnu_cache_file="${DOTFILES__CONFIG_DIR}/cache/brew_gnu_paths.${__brew_cache_key}.cache"
+  # shellcheck disable=SC2329  # Invoked indirectly via __dot_cache_write_atomic.
+  __dot_brew_gnu_cache_generate() {
+    local p
+
+    for p in "${__BREW_PREFIX}"/Cellar/*/*/libexec/gnubin; do
+      [[ -d "${p}" ]] && printf 'PATH:%s\n' "${p}"
+    done
+    for p in "${__BREW_PREFIX}"/Cellar/*/*/libexec/gnuman; do
+      [[ -d "${p}" ]] && printf 'MAN:%s\n' "${p}"
+    done
+  }
   if [[ ! -f "${__brew_gnu_cache_file}" ]] \
     || { [[ -d "${__brew_cellar_dir}" ]] && [[ "${__brew_cellar_dir}" -nt "${__brew_gnu_cache_file}" ]]; }; then
-    __brew_gnu_tmp="${__brew_gnu_cache_file}.tmp.$$.$RANDOM"
-    mkdir -p "${__brew_gnu_cache_file%/*}"
-    {
-      for p in "${__BREW_PREFIX}"/Cellar/*/*/libexec/gnubin; do
-        [[ -d "${p}" ]] && printf 'PATH:%s\n' "${p}"
-      done
-      for p in "${__BREW_PREFIX}"/Cellar/*/*/libexec/gnuman; do
-        [[ -d "${p}" ]] && printf 'MAN:%s\n' "${p}"
-      done
-    } >"${__brew_gnu_tmp}"
-    mv -f "${__brew_gnu_tmp}" "${__brew_gnu_cache_file}"
-    unset __brew_gnu_tmp
+    __dot_cache_write_atomic "${__brew_gnu_cache_file}" "__dot_brew_gnu_cache_generate"
   fi
 
   export MANPATH="${MANPATH:-/usr/share/man}"
@@ -65,6 +65,7 @@ if [[ -n "${DOT_INCLUDE_BREW_PATH:-}" ]]; then
       esac
     done <"${__brew_gnu_cache_file}"
   fi
+  unset -f __dot_brew_gnu_cache_generate
   unset p __brew_cellar_dir __brew_cache_key __brew_gnu_cache_file
   export MANPATH
 fi

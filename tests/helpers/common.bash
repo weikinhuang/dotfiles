@@ -102,6 +102,20 @@ __dot_cached_eval() {
   [[ -n "${output}" ]] && eval "${output}"
 }
 
+__dot_cache_write_atomic() {
+  local cache_file="$1"
+  local command_string="$2"
+  local tmp_file="${cache_file}.tmp.$$.$RANDOM"
+
+  mkdir -p "${cache_file%/*}" || return 1
+  if eval "${command_string}" >"${tmp_file}" 2>/dev/null; then
+    mv -f "${tmp_file}" "${cache_file}"
+    return 0
+  fi
+  rm -f "${tmp_file}"
+  return 1
+}
+
 # Writes an executable file at an arbitrary path from stdin.
 write_executable() {
   local path="$1"

@@ -169,5 +169,32 @@ EOF
   assert_line --index 10 "internal=history -a"
   assert_line --index 11 "load-type="
   assert_line --index 12 "complete-type="
-  assert_line --index 13 "cache-dirs=present"
+  assert_line --index 13 "cache-dirs=missing"
+}
+
+@test "bashrc: creates the dotfiles config dir without eagerly creating cache dirs" {
+  create_bashrc_fixture "${HOME}"
+
+  run bash --noprofile --norc -c '
+    export HOME="$2"
+    export XDG_CONFIG_HOME="${HOME}/.config"
+    export PS1="$ "
+
+    source "$1"
+
+    if [[ -d "${DOTFILES__CONFIG_DIR}" ]]; then
+      echo "config-dir=present"
+    else
+      echo "config-dir=missing"
+    fi
+    if [[ -d "${DOTFILES__CONFIG_DIR}/cache" ]]; then
+      echo "cache-dir=present"
+    else
+      echo "cache-dir=missing"
+    fi
+  ' _ "${REPO_ROOT}/bashrc.sh" "${HOME}"
+
+  assert_success
+  assert_line --index 0 "config-dir=present"
+  assert_line --index 1 "cache-dir=missing"
 }

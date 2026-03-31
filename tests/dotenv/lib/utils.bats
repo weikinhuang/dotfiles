@@ -111,3 +111,16 @@ EOF
   [ ! -e "${cache_file}" ]
   [ "$(find "${DOTFILES__CONFIG_DIR}/cache" -maxdepth 1 -name 'failing.init.bash.tmp.*' | wc -l)" -eq 0 ]
 }
+
+@test "utils: cache-write-atomic fails quietly when the cache directory cannot be created" {
+  local blocked_root="${BATS_TEST_TMPDIR}/blocked"
+  local cache_file="${blocked_root}/cache/demo-tool.init.bash"
+
+  printf 'not a directory\n' >"${blocked_root}"
+
+  run __dot_cache_write_atomic "${cache_file}" "printf 'export TEST_CACHED_EVAL=ready\\n'"
+
+  assert_failure
+  assert_output ""
+  [ ! -e "${cache_file}" ]
+}

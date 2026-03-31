@@ -50,6 +50,10 @@ Argument parsing patterns — use `genpasswd` as the reference implementation:
 
 Tests mirror source paths: `dotenv/bin/git-sync` → `tests/dotenv/bin/git-sync.bats`. Prefix `@test` names with the script name and colon (e.g. `@test "git-sync: restores dirty state"`). Use `source_without_main` to unit-test internal functions. See [TESTING.md](./TESTING.md) for the full helper API and examples.
 
+### Cache files
+
+Route cache file writes through `__dot_cache_write_atomic` in `dotenv/lib/utils.sh` so parent-directory creation, atomic replacement, and readonly-cache failures are handled in one place. Cache reads can stay inline when they are simple `[[ -f/-s ]]` checks plus `source`/`read`; add a shared read helper only if read-side policy becomes meaningfully more complex.
+
 ### Hooks
 
 The dotfiles provide `chpwd`, `precmd`, and `preexec` hooks with Zsh-like semantics. Hooks for each dotenv loading phase are available via `dotfiles_hook_${PHASE}_{pre,post}` functions or the `dotfiles_hook_${PHASE}_{pre,post}_functions` arrays. Declare hooks in `~/.bash_local` or `~/.bash_local.d/*.sh`.

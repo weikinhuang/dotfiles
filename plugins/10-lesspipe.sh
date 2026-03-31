@@ -10,9 +10,10 @@ fi
 _lesspipe_cache="${DOTFILES__CONFIG_DIR}/cache/lesspipe.bash"
 if [[ ! -f "$_lesspipe_cache" ]] \
   || [[ "$(command -v lesspipe.sh)" -nt "$_lesspipe_cache" ]]; then
-  mkdir -p "${DOTFILES__CONFIG_DIR}/cache"
-  SHELL=/bin/bash lesspipe.sh 2>/dev/null >|"$_lesspipe_cache"
+  __dot_cache_write_atomic "$_lesspipe_cache" "SHELL=/bin/bash lesspipe.sh"
 fi
-# shellcheck source=/dev/null
-source "$_lesspipe_cache"
+if [[ -f "$_lesspipe_cache" ]]; then
+  # shellcheck source=/dev/null
+  source "$_lesspipe_cache"
+fi
 unset _lesspipe_cache

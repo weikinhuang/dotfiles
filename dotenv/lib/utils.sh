@@ -97,6 +97,14 @@ function __find_editor() {
   echo "${editor}"
 }
 
+# Cache writes should fail quietly so readonly filesystems do not spam startup.
+function __dot_cache_prepare_dir() {
+  local cache_dir="${1%/*}"
+
+  [[ -d "${cache_dir}" ]] && return 0
+  mkdir -p "${cache_dir}" 2>/dev/null
+}
+
 # Cache and source shell init scripts with version-based invalidation
 # Usage: __dot_cached_eval <tool> <generate-cmd>
 function __dot_cache_write_atomic() {
@@ -104,12 +112,13 @@ function __dot_cache_write_atomic() {
   local gen_cmd="$2"
   local tmp_file="${cache_file}.tmp.$$.$RANDOM"
 
-  mkdir -p "${cache_file%/*}"
-  if eval "$gen_cmd" >"${tmp_file}" 2>/dev/null; then
-    mv -f "${tmp_file}" "${cache_file}"
-    return 0
+  __dot_cache_prepare_dir "${cache_file}" || return 1
+  if eval "$gen_cmd" 2>/dev/null >"${tmp_file}"; then
+    if mv -f "${tmp_file}" "${cache_file}" 2>/dev/null; then
+      return 0
+    fi
   fi
-  rm -f "${tmp_file}"
+  rm -f "${tmp_file}" 2>/dev/null || true
   return 1
 }
 
