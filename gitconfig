@@ -3,6 +3,12 @@
   path = ~/.dotfiles/config/git/attributes.gitconfig.conf
   path = ~/.dotfiles/config/git/alias.gitconfig.conf
   path = ~/.dotfiles/config/git/overrides.gitconfig.conf
+
+[includeIf "onbranch:**"]
+  # Force retagged remote tags during fetch/pull, but not during clone.
+  path = ~/.dotfiles/config/git/tag-overrides.gitconfig.conf
+
+[include]
   # managed by plugins/30-delta.sh when delta is installed
   path = ~/.config/dotfiles/git-delta.gitconfig
   # managed by plugins/30-difftastic.sh when difft is installed
