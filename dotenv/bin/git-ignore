@@ -20,18 +20,45 @@ Options:
 EOF
 }
 
-function show_contents {
-  if [[ -f "$2" ]]; then
-    echo "$1 gitignore: $2"
-    cat "$2"
+function show_contents() {
+  local label="$1"
+  local file="$2"
+
+  if [[ -f "${file}" ]]; then
+    echo "${label} gitignore: ${file}"
+    cat "${file}"
   fi
 }
 
-function get_global_ignore_file {
-  git config --global core.excludesfile 2>/dev/null || true
+function expand_home_path() {
+  local path="$1"
+
+  if [[ "${path}" == "~" ]]; then
+    printf '%s\n' "${HOME}"
+    return 0
+  fi
+
+  if [[ "${path}" == \~/* ]]; then
+    printf '%s/%s\n' "${HOME}" "${path#~/}"
+    return 0
+  fi
+
+  printf '%s\n' "${path}"
 }
 
-function show_global {
+function get_global_ignore_file() {
+  local global_ignore_file
+
+  global_ignore_file="$(git config --global --path core.excludesfile 2>/dev/null || true)"
+  if [[ -z "${global_ignore_file}" ]]; then
+    global_ignore_file="$(git config --global core.excludesfile 2>/dev/null || true)"
+  fi
+
+  [[ -n "${global_ignore_file}" ]] || return 0
+  expand_home_path "${global_ignore_file}"
+}
+
+function show_global() {
   local global_ignore_file
 
   global_ignore_file="$(get_global_ignore_file)"
@@ -39,7 +66,27 @@ function show_global {
   show_contents Global "${global_ignore_file}"
 }
 
-function add_global {
+function show_local() {
+  show_contents Local .gitignore
+}
+
+function add_patterns() {
+  local file="$1"
+  local pattern
+
+  mkdir -p "$(dirname "${file}")"
+  echo "Adding pattern(s) to: ${file}"
+  for pattern in "${@:2}"; do
+    [[ -n "${pattern}" ]] || continue
+    echo "... adding '${pattern}'"
+    if [[ -f "${file}" ]] && grep -Fqx -- "${pattern}" "${file}"; then
+      continue
+    fi
+    printf '%s\n' "${pattern}" >>"${file}"
+  done
+}
+
+function add_global() {
   local global_ignore_file
 
   global_ignore_file="$(get_global_ignore_file)"
@@ -51,49 +98,81 @@ function add_global {
   add_patterns "${global_ignore_file}" "$@"
 }
 
-function show_local {
-  show_contents Local .gitignore
-}
-
-function add_local {
+function add_local() {
   add_patterns .gitignore "$@"
 }
 
-function add_patterns {
-  local file="$1"
-  local pattern
+function main() {
+  local scope=
+  local -a patterns=()
 
-  echo "Adding pattern(s) to: ${file}"
-  for pattern in "${@:2}"; do
-    [[ -n "${pattern}" ]] || continue
-    echo "... adding '$pattern'"
-    if [[ -f "${file}" ]] && grep -Fqx -- "${pattern}" "${file}"; then
-      continue
-    fi
-    printf '%s\n' "${pattern}" >>"${file}"
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      -h | --help)
+        print_help
+        exit 0
+        ;;
+      -l | --local)
+        if [[ -n "${scope}" && "${scope}" != "local" ]]; then
+          echo "git-ignore: choose either --local or --global" >&2
+          exit 1
+        fi
+        scope="local"
+        ;;
+      -g | --global)
+        if [[ -n "${scope}" && "${scope}" != "global" ]]; then
+          echo "git-ignore: choose either --local or --global" >&2
+          exit 1
+        fi
+        scope="global"
+        ;;
+      --)
+        shift
+        while [[ $# -gt 0 ]]; do
+          patterns+=("$1")
+          shift
+        done
+        break
+        ;;
+      -*)
+        echo "git-ignore: unknown argument: $1" >&2
+        print_help >&2
+        exit 1
+        ;;
+      *)
+        patterns+=("$1")
+        ;;
+    esac
+    shift
   done
-}
 
-if test $# -eq 0; then
-  show_global
-  echo "---------------------------------"
-  show_local
-else
-  case "$1" in
-    -h | --help)
-      print_help
-      exit 0
-      ;;
-    -l | --local)
-      test $# -gt 1 && add_local "${@:2}" && echo
+  if [[ -z "${scope}" && ${#patterns[@]} -eq 0 ]]; then
+    show_global
+    echo "---------------------------------"
+    show_local
+    exit 0
+  fi
+
+  if [[ -z "${scope}" ]]; then
+    scope="local"
+  fi
+
+  case "${scope}" in
+    local)
+      if [[ ${#patterns[@]} -gt 0 ]]; then
+        add_local "${patterns[@]}"
+        echo
+      fi
       show_local
       ;;
-    -g | --global)
-      test $# -gt 1 && add_global "${@:2}" && echo
+    global)
+      if [[ ${#patterns[@]} -gt 0 ]]; then
+        add_global "${patterns[@]}"
+        echo
+      fi
       show_global
       ;;
-    *)
-      add_local "$@"
-      ;;
   esac
-fi
+}
+
+main "$@"

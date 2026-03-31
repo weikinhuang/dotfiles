@@ -53,3 +53,23 @@ setup() {
   [[ "$(grep -Fxc '.DS_Store' "${HOME}/.gitignore_global")" -eq 1 ]]
   [[ "$(grep -Fxc 'Thumbs.db' "${HOME}/.gitignore_global")" -eq 1 ]]
 }
+
+@test "git-ignore: -- allows local patterns that start with a dash" {
+  local repo="${BATS_TEST_TMPDIR}/repo"
+  mkdir -p "${repo}"
+
+  cd "${repo}"
+  run bash "${SCRIPT}" -- "-cache"
+  assert_success
+  [[ "$(grep -Fxc -- '-cache' .gitignore)" -eq 1 ]]
+}
+
+@test "git-ignore: --global expands home-relative excludesfile paths" {
+  git config --global core.excludesfile \~/.config/git/ignore
+
+  cd "${BATS_TEST_TMPDIR}"
+  run bash "${SCRIPT}" --global ".DS_Store"
+  assert_success
+  [[ -f "${HOME}/.config/git/ignore" ]]
+  [[ "$(grep -Fxc '.DS_Store' "${HOME}/.config/git/ignore")" -eq 1 ]]
+}

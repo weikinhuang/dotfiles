@@ -17,144 +17,163 @@ Options:
 EOF
 }
 
-function find_reflog_entry() {
-  local prefix="$1"
-  local suffix="${2:-}"
-  local reflog line entry
+UNDO_INDEX_TEMP_INDEX=
+UNDO_INDEX_TARGET_PATHS=()
+UNDO_INDEX_CHANGED_PATHS=()
 
-  reflog="$(git reflog)"
-  while IFS= read -r line; do
-    [[ "$line" == *"$prefix"* ]] || continue
-    if [[ -n "$suffix" && "$line" != *"$suffix" ]]; then
-      continue
+function cleanup_temp_index() {
+  if [[ -n "${UNDO_INDEX_TEMP_INDEX}" && -f "${UNDO_INDEX_TEMP_INDEX}" ]]; then
+    rm -f "${UNDO_INDEX_TEMP_INDEX}"
+  fi
+}
+
+function current_ref() {
+  git symbolic-ref --quiet --short HEAD 2>/dev/null || git rev-parse --short HEAD
+}
+
+function current_branch() {
+  git symbolic-ref --quiet --short HEAD 2>/dev/null || true
+}
+
+function diff_names() {
+  if [[ "${1:-}" == "--cached" ]]; then
+    shift
+    if [[ ${#UNDO_INDEX_TARGET_PATHS[@]} -gt 0 ]]; then
+      git diff --cached --name-only --diff-filter=ACDMRTUXB -- "${UNDO_INDEX_TARGET_PATHS[@]}"
+    else
+      git diff --cached --name-only --diff-filter=ACDMRTUXB
     fi
-
-    IFS=' ' read -r _ entry _ <<<"$line"
-    printf '%s\n' "${entry%:}"
     return 0
-  done <<<"$reflog"
+  fi
 
-  return 1
+  if [[ ${#UNDO_INDEX_TARGET_PATHS[@]} -gt 0 ]]; then
+    git diff --name-only --diff-filter=ACDMRTUXB -- "${UNDO_INDEX_TARGET_PATHS[@]}"
+  else
+    git diff --name-only --diff-filter=ACDMRTUXB
+  fi
 }
 
-case "${1:-}" in
-  -h | --help)
-    print_help
+function has_unmerged_paths() {
+  local unmerged_paths
+
+  if [[ ${#UNDO_INDEX_TARGET_PATHS[@]} -gt 0 ]]; then
+    unmerged_paths="$(git diff --name-only --diff-filter=U -- "${UNDO_INDEX_TARGET_PATHS[@]}")"
+  else
+    unmerged_paths="$(git diff --name-only --diff-filter=U)"
+  fi
+
+  [[ -n "${unmerged_paths}" ]]
+}
+
+function collect_changed_paths() {
+  local path
+
+  UNDO_INDEX_CHANGED_PATHS=()
+  while IFS= read -r path; do
+    [[ -n "${path}" ]] || continue
+    UNDO_INDEX_CHANGED_PATHS+=("${path}")
+  done < <(
+    {
+      diff_names
+      diff_names --cached
+    } | LC_ALL=C sort -u
+  )
+}
+
+function build_undo_commit() {
+  local head_commit="$1"
+  local tree
+  local commit_message="$2"
+
+  UNDO_INDEX_TEMP_INDEX="$(mktemp "${TMPDIR:-/tmp}/git-undo-index.XXXXXX")"
+  GIT_INDEX_FILE="${UNDO_INDEX_TEMP_INDEX}" git read-tree "${head_commit}"
+  GIT_INDEX_FILE="${UNDO_INDEX_TEMP_INDEX}" git add -A -- "${UNDO_INDEX_CHANGED_PATHS[@]}"
+  tree="$(GIT_INDEX_FILE="${UNDO_INDEX_TEMP_INDEX}" git write-tree)"
+
+  printf '%s\n' "${commit_message}" | git commit-tree "${tree}" -p "${head_commit}"
+}
+
+function restore_paths() {
+  if [[ ${#UNDO_INDEX_TARGET_PATHS[@]} -gt 0 ]]; then
+    git restore --source=HEAD --staged --worktree -- "${UNDO_INDEX_TARGET_PATHS[@]}"
+  else
+    git restore --source=HEAD --staged --worktree -- :/
+  fi
+}
+
+function cleanup_restore_reflog_entry() {
+  local branch_name="${1:-}"
+
+  git reflog delete --rewrite 'HEAD@{0}'
+  if [[ -n "${branch_name}" ]]; then
+    git reflog delete --rewrite "${branch_name}@{0}"
+  fi
+}
+
+function main() {
+  local branch_name
+  local head_commit
+  local current_ref
+  local commit_subject
+  local commit_message
+  local undo_commit
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      -h | --help)
+        print_help
+        exit 0
+        ;;
+      --)
+        shift
+        while [[ $# -gt 0 ]]; do
+          UNDO_INDEX_TARGET_PATHS+=("$1")
+          shift
+        done
+        break
+        ;;
+      -*)
+        echo "git-undo-index: unknown argument: $1" >&2
+        print_help >&2
+        exit 1
+        ;;
+      *)
+        UNDO_INDEX_TARGET_PATHS+=("$1")
+        ;;
+    esac
+    shift
+  done
+
+  if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    echo "git-undo-index: not in a git repository" >&2
+    exit 1
+  fi
+
+  if has_unmerged_paths; then
+    echo "git-undo-index: cannot discard unmerged paths" >&2
+    exit 1
+  fi
+
+  collect_changed_paths
+  if [[ ${#UNDO_INDEX_CHANGED_PATHS[@]} -eq 0 ]]; then
+    echo "No tracked changes to discard."
     exit 0
-    ;;
-esac
+  fi
 
-# colors
-# COLOR_BOLD=
-# COLOR_RESET=
-# if command -v tput &>/dev/null; then
-#   COLOR_BOLD=$(tput bold)
-#   COLOR_RESET=$(tput sgr0)
-# fi
+  trap 'cleanup_temp_index' EXIT
 
-# variables
-UNIXTIME="$(date +%s)"
-RANDOM_SUFFIX="$(dd bs=256 count=1 if=/dev/urandom 2>/dev/null | LC_ALL=C tr -dc 'a-zA-Z0-9')"
-RANDOM_SUFFIX="${RANDOM_SUFFIX:0:8}"
-TEMP_BRANCH_NAME="__undo_${RANDOM_SUFFIX}_${UNIXTIME}"
-CURRENT_HEAD_FULL="$(git rev-parse HEAD)"
-CURRENT_HEAD="$(git rev-parse --symbolic-full-name --abbrev-ref --short HEAD)"
-if [ "${CURRENT_HEAD}" == 'HEAD' ]; then
-  CURRENT_HEAD="$(git rev-parse --short HEAD)"
-fi
-COMMIT_MESSAGE="$(git log --format=%s -n 1)"
+  branch_name="$(current_branch)"
+  head_commit="$(git rev-parse HEAD)"
+  current_ref="$(current_ref)"
+  commit_subject="$(git log --format=%s -n 1 "${head_commit}")"
+  commit_message="Undoing changes for ${current_ref}: ${commit_subject} on $(date)"
+  undo_commit="$(build_undo_commit "${head_commit}" "${commit_message}")"
 
-#set -x
+  restore_paths
 
-# create the patch of the changes to undo to apply later
-GIT_DIFF="$(git diff -- "$@")"
-
-# check if we can go to a new branch
-#echo "${COLOR_BOLD}Switching to temp branch: ${TEMP_BRANCH_NAME}${COLOR_RESET}" 1>&2
-if ! git checkout -b "$TEMP_BRANCH_NAME" &>/dev/null; then
-  echo "Unable to create temp branch!" >/dev/stderr
-  exit 1
-fi
-
-# clean up the temp branch and stash on unexpected exit
-function cleanup_on_exit() {
-  git checkout "${CURRENT_HEAD}" 2>/dev/null
-  git branch -D "${TEMP_BRANCH_NAME}" 2>/dev/null
-  [[ -n "${USE_STASH:-}" ]] && git stash pop 2>/dev/null
+  git update-ref -m "${commit_message}" HEAD "${undo_commit}" "${head_commit}"
+  git update-ref -m "git-undo-index: restore HEAD" HEAD "${head_commit}" "${undo_commit}"
+  cleanup_restore_reflog_entry "${branch_name}"
 }
-trap cleanup_on_exit EXIT
 
-# actually undo all changes that were specified
-git checkout -- "$@" &>/dev/null
-#git status
-
-# determine if there are any changes to stash
-USE_STASH="$(git status --porcelain --untracked-files=no)"
-
-# create a temp stash for changes we're actually keeping
-if [ -n "$USE_STASH" ]; then
-  git stash push -m "temp stash: ${TEMP_BRANCH_NAME}" &>/dev/null
-  #git status
-
-  # reapply the changes we're keeping so we can keep cherry-pick from the reflog happy
-  git stash apply --index "stash@{0}" &>/dev/null
-  #git status
-
-  # commit changes that we're keeping also for cherry-pick purposes
-  git commit --no-verify -a -m"WIP ${TEMP_BRANCH_NAME}" &>/dev/null || true
-  #git status
-fi
-
-# apply the changes we're discarding
-echo "$GIT_DIFF" | git apply &>/dev/null
-#git status
-
-# add all the files we're discarding
-#echo "${COLOR_BOLD}Adding files to undo:${COLOR_RESET}" 1>&2
-git add --verbose --update "$@" &>/dev/null
-#git status
-
-# commit all the files we're discarding
-#echo "${COLOR_BOLD}Creating commit entry for reflog${COLOR_RESET}" 1>&2
-git commit --no-verify -m"Undoing changes for ${CURRENT_HEAD}: ${COMMIT_MESSAGE} on $(date)"
-#git status
-
-# prevent any unnecessary change detection when going back to the previous branch
-git reset --hard "${CURRENT_HEAD_FULL}" &>/dev/null
-#git status
-
-# go back to the previous working branch
-git checkout - &>/dev/null
-#git status
-
-# reapply all the changes we're keeping along with the staged state of each file
-if [ -n "$USE_STASH" ]; then
-  git stash pop --index "stash@{0}" &>/dev/null
-  #git status
-fi
-
-# remove the temp branch (clear trap first — normal cleanup path)
-trap - EXIT
-git branch -D "$TEMP_BRANCH_NAME" &>/dev/null
-#git status
-
-# clean up wip reflog entries
-# remove the reflog entry
-if CHECKOUT_REFLOG_ENTRY="$(find_reflog_entry 'checkout: moving from ' " to ${TEMP_BRANCH_NAME}")"; then
-  git reflog delete "${CHECKOUT_REFLOG_ENTRY}" &>/dev/null
-fi
-# remove the reflog entry for the wip commit, as it is not needed
-if WIP_REFLOG_ENTRY="$(find_reflog_entry "commit: WIP ${TEMP_BRANCH_NAME}")"; then
-  git reflog delete "${WIP_REFLOG_ENTRY}" &>/dev/null
-fi
-# remove the reflog entry for the reset operation
-if RESET_REFLOG_ENTRY="$(find_reflog_entry "reset: moving to ${CURRENT_HEAD_FULL}")"; then
-  git reflog delete "${RESET_REFLOG_ENTRY}" &>/dev/null
-fi
-
-# DO NOT DELETE THIS REFLOG ENTRY
-# deleting this entry will rewrite the "Undoing changes for" commit to the current HEAD instead
-#if git reflog | grep -q "checkout: moving from ${TEMP_BRANCH_NAME} to"; then
-#    #echo "${COLOR_BOLD}Removing \"$(git reflog | grep "checkout: moving from ${TEMP_BRANCH_NAME} to" | head -n1 | cut -f3- -d' ')\" from reflog${COLOR_RESET}" 1>&2
-#    git reflog delete "$(git reflog | grep "checkout: moving from ${TEMP_BRANCH_NAME} to" | head -n1 | cut -f2 -d' ' | tr -d ':')" &>/dev/null
-#fi
+main "$@"

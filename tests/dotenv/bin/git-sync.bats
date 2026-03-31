@@ -5,6 +5,7 @@
 setup() {
   load '../../helpers/common'
   setup_test_bin
+  setup_isolated_home
   prepend_path "${REPO_ROOT}/dotenv/bin"
   SCRIPT="${REPO_ROOT}/dotenv/bin/git-sync"
 }
@@ -22,7 +23,6 @@ create_origin_clone() {
   git -C "${SEED_REPO}" push -q -u origin main
   git clone -q "${ORIGIN_REPO}" "${TEST_REPO}"
   configure_git_identity "${TEST_REPO}"
-  git -C "${TEST_REPO}" config alias.brn 'rev-parse --abbrev-ref HEAD'
 }
 
 @test "git-sync: -h and --help print usage" {
@@ -30,17 +30,18 @@ create_origin_clone() {
     run bash "${SCRIPT}" "${flag}"
     assert_success
     assert_output --partial "Usage: git-sync"
+    assert_output --partial "-v, --verbose"
   done
 }
 
-@test "git-sync: restores dirty changes and returns to the starting branch after syncing origin" {
+@test "git-sync: -v prints sync progress while restoring dirty changes" {
   create_origin_clone
 
   git -C "${TEST_REPO}" checkout -q -b feature
   echo "local change" >>"${TEST_REPO}/tracked.txt"
 
   cd "${TEST_REPO}"
-  run env GIT_SYNC_TRACE=1 bash "${SCRIPT}"
+  run bash "${SCRIPT}" -v
   assert_success
   assert_output --partial "Checkout to main"
   assert_output --partial "Pulling origin"
@@ -53,37 +54,73 @@ create_origin_clone() {
   assert_output " M tracked.txt"
 }
 
+@test "git-sync: restores staged changes after syncing origin" {
+  create_origin_clone
+
+  git -C "${TEST_REPO}" checkout -q -b feature
+  echo "staged change" >>"${TEST_REPO}/tracked.txt"
+  git -C "${TEST_REPO}" add tracked.txt
+
+  cd "${TEST_REPO}"
+  run bash "${SCRIPT}"
+  assert_success
+
+  [[ "$(git rev-parse --abbrev-ref HEAD)" == "feature" ]]
+  grep -q 'staged change' tracked.txt
+
+  run git status --porcelain -- tracked.txt
+  assert_success
+  assert_output "M  tracked.txt"
+}
+
+@test "git-sync: restores untracked files that conflict with files added on the default branch" {
+  create_origin_clone
+
+  git -C "${TEST_REPO}" checkout -q -b feature
+  echo "local scratch" >"${TEST_REPO}/conflict.txt"
+
+  echo "remote tracked" >"${SEED_REPO}/conflict.txt"
+  git_commit_all "${SEED_REPO}" "add conflict file"
+  git -C "${SEED_REPO}" push -q origin main
+
+  cd "${TEST_REPO}"
+  run bash "${SCRIPT}"
+  assert_success
+
+  [[ "$(git rev-parse --abbrev-ref HEAD)" == "feature" ]]
+  [[ "$(cat conflict.txt)" == "local scratch" ]]
+
+  run git status --porcelain --untracked-files=all -- conflict.txt
+  assert_success
+  assert_output "?? conflict.txt"
+}
+
 @test "git-sync: prefers upstream pulls when an upstream remote exists" {
   source_without_main "${SCRIPT}"
   export GIT_SYNC_LOG="${BATS_TEST_TMPDIR}/git-sync.log"
   export MOCK_GIT_HAS_UPSTREAM=1
 
-  stub_command git-default-branch <<'EOF'
-#!/usr/bin/env bash
-echo main
-EOF
-
   stub_command git <<'EOF'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >>"${GIT_SYNC_LOG}"
 case "${1:-}" in
-  brn)
-    echo feature
+  symbolic-ref)
+    if [[ "${3:-}" == "refs/remotes/origin/HEAD" ]]; then
+      echo refs/remotes/origin/main
+    else
+      echo feature
+    fi
     ;;
-  diff-index)
+  status)
     exit 0
     ;;
   remote)
-    if [[ "${2:-}" == "-v" ]]; then
-      printf '%s\n' 'origin mock'
+    if [[ "${2:-}" == "get-url" && "${3:-}" == "upstream" ]]; then
       if [[ -n "${MOCK_GIT_HAS_UPSTREAM:-}" ]]; then
-        printf '%s\n' 'upstream mock'
+        echo https://example.com/upstream.git
+        exit 0
       fi
-    fi
-    ;;
-  stash)
-    if [[ "${2:-}" == "list" ]]; then
-      printf '%s\n' ''
+      exit 2
     fi
     ;;
 esac
@@ -91,6 +128,6 @@ EOF
 
   run sync_one
   assert_success
-  grep -Fx 'pull upstream main' "${GIT_SYNC_LOG}"
-  grep -Fx 'push origin main' "${GIT_SYNC_LOG}"
+  grep -F -- 'pull --ff-only upstream main' "${GIT_SYNC_LOG}"
+  grep -F -- 'push origin main' "${GIT_SYNC_LOG}"
 }

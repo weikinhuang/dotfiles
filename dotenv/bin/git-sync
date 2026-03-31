@@ -11,68 +11,145 @@ Usage: git-sync [OPTION]...
 Sync the repository default branch from origin or upstream, then restore the starting branch and dirty state.
 
 Options:
+  -v, --verbose              print sync steps as they run
   -h, --help                 display this help and exit
 EOF
 }
 
-case "${1:-}" in
-  -h | --help)
-    print_help
-    exit 0
-    ;;
-esac
+VERBOSE=
+SYNC_PREVIOUS_REF=
+SYNC_STASH_REF=
+TRACE_COLOR_SYNC=34
+TRACE_COLOR_STATE=35
 
-# verbose mode
-GIT_SYNC_TRACE=${GIT_SYNC_TRACE:-}
+function trace() {
+  local color="$1"
+  local message="$2"
 
-# Go to the main branch then sync local and origin with [upstream|origin]
-function sync_one() {
-  local MAIN_BRANCH PREV_BR STASH_NAME
-  MAIN_BRANCH="$(git-default-branch)"
-  if [[ -z "${MAIN_BRANCH}" ]]; then
-    echo "Unable to determine default branch" >&2
-    return 1
+  [[ -n "${VERBOSE}" ]] || return 0
+  printf '\033[%sm ===== %s ===== \033[0m\n' "${color}" "${message}"
+}
+
+function current_ref() {
+  git symbolic-ref --quiet --short HEAD 2>/dev/null || git rev-parse --short HEAD
+}
+
+function has_changes() {
+  [[ -n "$(git status --porcelain --untracked-files=all)" ]]
+}
+
+function restore_ref() {
+  local current_ref
+
+  [[ -n "${SYNC_PREVIOUS_REF}" ]] || return 0
+
+  current_ref="$(current_ref)"
+  if [[ "${current_ref}" != "${SYNC_PREVIOUS_REF}" ]]; then
+    trace "${TRACE_COLOR_STATE}" "Checkout to ${SYNC_PREVIOUS_REF}"
+    git checkout "${SYNC_PREVIOUS_REF}"
   fi
-  PREV_BR="$(git brn)"
-  STASH_NAME="$(date +%s)"
-  local HAS_CHANGES=0
-  if git diff-index --quiet HEAD --; then
-    HAS_CHANGES=0
+
+  SYNC_PREVIOUS_REF=
+}
+
+function restore_stash() {
+  [[ -n "${SYNC_STASH_REF}" ]] || return 0
+
+  trace "${TRACE_COLOR_STATE}" "Reapply stashed changes"
+  git stash apply --index "${SYNC_STASH_REF}" >/dev/null
+  git stash drop "${SYNC_STASH_REF}" >/dev/null
+  SYNC_STASH_REF=
+}
+
+function cleanup() {
+  local exit_code="$1"
+  local cleanup_failed=0
+
+  trap - EXIT
+
+  if ! restore_ref; then
+    cleanup_failed=1
+  elif ! restore_stash; then
+    cleanup_failed=1
+  fi
+
+  if [[ "${cleanup_failed}" -ne 0 && "${exit_code}" -eq 0 ]]; then
+    exit_code=1
+  fi
+
+  exit "${exit_code}"
+}
+
+function sync_default_branch() {
+  local main_branch="$1"
+
+  if git remote get-url upstream >/dev/null 2>&1; then
+    trace "${TRACE_COLOR_SYNC}" "Pulling upstream"
+    git pull --ff-only upstream "${main_branch}"
+    trace "${TRACE_COLOR_SYNC}" "Pushing origin"
+    git push origin "${main_branch}"
   else
-    HAS_CHANGES=$?
-    if [[ ${HAS_CHANGES} -ne 1 ]]; then
-      return "${HAS_CHANGES}"
-    fi
-  fi
-  if [[ $HAS_CHANGES != 0 ]]; then
-    [[ -n $GIT_SYNC_TRACE ]] && echo -e "\e[35m ===== Stashing changes ===== \e[0m"
-    git stash push -m "sync-$STASH_NAME"
-  fi
-  if [[ "$PREV_BR" != "${MAIN_BRANCH}" ]]; then
-    [[ -n $GIT_SYNC_TRACE ]] && echo -e "\e[35m ===== Checkout to ${MAIN_BRANCH} ===== \e[0m"
-    git checkout "${MAIN_BRANCH}"
-  fi
-  if git remote -v | grep '^upstream' -q; then
-    [[ -n $GIT_SYNC_TRACE ]] && echo -e "\e[34m ===== Pulling upstream ===== \e[0m"
-    git pull upstream "${MAIN_BRANCH}"
-    [[ -n $GIT_SYNC_TRACE ]] && echo -e "\e[34m ===== Pushing origin ===== \e[0m"
-    git push origin "${MAIN_BRANCH}"
-  else
-    [[ -n $GIT_SYNC_TRACE ]] && echo -e "\e[34m ===== Pulling origin ===== \e[0m"
-    git pull origin "${MAIN_BRANCH}"
-  fi
-  git submodule update
-  if [[ "$PREV_BR" != "${MAIN_BRANCH}" ]]; then
-    [[ -n $GIT_SYNC_TRACE ]] && echo -ne "\e[35m ===== Checkout to "
-    [[ -n $GIT_SYNC_TRACE ]] && echo -n "$PREV_BR"
-    [[ -n $GIT_SYNC_TRACE ]] && echo -e " ===== \e[0m"
-    git checkout "$PREV_BR"
-  fi
-  # reapply any stashes made
-  if [[ $HAS_CHANGES != 0 ]] && git stash list -1 | grep -q "$STASH_NAME"; then
-    [[ -n $GIT_SYNC_TRACE ]] && echo -e "\e[35m ===== Reapply stashed changes ===== \e[0m"
-    git stash pop
+    trace "${TRACE_COLOR_SYNC}" "Pulling origin"
+    git pull --ff-only origin "${main_branch}"
   fi
 }
 
-sync_one
+function sync_one() {
+  local main_branch
+  local current_ref
+  local stash_label
+
+  main_branch="$(git-default-branch)"
+  if [[ -z "${main_branch}" ]]; then
+    echo "Unable to determine default branch" >&2
+    return 1
+  fi
+
+  trap 'cleanup "$?"' EXIT
+
+  current_ref="$(current_ref)"
+  if has_changes; then
+    stash_label="git-sync-$(date +%s)-$$"
+    trace "${TRACE_COLOR_STATE}" "Stashing changes"
+    git stash push --include-untracked --message "${stash_label}" >/dev/null
+    SYNC_STASH_REF='stash@{0}'
+  fi
+
+  if [[ "${current_ref}" != "${main_branch}" ]]; then
+    SYNC_PREVIOUS_REF="${current_ref}"
+    trace "${TRACE_COLOR_STATE}" "Checkout to ${main_branch}"
+    git checkout "${main_branch}"
+  fi
+
+  sync_default_branch "${main_branch}"
+  git submodule update --init --recursive
+
+  restore_ref
+  restore_stash
+
+  trap - EXIT
+}
+
+function main() {
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      -v | --verbose)
+        VERBOSE=1
+        ;;
+      -h | --help)
+        print_help
+        exit 0
+        ;;
+      *)
+        echo "git-sync: unknown argument: $1" >&2
+        print_help >&2
+        exit 1
+        ;;
+    esac
+    shift
+  done
+
+  sync_one
+}
+
+main "$@"
