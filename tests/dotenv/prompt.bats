@@ -51,6 +51,29 @@ setup() {
   [ "${GIT_PS1_SHOWDIRTYSTATE}" = "true" ]
 }
 
+@test "prompt: sourcing twice does not duplicate hook registrations" {
+  count_matches() {
+    local target="$1"
+    shift
+    local count=0 item
+    for item in "$@"; do
+      [[ "${item}" == "${target}" ]] && ((count++))
+    done
+    echo "${count}"
+  }
+
+  source "${REPO_ROOT}/dotenv/prompt.sh"
+  source "${REPO_ROOT}/dotenv/prompt.sh"
+
+  [ "$(count_matches internal::ps1-exec-timer-start "${preexec_functions[@]}")" -eq 1 ]
+  [ "$(count_matches internal::ps1-git-preexec-mark-dirty "${preexec_functions[@]}")" -eq 1 ]
+  [ "$(count_matches internal::ps1-dir-info-refresh "${chpwd_functions[@]}")" -eq 1 ]
+  [ "$(count_matches internal::ps1-git-cache-invalidate "${chpwd_functions[@]}")" -eq 1 ]
+  [ "$(count_matches internal::ps1-exec-timer-stop "${__dot_prompt_actions[@]}")" -eq 1 ]
+  [ "$(count_matches internal::ps1-newline-check "${__dot_prompt_actions[@]}")" -eq 1 ]
+  [ "$(count_matches internal::ps1-git-update "${__dot_prompt_actions[@]}")" -eq 1 ]
+}
+
 @test "prompt: honors PROMPT_TITLE override" {
   export PROMPT_TITLE='custom-title '
 

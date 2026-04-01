@@ -23,11 +23,25 @@ function internal::prompt-command-push() {
   PROMPT_COMMAND="${result}${cmd};"
 }
 
+# Bash 3 lacks namerefs, so use eval to manipulate a named global array.
+function internal::array-append-unique() {
+  local array_name="$1"
+  local value="$2"
+  local item
+  local -a entries=()
+
+  eval "entries=(\"\${${array_name}[@]}\")"
+  for item in "${entries[@]}"; do
+    [[ "$item" == "$value" ]] && return 0
+  done
+  eval "${array_name}+=(\"\$value\")"
+}
+
 # internal prompt command stack to simplify the PROMPT_COMMAND variable
 declare -a __dot_prompt_actions
 function internal::prompt-action-push() {
   local cmd="${1/%;/}"
-  __dot_prompt_actions+=("${cmd}")
+  internal::array-append-unique __dot_prompt_actions "${cmd}"
 }
 function internal::prompt-action-run() {
   # eval is required: entries may contain arguments (e.g. "history -a")

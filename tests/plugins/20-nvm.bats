@@ -90,6 +90,23 @@ setup() {
   [[ " ${chpwd_functions[*]} " == *" cdnvm "* ]]
 }
 
+@test "20-nvm: sourcing twice does not duplicate the cdnvm hook" {
+  local hook count=0
+
+  create_mock_nvm_install "${XDG_CONFIG_HOME}/nvm"
+
+  source "${REPO_ROOT}/plugins/20-nvm.sh"
+  source "${REPO_ROOT}/plugins/20-nvm.sh"
+
+  for hook in "${chpwd_functions[@]}"; do
+    if [[ "${hook}" == "cdnvm" ]]; then
+      count=$((count + 1))
+    fi
+  done
+
+  [ "${count}" -eq 1 ]
+}
+
 @test "20-nvm: uses the cached path and lazy-loads node commands on first use" {
   local cached_version="v20.8.1"
   local cached_path="${XDG_CONFIG_HOME}/nvm/versions/node/${cached_version}/bin"

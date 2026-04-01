@@ -199,7 +199,7 @@ if [[ -z "${PS1_OPT_HIDE_DIR_INFO:-}" ]]; then
     lssize="${lines[0]#total }"
     __dot_ps1_dirinfo="<$((${#lines[@]} - 1))|${lssize}b>"
   }
-  chpwd_functions+=(internal::ps1-dir-info-refresh)
+  internal::array-append-unique chpwd_functions internal::ps1-dir-info-refresh
 fi
 
 # show information about the last process
@@ -218,7 +218,7 @@ if [[ -z "${PS1_OPT_HIDE_EXEC_TIME:-}" ]]; then
       __dot_ps1_exectimer=$(date +%s%N)
     }
   fi
-  preexec_functions+=(internal::ps1-exec-timer-start)
+  internal::array-append-unique preexec_functions internal::ps1-exec-timer-start
 
   function internal::ps1-exec-timer-stop() {
     if [[ __dot_ps1_exectimer -eq 0 ]]; then
@@ -351,7 +351,7 @@ function internal::ps1-git-cache-invalidate() {
   __dot_ps1_git_cache_segment=
 }
 internal::ps1-git-cache-invalidate
-chpwd_functions+=(internal::ps1-git-cache-invalidate)
+internal::array-append-unique chpwd_functions internal::ps1-git-cache-invalidate
 
 # Mark git prompt cache as dirty when the next command appears git-related.
 function internal::ps1-git-preexec-mark-dirty() {
@@ -380,7 +380,7 @@ function internal::ps1-git-preexec-mark-dirty() {
       ;;
   esac
 }
-preexec_functions+=(internal::ps1-git-preexec-mark-dirty)
+internal::array-append-unique preexec_functions internal::ps1-git-preexec-mark-dirty
 
 # Update cached git prompt state before PS1 is rendered.
 # Check once at setup time whether __git_ps1 is available, avoiding a fork on every prompt render.

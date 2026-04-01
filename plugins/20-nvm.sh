@@ -33,7 +33,8 @@ export NVM_DIR
 # ---------------------------------------------------------------------------
 __dot_nvm_cache_file="${DOTFILES__CONFIG_DIR}/cache/nvm_default_path"
 if [[ -s "${__dot_nvm_cache_file}" ]]; then
-  read -r __dot_nvm_cached_path <"${__dot_nvm_cache_file}"
+  __dot_nvm_cached_path=
+  IFS= read -r __dot_nvm_cached_path <"${__dot_nvm_cache_file}" || [[ -n "${__dot_nvm_cached_path}" ]]
   if [[ -d "${__dot_nvm_cached_path}" ]]; then
     internal::path-push --prepend "${__dot_nvm_cached_path}"
   fi
@@ -169,7 +170,7 @@ cdnvm() {
     __dot_nvm_last_resolved="${resolved_version}"
   fi
 }
-chpwd_functions+=(cdnvm)
+internal::array-append-unique chpwd_functions cdnvm
 
 # manual upgrade function
 # https://github.com/nvm-sh/nvm#manual-upgrade

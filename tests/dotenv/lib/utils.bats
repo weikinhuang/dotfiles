@@ -28,6 +28,7 @@ setup() {
   }
 
   internal::prompt-action-push "record_trace alpha"
+  internal::prompt-action-push "record_trace alpha"
   internal::prompt-action-push "record_trace beta"
 
   internal::prompt-action-run

@@ -81,9 +81,23 @@ internal::path-push() {
   fi
 }
 
+# Bash 3 lacks namerefs, so use eval to manipulate a named global array.
+internal::array-append-unique() {
+  local array_name="$1"
+  local value="$2"
+  local item
+  local -a entries=()
+
+  eval "entries=(\"\${${array_name}[@]}\")"
+  for item in "${entries[@]}"; do
+    [[ "$item" == "$value" ]] && return 0
+  done
+  eval "${array_name}+=(\"\$value\")"
+}
+
 # Records prompt hooks registered by plugins.
 internal::prompt-action-push() {
-  __dot_prompt_actions+=("$1")
+  internal::array-append-unique __dot_prompt_actions "$1"
 }
 
 # Records cached completion calls from plugins.
