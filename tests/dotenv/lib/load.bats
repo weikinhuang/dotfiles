@@ -102,6 +102,21 @@ EOF
   [ -z "${DOT_PLUGIN_DISABLE_demo_plugin+x}" ]
 }
 
+@test "load: dot-load-plugin strips numeric ordering prefixes from disable names" {
+  local plugin="${BATS_TEST_TMPDIR}/10-demo-plugin.sh"
+  DOT_LOAD_TRACE=
+  cat >"${plugin}" <<'EOF'
+DOT_LOAD_TRACE=loaded
+EOF
+
+  export DOT_PLUGIN_DISABLE_demo_plugin=1
+
+  internal::load-plugin "${plugin}"
+
+  [ -z "${DOT_LOAD_TRACE}" ]
+  [ -z "${DOT_PLUGIN_DISABLE_demo_plugin+x}" ]
+}
+
 @test "load: dot-load-plugins loads only the baseline built-ins by default" {
   DOT_LOAD_TRACE=
   write_trace_file "${DOTFILES__ROOT}/.dotfiles/plugins/00-bash-opts.sh" bash-opts

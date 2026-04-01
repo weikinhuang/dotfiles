@@ -55,17 +55,20 @@ See [REFERENCE.md](./REFERENCE.md) for all added commands, overrides, and change
 
 ### High level overview
 
-- `cd --` list last 10 traversed directories
 - `chpwd`, `precmd`, and `preexec` hooks with similar behavior to [**Zsh**](https://zsh.sourceforge.io/Doc/Release/Functions.html#Hook-Functions)
 - `sudo` works on aliases
 - `rm` `cp` `mv` are always interactive `-i` (use `-f` to override)
 - `ls` and `grep` always has color (use `--color=never` to override)
 - `which` command expands full path when possible
-- `less` does not clear the screen upon exit and process colors (with options `-XR`)
 - `gdiff` uses git's diff command with color when possible
 - `pbcopy` and `pbpaste` for cross-platform copy/paste from cli, and optionally over ssh
 - `open` for cross-platform open in native application
 - `chattr`, `mklink`, `is-elevated-session`, `winstart`, `winsudo` WSL tools
+
+### With `DOT_INCLUDE_BUILTIN_PLUGINS=1`
+
+- `cd --` lists the directory stack (current directory plus up to 10 previous entries)
+- `less` does not clear the screen upon exit and processes colors
 
 ## [The Bash Prompt](./PROMPT.md)
 
@@ -129,7 +132,7 @@ fi
 source <(direnv hook bash 2>/dev/null)
 ```
 
-Specific plugins can be disabled with an environment variable: `DOT_PLUGIN_DISABLE_${PLUGIN_FILE_NAME}`.
+Specific plugins can be disabled with an environment variable named after the plugin basename without its numeric prefix. Examples: `DOT_PLUGIN_DISABLE_direnv=1`, `DOT_PLUGIN_DISABLE_fzf=1`.
 
 Example disable direnv hook:
 
@@ -149,10 +152,10 @@ Hook points are available before and after the following steps:
 - `exports`
 - `extra`
 - `functions`
-- `plugins`
+- `plugin`
 - `prompt`
 
-They can be declared as either a single function `dotfiles_hook_${HOOK}_{pre,post}` or pushed into the arrays `dotfiles_hook_${HOOK}_{pre,post}_functions`.
+They can be declared as either a single function `dotfiles_hook_${PHASE}_{pre,post}` or pushed into the arrays `dotfiles_hook_${PHASE}_{pre,post}_functions`.
 
 Example
 
@@ -163,13 +166,13 @@ function dotfiles_hook_functions_pre() {
     export FOO=123
 }
 
-# add a hook to run after the "alias" segment is loaded
+# add a hook to run after the "aliases" segment is loaded
 function foobar() {
     echo "I'm loading after aliases"
     alias curl-help="curl --help"
 }
 # append to array
-dotfiles_hook_alias_post_functions+=(foobar)
+dotfiles_hook_aliases_post_functions+=(foobar)
 ```
 
 ## [WSL configuration](utils/wsl/README.md)
@@ -312,5 +315,5 @@ The core `~/.bashrc` will import each of the files in the layout table, first in
 1. `extra`
 1. `env`
 1. `completion`
-1. `plugins`
+1. `plugin`
 1. `prompt`

@@ -67,8 +67,12 @@ function internal::load-plugin() {
 
   name="${name%.plugin}"
   name="${name%.sh}"
+  if [[ "${name}" =~ ^[0-9]+[-_](.+)$ ]]; then
+    name="${BASH_REMATCH[1]}"
+  fi
   name="${name//[^[:alnum:]_]/_}"
   plugin_disable_name="DOT_PLUGIN_DISABLE_${name}"
+
   if [[ -z "${!plugin_disable_name:-}" ]] && [[ -e "${file}" ]]; then
     # shellcheck source=/dev/null
     source "${file}"
