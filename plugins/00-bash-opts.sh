@@ -61,15 +61,15 @@ shopt -s histverify 2>/dev/null
 # Don't put duplicate lines in the history.
 export HISTCONTROL="${HISTCONTROL}${HISTCONTROL+:}ignoreboth"
 # Ignore some controlling instructions: exit, ls, empty cd, pwd, date, help pages
-HISTIGNORE_BASE=$'[ \t]*:&:[fb]g:exit:jobs:ls:ls -?::ls -??:ll:history:cd:cd -:cd ~:cd ..:..:pwd:date:* --help:* help'
+__dot_histignore_base=$'[ \t]*:&:[fb]g:exit:jobs:ls:ls -?::ls -??:ll:history:cd:cd -:cd ~:cd ..:..:pwd:date:* --help:* help'
 # Ignore basic git commands
-HISTIGNORE_GIT='git +([a-z]):git co -:git add -?:git pob -f:git pr -o:git undo .:git diff --staged'
+__dot_histignore_git='git +([a-z]):git co -:git add -?:git pob -f:git pr -o:git undo .:git diff --staged'
 # Ignore common local commands
-HISTIGNORE_LOCAL='o:oo'
+__dot_histignore_local='o:oo'
 # Ignore common dev commands
-HISTIGNORE_DEV='p:npm install:bower install'
+__dot_histignore_dev='p:npm install:bower install'
 # export combined HISTIGNORE
-export HISTIGNORE=${HISTIGNORE}:${HISTIGNORE_BASE}:${HISTIGNORE_GIT}:${HISTIGNORE_LOCAL}:${HISTIGNORE_DEV}
+export HISTIGNORE=${HISTIGNORE}:${__dot_histignore_base}:${__dot_histignore_git}:${__dot_histignore_local}:${__dot_histignore_dev}
 # Larger bash history (default is 500)
 export HISTSIZE=1000000
 export HISTFILESIZE=$HISTSIZE
@@ -90,3 +90,5 @@ shopt -s cdspell 2>/dev/null
 
 # This defines where cd looks for targets
 CDPATH="."
+
+unset -v __dot_histignore_base __dot_histignore_git __dot_histignore_local __dot_histignore_dev

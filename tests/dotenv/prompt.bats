@@ -18,7 +18,7 @@ setup() {
 
   source "${REPO_ROOT}/dotenv/lib/utils.sh"
 
-  __ps1_proc_use() {
+  internal::ps1-proc-use() {
     echo -n "0.42"
   }
 
@@ -43,12 +43,53 @@ setup() {
   [[ "${PS1}" == *'['*']'* ]]
   [[ "${SUDO_PS1}" == *'['*']'* ]]
   [ "${PS2}" = $'\342\206\222 ' ]
-  [[ " ${preexec_functions[*]} " == *' __ps1_exec_timer_start '* ]]
-  [[ " ${chpwd_functions[*]} " == *' __dot_git_ps1_cache_invalidate '* ]]
-  [[ " ${__prompt_actions[*]} " == *' __ps1_exec_timer_stop '* ]]
-  [[ " ${__prompt_actions[*]} " == *' __ps1_newline_check '* ]]
-  [[ " ${__prompt_actions[*]} " == *' __dot_git_ps1_update '* ]]
+  [[ " ${preexec_functions[*]} " == *' internal::ps1-exec-timer-start '* ]]
+  [[ " ${chpwd_functions[*]} " == *' internal::ps1-git-cache-invalidate '* ]]
+  [[ " ${__prompt_actions[*]} " == *' internal::ps1-exec-timer-stop '* ]]
+  [[ " ${__prompt_actions[*]} " == *' internal::ps1-newline-check '* ]]
+  [[ " ${__prompt_actions[*]} " == *' internal::ps1-git-update '* ]]
   [ "${GIT_PS1_SHOWDIRTYSTATE}" = "true" ]
+}
+
+@test "prompt: honors PROMPT_TITLE override" {
+  export PROMPT_TITLE='custom-title '
+
+  source "${REPO_ROOT}/dotenv/prompt.sh"
+
+  [[ "${PS1}" == custom-title\ * ]]
+  [[ "${SUDO_PS1}" == custom-title\ * ]]
+}
+
+@test "prompt: honors other public prompt override variables" {
+  local repo="${BATS_TEST_TMPDIR}/repo"
+  mkdir -p "${repo}/.git/refs"
+  : >"${repo}/.git/HEAD"
+  : >"${repo}/.git/index"
+  : >"${repo}/.git/refs/stash"
+  cd "${repo}"
+
+  __git_ps1() {
+    printf "$1" "main"
+  }
+
+  export PS1_SYMBOL_USER='USR'
+  export PS1_SYMBOL_ROOT='USR'
+  export PS1_SYMBOL_GIT='GIT '
+  export PS1_OPT_HIDE_LOAD=1
+  export PS1_OPT_SEGMENT_EXTRA=' EXTRA'
+  export DOT_GIT_PROMPT_INVALIDATE_ON_GIT=0
+
+  source "${REPO_ROOT}/dotenv/prompt.sh"
+  internal::ps1-git-update
+
+  [[ "${PS1}" == *'USR'* ]]
+  [[ "${PS1}" == *' EXTRA'* ]]
+  [[ "${PS1}" != *'internal::ps1-proc-use'* ]]
+  [[ "${__dot_ps1_git_segment}" == *'GIT '* ]]
+
+  unset __dot_ps1_git_cache_dirty
+  internal::ps1-git-preexec-mark-dirty "git status"
+  [ -z "${__dot_ps1_git_cache_dirty:-}" ]
 }
 
 @test "prompt: git-prompt-gitdir resolves a gitdir file while walking upward" {
@@ -59,7 +100,7 @@ setup() {
   source "${REPO_ROOT}/dotenv/prompt.sh"
   cd "${repo}/nested/path"
 
-  run __dot_git_prompt_gitdir
+  run internal::ps1-gitdir
   assert_success
   assert_output "${repo}/.realgit"
 }
@@ -72,7 +113,7 @@ setup() {
   source "${REPO_ROOT}/dotenv/prompt.sh"
   cd "${repo}"
 
-  run __dot_git_prompt_gitdir
+  run internal::ps1-gitdir
   assert_failure
   assert_output ""
 }
@@ -80,25 +121,25 @@ setup() {
 @test "prompt: git-prompt-preexec-mark-dirty detects git commands but not plain text" {
   source "${REPO_ROOT}/dotenv/prompt.sh"
 
-  unset __dot_git_ps1_cache_dirty
-  __dot_git_ps1_preexec_mark_dirty "sudo git status"
-  [ "${__dot_git_ps1_cache_dirty}" = "1" ]
+  unset __dot_ps1_git_cache_dirty
+  internal::ps1-git-preexec-mark-dirty "sudo git status"
+  [ "${__dot_ps1_git_cache_dirty}" = "1" ]
 
-  unset __dot_git_ps1_cache_dirty
-  __dot_git_ps1_preexec_mark_dirty "echo git status"
-  [ -z "${__dot_git_ps1_cache_dirty:-}" ]
+  unset __dot_ps1_git_cache_dirty
+  internal::ps1-git-preexec-mark-dirty "echo git status"
+  [ -z "${__dot_ps1_git_cache_dirty:-}" ]
 }
 
 @test "prompt: git-prompt-preexec-mark-dirty detects wrapped git commands" {
   source "${REPO_ROOT}/dotenv/prompt.sh"
 
-  unset __dot_git_ps1_cache_dirty
-  __dot_git_ps1_preexec_mark_dirty "command git status"
-  [ "${__dot_git_ps1_cache_dirty}" = "1" ]
+  unset __dot_ps1_git_cache_dirty
+  internal::ps1-git-preexec-mark-dirty "command git status"
+  [ "${__dot_ps1_git_cache_dirty}" = "1" ]
 
-  unset __dot_git_ps1_cache_dirty
-  __dot_git_ps1_preexec_mark_dirty "env /usr/bin/git status"
-  [ "${__dot_git_ps1_cache_dirty}" = "1" ]
+  unset __dot_ps1_git_cache_dirty
+  internal::ps1-git-preexec-mark-dirty "env /usr/bin/git status"
+  [ "${__dot_ps1_git_cache_dirty}" = "1" ]
 }
 
 @test "prompt: git-prompt-update reuses cache within TTL and refreshes after max age" {
@@ -123,22 +164,22 @@ setup() {
   : >"${git_ps1_log}"
 
   TEST_NOW_MS=1000
-  __dot_git_prompt_now_ms() {
+  internal::ps1-git-now-ms() {
     echo "${TEST_NOW_MS}"
   }
 
-  __dot_git_ps1_cache_invalidate
-  __dot_git_ps1_update
+  internal::ps1-git-cache-invalidate
+  internal::ps1-git-update
   [ "$(wc -l <"${git_ps1_log}")" -eq 1 ]
 
   TEST_NOW_MS=1500
-  __dot_git_ps1_update
+  internal::ps1-git-update
   [ "$(wc -l <"${git_ps1_log}")" -eq 1 ]
 
   TEST_NOW_MS=2501
-  __dot_git_ps1_update
+  internal::ps1-git-update
   [ "$(wc -l <"${git_ps1_log}")" -eq 2 ]
-  [[ -n "${__ps1_var_git_segment}" ]]
+  [[ -n "${__dot_ps1_git_segment}" ]]
 }
 
 @test "prompt: git-prompt-update clears the segment outside git repos" {
@@ -152,22 +193,22 @@ setup() {
   }
 
   source "${REPO_ROOT}/dotenv/prompt.sh"
-  __dot_git_ps1_cache_invalidate
-  __dot_git_ps1_update
-  [[ -n "${__ps1_var_git_segment}" ]]
+  internal::ps1-git-cache-invalidate
+  internal::ps1-git-update
+  [[ -n "${__dot_ps1_git_segment}" ]]
 
   cd "${BATS_TEST_TMPDIR}"
-  __dot_git_ps1_update
-  [[ -z "${__ps1_var_git_segment}" ]]
+  internal::ps1-git-update
+  [[ -z "${__dot_ps1_git_segment}" ]]
 }
 
 @test "prompt: git-prompt-update clears stale state when __git_ps1 is unavailable" {
   source "${REPO_ROOT}/dotenv/prompt.sh"
-  __ps1_var_git_segment="stale"
+  __dot_ps1_git_segment="stale"
 
-  __dot_git_ps1_update
+  internal::ps1-git-update
 
-  [[ -z "${__ps1_var_git_segment}" ]]
+  [[ -z "${__dot_ps1_git_segment}" ]]
 }
 
 @test "prompt: WSL elevated sessions use the Windows privileged prompt symbol" {

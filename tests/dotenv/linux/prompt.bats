@@ -7,8 +7,8 @@ setup() {
   source "${REPO_ROOT}/dotenv/linux/prompt.sh"
 }
 
-@test "linux/prompt: defines __ps1_proc_use from the current system load average" {
-  run __ps1_proc_use
+@test "linux/prompt: defines internal::ps1-proc-use from the current system load average" {
+  run internal::ps1-proc-use
   assert_success
 
   if [[ -r /proc/loadavg ]]; then
@@ -29,7 +29,7 @@ echo ' 12:00:00 up 1 day,  3 users,  load average: 0.91, 0.52, 0.33'
 EOF
   chmod +x "${mock_bin}/uptime"
 
-  run bash -c 'PATH="$2:/usr/bin:/bin"; source <(sed "s#\\[\\[ -r /proc/loadavg \\]\\]#false#" "$1"); __ps1_proc_use' \
+  run bash -c 'PATH="$2:/usr/bin:/bin"; source <(sed "s#\\[\\[ -r /proc/loadavg \\]\\]#false#" "$1"); internal::ps1-proc-use' \
     _ "${REPO_ROOT}/dotenv/linux/prompt.sh" "${mock_bin}"
   assert_success
   assert_output "0.91"

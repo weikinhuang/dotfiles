@@ -10,17 +10,17 @@ fi
 
 # Select solarized variant based on DOT_SOLARIZED_* env vars, defaulting to dark
 if [[ -n "${DOT_SOLARIZED_LIGHT:-}" ]]; then
-  _delta_syntax_theme="Solarized (light)"
-  _delta_minus_style='syntax "#fff0f0"'
-  _delta_minus_emph_style='syntax "#ffc0c0"'
-  _delta_plus_style='syntax "#f0fff0"'
-  _delta_plus_emph_style='syntax "#a0e8a0"'
+  __dot_delta_syntax_theme="Solarized (light)"
+  __dot_delta_minus_style='syntax "#fff0f0"'
+  __dot_delta_minus_emph_style='syntax "#ffc0c0"'
+  __dot_delta_plus_style='syntax "#f0fff0"'
+  __dot_delta_plus_emph_style='syntax "#a0e8a0"'
 else
-  _delta_syntax_theme="Solarized (dark)"
-  _delta_minus_style='syntax "#3f1f1f"'
-  _delta_minus_emph_style='syntax "#6e2b2b"'
-  _delta_plus_style='syntax "#1f3f1f"'
-  _delta_plus_emph_style='syntax "#2b5e2b"'
+  __dot_delta_syntax_theme="Solarized (dark)"
+  __dot_delta_minus_style='syntax "#3f1f1f"'
+  __dot_delta_minus_emph_style='syntax "#6e2b2b"'
+  __dot_delta_plus_style='syntax "#1f3f1f"'
+  __dot_delta_plus_emph_style='syntax "#2b5e2b"'
 fi
 
 cat >|"${DOTFILES__CONFIG_DIR}/git-delta.gitconfig" <<GITCONFIG
@@ -33,11 +33,11 @@ cat >|"${DOTFILES__CONFIG_DIR}/git-delta.gitconfig" <<GITCONFIG
 [delta]
   navigate = true
   true-color = always
-  syntax-theme = ${_delta_syntax_theme}
-  minus-style = ${_delta_minus_style}
-  minus-emph-style = ${_delta_minus_emph_style}
-  plus-style = ${_delta_plus_style}
-  plus-emph-style = ${_delta_plus_emph_style}
+  syntax-theme = ${__dot_delta_syntax_theme}
+  minus-style = ${__dot_delta_minus_style}
+  minus-emph-style = ${__dot_delta_minus_emph_style}
+  plus-style = ${__dot_delta_plus_style}
+  plus-emph-style = ${__dot_delta_plus_emph_style}
 
 [pager]
   log = delta
@@ -45,4 +45,4 @@ cat >|"${DOTFILES__CONFIG_DIR}/git-delta.gitconfig" <<GITCONFIG
   diff = delta
 GITCONFIG
 
-unset _delta_syntax_theme _delta_minus_style _delta_minus_emph_style _delta_plus_style _delta_plus_emph_style
+unset __dot_delta_syntax_theme __dot_delta_minus_style __dot_delta_minus_emph_style __dot_delta_plus_style __dot_delta_plus_emph_style

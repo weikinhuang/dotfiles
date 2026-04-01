@@ -9,18 +9,18 @@ fi
 # setup ssh agent automatically
 # https://help.github.com/en/github/authenticating-to-github/working-with-ssh-key-passphrases#auto-launching-ssh-agent-on-msysgit
 # https://stackoverflow.com/questions/18880024/start-ssh-agent-on-login
-function _ssh-agent-start() {
-  local SSH_AGENT_ENV agent_run_state
+function internal::ssh-agent-start() {
+  local ssh_agent_env agent_run_state
 
-  SSH_AGENT_ENV="${HOME}/.ssh/agent.env"
+  ssh_agent_env="${HOME}/.ssh/agent.env"
 
   if [[ ! -d "${HOME}/.ssh" ]]; then
     mkdir -m 0700 "${HOME}/.ssh" || return
   fi
 
-  if [[ -f "${SSH_AGENT_ENV}" ]]; then
+  if [[ -f "${ssh_agent_env}" ]]; then
     # shellcheck source=/dev/null
-    source "${SSH_AGENT_ENV}" >|/dev/null
+    source "${ssh_agent_env}" >|/dev/null
   fi
 
   # agent_run_state: 0=agent running w/ key; 1=agent w/o key; 2= agent not running
@@ -32,10 +32,10 @@ function _ssh-agent-start() {
   if [ ! "${SSH_AUTH_SOCK}" ] || [ "${agent_run_state}" = 2 ]; then
     (
       umask 077
-      ssh-agent >|"${SSH_AGENT_ENV}"
+      ssh-agent >|"${ssh_agent_env}"
     )
     # shellcheck source=/dev/null
-    . "${SSH_AGENT_ENV}" >|/dev/null
+    . "${ssh_agent_env}" >|/dev/null
     ssh-add
   elif [ "${SSH_AUTH_SOCK}" ] && [ "${agent_run_state}" = 1 ]; then
     ssh-add
@@ -44,12 +44,12 @@ function _ssh-agent-start() {
 
 # only start the agent if we don't already have a SSH_AUTH_SOCK
 if [[ -n "${DOT_AUTOLOAD_SSH_AGENT:-}" ]] && { [[ -z "${SSH_AUTH_SOCK:-}" ]] || [[ ! -e "${SSH_AUTH_SOCK:-}" ]]; } && command -v ssh-agent &>/dev/null; then
-  _ssh-agent-start
+  internal::ssh-agent-start
   unset DOT_AUTOLOAD_SSH_AGENT
 fi
-unset -f _ssh-agent-start
+unset -f internal::ssh-agent-start
 
-function __dot_ssh_completion_needs_refresh() {
+function internal::ssh-completion-needs-refresh() {
   local cache_file="$1"
   local src
 
@@ -64,53 +64,58 @@ function __dot_ssh_completion_needs_refresh() {
   return 1
 }
 
-function __dot_ssh_completion_refresh_cache() {
-  __dot_cache_write_atomic "$1" "__dot_ssh_completion_generate_cache"
+function internal::ssh-completion-refresh-cache() {
+  __dot_cache_write_atomic "$1" "internal::ssh-completion-generate-cache"
 }
 
 # shellcheck disable=SC2329  # Invoked indirectly via __dot_cache_write_atomic.
-function __dot_ssh_completion_generate_cache() {
-  local _line _h
-  local _ssh_hosts=()
+function internal::ssh-completion-generate-cache() {
+  local line host
+  local -a ssh_hosts=()
 
-  while IFS= read -r _line; do
-    [[ "${_line}" == Host\ * ]] || continue
-    [[ "${_line}" == *no-complete* ]] && continue
+  while IFS= read -r line; do
+    [[ "${line}" == Host\ * ]] || continue
+    [[ "${line}" == *no-complete* ]] && continue
     set -f
-    for _h in ${_line#Host }; do
-      [[ "${_h}" == *['?*']* ]] || _ssh_hosts+=("${_h}")
+    for host in ${line#Host }; do
+      [[ "${host}" == *['?*']* ]] || ssh_hosts+=("${host}")
     done
     set +f
   done < <(cat "${HOME}/.ssh/config" "${HOME}"/.ssh/config.d/* 2>/dev/null)
 
   if [[ -e "${HOME}/.ssh/known_hosts" ]]; then
-    while IFS=', ' read -r _h _; do
-      _h="${_h%%]*}"
-      _h="${_h#\[}"
-      _h="${_h%%:*}"
-      [[ "${_h}" == *\|* ]] || _ssh_hosts+=("${_h}")
+    while IFS=', ' read -r host _; do
+      host="${host%%]*}"
+      host="${host#\[}"
+      host="${host%%:*}"
+      [[ "${host}" == *\|* ]] || ssh_hosts+=("${host}")
     done <"${HOME}/.ssh/known_hosts"
   fi
 
-  if [[ ${#_ssh_hosts[@]} -gt 0 ]]; then
-    printf '%s\n' "${_ssh_hosts[@]}" | sort -u
+  if [[ ${#ssh_hosts[@]} -gt 0 ]]; then
+    printf '%s\n' "${ssh_hosts[@]}" | sort -u
+  fi
+}
+
+function internal::ssh-configure-completion() {
+  local cache_file host_words
+
+  cache_file="${DOTFILES__CONFIG_DIR}/cache/completions/ssh_hosts.list"
+  if internal::ssh-completion-needs-refresh "${cache_file}"; then
+    internal::ssh-completion-refresh-cache "${cache_file}"
+  fi
+  if [[ -s "${cache_file}" ]]; then
+    host_words="$(tr '\n' ' ' <"${cache_file}")"
+    complete -o default -W "${host_words}" ssh
   fi
 }
 
 # SSH auto-completion based on entries in known_hosts and config.
 if command -v complete &>/dev/null && ! complete | grep -q ' ssh$'; then
-  _ssh_cache_file="${DOTFILES__CONFIG_DIR}/cache/completions/ssh_hosts.list"
-  if __dot_ssh_completion_needs_refresh "${_ssh_cache_file}"; then
-    __dot_ssh_completion_refresh_cache "${_ssh_cache_file}"
-  fi
-  if [[ -s "${_ssh_cache_file}" ]]; then
-    _ssh_host_words="$(tr '\n' ' ' <"${_ssh_cache_file}")"
-    complete -o default -W "${_ssh_host_words}" ssh
-    unset _ssh_host_words
-  fi
-  unset _ssh_cache_file
+  internal::ssh-configure-completion
 fi
 
-unset -f __dot_ssh_completion_needs_refresh
-unset -f __dot_ssh_completion_refresh_cache
-unset -f __dot_ssh_completion_generate_cache
+unset -f internal::ssh-completion-needs-refresh
+unset -f internal::ssh-completion-refresh-cache
+unset -f internal::ssh-completion-generate-cache
+unset -f internal::ssh-configure-completion

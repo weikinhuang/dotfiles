@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: MIT
 
 # function to get cpu load
-function __ps1_proc_use() {
+function internal::ps1-proc-use() {
   local raw
   raw="$(/usr/sbin/sysctl -n vm.loadavg)"
   raw="${raw#\{ }"

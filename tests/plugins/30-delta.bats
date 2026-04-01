@@ -23,4 +23,9 @@ setup() {
 
   grep -F "[core]" "${DOTFILES__CONFIG_DIR}/git-delta.gitconfig"
   grep -F "pager = delta" "${DOTFILES__CONFIG_DIR}/git-delta.gitconfig"
+  [ -z "${__dot_delta_syntax_theme+x}" ]
+  [ -z "${__dot_delta_minus_style+x}" ]
+  [ -z "${__dot_delta_minus_emph_style+x}" ]
+  [ -z "${__dot_delta_plus_style+x}" ]
+  [ -z "${__dot_delta_plus_emph_style+x}" ]
 }

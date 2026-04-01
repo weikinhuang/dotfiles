@@ -38,4 +38,8 @@ setup() {
   [ "${HISTTIMEFORMAT}" = "%F %T " ]
   [ "${CDPATH}" = "." ]
   [ -z "${DOT_BASH_RESOLVE_PATHS+x}" ]
+  [ -z "${__dot_histignore_base+x}" ]
+  [ -z "${__dot_histignore_git+x}" ]
+  [ -z "${__dot_histignore_local+x}" ]
+  [ -z "${__dot_histignore_dev+x}" ]
 }

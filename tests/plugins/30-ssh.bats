@@ -32,6 +32,7 @@ EOF
   [ -f "${HOME}/.ssh/agent.env" ]
   [ "$(cat "${TEST_SSH_LOG}")" = $'agent\nadd' ]
   [ -z "${DOT_AUTOLOAD_SSH_AGENT+x}" ]
+  [ "$(type -t internal::ssh-agent-start || true)" = "" ]
 }
 
 @test "30-ssh: caches completion candidates from ssh config and known_hosts" {
@@ -58,4 +59,8 @@ EOF
   assert_success
   assert_output $'api.example.com\napp\ndb\nexample.com\nweb'
   [[ "$(complete -p ssh)" == *"api.example.com app db example.com web "* ]]
+  [ -z "${_ssh_cache_file+x}" ]
+  [ -z "${_ssh_host_words+x}" ]
+  [ "$(type -t internal::ssh-completion-needs-refresh || true)" = "" ]
+  [ "$(type -t internal::ssh-configure-completion || true)" = "" ]
 }
