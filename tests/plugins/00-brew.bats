@@ -52,5 +52,5 @@ EOF
   grep -Fx "PATH:${prefix}/Cellar/coreutils/9.5/libexec/gnubin" "${cache_file}"
   grep -Fx "MAN:${prefix}/Cellar/coreutils/9.5/libexec/gnuman" "${cache_file}"
   [ -z "${DOT_INCLUDE_BREW_PATH+x}" ]
-  [ -z "${__BREW_PREFIX+x}" ]
+  [ -z "${__dot_brew_prefix+x}" ]
 }

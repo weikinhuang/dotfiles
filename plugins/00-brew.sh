@@ -15,69 +15,69 @@ if [[ "${DOTENV}" != "darwin" ]]; then
 fi
 
 # derive prefix from brew binary location (avoids ~300ms `brew --prefix` Ruby boot)
-_brew_bin="$(PATH="/opt/homebrew/bin:${PATH}" command -v brew 2>/dev/null)"
-if [[ -z "${_brew_bin}" ]]; then
-  unset DOT_INCLUDE_BREW_PATH _brew_bin
+__dot_brew_bin="$(PATH="/opt/homebrew/bin:${PATH}" command -v brew 2>/dev/null)"
+if [[ -z "${__dot_brew_bin}" ]]; then
+  unset DOT_INCLUDE_BREW_PATH __dot_brew_bin
   return
 fi
-__BREW_PREFIX="${_brew_bin%/bin/brew}"
-unset _brew_bin
+__dot_brew_prefix="${__dot_brew_bin%/bin/brew}"
+unset __dot_brew_bin
 
 # automate including brew path
 if [[ -n "${DOT_INCLUDE_BREW_PATH:-}" ]]; then
-  __push_path --prepend "${__BREW_PREFIX}/opt"
-  __push_path --prepend "${__BREW_PREFIX}/sbin"
-  __push_path --prepend "${__BREW_PREFIX}/bin"
+  internal::path-push --prepend "${__dot_brew_prefix}/opt"
+  internal::path-push --prepend "${__dot_brew_prefix}/sbin"
+  internal::path-push --prepend "${__dot_brew_prefix}/bin"
 
   # Cache gnubin/gnuman scans and refresh when Cellar metadata changes.
-  __brew_cellar_dir="${__BREW_PREFIX}/Cellar"
-  __brew_cache_key="${__BREW_PREFIX//\//_}"
-  __brew_gnu_cache_file="${DOTFILES__CONFIG_DIR}/cache/brew_gnu_paths.${__brew_cache_key}.cache"
-  # shellcheck disable=SC2329  # Invoked indirectly via __dot_cache_write_atomic.
-  __dot_brew_gnu_cache_generate() {
+  __dot_brew_cellar_dir="${__dot_brew_prefix}/Cellar"
+  __dot_brew_cache_key="${__dot_brew_prefix//\//_}"
+  __dot_brew_gnu_cache_file="${DOTFILES__CONFIG_DIR}/cache/brew_gnu_paths.${__dot_brew_cache_key}.cache"
+  # shellcheck disable=SC2329  # Invoked indirectly via internal::cache-write-atomic.
+  internal::brew-gnu-cache-generate() {
     local p
 
-    for p in "${__BREW_PREFIX}"/Cellar/*/*/libexec/gnubin; do
+    for p in "${__dot_brew_prefix}"/Cellar/*/*/libexec/gnubin; do
       [[ -d "${p}" ]] && printf 'PATH:%s\n' "${p}"
     done
-    for p in "${__BREW_PREFIX}"/Cellar/*/*/libexec/gnuman; do
+    for p in "${__dot_brew_prefix}"/Cellar/*/*/libexec/gnuman; do
       [[ -d "${p}" ]] && printf 'MAN:%s\n' "${p}"
     done
   }
-  if [[ ! -f "${__brew_gnu_cache_file}" ]] \
-    || { [[ -d "${__brew_cellar_dir}" ]] && [[ "${__brew_cellar_dir}" -nt "${__brew_gnu_cache_file}" ]]; }; then
-    __dot_cache_write_atomic "${__brew_gnu_cache_file}" "__dot_brew_gnu_cache_generate"
+  if [[ ! -f "${__dot_brew_gnu_cache_file}" ]] \
+    || { [[ -d "${__dot_brew_cellar_dir}" ]] && [[ "${__dot_brew_cellar_dir}" -nt "${__dot_brew_gnu_cache_file}" ]]; }; then
+    internal::cache-write-atomic "${__dot_brew_gnu_cache_file}" "internal::brew-gnu-cache-generate"
   fi
 
   export MANPATH="${MANPATH:-/usr/share/man}"
-  if [[ -d "${__BREW_PREFIX}/share/man" ]]; then
-    MANPATH="${__BREW_PREFIX}/share/man:${MANPATH}"
+  if [[ -d "${__dot_brew_prefix}/share/man" ]]; then
+    MANPATH="${__dot_brew_prefix}/share/man:${MANPATH}"
   fi
-  if [[ -s "${__brew_gnu_cache_file}" ]]; then
+  if [[ -s "${__dot_brew_gnu_cache_file}" ]]; then
     while IFS= read -r p; do
       case "${p}" in
         PATH:*)
-          __push_path --prepend "${p#PATH:}"
+          internal::path-push --prepend "${p#PATH:}"
           ;;
         MAN:*)
           MANPATH="${p#MAN:}:${MANPATH}"
           ;;
       esac
-    done <"${__brew_gnu_cache_file}"
+    done <"${__dot_brew_gnu_cache_file}"
   fi
-  unset -f __dot_brew_gnu_cache_generate
-  unset p __brew_cellar_dir __brew_cache_key __brew_gnu_cache_file
+  unset -f internal::brew-gnu-cache-generate
+  unset p __dot_brew_cellar_dir __dot_brew_cache_key __dot_brew_gnu_cache_file
   export MANPATH
 fi
 unset DOT_INCLUDE_BREW_PATH
 
 # Completion options
-if [[ -f "${__BREW_PREFIX}/share/bash-completion/bash_completion" ]]; then
+if [[ -f "${__dot_brew_prefix}/share/bash-completion/bash_completion" ]]; then
   # shellcheck source=/dev/null
-  source "${__BREW_PREFIX}/share/bash-completion/bash_completion"
-elif [[ -f "${__BREW_PREFIX}/etc/bash_completion" ]]; then
+  source "${__dot_brew_prefix}/share/bash-completion/bash_completion"
+elif [[ -f "${__dot_brew_prefix}/etc/bash_completion" ]]; then
   # shellcheck source=/dev/null
-  source "${__BREW_PREFIX}/etc/bash_completion"
+  source "${__dot_brew_prefix}/etc/bash_completion"
 fi
 
-unset __BREW_PREFIX
+unset __dot_brew_prefix

@@ -12,7 +12,7 @@ setup() {
   mkdir -p "${DOTFILES__CONFIG_DIR}"
 
   PROMPT_COMMAND=
-  __prompt_actions=()
+  __dot_prompt_actions=()
   chpwd_functions=()
   preexec_functions=()
 
@@ -45,9 +45,9 @@ setup() {
   [ "${PS2}" = $'\342\206\222 ' ]
   [[ " ${preexec_functions[*]} " == *' internal::ps1-exec-timer-start '* ]]
   [[ " ${chpwd_functions[*]} " == *' internal::ps1-git-cache-invalidate '* ]]
-  [[ " ${__prompt_actions[*]} " == *' internal::ps1-exec-timer-stop '* ]]
-  [[ " ${__prompt_actions[*]} " == *' internal::ps1-newline-check '* ]]
-  [[ " ${__prompt_actions[*]} " == *' internal::ps1-git-update '* ]]
+  [[ " ${__dot_prompt_actions[*]} " == *' internal::ps1-exec-timer-stop '* ]]
+  [[ " ${__dot_prompt_actions[*]} " == *' internal::ps1-newline-check '* ]]
+  [[ " ${__dot_prompt_actions[*]} " == *' internal::ps1-git-update '* ]]
   [ "${GIT_PS1_SHOWDIRTYSTATE}" = "true" ]
 }
 

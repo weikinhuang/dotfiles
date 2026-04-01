@@ -9,7 +9,7 @@ setup() {
   export SHELL=/bin/bash
   dotfiles_hook_plugin_post_functions=()
 
-  __find_editor() {
+  internal::find-editor() {
     echo "stub-editor"
   }
 
@@ -44,13 +44,13 @@ EOF
 }
 
 @test "aliases: registers and executes the post-plugin color hook" {
-  [[ " ${dotfiles_hook_plugin_post_functions[*]} " == *" __grep_ls_colors "* ]]
+  [[ " ${dotfiles_hook_plugin_post_functions[*]} " == *" internal::grep-ls-colors "* ]]
 
-  __grep_ls_colors
+  internal::grep-ls-colors
 
   [[ "$(alias ls)" == "alias ls='${MOCK_BIN}/ls --color=auto'" ]]
   [[ "$(alias la)" == "alias la='${MOCK_BIN}/ls -lA --color=auto'" ]]
-  [[ "$(type -t __grep_ls_colors 2>/dev/null || true)" == "" ]]
+  [[ "$(type -t internal::grep-ls-colors 2>/dev/null || true)" == "" ]]
 }
 
 @test "aliases: color hook falls back to BSD ls flags and skips unsupported color aliases" {
@@ -74,7 +74,7 @@ EOF
 
   unalias ls grep fgrep egrep la ll l. dir vdir 2>/dev/null || true
 
-  __grep_ls_colors
+  internal::grep-ls-colors
 
   [[ "$(alias ls)" == "alias ls='${MOCK_BIN}/ls -G'" ]]
   [[ "$(alias la)" == "alias la='${MOCK_BIN}/ls -lA -G'" ]]
@@ -85,7 +85,7 @@ EOF
 
 @test "aliases: enables tty-aware which expansion when which supports alias lookup" {
   run bash -c '
-    __find_editor() { echo "stub-editor"; }
+    internal::find-editor() { echo "stub-editor"; }
     dotfiles_hook_plugin_post_functions=()
     which() { return 0; }
     source "$1"

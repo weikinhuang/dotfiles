@@ -255,7 +255,7 @@ if [[ -z "${PS1_OPT_HIDE_EXEC_TIME:-}" ]]; then
     __dot_ps1_exectimer=0
     __dot_ps1_execduration=" ${duration}"
   }
-  __push_internal_prompt_command internal::ps1-exec-timer-stop
+  internal::prompt-action-push internal::ps1-exec-timer-stop
 fi
 
 # dynamic newline: re-evaluates on each prompt so terminal resize is respected
@@ -269,7 +269,7 @@ if [[ -z "${PS1_OPT_MULTILINE:-}" ]]; then
       __dot_ps1_newline=""
     fi
   }
-  __push_internal_prompt_command internal::ps1-newline-check
+  internal::prompt-action-push internal::ps1-newline-check
 fi
 
 # git prompt segment caching
@@ -457,7 +457,7 @@ function internal::ps1-git-update() {
   __dot_ps1_git_segment="$segment_render"
 }
 internal::ps1-git-update
-__push_internal_prompt_command internal::ps1-git-update
+internal::prompt-action-push internal::ps1-git-update
 
 # ------------------------------------------------------------------------------
 # PROMPT GENERATION

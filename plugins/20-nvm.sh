@@ -31,13 +31,13 @@ export NVM_DIR
 # The default node version's bin dir is cached so node/npm/npx are on PATH
 # immediately without loading nvm.
 # ---------------------------------------------------------------------------
-_nvm_cache="${DOTFILES__CONFIG_DIR}/cache/nvm_default_path"
-if [[ -s "$_nvm_cache" ]]; then
-  read -r _nvm_cached_path <"$_nvm_cache"
-  if [[ -d "$_nvm_cached_path" ]]; then
-    __push_path --prepend "$_nvm_cached_path"
+__dot_nvm_cache_file="${DOTFILES__CONFIG_DIR}/cache/nvm_default_path"
+if [[ -s "${__dot_nvm_cache_file}" ]]; then
+  read -r __dot_nvm_cached_path <"${__dot_nvm_cache_file}"
+  if [[ -d "${__dot_nvm_cached_path}" ]]; then
+    internal::path-push --prepend "${__dot_nvm_cached_path}"
   fi
-  unset _nvm_cached_path
+  unset __dot_nvm_cached_path
 else
   # No cache yet: source nvm eagerly this one time to seed it
   if ! command -v nvm &>/dev/null && [[ -s "${NVM_DIR}/nvm.sh" ]]; then
@@ -46,17 +46,17 @@ else
     # shellcheck source=/dev/null
     [[ -s "${NVM_DIR}/bash_completion" ]] && source "${NVM_DIR}/bash_completion"
   fi
-  _df_NVM_VER="$(nvm version default 2>/dev/null)"
-  if [[ -n "${_df_NVM_VER}" ]] && [[ "${_df_NVM_VER}" != "N/A" ]]; then
-    __push_path --prepend "${NVM_DIR}/versions/node/${_df_NVM_VER}/bin"
-    __dot_cache_write_atomic "$_nvm_cache" "printf '%s' \"${NVM_DIR}/versions/node/${_df_NVM_VER}/bin\""
+  __dot_nvm_default_path_version="$(nvm version default 2>/dev/null)"
+  if [[ -n "${__dot_nvm_default_path_version}" ]] && [[ "${__dot_nvm_default_path_version}" != "N/A" ]]; then
+    internal::path-push --prepend "${NVM_DIR}/versions/node/${__dot_nvm_default_path_version}/bin"
+    internal::cache-write-atomic "${__dot_nvm_cache_file}" "printf '%s' \"${NVM_DIR}/versions/node/${__dot_nvm_default_path_version}/bin\""
   fi
-  unset _df_NVM_VER
+  unset __dot_nvm_default_path_version
 fi
-unset _nvm_cache
+unset __dot_nvm_cache_file
 
-__nvm_lazy_load() {
-  unset -f nvm node npm npx __nvm_lazy_load
+internal::nvm-lazy-load() {
+  unset -f nvm node npm npx internal::nvm-lazy-load
   # shellcheck source=/dev/null
   [[ -s "${NVM_DIR}/nvm.sh" ]] && source "${NVM_DIR}/nvm.sh"
   # shellcheck source=/dev/null
@@ -65,7 +65,7 @@ __nvm_lazy_load() {
   local ver
   ver="$(nvm version default 2>/dev/null)"
   if [[ -n "$ver" ]] && [[ "$ver" != "N/A" ]]; then
-    __dot_cache_write_atomic \
+    internal::cache-write-atomic \
       "${DOTFILES__CONFIG_DIR}/cache/nvm_default_path" \
       "printf '%s' \"${NVM_DIR}/versions/node/${ver}/bin\""
   fi
@@ -73,30 +73,30 @@ __nvm_lazy_load() {
 
 if ! command -v nvm &>/dev/null; then
   nvm() {
-    __nvm_lazy_load
+    internal::nvm-lazy-load
     nvm "$@"
   }
   node() {
-    __nvm_lazy_load
+    internal::nvm-lazy-load
     node "$@"
   }
   npm() {
-    __nvm_lazy_load
+    internal::nvm-lazy-load
     npm "$@"
   }
   npx() {
-    __nvm_lazy_load
+    internal::nvm-lazy-load
     npx "$@"
   }
 fi
 
 # automatically load nvm as needed
 # https://github.com/nvm-sh/nvm#automatically-call-nvm-use
-__cdnvm_last_scope=
-__cdnvm_last_resolved=
-__cdnvm_default_version=
+__dot_nvm_last_scope=
+__dot_nvm_last_resolved=
+__dot_nvm_default_version=
 
-__cdnvm_current_version() {
+internal::nvm-current-version() {
   if [[ -n "${NVM_BIN:-}" ]]; then
     local current_path="${NVM_BIN%/bin}"
     echo "${current_path##*/}"
@@ -105,25 +105,25 @@ __cdnvm_current_version() {
   echo ""
 }
 
-__cdnvm_resolve_default_version() {
-  if [[ -n "${__cdnvm_default_version:-}" ]] && [[ "${__cdnvm_default_version}" != "N/A" ]]; then
-    echo "${__cdnvm_default_version}"
+internal::nvm-resolve-default-version() {
+  if [[ -n "${__dot_nvm_default_version:-}" ]] && [[ "${__dot_nvm_default_version}" != "N/A" ]]; then
+    echo "${__dot_nvm_default_version}"
     return
   fi
 
-  __cdnvm_default_version="$(nvm version default 2>/dev/null || true)"
-  if [[ "${__cdnvm_default_version}" == "N/A" ]]; then
+  __dot_nvm_default_version="$(nvm version default 2>/dev/null || true)"
+  if [[ "${__dot_nvm_default_version}" == "N/A" ]]; then
     nvm alias default node >/dev/null 2>&1 || true
-    __cdnvm_default_version="$(nvm version default 2>/dev/null || true)"
+    __dot_nvm_default_version="$(nvm version default 2>/dev/null || true)"
   fi
-  echo "${__cdnvm_default_version}"
+  echo "${__dot_nvm_default_version}"
 }
 
 cdnvm() {
   local nvm_path nvmrc_path nvm_version scope current_version resolved_version default_version
 
   if ! command -v nvm_find_up &>/dev/null; then
-    __nvm_lazy_load 2>/dev/null || true
+    internal::nvm-lazy-load 2>/dev/null || true
   fi
 
   nvm_path="$(nvm_find_up .nvmrc | tr -d '\n')"
@@ -131,18 +131,18 @@ cdnvm() {
   # If there are no .nvmrc file, use the default nvm version
   if [[ ! "${nvm_path}" = *[^[:space:]]* ]]; then
     scope="__default__"
-    current_version="$(__cdnvm_current_version)"
-    default_version="$(__cdnvm_resolve_default_version)"
+    current_version="$(internal::nvm-current-version)"
+    default_version="$(internal::nvm-resolve-default-version)"
 
-    if [[ "${__cdnvm_last_scope}" == "${scope}" ]] && [[ "${current_version}" == "${default_version}" ]]; then
+    if [[ "${__dot_nvm_last_scope}" == "${scope}" ]] && [[ "${current_version}" == "${default_version}" ]]; then
       return
     fi
 
     if [[ -n "${default_version}" ]] && [[ "${current_version}" != "${default_version}" ]]; then
       nvm use default >/dev/null
     fi
-    __cdnvm_last_scope="${scope}"
-    __cdnvm_last_resolved="${default_version}"
+    __dot_nvm_last_scope="${scope}"
+    __dot_nvm_last_resolved="${default_version}"
     return
   fi
 
@@ -150,9 +150,9 @@ cdnvm() {
   if [[ -s "${nvmrc_path}" ]] && [[ -r "${nvmrc_path}" ]]; then
     nvm_version="$(<"${nvmrc_path}")"
     scope="${nvm_path}:${nvm_version}"
-    current_version="$(__cdnvm_current_version)"
+    current_version="$(internal::nvm-current-version)"
 
-    if [[ "${__cdnvm_last_scope}" == "${scope}" ]] && [[ "${current_version}" == "${__cdnvm_last_resolved}" ]]; then
+    if [[ "${__dot_nvm_last_scope}" == "${scope}" ]] && [[ "${current_version}" == "${__dot_nvm_last_resolved}" ]]; then
       return
     fi
 
@@ -165,8 +165,8 @@ cdnvm() {
       nvm use "${nvm_version}" >/dev/null
     fi
 
-    __cdnvm_last_scope="${scope}"
-    __cdnvm_last_resolved="${resolved_version}"
+    __dot_nvm_last_scope="${scope}"
+    __dot_nvm_last_resolved="${resolved_version}"
   fi
 }
 chpwd_functions+=(cdnvm)

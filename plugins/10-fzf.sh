@@ -18,21 +18,21 @@ fi
 
 # https://github.com/junegunn/fzf#environment-variables
 # use fd in place of find if available
-_dot_fd_bin="${DOTFILES__FD_COMMAND:-}"
-if [[ -z "${_dot_fd_bin}" ]]; then
+__dot_fzf_fd_bin="${DOTFILES__FD_COMMAND:-}"
+if [[ -z "${__dot_fzf_fd_bin}" ]]; then
   if command -v fd &>/dev/null; then
-    _dot_fd_bin="fd"
+    __dot_fzf_fd_bin="fd"
   elif command -v fdfind &>/dev/null; then
-    _dot_fd_bin="fdfind"
+    __dot_fzf_fd_bin="fdfind"
   fi
 fi
 
-if [[ -z "${FZF_DEFAULT_COMMAND+x}" ]] && [[ -n "${_dot_fd_bin}" ]]; then
-  export FZF_DEFAULT_COMMAND="${_dot_fd_bin} --type f --hidden --follow --exclude .git"
+if [[ -z "${FZF_DEFAULT_COMMAND+x}" ]] && [[ -n "${__dot_fzf_fd_bin}" ]]; then
+  export FZF_DEFAULT_COMMAND="${__dot_fzf_fd_bin} --type f --hidden --follow --exclude .git"
   export FZF_CTRL_T_COMMAND="${FZF_DEFAULT_COMMAND}"
-  export FZF_ALT_C_COMMAND="${_dot_fd_bin} --type d --hidden --follow --exclude .git"
+  export FZF_ALT_C_COMMAND="${__dot_fzf_fd_bin} --type d --hidden --follow --exclude .git"
 fi
-unset _dot_fd_bin
+unset __dot_fzf_fd_bin
 
 # sensible default options
 if [[ -z "${FZF_DEFAULT_OPTS+x}" ]]; then
@@ -51,21 +51,21 @@ fi
 # CTRL-T: file/dir picker with bat preview and walker-skip fallback
 # --walker-skip applies when fd is not installed and fzf uses its built-in walker
 # --scheme=path gives bonus points to characters after path separators
-_fzf_ct_opts="--scheme=path --walker-skip .git,node_modules,target"
+__dot_fzf_ctrl_t_opts="--scheme=path --walker-skip .git,node_modules,target"
 if command -v bat &>/dev/null; then
-  _fzf_ct_opts="${_fzf_ct_opts} --preview 'bat -n --color=always --line-range :300 {} 2>/dev/null || cat {}'"
-  _fzf_ct_opts="${_fzf_ct_opts} --bind 'ctrl-/:change-preview-window(down|hidden|)'"
+  __dot_fzf_ctrl_t_opts="${__dot_fzf_ctrl_t_opts} --preview 'bat -n --color=always --line-range :300 {} 2>/dev/null || cat {}'"
+  __dot_fzf_ctrl_t_opts="${__dot_fzf_ctrl_t_opts} --bind 'ctrl-/:change-preview-window(down|hidden|)'"
 fi
-export FZF_CTRL_T_OPTS="${_fzf_ct_opts}"
-unset _fzf_ct_opts
+export FZF_CTRL_T_OPTS="${__dot_fzf_ctrl_t_opts}"
+unset __dot_fzf_ctrl_t_opts
 
 # ALT-C: directory picker with tree preview
-_fzf_ac_opts="--walker-skip .git,node_modules,target"
+__dot_fzf_alt_c_opts="--walker-skip .git,node_modules,target"
 if command -v tree &>/dev/null; then
-  _fzf_ac_opts="${_fzf_ac_opts} --preview 'tree -C -L 2 {} | head -80'"
+  __dot_fzf_alt_c_opts="${__dot_fzf_alt_c_opts} --preview 'tree -C -L 2 {} | head -80'"
 fi
-export FZF_ALT_C_OPTS="${_fzf_ac_opts}"
-unset _fzf_ac_opts
+export FZF_ALT_C_OPTS="${__dot_fzf_alt_c_opts}"
+unset __dot_fzf_alt_c_opts
 
 # CTRL-R: history search with chronological scoring
 export FZF_CTRL_R_OPTS="--scheme=history --bind='ctrl-y:execute-silent(echo -n {2..} | clipboard-copy)+abort' --header='Press CTRL-Y to copy command to clipboard'"

@@ -7,7 +7,7 @@ if ! command -v npm &>/dev/null; then
   return
 fi
 
-__dot_cached_completion npm "npm completion bash"
+internal::cached-completion npm "npm completion bash"
 
 # global node_modules without sudo
 # @see https://github.com/sindresorhus/guides/blob/master/npm-global-without-sudo.md
@@ -15,7 +15,7 @@ NPM_PACKAGES="${HOME}/.npm-packages"
 if ! command -v nvm &>/dev/null; then
   # https://docs.npmjs.com/cli/v8/commands/npm#directories
   export NPM_CONFIG_PREFIX="${HOME}/.npm-packages"
-  __push_path "$NPM_PACKAGES/bin"
+  internal::path-push "$NPM_PACKAGES/bin"
 fi
 
 if [[ -d "$NPM_PACKAGES/share/man" ]]; then

@@ -7,13 +7,13 @@ if ! command -v lesspipe.sh &>/dev/null; then
   return
 fi
 
-_lesspipe_cache="${DOTFILES__CONFIG_DIR}/cache/lesspipe.bash"
-if [[ ! -f "$_lesspipe_cache" ]] \
-  || [[ "$(command -v lesspipe.sh)" -nt "$_lesspipe_cache" ]]; then
-  __dot_cache_write_atomic "$_lesspipe_cache" "SHELL=/bin/bash lesspipe.sh"
+__dot_lesspipe_cache="${DOTFILES__CONFIG_DIR}/cache/lesspipe.bash"
+if [[ ! -f "${__dot_lesspipe_cache}" ]] \
+  || [[ "$(command -v lesspipe.sh)" -nt "${__dot_lesspipe_cache}" ]]; then
+  internal::cache-write-atomic "${__dot_lesspipe_cache}" "SHELL=/bin/bash lesspipe.sh"
 fi
-if [[ -f "$_lesspipe_cache" ]]; then
+if [[ -f "${__dot_lesspipe_cache}" ]]; then
   # shellcheck source=/dev/null
-  source "$_lesspipe_cache"
+  source "${__dot_lesspipe_cache}"
 fi
-unset _lesspipe_cache
+unset __dot_lesspipe_cache

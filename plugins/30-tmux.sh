@@ -8,10 +8,10 @@ if ! command -v tmux &>/dev/null; then
 fi
 
 # reloads env vars from tmux
-function _reload-tmux-env() {
+function internal::tmux-reload-env() {
   # shellcheck disable=SC2046
   eval $(tmux show-env -s)
 }
 if [[ "${TERM:-}" == screen* || "${TERM:-}" == tmux* ]] && [[ -n "${TMUX:-}" ]]; then
-  __push_internal_prompt_command '_reload-tmux-env'
+  internal::prompt-action-push 'internal::tmux-reload-env'
 fi

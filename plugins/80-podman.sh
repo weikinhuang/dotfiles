@@ -21,7 +21,7 @@ function podman-wsl2-fix-mount() {
   sudo mount --make-rshared /
 }
 
-__dot_cached_completion podman "podman completion bash"
+internal::cached-completion podman "podman completion bash"
 
 # default build behavior to run as docker image spec
 # https://docs.podman.io/en/latest/markdown/podman-build.1.html#format
@@ -34,19 +34,19 @@ if ! command -v docker &>/dev/null; then
   complete -o default -F __start_podman docker
 else
   # use podman with fallback to docker if docker env vars are set or is running
-  __podman_docker_autopath="$(
+  __dot_podman_docker_path="$(
     unalias docker &>/dev/null
     command -v docker
   )"
-  __podman_docker_compose_autopath="$(
+  __dot_podman_docker_compose_path="$(
     unalias docker-compose &>/dev/null
     command -v docker-compose
   )"
-  export __podman_docker_autopath
-  export __podman_docker_compose_autopath
+  export __dot_podman_docker_path
+  export __dot_podman_docker_compose_path
   function docker() {
     if [[ -n "${DOCKER_HOST:-}" ]] || [[ -S /var/run/docker.sock ]]; then
-      "${__podman_docker_autopath}" "$@"
+      "${__dot_podman_docker_path}" "$@"
     else
       podman "$@"
     fi
@@ -55,7 +55,7 @@ else
 
   function docker-compose() {
     if [[ -n "${DOCKER_HOST:-}" ]] || [[ -S /var/run/docker.sock ]]; then
-      "${__podman_docker_compose_autopath}" "$@"
+      "${__dot_podman_docker_compose_path}" "$@"
     else
       podman-compose "$@"
     fi

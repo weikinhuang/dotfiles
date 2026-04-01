@@ -22,7 +22,7 @@ alias cp="cp -i"
 alias mv="mv -i"
 
 # run this after plugins are loaded in case gnu grep and gnu ls is added to path in plugins
-function __grep_ls_colors() {
+function internal::grep-ls-colors() {
   local LS_COLOR_FLAG LS_BIN GREP_BIN
   LS_BIN="$(
     unalias ls &>/dev/null
@@ -68,9 +68,9 @@ function __grep_ls_colors() {
     alias vdir="ls ${LS_COLOR_FLAG} --format=long"
   fi
 
-  unset -f __grep_ls_colors
+  unset -f internal::grep-ls-colors
 }
-dotfiles_hook_plugin_post_functions+=(__grep_ls_colors)
+dotfiles_hook_plugin_post_functions+=(internal::grep-ls-colors)
 
 # allow which command to expand
 # shellcheck disable=SC2230
@@ -97,4 +97,4 @@ alias reload="exec ${SHELL} -l"
 
 # Alias vi to a found editor
 # shellcheck disable=SC2139
-alias vi="$(__find_editor)"
+alias vi="$(internal::find-editor)"

@@ -7,4 +7,4 @@ if ! command -v gh &>/dev/null; then
   return
 fi
 
-__dot_cached_completion gh "gh completion -s bash"
+internal::cached-completion gh "gh completion -s bash"

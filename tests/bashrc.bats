@@ -16,11 +16,11 @@ DOT_TRACE="${DOT_TRACE:+${DOT_TRACE}:}utils"
 PROMPT_COMMANDS=()
 INTERNAL_PROMPT_COMMANDS=()
 
-__push_prompt_command() {
+internal::prompt-command-push() {
   PROMPT_COMMANDS+=("$1")
 }
 
-__push_internal_prompt_command() {
+internal::prompt-action-push() {
   INTERNAL_PROMPT_COMMANDS+=("$1")
 }
 EOF
@@ -28,11 +28,11 @@ EOF
   write_fixture_file "${install_root}/.dotfiles/dotenv/lib/path.sh" <<'EOF'
 DOT_TRACE="${DOT_TRACE:+${DOT_TRACE}:}path"
 
-__dot_path_setup() {
+internal::path-setup() {
   DOT_TRACE="${DOT_TRACE:+${DOT_TRACE}:}path-setup"
 }
 
-__dot_path_cleanup() {
+internal::path-cleanup() {
   DOT_TRACE="${DOT_TRACE:+${DOT_TRACE}:}path-clean"
 }
 EOF
@@ -40,19 +40,19 @@ EOF
   write_fixture_file "${install_root}/.dotfiles/dotenv/lib/load.sh" <<'EOF'
 DOT_TRACE="${DOT_TRACE:+${DOT_TRACE}:}load-lib"
 
-__dot_load() {
+internal::load-phase() {
   DOT_TRACE="${DOT_TRACE:+${DOT_TRACE}:}load-$1"
 }
 
-__dot_load_plugins() {
+internal::load-plugins() {
   DOT_TRACE="${DOT_TRACE:+${DOT_TRACE}:}load-plugin"
 }
 
-__dot_load_cleanup() {
+internal::load-cleanup() {
   DOT_TRACE="${DOT_TRACE:+${DOT_TRACE}:}load-clean"
-  unset -f __dot_load
-  unset -f __dot_load_plugins
-  unset -f __dot_load_cleanup
+  unset -f internal::load-phase
+  unset -f internal::load-plugins
+  unset -f internal::load-cleanup
 }
 EOF
 
@@ -146,7 +146,7 @@ EOF
     printf "trace=%s\n" "${DOT_TRACE}"
     printf "prompt=%s\n" "${PROMPT_COMMANDS[*]}"
     printf "internal=%s\n" "${INTERNAL_PROMPT_COMMANDS[*]}"
-    printf "load-type=%s\n" "$(type -t __dot_load || true)"
+    printf "load-type=%s\n" "$(type -t internal::load-phase || true)"
     printf "complete-type=%s\n" "$(type -t dotfiles_complete || true)"
     if [[ -d "${DOTFILES__CONFIG_DIR}/cache/completions" ]]; then
       echo "cache-dirs=present"
@@ -165,7 +165,7 @@ EOF
   assert_line --index 6 "root=${install_root}"
   assert_line --index 7 "config=${XDG_CONFIG_HOME}/dotfiles"
   assert_line --index 8 "trace=utils:path:path-setup:bash-local:bash-local-d:load-lib:load-exports:load-functions:load-aliases:load-extra:load-env:load-completion:completion-d:load-plugin:load-prompt:path-clean:load-clean:preexec:dotfiles-complete"
-  assert_line --index 9 "prompt=__run_prompt_command"
+  assert_line --index 9 "prompt=internal::prompt-action-run"
   assert_line --index 10 "internal=history -a"
   assert_line --index 11 "load-type="
   assert_line --index 12 "complete-type="

@@ -19,8 +19,8 @@ setup() {
   mkdir -p "${tools_dir}"
   PATH="/usr/bin:/bin"
 
-  __push_path "${tools_dir}/"
-  __push_path "${tools_dir}"
+  internal::path-push "${tools_dir}/"
+  internal::path-push "${tools_dir}"
 
   [ "${PATH}" = "/usr/bin:/bin:${tools_dir}" ]
 }
@@ -30,7 +30,7 @@ setup() {
   mkdir -p "${tools_dir}"
   PATH="/usr/bin:/bin"
 
-  __push_path --prepend "${tools_dir}"
+  internal::path-push --prepend "${tools_dir}"
 
   [ "${PATH}" = "${tools_dir}:/usr/bin:/bin" ]
 }
@@ -40,7 +40,7 @@ setup() {
   mkdir -p "${tools_dir}"
   PATH="/usr/bin:${tools_dir}/:${tools_dir}:/bin:/usr/bin/"
 
-  __dedup_path
+  internal::path-dedup
 
   [ "${PATH}" = "/usr/bin:${tools_dir}:/bin" ]
 }
@@ -76,7 +76,7 @@ EOF
   export DOT___IS_WSL2=1
   PATH="${MOCK_BIN}:/usr/bin:/bin"
 
-  __dot_path_setup
+  internal::path-setup
 
   [[ "${PATH}" == *"${DOTFILES__ROOT}/.dotfiles/dotenv/ssh/bin.${arch}"* ]]
   [[ "${PATH}" == *"${DOTFILES__ROOT}/.dotfiles/dotenv/tmux/bin.${arch}"* ]]
@@ -104,7 +104,7 @@ EOF
   export DOT___IS_SSH=1
   PATH="/usr/bin:/bin"
 
-  __dot_path_setup
+  internal::path-setup
 
   [[ "${PATH}" == "${DOTFILES__ROOT}/.dotfiles/dotenv/ssh/bin.${arch}:${DOTFILES__ROOT}/.dotfiles/dotenv/ssh/bin:${DOTFILES__ROOT}/.dotfiles/dotenv/screen/bin.${arch}:${DOTFILES__ROOT}/.dotfiles/dotenv/screen/bin:${DOTFILES__ROOT}/.dotfiles/dotenv/tmux/bin.${arch}:${DOTFILES__ROOT}/.dotfiles/dotenv/tmux/bin:/usr/bin:/bin" ]]
 }
@@ -114,9 +114,9 @@ EOF
   mkdir -p "${tools_dir}"
   PATH="/usr/bin:${tools_dir}/:${tools_dir}:/bin"
 
-  __dot_path_cleanup
+  internal::path-cleanup
 
   [ "${PATH}" = "/usr/bin:${tools_dir}:/bin" ]
-  [ "$(type -t __dot_path_setup || true)" = "" ]
-  [ "$(type -t __dot_path_cleanup || true)" = "" ]
+  [ "$(type -t internal::path-setup || true)" = "" ]
+  [ "$(type -t internal::path-cleanup || true)" = "" ]
 }

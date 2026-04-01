@@ -27,7 +27,7 @@ export COMP_TAR_INTERNAL_PATHS
 COMP_WORDBREAKS=${COMP_WORDBREAKS/=/}
 
 # set $EDITOR if not already set
-EDITOR="${EDITOR:-$(__find_editor)}"
+EDITOR="${EDITOR:-$(internal::find-editor)}"
 export EDITOR
 VISUAL="${VISUAL:-$EDITOR}"
 export VISUAL

@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: MIT
 
 # Special cd replacement that shows up to the last 10 directories with 'cd --'.
-function __cd_func() {
+function internal::cd() {
   local x2 the_new_dir adir index
   local -i cnt
 
@@ -53,4 +53,4 @@ function __cd_func() {
 }
 
 # cd replacement to show cd history with cd --
-alias cd="__cd_func"
+alias cd="internal::cd"

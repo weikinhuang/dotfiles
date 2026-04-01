@@ -102,13 +102,13 @@ setup() {
 
   [ "$(type -t nvm)" = "function" ]
   [ "$(type -t node)" = "function" ]
-  [ "$(type -t __nvm_lazy_load)" = "function" ]
+  [ "$(type -t internal::nvm-lazy-load)" = "function" ]
   [[ ":${PATH}:" == *":${cached_path}:"* ]]
 
   node hello world >/dev/null
 
   grep -Fx "node:hello world" "${TEST_NVM_LOG}"
-  [ -z "$(type -t __nvm_lazy_load || true)" ]
+  [ -z "$(type -t internal::nvm-lazy-load || true)" ]
 }
 
 @test "20-nvm: cdnvm installs unresolved project versions from .nvmrc" {
@@ -129,7 +129,7 @@ setup() {
 
   [ "$(cat "${TEST_NVM_LOG}")" = "install:lts/*" ]
   # shellcheck disable=SC2154
-  [ "${__cdnvm_last_scope}" = "${project}:lts/*" ]
+  [ "${__dot_nvm_last_scope}" = "${project}:lts/*" ]
   # shellcheck disable=SC2154
-  [ "${__cdnvm_last_resolved}" = "v20.11.1" ]
+  [ "${__dot_nvm_last_resolved}" = "v20.11.1" ]
 }

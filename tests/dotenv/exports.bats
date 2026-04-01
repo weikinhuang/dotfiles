@@ -7,7 +7,7 @@ setup() {
   export HOME="${BATS_TEST_TMPDIR}/home"
   mkdir -p "${HOME}"
 
-  __find_editor() {
+  internal::find-editor() {
     echo "fallback-editor"
   }
 }

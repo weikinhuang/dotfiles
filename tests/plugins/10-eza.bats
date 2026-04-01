@@ -15,14 +15,14 @@ setup() {
 
   [ "$(readlink "${HOME}/.config/eza/theme.yml")" = "${DOTFILES__ROOT}/.dotfiles/config/eza/solarized-dark.yml" ]
   # shellcheck disable=SC2154
-  [ "${dotfiles_hook_plugin_post_functions[0]}" = "__eza_ls_aliases" ]
+  [ "${dotfiles_hook_plugin_post_functions[0]}" = "internal::eza-ls-aliases" ]
 
-  __eza_ls_aliases
+  internal::eza-ls-aliases
 
   [ "$(alias ls)" = "alias ls='eza'" ]
   [ "$(alias la)" = "alias la='eza -la --group-directories-first'" ]
   [ "$(alias ll)" = "alias ll='eza -l --group-directories-first'" ]
   [ "$(alias l.)" = "alias l.='eza -d .*'" ]
   [ "$(alias lt)" = "alias lt='eza -lT --level=2'" ]
-  [ -z "$(type -t __eza_ls_aliases || true)" ]
+  [ -z "$(type -t internal::eza-ls-aliases || true)" ]
 }

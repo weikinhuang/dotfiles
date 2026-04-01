@@ -14,11 +14,11 @@ setup() {
 }
 
 @test "utils: push-prompt-command trims whitespace and avoids duplicate commands" {
-  PROMPT_COMMAND=' history -a ; __run_prompt_command; '
+  PROMPT_COMMAND=' history -a ; internal::prompt-action-run; '
 
-  __push_prompt_command "__run_prompt_command"
+  internal::prompt-command-push "internal::prompt-action-run"
 
-  [ "${PROMPT_COMMAND}" = 'history -a;__run_prompt_command;' ]
+  [ "${PROMPT_COMMAND}" = 'history -a;internal::prompt-action-run;' ]
 }
 
 @test "utils: run-prompt-command executes queued commands in order" {
@@ -27,10 +27,10 @@ setup() {
     TEST_TRACE="${TEST_TRACE}${1} "
   }
 
-  __push_internal_prompt_command "record_trace alpha"
-  __push_internal_prompt_command "record_trace beta"
+  internal::prompt-action-push "record_trace alpha"
+  internal::prompt-action-push "record_trace beta"
 
-  __run_prompt_command
+  internal::prompt-action-run
 
   [ "${TEST_TRACE}" = 'alpha beta ' ]
 }
@@ -47,7 +47,7 @@ exit 0
 EOF
   chmod +x "${vscode_bin}/code"
 
-  run __find_editor
+  run internal::find-editor
   assert_success
   assert_output "code --wait"
 }
@@ -58,13 +58,13 @@ EOF
   use_mock_bin_path
   stub_passthrough_command "npp"
 
-  run __find_editor
+  run internal::find-editor
   assert_success
   assert_output "npp"
 }
 
 @test "utils: cached-eval writes and sources a missing cache file" {
-  __dot_cached_eval demo-tool "printf 'export TEST_CACHED_EVAL=ready\\n'"
+  internal::cached-eval demo-tool "printf 'export TEST_CACHED_EVAL=ready\\n'"
 
   [ "${TEST_CACHED_EVAL}" = 'ready' ]
   [ -f "${DOTFILES__CONFIG_DIR}/cache/demo-tool.init.bash" ]
@@ -80,12 +80,12 @@ EOF
 
   TEST_REFRESH_FILE=
   TEST_REFRESH_CMD=
-  __dot_cache_refresh_async() {
+  internal::cache-refresh-async() {
     TEST_REFRESH_FILE="$1"
     TEST_REFRESH_CMD="$2"
   }
 
-  __dot_cached_eval demo-tool "printf 'export TEST_CACHED_EVAL=fresh\\n'"
+  internal::cached-eval demo-tool "printf 'export TEST_CACHED_EVAL=fresh\\n'"
 
   [ "${TEST_CACHED_EVAL}" = 'stale' ]
   [ "${TEST_REFRESH_FILE}" = "${cache_file}" ]
@@ -93,7 +93,7 @@ EOF
 }
 
 @test "utils: cached-completion writes and sources a missing completion cache" {
-  __dot_cached_completion demo-tool "printf 'complete -W \"alpha beta\" demo-tool\\n'"
+  internal::cached-completion demo-tool "printf 'complete -W \"alpha beta\" demo-tool\\n'"
 
   local completion_def
   completion_def="$(complete -p demo-tool)"
@@ -105,7 +105,7 @@ EOF
 @test "utils: cache-write-atomic removes temporary files on generator failure" {
   local cache_file="${DOTFILES__CONFIG_DIR}/cache/failing.init.bash"
 
-  run __dot_cache_write_atomic "${cache_file}" "false"
+  run internal::cache-write-atomic "${cache_file}" "false"
   assert_failure
 
   [ ! -e "${cache_file}" ]
@@ -118,7 +118,7 @@ EOF
 
   printf 'not a directory\n' >"${blocked_root}"
 
-  run __dot_cache_write_atomic "${cache_file}" "printf 'export TEST_CACHED_EVAL=ready\\n'"
+  run internal::cache-write-atomic "${cache_file}" "printf 'export TEST_CACHED_EVAL=ready\\n'"
 
   assert_failure
   assert_output ""

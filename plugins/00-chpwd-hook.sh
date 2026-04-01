@@ -3,33 +3,33 @@
 # SPDX-License-Identifier: MIT
 
 # Avoid duplicate inclusion
-if [[ -n "${bash_chpwd_imported:-}" ]]; then
+if [[ -n "${__dot_chpwd_imported:-}" ]]; then
   return
 fi
-bash_chpwd_imported="defined"
+__dot_chpwd_imported="defined"
 
 if ! declare -p chpwd_functions &>/dev/null; then
   # shellcheck disable=SC2034
   declare -a chpwd_functions
 fi
 
-__dot_inside_chpwd=0
-__dot_inside_chpwd_last=
+__dot_chpwd_active=0
+__dot_chpwd_last_pwd=
 # execute dotfile load hooks
-function __dot_chpwd_hook() {
+function internal::chpwd-hook() {
   local hook
 
   # Don't invoke chpwd if we are inside of another chpwd.
-  if ((__dot_inside_chpwd > 0)); then
+  if ((__dot_chpwd_active > 0)); then
     return
   fi
 
   # check if directory has changed
-  if [[ "${PWD}" == "${__dot_inside_chpwd_last}" ]]; then
+  if [[ "${PWD}" == "${__dot_chpwd_last_pwd}" ]]; then
     return
   fi
-  __dot_inside_chpwd=1
-  __dot_inside_chpwd_last="${PWD}"
+  __dot_chpwd_active=1
+  __dot_chpwd_last_pwd="${PWD}"
 
   # if declared in function format
   if command -v chpwd &>/dev/null; then
@@ -40,8 +40,8 @@ function __dot_chpwd_hook() {
     { "${hook}"; }
   done
 
-  __dot_inside_chpwd=0
+  __dot_chpwd_active=0
 }
 
 # check on each prompt command
-__push_internal_prompt_command __dot_chpwd_hook
+internal::prompt-action-push internal::chpwd-hook

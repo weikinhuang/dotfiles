@@ -7,4 +7,4 @@ if ! command -v zoxide &>/dev/null; then
   return
 fi
 
-__dot_cached_eval zoxide "zoxide init bash"
+internal::cached-eval zoxide "zoxide init bash"

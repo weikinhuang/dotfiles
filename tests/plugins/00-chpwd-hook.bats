@@ -12,10 +12,10 @@ setup() {
   source "${REPO_ROOT}/plugins/00-chpwd-hook.sh"
 
   # shellcheck disable=SC2154
-  [ "${bash_chpwd_imported}" = "defined" ]
+  [ "${__dot_chpwd_imported}" = "defined" ]
   # shellcheck disable=SC2154
-  [ "${#__prompt_actions[@]}" -eq 1 ]
-  [ "${__prompt_actions[0]}" = "__dot_chpwd_hook" ]
+  [ "${#__dot_prompt_actions[@]}" -eq 1 ]
+  [ "${__dot_prompt_actions[0]}" = "internal::chpwd-hook" ]
   [ "$(declare -p chpwd_functions)" = "declare -a chpwd_functions=()" ]
 }
 
@@ -30,7 +30,7 @@ setup() {
   }
   hook_one() {
     log="${log:+${log}:}one"
-    __dot_chpwd_hook
+    internal::chpwd-hook
   }
   hook_two() {
     log="${log:+${log}:}two"
@@ -40,10 +40,10 @@ setup() {
   source "${REPO_ROOT}/plugins/00-chpwd-hook.sh"
 
   cd "${dir_one}"
-  __dot_chpwd_hook
-  __dot_chpwd_hook
+  internal::chpwd-hook
+  internal::chpwd-hook
   cd "${dir_two}"
-  __dot_chpwd_hook
+  internal::chpwd-hook
 
   [ "${log}" = "named:one:two:named:one:two" ]
 }

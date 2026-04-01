@@ -13,14 +13,14 @@ setup() {
     HOME="$2"
     mkdir -p "${HOME}"
     dirs -c
-    __cd_func
+    internal::cd
     pwd
     alias cd
   ' _ "${REPO_ROOT}/plugins/00-cd.sh" "${HOME}"
 
   assert_success
   assert_line --index 0 "${HOME}"
-  assert_line --index 1 "alias cd='__cd_func'"
+  assert_line --index 1 "alias cd='internal::cd'"
 }
 
 @test "00-cd: reuses stack entries without duplicates and supports numeric history jumps" {
@@ -31,13 +31,13 @@ setup() {
   run bash -lc '
     source "$1"
     dirs -c
-    __cd_func "$2"
-    __cd_func "$3"
-    __cd_func "$2"
+    internal::cd "$2"
+    internal::cd "$3"
+    internal::cd "$2"
     printf "count=%s\n" "$(dirs -p | grep -Fxc "$2")"
-    __cd_func -1
+    internal::cd -1
     printf "pwd=%s\n" "${PWD}"
-    __cd_func --
+    internal::cd --
   ' _ "${REPO_ROOT}/plugins/00-cd.sh" "${dir_a}" "${dir_b}"
 
   assert_success

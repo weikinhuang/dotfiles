@@ -9,10 +9,10 @@ fi
 
 # load iterm shell integration
 if [[ -e /Applications/iTerm.app/Contents/Resources/iterm2_shell_integration.bash ]]; then
-  function __load_iterm_integration() {
+  function internal::iterm-load-integration() {
     # shellcheck source=/dev/null
     source /Applications/iTerm.app/Contents/Resources/iterm2_shell_integration.bash
-    unset -f __load_iterm_integration
+    unset -f internal::iterm-load-integration
   }
-  dotfiles_complete_functions+=(__load_iterm_integration)
+  dotfiles_complete_functions+=(internal::iterm-load-integration)
 fi

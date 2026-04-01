@@ -19,7 +19,7 @@ EOF
   source "${REPO_ROOT}/plugins/30-tmux.sh"
 
   # shellcheck disable=SC2154
-  [ "${__prompt_actions[0]}" = "_reload-tmux-env" ]
-  _reload-tmux-env
+  [ "${__dot_prompt_actions[0]}" = "internal::tmux-reload-env" ]
+  internal::tmux-reload-env
   [ "${TMUX_PLUGIN_ENV}" = "1" ]
 }

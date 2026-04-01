@@ -8,4 +8,4 @@ if ! command -v direnv &>/dev/null; then
 fi
 
 export DIRENV_LOG_FORMAT=
-__dot_cached_eval direnv "direnv hook bash"
+internal::cached-eval direnv "direnv hook bash"

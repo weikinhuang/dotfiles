@@ -42,14 +42,14 @@ case "$(uname -s)" in
     ;;
   Linux)
     # need test for wslpath because we could be in a container
-    _uname_r="$(uname -r)"
-    if [[ "$_uname_r" == *[Mm]icrosoft* ]] && command -v wslpath &>/dev/null; then
+    __dot_uname_r="$(uname -r)"
+    if [[ "$__dot_uname_r" == *[Mm]icrosoft* ]] && command -v wslpath &>/dev/null; then
       DOT___IS_WSL=1
-      if [[ "$_uname_r" == *WSL2* ]]; then
+      if [[ "$__dot_uname_r" == *WSL2* ]]; then
         DOT___IS_WSL2=1
       fi
     fi
-    unset _uname_r
+    unset __dot_uname_r
     ;;
 esac
 readonly DOTENV
@@ -97,30 +97,30 @@ declare -a chpwd_functions
 declare -a dotfiles_complete_functions
 
 # These arrays are used to add functions to be run before, or after, loading parts of the dotfiles builtin.
-for hook in {exports,functions,aliases,completion,extra,env,prompt,plugin}; do
-  declare -a "dotfiles_hook_${hook}_pre_functions"
-  declare -a "dotfiles_hook_${hook}_post_functions"
+for __dot_hook in {exports,functions,aliases,completion,extra,env,prompt,plugin}; do
+  declare -a "dotfiles_hook_${__dot_hook}_pre_functions"
+  declare -a "dotfiles_hook_${__dot_hook}_post_functions"
 done
-unset hook
+unset __dot_hook
 
 # modify path to include useful scripts
 # shellcheck source=/dev/null
 source "${DOTFILES__ROOT}/.dotfiles/dotenv/lib/utils.sh"
 # shellcheck source=/dev/null
 source "${DOTFILES__ROOT}/.dotfiles/dotenv/lib/path.sh"
-__dot_path_setup
+internal::path-setup
 
 # load a local specific sources before the scripts
 # shellcheck source=/dev/null
 [[ -r "${HOME}/.bash_local" ]] && source "${HOME}/.bash_local"
 if [[ -d "${HOME}/.bash_local.d" ]]; then
-  for f in "${HOME}/.bash_local.d"/*.sh; do
-    if [[ -e "${f}" ]]; then
+  for __dot_local_file in "${HOME}/.bash_local.d"/*.sh; do
+    if [[ -e "${__dot_local_file}" ]]; then
       # shellcheck source=/dev/null
-      source "${f}"
+      source "${__dot_local_file}"
     fi
   done
-  unset f
+  unset __dot_local_file
 fi
 
 # library functions, load after .bash_local, so it can't be overridden
@@ -128,47 +128,47 @@ fi
 source "${DOTFILES__ROOT}/.dotfiles/dotenv/lib/load.sh"
 
 # Source ~/.exports, ~/.functions, ~/.aliases, ~/.completion, ~/.extra, ~/.env if they exist
-__dot_load exports
-__dot_load functions
-__dot_load aliases
-__dot_load extra
-__dot_load env
+internal::load-phase exports
+internal::load-phase functions
+internal::load-phase aliases
+internal::load-phase extra
+internal::load-phase env
 
 # add completion
 if command -v complete &>/dev/null; then
-  __dot_load completion
+  internal::load-phase completion
 
   if [[ -d "${HOME}/.config/completion.d" ]]; then
-    for __dot_f in "${HOME}"/.config/completion.d/*; do
-      [[ -e "${__dot_f}" ]] || continue
+    for __dot_completion_file in "${HOME}"/.config/completion.d/*; do
+      [[ -e "${__dot_completion_file}" ]] || continue
       # shellcheck source=/dev/null
-      source "${__dot_f}"
+      source "${__dot_completion_file}"
     done
-    unset __dot_f
+    unset __dot_completion_file
   fi
 fi
 
 # load plugin hooks
-__dot_load_plugins
+internal::load-plugins
 
 # Source ~/.prompt if they exist
-__dot_load prompt
+internal::load-phase prompt
 
-for hook in {exports,functions,aliases,completion,extra,env,prompt,plugin}; do
-  unset -f "dotfiles_hook_${hook}_pre"
-  unset -f "dotfiles_hook_${hook}_post"
-  unset "dotfiles_hook_${hook}_pre_functions"
-  unset "dotfiles_hook_${hook}_post_functions"
+for __dot_hook in {exports,functions,aliases,completion,extra,env,prompt,plugin}; do
+  unset -f "dotfiles_hook_${__dot_hook}_pre"
+  unset -f "dotfiles_hook_${__dot_hook}_post"
+  unset "dotfiles_hook_${__dot_hook}_pre_functions"
+  unset "dotfiles_hook_${__dot_hook}_post_functions"
 done
-unset hook
-__dot_path_cleanup
-__dot_load_cleanup
+unset __dot_hook
+internal::path-cleanup
+internal::load-cleanup
 
 # internal prompt command stack to simplify the PROMPT_COMMAND variable
-__push_prompt_command '__run_prompt_command'
+internal::prompt-command-push 'internal::prompt-action-run'
 
 # write to .bash_history after each command
-__push_internal_prompt_command 'history -a'
+internal::prompt-action-push 'history -a'
 
 # emulate zsh's hook functions for "precmd" and "preexec"
 # see https://github.com/rcaloras/bash-preexec
@@ -183,12 +183,12 @@ if command -v dotfiles_complete &>/dev/null; then
   dotfiles_complete_functions+=(dotfiles_complete)
 fi
 # shellcheck disable=SC2125
-for hook in "${dotfiles_complete_functions[@]}"; do
-  { "${hook}"; }
+for __dot_hook in "${dotfiles_complete_functions[@]}"; do
+  { "${__dot_hook}"; }
 done
 unset dotfiles_complete
 unset dotfiles_complete_functions
-unset hook
+unset __dot_hook
 
 # exit with a success status code
 return 0

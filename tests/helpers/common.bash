@@ -44,7 +44,7 @@ setup_plugin_test_env() {
   ln -s "${REPO_ROOT}" "${DOTFILES__ROOT}/.dotfiles"
 
   # shellcheck disable=SC2034
-  __prompt_actions=()
+  __dot_prompt_actions=()
   # shellcheck disable=SC2034
   chpwd_functions=()
   # shellcheck disable=SC2034
@@ -55,8 +55,8 @@ setup_plugin_test_env() {
   DOT_TEST_CACHED_EVALS=()
 }
 
-# Minimal __push_path shim for plugin tests.
-__push_path() {
+# Minimal internal::path-push shim for plugin tests.
+internal::path-push() {
   local mode=append
   if [[ "${1:-}" == --prepend ]]; then
     mode=prepend
@@ -82,17 +82,17 @@ __push_path() {
 }
 
 # Records prompt hooks registered by plugins.
-__push_internal_prompt_command() {
-  __prompt_actions+=("$1")
+internal::prompt-action-push() {
+  __dot_prompt_actions+=("$1")
 }
 
 # Records cached completion calls from plugins.
-__dot_cached_completion() {
+internal::cached-completion() {
   DOT_TEST_CACHED_COMPLETIONS+=("$1|$2")
 }
 
 # Evaluates cached shell snippets and records the request.
-__dot_cached_eval() {
+internal::cached-eval() {
   local key="$1"
   local command_string="$2"
   local output
@@ -102,7 +102,7 @@ __dot_cached_eval() {
   [[ -n "${output}" ]] && eval "${output}"
 }
 
-__dot_cache_write_atomic() {
+internal::cache-write-atomic() {
   local cache_file="$1"
   local command_string="$2"
   local tmp_file="${cache_file}.tmp.$$.$RANDOM"

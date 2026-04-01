@@ -175,7 +175,7 @@ function binarydiff() {
 }
 
 # Summarize traced shell operations and print top slowest entries.
-function __dot_trace_top_ops() {
+function internal::trace-top-ops() {
   local trace_file="$1"
   local title="$2"
   local include_re="${3:-}"
@@ -282,7 +282,7 @@ EOF
     local tmp
     tmp=$(mktemp)
     PS4='+ $EPOCHREALTIME ${BASH_SOURCE[0]:-shell}:$LINENO\011 ' "$BASH" -xi -c exit 2>|"$tmp"
-    __dot_trace_top_ops "$tmp" "Top 30 slowest operations:" "$include_re" "$exclude_re"
+    internal::trace-top-ops "$tmp" "Top 30 slowest operations:" "$include_re" "$exclude_re"
     rm -f "$tmp"
   else
     if [[ -n "${include_re}" ]] || [[ -n "${exclude_re}" ]]; then
@@ -297,7 +297,7 @@ EOF
 }
 
 # Current timestamp in microseconds.
-function __dot_now_us() {
+function internal::now-us() {
   if [[ -n "${EPOCHREALTIME:-}" ]]; then
     echo "${EPOCHREALTIME/./}"
     return
@@ -400,7 +400,7 @@ EOF
       done
       set +x
     ) 2>|"$tmp"
-    __dot_trace_top_ops "$tmp" "Top 30 slowest prompt operations (${count} renders):" "$include_re" "$exclude_re"
+    internal::trace-top-ops "$tmp" "Top 30 slowest prompt operations (${count} renders):" "$include_re" "$exclude_re"
     rm -f "$tmp"
     return 0
   fi
@@ -414,12 +414,12 @@ EOF
   local -i total_prompt_us=0
   local -i total_render_us=0
   for ((i = 0; i < count; i++)); do
-    start_prompt="$(__dot_now_us)"
+    start_prompt="$(internal::now-us)"
     eval "${prompt_cmd}"
-    end_prompt="$(__dot_now_us)"
-    start_render="$(__dot_now_us)"
+    end_prompt="$(internal::now-us)"
+    start_render="$(internal::now-us)"
     eval 'printf "%s" "${PS1@P}" >/dev/null'
-    end_render="$(__dot_now_us)"
+    end_render="$(internal::now-us)"
     total_prompt_us=$((total_prompt_us + end_prompt - start_prompt))
     total_render_us=$((total_render_us + end_render - start_render))
   done

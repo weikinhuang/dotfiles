@@ -9,7 +9,7 @@ setup() {
     printf '/mnt/c/\n'
   }
 
-  __push_path() {
+  internal::path-push() {
     PATH="${PATH:+${PATH}:}$1"
     export PATH
   }
@@ -25,7 +25,7 @@ setup() {
   [[ "${PATH}" == *"/mnt/c/Windows/System32/Wbem"* ]]
   [[ "${PATH}" == *"/mnt/c/Windows/System32/WindowsPowerShell/v1.0"* ]]
   [[ "${BROWSER}" == "winstart" ]]
-  [[ "$(type -t __wsl_has_path 2>/dev/null || true)" == "" ]]
+  [[ "$(type -t internal::wsl-has-path 2>/dev/null || true)" == "" ]]
 }
 
 @test "wsl/exports: falls back to /mnt/c when wslpath cannot resolve the Windows root" {

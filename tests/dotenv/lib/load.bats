@@ -36,7 +36,7 @@ setup() {
   # shellcheck disable=SC2034
   dotfiles_hook_aliases_pre_functions=(load_hook_one load_hook_two)
 
-  __dot_load_hook pre aliases
+  internal::load-hook-run pre aliases
 
   [ "${DOT_LOAD_TRACE}" = 'one:two:named' ]
 }
@@ -60,7 +60,7 @@ setup() {
   write_trace_file "${DOTFILES__ROOT}/.dotfiles/dotenv/ssh/aliases.sh" ssh
   write_trace_file "${HOME}/.aliases" home
 
-  __dot_load aliases
+  internal::load-phase aliases
 
   [ "${DOT_LOAD_TRACE}" = 'pre:common:linux:wsl:ssh:home:post' ]
 }
@@ -82,7 +82,7 @@ setup() {
   write_trace_file "${DOTFILES__ROOT}/.dotfiles/dotenv/screen/exports.sh" screen
   write_trace_file "${DOTFILES__ROOT}/.dotfiles/dotenv/ssh/exports.sh" ssh
 
-  __dot_load exports
+  internal::load-phase exports
 
   [ "${DOT_LOAD_TRACE}" = 'common:linux:wsl:wsl2:tmux:screen:ssh' ]
 }
@@ -96,7 +96,7 @@ EOF
 
   export DOT_PLUGIN_DISABLE_demo_plugin=1
 
-  __dot_load_plugin "${plugin}"
+  internal::load-plugin "${plugin}"
 
   [ -z "${DOT_LOAD_TRACE}" ]
   [ -z "${DOT_PLUGIN_DISABLE_demo_plugin+x}" ]
@@ -108,7 +108,7 @@ EOF
   write_trace_file "${DOTFILES__ROOT}/.dotfiles/plugins/00-chpwd-hook.sh" chpwd-hook
   write_trace_file "${DOTFILES__ROOT}/.dotfiles/plugins/10-extra.sh" extra
 
-  __dot_load_plugins
+  internal::load-plugins
 
   [ "${DOT_LOAD_TRACE}" = 'bash-opts:chpwd-hook' ]
 }
@@ -122,7 +122,7 @@ EOF
   write_trace_file "${HOME}/.bash_local.d/05-alpha.plugin" alpha
   write_trace_file "${HOME}/.bash_local.d/20-omega.plugin" omega
 
-  __dot_load_plugins
+  internal::load-plugins
 
   [ "${DOT_LOAD_TRACE}" = 'alpha:zeta:mid:omega' ]
 }
@@ -140,16 +140,16 @@ EOF
 
   write_trace_file "${DOTFILES__ROOT}/.dotfiles/plugins/00-bash-opts.sh" bash-opts
 
-  __dot_load_plugins
+  internal::load-plugins
 
   [ "${DOT_LOAD_TRACE}" = 'pre:bash-opts:post' ]
   [ -z "${DOT_INCLUDE_BUILTIN_PLUGINS+x}" ]
 }
 
 @test "load: dot-load-cleanup removes its helper functions" {
-  __dot_load_cleanup
+  internal::load-cleanup
 
-  [ "$(type -t __dot_load || true)" = "" ]
-  [ "$(type -t __dot_load_hook || true)" = "" ]
-  [ "$(type -t __dot_load_plugins || true)" = "" ]
+  [ "$(type -t internal::load-phase || true)" = "" ]
+  [ "$(type -t internal::load-hook-run || true)" = "" ]
+  [ "$(type -t internal::load-plugins || true)" = "" ]
 }

@@ -65,10 +65,10 @@ function internal::ssh-completion-needs-refresh() {
 }
 
 function internal::ssh-completion-refresh-cache() {
-  __dot_cache_write_atomic "$1" "internal::ssh-completion-generate-cache"
+  internal::cache-write-atomic "$1" "internal::ssh-completion-generate-cache"
 }
 
-# shellcheck disable=SC2329  # Invoked indirectly via __dot_cache_write_atomic.
+# shellcheck disable=SC2329  # Invoked indirectly via internal::cache-write-atomic.
 function internal::ssh-completion-generate-cache() {
   local line host
   local -a ssh_hosts=()

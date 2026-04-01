@@ -3,30 +3,30 @@
 # SPDX-License-Identifier: MIT
 
 # execute dotfile load hooks
-function __dot_load_hook() {
+function internal::load-hook-run() {
   local type="$1"
   local file="${2//-/_}"
-  local DOT_HOOK_NAME DOT_HOOK_TMP hook
+  local hook_array_name hook_array_ref hook
 
   # Add a hook that can be defined in .bash_local to run before/after each phase
-  DOT_HOOK_NAME="dotfiles_hook_${file}_${type}_functions"
+  hook_array_name="dotfiles_hook_${file}_${type}_functions"
   # if declared in function format
   if command -v "dotfiles_hook_${file}_${type}" &>/dev/null; then
-    eval "${DOT_HOOK_NAME}+=('dotfiles_hook_${file}_${type}')"
+    eval "${hook_array_name}+=('dotfiles_hook_${file}_${type}')"
   fi
   # shellcheck disable=SC2125
-  DOT_HOOK_TMP=${DOT_HOOK_NAME}[@]
-  for hook in "${!DOT_HOOK_TMP}"; do
+  hook_array_ref=${hook_array_name}[@]
+  for hook in "${!hook_array_ref}"; do
     { "${hook}"; }
   done
 }
 
 # source dotfiles according to environment
-function __dot_load() {
+function internal::load-phase() {
   local file="$1"
 
   # Add a hook that can be defined in .bash_local to run before each phase
-  __dot_load_hook pre "${file}"
+  internal::load-hook-run pre "${file}"
 
   # shellcheck source=/dev/null
   [[ -r "${DOTFILES__ROOT}/.dotfiles/dotenv/${file}.sh" ]] && source "${DOTFILES__ROOT}/.dotfiles/dotenv/${file}.sh"
@@ -56,72 +56,72 @@ function __dot_load() {
   [[ -r "${HOME}/.${file}" ]] && source "${HOME}/.${file}"
 
   # Add a hook that can be defined in .bash_local to run after each phase
-  __dot_load_hook post "${file}"
+  internal::load-hook-run post "${file}"
 }
 
 # source plugins
-function __dot_load_plugin() {
+function internal::load-plugin() {
   local file="$1"
-  local DOT_PLUGIN_DISABLE_NAME
+  local plugin_disable_name
+  local name="${file##*/}"
 
-  local _name="${file##*/}"
-  _name="${_name%.plugin}"
-  _name="${_name%.sh}"
-  _name="${_name//[^[:alnum:]_]/_}"
-  DOT_PLUGIN_DISABLE_NAME="DOT_PLUGIN_DISABLE_${_name}"
-  if [[ -z "${!DOT_PLUGIN_DISABLE_NAME:-}" ]] && [[ -e "${file}" ]]; then
+  name="${name%.plugin}"
+  name="${name%.sh}"
+  name="${name//[^[:alnum:]_]/_}"
+  plugin_disable_name="DOT_PLUGIN_DISABLE_${name}"
+  if [[ -z "${!plugin_disable_name:-}" ]] && [[ -e "${file}" ]]; then
     # shellcheck source=/dev/null
     source "${file}"
   fi
-  unset "${DOT_PLUGIN_DISABLE_NAME}"
+  unset "${plugin_disable_name}"
 }
 
-function __dot_load_plugins() {
+function internal::load-plugins() {
   local file
-  local -a _tagged=()
+  local -a tagged=()
 
-  __dot_load_hook pre plugin
+  internal::load-hook-run pre plugin
 
   # bash globs return sorted results; tag each with basename for cross-dir sorting
   if [[ -n "${DOT_INCLUDE_BUILTIN_PLUGINS:-}" ]]; then
     for file in "${DOTFILES__ROOT}/.dotfiles/plugins/"*.sh; do
       [[ -e "$file" ]] || continue
-      _tagged+=("${file##*/}|${file}")
+      tagged+=("${file##*/}|${file}")
     done
   else
-    _tagged+=("00-bash-opts.sh|${DOTFILES__ROOT}/.dotfiles/plugins/00-bash-opts.sh")
-    _tagged+=("00-chpwd-hook.sh|${DOTFILES__ROOT}/.dotfiles/plugins/00-chpwd-hook.sh")
+    tagged+=("00-bash-opts.sh|${DOTFILES__ROOT}/.dotfiles/plugins/00-bash-opts.sh")
+    tagged+=("00-chpwd-hook.sh|${DOTFILES__ROOT}/.dotfiles/plugins/00-chpwd-hook.sh")
   fi
 
   if [[ -d "${HOME}/.bash_local.d" ]]; then
     for file in "${HOME}/.bash_local.d/"*.plugin; do
       [[ -e "$file" ]] || continue
-      _tagged+=("${file##*/}|${file}")
+      tagged+=("${file##*/}|${file}")
     done
   fi
 
   # Load plugins; sort only needed to interleave multiple directories.
   # Read from fd 3 so sourced plugins keep stdin attached to the terminal.
-  if ((${#_tagged[@]})) && [[ "${_tagged[*]}" == *".bash_local.d/"* ]]; then
-    while IFS='|' read -r -u 3 _ file; do
-      __dot_load_plugin "$file"
-    done 3< <(printf '%s\n' "${_tagged[@]}" | sort -t'|' -k1,1)
+  if ((${#tagged[@]})) && [[ "${tagged[*]}" == *".bash_local.d/"* ]]; then
+    while IFS= read -r -u 3 file; do
+      internal::load-plugin "${file#*|}"
+    done 3< <(printf '%s\n' "${tagged[@]}" | sort -t'|' -k1,1)
   else
-    for file in "${_tagged[@]}"; do
-      __dot_load_plugin "${file#*|}"
+    for file in "${tagged[@]}"; do
+      internal::load-plugin "${file#*|}"
     done
   fi
 
-  __dot_load_hook post plugin
+  internal::load-hook-run post plugin
 
   unset DOT_INCLUDE_BUILTIN_PLUGINS
 }
 
 # clean up vars and functions declared
-function __dot_load_cleanup() {
-  unset -f __dot_load_hook
-  unset -f __dot_load
-  unset -f __dot_load_plugin
-  unset -f __dot_load_plugins
-  unset -f __dot_load_cleanup
+function internal::load-cleanup() {
+  unset -f internal::load-hook-run
+  unset -f internal::load-phase
+  unset -f internal::load-plugin
+  unset -f internal::load-plugins
+  unset -f internal::load-cleanup
 }

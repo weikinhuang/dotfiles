@@ -78,13 +78,13 @@ setup() {
   assert_output --partial "no PS1 found"
 }
 
-@test "functions: __dot_now_us returns a microsecond-resolution integer" {
-  run bash -c 'source "$1"; __dot_now_us' _ "${REPO_ROOT}/dotenv/functions.sh"
+@test "functions: internal::now-us returns a microsecond-resolution integer" {
+  run bash -c 'source "$1"; internal::now-us' _ "${REPO_ROOT}/dotenv/functions.sh"
   assert_success
   [[ "${output}" =~ ^[0-9]{10,}$ ]]
 }
 
-@test "functions: __dot_now_us prefers EPOCHREALTIME when available" {
+@test "functions: internal::now-us prefers EPOCHREALTIME when available" {
   [[ -n "${EPOCHREALTIME:-}" ]] || skip "EPOCHREALTIME is unavailable in this bash"
 
   stub_command date <<'EOF'
@@ -92,7 +92,7 @@ setup() {
 exit 9
 EOF
 
-  run bash -c 'PATH="$2:/bin"; source "$1"; __dot_now_us' \
+  run bash -c 'PATH="$2:/bin"; source "$1"; internal::now-us' \
     _ "${REPO_ROOT}/dotenv/functions.sh" "${MOCK_BIN}"
   assert_success
   [[ "${output}" =~ ^[0-9]{10,}$ ]]
