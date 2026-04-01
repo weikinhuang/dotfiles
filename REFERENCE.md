@@ -1,294 +1,559 @@
-# weikinhuang's dotfiles reference <!-- omit in toc -->
+# weikinhuang's dotfiles reference
 
-- [Changes](#changes)
-- [Tool Defaults](#tool-defaults)
-- [New Global Variables](#new-global-variables)
-- [All Platforms](#all-platforms)
-  - [Navigation](#navigation)
-  - [Directory Commands](#directory-commands)
-  - [Shortcuts](#shortcuts)
-- [Networking](#networking)
-  - [String Manipulation](#string-manipulation)
-  - [Utilities](#utilities)
-  - [Git Utilities](#git-utilities)
-- [Prompt Customization](#prompt-customization)
-  - [Prompt Options](#prompt-options)
-  - [Prompt Symbols](#prompt-symbols)
-- [Windows Subsystem Linux (WSL) specific](#windows-subsystem-linux-wsl-specific)
-  - [WSL Utilities](#wsl-utilities)
-- [Bash hooks](#bash-hooks)
-  - [Usage Examples](#usage-examples)
-    - [When defined as a singular function](#when-defined-as-a-singular-function)
-    - [Function Arrays](#function-arrays)
-- [Troubleshooting](#troubleshooting)
-  - [Slow shell startup](#slow-shell-startup)
-  - [Prompt symbols display as boxes or question marks](#prompt-symbols-display-as-boxes-or-question-marks)
-  - [`date2unix` doesn't work](#date2unix-doesnt-work)
-  - [Local overrides](#local-overrides)
-- [Additional tools](#additional-tools)
-  - [clipboard-server](#clipboard-server)
+This file documents the public shell interface exposed by this repo.
 
-## Changes
+Important: only [`plugins/00-bash-opts.sh`](./plugins/00-bash-opts.sh) and [`plugins/00-chpwd-hook.sh`](./plugins/00-chpwd-hook.sh) load by default. The rest of [`plugins/*.sh`](./plugins) load only when `DOT_INCLUDE_BUILTIN_PLUGINS=1` is set before startup.
 
-- `sudo` works on aliases
-- `rm` `cp` `mv` are always interactive `-i` (use `-f` to override)
-- `ls` and `grep` always has color (use `--color=never` to override)
-- `which` command expands full path when possible
-- `less` does not clear the screen upon exit and process colors (with options `-XR`)
-- `vi` is aliased to the best available editor (`nvim` > `vim` > system default)
-- `cat` is aliased to `bat --paging=never` when `bat` is installed (use `command cat` to bypass)
-- `gdiff` uses git's diff command with color when possible
-- `pbcopy` and `pbpaste` for cross-platform copy/paste from cli, and optionally over ssh
-- `open` for cross-platform open in native application
+Plugin disable variables use the basename without the numeric prefix. Examples:
 
-## Tool Defaults
+- [`plugins/00-direnv.sh`](./plugins/00-direnv.sh) -> `DOT_PLUGIN_DISABLE_direnv=1`
+- [`plugins/10-fzf.sh`](./plugins/10-fzf.sh) -> `DOT_PLUGIN_DISABLE_fzf=1`
+- `~/.bash_local.d/05-alpha.plugin` -> `DOT_PLUGIN_DISABLE_alpha=1`
+- `~/.bash_local.d/my.plugin` -> `DOT_PLUGIN_DISABLE_my=1`
 
-Plugins in `plugins/` configure sensible defaults for common tools when they're installed. All settings respect existing values — if you've already set an env var, it won't be overridden.
+## Load model
 
-| Tool        | What's configured                                                                                                                                                       |
-| ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **ripgrep** | Smart-case, hidden files, common glob exclusions (`.git`, `node_modules`, etc.), max column width. Config at `config/ripgrep/config`, loaded via `RIPGREP_CONFIG_PATH`. |
-| **fzf**     | Reverse layout, 40% height, border, inline info. `CTRL-T` and `ALT-C` use `fd` when available. File preview via `bat`, directory preview via `tree`.                    |
-| **fd**      | Adds a `findhere` helper powered by `fd`, with automatic `fdfind` fallback on Debian-family systems.                                                                    |
-| **bat**     | Line numbers + git changes style. Used as `MANPAGER` for colored man pages. `cat` aliased to `bat --paging=never`.                                                      |
-| **delta**   | When installed, configured as the git pager with syntax highlighting and word-level diffs. Managed via `~/.config/dotfiles/git-delta.gitconfig`.                        |
-| **less**    | Colored man pages via `LESS_TERMCAP_*`. Does not clear screen on exit (`-XR`).                                                                                          |
-| **direnv**  | Silent log format, bash hook loaded automatically.                                                                                                                      |
-| **eza**     | When installed, replaces `ls`/`la`/`ll`/`ld` aliases with git-aware, colorized equivalents. Adds `lt` for tree view.                                                    |
-| **jq**      | Themed output colors via `JQ_COLORS`.                                                                                                                                   |
-| **zoxide**  | Smart directory jumping via `z` and `zi` commands (frecency-based `cd` replacement).                                                                                    |
-| **curl**    | Follow redirects, auto-referer, compressed responses, HTTPS default, 60s timeout, 3 retries.                                                                            |
-| **wget**    | Timestamping, 60s timeout, 3 retries, retry on refused, modern user-agent string.                                                                                       |
+| Layer | Order | Notes |
+| --- | --- | --- |
+| Local prelude | first | `~/.bash_local`, then `~/.bash_local.d/*.sh` |
+| Core phases | next | `exports` -> `functions` -> `aliases` -> `extra` -> `env` -> `completion` |
+| Plugin phase | next | built-ins plus `~/.bash_local.d/*.plugin`; when local plugins exist they are interleaved by basename |
+| Prompt phase | last | prompt loads after plugins so prompt helpers can depend on plugin state |
+| Phase resolution | for each phase | `dotenv/` -> `dotenv/${DOTENV}/` -> `dotenv/wsl/` -> `dotenv/wsl2/` -> `dotenv/tmux/` -> `dotenv/screen/` -> `dotenv/ssh/` -> `~/.<phase>` |
 
-Override any of these by setting the relevant env var in `~/.bash_local` before the dotfiles are sourced.
+## Tool defaults
 
-## New Global Variables
+The repo also sets defaults for common tools through shell plugins and checked-in config files.
 
-| ENV var                | Description                                                     |
-| ---------------------- | --------------------------------------------------------------- |
-| `DOT___IS_SCREEN`      | Set when the current environment is a screen session            |
-| `DOT___IS_SSH`         | Set when the current environment is a ssh session               |
-| `DOT___IS_WSL`         | Set when the current environment is running inside WSL          |
-| `DOT___IS_WSL2`        | Set when the current environment is running inside WSL 2        |
-| `DOTENV`               | Simple access to os platform (`darwin` or `linux`)              |
-| `DOTFILES__ROOT`       | Root where dotfiles directory is installed (ex. `/home/ubuntu`) |
-| `DOTFILES__CONFIG_DIR` | Config/cache directory (default `~/.config/dotfiles`)           |
-| `EDITOR`               | Preferred editor, auto-detected if not set                      |
-| `VISUAL`               | Visual editor, defaults to `$EDITOR`                            |
-| `PAGER`                | Preferred pager, defaults to `less`                             |
-| `PROC_CORES`           | Number of threads (cores)                                       |
-| `XDG_CONFIG_HOME`      | XDG config directory (default `~/.config`)                      |
-| `XDG_DATA_HOME`        | XDG data directory (default `~/.local/share`)                   |
-| `XDG_STATE_HOME`       | XDG state directory (default `~/.local/state`)                  |
-| `XDG_CACHE_HOME`       | XDG cache directory (default `~/.cache`)                        |
+Notes:
 
-## All Platforms
+- Most tool integrations below require `DOT_INCLUDE_BUILTIN_PLUGINS=1`.
+- Plugin-provided defaults generally respect an existing env var instead of overwriting it.
+- [`curlrc`](./curlrc), [`wgetrc`](./wgetrc), [`inputrc`](./inputrc), [`gitconfig`](./gitconfig), [`vimrc`](./vimrc), and similar top-level files are installed via [`bootstrap.sh`](./bootstrap.sh), so those defaults apply independently of shell plugin loading.
 
-### Navigation
+| Tool | Source | What gets configured |
+| --- | --- | --- |
+| `bat` | [`plugins/30-bat.sh`](./plugins/30-bat.sh), [`config/bat/config`](./config/bat/config) | Config file path, Solarized theme selection, colored `MANPAGER`, `cat` alias, `batcat` fallback |
+| `curl` | top-level [`curlrc`](./curlrc) | Repo-managed curl defaults via installed `~/.curlrc` |
+| `delta` | [`plugins/30-delta.sh`](./plugins/30-delta.sh) | Generates `~/.config/dotfiles/git-delta.gitconfig` and enables delta as the git pager when installed |
+| `difftastic` | [`plugins/30-difftastic.sh`](./plugins/30-difftastic.sh) | Exports default display settings and generates `~/.config/dotfiles/git-difftastic.gitconfig` |
+| `direnv` | [`plugins/00-direnv.sh`](./plugins/00-direnv.sh) | Silent log format and automatic `direnv hook bash` loading |
+| `docker` / `podman` | [`plugins/80-podman.sh`](./plugins/80-podman.sh), [`plugins/90-docker.sh`](./plugins/90-docker.sh) | Compatibility wrappers, history filtering, and Compose timeout defaults |
+| `eza` | [`plugins/10-eza.sh`](./plugins/10-eza.sh), [`config/eza/`](./config/eza) | Replaces list aliases, adds `lt`, and links a Solarized theme into `~/.config/eza/theme.yml` |
+| `fd` | [`plugins/10-fd.sh`](./plugins/10-fd.sh) | Adds `findhere`, with automatic `fdfind` fallback on Debian-family systems |
+| `fzf` | [`plugins/10-fzf.sh`](./plugins/10-fzf.sh) | Reverse layout, 40% height, border, inline info, history scoring, `fd`-backed file and directory pickers, previews via `bat` and `tree` when available |
+| `jq` | [`plugins/10-jq.sh`](./plugins/10-jq.sh) | Themed `JQ_COLORS` |
+| `gh`, `helm`, `kubectl`, `npm`, `podman` | [`plugins/30-gh.sh`](./plugins/30-gh.sh), [`plugins/10-helm.sh`](./plugins/10-helm.sh), [`plugins/10-kubectl.sh`](./plugins/10-kubectl.sh), [`plugins/30-npm.sh`](./plugins/30-npm.sh), [`plugins/80-podman.sh`](./plugins/80-podman.sh) | Cached completion setup |
+| `less` | [`plugins/10-less.sh`](./plugins/10-less.sh), [`plugins/10-lesspipe.sh`](./plugins/10-lesspipe.sh) | `LESS`, `MANPAGER`, `LESS_TERMCAP_*`, `less` alias, and cached `lesspipe` integration |
+| `mysql` | [`plugins/30-mysql.sh`](./plugins/30-mysql.sh) | Custom `MYSQL_PS1` and pager alias |
+| `nvm` | [`plugins/20-nvm.sh`](./plugins/20-nvm.sh) | Lazy loading plus cached default-node PATH setup |
+| `ripgrep` | [`plugins/10-ripgrep.sh`](./plugins/10-ripgrep.sh), [`config/ripgrep/config`](./config/ripgrep/config) | Smart-case, hidden files, common exclusions, max column width, loaded via `RIPGREP_CONFIG_PATH` |
+| `wget` | top-level [`wgetrc`](./wgetrc) | Repo-managed wget defaults via installed `~/.wgetrc` |
+| `zoxide` | [`plugins/10-zoxide.sh`](./plugins/10-zoxide.sh) | `z` and `zi` shell integration |
 
-| Command | Description                        |
-| ------- | ---------------------------------- |
-| `..`    | `cd ..`                            |
-| `...`   | `cd ../..`                         |
-| `....`  | `cd ../../..`                      |
-| `~`     | `cd ~ == cd`                       |
-| `-`     | `cd -`                             |
-| `cd --` | List last 10 traversed directories |
+## Core shell interface
 
-### Directory Commands
+### Core aliases
 
-| Command | Description                                                 |
-| ------- | ----------------------------------------------------------- |
-| `cf`    | Count the number of files in a directory                    |
-| `grip`  | Alias for `grepdir` (when the `grip` tool is not installed) |
-| `l.`    | Show files starting with `.`                                |
-| `la`    | Show all files in list format                               |
-| `ll`    | Show files in list format                                   |
-| `lt`    | Tree view (2 levels deep, when `eza` is installed)          |
-| `md`    | Create a new directory and enter it                         |
+These aliases are available in interactive shells without enabling the full built-in plugin set.
 
-### Shortcuts
+| Name | Availability | Description |
+| --- | --- | --- |
+| `..`, `...`, `....`, `~`, `-` | always | directory shortcuts; `-` is `cd -` |
+| `dir`, `vdir` | GNU `ls` only | vertical and long-format `ls` helpers |
+| `extip` | always | print the current public IP via `api.ipify.org` |
+| `grep`, `fgrep`, `egrep` | when the local `grep` supports `--color=auto` | colorized grep output |
+| `h` | always | `history` |
+| `ls`, `la`, `ll`, `l.` | when the local `ls` supports color | colorized listings |
+| `o`, `oo` | always | open a path, or the current directory, with the platform `open` command |
+| `reload` | always | `exec "${SHELL}" -l` |
+| `rm`, `cp`, `mv` | always | interactive by default (`-i`) |
+| `sudo` | always | trailing-space alias so aliases still expand after `sudo` |
+| `totime`, `fromtime` | always | aliases to `date2unix` and `unix2date` |
+| `vi` | always | best available editor from `internal::find-editor` |
+| `which` | when `/usr/bin/which` supports `--tty-only` alias expansion | show aliases and expanded paths when possible |
+| `x` | always | alias to `parallel-xargs` |
 
-| Command | Description                                            |
-| ------- | ------------------------------------------------------ |
-| `-`     | `cd -`                                                 |
-| `h`     | `history`                                              |
-| `kc`    | `kubectl`                                              |
-| `o`     | `open` (show in GUI file explorer)                     |
-| `oo`    | `open .` (show cwd in GUI file explorer)               |
-| `vi`    | Opens the best available editor                        |
-| `x`     | `parallel-xargs`                                       |
-| `z`     | Smart directory jump via zoxide (when installed)       |
-| `zi`    | Interactive directory jump via zoxide (when installed) |
+### Core shell functions
 
-## Networking
+| Name | Availability | Description |
+| --- | --- | --- |
+| `binarydiff FILE1 FILE2` | always | compare two binaries via `vimdiff` and `xxd` |
+| `cf [DIR]` | always | count regular files under `DIR` recursively |
+| `codepoint CHAR` | always | print a Unicode code point like `U+03BB` |
+| `curl-gz URL...` | always | request gzip content and pipe through `gunzip` |
+| `dataurl FILE` | always | emit a `data:image/...;base64,...` URL using `openssl` |
+| `date2unix [DATE...]` | always | parse a date string to Unix seconds; uses GNU `date`, `gdate`, or BSD fallbacks |
+| `dotfiles-profile` | always | profile interactive shell startup; `--trace` requires Bash 5+ |
+| `dotfiles-prompt-profile` | always | profile prompt render time in the current shell; requires interactive `PS1`, Bash 4.4+, and Bash 5+ for `--trace` |
+| `dotfiles-update` | always | `git pull origin master` in `${DOTFILES__ROOT}/.dotfiles`, then run [`./bootstrap.sh`](./bootstrap.sh) |
+| `escape` | always | emit UTF-8 bytes as `\xNN` escapes |
+| `extract FILE` | always | extract archives by extension (`tar.gz`, `tar.xz`, `zip`, `7z`, `rar`, `zst`, and others) |
+| `gdiff FILE1 FILE2` | when `git` is installed | `git diff --no-index --color` wrapper |
+| `gz-size FILE` | always | print original and gzipped byte counts |
+| `lc` | always | lowercase stdin |
+| `md DIR` | always | `mkdir -p` and `cd` into the target |
+| `parallel-xargs CMD [ARG...]` | always | `xargs -P "${PROC_CORES}"` wrapper; inserts `{}` if you did not provide it |
+| `regex PATTERN [GROUP]` | always | `gawk` regex matcher/capture helper |
+| `uc` | always | uppercase stdin |
+| `unidecode STRING` | always | decode `\x{ABCD}`-style Unicode escapes |
+| `unix2date [TS]` | always | convert a Unix timestamp to a local date string |
 
-| Command   | Description                         |
-| --------- | ----------------------------------- |
-| `curl-gz` | Make gzip enabled curl requests     |
-| `extip`   | Get the current external ip address |
-| `ips`     | Get all bound internal ips          |
+### Platform-specific shell functions and aliases
 
-### String Manipulation
+| Name | Platform | Description |
+| --- | --- | --- |
+| `cmd0` | WSL | run a command through `cmd.exe /c` and strip CRLF endings |
+| `ips` | Linux, macOS | print bound IPv4 addresses |
+| `wudo`, `wsl-sudo` | WSL | aliases to `winsudo` |
 
-| Command      | Description                                                                       |
-| ------------ | --------------------------------------------------------------------------------- |
-| `codepoint`  | Get a character's Unicode code point                                              |
-| `escape`     | Escape UTF-8 characters into their 3-byte format (escape `λ` => `\xCE\xBB`)       |
-| `lc`         | Convert to lowercase                                                              |
-| `regex`      | Regex match and replace from [opsb/4409156](https://gist.github.com/opsb/4409156) |
-| `uc`         | Convert to uppercase                                                              |
-| `unidecode`  | Decode `\x{ABCD}`-style Unicode escape sequences                                  |
-| `binarydiff` | Binary diff two files using `vimdiff` and `xxd`                                   |
+## Built-in plugin interface
 
-### Utilities
+Unless noted otherwise, everything in this section requires `DOT_INCLUDE_BUILTIN_PLUGINS=1` before startup.
 
-| Command                                 | Description                                                                                           |
-| --------------------------------------- | ----------------------------------------------------------------------------------------------------- |
-| `internal::prompt-action-push`         | Pushes a new command to the internal stack to execute during `PROMPT_COMMAND`                         |
-| `internal::path-push`                  | Pushes a new path to the `PATH` variable if directory exists (use `--prepend` to add to the front).  |
-| `internal::prompt-command-push`        | Pushes a new command to the `PROMPT_COMMAND` variable                                                 |
-| [`clipboard-server`](#clipboard-server) | Forward local clipboard access over a socket                                                          |
-| `dataurl`                               | Create a data URL from an image                                                                       |
-| `date2unix`                             | Convert a date string to a unix timestamp (`date2unix Fri, Feb 13, 2009 6:31:30 PM` => `1234567890`)  |
-| `dotfiles-profile`                      | Profile shell startup time (`--trace`, `--filter`, `--exclude` for breakdown; trace requires bash 5+) |
-| `dotfiles-prompt-profile`               | Profile prompt render time in current shell (`--filter`/`--exclude` on trace; bash 4.4+, trace 5+)    |
-| `dotfiles-update`                       | Pull latest changes and re-run `bootstrap.sh`                                                         |
-| `extract`                               | Extracts an archive with autodetect based on extension (supports tar.xz, tar.zst, xz, zst, and more)  |
-| `fromtime`                              | `unix2date`                                                                                           |
-| `gdiff`                                 | Git-powered colored diff for comparing any two files (`gdiff file1 file2`)                            |
-| `genpasswd`                             | Generate a random string of a certain length                                                          |
-| `gz-size`                               | Get original and gzipped file size in bytes                                                           |
-| `nvm-upgrade`                           | Upgrade nvm to the latest tagged release                                                              |
-| `parallel-xargs`                        | Run a command through xargs in parallel without shell eval (`parallel-xargs cat {}`)                  |
-| `quick-toast`                           | Show a simple notification using OS primitives `quick-toast TITLE [BODY]`                             |
-| `reload`                                | Reload the current environment                                                                        |
-| `totime`                                | `date2unix`                                                                                           |
-| `unix2date`                             | Convert a unix timestamp to a date string (`unix2date 1234567890` => `Fri, Feb 13, 2009 6:31:30 PM`)  |
+| Interface | Requires | Description |
+| --- | --- | --- |
+| `bat` | [`plugins/30-bat.sh`](./plugins/30-bat.sh), `batcat` but not `bat` | alias `bat` to `batcat` on Debian-family installs |
+| `cat` | [`plugins/30-bat.sh`](./plugins/30-bat.sh), `bat` or `batcat` | alias to `bat --paging=never` |
+| `cd` | [`plugins/00-cd.sh`](./plugins/00-cd.sh) | replaces `cd` with a directory-stack-aware version; `cd --` shows `dirs -v`, `cd -N` jumps to a stack entry, and the stack keeps the current directory plus up to 10 previous entries |
+| `cdnvm` | [`plugins/20-nvm.sh`](./plugins/20-nvm.sh), `nvm` installed | `chpwd` helper that auto-runs `nvm use` based on `.nvmrc` or the default alias |
+| `docker`, `docker-compose` | [`plugins/80-podman.sh`](./plugins/80-podman.sh) and/or [`plugins/90-docker.sh`](./plugins/90-docker.sh) | wrapper functions/aliases that prefer Docker when a daemon is available, otherwise Podman; `docker-compose` also falls back to `docker compose` when needed |
+| `fd` | [`plugins/10-fd.sh`](./plugins/10-fd.sh), `fdfind` but not `fd` | alias `fd` to `fdfind` |
+| `findhere` | [`plugins/10-fd.sh`](./plugins/10-fd.sh), `fd` or `fdfind` | run the configured fd command with `--hidden --follow` in the current tree |
+| `kc` | [`plugins/10-kubectl.sh`](./plugins/10-kubectl.sh), `kubectl` | alias to `kubectl` with lazy completion |
+| `less` | [`plugins/10-less.sh`](./plugins/10-less.sh) | alias to `less -FRX` |
+| `ls`, `la`, `ll`, `l.`, `lt` | [`plugins/10-eza.sh`](./plugins/10-eza.sh), `eza` | override listing aliases to use `eza`; `lt` is a two-level tree view |
+| `mysql` | [`plugins/30-mysql.sh`](./plugins/30-mysql.sh), `mysql` | alias with line numbers, pager, warnings, and UTF-8 defaults |
+| `nvm`, `node`, `npm`, `npx` | [`plugins/20-nvm.sh`](./plugins/20-nvm.sh), `nvm` installed | lazy wrappers that source `nvm.sh` on first use when `nvm` is not already on `PATH` |
+| `nvm-upgrade` | [`plugins/20-nvm.sh`](./plugins/20-nvm.sh), `nvm` installed from git | check out the latest tagged `nvm` release |
+| `podman-wsl2-fix-mount` | [`plugins/80-podman.sh`](./plugins/80-podman.sh), `podman`, WSL2 | helper that runs `sudo mount --make-rshared /` when rootless Podman needs it |
+| `z`, `zi` | [`plugins/10-zoxide.sh`](./plugins/10-zoxide.sh), `zoxide` | directory-jump commands generated by `zoxide init bash` |
 
-### Git Utilities
+## Commands on PATH
 
-| Command                | Description                                                            |
-| ---------------------- | ---------------------------------------------------------------------- |
-| `git branch-prune`     | Remove branches locally/remotely if already merged into default branch |
-| `git changelog`        | Generate a changelog from git tags                                     |
-| `git cherry-pick-from` | Cherry pick commits from a different git repo                          |
-| `git default-branch`   | Print the repository default branch                                    |
-| `git hub`              | Open the repo in the browser via `gh browse`                           |
-| `git ignore`           | Add a file/path to .gitignore                                          |
-| `git ls-dir`           | List files in a git repo tree together with the latest commit          |
-| `git pr`               | Create a pull request on GitHub (opens web UI via `gh`)                |
-| `git pr-get`           | Checkout a pull request locally via `gh`                               |
-| `git repl`             | Start a repl where all commands are prefixed with `git`                |
-| `git ssh-socks-proxy`  | Forward git SSH connections through a SOCKS proxy                      |
-| `git sync`             | Sync origin with upstream remote                                       |
-| `git undo-index`       | Undo staged changes, storing them in the reflog                        |
+### Utility commands
 
-## Prompt Customization
+| Command | Platforms | Description |
+| --- | --- | --- |
+| [`chattr`](./dotenv/wsl/bin/chattr) | WSL | wrap Windows `attrib.exe` |
+| [`clipboard-server`](./dotenv/bin/clipboard-server) | all | Node-based clipboard bridge with `start`, `stop`, `restart`, and foreground `server` modes |
+| [`fswatch`](./dotenv/linux/bin/fswatch) | Linux | watch a directory with `inotifywait` and rerun a command |
+| [`genpasswd`](./dotenv/bin/genpasswd) | all | generate random passwords or tokens |
+| [`is-elevated-session`](./dotenv/wsl/bin/is-elevated-session) | WSL | exit successfully when the current Windows session is elevated |
+| [`mklink`](./dotenv/wsl/bin/mklink) | WSL | wrap Windows `mklink` with `ln`-style arguments |
+| [`npp`](./dotenv/wsl/bin/npp) | WSL | open Notepad++ with WSL path translation; falls back to a terminal editor if unavailable |
+| `open` | Linux, WSL | open paths or URLs with the native platform handler; see [`dotenv/linux/bin/open`](./dotenv/linux/bin/open) and [`dotenv/wsl/bin/open`](./dotenv/wsl/bin/open) |
+| `pbcopy` | Linux, WSL, SSH | copy stdin to the clipboard; see [`dotenv/linux/bin/pbcopy`](./dotenv/linux/bin/pbcopy), [`dotenv/wsl/bin/pbcopy`](./dotenv/wsl/bin/pbcopy), and [`dotenv/ssh/bin/pbcopy`](./dotenv/ssh/bin/pbcopy); SSH uses [`clipboard-server`](./dotenv/bin/clipboard-server) first and falls back to the local implementation |
+| `pbpaste` | Linux, WSL, SSH | read clipboard contents to stdout; see [`dotenv/linux/bin/pbpaste`](./dotenv/linux/bin/pbpaste), [`dotenv/wsl/bin/pbpaste`](./dotenv/wsl/bin/pbpaste), and [`dotenv/ssh/bin/pbpaste`](./dotenv/ssh/bin/pbpaste); SSH uses [`clipboard-server`](./dotenv/bin/clipboard-server) first and falls back to the local implementation |
+| `quick-toast` | Linux, macOS, WSL | show a desktop notification; see [`dotenv/darwin/bin/quick-toast`](./dotenv/darwin/bin/quick-toast), [`dotenv/linux/bin/quick-toast`](./dotenv/linux/bin/quick-toast), and [`dotenv/wsl/bin/quick-toast`](./dotenv/wsl/bin/quick-toast) |
+| [`winrun`](./dotenv/wsl/bin/winrun) | WSL | run a Windows command through `cmd.exe /c` with path translation |
+| [`winstart`](./dotenv/wsl/bin/winstart) | WSL | launch files or programs with Windows `Start-Process` |
+| [`winsudo`](./dotenv/wsl/bin/winsudo) | WSL | elevate Windows commands; prefers native `sudo.exe` inline mode and falls back to an SSH-based helper |
+| [`winwhoami`](./dotenv/wsl/bin/winwhoami) | WSL | print the Windows username for the current session |
+| [`wusbipd`](./dotenv/wsl2/bin/wusbipd) | WSL2 | run Windows `usbipd.exe` through `winsudo` |
 
-The prompt segments and appearance can be customized by setting variables in `~/.bash_local` **before** the dotfiles are sourced. All options are optional.
+### Git subcommands
 
-### Prompt Options
+These come from executables in [`dotenv/bin/`](./dotenv/bin) named `git-*`.
+In this repo, [`git ignore`](./dotenv/bin/git-ignore) resolves to the `git-ignore` executable even though [`config/git/alias.gitconfig.conf`](./config/git/alias.gitconfig.conf) also defines an `ignore` alias.
 
-| Variable                           | Description                                                               | Default |
-| ---------------------------------- | ------------------------------------------------------------------------- | ------- |
-| `DOT_GIT_PROMPT_CACHE_TTL_MS`      | Skip re-checking git prompt state if last check is newer than this (ms)   | `1000`  |
-| `DOT_GIT_PROMPT_CACHE_MAX_AGE_MS`  | Force a full `__git_ps1` refresh at least this often (ms)                 | `10000` |
-| `DOT_GIT_PROMPT_INVALIDATE_ON_GIT` | Invalidate git prompt cache on the next prompt after git-related commands | `1`     |
-| `DOT_DISABLE_PS1`                  | Skip prompt setup entirely                                                |         |
-| `PS1_OPT_MONOCHROME`               | Disable all prompt colors                                                 |         |
-| `PS1_OPT_MULTILINE`                | Always place the prompt symbol on a new line                              |         |
-| `PS1_OPT_NEWLINE_THRESHOLD`        | Terminal width below which the prompt wraps to a new line                 | `120`   |
-| `PS1_OPT_HIDE_TIME`                | Hide the clock segment                                                    |         |
-| `PS1_OPT_HIDE_LOAD`                | Hide the load average segment                                             |         |
-| `PS1_OPT_HIDE_DIR_INFO`            | Hide the directory file count / size segment                              |         |
-| `PS1_OPT_HIDE_GIT`                 | Hide the git branch / status segment                                      |         |
-| `PS1_OPT_HIDE_EXEC_TIME`           | Hide the command execution time segment                                   |         |
-| `PS1_OPT_DAY_START`                | Hour (24h) when daytime color starts                                      | `8`     |
-| `PS1_OPT_DAY_END`                  | Hour (24h) when daytime color ends                                        | `18`    |
-| `PS1_OPT_SEGMENT_EXTRA`            | Arbitrary PS1 string appended after the git segment                       |         |
+| Command | Description |
+| --- | --- |
+| [`git branch-prune`](./dotenv/bin/git-branch-prune) | delete branches already merged into the default branch and prune them from `origin` |
+| [`git changelog`](./dotenv/bin/git-changelog) | print commits since the latest tag, or prepend a new changelog header to a file |
+| [`git cherry-pick-from`](./dotenv/bin/git-cherry-pick-from) | cherry-pick a commit from another repository, optionally restricted to paths |
+| [`git default-branch`](./dotenv/bin/git-default-branch) | print the repository default branch |
+| [`git ignore`](./dotenv/bin/git-ignore) | show or append entries in the local or global gitignore |
+| [`git ls-dir`](./dotenv/bin/git-ls-dir) | list files in a tree together with the most recent commit that touched each file |
+| [`git ssh-socks-proxy`](./dotenv/bin/git-ssh-socks-proxy) | wrap `ssh` and derive a `ProxyCommand` from git config |
+| [`git sync`](./dotenv/bin/git-sync) | update the default branch from `origin` or `upstream`, then restore the starting branch and dirty state |
+| [`git undo-index`](./dotenv/bin/git-undo-index) | discard tracked changes while storing an undo commit in the reflog |
 
-Set any `_HIDE_` variable to `1` to disable that segment. Example:
+[`git-diff-highlight`](./dotenv/bin/git-diff-highlight) is also shipped in [`dotenv/bin/`](./dotenv/bin) and is used by the default git pager configuration when `delta` is not active.
+
+## Git aliases
+
+Git aliases are defined in [`config/git/alias.gitconfig.conf`](./config/git/alias.gitconfig.conf).
+
+### Basic
+
+| Alias | Description |
+| --- | --- |
+| `git br` | `git branch` |
+| `git cl` | `git clone --recursive` |
+| `git co` | `git checkout` |
+| `git cp` | `git cherry-pick` |
+| `git cp-from` | alias to `git cherry-pick-from` |
+| `git df` | `git diff` |
+| `git git` | no-op shell-out alias used so other shell aliases can call `git` consistently |
+| `git lg` | `git log -p` |
+| `git st` | `git status` |
+
+### Stashing and inspection
+
+| Alias | Description |
+| --- | --- |
+| `git branches` | `git branch -a` |
+| `git remotes` | `git remote -v` |
+| `git sa` | `git stash apply` |
+| `git si` | `git stash --keep-index` |
+| `git sl` | `git stash list` |
+| `git snapshot` | create a dated stash snapshot, then re-apply it |
+| `git sp` | `git stash pop` |
+| `git ss` | `git stash` |
+| `git tags` | `git tag -l` |
+
+### Adding and file state
+
+| Alias | Description |
+| --- | --- |
+| `git assume` | mark paths assume-unchanged |
+| `git assumed` | list assume-unchanged paths |
+| `git au` | `git add -u -- .` |
+| `git rml` | `git rm --cached` |
+| `git unassume` | clear assume-unchanged on paths |
+
+### Commit helpers
+
+| Alias | Description |
+| --- | --- |
+| `git aca` | `git add -A && git commit` |
+| `git acam` | `git add -A && git commit -m` |
+| `git amend` | amend the previous commit with the same subject line |
+| `git asquish` | `git add -A && git commit --amend -C HEAD` |
+| `git ca` | `git commit -a` |
+| `git cam` | `git commit -a -m` |
+| `git ci` | `git commit` |
+| `git cia` | `git commit --amend` |
+| `git ciam` | `git commit --amend -m` |
+| `git cim` | `git commit -m` |
+| `git squeeze` | amend the previous commit using only staged changes |
+| `git squish` | amend the previous commit with tracked changes |
+
+### Branching and rebasing
+
+| Alias | Description |
+| --- | --- |
+| `git branch-root` | print the merge-base of the current branch and the default branch |
+| `git brn` | print the current branch name |
+| `git brt` | alias to `git branch-root` |
+| `git cb` | create a branch or check it out if it already exists |
+| `git col` | `git checkout -` |
+| `git com` | check out the default branch |
+| `git go` | `git checkout -B` |
+| `git ours` | check out `--ours` for paths, then `git add` them |
+| `git rb` | `git rebase` |
+| `git rba` | `git rebase --abort` |
+| `git rbc` | `git rebase --continue` |
+| `git rbi` | `git rebase -i` |
+| `git rbim` | interactive rebase on the default branch |
+| `git rbm` | rebase the current branch on the default branch |
+| `git rbs` | `git rebase --skip` |
+| `git theirs` | check out `--theirs` for paths, then `git add` them |
+| `git trunk` | print the default branch via `git-default-branch` |
+| `git ubo` | pull the current branch from `origin` |
+
+### Resetting and recovery
+
+| Alias | Description |
+| --- | --- |
+| `git uncommit` | `git reset --soft HEAD^` |
+| `git undo` | alias to `git undo-index` |
+| `git undo-filemode` | revert file mode changes only |
+| `git unstage` | `git reset HEAD --` |
+
+### Logs, search, and diffs
+
+| Alias | Description |
+| --- | --- |
+| `git dfl` | `git log -p --ext-diff` with `diff.external=difft` |
+| `git dfs` | `git show --ext-diff` with `diff.external=difft` |
+| `git dft` | `git diff` with `diff.external=difft` |
+| `git diffall` | open `git difftool` on every changed file in the background |
+| `git l` | one-line decorated graph log |
+| `git rsearch` | `git log -p -G` |
+| `git search` | `git log -p -S` |
+| `git tree` | compact all-branches graph log |
+
+### Syncing, pushing, and submodules
+
+| Alias | Description |
+| --- | --- |
+| `git p` | pull the repo, then pull each submodule from its default branch |
+| `git pm` | check out the default branch and pull it from `origin` |
+| `git pob` | push the current branch to `origin` with the same branch name |
+| `git ps` | pull the repo, then recursively update submodules |
+| `git subi` | `git submodule update --init` |
+| `git subu` | `git submodule update` |
+| `git undopush` | force-push `HEAD^` to the default branch on `origin` |
+
+### Miscellaneous and GitHub helpers
+
+| Alias | Description |
+| --- | --- |
+| `git add-unmerged` | `git add` every unmerged path |
+| `git edit-unmerged` | open unmerged paths in `${EDITOR:-vi}` |
+| `git hub` | `gh browse` |
+| `git hub-url` | open the GitHub page for a commit |
+| `git ignore` | legacy config alias that is shadowed at runtime by the `git-ignore` executable |
+| `git lost` | show dangling commits from `git fsck` |
+| `git pr` | `gh pr create --web` |
+| `git pr-get` | `gh pr checkout` |
+| `git pulley` | fetch a remote branch into a temporary branch, squash-merge it into the default branch, and commit |
+
+## Hooks and extension points
+
+### Shell hooks
+
+| Interface | Description |
+| --- | --- |
+| `chpwd` / `chpwd_functions` | run when `$PWD` changes before the next prompt |
+| `precmd` / `precmd_functions` | run just before each prompt |
+| `preexec` / `preexec_functions` | run after a command line is read and before the command executes |
+
+Notes:
+
+- `precmd` and `preexec` depend on [`external/bash-preexec.sh`](./external/bash-preexec.sh) and are skipped when `DOT_DISABLE_PREEXEC=1`.
+- `chpwd` support comes from [`plugins/00-chpwd-hook.sh`](./plugins/00-chpwd-hook.sh), which is one of the two built-ins loaded by default.
+
+Example:
 
 ```bash
 # ~/.bash_local
+chpwd() {
+  printf 'cwd: %s\n' "$PWD"
+}
+
+preexec() {
+  __dot_last_command="$1"
+}
+
+precmd() {
+  unset __dot_last_command
+}
+```
+
+Multiple shell hooks can also be appended through the matching arrays:
+
+```bash
+log_pwd() {
+  printf 'cwd: %s\n' "$PWD"
+}
+
+refresh_history() {
+  history -a
+}
+
+chpwd_functions+=(log_pwd)
+precmd_functions+=(refresh_history)
+```
+
+### Phase hooks
+
+For each phase below, you can define either a singular function or append functions to the matching array.
+
+| Phase | Singular functions | Array hooks |
+| --- | --- | --- |
+| `exports` | `dotfiles_hook_exports_pre`, `dotfiles_hook_exports_post` | `dotfiles_hook_exports_pre_functions`, `dotfiles_hook_exports_post_functions` |
+| `functions` | `dotfiles_hook_functions_pre`, `dotfiles_hook_functions_post` | `dotfiles_hook_functions_pre_functions`, `dotfiles_hook_functions_post_functions` |
+| `aliases` | `dotfiles_hook_aliases_pre`, `dotfiles_hook_aliases_post` | `dotfiles_hook_aliases_pre_functions`, `dotfiles_hook_aliases_post_functions` |
+| `extra` | `dotfiles_hook_extra_pre`, `dotfiles_hook_extra_post` | `dotfiles_hook_extra_pre_functions`, `dotfiles_hook_extra_post_functions` |
+| `env` | `dotfiles_hook_env_pre`, `dotfiles_hook_env_post` | `dotfiles_hook_env_pre_functions`, `dotfiles_hook_env_post_functions` |
+| `completion` | `dotfiles_hook_completion_pre`, `dotfiles_hook_completion_post` | `dotfiles_hook_completion_pre_functions`, `dotfiles_hook_completion_post_functions` |
+| `plugin` | `dotfiles_hook_plugin_pre`, `dotfiles_hook_plugin_post` | `dotfiles_hook_plugin_pre_functions`, `dotfiles_hook_plugin_post_functions` |
+| `prompt` | `dotfiles_hook_prompt_pre`, `dotfiles_hook_prompt_post` | `dotfiles_hook_prompt_pre_functions`, `dotfiles_hook_prompt_post_functions` |
+
+After the full shell setup completes, `dotfiles_complete` and `dotfiles_complete_functions` run once.
+
+Example:
+
+```bash
+# ~/.bash_local
+dotfiles_hook_exports_pre() {
+  export FOO=123
+}
+
+add_alias_examples() {
+  alias curl-help='curl --help'
+}
+
+dotfiles_hook_aliases_post_functions+=(add_alias_examples)
+```
+
+### Supported helper functions
+
+This reference treats the following `internal::...` helpers as extension surface for local overrides. Other `internal::...` functions are implementation detail.
+
+| Function | Description |
+| --- | --- |
+| `internal::path-push [--prepend] DIR` | add a directory to `PATH` if it exists and is not already present |
+| `internal::prompt-action-push CMD` | add `CMD` to the internal prompt action stack executed by `internal::prompt-action-run` |
+| `internal::prompt-command-push CMD` | append `CMD` to `PROMPT_COMMAND` while de-duplicating existing entries |
+
+## Environment variables
+
+### Runtime exports
+
+| Variable | Availability | Description |
+| --- | --- | --- |
+| `BASH_SILENCE_DEPRECATION_WARNING` | macOS only | suppress the macOS Bash deprecation banner |
+| `BROWSER` | WSL only | defaults to `winstart` |
+| `DOTENV` | always | `linux` or `darwin` |
+| `DOTFILES__ARCH` | always | result of `uname -m` |
+| `DOTFILES__CONFIG_DIR` | always | config/cache root, default `${XDG_CONFIG_HOME:-$HOME/.config}/dotfiles` |
+| `DOTFILES__ROOT` | always | install root used to find `${DOTFILES__ROOT}/.dotfiles` |
+| `DOT___IS_SCREEN` | screen only | readonly flag set to `1` inside GNU screen |
+| `DOT___IS_SSH` | SSH only | readonly flag set to `1` in SSH sessions |
+| `DOT___IS_WSL` | WSL only | readonly flag set to `1` inside WSL |
+| `DOT___IS_WSL2` | WSL2 only | readonly flag set to `1` inside WSL2 |
+| `EDITOR` | always | best available editor from `internal::find-editor` unless already set |
+| `LC_ALL`, `LANG` | always | locale defaults set to `en_US.UTF-8` |
+| `PAGER` | always | defaults to `less` unless already set |
+| `PROC_CORES` | Linux, macOS | CPU count used by helpers such as `parallel-xargs` |
+| `VISUAL` | always | defaults to `${EDITOR}` unless already set |
+| `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `XDG_STATE_HOME`, `XDG_CACHE_HOME` | always | XDG base-directory defaults |
+
+The loader also upgrades `TERM` to a 256-color variant for `xterm*`, `rxvt*`, and `screen*` sessions.
+
+### Prompt runtime exports
+
+| Variable | Description |
+| --- | --- |
+| `GIT_PS1_SHOWDIRTYSTATE` | enabled |
+| `GIT_PS1_SHOWSTASHSTATE` | enabled |
+| `GIT_PS1_SHOWUNTRACKEDFILES` | enabled |
+| `GIT_PS1_SHOWUPSTREAM` | set to `auto` |
+| `PS1` | generated interactive prompt |
+| `PS2` | secondary prompt, set to `→ ` |
+| `SUDO_PS1` | prompt string used for sudo shells |
+
+### Completion-related exports
+
+| Variable | Description |
+| --- | --- |
+| `COMP_CONFIGURE_HINTS=1` | keep `--option=description` style hints for `./configure --help` completion |
+| `COMP_CVS_REMOTE=1` | allow remote CVS completion |
+| `COMP_TAR_INTERNAL_PATHS=1` | keep internal tar paths during completion |
+| `COMP_WORDBREAKS` | modified to remove `=` as a word break |
+
+### Startup configuration variables
+
+Set these before the dotfiles are sourced, usually in `~/.bash_local`.
+
+| Variable | Default | Effect |
+| --- | --- | --- |
+| `BASHRC_NONINTERACTIVE_BYPASS` | unset | allow `bashrc.sh` to continue loading in non-interactive shells |
+| `DOT_AUTOLOAD_SSH_AGENT` | unset | when the SSH plugin is enabled, auto-start or reuse `ssh-agent` |
+| `DOT_BASH_RESOLVE_PATHS` | unset | enable `set -o physical` so `cd` does not follow symlink chains |
+| `DOT_DISABLE_PREEXEC` | unset | skip sourcing [`external/bash-preexec.sh`](./external/bash-preexec.sh) |
+| `DOT_INCLUDE_BREW_PATH` | unset | on macOS, prepend Homebrew `bin`, `sbin`, and GNU `gnubin` paths, and extend `MANPATH` |
+| `DOT_INCLUDE_BUILTIN_PLUGINS` | unset | load the full built-in [`plugins/*.sh`](./plugins) set instead of only [`00-bash-opts.sh`](./plugins/00-bash-opts.sh) and [`00-chpwd-hook.sh`](./plugins/00-chpwd-hook.sh) |
+| `DOT_PLUGIN_DISABLE_<name>` | unset | disable one built-in plugin or local `.plugin` file; leading numeric ordering prefixes are stripped before the disable name is derived |
+| `DOT_SOLARIZED_DARK` | unset | choose Solarized Dark where theme-aware plugins support it |
+| `DOT_SOLARIZED_LIGHT` | unset | choose Solarized Light where theme-aware plugins support it |
+
+### Prompt configuration variables
+
+Set these before prompt setup, typically in `~/.bash_local`. They are consumed during prompt initialization and then unset.
+
+#### Prompt options
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `DOT_DISABLE_PS1` | unset | skip prompt setup entirely |
+| `DOT_GIT_PROMPT_CACHE_MAX_AGE_MS` | `10000` | maximum age before forcing a full `__git_ps1` refresh |
+| `DOT_GIT_PROMPT_CACHE_TTL_MS` | `1000` | per-directory TTL before the git prompt checks repo state again |
+| `DOT_GIT_PROMPT_INVALIDATE_ON_GIT` | `1` | when `1`, mark the git prompt cache dirty after git-like commands |
+| `PROMPT_TITLE` | unset | override the terminal title string; when unset, a terminal-specific default is used |
+| `PS1_OPT_DAY_END` | `18` | hour when daytime coloring ends |
+| `PS1_OPT_DAY_START` | `8` | hour when daytime coloring starts |
+| `PS1_OPT_HIDE_DIR_INFO` | unset | hide the directory count/size segment |
+| `PS1_OPT_HIDE_EXEC_TIME` | unset | hide the last-command duration segment |
+| `PS1_OPT_HIDE_GIT` | unset | hide the git segment |
+| `PS1_OPT_HIDE_LOAD` | unset | hide the load-average segment |
+| `PS1_OPT_HIDE_TIME` | unset | hide the clock segment |
+| `PS1_OPT_MONOCHROME` | unset | remove prompt colors |
+| `PS1_OPT_MULTILINE` | unset | always put the prompt symbol on its own line |
+| `PS1_OPT_NEWLINE_THRESHOLD` | `120` | terminal width below which the prompt wraps to a new line |
+| `PS1_OPT_SEGMENT_EXTRA` | unset | extra PS1 fragment appended after the git segment |
+
+Example:
+
+```bash
+# ~/.bash_local
+PROMPT_TITLE='work-shell'
 PS1_OPT_HIDE_LOAD=1
 PS1_OPT_NEWLINE_THRESHOLD=100
+PS1_OPT_SEGMENT_EXTRA=' ${VIRTUAL_ENV:+(venv)}'
+PS1_SYMBOL_USER='>'
 ```
 
-### Prompt Symbols
+#### Prompt symbol overrides
 
-Symbols can be overridden by setting these before sourcing:
+| Variable | Default | Description |
+| --- | --- | --- |
+| `PS1_SYMBOL_GIT` | `կ` | git branch prefix; rendered bold with a trailing space |
+| `PS1_SYMBOL_LOCAL` | `#` | separator between user and host in local sessions |
+| `PS1_SYMBOL_NO_WRITE_PWD` | `*` | marker for non-writable directories |
+| `PS1_SYMBOL_ROOT` | `μ` | root prompt symbol |
+| `PS1_SYMBOL_SSH` | `@` | separator between user and host in SSH sessions |
+| `PS1_SYMBOL_SU` | `π` | sudo shell prompt symbol |
+| `PS1_SYMBOL_USER` | `λ` | normal user prompt symbol |
+| `PS1_SYMBOL_WIN_PRIV` | `W*` | elevated Windows session marker under WSL |
 
-| Variable           | Default | Description             |
-| ------------------ | ------- | ----------------------- |
-| `PS1_SYMBOL_USER`  | `λ`     | Normal user prompt      |
-| `PS1_SYMBOL_ROOT`  | `μ`     | Root prompt             |
-| `PS1_SYMBOL_SU`    | `π`     | Sudo prompt             |
-| `PS1_SYMBOL_GIT`   | `կ`     | Git branch prefix       |
-| `PS1_SYMBOL_SSH`   | `@`     | SSH session indicator   |
-| `PS1_SYMBOL_LOCAL` | `#`     | Local session indicator |
+#### Prompt color overrides
 
-All `PS1_COLOR_*` variables can also be overridden. See `dotenv/prompt.sh` for the full list.
+Only the following `PS1_COLOR_*` variables are public override hooks:
 
-## Windows Subsystem Linux (WSL) specific
+| Variable | Description |
+| --- | --- |
+| `PS1_COLOR_BG_JOBS` | background job count color |
+| `PS1_COLOR_EXEC_TIME` | last-command duration color |
+| `PS1_COLOR_EXIT_ERROR` | non-zero exit code color |
+| `PS1_COLOR_GIT` | git segment color |
+| `PS1_COLOR_GREY` | bracket color |
+| `PS1_COLOR_HOST` | hostname color |
+| `PS1_COLOR_HOST_SCREEN` | host/screen-session color |
+| `PS1_COLOR_LOAD` | load-average color array |
+| `PS1_COLOR_TIME_DAY` | daytime clock color |
+| `PS1_COLOR_TIME_NIGHT` | nighttime clock color |
+| `PS1_COLOR_USER` | username color |
+| `PS1_COLOR_WORK_DIR` | working directory color |
+| `PS1_COLOR_WORK_DIRINFO` | directory count/size color |
 
-### WSL Utilities
+`PS1_COLOR_NORMAL`, `PS1_COLOR_BOLD`, `PS1_COLOR_UNDERLINE`, and `PS1_COLOR_RESET` are internal prompt constants, not startup override hooks.
 
-| Command               | Description                                                                                                               |
-| --------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| `chattr`              | Change Windows file attributes                                                                                            |
-| `cmd0`                | Run a command via the windows cmd prompt processor                                                                        |
-| `is-elevated-session` | Check if the current shell is running with elevated Windows permissions                                                   |
-| `mklink`              | Shortcut to the windows MKLINK command, with ln style args                                                                |
-| `npp`                 | Open a sandboxed instance of notepad++                                                                                    |
-| `winstart`            | Open/run a file using the native windows logic and associations                                                           |
-| `winsudo`             | Run a process with elevated Windows privileges. Uses native `sudo.exe` (Win 11 24H2+) or SSH-based fallback. See [utils/wsl/README.md](./utils/wsl/README.md#winsudo-setup) for setup. |
-| `wsl-sudo`            | Alias to `winsudo`                                                                                                        |
-| `wudo`                | Alias to `winsudo`                                                                                                        |
+See [`PROMPT.md`](./PROMPT.md) for prompt screenshots and the default color values.
 
-## Bash hooks
+### Plugin-exported defaults
 
-Hooks with similar behavior to [**Zsh**](https://zsh.sourceforge.io/Doc/Release/Functions.html#Hook-Functions) are included for `chpwd`, `precmd`, and `preexec`.
+These variables are only relevant when the matching built-in plugin loads.
 
-`chpwd` hooks are setup with [00-chpwd-hook.sh](./plugins/00-chpwd-hook.sh).
+| Plugin | Variables | Description |
+| --- | --- | --- |
+| [`00-bash-opts.sh`](./plugins/00-bash-opts.sh) | `HISTCONTROL`, `HISTIGNORE`, `HISTSIZE`, `HISTFILESIZE`, `HISTTIMEFORMAT`, `CDPATH` | history and navigation defaults |
+| [`00-direnv.sh`](./plugins/00-direnv.sh) | `DIRENV_LOG_FORMAT` | silence direnv log chatter |
+| [`00-brew.sh`](./plugins/00-brew.sh) | `MANPATH` | prepend Homebrew and GNU manpage paths |
+| [`10-dircolors.sh`](./plugins/10-dircolors.sh) | `LS_COLORS` | Solarized `dircolors` theme when `DOT_SOLARIZED_LIGHT` or `DOT_SOLARIZED_DARK` is set |
+| [`10-fzf.sh`](./plugins/10-fzf.sh) | `FZF_DEFAULT_COMMAND`, `FZF_CTRL_T_COMMAND`, `FZF_ALT_C_COMMAND`, `FZF_DEFAULT_OPTS`, `FZF_CTRL_T_OPTS`, `FZF_ALT_C_OPTS`, `FZF_CTRL_R_OPTS` | fzf defaults and previews |
+| [`10-jq.sh`](./plugins/10-jq.sh) | `JQ_COLORS` | themed jq colors |
+| [`10-less.sh`](./plugins/10-less.sh) | `MANPAGER`, `LESS`, `LESS_TERMCAP_mb`, `LESS_TERMCAP_md`, `LESS_TERMCAP_me`, `LESS_TERMCAP_se`, `LESS_TERMCAP_so`, `LESS_TERMCAP_ue`, `LESS_TERMCAP_us` | less and manpage defaults |
+| [`10-ripgrep.sh`](./plugins/10-ripgrep.sh) | `RIPGREP_CONFIG_PATH` | point `rg` at [`config/ripgrep/config`](./config/ripgrep/config) |
+| [`20-nvm.sh`](./plugins/20-nvm.sh) | `NVM_DIR` | nvm install root |
+| [`30-bat.sh`](./plugins/30-bat.sh) | `BAT_CONFIG_PATH`, `BAT_THEME`, `MANPAGER`, `MANROFFOPT` | bat defaults and colored manpage integration |
+| [`30-difftastic.sh`](./plugins/30-difftastic.sh) | `DFT_BACKGROUND`, `DFT_DISPLAY`, `DFT_TAB_WIDTH`, `DFT_PARSE_ERROR_LIMIT` | difftastic defaults |
+| [`30-mysql.sh`](./plugins/30-mysql.sh) | `MYSQL_PS1` | custom MySQL client prompt |
+| [`30-npm.sh`](./plugins/30-npm.sh) | `NPM_CONFIG_PREFIX`, `MANPATH`, `OPEN_SOURCE_CONTRIBUTOR` | npm global install path and default env tweaks |
+| [`80-podman.sh`](./plugins/80-podman.sh) | `BUILDAH_FORMAT` | default Podman/Buildah image format |
+| [`90-docker.sh`](./plugins/90-docker.sh) | `COMPOSE_HTTP_TIMEOUT`, `HISTIGNORE` | longer Compose timeout and extra history ignores |
 
-`preexec` and `precmd` hooks are provided by [bash-preexec](https://github.com/rcaloras/bash-preexec).
+### Command-specific environment variables
 
-They aim to emulate the behavior as described for Zsh.
-
-### Usage Examples
-
-#### When defined as a singular function
-
-- `chpwd` Executed just before each prompt when the directory changes.
-- `preexec` Executed just after a command has been read and is about to be executed. The string that the user typed is passed as the first argument.
-- `precmd` Executed just before each prompt. Equivalent to PROMPT_COMMAND, but more flexible and resilient.
-
-```bash
-# using defined functions
-chpwd() { echo "now in $(pwd)"; }
-preexec() { echo "just typed $1"; }
-precmd() { echo "printing the prompt"; }
-```
-
-#### Function Arrays
-
-Multiple functions can also be defined to be invoked by appending them to the hook array variables. This is useful if there are multiple functions to be invoked for either hook.
-
-- `$chpwd_functions` Array of functions invoked by chpwd.
-- `$preexec_functions` Array of functions invoked by preexec.
-- `$precmd_functions` Array of functions invoked by precmd.
-
-```bash
-precmd_hello_one() { echo "This is invoked on precmd first"; }
-precmd_hello_two() { echo "This is invoked on precmd second"; }
-precmd_functions+=(precmd_hello_one)
-precmd_functions+=(precmd_hello_two)
-
-chpwd_ls() { ls -1; }
-chpwd_functions+=(chpwd_ls_one)
-```
+| Variable | Used by | Description |
+| --- | --- | --- |
+| `CLIPBOARD_SERVER_PORT` | SSH [`pbcopy`](./dotenv/ssh/bin/pbcopy) / [`pbpaste`](./dotenv/ssh/bin/pbpaste), [`clipboard-server`](./dotenv/bin/clipboard-server) | forwarded TCP port for remote clipboard access |
+| `CLIPBOARD_SERVER_SOCK` | SSH [`pbcopy`](./dotenv/ssh/bin/pbcopy) / [`pbpaste`](./dotenv/ssh/bin/pbpaste), [`clipboard-server`](./dotenv/bin/clipboard-server) | forwarded Unix socket path; defaults to `/tmp/clipboard-server.sock` |
+| `GIT_SSH_NO_PROXY` | [`git ssh-socks-proxy`](./dotenv/bin/git-ssh-socks-proxy) | comma-separated host list that bypasses configured git SSH proxy rules |
 
 ## Troubleshooting
 
@@ -296,10 +561,11 @@ chpwd_functions+=(chpwd_ls_one)
 
 If shell startup takes more than a second, common culprits include:
 
-- **nvm**: The nvm plugin lazy-loads `nvm.sh` on first use. The default node version's bin dir is cached in `~/.config/dotfiles/cache/nvm_default_path` so `node`/`npm`/`npx` are available immediately. If the cache is missing (first run), nvm is sourced eagerly once to seed it. Delete the cache file to force a refresh.
-- **completions**: Completion scripts for tools like `kubectl`, `helm`, `gh` can add up. Completions are cached where possible; see `plugins/` for details.
-- **prompt segments**: The load average and exec timer segments spawn subprocesses. Disable with `PS1_OPT_HIDE_LOAD=1` or `PS1_OPT_HIDE_EXEC_TIME=1` in `~/.bash_local`.
-- **git prompt status**: If `__git_ps1` is still slow in very large repos, increase `DOT_GIT_PROMPT_CACHE_TTL_MS` or `DOT_GIT_PROMPT_CACHE_MAX_AGE_MS` in `~/.bash_local`.
+- `nvm`: when `DOT_INCLUDE_BUILTIN_PLUGINS=1`, the nvm plugin lazy-loads `nvm.sh` on first use. The default node version's bin dir is cached in `~/.config/dotfiles/cache/nvm_default_path` so `node`/`npm`/`npx` are available immediately. If the cache is missing, nvm is sourced once to seed it.
+- completions: with the full built-in plugin set enabled, completion scripts for tools like `kubectl`, `helm`, `gh`, `npm`, and `podman` can add up. The repo caches generated completions where possible.
+- prompt segments: the load-average and exec-timer segments spawn subprocesses on older Bash setups. Hide them with `PS1_OPT_HIDE_LOAD=1` or `PS1_OPT_HIDE_EXEC_TIME=1`.
+- git prompt status: if `__git_ps1` is still slow in very large repos, increase `DOT_GIT_PROMPT_CACHE_TTL_MS` or `DOT_GIT_PROMPT_CACHE_MAX_AGE_MS`.
+- local overrides: `~/.bash_local`, `~/.bash_local.d/*.sh`, `~/.bash_local.d/*.plugin`, and `dotfiles_complete()` can add significant local startup cost.
 
 To profile startup time:
 
@@ -325,48 +591,55 @@ dotfiles-prompt-profile --trace --count 20 --exclude 'git-prompt|__git_ps1'
 
 ### Prompt symbols display as boxes or question marks
 
-The prompt uses UTF-8 symbols (lambda, mu, pi). Your terminal and font must support Unicode. Recommended fonts: Nerd Font variants (e.g., `JetBrainsMono Nerd Font`, `FiraCode Nerd Font`).
+The prompt uses UTF-8 symbols such as lambda, mu, pi, and the Armenian git marker. Your terminal and font must support Unicode. Nerd Font variants such as `JetBrainsMono Nerd Font` or `FiraCode Nerd Font` usually work well.
 
-### `date2unix` doesn't work
+### `date2unix` does not parse a date
 
-On macOS, the function tries `gdate` (from `brew install coreutils`) automatically for GNU-style free-form dates, then falls back to BSD `date` with common format strings.
+On macOS, `date2unix` first tries GNU-style parsing with `date --date`, then `gdate` from Homebrew, then BSD `date -j -f` fallbacks for a few common formats. Installing `coreutils` gives the broadest date parsing via `gdate`.
 
 ### Local overrides
 
-Machine-specific configuration should go in `~/.bash_local`, which is sourced automatically if it exists. This keeps the dotfiles repo portable.
+Machine-specific configuration belongs in `~/.bash_local`, `~/.bash_local.d/*.sh`, and `~/.bash_local.d/*.plugin`. That keeps the repo itself portable while still letting you change startup behavior, env vars, hooks, and plugin loading locally.
 
 ## Additional tools
 
 ### clipboard-server
 
-[`clipboard-server`](./dotenv/bin/clipboard-server) is a server that sets up forward clipboard access over a http socket. This is useful if you want to copy/paste from over a ssh session.
+[`clipboard-server`](./dotenv/bin/clipboard-server) forwards local clipboard access over an HTTP socket. It is primarily intended for SSH sessions that want to use the local workstation clipboard remotely.
 
-To set up on the local machine
+To start it locally:
 
 ```bash
 clipboard-server start
-# this will create a socket file at $HOME/.config/clipboard-server/clipboard-server.sock
+# default socket: ~/.config/clipboard-server/clipboard-server.sock
 ```
 
-With the server running, you can now SSH into the remote machine, forwarding the socket
+To forward that socket over SSH as a TCP port:
 
 ```bash
 ssh -R 127.0.0.1:29009:$HOME/.config/clipboard-server/clipboard-server.sock user@HOST
 ```
 
-Or through the `~/.ssh/config` file
+Or in `~/.ssh/config`:
 
 ```text
 Host HOSTNAME
     RemoteForward 29009 /home/USERNAME/.config/clipboard-server/clipboard-server.sock
 ```
 
-The on the remote machine, the port needs to be specified with the `CLIPBOARD_SERVER_PORT` env variable.
+On the remote machine, point the SSH clipboard wrappers at the forwarded endpoint:
 
 ```bash
 export CLIPBOARD_SERVER_PORT=29009
 
-# then use the clipboard
 date | pbcopy
 pbpaste | sed ...
 ```
+
+If you forward a Unix socket instead of a TCP port, set `CLIPBOARD_SERVER_SOCK` instead.
+
+## Notes
+
+- Most standalone commands support `-h` or `--help`.
+- [`README.md`](./README.md) covers installation and the customization model.
+- [`PROMPT.md`](./PROMPT.md) covers prompt rendering details, screenshots, and color swatches.
