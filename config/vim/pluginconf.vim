@@ -18,6 +18,11 @@ if !empty($DOT_SOLARIZED_DARK) || !empty($DOT_SOLARIZED_LIGHT)
 endif
 set laststatus=2                " always show the status line (for vim-powerline)
 
+augroup dotfiles_airline
+  autocmd!
+  autocmd User AirlineAfterInit set noshowmode
+augroup END
+
 " =====================================
 " => ale
 " =====================================

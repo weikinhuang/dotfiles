@@ -48,6 +48,7 @@ Notes:
 | `mysql` | [`plugins/30-mysql.sh`](./plugins/30-mysql.sh) | Custom `MYSQL_PS1` and pager alias |
 | `nvm` | [`plugins/20-nvm.sh`](./plugins/20-nvm.sh) | Lazy loading plus cached default-node PATH setup |
 | `ripgrep` | [`plugins/10-ripgrep.sh`](./plugins/10-ripgrep.sh), [`config/ripgrep/config`](./config/ripgrep/config) | Smart-case, hidden files, common exclusions, max column width, loaded via `RIPGREP_CONFIG_PATH` |
+| `tmux` | [`dotenv/tmux/extra.sh`](./dotenv/tmux/extra.sh), [`tmux.conf`](./tmux.conf), [`config/tmux/`](./config/tmux) | Reloads exported tmux env vars at each prompt and syncs per-pane cwd into tmux for status integrations such as Powerline |
 | `wget` | top-level [`wgetrc`](./wgetrc) | Repo-managed wget defaults via installed `~/.wgetrc` |
 | `zoxide` | [`plugins/10-zoxide.sh`](./plugins/10-zoxide.sh) | `z` and `zi` shell integration |
 

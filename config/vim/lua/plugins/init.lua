@@ -95,10 +95,12 @@ return {
         sync_root_with_cwd = true,
         update_focused_file = {
           enable = true,
-          update_root = false,
+          update_root = {
+            enable = false,
+          },
         },
         on_attach = function(bufnr)
-          api.config.mappings.default_on_attach(bufnr)
+          api.map.on_attach.default(bufnr)
           vim.keymap.set("n", "<C-e>", api.tree.toggle, {
             buffer = bufnr,
             noremap = true,
