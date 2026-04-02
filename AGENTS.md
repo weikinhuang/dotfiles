@@ -31,11 +31,11 @@ Cross-platform bash dotfiles for Linux, macOS, and WSL. Shell scripts, git utili
 
 ### Dotenv layout
 
-Each directory under `dotenv/` (including platform dirs) uses a fixed set of files loaded in this order: `exports`, `functions`, `aliases`, `extra`, `env`, `completion`, `plugins`, `prompt`. Only create the files you need. Platform environments load in this order: common `dotenv/` → `{darwin,linux}/` → `wsl/` → `wsl2/` → `tmux/` → `screen/` → `ssh/`.
+Each directory under `dotenv/` (including platform dirs) can define phase files loaded in this order: `exports`, `functions`, `aliases`, `extra`, `env`, `completion`, `prompt`. Plugins are loaded as a separate phase from [`plugins/`](./plugins) and `~/.bash_local.d/*.plugin` after `completion` and before `prompt`. Only create the files you need. Platform environments load in this order: common `dotenv/` → `{darwin,linux}/` → `wsl/` → `wsl2/` → `tmux/` → `screen/` → `ssh/`.
 
 ### Plugins
 
-Plugins live in `plugins/` with numeric prefixes controlling load order (e.g. `00-`, `10-`, `30-`). Guard with `command -v` checks so they no-op when the tool is absent. Users disable individual plugins via `DOT_PLUGIN_DISABLE_${FILENAME}=1`.
+Plugins live in `plugins/` with numeric prefixes controlling load order (e.g. `00-`, `10-`, `30-`). Guard with `command -v` checks so they no-op when the tool is absent. Users disable individual plugins via `DOT_PLUGIN_DISABLE_<basename>=1`, with leading numeric prefixes stripped.
 
 ### Bin scripts
 
@@ -68,7 +68,7 @@ For sourced shell code, use `__dot_*` for internal variables and `internal::...`
 
 ### Customization model
 
-Users customize via `~/.bash_local` (sourced before built-ins) and `~/.bash_local.d/*.sh` (sourced after). Plugins also load from `~/.bash_local.d/*.plugin`. The entry points are `bash_profile.sh` → `bashrc.sh` → `dotenv/lib/load.sh`. Configuration is controlled by `DOT_*` environment variables documented in [README.md](./README.md#configuration-options).
+Users customize via `~/.bash_local` and `~/.bash_local.d/*.sh`, both sourced before the repo built-ins. Plugins also load from `~/.bash_local.d/*.plugin` during the plugin phase. The entry points are `bash_profile.sh` → `bashrc.sh` → `dotenv/lib/load.sh`. Configuration is controlled by `DOT_*` environment variables documented in [README.md](./README.md#configuration-options), while [REFERENCE.md](./REFERENCE.md) is the detailed source of truth for loader behavior.
 
 ## Boundaries
 
@@ -84,5 +84,5 @@ Users customize via `~/.bash_local` (sourced before built-ins) and `~/.bash_loca
 - [REFERENCE.md](./REFERENCE.md) -- all aliases, functions, env vars, and git utilities
 - [PROMPT.md](./PROMPT.md) -- prompt format, symbols, and customization options
 - [README.md](./README.md) -- installation, configuration, hooks, file loading order
-- [utils/darwin/README.md](./utils/darwin/README.md) -- MacOS setup and native wrappers
+- [utils/darwin/README.md](./utils/darwin/README.md) -- macOS setup and native wrappers
 - [utils/wsl/README.md](./utils/wsl/README.md) -- WSL setup and native wrappers

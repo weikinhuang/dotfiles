@@ -89,14 +89,13 @@ Install `openssh` first via the setup script above, then edit:
 vi /data/data/com.termux/files/usr/etc/ssh/sshd_config
 ```
 
-Recommended minimal changes:
+Recommended baseline:
 
 ```text
 ClientAliveInterval 180
 PasswordAuthentication no
 PermitRootLogin no
 PrintMotd yes
-PermitRootLogin No
 
 # sshd modern configuration
 # https://infosec.mozilla.org/guidelines/openssh.html

@@ -151,9 +151,9 @@ sudo do-release-upgrade
 
 `winsudo` allows you to run Windows applications with elevated privileges from a non-elevated WSL shell.
 
-### Native sudo (Windows 11 24H2+)
+### Native sudo (`sudo.exe`)
 
-On Windows 11 24H2 and later, `winsudo` prefers the native `sudo.exe` flow.
+On current Windows builds that ship `sudo.exe`, `winsudo` prefers the native flow.
 
 `winsudo` requires inline mode (`normal`). Microsoft recommends `forceNewWindow`
 by default for security, so only switch to inline mode if you understand that tradeoff.
@@ -176,7 +176,7 @@ sudo config
 # Expected output mentions "Inline" mode
 ```
 
-### Legacy fallback (pre-24H2)
+### Legacy fallback (without usable `sudo.exe`)
 
 On older Windows versions without `sudo.exe`, or when `sudo.exe` is not configured for inline mode, `winsudo` falls back to an SSH-based elevation mechanism.
 

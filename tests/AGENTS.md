@@ -1,6 +1,4 @@
-#!/usr/bin/env bats
-# Tests for AGENTS.md.
-# SPDX-License-Identifier: MIT
+# Tests
 
 Bats test suite for the dotfiles. Tests run in Docker (`ubuntu:24.04`) for isolation. See root [AGENTS.md](../AGENTS.md) for project-wide conventions.
 
@@ -38,7 +36,7 @@ setup() {
 }
 ```
 
-See `path:tests/dotenv/bin/git-sync.bats` for a full git-dependent example with repo setup helpers, stash/restore verification, and `source_without_main` usage.
+See [tests/dotenv/bin/git-sync.bats](./dotenv/bin/git-sync.bats) for a full git-dependent example with repo setup helpers, stash/restore verification, and `source_without_main` usage.
 
 ## Patterns
 

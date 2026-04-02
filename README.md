@@ -11,17 +11,17 @@ The bootstrap script will create symlinks in the home directory to the proper fi
 This will by default install dotfiles in the home directory with all options enabled
 
 ```bash
-curl https://raw.githubusercontent.com/weikinhuang/dotfiles/master/bootstrap.sh | bash
+curl -fsSL https://raw.githubusercontent.com/weikinhuang/dotfiles/master/bootstrap.sh | bash
 
 # Additional arguments can be passed to the bootstrap script
-curl https://raw.github...master/bootstrap.sh | bash -s -- [args]
+curl -fsSL https://raw.githubusercontent.com/weikinhuang/dotfiles/master/bootstrap.sh | bash -s -- [args]
 ```
 
 ### Install dotfiles with Git
 
 You can clone the repository wherever you want, the home (`~/`) directory is recommended.
 
-When the git repo is updated, the files will be automatically updated when the session is restarted.
+Because the installed files are symlinked into your home directory, pulling updates in the repo takes effect in new shells.
 
 ```bash
 # args can be passed to the bootstrap script
@@ -58,8 +58,8 @@ See [REFERENCE.md](./REFERENCE.md) for all added commands, overrides, and change
 - `chpwd`, `precmd`, and `preexec` hooks with similar behavior to [**Zsh**](https://zsh.sourceforge.io/Doc/Release/Functions.html#Hook-Functions)
 - `sudo` works on aliases
 - `rm` `cp` `mv` are always interactive `-i` (use `-f` to override)
-- `ls` and `grep` always has color (use `--color=never` to override)
-- `which` command expands full path when possible
+- `ls` and `grep` default to color when the local implementation supports it
+- `which` expands aliases and full paths when the local implementation supports it
 - `gdiff` uses git's diff command with color when possible
 - `pbcopy` and `pbpaste` for cross-platform copy/paste from cli, and optionally over ssh
 - `open` for cross-platform open in native application
@@ -67,8 +67,11 @@ See [REFERENCE.md](./REFERENCE.md) for all added commands, overrides, and change
 
 ### With `DOT_INCLUDE_BUILTIN_PLUGINS=1`
 
+Examples:
+
 - `cd --` lists the directory stack (current directory plus up to 10 previous entries)
 - `less` does not clear the screen upon exit and processes colors
+- the prompt can render git status when the git plugin is active
 
 ## [The Bash Prompt](./PROMPT.md)
 
@@ -85,19 +88,19 @@ To use these variables, export them to `~/.bash_local`.
 export DOT_AUTOLOAD_SSH_AGENT=1
 ```
 
-| exported ENV var                   | Default | Description                                                                                                                                      |
-| ---------------------------------- | ------: | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `DOT_AUTOLOAD_SSH_AGENT`           | `UNSET` | Automatically start up `ssh-agent` when starting a new shell, or reuse any existing agent instances                                              |
-| `DOT_BASH_RESOLVE_PATHS`           | `UNSET` | Set bash option `set -o physical` to not resolve symlink paths                                                                                   |
-| `DOT_DISABLE_PREEXEC`              | `UNSET` | Disables loading [`bash-preexec.sh`](https://github.com/rcaloras/bash-preexec) functionality. This is needed for some bash prompt functionality. |
-| `DOT_DISABLE_PS1`                  | `UNSET` | Disables the custom bash prompt                                                                                                                  |
-| `DOT_INCLUDE_BREW_PATH`            | `UNSET` | Use to homebrew utilities without the `g` prefix (OSX)                                                                                           |
-| `DOT_INCLUDE_BUILTIN_PLUGINS`      | `UNSET` | Loads files in dotfiles/plugins. This is needed for some bash prompt functionality.                                                              |
-| `DOT_SOLARIZED_DARK`               | `UNSET` | Use to tell common commands to use solarized dark (ex. LS_COLORS, vim) colors                                                                    |
-| `DOT_SOLARIZED_LIGHT`              | `UNSET` | Use to tell common commands to use solarized light (ex. LS_COLORS, vim) colors                                                                   |
-| `DOT_GIT_PROMPT_CACHE_TTL_MS`      |  `1000` | Milliseconds to serve a cached git prompt without re-checking (per-PWD TTL)                                                                      |
-| `DOT_GIT_PROMPT_CACHE_MAX_AGE_MS`  | `10000` | Maximum milliseconds to serve a stale git prompt cache before forcing a refresh                                                                  |
-| `DOT_GIT_PROMPT_INVALIDATE_ON_GIT` |     `1` | Set to `0` to disable automatic cache invalidation after git commands                                                                            |
+| exported ENV var | Default | Description |
+| --- | ---: | --- |
+| `DOT_AUTOLOAD_SSH_AGENT` | `UNSET` | When the SSH plugin is enabled, automatically start `ssh-agent` or reuse an existing agent |
+| `DOT_BASH_RESOLVE_PATHS` | `UNSET` | Set Bash option `set -o physical` to avoid resolving symlink paths |
+| `DOT_DISABLE_PREEXEC` | `UNSET` | Skip loading [`bash-preexec.sh`](https://github.com/rcaloras/bash-preexec), disabling `preexec` hooks and command timing features |
+| `DOT_DISABLE_PS1` | `UNSET` | Disable the custom Bash prompt |
+| `DOT_INCLUDE_BREW_PATH` | `UNSET` | On macOS with built-in plugins enabled, prepend Homebrew and GNU tool paths and extend `MANPATH` |
+| `DOT_INCLUDE_BUILTIN_PLUGINS` | `UNSET` | Load the full built-in [`plugins/*.sh`](./plugins) set instead of only `00-bash-opts.sh` and `00-chpwd-hook.sh` |
+| `DOT_SOLARIZED_DARK` | `UNSET` | Choose Solarized Dark where theme-aware integrations support it |
+| `DOT_SOLARIZED_LIGHT` | `UNSET` | Choose Solarized Light where theme-aware integrations support it |
+| `DOT_GIT_PROMPT_CACHE_TTL_MS` | `1000` | Milliseconds to reuse cached git prompt status before checking the current repo again |
+| `DOT_GIT_PROMPT_CACHE_MAX_AGE_MS` | `10000` | Maximum milliseconds to reuse unchanged git prompt status before forcing a refresh |
+| `DOT_GIT_PROMPT_INVALIDATE_ON_GIT` | `1` | Set to `0` to disable automatic git prompt cache invalidation after git commands |
 
 ## Custom hook points
 
@@ -107,19 +110,21 @@ If `~/.bash_local` exists, it will be sourced before the built-ins are sourced. 
 
 ### `~/.bash_local.d/*.sh`
 
-All files ending with `.sh` located in `~/.bash_local.d` will be loaded right after `~/.bash_local`, this is a good place to put include scripts that setup additional environments in separate files.
+All files ending with `.sh` located in `~/.bash_local.d` are loaded right after `~/.bash_local` and before the repo's built-ins. This is a good place to split local environment setup into separate files.
 
 ## .gitconfig.local
 
-If a file `~/.gitconfig.local` exists, it will be sourced in addition to the built in git settings. Configurations in this file will be set with the highest priority.
+If a file `~/.gitconfig.local` exists, it will be included in addition to the built-in git settings. Configurations in this file have the highest priority.
 
 ## Plugins
 
 Plugins are scripts that are loaded near the end of the dotfiles initialization process. They usually contain hooks, setup, or configuration for external programs.
 
+By default only [`plugins/00-bash-opts.sh`](./plugins/00-bash-opts.sh) and [`plugins/00-chpwd-hook.sh`](./plugins/00-chpwd-hook.sh) load. Set `DOT_INCLUDE_BUILTIN_PLUGINS=1` before startup to load the full built-in plugin set.
+
 See the [plugins/](./plugins/) directory for the built-in examples.
 
-Plugins are also loaded from `~/.bash_local.d/` with any file ending in `.plugin`. Sorting is preserved via the combination of both directories.
+Plugins are also loaded from `~/.bash_local.d/` with any file ending in `.plugin`. Local `.plugin` files load in the plugin phase and interleave with built-ins by basename.
 
 Example plugin for [`direnv`](https://direnv.net/):
 
@@ -129,7 +134,7 @@ if ! command -v direnv &>/dev/null; then
   return
 fi
 # load direnv program hook
-source <(direnv hook bash 2>/dev/null)
+eval "$(direnv hook bash 2>/dev/null)"
 ```
 
 Specific plugins can be disabled with an environment variable named after the plugin basename without its numeric prefix. Examples: `DOT_PLUGIN_DISABLE_direnv=1`, `DOT_PLUGIN_DISABLE_fzf=1`.
@@ -177,7 +182,7 @@ dotfiles_hook_aliases_post_functions+=(foobar)
 
 ## [WSL configuration](utils/wsl/README.md)
 
-Setup and configuration of Window's WSL is documented in [utils/wsl/README.md](utils/wsl/README.md).
+Setup and configuration of Windows WSL is documented in [utils/wsl/README.md](utils/wsl/README.md).
 
 ## Development
 
@@ -223,7 +228,7 @@ OK
 
 ### Layout
 
-Each layout folder contains the following files
+The loader recognizes the following phase files in `dotenv/` and in any active platform-specific subdirectory. Only create the files you need.
 
 | File         | Description                                                            |
 | ------------ | ---------------------------------------------------------------------- |
@@ -235,85 +240,52 @@ Each layout folder contains the following files
 | `functions`  | bash function declarations, can be exported via `export -f FN_NAME`    |
 | `prompt`     | scripts to generate or modify the prompt vars `PS1`, `PS2`, `SUDO_PS1` |
 
-#### Folder layout
+Supporting directories:
 
-```text
-- dotenv
-    # common across all platforms
-    - LISTED FILES^^
-    # bin dir to append to path
-    - `bin`
-    - `bin.$(uname -m)`
-    # non shell config files
-    - config
-        - git
-    - darwin
-        # only sourced on OSX
-        - LISTED FILES^^
-        # bin dir to append to path
-        - `bin`
-        - `bin.$(uname -m)`
-    - lib
-      - library scripts
-    - linux
-        # only sourced on linux
-        - LISTED FILES^^
-        # bin dir to append to path
-        - `bin`
-        - `bin.$(uname -m)`
-    - screen
-        # only sourced on when screen is active
-        - LISTED FILES^^
-        # bin dir to append to path
-        - `bin`
-        - `bin.$(uname -m)`
-    - ssh
-        # only sourced on when ssh is active
-        - LISTED FILES^^
-        # bin dir to append to path
-        - `bin`
-        - `bin.$(uname -m)`
-    - tmux
-        # only sourced on when tmux is active
-        - LISTED FILES^^
-        # bin dir to append to path
-        - `bin`
-        - `bin.$(uname -m)`
-    - wsl
-        # only sourced on WSL (1 & 2)
-        - LISTED FILES^^
-        # bin dir to append to path
-        - `bin`
-        - `bin.$(uname -m)`
-    - wsl2
-        # only sourced on WSL 2
-        - LISTED FILES^^
-        # bin dir to append to path
-        - `bin`
-        - `bin.$(uname -m)`
-```
+- `dotenv/bin/` and `dotenv/bin.$(uname -m)` are added to `PATH` on all platforms.
+- Active platform directories can also contribute `bin/` and `bin.$(uname -m)`.
+- `dotenv/lib/` contains internal helpers used by the loader, prompt, and shared shell code.
+
+Supported platform directories:
+
+| Path | Used when |
+| --- | --- |
+| `dotenv/` | always |
+| `dotenv/darwin/` | on macOS |
+| `dotenv/linux/` | on Linux |
+| `dotenv/wsl/` | on WSL |
+| `dotenv/wsl2/` | on WSL 2 |
+| `dotenv/tmux/` | inside tmux |
+| `dotenv/screen/` | inside screen |
+| `dotenv/ssh/` | in SSH sessions |
 
 ### File loading order
 
-The core `~/.bashrc` will import each of the files in the layout table, first in the common top level `dotenv` folder. then platform specific files, and finally if a file is name with a `.` prefix in your `HOME` directory (ex. `.exports`).
+Local overrides load first:
 
-`dotenv` environments are loaded in the following order:
+1. `~/.bash_local`
+2. `~/.bash_local.d/*.sh`
+
+Then each phase resolves in the following order:
 
 1. `dotenv/*.sh`
-1. `dotenv/{darwin,linux}/*.sh`
-1. `dotenv/wsl/*.sh`
-1. `dotenv/wsl2/*.sh`
-1. `dotenv/tmux/*.sh`
-1. `dotenv/screen/*.sh`
-1. `dotenv/ssh/*.sh`
+2. `dotenv/${DOTENV}/*.sh`
+3. `dotenv/wsl/*.sh` on WSL
+4. `dotenv/wsl2/*.sh` on WSL 2
+5. `dotenv/tmux/*.sh` in tmux
+6. `dotenv/screen/*.sh` in screen
+7. `dotenv/ssh/*.sh` over SSH
+8. `~/.<phase>`
 
-`dotenv` scripts are loaded in the following order:
+Phases run in the following order:
 
 1. `exports`
-1. `functions`
-1. `aliases`
-1. `extra`
-1. `env`
-1. `completion`
-1. `plugin`
-1. `prompt`
+2. `functions`
+3. `aliases`
+4. `extra`
+5. `env`
+6. `completion` when Bash completion is available
+7. `plugins`
+8. `prompt`
+
+Built-in plugins load only when `DOT_INCLUDE_BUILTIN_PLUGINS=1` is set before startup, except for `00-bash-opts.sh` and `00-chpwd-hook.sh`, which load by default. Local `~/.bash_local.d/*.plugin` files load in the plugin phase and interleave with built-ins by basename.
