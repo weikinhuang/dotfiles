@@ -19,6 +19,8 @@ RUN set -ex \
         neovim \
         nodejs \
         perl \
+        powerline \
+        tmux \
         vim \
         # general utilities
         curl \

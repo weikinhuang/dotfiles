@@ -118,7 +118,7 @@ for ((i = 0; i < ${#REAL_ARGS[@]}; i++)); do
       ;;
     -p)
       if ((i + 1 < ${#REAL_ARGS[@]})); then
-        SSH_PORT="${REAL_ARGS[i + 1]}"
+        SSH_PORT="${REAL_ARGS[i+1]}"
         ((i += 1))
       else
         SSH_PORT=
@@ -129,7 +129,7 @@ for ((i = 0; i < ${#REAL_ARGS[@]}; i++)); do
       ;;
     --port)
       if ((i + 1 < ${#REAL_ARGS[@]})); then
-        SSH_PORT="${REAL_ARGS[i + 1]}"
+        SSH_PORT="${REAL_ARGS[i+1]}"
         ((i += 1))
       else
         SSH_PORT=

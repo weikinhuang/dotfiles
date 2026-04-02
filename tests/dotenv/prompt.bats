@@ -83,6 +83,23 @@ setup() {
   [[ "${SUDO_PS1}" == custom-title\ * ]]
 }
 
+@test "prompt: tmux-256color sessions show tmux session info in the host segment" {
+  export TERM=tmux-256color
+  export TMUX=/tmp/tmux.sock
+  export TMUX_PANE=%3
+  stub_command tmux <<'EOF'
+#!/usr/bin/env bash
+if [[ "${1:-}" == "display-message" ]] && [[ "${2:-}" == "-p" ]] && [[ "${3:-}" == "#S" ]]; then
+  printf 'work\n'
+fi
+EOF
+
+  source "${REPO_ROOT}/dotenv/prompt.sh"
+
+  [[ "${PS1}" == *'work[%3]'* ]]
+  [[ "${SUDO_PS1}" == *'work[%3]'* ]]
+}
+
 @test "prompt: honors other public prompt override variables" {
   local repo="${BATS_TEST_TMPDIR}/repo"
   mkdir -p "${repo}/.git/refs"

@@ -137,7 +137,7 @@ __dot_ps1_segment_pwd_writable='$([[ ! -w "$PWD" ]] && echo -n "'${PS1_SYMBOL_NO
 # hostname or session info
 __dot_ps1_segment_hostname="${PS1_COLOR_HOST}\h"
 case "$TERM" in
-  screen*)
+  screen* | tmux*)
     if [[ -n "${TMUX:-}" ]]; then
       __dot_ps1_segment_hostname="${PS1_COLOR_HOST_SCREEN}$([[ -n "${DOT___IS_SSH:-}" ]] && echo '\h,')$(tmux display-message -p '#S')[${TMUX_PANE}]"
     else
@@ -155,7 +155,7 @@ else
     xterm* | rxvt*)
       __dot_ps1_title="\[\e]0;\u@\h:\W\007\]"
       ;;
-    screen*)
+    screen* | tmux*)
       if [[ -n "${TMUX:-}" ]]; then
         __dot_ps1_title="\[\e]0;\u@\h:\W\007\]"
       else

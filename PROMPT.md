@@ -89,7 +89,7 @@ branch name───────────────────────
 [06:00:00 0.00 root#host dir<4|2.4Mb> (կ master %)]μ
 ```
 
-When running under screen, the host portion is replaced with the session name and underlined.
+When running under screen or tmux, the host portion is replaced with the session name and underlined.
 
 Load is the 1-minute load average on Unix-like systems.
 

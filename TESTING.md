@@ -187,7 +187,8 @@ using its Bats parser (`shellcheck -s bats -S warning`).
 
 The test image (`dev/Dockerfile.test`) is built from `ubuntu:24.04` and installs the Bats
 tooling, shell lint/format tools, and a small set of utilities used by tests and validation,
-including `git`, `vim`, and `neovim`. The repo is bind-mounted read-only at `/dotfiles`.
+including `git`, `tmux`, `powerline`, `vim`, and `neovim`. The repo is bind-mounted read-only
+at `/dotfiles`.
 
 ## Interactive Development Shell
 
