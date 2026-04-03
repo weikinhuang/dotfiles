@@ -40,7 +40,7 @@ function internal::load-phase() {
     # shellcheck source=/dev/null
     [[ -r "${DOTFILES__ROOT}/.dotfiles/dotenv/wsl2/${file}.sh" ]] && source "${DOTFILES__ROOT}/.dotfiles/dotenv/wsl2/${file}.sh"
   fi
-  if [[ -n "${TMUX:-}" ]]; then
+  if [[ "${TERM:-}" == screen* || "${TERM:-}" == tmux* ]] && [[ -n "${TMUX:-}" ]]; then
     # shellcheck source=/dev/null
     [[ -r "${DOTFILES__ROOT}/.dotfiles/dotenv/tmux/${file}.sh" ]] && source "${DOTFILES__ROOT}/.dotfiles/dotenv/tmux/${file}.sh"
   fi
