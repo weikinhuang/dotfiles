@@ -92,16 +92,30 @@ function internal::find-editor() {
     fi
   fi
 
-  if command -v code-insiders &>/dev/null || [[ "${PATH}" == */.vscode-server-insiders/bin/* ]]; then
-    editor="code-insiders --wait"
-  elif command -v cursor &>/dev/null || [[ "${PATH}" == */.cursor-server/bin/* ]]; then
-    editor="cursor --wait"
-  elif command -v code &>/dev/null || [[ "${PATH}" == */.vscode-server/bin/* ]]; then
-    editor="code --wait"
-  elif [[ -n "${DOT___IS_WSL}" ]] \
-    && command -v npp &>/dev/null; then
-    editor="npp"
-  elif command -v nvim &>/dev/null; then
+  if [[ -z "${DOT___IS_SSH}" ]]; then
+    if command -v code-insiders &>/dev/null || [[ "${PATH}" == */.vscode-server-insiders/bin/* ]]; then
+      editor="code-insiders --wait"
+      found_editor=1
+    elif command -v cursor &>/dev/null || [[ "${PATH}" == */.cursor-server/bin/* ]]; then
+      editor="cursor --wait"
+      found_editor=1
+    elif command -v code &>/dev/null || [[ "${PATH}" == */.vscode-server/bin/* ]]; then
+      editor="code --wait"
+      found_editor=1
+    elif [[ -n "${DOT___IS_WSL}" ]] \
+      && command -v npp &>/dev/null; then
+      editor="npp"
+      found_editor=1
+    fi
+
+    if [[ "${found_editor}" -eq 1 ]]; then
+      __dot_find_editor_result="${editor}"
+      echo "${editor}"
+      return
+    fi
+  fi
+
+  if command -v nvim &>/dev/null; then
     editor="nvim"
   elif command -v vim &>/dev/null; then
     editor="vim"

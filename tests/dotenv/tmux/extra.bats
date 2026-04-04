@@ -18,6 +18,10 @@ if [[ "${1:-}" == "show-env" ]] && [[ "${2:-}" == "-s" ]]; then
   printf 'export TMUX_PLUGIN_ENV=1\n'
 fi
 EOF
+
+  # Populated when sourcing extra.sh; assign here so shellcheck sees assignment in this file (SC2154).
+  # shellcheck disable=SC2034
+  __dot_prompt_actions=()
 }
 
 @test "tmux/extra: registers prompt actions for tmux integration" {

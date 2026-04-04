@@ -39,6 +39,10 @@ setup() {
 @test "utils: find-editor prefers VS Code in a remote server path" {
   local vscode_bin="${BATS_TEST_TMPDIR}/.vscode-server/bin/hash/bin"
   mkdir -p "${vscode_bin}"
+  # shellcheck disable=SC2030
+  export TERM_PROGRAM=vscode
+  # shellcheck disable=SC2030
+  export GIT_ASKPASS="${BATS_TEST_TMPDIR}/.vscode-server/bin/hash/git-askpass.sh"
   PATH="${vscode_bin}:/usr/bin:/bin"
   __dot_find_editor_result=
 
@@ -51,6 +55,27 @@ EOF
   run internal::find-editor
   assert_success
   assert_output "code --wait"
+}
+
+@test "utils: find-editor prefers Cursor in a remote server path" {
+  local cursor_bin="${BATS_TEST_TMPDIR}/.cursor-server/bin/hash/bin"
+  mkdir -p "${cursor_bin}"
+  # shellcheck disable=SC2031
+  export TERM_PROGRAM=vscode
+  # shellcheck disable=SC2031
+  export GIT_ASKPASS="${BATS_TEST_TMPDIR}/.cursor-server/bin/hash/git-askpass.sh"
+  PATH="${cursor_bin}:/usr/bin:/bin"
+  __dot_find_editor_result=
+
+  cat >"${cursor_bin}/cursor" <<'EOF'
+#!/usr/bin/env bash
+exit 0
+EOF
+  chmod +x "${cursor_bin}/cursor"
+
+  run internal::find-editor
+  assert_success
+  assert_output "cursor --wait"
 }
 
 @test "utils: find-editor prefers npp inside WSL when remote VS Code is unavailable" {
@@ -101,6 +126,25 @@ EOF
 
   [[ "${completion_def}" == *'alpha beta'* ]]
   [ -f "${DOTFILES__CONFIG_DIR}/cache/completions/demo-tool.bash" ]
+}
+
+@test "utils: cache-dir-prepare is a no-op when the parent directory exists" {
+  local base="${BATS_TEST_TMPDIR}/cache-parent"
+  mkdir -p "${base}"
+  local cache_file="${base}/tool.init.bash"
+
+  run internal::cache-dir-prepare "${cache_file}"
+  assert_success
+  [ -d "${base}" ]
+}
+
+@test "utils: cache-dir-prepare creates missing parent directories" {
+  local base="${BATS_TEST_TMPDIR}/nested"
+  local cache_file="${base}/deep/tool.init.bash"
+
+  run internal::cache-dir-prepare "${cache_file}"
+  assert_success
+  [ -d "${base}/deep" ]
 }
 
 @test "utils: cache-write-atomic removes temporary files on generator failure" {
