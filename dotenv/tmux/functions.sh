@@ -1,5 +1,5 @@
 # shellcheck shell=bash
-# Define common shell functions for the dotfiles.
+# Tmux session helpers: env reload, pane tracking, and Powerline PWD sync.
 # SPDX-License-Identifier: MIT
 
 # Reload exported tmux environment variables into the shell.

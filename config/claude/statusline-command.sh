@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
+# @see https://code.claude.com/docs/en/statusline
 # Claude Code status line — mirrors the dotfiles PS1 style:
 #   [user#host cwd<git>] model context%
+# SPDX-License-Identifier: MIT
 
 # Colors matching the dotfiles PS1 palette (will be dimmed by Claude Code)
 RESET='\e[0m'

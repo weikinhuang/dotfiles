@@ -5,8 +5,8 @@
 # brew install bash binutils coreutils diffutils findutils gnu-sed gnutls moreutils grep less
 # brew install jq
 
-# Install Bash 4.
-# Note: don’t forget to add `/usr/local/bin/bash` to `/etc/shells` before continuing
+# Install newer Bash via Homebrew.
+# Note: don’t forget to add the Homebrew bash to `/etc/shells` before continuing
 
 # remove brew installed g prefix
 if [[ "${DOTENV}" != "darwin" ]]; then

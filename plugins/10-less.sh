@@ -2,6 +2,10 @@
 # Configure less defaults for interactive shells.
 # SPDX-License-Identifier: MIT
 
+if ! command -v less &>/dev/null; then
+  return
+fi
+
 # Don't clear the screen after quitting a manual page
 export MANPAGER="less -iFXRS -x4"
 

@@ -100,7 +100,7 @@ EOF
   internal::load-plugin "${plugin}"
 
   [ -z "${DOT_LOAD_TRACE}" ]
-  [ -z "${DOT_PLUGIN_DISABLE_demo_plugin+x}" ]
+  [ "${DOT_PLUGIN_DISABLE_demo_plugin}" = "1" ]
 }
 
 @test "load: dot-load-plugin strips numeric ordering prefixes from disable names" {
@@ -115,7 +115,7 @@ EOF
   internal::load-plugin "${plugin}"
 
   [ -z "${DOT_LOAD_TRACE}" ]
-  [ -z "${DOT_PLUGIN_DISABLE_demo_plugin+x}" ]
+  [ "${DOT_PLUGIN_DISABLE_demo_plugin}" = "1" ]
 }
 
 @test "load: dot-load-plugins loads only the baseline built-ins by default" {

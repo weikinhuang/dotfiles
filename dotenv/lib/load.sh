@@ -12,6 +12,9 @@ function internal::load-hook-run() {
   hook_array_name="dotfiles_hook_${file}_${type}_functions"
   # if declared in function format
   if command -v "dotfiles_hook_${file}_${type}" &>/dev/null; then
+    # eval is required for Bash 3 compat: namerefs are unavailable, so
+    # we build the array-append dynamically. Values are safe — they come
+    # from the deterministic hook_array_name constructed above.
     eval "${hook_array_name}+=('dotfiles_hook_${file}_${type}')"
   fi
   # shellcheck disable=SC2125
@@ -77,7 +80,6 @@ function internal::load-plugin() {
     # shellcheck source=/dev/null
     source "${file}"
   fi
-  unset "${plugin_disable_name}"
 }
 
 function internal::load-plugins() {

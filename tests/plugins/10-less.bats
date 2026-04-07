@@ -9,6 +9,10 @@ setup() {
 
 @test "10-less: exports the default pager configuration and aliases less" {
   stub_fixed_output_command tput ""
+  stub_command less <<'EOF'
+#!/usr/bin/env bash
+exec /usr/bin/less "$@"
+EOF
 
   source "${REPO_ROOT}/plugins/10-less.sh"
 

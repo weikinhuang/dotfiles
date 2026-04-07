@@ -38,8 +38,10 @@ function internal::grep-ls-colors() {
   if echo | "${GREP_BIN}" --color=auto &>/dev/null; then
     # shellcheck disable=SC2139
     alias grep="${GREP_BIN} --color=auto"
-    alias fgrep="fgrep --color=auto"
-    alias egrep="egrep --color=auto"
+    # shellcheck disable=SC2139
+    alias fgrep="${GREP_BIN} -F --color=auto"
+    # shellcheck disable=SC2139
+    alias egrep="${GREP_BIN} -E --color=auto"
   fi
 
   # Detect which `ls` flavor is in use

@@ -35,12 +35,17 @@ function parallel-xargs() {
     cmd+=("{}")
   fi
 
-  xargs -r -I {} -P "${PROC_CORES:-1}" "${cmd[@]}"
+  local -a xargs_opts=(-I {} -P "${PROC_CORES:-1}")
+  # GNU xargs supports -r (don't run when stdin is empty); BSD xargs does not
+  if printf '' | command xargs -r true 2>/dev/null; then
+    xargs_opts=(-r "${xargs_opts[@]}")
+  fi
+  xargs "${xargs_opts[@]}" "${cmd[@]}"
 }
 
 # Extract archives automatically
 function extract() {
-  if [ ! -f "$1" ]; then
+  if [[ ! -f "$1" ]]; then
     echo "'$1' is not a valid file" >&2
     return 1
   fi

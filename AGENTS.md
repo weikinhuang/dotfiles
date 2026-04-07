@@ -22,7 +22,7 @@ Cross-platform bash dotfiles for Linux, macOS, and WSL. Shell scripts, git utili
 | `external/` | Vendored third-party scripts -- do not edit |
 | `tests/` | Bats test files mirroring `dotenv/` structure ([tests/AGENTS.md](./tests/AGENTS.md)) |
 | `tests/helpers/common.bash` | Shared test setup: mock stubs, git helpers, isolated HOME |
-| `config/` | Non-shell config files (git, vim, tmux, ripgrep, bat) |
+| `config/` | Non-shell config files (git, vim, tmux, ripgrep, bat, eza, claude) |
 | `utils/` | Platform setup guides and native wrappers (WSL, macOS, Termux) |
 | `dev/` | Developer tooling: lint, test runners, Dockerfile |
 | `bootstrap.sh` | Installer that symlinks dotfiles into `$HOME` |

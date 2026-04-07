@@ -63,7 +63,7 @@ These aliases are available in interactive shells without enabling the full buil
 | `..`, `...`, `....`, `~`, `-` | always | directory shortcuts; `-` is `cd -` |
 | `dir`, `vdir` | GNU `ls` only | vertical and long-format `ls` helpers |
 | `extip` | always | print the current public IP via `api.ipify.org` |
-| `grep`, `fgrep`, `egrep` | when the local `grep` supports `--color=auto` | colorized grep output |
+| `grep`, `fgrep`, `egrep` | when the local `grep` supports `--color=auto` | colorized grep; `fgrep`/`egrep` use `grep -F`/`grep -E` |
 | `h` | always | `history` |
 | `ls`, `la`, `ll`, `l.` | when the local `ls` supports color | colorized listings |
 | `o`, `oo` | always | open a path, or the current directory, with the platform `open` command |

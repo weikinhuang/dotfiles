@@ -232,7 +232,7 @@ The loader recognizes the following phase files in `dotenv/` and in any active p
 
 | File         | Description                                                            |
 | ------------ | ---------------------------------------------------------------------- |
-| `aliases`    | bash aliases declared via `alias="some command`                        |
+| `aliases`    | bash aliases declared via `alias name="some command"`                   |
 | `completion` | bash completion functions for `complete`                               |
 | `env`        | any additional bash-isms that don't fall in the above category         |
 | `exports`    | environment vars that are exported via `export`                        |

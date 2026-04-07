@@ -28,9 +28,11 @@ internal::cached-completion podman "podman completion bash"
 export BUILDAH_FORMAT=docker
 
 if ! command -v docker &>/dev/null; then
-  # use podman as an proxy to docker if docker is not installed
+  # use podman as a proxy to docker if docker is not installed
   alias docker=podman
-  alias docker-compose=podman-compose
+  if command -v podman-compose &>/dev/null; then
+    alias docker-compose=podman-compose
+  fi
   complete -o default -F __start_podman docker
 else
   # use podman with fallback to docker if docker env vars are set or is running
