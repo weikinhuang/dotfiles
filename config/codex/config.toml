@@ -1,0 +1,19 @@
+model = "gpt-5.4"
+model_reasoning_effort = "high"
+file_opener = "vscode-insiders" # or cursor, windsurf, vscode-insiders, none
+plan_mode_reasoning_effort = "high"
+
+[features]
+shell_snapshot = true
+multi_agent = true
+
+[tui]
+status_line = ["model-with-reasoning", "project-root", "git-branch", "context-remaining", "used-tokens", "total-input-tokens", "total-output-tokens", "session-id"]
+theme = "solarized-dark"
+animations = true
+
+[analytics]
+enabled = false
+
+[feedback]
+enabled = false
