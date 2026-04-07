@@ -6,7 +6,7 @@ set -euo pipefail
 IFS=$'\n\t'
 
 function print_help() {
-  cat <<HELPDOC
+  cat <<'HELPDOC'
 Usage: git-ssh-socks-proxy [OPTION]... [user@]host [command]
 Run ssh with an automatically configured ProxyCommand based on git config.
 
@@ -196,7 +196,10 @@ if [[ -n "${__GIT_PROXY_HOSTNAME}" ]] && ! (echo "${GIT_SSH_NO_PROXY:-}" | tr ',
   fi
 fi
 
-# Execute the ssh command with a netcat proxy if necessary
+# Execute the ssh command with a netcat proxy if necessary.
+# SECURITY: ProxyCommand values originate from the user's own git config
+# (ssh-socks.*.proxy, .nc, .version). This shares the same trust model as
+# git's core.sshCommand: a malicious local git config can run arbitrary code.
 PROXY_ARGS=()
 if [[ -n "${__GIT_PROXY_USE}" ]]; then
   PROXY_ARGS=(-o "ProxyCommand=${NETCAT_COMMAND} ${__GIT_PROXY_NC_ARGS} -X ${__GIT_PROXY_PROTOCOL} -x ${__GIT_PROXY_HOSTNAME} %h %p")

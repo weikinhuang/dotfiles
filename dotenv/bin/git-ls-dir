@@ -71,8 +71,8 @@ sub get_file_list {
 
     my %unknown;
 
-    my $cmd = "git ls-tree --full-name $commitish @ARGV";
-    open IN, "$cmd |" or die "Failed to run $cmd: $!\n";
+    open(IN, "-|", "git", "ls-tree", "--full-name", $commitish, @ARGV)
+        or die "Failed to run git ls-tree: $!\n";
     while (<IN>) {
         if (/^\S+\s+(blob|commit) \S+\s+(\S+)$/) {
             my $filename = $2;
@@ -82,10 +82,8 @@ sub get_file_list {
     close IN or exit 1; # die "Error running $cmd" . (length $! ? ": $!" : '') . "\n";
 
     if (! %unknown) {
-        die <<EOF;
-'$cmd' did not return any files; aborting.
-If you passed a parameter referring to a directory, make sure it has a trailing slash.
-EOF
+        die "'git ls-tree' did not return any files; aborting.\n" .
+            "If you passed a parameter referring to a directory, make sure it has a trailing slash.\n";
     }
 
     return \%unknown;
@@ -101,8 +99,9 @@ sub find_commits {
     my $dots;
 
     # Original version had -r --root --raw here - why?
-    my $cmd = "git log -m --raw --no-abbrev --pretty=format:%H~%an~%ai~%B $commitish";
-    open IN, "$cmd |" or die "Failed to run $cmd: $!\n";
+    open(IN, "-|", "git", "log", "-m", "--raw", "--no-abbrev",
+         "--pretty=format:%H~%an~%ai~%B", $commitish)
+        or die "Failed to run git log: $!\n";
 
     while (<IN>) {
         chomp;

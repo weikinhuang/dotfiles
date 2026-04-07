@@ -1,11 +1,11 @@
 #!/usr/bin/env bats
-# Tests for dotenv/wsl/bin/__sshd_auto_start.sh.
+# Tests for dotenv/wsl/bin/__sshd-auto-start.
 # SPDX-License-Identifier: MIT
 
 setup() {
   load '../../../helpers/common'
   setup_test_bin
-  SCRIPT="${REPO_ROOT}/dotenv/wsl/bin/__sshd_auto_start.sh"
+  SCRIPT="${REPO_ROOT}/dotenv/wsl/bin/__sshd-auto-start"
 
   stub_command sudo <<'EOF'
 #!/usr/bin/env bash
@@ -13,17 +13,17 @@ printf 'SUDO %s\n' "$*"
 EOF
 }
 
-@test "__sshd_auto_start: -h and --help print usage" {
+@test "__sshd-auto-start: -h and --help print usage" {
   for flag in -h --help; do
     run bash "${SCRIPT}" "${flag}"
     assert_success
-    assert_output --partial "Usage: __sshd_auto_start.sh"
+    assert_output --partial "Usage: __sshd-auto-start"
     assert_output --partial "Options:"
     assert_output --partial "-h, --help"
   done
 }
 
-@test "__sshd_auto_start: provisions sshd when no pid file is present" {
+@test "__sshd-auto-start: provisions sshd when no pid file is present" {
   [[ ! -e /var/run/sshd.pid ]] || skip "/var/run/sshd.pid exists on this host"
 
   run bash "${SCRIPT}"

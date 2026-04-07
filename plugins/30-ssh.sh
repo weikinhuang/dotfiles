@@ -111,7 +111,7 @@ function internal::ssh-configure-completion() {
 }
 
 # SSH auto-completion based on entries in known_hosts and config.
-if command -v complete &>/dev/null && ! complete | grep -q ' ssh$'; then
+if command -v complete &>/dev/null && ! complete -p ssh &>/dev/null; then
   internal::ssh-configure-completion
 fi
 

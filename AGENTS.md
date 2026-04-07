@@ -39,7 +39,7 @@ Plugins live in `plugins/` with numeric prefixes controlling load order (e.g. `0
 
 ### Bin scripts
 
-Scripts in `dotenv/bin/` and platform `bin/` dirs are added to `$PATH`. Git subcommands use the naming convention `git-<name>` and are invoked as `git <name>`. Include `#!/usr/bin/env bash` and `set -euo pipefail`.
+Scripts in `dotenv/bin/` and platform `bin/` dirs are added to `$PATH`. Git subcommands use the naming convention `git-<name>` and are invoked as `git <name>`. Private internal scripts not intended for direct user invocation use a `__` prefix (e.g. `__sshd-auto-start`). Include `#!/usr/bin/env bash` and `set -euo pipefail`.
 
 For helper functions inside standalone `bin/` scripts, prefer plain helper names by default. Reserve script-specific prefixes only when they materially improve clarity or avoid collisions during test sourcing.
 

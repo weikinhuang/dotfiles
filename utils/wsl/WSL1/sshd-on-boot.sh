@@ -27,7 +27,7 @@ cp "${WORKDIR}/win-schtasks-ssh.xml" "${PROFILE_DIR}/win-schtasks-ssh.tmp.xml"
 
 sed -i "s/##HOSTNAME##/$(hostname)/" "${PROFILE_DIR}/win-schtasks-ssh.tmp.xml"
 sed -i "s/##USER##/$(winwhoami)/" "${PROFILE_DIR}/win-schtasks-ssh.tmp.xml"
-sed -i "s!##SSHD_RUN_SCRIPT##!$(command -v __sshd_auto_start.sh)!" "${PROFILE_DIR}/win-schtasks-ssh.tmp.xml"
+sed -i "s!##SSHD_RUN_SCRIPT##!$(command -v __sshd-auto-start)!" "${PROFILE_DIR}/win-schtasks-ssh.tmp.xml"
 
 set -x
 schtasks.exe /delete /f /tn wsl-sshd
