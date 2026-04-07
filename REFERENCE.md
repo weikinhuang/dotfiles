@@ -399,6 +399,7 @@ This reference treats the following `internal::...` helpers as extension surface
 | --- | --- | --- |
 | `BASH_SILENCE_DEPRECATION_WARNING` | macOS only | suppress the macOS Bash deprecation banner |
 | `BROWSER` | WSL only | defaults to `winstart` |
+| `COLORTERM` | most terminals | set to `truecolor` for `*-256color`, `alacritty`, `xterm-kitty`, `xterm-ghostty` when not already set |
 | `DOTENV` | always | `linux` or `darwin` |
 | `DOTFILES__ARCH` | always | result of `uname -m` |
 | `DOTFILES__CONFIG_DIR` | always | config/cache root, default `${XDG_CONFIG_HOME:-$HOME/.config}/dotfiles` |
@@ -414,7 +415,7 @@ This reference treats the following `internal::...` helpers as extension surface
 | `VISUAL` | always | defaults to `${EDITOR}` unless already set |
 | `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `XDG_STATE_HOME`, `XDG_CACHE_HOME` | always | XDG base-directory defaults |
 
-The loader also upgrades `TERM` to a 256-color variant for `xterm*`, `rxvt*`, and `screen*` sessions.
+The loader upgrades `TERM` to a 256-color variant for `xterm*`, `rxvt*`, and `screen*` sessions, and sets `COLORTERM=truecolor` for terminals known to support 24-bit color (any `*-256color` variant, `alacritty`, `xterm-kitty`, `xterm-ghostty`) when the variable is not already set by the terminal emulator.
 
 ### Prompt runtime exports
 

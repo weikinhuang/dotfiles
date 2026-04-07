@@ -74,6 +74,16 @@ case "${TERM:-xterm}" in
   *) ;;
 esac
 
+# Advertise truecolor support for terminals known to handle 24-bit color.
+# Terminal emulators typically set this, but tmux/screen/SSH can strip it.
+if [[ -z "${COLORTERM:-}" ]]; then
+  case "${TERM:-}" in
+    *-256color | alacritty | xterm-kitty | xterm-ghostty)
+      export COLORTERM=truecolor
+      ;;
+  esac
+fi
+
 # check if this is a ssh session
 export DOT___IS_SSH=
 if [[ -n "${SSH_CONNECTION:-}" ]] || [[ -n "${SSH_TTY:-}" ]] \

@@ -72,6 +72,7 @@ setup() {
   export DOT___IS_SCREEN=1
   export DOT___IS_SSH=1
   export TMUX=1
+  export TERM="tmux-256color"
   DOT_LOAD_TRACE=
 
   write_trace_file "${DOTFILES__ROOT}/.dotfiles/dotenv/exports.sh" common
