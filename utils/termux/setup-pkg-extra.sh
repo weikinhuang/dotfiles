@@ -6,9 +6,12 @@ pkg upgrade
 
 pkg install \
   bat \
+  difftastic \
+  eza \
   fd \
   ffmpeg \
   fzf \
+  git-delta
   helm \
   hexyl \
   imagemagick \
@@ -22,4 +25,5 @@ pkg install \
   proot-distro \
   tmux \
   websocat \
-  yq
+  yq \
+  zoxide

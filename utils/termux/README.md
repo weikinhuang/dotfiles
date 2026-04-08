@@ -20,10 +20,18 @@ Install the base packages used by these dotfiles:
 bash ~/.dotfiles/utils/termux/setup-termux.sh
 ```
 
+```bash
+curl -fsSL https://raw.githubusercontent.com/weikinhuang/dotfiles/master/utils/termux/setup-termux.sh | bash
+```
+
 Install extra packages:
 
 ```bash
 bash ~/.dotfiles/utils/termux/setup-pkg-extra.sh
+```
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/weikinhuang/dotfiles/master/utils/termux/setup-pkg-extra.sh | bash
 ```
 
 ## Grant access to shared storage
