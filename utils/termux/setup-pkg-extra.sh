@@ -9,12 +9,10 @@ pkg install \
   difftastic \
   eza \
   fd \
-  ffmpeg \
   fzf \
-  git-delta
+  git-delta \
   helm \
   hexyl \
-  imagemagick \
   kubectl \
   kubelogin \
   lesspipe \
@@ -27,3 +25,12 @@ pkg install \
   websocat \
   yq \
   zoxide
+
+# this is needed for neovim/vim plugins
+pkg install \
+  build-essentials
+
+# Optional: this adds ~700MB in packages
+# pkg install \
+#   ffmpeg \
+#   imagemagick
