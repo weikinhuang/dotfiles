@@ -426,7 +426,8 @@ The loader upgrades `TERM` to a 256-color variant for `xterm*`, `rxvt*`, and `sc
 | `GIT_PS1_SHOWUNTRACKEDFILES` | enabled |
 | `GIT_PS1_SHOWUPSTREAM` | set to `auto` |
 | `PS1` | generated interactive prompt |
-| `PS2` | secondary prompt, set to `→ ` |
+| `PS2` | secondary prompt, configurable via `DOT_PS2`, defaults to `→ ` |
+| `PS4` | debug/trace prompt, configurable via `DOT_PS4`, defaults to `+ ${BASH_SOURCE}:${LINENO} ${FUNCNAME}(): ` |
 | `SUDO_PS1` | prompt string used for sudo shells |
 
 ### Completion-related exports
@@ -458,6 +459,15 @@ Set these before the dotfiles are sourced, usually in `~/.bash_local`.
 
 Set these before prompt setup, typically in `~/.bash_local`. They are consumed during prompt initialization and then unset.
 
+#### Segment lists
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `DOT_PS1_SEGMENTS` | `(exit_status bg_jobs time loadavg user session_host workdir dirinfo git exec_time)` | ordered array of segment names for `PS1` |
+| `DOT_SUDO_PS1_SEGMENTS` | `(exit_status bg_jobs time user session_host workdir)` | ordered array of segment names for `SUDO_PS1` |
+
+Override the entire list or use the segment helpers to add/remove individual segments.
+
 #### Prompt options
 
 | Variable | Default | Description |
@@ -466,64 +476,63 @@ Set these before prompt setup, typically in `~/.bash_local`. They are consumed d
 | `DOT_GIT_PROMPT_CACHE_MAX_AGE_MS` | `10000` | maximum age before forcing a full `__git_ps1` refresh |
 | `DOT_GIT_PROMPT_CACHE_TTL_MS` | `1000` | per-directory TTL before the git prompt checks repo state again |
 | `DOT_GIT_PROMPT_INVALIDATE_ON_GIT` | `1` | when `1`, mark the git prompt cache dirty after git-like commands |
-| `PROMPT_TITLE` | unset | override the terminal title string; when unset, a terminal-specific default is used |
-| `PS1_OPT_DAY_END` | `18` | hour when daytime coloring ends |
-| `PS1_OPT_DAY_START` | `8` | hour when daytime coloring starts |
-| `PS1_OPT_HIDE_DIR_INFO` | unset | hide the directory count/size segment |
-| `PS1_OPT_HIDE_EXEC_TIME` | unset | hide the last-command duration segment |
-| `PS1_OPT_HIDE_GIT` | unset | hide the git segment |
-| `PS1_OPT_HIDE_LOAD` | unset | hide the load-average segment |
-| `PS1_OPT_HIDE_TIME` | unset | hide the clock segment |
-| `PS1_OPT_MONOCHROME` | unset | remove prompt colors |
-| `PS1_OPT_MULTILINE` | unset | always put the prompt symbol on its own line |
-| `PS1_OPT_NEWLINE_THRESHOLD` | `120` | terminal width below which the prompt wraps to a new line |
-| `PS1_OPT_SEGMENT_EXTRA` | unset | extra PS1 fragment appended after the git segment |
+| `DOT_PS1_TITLE` | unset | terminal title override; when unset, a terminal-specific default is used (`PROMPT_TITLE` is accepted as a fallback) |
+| `DOT_PS1_DAY_END` | `18` | hour when daytime coloring ends |
+| `DOT_PS1_DAY_START` | `8` | hour when daytime coloring starts |
+| `DOT_PS1_MONOCHROME` | unset | remove prompt colors |
+| `DOT_PS1_MULTILINE` | unset | always put the prompt symbol on its own line |
+| `DOT_PS1_NEWLINE_THRESHOLD` | `120` | terminal width below which the prompt wraps to a new line |
+| `DOT_PS2` | `→ ` | continuation prompt (PS2) |
+| `DOT_PS4` | `+ ${BASH_SOURCE}:${LINENO}...` | debug/trace prompt (PS4) |
 
 Example:
 
 ```bash
 # ~/.bash_local
-PROMPT_TITLE='work-shell'
-PS1_OPT_HIDE_LOAD=1
-PS1_OPT_NEWLINE_THRESHOLD=100
-PS1_OPT_SEGMENT_EXTRA=' ${VIRTUAL_ENV:+(venv)}'
-PS1_SYMBOL_USER='>'
+DOT_PS1_TITLE='work-shell'
+DOT_PS1_NEWLINE_THRESHOLD=100
+DOT_PS1_SYMBOL_USER='>'
+internal::ps1-segment-remove loadavg
 ```
+
+#### Prompt segment helpers
+
+| Function | Description |
+| --- | --- |
+| `internal::ps1-segment-add <name> [--before <ref>\|--after <ref>] [--sudo]` | insert a segment into the segment list |
+| `internal::ps1-segment-remove <name> [--sudo]` | remove a segment from the segment list |
+| `internal::ps1-rebuild` | rebuild `PS1` and `SUDO_PS1` from the current segment lists at runtime |
 
 #### Prompt symbol overrides
 
 | Variable | Default | Description |
 | --- | --- | --- |
-| `PS1_SYMBOL_GIT` | `կ` | git branch prefix; rendered bold with a trailing space |
-| `PS1_SYMBOL_LOCAL` | `#` | separator between user and host in local sessions |
-| `PS1_SYMBOL_NO_WRITE_PWD` | `*` | marker for non-writable directories |
-| `PS1_SYMBOL_ROOT` | `μ` | root prompt symbol |
-| `PS1_SYMBOL_SSH` | `@` | separator between user and host in SSH sessions |
-| `PS1_SYMBOL_SU` | `π` | sudo shell prompt symbol |
-| `PS1_SYMBOL_USER` | `λ` | normal user prompt symbol |
-| `PS1_SYMBOL_WIN_PRIV` | `W*` | elevated Windows session marker under WSL |
+| `DOT_PS1_SYMBOL_GIT` | `կ` | git branch prefix; rendered bold with a trailing space |
+| `DOT_PS1_SYMBOL_LOCAL` | `#` | separator between user and host in local sessions |
+| `DOT_PS1_SYMBOL_NO_WRITE_PWD` | `*` | marker for non-writable directories |
+| `DOT_PS1_SYMBOL_ROOT` | `μ` | root prompt symbol |
+| `DOT_PS1_SYMBOL_SSH` | `@` | separator between user and host in SSH sessions |
+| `DOT_PS1_SYMBOL_SU` | `π` | sudo shell prompt symbol |
+| `DOT_PS1_SYMBOL_USER` | `λ` | normal user prompt symbol |
+| `DOT_PS1_SYMBOL_WIN_PRIV` | `W*` | elevated Windows session marker under WSL |
 
 #### Prompt color overrides
 
-Only the following `PS1_COLOR_*` variables are public override hooks:
-
 | Variable | Description |
 | --- | --- |
-| `PS1_COLOR_BG_JOBS` | background job count color |
-| `PS1_COLOR_EXEC_TIME` | last-command duration color |
-| `PS1_COLOR_EXIT_ERROR` | non-zero exit code color |
-| `PS1_COLOR_GIT` | git segment color |
-| `PS1_COLOR_GREY` | bracket color |
-| `PS1_COLOR_HOST` | hostname color |
-| `PS1_COLOR_HOST_SCREEN` | host/screen-session color |
-| `PS1_COLOR_LOAD` | load-average color array |
-| `PS1_COLOR_TIME_DAY` | daytime clock color |
-| `PS1_COLOR_TIME_NIGHT` | nighttime clock color |
-| `PS1_COLOR_USER` | username color |
-| `PS1_COLOR_WORK_DIR` | working directory color |
-| `PS1_COLOR_WORK_DIRINFO` | directory count/size color |
-
-`PS1_COLOR_NORMAL`, `PS1_COLOR_BOLD`, `PS1_COLOR_UNDERLINE`, and `PS1_COLOR_RESET` are internal prompt constants, not startup override hooks.
+| `DOT_PS1_COLOR_BG_JOBS` | background job count color |
+| `DOT_PS1_COLOR_EXEC_TIME` | last-command duration color |
+| `DOT_PS1_COLOR_EXIT_ERROR` | non-zero exit code color |
+| `DOT_PS1_COLOR_GIT` | git segment color |
+| `DOT_PS1_COLOR_GREY` | bracket color |
+| `DOT_PS1_COLOR_HOST` | hostname color |
+| `DOT_PS1_COLOR_HOST_SCREEN` | host/screen-session color |
+| `DOT_PS1_COLOR_LOAD` | load-average color array |
+| `DOT_PS1_COLOR_TIME_DAY` | daytime clock color |
+| `DOT_PS1_COLOR_TIME_NIGHT` | nighttime clock color |
+| `DOT_PS1_COLOR_USER` | username color |
+| `DOT_PS1_COLOR_WORK_DIR` | working directory color |
+| `DOT_PS1_COLOR_WORK_DIRINFO` | directory count/size color |
 
 See [`PROMPT.md`](./PROMPT.md) for prompt screenshots and the default color values.
 
@@ -565,7 +574,7 @@ If shell startup takes more than a second, common culprits include:
 
 - `nvm`: when `DOT_INCLUDE_BUILTIN_PLUGINS=1`, the nvm plugin lazy-loads `nvm.sh` on first use. The default node version's bin dir is cached in `~/.config/dotfiles/cache/nvm_default_path` so `node`/`npm`/`npx` are available immediately. If the cache is missing, nvm is sourced once to seed it.
 - completions: with the full built-in plugin set enabled, completion scripts for tools like `kubectl`, `helm`, `gh`, `npm`, and `podman` can add up. The repo caches generated completions where possible.
-- prompt segments: the load-average and exec-timer segments spawn subprocesses on older Bash setups. Hide them with `PS1_OPT_HIDE_LOAD=1` or `PS1_OPT_HIDE_EXEC_TIME=1`.
+- prompt segments: the load-average and exec-timer segments spawn subprocesses on older Bash setups. Remove them with `internal::ps1-segment-remove loadavg` or `internal::ps1-segment-remove exec_time`.
 - git prompt status: if `__git_ps1` is still slow in very large repos, increase `DOT_GIT_PROMPT_CACHE_TTL_MS` or `DOT_GIT_PROMPT_CACHE_MAX_AGE_MS`.
 - local overrides: `~/.bash_local`, `~/.bash_local.d/*.sh`, `~/.bash_local.d/*.plugin`, and `dotfiles_complete()` can add significant local startup cost.
 

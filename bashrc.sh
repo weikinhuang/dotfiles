@@ -117,6 +117,8 @@ unset __dot_hook
 # shellcheck source=/dev/null
 source "${DOTFILES__ROOT}/.dotfiles/dotenv/lib/utils.sh"
 # shellcheck source=/dev/null
+source "${DOTFILES__ROOT}/.dotfiles/dotenv/lib/prompt.sh"
+# shellcheck source=/dev/null
 source "${DOTFILES__ROOT}/.dotfiles/dotenv/lib/path.sh"
 internal::path-setup
 

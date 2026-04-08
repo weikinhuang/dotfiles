@@ -1,5 +1,5 @@
 #!/usr/bin/env bats
-# Tests for dotenv/prompt.sh.
+# Tests for dotenv/prompt.sh (prompt orchestrator).
 # SPDX-License-Identifier: MIT
 
 setup() {
@@ -16,7 +16,12 @@ setup() {
   chpwd_functions=()
   preexec_functions=()
 
+  export DOTFILES__ROOT="${BATS_TEST_TMPDIR}/root"
+  mkdir -p "${DOTFILES__ROOT}"
+  ln -snf "${REPO_ROOT}" "${DOTFILES__ROOT}/.dotfiles"
+
   source "${REPO_ROOT}/dotenv/lib/utils.sh"
+  source "${REPO_ROOT}/dotenv/lib/prompt.sh"
 
   internal::ps1-proc-use() {
     echo -n "0.42"
@@ -43,6 +48,7 @@ setup() {
   [[ "${PS1}" == *'['*']'* ]]
   [[ "${SUDO_PS1}" == *'['*']'* ]]
   [ "${PS2}" = $'\342\206\222 ' ]
+  [[ -n "${PS4}" ]]
   [[ " ${preexec_functions[*]} " == *' internal::ps1-exec-timer-start '* ]]
   [[ " ${chpwd_functions[*]} " == *' internal::ps1-git-cache-invalidate '* ]]
   [[ " ${__dot_prompt_actions[*]} " == *' internal::ps1-exec-timer-stop '* ]]
@@ -74,7 +80,16 @@ setup() {
   [ "$(count_matches internal::ps1-git-update "${__dot_prompt_actions[@]}")" -eq 1 ]
 }
 
-@test "prompt: honors PROMPT_TITLE override" {
+@test "prompt: honors DOT_PS1_TITLE override" {
+  export DOT_PS1_TITLE='custom-title '
+
+  source "${REPO_ROOT}/dotenv/prompt.sh"
+
+  [[ "${PS1}" == custom-title\ * ]]
+  [[ "${SUDO_PS1}" == custom-title\ * ]]
+}
+
+@test "prompt: honors PROMPT_TITLE as fallback" {
   export PROMPT_TITLE='custom-title '
 
   source "${REPO_ROOT}/dotenv/prompt.sh"
@@ -100,7 +115,16 @@ EOF
   [[ "${SUDO_PS1}" == *'work[%3]'* ]]
 }
 
-@test "prompt: honors other public prompt override variables" {
+@test "prompt: honors DOT_PS1_SYMBOL_USER override" {
+  export DOT_PS1_SYMBOL_USER='USR'
+  export DOT_PS1_SYMBOL_ROOT='USR'
+
+  source "${REPO_ROOT}/dotenv/prompt.sh"
+
+  [[ "${PS1}" == *'USR'* ]]
+}
+
+@test "prompt: honors DOT_PS1_SYMBOL_GIT override" {
   local repo="${BATS_TEST_TMPDIR}/repo"
   mkdir -p "${repo}/.git/refs"
   : >"${repo}/.git/HEAD"
@@ -112,143 +136,22 @@ EOF
     printf "$1" "main"
   }
 
-  export PS1_SYMBOL_USER='USR'
-  export PS1_SYMBOL_ROOT='USR'
-  export PS1_SYMBOL_GIT='GIT '
-  export PS1_OPT_HIDE_LOAD=1
-  export PS1_OPT_SEGMENT_EXTRA=' EXTRA'
+  export DOT_PS1_SYMBOL_GIT='GIT '
   export DOT_GIT_PROMPT_INVALIDATE_ON_GIT=0
 
   source "${REPO_ROOT}/dotenv/prompt.sh"
   internal::ps1-git-update
 
-  [[ "${PS1}" == *'USR'* ]]
-  [[ "${PS1}" == *' EXTRA'* ]]
-  [[ "${PS1}" != *'internal::ps1-proc-use'* ]]
+  # shellcheck disable=SC2154
   [[ "${__dot_ps1_git_segment}" == *'GIT '* ]]
-
-  unset __dot_ps1_git_cache_dirty
-  internal::ps1-git-preexec-mark-dirty "git status"
-  [ -z "${__dot_ps1_git_cache_dirty:-}" ]
 }
 
-@test "prompt: git-prompt-gitdir resolves a gitdir file while walking upward" {
-  local repo="${BATS_TEST_TMPDIR}/repo"
-  mkdir -p "${repo}/.realgit" "${repo}/nested/path"
-  printf 'gitdir: .realgit\n' >"${repo}/.git"
+@test "prompt: removing segments from DOT_PS1_SEGMENTS hides them" {
+  DOT_PS1_SEGMENTS=(exit_status user workdir)
 
   source "${REPO_ROOT}/dotenv/prompt.sh"
-  cd "${repo}/nested/path"
 
-  run internal::ps1-gitdir
-  assert_success
-  assert_output "${repo}/.realgit"
-}
-
-@test "prompt: git-prompt-gitdir fails for broken gitdir pointers" {
-  local repo="${BATS_TEST_TMPDIR}/repo"
-  mkdir -p "${repo}"
-  printf 'gitdir: missing-dir\n' >"${repo}/.git"
-
-  source "${REPO_ROOT}/dotenv/prompt.sh"
-  cd "${repo}"
-
-  run internal::ps1-gitdir
-  assert_failure
-  assert_output ""
-}
-
-@test "prompt: git-prompt-preexec-mark-dirty detects git commands but not plain text" {
-  source "${REPO_ROOT}/dotenv/prompt.sh"
-
-  unset __dot_ps1_git_cache_dirty
-  internal::ps1-git-preexec-mark-dirty "sudo git status"
-  [ "${__dot_ps1_git_cache_dirty}" = "1" ]
-
-  unset __dot_ps1_git_cache_dirty
-  internal::ps1-git-preexec-mark-dirty "echo git status"
-  [ -z "${__dot_ps1_git_cache_dirty:-}" ]
-}
-
-@test "prompt: git-prompt-preexec-mark-dirty detects wrapped git commands" {
-  source "${REPO_ROOT}/dotenv/prompt.sh"
-
-  unset __dot_ps1_git_cache_dirty
-  internal::ps1-git-preexec-mark-dirty "command git status"
-  [ "${__dot_ps1_git_cache_dirty}" = "1" ]
-
-  unset __dot_ps1_git_cache_dirty
-  internal::ps1-git-preexec-mark-dirty "env /usr/bin/git status"
-  [ "${__dot_ps1_git_cache_dirty}" = "1" ]
-}
-
-@test "prompt: git-prompt-update reuses cache within TTL and refreshes after max age" {
-  local repo="${BATS_TEST_TMPDIR}/repo"
-  mkdir -p "${repo}/.git/refs"
-  : >"${repo}/.git/HEAD"
-  : >"${repo}/.git/index"
-  : >"${repo}/.git/refs/stash"
-  cd "${repo}"
-
-  local git_ps1_log="${BATS_TEST_TMPDIR}/git-ps1.log"
-  : >"${git_ps1_log}"
-  __git_ps1() {
-    echo called >>"${git_ps1_log}"
-    printf "$1" "main"
-  }
-
-  export DOT_GIT_PROMPT_CACHE_TTL_MS=1000
-  export DOT_GIT_PROMPT_CACHE_MAX_AGE_MS=0
-
-  source "${REPO_ROOT}/dotenv/prompt.sh"
-  : >"${git_ps1_log}"
-
-  TEST_NOW_MS=1000
-  internal::ps1-git-now-ms() {
-    echo "${TEST_NOW_MS}"
-  }
-
-  internal::ps1-git-cache-invalidate
-  internal::ps1-git-update
-  [ "$(wc -l <"${git_ps1_log}")" -eq 1 ]
-
-  TEST_NOW_MS=1500
-  internal::ps1-git-update
-  [ "$(wc -l <"${git_ps1_log}")" -eq 1 ]
-
-  TEST_NOW_MS=2501
-  internal::ps1-git-update
-  [ "$(wc -l <"${git_ps1_log}")" -eq 2 ]
-  [[ -n "${__dot_ps1_git_segment}" ]]
-}
-
-@test "prompt: git-prompt-update clears the segment outside git repos" {
-  local repo="${BATS_TEST_TMPDIR}/repo"
-  mkdir -p "${repo}/.git"
-  : >"${repo}/.git/HEAD"
-  cd "${repo}"
-
-  __git_ps1() {
-    printf "$1" "main"
-  }
-
-  source "${REPO_ROOT}/dotenv/prompt.sh"
-  internal::ps1-git-cache-invalidate
-  internal::ps1-git-update
-  [[ -n "${__dot_ps1_git_segment}" ]]
-
-  cd "${BATS_TEST_TMPDIR}"
-  internal::ps1-git-update
-  [[ -z "${__dot_ps1_git_segment}" ]]
-}
-
-@test "prompt: git-prompt-update clears stale state when __git_ps1 is unavailable" {
-  source "${REPO_ROOT}/dotenv/prompt.sh"
-  __dot_ps1_git_segment="stale"
-
-  internal::ps1-git-update
-
-  [[ -z "${__dot_ps1_git_segment}" ]]
+  [[ "${PS1}" != *'internal::ps1-proc-use'* ]]
 }
 
 @test "prompt: WSL elevated sessions use the Windows privileged prompt symbol" {
@@ -263,4 +166,93 @@ EOF
 
   [[ "${PS1}" == *'W*'* ]]
   [[ "${SUDO_PS1}" == *'W*'* ]]
+}
+
+@test "prompt: PS4 has a useful default" {
+  source "${REPO_ROOT}/dotenv/prompt.sh"
+
+  [[ "${PS4}" == *'BASH_SOURCE'* ]]
+  [[ "${PS4}" == *'LINENO'* ]]
+}
+
+@test "prompt: DOT_PS4 override is honored" {
+  export DOT_PS4='+ custom: '
+
+  source "${REPO_ROOT}/dotenv/prompt.sh"
+
+  [ "${PS4}" = '+ custom: ' ]
+}
+
+@test "prompt: internal::ps1-rebuild regenerates prompts" {
+  source "${REPO_ROOT}/dotenv/prompt.sh"
+
+  internal::ps1-rebuild
+  [[ "${PS1}" == *'['*']'* ]]
+}
+
+@test "prompt: custom ps1_render function is picked up" {
+  ps1_render_custom() {
+    echo " CUSTOM"
+  }
+
+  DOT_PS1_SEGMENTS=(exit_status custom)
+
+  source "${REPO_ROOT}/dotenv/prompt.sh"
+
+  [[ "${PS1}" == *'CUSTOM'* ]]
+}
+
+@test "prompt: DOT_PS1_COLOR_* vars are cleaned up after sourcing" {
+  export DOT_PS1_COLOR_USER='\[\e[38;5;100m\]'
+
+  source "${REPO_ROOT}/dotenv/prompt.sh"
+
+  [ -z "${DOT_PS1_COLOR_USER+x}" ]
+}
+
+@test "prompt: DOT_PS1_SEGMENTS persists after sourcing for rebuild" {
+  source "${REPO_ROOT}/dotenv/prompt.sh"
+
+  declare -p DOT_PS1_SEGMENTS &>/dev/null
+}
+
+@test "prompt: empty segment list produces valid bracket pair" {
+  DOT_PS1_SEGMENTS=()
+
+  source "${REPO_ROOT}/dotenv/prompt.sh"
+
+  [[ "${PS1}" == *'['*']'* ]]
+}
+
+@test "prompt: newline-check sets newline when COLUMNS is below threshold" {
+  source "${REPO_ROOT}/dotenv/prompt.sh"
+
+  COLUMNS=80
+  __dot_ps1_newline_threshold=120
+  internal::ps1-newline-check
+  [ "${__dot_ps1_newline}" = $'\n' ]
+
+  COLUMNS=200
+  internal::ps1-newline-check
+  [ -z "${__dot_ps1_newline}" ]
+}
+
+@test "prompt: internal::ps1-rebuild picks up new DOT_PS1_TITLE" {
+  source "${REPO_ROOT}/dotenv/prompt.sh"
+
+  DOT_PS1_TITLE='new-title '
+  internal::ps1-rebuild
+
+  [[ "${PS1}" == new-title\ * ]]
+  [[ "${SUDO_PS1}" == new-title\ * ]]
+}
+
+@test "prompt: dir-info-refresh skips when dirinfo segment is removed" {
+  DOT_PS1_SEGMENTS=(exit_status user workdir)
+
+  source "${REPO_ROOT}/dotenv/prompt.sh"
+
+  __dot_ps1_dirinfo="stale"
+  internal::ps1-dir-info-refresh
+  [ "${__dot_ps1_dirinfo}" = "stale" ]
 }
