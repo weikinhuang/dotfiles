@@ -12,6 +12,16 @@ end
 local use_lazy = vim.fn.has("nvim-0.10") == 1
 
 if not use_lazy then
+  -- plugins.vim auto-downloads vim-plug via :silent !curl, which can fail in
+  -- --headless mode; ensure plug.vim is present before sourcing.
+  local plug_path = vim.fn.stdpath("data") .. "/site/autoload/plug.vim"
+  if vim.fn.filereadable(plug_path) == 0 then
+    vim.fn.mkdir(vim.fn.fnamemodify(plug_path, ":h"), "p")
+    vim.fn.system({
+      "curl", "-fLo", plug_path, "--create-dirs",
+      "https://raw.githubusercontent.com/junegunn/vim-plug/master/plug.vim",
+    })
+  end
   source_file(dotfiles_root .. "/plugins.vim")
 end
 

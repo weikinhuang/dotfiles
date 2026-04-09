@@ -182,6 +182,11 @@ function dotfiles::install::vim() {
     fi
   elif [[ "${VIM_BIN}" == "vim" ]]; then
     echo "Installing Vim plugins"
+    if [[ ! -f "${DOTFILES__INSTALL_ROOT}/.vim/autoload/plug.vim" ]]; then
+      echo "Downloading vim-plug..."
+      curl -fLo "${DOTFILES__INSTALL_ROOT}/.vim/autoload/plug.vim" --create-dirs \
+        https://raw.githubusercontent.com/junegunn/vim-plug/master/plug.vim || true
+    fi
     echo "${VIM_BIN}" -u "${DOTFILES_ROOT}/vimrc" +'PlugInstall --sync' +qa
     if ! "${VIM_BIN}" -u "${DOTFILES_ROOT}/vimrc" +'PlugInstall --sync' +qa; then
       echo "--------------- Please Run: 'vim +PlugInstall +qall' after installation"
