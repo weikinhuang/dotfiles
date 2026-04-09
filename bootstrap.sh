@@ -172,8 +172,8 @@ function dotfiles::install::vim() {
     fi
   elif [[ "${VIM_BIN}" == "vim" ]]; then
     echo "Installing Vim plugins"
-    echo "${VIM_BIN}" -Es -u "${DOTFILES__INSTALL_ROOT}/.vimrc" +PlugInstall +qall
-    if ! "${VIM_BIN}" -Es -u "${DOTFILES__INSTALL_ROOT}/.vimrc" +PlugInstall +qall; then
+    echo "${VIM_BIN}" -u "${DOTFILES_ROOT}/vimrc" +'PlugInstall --sync' +qa
+    if ! "${VIM_BIN}" -u "${DOTFILES_ROOT}/vimrc" +'PlugInstall --sync' +qa; then
       echo "--------------- Please Run: 'vim +PlugInstall +qall' after installation"
     fi
   else
