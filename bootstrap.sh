@@ -170,13 +170,13 @@ function dotfiles::install::vim() {
     if [[ "${nvim_ver}" =~ v([0-9]+)\.([0-9]+) ]] && ((BASH_REMATCH[1] > 0 || BASH_REMATCH[2] >= 10)); then
       echo "Installing Neovim plugins (lazy.nvim)"
       echo "${VIM_BIN}" --headless "+Lazy! sync" +qa
-      if ! "${VIM_BIN}" --headless "+Lazy! sync" +qa; then
+      if ! "${VIM_BIN}" --headless "+Lazy! sync" +qa </dev/null; then
         echo "--------------- Please Run: 'nvim --headless \"+Lazy! sync\" +qa' after installation"
       fi
     else
       echo "Installing Neovim plugins (vim-plug, nvim < 0.10)"
       echo "${VIM_BIN}" --headless -c 'PlugInstall --sync' -c qa
-      if ! "${VIM_BIN}" --headless -c 'PlugInstall --sync' -c qa; then
+      if ! "${VIM_BIN}" --headless -c 'PlugInstall --sync' -c qa </dev/null; then
         echo "--------------- Please Run: 'nvim -c \"PlugInstall --sync\" -c qa' after installation"
       fi
     fi
@@ -188,7 +188,7 @@ function dotfiles::install::vim() {
         https://raw.githubusercontent.com/junegunn/vim-plug/master/plug.vim || true
     fi
     echo "${VIM_BIN}" --not-a-term -u "${DOTFILES_ROOT}/vimrc" -c 'PlugInstall --sync' -c qa
-    if ! "${VIM_BIN}" --not-a-term -u "${DOTFILES_ROOT}/vimrc" -c 'PlugInstall --sync' -c qa; then
+    if ! "${VIM_BIN}" --not-a-term -u "${DOTFILES_ROOT}/vimrc" -c 'PlugInstall --sync' -c qa </dev/null; then
       echo "--------------- Please Run: 'vim +PlugInstall +qall' after installation"
     fi
   else
