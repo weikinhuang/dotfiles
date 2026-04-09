@@ -9,6 +9,7 @@
 
 # Build the git format string, resolving colors at source time.
 __dot_ps1_git_symbol="${DOT_PS1_SYMBOL_GIT:-${__dot_ps1_bold}$'\xD5\xAF'${__dot_ps1_reset} }"
+__dot_ps1_git_color=
 internal::ps1-resolve-color DOT_PS1_COLOR_GIT '\[\e[38;5;135m\]' __dot_ps1_git_color
 __dot_ps1_git_format=" (${__dot_ps1_git_symbol}${__dot_ps1_reset}${__dot_ps1_git_color}%s)"
 unset -v __dot_ps1_git_symbol __dot_ps1_git_color
@@ -30,13 +31,19 @@ fi
 if stat -f %m / &>/dev/null 2>&1; then
   function internal::ps1-git-mtime() {
     local path="$1"
-    [[ -e "$path" ]] || { echo 0; return; }
+    [[ -e "$path" ]] || {
+      echo 0
+      return
+    }
     stat -f %m "$path" 2>/dev/null || echo 0
   }
 elif stat -c %Y / &>/dev/null 2>&1; then
   function internal::ps1-git-mtime() {
     local path="$1"
-    [[ -e "$path" ]] || { echo 0; return; }
+    [[ -e "$path" ]] || {
+      echo 0
+      return
+    }
     stat -c %Y "$path" 2>/dev/null || echo 0
   }
 else

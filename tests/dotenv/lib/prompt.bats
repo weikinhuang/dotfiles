@@ -139,7 +139,7 @@ setup() {
 }
 
 @test "prompt-lib: resolve-color returns user override when set" {
-  DOT_PS1_COLOR_USER='custom-color'
+  export DOT_PS1_COLOR_USER='custom-color'
   local result
   result="$(internal::ps1-resolve-color DOT_PS1_COLOR_USER 'fallback')"
 
@@ -147,7 +147,7 @@ setup() {
 }
 
 @test "prompt-lib: resolve-color returns empty in monochrome mode" {
-  DOT_PS1_MONOCHROME=1
+  export DOT_PS1_MONOCHROME=1
   local result
   result="$(internal::ps1-resolve-color DOT_PS1_COLOR_USER 'fallback')"
 
@@ -157,4 +157,12 @@ setup() {
 @test "prompt-lib: __dot_ps1_bold and __dot_ps1_reset are set" {
   [[ -n "${__dot_ps1_bold}" ]]
   [[ -n "${__dot_ps1_reset}" ]]
+}
+
+@test "prompt-lib: render-literal converts prompt escapes for cached segments" {
+  local rendered
+  internal::ps1-render-literal '\[\e[31m\]x\[\e[0m\]' rendered
+
+  [[ "${rendered}" != *'\['* ]]
+  [[ "${rendered}" == *$'\033[31m'* ]]
 }

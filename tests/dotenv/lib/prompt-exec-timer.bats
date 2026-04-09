@@ -92,5 +92,5 @@ setup() {
   stub_fixed_output_command "date" "N" 0
   source "${REPO_ROOT}/dotenv/lib/prompt-exec-timer.sh"
 
-  [ "${__dot_ps1_no_exec_timer}" = "1" ]
+  [ "${__dot_ps1_no_exec_timer:-}" = "1" ]
 }

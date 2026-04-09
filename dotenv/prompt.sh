@@ -12,20 +12,16 @@ if [[ -n "${DOT_DISABLE_PS1:-}" ]]; then
 fi
 
 # ------------------------------------------------------------------------------
-# CAPABILITY DETECTION
-# ------------------------------------------------------------------------------
-# bash 3 and below doesn't properly escape the array when inlined
-if [[ "${BASH_VERSION/.*/}" -lt 4 ]]; then
-  DOT_PS1_COLOR_LOAD=('')
-fi
-
-# ------------------------------------------------------------------------------
 # SOURCE SUBSYSTEMS
 # ------------------------------------------------------------------------------
 # shellcheck source=/dev/null
 source "${DOTFILES__ROOT}/.dotfiles/dotenv/lib/prompt-git.sh"
 # shellcheck source=/dev/null
 source "${DOTFILES__ROOT}/.dotfiles/dotenv/lib/prompt-exec-timer.sh"
+# shellcheck source=/dev/null
+source "${DOTFILES__ROOT}/.dotfiles/dotenv/lib/prompt-time.sh"
+# shellcheck source=/dev/null
+source "${DOTFILES__ROOT}/.dotfiles/dotenv/lib/prompt-loadavg.sh"
 
 # ------------------------------------------------------------------------------
 # STATIC ONE-TIME COMPUTATIONS
@@ -137,59 +133,12 @@ function internal::ps1-render-bg_jobs() {
   echo "${color}"'$([[ \j -gt 0 ]] && echo -n "bg:\j ")'"${__dot_ps1_reset}"
 }
 
-# shellcheck disable=SC2016,SC2089
 function internal::ps1-render-time() {
-  local color_day color_night day_start day_end
-  internal::ps1-resolve-color DOT_PS1_COLOR_TIME_DAY '\[\e[38;5;244m\]' color_day
-  internal::ps1-resolve-color DOT_PS1_COLOR_TIME_NIGHT '\[\e[38;5;033m\]' color_night
-  day_start="${DOT_PS1_DAY_START:-8}"
-  day_end="${DOT_PS1_DAY_END:-18}"
-  local snippet
-  snippet="$(tr -d '\n' <<<'
-  printf -v time "%(%H)T" -1;
-  time=${time#0};
-  color="'"${color_night}"'";
-  if [[ ${time} -ge '"${day_start}"' && ${time} -le '"${day_end}"' ]]; then
-     color="'"${color_day}"'";
-  fi;
-  echo "${color}\T'"${__dot_ps1_reset}"' "
-')"
-  echo "\$(${snippet})"
+  echo "\${__dot_ps1_time_segment}"
 }
 
-# shellcheck disable=SC2016,SC2046
 function internal::ps1-render-loadavg() {
-  local -a load_colors
-  if [[ -n "${DOT_PS1_MONOCHROME:-}" ]]; then
-    load_colors=('')
-  elif declare -p DOT_PS1_COLOR_LOAD &>/dev/null; then
-    eval "load_colors=(\"\${DOT_PS1_COLOR_LOAD[@]}\")"
-  else
-    load_colors=(
-      '\[\e[38;5;111m\]' # #87afff
-      '\[\e[38;5;110m\]' # #87afd7
-      '\[\e[38;5;109m\]' # #87afaf
-      '\[\e[38;5;108m\]' # #87af87
-      '\[\e[38;5;107m\]' # #87af5f
-      '\[\e[38;5;106m\]' # #87af00
-      '\[\e[38;5;178m\]' # #d7af00
-      '\[\e[38;5;172m\]' # #d78700
-      '\[\e[38;5;166m\]' # #d75f00
-      '\[\e[38;5;167m\]' # #d75f5f
-    )
-  fi
-
-  local load_count=${#load_colors[@]}
-  local snippet
-  snippet="$(tr -d '\n' <<<'
-  load=$(internal::ps1-proc-use);
-  loadcolors=('$(printf "'%s' " "${load_colors[@]}")');
-  __dot_ps1_loadmod="${load%%.*}";
-  [[ -z "${__dot_ps1_loadmod}" ]] && __dot_ps1_loadmod=0;
-  [[ "${__dot_ps1_loadmod}" -gt '$((load_count - 1))' ]] && __dot_ps1_loadmod='$((load_count - 1))';
-  echo "${loadcolors[$__dot_ps1_loadmod]}${load}'"${__dot_ps1_reset}"' ";
-')"
-  echo "\$(${snippet})"
+  echo "\${__dot_ps1_loadavg_segment}"
 }
 
 function internal::ps1-render-user() {
@@ -295,7 +244,13 @@ function internal::ps1-build() {
 
 # Rebuild PS1 and SUDO_PS1 from the current segment lists.
 function internal::ps1-rebuild() {
+  internal::ps1-time-config-refresh
+  internal::ps1-loadavg-config-refresh
   internal::ps1-resolve-title
+  internal::ps1-time-refresh
+  if declare -F internal::ps1-proc-use &>/dev/null; then
+    internal::ps1-loadavg-refresh
+  fi
   PS1="$(internal::ps1-build DOT_PS1_SEGMENTS)"
   export PS1
   SUDO_PS1="$(internal::ps1-build DOT_SUDO_PS1_SEGMENTS)"

@@ -139,3 +139,17 @@ function internal::ps1-resolve-color() {
     echo "$value"
   fi
 }
+
+# Render prompt escapes into the control-byte form expected inside ${...} PS1 segments.
+# Usage: internal::ps1-render-literal <value> [<result_var>]
+function internal::ps1-render-literal() {
+  local value="$1" result_var="${2:-}" rendered_value
+  rendered_value="${value//\\[/$'\001'}"
+  rendered_value="${rendered_value//\\]/$'\002'}"
+  rendered_value="$(printf '%b' "$rendered_value")"
+  if [[ -n "$result_var" ]]; then
+    printf -v "$result_var" '%s' "$rendered_value"
+  else
+    printf '%s\n' "$rendered_value"
+  fi
+}

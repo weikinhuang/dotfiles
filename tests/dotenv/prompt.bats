@@ -54,6 +54,8 @@ setup() {
   [[ " ${__dot_prompt_actions[*]} " == *' internal::ps1-exec-timer-stop '* ]]
   [[ " ${__dot_prompt_actions[*]} " == *' internal::ps1-newline-check '* ]]
   [[ " ${__dot_prompt_actions[*]} " == *' internal::ps1-git-update '* ]]
+  [[ " ${__dot_prompt_actions[*]} " == *' internal::ps1-time-refresh '* ]]
+  [[ " ${__dot_prompt_actions[*]} " == *' internal::ps1-loadavg-refresh '* ]]
   [ "${GIT_PS1_SHOWDIRTYSTATE}" = "true" ]
 }
 
@@ -78,6 +80,8 @@ setup() {
   [ "$(count_matches internal::ps1-exec-timer-stop "${__dot_prompt_actions[@]}")" -eq 1 ]
   [ "$(count_matches internal::ps1-newline-check "${__dot_prompt_actions[@]}")" -eq 1 ]
   [ "$(count_matches internal::ps1-git-update "${__dot_prompt_actions[@]}")" -eq 1 ]
+  [ "$(count_matches internal::ps1-time-refresh "${__dot_prompt_actions[@]}")" -eq 1 ]
+  [ "$(count_matches internal::ps1-loadavg-refresh "${__dot_prompt_actions[@]}")" -eq 1 ]
 }
 
 @test "prompt: honors DOT_PS1_TITLE override" {
@@ -150,8 +154,18 @@ EOF
   DOT_PS1_SEGMENTS=(exit_status user workdir)
 
   source "${REPO_ROOT}/dotenv/prompt.sh"
+  internal::prompt-action-run
+
+  [[ "${PS1@P}" != *'0.42'* ]]
+}
+
+@test "prompt: time and loadavg segments are cached instead of embedding shell snippets" {
+  source "${REPO_ROOT}/dotenv/prompt.sh"
 
   [[ "${PS1}" != *'internal::ps1-proc-use'* ]]
+  [[ "${PS1}" != *'printf -v time'* ]]
+  [[ "${PS1}" == *'${__dot_ps1_time_segment}'* ]]
+  [[ "${PS1}" == *'${__dot_ps1_loadavg_segment}'* ]]
 }
 
 @test "prompt: WSL elevated sessions use the Windows privileged prompt symbol" {
