@@ -27,9 +27,13 @@ if [[ -n "${DOT_DISABLE_HYPERLINKS:-}" ]] \
   || { [[ -z "${__dot_hyperlink_scheme}" ]] && [[ -n "${DOT___IS_SSH:-}" ]]; }; then
   __dot_delta_hyperlinks="false"
   __dot_delta_hyperlink_format=""
+elif [[ -n "${__dot_hyperlink_vscode_remote_prefix}" ]]; then
+  # Use {scheme}://vscode-remote/{authority}{path}:{line} URIs that bypass the
+  # broken file:// OSC 8 handling in VS Code remote terminals.  The :{line}
+  # suffix signals to VS Code that the URI is a file (not a folder).
+  __dot_delta_hyperlinks="true"
+  __dot_delta_hyperlink_format="${__dot_hyperlink_vscode_remote_prefix}{path}:{line}"
 elif [[ -n "${DOT___IS_WSL:-}" ]] && [[ -n "${WSL_DISTRO_NAME:-}" ]]; then
-  # delta defaults to file://{path} (no hostname); on WSL this breaks because
-  # Windows apps cannot resolve bare Unix paths to the WSL filesystem.
   __dot_delta_hyperlinks="true"
   __dot_delta_hyperlink_format="file://wsl.localhost/${WSL_DISTRO_NAME}{path}#{line}"
 else

@@ -8,6 +8,7 @@ setup() {
   stub_fixed_output_command rg ""
 
   __dot_hyperlink_scheme=""
+  __dot_hyperlink_vscode_remote_prefix=""
 }
 
 @test "10-ripgrep: points ripgrep at the dotfiles config by default" {
@@ -39,6 +40,26 @@ setup() {
 
   run alias rg
   assert_failure
+}
+
+@test "10-ripgrep: uses vscode-remote format on WSL with scheme" {
+  export DOT___IS_WSL=1
+  __dot_hyperlink_scheme="vscode"
+  __dot_hyperlink_vscode_remote_prefix="vscode://vscode-remote/wsl+Ubuntu"
+
+  source "${REPO_ROOT}/plugins/10-ripgrep.sh"
+
+  [[ "$(alias rg)" == *'--hyperlink-format=vscode://vscode-remote/wsl+Ubuntu{path}:{line}:{column}'* ]]
+}
+
+@test "10-ripgrep: uses vscode-remote format for SSH with host" {
+  export DOT___IS_SSH=1
+  __dot_hyperlink_scheme="cursor"
+  __dot_hyperlink_vscode_remote_prefix="cursor://vscode-remote/ssh-remote+myserver"
+
+  source "${REPO_ROOT}/plugins/10-ripgrep.sh"
+
+  [[ "$(alias rg)" == *'--hyperlink-format=cursor://vscode-remote/ssh-remote+myserver{path}:{line}:{column}'* ]]
 }
 
 @test "10-ripgrep: disables hyperlinks over SSH without a scheme" {

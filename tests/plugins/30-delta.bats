@@ -7,6 +7,7 @@ setup() {
   setup_plugin_test_env
 
   __dot_hyperlink_scheme=""
+  __dot_hyperlink_vscode_remote_prefix=""
 }
 
 @test "30-delta: removes stale config when delta is unavailable" {
@@ -51,6 +52,31 @@ setup() {
   source "${REPO_ROOT}/plugins/30-delta.sh"
 
   grep -F "hyperlinks = true" "${DOTFILES__CONFIG_DIR}/git-delta.gitconfig"
+}
+
+@test "30-delta: uses vscode-remote format on WSL with scheme" {
+  stub_fixed_output_command delta ""
+  export DOT___IS_WSL=1
+  export WSL_DISTRO_NAME="Ubuntu"
+  __dot_hyperlink_scheme="vscode"
+  __dot_hyperlink_vscode_remote_prefix="vscode://vscode-remote/wsl+Ubuntu"
+
+  source "${REPO_ROOT}/plugins/30-delta.sh"
+
+  grep -F "hyperlinks = true" "${DOTFILES__CONFIG_DIR}/git-delta.gitconfig"
+  grep -F "hyperlinks-file-link-format = vscode://vscode-remote/wsl+Ubuntu{path}:{line}" "${DOTFILES__CONFIG_DIR}/git-delta.gitconfig"
+}
+
+@test "30-delta: uses vscode-remote format for SSH with host" {
+  stub_fixed_output_command delta ""
+  export DOT___IS_SSH=1
+  __dot_hyperlink_scheme="cursor"
+  __dot_hyperlink_vscode_remote_prefix="cursor://vscode-remote/ssh-remote+devbox"
+
+  source "${REPO_ROOT}/plugins/30-delta.sh"
+
+  grep -F "hyperlinks = true" "${DOTFILES__CONFIG_DIR}/git-delta.gitconfig"
+  grep -F "hyperlinks-file-link-format = cursor://vscode-remote/ssh-remote+devbox{path}:{line}" "${DOTFILES__CONFIG_DIR}/git-delta.gitconfig"
 }
 
 @test "30-delta: disables hyperlinks over SSH without a scheme" {

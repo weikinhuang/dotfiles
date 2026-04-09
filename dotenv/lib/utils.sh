@@ -73,6 +73,21 @@ elif [[ "${TERM_PROGRAM:-}" == "vscode" ]]; then
   fi
 fi
 
+# Build a vscode-remote:// URI prefix for tools that support custom hyperlink
+# formats (ripgrep, delta).  file:// OSC 8 links are broken in VS Code remote
+# terminals (WSL/SSH), but {scheme}://vscode-remote/{authority}{path}:{line}
+# URIs work and open the file in the existing editor window.
+# Requires __dot_hyperlink_scheme plus the remote context (WSL_DISTRO_NAME or
+# DOT_HYPERLINK_SSH_HOST).
+__dot_hyperlink_vscode_remote_prefix=""
+if [[ -n "${__dot_hyperlink_scheme}" ]]; then
+  if [[ -n "${DOT___IS_WSL:-}" ]] && [[ -n "${WSL_DISTRO_NAME:-}" ]]; then
+    __dot_hyperlink_vscode_remote_prefix="${__dot_hyperlink_scheme}://vscode-remote/wsl+${WSL_DISTRO_NAME}"
+  elif [[ -n "${DOT___IS_SSH:-}" ]] && [[ -n "${DOT_HYPERLINK_SSH_HOST:-}" ]]; then
+    __dot_hyperlink_vscode_remote_prefix="${__dot_hyperlink_scheme}://vscode-remote/ssh-remote+${DOT_HYPERLINK_SSH_HOST}"
+  fi
+fi
+
 # helper function get the closest base editor (memoized after first call)
 __dot_find_editor_result=
 function internal::find-editor() {

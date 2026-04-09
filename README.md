@@ -93,12 +93,13 @@ export DOT_AUTOLOAD_SSH_AGENT=1
 | `DOT_AUTOLOAD_SSH_AGENT` | `UNSET` | When the SSH plugin is enabled, automatically start `ssh-agent` or reuse an existing agent |
 | `DOT_BASH_RESOLVE_PATHS` | `UNSET` | Set Bash option `set -o physical` to avoid resolving symlink paths |
 | `DOT_DISABLE_HYPERLINKS` | `UNSET` | Suppress OSC 8 hyperlinks emitted by `ls`, `eza`, `rg`, `fd`, and `delta` |
-| `DOT_HYPERLINK_SCHEME` | `UNSET` | Override the auto-detected editor terminal (e.g. `vscode`, `cursor`, `vscode-insiders`); when set, SSH hyperlink suppression is relaxed since the editor terminal can resolve `file://` paths through the remote connection |
 | `DOT_DISABLE_PREEXEC` | `UNSET` | Skip loading [`bash-preexec.sh`](https://github.com/rcaloras/bash-preexec), disabling `preexec` hooks and command timing features |
 | `DOT_DISABLE_PS1` | `UNSET` | Disable the custom Bash prompt |
 | `DOT_GIT_PROMPT_CACHE_MAX_AGE_MS` | `10000` | Maximum milliseconds to reuse unchanged git prompt status before forcing a refresh |
 | `DOT_GIT_PROMPT_CACHE_TTL_MS` | `1000` | Milliseconds to reuse cached git prompt status before checking the current repo again |
 | `DOT_GIT_PROMPT_INVALIDATE_ON_GIT` | `1` | Set to `0` to disable automatic git prompt cache invalidation after git commands |
+| `DOT_HYPERLINK_SCHEME` | `UNSET` | Override the auto-detected editor terminal (e.g. `vscode`, `cursor`, `vscode-insiders`); when set, SSH hyperlink suppression is relaxed since the editor terminal can resolve `file://` paths through the remote connection |
+| `DOT_HYPERLINK_SSH_HOST` | `UNSET` | Set to your VS Code SSH remote name (e.g. the `Host` alias in `~/.ssh/config`) to enable `vscode-remote://ssh-remote+{host}` hyperlinks in `rg` and `delta` that open files directly in the editor |
 | `DOT_INCLUDE_BREW_PATH` | `UNSET` | On macOS with built-in plugins enabled, prepend Homebrew and GNU tool paths and extend `MANPATH` |
 | `DOT_INCLUDE_BUILTIN_PLUGINS` | `UNSET` | Load the full built-in [`plugins/*.sh`](./plugins) set instead of only `00-bash-opts.sh` and `00-chpwd-hook.sh` |
 | `DOT_SOLARIZED_DARK` | `UNSET` | Choose Solarized Dark where theme-aware integrations support it |

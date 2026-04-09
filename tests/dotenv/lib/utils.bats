@@ -86,6 +86,71 @@ setup() {
   [ -z "${__dot_hyperlink_scheme}" ]
 }
 
+@test "utils: vscode-remote-prefix builds WSL authority when scheme and distro are set" {
+  export TERM_PROGRAM=vscode
+  export DOT___IS_WSL=1
+  export WSL_DISTRO_NAME="Ubuntu"
+  unset GIT_ASKPASS
+  __dot_hyperlink_scheme=""
+  __dot_hyperlink_vscode_remote_prefix=""
+
+  source "${REPO_ROOT}/dotenv/lib/utils.sh"
+
+  [ "${__dot_hyperlink_vscode_remote_prefix}" = "vscode://vscode-remote/wsl+Ubuntu" ]
+}
+
+@test "utils: vscode-remote-prefix builds SSH authority when scheme and host are set" {
+  export TERM_PROGRAM=vscode
+  export DOT___IS_SSH=1
+  export DOT_HYPERLINK_SSH_HOST="myserver"
+  unset GIT_ASKPASS
+  __dot_hyperlink_scheme=""
+  __dot_hyperlink_vscode_remote_prefix=""
+
+  source "${REPO_ROOT}/dotenv/lib/utils.sh"
+
+  [ "${__dot_hyperlink_vscode_remote_prefix}" = "vscode://vscode-remote/ssh-remote+myserver" ]
+}
+
+@test "utils: vscode-remote-prefix is empty without a scheme" {
+  unset TERM_PROGRAM
+  unset DOT_HYPERLINK_SCHEME
+  export DOT___IS_WSL=1
+  export WSL_DISTRO_NAME="Ubuntu"
+  __dot_hyperlink_scheme=""
+  __dot_hyperlink_vscode_remote_prefix=""
+
+  source "${REPO_ROOT}/dotenv/lib/utils.sh"
+
+  [ -z "${__dot_hyperlink_vscode_remote_prefix}" ]
+}
+
+@test "utils: vscode-remote-prefix is empty for SSH without DOT_HYPERLINK_SSH_HOST" {
+  export TERM_PROGRAM=vscode
+  export DOT___IS_SSH=1
+  unset DOT_HYPERLINK_SSH_HOST
+  unset GIT_ASKPASS
+  __dot_hyperlink_scheme=""
+  __dot_hyperlink_vscode_remote_prefix=""
+
+  source "${REPO_ROOT}/dotenv/lib/utils.sh"
+
+  [ -z "${__dot_hyperlink_vscode_remote_prefix}" ]
+}
+
+@test "utils: vscode-remote-prefix uses cursor scheme for Cursor terminal on WSL" {
+  export TERM_PROGRAM=vscode
+  export GIT_ASKPASS="/home/user/.cursor-server/bin/hash/git-askpass.sh"
+  export DOT___IS_WSL=1
+  export WSL_DISTRO_NAME="Debian"
+  __dot_hyperlink_scheme=""
+  __dot_hyperlink_vscode_remote_prefix=""
+
+  source "${REPO_ROOT}/dotenv/lib/utils.sh"
+
+  [ "${__dot_hyperlink_vscode_remote_prefix}" = "cursor://vscode-remote/wsl+Debian" ]
+}
+
 @test "utils: find-editor prefers VS Code in a remote server path" {
   local vscode_bin="${BATS_TEST_TMPDIR}/.vscode-server/bin/hash/bin"
   mkdir -p "${vscode_bin}"
