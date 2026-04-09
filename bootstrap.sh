@@ -175,9 +175,9 @@ function dotfiles::install::vim() {
       fi
     else
       echo "Installing Neovim plugins (vim-plug, nvim < 0.10)"
-      echo "${VIM_BIN}" --headless +'PlugInstall --sync' +qa
-      if ! "${VIM_BIN}" --headless +'PlugInstall --sync' +qa; then
-        echo "--------------- Please Run: 'nvim +PlugInstall +qall' after installation"
+      echo "${VIM_BIN}" --headless -c 'PlugInstall --sync' -c qa
+      if ! "${VIM_BIN}" --headless -c 'PlugInstall --sync' -c qa; then
+        echo "--------------- Please Run: 'nvim -c \"PlugInstall --sync\" -c qa' after installation"
       fi
     fi
   elif [[ "${VIM_BIN}" == "vim" ]]; then
@@ -187,8 +187,8 @@ function dotfiles::install::vim() {
       curl -fLo "${DOTFILES__INSTALL_ROOT}/.vim/autoload/plug.vim" --create-dirs \
         https://raw.githubusercontent.com/junegunn/vim-plug/master/plug.vim || true
     fi
-    echo "${VIM_BIN}" -u "${DOTFILES_ROOT}/vimrc" +'PlugInstall --sync' +qa
-    if ! "${VIM_BIN}" -u "${DOTFILES_ROOT}/vimrc" +'PlugInstall --sync' +qa; then
+    echo "${VIM_BIN}" -u "${DOTFILES_ROOT}/vimrc" -c 'PlugInstall --sync' -c qa
+    if ! "${VIM_BIN}" -u "${DOTFILES_ROOT}/vimrc" -c 'PlugInstall --sync' -c qa; then
       echo "--------------- Please Run: 'vim +PlugInstall +qall' after installation"
     fi
   else
