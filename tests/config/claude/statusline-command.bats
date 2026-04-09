@@ -86,6 +86,7 @@ EOF
   assert_output --partial "4k"
   assert_output --partial '$0.012'
   assert_output --partial "Opus"
+  [[ "${output}" == *']8;;https://claude.ai/settings/usage'* ]]
 }
 
 @test "statusline-command: mirrors PS1 git status markers for dirty, staged, stashed, untracked, and upstream changes" {
@@ -109,6 +110,60 @@ EOF
   run env SCRIPT="${SCRIPT}" PAYLOAD="${PAYLOAD}" bash -c 'bash "${SCRIPT}" < "${PAYLOAD}"'
   assert_success
   assert_output --partial "(feature/statusline *+$%>)"
+}
+
+@test "statusline-command: wraps cwd with OSC 8 hyperlink" {
+  create_statusline_repo
+  write_statusline_payload "${TEST_REPO}"
+
+  run env SCRIPT="${SCRIPT}" PAYLOAD="${PAYLOAD}" bash -c 'bash "${SCRIPT}" < "${PAYLOAD}"'
+  assert_success
+
+  local osc8_open=$'\e]8;;file://'"${TEST_REPO}"$'\e\\'
+  [[ "${output}" == *"${osc8_open}"* ]]
+  [[ "${output}" == *$'\e]8;;\e\\'* ]]
+}
+
+@test "statusline-command: suppresses cwd hyperlink when DOT_DISABLE_HYPERLINKS is set" {
+  create_statusline_repo
+  write_statusline_payload "${TEST_REPO}"
+
+  run env DOT_DISABLE_HYPERLINKS=1 SCRIPT="${SCRIPT}" PAYLOAD="${PAYLOAD}" bash -c 'bash "${SCRIPT}" < "${PAYLOAD}"'
+  assert_success
+
+  [[ "${output}" != *']8;;file://'* ]]
+}
+
+@test "statusline-command: uses wsl.localhost prefix on WSL" {
+  create_statusline_repo
+  write_statusline_payload "${TEST_REPO}"
+
+  run env WSL_DISTRO_NAME="TestDistro" SCRIPT="${SCRIPT}" PAYLOAD="${PAYLOAD}" bash -c 'bash "${SCRIPT}" < "${PAYLOAD}"'
+  assert_success
+
+  [[ "${output}" == *'wsl.localhost/TestDistro'* ]]
+}
+
+@test "statusline-command: uses native Windows URL for WSL /mnt/ paths" {
+  PAYLOAD="${BATS_TEST_TMPDIR}/payload.json"
+  cat >"${PAYLOAD}" <<'EOF'
+{
+  "cwd": "/mnt/d/projects/test",
+  "model": { "display_name": "Opus" },
+  "session": {
+    "remaining_tokens": 50000,
+    "total_input_tokens": 10000,
+    "total_output_tokens": 2000,
+    "cost_usd": 0.42
+  }
+}
+EOF
+
+  run env WSL_DISTRO_NAME="TestDistro" SCRIPT="${SCRIPT}" PAYLOAD="${PAYLOAD}" bash -c 'bash "${SCRIPT}" < "${PAYLOAD}"'
+  assert_success
+
+  [[ "${output}" == *'file:///D:/projects/test'* ]]
+  [[ "${output}" != *'wsl.localhost'* ]]
 }
 
 @test "statusline-command: fmt_si abbreviates plain, thousand, and million values" {

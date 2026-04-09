@@ -28,6 +28,14 @@ print_colored_text() {
   printf '%b%s%b' "$color" "$text" "$RESET"
 }
 
+# shellcheck disable=SC1003
+print_osc8_link() {
+  local url="$1"
+  local color="$2"
+  local text="$3"
+  printf '\e]8;;%s\e\\%b%s%b\e]8;;\e\\' "$url" "$color" "$text" "$RESET"
+}
+
 resolve_script_path() {
   local source_path="${BASH_SOURCE[0]}"
   local source_dir
@@ -172,6 +180,18 @@ main() {
     session_token_part=" S:${total_in_fmt}↑/${total_out_fmt}↓"
   fi
 
+  local cwd_url=""
+  if [[ -z "${DOT_DISABLE_HYPERLINKS:-}" ]] && [[ -n "${cwd}" ]]; then
+    if [[ -n "${WSL_DISTRO_NAME:-}" ]] && [[ "${cwd}" == /mnt/[a-z]/* ]]; then
+      local drive="${cwd:5:1}"
+      cwd_url="file:///${drive^}:${cwd:6}"
+    elif [[ -n "${WSL_DISTRO_NAME:-}" ]]; then
+      cwd_url="file://wsl.localhost/${WSL_DISTRO_NAME}${cwd}"
+    elif [[ -z "${SSH_CLIENT:-}" ]]; then
+      cwd_url="file://${cwd}"
+    fi
+  fi
+
   user=$(whoami)
   host=$(hostname -s)
 
@@ -180,12 +200,21 @@ main() {
   print_ansi "${GREY}#${RESET}"
   print_colored_text "${HOST_COLOR}" "${host}"
   printf ' '
-  print_colored_text "${DIR_COLOR}" "${short_cwd}"
+  if [[ -n "${cwd_url}" ]]; then
+    print_osc8_link "${cwd_url}" "${DIR_COLOR}" "${short_cwd}"
+  else
+    print_colored_text "${DIR_COLOR}" "${short_cwd}"
+  fi
   print_colored_text "${GIT_COLOR}" "${git_branch}"
   print_colored_text "${CONTEXT_COLOR}" "${ctx_part}"
   print_colored_text "${TOKEN_COLOR}" "${token_part}"
   print_colored_text "${SESSION_TOKEN_COLOR}" "${session_token_part}"
-  print_colored_text "${COST_COLOR}" "${cost_part}"
+  if [[ -n "${cost_part}" ]] && [[ -z "${DOT_DISABLE_HYPERLINKS:-}" ]]; then
+    printf ' '
+    print_osc8_link "https://claude.ai/settings/usage" "${COST_COLOR}" "${cost_part# }"
+  else
+    print_colored_text "${COST_COLOR}" "${cost_part}"
+  fi
   print_ansi "${BOLD}${GREY}]${RESET} "
   print_colored_text "${MODEL_COLOR}" "${model}"
   printf '\n'
