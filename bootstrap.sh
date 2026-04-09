@@ -187,8 +187,8 @@ function dotfiles::install::vim() {
       curl -fLo "${DOTFILES__INSTALL_ROOT}/.vim/autoload/plug.vim" --create-dirs \
         https://raw.githubusercontent.com/junegunn/vim-plug/master/plug.vim || true
     fi
-    echo "${VIM_BIN}" -u "${DOTFILES_ROOT}/vimrc" -c 'PlugInstall --sync' -c qa
-    if ! "${VIM_BIN}" -u "${DOTFILES_ROOT}/vimrc" -c 'PlugInstall --sync' -c qa; then
+    echo "${VIM_BIN}" --not-a-term -u "${DOTFILES_ROOT}/vimrc" -c 'PlugInstall --sync' -c qa
+    if ! "${VIM_BIN}" --not-a-term -u "${DOTFILES_ROOT}/vimrc" -c 'PlugInstall --sync' -c qa; then
       echo "--------------- Please Run: 'vim +PlugInstall +qall' after installation"
     fi
   else
