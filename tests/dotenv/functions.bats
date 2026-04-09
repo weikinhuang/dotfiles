@@ -7,6 +7,68 @@ setup() {
   setup_test_bin
 }
 
+@test "functions: osc8-rewrite strips --hyperlink flags when stdout is not a tty" {
+  __dot_hyperlink_scheme=""
+
+  stub_command "argecho" <<'STUB'
+#!/usr/bin/env bash
+echo "$*"
+STUB
+
+  source "${REPO_ROOT}/dotenv/functions.sh"
+
+  run internal::osc8-rewrite argecho --color=auto --hyperlink=always -la /tmp
+  assert_success
+  assert_output "--color=auto -la /tmp"
+}
+
+@test "functions: osc8-rewrite strips boolean --hyperlink flag when piped" {
+  __dot_hyperlink_scheme=""
+
+  stub_command "argecho" <<'STUB'
+#!/usr/bin/env bash
+echo "$*"
+STUB
+
+  source "${REPO_ROOT}/dotenv/functions.sh"
+
+  run internal::osc8-rewrite argecho --hyperlink -la /tmp
+  assert_success
+  assert_output "-la /tmp"
+}
+
+@test "functions: osc8-rewrite preserves exit status in passthrough" {
+  __dot_hyperlink_scheme=""
+
+  stub_command "failcmd" <<'STUB'
+#!/usr/bin/env bash
+exit 42
+STUB
+
+  source "${REPO_ROOT}/dotenv/functions.sh"
+
+  run internal::osc8-rewrite failcmd
+  [[ "${status}" -eq 42 ]]
+}
+
+@test "functions: osc8-rewrite sed rewrites file:// URLs with empty hostname" {
+  source "${REPO_ROOT}/dotenv/functions.sh"
+
+  local result
+  result=$(printf '\033]8;;file:///tmp/test\033\\hello\033]8;;\033\\\n' \
+    | command sed "s,\x1b]8;;file://[^/]*/,\x1b]8;;file://wsl.localhost/TestDistro/,g")
+  [[ "${result}" == *"file://wsl.localhost/TestDistro/tmp/test"* ]]
+}
+
+@test "functions: osc8-rewrite sed rewrites file:// URLs with a hostname" {
+  source "${REPO_ROOT}/dotenv/functions.sh"
+
+  local result
+  result=$(printf '\033]8;;file://myhost/tmp/test\033\\hello\033]8;;\033\\\n' \
+    | command sed "s,\x1b]8;;file://[^/]*/,\x1b]8;;file://wsl.localhost/TestDistro/,g")
+  [[ "${result}" == *"file://wsl.localhost/TestDistro/tmp/test"* ]]
+}
+
 @test "functions: parallel-xargs requires a command" {
   run bash -c 'source "$1"; parallel-xargs' _ "${REPO_ROOT}/dotenv/functions.sh"
   assert_failure

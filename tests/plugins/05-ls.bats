@@ -6,6 +6,8 @@ setup() {
   load '../helpers/common'
   setup_plugin_test_env
 
+  __dot_hyperlink_scheme=""
+
   cat >"${MOCK_BIN}/ls" <<'EOF'
 #!/usr/bin/env bash
 case "${1:-}" in
@@ -34,18 +36,27 @@ EOF
   [[ "$(alias vdir)" == "alias vdir='${MOCK_BIN}/ls --color=auto --format=long'" ]]
 }
 
-@test "05-ls: uses osc8-wsl-rewrite wrapper on WSL" {
+@test "05-ls: uses osc8-rewrite wrapper on WSL" {
   export DOT___IS_WSL=1
 
-  internal::osc8-wsl-rewrite() { :; }
+  internal::osc8-rewrite() { :; }
 
   source "${REPO_ROOT}/plugins/05-ls.sh"
 
-  [[ "$(alias ls)" == "alias ls='internal::osc8-wsl-rewrite ${MOCK_BIN}/ls --color=auto --hyperlink=always'" ]]
-  [[ "$(alias la)" == "alias la='internal::osc8-wsl-rewrite ${MOCK_BIN}/ls -lA --color=auto --hyperlink=always'" ]]
+  [[ "$(alias ls)" == "alias ls='internal::osc8-rewrite ${MOCK_BIN}/ls --color=auto --hyperlink=always'" ]]
+  [[ "$(alias la)" == "alias la='internal::osc8-rewrite ${MOCK_BIN}/ls -lA --color=auto --hyperlink=always'" ]]
 }
 
-@test "05-ls: suppresses hyperlinks over SSH" {
+@test "05-ls: enables hyperlinks over SSH when hyperlink scheme is set" {
+  export DOT___IS_SSH=1
+  __dot_hyperlink_scheme="vscode"
+
+  source "${REPO_ROOT}/plugins/05-ls.sh"
+
+  [[ "$(alias ls)" == "alias ls='${MOCK_BIN}/ls --color=auto --hyperlink=auto'" ]]
+}
+
+@test "05-ls: suppresses hyperlinks over SSH without a hyperlink scheme" {
   export DOT___IS_SSH=1
 
   alias ls="original-ls"

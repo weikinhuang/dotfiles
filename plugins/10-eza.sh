@@ -26,16 +26,16 @@ unset __dot_eza_theme
 
 # Override ls aliases with eza after the default internal::grep-ls-colors runs
 function internal::eza-ls-aliases() {
-  # Suppressed over SSH (remote file:// paths are not accessible locally).
-  # On WSL, eza omits the hostname from file:// URLs; pipe through
-  # osc8-wsl-rewrite to inject the wsl.localhost authority.
-  if [[ -z "${DOT_DISABLE_HYPERLINKS:-}" ]] && [[ -z "${DOT___IS_SSH:-}" ]]; then
+  # Suppressed when the user opts out or over SSH without a vscode-family
+  # terminal (the editor can resolve remote file:// paths natively).
+  if [[ -z "${DOT_DISABLE_HYPERLINKS:-}" ]] \
+    && { [[ -n "${__dot_hyperlink_scheme}" ]] || [[ -z "${DOT___IS_SSH:-}" ]]; }; then
     if [[ -n "${DOT___IS_WSL:-}" ]]; then
-      alias ls='internal::osc8-wsl-rewrite eza --hyperlink'
-      alias la='internal::osc8-wsl-rewrite eza -la --group-directories-first --hyperlink'
-      alias ll='internal::osc8-wsl-rewrite eza -l --group-directories-first --hyperlink'
-      alias l.='internal::osc8-wsl-rewrite eza -d --hyperlink .*'
-      alias lt='internal::osc8-wsl-rewrite eza -lT --level=2 --hyperlink'
+      alias ls='internal::osc8-rewrite eza --hyperlink'
+      alias la='internal::osc8-rewrite eza -la --group-directories-first --hyperlink'
+      alias ll='internal::osc8-rewrite eza -l --group-directories-first --hyperlink'
+      alias l.='internal::osc8-rewrite eza -d --hyperlink .*'
+      alias lt='internal::osc8-rewrite eza -lT --level=2 --hyperlink'
     else
       alias ls="eza --hyperlink"
       alias la="eza -la --group-directories-first --hyperlink"

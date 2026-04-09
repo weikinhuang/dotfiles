@@ -2,9 +2,11 @@
 # Enhance ls aliases with OSC 8 terminal hyperlinks.
 # SPDX-License-Identifier: MIT
 
-# Hyperlinks are suppressed over SSH (remote file:// paths are inaccessible
-# locally) and when the user opts out via DOT_DISABLE_HYPERLINKS.
-if [[ -n "${DOT_DISABLE_HYPERLINKS:-}" ]] || [[ -n "${DOT___IS_SSH:-}" ]]; then
+# Hyperlinks are suppressed when the user opts out via DOT_DISABLE_HYPERLINKS
+# and over SSH unless a vscode-family terminal is detected (the editor's
+# terminal can resolve file:// paths through the remote connection).
+if [[ -n "${DOT_DISABLE_HYPERLINKS:-}" ]] \
+  || { [[ -z "${__dot_hyperlink_scheme}" ]] && [[ -n "${DOT___IS_SSH:-}" ]]; }; then
   return
 fi
 
@@ -29,15 +31,15 @@ fi
 
 if [[ -n "${DOT___IS_WSL:-}" ]]; then
   # On WSL, ls uses the Linux hostname in file:// URLs which Windows apps
-  # cannot resolve; pipe through osc8-wsl-rewrite to fix the authority.
+  # cannot resolve; pipe through osc8-rewrite to fix the authority.
   # shellcheck disable=SC2139
-  alias la="internal::osc8-wsl-rewrite ${__dot_ls_bin} -lA ${__dot_ls_color_flag} --hyperlink=always"
+  alias la="internal::osc8-rewrite ${__dot_ls_bin} -lA ${__dot_ls_color_flag} --hyperlink=always"
   # shellcheck disable=SC2139
-  alias ll="internal::osc8-wsl-rewrite ${__dot_ls_bin} -l ${__dot_ls_color_flag} --hyperlink=always"
+  alias ll="internal::osc8-rewrite ${__dot_ls_bin} -l ${__dot_ls_color_flag} --hyperlink=always"
   # shellcheck disable=SC2139
-  alias l.="internal::osc8-wsl-rewrite ${__dot_ls_bin} -d ${__dot_ls_color_flag} --hyperlink=always .*"
+  alias l.="internal::osc8-rewrite ${__dot_ls_bin} -d ${__dot_ls_color_flag} --hyperlink=always .*"
   # shellcheck disable=SC2139
-  alias ls="internal::osc8-wsl-rewrite ${__dot_ls_bin} ${__dot_ls_color_flag} --hyperlink=always"
+  alias ls="internal::osc8-rewrite ${__dot_ls_bin} ${__dot_ls_color_flag} --hyperlink=always"
 else
   # shellcheck disable=SC2139
   alias la="${__dot_ls_bin} -lA ${__dot_ls_color_flag} --hyperlink=auto"

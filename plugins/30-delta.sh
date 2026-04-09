@@ -23,17 +23,17 @@ else
   __dot_delta_plus_emph_style='syntax "#2b5e2b"'
 fi
 
-if [[ -z "${DOT_DISABLE_HYPERLINKS:-}" ]] && [[ -z "${DOT___IS_SSH:-}" ]]; then
-  __dot_delta_hyperlinks="true"
+if [[ -n "${DOT_DISABLE_HYPERLINKS:-}" ]] \
+  || { [[ -z "${__dot_hyperlink_scheme}" ]] && [[ -n "${DOT___IS_SSH:-}" ]]; }; then
+  __dot_delta_hyperlinks="false"
+  __dot_delta_hyperlink_format=""
+elif [[ -n "${DOT___IS_WSL:-}" ]] && [[ -n "${WSL_DISTRO_NAME:-}" ]]; then
   # delta defaults to file://{path} (no hostname); on WSL this breaks because
   # Windows apps cannot resolve bare Unix paths to the WSL filesystem.
-  if [[ -n "${DOT___IS_WSL:-}" ]] && [[ -n "${WSL_DISTRO_NAME:-}" ]]; then
-    __dot_delta_hyperlink_format="file://wsl.localhost/${WSL_DISTRO_NAME}{path}#{line}"
-  else
-    __dot_delta_hyperlink_format=""
-  fi
+  __dot_delta_hyperlinks="true"
+  __dot_delta_hyperlink_format="file://wsl.localhost/${WSL_DISTRO_NAME}{path}#{line}"
 else
-  __dot_delta_hyperlinks="false"
+  __dot_delta_hyperlinks="true"
   __dot_delta_hyperlink_format=""
 fi
 

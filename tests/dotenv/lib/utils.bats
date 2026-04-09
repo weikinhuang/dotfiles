@@ -36,6 +36,56 @@ setup() {
   [ "${TEST_TRACE}" = 'alpha beta ' ]
 }
 
+@test "utils: hyperlink-scheme detects vscode when TERM_PROGRAM is vscode" {
+  export TERM_PROGRAM=vscode
+  unset GIT_ASKPASS
+  __dot_hyperlink_scheme=""
+
+  source "${REPO_ROOT}/dotenv/lib/utils.sh"
+
+  [ "${__dot_hyperlink_scheme}" = "vscode" ]
+}
+
+@test "utils: hyperlink-scheme detects vscode-insiders via GIT_ASKPASS" {
+  export TERM_PROGRAM=vscode
+  export GIT_ASKPASS="/home/user/.vscode-server-insiders/bin/hash/git-askpass.sh"
+  __dot_hyperlink_scheme=""
+
+  source "${REPO_ROOT}/dotenv/lib/utils.sh"
+
+  [ "${__dot_hyperlink_scheme}" = "vscode-insiders" ]
+}
+
+@test "utils: hyperlink-scheme detects cursor via GIT_ASKPASS" {
+  export TERM_PROGRAM=vscode
+  export GIT_ASKPASS="/home/user/.cursor-server/bin/hash/git-askpass.sh"
+  __dot_hyperlink_scheme=""
+
+  source "${REPO_ROOT}/dotenv/lib/utils.sh"
+
+  [ "${__dot_hyperlink_scheme}" = "cursor" ]
+}
+
+@test "utils: hyperlink-scheme honors DOT_HYPERLINK_SCHEME override" {
+  export DOT_HYPERLINK_SCHEME="custom-editor"
+  unset TERM_PROGRAM
+  __dot_hyperlink_scheme=""
+
+  source "${REPO_ROOT}/dotenv/lib/utils.sh"
+
+  [ "${__dot_hyperlink_scheme}" = "custom-editor" ]
+}
+
+@test "utils: hyperlink-scheme is empty outside vscode terminals" {
+  unset TERM_PROGRAM
+  unset DOT_HYPERLINK_SCHEME
+  __dot_hyperlink_scheme=""
+
+  source "${REPO_ROOT}/dotenv/lib/utils.sh"
+
+  [ -z "${__dot_hyperlink_scheme}" ]
+}
+
 @test "utils: find-editor prefers VS Code in a remote server path" {
   local vscode_bin="${BATS_TEST_TMPDIR}/.vscode-server/bin/hash/bin"
   mkdir -p "${vscode_bin}"

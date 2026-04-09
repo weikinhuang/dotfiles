@@ -52,6 +52,27 @@ function internal::prompt-action-run() {
   done
 }
 
+# Detect the VS Code-family terminal and cache the URL scheme for OSC 8
+# hyperlinks.  When running inside a VS Code, Cursor, or VS Code Insiders
+# integrated terminal, tools can emit vscode://, cursor://, or
+# vscode-insiders:// file links that the editor opens natively -- even over
+# SSH or WSL where file:// URLs are unreachable.  An explicit
+# DOT_HYPERLINK_SCHEME overrides auto-detection.
+__dot_hyperlink_scheme=""
+if [[ -n "${DOT_HYPERLINK_SCHEME:-}" ]]; then
+  __dot_hyperlink_scheme="${DOT_HYPERLINK_SCHEME}"
+elif [[ "${TERM_PROGRAM:-}" == "vscode" ]]; then
+  if [[ "${GIT_ASKPASS:-}" == *"/.vscode-server-insiders/"* ]] \
+    || [[ "${GIT_ASKPASS:-}" == *"/Visual Studio Code - Insiders.app/"* ]]; then
+    __dot_hyperlink_scheme="vscode-insiders"
+  elif [[ "${GIT_ASKPASS:-}" == *"/.cursor-server/"* ]] \
+    || [[ "${GIT_ASKPASS:-}" == *"/Cursor.app/"* ]]; then
+    __dot_hyperlink_scheme="cursor"
+  else
+    __dot_hyperlink_scheme="vscode"
+  fi
+fi
+
 # helper function get the closest base editor (memoized after first call)
 __dot_find_editor_result=
 function internal::find-editor() {

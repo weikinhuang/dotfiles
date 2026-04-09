@@ -93,6 +93,7 @@ export DOT_AUTOLOAD_SSH_AGENT=1
 | `DOT_AUTOLOAD_SSH_AGENT` | `UNSET` | When the SSH plugin is enabled, automatically start `ssh-agent` or reuse an existing agent |
 | `DOT_BASH_RESOLVE_PATHS` | `UNSET` | Set Bash option `set -o physical` to avoid resolving symlink paths |
 | `DOT_DISABLE_HYPERLINKS` | `UNSET` | Suppress OSC 8 hyperlinks emitted by `ls`, `eza`, `rg`, `fd`, and `delta` |
+| `DOT_HYPERLINK_SCHEME` | `UNSET` | Override the auto-detected editor terminal (e.g. `vscode`, `cursor`, `vscode-insiders`); when set, SSH hyperlink suppression is relaxed since the editor terminal can resolve `file://` paths through the remote connection |
 | `DOT_DISABLE_PREEXEC` | `UNSET` | Skip loading [`bash-preexec.sh`](https://github.com/rcaloras/bash-preexec), disabling `preexec` hooks and command timing features |
 | `DOT_DISABLE_PS1` | `UNSET` | Disable the custom Bash prompt |
 | `DOT_GIT_PROMPT_CACHE_MAX_AGE_MS` | `10000` | Maximum milliseconds to reuse unchanged git prompt status before forcing a refresh |

@@ -13,9 +13,12 @@ if [[ -z "${RIPGREP_CONFIG_PATH+x}" ]] && [[ -f "${DOTFILES__ROOT}/.dotfiles/con
 fi
 
 # The config file enables --hyperlink-format=default; override when the
-# file:// URLs would be unusable: SSH (remote paths), WSL (default uses
-# {host} which gives the Linux hostname, not the wsl$ UNC path), or opt-out.
-if [[ -n "${DOT_DISABLE_HYPERLINKS:-}" ]] || [[ -n "${DOT___IS_SSH:-}" ]]; then
+# file:// URLs would be unusable: SSH without a vscode-family terminal
+# (remote paths are inaccessible), WSL (default uses {host} which gives the
+# Linux hostname, not the wsl$ UNC path), or user opt-out.
+if [[ -n "${DOT_DISABLE_HYPERLINKS:-}" ]]; then
+  alias rg='rg --hyperlink-format=none'
+elif [[ -n "${DOT___IS_SSH:-}" ]] && [[ -z "${__dot_hyperlink_scheme}" ]]; then
   alias rg='rg --hyperlink-format=none'
 elif [[ -n "${DOT___IS_WSL:-}" ]]; then
   alias rg='rg --hyperlink-format=file://{wslprefix}{path}'

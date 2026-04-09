@@ -2,6 +2,33 @@
 # Define common shell functions for the dotfiles.
 # SPDX-License-Identifier: MIT
 
+# Rewrite file:// URLs in OSC 8 hyperlinks emitted by a command.  On WSL the
+# hostname is replaced with wsl.localhost so Windows apps (and the VS
+# Code/Cursor terminal) can resolve the path.  When stdout is not a terminal
+# the command runs directly with hyperlink flags stripped.
+function internal::osc8-rewrite() {
+  if [[ ! -t 1 ]]; then
+    local __dot_args=()
+    local __dot_arg
+    for __dot_arg in "$@"; do
+      case "${__dot_arg}" in
+        --hyperlink | --hyperlink=*) ;;
+        *) __dot_args+=("${__dot_arg}") ;;
+      esac
+    done
+    "${__dot_args[@]}"
+    return
+  fi
+
+  if [[ -n "${DOT___IS_WSL:-}" ]]; then
+    COLUMNS="${COLUMNS:-80}" "$@" --color=always \
+      | command sed "s,\x1b]8;;file://[^/]*/,\x1b]8;;file://wsl.localhost/${WSL_DISTRO_NAME}/,g"
+    return "${PIPESTATUS[0]}"
+  else
+    "$@"
+  fi
+}
+
 # update the dotfiles repo
 function dotfiles-update() (
   # shellcheck disable=SC2164
