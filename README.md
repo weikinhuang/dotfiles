@@ -12,7 +12,9 @@ This will by default install dotfiles in the home directory with all options ena
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/weikinhuang/dotfiles/master/bootstrap.sh | bash
+```
 
+```bash
 # Additional arguments can be passed to the bootstrap script
 curl -fsSL https://raw.githubusercontent.com/weikinhuang/dotfiles/master/bootstrap.sh | bash -s -- [args]
 ```
