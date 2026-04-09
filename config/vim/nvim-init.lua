@@ -8,8 +8,18 @@ local function source_file(path)
   vim.cmd.source(vim.fn.fnameescape(path))
 end
 
+-- lazy.nvim v11+ requires Neovim >= 0.10; fall back to vim-plug on older versions
+local use_lazy = vim.fn.has("nvim-0.10") == 1
+
+if not use_lazy then
+  source_file(dotfiles_root .. "/plugins.vim")
+end
+
 source_file(dotfiles_root .. "/vimrc")
 source_file(dotfiles_root .. "/mappings.vim")
+if not use_lazy then
+  source_file(dotfiles_root .. "/vim.vim")
+end
 source_file(dotfiles_root .. "/pluginconf.vim")
 source_file(dotfiles_root .. "/vscode.vim")
 source_file(dotfiles_root .. "/filetypes.vim")
@@ -19,5 +29,7 @@ if vim.g.dotfiles_ssh_clipboard_provider and not vim.o.clipboard:match("(^|,)unn
   vim.opt.clipboard:append("unnamedplus")
 end
 
-require("config.lazy")
+if use_lazy then
+  require("config.lazy")
+end
 require("config.vscode").setup()

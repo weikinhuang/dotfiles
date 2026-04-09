@@ -165,10 +165,20 @@ function dotfiles::install::vim() {
   fi
 
   if [[ "${VIM_BIN}" == "nvim" ]]; then
-    echo "Installing Neovim plugins"
-    echo "${VIM_BIN}" --headless "+Lazy! sync" +qa
-    if ! "${VIM_BIN}" --headless "+Lazy! sync" +qa; then
-      echo "--------------- Please Run: 'nvim --headless \"+Lazy! sync\" +qa' after installation"
+    local nvim_ver
+    nvim_ver="$("${VIM_BIN}" --version | head -1)"
+    if [[ "${nvim_ver}" =~ v([0-9]+)\.([0-9]+) ]] && ((BASH_REMATCH[1] > 0 || BASH_REMATCH[2] >= 10)); then
+      echo "Installing Neovim plugins (lazy.nvim)"
+      echo "${VIM_BIN}" --headless "+Lazy! sync" +qa
+      if ! "${VIM_BIN}" --headless "+Lazy! sync" +qa; then
+        echo "--------------- Please Run: 'nvim --headless \"+Lazy! sync\" +qa' after installation"
+      fi
+    else
+      echo "Installing Neovim plugins (vim-plug, nvim < 0.10)"
+      echo "${VIM_BIN}" --headless +'PlugInstall --sync' +qa
+      if ! "${VIM_BIN}" --headless +'PlugInstall --sync' +qa; then
+        echo "--------------- Please Run: 'nvim +PlugInstall +qall' after installation"
+      fi
     fi
   elif [[ "${VIM_BIN}" == "vim" ]]; then
     echo "Installing Vim plugins"

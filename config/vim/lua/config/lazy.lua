@@ -1,3 +1,7 @@
+if vim.fn.has("nvim-0.10") ~= 1 then
+  return
+end
+
 local lazypath = vim.fn.stdpath("data") .. "/lazy/lazy.nvim"
 local config_root = vim.fn.fnamemodify(debug.getinfo(1, "S").source:sub(2), ":p:h:h:h")
 local uv = vim.uv or vim.loop
