@@ -26,11 +26,21 @@ unset __dot_eza_theme
 
 # Override ls aliases with eza after the default internal::grep-ls-colors runs
 function internal::eza-ls-aliases() {
-  alias ls="eza"
-  alias la="eza -la --group-directories-first"
-  alias ll="eza -l --group-directories-first"
-  alias l.="eza -d .*"
-  alias lt="eza -lT --level=2"
+  # Suppressed on WSL (eza omits the hostname from file:// URLs) and over SSH
+  # (remote file:// paths are not accessible from the local terminal).
+  if [[ -z "${DOT_DISABLE_HYPERLINKS:-}" ]] && [[ -z "${DOT___IS_WSL:-}" ]] && [[ -z "${DOT___IS_SSH:-}" ]]; then
+    alias ls="eza --hyperlink"
+    alias la="eza -la --group-directories-first --hyperlink"
+    alias ll="eza -l --group-directories-first --hyperlink"
+    alias l.="eza -d --hyperlink .*"
+    alias lt="eza -lT --level=2 --hyperlink"
+  else
+    alias ls="eza"
+    alias la="eza -la --group-directories-first"
+    alias ll="eza -l --group-directories-first"
+    alias l.="eza -d .*"
+    alias lt="eza -lT --level=2"
+  fi
 
   unset -f internal::eza-ls-aliases
 }

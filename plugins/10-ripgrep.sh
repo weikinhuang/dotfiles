@@ -11,3 +11,12 @@ fi
 if [[ -z "${RIPGREP_CONFIG_PATH+x}" ]] && [[ -f "${DOTFILES__ROOT}/.dotfiles/config/ripgrep/config" ]]; then
   export RIPGREP_CONFIG_PATH="${DOTFILES__ROOT}/.dotfiles/config/ripgrep/config"
 fi
+
+# The config file enables --hyperlink-format=default; override when the
+# file:// URLs would be unusable: SSH (remote paths), WSL (default uses
+# {host} which gives the Linux hostname, not the wsl$ UNC path), or opt-out.
+if [[ -n "${DOT_DISABLE_HYPERLINKS:-}" ]] || [[ -n "${DOT___IS_SSH:-}" ]]; then
+  alias rg='rg --hyperlink-format=none'
+elif [[ -n "${DOT___IS_WSL:-}" ]]; then
+  alias rg='rg --hyperlink-format=file://{wslprefix}{path}'
+fi

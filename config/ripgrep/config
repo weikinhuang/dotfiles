@@ -56,3 +56,6 @@
 # Max columns: truncate long lines instead of printing huge minified blobs
 --max-columns=200
 --max-columns-preview
+
+# Emit file:// hyperlinks on result headings (OSC 8; requires rg >= 14)
+--hyperlink-format=default

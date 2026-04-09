@@ -23,7 +23,7 @@ alias mv="mv -i"
 
 # run this after plugins are loaded in case gnu grep and gnu ls is added to path in plugins
 function internal::grep-ls-colors() {
-  local LS_COLOR_FLAG LS_BIN GREP_BIN
+  local LS_COLOR_FLAG LS_HYPERLINK_FLAG LS_BIN GREP_BIN
   LS_BIN="$(
     unalias ls &>/dev/null
     command -v ls
@@ -52,22 +52,30 @@ function internal::grep-ls-colors() {
     # darwin ls
     LS_COLOR_FLAG="-G"
   fi
+  # Enable OSC 8 hyperlinks when supported (GNU coreutils >= 8.28).
+  # Suppressed on WSL (ls uses the Linux hostname which Windows apps cannot
+  # resolve) and over SSH (remote file:// paths are inaccessible locally).
+  LS_HYPERLINK_FLAG=""
+  if [[ -z "${DOT_DISABLE_HYPERLINKS:-}" ]] && [[ -z "${DOT___IS_WSL:-}" ]] \
+    && [[ -z "${DOT___IS_SSH:-}" ]] && "${LS_BIN}" --hyperlink=auto / &>/dev/null; then
+    LS_HYPERLINK_FLAG="--hyperlink=auto"
+  fi
   # Specialized directory listings
   # shellcheck disable=SC2139
-  alias la="${LS_BIN} -lA ${LS_COLOR_FLAG}"
+  alias la="${LS_BIN} -lA ${LS_COLOR_FLAG}${LS_HYPERLINK_FLAG:+ ${LS_HYPERLINK_FLAG}}"
   # shellcheck disable=SC2139
-  alias ll="${LS_BIN} -l ${LS_COLOR_FLAG}"
+  alias ll="${LS_BIN} -l ${LS_COLOR_FLAG}${LS_HYPERLINK_FLAG:+ ${LS_HYPERLINK_FLAG}}"
   # shellcheck disable=SC2139
-  alias l.="${LS_BIN} -d ${LS_COLOR_FLAG} .*"
+  alias l.="${LS_BIN} -d ${LS_COLOR_FLAG}${LS_HYPERLINK_FLAG:+ ${LS_HYPERLINK_FLAG}} .*"
   # shellcheck disable=SC2139
-  alias ls="${LS_BIN} ${LS_COLOR_FLAG}"
+  alias ls="${LS_BIN} ${LS_COLOR_FLAG}${LS_HYPERLINK_FLAG:+ ${LS_HYPERLINK_FLAG}}"
 
   # check if we can display in long format
   if "${LS_BIN}" --format=long &>/dev/null; then
     # shellcheck disable=SC2139
-    alias dir="ls ${LS_COLOR_FLAG} --format=vertical"
+    alias dir="ls ${LS_COLOR_FLAG}${LS_HYPERLINK_FLAG:+ ${LS_HYPERLINK_FLAG}} --format=vertical"
     # shellcheck disable=SC2139
-    alias vdir="ls ${LS_COLOR_FLAG} --format=long"
+    alias vdir="ls ${LS_COLOR_FLAG}${LS_HYPERLINK_FLAG:+ ${LS_HYPERLINK_FLAG}} --format=long"
   fi
 
   unset -f internal::grep-ls-colors

@@ -448,6 +448,7 @@ Set these before the dotfiles are sourced, usually in `~/.bash_local`.
 | `BASHRC_NONINTERACTIVE_BYPASS` | unset | allow `bashrc.sh` to continue loading in non-interactive shells |
 | `DOT_AUTOLOAD_SSH_AGENT` | unset | when the SSH plugin is enabled, auto-start or reuse `ssh-agent` |
 | `DOT_BASH_RESOLVE_PATHS` | unset | enable `set -o physical` so `cd` does not follow symlink chains |
+| `DOT_DISABLE_HYPERLINKS` | unset | suppress OSC 8 terminal hyperlinks emitted by `ls`, `eza`, `rg`, `fd`, and `delta`; hyperlinks are also auto-suppressed over SSH and on WSL where `file://` URLs cannot be resolved; tmux still advertises hyperlink support to the outer terminal |
 | `DOT_DISABLE_PREEXEC` | unset | skip sourcing [`external/bash-preexec.sh`](./external/bash-preexec.sh) |
 | `DOT_INCLUDE_BREW_PATH` | unset | on macOS, prepend Homebrew `bin`, `sbin`, and GNU `gnubin` paths, and extend `MANPATH` |
 | `DOT_INCLUDE_BUILTIN_PLUGINS` | unset | load the full built-in [`plugins/*.sh`](./plugins) set instead of only [`00-bash-opts.sh`](./plugins/00-bash-opts.sh) and [`00-chpwd-hook.sh`](./plugins/00-chpwd-hook.sh) |

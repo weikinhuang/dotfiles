@@ -23,6 +23,20 @@ else
   __dot_delta_plus_emph_style='syntax "#2b5e2b"'
 fi
 
+if [[ -z "${DOT_DISABLE_HYPERLINKS:-}" ]] && [[ -z "${DOT___IS_SSH:-}" ]]; then
+  __dot_delta_hyperlinks="true"
+  # delta defaults to file://{path} (no hostname); on WSL this breaks because
+  # Windows apps cannot resolve bare Unix paths to the WSL filesystem.
+  if [[ -n "${DOT___IS_WSL:-}" ]] && [[ -n "${WSL_DISTRO_NAME:-}" ]]; then
+    __dot_delta_hyperlink_format="file://wsl.localhost/${WSL_DISTRO_NAME}{path}#{line}"
+  else
+    __dot_delta_hyperlink_format=""
+  fi
+else
+  __dot_delta_hyperlinks="false"
+  __dot_delta_hyperlink_format=""
+fi
+
 cat >|"${DOTFILES__CONFIG_DIR}/git-delta.gitconfig" <<GITCONFIG
 [core]
   pager = delta
@@ -33,6 +47,8 @@ cat >|"${DOTFILES__CONFIG_DIR}/git-delta.gitconfig" <<GITCONFIG
 [delta]
   navigate = true
   true-color = always
+  hyperlinks = ${__dot_delta_hyperlinks}${__dot_delta_hyperlink_format:+
+  hyperlinks-file-link-format = ${__dot_delta_hyperlink_format}}
   syntax-theme = ${__dot_delta_syntax_theme}
   minus-style = ${__dot_delta_minus_style}
   minus-emph-style = ${__dot_delta_minus_emph_style}
@@ -45,4 +61,4 @@ cat >|"${DOTFILES__CONFIG_DIR}/git-delta.gitconfig" <<GITCONFIG
   diff = delta
 GITCONFIG
 
-unset __dot_delta_syntax_theme __dot_delta_minus_style __dot_delta_minus_emph_style __dot_delta_plus_style __dot_delta_plus_emph_style
+unset __dot_delta_syntax_theme __dot_delta_minus_style __dot_delta_minus_emph_style __dot_delta_plus_style __dot_delta_plus_emph_style __dot_delta_hyperlinks __dot_delta_hyperlink_format

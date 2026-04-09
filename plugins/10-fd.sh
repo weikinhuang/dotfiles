@@ -12,6 +12,16 @@ else
   return
 fi
 
+# Suppressed on WSL (fd omits the hostname from file:// URLs) and over SSH
+# (remote file:// paths are inaccessible locally).
+__dot_fd_hyperlink=""
+if [[ -z "${DOT_DISABLE_HYPERLINKS:-}" ]] && [[ -z "${DOT___IS_WSL:-}" ]] \
+  && [[ -z "${DOT___IS_SSH:-}" ]] \
+  && "${DOTFILES__FD_COMMAND}" -h 2>&1 | command grep -q -- --hyperlink; then
+  __dot_fd_hyperlink="--hyperlink"
+fi
+
 function findhere() {
-  "${DOTFILES__FD_COMMAND}" --hidden --follow "$@"
+  # shellcheck disable=SC2086
+  "${DOTFILES__FD_COMMAND}" --hidden --follow ${__dot_fd_hyperlink} "$@"
 }

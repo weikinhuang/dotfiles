@@ -19,10 +19,21 @@ setup() {
 
   internal::eza-ls-aliases
 
+  [ "$(alias ls)" = "alias ls='eza --hyperlink'" ]
+  [ "$(alias la)" = "alias la='eza -la --group-directories-first --hyperlink'" ]
+  [ "$(alias ll)" = "alias ll='eza -l --group-directories-first --hyperlink'" ]
+  [ "$(alias l.)" = "alias l.='eza -d --hyperlink .*'" ]
+  [ "$(alias lt)" = "alias lt='eza -lT --level=2 --hyperlink'" ]
+  [ -z "$(type -t internal::eza-ls-aliases || true)" ]
+}
+
+@test "10-eza: suppresses --hyperlink on WSL where eza omits the hostname" {
+  stub_fixed_output_command eza ""
+  export DOT___IS_WSL=1
+
+  source "${REPO_ROOT}/plugins/10-eza.sh"
+  internal::eza-ls-aliases
+
   [ "$(alias ls)" = "alias ls='eza'" ]
   [ "$(alias la)" = "alias la='eza -la --group-directories-first'" ]
-  [ "$(alias ll)" = "alias ll='eza -l --group-directories-first'" ]
-  [ "$(alias l.)" = "alias l.='eza -d .*'" ]
-  [ "$(alias lt)" = "alias lt='eza -lT --level=2'" ]
-  [ -z "$(type -t internal::eza-ls-aliases || true)" ]
 }

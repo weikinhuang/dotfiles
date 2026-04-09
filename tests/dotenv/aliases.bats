@@ -48,8 +48,8 @@ EOF
 
   internal::grep-ls-colors
 
-  [[ "$(alias ls)" == "alias ls='${MOCK_BIN}/ls --color=auto'" ]]
-  [[ "$(alias la)" == "alias la='${MOCK_BIN}/ls -lA --color=auto'" ]]
+  [[ "$(alias ls)" == "alias ls='${MOCK_BIN}/ls --color=auto --hyperlink=auto'" ]]
+  [[ "$(alias la)" == "alias la='${MOCK_BIN}/ls -lA --color=auto --hyperlink=auto'" ]]
   [[ "$(type -t internal::grep-ls-colors 2>/dev/null || true)" == "" ]]
 }
 
@@ -57,7 +57,7 @@ EOF
   stub_command ls <<'EOF'
 #!/usr/bin/env bash
 case "${1:-}" in
-  --color | --color=auto | --format=long)
+  --color | --color=auto | --format=long | --hyperlink*)
     exit 1
     ;;
 esac
@@ -81,6 +81,15 @@ EOF
   [[ -z "$(alias grep 2>/dev/null || true)" ]]
   [[ -z "$(alias dir 2>/dev/null || true)" ]]
   [[ -z "$(alias vdir 2>/dev/null || true)" ]]
+}
+
+@test "aliases: suppresses ls --hyperlink on WSL where the hostname cannot be resolved" {
+  export DOT___IS_WSL=1
+
+  internal::grep-ls-colors
+
+  [[ "$(alias ls)" == "alias ls='${MOCK_BIN}/ls --color=auto'" ]]
+  [[ "$(alias la)" == "alias la='${MOCK_BIN}/ls -lA --color=auto'" ]]
 }
 
 @test "aliases: enables tty-aware which expansion when which supports alias lookup" {
