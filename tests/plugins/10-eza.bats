@@ -27,13 +27,15 @@ setup() {
   [ -z "$(type -t internal::eza-ls-aliases || true)" ]
 }
 
-@test "10-eza: suppresses --hyperlink on WSL where eza omits the hostname" {
+@test "10-eza: uses osc8-wsl-rewrite wrapper on WSL" {
   stub_fixed_output_command eza ""
   export DOT___IS_WSL=1
+
+  internal::osc8-wsl-rewrite() { :; }
 
   source "${REPO_ROOT}/plugins/10-eza.sh"
   internal::eza-ls-aliases
 
-  [ "$(alias ls)" = "alias ls='eza'" ]
-  [ "$(alias la)" = "alias la='eza -la --group-directories-first'" ]
+  [ "$(alias ls)" = "alias ls='internal::osc8-wsl-rewrite eza --hyperlink'" ]
+  [ "$(alias la)" = "alias la='internal::osc8-wsl-rewrite eza -la --group-directories-first --hyperlink'" ]
 }

@@ -12,16 +12,23 @@ else
   return
 fi
 
-# Suppressed on WSL (fd omits the hostname from file:// URLs) and over SSH
-# (remote file:// paths are inaccessible locally).
-__dot_fd_hyperlink=""
-if [[ -z "${DOT_DISABLE_HYPERLINKS:-}" ]] && [[ -z "${DOT___IS_WSL:-}" ]] \
-  && [[ -z "${DOT___IS_SSH:-}" ]] \
+# Declare findhere with the right hyperlink handling baked in at load time.
+# Hyperlinks are suppressed over SSH (remote paths are inaccessible locally)
+# and when the user opts out via DOT_DISABLE_HYPERLINKS.  On WSL, fd omits the
+# hostname from file:// URLs; pipe through osc8-wsl-rewrite to fix them.
+if [[ -z "${DOT_DISABLE_HYPERLINKS:-}" ]] && [[ -z "${DOT___IS_SSH:-}" ]] \
   && "${DOTFILES__FD_COMMAND}" -h 2>&1 | command grep -q -- --hyperlink; then
-  __dot_fd_hyperlink="--hyperlink"
+  if [[ -n "${DOT___IS_WSL:-}" ]]; then
+    function findhere() {
+      internal::osc8-wsl-rewrite "${DOTFILES__FD_COMMAND}" --hidden --follow --hyperlink "$@"
+    }
+  else
+    function findhere() {
+      "${DOTFILES__FD_COMMAND}" --hidden --follow --hyperlink "$@"
+    }
+  fi
+else
+  function findhere() {
+    "${DOTFILES__FD_COMMAND}" --hidden --follow "$@"
+  }
 fi
-
-function findhere() {
-  # shellcheck disable=SC2086
-  "${DOTFILES__FD_COMMAND}" --hidden --follow ${__dot_fd_hyperlink} "$@"
-}

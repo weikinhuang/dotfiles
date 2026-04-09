@@ -21,9 +21,10 @@ alias rm="rm -i"
 alias cp="cp -i"
 alias mv="mv -i"
 
-# run this after plugins are loaded in case gnu grep and gnu ls is added to path in plugins
-function internal::grep-ls-colors() {
-  local LS_COLOR_FLAG LS_HYPERLINK_FLAG LS_BIN GREP_BIN
+# Basic color aliases for grep and ls.  plugins/05-ls.sh upgrades the ls
+# family with OSC 8 hyperlinks; plugins/10-eza.sh overrides with eza.
+function internal::basic-grep-ls-aliases() {
+  local LS_COLOR_FLAG LS_BIN GREP_BIN
   LS_BIN="$(
     unalias ls &>/dev/null
     command -v ls
@@ -34,7 +35,6 @@ function internal::grep-ls-colors() {
   )"
 
   # Colorize grep matches
-  # test if color is supported, if it is, always add color
   if echo | "${GREP_BIN}" --color=auto &>/dev/null; then
     # shellcheck disable=SC2139
     alias grep="${GREP_BIN} --color=auto"
@@ -44,43 +44,31 @@ function internal::grep-ls-colors() {
     alias egrep="${GREP_BIN} -E --color=auto"
   fi
 
-  # Detect which `ls` flavor is in use
+  # Detect which ls flavor is in use
   if "${LS_BIN}" --color &>/dev/null; then
-    # GNU ls
     LS_COLOR_FLAG="--color=auto"
   else
-    # darwin ls
     LS_COLOR_FLAG="-G"
   fi
-  # Enable OSC 8 hyperlinks when supported (GNU coreutils >= 8.28).
-  # Suppressed on WSL (ls uses the Linux hostname which Windows apps cannot
-  # resolve) and over SSH (remote file:// paths are inaccessible locally).
-  LS_HYPERLINK_FLAG=""
-  if [[ -z "${DOT_DISABLE_HYPERLINKS:-}" ]] && [[ -z "${DOT___IS_WSL:-}" ]] \
-    && [[ -z "${DOT___IS_SSH:-}" ]] && "${LS_BIN}" --hyperlink=auto / &>/dev/null; then
-    LS_HYPERLINK_FLAG="--hyperlink=auto"
-  fi
-  # Specialized directory listings
   # shellcheck disable=SC2139
-  alias la="${LS_BIN} -lA ${LS_COLOR_FLAG}${LS_HYPERLINK_FLAG:+ ${LS_HYPERLINK_FLAG}}"
+  alias la="${LS_BIN} -lA ${LS_COLOR_FLAG}"
   # shellcheck disable=SC2139
-  alias ll="${LS_BIN} -l ${LS_COLOR_FLAG}${LS_HYPERLINK_FLAG:+ ${LS_HYPERLINK_FLAG}}"
+  alias ll="${LS_BIN} -l ${LS_COLOR_FLAG}"
   # shellcheck disable=SC2139
-  alias l.="${LS_BIN} -d ${LS_COLOR_FLAG}${LS_HYPERLINK_FLAG:+ ${LS_HYPERLINK_FLAG}} .*"
+  alias l.="${LS_BIN} -d ${LS_COLOR_FLAG} .*"
   # shellcheck disable=SC2139
-  alias ls="${LS_BIN} ${LS_COLOR_FLAG}${LS_HYPERLINK_FLAG:+ ${LS_HYPERLINK_FLAG}}"
+  alias ls="${LS_BIN} ${LS_COLOR_FLAG}"
 
-  # check if we can display in long format
   if "${LS_BIN}" --format=long &>/dev/null; then
     # shellcheck disable=SC2139
-    alias dir="ls ${LS_COLOR_FLAG}${LS_HYPERLINK_FLAG:+ ${LS_HYPERLINK_FLAG}} --format=vertical"
+    alias dir="${LS_BIN} ${LS_COLOR_FLAG} --format=vertical"
     # shellcheck disable=SC2139
-    alias vdir="ls ${LS_COLOR_FLAG}${LS_HYPERLINK_FLAG:+ ${LS_HYPERLINK_FLAG}} --format=long"
+    alias vdir="${LS_BIN} ${LS_COLOR_FLAG} --format=long"
   fi
 
-  unset -f internal::grep-ls-colors
+  unset -f internal::basic-grep-ls-aliases
 }
-dotfiles_hook_plugin_post_functions+=(internal::grep-ls-colors)
+internal::basic-grep-ls-aliases
 
 # allow which command to expand
 # shellcheck disable=SC2230

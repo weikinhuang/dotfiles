@@ -7,7 +7,6 @@ setup() {
   setup_test_bin
 
   export SHELL=/bin/bash
-  dotfiles_hook_plugin_post_functions=()
 
   internal::find-editor() {
     echo "stub-editor"
@@ -43,17 +42,22 @@ EOF
   [[ "$(alias vi)" == "alias vi='stub-editor'" ]]
 }
 
-@test "aliases: registers and executes the post-plugin color hook" {
-  [[ " ${dotfiles_hook_plugin_post_functions[*]} " == *" internal::grep-ls-colors "* ]]
-
-  internal::grep-ls-colors
-
-  [[ "$(alias ls)" == "alias ls='${MOCK_BIN}/ls --color=auto --hyperlink=auto'" ]]
-  [[ "$(alias la)" == "alias la='${MOCK_BIN}/ls -lA --color=auto --hyperlink=auto'" ]]
-  [[ "$(type -t internal::grep-ls-colors 2>/dev/null || true)" == "" ]]
+@test "aliases: sets basic GNU ls color aliases without hyperlinks" {
+  [[ "$(alias ls)" == "alias ls='${MOCK_BIN}/ls --color=auto'" ]]
+  [[ "$(alias la)" == "alias la='${MOCK_BIN}/ls -lA --color=auto'" ]]
+  [[ "$(alias ll)" == "alias ll='${MOCK_BIN}/ls -l --color=auto'" ]]
+  [[ "$(alias l.)" == "alias l.='${MOCK_BIN}/ls -d --color=auto .*'" ]]
+  [[ "$(alias dir)" == "alias dir='${MOCK_BIN}/ls --color=auto --format=vertical'" ]]
+  [[ "$(alias vdir)" == "alias vdir='${MOCK_BIN}/ls --color=auto --format=long'" ]]
 }
 
-@test "aliases: color hook falls back to BSD ls flags and skips unsupported color aliases" {
+@test "aliases: sets basic grep color aliases" {
+  [[ "$(alias grep)" == "alias grep='${MOCK_BIN}/grep --color=auto'" ]]
+  [[ "$(alias fgrep)" == "alias fgrep='${MOCK_BIN}/grep -F --color=auto'" ]]
+  [[ "$(alias egrep)" == "alias egrep='${MOCK_BIN}/grep -E --color=auto'" ]]
+}
+
+@test "aliases: falls back to BSD ls flags and skips unsupported color aliases" {
   stub_command ls <<'EOF'
 #!/usr/bin/env bash
 case "${1:-}" in
@@ -74,7 +78,8 @@ EOF
 
   unalias ls grep fgrep egrep la ll l. dir vdir 2>/dev/null || true
 
-  internal::grep-ls-colors
+  internal::basic-grep-ls-aliases() { :; }
+  source "${REPO_ROOT}/dotenv/aliases.sh"
 
   [[ "$(alias ls)" == "alias ls='${MOCK_BIN}/ls -G'" ]]
   [[ "$(alias la)" == "alias la='${MOCK_BIN}/ls -lA -G'" ]]
@@ -83,19 +88,13 @@ EOF
   [[ -z "$(alias vdir 2>/dev/null || true)" ]]
 }
 
-@test "aliases: suppresses ls --hyperlink on WSL where the hostname cannot be resolved" {
-  export DOT___IS_WSL=1
-
-  internal::grep-ls-colors
-
-  [[ "$(alias ls)" == "alias ls='${MOCK_BIN}/ls --color=auto'" ]]
-  [[ "$(alias la)" == "alias la='${MOCK_BIN}/ls -lA --color=auto'" ]]
+@test "aliases: self-destructs internal::basic-grep-ls-aliases after running" {
+  [[ -z "$(type -t internal::basic-grep-ls-aliases 2>/dev/null || true)" ]]
 }
 
 @test "aliases: enables tty-aware which expansion when which supports alias lookup" {
   run bash -c '
     internal::find-editor() { echo "stub-editor"; }
-    dotfiles_hook_plugin_post_functions=()
     which() { return 0; }
     source "$1"
     alias which
