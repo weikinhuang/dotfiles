@@ -270,3 +270,71 @@ EOF
   internal::ps1-dir-info-refresh
   [ "${__dot_ps1_dirinfo}" = "stale" ]
 }
+
+@test "prompt: workdir segment includes OSC 8 link when hyperlinks are enabled" {
+  DOT_PS1_SEGMENTS=(workdir)
+  __dot_hyperlink_scheme=""
+
+  source "${REPO_ROOT}/dotenv/prompt.sh"
+
+  [[ "${PS1}" == *'${__dot_ps1_workdir_osc8_start}'* ]]
+  [[ -n "${__dot_ps1_workdir_osc8_start}" ]]
+  [[ "${__dot_ps1_workdir_osc8_start}" == *']8;;file://'* ]]
+}
+
+@test "prompt: workdir segment omits OSC 8 link when DOT_DISABLE_HYPERLINKS is set" {
+  DOT_PS1_SEGMENTS=(workdir)
+  export DOT_DISABLE_HYPERLINKS=1
+  __dot_hyperlink_scheme=""
+
+  source "${REPO_ROOT}/dotenv/prompt.sh"
+
+  [[ -z "${__dot_ps1_workdir_osc8_start}" ]]
+}
+
+@test "prompt: workdir segment omits OSC 8 link over SSH without scheme" {
+  DOT_PS1_SEGMENTS=(workdir)
+  export DOT___IS_SSH=1
+  __dot_hyperlink_scheme=""
+
+  source "${REPO_ROOT}/dotenv/prompt.sh"
+
+  [[ -z "${__dot_ps1_workdir_osc8_start}" ]]
+}
+
+@test "prompt: workdir segment includes OSC 8 link over SSH with scheme" {
+  DOT_PS1_SEGMENTS=(workdir)
+  export DOT___IS_SSH=1
+  __dot_hyperlink_scheme="vscode"
+
+  source "${REPO_ROOT}/dotenv/prompt.sh"
+
+  [[ -n "${__dot_ps1_workdir_osc8_start}" ]]
+  [[ "${__dot_ps1_workdir_osc8_start}" == *']8;;file://'* ]]
+}
+
+@test "prompt: workdir uses wsl.localhost prefix on WSL" {
+  DOT_PS1_SEGMENTS=(workdir)
+  export DOT___IS_WSL=1
+  export WSL_DISTRO_NAME="Ubuntu"
+  __dot_hyperlink_scheme=""
+
+  source "${REPO_ROOT}/dotenv/prompt.sh"
+
+  [[ "${__dot_ps1_workdir_osc8_start}" == *'wsl.localhost/Ubuntu'* ]]
+}
+
+@test "prompt: workdir uses native Windows URL for WSL /mnt/ paths" {
+  DOT_PS1_SEGMENTS=(workdir)
+  export DOT___IS_WSL=1
+  export WSL_DISTRO_NAME="Ubuntu"
+  __dot_hyperlink_scheme=""
+
+  source "${REPO_ROOT}/dotenv/prompt.sh"
+
+  PWD=/mnt/d/projects/test
+  internal::ps1-workdir-osc8-update
+
+  [[ "${__dot_ps1_workdir_osc8_start}" == *'file:///D:/projects/test'* ]]
+  [[ "${__dot_ps1_workdir_osc8_start}" != *'wsl.localhost'* ]]
+}

@@ -56,7 +56,10 @@ STUB
 
   local result
   result=$(printf '\033]8;;file:///tmp/test\033\\hello\033]8;;\033\\\n' \
-    | command sed "s,\x1b]8;;file://[^/]*/,\x1b]8;;file://wsl.localhost/TestDistro/,g")
+    | command sed \
+      -e "s,\x1b]8;;file://[^/]*/mnt/\([a-z]\)/,\x1b]8;;__WSLDRV__/\U\1\E:/,g" \
+      -e "s,\x1b]8;;file://[^/]*/,\x1b]8;;file://wsl.localhost/TestDistro/,g" \
+      -e "s,__WSLDRV__/,file:///,g")
   [[ "${result}" == *"file://wsl.localhost/TestDistro/tmp/test"* ]]
 }
 
@@ -65,8 +68,36 @@ STUB
 
   local result
   result=$(printf '\033]8;;file://myhost/tmp/test\033\\hello\033]8;;\033\\\n' \
-    | command sed "s,\x1b]8;;file://[^/]*/,\x1b]8;;file://wsl.localhost/TestDistro/,g")
+    | command sed \
+      -e "s,\x1b]8;;file://[^/]*/mnt/\([a-z]\)/,\x1b]8;;__WSLDRV__/\U\1\E:/,g" \
+      -e "s,\x1b]8;;file://[^/]*/,\x1b]8;;file://wsl.localhost/TestDistro/,g" \
+      -e "s,__WSLDRV__/,file:///,g")
   [[ "${result}" == *"file://wsl.localhost/TestDistro/tmp/test"* ]]
+}
+
+@test "functions: osc8-rewrite sed converts /mnt/d/ to native Windows file URL" {
+  source "${REPO_ROOT}/dotenv/functions.sh"
+
+  local result
+  result=$(printf '\033]8;;file://myhost/mnt/d/projects/test\033\\hello\033]8;;\033\\\n' \
+    | command sed \
+      -e "s,\x1b]8;;file://[^/]*/mnt/\([a-z]\)/,\x1b]8;;__WSLDRV__/\U\1\E:/,g" \
+      -e "s,\x1b]8;;file://[^/]*/,\x1b]8;;file://wsl.localhost/TestDistro/,g" \
+      -e "s,__WSLDRV__/,file:///,g")
+  [[ "${result}" == *"file:///D:/projects/test"* ]]
+}
+
+@test "functions: osc8-rewrite sed does not double-rewrite Windows mount URLs" {
+  source "${REPO_ROOT}/dotenv/functions.sh"
+
+  local result
+  result=$(printf '\033]8;;file://myhost/mnt/c/Users/me\033\\hello\033]8;;\033\\\n' \
+    | command sed \
+      -e "s,\x1b]8;;file://[^/]*/mnt/\([a-z]\)/,\x1b]8;;__WSLDRV__/\U\1\E:/,g" \
+      -e "s,\x1b]8;;file://[^/]*/,\x1b]8;;file://wsl.localhost/TestDistro/,g" \
+      -e "s,__WSLDRV__/,file:///,g")
+  [[ "${result}" == *"file:///C:/Users/me"* ]]
+  [[ "${result}" != *"wsl.localhost"* ]]
 }
 
 @test "functions: parallel-xargs requires a command" {

@@ -40,7 +40,7 @@ Notes:
 | `direnv` | [`plugins/00-direnv.sh`](./plugins/00-direnv.sh) | Silent log format and automatic `direnv hook bash` loading |
 | `docker` / `podman` | [`plugins/80-podman.sh`](./plugins/80-podman.sh), [`plugins/90-docker.sh`](./plugins/90-docker.sh) | Compatibility wrappers, history filtering, and Compose timeout defaults |
 | `eza` | [`plugins/10-eza.sh`](./plugins/10-eza.sh), [`config/eza/`](./config/eza) | Replaces list aliases, adds `lt`, and links a Solarized theme into `~/.config/eza/theme.yml` |
-| `fd` | [`plugins/10-fd.sh`](./plugins/10-fd.sh) | Adds `findhere`, with automatic `fdfind` fallback on Debian-family systems |
+| `fd` | [`plugins/10-fd.sh`](./plugins/10-fd.sh) | Aliases `fd` with `--hyperlink=auto`, adds `findhere`, with automatic `fdfind` fallback on Debian-family systems |
 | `fzf` | [`plugins/10-fzf.sh`](./plugins/10-fzf.sh) | Reverse layout, 40% height, border, inline info, history scoring, `fd`-backed file and directory pickers, previews via `bat` and `tree` when available |
 | `jq` | [`plugins/10-jq.sh`](./plugins/10-jq.sh) | Themed `JQ_COLORS` |
 | `gh`, `helm`, `kubectl`, `npm`, `podman` | [`plugins/30-gh.sh`](./plugins/30-gh.sh), [`plugins/10-helm.sh`](./plugins/10-helm.sh), [`plugins/10-kubectl.sh`](./plugins/10-kubectl.sh), [`plugins/30-npm.sh`](./plugins/30-npm.sh), [`plugins/80-podman.sh`](./plugins/80-podman.sh) | Cached completion setup |
@@ -119,7 +119,7 @@ Unless noted otherwise, everything in this section requires `DOT_INCLUDE_BUILTIN
 | `cd` | [`plugins/00-cd.sh`](./plugins/00-cd.sh) | replaces `cd` with a directory-stack-aware version; `cd --` shows `dirs -v`, `cd -N` jumps to a stack entry, and the stack keeps the current directory plus up to 10 previous entries |
 | `cdnvm` | [`plugins/20-nvm.sh`](./plugins/20-nvm.sh), `nvm` installed | `chpwd` helper that auto-runs `nvm use` based on `.nvmrc` or the default alias |
 | `docker`, `docker-compose` | [`plugins/80-podman.sh`](./plugins/80-podman.sh) and/or [`plugins/90-docker.sh`](./plugins/90-docker.sh) | wrapper functions/aliases that prefer Docker when a daemon is available, otherwise Podman; `docker-compose` also falls back to `docker compose` when needed |
-| `fd` | [`plugins/10-fd.sh`](./plugins/10-fd.sh), `fdfind` but not `fd` | alias `fd` to `fdfind` |
+| `fd` | [`plugins/10-fd.sh`](./plugins/10-fd.sh), `fd` or `fdfind` with `--hyperlink` support | alias `fd` to `{fd,fdfind} --hyperlink=auto`; falls back to plain `fdfind` alias when hyperlinks are unsupported |
 | `findhere` | [`plugins/10-fd.sh`](./plugins/10-fd.sh), `fd` or `fdfind` | run the configured fd command with `--hidden --follow` in the current tree |
 | `kc` | [`plugins/10-kubectl.sh`](./plugins/10-kubectl.sh), `kubectl` | alias to `kubectl` with lazy completion |
 | `less` | [`plugins/10-less.sh`](./plugins/10-less.sh) | alias to `less -FRX` |

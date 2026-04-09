@@ -125,7 +125,7 @@ DOT_SUDO_PS1_SEGMENTS=(exit_status bg_jobs time user session_host workdir)
 | `loadavg` | 1-minute load average with color gradient |
 | `user` | current username |
 | `session_host` | session type symbol and hostname (or tmux/screen session) |
-| `workdir` | current directory basename with non-writable marker |
+| `workdir` | current directory basename with non-writable marker; wrapped in an OSC 8 `file://` hyperlink when supported (suppressed over SSH without a VS Code-family terminal, and when `DOT_DISABLE_HYPERLINKS` is set) |
 | `dirinfo` | directory file count and total size |
 | `git` | git branch, dirty state, stash, and upstream info |
 | `exec_time` | last command execution time |

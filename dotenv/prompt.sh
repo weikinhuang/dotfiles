@@ -57,6 +57,36 @@ case "$TERM" in
     ;;
 esac
 
+# OSC 8 hyperlink for the workdir segment.  Updated on each prompt so the
+# URL reflects the current $PWD.  On WSL, paths under /mnt/[a-z]/ are
+# converted to native Windows file:// URLs (file:///D:/...) since
+# file://wsl.localhost/.../mnt/d/... gets access denied for Windows mounts.
+__dot_ps1_osc8_dir_enabled=""
+if [[ -z "${DOT_DISABLE_HYPERLINKS:-}" ]]; then
+  if [[ -z "${DOT___IS_SSH:-}" ]] || [[ -n "${__dot_hyperlink_scheme}" ]]; then
+    __dot_ps1_osc8_dir_enabled=1
+  fi
+fi
+
+__dot_ps1_workdir_osc8_start=""
+__dot_ps1_workdir_osc8_end=""
+function internal::ps1-workdir-osc8-update() {
+  [[ -n "${__dot_ps1_osc8_dir_enabled}" ]] || return 0
+  local url
+  if [[ -n "${DOT___IS_WSL:-}" ]] && [[ "$PWD" == /mnt/[a-z]/* ]]; then
+    local drive="${PWD:5:1}"
+    url="file:///${drive^}:${PWD:6}"
+  elif [[ -n "${DOT___IS_WSL:-}" ]] && [[ -n "${WSL_DISTRO_NAME:-}" ]]; then
+    url="file://wsl.localhost/${WSL_DISTRO_NAME}${PWD}"
+  else
+    url="file://${HOSTNAME%%.*}${PWD}"
+  fi
+  __dot_ps1_workdir_osc8_start=$'\001\e]8;;'"${url}"$'\e\\\002'
+  __dot_ps1_workdir_osc8_end=$'\001\e]8;;\e\\\002'
+}
+internal::ps1-workdir-osc8-update
+internal::prompt-action-push internal::ps1-workdir-osc8-update
+
 # Terminal title -- computed once and cached, recomputed on rebuild
 function internal::ps1-resolve-title() {
   if [[ -n "${DOT_PS1_TITLE+x}" ]]; then
@@ -153,12 +183,14 @@ function internal::ps1-render-session_host() {
   echo "${grey}${__dot_ps1_session_type}${__dot_ps1_reset}${__dot_ps1_hostname_segment}${__dot_ps1_reset} "
 }
 
+# shellcheck disable=SC2016,SC2028
 # shellcheck disable=SC2016
 function internal::ps1-render-workdir() {
   local color no_write_sym
   internal::ps1-resolve-color DOT_PS1_COLOR_WORK_DIR '\[\e[38;5;142m\]' color
   no_write_sym="${DOT_PS1_SYMBOL_NO_WRITE_PWD:-*}"
-  echo "${color}"'$([[ ! -w "$PWD" ]] && echo -n "'"${no_write_sym}"'")'"\\W${__dot_ps1_reset}"
+  local rw_check='$([[ ! -w "$PWD" ]] && echo -n "'"${no_write_sym}"'")'
+  echo "${color}${rw_check}\${__dot_ps1_workdir_osc8_start}\\W\${__dot_ps1_workdir_osc8_end}${__dot_ps1_reset}"
 }
 
 function internal::ps1-render-dirinfo() {

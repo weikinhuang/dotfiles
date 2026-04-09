@@ -2,10 +2,12 @@
 # Define common shell functions for the dotfiles.
 # SPDX-License-Identifier: MIT
 
-# Rewrite file:// URLs in OSC 8 hyperlinks emitted by a command.  On WSL the
-# hostname is replaced with wsl.localhost so Windows apps (and the VS
-# Code/Cursor terminal) can resolve the path.  When stdout is not a terminal
-# the command runs directly with hyperlink flags stripped.
+# Rewrite file:// URLs in OSC 8 hyperlinks emitted by a command.  On WSL,
+# paths under /mnt/[a-z]/ are Windows drive mounts and are converted to
+# native Windows file:// URLs (file:///D:/...) since the wsl.localhost UNC
+# path gets access denied for these.  All other WSL paths use the
+# wsl.localhost authority so Windows apps can resolve them.  When stdout is
+# not a terminal the command runs directly with hyperlink flags stripped.
 function internal::osc8-rewrite() {
   if [[ ! -t 1 ]]; then
     local __dot_args=()
@@ -22,7 +24,10 @@ function internal::osc8-rewrite() {
 
   if [[ -n "${DOT___IS_WSL:-}" ]]; then
     COLUMNS="${COLUMNS:-80}" "$@" --color=always \
-      | command sed "s,\x1b]8;;file://[^/]*/,\x1b]8;;file://wsl.localhost/${WSL_DISTRO_NAME}/,g"
+      | command sed \
+        -e "s,\x1b]8;;file://[^/]*/mnt/\([a-z]\)/,\x1b]8;;__WSLDRV__/\U\1\E:/,g" \
+        -e "s,\x1b]8;;file://[^/]*/,\x1b]8;;file://wsl.localhost/${WSL_DISTRO_NAME}/,g" \
+        -e "s,__WSLDRV__/,file:///,g"
     return "${PIPESTATUS[0]}"
   else
     "$@"

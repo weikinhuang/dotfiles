@@ -38,6 +38,38 @@ setup() {
   assert_line --index 3 "d"
 }
 
+@test "10-fd: aliases fd to fd --hyperlink=auto when fd supports hyperlinks" {
+  stub_command fd <<'STUB'
+#!/usr/bin/env bash
+if [[ "$1" == "-h" ]]; then
+  echo "  --hyperlink"
+  exit 0
+fi
+for arg in "$@"; do echo "$arg"; done
+STUB
+
+  source "${REPO_ROOT}/plugins/10-fd.sh"
+
+  [ "${DOTFILES__FD_COMMAND}" = "fd" ]
+  [ "$(alias fd)" = "alias fd='fd --hyperlink=auto'" ]
+}
+
+@test "10-fd: aliases fd to fdfind --hyperlink=auto when fdfind supports hyperlinks" {
+  stub_command fdfind <<'STUB'
+#!/usr/bin/env bash
+if [[ "$1" == "-h" ]]; then
+  echo "  --hyperlink"
+  exit 0
+fi
+for arg in "$@"; do echo "$arg"; done
+STUB
+
+  source "${REPO_ROOT}/plugins/10-fd.sh"
+
+  [ "${DOTFILES__FD_COMMAND}" = "fdfind" ]
+  [ "$(alias fd)" = "alias fd='fdfind --hyperlink=auto'" ]
+}
+
 @test "10-fd: enables hyperlinks over SSH when hyperlink scheme is set" {
   stub_command fd <<'STUB'
 #!/usr/bin/env bash
