@@ -296,7 +296,7 @@ internal::ps1-rebuild
 
 PS2="${DOT_PS2:-$'\xe2\x86\x92 '}"
 if [[ -z "${DOT_PS4+x}" ]]; then
-  PS4='+ ${BASH_SOURCE[0]:-shell}:${LINENO}${FUNCNAME[0]:+ ${FUNCNAME[0]}(): }'
+  PS4='+ ${BASH_SOURCE[0]:-shell}:${LINENO}${FUNCNAME[0]:+ ${FUNCNAME[0]}():} '
 else
   PS4="${DOT_PS4}"
 fi

@@ -40,6 +40,9 @@ EOF
 }
 
 @test "lazy.lua: bootstraps lazy.nvim with sanitized git config and tag-aware clone" {
+  if ! nvim --version | head -1 | grep -qE 'NVIM v0\.(1[0-9]|[2-9][0-9])|NVIM v[1-9]'; then
+    skip "requires nvim >= 0.10"
+  fi
   mkdir -p "${XDG_CONFIG_HOME}/nvim"
   ln -s "${REPO_ROOT}/config/vim/nvim-init.lua" "${XDG_CONFIG_HOME}/nvim/init.lua"
 
@@ -67,6 +70,9 @@ EOF
 }
 
 @test "lazy.lua: removes stale tree-sitter temp directories before setup" {
+  if ! nvim --version | head -1 | grep -qE 'NVIM v0\.(1[0-9]|[2-9][0-9])|NVIM v[1-9]'; then
+    skip "requires nvim >= 0.10"
+  fi
   mkdir -p "${XDG_CONFIG_HOME}/nvim"
   ln -s "${REPO_ROOT}/config/vim/nvim-init.lua" "${XDG_CONFIG_HOME}/nvim/init.lua"
 

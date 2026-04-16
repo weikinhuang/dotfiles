@@ -187,6 +187,8 @@ EOF
 
   [[ "${PS4}" == *'BASH_SOURCE'* ]]
   [[ "${PS4}" == *'LINENO'* ]]
+  # trailing space must be unconditional so commands without FUNCNAME are separated
+  [[ "${PS4}" == *' ' ]]
 }
 
 @test "prompt: DOT_PS4 override is honored" {
