@@ -43,11 +43,15 @@ fi
 OTHER_PROJECT_DIR="$1"
 OTHER_PROJECT_SHA="$2"
 
-if [[ ! -d "${OTHER_PROJECT_DIR}/.git" ]]; then
+# Resolve via rev-parse so worktrees (.git is a file) and bare repos both work.
+if ! OTHER_PROJECT_GIT_DIR="$(git -C "${OTHER_PROJECT_DIR}" rev-parse --git-dir 2>/dev/null)"; then
   exit 1
 fi
+if [[ "${OTHER_PROJECT_GIT_DIR}" != /* ]]; then
+  OTHER_PROJECT_GIT_DIR="${OTHER_PROJECT_DIR}/${OTHER_PROJECT_GIT_DIR}"
+fi
 
-if ! git --git-dir="${OTHER_PROJECT_DIR}/.git" cat-file -e "${OTHER_PROJECT_SHA}"; then
+if ! git --git-dir="${OTHER_PROJECT_GIT_DIR}" cat-file -e "${OTHER_PROJECT_SHA}"; then
   exit 1
 fi
 
@@ -59,7 +63,7 @@ if [[ "${1:-}" == '--' ]]; then
   shift
 fi
 
-git --git-dir="${OTHER_PROJECT_DIR}/.git" \
+git --git-dir="${OTHER_PROJECT_GIT_DIR}" \
   format-patch -k -1 --stdout \
   "${OTHER_PROJECT_SHA}" \
   -- "$@" \

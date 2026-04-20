@@ -33,14 +33,22 @@ fi
 DIRECTORY="$(readlink -f "${1}")"
 shift
 
-# shellcheck disable=SC2034
-inotifywait -mrs --timefmt '%s' --format '%T %e %w %f' \
+if [[ ! -d "${DIRECTORY}" ]]; then
+  echo "fswatch: '${DIRECTORY}' is not a directory" >&2
+  exit 1
+fi
+
+# Tab-delimited so watched paths with spaces survive the read.
+inotifywait -mrs --timefmt '%s' --format '%T	%e	%w	%f' \
   --event modify \
   --event move \
   --event create \
   --event delete \
   "${DIRECTORY}" \
-  | while IFS=' ' read -r time event rest; do
-    cd "${DIRECTORY}"
+  | while IFS=$'\t' read -r _ _ _ _; do
+    cd "${DIRECTORY}" || {
+      echo "fswatch: failed to chdir to ${DIRECTORY}" >&2
+      exit 1
+    }
     "$@"
   done

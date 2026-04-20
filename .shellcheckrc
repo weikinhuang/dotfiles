@@ -1,0 +1,22 @@
+# Project-wide defaults for ShellCheck.
+# SPDX-License-Identifier: MIT
+#
+# dev/lint.sh passes --source-path=SCRIPTDIR explicitly, but editors/IDEs
+# (vscode, nvim via null-ls, etc.) invoke `shellcheck` with no flags, so
+# we mirror the same source-resolution rules here. That way the warnings
+# a contributor sees inline match exactly what CI flags.
+#
+# Keep this file terse and well-commented: every directive you add here
+# is silently applied to every file shellcheck inspects, so new entries
+# should be justified and scoped with a comment.
+
+# Resolve `source ./foo.sh` relative to the directory of the script doing
+# the sourcing. Without this, shellcheck gives up with SC1090/SC1091 the
+# moment a plugin sources a sibling helper.
+source-path=SCRIPTDIR
+
+# Follow `source`/`.` directives across files so shellcheck can see names
+# defined elsewhere (e.g. helper functions in dotenv/functions.sh). Any
+# file that still can't be followed should use a per-line
+# `# shellcheck source=/dev/null` directive instead of turning this off.
+external-sources=true

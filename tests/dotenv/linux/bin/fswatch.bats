@@ -14,7 +14,7 @@ setup() {
 
   stub_command inotifywait <<EOF
 #!/usr/bin/env bash
-printf '1700000000 CREATE %s/ file.txt\n' "${WATCH_TARGET}"
+printf '1700000000\tCREATE\t%s/\tfile.txt\n' "${WATCH_TARGET}"
 EOF
 
   stub_command handler <<'EOF'
@@ -51,4 +51,24 @@ EOF
   run bash "${SCRIPT}" "${WATCH_LINK}" handler
   assert_failure
   [[ "${status}" -eq 7 ]]
+}
+
+@test "fswatch: handles watched directories with spaces in the path" {
+  local spaced_dir="${BATS_TEST_TMPDIR}/dir with space"
+  mkdir -p "${spaced_dir}"
+
+  stub_command inotifywait <<EOF
+#!/usr/bin/env bash
+printf '1700000000\tCREATE\t%s/\tfile.txt\n' "${spaced_dir}"
+EOF
+
+  run bash "${SCRIPT}" "${spaced_dir}" handler
+  assert_success
+  assert_line "PWD=${spaced_dir}"
+}
+
+@test "fswatch: fails fast when the target directory does not exist" {
+  run bash "${SCRIPT}" "${BATS_TEST_TMPDIR}/does-not-exist" handler
+  assert_failure
+  assert_output --partial "is not a directory"
 }

@@ -123,7 +123,11 @@ function gz-size() {
 
 # Create a new directory and enter it
 function md() {
-  mkdir -p "$@" && cd "$@" || return 1
+  if [[ $# -ne 1 ]]; then
+    echo "md: expected exactly one directory argument, got $#" >&2
+    return 2
+  fi
+  mkdir -p "$1" && cd "$1" || return 1
 }
 
 # Git's colored diff (avoids overriding system diff)
@@ -203,7 +207,8 @@ function uc() {
 
 # regex match and replace from: https://gist.github.com/opsb/4409156
 function regex() {
-  gawk "match(\$0, /${1}/, ary) { print ary[${2:-0}] }"
+  # -v passes pattern/index as runtime strings; inlining them allows code injection.
+  gawk -v pat="${1}" -v idx="${2:-0}" 'match($0, pat, ary) { print ary[idx] }'
 }
 
 # binary diff

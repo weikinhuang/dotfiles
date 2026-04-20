@@ -16,6 +16,7 @@ RUN set -ex \
         shellcheck \
         shfmt \
         # used by tests (skip-guarded)
+        gawk \
         neovim \
         nodejs \
         perl \

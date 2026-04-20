@@ -25,7 +25,9 @@
  *                               default: false
  *   -p, --pidfile FILE        Path to the pid file for the server.
  *                               default: ~/.config/clipboard-server/clipboard-server.pid
- *   -s, --socket FILE|PORT    A port number or path to the socket file location
+ *   -s, --socket FILE|PORT    A port number or path to the socket file location.
+ *                               TCP ports are always bound to 127.0.0.1 only;
+ *                               use an SSH -R tunnel for remote access.
  *                               default: ~/.config/clipboard-server/clipboard-server.sock
  *
  * Using over SSH
@@ -305,6 +307,10 @@ async function server({ socket, enablePaste, notify }) {
 
   const server = http.createServer({});
   server.on("error", (err) => console.error(err));
+  // API is unauthenticated; bind TCP to loopback and require an SSH -R tunnel for remote access.
+  const listen = socketIsFile(socket)
+    ? [socket]
+    : [{ port: parseInt(socket, 10), host: "127.0.0.1" }];
   server.on("request", async (req, res) => {
     try {
       switch (req.url) {
@@ -327,7 +333,7 @@ async function server({ socket, enablePaste, notify }) {
             }
             res.setHeader("content-type", "text/plain");
             res.statusCode = 200;
-            await setClipboard(req, res);
+            await setClipboard(req);
             res.end();
           } else {
             throw new Error("Unknown request method");
@@ -350,7 +356,7 @@ async function server({ socket, enablePaste, notify }) {
       res.end();
     }
   });
-  server.listen(socket, () => console.log("ready"));
+  server.listen(...listen, () => console.log("ready"));
 }
 
 function help() {
@@ -372,7 +378,8 @@ Options:
   -n, --notify               show a notification when the clipboard is accessed
   -p, --pidfile FILE         write the background server PID to FILE
                                default: ~/.config/clipboard-server/clipboard-server.pid
-  -s, --socket FILE|PORT     listen on FILE or TCP PORT
+  -s, --socket FILE|PORT     listen on FILE or TCP PORT (TCP binds to 127.0.0.1
+                               only; tunnel via SSH -R for remote access)
                                default: ~/.config/clipboard-server/clipboard-server.sock
   -h, --help                 display this help and exit
 

@@ -116,3 +116,33 @@ EOF
   assert_output "clipboard from stub"
   wait_for_notification "Clipboard read"
 }
+
+@test "clipboard-server: TCP mode binds to 127.0.0.1 only" {
+  [[ -r /proc/net/tcp ]] || skip "/proc/net/tcp not readable in test environment"
+
+  local port hex_port
+  port="$(shuf -i 29000-29999 -n 1)"
+  # /proc/net/tcp IP is little-endian hex: 127.0.0.1 -> 0100007F, 0.0.0.0 -> 00000000.
+  hex_port="$(printf '%04X' "${port}")"
+
+  "${NODE_BIN}" "${SCRIPT}" server --socket "${port}" >"${BATS_TEST_TMPDIR}/server.log" 2>&1 &
+  SERVER_PID=$!
+
+  local ready=
+  for _ in {1..50}; do
+    if curl -sS "http://127.0.0.1:${port}/ping" >/dev/null 2>&1; then
+      ready=1
+      break
+    fi
+    sleep 0.1
+  done
+  if [[ -z "${ready}" ]]; then
+    cat "${BATS_TEST_TMPDIR}/server.log" >&2
+    return 1
+  fi
+
+  run bash -c "grep -qE ' 0100007F:${hex_port} ' /proc/net/tcp"
+  assert_success
+  run bash -c "grep -qE ' 00000000:${hex_port} ' /proc/net/tcp"
+  assert_failure
+}

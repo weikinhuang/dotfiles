@@ -7,5 +7,3 @@ function cmd0() {
   cmd.exe /c "$@" | sed 's/\r$//'
   return "${PIPESTATUS[0]}"
 }
-
-

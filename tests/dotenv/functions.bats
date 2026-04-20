@@ -190,3 +190,58 @@ EOF
   assert_success
   [[ "${output}" =~ ^[0-9]{10,}$ ]]
 }
+
+@test "functions: regex extracts the full match by default" {
+  command -v gawk &>/dev/null || skip "gawk not available"
+  run bash -c 'source "$1"; echo "abc123def" | regex "[0-9]+"' _ "${REPO_ROOT}/dotenv/functions.sh"
+  assert_success
+  assert_output "123"
+}
+
+@test "functions: regex extracts a specific capture group" {
+  command -v gawk &>/dev/null || skip "gawk not available"
+  run bash -c 'source "$1"; echo "abc123def" | regex "([a-z]+)([0-9]+)" 2' _ "${REPO_ROOT}/dotenv/functions.sh"
+  assert_success
+  assert_output "123"
+}
+
+@test "functions: regex does not evaluate awk code embedded in the pattern" {
+  command -v gawk &>/dev/null || skip "gawk not available"
+  run bash -c 'source "$1"; echo "nothing" | regex "foo/; BEGIN { print \"PWN\" }; /"' \
+    _ "${REPO_ROOT}/dotenv/functions.sh"
+  refute_output --partial "PWN"
+}
+
+@test "functions: regex handles patterns containing forward slashes" {
+  command -v gawk &>/dev/null || skip "gawk not available"
+  run bash -c 'source "$1"; echo "path/to/file.txt" | regex "path/[a-z]+/[a-z]+[.]txt"' \
+    _ "${REPO_ROOT}/dotenv/functions.sh"
+  assert_success
+  assert_output "path/to/file.txt"
+}
+
+@test "functions: md creates and enters a single directory" {
+  cd "${BATS_TEST_TMPDIR}"
+  run bash -c 'source "$1"; md "$2" && pwd' _ "${REPO_ROOT}/dotenv/functions.sh" "new-dir"
+  assert_success
+  [[ "${output}" == *"/new-dir" ]] || {
+    echo "expected pwd to end with /new-dir, got: ${output}" >&2
+    return 1
+  }
+  [[ -d "${BATS_TEST_TMPDIR}/new-dir" ]]
+}
+
+@test "functions: md rejects being called with multiple directories" {
+  cd "${BATS_TEST_TMPDIR}"
+  run bash -c 'source "$1"; md "$2" "$3"' _ "${REPO_ROOT}/dotenv/functions.sh" "a" "b"
+  assert_failure
+  assert_output --partial "md: expected exactly one directory argument"
+  [[ ! -e "${BATS_TEST_TMPDIR}/a" ]]
+  [[ ! -e "${BATS_TEST_TMPDIR}/b" ]]
+}
+
+@test "functions: md rejects being called with no arguments" {
+  run bash -c 'source "$1"; md' _ "${REPO_ROOT}/dotenv/functions.sh"
+  assert_failure
+  assert_output --partial "md: expected exactly one directory argument"
+}

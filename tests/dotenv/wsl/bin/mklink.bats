@@ -65,7 +65,27 @@ EOF
 @test "mklink: errors when a single bare target does not include a link name" {
   run bash "${SCRIPT}" target.txt
   assert_failure
-  assert_output "Missing link name"
+  assert_output --partial "mklink: missing LINK_NAME"
+  assert_output --partial "target.txt"
+}
+
+@test "mklink: errors when no target at all is provided" {
+  run bash "${SCRIPT}"
+  assert_failure
+  assert_output --partial "mklink: missing TARGET argument"
+}
+
+@test "mklink: errors on more than two positional arguments" {
+  run bash "${SCRIPT}" a b c
+  assert_failure
+  assert_output --partial "mklink: too many arguments"
+  assert_output --partial "got 3"
+}
+
+@test "mklink: errors on unknown flags" {
+  run bash "${SCRIPT}" --nope
+  assert_failure
+  assert_output --partial "mklink: unknown option '--nope'"
 }
 
 @test "mklink: junction links add the /j flag" {
@@ -81,7 +101,7 @@ EOF
 @test "mklink: rejects WSL-backed targets" {
   run bash "${SCRIPT}" /wsl/share/file.txt link.txt
   assert_failure
-  assert_output "target cannot be a WSL file"
+  assert_output --partial "TARGET '/wsl/share/file.txt' is on the WSL filesystem"
 }
 
 @test "mklink: rejects WSL-backed link destinations" {
@@ -90,5 +110,5 @@ EOF
 
   run bash "${SCRIPT}" "${target_file}" /wsl/share/link.txt
   assert_failure
-  assert_output "target cannot be a WSL file"
+  assert_output --partial "LINK_NAME '/wsl/share/link.txt' is on the WSL filesystem"
 }

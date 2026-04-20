@@ -41,3 +41,27 @@ EOF
   assert_failure
   assert_output --partial "missing value for --length"
 }
+
+@test "genpasswd: non-numeric --length is rejected" {
+  run bash "${SCRIPT}" --length abc
+  assert_failure
+  assert_output --partial "invalid length 'abc'"
+}
+
+@test "genpasswd: zero --length is rejected" {
+  run bash "${SCRIPT}" --length 0
+  assert_failure
+  assert_output --partial "invalid length '0'"
+}
+
+@test "genpasswd: negative --length is rejected" {
+  run bash "${SCRIPT}" --length=-5
+  assert_failure
+  assert_output --partial "invalid length '-5'"
+}
+
+@test "genpasswd: length exceeding 4096 is rejected" {
+  run bash "${SCRIPT}" --length 5000
+  assert_failure
+  assert_output --partial "exceeds the 4096-character maximum"
+}

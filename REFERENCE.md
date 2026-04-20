@@ -631,6 +631,8 @@ clipboard-server start
 # default socket: ~/.config/clipboard-server/clipboard-server.sock
 ```
 
+The HTTP API is unauthenticated by design. When `--socket` is a TCP port, the server binds to `127.0.0.1` only; always reach it from another host through an SSH `-R` tunnel rather than exposing the port directly.
+
 To forward that socket over SSH as a TCP port:
 
 ```bash

@@ -57,3 +57,18 @@ create_source_and_dest_repos() {
   assert_success
   assert_output "add picked files"
 }
+
+@test "git-cherry-pick-from: accepts a git worktree as the source repo" {
+  create_source_and_dest_repos
+
+  local source_worktree="${BATS_TEST_TMPDIR}/source-worktree"
+  git -C "${SOURCE_REPO}" worktree add "${source_worktree}" "${PICKED_SHA}" >/dev/null
+
+  [[ -f "${source_worktree}/.git" ]]
+
+  cd "${DEST_REPO}"
+  run bash "${SCRIPT}" "${source_worktree}" "${PICKED_SHA}" -- picked.txt
+  assert_success
+  [[ -f picked.txt ]]
+  [[ ! -e skipped.txt ]]
+}
