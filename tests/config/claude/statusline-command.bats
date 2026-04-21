@@ -210,6 +210,41 @@ write_statusline_payload_with_transcript() {
 EOF
 }
 
+write_statusline_payload_with_worktree() {
+  local cwd="$1"
+  local worktree_name="$2"
+  PAYLOAD="${BATS_TEST_TMPDIR}/payload.json"
+
+  cat >"${PAYLOAD}" <<EOF
+{
+  "cwd": "${cwd}",
+  "model": { "display_name": "Opus" },
+  "workspace": {
+    "current_dir": "${cwd}",
+    "git_worktree": "${worktree_name}"
+  }
+}
+EOF
+}
+
+@test "statusline-command: shows worktree marker when workspace.git_worktree is set" {
+  create_statusline_repo
+  write_statusline_payload_with_worktree "${TEST_REPO}" "feat-statusline"
+
+  run env SCRIPT="${SCRIPT}" PAYLOAD="${PAYLOAD}" bash -c 'bash "${SCRIPT}" < "${PAYLOAD}"'
+  assert_success
+  assert_output --partial "⎇ feat-statusline"
+}
+
+@test "statusline-command: omits worktree marker when workspace.git_worktree is absent" {
+  create_statusline_repo
+  write_statusline_payload "${TEST_REPO}"
+
+  run env SCRIPT="${SCRIPT}" PAYLOAD="${PAYLOAD}" bash -c 'bash "${SCRIPT}" < "${PAYLOAD}"'
+  assert_success
+  [[ "${output}" != *"⎇"* ]]
+}
+
 @test "statusline-command: emits cumulative subagent tokens from subagents directory" {
   create_statusline_repo
   local transcript_path="${BATS_TEST_TMPDIR}/session.jsonl"

@@ -11,6 +11,7 @@ USER_COLOR='\e[38;5;197m'
 HOST_COLOR='\e[38;5;208m'
 DIR_COLOR='\e[38;5;142m'
 GIT_COLOR='\e[38;5;135m'
+WORKTREE_COLOR='\e[38;5;173m'
 CONTEXT_COLOR='\e[38;5;035m'
 TOKEN_COLOR='\e[38;5;245m'
 AGENT_TOKEN_COLOR='\e[38;5;109m'
@@ -169,10 +170,10 @@ sum_main_session_usage() {
 main() {
   local input
   local cwd model remaining input_tokens cached_tokens output_tokens
-  local total_input_tokens total_output_tokens cost_usd transcript_path
+  local total_input_tokens total_output_tokens cost_usd transcript_path worktree_name
   local agent_count agent_in agent_cached agent_out
   local session_in session_cached session_out
-  local short_cwd git_branch ctx_part cost_part token_part agent_token_part session_token_part
+  local short_cwd git_branch worktree_part ctx_part cost_part token_part agent_token_part session_token_part
   local in_fmt cached_fmt out_fmt total_in_fmt total_out_fmt
   local agent_in_fmt agent_cached_fmt agent_out_fmt
   local session_in_fmt session_cached_fmt session_out_fmt
@@ -191,12 +192,19 @@ main() {
   total_output_tokens=$(jq -r '.context_window.total_output_tokens // empty' <<<"${input}")
   cost_usd=$(jq -r '.cost.total_cost_usd // empty' <<<"${input}")
   transcript_path=$(jq -r '.transcript_path // empty' <<<"${input}")
+  # Prefer workspace.git_worktree since it covers any linked worktree, not just --worktree sessions.
+  worktree_name=$(jq -r '.workspace.git_worktree // .worktree.name // empty' <<<"${input}")
 
   # Just the directory name, not the full path.
   short_cwd="${cwd##*/}"
 
   # Reuse git-prompt.sh so branch flags match the interactive PS1 prompt.
   git_branch="$(format_git_segment "${cwd}")"
+
+  worktree_part=""
+  if [[ -n "${worktree_name}" ]]; then
+    worktree_part=" ⎇ ${worktree_name}"
+  fi
 
   # Context remaining.
   ctx_part=""
@@ -275,6 +283,7 @@ main() {
     print_colored_text "${DIR_COLOR}" "${short_cwd}"
   fi
   print_colored_text "${GIT_COLOR}" "${git_branch}"
+  print_colored_text "${WORKTREE_COLOR}" "${worktree_part}"
   print_colored_text "${CONTEXT_COLOR}" "${ctx_part}"
   print_colored_text "${TOKEN_COLOR}" "${token_part}"
   print_colored_text "${AGENT_TOKEN_COLOR}" "${agent_token_part}"
