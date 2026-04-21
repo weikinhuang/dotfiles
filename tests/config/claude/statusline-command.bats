@@ -166,6 +166,104 @@ EOF
   [[ "${output}" != *'wsl.localhost'* ]]
 }
 
+write_subagent_transcripts() {
+  local subagent_dir="$1"
+  mkdir -p "${subagent_dir}"
+
+  cat >"${subagent_dir}/agent-aaa.jsonl" <<'EOF'
+{"type":"user","message":{"role":"user","content":"hi"}}
+{"type":"assistant","message":{"role":"assistant","usage":{"input_tokens":100,"cache_creation_input_tokens":3000,"cache_read_input_tokens":50,"output_tokens":25}}}
+{"type":"assistant","message":{"role":"assistant","usage":{"input_tokens":200,"cache_creation_input_tokens":0,"cache_read_input_tokens":1500,"output_tokens":75}}}
+EOF
+
+  cat >"${subagent_dir}/agent-bbb.jsonl" <<'EOF'
+{"type":"assistant","message":{"role":"assistant","usage":{"input_tokens":700,"cache_creation_input_tokens":5000,"cache_read_input_tokens":450,"output_tokens":900}}}
+EOF
+
+  # Sibling meta file that must be ignored by the glob.
+  echo '{"agentType":"x"}' >"${subagent_dir}/agent-aaa.meta.json"
+}
+
+write_statusline_payload_with_transcript() {
+  local cwd="$1"
+  local transcript_path="$2"
+  PAYLOAD="${BATS_TEST_TMPDIR}/payload.json"
+
+  cat >"${PAYLOAD}" <<EOF
+{
+  "cwd": "${cwd}",
+  "model": { "display_name": "Opus" },
+  "workspace": { "current_dir": "${cwd}" },
+  "transcript_path": "${transcript_path}",
+  "cost": { "total_cost_usd": 0.01234 },
+  "context_window": {
+    "total_input_tokens": 15234567,
+    "total_output_tokens": 4521,
+    "remaining_percentage": 92,
+    "current_usage": {
+      "input_tokens": 8500,
+      "output_tokens": 1200,
+      "cache_read_input_tokens": 2000
+    }
+  }
+}
+EOF
+}
+
+@test "statusline-command: emits cumulative subagent tokens from subagents directory" {
+  create_statusline_repo
+  local transcript_path="${BATS_TEST_TMPDIR}/session.jsonl"
+  : >"${transcript_path}"
+  write_subagent_transcripts "${BATS_TEST_TMPDIR}/session/subagents"
+  write_statusline_payload_with_transcript "${TEST_REPO}" "${transcript_path}"
+
+  run env SCRIPT="${SCRIPT}" PAYLOAD="${PAYLOAD}" bash -c 'bash "${SCRIPT}" < "${PAYLOAD}"'
+  assert_success
+  # 2 subagent files; input (incl. cache_creation): (100+3000)+(200+0)+(700+5000)=9000 (9k)
+  # cache_read: 50+1500+450=2000 (2k); output: 25+75+900=1000 (1k)
+  assert_output --partial "A(2):↑9k/↻ 2k/↓1k"
+}
+
+@test "statusline-command: derives session totals (incl. cache read) from the main transcript" {
+  create_statusline_repo
+  local transcript_path="${BATS_TEST_TMPDIR}/session.jsonl"
+  cat >"${transcript_path}" <<'EOF'
+{"type":"user","message":{"role":"user","content":"hi"}}
+{"type":"assistant","message":{"role":"assistant","usage":{"input_tokens":50,"cache_creation_input_tokens":2000,"cache_read_input_tokens":10000,"output_tokens":500}}}
+{"type":"assistant","message":{"role":"assistant","usage":{"input_tokens":150,"cache_creation_input_tokens":0,"cache_read_input_tokens":25000,"output_tokens":1500}}}
+EOF
+  write_statusline_payload_with_transcript "${TEST_REPO}" "${transcript_path}"
+
+  run env SCRIPT="${SCRIPT}" PAYLOAD="${PAYLOAD}" bash -c 'bash "${SCRIPT}" < "${PAYLOAD}"'
+  assert_success
+  # input (incl. cache_creation): (50+2000)+(150+0)=2200 (2k)
+  # cache_read: 10000+25000=35000 (35k); output: 500+1500=2000 (2k)
+  assert_output --partial "S:2k↑/35k↻/2k↓"
+  # Fallback JSON totals must NOT appear when transcript-derived totals are emitted.
+  [[ "${output}" != *"15.23M"* ]]
+}
+
+@test "statusline-command: falls back to JSON session totals when transcript is absent" {
+  create_statusline_repo
+  write_statusline_payload "${TEST_REPO}"
+
+  run env SCRIPT="${SCRIPT}" PAYLOAD="${PAYLOAD}" bash -c 'bash "${SCRIPT}" < "${PAYLOAD}"'
+  assert_success
+  assert_output --partial "S:15.23M↑/4k↓"
+  [[ "${output}" != *"↻/"* ]]
+}
+
+@test "statusline-command: omits subagent segment when no subagent transcripts exist" {
+  create_statusline_repo
+  local transcript_path="${BATS_TEST_TMPDIR}/session.jsonl"
+  : >"${transcript_path}"
+  write_statusline_payload_with_transcript "${TEST_REPO}" "${transcript_path}"
+
+  run env SCRIPT="${SCRIPT}" PAYLOAD="${PAYLOAD}" bash -c 'bash "${SCRIPT}" < "${PAYLOAD}"'
+  assert_success
+  [[ "${output}" != *"A("* ]]
+}
+
 @test "statusline-command: fmt_si abbreviates plain, thousand, and million values" {
   export DOTFILES_ROOT="${REPO_ROOT}"
   source_without_main "${SCRIPT}"

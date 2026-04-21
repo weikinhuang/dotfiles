@@ -13,6 +13,7 @@ DIR_COLOR='\e[38;5;142m'
 GIT_COLOR='\e[38;5;135m'
 CONTEXT_COLOR='\e[38;5;035m'
 TOKEN_COLOR='\e[38;5;245m'
+AGENT_TOKEN_COLOR='\e[38;5;109m'
 SESSION_TOKEN_COLOR='\e[38;5;179m'
 COST_COLOR='\e[38;5;108m'
 MODEL_COLOR='\e[38;5;033m'
@@ -125,12 +126,56 @@ fmt_si() {
   fi
 }
 
+sum_usage_from_files() {
+  jq -s -r '
+    [ .[]
+      | select(type == "object" and .type == "assistant" and (.message.usage // null) != null)
+      | .message.usage ]
+    | [ (map((.input_tokens // 0) + (.cache_creation_input_tokens // 0)) | add // 0),
+        (map(.cache_read_input_tokens // 0) | add // 0),
+        (map(.output_tokens // 0) | add // 0) ]
+    | @tsv
+  ' "$@" 2>/dev/null
+}
+
+sum_subagent_usage() {
+  local transcript_path="$1"
+  local subagent_dir files count totals
+
+  [[ -n "${transcript_path}" ]] || return 0
+
+  subagent_dir="${transcript_path%.jsonl}/subagents"
+  [[ -d "${subagent_dir}" ]] || return 0
+
+  # Collect only subagent assistant messages (.meta.json siblings are ignored).
+  shopt -s nullglob
+  files=("${subagent_dir}"/agent-*.jsonl)
+  shopt -u nullglob
+  count="${#files[@]}"
+  ((count > 0)) || return 0
+
+  totals=$(sum_usage_from_files "${files[@]}") || return 0
+  printf '%s\t%s\n' "${count}" "${totals}"
+}
+
+sum_main_session_usage() {
+  local transcript_path="$1"
+
+  [[ -n "${transcript_path}" && -f "${transcript_path}" ]] || return 0
+
+  sum_usage_from_files "${transcript_path}"
+}
+
 main() {
   local input
   local cwd model remaining input_tokens cached_tokens output_tokens
-  local total_input_tokens total_output_tokens cost_usd
-  local short_cwd git_branch ctx_part cost_part token_part session_token_part
+  local total_input_tokens total_output_tokens cost_usd transcript_path
+  local agent_count agent_in agent_cached agent_out
+  local session_in session_cached session_out
+  local short_cwd git_branch ctx_part cost_part token_part agent_token_part session_token_part
   local in_fmt cached_fmt out_fmt total_in_fmt total_out_fmt
+  local agent_in_fmt agent_cached_fmt agent_out_fmt
+  local session_in_fmt session_cached_fmt session_out_fmt
   local user host
 
   input=$(cat)
@@ -138,12 +183,14 @@ main() {
   cwd=$(jq -r '.workspace.current_dir // .cwd // ""' <<<"${input}")
   model=$(jq -r '.model.display_name // ""' <<<"${input}")
   remaining=$(jq -r '.context_window.remaining_percentage // empty' <<<"${input}")
-  input_tokens=$(jq -r '.context_window.current_usage.input_tokens // empty' <<<"${input}")
+  # Fold cache_creation into the input arrow so cached-first turns show realistic input weight.
+  input_tokens=$(jq -r '((.context_window.current_usage.input_tokens // 0) + (.context_window.current_usage.cache_creation_input_tokens // 0)) as $n | if .context_window.current_usage == null then empty else $n end' <<<"${input}")
   cached_tokens=$(jq -r '.context_window.current_usage.cache_read_input_tokens // empty' <<<"${input}")
   output_tokens=$(jq -r '.context_window.current_usage.output_tokens // empty' <<<"${input}")
   total_input_tokens=$(jq -r '.context_window.total_input_tokens // empty' <<<"${input}")
   total_output_tokens=$(jq -r '.context_window.total_output_tokens // empty' <<<"${input}")
   cost_usd=$(jq -r '.cost.total_cost_usd // empty' <<<"${input}")
+  transcript_path=$(jq -r '.transcript_path // empty' <<<"${input}")
 
   # Just the directory name, not the full path.
   short_cwd="${cwd##*/}"
@@ -172,9 +219,31 @@ main() {
     token_part=" M:↑${in_fmt}/↻ ${cached_fmt}/↓${out_fmt}"
   fi
 
-  # Cumulative session token totals.
+  # Cumulative subagent token totals, excluding main-agent usage.
+  agent_token_part=""
+  if [[ -n "${transcript_path}" ]]; then
+    IFS=$'\t' read -r agent_count agent_in agent_cached agent_out < <(sum_subagent_usage "${transcript_path}") || true
+    if [[ -n "${agent_count:-}" ]] && ((agent_count > 0)); then
+      agent_in_fmt=$(fmt_si "${agent_in:-0}")
+      agent_cached_fmt=$(fmt_si "${agent_cached:-0}")
+      agent_out_fmt=$(fmt_si "${agent_out:-0}")
+      agent_token_part=" A(${agent_count}):↑${agent_in_fmt}/↻ ${agent_cached_fmt}/↓${agent_out_fmt}"
+    fi
+  fi
+
+  # Cumulative session token totals. Prefer transcript-derived numbers so we can
+  # surface cache read alongside input/output; fall back to JSON totals otherwise.
   session_token_part=""
-  if [[ -n "${total_input_tokens}" ]]; then
+  if [[ -n "${transcript_path}" ]]; then
+    IFS=$'\t' read -r session_in session_cached session_out < <(sum_main_session_usage "${transcript_path}") || true
+    if [[ -n "${session_in:-}" ]] && ((session_in + session_cached + session_out > 0)); then
+      session_in_fmt=$(fmt_si "${session_in}")
+      session_cached_fmt=$(fmt_si "${session_cached}")
+      session_out_fmt=$(fmt_si "${session_out}")
+      session_token_part=" S:${session_in_fmt}↑/${session_cached_fmt}↻/${session_out_fmt}↓"
+    fi
+  fi
+  if [[ -z "${session_token_part}" && -n "${total_input_tokens}" ]]; then
     total_in_fmt=$(fmt_si "${total_input_tokens}")
     total_out_fmt=$(fmt_si "${total_output_tokens:-0}")
     session_token_part=" S:${total_in_fmt}↑/${total_out_fmt}↓"
@@ -208,6 +277,7 @@ main() {
   print_colored_text "${GIT_COLOR}" "${git_branch}"
   print_colored_text "${CONTEXT_COLOR}" "${ctx_part}"
   print_colored_text "${TOKEN_COLOR}" "${token_part}"
+  print_colored_text "${AGENT_TOKEN_COLOR}" "${agent_token_part}"
   print_colored_text "${SESSION_TOKEN_COLOR}" "${session_token_part}"
   if [[ -n "${cost_part}" ]] && [[ -z "${DOT_DISABLE_HYPERLINKS:-}" ]]; then
     printf ' '
