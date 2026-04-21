@@ -51,9 +51,11 @@ cd; mkdir -p ~/.dotfiles \
 | `--no-git`   | Skip setting up `.gitconfig`        |
 | `--no-vim`   | Skip setting up `.vimrc` and `.vim` |
 
-## [Reference for aliases, functions, and changes](./REFERENCE.md)
+## Reference
 
-See [REFERENCE.md](./REFERENCE.md) for all added commands, overrides, and changes to built-ins.
+- [**REFERENCE.md**](./REFERENCE.md) — canonical list of every alias, function, env var, and `git` subcommand added by these dotfiles.
+- [**PROMPT.md**](./PROMPT.md) — prompt format, symbols, and customization options.
+- [**TESTING.md**](./TESTING.md) — bats test framework, helpers, and writing conventions.
 
 ### High level overview
 
@@ -75,7 +77,7 @@ Examples:
 - `less` does not clear the screen upon exit and processes colors
 - the prompt can render git status when the git plugin is active
 
-## [The Bash Prompt](./PROMPT.md)
+## The Bash Prompt
 
 See [PROMPT.md](./PROMPT.md) for configuration options.
 

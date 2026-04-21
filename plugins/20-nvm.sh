@@ -31,6 +31,16 @@ export NVM_DIR
 # The default node version's bin dir is cached so node/npm/npx are on PATH
 # immediately without loading nvm.
 # ---------------------------------------------------------------------------
+
+# Values passed to internal::cache-write-atomic run through eval, so emit the
+# target path from a function instead of baking expanded vars into a command
+# string.  __dot_nvm_cache_target is set before each call.
+__dot_nvm_cache_target=
+# shellcheck disable=SC2329  # Invoked indirectly via internal::cache-write-atomic.
+internal::nvm-cache-emit-default-path() {
+  printf '%s' "${__dot_nvm_cache_target}"
+}
+
 __dot_nvm_cache_file="${DOTFILES__CONFIG_DIR}/cache/nvm_default_path"
 if [[ -s "${__dot_nvm_cache_file}" ]]; then
   __dot_nvm_cached_path=
@@ -49,8 +59,9 @@ else
   fi
   __dot_nvm_default_path_version="$(nvm version default 2>/dev/null)"
   if [[ -n "${__dot_nvm_default_path_version}" ]] && [[ "${__dot_nvm_default_path_version}" != "N/A" ]]; then
-    internal::path-push --prepend "${NVM_DIR}/versions/node/${__dot_nvm_default_path_version}/bin"
-    internal::cache-write-atomic "${__dot_nvm_cache_file}" "printf '%s' \"${NVM_DIR}/versions/node/${__dot_nvm_default_path_version}/bin\""
+    __dot_nvm_cache_target="${NVM_DIR}/versions/node/${__dot_nvm_default_path_version}/bin"
+    internal::path-push --prepend "${__dot_nvm_cache_target}"
+    internal::cache-write-atomic "${__dot_nvm_cache_file}" internal::nvm-cache-emit-default-path
   fi
   unset __dot_nvm_default_path_version
 fi
@@ -66,9 +77,10 @@ internal::nvm-lazy-load() {
   local ver
   ver="$(nvm version default 2>/dev/null)"
   if [[ -n "$ver" ]] && [[ "$ver" != "N/A" ]]; then
+    __dot_nvm_cache_target="${NVM_DIR}/versions/node/${ver}/bin"
     internal::cache-write-atomic \
       "${DOTFILES__CONFIG_DIR}/cache/nvm_default_path" \
-      "printf '%s' \"${NVM_DIR}/versions/node/${ver}/bin\""
+      internal::nvm-cache-emit-default-path
   fi
 }
 

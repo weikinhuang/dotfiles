@@ -119,9 +119,10 @@ internal::cached-eval() {
 internal::cache-write-atomic() {
   local cache_file="$1"
   local command_string="$2"
-  local tmp_file="${cache_file}.tmp.$$.$RANDOM"
+  local tmp_file
 
   mkdir -p "${cache_file%/*}" || return 1
+  tmp_file="$(mktemp "${cache_file}.XXXXXX")" || return 1
   if eval "${command_string}" >"${tmp_file}" 2>/dev/null; then
     mv -f "${tmp_file}" "${cache_file}"
     return 0

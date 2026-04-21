@@ -18,9 +18,18 @@ function internal::ssh-agent-start() {
     mkdir -m 0700 "${HOME}/.ssh" || return
   fi
 
-  if [[ -f "${ssh_agent_env}" ]]; then
+  # Only source a cached agent env when the caller has no agent yet.
+  # An existing SSH_AUTH_SOCK (agent forwarding, parent shell) must not be clobbered.
+  if [[ -z "${SSH_AUTH_SOCK:-}" ]] && [[ -f "${ssh_agent_env}" ]]; then
     # shellcheck source=/dev/null
     source "${ssh_agent_env}" >|/dev/null
+  fi
+
+  # Reject a sourced or inherited SSH_AUTH_SOCK that is stale or owned by
+  # another user on a shared host.
+  if [[ -n "${SSH_AUTH_SOCK:-}" ]] \
+    && { [[ ! -S "${SSH_AUTH_SOCK}" ]] || [[ ! -O "${SSH_AUTH_SOCK}" ]]; }; then
+    unset SSH_AUTH_SOCK SSH_AGENT_PID
   fi
 
   # agent_run_state: 0=agent running w/ key; 1=agent w/o key; 2= agent not running
@@ -29,7 +38,7 @@ function internal::ssh-agent-start() {
     echo $?
   )
 
-  if [ ! "${SSH_AUTH_SOCK}" ] || [ "${agent_run_state}" = 2 ]; then
+  if [ ! "${SSH_AUTH_SOCK:-}" ] || [ "${agent_run_state}" = 2 ]; then
     (
       umask 077
       ssh-agent >|"${ssh_agent_env}"
@@ -42,8 +51,12 @@ function internal::ssh-agent-start() {
   fi
 }
 
-# only start the agent if we don't already have a SSH_AUTH_SOCK
-if [[ -n "${DOT_AUTOLOAD_SSH_AGENT:-}" ]] && { [[ -z "${SSH_AUTH_SOCK:-}" ]] || [[ ! -e "${SSH_AUTH_SOCK:-}" ]]; } && command -v ssh-agent &>/dev/null; then
+# only start the agent if we don't already have a working SSH_AUTH_SOCK.  A
+# stale regular file left behind by a crashed agent would satisfy -e, so use
+# -S so we also attempt recovery in that case.
+if [[ -n "${DOT_AUTOLOAD_SSH_AGENT:-}" ]] \
+  && { [[ -z "${SSH_AUTH_SOCK:-}" ]] || [[ ! -S "${SSH_AUTH_SOCK:-}" ]]; } \
+  && command -v ssh-agent &>/dev/null; then
   internal::ssh-agent-start
   unset DOT_AUTOLOAD_SSH_AGENT
 fi
@@ -70,18 +83,28 @@ function internal::ssh-completion-refresh-cache() {
 
 # shellcheck disable=SC2329  # Invoked indirectly via internal::cache-write-atomic.
 function internal::ssh-completion-generate-cache() {
-  local line host
-  local -a ssh_hosts=()
+  local line host config_file
+  local -a ssh_hosts=() config_files=()
 
-  while IFS= read -r line; do
-    [[ "${line}" == Host\ * ]] || continue
-    [[ "${line}" == *no-complete* ]] && continue
-    set -f
-    for host in ${line#Host }; do
-      [[ "${host}" == *['?*']* ]] || ssh_hosts+=("${host}")
+  [[ -f "${HOME}/.ssh/config" ]] && config_files+=("${HOME}/.ssh/config")
+  if [[ -d "${HOME}/.ssh/config.d" ]]; then
+    # Filter with -f so a missing glob match doesn't reach cat as a literal path.
+    for config_file in "${HOME}"/.ssh/config.d/*; do
+      [[ -f "${config_file}" ]] && config_files+=("${config_file}")
     done
-    set +f
-  done < <(cat "${HOME}/.ssh/config" "${HOME}"/.ssh/config.d/* 2>/dev/null)
+  fi
+
+  if ((${#config_files[@]})); then
+    while IFS= read -r line; do
+      [[ "${line}" == Host\ * ]] || continue
+      [[ "${line}" == *no-complete* ]] && continue
+      set -f
+      for host in ${line#Host }; do
+        [[ "${host}" == *['?*']* ]] || ssh_hosts+=("${host}")
+      done
+      set +f
+    done < <(cat "${config_files[@]}")
+  fi
 
   if [[ -e "${HOME}/.ssh/known_hosts" ]]; then
     while IFS=', ' read -r host _; do

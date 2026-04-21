@@ -269,7 +269,17 @@ EOF
   assert_failure
 
   [ ! -e "${cache_file}" ]
-  [ "$(find "${DOTFILES__CONFIG_DIR}/cache" -maxdepth 1 -name 'failing.init.bash.tmp.*' | wc -l)" -eq 0 ]
+  [ "$(find "${DOTFILES__CONFIG_DIR}/cache" -maxdepth 1 -name 'failing.init.bash.*' | wc -l)" -eq 0 ]
+}
+
+@test "utils: cache-write-atomic writes the generator output atomically" {
+  local cache_file="${DOTFILES__CONFIG_DIR}/cache/ok.init.bash"
+
+  run internal::cache-write-atomic "${cache_file}" "printf '%s' hello-world"
+  assert_success
+
+  [ "$(cat "${cache_file}")" = "hello-world" ]
+  [ "$(find "${DOTFILES__CONFIG_DIR}/cache" -maxdepth 1 -name 'ok.init.bash.*' | wc -l)" -eq 0 ]
 }
 
 @test "utils: cache-write-atomic fails quietly when the cache directory cannot be created" {

@@ -35,8 +35,8 @@ fi
 if [[ "${1:-}" == "-C" ]]; then
   shift 2
   case "${1:-}" in
-    diff-index)
-      [[ -n "${BOOTSTRAP_GIT_DIRTY:-}" ]] && exit 1
+    status)
+      [[ -n "${BOOTSTRAP_GIT_DIRTY:-}" ]] && echo ' M tracked-file'
       exit 0
       ;;
     pull)
@@ -107,9 +107,27 @@ setup() {
   [ "$(readlink "${install_root}/.config/nvim/init.lua")" = "${install_root}/.dotfiles/config/vim/nvim-init.lua" ]
   [ ! -e "${install_root}/.vim/coc-settings.json" ]
   [ ! -e "${install_root}/.config/nvim/coc-settings.json" ]
-  [ "$(cat "${HOME}/.config/dotfiles/.install")" = $'DOTFILES__INSTALL_ROOT="'"${install_root}"$'"\nDOTFILES__INSTALL_VIMRC=1\nDOTFILES__INSTALL_GITCONFIG=1' ]
+  [ "$(cat "${HOME}/.config/dotfiles/.install")" = $'DOTFILES__INSTALL_ROOT='"$(printf '%q' "${install_root}")"$'\nDOTFILES__INSTALL_VIMRC=1\nDOTFILES__INSTALL_GITCONFIG=1' ]
   grep -Fx "clone https://github.com/weikinhuang/dotfiles ${install_root}/.dotfiles" "${BOOTSTRAP_GIT_LOG}"
   grep -F -- "--headless +Lazy! sync +qa" "${BOOTSTRAP_VIM_LOG}"
+}
+
+@test "bootstrap: install config round-trips through source safely when path contains quotes" {
+  local install_root="${BATS_TEST_TMPDIR}/inst \"quoted\" dir"
+  create_bootstrap_template_repo
+  stub_bootstrap_git
+  stub_bootstrap_editor
+
+  mkdir -p "${install_root}"
+
+  run env HOME="${HOME}" PATH="${MOCK_BIN}:${PATH}" bash "${REPO_ROOT}/bootstrap.sh" --dir "${install_root}"
+  assert_success
+
+  # Sourcing the written config must reproduce the exact path, not execute anything.
+  DOTFILES__INSTALL_ROOT=
+  # shellcheck source=/dev/null
+  source "${HOME}/.config/dotfiles/.install"
+  [ "${DOTFILES__INSTALL_ROOT}" = "${install_root}" ]
 }
 
 @test "bootstrap: updates dirty repos by stashing before pull and restoring after" {
@@ -131,8 +149,8 @@ setup() {
   assert_success
   run cat "${BOOTSTRAP_GIT_LOG}"
   assert_success
-  assert_line --index 0 "-C ${install_root}/.dotfiles diff-index --quiet HEAD --"
-  assert_line --index 1 "-C ${install_root}/.dotfiles stash"
+  assert_line --index 0 "-C ${install_root}/.dotfiles status --porcelain"
+  assert_line --index 1 "-C ${install_root}/.dotfiles stash push --include-untracked --message dotfiles-bootstrap"
   assert_line --index 2 "-C ${install_root}/.dotfiles pull origin master"
   assert_line --index 3 "-C ${install_root}/.dotfiles stash pop"
   [ -L "${install_root}/.bashrc" ]

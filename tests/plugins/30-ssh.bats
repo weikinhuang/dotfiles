@@ -35,6 +35,64 @@ EOF
   [ "$(type -t internal::ssh-agent-start || true)" = "" ]
 }
 
+@test "30-ssh: autoload skips when SSH_AUTH_SOCK is already set and valid" {
+  export DOT_AUTOLOAD_SSH_AGENT=1
+  local sock="${BATS_TEST_TMPDIR}/pre.sock"
+  local pid
+  pid="$(start_unix_socket_listener "${sock}")"
+  export SSH_AUTH_SOCK="${sock}"
+  stub_fixed_output_command ssh ""
+  stub_command ssh-agent <<'EOF'
+#!/usr/bin/env bash
+printf 'agent\n' >>"${TEST_SSH_LOG}"
+EOF
+  stub_command ssh-add <<'EOF'
+#!/usr/bin/env bash
+if [[ "${1:-}" == "-l" ]]; then
+  exit 0   # agent already has keys
+fi
+EOF
+
+  source "${REPO_ROOT}/plugins/30-ssh.sh"
+
+  # socket is still the one we set, agent was never started
+  [ "${SSH_AUTH_SOCK}" = "${sock}" ]
+  [ "$(cat "${TEST_SSH_LOG}")" = "" ]
+
+  kill "${pid}" 2>/dev/null || true
+  wait "${pid}" 2>/dev/null || true
+}
+
+@test "30-ssh: drops a stale SSH_AUTH_SOCK that is not a socket" {
+  export DOT_AUTOLOAD_SSH_AGENT=1
+  local bogus="${BATS_TEST_TMPDIR}/not-a-socket"
+  : >"${bogus}"
+  mkdir -p "${HOME}/.ssh"
+  printf 'SSH_AUTH_SOCK=%s; export SSH_AUTH_SOCK\n' "${bogus}" >"${HOME}/.ssh/agent.env"
+  printf 'SSH_AGENT_PID=9999; export SSH_AGENT_PID\n' >>"${HOME}/.ssh/agent.env"
+  unset SSH_AUTH_SOCK
+  stub_fixed_output_command ssh ""
+  stub_command ssh-agent <<'EOF'
+#!/usr/bin/env bash
+printf 'agent\n' >>"${TEST_SSH_LOG}"
+printf 'SSH_AUTH_SOCK=%s; export SSH_AUTH_SOCK\n' "${HOME}/.ssh/agent.sock"
+printf 'SSH_AGENT_PID=1234; export SSH_AGENT_PID\n'
+EOF
+  stub_command ssh-add <<'EOF'
+#!/usr/bin/env bash
+if [[ "${1:-}" == "-l" ]]; then
+  exit 2
+fi
+printf 'add\n' >>"${TEST_SSH_LOG}"
+EOF
+
+  source "${REPO_ROOT}/plugins/30-ssh.sh"
+
+  # Bogus sock was rejected, a fresh agent started.
+  [ "${SSH_AUTH_SOCK}" = "${HOME}/.ssh/agent.sock" ]
+  [ "$(cat "${TEST_SSH_LOG}")" = $'agent\nadd' ]
+}
+
 @test "30-ssh: caches completion candidates from ssh config and known_hosts" {
   stub_fixed_output_command ssh ""
   mkdir -p "${HOME}/.ssh/config.d"

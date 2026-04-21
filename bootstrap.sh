@@ -61,29 +61,47 @@ fi
 # root directory to install into
 readonly DOTFILES_ROOT="${DOTFILES__INSTALL_ROOT}/.dotfiles"
 
-# store the configuration of for future reference
+# store the configuration of for future reference.  Values are shell-quoted so
+# a later `source "${CONFIG_FILE}"` cannot execute arbitrary code, even if the
+# install path contains quotes, `$`, or newlines.
 mkdir -p "$(dirname "${CONFIG_FILE}")"
-echo "DOTFILES__INSTALL_ROOT=\"${DOTFILES__INSTALL_ROOT}\"" >|"${CONFIG_FILE}"
-echo "DOTFILES__INSTALL_VIMRC=${DOTFILES__INSTALL_VIMRC}" >>"${CONFIG_FILE}"
-echo "DOTFILES__INSTALL_GITCONFIG=${DOTFILES__INSTALL_GITCONFIG}" >>"${CONFIG_FILE}"
+{
+  printf 'DOTFILES__INSTALL_ROOT=%q\n' "${DOTFILES__INSTALL_ROOT}"
+  printf 'DOTFILES__INSTALL_VIMRC=%q\n' "${DOTFILES__INSTALL_VIMRC}"
+  printf 'DOTFILES__INSTALL_GITCONFIG=%q\n' "${DOTFILES__INSTALL_GITCONFIG}"
+} >|"${CONFIG_FILE}"
 
 # link up files
 function dotfiles::install::link() {
-  local file target
+  local file target src dest bak
   IFS=' ' read -r file target <<<"${1}"
+  src="${DOTFILES_ROOT}/${file}"
+  dest="${DOTFILES__INSTALL_ROOT}/${target}"
+  bak="${dest}.bak"
 
-  # remove the backup first
-  [[ -e "${DOTFILES__INSTALL_ROOT}/${target}.bak" ]] && rm -f "${DOTFILES__INSTALL_ROOT}/${target}.bak"
+  # drop redundant backups: either matches the source we're about to link
+  # (so it's stale), or the existing dest is already identical to the source
+  # (so no backup was ever needed from this run).
+  if [[ -e "${bak}" ]] && [[ -f "${src}" ]] && [[ -f "${bak}" ]] \
+    && cmp -s "${bak}" "${src}" 2>/dev/null; then
+    rm -f "${bak}"
+  fi
 
-  # create the backup file if not symlink
-  [[ -e "${DOTFILES__INSTALL_ROOT}/${target}" && ! -L "${DOTFILES__INSTALL_ROOT}/${target}" ]] \
-    && mv "${DOTFILES__INSTALL_ROOT}/${target}" "${DOTFILES__INSTALL_ROOT}/${target}.bak"
+  # create the backup file if not symlink and differs from the source
+  if [[ -e "${dest}" && ! -L "${dest}" ]]; then
+    if [[ -f "${dest}" ]] && [[ -f "${src}" ]] && cmp -s "${dest}" "${src}" 2>/dev/null; then
+      rm -f "${dest}"
+    else
+      [[ -e "${bak}" ]] && rm -f "${bak}"
+      mv "${dest}" "${bak}"
+    fi
+  fi
 
   # link up the file
-  if [[ -e "${DOTFILES_ROOT}/${file}" ]]; then
-    echo "linking up '${DOTFILES_ROOT}/${file}' => '${DOTFILES__INSTALL_ROOT}/${target}'"
-    if ! ln -sf "${DOTFILES_ROOT}/${file}" "${DOTFILES__INSTALL_ROOT}/${target}"; then
-      echo "Unable to symlink '${DOTFILES__INSTALL_ROOT}/${target}'"
+  if [[ -e "${src}" ]]; then
+    echo "linking up '${src}' => '${dest}'"
+    if ! ln -sf "${src}" "${dest}"; then
+      echo "Unable to symlink '${dest}'"
     fi
   fi
 }
@@ -130,15 +148,30 @@ function dotfiles::install::repo::get() {
 
 function dotfiles::install::repo::update::git() {
   local DIR="${1}"
-  # check if there are git changes
-  if git -C "${DIR}" diff-index --quiet HEAD -- &>/dev/null; then
-    # no changes
+  local dirty=
+  # detect both tracked modifications AND untracked files; the prior
+  # diff-index check missed untracked files, which could still block a pull
+  if [[ -n "$(git -C "${DIR}" status --porcelain 2>/dev/null)" ]]; then
+    dirty=1
+  fi
+
+  if [[ -z "${dirty}" ]]; then
     git -C "${DIR}" pull origin master || return 1
-  else
-    # changes
-    git -C "${DIR}" stash || true
-    git -C "${DIR}" pull origin master || return 1
-    git -C "${DIR}" stash pop || true
+    return 0
+  fi
+
+  if ! git -C "${DIR}" stash push --include-untracked --message "dotfiles-bootstrap" >/dev/null; then
+    echo "Unable to stash local changes in ${DIR}; aborting update" >&2
+    return 1
+  fi
+  if ! git -C "${DIR}" pull origin master; then
+    echo "Pull failed; your changes remain in stash@{0} in ${DIR}" >&2
+    return 1
+  fi
+  if ! git -C "${DIR}" stash pop; then
+    echo "Pull succeeded but stash pop failed (likely a conflict)." >&2
+    echo "Your changes are preserved in 'git -C ${DIR} stash list'. Resolve manually." >&2
+    return 1
   fi
 }
 

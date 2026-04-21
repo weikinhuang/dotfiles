@@ -174,9 +174,10 @@ function internal::cache-dir-prepare() {
 function internal::cache-write-atomic() {
   local cache_file="$1"
   local gen_cmd="$2"
-  local tmp_file="${cache_file}.tmp.$$.$RANDOM"
+  local tmp_file
 
   internal::cache-dir-prepare "${cache_file}" || return 1
+  tmp_file="$(mktemp "${cache_file}.XXXXXX" 2>/dev/null)" || return 1
   if eval "$gen_cmd" 2>/dev/null >"${tmp_file}"; then
     if mv -f "${tmp_file}" "${cache_file}" 2>/dev/null; then
       return 0
