@@ -48,6 +48,8 @@ Argument parsing patterns — use `genpasswd` as the reference implementation:
 - **Help-only** (no other flags): use a leading `case "${1:-}" in -h | --help) ... esac`
 - **Multiple options**: use a `while [[ $# -gt 0 ]]; do case "$1" in` loop with `shift`; support both `--flag value` and `--flag=value` forms; print an error and exit 1 on unknown args; always `exit 0` after `print_help`
 
+Every new bin script ships with a matching bash completion file under the sibling `completion/` directory: `dotenv/bin/foo` → `dotenv/completion/foo.bash`, `dotenv/wsl/bin/foo` → `dotenv/wsl/completion/foo.bash`, etc. Use a small `_dot_<name>()` function with `complete -F` for scripts that have positional args, flag values, or subcommand verbs; use the `complete -W "..."` shortcut for flag-only or trivial wrappers (add `-o default` if file completion should still kick in for non-flag words). Private `__`-prefixed scripts don't need completions.
+
 ### Tests
 
 Tests mirror source paths: `dotenv/bin/git-sync` → `tests/dotenv/bin/git-sync.bats`. Prefix `@test` names with the script name and colon (e.g. `@test "git-sync: restores dirty state"`). Use `source_without_main` to unit-test internal functions. See [TESTING.md](./TESTING.md) for the full helper API and examples.
