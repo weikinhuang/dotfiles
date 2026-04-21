@@ -121,6 +121,8 @@ source "${DOTFILES__ROOT}/.dotfiles/dotenv/lib/prompt.sh"
 # shellcheck source=/dev/null
 source "${DOTFILES__ROOT}/.dotfiles/dotenv/lib/path.sh"
 internal::path-setup
+# shellcheck source=/dev/null
+source "${DOTFILES__ROOT}/.dotfiles/dotenv/lib/dotfiles.sh"
 
 # load a local specific sources before the scripts
 # shellcheck source=/dev/null

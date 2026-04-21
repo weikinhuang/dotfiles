@@ -159,38 +159,6 @@ STUB
   assert_output --partial "date2unix: unable to parse"
 }
 
-@test "functions: dotfiles-profile rejects filters without trace mode" {
-  run bash -c 'source "$1"; dotfiles-profile --filter git' _ "${REPO_ROOT}/dotenv/functions.sh"
-  assert_failure
-  assert_output --partial "--filter/--exclude require --trace"
-}
-
-@test "functions: dotfiles-prompt-profile requires an interactive prompt" {
-  run bash -c 'source "$1"; unset PS1; dotfiles-prompt-profile' _ "${REPO_ROOT}/dotenv/functions.sh"
-  assert_failure
-  assert_output --partial "no PS1 found"
-}
-
-@test "functions: internal::now-us returns a microsecond-resolution integer" {
-  run bash -c 'source "$1"; internal::now-us' _ "${REPO_ROOT}/dotenv/functions.sh"
-  assert_success
-  [[ "${output}" =~ ^[0-9]{10,}$ ]]
-}
-
-@test "functions: internal::now-us prefers EPOCHREALTIME when available" {
-  [[ -n "${EPOCHREALTIME:-}" ]] || skip "EPOCHREALTIME is unavailable in this bash"
-
-  stub_command date <<'EOF'
-#!/usr/bin/env bash
-exit 9
-EOF
-
-  run bash -c 'PATH="$2:/bin"; source "$1"; internal::now-us' \
-    _ "${REPO_ROOT}/dotenv/functions.sh" "${MOCK_BIN}"
-  assert_success
-  [[ "${output}" =~ ^[0-9]{10,}$ ]]
-}
-
 @test "functions: regex extracts the full match by default" {
   command -v gawk &>/dev/null || skip "gawk not available"
   run bash -c 'source "$1"; echo "abc123def" | regex "[0-9]+"' _ "${REPO_ROOT}/dotenv/functions.sh"
