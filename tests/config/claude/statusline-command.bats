@@ -411,6 +411,49 @@ EOF
   [[ "${output}" != *"A("* ]]
 }
 
+@test "statusline-command: caches transcript-derived metrics next to the transcript and reuses them on mtime match" {
+  create_statusline_repo
+  local transcript_path="${BATS_TEST_TMPDIR}/session.jsonl"
+  local cache_file="${BATS_TEST_TMPDIR}/session/statusline.cache"
+  cat >"${transcript_path}" <<'EOF'
+{"type":"user","message":{"role":"user","content":"hi"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"c1","name":"Read"}],"usage":{"input_tokens":10,"cache_creation_input_tokens":0,"cache_read_input_tokens":20,"output_tokens":30}}}
+EOF
+  write_statusline_payload_with_transcript "${TEST_REPO}" "${transcript_path}"
+
+  # First run populates the cache and produces real metrics.
+  run env SCRIPT="${SCRIPT}" PAYLOAD="${PAYLOAD}" bash -c 'bash "${SCRIPT}" < "${PAYLOAD}"'
+  assert_success
+  assert_output --partial "⚒ S:1"
+  [[ -f "${cache_file}" ]]
+
+  # Overwrite the session TSV in the cache with bogus numbers. If the cache is honored,
+  # the next run will echo those bogus values back out instead of reparsing the transcript.
+  local mtime
+  mtime=$(head -1 "${cache_file}")
+  cat >"${cache_file}" <<EOF
+${mtime}
+0	0	0	0	0	0	0
+9999	7777	5555	42	0	0	0
+EOF
+
+  run env SCRIPT="${SCRIPT}" PAYLOAD="${PAYLOAD}" bash -c 'bash "${SCRIPT}" < "${PAYLOAD}"'
+  assert_success
+  assert_output --partial "S:9k↑/7k↻/5k↓"
+  assert_output --partial "⚒ S:42"
+
+  # Touching the transcript bumps its mtime, invalidating the cache. The next run re-derives
+  # the real metrics from the transcript and overwrites the bogus TSV.
+  touch "${transcript_path}"
+  sleep 1
+  touch "${transcript_path}"
+
+  run env SCRIPT="${SCRIPT}" PAYLOAD="${PAYLOAD}" bash -c 'bash "${SCRIPT}" < "${PAYLOAD}"'
+  assert_success
+  assert_output --partial "⚒ S:1"
+  [[ "${output}" != *"S:9k↑"* ]]
+}
+
 @test "statusline-command: fmt_si abbreviates plain, thousand, and million values" {
   export DOTFILES_ROOT="${REPO_ROOT}"
   source_without_main "${SCRIPT}"

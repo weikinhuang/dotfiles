@@ -214,6 +214,19 @@ sum_main_session_usage() {
   sum_usage_from_files "${transcript_path}"
 }
 
+# Portable mtime that prefers Linux semantics and falls back to BSD (macOS).
+file_mtime() {
+  stat -c %Y "$1" 2>/dev/null || stat -f %m "$1" 2>/dev/null || printf '0'
+}
+
+# Per-session derived-metrics cache. Colocated with the transcript's sibling session
+# directory (the same place subagent transcripts live) so it shares the session's
+# lifecycle and gets cleaned up alongside the rest of the session's artifacts.
+statusline_cache_path() {
+  local transcript_path="$1"
+  printf '%s/statusline.cache' "${transcript_path%.jsonl}"
+}
+
 main() {
   local input
   local cwd model remaining input_tokens cached_tokens output_tokens
@@ -230,23 +243,32 @@ main() {
 
   input=$(cat)
 
-  cwd=$(jq -r '.workspace.current_dir // .cwd // ""' <<<"${input}")
-  model=$(jq -r '.model.display_name // ""' <<<"${input}")
-  remaining=$(jq -r '.context_window.remaining_percentage // empty' <<<"${input}")
-  # Fold cache_creation into the input arrow so cached-first turns show realistic input weight.
-  input_tokens=$(jq -r '((.context_window.current_usage.input_tokens // 0) + (.context_window.current_usage.cache_creation_input_tokens // 0)) as $n | if .context_window.current_usage == null then empty else $n end' <<<"${input}")
-  cached_tokens=$(jq -r '.context_window.current_usage.cache_read_input_tokens // empty' <<<"${input}")
-  output_tokens=$(jq -r '.context_window.current_usage.output_tokens // empty' <<<"${input}")
-  total_input_tokens=$(jq -r '.context_window.total_input_tokens // empty' <<<"${input}")
-  total_output_tokens=$(jq -r '.context_window.total_output_tokens // empty' <<<"${input}")
-  cost_usd=$(jq -r '.cost.total_cost_usd // empty' <<<"${input}")
-  transcript_path=$(jq -r '.transcript_path // empty' <<<"${input}")
-  # Prefer workspace.git_worktree since it covers any linked worktree, not just --worktree sessions.
-  worktree_name=$(jq -r '.workspace.git_worktree // .worktree.name // empty' <<<"${input}")
-  rate_five_pct=$(jq -r '.rate_limits.five_hour.used_percentage // empty' <<<"${input}")
-  rate_five_reset=$(jq -r '.rate_limits.five_hour.resets_at // empty' <<<"${input}")
-  rate_seven_pct=$(jq -r '.rate_limits.seven_day.used_percentage // empty' <<<"${input}")
-  rate_seven_reset=$(jq -r '.rate_limits.seven_day.resets_at // empty' <<<"${input}")
+  # Pull every stdin field in a single jq pass so we pay the interpreter startup cost once.
+  # Fields are joined with \x1f (unit separator) rather than tab because bash's `read` with
+  # IFS set to whitespace collapses consecutive separators — that would shift empty fields.
+  # Note: workspace.git_worktree wins over worktree.name since it covers all linked worktrees.
+  IFS=$'\x1f' read -r cwd model remaining input_tokens cached_tokens output_tokens \
+    total_input_tokens total_output_tokens cost_usd transcript_path worktree_name \
+    rate_five_pct rate_five_reset rate_seven_pct rate_seven_reset < <(
+    jq -r '[
+      (.workspace.current_dir // .cwd // ""),
+      (.model.display_name // ""),
+      .context_window.remaining_percentage,
+      (if .context_window.current_usage == null then null
+       else (.context_window.current_usage.input_tokens // 0) + (.context_window.current_usage.cache_creation_input_tokens // 0) end),
+      .context_window.current_usage.cache_read_input_tokens,
+      .context_window.current_usage.output_tokens,
+      .context_window.total_input_tokens,
+      .context_window.total_output_tokens,
+      .cost.total_cost_usd,
+      .transcript_path,
+      (.workspace.git_worktree // .worktree.name),
+      .rate_limits.five_hour.used_percentage,
+      .rate_limits.five_hour.resets_at,
+      .rate_limits.seven_day.used_percentage,
+      .rate_limits.seven_day.resets_at
+    ] | map(if . == null then "" else tostring end) | join("\u001f")' <<<"${input}"
+  )
 
   # Just the directory name, not the full path.
   short_cwd="${cwd##*/}"
@@ -298,9 +320,36 @@ main() {
 
   # Aggregate transcript-derived metrics up front so downstream segments (M: turn count,
   # A: subagent count, S: breakdown, tools tally) can all draw from the same numbers.
-  if [[ -n "${transcript_path}" ]]; then
-    IFS=$'\t' read -r agent_count agent_in agent_cached agent_out agent_tools agent_tool_bytes agent_turns < <(sum_subagent_usage "${transcript_path}") || true
-    IFS=$'\t' read -r session_in session_cached session_out session_tools session_tool_bytes session_turns < <(sum_main_session_usage "${transcript_path}") || true
+  # Cache result keyed by the main transcript's mtime — statusline re-renders that don't
+  # change the transcript (permission-mode toggles, vim-mode flips) become cache hits.
+  if [[ -n "${transcript_path}" ]] && [[ -f "${transcript_path}" ]]; then
+    local cache_file current_mtime cached_mtime cached_agent cached_session agent_tsv session_tsv
+    cache_file="$(statusline_cache_path "${transcript_path}")"
+    current_mtime="$(file_mtime "${transcript_path}")"
+
+    if [[ -f "${cache_file}" ]]; then
+      {
+        IFS= read -r cached_mtime
+        IFS= read -r cached_agent
+        IFS= read -r cached_session
+      } <"${cache_file}" 2>/dev/null || true
+    fi
+
+    if [[ -n "${cached_mtime:-}" ]] && [[ "${cached_mtime}" == "${current_mtime}" ]]; then
+      agent_tsv="${cached_agent}"
+      session_tsv="${cached_session}"
+    else
+      agent_tsv="$(sum_subagent_usage "${transcript_path}")"
+      session_tsv="$(sum_main_session_usage "${transcript_path}")"
+      local tmp
+      if mkdir -p "$(dirname "${cache_file}")" 2>/dev/null && tmp="$(mktemp "${cache_file}.XXXXXX" 2>/dev/null)"; then
+        printf '%s\n%s\n%s\n' "${current_mtime}" "${agent_tsv}" "${session_tsv}" >"${tmp}"
+        mv -f "${tmp}" "${cache_file}" 2>/dev/null || rm -f "${tmp}"
+      fi
+    fi
+
+    IFS=$'\t' read -r agent_count agent_in agent_cached agent_out agent_tools agent_tool_bytes agent_turns <<<"${agent_tsv}" || true
+    IFS=$'\t' read -r session_in session_cached session_out session_tools session_tool_bytes session_turns <<<"${session_tsv}" || true
   fi
 
   # Token counts from the last API call. Prefix with the main-session turn number when known.
