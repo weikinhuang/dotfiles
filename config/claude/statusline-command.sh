@@ -131,14 +131,26 @@ fmt_si() {
 sum_usage_from_files() {
   jq -s -r '
     [ .[] | select(type == "object" and .type == "assistant") ] as $assistants
+    | [ .[] | select(type == "object" and .type == "user") ] as $users
     | [ $assistants[] | .message.usage // empty ] as $usages
     | [ $assistants[]
         | (.message.content // [])
         | map(select(.type == "tool_use")) | length ] as $tool_counts
+    | [ $users[]
+        | (.message.content // [])
+        | if type == "array" then . else [] end
+        | .[]
+        | select(type == "object" and .type == "tool_result")
+        | (.content // "")
+        | if type == "string" then length
+          elif type == "array" then
+            (map(if type == "object" then ((.text // "") | length) else 0 end) | add // 0)
+          else 0 end ] as $tool_bytes
     | [ ($usages | map((.input_tokens // 0) + (.cache_creation_input_tokens // 0)) | add // 0),
         ($usages | map(.cache_read_input_tokens // 0) | add // 0),
         ($usages | map(.output_tokens // 0) | add // 0),
-        ($tool_counts | add // 0) ]
+        ($tool_counts | add // 0),
+        ($tool_bytes | add // 0) ]
     | @tsv
   ' "$@" 2>/dev/null
 }
@@ -175,8 +187,8 @@ main() {
   local input
   local cwd model remaining input_tokens cached_tokens output_tokens
   local total_input_tokens total_output_tokens cost_usd transcript_path worktree_name
-  local agent_count agent_in agent_cached agent_out agent_tools
-  local session_in session_cached session_out session_tools
+  local agent_count agent_in agent_cached agent_out agent_tools agent_tool_bytes
+  local session_in session_cached session_out session_tools session_tool_bytes
   local short_cwd git_branch worktree_part ctx_part cost_part token_part agent_token_part session_token_part tools_part
   local in_fmt cached_fmt out_fmt total_in_fmt total_out_fmt
   local agent_in_fmt agent_cached_fmt agent_out_fmt
@@ -234,7 +246,7 @@ main() {
   # Cumulative subagent token totals, excluding main-agent usage.
   agent_token_part=""
   if [[ -n "${transcript_path}" ]]; then
-    IFS=$'\t' read -r agent_count agent_in agent_cached agent_out agent_tools < <(sum_subagent_usage "${transcript_path}") || true
+    IFS=$'\t' read -r agent_count agent_in agent_cached agent_out agent_tools agent_tool_bytes < <(sum_subagent_usage "${transcript_path}") || true
     if [[ -n "${agent_count:-}" ]] && ((agent_count > 0)); then
       agent_in_fmt=$(fmt_si "${agent_in:-0}")
       agent_cached_fmt=$(fmt_si "${agent_cached:-0}")
@@ -247,7 +259,7 @@ main() {
   # surface cache read alongside input/output; fall back to JSON totals otherwise.
   session_token_part=""
   if [[ -n "${transcript_path}" ]]; then
-    IFS=$'\t' read -r session_in session_cached session_out session_tools < <(sum_main_session_usage "${transcript_path}") || true
+    IFS=$'\t' read -r session_in session_cached session_out session_tools session_tool_bytes < <(sum_main_session_usage "${transcript_path}") || true
     if [[ -n "${session_in:-}" ]] && ((session_in + session_cached + session_out > 0)); then
       session_in_fmt=$(fmt_si "${session_in}")
       session_cached_fmt=$(fmt_si "${session_cached}")
@@ -261,14 +273,21 @@ main() {
     session_token_part=" S:${total_in_fmt}↑/${total_out_fmt}↓"
   fi
 
-  # Tool call counters (subagent aggregate and main session).
+  # Tool call counters with an estimated tool_result token cost in parens
+  # (bytes/4 is a rough proxy; ~ signals estimation).
   tools_part=""
   local tools_inner=""
   if [[ -n "${agent_tools:-}" ]] && ((agent_tools > 0)); then
     tools_inner=" A:${agent_tools}"
+    if [[ -n "${agent_tool_bytes:-}" ]] && ((agent_tool_bytes > 0)); then
+      tools_inner="${tools_inner}(~$(fmt_si $((agent_tool_bytes / 4))))"
+    fi
   fi
   if [[ -n "${session_tools:-}" ]] && ((session_tools > 0)); then
     tools_inner="${tools_inner} S:${session_tools}"
+    if [[ -n "${session_tool_bytes:-}" ]] && ((session_tool_bytes > 0)); then
+      tools_inner="${tools_inner}(~$(fmt_si $((session_tool_bytes / 4))))"
+    fi
   fi
   if [[ -n "${tools_inner}" ]]; then
     tools_part=" ⚒${tools_inner}"
