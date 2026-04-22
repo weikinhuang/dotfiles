@@ -18,6 +18,9 @@ AGENT_TOKEN_COLOR='\e[38;5;109m'
 SESSION_TOKEN_COLOR='\e[38;5;179m'
 TOOL_COLOR='\e[38;5;214m'
 COST_COLOR='\e[38;5;108m'
+RATE_LIMIT_COLOR='\e[38;5;111m'
+RATE_LIMIT_WARN_COLOR='\e[38;5;203m'
+RATE_LIMIT_NEAR_THRESHOLD=85
 MODEL_COLOR='\e[38;5;033m'
 BOLD='\e[1m'
 
@@ -128,6 +131,27 @@ fmt_si() {
   fi
 }
 
+# Humanize a future epoch timestamp into a short "in N unit" form (e.g. 2h, 3d, 45m).
+# Uses ${NOW_OVERRIDE} as the reference time when set, which keeps tests deterministic.
+fmt_time_until() {
+  local target="$1"
+  local now delta
+
+  now="${NOW_OVERRIDE:-$(date +%s)}"
+  delta=$((target - now))
+  ((delta < 0)) && delta=0
+
+  if ((delta >= 86400)); then
+    printf '%dd' $((delta / 86400))
+  elif ((delta >= 3600)); then
+    printf '%dh' $((delta / 3600))
+  elif ((delta >= 60)); then
+    printf '%dm' $((delta / 60))
+  else
+    printf '%ds' "${delta}"
+  fi
+}
+
 sum_usage_from_files() {
   jq -s -r '
     [ .[] | select(type == "object" and .type == "assistant") ] as $assistants
@@ -187,9 +211,11 @@ main() {
   local input
   local cwd model remaining input_tokens cached_tokens output_tokens
   local total_input_tokens total_output_tokens cost_usd transcript_path worktree_name
+  local rate_five_pct rate_five_reset rate_seven_pct rate_seven_reset
   local agent_count agent_in agent_cached agent_out agent_tools agent_tool_bytes
   local session_in session_cached session_out session_tools session_tool_bytes
   local short_cwd git_branch worktree_part ctx_part cost_part token_part agent_token_part session_token_part tools_part
+  local rate_five_part rate_five_color rate_seven_part rate_seven_color
   local in_fmt cached_fmt out_fmt total_in_fmt total_out_fmt
   local agent_in_fmt agent_cached_fmt agent_out_fmt
   local session_in_fmt session_cached_fmt session_out_fmt
@@ -210,6 +236,10 @@ main() {
   transcript_path=$(jq -r '.transcript_path // empty' <<<"${input}")
   # Prefer workspace.git_worktree since it covers any linked worktree, not just --worktree sessions.
   worktree_name=$(jq -r '.workspace.git_worktree // .worktree.name // empty' <<<"${input}")
+  rate_five_pct=$(jq -r '.rate_limits.five_hour.used_percentage // empty' <<<"${input}")
+  rate_five_reset=$(jq -r '.rate_limits.five_hour.resets_at // empty' <<<"${input}")
+  rate_seven_pct=$(jq -r '.rate_limits.seven_day.used_percentage // empty' <<<"${input}")
+  rate_seven_reset=$(jq -r '.rate_limits.seven_day.resets_at // empty' <<<"${input}")
 
   # Just the directory name, not the full path.
   short_cwd="${cwd##*/}"
@@ -232,6 +262,31 @@ main() {
   cost_part=""
   if [[ -n "${cost_usd}" ]]; then
     cost_part=$(printf ' $%.3f' "${cost_usd}")
+  fi
+
+  # Rate limits (Pro/Max subscribers only; each window may be independently absent).
+  # Each half is formatted as " 5h:NN%·<countdown>" and independently color-flipped
+  # to warn red when usage reaches RATE_LIMIT_NEAR_THRESHOLD.
+  local rate_pct_int
+  rate_five_part=""
+  rate_five_color="${RATE_LIMIT_COLOR}"
+  if [[ -n "${rate_five_pct}" ]]; then
+    rate_pct_int=$(printf '%.0f' "${rate_five_pct}")
+    rate_five_part=" 5h:${rate_pct_int}%"
+    if [[ -n "${rate_five_reset}" ]]; then
+      rate_five_part="${rate_five_part}·$(fmt_time_until "${rate_five_reset}")"
+    fi
+    ((rate_pct_int >= RATE_LIMIT_NEAR_THRESHOLD)) && rate_five_color="${RATE_LIMIT_WARN_COLOR}"
+  fi
+  rate_seven_part=""
+  rate_seven_color="${RATE_LIMIT_COLOR}"
+  if [[ -n "${rate_seven_pct}" ]]; then
+    rate_pct_int=$(printf '%.0f' "${rate_seven_pct}")
+    rate_seven_part=" 7d:${rate_pct_int}%"
+    if [[ -n "${rate_seven_reset}" ]]; then
+      rate_seven_part="${rate_seven_part}·$(fmt_time_until "${rate_seven_reset}")"
+    fi
+    ((rate_pct_int >= RATE_LIMIT_NEAR_THRESHOLD)) && rate_seven_color="${RATE_LIMIT_WARN_COLOR}"
   fi
 
   # Token counts from the last API call.
@@ -327,6 +382,8 @@ main() {
   else
     print_colored_text "${COST_COLOR}" "${cost_part}"
   fi
+  print_colored_text "${rate_five_color}" "${rate_five_part}"
+  print_colored_text "${rate_seven_color}" "${rate_seven_part}"
   print_ansi "${BOLD}${GREY}]${RESET} "
   print_colored_text "${MODEL_COLOR}" "${model}"
   # Second line: per-turn, subagent, session token totals, and tool call counts. ↳ ties it to line 1.

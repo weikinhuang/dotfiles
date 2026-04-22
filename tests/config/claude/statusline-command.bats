@@ -236,6 +236,91 @@ write_statusline_payload_with_worktree() {
 EOF
 }
 
+write_statusline_payload_with_rate_limits() {
+  local cwd="$1"
+  local five_pct="$2"
+  local five_reset="$3"
+  local seven_pct="$4"
+  local seven_reset="$5"
+  PAYLOAD="${BATS_TEST_TMPDIR}/payload.json"
+
+  local fragments=()
+  [[ -n "${five_pct}" ]] && fragments+=("\"five_hour\": {\"used_percentage\": ${five_pct}, \"resets_at\": ${five_reset}}")
+  [[ -n "${seven_pct}" ]] && fragments+=("\"seven_day\": {\"used_percentage\": ${seven_pct}, \"resets_at\": ${seven_reset}}")
+
+  local rl=""
+  if ((${#fragments[@]} > 0)); then
+    local joined=""
+    local f
+    for f in "${fragments[@]}"; do
+      [[ -n "${joined}" ]] && joined="${joined}, "
+      joined="${joined}${f}"
+    done
+    rl=", \"rate_limits\": { ${joined} }"
+  fi
+
+  cat >"${PAYLOAD}" <<EOF
+{
+  "cwd": "${cwd}",
+  "model": { "display_name": "Opus" },
+  "workspace": { "current_dir": "${cwd}" },
+  "cost": { "total_cost_usd": 0.01234 }${rl}
+}
+EOF
+}
+
+@test "statusline-command: shows 5h and 7d rate limits with reset countdown" {
+  create_statusline_repo
+  # NOW_OVERRIDE pins "now" so countdowns are deterministic. 5h window resets in 2h, 7d in 3d.
+  local now=1700000000
+  local five_reset=$((now + 7200))
+  local seven_reset=$((now + 259200))
+  write_statusline_payload_with_rate_limits "${TEST_REPO}" "23.5" "${five_reset}" "41.2" "${seven_reset}"
+
+  run env NOW_OVERRIDE="${now}" SCRIPT="${SCRIPT}" PAYLOAD="${PAYLOAD}" bash -c 'bash "${SCRIPT}" < "${PAYLOAD}"'
+  assert_success
+  assert_output --partial "5h:24%·2h"
+  assert_output --partial "7d:41%·3d"
+}
+
+@test "statusline-command: flips rate limit color to warn red at or above 85% per window" {
+  create_statusline_repo
+  local now=1700000000
+  # 5h over threshold, 7d under — only the 5h half should wrap in the warn ANSI code.
+  write_statusline_payload_with_rate_limits "${TEST_REPO}" "91" "$((now + 2100))" "40" "$((now + 259200))"
+
+  run env NOW_OVERRIDE="${now}" SCRIPT="${SCRIPT}" PAYLOAD="${PAYLOAD}" bash -c 'bash "${SCRIPT}" < "${PAYLOAD}"'
+  assert_success
+
+  local warn_open=$'\e[38;5;203m'
+  local normal_open=$'\e[38;5;111m'
+  local reset=$'\e[0m'
+
+  [[ "${output}" == *"${warn_open} 5h:91%·35m${reset}"* ]]
+  [[ "${output}" == *"${normal_open} 7d:40%·3d${reset}"* ]]
+}
+
+@test "statusline-command: shows only the five-hour window when seven-day is absent" {
+  create_statusline_repo
+  local now=1700000000
+  write_statusline_payload_with_rate_limits "${TEST_REPO}" "10" "$((now + 1800))" "" ""
+
+  run env NOW_OVERRIDE="${now}" SCRIPT="${SCRIPT}" PAYLOAD="${PAYLOAD}" bash -c 'bash "${SCRIPT}" < "${PAYLOAD}"'
+  assert_success
+  assert_output --partial "5h:10%·30m"
+  [[ "${output}" != *"7d:"* ]]
+}
+
+@test "statusline-command: omits rate limit segment when rate_limits is absent" {
+  create_statusline_repo
+  write_statusline_payload "${TEST_REPO}"
+
+  run env SCRIPT="${SCRIPT}" PAYLOAD="${PAYLOAD}" bash -c 'bash "${SCRIPT}" < "${PAYLOAD}"'
+  assert_success
+  [[ "${output}" != *"5h:"* ]]
+  [[ "${output}" != *"7d:"* ]]
+}
+
 @test "statusline-command: shows worktree marker when workspace.git_worktree is set" {
   create_statusline_repo
   write_statusline_payload_with_worktree "${TEST_REPO}" "feat-statusline"
@@ -337,4 +422,32 @@ EOF
   run fmt_si 15234567
   assert_success
   assert_output "15.23M"
+}
+
+@test "statusline-command: fmt_time_until picks the largest readable unit and floors negatives to 0s" {
+  export DOTFILES_ROOT="${REPO_ROOT}"
+  source_without_main "${SCRIPT}"
+
+  export NOW_OVERRIDE=1700000000
+
+  run fmt_time_until $((NOW_OVERRIDE + 45))
+  assert_success
+  assert_output "45s"
+
+  run fmt_time_until $((NOW_OVERRIDE + 90))
+  assert_success
+  assert_output "1m"
+
+  run fmt_time_until $((NOW_OVERRIDE + 7200))
+  assert_success
+  assert_output "2h"
+
+  run fmt_time_until $((NOW_OVERRIDE + 259200))
+  assert_success
+  assert_output "3d"
+
+  # Past timestamps clamp to 0s so countdowns don't dip negative near the reset boundary.
+  run fmt_time_until $((NOW_OVERRIDE - 120))
+  assert_success
+  assert_output "0s"
 }
