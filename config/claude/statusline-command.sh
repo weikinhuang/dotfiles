@@ -170,11 +170,18 @@ sum_usage_from_files() {
           elif type == "array" then
             (map(if type == "object" then ((.text // "") | length) else 0 end) | add // 0)
           else 0 end ] as $tool_bytes
+    # User-submitted prompt count: string-content user messages, excluding harness injections.
+    | [ $users[]
+        | select((.message.content | type) == "string")
+        | .message.content
+        | select((startswith("<system-reminder>") | not)
+                 and (startswith("<local-command-") | not)) ] as $user_turns
     | [ ($usages | map((.input_tokens // 0) + (.cache_creation_input_tokens // 0)) | add // 0),
         ($usages | map(.cache_read_input_tokens // 0) | add // 0),
         ($usages | map(.output_tokens // 0) | add // 0),
         ($tool_counts | add // 0),
-        ($tool_bytes | add // 0) ]
+        ($tool_bytes | add // 0),
+        ($user_turns | length) ]
     | @tsv
   ' "$@" 2>/dev/null
 }
@@ -212,8 +219,8 @@ main() {
   local cwd model remaining input_tokens cached_tokens output_tokens
   local total_input_tokens total_output_tokens cost_usd transcript_path worktree_name
   local rate_five_pct rate_five_reset rate_seven_pct rate_seven_reset
-  local agent_count agent_in agent_cached agent_out agent_tools agent_tool_bytes
-  local session_in session_cached session_out session_tools session_tool_bytes
+  local agent_count agent_in agent_cached agent_out agent_tools agent_tool_bytes agent_turns
+  local session_in session_cached session_out session_tools session_tool_bytes session_turns
   local short_cwd git_branch worktree_part ctx_part cost_part token_part agent_token_part session_token_part tools_part
   local rate_five_part rate_five_color rate_seven_part rate_seven_color
   local in_fmt cached_fmt out_fmt total_in_fmt total_out_fmt
@@ -289,38 +296,43 @@ main() {
     ((rate_pct_int >= RATE_LIMIT_NEAR_THRESHOLD)) && rate_seven_color="${RATE_LIMIT_WARN_COLOR}"
   fi
 
-  # Token counts from the last API call.
+  # Aggregate transcript-derived metrics up front so downstream segments (M: turn count,
+  # A: subagent count, S: breakdown, tools tally) can all draw from the same numbers.
+  if [[ -n "${transcript_path}" ]]; then
+    IFS=$'\t' read -r agent_count agent_in agent_cached agent_out agent_tools agent_tool_bytes agent_turns < <(sum_subagent_usage "${transcript_path}") || true
+    IFS=$'\t' read -r session_in session_cached session_out session_tools session_tool_bytes session_turns < <(sum_main_session_usage "${transcript_path}") || true
+  fi
+
+  # Token counts from the last API call. Prefix with the main-session turn number when known.
   token_part=""
   if [[ -n "${input_tokens}" ]]; then
     in_fmt=$(fmt_si "${input_tokens}")
     cached_fmt=$(fmt_si "${cached_tokens:-0}")
     out_fmt=$(fmt_si "${output_tokens:-0}")
-    token_part=" M:↑${in_fmt}/↻ ${cached_fmt}/↓${out_fmt}"
+    local m_label="M"
+    if [[ -n "${session_turns:-}" ]] && ((session_turns > 0)); then
+      m_label="M(${session_turns})"
+    fi
+    token_part=" ${m_label}:↑${in_fmt}/↻ ${cached_fmt}/↓${out_fmt}"
   fi
 
   # Cumulative subagent token totals, excluding main-agent usage.
   agent_token_part=""
-  if [[ -n "${transcript_path}" ]]; then
-    IFS=$'\t' read -r agent_count agent_in agent_cached agent_out agent_tools agent_tool_bytes < <(sum_subagent_usage "${transcript_path}") || true
-    if [[ -n "${agent_count:-}" ]] && ((agent_count > 0)); then
-      agent_in_fmt=$(fmt_si "${agent_in:-0}")
-      agent_cached_fmt=$(fmt_si "${agent_cached:-0}")
-      agent_out_fmt=$(fmt_si "${agent_out:-0}")
-      agent_token_part=" A(${agent_count}):↑${agent_in_fmt}/↻ ${agent_cached_fmt}/↓${agent_out_fmt}"
-    fi
+  if [[ -n "${agent_count:-}" ]] && ((agent_count > 0)); then
+    agent_in_fmt=$(fmt_si "${agent_in:-0}")
+    agent_cached_fmt=$(fmt_si "${agent_cached:-0}")
+    agent_out_fmt=$(fmt_si "${agent_out:-0}")
+    agent_token_part=" A(${agent_count}):↑${agent_in_fmt}/↻ ${agent_cached_fmt}/↓${agent_out_fmt}"
   fi
 
   # Cumulative session token totals. Prefer transcript-derived numbers so we can
   # surface cache read alongside input/output; fall back to JSON totals otherwise.
   session_token_part=""
-  if [[ -n "${transcript_path}" ]]; then
-    IFS=$'\t' read -r session_in session_cached session_out session_tools session_tool_bytes < <(sum_main_session_usage "${transcript_path}") || true
-    if [[ -n "${session_in:-}" ]] && ((session_in + session_cached + session_out > 0)); then
-      session_in_fmt=$(fmt_si "${session_in}")
-      session_cached_fmt=$(fmt_si "${session_cached}")
-      session_out_fmt=$(fmt_si "${session_out}")
-      session_token_part=" S:${session_in_fmt}↑/${session_cached_fmt}↻/${session_out_fmt}↓"
-    fi
+  if [[ -n "${session_in:-}" ]] && ((session_in + session_cached + session_out > 0)); then
+    session_in_fmt=$(fmt_si "${session_in}")
+    session_cached_fmt=$(fmt_si "${session_cached}")
+    session_out_fmt=$(fmt_si "${session_out}")
+    session_token_part=" S:${session_in_fmt}↑/${session_cached_fmt}↻/${session_out_fmt}↓"
   fi
   if [[ -z "${session_token_part}" && -n "${total_input_tokens}" ]]; then
     total_in_fmt=$(fmt_si "${total_input_tokens}")

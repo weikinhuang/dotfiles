@@ -370,6 +370,8 @@ EOF
 {"type":"user","message":{"role":"user","content":[{"tool_use_id":"s1","type":"tool_result","content":"${tr_pad_a}"}]}}
 {"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"s3","name":"Bash"}],"usage":{"input_tokens":150,"cache_creation_input_tokens":0,"cache_read_input_tokens":25000,"output_tokens":1500}}}
 {"type":"user","message":{"role":"user","content":[{"tool_use_id":"s3","type":"tool_result","content":[{"type":"text","text":"${tr_pad_b}"}]}]}}
+{"type":"user","message":{"role":"user","content":"<system-reminder>noise</system-reminder>"}}
+{"type":"user","message":{"role":"user","content":"another real prompt"}}
 EOF
   write_statusline_payload_with_transcript "${TEST_REPO}" "${transcript_path}"
 
@@ -380,6 +382,8 @@ EOF
   # tool_use blocks: 2+1=3 in main session.
   # tool_result bytes: 500+300=800; /4 = 200 tokens. The second result is an array-of-text block to
   # verify both string and nested-array content shapes are counted.
+  # User turns: "hi" + "another real prompt" = 2 (system-reminder noise is filtered).
+  assert_output --partial "M(2):↑"
   assert_output --partial "S:2k↑/35k↻/2k↓"
   assert_output --partial "⚒ S:3(~200)"
   # Fallback JSON totals must NOT appear when transcript-derived totals are emitted.
