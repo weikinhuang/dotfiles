@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # @see https://code.claude.com/docs/en/statusline
 # Claude Code status line — mirrors the dotfiles PS1 style:
-#   [user#host cwd (git branch $%=) ctx% left Msg:↑input/↻ cached/↓output Session:↑input/↻ cached/↓output cost] model
+#   [user#host cwd (git branch $%=) ctx% left Msg:↑input/↻ cached/↓output Session:↑input/↻ cached/↓output cost §sessid] model
 # SPDX-License-Identifier: MIT
 
 # Colors matching the dotfiles PS1 palette (will be dimmed by Claude Code)
@@ -21,6 +21,7 @@ COST_COLOR='\e[38;5;108m'
 RATE_LIMIT_COLOR='\e[38;5;111m'
 RATE_LIMIT_WARN_COLOR='\e[38;5;203m'
 RATE_LIMIT_NEAR_THRESHOLD=85
+SESSION_ID_COLOR='\e[38;5;244m'
 MODEL_COLOR='\e[38;5;033m'
 BOLD='\e[1m'
 
@@ -231,11 +232,11 @@ main() {
   local input
   local cwd model remaining input_tokens cached_tokens output_tokens
   local total_input_tokens total_output_tokens cost_usd transcript_path worktree_name
-  local rate_five_pct rate_five_reset rate_seven_pct rate_seven_reset
+  local rate_five_pct rate_five_reset rate_seven_pct rate_seven_reset session_id
   local agent_count agent_in agent_cached agent_out agent_tools agent_tool_bytes agent_turns
   local session_in session_cached session_out session_tools session_tool_bytes session_turns
   local short_cwd git_branch worktree_part ctx_part cost_part token_part agent_token_part session_token_part tools_part
-  local rate_five_part rate_five_color rate_seven_part rate_seven_color
+  local rate_five_part rate_five_color rate_seven_part rate_seven_color session_id_part
   local in_fmt cached_fmt out_fmt total_in_fmt total_out_fmt
   local agent_in_fmt agent_cached_fmt agent_out_fmt
   local session_in_fmt session_cached_fmt session_out_fmt
@@ -249,7 +250,7 @@ main() {
   # Note: workspace.git_worktree wins over worktree.name since it covers all linked worktrees.
   IFS=$'\x1f' read -r cwd model remaining input_tokens cached_tokens output_tokens \
     total_input_tokens total_output_tokens cost_usd transcript_path worktree_name \
-    rate_five_pct rate_five_reset rate_seven_pct rate_seven_reset < <(
+    rate_five_pct rate_five_reset rate_seven_pct rate_seven_reset session_id < <(
     jq -r '[
       (.workspace.current_dir // .cwd // ""),
       (.model.display_name // ""),
@@ -266,7 +267,8 @@ main() {
       .rate_limits.five_hour.used_percentage,
       .rate_limits.five_hour.resets_at,
       .rate_limits.seven_day.used_percentage,
-      .rate_limits.seven_day.resets_at
+      .rate_limits.seven_day.resets_at,
+      .session_id
     ] | map(if . == null then "" else tostring end) | join("\u001f")' <<<"${input}"
   )
 
@@ -316,6 +318,13 @@ main() {
       rate_seven_part="${rate_seven_part}·$(fmt_time_until "${rate_seven_reset}")"
     fi
     ((rate_pct_int >= RATE_LIMIT_NEAR_THRESHOLD)) && rate_seven_color="${RATE_LIMIT_WARN_COLOR}"
+  fi
+
+  # Short session id — the first 8 chars of the UUID are enough to cross-reference
+  # a run in ~/.claude/projects/*/ without dominating the status line.
+  session_id_part=""
+  if [[ -n "${session_id}" ]]; then
+    session_id_part=" §${session_id:0:8}"
   fi
 
   # Aggregate transcript-derived metrics up front so downstream segments (M: turn count,
@@ -445,6 +454,7 @@ main() {
   fi
   print_colored_text "${rate_five_color}" "${rate_five_part}"
   print_colored_text "${rate_seven_color}" "${rate_seven_part}"
+  print_colored_text "${SESSION_ID_COLOR}" "${session_id_part}"
   print_ansi "${BOLD}${GREY}]${RESET} "
   print_colored_text "${MODEL_COLOR}" "${model}"
   # Second line: per-turn, subagent, session token totals, and tool call counts. ↳ ties it to line 1.

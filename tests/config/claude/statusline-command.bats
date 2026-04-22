@@ -45,6 +45,7 @@ write_statusline_payload() {
   cat >"${PAYLOAD}" <<EOF
 {
   "cwd": "${cwd}",
+  "session_id": "abcd1234-ef56-7890-abcd-ef1234567890",
   "model": {
     "display_name": "Opus"
   },
@@ -319,6 +320,33 @@ EOF
   assert_success
   [[ "${output}" != *"5h:"* ]]
   [[ "${output}" != *"7d:"* ]]
+}
+
+@test "statusline-command: renders 8-char session id when session_id is set" {
+  create_statusline_repo
+  write_statusline_payload "${TEST_REPO}"
+
+  run env SCRIPT="${SCRIPT}" PAYLOAD="${PAYLOAD}" bash -c 'bash "${SCRIPT}" < "${PAYLOAD}"'
+  assert_success
+  assert_output --partial "§abcd1234"
+  # Full UUID must not leak through — only the first 8 chars render.
+  [[ "${output}" != *"abcd1234-ef56"* ]]
+}
+
+@test "statusline-command: omits session id marker when session_id is absent" {
+  create_statusline_repo
+  PAYLOAD="${BATS_TEST_TMPDIR}/payload.json"
+  cat >"${PAYLOAD}" <<EOF
+{
+  "cwd": "${TEST_REPO}",
+  "model": { "display_name": "Opus" },
+  "workspace": { "current_dir": "${TEST_REPO}" }
+}
+EOF
+
+  run env SCRIPT="${SCRIPT}" PAYLOAD="${PAYLOAD}" bash -c 'bash "${SCRIPT}" < "${PAYLOAD}"'
+  assert_success
+  [[ "${output}" != *"§"* ]]
 }
 
 @test "statusline-command: shows worktree marker when workspace.git_worktree is set" {
