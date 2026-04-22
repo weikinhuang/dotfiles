@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # @see https://code.claude.com/docs/en/statusline
 # Claude Code status line — mirrors the dotfiles PS1 style:
-#   [user#host cwd (git branch $%=) ctx% left Msg:↑input/↻ cached/↓output Session:input↑/output↓ cost] model
+#   [user#host cwd (git branch $%=) ctx% left Msg:↑input/↻ cached/↓output Session:↑input/↻ cached/↓output cost] model
 # SPDX-License-Identifier: MIT
 
 # Colors matching the dotfiles PS1 palette (will be dimmed by Claude Code)
@@ -381,12 +381,12 @@ main() {
     session_in_fmt=$(fmt_si "${session_in}")
     session_cached_fmt=$(fmt_si "${session_cached}")
     session_out_fmt=$(fmt_si "${session_out}")
-    session_token_part=" S:${session_in_fmt}↑/${session_cached_fmt}↻/${session_out_fmt}↓"
+    session_token_part=" S:↑${session_in_fmt}/↻ ${session_cached_fmt}/↓${session_out_fmt}"
   fi
   if [[ -z "${session_token_part}" && -n "${total_input_tokens}" ]]; then
     total_in_fmt=$(fmt_si "${total_input_tokens}")
     total_out_fmt=$(fmt_si "${total_output_tokens:-0}")
-    session_token_part=" S:${total_in_fmt}↑/${total_out_fmt}↓"
+    session_token_part=" S:↑${total_in_fmt}/↓${total_out_fmt}"
   fi
 
   # Tool call counters with an estimated tool_result token cost in parens

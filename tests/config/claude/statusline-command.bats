@@ -384,7 +384,7 @@ EOF
   # verify both string and nested-array content shapes are counted.
   # User turns: "hi" + "another real prompt" = 2 (system-reminder noise is filtered).
   assert_output --partial "M(2):↑"
-  assert_output --partial "S:2k↑/35k↻/2k↓"
+  assert_output --partial "S:↑2k/↻ 35k/↓2k"
   assert_output --partial "⚒ S:3(~200)"
   # Fallback JSON totals must NOT appear when transcript-derived totals are emitted.
   [[ "${output}" != *"15.23M"* ]]
@@ -396,8 +396,8 @@ EOF
 
   run env SCRIPT="${SCRIPT}" PAYLOAD="${PAYLOAD}" bash -c 'bash "${SCRIPT}" < "${PAYLOAD}"'
   assert_success
-  assert_output --partial "S:15.23M↑/4k↓"
-  [[ "${output}" != *"↻/"* ]]
+  assert_output --partial "S:↑15.23M/↓4k"
+  [[ "${output}" != *"S:↑15.23M/↻"* ]]
 }
 
 @test "statusline-command: omits subagent segment when no subagent transcripts exist" {
@@ -439,7 +439,7 @@ EOF
 
   run env SCRIPT="${SCRIPT}" PAYLOAD="${PAYLOAD}" bash -c 'bash "${SCRIPT}" < "${PAYLOAD}"'
   assert_success
-  assert_output --partial "S:9k↑/7k↻/5k↓"
+  assert_output --partial "S:↑9k/↻ 7k/↓5k"
   assert_output --partial "⚒ S:42"
 
   # Touching the transcript bumps its mtime, invalidating the cache. The next run re-derives
@@ -451,7 +451,7 @@ EOF
   run env SCRIPT="${SCRIPT}" PAYLOAD="${PAYLOAD}" bash -c 'bash "${SCRIPT}" < "${PAYLOAD}"'
   assert_success
   assert_output --partial "⚒ S:1"
-  [[ "${output}" != *"S:9k↑"* ]]
+  [[ "${output}" != *"S:↑9k"* ]]
 }
 
 @test "statusline-command: fmt_si abbreviates plain, thousand, and million values" {
