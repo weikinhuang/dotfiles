@@ -9,6 +9,7 @@ RESET='\e[0m'
 GREY='\e[38;5;244m'
 USER_COLOR='\e[38;5;197m'
 HOST_COLOR='\e[38;5;208m'
+PROFILE_COLOR='\e[4m\e[38;5;214m'
 DIR_COLOR='\e[38;5;142m'
 GIT_COLOR='\e[38;5;135m'
 WORKTREE_COLOR='\e[38;5;173m'
@@ -437,6 +438,10 @@ main() {
   print_colored_text "${USER_COLOR}" "${user}"
   print_ansi "${GREY}#${RESET}"
   print_colored_text "${HOST_COLOR}" "${host}"
+  if [[ -n "${CLAUDE_CODE_PROFILE_NAME:-}" ]]; then
+    print_ansi "${GREY},${RESET}"
+    print_colored_text "${PROFILE_COLOR}" "${CLAUDE_CODE_PROFILE_NAME}"
+  fi
   printf ' '
   if [[ -n "${cwd_url}" ]]; then
     print_osc8_link "${cwd_url}" "${DIR_COLOR}" "${short_cwd}"
