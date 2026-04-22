@@ -55,6 +55,7 @@ interface ParsedArgs {
   command: 'list' | 'session';
   sessionId: string;
   projectSlug: string;
+  userDir: string;
   json: boolean;
   sort: 'date' | 'tokens' | 'duration' | 'tools';
   limit: number;
@@ -65,8 +66,9 @@ interface ParsedArgs {
 // Constants
 // ---------------------------------------------------------------------------
 
-const CLAUDE_DIR = path.join(process.env.HOME ?? '', '.claude');
-const PROJECTS_DIR = path.join(CLAUDE_DIR, 'projects');
+const DEFAULT_CLAUDE_DIR = path.join(process.env.HOME ?? '', '.claude');
+
+let PROJECTS_DIR = path.join(DEFAULT_CLAUDE_DIR, 'projects');
 
 const COLORS = {
   reset: '\x1b[0m',
@@ -95,6 +97,7 @@ Commands:
 
 Options:
   --project, -p <slug> Project slug (default: derived from $PWD)
+  --user-dir, -u <dir> Claude config dir (default: ~/.claude)
   --json               Machine-readable JSON output
   --sort <field>       Sort by: date, tokens, duration, tools (default: date)
   --limit, -n <N>      Limit to N sessions
@@ -171,6 +174,7 @@ function parseArgs(argv: string[]): ParsedArgs {
     command: 'list',
     sessionId: '',
     projectSlug: '',
+    userDir: '',
     json: false,
     sort: 'date',
     limit: 0,
@@ -196,6 +200,11 @@ function parseArgs(argv: string[]): ParsedArgs {
         i++;
         args.projectSlug = argv[i] ?? '';
         break;
+      case '--user-dir':
+      case '-u':
+        i++;
+        args.userDir = argv[i] ?? '';
+        break;
       case '--sort':
         i++;
         args.sort = (argv[i] ?? 'date') as ParsedArgs['sort'];
@@ -208,6 +217,8 @@ function parseArgs(argv: string[]): ParsedArgs {
       default:
         if (arg.startsWith('--project=')) {
           args.projectSlug = arg.slice('--project='.length);
+        } else if (arg.startsWith('--user-dir=')) {
+          args.userDir = arg.slice('--user-dir='.length);
         } else if (arg.startsWith('--sort=')) {
           args.sort = arg.slice('--sort='.length) as ParsedArgs['sort'];
         } else if (arg.startsWith('--limit=')) {
@@ -852,9 +863,17 @@ function resolveSessionFile(projectDir: string, sessionId: string): string {
 // Main
 // ---------------------------------------------------------------------------
 
+function expandUserPath(p: string): string {
+  if (p.startsWith('~')) return path.join(process.env.HOME ?? '', p.slice(1));
+  return path.resolve(p);
+}
+
 function main(): void {
   const args = parseArgs(process.argv.slice(2));
   useColor = !args.noColor && !args.json && process.stdout.isTTY !== false;
+
+  const claudeDir = args.userDir ? expandUserPath(args.userDir) : DEFAULT_CLAUDE_DIR;
+  PROJECTS_DIR = path.join(claudeDir, 'projects');
 
   const projectDir = resolveProjectDir(args);
   const projectSlug = path.basename(projectDir);

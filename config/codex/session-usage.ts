@@ -58,6 +58,7 @@ interface ParsedArgs {
   command: 'list' | 'session';
   sessionId: string;
   projectPath: string;
+  userDir: string;
   json: boolean;
   sort: 'date' | 'tokens' | 'duration' | 'tools';
   limit: number;
@@ -68,8 +69,9 @@ interface ParsedArgs {
 // Constants
 // ---------------------------------------------------------------------------
 
-const CODEX_DIR = path.join(process.env.HOME ?? '', '.codex');
-const SESSIONS_DIR = path.join(CODEX_DIR, 'sessions');
+const DEFAULT_CODEX_DIR = path.join(process.env.HOME ?? '', '.codex');
+
+let SESSIONS_DIR = path.join(DEFAULT_CODEX_DIR, 'sessions');
 
 const COLORS = {
   reset: '\x1b[0m',
@@ -98,6 +100,7 @@ Commands:
 
 Options:
   --project, -p <path> Filter sessions by project directory
+  --user-dir, -u <dir> Codex config dir (default: ~/.codex)
   --json               Machine-readable JSON output
   --sort <field>       Sort by: date, tokens, duration, tools (default: date)
   --limit, -n <N>      Limit to N sessions
@@ -174,6 +177,7 @@ function parseArgs(argv: string[]): ParsedArgs {
     command: 'list',
     sessionId: '',
     projectPath: '',
+    userDir: '',
     json: false,
     sort: 'date',
     limit: 0,
@@ -199,6 +203,11 @@ function parseArgs(argv: string[]): ParsedArgs {
         i++;
         args.projectPath = argv[i] ?? '';
         break;
+      case '--user-dir':
+      case '-u':
+        i++;
+        args.userDir = argv[i] ?? '';
+        break;
       case '--sort':
         i++;
         args.sort = (argv[i] ?? 'date') as ParsedArgs['sort'];
@@ -211,6 +220,8 @@ function parseArgs(argv: string[]): ParsedArgs {
       default:
         if (arg.startsWith('--project=')) {
           args.projectPath = arg.slice('--project='.length);
+        } else if (arg.startsWith('--user-dir=')) {
+          args.userDir = arg.slice('--user-dir='.length);
         } else if (arg.startsWith('--sort=')) {
           args.sort = arg.slice('--sort='.length) as ParsedArgs['sort'];
         } else if (arg.startsWith('--limit=')) {
@@ -808,6 +819,9 @@ function resolveSessionFile(sessionId: string): string {
 function main(): void {
   const args = parseArgs(process.argv.slice(2));
   useColor = !args.noColor && !args.json && process.stdout.isTTY !== false;
+
+  const codexDir = args.userDir ? resolveProjectPath(args.userDir) : DEFAULT_CODEX_DIR;
+  SESSIONS_DIR = path.join(codexDir, 'sessions');
 
   if (!fs.existsSync(SESSIONS_DIR)) {
     console.error(`Codex sessions directory not found: ${SESSIONS_DIR}`);
