@@ -285,9 +285,6 @@ main() {
   print_colored_text "${GIT_COLOR}" "${git_branch}"
   print_colored_text "${WORKTREE_COLOR}" "${worktree_part}"
   print_colored_text "${CONTEXT_COLOR}" "${ctx_part}"
-  print_colored_text "${TOKEN_COLOR}" "${token_part}"
-  print_colored_text "${AGENT_TOKEN_COLOR}" "${agent_token_part}"
-  print_colored_text "${SESSION_TOKEN_COLOR}" "${session_token_part}"
   if [[ -n "${cost_part}" ]] && [[ -z "${DOT_DISABLE_HYPERLINKS:-}" ]]; then
     printf ' '
     print_osc8_link "https://claude.ai/settings/usage" "${COST_COLOR}" "${cost_part# }"
@@ -296,6 +293,25 @@ main() {
   fi
   print_ansi "${BOLD}${GREY}]${RESET} "
   print_colored_text "${MODEL_COLOR}" "${model}"
+  # Second line: per-turn, subagent, and session token totals. ↳ visually ties it to line 1.
+  if [[ -n "${token_part}${agent_token_part}${session_token_part}" ]]; then
+    printf '\n'
+    print_colored_text "${GREY}" " ↳"
+    local need_sep=""
+    if [[ -n "${token_part}" ]]; then
+      print_colored_text "${TOKEN_COLOR}" "${token_part}"
+      need_sep=1
+    fi
+    if [[ -n "${agent_token_part}" ]]; then
+      [[ -n "${need_sep}" ]] && print_colored_text "${GREY}" " |"
+      print_colored_text "${AGENT_TOKEN_COLOR}" "${agent_token_part}"
+      need_sep=1
+    fi
+    if [[ -n "${session_token_part}" ]]; then
+      [[ -n "${need_sep}" ]] && print_colored_text "${GREY}" " |"
+      print_colored_text "${SESSION_TOKEN_COLOR}" "${session_token_part}"
+    fi
+  fi
   printf '\n'
 }
 
