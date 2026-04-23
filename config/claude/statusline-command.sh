@@ -252,7 +252,7 @@ main() {
   IFS=$'\x1f' read -r cwd model remaining input_tokens cached_tokens output_tokens \
     total_input_tokens total_output_tokens cost_usd transcript_path worktree_name \
     rate_five_pct rate_five_reset rate_seven_pct rate_seven_reset session_id < <(
-    jq -r '[
+      jq -r '[
       (.workspace.current_dir // .cwd // ""),
       (.model.display_name // ""),
       .context_window.remaining_percentage,
@@ -271,7 +271,7 @@ main() {
       .rate_limits.seven_day.resets_at,
       .session_id
     ] | map(if . == null then "" else tostring end) | join("\u001f")' <<<"${input}"
-  )
+    )
 
   # Just the directory name, not the full path.
   short_cwd="${cwd##*/}"
@@ -358,6 +358,7 @@ main() {
       fi
     fi
 
+    # shellcheck disable=SC2034  # agent_turns is the trailing TSV field; read to consume it
     IFS=$'\t' read -r agent_count agent_in agent_cached agent_out agent_tools agent_tool_bytes agent_turns <<<"${agent_tsv}" || true
     IFS=$'\t' read -r session_in session_cached session_out session_tools session_tool_bytes session_turns <<<"${session_tsv}" || true
   fi

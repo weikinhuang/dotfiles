@@ -54,9 +54,9 @@ assert_float_near() {
     batslib_print_kv_single_or_multi 8 \
       'actual' "${actual}" \
       'expected' "${expected}" \
-      'tolerance' "${tol}" |
-      batslib_decorate "values differ beyond tolerance" |
-      fail
+      'tolerance' "${tol}" \
+      | batslib_decorate "values differ beyond tolerance" \
+      | fail
   fi
 }
 

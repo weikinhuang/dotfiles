@@ -33,7 +33,7 @@ setup() {
 @test "prompt-lib: segment-add appends to end by default" {
   internal::ps1-segment-add venv
 
-  [ "${DOT_PS1_SEGMENTS[${#DOT_PS1_SEGMENTS[@]}-1]}" = "venv" ]
+  [ "${DOT_PS1_SEGMENTS[${#DOT_PS1_SEGMENTS[@]} - 1]}" = "venv" ]
 }
 
 @test "prompt-lib: segment-add --after inserts after named segment" {
@@ -119,7 +119,7 @@ setup() {
 @test "prompt-lib: segment-add with non-existent reference falls back to append" {
   internal::ps1-segment-add venv --after nonexistent
 
-  [ "${DOT_PS1_SEGMENTS[${#DOT_PS1_SEGMENTS[@]}-1]}" = "venv" ]
+  [ "${DOT_PS1_SEGMENTS[${#DOT_PS1_SEGMENTS[@]} - 1]}" = "venv" ]
 }
 
 @test "prompt-lib: resolve-color 3-arg form assigns via printf -v" {

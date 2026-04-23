@@ -37,7 +37,8 @@ function list_available_tools() {
 }
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
-readonly DOTFILES_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd -P)"
+DOTFILES_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd -P)"
+readonly DOTFILES_ROOT
 
 case "${1:-}" in
   '' | -h | --help)

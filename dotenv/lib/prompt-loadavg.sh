@@ -1,4 +1,5 @@
 # shellcheck shell=bash
+# shellcheck disable=SC2154  # __dot_ps1_reset set by dotenv/lib/prompt.sh
 # Load-average segment caching subsystem.
 # Sourced from dotenv/prompt.sh during the prompt phase.
 # SPDX-License-Identifier: MIT

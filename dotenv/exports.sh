@@ -33,3 +33,6 @@ VISUAL="${VISUAL:-$EDITOR}"
 export VISUAL
 PAGER="${PAGER:-less}"
 export PAGER
+
+# opt out of telemetry collection for tools that support this environment variable
+export DO_NOT_TRACK=1

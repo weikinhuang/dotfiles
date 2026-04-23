@@ -71,7 +71,10 @@ get_bats_files() {
 
 echo "==> Running shellcheck..."
 get_shell_files | xargs -n1 shellcheck -f gcc --source-path=SCRIPTDIR
-get_bats_files | xargs -n1 shellcheck -S warning -s bats -f gcc
+# --norc disables .shellcheckrc (external-sources=true) for bats files.
+# Without this, shellcheck 0.11 follows each `source "${REPO_ROOT}/..."` inside
+# every `@test` block and consumes 10GB+ per file.
+get_bats_files | xargs -n1 shellcheck --norc -S warning -s bats -f gcc
 
 echo "==> Running shfmt..."
 get_shell_files | xargs -n1 shfmt -ln bash -ci -bn -i 2 "${SHFMT_MODE[@]}"

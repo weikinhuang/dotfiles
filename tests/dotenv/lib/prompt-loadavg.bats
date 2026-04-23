@@ -1,5 +1,6 @@
 #!/usr/bin/env bats
 # Tests for dotenv/lib/prompt-loadavg.sh (load-average segment caching subsystem).
+# shellcheck disable=SC2154  # __dot_ps1_reset set by sourced prompt.sh
 # SPDX-License-Identifier: MIT
 
 setup() {
@@ -72,7 +73,9 @@ setup() {
 }
 
 @test "prompt-loadavg: refresh clears the segment when no prompt uses loadavg" {
+  # shellcheck disable=SC2034  # read by sourced prompt-loadavg.sh
   DOT_PS1_SEGMENTS=(user)
+  # shellcheck disable=SC2034  # read by sourced prompt-loadavg.sh
   DOT_SUDO_PS1_SEGMENTS=(user)
 
   source "${REPO_ROOT}/dotenv/lib/prompt-loadavg.sh"

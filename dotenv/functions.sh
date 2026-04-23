@@ -207,4 +207,3 @@ function regex() {
 function binarydiff() {
   vimdiff <(xxd "${1}") <(xxd "${2}")
 }
-

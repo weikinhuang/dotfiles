@@ -46,7 +46,9 @@ setup() {
 }
 
 @test "prompt-time: refresh clears the segment when no prompt uses time" {
+  # shellcheck disable=SC2034  # read by sourced prompt-time.sh
   DOT_PS1_SEGMENTS=(user)
+  # shellcheck disable=SC2034  # read by sourced prompt-time.sh
   DOT_SUDO_PS1_SEGMENTS=(user)
 
   source "${REPO_ROOT}/dotenv/lib/prompt-time.sh"
