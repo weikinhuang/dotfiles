@@ -8,7 +8,13 @@ import * as path from 'path';
 import { runSessionUsageCli, type SessionUsageAdapter } from '../../lib/node/ai-tooling/cli.ts';
 import { readJsonlLines } from '../../lib/node/ai-tooling/jsonl.ts';
 import { resolveProjectPath } from '../../lib/node/ai-tooling/paths.ts';
-import type { SessionDetail, SessionSummary, SessionTokens, Subagent } from '../../lib/node/ai-tooling/types.ts';
+import type {
+  ModelTokenBreakdown,
+  SessionDetail,
+  SessionSummary,
+  SessionTokens,
+  Subagent,
+} from '../../lib/node/ai-tooling/types.ts';
 
 // ---------------------------------------------------------------------------
 // Context
@@ -79,8 +85,20 @@ interface ParsedSession {
   endTime: string;
   userTurns: number;
   tokens: SessionTokens;
+  modelBreakdown: ModelTokenBreakdown[];
   toolCalls: number;
   toolBreakdown: Record<string, number>;
+}
+
+interface CodexTotalUsage {
+  input: number;
+  cacheRead: number;
+  output: number;
+  reasoning: number;
+}
+
+function emptyCodexTokens(): SessionTokens {
+  return { input: 0, cacheRead: 0, output: 0, reasoning: 0 };
 }
 
 function parseSessionFile(filePath: string): ParsedSession {
@@ -96,9 +114,17 @@ function parseSessionFile(filePath: string): ParsedSession {
   let startTime = '';
   let endTime = '';
   let userTurns = 0;
-  let tokens: SessionTokens = { input: 0, cacheRead: 0, output: 0, reasoning: 0 };
+  let tokens: SessionTokens = emptyCodexTokens();
   const toolBreakdown: Record<string, number> = {};
   let toolCalls = 0;
+
+  // Codex reports token_count events carrying a running cumulative total.
+  // Track per-model usage by delta against the most recently seen
+  // turn_context.model — that way a mid-session model change (rare in Codex
+  // but technically possible via profile switches) still prices correctly.
+  let currentModel = '';
+  const perModel = new Map<string, SessionTokens>();
+  let last: CodexTotalUsage = { input: 0, cacheRead: 0, output: 0, reasoning: 0 };
 
   for (const entry of entries) {
     if (typeof entry !== 'object' || entry === null) continue;
@@ -118,8 +144,12 @@ function parseSessionFile(filePath: string): ParsedSession {
       isSubagent = typeof p?.source === 'object' && !!p.source?.subagent;
     }
 
-    if (entry.type === 'turn_context' && !model) {
-      model = entry.payload?.model ?? '';
+    if (entry.type === 'turn_context') {
+      const m = entry.payload?.model ?? '';
+      if (m) {
+        currentModel = m;
+        if (!model) model = m;
+      }
     }
 
     if (entry.type === 'event_msg') {
@@ -129,12 +159,29 @@ function parseSessionFile(filePath: string): ParsedSession {
       }
       if (p?.type === 'token_count' && p.info?.total_token_usage) {
         const u = p.info.total_token_usage;
-        tokens = {
+        const curr: CodexTotalUsage = {
           input: u.input_tokens ?? 0,
           cacheRead: u.cached_input_tokens ?? 0,
           output: u.output_tokens ?? 0,
           reasoning: u.reasoning_output_tokens ?? 0,
         };
+        const delta = {
+          input: Math.max(0, curr.input - last.input),
+          cacheRead: Math.max(0, curr.cacheRead - last.cacheRead),
+          output: Math.max(0, curr.output - last.output),
+          reasoning: Math.max(0, curr.reasoning - last.reasoning),
+        };
+        const key = currentModel || model;
+        if (key && (delta.input || delta.output || delta.cacheRead || delta.reasoning)) {
+          const slice = perModel.get(key) ?? emptyCodexTokens();
+          slice.input += delta.input;
+          slice.cacheRead += delta.cacheRead;
+          slice.output += delta.output;
+          slice.reasoning! += delta.reasoning;
+          perModel.set(key, slice);
+        }
+        last = curr;
+        tokens = { input: curr.input, cacheRead: curr.cacheRead, output: curr.output, reasoning: curr.reasoning };
       }
     }
 
@@ -149,6 +196,16 @@ function parseSessionFile(filePath: string): ParsedSession {
 
   if (!sessionId) sessionId = path.basename(filePath, '.jsonl');
 
+  const modelBreakdown: ModelTokenBreakdown[] = [];
+  let dominantOutput = -1;
+  for (const [m, t] of perModel) {
+    modelBreakdown.push({ model: m, tokens: t });
+    if (t.output > dominantOutput) {
+      dominantOutput = t.output;
+      model = m;
+    }
+  }
+
   return {
     sessionId,
     model,
@@ -161,6 +218,7 @@ function parseSessionFile(filePath: string): ParsedSession {
     endTime,
     userTurns,
     tokens,
+    modelBreakdown,
     toolCalls,
     toolBreakdown,
   };
@@ -185,6 +243,7 @@ function parsedToSummary(p: ParsedSession, subagentCount: number): SessionSummar
   };
   if (p.cwd) summary.directory = p.cwd;
   if (p.cliVersion) summary.version = p.cliVersion;
+  if (p.modelBreakdown.length > 0) summary.modelBreakdown = p.modelBreakdown;
   return summary;
 }
 
@@ -198,6 +257,7 @@ function parsedToSubagent(p: ParsedSession): Subagent {
     toolBreakdown: p.toolBreakdown,
   };
   if (p.agentRole) sa.role = p.agentRole;
+  if (p.modelBreakdown.length > 0) sa.modelBreakdown = p.modelBreakdown;
   return sa;
 }
 
@@ -209,6 +269,11 @@ function listSessions(ctx: CodexContext): SessionSummary[] {
   const parents = ctx.allFiles.map(parseSessionFile).filter((p) => !p.isSubagent);
   const filtered = parents.filter((p) => p.cwd === ctx.filterCwd || p.cwd.startsWith(ctx.filterCwd + '/'));
   return filtered.map((p) => parsedToSummary(p, ctx.subagentIndex.get(p.sessionId)?.length ?? 0));
+}
+
+function listAllSessions(ctx: CodexContext): SessionSummary[] {
+  const parents = ctx.allFiles.map(parseSessionFile).filter((p) => !p.isSubagent);
+  return parents.map((p) => parsedToSummary(p, ctx.subagentIndex.get(p.sessionId)?.length ?? 0));
 }
 
 function resolveSessionFile(ctx: CodexContext, sessionId: string): string {
@@ -260,15 +325,24 @@ const HELP = `Usage: session-usage.ts [command] [options]
 Commands:
   list                 List all sessions (default)
   session <id>         Detailed single-session report
+  totals               Usage totals bucketed by day or week. Aggregates across
+                       all projects unless --project is given.
 
 Options:
   --project, -p <path> Filter sessions by project directory
   --user-dir, -u <dir> Codex config dir (default: ~/.codex)
   --json               Machine-readable JSON output
-  --sort <field>       Sort by: date, tokens, duration, tools (default: date)
-  --limit, -n <N>      Limit to N sessions
+  --sort <field>       list: date, tokens, duration, tools
+                       totals: date, tokens, tools, cost (default: date)
+  --limit, -n <N>      Limit to N rows
+  --group-by, -g <p>   totals period: day or week (default: day)
+  --no-cost            Skip cost estimation (no pricing fetch)
+  --refresh-prices     Force-refresh the cached LiteLLM pricing table
   --no-color           Disable ANSI colors
-  -h, --help           Show this help`;
+  -h, --help           Show this help
+
+Cost is an estimate from token counts × model pricing (LiteLLM JSON,
+cached for 7 days at ~/.cache/ai-tool-usage/pricing.json).`;
 
 const adapter: SessionUsageAdapter<CodexContext> = {
   help: HELP,
@@ -288,7 +362,12 @@ const adapter: SessionUsageAdapter<CodexContext> = {
     };
   },
   listSessions,
+  listAllSessions,
   loadSessionDetail,
+  costVariant: 'openai',
 };
 
-runSessionUsageCli(adapter);
+runSessionUsageCli(adapter).catch((err) => {
+  console.error(err);
+  process.exit(1);
+});

@@ -139,7 +139,7 @@ Unless noted otherwise, everything in this section requires `DOT_INCLUDE_BUILTIN
 
 | Command | Platforms | Description |
 | --- | --- | --- |
-| [`ai-tool-usage`](./dotenv/bin/ai-tool-usage) | all | summarize AI tool session logs; delegates to `config/<tool>/session-usage.ts` (supports `claude`, `codex`, `opencode`) |
+| [`ai-tool-usage`](./dotenv/bin/ai-tool-usage) | all | summarize AI tool session logs (per-session `list`, per-session `session <id>`, or cross-project `totals --group-by day|week`); estimates cost for `claude`/`codex` from LiteLLM's pricing JSON (cached 7d at `~/.cache/ai-tool-usage/pricing.json`; `--no-cost` to skip, `--refresh-prices` to force fetch) and uses real costs from `opencode`'s DB; delegates to `config/<tool>/session-usage.ts` (supports `claude`, `codex`, `opencode`) |
 | [`chattr`](./dotenv/wsl/bin/chattr) | WSL | wrap Windows `attrib.exe` |
 | [`clipboard-server`](./dotenv/bin/clipboard-server) | all | Node-based clipboard bridge with `start`, `stop`, `restart`, and foreground `server` modes |
 | [`fswatch`](./dotenv/linux/bin/fswatch) | Linux | watch a directory with `inotifywait` and rerun a command |

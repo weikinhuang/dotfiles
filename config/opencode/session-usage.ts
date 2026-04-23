@@ -196,6 +196,14 @@ function listSessions(ctx: OpencodeContext): SessionSummary[] {
   return rows.map((r) => rowToSummary(r, parseSessionData(ctx.db, r.id), ctx.subagentIndex.get(r.id)?.length ?? 0));
 }
 
+function listAllSessions(ctx: OpencodeContext): SessionSummary[] {
+  const rows = ctx.db
+    .prepare(`SELECT ${SESSION_COLUMNS} FROM session WHERE parent_id IS NULL ORDER BY time_updated DESC`)
+    .all() as unknown as SessionRow[];
+
+  return rows.map((r) => rowToSummary(r, parseSessionData(ctx.db, r.id), ctx.subagentIndex.get(r.id)?.length ?? 0));
+}
+
 function resolveSessionRow(db: DatabaseSync, sessionId: string): SessionRow {
   const exact = db.prepare(`SELECT ${SESSION_COLUMNS} FROM session WHERE id = ?`).get(sessionId) as unknown as
     | SessionRow
@@ -233,15 +241,22 @@ const HELP = `Usage: session-usage.ts [command] [options]
 Commands:
   list                 List all sessions (default)
   session <id>         Detailed single-session report
+  totals               Usage totals bucketed by day or week. Aggregates across
+                       all projects unless --project is given.
 
 Options:
   --project, -p <path> Filter sessions by project directory (default: $PWD)
   --user-dir, -u <dir> opencode data dir (default: ~/.local/share/opencode)
   --json               Machine-readable JSON output
-  --sort <field>       Sort by: date, tokens, duration, tools, cost (default: date)
-  --limit, -n <N>      Limit to N sessions
+  --sort <field>       list: date, tokens, duration, tools, cost
+                       totals: date, tokens, tools, cost (default: date)
+  --limit, -n <N>      Limit to N rows
+  --group-by, -g <p>   totals period: day or week (default: day)
   --no-color           Disable ANSI colors
-  -h, --help           Show this help`;
+  -h, --help           Show this help
+
+opencode records real costs in its session DB; the shared --no-cost and
+--refresh-prices flags are no-ops for this tool.`;
 
 const DEFAULT_DATA_DIR =
   process.env.XDG_DATA_HOME != null && process.env.XDG_DATA_HOME !== ''
@@ -260,7 +275,11 @@ const adapter: SessionUsageAdapter<OpencodeContext> = {
     };
   },
   listSessions,
+  listAllSessions,
   loadSessionDetail,
 };
 
-runSessionUsageCli(adapter);
+runSessionUsageCli(adapter).catch((err) => {
+  console.error(err);
+  process.exit(1);
+});

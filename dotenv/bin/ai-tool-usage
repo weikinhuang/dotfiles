@@ -24,6 +24,8 @@ Examples:
   ai-tool-usage claude list
   ai-tool-usage codex session 019d4aae
   ai-tool-usage opencode --limit 5 --sort cost --json
+  ai-tool-usage claude totals --group-by week
+  ai-tool-usage opencode totals -g day --limit 14
 HELPDOC
 }
 

@@ -13,6 +13,17 @@ export interface SessionTokens {
   reasoning?: number;
 }
 
+// Per-model token accounting inside a single session or subagent. When a
+// session switches models mid-stream (e.g. Claude Code's /model command),
+// adapters emit one entry per model so cost estimation can price each slice
+// at its own rate instead of charging everything at the first-seen model's
+// price. `cost` is populated by the CLI cost annotator.
+export interface ModelTokenBreakdown {
+  model: string;
+  tokens: SessionTokens;
+  cost?: number;
+}
+
 export interface Subagent {
   agentId: string;
   agentLabel: string;
@@ -24,6 +35,7 @@ export interface Subagent {
   description?: string;
   skills?: string[];
   cost?: number;
+  modelBreakdown?: ModelTokenBreakdown[];
 }
 
 export interface SessionSummary {
@@ -44,6 +56,7 @@ export interface SessionSummary {
   toolBytes?: number;
   skills?: string[];
   cost?: number;
+  modelBreakdown?: ModelTokenBreakdown[];
 }
 
 export interface SessionDetail extends SessionSummary {

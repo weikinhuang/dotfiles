@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 import { COLORS, c, fmtCost, fmtDate, fmtDateFull, fmtDuration, fmtNumber, fmtSi, padEndVisible } from './format.ts';
-import type { SessionDetail, SessionSummary, SessionTokens, Subagent } from './types.ts';
+import type { ModelTokenBreakdown, SessionDetail, SessionSummary, SessionTokens, Subagent } from './types.ts';
 
 // ---------------------------------------------------------------------------
 // Generic helpers
@@ -90,6 +90,70 @@ function aggregateTotals(sessions: SessionSummary[]): Totals {
     }),
     { input: 0, cacheRead: 0, cacheWrite: 0, output: 0, reasoning: 0, toolCalls: 0, subagents: 0, cost: 0 },
   );
+}
+
+// ---------------------------------------------------------------------------
+// Bucketing (day / week) for totals command
+// ---------------------------------------------------------------------------
+
+export type GroupBy = 'day' | 'week';
+
+function pad2(n: number): string {
+  return String(n).padStart(2, '0');
+}
+
+function bucketKey(iso: string, groupBy: GroupBy): string {
+  const d = new Date(iso);
+  if (groupBy === 'week') {
+    // Monday as the first day of the week. JS Sunday=0..Saturday=6.
+    const day = d.getDay();
+    const mondayOffset = day === 0 ? -6 : 1 - day;
+    const monday = new Date(d.getFullYear(), d.getMonth(), d.getDate() + mondayOffset);
+    return `${monday.getFullYear()}-${pad2(monday.getMonth() + 1)}-${pad2(monday.getDate())}`;
+  }
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+}
+
+interface Bucket {
+  key: string;
+  sessions: SessionSummary[];
+  totals: Totals;
+}
+
+function bucketSessions(sessions: SessionSummary[], groupBy: GroupBy): Bucket[] {
+  const groups = new Map<string, SessionSummary[]>();
+  for (const s of sessions) {
+    if (!s.startTime) continue;
+    const key = bucketKey(s.startTime, groupBy);
+    const list = groups.get(key) ?? [];
+    list.push(s);
+    groups.set(key, list);
+  }
+  const buckets: Bucket[] = [];
+  for (const [key, group] of groups) {
+    buckets.push({ key, sessions: group, totals: aggregateTotals(group) });
+  }
+  return buckets;
+}
+
+function sortBuckets(buckets: Bucket[], field: string): Bucket[] {
+  const sorted = [...buckets];
+  switch (field) {
+    case 'tokens':
+      sorted.sort((a, b) => b.totals.input + b.totals.output - (a.totals.input + a.totals.output));
+      break;
+    case 'cost':
+      sorted.sort((a, b) => b.totals.cost - a.totals.cost);
+      break;
+    case 'tools':
+      sorted.sort((a, b) => b.totals.toolCalls - a.totals.toolCalls);
+      break;
+    case 'date':
+    default:
+      sorted.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
+      break;
+  }
+  return sorted;
 }
 
 // ---------------------------------------------------------------------------
@@ -296,6 +360,30 @@ function printToolsSection(detail: SessionDetail): void {
   console.log();
 }
 
+function printModelBreakdown(breakdown: ModelTokenBreakdown[] | undefined, indent: string = ''): void {
+  if (!breakdown || breakdown.length < 2) return;
+  const sorted = [...breakdown].sort((a, b) => b.tokens.output - a.tokens.output);
+  const header = indent === '' ? c(COLORS.bold, 'Models') : indent + c(COLORS.label, 'Models');
+  console.log(header);
+  for (const mb of sorted) {
+    const parts: string[] = [];
+    parts.push(`${fmtSi(mb.tokens.input)} in`);
+    if ((mb.tokens.cacheWrite ?? 0) > 0) {
+      parts.push(`${fmtSi(mb.tokens.cacheWrite!)} cache write`);
+    }
+    parts.push(`${fmtSi(mb.tokens.cacheRead)} cached`);
+    parts.push(`${fmtSi(mb.tokens.output)} out`);
+    if ((mb.tokens.reasoning ?? 0) > 0) {
+      parts.push(`${fmtSi(mb.tokens.reasoning!)} reasoning`);
+    }
+    const prefix = indent === '' ? '  ' : indent + '  ';
+    const line = prefix + c(COLORS.model, padEndVisible(mb.model, 28)) + '  ' + c(COLORS.label, parts.join(' / '));
+    const costSuffix = (mb.cost ?? 0) > 0 ? '    ' + c(COLORS.cost, fmtCost(mb.cost!)) : '';
+    console.log(line + costSuffix);
+  }
+  if (indent === '') console.log();
+}
+
 function printSkills(skills: string[] | undefined, indent: string = ''): void {
   if (!skills || skills.length === 0) return;
   const rendered = skills.map((s) => c(COLORS.model, s)).join(c(COLORS.grey, ', '));
@@ -337,6 +425,7 @@ function printSubagent(sa: Subagent): void {
   const inline = formatInlineToolBreakdown(sa.toolBreakdown);
   if (inline) console.log('    ' + c(COLORS.grey, inline));
 
+  printModelBreakdown(sa.modelBreakdown, '    ');
   printSkills(sa.skills, '    ');
 }
 
@@ -370,6 +459,7 @@ export function printSessionDetail(detail: SessionDetail): void {
   console.log();
 
   printTokenBlock(detail.tokens, detail.cost);
+  printModelBreakdown(detail.modelBreakdown);
   printToolsSection(detail);
   printSkills(detail.skills);
 
@@ -398,6 +488,17 @@ function tokensToJson(t: SessionTokens): Record<string, number> {
   return obj;
 }
 
+function modelBreakdownToJson(bs: ModelTokenBreakdown[]): Record<string, unknown>[] {
+  return bs.map((mb) => {
+    const obj: Record<string, unknown> = {
+      model: mb.model,
+      tokens: tokensToJson(mb.tokens),
+    };
+    if (mb.cost !== undefined) obj.cost = mb.cost;
+    return obj;
+  });
+}
+
 function subagentToJson(sa: Subagent): Record<string, unknown> {
   const obj: Record<string, unknown> = {
     agent_id: sa.agentId,
@@ -411,6 +512,7 @@ function subagentToJson(sa: Subagent): Record<string, unknown> {
   if (sa.description !== undefined) obj.description = sa.description;
   if (sa.skills !== undefined) obj.skills = sa.skills;
   if (sa.cost !== undefined) obj.cost = sa.cost;
+  if (sa.modelBreakdown !== undefined) obj.model_breakdown = modelBreakdownToJson(sa.modelBreakdown);
   return obj;
 }
 
@@ -434,6 +536,7 @@ function summaryToJson(s: SessionSummary): Record<string, unknown> {
   if (s.toolBytes !== undefined) obj.tool_bytes = s.toolBytes;
   if (s.skills !== undefined) obj.skills = s.skills;
   if (s.cost !== undefined) obj.cost = s.cost;
+  if (s.modelBreakdown !== undefined) obj.model_breakdown = modelBreakdownToJson(s.modelBreakdown);
   return obj;
 }
 
@@ -461,6 +564,195 @@ export function printListJson(sessions: SessionSummary[], label?: string): void 
     session_count: sessions.length,
     totals: totalsJson,
     sessions: sessions.map(summaryToJson),
+  };
+  if (label) obj.label = label;
+  console.log(JSON.stringify(obj, null, 2));
+}
+
+// ---------------------------------------------------------------------------
+// Totals table / JSON (grouped by day or week)
+// ---------------------------------------------------------------------------
+
+interface TotalsColumn {
+  header: string;
+  width: number;
+  align: ColAlign;
+  color: string;
+  get: (b: Bucket) => string;
+  include: (buckets: Bucket[]) => boolean;
+}
+
+function buildTotalsColumns(groupBy: GroupBy): TotalsColumn[] {
+  const periodHeader = groupBy === 'week' ? 'WEEK OF' : 'DATE';
+  return [
+    {
+      header: periodHeader,
+      width: 10,
+      align: 'left',
+      color: COLORS.time,
+      get: (b) => b.key,
+      include: () => true,
+    },
+    {
+      header: 'SESSIONS',
+      width: 8,
+      align: 'right',
+      color: COLORS.turns,
+      get: (b) => String(b.sessions.length),
+      include: () => true,
+    },
+    {
+      header: 'INPUT',
+      width: 8,
+      align: 'right',
+      color: COLORS.input,
+      get: (b) => fmtSi(b.totals.input),
+      include: () => true,
+    },
+    {
+      header: 'CACHED',
+      width: 8,
+      align: 'right',
+      color: COLORS.cached,
+      get: (b) => fmtSi(b.totals.cacheRead),
+      include: () => true,
+    },
+    {
+      header: 'OUTPUT',
+      width: 8,
+      align: 'right',
+      color: COLORS.output,
+      get: (b) => fmtSi(b.totals.output),
+      include: () => true,
+    },
+    {
+      header: 'REASON',
+      width: 8,
+      align: 'right',
+      color: COLORS.reasoning,
+      get: (b) => fmtSi(b.totals.reasoning),
+      include: (bs) => bs.some((b) => b.totals.reasoning > 0),
+    },
+    {
+      header: 'TOOLS',
+      width: 7,
+      align: 'right',
+      color: COLORS.tools,
+      get: (b) => fmtNumber(b.totals.toolCalls),
+      include: () => true,
+    },
+    {
+      header: 'COST',
+      width: 8,
+      align: 'right',
+      color: COLORS.cost,
+      get: (b) => fmtCost(b.totals.cost),
+      include: (bs) => bs.some((b) => b.totals.cost > 0),
+    },
+  ];
+}
+
+export function printTotalsTable(
+  sessions: SessionSummary[],
+  groupBy: GroupBy,
+  sortField: string,
+  limit: number,
+  label?: string,
+): void {
+  if (sessions.length === 0) {
+    console.log('No sessions found.');
+    return;
+  }
+
+  let buckets = bucketSessions(sessions, groupBy);
+  buckets = sortBuckets(buckets, sortField);
+  if (limit > 0) buckets = buckets.slice(0, limit);
+
+  const range = computeDateRange(sessions);
+  const overall = aggregateTotals(sessions);
+
+  if (label) {
+    console.log(c(COLORS.bold, 'Scope') + '    ' + c(COLORS.session, label));
+  } else {
+    console.log(c(COLORS.bold, 'Scope') + '    ' + c(COLORS.session, 'all projects'));
+  }
+  console.log(
+    c(COLORS.bold, 'Sessions') +
+      ' ' +
+      c(COLORS.turns, String(sessions.length)) +
+      '    ' +
+      c(COLORS.bold, 'Range') +
+      '    ' +
+      c(COLORS.time, `${range.start} — ${range.end}`) +
+      '    ' +
+      c(COLORS.bold, 'Group') +
+      '    ' +
+      c(COLORS.label, groupBy),
+  );
+  console.log();
+
+  const cols = buildTotalsColumns(groupBy).filter((col) => col.include(buckets));
+  console.log(cols.map((col) => c(COLORS.header, padCol(col.header, col.width, col.align))).join('  '));
+  for (const b of buckets) {
+    console.log(cols.map((col) => c(col.color, padCol(col.get(b), col.width, col.align))).join('  '));
+  }
+
+  console.log();
+  const parts: string[] = [c(COLORS.bold, 'Totals')];
+  parts.push(c(COLORS.label, 'Input') + '  ' + c(COLORS.input, fmtSi(overall.input)));
+  parts.push(c(COLORS.label, 'Cached') + '  ' + c(COLORS.cached, fmtSi(overall.cacheRead)));
+  parts.push(c(COLORS.label, 'Output') + '  ' + c(COLORS.output, fmtSi(overall.output)));
+  if (overall.reasoning > 0) {
+    parts.push(c(COLORS.label, 'Reasoning') + '  ' + c(COLORS.reasoning, fmtSi(overall.reasoning)));
+  }
+  parts.push(c(COLORS.label, 'Tools') + '  ' + c(COLORS.tools, fmtNumber(overall.toolCalls)));
+  if (overall.cost > 0) {
+    parts.push(c(COLORS.label, 'Cost') + '  ' + c(COLORS.cost, fmtCost(overall.cost)));
+  }
+  console.log(parts.join('    '));
+}
+
+export function printTotalsJson(
+  sessions: SessionSummary[],
+  groupBy: GroupBy,
+  sortField: string,
+  limit: number,
+  label?: string,
+): void {
+  let buckets = bucketSessions(sessions, groupBy);
+  buckets = sortBuckets(buckets, sortField);
+  if (limit > 0) buckets = buckets.slice(0, limit);
+  const overall = aggregateTotals(sessions);
+
+  const obj: Record<string, unknown> = {
+    group_by: groupBy,
+    session_count: sessions.length,
+    totals: {
+      tokens: {
+        input: overall.input,
+        cache_read: overall.cacheRead,
+        cache_write: overall.cacheWrite,
+        output: overall.output,
+        reasoning: overall.reasoning,
+      },
+      tool_calls: overall.toolCalls,
+      subagents: overall.subagents,
+      cost: overall.cost,
+    },
+    buckets: buckets.map((b) => ({
+      period: b.key,
+      sessions: b.sessions.length,
+      tokens: {
+        input: b.totals.input,
+        cache_read: b.totals.cacheRead,
+        cache_write: b.totals.cacheWrite,
+        output: b.totals.output,
+        reasoning: b.totals.reasoning,
+      },
+      tool_calls: b.totals.toolCalls,
+      subagents: b.totals.subagents,
+      cost: b.totals.cost,
+    })),
   };
   if (label) obj.label = label;
   console.log(JSON.stringify(obj, null, 2));

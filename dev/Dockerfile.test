@@ -8,6 +8,13 @@ RUN set -ex \
     && apt-get update -qq \
     && apt-get install -y --no-install-recommends \
         ca-certificates \
+        curl \
+        gnupg \
+    # NodeSource provides a recent Node; Ubuntu's apt ships 18.x which is
+    # too old for built-in TypeScript type-stripping and the node:sqlite
+    # module used by the session-usage tooling.
+    && curl -fsSL https://deb.nodesource.com/setup_24.x | bash - \
+    && apt-get install -y --no-install-recommends \
         # test framework
         bats \
         bats-assert \
@@ -24,7 +31,6 @@ RUN set -ex \
         tmux \
         vim \
         # general utilities
-        curl \
         git \
         jq \
         sudo \

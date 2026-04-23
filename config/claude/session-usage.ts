@@ -7,13 +7,20 @@ import * as path from 'path';
 
 import { runSessionUsageCli, type SessionUsageAdapter } from '../../lib/node/ai-tooling/cli.ts';
 import { readJsonlLines } from '../../lib/node/ai-tooling/jsonl.ts';
-import type { SessionDetail, SessionSummary, SessionTokens, Subagent } from '../../lib/node/ai-tooling/types.ts';
+import type {
+  ModelTokenBreakdown,
+  SessionDetail,
+  SessionSummary,
+  SessionTokens,
+  Subagent,
+} from '../../lib/node/ai-tooling/types.ts';
 
 // ---------------------------------------------------------------------------
 // Context
 // ---------------------------------------------------------------------------
 
 interface ClaudeContext {
+  projectsDir: string;
   projectDir: string;
   projectSlug: string;
 }
@@ -44,7 +51,7 @@ function listProjectSlugs(projectsDir: string): string[] {
     .map((d) => d.name);
 }
 
-function resolveProjectDir(projectsDir: string, projectArg: string): { dir: string; slug: string } {
+function resolveProjectDir(projectsDir: string, projectArg: string, required: boolean): { dir: string; slug: string } {
   let slug = projectArg;
   if (slug && (slug.startsWith('/') || slug.startsWith('~') || slug.startsWith('.'))) {
     const resolved = slug.startsWith('~') ? path.join(process.env.HOME ?? '', slug.slice(1)) : path.resolve(slug);
@@ -52,6 +59,7 @@ function resolveProjectDir(projectsDir: string, projectArg: string): { dir: stri
   }
   if (!slug) slug = detectProjectSlug(projectsDir, process.cwd());
   if (!slug) {
+    if (!required) return { dir: '', slug: '' };
     console.error('Could not detect project from $PWD. Use --project <slug> to specify one.');
     const projects = listProjectSlugs(projectsDir);
     if (projects.length > 0) {
@@ -77,6 +85,7 @@ interface ParsedEntries {
   endTime: string;
   model: string;
   tokens: SessionTokens;
+  modelBreakdown: ModelTokenBreakdown[];
   toolCalls: number;
   toolBytes: number;
   toolBreakdown: Record<string, number>;
@@ -84,8 +93,13 @@ interface ParsedEntries {
   userTurns: number;
 }
 
+function emptyTokens(): SessionTokens {
+  return { input: 0, cacheRead: 0, cacheWrite: 0, output: 0 };
+}
+
 function parseEntries(entries: any[]): ParsedEntries {
-  const tokens: SessionTokens = { input: 0, cacheRead: 0, cacheWrite: 0, output: 0 };
+  const tokens: SessionTokens = emptyTokens();
+  const perModel = new Map<string, SessionTokens>();
   let toolCalls = 0;
   let toolBytes = 0;
   let userTurns = 0;
@@ -95,6 +109,12 @@ function parseEntries(entries: any[]): ParsedEntries {
   const toolBreakdown: Record<string, number> = {};
   const skillCandidates = new Map<string, string>();
   const failedToolUseIds = new Set<string>();
+  // Claude Code splits one assistant response across multiple JSONL entries
+  // (e.g. thinking block, then tool_use chunks) and repeats the full `usage`
+  // object on each one. Count usage exactly once per message.id so we don't
+  // double-count tokens — tool_use blocks are still aggregated across all
+  // entries since they are partial slices of the complete response.
+  const countedMessageIds = new Set<string>();
 
   for (const entry of entries) {
     if (typeof entry !== 'object' || entry === null) continue;
@@ -105,13 +125,29 @@ function parseEntries(entries: any[]): ParsedEntries {
     }
 
     if (entry.type === 'assistant') {
-      if (!model && entry.message?.model) model = entry.message.model;
-      if (entry.message?.usage) {
+      const msgModel: string = entry.message?.model ?? '';
+      if (!model && msgModel) model = msgModel;
+      const msgId: string | undefined = entry.message?.id;
+      const usageAlreadyCounted = msgId ? countedMessageIds.has(msgId) : false;
+      if (entry.message?.usage && !usageAlreadyCounted) {
+        if (msgId) countedMessageIds.add(msgId);
         const u = entry.message.usage;
-        tokens.input += u.input_tokens ?? 0;
-        tokens.cacheWrite! += u.cache_creation_input_tokens ?? 0;
-        tokens.cacheRead += u.cache_read_input_tokens ?? 0;
-        tokens.output += u.output_tokens ?? 0;
+        const dIn = u.input_tokens ?? 0;
+        const dCw = u.cache_creation_input_tokens ?? 0;
+        const dCr = u.cache_read_input_tokens ?? 0;
+        const dOut = u.output_tokens ?? 0;
+        tokens.input += dIn;
+        tokens.cacheWrite! += dCw;
+        tokens.cacheRead += dCr;
+        tokens.output += dOut;
+
+        const key = msgModel || model || 'unknown';
+        const slice = perModel.get(key) ?? emptyTokens();
+        slice.input += dIn;
+        slice.cacheWrite! += dCw;
+        slice.cacheRead += dCr;
+        slice.output += dOut;
+        perModel.set(key, slice);
       }
 
       const content = entry.message?.content;
@@ -162,11 +198,25 @@ function parseEntries(entries: any[]): ParsedEntries {
     if (!failedToolUseIds.has(toolUseId)) skills.push(skillName);
   }
 
+  const modelBreakdown: ModelTokenBreakdown[] = [];
+  // Pick a representative display model: the one with the most output tokens.
+  let dominantModel = model;
+  let dominantOutput = -1;
+  for (const [m, t] of perModel) {
+    modelBreakdown.push({ model: m, tokens: t });
+    if (t.output > dominantOutput) {
+      dominantOutput = t.output;
+      dominantModel = m;
+    }
+  }
+  if (dominantModel) model = dominantModel;
+
   return {
     startTime,
     endTime,
     model,
     tokens,
+    modelBreakdown,
     toolCalls,
     toolBytes,
     toolBreakdown,
@@ -194,6 +244,7 @@ function buildSummary(sessionId: string, parsed: ParsedEntries, subagentCount: n
   };
   if (parsed.toolBytes > 0) summary.toolBytes = parsed.toolBytes;
   if (parsed.skills.length > 0) summary.skills = parsed.skills;
+  if (parsed.modelBreakdown.length > 0) summary.modelBreakdown = parsed.modelBreakdown;
   return summary;
 }
 
@@ -244,6 +295,7 @@ function parseSubagents(sessionFilePath: string): Subagent[] {
     };
     if (description) sa.description = description;
     if (parsed.skills.length > 0) sa.skills = parsed.skills;
+    if (parsed.modelBreakdown.length > 0) sa.modelBreakdown = parsed.modelBreakdown;
     result.push(sa);
   }
   return result;
@@ -277,10 +329,25 @@ function resolveSessionFile(projectDir: string, sessionId: string): string {
 }
 
 function listSessions(ctx: ClaudeContext): SessionSummary[] {
+  if (!ctx.projectDir) return [];
   return listSessionFiles(ctx.projectDir).map(parseSessionFile);
 }
 
+function listAllSessions(ctx: ClaudeContext): SessionSummary[] {
+  const slugs = listProjectSlugs(ctx.projectsDir);
+  const out: SessionSummary[] = [];
+  for (const slug of slugs) {
+    const dir = path.join(ctx.projectsDir, slug);
+    for (const file of listSessionFiles(dir)) out.push(parseSessionFile(file));
+  }
+  return out;
+}
+
 function loadSessionDetail(ctx: ClaudeContext, sessionId: string): SessionDetail {
+  if (!ctx.projectDir) {
+    console.error('Could not detect project from $PWD. Use --project <slug> to specify one.');
+    process.exit(1);
+  }
   const file = resolveSessionFile(ctx.projectDir, sessionId);
   const summary = parseSessionFile(file);
   const subagents = parseSubagents(file);
@@ -296,15 +363,24 @@ const HELP = `Usage: session-usage.ts [command] [options]
 Commands:
   list                 List all sessions in a project (default)
   session <uuid>       Detailed single-session report
+  totals               Usage totals bucketed by day or week. Aggregates across
+                       all projects unless --project is given.
 
 Options:
   --project, -p <slug> Project slug (default: derived from $PWD)
   --user-dir, -u <dir> Claude config dir (default: ~/.claude)
   --json               Machine-readable JSON output
-  --sort <field>       Sort by: date, tokens, duration, tools (default: date)
-  --limit, -n <N>      Limit to N sessions
+  --sort <field>       list: date, tokens, duration, tools
+                       totals: date, tokens, tools, cost (default: date)
+  --limit, -n <N>      Limit to N rows
+  --group-by, -g <p>   totals period: day or week (default: day)
+  --no-cost            Skip cost estimation (no pricing fetch)
+  --refresh-prices     Force-refresh the cached LiteLLM pricing table
   --no-color           Disable ANSI colors
-  -h, --help           Show this help`;
+  -h, --help           Show this help
+
+Cost is an estimate from token counts × model pricing (LiteLLM JSON,
+cached for 7 days at ~/.cache/ai-tool-usage/pricing.json).`;
 
 const adapter: SessionUsageAdapter<ClaudeContext> = {
   help: HELP,
@@ -312,12 +388,20 @@ const adapter: SessionUsageAdapter<ClaudeContext> = {
   sessionArgLabel: '<uuid>',
   resolveContext(args, userDir) {
     const projectsDir = path.join(userDir, 'projects');
-    const { dir, slug } = resolveProjectDir(projectsDir, args.projectArg);
-    return { projectDir: dir, projectSlug: slug };
+    // The totals command defaults to all projects, so don't force a project
+    // match when the user omitted --project.
+    const required = args.command !== 'totals' || !!args.projectArg;
+    const { dir, slug } = resolveProjectDir(projectsDir, args.projectArg, required);
+    return { projectsDir, projectDir: dir, projectSlug: slug };
   },
   listSessions,
+  listAllSessions,
   loadSessionDetail,
   listLabel: (ctx) => ctx.projectSlug,
+  costVariant: 'anthropic',
 };
 
-runSessionUsageCli(adapter);
+runSessionUsageCli(adapter).catch((err) => {
+  console.error(err);
+  process.exit(1);
+});

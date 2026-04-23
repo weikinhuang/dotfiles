@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 export interface ParsedArgs {
-  command: 'list' | 'session';
+  command: 'list' | 'session' | 'totals';
   sessionId: string;
   // projectArg means different things per tool: claude treats it as a slug,
   // codex/opencode treat it as a directory path. Scripts interpret it.
@@ -12,6 +12,9 @@ export interface ParsedArgs {
   sort: string;
   limit: number;
   noColor: boolean;
+  groupBy: 'day' | 'week';
+  noCost: boolean;
+  refreshPrices: boolean;
 }
 
 export interface ParseArgsOptions {
@@ -31,6 +34,17 @@ export function parseArgs(argv: string[], opts: ParseArgsOptions): ParsedArgs {
     sort: 'date',
     limit: 0,
     noColor: false,
+    groupBy: 'day',
+    noCost: false,
+    refreshPrices: false,
+  };
+
+  const parseGroupBy = (v: string): 'day' | 'week' => {
+    if (v !== 'day' && v !== 'week') {
+      console.error(`--group-by must be "day" or "week", got: ${v}`);
+      process.exit(1);
+    }
+    return v;
   };
 
   let i = 0;
@@ -46,6 +60,12 @@ export function parseArgs(argv: string[], opts: ParseArgsOptions): ParsedArgs {
         break;
       case '--no-color':
         args.noColor = true;
+        break;
+      case '--no-cost':
+        args.noCost = true;
+        break;
+      case '--refresh-prices':
+        args.refreshPrices = true;
         break;
       case '--project':
       case '-p':
@@ -66,6 +86,11 @@ export function parseArgs(argv: string[], opts: ParseArgsOptions): ParsedArgs {
         i++;
         args.limit = parseInt(argv[i] ?? '0', 10);
         break;
+      case '--group-by':
+      case '-g':
+        i++;
+        args.groupBy = parseGroupBy(argv[i] ?? '');
+        break;
       default:
         if (arg.startsWith('--project=')) {
           args.projectArg = arg.slice('--project='.length);
@@ -75,6 +100,8 @@ export function parseArgs(argv: string[], opts: ParseArgsOptions): ParsedArgs {
           args.sort = arg.slice('--sort='.length);
         } else if (arg.startsWith('--limit=')) {
           args.limit = parseInt(arg.slice('--limit='.length), 10);
+        } else if (arg.startsWith('--group-by=')) {
+          args.groupBy = parseGroupBy(arg.slice('--group-by='.length));
         } else if (arg.startsWith('-')) {
           console.error(`Unknown option: ${arg}`);
           process.exit(1);
@@ -88,6 +115,8 @@ export function parseArgs(argv: string[], opts: ParseArgsOptions): ParsedArgs {
           }
         } else if (arg === 'list') {
           args.command = 'list';
+        } else if (arg === 'totals') {
+          args.command = 'totals';
         } else {
           console.error(`Unknown argument: ${arg}`);
           process.exit(1);

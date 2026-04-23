@@ -22,15 +22,19 @@ _dot_ai_tool_usage() {
     return
   fi
 
-  # Flags that take a value: don't suggest anything.
+  # Flags that take a value: complete the value when possible, else return.
   case "${prev}" in
+    --group-by | -g)
+      mapfile -t COMPREPLY < <(compgen -W "day week" -- "${cur}")
+      return
+      ;;
     --project | -p | --user-dir | -u | --sort | --limit | -n)
       return
       ;;
   esac
 
-  subcommands="list session"
-  flags="--json --no-color --project --user-dir --sort --limit --help -p -u -n -h"
+  subcommands="list session totals"
+  flags="--json --no-color --no-cost --refresh-prices --project --user-dir --sort --limit --group-by --help -p -u -n -g -h"
 
   if [[ "${cur}" == -* ]]; then
     mapfile -t COMPREPLY < <(compgen -W "${flags}" -- "${cur}")
