@@ -120,6 +120,8 @@ Unless noted otherwise, everything in this section requires `DOT_INCLUDE_BUILTIN
 | `cat` | [`plugins/30-bat.sh`](./plugins/30-bat.sh), `bat` or `batcat` | alias to `bat --paging=never` |
 | `cd` | [`plugins/00-cd.sh`](./plugins/00-cd.sh) | replaces `cd` with a directory-stack-aware version; `cd --` shows `dirs -v`, `cd -N` jumps to a stack entry, and the stack keeps the current directory plus up to 10 previous entries |
 | `cdnvm` | [`plugins/20-nvm.sh`](./plugins/20-nvm.sh), `nvm` installed | `chpwd` helper that auto-runs `nvm use` based on `.nvmrc` or the default alias |
+| `claude` | [`plugins/30-claude.sh`](./plugins/30-claude.sh), `claude` | wrapper that accepts `-u <profile>` / `-u=<profile>` to switch to a named Claude Code profile: creates `${XDG_CONFIG_HOME:-$HOME/.config}/claude-<profile>/` if missing, points `CLAUDE_CONFIG_DIR` at it, exports `CLAUDE_CODE_PROFILE_NAME=<profile>`, sources `<profile-dir>/env` if present, then execs the real `claude` in a subshell so env changes do not leak. Tab-completes profile names after `-u`. |
+| `codex` | [`plugins/30-codex.sh`](./plugins/30-codex.sh), `codex` | wrapper that accepts `-u <profile>` / `-u=<profile>` to switch to a named Codex profile: creates `${XDG_CONFIG_HOME:-$HOME/.config}/codex-<profile>/` if missing, points `CODEX_HOME` at it, sources `<profile-dir>/env` if present, then execs the real `codex` in a subshell. Also installs cached shell completion (delegates to the native `_codex` completer for positions other than after `-u`). |
 | `docker`, `docker-compose` | [`plugins/80-podman.sh`](./plugins/80-podman.sh) and/or [`plugins/90-docker.sh`](./plugins/90-docker.sh) | wrapper functions/aliases that prefer Docker when a daemon is available, otherwise Podman; `docker-compose` also falls back to `docker compose` when needed |
 | `fd` | [`plugins/10-fd.sh`](./plugins/10-fd.sh), `fd` or `fdfind` with `--hyperlink` support | alias `fd` to `{fd,fdfind} --hyperlink=auto`; falls back to plain `fdfind` alias when hyperlinks are unsupported |
 | `findhere` | [`plugins/10-fd.sh`](./plugins/10-fd.sh), `fd` or `fdfind` | run the configured fd command with `--hidden --follow` in the current tree |
@@ -570,8 +572,11 @@ These variables are only relevant when the matching built-in plugin loads.
 
 | Variable | Used by | Description |
 | --- | --- | --- |
+| `CLAUDE_CONFIG_DIR` | [`plugins/30-claude.sh`](./plugins/30-claude.sh) | set by the `claude` wrapper when invoked with `-u <profile>`; points Claude Code at `${XDG_CONFIG_HOME:-$HOME/.config}/claude-<profile>/` |
+| `CLAUDE_CODE_PROFILE_NAME` | [`plugins/30-claude.sh`](./plugins/30-claude.sh), [`config/claude/statusline-command.sh`](./config/claude/statusline-command.sh) | set by the `claude -u <profile>` wrapper; rendered by the Claude Code status line next to the host segment |
 | `CLIPBOARD_SERVER_PORT` | SSH [`pbcopy`](./dotenv/ssh/bin/pbcopy) / [`pbpaste`](./dotenv/ssh/bin/pbpaste), [`clipboard-server`](./dotenv/bin/clipboard-server) | forwarded TCP port for remote clipboard access |
 | `CLIPBOARD_SERVER_SOCK` | SSH [`pbcopy`](./dotenv/ssh/bin/pbcopy) / [`pbpaste`](./dotenv/ssh/bin/pbpaste), [`clipboard-server`](./dotenv/bin/clipboard-server) | forwarded Unix socket path; defaults to `/tmp/clipboard-server.sock` |
+| `CODEX_HOME` | [`plugins/30-codex.sh`](./plugins/30-codex.sh) | set by the `codex` wrapper when invoked with `-u <profile>`; points Codex at `${XDG_CONFIG_HOME:-$HOME/.config}/codex-<profile>/` |
 | `GIT_SSH_NO_PROXY` | [`git ssh-socks-proxy`](./dotenv/bin/git-ssh-socks-proxy) | comma-separated host list that bypasses configured git SSH proxy rules |
 
 ## Troubleshooting

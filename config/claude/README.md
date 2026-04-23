@@ -40,7 +40,7 @@ Two-line status line in the dotfiles PS1 style. Claude Code invokes it after eve
 
 ### Environment variables
 
-- **`CLAUDE_CODE_PROFILE_NAME`** — when set, appended to the host segment (`,profile`) in the tmux/screen PS1 style.
+- **`CLAUDE_CODE_PROFILE_NAME`** — when set, appended to the host segment (`,profile`) in the tmux/screen PS1 style. The [`claude` wrapper](../../plugins/30-claude.sh) sets this automatically when invoked with `-u <profile>`.
 - **`DOT_DISABLE_HYPERLINKS`** — disables OSC 8 hyperlinks for the cwd and cost segments.
 
 ### Caching
