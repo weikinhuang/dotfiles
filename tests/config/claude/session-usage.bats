@@ -6,9 +6,6 @@ setup() {
   load '../../helpers/common'
   setup_isolated_home
   export XDG_CACHE_HOME="${BATS_TEST_TMPDIR}/cache"
-  # Suppress any Node process warnings so stderr stays clean — bats' `run`
-  # merges stderr into $output by default.
-  export NODE_NO_WARNINGS=1
 
   PROJECTS_DIR="${HOME}/.claude/projects"
   mkdir -p "${PROJECTS_DIR}"

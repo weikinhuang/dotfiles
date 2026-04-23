@@ -6,7 +6,6 @@ setup() {
   load '../../../helpers/common'
   setup_isolated_home
   export XDG_CACHE_HOME="${BATS_TEST_TMPDIR}/cache"
-  export NODE_NO_WARNINGS=1
   PROBE="${REPO_ROOT}/tests/fixtures/ai-tooling-probe.ts"
 
   if ! command -v node >/dev/null 2>&1; then

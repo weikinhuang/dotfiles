@@ -6,7 +6,6 @@ setup() {
   load '../../helpers/common'
   setup_test_bin
   SCRIPT="${REPO_ROOT}/dotenv/bin/clipboard-server"
-  NODE_BIN="$(command -v node || command -v nodejs)"
   SOCKET="${BATS_TEST_TMPDIR}/clipboard-server.sock"
   CLIPBOARD_WRITE_FILE="${BATS_TEST_TMPDIR}/clipboard-write.txt"
   NOTIFY_LOG="${BATS_TEST_TMPDIR}/quick-toast.log"
@@ -36,7 +35,7 @@ teardown() {
 }
 
 start_server() {
-  "${NODE_BIN}" "${SCRIPT}" server --socket "${SOCKET}" "$@" >"${BATS_TEST_TMPDIR}/server.log" 2>&1 &
+  "${SCRIPT}" server --socket "${SOCKET}" "$@" >"${BATS_TEST_TMPDIR}/server.log" 2>&1 &
   SERVER_PID=$!
 
   for _ in {1..50}; do
@@ -63,7 +62,7 @@ wait_for_notification() {
 
 @test "clipboard-server: -h and --help print usage" {
   for flag in -h --help; do
-    run "${NODE_BIN}" "${SCRIPT}" "${flag}"
+    run "${SCRIPT}" "${flag}"
     assert_success
     assert_output --partial "Usage: clipboard-server COMMAND"
     assert_output --partial "Options:"
@@ -125,7 +124,7 @@ EOF
   # /proc/net/tcp IP is little-endian hex: 127.0.0.1 -> 0100007F, 0.0.0.0 -> 00000000.
   hex_port="$(printf '%04X' "${port}")"
 
-  "${NODE_BIN}" "${SCRIPT}" server --socket "${port}" >"${BATS_TEST_TMPDIR}/server.log" 2>&1 &
+  "${SCRIPT}" server --socket "${port}" >"${BATS_TEST_TMPDIR}/server.log" 2>&1 &
   SERVER_PID=$!
 
   local ready=

@@ -1,4 +1,6 @@
 node_modules
 
+tsconfig.tsbuildinfo
+
 config/vim/ftplugin/ftplugin
 vim/autoload/plug.vim
