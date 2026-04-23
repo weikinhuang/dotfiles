@@ -15,20 +15,20 @@
     "tsc": "tsc --noEmit"
   },
   "devDependencies": {
-    "@eslint/eslintrc": "3.3.5",
-    "@eslint/js": "9.39.4",
-    "@eslint/json": "1.2.0",
-    "@types/node": "24.12.2",
-    "eslint": "9.39.4",
-    "eslint-config-prettier": "10.1.8",
-    "eslint-import-resolver-typescript": "4.4.4",
-    "eslint-plugin-import": "2.32.0",
-    "eslint-plugin-n": "17.24.0",
-    "globals": "17.5.0",
-    "husky": "9.1.7",
-    "lint-staged": "16.4.0",
-    "prettier": "3.8.3",
-    "typescript": "6.0.2",
-    "typescript-eslint": "8.58.2"
+    "@eslint/eslintrc": "^3.3.5",
+    "@eslint/js": "^9.39.4",
+    "@eslint/json": "^1.2.0",
+    "@types/node": "^25.6.0",
+    "eslint": "^9.39.4",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-import-resolver-typescript": "^4.4.4",
+    "eslint-plugin-import": "^2.32.0",
+    "eslint-plugin-n": "^17.24.0",
+    "globals": "^17.5.0",
+    "husky": "^9.1.7",
+    "lint-staged": "^16.4.0",
+    "prettier": "^3.8.3",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.59.0"
   }
 }
