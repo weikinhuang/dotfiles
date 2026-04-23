@@ -139,6 +139,7 @@ Unless noted otherwise, everything in this section requires `DOT_INCLUDE_BUILTIN
 
 | Command | Platforms | Description |
 | --- | --- | --- |
+| [`ai-tool-usage`](./dotenv/bin/ai-tool-usage) | all | summarize AI tool session logs; delegates to `config/<tool>/session-usage.ts` (supports `claude`, `codex`, `opencode`) |
 | [`chattr`](./dotenv/wsl/bin/chattr) | WSL | wrap Windows `attrib.exe` |
 | [`clipboard-server`](./dotenv/bin/clipboard-server) | all | Node-based clipboard bridge with `start`, `stop`, `restart`, and foreground `server` modes |
 | [`fswatch`](./dotenv/linux/bin/fswatch) | Linux | watch a directory with `inotifywait` and rerun a command |

@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+# Summarize AI tool session logs (claude, codex, opencode, ...).
+# SPDX-License-Identifier: MIT
+
+set -euo pipefail
+IFS=$'\n\t'
+
+function print_help() {
+  cat <<'HELPDOC'
+Usage: ai-tool-usage <tool> [args...]
+
+Summarize AI tool session logs by delegating to the tool-specific
+session-usage.ts script under config/<tool>/ in the dotfiles repo.
+
+Tools:
+  claude                Claude Code sessions (~/.claude/projects)
+  codex                 Codex CLI sessions (~/.codex/sessions)
+  opencode              opencode sessions (~/.local/share/opencode)
+
+Any further args and options are forwarded to the tool script. Run
+`ai-tool-usage <tool> --help` to see tool-specific options.
+
+Examples:
+  ai-tool-usage claude list
+  ai-tool-usage codex session 019d4aae
+  ai-tool-usage opencode --limit 5 --sort cost --json
+HELPDOC
+}
+
+function list_available_tools() {
+  local dir
+  for dir in "${DOTFILES_ROOT}/config/"*/; do
+    [[ -x "${dir}session-usage.ts" ]] && basename "${dir%/}"
+  done
+}
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+readonly DOTFILES_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd -P)"
+
+case "${1:-}" in
+  '' | -h | --help)
+    print_help
+    exit 0
+    ;;
+esac
+
+readonly TOOL="$1"
+shift
+
+readonly TARGET="${DOTFILES_ROOT}/config/${TOOL}/session-usage.ts"
+
+if [[ ! -x "${TARGET}" ]]; then
+  printf 'ai-tool-usage: unknown tool %q\n' "${TOOL}" >&2
+  printf 'Available tools:\n' >&2
+  list_available_tools | sed 's/^/  /' >&2
+  exit 1
+fi
+
+exec "${TARGET}" "$@"
