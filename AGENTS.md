@@ -74,7 +74,7 @@ Users customize via `~/.bash_local` and `~/.bash_local.d/*.sh`, both sourced bef
 
 ## Boundaries
 
-**Always**: run `./dev/lint.sh` after changing shell scripts; run `./dev/test-docker.sh` after modifying or adding tests; place new tests mirroring their source path under `tests/`; update [REFERENCE.md](./REFERENCE.md) when changing the public shell surface, including aliases, functions, env vars, git subcommands, hooks, prompt options, plugin-exposed behavior, or commands on `$PATH`.
+**Always**: run `./dev/lint.sh` after changing shell scripts; run `./dev/test-docker.sh` after modifying or adding tests; place new tests mirroring their source path under `tests/`; update [REFERENCE.md](./REFERENCE.md) when changing the public shell surface, including aliases, functions, env vars, git subcommands, hooks, prompt options, plugin-exposed behavior, or commands on `$PATH`; when adding or renaming a user-facing `DOT_*` / `BASHRC_*` startup variable, update the Configuration Options table in [README.md](./README.md#configuration-options) in lockstep with the Startup configuration variables table in [REFERENCE.md](./REFERENCE.md) so both stay synced.
 
 **Ask first**: adding new plugins; modifying `bootstrap.sh` or `dotenv/lib/load.sh`; adding external dependencies; changing the dotenv loading order.
 

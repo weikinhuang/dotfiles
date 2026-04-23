@@ -94,8 +94,10 @@ export DOT_AUTOLOAD_SSH_AGENT=1
 
 | exported ENV var | Default | Description |
 | --- | ---: | --- |
+| `BASHRC_NONINTERACTIVE_BYPASS` | `UNSET` | Allow `bashrc.sh` to continue loading in non-interactive shells |
 | `DOT_AUTOLOAD_SSH_AGENT` | `UNSET` | When the SSH plugin is enabled, automatically start `ssh-agent` or reuse an existing agent |
 | `DOT_BASH_RESOLVE_PATHS` | `UNSET` | Set Bash option `set -o physical` to avoid resolving symlink paths |
+| `DOT_DISABLE_EDITOR_AUTODETECT` | `UNSET` | Skip autodetecting VS Code, Cursor, or `npp` as the editor; falls through to `nvim`/`vim` (in-terminal VS Code-family detection and the SSH skip are unaffected) |
 | `DOT_DISABLE_HYPERLINKS` | `UNSET` | Suppress OSC 8 hyperlinks emitted by `ls`, `eza`, `rg`, `fd`, and `delta` |
 | `DOT_DISABLE_PREEXEC` | `UNSET` | Skip loading [`bash-preexec.sh`](https://github.com/rcaloras/bash-preexec), disabling `preexec` hooks and command timing features |
 | `DOT_DISABLE_PS1` | `UNSET` | Disable the custom Bash prompt |
@@ -106,6 +108,7 @@ export DOT_AUTOLOAD_SSH_AGENT=1
 | `DOT_HYPERLINK_SSH_HOST` | `UNSET` | Set to your VS Code SSH remote name (e.g. the `Host` alias in `~/.ssh/config`) to enable `vscode-remote://ssh-remote+{host}` hyperlinks in `rg` and `delta` that open files directly in the editor |
 | `DOT_INCLUDE_BREW_PATH` | `UNSET` | On macOS with built-in plugins enabled, prepend Homebrew and GNU tool paths and extend `MANPATH` |
 | `DOT_INCLUDE_BUILTIN_PLUGINS` | `UNSET` | Load the full built-in [`plugins/*.sh`](./plugins) set instead of only `00-bash-opts.sh` and `00-chpwd-hook.sh` |
+| `DOT_PLUGIN_DISABLE_<name>` | `UNSET` | Disable one built-in plugin or local `.plugin` file; leading numeric ordering prefixes are stripped before the disable name is derived |
 | `DOT_SOLARIZED_DARK` | `UNSET` | Choose Solarized Dark where theme-aware integrations support it |
 | `DOT_SOLARIZED_LIGHT` | `UNSET` | Choose Solarized Light where theme-aware integrations support it |
 
