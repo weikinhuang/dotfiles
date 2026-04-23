@@ -4,6 +4,7 @@
   "version": "1.0.0",
   "license": "MIT",
   "private": true,
+  "type": "module",
   "scripts": {
     "prettier": "prettier -w '**/*.{js,ts,jsx,tsx,mjs}'",
     "tsc": "tsc --noEmit"
