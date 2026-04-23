@@ -18,12 +18,17 @@
   },
   "statusLine": {
     "type": "command",
-    "command": "bash ~/.dotfiles/config/claude/statusline-command.sh"
+    "command": "bash ~/.dotfiles/config/claude/statusline-command.sh",
+    "refreshInterval": 5
+  },
+  "permissions": {
+    "defaultMode": "auto"
   },
   "effortLevel": "high",
   "promptSuggestionEnabled": true,
   "plansDirectory": "./plans",
   "prefersReducedMotion": false,
   "autoMemoryEnabled": true,
-  "terminalProgressBarEnabled": false
+  "terminalProgressBarEnabled": false,
+  "tui": "fullscreen"
 }
