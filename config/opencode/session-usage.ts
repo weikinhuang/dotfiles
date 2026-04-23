@@ -1,7 +1,8 @@
 #!/usr/bin/env node
-// Codex CLI session log usage summarizer
+// opencode session log usage summarizer
 // SPDX-License-Identifier: MIT
 
+import { DatabaseSync } from 'node:sqlite';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -11,7 +12,8 @@ import * as path from 'path';
 
 interface TokenUsage {
   input: number;
-  cachedInput: number;
+  cacheWrite: number;
+  cacheRead: number;
   output: number;
   reasoning: number;
 }
@@ -22,19 +24,20 @@ interface ToolCounts {
 
 interface SessionSummary {
   sessionId: string;
-  filePath: string;
-  model: string;
-  cwd: string;
-  cliVersion: string;
-  isSubagent: boolean;
   parentId: string;
-  agentNickname: string;
-  agentRole: string;
+  isSubagent: boolean;
+  title: string;
+  slug: string;
+  directory: string;
+  version: string;
+  agent: string;
+  model: string;
   startTime: string;
   endTime: string;
   durationSecs: number;
   userTurns: number;
   tokens: TokenUsage;
+  cost: number;
   toolCalls: number;
   toolBreakdown: ToolCounts;
   subagentCount: number;
@@ -42,10 +45,11 @@ interface SessionSummary {
 
 interface SubagentDetail {
   sessionId: string;
-  agentNickname: string;
-  agentRole: string;
+  title: string;
+  agent: string;
   model: string;
   tokens: TokenUsage;
+  cost: number;
   toolCalls: number;
   toolBreakdown: ToolCounts;
 }
@@ -60,7 +64,7 @@ interface ParsedArgs {
   projectPath: string;
   userDir: string;
   json: boolean;
-  sort: 'date' | 'tokens' | 'duration' | 'tools';
+  sort: 'date' | 'tokens' | 'duration' | 'tools' | 'cost';
   limit: number;
   noColor: boolean;
 }
@@ -69,9 +73,12 @@ interface ParsedArgs {
 // Constants
 // ---------------------------------------------------------------------------
 
-const DEFAULT_CODEX_DIR = path.join(process.env.HOME ?? '', '.codex');
+const DEFAULT_OPENCODE_DIR = path.join(
+  process.env.XDG_DATA_HOME ?? path.join(process.env.HOME ?? '', '.local', 'share'),
+  'opencode',
+);
 
-let SESSIONS_DIR = path.join(DEFAULT_CODEX_DIR, 'sessions');
+let DATA_DIR = DEFAULT_OPENCODE_DIR;
 
 const COLORS = {
   reset: '\x1b[0m',
@@ -89,6 +96,7 @@ const COLORS = {
   reasoning: '\x1b[38;5;173m',
   tools: '\x1b[38;5;173m',
   agents: '\x1b[38;5;109m',
+  cost: '\x1b[38;5;220m',
   header: '\x1b[38;5;244m',
 } as const;
 
@@ -99,10 +107,10 @@ Commands:
   session <id>         Detailed single-session report
 
 Options:
-  --project, -p <path> Filter sessions by project directory
-  --user-dir, -u <dir> Codex config dir (default: ~/.codex)
+  --project, -p <path> Filter sessions by project directory (default: $PWD)
+  --user-dir, -u <dir> opencode data dir (default: ~/.local/share/opencode)
   --json               Machine-readable JSON output
-  --sort <field>       Sort by: date, tokens, duration, tools (default: date)
+  --sort <field>       Sort by: date, tokens, duration, tools, cost (default: date)
   --limit, -n <N>      Limit to N sessions
   --no-color           Disable ANSI colors
   -h, --help           Show this help`;
@@ -166,6 +174,22 @@ function fmtDateFull(iso: string): string {
 
 function fmtNumber(n: number): string {
   return n.toLocaleString('en-US');
+}
+
+function fmtCost(cost: number): string {
+  if (cost <= 0) return '$0';
+  if (cost < 0.01) return `$${cost.toFixed(4)}`;
+  return `$${cost.toFixed(2)}`;
+}
+
+function truncate(s: string, width: number): string {
+  if (s.length <= width) return s;
+  return s.slice(0, Math.max(0, width - 1)) + '…';
+}
+
+function padEndVisible(s: string, width: number): string {
+  if (s.length >= width) return truncate(s, width);
+  return s + ' '.repeat(width - s.length);
 }
 
 // ---------------------------------------------------------------------------
@@ -252,213 +276,184 @@ function parseArgs(argv: string[]): ParsedArgs {
 }
 
 // ---------------------------------------------------------------------------
-// Session Discovery
+// Path Resolution
 // ---------------------------------------------------------------------------
 
-function findAllSessionFiles(): string[] {
-  const results: string[] = [];
+function expandUserPath(p: string): string {
+  if (p.startsWith('~')) return path.join(process.env.HOME ?? '', p.slice(1));
+  return path.resolve(p);
+}
 
-  function walk(dir: string): void {
-    if (!fs.existsSync(dir)) return;
-    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-      const full = path.join(dir, entry.name);
-      if (entry.isDirectory()) {
-        walk(full);
-      } else if (entry.name.endsWith('.jsonl')) {
-        results.push(full);
-      }
-    }
-  }
-
-  walk(SESSIONS_DIR);
-  return results;
+function resolveProjectPath(input: string): string {
+  if (!input) return process.cwd();
+  return expandUserPath(input);
 }
 
 // ---------------------------------------------------------------------------
-// JSONL Parsing
+// Database
 // ---------------------------------------------------------------------------
 
-function readJsonlLines(filePath: string): any[] {
-  const content = fs.readFileSync(filePath, 'utf-8');
-  const results: any[] = [];
-  for (const line of content.split('\n')) {
-    if (!line.trim()) continue;
-    try {
-      results.push(JSON.parse(line));
-    } catch {
-      // skip
-    }
+function openDb(): DatabaseSync {
+  const dbPath = path.join(DATA_DIR, 'opencode.db');
+  if (!fs.existsSync(dbPath)) {
+    console.error(`opencode database not found: ${dbPath}`);
+    process.exit(1);
   }
-  return results;
+  return new DatabaseSync(dbPath, { readOnly: true });
+}
+
+interface SessionRow {
+  id: string;
+  parent_id: string | null;
+  slug: string;
+  directory: string;
+  title: string;
+  version: string;
+  time_created: number;
+  time_updated: number;
+}
+
+interface MessageRow {
+  id: string;
+  session_id: string;
+  time_created: number;
+  data: string;
+}
+
+interface PartRow {
+  id: string;
+  message_id: string;
+  data: string;
 }
 
 // ---------------------------------------------------------------------------
 // Session Parsing
 // ---------------------------------------------------------------------------
 
-function parseSessionFile(filePath: string): SessionSummary {
-  const entries = readJsonlLines(filePath);
+function emptyTokens(): TokenUsage {
+  return { input: 0, cacheWrite: 0, cacheRead: 0, output: 0, reasoning: 0 };
+}
 
-  let sessionId = '';
-  let model = '';
-  let cwd = '';
-  let cliVersion = '';
-  let isSubagent = false;
-  let parentId = '';
-  let agentNickname = '';
-  let agentRole = '';
-  let startTime = '';
-  let endTime = '';
+function parseSession(db: DatabaseSync, row: SessionRow, subagentCount: number): SessionSummary {
+  const messages = db
+    .prepare('SELECT id, session_id, time_created, data FROM message WHERE session_id = ? ORDER BY time_created')
+    .all(row.id) as unknown as MessageRow[];
+
   let userTurns = 0;
-  let tokens: TokenUsage = { input: 0, cachedInput: 0, output: 0, reasoning: 0 };
+  let model = '';
+  let agent = '';
+  let cost = 0;
+  const tokens = emptyTokens();
+
+  const assistantMessageIds: string[] = [];
+
+  for (const m of messages) {
+    let d: any;
+    try {
+      d = JSON.parse(m.data);
+    } catch {
+      continue;
+    }
+    if (d.role === 'user') {
+      userTurns++;
+    } else if (d.role === 'assistant') {
+      assistantMessageIds.push(m.id);
+      if (!agent && typeof d.agent === 'string') agent = d.agent;
+      if (typeof d.modelID === 'string' && d.modelID) model = d.modelID;
+      if (typeof d.cost === 'number') cost += d.cost;
+      const t = d.tokens ?? {};
+      tokens.input += t.input ?? 0;
+      tokens.output += t.output ?? 0;
+      tokens.reasoning += t.reasoning ?? 0;
+      tokens.cacheWrite += t.cache?.write ?? 0;
+      tokens.cacheRead += t.cache?.read ?? 0;
+    }
+  }
+
   const toolBreakdown: ToolCounts = {};
   let toolCalls = 0;
 
-  for (const entry of entries) {
-    if (typeof entry !== 'object' || entry === null) continue;
-
-    if (entry.timestamp) {
-      if (!startTime) startTime = entry.timestamp;
-      endTime = entry.timestamp;
-    }
-
-    if (entry.type === 'session_meta' && !sessionId) {
-      const p = entry.payload;
-      sessionId = p?.id ?? '';
-      cwd = p?.cwd ?? '';
-      cliVersion = p?.cli_version ?? '';
-      agentNickname = p?.agent_nickname ?? '';
-      agentRole = p?.agent_role ?? '';
-      if (typeof p?.source === 'object' && p.source?.subagent) {
-        isSubagent = true;
-        parentId = p.forked_from_id ?? '';
-      } else {
-        isSubagent = false;
-        parentId = '';
+  if (assistantMessageIds.length > 0) {
+    const placeholders = assistantMessageIds.map(() => '?').join(',');
+    const parts = db
+      .prepare(`SELECT id, message_id, data FROM part WHERE message_id IN (${placeholders})`)
+      .all(...assistantMessageIds) as unknown as PartRow[];
+    for (const p of parts) {
+      let d: any;
+      try {
+        d = JSON.parse(p.data);
+      } catch {
+        continue;
       }
-    }
-
-    if (entry.type === 'turn_context' && !model) {
-      model = entry.payload?.model ?? '';
-    }
-
-    if (entry.type === 'event_msg') {
-      const p = entry.payload;
-      if (p?.type === 'user_message') {
-        userTurns++;
-      }
-      if (p?.type === 'token_count' && p.info?.total_token_usage) {
-        const u = p.info.total_token_usage;
-        tokens = {
-          input: u.input_tokens ?? 0,
-          cachedInput: u.cached_input_tokens ?? 0,
-          output: u.output_tokens ?? 0,
-          reasoning: u.reasoning_output_tokens ?? 0,
-        };
-      }
-    }
-
-    if (entry.type === 'response_item') {
-      const p = entry.payload;
-      if (p?.type === 'function_call' && p.name) {
+      if (d.type === 'tool' && typeof d.tool === 'string') {
         toolCalls++;
-        toolBreakdown[p.name] = (toolBreakdown[p.name] ?? 0) + 1;
-      }
-      if (p?.type === 'custom_tool_call' && p.name) {
-        toolCalls++;
-        toolBreakdown[p.name] = (toolBreakdown[p.name] ?? 0) + 1;
+        toolBreakdown[d.tool] = (toolBreakdown[d.tool] ?? 0) + 1;
       }
     }
   }
 
-  if (!sessionId) {
-    sessionId = path.basename(filePath, '.jsonl');
-  }
-
-  const startMs = startTime ? new Date(startTime).getTime() : 0;
-  const endMs = endTime ? new Date(endTime).getTime() : 0;
+  const startMs = row.time_created;
+  const endMs = row.time_updated;
   const durationSecs = startMs && endMs ? Math.max(0, Math.floor((endMs - startMs) / 1000)) : 0;
 
-  // Count subagents by finding files that reference this session as parent
-  let subagentCount = 0;
-  if (!isSubagent) {
-    subagentCount = countSubagents(sessionId);
-  }
-
   return {
-    sessionId,
-    filePath,
+    sessionId: row.id,
+    parentId: row.parent_id ?? '',
+    isSubagent: !!row.parent_id,
+    title: row.title,
+    slug: row.slug,
+    directory: row.directory,
+    version: row.version,
+    agent,
     model,
-    cwd,
-    cliVersion,
-    isSubagent,
-    parentId,
-    agentNickname,
-    agentRole,
-    startTime,
-    endTime,
+    startTime: startMs ? new Date(startMs).toISOString() : '',
+    endTime: endMs ? new Date(endMs).toISOString() : '',
     durationSecs,
     userTurns,
     tokens,
+    cost,
     toolCalls,
     toolBreakdown,
     subagentCount,
   };
 }
 
-let subagentIndex: Map<string, string[]> | null = null;
-
-function buildSubagentIndex(): Map<string, string[]> {
-  if (subagentIndex) return subagentIndex;
-  subagentIndex = new Map();
-  const allFiles = findAllSessionFiles();
-  for (const f of allFiles) {
-    const first = fs.readFileSync(f, 'utf-8').split('\n')[0] ?? '';
-    try {
-      const entry = JSON.parse(first);
-      if (entry.type === 'session_meta' && entry.payload?.forked_from_id) {
-        const parentId = entry.payload.forked_from_id;
-        const list = subagentIndex.get(parentId) ?? [];
-        list.push(f);
-        subagentIndex.set(parentId, list);
-      }
-    } catch {
-      // skip
-    }
+function buildSubagentIndex(db: DatabaseSync): Map<string, SessionRow[]> {
+  const index = new Map<string, SessionRow[]>();
+  const rows = db
+    .prepare(
+      'SELECT id, parent_id, slug, directory, title, version, time_created, time_updated FROM session WHERE parent_id IS NOT NULL',
+    )
+    .all() as unknown as SessionRow[];
+  for (const r of rows) {
+    if (!r.parent_id) continue;
+    const list = index.get(r.parent_id) ?? [];
+    list.push(r);
+    index.set(r.parent_id, list);
   }
-  return subagentIndex;
+  return index;
 }
 
-function countSubagents(sessionId: string): number {
-  const idx = buildSubagentIndex();
-  return idx.get(sessionId)?.length ?? 0;
-}
-
-function getSubagentFiles(sessionId: string): string[] {
-  const idx = buildSubagentIndex();
-  return idx.get(sessionId) ?? [];
-}
-
-function getSessionDetail(filePath: string): SessionDetail {
-  const summary = parseSessionFile(filePath);
-  const subagentFiles = getSubagentFiles(summary.sessionId);
-  const subagents: SubagentDetail[] = subagentFiles.map((f) => {
-    const sub = parseSessionFile(f);
+function getSessionDetail(db: DatabaseSync, row: SessionRow, subagentRows: SessionRow[]): SessionDetail {
+  const summary = parseSession(db, row, subagentRows.length);
+  const subagents: SubagentDetail[] = subagentRows.map((sr) => {
+    const s = parseSession(db, sr, 0);
     return {
-      sessionId: sub.sessionId,
-      agentNickname: sub.agentNickname,
-      agentRole: sub.agentRole,
-      model: sub.model,
-      tokens: sub.tokens,
-      toolCalls: sub.toolCalls,
-      toolBreakdown: sub.toolBreakdown,
+      sessionId: s.sessionId,
+      title: s.title,
+      agent: s.agent,
+      model: s.model,
+      tokens: s.tokens,
+      cost: s.cost,
+      toolCalls: s.toolCalls,
+      toolBreakdown: s.toolBreakdown,
     };
   });
   return { ...summary, subagents };
 }
 
 // ---------------------------------------------------------------------------
-// Sorting
+// Sorting & Aggregation
 // ---------------------------------------------------------------------------
 
 function sortSessions(sessions: SessionSummary[], field: ParsedArgs['sort']): SessionSummary[] {
@@ -480,25 +475,26 @@ function sortSessions(sessions: SessionSummary[], field: ParsedArgs['sort']): Se
     case 'tools':
       sorted.sort((a, b) => b.toolCalls - a.toolCalls);
       break;
+    case 'cost':
+      sorted.sort((a, b) => b.cost - a.cost);
+      break;
   }
   return sorted;
 }
-
-// ---------------------------------------------------------------------------
-// Aggregation
-// ---------------------------------------------------------------------------
 
 function aggregateTotals(sessions: SessionSummary[]) {
   return sessions.reduce(
     (acc, s) => ({
       input: acc.input + s.tokens.input,
-      cached: acc.cached + s.tokens.cachedInput,
+      cacheWrite: acc.cacheWrite + s.tokens.cacheWrite,
+      cacheRead: acc.cacheRead + s.tokens.cacheRead,
       output: acc.output + s.tokens.output,
       reasoning: acc.reasoning + s.tokens.reasoning,
       tools: acc.tools + s.toolCalls,
       agents: acc.agents + s.subagentCount,
+      cost: acc.cost + s.cost,
     }),
-    { input: 0, cached: 0, output: 0, reasoning: 0, tools: 0, agents: 0 },
+    { input: 0, cacheWrite: 0, cacheRead: 0, output: 0, reasoning: 0, tools: 0, agents: 0, cost: 0 },
   );
 }
 
@@ -510,9 +506,17 @@ function printSessionDetail(detail: SessionDetail): void {
   const w = (label: string, value: string) => console.log(`  ${c(COLORS.label, label.padEnd(28))} ${value}`);
 
   console.log(c(COLORS.bold, 'Session') + '  ' + c(COLORS.session, detail.sessionId));
-  console.log(c(COLORS.bold, 'Model') + '    ' + c(COLORS.model, detail.model || '—'));
-  if (detail.cwd) {
-    console.log(c(COLORS.bold, 'CWD') + '      ' + c(COLORS.label, detail.cwd));
+  if (detail.title) {
+    console.log(c(COLORS.bold, 'Title') + '    ' + c(COLORS.label, detail.title));
+  }
+  console.log(
+    c(COLORS.bold, 'Model') +
+      '    ' +
+      c(COLORS.model, detail.model || '—') +
+      (detail.agent ? '  ' + c(COLORS.agents, `(${detail.agent})`) : ''),
+  );
+  if (detail.directory) {
+    console.log(c(COLORS.bold, 'CWD') + '      ' + c(COLORS.label, detail.directory));
   }
   console.log(
     c(COLORS.bold, 'Start') +
@@ -524,13 +528,20 @@ function printSessionDetail(detail: SessionDetail): void {
       c(COLORS.time, fmtDuration(detail.durationSecs)),
   );
   console.log(c(COLORS.bold, 'Turns') + '    ' + c(COLORS.turns, `${detail.userTurns} user prompts`));
+  if (detail.version) {
+    console.log(c(COLORS.bold, 'Version') + '  ' + c(COLORS.label, detail.version));
+  }
   console.log();
 
   console.log(c(COLORS.bold, 'Tokens'));
   w('Input', c(COLORS.input, fmtSi(detail.tokens.input)));
-  w('Cached input', c(COLORS.cached, fmtSi(detail.tokens.cachedInput)));
+  w('Cache write', c(COLORS.cached, fmtSi(detail.tokens.cacheWrite)));
+  w('Cache read', c(COLORS.cached, fmtSi(detail.tokens.cacheRead)));
   w('Output', c(COLORS.output, fmtSi(detail.tokens.output)));
   w('Reasoning', c(COLORS.reasoning, fmtSi(detail.tokens.reasoning)));
+  if (detail.cost > 0) {
+    w('Cost', c(COLORS.cost, fmtCost(detail.cost)));
+  }
   console.log();
 
   console.log(c(COLORS.bold, 'Tools') + '    ' + c(COLORS.tools, `${fmtNumber(detail.toolCalls)} calls`));
@@ -543,10 +554,17 @@ function printSessionDetail(detail: SessionDetail): void {
   if (detail.subagents.length > 0) {
     console.log(c(COLORS.bold, 'Subagents') + ` (${c(COLORS.agents, String(detail.subagents.length))})`);
     for (const sa of detail.subagents) {
-      const nickPart = sa.agentNickname ? c(COLORS.agents, sa.agentNickname) : c(COLORS.grey, 'unnamed');
-      const rolePart = sa.agentRole ? c(COLORS.model, sa.agentRole) : '';
-      console.log('  ' + nickPart + (rolePart ? '  ' + rolePart : '') + '  ' + c(COLORS.session, sa.model));
-      const tokenStr = `${fmtSi(sa.tokens.input)} in / ${fmtSi(sa.tokens.cachedInput)} cached / ${fmtSi(
+      const titlePart = sa.title ? c(COLORS.label, `"${sa.title}"`) : c(COLORS.grey, 'untitled');
+      const agentPart = sa.agent ? c(COLORS.agents, sa.agent) : '';
+      console.log(
+        '  ' +
+          c(COLORS.session, sa.sessionId) +
+          (agentPart ? '  ' + agentPart : '') +
+          '  ' +
+          titlePart +
+          (sa.model ? '  ' + c(COLORS.model, sa.model) : ''),
+      );
+      const tokenStr = `${fmtSi(sa.tokens.input)} in / ${fmtSi(sa.tokens.cacheRead)} cached / ${fmtSi(
         sa.tokens.output,
       )} out / ${fmtSi(sa.tokens.reasoning)} reasoning`;
       console.log(
@@ -557,7 +575,8 @@ function printSessionDetail(detail: SessionDetail): void {
           '    ' +
           c(COLORS.label, 'Tools') +
           '  ' +
-          c(COLORS.tools, String(sa.toolCalls)),
+          c(COLORS.tools, String(sa.toolCalls)) +
+          (sa.cost > 0 ? '    ' + c(COLORS.label, 'Cost') + '  ' + c(COLORS.cost, fmtCost(sa.cost)) : ''),
       );
       const saTools = Object.entries(sa.toolBreakdown)
         .sort((a, b) => b[1] - a[1])
@@ -601,28 +620,29 @@ function printSessionTable(sessions: SessionSummary[]): void {
   console.log();
 
   const cols = {
-    session: 36,
+    session: 30,
+    title: 28,
     start: 11,
     dur: 9,
     turns: 5,
-    model: 16,
     input: 8,
     cached: 8,
     output: 8,
     tools: 6,
     agents: 6,
+    cost: 8,
   };
 
   const hdr =
     c(COLORS.header, 'SESSION'.padEnd(cols.session)) +
+    '  ' +
+    c(COLORS.header, 'TITLE'.padEnd(cols.title)) +
     '  ' +
     c(COLORS.header, 'START'.padEnd(cols.start)) +
     '  ' +
     c(COLORS.header, 'DURATION'.padStart(cols.dur)) +
     '  ' +
     c(COLORS.header, 'TURNS'.padStart(cols.turns)) +
-    '  ' +
-    c(COLORS.header, 'MODEL'.padEnd(cols.model)) +
     '  ' +
     c(COLORS.header, 'INPUT'.padStart(cols.input)) +
     '  ' +
@@ -632,7 +652,9 @@ function printSessionTable(sessions: SessionSummary[]): void {
     '  ' +
     c(COLORS.header, 'TOOLS'.padStart(cols.tools)) +
     '  ' +
-    c(COLORS.header, 'AGENTS'.padStart(cols.agents));
+    c(COLORS.header, 'AGENTS'.padStart(cols.agents)) +
+    '  ' +
+    c(COLORS.header, 'COST'.padStart(cols.cost));
 
   console.log(hdr);
 
@@ -640,23 +662,25 @@ function printSessionTable(sessions: SessionSummary[]): void {
     const row =
       c(COLORS.session, s.sessionId.padEnd(cols.session)) +
       '  ' +
+      c(COLORS.label, padEndVisible(s.title, cols.title)) +
+      '  ' +
       c(COLORS.time, fmtDate(s.startTime).padEnd(cols.start)) +
       '  ' +
       c(COLORS.time, fmtDuration(s.durationSecs).padStart(cols.dur)) +
       '  ' +
       c(COLORS.turns, String(s.userTurns).padStart(cols.turns)) +
       '  ' +
-      c(COLORS.model, s.model.padEnd(cols.model)) +
-      '  ' +
       c(COLORS.input, fmtSi(s.tokens.input).padStart(cols.input)) +
       '  ' +
-      c(COLORS.cached, fmtSi(s.tokens.cachedInput).padStart(cols.cached)) +
+      c(COLORS.cached, fmtSi(s.tokens.cacheRead).padStart(cols.cached)) +
       '  ' +
       c(COLORS.output, fmtSi(s.tokens.output).padStart(cols.output)) +
       '  ' +
       c(COLORS.tools, String(s.toolCalls).padStart(cols.tools)) +
       '  ' +
-      c(COLORS.agents, String(s.subagentCount).padStart(cols.agents));
+      c(COLORS.agents, String(s.subagentCount).padStart(cols.agents)) +
+      '  ' +
+      c(COLORS.cost, fmtCost(s.cost).padStart(cols.cost));
     console.log(row);
   }
 
@@ -672,7 +696,7 @@ function printSessionTable(sessions: SessionSummary[]): void {
       '    ' +
       c(COLORS.label, 'Cached') +
       '  ' +
-      c(COLORS.cached, fmtSi(totals.cached)) +
+      c(COLORS.cached, fmtSi(totals.cacheRead)) +
       '    ' +
       c(COLORS.label, 'Output') +
       '  ' +
@@ -688,7 +712,11 @@ function printSessionTable(sessions: SessionSummary[]): void {
       '    ' +
       c(COLORS.label, 'Agents') +
       '  ' +
-      c(COLORS.agents, String(totals.agents)),
+      c(COLORS.agents, String(totals.agents)) +
+      '    ' +
+      c(COLORS.label, 'Cost') +
+      '  ' +
+      c(COLORS.cost, fmtCost(totals.cost)),
   );
 }
 
@@ -696,22 +724,33 @@ function printSessionTable(sessions: SessionSummary[]): void {
 // JSON Output
 // ---------------------------------------------------------------------------
 
+function tokensToJson(t: TokenUsage) {
+  return {
+    input: t.input,
+    cache_write: t.cacheWrite,
+    cache_read: t.cacheRead,
+    output: t.output,
+    reasoning: t.reasoning,
+  };
+}
+
 function sessionSummaryToJson(s: SessionSummary): object {
   return {
     session_id: s.sessionId,
+    parent_id: s.parentId || null,
+    is_subagent: s.isSubagent,
+    title: s.title,
+    slug: s.slug,
+    directory: s.directory,
+    version: s.version,
+    agent: s.agent,
     model: s.model,
-    cwd: s.cwd,
-    cli_version: s.cliVersion,
     start: s.startTime,
     end: s.endTime,
     duration_seconds: s.durationSecs,
     user_turns: s.userTurns,
-    tokens: {
-      input: s.tokens.input,
-      cached_input: s.tokens.cachedInput,
-      output: s.tokens.output,
-      reasoning: s.tokens.reasoning,
-    },
+    tokens: tokensToJson(s.tokens),
+    cost: s.cost,
     tool_calls: s.toolCalls,
     tool_breakdown: s.toolBreakdown,
     subagent_count: s.subagentCount,
@@ -723,15 +762,11 @@ function sessionDetailToJson(d: SessionDetail): object {
     ...sessionSummaryToJson(d),
     subagents: d.subagents.map((sa) => ({
       session_id: sa.sessionId,
-      agent_nickname: sa.agentNickname,
-      agent_role: sa.agentRole,
+      title: sa.title,
+      agent: sa.agent,
       model: sa.model,
-      tokens: {
-        input: sa.tokens.input,
-        cached_input: sa.tokens.cachedInput,
-        output: sa.tokens.output,
-        reasoning: sa.tokens.reasoning,
-      },
+      tokens: tokensToJson(sa.tokens),
+      cost: sa.cost,
       tool_calls: sa.toolCalls,
       tool_breakdown: sa.toolBreakdown,
     })),
@@ -748,12 +783,14 @@ function printListJson(sessions: SessionSummary[]): void {
         totals: {
           tokens: {
             input: totals.input,
-            cached_input: totals.cached,
+            cache_write: totals.cacheWrite,
+            cache_read: totals.cacheRead,
             output: totals.output,
             reasoning: totals.reasoning,
           },
           tool_calls: totals.tools,
           subagents: totals.agents,
+          cost: totals.cost,
         },
         sessions: sessions.map(sessionSummaryToJson),
       },
@@ -764,49 +801,27 @@ function printListJson(sessions: SessionSummary[]): void {
 }
 
 // ---------------------------------------------------------------------------
-// Project Path Resolution
-// ---------------------------------------------------------------------------
-
-function resolveProjectPath(input: string): string {
-  if (!input) {
-    return process.cwd();
-  }
-  if (input.startsWith('~')) {
-    return path.join(process.env.HOME ?? '', input.slice(1));
-  }
-  return path.resolve(input);
-}
-
-// ---------------------------------------------------------------------------
 // Session ID resolution
 // ---------------------------------------------------------------------------
 
-function resolveSessionFile(sessionId: string): string {
-  const allFiles = findAllSessionFiles();
+function resolveSessionRow(db: DatabaseSync, sessionId: string): SessionRow {
+  const exact = db
+    .prepare(
+      'SELECT id, parent_id, slug, directory, title, version, time_created, time_updated FROM session WHERE id = ?',
+    )
+    .get(sessionId) as unknown as SessionRow | undefined;
+  if (exact) return exact;
 
-  // Try exact match on session ID from session_meta
-  for (const f of allFiles) {
-    if (f.includes(sessionId)) return f;
-  }
-
-  // Try prefix match
-  const matches = allFiles.filter((f) => {
-    const first = fs.readFileSync(f, 'utf-8').split('\n')[0] ?? '';
-    try {
-      const entry = JSON.parse(first);
-      if (entry.type === 'session_meta') {
-        return (entry.payload?.id ?? '').startsWith(sessionId);
-      }
-    } catch {
-      // skip
-    }
-    return false;
-  });
-
+  const like = `${sessionId}%`;
+  const matches = db
+    .prepare(
+      'SELECT id, parent_id, slug, directory, title, version, time_created, time_updated FROM session WHERE id LIKE ?',
+    )
+    .all(like) as unknown as SessionRow[];
   if (matches.length === 1) return matches[0]!;
   if (matches.length > 1) {
     console.error(`Ambiguous session prefix "${sessionId}", matches:`);
-    for (const f of matches) console.error(`  ${path.basename(f, '.jsonl')}`);
+    for (const r of matches) console.error(`  ${r.id}`);
     process.exit(1);
   }
 
@@ -822,17 +837,15 @@ function main(): void {
   const args = parseArgs(process.argv.slice(2));
   useColor = !args.noColor && !args.json && process.stdout.isTTY !== false;
 
-  const codexDir = args.userDir ? resolveProjectPath(args.userDir) : DEFAULT_CODEX_DIR;
-  SESSIONS_DIR = path.join(codexDir, 'sessions');
+  DATA_DIR = args.userDir ? expandUserPath(args.userDir) : DEFAULT_OPENCODE_DIR;
 
-  if (!fs.existsSync(SESSIONS_DIR)) {
-    console.error(`Codex sessions directory not found: ${SESSIONS_DIR}`);
-    process.exit(1);
-  }
+  const db = openDb();
 
   if (args.command === 'session') {
-    const sessionFile = resolveSessionFile(args.sessionId);
-    const detail = getSessionDetail(sessionFile);
+    const row = resolveSessionRow(db, args.sessionId);
+    const subIndex = buildSubagentIndex(db);
+    const subagentRows = subIndex.get(row.id) ?? [];
+    const detail = getSessionDetail(db, row, subagentRows);
 
     if (args.json) {
       console.log(JSON.stringify(sessionDetailToJson(detail), null, 2));
@@ -843,11 +856,15 @@ function main(): void {
   }
 
   // list command — only show parent sessions (not subagents)
-  const allFiles = findAllSessionFiles();
-  let sessions = allFiles.map(parseSessionFile).filter((s) => !s.isSubagent);
-
   const filterCwd = resolveProjectPath(args.projectPath);
-  sessions = sessions.filter((s) => s.cwd === filterCwd || s.cwd.startsWith(filterCwd + '/'));
+  const parentRows = db
+    .prepare(
+      'SELECT id, parent_id, slug, directory, title, version, time_created, time_updated FROM session WHERE parent_id IS NULL AND (directory = ? OR directory LIKE ?) ORDER BY time_updated DESC',
+    )
+    .all(filterCwd, `${filterCwd}/%`) as unknown as SessionRow[];
+
+  const subIndex = buildSubagentIndex(db);
+  let sessions = parentRows.map((r) => parseSession(db, r, subIndex.get(r.id)?.length ?? 0));
 
   sessions = sortSessions(sessions, args.sort);
   if (args.limit > 0) sessions = sessions.slice(0, args.limit);

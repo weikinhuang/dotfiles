@@ -606,7 +606,9 @@ function printSessionDetail(detail: SessionDetail): void {
           c(COLORS.grey, `"${sa.description}"`) +
           (sa.model ? '  ' + c(COLORS.session, sa.model) : ''),
       );
-      const tokenStr = `${fmtSi(sa.tokens.input)} in / ${fmtSi(sa.tokens.cacheRead)} cached / ${fmtSi(sa.tokens.output)} out`;
+      const tokenStr = `${fmtSi(sa.tokens.input)} in / ${fmtSi(sa.tokens.cacheRead)} cached / ${fmtSi(
+        sa.tokens.output,
+      )} out`;
       console.log(
         '    ' +
           c(COLORS.label, 'Tokens') +

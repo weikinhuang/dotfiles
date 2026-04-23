@@ -1,5 +1,5 @@
 // Generate a MONGO_PS1 DB_STATE#host[dbname]> prompt for mongosh.
-(function() {
+(function () {
   'use strict';
 
   var states = {
@@ -12,7 +12,7 @@
     6: 'UNKNOWN',
     7: 'ARBITER',
     8: 'DOWN',
-    9: 'ROLLBACK'
+    9: 'ROLLBACK',
   };
 
   function getHost() {
@@ -56,7 +56,7 @@
     return state + ':[' + hello.setName + ']#';
   }
 
-  prompt = function() {
+  prompt = function () {
     if (typeof db === 'undefined') {
       return '> ';
     }
