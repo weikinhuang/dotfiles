@@ -2,7 +2,13 @@
 // SPDX-License-Identifier: MIT
 
 import { COLORS, c, fmtCost, fmtDate, fmtDateFull, fmtDuration, fmtNumber, fmtSi, padEndVisible } from './format.ts';
-import type { ModelTokenBreakdown, SessionDetail, SessionSummary, SessionTokens, Subagent } from './types.ts';
+import {
+  type ModelTokenBreakdown,
+  type SessionDetail,
+  type SessionSummary,
+  type SessionTokens,
+  type Subagent,
+} from './types.ts';
 
 // ---------------------------------------------------------------------------
 // Generic helpers
@@ -19,8 +25,8 @@ function computeDateRange(sessions: { startTime: string }[]): { start: string; e
     .map((s) => s.startTime)
     .filter(Boolean)
     .sort();
-  const start = dates[0] ? fmtDateFull(dates[0]!).slice(0, 10) : '—';
-  const end = dates.length > 0 ? fmtDateFull(dates[dates.length - 1]!).slice(0, 10) : '—';
+  const start = dates[0] ? fmtDateFull(dates[0]).slice(0, 10) : '—';
+  const end = dates.length > 0 ? fmtDateFull(dates[dates.length - 1]).slice(0, 10) : '—';
   return { start, end };
 }
 
@@ -323,11 +329,11 @@ export function printSessionTable(sessions: SessionSummary[], label?: string): v
 // Session detail
 // ---------------------------------------------------------------------------
 
-function printDetailLabel(label: string, value: string, labelPadding: number = 8): void {
+function printDetailLabel(label: string, value: string, labelPadding = 8): void {
   console.log(c(COLORS.bold, label.padEnd(labelPadding)) + ' ' + c(COLORS.label, value));
 }
 
-function printLabeledValue(label: string, value: string, labelWidth: number = 28): void {
+function printLabeledValue(label: string, value: string, labelWidth = 28): void {
   console.log(`  ${c(COLORS.label, label.padEnd(labelWidth))} ${value}`);
 }
 
@@ -360,7 +366,7 @@ function printToolsSection(detail: SessionDetail): void {
   console.log();
 }
 
-function printModelBreakdown(breakdown: ModelTokenBreakdown[] | undefined, indent: string = ''): void {
+function printModelBreakdown(breakdown: ModelTokenBreakdown[] | undefined, indent = ''): void {
   if (!breakdown || breakdown.length < 2) return;
   const sorted = [...breakdown].sort((a, b) => b.tokens.output - a.tokens.output);
   const header = indent === '' ? c(COLORS.bold, 'Models') : indent + c(COLORS.label, 'Models');
@@ -384,7 +390,7 @@ function printModelBreakdown(breakdown: ModelTokenBreakdown[] | undefined, inden
   if (indent === '') console.log();
 }
 
-function printSkills(skills: string[] | undefined, indent: string = ''): void {
+function printSkills(skills: string[] | undefined, indent = ''): void {
   if (!skills || skills.length === 0) return;
   const rendered = skills.map((s) => c(COLORS.model, s)).join(c(COLORS.grey, ', '));
   if (indent === '') {

@@ -2,13 +2,18 @@
 // opencode session log usage summarizer
 // SPDX-License-Identifier: MIT
 
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import * as fs from 'fs';
-import * as path from 'path';
 
 import { runSessionUsageCli, type SessionUsageAdapter } from '../../lib/node/ai-tooling/cli.ts';
 import { resolveProjectPath } from '../../lib/node/ai-tooling/paths.ts';
-import type { SessionDetail, SessionSummary, SessionTokens, Subagent } from '../../lib/node/ai-tooling/types.ts';
+import {
+  type SessionDetail,
+  type SessionSummary,
+  type SessionTokens,
+  type Subagent,
+} from '../../lib/node/ai-tooling/types.ts';
 
 // ---------------------------------------------------------------------------
 // DB row shapes
@@ -83,6 +88,26 @@ interface ParsedSession {
   toolBreakdown: Record<string, number>;
 }
 
+interface OpencodeMessageTokens {
+  input?: number;
+  output?: number;
+  reasoning?: number;
+  cache?: { write?: number; read?: number };
+}
+
+interface OpencodeMessageData {
+  role?: string;
+  agent?: string;
+  modelID?: string;
+  cost?: number;
+  tokens?: OpencodeMessageTokens;
+}
+
+interface OpencodePartData {
+  type?: string;
+  tool?: string;
+}
+
 function parseSessionData(db: DatabaseSync, sessionId: string): ParsedSession {
   const messages = db
     .prepare('SELECT id, data FROM message WHERE session_id = ? ORDER BY time_created')
@@ -96,9 +121,9 @@ function parseSessionData(db: DatabaseSync, sessionId: string): ParsedSession {
   const assistantMessageIds: string[] = [];
 
   for (const m of messages) {
-    let d: any;
+    let d: OpencodeMessageData;
     try {
-      d = JSON.parse(m.data);
+      d = JSON.parse(m.data) as OpencodeMessageData;
     } catch {
       continue;
     }
@@ -109,7 +134,7 @@ function parseSessionData(db: DatabaseSync, sessionId: string): ParsedSession {
       if (!agent && typeof d.agent === 'string') agent = d.agent;
       if (typeof d.modelID === 'string' && d.modelID) model = d.modelID;
       if (typeof d.cost === 'number') cost += d.cost;
-      const t = d.tokens ?? {};
+      const t: OpencodeMessageTokens = d.tokens ?? {};
       tokens.input += t.input ?? 0;
       tokens.output += t.output ?? 0;
       tokens.reasoning! += t.reasoning ?? 0;
@@ -127,9 +152,9 @@ function parseSessionData(db: DatabaseSync, sessionId: string): ParsedSession {
       .prepare(`SELECT data FROM part WHERE message_id IN (${placeholders})`)
       .all(...assistantMessageIds) as unknown as PartRow[];
     for (const p of parts) {
-      let d: any;
+      let d: OpencodePartData;
       try {
-        d = JSON.parse(p.data);
+        d = JSON.parse(p.data) as OpencodePartData;
       } catch {
         continue;
       }
@@ -213,7 +238,7 @@ function resolveSessionRow(db: DatabaseSync, sessionId: string): SessionRow {
   const matches = db
     .prepare(`SELECT ${SESSION_COLUMNS} FROM session WHERE id LIKE ?`)
     .all(`${sessionId}%`) as unknown as SessionRow[];
-  if (matches.length === 1) return matches[0]!;
+  if (matches.length === 1) return matches[0];
   if (matches.length > 1) {
     console.error(`Ambiguous session prefix "${sessionId}", matches:`);
     for (const r of matches) console.error(`  ${r.id}`);

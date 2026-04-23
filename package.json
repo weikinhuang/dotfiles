@@ -5,7 +5,11 @@
   "license": "MIT",
   "private": true,
   "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
   "scripts": {
+    "eslint": "eslint .",
     "prepare": "husky || true",
     "prettier": "prettier -w '**/*.{js,ts,jsx,tsx,mjs}'",
     "tsc": "tsc --noEmit"

@@ -3,10 +3,10 @@
 // disk so the CLI stays fast on repeat invocations.
 // SPDX-License-Identifier: MIT
 
-import * as fs from 'fs';
-import * as path from 'path';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 
-import type { SessionTokens } from './types.ts';
+import { type SessionTokens } from './types.ts';
 
 const LITELLM_URL = 'https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json';
 const TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -84,13 +84,13 @@ export async function loadPricing(refresh = false): Promise<PricingTable> {
   const fresh = cached && cachedAge >= 0 && cachedAge < TTL_MS;
 
   if (fresh && !refresh) {
-    return { models: parseLiteLlm(cached!.data), fetchedAt: cached!.fetched_at, source: 'cache' };
+    return { models: parseLiteLlm(cached.data), fetchedAt: cached.fetched_at, source: 'cache' };
   }
 
   try {
     const res = await fetch(LITELLM_URL);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const data = (await res.json()) as unknown;
+    const data = await res.json();
     const now = new Date().toISOString();
     writeCache({ fetched_at: now, data });
     return { models: parseLiteLlm(data), fetchedAt: now, source: 'fetch' };
@@ -110,7 +110,7 @@ export async function loadPricing(refresh = false): Promise<PricingTable> {
 function candidateKeys(modelId: string): string[] {
   if (!modelId) return [];
   const seen = new Set<string>();
-  const push = (s: string) => {
+  const push = (s: string): void => {
     if (s && !seen.has(s)) seen.add(s);
   };
 

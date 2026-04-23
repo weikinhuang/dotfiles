@@ -14,7 +14,13 @@ import {
 } from './output.ts';
 import { expandUserPath } from './paths.ts';
 import { type CostVariant, estimateCost, loadPricing, lookupPricing, type PricingTable } from './pricing.ts';
-import type { ModelTokenBreakdown, SessionDetail, SessionSummary, Subagent, SessionTokens } from './types.ts';
+import {
+  type ModelTokenBreakdown,
+  type SessionDetail,
+  type SessionSummary,
+  type Subagent,
+  type SessionTokens,
+} from './types.ts';
 
 export interface SessionUsageAdapter<Ctx> {
   help: string;
@@ -95,7 +101,7 @@ export async function runSessionUsageCli<Ctx>(adapter: SessionUsageAdapter<Ctx>)
   const shouldEstimate = adapter.costVariant !== undefined && !args.noCost;
   let pricing: PricingTable | undefined;
   const ensurePricing = async (): Promise<PricingTable> => {
-    if (!pricing) pricing = await loadPricing(args.refreshPrices);
+    pricing ??= await loadPricing(args.refreshPrices);
     return pricing;
   };
 

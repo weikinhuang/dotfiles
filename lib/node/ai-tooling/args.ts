@@ -49,12 +49,13 @@ export function parseArgs(argv: string[], opts: ParseArgsOptions): ParsedArgs {
 
   let i = 0;
   while (i < argv.length) {
-    const arg = argv[i]!;
+    const arg = argv[i];
     switch (arg) {
       case '-h':
       case '--help':
         console.log(opts.help);
         process.exit(0);
+      // eslint-disable-next-line no-fallthrough -- process.exit never returns
       case '--json':
         args.json = true;
         break;

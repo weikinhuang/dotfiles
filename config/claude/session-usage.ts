@@ -2,17 +2,17 @@
 // Claude Code session log usage summarizer
 // SPDX-License-Identifier: MIT
 
-import * as fs from 'fs';
-import * as path from 'path';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 
 import { runSessionUsageCli, type SessionUsageAdapter } from '../../lib/node/ai-tooling/cli.ts';
 import { readJsonlLines } from '../../lib/node/ai-tooling/jsonl.ts';
-import type {
-  ModelTokenBreakdown,
-  SessionDetail,
-  SessionSummary,
-  SessionTokens,
-  Subagent,
+import {
+  type ModelTokenBreakdown,
+  type SessionDetail,
+  type SessionSummary,
+  type SessionTokens,
+  type Subagent,
 } from '../../lib/node/ai-tooling/types.ts';
 
 // ---------------------------------------------------------------------------
@@ -80,6 +80,46 @@ function resolveProjectDir(projectsDir: string, projectArg: string, required: bo
 // Entry parsing
 // ---------------------------------------------------------------------------
 
+interface ClaudeUsage {
+  input_tokens?: number;
+  cache_creation_input_tokens?: number;
+  cache_read_input_tokens?: number;
+  output_tokens?: number;
+}
+
+interface ClaudeToolResultTextItem {
+  text?: string;
+}
+
+interface ClaudeContentBlock {
+  type?: string;
+  name?: string;
+  id?: string;
+  input?: Record<string, unknown>;
+  is_error?: boolean;
+  tool_use_id?: string;
+  content?: string | ClaudeToolResultTextItem[];
+  text?: string;
+}
+
+interface ClaudeMessage {
+  model?: string;
+  id?: string;
+  usage?: ClaudeUsage;
+  content?: string | ClaudeContentBlock[];
+}
+
+interface ClaudeEntry {
+  timestamp?: string;
+  type?: string;
+  message?: ClaudeMessage;
+}
+
+interface ClaudeSubagentMeta {
+  agentType?: string;
+  description?: string;
+}
+
 interface ParsedEntries {
   startTime: string;
   endTime: string;
@@ -97,7 +137,7 @@ function emptyTokens(): SessionTokens {
   return { input: 0, cacheRead: 0, cacheWrite: 0, output: 0 };
 }
 
-function parseEntries(entries: any[]): ParsedEntries {
+function parseEntries(entries: ClaudeEntry[]): ParsedEntries {
   const tokens: SessionTokens = emptyTokens();
   const perModel = new Map<string, SessionTokens>();
   let toolCalls = 0;
@@ -153,11 +193,11 @@ function parseEntries(entries: any[]): ParsedEntries {
       const content = entry.message?.content;
       if (Array.isArray(content)) {
         for (const block of content) {
-          if (block?.type === 'tool_use') {
+          if (block.type === 'tool_use') {
             toolCalls++;
             const name: string = block.name ?? 'unknown';
             toolBreakdown[name] = (toolBreakdown[name] ?? 0) + 1;
-            if (name === 'Skill' && typeof block.input?.skill === 'string') {
+            if (name === 'Skill' && typeof block.input?.skill === 'string' && block.id) {
               skillCandidates.set(block.id, block.input.skill);
             }
           }
@@ -175,14 +215,14 @@ function parseEntries(entries: any[]): ParsedEntries {
 
       if (Array.isArray(content)) {
         for (const block of content) {
-          if (typeof block === 'object' && block?.type === 'tool_result') {
-            if (block.is_error) failedToolUseIds.add(block.tool_use_id);
+          if (block.type === 'tool_result') {
+            if (block.is_error && block.tool_use_id) failedToolUseIds.add(block.tool_use_id);
             const rc = block.content;
             if (typeof rc === 'string') {
               toolBytes += rc.length;
             } else if (Array.isArray(rc)) {
               for (const item of rc) {
-                if (typeof item === 'object' && typeof item?.text === 'string') {
+                if (typeof item?.text === 'string') {
                   toolBytes += item.text.length;
                 }
               }
@@ -250,7 +290,7 @@ function buildSummary(sessionId: string, parsed: ParsedEntries, subagentCount: n
 
 function parseSessionFile(filePath: string): SessionSummary {
   const sessionId = path.basename(filePath, '.jsonl');
-  const parsed = parseEntries(readJsonlLines(filePath));
+  const parsed = parseEntries(readJsonlLines<ClaudeEntry>(filePath));
 
   const sessionDir = filePath.replace(/\.jsonl$/, '');
   const subagentDir = path.join(sessionDir, 'subagents');
@@ -276,7 +316,7 @@ function parseSubagents(sessionFilePath: string): Subagent[] {
     let description = '';
     if (fs.existsSync(metaPath)) {
       try {
-        const meta = JSON.parse(fs.readFileSync(metaPath, 'utf-8'));
+        const meta = JSON.parse(fs.readFileSync(metaPath, 'utf-8')) as ClaudeSubagentMeta;
         agentType = meta.agentType ?? '';
         description = meta.description ?? '';
       } catch {
@@ -284,7 +324,7 @@ function parseSubagents(sessionFilePath: string): Subagent[] {
       }
     }
 
-    const parsed = parseEntries(readJsonlLines(path.join(subagentDir, jsonlFile)));
+    const parsed = parseEntries(readJsonlLines<ClaudeEntry>(path.join(subagentDir, jsonlFile)));
     const sa: Subagent = {
       agentId,
       agentLabel: agentType,
@@ -317,7 +357,7 @@ function resolveSessionFile(projectDir: string, sessionId: string): string {
   if (fs.existsSync(exact)) return exact;
 
   const matches = fs.readdirSync(projectDir).filter((f) => f.endsWith('.jsonl') && f.startsWith(sessionId));
-  if (matches.length === 1) return path.join(projectDir, matches[0]!);
+  if (matches.length === 1) return path.join(projectDir, matches[0]);
   if (matches.length > 1) {
     console.error(`Ambiguous session prefix "${sessionId}", matches:`);
     for (const f of matches) console.error(`  ${f.replace('.jsonl', '')}`);

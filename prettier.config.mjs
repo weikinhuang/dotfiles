@@ -1,4 +1,4 @@
-export default {
+const config = {
   arrowParens: 'always',
   printWidth: 120,
   singleQuote: true,
@@ -6,3 +6,5 @@ export default {
   // this is for yaml
   proseWrap: 'always',
 };
+
+export default config;

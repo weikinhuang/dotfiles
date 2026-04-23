@@ -153,6 +153,12 @@ export default defineConfig([
           ignores: ['modules'],
         },
       ],
+      'n/no-unsupported-features/node-builtins': [
+        'error',
+        {
+          allowExperimental: true,
+        },
+      ],
     },
   },
 

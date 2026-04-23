@@ -3,8 +3,8 @@
 // SPDX-License-Identifier: MIT
 
 import * as childProcess from 'node:child_process';
-import * as fs from 'node:fs/promises';
 import * as fsSync from 'node:fs';
+import * as fs from 'node:fs/promises';
 import * as http from 'node:http';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -60,7 +60,7 @@ async function setClipboard(req: http.IncomingMessage): Promise<void> {
 
   try {
     // echo 123 | curl -i 127.0.0.1:9999/clipboard --data-binary @-
-    await pipeline(req, sizeLimiter, subprocess.stdin!);
+    await pipeline(req, sizeLimiter, subprocess.stdin);
     await childClosed;
   } catch (err) {
     try {
@@ -81,7 +81,7 @@ async function getClipboard(res: http.ServerResponse): Promise<void> {
 
   try {
     // curl -i 127.0.0.1:9999/clipboard
-    await Promise.all([pipeline(subprocess.stdout!, res), childClosed]);
+    await Promise.all([pipeline(subprocess.stdout, res), childClosed]);
   } catch (err) {
     try {
       subprocess.kill();
@@ -158,7 +158,9 @@ function isListening(socket: string): Promise<void> {
       if (res.statusCode === 200) {
         resolve();
       } else {
-        reject(res);
+        const e = new Error('HTTP Error');
+        e.cause = res;
+        reject(e);
       }
     });
     req.on('error', reject);
@@ -192,7 +194,7 @@ async function start(opts: Options): Promise<void> {
   }
 
   // spawn detached process
-  const subprocess = childProcess.spawn(process.argv[0]!, [process.argv[1]!, 'server', ...args], {
+  const subprocess = childProcess.spawn(process.argv[0], [process.argv[1], 'server', ...args], {
     detached: true,
     stdio: 'ignore',
   });
@@ -266,7 +268,9 @@ async function server(opts: Options): Promise<void> {
         case '/clipboard':
           if (req.method === 'GET') {
             if (notify) {
-              showNotification('Clipboard read').catch(() => {});
+              showNotification('Clipboard read').catch(() => {
+                // empty
+              });
             }
             res.setHeader('content-type', 'application/octet-stream');
             if (enablePaste) {
@@ -278,7 +282,9 @@ async function server(opts: Options): Promise<void> {
             }
           } else if (req.method === 'POST') {
             if (notify) {
-              showNotification('Clipboard written').catch(() => {});
+              showNotification('Clipboard written').catch(() => {
+                // empty
+              });
             }
             res.setHeader('content-type', 'text/plain');
             res.statusCode = 200;

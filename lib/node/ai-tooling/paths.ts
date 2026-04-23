@@ -1,7 +1,7 @@
 // Path helpers for session-usage scripts.
 // SPDX-License-Identifier: MIT
 
-import * as path from 'path';
+import * as path from 'node:path';
 
 export function expandUserPath(p: string): string {
   if (p.startsWith('~')) return path.join(process.env.HOME ?? '', p.slice(1));

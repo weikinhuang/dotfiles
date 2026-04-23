@@ -2,18 +2,18 @@
 // Codex CLI session log usage summarizer
 // SPDX-License-Identifier: MIT
 
-import * as fs from 'fs';
-import * as path from 'path';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 
 import { runSessionUsageCli, type SessionUsageAdapter } from '../../lib/node/ai-tooling/cli.ts';
 import { readJsonlLines } from '../../lib/node/ai-tooling/jsonl.ts';
 import { resolveProjectPath } from '../../lib/node/ai-tooling/paths.ts';
-import type {
-  ModelTokenBreakdown,
-  SessionDetail,
-  SessionSummary,
-  SessionTokens,
-  Subagent,
+import {
+  type ModelTokenBreakdown,
+  type SessionDetail,
+  type SessionSummary,
+  type SessionTokens,
+  type Subagent,
 } from '../../lib/node/ai-tooling/types.ts';
 
 // ---------------------------------------------------------------------------
@@ -25,6 +25,41 @@ interface CodexContext {
   filterCwd: string;
   allFiles: string[];
   subagentIndex: Map<string, string[]>;
+}
+
+// ---------------------------------------------------------------------------
+// Entry types
+// ---------------------------------------------------------------------------
+
+interface CodexSource {
+  subagent?: boolean;
+}
+
+interface CodexTokenUsage {
+  input_tokens?: number;
+  cached_input_tokens?: number;
+  output_tokens?: number;
+  reasoning_output_tokens?: number;
+}
+
+interface CodexPayload {
+  id?: string;
+  cwd?: string;
+  cli_version?: string;
+  agent_nickname?: string;
+  agent_role?: string;
+  source?: CodexSource | string;
+  forked_from_id?: string;
+  model?: string;
+  type?: string;
+  info?: { total_token_usage?: CodexTokenUsage };
+  name?: string;
+}
+
+interface CodexEntry {
+  timestamp?: string;
+  type?: string;
+  payload?: CodexPayload;
 }
 
 // ---------------------------------------------------------------------------
@@ -55,8 +90,8 @@ function buildSubagentIndex(allFiles: string[]): Map<string, string[]> {
   for (const f of allFiles) {
     const first = fs.readFileSync(f, 'utf-8').split('\n')[0] ?? '';
     try {
-      const entry = JSON.parse(first);
-      const parentId = entry?.payload?.forked_from_id;
+      const entry = JSON.parse(first) as CodexEntry;
+      const parentId = entry.payload?.forked_from_id;
       if (entry.type === 'session_meta' && parentId) {
         const list = index.get(parentId) ?? [];
         list.push(f);
@@ -102,7 +137,7 @@ function emptyCodexTokens(): SessionTokens {
 }
 
 function parseSessionFile(filePath: string): ParsedSession {
-  const entries = readJsonlLines(filePath);
+  const entries = readJsonlLines<CodexEntry>(filePath);
 
   let sessionId = '';
   let model = '';
@@ -141,7 +176,7 @@ function parseSessionFile(filePath: string): ParsedSession {
       cliVersion = p?.cli_version ?? '';
       agentNickname = p?.agent_nickname ?? '';
       agentRole = p?.agent_role ?? '';
-      isSubagent = typeof p?.source === 'object' && !!p.source?.subagent;
+      isSubagent = typeof p?.source === 'object' && p.source !== null && !!p.source.subagent;
     }
 
     if (entry.type === 'turn_context') {
@@ -286,7 +321,7 @@ function resolveSessionFile(ctx: CodexContext, sessionId: string): string {
   const matches = ctx.allFiles.filter((f) => {
     const first = fs.readFileSync(f, 'utf-8').split('\n')[0] ?? '';
     try {
-      const entry = JSON.parse(first);
+      const entry = JSON.parse(first) as CodexEntry;
       if (entry.type === 'session_meta') {
         return (entry.payload?.id ?? '').startsWith(sessionId);
       }
@@ -296,7 +331,7 @@ function resolveSessionFile(ctx: CodexContext, sessionId: string): string {
     return false;
   });
 
-  if (matches.length === 1) return matches[0]!;
+  if (matches.length === 1) return matches[0];
   if (matches.length > 1) {
     console.error(`Ambiguous session prefix "${sessionId}", matches:`);
     for (const f of matches) console.error(`  ${path.basename(f, '.jsonl')}`);
