@@ -128,7 +128,7 @@ function internal::find-editor() {
     fi
   fi
 
-  if [[ -z "${DOT___IS_SSH}" ]]; then
+  if [[ -z "${DOT___IS_SSH}" ]] && [[ -z "${DOT_DISABLE_EDITOR_AUTODETECT:-}" ]]; then
     if command -v code-insiders &>/dev/null || [[ "${PATH}" == */.vscode-server-insiders/bin/* ]]; then
       editor="code-insiders --wait"
       found_editor=1

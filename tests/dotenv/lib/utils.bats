@@ -204,6 +204,20 @@ EOF
   assert_output "npp"
 }
 
+@test "utils: find-editor skips autodetect when DOT_DISABLE_EDITOR_AUTODETECT is set" {
+  export DOT_DISABLE_EDITOR_AUTODETECT=1
+  unset TERM_PROGRAM
+  unset DOT___IS_SSH
+  __dot_find_editor_result=
+  use_mock_bin_path
+  stub_passthrough_command "code"
+  stub_passthrough_command "nvim"
+
+  run internal::find-editor
+  assert_success
+  assert_output "nvim"
+}
+
 @test "utils: cached-eval writes and sources a missing cache file" {
   internal::cached-eval demo-tool "printf 'export TEST_CACHED_EVAL=ready\\n'"
 
