@@ -6,7 +6,7 @@
 _dot_git_cherry_pick_from() {
   local cur prev
   cur="${COMP_WORDS[COMP_CWORD]}"
-  prev="${COMP_WORDS[COMP_CWORD - 1]}"
+  prev="${COMP_WORDS[COMP_CWORD-1]}"
 
   if [[ "${cur}" == -* ]]; then
     mapfile -t COMPREPLY < <(compgen -W "-h --help --" -- "${cur}")

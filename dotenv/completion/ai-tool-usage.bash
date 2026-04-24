@@ -5,7 +5,7 @@
 _dot_ai_tool_usage() {
   local cur prev tools subcommands flags
   cur="${COMP_WORDS[COMP_CWORD]}"
-  prev="${COMP_WORDS[COMP_CWORD - 1]}"
+  prev="${COMP_WORDS[COMP_CWORD-1]}"
 
   # First positional: tool name (discovered from config/*/session-usage.ts).
   if [[ ${COMP_CWORD} -eq 1 ]]; then
