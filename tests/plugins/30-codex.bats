@@ -44,6 +44,29 @@ make_profile() {
   assert_line 'hello'
 }
 
+@test "30-codex: no -u sources env from default config dir" {
+  mkdir -p "${HOME}/.codex"
+  printf 'export OPENAI_BASE_URL=https://default.test\n' >"${HOME}/.codex/env"
+  source "${REPO_ROOT}/plugins/30-codex.sh"
+
+  run codex exec
+  assert_success
+  assert_line 'CODEX_HOME='
+  assert_line 'OPENAI_BASE_URL=https://default.test'
+}
+
+@test "30-codex: no -u honours CODEX_HOME override for default env" {
+  local dir="${BATS_TEST_TMPDIR}/custom-codex"
+  mkdir -p "${dir}"
+  printf 'export OPENAI_BASE_URL=https://custom.test\n' >"${dir}/env"
+  export CODEX_HOME="${dir}"
+  source "${REPO_ROOT}/plugins/30-codex.sh"
+
+  run codex exec
+  assert_success
+  assert_line 'OPENAI_BASE_URL=https://custom.test'
+}
+
 @test "30-codex: -u sets CODEX_HOME and forwards remaining args" {
   local dir
   dir="$(make_profile aws)"

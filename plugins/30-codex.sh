@@ -32,19 +32,21 @@ codex() {
     esac
   done
 
+  local profile_dir
   if [[ -z "${profile}" ]]; then
-    command codex "${args[@]}"
-    return
-  fi
-
-  local profile_dir="${XDG_CONFIG_HOME:-${HOME}/.config}/codex-${profile}"
-  if ! mkdir -p "${profile_dir}"; then
-    echo "codex: could not create profile directory ${profile_dir}" >&2
-    return 1
+    profile_dir="${CODEX_HOME:-${HOME}/.codex}"
+  else
+    profile_dir="${XDG_CONFIG_HOME:-${HOME}/.config}/codex-${profile}"
+    if ! mkdir -p "${profile_dir}"; then
+      echo "codex: could not create profile directory ${profile_dir}" >&2
+      return 1
+    fi
   fi
 
   (
-    export CODEX_HOME="${profile_dir}"
+    if [[ -n "${profile}" ]]; then
+      export CODEX_HOME="${profile_dir}"
+    fi
     if [[ -f "${profile_dir}/env" ]]; then
       # shellcheck disable=SC1091
       source "${profile_dir}/env"

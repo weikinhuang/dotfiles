@@ -32,20 +32,22 @@ claude() {
     esac
   done
 
+  local profile_dir
   if [[ -z "${profile}" ]]; then
-    command claude "${args[@]}"
-    return
-  fi
-
-  local profile_dir="${XDG_CONFIG_HOME:-${HOME}/.config}/claude-${profile}"
-  if ! mkdir -p "${profile_dir}"; then
-    echo "claude: could not create profile directory ${profile_dir}" >&2
-    return 1
+    profile_dir="${CLAUDE_CONFIG_DIR:-${HOME}/.claude}"
+  else
+    profile_dir="${XDG_CONFIG_HOME:-${HOME}/.config}/claude-${profile}"
+    if ! mkdir -p "${profile_dir}"; then
+      echo "claude: could not create profile directory ${profile_dir}" >&2
+      return 1
+    fi
   fi
 
   (
-    export CLAUDE_CONFIG_DIR="${profile_dir}"
-    export CLAUDE_CODE_PROFILE_NAME="${profile}"
+    if [[ -n "${profile}" ]]; then
+      export CLAUDE_CONFIG_DIR="${profile_dir}"
+      export CLAUDE_CODE_PROFILE_NAME="${profile}"
+    fi
     if [[ -f "${profile_dir}/env" ]]; then
       # shellcheck disable=SC1091
       source "${profile_dir}/env"

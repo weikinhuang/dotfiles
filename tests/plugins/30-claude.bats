@@ -45,6 +45,30 @@ make_profile() {
   assert_line 'world'
 }
 
+@test "30-claude: no -u sources env from default config dir" {
+  mkdir -p "${HOME}/.claude"
+  printf 'export ANTHROPIC_BASE_URL=https://default.test\n' >"${HOME}/.claude/env"
+  source "${REPO_ROOT}/plugins/30-claude.sh"
+
+  run claude --print
+  assert_success
+  assert_line 'CLAUDE_CONFIG_DIR='
+  assert_line 'CLAUDE_CODE_PROFILE_NAME='
+  assert_line 'ANTHROPIC_BASE_URL=https://default.test'
+}
+
+@test "30-claude: no -u honours CLAUDE_CONFIG_DIR override for default env" {
+  local dir="${BATS_TEST_TMPDIR}/custom-claude"
+  mkdir -p "${dir}"
+  printf 'export ANTHROPIC_BASE_URL=https://custom.test\n' >"${dir}/env"
+  export CLAUDE_CONFIG_DIR="${dir}"
+  source "${REPO_ROOT}/plugins/30-claude.sh"
+
+  run claude --print
+  assert_success
+  assert_line 'ANTHROPIC_BASE_URL=https://custom.test'
+}
+
 @test "30-claude: -u sets CLAUDE_CONFIG_DIR and profile name, forwards remaining args" {
   local dir
   dir="$(make_profile work)"
