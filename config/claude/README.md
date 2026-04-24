@@ -6,11 +6,12 @@ Configuration, personal instructions, and custom tooling for [Claude Code](https
 
 - [`statusline-command.sh`](#statusline-commandsh) — two-line status line rendered at the bottom of every Claude Code session.
 - [`session-usage.ts`](#session-usagets) — CLI that walks `~/.claude/projects/` and summarizes transcript token/tool usage.
+- [`settings-baseline.json`](#settings-baselinejson) — mirrors `~/.claude/settings.json`.
 - [`settings-local.json`](#settings-localjson) — mirrors `~/.claude/settings.json`.
 
 ## `statusline-command.sh`
 
-Two-line status line in the dotfiles PS1 style. Claude Code invokes it after every turn and on a 5 s refresh tick ([`settings-local.json`](./settings-local.json)), passing the session state as JSON on stdin.
+Two-line status line in the dotfiles PS1 style. Claude Code invokes it after every turn and on a 5 s refresh tick ([`settings-baseline.json`](./settings-baseline.json)), passing the session state as JSON on stdin.
 
 ### Example
 
@@ -73,6 +74,10 @@ CLI that scans `~/.claude/projects/` for session transcripts and prints summarie
 - **`--json`** — machine-readable JSON output.
 - **`--no-color`** — disable ANSI colors.
 
+## `settings-baseline.json`
+
+A reference baseline config for Claude Code.
+
 ## `settings-local.json`
 
-A local-llm friendly sample configuration for Claude Code, along with reference settings for used globally.
+A local-llm friendly sample configuration for Claude Code.

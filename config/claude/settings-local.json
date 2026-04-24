@@ -4,31 +4,7 @@
   "apiKeyHelper": "",
   "env": {
     "ANTHROPIC_BASE_URL": "https://example.com",
-    "CLAUDE_CODE_ENABLE_TELEMETRY": "0",
-    "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
-    "CLAUDE_CODE_ATTRIBUTION_HEADER": "0",
     "CLAUDE_CODE_API_KEY_HELPER_TTL_MS": "300000",
-    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1",
-    "DISABLE_TELEMETRY": "1",
-    "DISABLE_ERROR_REPORTING": "1"
-  },
-  "attribution": {
-    "commit": "",
-    "pr": ""
-  },
-  "statusLine": {
-    "type": "command",
-    "command": "bash ~/.dotfiles/config/claude/statusline-command.sh",
-    "refreshInterval": 5
-  },
-  "permissions": {
-    "defaultMode": "auto"
-  },
-  "effortLevel": "high",
-  "promptSuggestionEnabled": true,
-  "plansDirectory": "./plans",
-  "prefersReducedMotion": false,
-  "autoMemoryEnabled": true,
-  "terminalProgressBarEnabled": false,
-  "tui": "fullscreen"
+    "CLAUDE_CODE_ATTRIBUTION_HEADER": "0"
+  }
 }
