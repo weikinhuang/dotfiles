@@ -7,13 +7,11 @@ IFS=$'\n\t'
 
 function print_help() {
   cat <<'EOF'
-Usage: pbcopy [OPTION]... [CLIP-ARG...]
-Copy stdin to the Windows clipboard with clip.exe.
+Usage: pbcopy [OPTION]...
+Copy stdin (UTF-8) to the Windows clipboard via Set-Clipboard.
 
 Options:
   -h, --help                  show this help and exit
-
-All remaining arguments are forwarded to clip.exe.
 EOF
 }
 
@@ -24,4 +22,9 @@ case "${1:-}" in
     ;;
 esac
 
-exec clip.exe "$@"
+# clip.exe mishandles short BOM-less payloads via IsTextUnicode() (e.g. "1\n"
+# becomes "਱") and also fails to strip a leading UTF-16 BOM if you supply one
+# (e.g. "﻿1"). Route through PowerShell's Set-Clipboard instead, which
+# stores the string directly as CF_UNICODETEXT from a UTF-8 stdin.
+exec powershell.exe -NoProfile -NonInteractive -Command \
+  '[Console]::InputEncoding = [Text.Encoding]::UTF8; Set-Clipboard -Value ([Console]::In.ReadToEnd())'
