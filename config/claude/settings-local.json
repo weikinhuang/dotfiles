@@ -1,10 +1,29 @@
 {
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
   "model": "",
   "availableModels": [""],
   "apiKeyHelper": "",
   "env": {
     "ANTHROPIC_BASE_URL": "https://example.com",
     "CLAUDE_CODE_API_KEY_HELPER_TTL_MS": "300000",
-    "CLAUDE_CODE_ATTRIBUTION_HEADER": "0"
+    "CLAUDE_CODE_ATTRIBUTION_HEADER": "0",
+
+    "CLAUDE_CODE_USE_BEDROCK": "1",
+    "AWS_REGION": "us-east-1",
+    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1",
+    "AWS_BEARER_TOKEN_BEDROCK": "",
+
+    "ANTHROPIC_MODEL": "",
+    "ANTHROPIC_DEFAULT_OPUS_MODEL": "",
+    "ANTHROPIC_DEFAULT_SONNET_MODEL": "",
+    "ANTHROPIC_DEFAULT_HAIKU_MODEL": "",
+    "CLAUDE_CODE_SUBAGENT_MODEL": ""
+  },
+  "permissions": {
+    "allow": [],
+    "deny": [
+      "WebFetch",
+      "WebSearch"
+    ]
   }
 }

@@ -1,4 +1,5 @@
 {
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
   "env": {
     "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
     "CLAUDE_CODE_ENABLE_TELEMETRY": "0",
@@ -17,13 +18,49 @@
     "refreshInterval": 5
   },
   "permissions": {
-    "defaultMode": "auto"
+    "defaultMode": "auto",
+    "allow": [
+      "Bash(bat *)",
+      "Bash(cat *)",
+      "Bash(cd *)",
+      "Bash(chmod *)",
+      "Bash(cp *)",
+      "Bash(date *)",
+      "Bash(diff *)",
+      "Bash(echo *)",
+      "Bash(file *)",
+      "Bash(find *)",
+      "Bash(grep *)",
+      "Bash(head *)",
+      "Bash(jq *)",
+      "Bash(ls *)",
+      "Bash(mkdir *)",
+      "Bash(mv *)",
+      "Bash(npx eslint *)",
+      "Bash(printf *)",
+      "Bash(pwd)",
+      "Bash(rg *)",
+      "Bash(sed *)",
+      "Bash(sort *)",
+      "Bash(tail *)",
+      "Bash(tee *)",
+      "Bash(touch *)",
+      "Bash(uniq *)",
+      "Bash(wc *)",
+      "Bash(which *)",
+      "Bash(yamllint *)",
+      "Bash(yq *)"
+    ],
+    "deny": [
+      "Read(./.env)",
+      "Read(./.env.*)"
+    ]
   },
+  "autoMemoryEnabled": true,
   "effortLevel": "high",
-  "promptSuggestionEnabled": true,
   "plansDirectory": "./plans",
   "prefersReducedMotion": false,
-  "autoMemoryEnabled": true,
+  "promptSuggestionEnabled": true,
   "terminalProgressBarEnabled": false,
   "theme": "auto",
   "tui": "fullscreen"
