@@ -48,7 +48,6 @@ setup() {
 @test "path: dot-path-setup adds expected platform and user bin directories" {
   local arch
   arch="$(uname -m)"
-  local python_base="${BATS_TEST_TMPDIR}/python"
   mkdir -p \
     "${DOTFILES__ROOT}/.dotfiles/dotenv/tmux/bin.${arch}" \
     "${DOTFILES__ROOT}/.dotfiles/dotenv/tmux/bin" \
@@ -62,13 +61,8 @@ setup() {
     "${DOTFILES__ROOT}/.dotfiles/dotenv/linux/bin" \
     "${DOTFILES__ROOT}/.dotfiles/dotenv/bin.${arch}" \
     "${DOTFILES__ROOT}/.dotfiles/dotenv/bin" \
-    "${HOME}/bin" \
-    "${python_base}/bin"
-
-  stub_command python3 <<EOF
-#!/usr/bin/env bash
-echo "${python_base}"
-EOF
+    "${HOME}/.local/bin" \
+    "${HOME}/bin"
 
   export TMUX=1
   export DOT___IS_SSH=1
@@ -84,7 +78,24 @@ EOF
   [[ "${PATH}" == *"${DOTFILES__ROOT}/.dotfiles/dotenv/wsl2/bin"* ]]
   [[ "${PATH}" == *"${DOTFILES__ROOT}/.dotfiles/dotenv/linux/bin"* ]]
   [[ "${PATH}" == *"${DOTFILES__ROOT}/.dotfiles/dotenv/bin"* ]]
+  [[ "${PATH}" == *"${HOME}/.local/bin"* ]]
   [[ "${PATH}" == *"${HOME}/bin"* ]]
+}
+
+@test "path: dot-path-setup falls back to python3 user-base when ~/.local is missing" {
+  local python_base="${BATS_TEST_TMPDIR}/python"
+  mkdir -p "${python_base}/bin"
+  [[ ! -e "${HOME}/.local" ]]
+
+  stub_command python3 <<EOF
+#!/usr/bin/env bash
+echo "${python_base}"
+EOF
+
+  PATH="${MOCK_BIN}:/usr/bin:/bin"
+
+  internal::path-setup
+
   [[ "${PATH}" == *"${python_base}/bin"* ]]
 }
 

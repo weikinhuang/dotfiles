@@ -77,6 +77,7 @@ function internal::path-setup() {
   internal::path-push "${DOTFILES__ROOT}/.dotfiles/dotenv/${DOTENV}/bin"
   internal::path-push "${DOTFILES__ROOT}/.dotfiles/dotenv/bin.${arch}"
   internal::path-push "${DOTFILES__ROOT}/.dotfiles/dotenv/bin"
+  internal::path-push "${HOME}/.local/bin"
   internal::path-push "${HOME}/bin"
 
   # python user pip packages
