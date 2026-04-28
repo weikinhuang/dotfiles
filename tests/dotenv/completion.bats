@@ -26,7 +26,7 @@ _run_completion() {
   COMP_LINE="${cmd} $*"
   COMP_POINT=${#COMP_LINE}
   COMPREPLY=()
-  "${func}" "${cmd}" "${!#}" "${COMP_WORDS[COMP_CWORD-1]}"
+  "${func}" "${cmd}" "${!#}" "${COMP_WORDS[COMP_CWORD - 1]}"
   printf '%s\n' "${COMPREPLY[@]}"
 }
 

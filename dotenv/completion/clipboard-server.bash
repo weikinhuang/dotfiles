@@ -5,7 +5,7 @@
 _dot_clipboard_server() {
   local cur prev
   cur="${COMP_WORDS[COMP_CWORD]}"
-  prev="${COMP_WORDS[COMP_CWORD-1]}"
+  prev="${COMP_WORDS[COMP_CWORD - 1]}"
 
   case "${prev}" in
     -p | --pidfile | -s | --socket)
@@ -24,7 +24,7 @@ _dot_clipboard_server() {
   for ((i = 1; i < COMP_CWORD; i++)); do
     word="${COMP_WORDS[i]}"
     [[ "${word}" == -* ]] && continue
-    case "${COMP_WORDS[i-1]}" in
+    case "${COMP_WORDS[i - 1]}" in
       -p | --pidfile | -s | --socket) continue ;;
     esac
     return

@@ -69,17 +69,19 @@ get_bats_files() {
     | uniq
 }
 
+DOCKER_ARGS=(-i --rm -u "$(id -u):$(id -g)" --read-only --cap-drop all -v "${PWD}:/mnt" -w /mnt)
+
 echo "==> Running shellcheck..."
 get_shell_files | xargs -n1 shellcheck -f gcc --source-path=SCRIPTDIR
 # --norc disables .shellcheckrc (external-sources=true) for bats files.
 # Without this, shellcheck 0.11 follows each `source "${REPO_ROOT}/..."` inside
 # every `@test` block and consumes 10GB+ per file.
-get_bats_files | xargs -n1 shellcheck --norc -S warning -s bats -f gcc
+get_bats_files | xargs -n1 docker run "${DOCKER_ARGS[@]}" koalaman/shellcheck:v0.11.0 --norc -S warning -s bats -f gcc
 
 echo "==> Running shfmt..."
-get_shell_files | xargs -n1 shfmt -ln bash -ci -bn -i 2 "${SHFMT_MODE[@]}"
+get_shell_files | xargs -n1 docker run "${DOCKER_ARGS[@]}" mvdan/shfmt:v3.13.1 -ln bash -ci -bn -i 2 "${SHFMT_MODE[@]}"
 
 echo "==> Running shfmt on bats files..."
-get_bats_files | xargs -n1 shfmt -ln bats -ci -bn -i 2 "${SHFMT_MODE[@]}"
+get_bats_files | xargs -n1 docker run "${DOCKER_ARGS[@]}" mvdan/shfmt:v3.13.1 -ln bats -ci -bn -i 2 "${SHFMT_MODE[@]}"
 
 echo "OK"

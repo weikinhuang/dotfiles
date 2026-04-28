@@ -6,7 +6,7 @@
 _dot_git_ssh_socks_proxy() {
   local cur prev
   cur="${COMP_WORDS[COMP_CWORD]}"
-  prev="${COMP_WORDS[COMP_CWORD-1]}"
+  prev="${COMP_WORDS[COMP_CWORD - 1]}"
 
   case "${prev}" in
     -p | --port)

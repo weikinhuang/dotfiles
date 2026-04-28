@@ -8,7 +8,7 @@
 _dot_complete_delegate() {
   local cmd="$1"
   local cur="${COMP_WORDS[COMP_CWORD]:-}"
-  local prev="${COMP_WORDS[COMP_CWORD-1]:-}"
+  local prev="${COMP_WORDS[COMP_CWORD - 1]:-}"
   local spec
   spec="$(complete -p "${cmd}" 2>/dev/null)"
   if [[ -z "${spec}" ]]; then
