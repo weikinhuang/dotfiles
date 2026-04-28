@@ -1,0 +1,146 @@
+#!/usr/bin/env bash
+# Apply force-tag-fetch overrides to remotes in the current repository.
+# SPDX-License-Identifier: MIT
+
+set -euo pipefail
+IFS=$'\n\t'
+
+function print_help() {
+  cat <<'EOF'
+Usage: git-tag-overrides [OPTION]... [TAG]...
+Apply force-tag-fetch overrides to remotes in the current repository.
+
+Adds `+refs/tags/<TAG>:refs/tags/<TAG>` to the fetch refspec of each target
+remote so retagged remote tags are replaced during fetch/pull instead of being
+skipped. Existing fetch entries are left intact, and each refspec is only added
+when missing.
+
+TAG arguments may be exact tag names (`deploy`, `v1.2.3`) or globs supported by
+git refspecs (`deploy-*`). When no TAG is given, applies to all tags (`*`).
+
+By default this targets `origin` and `upstream` if they exist.
+
+Options:
+  -r, --remote NAME          remote to apply (repeatable; overrides defaults)
+      --remote=NAME            set the remote inline
+  -h, --help                 display this help and exit
+
+Examples:
+  git tag-overrides                    # all tags on origin/upstream
+  git tag-overrides deploy             # only the `deploy` tag
+  git tag-overrides deploy v1.0        # two specific tags
+  git tag-overrides --remote fork rc-* # `rc-*` tags on the `fork` remote
+EOF
+}
+
+REMOTES=()
+TAGS=()
+EXPLICIT_REMOTES=
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -h | --help)
+      print_help
+      exit 0
+      ;;
+    -r | --remote)
+      if [[ $# -lt 2 ]]; then
+        echo "git-tag-overrides: missing value for $1" >&2
+        exit 1
+      fi
+      REMOTES+=("$2")
+      EXPLICIT_REMOTES=1
+      shift
+      ;;
+    --remote=*)
+      REMOTES+=("${1#*=}")
+      EXPLICIT_REMOTES=1
+      ;;
+    --)
+      shift
+      while [[ $# -gt 0 ]]; do
+        TAGS+=("$1")
+        shift
+      done
+      break
+      ;;
+    -*)
+      echo "git-tag-overrides: unknown argument: $1" >&2
+      print_help >&2
+      exit 1
+      ;;
+    *)
+      TAGS+=("$1")
+      ;;
+  esac
+  shift
+done
+
+if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1 \
+  && ! git rev-parse --is-inside-git-dir >/dev/null 2>&1; then
+  echo "Not in a git repository" >&2
+  exit 1
+fi
+
+if [[ -z "${EXPLICIT_REMOTES}" ]]; then
+  REMOTES=(origin upstream)
+fi
+
+if [[ ${#TAGS[@]} -eq 0 ]]; then
+  TAGS=('*')
+fi
+
+REFSPECS=()
+for tag in "${TAGS[@]}"; do
+  if [[ -z "${tag}" ]]; then
+    echo "git-tag-overrides: tag name must not be empty" >&2
+    exit 1
+  fi
+  if [[ "${tag}" == */* ]]; then
+    printf "git-tag-overrides: tag must not contain '/': %s\n" "${tag}" >&2
+    exit 1
+  fi
+  REFSPECS+=("+refs/tags/${tag}:refs/tags/${tag}")
+done
+
+matched=0
+
+for remote in "${REMOTES[@]}"; do
+  if ! git remote get-url "${remote}" >/dev/null 2>&1; then
+    if [[ -n "${EXPLICIT_REMOTES}" ]]; then
+      printf 'git-tag-overrides: remote %s does not exist\n' "${remote}" >&2
+      exit 1
+    fi
+    continue
+  fi
+
+  matched=$((matched + 1))
+
+  mapfile -t existing < <(git config --get-all "remote.${remote}.fetch" 2>/dev/null || true)
+
+  for refspec in "${REFSPECS[@]}"; do
+    found=0
+    for entry in "${existing[@]}"; do
+      if [[ "${entry}" == "${refspec}" ]]; then
+        found=1
+        break
+      fi
+    done
+
+    if [[ "${found}" -eq 1 ]]; then
+      printf 'remote %s: already configured (%s)\n' "${remote}" "${refspec}"
+      continue
+    fi
+
+    git config --add "remote.${remote}.fetch" "${refspec}"
+    existing+=("${refspec}")
+    printf 'remote %s: added %s\n' "${remote}" "${refspec}"
+  done
+done
+
+if [[ -z "${EXPLICIT_REMOTES}" && "${matched}" -eq 0 ]]; then
+  echo "git-tag-overrides: no matching remotes (looked for: origin, upstream)" >&2
+  exit 1
+fi
+
+exit 0

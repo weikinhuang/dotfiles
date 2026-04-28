@@ -174,6 +174,7 @@ In this repo, [`git ignore`](./dotenv/bin/git-ignore) resolves to the `git-ignor
 | [`git ls-dir`](./dotenv/bin/git-ls-dir) | list files in a tree together with the most recent commit that touched each file |
 | [`git ssh-socks-proxy`](./dotenv/bin/git-ssh-socks-proxy) | wrap `ssh` and derive a `ProxyCommand` from git config |
 | [`git sync`](./dotenv/bin/git-sync) | update the default branch from `origin` or `upstream`, then restore the starting branch and dirty state |
+| [`git tag-overrides`](./dotenv/bin/git-tag-overrides) | add `+refs/tags/<TAG>:refs/tags/<TAG>` to a repo's `origin`/`upstream` fetch refspecs (or `--remote NAME`) so retagged tags are replaced on fetch; defaults to all tags (`*`) when no `TAG` argument is given |
 | [`git undo-index`](./dotenv/bin/git-undo-index) | discard tracked changes while storing an undo commit in the reflog |
 
 [`git-diff-highlight`](./dotenv/bin/git-diff-highlight) is also shipped in [`dotenv/bin/`](./dotenv/bin) and is used by the default git pager configuration when `delta` is not active.
