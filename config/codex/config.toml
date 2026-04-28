@@ -1,12 +1,24 @@
+#:schema https://developers.openai.com/codex/config-schema.json
+
+# base configuration
 model = "gpt-5.4"
 model_reasoning_effort = "high"
-file_opener = "vscode-insiders" # or cursor, windsurf, vscode-insiders, none
 plan_mode_reasoning_effort = "xhigh"
+
+# custom options
+file_opener = "vscode-insiders" # vscode | vscode-insiders | windsurf | cursor | none
+commit_attribution = ""
+
+# sandbox
+# this is the same as `--full-auto`
+sandbox_mode = "workspace-write"
+approval_policy = "on-request"
 
 [features]
 memories = true
 multi_agent = true
 shell_snapshot = true
+undo = true
 
 [tui]
 status_line = ["model-with-reasoning", "project-root", "git-branch", "context-remaining", "used-tokens", "total-input-tokens", "total-output-tokens", "session-id"]

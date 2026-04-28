@@ -52,8 +52,9 @@
       "Bash(yq *)"
     ],
     "deny": [
+      "Read(./.env.*)",
       "Read(./.env)",
-      "Read(./.env.*)"
+      "Read(./.envrc)"
     ]
   },
   "autoMemoryEnabled": true,
