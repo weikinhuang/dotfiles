@@ -6,6 +6,8 @@ Configuration, custom extensions, and themes for
 ## Files
 
 - [`settings-baseline.json`](#settings-baselinejson) — mirrors `~/.pi/agent/settings.json`.
+- [`session-usage.ts`](#session-usagets) — CLI that walks `~/.pi/agent/sessions/` and summarizes session token/cost/tool
+  usage.
 - [`extensions/statusline.ts`](#extensionsstatuslinets) — two-line status line rendered at the bottom of every pi
   session.
 - [`themes/`](#themes) — JSON themes loadable by name from `settings.json`.
@@ -79,3 +81,31 @@ runtime-only keys there (e.g. `lastChangelogVersion`) that are intentionally omi
 
 The `extensions` / `themes` arrays are what wire the directories in this repo into pi; everything else is preference
 (default provider/model, default thinking level, theme selection, telemetry opt-out).
+
+## `session-usage.ts`
+
+CLI that walks `~/.pi/agent/sessions/` and summarizes session token / cost / tool usage. Same UX as
+[`../claude/session-usage.ts`](../claude/session-usage.ts) and [`../codex/session-usage.ts`](../codex/session-usage.ts)
+— shares the rendering / arg-parsing harness under [`../../lib/node/ai-tooling/`](../../lib/node/ai-tooling).
+
+### Commands
+
+- `list` — all sessions for the current project (cwd). Default.
+- `session <uuid>` — detailed single-session report. Accepts a UUID prefix.
+- `totals` — usage bucketed by day or week. Scopes to the current project when `--project` is given; otherwise
+  aggregates across every project.
+
+### Options
+
+- `--project, -p <path>` — filter by project directory (default: `$PWD`).
+- `--user-dir, -u <dir>` — pi agent dir (default: `~/.pi/agent`).
+- `--json` — machine-readable output.
+- `--sort <field>`, `--limit, -n <N>`, `--group-by, -g <day|week>`, `--no-color` — standard across all adapters.
+
+### Data source
+
+Pi records per-message `usage.cost.total` on every assistant message, so unlike the Claude and Codex adapters this one
+does **not** fetch or cache the LiteLLM pricing table — costs come straight from the session file. `--no-cost` and
+`--refresh-prices` are accepted for interface parity with the other tools but have no effect.
+
+Pi has no subagent concept, so the `AGENTS` column and the subagent detail section are always `0` / empty.
