@@ -10,6 +10,13 @@ Configuration, custom extensions, and themes for
   usage.
 - [`extensions/statusline.ts`](#extensionsstatuslinets) — two-line status line rendered at the bottom of every pi
   session.
+- [`extensions/bash-permissions.ts`](#extensionsbash-permissionsts) — Claude Code–style approval gate for `bash`
+  tool calls.
+- [`extensions/protected-paths.ts`](#extensionsprotected-pathsts) — session-scoped approval gate for `write` /
+  `edit` touching `.env` files, `node_modules/`, or anything outside the current workspace.
+- [`extensions/lib/`](./extensions/lib) — pure helpers (no pi imports) shared between the extensions and unit-tested
+  under [`tests/`](./tests).
+- [`tests/`](./tests) — `node --test` unit tests for the pure extension helpers. See [`tests/README.md`](./tests/README.md).
 - [`themes/`](#themes) — JSON themes loadable by name from `settings.json`.
 
 Pi auto-discovers [`extensions/`](./extensions) and [`themes/`](./themes) via the `extensions` / `themes` arrays in
@@ -66,6 +73,126 @@ Uses only semantic theme tokens (`error`, `warning`, `mdListBullet`, `mdLink`, `
 ### Hot reload
 
 Edit the file and run `/reload` inside an interactive pi session to pick up changes without restarting.
+
+## `extensions/bash-permissions.ts`
+
+Claude Code–style approval gate for the built-in `bash` tool. Intercepts every bash tool call and checks it against
+allow / deny rule sets before letting pi execute.
+
+### Rule layers
+
+Rules are loaded from three layers on every tool call. Deny beats allow across all layers.
+
+| Layer | Source | Scope |
+| --- | --- | --- |
+| Session | in-memory, cleared on `session_shutdown` | current pi session only |
+| Project | `.pi/bash-permissions.json` (resolved against `ctx.cwd`) | one repo |
+| User | `~/.pi/bash-permissions.json` | all projects |
+
+File schema:
+
+```json
+{
+  "allow": ["git status", "git log*", "npm test", "re:^npm (test|run \\w+)$", "/^docker ps( |$)/"],
+  "deny":  ["rm -rf*", "sudo*"]
+}
+```
+
+Pattern semantics (checked in this order):
+
+- `re:<regex>` — JS regex, no flags. Config-file only. Anchor with `^`/`$` for whole-command matches
+  (`RegExp.test()` is substring-matching by default).
+- `/<regex>/<flags>` — JS regex with flags (`gimsuy`). Config-file only. Strings that merely *start* with `/`
+  (for example `/usr/bin/true`) fall back to plain exact match unless the portion after the last `/` is all flag
+  chars, so real absolute-path commands are safe. Use `re:^/opt/foo/gi$` to escape the ambiguity.
+- Trailing `*` — token-aware prefix match (`git log*` matches `git log` and `git log -1` but **not** `git logs`).
+- Plain string — exact match (`npm test` matches only `npm test`, not `npm test foo`).
+
+Invalid regex patterns never match and print a single `console.warn` per unique pattern so typos are
+discoverable. Regex rules are intended for hand-edited config files — the `/bash-allow` command and the
+approval dialog's save-rule options only produce exact / prefix strings.
+
+Compound commands joined by `&&`, `||`, or `;` are split and every sub-command must pass independently. Pipes
+(`|`) are intentionally left intact.
+
+### Approval flow
+
+When an unknown command is about to run, pi shows a select dialog with:
+
+1. Allow once
+2. Allow `<exact cmd>` for this session
+3. Always allow `<exact cmd>` (project scope — writes to `.pi/bash-permissions.json`)
+4. Always allow `<first-token>*` (user scope — writes to `~/.pi/bash-permissions.json`)
+5. Deny
+6. Deny with feedback… — prompts for a reason that gets surfaced to the LLM as the block message
+
+In non-interactive mode (`-p`, JSON, RPC without UI) unknown commands are blocked by default so the model can retry
+differently.
+
+### Commands
+
+- `/bash-allow <pattern>` — add an allow rule. Writes to project scope if `.pi/bash-permissions.json` or `.pi/` already
+  exists in cwd, otherwise to user scope.
+- `/bash-deny <pattern>` — add a deny rule, same scoping.
+- `/bash-permissions` — list every rule grouped by source.
+
+### Environment variables
+
+- `PI_BASH_PERMISSIONS_DISABLED=1` — bypass the gate entirely.
+- `PI_BASH_PERMISSIONS_DEFAULT=allow` — in non-interactive mode, allow unknown commands instead of blocking.
+
+### Hot reload
+
+Rule files are re-read on every tool call, so edits to `bash-permissions.json` take effect immediately. Edits to the
+extension itself need `/reload`.
+
+## `extensions/protected-paths.ts`
+
+Session-scoped approval gate for pi's built-in `write` and `edit` tools. Complements
+[`extensions/bash-permissions.ts`](#extensionsbash-permissionsts) (which owns the `bash` channel).
+
+### What's protected
+
+A prompt fires when `write` / `edit` targets any of these:
+
+| Category | Matches |
+| --- | --- |
+| `.env` files | basename equal to `.env` or matching `.env.*`, at any depth |
+| `node_modules/` | any path segment equal to `node_modules` (inside the workspace) |
+| Outside workspace | path that resolves outside `ctx.cwd` after lexical normalization |
+| Extra globs | basename matches any glob in `PI_PROTECTED_PATHS_EXTRA_GLOBS` (comma-separated, `*` / `?`) |
+
+A leading `~` in the tool's `path` argument is expanded to the current user's home directory before
+classification (`~/.env` → `$HOME/.env`), so tilde paths can't sneak past the `.env` or outside-workspace
+checks. `~user/` syntax isn't supported — it's almost never emitted by an LLM and would need a password-db
+lookup.
+
+Symlink-following is intentionally **not** attempted: the classifier uses `path.resolve()` (lexical), so a
+symlink inside the workspace pointing outside of it will still be treated as "inside." Fix that with
+file-watcher-grade logic if you need it.
+
+### Approval flow
+
+Session-scoped only — there's no persistent allowlist, because these paths are almost always incidental and you
+rarely want pi touching them silently forever.
+
+1. Allow once
+2. Allow `<path>` for this session
+3. Deny
+4. Deny with feedback…
+
+In non-interactive mode (`-p`, JSON, RPC without UI) the gate blocks by default; set
+`PI_PROTECTED_PATHS_DEFAULT=allow` to override.
+
+### Commands
+
+- `/protected-paths` — list the active protection rules and the current session allowlist.
+
+### Environment variables
+
+- `PI_PROTECTED_PATHS_DISABLED=1` — bypass the gate entirely.
+- `PI_PROTECTED_PATHS_DEFAULT=allow` — in non-UI mode, allow unknown paths instead of blocking.
+- `PI_PROTECTED_PATHS_EXTRA_GLOBS=a,b,c` — extra basename globs to protect (supports `*` and `?`).
 
 ## `themes/`
 
