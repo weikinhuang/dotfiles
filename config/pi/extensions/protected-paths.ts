@@ -1,58 +1,182 @@
 /**
- * Protected-paths gate for pi's `write` and `edit` tools.
+ * Protected-paths gate for pi's `read`, `write`, and `edit` tools.
  *
- * Prompts before pi writes to or edits:
- *   - `.env` and `.env.*` files (basename match, any depth)
- *   - anywhere inside a `node_modules/` directory
- *   - anywhere outside `ctx.cwd` (the current workspace)
+ * Prompts before pi touches sensitive paths, with separate rule sets for
+ * the two threat models:
  *
- * Approvals are **session-scoped only**. There is no persistent allowlist:
- * these paths are almost always incidental, and you rarely want pi to
- * silently touch an external file or a secret forever. The dialog offers:
+ *   - `read` rules   gate the `read` tool. Aimed at files whose CONTENTS
+ *                    are sensitive (secrets, private keys). Defaults:
+ *                      basenames: .env, .env.*, .envrc
+ *                      paths:     ~/.ssh
+ *   - `write` rules  gate `write` / `edit`. Aimed at files/dirs that are
+ *                    dangerous to MUTATE even if reading is fine. Defaults:
+ *                      segments: node_modules, .git
+ *
+ * The effective write rule set is `read ∪ write` — anything sensitive to
+ * read is trivially sensitive to write, so there's no point duplicating
+ * entries. The `read` rules do NOT include an outside-workspace check
+ * (reading external files is often legit); `write` rules do.
+ *
+ * Rules are additive across four layers (any match prompts — there's
+ * deliberately no "deny" escape hatch, since the point of the gate is
+ * to make accidental access LOUD):
+ *
+ *   1. Built-in defaults  (DEFAULT_CONFIG in ./lib/paths.ts)
+ *   2. User config:       `~/.pi/protected-paths.json`
+ *   3. Project config:    `.pi/protected-paths.json` inside ctx.cwd
+ *   4. Env var:           PI_PROTECTED_PATHS_EXTRA_GLOBS (extra basename
+ *                         globs, merged into BOTH read and write)
+ *
+ * Config files are JSONC (`//` and C-style block comments allowed). Shape:
+ *
+ *   {
+ *     "read": {
+ *       "basenames": ["*.key"],
+ *       "segments":  [],
+ *       "paths":     ["~/secrets"]
+ *     },
+ *     "write": {
+ *       "basenames": [],
+ *       "segments":  [".terraform"],
+ *       "paths":     []
+ *     }
+ *   }
+ *
+ * Approvals (interactive dialog):
  *
  *   1. Allow once
  *   2. Allow "<path>" for this session
  *   3. Deny
  *   4. Deny with feedback…
  *
+ * The session allowlist is shared across tools: approving a path for the
+ * session satisfies subsequent reads AND writes of the same file. That's
+ * intentional — if you vetted the path for one access, you vetted it for
+ * the other.
+ *
  * In non-interactive mode (print / JSON / RPC without UI) the gate blocks
  * by default so the model sees a concrete reason and can retry differently.
  *
  * The `bash` tool is intentionally NOT gated here — `bash-permissions.ts`
- * owns that channel. A leading `~` in the tool's `path` argument is
- * expanded to the current user's home directory before classification so
- * an LLM writing to `~/.env` actually trips the `.env` / outside-workspace
- * rules instead of silently creating a `./~/.env` file. `~user/` syntax
- * is NOT supported. Symlink-following is intentionally NOT attempted:
- * the gate uses `path.resolve()` (lexical), so symlinks that escape the
- * workspace are still treated as "inside" if their link path is inside.
- * That's a known limitation — fix it with file-watcher-grade logic if you
- * need it.
+ * owns that channel. `grep`, `find`, `ls` also aren't gated (yet); their
+ * output is already constrained by pi's size limits and they rarely
+ * exfiltrate secrets on their own. Add them here if that assumption changes.
+ *
+ * A leading `~` is expanded to the current user's home before classification
+ * (`~/.ssh/config` → `$HOME/.ssh/config`), so tilde paths can't sneak past
+ * the path-prefix or basename checks. `~user/` syntax is NOT supported.
+ * Symlink-following is intentionally NOT attempted — the gate uses
+ * `path.resolve()` (lexical), so symlinks that escape a protected path
+ * are treated as their link path. Fix with file-watcher-grade logic if
+ * you need it.
  *
  * Environment:
  *   PI_PROTECTED_PATHS_DISABLED=1         skip the gate entirely
  *   PI_PROTECTED_PATHS_DEFAULT=allow      in non-UI mode, allow instead
  *                                         of blocking
- *   PI_PROTECTED_PATHS_EXTRA_GLOBS=a,b,c  extra basename globs to protect
- *                                         (glob syntax: `*` and `?`)
+ *   PI_PROTECTED_PATHS_EXTRA_GLOBS=a,b,c  extra basename globs, merged
+ *                                         into BOTH read and write
  *
  * Commands:
- *   /protected-paths   list session allowlist + current protection rules
+ *   /protected-paths   list active rules (grouped by source) + session allowlist
  *
- * Pure helpers (expandTilde, classify, globToRegex, …) live in
- * ./lib/paths.ts so they can be unit-tested under plain `node --test`
- * without pulling in the pi runtime.
+ * Pure helpers (classify, classifyRead, classifyWrite, mergeConfigs, …)
+ * live in ./lib/paths.ts so they can be unit-tested under plain
+ * `node --test` without pulling in the pi runtime.
  */
 
-import { resolve } from 'node:path';
+import { readFileSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join, resolve } from 'node:path';
 import {
-  type EditToolCallEvent,
   type ExtensionAPI,
   type ExtensionContext,
   isToolCallEventType,
-  type WriteToolCallEvent,
+  type ToolCallEvent,
 } from '@mariozechner/pi-coding-agent';
-import { classify, DEFAULT_SENSITIVE_BASENAMES, expandTilde, globToRegex, type Protection } from './lib/paths.ts';
+import { parseJsonc } from './lib/jsonc.ts';
+import {
+  classifyRead,
+  classifyWrite,
+  DEFAULT_CONFIG,
+  emptyConfig,
+  expandTilde,
+  mergeConfigs,
+  type Protection,
+  type ProtectionConfig,
+} from './lib/paths.ts';
+
+// ──────────────────────────────────────────────────────────────────────
+// Rule file loading
+// ──────────────────────────────────────────────────────────────────────
+
+const USER_RULES_PATH = join(homedir(), '.pi', 'protected-paths.json');
+const PROJECT_RULES_RELATIVE = join('.pi', 'protected-paths.json');
+
+function projectRulesPath(cwd: string): string {
+  return resolve(cwd, PROJECT_RULES_RELATIVE);
+}
+
+/**
+ * Warn once per unique {path, error-message} pair so a typo in a rule file
+ * is visible without spamming the log on every tool call. Clearing on a
+ * successful parse lets a subsequent fix re-warn if the file breaks again.
+ */
+const warnedBadConfigFiles = new Map<string, string>();
+
+function readConfig(path: string): ProtectionConfig {
+  let raw: string;
+  try {
+    raw = readFileSync(path, 'utf8');
+  } catch {
+    // File missing / unreadable — silent.
+    return emptyConfig();
+  }
+  try {
+    const parsed = parseJsonc<Partial<ProtectionConfig>>(raw);
+    warnedBadConfigFiles.delete(path);
+    return mergeConfigs(parsed);
+  } catch (e) {
+    const msg = String(e);
+    if (warnedBadConfigFiles.get(path) !== msg) {
+      warnedBadConfigFiles.set(path, msg);
+      console.warn(`[protected-paths] failed to parse ${path}: ${msg}`);
+    }
+    return emptyConfig();
+  }
+}
+
+function envExtraConfig(): ProtectionConfig {
+  const extras = (process.env.PI_PROTECTED_PATHS_EXTRA_GLOBS ?? '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (extras.length === 0) return emptyConfig();
+  // Apply to both read and write — users setting this want "extra-strict".
+  return {
+    read: { basenames: [...extras], segments: [], paths: [] },
+    write: { basenames: [...extras], segments: [], paths: [] },
+  };
+}
+
+interface ConfigLayer {
+  label: string;
+  source: string;
+  config: ProtectionConfig;
+}
+
+function loadLayers(cwd: string): ConfigLayer[] {
+  return [
+    { label: 'defaults', source: '(built-in)', config: mergeConfigs(DEFAULT_CONFIG) },
+    { label: 'user', source: USER_RULES_PATH, config: readConfig(USER_RULES_PATH) },
+    { label: 'project', source: projectRulesPath(cwd), config: readConfig(projectRulesPath(cwd)) },
+    { label: 'env', source: 'PI_PROTECTED_PATHS_EXTRA_GLOBS', config: envExtraConfig() },
+  ];
+}
+
+function mergedConfig(layers: ConfigLayer[]): ProtectionConfig {
+  return mergeConfigs(...layers.map((l) => l.config));
+}
 
 // ──────────────────────────────────────────────────────────────────────
 // Prompt
@@ -86,7 +210,7 @@ async function askForPermission(
   if (!picked) return { kind: 'deny' };
 
   if (picked.decision === 'deny-feedback') {
-    const feedback = await ctx.ui.input('Tell the assistant why:', 'e.g. write to src/foo.ts instead');
+    const feedback = await ctx.ui.input('Tell the assistant why:', 'e.g. read docs/foo.md instead');
     return { kind: 'deny', feedback: feedback?.trim() || undefined };
   }
   return picked.decision;
@@ -96,37 +220,48 @@ async function askForPermission(
 // Extension
 // ──────────────────────────────────────────────────────────────────────
 
+/**
+ * Extract the `path` input from a read/write/edit event. All three have
+ * a `path: string` field on their input; returning '' means "skip this
+ * event" (e.g. malformed or missing input).
+ */
+function getPathInput(event: ToolCallEvent): string {
+  if (isToolCallEventType('read', event) || isToolCallEventType('write', event) || isToolCallEventType('edit', event)) {
+    return String(event.input?.path ?? '').trim();
+  }
+  return '';
+}
+
 export default function protectedPaths(pi: ExtensionAPI): void {
   if (process.env.PI_PROTECTED_PATHS_DISABLED === '1') return;
 
   const defaultFallback = process.env.PI_PROTECTED_PATHS_DEFAULT === 'allow' ? 'allow' : 'deny';
 
-  const extraRegexes: RegExp[] = (process.env.PI_PROTECTED_PATHS_EXTRA_GLOBS ?? '')
-    .split(',')
-    .map((s) => s.trim())
-    .filter(Boolean)
-    .map(globToRegex);
-
-  // Session allowlist: resolved-absolute paths the user OK'd this session.
+  // Shared session allowlist: resolved-absolute paths the user OK'd this
+  // session. Approving a path OK's it for both reads AND writes — if you
+  // vetted the path for one, you vetted it for the other.
   const sessionAllow = new Set<string>();
 
   pi.on('session_shutdown', () => {
     sessionAllow.clear();
   });
 
-  const getPath = (event: EditToolCallEvent | WriteToolCallEvent): string => String(event.input?.path ?? '').trim();
-
   pi.on('tool_call', async (event, ctx) => {
-    if (!isToolCallEventType('write', event) && !isToolCallEventType('edit', event)) {
-      return undefined;
-    }
-    const inputPath = getPath(event);
+    const isRead = isToolCallEventType('read', event);
+    const isWrite = isToolCallEventType('write', event) || isToolCallEventType('edit', event);
+    if (!isRead && !isWrite) return undefined;
+
+    const inputPath = getPathInput(event);
     if (!inputPath) return undefined;
 
+    // Key sessionAllow on the same resolved+tilde-expanded path classify()
+    // produces, so approvals survive across calls with mixed `~/foo` /
+    // `/Users/.../foo` forms of the same file.
     const absolute = resolve(ctx.cwd, expandTilde(inputPath));
     if (sessionAllow.has(absolute)) return undefined;
 
-    const protection = classify(inputPath, ctx.cwd, extraRegexes);
+    const config = mergedConfig(loadLayers(ctx.cwd));
+    const protection = isRead ? classifyRead(inputPath, ctx.cwd, config) : classifyWrite(inputPath, ctx.cwd, config);
     if (!protection) return undefined;
 
     if (!ctx.hasUI) {
@@ -136,7 +271,7 @@ export default function protectedPaths(pi: ExtensionAPI): void {
         reason:
           `No UI available for approval. Protected path "${inputPath}" ` +
           `(${protection.detail}). Set PI_PROTECTED_PATHS_DEFAULT=allow to override, ` +
-          'or pick a different path inside the workspace.',
+          'or pick a different path.',
       };
     }
 
@@ -158,22 +293,46 @@ export default function protectedPaths(pi: ExtensionAPI): void {
   // ────────────────────────────────────────────────────────────────────
 
   pi.registerCommand('protected-paths', {
-    description: 'Show session allowlist and active protected-path rules',
+    description: 'Show active protected-path rules (by source) and the session allowlist',
     handler: async (_args, ctx) => {
+      const layers = loadLayers(ctx.cwd);
       const lines: string[] = [];
-      lines.push('Protected patterns:');
-      for (const glob of DEFAULT_SENSITIVE_BASENAMES) lines.push(`  basename: ${glob}`);
-      lines.push('  segment:  node_modules/');
-      lines.push(`  scope:    outside ${ctx.cwd}`);
-      for (const rx of extraRegexes) lines.push(`  extra:    ${rx.source}`);
+
+      for (const layer of layers) {
+        const { read, write } = layer.config;
+        const hasRead = read.basenames.length + read.segments.length + read.paths.length > 0;
+        const hasWrite = write.basenames.length + write.segments.length + write.paths.length > 0;
+        lines.push(`[${layer.label}] ${layer.source}`);
+        if (!hasRead && !hasWrite) {
+          lines.push('  (empty)');
+          continue;
+        }
+        if (hasRead) {
+          lines.push('  read:');
+          for (const g of read.basenames) lines.push(`    basename: ${g}`);
+          for (const s of read.segments) lines.push(`    segment:  ${s}/`);
+          for (const p of read.paths) lines.push(`    path:     ${p}`);
+        }
+        if (hasWrite) {
+          lines.push('  write:');
+          for (const g of write.basenames) lines.push(`    basename: ${g}`);
+          for (const s of write.segments) lines.push(`    segment:  ${s}/`);
+          for (const p of write.paths) lines.push(`    path:     ${p}`);
+        }
+      }
 
       lines.push('');
-      lines.push('Session allowlist (cleared on session_shutdown):');
+      lines.push(`Scope: outside ${ctx.cwd} always prompts on write/edit (outside-workspace rule)`);
+      lines.push('       reads outside the workspace are NOT auto-prompted — add a rule if needed');
+
+      lines.push('');
+      lines.push('Session allowlist (shared between read/write, cleared on session_shutdown):');
       if (sessionAllow.size === 0) {
         lines.push('  (empty)');
       } else {
         for (const p of sessionAllow) lines.push(`  ${p}`);
       }
+
       ctx.ui.notify(lines.join('\n'), 'info');
     },
   });
