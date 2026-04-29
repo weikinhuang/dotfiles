@@ -12,8 +12,10 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
+  type BashDecision,
   checkHardcodedDeny,
   commandTokens,
+  decideSubcommand,
   maskQuotedRegions,
   matchesPattern,
   splitCompound,
@@ -388,4 +390,76 @@ test('twoTokenPattern: returns null when second token is a flag or operator', ()
   assert.equal(twoTokenPattern('ls -la'), null); // flag
   assert.equal(twoTokenPattern('git -C foo status'), null);
   assert.equal(twoTokenPattern('ls | grep foo'), null); // stops at pipe
+});
+
+// ──────────────────────────────────────────────────────────────────────
+// decideSubcommand (precedence: hardcoded-deny > explicit-deny >
+//                  explicit-allow > yolo > prompt)
+// ──────────────────────────────────────────────────────────────────────
+
+type Layers = Parameters<typeof decideSubcommand>[1];
+
+const emptyLayers = (): Layers => [
+  { scope: 'session', rules: { allow: [], deny: [] } },
+  { scope: 'project', rules: { allow: [], deny: [] } },
+  { scope: 'user', rules: { allow: [], deny: [] } },
+];
+
+test('decideSubcommand: prompts when no rules match and yolo is off', () => {
+  const d = decideSubcommand('some unknown cmd', emptyLayers());
+  assert.equal(d.kind, 'prompt');
+});
+
+test('decideSubcommand: explicit allow rule → allow', () => {
+  const layers = emptyLayers();
+  layers[2].rules.allow.push('npm test');
+  assert.equal(decideSubcommand('npm test', layers).kind, 'allow');
+});
+
+test('decideSubcommand: explicit deny rule → block (with scope in reason)', () => {
+  const layers = emptyLayers();
+  layers[1].rules.deny.push('rm -rf*');
+  const d = decideSubcommand('rm -rf node_modules', layers) as BashDecision & { reason: string };
+  assert.equal(d.kind, 'block');
+  assert.match(d.reason, /project deny rule/);
+});
+
+test('decideSubcommand: hardcoded denylist → block (reason mentions built-in)', () => {
+  const d = decideSubcommand('rm -rf /', emptyLayers()) as BashDecision & { reason: string };
+  assert.equal(d.kind, 'block');
+  assert.match(d.reason, /built-in denylist/);
+});
+
+test('decideSubcommand: yolo auto-allows unknown commands', () => {
+  assert.equal(decideSubcommand('arbitrary unknown cmd', emptyLayers()).kind, 'prompt');
+  assert.equal(decideSubcommand('arbitrary unknown cmd', emptyLayers(), { yolo: true }).kind, 'allow');
+});
+
+test('decideSubcommand: yolo NEVER beats the hardcoded denylist', () => {
+  const d = decideSubcommand('rm -rf /', emptyLayers(), { yolo: true }) as BashDecision & {
+    reason: string;
+  };
+  assert.equal(d.kind, 'block');
+  assert.match(d.reason, /built-in denylist/);
+});
+
+test('decideSubcommand: yolo NEVER beats explicit deny rules', () => {
+  const layers = emptyLayers();
+  layers[1].rules.deny.push('npm publish*');
+  const d = decideSubcommand('npm publish --access public', layers, { yolo: true }) as BashDecision & {
+    reason: string;
+  };
+  assert.equal(d.kind, 'block');
+  assert.match(d.reason, /project deny rule/);
+});
+
+test('decideSubcommand: deny beats allow within the same layer stack', () => {
+  const layers = emptyLayers();
+  // A user deny rule and a conflicting user allow rule — matchOne's deny
+  // pass runs first, so deny should win.
+  layers[2].rules.deny.push('git push*');
+  layers[2].rules.allow.push('git push*');
+  const d = decideSubcommand('git push origin main', layers) as BashDecision & { reason: string };
+  assert.equal(d.kind, 'block');
+  assert.match(d.reason, /user deny rule/);
 });

@@ -441,6 +441,61 @@ export function checkHardcodedDeny(command: string): string | null {
 }
 
 // ──────────────────────────────────────────────────────────────────────
+// Sub-command decision (combines hardcoded deny + user rules + yolo)
+// ──────────────────────────────────────────────────────────────────────
+
+export type BashDecision = { kind: 'allow' } | { kind: 'block'; reason: string } | { kind: 'prompt' };
+
+export interface BashDecideOptions {
+  /**
+   * "YOLO" mode: auto-allow any sub-command that got past the hardcoded
+   * denylist and explicit user/project/session deny rules. Used by the
+   * `/bash-yolo` toggle. Hardcoded deny and explicit deny are NEVER
+   * overridable by this flag — that's the whole point of the
+   * "except for risky actions" carve-out.
+   */
+  yolo?: boolean;
+}
+
+/**
+ * Decide what to do with a single sub-command, applying rules in this
+ * order of precedence (earlier rules always win):
+ *
+ *   1. Hardcoded denylist (never overridable).
+ *   2. Explicit user/project/session deny rules (never overridable).
+ *   3. Explicit user/project/session allow rules.
+ *   4. Yolo auto-allow (if enabled).
+ *   5. Fall through to a prompt.
+ *
+ * Pure function — no UI side effects. Callers collect decisions across
+ * sub-commands and surface prompts / blocks to the user as appropriate.
+ */
+export function decideSubcommand(
+  sub: string,
+  layers: { scope: Scope; rules: LoadedRules }[],
+  options: BashDecideOptions = {},
+): BashDecision {
+  // 1. Hardcoded deny.
+  const hd = checkHardcodedDeny(sub);
+  if (hd) return { kind: 'block', reason: `built-in denylist (${hd})` };
+
+  // 2. Explicit deny rules.
+  const m = matchOne(sub, layers);
+  if (m?.kind === 'deny') {
+    return { kind: 'block', reason: `${m.scope} deny rule: "${m.pattern}"` };
+  }
+
+  // 3. Explicit allow rules.
+  if (m?.kind === 'allow') return { kind: 'allow' };
+
+  // 4. Yolo auto-allow.
+  if (options.yolo) return { kind: 'allow' };
+
+  // 5. Prompt.
+  return { kind: 'prompt' };
+}
+
+// ──────────────────────────────────────────────────────────────────────
 // Command-token helpers (used by the approval dialog to suggest rules)
 // ──────────────────────────────────────────────────────────────────────
 

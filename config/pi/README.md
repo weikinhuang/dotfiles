@@ -148,7 +148,18 @@ differently.
 - `/bash-allow <pattern>` — add an allow rule. Writes to project scope if `.pi/bash-permissions.json` or `.pi/` already
   exists in cwd, otherwise to user scope.
 - `/bash-deny <pattern>` — add a deny rule, same scoping.
-- `/bash-permissions` — list every rule grouped by source.
+- `/bash-permissions` — list every rule grouped by source (also reports current YOLO state).
+- `/bash-yolo [on|off|status]` — toggle auto-allow for the current session. With no argument, flips the current state.
+  Intended for "I trust pi for the next few minutes" workflows. The carve-out:
+
+  | Still applies | Skipped |
+  | --- | --- |
+  | Hardcoded denylist (`rm -rf /`, fork bomb, `mkfs`, `dd` to raw disk, `curl \| sh`, …) | The approval prompt for unknown commands |
+  | Explicit user/project/session deny rules | |
+  | `protected-paths` (writes to `.env`, `node_modules/`, or outside the workspace) — separate extension | |
+
+  YOLO state is session-scoped and reset on `session_shutdown` / `/reload` / `/new`, so you always re-opt-in
+  after a restart. While on, pi shows a `🚨 yolo` indicator in the footer via `ctx.ui.setStatus`.
 
 ### Environment variables
 

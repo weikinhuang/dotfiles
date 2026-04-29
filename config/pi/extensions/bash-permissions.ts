@@ -54,6 +54,12 @@
  *   /bash-allow <pattern>   add an allow rule (project if `.pi/` exists, else user)
  *   /bash-deny  <pattern>   add a deny rule (same scoping)
  *   /bash-permissions       list all rules grouped by source
+ *   /bash-yolo [on|off|status]
+ *                           toggle auto-allow for the current session.
+ *                           Hardcoded deny and explicit deny rules still
+ *                           block; protected-paths (env / outside-workspace
+ *                           / node_modules) is unaffected since it's a
+ *                           separate extension.
  *
  * Environment:
  *   PI_BASH_PERMISSIONS_DISABLED=1           skip the gate entirely
@@ -71,9 +77,9 @@ import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { type ExtensionAPI, type ExtensionContext } from '@mariozechner/pi-coding-agent';
 import {
-  checkHardcodedDeny,
+  type BashDecision,
+  decideSubcommand,
   type LoadedRules,
-  matchOne,
   type RuleFile,
   type Scope,
   splitCompound,
@@ -271,6 +277,12 @@ export default function bashPermissions(pi: ExtensionAPI): void {
 
   const sessionRules: LoadedRules = { allow: [], deny: [] };
 
+  // YOLO: auto-allow every bash sub-command that gets past the hardcoded
+  // denylist and explicit deny rules, for the remainder of the current
+  // session. Cleared on session_shutdown so a reload / new session forces
+  // re-opt-in. Toggled via `/bash-yolo`.
+  let sessionYolo = false;
+
   const defaultFallback = process.env.PI_BASH_PERMISSIONS_DEFAULT === 'allow' ? 'allow' : 'deny';
 
   const loadLayers = (cwd: string): { scope: Scope; rules: LoadedRules }[] => [
@@ -282,6 +294,7 @@ export default function bashPermissions(pi: ExtensionAPI): void {
   pi.on('session_shutdown', () => {
     sessionRules.allow.length = 0;
     sessionRules.deny.length = 0;
+    sessionYolo = false;
   });
 
   pi.on('tool_call', async (event, ctx) => {
@@ -292,33 +305,20 @@ export default function bashPermissions(pi: ExtensionAPI): void {
     const layers = loadLayers(ctx.cwd);
     const subcommands = splitCompound(command);
 
-    // Pass 1: hardcoded deny trumps everything (including user allow rules).
-    for (const sub of subcommands) {
-      const reason = checkHardcodedDeny(sub);
-      if (reason) {
-        return {
-          block: true,
-          reason: `Blocked by built-in denylist (${reason}): "${sub}"`,
-        };
-      }
-    }
-
-    // Pass 2: any user/project/session deny anywhere in the chain → block.
-    for (const sub of subcommands) {
-      const m = matchOne(sub, layers);
-      if (m?.kind === 'deny') {
-        return {
-          block: true,
-          reason: `Blocked by ${m.scope} deny rule: "${m.pattern}" (matched "${sub}")`,
-        };
-      }
-    }
-
-    // Then: every sub-command must be explicitly allowed; otherwise prompt.
+    // Single pass: apply the full precedence ladder per sub-command.
+    // decideSubcommand enforces the invariant that yolo NEVER beats the
+    // hardcoded denylist or explicit user/project deny rules — that's
+    // the "except for risky actions" carve-out.
     const unknown: string[] = [];
     for (const sub of subcommands) {
-      const m = matchOne(sub, layers);
-      if (!m) unknown.push(sub);
+      const decision: BashDecision = decideSubcommand(sub, layers, { yolo: sessionYolo });
+      if (decision.kind === 'block') {
+        return {
+          block: true,
+          reason: `Blocked by ${decision.reason} (matched "${sub}")`,
+        };
+      }
+      if (decision.kind === 'prompt') unknown.push(sub);
     }
     if (unknown.length === 0) return undefined;
 
@@ -432,7 +432,56 @@ export default function bashPermissions(pi: ExtensionAPI): void {
         for (const p of layer.rules.allow) lines.push(`  allow: ${p}`);
         for (const p of layer.rules.deny) lines.push(`  deny:  ${p}`);
       }
+      lines.push('');
+      lines.push(`YOLO mode: ${sessionYolo ? 'ON 🚨 (auto-allow this session)' : 'OFF'}`);
       ctx.ui.notify(lines.join('\n'), 'info');
+    },
+  });
+
+  pi.registerCommand('bash-yolo', {
+    description: 'Toggle auto-allow for bash commands this session (hardcoded deny + explicit deny still block)',
+    getArgumentCompletions: (prefix) => {
+      const opts = ['on', 'off', 'status'];
+      const items = opts.filter((o) => o.startsWith(prefix)).map((o) => ({ value: o, label: o }));
+      return items.length > 0 ? items : null;
+    },
+    handler: async (args, ctx) => {
+      const arg = args.trim().toLowerCase();
+      let next: boolean;
+      if (arg === 'on' || arg === 'enable' || arg === '1') next = true;
+      else if (arg === 'off' || arg === 'disable' || arg === '0') next = false;
+      else if (arg === 'status' || arg === '?') {
+        ctx.ui.notify(
+          sessionYolo
+            ? '🚨 YOLO mode ON — bash commands auto-run except hardcoded deny / explicit deny rules.'
+            : '✅ YOLO mode OFF — bash commands require approval.',
+          'info',
+        );
+        return;
+      } else if (arg === '') next = !sessionYolo;
+      else {
+        ctx.ui.notify(`Usage: /bash-yolo [on|off|status]`, 'warning');
+        return;
+      }
+
+      if (next === sessionYolo) {
+        ctx.ui.notify(`YOLO mode is already ${next ? 'ON' : 'OFF'}.`, 'info');
+        return;
+      }
+      sessionYolo = next;
+      if (sessionYolo) {
+        ctx.ui.setStatus('bash-yolo', '🚨 yolo');
+        ctx.ui.notify(
+          '🚨 YOLO mode ON — bash commands will auto-run this session.\n' +
+            'Hardcoded deny (rm -rf /, mkfs, …) and explicit deny rules still block.\n' +
+            'protected-paths is unaffected (writes to .env / outside-workspace still prompt).\n' +
+            'Run /bash-yolo off to turn it back off.',
+          'warning',
+        );
+      } else {
+        ctx.ui.setStatus('bash-yolo', undefined);
+        ctx.ui.notify('✅ YOLO mode OFF — bash commands require approval again.', 'info');
+      }
     },
   });
 }
