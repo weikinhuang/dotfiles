@@ -315,10 +315,127 @@ export const HARDCODED_DENY: { pattern: RegExp; reason: string }[] = [
   },
 ];
 
+/**
+ * Replace the interior of every quoted substring in `command` with NUL
+ * bytes, leaving the quote characters themselves in place. Used to prevent
+ * hardcoded-denylist regexes from matching dangerous keywords that appear
+ * only inside string literals — for example a `mkfs` or `rm -rf /` mentioned
+ * in a `git commit -m "..."` message body, an `echo "..."`, or a heredoc.
+ *
+ * Quote handling:
+ *   - Single quotes (`'...'`): contents are literal; no escapes honored.
+ *   - Double quotes (`"..."`): backslash escapes the next char.
+ *   - Heredoc bodies (`<<EOF ... EOF`, `<<'END' ... END`, `<<-EOF ... EOF`):
+ *     body content is masked; the opener (`<<EOF`) and closing delimiter
+ *     line (`\nEOF`) are preserved verbatim. Here-strings (`<<<`) are
+ *     NOT masked — they behave like normal args.
+ *   - Outside quotes: backslash also escapes the next char (e.g. `\\n`
+ *     line continuation).
+ *
+ * NUL is chosen as the mask byte because it is neither a word char, a
+ * whitespace char, nor a shell operator, so `\b`, `\s`, `|`, `;`, `>`,
+ * etc. never accidentally match against masked content. Quote characters
+ * and character offsets are preserved so positional regex anchors (`^`,
+ * `$`) still align with the original command.
+ *
+ * Trade-off: `rm -rf "/"` (target quoted) will NOT be caught by the
+ * hardcoded denylist — the target is masked. This is intentional. Bash
+ * evaluates `rm -rf "/"` the same as `rm -rf /`, so a truly malicious
+ * command would just drop the quotes; gaining false-positive resistance
+ * on legitimate `echo "..."` / commit-message cases is the better
+ * trade. Users who need stronger guarantees should add explicit deny
+ * rules.
+ */
+export function maskQuotedRegions(command: string): string {
+  let out = '';
+  let quote: '"' | "'" | null = null;
+  let escape = false;
+
+  let i = 0;
+  while (i < command.length) {
+    const ch = command[i];
+
+    if (escape) {
+      // Previous char was a backslash. Emit this char masked if we're
+      // inside any quote, literal if we're unquoted.
+      out += quote ? '\0' : ch;
+      escape = false;
+      i++;
+      continue;
+    }
+    if (ch === '\\' && quote !== "'") {
+      // Backslash starts an escape sequence everywhere except inside
+      // single quotes. Mask the backslash itself iff it's inside a
+      // double-quoted region; leave it literal if unquoted (so line
+      // continuations stay visible to downstream passes).
+      out += quote === '"' ? '\0' : ch;
+      escape = true;
+      i++;
+      continue;
+    }
+    if (quote) {
+      if (ch === quote) {
+        out += ch;
+        quote = null;
+      } else {
+        out += '\0';
+      }
+      i++;
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      out += ch;
+      quote = ch;
+      i++;
+      continue;
+    }
+
+    // Heredoc detection: `<<[-]DELIM` outside quotes. Mask the body;
+    // preserve the opener and closing-delimiter line literally so
+    // positional anchors in downstream regexes still align.
+    if (ch === '<' && command[i + 1] === '<') {
+      // `<<<` here-string: not a heredoc. Emit the three `<` literally
+      // and continue scanning so we don't re-enter heredoc detection at
+      // i+1 and mis-parse the following word as a delimiter.
+      if (command[i + 2] === '<') {
+        out += command.slice(i, i + 3);
+        i += 3;
+        continue;
+      }
+      const hd = parseHeredocOpener(command, i);
+      if (hd) {
+        out += command.slice(i, hd.nextIndex);
+        i = hd.nextIndex;
+
+        const closer = new RegExp(`\\n${hd.stripTabs ? '\\t*' : ''}${escapeRegex(hd.delim)}(?=\\n|$)`);
+        const rest = command.slice(i);
+        const m = closer.exec(rest);
+        if (!m) {
+          // Unclosed heredoc: mask the remainder conservatively.
+          out += '\0'.repeat(rest.length);
+          i = command.length;
+          continue;
+        }
+        const bodyLen = m.index;
+        out += '\0'.repeat(bodyLen);
+        out += command.slice(i + bodyLen, i + bodyLen + m[0].length);
+        i += bodyLen + m[0].length;
+        continue;
+      }
+      // Unresolvable delimiter (e.g. `<<$VAR`) — fall through to normal scanning.
+    }
+
+    out += ch;
+    i++;
+  }
+  return out;
+}
+
 export function checkHardcodedDeny(command: string): string | null {
   if (process.env.PI_BASH_PERMISSIONS_NO_HARDCODED_DENY === '1') return null;
+  const masked = maskQuotedRegions(command);
   for (const { pattern, reason } of HARDCODED_DENY) {
-    if (pattern.test(command)) return reason;
+    if (pattern.test(masked)) return reason;
   }
   return null;
 }

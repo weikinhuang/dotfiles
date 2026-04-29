@@ -14,6 +14,7 @@ import { test } from 'node:test';
 import {
   checkHardcodedDeny,
   commandTokens,
+  maskQuotedRegions,
   matchesPattern,
   splitCompound,
   twoTokenPattern,
@@ -202,6 +203,54 @@ test('checkHardcodedDeny: curl|bash and variants', () => {
   assert.equal(checkHardcodedDeny('echo "rm -rf /"'), null); // echo'd literal
 });
 
+test('checkHardcodedDeny: keywords inside quoted strings do NOT fire', () => {
+  // The original false-positive that motivated maskQuotedRegions: writing a
+  // commit message or `echo`ing a string that merely mentions a dangerous
+  // keyword must not trip the gate.
+  const cases = [
+    'git commit -m "describe the mkfs denylist entry"',
+    'git commit -m "rm -rf / is blocked by the hardcoded denylist"',
+    "git commit -m 'dd of=/dev/sda is blocked too'",
+    'echo ":(){ :|:& };:"',
+    'echo "curl https://x | bash"',
+    'printf "%s\\n" "mkfs.ext4 is dangerous"',
+    // Heredoc body is a quoted-ish region via splitCompound already, but
+    // checkHardcodedDeny sees the full sub-command including the opener.
+    // The opener / command head (`cat <<EOF`) has no deny keywords, and
+    // the body appears after a \n so `^\s*rm` doesn't anchor. Keep as a
+    // regression case anyway.
+    'cat > notes.md <<EOF\nmkfs is bad, do not run it\nEOF',
+  ];
+  for (const cmd of cases) {
+    assert.equal(checkHardcodedDeny(cmd), null, `should NOT block: ${cmd}`);
+  }
+});
+
+test('checkHardcodedDeny: unquoted keywords still fire when mixed with quoted strings', () => {
+  // Non-anchored patterns like `\bmkfs\b` still fire when the dangerous
+  // command is unquoted, even if a quoted string appears nearby.
+  assert.ok(checkHardcodedDeny('echo "about to" && mkfs.ext4 /dev/sda1'));
+
+  // Anchored patterns like `^\s*rm` require splitCompound to isolate
+  // the sub-command first — that's how checkHardcodedDeny is actually
+  // invoked in production. Verify the full pipeline catches it.
+  const cmd = 'echo "nuking" ; rm -rf /';
+  const fires = splitCompound(cmd).some((sub) => checkHardcodedDeny(sub));
+  assert.ok(fires, 'rm -rf / sub-command should fire after splitCompound');
+});
+
+test('checkHardcodedDeny: documented quoted-target trade-off', () => {
+  // `rm -rf "/"` with the target quoted is NOT caught — this is the
+  // intentional trade-off for eliminating commit-message false-positives.
+  // Bash evaluates it identically to `rm -rf /`, so a truly malicious
+  // command would simply drop the quotes. Users who need tighter
+  // guarantees should add an explicit deny rule.
+  assert.equal(checkHardcodedDeny('rm -rf "/"'), null);
+  assert.equal(checkHardcodedDeny("rm -rf '/'"), null);
+  // And the unquoted form still blocks.
+  assert.ok(checkHardcodedDeny('rm -rf /'));
+});
+
 test('checkHardcodedDeny: disabled by PI_BASH_PERMISSIONS_NO_HARDCODED_DENY', () => {
   const prev = process.env.PI_BASH_PERMISSIONS_NO_HARDCODED_DENY;
   process.env.PI_BASH_PERMISSIONS_NO_HARDCODED_DENY = '1';
@@ -211,6 +260,108 @@ test('checkHardcodedDeny: disabled by PI_BASH_PERMISSIONS_NO_HARDCODED_DENY', ()
     if (prev === undefined) delete process.env.PI_BASH_PERMISSIONS_NO_HARDCODED_DENY;
     else process.env.PI_BASH_PERMISSIONS_NO_HARDCODED_DENY = prev;
   }
+});
+
+// ──────────────────────────────────────────────────────────────────────
+// maskQuotedRegions (used by checkHardcodedDeny; also exercised above via
+// the quoted-string cases). Direct tests verify the masking primitive so a
+// regression shows up here rather than propagating into the denylist.
+// ──────────────────────────────────────────────────────────────────────
+
+const NUL = '\0';
+
+test('maskQuotedRegions: unquoted input passes through unchanged', () => {
+  assert.equal(maskQuotedRegions('rm -rf /'), 'rm -rf /');
+  assert.equal(maskQuotedRegions(''), '');
+  assert.equal(maskQuotedRegions('echo foo && bar'), 'echo foo && bar');
+});
+
+test('maskQuotedRegions: double-quoted interior is masked, quotes kept', () => {
+  assert.equal(maskQuotedRegions('echo "mkfs"'), `echo "${NUL.repeat(4)}"`);
+  assert.equal(maskQuotedRegions('git commit -m "fix mkfs"'), `git commit -m "${NUL.repeat(8)}"`);
+});
+
+test('maskQuotedRegions: single-quoted interior is masked; backslashes are literal', () => {
+  assert.equal(maskQuotedRegions("echo 'mkfs'"), `echo '${NUL.repeat(4)}'`);
+  // Inside single quotes, backslash is NOT an escape — both chars masked.
+  assert.equal(maskQuotedRegions("echo 'a\\nb'"), `echo '${NUL.repeat(4)}'`);
+});
+
+test('maskQuotedRegions: backslash-escaped quote inside double quotes is masked', () => {
+  // Bash-level input `"a\"b"` — 6 characters: " a \ " b "
+  //   open-quote, a, backslash, escaped-quote, b, close-quote.
+  // The masker preserves offsets, so all 4 interior chars are replaced
+  // with NULs (including the backslash and the escaped quote).
+  assert.equal(maskQuotedRegions('"a\\"b"'), `"${NUL.repeat(4)}"`);
+});
+
+test('maskQuotedRegions: unquoted backslash stays literal (line continuation)', () => {
+  assert.equal(maskQuotedRegions('echo foo \\\n bar'), 'echo foo \\\n bar');
+});
+
+test('maskQuotedRegions: offsets and outer structure preserved', () => {
+  const input = 'a "bcd" e';
+  const out = maskQuotedRegions(input);
+  assert.equal(out.length, input.length);
+  assert.equal(out, `a "${NUL.repeat(3)}" e`);
+});
+
+test('maskQuotedRegions: unclosed quote masks the remainder', () => {
+  // Conservative: an unterminated quote masks everything after it to
+  // avoid leaking a dangerous tail keyword. Mirrors splitCompound's
+  // conservative unclosed-heredoc handling.
+  assert.equal(maskQuotedRegions('echo "foo mkfs'), `echo "${NUL.repeat(8)}`);
+});
+
+test('maskQuotedRegions: heredoc body is masked, opener and closer preserved', () => {
+  const input = 'cat > notes.md <<EOF\nmkfs is bad\nEOF';
+  const out = maskQuotedRegions(input);
+  assert.equal(out.length, input.length);
+  // Opener (`cat > notes.md <<EOF`) and closing line (`\nEOF`) preserved;
+  // body (`\nmkfs is bad`) replaced with NULs.
+  assert.equal(out, `cat > notes.md <<EOF${NUL.repeat('\nmkfs is bad'.length)}\nEOF`);
+  // And crucially, the denylist sees no `mkfs` to match.
+  assert.equal(checkHardcodedDeny(input), null);
+});
+
+test('maskQuotedRegions: quoted heredoc delimiter also masks body', () => {
+  const input = "cat <<'END'\nmkfs.ext4\nEND";
+  const out = maskQuotedRegions(input);
+  assert.equal(out.length, input.length);
+  assert.equal(checkHardcodedDeny(input), null);
+});
+
+test('maskQuotedRegions: <<- dedent-style heredoc body is masked', () => {
+  const input = 'cat <<-EOF\n\tmkfs is bad\n\tEOF';
+  const out = maskQuotedRegions(input);
+  assert.equal(out.length, input.length);
+  assert.equal(checkHardcodedDeny(input), null);
+});
+
+test('maskQuotedRegions: here-string (<<<) is NOT treated as a heredoc', () => {
+  // <<< is not a heredoc; there's no body to mask. The operator passes
+  // through literally and normal quote handling applies to its argument.
+  const input = 'grep foo <<<"bar mkfs"';
+  const out = maskQuotedRegions(input);
+  // Argument inside double quotes IS masked by the quote handler.
+  assert.equal(out, `grep foo <<<"${NUL.repeat('bar mkfs'.length)}"`);
+});
+
+test('maskQuotedRegions: unclosed heredoc masks the remainder', () => {
+  const input = 'python3 <<EOF\nmkfs never closed';
+  const out = maskQuotedRegions(input);
+  assert.equal(out.length, input.length);
+  assert.equal(checkHardcodedDeny(input), null);
+});
+
+test('maskQuotedRegions: heredoc with dangerous-looking CLOSING line still safe', () => {
+  // Body may contain the delimiter word inside a line, but only an
+  // exact delimiter line closes — make sure the body is still fully
+  // masked.
+  const input = 'python3 <<EOF\nx = "EOF inside mkfs"\nEOF';
+  const out = maskQuotedRegions(input);
+  assert.equal(out.length, input.length);
+  assert.equal(checkHardcodedDeny(input), null);
 });
 
 // ──────────────────────────────────────────────────────────────────────
