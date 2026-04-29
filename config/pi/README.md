@@ -159,7 +159,10 @@ differently.
   | `protected-paths` (writes to `.env`, `node_modules/`, or outside the workspace) — separate extension | |
 
   Auto-mode state is session-scoped and reset on `session_shutdown` / `/reload` / `/new`, so you always re-opt-in
-  after a restart. While on, pi shows a `⚡ auto` indicator in the footer via `ctx.ui.setStatus`.
+  after a restart. While on, the custom [`statusline.ts`](./extensions/statusline.ts) renders a `⚡` indicator
+  in the footer. State is shared between the two extensions via [`extensions/lib/session-flags.ts`](./extensions/lib/session-flags.ts),
+  which anchors a singleton on `globalThis` because pi's extension loader (jiti with `moduleCache: false`) gives each
+  extension its own copy of imported helper modules.
 
 ### Environment variables
 

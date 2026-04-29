@@ -87,6 +87,7 @@ import {
   twoTokenPattern,
 } from './lib/bash-match.ts';
 import { parseJsonc } from './lib/jsonc.ts';
+import { setBashAutoEnabled } from './lib/session-flags.ts';
 
 // ──────────────────────────────────────────────────────────────────────
 // Rule storage
@@ -323,6 +324,7 @@ export default function bashPermissions(pi: ExtensionAPI): void {
     sessionRules.allow.length = 0;
     sessionRules.deny.length = 0;
     sessionAuto = false;
+    setBashAutoEnabled(false);
   });
 
   pi.on('tool_call', async (event, ctx) => {
@@ -497,6 +499,7 @@ export default function bashPermissions(pi: ExtensionAPI): void {
         return;
       }
       sessionAuto = next;
+      setBashAutoEnabled(sessionAuto);
       if (sessionAuto) {
         ctx.ui.setStatus('bash-auto', '⚡ auto');
         ctx.ui.notify(

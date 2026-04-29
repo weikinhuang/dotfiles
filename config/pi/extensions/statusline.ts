@@ -28,6 +28,7 @@ import { basename } from 'node:path';
 import { type AssistantMessage, type ToolResultMessage } from '@mariozechner/pi-ai';
 import { type ExtensionAPI } from '@mariozechner/pi-coding-agent';
 import { truncateToWidth, visibleWidth } from '@mariozechner/pi-tui';
+import { isBashAutoEnabled } from './lib/session-flags.ts';
 
 const fmtSi = (n: number): string => {
   if (!Number.isFinite(n) || n <= 0) return '0';
@@ -205,7 +206,14 @@ export default function extension(pi: ExtensionAPI): void {
             line1Parts.push(theme.fg('muted', ` §${shortSessionId}`));
           }
 
-          line1Parts.push(theme.bold(theme.fg('dim', ']')), ' ', theme.fg('accent', modelId));
+          line1Parts.push(theme.bold(theme.fg('dim', ']')));
+          // Bash-auto indicator: when /bash-auto is ON, flag the footer so
+          // it's obvious commands will run without prompting. State is
+          // owned by bash-permissions.ts and read via ./lib/session-flags.ts.
+          if (isBashAutoEnabled()) {
+            line1Parts.push(' ', theme.fg('warning', '⚡'));
+          }
+          line1Parts.push(' ', theme.fg('accent', modelId));
 
           // --- line 2: ↳ M:↑/↻/↓ | S:↑/↻/↓ | ⚒ S:n(~bytes) ---
           const parts: string[] = [];
