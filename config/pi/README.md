@@ -89,14 +89,28 @@ Rules are loaded from three layers on every tool call. Deny beats allow across a
 | Project | `.pi/bash-permissions.json` (resolved against `ctx.cwd`) | one repo |
 | User | `~/.pi/bash-permissions.json` | all projects |
 
-File schema:
+File schema (JSONC — `//` and `/* */` comments are allowed, trailing commas are not):
 
-```json
+```jsonc
 {
-  "allow": ["git status", "git log*", "npm test", "re:^npm (test|run \\w+)$", "/^docker ps( |$)/"],
-  "deny":  ["rm -rf*", "sudo*"]
+  // Things I'm OK letting pi run without asking
+  "allow": [
+    "git status",
+    "git log*",              // any args
+    "npm test",
+    "re:^npm (test|run \\w+)$",
+    "/^docker ps( |$)/"      // regex: prefix form
+  ],
+  /* Belt-and-suspenders for the hardcoded denylist */
+  "deny": [
+    "rm -rf*",
+    "sudo*"
+  ]
 }
 ```
+
+Malformed rule files log one `console.warn` per unique path+error (so a typo doesn't silently wipe out your
+ruleset) and are otherwise treated as empty. Missing files are silent.
 
 Pattern semantics (checked in this order):
 

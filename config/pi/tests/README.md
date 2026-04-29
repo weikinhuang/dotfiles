@@ -26,7 +26,8 @@ Node 24's native TypeScript type-stripping means no toolchain is needed —
 
 | Path | Tests |
 | --- | --- |
-| [`extensions/bash-permissions.test.ts`](./extensions/bash-permissions.test.ts) | `splitCompound`, `matchesPattern`, `checkHardcodedDeny`, `commandTokens`, `twoTokenPattern` from [`../extensions/lib/bash-match.ts`](../extensions/lib/bash-match.ts) |
+| [`extensions/bash-permissions.test.ts`](./extensions/bash-permissions.test.ts) | `splitCompound`, `matchesPattern`, `checkHardcodedDeny`, `maskQuotedRegions`, `commandTokens`, `twoTokenPattern` from [`../extensions/lib/bash-match.ts`](../extensions/lib/bash-match.ts) |
+| [`extensions/jsonc.test.ts`](./extensions/jsonc.test.ts) | `stripJsonComments`, `parseJsonc` from [`../extensions/lib/jsonc.ts`](../extensions/lib/jsonc.ts) |
 | [`extensions/protected-paths.test.ts`](./extensions/protected-paths.test.ts) | `expandTilde`, `globToRegex`, `basenameOf`, `isInsideWorkspace`, `containsNodeModules`, `classify` from [`../extensions/lib/paths.ts`](../extensions/lib/paths.ts) |
 
 ## Design

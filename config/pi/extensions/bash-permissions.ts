@@ -9,6 +9,12 @@
  *   2. User rules:     `~/.pi/bash-permissions.json`
  *   3. Session rules:  in-memory, cleared on session_shutdown
  *
+ * Rule files are JSONC — `//` line comments and C-style block comments
+ * are allowed so you can annotate why a rule exists. Trailing commas are
+ * not supported. Malformed files log one `console.warn` per unique
+ * path+error (re-checked each tool call) and are otherwise ignored;
+ * missing files are silent.
+ *
  * In addition, a short HARDCODED_DENY list of "never auto-run" patterns
  * (rm -rf /, fork bomb, dd to raw disk, mkfs, pipe-to-shell from the
  * network, …) is checked FIRST. These block even if the user has a broad
@@ -74,6 +80,7 @@ import {
   truncate,
   twoTokenPattern,
 } from './lib/bash-match.ts';
+import { parseJsonc } from './lib/jsonc.ts';
 
 // ──────────────────────────────────────────────────────────────────────
 // Rule storage
@@ -86,15 +93,35 @@ function projectRulesPath(cwd: string): string {
   return resolve(cwd, PROJECT_RULES_RELATIVE);
 }
 
+/**
+ * Warn once per unique {path, error-message} pair so a typo in a rule file
+ * is visible without spamming the log on every tool call. Re-clearing on
+ * successful parse lets a subsequent fix re-warn if the file breaks again.
+ */
+const warnedBadConfigFiles = new Map<string, string>();
+
 function readRules(path: string): LoadedRules {
+  let raw: string;
   try {
-    const raw = readFileSync(path, 'utf8');
-    const parsed = JSON.parse(raw) as RuleFile;
+    raw = readFileSync(path, 'utf8');
+  } catch {
+    // File missing / unreadable — silent. Missing rule files are the
+    // common case (new project with no `.pi/bash-permissions.json`).
+    return { allow: [], deny: [] };
+  }
+  try {
+    const parsed = parseJsonc<RuleFile>(raw);
+    warnedBadConfigFiles.delete(path);
     return {
       allow: Array.isArray(parsed.allow) ? parsed.allow.map(String) : [],
       deny: Array.isArray(parsed.deny) ? parsed.deny.map(String) : [],
     };
-  } catch {
+  } catch (e) {
+    const msg = String(e);
+    if (warnedBadConfigFiles.get(path) !== msg) {
+      warnedBadConfigFiles.set(path, msg);
+      console.warn(`[bash-permissions] failed to parse ${path}: ${msg}`);
+    }
     return { allow: [], deny: [] };
   }
 }
