@@ -1,0 +1,9 @@
+{
+  "defaultProvider": "amazon-bedrock",
+  "defaultModel": "us.anthropic.claude-opus-4-7",
+  "defaultThinkingLevel": "high",
+  "enableInstallTelemetry": false,
+  "theme": "solarized-dark",
+  "extensions": ["~/.dotfiles/config/pi/extensions"],
+  "themes": ["~/.dotfiles/config/pi/themes"]
+}
