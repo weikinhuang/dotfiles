@@ -394,7 +394,7 @@ test('twoTokenPattern: returns null when second token is a flag or operator', ()
 
 // ──────────────────────────────────────────────────────────────────────
 // decideSubcommand (precedence: hardcoded-deny > explicit-deny >
-//                  explicit-allow > yolo > prompt)
+//                  explicit-allow > auto > prompt)
 // ──────────────────────────────────────────────────────────────────────
 
 type Layers = Parameters<typeof decideSubcommand>[1];
@@ -405,7 +405,7 @@ const emptyLayers = (): Layers => [
   { scope: 'user', rules: { allow: [], deny: [] } },
 ];
 
-test('decideSubcommand: prompts when no rules match and yolo is off', () => {
+test('decideSubcommand: prompts when no rules match and auto mode is off', () => {
   const d = decideSubcommand('some unknown cmd', emptyLayers());
   assert.equal(d.kind, 'prompt');
 });
@@ -430,23 +430,23 @@ test('decideSubcommand: hardcoded denylist → block (reason mentions built-in)'
   assert.match(d.reason, /built-in denylist/);
 });
 
-test('decideSubcommand: yolo auto-allows unknown commands', () => {
+test('decideSubcommand: auto mode auto-allows unknown commands', () => {
   assert.equal(decideSubcommand('arbitrary unknown cmd', emptyLayers()).kind, 'prompt');
-  assert.equal(decideSubcommand('arbitrary unknown cmd', emptyLayers(), { yolo: true }).kind, 'allow');
+  assert.equal(decideSubcommand('arbitrary unknown cmd', emptyLayers(), { auto: true }).kind, 'allow');
 });
 
-test('decideSubcommand: yolo NEVER beats the hardcoded denylist', () => {
-  const d = decideSubcommand('rm -rf /', emptyLayers(), { yolo: true }) as BashDecision & {
+test('decideSubcommand: auto mode NEVER beats the hardcoded denylist', () => {
+  const d = decideSubcommand('rm -rf /', emptyLayers(), { auto: true }) as BashDecision & {
     reason: string;
   };
   assert.equal(d.kind, 'block');
   assert.match(d.reason, /built-in denylist/);
 });
 
-test('decideSubcommand: yolo NEVER beats explicit deny rules', () => {
+test('decideSubcommand: auto mode NEVER beats explicit deny rules', () => {
   const layers = emptyLayers();
   layers[1].rules.deny.push('npm publish*');
-  const d = decideSubcommand('npm publish --access public', layers, { yolo: true }) as BashDecision & {
+  const d = decideSubcommand('npm publish --access public', layers, { auto: true }) as BashDecision & {
     reason: string;
   };
   assert.equal(d.kind, 'block');

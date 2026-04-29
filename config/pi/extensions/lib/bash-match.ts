@@ -441,20 +441,20 @@ export function checkHardcodedDeny(command: string): string | null {
 }
 
 // ──────────────────────────────────────────────────────────────────────
-// Sub-command decision (combines hardcoded deny + user rules + yolo)
+// Sub-command decision (combines hardcoded deny + user rules + auto mode)
 // ──────────────────────────────────────────────────────────────────────
 
 export type BashDecision = { kind: 'allow' } | { kind: 'block'; reason: string } | { kind: 'prompt' };
 
 export interface BashDecideOptions {
   /**
-   * "YOLO" mode: auto-allow any sub-command that got past the hardcoded
-   * denylist and explicit user/project/session deny rules. Used by the
-   * `/bash-yolo` toggle. Hardcoded deny and explicit deny are NEVER
-   * overridable by this flag — that's the whole point of the
-   * "except for risky actions" carve-out.
+   * Auto-allow any sub-command that got past the hardcoded denylist and
+   * explicit user/project/session deny rules. Used by the `/bash-auto`
+   * toggle. Hardcoded deny and explicit deny are NEVER overridable by
+   * this flag — that's the whole point of the "except for risky
+   * actions" carve-out.
    */
-  yolo?: boolean;
+  auto?: boolean;
 }
 
 /**
@@ -464,7 +464,7 @@ export interface BashDecideOptions {
  *   1. Hardcoded denylist (never overridable).
  *   2. Explicit user/project/session deny rules (never overridable).
  *   3. Explicit user/project/session allow rules.
- *   4. Yolo auto-allow (if enabled).
+ *   4. Auto-allow (if enabled).
  *   5. Fall through to a prompt.
  *
  * Pure function — no UI side effects. Callers collect decisions across
@@ -488,8 +488,8 @@ export function decideSubcommand(
   // 3. Explicit allow rules.
   if (m?.kind === 'allow') return { kind: 'allow' };
 
-  // 4. Yolo auto-allow.
-  if (options.yolo) return { kind: 'allow' };
+  // 4. Auto-allow.
+  if (options.auto) return { kind: 'allow' };
 
   // 5. Prompt.
   return { kind: 'prompt' };

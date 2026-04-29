@@ -54,7 +54,7 @@
  *   /bash-allow <pattern>   add an allow rule (project if `.pi/` exists, else user)
  *   /bash-deny  <pattern>   add a deny rule (same scoping)
  *   /bash-permissions       list all rules grouped by source
- *   /bash-yolo [on|off|status]
+ *   /bash-auto [on|off|status]
  *                           toggle auto-allow for the current session.
  *                           Hardcoded deny and explicit deny rules still
  *                           block; protected-paths (env / outside-workspace
@@ -277,11 +277,11 @@ export default function bashPermissions(pi: ExtensionAPI): void {
 
   const sessionRules: LoadedRules = { allow: [], deny: [] };
 
-  // YOLO: auto-allow every bash sub-command that gets past the hardcoded
-  // denylist and explicit deny rules, for the remainder of the current
-  // session. Cleared on session_shutdown so a reload / new session forces
-  // re-opt-in. Toggled via `/bash-yolo`.
-  let sessionYolo = false;
+  // Auto mode: auto-allow every bash sub-command that gets past the
+  // hardcoded denylist and explicit deny rules, for the remainder of the
+  // current session. Cleared on session_shutdown so a reload / new session
+  // forces re-opt-in. Toggled via `/bash-auto`.
+  let sessionAuto = false;
 
   const defaultFallback = process.env.PI_BASH_PERMISSIONS_DEFAULT === 'allow' ? 'allow' : 'deny';
 
@@ -294,7 +294,7 @@ export default function bashPermissions(pi: ExtensionAPI): void {
   pi.on('session_shutdown', () => {
     sessionRules.allow.length = 0;
     sessionRules.deny.length = 0;
-    sessionYolo = false;
+    sessionAuto = false;
   });
 
   pi.on('tool_call', async (event, ctx) => {
@@ -306,12 +306,12 @@ export default function bashPermissions(pi: ExtensionAPI): void {
     const subcommands = splitCompound(command);
 
     // Single pass: apply the full precedence ladder per sub-command.
-    // decideSubcommand enforces the invariant that yolo NEVER beats the
-    // hardcoded denylist or explicit user/project deny rules — that's
-    // the "except for risky actions" carve-out.
+    // decideSubcommand enforces the invariant that auto mode NEVER beats
+    // the hardcoded denylist or explicit user/project deny rules —
+    // that's the "except for risky actions" carve-out.
     const unknown: string[] = [];
     for (const sub of subcommands) {
-      const decision: BashDecision = decideSubcommand(sub, layers, { yolo: sessionYolo });
+      const decision: BashDecision = decideSubcommand(sub, layers, { auto: sessionAuto });
       if (decision.kind === 'block') {
         return {
           block: true,
@@ -433,12 +433,12 @@ export default function bashPermissions(pi: ExtensionAPI): void {
         for (const p of layer.rules.deny) lines.push(`  deny:  ${p}`);
       }
       lines.push('');
-      lines.push(`YOLO mode: ${sessionYolo ? 'ON 🚨 (auto-allow this session)' : 'OFF'}`);
+      lines.push(`Auto mode: ${sessionAuto ? 'ON ⚡ (auto-allow this session)' : 'OFF'}`);
       ctx.ui.notify(lines.join('\n'), 'info');
     },
   });
 
-  pi.registerCommand('bash-yolo', {
+  pi.registerCommand('bash-auto', {
     description: 'Toggle auto-allow for bash commands this session (hardcoded deny + explicit deny still block)',
     getArgumentCompletions: (prefix) => {
       const opts = ['on', 'off', 'status'];
@@ -452,35 +452,35 @@ export default function bashPermissions(pi: ExtensionAPI): void {
       else if (arg === 'off' || arg === 'disable' || arg === '0') next = false;
       else if (arg === 'status' || arg === '?') {
         ctx.ui.notify(
-          sessionYolo
-            ? '🚨 YOLO mode ON — bash commands auto-run except hardcoded deny / explicit deny rules.'
-            : '✅ YOLO mode OFF — bash commands require approval.',
+          sessionAuto
+            ? '⚡ Auto mode ON — bash commands auto-run except hardcoded deny / explicit deny rules.'
+            : '✅ Auto mode OFF — bash commands require approval.',
           'info',
         );
         return;
-      } else if (arg === '') next = !sessionYolo;
+      } else if (arg === '') next = !sessionAuto;
       else {
-        ctx.ui.notify(`Usage: /bash-yolo [on|off|status]`, 'warning');
+        ctx.ui.notify(`Usage: /bash-auto [on|off|status]`, 'warning');
         return;
       }
 
-      if (next === sessionYolo) {
-        ctx.ui.notify(`YOLO mode is already ${next ? 'ON' : 'OFF'}.`, 'info');
+      if (next === sessionAuto) {
+        ctx.ui.notify(`Auto mode is already ${next ? 'ON' : 'OFF'}.`, 'info');
         return;
       }
-      sessionYolo = next;
-      if (sessionYolo) {
-        ctx.ui.setStatus('bash-yolo', '🚨 yolo');
+      sessionAuto = next;
+      if (sessionAuto) {
+        ctx.ui.setStatus('bash-auto', '⚡ auto');
         ctx.ui.notify(
-          '🚨 YOLO mode ON — bash commands will auto-run this session.\n' +
+          '⚡ Auto mode ON — bash commands will auto-run this session.\n' +
             'Hardcoded deny (rm -rf /, mkfs, …) and explicit deny rules still block.\n' +
             'protected-paths is unaffected (writes to .env / outside-workspace still prompt).\n' +
-            'Run /bash-yolo off to turn it back off.',
+            'Run /bash-auto off to turn it back off.',
           'warning',
         );
       } else {
-        ctx.ui.setStatus('bash-yolo', undefined);
-        ctx.ui.notify('✅ YOLO mode OFF — bash commands require approval again.', 'info');
+        ctx.ui.setStatus('bash-auto', undefined);
+        ctx.ui.notify('✅ Auto mode OFF — bash commands require approval again.', 'info');
       }
     },
   });
