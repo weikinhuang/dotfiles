@@ -24,6 +24,10 @@
     "**/*.mts"
   ],
   "exclude": [
-    "node_modules"
+    "node_modules",
+    // Pi extensions are executed by pi's own runtime (jiti) against its own
+    // bundled `@mariozechner/*` deps — they are not part of this repo's TS
+    // project, so we don't type-check them here.
+    "config/pi/extensions/**"
   ]
 }
