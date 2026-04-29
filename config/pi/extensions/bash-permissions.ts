@@ -153,6 +153,20 @@ function addRule(path: string, kind: 'allow' | 'deny', pattern: string): void {
 // Prompt helpers
 // ──────────────────────────────────────────────────────────────────────
 
+/**
+ * Collapse whitespace (including newlines) to single spaces and truncate.
+ *
+ * Pi's ExtensionSelectorComponent has no scrolling / height clamp — it
+ * renders every child line directly. If the dialog grows taller than the
+ * terminal, the terminal itself scrolls and the UI flickers wildly on
+ * every repaint. Keeping the rendered command to one short line is the
+ * cheapest way to keep the dialog a predictable ~10–12 rows regardless of
+ * how long the original bash call was.
+ */
+function compactForDialog(s: string, maxLen = 160): string {
+  return truncate(s.replace(/\s+/g, ' ').trim(), maxLen);
+}
+
 /** Pick project scope when a `.pi/` dir exists in cwd, else user scope. */
 function pickScopePath(cwd: string): string {
   // Prefer project scope if the rules file or the `.pi/` dir already exists.
@@ -212,8 +226,12 @@ async function askForPermission(ctx: ExtensionContext, command: string): Promise
   entries.push({ label: 'Deny', decision: { kind: 'deny' } });
   entries.push({ label: 'Deny with feedback…', decision: 'deny-feedback' });
 
+  // `command` is shown inline in the dialog title; collapse newlines and
+  // cap the length so multi-line heredocs / long scripts don't blow the
+  // dialog past the terminal height (see compactForDialog).
+  const displayCommand = compactForDialog(command);
   const choice = await ctx.ui.select(
-    `⚠️  Bash tool request:\n\n  ${command}\n\nHow should pi proceed?`,
+    `⚠️  Bash tool request:\n\n  ${displayCommand}\n\nHow should pi proceed?`,
     entries.map((e) => e.label),
   );
 
@@ -249,10 +267,20 @@ async function askForPermissionBatch(
     { label: 'Deny with feedback…', decision: 'deny-feedback' },
   ];
 
-  const summary = unknown.map((sub, idx) => `  ${idx + 1}. ${truncate(sub, 120)}`).join('\n');
+  // Cap the number of sub-commands rendered inline so the dialog stays
+  // within a reasonable height on small terminals; the remainder is
+  // summarised as a single "…and N more" line. Each visible sub-command
+  // is also whitespace-collapsed so multi-line fragments don't each
+  // expand into many rendered rows.
+  const MAX_VISIBLE_SUBS = 6;
+  const visible = unknown.slice(0, MAX_VISIBLE_SUBS);
+  const hidden = unknown.length - visible.length;
+  const summaryLines = visible.map((sub, idx) => `  ${idx + 1}. ${compactForDialog(sub, 100)}`);
+  if (hidden > 0) summaryLines.push(`  … and ${hidden} more`);
+  const summary = summaryLines.join('\n');
   const title =
     `⚠️  Bash tool request with ${unknown.length} unknown sub-commands:\n\n${summary}\n\n` +
-    `Full command:\n  ${truncate(fullCommand, 200)}\n\nHow should pi proceed?`;
+    `Full command:\n  ${compactForDialog(fullCommand, 180)}\n\nHow should pi proceed?`;
 
   const choice = await ctx.ui.select(
     title,
