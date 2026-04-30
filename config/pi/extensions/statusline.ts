@@ -14,6 +14,18 @@
  *   - ctx.cwd                      → working directory
  *   - footerData.getGitBranch()    → live git branch with change watcher
  *
+ * For branch decoration (dirty/staged/stash/untracked/upstream) we shell out
+ * to the dotfiles-vendored `external/git-prompt.sh` — the same script that
+ * powers `PS1` and `config/claude/statusline-command.sh`. Results are cached
+ * per-cwd with a short TTL (see `./lib/git-prompt.ts`) and invalidated on
+ * `footerData.onBranchChange`. If the helper can't be located or bash fails,
+ * renders fall back to `footerData.getGitBranch()`.
+ *
+ * Linked worktree names (`git worktree add <name>`) are resolved by reading
+ * `.git` / `.git/worktrees/<name>/commondir` directly via `./lib/git-worktree.ts`
+ * — no subprocess required. Mirrors Claude Code's `workspace.git_worktree`
+ * field and renders ` ⎇ <name>` after the branch segment.
+ *
  * Uses only semantic theme colors so it adapts to any pi theme.
  *
  * Environment variables:
@@ -21,14 +33,37 @@
  *   PI_STATUSLINE_DISABLE_HYPERLINKS=1
  *     or DOT_DISABLE_HYPERLINKS=1  → skip OSC8 hyperlinks (same knob as the
  *                                   Claude Code script)
+ *   PI_STATUSLINE_DISABLE_GIT_PROMPT=1
+ *                                  → skip git-prompt.sh; always use pi's
+ *                                    plain `footerData.getGitBranch()`
  */
 
 import { hostname, userInfo } from 'node:os';
 import { basename } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { type AssistantMessage, type ToolResultMessage } from '@mariozechner/pi-ai';
 import { type ExtensionAPI } from '@mariozechner/pi-coding-agent';
 import { truncateToWidth, visibleWidth } from '@mariozechner/pi-tui';
+import {
+  fetchGitSegmentAsync,
+  GIT_SEGMENT_TTL_MS,
+  type GitSegmentCacheEntry,
+  resolveGitPromptScript,
+} from './lib/git-prompt.ts';
+import { resolveWorktreeInfo, type WorktreeInfo } from './lib/git-worktree.ts';
 import { isBashAutoEnabled } from './lib/session-flags.ts';
+
+/**
+ * Resolved once at module load. `null` means we never found the helper — the
+ * extension then always falls back to `footerData.getGitBranch()`.
+ */
+const GIT_PROMPT_SCRIPT_PATH: string | null = (() => {
+  try {
+    return resolveGitPromptScript(fileURLToPath(import.meta.url));
+  } catch {
+    return null;
+  }
+})();
 
 const fmtSi = (n: number): string => {
   if (!Number.isFinite(n) || n <= 0) return '0';
@@ -78,11 +113,13 @@ function cwdFileUrl(cwd: string, hyperlinksEnabled: boolean): string | null {
 interface Aggregates {
   sessionIn: number;
   sessionCacheRead: number;
+  sessionCacheWrite: number;
   sessionOut: number;
   sessionCostTotal: number;
   turns: number;
   lastIn: number;
   lastCacheRead: number;
+  lastCacheWrite: number;
   lastOut: number;
   toolCalls: number;
   toolResultBytes: number;
@@ -92,11 +129,13 @@ function aggregate(branch: readonly unknown[]): Aggregates {
   const out: Aggregates = {
     sessionIn: 0,
     sessionCacheRead: 0,
+    sessionCacheWrite: 0,
     sessionOut: 0,
     sessionCostTotal: 0,
     turns: 0,
     lastIn: 0,
     lastCacheRead: 0,
+    lastCacheWrite: 0,
     lastOut: 0,
     toolCalls: 0,
     toolResultBytes: 0,
@@ -112,10 +151,12 @@ function aggregate(branch: readonly unknown[]): Aggregates {
       if (u) {
         out.sessionIn += u.input ?? 0;
         out.sessionCacheRead += u.cacheRead ?? 0;
+        out.sessionCacheWrite += u.cacheWrite ?? 0;
         out.sessionOut += u.output ?? 0;
         out.sessionCostTotal += u.cost?.total ?? 0;
         out.lastIn = u.input ?? 0;
         out.lastCacheRead = u.cacheRead ?? 0;
+        out.lastCacheWrite = u.cacheWrite ?? 0;
         out.lastOut = u.output ?? 0;
       }
       for (const c of m.content) if (c.type === 'toolCall') out.toolCalls++;
@@ -158,12 +199,76 @@ export default function extension(pi: ExtensionAPI): void {
   const hyperlinksEnabled =
     process.env.PI_STATUSLINE_DISABLE_HYPERLINKS !== '1' && process.env.DOT_DISABLE_HYPERLINKS !== '1';
 
+  const gitPromptEnabled = process.env.PI_STATUSLINE_DISABLE_GIT_PROMPT !== '1' && GIT_PROMPT_SCRIPT_PATH !== null;
+
   pi.on('session_start', (_event, ctx) => {
     ctx.ui.setFooter((tui, theme, footerData) => {
-      const unsubBranch = footerData.onBranchChange(() => tui.requestRender());
+      // Per-session cache of decorated git segments. Keyed by cwd so that
+      // switching worktrees inside a long-running session doesn't bleed
+      // stale values across directories. Invalidated on branch change and
+      // expired via GIT_SEGMENT_TTL_MS.
+      const gitCache = new Map<string, GitSegmentCacheEntry>();
+      let disposed = false;
+
+      const scheduleGitFetch = (cwd: string): void => {
+        if (!gitPromptEnabled || disposed || !cwd) return;
+        const entry: GitSegmentCacheEntry = gitCache.get(cwd) ?? { value: '', ts: 0, inFlight: false };
+        if (entry.inFlight) return;
+        entry.inFlight = true;
+        gitCache.set(cwd, entry);
+        void fetchGitSegmentAsync({
+          // GIT_PROMPT_SCRIPT_PATH is non-null when gitPromptEnabled.
+          scriptPath: GIT_PROMPT_SCRIPT_PATH as string,
+          cwd,
+        }).then((value) => {
+          entry.inFlight = false;
+          entry.ts = Date.now();
+          entry.value = value;
+          if (!disposed) tui.requestRender();
+        });
+      };
+
+      const getGitSegment = (cwd: string, fallbackBranch: string | null): string => {
+        const fallback = fallbackBranch ? ` (${fallbackBranch})` : '';
+        if (!gitPromptEnabled || !cwd) return fallback;
+        const entry = gitCache.get(cwd);
+        const fresh = entry && Date.now() - entry.ts < GIT_SEGMENT_TTL_MS;
+        if (!fresh) scheduleGitFetch(cwd);
+        // Prefer the decorated value when we have one, even if stale — it's a
+        // better approximation than the plain branch while the refetch runs.
+        return entry?.value || fallback;
+      };
+
+      const unsubBranch = footerData.onBranchChange(() => {
+        // HEAD (or reftable) moved — every cached decorated segment is now
+        // suspect. Stamp them stale so the next render kicks off a refetch.
+        for (const entry of gitCache.values()) entry.ts = 0;
+        // Worktree metadata can also shift (e.g. `git worktree add` / `remove`
+        // touches the `.git/worktrees/*` tree, which the branch watcher
+        // already surfaces). Drop the cache so the next render rediscovers.
+        worktreeCache.clear();
+        tui.requestRender();
+      });
+
+      // Per-session cache of worktree info keyed by cwd. resolveWorktreeInfo
+      // is pure fs (existsSync / readFileSync on a handful of tiny files) so
+      // caching is mostly about avoiding log spam during rapid repaints —
+      // there's no network or subprocess cost to pay. `null` is cached too,
+      // so non-git cwds don't re-stat `.git` on every keystroke.
+      const worktreeCache = new Map<string, WorktreeInfo | null>();
+      const getWorktreeInfo = (cwd: string): WorktreeInfo | null => {
+        if (!cwd) return null;
+        if (worktreeCache.has(cwd)) return worktreeCache.get(cwd) ?? null;
+        const info = resolveWorktreeInfo(cwd);
+        worktreeCache.set(cwd, info);
+        return info;
+      };
 
       return {
-        dispose: () => unsubBranch(),
+        dispose: () => {
+          disposed = true;
+          unsubBranch();
+        },
         invalidate(): void {
           // no-op: render() recomputes everything from ctx on each call
         },
@@ -174,6 +279,9 @@ export default function extension(pi: ExtensionAPI): void {
           const ctxUsage = ctx.getContextUsage();
           const remainingPct = ctxUsage?.percent != null ? Math.max(0, Math.min(100, 100 - ctxUsage.percent)) : null;
           const modelId = ctx.model?.id ?? 'no-model';
+          // Only models with `reasoning: true` expose a meaningful thinking level;
+          // everything else reports "off" regardless of ctx.getThinkingLevel().
+          const thinkingLevel = ctx.model?.reasoning ? ctx.getThinkingLevel?.() : undefined;
           const sessionId = ctx.sessionManager.getSessionId?.();
           const shortSessionId = sessionId ? sessionId.slice(0, 8) : '';
 
@@ -193,8 +301,18 @@ export default function extension(pi: ExtensionAPI): void {
             cwdSegment,
           ];
 
-          if (branch) {
-            line1Parts.push(theme.fg('mdLink', ` (${branch})`));
+          if (branch || gitPromptEnabled) {
+            const gitSeg = getGitSegment(ctx.cwd, branch);
+            if (gitSeg) {
+              line1Parts.push(theme.fg('mdLink', gitSeg));
+            }
+          }
+          // Worktree badge (` ⎇ <name>`), mirroring Claude's workspace.git_worktree
+          // segment. Only shown inside linked worktrees (`git worktree add …`); main
+          // worktrees and non-git cwds render nothing.
+          const worktree = getWorktreeInfo(ctx.cwd);
+          if (worktree?.worktreeName) {
+            line1Parts.push(theme.fg('warning', ` ⎇ ${worktree.worktreeName}`));
           }
           if (remainingPct != null) {
             line1Parts.push(theme.fg('success', ` ${remainingPct.toFixed(0)}% left`));
@@ -214,38 +332,76 @@ export default function extension(pi: ExtensionAPI): void {
             line1Parts.push(' ', theme.fg('warning', '⚡'));
           }
           line1Parts.push(' ', theme.fg('accent', modelId));
+          if (thinkingLevel) {
+            // Matches pi's built-in footer (`<model> • <level>` / `<model> • thinking off`)
+            // but rendered in `muted` so the model id stays the prominent element.
+            line1Parts.push(theme.fg('muted', ` • ${thinkingLevel}`));
+          }
 
           // --- line 2: ↳ M:↑/↻/↓ | S:↑/↻/↓ | ⚒ S:n(~bytes) ---
-          const parts: string[] = [];
+          const line2Parts: string[] = [];
 
           if (agg.lastIn + agg.lastCacheRead + agg.lastOut > 0) {
             const label = agg.turns > 0 ? `M(${agg.turns})` : 'M';
-            parts.push(
-              theme.fg('dim', `${label}:↑${fmtSi(agg.lastIn)}/↻ ${fmtSi(agg.lastCacheRead)}/↓${fmtSi(agg.lastOut)}`),
+            // Per-turn R = cache-hit ratio for the most recent assistant message;
+            // signals whether that specific turn hit the prompt cache.
+            const lastCacheDenom = agg.lastIn + agg.lastCacheRead;
+            const lastRatioSeg =
+              lastCacheDenom > 0 ? ` R ${Math.round((agg.lastCacheRead / lastCacheDenom) * 100)}%` : '';
+            line2Parts.push(
+              theme.fg(
+                'dim',
+                `${label}:↑${fmtSi(agg.lastIn)}/↻ ${fmtSi(agg.lastCacheRead)}/↓${fmtSi(agg.lastOut)}${lastRatioSeg}`,
+              ),
             );
           }
 
           if (agg.sessionIn + agg.sessionCacheRead + agg.sessionOut > 0) {
-            parts.push(
-              theme.fg('text', `S:↑${fmtSi(agg.sessionIn)}/↻ ${fmtSi(agg.sessionCacheRead)}/↓${fmtSi(agg.sessionOut)}`),
+            // W = cache write tokens; only shown when non-zero. For models that write a lot
+            // to the prompt cache (Anthropic, Bedrock) this surfaces the cost delta of the
+            // first vs. subsequent turns.
+            const writeSeg = agg.sessionCacheWrite > 0 ? `/W ${fmtSi(agg.sessionCacheWrite)}` : '';
+            // R = cache-hit ratio (cacheRead / (input + cacheRead)). A quick indicator that
+            // prompt caching is actually engaging; near-zero means the cache is missing.
+            const cacheDenom = agg.sessionIn + agg.sessionCacheRead;
+            const ratioSeg =
+              cacheDenom > 0 ? ` R ${Math.round((agg.sessionCacheRead / cacheDenom) * 100)}%` : '';
+            line2Parts.push(
+              theme.fg(
+                'text',
+                `S:↑${fmtSi(agg.sessionIn)}/↻ ${fmtSi(agg.sessionCacheRead)}${writeSeg}/↓${fmtSi(agg.sessionOut)}${ratioSeg}`,
+              ),
             );
           }
 
           if (agg.toolCalls > 0) {
             const bytesSuffix = agg.toolResultBytes > 0 ? `(~${fmtSi(agg.toolResultBytes / 4)})` : '';
-            parts.push(theme.fg('warning', `⚒ S:${agg.toolCalls}${bytesSuffix}`));
+            line2Parts.push(theme.fg('warning', `⚒ S:${agg.toolCalls}${bytesSuffix}`));
           }
+
+          // --- line 3: other extensions' statuses (plan-mode, preset, working-indicator, …) ---
+          // setFooter() replaces pi's built-in footer, which would otherwise render
+          // footerData.getExtensionStatuses(); append them here so ctx.ui.setStatus(...)
+          // from other extensions stays visible.
+          const line3Parts = [...footerData.getExtensionStatuses().entries()]
+            .sort(([a], [b]) => a.localeCompare(b))
+            .map(([, v]) => v.replace(/[\r\n\t]+/g, ' '));
 
           const sep = theme.fg('dim', ' | ');
           const arrow = theme.fg('muted', ' ↳ ');
 
           const line1 = line1Parts.join('');
           const lines: string[] = [truncateToWidth(line1, width)];
-          if (parts.length > 0) {
-            const line2 = arrow + parts.join(sep);
+          if (line2Parts.length > 0) {
+            const line2 = arrow + line2Parts.join(sep);
             // Pad to width so render doesn't leave stale glyphs when the line shrinks.
             const pad = Math.max(0, width - visibleWidth(line2));
             lines.push(truncateToWidth(line2 + ' '.repeat(pad), width));
+          }
+          if (line3Parts.length > 0) {
+            const line3 = line3Parts.join(' ');
+            const pad = Math.max(0, width - visibleWidth(line3));
+            lines.push(truncateToWidth(line3 + ' '.repeat(pad), width));
           }
           return lines;
         },

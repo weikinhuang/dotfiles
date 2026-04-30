@@ -27,6 +27,8 @@ Node 24's native TypeScript type-stripping means no toolchain is needed —
 | Path | Tests |
 | --- | --- |
 | [`extensions/bash-permissions.test.ts`](./extensions/bash-permissions.test.ts) | `splitCompound`, `matchesPattern`, `checkHardcodedDeny`, `maskQuotedRegions`, `commandTokens`, `twoTokenPattern` from [`../extensions/lib/bash-match.ts`](../extensions/lib/bash-match.ts) |
+| [`extensions/git-prompt.test.ts`](./extensions/git-prompt.test.ts) | `resolveGitPromptScript` from [`../extensions/lib/git-prompt.ts`](../extensions/lib/git-prompt.ts); covers parent walk, `maxDepth`, symlink resolution, and the `$DOTFILES_ROOT` override |
+| [`extensions/git-worktree.test.ts`](./extensions/git-worktree.test.ts) | `resolveWorktreeInfo` from [`../extensions/lib/git-worktree.ts`](../extensions/lib/git-worktree.ts); covers main vs. linked worktrees, submodule + `--separate-git-dir` disambiguation, missing `commondir`, stale `gitdir:` pointers, subdir parent walk, and `maxDepth` |
 | [`extensions/jsonc.test.ts`](./extensions/jsonc.test.ts) | `stripJsonComments`, `parseJsonc` from [`../extensions/lib/jsonc.ts`](../extensions/lib/jsonc.ts) |
 | [`extensions/protected-paths.test.ts`](./extensions/protected-paths.test.ts) | `expandTilde`, `globToRegex`, `basenameOf`, `isInsideWorkspace`, `pathContainsSegment`, `isUnderPath`, `mergeRules`, `mergeConfigs`, `classify`, `classifyRead`, `classifyWrite` from [`../extensions/lib/paths.ts`](../extensions/lib/paths.ts) |
 | [`extensions/session-flags.test.ts`](./extensions/session-flags.test.ts) | `isBashAutoEnabled`, `setBashAutoEnabled` from [`../extensions/lib/session-flags.ts`](../extensions/lib/session-flags.ts); guards the `globalThis` singleton against pi's jiti-per-extension module duplication |
