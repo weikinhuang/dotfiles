@@ -21,8 +21,8 @@
     "selectedBg": "#e4decb",
     "userMsgBg": "#ebe5d0",
     "toolPendingBg": "#efe9d4",
-    "toolSuccessBg": "#e4ecd0",
-    "toolErrorBg": "#f2dcd6",
+    "toolSuccessBg": "#e6e0ce",
+    "toolErrorBg": "#ecdcd6",
     "customMsgBg": "#e6e1d6"
   },
   "colors": {
