@@ -119,6 +119,22 @@ export interface LoadedContextFile {
 }
 
 /**
+ * Shape of the `details` object attached to the `subdir-agents`
+ * CustomMessageEntry so the TUI renderer can show a compact status line
+ * instead of dumping the full file content to the user.
+ */
+export interface SubdirAgentsDetails {
+  files: {
+    /** Display-friendly path (relative to cwd when inside it). */
+    path: string;
+    /** UTF-8 byte length of the content shipped to the LLM. */
+    bytes: number;
+    /** `true` if the content was truncated by {@link capContent}. */
+    truncated: boolean;
+  }[];
+}
+
+/**
  * Format a user-visible path for display in the injected message. If
  * `absPath` is inside `cwd`, returns a relative path; otherwise returns
  * `absPath` unchanged. Normalizes Windows separators to forward slashes
@@ -172,6 +188,25 @@ export function formatContextInjection(files: readonly LoadedContextFile[], cwd:
 // ──────────────────────────────────────────────────────────────────────
 // Size capping
 // ──────────────────────────────────────────────────────────────────────
+
+/**
+ * Format a byte count as a compact human-readable string (`"512 B"`,
+ * `"3.9 KB"`, `"1.2 MB"`). Used by the TUI renderer so the user-visible
+ * status line stays short. Mirrors `numfmt --to=iec` for readability,
+ * not the exact `pi-tui` formatting, because pi-tui is optional here.
+ */
+export function formatBytes(n: number): string {
+  if (!Number.isFinite(n) || n < 0) return '0 B';
+  if (n < 1024) return `${Math.round(n)} B`;
+  const kb = n / 1024;
+  if (kb < 10) return `${kb.toFixed(1)} KB`;
+  if (kb < 1024) return `${Math.round(kb)} KB`;
+  const mb = kb / 1024;
+  if (mb < 10) return `${mb.toFixed(1)} MB`;
+  if (mb < 1024) return `${Math.round(mb)} MB`;
+  const gb = mb / 1024;
+  return `${gb.toFixed(1)} GB`;
+}
 
 /**
  * Default cap for a single context file's content, in bytes. Large

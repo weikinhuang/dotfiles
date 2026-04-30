@@ -14,6 +14,7 @@ import {
   DEFAULT_CONTEXT_FILE_BYTE_CAP,
   DEFAULT_CONTEXT_FILE_NAMES,
   displayPath,
+  formatBytes,
   formatContextInjection,
   isInsideCwd,
   normalizeAbs,
@@ -164,6 +165,39 @@ describe('capContent', () => {
   test('DEFAULT_CONTEXT_FILE_BYTE_CAP is sane', () => {
     expect(DEFAULT_CONTEXT_FILE_BYTE_CAP).toBeGreaterThan(1024);
     expect(DEFAULT_CONTEXT_FILE_BYTE_CAP).toBeLessThanOrEqual(128 * 1024);
+  });
+});
+
+// ──────────────────────────────────────────────────────────────────────
+// formatBytes
+// ──────────────────────────────────────────────────────────────────────
+
+describe('formatBytes', () => {
+  test('sub-kilobyte uses bytes', () => {
+    expect(formatBytes(0)).toBe('0 B');
+    expect(formatBytes(1)).toBe('1 B');
+    expect(formatBytes(512)).toBe('512 B');
+    expect(formatBytes(1023)).toBe('1023 B');
+  });
+
+  test('kilobytes use one decimal below 10 KB, none above', () => {
+    expect(formatBytes(1024)).toBe('1.0 KB');
+    expect(formatBytes(3967)).toBe('3.9 KB');
+    expect(formatBytes(10 * 1024)).toBe('10 KB');
+    expect(formatBytes(500 * 1024)).toBe('500 KB');
+  });
+
+  test('megabytes / gigabytes use one decimal below 10, none above', () => {
+    expect(formatBytes(1024 * 1024)).toBe('1.0 MB');
+    expect(formatBytes(5.5 * 1024 * 1024)).toBe('5.5 MB');
+    expect(formatBytes(20 * 1024 * 1024)).toBe('20 MB');
+    expect(formatBytes(1024 * 1024 * 1024)).toBe('1.0 GB');
+  });
+
+  test('non-finite or negative inputs clamp to 0 B', () => {
+    expect(formatBytes(Number.NaN)).toBe('0 B');
+    expect(formatBytes(-1)).toBe('0 B');
+    expect(formatBytes(Number.POSITIVE_INFINITY)).toBe('0 B');
   });
 });
 

@@ -384,6 +384,22 @@ context already loaded at startup.
 Multiple newly discovered files are batched into a single injection, shallowest-first, so the model reads parent
 guidance before any child overrides.
 
+### TUI rendering
+
+The raw `content` field that the LLM consumes includes the full AGENTS.md text, which would be noisy and redundant to
+print verbatim in the TUI — the user just asked to read a file in that subtree, they don't need the AGENTS.md body
+echoed back at them. A `registerMessageRenderer("subdir-agents", …)` renderer collapses each injection to a compact
+status line driven by `details.files`:
+
+```text
+[subdir-agents] loaded tests/AGENTS.md (3.9 KB)
+[subdir-agents] loaded 2 context files (5.1 KB total)
+```
+
+When the message is expanded (`e` on the focused message in pi's TUI) and contains more than one file, the renderer also
+lists the individual paths + sizes. The full file body stays in the serialized session and in the LLM's message stream —
+only the user-facing rendering is trimmed.
+
 ### Commands
 
 - `/subdir-agents` — list the startup-loaded baseline and every file this extension has injected this session.

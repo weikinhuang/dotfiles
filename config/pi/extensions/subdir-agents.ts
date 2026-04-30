@@ -49,14 +49,17 @@
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { type ExtensionAPI, isToolCallEventType, type ToolCallEvent } from '@mariozechner/pi-coding-agent';
+import { Box, Text } from '@mariozechner/pi-tui';
 import {
   candidateContextPaths,
   capContent,
   DEFAULT_CONTEXT_FILE_BYTE_CAP,
   DEFAULT_CONTEXT_FILE_NAMES,
   displayPath,
+  formatBytes,
   formatContextInjection,
   type LoadedContextFile,
+  type SubdirAgentsDetails,
 } from '../../../lib/node/pi/subdir-agents.ts';
 
 // ──────────────────────────────────────────────────────────────────────
@@ -106,6 +109,47 @@ export default function subdirAgents(pi: ExtensionAPI): void {
   if (process.env.PI_SUBDIR_AGENTS_DISABLED === '1') return;
 
   const fileNames = parseFileNames();
+
+  // ────────────────────────────────────────────────────────────────────
+  // TUI rendering
+  // ────────────────────────────────────────────────────────────────────
+
+  // The `content` field of the CustomMessageEntry holds the full AGENTS.md
+  // text (that's what the LLM consumes). Without a custom renderer the
+  // TUI would print that full text to the user on every injection, which
+  // is noisy and redundant — the user just opened the file, they don't
+  // need it echoed back. Render a compact status line instead, and only
+  // list the individual file paths when the user expands the message.
+  pi.registerMessageRenderer<SubdirAgentsDetails>('subdir-agents', (message, { expanded }, theme) => {
+    const files = message.details?.files ?? [];
+    const prefix = theme.fg('accent', '[subdir-agents]');
+    let text: string;
+    if (files.length === 0) {
+      text = `${prefix} loaded context files`;
+    } else if (files.length === 1) {
+      const f = files[0];
+      const trunc = f.truncated ? ' (truncated)' : '';
+      text = `${prefix} loaded ${f.path} (${formatBytes(f.bytes)})${trunc}`;
+    } else {
+      const total = files.reduce((sum, f) => sum + f.bytes, 0);
+      text = `${prefix} loaded ${files.length} context files (${formatBytes(total)} total)`;
+    }
+
+    if (expanded && files.length > 1) {
+      for (const f of files) {
+        const trunc = f.truncated ? ' (truncated)' : '';
+        text += `\n${theme.fg('dim', `  ${f.path} — ${formatBytes(f.bytes)}${trunc}`)}`;
+      }
+    }
+
+    const box = new Box(1, 1, (t) => theme.bg('customMessageBg', t));
+    box.addChild(new Text(text, 0, 0));
+    return box;
+  });
+
+  // ────────────────────────────────────────────────────────────────────
+  // State
+  // ────────────────────────────────────────────────────────────────────
 
   /**
    * Absolute paths (plus their realpaths) we've already surfaced to the
