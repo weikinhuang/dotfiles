@@ -39,6 +39,7 @@ test('formatActivePlan: renders in_progress items first', () => {
   )!;
   const idx1 = out.indexOf('In progress:');
   const idx2 = out.indexOf('Pending:');
+
   expect(idx1).toBeGreaterThanOrEqual(0);
   expect(idx2, 'In progress must come before Pending').toBeGreaterThan(idx1);
   expect(out).toMatch(/→ #2 doing it/);
@@ -47,12 +48,14 @@ test('formatActivePlan: renders in_progress items first', () => {
 
 test('formatActivePlan: renders blocked items with note in parentheses', () => {
   const out = formatActivePlan(mkState([{ id: 4, text: 'deploy', status: 'blocked', note: 'awaiting approval' }]))!;
+
   expect(out).toMatch(/Blocked/);
   expect(out).toMatch(/⛔ #4 deploy {2}\(awaiting approval\)/);
 });
 
 test('formatActivePlan: omits pending section when none pending', () => {
   const out = formatActivePlan(mkState([{ id: 1, text: 'x', status: 'in_progress' }]))!;
+
   expect(out).not.toMatch(/Pending:/);
 });
 
@@ -65,6 +68,7 @@ test('formatActivePlan: caps pending list and shows "… and N more"', () => {
   const out = formatActivePlan(mkState(todos), { maxItems: 5 })!;
   // 5 bulleted pending lines
   const bulletCount = (out.match(/^\s+• /gm) ?? []).length;
+
   expect(bulletCount).toBe(5);
   expect(out).toMatch(/… and 20 more/);
 });
@@ -77,6 +81,7 @@ test('formatActivePlan: maxItems default is 10', () => {
   }));
   const out = formatActivePlan(mkState(todos))!;
   const bulletCount = (out.match(/^\s+• /gm) ?? []).length;
+
   expect(bulletCount).toBe(10);
   expect(out).toMatch(/… and 5 more/);
 });
@@ -88,11 +93,13 @@ test('formatActivePlan: maxItems floored to 1', () => {
   ];
   const out = formatActivePlan(mkState(todos), { maxItems: 0 })!;
   const bulletCount = (out.match(/^\s+• /gm) ?? []).length;
+
   expect(bulletCount).toBe(1);
 });
 
 test('formatActivePlan: includes guidance footer reminding the model of the workflow', () => {
   const out = formatActivePlan(mkState([{ id: 1, text: 'x', status: 'in_progress' }]))!;
+
   expect(out).toMatch(/one item `in_progress` at a time/i);
   expect(out).toMatch(/move it to `review`/);
   expect(out).toMatch(/Mark `complete` after verification/);
@@ -106,12 +113,14 @@ test('formatActivePlan: renders In review section with ⋯ marker', () => {
       { id: 2, text: 'awaiting tests', status: 'review', note: 'ran npm test — waiting for ci' },
     ]),
   )!;
+
   expect(out).toMatch(/In review/);
   expect(out).toMatch(/⋯ #2 awaiting tests {2}\(ran npm test — waiting for ci\)/);
 });
 
 test('formatActivePlan: returns non-null when only review items exist', () => {
   const out = formatActivePlan(mkState([{ id: 1, text: 'x', status: 'review' }]));
+
   expect(out).not.toBe(null);
   expect(out!).toMatch(/In review/);
 });
@@ -129,6 +138,7 @@ test('formatActivePlan: section order is in_progress → review → pending → 
   const idxReview = out.indexOf('In review');
   const idxPending = out.indexOf('Pending:');
   const idxBlocked = out.indexOf('Blocked');
+
   expect(idxActive).toBeGreaterThanOrEqual(0);
   expect(idxReview, 'review must follow in_progress').toBeGreaterThan(idxActive);
   expect(idxPending, 'pending must follow review').toBeGreaterThan(idxReview);
@@ -142,6 +152,7 @@ test('formatActivePlan: keeps completed items out of the rendered sections', () 
       { id: 2, text: 'pending-item', status: 'pending' },
     ]),
   )!;
+
   expect(out).not.toMatch(/done-item/);
   expect(out).toMatch(/pending-item/);
 });
@@ -216,5 +227,6 @@ test('looksLikeCompletionClaim: only inspects the tail of long messages', () => 
   // An early false-positive phrase buried 500 chars up should NOT trigger.
   const filler = 'x'.repeat(600);
   const text = `All done.\n\n${filler}\n\nStill investigating.`;
+
   expect(looksLikeCompletionClaim(text)).toBe(false);
 });

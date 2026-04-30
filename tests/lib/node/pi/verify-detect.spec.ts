@@ -69,11 +69,13 @@ test('extractClaims: CI-green claims are detected', () => {
 test('extractClaims: multi-claim sign-offs pick up all kinds', () => {
   const out = extractClaims('All 42 tests pass, tsc is clean, and eslint is happy.');
   const kinds = kindsOf(out);
+
   expect(kinds).toEqual(['lint-clean', 'tests-pass', 'types-check']);
 });
 
 test('extractClaims: deduplicates by kind (first phrase wins)', () => {
   const out = extractClaims('tests pass. the tests are passing. 42 tests pass.');
+
   expect(out.length).toBe(1);
   expect(out[0].kind).toBe('tests-pass');
 });
@@ -96,6 +98,7 @@ test('extractClaims: distant "if"/"when" does NOT suppress an unrelated later cl
   const kinds = extractClaims(line)
     .map((c) => c.kind)
     .sort();
+
   expect(kinds).toEqual(['lint-clean', 'tests-pass']);
 });
 
@@ -103,11 +106,13 @@ test('extractClaims: window — only the tail counts as a sign-off', () => {
   // Claim buried more than 600 chars before the end → not detected.
   const prefix = 'x '.repeat(500) + 'Earlier the tests passed.';
   const tail = '\n\nI then made unrelated changes to documentation. ' + 'y '.repeat(400);
+
   expect(extractClaims(prefix + tail)).toEqual([]);
 });
 
 test('extractClaims: tail-anchored — claim right at the end is detected even with noise before', () => {
   const out = extractClaims('lots of setup and exploration… Now all tests pass.');
+
   expect(kindsOf(out)).toEqual(['tests-pass']);
 });
 
@@ -125,6 +130,7 @@ test('extractClaims: does not trip on "build" alone', () => {
 
 test('verifyingCommandMatches: tests-pass matches common test runners', () => {
   const kind: ClaimKind = 'tests-pass';
+
   expect(verifyingCommandMatches(kind, 'npm test')).toBe(true);
   expect(verifyingCommandMatches(kind, 'pnpm run test')).toBe(true);
   expect(verifyingCommandMatches(kind, 'yarn test --watch=false')).toBe(true);
@@ -139,6 +145,7 @@ test('verifyingCommandMatches: tests-pass matches common test runners', () => {
 
 test('verifyingCommandMatches: tests-pass does NOT match unrelated commands', () => {
   const kind: ClaimKind = 'tests-pass';
+
   expect(verifyingCommandMatches(kind, 'cat jest.config.js')).toBe(false);
   expect(verifyingCommandMatches(kind, 'ls tests/')).toBe(false);
   expect(verifyingCommandMatches(kind, 'rg "jest"')).toBe(false);
@@ -147,6 +154,7 @@ test('verifyingCommandMatches: tests-pass does NOT match unrelated commands', ()
 
 test('verifyingCommandMatches: lint-clean matches common linters', () => {
   const kind: ClaimKind = 'lint-clean';
+
   expect(verifyingCommandMatches(kind, 'eslint .')).toBe(true);
   expect(verifyingCommandMatches(kind, 'npx eslint src/')).toBe(true);
   expect(verifyingCommandMatches(kind, 'shellcheck -s bash foo.sh')).toBe(true);
@@ -162,6 +170,7 @@ test('verifyingCommandMatches: lint-clean does NOT match unrelated commands', ()
 
 test('verifyingCommandMatches: types-check matches common type checkers', () => {
   const kind: ClaimKind = 'types-check';
+
   expect(verifyingCommandMatches(kind, 'tsc --noEmit')).toBe(true);
   expect(verifyingCommandMatches(kind, 'pnpm run typecheck')).toBe(true);
   expect(verifyingCommandMatches(kind, 'mypy src/')).toBe(true);
@@ -204,6 +213,7 @@ test('partitionClaims: all claims verified when commands cover each kind', () =>
     { kind: 'lint-clean', phrase: 'eslint is happy' },
   ];
   const { verified, unverified } = partitionClaims(claims, ['npm test', 'eslint .']);
+
   expect(verified.length).toBe(2);
   expect(unverified.length).toBe(0);
 });
@@ -214,6 +224,7 @@ test('partitionClaims: claim with no matching command reports unverified', () =>
     { kind: 'lint-clean', phrase: 'lint is clean' },
   ];
   const { verified, unverified } = partitionClaims(claims, ['npm test']); // no linter
+
   expect(verified.map((c) => c.kind)).toEqual(['tests-pass']);
   expect(unverified.map((c) => c.kind)).toEqual(['lint-clean']);
 });
@@ -221,12 +232,14 @@ test('partitionClaims: claim with no matching command reports unverified', () =>
 test('partitionClaims: empty commands → everything unverified', () => {
   const claims: Claim[] = [{ kind: 'tests-pass', phrase: 'tests pass' }];
   const { verified, unverified } = partitionClaims(claims, []);
+
   expect(verified.length).toBe(0);
   expect(unverified.length).toBe(1);
 });
 
 test('partitionClaims: empty claims → everything verified', () => {
   const { verified, unverified } = partitionClaims([], ['npm test']);
+
   expect(verified.length).toBe(0);
   expect(unverified.length).toBe(0);
 });
@@ -243,6 +256,7 @@ test('buildSteer: empty unverified list → empty string', () => {
 
 test('buildSteer: single claim → single-quoted steer with marker and kind', () => {
   const s = buildSteer([{ kind: 'tests-pass', phrase: 'all tests pass' }], MARKER);
+
   expect(s).toMatch(new RegExp(MARKER.replace(/[[\]]/g, '\\$&')));
   expect(s).toMatch(/all tests pass/);
   expect(s).toMatch(/tests pass/);
@@ -258,6 +272,7 @@ test('buildSteer: multiple claims → bulleted list', () => {
     ],
     MARKER,
   );
+
   expect(s).toMatch(/several verification claims/i);
   expect(s).toMatch(/tests pass/);
   expect(s).toMatch(/lint is clean/);
@@ -267,6 +282,7 @@ test('buildSteer: multiple claims → bulleted list', () => {
 test('buildSteer: very long phrases get truncated', () => {
   const phrase = 'tests pass ' + 'x'.repeat(500);
   const s = buildSteer([{ kind: 'tests-pass', phrase }], MARKER);
+
   expect(s.length).toBeLessThan(400);
   expect(s).toMatch(/…/);
 });
@@ -308,6 +324,7 @@ const bashExec = (cmd: string): BranchEntry => ({
 test('collectBashCommandsSinceLastUser: picks bash toolCalls in assistant content', () => {
   const branch: BranchEntry[] = [user('do it'), assistantCall('npm test', 'eslint .')];
   const out = collectBashCommandsSinceLastUser(branch);
+
   expect(new Set(out)).toEqual(new Set(['npm test', 'eslint .']));
 });
 
@@ -318,16 +335,19 @@ test('collectBashCommandsSinceLastUser: stops at the most recent user message', 
     user('new prompt'),
     assistantCall('npm test'),
   ];
+
   expect(collectBashCommandsSinceLastUser(branch)).toEqual(['npm test']);
 });
 
 test('collectBashCommandsSinceLastUser: picks up bash tool-result input.command', () => {
   const branch: BranchEntry[] = [user('do it'), toolResult('pytest -q')];
+
   expect(collectBashCommandsSinceLastUser(branch)).toEqual(['pytest -q']);
 });
 
 test('collectBashCommandsSinceLastUser: picks up bashExecution entries', () => {
   const branch: BranchEntry[] = [user('do it'), bashExec('./dev/lint.sh')];
+
   expect(collectBashCommandsSinceLastUser(branch)).toEqual(['./dev/lint.sh']);
 });
 
@@ -345,6 +365,7 @@ test('collectBashCommandsSinceLastUser: ignores non-bash tool calls', () => {
       },
     },
   ];
+
   expect(collectBashCommandsSinceLastUser(branch)).toEqual(['npm test']);
 });
 
@@ -356,6 +377,7 @@ test('collectBashCommandsSinceLastUser: no user message yet → scans everything
   // Edge case: extension fires before the first user turn finishes
   // persisting. We still collect whatever bash calls we can see.
   const branch: BranchEntry[] = [assistantCall('npm test')];
+
   expect(collectBashCommandsSinceLastUser(branch)).toEqual(['npm test']);
 });
 
@@ -382,6 +404,7 @@ test('extractLastAssistantText: array content concatenates text parts', () => {
       ],
     },
   ]);
+
   expect(out).toBe('line 1\nline 2');
 });
 
@@ -414,16 +437,19 @@ test('extractLastAssistantText: no assistant message → empty', () => {
 
 test('lastUserMessageHasMarker: marker on latest user message → true', () => {
   const branch: BranchEntry[] = [user(`${MARKER} hello`)];
+
   expect(lastUserMessageHasMarker(branch, MARKER)).toBe(true);
 });
 
 test('lastUserMessageHasMarker: marker missing → false', () => {
   const branch: BranchEntry[] = [user('hello')];
+
   expect(lastUserMessageHasMarker(branch, MARKER)).toBe(false);
 });
 
 test('lastUserMessageHasMarker: only the MOST RECENT user message is checked', () => {
   const branch: BranchEntry[] = [user(`${MARKER} old nudge`), assistantCall('x'), user('fresh prompt')];
+
   expect(lastUserMessageHasMarker(branch, MARKER)).toBe(false);
 });
 
@@ -439,5 +465,6 @@ test('lastUserMessageHasMarker: string-content user messages too', () => {
       message: { role: 'user', content: `${MARKER} inline` },
     },
   ];
+
   expect(lastUserMessageHasMarker(branch, MARKER)).toBe(true);
 });

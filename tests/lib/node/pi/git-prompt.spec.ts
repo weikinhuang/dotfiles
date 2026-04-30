@@ -80,6 +80,7 @@ test('resolveGitPromptScript: resolves symlinks so ~/.dotfiles -> real repo work
   }
 
   const linkedExtDir = join(linked, 'config/pi/extensions');
+
   // Resolved via realpath, so result is the canonical path inside <repo>.
   expect(resolveGitPromptScript(linkedExtDir)).toBe(scriptPath);
 });

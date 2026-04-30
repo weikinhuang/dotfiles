@@ -93,6 +93,7 @@ test('snapshotFromAssistantMessage: returns null for non-assistant roles', () =>
 
 test('snapshotFromAssistantMessage: string content', () => {
   const s = snapshotFromAssistantMessage({ role: 'assistant', content: 'hello world' });
+
   expect(s).toEqual({ text: 'hello world', toolCallCount: 0, error: undefined });
 });
 
@@ -104,6 +105,7 @@ test('snapshotFromAssistantMessage: array content with text parts', () => {
       { type: 'text', text: 'part 2' },
     ],
   });
+
   expect(s).toEqual({ text: 'part 1\npart 2', toolCallCount: 0, error: undefined });
 });
 
@@ -116,6 +118,7 @@ test('snapshotFromAssistantMessage: counts toolCall parts', () => {
       { type: 'toolCall', id: 'b', name: 'bash' },
     ],
   });
+
   expect(s).toEqual({ text: 'calling…', toolCallCount: 2, error: undefined });
 });
 
@@ -128,6 +131,7 @@ test('snapshotFromAssistantMessage: ignores unknown content part types', () => {
       { type: 'image', data: '…' },
     ],
   });
+
   expect(s).toEqual({ text: 'hi', toolCallCount: 0, error: undefined });
 });
 
@@ -137,11 +141,13 @@ test('snapshotFromAssistantMessage: picks up explicit error field', () => {
     content: '',
     error: 'upstream timeout',
   });
+
   expect(s).toEqual({ text: '', toolCallCount: 0, error: 'upstream timeout' });
 });
 
 test('snapshotFromAssistantMessage: empty assistant message produces empty snapshot', () => {
   const s = snapshotFromAssistantMessage({ role: 'assistant' });
+
   expect(s).toEqual({ text: '', toolCallCount: 0, error: undefined });
 });
 
@@ -165,6 +171,7 @@ test('lastAssistantSnapshot: picks the last assistant message in source order', 
     { message: { role: 'assistant', content: 'second response' } },
   ];
   const s = lastAssistantSnapshot(messages);
+
   expect(s?.text).toBe('second response');
 });
 
@@ -174,6 +181,7 @@ test('lastAssistantSnapshot: handles raw message objects too (no wrapper)', () =
     { role: 'assistant', content: 'a' },
   ];
   const s = lastAssistantSnapshot(messages);
+
   expect(s?.text).toBe('a');
 });
 
@@ -184,6 +192,7 @@ test('lastAssistantSnapshot: skips wrapper entries that are not messages', () =>
     { otherShape: true },
   ];
   const s = lastAssistantSnapshot(messages);
+
   expect(s?.text).toBe('target');
 });
 
@@ -193,6 +202,7 @@ test('lastAssistantSnapshot: skips wrapper entries that are not messages', () =>
 
 test('buildRetryMessage: empty reason carries marker, budget, and directive', () => {
   const m = buildRetryMessage({ kind: 'empty' }, 1, 2);
+
   expect(m).toMatch(/⟳ \[pi-stall-recovery\]/);
   expect(m).toMatch(/\(1\/2\)/);
   expect(m).toMatch(/produced no output/i);
@@ -201,6 +211,7 @@ test('buildRetryMessage: empty reason carries marker, budget, and directive', ()
 
 test('buildRetryMessage: error reason surfaces the error verbatim', () => {
   const m = buildRetryMessage({ kind: 'error', error: 'HTTP 429 rate limited' }, 2, 3);
+
   expect(m).toMatch(/⟳ \[pi-stall-recovery\]/);
   expect(m).toMatch(/\(2\/3\)/);
   expect(m).toMatch(/HTTP 429 rate limited/);
@@ -210,6 +221,7 @@ test('buildRetryMessage: error reason surfaces the error verbatim', () => {
 test('buildRetryMessage: error truncates very long error strings', () => {
   const long = 'x'.repeat(500);
   const m = buildRetryMessage({ kind: 'error', error: long }, 1, 2);
+
   expect(m.length, 'message should cap the embedded error').toBeLessThan(500);
   expect(m, 'truncation marker present').toMatch(/…/);
 });

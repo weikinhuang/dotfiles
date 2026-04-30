@@ -68,6 +68,7 @@ test('formatBudgetLine: below min-percent → null', () => {
 
 test('formatBudgetLine: neutral tone in 50–80% band', () => {
   const line = formatBudgetLine(usage(140_000, 200_000, 70));
+
   expect(line).toBeTruthy();
   expect(line!).toMatch(/70% used/);
   expect(line!).toMatch(/60k tokens left of 200k/);
@@ -79,6 +80,7 @@ test('formatBudgetLine: neutral tone in 50–80% band', () => {
 
 test('formatBudgetLine: "be efficient" tone in 80–90% band', () => {
   const line = formatBudgetLine(usage(170_000, 200_000, 85));
+
   expect(line).toBeTruthy();
   expect(line!).toMatch(/85% used/);
   expect(line!).toMatch(/Be efficient/i);
@@ -87,6 +89,7 @@ test('formatBudgetLine: "be efficient" tone in 80–90% band', () => {
 
 test('formatBudgetLine: critical tone at or above 90%', () => {
   const line = formatBudgetLine(usage(184_000, 200_000, 92));
+
   expect(line).toBeTruthy();
   expect(line!).toMatch(/92% used/);
   expect(line!).toMatch(/running out/i);
@@ -95,20 +98,24 @@ test('formatBudgetLine: critical tone at or above 90%', () => {
 
 test('formatBudgetLine: percent is rounded (integer) in the rendered string', () => {
   const line = formatBudgetLine(usage(125_500, 200_000, 62.75));
+
   expect(line!).toMatch(/63% used/);
 });
 
 test('formatBudgetLine: respects custom thresholds', () => {
   // Raise min to 60 → 55% is silent.
   expect(formatBudgetLine(usage(110_000, 200_000, 55), { minPercent: 60 })).toBe(null);
+
   // Lower critical to 70 → 75% triggers critical wording.
   const line = formatBudgetLine(usage(150_000, 200_000, 75), { criticalPercent: 70 });
+
   expect(line!).toMatch(/running out/i);
 });
 
 test('formatBudgetLine: tokens left is never negative', () => {
   // Malformed usage where tokens exceeds the window (clamping guard).
   const line = formatBudgetLine(usage(220_000, 200_000, 100));
+
   expect(line!).toMatch(/0 tokens left/);
 });
 

@@ -24,6 +24,7 @@ test('formatWorkingNotes: renders a simple ungrouped note list', () => {
       { id: 2, body: 'beta' },
     ]),
   )!;
+
   expect(out).toMatch(/## Working Notes/);
   expect(out).toMatch(/\*\*Notes\*\*/);
   expect(out).toMatch(/#1 alpha/);
@@ -41,13 +42,16 @@ test('formatWorkingNotes: groups notes by heading in first-seen order', () => {
     ]),
   )!;
   const idx = (needle: string): number => out.indexOf(needle);
+
   expect(idx('**decisions**')).toBeGreaterThanOrEqual(0);
   expect(idx('**paths**')).toBeGreaterThanOrEqual(0);
   expect(idx('**Notes**')).toBeGreaterThanOrEqual(0);
   // decisions header appears before paths header (first-seen order).
   expect(idx('**decisions**')).toBeLessThan(idx('**paths**'));
+
   // Grouped notes appear under the right header.
   const decisionsBlock = out.slice(idx('**decisions**'), idx('**paths**'));
+
   expect(decisionsBlock).toMatch(/#1 a/);
   expect(decisionsBlock).toMatch(/#3 c/);
   expect(decisionsBlock.includes('#2 b')).toBe(false);
@@ -60,6 +64,7 @@ test('formatWorkingNotes: soft cap truncates and emits trailer', () => {
     body: `note body ${i + 1} ` + 'x'.repeat(100),
   }));
   const out = formatWorkingNotes(state(notes))!;
+
   // Truncation trailer must mention skipped count and the tool hint.
   expect(out).toMatch(/more note\(s\) not shown/i);
   expect(out).toMatch(/scratchpad.*list/);
@@ -77,12 +82,14 @@ test('formatWorkingNotes: always renders at least one note even under a tiny cap
     ]),
     { maxChars: 200 },
   )!;
+
   expect(out).toMatch(/#1 first/);
 });
 
 test('formatWorkingNotes: enforces a 200-char floor on the cap', () => {
   // Passing an absurdly small cap should not produce an empty block.
   const out = formatWorkingNotes(state([{ id: 1, body: 'only note' }]), { maxChars: 10 })!;
+
   expect(out).toMatch(/#1 only note/);
 });
 
@@ -92,11 +99,13 @@ test('formatWorkingNotes: does NOT emit the "keep notes accurate" trailer when t
     body: `filler ${i + 1} ` + 'x'.repeat(100),
   }));
   const out = formatWorkingNotes(state(notes))!;
+
   expect(out).toMatch(/more note\(s\) not shown/i);
   expect(out).not.toMatch(/Keep these notes accurate/);
 });
 
 test('formatWorkingNotes: emits the guidance trailer when nothing is truncated', () => {
   const out = formatWorkingNotes(state([{ id: 1, body: 'x' }]))!;
+
   expect(out).toMatch(/Keep these notes accurate/);
 });

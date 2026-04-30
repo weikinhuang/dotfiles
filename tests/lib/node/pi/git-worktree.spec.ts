@@ -54,6 +54,7 @@ function setupLinkedWorktree(mainRepo: string, name: string, opts: { withCommond
 test('resolveWorktreeInfo: main worktree returns null worktreeName', () => {
   const repo = setupMainRepo();
   const info = resolveWorktreeInfo(repo);
+
   expect(info).toBeTruthy();
   expect(info!.worktreeName).toBe(null);
   expect(info!.repoDir).toBe(repo);
@@ -66,6 +67,7 @@ test('resolveWorktreeInfo: linked worktree exposes its name from .git/worktrees/
   const linked = setupLinkedWorktree(repo, 'feature-x');
 
   const info = resolveWorktreeInfo(linked);
+
   expect(info).toBeTruthy();
   expect(info!.worktreeName).toBe('feature-x');
   expect(info!.repoDir).toBe(linked);
@@ -84,6 +86,7 @@ test('resolveWorktreeInfo: linked worktree without a commondir file is treated c
   const linked = setupLinkedWorktree(repo, 'legacy', { withCommondir: false });
 
   const info = resolveWorktreeInfo(linked);
+
   expect(info).toBeTruthy();
   expect(info!.worktreeName).toBe(null);
   expect(info!.commonGitDir).toBe(info!.gitDir);
@@ -105,6 +108,7 @@ test('resolveWorktreeInfo: submodule cwd does NOT masquerade as a worktree', () 
   writeFileSync(join(submoduleRoot, '.git'), `gitdir: ${join(superRepo, '.git/modules/payments')}\n`);
 
   const info = resolveWorktreeInfo(submoduleRoot);
+
   expect(info).toBeTruthy();
   expect(info!.worktreeName).toBe(null);
 });
@@ -122,6 +126,7 @@ test('resolveWorktreeInfo: --separate-git-dir pointers are not treated as worktr
   writeFileSync(join(repoRoot, '.git'), `gitdir: ${separateGitDir}\n`);
 
   const info = resolveWorktreeInfo(repoRoot);
+
   expect(info).toBeTruthy();
   expect(info!.worktreeName).toBe(null);
 });
@@ -144,6 +149,7 @@ test('resolveWorktreeInfo: walks upward from a subdirectory to find .git', () =>
   mkdirSync(deep, { recursive: true });
 
   const info = resolveWorktreeInfo(deep);
+
   expect(info).toBeTruthy();
   expect(info!.repoDir).toBe(repo);
   expect(info!.worktreeName).toBe(null);
@@ -156,6 +162,7 @@ test('resolveWorktreeInfo: walks upward from inside a linked worktree subdir', (
   mkdirSync(deep, { recursive: true });
 
   const info = resolveWorktreeInfo(deep);
+
   expect(info).toBeTruthy();
   expect(info!.worktreeName).toBe('topic');
   expect(info!.repoDir).toBe(linked);
@@ -179,8 +186,10 @@ test('resolveWorktreeInfo: honors maxDepth', () => {
 
   // Too shallow to reach the repo's .git …
   expect(resolveWorktreeInfo(deep, 3)).toBe(null);
+
   // … but deep enough it succeeds.
   const info = resolveWorktreeInfo(deep, 32);
+
   expect(info).toBeTruthy();
   expect(info!.repoDir).toBe(repo);
 });

@@ -11,6 +11,7 @@ import { parseJsonc, stripJsonComments } from '../../../../lib/node/pi/jsonc.ts'
 
 test('stripJsonComments: pure JSON passes through unchanged', () => {
   const src = '{"a": 1, "b": [2, 3]}';
+
   expect(stripJsonComments(src)).toBe(src);
 });
 
@@ -31,6 +32,7 @@ test('stripJsonComments: block comments preserve embedded newlines', () => {
   // Three embedded newlines inside the block comment must survive.
   const originalNewlines = (src.match(/\n/g) ?? []).length;
   const strippedNewlines = (out.match(/\n/g) ?? []).length;
+
   expect(strippedNewlines).toBe(originalNewlines);
 });
 
@@ -46,12 +48,14 @@ test('stripJsonComments: // and /* inside strings are NOT stripped', () => {
 test('stripJsonComments: escaped quotes do not end strings early', () => {
   // `"a\"b // not a comment"` — the escaped quote keeps us inside the string.
   const src = '{"s": "a\\"b // still inside"}';
+
   expect(stripJsonComments(src)).toBe(src);
 });
 
 test('stripJsonComments: backslash-quote pairs inside a string', () => {
   // `{"s": "\\"}` — a single backslash then end-of-string. Must round-trip.
   const src = '{"s": "\\\\"}';
+
   expect(stripJsonComments(src)).toBe(src);
   // And the parsed value is the single-char backslash.
   expect(parseJsonc<{ s: string }>(src).s).toBe('\\');
@@ -79,6 +83,7 @@ test('stripJsonComments: adjacent comments', () => {
 
 test('parseJsonc: returns the same object as JSON.parse on pure JSON', () => {
   const src = '{"allow": ["git log*", "npm test"], "deny": ["rm -rf*"]}';
+
   expect(parseJsonc(src)).toEqual(JSON.parse(src));
 });
 
@@ -97,6 +102,7 @@ test('parseJsonc: realistic rule file with commentary', () => {
     ]
   }`;
   const parsed = parseJsonc<{ allow: string[]; deny: string[] }>(src);
+
   expect(parsed.allow).toEqual(['git log*', 'git diff*', 'npm test']);
   expect(parsed.deny).toEqual(['sudo*', 'rm -rf node_modules']);
 });
@@ -120,12 +126,17 @@ test('parseJsonc: parse-error line numbers line up with original source', () => 
   } catch (e) {
     caught = e;
   }
+
   expect(caught).toBeInstanceOf(SyntaxError);
+
   const stripped = stripJsonComments(src);
+
   // The stripped output has the same number of lines as the original.
   expect(stripped.split('\n').length).toBe(src.split('\n').length);
+
   // And the offending `nope` token is still on the same line index.
   const origLine = src.split('\n').findIndex((l) => l.includes('nope'));
   const strippedLine = stripped.split('\n').findIndex((l) => l.includes('nope'));
+
   expect(strippedLine).toBe(origLine);
 });

@@ -21,6 +21,7 @@ import {
 
 test('session-flags: default state is OFF', () => {
   setBashAutoEnabledA(false);
+
   expect(isBashAutoEnabledA()).toBe(false);
   expect(isBashAutoEnabledB()).toBe(false);
 });
@@ -33,10 +34,12 @@ test('session-flags: write in copy A is visible in copy B (globalThis singleton)
   expect(setBashAutoEnabledA).not.toBe(setBashAutoEnabledB);
 
   setBashAutoEnabledA(true);
+
   expect(isBashAutoEnabledA()).toBe(true);
   expect(isBashAutoEnabledB(), 'flag must cross module-instance boundary').toBe(true);
 
   setBashAutoEnabledB(false);
+
   expect(isBashAutoEnabledA(), 'write from copy B must reach copy A').toBe(false);
   expect(isBashAutoEnabledB()).toBe(false);
 });
@@ -44,7 +47,10 @@ test('session-flags: write in copy A is visible in copy B (globalThis singleton)
 test('session-flags: toggling is idempotent and boolean-coerced', () => {
   setBashAutoEnabledA(true);
   setBashAutoEnabledA(true);
+
   expect(isBashAutoEnabledB()).toBe(true);
+
   setBashAutoEnabledA(false);
+
   expect(isBashAutoEnabledB()).toBe(false);
 });

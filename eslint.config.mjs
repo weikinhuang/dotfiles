@@ -1,5 +1,6 @@
 import js from '@eslint/js';
 import json from '@eslint/json';
+import vitest from '@vitest/eslint-plugin';
 import { defineConfig, globalIgnores } from 'eslint/config';
 import eslintConfigPrettierConfigs from 'eslint-config-prettier';
 import eslintPluginImport from 'eslint-plugin-import';
@@ -159,6 +160,60 @@ export default defineConfig([
           allowExperimental: true,
         },
       ],
+    },
+  },
+
+  // Vitest rules
+  {
+    files: ['**/__tests__/**/*.[jt]s?(x)', '**/?(*.)+(spec|test).[jt]s?(x)'],
+    plugins: {
+      vitest,
+    },
+    rules: {
+      ...vitest.configs.recommended.rules,
+
+      '@typescript-eslint/no-unsafe-argument': 'off',
+      '@typescript-eslint/no-unsafe-call': 'off',
+      '@typescript-eslint/no-unsafe-member-access': 'off',
+      '@typescript-eslint/no-unsafe-return': 'off',
+      '@typescript-eslint/no-var-requires': 'off',
+
+      // 'node/no-missing-require': 'off',
+      // 'node/no-unpublished-import': 'off',
+      // 'node/no-unsupported-features/es-syntax': 'off',
+
+      'vitest/consistent-test-it': [
+        'error',
+        {
+          fn: 'test',
+        },
+      ],
+
+      'vitest/no-standalone-expect': 'error',
+      'vitest/no-conditional-expect': 'error',
+      'vitest/no-conditional-in-test': 'error',
+      'vitest/padding-around-after-all-blocks': 'error',
+      'vitest/padding-around-after-each-blocks': 'error',
+      'vitest/padding-around-before-all-blocks': 'error',
+      'vitest/padding-around-before-each-blocks': 'error',
+      'vitest/padding-around-all': 'error',
+      'vitest/prefer-hooks-in-order': 'error',
+    },
+    settings: {
+      vitest: {
+        typecheck: true,
+      },
+    },
+    languageOptions: {
+      globals: {
+        ...vitest.environments.env.globals,
+      },
+    },
+  },
+  {
+    files: ['vitest.shims.d.ts'],
+    rules: {
+      'spaced-comment': 'off',
     },
   },
 

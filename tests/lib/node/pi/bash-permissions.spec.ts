@@ -231,6 +231,7 @@ test('checkHardcodedDeny: unquoted keywords still fire when mixed with quoted st
   // invoked in production. Verify the full pipeline catches it.
   const cmd = 'echo "nuking" ; rm -rf /';
   const fires = splitCompound(cmd).some((sub) => checkHardcodedDeny(sub));
+
   expect(fires, 'rm -rf / sub-command should fire after splitCompound').toBeTruthy();
 });
 
@@ -297,6 +298,7 @@ test('maskQuotedRegions: unquoted backslash stays literal (line continuation)', 
 test('maskQuotedRegions: offsets and outer structure preserved', () => {
   const input = 'a "bcd" e';
   const out = maskQuotedRegions(input);
+
   expect(out.length).toBe(input.length);
   expect(out).toBe(`a "${NUL.repeat(3)}" e`);
 });
@@ -311,6 +313,7 @@ test('maskQuotedRegions: unclosed quote masks the remainder', () => {
 test('maskQuotedRegions: heredoc body is masked, opener and closer preserved', () => {
   const input = 'cat > notes.md <<EOF\nmkfs is bad\nEOF';
   const out = maskQuotedRegions(input);
+
   expect(out.length).toBe(input.length);
   // Opener (`cat > notes.md <<EOF`) and closing line (`\nEOF`) preserved;
   // body (`\nmkfs is bad`) replaced with NULs.
@@ -322,6 +325,7 @@ test('maskQuotedRegions: heredoc body is masked, opener and closer preserved', (
 test('maskQuotedRegions: quoted heredoc delimiter also masks body', () => {
   const input = "cat <<'END'\nmkfs.ext4\nEND";
   const out = maskQuotedRegions(input);
+
   expect(out.length).toBe(input.length);
   expect(checkHardcodedDeny(input)).toBe(null);
 });
@@ -329,6 +333,7 @@ test('maskQuotedRegions: quoted heredoc delimiter also masks body', () => {
 test('maskQuotedRegions: <<- dedent-style heredoc body is masked', () => {
   const input = 'cat <<-EOF\n\tmkfs is bad\n\tEOF';
   const out = maskQuotedRegions(input);
+
   expect(out.length).toBe(input.length);
   expect(checkHardcodedDeny(input)).toBe(null);
 });
@@ -338,6 +343,7 @@ test('maskQuotedRegions: here-string (<<<) is NOT treated as a heredoc', () => {
   // through literally and normal quote handling applies to its argument.
   const input = 'grep foo <<<"bar mkfs"';
   const out = maskQuotedRegions(input);
+
   // Argument inside double quotes IS masked by the quote handler.
   expect(out).toBe(`grep foo <<<"${NUL.repeat('bar mkfs'.length)}"`);
 });
@@ -345,6 +351,7 @@ test('maskQuotedRegions: here-string (<<<) is NOT treated as a heredoc', () => {
 test('maskQuotedRegions: unclosed heredoc masks the remainder', () => {
   const input = 'python3 <<EOF\nmkfs never closed';
   const out = maskQuotedRegions(input);
+
   expect(out.length).toBe(input.length);
   expect(checkHardcodedDeny(input)).toBe(null);
 });
@@ -355,6 +362,7 @@ test('maskQuotedRegions: heredoc with dangerous-looking CLOSING line still safe'
   // masked.
   const input = 'python3 <<EOF\nx = "EOF inside mkfs"\nEOF';
   const out = maskQuotedRegions(input);
+
   expect(out.length).toBe(input.length);
   expect(checkHardcodedDeny(input)).toBe(null);
 });
@@ -400,12 +408,14 @@ const emptyLayers = (): Layers => [
 
 test('decideSubcommand: prompts when no rules match and auto mode is off', () => {
   const d = decideSubcommand('some unknown cmd', emptyLayers());
+
   expect(d.kind).toBe('prompt');
 });
 
 test('decideSubcommand: explicit allow rule → allow', () => {
   const layers = emptyLayers();
   layers[2].rules.allow.push('npm test');
+
   expect(decideSubcommand('npm test', layers).kind).toBe('allow');
 });
 
@@ -413,12 +423,14 @@ test('decideSubcommand: explicit deny rule → block (with scope in reason)', ()
   const layers = emptyLayers();
   layers[1].rules.deny.push('rm -rf*');
   const d = decideSubcommand('rm -rf node_modules', layers) as BashDecision & { reason: string };
+
   expect(d.kind).toBe('block');
   expect(d.reason).toMatch(/project deny rule/);
 });
 
 test('decideSubcommand: hardcoded denylist → block (reason mentions built-in)', () => {
   const d = decideSubcommand('rm -rf /', emptyLayers()) as BashDecision & { reason: string };
+
   expect(d.kind).toBe('block');
   expect(d.reason).toMatch(/built-in denylist/);
 });
@@ -432,6 +444,7 @@ test('decideSubcommand: auto mode NEVER beats the hardcoded denylist', () => {
   const d = decideSubcommand('rm -rf /', emptyLayers(), { auto: true }) as BashDecision & {
     reason: string;
   };
+
   expect(d.kind).toBe('block');
   expect(d.reason).toMatch(/built-in denylist/);
 });
@@ -442,6 +455,7 @@ test('decideSubcommand: auto mode NEVER beats explicit deny rules', () => {
   const d = decideSubcommand('npm publish --access public', layers, { auto: true }) as BashDecision & {
     reason: string;
   };
+
   expect(d.kind).toBe('block');
   expect(d.reason).toMatch(/project deny rule/);
 });
@@ -453,6 +467,7 @@ test('decideSubcommand: deny beats allow within the same layer stack', () => {
   layers[2].rules.deny.push('git push*');
   layers[2].rules.allow.push('git push*');
   const d = decideSubcommand('git push origin main', layers) as BashDecision & { reason: string };
+
   expect(d.kind).toBe('block');
   expect(d.reason).toMatch(/user deny rule/);
 });
