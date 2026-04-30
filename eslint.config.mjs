@@ -217,7 +217,7 @@ export default defineConfig([
       },
     },
     rules: {
-      'import/no-unresolved': ['error', { ignore: ['^@mariozechner/'] }],
+      'import/no-unresolved': ['error', { ignore: ['^@mariozechner/', '^typebox$'] }],
     },
   },
 

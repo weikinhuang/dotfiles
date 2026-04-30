@@ -3,5 +3,6 @@
   "enableInstallTelemetry": false,
   "theme": "solarized-dark",
   "extensions": ["~/.dotfiles/config/pi/extensions"],
+  "skills": ["~/.dotfiles/config/pi/skills"],
   "themes": ["~/.dotfiles/config/pi/themes"]
 }

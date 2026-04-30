@@ -1,10 +1,8 @@
 # Tests for pi extensions
 
-Unit tests for the pure helpers under
-[`../extensions/lib/`](../extensions/lib). Pi-coupled glue (dialog options,
-`tool_call` handlers, command registration) stays in the top-level extension
-files; anything that can run without the pi runtime lives in `lib/` so it can
-be tested here with zero ceremony.
+Unit tests for the pure helpers under [`../extensions/lib/`](../extensions/lib). Pi-coupled glue (dialog options,
+`tool_call` handlers, command registration) stays in the top-level extension files; anything that can run without the pi
+runtime lives in `lib/` so it can be tested here with zero ceremony.
 
 ## Running
 
@@ -19,32 +17,30 @@ cd config/pi/tests && node --test
 node --test config/pi/tests/extensions/bash-permissions.test.ts
 ```
 
-Node 24's native TypeScript type-stripping means no toolchain is needed —
-`.ts` files load directly.
+Node 24's native TypeScript type-stripping means no toolchain is needed — `.ts` files load directly.
 
 ## Layout
 
-| Path | Tests |
-| --- | --- |
-| [`extensions/bash-permissions.test.ts`](./extensions/bash-permissions.test.ts) | `splitCompound`, `matchesPattern`, `checkHardcodedDeny`, `maskQuotedRegions`, `commandTokens`, `twoTokenPattern` from [`../extensions/lib/bash-match.ts`](../extensions/lib/bash-match.ts) |
-| [`extensions/git-prompt.test.ts`](./extensions/git-prompt.test.ts) | `resolveGitPromptScript` from [`../extensions/lib/git-prompt.ts`](../extensions/lib/git-prompt.ts); covers parent walk, `maxDepth`, symlink resolution, and the `$DOTFILES_ROOT` override |
-| [`extensions/git-worktree.test.ts`](./extensions/git-worktree.test.ts) | `resolveWorktreeInfo` from [`../extensions/lib/git-worktree.ts`](../extensions/lib/git-worktree.ts); covers main vs. linked worktrees, submodule + `--separate-git-dir` disambiguation, missing `commondir`, stale `gitdir:` pointers, subdir parent walk, and `maxDepth` |
-| [`extensions/jsonc.test.ts`](./extensions/jsonc.test.ts) | `stripJsonComments`, `parseJsonc` from [`../extensions/lib/jsonc.ts`](../extensions/lib/jsonc.ts) |
-| [`extensions/protected-paths.test.ts`](./extensions/protected-paths.test.ts) | `expandTilde`, `globToRegex`, `basenameOf`, `isInsideWorkspace`, `pathContainsSegment`, `isUnderPath`, `mergeRules`, `mergeConfigs`, `classify`, `classifyRead`, `classifyWrite` from [`../extensions/lib/paths.ts`](../extensions/lib/paths.ts) |
-| [`extensions/session-flags.test.ts`](./extensions/session-flags.test.ts) | `isBashAutoEnabled`, `setBashAutoEnabled` from [`../extensions/lib/session-flags.ts`](../extensions/lib/session-flags.ts); guards the `globalThis` singleton against pi's jiti-per-extension module duplication |
+| Path                                                                           | Tests                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| ------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`extensions/bash-permissions.test.ts`](./extensions/bash-permissions.test.ts) | `splitCompound`, `matchesPattern`, `checkHardcodedDeny`, `maskQuotedRegions`, `commandTokens`, `twoTokenPattern` from [`../extensions/lib/bash-match.ts`](../extensions/lib/bash-match.ts)                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| [`extensions/git-prompt.test.ts`](./extensions/git-prompt.test.ts)             | `resolveGitPromptScript` from [`../extensions/lib/git-prompt.ts`](../extensions/lib/git-prompt.ts); covers parent walk, `maxDepth`, symlink resolution, and the `$DOTFILES_ROOT` override                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| [`extensions/git-worktree.test.ts`](./extensions/git-worktree.test.ts)         | `resolveWorktreeInfo` from [`../extensions/lib/git-worktree.ts`](../extensions/lib/git-worktree.ts); covers main vs. linked worktrees, submodule + `--separate-git-dir` disambiguation, missing `commondir`, stale `gitdir:` pointers, subdir parent walk, and `maxDepth`                                                                                                                                                                                                                                                                                                                                           |
+| [`extensions/jsonc.test.ts`](./extensions/jsonc.test.ts)                       | `stripJsonComments`, `parseJsonc` from [`../extensions/lib/jsonc.ts`](../extensions/lib/jsonc.ts)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| [`extensions/protected-paths.test.ts`](./extensions/protected-paths.test.ts)   | `expandTilde`, `globToRegex`, `basenameOf`, `isInsideWorkspace`, `pathContainsSegment`, `isUnderPath`, `mergeRules`, `mergeConfigs`, `classify`, `classifyRead`, `classifyWrite` from [`../extensions/lib/paths.ts`](../extensions/lib/paths.ts)                                                                                                                                                                                                                                                                                                                                                                    |
+| [`extensions/session-flags.test.ts`](./extensions/session-flags.test.ts)       | `isBashAutoEnabled`, `setBashAutoEnabled` from [`../extensions/lib/session-flags.ts`](../extensions/lib/session-flags.ts); guards the `globalThis` singleton against pi's jiti-per-extension module duplication                                                                                                                                                                                                                                                                                                                                                                                                     |
+| [`extensions/todo-reducer.test.ts`](./extensions/todo-reducer.test.ts)         | `isTodoStateShape`, `stateFromEntry`, `reduceBranch`, and the pure action handlers (`actAdd`, `actStart`, `actReview`, `actComplete`, `actBlock`, `actReopen`, `actClear`, `actList`, `formatText`, `cloneState`) from [`../extensions/lib/todo-reducer.ts`](../extensions/lib/todo-reducer.ts); covers the independent at-most-one-`in_progress` / at-most-one-`review` invariants, the conditional `note`-required rule on `complete` from `in_progress`, review-parking semantics, note-clearing behavior, branch-reconstruction across tool-result + `customType` mirror entries, and malformed-entry tolerance |
+| [`extensions/todo-prompt.test.ts`](./extensions/todo-prompt.test.ts)           | `formatActivePlan`, `looksLikeCompletionClaim` from [`../extensions/lib/todo-prompt.ts`](../extensions/lib/todo-prompt.ts); covers empty/all-completed short-circuits, pending-item cap, the `in_progress → review → pending → blocked` section ordering, and the positive/negative classifier cases for “done” sign-off detection                                                                                                                                                                                                                                                                                  |
 
 ## Design
 
-- **Lib code is pure.** `config/pi/extensions/lib/*.ts` imports only from `node:*`
-  — never from `@mariozechner/pi-coding-agent`. That keeps tests hermetic and
-  lets the helpers be reused across extensions without pulling in pi types.
-- **Tests import from lib directly.** No mirroring, no jiti, no build step. If
-  a helper's behavior changes the tests see it immediately.
-- **Pi-coupled code stays in `config/pi/extensions/*.ts`.** Dialog flows,
-  `pi.on('tool_call', …)` handlers, and command registration are too
-  UI/runtime-bound to usefully unit-test without mocks; they're exercised
-  manually by running pi.
-- **Excluded from root `tsconfig.json` and the main eslint type-aware rules.**
-  These files resolve `@mariozechner/*` via pi's globally-installed package,
-  which the repo's TS project doesn't know about. The tests dir is covered by
-  the same ESLint override as the extensions dir in [`eslint.config.mjs`](../../../eslint.config.mjs).
+- **Lib code is pure.** `config/pi/extensions/lib/*.ts` imports only from `node:*` — never from
+  `@mariozechner/pi-coding-agent`. That keeps tests hermetic and lets the helpers be reused across extensions without
+  pulling in pi types.
+- **Tests import from lib directly.** No mirroring, no jiti, no build step. If a helper's behavior changes the tests see
+  it immediately.
+- **Pi-coupled code stays in `config/pi/extensions/*.ts`.** Dialog flows, `pi.on('tool_call', …)` handlers, and command
+  registration are too UI/runtime-bound to usefully unit-test without mocks; they're exercised manually by running pi.
+- **Excluded from root `tsconfig.json` and the main eslint type-aware rules.** These files resolve `@mariozechner/*` via
+  pi's globally-installed package, which the repo's TS project doesn't know about. The tests dir is covered by the same
+  ESLint override as the extensions dir in [`eslint.config.mjs`](../../../eslint.config.mjs).
