@@ -55,6 +55,7 @@ import { StringEnum } from '@mariozechner/pi-ai';
 import { type ExtensionAPI, type ExtensionContext, type Theme } from '@mariozechner/pi-coding-agent';
 import { matchesKey, Text, truncateToWidth } from '@mariozechner/pi-tui';
 import { Type } from 'typebox';
+import { truncate } from '../../../lib/node/pi/shared.ts';
 import { formatActivePlan, looksLikeCompletionClaim } from '../../../lib/node/pi/todo-prompt.ts';
 import {
   actAdd,
@@ -111,10 +112,6 @@ interface TodoDetails extends TodoState {
 // ──────────────────────────────────────────────────────────────────────
 // Helpers
 // ──────────────────────────────────────────────────────────────────────
-
-function truncate(s: string, n: number): string {
-  return s.length <= n ? s : `${s.slice(0, n - 1)}…`;
-}
 
 function renderTodoLine(t: Todo, theme: Theme): string {
   const marker =

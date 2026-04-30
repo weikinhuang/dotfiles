@@ -75,6 +75,30 @@ function parseHeredocOpener(
 }
 
 /**
+ * Locate the closing delimiter line of a heredoc whose body starts at
+ * `fromIndex`. The trailing `\n` (or EOF) is deliberately kept OUT of
+ * the closer match via a lookahead so the outer scanner still sees it
+ * and can split on it if needed.
+ *
+ * Returns the body length and closer length on success, or a sentinel
+ * `{ bodyLen: rest.length, closerLen: 0 }` when the heredoc is
+ * unclosed — in that case the caller should absorb the rest of the
+ * command as body.
+ */
+function findHeredocCloser(
+  command: string,
+  fromIndex: number,
+  stripTabs: boolean,
+  delim: string,
+): { bodyLen: number; closerLen: number } {
+  const closer = new RegExp(`\\n${stripTabs ? '\\t*' : ''}${escapeRegex(delim)}(?=\\n|$)`);
+  const rest = command.slice(fromIndex);
+  const m = closer.exec(rest);
+  if (!m) return { bodyLen: rest.length, closerLen: 0 };
+  return { bodyLen: m.index, closerLen: m[0].length };
+}
+
+/**
  * Split a compound command on top-level `&&`, `||`, `;`, and unquoted newlines.
  *
  * Heredoc bodies (`<<EOF ... EOF`, `<<'END' ... END`, `<<-EOF ... EOF`) are
@@ -139,21 +163,9 @@ export function splitCompound(command: string): string[] {
         buf += command.slice(i, hd.nextIndex);
         i = hd.nextIndex;
 
-        // Find closing delimiter line: \n[\t*?]DELIM(?=\n|$).
-        // The trailing `\n` (or EOF) is kept OUT of the match via lookahead
-        // so that the outer loop still sees it and splits on it.
-        const closer = new RegExp(`\\n${hd.stripTabs ? '\\t*' : ''}${escapeRegex(hd.delim)}(?=\\n|$)`);
-        const rest = command.slice(i);
-        const m = closer.exec(rest);
-        if (!m) {
-          // Unclosed heredoc — absorb the remainder as one blob.
-          buf += rest;
-          i = command.length;
-          continue;
-        }
-        const endOfCloser = i + m.index + m[0].length;
-        buf += command.slice(i, endOfCloser);
-        i = endOfCloser;
+        const { bodyLen, closerLen } = findHeredocCloser(command, i, hd.stripTabs, hd.delim);
+        buf += command.slice(i, i + bodyLen + closerLen);
+        i += bodyLen + closerLen;
         continue;
       }
       // Unresolvable delimiter (e.g. `<<$VAR`) — fall through to normal scanning.
@@ -407,19 +419,10 @@ export function maskQuotedRegions(command: string): string {
         out += command.slice(i, hd.nextIndex);
         i = hd.nextIndex;
 
-        const closer = new RegExp(`\\n${hd.stripTabs ? '\\t*' : ''}${escapeRegex(hd.delim)}(?=\\n|$)`);
-        const rest = command.slice(i);
-        const m = closer.exec(rest);
-        if (!m) {
-          // Unclosed heredoc: mask the remainder conservatively.
-          out += '\0'.repeat(rest.length);
-          i = command.length;
-          continue;
-        }
-        const bodyLen = m.index;
+        const { bodyLen, closerLen } = findHeredocCloser(command, i, hd.stripTabs, hd.delim);
         out += '\0'.repeat(bodyLen);
-        out += command.slice(i + bodyLen, i + bodyLen + m[0].length);
-        i += bodyLen + m[0].length;
+        out += command.slice(i + bodyLen, i + bodyLen + closerLen);
+        i += bodyLen + closerLen;
         continue;
       }
       // Unresolvable delimiter (e.g. `<<$VAR`) — fall through to normal scanning.
@@ -519,6 +522,4 @@ export function twoTokenPattern(command: string): string | null {
   return usable ? `${tokens[0]} ${tokens[1]}*` : null;
 }
 
-export function truncate(s: string, n: number): string {
-  return s.length <= n ? s : `${s.slice(0, n - 1)}…`;
-}
+// Command-token helpers (used by the approval dialog to suggest rules)

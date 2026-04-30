@@ -83,11 +83,11 @@ import {
   type RuleFile,
   type Scope,
   splitCompound,
-  truncate,
   twoTokenPattern,
 } from '../../../lib/node/pi/bash-match.ts';
 import { parseJsonc } from '../../../lib/node/pi/jsonc.ts';
 import { setBashAutoEnabled } from '../../../lib/node/pi/session-flags.ts';
+import { truncate } from '../../../lib/node/pi/shared.ts';
 
 // ──────────────────────────────────────────────────────────────────────
 // Rule storage

@@ -70,6 +70,7 @@ import {
   type ScratchNote,
   type ScratchpadState,
 } from '../../../lib/node/pi/scratchpad-reducer.ts';
+import { truncate } from '../../../lib/node/pi/shared.ts';
 
 const MAX_INJECTED_CHARS_DEFAULT = 2000;
 
@@ -102,10 +103,6 @@ interface ScratchpadDetails extends ScratchpadState {
 // ──────────────────────────────────────────────────────────────────────
 // Helpers
 // ──────────────────────────────────────────────────────────────────────
-
-function truncate(s: string, n: number): string {
-  return s.length <= n ? s : `${s.slice(0, n - 1)}…`;
-}
 
 function renderNoteLine(n: ScratchNote, theme: Theme): string {
   const id = theme.fg('accent', `#${n.id}`);

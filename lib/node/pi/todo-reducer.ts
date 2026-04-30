@@ -24,6 +24,15 @@
  * get hard feedback instead of silent drift.
  */
 
+import {
+  type ActionError,
+  type ActionResult as GenericActionResult,
+  type ActionSuccess as GenericActionSuccess,
+  type BranchEntry as GenericBranchEntry,
+  findLatestStateInBranch,
+  stateFromEntryGeneric,
+} from './branch-state.ts';
+
 export type TodoStatus = 'pending' | 'in_progress' | 'review' | 'completed' | 'blocked';
 
 export interface Todo {
@@ -42,21 +51,8 @@ export interface TodoState {
 export const TODO_TOOL_NAME = 'todo';
 export const TODO_CUSTOM_TYPE = 'todo-state';
 
-/**
- * Minimal, duck-typed shape of a pi session entry. Real entries have more
- * fields; we only touch what we need so this module can stay pi-free and
- * the tests don't have to fabricate whole SessionManager objects.
- */
-export interface BranchEntry {
-  readonly type?: string;
-  readonly customType?: string;
-  readonly data?: unknown;
-  readonly message?: {
-    readonly role?: string;
-    readonly toolName?: string;
-    readonly details?: unknown;
-  };
-}
+/** Re-exported from `branch-state.ts` so callers (and tests) have a single import path per reducer module. */
+export type BranchEntry = GenericBranchEntry;
 
 export function emptyState(): TodoState {
   return { todos: [], nextId: 1 };
@@ -100,15 +96,7 @@ export function isTodoStateShape(value: unknown): value is TodoState {
  * entry isn't one of ours (or is malformed).
  */
 export function stateFromEntry(entry: BranchEntry): TodoState | null {
-  // Custom mirror: { type: 'custom', customType: 'todo-state', data: TodoState }
-  if (entry.type === 'custom' && entry.customType === TODO_CUSTOM_TYPE) {
-    return isTodoStateShape(entry.data) ? cloneState(entry.data) : null;
-  }
-  // Tool result: { type: 'message', message: { role: 'toolResult', toolName: 'todo', details: TodoState } }
-  if (entry.type === 'message' && entry.message?.role === 'toolResult' && entry.message.toolName === TODO_TOOL_NAME) {
-    return isTodoStateShape(entry.message.details) ? cloneState(entry.message.details) : null;
-  }
-  return null;
+  return stateFromEntryGeneric(entry, TODO_TOOL_NAME, TODO_CUSTOM_TYPE, isTodoStateShape, cloneState);
 }
 
 /**
@@ -116,11 +104,9 @@ export function stateFromEntry(entry: BranchEntry): TodoState | null {
  * snapshot found. Returns `emptyState()` if none exists.
  */
 export function reduceBranch(branch: readonly BranchEntry[]): TodoState {
-  for (let i = branch.length - 1; i >= 0; i--) {
-    const s = stateFromEntry(branch[i]);
-    if (s) return s;
-  }
-  return emptyState();
+  return (
+    findLatestStateInBranch(branch, TODO_TOOL_NAME, TODO_CUSTOM_TYPE, isTodoStateShape, cloneState) ?? emptyState()
+  );
 }
 
 // ──────────────────────────────────────────────────────────────────────
@@ -128,16 +114,9 @@ export function reduceBranch(branch: readonly BranchEntry[]): TodoState {
 // just dispatches to these, then mirrors the resulting state.
 // ──────────────────────────────────────────────────────────────────────
 
-export interface ActionSuccess {
-  ok: true;
-  state: TodoState;
-  summary: string;
-}
-export interface ActionError {
-  ok: false;
-  error: string;
-}
-export type ActionResult = ActionSuccess | ActionError;
+export type ActionSuccess = GenericActionSuccess<TodoState>;
+export type { ActionError };
+export type ActionResult = GenericActionResult<TodoState>;
 
 function findTodo(state: TodoState, id: number): Todo | undefined {
   return state.todos.find((t) => t.id === id);

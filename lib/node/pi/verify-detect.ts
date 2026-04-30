@@ -36,6 +36,8 @@
  *      doesn't already carry the marker.
  */
 
+import { truncate } from './shared.ts';
+
 /** The categories of claim we recognize. */
 export type ClaimKind = 'tests-pass' | 'lint-clean' | 'types-check' | 'build-clean' | 'format-clean' | 'ci-green';
 
@@ -313,11 +315,6 @@ const HUMAN_KIND: Record<ClaimKind, string> = {
   'ci-green': 'CI is green',
 };
 
-function truncatePhrase(s: string, n: number): string {
-  const t = s.trim();
-  return t.length <= n ? t : `${t.slice(0, n - 1)}…`;
-}
-
 /**
  * Build the follow-up user message for the extension to inject when
  * claims go unverified. Carries `marker` as a sentinel so the extension
@@ -329,12 +326,12 @@ export function buildSteer(unverified: readonly Claim[], marker: string): string
   if (unverified.length === 1) {
     const c = unverified[0];
     parts.push(
-      `You claimed "${truncatePhrase(c.phrase, 80)}" (${HUMAN_KIND[c.kind]}), but I don't see a tool call that would have verified it in this turn.`,
+      `You claimed "${truncate(c.phrase, 80, { trim: true })}" (${HUMAN_KIND[c.kind]}), but I don't see a tool call that would have verified it in this turn.`,
     );
   } else {
     parts.push("You made several verification claims I can't cross-check against your tool calls in this turn:");
     for (const c of unverified) {
-      parts.push(`  - ${HUMAN_KIND[c.kind]} — "${truncatePhrase(c.phrase, 80)}"`);
+      parts.push(`  - ${HUMAN_KIND[c.kind]} — "${truncate(c.phrase, 80, { trim: true })}"`);
     }
   }
   parts.push(

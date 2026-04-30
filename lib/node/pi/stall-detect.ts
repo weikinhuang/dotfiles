@@ -21,6 +21,8 @@
  * orthogonal and compose naturally.
  */
 
+import { truncate } from './shared.ts';
+
 /** What kind of stall we detected. */
 export type StallReason = { kind: 'empty' } | { kind: 'error'; error: string };
 
@@ -114,10 +116,6 @@ export function lastAssistantSnapshot(messages: readonly unknown[]): AssistantSn
 
 /** Sentinel prefix identifying messages this extension synthesized. */
 export const STALL_MARKER = '⟳ [pi-stall-recovery]';
-
-function truncate(s: string, n: number): string {
-  return s.length <= n ? s : `${s.slice(0, n - 1)}…`;
-}
 
 /**
  * Build the follow-up user message injected into the session to kick the

@@ -23,6 +23,16 @@
  * headings are absent the notes render as a flat bulleted list.
  */
 
+import {
+  type ActionError,
+  type ActionResult as GenericActionResult,
+  type ActionSuccess as GenericActionSuccess,
+  type BranchEntry as GenericBranchEntry,
+  findLatestStateInBranch,
+  stateFromEntryGeneric,
+} from './branch-state.ts';
+import { trimOrUndefined } from './shared.ts';
+
 export interface ScratchNote {
   id: number;
   /**
@@ -43,21 +53,8 @@ export interface ScratchpadState {
 export const SCRATCHPAD_TOOL_NAME = 'scratchpad';
 export const SCRATCHPAD_CUSTOM_TYPE = 'scratchpad-state';
 
-/**
- * Minimal, duck-typed shape of a pi session entry. Same convention as
- * `todo-reducer.ts`: only the fields we touch, so tests don't have to
- * fabricate a whole SessionManager.
- */
-export interface BranchEntry {
-  readonly type?: string;
-  readonly customType?: string;
-  readonly data?: unknown;
-  readonly message?: {
-    readonly role?: string;
-    readonly toolName?: string;
-    readonly details?: unknown;
-  };
-}
+/** Re-exported from `branch-state.ts` so callers (and tests) have a single import path per reducer module. */
+export type BranchEntry = GenericBranchEntry;
 
 export function emptyState(): ScratchpadState {
   return { notes: [], nextId: 1 };
@@ -92,17 +89,7 @@ export function isScratchpadStateShape(value: unknown): value is ScratchpadState
  * the entry isn't one of ours (or is malformed).
  */
 export function stateFromEntry(entry: BranchEntry): ScratchpadState | null {
-  if (entry.type === 'custom' && entry.customType === SCRATCHPAD_CUSTOM_TYPE) {
-    return isScratchpadStateShape(entry.data) ? cloneState(entry.data) : null;
-  }
-  if (
-    entry.type === 'message' &&
-    entry.message?.role === 'toolResult' &&
-    entry.message.toolName === SCRATCHPAD_TOOL_NAME
-  ) {
-    return isScratchpadStateShape(entry.message.details) ? cloneState(entry.message.details) : null;
-  }
-  return null;
+  return stateFromEntryGeneric(entry, SCRATCHPAD_TOOL_NAME, SCRATCHPAD_CUSTOM_TYPE, isScratchpadStateShape, cloneState);
 }
 
 /**
@@ -110,11 +97,10 @@ export function stateFromEntry(entry: BranchEntry): ScratchpadState | null {
  * snapshot found. Returns `emptyState()` if none exists.
  */
 export function reduceBranch(branch: readonly BranchEntry[]): ScratchpadState {
-  for (let i = branch.length - 1; i >= 0; i--) {
-    const s = stateFromEntry(branch[i]);
-    if (s) return s;
-  }
-  return emptyState();
+  return (
+    findLatestStateInBranch(branch, SCRATCHPAD_TOOL_NAME, SCRATCHPAD_CUSTOM_TYPE, isScratchpadStateShape, cloneState) ??
+    emptyState()
+  );
 }
 
 // ──────────────────────────────────────────────────────────────────────
@@ -122,25 +108,12 @@ export function reduceBranch(branch: readonly BranchEntry[]): ScratchpadState {
 // just dispatches to these, then mirrors the resulting state.
 // ──────────────────────────────────────────────────────────────────────
 
-export interface ActionSuccess {
-  ok: true;
-  state: ScratchpadState;
-  summary: string;
-}
-export interface ActionError {
-  ok: false;
-  error: string;
-}
-export type ActionResult = ActionSuccess | ActionError;
+export type ActionSuccess = GenericActionSuccess<ScratchpadState>;
+export type { ActionError };
+export type ActionResult = GenericActionResult<ScratchpadState>;
 
 function findNote(state: ScratchpadState, id: number): ScratchNote | undefined {
   return state.notes.find((n) => n.id === id);
-}
-
-function trimOrUndefined(s: string | undefined): string | undefined {
-  if (typeof s !== 'string') return undefined;
-  const t = s.trim();
-  return t.length > 0 ? t : undefined;
 }
 
 /**

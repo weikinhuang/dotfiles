@@ -39,6 +39,8 @@
  * so this module stays pure.
  */
 
+import { byteLen } from './shared.ts';
+
 export interface CondenseOptions {
   /** Byte cap on the final condensed output. Default 12 KB. */
   maxBytes?: number;
@@ -61,12 +63,6 @@ export interface CondenseResult {
   outputBytes: number;
   /** Final condensed output lines. */
   outputLines: number;
-}
-
-const BYTE_ENCODER = new TextEncoder();
-
-function byteLen(s: string): number {
-  return BYTE_ENCODER.encode(s).length;
 }
 
 /**
