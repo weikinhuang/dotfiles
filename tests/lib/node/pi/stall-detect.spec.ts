@@ -75,6 +75,40 @@ test('classifyAssistant: error trims whitespace', () => {
   expect(classifyAssistant(snap({ error: '  timeout  ' }))).toEqual({ kind: 'error', error: 'timeout' });
 });
 
+// User-initiated aborts (Ctrl+C) must NEVER be classified as a stall —
+// auto-retrying past them would fight the user. See
+// `StopReason` in `@mariozechner/pi-ai/types`.
+test('classifyAssistant: stopReason="aborted" with empty turn → not a stall', () => {
+  expect(classifyAssistant(snap({ stopReason: 'aborted' }))).toBe(null);
+});
+
+test('classifyAssistant: stopReason="aborted" outranks the error field (user cancel is not a transport failure)', () => {
+  expect(
+    classifyAssistant(
+      snap({
+        stopReason: 'aborted',
+        error: 'Request aborted by user',
+      }),
+    ),
+  ).toBe(null);
+});
+
+test('classifyAssistant: stopReason="aborted" with partial text → not a stall either', () => {
+  expect(
+    classifyAssistant(
+      snap({
+        stopReason: 'aborted',
+        text: 'I was about to say tests pa',
+      }),
+    ),
+  ).toBe(null);
+});
+
+test('classifyAssistant: other stopReasons do not suppress normal classification', () => {
+  expect(classifyAssistant(snap({ stopReason: 'stop' }))).toEqual({ kind: 'empty' });
+  expect(classifyAssistant(snap({ stopReason: 'error', error: 'boom' }))).toEqual({ kind: 'error', error: 'boom' });
+});
+
 // ──────────────────────────────────────────────────────────────────────
 // snapshotFromAssistantMessage
 // ──────────────────────────────────────────────────────────────────────
@@ -149,6 +183,43 @@ test('snapshotFromAssistantMessage: empty assistant message produces empty snaps
   const s = snapshotFromAssistantMessage({ role: 'assistant' });
 
   expect(s).toEqual({ text: '', toolCallCount: 0, error: undefined });
+});
+
+test('snapshotFromAssistantMessage: picks up stopReason when present', () => {
+  const s = snapshotFromAssistantMessage({
+    role: 'assistant',
+    content: '',
+    stopReason: 'aborted',
+    errorMessage: 'Request aborted by user',
+  });
+
+  expect(s).toEqual({
+    text: '',
+    toolCallCount: 0,
+    error: 'Request aborted by user',
+    stopReason: 'aborted',
+  });
+});
+
+test('snapshotFromAssistantMessage: prefers `error` over `errorMessage` when both present', () => {
+  const s = snapshotFromAssistantMessage({
+    role: 'assistant',
+    content: '',
+    error: 'legacy shape',
+    errorMessage: 'new shape',
+  });
+
+  expect(s?.error).toBe('legacy shape');
+});
+
+test('snapshotFromAssistantMessage: ignores non-string stopReason', () => {
+  const s = snapshotFromAssistantMessage({
+    role: 'assistant',
+    content: 'hi',
+    stopReason: 42,
+  });
+
+  expect(s?.stopReason).toBeUndefined();
 });
 
 // ──────────────────────────────────────────────────────────────────────

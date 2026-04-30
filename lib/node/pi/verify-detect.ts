@@ -418,8 +418,16 @@ export function collectBashCommandsSinceLastUser(branch: readonly BranchEntry[])
 export function extractLastAssistantText(messages: readonly unknown[]): string {
   for (let i = messages.length - 1; i >= 0; i--) {
     const wrapped = messages[i] as { message?: unknown };
-    const m = (wrapped?.message ?? messages[i]) as { role?: string; content?: unknown } | undefined;
+    const m = (wrapped?.message ?? messages[i]) as
+      | { role?: string; content?: unknown; stopReason?: unknown }
+      | undefined;
     if (m?.role !== 'assistant') continue;
+    // User hit Ctrl+C mid-response: the assistant text is a partial
+    // artifact, and scanning it for "tests pass" / "lint is clean"
+    // would produce false positives we'd then steer on. Treat aborted
+    // turns as if they had no text. Providers carry the signal as
+    // `stopReason === 'aborted'` (pi-agent-core ≥ recent).
+    if (m.stopReason === 'aborted') return '';
     if (typeof m.content === 'string') return m.content;
     if (Array.isArray(m.content)) {
       const parts: string[] = [];

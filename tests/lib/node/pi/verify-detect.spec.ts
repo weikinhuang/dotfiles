@@ -431,6 +431,39 @@ test('extractLastAssistantText: no assistant message → empty', () => {
   expect(extractLastAssistantText([{ role: 'user', content: 'hi' }])).toBe('');
 });
 
+// User hit Ctrl+C mid-response: the assistant text is a partial
+// artifact that may *look* like a claim (e.g. "tests pa"). Treat the
+// turn as having no text so we don't steer on interrupted output.
+test('extractLastAssistantText: stopReason="aborted" on string content → empty', () => {
+  expect(extractLastAssistantText([{ role: 'assistant', content: 'all tests pass', stopReason: 'aborted' }])).toBe('');
+});
+
+test('extractLastAssistantText: stopReason="aborted" on array content → empty', () => {
+  expect(
+    extractLastAssistantText([
+      {
+        role: 'assistant',
+        content: [{ type: 'text', text: 'lint is clean' }],
+        stopReason: 'aborted',
+      },
+    ]),
+  ).toBe('');
+});
+
+test('extractLastAssistantText: stopReason="aborted" on wrapped message → empty', () => {
+  expect(
+    extractLastAssistantText([
+      { message: { role: 'user', content: 'run the tests' } },
+      { message: { role: 'assistant', content: 'tests pass', stopReason: 'aborted' } },
+    ]),
+  ).toBe('');
+});
+
+test('extractLastAssistantText: non-aborted stopReasons do not suppress text', () => {
+  expect(extractLastAssistantText([{ role: 'assistant', content: 'done', stopReason: 'stop' }])).toBe('done');
+  expect(extractLastAssistantText([{ role: 'assistant', content: 'done', stopReason: 'toolUse' }])).toBe('done');
+});
+
 // ──────────────────────────────────────────────────────────────────────
 // lastUserMessageHasMarker
 // ──────────────────────────────────────────────────────────────────────

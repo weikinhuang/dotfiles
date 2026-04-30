@@ -39,14 +39,29 @@ export interface AssistantSnapshot {
   toolCallCount: number;
   /** Optional explicit error. Presence implies a failed turn. */
   error?: string;
+  /**
+   * Provider `stopReason` when available, e.g. `"stop"`, `"toolUse"`,
+   * `"length"`, `"error"`, or `"aborted"`. Carried through so the
+   * classifier can distinguish user-initiated aborts (Ctrl+C) from
+   * genuine stalls — we must NEVER treat an explicit user interrupt as
+   * something to auto-retry past.
+   */
+  stopReason?: string;
 }
 
 /**
  * Classify an assistant turn snapshot as a stall (returning a reason) or
- * normal (returning `null`). Order of checks matters: errors win over
- * emptiness so the retry message can surface the specific failure.
+ * normal (returning `null`). Order of checks matters:
+ *
+ *   1. User-initiated aborts (`stopReason === 'aborted'`) are never
+ *      stalls. Ctrl+C is an explicit request to stop; auto-retrying
+ *      past it would fight the user.
+ *   2. Errors win over emptiness so the retry message can surface the
+ *      specific failure.
+ *   3. Genuinely empty turns (no text + no tool calls) are stalls.
  */
 export function classifyAssistant(snap: AssistantSnapshot): StallReason | null {
+  if (snap.stopReason === 'aborted') return null;
   if (snap.error?.trim()) {
     return { kind: 'error', error: snap.error.trim() };
   }
@@ -68,7 +83,13 @@ export function classifyAssistant(snap: AssistantSnapshot): StallReason | null {
  */
 export function snapshotFromAssistantMessage(message: unknown): AssistantSnapshot | null {
   if (!message || typeof message !== 'object') return null;
-  const m = message as { role?: string; content?: unknown; error?: unknown };
+  const m = message as {
+    role?: string;
+    content?: unknown;
+    error?: unknown;
+    stopReason?: unknown;
+    errorMessage?: unknown;
+  };
   if (m.role !== 'assistant') return null;
 
   let text = '';
@@ -87,9 +108,13 @@ export function snapshotFromAssistantMessage(message: unknown): AssistantSnapsho
     text = parts.join('\n');
   }
 
-  const error = typeof m.error === 'string' ? m.error : undefined;
+  // Providers expose the failure reason under either `error` (older
+  // shapes) or `errorMessage` (pi-agent-core ≥ recent), paired with a
+  // `stopReason`. Accept both on the way in.
+  const error = typeof m.error === 'string' ? m.error : typeof m.errorMessage === 'string' ? m.errorMessage : undefined;
+  const stopReason = typeof m.stopReason === 'string' ? m.stopReason : undefined;
 
-  return { text, toolCallCount, error };
+  return { text, toolCallCount, error, stopReason };
 }
 
 /**
