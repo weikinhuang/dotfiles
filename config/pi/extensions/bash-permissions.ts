@@ -75,7 +75,13 @@
 import { mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
-import { type ExtensionAPI, type ExtensionContext } from '@mariozechner/pi-coding-agent';
+import { type ExtensionAPI } from '@mariozechner/pi-coding-agent';
+import {
+  type BashGateContext,
+  type BashGateDecision,
+  installBashGate,
+  uninstallBashGate,
+} from '../../../lib/node/pi/bash-gate.ts';
 import {
   type BashDecision,
   decideSubcommand,
@@ -193,7 +199,7 @@ type Decision =
   | { kind: 'allow-user-prefix'; pattern: string }
   | { kind: 'deny'; feedback?: string };
 
-async function askForPermission(ctx: ExtensionContext, command: string): Promise<Decision> {
+async function askForPermission(ctx: BashGateContext, command: string): Promise<Decision> {
   const trimmed = command.trimStart();
   const firstToken = trimmed.split(/[\s|&;<>()]/)[0] ?? command;
   const twoToken = twoTokenPattern(command);
@@ -253,7 +259,7 @@ type BatchDecision = { kind: 'allow-all-once' } | { kind: 'allow-all-session' } 
  * sub-commands. A single decision applies to all of them.
  */
 async function askForPermissionBatch(
-  ctx: ExtensionContext,
+  ctx: BashGateContext,
   fullCommand: string,
   unknown: string[],
 ): Promise<BatchDecision> {
@@ -325,15 +331,34 @@ export default function bashPermissions(pi: ExtensionAPI): void {
     sessionRules.deny.length = 0;
     sessionAuto = false;
     setBashAutoEnabled(false);
+    uninstallBashGate();
   });
 
-  pi.on('tool_call', async (event, ctx) => {
-    if (event.toolName !== 'bash') return undefined;
-    const command = String(event.input?.command ?? '').trim();
-    if (!command) return undefined;
+  /**
+   * Core gate function: apply the full allow/deny/hardcoded-deny/
+   * session-auto pipeline to `command` and return an allow/deny
+   * decision. Shared between:
+   *
+   *   - pi's built-in `bash` tool (via the `tool_call` handler below
+   *     which translates the result into `{ block, reason }`), and
+   *   - the `bg_bash` extension (which imports this via
+   *     `lib/node/pi/bash-gate.ts` → `requestBashApproval`).
+   *
+   * Session-level "allow this for the rest of the session" decisions
+   * made here automatically apply to both callers because `sessionRules`
+   * lives in this closure and both paths funnel through the same
+   * `gateBashCommand` invocation.
+   *
+   * `ctx` is typed structurally (not as `ExtensionContext`) so bg-bash,
+   * which imports via its own module copy under jiti, doesn't need to
+   * share a type symbol.
+   */
+  const gateBashCommand = async (command: string, ctx: BashGateContext): Promise<BashGateDecision> => {
+    const trimmed = command.trim();
+    if (!trimmed) return { allowed: true };
 
     const layers = loadLayers(ctx.cwd);
-    const subcommands = splitCompound(command);
+    const subcommands = splitCompound(trimmed);
 
     // Single pass: apply the full precedence ladder per sub-command.
     // decideSubcommand enforces the invariant that auto mode NEVER beats
@@ -343,19 +368,16 @@ export default function bashPermissions(pi: ExtensionAPI): void {
     for (const sub of subcommands) {
       const decision: BashDecision = decideSubcommand(sub, layers, { auto: sessionAuto });
       if (decision.kind === 'block') {
-        return {
-          block: true,
-          reason: `Blocked by ${decision.reason} (matched "${sub}")`,
-        };
+        return { allowed: false, reason: `Blocked by ${decision.reason} (matched "${sub}")` };
       }
       if (decision.kind === 'prompt') unknown.push(sub);
     }
-    if (unknown.length === 0) return undefined;
+    if (unknown.length === 0) return { allowed: true };
 
     if (!ctx.hasUI) {
-      if (defaultFallback === 'allow') return undefined;
+      if (defaultFallback === 'allow') return { allowed: true };
       return {
-        block: true,
+        allowed: false,
         reason:
           `No UI available for approval. Unknown command(s):\n  ${unknown.join('\n  ')}\n` +
           'Add a rule via /bash-allow or by editing ~/.pi/bash-permissions.json, ' +
@@ -365,28 +387,22 @@ export default function bashPermissions(pi: ExtensionAPI): void {
 
     // ≥2 unknowns → one coalesced prompt for the whole batch.
     if (unknown.length >= 2) {
-      const batch = await askForPermissionBatch(ctx, command, unknown);
+      const batch = await askForPermissionBatch(ctx, trimmed, unknown);
       if (batch.kind === 'deny') {
-        return {
-          block: true,
-          reason: batch.feedback ?? 'Blocked by user',
-        };
+        return { allowed: false, reason: batch.feedback ?? 'Blocked by user' };
       }
       if (batch.kind === 'allow-all-session') {
         for (const sub of unknown) sessionRules.allow.push(sub);
       }
       // allow-all-once: no persistence.
-      return undefined;
+      return { allowed: true };
     }
 
     // Exactly one unknown → rich dialog with save-rule options.
     const sub = unknown[0];
     const decision = await askForPermission(ctx, sub);
     if (decision.kind === 'deny') {
-      return {
-        block: true,
-        reason: decision.feedback ?? 'Blocked by user',
-      };
+      return { allowed: false, reason: decision.feedback ?? 'Blocked by user' };
     }
     switch (decision.kind) {
       case 'allow-once':
@@ -407,7 +423,22 @@ export default function bashPermissions(pi: ExtensionAPI): void {
         ctx.ui.notify(`Saved allow rule "${decision.pattern}" → ${USER_RULES_PATH}`, 'info');
         break;
     }
-    return undefined;
+    return { allowed: true };
+  };
+
+  // Publish the gate so sibling extensions (e.g. bg-bash) can route
+  // their own bash-equivalent payloads through the same approval
+  // pipeline. The slot lives on `globalThis`, see `lib/node/pi/bash-gate.ts`.
+  installBashGate(gateBashCommand);
+
+  pi.on('tool_call', async (event, ctx) => {
+    if (event.toolName !== 'bash') return undefined;
+    const command = String(event.input?.command ?? '').trim();
+    if (!command) return undefined;
+
+    const decision = await gateBashCommand(command, ctx);
+    if (decision.allowed) return undefined;
+    return { block: true, reason: decision.reason };
   });
 
   // ────────────────────────────────────────────────────────────────────
