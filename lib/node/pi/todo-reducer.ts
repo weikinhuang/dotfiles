@@ -1,7 +1,7 @@
 /**
  * Pure state types + reducer for the todo extension.
  *
- * No pi imports so this module can be unit-tested under plain `node --test`
+ * No pi imports so this module can be unit-tested under `vitest`
  * without the pi runtime.
  *
  * The reducer's job is to reconstruct todo state from the branch of session

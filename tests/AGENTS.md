@@ -1,12 +1,16 @@
 # Tests
 
-Bats test suite for the dotfiles. Tests run in Docker (`ubuntu:24.04`) for isolation. See root [AGENTS.md](../AGENTS.md) for project-wide conventions.
+Bats test suite for the dotfiles, plus a small vitest suite for TypeScript helpers under `lib/node/`. Bats tests run
+in Docker (`ubuntu:24.04`) for isolation. See root [AGENTS.md](../AGENTS.md) for project-wide conventions.
 
 ## Commands
 
 - `./dev/test-docker.sh tests/dotenv/bin/git-sync.bats` -- run a single test file
 - `./dev/test-docker.sh tests/dotenv/bin/` -- run all tests in a directory
 - `./dev/test-docker.sh -q` -- quiet mode, only failures and summary
+- `npm test` -- run the vitest suite (`tests/**/*.spec.ts`)
+- `npx vitest run tests/lib/node/pi/jsonc.spec.ts` -- run a single vitest spec
+- `npx vitest tests/lib/node/pi/jsonc.spec.ts` -- watch mode for a single spec
 
 ## Directory map
 
@@ -17,6 +21,7 @@ Bats test suite for the dotfiles. Tests run in Docker (`ubuntu:24.04`) for isola
 | `dotenv/lib/` | Tests for internal library functions |
 | `dotenv/{linux,darwin,wsl,wsl2,ssh}/` | Platform-specific tests |
 | `dotenv/{aliases,functions,exports,completion,prompt}.bats` | Tests for top-level dotenv layout files |
+| `lib/node/pi/` | Vitest specs for pure helpers under [`lib/node/pi/`](../lib/node/pi) (see [README](./lib/node/pi/README.md)) |
 
 ## Test file anatomy
 

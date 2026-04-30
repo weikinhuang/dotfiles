@@ -1,7 +1,7 @@
 /**
  * Pure helpers for the stall-recovery extension.
  *
- * No pi imports so this module can be unit-tested under plain `node --test`
+ * No pi imports so this module can be unit-tested under `vitest`
  * without the pi runtime.
  *
  * The extension's job is to detect when an agent turn ended without

@@ -1,16 +1,12 @@
 /**
  * Tests for lib/node/pi/todo-reducer.ts.
  *
- * Run:  node --test config/pi/tests/extensions/todo-reducer.test.ts
- *   or: node --test config/pi/tests/
- *
  * The lib module has zero pi dependencies so these tests run without the
  * pi runtime. Branch entries are duck-typed fakes with just the fields
  * the reducer actually inspects — no SessionManager mocking.
  */
 
-import assert from 'node:assert/strict';
-import { test } from 'node:test';
+import { expect, test } from 'vitest';
 import {
   actAdd,
   actBlock,
@@ -65,45 +61,44 @@ const mkUnrelatedToolResult = (): BranchEntry => ({
 // ──────────────────────────────────────────────────────────────────────
 
 test('isTodoStateShape: accepts valid empty state', () => {
-  assert.equal(isTodoStateShape({ todos: [], nextId: 1 }), true);
+  expect(isTodoStateShape({ todos: [], nextId: 1 })).toBe(true);
 });
 
 test('isTodoStateShape: accepts valid populated state', () => {
-  assert.equal(isTodoStateShape({ todos: [{ id: 1, text: 'x', status: 'pending' }], nextId: 2 }), true);
+  expect(isTodoStateShape({ todos: [{ id: 1, text: 'x', status: 'pending' }], nextId: 2 })).toBe(true);
 });
 
 test('isTodoStateShape: accepts note field', () => {
-  assert.equal(isTodoStateShape({ todos: [{ id: 1, text: 'x', status: 'blocked', note: 'why' }], nextId: 2 }), true);
+  expect(isTodoStateShape({ todos: [{ id: 1, text: 'x', status: 'blocked', note: 'why' }], nextId: 2 })).toBe(true);
 });
 
 test('isTodoStateShape: rejects non-object', () => {
-  assert.equal(isTodoStateShape(null), false);
-  assert.equal(isTodoStateShape(undefined), false);
-  assert.equal(isTodoStateShape('nope'), false);
-  assert.equal(isTodoStateShape(42), false);
+  expect(isTodoStateShape(null)).toBe(false);
+  expect(isTodoStateShape(undefined)).toBe(false);
+  expect(isTodoStateShape('nope')).toBe(false);
+  expect(isTodoStateShape(42)).toBe(false);
 });
 
 test('isTodoStateShape: rejects missing nextId', () => {
-  assert.equal(isTodoStateShape({ todos: [] }), false);
+  expect(isTodoStateShape({ todos: [] })).toBe(false);
 });
 
 test('isTodoStateShape: rejects non-array todos', () => {
-  assert.equal(isTodoStateShape({ todos: 'x', nextId: 1 }), false);
+  expect(isTodoStateShape({ todos: 'x', nextId: 1 })).toBe(false);
 });
 
 test('isTodoStateShape: accepts review status', () => {
-  assert.equal(
-    isTodoStateShape({ todos: [{ id: 1, text: 'x', status: 'review', note: 'awaiting ci' }], nextId: 2 }),
+  expect(isTodoStateShape({ todos: [{ id: 1, text: 'x', status: 'review', note: 'awaiting ci' }], nextId: 2 })).toBe(
     true,
   );
 });
 
 test('isTodoStateShape: rejects bad status', () => {
-  assert.equal(isTodoStateShape({ todos: [{ id: 1, text: 'x', status: 'doing' }], nextId: 2 }), false);
+  expect(isTodoStateShape({ todos: [{ id: 1, text: 'x', status: 'doing' }], nextId: 2 })).toBe(false);
 });
 
 test('isTodoStateShape: rejects non-string note', () => {
-  assert.equal(isTodoStateShape({ todos: [{ id: 1, text: 'x', status: 'pending', note: 42 }], nextId: 2 }), false);
+  expect(isTodoStateShape({ todos: [{ id: 1, text: 'x', status: 'pending', note: 42 }], nextId: 2 })).toBe(false);
 });
 
 // ──────────────────────────────────────────────────────────────────────
@@ -111,9 +106,9 @@ test('isTodoStateShape: rejects non-string note', () => {
 // ──────────────────────────────────────────────────────────────────────
 
 test('stateFromEntry: returns null for unrelated entries', () => {
-  assert.equal(stateFromEntry(mkAssistant()), null);
-  assert.equal(stateFromEntry(mkUnrelatedToolResult()), null);
-  assert.equal(stateFromEntry({}), null);
+  expect(stateFromEntry(mkAssistant())).toBe(null);
+  expect(stateFromEntry(mkUnrelatedToolResult())).toBe(null);
+  expect(stateFromEntry({})).toBe(null);
 });
 
 test('stateFromEntry: returns null when tool-result details is malformed', () => {
@@ -121,39 +116,37 @@ test('stateFromEntry: returns null when tool-result details is malformed', () =>
     type: 'message',
     message: { role: 'toolResult', toolName: TODO_TOOL_NAME, details: { garbage: true } },
   };
-  assert.equal(stateFromEntry(entry), null);
+  expect(stateFromEntry(entry)).toBe(null);
 });
 
 test('stateFromEntry: returns null when custom data is malformed', () => {
   const entry: BranchEntry = { type: 'custom', customType: TODO_CUSTOM_TYPE, data: 'nope' };
-  assert.equal(stateFromEntry(entry), null);
+  expect(stateFromEntry(entry)).toBe(null);
 });
 
 test('stateFromEntry: extracts state from tool-result details', () => {
   const s = mkState([{ id: 1, text: 'a', status: 'pending' }]);
-  const out = stateFromEntry(mkToolResult(s));
-  assert.deepEqual(out, s);
+  expect(stateFromEntry(mkToolResult(s))).toEqual(s);
 });
 
 test('stateFromEntry: extracts state from custom mirror', () => {
   const s = mkState([{ id: 7, text: 'z', status: 'completed' }], 8);
-  const out = stateFromEntry(mkCustom(s));
-  assert.deepEqual(out, s);
+  expect(stateFromEntry(mkCustom(s))).toEqual(s);
 });
 
 test('stateFromEntry: returns a clone, not the same reference', () => {
   const s = mkState([{ id: 1, text: 'a', status: 'pending' }]);
   const out = stateFromEntry(mkToolResult(s))!;
-  out.todos[0]!.text = 'mutated';
-  assert.equal(s.todos[0]!.text, 'a');
+  out.todos[0].text = 'mutated';
+  expect(s.todos[0].text).toBe('a');
 });
 
 test('reduceBranch: empty branch returns empty state', () => {
-  assert.deepEqual(reduceBranch([]), emptyState());
+  expect(reduceBranch([])).toEqual(emptyState());
 });
 
 test('reduceBranch: skips entries with no valid snapshot', () => {
-  assert.deepEqual(reduceBranch([mkAssistant(), mkUnrelatedToolResult(), mkAssistant()]), emptyState());
+  expect(reduceBranch([mkAssistant(), mkUnrelatedToolResult(), mkAssistant()])).toEqual(emptyState());
 });
 
 test('reduceBranch: picks the last tool-result snapshot on the branch', () => {
@@ -162,21 +155,21 @@ test('reduceBranch: picks the last tool-result snapshot on the branch', () => {
     { id: 1, text: 'a', status: 'completed' },
     { id: 2, text: 'b', status: 'pending' },
   ]);
-  assert.deepEqual(reduceBranch([mkToolResult(first), mkAssistant(), mkToolResult(last), mkAssistant()]), last);
+  expect(reduceBranch([mkToolResult(first), mkAssistant(), mkToolResult(last), mkAssistant()])).toEqual(last);
 });
 
 test('reduceBranch: falls back to custom mirror when only it exists (post-compaction)', () => {
   const s = mkState([{ id: 3, text: 'y', status: 'in_progress' }], 4);
-  assert.deepEqual(reduceBranch([mkAssistant(), mkCustom(s), mkAssistant()]), s);
+  expect(reduceBranch([mkAssistant(), mkCustom(s), mkAssistant()])).toEqual(s);
 });
 
 test('reduceBranch: later entry wins regardless of kind', () => {
   const older = mkState([{ id: 1, text: 'old', status: 'pending' }]);
   const newer = mkState([{ id: 1, text: 'new', status: 'completed' }]);
   // tool-result older, custom newer
-  assert.deepEqual(reduceBranch([mkToolResult(older), mkCustom(newer)]), newer);
+  expect(reduceBranch([mkToolResult(older), mkCustom(newer)])).toEqual(newer);
   // custom older, tool-result newer
-  assert.deepEqual(reduceBranch([mkCustom(older), mkToolResult(newer)]), newer);
+  expect(reduceBranch([mkCustom(older), mkToolResult(newer)])).toEqual(newer);
 });
 
 test('reduceBranch: ignores malformed entries and keeps scanning', () => {
@@ -185,7 +178,7 @@ test('reduceBranch: ignores malformed entries and keeps scanning', () => {
     type: 'message',
     message: { role: 'toolResult', toolName: TODO_TOOL_NAME, details: { garbage: true } },
   };
-  assert.deepEqual(reduceBranch([mkToolResult(good), bad]), good);
+  expect(reduceBranch([mkToolResult(good), bad])).toEqual(good);
 });
 
 // ──────────────────────────────────────────────────────────────────────
@@ -194,74 +187,65 @@ test('reduceBranch: ignores malformed entries and keeps scanning', () => {
 
 test('actAdd: single text', () => {
   const r = actAdd(emptyState(), 'first', undefined);
-  assert.equal(r.ok, true);
+  expect(r.ok).toBe(true);
   if (r.ok) {
-    assert.equal(r.state.todos.length, 1);
-    assert.deepEqual(r.state.todos[0], { id: 1, text: 'first', status: 'pending' });
-    assert.equal(r.state.nextId, 2);
-    assert.match(r.summary, /#1/);
+    expect(r.state.todos.length).toBe(1);
+    expect(r.state.todos[0]).toEqual({ id: 1, text: 'first', status: 'pending' });
+    expect(r.state.nextId).toBe(2);
+    expect(r.summary).toMatch(/#1/);
   }
 });
 
 test('actAdd: items array', () => {
   const r = actAdd(emptyState(), undefined, ['a', 'b', 'c']);
-  assert.equal(r.ok, true);
+  expect(r.ok).toBe(true);
   if (r.ok) {
-    assert.deepEqual(
-      r.state.todos.map((t) => t.id),
-      [1, 2, 3],
-    );
-    assert.equal(r.state.nextId, 4);
+    expect(r.state.todos.map((t) => t.id)).toEqual([1, 2, 3]);
+    expect(r.state.nextId).toBe(4);
   }
 });
 
 test('actAdd: text + items combine, text first', () => {
   const r = actAdd(emptyState(), 'solo', ['one', 'two']);
-  assert.equal(r.ok, true);
+  expect(r.ok).toBe(true);
   if (r.ok) {
-    assert.deepEqual(
-      r.state.todos.map((t) => t.text),
-      ['solo', 'one', 'two'],
-    );
+    expect(r.state.todos.map((t) => t.text)).toEqual(['solo', 'one', 'two']);
   }
 });
 
 test('actAdd: ids stay monotonic after intermediate completions', () => {
   const start = actAdd(emptyState(), undefined, ['a', 'b']);
-  assert.equal(start.ok, true);
+  expect(start.ok).toBe(true);
   if (!start.ok) return;
   const afterComplete = actComplete(start.state, 1, undefined);
-  assert.equal(afterComplete.ok, true);
+  expect(afterComplete.ok).toBe(true);
   if (!afterComplete.ok) return;
   const more = actAdd(afterComplete.state, 'c', undefined);
-  assert.equal(more.ok, true);
+  expect(more.ok).toBe(true);
   if (more.ok) {
-    assert.deepEqual(
-      more.state.todos.map((t) => t.id),
-      [1, 2, 3],
-    );
-    assert.equal(more.state.nextId, 4);
+    expect(more.state.todos.map((t) => t.id)).toEqual([1, 2, 3]);
+    expect(more.state.nextId).toBe(4);
   }
 });
 
 test('actAdd: trims whitespace, skips empty strings', () => {
   const r = actAdd(emptyState(), '  ', ['', '  valid  ', '   ']);
-  assert.equal(r.ok, true);
+  expect(r.ok).toBe(true);
   if (r.ok) {
-    assert.equal(r.state.todos.length, 1);
-    assert.equal(r.state.todos[0]!.text, 'valid');
+    expect(r.state.todos.length).toBe(1);
+    expect(r.state.todos[0].text).toBe('valid');
   }
 });
 
 test('actAdd: empty args returns error', () => {
   const r = actAdd(emptyState(), undefined, undefined);
-  assert.equal(r.ok, false);
-  if (!r.ok) assert.match(r.error, /text.*items/);
+  expect(r.ok).toBe(false);
+  if (!r.ok) expect(r.error).toMatch(/text.*items/);
 });
 
 test('actAdd: all-whitespace input returns error', () => {
   const r = actAdd(emptyState(), '   ', ['', '  ']);
-  assert.equal(r.ok, false);
+  expect(r.ok).toBe(false);
 });
 
 // ──────────────────────────────────────────────────────────────────────
@@ -270,301 +254,297 @@ test('actAdd: all-whitespace input returns error', () => {
 
 function seeded(): TodoState {
   const s = actAdd(emptyState(), undefined, ['first', 'second', 'third']);
-  assert.equal(s.ok, true);
+  expect(s.ok).toBe(true);
   return s.ok ? s.state : emptyState();
 }
 
 test('actStart: marks pending todo in_progress', () => {
   const r = actStart(seeded(), 1);
-  assert.equal(r.ok, true);
-  if (r.ok) assert.equal(r.state.todos.find((t) => t.id === 1)!.status, 'in_progress');
+  expect(r.ok).toBe(true);
+  if (r.ok) expect(r.state.todos.find((t) => t.id === 1)!.status).toBe('in_progress');
 });
 
 test('actStart: enforces at-most-one in_progress invariant', () => {
   const after1 = actStart(seeded(), 1);
-  assert.equal(after1.ok, true);
+  expect(after1.ok).toBe(true);
   if (!after1.ok) return;
   const after2 = actStart(after1.state, 2);
-  assert.equal(after2.ok, false);
+  expect(after2.ok).toBe(false);
   if (!after2.ok) {
-    assert.match(after2.error, /#1.*in_progress/);
-    assert.match(after2.error, /complete|block|reopen/i);
+    expect(after2.error).toMatch(/#1.*in_progress/);
+    expect(after2.error).toMatch(/complete|block|reopen/i);
   }
 });
 
 test('actStart: idempotent when already in_progress', () => {
   const s1 = actStart(seeded(), 1);
-  assert.equal(s1.ok, true);
+  expect(s1.ok).toBe(true);
   if (!s1.ok) return;
   const s2 = actStart(s1.state, 1);
-  assert.equal(s2.ok, true);
-  if (s2.ok) assert.equal(s2.state.todos.find((t) => t.id === 1)!.status, 'in_progress');
+  expect(s2.ok).toBe(true);
+  if (s2.ok) expect(s2.state.todos.find((t) => t.id === 1)!.status).toBe('in_progress');
 });
 
 test('actStart: missing id returns error', () => {
   const r = actStart(seeded(), undefined);
-  assert.equal(r.ok, false);
+  expect(r.ok).toBe(false);
 });
 
 test('actStart: unknown id returns error', () => {
   const r = actStart(seeded(), 99);
-  assert.equal(r.ok, false);
-  if (!r.ok) assert.match(r.error, /#99/);
+  expect(r.ok).toBe(false);
+  if (!r.ok) expect(r.error).toMatch(/#99/);
 });
 
 test('actStart: clears prior note when (re)starting a blocked item after reopen', () => {
   const s = seeded();
   const blocked = actBlock(s, 1, 'network');
-  assert.equal(blocked.ok, true);
+  expect(blocked.ok).toBe(true);
   if (!blocked.ok) return;
   const reopened = actReopen(blocked.state, 1);
-  assert.equal(reopened.ok, true);
+  expect(reopened.ok).toBe(true);
   if (!reopened.ok) return;
   const started = actStart(reopened.state, 1);
-  assert.equal(started.ok, true);
-  if (started.ok) assert.equal(started.state.todos.find((t) => t.id === 1)!.note, undefined);
+  expect(started.ok).toBe(true);
+  if (started.ok) expect(started.state.todos.find((t) => t.id === 1)!.note).toBe(undefined);
 });
 
 test('actStart: transitions a review item back to in_progress (for more work)', () => {
   const started = actStart(seeded(), 1);
-  assert.equal(started.ok, true);
+  expect(started.ok).toBe(true);
   if (!started.ok) return;
   const parked = actReview(started.state, 1, 'waiting on tests');
-  assert.equal(parked.ok, true);
+  expect(parked.ok).toBe(true);
   if (!parked.ok) return;
   const restarted = actStart(parked.state, 1);
-  assert.equal(restarted.ok, true);
+  expect(restarted.ok).toBe(true);
   if (restarted.ok) {
     const t = restarted.state.todos.find((x) => x.id === 1)!;
-    assert.equal(t.status, 'in_progress');
-    assert.equal(t.note, undefined, 'start clears the review-era note');
+    expect(t.status).toBe('in_progress');
+    expect(t.note, 'start clears the review-era note').toBe(undefined);
   }
 });
 
 test('actStart: does not count a review item against the in_progress WIP limit', () => {
   const started = actStart(seeded(), 1);
-  assert.equal(started.ok, true);
+  expect(started.ok).toBe(true);
   if (!started.ok) return;
   const parked = actReview(started.state, 1, 'verifying');
-  assert.equal(parked.ok, true);
+  expect(parked.ok).toBe(true);
   if (!parked.ok) return;
   // #1 is in review (not in_progress), so starting #2 should succeed.
   const startTwo = actStart(parked.state, 2);
-  assert.equal(startTwo.ok, true);
+  expect(startTwo.ok).toBe(true);
   if (startTwo.ok) {
-    assert.equal(startTwo.state.todos.find((t) => t.id === 1)!.status, 'review');
-    assert.equal(startTwo.state.todos.find((t) => t.id === 2)!.status, 'in_progress');
+    expect(startTwo.state.todos.find((t) => t.id === 1)!.status).toBe('review');
+    expect(startTwo.state.todos.find((t) => t.id === 2)!.status).toBe('in_progress');
   }
 });
 
 // ──────────────────────────────────────────────────────────────────────
-// actComplete
-// ──────────────────────────────────────────────────────────────────────
-
-// ───────────────────────────────────────────────────────────────────────
 // actReview
-// ───────────────────────────────────────────────────────────────────────
+// ──────────────────────────────────────────────────────────────────────
 
 function startedSeed(id = 1): TodoState {
   const seed = seeded();
   const r = actStart(seed, id);
-  assert.equal(r.ok, true);
+  expect(r.ok).toBe(true);
   return r.ok ? r.state : seed;
 }
 
 test('actReview: transitions an in_progress item to review', () => {
   const r = actReview(startedSeed(1), 1, undefined);
-  assert.equal(r.ok, true);
-  if (r.ok) assert.equal(r.state.todos.find((t) => t.id === 1)!.status, 'review');
+  expect(r.ok).toBe(true);
+  if (r.ok) expect(r.state.todos.find((t) => t.id === 1)!.status).toBe('review');
 });
 
 test('actReview: stores trimmed optional note', () => {
   const r = actReview(startedSeed(1), 1, '  waiting on CI  ');
-  assert.equal(r.ok, true);
-  if (r.ok) assert.equal(r.state.todos.find((t) => t.id === 1)!.note, 'waiting on CI');
+  expect(r.ok).toBe(true);
+  if (r.ok) expect(r.state.todos.find((t) => t.id === 1)!.note).toBe('waiting on CI');
 });
 
 test('actReview: missing id returns error', () => {
   const r = actReview(startedSeed(1), undefined, undefined);
-  assert.equal(r.ok, false);
+  expect(r.ok).toBe(false);
 });
 
 test('actReview: unknown id returns error', () => {
   const r = actReview(startedSeed(1), 99, undefined);
-  assert.equal(r.ok, false);
-  if (!r.ok) assert.match(r.error, /#99/);
+  expect(r.ok).toBe(false);
+  if (!r.ok) expect(r.error).toMatch(/#99/);
 });
 
 test('actReview: rejects item in pending', () => {
   const r = actReview(seeded(), 1, undefined);
-  assert.equal(r.ok, false);
+  expect(r.ok).toBe(false);
   if (!r.ok) {
-    assert.match(r.error, /pending/);
-    assert.match(r.error, /start/);
+    expect(r.error).toMatch(/pending/);
+    expect(r.error).toMatch(/start/);
   }
 });
 
 test('actReview: rejects item in completed', () => {
   const done = actComplete(seeded(), 1, undefined);
-  assert.equal(done.ok, true);
+  expect(done.ok).toBe(true);
   if (!done.ok) return;
   const r = actReview(done.state, 1, undefined);
-  assert.equal(r.ok, false);
-  if (!r.ok) assert.match(r.error, /completed/);
+  expect(r.ok).toBe(false);
+  if (!r.ok) expect(r.error).toMatch(/completed/);
 });
 
 test('actReview: rejects item in blocked', () => {
   const b = actBlock(seeded(), 1, 'stuck');
-  assert.equal(b.ok, true);
+  expect(b.ok).toBe(true);
   if (!b.ok) return;
   const r = actReview(b.state, 1, undefined);
-  assert.equal(r.ok, false);
-  if (!r.ok) assert.match(r.error, /blocked/);
+  expect(r.ok).toBe(false);
+  if (!r.ok) expect(r.error).toMatch(/blocked/);
 });
 
 test('actReview: idempotent when already in review, updates note if provided', () => {
   const s1 = actReview(startedSeed(1), 1, 'first');
-  assert.equal(s1.ok, true);
+  expect(s1.ok).toBe(true);
   if (!s1.ok) return;
   const s2 = actReview(s1.state, 1, 'second');
-  assert.equal(s2.ok, true);
+  expect(s2.ok).toBe(true);
   if (s2.ok) {
-    assert.equal(s2.state.todos.find((t) => t.id === 1)!.status, 'review');
-    assert.equal(s2.state.todos.find((t) => t.id === 1)!.note, 'second');
+    expect(s2.state.todos.find((t) => t.id === 1)!.status).toBe('review');
+    expect(s2.state.todos.find((t) => t.id === 1)!.note).toBe('second');
   }
 });
 
 test('actReview: idempotent clears note when called with undefined', () => {
   const s1 = actReview(startedSeed(1), 1, 'first');
-  assert.equal(s1.ok, true);
+  expect(s1.ok).toBe(true);
   if (!s1.ok) return;
   const s2 = actReview(s1.state, 1, undefined);
-  assert.equal(s2.ok, true);
-  if (s2.ok) assert.equal(s2.state.todos.find((t) => t.id === 1)!.note, undefined);
+  expect(s2.ok).toBe(true);
+  if (s2.ok) expect(s2.state.todos.find((t) => t.id === 1)!.note).toBe(undefined);
 });
 
 test('actReview: enforces at-most-one review invariant', () => {
   // Park #1 in review.
   const s1 = startedSeed(1);
   const parked = actReview(s1, 1, undefined);
-  assert.equal(parked.ok, true);
+  expect(parked.ok).toBe(true);
   if (!parked.ok) return;
   // Start + try to review #2 while #1 is still in review.
   const started2 = actStart(parked.state, 2);
-  assert.equal(started2.ok, true);
+  expect(started2.ok).toBe(true);
   if (!started2.ok) return;
   const parked2 = actReview(started2.state, 2, undefined);
-  assert.equal(parked2.ok, false);
+  expect(parked2.ok).toBe(false);
   if (!parked2.ok) {
-    assert.match(parked2.error, /#1.*review/);
-    assert.match(parked2.error, /complete|reopen|block/i);
+    expect(parked2.error).toMatch(/#1.*review/);
+    expect(parked2.error).toMatch(/complete|reopen|block/i);
   }
 });
 
-// ───────────────────────────────────────────────────────────────────────
+// ──────────────────────────────────────────────────────────────────────
 // actComplete: note requirement from in_progress
-// ───────────────────────────────────────────────────────────────────────
+// ──────────────────────────────────────────────────────────────────────
 
 test('actComplete: requires note when transitioning directly from in_progress', () => {
   const r = actComplete(startedSeed(1), 1, undefined);
-  assert.equal(r.ok, false);
+  expect(r.ok).toBe(false);
   if (!r.ok) {
-    assert.match(r.error, /in_progress/);
-    assert.match(r.error, /note/);
-    assert.match(r.error, /review/);
+    expect(r.error).toMatch(/in_progress/);
+    expect(r.error).toMatch(/note/);
+    expect(r.error).toMatch(/review/);
   }
 });
 
 test('actComplete: requires non-whitespace note from in_progress', () => {
   const r = actComplete(startedSeed(1), 1, '   ');
-  assert.equal(r.ok, false);
+  expect(r.ok).toBe(false);
 });
 
 test('actComplete: succeeds from in_progress with evidence note', () => {
   const r = actComplete(startedSeed(1), 1, 'all 42 tests pass');
-  assert.equal(r.ok, true);
+  expect(r.ok).toBe(true);
   if (r.ok) {
     const t = r.state.todos.find((x) => x.id === 1)!;
-    assert.equal(t.status, 'completed');
-    assert.equal(t.note, 'all 42 tests pass');
+    expect(t.status).toBe('completed');
+    expect(t.note).toBe('all 42 tests pass');
   }
 });
 
 test('actComplete: does NOT require note when coming from review', () => {
   const s1 = startedSeed(1);
   const parked = actReview(s1, 1, 'ran tests, green');
-  assert.equal(parked.ok, true);
+  expect(parked.ok).toBe(true);
   if (!parked.ok) return;
   const r = actComplete(parked.state, 1, undefined);
-  assert.equal(r.ok, true, 'review parking counts as verification');
+  expect(r.ok, 'review parking counts as verification').toBe(true);
   if (r.ok) {
     const t = r.state.todos.find((x) => x.id === 1)!;
-    assert.equal(t.status, 'completed');
+    expect(t.status).toBe('completed');
     // undefined note on complete clears the review-era note
-    assert.equal(t.note, undefined);
+    expect(t.note).toBe(undefined);
   }
 });
 
 test('actComplete: accepts override note when coming from review', () => {
   const s1 = startedSeed(1);
   const parked = actReview(s1, 1, 'first');
-  assert.equal(parked.ok, true);
+  expect(parked.ok).toBe(true);
   if (!parked.ok) return;
   const r = actComplete(parked.state, 1, 'final: green on CI');
-  assert.equal(r.ok, true);
-  if (r.ok) assert.equal(r.state.todos.find((t) => t.id === 1)!.note, 'final: green on CI');
+  expect(r.ok).toBe(true);
+  if (r.ok) expect(r.state.todos.find((t) => t.id === 1)!.note).toBe('final: green on CI');
 });
 
 test('actComplete: id check precedes in_progress note check', () => {
   // Unknown id must return #id not found, not the in_progress-note error,
   // even when the note is missing.
   const r = actComplete(startedSeed(1), 99, undefined);
-  assert.equal(r.ok, false);
-  if (!r.ok) assert.match(r.error, /#99 not found/);
+  expect(r.ok).toBe(false);
+  if (!r.ok) expect(r.error).toMatch(/#99 not found/);
 });
 
-// ───────────────────────────────────────────────────────────────────────
+// ──────────────────────────────────────────────────────────────────────
 // actComplete (legacy: existing transitions)
-// ───────────────────────────────────────────────────────────────────────
+// ──────────────────────────────────────────────────────────────────────
 
 test('actComplete: marks todo completed', () => {
   const r = actComplete(seeded(), 2, undefined);
-  assert.equal(r.ok, true);
-  if (r.ok) assert.equal(r.state.todos.find((t) => t.id === 2)!.status, 'completed');
+  expect(r.ok).toBe(true);
+  if (r.ok) expect(r.state.todos.find((t) => t.id === 2)!.status).toBe('completed');
 });
 
 test('actComplete: stores optional note', () => {
   const r = actComplete(seeded(), 2, 'verified by tests');
-  assert.equal(r.ok, true);
-  if (r.ok) assert.equal(r.state.todos.find((t) => t.id === 2)!.note, 'verified by tests');
+  expect(r.ok).toBe(true);
+  if (r.ok) expect(r.state.todos.find((t) => t.id === 2)!.note).toBe('verified by tests');
 });
 
 test('actComplete: omitted note clears any prior note', () => {
   const blocked = actBlock(seeded(), 2, 'waiting');
-  assert.equal(blocked.ok, true);
+  expect(blocked.ok).toBe(true);
   if (!blocked.ok) return;
   const done = actComplete(blocked.state, 2, undefined);
-  assert.equal(done.ok, true);
-  if (done.ok) assert.equal(done.state.todos.find((t) => t.id === 2)!.note, undefined);
+  expect(done.ok).toBe(true);
+  if (done.ok) expect(done.state.todos.find((t) => t.id === 2)!.note).toBe(undefined);
 });
 
 test('actComplete: whitespace-only note clears prior note', () => {
   const b = actBlock(seeded(), 2, 'waiting');
-  assert.equal(b.ok, true);
+  expect(b.ok).toBe(true);
   if (!b.ok) return;
   const d = actComplete(b.state, 2, '   ');
-  assert.equal(d.ok, true);
-  if (d.ok) assert.equal(d.state.todos.find((t) => t.id === 2)!.note, undefined);
+  expect(d.ok).toBe(true);
+  if (d.ok) expect(d.state.todos.find((t) => t.id === 2)!.note).toBe(undefined);
 });
 
 test('actComplete: missing id returns error', () => {
   const r = actComplete(seeded(), undefined, undefined);
-  assert.equal(r.ok, false);
+  expect(r.ok).toBe(false);
 });
 
 test('actComplete: unknown id returns error', () => {
   const r = actComplete(seeded(), 99, undefined);
-  assert.equal(r.ok, false);
+  expect(r.ok).toBe(false);
 });
 
 // ──────────────────────────────────────────────────────────────────────
@@ -573,28 +553,28 @@ test('actComplete: unknown id returns error', () => {
 
 test('actBlock: requires note', () => {
   const r = actBlock(seeded(), 1, undefined);
-  assert.equal(r.ok, false);
-  if (!r.ok) assert.match(r.error, /note/);
+  expect(r.ok).toBe(false);
+  if (!r.ok) expect(r.error).toMatch(/note/);
 });
 
 test('actBlock: rejects whitespace-only note', () => {
   const r = actBlock(seeded(), 1, '   ');
-  assert.equal(r.ok, false);
+  expect(r.ok).toBe(false);
 });
 
 test('actBlock: marks todo blocked with trimmed note', () => {
   const r = actBlock(seeded(), 1, '  flaky CI  ');
-  assert.equal(r.ok, true);
+  expect(r.ok).toBe(true);
   if (r.ok) {
     const t = r.state.todos.find((x) => x.id === 1)!;
-    assert.equal(t.status, 'blocked');
-    assert.equal(t.note, 'flaky CI');
+    expect(t.status).toBe('blocked');
+    expect(t.note).toBe('flaky CI');
   }
 });
 
 test('actBlock: unknown id returns error', () => {
   const r = actBlock(seeded(), 99, 'reason');
-  assert.equal(r.ok, false);
+  expect(r.ok).toBe(false);
 });
 
 // ──────────────────────────────────────────────────────────────────────
@@ -603,29 +583,29 @@ test('actBlock: unknown id returns error', () => {
 
 test('actReopen: restores todo to pending from completed', () => {
   const done = actComplete(seeded(), 1, 'note');
-  assert.equal(done.ok, true);
+  expect(done.ok).toBe(true);
   if (!done.ok) return;
   const r = actReopen(done.state, 1);
-  assert.equal(r.ok, true);
+  expect(r.ok).toBe(true);
   if (r.ok) {
     const t = r.state.todos.find((x) => x.id === 1)!;
-    assert.equal(t.status, 'pending');
-    assert.equal(t.note, undefined);
+    expect(t.status).toBe('pending');
+    expect(t.note).toBe(undefined);
   }
 });
 
 test('actReopen: restores todo to pending from blocked, clearing note', () => {
   const b = actBlock(seeded(), 1, 'stuck');
-  assert.equal(b.ok, true);
+  expect(b.ok).toBe(true);
   if (!b.ok) return;
   const r = actReopen(b.state, 1);
-  assert.equal(r.ok, true);
-  if (r.ok) assert.equal(r.state.todos.find((t) => t.id === 1)!.note, undefined);
+  expect(r.ok).toBe(true);
+  if (r.ok) expect(r.state.todos.find((t) => t.id === 1)!.note).toBe(undefined);
 });
 
 test('actReopen: missing id returns error', () => {
   const r = actReopen(seeded(), undefined);
-  assert.equal(r.ok, false);
+  expect(r.ok).toBe(false);
 });
 
 // ──────────────────────────────────────────────────────────────────────
@@ -634,17 +614,17 @@ test('actReopen: missing id returns error', () => {
 
 test('actClear: empties populated state and resets nextId', () => {
   const r = actClear(seeded());
-  assert.equal(r.ok, true);
+  expect(r.ok).toBe(true);
   if (r.ok) {
-    assert.deepEqual(r.state.todos, []);
-    assert.equal(r.state.nextId, 1);
+    expect(r.state.todos).toEqual([]);
+    expect(r.state.nextId).toBe(1);
   }
 });
 
 test('actClear: returns "Nothing to clear" on empty state', () => {
   const r = actClear(emptyState());
-  assert.equal(r.ok, true);
-  if (r.ok) assert.match(r.summary, /Nothing to clear/);
+  expect(r.ok).toBe(true);
+  if (r.ok) expect(r.summary).toMatch(/Nothing to clear/);
 });
 
 // ──────────────────────────────────────────────────────────────────────
@@ -653,8 +633,8 @@ test('actClear: returns "Nothing to clear" on empty state', () => {
 
 test('actList: returns "No todos" for empty state', () => {
   const r = actList(emptyState());
-  assert.equal(r.ok, true);
-  if (r.ok) assert.equal(r.summary, 'No todos');
+  expect(r.ok).toBe(true);
+  if (r.ok) expect(r.summary).toBe('No todos');
 });
 
 test('formatText: renders each status with its marker', () => {
@@ -669,11 +649,11 @@ test('formatText: renders each status with its marker', () => {
     6,
   );
   const out = formatText(s);
-  assert.match(out, /\[ \] #1 a/);
-  assert.match(out, /\[\*\] #2 b/);
-  assert.match(out, /\[x\] #3 c/);
-  assert.match(out, /\[!\] #4 d — why/);
-  assert.match(out, /\[\?\] #5 e — awaiting ci/);
+  expect(out).toMatch(/\[ \] #1 a/);
+  expect(out).toMatch(/\[\*\] #2 b/);
+  expect(out).toMatch(/\[x\] #3 c/);
+  expect(out).toMatch(/\[!\] #4 d — why/);
+  expect(out).toMatch(/\[\?\] #5 e — awaiting ci/);
 });
 
 // ──────────────────────────────────────────────────────────────────────
@@ -683,8 +663,8 @@ test('formatText: renders each status with its marker', () => {
 test('cloneState: new state references do not alias the input', () => {
   const s = mkState([{ id: 1, text: 'a', status: 'pending' }]);
   const c = cloneState(s);
-  c.todos[0]!.text = 'mutated';
-  assert.equal(s.todos[0]!.text, 'a');
+  c.todos[0].text = 'mutated';
+  expect(s.todos[0].text).toBe('a');
   c.todos.push({ id: 2, text: 'new', status: 'pending' });
-  assert.equal(s.todos.length, 1);
+  expect(s.todos.length).toBe(1);
 });

@@ -1,7 +1,7 @@
 /**
  * Pure helpers for rendering the scratchpad as a system-prompt block.
  *
- * No pi imports so this module can be unit-tested under plain `node --test`
+ * No pi imports so this module can be unit-tested under `vitest`
  * without the pi runtime.
  *
  * The extension injects the rendered block into every turn's system prompt

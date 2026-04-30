@@ -68,8 +68,8 @@
  *   PI_BASH_PERMISSIONS_NO_HARDCODED_DENY=1  disable the built-in denylist
  *
  * Pure helpers (splitCompound, matchesPattern, checkHardcodedDeny, …)
- * live in ./lib/bash-match.ts so they can be unit-tested under plain
- * `node --test` without pulling in the pi runtime.
+ * live in ./lib/bash-match.ts so they can be unit-tested under
+ * `vitest` without pulling in the pi runtime.
  */
 
 import { mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';

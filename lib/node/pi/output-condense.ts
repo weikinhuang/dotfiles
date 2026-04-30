@@ -1,7 +1,7 @@
 /**
  * Pure helpers for the tool-output-condenser extension.
  *
- * No pi imports — testable under plain `node --test`.
+ * No pi imports — testable under `vitest`.
  *
  * Pi's built-in bash / rg / grep tools already truncate at 50KB / 2000
  * lines, which is sensible for "don't explode the process" but fairly

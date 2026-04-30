@@ -1,14 +1,10 @@
 /**
  * Tests for lib/node/pi/scratchpad-reducer.ts.
  *
- * Run:  node --test config/pi/tests/extensions/scratchpad-reducer.test.ts
- *   or: node --test config/pi/tests/
- *
  * Pure module — no pi runtime needed.
  */
 
-import assert from 'node:assert/strict';
-import { test } from 'node:test';
+import { expect, test } from 'vitest';
 import {
   actAppend,
   actClear,
@@ -60,38 +56,38 @@ const mkUnrelatedToolResult = (): BranchEntry => ({
 // ──────────────────────────────────────────────────────────────────────
 
 test('isScratchpadStateShape: accepts valid empty state', () => {
-  assert.equal(isScratchpadStateShape({ notes: [], nextId: 1 }), true);
+  expect(isScratchpadStateShape({ notes: [], nextId: 1 })).toBe(true);
 });
 
 test('isScratchpadStateShape: accepts note with heading', () => {
-  assert.equal(isScratchpadStateShape({ notes: [{ id: 1, body: 'b', heading: 'h' }], nextId: 2 }), true);
+  expect(isScratchpadStateShape({ notes: [{ id: 1, body: 'b', heading: 'h' }], nextId: 2 })).toBe(true);
 });
 
 test('isScratchpadStateShape: accepts note without heading', () => {
-  assert.equal(isScratchpadStateShape({ notes: [{ id: 1, body: 'b' }], nextId: 2 }), true);
+  expect(isScratchpadStateShape({ notes: [{ id: 1, body: 'b' }], nextId: 2 })).toBe(true);
 });
 
 test('isScratchpadStateShape: rejects non-object', () => {
-  assert.equal(isScratchpadStateShape(null), false);
-  assert.equal(isScratchpadStateShape(undefined), false);
-  assert.equal(isScratchpadStateShape('nope'), false);
-  assert.equal(isScratchpadStateShape(42), false);
+  expect(isScratchpadStateShape(null)).toBe(false);
+  expect(isScratchpadStateShape(undefined)).toBe(false);
+  expect(isScratchpadStateShape('nope')).toBe(false);
+  expect(isScratchpadStateShape(42)).toBe(false);
 });
 
 test('isScratchpadStateShape: rejects missing nextId', () => {
-  assert.equal(isScratchpadStateShape({ notes: [] }), false);
+  expect(isScratchpadStateShape({ notes: [] })).toBe(false);
 });
 
 test('isScratchpadStateShape: rejects non-array notes', () => {
-  assert.equal(isScratchpadStateShape({ notes: 'x', nextId: 1 }), false);
+  expect(isScratchpadStateShape({ notes: 'x', nextId: 1 })).toBe(false);
 });
 
 test('isScratchpadStateShape: rejects missing body', () => {
-  assert.equal(isScratchpadStateShape({ notes: [{ id: 1 }], nextId: 2 }), false);
+  expect(isScratchpadStateShape({ notes: [{ id: 1 }], nextId: 2 })).toBe(false);
 });
 
 test('isScratchpadStateShape: rejects non-string heading', () => {
-  assert.equal(isScratchpadStateShape({ notes: [{ id: 1, body: 'b', heading: 42 }], nextId: 2 }), false);
+  expect(isScratchpadStateShape({ notes: [{ id: 1, body: 'b', heading: 42 }], nextId: 2 })).toBe(false);
 });
 
 // ──────────────────────────────────────────────────────────────────────
@@ -99,9 +95,9 @@ test('isScratchpadStateShape: rejects non-string heading', () => {
 // ──────────────────────────────────────────────────────────────────────
 
 test('stateFromEntry: returns null for unrelated entries', () => {
-  assert.equal(stateFromEntry(mkAssistant()), null);
-  assert.equal(stateFromEntry(mkUnrelatedToolResult()), null);
-  assert.equal(stateFromEntry({}), null);
+  expect(stateFromEntry(mkAssistant())).toBe(null);
+  expect(stateFromEntry(mkUnrelatedToolResult())).toBe(null);
+  expect(stateFromEntry({})).toBe(null);
 });
 
 test('stateFromEntry: returns null when tool-result details is malformed', () => {
@@ -109,37 +105,37 @@ test('stateFromEntry: returns null when tool-result details is malformed', () =>
     type: 'message',
     message: { role: 'toolResult', toolName: SCRATCHPAD_TOOL_NAME, details: { garbage: true } },
   };
-  assert.equal(stateFromEntry(entry), null);
+  expect(stateFromEntry(entry)).toBe(null);
 });
 
 test('stateFromEntry: returns null when custom data is malformed', () => {
   const entry: BranchEntry = { type: 'custom', customType: SCRATCHPAD_CUSTOM_TYPE, data: 'nope' };
-  assert.equal(stateFromEntry(entry), null);
+  expect(stateFromEntry(entry)).toBe(null);
 });
 
 test('stateFromEntry: extracts state from tool-result details', () => {
   const s = mkState([{ id: 1, body: 'a' }]);
-  assert.deepEqual(stateFromEntry(mkToolResult(s)), s);
+  expect(stateFromEntry(mkToolResult(s))).toEqual(s);
 });
 
 test('stateFromEntry: extracts state from custom mirror', () => {
   const s = mkState([{ id: 7, body: 'zz', heading: 'decisions' }], 8);
-  assert.deepEqual(stateFromEntry(mkCustom(s)), s);
+  expect(stateFromEntry(mkCustom(s))).toEqual(s);
 });
 
 test('stateFromEntry: returns a clone, not the same reference', () => {
   const s = mkState([{ id: 1, body: 'a' }]);
   const out = stateFromEntry(mkToolResult(s))!;
-  out.notes[0]!.body = 'mutated';
-  assert.equal(s.notes[0]!.body, 'a');
+  out.notes[0].body = 'mutated';
+  expect(s.notes[0].body).toBe('a');
 });
 
 test('reduceBranch: empty branch returns empty state', () => {
-  assert.deepEqual(reduceBranch([]), emptyState());
+  expect(reduceBranch([])).toEqual(emptyState());
 });
 
 test('reduceBranch: skips entries with no valid snapshot', () => {
-  assert.deepEqual(reduceBranch([mkAssistant(), mkUnrelatedToolResult(), mkAssistant()]), emptyState());
+  expect(reduceBranch([mkAssistant(), mkUnrelatedToolResult(), mkAssistant()])).toEqual(emptyState());
 });
 
 test('reduceBranch: picks the last tool-result snapshot on the branch', () => {
@@ -151,19 +147,19 @@ test('reduceBranch: picks the last tool-result snapshot on the branch', () => {
     ],
     3,
   );
-  assert.deepEqual(reduceBranch([mkToolResult(first), mkAssistant(), mkToolResult(last), mkAssistant()]), last);
+  expect(reduceBranch([mkToolResult(first), mkAssistant(), mkToolResult(last), mkAssistant()])).toEqual(last);
 });
 
 test('reduceBranch: falls back to custom mirror when only it exists (post-compaction)', () => {
   const s = mkState([{ id: 3, body: 'y', heading: 'paths' }], 4);
-  assert.deepEqual(reduceBranch([mkAssistant(), mkCustom(s), mkAssistant()]), s);
+  expect(reduceBranch([mkAssistant(), mkCustom(s), mkAssistant()])).toEqual(s);
 });
 
 test('reduceBranch: later entry wins regardless of kind', () => {
   const older = mkState([{ id: 1, body: 'old' }]);
   const newer = mkState([{ id: 1, body: 'new' }]);
-  assert.deepEqual(reduceBranch([mkToolResult(older), mkCustom(newer)]), newer);
-  assert.deepEqual(reduceBranch([mkCustom(older), mkToolResult(newer)]), newer);
+  expect(reduceBranch([mkToolResult(older), mkCustom(newer)])).toEqual(newer);
+  expect(reduceBranch([mkCustom(older), mkToolResult(newer)])).toEqual(newer);
 });
 
 test('reduceBranch: ignores malformed entries and keeps scanning', () => {
@@ -172,7 +168,7 @@ test('reduceBranch: ignores malformed entries and keeps scanning', () => {
     type: 'message',
     message: { role: 'toolResult', toolName: SCRATCHPAD_TOOL_NAME, details: { garbage: true } },
   };
-  assert.deepEqual(reduceBranch([mkToolResult(good), bad]), good);
+  expect(reduceBranch([mkToolResult(good), bad])).toEqual(good);
 });
 
 // ──────────────────────────────────────────────────────────────────────
@@ -181,60 +177,57 @@ test('reduceBranch: ignores malformed entries and keeps scanning', () => {
 
 test('actAppend: adds a note without heading', () => {
   const r = actAppend(emptyState(), 'first note', undefined);
-  assert.equal(r.ok, true);
+  expect(r.ok).toBe(true);
   if (r.ok) {
-    assert.equal(r.state.notes.length, 1);
-    assert.deepEqual(r.state.notes[0], { id: 1, body: 'first note' });
-    assert.equal(r.state.nextId, 2);
+    expect(r.state.notes.length).toBe(1);
+    expect(r.state.notes[0]).toEqual({ id: 1, body: 'first note' });
+    expect(r.state.nextId).toBe(2);
   }
 });
 
 test('actAppend: adds a note with heading', () => {
   const r = actAppend(emptyState(), 'ran it', 'test commands');
-  assert.equal(r.ok, true);
+  expect(r.ok).toBe(true);
   if (r.ok) {
-    assert.deepEqual(r.state.notes[0], { id: 1, body: 'ran it', heading: 'test commands' });
+    expect(r.state.notes[0]).toEqual({ id: 1, body: 'ran it', heading: 'test commands' });
   }
 });
 
 test('actAppend: trims body and heading', () => {
   const r = actAppend(emptyState(), '  body  ', '  head  ');
-  assert.equal(r.ok, true);
+  expect(r.ok).toBe(true);
   if (r.ok) {
-    assert.equal(r.state.notes[0]!.body, 'body');
-    assert.equal(r.state.notes[0]!.heading, 'head');
+    expect(r.state.notes[0].body).toBe('body');
+    expect(r.state.notes[0].heading).toBe('head');
   }
 });
 
 test('actAppend: ids stay monotonic after intermediate removals', () => {
   const s1 = actAppend(emptyState(), 'a', undefined);
   const s2 = s1.ok ? actAppend(s1.state, 'b', undefined) : null;
-  const rm = s2 && s2.ok ? actRemove(s2.state, 1) : null;
-  const s3 = rm && rm.ok ? actAppend(rm.state, 'c', undefined) : null;
-  assert.ok(s3 && s3.ok);
-  if (s3 && s3.ok) {
-    assert.deepEqual(
-      s3.state.notes.map((n) => n.id),
-      [2, 3],
-    );
-    assert.equal(s3.state.nextId, 4);
+  const rm = s2?.ok ? actRemove(s2.state, 1) : null;
+  const s3 = rm?.ok ? actAppend(rm.state, 'c', undefined) : null;
+  expect(s3?.ok).toBeTruthy();
+  if (s3?.ok) {
+    expect(s3.state.notes.map((n) => n.id)).toEqual([2, 3]);
+    expect(s3.state.nextId).toBe(4);
   }
 });
 
 test('actAppend: missing body returns error', () => {
   const r = actAppend(emptyState(), undefined, undefined);
-  assert.equal(r.ok, false);
+  expect(r.ok).toBe(false);
 });
 
 test('actAppend: whitespace-only body returns error', () => {
   const r = actAppend(emptyState(), '   ', 'h');
-  assert.equal(r.ok, false);
+  expect(r.ok).toBe(false);
 });
 
 test('actAppend: empty heading is ignored (no heading stored)', () => {
   const r = actAppend(emptyState(), 'body', '   ');
-  assert.equal(r.ok, true);
-  if (r.ok) assert.equal(r.state.notes[0]!.heading, undefined);
+  expect(r.ok).toBe(true);
+  if (r.ok) expect(r.state.notes[0].heading).toBe(undefined);
 });
 
 // ──────────────────────────────────────────────────────────────────────
@@ -243,65 +236,65 @@ test('actAppend: empty heading is ignored (no heading stored)', () => {
 
 function seeded(): ScratchpadState {
   const a = actAppend(emptyState(), 'one', 'heading-a');
-  assert.equal(a.ok, true);
+  expect(a.ok).toBe(true);
   if (!a.ok) return emptyState();
   const b = actAppend(a.state, 'two', undefined);
-  assert.equal(b.ok, true);
+  expect(b.ok).toBe(true);
   return b.ok ? b.state : a.state;
 }
 
 test('actUpdate: updates body', () => {
   const r = actUpdate(seeded(), 1, 'new body', undefined);
-  assert.equal(r.ok, true);
+  expect(r.ok).toBe(true);
   if (r.ok) {
     const n = r.state.notes.find((x) => x.id === 1)!;
-    assert.equal(n.body, 'new body');
-    assert.equal(n.heading, 'heading-a', 'heading untouched when omitted');
+    expect(n.body).toBe('new body');
+    expect(n.heading, 'heading untouched when omitted').toBe('heading-a');
   }
 });
 
 test('actUpdate: updates heading alone', () => {
   const r = actUpdate(seeded(), 1, undefined, 'h2');
-  assert.equal(r.ok, true);
+  expect(r.ok).toBe(true);
   if (r.ok) {
-    assert.equal(r.state.notes.find((n) => n.id === 1)!.heading, 'h2');
-    assert.equal(r.state.notes.find((n) => n.id === 1)!.body, 'one', 'body untouched');
+    expect(r.state.notes.find((n) => n.id === 1)!.heading).toBe('h2');
+    expect(r.state.notes.find((n) => n.id === 1)!.body, 'body untouched').toBe('one');
   }
 });
 
 test('actUpdate: clears heading when passed whitespace', () => {
   const r = actUpdate(seeded(), 1, undefined, '   ');
-  assert.equal(r.ok, true);
-  if (r.ok) assert.equal(r.state.notes.find((n) => n.id === 1)!.heading, undefined);
+  expect(r.ok).toBe(true);
+  if (r.ok) expect(r.state.notes.find((n) => n.id === 1)!.heading).toBe(undefined);
 });
 
 test('actUpdate: adds heading to a note that had none', () => {
   const r = actUpdate(seeded(), 2, undefined, 'new-head');
-  assert.equal(r.ok, true);
-  if (r.ok) assert.equal(r.state.notes.find((n) => n.id === 2)!.heading, 'new-head');
+  expect(r.ok).toBe(true);
+  if (r.ok) expect(r.state.notes.find((n) => n.id === 2)!.heading).toBe('new-head');
 });
 
 test('actUpdate: missing id returns error', () => {
   const r = actUpdate(seeded(), undefined, 'x', undefined);
-  assert.equal(r.ok, false);
+  expect(r.ok).toBe(false);
 });
 
 test('actUpdate: unknown id returns error', () => {
   const r = actUpdate(seeded(), 99, 'x', undefined);
-  assert.equal(r.ok, false);
-  if (!r.ok) assert.match(r.error, /#99/);
+  expect(r.ok).toBe(false);
+  if (!r.ok) expect(r.error).toMatch(/#99/);
 });
 
 test('actUpdate: both body and heading undefined returns error', () => {
   const r = actUpdate(seeded(), 1, undefined, undefined);
-  assert.equal(r.ok, false);
-  if (!r.ok) assert.match(r.error, /body.*heading/i);
+  expect(r.ok).toBe(false);
+  if (!r.ok) expect(r.error).toMatch(/body.*heading/i);
 });
 
 test('actUpdate: empty body returns error (points at `remove`)', () => {
   const r = actUpdate(seeded(), 1, '   ', undefined);
-  assert.equal(r.ok, false);
-  if (!r.ok) assert.match(r.error, /remove/);
+  expect(r.ok).toBe(false);
+  if (!r.ok) expect(r.error).toMatch(/remove/);
 });
 
 // ──────────────────────────────────────────────────────────────────────
@@ -310,37 +303,37 @@ test('actUpdate: empty body returns error (points at `remove`)', () => {
 
 test('actRemove: removes a note by id', () => {
   const r = actRemove(seeded(), 1);
-  assert.equal(r.ok, true);
+  expect(r.ok).toBe(true);
   if (r.ok) {
-    assert.equal(r.state.notes.length, 1);
-    assert.equal(r.state.notes[0]!.id, 2);
+    expect(r.state.notes.length).toBe(1);
+    expect(r.state.notes[0].id).toBe(2);
   }
 });
 
 test('actRemove: does NOT reset nextId when removing the last note', () => {
   const s = seeded();
   const r1 = actRemove(s, 1);
-  assert.equal(r1.ok, true);
+  expect(r1.ok).toBe(true);
   if (!r1.ok) return;
   const r2 = actRemove(r1.state, 2);
-  assert.equal(r2.ok, true);
+  expect(r2.ok).toBe(true);
   if (r2.ok) {
-    assert.deepEqual(r2.state.notes, []);
+    expect(r2.state.notes).toEqual([]);
     // nextId intentionally does NOT reset — prevents id collisions if
     // the model references an old note number across a later append.
-    assert.equal(r2.state.nextId, 3);
+    expect(r2.state.nextId).toBe(3);
   }
 });
 
 test('actRemove: missing id returns error', () => {
   const r = actRemove(seeded(), undefined);
-  assert.equal(r.ok, false);
+  expect(r.ok).toBe(false);
 });
 
 test('actRemove: unknown id returns error', () => {
   const r = actRemove(seeded(), 99);
-  assert.equal(r.ok, false);
-  if (!r.ok) assert.match(r.error, /#99/);
+  expect(r.ok).toBe(false);
+  if (!r.ok) expect(r.error).toMatch(/#99/);
 });
 
 // ──────────────────────────────────────────────────────────────────────
@@ -349,17 +342,17 @@ test('actRemove: unknown id returns error', () => {
 
 test('actClear: empties populated state and resets nextId', () => {
   const r = actClear(seeded());
-  assert.equal(r.ok, true);
+  expect(r.ok).toBe(true);
   if (r.ok) {
-    assert.deepEqual(r.state.notes, []);
-    assert.equal(r.state.nextId, 1);
+    expect(r.state.notes).toEqual([]);
+    expect(r.state.nextId).toBe(1);
   }
 });
 
 test('actClear: returns a friendly message on empty state', () => {
   const r = actClear(emptyState());
-  assert.equal(r.ok, true);
-  if (r.ok) assert.match(r.summary, /empty/i);
+  expect(r.ok).toBe(true);
+  if (r.ok) expect(r.summary).toMatch(/empty/i);
 });
 
 // ──────────────────────────────────────────────────────────────────────
@@ -368,8 +361,8 @@ test('actClear: returns a friendly message on empty state', () => {
 
 test('actList: returns empty marker for empty state', () => {
   const r = actList(emptyState());
-  assert.equal(r.ok, true);
-  if (r.ok) assert.match(r.summary, /empty/i);
+  expect(r.ok).toBe(true);
+  if (r.ok) expect(r.summary).toMatch(/empty/i);
 });
 
 test('formatText: renders headings when present', () => {
@@ -378,9 +371,9 @@ test('formatText: renders headings when present', () => {
     { id: 2, body: 'b' },
   ]);
   const out = formatText(s);
-  assert.match(out, /#1 \[h\] a/);
-  assert.match(out, /#2 b/);
-  assert.ok(!/\[.*\] b/.test(out), 'no heading brackets when heading absent');
+  expect(out).toMatch(/#1 \[h\] a/);
+  expect(out).toMatch(/#2 b/);
+  expect(out, 'no heading brackets when heading absent').not.toMatch(/\[.*\] b/);
 });
 
 // ──────────────────────────────────────────────────────────────────────
@@ -390,10 +383,10 @@ test('formatText: renders headings when present', () => {
 test('cloneState: new state references do not alias the input', () => {
   const s = mkState([{ id: 1, body: 'a', heading: 'h' }]);
   const c = cloneState(s);
-  c.notes[0]!.body = 'mutated';
-  c.notes[0]!.heading = 'mutated-h';
-  assert.equal(s.notes[0]!.body, 'a');
-  assert.equal(s.notes[0]!.heading, 'h');
+  c.notes[0].body = 'mutated';
+  c.notes[0].heading = 'mutated-h';
+  expect(s.notes[0].body).toBe('a');
+  expect(s.notes[0].heading).toBe('h');
   c.notes.push({ id: 2, body: 'new' });
-  assert.equal(s.notes.length, 1);
+  expect(s.notes.length).toBe(1);
 });

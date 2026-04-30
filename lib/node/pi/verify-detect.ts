@@ -1,7 +1,7 @@
 /**
  * Pure helpers for the verify-before-claim extension.
  *
- * No pi imports — testable under plain `node --test`.
+ * No pi imports — testable under `vitest`.
  *
  * The extension's job is to detect when the model signs off with a
  * verification claim ("tests pass", "lint is clean", "it builds", …)

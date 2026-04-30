@@ -8,7 +8,7 @@
  * the line in the original source file.
  *
  * Lives in `lib/` (pure, no pi imports) so it can be unit-tested under
- * plain `node --test`.
+ * `vitest`.
  */
 
 /**

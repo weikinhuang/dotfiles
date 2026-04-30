@@ -38,7 +38,7 @@
  *
  * Pure logic (state transitions, prompt rendering) lives in
  * `./lib/scratchpad-reducer.ts` and `./lib/scratchpad-prompt.ts` so it
- * can be unit-tested under plain `node --test`. This file holds only
+ * can be unit-tested under `vitest`. This file holds only
  * the pi-coupled glue.
  *
  * Environment:

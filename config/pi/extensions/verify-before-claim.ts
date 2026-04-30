@@ -39,7 +39,7 @@
  *
  * Pure logic (claim extraction, command patterns, steer formatting,
  * branch scanning) lives in `./lib/verify-detect.ts` so it can be
- * unit-tested under plain `node --test`.
+ * unit-tested under `vitest`.
  *
  * Environment:
  *   PI_VERIFY_DISABLED=1   skip the extension entirely

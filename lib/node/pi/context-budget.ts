@@ -1,7 +1,7 @@
 /**
  * Pure helpers for the context-budget extension.
  *
- * No pi imports — testable under plain `node --test`.
+ * No pi imports — testable under `vitest`.
  *
  * The extension's job is to surface the model's own context-window usage
  * INSIDE its own prompt, so weaker models don't blow through the window

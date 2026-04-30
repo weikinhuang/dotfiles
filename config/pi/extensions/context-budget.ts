@@ -35,7 +35,7 @@
  *
  * Pure helpers (`formatBudgetLine`, `shouldAutoCompact`, `formatTokens`)
  * live in `./lib/context-budget.ts` so the thresholds and wording can
- * be unit-tested under plain `node --test`.
+ * be unit-tested under `vitest`.
  *
  * Environment:
  *   PI_CONTEXT_BUDGET_DISABLED=1                  skip the extension

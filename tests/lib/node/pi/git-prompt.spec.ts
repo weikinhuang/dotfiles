@@ -1,8 +1,7 @@
-import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, test } from 'node:test';
+import { afterEach, beforeEach, expect, test } from 'vitest';
 import { GIT_PROMPT_FILENAME, resolveGitPromptScript } from '../../../../lib/node/pi/git-prompt.ts';
 
 let sandbox = '';
@@ -34,14 +33,14 @@ test('resolveGitPromptScript: finds external/git-prompt.sh in a parent directory
   mkdirSync(extDir, { recursive: true });
   writeFileSync(scriptPath, '# stub\n');
 
-  assert.equal(resolveGitPromptScript(extDir), scriptPath);
+  expect(resolveGitPromptScript(extDir)).toBe(scriptPath);
 });
 
 test('resolveGitPromptScript: returns null when no candidate is reachable', () => {
   const extDir = join(sandbox, 'config/pi/extensions');
   mkdirSync(extDir, { recursive: true });
 
-  assert.equal(resolveGitPromptScript(extDir, 4), null);
+  expect(resolveGitPromptScript(extDir, 4)).toBe(null);
 });
 
 test('resolveGitPromptScript: honors maxDepth when the script is too far up', () => {
@@ -54,8 +53,8 @@ test('resolveGitPromptScript: honors maxDepth when the script is too far up', ()
   const deepDir = join(sandbox, 'a/b/c/d/e/f/g/h/i/j/k/l');
   mkdirSync(deepDir, { recursive: true });
 
-  assert.equal(resolveGitPromptScript(deepDir, 2), null);
-  assert.equal(resolveGitPromptScript(deepDir, 32), scriptPath);
+  expect(resolveGitPromptScript(deepDir, 2)).toBe(null);
+  expect(resolveGitPromptScript(deepDir, 32)).toBe(scriptPath);
 });
 
 test('resolveGitPromptScript: resolves symlinks so ~/.dotfiles -> real repo works', () => {
@@ -82,7 +81,7 @@ test('resolveGitPromptScript: resolves symlinks so ~/.dotfiles -> real repo work
 
   const linkedExtDir = join(linked, 'config/pi/extensions');
   // Resolved via realpath, so result is the canonical path inside <repo>.
-  assert.equal(resolveGitPromptScript(linkedExtDir), scriptPath);
+  expect(resolveGitPromptScript(linkedExtDir)).toBe(scriptPath);
 });
 
 // ──────────────────────────────────────────────────────────────────────
@@ -105,7 +104,7 @@ test('resolveGitPromptScript: prefers $DOTFILES_ROOT when it contains the script
   const extDir = join(walkRoot, 'config/pi/extensions');
   mkdirSync(extDir, { recursive: true });
 
-  assert.equal(resolveGitPromptScript(extDir), envScript);
+  expect(resolveGitPromptScript(extDir)).toBe(envScript);
 });
 
 test('resolveGitPromptScript: ignores $DOTFILES_ROOT that does not contain the script, then walks', () => {
@@ -118,5 +117,5 @@ test('resolveGitPromptScript: ignores $DOTFILES_ROOT that does not contain the s
   const extDir = join(walkRoot, 'config/pi/extensions');
   mkdirSync(extDir, { recursive: true });
 
-  assert.equal(resolveGitPromptScript(extDir), walkScript);
+  expect(resolveGitPromptScript(extDir)).toBe(walkScript);
 });

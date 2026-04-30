@@ -9,7 +9,7 @@
  * caller falls back to pi's `footerData.getGitBranch()`.
  *
  * This module imports only from `node:*` so it stays unit-testable under
- * plain `node --test` with no pi runtime.
+ * `vitest` with no pi runtime.
  */
 
 import { execFile } from 'node:child_process';

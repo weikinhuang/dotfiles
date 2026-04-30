@@ -1,14 +1,10 @@
 /**
  * Tests for lib/node/pi/verify-detect.ts.
  *
- * Run:  node --test config/pi/tests/extensions/verify-detect.test.ts
- *   or: node --test config/pi/tests/
- *
  * Pure module — no pi runtime needed.
  */
 
-import assert from 'node:assert/strict';
-import { test } from 'node:test';
+import { expect, test } from 'vitest';
 import {
   type BranchEntry,
   buildSteer,
@@ -29,65 +25,65 @@ import {
 const kindsOf = (claims: Claim[]): ClaimKind[] => claims.map((c) => c.kind).sort();
 
 test('extractClaims: empty / whitespace text → no claims', () => {
-  assert.deepEqual(extractClaims(''), []);
-  assert.deepEqual(extractClaims('   \n'), []);
+  expect(extractClaims('')).toEqual([]);
+  expect(extractClaims('   \n')).toEqual([]);
 });
 
 test('extractClaims: "tests pass" variants are detected', () => {
-  assert.deepEqual(kindsOf(extractClaims('All tests pass.')), ['tests-pass']);
-  assert.deepEqual(kindsOf(extractClaims('The tests are passing now.')), ['tests-pass']);
-  assert.deepEqual(kindsOf(extractClaims('42 tests passed.')), ['tests-pass']);
-  assert.deepEqual(kindsOf(extractClaims('Test suite is green.')), ['tests-pass']);
+  expect(kindsOf(extractClaims('All tests pass.'))).toEqual(['tests-pass']);
+  expect(kindsOf(extractClaims('The tests are passing now.'))).toEqual(['tests-pass']);
+  expect(kindsOf(extractClaims('42 tests passed.'))).toEqual(['tests-pass']);
+  expect(kindsOf(extractClaims('Test suite is green.'))).toEqual(['tests-pass']);
 });
 
 test('extractClaims: "lint clean" variants are detected', () => {
-  assert.deepEqual(kindsOf(extractClaims('Lint is clean.')), ['lint-clean']);
-  assert.deepEqual(kindsOf(extractClaims('eslint passes.')), ['lint-clean']);
-  assert.deepEqual(kindsOf(extractClaims('shellcheck is happy.')), ['lint-clean']);
-  assert.deepEqual(kindsOf(extractClaims('No lint errors remaining.')), ['lint-clean']);
+  expect(kindsOf(extractClaims('Lint is clean.'))).toEqual(['lint-clean']);
+  expect(kindsOf(extractClaims('eslint passes.'))).toEqual(['lint-clean']);
+  expect(kindsOf(extractClaims('shellcheck is happy.'))).toEqual(['lint-clean']);
+  expect(kindsOf(extractClaims('No lint errors remaining.'))).toEqual(['lint-clean']);
 });
 
 test('extractClaims: type-check claims are detected', () => {
-  assert.deepEqual(kindsOf(extractClaims('tsc is clean.')), ['types-check']);
-  assert.deepEqual(kindsOf(extractClaims('typecheck passes.')), ['types-check']);
-  assert.deepEqual(kindsOf(extractClaims('mypy is happy.')), ['types-check']);
-  assert.deepEqual(kindsOf(extractClaims('No type errors.')), ['types-check']);
+  expect(kindsOf(extractClaims('tsc is clean.'))).toEqual(['types-check']);
+  expect(kindsOf(extractClaims('typecheck passes.'))).toEqual(['types-check']);
+  expect(kindsOf(extractClaims('mypy is happy.'))).toEqual(['types-check']);
+  expect(kindsOf(extractClaims('No type errors.'))).toEqual(['types-check']);
 });
 
 test('extractClaims: build-clean claims are detected', () => {
-  assert.deepEqual(kindsOf(extractClaims('The build succeeds.')), ['build-clean']);
-  assert.deepEqual(kindsOf(extractClaims('It compiles cleanly.')), ['build-clean']);
-  assert.deepEqual(kindsOf(extractClaims('cargo build passes.')), ['build-clean']);
+  expect(kindsOf(extractClaims('The build succeeds.'))).toEqual(['build-clean']);
+  expect(kindsOf(extractClaims('It compiles cleanly.'))).toEqual(['build-clean']);
+  expect(kindsOf(extractClaims('cargo build passes.'))).toEqual(['build-clean']);
 });
 
 test('extractClaims: format-clean claims are detected', () => {
-  assert.deepEqual(kindsOf(extractClaims('prettier is happy.')), ['format-clean']);
-  assert.deepEqual(kindsOf(extractClaims('gofmt is clean.')), ['format-clean']);
+  expect(kindsOf(extractClaims('prettier is happy.'))).toEqual(['format-clean']);
+  expect(kindsOf(extractClaims('gofmt is clean.'))).toEqual(['format-clean']);
 });
 
 test('extractClaims: CI-green claims are detected', () => {
-  assert.deepEqual(kindsOf(extractClaims('CI is green.')), ['ci-green']);
-  assert.deepEqual(kindsOf(extractClaims('CI passes.')), ['ci-green']);
+  expect(kindsOf(extractClaims('CI is green.'))).toEqual(['ci-green']);
+  expect(kindsOf(extractClaims('CI passes.'))).toEqual(['ci-green']);
 });
 
 test('extractClaims: multi-claim sign-offs pick up all kinds', () => {
   const out = extractClaims('All 42 tests pass, tsc is clean, and eslint is happy.');
   const kinds = kindsOf(out);
-  assert.deepEqual(kinds, ['lint-clean', 'tests-pass', 'types-check']);
+  expect(kinds).toEqual(['lint-clean', 'tests-pass', 'types-check']);
 });
 
 test('extractClaims: deduplicates by kind (first phrase wins)', () => {
   const out = extractClaims('tests pass. the tests are passing. 42 tests pass.');
-  assert.equal(out.length, 1);
-  assert.equal(out[0]!.kind, 'tests-pass');
+  expect(out.length).toBe(1);
+  expect(out[0].kind).toBe('tests-pass');
 });
 
 test('extractClaims: rejects questions and conditionals', () => {
-  assert.deepEqual(extractClaims('Do the tests pass?'), []);
-  assert.deepEqual(extractClaims('Once the tests pass, we can ship.'), []);
-  assert.deepEqual(extractClaims('If the build succeeds, merge it.'), []);
-  assert.deepEqual(extractClaims('The tests should pass.'), []);
-  assert.deepEqual(extractClaims('Hopefully lint is clean.'), []);
+  expect(extractClaims('Do the tests pass?')).toEqual([]);
+  expect(extractClaims('Once the tests pass, we can ship.')).toEqual([]);
+  expect(extractClaims('If the build succeeds, merge it.')).toEqual([]);
+  expect(extractClaims('The tests should pass.')).toEqual([]);
+  expect(extractClaims('Hopefully lint is clean.')).toEqual([]);
 });
 
 test('extractClaims: distant "if"/"when" does NOT suppress an unrelated later claim', () => {
@@ -100,27 +96,27 @@ test('extractClaims: distant "if"/"when" does NOT suppress an unrelated later cl
   const kinds = extractClaims(line)
     .map((c) => c.kind)
     .sort();
-  assert.deepEqual(kinds, ['lint-clean', 'tests-pass']);
+  expect(kinds).toEqual(['lint-clean', 'tests-pass']);
 });
 
 test('extractClaims: window — only the tail counts as a sign-off', () => {
   // Claim buried more than 600 chars before the end → not detected.
   const prefix = 'x '.repeat(500) + 'Earlier the tests passed.';
   const tail = '\n\nI then made unrelated changes to documentation. ' + 'y '.repeat(400);
-  assert.deepEqual(extractClaims(prefix + tail), []);
+  expect(extractClaims(prefix + tail)).toEqual([]);
 });
 
 test('extractClaims: tail-anchored — claim right at the end is detected even with noise before', () => {
   const out = extractClaims('lots of setup and exploration… Now all tests pass.');
-  assert.deepEqual(kindsOf(out), ['tests-pass']);
+  expect(kindsOf(out)).toEqual(['tests-pass']);
 });
 
 test('extractClaims: does not trip on "linter" without a success word', () => {
-  assert.deepEqual(extractClaims('I looked at the linter config but did nothing else.'), []);
+  expect(extractClaims('I looked at the linter config but did nothing else.')).toEqual([]);
 });
 
 test('extractClaims: does not trip on "build" alone', () => {
-  assert.deepEqual(extractClaims('I need to build the feature before Friday.'), []);
+  expect(extractClaims('I need to build the feature before Friday.')).toEqual([]);
 });
 
 // ──────────────────────────────────────────────────────────────────────
@@ -129,73 +125,73 @@ test('extractClaims: does not trip on "build" alone', () => {
 
 test('verifyingCommandMatches: tests-pass matches common test runners', () => {
   const kind: ClaimKind = 'tests-pass';
-  assert.equal(verifyingCommandMatches(kind, 'npm test'), true);
-  assert.equal(verifyingCommandMatches(kind, 'pnpm run test'), true);
-  assert.equal(verifyingCommandMatches(kind, 'yarn test --watch=false'), true);
-  assert.equal(verifyingCommandMatches(kind, 'pytest -q'), true);
-  assert.equal(verifyingCommandMatches(kind, 'cargo test'), true);
-  assert.equal(verifyingCommandMatches(kind, 'cargo nextest run'), true);
-  assert.equal(verifyingCommandMatches(kind, 'go test ./...'), true);
-  assert.equal(verifyingCommandMatches(kind, 'bats tests/'), true);
-  assert.equal(verifyingCommandMatches(kind, 'node --test config/pi/tests/'), true);
-  assert.equal(verifyingCommandMatches(kind, './dev/test-docker.sh -q'), true);
+  expect(verifyingCommandMatches(kind, 'npm test')).toBe(true);
+  expect(verifyingCommandMatches(kind, 'pnpm run test')).toBe(true);
+  expect(verifyingCommandMatches(kind, 'yarn test --watch=false')).toBe(true);
+  expect(verifyingCommandMatches(kind, 'pytest -q')).toBe(true);
+  expect(verifyingCommandMatches(kind, 'cargo test')).toBe(true);
+  expect(verifyingCommandMatches(kind, 'cargo nextest run')).toBe(true);
+  expect(verifyingCommandMatches(kind, 'go test ./...')).toBe(true);
+  expect(verifyingCommandMatches(kind, 'bats tests/')).toBe(true);
+  expect(verifyingCommandMatches(kind, 'node --test config/pi/tests/')).toBe(true);
+  expect(verifyingCommandMatches(kind, './dev/test-docker.sh -q')).toBe(true);
 });
 
 test('verifyingCommandMatches: tests-pass does NOT match unrelated commands', () => {
   const kind: ClaimKind = 'tests-pass';
-  assert.equal(verifyingCommandMatches(kind, 'cat jest.config.js'), false);
-  assert.equal(verifyingCommandMatches(kind, 'ls tests/'), false);
-  assert.equal(verifyingCommandMatches(kind, 'rg "jest"'), false);
-  assert.equal(verifyingCommandMatches(kind, 'git diff tests/foo.test.ts'), false);
+  expect(verifyingCommandMatches(kind, 'cat jest.config.js')).toBe(false);
+  expect(verifyingCommandMatches(kind, 'ls tests/')).toBe(false);
+  expect(verifyingCommandMatches(kind, 'rg "jest"')).toBe(false);
+  expect(verifyingCommandMatches(kind, 'git diff tests/foo.test.ts')).toBe(false);
 });
 
 test('verifyingCommandMatches: lint-clean matches common linters', () => {
   const kind: ClaimKind = 'lint-clean';
-  assert.equal(verifyingCommandMatches(kind, 'eslint .'), true);
-  assert.equal(verifyingCommandMatches(kind, 'npx eslint src/'), true);
-  assert.equal(verifyingCommandMatches(kind, 'shellcheck -s bash foo.sh'), true);
-  assert.equal(verifyingCommandMatches(kind, 'cargo clippy --all-targets'), true);
-  assert.equal(verifyingCommandMatches(kind, 'npm run lint'), true);
-  assert.equal(verifyingCommandMatches(kind, './dev/lint.sh'), true);
+  expect(verifyingCommandMatches(kind, 'eslint .')).toBe(true);
+  expect(verifyingCommandMatches(kind, 'npx eslint src/')).toBe(true);
+  expect(verifyingCommandMatches(kind, 'shellcheck -s bash foo.sh')).toBe(true);
+  expect(verifyingCommandMatches(kind, 'cargo clippy --all-targets')).toBe(true);
+  expect(verifyingCommandMatches(kind, 'npm run lint')).toBe(true);
+  expect(verifyingCommandMatches(kind, './dev/lint.sh')).toBe(true);
 });
 
 test('verifyingCommandMatches: lint-clean does NOT match unrelated commands', () => {
-  assert.equal(verifyingCommandMatches('lint-clean', 'cat eslint.config.mjs'), false);
-  assert.equal(verifyingCommandMatches('lint-clean', 'rg "shellcheck"'), false);
+  expect(verifyingCommandMatches('lint-clean', 'cat eslint.config.mjs')).toBe(false);
+  expect(verifyingCommandMatches('lint-clean', 'rg "shellcheck"')).toBe(false);
 });
 
 test('verifyingCommandMatches: types-check matches common type checkers', () => {
   const kind: ClaimKind = 'types-check';
-  assert.equal(verifyingCommandMatches(kind, 'tsc --noEmit'), true);
-  assert.equal(verifyingCommandMatches(kind, 'pnpm run typecheck'), true);
-  assert.equal(verifyingCommandMatches(kind, 'mypy src/'), true);
-  assert.equal(verifyingCommandMatches(kind, 'pyright'), true);
-  assert.equal(verifyingCommandMatches(kind, 'cargo check'), true);
+  expect(verifyingCommandMatches(kind, 'tsc --noEmit')).toBe(true);
+  expect(verifyingCommandMatches(kind, 'pnpm run typecheck')).toBe(true);
+  expect(verifyingCommandMatches(kind, 'mypy src/')).toBe(true);
+  expect(verifyingCommandMatches(kind, 'pyright')).toBe(true);
+  expect(verifyingCommandMatches(kind, 'cargo check')).toBe(true);
 });
 
 test('verifyingCommandMatches: build-clean matches builds but also typecheck-like runs', () => {
-  assert.equal(verifyingCommandMatches('build-clean', 'cargo build --release'), true);
-  assert.equal(verifyingCommandMatches('build-clean', 'make'), true);
-  assert.equal(verifyingCommandMatches('build-clean', 'npm run build'), true);
-  assert.equal(verifyingCommandMatches('build-clean', 'docker build .'), true);
+  expect(verifyingCommandMatches('build-clean', 'cargo build --release')).toBe(true);
+  expect(verifyingCommandMatches('build-clean', 'make')).toBe(true);
+  expect(verifyingCommandMatches('build-clean', 'npm run build')).toBe(true);
+  expect(verifyingCommandMatches('build-clean', 'docker build .')).toBe(true);
 });
 
 test('verifyingCommandMatches: format-clean matches formatters', () => {
-  assert.equal(verifyingCommandMatches('format-clean', 'prettier -c .'), true);
-  assert.equal(verifyingCommandMatches('format-clean', 'shfmt -d -i 2 script.sh'), true);
-  assert.equal(verifyingCommandMatches('format-clean', 'cargo fmt'), true);
-  assert.equal(verifyingCommandMatches('format-clean', 'ruff format .'), true);
+  expect(verifyingCommandMatches('format-clean', 'prettier -c .')).toBe(true);
+  expect(verifyingCommandMatches('format-clean', 'shfmt -d -i 2 script.sh')).toBe(true);
+  expect(verifyingCommandMatches('format-clean', 'cargo fmt')).toBe(true);
+  expect(verifyingCommandMatches('format-clean', 'ruff format .')).toBe(true);
 });
 
 test('verifyingCommandMatches: handles compound commands via shell operators', () => {
-  assert.equal(verifyingCommandMatches('tests-pass', 'set -e && pnpm install && pnpm test'), true);
-  assert.equal(verifyingCommandMatches('lint-clean', '(cd sub && eslint .)'), true);
-  assert.equal(verifyingCommandMatches('tests-pass', 'npm run build; npm test'), true);
+  expect(verifyingCommandMatches('tests-pass', 'set -e && pnpm install && pnpm test')).toBe(true);
+  expect(verifyingCommandMatches('lint-clean', '(cd sub && eslint .)')).toBe(true);
+  expect(verifyingCommandMatches('tests-pass', 'npm run build; npm test')).toBe(true);
 });
 
 test('verifyingCommandMatches: empty command → false', () => {
-  assert.equal(verifyingCommandMatches('tests-pass', ''), false);
-  assert.equal(verifyingCommandMatches('tests-pass', '   '), false);
+  expect(verifyingCommandMatches('tests-pass', '')).toBe(false);
+  expect(verifyingCommandMatches('tests-pass', '   ')).toBe(false);
 });
 
 // ──────────────────────────────────────────────────────────────────────
@@ -208,8 +204,8 @@ test('partitionClaims: all claims verified when commands cover each kind', () =>
     { kind: 'lint-clean', phrase: 'eslint is happy' },
   ];
   const { verified, unverified } = partitionClaims(claims, ['npm test', 'eslint .']);
-  assert.equal(verified.length, 2);
-  assert.equal(unverified.length, 0);
+  expect(verified.length).toBe(2);
+  expect(unverified.length).toBe(0);
 });
 
 test('partitionClaims: claim with no matching command reports unverified', () => {
@@ -218,27 +214,21 @@ test('partitionClaims: claim with no matching command reports unverified', () =>
     { kind: 'lint-clean', phrase: 'lint is clean' },
   ];
   const { verified, unverified } = partitionClaims(claims, ['npm test']); // no linter
-  assert.deepEqual(
-    verified.map((c) => c.kind),
-    ['tests-pass'],
-  );
-  assert.deepEqual(
-    unverified.map((c) => c.kind),
-    ['lint-clean'],
-  );
+  expect(verified.map((c) => c.kind)).toEqual(['tests-pass']);
+  expect(unverified.map((c) => c.kind)).toEqual(['lint-clean']);
 });
 
 test('partitionClaims: empty commands → everything unverified', () => {
   const claims: Claim[] = [{ kind: 'tests-pass', phrase: 'tests pass' }];
   const { verified, unverified } = partitionClaims(claims, []);
-  assert.equal(verified.length, 0);
-  assert.equal(unverified.length, 1);
+  expect(verified.length).toBe(0);
+  expect(unverified.length).toBe(1);
 });
 
 test('partitionClaims: empty claims → everything verified', () => {
   const { verified, unverified } = partitionClaims([], ['npm test']);
-  assert.equal(verified.length, 0);
-  assert.equal(unverified.length, 0);
+  expect(verified.length).toBe(0);
+  expect(unverified.length).toBe(0);
 });
 
 // ──────────────────────────────────────────────────────────────────────
@@ -248,15 +238,15 @@ test('partitionClaims: empty claims → everything verified', () => {
 const MARKER = '⚠ [test-marker]';
 
 test('buildSteer: empty unverified list → empty string', () => {
-  assert.equal(buildSteer([], MARKER), '');
+  expect(buildSteer([], MARKER)).toBe('');
 });
 
 test('buildSteer: single claim → single-quoted steer with marker and kind', () => {
   const s = buildSteer([{ kind: 'tests-pass', phrase: 'all tests pass' }], MARKER);
-  assert.match(s, new RegExp(MARKER.replace(/[[\]]/g, '\\$&')));
-  assert.match(s, /all tests pass/);
-  assert.match(s, /tests pass/);
-  assert.match(s, /run the check/i);
+  expect(s).toMatch(new RegExp(MARKER.replace(/[[\]]/g, '\\$&')));
+  expect(s).toMatch(/all tests pass/);
+  expect(s).toMatch(/tests pass/);
+  expect(s).toMatch(/run the check/i);
 });
 
 test('buildSteer: multiple claims → bulleted list', () => {
@@ -268,17 +258,17 @@ test('buildSteer: multiple claims → bulleted list', () => {
     ],
     MARKER,
   );
-  assert.match(s, /several verification claims/i);
-  assert.match(s, /tests pass/);
-  assert.match(s, /lint is clean/);
-  assert.match(s, /types check/);
+  expect(s).toMatch(/several verification claims/i);
+  expect(s).toMatch(/tests pass/);
+  expect(s).toMatch(/lint is clean/);
+  expect(s).toMatch(/types check/);
 });
 
 test('buildSteer: very long phrases get truncated', () => {
   const phrase = 'tests pass ' + 'x'.repeat(500);
   const s = buildSteer([{ kind: 'tests-pass', phrase }], MARKER);
-  assert.ok(s.length < 400, `steer too long: ${s.length}`);
-  assert.match(s, /…/);
+  expect(s.length).toBeLessThan(400);
+  expect(s).toMatch(/…/);
 });
 
 // ──────────────────────────────────────────────────────────────────────
@@ -318,7 +308,7 @@ const bashExec = (cmd: string): BranchEntry => ({
 test('collectBashCommandsSinceLastUser: picks bash toolCalls in assistant content', () => {
   const branch: BranchEntry[] = [user('do it'), assistantCall('npm test', 'eslint .')];
   const out = collectBashCommandsSinceLastUser(branch);
-  assert.deepEqual(new Set(out), new Set(['npm test', 'eslint .']));
+  expect(new Set(out)).toEqual(new Set(['npm test', 'eslint .']));
 });
 
 test('collectBashCommandsSinceLastUser: stops at the most recent user message', () => {
@@ -328,17 +318,17 @@ test('collectBashCommandsSinceLastUser: stops at the most recent user message', 
     user('new prompt'),
     assistantCall('npm test'),
   ];
-  assert.deepEqual(collectBashCommandsSinceLastUser(branch), ['npm test']);
+  expect(collectBashCommandsSinceLastUser(branch)).toEqual(['npm test']);
 });
 
 test('collectBashCommandsSinceLastUser: picks up bash tool-result input.command', () => {
   const branch: BranchEntry[] = [user('do it'), toolResult('pytest -q')];
-  assert.deepEqual(collectBashCommandsSinceLastUser(branch), ['pytest -q']);
+  expect(collectBashCommandsSinceLastUser(branch)).toEqual(['pytest -q']);
 });
 
 test('collectBashCommandsSinceLastUser: picks up bashExecution entries', () => {
   const branch: BranchEntry[] = [user('do it'), bashExec('./dev/lint.sh')];
-  assert.deepEqual(collectBashCommandsSinceLastUser(branch), ['./dev/lint.sh']);
+  expect(collectBashCommandsSinceLastUser(branch)).toEqual(['./dev/lint.sh']);
 });
 
 test('collectBashCommandsSinceLastUser: ignores non-bash tool calls', () => {
@@ -355,18 +345,18 @@ test('collectBashCommandsSinceLastUser: ignores non-bash tool calls', () => {
       },
     },
   ];
-  assert.deepEqual(collectBashCommandsSinceLastUser(branch), ['npm test']);
+  expect(collectBashCommandsSinceLastUser(branch)).toEqual(['npm test']);
 });
 
 test('collectBashCommandsSinceLastUser: empty branch → empty list', () => {
-  assert.deepEqual(collectBashCommandsSinceLastUser([]), []);
+  expect(collectBashCommandsSinceLastUser([])).toEqual([]);
 });
 
 test('collectBashCommandsSinceLastUser: no user message yet → scans everything', () => {
   // Edge case: extension fires before the first user turn finishes
   // persisting. We still collect whatever bash calls we can see.
   const branch: BranchEntry[] = [assistantCall('npm test')];
-  assert.deepEqual(collectBashCommandsSinceLastUser(branch), ['npm test']);
+  expect(collectBashCommandsSinceLastUser(branch)).toEqual(['npm test']);
 });
 
 // ──────────────────────────────────────────────────────────────────────
@@ -374,11 +364,11 @@ test('collectBashCommandsSinceLastUser: no user message yet → scans everything
 // ──────────────────────────────────────────────────────────────────────
 
 test('extractLastAssistantText: empty → empty string', () => {
-  assert.equal(extractLastAssistantText([]), '');
+  expect(extractLastAssistantText([])).toBe('');
 });
 
 test('extractLastAssistantText: string content', () => {
-  assert.equal(extractLastAssistantText([{ role: 'assistant', content: 'hi' }]), 'hi');
+  expect(extractLastAssistantText([{ role: 'assistant', content: 'hi' }])).toBe('hi');
 });
 
 test('extractLastAssistantText: array content concatenates text parts', () => {
@@ -392,32 +382,30 @@ test('extractLastAssistantText: array content concatenates text parts', () => {
       ],
     },
   ]);
-  assert.equal(out, 'line 1\nline 2');
+  expect(out).toBe('line 1\nline 2');
 });
 
 test('extractLastAssistantText: handles wrapped messages too', () => {
-  assert.equal(
+  expect(
     extractLastAssistantText([
       { message: { role: 'user', content: 'hi' } },
       { message: { role: 'assistant', content: 'there' } },
     ]),
-    'there',
-  );
+  ).toBe('there');
 });
 
 test('extractLastAssistantText: picks the LAST assistant message', () => {
-  assert.equal(
+  expect(
     extractLastAssistantText([
       { role: 'assistant', content: 'first' },
       { role: 'user', content: 'x' },
       { role: 'assistant', content: 'second' },
     ]),
-    'second',
-  );
+  ).toBe('second');
 });
 
 test('extractLastAssistantText: no assistant message → empty', () => {
-  assert.equal(extractLastAssistantText([{ role: 'user', content: 'hi' }]), '');
+  expect(extractLastAssistantText([{ role: 'user', content: 'hi' }])).toBe('');
 });
 
 // ──────────────────────────────────────────────────────────────────────
@@ -426,22 +414,22 @@ test('extractLastAssistantText: no assistant message → empty', () => {
 
 test('lastUserMessageHasMarker: marker on latest user message → true', () => {
   const branch: BranchEntry[] = [user(`${MARKER} hello`)];
-  assert.equal(lastUserMessageHasMarker(branch, MARKER), true);
+  expect(lastUserMessageHasMarker(branch, MARKER)).toBe(true);
 });
 
 test('lastUserMessageHasMarker: marker missing → false', () => {
   const branch: BranchEntry[] = [user('hello')];
-  assert.equal(lastUserMessageHasMarker(branch, MARKER), false);
+  expect(lastUserMessageHasMarker(branch, MARKER)).toBe(false);
 });
 
 test('lastUserMessageHasMarker: only the MOST RECENT user message is checked', () => {
   const branch: BranchEntry[] = [user(`${MARKER} old nudge`), assistantCall('x'), user('fresh prompt')];
-  assert.equal(lastUserMessageHasMarker(branch, MARKER), false);
+  expect(lastUserMessageHasMarker(branch, MARKER)).toBe(false);
 });
 
 test('lastUserMessageHasMarker: no user messages → false', () => {
-  assert.equal(lastUserMessageHasMarker([], MARKER), false);
-  assert.equal(lastUserMessageHasMarker([assistantCall('x')], MARKER), false);
+  expect(lastUserMessageHasMarker([], MARKER)).toBe(false);
+  expect(lastUserMessageHasMarker([assistantCall('x')], MARKER)).toBe(false);
 });
 
 test('lastUserMessageHasMarker: string-content user messages too', () => {
@@ -451,5 +439,5 @@ test('lastUserMessageHasMarker: string-content user messages too', () => {
       message: { role: 'user', content: `${MARKER} inline` },
     },
   ];
-  assert.equal(lastUserMessageHasMarker(branch, MARKER), true);
+  expect(lastUserMessageHasMarker(branch, MARKER)).toBe(true);
 });

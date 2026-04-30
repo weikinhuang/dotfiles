@@ -34,7 +34,7 @@
  *
  * Pure logic (state transitions, invariants, prompt rendering, claim
  * detection) lives in `./lib/todo-reducer.ts` and `./lib/todo-prompt.ts`
- * so it can be unit-tested under plain `node --test` without pulling in
+ * so it can be unit-tested under `vitest` without pulling in
  * the pi runtime. This file holds only the pi-coupled glue.
  *
  * The companion `plan-first` skill (config/pi/skills/plan-first/SKILL.md)

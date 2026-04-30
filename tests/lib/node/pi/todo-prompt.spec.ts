@@ -1,12 +1,8 @@
 /**
  * Tests for lib/node/pi/todo-prompt.ts.
- *
- * Run:  node --test config/pi/tests/extensions/todo-prompt.test.ts
- *   or: node --test config/pi/tests/
  */
 
-import assert from 'node:assert/strict';
-import { test } from 'node:test';
+import { expect, test } from 'vitest';
 import { formatActivePlan, looksLikeCompletionClaim } from '../../../../lib/node/pi/todo-prompt.ts';
 import { type Todo, type TodoState } from '../../../../lib/node/pi/todo-reducer.ts';
 
@@ -20,19 +16,18 @@ const mkState = (todos: Todo[]): TodoState => ({
 // ──────────────────────────────────────────────────────────────────────
 
 test('formatActivePlan: returns null for empty state', () => {
-  assert.equal(formatActivePlan(mkState([])), null);
+  expect(formatActivePlan(mkState([]))).toBe(null);
 });
 
 test('formatActivePlan: returns null when everything is completed', () => {
-  assert.equal(
+  expect(
     formatActivePlan(
       mkState([
         { id: 1, text: 'a', status: 'completed' },
         { id: 2, text: 'b', status: 'completed' },
       ]),
     ),
-    null,
-  );
+  ).toBe(null);
 });
 
 test('formatActivePlan: renders in_progress items first', () => {
@@ -44,20 +39,21 @@ test('formatActivePlan: renders in_progress items first', () => {
   )!;
   const idx1 = out.indexOf('In progress:');
   const idx2 = out.indexOf('Pending:');
-  assert.ok(idx1 >= 0 && idx2 > idx1, 'In progress must come before Pending');
-  assert.match(out, /→ #2 doing it/);
-  assert.match(out, /• #1 queued/);
+  expect(idx1).toBeGreaterThanOrEqual(0);
+  expect(idx2, 'In progress must come before Pending').toBeGreaterThan(idx1);
+  expect(out).toMatch(/→ #2 doing it/);
+  expect(out).toMatch(/• #1 queued/);
 });
 
 test('formatActivePlan: renders blocked items with note in parentheses', () => {
   const out = formatActivePlan(mkState([{ id: 4, text: 'deploy', status: 'blocked', note: 'awaiting approval' }]))!;
-  assert.match(out, /Blocked/);
-  assert.match(out, /⛔ #4 deploy {2}\(awaiting approval\)/);
+  expect(out).toMatch(/Blocked/);
+  expect(out).toMatch(/⛔ #4 deploy {2}\(awaiting approval\)/);
 });
 
 test('formatActivePlan: omits pending section when none pending', () => {
   const out = formatActivePlan(mkState([{ id: 1, text: 'x', status: 'in_progress' }]))!;
-  assert.doesNotMatch(out, /Pending:/);
+  expect(out).not.toMatch(/Pending:/);
 });
 
 test('formatActivePlan: caps pending list and shows "… and N more"', () => {
@@ -69,8 +65,8 @@ test('formatActivePlan: caps pending list and shows "… and N more"', () => {
   const out = formatActivePlan(mkState(todos), { maxItems: 5 })!;
   // 5 bulleted pending lines
   const bulletCount = (out.match(/^\s+• /gm) ?? []).length;
-  assert.equal(bulletCount, 5);
-  assert.match(out, /… and 20 more/);
+  expect(bulletCount).toBe(5);
+  expect(out).toMatch(/… and 20 more/);
 });
 
 test('formatActivePlan: maxItems default is 10', () => {
@@ -81,8 +77,8 @@ test('formatActivePlan: maxItems default is 10', () => {
   }));
   const out = formatActivePlan(mkState(todos))!;
   const bulletCount = (out.match(/^\s+• /gm) ?? []).length;
-  assert.equal(bulletCount, 10);
-  assert.match(out, /… and 5 more/);
+  expect(bulletCount).toBe(10);
+  expect(out).toMatch(/… and 5 more/);
 });
 
 test('formatActivePlan: maxItems floored to 1', () => {
@@ -92,15 +88,15 @@ test('formatActivePlan: maxItems floored to 1', () => {
   ];
   const out = formatActivePlan(mkState(todos), { maxItems: 0 })!;
   const bulletCount = (out.match(/^\s+• /gm) ?? []).length;
-  assert.equal(bulletCount, 1);
+  expect(bulletCount).toBe(1);
 });
 
 test('formatActivePlan: includes guidance footer reminding the model of the workflow', () => {
   const out = formatActivePlan(mkState([{ id: 1, text: 'x', status: 'in_progress' }]))!;
-  assert.match(out, /one item `in_progress` at a time/i);
-  assert.match(out, /move it to `review`/);
-  assert.match(out, /Mark `complete` after verification/);
-  assert.match(out, /`block` with a `note`/);
+  expect(out).toMatch(/one item `in_progress` at a time/i);
+  expect(out).toMatch(/move it to `review`/);
+  expect(out).toMatch(/Mark `complete` after verification/);
+  expect(out).toMatch(/`block` with a `note`/);
 });
 
 test('formatActivePlan: renders In review section with ⋯ marker', () => {
@@ -110,14 +106,14 @@ test('formatActivePlan: renders In review section with ⋯ marker', () => {
       { id: 2, text: 'awaiting tests', status: 'review', note: 'ran npm test — waiting for ci' },
     ]),
   )!;
-  assert.match(out, /In review/);
-  assert.match(out, /⋯ #2 awaiting tests {2}\(ran npm test — waiting for ci\)/);
+  expect(out).toMatch(/In review/);
+  expect(out).toMatch(/⋯ #2 awaiting tests {2}\(ran npm test — waiting for ci\)/);
 });
 
 test('formatActivePlan: returns non-null when only review items exist', () => {
   const out = formatActivePlan(mkState([{ id: 1, text: 'x', status: 'review' }]));
-  assert.notEqual(out, null);
-  assert.match(out!, /In review/);
+  expect(out).not.toBe(null);
+  expect(out!).toMatch(/In review/);
 });
 
 test('formatActivePlan: section order is in_progress → review → pending → blocked', () => {
@@ -133,9 +129,10 @@ test('formatActivePlan: section order is in_progress → review → pending → 
   const idxReview = out.indexOf('In review');
   const idxPending = out.indexOf('Pending:');
   const idxBlocked = out.indexOf('Blocked');
-  assert.ok(idxActive >= 0 && idxReview > idxActive, 'review must follow in_progress');
-  assert.ok(idxPending > idxReview, 'pending must follow review');
-  assert.ok(idxBlocked > idxPending, 'blocked must follow pending');
+  expect(idxActive).toBeGreaterThanOrEqual(0);
+  expect(idxReview, 'review must follow in_progress').toBeGreaterThan(idxActive);
+  expect(idxPending, 'pending must follow review').toBeGreaterThan(idxReview);
+  expect(idxBlocked, 'blocked must follow pending').toBeGreaterThan(idxPending);
 });
 
 test('formatActivePlan: keeps completed items out of the rendered sections', () => {
@@ -145,8 +142,8 @@ test('formatActivePlan: keeps completed items out of the rendered sections', () 
       { id: 2, text: 'pending-item', status: 'pending' },
     ]),
   )!;
-  assert.doesNotMatch(out, /done-item/);
-  assert.match(out, /pending-item/);
+  expect(out).not.toMatch(/done-item/);
+  expect(out).toMatch(/pending-item/);
 });
 
 // ──────────────────────────────────────────────────────────────────────
@@ -183,7 +180,7 @@ for (const text of [
   'I refactored the loop and inlined the helper.\n\nAll done.',
 ]) {
   test(`looksLikeCompletionClaim: matches ${JSON.stringify(text)}`, () => {
-    assert.equal(looksLikeCompletionClaim(text), true);
+    expect(looksLikeCompletionClaim(text)).toBe(true);
   });
 }
 
@@ -211,7 +208,7 @@ for (const text of [
   "I finished the first pass earlier, but I'm still investigating the flaky test. Let me keep digging.",
 ]) {
   test(`looksLikeCompletionClaim: rejects ${JSON.stringify(text)}`, () => {
-    assert.equal(looksLikeCompletionClaim(text), false);
+    expect(looksLikeCompletionClaim(text)).toBe(false);
   });
 }
 
@@ -219,5 +216,5 @@ test('looksLikeCompletionClaim: only inspects the tail of long messages', () => 
   // An early false-positive phrase buried 500 chars up should NOT trigger.
   const filler = 'x'.repeat(600);
   const text = `All done.\n\n${filler}\n\nStill investigating.`;
-  assert.equal(looksLikeCompletionClaim(text), false);
+  expect(looksLikeCompletionClaim(text)).toBe(false);
 });

@@ -1,8 +1,7 @@
-import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, test } from 'node:test';
+import { afterEach, beforeEach, expect, test } from 'vitest';
 import { resolveWorktreeInfo } from '../../../../lib/node/pi/git-worktree.ts';
 
 let sandbox = '';
@@ -55,11 +54,11 @@ function setupLinkedWorktree(mainRepo: string, name: string, opts: { withCommond
 test('resolveWorktreeInfo: main worktree returns null worktreeName', () => {
   const repo = setupMainRepo();
   const info = resolveWorktreeInfo(repo);
-  assert.ok(info, 'should resolve info for a repo');
-  assert.equal(info.worktreeName, null);
-  assert.equal(info.repoDir, repo);
-  assert.equal(info.gitDir, join(repo, '.git'));
-  assert.equal(info.commonGitDir, info.gitDir);
+  expect(info).toBeTruthy();
+  expect(info!.worktreeName).toBe(null);
+  expect(info!.repoDir).toBe(repo);
+  expect(info!.gitDir).toBe(join(repo, '.git'));
+  expect(info!.commonGitDir).toBe(info!.gitDir);
 });
 
 test('resolveWorktreeInfo: linked worktree exposes its name from .git/worktrees/<name>', () => {
@@ -67,12 +66,12 @@ test('resolveWorktreeInfo: linked worktree exposes its name from .git/worktrees/
   const linked = setupLinkedWorktree(repo, 'feature-x');
 
   const info = resolveWorktreeInfo(linked);
-  assert.ok(info, 'should resolve info for a linked worktree');
-  assert.equal(info.worktreeName, 'feature-x');
-  assert.equal(info.repoDir, linked);
-  assert.equal(info.gitDir, join(repo, '.git/worktrees/feature-x'));
+  expect(info).toBeTruthy();
+  expect(info!.worktreeName).toBe('feature-x');
+  expect(info!.repoDir).toBe(linked);
+  expect(info!.gitDir).toBe(join(repo, '.git/worktrees/feature-x'));
   // commondir (`../..`) resolves relative to gitDir → main `.git`.
-  assert.equal(info.commonGitDir, join(repo, '.git'));
+  expect(info!.commonGitDir).toBe(join(repo, '.git'));
 });
 
 test('resolveWorktreeInfo: linked worktree without a commondir file is treated conservatively as no worktree', () => {
@@ -85,9 +84,9 @@ test('resolveWorktreeInfo: linked worktree without a commondir file is treated c
   const linked = setupLinkedWorktree(repo, 'legacy', { withCommondir: false });
 
   const info = resolveWorktreeInfo(linked);
-  assert.ok(info);
-  assert.equal(info.worktreeName, null);
-  assert.equal(info.commonGitDir, info.gitDir);
+  expect(info).toBeTruthy();
+  expect(info!.worktreeName).toBe(null);
+  expect(info!.commonGitDir).toBe(info!.gitDir);
 });
 
 test('resolveWorktreeInfo: submodule cwd does NOT masquerade as a worktree', () => {
@@ -106,8 +105,8 @@ test('resolveWorktreeInfo: submodule cwd does NOT masquerade as a worktree', () 
   writeFileSync(join(submoduleRoot, '.git'), `gitdir: ${join(superRepo, '.git/modules/payments')}\n`);
 
   const info = resolveWorktreeInfo(submoduleRoot);
-  assert.ok(info, 'submodule should still resolve a repo');
-  assert.equal(info.worktreeName, null, 'submodule name must not be rendered as a worktree');
+  expect(info).toBeTruthy();
+  expect(info!.worktreeName).toBe(null);
 });
 
 test('resolveWorktreeInfo: --separate-git-dir pointers are not treated as worktrees', () => {
@@ -123,8 +122,8 @@ test('resolveWorktreeInfo: --separate-git-dir pointers are not treated as worktr
   writeFileSync(join(repoRoot, '.git'), `gitdir: ${separateGitDir}\n`);
 
   const info = resolveWorktreeInfo(repoRoot);
-  assert.ok(info);
-  assert.equal(info.worktreeName, null);
+  expect(info).toBeTruthy();
+  expect(info!.worktreeName).toBe(null);
 });
 
 test('resolveWorktreeInfo: linked worktree whose gitdir pointer is stale returns null', () => {
@@ -132,7 +131,7 @@ test('resolveWorktreeInfo: linked worktree whose gitdir pointer is stale returns
   mkdirSync(worktreeRoot, { recursive: true });
   writeFileSync(join(worktreeRoot, '.git'), `gitdir: ${join(sandbox, 'does/not/exist')}\n`);
 
-  assert.equal(resolveWorktreeInfo(worktreeRoot), null);
+  expect(resolveWorktreeInfo(worktreeRoot)).toBe(null);
 });
 
 // ──────────────────────────────────────────────────────────────────────
@@ -145,9 +144,9 @@ test('resolveWorktreeInfo: walks upward from a subdirectory to find .git', () =>
   mkdirSync(deep, { recursive: true });
 
   const info = resolveWorktreeInfo(deep);
-  assert.ok(info);
-  assert.equal(info.repoDir, repo);
-  assert.equal(info.worktreeName, null);
+  expect(info).toBeTruthy();
+  expect(info!.repoDir).toBe(repo);
+  expect(info!.worktreeName).toBe(null);
 });
 
 test('resolveWorktreeInfo: walks upward from inside a linked worktree subdir', () => {
@@ -157,20 +156,20 @@ test('resolveWorktreeInfo: walks upward from inside a linked worktree subdir', (
   mkdirSync(deep, { recursive: true });
 
   const info = resolveWorktreeInfo(deep);
-  assert.ok(info);
-  assert.equal(info.worktreeName, 'topic');
-  assert.equal(info.repoDir, linked);
+  expect(info).toBeTruthy();
+  expect(info!.worktreeName).toBe('topic');
+  expect(info!.repoDir).toBe(linked);
 });
 
 test('resolveWorktreeInfo: returns null for paths with no enclosing repo', () => {
   const lonely = join(sandbox, 'not-a-repo/a/b/c');
   mkdirSync(lonely, { recursive: true });
 
-  assert.equal(resolveWorktreeInfo(lonely, 4), null);
+  expect(resolveWorktreeInfo(lonely, 4)).toBe(null);
 });
 
 test('resolveWorktreeInfo: empty cwd is treated as no repo', () => {
-  assert.equal(resolveWorktreeInfo(''), null);
+  expect(resolveWorktreeInfo('')).toBe(null);
 });
 
 test('resolveWorktreeInfo: honors maxDepth', () => {
@@ -179,9 +178,9 @@ test('resolveWorktreeInfo: honors maxDepth', () => {
   mkdirSync(deep, { recursive: true });
 
   // Too shallow to reach the repo's .git …
-  assert.equal(resolveWorktreeInfo(deep, 3), null);
+  expect(resolveWorktreeInfo(deep, 3)).toBe(null);
   // … but deep enough it succeeds.
   const info = resolveWorktreeInfo(deep, 32);
-  assert.ok(info);
-  assert.equal(info.repoDir, repo);
+  expect(info).toBeTruthy();
+  expect(info!.repoDir).toBe(repo);
 });

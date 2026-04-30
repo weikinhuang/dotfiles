@@ -9,6 +9,7 @@ Cross-platform bash dotfiles for Linux, macOS, and WSL. Shell scripts, git utili
 - `./dev/test-docker.sh -q` -- quiet mode, prints only failures and a summary
 - `./dev/test-docker.sh tests/dotenv/bin/git-sync.bats` -- run a single test file
 - `./dev/test.sh` -- run tests locally (requires apt-installed bats, bats-support, bats-assert)
+- `npm test` -- run the vitest suite for TypeScript helpers under `lib/node/`
 
 ## Directory map
 
@@ -20,7 +21,7 @@ Cross-platform bash dotfiles for Linux, macOS, and WSL. Shell scripts, git utili
 | `dotenv/lib/` | Internal loader and utility libraries |
 | `plugins/` | Numbered shell plugins loaded near end of init (e.g. `10-fzf.sh`) |
 | `external/` | Vendored third-party scripts -- do not edit |
-| `tests/` | Bats test files mirroring `dotenv/` structure ([tests/AGENTS.md](./tests/AGENTS.md)) |
+| `tests/` | Bats test files mirroring `dotenv/` structure ([tests/AGENTS.md](./tests/AGENTS.md)); TypeScript specs (`*.spec.ts`) for `lib/node/` helpers run by vitest |
 | `tests/helpers/common.bash` | Shared test setup: mock stubs, git helpers, isolated HOME |
 | `config/` | Non-shell config files (git, vim, tmux, ripgrep, bat, eza, claude) |
 | `utils/` | Platform setup guides and native wrappers (WSL, macOS, Termux) |

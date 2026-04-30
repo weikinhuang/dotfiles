@@ -44,7 +44,7 @@
  *
  * Pure logic (line counting, head/tail windowing, budget accounting,
  * tool-name allowlist parsing) lives in `./lib/output-condense.ts` so
- * it can be unit-tested under plain `node --test`.
+ * it can be unit-tested under `vitest`.
  *
  * Environment:
  *   PI_CONDENSER_DISABLED=1          skip the extension entirely

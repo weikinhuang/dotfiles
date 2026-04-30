@@ -1,7 +1,7 @@
 /**
  * Pure state types + reducer for the scratchpad extension.
  *
- * No pi imports so this module can be unit-tested under plain `node --test`
+ * No pi imports so this module can be unit-tested under `vitest`
  * without the pi runtime.
  *
  * The scratchpad is the unstructured counterpart to the todo extension:

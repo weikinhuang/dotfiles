@@ -43,7 +43,7 @@
  *
  * Pure logic (classifier, snapshot extraction, retry-message formatting,
  * sentinel constant) lives in `./lib/stall-detect.ts` so it can be
- * unit-tested under plain `node --test` without the pi runtime.
+ * unit-tested under `vitest` without the pi runtime.
  *
  * Environment:
  *   PI_STALL_RECOVERY_DISABLED=1     skip the extension entirely

@@ -81,8 +81,8 @@
  *   /protected-paths   list active rules (grouped by source) + session allowlist
  *
  * Pure helpers (classify, classifyRead, classifyWrite, mergeConfigs, …)
- * live in ./lib/paths.ts so they can be unit-tested under plain
- * `node --test` without pulling in the pi runtime.
+ * live in ./lib/paths.ts so they can be unit-tested under
+ * `vitest` without pulling in the pi runtime.
  */
 
 import { readFileSync } from 'node:fs';

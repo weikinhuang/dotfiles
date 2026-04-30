@@ -197,18 +197,15 @@ export default defineConfig([
     },
   },
 
-  // Pi extensions + their tests: source files loaded by pi's own runtime
-  // (jiti) or by `node --test` against pi's globally-installed
-  // `@mariozechner/*` packages. We keep lint running for syntactic /
-  // portable rules, but turn off type-aware rules (they would all fail
-  // because the packages aren't installed as devDependencies here) and
-  // `import/no-unresolved` for the same reason. Placed after the global
-  // "Language options" block so its `projectService: false` override wins.
+  // Pi extensions: source files loaded by pi's own runtime (jiti) against
+  // pi's globally-installed `@mariozechner/*` packages. We keep lint
+  // running for syntactic / portable rules, but turn off type-aware rules
+  // (they would all fail because the packages aren't installed as
+  // devDependencies here) and `import/no-unresolved` for the same reason.
+  // Placed after the global "Language options" block so its
+  // `projectService: false` override wins.
   {
-    files: [
-      'config/pi/extensions/**/*.{ts,mts,cts,js,mjs,cjs}',
-      'config/pi/tests/**/*.{ts,mts,cts,js,mjs,cjs}',
-    ],
+    files: ['config/pi/extensions/**/*.{ts,mts,cts,js,mjs,cjs}'],
     extends: [tseslintConfigs.disableTypeChecked],
     languageOptions: {
       parserOptions: {

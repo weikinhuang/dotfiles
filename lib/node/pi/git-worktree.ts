@@ -21,7 +21,7 @@
  *     the submodule's name as if it were a worktree.
  *
  * This module imports only from `node:*` so it stays unit-testable under
- * plain `node --test` with no pi runtime.
+ * `vitest` with no pi runtime.
  */
 
 import { existsSync, readFileSync, statSync } from 'node:fs';

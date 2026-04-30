@@ -34,12 +34,10 @@ Configuration, custom extensions, and themes for
   results (bash by default) so large outputs don’t eat the session. Full output is stashed to a tempfile the model can
   re-`read` with `--offset` / `--limit`.
 - [`../../lib/node/pi/`](../../lib/node/pi) — pure helpers (no pi imports) shared between the extensions and
-  unit-tested under [`tests/`](./tests). Hoisted out of `extensions/` so they get type-checked by the repo's root
-  `tsconfig.json`.
+  unit-tested under [`../../tests/lib/node/pi/`](../../tests/lib/node/pi). Hoisted out of `extensions/` so they get
+  type-checked by the repo's root `tsconfig.json`.
 - [`skills/plan-first/SKILL.md`](#skillsplan-first) — global skill that teaches models WHEN to reach for the `todo` tool
   and how to keep the plan accurate. Companion to [`extensions/todo.ts`](#extensionstodots).
-- [`tests/`](./tests) — `node --test` unit tests for the pure extension helpers. See
-  [`tests/README.md`](./tests/README.md).
 - [`themes/`](#themes) — JSON themes loadable by name from `settings.json`.
 
 Pi auto-discovers [`extensions/`](./extensions), [`skills/`](./skills), and [`themes/`](./themes) via the `extensions` /
