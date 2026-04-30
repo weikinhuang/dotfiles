@@ -14,6 +14,11 @@
  *   - ctx.cwd                      → working directory
  *   - footerData.getGitBranch()    → live git branch with change watcher
  *
+ * Colors are hard-coded 256-color ANSI codes matching the dotfiles PS1 /
+ * `config/claude/statusline-command.sh` palette (see PALETTE below). They
+ * intentionally bypass pi's theme so the statusline looks identical across
+ * themes and matches the interactive shell prompt.
+ *
  * For branch decoration (dirty/staged/stash/untracked/upstream) we shell out
  * to the dotfiles-vendored `external/git-prompt.sh` — the same script that
  * powers `PS1` and `config/claude/statusline-command.sh`. Results are cached
@@ -25,8 +30,6 @@
  * `.git` / `.git/worktrees/<name>/commondir` directly via `./lib/git-worktree.ts`
  * — no subprocess required. Mirrors Claude Code's `workspace.git_worktree`
  * field and renders ` ⎇ <name>` after the branch segment.
- *
- * Uses only semantic theme colors so it adapts to any pi theme.
  *
  * Environment variables:
  *   PI_STATUSLINE_DISABLED=1       → restore pi's built-in footer
@@ -76,6 +79,32 @@ const fmtSi = (n: number): string => {
 };
 
 const fmtCost = (c: number): string => `$${c.toFixed(3)}`;
+
+/**
+ * 256-color ANSI palette matching `config/claude/statusline-command.sh`, which
+ * itself mirrors the dotfiles PS1 colors. Kept as raw SGR codes rather than
+ * theme lookups so the statusline looks identical across pi themes and stays
+ * visually consistent with the shell prompt.
+ */
+const RESET = '\x1b[0m';
+const BOLD = '\x1b[1m';
+const PALETTE = {
+  grey: '\x1b[38;5;244m',
+  user: '\x1b[38;5;197m',
+  host: '\x1b[38;5;208m',
+  dir: '\x1b[38;5;142m',
+  git: '\x1b[38;5;135m',
+  worktree: '\x1b[38;5;173m',
+  context: '\x1b[38;5;35m',
+  token: '\x1b[38;5;245m',
+  sessionToken: '\x1b[38;5;179m',
+  tool: '\x1b[38;5;214m',
+  cost: '\x1b[38;5;108m',
+  sessionId: '\x1b[38;5;244m',
+  model: '\x1b[38;5;33m',
+} as const;
+
+const paint = (code: string, text: string): string => `${code}${text}${RESET}`;
 
 /**
  * Wrap text in an OSC 8 hyperlink escape sequence.
@@ -202,7 +231,7 @@ export default function extension(pi: ExtensionAPI): void {
   const gitPromptEnabled = process.env.PI_STATUSLINE_DISABLE_GIT_PROMPT !== '1' && GIT_PROMPT_SCRIPT_PATH !== null;
 
   pi.on('session_start', (_event, ctx) => {
-    ctx.ui.setFooter((tui, theme, footerData) => {
+    ctx.ui.setFooter((tui, _theme, footerData) => {
       // Per-session cache of decorated git segments. Keyed by cwd so that
       // switching worktrees inside a long-running session doesn't bleed
       // stale values across directories. Invalidated on branch change and
@@ -289,15 +318,15 @@ export default function extension(pi: ExtensionAPI): void {
           const agg = aggregate(ctx.sessionManager.getBranch());
 
           const cwdUrl = cwdFileUrl(ctx.cwd, hyperlinksEnabled);
-          const cwdStyled = theme.fg('mdListBullet', cwdShort);
+          const cwdStyled = paint(PALETTE.dir, cwdShort);
           const cwdSegment = cwdUrl ? osc8(cwdUrl, cwdStyled) : cwdStyled;
 
           // --- line 1: [user#host cwd (branch) ctx% $cost §sessid] model ---
           const line1Parts: string[] = [
-            theme.bold(theme.fg('dim', '[')),
-            theme.fg('error', user),
-            theme.fg('dim', '#'),
-            theme.fg('warning', host),
+            `${BOLD}${PALETTE.grey}[${RESET}`,
+            paint(PALETTE.user, user),
+            paint(PALETTE.grey, '#'),
+            paint(PALETTE.host, host),
             ' ',
             cwdSegment,
           ];
@@ -305,7 +334,7 @@ export default function extension(pi: ExtensionAPI): void {
           if (branch || gitPromptEnabled) {
             const gitSeg = getGitSegment(ctx.cwd, branch);
             if (gitSeg) {
-              line1Parts.push(theme.fg('mdLink', gitSeg));
+              line1Parts.push(paint(PALETTE.git, gitSeg));
             }
           }
           // Worktree badge (` ⎇ <name>`), mirroring Claude's workspace.git_worktree
@@ -313,30 +342,30 @@ export default function extension(pi: ExtensionAPI): void {
           // worktrees and non-git cwds render nothing.
           const worktree = getWorktreeInfo(ctx.cwd);
           if (worktree?.worktreeName) {
-            line1Parts.push(theme.fg('warning', ` ⎇ ${worktree.worktreeName}`));
+            line1Parts.push(paint(PALETTE.worktree, ` ⎇ ${worktree.worktreeName}`));
           }
           if (remainingPct != null) {
-            line1Parts.push(theme.fg('success', ` ${remainingPct.toFixed(0)}% left`));
+            line1Parts.push(paint(PALETTE.context, ` ${remainingPct.toFixed(0)}% left`));
           }
           if (agg.sessionCostTotal > 0) {
-            line1Parts.push(theme.fg('toolTitle', ` ${fmtCost(agg.sessionCostTotal)}`));
+            line1Parts.push(paint(PALETTE.cost, ` ${fmtCost(agg.sessionCostTotal)}`));
           }
           if (shortSessionId) {
-            line1Parts.push(theme.fg('muted', ` §${shortSessionId}`));
+            line1Parts.push(paint(PALETTE.sessionId, ` §${shortSessionId}`));
           }
 
-          line1Parts.push(theme.bold(theme.fg('dim', ']')));
+          line1Parts.push(`${BOLD}${PALETTE.grey}]${RESET}`);
           // Bash-auto indicator: when /bash-auto is ON, flag the footer so
           // it's obvious commands will run without prompting. State is
           // owned by bash-permissions.ts and read via ./lib/session-flags.ts.
           if (isBashAutoEnabled()) {
-            line1Parts.push(' ', theme.fg('warning', '⚡'));
+            line1Parts.push(' ', paint(PALETTE.tool, '⚡'));
           }
-          line1Parts.push(' ', theme.fg('accent', modelId));
+          line1Parts.push(' ', paint(PALETTE.model, modelId));
           if (thinkingLevel) {
             // Matches pi's built-in footer (`<model> • <level>` / `<model> • thinking off`)
-            // but rendered in `muted` so the model id stays the prominent element.
-            line1Parts.push(theme.fg('muted', ` • ${thinkingLevel}`));
+            // but rendered in grey so the model id stays the prominent element.
+            line1Parts.push(paint(PALETTE.grey, ` • ${thinkingLevel}`));
           }
 
           // --- line 2: ↳ M:↑/↻/↓ | S:↑/↻/↓ | ⚒ S:n(~bytes) ---
@@ -350,8 +379,8 @@ export default function extension(pi: ExtensionAPI): void {
             const lastRatioSeg =
               lastCacheDenom > 0 ? ` R ${Math.round((agg.lastCacheRead / lastCacheDenom) * 100)}%` : '';
             line2Parts.push(
-              theme.fg(
-                'dim',
+              paint(
+                PALETTE.token,
                 `${label}:↑${fmtSi(agg.lastIn)}/↻ ${fmtSi(agg.lastCacheRead)}/↓${fmtSi(agg.lastOut)}${lastRatioSeg}`,
               ),
             );
@@ -367,8 +396,8 @@ export default function extension(pi: ExtensionAPI): void {
             const cacheDenom = agg.sessionIn + agg.sessionCacheRead;
             const ratioSeg = cacheDenom > 0 ? ` R ${Math.round((agg.sessionCacheRead / cacheDenom) * 100)}%` : '';
             line2Parts.push(
-              theme.fg(
-                'text',
+              paint(
+                PALETTE.sessionToken,
                 `S:↑${fmtSi(agg.sessionIn)}/↻ ${fmtSi(agg.sessionCacheRead)}${writeSeg}/↓${fmtSi(agg.sessionOut)}${ratioSeg}`,
               ),
             );
@@ -376,7 +405,7 @@ export default function extension(pi: ExtensionAPI): void {
 
           if (agg.toolCalls > 0) {
             const bytesSuffix = agg.toolResultBytes > 0 ? `(~${fmtSi(agg.toolResultBytes / 4)})` : '';
-            line2Parts.push(theme.fg('warning', `⚒ S:${agg.toolCalls}${bytesSuffix}`));
+            line2Parts.push(paint(PALETTE.tool, `⚒ S:${agg.toolCalls}${bytesSuffix}`));
           }
 
           // --- line 3: other extensions' statuses (plan-mode, preset, working-indicator, …) ---
@@ -387,8 +416,8 @@ export default function extension(pi: ExtensionAPI): void {
             .sort(([a], [b]) => a.localeCompare(b))
             .map(([, v]) => v.replace(/[\r\n\t]+/g, ' '));
 
-          const sep = theme.fg('dim', ' | ');
-          const arrow = theme.fg('muted', ' ↳ ');
+          const sep = paint(PALETTE.grey, ' | ');
+          const arrow = paint(PALETTE.grey, ' ↳ ');
 
           const line1 = line1Parts.join('');
           const lines: string[] = [truncateToWidth(line1, width)];
