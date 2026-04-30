@@ -1,5 +1,5 @@
 /**
- * Tests for config/pi/extensions/lib/stall-detect.ts.
+ * Tests for lib/node/pi/stall-detect.ts.
  *
  * Run:  node --test config/pi/tests/extensions/stall-detect.test.ts
  *   or: node --test config/pi/tests/
@@ -17,7 +17,7 @@ import {
   lastAssistantSnapshot,
   snapshotFromAssistantMessage,
   STALL_MARKER,
-} from '../../extensions/lib/stall-detect.ts';
+} from '../../../../lib/node/pi/stall-detect.ts';
 
 // ──────────────────────────────────────────────────────────────────────
 // classifyAssistant

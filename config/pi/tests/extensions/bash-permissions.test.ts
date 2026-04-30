@@ -1,5 +1,5 @@
 /**
- * Tests for config/pi/extensions/lib/bash-match.ts.
+ * Tests for lib/node/pi/bash-match.ts.
  *
  * Run:  node --test config/pi/tests/extensions/bash-permissions.test.ts
  *   or: node --test config/pi/tests/
@@ -20,7 +20,7 @@ import {
   matchesPattern,
   splitCompound,
   twoTokenPattern,
-} from '../../extensions/lib/bash-match.ts';
+} from '../../../../lib/node/pi/bash-match.ts';
 
 // ──────────────────────────────────────────────────────────────────────
 // splitCompound

@@ -1,5 +1,5 @@
 /**
- * Tests for config/pi/extensions/lib/context-budget.ts.
+ * Tests for lib/node/pi/context-budget.ts.
  *
  * Run:  node --test config/pi/tests/extensions/context-budget.test.ts
  *   or: node --test config/pi/tests/
@@ -14,7 +14,7 @@ import {
   formatBudgetLine,
   formatTokens,
   shouldAutoCompact,
-} from '../../extensions/lib/context-budget.ts';
+} from '../../../../lib/node/pi/context-budget.ts';
 
 // ──────────────────────────────────────────────────────────────────────
 // formatTokens

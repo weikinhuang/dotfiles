@@ -172,12 +172,12 @@ export const DEFAULT_CONFIG: Readonly<ProtectionConfig> = Object.freeze({
     basenames: ['.env', '.env.*', '.envrc'],
     segments: [],
     paths: ['~/.ssh'],
-  }) as ProtectionRules,
+  }),
   write: Object.freeze({
     basenames: [],
     segments: ['node_modules', '.git'],
     paths: [],
-  }) as ProtectionRules,
+  }),
 });
 
 // ──────────────────────────────────────────────────────────────────────

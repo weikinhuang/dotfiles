@@ -1,5 +1,5 @@
 /**
- * Tests for config/pi/extensions/lib/jsonc.ts.
+ * Tests for lib/node/pi/jsonc.ts.
  *
  * Run:  node --test config/pi/tests/extensions/jsonc.test.ts
  *   or: cd config/pi/tests && node --test
@@ -7,7 +7,7 @@
 
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { parseJsonc, stripJsonComments } from '../../extensions/lib/jsonc.ts';
+import { parseJsonc, stripJsonComments } from '../../../../lib/node/pi/jsonc.ts';
 
 // ──────────────────────────────────────────────────────────────────────
 // stripJsonComments

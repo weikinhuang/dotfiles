@@ -1,5 +1,5 @@
 /**
- * Tests for config/pi/extensions/lib/verify-detect.ts.
+ * Tests for lib/node/pi/verify-detect.ts.
  *
  * Run:  node --test config/pi/tests/extensions/verify-detect.test.ts
  *   or: node --test config/pi/tests/
@@ -20,7 +20,7 @@ import {
   lastUserMessageHasMarker,
   partitionClaims,
   verifyingCommandMatches,
-} from '../../extensions/lib/verify-detect.ts';
+} from '../../../../lib/node/pi/verify-detect.ts';
 
 // ──────────────────────────────────────────────────────────────────────
 // extractClaims

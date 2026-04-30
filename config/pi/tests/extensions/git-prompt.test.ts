@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, test } from 'node:test';
-import { GIT_PROMPT_FILENAME, resolveGitPromptScript } from '../../extensions/lib/git-prompt.ts';
+import { GIT_PROMPT_FILENAME, resolveGitPromptScript } from '../../../../lib/node/pi/git-prompt.ts';
 
 let sandbox = '';
 let savedDotfilesRoot: string | undefined;

@@ -327,7 +327,7 @@ export function buildSteer(unverified: readonly Claim[], marker: string): string
   if (unverified.length === 0) return '';
   const parts: string[] = [marker];
   if (unverified.length === 1) {
-    const c = unverified[0]!;
+    const c = unverified[0];
     parts.push(
       `You claimed "${truncatePhrase(c.phrase, 80)}" (${HUMAN_KIND[c.kind]}), but I don't see a tool call that would have verified it in this turn.`,
     );
@@ -383,7 +383,7 @@ export interface BranchEntry {
 export function collectBashCommandsSinceLastUser(branch: readonly BranchEntry[]): string[] {
   const out: string[] = [];
   for (let i = branch.length - 1; i >= 0; i--) {
-    const entry = branch[i]!;
+    const entry = branch[i];
     const msg = entry.message;
     if (!msg) continue;
     if (msg.role === 'user') break;
@@ -422,7 +422,7 @@ export function extractLastAssistantText(messages: readonly unknown[]): string {
   for (let i = messages.length - 1; i >= 0; i--) {
     const wrapped = messages[i] as { message?: unknown };
     const m = (wrapped?.message ?? messages[i]) as { role?: string; content?: unknown } | undefined;
-    if (!m || m.role !== 'assistant') continue;
+    if (m?.role !== 'assistant') continue;
     if (typeof m.content === 'string') return m.content;
     if (Array.isArray(m.content)) {
       const parts: string[] = [];
@@ -446,9 +446,9 @@ export function extractLastAssistantText(messages: readonly unknown[]): string {
  */
 export function lastUserMessageHasMarker(branch: readonly BranchEntry[], marker: string): boolean {
   for (let i = branch.length - 1; i >= 0; i--) {
-    const entry = branch[i]!;
+    const entry = branch[i];
     const msg = entry.message;
-    if (!msg || msg.role !== 'user') continue;
+    if (msg?.role !== 'user') continue;
     let text = '';
     if (typeof msg.content === 'string') text = msg.content;
     else if (Array.isArray(msg.content)) {

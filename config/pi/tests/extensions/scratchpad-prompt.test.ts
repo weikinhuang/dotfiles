@@ -1,5 +1,5 @@
 /**
- * Tests for config/pi/extensions/lib/scratchpad-prompt.ts.
+ * Tests for lib/node/pi/scratchpad-prompt.ts.
  *
  * Run:  node --test config/pi/tests/extensions/scratchpad-prompt.test.ts
  *   or: node --test config/pi/tests/
@@ -9,8 +9,8 @@
 
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { formatWorkingNotes } from '../../extensions/lib/scratchpad-prompt.ts';
-import { type ScratchpadState } from '../../extensions/lib/scratchpad-reducer.ts';
+import { formatWorkingNotes } from '../../../../lib/node/pi/scratchpad-prompt.ts';
+import { type ScratchpadState } from '../../../../lib/node/pi/scratchpad-reducer.ts';
 
 const state = (notes: ScratchpadState['notes'], nextId?: number): ScratchpadState => ({
   notes,

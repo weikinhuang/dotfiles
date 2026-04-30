@@ -57,7 +57,7 @@ import {
   extractLastAssistantText,
   lastUserMessageHasMarker,
   partitionClaims,
-} from './lib/verify-detect.ts';
+} from '../../../lib/node/pi/verify-detect.ts';
 
 /** Sentinel prepended to every steer — used for idempotency + discovery. */
 const VERIFY_MARKER = '⚠ [pi-verify-before-claim]';

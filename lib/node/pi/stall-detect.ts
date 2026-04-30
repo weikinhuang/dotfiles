@@ -45,7 +45,7 @@ export interface AssistantSnapshot {
  * emptiness so the retry message can surface the specific failure.
  */
 export function classifyAssistant(snap: AssistantSnapshot): StallReason | null {
-  if (snap.error && snap.error.trim()) {
+  if (snap.error?.trim()) {
     return { kind: 'error', error: snap.error.trim() };
   }
   const trimmed = snap.text.trim();

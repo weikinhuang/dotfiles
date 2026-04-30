@@ -117,7 +117,7 @@ export function stateFromEntry(entry: BranchEntry): TodoState | null {
  */
 export function reduceBranch(branch: readonly BranchEntry[]): TodoState {
   for (let i = branch.length - 1; i >= 0; i--) {
-    const s = stateFromEntry(branch[i]!);
+    const s = stateFromEntry(branch[i]);
     if (s) return s;
   }
   return emptyState();
@@ -196,7 +196,7 @@ export function actAdd(state: TodoState, text: string | undefined, items: string
   }
   const summary =
     added.length === 1
-      ? `Added #${added[0]!.id}: ${added[0]!.text}`
+      ? `Added #${added[0].id}: ${added[0].text}`
       : `Added ${added.length} todos (${added.map((a) => `#${a.id}`).join(', ')})`;
   return { ok: true, state: next, summary };
 }
@@ -230,7 +230,7 @@ export function actComplete(state: TodoState, id: number | undefined, note: stri
   // claims. Going through `review` first acts as the verification parking
   // step, so completing from review (or any other state) keeps the note
   // optional.
-  if (todo.status === 'in_progress' && (!note || !note.trim())) {
+  if (todo.status === 'in_progress' && !note?.trim()) {
     return {
       ok: false,
       error:
@@ -238,14 +238,14 @@ export function actComplete(state: TodoState, id: number | undefined, note: stri
     };
   }
   todo.status = 'completed';
-  if (note && note.trim()) todo.note = note.trim();
+  if (note?.trim()) todo.note = note.trim();
   else delete todo.note;
   return { ok: true, state: next, summary: `Completed #${id}: ${todo.text}` };
 }
 
 export function actBlock(state: TodoState, id: number | undefined, note: string | undefined): ActionResult {
   if (id === undefined) return { ok: false, error: 'block requires `id`' };
-  if (!note || !note.trim()) return { ok: false, error: 'block requires `note` (reason the task is blocked)' };
+  if (!note?.trim()) return { ok: false, error: 'block requires `note` (reason the task is blocked)' };
   const next = cloneState(state);
   const todo = findTodo(next, id);
   if (!todo) return { ok: false, error: `#${id} not found` };
@@ -271,7 +271,7 @@ export function actReview(state: TodoState, id: number | undefined, note: string
   if (!todo) return { ok: false, error: `#${id} not found` };
   if (todo.status === 'review') {
     // Idempotent: allow updating the note on an already-review item.
-    if (note && note.trim()) todo.note = note.trim();
+    if (note?.trim()) todo.note = note.trim();
     else delete todo.note;
     return { ok: true, state: next, summary: `#${id} already in review` };
   }
@@ -289,7 +289,7 @@ export function actReview(state: TodoState, id: number | undefined, note: string
     };
   }
   todo.status = 'review';
-  if (note && note.trim()) todo.note = note.trim();
+  if (note?.trim()) todo.note = note.trim();
   else delete todo.note;
   return { ok: true, state: next, summary: `Moved #${id} to review: ${todo.text}` };
 }

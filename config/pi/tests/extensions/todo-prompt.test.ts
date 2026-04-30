@@ -1,5 +1,5 @@
 /**
- * Tests for config/pi/extensions/lib/todo-prompt.ts.
+ * Tests for lib/node/pi/todo-prompt.ts.
  *
  * Run:  node --test config/pi/tests/extensions/todo-prompt.test.ts
  *   or: node --test config/pi/tests/
@@ -7,8 +7,8 @@
 
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { formatActivePlan, looksLikeCompletionClaim } from '../../extensions/lib/todo-prompt.ts';
-import { type Todo, type TodoState } from '../../extensions/lib/todo-reducer.ts';
+import { formatActivePlan, looksLikeCompletionClaim } from '../../../../lib/node/pi/todo-prompt.ts';
+import { type Todo, type TodoState } from '../../../../lib/node/pi/todo-reducer.ts';
 
 const mkState = (todos: Todo[]): TodoState => ({
   todos: todos.map((t) => ({ ...t })),

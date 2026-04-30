@@ -85,9 +85,9 @@ import {
   splitCompound,
   truncate,
   twoTokenPattern,
-} from './lib/bash-match.ts';
-import { parseJsonc } from './lib/jsonc.ts';
-import { setBashAutoEnabled } from './lib/session-flags.ts';
+} from '../../../lib/node/pi/bash-match.ts';
+import { parseJsonc } from '../../../lib/node/pi/jsonc.ts';
+import { setBashAutoEnabled } from '../../../lib/node/pi/session-flags.ts';
 
 // ──────────────────────────────────────────────────────────────────────
 // Rule storage

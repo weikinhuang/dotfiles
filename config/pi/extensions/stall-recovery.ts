@@ -63,7 +63,7 @@ import {
   lastAssistantSnapshot,
   STALL_MARKER,
   type StallReason,
-} from './lib/stall-detect.ts';
+} from '../../../lib/node/pi/stall-detect.ts';
 
 const STATUS_KEY = 'stall-recovery';
 const MAX_RETRIES_DEFAULT = 2;

@@ -1,5 +1,5 @@
 /**
- * Tests for config/pi/extensions/lib/paths.ts.
+ * Tests for lib/node/pi/paths.ts.
  *
  * Run:  node --test config/pi/tests/extensions/protected-paths.test.ts
  *   or: node --test config/pi/tests/
@@ -24,7 +24,7 @@ import {
   mergeRules,
   pathContainsSegment,
   type ProtectionConfig,
-} from '../../extensions/lib/paths.ts';
+} from '../../../../lib/node/pi/paths.ts';
 
 const HOME = homedir();
 const CWD_INSIDE_HOME = `${HOME}/some-project`;

@@ -1,5 +1,5 @@
 /**
- * Tests for config/pi/extensions/lib/output-condense.ts.
+ * Tests for lib/node/pi/output-condense.ts.
  *
  * Run:  node --test config/pi/tests/extensions/output-condense.test.ts
  *   or: node --test config/pi/tests/
@@ -9,7 +9,7 @@
 
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { condense, parseToolList, splitLines } from '../../extensions/lib/output-condense.ts';
+import { condense, parseToolList, splitLines } from '../../../../lib/node/pi/output-condense.ts';
 
 // ──────────────────────────────────────────────────────────────────────
 // splitLines

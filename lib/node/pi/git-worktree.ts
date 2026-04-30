@@ -78,9 +78,7 @@ export function resolveWorktreeInfo(cwd: string, maxDepth = 64): WorktreeInfo | 
           // at a linked worktree rather than a submodule or separate-git-dir.
           const commonDirFile = join(gitDir, 'commondir');
           const hasCommondir = existsSync(commonDirFile);
-          const commonGitDir = hasCommondir
-            ? resolve(gitDir, readFileSync(commonDirFile, 'utf8').trim())
-            : gitDir;
+          const commonGitDir = hasCommondir ? resolve(gitDir, readFileSync(commonDirFile, 'utf8').trim()) : gitDir;
 
           // Second signal: linked worktrees always live at
           // `<commonGitDir>/worktrees/<name>/`. Submodules live at

@@ -90,7 +90,7 @@ function takeTail(lines: readonly string[], n: number, maxBytes: number): string
   // Build from the END back so the last line is guaranteed to fit.
   const out: string[] = [];
   for (let i = sliced.length - 1; i >= 0; i--) {
-    const ln = sliced[i]!;
+    const ln = sliced[i];
     const cost = byteLen(ln) + 1; // +1 for the joining '\n'
     if (out.length > 0 && used + cost > maxBytes) break;
     out.unshift(ln);

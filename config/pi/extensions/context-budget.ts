@@ -55,7 +55,12 @@
  */
 
 import { type ExtensionAPI, type ExtensionContext } from '@mariozechner/pi-coding-agent';
-import { type BudgetOptions, formatBudgetLine, formatTokens, shouldAutoCompact } from './lib/context-budget.ts';
+import {
+  type BudgetOptions,
+  formatBudgetLine,
+  formatTokens,
+  shouldAutoCompact,
+} from '../../../lib/node/pi/context-budget.ts';
 
 const DEFAULT_MIN = 50;
 const DEFAULT_WARN = 80;

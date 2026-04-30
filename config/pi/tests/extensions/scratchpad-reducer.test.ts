@@ -1,5 +1,5 @@
 /**
- * Tests for config/pi/extensions/lib/scratchpad-reducer.ts.
+ * Tests for lib/node/pi/scratchpad-reducer.ts.
  *
  * Run:  node --test config/pi/tests/extensions/scratchpad-reducer.test.ts
  *   or: node --test config/pi/tests/
@@ -26,7 +26,7 @@ import {
   type ScratchNote,
   type ScratchpadState,
   stateFromEntry,
-} from '../../extensions/lib/scratchpad-reducer.ts';
+} from '../../../../lib/node/pi/scratchpad-reducer.ts';
 
 // ──────────────────────────────────────────────────────────────────────
 // Fixtures

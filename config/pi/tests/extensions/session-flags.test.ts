@@ -1,9 +1,15 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+// The two imports below intentionally hit the same module via distinct
+// specifiers so Node's ESM loader hands us two module records. See the
+// block comment before the second import for the full rationale. The
+// `import/no-duplicates` rule can't express "distinct records", so disable
+// it just for this pair.
+/* eslint-disable import/no-duplicates */
 import {
   isBashAutoEnabled as isBashAutoEnabledA,
   setBashAutoEnabled as setBashAutoEnabledA,
-} from '../../extensions/lib/session-flags.ts';
+} from '../../../../lib/node/pi/session-flags.ts';
 // Import a second copy via a different specifier (query string defeats
 // Node's ESM module cache and simulates pi's extension loader, which
 // creates a fresh jiti instance per extension with `moduleCache: false`
@@ -11,7 +17,8 @@ import {
 import {
   isBashAutoEnabled as isBashAutoEnabledB,
   setBashAutoEnabled as setBashAutoEnabledB,
-} from '../../extensions/lib/session-flags.ts?copy=b';
+} from '../../../../lib/node/pi/session-flags.ts?copy=b';
+/* eslint-enable import/no-duplicates */
 
 test('session-flags: default state is OFF', () => {
   setBashAutoEnabledA(false);

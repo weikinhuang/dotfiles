@@ -111,7 +111,7 @@ export function stateFromEntry(entry: BranchEntry): ScratchpadState | null {
  */
 export function reduceBranch(branch: readonly BranchEntry[]): ScratchpadState {
   for (let i = branch.length - 1; i >= 0; i--) {
-    const s = stateFromEntry(branch[i]!);
+    const s = stateFromEntry(branch[i]);
     if (s) return s;
   }
   return emptyState();

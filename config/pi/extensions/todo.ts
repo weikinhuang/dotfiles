@@ -55,7 +55,7 @@ import { StringEnum } from '@mariozechner/pi-ai';
 import { type ExtensionAPI, type ExtensionContext, type Theme } from '@mariozechner/pi-coding-agent';
 import { matchesKey, Text, truncateToWidth } from '@mariozechner/pi-tui';
 import { Type } from 'typebox';
-import { formatActivePlan, looksLikeCompletionClaim } from './lib/todo-prompt.ts';
+import { formatActivePlan, looksLikeCompletionClaim } from '../../../lib/node/pi/todo-prompt.ts';
 import {
   actAdd,
   actBlock,
@@ -74,7 +74,7 @@ import {
   TODO_CUSTOM_TYPE,
   type Todo,
   type TodoState,
-} from './lib/todo-reducer.ts';
+} from '../../../lib/node/pi/todo-reducer.ts';
 
 // Sentinel prepended to the guardrail steer. We detect it on the most
 // recent user message to make the guardrail idempotent across re-fires

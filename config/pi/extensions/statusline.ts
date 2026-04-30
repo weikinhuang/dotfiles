@@ -49,9 +49,9 @@ import {
   GIT_SEGMENT_TTL_MS,
   type GitSegmentCacheEntry,
   resolveGitPromptScript,
-} from './lib/git-prompt.ts';
-import { resolveWorktreeInfo, type WorktreeInfo } from './lib/git-worktree.ts';
-import { isBashAutoEnabled } from './lib/session-flags.ts';
+} from '../../../lib/node/pi/git-prompt.ts';
+import { resolveWorktreeInfo, type WorktreeInfo } from '../../../lib/node/pi/git-worktree.ts';
+import { isBashAutoEnabled } from '../../../lib/node/pi/session-flags.ts';
 
 /**
  * Resolved once at module load. `null` means we never found the helper — the
@@ -239,6 +239,13 @@ export default function extension(pi: ExtensionAPI): void {
         return entry?.value || fallback;
       };
 
+      // Per-session cache of worktree info keyed by cwd. resolveWorktreeInfo
+      // is pure fs (existsSync / readFileSync on a handful of tiny files) so
+      // caching is mostly about avoiding log spam during rapid repaints —
+      // there's no network or subprocess cost to pay. `null` is cached too,
+      // so non-git cwds don't re-stat `.git` on every keystroke.
+      const worktreeCache = new Map<string, WorktreeInfo | null>();
+
       const unsubBranch = footerData.onBranchChange(() => {
         // HEAD (or reftable) moved — every cached decorated segment is now
         // suspect. Stamp them stale so the next render kicks off a refetch.
@@ -250,12 +257,6 @@ export default function extension(pi: ExtensionAPI): void {
         tui.requestRender();
       });
 
-      // Per-session cache of worktree info keyed by cwd. resolveWorktreeInfo
-      // is pure fs (existsSync / readFileSync on a handful of tiny files) so
-      // caching is mostly about avoiding log spam during rapid repaints —
-      // there's no network or subprocess cost to pay. `null` is cached too,
-      // so non-git cwds don't re-stat `.git` on every keystroke.
-      const worktreeCache = new Map<string, WorktreeInfo | null>();
       const getWorktreeInfo = (cwd: string): WorktreeInfo | null => {
         if (!cwd) return null;
         if (worktreeCache.has(cwd)) return worktreeCache.get(cwd) ?? null;
@@ -364,8 +365,7 @@ export default function extension(pi: ExtensionAPI): void {
             // R = cache-hit ratio (cacheRead / (input + cacheRead)). A quick indicator that
             // prompt caching is actually engaging; near-zero means the cache is missing.
             const cacheDenom = agg.sessionIn + agg.sessionCacheRead;
-            const ratioSeg =
-              cacheDenom > 0 ? ` R ${Math.round((agg.sessionCacheRead / cacheDenom) * 100)}%` : '';
+            const ratioSeg = cacheDenom > 0 ? ` R ${Math.round((agg.sessionCacheRead / cacheDenom) * 100)}%` : '';
             line2Parts.push(
               theme.fg(
                 'text',

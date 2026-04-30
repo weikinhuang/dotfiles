@@ -1,5 +1,5 @@
 /**
- * Tests for config/pi/extensions/lib/todo-reducer.ts.
+ * Tests for lib/node/pi/todo-reducer.ts.
  *
  * Run:  node --test config/pi/tests/extensions/todo-reducer.test.ts
  *   or: node --test config/pi/tests/
@@ -31,7 +31,7 @@ import {
   TODO_TOOL_NAME,
   type Todo,
   type TodoState,
-} from '../../extensions/lib/todo-reducer.ts';
+} from '../../../../lib/node/pi/todo-reducer.ts';
 
 // ──────────────────────────────────────────────────────────────────────
 // Fixtures

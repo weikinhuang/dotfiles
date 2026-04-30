@@ -53,7 +53,7 @@ import { StringEnum } from '@mariozechner/pi-ai';
 import { type ExtensionAPI, type ExtensionContext, type Theme } from '@mariozechner/pi-coding-agent';
 import { Text } from '@mariozechner/pi-tui';
 import { Type } from 'typebox';
-import { formatWorkingNotes } from './lib/scratchpad-prompt.ts';
+import { formatWorkingNotes } from '../../../lib/node/pi/scratchpad-prompt.ts';
 import {
   actAppend,
   actClear,
@@ -69,7 +69,7 @@ import {
   SCRATCHPAD_CUSTOM_TYPE,
   type ScratchNote,
   type ScratchpadState,
-} from './lib/scratchpad-reducer.ts';
+} from '../../../lib/node/pi/scratchpad-reducer.ts';
 
 const MAX_INJECTED_CHARS_DEFAULT = 2000;
 

@@ -94,7 +94,7 @@ import {
   isToolCallEventType,
   type ToolCallEvent,
 } from '@mariozechner/pi-coding-agent';
-import { parseJsonc } from './lib/jsonc.ts';
+import { parseJsonc } from '../../../lib/node/pi/jsonc.ts';
 import {
   classifyRead,
   classifyWrite,
@@ -104,7 +104,7 @@ import {
   mergeConfigs,
   type Protection,
   type ProtectionConfig,
-} from './lib/paths.ts';
+} from '../../../lib/node/pi/paths.ts';
 
 // ──────────────────────────────────────────────────────────────────────
 // Rule file loading

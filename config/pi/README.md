@@ -33,8 +33,9 @@ Configuration, custom extensions, and themes for
 - [`extensions/tool-output-condenser.ts`](#extensionstool-output-condenserts) — head+tail condensing of noisy tool
   results (bash by default) so large outputs don’t eat the session. Full output is stashed to a tempfile the model can
   re-`read` with `--offset` / `--limit`.
-- [`extensions/lib/`](./extensions/lib) — pure helpers (no pi imports) shared between the extensions and unit-tested
-  under [`tests/`](./tests).
+- [`../../lib/node/pi/`](../../lib/node/pi) — pure helpers (no pi imports) shared between the extensions and
+  unit-tested under [`tests/`](./tests). Hoisted out of `extensions/` so they get type-checked by the repo's root
+  `tsconfig.json`.
 - [`skills/plan-first/SKILL.md`](#skillsplan-first) — global skill that teaches models WHEN to reach for the `todo` tool
   and how to keep the plan accurate. Companion to [`extensions/todo.ts`](#extensionstodots).
 - [`tests/`](./tests) — `node --test` unit tests for the pure extension helpers. See
@@ -75,7 +76,7 @@ plan-mode: on   preset: fast   ⠋ thinking…
   can't be located or bash fails, falls back to plain `footerData.getGitBranch()`.
 - **`⎇ <name>`** — linked worktree name. Mirrors Claude Code's `workspace.git_worktree` segment but derived entirely
   from on-disk metadata (no subprocess): reads `.git` / `.git/worktrees/<name>/commondir` via
-  [`extensions/lib/git-worktree.ts`](./extensions/lib/git-worktree.ts). Only rendered when `.git` is a pointer file
+  [`lib/node/pi/git-worktree.ts`](../../lib/node/pi/git-worktree.ts). Only rendered when `.git` is a pointer file
   **and** the target lives at `<commonGitDir>/worktrees/<name>/` — submodules (which use the same pointer-file scheme
   but target `.git/modules/<name>/`) and `--separate-git-dir` repos therefore render nothing, matching what
   `git worktree list` considers a linked worktree. Cached per-cwd and invalidated alongside the branch cache on HEAD
@@ -215,7 +216,7 @@ differently.
 
   Auto-mode state is session-scoped and reset on `session_shutdown` / `/reload` / `/new`, so you always re-opt-in after
   a restart. While on, the custom [`statusline.ts`](./extensions/statusline.ts) renders a `⚡` indicator in the footer.
-  State is shared between the two extensions via [`extensions/lib/session-flags.ts`](./extensions/lib/session-flags.ts),
+  State is shared between the two extensions via [`lib/node/pi/session-flags.ts`](../../lib/node/pi/session-flags.ts),
   which anchors a singleton on `globalThis` because pi's extension loader (jiti with `moduleCache: false`) gives each
   extension its own copy of imported helper modules.
 
@@ -371,7 +372,7 @@ but the tool then **requires** a `note` on `complete` spelling out what verified
    remember to call `list`. Omitted when there's nothing to say (empty state, or everything `completed`).
 
 2. **Completion-claim guardrail** (`agent_end`). If the assistant signs off with a "done"-ish phrase
-   (`looksLikeCompletionClaim` in [`lib/todo-prompt.ts`](./extensions/lib/todo-prompt.ts)) while `in_progress`,
+   (`looksLikeCompletionClaim` in [`lib/node/pi/todo-prompt.ts`](../../lib/node/pi/todo-prompt.ts)) while `in_progress`,
    `review`, or `pending` todos still exist, the extension injects a follow-up user message nudging it to finish,
    verify, or `block` the open items. Idempotent — the steer carries a sentinel marker and is skipped if the previous
    user message already bore one, so the loop terminates even if the model ignores it.
@@ -382,7 +383,7 @@ but the tool then **requires** a `note` on `complete` spelling out what verified
    `session_tree`.
 
 4. **Branch awareness.** Because state is reconstructed from the branch by
-   [`reduceBranch`](./extensions/lib/todo-reducer.ts), `/fork`, `/tree`, and `/clone` automatically show the correct
+   [`reduceBranch`](../../lib/node/pi/todo-reducer.ts), `/fork`, `/tree`, and `/clone` automatically show the correct
    plan for that point in history. No external files, no cross-branch leakage.
 
 ### Environment variables
@@ -394,7 +395,7 @@ but the tool then **requires** a `note` on `complete` spelling out what verified
 
 ### Hot reload
 
-Edit [`extensions/todo.ts`](./extensions/todo.ts) (or the helpers under [`extensions/lib/`](./extensions/lib)) and run
+Edit [`extensions/todo.ts`](./extensions/todo.ts) (or the helpers under [`lib/node/pi/`](../../lib/node/pi)) and run
 `/reload` inside an interactive pi session to pick up changes without restarting.
 
 ## `extensions/stall-recovery.ts`
@@ -412,7 +413,7 @@ fire on `agent_end`, but the two handle orthogonal failure modes and never doubl
 ### Detection
 
 On `agent_end`, the extension extracts the last assistant message from `event.messages` and classifies it via
-[`classifyAssistant()`](./extensions/lib/stall-detect.ts). Detection is deliberately conservative:
+[`classifyAssistant()`](../../lib/node/pi/stall-detect.ts). Detection is deliberately conservative:
 
 1. **`empty`** — trimmed text is empty **and** no tool calls were issued in the final assistant message. This catches
    the canonical "model just stopped" case: weak locals that emit a stop token too early, reasoning models whose
@@ -477,7 +478,7 @@ when the next turn produces meaningful work.
 ### Hot reload
 
 Edit [`extensions/stall-recovery.ts`](./extensions/stall-recovery.ts) or
-[`extensions/lib/stall-detect.ts`](./extensions/lib/stall-detect.ts) and run `/reload` in an interactive pi session.
+[`lib/node/pi/stall-detect.ts`](../../lib/node/pi/stall-detect.ts) and run `/reload` in an interactive pi session.
 
 ## `extensions/scratchpad.ts`
 
@@ -510,7 +511,7 @@ Notes are trimmed on write; attempting to `update` a note with an empty body ret
 2. **Compaction resilience.** Each successful tool call mirrors the post-action state to a
    `customType: 'scratchpad-state'` session entry in addition to `toolResult.details`. Pi’s `/compact` can summarize old
    tool-result messages away; the custom entry travels with the branch so the reducer in
-   [`lib/scratchpad-reducer.ts`](./extensions/lib/scratchpad-reducer.ts) can still reconstruct the notebook on
+   [`lib/node/pi/scratchpad-reducer.ts`](../../lib/node/pi/scratchpad-reducer.ts) can still reconstruct the notebook on
    `session_start` / `session_tree`.
 
 3. **Branch awareness.** Because state is reconstructed from the branch, `/fork`, `/tree`, and `/clone` automatically
@@ -533,8 +534,8 @@ Notes are trimmed on write; attempting to `update` a note with an empty body ret
 ### Hot reload
 
 Edit [`extensions/scratchpad.ts`](./extensions/scratchpad.ts) or the helpers under
-[`extensions/lib/scratchpad-reducer.ts`](./extensions/lib/scratchpad-reducer.ts) /
-[`extensions/lib/scratchpad-prompt.ts`](./extensions/lib/scratchpad-prompt.ts) and run `/reload` in an interactive pi
+[`lib/node/pi/scratchpad-reducer.ts`](../../lib/node/pi/scratchpad-reducer.ts) /
+[`lib/node/pi/scratchpad-prompt.ts`](../../lib/node/pi/scratchpad-prompt.ts) and run `/reload` in an interactive pi
 session to pick up changes without restarting.
 
 ## `extensions/verify-before-claim.ts`
@@ -556,7 +557,7 @@ their own nudges. They **can** fire together on the same turn; each reaches the 
 
 ### Detection
 
-On `agent_end`, [`lib/verify-detect.ts`](./extensions/lib/verify-detect.ts):
+On `agent_end`, [`lib/node/pi/verify-detect.ts`](../../lib/node/pi/verify-detect.ts):
 
 1. Pulls the last assistant text and scans the **tail** (~600 chars) for typed claim phrases via `extractClaims`. Claim
    kinds: `tests-pass`, `lint-clean`, `types-check`, `build-clean`, `format-clean`, `ci-green`. Questions and
@@ -593,7 +594,7 @@ string / `&|;)<>`). The end anchor explicitly excludes `.` so `cat jest.config.j
 ### Hot reload
 
 Edit [`extensions/verify-before-claim.ts`](./extensions/verify-before-claim.ts) or
-[`extensions/lib/verify-detect.ts`](./extensions/lib/verify-detect.ts) and run `/reload` in an interactive pi session.
+[`lib/node/pi/verify-detect.ts`](../../lib/node/pi/verify-detect.ts) and run `/reload` in an interactive pi session.
 
 ## `extensions/context-budget.ts`
 
@@ -604,7 +605,7 @@ turn’s system prompt ends with a one-line advisory that both reports the numbe
 
 ### Tone bands
 
-Rendered by [`lib/context-budget.ts`](./extensions/lib/context-budget.ts). Percent is computed from
+Rendered by [`lib/node/pi/context-budget.ts`](../../lib/node/pi/context-budget.ts). Percent is computed from
 `ctx.getContextUsage()` (`tokens / contextWindow`). Thresholds are configurable via env vars.
 
 | Usage                    | Injected? | Tone                                                                                                               |
@@ -644,7 +645,7 @@ often enough on its own.
 ### Hot reload
 
 Edit [`extensions/context-budget.ts`](./extensions/context-budget.ts) or
-[`extensions/lib/context-budget.ts`](./extensions/lib/context-budget.ts) and run `/reload` in an interactive pi session.
+[`lib/node/pi/context-budget.ts`](../../lib/node/pi/context-budget.ts) and run `/reload` in an interactive pi session.
 
 ## `extensions/tool-output-condenser.ts`
 
@@ -692,7 +693,7 @@ neutral band longer. For weak models chained across many bash calls this is one 
 ### Hot reload
 
 Edit [`extensions/tool-output-condenser.ts`](./extensions/tool-output-condenser.ts) or
-[`extensions/lib/output-condense.ts`](./extensions/lib/output-condense.ts) and run `/reload` in an interactive pi
+[`lib/node/pi/output-condense.ts`](../../lib/node/pi/output-condense.ts) and run `/reload` in an interactive pi
 session.
 
 ## `skills/plan-first`

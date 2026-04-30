@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, test } from 'node:test';
-import { resolveWorktreeInfo } from '../../extensions/lib/git-worktree.ts';
+import { resolveWorktreeInfo } from '../../../../lib/node/pi/git-worktree.ts';
 
 let sandbox = '';
 
@@ -103,10 +103,7 @@ test('resolveWorktreeInfo: submodule cwd does NOT masquerade as a worktree', () 
 
   const submoduleRoot = join(superRepo, 'services/payments');
   mkdirSync(submoduleRoot, { recursive: true });
-  writeFileSync(
-    join(submoduleRoot, '.git'),
-    `gitdir: ${join(superRepo, '.git/modules/payments')}\n`,
-  );
+  writeFileSync(join(submoduleRoot, '.git'), `gitdir: ${join(superRepo, '.git/modules/payments')}\n`);
 
   const info = resolveWorktreeInfo(submoduleRoot);
   assert.ok(info, 'submodule should still resolve a repo');
