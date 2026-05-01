@@ -11,10 +11,39 @@
  * on session_start / session_tree (same pattern as `todo` /
  * `scratchpad`).
  *
- * ## Phase 3 scope (this commit)
+ * ## Phase 4 scope (this commit)
  *
- * Builds on Phase 2 by implementing `check run` — the actual
- * iteration dispatcher. For `kind=bash` the extension shells out via
+ * Layers the two guardrails on top of Phase 3's dispatch:
+ *
+ *   - **Claim nudge**: on `agent_end`, if the final assistant
+ *     message matches any configured artifact-correctness claim
+ *     regex AND no successful `check run` was recorded for this
+ *     turn AND an active (non-terminated) loop exists, inject a
+ *     follow-up user message reminding the model to run the check
+ *     or retract the claim. De-duped against `verify-before-claim`:
+ *     if that extension would ALSO fire on the same final message
+ *     (i.e. there are unverified test/lint/build claims), we
+ *     suppress our claim nudge and let v-b-c handle it — the strict
+ *     edit nudge still fires because it addresses a different
+ *     trigger.
+ *
+ *   - **Strict edit-without-check nudge**: on `tool_result`, when a
+ *     write/edit tool call targets the declared artifact path, we
+ *     bump `state.editsSinceLastCheck` via `actRecordEdit`. On
+ *     `agent_end`, if that counter is at or above the configured
+ *     threshold (default 2) AND no check ran this turn AND the
+ *     loop is active, inject a follow-up user message.
+ *
+ * Both nudges use `pi.sendUserMessage(..., { deliverAs: 'followUp'
+ * })` with distinct sentinels. Each checks `lastUserMessageHasMarker`
+ * on the branch for its own marker to avoid re-triggering on its
+ * own nudge. Runtime config lives in
+ * `~/.pi/agent/iteration-loop.json` + `<cwd>/.pi/iteration-loop.json`
+ * (see `iteration-loop-config.ts`).
+ *
+ * ## Phase 3 scope (previous commit)
+ *
+ * Phase 3 implemented `check run` — the actual iteration dispatcher. For `kind=bash` the extension shells out via
  * `runBashCheck` (zero cost). For `kind=critic` the extension spawns
  * a fresh `AgentSession` against the critic agent definition,
  * collects the final JSON verdict, and charges the aggregated
@@ -36,10 +65,6 @@
  *   6. Emit both the tool result AND a mirrored `customType:
  *      'iteration-state'` entry so branch reconstruction on
  *      `session_start` / `session_tree` picks up the new state.
- *
- * Phase 4 (claim nudge + strict edit-without-check nudge) layers on
- * top of the `turn_start` counter and `editsSinceLastCheck` tracking
- * wired here — neither guardrail is implemented yet.
  *
  * Separation of concerns:
  *
@@ -99,13 +124,20 @@ import { Text } from '@mariozechner/pi-tui';
 import { Type } from 'typebox';
 
 import { parseModelSpec } from '../../../lib/node/pi/btw.ts';
+import { anyArtifactMatch, extractEditTargets } from '../../../lib/node/pi/iteration-loop-artifact.ts';
 import { computeStopReason } from '../../../lib/node/pi/iteration-loop-budget.ts';
 import { runBashCheck } from '../../../lib/node/pi/iteration-loop-check-bash.ts';
 import { buildCriticTask, parseVerdict } from '../../../lib/node/pi/iteration-loop-check-critic.ts';
+import {
+  type IterationLoopConfig,
+  loadIterationLoopConfig,
+  matchesClaimRegex,
+} from '../../../lib/node/pi/iteration-loop-config.ts';
 import { renderIterationBlock } from '../../../lib/node/pi/iteration-loop-prompt.ts';
 import {
   actAccept,
   actClose,
+  actRecordEdit,
   actRun,
   type ActionResult,
   type BranchEntry,
@@ -150,6 +182,14 @@ import {
   type ReadLayer,
 } from '../../../lib/node/pi/subagent-loader.ts';
 import { type AgentMessageLike, extractFinalAssistantText } from '../../../lib/node/pi/subagent-result.ts';
+import {
+  type BranchEntry as VerifyBranchEntry,
+  collectBashCommandsSinceLastUser,
+  extractClaims,
+  extractLastAssistantText,
+  lastUserMessageHasMarker,
+  partitionClaims,
+} from '../../../lib/node/pi/verify-detect.ts';
 
 const DEFAULT_TASK = 'default';
 const STOP_REASONS = ['passed', 'budget-iter', 'budget-cost', 'wall-clock', 'fixpoint', 'user-closed'] as const;
@@ -380,6 +420,22 @@ function formatListing(tasks: TaskListing[], archive: ReturnType<typeof listArch
   return lines.join('\n');
 }
 
+/**
+ * Look up the declared artifact path for `task` on disk. Returns
+ * null when no active spec exists, the file is missing, or it
+ * failed to parse — callers treat null as "no artifact to talk
+ * about" and fall back to a generic message.
+ */
+function readArtifactPath(cwd: string, task: string): string | null {
+  try {
+    const read = readSpec(cwd, task);
+    if (read.state !== 'active' || !read.spec) return null;
+    return read.spec.artifact;
+  } catch {
+    return null;
+  }
+}
+
 function formatStatusText(cwd: string, task: string, state: IterationState | null): string {
   const read = readSpec(cwd, task);
   if (read.state === 'none') {
@@ -458,6 +514,30 @@ export default function iterationLoopExtension(pi: ExtensionAPI): void {
   // session swaps.
   let currentTurnIndex = 0;
 
+  // Phase 4 guardrails state. `checkRanThisTurn` flips on every
+  // successful `check run` execution (we reset at `turn_start`); the
+  // claim & strict nudges both suppress when it's true, because any
+  // run means the model already verified. `nudgeMarkers` tracks
+  // whether we've already fired a nudge of a given kind this turn
+  // via `lastUserMessageHasMarker` — idempotent across re-delivery
+  // races.
+  let checkRanThisTurn = false;
+  let loopConfig: IterationLoopConfig = loadIterationLoopConfig(process.cwd()).config;
+  const surfacedConfigWarnings = new Set<string>();
+
+  const surfaceConfigWarnings = (ctx: ExtensionContext, warnings: readonly { path: string; error: string }[]): void => {
+    for (const w of warnings) {
+      ctx.ui.notify(`iteration-loop: ${w.path}: ${w.error}`, 'warning');
+    }
+  };
+
+  /** Sentinels matching the `verify-before-claim` convention so the
+   *  guardrail messages are easy to spot in transcripts and the
+   *  `lastUserMessageHasMarker` idempotency guard keys on them. */
+  const CLAIM_NUDGE_MARKER = '⚠ [pi-iteration-loop-claim]';
+  const STRICT_NUDGE_MARKER = '⚠ [pi-iteration-loop-strict-edit]';
+  const VERIFY_MARKER = '⚠ [pi-verify-before-claim]';
+
   const rebuildFromSession = (ctx: ExtensionContext): void => {
     const branch = ctx.sessionManager.getBranch() as unknown as readonly BranchEntry[];
     state = reduceBranch(branch);
@@ -475,7 +555,21 @@ export default function iterationLoopExtension(pi: ExtensionAPI): void {
     } catch (e) {
       debug(debugEnabled, `agent reload failed: ${(e as Error).message}`);
     }
+    try {
+      const result = loadIterationLoopConfig(ctx.cwd);
+      loopConfig = result.config;
+      const fresh = result.warnings.filter((w) => {
+        const key = `${w.path}:${w.error}`;
+        if (surfacedConfigWarnings.has(key)) return false;
+        surfacedConfigWarnings.add(key);
+        return true;
+      });
+      surfaceConfigWarnings(ctx, fresh);
+    } catch (e) {
+      debug(debugEnabled, `config reload failed: ${(e as Error).message}`);
+    }
     currentTurnIndex = 0;
+    checkRanThisTurn = false;
   });
 
   pi.on('session_tree', (_event, ctx) => {
@@ -485,6 +579,7 @@ export default function iterationLoopExtension(pi: ExtensionAPI): void {
   pi.on('turn_start', (event) => {
     // event.turnIndex is 0-indexed per pi-coding-agent's TurnStartEvent.
     currentTurnIndex = (event as { turnIndex?: number }).turnIndex ?? currentTurnIndex + 1;
+    checkRanThisTurn = false;
   });
 
   // ── System-prompt injection ─────────────────────────────────────────
@@ -500,6 +595,150 @@ export default function iterationLoopExtension(pi: ExtensionAPI): void {
     }
     if (!block) return undefined;
     return { systemPrompt: `${event.systemPrompt}\n\n${block}` };
+  });
+
+  // ── Phase 4: strict edit-without-check tracking ───────────────────
+  //
+  // Count write/edit invocations whose target path matches the
+  // declared artifact. We watch `tool_result` (after successful
+  // execution) so failed edits don't pad the counter. `check run`
+  // resets the counter via `actRun`; guardrail reads it at
+  // `agent_end`.
+  pi.on('tool_result', (event, ctx) => {
+    if (!state || state.stopReason) return;
+    const ev = event as {
+      toolName?: string;
+      isError?: boolean;
+      input?: Record<string, unknown>;
+    };
+    if (ev.isError) return;
+    const toolName = typeof ev.toolName === 'string' ? ev.toolName : '';
+    const targets = extractEditTargets(toolName, ev.input);
+    if (targets.length === 0) return;
+    // Resolve spec from disk to get the declared artifact path.
+    let artifactPath: string | null = null;
+    try {
+      const read = readSpec(ctx.cwd, state.task);
+      if (read.state === 'active' && read.spec) artifactPath = read.spec.artifact;
+    } catch {
+      /* readSpec failures mean we skip tracking this turn — fine */
+    }
+    if (!artifactPath) return;
+    if (!anyArtifactMatch(artifactPath, targets, ctx.cwd)) return;
+    const result: ActionResult = actRecordEdit(state);
+    if (!result.ok) {
+      debug(debugEnabled, `actRecordEdit refused: ${result.error}`);
+      return;
+    }
+    state = result.state;
+    try {
+      pi.appendEntry(ITERATION_CUSTOM_TYPE, cloneIterationState(state));
+    } catch (e) {
+      debug(debugEnabled, `appendEntry after edit failed: ${(e as Error).message}`);
+    }
+    debug(
+      debugEnabled,
+      `edit tracked: tool=${toolName} artifact=${artifactPath} editsSinceLastCheck=${state.editsSinceLastCheck}`,
+    );
+  });
+
+  // ── Phase 4: guardrail nudges on agent_end ─────────────────────────
+  //
+  // Two nudges, distinct triggers:
+  //
+  //   - Claim nudge: final assistant message matches an artifact-
+  //     correctness claim regex. De-duped against
+  //     `verify-before-claim` — if v-b-c would fire on the same
+  //     message (it has unverified test/lint/build claims), we
+  //     suppress ours. We re-run v-b-c's detection helpers inline
+  //     so hook-ordering doesn't matter.
+  //
+  //   - Strict edit-without-check nudge: `editsSinceLastCheck` is
+  //     at/above threshold. Always fires on its own trigger, even
+  //     if the claim nudge was suppressed.
+  //
+  // Both nudges require `!checkRanThisTurn` (a successful `check
+  // run` erases the need to prompt) and an active (non-terminated)
+  // loop.
+  pi.on('agent_end', (event, ctx) => {
+    if (!state || state.stopReason) return;
+    if (checkRanThisTurn) return;
+
+    const messages = (event as { messages?: readonly unknown[] }).messages ?? [];
+    const text = extractLastAssistantText(messages);
+    const branch = ctx.sessionManager.getBranch() as unknown as readonly VerifyBranchEntry[];
+
+    // ── Strict edit-without-check nudge ───────────────────────────
+    const threshold = loopConfig.strictNudgeAfterNEdits;
+    const strictFired = lastUserMessageHasMarker(branch, STRICT_NUDGE_MARKER);
+    let strictSent = false;
+    if (state.editsSinceLastCheck >= threshold && !strictFired) {
+      const msg =
+        `${STRICT_NUDGE_MARKER} You've edited the declared artifact ` +
+        `\`${readArtifactPath(ctx.cwd, state.task) ?? '(artifact)'}\` ` +
+        `${state.editsSinceLastCheck} time(s) without running the check. ` +
+        `Call \`check run task=${state.task}\` now to verify the changes ` +
+        `against the rubric before claiming anything about the artifact. ` +
+        `If you're mid-edit and the next edit is atomic, make it, then run the check.`;
+      try {
+        pi.sendUserMessage(msg, { deliverAs: 'followUp' });
+        strictSent = true;
+        debug(
+          debugEnabled,
+          `strict nudge fired: editsSinceLastCheck=${state.editsSinceLastCheck} threshold=${threshold}`,
+        );
+      } catch (e) {
+        ctx.ui.notify(`iteration-loop: failed to deliver strict nudge: ${String(e)}`, 'error');
+      }
+    }
+
+    // ── Claim nudge ──────────────────────────────────────────────
+    if (!text) return;
+    const matched = matchesClaimRegex(loopConfig.claimRegexes, text);
+    if (!matched) return;
+    // Suppress when the strict nudge already fired this turn —
+    // firing both at once overwhelms the model and the strict
+    // message already tells it to run the check.
+    if (strictSent) {
+      debug(debugEnabled, 'claim nudge suppressed: strict nudge fired on same turn');
+      return;
+    }
+    // De-dupe against verify-before-claim. If v-b-c would fire on
+    // this same message (there are unverified test/lint/build
+    // claims), let it handle the nag. Our claim nudge covers
+    // artifact-correctness sign-offs which are a different axis;
+    // it's worth deferring when the simpler generic nag is in play.
+    try {
+      const vbcClaims = extractClaims(text);
+      if (vbcClaims.length > 0) {
+        const vbcCommands = collectBashCommandsSinceLastUser(branch);
+        const { unverified } = partitionClaims(vbcClaims, vbcCommands, []);
+        const vbcAlreadySteered = lastUserMessageHasMarker(branch, VERIFY_MARKER);
+        if (unverified.length > 0 && !vbcAlreadySteered) {
+          debug(debugEnabled, 'claim nudge suppressed: verify-before-claim will fire');
+          return;
+        }
+      }
+    } catch (e) {
+      debug(debugEnabled, `v-b-c dedupe check threw: ${(e as Error).message}`);
+      /* fall through to send — better to nag than silently swallow */
+    }
+    const claimFired = lastUserMessageHasMarker(branch, CLAIM_NUDGE_MARKER);
+    if (claimFired) {
+      debug(debugEnabled, 'claim nudge suppressed: marker already on last user message');
+      return;
+    }
+    const msg =
+      `${CLAIM_NUDGE_MARKER} You claimed the artifact is correct (matched: \`${matched.source}\`), ` +
+      `but you haven't run \`check run task=${state.task}\` this turn. ` +
+      `Either run the check to confirm, or retract the claim. The iteration-loop contract is: ` +
+      `no "looks right / done / matches spec" without a passing verdict in the same turn.`;
+    try {
+      pi.sendUserMessage(msg, { deliverAs: 'followUp' });
+      debug(debugEnabled, `claim nudge fired: matched /${matched.source}/`);
+    } catch (e) {
+      ctx.ui.notify(`iteration-loop: failed to deliver claim nudge: ${String(e)}`, 'error');
+    }
   });
 
   // ── Action implementations ──────────────────────────────────────────
@@ -894,6 +1133,7 @@ export default function iterationLoopExtension(pi: ExtensionAPI): void {
       return errorReturn('run', task, actResult.error);
     }
     state = actResult.state;
+    checkRanThisTurn = true;
     try {
       pi.appendEntry(ITERATION_CUSTOM_TYPE, cloneIterationState(state));
     } catch (e) {
