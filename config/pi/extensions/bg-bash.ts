@@ -40,6 +40,15 @@
  *     user's bash-permissions allow/deny rules apply to background
  *     commands too.
  *
+ *   - By default `start` spawns the child with stdin redirected from
+ *     /dev/null (`stdio[0] = 'ignore'`). Commands that happen to read
+ *     stdin when there's no terminal (pi's own CLI, `cat`, `ssh`
+ *     without `-n`, `grep` with no file args, nested agents) then see
+ *     an immediate EOF instead of blocking forever on an inherited
+ *     pipe that never closes. Pass `interactiveStdin: true` to opt
+ *     into the old `stdio[0] = 'pipe'` behaviour so the `stdin` action
+ *     can feed a REPL / interactive installer / long-lived process.
+ *
  * Environment:
  *   PI_BG_BASH_DISABLED=1             skip the extension entirely
  *   PI_BG_BASH_DISABLE_AUTOINJECT=1   tool still works but skip the
@@ -180,6 +189,16 @@ const BgBashParams = Type.Object({
   eof: Type.Optional(
     Type.Boolean({
       description: '`stdin` only. Close stdin after writing `text`.',
+    }),
+  ),
+  interactiveStdin: Type.Optional(
+    Type.Boolean({
+      description:
+        '`start` only. When true, spawn the child with an open stdin pipe so you can drive it with action `stdin` ' +
+        '(REPLs, `sqlite3`, `python -i`, interactive installers, nested `pi -p`, etc.). ' +
+        'Default false: stdin is redirected from /dev/null so non-interactive commands that read from stdin ' +
+        '(e.g. `pi -p`, `cat`, `grep` with no args, `ssh` without `-n`) get an immediate EOF instead of hanging ' +
+        "forever waiting for input that will never come. Only set true if you're going to use action `stdin`.",
     }),
   ),
 });
@@ -518,6 +537,7 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
     cwd: string;
     label?: string;
     env?: Record<string, string>;
+    interactiveStdin?: boolean;
   }): JobSummary => {
     const id = allocateJobId(state);
     const startedAt = Date.now();
@@ -540,11 +560,22 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
     let child: ChildProcess | undefined;
     let spawnError: string | undefined;
 
+    // stdin handling:
+    //   interactiveStdin=false (default) → 'ignore' ≈ redirect from /dev/null.
+    //     The child sees an immediate EOF on stdin, so commands that happen to
+    //     read stdin (pi's own CLI, cat, ssh without -n, nested agents) don't
+    //     hang waiting for input that will never come.
+    //   interactiveStdin=true → 'pipe'.
+    //     Parent holds stdin open so the `stdin` action can drive a REPL /
+    //     long-lived interactive process. This is the old default; only the
+    //     handful of jobs that genuinely need to be fed input should opt in.
+    const stdinMode: 'ignore' | 'pipe' = args.interactiveStdin ? 'pipe' : 'ignore';
+
     try {
       child = spawn('/bin/sh', ['-c', args.command], {
         cwd: args.cwd,
         env: args.env ? { ...process.env, ...args.env } : process.env,
-        stdio: ['pipe', 'pipe', 'pipe'],
+        stdio: [stdinMode, 'pipe', 'pipe'],
         detached: true, // own process group, so we can signal the whole tree
       });
     } catch (e) {
@@ -693,7 +724,13 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
   // ──────────────────────────────────────────────────────────────────
 
   const actStart = async (
-    params: { command?: string; cwd?: string; label?: string; env?: Record<string, string> },
+    params: {
+      command?: string;
+      cwd?: string;
+      label?: string;
+      env?: Record<string, string>;
+      interactiveStdin?: boolean;
+    },
     ctx: ExtensionContext,
   ): Promise<ToolReturn> => {
     const command = (params.command ?? '').trim();
@@ -706,7 +743,13 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
     if (!gate.allowed) return errorReturn('start', `Blocked by bash-permissions: ${gate.reason}`);
 
     const cwd = resolveCwd(ctx.cwd, params.cwd);
-    const summary = startJob({ command, cwd, label: params.label, env: params.env });
+    const summary = startJob({
+      command,
+      cwd,
+      label: params.label,
+      env: params.env,
+      interactiveStdin: params.interactiveStdin === true,
+    });
     persist();
     updateStatusline();
 
@@ -906,8 +949,15 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
     const summary = findJob(state, id);
     if (!summary) return errorReturn('stdin', `job [${id}] not found`);
     const job = live.get(id);
-    if (!job?.child?.stdin || summary.status !== 'running') {
+    if (summary.status !== 'running') {
       return errorReturn('stdin', `job [${id}] is not running (status: ${summary.status})`);
+    }
+    if (!job?.child?.stdin) {
+      return errorReturn(
+        'stdin',
+        `job [${id}] has no writable stdin. It was started with interactiveStdin=false ` +
+          '(the default). Restart it with `start` + interactiveStdin=true if you need to feed it input.',
+      );
     }
 
     if (params.text) {
@@ -1013,7 +1063,11 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
       'Run shell commands in the background and interact with them across subsequent turns. ' +
       'Actions: start (spawn a new job), list (all jobs), status (one job), logs (stdout/stderr, supports tail/grep/sinceCursor), ' +
       'wait (block up to timeoutMs for exit), signal (send SIGINT/SIGTERM/SIGKILL/... to the job process group), ' +
-      'stdin (write to a running job), remove (drop a terminal job from the registry). ' +
+      'stdin (write to a running job — only works when the job was started with interactiveStdin=true), ' +
+      'remove (drop a terminal job from the registry). ' +
+      'By default jobs run with stdin redirected from /dev/null so non-interactive commands that happen to read ' +
+      "stdin (pi's own CLI, cat, ssh, grep) don't hang waiting for EOF. Pass interactiveStdin=true on start if " +
+      'you need to feed the job input via action stdin. ' +
       'Jobs live only for the current pi session; on shutdown every live job is terminated.',
     promptSnippet:
       'Run long-lived or latency-hiding commands (test suites, dev servers, watchers, builds) in the background and check on them later.',
@@ -1022,6 +1076,7 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
       'After `bg_bash start`, remember the returned `id`. Call `bg_bash` action `wait` with a short `timeoutMs` to poll for exit, or action `logs` with `sinceCursor` to stream new output incrementally.',
       'Use `bg_bash` action `signal` (SIGTERM by default, SIGKILL if stuck) to stop a job cleanly; the whole process group is targeted so children die too.',
       'Prefer `bg_bash` action `logs` with `tail` or `grep` over returning the full buffer — the ring buffer caps memory but log responses still eat context.',
+      'Leave `interactiveStdin` unset for normal commands — stdin is /dev/null by default so nothing hangs waiting for input. Only pass `interactiveStdin: true` when you specifically plan to drive a REPL / long-lived interactive process via action `stdin` (e.g. `sqlite3`, `python -i`, `psql`).',
     ],
     parameters: BgBashParams,
 
@@ -1042,6 +1097,7 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
         signal?: SignalName;
         text?: string;
         eof?: boolean;
+        interactiveStdin?: boolean;
       };
 
       switch (params.action) {
