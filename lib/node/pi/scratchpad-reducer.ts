@@ -170,9 +170,9 @@ export function actUpdate(
 
 export function actRemove(state: ScratchpadState, id: number | undefined): ActionResult {
   if (id === undefined) return { ok: false, error: 'remove requires `id`' };
-  const idx = state.notes.findIndex((n) => n.id === id);
-  if (idx === -1) return { ok: false, error: `#${id} not found` };
   const next = cloneState(state);
+  const idx = next.notes.findIndex((n) => n.id === id);
+  if (idx === -1) return { ok: false, error: `#${id} not found` };
   const [removed] = next.notes.splice(idx, 1);
   return {
     ok: true,

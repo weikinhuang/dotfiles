@@ -149,13 +149,24 @@ export function extractClaims(text: string): Claim[] {
   if (!text) return [];
   const tail = text.slice(-600);
   if (!tail.trim()) return [];
-  if (NEGATIVE_HINT_RE.test(tail)) return [];
 
+  // Per-sentence conditional rejection. Testing NEGATIVE_HINT_RE against
+  // the whole tail was too coarse — a conditional in one clause would
+  // suppress an unconditional claim in a later clause of the same tail
+  // ("If tests pass quickly, we ship. Anyway, all tests pass."). Split
+  // on sentence terminators, keep each fragment's conditional check
+  // local, and harvest claims from the non-conditional fragments.
+  const sentences = tail.split(/(?<=[.!?])\s+/);
   const found = new Map<ClaimKind, string>();
-  for (const entry of CLAIM_PATTERNS) {
-    const m = entry.re.exec(tail);
-    if (!m) continue;
-    if (!found.has(entry.kind)) found.set(entry.kind, m[0]);
+  for (const sentence of sentences) {
+    if (!sentence.trim()) continue;
+    if (NEGATIVE_HINT_RE.test(sentence)) continue;
+    for (const entry of CLAIM_PATTERNS) {
+      if (found.has(entry.kind)) continue;
+      const m = entry.re.exec(sentence);
+      if (!m) continue;
+      found.set(entry.kind, m[0]);
+    }
   }
   return Array.from(found.entries()).map(([kind, phrase]) => ({ kind, phrase }));
 }

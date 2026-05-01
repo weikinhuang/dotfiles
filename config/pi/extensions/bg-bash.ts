@@ -609,12 +609,22 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
     state = upsertJob(state, summary);
 
     if (!child || spawnError) {
-      try {
-        logStream?.end();
-      } catch {
-        /* ignore */
+      // Wait for the log stream to flush before resolving `exited`. The
+      // stream has nothing queued (we never wrote to it), but `.end()` is
+      // async and resolving `exited` before 'finish' fires leaves the
+      // stream orphaned (not in `live` so not reaped on shutdown). Bound
+      // the wait so a stuck stream can't hang spawn-failure reporting.
+      if (logStream) {
+        const finished = new Promise<void>((resolve) => {
+          logStream!.once('finish', resolve);
+          logStream!.once('error', resolve);
+        });
+        const timeout = new Promise<void>((resolve) => setTimeout(resolve, 500));
+        logStream.end();
+        Promise.race([finished, timeout]).then(() => setExited());
+      } else {
+        setExited();
       }
-      setExited();
       return summary;
     }
 
@@ -1020,7 +1030,7 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
       sendSignalTo(job, 'SIGTERM');
     }
     await Promise.race([
-      Promise.all(livingIds.map((id) => live.get(id)?.exited)),
+      Promise.all(livingIds.map((id) => live.get(id)?.exited ?? Promise.resolve())),
       new Promise((r) => setTimeout(r, killGraceMs)),
     ]);
     for (const id of livingIds) {

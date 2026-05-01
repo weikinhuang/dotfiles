@@ -289,15 +289,13 @@ export function removeJob(state: BgBashState, id: string): ActionResult {
  */
 export function allocateId(state: BgBashState, rand: () => number = Math.random): string {
   // Format: lowercase 8-hex. ~4 billion-space, plus a re-roll guard below.
-  let id: string;
-  let tries = 0;
-  do {
-    id = Math.floor(rand() * 0x1_0000_0000)
+  for (let tries = 0; tries < 16; tries++) {
+    const id = Math.floor(rand() * 0x1_0000_0000)
       .toString(16)
       .padStart(8, '0');
-    tries++;
-  } while (tries < 16 && state.jobs.some((j) => j.id === id));
-  return id;
+    if (!state.jobs.some((j) => j.id === id)) return id;
+  }
+  throw new Error('bg-bash: failed to allocate a unique job id after 16 attempts');
 }
 
 // ──────────────────────────────────────────────────────────────────────

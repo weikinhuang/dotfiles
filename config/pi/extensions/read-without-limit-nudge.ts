@@ -113,10 +113,15 @@ export default function readWithoutLimitNudge(pi: ExtensionAPI): void {
     } else {
       // Count lines from the first text part of event.content. That's the
       // file content pi just served to the model — avoids a second read.
+      // `split('\n').length` overcounts by one for text that ends in a
+      // newline (the common case); correct for that so the threshold
+      // compares against the real line count.
       let totalLines: number | undefined;
       const first = event.content[0];
       if (first && first.type === 'text' && typeof first.text === 'string') {
-        totalLines = first.text.split('\n').length;
+        const text = first.text;
+        if (text.length === 0) totalLines = 0;
+        else totalLines = text.split('\n').length - (text.endsWith('\n') ? 1 : 0);
       }
       let totalBytes: number | undefined;
       try {

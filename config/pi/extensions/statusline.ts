@@ -154,7 +154,7 @@ interface Aggregates {
   toolResultBytes: number;
 }
 
-function aggregate(branch: readonly unknown[]): Aggregates {
+function aggregate(branch: unknown): Aggregates {
   const out: Aggregates = {
     sessionIn: 0,
     sessionCacheRead: 0,
@@ -169,6 +169,10 @@ function aggregate(branch: readonly unknown[]): Aggregates {
     toolCalls: 0,
     toolResultBytes: 0,
   };
+
+  // Defensive guard: if pi's session manager ever returns a non-iterable,
+  // a silent `for...of` no-op would mask the problem. Bail explicitly.
+  if (!Array.isArray(branch)) return out;
 
   for (const rawEntry of branch) {
     const entry = rawEntry as { type?: string; message?: { role?: string } };

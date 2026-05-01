@@ -91,7 +91,7 @@ import {
   splitCompound,
   twoTokenPattern,
 } from '../../../lib/node/pi/bash-match.ts';
-import { parseJsonc } from '../../../lib/node/pi/jsonc.ts';
+import { clearConfigWarning, parseJsonc, warnBadConfigFileOnce } from '../../../lib/node/pi/jsonc.ts';
 import { setBashAutoEnabled } from '../../../lib/node/pi/session-flags.ts';
 import { truncate } from '../../../lib/node/pi/shared.ts';
 
@@ -106,13 +106,6 @@ function projectRulesPath(cwd: string): string {
   return resolve(cwd, PROJECT_RULES_RELATIVE);
 }
 
-/**
- * Warn once per unique {path, error-message} pair so a typo in a rule file
- * is visible without spamming the log on every tool call. Re-clearing on
- * successful parse lets a subsequent fix re-warn if the file breaks again.
- */
-const warnedBadConfigFiles = new Map<string, string>();
-
 function readRules(path: string): LoadedRules {
   let raw: string;
   try {
@@ -124,17 +117,13 @@ function readRules(path: string): LoadedRules {
   }
   try {
     const parsed = parseJsonc<RuleFile>(raw);
-    warnedBadConfigFiles.delete(path);
+    clearConfigWarning('bash-permissions', path);
     return {
       allow: Array.isArray(parsed.allow) ? parsed.allow.map(String) : [],
       deny: Array.isArray(parsed.deny) ? parsed.deny.map(String) : [],
     };
   } catch (e) {
-    const msg = String(e);
-    if (warnedBadConfigFiles.get(path) !== msg) {
-      warnedBadConfigFiles.set(path, msg);
-      console.warn(`[bash-permissions] failed to parse ${path}: ${msg}`);
-    }
+    warnBadConfigFileOnce('bash-permissions', path, e);
     return { allow: [], deny: [] };
   }
 }

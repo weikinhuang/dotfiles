@@ -196,19 +196,22 @@ export function parseFrontmatter(raw: string): ParsedMemoryFile | null {
     const value = stripQuotes(line.slice(sep + 1));
     if (key === 'name') partial.name = value;
     else if (key === 'description') partial.description = value;
-    else if (key === 'type') partial.type = value as MemoryType;
+    else if (key === 'type') {
+      if (!(MEMORY_TYPES as readonly string[]).includes(value)) return null;
+      partial.type = value as MemoryType;
+    }
     // Unknown keys are ignored — allows for forward compatibility.
   }
 
   if (typeof partial.name !== 'string' || partial.name.length === 0) return null;
   if (typeof partial.description !== 'string') return null;
-  if (!MEMORY_TYPES.includes(partial.type!)) return null;
+  if (partial.type === undefined) return null;
 
   return {
     frontmatter: {
       name: partial.name,
       description: partial.description,
-      type: partial.type!,
+      type: partial.type,
     },
     body: body.replace(/^\n+/, ''),
   };

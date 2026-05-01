@@ -129,21 +129,26 @@ export default function presetExtension(pi: ExtensionAPI): void {
   const applyPreset = async (name: string, preset: Preset, ctx: ExtensionContext): Promise<void> => {
     snapshotOriginal(ctx);
 
-    // Model
+    // Model. When the preset asks for a model that we can't actually apply
+    // (malformed spec, unknown model, no auth), bail before marking the
+    // preset active — users ask for a preset *because of* its model swap,
+    // so silently running with the wrong model while the status badge
+    // says "preset active" is worse than refusing.
     if (preset.model) {
       const spec = parseModelSpec(preset.model);
       if (!spec) {
         ctx.ui.notify(`preset "${name}": invalid model "${preset.model}" (expected provider/id)`, 'warning');
-      } else {
-        const model = ctx.modelRegistry.find(spec.provider, spec.modelId);
-        if (!model) {
-          ctx.ui.notify(`preset "${name}": model ${spec.provider}/${spec.modelId} not found`, 'warning');
-        } else {
-          const ok = await pi.setModel(model);
-          if (!ok) {
-            ctx.ui.notify(`preset "${name}": no auth for ${spec.provider}/${spec.modelId}`, 'warning');
-          }
-        }
+        return;
+      }
+      const model = ctx.modelRegistry.find(spec.provider, spec.modelId);
+      if (!model) {
+        ctx.ui.notify(`preset "${name}": model ${spec.provider}/${spec.modelId} not found`, 'warning');
+        return;
+      }
+      const ok = await pi.setModel(model);
+      if (!ok) {
+        ctx.ui.notify(`preset "${name}": no auth for ${spec.provider}/${spec.modelId}`, 'warning');
+        return;
       }
     }
 

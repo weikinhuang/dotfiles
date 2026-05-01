@@ -93,3 +93,27 @@ export function stripJsonComments(text: string): string {
 export function parseJsonc<T = unknown>(text: string): T {
   return JSON.parse(stripJsonComments(text)) as T;
 }
+
+/**
+ * Dedup-on-error console warning helper shared by rule-file loaders. Each
+ * unique {path, error-message} pair logs once; a successful re-parse (call
+ * `clearConfigWarning(path)`) re-arms the slot so a subsequent break is
+ * reported again.
+ *
+ * Exists to keep the "warn once per bad config file" pattern identical
+ * across `bash-permissions` and `protected-paths` — previously duplicated
+ * in both extensions with drifting comments.
+ */
+const warnedBadConfigFiles = new Map<string, string>();
+
+export function warnBadConfigFileOnce(tag: string, path: string, error: unknown): void {
+  const msg = String(error);
+  const key = `${tag}\0${path}`;
+  if (warnedBadConfigFiles.get(key) === msg) return;
+  warnedBadConfigFiles.set(key, msg);
+  console.warn(`[${tag}] failed to parse ${path}: ${msg}`);
+}
+
+export function clearConfigWarning(tag: string, path: string): void {
+  warnedBadConfigFiles.delete(`${tag}\0${path}`);
+}

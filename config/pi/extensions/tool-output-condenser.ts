@@ -60,7 +60,7 @@
  *                                    (default 80)
  */
 
-import { mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { type ExtensionAPI, type ExtensionContext } from '@mariozechner/pi-coding-agent';
@@ -87,7 +87,13 @@ async function writeFullOutputFile(text: string, toolName: string, _ctx: Extensi
   const prefix = join(tmpdir(), `pi-${toolName}-condensed-`);
   const dir = await mkdtemp(prefix);
   const file = join(dir, 'output.txt');
-  await writeFile(file, text, 'utf8');
+  try {
+    await writeFile(file, text, 'utf8');
+  } catch (err) {
+    // Don't orphan the mkdtemp dir if the write fails.
+    await rm(dir, { recursive: true, force: true }).catch(() => undefined);
+    throw err;
+  }
   return file;
 }
 

@@ -94,7 +94,7 @@ import {
   isToolCallEventType,
   type ToolCallEvent,
 } from '@mariozechner/pi-coding-agent';
-import { parseJsonc } from '../../../lib/node/pi/jsonc.ts';
+import { clearConfigWarning, parseJsonc, warnBadConfigFileOnce } from '../../../lib/node/pi/jsonc.ts';
 import {
   classifyRead,
   classifyWrite,
@@ -117,13 +117,6 @@ function projectRulesPath(cwd: string): string {
   return resolve(cwd, PROJECT_RULES_RELATIVE);
 }
 
-/**
- * Warn once per unique {path, error-message} pair so a typo in a rule file
- * is visible without spamming the log on every tool call. Clearing on a
- * successful parse lets a subsequent fix re-warn if the file breaks again.
- */
-const warnedBadConfigFiles = new Map<string, string>();
-
 function readConfig(path: string): ProtectionConfig {
   let raw: string;
   try {
@@ -134,14 +127,10 @@ function readConfig(path: string): ProtectionConfig {
   }
   try {
     const parsed = parseJsonc<Partial<ProtectionConfig>>(raw);
-    warnedBadConfigFiles.delete(path);
+    clearConfigWarning('protected-paths', path);
     return mergeConfigs(parsed);
   } catch (e) {
-    const msg = String(e);
-    if (warnedBadConfigFiles.get(path) !== msg) {
-      warnedBadConfigFiles.set(path, msg);
-      console.warn(`[protected-paths] failed to parse ${path}: ${msg}`);
-    }
+    warnBadConfigFileOnce('protected-paths', path, e);
     return emptyConfig();
   }
 }
