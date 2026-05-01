@@ -11,14 +11,35 @@
  * on session_start / session_tree (same pattern as `todo` /
  * `scratchpad`).
  *
- * ## Phase 2 scope (this commit)
+ * ## Phase 3 scope (this commit)
  *
- * This commit lands the critic agent + the extension skeleton. It
- * registers the `check` tool with six actions (`declare`, `accept`,
- * `run`, `status`, `close`, `list`) and wires the `## Iteration
- * Loop` system-prompt injection. The `run` action is deliberately
- * stubbed — it returns an error asking for Phase 3. Everything else
- * (draft/accept/status/list/close) is complete.
+ * Builds on Phase 2 by implementing `check run` — the actual
+ * iteration dispatcher. For `kind=bash` the extension shells out via
+ * `runBashCheck` (zero cost). For `kind=critic` the extension spawns
+ * a fresh `AgentSession` against the critic agent definition,
+ * collects the final JSON verdict, and charges the aggregated
+ * `usage.cost.total` to `state.costUsd`.
+ *
+ * Per-iteration flow:
+ *   1. Snapshot the artifact into
+ *      `.pi/checks/<task>.snapshots/iter-NNN.<ext>`, computing a
+ *      sha256 hash for fixpoint detection.
+ *   2. Dispatch bash or critic → Verdict.
+ *   3. Write the verdict alongside the snapshot.
+ *   4. Classify stop-reason via `computeStopReason` (passed, fixpoint,
+ *      budget-iter, budget-cost, wall-clock) using both the current
+ *      and previous iteration's artifact hashes.
+ *   5. Update session-branch state via `actRun` (bumps iteration,
+ *      resets `editsSinceLastCheck`, adds `costDeltaUsd` to
+ *      `costUsd`, recomputes `bestSoFar`, appends history, records
+ *      `stopReason`).
+ *   6. Emit both the tool result AND a mirrored `customType:
+ *      'iteration-state'` entry so branch reconstruction on
+ *      `session_start` / `session_tree` picks up the new state.
+ *
+ * Phase 4 (claim nudge + strict edit-without-check nudge) layers on
+ * top of the `turn_start` counter and `editsSinceLastCheck` tracking
+ * wired here — neither guardrail is implemented yet.
  *
  * Separation of concerns:
  *
@@ -57,14 +78,35 @@
  *   PI_ITERATION_LOOP_DEBUG=1          log state transitions to stderr
  */
 
+import { createHash } from 'node:crypto';
+import { readdirSync, readFileSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { dirname, isAbsolute, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
 import { StringEnum } from '@mariozechner/pi-ai';
-import { type ExtensionAPI, type ExtensionContext } from '@mariozechner/pi-coding-agent';
+import {
+  type AgentSession,
+  createAgentSession,
+  DefaultResourceLoader,
+  type ExtensionAPI,
+  type ExtensionContext,
+  getAgentDir,
+  parseFrontmatter,
+  SessionManager,
+} from '@mariozechner/pi-coding-agent';
 import { Text } from '@mariozechner/pi-tui';
 import { Type } from 'typebox';
+
+import { parseModelSpec } from '../../../lib/node/pi/btw.ts';
+import { computeStopReason } from '../../../lib/node/pi/iteration-loop-budget.ts';
+import { runBashCheck } from '../../../lib/node/pi/iteration-loop-check-bash.ts';
+import { buildCriticTask, parseVerdict } from '../../../lib/node/pi/iteration-loop-check-critic.ts';
 import { renderIterationBlock } from '../../../lib/node/pi/iteration-loop-prompt.ts';
 import {
   actAccept,
   actClose,
+  actRun,
   type ActionResult,
   type BranchEntry,
   ITERATION_CUSTOM_TYPE,
@@ -77,8 +119,11 @@ import {
   type CheckSpec,
   cloneIterationState,
   type CriticCheckSpec,
+  isBashCheckSpecShape,
+  isCriticCheckSpecShape,
   type IterationState,
   type StopReason,
+  type Verdict,
 } from '../../../lib/node/pi/iteration-loop-schema.ts';
 import {
   acceptDraft,
@@ -89,10 +134,22 @@ import {
   listArchive,
   listTasks,
   readSpec,
+  snapshotArtifact,
+  snapshotPath,
   type TaskListing,
   writeDraft,
+  writeSnapshotVerdict,
 } from '../../../lib/node/pi/iteration-loop-storage.ts';
 import { truncate } from '../../../lib/node/pi/shared.ts';
+import {
+  type AgentDef,
+  type AgentLoadResult,
+  type AgentLoadWarning,
+  defaultAgentLayers,
+  loadAgents,
+  type ReadLayer,
+} from '../../../lib/node/pi/subagent-loader.ts';
+import { type AgentMessageLike, extractFinalAssistantText } from '../../../lib/node/pi/subagent-result.ts';
 
 const DEFAULT_TASK = 'default';
 const STOP_REASONS = ['passed', 'budget-iter', 'budget-cost', 'wall-clock', 'fixpoint', 'user-closed'] as const;
@@ -349,6 +406,58 @@ export default function iterationLoopExtension(pi: ExtensionAPI): void {
   // declare leaves state null; it's the `accept` action that seeds it.
   let state: IterationState | null = null;
 
+  // Agent-definition registry (shared with subagent loader logic).
+  // Phase 3 uses this only for the `critic` dispatch path; Phase 4
+  // adds the edit-tracking hook that also keys off the declared
+  // artifact path, which doesn't need the agent map.
+  const extDir = dirname(fileURLToPath(import.meta.url));
+  const userPiDir = `${homedir()}/.pi`;
+  let agentLoad: AgentLoadResult = { agents: new Map(), nameOrder: [], warnings: [] };
+  const surfacedAgentWarnings = new Set<string>();
+
+  const readLayer: ReadLayer = {
+    listMarkdownFiles: (dir) => {
+      try {
+        return readdirSync(dir);
+      } catch {
+        return null;
+      }
+    },
+    readFile: (path) => {
+      try {
+        return readFileSync(path, 'utf8');
+      } catch {
+        return null;
+      }
+    },
+  };
+
+  const reloadAgents = (cwd: string): void => {
+    const knownToolNames = new Set(pi.getAllTools().map((t) => t.name));
+    const layers = defaultAgentLayers({ extensionDir: extDir, userPiDir, cwd });
+    agentLoad = loadAgents({
+      layers,
+      knownToolNames,
+      fs: readLayer,
+      parseFrontmatter,
+    });
+  };
+
+  const surfaceAgentWarnings = (ctx: ExtensionContext, warnings: readonly AgentLoadWarning[]): void => {
+    for (const w of warnings) {
+      const key = `${w.path}:${w.reason}`;
+      if (surfacedAgentWarnings.has(key)) continue;
+      surfacedAgentWarnings.add(key);
+      ctx.ui.notify(`iteration-loop: ${w.path}: ${w.reason}`, 'warning');
+    }
+  };
+
+  // Turn counter (used by Phase 4 guardrails + threaded through
+  // actRun as `turnNumber`). Incremented on `turn_start`; reset on
+  // session_start so branch rebuilds don't accumulate across
+  // session swaps.
+  let currentTurnIndex = 0;
+
   const rebuildFromSession = (ctx: ExtensionContext): void => {
     const branch = ctx.sessionManager.getBranch() as unknown as readonly BranchEntry[];
     state = reduceBranch(branch);
@@ -360,10 +469,22 @@ export default function iterationLoopExtension(pi: ExtensionAPI): void {
 
   pi.on('session_start', (_event, ctx) => {
     rebuildFromSession(ctx);
+    try {
+      reloadAgents(ctx.cwd);
+      surfaceAgentWarnings(ctx, agentLoad.warnings);
+    } catch (e) {
+      debug(debugEnabled, `agent reload failed: ${(e as Error).message}`);
+    }
+    currentTurnIndex = 0;
   });
 
   pi.on('session_tree', (_event, ctx) => {
     rebuildFromSession(ctx);
+  });
+
+  pi.on('turn_start', (event) => {
+    // event.turnIndex is 0-indexed per pi-coding-agent's TurnStartEvent.
+    currentTurnIndex = (event as { turnIndex?: number }).turnIndex ?? currentTurnIndex + 1;
   });
 
   // ── System-prompt injection ─────────────────────────────────────────
@@ -457,13 +578,380 @@ export default function iterationLoopExtension(pi: ExtensionAPI): void {
     };
   };
 
-  const doRun = (params: { task?: string }): ToolReturn => {
+  // ── Critic subagent runner ─────────────────────────────────────────
+  //
+  // Minimal re-implementation of subagent.ts's spawn path, specialized
+  // for the iteration-loop's needs: no worktrees, no background
+  // handles, no parent-side audit mirror, in-memory session (we don't
+  // need the critic's transcript to survive restarts — the verdict is
+  // recorded on disk via writeSnapshotVerdict). Returns the final
+  // assistant text + aggregated cost so doRun can feed parseVerdict.
+  interface CriticRunResult {
+    rawText: string;
+    cost: number;
+    turns: number;
+    error: string | undefined;
+  }
+
+  const runCriticSubagent = async (args: {
+    ctx: ExtensionContext;
+    signal: AbortSignal | undefined;
+    spec: CriticCheckSpec;
+    artifact: string;
+    iteration: number;
+  }): Promise<CriticRunResult> => {
+    const { ctx, signal, spec, artifact, iteration } = args;
+    const agentName = spec.agent ?? 'critic';
+    const agent: AgentDef | undefined = agentLoad.agents.get(agentName);
+    if (!agent) {
+      return {
+        rawText: '',
+        cost: 0,
+        turns: 0,
+        error: `agent "${agentName}" not loaded (known: ${agentLoad.nameOrder.join(', ') || '(none)'})`,
+      };
+    }
+
+    // Model resolution — critic spec override > agent model > parent model.
+    let childModel = ctx.model;
+    if (spec.modelOverride) {
+      const parsed = parseModelSpec(spec.modelOverride);
+      if (!parsed) {
+        return { rawText: '', cost: 0, turns: 0, error: `invalid modelOverride "${spec.modelOverride}"` };
+      }
+      const resolved = ctx.modelRegistry.find(parsed.provider, parsed.modelId);
+      if (!resolved) {
+        return {
+          rawText: '',
+          cost: 0,
+          turns: 0,
+          error: `model ${parsed.provider}/${parsed.modelId} not registered`,
+        };
+      }
+      childModel = resolved;
+    } else if (agent.model !== 'inherit') {
+      const resolved = ctx.modelRegistry.find(agent.model.provider, agent.model.modelId);
+      if (!resolved) {
+        return {
+          rawText: '',
+          cost: 0,
+          turns: 0,
+          error: `agent model ${agent.model.provider}/${agent.model.modelId} not registered`,
+        };
+      }
+      childModel = resolved;
+    }
+    if (!childModel) {
+      return { rawText: '', cost: 0, turns: 0, error: 'no model available for critic (configure a default model)' };
+    }
+
+    const artifactPath = isAbsolute(artifact) ? artifact : join(ctx.cwd, artifact);
+    const task = buildCriticTask({ spec, artifactPath, iteration });
+
+    const sessionManager = SessionManager.inMemory(ctx.cwd);
+    const appendParts: string[] = [];
+    if (agent.appendSystemPrompt) appendParts.push(agent.appendSystemPrompt);
+    if (agent.body.trim().length > 0) appendParts.push(agent.body.trim());
+    const resourceLoader = new DefaultResourceLoader({
+      cwd: ctx.cwd,
+      agentDir: getAgentDir(),
+      settingsManager: undefined,
+      noExtensions: true,
+      noSkills: true,
+      noPromptTemplates: true,
+      appendSystemPrompt: appendParts.length > 0 ? appendParts : undefined,
+    });
+    try {
+      await resourceLoader.reload();
+    } catch (e) {
+      return { rawText: '', cost: 0, turns: 0, error: `resource loader: ${(e as Error).message}` };
+    }
+
+    let child: AgentSession;
+    try {
+      const created = await createAgentSession({
+        cwd: ctx.cwd,
+        model: childModel,
+        thinkingLevel: agent.thinkingLevel,
+        tools: agent.tools,
+        modelRegistry: ctx.modelRegistry,
+        authStorage: ctx.modelRegistry.authStorage,
+        resourceLoader,
+        sessionManager,
+      });
+      child = created.session;
+    } catch (e) {
+      return { rawText: '', cost: 0, turns: 0, error: `createAgentSession: ${(e as Error).message}` };
+    }
+
+    let cost = 0;
+    let turns = 0;
+    let childErrMsg: string | undefined;
+    let reachedMaxTurns = false;
+    let abortedByUs = false;
+    const maxTurns = agent.maxTurns;
+    const timeoutMs = agent.timeoutMs;
+
+    const unsubscribe = child.subscribe((event: unknown) => {
+      const evt = event as { type: string; message?: { role?: string; usage?: unknown; errorMessage?: string } };
+      if (evt.type === 'turn_end') {
+        turns++;
+        if (turns >= maxTurns) {
+          reachedMaxTurns = true;
+          abortedByUs = true;
+          void child.abort();
+        }
+      } else if (evt.type === 'message_end' && evt.message?.role === 'assistant') {
+        const usage = evt.message.usage as { cost?: { total?: number } } | undefined;
+        if (usage?.cost?.total != null && Number.isFinite(usage.cost.total)) {
+          cost += usage.cost.total;
+        }
+        if (evt.message.errorMessage) childErrMsg = evt.message.errorMessage;
+      }
+    });
+
+    const timeoutHandle = setTimeout(() => {
+      abortedByUs = true;
+      void child.abort();
+    }, timeoutMs);
+    const parentAbortHandler = (): void => {
+      abortedByUs = true;
+      void child.abort();
+    };
+    signal?.addEventListener('abort', parentAbortHandler, { once: true });
+
+    let thrownError: Error | undefined;
+    try {
+      await child.prompt(task);
+    } catch (e) {
+      thrownError = e instanceof Error ? e : new Error(String(e));
+    } finally {
+      clearTimeout(timeoutHandle);
+      signal?.removeEventListener('abort', parentAbortHandler);
+      unsubscribe();
+    }
+
+    const messages = child.state.messages as unknown as AgentMessageLike[];
+    const rawText = extractFinalAssistantText(messages);
+    try {
+      child.dispose();
+    } catch {
+      /* best-effort */
+    }
+
+    const errorIsAbort =
+      thrownError !== undefined && (thrownError.name === 'AbortError' || /abort/i.test(thrownError.message ?? ''));
+    let error: string | undefined;
+    if (reachedMaxTurns) error = `critic hit max turns (${maxTurns})`;
+    else if (abortedByUs || errorIsAbort || signal?.aborted) error = 'critic aborted';
+    else if (thrownError) error = thrownError.message;
+    else if (childErrMsg) error = childErrMsg;
+
+    return { rawText, cost, turns, error };
+  };
+
+  const doRun = async (
+    params: { task?: string },
+    ctx: ExtensionContext,
+    signal: AbortSignal | undefined,
+  ): Promise<ToolReturn> => {
     const task = (params.task ?? DEFAULT_TASK).trim() || DEFAULT_TASK;
-    return errorReturn(
-      'run',
-      task,
-      'not yet implemented in Phase 2 — land Phase 3 first. See plans/pi-iteration-loop.md.',
+
+    // ── Validation ────────────────────────────────────────────────────
+    const read = readSpec(ctx.cwd, task);
+    if (read.state === 'none') {
+      return errorReturn('run', task, `no check declared for task "${task}" — call \`check declare\` first`);
+    }
+    if (read.state === 'draft') {
+      return errorReturn('run', task, `task "${task}" has a draft pending — call \`check accept task=${task}\` first`);
+    }
+    if (!read.spec) {
+      return errorReturn('run', task, read.error ?? `failed to load spec for "${task}"`);
+    }
+    if (!state || state.task !== task) {
+      return errorReturn(
+        'run',
+        task,
+        `no iteration state for task "${task}" on this branch — re-accept the draft to initialize`,
+      );
+    }
+    if (state.stopReason) {
+      return errorReturn(
+        'run',
+        task,
+        `loop already terminated (${state.stopReason}) — close and re-declare to continue iterating`,
+      );
+    }
+
+    const spec = read.spec;
+    const nextIteration = state.iteration + 1;
+
+    // ── Snapshot the artifact + compute prev-hash ────────────────────
+    // Fixpoint detection needs both the current and previous snapshot's
+    // sha256. Storage's snapshotArtifact returns the hash for the
+    // current iteration; we rehash the previous iteration's on-disk
+    // snapshot ourselves (it's cheap and avoids a schema change to
+    // persist lastArtifactHash on IterationState).
+    let prevHash: string | null = null;
+    if (state.iteration > 0) {
+      try {
+        const prevPath = snapshotPath(ctx.cwd, task, state.iteration, spec.artifact);
+        const bytes = readFileSync(prevPath);
+        prevHash = createHash('sha256').update(bytes).digest('hex');
+      } catch {
+        /* previous snapshot missing or unreadable — treat as no fixpoint candidate */
+      }
+    }
+    let snapshot: { path: string; hash: string } | null = null;
+    try {
+      snapshot = snapshotArtifact(ctx.cwd, task, nextIteration, spec.artifact);
+    } catch (e) {
+      debug(debugEnabled, `snapshotArtifact failed: ${(e as Error).message}`);
+    }
+
+    // ── Dispatch check kind → Verdict ─────────────────────────────────
+    let verdict: Verdict;
+    let costDelta = 0;
+    if (spec.kind === 'bash') {
+      if (!isBashCheckSpecShape(spec.spec)) {
+        return errorReturn('run', task, 'bash spec is malformed on disk');
+      }
+      const bashSpec = spec.spec as BashCheckSpec;
+      try {
+        verdict = await runBashCheck(bashSpec, { cwd: ctx.cwd });
+      } catch (e) {
+        verdict = {
+          approved: false,
+          score: 0,
+          issues: [{ severity: 'blocker', description: `bash check threw: ${(e as Error).message}` }],
+          summary: `bash check threw: ${(e as Error).message}`,
+        };
+      }
+    } else if (spec.kind === 'critic') {
+      if (!isCriticCheckSpecShape(spec.spec)) {
+        return errorReturn('run', task, 'critic spec is malformed on disk');
+      }
+      const criticSpec = spec.spec as CriticCheckSpec;
+      const runResult = await runCriticSubagent({
+        ctx,
+        signal,
+        spec: criticSpec,
+        artifact: spec.artifact,
+        iteration: nextIteration,
+      });
+      costDelta = Number.isFinite(runResult.cost) && runResult.cost > 0 ? runResult.cost : 0;
+      if (runResult.error) {
+        verdict = {
+          approved: false,
+          score: 0,
+          issues: [{ severity: 'blocker', description: `critic subagent failed: ${runResult.error}` }],
+          summary: `critic error: ${runResult.error}`,
+          raw: runResult.rawText,
+        };
+      } else {
+        const parsed = parseVerdict(runResult.rawText);
+        verdict = parsed.verdict;
+        if (parsed.recovery) {
+          debug(debugEnabled, `critic verdict recovery: ${parsed.recovery}`);
+        }
+      }
+    } else {
+      return errorReturn('run', task, `unknown check kind "${String((spec as { kind?: unknown }).kind)}"`);
+    }
+
+    // ── Persist verdict JSON alongside the snapshot ───────────────────
+    try {
+      writeSnapshotVerdict(ctx.cwd, task, nextIteration, verdict);
+    } catch (e) {
+      debug(debugEnabled, `writeSnapshotVerdict failed: ${(e as Error).message}`);
+    }
+
+    // ── Stop-reason classification ─────────────────────────────────────
+    const stopReason = computeStopReason({
+      spec,
+      state: {
+        iteration: nextIteration,
+        lastVerdict: verdict,
+        costUsd: state.costUsd + costDelta,
+        startedAt: state.startedAt,
+      },
+      currentArtifactHash: snapshot?.hash ?? null,
+      previousArtifactHash: prevHash,
+      now: new Date(),
+    });
+
+    // ── Reducer: record the run ───────────────────────────────────────
+    const ranAt = nowIso();
+    const actResult = actRun(state, {
+      verdict,
+      costDeltaUsd: costDelta,
+      turnNumber: currentTurnIndex,
+      snapshot,
+      stopReason,
+      ranAt,
+    });
+    if (!actResult.ok) {
+      return errorReturn('run', task, actResult.error);
+    }
+    state = actResult.state;
+    try {
+      pi.appendEntry(ITERATION_CUSTOM_TYPE, cloneIterationState(state));
+    } catch (e) {
+      debug(debugEnabled, `appendEntry after run failed: ${(e as Error).message}`);
+    }
+
+    // ── Response text ─────────────────────────────────────────────────
+    const lines: string[] = [actResult.summary];
+    if (verdict.issues.length > 0) {
+      lines.push('Issues:');
+      const preview = verdict.issues.slice(0, 3);
+      for (const issue of preview) {
+        const loc = issue.location ? ` (${issue.location})` : '';
+        lines.push(`  [${issue.severity}] ${issue.description}${loc}`);
+      }
+      if (verdict.issues.length > preview.length) {
+        lines.push(`  … ${verdict.issues.length - preview.length} more`);
+      }
+    }
+    if (snapshot) {
+      lines.push(`Snapshot: ${snapshot.path}`);
+    } else {
+      lines.push(`Snapshot: (artifact "${spec.artifact}" not found on disk — fixpoint detection disabled)`);
+    }
+    if (state.bestSoFar) {
+      lines.push(
+        `Best so far: iter ${state.bestSoFar.iteration} (score ${state.bestSoFar.score.toFixed(2)}) → ${state.bestSoFar.snapshotPath}`,
+      );
+    }
+    lines.push(`Cost so far: $${state.costUsd.toFixed(4)}`);
+    if (stopReason) {
+      lines.push(`Stop reason: ${stopReason}`);
+      if (stopReason === 'passed') {
+        lines.push(`Loop passed — call \`check close task=${task} reason=passed\` to archive it.`);
+      } else {
+        lines.push(
+          `Loop terminated without passing. Either \`check close task=${task} reason=${stopReason}\` to archive the best-so-far, or edit the artifact / spec and re-declare.`,
+        );
+      }
+    } else {
+      lines.push(`Next step: edit ${spec.artifact}, then call \`check run task=${task}\` again.`);
+    }
+
+    debug(
+      debugEnabled,
+      `run: task=${task} iter=${nextIteration} approved=${verdict.approved} score=${verdict.score.toFixed(2)} cost+=$${costDelta.toFixed(4)} stopReason=${stopReason ?? 'null'}`,
     );
+
+    return {
+      content: [{ type: 'text', text: lines.join('\n') }],
+      details: {
+        action: 'run',
+        task,
+        state: cloneIterationState(state),
+        spec,
+        specState: 'active',
+      },
+    };
   };
 
   const doStatus = (params: { task?: string }, ctx: ExtensionContext): ToolReturn => {
@@ -565,7 +1053,7 @@ export default function iterationLoopExtension(pi: ExtensionAPI): void {
     ],
     parameters: CheckParams,
 
-    async execute(_toolCallId, rawParams, _signal, _onUpdate, ctx) {
+    async execute(_toolCallId, rawParams, signal, _onUpdate, ctx) {
       const params = rawParams as unknown as {
         action: CheckAction;
         task?: string;
@@ -590,7 +1078,7 @@ export default function iterationLoopExtension(pi: ExtensionAPI): void {
         case 'accept':
           return doAccept(params, ctx);
         case 'run':
-          return doRun(params);
+          return doRun(params, ctx, signal);
         case 'status':
           return doStatus(params, ctx);
         case 'list':
@@ -635,9 +1123,18 @@ export default function iterationLoopExtension(pi: ExtensionAPI): void {
             `${theme.fg('success', '✓ accept')}${theme.fg('muted', taskLabel)}${theme.fg('dim', ' — loop armed')}`,
           );
           break;
-        case 'run':
-          parts.push(theme.fg('warning', '… run (not implemented in Phase 2)'));
+        case 'run': {
+          const s = details.state ?? null;
+          if (!s || !s.lastVerdict) {
+            parts.push(theme.fg('dim', `… run${taskLabel} (no verdict recorded)`));
+          } else {
+            const mark = s.lastVerdict.approved ? theme.fg('success', '✓') : theme.fg('warning', '·');
+            const scoreStr = s.lastVerdict.score.toFixed(2);
+            const stop = s.stopReason ? ` ${theme.fg('error', `[${s.stopReason}]`)}` : '';
+            parts.push(`${mark} ${theme.fg('accent', `iter ${s.iteration}`)}${taskLabel} score ${scoreStr}${stop}`);
+          }
           break;
+        }
         case 'status': {
           const s = details.state ?? null;
           if (!s) {
