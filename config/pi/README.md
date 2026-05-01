@@ -57,6 +57,11 @@ Configuration, custom extensions, and themes for
   the repo's root `tsconfig.json`.
 - [`skills/plan-first/SKILL.md`](#skillsplan-first) — global skill that teaches models WHEN to reach for the `todo` tool
   and how to keep the plan accurate. Companion to [`extensions/todo.ts`](#extensionstodots).
+- [`skills/grep-before-read/SKILL.md`](#skillsgrep-before-read) — teaches models to default to `rg -n` for discovery
+  instead of `read`ing whole files. Ships seven recipes (definition lookup, call-site search, path-restricted search,
+  etc.), a concrete before/after demonstrating the context savings, and a quick-reference table. Complements
+  [`extensions/read-without-limit-nudge.ts`](#extensionsread-without-limit-nudgets) and
+  [`extensions/read-reread-detector.ts`](#extensionsread-reread-detectorts).
 - [`themes/`](#themes) — JSON themes loadable by name from `settings.json`.
 
 Pi auto-discovers [`extensions/`](./extensions), [`skills/`](./skills), and [`themes/`](./themes) via the `extensions` /
@@ -1020,6 +1025,28 @@ Auto-triggering is intentional — the skill description is written to match any
 multiple files, or change + verify phases, so weaker models that wouldn't call `/skill:plan-first` on their own still
 pull the skill's instructions into context when relevant. Stronger models that already plan well will still load it, but
 the overhead is small and the instructions are consistent with how they already work.
+
+## `skills/grep-before-read`
+
+Companion skill to [`extensions/read-without-limit-nudge.ts`](#extensionsread-without-limit-nudgets) and
+[`extensions/read-reread-detector.ts`](#extensionsread-reread-detectorts). Where those extensions catch the failure
+mode after the fact, this skill teaches the up-front pattern: default to `rg -n` for discovery, reach for `read` only
+once you know the target region.
+
+Contents ([`skills/grep-before-read/SKILL.md`](./skills/grep-before-read/SKILL.md)):
+
+- Seven recipes covering the common discovery goals (symbol definition, call sites, path / language filters, fixed
+  strings, counts, filelists, only-changed-files via `git diff --name-only | xargs rg`).
+- A concrete before/after example showing the context difference (≈ 40k tokens vs ≈ 800 tokens for the same answer
+  on a medium repo).
+- Post-grep follow-up workflow: `read --offset --limit` on the target, record the location in `scratchpad`.
+- Anti-patterns (don’t `read` without `offset`/`limit` on files over ~400 lines, don’t re-grep the same pattern in a
+  turn, avoid `find | xargs grep` in favor of `rg -g`, don’t `rg | head`).
+- A quick-reference table at the end the model can scan when partially loaded.
+
+Same auto-triggering rationale as [`skills/plan-first`](#skillsplan-first): the skill description matches requests
+implying discovery (“where is X”, “who uses Y”, “find the bug”, unfamiliar repos) so weaker models pull the full
+instructions into context when it matters, without the user having to remember `/skill:grep-before-read`.
 
 ## `themes/`
 
