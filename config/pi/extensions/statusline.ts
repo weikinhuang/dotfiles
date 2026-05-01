@@ -55,6 +55,7 @@ import {
 } from '../../../lib/node/pi/git-prompt.ts';
 import { resolveWorktreeInfo, type WorktreeInfo } from '../../../lib/node/pi/git-worktree.ts';
 import { isBashAutoEnabled } from '../../../lib/node/pi/session-flags.ts';
+import { getSessionSubagentAggregate } from '../../../lib/node/pi/subagent-aggregate.ts';
 import { fmtCost, fmtSi } from '../../../lib/node/pi/token-format.ts';
 
 /**
@@ -87,6 +88,7 @@ const PALETTE = {
   context: '\x1b[38;5;35m',
   token: '\x1b[38;5;245m',
   sessionToken: '\x1b[38;5;179m',
+  subagent: '\x1b[38;5;73m',
   tool: '\x1b[38;5;214m',
   cost: '\x1b[38;5;108m',
   sessionId: '\x1b[38;5;244m',
@@ -399,6 +401,27 @@ export default function extension(pi: ExtensionAPI): void {
           if (agg.toolCalls > 0) {
             const bytesSuffix = agg.toolResultBytes > 0 ? `(~${fmtSi(agg.toolResultBytes / 4)})` : '';
             line2Parts.push(paint(PALETTE.tool, `⚒ S:${agg.toolCalls}${bytesSuffix}`));
+          }
+
+          // Σ(N):… — session-total subagent usage (count, tokens, cost)
+          // populated by the subagent extension through the shared
+          // getSessionSubagentAggregate() singleton. Mirrors the M(…)/S:
+          // shape so the three aggregates read consistently. Shown only
+          // when at least one child has completed this session; the
+          // per-child live status stays on line 3.
+          const subAgg = getSessionSubagentAggregate().snapshot();
+          if (subAgg.count > 0) {
+            const label = subAgg.failures > 0 ? `Σ(${subAgg.count}·${subAgg.failures}✗)` : `Σ(${subAgg.count})`;
+            const writeSeg = subAgg.cacheWrite > 0 ? `/W ${fmtSi(subAgg.cacheWrite)}` : '';
+            const cacheDenom = subAgg.input + subAgg.cacheRead;
+            const ratioSeg = cacheDenom > 0 ? ` R ${Math.round((subAgg.cacheRead / cacheDenom) * 100)}%` : '';
+            const costSeg = subAgg.cost > 0 ? ` ${fmtCost(subAgg.cost)}` : '';
+            line2Parts.push(
+              paint(
+                PALETTE.subagent,
+                `${label}:↑${fmtSi(subAgg.input)}/↻ ${fmtSi(subAgg.cacheRead)}${writeSeg}/↓${fmtSi(subAgg.output)}${ratioSeg}${costSeg}`,
+              ),
+            );
           }
 
           // --- line 3: other extensions' statuses (plan-mode, preset, working-indicator, …) ---

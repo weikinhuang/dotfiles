@@ -79,6 +79,7 @@ import {
 import { Text } from '@mariozechner/pi-tui';
 import { Type } from 'typebox';
 import { parseModelSpec } from '../../../lib/node/pi/btw.ts';
+import { getSessionSubagentAggregate } from '../../../lib/node/pi/subagent-aggregate.ts';
 import {
   formatAgentListDescription,
   formatParallelSubagentStatus,
@@ -584,6 +585,9 @@ export default function subagentExtension(pi: ExtensionAPI): void {
     surfaceWarnings(ctx, loadResult.warnings);
     handleCounter.reset();
     backgroundChildren.clear();
+    // Drop any subagent totals from a previous session so the
+    // statusline Σ(N):… segment starts fresh for this parent session.
+    getSessionSubagentAggregate().reset();
     // Sweep stale worktrees + old child session files from prior (possibly
     // crashed) runs. Both helpers are best-effort and silent on failure.
     const debugNotify = (m: string): void => {
@@ -1039,6 +1043,21 @@ export default function subagentExtension(pi: ExtensionAPI): void {
               ? 'aborted'
               : 'error';
       pushStatus(finalState, { durationMs });
+      // Contribute this run's totals to the session-wide subagent
+      // aggregate so the statusline's line-2 Σ(N):… segment reflects
+      // the cumulative cost of delegated work. We intentionally count
+      // errored / aborted / max_turns runs too (with `failed: true`)
+      // — tokens + cost were still spent and users want to see them.
+      getSessionSubagentAggregate().record({
+        turns: agg.turns,
+        input: agg.input,
+        cacheRead: agg.cacheRead,
+        cacheWrite: agg.cacheWrite,
+        output: agg.output,
+        cost: agg.cost,
+        durationMs,
+        failed: finalState !== 'completed',
+      });
       // After a linger so the user sees the final numbers, drop this
       // child from the aggregate. Each child owns its own timer so
       // concurrent children don't stomp each other.
