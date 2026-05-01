@@ -74,6 +74,13 @@ Configuration, custom extensions, and themes for
   etc.), a concrete before/after demonstrating the context savings, and a quick-reference table. Complements
   [`extensions/read-without-limit-nudge.ts`](#extensionsread-without-limit-nudgets) and
   [`extensions/read-reread-detector.ts`](#extensionsread-reread-detectorts).
+- [`skills/subagent-delegation/SKILL.md`](#skillssubagent-delegation) — teaches models WHEN to delegate to a subagent
+  vs. work inline, how to write a zero-context `task` prompt, which agent type to pick (`explore` / `plan` /
+  `general-purpose`), and when to downshift grunt work to a weaker model via `modelOverride`. Companion to
+  [`extensions/subagent.ts`](#extensionssubagentts).
+- [`skills/subagent-background/SKILL.md`](#skillssubagent-background) — lifecycle skill for
+  `subagent({ run_in_background: true })` + `subagent_send`: when async beats sync, fan-out, status vs. wait,
+  mid-run steering, abort criteria, and the "don't orphan handles across turns" rule.
 - [`themes/`](#themes) — JSON themes loadable by name from `settings.json`.
 
 Pi auto-discovers [`extensions/`](./extensions), [`skills/`](./skills), and [`themes/`](./themes) via the `extensions` /
@@ -1300,6 +1307,58 @@ Contents ([`skills/memory-first/SKILL.md`](./skills/memory-first/SKILL.md)):
 
 Auto-triggering description matches requests where a user utterance is a preference / correction / validated approach
 or names an external system, so models pull the skill in when the save decision is imminent.
+
+## `skills/subagent-delegation`
+
+Companion skill to [`extensions/subagent.ts`](#extensionssubagentts). The extension provides the mechanism (spawn a
+child session with its own context, tool allowlist, and optional `modelOverride` / worktree isolation); this skill
+provides the **parent-side policy** — when delegation beats inline work, how to brief a child that starts with zero
+context, and which pre-packaged agent type to reach for.
+
+Contents ([`skills/subagent-delegation/SKILL.md`](./skills/subagent-delegation/SKILL.md)):
+
+- "When to delegate" checklist (noisy discovery, unknown-sized exploration, fan-out, cheap-model-is-enough, planning
+  before coding, sandboxed/worktree changes) and a matching "do NOT delegate" list (single tool call, needs parent
+  context, inside a subagent — nesting is disabled).
+- Agent picker table mapping the three shipped agents ([`explore`](./agents/explore.md), [`plan`](./agents/plan.md),
+  [`general-purpose`](./agents/general-purpose.md)) to their tool allowlists, thinking levels, and typical tasks.
+- Four-part `task` template (goal / constraints / known context / expected answer shape) plus a good-vs-bad example.
+- `modelOverride` guidance specifically aimed at pushing mechanical enumeration to weak local models
+  (qwen3-6-35b-a3b, gpt-oss-20b, …) while the parent keeps the strong model for judgment — pairs with
+  [`extensions/small-model-addendum.ts`](#extensionssmall-model-addendumts) on the child side.
+- `returnFormat: "json"` recipe for structured handoffs, plus isolation notes (`shared-cwd` vs. `worktree`).
+- Anti-patterns (delegating a single tool call, re-explaining all parent context, defaulting to `general-purpose`,
+  chaining independent children serially, trusting weak-model output without verification, attempting recursion).
+- Quick-reference situation → move table.
+
+Auto-triggering description matches requests that imply broad exploration, fan-out, or "plan before you code"
+moments, so the policy loads at the point a delegation decision is actually being made.
+
+## `skills/subagent-background`
+
+Lifecycle sister-skill to [`skills/subagent-delegation`](#skillssubagent-delegation). Where `subagent-delegation`
+covers **whether** to spawn a child, this skill covers **how to run children asynchronously** with
+`subagent({ run_in_background: true })` and [`subagent_send`](#extensionssubagentts) so the parent can keep working
+while they run and pick results up across turn boundaries.
+
+Contents ([`skills/subagent-background/SKILL.md`](./skills/subagent-background/SKILL.md)):
+
+- "When background beats sync" checklist (fan-out with inline work, latency-hiding, cross-turn exploration,
+  steerable tasks) and the opposite — tasks short enough that polling overhead costs more than it saves.
+- Fan-out pattern: multiple `subagent` calls in one assistant turn run concurrently; how to combine with inline
+  work and collect via `wait` next turn.
+- Handle management — record every returned handle in `scratchpad` / `todo` review notes so it survives compaction,
+  because background children outlive the turn that spawned them.
+- `subagent_send` action matrix (`status` / `wait` / `abort` / steering `text`) with harness-enforced rules
+  (`text` + `abort` not combinable, `text` rejected on finished children, `wait` is idempotent once finished).
+- Polling loop and fan-out patterns, preferring `wait` with a timeout over tight `status` polling.
+- Mid-run steering guidance and abort criteria (obsolete task, clear stuck state, wrong agent type chosen).
+- The "don't orphan children" rule: every live handle owes a `wait` / `status+scratchpad-note` / `abort` before
+  the turn ends.
+- Composition with [`todo`](#extensionstodots) (`review` note parked on handle) and
+  [`scratchpad`](#extensionsscratchpadts) (handle → task mapping for cross-compaction recovery).
+- Anti-patterns (spawning background for work you'll immediately `wait` on, tight-polling with `status`, steering on
+  every turn, forgetting handles persist across turns, racing children against the user, one-child-per-file).
 
 ## `themes/`
 
