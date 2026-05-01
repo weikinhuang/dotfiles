@@ -39,6 +39,7 @@ npx vitest tests/lib/node/pi/bash-permissions.spec.ts
 | [`subdir-agents.spec.ts`](./subdir-agents.spec.ts)           | `candidateContextPaths`, `capContent`, `displayPath`, `formatBytes`, `formatContextInjection`, `isInsideCwd`, `normalizeAbs` from [`subdir-agents.ts`](../../../../lib/node/pi/subdir-agents.ts)   |
 | [`todo-prompt.spec.ts`](./todo-prompt.spec.ts)               | `formatActivePlan`, `looksLikeCompletionClaim` from [`todo-prompt.ts`](../../../../lib/node/pi/todo-prompt.ts)                                                                                     |
 | [`todo-reducer.spec.ts`](./todo-reducer.spec.ts)             | reducer + pure action handlers from [`todo-reducer.ts`](../../../../lib/node/pi/todo-reducer.ts)                                                                                                   |
+| [`tool-arg-recovery.spec.ts`](./tool-arg-recovery.spec.ts)   | `parseValidationFailure`, `resolveSchemaPath`, `describeSchema`, `exampleValue`, `buildCorrectedExample`, `buildRecoveryBlock` from [`tool-arg-recovery.ts`](../../../../lib/node/pi/tool-arg-recovery.ts) |
 | [`verify-detect.spec.ts`](./verify-detect.spec.ts)           | claim extraction, command matching, and steer formatting from [`verify-detect.ts`](../../../../lib/node/pi/verify-detect.ts)                                                                       |
 
 ## Design
