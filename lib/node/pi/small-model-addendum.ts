@@ -80,6 +80,7 @@ export const DEFAULT_ADDENDUM = [
   '- After every code change, run a verification step (test / lint / rerun) before claiming done.',
   '- If a tool call fails twice with the same arguments, change the approach — do not retry unchanged.',
   '- Never claim "I\'m done" while `pending`, `in_progress`, or `review` todos remain.',
+  '- When an iteration-loop task is active (system prompt shows `## Iteration Loop`), never claim the artifact "looks right / matches the spec / is done" without a passing `check run` verdict this turn — edit, `check run`, read the verdict, repeat.',
   '- Keep responses short. Skip preambles like "Sure, I\'ll help with that."',
 ].join('\n');
 

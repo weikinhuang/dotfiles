@@ -61,6 +61,12 @@ Configuration, custom extensions, and themes for
   sub-agent delegation. Registers a single `subagent(agent, task)` tool (parallel execution) plus the
   `/agents` command. Child sessions run with their own context, tool allowlist, and optional model / git-worktree
   sandbox; the parent sees only the final answer text.
+- [`extensions/iteration-loop.ts`](#extensionsiteration-loopts) — disciplined RL-style feedback loop for
+  artifact-producing tasks. Registers one `check` tool (declare / accept / run / status / close / list), a `critic`
+  subagent for rubric-graded visual or prose critiques, on-disk state under `.pi/checks/`, per-turn system-prompt
+  injection of the iteration status, and two guardrails (claim nudge + strict edit-without-check nudge) so small
+  models can't skip verification. Ships the [`critic` agent](./agents/critic.md) and the
+  [`iterate-until-verified` skill](#skillsiterate-until-verified).
 - [`../../lib/node/pi/`](../../lib/node/pi) — pure helpers (no pi imports) shared between the extensions and unit-tested
   under [`../../tests/lib/node/pi/`](../../tests/lib/node/pi). Hoisted out of `extensions/` so they get type-checked by
   the repo's root `tsconfig.json`.
@@ -81,6 +87,11 @@ Configuration, custom extensions, and themes for
 - [`skills/subagent-background/SKILL.md`](#skillssubagent-background) — lifecycle skill for
   `subagent({ run_in_background: true })` + `subagent_send`: when async beats sync, fan-out, status vs. wait,
   mid-run steering, abort criteria, and the "don't orphan handles across turns" rule.
+- [`skills/iterate-until-verified/SKILL.md`](#skillsiterate-until-verified) — teaches models WHEN to declare a `check`
+  (artifact-producing tasks with a verifiable contract), HOW to pick the right kind (`bash` for deterministic
+  validators, `critic` for subjective / visual rubrics), the draft → user-accept → iterate authorship flow, and the
+  discipline that keeps the loop honest (one focused edit per iteration, always read the verdict, never claim done
+  without a passing `check run`). Companion to [`extensions/iteration-loop.ts`](#extensionsiteration-loopts).
 - [`themes/`](#themes) — JSON themes loadable by name from `settings.json`.
 
 Pi auto-discovers [`extensions/`](./extensions), [`skills/`](./skills), and [`themes/`](./themes) via the `extensions` /
@@ -1359,6 +1370,39 @@ Contents ([`skills/subagent-background/SKILL.md`](./skills/subagent-background/S
   [`scratchpad`](#extensionsscratchpadts) (handle → task mapping for cross-compaction recovery).
 - Anti-patterns (spawning background for work you'll immediately `wait` on, tight-polling with `status`, steering on
   every turn, forgetting handles persist across turns, racing children against the user, one-child-per-file).
+
+## `skills/iterate-until-verified`
+
+Companion skill to [`extensions/iteration-loop.ts`](#extensionsiteration-loopts). The extension provides the
+mechanism (the `check` tool, on-disk state, branch-aware reducer, per-turn status injection, claim + strict edit
+guardrails); this skill provides the **policy** — when to declare a check, how to pick a kind, how to surface the
+draft for user acceptance, and the iteration discipline that keeps the loop from devolving into guess-and-check.
+
+Contents ([`skills/iterate-until-verified/SKILL.md`](./skills/iterate-until-verified/SKILL.md)):
+
+- "When to declare a check" gate: artifact-producing tasks with a pass/fail contract (rendered image, SVG, chart,
+  config, regex, generated snippet, rubric-graded prose). Explicit skip list: question-answering, single-tool-call
+  asks, throwaway `/tmp` scratch, tasks where an existing test suite already owns verification.
+- Decision table for picking between `bash` (deterministic validators, `passOn: exit-zero` / `regex:` / `jq:`) and
+  `critic` (subjective / visual rubrics) with concrete examples from the plan — including the
+  `magick in.svg out.png` rendering pre-step required on this host because `rsvg-convert` isn't installed.
+- Four-step authorship flow: `declare` → surface the draft inline with "run `/check accept default` to start" →
+  `accept` → iterate → `close`. Does NOT call `check run` before user acceptance — the tool refuses and the skill
+  teaches the model to wait.
+- Iteration discipline rules: one focused edit per iteration, read the verdict before editing again, address
+  blocker-severity issues first, honor the injected `Next step:` line, never claim done without a passing
+  `check run` this turn, budget exhaustion returns best-so-far (not a hard fail).
+- Composition with [`todo`](#extensionstodots) (one loop = one todo, parked in `review` while iterating) and
+  [`scratchpad`](#extensionsscratchpadts) (cross-iteration pipeline commands / rubric interpretations).
+- Anti-patterns: skipping authorship because the check seems obvious, running `check run` without editing (wasted
+  spin caught by the fixpoint detector), relying on the claim nudge to catch edits (the strict nudge exists for
+  this reason), iterating without reading the prior verdict, widening the rubric mid-loop to fake a pass, and
+  forgetting to `close` which leaves the status block injecting forever.
+- Quick-reference situation → move table mirroring the other skills.
+
+Auto-triggering description matches requests that imply artifact production with a verifiable contract ("produce
+an SVG / chart / diagram / config / test / regex / output", "make a rendering of X", "generate a Y that satisfies
+Z") so the policy loads at the point a check-declaration decision is actually being made.
 
 ## `themes/`
 
