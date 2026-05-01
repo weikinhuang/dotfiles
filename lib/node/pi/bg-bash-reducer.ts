@@ -266,8 +266,16 @@ export function removeJob(state: BgBashState, id: string): ActionResult {
   const idx = state.jobs.findIndex((j) => j.id === id);
   if (idx === -1) return { ok: false, error: `job ${id} not found` };
   const job = state.jobs[idx];
-  if (job.status === 'running' || job.status === 'signaled') {
+  if (job.status === 'running') {
     return { ok: false, error: `job ${id} is still ${job.status}; signal it first` };
+  }
+  // `signaled` is used for two phases: (1) we just sent a signal and are
+  // waiting for the 'exit' listener to reap the child, and (2) the child
+  // has already exited due to that signal. Phase (2) is terminal and the
+  // exit listener sets `endedAt`, so if `endedAt` is present we're safely
+  // past reap and can drop the record.
+  if (job.status === 'signaled' && job.endedAt === undefined) {
+    return { ok: false, error: `job ${id} is still ${job.status}; wait for it to exit first` };
   }
   const next = cloneState(state);
   next.jobs.splice(idx, 1);

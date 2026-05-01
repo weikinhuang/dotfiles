@@ -282,7 +282,16 @@ test('removeJob: refuses to drop a signaled-not-reaped job', () => {
   const out = removeJob(s, 'a');
   assertErr(out);
 
-  expect(out.error).toMatch(/still signaled/);
+  expect(out.error).toMatch(/still signaled.*wait for it to exit/);
+});
+
+test('removeJob: drops a signaled-and-reaped job (endedAt set)', () => {
+  const s = mkState([mkJob({ id: 'a', status: 'signaled', signal: 'SIGKILL', endedAt: 42 })]);
+  const out = removeJob(s, 'a');
+  assertOk(out);
+
+  expect(out.state.jobs).toEqual([]);
+  expect(out.summary).toMatch(/Removed a/);
 });
 
 test('removeJob: drops terminal jobs', () => {
