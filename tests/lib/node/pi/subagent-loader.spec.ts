@@ -319,4 +319,33 @@ body`,
     expect(result.warnings).toHaveLength(1);
     expect(result.warnings[0].reason).toMatch(/frontmatter/);
   });
+
+  test('malformed higher-priority file does not shadow a valid lower-priority agent', () => {
+    const files = {
+      '/global/explore.md': `---
+name: explore
+description: global explore
+---
+body`,
+      '/user/explore.md': 'not valid markdown',
+    };
+    const dirs = {
+      '/global': ['explore.md'],
+      '/user': ['explore.md'],
+    };
+    const result = loadAgents({
+      layers: [
+        { source: 'global', dir: '/global' },
+        { source: 'user', dir: '/user' },
+      ],
+      knownToolNames: KNOWN_TOOLS,
+      fs: makeFs(files, dirs),
+      parseFrontmatter,
+    });
+
+    // Global survives because the user-scope override failed validation.
+    expect(result.agents.get('explore')?.source).toBe('global');
+    expect(result.agents.get('explore')?.description).toBe('global explore');
+    expect(result.warnings.some((w) => w.path === '/user/explore.md')).toBe(true);
+  });
 });

@@ -1236,6 +1236,12 @@ Edit [`extensions/subagent.ts`](./extensions/subagent.ts) or the helpers under
 `.md` files under any of the three agent directories are picked up on the next `/reload` (or when any `/agents`
 subcommand runs — the command rescans before listing).
 
+**Caveat:** the `subagent` tool's LLM-visible description (the list of available agents baked into the tool schema)
+is captured at `registerTool` time. `/reload` re-runs the extension factory and so refreshes it; a `.md` file
+dropped in mid-session without a `/reload` is usable via `/agents` and callable via `subagent` (the tool looks
+up agents by name dynamically), but the parent model won't see the new agent in the tool-description enum until
+the next `/reload`.
+
 ## `skills/plan-first`
 
 Global skill that teaches models to plan multi-step work with the [`todo`](#extensionstodots) tool before touching

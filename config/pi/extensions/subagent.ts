@@ -53,7 +53,7 @@
  * can be unit-tested under vitest without the pi runtime.
  */
 
-import { execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync, unlinkSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -69,7 +69,7 @@ import {
   type ExtensionAPI,
   type ExtensionContext,
 } from '@mariozechner/pi-coding-agent';
-import { Box, Markdown, Text } from '@mariozechner/pi-tui';
+import { Text } from '@mariozechner/pi-tui';
 import { Type } from 'typebox';
 import { parseModelSpec } from '../../../lib/node/pi/btw.ts';
 import {
@@ -162,28 +162,41 @@ function envConcurrency(): number {
 // Concurrency semaphore (process-wide)
 // ──────────────────────────────────────────────────────────────────────
 
-interface SemaphoreState {
-  active: number;
-  queue: (() => void)[];
-}
+/**
+ * Minimal async semaphore. `acquire` resolves only when the caller is
+ * allowed to proceed (active count < limit); the caller must pair it
+ * with a `release()` inside a finally. Waiters are resumed FIFO.
+ *
+ * The fast path increments `active` before returning; the slow path
+ * parks on the queue, and the increment happens in `release()`'s
+ * resumption of the waiter (since `release()` does NOT decrement
+ * `active` for the waiter's sake — the waiter simply inherits the
+ * released slot).
+ */
+class Semaphore {
+  private active = 0;
+  private readonly queue: (() => void)[] = [];
+  constructor(private readonly limit: number) {}
 
-function createSemaphore(_limit: number): SemaphoreState {
-  return { active: 0, queue: [] };
-}
-
-async function acquire(sem: SemaphoreState, limit: number): Promise<void> {
-  if (sem.active < limit) {
-    sem.active++;
-    return;
+  async acquire(): Promise<void> {
+    if (this.active < this.limit) {
+      this.active++;
+      return;
+    }
+    await new Promise<void>((resolve) => this.queue.push(resolve));
+    // Waiter inherits the slot released by the prior holder — no
+    // additional `active++` needed because `release()` intentionally
+    // skipped its `active--` when a waiter was present.
   }
-  await new Promise<void>((resolve) => sem.queue.push(resolve));
-  sem.active++;
-}
 
-function release(sem: SemaphoreState): void {
-  sem.active--;
-  const next = sem.queue.shift();
-  if (next) next();
+  release(): void {
+    const next = this.queue.shift();
+    if (next) {
+      next();
+      return;
+    }
+    this.active--;
+  }
 }
 
 // ──────────────────────────────────────────────────────────────────────
@@ -241,64 +254,81 @@ function makeSweepFs(): SweepFs {
 // Worktree helpers (stale sweep + per-call create/cleanup)
 // ──────────────────────────────────────────────────────────────────────
 
-function createWorktree(cwd: string): { path: string; branch: string } | { error: string } {
+/**
+ * Shell out to `git` safely. Uses `execFileSync` so arguments are
+ * passed argv-style (no shell word splitting); path and branch names
+ * never reach `/bin/sh`. Returns true on exit 0, false otherwise.
+ */
+function runGit(cwd: string, args: string[]): boolean {
+  try {
+    execFileSync('git', args, { cwd, stdio: ['ignore', 'ignore', 'pipe'] });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+interface CreatedWorktree {
+  /** Absolute path of the checkout inside the temp dir. */
+  path: string;
+  /** Outer temp dir — must be `rm -rf`d after `git worktree remove`. */
+  tmpDir: string;
+  /** Branch name created by `git worktree add -b`. */
+  branch: string;
+}
+
+function createWorktree(cwd: string): CreatedWorktree | { error: string } {
   const id = `pi-subagent-${Date.now().toString(36)}-${Math.floor(Math.random() * 1e6).toString(36)}`;
   const tmp = mkdtempSync(join(tmpdir(), 'pi-subagent-wt-'));
   const path = join(tmp, 'checkout');
   const branch = id;
-  try {
-    execSync(`git worktree add -b ${branch} ${JSON.stringify(path)}`, {
-      cwd,
-      stdio: ['ignore', 'ignore', 'pipe'],
-    });
-    return { path, branch };
-  } catch (e) {
-    try {
-      rmSync(tmp, { recursive: true, force: true });
-    } catch {
-      // tmp may not have been fully created — benign.
-    }
-    return { error: e instanceof Error ? e.message : String(e) };
+  if (runGit(cwd, ['worktree', 'add', '-b', branch, path])) {
+    return { path, tmpDir: tmp, branch };
   }
+  try {
+    rmSync(tmp, { recursive: true, force: true });
+  } catch {
+    // tmp may not have been fully created — benign.
+  }
+  return { error: `git worktree add failed for ${path}` };
 }
 
-function removeWorktree(parentCwd: string, worktreePath: string, branch: string): void {
-  try {
-    execSync(`git worktree remove --force ${JSON.stringify(worktreePath)}`, {
-      cwd: parentCwd,
-      stdio: ['ignore', 'ignore', 'pipe'],
-    });
-  } catch {
-    // Fallback: drop the dir manually. The branch is named after the worktree id
-    // and cleaned by `git worktree prune` on the next sweep.
+function removeWorktree(parentCwd: string, wt: Pick<CreatedWorktree, 'path' | 'tmpDir' | 'branch'>): void {
+  // `git worktree remove --force` tears down the checkout AND removes the
+  // .git/worktrees/<branch>/ bookkeeping. If that fails (repo renamed,
+  // moved, or corrupted), fall back to wiping the outer tmp dir so we
+  // at least don't leak disk — the bookkeeping pointer can be cleaned up
+  // by the next `git worktree prune` sweep.
+  const removedViaGit = runGit(parentCwd, ['worktree', 'remove', '--force', wt.path]);
+  if (!removedViaGit) {
     try {
-      rmSync(dirname(worktreePath), { recursive: true, force: true });
+      rmSync(wt.tmpDir, { recursive: true, force: true });
     } catch {
-      // noop — manual cleanup is the user's problem at this point.
+      // manual cleanup is the user's problem at this point
+    }
+  } else {
+    // `git worktree remove` drops the `checkout` subdir but leaves our
+    // `mkdtempSync` parent dir in place; clean it up so /tmp doesn't
+    // accumulate empty pi-subagent-wt-* shells.
+    try {
+      rmSync(wt.tmpDir, { recursive: true, force: true });
+    } catch {
+      // benign — empty dir only
     }
   }
-  try {
-    execSync(`git branch -D ${branch}`, { cwd: parentCwd, stdio: ['ignore', 'ignore', 'pipe'] });
-  } catch {
-    // Branch deletion is best-effort.
-  }
+  // Branch deletion is best-effort; if the branch was checked out
+  // elsewhere the -D still works because the worktree is gone.
+  runGit(parentCwd, ['branch', '-D', wt.branch]);
 }
 
 function sweepStaleWorktrees(parentCwd: string, debugNotify: (msg: string) => void): void {
   const stale = listStaleWorktrees(parentCwd, makeSweepFs());
   if (stale.length === 0) return;
-  try {
-    execSync('git worktree prune', { cwd: parentCwd, stdio: ['ignore', 'ignore', 'pipe'] });
-  } catch {
-    // prune can fail on corrupted repos — don't block the session on it.
-  }
+  // Prune first so .git/worktrees/ bookkeeping matches disk; otherwise
+  // `worktree remove` on a dir git doesn't know about is a no-op.
+  runGit(parentCwd, ['worktree', 'prune']);
   for (const path of stale) {
-    try {
-      execSync(`git worktree remove --force ${JSON.stringify(path)}`, {
-        cwd: parentCwd,
-        stdio: ['ignore', 'ignore', 'pipe'],
-      });
-    } catch {
+    if (!runGit(parentCwd, ['worktree', 'remove', '--force', path])) {
       try {
         rmSync(path, { recursive: true, force: true });
       } catch {
@@ -306,7 +336,7 @@ function sweepStaleWorktrees(parentCwd: string, debugNotify: (msg: string) => vo
       }
     }
   }
-  if (stale.length > 0) debugNotify(`subagent: swept ${stale.length} stale worktree(s)`);
+  debugNotify(`subagent: swept ${stale.length} stale worktree(s)`);
 }
 
 // ──────────────────────────────────────────────────────────────────────
@@ -368,13 +398,10 @@ function cleanupAndError(args: {
   task: string;
   durationMs: number;
   error: string;
-  worktreePath: string | undefined;
-  worktreeBranch: string | undefined;
+  worktree: CreatedWorktree | undefined;
   parentCwd: string;
 }): { content: string; details: SubagentDetails; isError: true } {
-  if (args.worktreePath && args.worktreeBranch) {
-    removeWorktree(args.parentCwd, args.worktreePath, args.worktreeBranch);
-  }
+  if (args.worktree) removeWorktree(args.parentCwd, args.worktree);
   return toolErrorResult(args);
 }
 
@@ -396,19 +423,23 @@ export default function subagentExtension(pi: ExtensionAPI): void {
   let loadResult: AgentLoadResult = { agents: new Map(), nameOrder: [], warnings: [] };
   const surfacedWarnings = new Set<string>();
 
-  // Process-wide concurrency semaphore keyed on the env value. The limit
-  // is re-read every acquire so editing the env mid-session takes effect.
-  const concurrencyLimit = envConcurrency();
-  const semaphore = createSemaphore(concurrencyLimit);
+  // Process-wide concurrency semaphore. Limit is captured once at
+  // session start; changing `PI_SUBAGENT_CONCURRENCY` mid-session
+  // requires /reload.
+  const semaphore = new Semaphore(envConcurrency());
 
-  // Running-child registry for the statusline aggregate rendering.
+  // Running-child registry for the statusline aggregate rendering. Each
+  // child owns an entry here from acquire-time until its per-call linger
+  // timer fires. Parallel children collapse into the parallel-aggregate
+  // status; solo children render the single-child format.
   const runningChildren = new Map<string, SubagentRunSnapshot>();
-  let statusLingerTimer: ReturnType<typeof setTimeout> | undefined;
+  // Per-child linger timers kept so session_shutdown can cancel them all.
+  const lingerTimers = new Set<ReturnType<typeof setTimeout>>();
 
   const updateStatus = (ctx: ExtensionContext): void => {
     const entries = [...runningChildren.values()];
     if (entries.length === 0) {
-      ctx.ui.setStatus(STATUS_KEY, undefined as unknown as string);
+      ctx.ui.setStatus(STATUS_KEY, undefined);
       return;
     }
     if (entries.length === 1) {
@@ -416,14 +447,6 @@ export default function subagentExtension(pi: ExtensionAPI): void {
       return;
     }
     ctx.ui.setStatus(STATUS_KEY, formatParallelSubagentStatus(entries));
-  };
-
-  const scheduleStatusClear = (ctx: ExtensionContext): void => {
-    const lingerMs = envPositiveInt('PI_SUBAGENT_STATUS_LINGER_MS', DEFAULT_STATUS_LINGER_MS);
-    if (statusLingerTimer) clearTimeout(statusLingerTimer);
-    statusLingerTimer = setTimeout(() => {
-      if (runningChildren.size === 0) ctx.ui.setStatus(STATUS_KEY, undefined as unknown as string);
-    }, lingerMs);
   };
 
   const reload = (cwd: string): void => {
@@ -445,44 +468,6 @@ export default function subagentExtension(pi: ExtensionAPI): void {
       ctx.ui.notify(`subagent: ${w.path}: ${w.reason}`, 'warning');
     }
   };
-
-  // ────────────────────────────────────────────────────────────────────
-  // TUI rendering
-  // ────────────────────────────────────────────────────────────────────
-
-  pi.registerMessageRenderer<SubagentDetails>(SUBAGENT_CUSTOM_TYPE, (message, { expanded }, theme) => {
-    const d = message.details;
-    const prefix = theme.fg('accent', '[subagent]');
-    const body = typeof message.content === 'string' ? message.content : '';
-    if (!d) {
-      const box = new Box(1, 1, (t) => theme.bg('customMessageBg', t));
-      box.addChild(new Text(`${prefix} (no details)`, 0, 0));
-      return box;
-    }
-    const glyph =
-      d.stopReason === 'completed'
-        ? theme.fg('success', '✓')
-        : d.stopReason === 'max_turns'
-          ? theme.fg('warning', '∎')
-          : d.stopReason === 'aborted'
-            ? theme.fg('warning', '⚠')
-            : theme.fg('error', '✗');
-    const durS = d.durationMs > 0 ? ` ${(d.durationMs / 1000).toFixed(1)}s` : '';
-    const costS = d.cost > 0 ? ` $${d.cost.toFixed(4)}` : '';
-    const head =
-      `${prefix} ${glyph} ${theme.fg('toolTitle', theme.bold(d.agent))}` +
-      theme.fg('muted', ` ${d.turns} turn${d.turns === 1 ? '' : 's'}${costS}${durS}`);
-    if (!expanded) {
-      const box = new Box(1, 1, (t) => theme.bg('customMessageBg', t));
-      box.addChild(new Text(head, 0, 0));
-      return box;
-    }
-    const box = new Box(1, 1, (t) => theme.bg('customMessageBg', t));
-    box.addChild(new Text(head, 0, 0));
-    if (d.error) box.addChild(new Text(theme.fg('error', d.error), 0, 0));
-    if (body.trim()) box.addChild(new Markdown(body.trim(), 0, 0));
-    return box;
-  });
 
   // ────────────────────────────────────────────────────────────────────
   // Lifecycle + startup sweeps
@@ -509,8 +494,8 @@ export default function subagentExtension(pi: ExtensionAPI): void {
   });
 
   pi.on('session_shutdown', (_event, ctx) => {
-    // Happy-path sweep in case the shutdown was clean but prior runs
-    // left artefacts.
+    // Happy-path sweep. Both sweeps are best-effort — shutdown must
+    // not block or throw.
     try {
       sweepStaleWorktrees(ctx.cwd, () => {
         // silent — shutdown sweep is best-effort
@@ -518,13 +503,17 @@ export default function subagentExtension(pi: ExtensionAPI): void {
     } catch {
       // never block shutdown
     }
+    try {
+      const retain = envPositiveInt('PI_SUBAGENT_RETAIN_DAYS', DEFAULT_RETAIN_DAYS);
+      sweepStaleSessions(subagentSessionRoot(), retain, makeSweepFs());
+    } catch {
+      // never block shutdown
+    }
     loadResult = { agents: new Map(), nameOrder: [], warnings: [] };
     surfacedWarnings.clear();
     runningChildren.clear();
-    if (statusLingerTimer) {
-      clearTimeout(statusLingerTimer);
-      statusLingerTimer = undefined;
-    }
+    for (const t of lingerTimers) clearTimeout(t);
+    lingerTimers.clear();
   });
 
   // ────────────────────────────────────────────────────────────────────
@@ -631,8 +620,7 @@ export default function subagentExtension(pi: ExtensionAPI): void {
 
     // ── Workspace (shared-cwd vs worktree) ────────────────────────────
     let childCwd = ctx.cwd;
-    let worktreePath: string | undefined;
-    let worktreeBranch: string | undefined;
+    let worktree: CreatedWorktree | undefined;
     let workspaceIsolation: 'shared-cwd' | 'worktree' = 'shared-cwd';
     if (agent.isolation === 'worktree') {
       const wt = createWorktree(ctx.cwd);
@@ -640,13 +628,16 @@ export default function subagentExtension(pi: ExtensionAPI): void {
         ctx.ui.notify(`subagent: worktree create failed, falling back to shared-cwd: ${wt.error}`, 'warning');
       } else {
         childCwd = wt.path;
-        worktreePath = wt.path;
-        worktreeBranch = wt.branch;
+        worktree = wt;
         workspaceIsolation = 'worktree';
       }
     }
 
-    // ── Session manager selection ─────────────────────────────────────
+    // ── Session + ResourceLoader + child creation ─────────────────────
+    //
+    // All three can throw. Wrap them in one try/catch so the worktree
+    // gets cleaned up on any failure — the prior split let a
+    // `resourceLoader.reload()` throw bypass the cleanup path.
     const noPersist = process.env.PI_SUBAGENT_NO_PERSIST === '1';
     const sessionDir = childSessionDir({
       parentCwd: ctx.cwd,
@@ -657,26 +648,23 @@ export default function subagentExtension(pi: ExtensionAPI): void {
       ? SessionManager.inMemory(childCwd)
       : SessionManager.create(childCwd, sessionDir);
 
-    // ── ResourceLoader (noExtensions: true to keep child startup tight) ─
-    const agentDir = getAgentDir();
-    const appendParts: string[] = [];
-    if (agent.appendSystemPrompt) appendParts.push(agent.appendSystemPrompt);
-    if (agent.body.trim().length > 0) appendParts.push(agent.body.trim());
-    const resourceLoader = new DefaultResourceLoader({
-      cwd: childCwd,
-      agentDir,
-      settingsManager: undefined,
-      noExtensions: true,
-      noSkills: true,
-      noPromptTemplates: true,
-      appendSystemPrompt: appendParts.length > 0 ? appendParts : undefined,
-    });
-    await resourceLoader.reload();
-
-    // ── Create the child session ──────────────────────────────────────
     let child: AgentSession;
     try {
-      const { session } = await createAgentSession({
+      const agentDir = getAgentDir();
+      const appendParts: string[] = [];
+      if (agent.appendSystemPrompt) appendParts.push(agent.appendSystemPrompt);
+      if (agent.body.trim().length > 0) appendParts.push(agent.body.trim());
+      const resourceLoader = new DefaultResourceLoader({
+        cwd: childCwd,
+        agentDir,
+        settingsManager: undefined,
+        noExtensions: true,
+        noSkills: true,
+        noPromptTemplates: true,
+        appendSystemPrompt: appendParts.length > 0 ? appendParts : undefined,
+      });
+      await resourceLoader.reload();
+      const created = await createAgentSession({
         cwd: childCwd,
         model: childModel,
         thinkingLevel: agent.thinkingLevel,
@@ -686,15 +674,14 @@ export default function subagentExtension(pi: ExtensionAPI): void {
         resourceLoader,
         sessionManager: childSessionManager,
       });
-      child = session;
+      child = created.session;
     } catch (e) {
       return cleanupAndError({
         agent,
         task,
         durationMs: Date.now() - start,
         error: e instanceof Error ? e.message : String(e),
-        worktreePath,
-        worktreeBranch,
+        worktree,
         parentCwd: ctx.cwd,
       });
     }
@@ -705,8 +692,12 @@ export default function subagentExtension(pi: ExtensionAPI): void {
     // ── Subscribe to child events ─────────────────────────────────────
     const maxTurns = Math.min(agent.maxTurns, envPositiveInt('PI_SUBAGENT_MAX_TURNS', Number.MAX_SAFE_INTEGER));
     let reachedMaxTurns = false;
+    // We trigger `child.abort()` ourselves on maxTurns, timeout, or parent
+    // signal — any of those counts as an "aborted" outcome even though
+    // `parentSignal.aborted` stays false for the first two.
+    let abortedByUs = false;
 
-    const pushStatus = (state: SubagentRunSnapshot['state']): void => {
+    const pushStatus = (state: SubagentRunSnapshot['state'], opts?: { durationMs?: number }): void => {
       const snap: SubagentRunSnapshot = {
         agent: agent.name,
         state,
@@ -718,6 +709,7 @@ export default function subagentExtension(pi: ExtensionAPI): void {
         cost: agg.cost,
         contextTokens: agg.contextTokens > 0 ? agg.contextTokens : undefined,
         contextWindow: childModel?.contextWindow,
+        durationMs: opts?.durationMs,
       };
       runningChildren.set(childSessionId, snap);
       updateStatus(ctx);
@@ -731,6 +723,7 @@ export default function subagentExtension(pi: ExtensionAPI): void {
         agg.turns++;
         if (agg.turns >= maxTurns) {
           reachedMaxTurns = true;
+          abortedByUs = true;
           void child.abort();
         }
         pushStatus('running');
@@ -764,38 +757,46 @@ export default function subagentExtension(pi: ExtensionAPI): void {
     // ── Abort chain (parent signal + timeout) ─────────────────────────
     const timeoutMs = Math.min(agent.timeoutMs, envPositiveInt('PI_SUBAGENT_TIMEOUT_MS', Number.MAX_SAFE_INTEGER));
     const timeoutHandle = setTimeout(() => {
+      abortedByUs = true;
       void child.abort();
     }, timeoutMs);
     const parentAbortHandler = (): void => {
+      abortedByUs = true;
       void child.abort();
     };
     parentSignal?.addEventListener('abort', parentAbortHandler, { once: true });
 
-    let childError: string | undefined;
+    let childError: Error | undefined;
     try {
       await child.prompt(task);
     } catch (e) {
-      childError = e instanceof Error ? e.message : String(e);
+      childError = e instanceof Error ? e : new Error(String(e));
     } finally {
       clearTimeout(timeoutHandle);
       parentSignal?.removeEventListener('abort', parentAbortHandler);
       unsubscribe();
     }
 
-    const aborted =
-      parentSignal?.aborted === true ||
-      (reachedMaxTurns === false && childError !== undefined ? /abort/i.test(childError) : false);
+    // AbortError may arrive as a thrown DOMException, an Error whose
+    // `name` is `AbortError`, or no throw at all (pi may swallow it).
+    // `abortedByUs` covers timeout, maxTurns, and parent-signal paths;
+    // `parentSignal.aborted` covers the rare case where the parent
+    // aborted between our listener firing and `removeEventListener`.
+    const errorIsAbort =
+      childError !== undefined && (childError.name === 'AbortError' || /abort/i.test(childError.message ?? ''));
+    const aborted = abortedByUs || parentSignal?.aborted === true || errorIsAbort;
+    const hasRealError = childError !== undefined && !errorIsAbort;
     const stopReason = classifyStopReason({
       reachedMaxTurns,
-      aborted,
-      error: !reachedMaxTurns && !aborted && (childError !== undefined || agg.errorFromChild !== undefined),
+      aborted: aborted && !reachedMaxTurns,
+      error: !reachedMaxTurns && !aborted && (hasRealError || agg.errorFromChild !== undefined),
     });
 
     // ── Extract final answer text + terminate child ───────────────────
     const messages = child.state.messages as unknown as AgentMessageLike[];
     let finalText = extractFinalAssistantText(messages);
     if (stopReason === 'error' && finalText.length === 0) {
-      finalText = `subagent ${agent.name}: ${agg.errorFromChild ?? childError ?? 'child session errored'}`;
+      finalText = `subagent ${agent.name}: ${agg.errorFromChild ?? childError?.message ?? 'child session errored'}`;
     } else if (stopReason === 'max_turns' && finalText.length === 0) {
       finalText = `subagent ${agent.name} exhausted its ${maxTurns}-turn budget without producing a final answer.`;
     } else if (stopReason === 'aborted' && finalText.length === 0) {
@@ -805,36 +806,29 @@ export default function subagentExtension(pi: ExtensionAPI): void {
     child.dispose();
 
     // ── Cleanup the worktree (if any) ─────────────────────────────────
-    if (worktreePath && worktreeBranch) {
-      removeWorktree(ctx.cwd, worktreePath, worktreeBranch);
-    }
+    if (worktree) removeWorktree(ctx.cwd, worktree);
 
-    // ── Surface final status + schedule clear ─────────────────────────
-    pushStatus(
+    // ── Final status with duration atomically, then schedule linger clear ─
+    const durationMs = Date.now() - start;
+    const finalState: SubagentRunSnapshot['state'] =
       stopReason === 'completed'
         ? 'completed'
         : stopReason === 'max_turns'
           ? 'max_turns'
           : stopReason === 'aborted'
             ? 'aborted'
-            : 'error',
-    );
-    const finalSnap = runningChildren.get(childSessionId);
-    if (finalSnap) {
-      finalSnap.durationMs = Date.now() - start;
-      runningChildren.set(childSessionId, finalSnap);
+            : 'error';
+    pushStatus(finalState, { durationMs });
+    // After a linger so the user sees the final numbers, drop this
+    // child from the aggregate. Each child owns its own timer so
+    // concurrent children don't stomp each other.
+    const linger = envPositiveInt('PI_SUBAGENT_STATUS_LINGER_MS', DEFAULT_STATUS_LINGER_MS);
+    const timer = setTimeout(() => {
+      lingerTimers.delete(timer);
+      runningChildren.delete(childSessionId);
       updateStatus(ctx);
-    }
-    // Move the completed child out of the "running" set after a short
-    // linger so the parallel aggregator reflects reality.
-    setTimeout(
-      () => {
-        runningChildren.delete(childSessionId);
-        updateStatus(ctx);
-      },
-      envPositiveInt('PI_SUBAGENT_STATUS_LINGER_MS', DEFAULT_STATUS_LINGER_MS),
-    );
-    scheduleStatusClear(ctx);
+    }, linger);
+    lingerTimers.add(timer);
 
     const details: SubagentDetails = {
       agent: agent.name,
@@ -849,12 +843,12 @@ export default function subagentExtension(pi: ExtensionAPI): void {
         output: agg.output,
       },
       cost: agg.cost,
-      durationMs: Date.now() - start,
+      durationMs,
       stopReason,
-      workspace: { isolation: workspaceIsolation, worktreePath },
+      workspace: { isolation: workspaceIsolation, worktreePath: worktree?.path },
       childSessionId,
       childSessionFile,
-      error: stopReason === 'error' ? (agg.errorFromChild ?? childError) : undefined,
+      error: stopReason === 'error' ? (agg.errorFromChild ?? childError?.message) : undefined,
     };
 
     return {
@@ -909,7 +903,7 @@ export default function subagentExtension(pi: ExtensionAPI): void {
         };
       }
 
-      await acquire(semaphore, concurrencyLimit);
+      await semaphore.acquire();
       let out: { content: string; details: SubagentDetails; isError?: boolean };
       try {
         out = await runChild({
@@ -920,42 +914,40 @@ export default function subagentExtension(pi: ExtensionAPI): void {
           parentSignal: signal,
         });
       } finally {
-        release(semaphore);
+        semaphore.release();
       }
 
-      // Parent-side audit + a collapsible `subagent-run` custom message
-      // in the transcript so the TUI renders the run summary inline.
+      // Parent-side audit entry so /fork, /tree, and session-usage can
+      // see delegated runs without scanning message bodies. We do NOT
+      // also call pi.sendMessage() for the run: pi's convertToLlm
+      // serializes `custom` messages as synthetic `user` turns, which
+      // would double the prompt tokens the parent bills for the same
+      // content that's already in the tool_result. The tool_result
+      // itself is what the parent model consumes.
       try {
         pi.appendEntry(SUBAGENT_CUSTOM_TYPE, out.details);
       } catch {
         // appendEntry can throw before the session is fully bound.
       }
-      try {
-        pi.sendMessage({
-          customType: SUBAGENT_CUSTOM_TYPE,
-          content: out.content,
-          display: true,
-          details: out.details,
-        });
-      } catch {
-        // The tool result itself still reaches the parent model; the
-        // custom-message entry is purely a TUI aide.
-      }
 
-      // Optional JSON parsing of the returned payload.
-      if (params.returnFormat === 'json') {
+      // `returnFormat: 'json'` asks us to validate that the child
+      // produced parseable JSON. On failure we flag isError so the
+      // parent LLM can retry the call — the raw text still reaches
+      // the parent via `content`, and details.stopReason preserves the
+      // original outcome.
+      let isError = out.isError;
+      if (params.returnFormat === 'json' && !isError) {
         try {
           JSON.parse(out.content);
         } catch {
-          // Silently fall through: the raw text still reaches the
-          // parent model and the details carry the stop reason.
+          isError = true;
         }
       }
 
       return {
         content: [{ type: 'text', text: out.content }],
         details: out.details,
-        isError: out.isError,
+        isError,
       };
     },
 

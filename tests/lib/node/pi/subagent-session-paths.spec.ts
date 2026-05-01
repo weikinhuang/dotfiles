@@ -4,7 +4,7 @@
  * Pure module — fs is injected.
  */
 
-import { describe, expect, test } from 'vitest';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import {
   childSessionDir,
   listStaleWorktrees,
@@ -16,15 +16,18 @@ import {
 } from '../../../../lib/node/pi/subagent-session-paths.ts';
 
 describe('subagentSessionRoot', () => {
+  // vi.stubEnv scopes the mutation to this describe block and restores
+  // after, so parallel specs reading the same var don't race.
+  beforeEach(() => {
+    vi.stubEnv('PI_SUBAGENT_SESSION_ROOT', '/tmp/pi-test-root');
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
   test('honours PI_SUBAGENT_SESSION_ROOT', () => {
-    const prior = process.env.PI_SUBAGENT_SESSION_ROOT;
-    process.env.PI_SUBAGENT_SESSION_ROOT = '/tmp/pi-test-root';
-    try {
-      expect(subagentSessionRoot()).toBe('/tmp/pi-test-root');
-    } finally {
-      if (prior === undefined) delete process.env.PI_SUBAGENT_SESSION_ROOT;
-      else process.env.PI_SUBAGENT_SESSION_ROOT = prior;
-    }
+    expect(subagentSessionRoot()).toBe('/tmp/pi-test-root');
   });
 });
 
