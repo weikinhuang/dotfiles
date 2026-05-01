@@ -8,3 +8,4 @@ vim/autoload/plug.vim
 .claude/settings.local.json
 .vscode/settings.json
 .pi/
+plans/
