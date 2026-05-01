@@ -4,16 +4,21 @@
  * Pure module — no pi runtime needed.
  */
 
-import { expect, test } from 'vitest';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 import {
   type BranchEntry,
   buildSteer,
   type Claim,
   type ClaimKind,
   collectBashCommandsSinceLastUser,
+  type CompiledSatisfyRule,
   extractClaims,
   extractLastAssistantText,
   lastUserMessageHasMarker,
+  loadSatisfyRules,
   partitionClaims,
   verifyingCommandMatches,
 } from '../../../../lib/node/pi/verify-detect.ts';
@@ -500,4 +505,181 @@ test('lastUserMessageHasMarker: string-content user messages too', () => {
   ];
 
   expect(lastUserMessageHasMarker(branch, MARKER)).toBe(true);
+});
+
+// ──────────────────────────────────────────────────────────────────────
+// verifyingCommandMatches / partitionClaims with extras
+// ──────────────────────────────────────────────────────────────────────
+
+test('format-clean default: ./dev/lint.sh counts as a formatter', () => {
+  expect(verifyingCommandMatches('format-clean', './dev/lint.sh')).toBe(true);
+  expect(verifyingCommandMatches('format-clean', 'dev/lint.sh')).toBe(true);
+  expect(verifyingCommandMatches('format-clean', './dev/lint.sh -q')).toBe(true);
+  expect(verifyingCommandMatches('format-clean', 'npm run lint')).toBe(true);
+  expect(verifyingCommandMatches('format-clean', 'make lint')).toBe(true);
+  expect(verifyingCommandMatches('format-clean', 'make check')).toBe(true);
+});
+
+test('format-clean default still flags when nothing format-ish is run', () => {
+  expect(verifyingCommandMatches('format-clean', 'ls')).toBe(false);
+  expect(verifyingCommandMatches('format-clean', 'git commit')).toBe(false);
+  expect(verifyingCommandMatches('format-clean', 'cat prettier.config.mjs')).toBe(false);
+});
+
+test('verifyingCommandMatches: extras satisfy when built-ins do not', () => {
+  const extras: CompiledSatisfyRule[] = [
+    { re: /^\.\/custom-check\b/, kinds: new Set(['tests-pass', 'lint-clean']), source: '/fake' },
+  ];
+
+  expect(verifyingCommandMatches('tests-pass', './custom-check --full', extras)).toBe(true);
+  expect(verifyingCommandMatches('lint-clean', './custom-check --full', extras)).toBe(true);
+  // extras with non-matching pattern shouldn't satisfy
+  expect(verifyingCommandMatches('tests-pass', 'something-else', extras)).toBe(false);
+  // extras only apply to listed kinds
+  expect(verifyingCommandMatches('build-clean', './custom-check --full', extras)).toBe(false);
+});
+
+test('partitionClaims: extras can rescue an otherwise-unverified claim', () => {
+  const claims: Claim[] = [{ kind: 'build-clean', phrase: 'the build is clean' }];
+  const extras: CompiledSatisfyRule[] = [
+    { re: /^bazel\s+build\s+\/\//, kinds: new Set(['build-clean']), source: '/fake' },
+  ];
+
+  const p1 = partitionClaims(claims, ['bazel build //app:all'], extras);
+
+  expect(p1.verified.map((c) => c.kind)).toEqual(['build-clean']);
+  expect(p1.unverified).toEqual([]);
+
+  // Without extras the same command also satisfies via the built-in bazel pattern.
+  const p2 = partitionClaims(claims, ['bazel build //app:all']);
+
+  expect(p2.verified.map((c) => c.kind)).toEqual(['build-clean']);
+});
+
+// ──────────────────────────────────────────────────────────────────────
+// loadSatisfyRules (JSONC config loader)
+// ──────────────────────────────────────────────────────────────────────
+
+describe('loadSatisfyRules', () => {
+  let workdir: string;
+  let home: string;
+  let cwd: string;
+
+  beforeEach(() => {
+    workdir = join(tmpdir(), `vbc-test-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
+    home = join(workdir, 'home');
+    cwd = join(workdir, 'proj');
+    mkdirSync(join(home, '.pi', 'agent'), { recursive: true });
+    mkdirSync(join(cwd, '.pi'), { recursive: true });
+  });
+
+  afterEach(() => {
+    rmSync(workdir, { recursive: true, force: true });
+  });
+
+  test('no config files → no rules, no warnings', () => {
+    const { rules, warnings } = loadSatisfyRules(cwd, home);
+
+    expect(rules).toEqual([]);
+    expect(warnings).toEqual([]);
+  });
+
+  test('global config is loaded', () => {
+    writeFileSync(
+      join(home, '.pi', 'agent', 'verify-before-claim.json'),
+      JSON.stringify({
+        commandSatisfies: [{ pattern: '^./dev/lint\\.sh', kinds: ['lint-clean', 'format-clean'] }],
+      }),
+    );
+    const { rules, warnings } = loadSatisfyRules(cwd, home);
+
+    expect(warnings).toEqual([]);
+    expect(rules).toHaveLength(1);
+    expect(rules[0]?.kinds.has('lint-clean')).toBe(true);
+    expect(rules[0]?.kinds.has('format-clean')).toBe(true);
+    expect(rules[0]?.re.test('./dev/lint.sh -q')).toBe(true);
+  });
+
+  test('project rules stack on global rules (both kept)', () => {
+    writeFileSync(
+      join(home, '.pi', 'agent', 'verify-before-claim.json'),
+      JSON.stringify({ commandSatisfies: [{ pattern: '^./a', kinds: ['tests-pass'] }] }),
+    );
+    writeFileSync(
+      join(cwd, '.pi', 'verify-before-claim.json'),
+      JSON.stringify({ commandSatisfies: [{ pattern: '^./b', kinds: ['lint-clean'] }] }),
+    );
+    const { rules } = loadSatisfyRules(cwd, home);
+
+    expect(rules).toHaveLength(2);
+  });
+
+  test('JSONC comments are supported', () => {
+    writeFileSync(
+      join(home, '.pi', 'agent', 'verify-before-claim.json'),
+      `// repo-specific overrides\n{ "commandSatisfies": [\n  { "pattern": "^ok", "kinds": ["tests-pass"] } /* inline comment */\n] }`,
+    );
+    const { rules, warnings } = loadSatisfyRules(cwd, home);
+
+    expect(warnings).toEqual([]);
+    expect(rules).toHaveLength(1);
+  });
+
+  test('malformed JSON produces a warning', () => {
+    writeFileSync(join(home, '.pi', 'agent', 'verify-before-claim.json'), '{ not json');
+    const { rules, warnings } = loadSatisfyRules(cwd, home);
+
+    expect(rules).toEqual([]);
+    expect(warnings).toHaveLength(1);
+  });
+
+  test('non-object root produces a warning', () => {
+    writeFileSync(join(home, '.pi', 'agent', 'verify-before-claim.json'), '"nope"');
+    const { warnings } = loadSatisfyRules(cwd, home);
+
+    expect(warnings[0]?.error).toContain('object');
+  });
+
+  test('non-array commandSatisfies produces a warning', () => {
+    writeFileSync(
+      join(home, '.pi', 'agent', 'verify-before-claim.json'),
+      JSON.stringify({ commandSatisfies: { not: 'an-array' } }),
+    );
+    const { warnings } = loadSatisfyRules(cwd, home);
+
+    expect(warnings[0]?.error).toContain('array');
+  });
+
+  test('rule missing pattern is dropped with a warning', () => {
+    writeFileSync(
+      join(home, '.pi', 'agent', 'verify-before-claim.json'),
+      JSON.stringify({ commandSatisfies: [{ kinds: ['tests-pass'] }] }),
+    );
+    const { rules, warnings } = loadSatisfyRules(cwd, home);
+
+    expect(rules).toEqual([]);
+    expect(warnings).toHaveLength(1);
+  });
+
+  test('rule with unknown kind is dropped with a warning', () => {
+    writeFileSync(
+      join(home, '.pi', 'agent', 'verify-before-claim.json'),
+      JSON.stringify({ commandSatisfies: [{ pattern: '^ok', kinds: ['tests-pass', 'bogus'] }] }),
+    );
+    const { rules, warnings } = loadSatisfyRules(cwd, home);
+
+    expect(rules).toEqual([]);
+    expect(warnings.some((w) => w.error.includes('bogus'))).toBe(true);
+  });
+
+  test('rule with invalid regex is dropped with a warning', () => {
+    writeFileSync(
+      join(home, '.pi', 'agent', 'verify-before-claim.json'),
+      JSON.stringify({ commandSatisfies: [{ pattern: '[unclosed', kinds: ['tests-pass'] }] }),
+    );
+    const { rules, warnings } = loadSatisfyRules(cwd, home);
+
+    expect(rules).toEqual([]);
+    expect(warnings[0]?.error).toMatch(/invalid regex/);
+  });
 });

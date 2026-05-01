@@ -36,6 +36,10 @@
  *      doesn't already carry the marker.
  */
 
+import { readFileSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
+import { parseJsonc } from './jsonc.ts';
 import { truncate } from './shared.ts';
 
 /** The categories of claim we recognize. */
@@ -263,6 +267,17 @@ const COMMAND_PATTERNS: Record<ClaimKind, readonly RegExp[]> = {
     new RegExp(`${CMD_START}ruff\\s+format${CMD_END}`, 'i'),
     new RegExp(`${CMD_START}biome\\s+format${CMD_END}`, 'i'),
     new RegExp(`${CMD_START}(?:npm|pnpm|yarn|bun)\\s+(?:run\\s+)?(?:format|fmt)${CMD_END}`, 'i'),
+    // Meta-scripts that conventionally bundle lint + format (shellcheck + shfmt,
+    // eslint + prettier, etc.). Running `./dev/lint.sh` or `npm run lint` almost
+    // always means formatting is checked too; accepting them for `format-clean`
+    // is a deliberate false-negative-suppression call -- the cost of missing a
+    // real over-claim is lower than nagging every time the user runs a lint
+    // wrapper. Projects that truly keep lint and format separate can opt out
+    // via the `commandSatisfies` config layer.
+    new RegExp(`${CMD_START}(?:npm|pnpm|yarn|bun)\\s+(?:run\\s+)?lint${CMD_END}`, 'i'),
+    new RegExp(`${CMD_START}(?:\\.\\/)?(?:dev\\/lint|bin\\/lint|script\\/lint)(?:\\.sh)?${CMD_END}`, 'i'),
+    new RegExp(`${CMD_START}(?:\\.\\/)?[\\w./-]*(?:^|\\/)lint\\.sh${CMD_END}`, 'i'),
+    new RegExp(`${CMD_START}make\\s+(?:lint|check|format|fmt)${CMD_END}`, 'i'),
   ],
   'ci-green': [
     new RegExp(`${CMD_START}gh\\s+(?:run|pr)\\s+(?:view|list|checks)${CMD_END}`, 'i'),
@@ -273,13 +288,26 @@ const COMMAND_PATTERNS: Record<ClaimKind, readonly RegExp[]> = {
 /**
  * Does `command` look like it would verify a claim of `kind`? The test
  * is liberal — see the module header.
+ *
+ * Optional `extras`: user-supplied rules that augment the built-in
+ * matchers. Each rule names a command-prefix regex plus the set of
+ * claim kinds the command satisfies. Example: `{ pattern: "^./dev/lint\\.sh\\b", kinds: ["lint-clean", "format-clean"] }`
+ * tells us a single `./dev/lint.sh` invocation counts as both.
  */
-export function verifyingCommandMatches(kind: ClaimKind, command: string): boolean {
+export function verifyingCommandMatches(
+  kind: ClaimKind,
+  command: string,
+  extras: readonly CompiledSatisfyRule[] = [],
+): boolean {
   const cmd = command.trim();
   if (!cmd) return false;
   const patterns = COMMAND_PATTERNS[kind];
   for (const re of patterns) {
     if (re.test(cmd)) return true;
+  }
+  for (const rule of extras) {
+    if (!rule.kinds.has(kind)) continue;
+    if (rule.re.test(cmd)) return true;
   }
   return false;
 }
@@ -288,15 +316,19 @@ export function verifyingCommandMatches(kind: ClaimKind, command: string): boole
  * Partition `claims` into (verified, unverified) based on whether any
  * of `commands` looks like a verifier for each claim's kind. A claim
  * without any matching command is reported as unverified.
+ *
+ * `extras` lets callers contribute user-configured rules (see
+ * `loadSatisfyRules`).
  */
 export function partitionClaims(
   claims: readonly Claim[],
   commands: readonly string[],
+  extras: readonly CompiledSatisfyRule[] = [],
 ): { verified: Claim[]; unverified: Claim[] } {
   const verified: Claim[] = [];
   const unverified: Claim[] = [];
   for (const claim of claims) {
-    const ok = commands.some((c) => verifyingCommandMatches(claim.kind, c));
+    const ok = commands.some((c) => verifyingCommandMatches(claim.kind, c, extras));
     (ok ? verified : unverified).push(claim);
   }
   return { verified, unverified };
@@ -466,4 +498,135 @@ export function lastUserMessageHasMarker(branch: readonly BranchEntry[], marker:
     return text.includes(marker);
   }
   return false;
+}
+
+// ──────────────────────────────────────────────────────────────────────
+// User-configurable command→kinds rules (`commandSatisfies`)
+//
+// Shipped defaults cover the common cases; per-project / per-user
+// config extends them for scripts the matcher can't reasonably guess
+// at (custom CI wrappers, multi-tool meta-commands, repo-specific
+// verifiers).
+//
+// File layout (JSONC) at `~/.pi/agent/verify-before-claim.json` and
+// project `.pi/verify-before-claim.json`:
+//
+//   {
+//     "commandSatisfies": [
+//       { "pattern": "^\\./dev/lint\\.sh\\b",
+//         "kinds": ["lint-clean", "format-clean"] },
+//       { "pattern": "^make\\s+check\\b",
+//         "kinds": ["tests-pass", "lint-clean", "types-check"] }
+//     ]
+//   }
+//
+// Project rules are appended onto global rules, not replacing them.
+// Order within the merged list doesn't matter — `verifyingCommandMatches`
+// short-circuits on the first match regardless.
+// ──────────────────────────────────────────────────────────────────────
+
+const VALID_KINDS: ReadonlySet<ClaimKind> = new Set<ClaimKind>([
+  'tests-pass',
+  'lint-clean',
+  'types-check',
+  'build-clean',
+  'format-clean',
+  'ci-green',
+]);
+
+/** User-facing rule shape — the raw JSONC entry. */
+export interface CommandSatisfiesRule {
+  pattern: string;
+  kinds: ClaimKind[];
+}
+
+/** Compiled form passed into `partitionClaims` / `verifyingCommandMatches`. */
+export interface CompiledSatisfyRule {
+  re: RegExp;
+  kinds: Set<ClaimKind>;
+  /** The source config file path (for diagnostics). */
+  source: string;
+}
+
+export interface ConfigWarning {
+  path: string;
+  error: string;
+}
+
+/**
+ * Read `verify-before-claim.json` from global + project locations and
+ * return compiled `commandSatisfies` rules plus any load / parse
+ * warnings. Missing files are silent; malformed JSON, unknown claim
+ * kinds, and bad regexes produce structured warnings.
+ *
+ * The caller (the extension) surfaces warnings via `ctx.ui.notify`.
+ */
+export function loadSatisfyRules(
+  cwd: string,
+  home: string = homedir(),
+): { rules: CompiledSatisfyRule[]; warnings: ConfigWarning[] } {
+  const warnings: ConfigWarning[] = [];
+  const rules: CompiledSatisfyRule[] = [];
+  const paths = [join(home, '.pi', 'agent', 'verify-before-claim.json'), join(cwd, '.pi', 'verify-before-claim.json')];
+
+  for (const path of paths) {
+    let raw: string;
+    try {
+      raw = readFileSync(path, 'utf8');
+    } catch {
+      continue;
+    }
+    let parsed: unknown;
+    try {
+      parsed = parseJsonc(raw);
+    } catch (e) {
+      warnings.push({ path, error: e instanceof Error ? e.message : String(e) });
+      continue;
+    }
+    if (!parsed || typeof parsed !== 'object') {
+      warnings.push({ path, error: 'config root must be an object' });
+      continue;
+    }
+    const { commandSatisfies } = parsed as { commandSatisfies?: unknown };
+    if (commandSatisfies === undefined) continue;
+    if (!Array.isArray(commandSatisfies)) {
+      warnings.push({ path, error: '`commandSatisfies` must be an array' });
+      continue;
+    }
+    for (const entry of commandSatisfies) {
+      if (!entry || typeof entry !== 'object') continue;
+      const e = entry as Record<string, unknown>;
+      if (typeof e.pattern !== 'string' || e.pattern.length === 0) {
+        warnings.push({ path, error: 'rule is missing a non-empty `pattern`' });
+        continue;
+      }
+      if (!Array.isArray(e.kinds) || e.kinds.length === 0) {
+        warnings.push({ path, error: `rule "${e.pattern}" is missing a non-empty \`kinds\` array` });
+        continue;
+      }
+      const kinds = new Set<ClaimKind>();
+      let ruleOk = true;
+      for (const k of e.kinds) {
+        if (typeof k !== 'string' || !VALID_KINDS.has(k as ClaimKind)) {
+          warnings.push({
+            path,
+            error: `rule "${e.pattern}" has unknown kind ${JSON.stringify(k)} (allowed: ${Array.from(VALID_KINDS).join(', ')})`,
+          });
+          ruleOk = false;
+          continue;
+        }
+        kinds.add(k as ClaimKind);
+      }
+      if (!ruleOk || kinds.size === 0) continue;
+      let re: RegExp;
+      try {
+        re = new RegExp(e.pattern);
+      } catch (err) {
+        warnings.push({ path, error: `rule "${e.pattern}" has invalid regex: ${String(err)}` });
+        continue;
+      }
+      rules.push({ re, kinds, source: path });
+    }
+  }
+  return { rules, warnings };
 }
