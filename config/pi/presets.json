@@ -1,0 +1,45 @@
+{
+  // Presets are named bundles that swap model, thinking level, active
+  // tool set, and an optional system-prompt addendum in one command.
+  // See config/pi/extensions/preset.ts for the full schema.
+  //
+  // Activate via:   pi --preset <name>   or   /preset <name>
+  // Cycle:          Ctrl+Shift+U
+  // Clear:          /preset off
+  //
+  // Precedence: this file (shipped) → ~/.pi/agent/presets.json (user) →
+  // <cwd>/.pi/presets.json (project). Later layers override by name.
+
+  // Local qwen3 on llama.cpp — the daily-driver for cheap grunt work.
+  // Thinking=high + thinking-budget-injection (via models.json) plus
+  // a conservative tool set focused on the bread-and-butter loop.
+  "qwen3-local": {
+    "model": "llama-cpp/qwen3-6-35b-a3b",
+    "thinkingLevel": "high",
+    "tools": ["bash", "read", "write", "edit", "grep", "find", "ls"]
+  },
+
+  // Remote Claude Opus 4 for heavy reasoning. Full tool set.
+  "opus-reason": {
+    "model": "amazon-bedrock/us.anthropic.claude-opus-4-7",
+    "thinkingLevel": "high",
+    "tools": ["bash", "read", "write", "edit", "grep", "find", "ls"]
+  },
+
+  // Remote Claude Opus 4, no thinking — cheapest path to a one-shot
+  // clarification or refactor on a small known target.
+  "opus-fast": {
+    "model": "amazon-bedrock/us.anthropic.claude-opus-4-7",
+    "thinkingLevel": "off",
+    "tools": ["bash", "read", "write", "edit", "grep", "find", "ls"]
+  },
+
+  // Read-only discovery mode. Safe to attach to any unfamiliar repo.
+  // No bash / write / edit — forces the agent to just look. Thinking
+  // high so it makes the most of what it reads.
+  "read-only": {
+    "thinkingLevel": "high",
+    "tools": ["read", "grep", "find", "ls"],
+    "appendSystemPrompt": "READ-ONLY MODE. You cannot modify files or run shell commands. Explore, analyze, and summarize — do not propose edits beyond describing what should change."
+  }
+}
