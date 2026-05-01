@@ -55,6 +55,7 @@ import {
 } from '../../../lib/node/pi/git-prompt.ts';
 import { resolveWorktreeInfo, type WorktreeInfo } from '../../../lib/node/pi/git-worktree.ts';
 import { isBashAutoEnabled } from '../../../lib/node/pi/session-flags.ts';
+import { fmtCost, fmtSi } from '../../../lib/node/pi/token-format.ts';
 
 /**
  * Resolved once at module load. `null` means we never found the helper — the
@@ -67,18 +68,6 @@ const GIT_PROMPT_SCRIPT_PATH: string | null = (() => {
     return null;
   }
 })();
-
-const fmtSi = (n: number): string => {
-  if (!Number.isFinite(n) || n <= 0) return '0';
-  if (n >= 1_000_000) {
-    const m = n / 1_000_000;
-    return `${m >= 10 ? m.toFixed(1) : m.toFixed(2)}M`;
-  }
-  if (n >= 1_000) return `${Math.round(n / 1000)}k`;
-  return `${Math.round(n)}`;
-};
-
-const fmtCost = (c: number): string => `$${c.toFixed(3)}`;
 
 /**
  * 256-color ANSI palette matching `config/claude/statusline-command.sh`, which
