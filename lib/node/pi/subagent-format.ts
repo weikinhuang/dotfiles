@@ -132,6 +132,55 @@ export function formatSubagentStatus(snap: SubagentRunSnapshot): string {
   return parts.join(' ');
 }
 
+const TASK_PREVIEW_CAP = 80;
+
+/**
+ * Human-readable message the `subagent` tool returns when the parent
+ * passes `run_in_background: true`. Embeds the handle the parent must
+ * use to talk to `subagent_send` later.
+ */
+export function formatSpawnMessage(args: { handle: string; agent: string; task: string }): string {
+  const preview = shorten(args.task, TASK_PREVIEW_CAP);
+  return [
+    'subagent spawned in background.',
+    `  handle: ${args.handle}`,
+    `  agent:  ${args.agent}`,
+    `  task:   ${preview}`,
+    'Use `subagent_send` to check status, steer, or retrieve the result.',
+  ].join('\n');
+}
+
+export interface RunningChildListItem {
+  handle: string;
+  snapshot: SubagentRunSnapshot;
+  startedAt: number;
+}
+
+/**
+ * Multi-line list rendered by `/agents running`. One child per line,
+ * handle + the same status line the parent statusline uses. Empty list
+ * returns a single "nothing active" message so callers can pass the
+ * output straight to `ctx.ui.notify`.
+ */
+export function formatRunningChildrenList(entries: readonly RunningChildListItem[], now: number = Date.now()): string {
+  if (entries.length === 0) return 'No background sub-agents running.';
+  const sorted = [...entries].sort((a, b) => a.startedAt - b.startedAt);
+  const maxHandle = sorted.reduce((m, e) => Math.max(m, e.handle.length), 0);
+  const lines: string[] = ['Background sub-agents:'];
+  for (const e of sorted) {
+    const pad = ' '.repeat(Math.max(1, maxHandle + 2 - e.handle.length));
+    const elapsed = Math.max(0, now - e.startedAt);
+    // formatSubagentStatus renders durationMs only for non-running
+    // states. Append elapsed outside the status line so the /agents
+    // running view shows wall-clock for every entry, running or not.
+    const status = formatSubagentStatus(e.snapshot);
+    const elapsedStr = fmtDurationShort(elapsed);
+    const suffix = elapsedStr && e.snapshot.state === 'running' ? ` ${elapsedStr}` : '';
+    lines.push(`  ${e.handle}${pad}${status}${suffix}`);
+  }
+  return lines.join('\n');
+}
+
 /**
  * Parallel-dispatch collapse: when multiple children run at once, emit
  * one line with running / done counts + aggregate cost. Mirrors Claude
