@@ -28,6 +28,11 @@ Configuration, custom extensions, and themes for
 - [`extensions/scratchpad.ts`](#extensionsscratchpadts) — unstructured working-notes tool + auto-injection under a
   `## Working Notes` header. Companion to [`todo.ts`](#extensionstodots): where `todo` holds the typed plan,
   `scratchpad` holds free-form carry-over (decisions, file paths, test commands) that should survive compaction.
+- [`extensions/memory.ts`](#extensionsmemoryts) — Claude Code–style multi-layered persistent memory. User, feedback,
+  project, and reference notes stored as markdown files under `~/.pi/agent/memory/` (global or per-cwd-slug project
+  dirs matching pi's own session layout). Each turn the MEMORY.md indices are injected under a `## Memory` header; full
+  bodies are fetched on demand via the `memory` tool. Where [`scratchpad`](#extensionsscratchpadts) and
+  [`todo`](#extensionstodots) are per-session, `memory` is cross-session.
 - [`extensions/verify-before-claim.ts`](#extensionsverify-before-claimts) — generalization of the todo completion-claim
   guardrail. Detects verification claims (“tests pass”, “lint is clean”, “it builds”, …) in the model’s final message
   and, when no matching bash invocation ran this turn, nudges the model to run the check or retract.
@@ -57,6 +62,9 @@ Configuration, custom extensions, and themes for
   the repo's root `tsconfig.json`.
 - [`skills/plan-first/SKILL.md`](#skillsplan-first) — global skill that teaches models WHEN to reach for the `todo` tool
   and how to keep the plan accurate. Companion to [`extensions/todo.ts`](#extensionstodots).
+- [`skills/memory-first/SKILL.md`](#skillsmemory-first) — teaches models WHEN to persist durable knowledge via the
+  `memory` tool (user corrections, validated approaches, project decisions, external references) and, crucially, what
+  NOT to save (code patterns, git history, ephemeral state). Companion to [`extensions/memory.ts`](#extensionsmemoryts).
 - [`skills/grep-before-read/SKILL.md`](#skillsgrep-before-read) — teaches models to default to `rg -n` for discovery
   instead of `read`ing whole files. Ships seven recipes (definition lookup, call-site search, path-restricted search,
   etc.), a concrete before/after demonstrating the context savings, and a quick-reference table. Complements
@@ -646,6 +654,89 @@ Edit [`extensions/scratchpad.ts`](./extensions/scratchpad.ts) or the helpers und
 [`lib/node/pi/scratchpad-prompt.ts`](../../lib/node/pi/scratchpad-prompt.ts) and run `/reload` in an interactive pi
 session to pick up changes without restarting.
 
+## `extensions/memory.ts`
+
+Claude Code–style multi-layered persistent memory. Where [`todo`](#extensionstodots) and
+[`scratchpad`](#extensionsscratchpadts) are per-session (state lives in the branch), `memory` is **cross-session** —
+state lives as markdown files on disk and survives new sessions, `/compact`, and moving between workspaces.
+
+### Layout
+
+```
+${PI_MEMORY_ROOT:-~/.pi/agent/memory}/
+├── global/
+│   ├── MEMORY.md
+│   ├── user/<slug>.md
+│   └── feedback/<slug>.md
+└── projects/<cwd-slug>/       ← same slug as ~/.pi/agent/sessions/<cwd-slug>/
+    ├── MEMORY.md
+    ├── user/<slug>.md
+    ├── feedback/<slug>.md
+    ├── project/<slug>.md
+    └── reference/<slug>.md
+```
+
+`<cwd-slug>` is pi's own convention: `/mnt/d/foo` → `--mnt-d-foo--`. So the memory dir for a given workspace sits
+right next to its session log under the same slug.
+
+Each memory file has a strict three-key frontmatter (`name`, `description`, `type`) plus a markdown body. `MEMORY.md`
+is a one-line-per-memory index rebuilt by the tool on every write — don't hand-edit it.
+
+### Memory types
+
+| Type        | Default scope | Purpose                                                                                          |
+| ----------- | ------------- | ------------------------------------------------------------------------------------------------ |
+| `user`      | `global`      | Role, expertise, preferences — who the user is and how they want to collaborate.                 |
+| `feedback`  | `global`      | Corrections and validated approaches. Save both don’t-do-X and keep-doing-Y.                     |
+| `project`   | `project`     | Decisions, incidents, deadlines for *this* workspace. Decays fast — use absolute dates.          |
+| `reference` | `project`     | Pointers to external systems (Linear projects, dashboards, Slack channels).                      |
+
+### What the tool does
+
+Registers a `memory` tool and a `/memory` command. Actions:
+
+| Action   | Required                                     | Optional         | Purpose                                          |
+| -------- | -------------------------------------------- | ---------------- | ------------------------------------------------ |
+| `list`   | —                                            | —                | Dump both indices (global + project).            |
+| `read`   | `id`                                         | `type`, `scope`  | Load a memory's full body.                       |
+| `save`   | `type`, `name`, `description`, `body`        | `scope`          | Write a new memory + update MEMORY.md.           |
+| `update` | `id` + at least one of `name`/`desc`/`body`  | `type`, `scope`  | Rewrite fields; renames change the slug.         |
+| `remove` | `id`, `scope`                                | `type`           | Delete a memory + drop it from MEMORY.md.        |
+| `search` | `query`                                      | —                | Case-insensitive match over name/description/body. |
+
+### Session-prompt integration
+
+On `session_start` / `session_tree` the extension scans the global and project memory dirs, rebuilds an in-memory
+index, and mirrors that index snapshot (not bodies) to a `memory-state` session entry so `/fork` and `/tree` show the
+correct view. On `before_agent_start` it appends a `## Memory` block with the per-type index to the system prompt,
+capped by `PI_MEMORY_MAX_INJECTED_CHARS` (default 3000). The model is expected to call `memory` action `read` when it
+needs a full body.
+
+### Commands
+
+- `/memory` (or `/memory list`) — raw state dump of both indices.
+- `/memory preview` — shows the exact `## Memory` block that would be appended to the next turn's system prompt,
+  honouring `PI_MEMORY_MAX_INJECTED_CHARS` and `PI_MEMORY_DISABLE_AUTOINJECT`.
+- `/memory dir` — prints the memory root, global dir, project dir, and the cwd-slug pi resolved.
+- `/memory rescan` — re-read disk. Useful if another process edited a memory file underneath pi.
+
+### Environment variables
+
+- `PI_MEMORY_DISABLED=1` — skip the extension entirely.
+- `PI_MEMORY_DISABLE_AUTOINJECT=1` — keep the tool but don't append `## Memory` to the system prompt.
+- `PI_MEMORY_MAX_INJECTED_CHARS=N` — soft cap on the injected block (default `3000`, floor `500`).
+- `PI_MEMORY_ROOT=<path>` — override `~/.pi/agent/memory` (useful for testing / per-host profiles).
+
+### Hot reload
+
+Edit [`extensions/memory.ts`](./extensions/memory.ts) or the helpers under
+[`lib/node/pi/memory-reducer.ts`](../../lib/node/pi/memory-reducer.ts) /
+[`lib/node/pi/memory-paths.ts`](../../lib/node/pi/memory-paths.ts) /
+[`lib/node/pi/memory-prompt.ts`](../../lib/node/pi/memory-prompt.ts) and run `/reload`.
+
+Companion skill: [`skills/memory-first/SKILL.md`](#skillsmemory-first) — when to save, when NOT to save, and how to
+structure bodies for each type.
+
 ## `extensions/verify-before-claim.ts`
 
 Generalization of the todo completion-claim guardrail. Catches the very common failure mode where weaker models (and
@@ -1047,6 +1138,27 @@ Contents ([`skills/grep-before-read/SKILL.md`](./skills/grep-before-read/SKILL.m
 Same auto-triggering rationale as [`skills/plan-first`](#skillsplan-first): the skill description matches requests
 implying discovery (“where is X”, “who uses Y”, “find the bug”, unfamiliar repos) so weaker models pull the full
 instructions into context when it matters, without the user having to remember `/skill:grep-before-read`.
+
+## `skills/memory-first`
+
+Companion skill to [`extensions/memory.ts`](#extensionsmemoryts). The extension provides the mechanism (tool, index,
+on-disk storage, auto-injection); this skill provides the policy — **when** to save, **when not to**, and how to
+structure bodies per memory type.
+
+Contents ([`skills/memory-first/SKILL.md`](./skills/memory-first/SKILL.md)):
+
+- Per-type save triggers and examples for `user`, `feedback`, `project`, `reference`.
+- A body-structure recipe (`**Why:**` / `**How to apply:**` for feedback and project memories) so memories stay
+  self-explanatory when recalled months later.
+- Explicit do-not-save list: code patterns, git history, debugging recipes, anything already in `CLAUDE.md` /
+  `AGENTS.md`, ephemeral task state. Prevents the extension from degrading into a log of everything that happens.
+- Scope-choice guidance (global for cross-project truths, project for workspace-specific).
+- Recall rubric: verify named files / functions still exist before recommending from memory; prefer fresh `git log` /
+  `read` over stale snapshots.
+- Anti-patterns: hand-editing `MEMORY.md`, saving duplicates instead of `update`-ing, judgmental phrasing.
+
+Auto-triggering description matches requests where a user utterance is a preference / correction / validated approach
+or names an external system, so models pull the skill in when the save decision is imminent.
 
 ## `themes/`
 
