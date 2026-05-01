@@ -41,6 +41,10 @@ Configuration, custom extensions, and themes for
   from pi-ai, cross-references the tool’s TypeBox schema, and appends a recovery block with each failed path, the
   expected type, what was received, and a concrete corrected-example JSON payload. Targets the small-model failure
   mode of retrying the same wrong argument shape after seeing only the raw validation error.
+- [`extensions/read-reread-detector.ts`](#extensionsread-reread-detectorts) — tracks `(absPath, mtime, size)` per
+  session; on a repeat `read` of an unchanged file appends a nudge that names the slice, the turn it was first read,
+  and points at `scratchpad` for carry-over. Complements [`loop-breaker`](#extensionsloop-breakerts) (which only
+  catches identical `(tool, input)` repeats) by catching “same file, possibly different window, across turns”.
 - [`extensions/btw.ts`](#extensionsbtwts) — Claude Code `/btw`-style ephemeral side-question command. Answers a
   one-shot question from the session's already-loaded context without persisting the Q&A and without letting the
   model call tools; reuses the active model, system prompt, and conversation prefix for prompt-cache reuse.
@@ -921,6 +925,42 @@ Do NOT retry with the same arguments. Fix the types/fields above, then call the 
 Edit [`extensions/tool-arg-recovery.ts`](./extensions/tool-arg-recovery.ts) or
 [`lib/node/pi/tool-arg-recovery.ts`](../../lib/node/pi/tool-arg-recovery.ts) and run `/reload` in an interactive pi
 session.
+
+## `extensions/read-reread-detector.ts`
+
+Second-layer companion to [`loop-breaker`](#extensionsloop-breakerts). That extension catches identical
+`(toolName, input)` hashes repeating inside a short window; this one catches the broader small-model failure mode of
+`read`-ing the same file 3–5 times across a task — once to orient, again after forgetting, again after a follow-up
+prompt.
+
+For every successful `read`, the extension `statSync`s the file and records a `(absPath, mtimeMs, size)` signature
+plus the offset/limit the model asked for and the current turn. On any subsequent `read` of the same path we classify:
+
+- **first-time** — unseen path → pass through.
+- **same-slice** — same path + unchanged signature + same offset/limit → append a nudge naming the slice, when it
+  was first read, and pointing at `scratchpad` for carry-over.
+- **different-slice** — same path + unchanged signature + different window → softer nudge suggesting
+  `rg -n "<pattern>" <path>` or `scratchpad` for incremental capture.
+- **changed** — mtime or size differs → silent, update the signature.
+
+The turn counter only bumps on REAL user input — extension-synthesized messages (`source: "extension"`) don’t count,
+so “N turns ago” stays semantically correct when other extensions inject steers between turns.
+
+Pure logic (history store, classification, nudge formatting) lives in
+[`lib/node/pi/read-reread.ts`](../../lib/node/pi/read-reread.ts) so it can be unit-tested under `vitest` without pulling
+in the pi runtime.
+
+### Environment variables
+
+- `PI_READ_REREAD_DISABLED=1` — skip the extension entirely.
+- `PI_READ_REREAD_MAX_ENTRIES=N` — cap on tracked files (default `256`, insertion-order eviction).
+- `PI_READ_REREAD_DEBUG=1` — `ctx.ui.notify` on every decision.
+- `PI_READ_REREAD_TRACE=<path>` — append one line per decision to `<path>`.
+
+### Hot reload
+
+Edit [`extensions/read-reread-detector.ts`](./extensions/read-reread-detector.ts) or
+[`lib/node/pi/read-reread.ts`](../../lib/node/pi/read-reread.ts) and run `/reload` in an interactive pi session.
 
 ## `skills/plan-first`
 
