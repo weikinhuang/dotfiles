@@ -1185,15 +1185,22 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
       }
 
       // Registry summary (always appended for context).
+      //
+      // For `action: 'list'` the user explicitly asked for the full
+      // registry, so always render every job regardless of expanded
+      // state. For every other action the registry is just incidental
+      // context, so keep the 5-job cap with a Ctrl+O expand hint when
+      // there's more hiding.
       const count = jobs.length;
+      const showAll = expanded || details.action === 'list';
       if (count === 0 && details.action !== 'start') {
         parts.push(theme.fg('dim', '(no background jobs)'));
       } else if (count > 0) {
         parts.push(theme.fg('muted', `Registry: ${count} job(s)`));
-        const show = expanded ? jobs : jobs.slice(0, 5);
+        const show = showAll ? jobs : jobs.slice(0, 5);
         for (const j of show) parts.push(renderRegistryLine(j, theme));
-        if (!expanded && count > show.length) {
-          parts.push(theme.fg('dim', `  … ${count - show.length} more`));
+        if (count > show.length) {
+          parts.push(theme.fg('dim', `  … ${count - show.length} more (Ctrl+O to expand)`));
         }
       }
 
