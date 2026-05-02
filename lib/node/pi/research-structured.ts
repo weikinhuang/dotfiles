@@ -42,6 +42,16 @@
  * library (TypeBox, zod, hand-rolled) so callers can pick whatever
  * matches their data shape. The `Stuck` escape-hatch check is
  * structural, independent of the caller's schema.
+ *
+ * Note on duplication: the fence-stripping + balanced-`{}` slicing
+ * logic here overlaps with `iteration-loop-check-critic.parseVerdict`.
+ * They were kept separate on purpose — the critic tracks a
+ * `recoveries: string[]` trail and synthesizes a failure Verdict,
+ * while this module returns `unknown | null` and lets the retry
+ * loop decide what "malformed" means. If a third consumer appears,
+ * extract the two primitives (`stripAllFences`, `sliceFirstJsonObject`)
+ * into a shared helper; with only two consumers the inlining is
+ * cheaper than a cross-module abstraction.
  */
 
 import { isStuckShape, type Stuck } from './research-stuck.ts';

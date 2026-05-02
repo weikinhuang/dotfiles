@@ -47,10 +47,11 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 
 import { atomicWriteFile } from './atomic-write.ts';
+import { parseJsonc } from './jsonc.ts';
 import { appendJournal, type JournalLevel } from './research-journal.ts';
 import { isRecord } from './shared.ts';
 import { type AgentDef } from './subagent-loader.ts';
-import { resolveChildModel, type ModelRegistryLike, type RunOneShotDeps } from './subagent-spawn.ts';
+import { resolveChildModel, type ModelRegistryLike } from './subagent-spawn.ts';
 
 // ──────────────────────────────────────────────────────────────────────
 // Settings resolution
@@ -82,7 +83,10 @@ function readJsonFile(path: string): unknown {
   if (!existsSync(path)) return undefined;
   try {
     const body = readFileSync(path, 'utf8');
-    return JSON.parse(body);
+    // JSONC so user-authored settings files may carry `//` comments
+    // — matches the convention used by the other settings readers
+    // in this directory (preset.ts, iteration-loop-config.ts, …).
+    return parseJsonc(body);
   } catch {
     return undefined;
   }
@@ -266,12 +270,6 @@ export interface TinyAdapterWiring<M> {
   tinyHelperAgent: AgentDef | null;
   /** One-shot spawner. Usually `runOneShotAgent` wrapped. */
   runOneShot: TinyRunOneShot<M>;
-  /**
-   * Full deps bundle mirrored on the wiring so a caller that wants
-   * to call `runOneShotAgent` directly (e.g. with a custom `agent`)
-   * can; the adapter itself uses `runOneShot`.
-   */
-  deps?: RunOneShotDeps<M, unknown>;
   /** Optional journal path — stall/error lines are written here. */
   journalPath?: string;
   /** Per-call output length cap. Default 120 chars. */
@@ -364,9 +362,9 @@ export function createTinyAdapter<M>(wiring: TinyAdapterWiring<M>): TinyAdapter<
   const isEnabled = (): boolean => wiring.settings !== null && wiring.tinyHelperAgent !== null;
 
   const preflight = (ctx: TinyCallContext<M>): { ok: true; agent: AgentDef; model: M } | { ok: false } => {
-    if (!isEnabled()) return { ok: false };
-    const agent = wiring.tinyHelperAgent!;
-    const settings = wiring.settings!;
+    const agent = wiring.tinyHelperAgent;
+    const settings = wiring.settings;
+    if (!agent || !settings) return { ok: false };
 
     if (ctx.runRoot !== undefined) {
       const max = ctx.maxCalls ?? 0;

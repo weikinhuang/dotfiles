@@ -29,6 +29,13 @@
  * without touching the handle (the parent already decided what to
  * do with it).
  *
+ * **The status shim owns its own timeout.** A `handle.status()`
+ * call that hangs forever will hang this watchdog too — we don't
+ * race it against `pollIntervalMs` because in practice the shim
+ * wraps `subagent_send action: status` which has pi's own timeout
+ * pipeline. If a shim is built on something without a timeout,
+ * wrap it first.
+ *
  * Deliberately minimal dependencies — the pi types we need
  * (subagent handle, abort signal) are expressed as structural
  * interfaces so tests can pass a hand-rolled mock handle that
@@ -177,7 +184,6 @@ export async function watch(opts: WatchdogOpts): Promise<WatchdogOutcome> {
   const sleep = opts.sleep ?? defaultSleep;
 
   let lastStatus: WatchdogStatus | null = null;
-  let stallFired = false;
 
   // Poll immediately once so a fast-completing child returns
   // without an initial sleep. Subsequent iterations sleep first.
@@ -221,8 +227,7 @@ export async function watch(opts: WatchdogOpts): Promise<WatchdogOutcome> {
     }
 
     const elapsed = now() - status.lastProgressAt;
-    if (elapsed >= staleThresholdMs && !stallFired) {
-      stallFired = true;
+    if (elapsed >= staleThresholdMs) {
       const reason = buildStallReason({
         id: opts.handle.id,
         elapsedMs: elapsed,

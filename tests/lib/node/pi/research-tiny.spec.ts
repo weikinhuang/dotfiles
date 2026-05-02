@@ -171,6 +171,19 @@ describe('resolveTinySettings', () => {
     expect(out?.tinyModel).toBe('local/qwen3-bare');
   });
 
+  test('tolerates // and /* */ comments (JSONC) in user-authored settings', () => {
+    const cwd = mkTmp('settings-jsonc');
+    const home = mkTmp('home-jsonc');
+    mkdirSync(join(cwd, '.pi'));
+    writeFileSync(
+      join(cwd, '.pi', 'research-tiny.json'),
+      '// my tiny model override\n{ /* provider/model */ "tinyModel": "local/qwen3-commented" }\n',
+    );
+    const out = resolveTinySettings({ cwd, home });
+
+    expect(out?.tinyModel).toBe('local/qwen3-commented');
+  });
+
   test('rejects a value without provider/model separator', () => {
     const cwd = mkTmp('settings-invalid');
     const home = mkTmp('home-invalid');
