@@ -63,16 +63,17 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { atomicWriteFile, ensureDirSync } from './atomic-write.ts';
+import { extractFindingSourceUrls } from './deep-research-finding.ts';
 import { type CitationSource, validatePlaceholders } from './research-citations.ts';
 import { appendJournal } from './research-journal.ts';
 import { paths } from './research-paths.ts';
 import { type DeepResearchPlan, type SubQuestion } from './research-plan.ts';
 import { hashPrompt, type Provenance, writeSidecar } from './research-provenance.ts';
 import { quarantine } from './research-quarantine.ts';
-import { type McpClient, normalizeUrl, listRun, getById, type SourceRef } from './research-sources.ts';
+import { listRun, normalizeUrl, type SourceRef } from './research-sources.ts';
 import { callTyped, type ResearchSessionLike, type SchemaLike } from './research-structured.ts';
-import { type Stuck } from './research-stuck.ts';
-import { type TinyAdapter, type TinyCallContext } from './research-tiny.ts';
+import { isStuckShape } from './research-stuck.ts';
+import { type TinyAdapter, tinyProvenanceSummary, type TinyCallContext } from './research-tiny.ts';
 import { isRecord } from './shared.ts';
 
 // ──────────────────────────────────────────────────────────────────────
@@ -249,15 +250,6 @@ export interface SectionSynthOpts<M> {
    * across all sub-questions.
    */
   sourceIndex?: readonly SourceRef[];
-  /**
-   * Optional MCP client used by `research-sources` when a finding
-   * references a URL we don't have cached yet. v1 does NOT
-   * re-fetch at synth time (findings already ran the web-
-   * researcher); we never call this, but the field exists so a
-   * future synth-time re-fetch can be added without a signature
-   * change. Included for API symmetry with the core modules.
-   */
-  mcpClient?: McpClient;
 }
 
 // ──────────────────────────────────────────────────────────────────────
@@ -295,7 +287,11 @@ export async function runSectionSynth<M>(opts: SectionSynthOpts<M>): Promise<Sec
     journalIf(opts, 'warn', `synth skipped: no findings file on disk`, `sub-question=${sq.id}`);
     return { kind: 'missing-finding', subQuestionId: sq.id, reason: `no findings/${sq.id}.md on disk` };
   }
-  const findingBody = readFingFile(findingPath);
+  const findingBody = readFindingBody(findingPath);
+  if (findingBody === null) {
+    journalIf(opts, 'warn', `synth skipped: finding unreadable`, `sub-question=${sq.id}`);
+    return { kind: 'missing-finding', subQuestionId: sq.id, reason: `findings/${sq.id}.md unreadable` };
+  }
 
   // ── 2. Resolve referenced sources. ────────────────────────────
   const sources = collectReferencedSources(opts, findingBody);
@@ -318,7 +314,7 @@ export async function runSectionSynth<M>(opts: SectionSynthOpts<M>): Promise<Sec
   });
 
   // ── 4. Stuck? ────────────────────────────────────────────────
-  if (isStuckResult(typed)) {
+  if (isStuckShape(typed)) {
     journalIf(opts, 'info', `synth emitted stuck`, `sub-question=${sq.id} reason=${typed.reason}`);
     return { kind: 'stuck', subQuestionId: sq.id, reason: typed.reason };
   }
@@ -342,7 +338,7 @@ export async function runSectionSynth<M>(opts: SectionSynthOpts<M>): Promise<Sec
   atomicWriteFile(sectionPath, markdown.endsWith('\n') ? markdown : markdown + '\n');
 
   // Provenance sidecar (optional tiny summary).
-  const summary = await maybeTinySummary(opts, sq, prompt);
+  const summary = await tinyProvenanceSummary(opts.tinyAdapter, opts.tinyCtx, renderSummaryExcerpt(sq, prompt));
   const provenance: Provenance = {
     model: opts.model,
     thinkingLevel: opts.thinkingLevel,
@@ -413,7 +409,6 @@ export async function runAllSections<M>(opts: AllSectionsOpts<M>): Promise<Secti
       ...(opts.journalPath ? { journalPath: opts.journalPath } : {}),
       ...(opts.tinyAdapter ? { tinyAdapter: opts.tinyAdapter } : {}),
       ...(opts.tinyCtx ? { tinyCtx: opts.tinyCtx } : {}),
-      ...(opts.mcpClient ? { mcpClient: opts.mcpClient } : {}),
     };
     const outcome = await runSectionSynth(perSection);
     out.push(outcome);
@@ -425,11 +420,6 @@ export async function runAllSections<M>(opts: AllSectionsOpts<M>): Promise<Secti
 // ──────────────────────────────────────────────────────────────────────
 // Internals.
 // ──────────────────────────────────────────────────────────────────────
-
-function isStuckResult(v: unknown): v is Stuck {
-  if (!isRecord(v)) return false;
-  return v.status === 'stuck' && typeof v.reason === 'string' && v.reason.length > 0;
-}
 
 function journalIf<M>(
   opts: SectionSynthOpts<M>,
@@ -473,15 +463,16 @@ function buildOnRetry<M>(
 }
 
 /**
- * Read a finding file, returning the empty string on any I/O
- * error. Callers treat an empty body as "no material" and the
- * synth will likely emit `stuck`; never throws.
+ * Read a finding file, returning `null` on any I/O error. The
+ * outer caller maps `null` to a `missing-finding` outcome so we
+ * never feed an empty prompt to the synth turn (which would
+ * either fabricate or stuck).
  */
-function readFingFile(path: string): string {
+function readFindingBody(path: string): string | null {
   try {
     return readFileSync(path, 'utf8');
   } catch {
-    return '';
+    return null;
   }
 }
 
@@ -497,31 +488,11 @@ function truncate(s: string, max: number): string {
 }
 
 /**
- * Pull every URL that appears in a finding's `## Sources` block.
- * The web-researcher's schema emits lines like
- * `- [S1] https://… — description`; we match on the URL token
- * immediately after the `[Sn]` label. Non-matching lines are
- * skipped silently.
+ * Parse the `## Sources` section in a finding body via the
+ * shared schema helper (`deep-research-finding.extractFindingSourceUrls`)
+ * — we never re-implement the regex here; the schema lives in
+ * one module.
  */
-const SOURCE_LINE_RE = /^- \[S\d+\]\s+(\S+)/;
-
-function extractSourceUrls(findingBody: string): string[] {
-  const lines = findingBody.split(/\r?\n/);
-  let inSources = false;
-  const urls: string[] = [];
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (trimmed === '## Sources') {
-      inSources = true;
-      continue;
-    }
-    if (inSources && trimmed.startsWith('## ')) break;
-    if (!inSources) continue;
-    const m = SOURCE_LINE_RE.exec(line);
-    if (m) urls.push(m[1]);
-  }
-  return urls;
-}
 
 /**
  * Map a finding's cited URLs to the run's source store, returning
@@ -543,7 +514,7 @@ function collectReferencedSources<M>(opts: SectionSynthOpts<M>, findingBody: str
     // `ref.url` is already normalized by `research-sources.persist`.
     byUrl.set(ref.url, ref);
   }
-  const urls = extractSourceUrls(findingBody);
+  const urls = extractFindingSourceUrls(findingBody);
   const seen = new Set<string>();
   const out: CitationSource[] = [];
   for (const raw of urls) {
@@ -593,26 +564,13 @@ function uniquePlaceholderIds(markdown: string): string[] {
 }
 
 /**
- * Best-effort "what is this section about" one-liner, attached to
- * the provenance sidecar. Returns `null` when the adapter is off,
- * the run budget is exhausted, or the tiny call returns an
- * unusable response. Callers pass the return value straight into
- * the `summary?` field; `null` means "omit."
+ * Build the short excerpt handed to `tinyProvenanceSummary` for a
+ * section's sidecar. The tiny helper only needs to see what the
+ * section is about — a single sub-question id + question + the
+ * start of the prompt — not the full finding body.
  */
-async function maybeTinySummary<M>(opts: SectionSynthOpts<M>, sq: SubQuestion, prompt: string): Promise<string | null> {
-  const adapter = opts.tinyAdapter;
-  const ctx = opts.tinyCtx;
-  if (!adapter || !ctx || !adapter.isEnabled()) return null;
-  // Keep the excerpt small — the tiny helper only needs to see
-  // what the section is about, not the full finding body.
-  const excerpt = `sub-question ${sq.id}: ${sq.question}\n${truncate(prompt, 400)}`;
-  try {
-    const result = await adapter.callTinyRewrite(ctx, 'summarize-provenance', excerpt);
-    if (typeof result === 'string' && result.trim().length > 0) return result.trim();
-  } catch {
-    /* swallow — summary is advisory */
-  }
-  return null;
+function renderSummaryExcerpt(sq: SubQuestion, prompt: string): string {
+  return `sub-question ${sq.id}: ${sq.question}\n${truncate(prompt, 400)}`;
 }
 
 /**
@@ -658,13 +616,3 @@ function quarantineSection<M>(args: {
     ? { kind: 'quarantined', subQuestionId, reason, movedTo }
     : { kind: 'quarantined', subQuestionId, reason };
 }
-
-// ──────────────────────────────────────────────────────────────────────
-// Re-exports for convenience.
-// ──────────────────────────────────────────────────────────────────────
-
-// `getById` is re-exported so callers that want to resolve a
-// cited source back to its cached body (e.g. tests) can do so
-// without also importing research-sources — this module already
-// bridges that surface.
-export { getById as getSourceById };

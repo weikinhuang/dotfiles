@@ -27,9 +27,9 @@
  */
 
 import { existsSync } from 'node:fs';
-import { join } from 'node:path';
 
 import { atomicWriteFile, ensureDirSync } from './atomic-write.ts';
+import { paths } from './research-paths.ts';
 import { type DeepResearchPlan } from './research-plan.ts';
 
 // ──────────────────────────────────────────────────────────────────────
@@ -39,8 +39,8 @@ import { type DeepResearchPlan } from './research-plan.ts';
 /**
  * Paths for the two rubric files relative to the run root. Kept
  * as a pair so callers that materialize / audit rubrics don't have
- * to string-join by hand (and don't drift from this module if the
- * filenames ever change).
+ * to string-join by hand; the canonical run-layout strings live
+ * in `research-paths.paths()`, which this helper delegates to.
  */
 export interface RubricPaths {
   /** Absolute path to `rubric-structural.md`. */
@@ -49,12 +49,15 @@ export interface RubricPaths {
   subjective: string;
 }
 
-/** Derive {@link RubricPaths} from a run root. */
+/**
+ * Derive {@link RubricPaths} from a run root. Thin wrapper over
+ * `research-paths.paths()` — exists so callers can express "I
+ * need the rubric pair" without reaching into the full `RunPaths`
+ * bag.
+ */
 export function rubricPaths(runRoot: string): RubricPaths {
-  return {
-    structural: join(runRoot, 'rubric-structural.md'),
-    subjective: join(runRoot, 'rubric-subjective.md'),
-  };
+  const p = paths(runRoot);
+  return { structural: p.rubricStructural, subjective: p.rubricSubjective };
 }
 
 // ──────────────────────────────────────────────────────────────────────

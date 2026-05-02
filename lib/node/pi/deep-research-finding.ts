@@ -274,6 +274,44 @@ export function classifyFindings(args: { text: string; subQuestionId: string; pr
 
 const SOURCE_LINE_RE = /^- \[(S\d+)\] (\S+)(?: — (.*))?$/;
 
+/**
+ * Extract the URLs cited in a finding's `## Sources` section, in
+ * document order. The finding schema (see the agent definition at
+ * `config/pi/agents/web-researcher.md`) emits lines of the form
+ *
+ *     - [S1] <URL> — <description>
+ *
+ * and `## Sources` is bounded by the next `## ` heading. Lines
+ * that don't match {@link SOURCE_LINE_RE} are skipped silently
+ * so a free-form `## Sources` preamble doesn't spuriously
+ * promote non-URL tokens.
+ *
+ * Exported so the synth stage (which needs to resolve each cited
+ * URL back to a source-store id) doesn't re-implement the schema.
+ * Keeping the parser co-located with the regex keeps the "the
+ * finding schema lives here" contract intact.
+ *
+ * Tolerant on input — a body with no `## Sources` section, or an
+ * empty one, returns `[]`.
+ */
+export function extractFindingSourceUrls(body: string): string[] {
+  const lines = body.split(/\r?\n/);
+  const urls: string[] = [];
+  let inSources = false;
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (trimmed === FINDING_HEADINGS.sources) {
+      inSources = true;
+      continue;
+    }
+    if (inSources && trimmed.startsWith('## ')) break;
+    if (!inSources) continue;
+    const m = SOURCE_LINE_RE.exec(line);
+    if (m) urls.push(m[2]);
+  }
+  return urls;
+}
+
 export interface NormalizeSourceTitlesOpts<M> {
   sections: FindingValidationOk['sections'];
   adapter?: TinyAdapter<M>;

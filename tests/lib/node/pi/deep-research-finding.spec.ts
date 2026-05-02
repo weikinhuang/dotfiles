@@ -10,6 +10,7 @@ import { describe, expect, test, vi } from 'vitest';
 
 import {
   classifyFindings,
+  extractFindingSourceUrls,
   FINDING_HEADINGS,
   FINDING_MAX_CHARS,
   FINDING_MAX_REPROMPTS,
@@ -233,5 +234,70 @@ describe('normalizeSourceTitles', () => {
     });
 
     expect(out).toBe(body);
+  });
+});
+
+// ──────────────────────────────────────────────────────────────────────
+// extractFindingSourceUrls
+// ──────────────────────────────────────────────────────────────────────
+
+describe('extractFindingSourceUrls', () => {
+  test('returns URLs in document order from a valid ## Sources block', () => {
+    const body = [
+      '# Sub-question: demo',
+      '',
+      '## Findings',
+      '- claim [S1]',
+      '',
+      '## Sources',
+      '- [S1] https://example.com/a — first',
+      '- [S2] https://example.com/b — second',
+      '',
+      '## Open questions',
+      '- None.',
+    ].join('\n');
+
+    expect(extractFindingSourceUrls(body)).toEqual(['https://example.com/a', 'https://example.com/b']);
+  });
+
+  test('returns [] when the ## Sources section is missing', () => {
+    const body = '# Sub-question: demo\n\n## Findings\n- nothing.\n';
+
+    expect(extractFindingSourceUrls(body)).toEqual([]);
+  });
+
+  test('returns [] when ## Sources is empty', () => {
+    const body = '# Sub-question: demo\n\n## Findings\n- x\n\n## Sources\n\n## Open questions\n- None.\n';
+
+    expect(extractFindingSourceUrls(body)).toEqual([]);
+  });
+
+  test('stops scanning at the next ## heading', () => {
+    const body = [
+      '## Sources',
+      '- [S1] https://example.com/a — first',
+      '## Open questions',
+      '- [S99] https://evil.example — not-a-source',
+    ].join('\n');
+
+    expect(extractFindingSourceUrls(body)).toEqual(['https://example.com/a']);
+  });
+
+  test('skips lines that do not match the schema', () => {
+    const body = [
+      '## Sources',
+      '  free-form preamble',
+      '- not a source line',
+      '- [S1] https://example.com/a — desc',
+      '- [bad] https://nope.example — garbage',
+    ].join('\n');
+
+    expect(extractFindingSourceUrls(body)).toEqual(['https://example.com/a']);
+  });
+
+  test('accepts source lines without trailing description', () => {
+    const body = '## Sources\n- [S1] https://example.com/a\n';
+
+    expect(extractFindingSourceUrls(body)).toEqual(['https://example.com/a']);
   });
 });

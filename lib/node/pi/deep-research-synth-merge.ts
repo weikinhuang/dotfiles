@@ -68,8 +68,8 @@ import { type DeepResearchPlan, type SubQuestion } from './research-plan.ts';
 import { hashPrompt, type Provenance, writeSidecar } from './research-provenance.ts';
 import { listRun, type SourceRef } from './research-sources.ts';
 import { callTyped, type ResearchSessionLike, type SchemaLike } from './research-structured.ts';
-import { type Stuck } from './research-stuck.ts';
-import { type TinyAdapter, type TinyCallContext } from './research-tiny.ts';
+import { isStuckShape } from './research-stuck.ts';
+import { type TinyAdapter, tinyProvenanceSummary, type TinyCallContext } from './research-tiny.ts';
 import { isRecord } from './shared.ts';
 
 // ──────────────────────────────────────────────────────────────────────
@@ -311,7 +311,7 @@ export async function runSynthMerge<M>(opts: SynthMergeOpts<M>): Promise<SynthMe
   const deterministic = buildDeterministicMerge(opts.plan);
   let meta: MergeOutput;
   let usedFallback = false;
-  if (isStuckResult(typed)) {
+  if (isStuckShape(typed)) {
     journalIf(opts, 'warn', `merge emitted stuck — using deterministic wrapper`, typed.reason);
     meta = deterministic;
     usedFallback = true;
@@ -344,7 +344,11 @@ export async function runSynthMerge<M>(opts: SynthMergeOpts<M>): Promise<SynthMe
 
   // ── 6. Write report + provenance. ─────────────────────────────
   atomicWriteFile(p.report, withTrailingNewline);
-  const summary = await maybeTinySummary(opts, opts.plan, mergePrompt);
+  const summary = await tinyProvenanceSummary(
+    opts.tinyAdapter,
+    opts.tinyCtx,
+    renderSummaryExcerpt(opts.plan, mergePrompt),
+  );
   const provenance: Provenance = {
     model: opts.model,
     thinkingLevel: opts.thinkingLevel,
@@ -372,11 +376,6 @@ export async function runSynthMerge<M>(opts: SynthMergeOpts<M>): Promise<SynthMe
 // ──────────────────────────────────────────────────────────────────────
 // Internals.
 // ──────────────────────────────────────────────────────────────────────
-
-function isStuckResult(v: unknown): v is Stuck {
-  if (!isRecord(v)) return false;
-  return v.status === 'stuck' && typeof v.reason === 'string' && v.reason.length > 0;
-}
 
 function journalIf<M>(
   opts: SynthMergeOpts<M>,
@@ -562,24 +561,12 @@ function countFootnotes(report: string): number {
 }
 
 /**
- * Best-effort one-liner describing the report, attached to the
- * report's provenance. Same contract as the synth-sections tiny
- * summary path.
+ * Build the short excerpt handed to `tinyProvenanceSummary` for
+ * the report sidecar. Only the plan's top-level question + the
+ * start of the merge prompt — the tiny helper has a 120-char
+ * output cap so there's no value in feeding it the whole
+ * prompt.
  */
-async function maybeTinySummary<M>(
-  opts: SynthMergeOpts<M>,
-  plan: DeepResearchPlan,
-  prompt: string,
-): Promise<string | null> {
-  const adapter = opts.tinyAdapter;
-  const ctx = opts.tinyCtx;
-  if (!adapter || !ctx || !adapter.isEnabled()) return null;
-  const excerpt = `research report for: ${plan.question}\n(${plan.subQuestions.length} sub-questions)\nprompt excerpt: ${prompt.slice(0, 300)}`;
-  try {
-    const r = await adapter.callTinyRewrite(ctx, 'summarize-provenance', excerpt);
-    if (typeof r === 'string' && r.trim().length > 0) return r.trim();
-  } catch {
-    /* swallow */
-  }
-  return null;
+function renderSummaryExcerpt(plan: DeepResearchPlan, prompt: string): string {
+  return `research report for: ${plan.question}\n(${plan.subQuestions.length} sub-questions)\nprompt excerpt: ${prompt.slice(0, 300)}`;
 }

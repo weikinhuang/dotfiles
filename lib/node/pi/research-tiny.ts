@@ -488,3 +488,45 @@ export function createTinyAdapter<M>(wiring: TinyAdapterWiring<M>): TinyAdapter<
     },
   };
 }
+
+// ───────────────────────────────────────────────────────────────────
+// Convenience helpers
+// ───────────────────────────────────────────────────────────────────
+
+/**
+ * Best-effort one-liner summary for a research artifact's
+ * provenance sidecar. Returns `null` when:
+ *
+ *   - `adapter` or `ctx` is undefined;
+ *   - the adapter is disabled (`isEnabled() === false`);
+ *   - the tiny call throws or returns `null` (budget exhausted,
+ *     timeout, malformed response, etc.).
+ *
+ * Consumers pass the returned value straight into
+ * `research-provenance.writeSidecar` via the `summary?` field;
+ * `null` means "omit the field." The wrapper exists so every
+ * `summarize-provenance` call-site uses the same semantics (and
+ * the same swallow-errors contract) without re-implementing the
+ * dance at every writer.
+ *
+ * `excerpt` should be a short, context-appropriate string (~400
+ * chars or less). Callers compose it from whatever makes the
+ * sidecar greppable post-hoc — a task name, a sub-question id,
+ * the first line of the prompt. The adapter enforces its own
+ * output-length cap (default 120 chars) so a verbose excerpt
+ * doesn't leak into the summary.
+ */
+export async function tinyProvenanceSummary<M>(
+  adapter: TinyAdapter<M> | undefined,
+  ctx: TinyCallContext<M> | undefined,
+  excerpt: string,
+): Promise<string | null> {
+  if (!adapter || !ctx || !adapter.isEnabled()) return null;
+  try {
+    const out = await adapter.callTinyRewrite(ctx, 'summarize-provenance', excerpt);
+    if (typeof out === 'string' && out.trim().length > 0) return out.trim();
+  } catch {
+    /* swallow — summary is advisory */
+  }
+  return null;
+}

@@ -26,7 +26,10 @@ import {
   incrementCallCount,
   resolveTinySettings,
   shouldCall,
+  tinyProvenanceSummary,
+  type TinyAdapter,
   type TinyAdapterWiring,
+  type TinyCallContext,
   type TinyRunOneShot,
   type TinyRunResult,
   type TinySettings,
@@ -524,5 +527,76 @@ describe('createTinyAdapter (budget / counter)', () => {
 
     expect(journal).toContain('[info]');
     expect(journal).toContain('model resolution failed');
+  });
+});
+
+// ──────────────────────────────────────────────────────────────────────
+// tinyProvenanceSummary — convenience wrapper
+// ──────────────────────────────────────────────────────────────────────
+
+describe('tinyProvenanceSummary', () => {
+  const ctx: TinyCallContext<FakeModel> = {
+    cwd: '/virtual',
+    model: undefined,
+    modelRegistry: { find: () => undefined, authStorage: {} },
+  };
+
+  function adapterReturning(value: string | null): TinyAdapter<FakeModel> {
+    return {
+      isEnabled: () => true,
+      callTinyRewrite: () => Promise.resolve(value),
+      callTinyClassify: () => Promise.resolve(null),
+      callTinyMatch: () => Promise.resolve(null),
+      getTotalCost: () => 0,
+    };
+  }
+
+  function adapterThrowing(): TinyAdapter<FakeModel> {
+    return {
+      isEnabled: () => true,
+      callTinyRewrite: () => Promise.reject(new Error('boom')),
+      callTinyClassify: () => Promise.resolve(null),
+      callTinyMatch: () => Promise.resolve(null),
+      getTotalCost: () => 0,
+    };
+  }
+
+  function disabledAdapter(): TinyAdapter<FakeModel> {
+    return {
+      isEnabled: () => false,
+      callTinyRewrite: () => Promise.resolve('never-called'),
+      callTinyClassify: () => Promise.resolve(null),
+      callTinyMatch: () => Promise.resolve(null),
+      getTotalCost: () => 0,
+    };
+  }
+
+  test('returns null when adapter is undefined', async () => {
+    expect(await tinyProvenanceSummary<FakeModel>(undefined, ctx, 'excerpt')).toBeNull();
+  });
+
+  test('returns null when ctx is undefined', async () => {
+    expect(await tinyProvenanceSummary(adapterReturning('x'), undefined, 'excerpt')).toBeNull();
+  });
+
+  test('returns null when adapter is disabled', async () => {
+    expect(await tinyProvenanceSummary(disabledAdapter(), ctx, 'excerpt')).toBeNull();
+  });
+
+  test('returns null when adapter returns null', async () => {
+    expect(await tinyProvenanceSummary(adapterReturning(null), ctx, 'excerpt')).toBeNull();
+  });
+
+  test('returns null when adapter returns empty / whitespace', async () => {
+    expect(await tinyProvenanceSummary(adapterReturning('   '), ctx, 'excerpt')).toBeNull();
+    expect(await tinyProvenanceSummary(adapterReturning(''), ctx, 'excerpt')).toBeNull();
+  });
+
+  test('returns trimmed summary on happy path', async () => {
+    expect(await tinyProvenanceSummary(adapterReturning('  short summary  '), ctx, 'excerpt')).toBe('short summary');
+  });
+
+  test('swallows adapter errors and returns null', async () => {
+    expect(await tinyProvenanceSummary(adapterThrowing(), ctx, 'excerpt')).toBeNull();
   });
 });

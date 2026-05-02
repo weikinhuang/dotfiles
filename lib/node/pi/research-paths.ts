@@ -168,6 +168,10 @@ export interface RunPaths {
   journal: string;
   /** `report.md` — final synthesized report (deep-research). */
   report: string;
+  /** `rubric-structural.md` — deterministic structural rubric consumed by the Phase-4 `kind=bash` check. */
+  rubricStructural: string;
+  /** `rubric-subjective.md` — subjective rubric consumed by the Phase-4 `kind=critic` stage. */
+  rubricSubjective: string;
   /** `sources/` — per-run source cache directory. */
   sources: string;
   /** `findings/` — per-sub-question finding dir (deep-research). */
@@ -206,6 +210,8 @@ export function paths(root: string): RunPaths {
     plan: join(root, 'plan.json'),
     journal: join(root, 'journal.md'),
     report: join(root, 'report.md'),
+    rubricStructural: join(root, 'rubric-structural.md'),
+    rubricSubjective: join(root, 'rubric-subjective.md'),
     sources: join(root, 'sources'),
     findings: join(root, 'findings'),
     snapshots: join(root, 'snapshots'),
