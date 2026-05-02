@@ -54,3 +54,15 @@ export const BYTE_ENCODER = new TextEncoder();
 export function byteLen(s: string): number {
   return BYTE_ENCODER.encode(s).length;
 }
+
+/**
+ * Type guard for "plain object" values — rejects `null`, arrays, and
+ * scalars. The canonical first step in a structural validator before
+ * reading properties off an untrusted payload (JSON from disk, model
+ * output, session-entry state). Kept here so every validator shares
+ * one definition of "record"; see the precedent in
+ * `iteration-loop-schema.ts`.
+ */
+export function isRecord(v: unknown): v is Record<string, unknown> {
+  return !!v && typeof v === 'object' && !Array.isArray(v);
+}
