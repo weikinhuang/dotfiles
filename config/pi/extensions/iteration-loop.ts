@@ -190,6 +190,7 @@ import {
   lastUserMessageHasMarker,
   partitionClaims,
 } from '../../../lib/node/pi/verify-detect.ts';
+import { VERIFY_MARKER } from './verify-before-claim.ts';
 
 const DEFAULT_TASK = 'default';
 const STOP_REASONS = ['passed', 'budget-iter', 'budget-cost', 'wall-clock', 'fixpoint', 'user-closed'] as const;
@@ -533,10 +534,11 @@ export default function iterationLoopExtension(pi: ExtensionAPI): void {
 
   /** Sentinels matching the `verify-before-claim` convention so the
    *  guardrail messages are easy to spot in transcripts and the
-   *  `lastUserMessageHasMarker` idempotency guard keys on them. */
+   *  `lastUserMessageHasMarker` idempotency guard keys on them.
+   *  `VERIFY_MARKER` is imported from verify-before-claim.ts so a
+   *  rename there doesn't silently break the de-dupe below. */
   const CLAIM_NUDGE_MARKER = '⚠ [pi-iteration-loop-claim]';
   const STRICT_NUDGE_MARKER = '⚠ [pi-iteration-loop-strict-edit]';
-  const VERIFY_MARKER = '⚠ [pi-verify-before-claim]';
 
   const rebuildFromSession = (ctx: ExtensionContext): void => {
     const branch = ctx.sessionManager.getBranch() as unknown as readonly BranchEntry[];
