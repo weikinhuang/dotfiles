@@ -1,0 +1,35 @@
+{
+  "providers": {
+    "llama-cpp": {
+      "baseUrl": "http://127.0.0.1:8080/v1",
+      "api": "openai-completions",
+      "apiKey": "sk-local",
+      "headers": {
+        "Authorization": "Bearer foobar"
+      },
+      "thinkingBudgetInjection": {
+        "field": "thinking_budget_tokens",
+        "stripEffort": false
+      },
+      "models": [
+        {
+          "id": "qwen3-6-35b-a3b",
+          "name": "Qwen 3.6 35B A3B",
+          "input": ["text", "image"],
+          "reasoning": true,
+          "contextWindow": 131072,
+          "maxTokens": 32768,
+          "compat": {
+            "thinkingFormat": "qwen-chat-template"
+          },
+          "cost": {
+            "input": 0.01,
+            "output": 0.05,
+            "cacheRead": 0.01,
+            "cacheWrite": 0.01
+          }
+        }
+      ]
+    }
+  }
+}
