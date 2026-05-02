@@ -25,20 +25,19 @@
  * `PI_MEMORY_ROOT`.
  */
 
-import {
-  existsSync,
-  mkdirSync,
-  readdirSync,
-  readFileSync,
-  renameSync,
-  statSync,
-  unlinkSync,
-  writeFileSync,
-} from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync, unlinkSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
+
+import { atomicWriteFile, ensureDirSync } from './atomic-write.ts';
 import { parseFrontmatter } from './memory-reducer.ts';
 import { type MemoryEntry, type MemoryScope, type MemoryType } from './memory-reducer.ts';
+
+// `ensureDirSync` + `atomicWriteFile` are re-exported so memory-paths
+// consumers continue to import from this module; the canonical
+// implementation lives in atomic-write.ts so iteration-loop-storage.ts
+// + any future consumer share a single policy.
+export { atomicWriteFile, ensureDirSync };
 
 /**
  * Transform a cwd into the directory name pi uses for its session store:
@@ -115,23 +114,6 @@ export function fileFor(
 export function indexFileFor(scope: MemoryScope, cwd: string, root: string = memoryRoot()): string {
   const base = scope === 'global' ? globalDir(root) : projectDir(cwd, root);
   return join(base, 'MEMORY.md');
-}
-
-export function ensureDirSync(path: string): void {
-  mkdirSync(path, { recursive: true });
-}
-
-/**
- * Write-then-rename so a partially-written file never stomps the previous
- * contents. `mkdir -p` the parent first so callers don't have to.
- */
-export function atomicWriteFile(path: string, body: string): void {
-  const tmp = `${path}.tmp`;
-  const parent = dirname(path);
-  // `dirname` returns `.` for a bare filename — still a valid dir to ensure.
-  ensureDirSync(parent);
-  writeFileSync(tmp, body, 'utf8');
-  renameSync(tmp, path);
 }
 
 export function removeFileIfExists(path: string): boolean {

@@ -31,18 +31,24 @@ import {
   copyFileSync,
   cpSync,
   existsSync,
-  mkdirSync,
   readdirSync,
   readFileSync,
   renameSync,
   rmSync,
   statSync,
   unlinkSync,
-  writeFileSync,
 } from 'node:fs';
-import { basename, dirname, extname, isAbsolute, join } from 'node:path';
+import { basename, extname, isAbsolute, join } from 'node:path';
 
+import { atomicWriteFile, ensureDirSync } from './atomic-write.ts';
 import { type CheckSpec, isCheckSpecShape, type Verdict } from './iteration-loop-schema.ts';
+
+// `atomicWriteFile` + `ensureDirSync` are re-exported so callers inside
+// this module (and consumers of the storage module) get them through
+// the usual entry point. The canonical implementation lives in
+// atomic-write.ts so memory-paths.ts + any future consumer share a
+// single policy (unique tempfile suffix, parent mkdir, no fsync).
+export { atomicWriteFile, ensureDirSync };
 
 /** Directory under cwd where all iteration-loop on-disk state lives. */
 export const CHECKS_DIR = '.pi/checks';
@@ -80,22 +86,6 @@ export function snapshotPath(cwd: string, task: string, iteration: number, artif
 export function snapshotVerdictPath(cwd: string, task: string, iteration: number): string {
   const padded = iteration.toString().padStart(3, '0');
   return join(snapshotsDir(cwd, task), `iter-${padded}.verdict.json`);
-}
-
-// ──────────────────────────────────────────────────────────────────────
-// Low-level I/O primitives
-// ──────────────────────────────────────────────────────────────────────
-
-function ensureDirSync(path: string): void {
-  mkdirSync(path, { recursive: true });
-}
-
-/** Write-then-rename so we never half-overwrite a target file. */
-export function atomicWriteFile(path: string, body: string | Buffer): void {
-  ensureDirSync(dirname(path));
-  const tmp = `${path}.tmp-${process.pid}-${Date.now()}`;
-  writeFileSync(tmp, body);
-  renameSync(tmp, path);
 }
 
 function safeReadText(path: string): string | null {
