@@ -30,8 +30,8 @@ import { isAbsolute, resolve } from 'node:path';
 
 import { type BashCheckSpec, type Issue, type Verdict } from './iteration-loop-schema.ts';
 
-const DEFAULT_TIMEOUT_MS = 60_000;
-const STDOUT_MAX = 8 * 1024; // truncate observation dumps so prompts stay compact
+const DEFAULT_TIMEOUT_MS = 60_000; // deliberately tighter than DEFAULT_BUDGET.wallClockSeconds (600s); a bash check is one iteration step, not the whole loop.
+const STREAM_BUFFER_MAX = 8 * 1024; // per-stream cap (stdout & stderr each); truncate observation dumps so prompts stay compact
 
 // ──────────────────────────────────────────────────────────────────────
 // Types
@@ -65,7 +65,11 @@ export interface BashRunResult extends Verdict {
 export type SpawnLike = (
   command: string,
   args: readonly string[],
-  options: { cwd: string; env: NodeJS.ProcessEnv; stdio: ['ignore', 'pipe', 'pipe'] },
+  options: {
+    cwd: string;
+    env: NodeJS.ProcessEnv;
+    stdio: ['ignore', 'pipe', 'pipe'] | ['pipe', 'pipe', 'pipe'];
+  },
 ) => ChildProcess;
 
 interface ExecResult {
@@ -111,6 +115,7 @@ function runProcess(
   cwd: string,
   env: NodeJS.ProcessEnv,
   timeoutMs: number,
+  signal: AbortSignal | undefined,
 ): Promise<ExecResult> {
   return new Promise((done) => {
     let child: ChildProcess;
@@ -133,13 +138,14 @@ function runProcess(
     let stderr = '';
     let truncated = false;
     let timedOut = false;
+    let aborted = false;
 
     const appendCapped = (current: string, chunk: string): string => {
-      if (current.length >= STDOUT_MAX) {
+      if (current.length >= STREAM_BUFFER_MAX) {
         truncated = true;
         return current;
       }
-      const room = STDOUT_MAX - current.length;
+      const room = STREAM_BUFFER_MAX - current.length;
       if (chunk.length > room) {
         truncated = true;
         return current + chunk.slice(0, room);
@@ -166,9 +172,29 @@ function runProcess(
     }, timeoutMs);
     killer.unref();
 
-    child.on('error', (err) => {
+    const onAbort = (): void => {
+      aborted = true;
+      child.kill('SIGTERM');
+      setTimeout(() => {
+        if (!child.killed) child.kill('SIGKILL');
+      }, 2_000).unref();
+    };
+    if (signal) {
+      if (signal.aborted) {
+        onAbort();
+      } else {
+        signal.addEventListener('abort', onAbort, { once: true });
+      }
+    }
+
+    const finalize = (result: ExecResult): void => {
       clearTimeout(killer);
-      done({
+      signal?.removeEventListener('abort', onAbort);
+      done(result);
+    };
+
+    child.on('error', (err) => {
+      finalize({
         exitCode: null,
         signal: null,
         stdout,
@@ -179,13 +205,12 @@ function runProcess(
       });
     });
 
-    child.on('close', (code, signal) => {
-      clearTimeout(killer);
-      done({
+    child.on('close', (code, sig) => {
+      finalize({
         exitCode: code,
-        signal,
+        signal: sig,
         stdout,
-        stderr,
+        stderr: aborted && !stderr.includes('[aborted]') ? stderr + '\n[aborted]' : stderr,
         timedOut,
         truncated,
         spawnError: null,
@@ -227,10 +252,9 @@ function classifyResult(spec: BashCheckSpec, exec: ExecResult): ClassifyOut {
       : { passed: false, failReason: `stdout did not match regex /${pattern}/` };
   }
   if (passOn.startsWith('jq:')) {
-    // Full `jq:` support lives in the async `runJqPredicate` helper
-    // below; callers that want it are expected to invoke it alongside
-    // `runBashCheck`. Inline here we fail closed with a hint.
-    return { passed: false, failReason: `jq: predicate requires async runJqPredicate (not used inline)` };
+    // Evaluated out-of-line in `runJqPredicate` (spawns `jq`). The
+    // main entry point stitches its result back into the verdict.
+    return { passed: false, failReason: '__jq_pending__' };
   }
   return { passed: false, failReason: `unknown passOn predicate "${passOn}"` };
 }
@@ -288,7 +312,7 @@ function buildVerdict(exec: ExecResult, passed: boolean, failReason: string | nu
 export async function runJqPredicate(
   expr: string,
   stdin: string,
-  opts: { spawnImpl?: SpawnLike } = {},
+  opts: { spawnImpl?: SpawnLike; signal?: AbortSignal } = {},
 ): Promise<ClassifyOut> {
   const spawnFn = opts.spawnImpl ?? spawnDefault;
   return new Promise((done) => {
@@ -297,9 +321,7 @@ export async function runJqPredicate(
       child = spawnFn('jq', ['-e', expr], {
         cwd: process.cwd(),
         env: process.env,
-        // We need stdin open to write the document; override stdio
-        // from the type's restricted shape.
-        stdio: ['pipe', 'pipe', 'pipe'] as unknown as ['ignore', 'pipe', 'pipe'],
+        stdio: ['pipe', 'pipe', 'pipe'],
       });
     } catch (e) {
       done({ passed: false, failReason: `jq spawn failed: ${(e as Error).message}` });
@@ -315,11 +337,24 @@ export async function runJqPredicate(
     child.stderr?.on('data', (d: string) => {
       err += d;
     });
+    const onAbort = (): void => {
+      child.kill('SIGTERM');
+      setTimeout(() => {
+        if (!child.killed) child.kill('SIGKILL');
+      }, 1_000).unref();
+    };
+    if (opts.signal) {
+      if (opts.signal.aborted) onAbort();
+      else opts.signal.addEventListener('abort', onAbort, { once: true });
+    }
     child.on('error', (e) => {
-      const msg = e.message.includes('ENOENT') ? 'jq not found on PATH' : e.message;
+      opts.signal?.removeEventListener('abort', onAbort);
+      const code = (e as NodeJS.ErrnoException).code;
+      const msg = code === 'ENOENT' ? 'jq not found on PATH' : e.message;
       done({ passed: false, failReason: `jq: ${msg}` });
     });
     child.on('close', (code) => {
+      opts.signal?.removeEventListener('abort', onAbort);
       if (code === 0) {
         const trimmed = out.trim();
         if (trimmed === '' || trimmed === 'null' || trimmed === 'false') {
@@ -350,14 +385,35 @@ export async function runJqPredicate(
 export async function runBashCheck(
   spec: BashCheckSpec,
   env: BashRunEnvironment,
-  opts: { spawnImpl?: SpawnLike } = {},
+  opts: { spawnImpl?: SpawnLike; signal?: AbortSignal } = {},
 ): Promise<BashRunResult> {
   const spawnFn = opts.spawnImpl ?? spawnDefault;
   const timeoutMs = spec.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const cwd = spec.workdir ? resolveWorkdir(spec.workdir, env.cwd) : env.cwd;
   const mergedEnv: NodeJS.ProcessEnv = { ...process.env, ...env.env, ...spec.env };
 
-  const exec = await runProcess(spawnFn, spec.cmd, cwd, mergedEnv, timeoutMs);
-  const { passed, failReason } = classifyResult(spec, exec);
+  const exec = await runProcess(spawnFn, spec.cmd, cwd, mergedEnv, timeoutMs, opts.signal);
+  let { passed, failReason } = classifyResult(spec, exec);
+
+  // `jq:` pass predicates are deferred out of the sync classifier
+  // because they spawn `jq`. Only run the async tail when the command
+  // itself didn't already fail (spawn error, timeout, signal, etc.).
+  const passOn = spec.passOn ?? 'exit-zero';
+  if (passOn.startsWith('jq:') && failReason === '__jq_pending__') {
+    if (exec.spawnError) {
+      failReason = `spawn failed: ${exec.spawnError}`;
+    } else if (exec.timedOut) {
+      failReason = `timed out after ${timeoutMs}ms`;
+    } else {
+      const jqExpr = passOn.slice('jq:'.length);
+      const jqResult = await runJqPredicate(jqExpr, exec.stdout, {
+        spawnImpl: opts.spawnImpl,
+        signal: opts.signal,
+      });
+      passed = jqResult.passed;
+      failReason = jqResult.failReason;
+    }
+  }
+
   return buildVerdict(exec, passed, failReason);
 }

@@ -105,3 +105,46 @@ describe('unknown passOn', () => {
     expect(r.issues[0].description).toMatch(/unknown passOn/);
   });
 });
+
+describe('jq: predicate', () => {
+  test('truthy jq expression on stdout → pass', async () => {
+    // Regression: earlier versions never dispatched jq and returned a
+    // "__jq_pending__"-style meta-failure for every jq: spec.
+    const r = await runBashCheck(
+      { cmd: `echo '{"status":"ok","count":3}'`, passOn: 'jq:.status == "ok" and .count > 2' },
+      { cwd },
+    );
+
+    expect(r.approved).toBe(true);
+    expect(r.issues).toEqual([]);
+  });
+
+  test('falsy jq expression → fail with falsy note', async () => {
+    const r = await runBashCheck({ cmd: `echo '{"status":"ok"}'`, passOn: 'jq:.status == "no"' }, { cwd });
+
+    expect(r.approved).toBe(false);
+    expect(r.issues[0].description).toMatch(/falsy|jq/i);
+  });
+
+  test('empty jq output (via .missing // empty) → fail', async () => {
+    const r = await runBashCheck({ cmd: `echo '{}'`, passOn: 'jq:.missing // empty' }, { cwd });
+
+    expect(r.approved).toBe(false);
+    expect(r.issues[0].description).toMatch(/jq/i);
+  });
+
+  test('non-zero jq exit → fail with jq diagnostic', async () => {
+    const r = await runBashCheck({ cmd: `echo 'not json'`, passOn: 'jq:.' }, { cwd });
+
+    expect(r.approved).toBe(false);
+    expect(r.issues[0].description).toMatch(/jq exited/);
+  });
+
+  test('jq runs even when outer command exits non-zero, as long as stdout parses', async () => {
+    // jq predicates ignore exit code by design (same as regex:).
+    const r = await runBashCheck({ cmd: `echo '{"ok":true}'; exit 1`, passOn: 'jq:.ok' }, { cwd });
+
+    expect(r.approved).toBe(true);
+    expect(r.observation.exitCode).toBe(1);
+  });
+});

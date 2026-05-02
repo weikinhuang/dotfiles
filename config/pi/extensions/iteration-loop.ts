@@ -1057,7 +1057,7 @@ export default function iterationLoopExtension(pi: ExtensionAPI): void {
       }
       const bashSpec = spec.spec as BashCheckSpec;
       try {
-        verdict = await runBashCheck(bashSpec, { cwd: ctx.cwd });
+        verdict = await runBashCheck(bashSpec, { cwd: ctx.cwd }, { signal });
       } catch (e) {
         verdict = {
           approved: false,
