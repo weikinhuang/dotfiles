@@ -38,7 +38,7 @@ import {
   unlinkSync,
   writeFileSync,
 } from 'node:fs';
-import { basename, dirname, extname, join } from 'node:path';
+import { basename, dirname, extname, isAbsolute, join } from 'node:path';
 
 import { type CheckSpec, isCheckSpecShape, type Verdict } from './iteration-loop-schema.ts';
 
@@ -261,7 +261,10 @@ export function snapshotArtifact(
   iteration: number,
   artifactPath: string,
 ): { path: string; hash: string } | null {
-  const src = join(cwd, artifactPath);
+  // Respect absolute artifact paths — otherwise `join(cwd, '/abs/path')` on
+  // POSIX produces `/cwd/abs/path` which never exists. Only prepend cwd for
+  // relative artifacts.
+  const src = isAbsolute(artifactPath) ? artifactPath : join(cwd, artifactPath);
   if (!existsSync(src)) return null;
   ensureDirSync(snapshotsDir(cwd, task));
   const dest = snapshotPath(cwd, task, iteration, artifactPath);

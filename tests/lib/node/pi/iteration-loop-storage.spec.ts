@@ -4,7 +4,7 @@
  * Uses a fresh mkdtemp per test to isolate on-disk state.
  */
 
-import { mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
@@ -151,6 +151,27 @@ describe('snapshotArtifact', () => {
     const r = snapshotArtifact(cwd, 'default', 1, 'nope.svg');
 
     expect(r).toBeNull();
+  });
+
+  test('absolute artifact path is not re-rooted under cwd', () => {
+    // Regression: earlier versions joined cwd with the artifact path
+    // unconditionally, producing `/cwd/abs/path` for an absolute input,
+    // so snapshotArtifact always returned null when the declared
+    // artifact lived outside cwd.
+    const outside = join(cwd, '..', `abs-artifact-${Date.now()}.txt`);
+    writeFileSync(outside, 'abs-contents');
+    try {
+      const r = snapshotArtifact(cwd, 'default', 1, outside);
+
+      expect(r).not.toBeNull();
+      expect(r?.path && readFileSync(r.path, 'utf8')).toBe('abs-contents');
+    } finally {
+      try {
+        unlinkSync(outside);
+      } catch {
+        /* ignore */
+      }
+    }
   });
 
   test('same bytes → same hash across iterations', () => {
