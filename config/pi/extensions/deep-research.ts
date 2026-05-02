@@ -59,11 +59,22 @@ import {
   type ResearchSessionLikeWithLifecycle,
 } from '../../../lib/node/pi/deep-research-pipeline.ts';
 import {
+  type CriticRunner,
+  type RefinementRunner,
+  type StructuralRunner,
+} from '../../../lib/node/pi/deep-research-review-loop.ts';
+import { runDeepResearchReview } from '../../../lib/node/pi/deep-research-review-wire.ts';
+import { checkReportStructure } from '../../../lib/node/pi/deep-research-structural-check.ts';
+import { buildCriticTask, parseVerdict } from '../../../lib/node/pi/iteration-loop-check-critic.ts';
+import { type Verdict } from '../../../lib/node/pi/iteration-loop-schema.ts';
+import {
   type FanoutHandleLike,
   type FanoutHandleResult,
   type FanoutSpawner,
   type FanoutSpawnArgs,
 } from '../../../lib/node/pi/research-fanout.ts';
+import { appendJournal } from '../../../lib/node/pi/research-journal.ts';
+import { paths } from '../../../lib/node/pi/research-paths.ts';
 import {
   type CommandNotify,
   type CommandNotifyLevel,
@@ -186,6 +197,19 @@ export default function deepResearchExtension(pi: ExtensionAPI): void {
         return;
       }
       surfaceOutcome(outcome, notify);
+
+      // Phase 4: two-stage review loop over the fresh report. Only
+      // runs when the pipeline produced a report; other terminal
+      // outcomes (planner-stuck, checkpoint, error, fanout-complete
+      // under Phase-2 mode) already tell the user what to do next.
+      if (outcome.kind === 'report-complete') {
+        await runReviewPhase({
+          ctx,
+          runRoot: outcome.runRoot,
+          notify,
+          agentLoad,
+        });
+      }
     },
   });
 }
@@ -453,5 +477,175 @@ function surfaceOutcome(outcome: PipelineOutcome, notify: CommandNotify): void {
         'error',
       );
       return;
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Phase 4 review phase — two-stage structural + subjective check.
+// ─────────────────────────────────────────────────────────────────────
+
+interface RunReviewPhaseArgs {
+  ctx: ExtensionCommandContext;
+  runRoot: string;
+  notify: CommandNotify;
+  agentLoad: AgentLoadResult;
+}
+
+/**
+ * Drive {@link runDeepResearchReview} with production deps. Wired
+ * after `runResearchPipeline` returns `report-complete`.
+ *
+ * The structural runner calls {@link checkReportStructure} directly
+ * (pure, deterministic) — identical semantics to the bash-check
+ * surface the iteration-loop would spawn, without the subprocess.
+ *
+ * The critic runner spawns the `critic` agent via `runOneShotAgent`
+ * using {@link buildCriticTask} / {@link parseVerdict}; see the
+ * iteration-loop extension's own critic path for the identical
+ * shape.
+ *
+ * The refinement runner, for Phase 4, is a best-effort stub: it
+ * journals the nudge so the next iteration has access to it but
+ * does not yet re-run synth. Phase 5/6 extends this to re-drive
+ * `runSynthMerge` with the nudge threaded as a prior-turn
+ * message. With the stub in place, a failing first iteration
+ * triggers budget exhaustion on subsequent ones — the outcome
+ * returned to the user correctly reports the failure; the
+ * refinement fidelity is a pure-implementation follow-up, not a
+ * contract question.
+ */
+async function runReviewPhase(args: RunReviewPhaseArgs): Promise<void> {
+  const { ctx, runRoot, notify, agentLoad } = args;
+  const p = paths(runRoot);
+  const rubricSubjective = safeReadFile(p.rubricSubjective) ?? '';
+  const structuralBashCmd = buildStructuralBashCmd(runRoot);
+
+  const runStructural: StructuralRunner = ({ iteration }) => {
+    try {
+      appendJournal(p.journal, { level: 'step', heading: `review structural iter ${iteration}` });
+    } catch {
+      /* swallow */
+    }
+    return Promise.resolve(checkReportStructure({ runRoot }));
+  };
+
+  const runCritic: CriticRunner = async ({ iteration }) => {
+    const criticAgent = agentLoad.agents.get('critic');
+    if (!criticAgent) {
+      // Missing agent — degrade gracefully: return a rejected
+      // verdict the review loop surfaces as a refinement target.
+      return {
+        approved: false,
+        score: 0,
+        issues: [
+          {
+            severity: 'blocker',
+            description: 'critic agent not loaded; cannot judge the report',
+          },
+        ],
+        summary: 'critic agent missing',
+      } satisfies Verdict;
+    }
+    const resolution = resolveChildModel({
+      agent: criticAgent,
+      parent: ctx.model as never,
+      modelRegistry: ctx.modelRegistry as never,
+    });
+    if (!resolution.ok) {
+      return {
+        approved: false,
+        score: 0,
+        issues: [{ severity: 'blocker', description: `critic model resolution failed: ${resolution.error}` }],
+        summary: 'critic model unavailable',
+      } satisfies Verdict;
+    }
+    const task = buildCriticTask({
+      spec: { rubric: rubricSubjective },
+      artifactPath: p.report,
+      iteration,
+    });
+    try {
+      const run = await runOneShotAgent({
+        deps: { createAgentSession, DefaultResourceLoader, SessionManager, getAgentDir },
+        cwd: ctx.cwd,
+        agent: criticAgent,
+        model: resolution.model,
+        task,
+        modelRegistry: ctx.modelRegistry as never,
+        agentDir: getAgentDir(),
+        ...(ctx.signal ? { signal: ctx.signal } : {}),
+      });
+      const parsed = parseVerdict(run.finalText);
+      if (parsed.ok) return parsed.verdict;
+      return {
+        approved: false,
+        score: 0,
+        issues: [{ severity: 'major', description: `critic verdict unparseable: ${parsed.error}` }],
+        summary: 'critic verdict unparseable',
+      } satisfies Verdict;
+    } catch (e) {
+      return {
+        approved: false,
+        score: 0,
+        issues: [{ severity: 'blocker', description: `critic runner threw: ${(e as Error).message}` }],
+        summary: 'critic runner threw',
+      } satisfies Verdict;
+    }
+  };
+
+  const refineReport: RefinementRunner = (req) => {
+    try {
+      appendJournal(p.journal, {
+        level: 'warn',
+        heading: `review refinement requested (${req.stage}, iter ${req.iteration})`,
+        body: req.nudge,
+      });
+    } catch {
+      /* swallow */
+    }
+    // Phase-4 scope: the refinement path is structural + critic
+    // nudges landing in the journal. Re-running synth with the
+    // nudge threaded into the prompt is a Phase-5/6 expansion;
+    // returning ok: true here is deliberate so the review loop
+    // progresses to its budget-exhaustion / override paths and
+    // the user sees a surfaced outcome instead of a hang.
+    return Promise.resolve({ ok: true });
+  };
+
+  try {
+    await runDeepResearchReview({
+      cwd: ctx.cwd,
+      runRoot,
+      rubricSubjective,
+      structuralBashCmd,
+      runStructural,
+      runCritic,
+      refineReport,
+      maxIter: 3,
+      ...(ctx.signal ? { signal: ctx.signal } : {}),
+      notify,
+    });
+  } catch (e) {
+    notify(`/research: review phase threw: ${(e as Error).message}`, 'error');
+  }
+}
+
+/**
+ * Build the bash command string we record in the structural check
+ * spec. The production review path calls `checkReportStructure`
+ * directly; this string is purely informational — it shows up in
+ * `/check list` output so a user can see what a manual structural
+ * re-run would look like.
+ */
+function buildStructuralBashCmd(runRoot: string): string {
+  const scriptPath = fileURLToPath(new URL('../../../lib/node/pi/deep-research-structural-check.ts', import.meta.url));
+  return `node ${scriptPath} ${runRoot}`;
+}
+
+function safeReadFile(path: string): string | null {
+  try {
+    return readFileSync(path, 'utf8');
+  } catch {
+    return null;
   }
 }
