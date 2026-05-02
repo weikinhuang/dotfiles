@@ -198,7 +198,7 @@ describe('writeSnapshotVerdict', () => {
 });
 
 describe('archiveTask', () => {
-  test('moves active + snapshots into archive/<ts>-<task>', () => {
+  test('moves active + snapshots into archive/<ts>__<task>', () => {
     writeDraft(cwd, mkSpec());
     acceptDraft(cwd, 'default', '2026-05-01T00:05:00Z');
     writeFileSync(join(cwd, 'out.svg'), 'x');
@@ -206,6 +206,7 @@ describe('archiveTask', () => {
     const dest = archiveTask(cwd, 'default', '2026-05-01T12-00-00Z');
 
     expect(dest).not.toBeNull();
+    expect(dest?.endsWith('2026-05-01T12-00-00Z__default')).toBe(true);
     expect(dest && existsSync(join(dest, 'default.json'))).toBe(true);
     expect(dest && existsSync(join(dest, 'default.snapshots'))).toBe(true);
     expect(existsSync(activePath(cwd, 'default'))).toBe(false);
@@ -215,6 +216,38 @@ describe('archiveTask', () => {
     const r = archiveTask(cwd, 'default', '2026-05-01T12-00-00Z');
 
     expect(r).toBeNull();
+  });
+
+  test('hyphenated task name round-trips through listArchive', () => {
+    // Regression: the old `-`-separator split on the last dash, so a task
+    // like `my-check` parsed back as `task="check"` with the prefix
+    // absorbed into the timestamp.
+    writeDraft(cwd, mkSpec({ task: 'my-check' }));
+    acceptDraft(cwd, 'my-check', '2026-05-01T00:05:00Z');
+    const dest = archiveTask(cwd, 'my-check', '2026-05-01T12-00-00Z');
+    const arch = listArchive(cwd);
+
+    expect(dest).not.toBeNull();
+    expect(arch).toHaveLength(1);
+    expect(arch[0].task).toBe('my-check');
+    expect(arch[0].timestamp).toBe('2026-05-01T12-00-00Z');
+  });
+
+  test('same-second archive collision gets a disambiguator suffix', () => {
+    writeDraft(cwd, mkSpec());
+    acceptDraft(cwd, 'default', '2026-05-01T00:05:00Z');
+    const ts = '2026-05-01T12-00-00Z';
+    const first = archiveTask(cwd, 'default', ts);
+
+    // Second archive using the same timestamp — must not collide or lose data.
+    writeDraft(cwd, mkSpec());
+    acceptDraft(cwd, 'default', '2026-05-01T00:05:01Z');
+    const second = archiveTask(cwd, 'default', ts);
+
+    expect(first).not.toBeNull();
+    expect(second).not.toBeNull();
+    expect(first).not.toBe(second);
+    expect(second?.endsWith('.2')).toBe(true);
   });
 });
 
@@ -231,14 +264,23 @@ describe('listTasks / listArchive', () => {
     ]);
   });
 
-  test('listArchive newest-first', () => {
-    mkdirSync(join(cwd, '.pi/checks/archive/2026-05-01-foo'), { recursive: true });
-    mkdirSync(join(cwd, '.pi/checks/archive/2026-05-02-foo'), { recursive: true });
+  test('listArchive newest-first (new __ separator)', () => {
+    mkdirSync(join(cwd, '.pi/checks/archive/2026-05-01__foo'), { recursive: true });
+    mkdirSync(join(cwd, '.pi/checks/archive/2026-05-02__foo'), { recursive: true });
     const arch = listArchive(cwd);
 
-    // Last-hyphen split: "2026-05-01-foo" → timestamp "2026-05-01", task "foo".
-    // Newest timestamp first (reverse-lexicographic).
     expect(arch.map((a) => a.timestamp)).toEqual(['2026-05-02', '2026-05-01']);
     expect(arch.map((a) => a.task)).toEqual(['foo', 'foo']);
+  });
+
+  test('listArchive still parses legacy single-dash names', () => {
+    // Pre-existing archive trees written before the separator change
+    // must stay listable so users don't lose history on upgrade.
+    mkdirSync(join(cwd, '.pi/checks/archive/2026-05-01-foo'), { recursive: true });
+    const arch = listArchive(cwd);
+
+    expect(arch).toHaveLength(1);
+    expect(arch[0].timestamp).toBe('2026-05-01');
+    expect(arch[0].task).toBe('foo');
   });
 });

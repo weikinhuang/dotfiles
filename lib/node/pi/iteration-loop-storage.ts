@@ -29,11 +29,13 @@
 import { createHash } from 'node:crypto';
 import {
   copyFileSync,
+  cpSync,
   existsSync,
   mkdirSync,
   readdirSync,
   readFileSync,
   renameSync,
+  rmSync,
   statSync,
   unlinkSync,
   writeFileSync,
@@ -214,9 +216,30 @@ export function discardDraft(cwd: string, task: string): void {
   if (existsSync(p)) unlinkSync(p);
 }
 
+/** Separator between the ISO timestamp and the task name in an archive dir name. */
+const ARCHIVE_SEPARATOR = '__';
+
+/**
+ * `renameSync` fails with EXDEV when source and dest are on different
+ * filesystems (e.g. bind mounts in CI). Fall back to recursive copy +
+ * remove so archive still works; any other error re-throws.
+ */
+function renameOrFallback(src: string, dest: string): void {
+  try {
+    renameSync(src, dest);
+    return;
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code !== 'EXDEV') throw err;
+  }
+  // Cross-device: cpSync is idempotent enough for our purposes, then rm.
+  cpSync(src, dest, { recursive: true });
+  rmSync(src, { recursive: true, force: true });
+}
+
 /**
  * Move the whole task directory (active spec + snapshots) under
- * `archive/<timestamp>-<task>/`. Used by `check close` on a
+ * `archive/<timestamp>__<task>/`. Used by `check close` on a
  * successful or exhausted loop.
  *
  * Returns the archive directory path. Missing tasks are a no-op
@@ -228,14 +251,33 @@ export function archiveTask(cwd: string, task: string, timestamp: string): strin
   const hasActive = existsSync(active);
   const hasSnaps = existsSync(snaps);
   if (!hasActive && !hasSnaps) return null;
+  // Archive dirs use `<safeTs>__<task>` — a double-underscore separator
+  // so hyphens in either timestamps (always) or task names (user-chosen)
+  // round-trip cleanly through `listArchive`'s parser. `safeTs` strips
+  // anything that isn't a safe filename char; `task` is re-normalized
+  // the same way so a pathological task slug can't escape the archive
+  // directory or collide with the separator.
   const safeTs = timestamp.replace(/[^0-9A-Za-z_.-]/g, '-');
-  const destDir = join(archiveDir(cwd), `${safeTs}-${task}`);
+  const safeTask = task.replace(/[^0-9A-Za-z_.-]/g, '-');
+  let destDir = join(archiveDir(cwd), `${safeTs}${ARCHIVE_SEPARATOR}${safeTask}`);
+  // Two `close` calls landing in the same wall-clock second (possible
+  // under scripted / test workloads) would otherwise `renameSync` into
+  // an existing destDir. Append a short disambiguator until free.
+  if (existsSync(destDir)) {
+    for (let i = 2; i < 100; i++) {
+      const candidate = `${destDir}.${i}`;
+      if (!existsSync(candidate)) {
+        destDir = candidate;
+        break;
+      }
+    }
+  }
   ensureDirSync(destDir);
   if (hasActive) {
-    renameSync(active, join(destDir, basename(active)));
+    renameOrFallback(active, join(destDir, basename(active)));
   }
   if (hasSnaps) {
-    renameSync(snaps, join(destDir, basename(snaps)));
+    renameOrFallback(snaps, join(destDir, basename(snaps)));
   }
   // Clean up any lingering draft alongside
   discardDraft(cwd, task);
@@ -340,9 +382,6 @@ export function listArchive(cwd: string): ArchiveListing[] {
   if (!existsSync(dir)) return [];
   const out: ArchiveListing[] = [];
   for (const name of readdirSync(dir)) {
-    // `<ts>-<task>` — split on the LAST `-` so timestamps containing
-    // hyphens survive. If there's no `-` at all, treat the whole thing
-    // as the task with an unknown timestamp.
     const full = join(dir, name);
     let s: ReturnType<typeof statSync>;
     try {
@@ -351,11 +390,24 @@ export function listArchive(cwd: string): ArchiveListing[] {
       continue;
     }
     if (!s.isDirectory()) continue;
-    const idx = name.lastIndexOf('-');
-    if (idx < 0) {
+    // `<ts>__<task>` — split on the LAST occurrence of the separator
+    // so pathologically odd (sanitized) task names still round-trip.
+    // Fall back to legacy single-dash split for archives written before
+    // the separator change so existing trees stay listable.
+    const sepIdx = name.lastIndexOf(ARCHIVE_SEPARATOR);
+    if (sepIdx >= 0) {
+      out.push({
+        dir: full,
+        timestamp: name.slice(0, sepIdx),
+        task: name.slice(sepIdx + ARCHIVE_SEPARATOR.length),
+      });
+      continue;
+    }
+    const legacyIdx = name.lastIndexOf('-');
+    if (legacyIdx < 0) {
       out.push({ dir: full, timestamp: '', task: name });
     } else {
-      out.push({ dir: full, timestamp: name.slice(0, idx), task: name.slice(idx + 1) });
+      out.push({ dir: full, timestamp: name.slice(0, legacyIdx), task: name.slice(legacyIdx + 1) });
     }
   }
   return out.sort((a, b) => b.timestamp.localeCompare(a.timestamp));
