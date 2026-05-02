@@ -47,6 +47,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 
 import { atomicWriteFile } from './atomic-write.ts';
+import { parseModelSpec } from './btw.ts';
 import { parseJsonc } from './jsonc.ts';
 import { appendJournal, type JournalLevel } from './research-journal.ts';
 import { isRecord } from './shared.ts';
@@ -70,13 +71,19 @@ export interface ResolveTinySettingsOpts {
   home?: string;
 }
 
+/**
+ * Validate + normalize a `provider/model-id` value. Delegates the
+ * grammar check to `parseModelSpec` (the same helper the subagent /
+ * iteration-loop paths use) so every setting that resolves here
+ * goes through the same `provider/model-id` rules — non-empty
+ * provider + non-empty model id, whitespace around the `/`
+ * tolerated, normalized on return.
+ */
 function parseTinyModel(raw: unknown): string | null {
   if (typeof raw !== 'string') return null;
-  const trimmed = raw.trim();
-  if (trimmed.length === 0) return null;
-  // Must look like `provider/model-id`.
-  if (!trimmed.includes('/')) return null;
-  return trimmed;
+  const parsed = parseModelSpec(raw);
+  if (!parsed) return null;
+  return `${parsed.provider}/${parsed.modelId}`;
 }
 
 function readJsonFile(path: string): unknown {
@@ -168,6 +175,12 @@ export function getCallCount(runRoot: string): number {
  * immediately before spawning the tiny-helper agent, so a failed
  * counter write shows up as a journal error rather than silent
  * budget overrun.
+ *
+ * Not concurrency-safe across simultaneous adapter calls against
+ * the SAME runRoot — read-modify-write on the counter file races.
+ * Fine in practice because a single adapter call is sequential per
+ * spawn; consumers issuing concurrent tiny calls should serialize
+ * them at the call site.
  */
 export function incrementCallCount(runRoot: string): number {
   const current = getCallCount(runRoot);
@@ -218,10 +231,14 @@ export interface TinyCallContext<M> {
 
 /**
  * Minimal shape of the event passed to `onEvent` hooks by
- * `runOneShotAgent`. Copied here so the adapter can aggregate cost
- * without importing the full pi event union.
+ * `runOneShotAgent`. Exported so production wiring code that
+ * implements `TinyRunOneShot` has the full picture of the one
+ * field the adapter inspects (`message.usage.cost.total` on
+ * `message_end` assistant events). The real pi event shape is a
+ * superset of this; the wiring's glue code can forward events
+ * verbatim.
  */
-interface CostEventLike {
+export interface CostEventLike {
   event: {
     type: string;
     message?: {

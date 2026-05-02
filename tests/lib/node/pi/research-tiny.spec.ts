@@ -18,7 +18,7 @@ import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { beforeEach, describe, expect, test, vi } from 'vitest';
+import { describe, expect, test } from 'vitest';
 
 import {
   createTinyAdapter,
@@ -189,6 +189,25 @@ describe('resolveTinySettings', () => {
     const home = mkTmp('home-invalid');
     mkdirSync(join(cwd, '.pi'));
     writeFileSync(join(cwd, '.pi', 'research-tiny.json'), JSON.stringify({ tinyModel: 'no-slash' }));
+
+    expect(resolveTinySettings({ cwd, home })).toBeNull();
+  });
+
+  test('normalizes provider/model whitespace via parseModelSpec', () => {
+    const cwd = mkTmp('settings-normalize');
+    const home = mkTmp('home-normalize');
+    mkdirSync(join(cwd, '.pi'));
+    writeFileSync(join(cwd, '.pi', 'research-tiny.json'), JSON.stringify({ tinyModel: '  foo /  bar  ' }));
+    const out = resolveTinySettings({ cwd, home });
+
+    expect(out?.tinyModel).toBe('foo/bar');
+  });
+
+  test('rejects a value with empty provider or model half', () => {
+    const cwd = mkTmp('settings-half');
+    const home = mkTmp('home-half');
+    mkdirSync(join(cwd, '.pi'));
+    writeFileSync(join(cwd, '.pi', 'research-tiny.json'), JSON.stringify({ tinyModel: '/bar' }));
 
     expect(resolveTinySettings({ cwd, home })).toBeNull();
   });
@@ -506,9 +525,4 @@ describe('createTinyAdapter (budget / counter)', () => {
     expect(journal).toContain('[info]');
     expect(journal).toContain('model resolution failed');
   });
-});
-
-// Ensure counter reset between tests cannot leak into the disabled-path test.
-beforeEach(() => {
-  vi.restoreAllMocks();
 });

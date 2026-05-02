@@ -127,7 +127,7 @@ export interface WatchdogOpts {
 }
 
 /** How the watchdog finished. */
-export type WatchdogOutcome =
+export type WatchdogResult =
   | { kind: 'completed'; lastStatus: WatchdogStatus }
   | { kind: 'errored'; lastStatus: WatchdogStatus }
   | { kind: 'stalled'; lastStatus: WatchdogStatus; aborted: boolean; reason: string }
@@ -176,7 +176,7 @@ function buildStallReason(args: BuildStallReasonArgs): string {
  * errors rather than leaking them into the fanout orchestrator,
  * which has its own failure handling for the child's result.
  */
-export async function watch(opts: WatchdogOpts): Promise<WatchdogOutcome> {
+export async function watch(opts: WatchdogOpts): Promise<WatchdogResult> {
   const staleThresholdMs = opts.staleThresholdMs ?? DEFAULT_STALE_MS;
   const pollIntervalMs = opts.pollIntervalMs ?? DEFAULT_POLL_MS;
   const abortOnStall = opts.abortOnStall ?? true;
