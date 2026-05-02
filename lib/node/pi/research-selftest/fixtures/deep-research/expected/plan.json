@@ -1,0 +1,20 @@
+{
+  "kind": "deep-research",
+  "question": "What is the capital of France?",
+  "slug": "self-test-dr",
+  "subQuestions": [
+    {
+      "id": "sq-1",
+      "question": "What is the capital of France?",
+      "status": "complete",
+      "findingsPath": "findings/sq-1.md"
+    }
+  ],
+  "budget": {
+    "maxSubagents": 2,
+    "maxFetches": 4,
+    "maxCostUsd": 1,
+    "wallClockSec": 300
+  },
+  "status": "done"
+}

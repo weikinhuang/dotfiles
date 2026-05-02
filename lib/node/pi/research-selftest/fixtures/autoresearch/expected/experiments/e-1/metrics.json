@@ -1,0 +1,5 @@
+{
+  "algorithm": "quicksort",
+  "inputSize": 10000,
+  "seconds": 0.125
+}

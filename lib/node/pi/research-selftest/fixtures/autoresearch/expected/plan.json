@@ -1,0 +1,27 @@
+{
+  "kind": "autoresearch",
+  "topic": "measure sort algorithm wall-clock on fixed inputs",
+  "slug": "self-test-ar",
+  "experiments": [
+    {
+      "id": "e-1",
+      "hypothesis": "Quicksort is faster than bubblesort on 10k random ints.",
+      "status": "complete",
+      "dir": "experiments/e-1",
+      "metricsSchema": {
+        "required": [
+          "algorithm",
+          "inputSize",
+          "seconds"
+        ]
+      }
+    }
+  ],
+  "budget": {
+    "maxSubagents": 2,
+    "maxFetches": 4,
+    "maxCostUsd": 1,
+    "wallClockSec": 300
+  },
+  "status": "done"
+}

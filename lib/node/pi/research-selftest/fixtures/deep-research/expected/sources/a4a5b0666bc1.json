@@ -1,0 +1,9 @@
+{
+  "id": "a4a5b0666bc1",
+  "url": "https://example.com/france",
+  "title": "France",
+  "fetchedAt": "2025-01-02T03:04:06.000Z",
+  "contentHash": "7bad1db9292c90d39d4e00d5c1416e2648738b2bc22035cb760d72cbd9c5d10a",
+  "method": "fetch",
+  "mediaType": "text/markdown"
+}

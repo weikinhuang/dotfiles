@@ -1,0 +1,9 @@
+{
+  "id": "db7c0e858ce2",
+  "url": "https://example.com/paris",
+  "title": "Paris",
+  "fetchedAt": "2025-01-02T03:04:07.000Z",
+  "contentHash": "82cd93ead31eba7450fd76975724135658c8f94af630c94db467de719f3eff71",
+  "method": "fetch",
+  "mediaType": "text/markdown"
+}
