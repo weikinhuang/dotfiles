@@ -83,7 +83,7 @@ import { resolveChildModel, runOneShotAgent, type AgentSessionLike } from '../..
 /** Usage string shown on a bare `/research` invocation. */
 const USAGE =
   'Usage:\n' +
-  '  /research <question>   — run the planner → fanout pipeline (Phase 2)\n' +
+  '  /research <question>   — run the planner → synth pipeline; writes report.md\n' +
   '  /research --list       — list runs under ./research/\n' +
   '  /research --selftest   — run the research-core self-test fixture';
 
@@ -134,7 +134,7 @@ export default function deepResearchExtension(pi: ExtensionAPI): void {
   });
 
   pi.registerCommand('research', {
-    description: 'Long-horizon web research (Phase 2: planner → fanout; /research <q> runs the pipeline).',
+    description: 'Long-horizon web research (Phase 3: planner → fanout → synth → report.md).',
     handler: async (rawArgs, ctx) => {
       const args = (rawArgs ?? '').trim();
       const [firstToken = '', ...restTokens] = args.split(/\s+/);
@@ -174,7 +174,10 @@ export default function deepResearchExtension(pi: ExtensionAPI): void {
         return;
       }
 
-      notify(`/research: starting pipeline — planner → self-critic → planning-critic → fanout`, 'info');
+      notify(
+        `/research: starting pipeline — planner → self-critic → planning-critic → fanout → synth → report`,
+        'info',
+      );
       let outcome: PipelineOutcome;
       try {
         outcome = await runResearchPipeline(args, deps.deps);
@@ -231,6 +234,7 @@ function buildPipelineDeps(
     model: modelLabel,
     thinkingLevel: thinkingLabel,
     fanoutMode: 'sync', // Phase 2: sync fanout via runOneShotAgent per task.
+    runSynth: true, // Phase 3: run through synth-sections + merge into report.md.
     ...(ctx.signal ? { signal: ctx.signal } : {}),
     createSession: async (): Promise<ResearchSessionLikeWithLifecycle> => {
       // Build a parent session for the planner / self-critic /
@@ -403,6 +407,21 @@ function buildSyncFanoutSpawner<M>(
 
 function surfaceOutcome(outcome: PipelineOutcome, notify: CommandNotify): void {
   switch (outcome.kind) {
+    case 'report-complete': {
+      const lines: string[] = [];
+      lines.push(`/research: report written at ${outcome.merge.reportPath}`);
+      lines.push(
+        `  fanout: completed=${outcome.fanout.completed.length} failed=${outcome.fanout.failed.length} aborted=${outcome.fanout.aborted.length}`,
+      );
+      lines.push(
+        `  synth: footnotes=${outcome.merge.footnoteCount} stubbed=${outcome.merge.stubbedSubQuestions.length} fallback-wrapper=${outcome.merge.usedFallback ? 'yes' : 'no'}`,
+      );
+      lines.push(`  next step: Phase 4 two-stage review lands in a follow-up. Inspect report.md now.`);
+      const level =
+        outcome.merge.stubbedSubQuestions.length === 0 && outcome.quarantined.length === 0 ? 'info' : 'warning';
+      notify(lines.join('\n'), level);
+      return;
+    }
     case 'fanout-complete': {
       const lines: string[] = [];
       lines.push(`/research: fanout complete under ${outcome.runRoot}`);

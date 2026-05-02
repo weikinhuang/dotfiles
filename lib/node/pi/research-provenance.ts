@@ -52,12 +52,19 @@ import { isRecord, sha256HexPrefix } from './shared.ts';
  * - `timestamp`: ISO8601 UTC string. Callers pass `new Date().toISOString()`.
  * - `promptHash`: 12-char sha256 hex prefix of the prompt that produced
  *   the artifact. See `hashPrompt`.
+ * - `summary` (optional): short human-readable one-liner describing
+ *   what the artifact contains. Populated by the tiny-model adapter's
+ *   `summarize-provenance` task when enabled; omitted entirely when
+ *   the adapter is off. Cosmetic — makes `grep` over provenance
+ *   readable without changing load-bearing behavior, so every
+ *   reader must tolerate its absence.
  */
 export interface Provenance {
   model: string;
   thinkingLevel: string | null;
   timestamp: string;
   promptHash: string;
+  summary?: string;
 }
 
 // ──────────────────────────────────────────────────────────────────────
@@ -133,12 +140,16 @@ const FRONTMATTER_RE = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/;
 function emitYamlBody(p: Provenance): string {
   const q = (s: string): string => JSON.stringify(s);
   const tl = p.thinkingLevel === null ? 'null' : q(p.thinkingLevel);
-  return [
+  const lines = [
     'model: ' + q(p.model),
     'thinkingLevel: ' + tl,
     'timestamp: ' + q(p.timestamp),
     'promptHash: ' + q(p.promptHash),
-  ].join('\n');
+  ];
+  if (typeof p.summary === 'string' && p.summary.length > 0) {
+    lines.push('summary: ' + q(p.summary));
+  }
+  return lines.join('\n');
 }
 
 /**
@@ -210,12 +221,20 @@ function splitFrontmatter(text: string): { body: string | null; rest: string } {
  */
 function toProvenance(raw: unknown): Provenance | null {
   if (!isRecord(raw)) return null;
-  const { model, thinkingLevel, timestamp, promptHash } = raw;
+  const { model, thinkingLevel, timestamp, promptHash, summary } = raw;
   if (typeof model !== 'string' || model.length === 0) return null;
   if (thinkingLevel !== null && typeof thinkingLevel !== 'string') return null;
   if (typeof timestamp !== 'string' || timestamp.length === 0) return null;
   if (typeof promptHash !== 'string' || promptHash.length === 0) return null;
-  return { model, thinkingLevel, timestamp, promptHash };
+  const out: Provenance = { model, thinkingLevel, timestamp, promptHash };
+  // `summary` is optional. We accept only non-empty strings — any
+  // other shape (null, numeric, empty string) drops silently so a
+  // misconfigured sidecar doesn't surface a `summary: ""` field to
+  // downstream readers.
+  if (typeof summary === 'string' && summary.length > 0) {
+    out.summary = summary;
+  }
+  return out;
 }
 
 // ──────────────────────────────────────────────────────────────────────
@@ -255,7 +274,20 @@ export function writeSidecar(artifactPath: string, p: Provenance): void {
   if (isMarkdown(artifactPath)) {
     writeMarkdownFrontmatter(artifactPath, p);
   } else {
-    atomicWriteFile(sidecarPathFor(artifactPath), JSON.stringify(p, null, 2) + '\n');
+    // Build the JSON payload explicitly so an undefined `summary`
+    // doesn't serialize as `"summary": undefined` (JSON.stringify
+    // drops undefined, but the explicit build keeps key order
+    // stable and documents the shape on disk).
+    const payload: Record<string, unknown> = {
+      model: p.model,
+      thinkingLevel: p.thinkingLevel,
+      timestamp: p.timestamp,
+      promptHash: p.promptHash,
+    };
+    if (typeof p.summary === 'string' && p.summary.length > 0) {
+      payload.summary = p.summary;
+    }
+    atomicWriteFile(sidecarPathFor(artifactPath), JSON.stringify(payload, null, 2) + '\n');
   }
 }
 

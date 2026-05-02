@@ -69,7 +69,10 @@ import {
   type PlanningCriticRunner,
   runPlanningCritic,
 } from './deep-research-planning-critic.ts';
+import { writeRubricFiles } from './deep-research-rubric.ts';
 import { runSelfCritic } from './deep-research-self-critic.ts';
+import { type SynthMergeResult, UnknownPlaceholderError, runSynthMerge } from './deep-research-synth-merge.ts';
+import { type SectionOutcome, runAllSections } from './deep-research-synth-sections.ts';
 import {
   type FanoutDeps,
   type FanoutResult,
@@ -83,6 +86,7 @@ import { paths } from './research-paths.ts';
 import { type DeepResearchPlan, type PlanBudget } from './research-plan.ts';
 import { hashPrompt, type Provenance, writeSidecar } from './research-provenance.ts';
 import { failureCounter, quarantine } from './research-quarantine.ts';
+import { listRun, type SourceRef } from './research-sources.ts';
 import { type ResearchSessionLike } from './research-structured.ts';
 import { type TinyAdapter, type TinyCallContext } from './research-tiny.ts';
 
@@ -153,6 +157,17 @@ export interface PipelineDeps<M> {
    * to `budget.maxSubagents`.
    */
   maxConcurrent?: number;
+  /**
+   * Phase 3 switch. When true, after fanout + findings absorption
+   * the pipeline runs per-sub-question synthesis
+   * (`deep-research-synth-sections`) and the merge pass
+   * (`deep-research-synth-merge`), emitting a `report-complete`
+   * outcome that carries the rendered `report.md` path. When
+   * false / unset the pipeline stops at `fanout-complete` (Phase
+   * 2 behavior); Phase 2 tests depend on that shape so we leave
+   * it as opt-in rather than flipping the default.
+   */
+  runSynth?: boolean;
 }
 
 /** Session that optionally knows how to clean up after itself. */
@@ -172,6 +187,21 @@ export type PipelineOutcome =
       plan: DeepResearchPlan;
       fanout: FanoutResult;
       quarantined: string[];
+    }
+  /**
+   * Phase 3 terminal outcome: synth + merge completed and
+   * `report.md` lives under the run root. Still carries the
+   * fanout detail for consumers that want to surface
+   * completed / failed / aborted counts in their summary.
+   */
+  | {
+      kind: 'report-complete';
+      runRoot: string;
+      plan: DeepResearchPlan;
+      fanout: FanoutResult;
+      quarantined: string[];
+      sections: SectionOutcome[];
+      merge: SynthMergeResult;
     }
   /** Planner emitted a stuck shape — no plan on disk; user checkpoint. */
   | { kind: 'planner-stuck'; runRoot: string; reason: string }
@@ -260,6 +290,34 @@ export async function runResearchPipeline<M>(question: string, deps: PipelineDep
       }
     }
 
+    // ── 3b. Rubric files ─────────────────────────────────────────
+    // Materialize rubric-structural.md + rubric-subjective.md
+    // once the plan is locked. `preserveExisting: true` keeps a
+    // user-edited rubric from being clobbered on /research --resume.
+    try {
+      const rubricOutcome = writeRubricFiles({ runRoot, plan, preserveExisting: true });
+      if (rubricOutcome.wrote.structural || rubricOutcome.wrote.subjective) {
+        appendJournal(p.journal, {
+          level: 'step',
+          heading: 'rubric files materialized',
+          body: `structural=${rubricOutcome.wrote.structural} subjective=${rubricOutcome.wrote.subjective}`,
+        });
+      }
+    } catch (e) {
+      // Rubric emission is not load-bearing — the Phase 4 review
+      // surfaces the problem when the files are missing. Journal
+      // the failure and continue.
+      try {
+        appendJournal(p.journal, {
+          level: 'warn',
+          heading: 'rubric emission failed',
+          body: (e as Error).message,
+        });
+      } catch {
+        /* swallow */
+      }
+    }
+
     // ── 4. Fanout ─────────────────────────────────────────────────
     const fanoutResult = await runFanoutPhase({
       plan,
@@ -288,6 +346,47 @@ export async function runResearchPipeline<M>(question: string, deps: PipelineDep
       });
     } catch {
       /* swallow */
+    }
+
+    // ── 6. Synth + merge (Phase 3, opt-in) ───────────────────────
+    if (deps.runSynth) {
+      try {
+        const synthResult = await runSynthPhase({
+          runRoot,
+          plan,
+          session,
+          deps,
+          quarantinedFindings: new Set(quarantined),
+        });
+        return {
+          kind: 'report-complete',
+          runRoot,
+          plan,
+          fanout: fanoutResult,
+          quarantined,
+          sections: synthResult.sections,
+          merge: synthResult.merge,
+        };
+      } catch (e) {
+        // `UnknownPlaceholderError` is a typed reject path from
+        // merge when a synth output cites an id not in the source
+        // store. The error's `.unknown` field lists the offenders
+        // verbatim so the journal entry is actionable.
+        const reason =
+          e instanceof UnknownPlaceholderError
+            ? `research-citations rejected unknown source ids: ${e.unknown.join(', ')}`
+            : (e as Error).message;
+        try {
+          appendJournal(p.journal, {
+            level: 'error',
+            heading: 'synth phase failed',
+            body: reason,
+          });
+        } catch {
+          /* swallow */
+        }
+        return { kind: 'error', runRoot, plan, error: reason };
+      }
     }
 
     return {
@@ -591,6 +690,72 @@ async function absorbFindings<M>(args: AbsorbArgs<M>): Promise<string[]> {
   }
 
   return quarantined;
+}
+
+// ──────────────────────────────────────────────────────────────────────
+// Synth + merge phase (Phase 3).
+// ──────────────────────────────────────────────────────────────────────
+
+interface SynthPhaseArgs<M> {
+  runRoot: string;
+  plan: DeepResearchPlan;
+  session: ResearchSessionLike;
+  deps: PipelineDeps<M>;
+  /** Sub-question ids whose findings were quarantined upstream. */
+  quarantinedFindings: ReadonlySet<string>;
+}
+
+/**
+ * Drive `runAllSections` then `runSynthMerge` against the parent
+ * session. The source index is loaded once and shared between
+ * both stages; everything else (tiny adapter, clock, journal
+ * path) threads through unchanged.
+ *
+ * Errors from `runSynthMerge` (notably {@link UnknownPlaceholderError})
+ * propagate — the caller maps them to a `{kind:'error'}` outcome.
+ */
+async function runSynthPhase<M>(args: SynthPhaseArgs<M>): Promise<{
+  sections: SectionOutcome[];
+  merge: SynthMergeResult;
+}> {
+  const { runRoot, plan, session, deps, quarantinedFindings } = args;
+  const p = paths(runRoot);
+  ensureDirSync(runRoot);
+
+  // One listing used by both stages — `research-sources.listRun`
+  // is O(N) in the source store size; not load-bearing for speed
+  // but avoids doing it twice.
+  const sourceIndex: SourceRef[] = listRun(runRoot);
+
+  const sections = await runAllSections<M>({
+    runRoot,
+    plan,
+    session,
+    model: deps.model,
+    thinkingLevel: deps.thinkingLevel,
+    quarantinedFindings,
+    sourceIndex,
+    journalPath: p.journal,
+    ...(deps.now !== undefined ? { now: deps.now } : {}),
+    ...(deps.tinyAdapter !== undefined ? { tinyAdapter: deps.tinyAdapter } : {}),
+    ...(deps.tinyCtx !== undefined ? { tinyCtx: deps.tinyCtx } : {}),
+  });
+
+  const merge = await runSynthMerge<M>({
+    runRoot,
+    plan,
+    sectionOutcomes: sections,
+    session,
+    model: deps.model,
+    thinkingLevel: deps.thinkingLevel,
+    sourceIndex,
+    journalPath: p.journal,
+    ...(deps.now !== undefined ? { now: deps.now } : {}),
+    ...(deps.tinyAdapter !== undefined ? { tinyAdapter: deps.tinyAdapter } : {}),
+    ...(deps.tinyCtx !== undefined ? { tinyCtx: deps.tinyCtx } : {}),
+  });
+
+  return { sections, merge };
 }
 
 // ──────────────────────────────────────────────────────────────────────
