@@ -28,6 +28,7 @@ import {
   resolveBudget,
   type StopReason,
 } from './iteration-loop-schema.ts';
+import { truncate } from './shared.ts';
 
 export interface RenderOptions {
   /**
@@ -164,8 +165,11 @@ function renderActive(spec: CheckSpec, state: IterationState | null, opts: Rende
     if (!v.approved && v.issues.length > 0) {
       const shown = v.issues.slice(0, maxIssues);
       for (const iss of shown) {
-        const loc = iss.location ? ` @ ${iss.location}` : '';
-        lines.push(`  [${iss.severity}] ${iss.description}${loc}`);
+        const loc = iss.location ? ` @ ${truncate(iss.location, 80)}` : '';
+        // Issue description goes directly in the system prompt every
+        // turn — cap it so a runaway critic issue doesn't blow up the
+        // prompt size.
+        lines.push(`  [${iss.severity}] ${truncate(iss.description, 240)}${loc}`);
       }
       if (v.issues.length > shown.length) {
         lines.push(`  … and ${v.issues.length - shown.length} more issue(s)`);

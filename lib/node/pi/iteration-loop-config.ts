@@ -90,7 +90,22 @@ export interface ConfigLoadResult {
   warnings: ConfigWarning[];
 }
 
-const DEFAULT_CONFIG: IterationLoopConfig = Object.freeze({
+function deepFreeze<T>(value: T): T {
+  if (value === null || typeof value !== 'object') return value;
+  const record = value as unknown as Record<string, unknown>;
+  for (const key of Object.keys(record)) {
+    const child = record[key];
+    if (child !== null && typeof child === 'object') deepFreeze(child);
+  }
+  return Object.freeze(value);
+}
+
+// Deep-frozen default config. `Object.freeze` alone leaves nested
+// arrays/objects mutable, and a stray caller that mutated
+// DEFAULT_CONFIG.claimRegexes could poison the copy every subsequent
+// loadIterationLoopConfig call reads from. Nothing does that today,
+// but a deep-freeze here is cheap insurance.
+const DEFAULT_CONFIG: IterationLoopConfig = deepFreeze({
   claimRegexes: [],
   strictNudgeAfterNEdits: 2,
   maxIterDefault: null,
@@ -180,13 +195,14 @@ export function loadIterationLoopConfig(cwd: string, home: string = homedir()): 
         warnings.push({ path, error: '`claim_regexes` must be an array of regex strings' });
       } else {
         const compiled = compileRegexArray(obj.claim_regexes, path, warnings, 'claim_regexes');
-        if (compiled.length > 0 || obj.claim_regexes.length === 0) {
-          // Later file REPLACES — clear accumulated replaces AND
-          // built-ins, then adopt these. Extras still stack.
-          claimReplaced = true;
-          replaceRegexes.length = 0;
-          replaceRegexes.push(...compiled);
-        }
+        // The file explicitly set `claim_regexes`, so it wants to
+        // REPLACE the built-ins regardless of whether any individual
+        // entries compiled. Otherwise a file that accidentally lists
+        // only invalid regexes would silently fall back to built-ins,
+        // which disagrees with the doc ("replace the built-in").
+        claimReplaced = true;
+        replaceRegexes.length = 0;
+        replaceRegexes.push(...compiled);
       }
     }
 

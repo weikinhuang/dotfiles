@@ -42,6 +42,7 @@ import {
   emptyIterationState,
   type HistoryEntry,
   isIterationStateShape,
+  isStopReason,
   type IterationState,
   type StopReason,
   type Verdict,
@@ -115,6 +116,9 @@ export function actAccept(_prev: IterationState | null, args: AcceptArgs): Actio
   }
   if (!args.acceptedAt || typeof args.acceptedAt !== 'string') {
     return { ok: false, error: 'accept requires `acceptedAt` ISO8601 timestamp' };
+  }
+  if (!Number.isFinite(Date.parse(args.acceptedAt))) {
+    return { ok: false, error: `accept requires a parseable ISO8601 \`acceptedAt\` (got "${args.acceptedAt}")` };
   }
   const fresh = emptyIterationState(args.task, args.acceptedAt);
   return { ok: true, state: fresh, summary: `Accepted task "${args.task}" — ready for iteration 1.` };
@@ -268,14 +272,7 @@ export function actClose(prev: IterationState | null, args: CloseArgs): ActionRe
       summary: `Already closed (${prev.stopReason}).`,
     };
   }
-  if (
-    args.reason !== 'passed' &&
-    args.reason !== 'budget-iter' &&
-    args.reason !== 'budget-cost' &&
-    args.reason !== 'wall-clock' &&
-    args.reason !== 'fixpoint' &&
-    args.reason !== 'user-closed'
-  ) {
+  if (!isStopReason(args.reason)) {
     return { ok: false, error: `invalid close reason "${String(args.reason)}"` };
   }
   const next = cloneIterationState(prev);

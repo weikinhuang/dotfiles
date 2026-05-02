@@ -152,6 +152,7 @@ import {
   type CriticCheckSpec,
   isBashCheckSpecShape,
   isCriticCheckSpecShape,
+  isStopReason,
   type IterationState,
   type StopReason,
   type Verdict,
@@ -517,10 +518,10 @@ export default function iterationLoopExtension(pi: ExtensionAPI): void {
   // Phase 4 guardrails state. `checkRanThisTurn` flips on every
   // successful `check run` execution (we reset at `turn_start`); the
   // claim & strict nudges both suppress when it's true, because any
-  // run means the model already verified. `nudgeMarkers` tracks
-  // whether we've already fired a nudge of a given kind this turn
-  // via `lastUserMessageHasMarker` — idempotent across re-delivery
-  // races.
+  // run means the model already verified. Idempotency against
+  // re-delivery races is handled by `lastUserMessageHasMarker` — we
+  // key off CLAIM_NUDGE_MARKER / STRICT_NUDGE_MARKER so repeated
+  // invocations don't re-fire once a nudge has been delivered.
   let checkRanThisTurn = false;
   let loopConfig: IterationLoopConfig = loadIterationLoopConfig(process.cwd()).config;
   const surfacedConfigWarnings = new Set<string>();
@@ -579,6 +580,12 @@ export default function iterationLoopExtension(pi: ExtensionAPI): void {
 
   pi.on('turn_start', (event) => {
     // event.turnIndex is 0-indexed per pi-coding-agent's TurnStartEvent.
+    // This hook only receives the PARENT session's turn_start — the
+    // critic subagent runs in its own AgentSession (via
+    // runOneShotAgent) with `SessionManager.inMemory` + no shared pi
+    // extension registry, so its events never reach this callback. If
+    // pi ever starts piping subagent events through the parent, adjust
+    // this handler to filter by `event.sessionId === pi.sessionId`.
     currentTurnIndex = (event as { turnIndex?: number }).turnIndex ?? currentTurnIndex + 1;
     checkRanThisTurn = false;
   });
@@ -1013,7 +1020,10 @@ export default function iterationLoopExtension(pi: ExtensionAPI): void {
         }
       }
     } else {
-      return errorReturn('run', task, `unknown check kind "${String((spec as { kind?: unknown }).kind)}"`);
+      // All CheckKind variants handled above — if a new kind ever lands
+      // without a dispatch branch, this closes the hole loudly.
+      const exhaustive: never = spec.kind;
+      return errorReturn('run', task, `unknown check kind "${String(exhaustive as unknown)}"`);
     }
 
     // ── Persist verdict JSON alongside the snapshot ───────────────────
@@ -1144,7 +1154,11 @@ export default function iterationLoopExtension(pi: ExtensionAPI): void {
   const doClose = (params: { task?: string; reason?: StopReason }, ctx: ExtensionContext): ToolReturn => {
     const task = (params.task ?? DEFAULT_TASK).trim() || DEFAULT_TASK;
     const reason: StopReason = params.reason ?? 'user-closed';
-    if (!(STOP_REASONS as readonly string[]).includes(reason)) {
+    // Typebox already constrains `reason` to STOP_REASONS, but a
+    // programmatic caller that bypassed validation could hand us
+    // garbage. Use the shared isStopReason so the schema + extension
+    // + reducer all agree on membership.
+    if (!isStopReason(reason)) {
       return errorReturn('close', task, `invalid reason "${String(reason)}"`);
     }
 

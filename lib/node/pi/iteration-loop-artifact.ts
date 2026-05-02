@@ -99,18 +99,36 @@ export function anyArtifactMatch(
 export function extractEditTargets(toolName: string, args: unknown): string[] {
   // Allowlist the tool names we care about. Extension registers this
   // list explicitly so a future rename doesn't silently bypass
-  // tracking.
-  const EDIT_TOOLS = new Set(['write', 'edit', 'multi_edit', 'multiedit']);
+  // tracking. Include both snake_case + camelCase variants of common
+  // patch tools so a drop-in replacement of `edit` (e.g. pi's
+  // built-in `edit`, Claude Code's `str_replace_editor`, Codex's
+  // `apply_patch`, notebook-oriented `notebook_edit`) doesn't escape
+  // the match.
+  const EDIT_TOOLS = new Set([
+    'write',
+    'edit',
+    'multi_edit',
+    'multiedit',
+    'str_replace_editor',
+    'str_replace_based_edit_tool',
+    'apply_patch',
+    'notebook_edit',
+  ]);
   if (!EDIT_TOOLS.has(toolName.toLowerCase())) return [];
   if (!args || typeof args !== 'object') return [];
   const a = args as Record<string, unknown>;
-  const out: string[] = [];
-  if (typeof a.path === 'string') out.push(a.path);
-  if (typeof a.file_path === 'string') out.push(a.file_path);
+  const seen = new Set<string>();
+  const push = (p: unknown): void => {
+    if (typeof p === 'string' && p.length > 0 && !seen.has(p)) seen.add(p);
+  };
+  push(a.path);
+  push(a.file_path);
   if (Array.isArray(a.files)) {
     for (const f of a.files) {
-      if (f && typeof f === 'object' && typeof (f as { path?: unknown }).path === 'string') {
-        out.push((f as { path: string }).path);
+      if (f && typeof f === 'object') {
+        const maybe = f as { path?: unknown; file_path?: unknown };
+        push(maybe.path);
+        push(maybe.file_path);
       }
     }
   }
@@ -118,10 +136,10 @@ export function extractEditTargets(toolName: string, args: unknown): string[] {
     for (const e of a.edits) {
       if (e && typeof e === 'object') {
         const maybe = e as { path?: unknown; file_path?: unknown };
-        if (typeof maybe.path === 'string') out.push(maybe.path);
-        else if (typeof maybe.file_path === 'string') out.push(maybe.file_path);
+        push(maybe.path);
+        push(maybe.file_path);
       }
     }
   }
-  return out;
+  return [...seen];
 }

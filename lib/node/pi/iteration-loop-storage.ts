@@ -175,6 +175,14 @@ export function acceptDraft(
   acceptedAt: string,
 ): { ok: true; spec: CheckSpec } | { ok: false; error: string } {
   const active = activePath(cwd, task);
+  // TOCTOU note: two `acceptDraft` calls for the same task racing
+  // between this `existsSync` and the `atomicWriteFile` below will
+  // both see no active file and both write. `atomicWriteFile`'s
+  // rename is atomic so the file is never half-written, but the
+  // last writer wins and overwrites the first acceptance's
+  // acceptedAt timestamp. That's acceptable here — acceptance is a
+  // user-gated action in practice, and the spec content itself is
+  // identical across racers (both came from the same draft).
   if (existsSync(active)) {
     return { ok: false, error: `task "${task}" is already accepted` };
   }
@@ -311,6 +319,9 @@ export function snapshotArtifact(
  * the path written.
  */
 export function writeSnapshotVerdict(cwd: string, task: string, iteration: number, verdict: Verdict): string {
+  if (!Number.isInteger(iteration) || iteration < 1) {
+    throw new Error(`writeSnapshotVerdict: iteration must be an integer ≥ 1, got ${iteration}`);
+  }
   const p = snapshotVerdictPath(cwd, task, iteration);
   atomicWriteFile(p, JSON.stringify(verdict, null, 2));
   return p;

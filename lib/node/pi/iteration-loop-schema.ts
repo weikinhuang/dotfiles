@@ -246,6 +246,10 @@ function isNonNegativeFiniteNumber(v: unknown): v is number {
   return typeof v === 'number' && Number.isFinite(v) && v >= 0;
 }
 
+function isNonNegativeInteger(v: unknown): v is number {
+  return typeof v === 'number' && Number.isInteger(v) && v >= 0;
+}
+
 function isScore(v: unknown): v is number {
   return typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= 1;
 }
@@ -254,7 +258,7 @@ function isIssueSeverity(v: unknown): v is IssueSeverity {
   return v === 'blocker' || v === 'major' || v === 'minor';
 }
 
-function isStopReason(v: unknown): v is StopReason {
+export function isStopReason(v: unknown): v is StopReason {
   return (
     v === 'passed' ||
     v === 'budget-iter' ||
@@ -348,7 +352,7 @@ export function isVerdictShape(v: unknown): v is Verdict {
 
 export function isBestSoFarShape(v: unknown): v is BestSoFar {
   if (!isRecord(v)) return false;
-  if (!isNonNegativeFiniteNumber(v.iteration)) return false;
+  if (!isNonNegativeInteger(v.iteration)) return false;
   if (!isScore(v.score)) return false;
   // Tolerate older state entries that predate the `approved` field by
   // defaulting to `false` on read (normalized by the reducer when it
@@ -362,7 +366,7 @@ export function isBestSoFarShape(v: unknown): v is BestSoFar {
 
 export function isHistoryEntryShape(v: unknown): v is HistoryEntry {
   if (!isRecord(v)) return false;
-  if (!isNonNegativeFiniteNumber(v.iteration)) return false;
+  if (!isNonNegativeInteger(v.iteration)) return false;
   if (!isScore(v.score)) return false;
   if (typeof v.approved !== 'boolean') return false;
   if (typeof v.summary !== 'string') return false;
@@ -374,9 +378,9 @@ export function isHistoryEntryShape(v: unknown): v is HistoryEntry {
 export function isIterationStateShape(v: unknown): v is IterationState {
   if (!isRecord(v)) return false;
   if (typeof v.task !== 'string' || v.task.length === 0) return false;
-  if (!isNonNegativeFiniteNumber(v.iteration)) return false;
-  if (!isNonNegativeFiniteNumber(v.editsSinceLastCheck)) return false;
-  if (v.lastCheckTurn !== null && !isNonNegativeFiniteNumber(v.lastCheckTurn)) return false;
+  if (!isNonNegativeInteger(v.iteration)) return false;
+  if (!isNonNegativeInteger(v.editsSinceLastCheck)) return false;
+  if (v.lastCheckTurn !== null && !isNonNegativeInteger(v.lastCheckTurn)) return false;
   if (v.lastVerdict !== null && !isVerdictShape(v.lastVerdict)) return false;
   if (v.bestSoFar !== null && !isBestSoFarShape(v.bestSoFar)) return false;
   if (!isNonNegativeFiniteNumber(v.costUsd)) return false;
