@@ -36,6 +36,7 @@ import {
   searchWeb,
   type SourceRef,
 } from '../../../../lib/node/pi/research-sources.ts';
+import { sha256Hex } from '../../../../lib/node/pi/shared.ts';
 
 // ──────────────────────────────────────────────────────────────────────
 // Tempdir fixture.
@@ -452,6 +453,28 @@ describe('fetchAndStore — broken-cache recovery', () => {
     expect(existsSync(join(paths(runRoot).sources, `${ref.id}.json`))).toBe(false);
   });
 
+  test('fetch failure carries errorReason extracted from the thrown Error', async () => {
+    const mcp = new MockMcpClient();
+    const url = 'https://example.com/err-error';
+    mcp.fetchResponses.set(url, new Error('connection reset by peer'));
+
+    const ref = await fetchAndStore(runRoot, url, mcp);
+
+    expect(ref.method).toBe('failed');
+    expect(ref.errorReason).toBe('connection reset by peer');
+  });
+
+  test('fetch failure errorReason omitted on the success path', async () => {
+    const mcp = new MockMcpClient();
+    const url = 'https://example.com/ok-no-error';
+    mcp.fetchResponses.set(url, { content: 'x', title: 't' });
+
+    const ref = await fetchAndStore(runRoot, url, mcp);
+
+    expect(ref.method).toBe('fetch');
+    expect(ref.errorReason).toBeUndefined();
+  });
+
   test('fetch failure leaves the cache open for a retry', async () => {
     const mcp = new MockMcpClient();
     const url = 'https://example.com/retry';
@@ -610,5 +633,66 @@ describe('SourceRef shape', () => {
     for (const key of ['id', 'url', 'title', 'fetchedAt', 'contentHash', 'method', 'mediaType'] as const) {
       expect(ref[key]).toBeDefined();
     }
+  });
+});
+
+// ──────────────────────────────────────────────────────────────────────
+// contentHash semantics — body-only.
+// ──────────────────────────────────────────────────────────────────────
+
+describe('SourceRef.contentHash — body-only semantic', () => {
+  test('equals sha256 of the raw fetched body, NOT the on-disk bytes', async () => {
+    const mcp = new MockMcpClient();
+    const url = 'https://example.com/hash-body';
+    const body = '# Article\n\nHello world.\n';
+    mcp.fetchResponses.set(url, { content: body, title: 'T' });
+
+    const ref = await fetchAndStore(runRoot, url, mcp);
+
+    expect(ref.contentHash).toBe(sha256Hex(body));
+  });
+
+  test('re-fetching the same body on different runRoots produces the same hash', async () => {
+    const mcp = new MockMcpClient();
+    const url = 'https://example.com/stable-hash';
+    const body = 'stable body bytes\n';
+    mcp.fetchResponses.set(url, { content: body, title: 'T' });
+
+    const ref1 = await fetchAndStore(runRoot, url, mcp);
+
+    // Distinct run root — frontmatter timestamps will differ, but the
+    // content hash is body-only, so it must match.
+    const otherRoot = join(cwd, 'research', 'other-run');
+    mcp.fetchResponses.set(url, { content: body, title: 'T' });
+    const ref2 = await fetchAndStore(otherRoot, url, mcp);
+
+    expect(ref2.contentHash).toBe(ref1.contentHash);
+  });
+});
+
+// ──────────────────────────────────────────────────────────────────────
+// Validator tightening — non-failed refs must carry a non-empty hash.
+// ──────────────────────────────────────────────────────────────────────
+
+describe('cache ref validator — contentHash strictness', () => {
+  test('on-disk ref with empty contentHash on a non-failed method triggers a re-fetch', async () => {
+    const mcp = new MockMcpClient();
+    const url = 'https://example.com/empty-hash';
+    mcp.fetchResponses.set(url, { content: 'v1', title: 'T' });
+
+    const first = await fetchAndStore(runRoot, url, mcp);
+
+    // Corrupt the cached ref so its hash is empty under method='fetch'.
+    // The validator must reject this as malformed, triggering re-fetch.
+    const refFile = join(paths(runRoot).sources, `${first.id}.json`);
+    const corrupted = { ...first, contentHash: '' };
+    writeFileSync(refFile, JSON.stringify(corrupted));
+
+    mcp.fetchResponses.set(url, { content: 'v2', title: 'T' });
+    const second = await fetchAndStore(runRoot, url, mcp);
+
+    expect(second.method).toBe('fetch');
+    expect(second.contentHash).toBe(sha256Hex('v2'));
+    expect(second.contentHash.length).toBe(64);
   });
 });

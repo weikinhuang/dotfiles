@@ -46,14 +46,13 @@
  * No pi imports.
  */
 
-import { createHash } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { atomicWriteFile, ensureDirSync } from './atomic-write.ts';
 import { paths } from './research-paths.ts';
 import { type Provenance, writeSidecar } from './research-provenance.ts';
-import { isRecord } from './shared.ts';
+import { isRecord, sha256Hex, sha256HexPrefix } from './shared.ts';
 
 // ──────────────────────────────────────────────────────────────────────
 // Types.
@@ -75,9 +74,12 @@ import { isRecord } from './shared.ts';
  *   - `fetchedAt`    — ISO8601 timestamp of the successful fetch
  *                      (or of the most recent re-fetch after cache
  *                      repair). Not updated on cached hits.
- *   - `contentHash`  — sha256 of the stored content bytes (full hex).
- *                      Used by callers who want to detect silent
- *                      mutation of the cache file.
+ *   - `contentHash`  — sha256 hex of the fetched body bytes (the
+ *                      exact string the MCP client returned, before
+ *                      we prepend any provenance frontmatter). Use
+ *                      this to detect whether two runs fetched the
+ *                      same resource content, or to diff against a
+ *                      re-fetch. Empty string on `method: 'failed'`.
  *   - `method`       — how the ref was produced by this call:
  *                      `fetch` (cache miss → network),
  *                      `cached` (cache hit, no network),
@@ -86,6 +88,12 @@ import { isRecord } from './shared.ts';
  *                      callers can journal / escalate).
  *   - `mediaType`    — fetch_web's reported media type, else
  *                      `text/markdown` (the default fetch format).
+ *   - `errorReason?` — present only when `method === 'failed'`.
+ *                      The stringified underlying error (the `err.message`
+ *                      from the thrown fetch call, or the string form
+ *                      of the value when a non-Error was thrown). Lets
+ *                      callers journal *why* a fetch failed without
+ *                      having to retain the exception themselves.
  */
 export interface SourceRef {
   id: string;
@@ -95,6 +103,7 @@ export interface SourceRef {
   contentHash: string;
   method: 'fetch' | 'cached' | 'failed';
   mediaType: string;
+  errorReason?: string;
 }
 
 /**
@@ -255,16 +264,22 @@ export function normalizeUrl(input: string): string {
 // ──────────────────────────────────────────────────────────────────────
 
 /**
+ * Hash a URL that has ALREADY been through `normalizeUrl`. Skip this
+ * entry point unless you have an already-normalized string in hand —
+ * callers who pass raw URLs should use `hashKey` so they stay on the
+ * single normalize-then-hash pipeline.
+ */
+function hashKeyOfNormalized(normalized: string): string {
+  return sha256HexPrefix(normalized, 12);
+}
+
+/**
  * 12-char hex sha256 prefix of the normalized URL. Matches the
  * length convention from `research-provenance.hashPrompt` so keys
  * in journals / provenance / source refs all read consistently.
  */
 export function hashKey(url: string): string {
-  return createHash('sha256').update(normalizeUrl(url), 'utf8').digest('hex').slice(0, 12);
-}
-
-function contentHashHex(content: string): string {
-  return createHash('sha256').update(content, 'utf8').digest('hex');
+  return hashKeyOfNormalized(normalizeUrl(url));
 }
 
 // ──────────────────────────────────────────────────────────────────────
@@ -305,6 +320,13 @@ function isSourceRefShape(v: unknown): v is SourceRef {
   if (typeof v.contentHash !== 'string') return false;
   if (!isSourceMethod(v.method)) return false;
   if (typeof v.mediaType !== 'string' || v.mediaType.length === 0) return false;
+  // `contentHash` must be non-empty for any ref we persist — only
+  // `failed` refs (which are NEVER persisted) are allowed an empty
+  // hash. Tightening here means an on-disk ref with an empty hash
+  // is rejected as malformed and triggers a re-fetch, which is
+  // what callers would want anyway.
+  if (v.method !== 'failed' && v.contentHash.length === 0) return false;
+  if (v.errorReason !== undefined && typeof v.errorReason !== 'string') return false;
   return true;
 }
 
@@ -356,11 +378,14 @@ function persist(input: PersistInput): SourceRef {
     url: input.normalizedUrl,
     title: input.title,
     fetchedAt: input.fetchedAt,
-    // Hash the full on-disk bytes (post-frontmatter) so the ref's
-    // contentHash matches what a byte-level verifier would read
-    // back. Callers that want a hash of the raw body only can
-    // re-hash the pre-frontmatter content themselves.
-    contentHash: contentHashHex(readFileSync(md, 'utf8')),
+    // Hash the body bytes as returned by the MCP client — NOT the
+    // full on-disk file, which also includes the provenance
+    // frontmatter. Body-only means two runs that fetched the same
+    // resource produce the same hash even if their provenance
+    // timestamps differ, and re-hashing the raw fetch result in
+    // tests / tooling lines up without having to parse off the
+    // frontmatter first.
+    contentHash: sha256Hex(input.content),
     method: 'fetch',
     mediaType: input.mediaType,
   };
@@ -405,14 +430,35 @@ export interface FetchAndStoreOpts {
  * case triggers a re-fetch; the new entry overwrites whatever was
  * there.
  */
+/**
+ * Extract a human-readable reason string from an unknown thrown
+ * value. Covers the three shapes we actually see from the MCP
+ * client fake + real transports: native `Error` subclasses, plain
+ * strings thrown directly, and arbitrary structural objects that
+ * get JSON.stringified. Falls back to `'unknown error'` for values
+ * we can't meaningfully serialize (circular refs, symbols).
+ */
+function errorToReason(err: unknown): string {
+  if (err instanceof Error) return err.message || err.name || 'Error';
+  if (typeof err === 'string') return err;
+  try {
+    return JSON.stringify(err);
+  } catch {
+    return 'unknown error';
+  }
+}
+
 export async function fetchAndStore(
   runRoot: string,
   url: string,
   mcpClient: McpClient,
   opts: FetchAndStoreOpts = {},
 ): Promise<SourceRef> {
+  // Normalize once, hash the normalized form. The old call chain
+  // (`const id = hashKey(url)`) did the normalization twice per
+  // cache miss — cheap, but pointlessly so.
   const normalized = normalizeUrl(url);
-  const id = hashKey(url);
+  const id = hashKeyOfNormalized(normalized);
 
   // Probe the cache. Accept a ref only if both sibling files are
   // readable — a stray .json with no .md is a broken cache entry
@@ -431,10 +477,13 @@ export async function fetchAndStore(
       url: normalized,
       ...(opts.format !== undefined ? { format: opts.format } : {}),
     });
-  } catch {
+  } catch (err) {
     // Transport / upstream error. Do not persist; return a
     // `failed` ref so the caller can journal / escalate. A
-    // subsequent `fetchAndStore(url)` will retry.
+    // subsequent `fetchAndStore(url)` will retry. We preserve the
+    // underlying error text in `errorReason` so downstream code
+    // that wants to log "why did it fail?" has a stable signal
+    // without needing the original exception.
     return {
       id,
       url: normalized,
@@ -443,6 +492,7 @@ export async function fetchAndStore(
       contentHash: '',
       method: 'failed',
       mediaType: 'text/plain',
+      errorReason: errorToReason(err),
     };
   }
 

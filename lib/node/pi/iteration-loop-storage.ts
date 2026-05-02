@@ -26,7 +26,6 @@
  * No pi imports — testable under `vitest` with a temp cwd.
  */
 
-import { createHash } from 'node:crypto';
 import {
   copyFileSync,
   cpSync,
@@ -42,6 +41,7 @@ import { basename, extname, isAbsolute, join } from 'node:path';
 
 import { atomicWriteFile, ensureDirSync } from './atomic-write.ts';
 import { type CheckSpec, isCheckSpecShape, type Verdict } from './iteration-loop-schema.ts';
+import { sha256Hex } from './shared.ts';
 
 // `atomicWriteFile` + `ensureDirSync` are re-exported so callers inside
 // this module (and consumers of the storage module) get them through
@@ -310,7 +310,7 @@ export function snapshotArtifact(
   const dest = snapshotPath(cwd, task, iteration, artifactPath);
   copyFileSync(src, dest);
   const bytes = readFileSync(dest);
-  const hash = createHash('sha256').update(bytes).digest('hex');
+  const hash = sha256Hex(bytes);
   return { path: dest, hash };
 }
 

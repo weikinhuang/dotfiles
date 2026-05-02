@@ -30,11 +30,10 @@
  * `atomic-write` for all mutating writes.
  */
 
-import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 
 import { atomicWriteFile } from './atomic-write.ts';
-import { isRecord } from './shared.ts';
+import { isRecord, sha256HexPrefix } from './shared.ts';
 
 // ──────────────────────────────────────────────────────────────────────
 // Types.
@@ -73,7 +72,7 @@ export interface Provenance {
  * ~16M prompts; we tolerate the residual risk for readability.
  */
 export function hashPrompt(prompt: string): string {
-  return createHash('sha256').update(prompt, 'utf8').digest('hex').slice(0, 12);
+  return sha256HexPrefix(prompt, 12);
 }
 
 // ──────────────────────────────────────────────────────────────────────
@@ -134,9 +133,12 @@ const FRONTMATTER_RE = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/;
 function emitYamlBody(p: Provenance): string {
   const q = (s: string): string => JSON.stringify(s);
   const tl = p.thinkingLevel === null ? 'null' : q(p.thinkingLevel);
-  return ['model: ' + q(p.model), 'thinkingLevel: ' + tl, 'timestamp: ' + q(p.timestamp), 'promptHash: ' + q(p.promptHash)].join(
-    '\n',
-  );
+  return [
+    'model: ' + q(p.model),
+    'thinkingLevel: ' + tl,
+    'timestamp: ' + q(p.timestamp),
+    'promptHash: ' + q(p.promptHash),
+  ].join('\n');
 }
 
 /**
