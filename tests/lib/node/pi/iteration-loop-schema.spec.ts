@@ -192,7 +192,7 @@ describe('cloneIterationState', () => {
       stopReason: null,
       ranAt: '2026-05-01T00:00:01Z',
     });
-    s.bestSoFar = { iteration: 1, score: 0.5, snapshotPath: '/x', artifactHash: 'abc' };
+    s.bestSoFar = { iteration: 1, score: 0.5, snapshotPath: '/x', artifactHash: 'abc', approved: true };
     s.lastVerdict = {
       approved: false,
       score: 0.5,

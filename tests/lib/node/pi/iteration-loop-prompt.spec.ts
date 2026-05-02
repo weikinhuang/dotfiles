@@ -90,7 +90,7 @@ describe('active: after a not-approved run', () => {
           { severity: 'minor', description: 'colors off' },
         ],
       },
-      bestSoFar: { iteration: 1, score: 0.7, snapshotPath: '/tmp/x', artifactHash: 'h' },
+      bestSoFar: { iteration: 1, score: 0.7, snapshotPath: '/tmp/x', artifactHash: 'h', approved: false },
       costUsd: 0.014,
       history: [],
       stopReason: null,
@@ -145,7 +145,7 @@ describe('active: stopped loops', () => {
       ...emptyIterationState('default', startedAt),
       iteration: 5,
       lastVerdict: { approved: false, score: 0.8, issues: [] },
-      bestSoFar: { iteration: 3, score: 0.9, snapshotPath: '/x', artifactHash: 'h' },
+      bestSoFar: { iteration: 3, score: 0.9, snapshotPath: '/x', artifactHash: 'h', approved: true },
       stopReason: 'budget-iter',
     };
     const block = renderIterationBlock(bashSpec(), 'active', state, { now });
