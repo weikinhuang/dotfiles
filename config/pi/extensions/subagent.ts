@@ -78,7 +78,6 @@ import {
 } from '@mariozechner/pi-coding-agent';
 import { Text } from '@mariozechner/pi-tui';
 import { Type } from 'typebox';
-import { parseModelSpec } from '../../../lib/node/pi/btw.ts';
 import { getSessionSubagentAggregate } from '../../../lib/node/pi/subagent-aggregate.ts';
 import {
   formatAgentListDescription,
@@ -110,6 +109,7 @@ import {
   sweepStaleSessions,
   type SweepFs,
 } from '../../../lib/node/pi/subagent-session-paths.ts';
+import { resolveChildModel } from '../../../lib/node/pi/subagent-spawn.ts';
 
 const SUBAGENT_CUSTOM_TYPE = 'subagent-run';
 const STATUS_KEY = 'subagent';
@@ -743,61 +743,29 @@ export default function subagentExtension(pi: ExtensionAPI): void {
     const agg = makeAggregate();
 
     // ── Model resolution ──────────────────────────────────────────────
-    const globalOverride = process.env.PI_SUBAGENT_MODEL;
-    const modelSpecStr = modelOverride ?? globalOverride;
-    let childModel = ctx.model;
-    if (modelSpecStr) {
-      const spec = parseModelSpec(modelSpecStr);
-      if (!spec) {
-        return {
-          kind: 'error',
-          result: toolErrorResult({
-            agent,
-            task,
-            durationMs: Date.now() - start,
-            error: `invalid modelOverride "${modelSpecStr}" (expected provider/id)`,
-          }),
-        };
-      }
-      const resolved = ctx.modelRegistry.find(spec.provider, spec.modelId);
-      if (!resolved) {
-        return {
-          kind: 'error',
-          result: toolErrorResult({
-            agent,
-            task,
-            durationMs: Date.now() - start,
-            error: `model ${spec.provider}/${spec.modelId} not registered`,
-          }),
-        };
-      }
-      childModel = resolved;
-    } else if (agent.model !== 'inherit') {
-      const resolved = ctx.modelRegistry.find(agent.model.provider, agent.model.modelId);
-      if (!resolved) {
-        return {
-          kind: 'error',
-          result: toolErrorResult({
-            agent,
-            task,
-            durationMs: Date.now() - start,
-            error: `agent model ${agent.model.provider}/${agent.model.modelId} not registered`,
-          }),
-        };
-      }
-      childModel = resolved;
-    }
-    if (!childModel) {
+    // Shared with the iteration-loop's critic spawn via
+    // lib/node/pi/subagent-spawn.ts::resolveChildModel. Both extensions
+    // surface the same diagnostic strings so users see consistent
+    // messages; keeping the resolver in one place prevents drift.
+    const modelSpecStr = modelOverride ?? process.env.PI_SUBAGENT_MODEL;
+    const modelResolution = resolveChildModel({
+      override: modelSpecStr,
+      agent,
+      parent: ctx.model,
+      modelRegistry: ctx.modelRegistry,
+    });
+    if (!modelResolution.ok) {
       return {
         kind: 'error',
         result: toolErrorResult({
           agent,
           task,
           durationMs: Date.now() - start,
-          error: 'no model available for child session (use /login or configure a default model)',
+          error: modelResolution.error,
         }),
       };
     }
+    const childModel = modelResolution.model;
 
     // ── Workspace (shared-cwd vs worktree) ────────────────────────────
     let childCwd = ctx.cwd;

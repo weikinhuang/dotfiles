@@ -111,7 +111,6 @@ import { fileURLToPath } from 'node:url';
 
 import { StringEnum } from '@mariozechner/pi-ai';
 import {
-  type AgentSession,
   createAgentSession,
   DefaultResourceLoader,
   type ExtensionAPI,
@@ -123,7 +122,6 @@ import {
 import { Text } from '@mariozechner/pi-tui';
 import { Type } from 'typebox';
 
-import { parseModelSpec } from '../../../lib/node/pi/btw.ts';
 import { anyArtifactMatch, extractEditTargets } from '../../../lib/node/pi/iteration-loop-artifact.ts';
 import { computeStopReason } from '../../../lib/node/pi/iteration-loop-budget.ts';
 import { runBashCheck } from '../../../lib/node/pi/iteration-loop-check-bash.ts';
@@ -181,7 +179,7 @@ import {
   loadAgents,
   type ReadLayer,
 } from '../../../lib/node/pi/subagent-loader.ts';
-import { type AgentMessageLike, extractFinalAssistantText } from '../../../lib/node/pi/subagent-result.ts';
+import { resolveChildModel, runOneShotAgent } from '../../../lib/node/pi/subagent-spawn.ts';
 import {
   type BranchEntry as VerifyBranchEntry,
   collectBashCommandsSinceLastUser,
@@ -821,12 +819,11 @@ export default function iterationLoopExtension(pi: ExtensionAPI): void {
 
   // ── Critic subagent runner ─────────────────────────────────────────
   //
-  // Minimal re-implementation of subagent.ts's spawn path, specialized
-  // for the iteration-loop's needs: no worktrees, no background
-  // handles, no parent-side audit mirror, in-memory session (we don't
-  // need the critic's transcript to survive restarts — the verdict is
-  // recorded on disk via writeSnapshotVerdict). Returns the final
-  // assistant text + aggregated cost so doRun can feed parseVerdict.
+  // Wraps the shared one-shot spawn helper (lib/node/pi/subagent-spawn.ts)
+  // so the critic doesn't re-implement model resolution, timeout/abort
+  // plumbing, or stop-reason classification. We only need aggregate
+  // cost (for budget-cost enforcement) and the raw final text (for
+  // parseVerdict) on top of the generic result.
   interface CriticRunResult {
     rawText: string;
     cost: number;
@@ -853,142 +850,50 @@ export default function iterationLoopExtension(pi: ExtensionAPI): void {
       };
     }
 
-    // Model resolution — critic spec override > agent model > parent model.
-    let childModel = ctx.model;
-    if (spec.modelOverride) {
-      const parsed = parseModelSpec(spec.modelOverride);
-      if (!parsed) {
-        return { rawText: '', cost: 0, turns: 0, error: `invalid modelOverride "${spec.modelOverride}"` };
-      }
-      const resolved = ctx.modelRegistry.find(parsed.provider, parsed.modelId);
-      if (!resolved) {
-        return {
-          rawText: '',
-          cost: 0,
-          turns: 0,
-          error: `model ${parsed.provider}/${parsed.modelId} not registered`,
-        };
-      }
-      childModel = resolved;
-    } else if (agent.model !== 'inherit') {
-      const resolved = ctx.modelRegistry.find(agent.model.provider, agent.model.modelId);
-      if (!resolved) {
-        return {
-          rawText: '',
-          cost: 0,
-          turns: 0,
-          error: `agent model ${agent.model.provider}/${agent.model.modelId} not registered`,
-        };
-      }
-      childModel = resolved;
-    }
-    if (!childModel) {
-      return { rawText: '', cost: 0, turns: 0, error: 'no model available for critic (configure a default model)' };
+    const modelResolution = resolveChildModel({
+      override: spec.modelOverride,
+      agent,
+      parent: ctx.model,
+      modelRegistry: ctx.modelRegistry,
+    });
+    if (!modelResolution.ok) {
+      return { rawText: '', cost: 0, turns: 0, error: modelResolution.error };
     }
 
     const artifactPath = isAbsolute(artifact) ? artifact : join(ctx.cwd, artifact);
     const task = buildCriticTask({ spec, artifactPath, iteration });
 
-    const sessionManager = SessionManager.inMemory(ctx.cwd);
-    const appendParts: string[] = [];
-    if (agent.appendSystemPrompt) appendParts.push(agent.appendSystemPrompt);
-    if (agent.body.trim().length > 0) appendParts.push(agent.body.trim());
-    const resourceLoader = new DefaultResourceLoader({
-      cwd: ctx.cwd,
-      agentDir: getAgentDir(),
-      settingsManager: undefined,
-      noExtensions: true,
-      noSkills: true,
-      noPromptTemplates: true,
-      appendSystemPrompt: appendParts.length > 0 ? appendParts : undefined,
-    });
-    try {
-      await resourceLoader.reload();
-    } catch (e) {
-      return { rawText: '', cost: 0, turns: 0, error: `resource loader: ${(e as Error).message}` };
-    }
-
-    let child: AgentSession;
-    try {
-      const created = await createAgentSession({
-        cwd: ctx.cwd,
-        model: childModel,
-        thinkingLevel: agent.thinkingLevel,
-        tools: agent.tools,
-        modelRegistry: ctx.modelRegistry,
-        authStorage: ctx.modelRegistry.authStorage,
-        resourceLoader,
-        sessionManager,
-      });
-      child = created.session;
-    } catch (e) {
-      return { rawText: '', cost: 0, turns: 0, error: `createAgentSession: ${(e as Error).message}` };
-    }
-
     let cost = 0;
-    let turns = 0;
-    let childErrMsg: string | undefined;
-    let reachedMaxTurns = false;
-    let abortedByUs = false;
-    const maxTurns = agent.maxTurns;
-    const timeoutMs = agent.timeoutMs;
-
-    const unsubscribe = child.subscribe((event: unknown) => {
-      const evt = event as { type: string; message?: { role?: string; usage?: unknown; errorMessage?: string } };
-      if (evt.type === 'turn_end') {
-        turns++;
-        if (turns >= maxTurns) {
-          reachedMaxTurns = true;
-          abortedByUs = true;
-          void child.abort();
-        }
-      } else if (evt.type === 'message_end' && evt.message?.role === 'assistant') {
-        const usage = evt.message.usage as { cost?: { total?: number } } | undefined;
-        if (usage?.cost?.total != null && Number.isFinite(usage.cost.total)) {
-          cost += usage.cost.total;
-        }
-        if (evt.message.errorMessage) childErrMsg = evt.message.errorMessage;
-      }
-    });
-
-    const timeoutHandle = setTimeout(() => {
-      abortedByUs = true;
-      void child.abort();
-    }, timeoutMs);
-    const parentAbortHandler = (): void => {
-      abortedByUs = true;
-      void child.abort();
-    };
-    signal?.addEventListener('abort', parentAbortHandler, { once: true });
-
-    let thrownError: Error | undefined;
+    let result;
     try {
-      await child.prompt(task);
+      result = await runOneShotAgent({
+        deps: { createAgentSession, DefaultResourceLoader, SessionManager, getAgentDir },
+        cwd: ctx.cwd,
+        agent,
+        model: modelResolution.model,
+        task,
+        modelRegistry: ctx.modelRegistry,
+        agentDir: getAgentDir(),
+        signal,
+        onEvent: ({ event }) => {
+          if (event.type === 'message_end' && event.message.role === 'assistant') {
+            const usage = (event.message as { usage?: { cost?: { total?: number } } }).usage;
+            if (usage?.cost?.total != null && Number.isFinite(usage.cost.total)) {
+              cost += usage.cost.total;
+            }
+          }
+        },
+      });
     } catch (e) {
-      thrownError = e instanceof Error ? e : new Error(String(e));
-    } finally {
-      clearTimeout(timeoutHandle);
-      signal?.removeEventListener('abort', parentAbortHandler);
-      unsubscribe();
+      return { rawText: '', cost, turns: 0, error: `critic spawn: ${(e as Error).message}` };
     }
 
-    const messages = child.state.messages as unknown as AgentMessageLike[];
-    const rawText = extractFinalAssistantText(messages);
-    try {
-      child.dispose();
-    } catch {
-      /* best-effort */
-    }
-
-    const errorIsAbort =
-      thrownError !== undefined && (thrownError.name === 'AbortError' || /abort/i.test(thrownError.message ?? ''));
     let error: string | undefined;
-    if (reachedMaxTurns) error = `critic hit max turns (${maxTurns})`;
-    else if (abortedByUs || errorIsAbort || signal?.aborted) error = 'critic aborted';
-    else if (thrownError) error = thrownError.message;
-    else if (childErrMsg) error = childErrMsg;
+    if (result.stopReason === 'max_turns') error = `critic hit max turns (${agent.maxTurns})`;
+    else if (result.stopReason === 'aborted') error = 'critic aborted';
+    else if (result.stopReason === 'error') error = result.errorMessage;
 
-    return { rawText, cost, turns, error };
+    return { rawText: result.finalText, cost, turns: result.turns, error };
   };
 
   const doRun = async (
