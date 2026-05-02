@@ -25,6 +25,7 @@ import {
   type CheckSpec,
   type CriticCheckSpec,
   type IterationState,
+  resolveBudget,
   type StopReason,
 } from './iteration-loop-schema.ts';
 
@@ -147,7 +148,7 @@ function renderActive(spec: CheckSpec, state: IterationState | null, opts: Rende
   lines.push(`Check:       ${formatCheckSummary(spec)}`);
 
   if (!state) {
-    lines.push('Iteration:   0 / ' + (spec.budget?.maxIter ?? 5) + ' (not yet started)');
+    lines.push('Iteration:   0 / ' + resolveBudget(spec).maxIter + ' (not yet started)');
     lines.push('');
     lines.push(`Next step: run \`check run\` to execute iteration 1 and observe the verdict.`);
     return lines.join('\n');

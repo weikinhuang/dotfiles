@@ -178,6 +178,10 @@ export type StopReason =
 export interface BestSoFar {
   iteration: number;
   score: number;
+  /** Whether this iteration's verdict was approved. Needed so the
+   *  selector can refuse to clobber an approved best with a
+   *  non-approved higher-scored candidate. */
+  approved: boolean;
   /** Absolute path to the snapshot on disk. */
   snapshotPath: string;
   /** SHA-256 of the snapshotted bytes (hex). Used for fixpoint check. */
@@ -346,6 +350,11 @@ export function isBestSoFarShape(v: unknown): v is BestSoFar {
   if (!isRecord(v)) return false;
   if (!isNonNegativeFiniteNumber(v.iteration)) return false;
   if (!isScore(v.score)) return false;
+  // Tolerate older state entries that predate the `approved` field by
+  // defaulting to `false` on read (normalized by the reducer when it
+  // rebuilds state). The selector then treats legacy bestSoFar entries
+  // as "not approved," which is the safe default for comparisons.
+  if (v.approved !== undefined && typeof v.approved !== 'boolean') return false;
   if (typeof v.snapshotPath !== 'string' || v.snapshotPath.length === 0) return false;
   if (typeof v.artifactHash !== 'string' || v.artifactHash.length === 0) return false;
   return true;

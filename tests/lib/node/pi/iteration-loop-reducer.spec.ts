@@ -139,7 +139,9 @@ describe('actRun', () => {
   });
 
   test('no snapshot ⇒ bestSoFar preserved from prior', () => {
-    const s = seedState({ bestSoFar: { iteration: 1, score: 0.8, snapshotPath: '/s1', artifactHash: 'h1' } });
+    const s = seedState({
+      bestSoFar: { iteration: 1, score: 0.8, approved: false, snapshotPath: '/s1', artifactHash: 'h1' },
+    });
     const r = actRun(s, {
       verdict: notApproved(0.3),
       costDeltaUsd: 0,

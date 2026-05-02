@@ -212,10 +212,19 @@ export function actRun(prev: IterationState | null, args: RunArgs): ActionResult
     const candidate: BestSoFar = {
       iteration: next.iteration,
       score: next.lastVerdict.score,
+      approved: args.verdict.approved,
       snapshotPath: args.snapshot.path,
       artifactHash: args.snapshot.hash,
     };
-    next.bestSoFar = selectBestSoFar(prev.bestSoFar, candidate, args.verdict.approved);
+    // Normalize older bestSoFar entries that predate the `approved`
+    // field — default missing approval to `false` so the selector
+    // treats them as not-approved (safe: only way to clobber is a
+    // strictly-better candidate).
+    const currentBest =
+      prev.bestSoFar && typeof (prev.bestSoFar as Partial<BestSoFar>).approved !== 'boolean'
+        ? { ...prev.bestSoFar, approved: false }
+        : prev.bestSoFar;
+    next.bestSoFar = selectBestSoFar(currentBest, candidate);
   }
 
   const historyEntry: HistoryEntry = {

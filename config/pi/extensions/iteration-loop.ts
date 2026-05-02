@@ -148,6 +148,7 @@ import {
   type CheckKind,
   type CheckSpec,
   cloneIterationState,
+  emptyIterationState,
   type CriticCheckSpec,
   isBashCheckSpecShape,
   isCriticCheckSpecShape,
@@ -915,11 +916,21 @@ export default function iterationLoopExtension(pi: ExtensionAPI): void {
       return errorReturn('run', task, read.error ?? `failed to load spec for "${task}"`);
     }
     if (!state || state.task !== task) {
-      return errorReturn(
-        'run',
-        task,
-        `no iteration state for task "${task}" on this branch — re-accept the draft to initialize`,
-      );
+      // Re-hydrate: this happens when a session loses its branch
+      // `iteration-state` entries (e.g. `/compact` dropped them, or
+      // the user resumed a pre-Phase-3 session) but the active spec
+      // still exists on disk. Previously we bailed with a misleading
+      // "re-accept the draft" error; now we seed a fresh empty state
+      // using the spec's recorded acceptedAt so `check run` can pick
+      // up cleanly.
+      const seededAt = read.spec.acceptedAt ?? read.spec.createdAt;
+      state = emptyIterationState(task, seededAt);
+      try {
+        pi.appendEntry(ITERATION_CUSTOM_TYPE, cloneIterationState(state));
+      } catch (e) {
+        debug(debugEnabled, `appendEntry after rehydrate failed: ${(e as Error).message}`);
+      }
+      debug(debugEnabled, `re-hydrated iteration state for task=${task} from spec on disk`);
     }
     if (state.stopReason) {
       return errorReturn(
@@ -1006,10 +1017,13 @@ export default function iterationLoopExtension(pi: ExtensionAPI): void {
     }
 
     // ── Persist verdict JSON alongside the snapshot ───────────────────
+    let verdictWriteError: string | null = null;
     try {
       writeSnapshotVerdict(ctx.cwd, task, nextIteration, verdict);
     } catch (e) {
-      debug(debugEnabled, `writeSnapshotVerdict failed: ${(e as Error).message}`);
+      verdictWriteError = (e as Error).message;
+      debug(debugEnabled, `writeSnapshotVerdict failed: ${verdictWriteError}`);
+      ctx.ui.notify(`iteration-loop: verdict write failed: ${verdictWriteError}`, 'warning');
     }
 
     // ── Stop-reason classification ─────────────────────────────────────

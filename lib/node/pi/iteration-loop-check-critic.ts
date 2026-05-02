@@ -29,6 +29,27 @@
 import { type CriticCheckSpec, type Issue, type IssueSeverity, type Verdict } from './iteration-loop-schema.ts';
 
 // ──────────────────────────────────────────────────────────────────────
+// Rubric sanitization
+// ──────────────────────────────────────────────────────────────────────
+
+/**
+ * The rubric is user-authored text injected into the critic task
+ * template. To keep prompt-injection risk low — especially with weak
+ * models that follow "last instruction wins" — we rewrite any
+ * triple-backtick fence or triple-quote run the rubric contains so it
+ * can't collide with the surrounding template's "return JSON only,
+ * no markdown fences" instruction. The replacement text is still
+ * readable; callers who really need those glyphs in the rubric can
+ * escape them themselves.
+ *
+ * Declared before buildCriticTask so the "no-use-before-define" rule
+ * doesn't fire on the call below.
+ */
+export function sanitizeRubric(rubric: string): string {
+  return rubric.replace(/```/g, '` ` `').replace(/"""/g, '" " "');
+}
+
+// ──────────────────────────────────────────────────────────────────────
 // Task template
 // ──────────────────────────────────────────────────────────────────────
 
@@ -48,13 +69,20 @@ export interface BuildCriticTaskInput {
  */
 export function buildCriticTask(input: BuildCriticTaskInput): string {
   const { spec, artifactPath, iteration } = input;
+  // Sanitize rubric input: the critic's task ends with "return JSON
+  // only, no markdown fences". A rubric containing triple-backticks
+  // or triple-quotes can trivially escape the indented block and
+  // collide with that instruction (or with the JSON output contract).
+  // Collapse both sequences to an escaped form that's still
+  // human-readable but can't break the template.
+  const safeRubric = sanitizeRubric(spec.rubric);
   const lines: string[] = [];
   lines.push(`You are judging iteration ${iteration} of an artifact against a rubric.`);
   lines.push('');
   lines.push(`Artifact path: ${artifactPath}`);
   lines.push('');
   lines.push('Rubric:');
-  for (const line of spec.rubric.split('\n')) lines.push(`  ${line}`);
+  for (const line of safeRubric.split('\n')) lines.push(`  ${line}`);
   lines.push('');
   lines.push('Steps:');
   lines.push('  1. Read the artifact with the `read` tool. Pi auto-attaches images');
@@ -110,9 +138,11 @@ export interface ParseVerdictResult {
 /** Strip triple-backtick fences (optionally tagged with a language). */
 function stripFences(text: string): { text: string; recoveries: string[] } {
   const recoveries: string[] = [];
-  // Match a fence at the start and optional closing fence at end. We
-  // look for ``` optionally followed by a language tag like `json`.
-  const openRe = /^```(?:json|JSON|Json)?\s*\n?/;
+  // Match an opening fence at the start and optional closing fence at
+  // the end. Language tags range wildly — qwen3 uses `json`, small
+  // models sometimes emit `JSON5` / `javascript` / bare ``` / even
+  // nothing — so accept any alphanumeric run before the newline.
+  const openRe = /^```[a-zA-Z0-9]*\s*\n?/;
   const closeRe = /\n?```\s*$/;
   let out = text;
   if (openRe.test(out)) {
@@ -187,13 +217,16 @@ function normalizeSeverity(v: unknown): IssueSeverity {
   return 'major';
 }
 
-function normalizeScore(raw: unknown, approved: boolean): number {
+function normalizeScore(raw: unknown, approved: boolean): { value: number; recovery: string | null } {
   if (typeof raw === 'number' && Number.isFinite(raw)) {
-    if (raw < 0) return 0;
-    if (raw > 1) return 1;
-    return raw;
+    if (raw < 0) return { value: 0, recovery: 'score < 0 clamped to 0' };
+    if (raw > 1) return { value: 1, recovery: 'score > 1 clamped to 1' };
+    return { value: raw, recovery: null };
   }
-  return approved ? 1 : 0;
+  return {
+    value: approved ? 1 : 0,
+    recovery: `score missing/non-numeric; inferred ${approved ? 1 : 0} from approved=${approved}`,
+  };
 }
 
 function normalizeIssue(v: unknown, _fallbackIdx: number): Issue | null {
@@ -267,13 +300,22 @@ function normalizeVerdict(parsed: unknown, raw: string, prior: string[]): ParseV
   if (droppedIssues > 0) recoveries.push(`dropped ${droppedIssues} malformed issue(s)`);
 
   // Consistency check: if approved=true but issues are present with
-  // severity=blocker, that's incoherent. Downgrade approved.
+  // severity=blocker, that's incoherent. Downgrade approved AND clamp
+  // score — otherwise a verdict like `{approved:true, score:1,
+  // issues:[{severity:"blocker"}]}` would keep score=1 after the
+  // approved downgrade and silently win best-so-far against a
+  // legitimately-scored non-approved verdict.
+  let scoreCap: number | null = null;
   if (approved && issues.some((i) => i.severity === 'blocker')) {
     approved = false;
-    recoveries.push('approved=true but blocker issues present; forced approved=false');
+    scoreCap = 0.5;
+    recoveries.push('approved=true but blocker issues present; forced approved=false and capped score ≤ 0.5');
   }
 
-  const score = normalizeScore(o.score, approved);
+  const scoreResult = normalizeScore(o.score, approved);
+  if (scoreResult.recovery) recoveries.push(scoreResult.recovery);
+  let score = scoreResult.value;
+  if (scoreCap !== null && score > scoreCap) score = scoreCap;
 
   const summary = typeof o.summary === 'string' ? o.summary : undefined;
 

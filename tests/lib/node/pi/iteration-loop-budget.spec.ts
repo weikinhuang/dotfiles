@@ -141,31 +141,44 @@ describe('selectBestSoFar', () => {
   const mk = (
     iter: number,
     score: number,
-  ): { iteration: number; score: number; snapshotPath: string; artifactHash: string } => ({
+    approved = false,
+  ): { iteration: number; score: number; approved: boolean; snapshotPath: string; artifactHash: string } => ({
     iteration: iter,
     score,
+    approved,
     snapshotPath: `/s/${iter}`,
     artifactHash: `h${iter}`,
   });
 
   test('null current → candidate wins', () => {
-    expect(selectBestSoFar(null, mk(1, 0.3), false)).toEqual(mk(1, 0.3));
+    expect(selectBestSoFar(null, mk(1, 0.3))).toEqual(mk(1, 0.3));
   });
 
-  test('approved candidate always wins', () => {
-    expect(selectBestSoFar(mk(1, 0.9), mk(2, 0.1), true)).toEqual(mk(2, 0.1));
+  test('approved candidate beats not-approved current even with lower score', () => {
+    expect(selectBestSoFar(mk(1, 0.9, false), mk(2, 0.1, true))).toEqual(mk(2, 0.1, true));
   });
 
-  test('higher score wins (non-approved)', () => {
-    expect(selectBestSoFar(mk(1, 0.3), mk(2, 0.8), false)).toEqual(mk(2, 0.8));
+  test('approved current beats not-approved candidate even with higher score', () => {
+    // Regression: the old signature took candidateApproved only, so a
+    // non-approved higher-scored candidate could clobber an approved
+    // current. BestSoFar now carries its own approval flag.
+    expect(selectBestSoFar(mk(1, 0.7, true), mk(2, 0.95, false))).toEqual(mk(1, 0.7, true));
   });
 
-  test('lower score loses (non-approved)', () => {
-    expect(selectBestSoFar(mk(1, 0.8), mk(2, 0.3), false)).toEqual(mk(1, 0.8));
+  test('higher score wins when both are not-approved', () => {
+    expect(selectBestSoFar(mk(1, 0.3), mk(2, 0.8))).toEqual(mk(2, 0.8));
   });
 
-  test('tie on score → later iteration wins', () => {
-    expect(selectBestSoFar(mk(1, 0.5), mk(2, 0.5), false)).toEqual(mk(2, 0.5));
+  test('lower score loses when both are not-approved', () => {
+    expect(selectBestSoFar(mk(1, 0.8), mk(2, 0.3))).toEqual(mk(1, 0.8));
+  });
+
+  test('tie on score → later iteration wins (when approval matches)', () => {
+    expect(selectBestSoFar(mk(1, 0.5), mk(2, 0.5))).toEqual(mk(2, 0.5));
+  });
+
+  test('approved tied on score → later iteration wins', () => {
+    expect(selectBestSoFar(mk(1, 0.8, true), mk(2, 0.8, true))).toEqual(mk(2, 0.8, true));
   });
 });
 

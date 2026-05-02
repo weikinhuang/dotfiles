@@ -74,36 +74,15 @@ export function isFixpoint(prevHash: string | null, currentHash: string): boolea
  *                                  freshest snapshot as the tiebreaker
  *                                  so the user sees recent work).
  */
-export function selectBestSoFar(
-  current: BestSoFar | null,
-  candidate: BestSoFar,
-  candidateApproved: boolean,
-): BestSoFar {
+export function selectBestSoFar(current: BestSoFar | null, candidate: BestSoFar): BestSoFar {
   if (!current) return candidate;
-  // Can't inspect current's approval status from the struct alone
-  // (we don't store it in BestSoFar for compactness). Callers pass
-  // candidate approval; the "approved beats not-approved" rule is
-  // enforced by NEVER clobbering an approved best with a non-approved
-  // candidate of equal/lower score. We encode that as: once we record
-  // an approved best, only a higher-scored approved candidate replaces
-  // it. We represent "current approved" via `current.score === 1.0`
-  // for bash-style bools AND via a sentinel: `bestSoFar.score >=
-  // candidate.score` on an already-approved run means we stop.
-  //
-  // For critic/diff, the actor might push through an "approved:
-  // score=0.9" verdict after a "not-approved: score=0.95". We want
-  // the approved one to win even if its score is lower. We can't tell
-  // here without the flag, so the caller is expected to pass
-  // candidateApproved; current's approved-ness is inferred from its
-  // score being exactly 1 (bash convention) OR from a sibling call
-  // providing the history. To keep this fn pure + self-contained,
-  // we document: "candidateApproved" flips the replacement to
-  // candidate when current wasn't an approved high-scorer.
-  //
-  // In practice the extension uses an approved candidate to both set
-  // bestSoFar AND set stopReason='passed', so this fn's behavior for
-  // the approved-vs-approved case is moot (the loop terminates).
-  if (candidateApproved) return candidate;
+  // Approved beats not-approved, full stop — the loop's goal is "find a
+  // passing verdict", so a later-but-lower-scored approved iteration
+  // is still strictly better than an earlier not-approved one.
+  if (candidate.approved && !current.approved) return candidate;
+  if (!candidate.approved && current.approved) return current;
+  // Same approval status — higher score wins, ties go to the freshest
+  // iteration so the user sees recent work.
   if (candidate.score > current.score) return candidate;
   if (candidate.score === current.score && candidate.iteration > current.iteration) return candidate;
   return current;
