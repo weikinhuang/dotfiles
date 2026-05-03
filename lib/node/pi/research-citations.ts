@@ -41,8 +41,13 @@
  *
  * Global flag lets the caller iterate via `matchAll` and gives
  * `replace` the "every occurrence" behavior we want.
+ *
+ * Exported so the structural check
+ * (`deep-research-structural-check.ts`) can reuse the canonical
+ * pattern — keeping one regex prevents a format tweak here from
+ * silently diverging from the post-render validator.
  */
-const PLACEHOLDER_RE = /\{\{SRC:([^}]+)\}\}/g;
+export const SRC_PLACEHOLDER_RE = /\{\{SRC:([^}]+)\}\}/g;
 
 /**
  * A single placeholder occurrence extracted from a draft.
@@ -81,7 +86,7 @@ export function extractPlaceholders(draft: string): Placeholder[] {
   const out: Placeholder[] = [];
   // `matchAll` returns an iterator; `RegExp.global` is required on
   // the pattern (it is, above) or the runtime throws.
-  for (const m of draft.matchAll(PLACEHOLDER_RE)) {
+  for (const m of draft.matchAll(SRC_PLACEHOLDER_RE)) {
     // `m[0]` is the full match; `m[1]` is the id capture.
     const full = m[0];
     const id = m[1];
@@ -187,7 +192,7 @@ export function renumber(draft: string, sourceIndex: ReadonlyMap<string, Citatio
 
   // Rewrite. We walk the matches a second time using `replace` so
   // the returned string preserves non-matched characters verbatim.
-  const report = draft.replace(PLACEHOLDER_RE, (full, id: string) => {
+  const report = draft.replace(SRC_PLACEHOLDER_RE, (full, id: string) => {
     const n = order.get(id);
     // Unknown-id path — leave the placeholder intact for the
     // post-render validator to catch.

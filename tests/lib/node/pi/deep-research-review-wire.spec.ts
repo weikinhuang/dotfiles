@@ -381,6 +381,52 @@ describe('runDeepResearchReview — iteration-loop storage', () => {
     expect(archives.some((name) => name.endsWith(STRUCTURAL_TASK))).toBe(true);
     expect(archives.some((name) => name.endsWith(SUBJECTIVE_TASK))).toBe(true);
   });
+
+  test('writeDraft refused (active task already present) does not block the review loop', async () => {
+    // Pre-populate an active structural task so `writeDraft` in
+    // the wire returns { ok: false }. The review loop must still
+    // run against the injected runners — the iteration-loop
+    // storage is informational, not load-bearing.
+    const { writeDraft: writeDraftDirect, acceptDraft: acceptDraftDirect } =
+      await import('../../../../lib/node/pi/iteration-loop-storage.ts');
+    const preSpec = buildStructuralSpec({
+      task: STRUCTURAL_TASK,
+      reportPath: join(runRoot, 'report.md'),
+      bashCmd: 'echo preexisting',
+      maxIter: 3,
+      createdAt: '2025-01-01T00:00:00Z',
+    });
+    const w = writeDraftDirect(cwd, preSpec);
+
+    expect(w.ok).toBe(true);
+
+    const a = acceptDraftDirect(cwd, STRUCTURAL_TASK, '2025-01-01T00:00:00Z');
+
+    expect(a.ok).toBe(true);
+
+    const runStructural = scripted<StructuralCheckResult>([passingStructural(), passingStructural()]);
+    const runCritic = scripted<Verdict>([approvedCritic()]);
+    const { refine } = refiner();
+    const notify = vi.fn();
+
+    const result = await runDeepResearchReview({
+      cwd,
+      runRoot,
+      rubricSubjective: '## Rubric\n',
+      structuralBashCmd: 'node foo.ts bar',
+      runStructural,
+      runCritic,
+      refineReport: refine,
+      maxIter: 3,
+      consent: { root: memoryRoot },
+      notify,
+    });
+
+    // Loop still terminates successfully against the scripted
+    // runners even though writeDraft was refused — the injected
+    // runners are the authoritative verdict source.
+    assertKind(result.outcome, 'passed');
+  });
 });
 
 // ──────────────────────────────────────────────────────────────────────

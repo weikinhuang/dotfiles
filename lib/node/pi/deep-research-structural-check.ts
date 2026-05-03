@@ -65,8 +65,9 @@
  */
 
 import { existsSync, readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
+import { pathToFileURL } from 'node:url';
 
+import { SRC_PLACEHOLDER_RE } from './research-citations.ts';
 import { paths } from './research-paths.ts';
 import { readPlan } from './research-plan.ts';
 import { listRun, normalizeUrl, type SourceRef } from './research-sources.ts';
@@ -169,15 +170,41 @@ const FOOTNOTE_MARKER_RE = /\[\^(\d+)\](?!:)/g;
  */
 const FOOTNOTE_ENTRY_RE = /^\[\^(\d+)\]:\s*(.+?)\s*$/gm;
 
-/** `{{SRC:<id>}}` placeholder that Phase-3 synth should have renumbered. */
-const SRC_PLACEHOLDER_RE = /\{\{SRC:[^}]+\}\}/g;
+/**
+ * `{{SRC:<id>}}` placeholder that Phase-3 synth should have
+ * renumbered. Canonical pattern imported from
+ * `research-citations.ts` (aliased above) — keeping one source of
+ * truth prevents a future id-character-class change in one place
+ * from silently drifting from the other.
+ */
+// `SRC_PLACEHOLDER_RE` is re-exported here by importing it above;
+// the local declaration used by Phase-4 lives in research-citations.
 
 /**
  * URL matcher used for bare-url detection. Deliberately forgiving
  * — we're looking for anything that looks like an http/https URL
- * in prose. The normalizer downstream tightens the comparison.
+ * in prose. Trailing ASCII punctuation is stripped via
+ * {@link trimTrailingPunctuation} before the URL is normalized
+ * (otherwise a sentence-ending `.`, `,`, `)` clings to the match
+ * and breaks store lookups).
  */
 const BARE_URL_RE = /https?:\/\/[^\s<>()[\]{}]+/g;
+
+/**
+ * Trailing ASCII punctuation that should never be part of a URL
+ * in running prose. Applied repeatedly so a URL ending in `).`
+ * sheds both characters.
+ */
+const TRAILING_URL_PUNCTUATION_RE = /[.,;:!?"')\]}]+$/;
+
+/**
+ * Strip trailing sentence-level punctuation from a URL match so
+ * `see https://example.com/a.` yields `https://example.com/a`
+ * (and not an unparseable / unmatchable variant). Pure string op.
+ */
+function trimTrailingPunctuation(raw: string): string {
+  return raw.replace(TRAILING_URL_PUNCTUATION_RE, '');
+}
 
 /**
  * Section heading regex: `## …` at start-of-line. We skip
@@ -364,9 +391,10 @@ export function checkReportStructure(opts: CheckReportStructureOpts): Structural
       });
       continue;
     }
+    const cleaned = trimTrailingPunctuation(entry.url);
     let norm: string;
     try {
-      norm = normalizeUrl(entry.url);
+      norm = normalizeUrl(cleaned);
     } catch {
       failures.push({
         id: 'footnote-urls-in-store',
@@ -415,16 +443,20 @@ export function checkReportStructure(opts: CheckReportStructureOpts): Structural
   }
 
   // ── no-bare-urls-in-body ─────────────────────────────────────
-  for (const rawUrl of body.match(BARE_URL_RE) ?? []) {
+  for (const rawMatch of body.match(BARE_URL_RE) ?? []) {
     stats.bareUrlsInBody += 1;
+    // Trim trailing punctuation so `https://example.com/a.` (end
+    // of a sentence) normalizes / looks up against the same key
+    // the source store persisted.
+    const rawUrl = trimTrailingPunctuation(rawMatch);
     let norm: string;
     try {
       norm = normalizeUrl(rawUrl);
     } catch {
       failures.push({
         id: 'no-bare-urls-in-body',
-        message: `body contains an unparseable URL: ${rawUrl}`,
-        location: rawUrl,
+        message: `body contains an unparseable URL: ${rawMatch}`,
+        location: rawMatch,
       });
       continue;
     }
@@ -637,14 +669,14 @@ function main(argv: readonly string[]): number {
 }
 
 /**
- * Only run the CLI when this module is the entry point. `process.argv[1]`
- * is the script path passed to node; comparing via `fileURLToPath`
- * handles the file:// / absolute-path difference across node versions.
+ * Only run the CLI when this module is the entry point.
+ * `process.argv[1]` is the script path passed to node; we compare
+ * using `pathToFileURL` so Windows drive letters, paths
+ * containing spaces, and special characters round-trip correctly
+ * (the naive ``new URL(`file://${path}`)`` shortcut misparses
+ * both).
  */
-if (
-  process.argv[1] !== undefined &&
-  fileURLToPath(import.meta.url) === fileURLToPath(new URL(`file://${process.argv[1]}`))
-) {
+if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href) {
   try {
     const code = main(process.argv);
     process.exit(code);

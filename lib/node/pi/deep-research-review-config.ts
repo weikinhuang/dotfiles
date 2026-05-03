@@ -28,6 +28,7 @@ import { join } from 'node:path';
 
 import { atomicWriteFile, ensureDirSync } from './atomic-write.ts';
 import { memoryRoot } from './memory-paths.ts';
+import { parseFrontmatter } from './memory-reducer.ts';
 
 /**
  * File basename (without `.md`). Kept short + distinctive so the
@@ -75,8 +76,12 @@ export function consentPath(opts: ReviewConsentOpts = {}): string {
 /**
  * Read the current consent state. Returns
  * `{ consented: false, at: null }` when the file is missing
- * (first-run path); tolerates malformed files by returning a
- * default "not consented" state rather than throwing.
+ * (first-run path) OR when the file exists but its frontmatter
+ * doesn't satisfy the `reference`-memory contract
+ * (`parseFrontmatter` returns null). A file that does parse but
+ * lacks an `acceptedAt:` line still counts as consented with
+ * `at: null` — the user clearly consented at some point, the
+ * timestamp is just missing metadata.
  */
 export function readConsent(opts: ReviewConsentOpts = {}): ReviewConsentState {
   const p = consentPath(opts);
@@ -87,11 +92,20 @@ export function readConsent(opts: ReviewConsentOpts = {}): ReviewConsentState {
   } catch {
     return { consented: false, at: null };
   }
-  // We stash the timestamp inside a YAML frontmatter field; the
-  // body text is just a human-readable rationale. Rather than
-  // pull in a full YAML parser we do a one-line grep — the
-  // writer below emits a fixed `acceptedAt:` shape that's easy
-  // to probe.
+  // Gate "consented" on the memory-reducer's strict frontmatter
+  // parse. A file without `type`/`name`/`description` headers is
+  // treated as malformed — safer than trusting mere existence,
+  // so a stray text file cannot silently opt the user into
+  // auto-accept. Malformed file → `consented: false`.
+  const parsed = parseFrontmatter(body);
+  if (parsed?.frontmatter.type !== 'reference') {
+    return { consented: false, at: null };
+  }
+  // `acceptedAt` is an extra (unknown) frontmatter key that
+  // `parseFrontmatter` intentionally ignores for forward-compat,
+  // so we pull it out of the raw source directly. Anchoring to
+  // start-of-line keeps a stray `acceptedAt:` inside the body
+  // from leaking in.
   const m = /^acceptedAt:\s*(.+?)\s*$/m.exec(body);
   return { consented: true, at: m ? (m[1] ?? null) : null };
 }

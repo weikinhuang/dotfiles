@@ -621,7 +621,7 @@ async function runReviewPhase(args: RunReviewPhaseArgs): Promise<void> {
       runStructural,
       runCritic,
       refineReport,
-      maxIter: 3,
+      maxIter: 4,
       ...(ctx.signal ? { signal: ctx.signal } : {}),
       notify,
     });
@@ -636,10 +636,20 @@ async function runReviewPhase(args: RunReviewPhaseArgs): Promise<void> {
  * directly; this string is purely informational — it shows up in
  * `/check list` output so a user can see what a manual structural
  * re-run would look like.
+ *
+ * Each path is wrapped in POSIX single quotes and has any embedded
+ * single quote escaped via `'\''` so paths containing spaces
+ * (common on macOS under `~/Library/...` or WSL mounts like
+ * `/mnt/c/Users/First Last/`) remain copy-pasteable.
  */
 function buildStructuralBashCmd(runRoot: string): string {
   const scriptPath = fileURLToPath(new URL('../../../lib/node/pi/deep-research-structural-check.ts', import.meta.url));
-  return `node ${scriptPath} ${runRoot}`;
+  return `node ${shellQuote(scriptPath)} ${shellQuote(runRoot)}`;
+}
+
+/** Minimal POSIX shell single-quote for a single argument. */
+function shellQuote(arg: string): string {
+  return `'${arg.replace(/'/g, `'\\''`)}'`;
 }
 
 function safeReadFile(path: string): string | null {

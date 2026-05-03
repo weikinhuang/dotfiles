@@ -41,8 +41,16 @@
  *           the critic's score), emit a subjective-rubric nudge,
  *           and loop if iterations remain.
  *
- *   Cross-stage budget is a single counter (`iterations` used).
- *   Structural and critic failures both consume one unit.
+ *   Cross-stage budget is a single counter: `maxIter` caps the
+ *   total number of check iterations (structural + critic)
+ *   performed. At most `maxIter - 1` refinements run between
+ *   them, because each iteration ends either with success or
+ *   with a refinement-or-exhaustion choice. Default
+ *   `maxIter = 4` so the default run matches the plan's
+ *   "≤ 3 refinements total across both stages" (4 iterations =
+ *   up to 3 refinements, the last iteration having no refinement
+ *   slot left).
+ *
  *   `maxIter = 1` + first structural fail → budget-exhausted with
  *   the iter-1 snapshot as best-so-far. That's the acceptance-
  *   criterion path ("max-iterations to 1 in the test").
@@ -67,6 +75,7 @@
  */
 
 import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 import { atomicWriteFile, ensureDirSync } from './atomic-write.ts';
 import { type StructuralCheckResult, type StructuralFailure } from './deep-research-structural-check.ts';
@@ -189,8 +198,11 @@ export interface ReviewLoopDeps {
   /** Modifies `report.md` in place between iterations. */
   refineReport: RefinementRunner;
   /**
-   * Max cross-stage iterations. Default 3 (per the plan's
-   * "≤ 3 refinements total across both stages"). Tests pass
+   * Max total check iterations across both stages. Refinements
+   * run between iterations, so `maxIter` iterations allow up to
+   * `maxIter - 1` refinement passes. Default `4` so a default
+   * run admits up to three refinements, matching the plan's
+   * "≤ 3 refinements total across both stages". Tests pass
    * `maxIter = 1` to exercise budget exhaustion in a single pass.
    */
   maxIter?: number;
@@ -260,10 +272,13 @@ export function buildSubjectiveNudge(verdict: Verdict): string {
  * file per iteration, suffixed by stage so a single iteration can
  * hold both a structural-fail snapshot and a subjective-fail one.
  */
+function reviewSnapshotDir(runRoot: string): string {
+  return join(paths(runRoot).snapshots, 'review');
+}
+
 function snapshotPath(runRoot: string, iteration: number, stage: ReviewSnapshot['stage']): string {
-  const dir = `${paths(runRoot).snapshots}/review`;
   const padded = iteration.toString().padStart(3, '0');
-  return `${dir}/iter-${padded}-${stage}.md`;
+  return join(reviewSnapshotDir(runRoot), `iter-${padded}-${stage}.md`);
 }
 
 /**
@@ -272,11 +287,7 @@ function snapshotPath(runRoot: string, iteration: number, stage: ReviewSnapshot[
  * (which would make "best-so-far" meaningless for this iteration
  * anyway).
  */
-function snapshotReport(
-  runRoot: string,
-  iteration: number,
-  stage: ReviewSnapshot['stage'],
-): { path: string; body: string } | null {
+function snapshotReport(runRoot: string, iteration: number, stage: ReviewSnapshot['stage']): { path: string } | null {
   const report = paths(runRoot).report;
   if (!existsSync(report)) return null;
   let body: string;
@@ -286,9 +297,9 @@ function snapshotReport(
     return null;
   }
   const out = snapshotPath(runRoot, iteration, stage);
-  ensureDirSync(`${paths(runRoot).snapshots}/review`);
+  ensureDirSync(reviewSnapshotDir(runRoot));
   atomicWriteFile(out, body);
-  return { path: out, body };
+  return { path: out };
 }
 
 /**
@@ -318,7 +329,7 @@ function selectBest(prev: ReviewSnapshot | null, next: ReviewSnapshot): ReviewSn
  * for snapshots.
  */
 export async function runReviewLoop(deps: ReviewLoopDeps): Promise<ReviewLoopOutcome> {
-  const maxIter = Math.max(1, Math.floor(deps.maxIter ?? 3));
+  const maxIter = Math.max(1, Math.floor(deps.maxIter ?? 4));
   let bestSoFar: ReviewSnapshot | null = null;
   let lastCritic: Verdict | null = null;
 

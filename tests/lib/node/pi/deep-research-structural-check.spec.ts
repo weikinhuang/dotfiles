@@ -511,6 +511,36 @@ describe('checkReportStructure — no-bare-urls-in-body', () => {
     expect(result.stats.bareUrlsInBody).toBeGreaterThanOrEqual(1);
   });
 
+  test('sentence-ending punctuation does not cling to the URL', () => {
+    // `...see https://example.com/a.` would previously capture the
+    // trailing `.` and fail store lookup. The trim helper drops
+    // trailing punctuation before normalizing, so this passes.
+    const report = validReport().replace(
+      'Background paragraph citing a source [^1].',
+      'Background paragraph citing a source [^1]. See https://example.com/a.',
+    );
+    const runRoot = makeRun({ plan: makePlan(), report, sources: validSources() });
+
+    const result = checkReportStructure({ runRoot });
+
+    expect(result.ok).toBe(true);
+    expect(result.stats.bareUrlsInBody).toBeGreaterThanOrEqual(1);
+  });
+
+  test('sentence-ending punctuation on a footnote URL is tolerated', () => {
+    // Same fix applies to footnote definition URLs — a trailing
+    // period shouldn't demote the store-match to a mismatch.
+    const report = validReport().replace(
+      '[^1]: Source 1 — https://example.com/a',
+      '[^1]: Source 1 — https://example.com/a.',
+    );
+    const runRoot = makeRun({ plan: makePlan(), report, sources: validSources() });
+
+    const result = checkReportStructure({ runRoot });
+
+    expect(result.ok).toBe(true);
+  });
+
   test('URLs inside the footnotes block are NOT flagged', () => {
     // validReport already has URLs inside the footnote definitions;
     // the happy-path test asserts ok=true, so this is covered —
