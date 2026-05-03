@@ -9,9 +9,9 @@ _dot_fetch_web() {
 
   # Flags that take a free-form value: don't suggest anything.
   case "${prev}" in
-    --limit | --engines | --categories | --format \
-      | --timeout-ms | --html-file | --base-url \
-      | --fields | --fields-file | -o | --output)
+    --limit | --engines | --categories | --format | \
+      --timeout-ms | --html-file | --base-url | \
+      --fields | --fields-file | -o | --output)
       return
       ;;
   esac
