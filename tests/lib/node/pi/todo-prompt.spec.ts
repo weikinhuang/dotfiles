@@ -3,6 +3,7 @@
  */
 
 import { expect, test } from 'vitest';
+
 import { formatActivePlan, looksLikeCompletionClaim } from '../../../../lib/node/pi/todo-prompt.ts';
 import { type Todo, type TodoState } from '../../../../lib/node/pi/todo-reducer.ts';
 

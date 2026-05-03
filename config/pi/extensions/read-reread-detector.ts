@@ -40,7 +40,9 @@
 
 import { appendFileSync, statSync } from 'node:fs';
 import { isAbsolute, relative, resolve } from 'node:path';
+
 import { type ExtensionAPI, type ExtensionContext, isReadToolResult } from '@mariozechner/pi-coding-agent';
+
 import { type FileSignature, formatNudge, ReadHistory, type RereadProbe } from '../../../lib/node/pi/read-reread.ts';
 
 const DEFAULT_MAX_ENTRIES = 256;

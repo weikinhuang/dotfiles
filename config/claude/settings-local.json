@@ -21,9 +21,6 @@
   },
   "permissions": {
     "allow": [],
-    "deny": [
-      "WebFetch",
-      "WebSearch"
-    ]
+    "deny": ["WebFetch", "WebSearch"]
   }
 }

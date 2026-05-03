@@ -62,7 +62,14 @@ export interface PlanBudget {
 }
 
 /** Status values a single sub-question cycles through. */
-export const SUBQUESTION_STATUSES = ['pending', 'assigned', 'in-progress', 'complete', 'failed', 'quarantined'] as const;
+export const SUBQUESTION_STATUSES = [
+  'pending',
+  'assigned',
+  'in-progress',
+  'complete',
+  'failed',
+  'quarantined',
+] as const;
 export type SubQuestionStatus = (typeof SUBQUESTION_STATUSES)[number];
 
 /** Status values a single experiment cycles through. */
@@ -273,7 +280,8 @@ function upgradeSubQuestion(raw: unknown, path: string): SubQuestion {
 function upgradeExperiment(raw: unknown, path: string): Experiment {
   if (!isRecord(raw)) throw new PlanValidationError(path, 'must be an object');
   if (!isNonEmptyString(raw.id)) throw new PlanValidationError(`${path}.id`, 'must be a non-empty string');
-  if (!isNonEmptyString(raw.hypothesis)) throw new PlanValidationError(`${path}.hypothesis`, 'must be a non-empty string');
+  if (!isNonEmptyString(raw.hypothesis))
+    throw new PlanValidationError(`${path}.hypothesis`, 'must be a non-empty string');
   if (!isExperimentStatus(raw.status)) {
     throw new PlanValidationError(`${path}.status`, `expected one of ${EXPERIMENT_STATUSES.join('|')}`);
   }
@@ -354,7 +362,10 @@ export function upgrade(raw: unknown): Plan {
   if (raw.kind === 'autoresearch') {
     return upgradeAutoresearch(raw);
   }
-  throw new PlanValidationError('$.kind', `expected "deep-research" or "autoresearch", got ${JSON.stringify(raw.kind)}`);
+  throw new PlanValidationError(
+    '$.kind',
+    `expected "deep-research" or "autoresearch", got ${JSON.stringify(raw.kind)}`,
+  );
 }
 
 // ──────────────────────────────────────────────────────────────────────

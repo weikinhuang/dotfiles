@@ -1,17 +1,16 @@
 {
   "name": "@weikinhuang/dotfiles",
-  "description": "My `$SHELL`, mostly bash, works everywhere, `*nix`, `osx`, `wsl`.",
   "version": "1.0.0",
-  "license": "MIT",
   "private": true,
+  "description": "My `$SHELL`, mostly bash, works everywhere, `*nix`, `osx`, `wsl`.",
+  "license": "MIT",
   "type": "module",
-  "engines": {
-    "node": ">=24"
-  },
   "scripts": {
     "eslint": "eslint .",
     "prepare": "husky || true",
-    "prettier": "prettier -w '**/*.{js,ts,jsx,tsx,mjs}'",
+    "oxfmt": "oxfmt",
+    "format": "oxfmt",
+    "format:check": "oxfmt --check",
     "test": "vitest run",
     "test:watch": "vitest",
     "tsc": "tsc --noEmit"
@@ -31,9 +30,12 @@
     "globals": "^17.5.0",
     "husky": "^9.1.7",
     "lint-staged": "^16.4.0",
-    "prettier": "^3.8.3",
+    "oxfmt": "^0.47.0",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.59.0",
     "vitest": "^4.1.5"
+  },
+  "engines": {
+    "node": ">=24"
   }
 }

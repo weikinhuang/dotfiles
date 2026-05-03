@@ -6,6 +6,7 @@
  */
 
 import { describe, expect, test } from 'vitest';
+
 import { renderIterationBlock } from '../../../../lib/node/pi/iteration-loop-prompt.ts';
 import {
   type BashCheckSpec,

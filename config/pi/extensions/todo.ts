@@ -55,6 +55,7 @@ import { StringEnum } from '@mariozechner/pi-ai';
 import { type ExtensionAPI, type ExtensionContext, type Theme } from '@mariozechner/pi-coding-agent';
 import { matchesKey, Text, truncateToWidth } from '@mariozechner/pi-tui';
 import { Type } from 'typebox';
+
 import { truncate } from '../../../lib/node/pi/shared.ts';
 import { formatActivePlan, looksLikeCompletionClaim } from '../../../lib/node/pi/todo-prompt.ts';
 import {

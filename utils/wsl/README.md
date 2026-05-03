@@ -38,7 +38,8 @@ wsl --update
 
 ## Set up WSL configuration
 
-See [Advanced settings configuration in WSL](https://learn.microsoft.com/en-us/windows/wsl/wsl-config) for the current option reference.
+See [Advanced settings configuration in WSL](https://learn.microsoft.com/en-us/windows/wsl/wsl-config) for the current
+option reference.
 
 Edit `/etc/wsl.conf` with:
 
@@ -155,14 +156,13 @@ sudo do-release-upgrade
 
 On current Windows builds that ship `sudo.exe`, `winsudo` prefers the native flow.
 
-`winsudo` requires inline mode (`normal`). Microsoft recommends `forceNewWindow`
-by default for security, so only switch to inline mode if you understand that tradeoff.
+`winsudo` requires inline mode (`normal`). Microsoft recommends `forceNewWindow` by default for security, so only switch
+to inline mode if you understand that tradeoff.
 
 **Setup:**
 
-1. Enable sudo in Windows Settings.
-   On Windows 11 24H2 this appears under **System > For Developers**.
-   On Windows 11 25H2 and later it is surfaced under **System > Advanced**.
+1. Enable sudo in Windows Settings. On Windows 11 24H2 this appears under **System > For Developers**. On Windows 11
+   25H2 and later it is surfaced under **System > Advanced**.
 2. Set inline mode from an elevated (admin) prompt:
 
 ```powershell
@@ -178,7 +178,8 @@ sudo config
 
 ### Legacy fallback (without usable `sudo.exe`)
 
-On older Windows versions without `sudo.exe`, or when `sudo.exe` is not configured for inline mode, `winsudo` falls back to an SSH-based elevation mechanism.
+On older Windows versions without `sudo.exe`, or when `sudo.exe` is not configured for inline mode, `winsudo` falls back
+to an SSH-based elevation mechanism.
 
 **Requirements:** `openssh-server` must be installed so `sshd` is available:
 
@@ -186,15 +187,18 @@ On older Windows versions without `sudo.exe`, or when `sudo.exe` is not configur
 sudo apt-get install openssh-server
 ```
 
-**How it works:** `winsudo` uses PowerShell `Start-Process -Verb RunAs` to launch an elevated WSL process running `sshd` on a random port with a generated SSH key, then forwards commands through that SSH session.
+**How it works:** `winsudo` uses PowerShell `Start-Process -Verb RunAs` to launch an elevated WSL process running `sshd`
+on a random port with a generated SSH key, then forwards commands through that SSH session.
 
 ### Testing
 
-Test with `winsudo net.exe sessions` and compare it with plain `net.exe sessions`. The non-elevated version should return `Access is denied.`.
+Test with `winsudo net.exe sessions` and compare it with plain `net.exe sessions`. The non-elevated version should
+return `Access is denied.`.
 
 ## Native process proxy wrappers
 
-Wrapper `.bat` files are provided for `git` and `ssh` so Windows-native tools can delegate to the WSL versions instead of the Windows ones.
+Wrapper `.bat` files are provided for `git` and `ssh` so Windows-native tools can delegate to the WSL versions instead
+of the Windows ones.
 
 ### SSH wrapper for VS Code
 
@@ -216,7 +220,8 @@ DOTFILES_PATH\utils\wsl\native-wrappers\git.bat
 
 ### Git wrapper for VS Code
 
-Set the Git path to the wrapper. If you also want Windows-hosted VS Code terminals to open in WSL by default, use a terminal profile instead of the deprecated `terminal.integrated.shell.windows` setting:
+Set the Git path to the wrapper. If you also want Windows-hosted VS Code terminals to open in WSL by default, use a
+terminal profile instead of the deprecated `terminal.integrated.shell.windows` setting:
 
 ```json
 {

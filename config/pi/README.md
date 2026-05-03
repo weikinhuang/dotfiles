@@ -29,8 +29,8 @@ Configuration, custom extensions, and themes for
   `## Working Notes` header. Companion to [`todo.ts`](#extensionstodots): where `todo` holds the typed plan,
   `scratchpad` holds free-form carry-over (decisions, file paths, test commands) that should survive compaction.
 - [`extensions/memory.ts`](#extensionsmemoryts) — Claude Code–style multi-layered persistent memory. User, feedback,
-  project, and reference notes stored as markdown files under `~/.pi/agent/memory/` (global or per-cwd-slug project
-  dirs matching pi's own session layout). Each turn the MEMORY.md indices are injected under a `## Memory` header; full
+  project, and reference notes stored as markdown files under `~/.pi/agent/memory/` (global or per-cwd-slug project dirs
+  matching pi's own session layout). Each turn the MEMORY.md indices are injected under a `## Memory` header; full
   bodies are fetched on demand via the `memory` tool. Where [`scratchpad`](#extensionsscratchpadts) and
   [`todo`](#extensionstodots) are per-session, `memory` is cross-session.
 - [`extensions/verify-before-claim.ts`](#extensionsverify-before-claimts) — generalization of the todo completion-claim
@@ -44,28 +44,28 @@ Configuration, custom extensions, and themes for
   re-`read` with `--offset` / `--limit`.
 - [`extensions/tool-arg-recovery.ts`](#extensionstool-arg-recoveryts) — parses `Validation failed for tool “…”` errors
   from pi-ai, cross-references the tool’s TypeBox schema, and appends a recovery block with each failed path, the
-  expected type, what was received, and a concrete corrected-example JSON payload. Targets the small-model failure
-  mode of retrying the same wrong argument shape after seeing only the raw validation error.
+  expected type, what was received, and a concrete corrected-example JSON payload. Targets the small-model failure mode
+  of retrying the same wrong argument shape after seeing only the raw validation error.
 - [`extensions/read-reread-detector.ts`](#extensionsread-reread-detectorts) — tracks `(absPath, mtime, size)` per
-  session; on a repeat `read` of an unchanged file appends a nudge that names the slice, the turn it was first read,
-  and points at `scratchpad` for carry-over. Complements [`loop-breaker`](#extensionsloop-breakerts) (which only
-  catches identical `(tool, input)` repeats) by catching “same file, possibly different window, across turns”.
+  session; on a repeat `read` of an unchanged file appends a nudge that names the slice, the turn it was first read, and
+  points at `scratchpad` for carry-over. Complements [`loop-breaker`](#extensionsloop-breakerts) (which only catches
+  identical `(tool, input)` repeats) by catching “same file, possibly different window, across turns”.
 - [`extensions/read-without-limit-nudge.ts`](#extensionsread-without-limit-nudgets) — when a `read` call without
   `offset`/`limit` lands on a file over ~400 lines or ~20 KB, appends a short steer recommending `rg -n`, a targeted
   windowed `read`, or `ls`/`head`/`tail` for structural orientation. Uses pi’s own `details.truncation` when present,
   falls back to a `statSync` byte count.
-- [`extensions/btw.ts`](#extensionsbtwts) — Claude Code `/btw`-style ephemeral side-question command. Answers a
-  one-shot question from the session's already-loaded context without persisting the Q&A and without letting the
-  model call tools; reuses the active model, system prompt, and conversation prefix for prompt-cache reuse.
-- [`extensions/subagent.ts`](#extensionssubagentts) — Claude Code `Task` / opencode / codex-style in-process
-  sub-agent delegation. Registers a single `subagent(agent, task)` tool (parallel execution) plus the
-  `/agents` command. Child sessions run with their own context, tool allowlist, and optional model / git-worktree
-  sandbox; the parent sees only the final answer text.
+- [`extensions/btw.ts`](#extensionsbtwts) — Claude Code `/btw`-style ephemeral side-question command. Answers a one-shot
+  question from the session's already-loaded context without persisting the Q&A and without letting the model call
+  tools; reuses the active model, system prompt, and conversation prefix for prompt-cache reuse.
+- [`extensions/subagent.ts`](#extensionssubagentts) — Claude Code `Task` / opencode / codex-style in-process sub-agent
+  delegation. Registers a single `subagent(agent, task)` tool (parallel execution) plus the `/agents` command. Child
+  sessions run with their own context, tool allowlist, and optional model / git-worktree sandbox; the parent sees only
+  the final answer text.
 - [`extensions/iteration-loop.ts`](#extensionsiteration-loopts) — disciplined RL-style feedback loop for
   artifact-producing tasks. Registers one `check` tool (declare / accept / run / status / close / list), a `critic`
   subagent for rubric-graded visual or prose critiques, on-disk state under `.pi/checks/`, per-turn system-prompt
-  injection of the iteration status, and two guardrails (claim nudge + strict edit-without-check nudge) so small
-  models can't skip verification. Ships the [`critic` agent](./agents/critic.md) and the
+  injection of the iteration status, and two guardrails (claim nudge + strict edit-without-check nudge) so small models
+  can't skip verification. Ships the [`critic` agent](./agents/critic.md) and the
   [`iterate-until-verified` skill](#skillsiterate-until-verified).
 - [`../../lib/node/pi/`](../../lib/node/pi) — pure helpers (no pi imports) shared between the extensions and unit-tested
   under [`../../tests/lib/node/pi/`](../../tests/lib/node/pi). Hoisted out of `extensions/` so they get type-checked by
@@ -85,8 +85,8 @@ Configuration, custom extensions, and themes for
   `general-purpose`), and when to downshift grunt work to a weaker model via `modelOverride`. Companion to
   [`extensions/subagent.ts`](#extensionssubagentts).
 - [`skills/subagent-background/SKILL.md`](#skillssubagent-background) — lifecycle skill for
-  `subagent({ run_in_background: true })` + `subagent_send`: when async beats sync, fan-out, status vs. wait,
-  mid-run steering, abort criteria, and the "don't orphan handles across turns" rule.
+  `subagent({ run_in_background: true })` + `subagent_send`: when async beats sync, fan-out, status vs. wait, mid-run
+  steering, abort criteria, and the "don't orphan handles across turns" rule.
 - [`skills/iterate-until-verified/SKILL.md`](#skillsiterate-until-verified) — teaches models WHEN to declare a `check`
   (artifact-producing tasks with a verifiable contract), HOW to pick the right kind (`bash` for deterministic
   validators, `critic` for subjective / visual rubrics), the draft → user-accept → iterate authorship flow, and the
@@ -698,41 +698,41 @@ ${PI_MEMORY_ROOT:-~/.pi/agent/memory}/
     └── reference/<slug>.md
 ```
 
-`<cwd-slug>` is pi's own convention: `/mnt/d/foo` → `--mnt-d-foo--`. So the memory dir for a given workspace sits
-right next to its session log under the same slug.
+`<cwd-slug>` is pi's own convention: `/mnt/d/foo` → `--mnt-d-foo--`. So the memory dir for a given workspace sits right
+next to its session log under the same slug.
 
-Each memory file has a strict three-key frontmatter (`name`, `description`, `type`) plus a markdown body. `MEMORY.md`
-is a one-line-per-memory index rebuilt by the tool on every write — don't hand-edit it.
+Each memory file has a strict three-key frontmatter (`name`, `description`, `type`) plus a markdown body. `MEMORY.md` is
+a one-line-per-memory index rebuilt by the tool on every write — don't hand-edit it.
 
 ### Memory types
 
-| Type        | Default scope | Purpose                                                                                          |
-| ----------- | ------------- | ------------------------------------------------------------------------------------------------ |
-| `user`      | `global`      | Role, expertise, preferences — who the user is and how they want to collaborate.                 |
-| `feedback`  | `global`      | Corrections and validated approaches. Save both don’t-do-X and keep-doing-Y.                     |
-| `project`   | `project`     | Decisions, incidents, deadlines for *this* workspace. Decays fast — use absolute dates.          |
-| `reference` | `project`     | Pointers to external systems (Linear projects, dashboards, Slack channels).                      |
+| Type        | Default scope | Purpose                                                                                 |
+| ----------- | ------------- | --------------------------------------------------------------------------------------- |
+| `user`      | `global`      | Role, expertise, preferences — who the user is and how they want to collaborate.        |
+| `feedback`  | `global`      | Corrections and validated approaches. Save both don’t-do-X and keep-doing-Y.            |
+| `project`   | `project`     | Decisions, incidents, deadlines for _this_ workspace. Decays fast — use absolute dates. |
+| `reference` | `project`     | Pointers to external systems (Linear projects, dashboards, Slack channels).             |
 
 ### What the tool does
 
 Registers a `memory` tool and a `/memory` command. Actions:
 
-| Action   | Required                                     | Optional         | Purpose                                          |
-| -------- | -------------------------------------------- | ---------------- | ------------------------------------------------ |
-| `list`   | —                                            | —                | Dump both indices (global + project).            |
-| `read`   | `id`                                         | `type`, `scope`  | Load a memory's full body.                       |
-| `save`   | `type`, `name`, `description`, `body`        | `scope`          | Write a new memory + update MEMORY.md.           |
-| `update` | `id` + at least one of `name`/`desc`/`body`  | `type`, `scope`  | Rewrite fields; renames change the slug.         |
-| `remove` | `id`, `scope`                                | `type`           | Delete a memory + drop it from MEMORY.md.        |
-| `search` | `query`                                      | —                | Case-insensitive match over name/description/body. |
+| Action   | Required                                    | Optional        | Purpose                                            |
+| -------- | ------------------------------------------- | --------------- | -------------------------------------------------- |
+| `list`   | —                                           | —               | Dump both indices (global + project).              |
+| `read`   | `id`                                        | `type`, `scope` | Load a memory's full body.                         |
+| `save`   | `type`, `name`, `description`, `body`       | `scope`         | Write a new memory + update MEMORY.md.             |
+| `update` | `id` + at least one of `name`/`desc`/`body` | `type`, `scope` | Rewrite fields; renames change the slug.           |
+| `remove` | `id`, `scope`                               | `type`          | Delete a memory + drop it from MEMORY.md.          |
+| `search` | `query`                                     | —               | Case-insensitive match over name/description/body. |
 
 ### Session-prompt integration
 
-On `session_start` / `session_tree` the extension scans the global and project memory dirs, rebuilds an in-memory
-index, and mirrors that index snapshot (not bodies) to a `memory-state` session entry so `/fork` and `/tree` show the
-correct view. On `before_agent_start` it appends a `## Memory` block with the per-type index to the system prompt,
-capped by `PI_MEMORY_MAX_INJECTED_CHARS` (default 3000). The model is expected to call `memory` action `read` when it
-needs a full body.
+On `session_start` / `session_tree` the extension scans the global and project memory dirs, rebuilds an in-memory index,
+and mirrors that index snapshot (not bodies) to a `memory-state` session entry so `/fork` and `/tree` show the correct
+view. On `before_agent_start` it appends a `## Memory` block with the per-type index to the system prompt, capped by
+`PI_MEMORY_MAX_INJECTED_CHARS` (default 3000). The model is expected to call `memory` action `read` when it needs a full
+body.
 
 ### Commands
 
@@ -923,23 +923,25 @@ session without saving the Q&A to history and without letting the model call too
 
 ### Why
 
-Quick questions during a long session — "what file did we edit three turns ago?", "summarize the plan in two
-bullets", "which approach did we rule out?" — don't need a new user turn. They don't need tool access. They
-shouldn't clutter the transcript. Claude Code bundles this as `/btw`; this extension replicates the UX on pi.
+Quick questions during a long session — "what file did we edit three turns ago?", "summarize the plan in two bullets",
+"which approach did we rule out?" — don't need a new user turn. They don't need tool access. They shouldn't clutter the
+transcript. Claude Code bundles this as `/btw`; this extension replicates the UX on pi.
 
 ### Mechanism
 
-Pi's extension API doesn't expose a "call the LLM out of band" primitive — `pi.sendMessage` /
-`pi.sendUserMessage` both append to the session and trigger turns. `/btw` therefore reaches through the API and
-calls [`@mariozechner/pi-ai`](https://github.com/badlogic/pi-mono/tree/main/packages/ai)'s `complete()` function
-directly, using pi's own helpers to reconstruct the branch context that would otherwise be sent next turn:
+Pi's extension API doesn't expose a "call the LLM out of band" primitive — `pi.sendMessage` / `pi.sendUserMessage` both
+append to the session and trigger turns. `/btw` therefore reaches through the API and calls
+[`@mariozechner/pi-ai`](https://github.com/badlogic/pi-mono/tree/main/packages/ai)'s `complete()` function directly,
+using pi's own helpers to reconstruct the branch context that would otherwise be sent next turn:
 
 1. Grab the current branch: `ctx.sessionManager.getBranch()`.
 2. Convert entries → LLM messages: `buildSessionContext(entries)` (exported from `pi-coding-agent`).
 3. Append the side question as a synthetic user message with a short directive (no tools, not persisted).
 4. Resolve creds: `ctx.modelRegistry.getApiKeyAndHeaders(ctx.model)`.
-5. Call `complete(model, { systemPrompt, messages, tools: [] }, { apiKey, headers, sessionId, cacheRetention: "short", signal })`.
-6. Render the answer via `ctx.ui.notify` with a one-line footer (model · tokens · cached · out · $cost · duration · `ephemeral`).
+5. Call
+   `complete(model, { systemPrompt, messages, tools: [] }, { apiKey, headers, sessionId, cacheRetention: "short", signal })`.
+6. Render the answer via `ctx.ui.notify` with a one-line footer (model · tokens · cached · out · $cost · duration ·
+   `ephemeral`).
 7. Do **not** call `pi.sendMessage` / `pi.sendUserMessage` / `pi.appendEntry` — that's what keeps the Q&A ephemeral.
 
 ### What's inherited from the main turn
@@ -954,14 +956,14 @@ directly, using pi's own helpers to reconstruct the branch context that would ot
 ### What's NOT inherited
 
 `temperature`, `maxTokens`, `timeoutMs`, `maxRetries`, `metadata`, and per-provider options (Anthropic's thinking
-display, Google's `thinkingBudgets`, Bedrock options) are not reachable from `ExtensionContext`. pi-ai's defaults
-apply. For the typical Anthropic / OpenAI / local-OpenAI-compatible case prompt caching still works because the
-request prefix is unchanged; for exotic provider-specific setups cache reuse is best-effort.
+display, Google's `thinkingBudgets`, Bedrock options) are not reachable from `ExtensionContext`. pi-ai's defaults apply.
+For the typical Anthropic / OpenAI / local-OpenAI-compatible case prompt caching still works because the request prefix
+is unchanged; for exotic provider-specific setups cache reuse is best-effort.
 
 ### Ephemeral footer
 
-Every answer ends with a one-line stats footer so the user can verify which model answered, whether caching
-engaged, and how much the call cost:
+Every answer ends with a one-line stats footer so the user can verify which model answered, whether caching engaged, and
+how much the call cost:
 
 ```text
 [model: claude-opus-4-7 · 3.6k tokens · 2.9k cached · 180 out · $0.0023 · 1.2s · ephemeral]
@@ -977,27 +979,27 @@ Fields render only when present (e.g. `cached` is omitted when zero, `$` is omit
 ### Environment variables
 
 - `PI_BTW_DISABLED=1` — skip the extension entirely (no `/btw` command registered).
-- `PI_BTW_MODEL=provider/modelId` — answer side questions with a specific model instead of the session's current
-  one. Useful for pairing a big reasoning model on the main turn with a cheaper fast model on side questions.
-  Falls back to the current model with a warning if the override isn't registered.
-- `PI_BTW_INCLUDE_TOOLS=1` — pass the currently-active tools to the side-question call instead of `[]`. Escape
-  hatch for debugging; defeats the whole point of the command.
+- `PI_BTW_MODEL=provider/modelId` — answer side questions with a specific model instead of the session's current one.
+  Useful for pairing a big reasoning model on the main turn with a cheaper fast model on side questions. Falls back to
+  the current model with a warning if the override isn't registered.
+- `PI_BTW_INCLUDE_TOOLS=1` — pass the currently-active tools to the side-question call instead of `[]`. Escape hatch for
+  debugging; defeats the whole point of the command.
 
 ### Hot reload
 
-Edit [`extensions/btw.ts`](./extensions/btw.ts) or [`lib/node/pi/btw.ts`](../../lib/node/pi/btw.ts) and run
-`/reload` in an interactive pi session to pick up changes without restarting.
+Edit [`extensions/btw.ts`](./extensions/btw.ts) or [`lib/node/pi/btw.ts`](../../lib/node/pi/btw.ts) and run `/reload` in
+an interactive pi session to pick up changes without restarting.
 
 ## `extensions/tool-arg-recovery.ts`
 
-Targeted recovery block for TypeBox validation failures — the `edit-recovery`-style pattern applied to every tool
-call, not just `edit`.
+Targeted recovery block for TypeBox validation failures — the `edit-recovery`-style pattern applied to every tool call,
+not just `edit`.
 
 When the LLM emits a tool call whose arguments don’t match the tool’s TypeBox schema, pi-ai’s `validateToolArguments`
 throws a canonical message (`Validation failed for tool "X":\n  - <path>: <message>\n\nReceived arguments: {...}`),
-which pi wraps via `createErrorToolResult(error.message)`. Small self-hosted models read that raw error, guess at a
-fix, and retry with the same wrong shape — because the error tells them WHAT’s wrong but not what a working payload
-looks like.
+which pi wraps via `createErrorToolResult(error.message)`. Small self-hosted models read that raw error, guess at a fix,
+and retry with the same wrong shape — because the error tells them WHAT’s wrong but not what a working payload looks
+like.
 
 This extension intercepts `tool_result` on validation failures, cross-references the tool’s schema via
 `pi.getAllTools()`, and appends a second text part with:
@@ -1012,12 +1014,12 @@ This extension intercepts `tool_result` on validation failures, cross-references
 
 Pi’s original error stays intact at index 0; the recovery block is appended as a second text part, matching
 [`extensions/edit-recovery.ts`](./extensions/edit-recovery.ts)’s composition pattern. No auto-retry — surfacing the
-mistake keeps [`verify-before-claim`](#extensionsverify-before-claimts),
-[`loop-breaker`](#extensionsloop-breakerts), and [`stall-recovery`](#extensionsstall-recoveryts) honest.
+mistake keeps [`verify-before-claim`](#extensionsverify-before-claimts), [`loop-breaker`](#extensionsloop-breakerts),
+and [`stall-recovery`](#extensionsstall-recoveryts) honest.
 
 Example output for a `todo` call with `id: "1"` (string instead of number):
 
-```text
+````text
 ⚠ [pi-tool-arg-recovery] tool=todo
 
 Problems with the arguments:
@@ -1029,9 +1031,10 @@ Corrected example (replace placeholders, then retry):
   "action": "start",
   "id": 0
 }
-```
+````
 
 Do NOT retry with the same arguments. Fix the types/fields above, then call the tool again with a corrected payload.
+
 ```
 
 ### Environment variables
@@ -1194,9 +1197,10 @@ behalf of the user at the parent scope. Opt in per-agent by adding `memory` to i
 Each child invocation writes to its own on-disk session file:
 
 ```
-~/.pi/agent/sessions/<parent-cwd-slug>/subagents/<parent-session-id>/
-   <iso-timestamp>_<child-session-id>.jsonl
-```
+
+~/.pi/agent/sessions/<parent-cwd-slug>/subagents/<parent-session-id>/ <iso-timestamp>\_<child-session-id>.jsonl
+
+````
 
 Mirrors Claude Code's per-`Task` session files so the user can audit, resume, or fork a delegated run. The parent
 session also records a `subagent-run` custom entry carrying stop reason, token counts, cost, and the child session
@@ -1215,7 +1219,7 @@ Subagent state is owned by this extension and surfaced via `ctx.ui.setStatus('su
 subagent:explore ⏳ M(2):↑320/↻ 2.1k/↓180 R 87% $0.004 ctx:8% model:qwen3-6-35b-a3b
 subagent:explore ✓ 3 turns ↑1.2k ↻ 5.4k ↓410 $0.013 4.2s
 subagent: 2/3 done · 1 running · $0.021
-```
+````
 
 Completed-run status lingers for [`PI_SUBAGENT_STATUS_LINGER_MS`](#environment-variables-n) (default 5000) before
 clearing. Shared formatters (`fmtSi`, `fmtCost`, cache-hit ratio) live in
@@ -1225,14 +1229,14 @@ lockstep.
 ### Commands
 
 - `/agents` (or `/agents list`) — list every loaded agent with its source layer + one-line description.
-- `/agents show <name>` — print the full frontmatter + body of a single agent (useful for confirming an override
-  took effect).
+- `/agents show <name>` — print the full frontmatter + body of a single agent (useful for confirming an override took
+  effect).
 
 ### Worktree caveat
 
 `isolation: "worktree"` severs continuity with the parent's `memory` / `scratchpad` / `todo` state because
-`cwdSlug(worktreePath)` differs from `cwdSlug(parentCwd)`. That's deliberate — the worktree is a sandbox. If a
-sub-agent needs the parent's project-scoped memories, keep `isolation: "shared-cwd"`.
+`cwdSlug(worktreePath)` differs from `cwdSlug(parentCwd)`. That's deliberate — the worktree is a sandbox. If a sub-agent
+needs the parent's project-scoped memories, keep `isolation: "shared-cwd"`.
 
 ### Environment variables
 
@@ -1241,7 +1245,8 @@ sub-agent needs the parent's project-scoped memories, keep `isolation: "shared-c
 - `PI_SUBAGENT_CONCURRENCY=N` — max concurrent children (default `4`, floor `1`, ceiling `8`).
 - `PI_SUBAGENT_NO_PERSIST=1` — use `SessionManager.inMemory()` instead of disk-backed child sessions.
 - `PI_SUBAGENT_SESSION_ROOT=<path>` — override `~/.pi/agent/sessions` as the child session root (ramdisk, etc.).
-- `PI_SUBAGENT_RETAIN_DAYS=N` — retain child session files for N days before the startup sweep deletes them (default `30`).
+- `PI_SUBAGENT_RETAIN_DAYS=N` — retain child session files for N days before the startup sweep deletes them (default
+  `30`).
 - `PI_SUBAGENT_STATUS_LINGER_MS=N` — keep completed status visible for N ms (default `5000`).
 - `PI_SUBAGENT_MAX_TURNS=N` — global max-turns cap. Wins over per-agent settings.
 - `PI_SUBAGENT_TIMEOUT_MS=N` — global wall-clock cap in ms. Wins over per-agent settings.
@@ -1250,15 +1255,14 @@ sub-agent needs the parent's project-scoped memories, keep `isolation: "shared-c
 ### Hot reload
 
 Edit [`extensions/subagent.ts`](./extensions/subagent.ts) or the helpers under
-[`lib/node/pi/subagent-*.ts`](../../lib/node/pi) and run `/reload` inside an interactive pi session. New or edited
-`.md` files under any of the three agent directories are picked up on the next `/reload` (or when any `/agents`
-subcommand runs — the command rescans before listing).
+[`lib/node/pi/subagent-*.ts`](../../lib/node/pi) and run `/reload` inside an interactive pi session. New or edited `.md`
+files under any of the three agent directories are picked up on the next `/reload` (or when any `/agents` subcommand
+runs — the command rescans before listing).
 
-**Caveat:** the `subagent` tool's LLM-visible description (the list of available agents baked into the tool schema)
-is captured at `registerTool` time. `/reload` re-runs the extension factory and so refreshes it; a `.md` file
-dropped in mid-session without a `/reload` is usable via `/agents` and callable via `subagent` (the tool looks
-up agents by name dynamically), but the parent model won't see the new agent in the tool-description enum until
-the next `/reload`.
+**Caveat:** the `subagent` tool's LLM-visible description (the list of available agents baked into the tool schema) is
+captured at `registerTool` time. `/reload` re-runs the extension factory and so refreshes it; a `.md` file dropped in
+mid-session without a `/reload` is usable via `/agents` and callable via `subagent` (the tool looks up agents by name
+dynamically), but the parent model won't see the new agent in the tool-description enum until the next `/reload`.
 
 ## `skills/plan-first`
 
@@ -1279,16 +1283,16 @@ the overhead is small and the instructions are consistent with how they already 
 ## `skills/grep-before-read`
 
 Companion skill to [`extensions/read-without-limit-nudge.ts`](#extensionsread-without-limit-nudgets) and
-[`extensions/read-reread-detector.ts`](#extensionsread-reread-detectorts). Where those extensions catch the failure
-mode after the fact, this skill teaches the up-front pattern: default to `rg -n` for discovery, reach for `read` only
-once you know the target region.
+[`extensions/read-reread-detector.ts`](#extensionsread-reread-detectorts). Where those extensions catch the failure mode
+after the fact, this skill teaches the up-front pattern: default to `rg -n` for discovery, reach for `read` only once
+you know the target region.
 
 Contents ([`skills/grep-before-read/SKILL.md`](./skills/grep-before-read/SKILL.md)):
 
 - Seven recipes covering the common discovery goals (symbol definition, call sites, path / language filters, fixed
   strings, counts, filelists, only-changed-files via `git diff --name-only | xargs rg`).
-- A concrete before/after example showing the context difference (≈ 40k tokens vs ≈ 800 tokens for the same answer
-  on a medium repo).
+- A concrete before/after example showing the context difference (≈ 40k tokens vs ≈ 800 tokens for the same answer on a
+  medium repo).
 - Post-grep follow-up workflow: `read --offset --limit` on the target, record the location in `scratchpad`.
 - Anti-patterns (don’t `read` without `offset`/`limit` on files over ~400 lines, don’t re-grep the same pattern in a
   turn, avoid `find | xargs grep` in favor of `rg -g`, don’t `rg | head`).
@@ -1316,8 +1320,8 @@ Contents ([`skills/memory-first/SKILL.md`](./skills/memory-first/SKILL.md)):
   `read` over stale snapshots.
 - Anti-patterns: hand-editing `MEMORY.md`, saving duplicates instead of `update`-ing, judgmental phrasing.
 
-Auto-triggering description matches requests where a user utterance is a preference / correction / validated approach
-or names an external system, so models pull the skill in when the save decision is imminent.
+Auto-triggering description matches requests where a user utterance is a preference / correction / validated approach or
+names an external system, so models pull the skill in when the save decision is imminent.
 
 ## `skills/subagent-delegation`
 
@@ -1334,38 +1338,38 @@ Contents ([`skills/subagent-delegation/SKILL.md`](./skills/subagent-delegation/S
 - Agent picker table mapping the three shipped agents ([`explore`](./agents/explore.md), [`plan`](./agents/plan.md),
   [`general-purpose`](./agents/general-purpose.md)) to their tool allowlists, thinking levels, and typical tasks.
 - Four-part `task` template (goal / constraints / known context / expected answer shape) plus a good-vs-bad example.
-- `modelOverride` guidance specifically aimed at pushing mechanical enumeration to weak local models
-  (qwen3-6-35b-a3b, gpt-oss-20b, …) while the parent keeps the strong model for judgment — pairs with
+- `modelOverride` guidance specifically aimed at pushing mechanical enumeration to weak local models (qwen3-6-35b-a3b,
+  gpt-oss-20b, …) while the parent keeps the strong model for judgment — pairs with
   [`extensions/small-model-addendum.ts`](#extensionssmall-model-addendumts) on the child side.
 - `returnFormat: "json"` recipe for structured handoffs, plus isolation notes (`shared-cwd` vs. `worktree`).
 - Anti-patterns (delegating a single tool call, re-explaining all parent context, defaulting to `general-purpose`,
   chaining independent children serially, trusting weak-model output without verification, attempting recursion).
 - Quick-reference situation → move table.
 
-Auto-triggering description matches requests that imply broad exploration, fan-out, or "plan before you code"
-moments, so the policy loads at the point a delegation decision is actually being made.
+Auto-triggering description matches requests that imply broad exploration, fan-out, or "plan before you code" moments,
+so the policy loads at the point a delegation decision is actually being made.
 
 ## `skills/subagent-background`
 
-Lifecycle sister-skill to [`skills/subagent-delegation`](#skillssubagent-delegation). Where `subagent-delegation`
-covers **whether** to spawn a child, this skill covers **how to run children asynchronously** with
+Lifecycle sister-skill to [`skills/subagent-delegation`](#skillssubagent-delegation). Where `subagent-delegation` covers
+**whether** to spawn a child, this skill covers **how to run children asynchronously** with
 `subagent({ run_in_background: true })` and [`subagent_send`](#extensionssubagentts) so the parent can keep working
 while they run and pick results up across turn boundaries.
 
 Contents ([`skills/subagent-background/SKILL.md`](./skills/subagent-background/SKILL.md)):
 
-- "When background beats sync" checklist (fan-out with inline work, latency-hiding, cross-turn exploration,
-  steerable tasks) and the opposite — tasks short enough that polling overhead costs more than it saves.
-- Fan-out pattern: multiple `subagent` calls in one assistant turn run concurrently; how to combine with inline
-  work and collect via `wait` next turn.
+- "When background beats sync" checklist (fan-out with inline work, latency-hiding, cross-turn exploration, steerable
+  tasks) and the opposite — tasks short enough that polling overhead costs more than it saves.
+- Fan-out pattern: multiple `subagent` calls in one assistant turn run concurrently; how to combine with inline work and
+  collect via `wait` next turn.
 - Handle management — record every returned handle in `scratchpad` / `todo` review notes so it survives compaction,
   because background children outlive the turn that spawned them.
-- `subagent_send` action matrix (`status` / `wait` / `abort` / steering `text`) with harness-enforced rules
-  (`text` + `abort` not combinable, `text` rejected on finished children, `wait` is idempotent once finished).
+- `subagent_send` action matrix (`status` / `wait` / `abort` / steering `text`) with harness-enforced rules (`text` +
+  `abort` not combinable, `text` rejected on finished children, `wait` is idempotent once finished).
 - Polling loop and fan-out patterns, preferring `wait` with a timeout over tight `status` polling.
 - Mid-run steering guidance and abort criteria (obsolete task, clear stuck state, wrong agent type chosen).
-- The "don't orphan children" rule: every live handle owes a `wait` / `status+scratchpad-note` / `abort` before
-  the turn ends.
+- The "don't orphan children" rule: every live handle owes a `wait` / `status+scratchpad-note` / `abort` before the turn
+  ends.
 - Composition with [`todo`](#extensionstodots) (`review` note parked on handle) and
   [`scratchpad`](#extensionsscratchpadts) (handle → task mapping for cross-compaction recovery).
 - Anti-patterns (spawning background for work you'll immediately `wait` on, tight-polling with `status`, steering on
@@ -1373,36 +1377,36 @@ Contents ([`skills/subagent-background/SKILL.md`](./skills/subagent-background/S
 
 ## `skills/iterate-until-verified`
 
-Companion skill to [`extensions/iteration-loop.ts`](#extensionsiteration-loopts). The extension provides the
-mechanism (the `check` tool, on-disk state, branch-aware reducer, per-turn status injection, claim + strict edit
-guardrails); this skill provides the **policy** — when to declare a check, how to pick a kind, how to surface the
-draft for user acceptance, and the iteration discipline that keeps the loop from devolving into guess-and-check.
+Companion skill to [`extensions/iteration-loop.ts`](#extensionsiteration-loopts). The extension provides the mechanism
+(the `check` tool, on-disk state, branch-aware reducer, per-turn status injection, claim + strict edit guardrails); this
+skill provides the **policy** — when to declare a check, how to pick a kind, how to surface the draft for user
+acceptance, and the iteration discipline that keeps the loop from devolving into guess-and-check.
 
 Contents ([`skills/iterate-until-verified/SKILL.md`](./skills/iterate-until-verified/SKILL.md)):
 
 - "When to declare a check" gate: artifact-producing tasks with a pass/fail contract (rendered image, SVG, chart,
-  config, regex, generated snippet, rubric-graded prose). Explicit skip list: question-answering, single-tool-call
-  asks, throwaway `/tmp` scratch, tasks where an existing test suite already owns verification.
+  config, regex, generated snippet, rubric-graded prose). Explicit skip list: question-answering, single-tool-call asks,
+  throwaway `/tmp` scratch, tasks where an existing test suite already owns verification.
 - Decision table for picking between `bash` (deterministic validators, `passOn: exit-zero` / `regex:` / `jq:`) and
-  `critic` (subjective / visual rubrics) with concrete examples from the plan — including the
-  `magick in.svg out.png` rendering pre-step required on this host because `rsvg-convert` isn't installed.
-- Four-step authorship flow: `declare` → surface the draft inline with "run `/check accept default` to start" →
-  `accept` → iterate → `close`. Does NOT call `check run` before user acceptance — the tool refuses and the skill
-  teaches the model to wait.
+  `critic` (subjective / visual rubrics) with concrete examples from the plan — including the `magick in.svg out.png`
+  rendering pre-step required on this host because `rsvg-convert` isn't installed.
+- Four-step authorship flow: `declare` → surface the draft inline with "run `/check accept default` to start" → `accept`
+  → iterate → `close`. Does NOT call `check run` before user acceptance — the tool refuses and the skill teaches the
+  model to wait.
 - Iteration discipline rules: one focused edit per iteration, read the verdict before editing again, address
-  blocker-severity issues first, honor the injected `Next step:` line, never claim done without a passing
-  `check run` this turn, budget exhaustion returns best-so-far (not a hard fail).
+  blocker-severity issues first, honor the injected `Next step:` line, never claim done without a passing `check run`
+  this turn, budget exhaustion returns best-so-far (not a hard fail).
 - Composition with [`todo`](#extensionstodots) (one loop = one todo, parked in `review` while iterating) and
   [`scratchpad`](#extensionsscratchpadts) (cross-iteration pipeline commands / rubric interpretations).
-- Anti-patterns: skipping authorship because the check seems obvious, running `check run` without editing (wasted
-  spin caught by the fixpoint detector), relying on the claim nudge to catch edits (the strict nudge exists for
-  this reason), iterating without reading the prior verdict, widening the rubric mid-loop to fake a pass, and
-  forgetting to `close` which leaves the status block injecting forever.
+- Anti-patterns: skipping authorship because the check seems obvious, running `check run` without editing (wasted spin
+  caught by the fixpoint detector), relying on the claim nudge to catch edits (the strict nudge exists for this reason),
+  iterating without reading the prior verdict, widening the rubric mid-loop to fake a pass, and forgetting to `close`
+  which leaves the status block injecting forever.
 - Quick-reference situation → move table mirroring the other skills.
 
-Auto-triggering description matches requests that imply artifact production with a verifiable contract ("produce
-an SVG / chart / diagram / config / test / regex / output", "make a rendering of X", "generate a Y that satisfies
-Z") so the policy loads at the point a check-declaration decision is actually being made.
+Auto-triggering description matches requests that imply artifact production with a verifiable contract ("produce an SVG
+/ chart / diagram / config / test / regex / output", "make a rendering of X", "generate a Y that satisfies Z") so the
+policy loads at the point a check-declaration decision is actually being made.
 
 ## `themes/`
 

@@ -5,6 +5,7 @@
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
 import {
@@ -277,7 +278,10 @@ describe('readPlan / writePlan', () => {
 
   test('readPlan wraps structural errors in PlanValidationError', () => {
     const p = join(cwd, 'plan.json');
-    writeFileSync(p, JSON.stringify({ kind: 'deep-research', question: '', slug: 's', subQuestions: [], budget, status: 'planning' }));
+    writeFileSync(
+      p,
+      JSON.stringify({ kind: 'deep-research', question: '', slug: 's', subQuestions: [], budget, status: 'planning' }),
+    );
 
     expect(() => readPlan(p)).toThrow(PlanValidationError);
   });

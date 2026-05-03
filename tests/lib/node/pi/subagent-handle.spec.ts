@@ -5,6 +5,7 @@
  */
 
 import { describe, expect, test } from 'vitest';
+
 import { makeHandleCounter, resolveHandle } from '../../../../lib/node/pi/subagent-handle.ts';
 
 describe('makeHandleCounter', () => {

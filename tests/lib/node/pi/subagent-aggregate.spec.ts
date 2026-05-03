@@ -11,6 +11,7 @@
  */
 
 import { afterEach, describe, expect, test, vi } from 'vitest';
+
 import {
   __resetSessionSubagentAggregateForTests,
   getSessionSubagentAggregate,

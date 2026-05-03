@@ -5,6 +5,7 @@
  */
 
 import { expect, test } from 'vitest';
+
 import { formatMemoryIndex } from '../../../../lib/node/pi/memory-prompt.ts';
 import { emptyState } from '../../../../lib/node/pi/memory-reducer.ts';
 import { type MemoryEntry, type MemoryState } from '../../../../lib/node/pi/memory-reducer.ts';

@@ -1,6 +1,7 @@
 # Windows Subsystem for Linux 1 notes
 
-This page is only for intentionally running a distro on WSL 1. For the normal install flow, start with [../README.md](../README.md).
+This page is only for intentionally running a distro on WSL 1. For the normal install flow, start with
+[../README.md](../README.md).
 
 ## Install WSL 1
 
@@ -20,11 +21,14 @@ If you already have a distro installed and want to convert it to WSL 1:
 wsl --set-version Ubuntu 1
 ```
 
-If `wsl --install` is unavailable on your Windows build, use Microsoft's legacy guidance: [Manual installation steps for older versions of WSL](https://learn.microsoft.com/en-us/windows/wsl/install-manual).
+If `wsl --install` is unavailable on your Windows build, use Microsoft's legacy guidance:
+[Manual installation steps for older versions of WSL](https://learn.microsoft.com/en-us/windows/wsl/install-manual).
 
 ## Optional: change the Linux home directory to the Windows profile
 
-Microsoft recommends keeping Linux project files in the Linux filesystem for the best compatibility and performance. Only point `$HOME` into `/mnt/c/...` if you specifically want your shell config to live in the Windows profile and you accept the tradeoff.
+Microsoft recommends keeping Linux project files in the Linux filesystem for the best compatibility and performance.
+Only point `$HOME` into `/mnt/c/...` if you specifically want your shell config to live in the Windows profile and you
+accept the tradeoff.
 
 Edit `/etc/passwd`:
 

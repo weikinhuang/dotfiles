@@ -5,6 +5,7 @@
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
 import { appendJournal, readJournal, tailJournal } from '../../../../lib/node/pi/research-journal.ts';
@@ -55,9 +56,7 @@ describe('appendJournal', () => {
 
     const text = readFileSync(journal, 'utf8');
 
-    expect(text).toBe(
-      '## [2025-01-01T00:00:00.000Z] [info] A\n\n## [2025-01-01T00:00:01.000Z] [info] B\n',
-    );
+    expect(text).toBe('## [2025-01-01T00:00:00.000Z] [info] A\n\n## [2025-01-01T00:00:01.000Z] [info] B\n');
   });
 
   test('defaults to new Date when ts is omitted', () => {

@@ -44,9 +44,11 @@
 import { hostname, userInfo } from 'node:os';
 import { basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
+
 import { type AssistantMessage, type ToolResultMessage } from '@mariozechner/pi-ai';
 import { type ExtensionAPI } from '@mariozechner/pi-coding-agent';
 import { truncateToWidth, visibleWidth } from '@mariozechner/pi-tui';
+
 import {
   fetchGitSegmentAsync,
   GIT_SEGMENT_TTL_MS,

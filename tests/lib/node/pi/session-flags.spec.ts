@@ -1,4 +1,5 @@
 import { expect, test } from 'vitest';
+
 // The two imports below intentionally hit the same module via distinct
 // specifiers so the loader hands us two module records. See the block
 // comment before the second import for the full rationale. The

@@ -5,6 +5,7 @@
  */
 
 import { describe, expect, test } from 'vitest';
+
 import { buildNudge, makeKey, pushAndCheck, stableStringify } from '../../../../lib/node/pi/loop-breaker.ts';
 
 // ──────────────────────────────────────────────────────────────────────

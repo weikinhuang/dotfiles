@@ -88,12 +88,14 @@
 import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
+
 import {
   type ExtensionAPI,
   type ExtensionContext,
   isToolCallEventType,
   type ToolCallEvent,
 } from '@mariozechner/pi-coding-agent';
+
 import { clearConfigWarning, parseJsonc, warnBadConfigFileOnce } from '../../../lib/node/pi/jsonc.ts';
 import {
   classifyRead,

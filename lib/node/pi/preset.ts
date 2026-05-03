@@ -19,6 +19,7 @@
  */
 
 import { readFileSync } from 'node:fs';
+
 import { parseJsonc } from './jsonc.ts';
 
 export type ThinkingLevel = 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';

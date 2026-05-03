@@ -43,7 +43,9 @@
 
 import { appendFileSync, statSync } from 'node:fs';
 import { isAbsolute, relative, resolve } from 'node:path';
+
 import { type ExtensionAPI, type ExtensionContext, isReadToolResult } from '@mariozechner/pi-coding-agent';
+
 import {
   classifyRead,
   DEFAULT_MIN_BYTES,

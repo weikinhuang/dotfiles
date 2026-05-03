@@ -5,6 +5,7 @@
  */
 
 import { expect, test } from 'vitest';
+
 import { RingBuffer } from '../../../../lib/node/pi/bg-bash-ring.ts';
 
 // ──────────────────────────────────────────────────────────────────────

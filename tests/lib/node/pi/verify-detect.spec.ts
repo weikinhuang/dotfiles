@@ -7,7 +7,9 @@
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
+
 import {
   type BranchEntry,
   buildSteer,
@@ -63,6 +65,7 @@ test('extractClaims: build-clean claims are detected', () => {
 
 test('extractClaims: format-clean claims are detected', () => {
   expect(kindsOf(extractClaims('prettier is happy.'))).toEqual(['format-clean']);
+  expect(kindsOf(extractClaims('oxfmt is happy.'))).toEqual(['format-clean']);
   expect(kindsOf(extractClaims('gofmt is clean.'))).toEqual(['format-clean']);
 });
 
@@ -192,6 +195,7 @@ test('verifyingCommandMatches: build-clean matches builds but also typecheck-lik
 
 test('verifyingCommandMatches: format-clean matches formatters', () => {
   expect(verifyingCommandMatches('format-clean', 'prettier -c .')).toBe(true);
+  expect(verifyingCommandMatches('format-clean', 'oxfmt -c .')).toBe(true);
   expect(verifyingCommandMatches('format-clean', 'shfmt -d -i 2 script.sh')).toBe(true);
   expect(verifyingCommandMatches('format-clean', 'cargo fmt')).toBe(true);
   expect(verifyingCommandMatches('format-clean', 'ruff format .')).toBe(true);

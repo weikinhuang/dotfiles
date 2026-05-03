@@ -5,11 +5,13 @@ Configuration and custom tooling for the [Codex CLI](https://github.com/openai/c
 ## Files
 
 - [`config.toml`](#configtoml) — mirrors `~/.codex/config.toml`.
-- [`session-usage.ts`](#session-usagets) — CLI that walks `~/.codex/sessions/` and summarizes transcript token/tool usage.
+- [`session-usage.ts`](#session-usagets) — CLI that walks `~/.codex/sessions/` and summarizes transcript token/tool
+  usage.
 
 ## `config.toml`
 
-Reference Codex settings: default model, reasoning effort, file opener, `[features]` toggles, `[tui]` status-line layout and theme, and analytics/feedback opt-outs.
+Reference Codex settings: default model, reasoning effort, file opener, `[features]` toggles, `[tui]` status-line layout
+and theme, and analytics/feedback opt-outs.
 
 ## `session-usage.ts`
 

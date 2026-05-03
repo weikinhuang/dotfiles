@@ -5,6 +5,7 @@
  */
 
 import { expect, test } from 'vitest';
+
 import { formatWorkingNotes } from '../../../../lib/node/pi/scratchpad-prompt.ts';
 import { type ScratchpadState } from '../../../../lib/node/pi/scratchpad-reducer.ts';
 

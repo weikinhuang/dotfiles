@@ -53,6 +53,7 @@ import { StringEnum } from '@mariozechner/pi-ai';
 import { type ExtensionAPI, type ExtensionContext, type Theme } from '@mariozechner/pi-coding-agent';
 import { Text } from '@mariozechner/pi-tui';
 import { Type } from 'typebox';
+
 import { formatWorkingNotes } from '../../../lib/node/pi/scratchpad-prompt.ts';
 import {
   actAppend,

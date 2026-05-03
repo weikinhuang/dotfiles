@@ -5,6 +5,7 @@
  */
 
 import { describe, expect, test } from 'vitest';
+
 import { cacheHitRatioPct, fmtCost, fmtSi, formatUsageLine } from '../../../../lib/node/pi/token-format.ts';
 
 describe('fmtSi', () => {

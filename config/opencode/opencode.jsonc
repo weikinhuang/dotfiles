@@ -2,13 +2,9 @@
   "$schema": "https://opencode.ai/config.json",
   "model": "",
   "small_model": "",
-  "command": {
-  },
-  "provider": {
-  },
-  "plugin": [
-    "@tarquinen/opencode-dcp@latest",
-  ],
+  "command": {},
+  "provider": {},
+  "plugin": ["@tarquinen/opencode-dcp@latest"],
   "mcp": {
     "sequential-thinking": {
       "enabled": true,
@@ -18,15 +14,7 @@
     "time": {
       "enabled": true,
       "type": "local",
-      "command": [
-        "docker",
-        "run",
-        "-i",
-        "--rm",
-        "-e",
-        "LOCAL_TIMEZONE",
-        "mcp/time",
-      ],
+      "command": ["docker", "run", "-i", "--rm", "-e", "LOCAL_TIMEZONE", "mcp/time"],
     },
     "context7": {
       "enabled": true,
@@ -38,4 +26,3 @@
     },
   },
 }
-

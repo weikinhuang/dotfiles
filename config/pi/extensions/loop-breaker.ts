@@ -37,7 +37,9 @@
  */
 
 import { appendFileSync } from 'node:fs';
+
 import { type ExtensionAPI, type ExtensionContext } from '@mariozechner/pi-coding-agent';
+
 import { buildNudge, makeKey, pushAndCheck } from '../../../lib/node/pi/loop-breaker.ts';
 
 const DEFAULT_THRESHOLD = 3;

@@ -53,8 +53,8 @@
  */
 
 import { readFileSync } from 'node:fs';
-
 import { join } from 'node:path';
+
 import { ensureDirSync } from './atomic-write.ts';
 import {
   type FindingAction,

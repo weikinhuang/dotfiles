@@ -70,7 +70,9 @@
  */
 
 import { appendFileSync } from 'node:fs';
+
 import { type ExtensionAPI, type ExtensionContext } from '@mariozechner/pi-coding-agent';
+
 import {
   type BranchEntry,
   buildSteer,

@@ -5,6 +5,7 @@
  */
 
 import { expect, test } from 'vitest';
+
 import {
   allocateId,
   BG_BASH_CUSTOM_TYPE,

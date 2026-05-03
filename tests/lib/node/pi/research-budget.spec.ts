@@ -5,6 +5,7 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
 import { type CheckSpec, type IterationState, type Verdict } from '../../../../lib/node/pi/iteration-loop-schema.ts';

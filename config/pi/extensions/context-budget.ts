@@ -55,6 +55,7 @@
  */
 
 import { type ExtensionAPI, type ExtensionContext } from '@mariozechner/pi-coding-agent';
+
 import {
   type BudgetOptions,
   formatBudgetLine,

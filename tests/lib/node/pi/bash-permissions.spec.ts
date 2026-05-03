@@ -6,6 +6,7 @@
  */
 
 import { expect, test, vi } from 'vitest';
+
 import {
   type BashDecision,
   checkAlwaysPrompt,

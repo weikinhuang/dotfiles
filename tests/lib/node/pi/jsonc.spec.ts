@@ -3,6 +3,7 @@
  */
 
 import { expect, test } from 'vitest';
+
 import { parseJsonc, stripJsonComments } from '../../../../lib/node/pi/jsonc.ts';
 
 // ──────────────────────────────────────────────────────────────────────

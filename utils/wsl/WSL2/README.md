@@ -24,11 +24,13 @@ If you already have a distro installed and want to convert it to WSL 2:
 wsl --set-version Ubuntu 2
 ```
 
-If `wsl --install` is unavailable on your Windows build, use Microsoft's legacy guidance: [Manual installation steps for older versions of WSL](https://learn.microsoft.com/en-us/windows/wsl/install-manual).
+If `wsl --install` is unavailable on your Windows build, use Microsoft's legacy guidance:
+[Manual installation steps for older versions of WSL](https://learn.microsoft.com/en-us/windows/wsl/install-manual).
 
 ## Manage VHDX disk usage
 
-WSL 2 stores each distro in an `ext4.vhdx` virtual disk. On current WSL releases, that disk grows automatically as needed and has a 1 TB default maximum size.
+WSL 2 stores each distro in an `ext4.vhdx` virtual disk. On current WSL releases, that disk grows automatically as
+needed and has a 1 TB default maximum size.
 
 ### Enable sparse VHDs for newly created distros
 

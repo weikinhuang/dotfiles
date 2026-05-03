@@ -5,6 +5,7 @@
  */
 
 import { expect, test } from 'vitest';
+
 import { formatBackgroundJobs, formatRegistryText } from '../../../../lib/node/pi/bg-bash-prompt.ts';
 import { type BgBashState, type JobSummary } from '../../../../lib/node/pi/bg-bash-reducer.ts';
 

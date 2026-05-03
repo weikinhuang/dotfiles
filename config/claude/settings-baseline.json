@@ -51,11 +51,7 @@
       "Bash(yamllint *)",
       "Bash(yq *)"
     ],
-    "deny": [
-      "Read(./.env.*)",
-      "Read(./.env)",
-      "Read(./.envrc)"
-    ]
+    "deny": ["Read(./.env.*)", "Read(./.env)", "Read(./.envrc)"]
   },
   "autoMemoryEnabled": true,
   "effortLevel": "high",

@@ -5,6 +5,7 @@
  */
 
 import { expect, test } from 'vitest';
+
 import { condense, parseToolList, splitLines } from '../../../../lib/node/pi/output-condense.ts';
 
 // ──────────────────────────────────────────────────────────────────────

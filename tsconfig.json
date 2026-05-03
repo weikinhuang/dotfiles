@@ -2,6 +2,7 @@
   "compilerOptions": {
     "target": "esnext",
     "lib": [
+      // multiline
       "esnext"
     ],
     "allowImportingTsExtensions": true,
@@ -16,10 +17,12 @@
     "isolatedModules": true,
     "incremental": true,
     "types": [
+      // multiline
       "node"
     ]
   },
   "include": [
+    // multiline
     "**/*.ts",
     "**/*.mts"
   ],

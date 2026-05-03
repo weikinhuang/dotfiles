@@ -21,7 +21,16 @@ shell_snapshot = true
 undo = true
 
 [tui]
-status_line = ["model-with-reasoning", "project-root", "git-branch", "context-remaining", "used-tokens", "total-input-tokens", "total-output-tokens", "session-id"]
+status_line = [
+  "model-with-reasoning",
+  "project-root",
+  "git-branch",
+  "context-remaining",
+  "used-tokens",
+  "total-input-tokens",
+  "total-output-tokens",
+  "session-id",
+]
 theme = "solarized-dark"
 animations = true
 

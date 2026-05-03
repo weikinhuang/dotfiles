@@ -39,6 +39,7 @@
 import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+
 import { parseJsonc } from './jsonc.ts';
 import { truncate } from './shared.ts';
 
@@ -114,7 +115,7 @@ const CLAIM_PATTERNS: readonly PatternEntry[] = [
   // Format clean / prettier happy / gofmt clean.
   {
     kind: 'format-clean',
-    re: /\b(?:format(?:ting|ter)?|prettier|gofmt|shfmt|black|rustfmt|biome)\s+(?:is\s+)?(?:now\s+)?(?:clean|passes|passed|ok|happy)\b/i,
+    re: /\b(?:format(?:ting|ter)?|prettier|oxfmt|gofmt|shfmt|black|rustfmt|biome)\s+(?:is\s+)?(?:now\s+)?(?:clean|passes|passed|ok|happy)\b/i,
   },
   // CI green / CI passes.
   { kind: 'ci-green', re: /\bCI\s+(?:is\s+)?(?:now\s+)?(?:green|passing|passes|passed|clean)\b/i },
@@ -271,6 +272,7 @@ const COMMAND_PATTERNS: Record<ClaimKind, readonly RegExp[]> = {
   ],
   'format-clean': [
     new RegExp(`${CMD_START}prettier${CMD_END}`, 'i'),
+    new RegExp(`${CMD_START}oxfmt${CMD_END}`, 'i'),
     new RegExp(`${CMD_START}shfmt${CMD_END}`, 'i'),
     new RegExp(`${CMD_START}gofmt${CMD_END}`, 'i'),
     new RegExp(`${CMD_START}(?:rustfmt|cargo\\s+fmt)${CMD_END}`, 'i'),
@@ -279,7 +281,7 @@ const COMMAND_PATTERNS: Record<ClaimKind, readonly RegExp[]> = {
     new RegExp(`${CMD_START}biome\\s+format${CMD_END}`, 'i'),
     new RegExp(`${CMD_START}(?:npm|pnpm|yarn|bun)\\s+(?:run\\s+)?(?:format|fmt)${CMD_END}`, 'i'),
     // Meta-scripts that conventionally bundle lint + format (shellcheck + shfmt,
-    // eslint + prettier, etc.). Running `./dev/lint.sh` or `npm run lint` almost
+    // eslint + oxfmt, etc.). Running `./dev/lint.sh` or `npm run lint` almost
     // always means formatting is checked too; accepting them for `format-clean`
     // is a deliberate false-negative-suppression call -- the cost of missing a
     // real over-claim is lower than nagging every time the user runs a lint

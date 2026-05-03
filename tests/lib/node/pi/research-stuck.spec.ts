@@ -4,13 +4,7 @@
 
 import { describe, expect, test } from 'vitest';
 
-import {
-  isStuck,
-  isStuckShape,
-  STUCK_STATUS,
-  type Stuck,
-  stuck,
-} from '../../../../lib/node/pi/research-stuck.ts';
+import { isStuck, isStuckShape, STUCK_STATUS, type Stuck, stuck } from '../../../../lib/node/pi/research-stuck.ts';
 
 describe('stuck()', () => {
   test('constructs a canonical Stuck value', () => {

@@ -52,7 +52,9 @@
 
 import { appendFileSync, readFileSync, statSync } from 'node:fs';
 import { isAbsolute, resolve } from 'node:path';
+
 import { type ExtensionAPI, type ExtensionContext, isEditToolResult } from '@mariozechner/pi-coding-agent';
+
 import { locateAndFormat, parseEditFailure } from '../../../lib/node/pi/edit-recovery.ts';
 
 const DEFAULT_MAX_BYTES = 262_144;

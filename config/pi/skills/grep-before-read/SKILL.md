@@ -9,9 +9,9 @@ description:
 
 # Grep Before Read
 
-Reading a whole file to find one function is the small-model version of `cat | grep`. `rg -n` goes straight to the
-lines that matter, returns five orders of magnitude less text, and costs almost no context. Make it your default
-discovery move. `read` is for when you already know which region to look at.
+Reading a whole file to find one function is the small-model version of `cat | grep`. `rg -n` goes straight to the lines
+that matter, returns five orders of magnitude less text, and costs almost no context. Make it your default discovery
+move. `read` is for when you already know which region to look at.
 
 ## When to grep first
 
@@ -111,9 +111,9 @@ rg --files-without-match "MySymbol"  # the inverse
 
 **Before (small-model pattern):**
 
-1. `read src/api/search.ts`   → 1,842 lines, ~22k tokens of output.
+1. `read src/api/search.ts` → 1,842 lines, ~22k tokens of output.
 2. `read src/api/validation.ts` → 900 lines, ~11k tokens.
-3. `read src/lib/ratelimit.ts`  → 600 lines, ~7k tokens.
+3. `read src/lib/ratelimit.ts` → 600 lines, ~7k tokens.
 4. "I found the handler at line 412 of search.ts."
 
 Total spend: ~40k tokens to answer one "where is X" question.
@@ -147,14 +147,14 @@ Once `rg` points you at a specific file and line range:
 
 ## Quick reference
 
-| Goal | Command |
-| --- | --- |
-| Symbol definition | `rg -n "^(export\s+)?(function\|class\|const\|interface\|type)\s+NAME\b"` |
-| All references | `rg -nC 2 "NAME"` |
-| Restrict by type | `rg -n --type ts "NAME"` |
-| Restrict by path | `rg -n -g 'src/**/*.ts' "NAME"` |
-| Exclude paths | `rg -n "NAME" -g '!dist/**' -g '!node_modules/**'` |
-| Fixed string | `rg -Fn "literal.string"` |
-| Files containing | `rg -l "NAME"` |
-| Per-file counts | `rg -c "NAME"` |
-| Only modified files | `git diff --name-only \| xargs rg -n "NAME"` |
+| Goal                | Command                                                                   |
+| ------------------- | ------------------------------------------------------------------------- |
+| Symbol definition   | `rg -n "^(export\s+)?(function\|class\|const\|interface\|type)\s+NAME\b"` |
+| All references      | `rg -nC 2 "NAME"`                                                         |
+| Restrict by type    | `rg -n --type ts "NAME"`                                                  |
+| Restrict by path    | `rg -n -g 'src/**/*.ts' "NAME"`                                           |
+| Exclude paths       | `rg -n "NAME" -g '!dist/**' -g '!node_modules/**'`                        |
+| Fixed string        | `rg -Fn "literal.string"`                                                 |
+| Files containing    | `rg -l "NAME"`                                                            |
+| Per-file counts     | `rg -c "NAME"`                                                            |
+| Only modified files | `git diff --name-only \| xargs rg -n "NAME"`                              |

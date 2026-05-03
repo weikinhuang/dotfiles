@@ -45,6 +45,7 @@
 
 import { complete, type Context, type Message, type Model } from '@mariozechner/pi-ai';
 import { type ExtensionAPI, buildSessionContext, type ReadonlySessionManager } from '@mariozechner/pi-coding-agent';
+
 import {
   BTW_USAGE,
   type BtwFooterStats,

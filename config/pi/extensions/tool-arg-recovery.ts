@@ -59,7 +59,9 @@
  */
 
 import { appendFileSync } from 'node:fs';
+
 import { type ExtensionAPI, type ExtensionContext } from '@mariozechner/pi-coding-agent';
+
 import { buildRecoveryBlock, parseValidationFailure, type SchemaNode } from '../../../lib/node/pi/tool-arg-recovery.ts';
 
 const DEFAULT_MAX_EXAMPLE_CHARS = 1500;

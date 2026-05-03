@@ -11,7 +11,11 @@ import {
   validatePlaceholders,
 } from '../../../../lib/node/pi/research-citations.ts';
 
-const src = (id: string, title = `title-${id}`, url = `https://example.com/${id}`): CitationSource => ({ id, title, url });
+const src = (id: string, title = `title-${id}`, url = `https://example.com/${id}`): CitationSource => ({
+  id,
+  title,
+  url,
+});
 
 function indexOf(...sources: CitationSource[]): Map<string, CitationSource> {
   return new Map(sources.map((s) => [s.id, s]));

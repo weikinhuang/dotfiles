@@ -65,6 +65,7 @@ import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync, unlinkSync } 
 import { homedir, tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+
 import {
   createAgentSession,
   DefaultResourceLoader,
@@ -78,6 +79,7 @@ import {
 } from '@mariozechner/pi-coding-agent';
 import { Text } from '@mariozechner/pi-tui';
 import { Type } from 'typebox';
+
 import { getSessionSubagentAggregate } from '../../../lib/node/pi/subagent-aggregate.ts';
 import {
   formatAgentListDescription,

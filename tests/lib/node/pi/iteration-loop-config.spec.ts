@@ -5,7 +5,9 @@
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
 import { afterEach, describe, expect, test } from 'vitest';
+
 import {
   BUILT_IN_CLAIM_REGEXES,
   compileBuiltInClaimRegexes,

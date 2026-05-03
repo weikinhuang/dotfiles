@@ -8,7 +8,9 @@
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
 import { afterEach, beforeEach, expect, test } from 'vitest';
+
 import {
   atomicWriteFile,
   cwdSlug,

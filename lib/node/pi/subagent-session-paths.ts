@@ -20,6 +20,7 @@
 
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+
 import { cwdSlug } from './memory-paths.ts';
 
 export const SUBAGENT_SESSION_DIRNAME = 'subagents';

@@ -11,16 +11,16 @@ description:
 
 The `memory` tool is durable, cross-session storage. Anything you save there survives session shutdown, context
 compaction, and new projects. Every turn the MEMORY.md index is injected into the system prompt under a `## Memory`
-header so you can see what's available without a tool call. Full bodies are fetched on demand via
-`memory` action `read`.
+header so you can see what's available without a tool call. Full bodies are fetched on demand via `memory` action
+`read`.
 
 This skill teaches WHEN to save, WHEN to recall, and WHAT NOT to save. The tool provides the mechanism; this doc
 provides the policy.
 
 ## The four memory types
 
-Each memory is a single markdown file with `name` + `description` + `type` frontmatter. Pick the type that describes
-the content, not the trigger:
+Each memory is a single markdown file with `name` + `description` + `type` frontmatter. Pick the type that describes the
+content, not the trigger:
 
 ### `user` — who the user is, how they work
 
@@ -53,8 +53,8 @@ Body structure for `feedback`:
 
 Save when:
 
-- They correct your approach: _"don't mock the database here — we got burned last quarter when mocks passed and
-  prod failed"_. Save the rule + why + when it applies.
+- They correct your approach: _"don't mock the database here — we got burned last quarter when mocks passed and prod
+  failed"_. Save the rule + why + when it applies.
 - They validate a non-obvious call you made: _"yeah, the bundled PR was right here — splitting would've been churn"_.
   That's a confirmed judgment call worth keeping.
 - They tell you to stop a habit: _"stop ending every response with a summary"_.
@@ -85,8 +85,8 @@ Save when:
 
 ## Scope choice — global vs project
 
-- **`user` / `feedback`** default to `global` — cross-project truths. Override to `project` only when the rule
-  genuinely only applies to this one workspace (e.g. "in this repo, prefer integration over unit tests").
+- **`user` / `feedback`** default to `global` — cross-project truths. Override to `project` only when the rule genuinely
+  only applies to this one workspace (e.g. "in this repo, prefer integration over unit tests").
 - **`project` / `reference`** always `project` — a `freeze begins Thursday` memory from repo A means nothing in repo B.
 
 When in doubt, prefer `project`. A misplaced global memory pollutes every future session; a misplaced project memory
@@ -124,10 +124,10 @@ acting on stale info.
 
 ## Keep memories accurate
 
-- **Duplicate first, write second.** Before `save`, call `list` (or check the injected index) for an existing memory
-  you should `update` instead.
-- **`update` when facts change.** A memory about a deadline that passed, or a preference that reversed, is worse than
-  no memory.
+- **Duplicate first, write second.** Before `save`, call `list` (or check the injected index) for an existing memory you
+  should `update` instead.
+- **`update` when facts change.** A memory about a deadline that passed, or a preference that reversed, is worse than no
+  memory.
 - **`remove` when a memory is flat-out wrong or no longer applies.** Stale memories poison future sessions.
 
 ## Anti-patterns
@@ -142,11 +142,11 @@ acting on stale info.
 
 ## Quick reference
 
-| Action   | Required                                    | Optional             | Purpose                                              |
-| -------- | ------------------------------------------- | -------------------- | ---------------------------------------------------- |
-| `list`   | —                                           | —                    | Print both indices (global + project).               |
-| `read`   | `id`                                        | `type`, `scope`      | Load a memory's full body.                           |
-| `save`   | `type`, `name`, `description`, `body`       | `scope`              | Create a new memory.                                 |
-| `update` | `id` + at least one of `name`/`desc`/`body` | `type`, `scope`      | Rewrite fields on an existing memory.                |
-| `remove` | `id`, `scope`                               | `type`               | Delete a memory + drop it from MEMORY.md.            |
-| `search` | `query`                                     | —                    | Case-insensitive match over name/description/body.   |
+| Action   | Required                                    | Optional        | Purpose                                            |
+| -------- | ------------------------------------------- | --------------- | -------------------------------------------------- |
+| `list`   | —                                           | —               | Print both indices (global + project).             |
+| `read`   | `id`                                        | `type`, `scope` | Load a memory's full body.                         |
+| `save`   | `type`, `name`, `description`, `body`       | `scope`         | Create a new memory.                               |
+| `update` | `id` + at least one of `name`/`desc`/`body` | `type`, `scope` | Rewrite fields on an existing memory.              |
+| `remove` | `id`, `scope`                               | `type`          | Delete a memory + drop it from MEMORY.md.          |
+| `search` | `query`                                     | —               | Case-insensitive match over name/description/body. |

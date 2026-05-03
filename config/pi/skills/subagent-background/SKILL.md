@@ -3,16 +3,16 @@ name: subagent-background
 description: >-
   Run subagents asynchronously with `run_in_background: true` and manage them with `subagent_send` (status / wait /
   steer / abort). Use when you want to fan out work, hide latency behind other steps, or keep the parent responsive
-  while a long child runs. Covers the full lifecycle, when async beats sync, steering mid-run, abort criteria, and
-  the "don't orphan children" rule. Pairs with `subagent-delegation` which covers WHEN and HOW to delegate at all.
+  while a long child runs. Covers the full lifecycle, when async beats sync, steering mid-run, abort criteria, and the
+  "don't orphan children" rule. Pairs with `subagent-delegation` which covers WHEN and HOW to delegate at all.
 ---
 
 # Subagent Background Lifecycle
 
-`subagent({ run_in_background: true })` returns a handle immediately instead of blocking. The child keeps running
-in the background — even across the parent turn boundary — and you retrieve its answer later with
-`subagent_send({ to, action: "wait" })`. This skill is the lifecycle and the policy for when async is worth the
-extra bookkeeping.
+`subagent({ run_in_background: true })` returns a handle immediately instead of blocking. The child keeps running in the
+background — even across the parent turn boundary — and you retrieve its answer later with
+`subagent_send({ to, action: "wait" })`. This skill is the lifecycle and the policy for when async is worth the extra
+bookkeeping.
 
 If you haven't decided whether to delegate at all, read `subagent-delegation` first.
 
@@ -30,16 +30,16 @@ Go background when **any** of these is true:
   something else while they run.
 - **Latency-hiding.** The child is going to take a while; meanwhile you could be drafting code, running tests, or
   reading other files.
-- **Cross-turn work.** The investigation is long enough that it would blow your turn budget or trigger a stall — let
-  it run across multiple parent turns.
-- **Exploratory "maybe I'll use this".** You want a second opinion or an alternative plan in parallel; finish your
-  own attempt first, then compare.
+- **Cross-turn work.** The investigation is long enough that it would blow your turn budget or trigger a stall — let it
+  run across multiple parent turns.
+- **Exploratory "maybe I'll use this".** You want a second opinion or an alternative plan in parallel; finish your own
+  attempt first, then compare.
 - **Steerable tasks.** You expect to nudge the child mid-run (new constraint, narrower scope) via
   `subagent_send({ to, text: "..." })`.
 
 Stay sync when:
 
-- The child answer is the *immediate next input* to your reasoning.
+- The child answer is the _immediate next input_ to your reasoning.
 - You have nothing else to do while it runs.
 - The task is short enough that polling overhead costs more than it saves.
 
@@ -64,9 +64,9 @@ Turn N+1 (parent):
   → merge results
 ```
 
-If the tasks truly are independent and you have no inline work to do, you can also call them synchronously in the
-same turn — the harness still runs them concurrently. Reach for `run_in_background` specifically when you want the
-parent free to do something else, or when the children might outlast the turn.
+If the tasks truly are independent and you have no inline work to do, you can also call them synchronously in the same
+turn — the harness still runs them concurrently. Reach for `run_in_background` specifically when you want the parent
+free to do something else, or when the children might outlast the turn.
 
 ## The handle
 
@@ -81,12 +81,12 @@ children with the `/agents running` surface or treat the work as lost and respaw
 
 ## `subagent_send` actions
 
-| Action              | Blocking? | Purpose                                                                  |
-| ------------------- | --------- | ------------------------------------------------------------------------ |
-| `status` (default)  | No        | Cheap snapshot: running / finished / aborted, plus turn count.           |
-| `wait`              | Yes       | Block up to `timeoutMs` for the child to finish; return final answer.    |
-| `abort`             | No        | Cancel a running child. Final answer classified as `aborted`.            |
-| (no action, `text`) | No        | Inject a user-role message into a running child to steer it.             |
+| Action              | Blocking? | Purpose                                                               |
+| ------------------- | --------- | --------------------------------------------------------------------- |
+| `status` (default)  | No        | Cheap snapshot: running / finished / aborted, plus turn count.        |
+| `wait`              | Yes       | Block up to `timeoutMs` for the child to finish; return final answer. |
+| `abort`             | No        | Cancel a running child. Final answer classified as `aborted`.         |
+| (no action, `text`) | No        | Inject a user-role message into a running child to steer it.          |
 
 Rules the harness enforces:
 
@@ -128,23 +128,23 @@ Use `subagent_send({ to, text })` to inject new guidance into a child that's sti
 - You realized the output shape you asked for was wrong ("return JSON, not prose").
 - The child is about to waste turns on the wrong sub-problem ("stop reading search.ts; look at validate.ts instead").
 
-The injected text appears to the child as a new user-role message. Write it the same way you'd write a clarifying
-reply in chat — short, imperative, paste any paths literally.
+The injected text appears to the child as a new user-role message. Write it the same way you'd write a clarifying reply
+in chat — short, imperative, paste any paths literally.
 
-Do NOT use steering as a replacement for a better initial `task`. If you're steering on every spawn, tighten the
-prompt (see `subagent-delegation` → Writing the `task`).
+Do NOT use steering as a replacement for a better initial `task`. If you're steering on every spawn, tighten the prompt
+(see `subagent-delegation` → Writing the `task`).
 
 ## Abort criteria
 
 Abort a background child when:
 
 - The task is obsolete. The user changed direction, or the parent already solved it inline.
-- The child is clearly stuck (repeated reads of the same file, no progress across multiple `status` checks, turn
-  count climbing with no output growth).
+- The child is clearly stuck (repeated reads of the same file, no progress across multiple `status` checks, turn count
+  climbing with no output growth).
 - You spawned the wrong agent type and steering won't fix it (e.g., you need write access but spawned `explore`).
 
-`subagent_send({ to, action: "abort" })` is the clean exit. Don't just stop calling `wait` and hope it dies —
-background children survive turn boundaries and keep consuming until they abort, finish, or time out.
+`subagent_send({ to, action: "abort" })` is the clean exit. Don't just stop calling `wait` and hope it dies — background
+children survive turn boundaries and keep consuming until they abort, finish, or time out.
 
 ## The "don't orphan children" rule
 
@@ -176,25 +176,25 @@ Background work and planning tools compose naturally:
 
 - **Don't spawn background children you have nothing to do with.** If you'll just `wait` immediately, spawn sync.
   Background is for latency-hiding, not syntax sugar.
-- **Don't tight-poll with `status`.** One `status` between substantial inline work is fine; a `status` every line
-  of reasoning is pure waste. Use `wait` with a timeout instead.
-- **Don't steer on every turn.** If you're injecting text more than once or twice, the original `task` was wrong —
-  abort and respawn with a better prompt.
-- **Don't forget handles exist across turns.** Unlike sync children, background children outlive the turn that
-  spawned them. Treat them like open file descriptors.
-- **Don't race children against the user.** If the user is typing a follow-up, a background explorer can deliver
-  its answer mid-conversation and derail the thread. Abort or `wait` before pivoting direction.
+- **Don't tight-poll with `status`.** One `status` between substantial inline work is fine; a `status` every line of
+  reasoning is pure waste. Use `wait` with a timeout instead.
+- **Don't steer on every turn.** If you're injecting text more than once or twice, the original `task` was wrong — abort
+  and respawn with a better prompt.
+- **Don't forget handles exist across turns.** Unlike sync children, background children outlive the turn that spawned
+  them. Treat them like open file descriptors.
+- **Don't race children against the user.** If the user is typing a follow-up, a background explorer can deliver its
+  answer mid-conversation and derail the thread. Abort or `wait` before pivoting direction.
 - **Don't spawn a child per file.** If you're about to loop `for each file: subagent(...)`, write one `task` that
   handles the batch, or fan out with a handful of children covering ranges — not dozens.
 
 ## Quick reference
 
-| Goal                                         | Move                                                                        |
-| -------------------------------------------- | --------------------------------------------------------------------------- |
-| Spawn and keep working                       | `subagent({ run_in_background: true, ... })`, record handle                 |
-| Cheap progress check                         | `subagent_send({ to, action: "status" })`                                   |
-| Block for the final answer                   | `subagent_send({ to, action: "wait", timeoutMs: 30000 })`                   |
-| Push a new constraint into a running child   | `subagent_send({ to, text: "also ignore external/" })`                      |
-| Cancel a running child                       | `subagent_send({ to, action: "abort" })`                                    |
-| Fan out 3 independent explorations           | 3× `subagent({ run_in_background: true })` in one turn, `wait` next turn    |
-| Never again for this handle                  | `abort` or `wait` — don't orphan                                            |
+| Goal                                       | Move                                                                     |
+| ------------------------------------------ | ------------------------------------------------------------------------ |
+| Spawn and keep working                     | `subagent({ run_in_background: true, ... })`, record handle              |
+| Cheap progress check                       | `subagent_send({ to, action: "status" })`                                |
+| Block for the final answer                 | `subagent_send({ to, action: "wait", timeoutMs: 30000 })`                |
+| Push a new constraint into a running child | `subagent_send({ to, text: "also ignore external/" })`                   |
+| Cancel a running child                     | `subagent_send({ to, action: "abort" })`                                 |
+| Fan out 3 independent explorations         | 3× `subagent({ run_in_background: true })` in one turn, `wait` next turn |
+| Never again for this handle                | `abort` or `wait` — don't orphan                                         |

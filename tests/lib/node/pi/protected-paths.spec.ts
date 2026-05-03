@@ -3,7 +3,9 @@
  */
 
 import { homedir } from 'node:os';
+
 import { expect, test } from 'vitest';
+
 import {
   basenameOf,
   classify,

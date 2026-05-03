@@ -5,6 +5,7 @@
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
 import {
@@ -183,7 +184,10 @@ describe('writeSidecar / readProvenance — markdown frontmatter', () => {
 
   test('windows-style \\r\\n line endings in existing frontmatter are handled', () => {
     const p = join(cwd, 'w.md');
-    writeFileSync(p, '---\r\nmodel: "old"\r\nthinkingLevel: null\r\ntimestamp: "t"\r\npromptHash: "h"\r\n---\r\n# Body\r\n');
+    writeFileSync(
+      p,
+      '---\r\nmodel: "old"\r\nthinkingLevel: null\r\ntimestamp: "t"\r\npromptHash: "h"\r\n---\r\n# Body\r\n',
+    );
 
     writeSidecar(p, sample);
 

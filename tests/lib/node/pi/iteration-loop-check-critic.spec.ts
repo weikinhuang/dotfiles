@@ -7,6 +7,7 @@
  */
 
 import { describe, expect, test } from 'vitest';
+
 import { buildCriticTask, parseVerdict } from '../../../../lib/node/pi/iteration-loop-check-critic.ts';
 import { type CriticCheckSpec } from '../../../../lib/node/pi/iteration-loop-schema.ts';
 

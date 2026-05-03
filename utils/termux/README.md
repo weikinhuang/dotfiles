@@ -1,6 +1,7 @@
 # Termux on Android
 
-Termux is an Android terminal emulator and Linux environment app that runs directly on the device without root. A minimal base system is installed automatically and additional packages are available through `pkg` and `apt`.
+Termux is an Android terminal emulator and Linux environment app that runs directly on the device without root. A
+minimal base system is installed automatically and additional packages are available through `pkg` and `apt`.
 
 ## Detection
 
@@ -44,7 +45,8 @@ termux-setup-storage
 
 You should then have paths such as `~/storage/shared` and `~/storage/downloads`.
 
-Keep repos, binaries, and other executable files under `$HOME` rather than `~/storage`; shared storage is mounted with `noexec` and has other filesystem limitations.
+Keep repos, binaries, and other executable files under `$HOME` rather than `~/storage`; shared storage is mounted with
+`noexec` and has other filesystem limitations.
 
 ## Useful shortcuts for `~/.bash_local`
 
@@ -85,7 +87,8 @@ Log in:
 proot-distro login debian
 ```
 
-See [Termux docs](https://termux.dev/en/docs/) and [`proot-distro`](https://github.com/termux/proot-distro) for more details.
+See [Termux docs](https://termux.dev/en/docs/) and [`proot-distro`](https://github.com/termux/proot-distro) for more
+details.
 
 ## Set up `sshd` to connect to the Android device
 
@@ -129,7 +132,8 @@ LogLevel VERBOSE
 Subsystem sftp /data/data/com.termux/files/usr/libexec/sftp-server -f AUTHPRIV -l INFO
 ```
 
-Termux OpenSSH listens on port `8022` by default because unprivileged Android apps cannot bind to the standard privileged SSH port.
+Termux OpenSSH listens on port `8022` by default because unprivileged Android apps cannot bind to the standard
+privileged SSH port.
 
 ### Running `sshd`
 

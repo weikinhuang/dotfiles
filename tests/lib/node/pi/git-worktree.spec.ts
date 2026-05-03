@@ -1,7 +1,9 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
 import { afterEach, beforeEach, expect, test } from 'vitest';
+
 import { resolveWorktreeInfo } from '../../../../lib/node/pi/git-worktree.ts';
 
 let sandbox = '';

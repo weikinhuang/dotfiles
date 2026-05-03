@@ -31,8 +31,8 @@ See [brew.sh](https://brew.sh/) for the latest installer and support policy.
 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 ```
 
-Homebrew prints a required post-install step to add `brew` to your shell config.
-If you skip it, `brew` will not work in new shells. For Bash, that is typically:
+Homebrew prints a required post-install step to add `brew` to your shell config. If you skip it, `brew` will not work in
+new shells. For Bash, that is typically:
 
 ```bash
 # Apple Silicon
@@ -60,8 +60,8 @@ brew install bash bash-completion@2 coreutils findutils git vim neovim
 
 ## Change the default shell
 
-macOS defaults to `zsh`. If you want to use the Homebrew Bash from this repo as
-your login shell, it must be listed in `/etc/shells` first.
+macOS defaults to `zsh`. If you want to use the Homebrew Bash from this repo as your login shell, it must be listed in
+`/etc/shells` first.
 
 ```bash
 brew_bash="$(brew --prefix)/bin/bash"

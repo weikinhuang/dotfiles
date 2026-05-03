@@ -5,6 +5,7 @@
  */
 
 import { expect, test } from 'vitest';
+
 import {
   type AssistantSnapshot,
   buildRetryMessage,

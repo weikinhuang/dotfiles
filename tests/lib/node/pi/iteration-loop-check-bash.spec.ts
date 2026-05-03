@@ -7,6 +7,7 @@
  */
 
 import { describe, expect, test } from 'vitest';
+
 import { runBashCheck } from '../../../../lib/node/pi/iteration-loop-check-bash.ts';
 
 const cwd = process.cwd();

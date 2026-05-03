@@ -48,8 +48,10 @@
 
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { resolve } from 'node:path';
+
 import { type ExtensionAPI, isToolCallEventType, type ToolCallEvent } from '@mariozechner/pi-coding-agent';
 import { Box, Text } from '@mariozechner/pi-tui';
+
 import {
   candidateContextPaths,
   capContent,

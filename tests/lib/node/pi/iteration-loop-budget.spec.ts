@@ -3,6 +3,7 @@
  */
 
 import { describe, expect, test } from 'vitest';
+
 import {
   budgetSnapshot,
   computeStopReason,

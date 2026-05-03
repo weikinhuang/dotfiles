@@ -1,10 +1,10 @@
 import js from '@eslint/js';
 import json from '@eslint/json';
 import vitest from '@vitest/eslint-plugin';
-import { defineConfig, globalIgnores } from 'eslint/config';
 import eslintConfigPrettierConfigs from 'eslint-config-prettier';
 import eslintPluginImport from 'eslint-plugin-import';
 import eslintPluginN from 'eslint-plugin-n';
+import { defineConfig, globalIgnores } from 'eslint/config';
 import globals from 'globals';
 import { configs as tseslintConfigs } from 'typescript-eslint';
 
