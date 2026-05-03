@@ -52,29 +52,38 @@ Use this to find candidate URLs for your sub-question.
 
 ### Fetch a URL as clean markdown
 
-```bash
-fetch-web fetch <url>
-```
-
-Default output on stdout is the article body as markdown with the
-server prelude stripped. Pipe through `head -c 4000` in the same
-bash call when you only need a skim, or redirect to a tempfile +
-`read` it if you want the whole thing:
+**Prefer redirecting to a temp file, then reading it:**
 
 ```bash
 fetch-web fetch https://example.com/a > /tmp/src-a.md
 ```
 
-Then `read /tmp/src-a.md` to pull it into your context.
+Then `read /tmp/src-a.md` (or `grep -n '<keyword>' /tmp/src-a.md`) to
+pull only the relevant excerpts into your context. Small / large models
+both struggle when a full article lands in a single tool-output block;
+the file round-trip lets you navigate the content with `read` `offset`
+/ `limit` windows or narrow it with `grep`.
+
+When a page is small and you only want a glance, piping the body
+through `head -c 2000` in the same bash call is fine:
+
+```bash
+fetch-web fetch https://example.com/a | head -c 2000
+```
+
+Do NOT dump a full article into stdout and expect to work with it —
+write to disk first, then `read`.
 
 ### Fetch many URLs in one server-side batch
 
 ```bash
-fetch-web fetch-many <url1> <url2> <url3>
+fetch-web fetch-many <url1> <url2> <url3> > /tmp/batch.md
 ```
 
 Faster than calling `fetch` once per URL when you have multiple
-candidates in hand. The output is per-URL status block + body.
+candidates in hand. The output is per-URL status block + body; always
+redirect into a file and `read` it — batches are even bigger than
+individual fetches and must not land in a tool-output block.
 
 ### Inspect the result object directly
 
