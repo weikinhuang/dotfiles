@@ -193,18 +193,52 @@ const BARE_URL_RE = /https?:\/\/[^\s<>()[\]{}]+/g;
 
 /**
  * Trailing ASCII punctuation that should never be part of a URL
- * in running prose. Applied repeatedly so a URL ending in `).`
- * sheds both characters.
+ * in running prose. `)` is handled separately in
+ * {@link trimTrailingPunctuation} with a balanced-parens rule
+ * because a URL like `.../Rust_(programming_language)` is legal
+ * and the closing paren is load-bearing.
  */
-const TRAILING_URL_PUNCTUATION_RE = /[.,;:!?"')\]}]+$/;
+const TRAILING_URL_PUNCTUATION_CHARS = new Set(['.', ',', ';', ':', '!', '?', '"', "'", ']', '}']);
 
 /**
  * Strip trailing sentence-level punctuation from a URL match so
  * `see https://example.com/a.` yields `https://example.com/a`
- * (and not an unparseable / unmatchable variant). Pure string op.
+ * (and not an unparseable / unmatchable variant). A trailing `)`
+ * is kept when the URL has at least as many `(` as `)` so
+ * Wikipedia-style paths like
+ * `https://en.wikipedia.org/wiki/Rust_(programming_language)`
+ * survive intact; an orphan `)` (e.g. `(see https://example.com/a)`)
+ * is stripped as before. Pure string op.
  */
 function trimTrailingPunctuation(raw: string): string {
-  return raw.replace(TRAILING_URL_PUNCTUATION_RE, '');
+  let s = raw;
+  while (s.length > 0) {
+    const last = s[s.length - 1] ?? '';
+    if (last === ')') {
+      // Peel the trailing `)` only if it is not balanced by an
+      // earlier `(`. Count on the string WITHOUT the trailing
+      // paren so `foo(bar)` stays whole but `foo)` sheds its
+      // orphan.
+      const stripped = s.slice(0, -1);
+      let open = 0;
+      let close = 0;
+      for (const ch of stripped) {
+        if (ch === '(') open += 1;
+        else if (ch === ')') close += 1;
+      }
+      if (close >= open) {
+        s = stripped;
+        continue;
+      }
+      break;
+    }
+    if (TRAILING_URL_PUNCTUATION_CHARS.has(last)) {
+      s = s.slice(0, -1);
+      continue;
+    }
+    break;
+  }
+  return s;
 }
 
 /**

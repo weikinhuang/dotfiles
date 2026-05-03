@@ -293,6 +293,70 @@ describe('checkReportStructure — footnote-urls-in-store', () => {
 
     expect(missingUrl).toBeDefined();
   });
+
+  test('balanced trailing parens are preserved (Wikipedia-style URL)', () => {
+    // Real-world bug: a URL like
+    // `https://en.wikipedia.org/wiki/Rust_(programming_language)` was
+    // getting its closing paren stripped by the old
+    // `[.,;:!?"')\]}]+$` regex, so a correctly-cited Wikipedia
+    // article failed `footnote-urls-in-store` even though the
+    // source store had the URL verbatim.
+    const wikiUrl = 'https://en.wikipedia.org/wiki/Rust_(programming_language)';
+    const sources: SourceRef[] = [
+      makeSource('aaa111111111', 'https://example.com/a', 'Source 1'),
+      makeSource('bbb222222222', 'https://example.com/b', 'Source 2'),
+      makeSource('wiki00000000', wikiUrl, 'Wikipedia: Rust'),
+    ];
+    const report = validReport().replace(
+      '[^3]: Source 3 — https://example.com/c',
+      `[^3]: Wikipedia: Rust — ${wikiUrl}`,
+    );
+    const runRoot = makeRun({ plan: makePlan(), report, sources });
+
+    const result = checkReportStructure({ runRoot });
+
+    expect(result.ok).toBe(true);
+
+    const mismatch = result.failures.filter((f) => f.id === 'footnote-urls-in-store');
+
+    expect(mismatch).toEqual([]);
+  });
+
+  test('orphan trailing paren is still stripped (prose ending with `(see URL)`)', () => {
+    // The balanced-parens rule must not regress the old
+    // trailing-punctuation behavior when the paren is clearly
+    // prose, not part of the URL. The sentence reads
+    // `(see https://example.com/a)` — `)` has no matching `(`
+    // inside the URL, so it should be stripped before
+    // normalization.
+    const report = validReport().replace(
+      '[^1]: Source 1 — https://example.com/a',
+      '[^1]: Source 1 — https://example.com/a)',
+    );
+    const runRoot = makeRun({ plan: makePlan(), report, sources: validSources() });
+
+    const result = checkReportStructure({ runRoot });
+
+    expect(result.ok).toBe(true);
+  });
+
+  test('trailing `).` (balanced paren plus period) sheds only the period', () => {
+    const wikiUrl = 'https://en.wikipedia.org/wiki/Rust_(programming_language)';
+    const sources: SourceRef[] = [
+      makeSource('aaa111111111', 'https://example.com/a', 'Source 1'),
+      makeSource('bbb222222222', 'https://example.com/b', 'Source 2'),
+      makeSource('wiki00000000', wikiUrl, 'Wikipedia: Rust'),
+    ];
+    const report = validReport().replace(
+      '[^3]: Source 3 — https://example.com/c',
+      `[^3]: Wikipedia: Rust — ${wikiUrl}.`,
+    );
+    const runRoot = makeRun({ plan: makePlan(), report, sources });
+
+    const result = checkReportStructure({ runRoot });
+
+    expect(result.ok).toBe(true);
+  });
 });
 
 // ──────────────────────────────────────────────────────────────────────
