@@ -38,7 +38,6 @@ Global flags:
                         rendered view; use this when piping to jq
   --timeout-ms N        request timeout in ms (default 30000)
   -v, --verbose         JSON-RPC payload + response trace on stderr
-  -q, --quiet           suppress diagnostics on stderr
   -h, --help            show this help
 
 Configuration (env vars, harness-agnostic):
@@ -232,7 +231,7 @@ load_config() {
         type="$(printf '%s' "${server_json}" | jq -r '.type // ""')"
         if [[ "${type}" == "http" && -n "${url}" ]]; then
           FW_URL="${url}"
-          FW_CONFIG_SOURCE="~/.pi/agent/mcp.json"
+          FW_CONFIG_SOURCE="${HOME}/.pi/agent/mcp.json"
           # Extract headers as "Name: value" pairs.
           local line
           while IFS= read -r line; do
@@ -361,6 +360,10 @@ rpc_request() {
   local method="$1"
   local params="$2"
   local timeout_ms="${FW_TIMEOUT_MS:-30000}"
+  if [[ ! "${timeout_ms}" =~ ^[0-9]+$ ]]; then
+    echo "fetch-web: --timeout-ms must be a non-negative integer (got '${timeout_ms}')" >&2
+    exit 2
+  fi
   local timeout_s=$(((timeout_ms + 999) / 1000))
 
   local payload
@@ -376,8 +379,11 @@ rpc_request() {
 
   local tmp http_code
   tmp="$(mktemp)"
+  # Fires on both normal function return and `exit` from within the subshell
+  # this function is typically invoked in (`$(rpc_request ...)`). RETURN alone
+  # would leak ${tmp} when we take the `exit 3` error paths below.
   # shellcheck disable=SC2064
-  trap "rm -f '${tmp}'" RETURN
+  trap "rm -f '${tmp}'" EXIT RETURN
 
   http_code="$(
     curl -sS \
@@ -1187,10 +1193,6 @@ main() {
         FW_VERBOSE=1
         shift
         ;;
-      -q | --quiet)
-        FW_QUIET=1
-        shift
-        ;;
       --json)
         FW_JSON=1
         shift
@@ -1239,10 +1241,6 @@ main() {
         ;;
       -v | --verbose)
         FW_VERBOSE=1
-        shift
-        ;;
-      -q | --quiet)
-        FW_QUIET=1
         shift
         ;;
       --timeout-ms)

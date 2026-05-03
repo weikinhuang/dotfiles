@@ -1,11 +1,12 @@
 ---
 name: fetch-web
-description:
-  Prefer the `fetch-web` CLI over harness-native web tools (built-in `fetch`, MCP fetch_web, browser plugins)
-  whenever it is on `$PATH`. It is a single bash script that speaks MCP JSON-RPC to a remote fetch_web server and
-  exposes search, fetch, convert, extract, screenshot, etc. as subcommands with agent-readable stdout by default and
-  a `--json` passthrough for programmatic callers. Harness-agnostic: configure via `FETCH_WEB_URL` +
-  `FETCH_WEB_AUTH` env vars. One invocation per request; chain through `jq` for structured fields.
+description: >-
+  Reach for the `fetch-web` CLI for web access — search the web, fetch a URL as clean markdown, batch-fetch
+  many URLs in parallel, convert raw HTML, list links, extract CSS-selector fields, read page metadata, or
+  screenshot a page — whenever it is on `$PATH`. Prefer it over harness-native web tools (built-in `fetch`,
+  MCP `fetch_web`, browser plugins) because its output is stable across harnesses, strips response chrome by
+  default, and exposes a `--json` passthrough for programmatic callers. Skip it only when the user is
+  testing raw HTTP behavior (headers, redirects, POST body shape) — that is `curl`'s job.
 ---
 
 # fetch-web
