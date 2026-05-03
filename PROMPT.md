@@ -199,7 +199,7 @@ export DOT_DISABLE_PS1=1
 | `DOT_PS1_MULTILINE`         |                         `UNSET` | When set, force prompt to be 2 lines                                                                           |
 | `DOT_PS1_NEWLINE_THRESHOLD` |                           `120` | When the terminal is narrower than this many cols, force prompt to be 2 lines                                  |
 | `DOT_PS1_TITLE`             |                         `UNSET` | Terminal title override; when unset, a terminal-specific default is used (`PROMPT_TITLE` accepted as fallback) |
-| `DOT_PS2`                   |                            `→ ` | Continuation prompt (PS2)                                                                                      |
+| `DOT_PS2`                   |                             `→` | Continuation prompt (PS2)                                                                                      |
 | `DOT_PS4`                   | `+ ${BASH_SOURCE}:${LINENO}...` | Debug/trace prompt (PS4)                                                                                       |
 
 ### Custom symbols for the PS1

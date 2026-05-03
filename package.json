@@ -11,6 +11,8 @@
     "oxfmt": "oxfmt",
     "format": "oxfmt",
     "format:check": "oxfmt --check",
+    "markdownlint": "markdownlint-cli2 --fix",
+    "markdownlint:check": "markdownlint-cli2",
     "test": "vitest run",
     "test:watch": "vitest",
     "tsc": "tsc --noEmit"
@@ -30,6 +32,8 @@
     "globals": "^17.5.0",
     "husky": "^9.1.7",
     "lint-staged": "^16.4.0",
+    "markdownlint": "^0.40.0",
+    "markdownlint-cli2": "^0.22.1",
     "oxfmt": "^0.47.0",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.59.0",

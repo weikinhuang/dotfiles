@@ -89,21 +89,21 @@ tests/
 #!/usr/bin/env bats
 
 setup() {
-	load '../../../helpers/common'
-	setup_mock_bin
-	SCRIPT="${REPO_ROOT}/dotenv/wsl/bin/my-script"
+  load '../../../helpers/common'
+  setup_mock_bin
+  SCRIPT="${REPO_ROOT}/dotenv/wsl/bin/my-script"
 }
 
 @test "my-script: no arguments prints usage" {
-	run bash "${SCRIPT}"
-	assert_failure
-	assert_output --partial "Usage:"
+  run bash "${SCRIPT}"
+  assert_failure
+  assert_output --partial "Usage:"
 }
 
 @test "my-script: passes arguments through" {
-	run bash "${SCRIPT}" hello world
-	assert_success
-	assert_line "hello"
+  run bash "${SCRIPT}" hello world
+  assert_success
+  assert_line "hello"
 }
 ```
 
@@ -113,26 +113,26 @@ setup() {
 #!/usr/bin/env bats
 
 setup() {
-	load '../../helpers/common'
-	setup_test_bin
-	setup_isolated_home
-	prepend_path "${REPO_ROOT}/dotenv/bin"
-	SCRIPT="${REPO_ROOT}/dotenv/bin/git-my-tool"
+  load '../../helpers/common'
+  setup_test_bin
+  setup_isolated_home
+  prepend_path "${REPO_ROOT}/dotenv/bin"
+  SCRIPT="${REPO_ROOT}/dotenv/bin/git-my-tool"
 }
 
 create_test_repo() {
-	TEST_REPO="${BATS_TEST_TMPDIR}/repo"
-	init_git_repo "${TEST_REPO}"
-	echo "base" >"${TEST_REPO}/tracked.txt"
-	git_commit_all "${TEST_REPO}" "initial commit"
+  TEST_REPO="${BATS_TEST_TMPDIR}/repo"
+  init_git_repo "${TEST_REPO}"
+  echo "base" >"${TEST_REPO}/tracked.txt"
+  git_commit_all "${TEST_REPO}" "initial commit"
 }
 
 @test "git-my-tool: detects default branch" {
-	create_test_repo
-	cd "${TEST_REPO}"
-	run bash "${SCRIPT}"
-	assert_success
-	assert_output "main"
+  create_test_repo
+  cd "${TEST_REPO}"
+  run bash "${SCRIPT}"
+  assert_success
+  assert_output "main"
 }
 ```
 

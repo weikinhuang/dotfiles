@@ -144,6 +144,8 @@ Unless noted otherwise, everything in this section requires `DOT_INCLUDE_BUILTIN
 
 ### Utility commands
 
+<!-- markdownlint-disable MD013 -->
+
 | Command                                                       | Platforms         | Description                                                                                                                                                                                                                                                                                                                                                                    |
 | ------------------------------------------------------------- | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | [`ai-tool-usage`](./dotenv/bin/ai-tool-usage)                 | all               | summarize AI tool session logs (per-session `list`, per-session `session <id>`, or cross-project `totals --group-by day                                                                                                                                                                                                                                                        | week`); estimates cost for `claude`/`codex`from LiteLLM's pricing JSON (cached 7d at`~/.cache/ai-tool-usage/pricing.json`; `--no-cost`to skip,`--refresh-prices`to force fetch) and uses real costs from`opencode`'s DB; delegates to `config/<tool>/session-usage.ts`(supports`claude`, `codex`, `opencode`) |
@@ -164,6 +166,8 @@ Unless noted otherwise, everything in this section requires `DOT_INCLUDE_BUILTIN
 | [`winsudo`](./dotenv/wsl/bin/winsudo)                         | WSL               | elevate Windows commands; prefers native `sudo.exe` inline mode and falls back to an SSH-based helper                                                                                                                                                                                                                                                                          |
 | [`winwhoami`](./dotenv/wsl/bin/winwhoami)                     | WSL               | print the Windows username for the current session                                                                                                                                                                                                                                                                                                                             |
 | [`wusbipd`](./dotenv/wsl2/bin/wusbipd)                        | WSL2              | run Windows `usbipd.exe` through `winsudo`                                                                                                                                                                                                                                                                                                                                     |
+
+<!-- markdownlint-enable MD013 -->
 
 ### Git subcommands
 
@@ -439,16 +443,16 @@ The loader upgrades `TERM` to a 256-color variant for `xterm*`, `rxvt*`, and `sc
 
 ### Prompt runtime exports
 
-| Variable                     | Description                                                                                              |
-| ---------------------------- | -------------------------------------------------------------------------------------------------------- |
-| `GIT_PS1_SHOWDIRTYSTATE`     | enabled                                                                                                  |
-| `GIT_PS1_SHOWSTASHSTATE`     | enabled                                                                                                  |
-| `GIT_PS1_SHOWUNTRACKEDFILES` | enabled                                                                                                  |
-| `GIT_PS1_SHOWUPSTREAM`       | set to `auto`                                                                                            |
-| `PS1`                        | generated interactive prompt                                                                             |
-| `PS2`                        | secondary prompt, configurable via `DOT_PS2`, defaults to `→ `                                           |
-| `PS4`                        | debug/trace prompt, configurable via `DOT_PS4`, defaults to `+ ${BASH_SOURCE}:${LINENO} ${FUNCNAME}(): ` |
-| `SUDO_PS1`                   | prompt string used for sudo shells                                                                       |
+| Variable                     | Description                                                                                             |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `GIT_PS1_SHOWDIRTYSTATE`     | enabled                                                                                                 |
+| `GIT_PS1_SHOWSTASHSTATE`     | enabled                                                                                                 |
+| `GIT_PS1_SHOWUNTRACKEDFILES` | enabled                                                                                                 |
+| `GIT_PS1_SHOWUPSTREAM`       | set to `auto`                                                                                           |
+| `PS1`                        | generated interactive prompt                                                                            |
+| `PS2`                        | secondary prompt, configurable via `DOT_PS2`, defaults to `→`                                           |
+| `PS4`                        | debug/trace prompt, configurable via `DOT_PS4`, defaults to `+ ${BASH_SOURCE}:${LINENO} ${FUNCNAME}():` |
+| `SUDO_PS1`                   | prompt string used for sudo shells                                                                      |
 
 ### Completion-related exports
 
@@ -507,7 +511,7 @@ Override the entire list or use the segment helpers to add/remove individual seg
 | `DOT_PS1_MONOCHROME`               | unset                           | remove prompt colors                                                                                                |
 | `DOT_PS1_MULTILINE`                | unset                           | always put the prompt symbol on its own line                                                                        |
 | `DOT_PS1_NEWLINE_THRESHOLD`        | `120`                           | terminal width below which the prompt wraps to a new line                                                           |
-| `DOT_PS2`                          | `→ `                            | continuation prompt (PS2)                                                                                           |
+| `DOT_PS2`                          | `→`                             | continuation prompt (PS2)                                                                                           |
 | `DOT_PS4`                          | `+ ${BASH_SOURCE}:${LINENO}...` | debug/trace prompt (PS4)                                                                                            |
 
 Example:
