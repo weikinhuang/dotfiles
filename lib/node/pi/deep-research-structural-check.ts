@@ -91,7 +91,8 @@ export type StructuralCheckId =
   | 'no-unresolved-placeholders'
   | 'every-sub-question-has-section'
   | 'no-duplicate-footnote-ids'
-  | 'no-bare-urls-in-body';
+  | 'no-bare-urls-in-body'
+  | 'every-section-cites-a-source';
 
 /**
  * A single structural failure. `id` identifies the check, `message`
@@ -442,6 +443,35 @@ export function checkReportStructure(opts: CheckReportStructureOpts): Structural
     });
   }
 
+  // ── every-section-cites-a-source ──────────────────────────
+  // Walk the body section-by-section and require at least one
+  // `[^n]` footnote marker inside each non-stubbed sub-question
+  // section. Sections rendered as `[section unavailable: …]`
+  // stubs (a `deep-research-synth-sections` fallback when synth
+  // or fanout produced nothing usable) are exempt because the
+  // stub is itself the honest answer. Without this check, a run
+  // that lost every citation (fanout failed to fetch, synth
+  // emitted prose without `{{SRC:…}}`) would trivially pass
+  // structural on "zero markers → zero resolution failures,"
+  // which lets the subjective critic loop burn budget arguing
+  // over uncited prose.
+  const sectionSlices = sliceBodyByH2(body);
+  for (const slice of sectionSlices) {
+    if (NON_SECTION_HEADINGS.has(slice.heading)) continue;
+    if (isUnavailableStub(slice.contents)) continue;
+    // Reuse the body-wide marker regex but scope it to the slice.
+    const sliceMarkers = slice.contents.match(FOOTNOTE_MARKER_RE);
+    if (!sliceMarkers || sliceMarkers.length === 0) {
+      failures.push({
+        id: 'every-section-cites-a-source',
+        message:
+          `section "${slice.heading}" has no [^n] footnote marker — every non-stubbed sub-question ` +
+          `section must cite at least one source (or be written as "[section unavailable: …]")`,
+        location: slice.heading,
+      });
+    }
+  }
+
   // ── no-bare-urls-in-body ─────────────────────────────────────
   for (const rawMatch of body.match(BARE_URL_RE) ?? []) {
     stats.bareUrlsInBody += 1;
@@ -587,6 +617,50 @@ function splitTitleUrl(raw: string): { title: string; url: string } {
     };
   }
   return { title: raw, url: '' };
+}
+
+interface BodySlice {
+  /** H2 heading text, trimmed, no leading `## ` prefix. */
+  heading: string;
+  /** The body between this heading and the next H2 (or EOF). */
+  contents: string;
+}
+
+/**
+ * Split a report body into per-`## ` slices. Content before the
+ * first H2 (title + abstract + intro) is dropped — those parts
+ * carry no per-sub-question citation contract. Pure string op.
+ */
+function sliceBodyByH2(body: string): BodySlice[] {
+  const lines = body.split(/\r?\n/);
+  const slices: BodySlice[] = [];
+  let current: BodySlice | null = null;
+  for (const line of lines) {
+    const m = /^## (.+?)\s*$/.exec(line);
+    if (m) {
+      if (current) slices.push(current);
+      current = { heading: (m[1] ?? '').trim(), contents: '' };
+      continue;
+    }
+    if (current) {
+      current.contents += (current.contents ? '\n' : '') + line;
+    }
+  }
+  if (current) slices.push(current);
+  return slices;
+}
+
+/**
+ * True when a section's body is a whole-section
+ * `[section unavailable: …]` stub emitted by
+ * `deep-research-synth-sections`. Sections that merely mention
+ * the phrase in passing still owe the reader a citation, so the
+ * regex requires the stub to be the entire trimmed body.
+ */
+function isUnavailableStub(contents: string): boolean {
+  const trimmed = contents.trim();
+  if (trimmed.length === 0) return false;
+  return /^\[section unavailable:[^\]]*\]\s*$/.test(trimmed);
 }
 
 // ──────────────────────────────────────────────────────────────────────

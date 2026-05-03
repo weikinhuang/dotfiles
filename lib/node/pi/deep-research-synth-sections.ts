@@ -64,7 +64,7 @@ import { join } from 'node:path';
 
 import { atomicWriteFile, ensureDirSync } from './atomic-write.ts';
 import { extractFindingSourceUrls } from './deep-research-finding.ts';
-import { type CitationSource, validatePlaceholders } from './research-citations.ts';
+import { type CitationSource, SRC_PLACEHOLDER_RE, validatePlaceholders } from './research-citations.ts';
 import { appendJournal } from './research-journal.ts';
 import { paths } from './research-paths.ts';
 import { type DeepResearchPlan, type SubQuestion } from './research-plan.ts';
@@ -140,6 +140,24 @@ export function makeSectionOutputSchema(knownIds: ReadonlySet<string>): SchemaLi
         return {
           ok: false,
           error: `unknown source ids cited: ${pv.unknown.join(', ')} (use only {{SRC:<id>}} with id in: ${allow})`,
+        };
+      }
+      // When the finding offers sources to cite, the section MUST
+      // cite at least one of them. A zero-citation output silently
+      // accepted here turns into a structural-check failure later
+      // anyway — better to flag it now so `callTyped`'s retry
+      // loop feeds a specific nudge back to the model on the next
+      // attempt. `knownIds.size === 0` (no sources available) is
+      // a legitimate reason to skip citations; don't require them
+      // in that case.
+      const placeholderCount = md.match(SRC_PLACEHOLDER_RE)?.length ?? 0;
+      if (knownIds.size > 0 && placeholderCount === 0) {
+        const allow = Array.from(knownIds).join(', ');
+        return {
+          ok: false,
+          error:
+            `section contains no {{SRC:<id>}} placeholders — at least one citation is required when sources ` +
+            `are available. Cite with {{SRC:<id>}} using one of: ${allow}`,
         };
       }
       return { ok: true, value: { markdown: md } };

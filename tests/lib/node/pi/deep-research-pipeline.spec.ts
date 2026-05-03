@@ -529,10 +529,14 @@ describe('runResearchPipeline — partial failures', () => {
     expect(outcome.fanout.aborted.map((a) => a.id)).toEqual(['sq-2']);
   });
 
-  test('(7) malformed finding → first attempt reprompted; re-run with still-malformed → quarantine', async () => {
-    // First run: sq-2 returns malformed content → reprompt queued
-    // in journal, counter bumped to 1. Body lands on disk as the
-    // raw (malformed) output so the resume path can see it.
+  test('(7) malformed finding → flagged for synth quarantine on first attempt; second attempt → disk quarantine', async () => {
+    // Phase 6: with no in-pipeline re-prompt, malformed output on
+    // the first attempt is immediately added to `quarantined` so
+    // synth emits a `[section unavailable: ...]` stub instead of
+    // being fed confident zero-citation prose. The raw body still
+    // lands on disk for `--resume` / human inspection, and the
+    // failure counter is bumped; a second malformed pass promotes
+    // the finding to the on-disk `_quarantined/` tree.
     const { factory: factory1 } = makeSessionFactory([plannerReply(), selfCriticNoChange()]);
     const runner1 = scriptedPlanningCritic([{ rawText: approvedVerdict() }]);
     const bad1 = '## no headings here, just prose';
@@ -558,7 +562,9 @@ describe('runResearchPipeline — partial failures', () => {
 
     assertKind(first, 'fanout-complete');
 
-    expect(first.quarantined).toEqual([]);
+    // Synth-side quarantine on first attempt so the malformed
+    // reply text never leaks into synth.
+    expect(first.quarantined).toEqual(['sq-2']);
 
     // Second run: fanout resume sees sq-2 still pending in the
     // spawner map, spawner returns malformed content again.
@@ -648,5 +654,154 @@ describe('runResearchPipeline — tiny adapter unset (sanity)', () => {
     });
 
     expect(outcome.kind).toBe('fanout-complete');
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────
+// Source-store populate (Phase 6).
+// ───────────────────────────────────────────────────────────────────
+
+describe('runResearchPipeline — source-store populate', () => {
+  test('(9) mcpClient populates sources/<hash>.md + sidecar from cited URLs', async () => {
+    const { factory } = makeSessionFactory([plannerReply(['sq-1']), selfCriticNoChange()]);
+    const runner = scriptedPlanningCritic([{ rawText: approvedVerdict() }]);
+    // Finding cites a single URL; we expect one fetch + persist.
+    const spawner = scriptedSpawner(new Map([['sq-1', { kind: 'ok' as const, output: validFinding('sq-1') }]]));
+
+    const fetched: string[] = [];
+    const fakeMcp = {
+      fetchUrl: (input: { url: string }): Promise<{ content: string; title?: string }> => {
+        fetched.push(input.url);
+        return Promise.resolve({ content: `# Cached page for ${input.url}`, title: 'Example page' });
+      },
+      convertHtml: () => Promise.reject(new Error('unused')),
+      searchWeb: () => Promise.reject(new Error('unused')),
+    };
+
+    const outcome = await runResearchPipeline('Demo question', {
+      cwd: sandbox,
+      createSession: factory,
+      runPlanningCritic: runner,
+      fanoutSpawn: spawner,
+      fanoutMode: 'sync',
+      model: 'local/test',
+      thinkingLevel: null,
+      maxConcurrent: 1,
+      mcpClient: fakeMcp,
+      now: () => new Date('2025-04-05T06:07:08Z'),
+    });
+
+    expect(outcome.kind).toBe('fanout-complete');
+
+    assertKind(outcome, 'fanout-complete');
+
+    // The fetcher was called exactly once for the single cited
+    // URL. `fetchAndStore` normalizes URLs, so we just check the
+    // host/path survived.
+    expect(fetched).toHaveLength(1);
+    expect(fetched[0]).toContain('example.com');
+
+    // sources/ got populated with one entry — the page markdown
+    // plus its JSON sidecar.
+    const sourcesDir = join(outcome.runRoot, 'sources');
+
+    expect(existsSync(sourcesDir)).toBe(true);
+
+    const entries = readdirSync(sourcesDir);
+    const mdEntries = entries.filter((e) => e.endsWith('.md'));
+    const jsonEntries = entries.filter((e) => e.endsWith('.json'));
+
+    expect(mdEntries).toHaveLength(1);
+    expect(jsonEntries).toHaveLength(1);
+
+    // Pair by hash prefix.
+    const hash = mdEntries[0]?.replace(/\.md$/, '');
+
+    expect(jsonEntries[0]).toBe(`${hash}.json`);
+
+    const md = readFileSync(join(sourcesDir, `${hash}.md`), 'utf8');
+
+    expect(md).toContain('Cached page for');
+
+    const sidecar = JSON.parse(readFileSync(join(sourcesDir, `${hash}.json`), 'utf8')) as {
+      url: string;
+      title: string;
+    };
+
+    expect(sidecar.url).toContain('example.com');
+    expect(sidecar.title).toBe('Example page');
+  });
+
+  test('(10) unset mcpClient — pipeline still completes, sources/ stays empty, journal records a warning', async () => {
+    const { factory } = makeSessionFactory([plannerReply(['sq-1']), selfCriticNoChange()]);
+    const runner = scriptedPlanningCritic([{ rawText: approvedVerdict() }]);
+    const spawner = scriptedSpawner(new Map([['sq-1', { kind: 'ok' as const, output: validFinding('sq-1') }]]));
+
+    const outcome = await runResearchPipeline('topic', {
+      cwd: sandbox,
+      createSession: factory,
+      runPlanningCritic: runner,
+      fanoutSpawn: spawner,
+      fanoutMode: 'sync',
+      model: 'm/x',
+      thinkingLevel: null,
+      maxConcurrent: 1,
+    });
+
+    expect(outcome.kind).toBe('fanout-complete');
+
+    assertKind(outcome, 'fanout-complete');
+
+    // No sources/ populated because the mcpClient was unset.
+    const sourcesDir = join(outcome.runRoot, 'sources');
+
+    expect(existsSync(sourcesDir)).toBe(false);
+
+    // Journal warns once.
+    const journal = readFileSync(paths(outcome.runRoot).journal, 'utf8');
+
+    expect(journal).toContain('source-store populate skipped');
+  });
+
+  test('(11) quarantined sub-questions are skipped during populate', async () => {
+    const { factory } = makeSessionFactory([plannerReply(['sq-1', 'sq-2']), selfCriticNoChange()]);
+    const runner = scriptedPlanningCritic([{ rawText: approvedVerdict() }]);
+    const spawner = scriptedSpawner(
+      new Map([
+        ['sq-1', { kind: 'ok' as const, output: validFinding('sq-1') }],
+        // sq-2 returns malformed text — absorbFindings quarantines it
+        // for synth purposes, and populate should skip it too.
+        ['sq-2', { kind: 'ok' as const, output: 'not a valid finding schema' }],
+      ]),
+    );
+    const fetched: string[] = [];
+    const fakeMcp = {
+      fetchUrl: (input: { url: string }): Promise<{ content: string }> => {
+        fetched.push(input.url);
+        return Promise.resolve({ content: '# page' });
+      },
+      convertHtml: () => Promise.reject(new Error('unused')),
+      searchWeb: () => Promise.reject(new Error('unused')),
+    };
+
+    const outcome = await runResearchPipeline('topic', {
+      cwd: sandbox,
+      createSession: factory,
+      runPlanningCritic: runner,
+      fanoutSpawn: spawner,
+      fanoutMode: 'sync',
+      model: 'm/x',
+      thinkingLevel: null,
+      maxConcurrent: 1,
+      mcpClient: fakeMcp,
+    });
+
+    expect(outcome.kind).toBe('fanout-complete');
+
+    assertKind(outcome, 'fanout-complete');
+
+    // Only sq-1's citation was fetched; sq-2 was quarantined.
+    expect(fetched).toHaveLength(1);
+    expect(outcome.quarantined).toEqual(['sq-2']);
   });
 });

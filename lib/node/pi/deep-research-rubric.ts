@@ -113,6 +113,10 @@ export const STRUCTURAL_CHECK_ITEMS: readonly StructuralCheckItem[] = [
     id: 'no-bare-urls-in-body',
     text: 'Bare URLs in the body (outside the footnotes block) come from the source store — no hallucinated URLs pasted into prose.',
   },
+  {
+    id: 'every-section-cites-a-source',
+    text: 'Every non-stubbed sub-question section in the report contains at least one `[^n]` footnote marker. An explicit `[section unavailable: …]` stub is the only way a section may legitimately carry zero citations.',
+  },
 ];
 
 // ──────────────────────────────────────────────────────────────────────

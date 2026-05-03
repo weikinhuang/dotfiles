@@ -419,6 +419,123 @@ describe('checkReportStructure — every-sub-question-has-section', () => {
 // no-duplicate-footnote-ids.
 // ──────────────────────────────────────────────────────────────────────
 
+describe('checkReportStructure — every-section-cites-a-source', () => {
+  test('section without any [^n] marker fails', () => {
+    const report = [
+      '# title',
+      '',
+      '## Overview?',
+      '',
+      'body a [^1]',
+      '',
+      '## Timeline?',
+      '',
+      'prose without any citation at all',
+      '',
+      '## Trade-offs?',
+      '',
+      'body c [^2]',
+      '',
+      '## Conclusion',
+      '',
+      'wrap',
+      '',
+      '[^1]: Source 1 — https://example.com/a',
+      '[^2]: Source 2 — https://example.com/b',
+      '',
+    ].join('\n');
+    const runRoot = makeRun({
+      plan: makePlan(),
+      report,
+      sources: [
+        makeSource('aaa111111111', 'https://example.com/a', 'Source 1'),
+        makeSource('bbb222222222', 'https://example.com/b', 'Source 2'),
+      ],
+    });
+
+    const result = checkReportStructure({ runRoot });
+
+    expect(result.ok).toBe(false);
+
+    const fails = result.failures.filter((f) => f.id === 'every-section-cites-a-source');
+
+    expect(fails).toHaveLength(1);
+    expect(fails[0]?.location).toBe('Timeline?');
+  });
+
+  test('[section unavailable: …] stub sections are exempt', () => {
+    const report = [
+      '# title',
+      '',
+      '## Overview?',
+      '',
+      'body a [^1]',
+      '',
+      '## Timeline?',
+      '',
+      '[section unavailable: quarantined]',
+      '',
+      '## Trade-offs?',
+      '',
+      'body c [^2]',
+      '',
+      '## Conclusion',
+      '',
+      'wrap',
+      '',
+      '[^1]: Source 1 — https://example.com/a',
+      '[^2]: Source 2 — https://example.com/b',
+      '',
+    ].join('\n');
+    const runRoot = makeRun({
+      plan: makePlan(),
+      report,
+      sources: [
+        makeSource('aaa111111111', 'https://example.com/a', 'Source 1'),
+        makeSource('bbb222222222', 'https://example.com/b', 'Source 2'),
+      ],
+    });
+
+    const result = checkReportStructure({ runRoot });
+
+    const fails = result.failures.filter((f) => f.id === 'every-section-cites-a-source');
+
+    expect(fails).toEqual([]);
+  });
+
+  test('zero-citation report (every section uncited) fails with one failure per section', () => {
+    const report = [
+      '# title',
+      '',
+      'abstract',
+      '',
+      '## Overview?',
+      '',
+      'uncited prose a',
+      '',
+      '## Timeline?',
+      '',
+      'uncited prose b',
+      '',
+      '## Trade-offs?',
+      '',
+      'uncited prose c',
+      '',
+      '## Conclusion',
+      '',
+      'wrap',
+      '',
+    ].join('\n');
+    const runRoot = makeRun({ plan: makePlan(), report, sources: validSources() });
+
+    const result = checkReportStructure({ runRoot });
+
+    const fails = result.failures.filter((f) => f.id === 'every-section-cites-a-source');
+
+    expect(fails.map((f) => f.location)).toEqual(['Overview?', 'Timeline?', 'Trade-offs?']);
+  });
+});
+
 describe('checkReportStructure — no-duplicate-footnote-ids', () => {
   test('duplicate [^1]: definition fails', () => {
     // Append a second [^1] definition.

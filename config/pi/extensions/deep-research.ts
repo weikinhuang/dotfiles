@@ -99,6 +99,7 @@ import {
   type FanoutSpawner,
   type FanoutSpawnArgs,
 } from '../../../lib/node/pi/research-fanout.ts';
+import { createFetchWebCliClientFromEnv } from '../../../lib/node/pi/research-fetch-web-cli-client.ts';
 import { appendJournal } from '../../../lib/node/pi/research-journal.ts';
 import { paths } from '../../../lib/node/pi/research-paths.ts';
 import {
@@ -669,6 +670,7 @@ function buildPipelineDeps(
       buildSyncFanoutSpawner(ctx, webAgent, modelRegistry, parentModel),
       extras.onPhase,
     ),
+    mcpClient: createFetchWebCliClientFromEnv() ?? undefined,
     onCriticCheckpoint: (outcome) => {
       ctx.ui.notify(
         `/research: planning-critic rejected the plan (${outcome.kind}). Plan is on disk — edit ./research/<slug>/plan.json and rerun \`/research <question>\` to retry. Pipeline halted before fanout.`,
@@ -991,13 +993,27 @@ async function runReviewPhase(args: RunReviewPhaseArgs): Promise<ReviewWireResul
         ...(reviewSignal ? { signal: reviewSignal } : {}),
       });
       const parsed = parseVerdict(run.finalText);
-      if (parsed.ok) return parsed.verdict;
-      return {
-        approved: false,
-        score: 0,
-        issues: [{ severity: 'major', description: `critic verdict unparseable: ${parsed.error}` }],
-        summary: 'critic verdict unparseable',
-      } satisfies Verdict;
+      // `parseVerdict` is tolerant: on total failure it still returns
+      // a synthesized `verdict` (approved: false, score 0, with the
+      // parse error in `issues[0].description`) alongside a
+      // `failed: true` flag. Use that verdict directly — surfacing
+      // the real failure mode to the refinement nudge — and just
+      // log the parse trouble for debugging. The earlier code read
+      // `parsed.ok` / `parsed.error` (fields that don't exist on
+      // `ParseVerdictResult`), which made every critic run look
+      // unparseable regardless of model or output quality.
+      if (parsed.failed) {
+        try {
+          appendJournal(paths(runRoot).journal, {
+            level: 'warn',
+            heading: `critic output tolerant-parse fallback (iter ${iteration})`,
+            body: parsed.recovery ?? 'no recovery hint',
+          });
+        } catch {
+          /* swallow — journal is best-effort here */
+        }
+      }
+      return parsed.verdict;
     } catch (e) {
       return {
         approved: false,

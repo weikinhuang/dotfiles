@@ -209,13 +209,15 @@ export function validateAgent(args: {
     model = spec;
   }
 
-  // Thinking level.
+  // Thinking level. `inherit` is accepted as a synonym for
+  // "unset" so agent frontmatter can mirror the `model: inherit`
+  // spelling without the loader rejecting the whole agent.
   let thinkingLevel: ThinkingLevel | undefined;
-  if (fm.thinkingLevel !== undefined) {
+  if (fm.thinkingLevel !== undefined && fm.thinkingLevel !== 'inherit') {
     if (typeof fm.thinkingLevel !== 'string' || !(THINKING_LEVELS as readonly string[]).includes(fm.thinkingLevel)) {
       warnings.push({
         path,
-        reason: `invalid thinkingLevel (must be one of: ${THINKING_LEVELS.join(', ')})`,
+        reason: `invalid thinkingLevel (must be one of: ${THINKING_LEVELS.join(', ')}, or "inherit")`,
       });
       return null;
     }

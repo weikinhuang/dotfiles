@@ -220,6 +220,21 @@ describe('makeSectionOutputSchema', () => {
 
     expect(r.ok).toBe(false);
   });
+
+  test('rejects zero-citation markdown when sources are available', () => {
+    const schema = makeSectionOutputSchema(new Set(['a', 'b']));
+    const r = schema.validate({ markdown: '## X\n\nUncited prose paragraph.' });
+
+    expect(r.ok).toBe(false);
+    expect(r.ok ? '' : r.error).toMatch(/no \{\{SRC:<id>\}\} placeholders/);
+  });
+
+  test('accepts zero-citation markdown when no sources are available (nothing to cite)', () => {
+    const schema = makeSectionOutputSchema(new Set());
+    const r = schema.validate({ markdown: '## X\n\nUncited prose is fine here — the finding had no sources.' });
+
+    expect(r.ok).toBe(true);
+  });
 });
 
 // ──────────────────────────────────────────────────────────────────────

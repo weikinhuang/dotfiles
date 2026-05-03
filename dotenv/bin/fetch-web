@@ -322,7 +322,7 @@ extract_image() {
 
 # Strip the fetch_web "Name: value\n...\n\n<body>" prelude. If the
 # first line is not a header-shaped line, the input is passed through
-# unchanged. Mirrors splitFetchUrlText in research-mcp-http-client.ts.
+# unchanged.
 strip_fetch_prelude() {
   awk '
     BEGIN { state = 0 }  # 0 = undecided, 1 = in-prelude, 2 = in-body, 3 = no-prelude

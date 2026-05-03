@@ -186,6 +186,22 @@ describe('validateAgent', () => {
     expect(warnings[0]?.reason).toMatch(/thinkingLevel/);
   });
 
+  test('accepts thinkingLevel: inherit as a synonym for unset', () => {
+    const warnings: AgentLoadWarning[] = [];
+    const out = validateAgent({
+      path: '/p/x.md',
+      source: 'user',
+      frontmatter: { name: 'x', description: 'd', thinkingLevel: 'inherit' },
+      body: '',
+      knownToolNames: KNOWN_TOOLS,
+      warnings,
+    });
+
+    expect(out).not.toBeNull();
+    expect(out?.thinkingLevel).toBeUndefined();
+    expect(warnings).toEqual([]);
+  });
+
   test('rejects non-positive maxTurns', () => {
     const warnings: AgentLoadWarning[] = [];
     const out = validateAgent({

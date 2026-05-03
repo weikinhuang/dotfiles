@@ -63,6 +63,7 @@ import {
   normalizeSourceTitles,
   writeFindingFile,
 } from './deep-research-finding.ts';
+import { extractFindingSourceUrls } from './deep-research-finding.ts';
 import { runPlanner, type PlannerResult } from './deep-research-planner.ts';
 import {
   type PlanningCriticOutcome,
@@ -87,7 +88,7 @@ import { paths } from './research-paths.ts';
 import { type DeepResearchPlan, type PlanBudget } from './research-plan.ts';
 import { hashPrompt, type Provenance, writeSidecar } from './research-provenance.ts';
 import { failureCounter, quarantine } from './research-quarantine.ts';
-import { listRun, type SourceRef } from './research-sources.ts';
+import { fetchAndStore, listRun, type McpClient, type SourceRef } from './research-sources.ts';
 import { type ResearchSessionLike } from './research-structured.ts';
 import { type TinyAdapter, type TinyCallContext } from './research-tiny.ts';
 
@@ -158,6 +159,18 @@ export interface PipelineDeps<M> {
    * to `budget.maxSubagents`.
    */
   maxConcurrent?: number;
+  /**
+   * Optional McpClient used to populate the run's source store
+   * after fanout lands. The synth stage drops citations for URLs
+   * that aren't present in `sources/<hash>.md`, so without this
+   * every section synthesizes without footnotes. When unset the
+   * pipeline skips the populate step and logs a journal warning
+   * once — handy for fixture-driven unit tests that don't want
+   * to touch the network. Wired from
+   * `research-fetch-web-cli-client.createFetchWebCliClientFromEnv()`
+   * in the extension (which shells out to the `fetch-web` CLI).
+   */
+  mcpClient?: McpClient;
   /**
    * Phase 3 switch. When true, after fanout + findings absorption
    * the pipeline runs per-sub-question synthesis
@@ -367,6 +380,21 @@ export async function runResearchPipeline<M>(question: string, deps: PipelineDep
       deps,
     });
 
+    // Populate source store from accepted findings. The
+    // web-researcher subagent fetched pages through its flat MCP
+    // tools, but those responses never made it into the run's
+    // source store. Walk every accepted finding's `## Sources`
+    // block and call `research-sources.fetchAndStore` for each
+    // URL — this is the ONLY populate step; without it the synth
+    // stage drops every citation because `collectReferencedSources`
+    // filters by the on-disk source index.
+    await populateSourceStore({
+      plan,
+      runRoot,
+      quarantined: new Set(quarantined),
+      deps,
+    });
+
     // Journal fanout summary.
     try {
       appendJournal(p.journal, {
@@ -463,7 +491,7 @@ async function runFanoutPhase<M>(args: FanoutPhaseArgs<M>): Promise<FanoutResult
     mode: deps.fanoutMode,
     tasks: plan.subQuestions.map((sq) => ({
       id: sq.id,
-      prompt: renderWebResearcherPrompt(plan, sq.id),
+      prompt: renderWebResearcherPrompt(plan, sq.id, runRoot),
     })),
     wallClockSec: plan.budget.wallClockSec,
     ...(deps.maxConcurrent !== undefined
@@ -490,19 +518,35 @@ async function runFanoutPhase<M>(args: FanoutPhaseArgs<M>): Promise<FanoutResult
  * Mirrors the agent definition: identify the sub-question, the
  * target file path, success criteria, and the schema. Deliberately
  * imperative; small models need the schema repeated inline.
+ *
+ * `runRoot` is required so the prompt can hand the subagent an
+ * absolute output path — with `isolation: shared-cwd` the
+ * subagent's cwd is the workspace root, NOT the run root, so a
+ * relative `findings/<id>.md` would land at
+ * `<workspace>/findings/<id>.md` instead of the run directory.
+ * We still quote the relative form in a second line for log
+ * readability.
  */
-export function renderWebResearcherPrompt(plan: DeepResearchPlan, subQuestionId: string): string {
+export function renderWebResearcherPrompt(plan: DeepResearchPlan, subQuestionId: string, runRoot?: string): string {
   const sq = plan.subQuestions.find((x) => x.id === subQuestionId);
   if (!sq) throw new Error(`renderWebResearcherPrompt: sub-question ${subQuestionId} not found`);
-  const outPath = `findings/${sq.id}.md`;
+  const relPath = `findings/${sq.id}.md`;
+  const absPath = runRoot !== undefined ? join(runRoot, relPath) : relPath;
   return [
     `You are the web-researcher for /research sub-question ${sq.id}.`,
     '',
     `Root question (context only): ${plan.question}`,
     `Your sub-question: ${sq.question}`,
-    `Write your findings to: ${outPath}`,
+    `Write your findings to this ABSOLUTE path (your cwd is the workspace root, not the run directory): ${absPath}`,
+    `The file will land at "${relPath}" under the run root — pass the absolute path above to your \`write\` tool.`,
     '',
-    'Use the fetch_web_* MCP tools to search + read pages. Cite every claim. Use the exact four-heading schema:',
+    'Use the `fetch-web` CLI via your `bash` tool for every page I/O:',
+    '',
+    '  bash: fetch-web search "<query>" --limit 5',
+    '  bash: fetch-web fetch <url>           # article body on stdout',
+    '  bash: fetch-web fetch-many <url> <url>  # parallel batch',
+    '',
+    'Do NOT invoke the fetch_web MCP server directly, and do NOT run `curl`. Cite every claim. Use the exact four-heading schema:',
     '',
     '  # Sub-question: <verbatim copy>',
     '',
@@ -542,6 +586,32 @@ interface AbsorbArgs<M> {
  *
  * Returns the list of sub-question ids that got quarantined.
  */
+/**
+ * Strip a leading YAML frontmatter block (`---\n…\n---\n`) if
+ * present. `research-provenance.writeSidecar` inlines a provenance
+ * block at the top of accepted findings, which the finding
+ * validator (which expects `# Sub-question:` on the first line)
+ * would otherwise reject on the next pass. Pure string op; no
+ * dependency on `parseFrontmatter` because we only need to
+ * discard the block, not read it.
+ */
+function stripProvenanceFrontmatter(text: string): string {
+  if (!text.startsWith('---')) return text;
+  // Require a newline after the opening `---` to avoid false
+  // positives on a body that happens to start with `---` (e.g. a
+  // horizontal rule).
+  const firstBreak = text.indexOf('\n');
+  if (firstBreak < 0) return text;
+  const rest = text.slice(firstBreak + 1);
+  // Closing fence is a line that is exactly `---` at the start of
+  // a line. Look for `\n---\n` or `\n---` at EOF.
+  const closeIdx = rest.search(/(^|\n)---(\n|$)/);
+  if (closeIdx < 0) return text;
+  const afterClose = rest.indexOf('\n', rest.indexOf('---', closeIdx === 0 ? 0 : closeIdx + 1));
+  if (afterClose < 0) return '';
+  return rest.slice(afterClose + 1);
+}
+
 async function absorbFindings<M>(args: AbsorbArgs<M>): Promise<string[]> {
   const { fanoutResult, plan, runRoot, deps } = args;
   const p = paths(runRoot);
@@ -571,10 +641,17 @@ async function absorbFindings<M>(args: AbsorbArgs<M>): Promise<string[]> {
     // — useful for mocked spawners that don't touch the file
     // system, and for synchronous-fallback runs where the agent
     // returns the file body inline.
+    //
+    // A previously-accepted finding on disk carries the provenance
+    // YAML frontmatter that `writeSidecar` inlined on first
+    // acceptance. Strip it before re-validating so a second pass
+    // (resume / retry) doesn't falsely classify a healthy finding
+    // as malformed just because its first line is now `---`
+    // instead of `# Sub-question:`.
     let body: string;
     if (findingExists(target)) {
       try {
-        body = readFileSync(target, 'utf8');
+        body = stripProvenanceFrontmatter(readFileSync(target, 'utf8'));
       } catch {
         body = completion.output;
       }
@@ -611,7 +688,7 @@ async function absorbFindings<M>(args: AbsorbArgs<M>): Promise<string[]> {
         model: deps.model,
         thinkingLevel: deps.thinkingLevel,
         timestamp: (deps.now ? deps.now() : new Date()).toISOString(),
-        promptHash: hashPrompt(renderWebResearcherPrompt(plan, subQuestionId)),
+        promptHash: hashPrompt(renderWebResearcherPrompt(plan, subQuestionId, runRoot)),
       };
       writeSidecar(target, provenance);
       counter.reset(subQuestionId);
@@ -648,6 +725,14 @@ async function absorbFindings<M>(args: AbsorbArgs<M>): Promise<string[]> {
       // Persist the raw body so the user (and the resume path)
       // can inspect what was rejected.
       writeFindingFile(target, body);
+      // Crucially: do NOT hand this malformed body to synth. With
+      // no in-pipeline re-prompt firing, synth would read the raw
+      // reply text, find no `## Sources` section, and emit a
+      // confident zero-citation section. Mark the sub-question
+      // quarantined for synth purposes so it gets a visible
+      // `[section unavailable: ...]` stub in the merged report
+      // — the on-disk file stays put for `--resume` inspection.
+      quarantined.push(subQuestionId);
       continue;
     }
 
@@ -729,6 +814,112 @@ async function absorbFindings<M>(args: AbsorbArgs<M>): Promise<string[]> {
 }
 
 // ──────────────────────────────────────────────────────────────────────
+// ───────────────────────────────────────────────────────────────────
+// Source-store populate (Phase 6).
+// ───────────────────────────────────────────────────────────────────
+
+interface PopulateArgs<M> {
+  plan: DeepResearchPlan;
+  runRoot: string;
+  /** Sub-question ids whose findings did not survive absorb. */
+  quarantined: ReadonlySet<string>;
+  deps: PipelineDeps<M>;
+}
+
+/**
+ * For each accepted finding on disk, walk its `## Sources` block
+ * and call `fetchAndStore` for every URL. This is the ONLY step
+ * that populates `sources/<hash>.md` + `<hash>.json`; without it
+ * the synth stage drops every citation because
+ * `collectReferencedSources` filters by the on-disk source index.
+ *
+ * Cost-aware: `fetchAndStore` hits the on-disk cache first, so a
+ * second `/research --resume` run does zero network work. Bounded
+ * by `plan.budget.maxFetches` to match the planner's contract; a
+ * finding that cites more than the budget allows gets its extra
+ * URLs dropped (with a journal warning) rather than busting the
+ * budget.
+ *
+ * Degrades gracefully when `deps.mcpClient` is unset — journal a
+ * one-shot warning and return. The downstream synth stage will
+ * still run but produce zero-citation sections; structural check
+ * will fail the refinement loop, which is the right outcome for a
+ * pipeline that lost its fetch capability.
+ */
+async function populateSourceStore<M>(args: PopulateArgs<M>): Promise<void> {
+  const { plan, runRoot, quarantined, deps } = args;
+  const p = paths(runRoot);
+  const client = deps.mcpClient;
+  if (!client) {
+    try {
+      appendJournal(p.journal, {
+        level: 'warn',
+        heading: 'source-store populate skipped',
+        body: 'no McpClient injected — synth will produce zero-citation sections unless a downstream cache is populated by other means.',
+      });
+    } catch {
+      /* swallow */
+    }
+    return;
+  }
+
+  const maxFetches = plan.budget.maxFetches;
+  let fetched = 0;
+  let cacheHits = 0;
+  let failed = 0;
+  let dropped = 0;
+  const seen = new Set<string>();
+  const nowFactory = deps.now ? { now: deps.now } : {};
+
+  for (const sq of plan.subQuestions) {
+    if (quarantined.has(sq.id)) continue;
+    const findingPath = join(p.findings, `${sq.id}.md`);
+    let body: string;
+    try {
+      body = readFileSync(findingPath, 'utf8');
+    } catch {
+      continue;
+    }
+    const urls = extractFindingSourceUrls(body);
+    for (const url of urls) {
+      if (seen.has(url)) continue;
+      seen.add(url);
+      if (fetched + cacheHits >= maxFetches) {
+        dropped += 1;
+        continue;
+      }
+      try {
+        const ref = await fetchAndStore(runRoot, url, client, nowFactory);
+        if (ref.method === 'cached') cacheHits += 1;
+        else if (ref.method === 'fetch') fetched += 1;
+        else failed += 1;
+      } catch (e) {
+        failed += 1;
+        try {
+          appendJournal(p.journal, {
+            level: 'warn',
+            heading: `source-store fetch failed for ${url}`,
+            body: (e as Error).message,
+          });
+        } catch {
+          /* swallow */
+        }
+      }
+    }
+  }
+
+  try {
+    appendJournal(p.journal, {
+      level: 'step',
+      heading: 'source-store populated',
+      body: `fetched=${fetched} cached=${cacheHits} failed=${failed} dropped=${dropped} cap=${maxFetches}`,
+    });
+  } catch {
+    /* swallow */
+  }
+}
+
+// ───────────────────────────────────────────────────────────────────
 // Synth + merge phase (Phase 3).
 // ──────────────────────────────────────────────────────────────────────
 
