@@ -13,19 +13,20 @@ Cross-platform bash dotfiles for Linux, macOS, and WSL. Shell scripts, git utili
 
 ## Directory map
 
-| Path                        | Purpose                                                                                                                                                                  |
-| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `dotenv/`                   | Core shell environment: aliases, functions, exports, completions, prompt. Per-platform subdirs `darwin/`, `linux/`, `wsl/`, `wsl2/`, `ssh/`, `tmux/` load conditionally. |
-| `dotenv/bin/`               | Git subcommands and CLI utilities added to `$PATH`                                                                                                                       |
-| `dotenv/lib/`               | Internal loader and utility libraries                                                                                                                                    |
-| `plugins/`                  | Numbered shell plugins loaded near end of init (e.g. `10-fzf.sh`)                                                                                                        |
-| `external/`                 | Vendored third-party scripts -- do not edit                                                                                                                              |
-| `tests/`                    | Bats test files mirroring `dotenv/` structure ([tests/AGENTS.md](./tests/AGENTS.md)); TypeScript specs (`*.spec.ts`) for `lib/node/` helpers run by vitest               |
-| `tests/helpers/common.bash` | Shared test setup: mock stubs, git helpers, isolated HOME                                                                                                                |
-| `config/`                   | Non-shell config files and per-tool tooling ([config/README.md](./config/README.md)); pi extensions / skills / agents live under [config/pi/](./config/pi/README.md)     |
-| `utils/`                    | Platform setup guides and native wrappers ([utils/README.md](./utils/README.md))                                                                                         |
-| `dev/`                      | Developer tooling: lint, test runners, Dockerfile                                                                                                                        |
-| `bootstrap.sh`              | Installer that symlinks dotfiles into `$HOME`                                                                                                                            |
+| Path                        | Purpose                                                                                                                                                                                                           |
+| --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `dotenv/`                   | Core shell environment ([dotenv/AGENTS.md](./dotenv/AGENTS.md)): aliases, functions, exports, completions, prompt. Per-platform subdirs `darwin/`, `linux/`, `wsl/`, `wsl2/`, `ssh/`, `tmux/` load conditionally. |
+| `dotenv/bin/`               | Git subcommands and CLI utilities added to `$PATH`                                                                                                                                                                |
+| `dotenv/lib/`               | Internal loader and utility libraries                                                                                                                                                                             |
+| `plugins/`                  | Numbered shell plugins loaded near end of init ([plugins/AGENTS.md](./plugins/AGENTS.md))                                                                                                                         |
+| `external/`                 | Vendored third-party scripts ([external/AGENTS.md](./external/AGENTS.md)) -- do not edit in place                                                                                                                 |
+| `lib/`                      | Pure TypeScript helpers shared across extensions and session-usage CLIs ([lib/AGENTS.md](./lib/AGENTS.md))                                                                                                        |
+| `tests/`                    | Bats test files mirroring `dotenv/` structure ([tests/AGENTS.md](./tests/AGENTS.md)); TypeScript specs (`*.spec.ts`) for `lib/node/` helpers run by vitest                                                        |
+| `tests/helpers/common.bash` | Shared test setup: mock stubs, git helpers, isolated HOME                                                                                                                                                         |
+| `config/`                   | Non-shell config files and per-tool tooling ([config/AGENTS.md](./config/AGENTS.md)); pi extensions / skills / agents live under [config/pi/](./config/pi/README.md)                                              |
+| `utils/`                    | Platform setup guides and native wrappers ([utils/README.md](./utils/README.md))                                                                                                                                  |
+| `dev/`                      | Developer tooling: lint, test runners, Dockerfile                                                                                                                                                                 |
+| `bootstrap.sh`              | Installer that symlinks dotfiles into `$HOME`                                                                                                                                                                     |
 
 ## Key patterns
 
@@ -78,14 +79,9 @@ arrays. Declare hooks in `~/.bash_local` or `~/.bash_local.d/*.sh`.
 
 ### Shell style
 
-`./dev/lint.sh` (shfmt + shellcheck) is the source of truth for formatting and static checks — see
-[CONTRIBUTING.md](./CONTRIBUTING.md#style) for the full flag set. Conventions that tooling can't enforce:
-
-- For sourced shell code, use `__dot_*` for internal variables and `internal::...` for internal functions. Scoped
-  variable families like `__dot_ps1_*` and `__dot_ssh_*` are preferred over one-off prefixes.
-- Route cache file writes through `internal::cache-write-atomic` in `dotenv/lib/utils.sh` so parent-directory creation,
-  atomic replacement, and readonly-cache failures are handled in one place. Cache reads can stay inline when they are
-  simple `[[ -f/-s ]]` checks plus `source`/`read`.
+`./dev/lint.sh` (shfmt + shellcheck) is the source of truth — see [CONTRIBUTING.md](./CONTRIBUTING.md#style) for the
+full flag set. Naming conventions that tooling can't enforce (`__dot_*` / `internal::…`, cache-write routing) live in
+[dotenv/AGENTS.md](./dotenv/AGENTS.md).
 
 ### Customization model
 

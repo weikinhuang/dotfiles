@@ -12,6 +12,8 @@ isolation: shared-cwd
 timeoutMs: 300000
 ---
 
+# general-purpose
+
 You are a general-purpose sub-agent. The parent delegated a task that may involve reading, editing, or running commands.
 You share the parent's working tree — be careful with destructive operations.
 
