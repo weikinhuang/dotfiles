@@ -389,10 +389,18 @@ function composeSectionOutcomes(
     if (refreshed) return refreshed;
     const sectionPath = join(sectionsDir, `${sq.id}.md`);
     if (!existsSync(sectionPath)) {
+      // No snapshot on disk — either the initial synth phase
+      // produced a stuck / missing-finding outcome for this
+      // sub-question, or the fanout subagent never wrote a
+      // finding for it. Either way there's nothing to compose
+      // from; merge will render a `[section unavailable: …]`
+      // stub using this reason. Keep the message short and
+      // user-facing — the absolute path the previous revision
+      // included added zero signal for the reader.
       return {
         kind: 'missing-finding' as const,
         subQuestionId: sq.id,
-        reason: `no snapshot at ${sectionPath} at refinement time`,
+        reason: 'no section snapshot on disk at refinement time (initial synth produced no body)',
       };
     }
     // Read in eagerly so merge's in-memory path wins (cheaper and
