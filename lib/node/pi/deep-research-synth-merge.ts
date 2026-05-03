@@ -65,7 +65,7 @@ import { renumber, type CitationSource, validatePlaceholders } from './research-
 import { appendJournal } from './research-journal.ts';
 import { paths } from './research-paths.ts';
 import { type DeepResearchPlan, type SubQuestion } from './research-plan.ts';
-import { hashPrompt, type Provenance, writeSidecar } from './research-provenance.ts';
+import { hashPrompt, type Provenance, stripProvenanceFrontmatter, writeSidecar } from './research-provenance.ts';
 import { listRun, type SourceRef } from './research-sources.ts';
 import { callTyped, type ResearchSessionLike, type SchemaLike } from './research-structured.ts';
 import { isStuckShape } from './research-stuck.ts';
@@ -453,11 +453,14 @@ function loadSectionBody(
   if (outcome.kind === 'ok') {
     // Prefer in-memory body; fall back to on-disk read if needed.
     if (outcome.markdown.trim().length > 0) {
-      return { body: ensureHeading(outcome.markdown, sq), stubbed: false };
+      return { body: ensureHeading(stripProvenanceFrontmatter(outcome.markdown), sq), stubbed: false };
     }
     if (existsSync(outcome.sectionPath)) {
       try {
-        return { body: ensureHeading(readFileSync(outcome.sectionPath, 'utf8'), sq), stubbed: false };
+        return {
+          body: ensureHeading(stripProvenanceFrontmatter(readFileSync(outcome.sectionPath, 'utf8')), sq),
+          stubbed: false,
+        };
       } catch {
         /* fall through to stub */
       }

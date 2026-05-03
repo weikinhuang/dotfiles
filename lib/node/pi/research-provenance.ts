@@ -82,6 +82,48 @@ export function hashPrompt(prompt: string): string {
   return sha256HexPrefix(prompt, 12);
 }
 
+// ───────────────────────────────────────────────────────────────────
+// Inline frontmatter handling.
+// ───────────────────────────────────────────────────────────────────
+
+/**
+ * Strip an inline YAML provenance frontmatter block (`--- ... ---`
+ * at the very start of `text`) and return what remains. A body
+ * that does not start with `---\n` is returned unchanged. Kept
+ * minimal — we only need to discard the block, not parse it, and
+ * we do NOT take a dependency on `parseFrontmatter` so any
+ * research-core caller can safely reuse the helper without
+ * pulling the full YAML stack into scope.
+ *
+ * Used by:
+ *   - deep-research-pipeline's resume path when re-validating
+ *     findings (accepted findings get `writeSidecar` appended as
+ *     a YAML block at the top).
+ *   - deep-research-synth-merge's `loadSectionBody` when loading
+ *     a section snapshot off disk (the snapshot has the same
+ *     provenance block; without stripping it, the merged report
+ *     ends up with a `--- ... ---` block between every `## …`
+ *     heading and its body, which confuses downstream parsers
+ *     and duplicates section headings if the body also re-opens
+ *     with `## <question>`).
+ */
+export function stripProvenanceFrontmatter(text: string): string {
+  if (!text.startsWith('---')) return text;
+  // Require a newline after the opening `---` to avoid false
+  // positives on a body that happens to start with `---` (e.g. a
+  // horizontal rule).
+  const firstBreak = text.indexOf('\n');
+  if (firstBreak < 0) return text;
+  const rest = text.slice(firstBreak + 1);
+  // Closing fence is a line that is exactly `---` at the start of
+  // a line. Look for `\n---\n` or `\n---` at EOF.
+  const closeIdx = rest.search(/(^|\n)---(\n|$)/);
+  if (closeIdx < 0) return text;
+  const afterClose = rest.indexOf('\n', rest.indexOf('---', closeIdx === 0 ? 0 : closeIdx + 1));
+  if (afterClose < 0) return '';
+  return rest.slice(afterClose + 1);
+}
+
 // ──────────────────────────────────────────────────────────────────────
 // Sidecar path derivation.
 // ──────────────────────────────────────────────────────────────────────

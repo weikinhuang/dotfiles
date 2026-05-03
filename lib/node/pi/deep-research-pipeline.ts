@@ -86,7 +86,7 @@ import {
 import { appendJournal } from './research-journal.ts';
 import { paths } from './research-paths.ts';
 import { type DeepResearchPlan, type PlanBudget } from './research-plan.ts';
-import { hashPrompt, type Provenance, writeSidecar } from './research-provenance.ts';
+import { hashPrompt, type Provenance, stripProvenanceFrontmatter, writeSidecar } from './research-provenance.ts';
 import { failureCounter, quarantine } from './research-quarantine.ts';
 import { fetchAndStore, listRun, type McpClient, type SourceRef } from './research-sources.ts';
 import { type ResearchSessionLike } from './research-structured.ts';
@@ -588,28 +588,16 @@ interface AbsorbArgs<M> {
  */
 /**
  * Strip a leading YAML frontmatter block (`---\n…\n---\n`) if
- * present. `research-provenance.writeSidecar` inlines a provenance
- * block at the top of accepted findings, which the finding
- * validator (which expects `# Sub-question:` on the first line)
- * would otherwise reject on the next pass. Pure string op; no
- * dependency on `parseFrontmatter` because we only need to
- * discard the block, not read it.
+ * present. Thin local alias over
+ * {@link stripProvenanceFrontmatter} from `research-provenance.ts`
+ * so the two consumers (this resume path and
+ * `deep-research-synth-merge.loadSectionBody`) share the same
+ * implementation — a snapshot body written with an inlined
+ * provenance frontmatter otherwise leaks the `---…---` block
+ * into the merged report and confuses every downstream parser.
  */
-function stripProvenanceFrontmatter(text: string): string {
-  if (!text.startsWith('---')) return text;
-  // Require a newline after the opening `---` to avoid false
-  // positives on a body that happens to start with `---` (e.g. a
-  // horizontal rule).
-  const firstBreak = text.indexOf('\n');
-  if (firstBreak < 0) return text;
-  const rest = text.slice(firstBreak + 1);
-  // Closing fence is a line that is exactly `---` at the start of
-  // a line. Look for `\n---\n` or `\n---` at EOF.
-  const closeIdx = rest.search(/(^|\n)---(\n|$)/);
-  if (closeIdx < 0) return text;
-  const afterClose = rest.indexOf('\n', rest.indexOf('---', closeIdx === 0 ? 0 : closeIdx + 1));
-  if (afterClose < 0) return '';
-  return rest.slice(afterClose + 1);
+function stripSnapshotFrontmatter(text: string): string {
+  return stripProvenanceFrontmatter(text);
 }
 
 async function absorbFindings<M>(args: AbsorbArgs<M>): Promise<string[]> {
@@ -651,7 +639,7 @@ async function absorbFindings<M>(args: AbsorbArgs<M>): Promise<string[]> {
     let body: string;
     if (findingExists(target)) {
       try {
-        body = stripProvenanceFrontmatter(readFileSync(target, 'utf8'));
+        body = stripSnapshotFrontmatter(readFileSync(target, 'utf8'));
       } catch {
         body = completion.output;
       }

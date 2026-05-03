@@ -443,6 +443,81 @@ describe('runSynthMerge', () => {
 
     expect(result.reportPath).toBe(paths(runRoot).report);
   });
+
+  test('(h) strips inlined provenance frontmatter from the section snapshot', async () => {
+    // Real-world regression from the Phase 6b qwen3 smoke: the
+    // section writer calls `writeSidecar` which inlines a YAML
+    // `---…---` provenance block at the top of the snapshot. If
+    // merge loads the snapshot as-is, the body becomes
+    //   `## <question>`
+    //   `---\nmodel: …\n---`
+    //   `## <question>   (from inside the snapshot)`
+    //   `<actual section body with [^n] markers>`
+    // and the structural check's `every-section-cites-a-source`
+    // check fires on the first (empty, frontmatter-only) slice.
+    // The fix: strip the inlined frontmatter in `loadSectionBody`
+    // before composing the report.
+    const plan = makePlan([{ id: 'sq-a', question: 'A?' }]);
+    writeSource(runRoot, { id: 'src1', url: 'https://example.com/1', title: 'S1' });
+
+    // Simulate what `runSectionSynth` + `writeSidecar` actually
+    // produces on disk: provenance block, then the section body.
+    const snapshotBody = [
+      '---',
+      'model: "local/test"',
+      'thinkingLevel: null',
+      'timestamp: "2026-01-01T00:00:00.000Z"',
+      'promptHash: "abc"',
+      '---',
+      '## A',
+      '',
+      'Body claim {{SRC:src1}}.',
+    ].join('\n');
+
+    const section: SectionOutcome = {
+      kind: 'ok',
+      subQuestionId: 'sq-a',
+      sectionPath: join(runRoot, 'snapshots', 'sections', 'sq-a.md'),
+      markdown: snapshotBody,
+      sourceIds: ['src1'],
+      truncated: false,
+    };
+
+    const session = makeSession([VALID_MERGE]);
+    const result = await runSynthMerge({
+      runRoot,
+      plan,
+      sectionOutcomes: [section],
+      session,
+      model: 'local/test',
+      thinkingLevel: null,
+    });
+
+    const report = readFileSync(result.reportPath, 'utf8');
+
+    // The snapshot's inlined promptHash must NOT appear anywhere
+    // in the report — the report has its own provenance
+    // frontmatter written by merge, but the snapshot's `abc` hash
+    // is specific to the section and must be dropped.
+    expect(report).not.toContain('promptHash: "abc"');
+
+    // Strip the report's own leading frontmatter and assert there
+    // is no OTHER `---` block between the heading and the body
+    // (the smoke-observed bug manifested as a stray YAML block
+    // between `## A` and the section prose).
+    const afterReportFrontmatter = report.replace(/^---\n[\s\S]*?\n---\n/, '');
+
+    expect(afterReportFrontmatter).not.toContain('---\nmodel:');
+
+    // The section heading appears exactly once (no duplicate
+    // caused by merge re-prepending `## A?` over the snapshot's
+    // own `## A`).
+    const headingMatches = (report.match(/^## A\??$/gm) ?? []).length;
+
+    expect(headingMatches).toBe(1);
+    // Body with the footnote marker is present.
+    expect(report).toContain('Body claim [^1]');
+  });
 });
 
 // ──────────────────────────────────────────────────────────────────────
