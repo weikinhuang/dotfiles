@@ -94,9 +94,9 @@ function makeSpawnStub(scripted: SpawnStubOpts | ((i: number) => SpawnStubOpts))
           stderr.on(event, listener);
         },
       },
-      on: (event: 'close' | 'error', listener: (...xs: unknown[]) => void) => {
+      on: ((event: 'close' | 'error', listener: (...xs: unknown[]) => void) => {
         closeEmitter.on(event, listener);
-      },
+      }) as SpawnedChild['on'],
     };
     return child;
   };

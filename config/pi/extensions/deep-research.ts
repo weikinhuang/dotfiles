@@ -70,6 +70,7 @@ import {
   type PipelineOutcome,
   type ResearchSessionLikeWithLifecycle,
 } from '../../../lib/node/pi/deep-research-pipeline.ts';
+import { refineReport as refineReportRunner } from '../../../lib/node/pi/deep-research-refine.ts';
 import {
   type CriticRunner,
   type RefinementRunner,
@@ -102,6 +103,7 @@ import {
 import { createFetchWebCliClientFromEnv } from '../../../lib/node/pi/research-fetch-web-cli-client.ts';
 import { appendJournal } from '../../../lib/node/pi/research-journal.ts';
 import { paths } from '../../../lib/node/pi/research-paths.ts';
+import { readPlan } from '../../../lib/node/pi/research-plan.ts';
 import {
   type CommandNotify,
   type CommandNotifyLevel,
@@ -531,6 +533,7 @@ async function runResearchFlow(args: {
       runRoot: outcome.runRoot,
       notify,
       agentLoad,
+      pipelineDeps: built.deps,
       emitPhase: statusline.emit,
       ...(args.signal ? { signal: args.signal } : {}),
     });
@@ -883,6 +886,15 @@ interface RunReviewPhaseArgs {
   runRoot: string;
   notify: CommandNotify;
   agentLoad: AgentLoadResult;
+  /**
+   * Pipeline deps carrying the `createSession` factory, model
+   * label, and thinkingLevel used by the refinement runner to
+   * spin up a fresh synth session for each refinement iteration.
+   * Optional because resume flows (which skip the pipeline run)
+   * may want to drive review without a rebuild — in that case
+   * `refineReport` degrades to the journal-only stub.
+   */
+  pipelineDeps?: PipelineDeps<unknown>;
   /** Phase-5 observability emitter. */
   emitPhase?: (event: PhaseEvent) => void;
   /** Additional abort signal threaded into the review loop. */
@@ -902,15 +914,15 @@ interface RunReviewPhaseArgs {
  * iteration-loop extension's own critic path for the identical
  * shape.
  *
- * The refinement runner, for Phase 4, is a best-effort stub: it
- * journals the nudge so the next iteration has access to it but
- * does not yet re-run synth. Phase 5/6 extends this to re-drive
- * `runSynthMerge` with the nudge threaded as a prior-turn
- * message. With the stub in place, a failing first iteration
- * triggers budget exhaustion on subsequent ones — the outcome
- * returned to the user correctly reports the failure; the
- * refinement fidelity is a pure-implementation follow-up, not a
- * contract question.
+ * The refinement runner spins up a fresh parent session per
+ * refinement iteration (via the same `createSession` factory
+ * `runSynthPhase` uses) and drives {@link refineReportRunner},
+ * which re-invokes `runSectionSynth` for sections named by the
+ * structural failures (or re-runs `runSynthMerge` with a nudge on
+ * global / subjective failures), then disposes. When
+ * `pipelineDeps` is unset the runner degrades to the journal-
+ * only behavior so resume flows still surface a terminal
+ * verdict instead of hanging.
  */
 async function runReviewPhase(args: RunReviewPhaseArgs): Promise<ReviewWireResult | null> {
   const { ctx, runRoot, notify, agentLoad, emitPhase } = args;
@@ -1024,7 +1036,7 @@ async function runReviewPhase(args: RunReviewPhaseArgs): Promise<ReviewWireResul
     }
   };
 
-  const refineReport: RefinementRunner = (req) => {
+  const refineReport: RefinementRunner = async (req) => {
     try {
       appendJournal(p.journal, {
         level: 'warn',
@@ -1034,13 +1046,65 @@ async function runReviewPhase(args: RunReviewPhaseArgs): Promise<ReviewWireResul
     } catch {
       /* swallow */
     }
-    // Phase-4 scope: the refinement path is structural + critic
-    // nudges landing in the journal. Re-running synth with the
-    // nudge threaded into the prompt is a Phase-5/6 expansion;
-    // returning ok: true here is deliberate so the review loop
-    // progresses to its budget-exhaustion / override paths and
-    // the user sees a surfaced outcome instead of a hang.
-    return Promise.resolve({ ok: true });
+
+    const pipelineDeps = args.pipelineDeps;
+    if (!pipelineDeps) {
+      // No pipeline deps in scope — nothing to drive a real
+      // re-synth. Journal the nudge (already done above) and
+      // declare success so the review loop progresses to its
+      // budget-exhaustion path and the user sees a surfaced
+      // verdict instead of a hang.
+      return { ok: true };
+    }
+
+    // Load the current plan from disk so we have the
+    // sub-question list the refiner maps structural failures
+    // against. Reading on every refinement (instead of caching)
+    // keeps the runner resilient to mid-loop plan edits.
+    let plan: Awaited<ReturnType<typeof readPlan>>;
+    try {
+      plan = readPlan(p.plan);
+    } catch (e) {
+      return { ok: false, error: `refineReport: could not read plan.json: ${(e as Error).message}` };
+    }
+    if (plan.kind !== 'deep-research') {
+      return { ok: false, error: `refineReport: plan is ${plan.kind}, expected deep-research` };
+    }
+
+    // Build a fresh parent session for this refinement. Same
+    // shape runSynthPhase uses; dispose on exit (success or
+    // failure) so the harness reclaims resources.
+    let session: Awaited<ReturnType<typeof pipelineDeps.createSession>>;
+    try {
+      session = await pipelineDeps.createSession();
+    } catch (e) {
+      return { ok: false, error: `refineReport: createSession failed: ${(e as Error).message}` };
+    }
+
+    try {
+      await refineReportRunner<unknown>({
+        runRoot,
+        plan,
+        stage: req.stage,
+        iteration: req.iteration,
+        session,
+        model: pipelineDeps.model,
+        thinkingLevel: pipelineDeps.thinkingLevel,
+        ...(req.structural ? { structural: req.structural } : {}),
+        ...(req.critic ? { critic: req.critic } : {}),
+      });
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, error: `refineReport: runner threw: ${(e as Error).message}` };
+    } finally {
+      if (session.dispose) {
+        try {
+          await session.dispose();
+        } catch {
+          /* swallow — dispose is best-effort */
+        }
+      }
+    }
   };
 
   try {

@@ -163,13 +163,26 @@ export const mergeOutputSchema: SchemaLike<MergeOutput> = {
  * prevents the model from inadvertently paraphrasing sections
  * into the intro/conclusion.
  */
-export function renderMergePrompt(plan: DeepResearchPlan, sectionLeads: readonly SectionLead[]): string {
+export function renderMergePrompt(
+  plan: DeepResearchPlan,
+  sectionLeads: readonly SectionLead[],
+  extraInstructions?: string,
+): string {
   const leadLines =
     sectionLeads.length === 0
       ? '  (no sections)'
       : sectionLeads
           .map((l) => `  - id=${l.subQuestionId} question=${JSON.stringify(l.question)} lead=${JSON.stringify(l.lead)}`)
           .join('\n');
+
+  const extra =
+    extraInstructions && extraInstructions.trim().length > 0
+      ? [
+          '',
+          'Additional instructions from the review loop (a prior attempt failed; address these specifically this time):',
+          extraInstructions.trim(),
+        ]
+      : [];
 
   return [
     `You are writing the wrapper for a /research report.`,
@@ -191,6 +204,7 @@ export function renderMergePrompt(plan: DeepResearchPlan, sectionLeads: readonly
     `- Do NOT paraphrase whole sections; refer to them by sub-question.`,
     `- If you cannot produce a cohesive wrapper, emit {"status":"stuck","reason":"..."} and we will fall back.`,
     `- Reply with JSON only. No prose preamble. No markdown fences.`,
+    ...extra,
   ].join('\n');
 }
 
@@ -237,6 +251,13 @@ export interface SynthMergeOpts<M> {
   /** Optional tiny adapter — error humanization + provenance summary. */
   tinyAdapter?: TinyAdapter<M>;
   tinyCtx?: TinyCallContext<M>;
+  /**
+   * Optional extra instructions appended verbatim to the merge
+   * prompt. Used by the review-loop refinement path to thread a
+   * subjective-critic nudge into the re-merge without having to
+   * open up `callTyped` or change the core prompt shape.
+   */
+  extraInstructions?: string;
 }
 
 export interface SynthMergeResult {
@@ -295,7 +316,7 @@ export async function runSynthMerge<M>(opts: SynthMergeOpts<M>): Promise<SynthMe
     question: s.sq.question,
     lead: firstParagraphLead(s.body),
   }));
-  const mergePrompt = renderMergePrompt(opts.plan, leads);
+  const mergePrompt = renderMergePrompt(opts.plan, leads, opts.extraInstructions);
   const FALLBACK_SENTINEL: MergeOutput = { title: '', introduction: '', conclusion: '' };
 
   const onRetry = buildOnRetry(opts);

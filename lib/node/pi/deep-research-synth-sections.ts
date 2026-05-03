@@ -183,11 +183,21 @@ export function renderSectionPrompt(
   subQuestion: SubQuestion,
   findingBody: string,
   sources: readonly CitationSource[],
+  extraInstructions?: string,
 ): string {
   const sourceLines =
     sources.length === 0
       ? '  (no sources — do not emit any {{SRC:...}} placeholders)'
       : sources.map((s) => `  - id=${s.id} url=${s.url} title=${s.title || '(untitled)'}`).join('\n');
+
+  const extra =
+    extraInstructions && extraInstructions.trim().length > 0
+      ? [
+          '',
+          'Additional instructions from the review loop (a prior attempt at this section failed; address these specifically this time):',
+          extraInstructions.trim(),
+        ]
+      : [];
 
   return [
     `You are writing one section of a /research report.`,
@@ -211,6 +221,7 @@ export function renderSectionPrompt(
     `- Keep the section under ~1500 tokens (~6000 chars).`,
     `- If the findings cannot answer the sub-question, emit {"status":"stuck","reason":"..."} instead of fabricating.`,
     `- Reply with JSON only. No prose preamble. No markdown fences around the JSON.`,
+    ...extra,
   ].join('\n');
 }
 
@@ -268,6 +279,13 @@ export interface SectionSynthOpts<M> {
    * across all sub-questions.
    */
   sourceIndex?: readonly SourceRef[];
+  /**
+   * Optional extra instructions appended verbatim to the section
+   * prompt. Used by the review-loop refinement path to thread a
+   * structural-failure nudge into the re-synth without having to
+   * open up `callTyped` or change the core prompt shape.
+   */
+  extraInstructions?: string;
 }
 
 // ──────────────────────────────────────────────────────────────────────
@@ -316,7 +334,7 @@ export async function runSectionSynth<M>(opts: SectionSynthOpts<M>): Promise<Sec
   const knownIds = new Set(sources.map((s) => s.id));
 
   // ── 3. Drive the typed synth turn. ────────────────────────────
-  const prompt = renderSectionPrompt(sq, findingBody, sources);
+  const prompt = renderSectionPrompt(sq, findingBody, sources, opts.extraInstructions);
   const schema = makeSectionOutputSchema(knownIds);
   const FALLBACK_SENTINEL: SectionOutput = { markdown: '' };
 
@@ -427,6 +445,7 @@ export async function runAllSections<M>(opts: AllSectionsOpts<M>): Promise<Secti
       ...(opts.journalPath ? { journalPath: opts.journalPath } : {}),
       ...(opts.tinyAdapter ? { tinyAdapter: opts.tinyAdapter } : {}),
       ...(opts.tinyCtx ? { tinyCtx: opts.tinyCtx } : {}),
+      ...(opts.extraInstructions ? { extraInstructions: opts.extraInstructions } : {}),
     };
     const outcome = await runSectionSynth(perSection);
     out.push(outcome);
