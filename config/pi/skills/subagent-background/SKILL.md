@@ -47,7 +47,7 @@ Stay sync when:
 
 Multiple `subagent` calls in a **single assistant turn** run concurrently. This is the cheapest way to parallelize:
 
-```
+```text
 Turn N (parent):
   subagent({ agent: "explore", task: "find callers of A", run_in_background: true })
   subagent({ agent: "explore", task: "find callers of B", run_in_background: true })
@@ -99,7 +99,7 @@ Rules the harness enforces:
 
 For a single long-running child:
 
-```
+```text
 spawn → handle h
 ... do inline work ...
 subagent_send({ to: h, action: "status" })   # cheap check
@@ -110,7 +110,7 @@ subagent_send({ to: h, action: "wait", timeoutMs: 30000 })
 
 For fan-out:
 
-```
+```text
 spawn h1, h2, h3 in one turn
 ... do inline work ...
 for h in [h1, h2, h3]:

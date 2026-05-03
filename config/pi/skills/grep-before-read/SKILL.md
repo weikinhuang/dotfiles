@@ -4,7 +4,8 @@ description:
   Default to `rg`/`grep` for discovery instead of reading whole files. Use whenever you're hunting for a symbol,
   function, pattern, or a specific line in a repo you don't already have fully loaded in context — especially on files
   over ~400 lines, unknown codebases, or when the user asks "where is X defined/used?". Read only after you know the
-  target lines; use `offset`/`limit` to pull just the region you need.
+  target lines; use `offset`/`limit` to pull just the region you need. Do NOT use when the file is already loaded in
+  context, when a test suite already scopes the discovery, or when the user handed you an exact path to a short file.
 ---
 
 # Grep Before Read

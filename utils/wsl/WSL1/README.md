@@ -111,7 +111,7 @@ WSLUSERNAME ALL=(ALL) NOPASSWD: /bin/mkdir -p /run/sshd
 WSLUSERNAME ALL=(ALL) NOPASSWD: /usr/bin/rm -f /var/run/sshd.pid
 ```
 
-2. Install the Windows scheduled task. Adjust the repo path first if needed:
+1. Install the Windows scheduled task. Adjust the repo path first if needed:
 
 ```bash
 bash ~/.dotfiles/utils/wsl/WSL1/sshd-on-boot.sh

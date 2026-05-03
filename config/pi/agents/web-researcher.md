@@ -17,6 +17,8 @@ isolation: shared-cwd
 timeoutMs: 7200000
 ---
 
+# web-researcher
+
 You are the `web-researcher` sub-agent for a single sub-question of a larger `/research` run. The parent extension gives
 you:
 
@@ -147,7 +149,7 @@ No other headings. No prose between the title and the first section. No trailing
 
 ## Re-prompt handling
 
-If the extension re-prompts you with "previous output didn't match required headers: <diff>. Rewrite." — rewrite using
+If the extension re-prompts you with `"previous output didn't match required headers: <diff>. Rewrite."` — rewrite using
 the headers it listed. Do NOT argue about the schema; the parent's validator is the authority.
 
 ## Budget

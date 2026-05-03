@@ -11,8 +11,8 @@
     "oxfmt": "oxfmt",
     "format": "oxfmt",
     "format:check": "oxfmt --check",
-    "markdownlint": "markdownlint-cli2 --fix",
-    "markdownlint:check": "markdownlint-cli2",
+    "markdownlint": "markdownlint-cli2 --fix '**/*.{md,mdc}'",
+    "markdownlint:check": "markdownlint-cli2 '**/*.{md,mdc}'",
     "test": "vitest run",
     "test:watch": "vitest",
     "tsc": "tsc --noEmit"

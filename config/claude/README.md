@@ -10,6 +10,9 @@ Configuration, personal instructions, and custom tooling for [Claude Code](https
   usage.
 - [`settings-baseline.json`](#settings-baselinejson) — mirrors `~/.claude/settings.json`.
 - [`settings-local.json`](#settings-localjson) — mirrors `~/.claude/settings.json`.
+- [`CLAUDE-local.md`](./CLAUDE-local.md) — personal, workspace-level instructions appended to Claude Code's `CLAUDE.md`
+  context (tool preferences, response style). Not consumed by this repo's dotfiles directly — Claude Code picks it up
+  when symlinked to `~/.claude/CLAUDE.md` (or similar).
 
 ## `statusline-command.sh`
 

@@ -13,20 +13,19 @@ Cross-platform bash dotfiles for Linux, macOS, and WSL. Shell scripts, git utili
 
 ## Directory map
 
-| Path                                              | Purpose                                                                                                                                                    |
-| ------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `dotenv/`                                         | Core shell environment: aliases, functions, exports, completions, prompt                                                                                   |
-| `dotenv/bin/`                                     | Git subcommands and CLI utilities added to `$PATH`                                                                                                         |
-| `dotenv/{linux,darwin,wsl,wsl2,ssh,tmux,screen}/` | Platform-specific overrides, loaded conditionally                                                                                                          |
-| `dotenv/lib/`                                     | Internal loader and utility libraries                                                                                                                      |
-| `plugins/`                                        | Numbered shell plugins loaded near end of init (e.g. `10-fzf.sh`)                                                                                          |
-| `external/`                                       | Vendored third-party scripts -- do not edit                                                                                                                |
-| `tests/`                                          | Bats test files mirroring `dotenv/` structure ([tests/AGENTS.md](./tests/AGENTS.md)); TypeScript specs (`*.spec.ts`) for `lib/node/` helpers run by vitest |
-| `tests/helpers/common.bash`                       | Shared test setup: mock stubs, git helpers, isolated HOME                                                                                                  |
-| `config/`                                         | Non-shell config files (git, vim, tmux, ripgrep, bat, eza, claude)                                                                                         |
-| `utils/`                                          | Platform setup guides and native wrappers (WSL, macOS, Termux)                                                                                             |
-| `dev/`                                            | Developer tooling: lint, test runners, Dockerfile                                                                                                          |
-| `bootstrap.sh`                                    | Installer that symlinks dotfiles into `$HOME`                                                                                                              |
+| Path                        | Purpose                                                                                                                                                                  |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `dotenv/`                   | Core shell environment: aliases, functions, exports, completions, prompt. Per-platform subdirs `darwin/`, `linux/`, `wsl/`, `wsl2/`, `ssh/`, `tmux/` load conditionally. |
+| `dotenv/bin/`               | Git subcommands and CLI utilities added to `$PATH`                                                                                                                       |
+| `dotenv/lib/`               | Internal loader and utility libraries                                                                                                                                    |
+| `plugins/`                  | Numbered shell plugins loaded near end of init (e.g. `10-fzf.sh`)                                                                                                        |
+| `external/`                 | Vendored third-party scripts -- do not edit                                                                                                                              |
+| `tests/`                    | Bats test files mirroring `dotenv/` structure ([tests/AGENTS.md](./tests/AGENTS.md)); TypeScript specs (`*.spec.ts`) for `lib/node/` helpers run by vitest               |
+| `tests/helpers/common.bash` | Shared test setup: mock stubs, git helpers, isolated HOME                                                                                                                |
+| `config/`                   | Non-shell config files and per-tool tooling ([config/README.md](./config/README.md)); pi extensions / skills / agents live under [config/pi/](./config/pi/README.md)     |
+| `utils/`                    | Platform setup guides and native wrappers ([utils/README.md](./utils/README.md))                                                                                         |
+| `dev/`                      | Developer tooling: lint, test runners, Dockerfile                                                                                                                        |
+| `bootstrap.sh`              | Installer that symlinks dotfiles into `$HOME`                                                                                                                            |
 
 ## Key patterns
 
@@ -71,13 +70,6 @@ Tests mirror source paths: `dotenv/bin/git-sync` → `tests/dotenv/bin/git-sync.
 script name and colon (e.g. `@test "git-sync: restores dirty state"`). Use `source_without_main` to unit-test internal
 functions. See [TESTING.md](./TESTING.md) for the full helper API and examples.
 
-### Cache files
-
-Route cache file writes through `internal::cache-write-atomic` in `dotenv/lib/utils.sh` so parent-directory creation,
-atomic replacement, and readonly-cache failures are handled in one place. Cache reads can stay inline when they are
-simple `[[ -f/-s ]]` checks plus `source`/`read`; add a shared read helper only if read-side policy becomes meaningfully
-more complex.
-
 ### Hooks
 
 The dotfiles provide `chpwd`, `precmd`, and `preexec` hooks with Zsh-like semantics. Hooks for each dotenv loading phase
@@ -86,20 +78,19 @@ arrays. Declare hooks in `~/.bash_local` or `~/.bash_local.d/*.sh`.
 
 ### Shell style
 
-shfmt flags: `-ln bash -ci -bn -i 2` for shell files, `-ln bats -ci -bn -i 2` for `.bats` files. shellcheck runs with
-`--source-path=SCRIPTDIR`, and `.bats` files are checked with `shellcheck -s bats -S warning`. Add shellcheck directives
-for valid exceptions only.
+`./dev/lint.sh` (shfmt + shellcheck) is the source of truth for formatting and static checks — see
+[CONTRIBUTING.md](./CONTRIBUTING.md#style) for the full flag set. Conventions that tooling can't enforce:
 
-For sourced shell code, use `__dot_*` for internal variables and `internal::...` for internal functions. Scoped variable
-families like `__dot_ps1_*` and `__dot_ssh_*` are preferred over one-off prefixes.
+- For sourced shell code, use `__dot_*` for internal variables and `internal::...` for internal functions. Scoped
+  variable families like `__dot_ps1_*` and `__dot_ssh_*` are preferred over one-off prefixes.
+- Route cache file writes through `internal::cache-write-atomic` in `dotenv/lib/utils.sh` so parent-directory creation,
+  atomic replacement, and readonly-cache failures are handled in one place. Cache reads can stay inline when they are
+  simple `[[ -f/-s ]]` checks plus `source`/`read`.
 
 ### Customization model
 
-Users customize via `~/.bash_local` and `~/.bash_local.d/*.sh`, both sourced before the repo built-ins. Plugins also
-load from `~/.bash_local.d/*.plugin` during the plugin phase. The entry points are `bash_profile.sh` → `bashrc.sh` →
-`dotenv/lib/load.sh`. Configuration is controlled by `DOT_*` environment variables documented in
-[README.md](./README.md#configuration-options), while [REFERENCE.md](./REFERENCE.md) is the detailed source of truth for
-loader behavior.
+Users customize via `~/.bash_local` and `~/.bash_local.d/*.sh` (sourced before repo built-ins). `DOT_*` config knobs are
+documented in [README.md](./README.md#configuration-options); see [REFERENCE.md](./REFERENCE.md) for loader behavior.
 
 ## Boundaries
 
@@ -119,8 +110,10 @@ dotenv layout files without updating `dotenv/lib/load.sh`.
 ## References
 
 - [TESTING.md](./TESTING.md) -- test framework, helpers, mock behavior, writing conventions
-- [REFERENCE.md](./REFERENCE.md) -- all aliases, functions, env vars, and git utilities
+- [REFERENCE.md](./REFERENCE.md) -- catalog of every alias, function, env var, and `git` subcommand (intentionally over
+  the 300-line reference-doc cap; treat as a tabular lookup, not narrative)
 - [PROMPT.md](./PROMPT.md) -- prompt format, symbols, and customization options
 - [README.md](./README.md) -- installation, configuration, hooks, file loading order
-- [utils/darwin/README.md](./utils/darwin/README.md) -- macOS setup and native wrappers
-- [utils/wsl/README.md](./utils/wsl/README.md) -- WSL setup and native wrappers
+- [CONTRIBUTING.md](./CONTRIBUTING.md) -- branch + PR flow, style, and commit conventions
+- [config/README.md](./config/README.md) -- non-shell tool configuration index (claude, codex, pi, git, vim, tmux, …)
+- [utils/README.md](./utils/README.md) -- platform setup guides (macOS, WSL, Termux) and native wrappers

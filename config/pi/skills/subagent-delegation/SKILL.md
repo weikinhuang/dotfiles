@@ -76,17 +76,15 @@ Structure every `task` with these four pieces:
 
 ### Good `task`
 
-```
+```markdown
 Find every call site of `searchHandler` in src/ and list each as
-`path:line — <one-line description of the surrounding block>`.
-Ignore dist/, node_modules/, and any *.test.ts files.
-Known: `searchHandler` is defined at src/api/search.ts:412.
-Return a bullet list, most-used file first.
+`path:line — <one-line description of the surrounding block>`. Ignore dist/, node_modules/, and any \*.test.ts files.
+Known: `searchHandler` is defined at src/api/search.ts:412. Return a bullet list, most-used file first.
 ```
 
 ### Bad `task`
 
-```
+```text
 look at the search code and tell me about it
 ```
 
@@ -142,7 +140,7 @@ Use this when:
 
 Inside `task`, specify the schema literally:
 
-```
+```text
 Return a JSON object of the form:
 { "callers": [{ "path": "...", "line": 123, "context": "..." }] }
 Do not include prose before or after the JSON.

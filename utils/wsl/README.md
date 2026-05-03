@@ -169,7 +169,7 @@ to inline mode if you understand that tradeoff.
 sudo config --enable normal
 ```
 
-3. Verify the configuration:
+1. Verify the configuration:
 
 ```powershell
 sudo config
