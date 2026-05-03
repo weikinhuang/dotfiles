@@ -71,6 +71,7 @@ import {
 } from './deep-research-planning-critic.ts';
 import { writeRubricFiles } from './deep-research-rubric.ts';
 import { runSelfCritic } from './deep-research-self-critic.ts';
+import { type PhaseEvent } from './deep-research-statusline.ts';
 import { type SynthMergeResult, UnknownPlaceholderError, runSynthMerge } from './deep-research-synth-merge.ts';
 import { type SectionOutcome, runAllSections } from './deep-research-synth-sections.ts';
 import {
@@ -168,6 +169,26 @@ export interface PipelineDeps<M> {
    * it as opt-in rather than flipping the default.
    */
   runSynth?: boolean;
+  /**
+   * Phase-5 observability hook: the pipeline emits one
+   * {@link PhaseEvent} per macro boundary so the extension can
+   * keep a statusline widget in sync. No-op when unset; the
+   * pipeline never awaits the hook (it's fire-and-forget so a
+   * slow UI write never stalls the research run). Exceptions
+   * from the hook are swallowed for the same reason.
+   *
+   * Per-task `fanout-progress` granularity is NOT emitted by the
+   * pipeline itself — it only emits one `fanout-start` (before
+   * `research-fanout`) and one `fanout-progress` with the final
+   * cumulative count (after it returns). Extensions that want
+   * sub-task progress can wrap their `fanoutSpawn` to emit extra
+   * `fanout-progress` events through this same hook as each
+   * task's `wait()` resolves; `deep-research-tool.ts` does not
+   * ship such a wrapper because the ergonomics of "total" are
+   * owned by the extension (the reducer inherits `total` from
+   * state when the event omits it).
+   */
+  onPhase?: (event: PhaseEvent) => void;
 }
 
 /** Session that optionally knows how to clean up after itself. */
@@ -222,9 +243,11 @@ export type PipelineOutcome =
 export async function runResearchPipeline<M>(question: string, deps: PipelineDeps<M>): Promise<PipelineOutcome> {
   // ── Create parent session ───────────────────────────────────────
   const session = await deps.createSession();
+  emitPhase(deps, { kind: 'start' });
   let planResult: PlannerResult | null = null;
   try {
     // ── 1. Planner ────────────────────────────────────────────────
+    emitPhase(deps, { kind: 'planning' });
     planResult = await runPlanner({
       question,
       cwd: deps.cwd,
@@ -239,6 +262,7 @@ export async function runResearchPipeline<M>(question: string, deps: PipelineDep
     });
 
     if (planResult.stuck) {
+      emitPhase(deps, { kind: 'error', message: `planner stuck: ${planResult.stuck.reason}` });
       return { kind: 'planner-stuck', runRoot: planResult.runRoot, reason: planResult.stuck.reason };
     }
 
@@ -247,6 +271,7 @@ export async function runResearchPipeline<M>(question: string, deps: PipelineDep
     const p = paths(runRoot);
 
     // ── 2. Self-critic ────────────────────────────────────────────
+    emitPhase(deps, { kind: 'self-crit' });
     const selfCritic = await runSelfCritic({
       runRoot,
       plan,
@@ -261,6 +286,7 @@ export async function runResearchPipeline<M>(question: string, deps: PipelineDep
     plan = selfCritic.plan;
 
     // ── 3. Planning-critic ────────────────────────────────────────
+    emitPhase(deps, { kind: 'plan-crit' });
     const criticOutcome = await runPlanningCritic({
       runRoot,
       plan,
@@ -279,6 +305,7 @@ export async function runResearchPipeline<M>(question: string, deps: PipelineDep
     plan = criticOutcome.plan;
 
     if (criticOutcome.kind === 'error') {
+      emitPhase(deps, { kind: 'error', message: `plan-crit error: ${criticOutcome.error}` });
       return { kind: 'error', runRoot, plan, error: criticOutcome.error };
     }
     if (criticOutcome.kind === 'checkpoint' || criticOutcome.kind === 'rewrite-stuck') {
@@ -286,6 +313,7 @@ export async function runResearchPipeline<M>(question: string, deps: PipelineDep
       // halting the pipeline (do not fan out on a rejected plan).
       const decision = deps.onCriticCheckpoint ? await deps.onCriticCheckpoint(criticOutcome) : { continue: false };
       if (!decision.continue) {
+        emitPhase(deps, { kind: 'error', message: `plan-crit checkpoint (${criticOutcome.kind})` });
         return { kind: 'checkpoint', runRoot, plan, outcome: criticOutcome };
       }
     }
@@ -319,10 +347,16 @@ export async function runResearchPipeline<M>(question: string, deps: PipelineDep
     }
 
     // ── 4. Fanout ─────────────────────────────────────────────────
+    emitPhase(deps, { kind: 'fanout-start', total: plan.subQuestions.length });
     const fanoutResult = await runFanoutPhase({
       plan,
       runRoot,
       deps,
+    });
+    emitPhase(deps, {
+      kind: 'fanout-progress',
+      done: fanoutResult.completed.length + fanoutResult.failed.length + fanoutResult.aborted.length,
+      total: plan.subQuestions.length,
     });
 
     // ── 5. Post-fanout validation + quarantine ────────────────────
@@ -351,6 +385,7 @@ export async function runResearchPipeline<M>(question: string, deps: PipelineDep
     // ── 6. Synth + merge (Phase 3, opt-in) ───────────────────────
     if (deps.runSynth) {
       try {
+        emitPhase(deps, { kind: 'synth-start', total: plan.subQuestions.length });
         const synthResult = await runSynthPhase({
           runRoot,
           plan,
@@ -385,6 +420,7 @@ export async function runResearchPipeline<M>(question: string, deps: PipelineDep
         } catch {
           /* swallow */
         }
+        emitPhase(deps, { kind: 'error', message: `synth failed: ${reason}` });
         return { kind: 'error', runRoot, plan, error: reason };
       }
     }
@@ -727,6 +763,7 @@ async function runSynthPhase<M>(args: SynthPhaseArgs<M>): Promise<{
   // but avoids doing it twice.
   const sourceIndex: SourceRef[] = listRun(runRoot);
 
+  let sectionsDone = 0;
   const sections = await runAllSections<M>({
     runRoot,
     plan,
@@ -736,11 +773,20 @@ async function runSynthPhase<M>(args: SynthPhaseArgs<M>): Promise<{
     quarantinedFindings,
     sourceIndex,
     journalPath: p.journal,
+    onSection: (): void => {
+      sectionsDone += 1;
+      emitPhase(deps, {
+        kind: 'synth-progress',
+        done: sectionsDone,
+        total: plan.subQuestions.length,
+      });
+    },
     ...(deps.now !== undefined ? { now: deps.now } : {}),
     ...(deps.tinyAdapter !== undefined ? { tinyAdapter: deps.tinyAdapter } : {}),
     ...(deps.tinyCtx !== undefined ? { tinyCtx: deps.tinyCtx } : {}),
   });
 
+  emitPhase(deps, { kind: 'merge' });
   const merge = await runSynthMerge<M>({
     runRoot,
     plan,
@@ -754,7 +800,6 @@ async function runSynthPhase<M>(args: SynthPhaseArgs<M>): Promise<{
     ...(deps.tinyAdapter !== undefined ? { tinyAdapter: deps.tinyAdapter } : {}),
     ...(deps.tinyCtx !== undefined ? { tinyCtx: deps.tinyCtx } : {}),
   });
-
   return { sections, merge };
 }
 
@@ -793,4 +838,17 @@ function resolveRunRootFromCwd(cwd: string, question: string): string {
       .replace(/^-+|-+$/g, '')
       .slice(0, 40) || 'research';
   return join(cwd, 'research', slug);
+}
+
+/**
+ * Fire-and-forget phase emitter. Never awaits, never re-throws —
+ * observability MUST NOT block or break the pipeline.
+ */
+function emitPhase<M>(deps: PipelineDeps<M>, event: PhaseEvent): void {
+  if (!deps.onPhase) return;
+  try {
+    deps.onPhase(event);
+  } catch {
+    /* swallow — observability hook failures are never load-bearing */
+  }
 }
