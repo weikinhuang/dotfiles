@@ -8,6 +8,7 @@
 import { expect, test, vi } from 'vitest';
 import {
   type BashDecision,
+  checkAlwaysPrompt,
   checkHardcodedDeny,
   commandTokens,
   decideSubcommand,
@@ -470,4 +471,122 @@ test('decideSubcommand: deny beats allow within the same layer stack', () => {
 
   expect(d.kind).toBe('block');
   expect(d.reason).toMatch(/user deny rule/);
+});
+
+// ──────────────────────────────────────────────────────────────────
+// ALWAYS_PROMPT / checkAlwaysPrompt
+// ──────────────────────────────────────────────────────────────────
+
+test('checkAlwaysPrompt: matches every privilege-escalation wrapper', () => {
+  const matches: [string, RegExp][] = [
+    ['sudo apt-get install foo', /sudo/],
+    ['sudo -n -E systemctl reload nginx', /sudo/],
+    ['doas pkg_add tmux', /doas/],
+    ['run0 systemctl restart foo', /run0/],
+    ['pkexec /usr/sbin/install', /pkexec/],
+    ['gosu postgres psql', /gosu/],
+    ['su -c "whoami"', /su/],
+    ['su - alice', /su/],
+  ];
+  for (const [cmd, reasonRe] of matches) {
+    const r = checkAlwaysPrompt(cmd);
+
+    expect(r, `should match: ${cmd}`).toBeTruthy();
+    expect(r).toMatch(reasonRe);
+  }
+});
+
+test('checkAlwaysPrompt: non-escalation commands return null', () => {
+  for (const cmd of [
+    'npm test',
+    'git push origin main',
+    'echo hello',
+    'cd /tmp',
+    'susan --help', // not `su`, despite starting with those letters
+    'sudocommand --foo', // not `sudo`, \b ensures full-token match
+    'doasy things', // not `doas`
+    'run0time --help', // not `run0`
+  ]) {
+    expect(checkAlwaysPrompt(cmd), `should NOT match: ${cmd}`).toBe(null);
+  }
+});
+
+test('checkAlwaysPrompt: quoted substrings are ignored (echo message body)', () => {
+  // `echo "run sudo later"` mentions sudo only inside a quoted string;
+  // maskQuotedRegions must neutralise it just like for the hardcoded
+  // denylist.
+  expect(checkAlwaysPrompt('echo "run sudo later"')).toBe(null);
+  expect(checkAlwaysPrompt("echo 'remember to run su -'")).toBe(null);
+  // But real invocations are still caught.
+  expect(checkAlwaysPrompt('git commit -m "note" && sudo reboot')).toBe(null); // compound is split upstream; this helper only sees one sub-command at a time
+  expect(checkAlwaysPrompt('sudo reboot')).toBeTruthy();
+});
+
+test('checkAlwaysPrompt: disabled by PI_BASH_PERMISSIONS_NO_ALWAYS_PROMPT', () => {
+  const prev = process.env.PI_BASH_PERMISSIONS_NO_ALWAYS_PROMPT;
+  process.env.PI_BASH_PERMISSIONS_NO_ALWAYS_PROMPT = '1';
+  try {
+    expect(checkAlwaysPrompt('sudo reboot')).toBe(null);
+  } finally {
+    if (prev === undefined) delete process.env.PI_BASH_PERMISSIONS_NO_ALWAYS_PROMPT;
+    else process.env.PI_BASH_PERMISSIONS_NO_ALWAYS_PROMPT = prev;
+  }
+});
+
+// ──────────────────────────────────────────────────────────────────
+// decideSubcommand × ALWAYS_PROMPT interaction
+// ──────────────────────────────────────────────────────────────────
+
+test('decideSubcommand: auto mode does NOT skip ALWAYS_PROMPT (sudo)', () => {
+  const d = decideSubcommand('sudo apt-get install foo', emptyLayers(), { auto: true }) as BashDecision & {
+    reason?: string;
+  };
+
+  expect(d.kind).toBe('prompt');
+  // Prompt carries the always-prompt reason so the dialog can surface it.
+  expect(d.reason).toMatch(/sudo/);
+});
+
+test('decideSubcommand: explicit allow rule still bypasses ALWAYS_PROMPT', () => {
+  // A user who trusts a specific sudo invocation can still save an
+  // allow rule and have it auto-run under `/bash-auto`. Pattern
+  // semantics are token-aware prefix (see matchesPattern) — the `*` on
+  // `install*` matches the space boundary before any positional args.
+  const layers = emptyLayers();
+  layers[1].rules.allow.push('sudo apt-get install*');
+  const d = decideSubcommand('sudo apt-get install -y -qq bats-support', layers, { auto: true });
+
+  expect(d.kind).toBe('allow');
+});
+
+test('decideSubcommand: explicit deny still beats ALWAYS_PROMPT', () => {
+  const layers = emptyLayers();
+  layers[1].rules.deny.push('sudo*');
+  const d = decideSubcommand('sudo reboot', layers, { auto: true }) as BashDecision & {
+    reason: string;
+  };
+
+  expect(d.kind).toBe('block');
+  expect(d.reason).toMatch(/project deny rule/);
+});
+
+test('decideSubcommand: hardcoded deny still beats ALWAYS_PROMPT', () => {
+  // Compound `sudo rm -rf /` reaches here only if split upstream; the
+  // `rm -rf /` sub-command should hit HARDCODED_DENY regardless.
+  const d = decideSubcommand('rm -rf /', emptyLayers(), { auto: true }) as BashDecision & {
+    reason: string;
+  };
+
+  expect(d.kind).toBe('block');
+  expect(d.reason).toMatch(/built-in denylist/);
+});
+
+test('decideSubcommand: auto off + sudo still prompts (no regression)', () => {
+  const d = decideSubcommand('sudo apt-get install foo', emptyLayers()) as BashDecision & {
+    reason?: string;
+  };
+
+  expect(d.kind).toBe('prompt');
+  // The reason is set either way — callers can use it regardless of auto.
+  expect(d.reason).toMatch(/sudo/);
 });

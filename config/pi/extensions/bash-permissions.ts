@@ -21,6 +21,13 @@
  * allow rule above them. Set PI_BASH_PERMISSIONS_NO_HARDCODED_DENY=1 to
  * disable (not recommended).
  *
+ * An ALWAYS_PROMPT list (sudo, doas, run0, pkexec, gosu, su) forces a
+ * prompt even when `/bash-auto` is on — privilege escalation is the one
+ * case where silent auto-run is never appropriate. An explicit allow
+ * rule still bypasses the prompt for users who want a specific command
+ * like `sudo apt-get install -y -qq foo` to auto-run. Set
+ * PI_BASH_PERMISSIONS_NO_ALWAYS_PROMPT=1 to disable.
+ *
  * Rule syntax (per entry):
  *   "npm test"       → exact match
  *   "git log*"       → token-aware prefix match (`git log*` matches `git log`
@@ -62,10 +69,13 @@
  *                           separate extension.
  *
  * Environment:
- *   PI_BASH_PERMISSIONS_DISABLED=1           skip the gate entirely
- *   PI_BASH_PERMISSIONS_DEFAULT=allow|deny   default action when no UI
- *                                            (default: deny)
- *   PI_BASH_PERMISSIONS_NO_HARDCODED_DENY=1  disable the built-in denylist
+ *   PI_BASH_PERMISSIONS_DISABLED=1            skip the gate entirely
+ *   PI_BASH_PERMISSIONS_DEFAULT=allow|deny    default action when no UI
+ *                                             (default: deny)
+ *   PI_BASH_PERMISSIONS_NO_HARDCODED_DENY=1   disable the built-in denylist
+ *   PI_BASH_PERMISSIONS_NO_ALWAYS_PROMPT=1    disable the always-prompt list
+ *                                             (sudo etc. auto-allowed
+ *                                             under /bash-auto — risky)
  *
  * Pure helpers (splitCompound, matchesPattern, checkHardcodedDeny, …)
  * live in ./lib/bash-match.ts so they can be unit-tested under
@@ -188,7 +198,18 @@ type Decision =
   | { kind: 'allow-user-prefix'; pattern: string }
   | { kind: 'deny'; feedback?: string };
 
-async function askForPermission(ctx: BashGateContext, command: string): Promise<Decision> {
+interface AskForPermissionContext {
+  /** Session auto mode is currently ON. */
+  auto?: boolean;
+  /** Reason the always-prompt list forced this prompt (e.g. "sudo"). */
+  alwaysPromptReason?: string;
+}
+
+async function askForPermission(
+  ctx: BashGateContext,
+  command: string,
+  extras: AskForPermissionContext = {},
+): Promise<Decision> {
   const trimmed = command.trimStart();
   const firstToken = trimmed.split(/[\s|&;<>()]/)[0] ?? command;
   const twoToken = twoTokenPattern(command);
@@ -226,8 +247,13 @@ async function askForPermission(ctx: BashGateContext, command: string): Promise<
   // cap the length so multi-line heredocs / long scripts don't blow the
   // dialog past the terminal height (see compactForDialog).
   const displayCommand = compactForDialog(command);
+  const titleLines: string[] = ['⚠️  Bash tool request:', '', `  ${displayCommand}`];
+  if (extras.auto && extras.alwaysPromptReason) {
+    titleLines.push('', `⚡ auto mode cannot skip this (${extras.alwaysPromptReason}).`);
+  }
+  titleLines.push('', 'How should pi proceed?');
   const choice = await ctx.ui.select(
-    `⚠️  Bash tool request:\n\n  ${displayCommand}\n\nHow should pi proceed?`,
+    titleLines.join('\n'),
     entries.map((e) => e.label),
   );
 
@@ -243,6 +269,17 @@ async function askForPermission(ctx: BashGateContext, command: string): Promise<
 
 type BatchDecision = { kind: 'allow-all-once' } | { kind: 'allow-all-session' } | { kind: 'deny'; feedback?: string };
 
+interface AskForPermissionBatchContext {
+  /** Session auto mode is currently ON. */
+  auto?: boolean;
+  /**
+   * Map sub-command → always-prompt reason. Sub-commands that aren't in
+   * the map landed in the prompt for the ordinary "unknown command"
+   * reason.
+   */
+  alwaysPromptReasons?: Map<string, string>;
+}
+
 /**
  * Coalesced prompt for a compound/multi-line bash call with ≥2 unknown
  * sub-commands. A single decision applies to all of them.
@@ -251,6 +288,7 @@ async function askForPermissionBatch(
   ctx: BashGateContext,
   fullCommand: string,
   unknown: string[],
+  extras: AskForPermissionBatchContext = {},
 ): Promise<BatchDecision> {
   interface Entry {
     label: string;
@@ -271,11 +309,19 @@ async function askForPermissionBatch(
   const MAX_VISIBLE_SUBS = 6;
   const visible = unknown.slice(0, MAX_VISIBLE_SUBS);
   const hidden = unknown.length - visible.length;
-  const summaryLines = visible.map((sub, idx) => `  ${idx + 1}. ${compactForDialog(sub, 100)}`);
+  const summaryLines = visible.map((sub, idx) => {
+    const reason = extras.alwaysPromptReasons?.get(sub);
+    const marker = reason ? '  ⚡ ' : '  ';
+    return `${marker}${idx + 1}. ${compactForDialog(sub, 100)}${reason ? ` — ${reason}` : ''}`;
+  });
   if (hidden > 0) summaryLines.push(`  … and ${hidden} more`);
   const summary = summaryLines.join('\n');
+  const autoHint =
+    extras.auto && extras.alwaysPromptReasons && extras.alwaysPromptReasons.size > 0
+      ? '\n\n⚡ auto mode cannot skip the ⚡-marked sub-commands.'
+      : '';
   const title =
-    `⚠️  Bash tool request with ${unknown.length} unknown sub-commands:\n\n${summary}\n\n` +
+    `⚠️  Bash tool request with ${unknown.length} unknown sub-commands:\n\n${summary}${autoHint}\n\n` +
     `Full command:\n  ${compactForDialog(fullCommand, 180)}\n\nHow should pi proceed?`;
 
   const choice = await ctx.ui.select(
@@ -351,15 +397,21 @@ export default function bashPermissions(pi: ExtensionAPI): void {
 
     // Single pass: apply the full precedence ladder per sub-command.
     // decideSubcommand enforces the invariant that auto mode NEVER beats
-    // the hardcoded denylist or explicit user/project deny rules —
-    // that's the "except for risky actions" carve-out.
+    // the hardcoded denylist, explicit deny rules, or the always-prompt
+    // list — that's the "except for risky actions" carve-out. When a
+    // prompt is required because of always-prompt, the decision's reason
+    // flags that so the dialog can tell the user why.
     const unknown: string[] = [];
+    const alwaysPromptReasons = new Map<string, string>();
     for (const sub of subcommands) {
       const decision: BashDecision = decideSubcommand(sub, layers, { auto: sessionAuto });
       if (decision.kind === 'block') {
         return { allowed: false, reason: `Blocked by ${decision.reason} (matched "${sub}")` };
       }
-      if (decision.kind === 'prompt') unknown.push(sub);
+      if (decision.kind === 'prompt') {
+        unknown.push(sub);
+        if (decision.reason) alwaysPromptReasons.set(sub, decision.reason);
+      }
     }
     if (unknown.length === 0) return { allowed: true };
 
@@ -376,7 +428,10 @@ export default function bashPermissions(pi: ExtensionAPI): void {
 
     // ≥2 unknowns → one coalesced prompt for the whole batch.
     if (unknown.length >= 2) {
-      const batch = await askForPermissionBatch(ctx, trimmed, unknown);
+      const batch = await askForPermissionBatch(ctx, trimmed, unknown, {
+        auto: sessionAuto,
+        alwaysPromptReasons,
+      });
       if (batch.kind === 'deny') {
         return { allowed: false, reason: batch.feedback ?? 'Blocked by user' };
       }
@@ -389,7 +444,10 @@ export default function bashPermissions(pi: ExtensionAPI): void {
 
     // Exactly one unknown → rich dialog with save-rule options.
     const sub = unknown[0];
-    const decision = await askForPermission(ctx, sub);
+    const decision = await askForPermission(ctx, sub, {
+      auto: sessionAuto,
+      alwaysPromptReason: alwaysPromptReasons.get(sub),
+    });
     if (decision.kind === 'deny') {
       return { allowed: false, reason: decision.feedback ?? 'Blocked by user' };
     }

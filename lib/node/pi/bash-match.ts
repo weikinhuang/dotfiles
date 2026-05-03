@@ -443,19 +443,64 @@ export function checkHardcodedDeny(command: string): string | null {
   return null;
 }
 
+// ──────────────────────────────────────────────────────────────────
+// Always-prompt list — never auto-allowed, even in `/bash-auto` mode
+// ──────────────────────────────────────────────────────────────────
+
+/**
+ * Patterns that always require explicit user approval — auto mode never
+ * bypasses them. Unlike {@link HARDCODED_DENY}, matches here are not
+ * blocks: an explicit project/user/session allow rule still wins, so a
+ * user who knows what they're doing can `/bash-allow "sudo apt-get
+ * install -y -qq build-essential"` and have it auto-run. What this list
+ * prevents is a blanket `/bash-auto on` silently escalating privileges.
+ *
+ * Scope: the commands below all run the rest of the command line as a
+ * different (usually root) user. That's exactly the case where a human
+ * should confirm — the tool's usual safety rails (project rules, allow
+ * lists scoped by prefix) assume non-root semantics.
+ *
+ * Disable with PI_BASH_PERMISSIONS_NO_ALWAYS_PROMPT=1.
+ */
+export const ALWAYS_PROMPT: { pattern: RegExp; reason: string }[] = [
+  // Privilege escalation wrappers. `\b` tolerates flags: `sudo -n -E foo`,
+  // `sudo --preserve-env=FOO foo`, etc., all match.
+  { pattern: /^\s*sudo\b/, reason: 'sudo (privilege escalation)' },
+  { pattern: /^\s*doas\b/, reason: 'doas (privilege escalation)' },
+  { pattern: /^\s*run0\b/, reason: 'run0 (privilege escalation)' },
+  { pattern: /^\s*pkexec\b/, reason: 'pkexec (privilege escalation)' },
+  { pattern: /^\s*gosu\b/, reason: 'gosu (privilege drop/elevation)' },
+  { pattern: /^\s*su\b/, reason: 'su (switch user)' },
+];
+
+/**
+ * Return the reason when `command` matches any ALWAYS_PROMPT entry, or
+ * null otherwise. Quoted regions are masked (via {@link maskQuotedRegions})
+ * so an `echo "run sudo later"` message body is not misidentified as an
+ * actual sudo invocation.
+ */
+export function checkAlwaysPrompt(command: string): string | null {
+  if (process.env.PI_BASH_PERMISSIONS_NO_ALWAYS_PROMPT === '1') return null;
+  const masked = maskQuotedRegions(command);
+  for (const { pattern, reason } of ALWAYS_PROMPT) {
+    if (pattern.test(masked)) return reason;
+  }
+  return null;
+}
+
 // ──────────────────────────────────────────────────────────────────────
 // Sub-command decision (combines hardcoded deny + user rules + auto mode)
 // ──────────────────────────────────────────────────────────────────────
 
-export type BashDecision = { kind: 'allow' } | { kind: 'block'; reason: string } | { kind: 'prompt' };
+export type BashDecision = { kind: 'allow' } | { kind: 'block'; reason: string } | { kind: 'prompt'; reason?: string };
 
 export interface BashDecideOptions {
   /**
-   * Auto-allow any sub-command that got past the hardcoded denylist and
-   * explicit user/project/session deny rules. Used by the `/bash-auto`
-   * toggle. Hardcoded deny and explicit deny are NEVER overridable by
-   * this flag — that's the whole point of the "except for risky
-   * actions" carve-out.
+   * Auto-allow any sub-command that got past the hardcoded denylist,
+   * explicit user/project/session deny rules, and the always-prompt
+   * list. Used by the `/bash-auto` toggle. Hardcoded deny, explicit
+   * deny, and always-prompt are NEVER overridable by this flag —
+   * that's the whole point of the "except for risky actions" carve-out.
    */
   auto?: boolean;
 }
@@ -467,8 +512,14 @@ export interface BashDecideOptions {
  *   1. Hardcoded denylist (never overridable).
  *   2. Explicit user/project/session deny rules (never overridable).
  *   3. Explicit user/project/session allow rules.
- *   4. Auto-allow (if enabled).
- *   5. Fall through to a prompt.
+ *   4. Always-prompt list (sudo / doas / …): forces a prompt even when
+ *      `auto` is set. Bypassed by an explicit allow rule above.
+ *   5. Auto-allow (if enabled).
+ *   6. Fall through to a prompt.
+ *
+ * When a prompt is required because of (4), the returned decision's
+ * `reason` contains the always-prompt match reason so the caller can
+ * surface "⚡ auto mode cannot skip this" in the approval dialog.
  *
  * Pure function — no UI side effects. Callers collect decisions across
  * sub-commands and surface prompts / blocks to the user as appropriate.
@@ -491,10 +542,15 @@ export function decideSubcommand(
   // 3. Explicit allow rules.
   if (m?.kind === 'allow') return { kind: 'allow' };
 
-  // 4. Auto-allow.
+  // 4. Always-prompt list. Forces a prompt even when `auto` is on so
+  //    sudo / doas / su can't be silently auto-approved.
+  const alwaysPromptReason = checkAlwaysPrompt(sub);
+  if (alwaysPromptReason) return { kind: 'prompt', reason: alwaysPromptReason };
+
+  // 5. Auto-allow.
   if (options.auto) return { kind: 'allow' };
 
-  // 5. Prompt.
+  // 6. Prompt.
   return { kind: 'prompt' };
 }
 
