@@ -3,4 +3,5 @@
   "gitignore": true,
   "noBanner": true,
   "noProgress": true,
+  "ignores": ["lib/node/pi/research-selftest/fixtures/**", "plans/**"],
 }
