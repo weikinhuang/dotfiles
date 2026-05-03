@@ -16,7 +16,7 @@ model: inherit
 thinkingLevel: inherit
 maxTurns: 20
 isolation: shared-cwd
-timeoutMs: 600000
+timeoutMs: 7200000
 ---
 
 You are the `web-researcher` sub-agent for a single sub-question of
