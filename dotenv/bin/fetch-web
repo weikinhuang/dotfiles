@@ -1,0 +1,1293 @@
+#!/usr/bin/env bash
+# fetch-web -- harness-agnostic CLI for the fetch_web MCP server.
+# SPDX-License-Identifier: MIT
+#
+# Speaks MCP JSON-RPC 2.0 over HTTPS to an existing fetch_web server
+# (configured via FETCH_WEB_URL + FETCH_WEB_AUTH). Exposes the most-
+# used tools as subcommands with human-friendly output by default and
+# a `--json` passthrough for programmatic callers.
+#
+# See config/pi/skills/fetch-web/SKILL.md for usage.
+
+set -euo pipefail
+IFS=$'\n\t'
+
+# ──────────────────────────────────────────────────────────────────
+# Help
+# ──────────────────────────────────────────────────────────────────
+
+print_help() {
+  cat <<'HELPDOC'
+Usage: fetch-web <op> [args] [--json] [--timeout-ms N] [-v] [-h]
+
+A harness-agnostic CLI for the fetch_web MCP server.
+
+Subcommands:
+  search      <query>                  search the web (SearXNG-backed)
+  fetch       <url>                    fetch a URL, return markdown
+  fetch-many  <url>... | -             fetch many URLs in parallel (server-side)
+  convert     [--html-file P | -]      convert raw HTML to markdown/text
+  links       <url>                    list hyperlinks on a page
+  extract     <url> --fields SPEC      extract CSS-selector fields (schema)
+  metadata    <url>                    page metadata (title, og:*, meta)
+  screenshot  <url> [-o PATH]          PNG screenshot (stdout or file)
+  defaults                             read-only MCP server defaults
+
+Global flags:
+  --json                emit the raw MCP `result` object instead of the
+                        rendered view; use this when piping to jq
+  --timeout-ms N        request timeout in ms (default 30000)
+  -v, --verbose         JSON-RPC payload + response trace on stderr
+  -q, --quiet           suppress diagnostics on stderr
+  -h, --help            show this help
+
+Configuration (env vars, harness-agnostic):
+  FETCH_WEB_URL         MCP endpoint URL. Required.
+  FETCH_WEB_AUTH        Value placed verbatim into Authorization:
+                        e.g. "Basic abc..." or "Bearer sk-...". Optional.
+  FETCH_WEB_HEADERS     Extra Header: value pairs, newline- or
+                        semicolon-separated. Optional.
+
+Pi convenience fallback:
+  When FETCH_WEB_URL is unset, ~/.pi/agent/mcp.json is consulted for an
+  HTTP server entry named "fetch_web". Non-pi harnesses just set the
+  env vars above.
+
+Run `fetch-web <op> --help` for subcommand-specific usage.
+Exit codes: 0 ok, 1 tool/RPC error, 2 usage, 3 config/network/HTTP.
+HELPDOC
+}
+
+print_op_help() {
+  local op="$1"
+  case "${op}" in
+    search)
+      cat <<'EOF'
+Usage: fetch-web search <query> [flags]
+
+Search the web and return ranked results.
+
+Flags:
+  --limit N           maximum number of results
+  --engines LIST      comma-separated SearXNG engines
+  --categories LIST   comma-separated SearXNG categories
+
+Default output: one block per result (title, url, snippet).
+With --json: the raw MCP result object.
+EOF
+      ;;
+    fetch)
+      cat <<'EOF'
+Usage: fetch-web fetch <url> [flags]
+
+Fetch one URL and return the article body.
+
+Flags:
+  --format FMT        markdown (default) | html | text
+  --raw               keep the fetch_web header prelude (Article-Title:, etc.)
+EOF
+      ;;
+    fetch-many)
+      cat <<'EOF'
+Usage: fetch-web fetch-many <url>... [flags]
+       fetch-web fetch-many - [flags]   # URLs from stdin, one per line
+
+Fetch many URLs in parallel (handled server-side).
+
+Flags:
+  --format FMT        passed per-URL (markdown | html | text | readability |
+                      summary | chunks); server default: readability
+  --raw               keep per-request header preludes in the rendered output
+EOF
+      ;;
+    convert)
+      cat <<'EOF'
+Usage: fetch-web convert [flags]
+
+Convert raw HTML to markdown/text. Input source is required:
+
+Flags:
+  --html-file PATH    read HTML from PATH (use "-" for stdin)
+  --base-url URL      base URL used for resolving relative links
+  --format FMT        markdown (default) | html | text | readability |
+                      summary | chunks
+  --raw               keep the server's "Format: ..." prelude in the output
+EOF
+      ;;
+    links)
+      cat <<'EOF'
+Usage: fetch-web links <url> [--raw]
+
+Fetch a page and list its hyperlinks (one markdown link per line).
+
+Flags:
+  --raw               keep the fetch header prelude in the output
+EOF
+      ;;
+    extract)
+      cat <<'EOF'
+Usage: fetch-web extract <url> (--fields SPEC | --fields-file PATH) [--raw]
+
+Extract structured fields from a page using the extract_fields `schema`.
+
+Short-form spec (`--fields`):
+  Semicolon-separated name:selector pairs. Each pair becomes a `value`
+  field in the schema.
+  e.g. --fields 'title:h1;paragraph:p'
+
+Full-form spec (`--fields-file`):
+  JSON object mapping field name -> { type: "value"|"list"|"table",
+  selector: "css", ... }. Use this for list/table fields or extra options.
+
+Flags:
+  --raw               keep the fetch header prelude in the output
+EOF
+      ;;
+    metadata)
+      cat <<'EOF'
+Usage: fetch-web metadata <url> [--raw]
+
+Fetch a page's title / language / og:* / JSON-LD / feeds as a JSON object.
+
+Flags:
+  --raw               keep the fetch header prelude above the JSON
+EOF
+      ;;
+    screenshot)
+      cat <<'EOF'
+Usage: fetch-web screenshot <url> [-o PATH]
+
+Capture a PNG screenshot of the page. curl-style output:
+  * without -o: PNG bytes to stdout (refused when stdout is a terminal)
+  * with    -o: PNG bytes written to PATH
+EOF
+      ;;
+    defaults)
+      cat <<'EOF'
+Usage: fetch-web defaults
+
+Print the MCP server's read-only default configuration. Useful as a
+ping / smoke test to verify FETCH_WEB_URL + FETCH_WEB_AUTH work.
+EOF
+      ;;
+    *)
+      print_help
+      ;;
+  esac
+}
+
+# ──────────────────────────────────────────────────────────────────
+# Dependency check
+# ──────────────────────────────────────────────────────────────────
+
+require_tool() {
+  local tool="$1"
+  if ! command -v "${tool}" >/dev/null 2>&1; then
+    echo "fetch-web: missing required tool '${tool}'" >&2
+    echo "         install: apt install ${tool} | brew install ${tool}" >&2
+    exit 3
+  fi
+}
+
+check_deps() {
+  require_tool curl
+  require_tool jq
+  require_tool awk
+  require_tool base64
+}
+
+# ──────────────────────────────────────────────────────────────────
+# Config loading
+# ──────────────────────────────────────────────────────────────────
+#
+# Populates globals:
+#   FW_URL             endpoint URL
+#   FW_HEADERS         array of "-H" curl args (including Content-Type,
+#                      Accept, Authorization, extra headers)
+#   FW_CONFIG_SOURCE   human-readable hint about where config came from
+
+FW_URL=""
+FW_HEADERS=()
+FW_CONFIG_SOURCE=""
+
+load_config() {
+  FW_URL="${FETCH_WEB_URL:-}"
+  FW_HEADERS=()
+  FW_CONFIG_SOURCE=""
+
+  local auth="${FETCH_WEB_AUTH:-}"
+  local extra="${FETCH_WEB_HEADERS:-}"
+
+  if [[ -n "${FW_URL}" ]]; then
+    FW_CONFIG_SOURCE="FETCH_WEB_URL env"
+  else
+    # Pi convenience fallback: ~/.pi/agent/mcp.json
+    local pi_cfg="${HOME}/.pi/agent/mcp.json"
+    if [[ -f "${pi_cfg}" ]]; then
+      local server_json
+      server_json="$(jq -c '.mcpServers.fetch_web // empty' <"${pi_cfg}" 2>/dev/null || true)"
+      if [[ -n "${server_json}" && "${server_json}" != "null" ]]; then
+        local url type
+        url="$(printf '%s' "${server_json}" | jq -r '.url // ""')"
+        type="$(printf '%s' "${server_json}" | jq -r '.type // ""')"
+        if [[ "${type}" == "http" && -n "${url}" ]]; then
+          FW_URL="${url}"
+          FW_CONFIG_SOURCE="~/.pi/agent/mcp.json"
+          # Extract headers as "Name: value" pairs.
+          local line
+          while IFS= read -r line; do
+            [[ -n "${line}" ]] && FW_HEADERS+=(-H "${line}")
+          done < <(printf '%s' "${server_json}" \
+            | jq -r '.headers // {} | to_entries[] | "\(.key): \(.value)"')
+        fi
+      fi
+    fi
+  fi
+
+  if [[ -z "${FW_URL}" ]]; then
+    echo "fetch-web: no MCP server configured" >&2
+    echo "         set FETCH_WEB_URL (and FETCH_WEB_AUTH if needed), or" >&2
+    echo "         run inside a pi install with ~/.pi/agent/mcp.json" >&2
+    exit 3
+  fi
+
+  # Explicit env vars always layer on top of the pi fallback.
+  if [[ -n "${auth}" ]]; then
+    FW_HEADERS+=(-H "Authorization: ${auth}")
+  fi
+  if [[ -n "${extra}" ]]; then
+    local line
+    while IFS= read -r line || [[ -n "${line}" ]]; do
+      line="${line#"${line%%[![:space:]]*}"}" # ltrim
+      line="${line%"${line##*[![:space:]]}"}" # rtrim
+      [[ -n "${line}" ]] && FW_HEADERS+=(-H "${line}")
+    done < <(printf '%s' "${extra}" | tr ';' '\n')
+  fi
+
+  # MCP transport headers (always required).
+  FW_HEADERS+=(-H "Content-Type: application/json")
+  FW_HEADERS+=(-H "Accept: application/json, text/event-stream")
+}
+
+# ──────────────────────────────────────────────────────────────────
+# SSE / JSON response parser
+# ──────────────────────────────────────────────────────────────────
+#
+# Reads the raw HTTP body from stdin. Emits a single JSON-RPC response
+# object on stdout. Handles both framings the server may use:
+#   * bare JSON     — body starts with "{"
+#   * SSE message   — one or more "data:" lines, optionally preceded
+#                     by "event: message", terminated by a blank line
+# Exits non-zero when the body is empty or contains no data lines.
+
+parse_sse_or_json() {
+  awk '
+    BEGIN { bare = 0; had_data = 0; data = "" }
+    NR == 1 {
+      if (substr($0, 1, 1) == "{") {
+        bare = 1
+        print
+        next
+      }
+    }
+    bare == 1 { print; next }
+    /^data:/ {
+      had_data = 1
+      line = substr($0, 6)
+      sub(/^ /, "", line)
+      if (data != "") data = data "\n"
+      data = data line
+      next
+    }
+    END {
+      if (bare == 1) exit 0
+      if (had_data == 1) { print data; exit 0 }
+      exit 1
+    }
+  '
+}
+
+# ──────────────────────────────────────────────────────────────────
+# Content extraction helpers
+# ──────────────────────────────────────────────────────────────────
+
+# stdin: MCP result JSON, stdout: concatenated text content.
+extract_text() {
+  jq -r '[.content[]? | select(.type == "text") | .text] | join("\n")'
+}
+
+# stdin: MCP result JSON, stdout: raw image bytes (base64-decoded).
+extract_image() {
+  jq -r '.content[]? | select(.type == "image") | .data' | base64 -d
+}
+
+# Strip the fetch_web "Name: value\n...\n\n<body>" prelude. If the
+# first line is not a header-shaped line, the input is passed through
+# unchanged. Mirrors splitFetchUrlText in research-mcp-http-client.ts.
+strip_fetch_prelude() {
+  awk '
+    BEGIN { state = 0 }  # 0 = undecided, 1 = in-prelude, 2 = in-body, 3 = no-prelude
+    {
+      if (state == 2 || state == 3) { print; next }
+      if (state == 0) {
+        if ($0 ~ /^[A-Za-z][A-Za-z0-9 _.-]*:[ \t]+.*$/) {
+          state = 1
+          next
+        } else {
+          state = 3
+          print
+          next
+        }
+      }
+      # state == 1 (in-prelude)
+      if ($0 == "") { state = 2; next }
+      # absorb continuation header-lines (tolerant: anything until blank)
+      next
+    }
+  '
+}
+
+# ──────────────────────────────────────────────────────────────────
+# JSON-RPC call
+# ──────────────────────────────────────────────────────────────────
+#
+# Usage: rpc_request <method> <params-json>
+# Emits the `result` JSON to stdout. Exits 1 on JSON-RPC error, 3 on
+# network / HTTP / parse failure.
+#
+# Used by both `tools/call` and `resources/read` wrappers below.
+
+rpc_request() {
+  local method="$1"
+  local params="$2"
+  local timeout_ms="${FW_TIMEOUT_MS:-30000}"
+  local timeout_s=$(((timeout_ms + 999) / 1000))
+
+  local payload
+  payload="$(jq -n \
+    --arg method "${method}" \
+    --argjson params "${params}" \
+    '{jsonrpc: "2.0", id: 1, method: $method, params: $params}')"
+
+  if [[ -n "${FW_VERBOSE:-}" ]]; then
+    printf 'fetch-web: POST %s (config: %s)\n' "${FW_URL}" "${FW_CONFIG_SOURCE}" >&2
+    printf 'fetch-web: payload: %s\n' "${payload}" >&2
+  fi
+
+  local tmp http_code
+  tmp="$(mktemp)"
+  # shellcheck disable=SC2064
+  trap "rm -f '${tmp}'" RETURN
+
+  http_code="$(
+    curl -sS \
+      --max-time "${timeout_s}" \
+      -o "${tmp}" \
+      -w '%{http_code}' \
+      -X POST \
+      "${FW_HEADERS[@]}" \
+      --data-binary "${payload}" \
+      "${FW_URL}" \
+      || echo 000
+  )"
+
+  if [[ "${http_code}" == "000" ]]; then
+    echo "fetch-web: network error calling ${FW_URL}" >&2
+    exit 3
+  fi
+  if [[ "${http_code:0:1}" != "2" ]]; then
+    echo "fetch-web: HTTP ${http_code} from ${FW_URL}" >&2
+    head -c 400 "${tmp}" >&2 || true
+    echo >&2
+    exit 3
+  fi
+
+  local json
+  if ! json="$(parse_sse_or_json <"${tmp}")"; then
+    echo "fetch-web: could not parse response body" >&2
+    head -c 400 "${tmp}" >&2 || true
+    echo >&2
+    exit 3
+  fi
+
+  if [[ -n "${FW_VERBOSE:-}" ]]; then
+    printf 'fetch-web: response: %s\n' "${json}" >&2
+  fi
+
+  # JSON-RPC transport error.
+  local err_msg
+  err_msg="$(printf '%s' "${json}" | jq -r '.error.message // empty')"
+  if [[ -n "${err_msg}" ]]; then
+    echo "fetch-web: JSON-RPC error (${method}): ${err_msg}" >&2
+    exit 1
+  fi
+
+  # Tool-level error: MCP servers surface these inside the result as
+  # `{isError: true, content: [{type: "text", text: "..."}]}` instead
+  # of a top-level `error`.
+  local is_error
+  is_error="$(printf '%s' "${json}" | jq -r '.result.isError // false')"
+  if [[ "${is_error}" == "true" ]]; then
+    local tool_err
+    tool_err="$(printf '%s' "${json}" | jq -r '
+      [.result.content[]? | select(.type == "text") | .text] | join("\n")
+    ')"
+    echo "fetch-web: tool error (${method}): ${tool_err}" >&2
+    exit 1
+  fi
+
+  printf '%s' "${json}" | jq '.result'
+}
+
+# Convenience: tools/call wrapper.
+rpc_call() {
+  local tool="$1"
+  local args="$2"
+  local params
+  params="$(jq -n --arg name "${tool}" --argjson arguments "${args}" \
+    '{name: $name, arguments: $arguments}')"
+  rpc_request "tools/call" "${params}"
+}
+
+# Convenience: resources/read wrapper. Emits the `result` (not the
+# inner `contents[0].text`); the caller uses `extract_resource_text`
+# to get the payload.
+rpc_read_resource() {
+  local uri="$1"
+  local params
+  params="$(jq -n --arg uri "${uri}" '{uri: $uri}')"
+  rpc_request "resources/read" "${params}"
+}
+
+# stdin: resources/read result, stdout: concatenated text contents.
+extract_resource_text() {
+  jq -r '[.contents[]? | select(.text) | .text] | join("\n")'
+}
+
+# ──────────────────────────────────────────────────────────────────
+# Argument JSON builders
+# ──────────────────────────────────────────────────────────────────
+#
+# Each helper takes shell-side values and returns a JSON object. Using
+# jq for this keeps quoting/escaping correct even with nasty inputs
+# (quotes, backslashes, literal $, unicode).
+
+build_args_search() {
+  local query="$1"
+  local limit="${2:-}"
+  local engines_csv="${3:-}"
+  local categories_csv="${4:-}"
+  local engines_json='null'
+  local categories_json='null'
+  [[ -n "${engines_csv}" ]] && engines_json="$(printf '%s' "${engines_csv}" | jq -R 'split(",") | map(select(length > 0))')"
+  [[ -n "${categories_csv}" ]] && categories_json="$(printf '%s' "${categories_csv}" | jq -R 'split(",") | map(select(length > 0))')"
+  jq -n \
+    --arg q "${query}" \
+    --arg lim "${limit}" \
+    --argjson eng "${engines_json}" \
+    --argjson cat "${categories_json}" \
+    '
+      {query: $q}
+      + (if $lim == "" then {} else {limit: ($lim | tonumber)} end)
+      + (if $eng == null then {} else {engines: $eng} end)
+      + (if $cat == null then {} else {categories: $cat} end)
+    '
+}
+
+build_args_fetch_url() {
+  local url="$1"
+  local format="${2:-}"
+  jq -n --arg u "${url}" --arg f "${format}" \
+    '{url: $u} + (if $f == "" then {} else {format: $f} end)'
+}
+
+build_args_fetch_urls() {
+  # $1 = format (may be empty); remaining args are the URLs.
+  # The fetch_urls server tool requires `urls: [{url, format?}, ...]`
+  # — an array of fetch_url argument objects, not bare URL strings.
+  local format="$1"
+  shift
+  local -a urls=("$@")
+  printf '%s\n' "${urls[@]}" \
+    | jq -R --arg f "${format}" '
+        if $f == "" then {url: .} else {url: ., format: $f} end
+      ' \
+    | jq -s '{urls: .}'
+}
+
+build_args_convert_html() {
+  local html="$1"
+  local base_url="${2:-}"
+  local format="${3:-}"
+  jq -n --arg h "${html}" --arg b "${base_url}" --arg f "${format}" \
+    '
+      {html: $h}
+      + (if $b == "" then {} else {baseUrl: $b} end)
+      + (if $f == "" then {} else {format: $f} end)
+    '
+}
+
+# Parse "name:selector;name:selector" into an extract_fields schema
+# object: each entry becomes `{type: "value", selector: <css>}`. Users
+# who need `list` or `table` fields pass --fields-file with full JSON.
+parse_fields_spec() {
+  local spec="$1"
+  printf '%s' "${spec}" | jq -R '
+    split(";")
+    | map(select(length > 0))
+    | map(
+        capture("^(?<k>[^:]+):(?<v>.+)$")
+        | {
+            (.k | sub("^ +"; "") | sub(" +$"; "")):
+              {type: "value", selector: (.v | sub("^ +"; "") | sub(" +$"; ""))}
+          }
+      )
+    | add // {}
+  '
+}
+
+# ──────────────────────────────────────────────────────────────────
+# Rendering helpers
+# ──────────────────────────────────────────────────────────────────
+
+# ──────────────────────────────────────────────────────────────────
+# Subcommands
+# ──────────────────────────────────────────────────────────────────
+
+cmd_search() {
+  local query=""
+  local limit=""
+  local engines=""
+  local categories=""
+  case "${1:-}" in
+    -h | --help)
+      print_op_help search
+      exit 0
+      ;;
+  esac
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      -h | --help)
+        print_op_help search
+        exit 0
+        ;;
+      --limit)
+        limit="${2:-}"
+        shift 2
+        ;;
+      --limit=*)
+        limit="${1#*=}"
+        shift
+        ;;
+      --engines)
+        engines="${2:-}"
+        shift 2
+        ;;
+      --engines=*)
+        engines="${1#*=}"
+        shift
+        ;;
+      --categories)
+        categories="${2:-}"
+        shift 2
+        ;;
+      --categories=*)
+        categories="${1#*=}"
+        shift
+        ;;
+      --)
+        shift
+        break
+        ;;
+      -*)
+        echo "fetch-web search: unknown flag: $1" >&2
+        exit 2
+        ;;
+      *)
+        if [[ -z "${query}" ]]; then
+          query="$1"
+        else
+          query="${query} $1"
+        fi
+        shift
+        ;;
+    esac
+  done
+  if [[ -z "${query}" ]]; then
+    echo "fetch-web search: missing <query>" >&2
+    exit 2
+  fi
+  if [[ -n "${limit}" && ! "${limit}" =~ ^[0-9]+$ ]]; then
+    echo "fetch-web search: --limit must be a non-negative integer" >&2
+    exit 2
+  fi
+
+  local args result
+  args="$(build_args_search "${query}" "${limit}" "${engines}" "${categories}")"
+  result="$(rpc_call "fetch_web-search_web" "${args}")"
+  if [[ -n "${FW_JSON:-}" ]]; then
+    printf '%s\n' "${result}"
+  else
+    printf '%s' "${result}" | extract_text
+    printf '\n'
+  fi
+}
+
+cmd_fetch() {
+  local url=""
+  local format=""
+  local raw=""
+  case "${1:-}" in
+    -h | --help)
+      print_op_help fetch
+      exit 0
+      ;;
+  esac
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      -h | --help)
+        print_op_help fetch
+        exit 0
+        ;;
+      --format)
+        format="${2:-}"
+        shift 2
+        ;;
+      --format=*)
+        format="${1#*=}"
+        shift
+        ;;
+      --raw)
+        raw=1
+        shift
+        ;;
+      --)
+        shift
+        break
+        ;;
+      -*)
+        echo "fetch-web fetch: unknown flag: $1" >&2
+        exit 2
+        ;;
+      *)
+        if [[ -z "${url}" ]]; then
+          url="$1"
+        else
+          echo "fetch-web fetch: unexpected extra argument: $1" >&2
+          exit 2
+        fi
+        shift
+        ;;
+    esac
+  done
+  if [[ -z "${url}" ]]; then
+    echo "fetch-web fetch: missing <url>" >&2
+    exit 2
+  fi
+
+  local args result
+  args="$(build_args_fetch_url "${url}" "${format}")"
+  result="$(rpc_call "fetch_web-fetch_url" "${args}")"
+  if [[ -n "${FW_JSON:-}" ]]; then
+    printf '%s\n' "${result}"
+  else
+    local text
+    text="$(printf '%s' "${result}" | extract_text)"
+    if [[ -z "${raw}" ]]; then
+      printf '%s' "${text}" | strip_fetch_prelude
+    else
+      printf '%s' "${text}"
+    fi
+    printf '\n'
+  fi
+}
+
+cmd_fetch_many() {
+  local format=""
+  local raw=""
+  local -a urls=()
+  case "${1:-}" in
+    -h | --help)
+      print_op_help fetch-many
+      exit 0
+      ;;
+  esac
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      -h | --help)
+        print_op_help fetch-many
+        exit 0
+        ;;
+      --format)
+        format="${2:-}"
+        shift 2
+        ;;
+      --format=*)
+        format="${1#*=}"
+        shift
+        ;;
+      --raw)
+        raw=1
+        shift
+        ;;
+      --)
+        shift
+        while [[ $# -gt 0 ]]; do
+          urls+=("$1")
+          shift
+        done
+        ;;
+      -)
+        while IFS= read -r line; do
+          [[ -n "${line}" ]] && urls+=("${line}")
+        done
+        shift
+        ;;
+      -*)
+        echo "fetch-web fetch-many: unknown flag: $1" >&2
+        exit 2
+        ;;
+      *)
+        urls+=("$1")
+        shift
+        ;;
+    esac
+  done
+  if [[ ${#urls[@]} -eq 0 ]]; then
+    echo "fetch-web fetch-many: no URLs given" >&2
+    exit 2
+  fi
+
+  local args result
+  args="$(build_args_fetch_urls "${format}" "${urls[@]}")"
+  result="$(rpc_call "fetch_web-fetch_urls" "${args}")"
+  if [[ -n "${FW_JSON:-}" ]]; then
+    printf '%s\n' "${result}"
+  else
+    local text
+    text="$(printf '%s' "${result}" | extract_text)"
+    if [[ -z "${raw}" ]]; then
+      printf '%s' "${text}" | strip_fetch_prelude
+    else
+      printf '%s' "${text}"
+    fi
+    printf '\n'
+  fi
+}
+
+cmd_convert() {
+  local html_file=""
+  local base_url=""
+  local format=""
+  local raw=""
+  case "${1:-}" in
+    -h | --help)
+      print_op_help convert
+      exit 0
+      ;;
+  esac
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      -h | --help)
+        print_op_help convert
+        exit 0
+        ;;
+      --html-file)
+        html_file="${2:-}"
+        shift 2
+        ;;
+      --html-file=*)
+        html_file="${1#*=}"
+        shift
+        ;;
+      --base-url)
+        base_url="${2:-}"
+        shift 2
+        ;;
+      --base-url=*)
+        base_url="${1#*=}"
+        shift
+        ;;
+      --format)
+        format="${2:-}"
+        shift 2
+        ;;
+      --format=*)
+        format="${1#*=}"
+        shift
+        ;;
+      --raw)
+        raw=1
+        shift
+        ;;
+      --)
+        shift
+        break
+        ;;
+      -*)
+        echo "fetch-web convert: unknown flag: $1" >&2
+        exit 2
+        ;;
+      *)
+        echo "fetch-web convert: unexpected argument: $1" >&2
+        exit 2
+        ;;
+    esac
+  done
+  if [[ -z "${html_file}" ]]; then
+    echo "fetch-web convert: missing --html-file (use - for stdin)" >&2
+    exit 2
+  fi
+
+  local html
+  if [[ "${html_file}" == "-" ]]; then
+    html="$(cat)"
+  else
+    if [[ ! -f "${html_file}" ]]; then
+      echo "fetch-web convert: no such file: ${html_file}" >&2
+      exit 2
+    fi
+    html="$(cat "${html_file}")"
+  fi
+
+  local args result
+  args="$(build_args_convert_html "${html}" "${base_url}" "${format}")"
+  result="$(rpc_call "fetch_web-convert_html" "${args}")"
+  if [[ -n "${FW_JSON:-}" ]]; then
+    printf '%s\n' "${result}"
+  else
+    local text
+    text="$(printf '%s' "${result}" | extract_text)"
+    if [[ -z "${raw}" ]]; then
+      printf '%s' "${text}" | strip_fetch_prelude
+    else
+      printf '%s' "${text}"
+    fi
+    printf '\n'
+  fi
+}
+
+cmd_links() {
+  local url=""
+  local raw=""
+  case "${1:-}" in
+    -h | --help)
+      print_op_help links
+      exit 0
+      ;;
+  esac
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      -h | --help)
+        print_op_help links
+        exit 0
+        ;;
+      --raw)
+        raw=1
+        shift
+        ;;
+      -*)
+        echo "fetch-web links: unknown flag: $1" >&2
+        exit 2
+        ;;
+      *)
+        if [[ -z "${url}" ]]; then
+          url="$1"
+        else
+          echo "fetch-web links: unexpected extra argument: $1" >&2
+          exit 2
+        fi
+        shift
+        ;;
+    esac
+  done
+  if [[ -z "${url}" ]]; then
+    echo "fetch-web links: missing <url>" >&2
+    exit 2
+  fi
+
+  local args result
+  args="$(jq -n --arg u "${url}" '{url: $u}')"
+  result="$(rpc_call "fetch_web-extract_links" "${args}")"
+  if [[ -n "${FW_JSON:-}" ]]; then
+    printf '%s\n' "${result}"
+  else
+    local text
+    text="$(printf '%s' "${result}" | extract_text)"
+    if [[ -z "${raw}" ]]; then
+      printf '%s' "${text}" | strip_fetch_prelude
+    else
+      printf '%s' "${text}"
+    fi
+    printf '\n'
+  fi
+}
+
+cmd_extract() {
+  local url=""
+  local fields_spec=""
+  local fields_file=""
+  local raw=""
+  case "${1:-}" in
+    -h | --help)
+      print_op_help extract
+      exit 0
+      ;;
+  esac
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      -h | --help)
+        print_op_help extract
+        exit 0
+        ;;
+      --fields)
+        fields_spec="${2:-}"
+        shift 2
+        ;;
+      --fields=*)
+        fields_spec="${1#*=}"
+        shift
+        ;;
+      --fields-file)
+        fields_file="${2:-}"
+        shift 2
+        ;;
+      --fields-file=*)
+        fields_file="${1#*=}"
+        shift
+        ;;
+      --raw)
+        raw=1
+        shift
+        ;;
+      --)
+        shift
+        break
+        ;;
+      -*)
+        echo "fetch-web extract: unknown flag: $1" >&2
+        exit 2
+        ;;
+      *)
+        if [[ -z "${url}" ]]; then
+          url="$1"
+        else
+          echo "fetch-web extract: unexpected extra argument: $1" >&2
+          exit 2
+        fi
+        shift
+        ;;
+    esac
+  done
+  if [[ -z "${url}" ]]; then
+    echo "fetch-web extract: missing <url>" >&2
+    exit 2
+  fi
+  if [[ -z "${fields_spec}" && -z "${fields_file}" ]]; then
+    echo "fetch-web extract: need --fields or --fields-file" >&2
+    exit 2
+  fi
+
+  local schema_json
+  if [[ -n "${fields_file}" ]]; then
+    if [[ ! -f "${fields_file}" ]]; then
+      echo "fetch-web extract: no such file: ${fields_file}" >&2
+      exit 2
+    fi
+    schema_json="$(jq '.' <"${fields_file}")"
+  else
+    schema_json="$(parse_fields_spec "${fields_spec}")"
+  fi
+
+  local args result
+  args="$(jq -n --arg u "${url}" --argjson s "${schema_json}" \
+    '{url: $u, schema: $s}')"
+  result="$(rpc_call "fetch_web-extract_fields" "${args}")"
+  if [[ -n "${FW_JSON:-}" ]]; then
+    printf '%s\n' "${result}"
+  else
+    local text
+    text="$(printf '%s' "${result}" | extract_text)"
+    if [[ -z "${raw}" ]]; then
+      printf '%s' "${text}" | strip_fetch_prelude
+    else
+      printf '%s' "${text}"
+    fi
+    printf '\n'
+  fi
+}
+
+cmd_metadata() {
+  local url=""
+  local raw=""
+  case "${1:-}" in
+    -h | --help)
+      print_op_help metadata
+      exit 0
+      ;;
+  esac
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      -h | --help)
+        print_op_help metadata
+        exit 0
+        ;;
+      --raw)
+        raw=1
+        shift
+        ;;
+      -*)
+        echo "fetch-web metadata: unknown flag: $1" >&2
+        exit 2
+        ;;
+      *)
+        if [[ -z "${url}" ]]; then
+          url="$1"
+        else
+          echo "fetch-web metadata: unexpected extra argument: $1" >&2
+          exit 2
+        fi
+        shift
+        ;;
+    esac
+  done
+  if [[ -z "${url}" ]]; then
+    echo "fetch-web metadata: missing <url>" >&2
+    exit 2
+  fi
+
+  local args result
+  args="$(jq -n --arg u "${url}" '{url: $u}')"
+  result="$(rpc_call "fetch_web-page_metadata" "${args}")"
+  if [[ -n "${FW_JSON:-}" ]]; then
+    printf '%s\n' "${result}"
+  else
+    local text
+    text="$(printf '%s' "${result}" | extract_text)"
+    if [[ -z "${raw}" ]]; then
+      printf '%s' "${text}" | strip_fetch_prelude
+    else
+      printf '%s' "${text}"
+    fi
+    printf '\n'
+  fi
+}
+
+cmd_screenshot() {
+  local url=""
+  local out_path=""
+  case "${1:-}" in
+    -h | --help)
+      print_op_help screenshot
+      exit 0
+      ;;
+  esac
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      -h | --help)
+        print_op_help screenshot
+        exit 0
+        ;;
+      -o)
+        out_path="${2:-}"
+        shift 2
+        ;;
+      -o*)
+        out_path="${1#-o}"
+        shift
+        ;;
+      --output)
+        out_path="${2:-}"
+        shift 2
+        ;;
+      --output=*)
+        out_path="${1#*=}"
+        shift
+        ;;
+      --)
+        shift
+        break
+        ;;
+      -*)
+        echo "fetch-web screenshot: unknown flag: $1" >&2
+        exit 2
+        ;;
+      *)
+        if [[ -z "${url}" ]]; then
+          url="$1"
+        else
+          echo "fetch-web screenshot: unexpected extra argument: $1" >&2
+          exit 2
+        fi
+        shift
+        ;;
+    esac
+  done
+  if [[ -z "${url}" ]]; then
+    echo "fetch-web screenshot: missing <url>" >&2
+    exit 2
+  fi
+
+  # curl-style tty guard: refuse to dump binary PNG to a terminal.
+  if [[ -z "${out_path}" && -t 1 ]]; then
+    echo "fetch-web screenshot: stdout is a terminal; use -o PATH or redirect" >&2
+    exit 2
+  fi
+
+  local args result
+  args="$(jq -n --arg u "${url}" '{url: $u}')"
+  result="$(rpc_call "fetch_web-screenshot_url" "${args}")"
+  if [[ -n "${FW_JSON:-}" ]]; then
+    printf '%s\n' "${result}"
+  elif [[ -n "${out_path}" ]]; then
+    printf '%s' "${result}" | extract_image >"${out_path}"
+  else
+    printf '%s' "${result}" | extract_image
+  fi
+}
+
+cmd_defaults() {
+  case "${1:-}" in
+    -h | --help)
+      print_op_help defaults
+      exit 0
+      ;;
+  esac
+  if [[ $# -gt 0 ]]; then
+    echo "fetch-web defaults: no arguments expected" >&2
+    exit 2
+  fi
+
+  local result
+  result="$(rpc_read_resource "config://fetch-web-mcp/defaults")"
+  if [[ -n "${FW_JSON:-}" ]]; then
+    printf '%s\n' "${result}"
+  else
+    printf '%s' "${result}" | extract_resource_text
+    printf '\n'
+  fi
+}
+
+# ──────────────────────────────────────────────────────────────────
+# main
+# ──────────────────────────────────────────────────────────────────
+
+main() {
+  local op=""
+
+  # First pass: peel global flags that precede the subcommand. After
+  # the subcommand is seen, the remaining args belong to it.
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      -h | --help)
+        print_help
+        exit 0
+        ;;
+      -v | --verbose)
+        FW_VERBOSE=1
+        shift
+        ;;
+      -q | --quiet)
+        FW_QUIET=1
+        shift
+        ;;
+      --json)
+        FW_JSON=1
+        shift
+        ;;
+      --timeout-ms)
+        FW_TIMEOUT_MS="${2:-}"
+        shift 2
+        ;;
+      --timeout-ms=*)
+        FW_TIMEOUT_MS="${1#*=}"
+        shift
+        ;;
+      --)
+        shift
+        if [[ $# -gt 0 ]]; then
+          op="$1"
+          shift
+        fi
+        break
+        ;;
+      -*)
+        echo "fetch-web: unknown global flag: $1" >&2
+        exit 2
+        ;;
+      *)
+        op="$1"
+        shift
+        break
+        ;;
+    esac
+  done
+
+  if [[ -z "${op}" ]]; then
+    print_help >&2
+    exit 2
+  fi
+
+  # Subcommands may also accept --json / --verbose / --timeout-ms; peel
+  # them out of the remaining args so they still reach the globals.
+  local -a passthrough=()
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --json)
+        FW_JSON=1
+        shift
+        ;;
+      -v | --verbose)
+        FW_VERBOSE=1
+        shift
+        ;;
+      -q | --quiet)
+        FW_QUIET=1
+        shift
+        ;;
+      --timeout-ms)
+        FW_TIMEOUT_MS="${2:-}"
+        shift 2
+        ;;
+      --timeout-ms=*)
+        FW_TIMEOUT_MS="${1#*=}"
+        shift
+        ;;
+      *)
+        passthrough+=("$1")
+        shift
+        ;;
+    esac
+  done
+  if [[ ${#passthrough[@]} -gt 0 ]]; then
+    set -- "${passthrough[@]}"
+  else
+    set --
+  fi
+
+  check_deps
+  load_config
+
+  case "${op}" in
+    search) cmd_search "$@" ;;
+    fetch) cmd_fetch "$@" ;;
+    fetch-many) cmd_fetch_many "$@" ;;
+    convert) cmd_convert "$@" ;;
+    links) cmd_links "$@" ;;
+    extract) cmd_extract "$@" ;;
+    metadata) cmd_metadata "$@" ;;
+    screenshot) cmd_screenshot "$@" ;;
+    defaults) cmd_defaults "$@" ;;
+    -h | --help | help)
+      print_help
+      exit 0
+      ;;
+    *)
+      echo "fetch-web: unknown subcommand: ${op}" >&2
+      echo "           run 'fetch-web --help' for the op list" >&2
+      exit 2
+      ;;
+  esac
+}
+
+main "$@"

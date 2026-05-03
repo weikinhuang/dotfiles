@@ -145,6 +145,7 @@ Unless noted otherwise, everything in this section requires `DOT_INCLUDE_BUILTIN
 | [`ai-tool-usage`](./dotenv/bin/ai-tool-usage) | all | summarize AI tool session logs (per-session `list`, per-session `session <id>`, or cross-project `totals --group-by day|week`); estimates cost for `claude`/`codex` from LiteLLM's pricing JSON (cached 7d at `~/.cache/ai-tool-usage/pricing.json`; `--no-cost` to skip, `--refresh-prices` to force fetch) and uses real costs from `opencode`'s DB; delegates to `config/<tool>/session-usage.ts` (supports `claude`, `codex`, `opencode`) |
 | [`chattr`](./dotenv/wsl/bin/chattr) | WSL | wrap Windows `attrib.exe` |
 | [`clipboard-server`](./dotenv/bin/clipboard-server) | all | Node-based clipboard bridge with `start`, `stop`, `restart`, and foreground `server` modes |
+| [`fetch-web`](./dotenv/bin/fetch-web) | all | harness-agnostic CLI for the [`fetch_web`](https://github.com/modelcontextprotocol/servers) MCP server (search, fetch, convert, extract, screenshot, ...); speaks MCP JSON-RPC over HTTPS, configured via `FETCH_WEB_URL` + `FETCH_WEB_AUTH` (falls back to `~/.pi/agent/mcp.json`); pairs with [`config/pi/skills/fetch-web/SKILL.md`](./config/pi/skills/fetch-web/SKILL.md) |
 | [`fswatch`](./dotenv/linux/bin/fswatch) | Linux | watch a directory with `inotifywait` and rerun a command |
 | [`genpasswd`](./dotenv/bin/genpasswd) | all | generate random passwords or tokens |
 | [`is-elevated-session`](./dotenv/wsl/bin/is-elevated-session) | WSL | exit successfully when the current Windows session is elevated |
@@ -579,6 +580,10 @@ These variables are only relevant when the matching built-in plugin loads.
 | `CLIPBOARD_SERVER_PORT` | SSH [`pbcopy`](./dotenv/ssh/bin/pbcopy) / [`pbpaste`](./dotenv/ssh/bin/pbpaste), [`clipboard-server`](./dotenv/bin/clipboard-server) | forwarded TCP port for remote clipboard access |
 | `CLIPBOARD_SERVER_SOCK` | SSH [`pbcopy`](./dotenv/ssh/bin/pbcopy) / [`pbpaste`](./dotenv/ssh/bin/pbpaste), [`clipboard-server`](./dotenv/bin/clipboard-server) | forwarded Unix socket path; defaults to `/tmp/clipboard-server.sock` |
 | `CODEX_HOME` | [`plugins/30-codex.sh`](./plugins/30-codex.sh) | set by the `codex` wrapper when invoked with `-u <profile>`; points Codex at `${XDG_CONFIG_HOME:-$HOME/.config}/codex-<profile>/` |
+| `FETCH_WEB_URL` | [`fetch-web`](./dotenv/bin/fetch-web) | MCP endpoint URL; falls back to the `fetch_web` HTTP server in `~/.pi/agent/mcp.json` when unset |
+| `FETCH_WEB_AUTH` | [`fetch-web`](./dotenv/bin/fetch-web) | verbatim value for the `Authorization:` request header, e.g. `Basic abc...` or `Bearer sk-...` |
+| `FETCH_WEB_HEADERS` | [`fetch-web`](./dotenv/bin/fetch-web) | extra `Header: value` pairs, newline- or `;`-separated, appended to every MCP request |
+| `DOT_FETCH_WEB_LIVE` | [`tests/dotenv/bin/fetch-web.bats`](./tests/dotenv/bin/fetch-web.bats) | set to `1` to run live-server smoke tests (default: skipped, credential-free) |
 | `GIT_SSH_NO_PROXY` | [`git ssh-socks-proxy`](./dotenv/bin/git-ssh-socks-proxy) | comma-separated host list that bypasses configured git SSH proxy rules |
 | `PI_CODING_AGENT_DIR` | [`plugins/30-pi.sh`](./plugins/30-pi.sh) | set by the `pi` wrapper when invoked with `-u <profile>`; points the pi coding agent at `${XDG_CONFIG_HOME:-$HOME/.config}/pi-<profile>/` |
 | `PI_CODING_AGENT_PROFILE_NAME` | [`plugins/30-pi.sh`](./plugins/30-pi.sh) | set by the `pi -u <profile>` wrapper to the active profile name for downstream scripts |
