@@ -43,7 +43,7 @@ interactive pi session to pick up changes without restarting.
 ## Related docs
 
 - [../README.md](../README.md) — pi config overview and index.
-- [../skills/README.md](../skills/README.md) — companion skills that teach WHEN to use these tools.
+- [../README-skills.md](../README-skills.md) — companion skills that teach WHEN to use these tools.
 - [../agents/README.md](../agents/README.md) — subagent definitions dispatched by `subagent.ts`.
 - [../../../lib/node/pi/](../../../lib/node/pi) — pure helpers shared between extensions and unit-tested under
   [../../../tests/lib/node/pi/](../../../tests/lib/node/pi).

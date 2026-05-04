@@ -9,7 +9,7 @@ reference on each area.
 | Path                                               | Purpose                                                                                                                                              |
 | -------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
 | [`extensions/`](./extensions/README.md)            | Custom pi extensions (statusline, bash-permissions, todo, subagent, memory, iteration-loop, …) auto-loaded via `settings-baseline.json`.             |
-| [`skills/`](./skills/README.md)                    | Auto-loaded skills that teach WHEN to reach for each extension's tools (plan-first, memory-first, grep-before-read, iterate-until-verified, …).      |
+| [`skills/`](./README-skills.md)                    | Auto-loaded skills that teach WHEN to reach for each extension's tools (plan-first, memory-first, grep-before-read, iterate-until-verified, …).      |
 | [`agents/`](./agents/README.md)                    | Subagent definitions dispatched by [`extensions/subagent.ts`](./extensions/subagent.ts) (critic, explore, plan, general-purpose, web-researcher, …). |
 | [`themes/`](./themes)                              | JSON themes (e.g. [`solarized-dark.json`](./themes/solarized-dark.json), [`solarized-light.json`](./themes/solarized-light.json)) loadable by name.  |
 | [`settings-baseline.json`](#settings-baselinejson) | Reference baseline for `~/.pi/agent/settings.json`. Wires up `extensions` / `skills` / `agents` / `themes`.                                          |
@@ -63,7 +63,7 @@ Pi has no subagent concept at the session-file level, so the `AGENTS` column and
 ## Related docs
 
 - [extensions/README.md](./extensions/README.md) — per-extension index and deep references.
-- [skills/README.md](./skills/README.md) — skill index and policy summary.
+- [README-skills.md](./README-skills.md) — skill index and policy summary.
 - [agents/README.md](./agents/README.md) — subagent definitions.
 - [../claude/README.md](../claude/README.md) — sibling Claude Code config.
 - [../codex/README.md](../codex/README.md) — sibling Codex CLI config.

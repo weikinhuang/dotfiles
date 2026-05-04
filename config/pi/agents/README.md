@@ -4,6 +4,9 @@ Agent definitions dispatched by [`../extensions/subagent.ts`](../extensions/suba
 tool) and discovered via the `agents` array in [`../settings-baseline.json`](../settings-baseline.json). Each child runs
 with its own fresh context, tool allowlist, and optional model override. The parent sees only the final answer text.
 
+The subagent loader ([`../../../lib/node/pi/subagent-loader.ts`](../../../lib/node/pi/subagent-loader.ts)) ignores
+`README.md` / `readme.md` so this index doesn't have to carry agent frontmatter.
+
 For WHEN to delegate and HOW to write a zero-context `task` prompt, see
 [`../skills/subagent-delegation/SKILL.md`](../skills/subagent-delegation/SKILL.md) and
 [`../skills/subagent-background/SKILL.md`](../skills/subagent-background/SKILL.md).

@@ -322,6 +322,31 @@ body`,
     expect(result.warnings).toEqual([]);
   });
 
+  test('README.md is skipped without a frontmatter warning', () => {
+    // Directory-index READMEs are human-facing docs, not agent specs — the
+    // loader must not treat them as malformed agents.
+    const files = {
+      '/g/README.md': '# pi subagent definitions\n\nIndex of agents in this dir.\n',
+      '/g/readme.md': '# lowercase readme variant',
+      '/g/explore.md': `---
+name: explore
+description: global explore
+---
+body`,
+    };
+    const dirs = { '/g': ['README.md', 'readme.md', 'explore.md'] };
+    const result = loadAgents({
+      layers: [{ source: 'global', dir: '/g' }],
+      knownToolNames: KNOWN_TOOLS,
+      fs: makeFs(files, dirs),
+      parseFrontmatter,
+    });
+
+    expect(result.agents.size).toBe(1);
+    expect(result.agents.get('explore')?.source).toBe('global');
+    expect(result.warnings).toEqual([]);
+  });
+
   test('malformed frontmatter yields one warning and skips the file', () => {
     const files = { '/g/broken.md': 'no frontmatter here' };
     const dirs = { '/g': ['broken.md'] };

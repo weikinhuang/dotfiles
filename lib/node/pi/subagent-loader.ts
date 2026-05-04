@@ -278,6 +278,9 @@ export function loadAgents(options: LoadAgentsOptions): AgentLoadResult {
     if (!names) continue;
     for (const fname of names) {
       if (!fname.endsWith('.md')) continue;
+      // README.md is documentation for humans, not an agent spec — skip it
+      // without emitting a `missing or empty frontmatter` warning.
+      if (fname.toLowerCase() === 'readme.md') continue;
       const path = join(layer.dir, fname);
       const raw = fs.readFile(path);
       if (raw === null) {
