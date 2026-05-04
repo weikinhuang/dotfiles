@@ -21,7 +21,7 @@ For WHEN to delegate and HOW to write a zero-context `task` prompt, see
 | [`plan.md`](./plan.md)                                         | `read`, `grep`, `find`, `ls`         | Turn a vague problem statement into a concrete file-level implementation plan.                                    |
 | [`research-planning-critic.md`](./research-planning-critic.md) | `read` only                          | Rubric judge for research plans / experiment hypotheses BEFORE expensive downstream fanout runs.                  |
 | [`tiny-helper.md`](./tiny-helper.md)                           | minimal                              | Narrow non-research plumbing (slug gen, title normalization, URL classification). Never touches research content. |
-| [`web-researcher.md`](./web-researcher.md)                     | `fetch-web` CLI + filesystem         | Per-sub-question researcher used by the `/research` fanout; writes a strict-schema `findings/<subq-id>.md`.       |
+| [`web-researcher.md`](./web-researcher.md)                     | `ai-fetch-web` CLI + filesystem      | Per-sub-question researcher used by the `/research` fanout; writes a strict-schema `findings/<subq-id>.md`.       |
 
 ## Related docs
 

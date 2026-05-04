@@ -167,8 +167,8 @@ export interface PipelineDeps<M> {
    * pipeline skips the populate step and logs a journal warning
    * once — handy for fixture-driven unit tests that don't want
    * to touch the network. Wired from
-   * `research-fetch-web-cli-client.createFetchWebCliClientFromEnv()`
-   * in the extension (which shells out to the `fetch-web` CLI).
+   * `research-ai-fetch-web-cli-client.createAiFetchWebCliClientFromEnv()`
+   * in the extension (which shells out to the `ai-fetch-web` CLI).
    */
   mcpClient?: McpClient;
   /**
@@ -540,11 +540,11 @@ export function renderWebResearcherPrompt(plan: DeepResearchPlan, subQuestionId:
     `Write your findings to this ABSOLUTE path (your cwd is the workspace root, not the run directory): ${absPath}`,
     `The file will land at "${relPath}" under the run root — pass the absolute path above to your \`write\` tool.`,
     '',
-    'Use the `fetch-web` CLI via your `bash` tool for every page I/O. Redirect large fetches to a temp file and then `read` the file — do NOT dump full article bodies into a single tool-output block:',
+    'Use the `ai-fetch-web` CLI via your `bash` tool for every page I/O. Redirect large fetches to a temp file and then `read` the file — do NOT dump full article bodies into a single tool-output block:',
     '',
-    '  bash: fetch-web search "<query>" --limit 5',
-    '  bash: fetch-web fetch <url> > /tmp/src.md   # then: read /tmp/src.md',
-    '  bash: fetch-web fetch-many <url> <url> > /tmp/batch.md  # parallel batch to disk',
+    '  bash: ai-fetch-web search "<query>" --limit 5',
+    '  bash: ai-fetch-web fetch <url> > /tmp/src.md   # then: read /tmp/src.md',
+    '  bash: ai-fetch-web fetch-many <url> <url> > /tmp/batch.md  # parallel batch to disk',
     '',
     'Do NOT invoke the fetch_web MCP server directly, and do NOT run `curl`. Cite every claim. Use the exact four-heading schema:',
     '',

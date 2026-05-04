@@ -94,13 +94,13 @@ import {
 } from '../../../lib/node/pi/deep-research-tool.ts';
 import { buildCriticTask, parseVerdict } from '../../../lib/node/pi/iteration-loop-check-critic.ts';
 import { type Verdict } from '../../../lib/node/pi/iteration-loop-schema.ts';
+import { createAiFetchWebCliClientFromEnv } from '../../../lib/node/pi/research-ai-fetch-web-cli-client.ts';
 import {
   type FanoutHandleLike,
   type FanoutHandleResult,
   type FanoutSpawner,
   type FanoutSpawnArgs,
 } from '../../../lib/node/pi/research-fanout.ts';
-import { createFetchWebCliClientFromEnv } from '../../../lib/node/pi/research-fetch-web-cli-client.ts';
 import { appendJournal } from '../../../lib/node/pi/research-journal.ts';
 import { paths } from '../../../lib/node/pi/research-paths.ts';
 import { readPlan } from '../../../lib/node/pi/research-plan.ts';
@@ -673,7 +673,7 @@ function buildPipelineDeps(
       buildSyncFanoutSpawner(ctx, webAgent, modelRegistry, parentModel),
       extras.onPhase,
     ),
-    mcpClient: createFetchWebCliClientFromEnv() ?? undefined,
+    mcpClient: createAiFetchWebCliClientFromEnv() ?? undefined,
     onCriticCheckpoint: (outcome) => {
       ctx.ui.notify(
         `/research: planning-critic rejected the plan (${outcome.kind}). Plan is on disk — edit ./research/<slug>/plan.json and rerun \`/research <question>\` to retry. Pipeline halted before fanout.`,

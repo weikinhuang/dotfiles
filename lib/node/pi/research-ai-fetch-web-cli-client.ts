@@ -1,5 +1,5 @@
 /**
- * `fetch-web` CLI-backed {@link McpClient} for the deep-research
+ * `ai-fetch-web` CLI-backed {@link McpClient} for the deep-research
  * extension.
  *
  * Why this exists: Phase 6 of the deep-research plan uncovered
@@ -14,7 +14,7 @@
  * tool, which is too thin a shape to ask a small model to drive.
  *
  * The locked decision: migrate the fetch surface to a standalone
- * `fetch-web` CLI (`dotenv/bin/fetch-web`) that hits the same
+ * `ai-fetch-web` CLI (`dotenv/bin/ai-fetch-web`) that hits the same
  * MCP HTTP endpoint but speaks to us over stdout. The subagent
  * now uses its `bash` tool to invoke the CLI; the extension's
  * post-fanout source-store populate step calls that same CLI
@@ -23,15 +23,15 @@
  * Scope:
  *   - Three methods, mapping one-to-one to `McpClient`:
  *     `fetchUrl`, `convertHtml`, `searchWeb`.
- *   - Every call spawns `fetch-web <subcmd> [args] --json`.
+ *   - Every call spawns `ai-fetch-web <subcmd> [args] --json`.
  *     `--json` emits the raw MCP `result` object on stdout, so
  *     we parse `structuredContent` directly rather than scraping
  *     the human-readable prelude-stripped default output.
  *   - `convertHtml` pipes the HTML body through the child's stdin
- *     using `fetch-web convert --html-file -`.
+ *     using `ai-fetch-web convert --html-file -`.
  *   - Binary lookup is deferred to the shell's PATH resolution;
  *     callers who want a pre-flight existence check use
- *     `findFetchWebBinary()`.
+ *     `findAiFetchWebBinary()`.
  *
  * Non-goals:
  *   - No retry logic. `fetchAndStore` already tolerates
@@ -39,7 +39,7 @@
  *   - No fallback to the old MCP-over-HTTP client. That module
  *     is being removed as part of the Phase 6a migration.
  *   - No auth-header plumbing here. The CLI reads
- *     `FETCH_WEB_URL` / `FETCH_WEB_AUTH` / `FETCH_WEB_HEADERS`
+ *     `AI_FETCH_WEB_URL` / `AI_FETCH_WEB_AUTH` / `AI_FETCH_WEB_HEADERS`
  *     from its own env, and has a `~/.pi/agent/mcp.json`
  *     convenience fallback for pi-managed installs. We
  *     propagate the parent env unchanged so either path works
@@ -87,10 +87,10 @@ export type SpawnFn = (command: string, args: string[], options: SpawnOptions) =
 // Public factory options.
 // ──────────────────────────────────────────────────────────────────────
 
-export interface CreateFetchWebCliClientOpts {
+export interface CreateAiFetchWebCliClientOpts {
   /**
    * Override the CLI binary. Defaults to the literal name
-   * `fetch-web`; the OS resolves it via `PATH`. Tests and
+   * `ai-fetch-web`; the OS resolves it via `PATH`. Tests and
    * non-standard installs pass an absolute path.
    */
   bin?: string;
@@ -108,8 +108,8 @@ export interface CreateFetchWebCliClientOpts {
   spawn?: SpawnFn;
   /**
    * Environment variables passed to the child. Defaults to
-   * `process.env`, which carries any `FETCH_WEB_URL` /
-   * `FETCH_WEB_AUTH` the user set. Tests override to verify the
+   * `process.env`, which carries any `AI_FETCH_WEB_URL` /
+   * `AI_FETCH_WEB_AUTH` the user set. Tests override to verify the
    * env is threaded through.
    */
   env?: NodeJS.ProcessEnv;
@@ -125,29 +125,29 @@ export interface CreateFetchWebCliClientOpts {
 // Binary discovery.
 // ──────────────────────────────────────────────────────────────────────
 
-export interface FindFetchWebBinaryOpts {
+export interface FindAiFetchWebBinaryOpts {
   /** Override for `process.env.PATH`. Used by tests. */
   pathEnv?: string;
   /**
    * Override for `process.env`. Used by tests to stub a custom
-   * `FETCH_WEB_BIN` short-circuit.
+   * `AI_FETCH_WEB_BIN` short-circuit.
    */
   env?: NodeJS.ProcessEnv;
 }
 
 /**
- * Search `$PATH` for a `fetch-web` executable and return its
+ * Search `$PATH` for an `ai-fetch-web` executable and return its
  * absolute path, or `null` when nothing is found. An explicit
- * `FETCH_WEB_BIN` env var short-circuits the lookup.
+ * `AI_FETCH_WEB_BIN` env var short-circuits the lookup.
  *
  * The factory does not require this — callers that inject a
  * `bin` override skip PATH entirely. The helper is here so the
  * extension can decide whether to degrade (no source-store
  * populate) when the CLI isn't installed.
  */
-export function findFetchWebBinary(opts: FindFetchWebBinaryOpts = {}): string | null {
+export function findAiFetchWebBinary(opts: FindAiFetchWebBinaryOpts = {}): string | null {
   const env = opts.env ?? process.env;
-  const override = env.FETCH_WEB_BIN;
+  const override = env.AI_FETCH_WEB_BIN;
   if (override && override.length > 0) {
     return existsSync(override) ? override : null;
   }
@@ -155,7 +155,7 @@ export function findFetchWebBinary(opts: FindFetchWebBinaryOpts = {}): string | 
   if (pathEnv.length === 0) return null;
   for (const dir of pathEnv.split(delimiter)) {
     if (dir.length === 0) continue;
-    const candidate = join(dir, 'fetch-web');
+    const candidate = join(dir, 'ai-fetch-web');
     if (existsSync(candidate)) return candidate;
   }
   return null;
@@ -207,7 +207,7 @@ async function runCli(args: RunArgs): Promise<RunResult> {
 
   return new Promise<RunResult>((resolve, reject) => {
     child.on('error', (err) => {
-      reject(new Error(`fetch-web cli: spawn failed: ${err.message}`));
+      reject(new Error(`ai-fetch-web cli: spawn failed: ${err.message}`));
     });
     child.on('close', (code) => {
       resolve({
@@ -222,16 +222,16 @@ async function runCli(args: RunArgs): Promise<RunResult> {
 function parseJsonResult(subcommand: string, run: RunResult): unknown {
   if (run.code !== 0) {
     const stderr = run.stderr.trim().slice(0, 400);
-    throw new Error(`fetch-web ${subcommand}: exit ${run.code ?? 'null'}${stderr ? `: ${stderr}` : ''}`);
+    throw new Error(`ai-fetch-web ${subcommand}: exit ${run.code ?? 'null'}${stderr ? `: ${stderr}` : ''}`);
   }
   const trimmed = run.stdout.trim();
   if (trimmed.length === 0) {
-    throw new Error(`fetch-web ${subcommand}: empty stdout`);
+    throw new Error(`ai-fetch-web ${subcommand}: empty stdout`);
   }
   try {
     return JSON.parse(trimmed) as unknown;
   } catch (e) {
-    throw new Error(`fetch-web ${subcommand}: stdout is not JSON: ${(e as Error).message}`);
+    throw new Error(`ai-fetch-web ${subcommand}: stdout is not JSON: ${(e as Error).message}`);
   }
 }
 
@@ -242,7 +242,7 @@ function parseJsonResult(subcommand: string, run: RunResult): unknown {
 /**
  * MCP `tools/call` results carry both a human-readable `content`
  * array and a typed `structuredContent` object (on tools that
- * declare an output schema). The `fetch-web` CLI passes both
+ * declare an output schema). The `ai-fetch-web` CLI passes both
  * through when `--json` is set. We always prefer
  * `structuredContent` because it's schema-typed — the text
  * content has a prelude we'd otherwise have to scrape.
@@ -270,7 +270,7 @@ function throwIfMcpError(subcommand: string, result: unknown): void {
     const first = content[0] as { text?: unknown } | undefined;
     if (first && typeof first.text === 'string') message = first.text.slice(0, 400);
   }
-  throw new Error(`fetch-web ${subcommand}: mcp tool error: ${message}`);
+  throw new Error(`ai-fetch-web ${subcommand}: mcp tool error: ${message}`);
 }
 
 // ──────────────────────────────────────────────────────────────────────
@@ -278,14 +278,14 @@ function throwIfMcpError(subcommand: string, result: unknown): void {
 // ──────────────────────────────────────────────────────────────────────
 
 /**
- * Build an {@link McpClient} that drives the `fetch-web` CLI.
+ * Build an {@link McpClient} that drives the `ai-fetch-web` CLI.
  * Every method spawns one child process; failures (non-zero
  * exit, non-JSON stdout, `isError: true` in the MCP result)
  * throw, letting `fetchAndStore` record a per-URL `failed`
  * journal entry and move on.
  */
-export function createFetchWebCliClient(opts: CreateFetchWebCliClientOpts = {}): McpClient {
-  const bin = opts.bin ?? 'fetch-web';
+export function createAiFetchWebCliClient(opts: CreateAiFetchWebCliClientOpts = {}): McpClient {
+  const bin = opts.bin ?? 'ai-fetch-web';
   const extraArgs = opts.extraArgs ?? [];
   // The `as unknown as SpawnFn` is needed because node's real
   // `spawn` return type is a full `ChildProcess`, but we only
@@ -328,7 +328,7 @@ export function createFetchWebCliClient(opts: CreateFetchWebCliClientOpts = {}):
       const result = await run('fetch', args);
       const sc = getStructuredContent(result);
       if (!sc) {
-        throw new Error('fetch-web fetch: missing structuredContent in response');
+        throw new Error('ai-fetch-web fetch: missing structuredContent in response');
       }
       const text = typeof sc.text === 'string' ? sc.text : '';
       const ret: McpFetchUrlResult = { content: text };
@@ -345,7 +345,7 @@ export function createFetchWebCliClient(opts: CreateFetchWebCliClientOpts = {}):
       const result = await run('convert', args, input.html);
       const sc = getStructuredContent(result);
       if (!sc) {
-        throw new Error('fetch-web convert: missing structuredContent in response');
+        throw new Error('ai-fetch-web convert: missing structuredContent in response');
       }
       const text = typeof sc.text === 'string' ? sc.text : '';
       return { content: text };
@@ -376,7 +376,7 @@ export function createFetchWebCliClient(opts: CreateFetchWebCliClientOpts = {}):
 // Convenience: construct + PATH check in one call.
 // ──────────────────────────────────────────────────────────────────────
 
-export interface CreateFetchWebCliClientFromEnvOpts extends CreateFetchWebCliClientOpts {
+export interface CreateAiFetchWebCliClientFromEnvOpts extends CreateAiFetchWebCliClientOpts {
   /**
    * Override for the PATH-lookup `process.env.PATH` / `env` the
    * helper probes. Tests set this to restrict discovery to a
@@ -386,24 +386,24 @@ export interface CreateFetchWebCliClientFromEnvOpts extends CreateFetchWebCliCli
 }
 
 /**
- * Look up `fetch-web` on `$PATH` (or honour `FETCH_WEB_BIN`);
+ * Look up `ai-fetch-web` on `$PATH` (or honour `AI_FETCH_WEB_BIN`);
  * if found, build a client pinned to that absolute path. Return
  * `null` when nothing is found so the pipeline can degrade
  * gracefully (skip source-store populate, journal a warning)
  * instead of crashing.
  */
-export function createFetchWebCliClientFromEnv(opts: CreateFetchWebCliClientFromEnvOpts = {}): McpClient | null {
+export function createAiFetchWebCliClientFromEnv(opts: CreateAiFetchWebCliClientFromEnvOpts = {}): McpClient | null {
   const env = opts.env ?? process.env;
-  const findOpts: FindFetchWebBinaryOpts = { env };
+  const findOpts: FindAiFetchWebBinaryOpts = { env };
   if (opts.pathEnv !== undefined) findOpts.pathEnv = opts.pathEnv;
-  const bin = opts.bin ?? findFetchWebBinary(findOpts);
+  const bin = opts.bin ?? findAiFetchWebBinary(findOpts);
   if (!bin) return null;
-  const factoryOpts: CreateFetchWebCliClientOpts = { bin };
+  const factoryOpts: CreateAiFetchWebCliClientOpts = { bin };
   if (opts.extraArgs !== undefined) factoryOpts.extraArgs = opts.extraArgs;
   if (opts.spawn !== undefined) factoryOpts.spawn = opts.spawn;
   if (opts.env !== undefined) factoryOpts.env = opts.env;
   if (opts.timeoutMs !== undefined) factoryOpts.timeoutMs = opts.timeoutMs;
-  return createFetchWebCliClient(factoryOpts);
+  return createAiFetchWebCliClient(factoryOpts);
 }
 
 /**

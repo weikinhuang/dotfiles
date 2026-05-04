@@ -1,5 +1,5 @@
 /**
- * Tests for the `fetch-web` CLI-backed McpClient used by the
+ * Tests for the `ai-fetch-web` CLI-backed McpClient used by the
  * deep-research pipeline to populate the source store post-fanout.
  *
  * Every test injects a fake `spawn` so we exercise argv
@@ -16,12 +16,12 @@ import { join } from 'node:path';
 import { describe, expect, test } from 'vitest';
 
 import {
-  createFetchWebCliClient,
-  createFetchWebCliClientFromEnv,
-  findFetchWebBinary,
+  createAiFetchWebCliClient,
+  createAiFetchWebCliClientFromEnv,
+  findAiFetchWebBinary,
   type SpawnedChild,
   type SpawnFn,
-} from '../../../../lib/node/pi/research-fetch-web-cli-client.ts';
+} from '../../../../lib/node/pi/research-ai-fetch-web-cli-client.ts';
 
 // ──────────────────────────────────────────────────────────────────────
 // Spawn-stub helpers.
@@ -105,25 +105,25 @@ function makeSpawnStub(scripted: SpawnStubOpts | ((i: number) => SpawnStubOpts))
 }
 
 // ──────────────────────────────────────────────────────────────────────
-// findFetchWebBinary
+// findAiFetchWebBinary
 // ──────────────────────────────────────────────────────────────────────
 
-describe('findFetchWebBinary', () => {
-  test('honours FETCH_WEB_BIN override when the target exists', () => {
+describe('findAiFetchWebBinary', () => {
+  test('honours AI_FETCH_WEB_BIN override when the target exists', () => {
     const dir = mkdtempSync(join(tmpdir(), 'pi-fwcli-'));
-    const bin = join(dir, 'my-fetch-web');
+    const bin = join(dir, 'my-ai-fetch-web');
     writeFileSync(bin, '#!/bin/sh\n');
     chmodSync(bin, 0o755);
 
-    const out = findFetchWebBinary({ env: { FETCH_WEB_BIN: bin, PATH: '' } });
+    const out = findAiFetchWebBinary({ env: { AI_FETCH_WEB_BIN: bin, PATH: '' } });
 
     expect(out).toBe(bin);
 
     rmSync(dir, { recursive: true, force: true });
   });
 
-  test('returns null when FETCH_WEB_BIN points at a missing file', () => {
-    const out = findFetchWebBinary({ env: { FETCH_WEB_BIN: '/no/such/file', PATH: '' } });
+  test('returns null when AI_FETCH_WEB_BIN points at a missing file', () => {
+    const out = findAiFetchWebBinary({ env: { AI_FETCH_WEB_BIN: '/no/such/file', PATH: '' } });
 
     expect(out).toBeNull();
   });
@@ -134,21 +134,21 @@ describe('findFetchWebBinary', () => {
     const filled = join(dir, 'filled');
     mkdirSync(empty, { recursive: true });
     mkdirSync(filled, { recursive: true });
-    const bin = join(filled, 'fetch-web');
+    const bin = join(filled, 'ai-fetch-web');
     writeFileSync(bin, '#!/bin/sh\n');
     chmodSync(bin, 0o755);
 
-    const out = findFetchWebBinary({ env: { PATH: `${empty}:${filled}` } });
+    const out = findAiFetchWebBinary({ env: { PATH: `${empty}:${filled}` } });
 
     expect(out).toBe(bin);
 
     rmSync(dir, { recursive: true, force: true });
   });
 
-  test('returns null when PATH has no fetch-web', () => {
+  test('returns null when PATH has no ai-fetch-web', () => {
     const dir = mkdtempSync(join(tmpdir(), 'pi-fwcli-empty-'));
 
-    const out = findFetchWebBinary({ env: { PATH: dir } });
+    const out = findAiFetchWebBinary({ env: { PATH: dir } });
 
     expect(out).toBeNull();
 
@@ -160,8 +160,8 @@ describe('findFetchWebBinary', () => {
 // fetchUrl
 // ──────────────────────────────────────────────────────────────────────
 
-describe('createFetchWebCliClient.fetchUrl', () => {
-  test('spawns fetch-web with the expected argv and parses structuredContent', async () => {
+describe('createAiFetchWebCliClient.fetchUrl', () => {
+  test('spawns ai-fetch-web with the expected argv and parses structuredContent', async () => {
     const stub = makeSpawnStub({
       stdout: JSON.stringify({
         content: [{ type: 'text', text: 'prelude...' }],
@@ -173,12 +173,12 @@ describe('createFetchWebCliClient.fetchUrl', () => {
         },
       }),
     });
-    const client = createFetchWebCliClient({ bin: '/usr/bin/fetch-web', spawn: stub.spawn });
+    const client = createAiFetchWebCliClient({ bin: '/usr/bin/ai-fetch-web', spawn: stub.spawn });
 
     const out = await client.fetchUrl({ url: 'https://example.com' });
 
     expect(stub.calls).toHaveLength(1);
-    expect(stub.calls[0]?.command).toBe('/usr/bin/fetch-web');
+    expect(stub.calls[0]?.command).toBe('/usr/bin/ai-fetch-web');
     expect(stub.calls[0]?.args).toEqual(['--json', '--timeout-ms', '30000', 'fetch', 'https://example.com']);
     expect(out).toEqual({
       content: '# Example\n\nBody.',
@@ -192,7 +192,7 @@ describe('createFetchWebCliClient.fetchUrl', () => {
     const stub = makeSpawnStub({
       stdout: JSON.stringify({ structuredContent: { text: '' } }),
     });
-    const client = createFetchWebCliClient({ bin: 'fetch-web', spawn: stub.spawn });
+    const client = createAiFetchWebCliClient({ bin: 'ai-fetch-web', spawn: stub.spawn });
 
     await client.fetchUrl({ url: 'https://x.test', format: 'readability' });
 
@@ -204,7 +204,7 @@ describe('createFetchWebCliClient.fetchUrl', () => {
     const stub = makeSpawnStub({
       stdout: JSON.stringify({ structuredContent: { text: '' } }),
     });
-    const client = createFetchWebCliClient({ bin: 'fetch-web', spawn: stub.spawn });
+    const client = createAiFetchWebCliClient({ bin: 'ai-fetch-web', spawn: stub.spawn });
 
     await client.fetchUrl({ url: 'https://x.test', format: 'html' });
 
@@ -217,17 +217,17 @@ describe('createFetchWebCliClient.fetchUrl', () => {
   test('throws when the CLI exits non-zero, including stderr tail', async () => {
     const stub = makeSpawnStub({
       stdout: '',
-      stderr: 'fetch-web: upstream 503',
+      stderr: 'ai-fetch-web: upstream 503',
       exitCode: 3,
     });
-    const client = createFetchWebCliClient({ bin: 'fetch-web', spawn: stub.spawn });
+    const client = createAiFetchWebCliClient({ bin: 'ai-fetch-web', spawn: stub.spawn });
 
     await expect(client.fetchUrl({ url: 'https://x.test' })).rejects.toThrow(/exit 3.*upstream 503/);
   });
 
   test('throws when stdout is not JSON', async () => {
     const stub = makeSpawnStub({ stdout: 'not json here' });
-    const client = createFetchWebCliClient({ bin: 'fetch-web', spawn: stub.spawn });
+    const client = createAiFetchWebCliClient({ bin: 'ai-fetch-web', spawn: stub.spawn });
 
     await expect(client.fetchUrl({ url: 'https://x.test' })).rejects.toThrow(/not JSON/);
   });
@@ -239,7 +239,7 @@ describe('createFetchWebCliClient.fetchUrl', () => {
         isError: true,
       }),
     });
-    const client = createFetchWebCliClient({ bin: 'fetch-web', spawn: stub.spawn });
+    const client = createAiFetchWebCliClient({ bin: 'ai-fetch-web', spawn: stub.spawn });
 
     await expect(client.fetchUrl({ url: 'https://x.test' })).rejects.toThrow(/mcp tool error: robots\.txt denied/);
   });
@@ -248,7 +248,7 @@ describe('createFetchWebCliClient.fetchUrl', () => {
     const stub = makeSpawnStub({
       stdout: JSON.stringify({ content: [{ type: 'text', text: 'whatever' }] }),
     });
-    const client = createFetchWebCliClient({ bin: 'fetch-web', spawn: stub.spawn });
+    const client = createAiFetchWebCliClient({ bin: 'ai-fetch-web', spawn: stub.spawn });
 
     await expect(client.fetchUrl({ url: 'https://x.test' })).rejects.toThrow(/missing structuredContent/);
   });
@@ -257,23 +257,23 @@ describe('createFetchWebCliClient.fetchUrl', () => {
     const stub = makeSpawnStub({
       stdout: JSON.stringify({ structuredContent: { text: '' } }),
     });
-    const client = createFetchWebCliClient({
-      bin: 'fetch-web',
+    const client = createAiFetchWebCliClient({
+      bin: 'ai-fetch-web',
       spawn: stub.spawn,
-      env: { FETCH_WEB_URL: 'https://llm.test/mcp/', FETCH_WEB_AUTH: 'Basic xyz', PATH: '/usr/bin' },
+      env: { AI_FETCH_WEB_URL: 'https://llm.test/mcp/', AI_FETCH_WEB_AUTH: 'Basic xyz', PATH: '/usr/bin' },
     });
 
     await client.fetchUrl({ url: 'https://x.test' });
 
-    expect(stub.calls[0]?.env?.FETCH_WEB_URL).toBe('https://llm.test/mcp/');
-    expect(stub.calls[0]?.env?.FETCH_WEB_AUTH).toBe('Basic xyz');
+    expect(stub.calls[0]?.env?.AI_FETCH_WEB_URL).toBe('https://llm.test/mcp/');
+    expect(stub.calls[0]?.env?.AI_FETCH_WEB_AUTH).toBe('Basic xyz');
   });
 
   test('propagates a custom timeoutMs into --timeout-ms', async () => {
     const stub = makeSpawnStub({
       stdout: JSON.stringify({ structuredContent: { text: '' } }),
     });
-    const client = createFetchWebCliClient({ bin: 'fetch-web', spawn: stub.spawn, timeoutMs: 120_000 });
+    const client = createAiFetchWebCliClient({ bin: 'ai-fetch-web', spawn: stub.spawn, timeoutMs: 120_000 });
 
     await client.fetchUrl({ url: 'https://x.test' });
 
@@ -288,14 +288,14 @@ describe('createFetchWebCliClient.fetchUrl', () => {
 // convertHtml
 // ──────────────────────────────────────────────────────────────────────
 
-describe('createFetchWebCliClient.convertHtml', () => {
+describe('createAiFetchWebCliClient.convertHtml', () => {
   test('pipes HTML on stdin, routes to `convert`, returns text', async () => {
     const stub = makeSpawnStub({
       stdout: JSON.stringify({
         structuredContent: { format: 'markdown', text: '# Test\n\nHello' },
       }),
     });
-    const client = createFetchWebCliClient({ bin: 'fetch-web', spawn: stub.spawn });
+    const client = createAiFetchWebCliClient({ bin: 'ai-fetch-web', spawn: stub.spawn });
 
     const out = await client.convertHtml({ html: '<h1>Test</h1>', baseUrl: 'https://x.test', format: 'text' });
 
@@ -320,7 +320,7 @@ describe('createFetchWebCliClient.convertHtml', () => {
     const stub = makeSpawnStub({
       stdout: JSON.stringify({ structuredContent: { text: 'ok' } }),
     });
-    const client = createFetchWebCliClient({ bin: 'fetch-web', spawn: stub.spawn });
+    const client = createAiFetchWebCliClient({ bin: 'ai-fetch-web', spawn: stub.spawn });
 
     await client.convertHtml({ html: '<p>hi</p>' });
 
@@ -335,7 +335,7 @@ describe('createFetchWebCliClient.convertHtml', () => {
 // searchWeb
 // ──────────────────────────────────────────────────────────────────────
 
-describe('createFetchWebCliClient.searchWeb', () => {
+describe('createAiFetchWebCliClient.searchWeb', () => {
   test('returns structured results in McpSearchResultItem shape', async () => {
     const stub = makeSpawnStub({
       stdout: JSON.stringify({
@@ -348,7 +348,7 @@ describe('createFetchWebCliClient.searchWeb', () => {
         },
       }),
     });
-    const client = createFetchWebCliClient({ bin: 'fetch-web', spawn: stub.spawn });
+    const client = createAiFetchWebCliClient({ bin: 'ai-fetch-web', spawn: stub.spawn });
 
     const out = await client.searchWeb({ query: 'rust 1.0 release', limit: 5 });
 
@@ -375,7 +375,7 @@ describe('createFetchWebCliClient.searchWeb', () => {
         },
       }),
     });
-    const client = createFetchWebCliClient({ bin: 'fetch-web', spawn: stub.spawn });
+    const client = createAiFetchWebCliClient({ bin: 'ai-fetch-web', spawn: stub.spawn });
 
     const out = await client.searchWeb({ query: 'q' });
 
@@ -387,7 +387,7 @@ describe('createFetchWebCliClient.searchWeb', () => {
     const stub = makeSpawnStub({
       stdout: JSON.stringify({ content: [{ type: 'text', text: 'Query: q\nResult Count: 0' }] }),
     });
-    const client = createFetchWebCliClient({ bin: 'fetch-web', spawn: stub.spawn });
+    const client = createAiFetchWebCliClient({ bin: 'ai-fetch-web', spawn: stub.spawn });
 
     const out = await client.searchWeb({ query: 'q' });
 
@@ -399,13 +399,13 @@ describe('createFetchWebCliClient.searchWeb', () => {
 // extraArgs threading
 // ──────────────────────────────────────────────────────────────────────
 
-describe('createFetchWebCliClient.extraArgs', () => {
+describe('createAiFetchWebCliClient.extraArgs', () => {
   test('prepends extraArgs ahead of the generated flags', async () => {
     const stub = makeSpawnStub({
       stdout: JSON.stringify({ structuredContent: { text: '' } }),
     });
-    const client = createFetchWebCliClient({
-      bin: 'fetch-web',
+    const client = createAiFetchWebCliClient({
+      bin: 'ai-fetch-web',
       spawn: stub.spawn,
       extraArgs: ['-v'],
     });
@@ -417,12 +417,12 @@ describe('createFetchWebCliClient.extraArgs', () => {
 });
 
 // ──────────────────────────────────────────────────────────────────────
-// createFetchWebCliClientFromEnv
+// createAiFetchWebCliClientFromEnv
 // ──────────────────────────────────────────────────────────────────────
 
-describe('createFetchWebCliClientFromEnv', () => {
+describe('createAiFetchWebCliClientFromEnv', () => {
   test('returns null when no binary is found', () => {
-    const out = createFetchWebCliClientFromEnv({
+    const out = createAiFetchWebCliClientFromEnv({
       env: { PATH: '' },
       pathEnv: '',
     });
@@ -432,11 +432,11 @@ describe('createFetchWebCliClientFromEnv', () => {
 
   test('returns a client when the binary is discoverable on PATH', () => {
     const dir = mkdtempSync(join(tmpdir(), 'pi-fwcli-'));
-    const bin = join(dir, 'fetch-web');
+    const bin = join(dir, 'ai-fetch-web');
     writeFileSync(bin, '#!/bin/sh\n');
     chmodSync(bin, 0o755);
 
-    const out = createFetchWebCliClientFromEnv({
+    const out = createAiFetchWebCliClientFromEnv({
       env: { PATH: dir },
       pathEnv: dir,
     });
@@ -449,11 +449,11 @@ describe('createFetchWebCliClientFromEnv', () => {
 
   test('respects an explicit bin override even if PATH is empty', () => {
     const dir = mkdtempSync(join(tmpdir(), 'pi-fwcli-'));
-    const bin = join(dir, 'fetch-web');
+    const bin = join(dir, 'ai-fetch-web');
     writeFileSync(bin, '#!/bin/sh\n');
     chmodSync(bin, 0o755);
 
-    const out = createFetchWebCliClientFromEnv({
+    const out = createAiFetchWebCliClientFromEnv({
       env: { PATH: '' },
       bin,
     });

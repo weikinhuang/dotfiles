@@ -1,8 +1,8 @@
 # shellcheck shell=bash
-# Bash completion for fetch-web.
+# Bash completion for ai-fetch-web.
 # SPDX-License-Identifier: MIT
 
-_dot_fetch_web() {
+_dot_ai_fetch_web() {
   local cur prev
   cur="${COMP_WORDS[COMP_CWORD]}"
   prev="${COMP_WORDS[COMP_CWORD - 1]}"
@@ -64,4 +64,4 @@ _dot_fetch_web() {
   compopt -o default 2>/dev/null || true
   COMPREPLY=()
 }
-complete -F _dot_fetch_web fetch-web
+complete -F _dot_ai_fetch_web ai-fetch-web

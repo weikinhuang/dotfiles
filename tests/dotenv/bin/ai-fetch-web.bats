@@ -1,15 +1,15 @@
 #!/usr/bin/env bats
-# Tests for dotenv/bin/fetch-web.
+# Tests for dotenv/bin/ai-fetch-web.
 # SPDX-License-Identifier: MIT
 
 setup() {
   load '../../helpers/common'
   setup_test_bin
   setup_isolated_home
-  SCRIPT="${REPO_ROOT}/dotenv/bin/fetch-web"
+  SCRIPT="${REPO_ROOT}/dotenv/bin/ai-fetch-web"
 
-  export FETCH_WEB_URL="http://mock.invalid/mcp/"
-  export FETCH_WEB_AUTH="Bearer test-token"
+  export AI_FETCH_WEB_URL="http://mock.invalid/mcp/"
+  export AI_FETCH_WEB_AUTH="Bearer test-token"
 
   # Default canned body + status for the curl stub. Tests override as needed.
   export FAKE_CURL_BODY_FILE="${BATS_TEST_TMPDIR}/body"
@@ -128,30 +128,30 @@ captured_headers() { cat "${FAKE_CURL_CAPTURE_DIR}/headers" 2>/dev/null; }
 # Help & dispatch
 # ──────────────────────────────────────────────────────────────────
 
-@test "fetch-web: --help lists all subcommands" {
+@test "ai-fetch-web: --help lists all subcommands" {
   run bash "${SCRIPT}" --help
   assert_success
-  assert_output --partial "Usage: fetch-web"
+  assert_output --partial "Usage: ai-fetch-web"
   for op in search fetch fetch-many convert links extract metadata screenshot defaults; do
     assert_output --partial "${op}"
   done
 }
 
-@test "fetch-web: unknown subcommand exits 2" {
+@test "ai-fetch-web: unknown subcommand exits 2" {
   run bash "${SCRIPT}" bogus
   assert_failure
   [[ "${status}" -eq 2 ]]
   assert_output --partial "unknown subcommand: bogus"
 }
 
-@test "fetch-web: missing op prints help to stderr and exits 2" {
+@test "ai-fetch-web: missing op prints help to stderr and exits 2" {
   run bash "${SCRIPT}"
   assert_failure
   [[ "${status}" -eq 2 ]]
-  assert_output --partial "Usage: fetch-web"
+  assert_output --partial "Usage: ai-fetch-web"
 }
 
-@test "fetch-web: unknown global flag exits 2" {
+@test "ai-fetch-web: unknown global flag exits 2" {
   run bash "${SCRIPT}" --bogus-flag search q
   assert_failure
   [[ "${status}" -eq 2 ]]
@@ -162,16 +162,16 @@ captured_headers() { cat "${FAKE_CURL_CAPTURE_DIR}/headers" 2>/dev/null; }
 # Config loading
 # ──────────────────────────────────────────────────────────────────
 
-@test "fetch-web: missing config exits 3" {
-  unset FETCH_WEB_URL FETCH_WEB_AUTH
+@test "ai-fetch-web: missing config exits 3" {
+  unset AI_FETCH_WEB_URL AI_FETCH_WEB_AUTH
   run bash "${SCRIPT}" search q
   assert_failure
   [[ "${status}" -eq 3 ]]
   assert_output --partial "no MCP server configured"
 }
 
-@test "fetch-web: pi mcp.json fallback supplies url + headers" {
-  unset FETCH_WEB_URL FETCH_WEB_AUTH
+@test "ai-fetch-web: pi mcp.json fallback supplies url + headers" {
+  unset AI_FETCH_WEB_URL AI_FETCH_WEB_AUTH
   mkdir -p "${HOME}/.pi/agent"
   cat >"${HOME}/.pi/agent/mcp.json" <<'JSON'
 {
@@ -196,7 +196,7 @@ JSON
   assert_output --partial "x-mcp-servers: fetch_web_mcp"
 }
 
-@test "fetch-web: FETCH_WEB_AUTH env becomes Authorization header" {
+@test "ai-fetch-web: AI_FETCH_WEB_AUTH env becomes Authorization header" {
   set_tool_text_response "ok"
   run bash "${SCRIPT}" search q
   assert_success
@@ -206,8 +206,8 @@ JSON
   assert_output --partial "Accept: application/json, text/event-stream"
 }
 
-@test "fetch-web: FETCH_WEB_HEADERS splits newlines and semicolons" {
-  export FETCH_WEB_HEADERS="X-One: alpha
+@test "ai-fetch-web: AI_FETCH_WEB_HEADERS splits newlines and semicolons" {
+  export AI_FETCH_WEB_HEADERS="X-One: alpha
 X-Two: beta;X-Three: gamma"
   set_tool_text_response "ok"
   run bash "${SCRIPT}" search q
@@ -222,7 +222,7 @@ X-Two: beta;X-Three: gamma"
 # JSON-RPC payload shape
 # ──────────────────────────────────────────────────────────────────
 
-@test "fetch-web search: builds tools/call with query + limit + engines" {
+@test "ai-fetch-web search: builds tools/call with query + limit + engines" {
   set_tool_text_response "query ok"
   run bash "${SCRIPT}" search "rust 1.0" --limit 5 --engines google,bing
   assert_success
@@ -235,14 +235,14 @@ X-Two: beta;X-Three: gamma"
   [[ "$(jq -r '.params.arguments.engines | join(",")' <<<"${payload}")" == "google,bing" ]]
 }
 
-@test "fetch-web search: rejects non-numeric --limit" {
+@test "ai-fetch-web search: rejects non-numeric --limit" {
   run bash "${SCRIPT}" search hi --limit abc
   assert_failure
   [[ "${status}" -eq 2 ]]
   assert_output --partial "--limit must be a non-negative integer"
 }
 
-@test "fetch-web fetch: builds tools/call with url only" {
+@test "ai-fetch-web fetch: builds tools/call with url only" {
   set_tool_text_response "some text"
   run bash "${SCRIPT}" fetch https://example.com
   assert_success
@@ -253,14 +253,14 @@ X-Two: beta;X-Three: gamma"
   [[ "$(jq -r '.params.arguments | has("format")' <<<"${payload}")" == "false" ]]
 }
 
-@test "fetch-web fetch: --format is passed through" {
+@test "ai-fetch-web fetch: --format is passed through" {
   set_tool_text_response "body"
   run bash "${SCRIPT}" fetch https://example.com --format html
   assert_success
   [[ "$(jq -r .params.arguments.format <<<"$(captured_payload)")" == "html" ]]
 }
 
-@test "fetch-web fetch-many: wraps each URL in an object" {
+@test "ai-fetch-web fetch-many: wraps each URL in an object" {
   set_tool_text_response "body"
   run bash "${SCRIPT}" fetch-many https://a.example https://b.example
   assert_success
@@ -272,7 +272,7 @@ X-Two: beta;X-Three: gamma"
   [[ "$(jq -r '.params.arguments.urls[1].url' <<<"${payload}")" == "https://b.example" ]]
 }
 
-@test "fetch-web fetch-many: applies --format per-URL, not top-level" {
+@test "ai-fetch-web fetch-many: applies --format per-URL, not top-level" {
   set_tool_text_response "body"
   run bash "${SCRIPT}" fetch-many --format markdown https://a.example
   assert_success
@@ -282,14 +282,14 @@ X-Two: beta;X-Three: gamma"
   [[ "$(jq -r '.params.arguments | has("format")' <<<"${payload}")" == "false" ]]
 }
 
-@test "fetch-web fetch-many: reads URLs from stdin with -" {
+@test "ai-fetch-web fetch-many: reads URLs from stdin with -" {
   set_tool_text_response "body"
   run bash -c "printf 'https://a.example\nhttps://b.example\n' | bash '${SCRIPT}' fetch-many -"
   assert_success
   [[ "$(jq -r '.params.arguments.urls | length' <<<"$(captured_payload)")" == "2" ]]
 }
 
-@test "fetch-web convert: reads HTML from stdin via -" {
+@test "ai-fetch-web convert: reads HTML from stdin via -" {
   set_tool_text_response "# H"
   run bash -c "printf '<h1>Hi</h1>' | bash '${SCRIPT}' convert --html-file -"
   assert_success
@@ -299,7 +299,7 @@ X-Two: beta;X-Three: gamma"
   [[ "$(jq -r .params.arguments.html <<<"${payload}")" == "<h1>Hi</h1>" ]]
 }
 
-@test "fetch-web convert: escapes nasty characters correctly" {
+@test "ai-fetch-web convert: escapes nasty characters correctly" {
   set_tool_text_response "ok"
   local html='<p class="x">$1 \n "quoted" & <script>alert(1)</script></p>'
   run bash -c "printf '%s' '${html//\'/\'\\\'\'}' | bash '${SCRIPT}' convert --html-file -"
@@ -310,7 +310,7 @@ X-Two: beta;X-Three: gamma"
   [[ "${got}" == "${html}" ]]
 }
 
-@test "fetch-web extract: builds schema object with type:value" {
+@test "ai-fetch-web extract: builds schema object with type:value" {
   set_tool_text_response "{}"
   run bash "${SCRIPT}" extract https://e.example --fields 'title:h1;body:p'
   assert_success
@@ -323,14 +323,14 @@ X-Two: beta;X-Three: gamma"
   [[ "$(jq -r '.params.arguments.schema.body.selector' <<<"${payload}")" == "p" ]]
 }
 
-@test "fetch-web extract: missing --fields and --fields-file exits 2" {
+@test "ai-fetch-web extract: missing --fields and --fields-file exits 2" {
   run bash "${SCRIPT}" extract https://e.example
   assert_failure
   [[ "${status}" -eq 2 ]]
   assert_output --partial "need --fields or --fields-file"
 }
 
-@test "fetch-web extract: --fields-file loads full JSON schema" {
+@test "ai-fetch-web extract: --fields-file loads full JSON schema" {
   local schema="${BATS_TEST_TMPDIR}/schema.json"
   cat >"${schema}" <<'JSON'
 {
@@ -346,7 +346,7 @@ JSON
   [[ "$(jq -r '.params.arguments.schema.items.fields.name.selector' <<<"${payload}")" == "h2" ]]
 }
 
-@test "fetch-web defaults: uses resources/read with the defaults URI" {
+@test "ai-fetch-web defaults: uses resources/read with the defaults URI" {
   set_resource_text_response "config://fetch-web-mcp/defaults" '{"serverName":"fetch-web-mcp"}'
   run bash "${SCRIPT}" defaults
   assert_success
@@ -361,14 +361,14 @@ JSON
 # SSE / JSON framing + error paths
 # ──────────────────────────────────────────────────────────────────
 
-@test "fetch-web: bare-JSON response is accepted" {
+@test "ai-fetch-web: bare-JSON response is accepted" {
   set_tool_text_bare_response "bare body"
   run bash "${SCRIPT}" fetch https://example.com
   assert_success
   assert_output --partial "bare body"
 }
 
-@test "fetch-web: malformed response body exits 3" {
+@test "ai-fetch-web: malformed response body exits 3" {
   printf 'not-json-and-not-sse\n' >"${FAKE_CURL_BODY_FILE}"
   run bash "${SCRIPT}" fetch https://example.com
   assert_failure
@@ -376,7 +376,7 @@ JSON
   assert_output --partial "could not parse response body"
 }
 
-@test "fetch-web: HTTP 500 exits 3 with body excerpt" {
+@test "ai-fetch-web: HTTP 500 exits 3 with body excerpt" {
   export FAKE_CURL_STATUS=500
   printf 'server exploded' >"${FAKE_CURL_BODY_FILE}"
   run bash "${SCRIPT}" fetch https://example.com
@@ -386,7 +386,7 @@ JSON
   assert_output --partial "server exploded"
 }
 
-@test "fetch-web: JSON-RPC transport error exits 1" {
+@test "ai-fetch-web: JSON-RPC transport error exits 1" {
   set_rpc_error_response "method not found"
   run bash "${SCRIPT}" fetch https://example.com
   assert_failure
@@ -395,7 +395,7 @@ JSON
   assert_output --partial "method not found"
 }
 
-@test "fetch-web: tool-level isError:true exits 1 with inner text" {
+@test "ai-fetch-web: tool-level isError:true exits 1 with inner text" {
   set_tool_error_response "Tool not found"
   run bash "${SCRIPT}" fetch https://example.com
   assert_failure
@@ -408,7 +408,7 @@ JSON
 # Response rendering
 # ──────────────────────────────────────────────────────────────────
 
-@test "fetch-web fetch: strips fetch_web prelude by default" {
+@test "ai-fetch-web fetch: strips fetch_web prelude by default" {
   set_tool_text_response "Requested URL: https://e.example
 Status: 200
 Article-Title: Hello
@@ -425,7 +425,7 @@ Body paragraph."
   refute_output --partial "Article-Title:"
 }
 
-@test "fetch-web fetch: --raw keeps the prelude" {
+@test "ai-fetch-web fetch: --raw keeps the prelude" {
   set_tool_text_response "Requested URL: https://e.example
 Status: 200
 
@@ -437,7 +437,7 @@ Status: 200
   assert_output --partial "# Hello"
 }
 
-@test "fetch-web fetch: --json returns raw MCP result object" {
+@test "ai-fetch-web fetch: --json returns raw MCP result object" {
   set_tool_text_response "body"
   run bash "${SCRIPT}" fetch https://e.example --json
   assert_success
@@ -445,7 +445,7 @@ Status: 200
   [[ "$(jq -r '.content[0].text' <<<"${output}")" == "body" ]]
 }
 
-@test "fetch-web fetch: body without prelude passes through unchanged" {
+@test "ai-fetch-web fetch: body without prelude passes through unchanged" {
   set_tool_text_response "no header here
 just a body"
   run bash "${SCRIPT}" fetch https://e.example
@@ -454,7 +454,7 @@ just a body"
   assert_output --partial "just a body"
 }
 
-@test "fetch-web search: prelude-style rendered view is preserved" {
+@test "ai-fetch-web search: prelude-style rendered view is preserved" {
   # Search's text content is self-describing and should NOT be stripped.
   set_tool_text_response "Query: hi
 Result Count: 1
@@ -473,7 +473,7 @@ Snippet: thing"
 # Screenshot
 # ──────────────────────────────────────────────────────────────────
 
-@test "fetch-web screenshot: writes PNG bytes to -o PATH" {
+@test "ai-fetch-web screenshot: writes PNG bytes to -o PATH" {
   local png_b64
   png_b64="$(printf '\x89PNG\r\n\x1a\nFAKEPNGBYTES' | base64 -w0)"
   set_tool_image_response "${png_b64}"
@@ -486,12 +486,12 @@ Snippet: thing"
   [[ "${head4}" == $'\x89PNG' ]]
 }
 
-@test "fetch-web screenshot: refuses to dump binary to a tty" {
+@test "ai-fetch-web screenshot: refuses to dump binary to a tty" {
   # Force stdout to look like a tty by running inside `script` (util-linux).
   # If `script` isn't available, skip.
   command -v script >/dev/null 2>&1 || skip "script(1) not available"
   local log="${BATS_TEST_TMPDIR}/script.log"
-  run script -q -c "FETCH_WEB_URL='${FETCH_WEB_URL}' FETCH_WEB_AUTH='${FETCH_WEB_AUTH}' PATH='${PATH}' FAKE_CURL_BODY_FILE='${FAKE_CURL_BODY_FILE}' FAKE_CURL_STATUS='${FAKE_CURL_STATUS}' FAKE_CURL_CAPTURE_FILE='${FAKE_CURL_CAPTURE_FILE}' bash '${SCRIPT}' screenshot https://e.example" "${log}"
+  run script -q -c "AI_FETCH_WEB_URL='${AI_FETCH_WEB_URL}' AI_FETCH_WEB_AUTH='${AI_FETCH_WEB_AUTH}' PATH='${PATH}' FAKE_CURL_BODY_FILE='${FAKE_CURL_BODY_FILE}' FAKE_CURL_STATUS='${FAKE_CURL_STATUS}' FAKE_CURL_CAPTURE_FILE='${FAKE_CURL_CAPTURE_FILE}' bash '${SCRIPT}' screenshot https://e.example" "${log}"
   # The script wrapper always succeeds; check the log for our error.
   grep -q "stdout is a terminal" "${log}"
 }
@@ -500,41 +500,41 @@ Snippet: thing"
 # Unit-level helper tests via source_without_main
 # ──────────────────────────────────────────────────────────────────
 
-@test "fetch-web: parse_sse_or_json handles SSE frame" {
+@test "ai-fetch-web: parse_sse_or_json handles SSE frame" {
   source_without_main "${SCRIPT}"
   run parse_sse_or_json <<<$'event: message\ndata: {"a":1}\n\n'
   assert_success
   [[ "$(jq -r .a <<<"${output}")" == "1" ]]
 }
 
-@test "fetch-web: parse_sse_or_json handles bare JSON" {
+@test "ai-fetch-web: parse_sse_or_json handles bare JSON" {
   source_without_main "${SCRIPT}"
   run parse_sse_or_json <<<'{"b":2}'
   assert_success
   [[ "$(jq -r .b <<<"${output}")" == "2" ]]
 }
 
-@test "fetch-web: parse_sse_or_json exits non-zero on empty body" {
+@test "ai-fetch-web: parse_sse_or_json exits non-zero on empty body" {
   source_without_main "${SCRIPT}"
   run parse_sse_or_json </dev/null
   assert_failure
 }
 
-@test "fetch-web: strip_fetch_prelude removes header block" {
+@test "ai-fetch-web: strip_fetch_prelude removes header block" {
   source_without_main "${SCRIPT}"
   run strip_fetch_prelude <<<$'A: one\nB: two\n\nbody line 1\nbody line 2'
   assert_success
   assert_output $'body line 1\nbody line 2'
 }
 
-@test "fetch-web: strip_fetch_prelude leaves non-header input untouched" {
+@test "ai-fetch-web: strip_fetch_prelude leaves non-header input untouched" {
   source_without_main "${SCRIPT}"
   run strip_fetch_prelude <<<$'not a header\nsecond line'
   assert_success
   assert_output $'not a header\nsecond line'
 }
 
-@test "fetch-web: strip_fetch_prelude handles body starting with blank line" {
+@test "ai-fetch-web: strip_fetch_prelude handles body starting with blank line" {
   source_without_main "${SCRIPT}"
   run strip_fetch_prelude <<<$'\nbody'
   assert_success
@@ -542,14 +542,14 @@ Snippet: thing"
   assert_output --partial "body"
 }
 
-@test "fetch-web: extract_text concatenates text parts" {
+@test "ai-fetch-web: extract_text concatenates text parts" {
   source_without_main "${SCRIPT}"
   run extract_text <<<'{"content":[{"type":"text","text":"a"},{"type":"image","data":"xx"},{"type":"text","text":"b"}]}'
   assert_success
   assert_output $'a\nb'
 }
 
-@test "fetch-web: extract_image base64-decodes the first image part" {
+@test "ai-fetch-web: extract_image base64-decodes the first image part" {
   source_without_main "${SCRIPT}"
   local b64
   b64="$(printf 'RAWBYTES' | base64 -w0)"
@@ -561,7 +561,7 @@ Snippet: thing"
   assert_output "RAWBYTES"
 }
 
-@test "fetch-web: parse_fields_spec wraps each value in {type:value,selector:...}" {
+@test "ai-fetch-web: parse_fields_spec wraps each value in {type:value,selector:...}" {
   source_without_main "${SCRIPT}"
   run parse_fields_spec "title:h1;body:.post p"
   assert_success
@@ -570,7 +570,7 @@ Snippet: thing"
   [[ "$(jq -r '.body.selector' <<<"${output}")" == ".post p" ]]
 }
 
-@test "fetch-web: build_args_fetch_urls wraps bare urls in objects" {
+@test "ai-fetch-web: build_args_fetch_urls wraps bare urls in objects" {
   source_without_main "${SCRIPT}"
   run build_args_fetch_urls "" https://a.example https://b.example
   assert_success
@@ -579,7 +579,7 @@ Snippet: thing"
   [[ "$(jq -r '.urls[0] | has("format")' <<<"${output}")" == "false" ]]
 }
 
-@test "fetch-web: build_args_fetch_urls applies format per-url" {
+@test "ai-fetch-web: build_args_fetch_urls applies format per-url" {
   source_without_main "${SCRIPT}"
   run build_args_fetch_urls "markdown" https://a.example
   assert_success
@@ -590,19 +590,19 @@ Snippet: thing"
 # Live smoke tests (opt-in)
 # ──────────────────────────────────────────────────────────────────
 #
-# Gated on DOT_FETCH_WEB_LIVE=1 so the default test run stays offline
+# Gated on DOT_AI_FETCH_WEB_LIVE=1 so the default test run stays offline
 # and credential-free. Requires a valid ~/.pi/agent/mcp.json or
-# FETCH_WEB_URL + FETCH_WEB_AUTH.
+# AI_FETCH_WEB_URL + AI_FETCH_WEB_AUTH.
 
-@test "fetch-web [live]: defaults round-trip" {
-  [[ "${DOT_FETCH_WEB_LIVE:-}" == "1" ]] || skip "DOT_FETCH_WEB_LIVE not set"
+@test "ai-fetch-web [live]: defaults round-trip" {
+  [[ "${DOT_AI_FETCH_WEB_LIVE:-}" == "1" ]] || skip "DOT_AI_FETCH_WEB_LIVE not set"
   run bash "${SCRIPT}" defaults
   assert_success
   assert_output --partial '"serverName"'
 }
 
-@test "fetch-web [live]: fetch example.com returns body content" {
-  [[ "${DOT_FETCH_WEB_LIVE:-}" == "1" ]] || skip "DOT_FETCH_WEB_LIVE not set"
+@test "ai-fetch-web [live]: fetch example.com returns body content" {
+  [[ "${DOT_AI_FETCH_WEB_LIVE:-}" == "1" ]] || skip "DOT_AI_FETCH_WEB_LIVE not set"
   run bash "${SCRIPT}" fetch https://example.com
   assert_success
 }

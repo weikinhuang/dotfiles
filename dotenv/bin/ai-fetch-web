@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# fetch-web -- harness-agnostic CLI for the fetch_web MCP server.
+# ai-fetch-web -- harness-agnostic CLI for the fetch_web MCP server.
 # SPDX-License-Identifier: MIT
 #
 # Speaks MCP JSON-RPC 2.0 over HTTPS to an existing fetch_web server
-# (configured via FETCH_WEB_URL + FETCH_WEB_AUTH). Exposes the most-
+# (configured via AI_FETCH_WEB_URL + AI_FETCH_WEB_AUTH). Exposes the most-
 # used tools as subcommands with human-friendly output by default and
 # a `--json` passthrough for programmatic callers.
 #
-# See config/pi/skills/fetch-web/SKILL.md for usage.
+# See config/pi/skills/ai-fetch-web/SKILL.md for usage.
 
 set -euo pipefail
 IFS=$'\n\t'
@@ -18,7 +18,7 @@ IFS=$'\n\t'
 
 print_help() {
   cat <<'HELPDOC'
-Usage: fetch-web <op> [args] [--json] [--timeout-ms N] [-v] [-h]
+Usage: ai-fetch-web <op> [args] [--json] [--timeout-ms N] [-v] [-h]
 
 A harness-agnostic CLI for the fetch_web MCP server.
 
@@ -41,18 +41,18 @@ Global flags:
   -h, --help            show this help
 
 Configuration (env vars, harness-agnostic):
-  FETCH_WEB_URL         MCP endpoint URL. Required.
-  FETCH_WEB_AUTH        Value placed verbatim into Authorization:
+  AI_FETCH_WEB_URL         MCP endpoint URL. Required.
+  AI_FETCH_WEB_AUTH        Value placed verbatim into Authorization:
                         e.g. "Basic abc..." or "Bearer sk-...". Optional.
-  FETCH_WEB_HEADERS     Extra Header: value pairs, newline- or
+  AI_FETCH_WEB_HEADERS     Extra Header: value pairs, newline- or
                         semicolon-separated. Optional.
 
 Pi convenience fallback:
-  When FETCH_WEB_URL is unset, ~/.pi/agent/mcp.json is consulted for an
+  When AI_FETCH_WEB_URL is unset, ~/.pi/agent/mcp.json is consulted for an
   HTTP server entry named "fetch_web". Non-pi harnesses just set the
   env vars above.
 
-Run `fetch-web <op> --help` for subcommand-specific usage.
+Run `ai-fetch-web <op> --help` for subcommand-specific usage.
 Exit codes: 0 ok, 1 tool/RPC error, 2 usage, 3 config/network/HTTP.
 HELPDOC
 }
@@ -62,7 +62,7 @@ print_op_help() {
   case "${op}" in
     search)
       cat <<'EOF'
-Usage: fetch-web search <query> [flags]
+Usage: ai-fetch-web search <query> [flags]
 
 Search the web and return ranked results.
 
@@ -77,7 +77,7 @@ EOF
       ;;
     fetch)
       cat <<'EOF'
-Usage: fetch-web fetch <url> [flags]
+Usage: ai-fetch-web fetch <url> [flags]
 
 Fetch one URL and return the article body.
 
@@ -88,8 +88,8 @@ EOF
       ;;
     fetch-many)
       cat <<'EOF'
-Usage: fetch-web fetch-many <url>... [flags]
-       fetch-web fetch-many - [flags]   # URLs from stdin, one per line
+Usage: ai-fetch-web fetch-many <url>... [flags]
+       ai-fetch-web fetch-many - [flags]   # URLs from stdin, one per line
 
 Fetch many URLs in parallel (handled server-side).
 
@@ -101,7 +101,7 @@ EOF
       ;;
     convert)
       cat <<'EOF'
-Usage: fetch-web convert [flags]
+Usage: ai-fetch-web convert [flags]
 
 Convert raw HTML to markdown/text. Input source is required:
 
@@ -115,7 +115,7 @@ EOF
       ;;
     links)
       cat <<'EOF'
-Usage: fetch-web links <url> [--raw]
+Usage: ai-fetch-web links <url> [--raw]
 
 Fetch a page and list its hyperlinks (one markdown link per line).
 
@@ -125,7 +125,7 @@ EOF
       ;;
     extract)
       cat <<'EOF'
-Usage: fetch-web extract <url> (--fields SPEC | --fields-file PATH) [--raw]
+Usage: ai-fetch-web extract <url> (--fields SPEC | --fields-file PATH) [--raw]
 
 Extract structured fields from a page using the extract_fields `schema`.
 
@@ -144,7 +144,7 @@ EOF
       ;;
     metadata)
       cat <<'EOF'
-Usage: fetch-web metadata <url> [--raw]
+Usage: ai-fetch-web metadata <url> [--raw]
 
 Fetch a page's title / language / og:* / JSON-LD / feeds as a JSON object.
 
@@ -154,7 +154,7 @@ EOF
       ;;
     screenshot)
       cat <<'EOF'
-Usage: fetch-web screenshot <url> [-o PATH]
+Usage: ai-fetch-web screenshot <url> [-o PATH]
 
 Capture a PNG screenshot of the page. curl-style output:
   * without -o: PNG bytes to stdout (refused when stdout is a terminal)
@@ -163,10 +163,10 @@ EOF
       ;;
     defaults)
       cat <<'EOF'
-Usage: fetch-web defaults
+Usage: ai-fetch-web defaults
 
 Print the MCP server's read-only default configuration. Useful as a
-ping / smoke test to verify FETCH_WEB_URL + FETCH_WEB_AUTH work.
+ping / smoke test to verify AI_FETCH_WEB_URL + AI_FETCH_WEB_AUTH work.
 EOF
       ;;
     *)
@@ -182,7 +182,7 @@ EOF
 require_tool() {
   local tool="$1"
   if ! command -v "${tool}" >/dev/null 2>&1; then
-    echo "fetch-web: missing required tool '${tool}'" >&2
+    echo "ai-fetch-web: missing required tool '${tool}'" >&2
     echo "         install: apt install ${tool} | brew install ${tool}" >&2
     exit 3
   fi
@@ -210,15 +210,15 @@ FW_HEADERS=()
 FW_CONFIG_SOURCE=""
 
 load_config() {
-  FW_URL="${FETCH_WEB_URL:-}"
+  FW_URL="${AI_FETCH_WEB_URL:-}"
   FW_HEADERS=()
   FW_CONFIG_SOURCE=""
 
-  local auth="${FETCH_WEB_AUTH:-}"
-  local extra="${FETCH_WEB_HEADERS:-}"
+  local auth="${AI_FETCH_WEB_AUTH:-}"
+  local extra="${AI_FETCH_WEB_HEADERS:-}"
 
   if [[ -n "${FW_URL}" ]]; then
-    FW_CONFIG_SOURCE="FETCH_WEB_URL env"
+    FW_CONFIG_SOURCE="AI_FETCH_WEB_URL env"
   else
     # Pi convenience fallback: ~/.pi/agent/mcp.json
     local pi_cfg="${HOME}/.pi/agent/mcp.json"
@@ -244,8 +244,8 @@ load_config() {
   fi
 
   if [[ -z "${FW_URL}" ]]; then
-    echo "fetch-web: no MCP server configured" >&2
-    echo "         set FETCH_WEB_URL (and FETCH_WEB_AUTH if needed), or" >&2
+    echo "ai-fetch-web: no MCP server configured" >&2
+    echo "         set AI_FETCH_WEB_URL (and AI_FETCH_WEB_AUTH if needed), or" >&2
     echo "         run inside a pi install with ~/.pi/agent/mcp.json" >&2
     exit 3
   fi
@@ -361,7 +361,7 @@ rpc_request() {
   local params="$2"
   local timeout_ms="${FW_TIMEOUT_MS:-30000}"
   if [[ ! "${timeout_ms}" =~ ^[0-9]+$ ]]; then
-    echo "fetch-web: --timeout-ms must be a non-negative integer (got '${timeout_ms}')" >&2
+    echo "ai-fetch-web: --timeout-ms must be a non-negative integer (got '${timeout_ms}')" >&2
     exit 2
   fi
   local timeout_s=$(((timeout_ms + 999) / 1000))
@@ -373,8 +373,8 @@ rpc_request() {
     '{jsonrpc: "2.0", id: 1, method: $method, params: $params}')"
 
   if [[ -n "${FW_VERBOSE:-}" ]]; then
-    printf 'fetch-web: POST %s (config: %s)\n' "${FW_URL}" "${FW_CONFIG_SOURCE}" >&2
-    printf 'fetch-web: payload: %s\n' "${payload}" >&2
+    printf 'ai-fetch-web: POST %s (config: %s)\n' "${FW_URL}" "${FW_CONFIG_SOURCE}" >&2
+    printf 'ai-fetch-web: payload: %s\n' "${payload}" >&2
   fi
 
   local tmp http_code
@@ -398,11 +398,11 @@ rpc_request() {
   )"
 
   if [[ "${http_code}" == "000" ]]; then
-    echo "fetch-web: network error calling ${FW_URL}" >&2
+    echo "ai-fetch-web: network error calling ${FW_URL}" >&2
     exit 3
   fi
   if [[ "${http_code:0:1}" != "2" ]]; then
-    echo "fetch-web: HTTP ${http_code} from ${FW_URL}" >&2
+    echo "ai-fetch-web: HTTP ${http_code} from ${FW_URL}" >&2
     head -c 400 "${tmp}" >&2 || true
     echo >&2
     exit 3
@@ -410,21 +410,21 @@ rpc_request() {
 
   local json
   if ! json="$(parse_sse_or_json <"${tmp}")"; then
-    echo "fetch-web: could not parse response body" >&2
+    echo "ai-fetch-web: could not parse response body" >&2
     head -c 400 "${tmp}" >&2 || true
     echo >&2
     exit 3
   fi
 
   if [[ -n "${FW_VERBOSE:-}" ]]; then
-    printf 'fetch-web: response: %s\n' "${json}" >&2
+    printf 'ai-fetch-web: response: %s\n' "${json}" >&2
   fi
 
   # JSON-RPC transport error.
   local err_msg
   err_msg="$(printf '%s' "${json}" | jq -r '.error.message // empty')"
   if [[ -n "${err_msg}" ]]; then
-    echo "fetch-web: JSON-RPC error (${method}): ${err_msg}" >&2
+    echo "ai-fetch-web: JSON-RPC error (${method}): ${err_msg}" >&2
     exit 1
   fi
 
@@ -438,7 +438,7 @@ rpc_request() {
     tool_err="$(printf '%s' "${json}" | jq -r '
       [.result.content[]? | select(.type == "text") | .text] | join("\n")
     ')"
-    echo "fetch-web: tool error (${method}): ${tool_err}" >&2
+    echo "ai-fetch-web: tool error (${method}): ${tool_err}" >&2
     exit 1
   fi
 
@@ -606,7 +606,7 @@ cmd_search() {
         break
         ;;
       -*)
-        echo "fetch-web search: unknown flag: $1" >&2
+        echo "ai-fetch-web search: unknown flag: $1" >&2
         exit 2
         ;;
       *)
@@ -620,11 +620,11 @@ cmd_search() {
     esac
   done
   if [[ -z "${query}" ]]; then
-    echo "fetch-web search: missing <query>" >&2
+    echo "ai-fetch-web search: missing <query>" >&2
     exit 2
   fi
   if [[ -n "${limit}" && ! "${limit}" =~ ^[0-9]+$ ]]; then
-    echo "fetch-web search: --limit must be a non-negative integer" >&2
+    echo "ai-fetch-web search: --limit must be a non-negative integer" >&2
     exit 2
   fi
 
@@ -672,14 +672,14 @@ cmd_fetch() {
         break
         ;;
       -*)
-        echo "fetch-web fetch: unknown flag: $1" >&2
+        echo "ai-fetch-web fetch: unknown flag: $1" >&2
         exit 2
         ;;
       *)
         if [[ -z "${url}" ]]; then
           url="$1"
         else
-          echo "fetch-web fetch: unexpected extra argument: $1" >&2
+          echo "ai-fetch-web fetch: unexpected extra argument: $1" >&2
           exit 2
         fi
         shift
@@ -687,7 +687,7 @@ cmd_fetch() {
     esac
   done
   if [[ -z "${url}" ]]; then
-    echo "fetch-web fetch: missing <url>" >&2
+    echo "ai-fetch-web fetch: missing <url>" >&2
     exit 2
   fi
 
@@ -750,7 +750,7 @@ cmd_fetch_many() {
         shift
         ;;
       -*)
-        echo "fetch-web fetch-many: unknown flag: $1" >&2
+        echo "ai-fetch-web fetch-many: unknown flag: $1" >&2
         exit 2
         ;;
       *)
@@ -760,7 +760,7 @@ cmd_fetch_many() {
     esac
   done
   if [[ ${#urls[@]} -eq 0 ]]; then
-    echo "fetch-web fetch-many: no URLs given" >&2
+    echo "ai-fetch-web fetch-many: no URLs given" >&2
     exit 2
   fi
 
@@ -831,17 +831,17 @@ cmd_convert() {
         break
         ;;
       -*)
-        echo "fetch-web convert: unknown flag: $1" >&2
+        echo "ai-fetch-web convert: unknown flag: $1" >&2
         exit 2
         ;;
       *)
-        echo "fetch-web convert: unexpected argument: $1" >&2
+        echo "ai-fetch-web convert: unexpected argument: $1" >&2
         exit 2
         ;;
     esac
   done
   if [[ -z "${html_file}" ]]; then
-    echo "fetch-web convert: missing --html-file (use - for stdin)" >&2
+    echo "ai-fetch-web convert: missing --html-file (use - for stdin)" >&2
     exit 2
   fi
 
@@ -850,7 +850,7 @@ cmd_convert() {
     html="$(cat)"
   else
     if [[ ! -f "${html_file}" ]]; then
-      echo "fetch-web convert: no such file: ${html_file}" >&2
+      echo "ai-fetch-web convert: no such file: ${html_file}" >&2
       exit 2
     fi
     html="$(cat "${html_file}")"
@@ -893,14 +893,14 @@ cmd_links() {
         shift
         ;;
       -*)
-        echo "fetch-web links: unknown flag: $1" >&2
+        echo "ai-fetch-web links: unknown flag: $1" >&2
         exit 2
         ;;
       *)
         if [[ -z "${url}" ]]; then
           url="$1"
         else
-          echo "fetch-web links: unexpected extra argument: $1" >&2
+          echo "ai-fetch-web links: unexpected extra argument: $1" >&2
           exit 2
         fi
         shift
@@ -908,7 +908,7 @@ cmd_links() {
     esac
   done
   if [[ -z "${url}" ]]; then
-    echo "fetch-web links: missing <url>" >&2
+    echo "ai-fetch-web links: missing <url>" >&2
     exit 2
   fi
 
@@ -971,14 +971,14 @@ cmd_extract() {
         break
         ;;
       -*)
-        echo "fetch-web extract: unknown flag: $1" >&2
+        echo "ai-fetch-web extract: unknown flag: $1" >&2
         exit 2
         ;;
       *)
         if [[ -z "${url}" ]]; then
           url="$1"
         else
-          echo "fetch-web extract: unexpected extra argument: $1" >&2
+          echo "ai-fetch-web extract: unexpected extra argument: $1" >&2
           exit 2
         fi
         shift
@@ -986,18 +986,18 @@ cmd_extract() {
     esac
   done
   if [[ -z "${url}" ]]; then
-    echo "fetch-web extract: missing <url>" >&2
+    echo "ai-fetch-web extract: missing <url>" >&2
     exit 2
   fi
   if [[ -z "${fields_spec}" && -z "${fields_file}" ]]; then
-    echo "fetch-web extract: need --fields or --fields-file" >&2
+    echo "ai-fetch-web extract: need --fields or --fields-file" >&2
     exit 2
   fi
 
   local schema_json
   if [[ -n "${fields_file}" ]]; then
     if [[ ! -f "${fields_file}" ]]; then
-      echo "fetch-web extract: no such file: ${fields_file}" >&2
+      echo "ai-fetch-web extract: no such file: ${fields_file}" >&2
       exit 2
     fi
     schema_json="$(jq '.' <"${fields_file}")"
@@ -1043,14 +1043,14 @@ cmd_metadata() {
         shift
         ;;
       -*)
-        echo "fetch-web metadata: unknown flag: $1" >&2
+        echo "ai-fetch-web metadata: unknown flag: $1" >&2
         exit 2
         ;;
       *)
         if [[ -z "${url}" ]]; then
           url="$1"
         else
-          echo "fetch-web metadata: unexpected extra argument: $1" >&2
+          echo "ai-fetch-web metadata: unexpected extra argument: $1" >&2
           exit 2
         fi
         shift
@@ -1058,7 +1058,7 @@ cmd_metadata() {
     esac
   done
   if [[ -z "${url}" ]]; then
-    echo "fetch-web metadata: missing <url>" >&2
+    echo "ai-fetch-web metadata: missing <url>" >&2
     exit 2
   fi
 
@@ -1115,14 +1115,14 @@ cmd_screenshot() {
         break
         ;;
       -*)
-        echo "fetch-web screenshot: unknown flag: $1" >&2
+        echo "ai-fetch-web screenshot: unknown flag: $1" >&2
         exit 2
         ;;
       *)
         if [[ -z "${url}" ]]; then
           url="$1"
         else
-          echo "fetch-web screenshot: unexpected extra argument: $1" >&2
+          echo "ai-fetch-web screenshot: unexpected extra argument: $1" >&2
           exit 2
         fi
         shift
@@ -1130,13 +1130,13 @@ cmd_screenshot() {
     esac
   done
   if [[ -z "${url}" ]]; then
-    echo "fetch-web screenshot: missing <url>" >&2
+    echo "ai-fetch-web screenshot: missing <url>" >&2
     exit 2
   fi
 
   # curl-style tty guard: refuse to dump binary PNG to a terminal.
   if [[ -z "${out_path}" && -t 1 ]]; then
-    echo "fetch-web screenshot: stdout is a terminal; use -o PATH or redirect" >&2
+    echo "ai-fetch-web screenshot: stdout is a terminal; use -o PATH or redirect" >&2
     exit 2
   fi
 
@@ -1160,7 +1160,7 @@ cmd_defaults() {
       ;;
   esac
   if [[ $# -gt 0 ]]; then
-    echo "fetch-web defaults: no arguments expected" >&2
+    echo "ai-fetch-web defaults: no arguments expected" >&2
     exit 2
   fi
 
@@ -1214,7 +1214,7 @@ main() {
         break
         ;;
       -*)
-        echo "fetch-web: unknown global flag: $1" >&2
+        echo "ai-fetch-web: unknown global flag: $1" >&2
         exit 2
         ;;
       *)
@@ -1281,8 +1281,8 @@ main() {
       exit 0
       ;;
     *)
-      echo "fetch-web: unknown subcommand: ${op}" >&2
-      echo "           run 'fetch-web --help' for the op list" >&2
+      echo "ai-fetch-web: unknown subcommand: ${op}" >&2
+      echo "           run 'ai-fetch-web --help' for the op list" >&2
       exit 2
       ;;
   esac
