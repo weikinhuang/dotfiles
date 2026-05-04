@@ -66,6 +66,23 @@ interface PiMessage {
   content?: string | PiContentBlock[];
 }
 
+interface PiSubagentRunData {
+  agent?: string;
+  agentSource?: string;
+  task?: string;
+  model?: string;
+  turns?: number;
+  tokens?: { input?: number; cacheRead?: number; cacheWrite?: number; output?: number };
+  cost?: number;
+  durationMs?: number;
+  stopReason?: string;
+  workspace?: { isolation?: string; worktreePath?: string };
+  childSessionId?: string;
+  childSessionFile?: string;
+  handle?: string;
+  error?: string;
+}
+
 interface PiEntry {
   type?: string;
   id?: string;
@@ -82,7 +99,15 @@ interface PiEntry {
   name?: string;
   // Wrapped message (type === "message")
   message?: PiMessage;
+  // CustomEntry fields (type === "custom"): the subagent extension records
+  // each completed child run here so we can attribute agent labels / tasks
+  // back to the matching child .jsonl transcript.
+  customType?: string;
+  data?: PiSubagentRunData;
 }
+
+const SUBAGENT_RUN_CUSTOM_TYPE = 'subagent-run';
+const SUBAGENTS_DIRNAME = 'subagents';
 
 // ---------------------------------------------------------------------------
 // Parsing
@@ -107,6 +132,11 @@ interface ParsedPi {
   toolBytes: number;
   toolBreakdown: Record<string, number>;
   userTurns: number;
+  // Indexed by childSessionId so loadSessionDetail() can enrich each child
+  // transcript with its agent label / task / stop reason without re-reading
+  // the parent file. Empty for child session files, which don't record
+  // subagent-run entries for their own descendants.
+  subagentRuns: Map<string, PiSubagentRunData>;
 }
 
 function parseEntries(entries: PiEntry[], fallbackSessionId: string): ParsedPi {
@@ -124,6 +154,7 @@ function parseEntries(entries: PiEntry[], fallbackSessionId: string): ParsedPi {
   let toolCalls = 0;
   let toolBytes = 0;
   let userTurns = 0;
+  const subagentRuns = new Map<string, PiSubagentRunData>();
   // Tracks the explicit model last chosen via `/model`. Assistant messages
   // also carry their own `model` field, which is authoritative for that
   // specific response — we prefer it when attributing token slices.
@@ -155,6 +186,12 @@ function parseEntries(entries: PiEntry[], fallbackSessionId: string): ParsedPi {
 
     if (entry.type === 'session_info') {
       if (entry.name) sessionName = entry.name;
+      continue;
+    }
+
+    if (entry.type === 'custom' && entry.customType === SUBAGENT_RUN_CUSTOM_TYPE && entry.data) {
+      const childId = entry.data.childSessionId;
+      if (childId) subagentRuns.set(childId, entry.data);
       continue;
     }
 
@@ -255,10 +292,11 @@ function parseEntries(entries: PiEntry[], fallbackSessionId: string): ParsedPi {
     toolBytes,
     toolBreakdown,
     userTurns,
+    subagentRuns,
   };
 }
 
-function parsedToSummary(p: ParsedPi): SessionSummary {
+function parsedToSummary(p: ParsedPi, subagentCount: number): SessionSummary {
   const startMs = p.startTime ? new Date(p.startTime).getTime() : 0;
   const endMs = p.endTime ? new Date(p.endTime).getTime() : 0;
   const durationSecs = startMs && endMs ? Math.max(0, Math.floor((endMs - startMs) / 1000)) : 0;
@@ -273,9 +311,12 @@ function parsedToSummary(p: ParsedPi): SessionSummary {
     tokens: p.tokens,
     toolCalls: p.toolCalls,
     toolBreakdown: p.toolBreakdown,
-    // Pi has no subagents. Forked sessions live in sibling .jsonl files and
-    // are shown as their own top-level entries, not nested here.
-    subagentCount: 0,
+    // Pi's `subagent` extension writes each child session next to the parent
+    // under `subagents/<parent-session-id>/`. Mirror claude/codex: list/
+    // totals count parent tokens only; child tokens become their own rows in
+    // `session <uuid>`. Forked/cloned sessions live as sibling top-level
+    // .jsonl files and are shown as their own entries, not nested here.
+    subagentCount,
   };
   if (p.sessionName) summary.title = p.sessionName;
   if (p.cwd) summary.directory = p.cwd;
@@ -292,6 +333,59 @@ function parseSessionFile(filePath: string): ParsedPi {
   const base = path.basename(filePath, '.jsonl');
   const fallbackSessionId = base.includes('_') ? base.slice(base.lastIndexOf('_') + 1) : base;
   return parseEntries(readJsonlLines<PiEntry>(filePath), fallbackSessionId);
+}
+
+// ---------------------------------------------------------------------------
+// Subagent session discovery
+// ---------------------------------------------------------------------------
+
+/**
+ * The subagent extension writes child transcripts to
+ * `<projectDir>/subagents/<parent-session-id>/<timestamp>_<child-id>.jsonl`.
+ * We locate `<projectDir>` by stripping the parent session filename off the
+ * input path — all subagent files share the same `<projectDir>` root as
+ * their parent.
+ */
+function subagentDirFor(parentFilePath: string, parentSessionId: string): string {
+  return path.join(path.dirname(parentFilePath), SUBAGENTS_DIRNAME, parentSessionId);
+}
+
+function listSubagentFiles(parentFilePath: string, parentSessionId: string): string[] {
+  const dir = subagentDirFor(parentFilePath, parentSessionId);
+  if (!fs.existsSync(dir)) return [];
+  return fs
+    .readdirSync(dir)
+    .filter((f) => f.endsWith('.jsonl'))
+    .map((f) => path.join(dir, f));
+}
+
+function countSubagentFiles(parentFilePath: string, parentSessionId: string): number {
+  return listSubagentFiles(parentFilePath, parentSessionId).length;
+}
+
+function parsedToSubagent(p: ParsedPi, meta: PiSubagentRunData | undefined): Subagent {
+  // Child transcripts are authoritative for token counts, tool calls, model
+  // breakdown, and cost (pi records real cost per assistant message). The
+  // parent-side `subagent-run` entry contributes the agent identity and the
+  // task string that the parent used to spawn the child — neither of which
+  // appears in the child's own .jsonl.
+  const sa: Subagent = {
+    agentId: p.sessionId,
+    agentLabel: meta?.agent ?? '',
+    model: p.model,
+    tokens: p.tokens,
+    toolCalls: p.toolCalls,
+    toolBreakdown: p.toolBreakdown,
+  };
+  if (meta?.task) {
+    // Keep the task snippet short — some spawns paste multi-paragraph
+    // prompts; we want the detail view readable.
+    sa.description = meta.task.length > 160 ? `${meta.task.slice(0, 157)}…` : meta.task;
+  }
+  if (meta?.handle) sa.role = meta.handle;
+  if (p.cost > 0) sa.cost = p.cost;
+  if (p.modelBreakdown.length > 0) sa.modelBreakdown = p.modelBreakdown;
+  return sa;
 }
 
 // ---------------------------------------------------------------------------
@@ -370,21 +464,27 @@ function listSessions(ctx: PiContext): SessionSummary[] {
   for (const file of listSessionFiles(ctx.sessionsDir)) {
     const parsed = parseSessionFile(file);
     if (!matchesFilter(parsed.cwd, ctx.filterCwd)) continue;
-    summaries.push(parsedToSummary(parsed));
+    summaries.push(parsedToSummary(parsed, countSubagentFiles(file, parsed.sessionId)));
   }
   return summaries;
 }
 
 function listAllSessions(ctx: PiContext): SessionSummary[] {
-  return listSessionFiles(ctx.sessionsDir).map((f) => parsedToSummary(parseSessionFile(f)));
+  return listSessionFiles(ctx.sessionsDir).map((f) => {
+    const parsed = parseSessionFile(f);
+    return parsedToSummary(parsed, countSubagentFiles(f, parsed.sessionId));
+  });
 }
 
 function loadSessionDetail(ctx: PiContext, sessionId: string): SessionDetail {
   const file = resolveSessionFile(ctx.sessionsDir, sessionId);
   const parsed = parseSessionFile(file);
-  // Pi has no subagents. The empty array keeps the renderer happy.
-  const subagents: Subagent[] = [];
-  return { ...parsedToSummary(parsed), subagents };
+  const childFiles = listSubagentFiles(file, parsed.sessionId);
+  const subagents: Subagent[] = childFiles.map((cf) => {
+    const child = parseSessionFile(cf);
+    return parsedToSubagent(child, parsed.subagentRuns.get(child.sessionId));
+  });
+  return { ...parsedToSummary(parsed, childFiles.length), subagents };
 }
 
 // ---------------------------------------------------------------------------

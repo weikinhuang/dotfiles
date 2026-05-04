@@ -57,8 +57,20 @@ Pi records per-message `usage.cost.total` on every assistant message, so unlike 
 does **not** fetch or cache the LiteLLM pricing table — costs come straight from the session file. `--no-cost` and
 `--refresh-prices` are accepted for interface parity with the other tools but have no effect.
 
-Pi has no subagent concept at the session-file level, so the `AGENTS` column and the subagent detail section are always
-`0` / empty.
+### Subagents
+
+The [`subagent` extension](./extensions/subagent.ts) writes each child transcript next to its parent at
+`~/.pi/agent/sessions/<parent-cwd-slug>/subagents/<parent-session-id>/<timestamp>_<child-session-id>.jsonl`, and emits a
+matching `type:"custom", customType:"subagent-run"` audit entry in the parent session with the child's agent name, the
+task string, the stop reason, and the child session id. `session-usage.ts` picks both up:
+
+- `list` / `totals` populate the `AGENTS` column with the child file count; parent-session token totals stay parent-only
+  (matching claude / codex semantics — child tokens never double-count into parent rollups).
+- `session <uuid>` parses every child `.jsonl` for its own tokens, cost, model, and tool breakdown, and enriches the row
+  with `agent_label` (= `agent`), `role` (= `handle`, e.g. `sub_explore_1`), and `description` (= truncated `task`) from
+  the matching `subagent-run` entry.
+- Orphaned child transcripts (crash-leftovers without a recorded parent entry) still render — the agent label is just
+  empty.
 
 ## Related docs
 
