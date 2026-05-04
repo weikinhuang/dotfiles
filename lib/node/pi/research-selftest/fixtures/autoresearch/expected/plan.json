@@ -9,7 +9,11 @@
       "status": "complete",
       "dir": "experiments/e-1",
       "metricsSchema": {
-        "required": ["algorithm", "inputSize", "seconds"]
+        "required": [
+          "algorithm",
+          "inputSize",
+          "seconds"
+        ]
       }
     }
   ],
