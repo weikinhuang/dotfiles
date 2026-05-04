@@ -50,6 +50,11 @@ export interface SessionSummary {
   toolBreakdown: Record<string, number>;
   subagentCount: number;
   title?: string;
+  // Auto-derived single-line snippet of the first user message. Populated
+  // by every adapter so list / detail renderers have context for sessions
+  // that share the same model and directory. Title (when set explicitly by
+  // the user via /name / opencode's auto-titling) takes priority over this.
+  preview?: string;
   agent?: string;
   directory?: string;
   version?: string;

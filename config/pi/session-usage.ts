@@ -8,6 +8,7 @@ import * as path from 'node:path';
 import { runSessionUsageCli, type SessionUsageAdapter } from '../../lib/node/ai-tooling/cli.ts';
 import { readJsonlLines } from '../../lib/node/ai-tooling/jsonl.ts';
 import { expandUserPath, resolveProjectPath } from '../../lib/node/ai-tooling/paths.ts';
+import { makeSessionPreview } from '../../lib/node/ai-tooling/preview.ts';
 import {
   type ModelTokenBreakdown,
   type SessionDetail,
@@ -121,6 +122,7 @@ interface ParsedPi {
   sessionId: string;
   cwd: string;
   sessionName: string;
+  preview: string;
   hasParentSession: boolean;
   startTime: string;
   endTime: string;
@@ -154,6 +156,7 @@ function parseEntries(entries: PiEntry[], fallbackSessionId: string): ParsedPi {
   let toolCalls = 0;
   let toolBytes = 0;
   let userTurns = 0;
+  let preview = '';
   const subagentRuns = new Map<string, PiSubagentRunData>();
   // Tracks the explicit model last chosen via `/model`. Assistant messages
   // also carry their own `model` field, which is authoritative for that
@@ -206,6 +209,22 @@ function parseEntries(entries: PiEntry[], fallbackSessionId: string): ParsedPi {
       // role=user), so no harness-prefix filter is needed here. User content
       // may be a string or a TextContent/ImageContent array — both count.
       userTurns++;
+      if (!preview) {
+        // Flatten the first user message's text blocks into a snippet so the
+        // list / detail renderers have a "what was this session about"
+        // descriptor without needing the user to have run /name.
+        let raw = '';
+        if (typeof m.content === 'string') {
+          raw = m.content;
+        } else if (Array.isArray(m.content)) {
+          raw = m.content
+            .filter((b) => b.type === 'text' && typeof b.text === 'string')
+            .map((b) => b.text!)
+            .join('\n');
+        }
+        const snippet = makeSessionPreview(raw);
+        if (snippet) preview = snippet;
+      }
       continue;
     }
 
@@ -281,6 +300,7 @@ function parseEntries(entries: PiEntry[], fallbackSessionId: string): ParsedPi {
     sessionId,
     cwd,
     sessionName,
+    preview,
     hasParentSession,
     startTime,
     endTime,
@@ -319,6 +339,7 @@ function parsedToSummary(p: ParsedPi, subagentCount: number): SessionSummary {
     subagentCount,
   };
   if (p.sessionName) summary.title = p.sessionName;
+  if (p.preview) summary.preview = p.preview;
   if (p.cwd) summary.directory = p.cwd;
   if (p.toolBytes > 0) summary.toolBytes = p.toolBytes;
   if (p.cost > 0) summary.cost = p.cost;

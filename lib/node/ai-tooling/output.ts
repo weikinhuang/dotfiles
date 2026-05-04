@@ -175,7 +175,10 @@ interface ListColumn {
 }
 
 function buildListColumns(sessions: SessionSummary[]): ListColumn[] {
-  const showTitle = sessions.some((s) => !!s.title);
+  // TITLE shows whichever is populated: a user-chosen name (pi /name,
+  // opencode auto-title) or the auto-derived preview snippet of the first
+  // user message. Column appears whenever any session has either.
+  const showTitle = sessions.some((s) => !!(s.title ?? s.preview));
   const models = new Set(sessions.map((s) => s.model).filter(Boolean));
   const showModel = models.size > 1;
   const showCost = sessions.some((s) => (s.cost ?? 0) > 0);
@@ -194,7 +197,7 @@ function buildListColumns(sessions: SessionSummary[]): ListColumn[] {
       width: 28,
       align: 'left',
       color: COLORS.label,
-      get: (s) => s.title ?? '',
+      get: (s) => s.title ?? s.preview ?? '',
     });
   }
   cols.push({
@@ -439,6 +442,10 @@ export function printSessionDetail(detail: SessionDetail): void {
   console.log(c(COLORS.bold, 'Session') + '  ' + c(COLORS.session, detail.sessionId));
   if (detail.title) {
     console.log(c(COLORS.bold, 'Title') + '    ' + c(COLORS.label, detail.title));
+  } else if (detail.preview) {
+    // Only render Preview when there isn't an explicit Title — keeping a
+    // single "what is this session" row at the top of the detail header.
+    console.log(c(COLORS.bold, 'Preview') + '  ' + c(COLORS.label, detail.preview));
   }
   console.log(
     c(COLORS.bold, 'Model') +
@@ -536,6 +543,7 @@ function summaryToJson(s: SessionSummary): Record<string, unknown> {
     subagent_count: s.subagentCount,
   };
   if (s.title !== undefined) obj.title = s.title;
+  if (s.preview !== undefined) obj.preview = s.preview;
   if (s.agent !== undefined) obj.agent = s.agent;
   if (s.directory !== undefined) obj.directory = s.directory;
   if (s.version !== undefined) obj.version = s.version;

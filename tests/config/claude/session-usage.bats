@@ -198,3 +198,27 @@ EOF
   assert_failure
   assert_output --partial 'Could not detect project'
 }
+
+@test "claude: preview extracted from first user message (string content)" {
+  write_session "-proj" "s1" <<'EOF'
+{"type":"user","timestamp":"2026-04-23T10:00:00Z","message":{"content":"<system-reminder>boilerplate</system-reminder>"}}
+{"type":"user","timestamp":"2026-04-23T10:00:01Z","message":{"content":"refactor the\nauth module please"}}
+{"type":"assistant","timestamp":"2026-04-23T10:00:02Z","message":{"id":"m1","model":"test-opus","usage":{"input_tokens":10,"output_tokens":5,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}
+EOF
+
+  run "${TOOL}" claude list --project -proj --no-cost --json
+  assert_success
+  # system-reminder entry must be skipped; newline collapses to a space.
+  assert_equal "$(jq -r '.sessions[0].preview' <<<"${output}")" 'refactor the auth module please'
+}
+
+@test "claude: preview extracted from first text block in array user content" {
+  write_session "-proj" "s1" <<'EOF'
+{"type":"user","timestamp":"2026-04-23T10:00:00Z","message":{"content":[{"type":"tool_result","tool_use_id":"tu1","content":"skipped"},{"type":"text","text":"kick off the bug fix"}]}}
+{"type":"assistant","timestamp":"2026-04-23T10:00:01Z","message":{"id":"m1","model":"test-opus","usage":{"input_tokens":10,"output_tokens":5,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}
+EOF
+
+  run "${TOOL}" claude list --project -proj --no-cost --json
+  assert_success
+  assert_equal "$(jq -r '.sessions[0].preview' <<<"${output}")" 'kick off the bug fix'
+}

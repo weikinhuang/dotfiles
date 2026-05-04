@@ -7,6 +7,7 @@ import * as path from 'node:path';
 
 import { runSessionUsageCli, type SessionUsageAdapter } from '../../lib/node/ai-tooling/cli.ts';
 import { readJsonlLines } from '../../lib/node/ai-tooling/jsonl.ts';
+import { makeSessionPreview } from '../../lib/node/ai-tooling/preview.ts';
 import {
   type ModelTokenBreakdown,
   type SessionDetail,
@@ -131,6 +132,7 @@ interface ParsedEntries {
   toolBreakdown: Record<string, number>;
   skills: string[];
   userTurns: number;
+  preview: string;
 }
 
 function emptyTokens(): SessionTokens {
@@ -143,6 +145,7 @@ function parseEntries(entries: ClaudeEntry[]): ParsedEntries {
   let toolCalls = 0;
   let toolBytes = 0;
   let userTurns = 0;
+  let preview = '';
   let startTime = '';
   let endTime = '';
   let model = '';
@@ -210,10 +213,29 @@ function parseEntries(entries: ClaudeEntry[]): ParsedEntries {
       if (typeof content === 'string') {
         if (!content.startsWith('<system-reminder>') && !content.startsWith('<local-command-')) {
           userTurns++;
+          if (!preview) {
+            const snippet = makeSessionPreview(content);
+            if (snippet) preview = snippet;
+          }
         }
       }
 
       if (Array.isArray(content)) {
+        // First-user-message preview can also arrive as an array of content
+        // blocks when Claude Code includes tool results and a user text
+        // block in the same entry. Prefer the earliest `text` block.
+        if (!preview) {
+          for (const block of content) {
+            if (block.type === 'tool_result') continue;
+            if (typeof block.text === 'string' && block.text.trim()) {
+              const snippet = makeSessionPreview(block.text);
+              if (snippet) {
+                preview = snippet;
+                break;
+              }
+            }
+          }
+        }
         for (const block of content) {
           if (block.type === 'tool_result') {
             if (block.is_error && block.tool_use_id) failedToolUseIds.add(block.tool_use_id);
@@ -262,6 +284,7 @@ function parseEntries(entries: ClaudeEntry[]): ParsedEntries {
     toolBreakdown,
     skills: [...new Set(skills)].sort(),
     userTurns,
+    preview,
   };
 }
 
@@ -285,6 +308,7 @@ function buildSummary(sessionId: string, parsed: ParsedEntries, subagentCount: n
   if (parsed.toolBytes > 0) summary.toolBytes = parsed.toolBytes;
   if (parsed.skills.length > 0) summary.skills = parsed.skills;
   if (parsed.modelBreakdown.length > 0) summary.modelBreakdown = parsed.modelBreakdown;
+  if (parsed.preview) summary.preview = parsed.preview;
   return summary;
 }
 

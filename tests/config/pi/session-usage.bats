@@ -185,3 +185,47 @@ EOF
   assert_equal "$(jq '.subagents | length' <<<"${output}")" 0
   assert_equal "$(jq '.subagent_count' <<<"${output}")" 0
 }
+
+@test "pi: preview extracted from first user message" {
+  write_session "--proj--" "019dd000-aaaa-7000-0000-000000000001" <<'EOF'
+{"type":"session","version":3,"id":"019dd000-aaaa-7000-0000-000000000001","timestamp":"2026-05-01T19:00:00.000Z","cwd":"/proj"}
+{"type":"message","id":"m1","parentId":null,"timestamp":"2026-05-01T19:00:01.000Z","message":{"role":"user","content":"fix the auth bug\nand add a test"}}
+{"type":"message","id":"m2","parentId":"m1","timestamp":"2026-05-01T19:00:02.000Z","message":{"role":"user","content":"follow-up prompt"}}
+EOF
+
+  run "${TOOL}" pi list --project /proj --json
+  assert_success
+  # Only the first user message seeds the preview; newlines collapse.
+  assert_equal "$(jq -r '.sessions[0].preview' <<<"${output}")" 'fix the auth bug and add a test'
+}
+
+@test "pi: preview picks up TextContent blocks from array-shaped user content" {
+  write_session "--proj--" "019dd000-aaaa-7000-0000-000000000001" <<'EOF'
+{"type":"session","version":3,"id":"019dd000-aaaa-7000-0000-000000000001","timestamp":"2026-05-01T19:00:00.000Z","cwd":"/proj"}
+{"type":"message","id":"m1","parentId":null,"timestamp":"2026-05-01T19:00:01.000Z","message":{"role":"user","content":[{"type":"text","text":"refactor the loader"},{"type":"image","data":"...","mimeType":"image/png"}]}}
+EOF
+
+  run "${TOOL}" pi list --project /proj --json
+  assert_success
+  assert_equal "$(jq -r '.sessions[0].preview' <<<"${output}")" 'refactor the loader'
+}
+
+@test "pi: user-set title takes priority over auto preview in detail header" {
+  write_session "--proj--" "019dd000-aaaa-7000-0000-000000000001" <<'EOF'
+{"type":"session","version":3,"id":"019dd000-aaaa-7000-0000-000000000001","timestamp":"2026-05-01T19:00:00.000Z","cwd":"/proj"}
+{"type":"session_info","id":"si1","parentId":null,"timestamp":"2026-05-01T19:00:00.500Z","name":"Refactor auth"}
+{"type":"message","id":"m1","parentId":"si1","timestamp":"2026-05-01T19:00:01.000Z","message":{"role":"user","content":"fix the auth bug"}}
+EOF
+
+  run "${TOOL}" pi session 019dd000-aaaa --project /proj --json
+  assert_success
+  assert_equal "$(jq -r '.title' <<<"${output}")" 'Refactor auth'
+  # Preview still populated so --json consumers can get both signals.
+  assert_equal "$(jq -r '.preview' <<<"${output}")" 'fix the auth bug'
+
+  run "${TOOL}" pi session 019dd000-aaaa --project /proj --no-color
+  assert_success
+  # Text output: show Title line but NOT a Preview line when title is set.
+  assert_line --partial 'Title    Refactor auth'
+  refute_line --partial 'Preview  fix the auth bug'
+}

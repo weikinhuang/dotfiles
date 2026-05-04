@@ -8,6 +8,7 @@ import * as path from 'node:path';
 import { runSessionUsageCli, type SessionUsageAdapter } from '../../lib/node/ai-tooling/cli.ts';
 import { readJsonlLines } from '../../lib/node/ai-tooling/jsonl.ts';
 import { resolveProjectPath } from '../../lib/node/ai-tooling/paths.ts';
+import { makeSessionPreview } from '../../lib/node/ai-tooling/preview.ts';
 import {
   type ModelTokenBreakdown,
   type SessionDetail,
@@ -54,6 +55,7 @@ interface CodexPayload {
   type?: string;
   info?: { total_token_usage?: CodexTokenUsage };
   name?: string;
+  message?: string;
 }
 
 interface CodexEntry {
@@ -119,6 +121,7 @@ interface ParsedSession {
   startTime: string;
   endTime: string;
   userTurns: number;
+  preview: string;
   tokens: SessionTokens;
   modelBreakdown: ModelTokenBreakdown[];
   toolCalls: number;
@@ -149,6 +152,7 @@ function parseSessionFile(filePath: string): ParsedSession {
   let startTime = '';
   let endTime = '';
   let userTurns = 0;
+  let preview = '';
   let tokens: SessionTokens = emptyCodexTokens();
   const toolBreakdown: Record<string, number> = {};
   let toolCalls = 0;
@@ -191,6 +195,10 @@ function parseSessionFile(filePath: string): ParsedSession {
       const p = entry.payload;
       if (p?.type === 'user_message') {
         userTurns++;
+        if (!preview && typeof p.message === 'string') {
+          const snippet = makeSessionPreview(p.message);
+          if (snippet) preview = snippet;
+        }
       }
       if (p?.type === 'token_count' && p.info?.total_token_usage) {
         const u = p.info.total_token_usage;
@@ -252,6 +260,7 @@ function parseSessionFile(filePath: string): ParsedSession {
     startTime,
     endTime,
     userTurns,
+    preview,
     tokens,
     modelBreakdown,
     toolCalls,
@@ -278,6 +287,7 @@ function parsedToSummary(p: ParsedSession, subagentCount: number): SessionSummar
   };
   if (p.cwd) summary.directory = p.cwd;
   if (p.cliVersion) summary.version = p.cliVersion;
+  if (p.preview) summary.preview = p.preview;
   if (p.modelBreakdown.length > 0) summary.modelBreakdown = p.modelBreakdown;
   return summary;
 }
