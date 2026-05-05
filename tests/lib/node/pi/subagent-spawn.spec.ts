@@ -329,4 +329,75 @@ describe('runOneShotAgent', () => {
     expect(r.stopReason).toBe('completed');
     expect(events).toEqual(['turn_end@1']);
   });
+
+  test('onEvent exposes assistant message_end usage.cost.total for cost aggregation', async () => {
+    const session = makeFakeSession({
+      events: [
+        {
+          type: 'message_end',
+          message: { role: 'assistant', usage: { cost: { total: 0.0125 } } },
+        },
+        { type: 'turn_end' },
+      ],
+      finalText: 'ok',
+    });
+
+    const costs: number[] = [];
+    await runOneShotAgent({
+      deps: mkDeps(session),
+      cwd: '/tmp',
+      agent: mkAgent(),
+      model: { id: 'm' },
+      task: 't',
+      modelRegistry: mkRegistry(),
+      onEvent: ({ event }) => {
+        if (event.type === 'message_end' && event.message?.role === 'assistant') {
+          const usd = event.message.usage?.cost?.total;
+          if (typeof usd === 'number') costs.push(usd);
+        }
+      },
+    });
+
+    expect(costs).toEqual([0.0125]);
+  });
+
+  test('caller-supplied sessionManager overrides the in-memory default', async () => {
+    const session = makeFakeSession({
+      events: [{ type: 'turn_end' }],
+      finalText: 'ok',
+    });
+    const sentinel = { id: 'session-manager' as const };
+    const sentinelB = { id: 'session-manager' as const };
+
+    // `createAgentSession` captures whatever `sessionManager` we
+    // pass — use that to confirm `runOneShotAgent` threaded our
+    // override instead of falling back to `SessionManager.inMemory`.
+    let seen: unknown = undefined;
+    const deps: RunOneShotDeps<FakeModel, { id: 'session-manager' }> = {
+      createAgentSession: (args) => {
+        seen = args.sessionManager;
+        return Promise.resolve({ session });
+      },
+      DefaultResourceLoader: class {
+        reload(): Promise<void> {
+          return Promise.resolve();
+        }
+      },
+      SessionManager: { inMemory: () => sentinelB },
+      getAgentDir: () => '/fake',
+    };
+
+    await runOneShotAgent({
+      deps,
+      cwd: '/tmp',
+      agent: mkAgent(),
+      model: { id: 'm' },
+      task: 't',
+      modelRegistry: mkRegistry(),
+      sessionManager: sentinel,
+    });
+
+    expect(seen).toBe(sentinel);
+    expect(seen).not.toBe(sentinelB);
+  });
 });

@@ -121,6 +121,18 @@ export interface AgentSessionEventLike {
   message?: {
     role?: string;
     errorMessage?: string;
+    /**
+     * Per-assistant-turn token + USD cost payload populated by pi's
+     * `AssistantMessage.usage` (see `@mariozechner/pi-ai`'s `Usage`
+     * type). `usage.cost.total` is the USD number `research-cost-hook`
+     * sums to drive the statusline cost counter. Optional because
+     * non-assistant events and aborted turns may lack it.
+     */
+    usage?: {
+      cost?: {
+        total?: number;
+      };
+    };
   };
 }
 

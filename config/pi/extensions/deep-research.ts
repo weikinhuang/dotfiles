@@ -49,7 +49,7 @@
 
 import { readdirSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { dirname } from 'node:path';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import {
@@ -95,6 +95,7 @@ import {
 import { buildCriticTask, parseVerdict } from '../../../lib/node/pi/iteration-loop-check-critic.ts';
 import { type Verdict } from '../../../lib/node/pi/iteration-loop-schema.ts';
 import { createAiFetchWebCliClientFromEnv } from '../../../lib/node/pi/research-ai-fetch-web-cli-client.ts';
+import { createCostHook } from '../../../lib/node/pi/research-cost-hook.ts';
 import {
   type FanoutHandleLike,
   type FanoutHandleResult,
@@ -627,7 +628,13 @@ function buildPipelineDeps(
         noPromptTemplates: true,
       });
       await resource.reload();
-      const manager = SessionManager.inMemory(ctx.cwd);
+      // Persist this session under `<sessionDir>/subagents/<parentId>/`
+      // so `pi session-usage` / `ai-tool-usage` can attribute its
+      // usage + cost back to the parent pi session — same layout
+      // the harness's built-in `subagent` tool uses. Falls back to
+      // an in-memory manager when the parent session id is
+      // unavailable (tests, resume flows).
+      const manager = makeSubagentSessionManager(ctx);
       if (!parentModel) {
         throw new Error('no parent model available (use /login or set a default)');
       }
@@ -641,6 +648,13 @@ function buildPipelineDeps(
         resourceLoader: resource,
         sessionManager: manager,
       });
+      // Subscribe the cost hook so every assistant turn in the
+      // parent session (planner / self-critic / rewrite) emits a
+      // `{kind:'cost', deltaUsd}` into the statusline reducer.
+      if (extras.onPhase) {
+        const hook = createCostHook({ emit: extras.onPhase });
+        session.subscribe(hook.subscribe);
+      }
       return wrapSession(session);
     },
     runPlanningCritic: async ({ task, signal }) => {
@@ -651,6 +665,7 @@ function buildPipelineDeps(
       });
       if (!resolution.ok) return { rawText: '', error: resolution.error };
       try {
+        const costHook = extras.onPhase ? createCostHook({ emit: extras.onPhase }) : undefined;
         const result = await runOneShotAgent({
           deps: { createAgentSession, DefaultResourceLoader, SessionManager, getAgentDir },
           cwd: ctx.cwd,
@@ -659,6 +674,8 @@ function buildPipelineDeps(
           task,
           modelRegistry,
           agentDir: getAgentDir(),
+          sessionManager: makeSubagentSessionManager(ctx),
+          ...(costHook ? { onEvent: costHook.onEvent } : {}),
           ...(signal ? { signal } : {}),
         });
         if (result.stopReason !== 'completed') {
@@ -670,7 +687,7 @@ function buildPipelineDeps(
       }
     },
     fanoutSpawn: wrapFanoutForProgress(
-      buildSyncFanoutSpawner(ctx, webAgent, modelRegistry, parentModel),
+      buildSyncFanoutSpawner(ctx, webAgent, modelRegistry, parentModel, extras.onPhase),
       extras.onPhase,
     ),
     mcpClient: createAiFetchWebCliClientFromEnv() ?? undefined,
@@ -782,6 +799,7 @@ function buildSyncFanoutSpawner<M>(
     authStorage: unknown;
   },
   parent: M | undefined,
+  onPhase: ((event: PhaseEvent) => void) | undefined,
 ): FanoutSpawner {
   return async (args: FanoutSpawnArgs): Promise<FanoutHandleLike> => {
     const resolution = resolveChildModel({ agent, parent, modelRegistry: modelRegistry as never });
@@ -791,6 +809,7 @@ function buildSyncFanoutSpawner<M>(
     const progressAt = Date.now();
     let result: FanoutHandleResult;
     try {
+      const costHook = onPhase ? createCostHook({ emit: onPhase }) : undefined;
       const run = await runOneShotAgent({
         deps: { createAgentSession, DefaultResourceLoader, SessionManager, getAgentDir },
         cwd: ctx.cwd,
@@ -799,6 +818,8 @@ function buildSyncFanoutSpawner<M>(
         task: args.task.prompt,
         modelRegistry: modelRegistry as never,
         agentDir: getAgentDir(),
+        sessionManager: makeSubagentSessionManager(ctx),
+        ...(costHook ? { onEvent: costHook.onEvent } : {}),
         ...(args.signal ? { signal: args.signal } : {}),
       });
       if (run.stopReason === 'completed') {
@@ -994,6 +1015,7 @@ async function runReviewPhase(args: RunReviewPhaseArgs): Promise<ReviewWireResul
       iteration,
     });
     try {
+      const costHook = emitPhase ? createCostHook({ emit: emitPhase }) : undefined;
       const run = await runOneShotAgent({
         deps: { createAgentSession, DefaultResourceLoader, SessionManager, getAgentDir },
         cwd: ctx.cwd,
@@ -1002,6 +1024,8 @@ async function runReviewPhase(args: RunReviewPhaseArgs): Promise<ReviewWireResul
         task,
         modelRegistry: ctx.modelRegistry as never,
         agentDir: getAgentDir(),
+        sessionManager: makeSubagentSessionManager(ctx),
+        ...(costHook ? { onEvent: costHook.onEvent } : {}),
         ...(reviewSignal ? { signal: reviewSignal } : {}),
       });
       const parsed = parseVerdict(run.finalText);
@@ -1154,4 +1178,39 @@ function safeReadFile(path: string): string | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * Build a fresh {@link SessionManager} that persists a child
+ * session under
+ * `<parentSessionDir>/subagents/<parentSessionId>/`.
+ *
+ * This is the same directory convention the harness's built-in
+ * `subagent` tool uses, and the one
+ * [`config/pi/session-usage.ts`](../session-usage.ts) walks to
+ * attribute child-session usage + cost back to the parent pi
+ * session. Before this helper landed, every research-pipeline
+ * spawn went through `SessionManager.inMemory(ctx.cwd)` — the
+ * default on
+ * [`subagent-spawn.ts`](../../../lib/node/pi/subagent-spawn.ts)
+ * — so child transcripts never hit disk and `pi session-usage` /
+ * `ai-tool-usage` had no evidence the research runs ever ran.
+ *
+ * Call per spawn (every research subagent gets its own jsonl in
+ * that directory). Falls back to `SessionManager.inMemory(ctx.cwd)`
+ * when the parent session id / dir is unavailable (in-memory test
+ * harnesses, resume flows before a file-backed session exists) so
+ * the pipeline never crashes on the persistence path.
+ */
+function makeSubagentSessionManager(ctx: ExtensionCommandContext): SessionManager {
+  try {
+    const parentId = ctx.sessionManager.getSessionId();
+    const parentDir = ctx.sessionManager.getSessionDir();
+    if (parentId && parentDir) {
+      return SessionManager.create(ctx.cwd, join(parentDir, 'subagents', parentId));
+    }
+  } catch {
+    /* swallow — fall through to in-memory below */
+  }
+  return SessionManager.inMemory(ctx.cwd);
 }
