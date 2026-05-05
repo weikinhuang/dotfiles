@@ -14,6 +14,9 @@
  *   - {@link detectResumeStage}            \u2014 earliest incomplete stage, with reasoning string.
  *   - {@link invalidateIncompleteFanoutTasks} \u2014 flip failed/aborted tasks back to 'pending'
  *                                               so the idempotent fanout re-dispatches them.
+ *   - {@link findStubbedSections}          \u2014 scan `report.md` for `[section unavailable: \u2026]`
+ *                                               blocks so the extension can surface a
+ *                                               targeted "resume from fanout" hint.
  *
  * Pure-data in / pure-data out (modulo disk reads + one atomic
  * rewrite of `fanout.json`). No pi imports.
@@ -23,6 +26,7 @@ import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { basename, isAbsolute, join, resolve } from 'node:path';
 
 import { atomicWriteFile } from './atomic-write.ts';
+import { isUnavailableStub } from './deep-research-structural-check.ts';
 import { type ResumeStage } from './research-command-args.ts';
 import { paths } from './research-paths.ts';
 import { readPlan } from './research-plan.ts';
@@ -377,4 +381,72 @@ export function invalidateIncompleteFanoutTasks(runRoot: string, ids: readonly s
   }
 
   return { ok: true, reset, untouched };
+}
+
+// ───────────────────────────────────────────────────────────────────
+// Stub-section detection (Phase 4 guardrail).
+// ───────────────────────────────────────────────────────────────────
+
+export interface StubbedSection {
+  /** H2 heading text (verbatim, minus the `## ` prefix and trailing whitespace). */
+  heading: string;
+  /** Reason string extracted from `[section unavailable: <reason>]`. */
+  reason: string;
+}
+
+/**
+ * Walk `reportPath`, split on `^## ` H2 boundaries, and return any
+ * section whose body is a whole-section
+ * `[section unavailable: \u2026]` stub emitted by
+ * `deep-research-synth-sections`. Used by the extension's review
+ * path to surface a targeted "run /research --resume --from=fanout
+ * to re-fetch these" hint instead of letting the review loop burn
+ * its budget on unfixable sections.
+ *
+ * Stub detection uses the same predicate the structural check
+ * already exempts from the citation rule
+ * ({@link ../deep-research-structural-check.isUnavailableStub}),
+ * so a section that reports as stubbed here is exactly the set
+ * the structural check treats as blameless.
+ *
+ * Returns `[]` when `reportPath` doesn't exist or can't be read;
+ * this helper is advisory and must never break the review flow.
+ */
+export function findStubbedSections(reportPath: string): StubbedSection[] {
+  if (!existsSync(reportPath)) return [];
+  let text: string;
+  try {
+    text = readFileSync(reportPath, 'utf8');
+  } catch {
+    return [];
+  }
+
+  const stubbed: StubbedSection[] = [];
+  const lines = text.split(/\r?\n/);
+  let currentHeading: string | null = null;
+  let currentBody: string[] = [];
+
+  const flush = (): void => {
+    if (currentHeading === null) return;
+    const body = currentBody.join('\n');
+    if (isUnavailableStub(body)) {
+      const match = /^\[section unavailable:\s*([^\]]*)\]\s*$/.exec(body.trim());
+      stubbed.push({
+        heading: currentHeading,
+        reason: (match?.[1] ?? '').trim(),
+      });
+    }
+  };
+
+  for (const line of lines) {
+    if (line.startsWith('## ')) {
+      flush();
+      currentHeading = line.slice(3).trim();
+      currentBody = [];
+      continue;
+    }
+    if (currentHeading !== null) currentBody.push(line);
+  }
+  flush();
+  return stubbed;
 }

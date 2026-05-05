@@ -16,6 +16,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 import {
   countPriorReviewIterations,
   detectResumeStage,
+  findStubbedSections,
   invalidateIncompleteFanoutTasks,
   listRecentRuns,
   sumFanoutDeficit,
@@ -522,5 +523,65 @@ describe('invalidateIncompleteFanoutTasks', () => {
     expect(() => JSON.parse(raw) as unknown).not.toThrow();
     // File is non-zero.
     expect(statSync(join(tmp, 'fanout.json')).size).toBeGreaterThan(0);
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────
+// findStubbedSections
+// ───────────────────────────────────────────────────────────────────
+
+describe('findStubbedSections', () => {
+  let tmp: string;
+
+  beforeEach(() => {
+    tmp = makeTmp();
+  });
+
+  afterEach(() => {
+    rmSync(tmp, { recursive: true, force: true });
+  });
+
+  test('returns [] when report.md does not exist', () => {
+    expect(findStubbedSections(join(tmp, 'report.md'))).toEqual([]);
+  });
+
+  test('flags only sections whose whole body is a [section unavailable] stub', () => {
+    const reportPath = join(tmp, 'report.md');
+    mkdirSync(tmp, { recursive: true });
+    const report = [
+      '# Report',
+      '',
+      '## Sub-question 1',
+      '',
+      'Real prose with a citation [^1].',
+      '',
+      '## Sub-question 2',
+      '',
+      '[section unavailable: no findings file on disk]',
+      '',
+      '## Sub-question 3',
+      '',
+      'Another real section citing [^2] — mentions "section unavailable" in passing.',
+      '',
+      '## Sub-question 4',
+      '',
+      '[section unavailable: synth emitted an empty body]',
+      '',
+    ].join('\n');
+    writeFileSync(reportPath, report, 'utf8');
+
+    const stubbed = findStubbedSections(reportPath);
+
+    expect(stubbed.map((s) => s.heading)).toEqual(['Sub-question 2', 'Sub-question 4']);
+    expect(stubbed[0].reason).toBe('no findings file on disk');
+    expect(stubbed[1].reason).toBe('synth emitted an empty body');
+  });
+
+  test('returns [] for a report with no stubbed sections', () => {
+    const reportPath = join(tmp, 'report.md');
+    mkdirSync(tmp, { recursive: true });
+    writeFileSync(reportPath, ['# Report', '', '## Sub-question 1', '', 'Prose with [^1].', ''].join('\n'), 'utf8');
+
+    expect(findStubbedSections(reportPath)).toEqual([]);
   });
 });

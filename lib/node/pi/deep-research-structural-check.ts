@@ -690,8 +690,13 @@ function sliceBodyByH2(body: string): BodySlice[] {
  * `deep-research-synth-sections`. Sections that merely mention
  * the phrase in passing still owe the reader a citation, so the
  * regex requires the stub to be the entire trimmed body.
+ *
+ * Exported for {@link ../research-resume.findStubbedSections},
+ * which uses it to surface an "N sub-question sections are
+ * stubbed — resume from fanout to re-fetch" hint at review-phase
+ * exit.
  */
-function isUnavailableStub(contents: string): boolean {
+export function isUnavailableStub(contents: string): boolean {
   const trimmed = contents.trim();
   if (trimmed.length === 0) return false;
   return /^\[section unavailable:[^\]]*\]\s*$/.test(trimmed);
