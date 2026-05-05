@@ -418,3 +418,96 @@ describe('buildStructuralNudge / buildSubjectiveNudge', () => {
     expect(buildSubjectiveNudge(approvedCritic())).toBe('');
   });
 });
+
+describe('runReviewLoop — startIteration (resume flows)', () => {
+  // Use the outer describe block's runRoot via require-style reuse would be ugly;
+  // instead build a tiny local fixture identical to the other blocks.
+  let localRoot: string;
+
+  beforeEach(() => {
+    localRoot = mkdtempSync(join(tmpdir(), 'review-loop-start-iter-'));
+    mkdirSync(join(localRoot, 'snapshots', 'review'), { recursive: true });
+    writeFileSync(join(localRoot, 'report.md'), '# report\ninitial body\n', 'utf8');
+  });
+
+  afterEach(() => {
+    rmSync(localRoot, { recursive: true, force: true });
+  });
+
+  test('passing iteration labels respect startIteration', async () => {
+    // Two structural recipes: one for the per-iteration check, one for
+    // the post-critic-approve re-check (structure-wins defense).
+    const structural = scriptedStructural([passingStructural(), passingStructural()]);
+    const critic = scriptedCritic([approvedCritic()]);
+    const { refine } = scriptedRefine();
+
+    const outcome = await runReviewLoop({
+      runRoot: localRoot,
+      runStructural: structural.runner,
+      runCritic: critic.runner,
+      refineReport: refine,
+      maxIter: 1,
+      startIteration: 5,
+    });
+    assertKind(outcome, 'passed');
+
+    expect(outcome.iterations).toBe(5);
+  });
+
+  test('budget exhaustion labels iterations from startIteration through startIteration + maxIter - 1', async () => {
+    const structural = scriptedStructural([failingStructural(), failingStructural()]);
+    const critic = scriptedCritic([]);
+    const { refine } = scriptedRefine();
+
+    const outcome = await runReviewLoop({
+      runRoot: localRoot,
+      runStructural: structural.runner,
+      runCritic: critic.runner,
+      refineReport: refine,
+      maxIter: 2,
+      startIteration: 5,
+    });
+    assertKind(outcome, 'budget-exhausted');
+
+    // Two iterations ran: iter 5 and iter 6. `.iterations` reports the final iter.
+    expect(outcome.iterations).toBe(6);
+    // Both iters had score 0 (structural fail); selectBest breaks ties by
+    // recency so bestSoFar is the later iteration.
+    expect(outcome.bestSoFar?.iteration).toBe(6);
+  });
+
+  test('snapshot filenames reflect startIteration', async () => {
+    const structural = scriptedStructural([failingStructural()]);
+    const critic = scriptedCritic([]);
+    const { refine } = scriptedRefine();
+
+    const outcome = await runReviewLoop({
+      runRoot: localRoot,
+      runStructural: structural.runner,
+      runCritic: critic.runner,
+      refineReport: refine,
+      maxIter: 1,
+      startIteration: 12,
+    });
+    assertKind(outcome, 'budget-exhausted');
+
+    expect(outcome.bestSoFar?.snapshotPath).toMatch(/iter-012-structural\.md$/);
+  });
+
+  test('startIteration defaults to 1 when omitted (unchanged legacy behavior)', async () => {
+    const structural = scriptedStructural([passingStructural(), passingStructural()]);
+    const critic = scriptedCritic([approvedCritic()]);
+    const { refine } = scriptedRefine();
+
+    const outcome = await runReviewLoop({
+      runRoot: localRoot,
+      runStructural: structural.runner,
+      runCritic: critic.runner,
+      refineReport: refine,
+      maxIter: 1,
+    });
+    assertKind(outcome, 'passed');
+
+    expect(outcome.iterations).toBe(1);
+  });
+});

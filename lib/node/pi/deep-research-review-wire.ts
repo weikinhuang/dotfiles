@@ -79,6 +79,12 @@ export interface ReviewWireDeps {
   refineReport: RefinementRunner;
   /** Max cross-stage iterations. Default 3 per the plan. */
   maxIter?: number;
+  /**
+   * Iteration label for the first iteration. Forwarded to
+   * {@link runReviewLoop}; resume flows set this to `N+1` after
+   * counting prior `snapshots/review/iter-NNN-*.md` files.
+   */
+  startIteration?: number;
   /** Signal fused with each runner. */
   signal?: AbortSignal;
   /** Injected clock (tests). */
@@ -180,6 +186,7 @@ export async function runDeepResearchReview(deps: ReviewWireDeps): Promise<Revie
   let outcome: ReviewLoopOutcome;
   try {
     outcome = await runReviewLoop({
+      ...(deps.startIteration !== undefined ? { startIteration: deps.startIteration } : {}),
       runRoot: deps.runRoot,
       runStructural: deps.runStructural,
       runCritic: deps.runCritic,

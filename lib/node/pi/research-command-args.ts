@@ -91,6 +91,39 @@ export interface ResearchOverrides {
    * spawns.
    */
   criticMaxTurns?: number;
+  /**
+   * Cap on cross-stage review iterations. Default `4` in the
+   * extension's `runReviewPhase`. Raise to give the structural
+   * + subjective refinement loop more attempts before a
+   * `budget-exhausted` outcome.
+   */
+  reviewMaxIter?: number;
+}
+
+/**
+ * Stages at which a `--resume` can re-enter the pipeline. Each
+ * corresponds to a function-call boundary inside
+ * `runResearchPipeline` — auto-detection in
+ * {@link ../research-resume} inspects disk and picks the earliest
+ * incomplete stage; a user-supplied `--from=<stage>` overrides it.
+ */
+export type ResumeStage = 'plan-crit' | 'fanout' | 'synth' | 'review';
+
+const RESUME_STAGES: readonly ResumeStage[] = ['plan-crit', 'fanout', 'synth', 'review'];
+
+/**
+ * Resume-only knobs carried alongside the shared {@link
+ * ResearchOverrides} bundle. `runRoot` is the directory to
+ * resume (absolute or cwd-relative); if omitted the extension
+ * picks the most-recent run under `./research/`. `from` pins
+ * the resume stage; auto-detected when absent. `reviewMaxIter`
+ * bumps the review-loop cap (default 4) so a budget-exhausted
+ * prior run can be given more iterations without re-running
+ * earlier stages.
+ */
+export interface ResumeOverrides {
+  runRoot?: string;
+  from?: ResumeStage;
 }
 
 /**
@@ -104,6 +137,14 @@ export type ResearchCommandArgs =
   | { kind: 'list'; trailing?: string }
   /** `/research --selftest [ignored-trailing]`. */
   | { kind: 'selftest'; trailing?: string }
+  /**
+   * `/research --resume [--run-root <path>] [--from <stage>]
+   *   [--review-max-iter N] [overrides]` — resume an existing
+   * run. `runRoot` defaults to the most-recent `./research/*` if
+   * omitted; `from` is auto-detected from on-disk state if
+   * omitted.
+   */
+  | { kind: 'resume'; resume: ResumeOverrides; overrides: ResearchOverrides }
   /**
    * `/research [flags] <question...>` - the parser has already
    * extracted every recognised flag from the token stream, so
@@ -176,7 +217,10 @@ type KnownFlag =
   | '--fanout-model'
   | '--critic-model'
   | '--fanout-max-turns'
-  | '--critic-max-turns';
+  | '--critic-max-turns'
+  | '--run-root'
+  | '--from'
+  | '--review-max-iter';
 const KNOWN_FLAGS: readonly KnownFlag[] = [
   '--model',
   '--plan-crit-model',
@@ -184,7 +228,13 @@ const KNOWN_FLAGS: readonly KnownFlag[] = [
   '--critic-model',
   '--fanout-max-turns',
   '--critic-max-turns',
+  '--run-root',
+  '--from',
+  '--review-max-iter',
 ];
+
+/** Resume-only flags: parser rejects them in `question` mode. */
+const RESUME_ONLY_FLAGS: readonly KnownFlag[] = ['--run-root', '--from'];
 
 /**
  * Split a raw `/research` argument string into a
@@ -212,6 +262,10 @@ export function parseResearchCommandArgs(raw: string | undefined): ResearchComma
   if (first === '--selftest') {
     const trailing = tokens.slice(1).join(' ').trim();
     return trailing ? { kind: 'selftest', trailing } : { kind: 'selftest' };
+  }
+
+  if (first === '--resume') {
+    return parseResumeArgs(tokens.slice(1));
   }
 
   // Question mode. Walk the tokens and peel off known flags. Any
@@ -257,6 +311,9 @@ export function parseResearchCommandArgs(raw: string | undefined): ResearchComma
 
     if (!isKnownFlag(flag)) {
       return { kind: 'error', error: `unknown flag ${flag} (known: ${KNOWN_FLAGS.join(', ')})` };
+    }
+    if ((RESUME_ONLY_FLAGS as readonly string[]).includes(flag)) {
+      return { kind: 'error', error: `${flag} is only valid with --resume` };
     }
 
     if (value === undefined || value === '') {
@@ -314,7 +371,89 @@ function applyFlag(
       overrides.criticMaxTurns = parsed;
       return { ok: true };
     }
+    case '--review-max-iter': {
+      if (overrides.reviewMaxIter !== undefined) {
+        return { ok: false, error: `--review-max-iter may only be specified once` };
+      }
+      const parsed = parseMaxTurns('--review-max-iter', value);
+      if (typeof parsed !== 'number') return { ok: false, error: parsed.error };
+      overrides.reviewMaxIter = parsed;
+      return { ok: true };
+    }
+    case '--run-root':
+    case '--from':
+      // Resume-only flags are filtered out by the caller
+      // (`question` mode rejects them before this switch; the
+      // resume-mode parser handles them separately). Hitting
+      // them here means the dispatch table drifted.
+      return { ok: false, error: `${flag} is not a question-mode flag` };
   }
+}
+
+/**
+ * Parse the tokens after `--resume` (if any). Each recognised
+ * resume-only flag appears at most once; shared override flags
+ * (`--model`, `--*-max-turns`, …) reuse the same applier.
+ */
+function parseResumeArgs(tokens: readonly string[]): ResearchCommandArgs {
+  const overrides: ResearchOverrides = {};
+  const resume: ResumeOverrides = {};
+
+  let i = 0;
+  while (i < tokens.length) {
+    const token = tokens[i];
+    if (!token.startsWith('--')) {
+      return { kind: 'error', error: `--resume takes flags only; unexpected token ${JSON.stringify(token)}` };
+    }
+
+    const eq = token.indexOf('=');
+    let flag: string;
+    let value: string | undefined;
+    let valueCameFrom: 'inline' | 'next';
+    if (eq > 0) {
+      flag = token.slice(0, eq);
+      value = token.slice(eq + 1);
+      valueCameFrom = 'inline';
+    } else {
+      flag = token;
+      value = tokens[i + 1];
+      valueCameFrom = 'next';
+    }
+
+    if (!isKnownFlag(flag)) {
+      return { kind: 'error', error: `unknown flag ${flag} (known: ${KNOWN_FLAGS.join(', ')})` };
+    }
+    if (value === undefined || value === '') {
+      return { kind: 'error', error: `${flag} requires a value` };
+    }
+
+    if (flag === '--run-root') {
+      if (resume.runRoot !== undefined) {
+        return { kind: 'error', error: `--run-root may only be specified once` };
+      }
+      resume.runRoot = value;
+    } else if (flag === '--from') {
+      if (resume.from !== undefined) {
+        return { kind: 'error', error: `--from may only be specified once` };
+      }
+      if (!(RESUME_STAGES as readonly string[]).includes(value)) {
+        return {
+          kind: 'error',
+          error: `--from value ${JSON.stringify(value)} must be one of: ${RESUME_STAGES.join(', ')}`,
+        };
+      }
+      resume.from = value as ResumeStage;
+    } else {
+      const applied = applyFlag(flag, value, overrides);
+      if (!applied.ok) {
+        return { kind: 'error', error: applied.error };
+      }
+    }
+
+    i += valueCameFrom === 'inline' ? 1 : 2;
+  }
+
+  return { kind: 'resume', resume, overrides };
 }
 
 /**
@@ -353,7 +492,8 @@ export function validateToolOverrides(input: {
   criticModel?: unknown;
   fanoutMaxTurns?: unknown;
   criticMaxTurns?: unknown;
-}): { ok: true; overrides: ResearchOverrides } | { ok: false; error: string } {
+  reviewMaxIter?: unknown;
+}): { ok: true; overrides: ResearchOverrides; reviewMaxIter?: number } | { ok: false; error: string } {
   const overrides: ResearchOverrides = {};
 
   const modelFields: readonly ModelField[] = ['model', 'planCritModel', 'fanoutModel', 'criticModel'];
@@ -384,7 +524,17 @@ export function validateToolOverrides(input: {
     overrides.criticMaxTurns = parsed;
   }
 
-  return { ok: true, overrides };
+  let reviewMaxIter: number | undefined;
+  if (input.reviewMaxIter !== undefined) {
+    const n = coerceNumeric(input.reviewMaxIter);
+    if (n === null) return { ok: false, error: '`reviewMaxIter` must be a positive integer' };
+    const parsed = parseMaxTurns('reviewMaxIter', String(n));
+    if (typeof parsed !== 'number') return { ok: false, error: parsed.error };
+    reviewMaxIter = parsed;
+    overrides.reviewMaxIter = parsed;
+  }
+
+  return reviewMaxIter !== undefined ? { ok: true, overrides, reviewMaxIter } : { ok: true, overrides };
 }
 
 function coerceNumeric(v: unknown): number | null {
@@ -398,13 +548,16 @@ function coerceNumeric(v: unknown): number | null {
  * the USAGE / statusline / tool call summary. Returns `''` when
  * nothing is set so callers can unconditionally concatenate.
  */
-export function formatOverridesSummary(overrides: ResearchOverrides): string {
+export function formatOverridesSummary(overrides: ResearchOverrides, resume?: ResumeOverrides): string {
   const parts: string[] = [];
+  if (resume?.runRoot) parts.push(`run-root=${resume.runRoot}`);
+  if (resume?.from) parts.push(`from=${resume.from}`);
   if (overrides.model) parts.push(`model=${overrides.model}`);
   if (overrides.planCritModel) parts.push(`plan-crit-model=${overrides.planCritModel}`);
   if (overrides.fanoutModel) parts.push(`fanout-model=${overrides.fanoutModel}`);
   if (overrides.criticModel) parts.push(`critic-model=${overrides.criticModel}`);
   if (overrides.fanoutMaxTurns !== undefined) parts.push(`fanout-max-turns=${overrides.fanoutMaxTurns}`);
   if (overrides.criticMaxTurns !== undefined) parts.push(`critic-max-turns=${overrides.criticMaxTurns}`);
+  if (overrides.reviewMaxIter !== undefined) parts.push(`review-max-iter=${overrides.reviewMaxIter}`);
   return parts.length > 0 ? ` [${parts.join(' ')}]` : '';
 }

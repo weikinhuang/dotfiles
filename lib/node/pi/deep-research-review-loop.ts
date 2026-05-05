@@ -206,6 +206,16 @@ export interface ReviewLoopDeps {
    * `maxIter = 1` to exercise budget exhaustion in a single pass.
    */
   maxIter?: number;
+  /**
+   * Iteration label for the first iteration. Defaults to `1` on
+   * a fresh review; resume flows pass `startIteration = N+1`
+   * after counting `N` prior `snapshots/review/iter-NNN-*.md`
+   * files so the new snapshots land as iter-(N+1), (N+2), …
+   * rather than overwriting. `maxIter` still means "count of
+   * iterations to run" — so `startIteration=5, maxIter=4`
+   * executes iters 5, 6, 7, 8.
+   */
+  startIteration?: number;
   /** Test-inject clock for deterministic journal timestamps (unused in v1 besides potential future extensions). */
   now?: () => Date;
   /** Abort fused with per-runner signals. */
@@ -330,10 +340,12 @@ function selectBest(prev: ReviewSnapshot | null, next: ReviewSnapshot): ReviewSn
  */
 export async function runReviewLoop(deps: ReviewLoopDeps): Promise<ReviewLoopOutcome> {
   const maxIter = Math.max(1, Math.floor(deps.maxIter ?? 4));
+  const startIteration = Math.max(1, Math.floor(deps.startIteration ?? 1));
+  const endIteration = startIteration + maxIter - 1;
   let bestSoFar: ReviewSnapshot | null = null;
   let lastCritic: Verdict | null = null;
 
-  for (let iter = 1; iter <= maxIter; iter += 1) {
+  for (let iter = startIteration; iter <= endIteration; iter += 1) {
     // ── Structural stage ──────────────────────────────────────
     let structural: StructuralCheckResult;
     try {
@@ -366,7 +378,7 @@ export async function runReviewLoop(deps: ReviewLoopDeps): Promise<ReviewLoopOut
           stage: 'structural',
         });
       }
-      if (iter >= maxIter) {
+      if (iter >= endIteration) {
         return {
           kind: 'budget-exhausted',
           stage: 'structural',
@@ -460,7 +472,7 @@ export async function runReviewLoop(deps: ReviewLoopDeps): Promise<ReviewLoopOut
         stage: 'subjective',
       });
     }
-    if (iter >= maxIter) {
+    if (iter >= endIteration) {
       return {
         kind: 'budget-exhausted',
         stage: 'subjective',
@@ -491,7 +503,7 @@ export async function runReviewLoop(deps: ReviewLoopDeps): Promise<ReviewLoopOut
   return {
     kind: 'error',
     error: 'runReviewLoop exited the iteration loop without returning',
-    iterations: maxIter,
+    iterations: endIteration,
     bestSoFar,
   };
 }

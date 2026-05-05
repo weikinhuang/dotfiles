@@ -10,6 +10,7 @@ import {
   parseModelSpec,
   parseResearchCommandArgs,
   type ResearchCommandArgs,
+  type ResumeStage,
   validateToolOverrides,
 } from '../../../../lib/node/pi/research-command-args.ts';
 
@@ -27,6 +28,30 @@ function expectMaxTurnsError(r: ReturnType<typeof parseMaxTurns>): string {
 function expectCmdError(r: ResearchCommandArgs): string {
   if (r.kind !== 'error') throw new Error(`expected parseResearchCommandArgs 'error', got '${r.kind}'`);
   return r.error;
+}
+
+function expectCmdResume(r: ResearchCommandArgs): Extract<ResearchCommandArgs, { kind: 'resume' }> {
+  if (r.kind !== 'resume') throw new Error(`expected parseResearchCommandArgs 'resume', got '${r.kind}'`);
+  return r;
+}
+
+function expectCmdQuestion(r: ResearchCommandArgs): Extract<ResearchCommandArgs, { kind: 'question' }> {
+  if (r.kind !== 'question') throw new Error(`expected parseResearchCommandArgs 'question', got '${r.kind}'`);
+  return r;
+}
+
+function expectValidatedOk(
+  r: ReturnType<typeof validateToolOverrides>,
+): Extract<ReturnType<typeof validateToolOverrides>, { ok: true }> {
+  if (!r.ok) throw new Error(`expected validateToolOverrides ok, got error: ${r.error}`);
+  return r;
+}
+
+function expectValidatedErr(
+  r: ReturnType<typeof validateToolOverrides>,
+): Extract<ReturnType<typeof validateToolOverrides>, { ok: false }> {
+  if (r.ok) throw new Error(`expected validateToolOverrides error, got ok`);
+  return r;
 }
 
 describe('parseModelSpec', () => {
@@ -333,5 +358,147 @@ describe('formatOverridesSummary', () => {
     ).toBe(
       ' [model=openai/top plan-crit-model=openai/a fanout-model=openai/b critic-model=openai/c fanout-max-turns=5 critic-max-turns=6]',
     );
+  });
+});
+
+describe('parseResearchCommandArgs resume mode', () => {
+  test('--resume with no flags → auto-detect mode (empty resume + empty overrides)', () => {
+    const r = parseResearchCommandArgs('--resume');
+
+    expect(r).toEqual({ kind: 'resume', resume: {}, overrides: {} });
+  });
+
+  test('--run-root <path> records the value verbatim', () => {
+    const r = expectCmdResume(parseResearchCommandArgs('--resume --run-root ./research/foo'));
+
+    expect(r.resume.runRoot).toBe('./research/foo');
+  });
+
+  test('--run-root=<path> form works', () => {
+    const r = expectCmdResume(parseResearchCommandArgs('--resume --run-root=./research/foo'));
+
+    expect(r.resume.runRoot).toBe('./research/foo');
+  });
+
+  test('--from=<stage> accepts every ResumeStage value', () => {
+    const stages: readonly ResumeStage[] = ['plan-crit', 'fanout', 'synth', 'review'];
+    for (const s of stages) {
+      const r = expectCmdResume(parseResearchCommandArgs(`--resume --from=${s}`));
+
+      expect(r.resume.from).toBe(s);
+    }
+  });
+
+  test('--from=<unknown> is rejected with the list of valid values', () => {
+    const err = expectCmdError(parseResearchCommandArgs('--resume --from=bogus'));
+
+    expect(err).toMatch(/^--from value "bogus" must be one of:/);
+    expect(err).toContain('plan-crit');
+    expect(err).toContain('review');
+  });
+
+  test('--review-max-iter integer value is captured on overrides.reviewMaxIter', () => {
+    const r = expectCmdResume(parseResearchCommandArgs('--resume --review-max-iter 8'));
+
+    expect(r.overrides.reviewMaxIter).toBe(8);
+  });
+
+  test('--review-max-iter rejects non-integers', () => {
+    const err = expectCmdError(parseResearchCommandArgs('--resume --review-max-iter abc'));
+
+    expect(err).toMatch(/--review-max-iter must be a positive integer/);
+  });
+
+  test('mixes resume-only flags with shared override flags', () => {
+    const r = expectCmdResume(
+      parseResearchCommandArgs(
+        '--resume --run-root=./research/x --from=review --review-max-iter=8 --critic-model openai/x',
+      ),
+    );
+
+    expect(r.resume).toEqual({ runRoot: './research/x', from: 'review' });
+    expect(r.overrides).toEqual({ reviewMaxIter: 8, criticModel: 'openai/x' });
+  });
+
+  test('duplicate --run-root is rejected', () => {
+    const err = expectCmdError(parseResearchCommandArgs('--resume --run-root a --run-root b'));
+
+    expect(err).toMatch(/--run-root may only be specified once/);
+  });
+
+  test('duplicate --from is rejected', () => {
+    const err = expectCmdError(parseResearchCommandArgs('--resume --from=review --from=fanout'));
+
+    expect(err).toMatch(/--from may only be specified once/);
+  });
+
+  test('non-flag tokens after --resume are rejected (resume takes flags only)', () => {
+    const err = expectCmdError(parseResearchCommandArgs('--resume some question text'));
+
+    expect(err).toMatch(/--resume takes flags only; unexpected token "some"/);
+  });
+
+  test('flag missing value is rejected', () => {
+    expect(expectCmdError(parseResearchCommandArgs('--resume --run-root'))).toMatch(/--run-root requires a value/);
+    expect(expectCmdError(parseResearchCommandArgs('--resume --from'))).toMatch(/--from requires a value/);
+  });
+});
+
+describe('parseResearchCommandArgs question mode: --review-max-iter', () => {
+  test('--review-max-iter is accepted outside resume mode', () => {
+    const r = expectCmdQuestion(parseResearchCommandArgs('--review-max-iter 6 some question'));
+
+    expect(r.question).toBe('some question');
+    expect(r.overrides.reviewMaxIter).toBe(6);
+  });
+
+  test('--run-root is rejected in question mode', () => {
+    const err = expectCmdError(parseResearchCommandArgs('--run-root ./x some question'));
+
+    expect(err).toMatch(/--run-root is only valid with --resume/);
+  });
+
+  test('--from is rejected in question mode', () => {
+    const err = expectCmdError(parseResearchCommandArgs('--from review some question'));
+
+    expect(err).toMatch(/--from is only valid with --resume/);
+  });
+});
+
+describe('validateToolOverrides: reviewMaxIter', () => {
+  test('valid integer is normalized and mirrored on overrides.reviewMaxIter', () => {
+    const r = expectValidatedOk(validateToolOverrides({ reviewMaxIter: 8 }));
+
+    expect(r.reviewMaxIter).toBe(8);
+    expect(r.overrides.reviewMaxIter).toBe(8);
+  });
+
+  test('non-integer is rejected', () => {
+    const r = expectValidatedErr(validateToolOverrides({ reviewMaxIter: 'abc' }));
+
+    expect(r.error).toMatch(/`reviewMaxIter` must be a positive integer/);
+  });
+
+  test('absent reviewMaxIter omits the field entirely', () => {
+    const r = expectValidatedOk(validateToolOverrides({}));
+
+    expect('reviewMaxIter' in r ? r.reviewMaxIter : undefined).toBeUndefined();
+    expect(r.overrides.reviewMaxIter).toBeUndefined();
+  });
+});
+
+describe('formatOverridesSummary: resume + reviewMaxIter', () => {
+  test('resume.runRoot + resume.from appear in the summary', () => {
+    expect(formatOverridesSummary({}, { runRoot: './r/x', from: 'review' })).toBe(' [run-root=./r/x from=review]');
+  });
+
+  test('overrides.reviewMaxIter appears in the summary', () => {
+    expect(formatOverridesSummary({ reviewMaxIter: 8 })).toBe(' [review-max-iter=8]');
+  });
+
+  test('resume + overrides compose in a stable order', () => {
+    expect(
+      formatOverridesSummary({ model: 'openai/top', reviewMaxIter: 8 }, { runRoot: './r/x', from: 'review' }),
+    ).toBe(' [run-root=./r/x from=review model=openai/top review-max-iter=8]');
   });
 });
