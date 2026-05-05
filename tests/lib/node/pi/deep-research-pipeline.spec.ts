@@ -40,7 +40,7 @@
  *       return null mid-run).
  */
 
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -803,5 +803,259 @@ describe('runResearchPipeline — source-store populate', () => {
     // Only sq-1's citation was fetched; sq-2 was quarantined.
     expect(fetched).toHaveLength(1);
     expect(outcome.quarantined).toEqual(['sq-2']);
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────
+// resumeFrom: stage-skip plumbing for `/research --resume`.
+// ───────────────────────────────────────────────────────────────────────
+
+function seedResumeRunRoot(
+  sandbox: string,
+  slug: string,
+  ids: readonly string[],
+  opts: { withFindings?: boolean; fanoutStates?: Record<string, string> } = {},
+): string {
+  const runRoot = join(sandbox, 'research', slug);
+  mkdirSync(join(runRoot, 'findings'), { recursive: true });
+  const plan: DeepResearchPlan = {
+    kind: 'deep-research',
+    slug,
+    question: 'seeded question',
+    status: 'planning',
+    budget: { maxSubagents: 6, maxFetches: 40, maxCostUsd: 3, wallClockSec: 1800 },
+    subQuestions: ids.map((id) => ({ id, question: `question for ${id}`, status: 'pending' as const })),
+  };
+  writePlan(paths(runRoot).plan, plan);
+
+  const states = opts.fanoutStates ?? Object.fromEntries(ids.map((id) => [id, 'completed']));
+  const fanoutJson = {
+    version: 1 as const,
+    mode: 'sync' as const,
+    agentName: 'web-researcher',
+    tasks: ids.map((id) => ({
+      id,
+      prompt: `prompt for ${id}`,
+      state: states[id] ?? 'completed',
+      ...(states[id] === 'completed' || states[id] === undefined ? { output: validFinding(id) } : {}),
+    })),
+  };
+  writeFileSync(paths(runRoot).fanout, JSON.stringify(fanoutJson, null, 2));
+
+  if (opts.withFindings ?? true) {
+    for (const id of ids) {
+      if ((states[id] ?? 'completed') === 'completed') {
+        writeFileSync(join(runRoot, 'findings', `${id}.md`), validFinding(id));
+      }
+    }
+  }
+  return runRoot;
+}
+
+describe('runResearchPipeline — resumeFrom', () => {
+  test('resumeFrom without resumeRunRoot throws a clear error', async () => {
+    const { factory } = makeSessionFactory([]);
+
+    await expect(
+      runResearchPipeline('unused', {
+        cwd: sandbox,
+        createSession: factory,
+        runPlanningCritic: () => Promise.resolve({ rawText: approvedVerdict() }),
+        fanoutSpawn: () => Promise.reject(new Error('should not spawn')),
+        fanoutMode: 'sync',
+        model: 'm/x',
+        thinkingLevel: null,
+        maxConcurrent: 1,
+        resumeFrom: 'fanout',
+      }),
+    ).rejects.toThrow(/resumeFrom requires resumeRunRoot/);
+  });
+
+  test("resumeFrom='review' is rejected at the pipeline layer", async () => {
+    const runRoot = seedResumeRunRoot(sandbox, 'review-unsupported', ['sq-1']);
+    const { factory } = makeSessionFactory([]);
+
+    await expect(
+      runResearchPipeline('unused', {
+        cwd: sandbox,
+        createSession: factory,
+        runPlanningCritic: () => Promise.resolve({ rawText: approvedVerdict() }),
+        fanoutSpawn: () => Promise.reject(new Error('should not spawn')),
+        fanoutMode: 'sync',
+        model: 'm/x',
+        thinkingLevel: null,
+        maxConcurrent: 1,
+        resumeFrom: 'review',
+        resumeRunRoot: runRoot,
+      }),
+    ).rejects.toThrow(/not supported at the pipeline layer/);
+  });
+
+  test("resumeFrom='fanout' skips planner + self-critic + plan-crit; re-dispatches only missing ids", async () => {
+    const runRoot = seedResumeRunRoot(sandbox, 'fanout-resume', ['sq-1', 'sq-2', 'sq-3'], {
+      fanoutStates: { 'sq-1': 'completed', 'sq-2': 'pending', 'sq-3': 'completed' },
+    });
+
+    // Planner / self-critic / planning-critic runners must NOT be
+    // invoked; back them with rejecting stubs.
+    const factory = (): Promise<ResearchSessionLikeWithLifecycle> =>
+      Promise.resolve({
+        prompt: () => Promise.reject(new Error('planner/self-critic must not run on resumeFrom=fanout')),
+        state: { messages: [] },
+      });
+    const runner = vi.fn(() => Promise.reject(new Error('planning-critic must not run on resumeFrom=fanout')));
+
+    const spawned: string[] = [];
+    const spawner = (args: FanoutSpawnArgs): Promise<FanoutHandleLike> => {
+      spawned.push(args.task.id);
+      return Promise.resolve({
+        id: args.task.id,
+        status: () => Promise.resolve({ done: true, lastProgressAt: Date.now() }),
+        abort: () => Promise.resolve(),
+        wait: () => Promise.resolve({ ok: true as const, output: validFinding(args.task.id) }),
+      });
+    };
+
+    const outcome = await runResearchPipeline('unused-question', {
+      cwd: sandbox,
+      createSession: factory,
+      runPlanningCritic: runner,
+      fanoutSpawn: spawner,
+      fanoutMode: 'sync',
+      model: 'm/x',
+      thinkingLevel: null,
+      maxConcurrent: 1,
+      resumeFrom: 'fanout',
+      resumeRunRoot: runRoot,
+    });
+
+    assertKind(outcome, 'fanout-complete');
+
+    expect(runner).not.toHaveBeenCalled();
+    expect(spawned).toEqual(['sq-2']);
+    expect(outcome.runRoot).toBe(runRoot);
+    expect(outcome.plan.subQuestions.map((sq) => sq.id)).toEqual(['sq-1', 'sq-2', 'sq-3']);
+  });
+
+  test("resumeFrom='plan-crit' skips planner + self-critic; re-runs planning-critic", async () => {
+    const runRoot = seedResumeRunRoot(sandbox, 'plan-crit-resume', ['sq-1', 'sq-2', 'sq-3']);
+
+    // Planner session still needed by plan-crit's rewrite path (it
+    // uses the session for any rewrite turns), but the session
+    // should never receive a planner/self-critic prompt.
+    const { factory, prompts } = makeSessionFactory([]);
+    const runner = scriptedPlanningCritic([{ rawText: approvedVerdict() }]);
+
+    // sq-2 is already on disk; fanout-spawner should not be hit for
+    // any task because the resume should proceed to fanout
+    // idempotently (every finding already complete) and then hit
+    // synth (not enabled here — runSynth unset).
+    const spawner = vi.fn((_args: FanoutSpawnArgs): Promise<FanoutHandleLike> => {
+      return Promise.reject(new Error('fanout should not dispatch; all tasks already complete'));
+    });
+
+    const outcome = await runResearchPipeline('unused-question', {
+      cwd: sandbox,
+      createSession: factory,
+      runPlanningCritic: runner,
+      fanoutSpawn: spawner,
+      fanoutMode: 'sync',
+      model: 'm/x',
+      thinkingLevel: null,
+      maxConcurrent: 1,
+      resumeFrom: 'plan-crit',
+      resumeRunRoot: runRoot,
+    });
+
+    // Plan-crit ran (runner consumed the scripted verdict).
+    assertKind(outcome, 'fanout-complete');
+
+    expect(prompts).toEqual([]); // no planner/self-critic prompts
+    expect(spawner).not.toHaveBeenCalled();
+    expect(outcome.runRoot).toBe(runRoot);
+  });
+
+  test("resumeFrom='synth' skips planner+fanout; asserts findings complete", async () => {
+    const runRoot = seedResumeRunRoot(sandbox, 'synth-resume', ['sq-1', 'sq-2']);
+
+    const factory = (): Promise<ResearchSessionLikeWithLifecycle> =>
+      Promise.resolve({
+        prompt: () =>
+          Promise.reject(new Error('parent session prompt must not run on resumeFrom=synth (runSynth unset)')),
+        state: { messages: [] },
+      });
+    const runner = vi.fn(() => Promise.reject(new Error('planning-critic must not run on resumeFrom=synth')));
+    const spawner = vi.fn(() => Promise.reject(new Error('fanout must not run on resumeFrom=synth')));
+
+    // runSynth unset → pipeline returns 'fanout-complete' after the
+    // reconstructed snapshot (same shape the extension would consume).
+    const outcome = await runResearchPipeline('unused', {
+      cwd: sandbox,
+      createSession: factory,
+      runPlanningCritic: runner,
+      fanoutSpawn: spawner,
+      fanoutMode: 'sync',
+      model: 'm/x',
+      thinkingLevel: null,
+      maxConcurrent: 1,
+      resumeFrom: 'synth',
+      resumeRunRoot: runRoot,
+    });
+
+    assertKind(outcome, 'fanout-complete');
+
+    expect(runner).not.toHaveBeenCalled();
+    expect(spawner).not.toHaveBeenCalled();
+    expect(outcome.fanout.completed.map((c) => c.id)).toEqual(['sq-1', 'sq-2']);
+    expect(outcome.fanout.failed).toEqual([]);
+    expect(outcome.fanout.aborted).toEqual([]);
+    expect(outcome.quarantined).toEqual([]);
+  });
+
+  test("resumeFrom='synth' with a missing finding throws an actionable error", async () => {
+    const runRoot = seedResumeRunRoot(sandbox, 'synth-missing', ['sq-1', 'sq-2'], {
+      // sq-2 has no finding on disk despite state=pending
+      fanoutStates: { 'sq-1': 'completed', 'sq-2': 'pending' },
+    });
+
+    const factory = (): Promise<ResearchSessionLikeWithLifecycle> =>
+      Promise.resolve({ prompt: () => Promise.reject(new Error('unused')), state: { messages: [] } });
+
+    await expect(
+      runResearchPipeline('unused', {
+        cwd: sandbox,
+        createSession: factory,
+        runPlanningCritic: () => Promise.resolve({ rawText: approvedVerdict() }),
+        fanoutSpawn: () => Promise.reject(new Error('unused')),
+        fanoutMode: 'sync',
+        model: 'm/x',
+        thinkingLevel: null,
+        maxConcurrent: 1,
+        resumeFrom: 'synth',
+        resumeRunRoot: runRoot,
+      }),
+    ).rejects.toThrow(/findings incomplete for: sq-2.*resume from fanout/);
+  });
+
+  test('resume without a plan.json on disk fails loudly', async () => {
+    const runRoot = join(sandbox, 'research', 'no-plan');
+    mkdirSync(runRoot, { recursive: true });
+    const factory = (): Promise<ResearchSessionLikeWithLifecycle> =>
+      Promise.resolve({ prompt: () => Promise.reject(new Error('unused')), state: { messages: [] } });
+
+    await expect(
+      runResearchPipeline('unused', {
+        cwd: sandbox,
+        createSession: factory,
+        runPlanningCritic: () => Promise.resolve({ rawText: approvedVerdict() }),
+        fanoutSpawn: () => Promise.reject(new Error('unused')),
+        fanoutMode: 'sync',
+        model: 'm/x',
+        thinkingLevel: null,
+        maxConcurrent: 1,
+        resumeFrom: 'fanout',
+        resumeRunRoot: runRoot,
+      }),
+    ).rejects.toThrow(/requires plan\.json at/);
   });
 });

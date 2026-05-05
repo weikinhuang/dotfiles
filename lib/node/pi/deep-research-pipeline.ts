@@ -52,7 +52,7 @@
  * None of the above is tier-specific.
  */
 
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { ensureDirSync } from './atomic-write.ts';
@@ -85,12 +85,40 @@ import {
 } from './research-fanout.ts';
 import { appendJournal } from './research-journal.ts';
 import { paths } from './research-paths.ts';
-import { type DeepResearchPlan, type PlanBudget } from './research-plan.ts';
+import { type DeepResearchPlan, type PlanBudget, readPlan } from './research-plan.ts';
 import { hashPrompt, type Provenance, stripProvenanceFrontmatter, writeSidecar } from './research-provenance.ts';
 import { failureCounter, quarantine } from './research-quarantine.ts';
+import { sumFanoutDeficit } from './research-resume.ts';
 import { fetchAndStore, listRun, type McpClient, type SourceRef } from './research-sources.ts';
 import { type ResearchSessionLike } from './research-structured.ts';
 import { type TinyAdapter, type TinyCallContext } from './research-tiny.ts';
+
+// ──────────────────────────────────────────────────────────────────────
+// Pipeline stages (used by `--resume` to skip earlier stages).
+// ──────────────────────────────────────────────────────────────────────
+
+/**
+ * Ordered list of pipeline stages. A `/research --resume --from=<stage>`
+ * re-enters the pipeline at `stage` and skips every earlier stage,
+ * reading its outputs from disk instead. Order matters: the stage
+ * guard compares array indices.
+ *
+ * Review is listed here for symmetry with the command-surface
+ * {@link ../research-command-args.ResumeStage} enum, but the
+ * pipeline itself does NOT execute a review phase — that lives in
+ * the extension's `runReviewPhase` and is driven separately by
+ * `runResumeReviewStage`. Callers must never pass `resumeFrom:
+ * 'review'` here; {@link runResearchPipeline} rejects it with an
+ * actionable error.
+ */
+export const PIPELINE_STAGES = ['plan', 'self-crit', 'plan-crit', 'fanout', 'synth', 'review'] as const;
+export type PipelineStage = (typeof PIPELINE_STAGES)[number];
+
+/** True when `stage` is strictly earlier than `resumeFrom`. */
+function shouldSkip(stage: PipelineStage, resumeFrom?: PipelineStage): boolean {
+  if (!resumeFrom) return false;
+  return PIPELINE_STAGES.indexOf(stage) < PIPELINE_STAGES.indexOf(resumeFrom);
+}
 
 // ──────────────────────────────────────────────────────────────────────
 // Injected dependencies.
@@ -183,6 +211,36 @@ export interface PipelineDeps<M> {
    */
   runSynth?: boolean;
   /**
+   * Resume mode. When set, the pipeline reads `plan.json` (and
+   * every on-disk artifact earlier stages would otherwise have
+   * produced) from {@link resumeRunRoot} instead of invoking
+   * those stages. {@link PIPELINE_STAGES} defines the order; the
+   * pipeline skips every stage strictly earlier than
+   * `resumeFrom`.
+   *
+   *   - `plan-crit` — skip planner + self-critic, re-run
+   *     planning-critic against the hand-edited / on-disk plan.
+   *   - `fanout`    — skip plan+self-crit+plan-crit; run fanout
+   *     (idempotent — the caller should have run
+   *     `invalidateIncompleteFanoutTasks` first when re-dispatch
+   *     is desired) + synth + merge.
+   *   - `synth`     — skip every earlier stage; read findings
+   *     from disk and run synth + merge only.
+   *   - `review`    — NOT supported at the pipeline level. The
+   *     extension drives review resume directly via
+   *     `runResumeReviewStage` (no pipeline invocation). Passing
+   *     `'review'` here is a programmer error.
+   *
+   * When `resumeFrom` is set, `resumeRunRoot` MUST also be set.
+   */
+  resumeFrom?: PipelineStage;
+  /**
+   * Absolute run root the resume flow validated upstream (see
+   * `research-resume.validateRunRoot`). Required when
+   * {@link resumeFrom} is set.
+   */
+  resumeRunRoot?: string;
+  /**
    * Phase-5 observability hook: the pipeline emits one
    * {@link PhaseEvent} per macro boundary so the extension can
    * keep a statusline widget in sync. No-op when unset; the
@@ -254,80 +312,124 @@ export type PipelineOutcome =
 // ──────────────────────────────────────────────────────────────────────
 
 export async function runResearchPipeline<M>(question: string, deps: PipelineDeps<M>): Promise<PipelineOutcome> {
+  // ── 0. Resume-mode preconditions ───────────────────────────────
+  if (deps.resumeFrom && !deps.resumeRunRoot) {
+    throw new Error(
+      'runResearchPipeline: resumeFrom requires resumeRunRoot (validate via research-resume.validateRunRoot)',
+    );
+  }
+  if (deps.resumeFrom === 'review') {
+    throw new Error(
+      "runResearchPipeline: resumeFrom='review' is not supported at the pipeline layer; the extension drives review resume via runResumeReviewStage without invoking runResearchPipeline",
+    );
+  }
+
   // ── Create parent session ───────────────────────────────────────
   const session = await deps.createSession();
   emitPhase(deps, { kind: 'start' });
   let planResult: PlannerResult | null = null;
   try {
     // ── 1. Planner ────────────────────────────────────────────────
-    emitPhase(deps, { kind: 'planning' });
-    planResult = await runPlanner({
-      question,
-      cwd: deps.cwd,
-      session,
-      model: deps.model,
-      thinkingLevel: deps.thinkingLevel,
-      ...(deps.budget !== undefined ? { budget: deps.budget } : {}),
-      ...(deps.now !== undefined ? { now: deps.now } : {}),
-      ...(deps.tinyAdapter !== undefined ? { tinyAdapter: deps.tinyAdapter } : {}),
-      ...(deps.tinyCtx !== undefined ? { tinyCtx: deps.tinyCtx } : {}),
-      journalPath: paths(resolveRunRootFromCwd(deps.cwd, question)).journal,
-    });
+    let plan: DeepResearchPlan;
+    let runRoot: string;
+    if (shouldSkip('plan', deps.resumeFrom)) {
+      // Resume path: plan lives on disk under the caller-validated
+      // resumeRunRoot. `readPlan` re-validates the JSON shape;
+      // anything malformed surfaces as a thrown error at the
+      // extension boundary.
+      runRoot = deps.resumeRunRoot!;
+      const planPath = paths(runRoot).plan;
+      if (!existsSync(planPath)) {
+        throw new Error(`runResearchPipeline: resumeFrom=${deps.resumeFrom} requires plan.json at ${planPath}`);
+      }
+      const loaded = readPlan(planPath);
+      if (loaded.kind !== 'deep-research') {
+        throw new Error(`runResearchPipeline: plan at ${planPath} is kind=${loaded.kind}; expected deep-research`);
+      }
+      plan = loaded;
+      try {
+        appendJournal(paths(runRoot).journal, {
+          level: 'step',
+          heading: `resume entered at stage=${deps.resumeFrom}`,
+          body: `reading plan.json (${plan.subQuestions.length} sub-questions) from disk; earlier stages skipped`,
+        });
+      } catch {
+        /* swallow */
+      }
+    } else {
+      emitPhase(deps, { kind: 'planning' });
+      planResult = await runPlanner({
+        question,
+        cwd: deps.cwd,
+        session,
+        model: deps.model,
+        thinkingLevel: deps.thinkingLevel,
+        ...(deps.budget !== undefined ? { budget: deps.budget } : {}),
+        ...(deps.now !== undefined ? { now: deps.now } : {}),
+        ...(deps.tinyAdapter !== undefined ? { tinyAdapter: deps.tinyAdapter } : {}),
+        ...(deps.tinyCtx !== undefined ? { tinyCtx: deps.tinyCtx } : {}),
+        journalPath: paths(resolveRunRootFromCwd(deps.cwd, question)).journal,
+      });
 
-    if (planResult.stuck) {
-      emitPhase(deps, { kind: 'error', message: `planner stuck: ${planResult.stuck.reason}` });
-      return { kind: 'planner-stuck', runRoot: planResult.runRoot, reason: planResult.stuck.reason };
+      if (planResult.stuck) {
+        emitPhase(deps, { kind: 'error', message: `planner stuck: ${planResult.stuck.reason}` });
+        return { kind: 'planner-stuck', runRoot: planResult.runRoot, reason: planResult.stuck.reason };
+      }
+
+      plan = planResult.plan;
+      runRoot = planResult.runRoot;
     }
-
-    let plan = planResult.plan;
-    const runRoot = planResult.runRoot;
     const p = paths(runRoot);
 
     // ── 2. Self-critic ────────────────────────────────────────────
-    emitPhase(deps, { kind: 'self-crit' });
-    const selfCritic = await runSelfCritic({
-      runRoot,
-      plan,
-      session,
-      model: deps.model,
-      thinkingLevel: deps.thinkingLevel,
-      ...(deps.now !== undefined ? { now: deps.now } : {}),
-      ...(deps.tinyAdapter !== undefined ? { tinyAdapter: deps.tinyAdapter } : {}),
-      ...(deps.tinyCtx !== undefined ? { tinyCtx: deps.tinyCtx } : {}),
-      journalPath: p.journal,
-    });
-    plan = selfCritic.plan;
+    if (!shouldSkip('self-crit', deps.resumeFrom)) {
+      emitPhase(deps, { kind: 'self-crit' });
+      const selfCritic = await runSelfCritic({
+        runRoot,
+        plan,
+        session,
+        model: deps.model,
+        thinkingLevel: deps.thinkingLevel,
+        ...(deps.now !== undefined ? { now: deps.now } : {}),
+        ...(deps.tinyAdapter !== undefined ? { tinyAdapter: deps.tinyAdapter } : {}),
+        ...(deps.tinyCtx !== undefined ? { tinyCtx: deps.tinyCtx } : {}),
+        journalPath: p.journal,
+      });
+      plan = selfCritic.plan;
+    }
 
     // ── 3. Planning-critic ────────────────────────────────────────
-    emitPhase(deps, { kind: 'plan-crit' });
-    const criticOutcome = await runPlanningCritic({
-      runRoot,
-      plan,
-      session,
-      runCritic: deps.runPlanningCritic,
-      model: deps.model,
-      thinkingLevel: deps.thinkingLevel,
-      ...(deps.signal !== undefined ? { signal: deps.signal } : {}),
-      ...(deps.now !== undefined ? { now: deps.now } : {}),
-      journalPath: p.journal,
-    });
+    if (!shouldSkip('plan-crit', deps.resumeFrom)) {
+      emitPhase(deps, { kind: 'plan-crit' });
+      const criticOutcome = await runPlanningCritic({
+        runRoot,
+        plan,
+        session,
+        runCritic: deps.runPlanningCritic,
+        model: deps.model,
+        thinkingLevel: deps.thinkingLevel,
+        ...(deps.signal !== undefined ? { signal: deps.signal } : {}),
+        ...(deps.now !== undefined ? { now: deps.now } : {}),
+        journalPath: p.journal,
+      });
 
-    // Collect the post-rewrite plan (planning-critic may have
-    // overwritten plan.json on disk). `outcome.plan` is the
-    // authoritative in-memory view.
-    plan = criticOutcome.plan;
+      // Collect the post-rewrite plan (planning-critic may have
+      // overwritten plan.json on disk). `outcome.plan` is the
+      // authoritative in-memory view.
+      plan = criticOutcome.plan;
 
-    if (criticOutcome.kind === 'error') {
-      emitPhase(deps, { kind: 'error', message: `plan-crit error: ${criticOutcome.error}` });
-      return { kind: 'error', runRoot, plan, error: criticOutcome.error };
-    }
-    if (criticOutcome.kind === 'checkpoint' || criticOutcome.kind === 'rewrite-stuck') {
-      // Give the extension a chance to prompt the user; default to
-      // halting the pipeline (do not fan out on a rejected plan).
-      const decision = deps.onCriticCheckpoint ? await deps.onCriticCheckpoint(criticOutcome) : { continue: false };
-      if (!decision.continue) {
-        emitPhase(deps, { kind: 'error', message: `plan-crit checkpoint (${criticOutcome.kind})` });
-        return { kind: 'checkpoint', runRoot, plan, outcome: criticOutcome };
+      if (criticOutcome.kind === 'error') {
+        emitPhase(deps, { kind: 'error', message: `plan-crit error: ${criticOutcome.error}` });
+        return { kind: 'error', runRoot, plan, error: criticOutcome.error };
+      }
+      if (criticOutcome.kind === 'checkpoint' || criticOutcome.kind === 'rewrite-stuck') {
+        // Give the extension a chance to prompt the user; default to
+        // halting the pipeline (do not fan out on a rejected plan).
+        const decision = deps.onCriticCheckpoint ? await deps.onCriticCheckpoint(criticOutcome) : { continue: false };
+        if (!decision.continue) {
+          emitPhase(deps, { kind: 'error', message: `plan-crit checkpoint (${criticOutcome.kind})` });
+          return { kind: 'checkpoint', runRoot, plan, outcome: criticOutcome };
+        }
       }
     }
 
@@ -360,25 +462,63 @@ export async function runResearchPipeline<M>(question: string, deps: PipelineDep
     }
 
     // ── 4. Fanout ─────────────────────────────────────────────────
-    emitPhase(deps, { kind: 'fanout-start', total: plan.subQuestions.length });
-    const fanoutResult = await runFanoutPhase({
-      plan,
-      runRoot,
-      deps,
-    });
-    emitPhase(deps, {
-      kind: 'fanout-progress',
-      done: fanoutResult.completed.length + fanoutResult.failed.length + fanoutResult.aborted.length,
-      total: plan.subQuestions.length,
-    });
+    let fanoutResult: FanoutResult;
+    let quarantined: string[];
+    if (shouldSkip('fanout', deps.resumeFrom)) {
+      // Synth / later: reconstruct the fanout snapshot from disk so
+      // downstream consumers (journal summary, return outcome)
+      // see consistent counts without re-dispatching.
+      //
+      // Assert every sub-question has a non-empty finding on disk;
+      // synth with a missing finding would silently stub the
+      // section and waste a review iteration on an unfixable
+      // defect. `sumFanoutDeficit` is the same check the resume
+      // auto-detector uses.
+      const deficit = sumFanoutDeficit(
+        runRoot,
+        plan.subQuestions.map((sq) => sq.id),
+      );
+      if (deficit.length > 0) {
+        throw new Error(
+          `runResearchPipeline: resumeFrom=${deps.resumeFrom} but findings incomplete for: ${deficit.join(', ')} ` +
+            `— resume from fanout instead (/research --resume --from=fanout)`,
+        );
+      }
+      fanoutResult = loadResumeFanoutSnapshot(runRoot, plan);
+      quarantined = [];
+      try {
+        appendJournal(p.journal, {
+          level: 'step',
+          heading: 'fanout skipped (resume)',
+          body:
+            `completed=${fanoutResult.completed.length} ` +
+            `failed=${fanoutResult.failed.length} ` +
+            `aborted=${fanoutResult.aborted.length}`,
+        });
+      } catch {
+        /* swallow */
+      }
+    } else {
+      emitPhase(deps, { kind: 'fanout-start', total: plan.subQuestions.length });
+      fanoutResult = await runFanoutPhase({
+        plan,
+        runRoot,
+        deps,
+      });
+      emitPhase(deps, {
+        kind: 'fanout-progress',
+        done: fanoutResult.completed.length + fanoutResult.failed.length + fanoutResult.aborted.length,
+        total: plan.subQuestions.length,
+      });
 
-    // ── 5. Post-fanout validation + quarantine ────────────────────
-    const quarantined = await absorbFindings({
-      fanoutResult,
-      plan,
-      runRoot,
-      deps,
-    });
+      // ── 5. Post-fanout validation + quarantine ────────────────────
+      quarantined = await absorbFindings({
+        fanoutResult,
+        plan,
+        runRoot,
+        deps,
+      });
+    }
 
     // Populate source store from accepted findings. The
     // web-researcher subagent fetched pages through its flat MCP
@@ -985,6 +1125,73 @@ async function runSynthPhase<M>(args: SynthPhaseArgs<M>): Promise<{
 // ──────────────────────────────────────────────────────────────────────
 // Helpers.
 // ──────────────────────────────────────────────────────────────────────
+
+/**
+ * Reconstruct a {@link FanoutResult} from on-disk state. Used on
+ * resume flows that skip fanout (`resumeFrom` in {synth}) so the
+ * outcome object still carries consistent completed / failed /
+ * aborted counts. Source of truth: `fanout.json`'s `tasks[*].state`
+ * field; we fall back to finding-file presence for plans whose
+ * fanout.json predates the `state` field.
+ *
+ * The `output` field on completed entries is deliberately left as
+ * whatever `fanout.json` persisted — downstream synth reads the
+ * finding files on disk directly via
+ * {@link deep-research-synth-sections.runAllSections}, never from
+ * `fanoutResult.completed[*].output`.
+ */
+function loadResumeFanoutSnapshot(runRoot: string, plan: DeepResearchPlan): FanoutResult {
+  const p = paths(runRoot);
+  const result: FanoutResult = { completed: [], failed: [], aborted: [] };
+
+  interface PersistedTask {
+    id?: unknown;
+    state?: unknown;
+    output?: unknown;
+    reason?: unknown;
+  }
+  const taskMap = new Map<string, PersistedTask>();
+  if (existsSync(p.fanout)) {
+    try {
+      const raw: unknown = JSON.parse(readFileSync(p.fanout, 'utf8'));
+      if (raw !== null && typeof raw === 'object' && Array.isArray((raw as { tasks?: unknown }).tasks)) {
+        for (const t of (raw as { tasks: unknown[] }).tasks) {
+          if (t === null || typeof t !== 'object') continue;
+          const id = (t as PersistedTask).id;
+          if (typeof id === 'string') taskMap.set(id, t);
+        }
+      }
+    } catch {
+      /* swallow — fall through to per-id lookup below */
+    }
+  }
+
+  for (const sq of plan.subQuestions) {
+    const task = taskMap.get(sq.id);
+    const state = task?.state;
+    const output = typeof task?.output === 'string' ? task.output : '';
+    const reason = typeof task?.reason === 'string' ? task.reason : '';
+    if (state === 'completed') {
+      result.completed.push({ id: sq.id, output });
+      continue;
+    }
+    if (state === 'aborted') {
+      result.aborted.push({ id: sq.id, reason: reason || 'aborted' });
+      continue;
+    }
+    if (state === 'failed') {
+      result.failed.push({ id: sq.id, reason: reason || 'failed' });
+      continue;
+    }
+    // No recorded state: fall back to finding-file presence.
+    if (existsSync(join(p.findings, `${sq.id}.md`))) {
+      result.completed.push({ id: sq.id, output });
+    } else {
+      result.failed.push({ id: sq.id, reason: 'no fanout state and no finding on disk' });
+    }
+  }
+  return result;
+}
 
 /**
  * Best-effort guess of the run root before the planner runs —
