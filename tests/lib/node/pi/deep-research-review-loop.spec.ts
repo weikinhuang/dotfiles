@@ -30,6 +30,7 @@ import {
   runReviewLoop,
   type CriticRunner,
   type RefinementRunner,
+  type ReviewLoopOutcome,
   type StructuralRunner,
 } from '../../../../lib/node/pi/deep-research-review-loop.ts';
 import { type StructuralCheckResult } from '../../../../lib/node/pi/deep-research-structural-check.ts';
@@ -509,5 +510,32 @@ describe('runReviewLoop — startIteration (resume flows)', () => {
     assertKind(outcome, 'passed');
 
     expect(outcome.iterations).toBe(1);
+  });
+});
+
+// ──────────────────────────────────────────────────────────────────────
+// Stubbed outcome — produced by the review-wire short-circuit,
+// not by the loop itself. Documented here so the discriminated
+// union's {@link ReviewLoopOutcome} shape stays exhaustively
+// covered across the lib boundary (wire tests drive the actual
+// short-circuit).
+// ──────────────────────────────────────────────────────────────────────
+
+describe('ReviewLoopOutcome shape — stubbed variant', () => {
+  test('{ kind: "stubbed" } is assignable to ReviewLoopOutcome and carries stubbed sections + reportPath', () => {
+    const outcome: ReviewLoopOutcome = {
+      kind: 'stubbed',
+      stubbed: [{ heading: 'sq-1', reason: 'no findings' }],
+      reportPath: '/tmp/demo/report.md',
+    };
+    assertKind(outcome, 'stubbed');
+
+    expect(outcome.stubbed).toHaveLength(1);
+    expect(outcome.reportPath).toBe('/tmp/demo/report.md');
+    // `iterations` is deliberately absent — the short-circuit
+    // never ran a review iteration. Document the omission so a
+    // future edit that adds the field has to revisit the
+    // contract explicitly.
+    expect('iterations' in outcome).toBe(false);
   });
 });

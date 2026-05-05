@@ -46,6 +46,8 @@ import { type BashCheckSpec, type CheckSpec, type CriticCheckSpec } from './iter
 import { acceptDraft, archiveTask, writeDraft } from './iteration-loop-storage.ts';
 import { appendJournal } from './research-journal.ts';
 import { paths } from './research-paths.ts';
+import { findStubbedSections } from './research-resume.ts';
+import { formatStubbedReviewSummary } from './research-stub-hint.ts';
 
 // ──────────────────────────────────────────────────────────────────────
 // Task constants.
@@ -133,6 +135,42 @@ export async function runDeepResearchReview(deps: ReviewWireDeps): Promise<Revie
   const taskNames = deps.taskNames ?? { structural: STRUCTURAL_TASK, subjective: SUBJECTIVE_TASK };
   const journalPath = paths(deps.runRoot).journal;
   const now = deps.now ?? ((): Date => new Date());
+  const reportPath = paths(deps.runRoot).report;
+
+  // ── 0. Stubbed short-circuit ──────────────────────────────
+  // A freshly-rendered `report.md` that still contains
+  // `[section unavailable: …]` sub-question stubs cannot be
+  // rescued by the review loop: structural already exempts
+  // stubbed sections from its citation rule (so iterations
+  // wouldn't wedge on them), and `refineMergeOnly` cannot add
+  // missing findings. Running the loop would burn up to
+  // `maxIter` turns before the extension's post-loop notify
+  // surfaces the re-fetch hint. Detect stubs at entry instead,
+  // journal the skip, and return a terminal `stubbed` outcome
+  // the caller renders with the same recovery-command shape
+  // the post-loop hint uses.
+  const stubbedSections = findStubbedSections(reportPath);
+  if (stubbedSections.length > 0) {
+    const summary = formatStubbedReviewSummary(deps.runRoot, stubbedSections);
+    safeJournal(
+      journalPath,
+      `review short-circuit: ${stubbedSections.length} stubbed section(s) \u2014 skipping loop`,
+      summary,
+      'warn',
+    );
+    notify(summary, 'warning');
+    return {
+      outcome: { kind: 'stubbed', stubbed: stubbedSections, reportPath },
+      // Consent is neither needed nor recorded on the short-
+      // circuit path — the loop never ran, so there's nothing
+      // to auto-accept. The next non-stubbed review will pick
+      // up the bootstrap the first time the loop actually runs.
+      consented: false,
+      firstTimeConsent: false,
+      summary,
+      level: 'warning',
+    };
+  }
 
   // ── 1. Consent gate ────────────────────────────────────────
   const consentOpts: ReviewConsentOpts = deps.consent ?? {};
@@ -291,6 +329,20 @@ export function formatOutcome(outcome: ReviewLoopOutcome): { summary: string; le
           `(structural ok, critic ${outcome.critic.score.toFixed(2)}). Report ready at ${outcome.reportPath}.`,
         level: 'info',
       };
+    case 'stubbed':
+      // The wire's short-circuit path builds the full recovery
+      // summary via {@link formatStubbedReviewSummary} before ever
+      // calling {@link formatOutcome} — that's what the user and
+      // the LLM see. This branch exists for callers that invoke
+      // {@link formatOutcome} directly on a {@link ReviewLoopOutcome}
+      // (tests, downstream renderers) so the switch exhaustively
+      // covers the union without falling through.
+      return {
+        summary:
+          `/research: review skipped \u2014 ${outcome.stubbed.length} sub-question section(s) are stubbed as ` +
+          `[section unavailable]. Re-fetch before re-running review.`,
+        level: 'warning',
+      };
     case 'budget-exhausted': {
       const lines: string[] = [];
       lines.push(
@@ -340,13 +392,18 @@ function noopNotify(): void {
   /* intentional no-op */
 }
 
-function safeJournal(journalPath: string, heading: string, body?: string): void {
+function safeJournal(
+  journalPath: string,
+  heading: string,
+  body?: string,
+  level: 'info' | 'step' | 'warn' | 'error' = 'step',
+): void {
   // Journal writes depend on the run root existing; tests can
   // supply a fake run root where it doesn't. Swallow failures so
   // the review loop itself is never blocked on logging.
   try {
     if (!existsSync(dirname(journalPath))) return;
-    appendJournal(journalPath, body !== undefined ? { level: 'step', heading, body } : { level: 'step', heading });
+    appendJournal(journalPath, body !== undefined ? { level, heading, body } : { level, heading });
   } catch {
     /* best-effort */
   }

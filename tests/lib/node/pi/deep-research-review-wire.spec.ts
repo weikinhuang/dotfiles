@@ -297,6 +297,144 @@ describe('runDeepResearchReview — scenario D (budget exhausted)', () => {
   });
 });
 
+// Scenario (E) — stubbed short-circuit: report has
+// `[section unavailable: …]` stubs → wire skips the loop and
+// returns a terminal `kind: 'stubbed'` outcome with the
+// recovery command already in the summary.
+
+describe('runDeepResearchReview — scenario E (stubbed short-circuit)', () => {
+  test('stubbed report bypasses the loop and returns kind=stubbed without running any runner', async () => {
+    // Seed a report with two stubbed sub-question sections and
+    // a plan.json that resolves both headings to concrete ids.
+    writeFileSync(
+      join(runRoot, 'report.md'),
+      [
+        '# report',
+        '',
+        '## What is A?',
+        '',
+        '[section unavailable: findings empty]',
+        '',
+        '## What is B?',
+        '',
+        '[section unavailable: fanout task aborted]',
+        '',
+      ].join('\n'),
+    );
+    writeFileSync(
+      join(runRoot, 'plan.json'),
+      JSON.stringify({
+        kind: 'deep-research',
+        version: 1,
+        question: 'demo',
+        slug: 'demo',
+        createdAt: '2026-01-01T00:00:00.000Z',
+        status: 'planning',
+        budget: { maxSubagents: 2, maxFetches: 10, maxCostUsd: 1, wallClockSec: 60 },
+        subQuestions: [
+          { id: 'sq-1', question: 'What is A?', status: 'pending' },
+          { id: 'sq-2', question: 'What is B?', status: 'pending' },
+        ],
+      }),
+    );
+
+    const runStructural = vi.fn<StructuralRunner>();
+    const runCritic = vi.fn<CriticRunner>();
+    const { refine, calls: refineCalls } = refiner();
+    const notify = vi.fn();
+
+    const result = await runDeepResearchReview({
+      cwd,
+      runRoot,
+      rubricSubjective: '## Rubric\n',
+      structuralBashCmd: 'node lib/node/pi/deep-research-structural-check.ts ./research/demo',
+      runStructural,
+      runCritic,
+      refineReport: refine,
+      maxIter: 4,
+      consent: { root: memoryRoot },
+      notify,
+    });
+
+    assertKind(result.outcome, 'stubbed');
+
+    expect(result.outcome.stubbed).toHaveLength(2);
+    expect(result.outcome.stubbed.map((s) => s.heading)).toEqual(['What is A?', 'What is B?']);
+    expect(result.outcome.reportPath).toBe(join(runRoot, 'report.md'));
+
+    // Neither runner was called — the short-circuit happens
+    // before the loop spins up.
+    expect(runStructural).not.toHaveBeenCalled();
+    expect(runCritic).not.toHaveBeenCalled();
+    expect(refineCalls).toHaveLength(0);
+
+    // Summary carries the "review skipped" line + a copy-
+    // pasteable re-fetch command with the resolved ids.
+    expect(result.level).toBe('warning');
+    expect(result.summary).toContain('review skipped');
+    expect(result.summary).toContain('2 sub-question section(s)');
+    expect(result.summary).toContain('--from=fanout');
+    expect(result.summary).toContain('--sq=sq-1,sq-2');
+    expect(result.summary).toContain(`--run-root ${runRoot}`);
+
+    // Exactly one notify (the summary itself) — no consent
+    // bootstrap on the short-circuit path since the loop never
+    // ran, and no separate recovery-hint notify.
+    expect(notify).toHaveBeenCalledTimes(1);
+    expect(notify.mock.calls[0][0]).toBe(result.summary);
+    expect(notify.mock.calls[0][1]).toBe('warning');
+
+    // Consent was NOT recorded on the short-circuit path
+    // (matches `consented: false` in the returned shape so
+    // callers can distinguish the skip from a real run).
+    expect(result.consented).toBe(false);
+    expect(result.firstTimeConsent).toBe(false);
+  });
+
+  test('stubbed short-circuit with unresolvable heading falls back to <id1>,<id2> placeholder', async () => {
+    writeFileSync(
+      join(runRoot, 'report.md'),
+      ['# report', '', '## Heading that does not appear in plan.json', '', '[section unavailable: x]', ''].join('\n'),
+    );
+    writeFileSync(
+      join(runRoot, 'plan.json'),
+      JSON.stringify({
+        kind: 'deep-research',
+        version: 1,
+        question: 'demo',
+        slug: 'demo',
+        createdAt: '2026-01-01T00:00:00.000Z',
+        status: 'planning',
+        budget: { maxSubagents: 1, maxFetches: 10, maxCostUsd: 1, wallClockSec: 60 },
+        subQuestions: [{ id: 'sq-1', question: 'Totally different question', status: 'pending' }],
+      }),
+    );
+
+    const runStructural = vi.fn<StructuralRunner>();
+    const runCritic = vi.fn<CriticRunner>();
+    const { refine } = refiner();
+    const notify = vi.fn();
+
+    const result = await runDeepResearchReview({
+      cwd,
+      runRoot,
+      rubricSubjective: '## Rubric\n',
+      structuralBashCmd: 'node lib/node/pi/deep-research-structural-check.ts ./research/demo',
+      runStructural,
+      runCritic,
+      refineReport: refine,
+      maxIter: 4,
+      consent: { root: memoryRoot },
+      notify,
+    });
+
+    assertKind(result.outcome, 'stubbed');
+
+    expect(result.summary).toContain('<id1>,<id2>');
+    expect(result.summary).toContain('could not resolve every heading');
+  });
+});
+
 // ──────────────────────────────────────────────────────────────────────
 // Consent bootstrap behavior — the second run skips the consent notify.
 // ──────────────────────────────────────────────────────────────────────
@@ -524,5 +662,20 @@ describe('formatOutcome', () => {
 
     expect(out.level).toBe('error');
     expect(out.summary).toContain('boom');
+  });
+
+  test('stubbed → warning level naming the stub count', () => {
+    const out = formatOutcome({
+      kind: 'stubbed',
+      stubbed: [
+        { heading: 'What is A?', reason: 'no findings' },
+        { heading: 'What is B?', reason: '' },
+      ],
+      reportPath: '/r/report.md',
+    });
+
+    expect(out.level).toBe('warning');
+    expect(out.summary).toContain('review skipped');
+    expect(out.summary).toContain('2 sub-question section(s)');
   });
 });

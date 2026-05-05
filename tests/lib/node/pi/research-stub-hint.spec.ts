@@ -13,7 +13,12 @@ import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
-import { formatStubHint } from '../../../../lib/node/pi/research-stub-hint.ts';
+import { type StubbedSection } from '../../../../lib/node/pi/research-resume.ts';
+import {
+  formatStubHint,
+  formatStubbedReviewSummary,
+  resolveStubbedSectionIds,
+} from '../../../../lib/node/pi/research-stub-hint.ts';
 
 function makeTmp(): string {
   return mkdtempSync(join(tmpdir(), 'research-stub-hint-spec-'));
@@ -230,5 +235,98 @@ describe('formatStubHint', () => {
     // the user completes. Mixing `sq-1,<id2>` would be confusing.
     expect(hint).toContain('<id1>,<id2>');
     expect(hint).not.toContain('--sq=sq-1,');
+  });
+});
+
+describe('resolveStubbedSectionIds', () => {
+  let tmp: string;
+
+  beforeEach(() => {
+    tmp = makeTmp();
+  });
+
+  afterEach(() => {
+    rmSync(tmp, { recursive: true, force: true });
+  });
+
+  test('empty stubbed list returns ok=true with ids=[]', () => {
+    writePlan(tmp, [{ id: 'sq-1', question: 'Q1' }]);
+    const resolved = resolveStubbedSectionIds(tmp, []);
+
+    expect(resolved).toEqual({ ok: true, ids: [] });
+  });
+
+  test('resolves each heading in report order when exact matches exist', () => {
+    writePlan(tmp, [
+      { id: 'sq-1', question: 'Q1' },
+      { id: 'sq-2', question: 'Q2' },
+    ]);
+    const stubbed: StubbedSection[] = [
+      { heading: 'Q2', reason: 'x' },
+      { heading: 'Q1', reason: 'y' },
+    ];
+
+    expect(resolveStubbedSectionIds(tmp, stubbed)).toEqual({ ok: true, ids: ['sq-2', 'sq-1'] });
+  });
+
+  test('ok=false when at least one heading cannot be resolved', () => {
+    writePlan(tmp, [{ id: 'sq-1', question: 'Q1' }]);
+    const stubbed: StubbedSection[] = [
+      { heading: 'Q1', reason: '' },
+      { heading: 'Unknown', reason: '' },
+    ];
+    const resolved = resolveStubbedSectionIds(tmp, stubbed);
+
+    expect(resolved.ok).toBe(false);
+  });
+
+  test('missing plan.json → ok=false', () => {
+    const resolved = resolveStubbedSectionIds(tmp, [{ heading: 'Q1', reason: '' }]);
+
+    expect(resolved.ok).toBe(false);
+  });
+});
+
+describe('formatStubbedReviewSummary', () => {
+  let tmp: string;
+
+  beforeEach(() => {
+    tmp = makeTmp();
+  });
+
+  afterEach(() => {
+    rmSync(tmp, { recursive: true, force: true });
+  });
+
+  test('renders "review skipped" line, per-heading bullets, and a resolved --sq= command', () => {
+    writePlan(tmp, [
+      { id: 'sq-1', question: 'Q1' },
+      { id: 'sq-2', question: 'Q2' },
+    ]);
+    const stubbed: StubbedSection[] = [
+      { heading: 'Q1', reason: 'no findings on disk' },
+      { heading: 'Q2', reason: 'fanout task aborted' },
+    ];
+    const summary = formatStubbedReviewSummary(tmp, stubbed);
+
+    expect(summary).toContain('review skipped');
+    expect(summary).toContain('2 sub-question section(s)');
+    expect(summary).toContain('Refinement cannot recover missing findings');
+    expect(summary).toContain('\u2022 Q1 \u2014 no findings on disk');
+    expect(summary).toContain('\u2022 Q2 \u2014 fanout task aborted');
+    expect(summary).toContain(`--run-root ${tmp}`);
+    expect(summary).toContain('--from=fanout');
+    expect(summary).toContain('--sq=sq-1,sq-2');
+    expect(summary).not.toContain('<id1>');
+  });
+
+  test('falls back to <id1>,<id2> placeholder when a heading cannot be resolved', () => {
+    writePlan(tmp, [{ id: 'sq-1', question: 'Completely different text' }]);
+    const stubbed: StubbedSection[] = [{ heading: 'Unknown heading', reason: 'x' }];
+    const summary = formatStubbedReviewSummary(tmp, stubbed);
+
+    expect(summary).toContain('<id1>,<id2>');
+    expect(summary).toContain('could not resolve every heading');
+    expect(summary).toContain(join(tmp, 'plan.json'));
   });
 });

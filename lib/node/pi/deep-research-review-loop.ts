@@ -81,6 +81,7 @@ import { atomicWriteFile, ensureDirSync } from './atomic-write.ts';
 import { type StructuralCheckResult, type StructuralFailure } from './deep-research-structural-check.ts';
 import { type Issue, type Verdict } from './iteration-loop-schema.ts';
 import { paths } from './research-paths.ts';
+import { type StubbedSection } from './research-resume.ts';
 
 // ──────────────────────────────────────────────────────────────────────
 // Public types.
@@ -186,6 +187,28 @@ export type ReviewLoopOutcome =
       error: string;
       iterations: number;
       bestSoFar: ReviewSnapshot | null;
+    }
+  | {
+      /**
+       * Terminal outcome produced by the review-wire when the
+       * freshly-rendered `report.md` still contains one or more
+       * `[section unavailable: …]` sub-question stubs. The loop
+       * itself never returns this variant — refinement cannot add
+       * missing findings, so spending iterations on a stubbed
+       * report burns budget without any chance of converging.
+       * Instead, {@link ./deep-research-review-wire.runDeepResearchReview}
+       * detects stubs at entry and short-circuits with this shape
+       * so the extension can surface a re-fetch recovery command
+       * to the user (or the parent LLM agent) without waiting for
+       * the loop to exhaust its budget.
+       *
+       * `iterations` is deliberately omitted — the loop never
+       * ran, so there is no iteration count to report.
+       */
+      kind: 'stubbed';
+      stubbed: readonly StubbedSection[];
+      /** Path to the final `report.md` (unchanged). */
+      reportPath: string;
     };
 
 export interface ReviewLoopDeps {

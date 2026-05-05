@@ -37,6 +37,47 @@ interface PlanSubQuestionHandle {
 }
 
 /**
+ * Resolution of a `StubbedSection[]` array against the on-disk
+ * plan's sub-question list.
+ *
+ *   - `ok: true`  — every stubbed heading resolved to a unique
+ *                  `plan.subQuestions[*].id`; `ids` is in report
+ *                  order (one id per stubbed section).
+ *   - `ok: false` — at least one heading could not be resolved;
+ *                  `ids` holds the partial list of resolutions
+ *                  but must NOT be rendered as-is (callers fall
+ *                  back to a placeholder template). The all-or-
+ *                  nothing contract avoids mixing real ids with
+ *                  `<idN>` markers.
+ */
+export interface ResolvedStubbedSectionIds {
+  ok: boolean;
+  ids: string[];
+}
+
+/**
+ * Map each `StubbedSection` to its `plan.subQuestions[*].id` using
+ * the same two-pass resolver {@link formatStubHint} has always
+ * used: exact-string first, case-insensitive trimmed match second,
+ * give up otherwise. Exposed as a named helper so both
+ * {@link formatStubHint} and
+ * {@link ./deep-research-review-wire.runDeepResearchReview}'s
+ * stubbed short-circuit render identical `--sq=<ids>` commands.
+ *
+ * A missing or malformed `plan.json` degrades to
+ * `{ ok: false, ids: [] }` — the hint is advisory and must never
+ * throw into the notify path.
+ */
+export function resolveStubbedSectionIds(
+  runRoot: string,
+  stubbed: readonly StubbedSection[],
+): ResolvedStubbedSectionIds {
+  if (stubbed.length === 0) return { ok: true, ids: [] };
+  const subQuestions = readPlanSubQuestions(paths(runRoot).plan);
+  return resolveHeadings(stubbed, subQuestions);
+}
+
+/**
  * Build the hint string for `runRoot`, or `null` when there are
  * no stubbed sections in the rendered report (the common case).
  *
@@ -59,11 +100,51 @@ export function formatStubHint(runRoot: string): string | null {
   const stubbed = findStubbedSections(p.report);
   if (stubbed.length === 0) return null;
 
-  const subQuestions = readPlanSubQuestions(p.plan);
-  const resolved = resolveHeadings(stubbed, subQuestions);
+  const resolved = resolveStubbedSectionIds(runRoot, stubbed);
 
   const lines: string[] = [];
   lines.push(`/research: note \u2014 ${stubbed.length} sub-question section(s) are stubbed as [section unavailable].`);
+  for (const s of stubbed) {
+    const reason = s.reason.length > 0 ? ` \u2014 ${s.reason}` : '';
+    lines.push(`  \u2022 ${s.heading}${reason}`);
+  }
+  if (resolved.ok) {
+    lines.push(
+      `  To re-fetch: \`/research --resume --run-root ${runRoot} --from=fanout --sq=${resolved.ids.join(',')}\``,
+    );
+  } else {
+    lines.push(
+      `  To re-fetch: \`/research --resume --run-root ${runRoot} --from=fanout --sq=<id1>,<id2>\`` +
+        ` (could not resolve every heading above to a plan sub-question id; open ${p.plan} to map them).`,
+    );
+  }
+  return lines.join('\n');
+}
+
+/**
+ * Summary rendered by
+ * {@link ./deep-research-review-wire.runDeepResearchReview}'s
+ * stubbed short-circuit. Communicates two things the refinement-
+ * based {@link formatStubHint} does not:
+ *
+ *   1. The review loop was SKIPPED — no iterations burned.
+ *   2. The user (or parent LLM agent) must re-fetch the listed
+ *      sub-questions before re-running review; refinement cannot
+ *      recover from a missing-findings stub.
+ *
+ * Shares the {@link resolveStubbedSectionIds} resolver with
+ * {@link formatStubHint} so both call sites emit identical
+ * `--sq=<ids>` commands.
+ */
+export function formatStubbedReviewSummary(runRoot: string, stubbed: readonly StubbedSection[]): string {
+  const p = paths(runRoot);
+  const resolved = resolveStubbedSectionIds(runRoot, stubbed);
+
+  const lines: string[] = [];
+  lines.push(
+    `/research: review skipped \u2014 ${stubbed.length} sub-question section(s) are stubbed as [section unavailable].` +
+      ` Refinement cannot recover missing findings; re-fetch before re-running review.`,
+  );
   for (const s of stubbed) {
     const reason = s.reason.length > 0 ? ` \u2014 ${s.reason}` : '';
     lines.push(`  \u2022 ${s.heading}${reason}`);
