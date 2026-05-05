@@ -241,6 +241,20 @@ export interface PipelineDeps<M> {
    */
   resumeRunRoot?: string;
   /**
+   * Optional sub-question filter threaded into the synth stage.
+   * When non-empty, {@link runAllSections} re-synthesizes only
+   * the listed ids; every other sub-question in the plan emits
+   * a pass-through outcome pointing at its existing
+   * `snapshots/sections/<id>.md` so the merge can skip the LLM
+   * turn for unaffected sections. Only meaningful on the
+   * `--sq` resume path; ignored on a fresh run.
+   *
+   * Out-of-plan ids are pre-validated by the extension's
+   * `research-resume.scopeFanoutDeficit` check before the
+   * pipeline is invoked.
+   */
+  synthSubQuestionIds?: readonly string[];
+  /**
    * Phase-5 observability hook: the pipeline emits one
    * {@link PhaseEvent} per macro boundary so the extension can
    * keep a statusline widget in sync. No-op when unset; the
@@ -1103,6 +1117,9 @@ async function runSynthPhase<M>(args: SynthPhaseArgs<M>): Promise<{
     ...(deps.now !== undefined ? { now: deps.now } : {}),
     ...(deps.tinyAdapter !== undefined ? { tinyAdapter: deps.tinyAdapter } : {}),
     ...(deps.tinyCtx !== undefined ? { tinyCtx: deps.tinyCtx } : {}),
+    ...(deps.synthSubQuestionIds && deps.synthSubQuestionIds.length > 0
+      ? { subQuestionIds: deps.synthSubQuestionIds }
+      : {}),
   });
 
   emitPhase(deps, { kind: 'merge' });

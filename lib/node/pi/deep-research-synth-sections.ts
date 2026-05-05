@@ -415,6 +415,21 @@ export interface AllSectionsOpts<M> extends Omit<SectionSynthOpts<M>, 'subQuesti
    * callback through every internal call.
    */
   onSection?: (outcome: SectionOutcome) => void;
+  /**
+   * Optional sub-question filter. When non-empty, {@link
+   * runAllSections} re-synthesizes only the listed ids and emits
+   * on-disk pass-through outcomes for the rest so downstream
+   * {@link runSynthMerge} can reuse existing
+   * `snapshots/sections/<id>.md` snapshots without re-rendering.
+   * Pass-through outcomes are built by
+   * {@link buildSnapshotPassThroughOutcome}.
+   *
+   * Undefined or empty → re-synth every sub-question in plan order
+   * (original behavior). Ids not present in `plan.subQuestions`
+   * are ignored; the caller is expected to have validated them
+   * upstream (see `research-resume.scopeFanoutDeficit`).
+   */
+  subQuestionIds?: readonly string[];
 }
 
 /**
@@ -423,12 +438,28 @@ export interface AllSectionsOpts<M> extends Omit<SectionSynthOpts<M>, 'subQuesti
  * aborts the remaining sub-questions. Returns the full outcome list
  * so the caller (merge stage) can emit visible stubs for missing
  * sections.
+ *
+ * When `opts.subQuestionIds` is non-empty, only the listed ids are
+ * re-synthesized; everything else in the plan is emitted as a
+ * pass-through outcome via {@link buildSnapshotPassThroughOutcome}
+ * pointing at the existing `snapshots/sections/<id>.md`. The
+ * return order always matches `plan.subQuestions` so downstream
+ * merge code stays stable.
  */
 export async function runAllSections<M>(opts: AllSectionsOpts<M>): Promise<SectionOutcome[]> {
   // Load the source index once; sub-questions share it.
   const sourceIndex = opts.sourceIndex ?? listRun(opts.runRoot);
+  const filter = opts.subQuestionIds;
+  const hasFilter = filter !== undefined && filter.length > 0;
+  const filterSet = hasFilter ? new Set(filter) : null;
   const out: SectionOutcome[] = [];
   for (const sq of opts.plan.subQuestions) {
+    if (hasFilter && !filterSet!.has(sq.id)) {
+      const passThrough = buildSnapshotPassThroughOutcome(opts.runRoot, sq.id);
+      out.push(passThrough);
+      opts.onSection?.(passThrough);
+      continue;
+    }
     // Build the per-section opts by narrowing the shared opts.
     // Forward `sourceIndex` explicitly so we don't listRun() N times.
     const perSection: SectionSynthOpts<M> = {
@@ -452,6 +483,44 @@ export async function runAllSections<M>(opts: AllSectionsOpts<M>): Promise<Secti
     opts.onSection?.(outcome);
   }
   return out;
+}
+
+/**
+ * Build a pass-through {@link SectionOutcome} pointing at the
+ * existing `snapshots/sections/<id>.md` on disk. Used by the
+ * `--sq` targeted-synth path: unfiltered ids skip the LLM turn
+ * and their section body is read off disk by
+ * `runSynthMerge.loadSectionBody` (which falls back to
+ * `readFileSync(outcome.sectionPath)` when `outcome.markdown`
+ * is empty).
+ *
+ * Missing snapshot → `missing-finding` outcome with a targeted
+ * reason so the merge renders a visible stub and the structural
+ * check can blame the right sub-question. This keeps the
+ * `--sq` flow safe when the prior run didn't persist a section
+ * snapshot: merge sees the stub, structural check flags it, the
+ * user re-runs `--sq` for the affected id.
+ */
+export function buildSnapshotPassThroughOutcome(runRoot: string, subQuestionId: string): SectionOutcome {
+  const sectionPath = join(paths(runRoot).snapshots, 'sections', `${subQuestionId}.md`);
+  if (!existsSync(sectionPath)) {
+    return {
+      kind: 'missing-finding',
+      subQuestionId,
+      reason: `no prior section snapshot at ${sectionPath} (re-run without --sq to rebuild)`,
+    };
+  }
+  // Sentinel: empty `markdown` tells `loadSectionBody` to read
+  // from `sectionPath` on disk — avoids double-reading the
+  // snapshot here and in merge.
+  return {
+    kind: 'ok',
+    subQuestionId,
+    sectionPath,
+    markdown: '',
+    sourceIds: [],
+    truncated: false,
+  };
 }
 
 // ──────────────────────────────────────────────────────────────────────

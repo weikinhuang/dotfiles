@@ -40,6 +40,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
 import {
   SECTION_MAX_CHARS,
+  buildSnapshotPassThroughOutcome,
   makeSectionOutputSchema,
   renderSectionPrompt,
   runAllSections,
@@ -536,5 +537,134 @@ describe('runAllSections', () => {
     });
 
     expect(order).toEqual(['sq-a:ok', 'sq-b:ok']);
+  });
+
+  test('subQuestionIds filter re-synths only listed ids and emits pass-through for the rest', async () => {
+    const plan = makePlan([
+      { id: 'sq-a', question: 'A?' },
+      { id: 'sq-b', question: 'B?' },
+      { id: 'sq-c', question: 'C?' },
+    ]);
+    // Pre-existing snapshot for sq-a + sq-c so the pass-through
+    // outcome maps to a real file. sq-b has no snapshot yet —
+    // we'll synth it fresh.
+    const sectionsDir = join(runRoot, 'snapshots', 'sections');
+    mkdirSync(sectionsDir, { recursive: true });
+    writeFileSync(join(sectionsDir, 'sq-a.md'), '## A\n\nOld body for A.\n', 'utf8');
+    writeFileSync(join(sectionsDir, 'sq-c.md'), '## C\n\nOld body for C.\n', 'utf8');
+    writeFinding(runRoot, 'sq-b', []);
+
+    const reply = JSON.stringify({ markdown: '## B\n\nFresh body for B.' });
+    const session = makeSession([reply]);
+
+    const outcomes = await runAllSections({
+      runRoot,
+      plan,
+      session,
+      model: 'local/test',
+      thinkingLevel: null,
+      subQuestionIds: ['sq-b'],
+    });
+
+    // Session was only prompted once (for sq-b).
+    expect(session.prompts).toHaveLength(1);
+
+    // Outcomes preserve plan order.
+    expect(outcomes.map((o) => o.subQuestionId)).toEqual(['sq-a', 'sq-b', 'sq-c']);
+
+    // sq-a + sq-c are pass-through 'ok' outcomes pointing at the
+    // existing snapshots, with empty `markdown` so merge falls
+    // back to disk.
+    const a = outcomes[0];
+    assertKind(a, 'ok');
+
+    expect(a.sectionPath).toBe(join(sectionsDir, 'sq-a.md'));
+    expect(a.markdown).toBe('');
+    expect(a.sourceIds).toEqual([]);
+
+    const c = outcomes[2];
+    assertKind(c, 'ok');
+
+    expect(c.sectionPath).toBe(join(sectionsDir, 'sq-c.md'));
+    expect(c.markdown).toBe('');
+
+    // sq-b is a freshly-synthesized 'ok' outcome with real markdown.
+    const b = outcomes[1];
+    assertKind(b, 'ok');
+
+    expect(b.markdown).toContain('Fresh body for B.');
+  });
+
+  test('subQuestionIds filter with a missing snapshot emits missing-finding for that id', async () => {
+    const plan = makePlan([
+      { id: 'sq-a', question: 'A?' },
+      { id: 'sq-b', question: 'B?' },
+    ]);
+    writeFinding(runRoot, 'sq-b', []);
+    const reply = JSON.stringify({ markdown: '## B\n\nFresh body.' });
+    const session = makeSession([reply]);
+
+    // No snapshot for sq-a; filter skips re-synth, pass-through
+    // must degrade to `missing-finding` with a clear reason so
+    // the merge renders a visible stub the user can re-target.
+    const outcomes = await runAllSections({
+      runRoot,
+      plan,
+      session,
+      model: 'local/test',
+      thinkingLevel: null,
+      subQuestionIds: ['sq-b'],
+    });
+
+    const missing = outcomes[0];
+    assertKind(missing, 'missing-finding');
+
+    expect(missing.reason).toMatch(/no prior section snapshot/);
+    expect(outcomes[1].kind).toBe('ok');
+  });
+
+  test('empty subQuestionIds falls back to full re-synth', async () => {
+    const plan = makePlan([{ id: 'sq-a', question: 'A?' }]);
+    writeFinding(runRoot, 'sq-a', []);
+    const reply = JSON.stringify({ markdown: '## A\n\nBody.' });
+    const session = makeSession([reply]);
+
+    const outcomes = await runAllSections({
+      runRoot,
+      plan,
+      session,
+      model: 'local/test',
+      thinkingLevel: null,
+      subQuestionIds: [],
+    });
+
+    expect(session.prompts).toHaveLength(1);
+    expect(outcomes[0].kind).toBe('ok');
+  });
+});
+
+describe('buildSnapshotPassThroughOutcome', () => {
+  test('returns kind=ok with empty markdown when the snapshot exists on disk', () => {
+    const sectionsDir = join(runRoot, 'snapshots', 'sections');
+    mkdirSync(sectionsDir, { recursive: true });
+    const sectionPath = join(sectionsDir, 'sq-x.md');
+    writeFileSync(sectionPath, '## X\n\nPrior body.\n', 'utf8');
+
+    const outcome = buildSnapshotPassThroughOutcome(runRoot, 'sq-x');
+    assertKind(outcome, 'ok');
+
+    expect(outcome.sectionPath).toBe(sectionPath);
+    expect(outcome.markdown).toBe('');
+    expect(outcome.sourceIds).toEqual([]);
+    expect(outcome.truncated).toBe(false);
+  });
+
+  test('returns kind=missing-finding when the snapshot is absent', () => {
+    const outcome = buildSnapshotPassThroughOutcome(runRoot, 'sq-missing');
+    assertKind(outcome, 'missing-finding');
+
+    expect(outcome.reason).toMatch(/no prior section snapshot at/);
+    expect(outcome.reason).toContain('sq-missing.md');
+    expect(outcome.reason).toContain('re-run without --sq');
   });
 });
