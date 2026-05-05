@@ -27,6 +27,10 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import {
   buildStructuralNudge,
   buildSubjectiveNudge,
+  classifyReviewCloseness,
+  NEAR_PASS_STRUCTURAL_MAX_FAILURES,
+  NEAR_PASS_SUBJECTIVE_MIN_SCORE,
+  REVIEW_RESUME_BUMP,
   runReviewLoop,
   type CriticRunner,
   type RefinementRunner,
@@ -537,5 +541,152 @@ describe('ReviewLoopOutcome shape — stubbed variant', () => {
     // future edit that adds the field has to revisit the
     // contract explicitly.
     expect('iterations' in outcome).toBe(false);
+  });
+});
+
+// Closeness classifier — pure predicate truth table.
+// Non-budget-exhausted outcomes never get classified as near-pass
+// or stuck; the wire only invokes the classifier inside its
+// budget-exhausted branch. The `unknown` verdict here guards the
+// contract: if a future edit starts calling the classifier on a
+// `passed` outcome it will not accidentally classify as near-pass.
+
+describe('classifyReviewCloseness', () => {
+  function structuralExhausted(failures: number, hasSnapshot: boolean): ReviewLoopOutcome {
+    return {
+      kind: 'budget-exhausted',
+      stage: 'structural',
+      iterations: 4,
+      bestSoFar: hasSnapshot
+        ? {
+            iteration: 3,
+            score: 0,
+            approved: false,
+            snapshotPath: '/r/snap/iter-003-structural.md',
+            stage: 'structural',
+          }
+        : null,
+      lastStructural: {
+        ok: false,
+        failures: Array.from({ length: failures }, (_, i) => ({
+          id: 'footnote-markers-resolve',
+          message: `unresolved marker #${i + 1}`,
+        })),
+        stats: {
+          footnoteMarkers: 0,
+          footnoteEntries: 0,
+          sections: 0,
+          subQuestions: 0,
+          placeholders: 0,
+          sourcesInStore: 0,
+          bareUrlsInBody: 0,
+        },
+      },
+      lastCritic: null,
+    };
+  }
+
+  function subjectiveExhausted(score: number | null, hasSnapshot: boolean): ReviewLoopOutcome {
+    return {
+      kind: 'budget-exhausted',
+      stage: 'subjective',
+      iterations: 4,
+      bestSoFar: hasSnapshot
+        ? {
+            iteration: 3,
+            score: score ?? 0,
+            approved: false,
+            snapshotPath: '/r/snap/iter-003-subjective.md',
+            stage: 'subjective',
+          }
+        : null,
+      lastStructural: passingStructural(),
+      lastCritic:
+        score === null
+          ? null
+          : { approved: false, score, issues: [{ severity: 'major', description: 'x' }], summary: 'x' },
+    };
+  }
+
+  test('constants are the documented defaults', () => {
+    expect(NEAR_PASS_STRUCTURAL_MAX_FAILURES).toBe(1);
+    expect(NEAR_PASS_SUBJECTIVE_MIN_SCORE).toBe(0.7);
+    expect(REVIEW_RESUME_BUMP).toBe(2);
+  });
+
+  test('structural: 1 failure + bestSoFar → near-pass (at threshold boundary)', () => {
+    expect(classifyReviewCloseness(structuralExhausted(NEAR_PASS_STRUCTURAL_MAX_FAILURES, true))).toBe('near-pass');
+  });
+
+  test('structural: 2 failures + bestSoFar → stuck (above threshold)', () => {
+    expect(classifyReviewCloseness(structuralExhausted(2, true))).toBe('stuck');
+  });
+
+  test('structural: 1 failure but no bestSoFar → stuck (no snapshot to refine from)', () => {
+    expect(classifyReviewCloseness(structuralExhausted(1, false))).toBe('stuck');
+  });
+
+  test('subjective: critic score 0.75 + bestSoFar → near-pass', () => {
+    expect(classifyReviewCloseness(subjectiveExhausted(0.75, true))).toBe('near-pass');
+  });
+
+  test('subjective: critic score at threshold (0.7) → near-pass (inclusive lower bound)', () => {
+    expect(classifyReviewCloseness(subjectiveExhausted(NEAR_PASS_SUBJECTIVE_MIN_SCORE, true))).toBe('near-pass');
+  });
+
+  test('subjective: critic score 0.55 + bestSoFar → stuck', () => {
+    expect(classifyReviewCloseness(subjectiveExhausted(0.55, true))).toBe('stuck');
+  });
+
+  test('subjective: lastCritic null (parse failure) → stuck', () => {
+    expect(classifyReviewCloseness(subjectiveExhausted(null, true))).toBe('stuck');
+  });
+
+  test('subjective: score 0.75 but no bestSoFar → stuck', () => {
+    expect(classifyReviewCloseness(subjectiveExhausted(0.75, false))).toBe('stuck');
+  });
+
+  test('passed outcome → unknown (the classifier is only meaningful on budget-exhausted)', () => {
+    const outcome: ReviewLoopOutcome = {
+      kind: 'passed',
+      iterations: 2,
+      reportPath: '/r/report.md',
+      critic: approvedCritic(),
+      structural: passingStructural(),
+    };
+
+    expect(classifyReviewCloseness(outcome)).toBe('unknown');
+  });
+
+  test('structural-override → unknown', () => {
+    const outcome: ReviewLoopOutcome = {
+      kind: 'structural-override',
+      iterations: 1,
+      structural: failingStructural(),
+      critic: approvedCritic(),
+    };
+
+    expect(classifyReviewCloseness(outcome)).toBe('unknown');
+  });
+
+  test('error → unknown', () => {
+    const outcome: ReviewLoopOutcome = {
+      kind: 'error',
+      error: 'boom',
+      iterations: 0,
+      bestSoFar: null,
+    };
+
+    expect(classifyReviewCloseness(outcome)).toBe('unknown');
+  });
+
+  test('stubbed → unknown (short-circuit, loop never ran)', () => {
+    const outcome: ReviewLoopOutcome = {
+      kind: 'stubbed',
+      stubbed: [],
+      reportPath: '/r/report.md',
+    };
+
+    expect(classifyReviewCloseness(outcome)).toBe('unknown');
   });
 });

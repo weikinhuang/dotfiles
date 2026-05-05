@@ -36,6 +36,8 @@ import { dirname } from 'node:path';
 
 import { readConsent, recordConsent, type ReviewConsentOpts } from './deep-research-review-config.ts';
 import {
+  classifyReviewCloseness,
+  REVIEW_RESUME_BUMP,
   runReviewLoop,
   type CriticRunner,
   type RefinementRunner,
@@ -260,7 +262,7 @@ export async function runDeepResearchReview(deps: ReviewWireDeps): Promise<Revie
   }
 
   // ── 5. Format + notify ────────────────────────────────────
-  const { summary, level } = formatOutcome(outcome);
+  const { summary, level } = formatOutcome(outcome, { runRoot: deps.runRoot, maxIter: deps.maxIter ?? 4 });
   notify(summary, level);
   safeJournal(journalPath, `review loop terminal (${outcome.kind})`, summary);
 
@@ -317,10 +319,40 @@ export function buildSubjectiveSpec(input: BuildSubjectiveSpecInput): CheckSpec 
 // ──────────────────────────────────────────────────────────────────────
 
 /**
+ * Optional renderer context. Populated by {@link runDeepResearchReview}
+ * with the current run root + configured `maxIter` so the
+ * `budget-exhausted` branch can emit a closeness verdict plus a
+ * copy-pasteable `/research --resume --run-root <path>
+ * --from=review --review-max-iter <N+2>` command the parent pi/LLM
+ * agent can re-invoke without hand-editing. Tests that call
+ * {@link formatOutcome} directly may omit the context — the
+ * closeness block is appended only when both fields are set.
+ */
+export interface FormatOutcomeContext {
+  runRoot?: string;
+  /** The `maxIter` value the review loop was driven with. */
+  maxIter?: number;
+}
+
+/**
  * Render a review-loop outcome into the `(message, level)` pair
  * the extension uses for `ctx.ui.notify`.
+ *
+ * On `budget-exhausted`, when {@link FormatOutcomeContext} carries
+ * both `runRoot` and `maxIter`, the summary is extended with two
+ * extra lines the parent agent consumes as signal: a closeness
+ * verdict (`near-pass` / `stuck`) classified by
+ * {@link classifyReviewCloseness}, and a ready-to-invoke
+ * `/research --resume … --review-max-iter <N+REVIEW_RESUME_BUMP>`
+ * command. The closeness block is appended to the existing
+ * summary text (rather than a new `closenessHint` field) so every
+ * existing caller — including tool-summary folds in
+ * `deep-research-tool.ts` — surfaces it for free.
  */
-export function formatOutcome(outcome: ReviewLoopOutcome): { summary: string; level: 'info' | 'warning' | 'error' } {
+export function formatOutcome(
+  outcome: ReviewLoopOutcome,
+  ctx: FormatOutcomeContext = {},
+): { summary: string; level: 'info' | 'warning' | 'error' } {
   switch (outcome.kind) {
     case 'passed':
       return {
@@ -362,6 +394,26 @@ export function formatOutcome(outcome: ReviewLoopOutcome): { summary: string; le
       if (outcome.lastCritic && !outcome.lastCritic.approved) {
         lines.push(
           `  last critic score: ${outcome.lastCritic.score.toFixed(2)} (${outcome.lastCritic.issues.length} issue(s))`,
+        );
+      }
+      // Closeness signal + resume command for the parent agent.
+      // Emitted only when the caller passed a runRoot + maxIter
+      // so tests that exercise `formatOutcome` in isolation keep
+      // their existing assertions.
+      if (ctx.runRoot !== undefined && ctx.maxIter !== undefined) {
+        const closeness = classifyReviewCloseness(outcome);
+        const bump = ctx.maxIter + REVIEW_RESUME_BUMP;
+        if (closeness === 'near-pass') {
+          lines.push(
+            `  Near-pass: the parent agent may continue with a small bump \u2014 one more iteration is likely to converge.`,
+          );
+        } else if (closeness === 'stuck') {
+          lines.push(
+            `  Stuck: not close to passing. Review rubric / findings before retrying; another iteration alone may not converge.`,
+          );
+        }
+        lines.push(
+          `  Resume: \`/research --resume --run-root ${ctx.runRoot} --from=review --review-max-iter ${bump}\``,
         );
       }
       return { summary: lines.join('\n'), level: 'warning' };

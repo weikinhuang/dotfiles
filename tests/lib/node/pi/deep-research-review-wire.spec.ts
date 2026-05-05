@@ -268,7 +268,7 @@ describe('runDeepResearchReview — scenario C (structure wins)', () => {
 // ──────────────────────────────────────────────────────────────────────
 
 describe('runDeepResearchReview — scenario D (budget exhausted)', () => {
-  test('maxIter=1 + failing structural → warning summary + best-so-far', async () => {
+  test('maxIter=1 + failing structural → warning summary + best-so-far + near-pass closeness + resume command', async () => {
     const runStructural = scripted<StructuralCheckResult>([failingStructural()]);
     const runCritic = scripted<Verdict>([]);
     const { refine } = refiner();
@@ -294,6 +294,91 @@ describe('runDeepResearchReview — scenario D (budget exhausted)', () => {
     expect(result.summary).toContain('best-so-far');
     expect(result.outcome.bestSoFar).not.toBeNull();
     expect(result.level).toBe('warning');
+
+    // The single failing-structural recipe uses one failure id,
+    // so classifyReviewCloseness returns 'near-pass' and the
+    // summary carries the parent-agent-facing closeness verdict
+    // plus a ready-to-invoke resume command.
+    expect(result.summary).toContain('Near-pass');
+    expect(result.summary).toContain('Resume:');
+    expect(result.summary).toContain(`--run-root ${runRoot}`);
+    expect(result.summary).toContain('--from=review');
+    // maxIter was 1, REVIEW_RESUME_BUMP is 2 → resume target = 3.
+    expect(result.summary).toContain('--review-max-iter 3');
+  });
+
+  test('multi-failure structural exhaustion → stuck closeness + resume command', async () => {
+    const manyFailures: StructuralCheckResult = {
+      ok: false,
+      failures: [
+        { id: 'no-unresolved-placeholders', message: 'placeholder A' },
+        { id: 'no-unresolved-placeholders', message: 'placeholder B' },
+      ],
+      stats: {
+        footnoteMarkers: 0,
+        footnoteEntries: 0,
+        sections: 0,
+        subQuestions: 0,
+        placeholders: 2,
+        sourcesInStore: 0,
+        bareUrlsInBody: 0,
+      },
+    };
+    const runStructural = scripted<StructuralCheckResult>([manyFailures]);
+    const runCritic = scripted<Verdict>([]);
+    const { refine } = refiner();
+    const notify = vi.fn();
+
+    const result = await runDeepResearchReview({
+      cwd,
+      runRoot,
+      rubricSubjective: '## Rubric\n',
+      structuralBashCmd: 'node lib/node/pi/deep-research-structural-check.ts ./research/demo',
+      runStructural,
+      runCritic,
+      refineReport: refine,
+      maxIter: 1,
+      consent: { root: memoryRoot },
+      notify,
+    });
+
+    assertKind(result.outcome, 'budget-exhausted');
+
+    expect(result.summary).toContain('Stuck');
+    expect(result.summary).toContain('Resume:');
+    expect(result.summary).toContain('--review-max-iter 3');
+  });
+
+  test('subjective budget exhaustion with critic score ≥ 0.7 → near-pass closeness', async () => {
+    const nearPassCritic: Verdict = {
+      approved: false,
+      score: 0.75,
+      issues: [{ severity: 'minor', description: 'one small tweak' }],
+      summary: 'nearly there',
+    };
+    const runStructural = scripted<StructuralCheckResult>([passingStructural()]);
+    const runCritic = scripted<Verdict>([nearPassCritic]);
+    const { refine } = refiner();
+    const notify = vi.fn();
+
+    const result = await runDeepResearchReview({
+      cwd,
+      runRoot,
+      rubricSubjective: '## Rubric\n',
+      structuralBashCmd: 'node lib/node/pi/deep-research-structural-check.ts ./research/demo',
+      runStructural,
+      runCritic,
+      refineReport: refine,
+      maxIter: 1,
+      consent: { root: memoryRoot },
+      notify,
+    });
+
+    assertKind(result.outcome, 'budget-exhausted');
+
+    expect(result.outcome.stage).toBe('subjective');
+    expect(result.summary).toContain('Near-pass');
+    expect(result.summary).toContain('--review-max-iter 3');
   });
 });
 
@@ -638,6 +723,66 @@ describe('formatOutcome', () => {
     expect(out.level).toBe('warning');
     expect(out.summary).toContain('budget exhausted');
     expect(out.summary).toContain('iter-002-structural.md');
+    // Without FormatOutcomeContext, the closeness block is
+    // omitted so existing callers don't grow new text.
+    expect(out.summary).not.toContain('Near-pass');
+    expect(out.summary).not.toContain('Resume:');
+  });
+
+  test('budget-exhausted structural + FormatOutcomeContext → near-pass closeness + resume command', () => {
+    const out = formatOutcome(
+      {
+        kind: 'budget-exhausted',
+        stage: 'structural',
+        iterations: 4,
+        bestSoFar: {
+          iteration: 4,
+          score: 0,
+          approved: false,
+          snapshotPath: '/snap/iter-004-structural.md',
+          stage: 'structural',
+        },
+        lastStructural: failingStructural(),
+        lastCritic: null,
+      },
+      { runRoot: '/tmp/research/demo', maxIter: 4 },
+    );
+
+    expect(out.level).toBe('warning');
+    expect(out.summary).toContain('Near-pass');
+    // REVIEW_RESUME_BUMP = 2 → resume target = maxIter + 2 = 6.
+    expect(out.summary).toContain(
+      'Resume: `/research --resume --run-root /tmp/research/demo --from=review --review-max-iter 6`',
+    );
+  });
+
+  test('budget-exhausted subjective (score 0.42) + context → stuck closeness + resume command', () => {
+    const out = formatOutcome(
+      {
+        kind: 'budget-exhausted',
+        stage: 'subjective',
+        iterations: 4,
+        bestSoFar: {
+          iteration: 4,
+          score: 0.42,
+          approved: false,
+          snapshotPath: '/snap/iter-004-subjective.md',
+          stage: 'subjective',
+        },
+        lastStructural: passingStructural(),
+        lastCritic: {
+          approved: false,
+          score: 0.42,
+          issues: [{ severity: 'major', description: 'thin citations' }],
+          summary: 'weak',
+        },
+      },
+      { runRoot: '/tmp/research/demo', maxIter: 3 },
+    );
+
+    expect(out.summary).toContain('Stuck');
+    expect(out.summary).toContain('critic score: 0.42');
+    expect(out.summary).toContain('--review-max-iter 5');
   });
 
   test('structural-override → warning with "structure wins" phrasing', () => {

@@ -545,3 +545,94 @@ export function formatIssue(issue: Issue): string {
   const loc = issue.location ? ` [${issue.location}]` : '';
   return `[${issue.severity}] ${issue.description}${loc}`;
 }
+
+// ───────────────────────────────────────────────────────────────────
+// Closeness classifier.
+//
+// When the review loop returns `budget-exhausted`, the parent pi/LLM
+// agent needs a structured signal so it can decide whether a small
+// bump in `reviewMaxIter` is likely to converge. The classifier is a
+// pure predicate over {@link ReviewLoopOutcome}; the review-wire
+// folds the verdict + a copy-pasteable `/research --resume` command
+// into its `summary` string on the `budget-exhausted` path so the
+// tool summary and the slash-command notify surface identical text.
+//
+// Thresholds are hardcoded (no user-facing knob): tests consume the
+// exported constants, and telemetry-driven tuning is a follow-up
+// flag — the classifier is easier to reason about when the numbers
+// don't move per invocation.
+// ───────────────────────────────────────────────────────────────────
+
+export type ReviewCloseness = 'near-pass' | 'stuck' | 'unknown';
+
+/**
+ * Maximum remaining structural failures for `'near-pass'`. One
+ * failure means a single refinement pass is likely to converge;
+ * two or more failures imply compounding issues the refiner can't
+ * untangle in a single iteration.
+ */
+export const NEAR_PASS_STRUCTURAL_MAX_FAILURES = 1;
+
+/**
+ * Minimum critic score for `'near-pass'` on a `subjective`-stage
+ * exhaustion. The critic rejects below ~0.6 typically; 0.7 is the
+ * "one more pass away from approval" threshold we observed on
+ * hand-tuned runs.
+ */
+export const NEAR_PASS_SUBJECTIVE_MIN_SCORE = 0.7;
+
+/**
+ * Small bump added to `reviewMaxIter` on the resume command the
+ * review-wire emits. Enough to clear a near-pass in one or two
+ * additional iterations without re-opening the whole budget.
+ */
+export const REVIEW_RESUME_BUMP = 2;
+
+/**
+ * Classify a `budget-exhausted` outcome for the parent agent.
+ * Non-`budget-exhausted` outcomes return `'unknown'` — callers
+ * should only ask about {@link ReviewLoopOutcome} kinds where a
+ * closeness verdict is defined. Keeping the function total (no
+ * throws, no narrowing panics) lets the review-wire invoke it
+ * unconditionally inside its outcome-rendering switch.
+ *
+ * Rules (all must hold for `'near-pass'`):
+ *
+ *   - `outcome.kind === 'budget-exhausted'`.
+ *   - `outcome.bestSoFar !== null` — something must actually be
+ *     on disk to refine from. A budget exhaustion with no
+ *     snapshot is a worse-than-stuck failure mode (refinement
+ *     never produced a salvageable body).
+ *   - For `stage === 'structural'`:
+ *       `outcome.lastStructural.failures.length <=
+ *        NEAR_PASS_STRUCTURAL_MAX_FAILURES`. The structural-check
+ *       module currently does not tag failures with a severity
+ *       level, so the "no blocker" clause in the handoff is a
+ *       trivial pass — every structural failure is treated as the
+ *       same weight. If structural failures later carry a
+ *       severity enum, extend this branch to reject blockers
+ *       before returning `'near-pass'`.
+ *   - For `stage === 'subjective'`:
+ *       `outcome.lastCritic?.score >= NEAR_PASS_SUBJECTIVE_MIN_SCORE`.
+ *       A `null` critic score (the critic runner failed to parse a
+ *       verdict) falls through to `'stuck'` — we need a concrete
+ *       number to decide "close".
+ *
+ * Anything else that was `budget-exhausted` returns `'stuck'`.
+ */
+export function classifyReviewCloseness(outcome: ReviewLoopOutcome): ReviewCloseness {
+  if (outcome.kind !== 'budget-exhausted') return 'unknown';
+  if (outcome.bestSoFar === null) return 'stuck';
+  if (outcome.stage === 'structural') {
+    if (outcome.lastStructural.failures.length <= NEAR_PASS_STRUCTURAL_MAX_FAILURES) {
+      return 'near-pass';
+    }
+    return 'stuck';
+  }
+  // stage === 'subjective'
+  const score = outcome.lastCritic?.score;
+  if (typeof score === 'number' && score >= NEAR_PASS_SUBJECTIVE_MIN_SCORE) {
+    return 'near-pass';
+  }
+  return 'stuck';
+}
