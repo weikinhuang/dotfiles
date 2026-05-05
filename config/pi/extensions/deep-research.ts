@@ -251,7 +251,7 @@ const ResearchToolParams = Type.Object({
       minimum: 1,
       maximum: 1000,
       description:
-        'Optional cap on cross-stage review iterations (default 4). Raise when the review loop previously hit `budget-exhausted` on fixable issues (e.g. missing citations).',
+        "Optional cap on cross-stage review iterations (default 4). Raise when the review loop previously hit `budget-exhausted` on fixable issues (e.g. missing citations). On budget exhaustion the returned tool summary carries a closeness verdict (`Near-pass:` / `Stuck:`) and a ready-to-invoke `/research --resume --from=review --review-max-iter <N+2>` command — read the summary before deciding to call the tool again so a `Stuck:` outcome doesn't silently retry against an unsolvable report.",
     }),
   ),
 });

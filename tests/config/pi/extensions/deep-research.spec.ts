@@ -856,3 +856,114 @@ describe('/research — stubbed review short-circuit notify discipline', () => {
     expect(stubHint).toContain('--sq=sq-1,sq-2');
   });
 });
+
+// ──────────────────────────────────────────────────────────────────────
+// /research — LLM-facing tool surfaces the closeness verdict + resume
+// command the lib wire folds into the review summary on
+// budget-exhausted. The tool is the hand-off surface the parent
+// pi/LLM agent sees; it reads the returned summary and decides
+// whether to re-invoke `research` with a bumped reviewMaxIter.
+// ──────────────────────────────────────────────────────────────────────
+
+describe('/research — tool surfaces closeness verdict + resume command on budget-exhausted', () => {
+  test('near-pass summary passes through to the tool result so the LLM can read it', async () => {
+    // The pipeline runner collapses the review outcome into a
+    // `report-complete` with `subjectiveApproved: false` and a
+    // summary string carrying the closeness verdict + resume
+    // command. The wire already builds that string (see
+    // deep-research-review-wire.spec.ts); here we assert the
+    // tool factory propagates it verbatim into the LLM-facing
+    // result so no translation layer drops it.
+    const nearPassSummary = [
+      '/research: review budget exhausted (structural stage, 4 iterations).',
+      '  best-so-far: iter 4 (structural, score 0.00) → /r/snap/iter-004-structural.md',
+      '  last structural failures (1):',
+      '    - [footnote-markers-resolve] unresolved marker [^3]',
+      '  Near-pass: the parent agent may continue with a small bump — one more iteration is likely to converge.',
+      '  Resume: `/research --resume --run-root /tmp/research/demo --from=review --review-max-iter 6`',
+    ].join('\n');
+
+    const flag = createResearchSessionFlag();
+    const runPipeline: ResearchToolRunner = () =>
+      Promise.resolve<ResearchToolRunOutcome>({
+        kind: 'report-complete',
+        reportPath: '/tmp/research/demo/report.md',
+        runRoot: '/tmp/research/demo',
+        subjectiveApproved: false,
+        summary: nearPassSummary,
+      });
+    const notify = vi.fn<(m: string, l: CommandNotifyLevel) => void>();
+    const execute = createResearchToolExecutor({ flag, runPipeline, notify });
+
+    const result = await execute('demo question');
+
+    expect(result.outcome.kind).toBe('report-complete');
+    // The closeness verdict + resume command ride on the summary
+    // string so the LLM reading the tool result sees them directly.
+    expect(result.summary).toContain('Near-pass');
+    expect(result.summary).toContain(
+      'Resume: `/research --resume --run-root /tmp/research/demo --from=review --review-max-iter 6`',
+    );
+    // subjectiveApproved=false surfaces as `warning` so the
+    // parent agent's routing can branch on severity too.
+    expect(result.level).toBe('warning');
+    expect(notify).toHaveBeenCalledTimes(1);
+    expect(notify.mock.calls[0][1]).toBe('warning');
+    expect(notify.mock.calls[0][0]).toContain('--review-max-iter 6');
+  });
+
+  test('stuck summary passes through with the same resume command shape', async () => {
+    const stuckSummary = [
+      '/research: review budget exhausted (subjective stage, 4 iterations).',
+      '  best-so-far: iter 3 (subjective, score 0.42) → /r/snap/iter-003-subjective.md',
+      '  last critic score: 0.42 (2 issue(s))',
+      '  Stuck: not close to passing. Review rubric / findings before retrying; another iteration alone may not converge.',
+      '  Resume: `/research --resume --run-root /tmp/research/demo --from=review --review-max-iter 6`',
+    ].join('\n');
+
+    const flag = createResearchSessionFlag();
+    const runPipeline: ResearchToolRunner = () =>
+      Promise.resolve<ResearchToolRunOutcome>({
+        kind: 'report-complete',
+        reportPath: '/tmp/research/demo/report.md',
+        runRoot: '/tmp/research/demo',
+        subjectiveApproved: false,
+        summary: stuckSummary,
+      });
+    const execute = createResearchToolExecutor({ flag, runPipeline });
+
+    const result = await execute('demo question');
+
+    expect(result.summary).toContain('Stuck');
+    expect(result.summary).toContain(
+      'Resume: `/research --resume --run-root /tmp/research/demo --from=review --review-max-iter 6`',
+    );
+    // The parent agent uses the verdict to decide: Stuck is a
+    // signal to NOT re-invoke blindly. The resume command is
+    // still emitted so the human operator has the affordance
+    // if they want to force another pass.
+  });
+
+  test('passing review (no budget-exhausted) carries no closeness verdict \u2014 LLM sees only the success summary', async () => {
+    const passSummary =
+      '/research: review PASSED after 2 iterations (structural ok, critic 0.92). Report ready at /tmp/research/demo/report.md.';
+    const flag = createResearchSessionFlag();
+    const runPipeline: ResearchToolRunner = () =>
+      Promise.resolve<ResearchToolRunOutcome>({
+        kind: 'report-complete',
+        reportPath: '/tmp/research/demo/report.md',
+        runRoot: '/tmp/research/demo',
+        subjectiveApproved: true,
+        summary: passSummary,
+      });
+    const execute = createResearchToolExecutor({ flag, runPipeline });
+
+    const result = await execute('demo question');
+
+    expect(result.summary).toContain('review PASSED');
+    expect(result.summary).not.toContain('Near-pass');
+    expect(result.summary).not.toContain('Stuck');
+    expect(result.summary).not.toContain('Resume:');
+    expect(result.level).toBe('info');
+  });
+});
