@@ -19,6 +19,7 @@ import {
   findStubbedSections,
   invalidateIncompleteFanoutTasks,
   listRecentRuns,
+  scopeFanoutDeficit,
   sumFanoutDeficit,
   validateRunRoot,
 } from '../../../../lib/node/pi/research-resume.ts';
@@ -357,6 +358,79 @@ describe('sumFanoutDeficit', () => {
     ]);
 
     expect(sumFanoutDeficit(tmp, ['sq-1', 'sq-2', 'sq-3', 'sq-4'])).toEqual(['sq-1', 'sq-3']);
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────
+// scopeFanoutDeficit
+// ───────────────────────────────────────────────────────────────────
+
+describe('scopeFanoutDeficit', () => {
+  let tmp: string;
+
+  beforeEach(() => {
+    tmp = makeTmp();
+    mkdirSync(tmp, { recursive: true });
+  });
+
+  afterEach(() => {
+    rmSync(tmp, { recursive: true, force: true });
+  });
+
+  test('intersects the live deficit with the filter, preserving plan order', () => {
+    writeFinding(tmp, 'sq-2');
+    writeFanout(tmp, [
+      { id: 'sq-1', state: 'failed' },
+      { id: 'sq-2', state: 'completed' },
+      { id: 'sq-3', state: 'failed' },
+      { id: 'sq-4', state: 'failed' },
+    ]);
+    const scoped = scopeFanoutDeficit(tmp, ['sq-1', 'sq-2', 'sq-3', 'sq-4'], ['sq-3', 'sq-1']);
+
+    // Plan order is sq-1, sq-3 — not filter order.
+    expect(scoped.ids).toEqual(['sq-1', 'sq-3']);
+    expect(scoped.unknown).toEqual([]);
+  });
+
+  test('filters already-completed ids out of the re-dispatch set', () => {
+    writeFinding(tmp, 'sq-1');
+    writeFinding(tmp, 'sq-2');
+    writeFanout(tmp, [
+      { id: 'sq-1', state: 'completed' },
+      { id: 'sq-2', state: 'completed' },
+    ]);
+    // User asks for sq-1 even though it's already complete; the
+    // extension will surface this as "nothing to re-fanout".
+    const scoped = scopeFanoutDeficit(tmp, ['sq-1', 'sq-2'], ['sq-1']);
+
+    expect(scoped.ids).toEqual([]);
+    expect(scoped.unknown).toEqual([]);
+  });
+
+  test('surfaces filter ids not present in the plan as unknown', () => {
+    writeFanout(tmp, [{ id: 'sq-1', state: 'failed' }]);
+    const scoped = scopeFanoutDeficit(tmp, ['sq-1', 'sq-2'], ['sq-1', 'sq-99', 'sq-42']);
+
+    // Known filter id still intersects the deficit.
+    expect(scoped.ids).toEqual(['sq-1']);
+    // Unknown surfaced in filter order, de-duplicated.
+    expect(scoped.unknown).toEqual(['sq-99', 'sq-42']);
+  });
+
+  test('de-duplicates unknown ids (same bogus id twice → one entry)', () => {
+    writeFanout(tmp, [{ id: 'sq-1', state: 'completed' }]);
+    const scoped = scopeFanoutDeficit(tmp, ['sq-1'], ['sq-99', 'sq-99']);
+
+    expect(scoped.ids).toEqual([]);
+    expect(scoped.unknown).toEqual(['sq-99']);
+  });
+
+  test('empty filter yields empty ids (caller should use sumFanoutDeficit instead)', () => {
+    writeFanout(tmp, [{ id: 'sq-1', state: 'failed' }]);
+    const scoped = scopeFanoutDeficit(tmp, ['sq-1'], []);
+
+    expect(scoped.ids).toEqual([]);
+    expect(scoped.unknown).toEqual([]);
   });
 });
 

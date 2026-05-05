@@ -124,6 +124,21 @@ const RESUME_STAGES: readonly ResumeStage[] = ['plan-crit', 'fanout', 'synth', '
 export interface ResumeOverrides {
   runRoot?: string;
   from?: ResumeStage;
+  /**
+   * Sub-question ids to target for a fanout-scoped resume. Non-
+   * empty when the user passed `--sq=<id>[,<id>...]`. Callers
+   * intersect this with {@link ../research-resume.sumFanoutDeficit}
+   * to get the actual re-dispatch set; an id in here that is not
+   * present in `plan.json` is surfaced as an error by the
+   * extension's resume flow.
+   *
+   * Only meaningful with `from: 'fanout'` (explicit or the
+   * default the extension applies when `--sq` is the sole stage
+   * signal). Passing `--sq` with a non-`fanout` `--from` is
+   * rejected at the extension layer rather than here so the
+   * parser stays a pure validator.
+   */
+  subQuestionIds?: string[];
 }
 
 /**
@@ -220,6 +235,7 @@ type KnownFlag =
   | '--critic-max-turns'
   | '--run-root'
   | '--from'
+  | '--sq'
   | '--review-max-iter';
 const KNOWN_FLAGS: readonly KnownFlag[] = [
   '--model',
@@ -230,11 +246,12 @@ const KNOWN_FLAGS: readonly KnownFlag[] = [
   '--critic-max-turns',
   '--run-root',
   '--from',
+  '--sq',
   '--review-max-iter',
 ];
 
 /** Resume-only flags: parser rejects them in `question` mode. */
-const RESUME_ONLY_FLAGS: readonly KnownFlag[] = ['--run-root', '--from'];
+const RESUME_ONLY_FLAGS: readonly KnownFlag[] = ['--run-root', '--from', '--sq'];
 
 /**
  * Split a raw `/research` argument string into a
@@ -382,6 +399,7 @@ function applyFlag(
     }
     case '--run-root':
     case '--from':
+    case '--sq':
       // Resume-only flags are filtered out by the caller
       // (`question` mode rejects them before this switch; the
       // resume-mode parser handles them separately). Hitting
@@ -443,6 +461,19 @@ function parseResumeArgs(tokens: readonly string[]): ResearchCommandArgs {
         };
       }
       resume.from = value as ResumeStage;
+    } else if (flag === '--sq') {
+      if (resume.subQuestionIds !== undefined) {
+        return { kind: 'error', error: `--sq may only be specified once` };
+      }
+      // Value is a comma-separated list; trim each token. Reject
+      // empty tokens ("--sq=sq-1,,sq-2" or a trailing comma) so
+      // the extension never sees ids like `""` that would silently
+      // mis-intersect with the plan.
+      const ids = value.split(',').map((s) => s.trim());
+      if (ids.some((id) => id === '')) {
+        return { kind: 'error', error: `--sq value ${JSON.stringify(value)} has an empty id` };
+      }
+      resume.subQuestionIds = ids;
     } else {
       const applied = applyFlag(flag, value, overrides);
       if (!applied.ok) {
@@ -552,6 +583,9 @@ export function formatOverridesSummary(overrides: ResearchOverrides, resume?: Re
   const parts: string[] = [];
   if (resume?.runRoot) parts.push(`run-root=${resume.runRoot}`);
   if (resume?.from) parts.push(`from=${resume.from}`);
+  if (resume?.subQuestionIds && resume.subQuestionIds.length > 0) {
+    parts.push(`sq=${resume.subQuestionIds.join(',')}`);
+  }
   if (overrides.model) parts.push(`model=${overrides.model}`);
   if (overrides.planCritModel) parts.push(`plan-crit-model=${overrides.planCritModel}`);
   if (overrides.fanoutModel) parts.push(`fanout-model=${overrides.fanoutModel}`);

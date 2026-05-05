@@ -299,6 +299,63 @@ export function sumFanoutDeficit(runRoot: string, subQuestionIds: readonly strin
   return subQuestionIds.filter((id) => need.has(id));
 }
 
+/**
+ * Result of {@link scopeFanoutDeficit}. `ids` is the re-dispatch
+ * set (in plan order); `unknown` lists filter tokens the caller
+ * should surface as an error.
+ */
+export interface ScopedDeficit {
+  /** Intersection of {@link sumFanoutDeficit} and `filter`; preserves plan order. */
+  ids: string[];
+  /** Ids in `filter` that are not present in `plan.subQuestions`. Non-empty ⇒ caller should error. */
+  unknown: string[];
+}
+
+/**
+ * Scope the plan-wide fanout deficit to a user-supplied id list.
+ *
+ * Wraps {@link sumFanoutDeficit} for the `--sq` code path: the
+ * user (or the stub-hint copy-paste) picks which sub-question
+ * ids to re-dispatch, and this helper intersects that list with
+ * the live disk state so completed sub-questions stay completed
+ * and unknown ids are surfaced back to the extension as a
+ * user-visible error.
+ *
+ * Behavior:
+ *
+ *   - `unknown` = `filter \ allSubQuestionIds` (order: filter
+ *     order, de-duplicated). Non-empty means the caller should
+ *     abort before touching disk.
+ *   - `ids` = intersection of the live fanout deficit with
+ *     `filter`, preserved in plan order so extension messages
+ *     stay stable across runs.
+ *
+ * Callers with an empty `filter` should use
+ * {@link sumFanoutDeficit} directly — an empty filter yields an
+ * empty id set here, which is almost never what a caller means
+ * by "no targeting applied".
+ */
+export function scopeFanoutDeficit(
+  runRoot: string,
+  allSubQuestionIds: readonly string[],
+  filter: readonly string[],
+): ScopedDeficit {
+  const planSet = new Set(allSubQuestionIds);
+  const seen = new Set<string>();
+  const unknown: string[] = [];
+  for (const id of filter) {
+    if (planSet.has(id)) continue;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    unknown.push(id);
+  }
+
+  const filterSet = new Set(filter);
+  const deficit = sumFanoutDeficit(runRoot, allSubQuestionIds);
+  const ids = deficit.filter((id) => filterSet.has(id));
+  return { ids, unknown };
+}
+
 // ──────────────────────────────────────────────────────────────────────
 // Fanout-state invalidation.
 // ──────────────────────────────────────────────────────────────────────

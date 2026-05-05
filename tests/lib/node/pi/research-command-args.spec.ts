@@ -444,6 +444,61 @@ describe('parseResearchCommandArgs resume mode', () => {
   });
 });
 
+describe('parseResearchCommandArgs resume mode: --sq', () => {
+  test('comma-separated ids captured on resume.subQuestionIds (= form)', () => {
+    const r = expectCmdResume(parseResearchCommandArgs('--resume --from=fanout --sq=sq-1,sq-3'));
+
+    expect(r.resume.from).toBe('fanout');
+    expect(r.resume.subQuestionIds).toEqual(['sq-1', 'sq-3']);
+  });
+
+  test('single id (space form) works', () => {
+    const r = expectCmdResume(parseResearchCommandArgs('--resume --sq sq-2'));
+
+    expect(r.resume.subQuestionIds).toEqual(['sq-2']);
+  });
+
+  test('preserves caller-supplied order (no sort)', () => {
+    const r = expectCmdResume(parseResearchCommandArgs('--resume --sq=sq-3,sq-1,sq-2'));
+
+    expect(r.resume.subQuestionIds).toEqual(['sq-3', 'sq-1', 'sq-2']);
+  });
+
+  test('empty token in the comma list is rejected', () => {
+    expect(expectCmdError(parseResearchCommandArgs('--resume --sq=sq-1,,sq-3'))).toMatch(
+      /--sq value "sq-1,,sq-3" has an empty id/,
+    );
+    expect(expectCmdError(parseResearchCommandArgs('--resume --sq=sq-1,'))).toMatch(
+      /--sq value "sq-1," has an empty id/,
+    );
+  });
+
+  test('duplicate --sq is rejected', () => {
+    expect(expectCmdError(parseResearchCommandArgs('--resume --sq=sq-1 --sq=sq-2'))).toMatch(
+      /--sq may only be specified once/,
+    );
+  });
+
+  test('missing value is rejected', () => {
+    expect(expectCmdError(parseResearchCommandArgs('--resume --sq'))).toMatch(/--sq requires a value/);
+  });
+
+  test('--sq is rejected in question mode', () => {
+    expect(expectCmdError(parseResearchCommandArgs('--sq sq-1 some question'))).toMatch(
+      /--sq is only valid with --resume/,
+    );
+  });
+
+  test('composes with --run-root + --from + shared overrides', () => {
+    const r = expectCmdResume(
+      parseResearchCommandArgs('--resume --run-root=./research/x --from=fanout --sq=sq-1,sq-4 --fanout-model openai/a'),
+    );
+
+    expect(r.resume).toEqual({ runRoot: './research/x', from: 'fanout', subQuestionIds: ['sq-1', 'sq-4'] });
+    expect(r.overrides).toEqual({ fanoutModel: 'openai/a' });
+  });
+});
+
 describe('parseResearchCommandArgs question mode: --review-max-iter', () => {
   test('--review-max-iter is accepted outside resume mode', () => {
     const r = expectCmdQuestion(parseResearchCommandArgs('--review-max-iter 6 some question'));
@@ -500,5 +555,15 @@ describe('formatOverridesSummary: resume + reviewMaxIter', () => {
     expect(
       formatOverridesSummary({ model: 'openai/top', reviewMaxIter: 8 }, { runRoot: './r/x', from: 'review' }),
     ).toBe(' [run-root=./r/x from=review model=openai/top review-max-iter=8]');
+  });
+
+  test('resume.subQuestionIds appear as sq=<id,id> in the summary', () => {
+    expect(formatOverridesSummary({}, { from: 'fanout', subQuestionIds: ['sq-1', 'sq-3'] })).toBe(
+      ' [from=fanout sq=sq-1,sq-3]',
+    );
+  });
+
+  test('empty subQuestionIds array is omitted from the summary', () => {
+    expect(formatOverridesSummary({}, { from: 'fanout', subQuestionIds: [] })).toBe(' [from=fanout]');
   });
 });
