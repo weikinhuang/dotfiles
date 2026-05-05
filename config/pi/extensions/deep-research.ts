@@ -1199,6 +1199,7 @@ async function runResumeFlow(args: {
     stage,
     needsRefanout,
     overrides,
+    ...(filterIds.length > 0 ? { synthSubQuestionIds: filterIds } : {}),
     ...(args.signal ? { signal: args.signal } : {}),
   });
 }
@@ -1339,10 +1340,17 @@ async function runResumePipelineStage(args: {
   runRoot: string;
   stage: 'plan-crit' | 'fanout' | 'synth';
   needsRefanout: string[];
+  /**
+   * Optional sub-question filter fed through to the pipeline's
+   * synth stage. Populated on the `--sq` targeted-fanout path so
+   * re-synth only re-renders the listed ids; unaffected sections
+   * re-use their existing `snapshots/sections/<id>.md` snapshots.
+   */
+  synthSubQuestionIds?: readonly string[];
   overrides: ResearchOverrides;
   signal?: AbortSignal;
 }): Promise<void> {
-  const { ctx, agentLoad, notify, runRoot, stage, needsRefanout, overrides } = args;
+  const { ctx, agentLoad, notify, runRoot, stage, needsRefanout, synthSubQuestionIds, overrides } = args;
   const p = paths(runRoot);
 
   // Read the question + plan from disk. Cannot proceed without it
@@ -1422,6 +1430,7 @@ async function runResumePipelineStage(args: {
     ...built.deps,
     resumeFrom: stage,
     resumeRunRoot: runRoot,
+    ...(synthSubQuestionIds && synthSubQuestionIds.length > 0 ? { synthSubQuestionIds } : {}),
   };
 
   let outcome: PipelineOutcome;
