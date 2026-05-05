@@ -118,9 +118,9 @@ import { readPlan } from '../../../lib/node/pi/research-plan.ts';
 import {
   countPriorReviewIterations,
   detectResumeStage,
-  findStubbedSections,
   invalidateIncompleteFanoutTasks,
   listRecentRuns,
+  scopeFanoutDeficit,
   sumFanoutDeficit,
   validateRunRoot,
 } from '../../../lib/node/pi/research-resume.ts';
@@ -131,6 +131,7 @@ import {
   runSelftestCommand,
 } from '../../../lib/node/pi/research-runs.ts';
 import { selftestDeepResearch } from '../../../lib/node/pi/research-selftest.ts';
+import { formatStubHint } from '../../../lib/node/pi/research-stub-hint.ts';
 import {
   type AgentLoadResult,
   type AgentDef,
@@ -154,6 +155,9 @@ const USAGE =
   '                                         ./research/)\n' +
   '  --from <stage>                       pin the resume stage: plan-crit | fanout | synth |\n' +
   '                                         review (overrides auto-detection)\n' +
+  '  --sq <id>[,<id>...]                  re-fanout only the named sub-question ids; defaults\n' +
+  '                                         --from to fanout when the flag is the sole stage\n' +
+  '                                         signal. Unknown ids are rejected against plan.json.\n' +
   '\n' +
   'Question-mode flags (may appear in any order before the question):\n' +
   '  --model provider/id                  override the parent research session’s model;\n' +
@@ -948,23 +952,60 @@ async function runResumeFlow(args: {
   }
 
   // ── 2. Decide stage ─────────────────────────────────────────
+  //
+  // `--sq` targets the fanout stage specifically: the caller has
+  // picked sub-question ids to reset, so auto-detection is
+  // meaningless and `--from=<not-fanout>` is a contradiction. We
+  // surface both cases up-front with clear errors instead of a
+  // silent promotion.
+  const filterIds = resume.subQuestionIds ?? [];
+  if (filterIds.length > 0 && resume.from !== undefined && resume.from !== 'fanout') {
+    notify(
+      `/research --resume: --sq is only meaningful with --from=fanout (got --from=${resume.from}). ` +
+        `Drop the --from or set --from=fanout.`,
+      'error',
+    );
+    return;
+  }
+
   let stage: ResumeStage;
   let stageReason: string;
   let needsRefanout: string[] = [];
-  if (resume.from) {
-    stage = resume.from;
-    stageReason = `--from=${resume.from} (user override)`;
+  if (resume.from || filterIds.length > 0) {
+    // `--sq` without `--from` defaults to fanout — the only stage
+    // where a sub-question filter is meaningful.
+    stage = resume.from ?? 'fanout';
+    stageReason = resume.from ? `--from=${resume.from} (user override)` : `--sq supplied — defaulting stage to fanout`;
     if (stage === 'fanout') {
+      let planSubQuestionIds: string[] = [];
       try {
         const plan = readPlan(paths(runRoot).plan);
         if (plan.kind === 'deep-research') {
-          needsRefanout = sumFanoutDeficit(
-            runRoot,
-            plan.subQuestions.map((sq) => sq.id),
-          );
+          planSubQuestionIds = plan.subQuestions.map((sq) => sq.id);
         }
       } catch {
         /* ignore — error already surfaced by validateRunRoot */
+      }
+      if (filterIds.length > 0) {
+        const scoped = scopeFanoutDeficit(runRoot, planSubQuestionIds, filterIds);
+        if (scoped.unknown.length > 0) {
+          notify(
+            `/research --resume: --sq ids not present in plan.json: ${scoped.unknown.join(', ')}. ` +
+              `Valid ids: ${planSubQuestionIds.length > 0 ? planSubQuestionIds.join(', ') : '<none>'}.`,
+            'error',
+          );
+          return;
+        }
+        if (scoped.ids.length === 0) {
+          notify(
+            `/research --resume: nothing to re-fanout — ${filterIds.join(', ')} already complete on disk.`,
+            'info',
+          );
+          return;
+        }
+        needsRefanout = scoped.ids;
+      } else {
+        needsRefanout = sumFanoutDeficit(runRoot, planSubQuestionIds);
       }
     }
   } else {
@@ -1651,44 +1692,6 @@ function buildSyncFanoutSpawner<M>(
 // ──────────────────────────────────────────────────────────────────────
 // Outcome surfacing.
 // ──────────────────────────────────────────────────────────────────────
-
-// ──────────────────────────────────────────────────────────────────────
-// Stub-section guardrail (Phase 4).
-// ──────────────────────────────────────────────────────────────────────
-
-/**
- * Build a one-paragraph hint when the final `report.md` has one
- * or more `[section unavailable: …]` stubs. The hint:
- *
- *   1. names the stubbed headings + their reason (truncated),
- *   2. points the user at `/research --resume --from=fanout` as
- *      the actionable next step, and
- *   3. includes the `rm <runRoot>/findings/<id>.md` workaround
- *      because Phase 3 (`--sq=<id>` targeting) isn't shipped yet.
- *
- * Returns `null` when no stubs are present so callers can emit
- * the hint unconditionally via `if (h) notify(h, 'warning')`.
- *
- * The helper is side-effect-free: the disk read happens via the
- * pure {@link findStubbedSections}; this function only formats the
- * resulting list.
- */
-function formatStubHint(runRoot: string): string | null {
-  const reportPath = paths(runRoot).report;
-  const stubbed = findStubbedSections(reportPath);
-  if (stubbed.length === 0) return null;
-  const lines: string[] = [];
-  lines.push(`/research: note — ${stubbed.length} sub-question section(s) are stubbed as [section unavailable].`);
-  for (const s of stubbed) {
-    const reason = s.reason.length > 0 ? ` — ${s.reason}` : '';
-    lines.push(`  • ${s.heading}${reason}`);
-  }
-  lines.push(`  To re-fetch: \`/research --resume --run-root ${runRoot} --from=fanout\``);
-  lines.push(
-    `  (\`--sq=<id>\` targeting is not yet wired; current workaround is \`rm ${runRoot}/findings/<id>.md\` for each stubbed section before the resume.)`,
-  );
-  return lines.join('\n');
-}
 
 function surfaceOutcome(outcome: PipelineOutcome, notify: CommandNotify): void {
   switch (outcome.kind) {
