@@ -545,6 +545,13 @@ function buildStatuslineController(ctx: {
   let state = initialStatuslineState(Date.now());
   let frame = 0;
   let timer: ReturnType<typeof setInterval> | null = null;
+  // Auto-dismiss: after a terminal `done` / `error` event we leave
+  // the widget on screen for a few seconds so the user sees the
+  // final label + cost, then clear it. A fresh `start` (second
+  // research run in the same session) cancels any pending
+  // dismissal so the new run's widget isn't nuked early.
+  let autoClearTimer: ReturnType<typeof setTimeout> | null = null;
+  const AUTO_CLEAR_MS = 8_000;
 
   const render = (): void => {
     try {
@@ -577,25 +584,57 @@ function buildStatuslineController(ctx: {
     }
   };
 
+  const cancelAutoClear = (): void => {
+    if (autoClearTimer) {
+      clearTimeout(autoClearTimer);
+      autoClearTimer = null;
+    }
+  };
+
+  const scheduleAutoClear = (): void => {
+    cancelAutoClear();
+    autoClearTimer = setTimeout(() => {
+      autoClearTimer = null;
+      try {
+        ctx.ui.setWidget(STATUSLINE_KEY, undefined);
+      } catch {
+        /* swallow */
+      }
+    }, AUTO_CLEAR_MS);
+    if (typeof (autoClearTimer as { unref?: () => void }).unref === 'function') {
+      (autoClearTimer as { unref: () => void }).unref();
+    }
+  };
+
   const emit = (event: PhaseEvent): void => {
     if (event.kind === 'start') {
       // Re-anchor the elapsed clock on explicit start so a second
       // research run in the same session doesn't show the prior
       // run's wall-clock.
       state = initialStatuslineState(Date.now());
+      // A new run cancels any pending dismissal from the previous
+      // terminal state — the spinner will be driving the widget
+      // again in a moment.
+      cancelAutoClear();
     } else {
       state = reduceStatusline(state, event);
     }
-    // Terminal states freeze the spinner; active work animates.
+    // Terminal states freeze the spinner and schedule a dismissal;
+    // active work animates and cancels any pending dismissal.
     if (state.phase === 'idle' || state.phase === 'done' || state.phase === 'error') {
       stopTimer();
+      if (state.phase === 'done' || state.phase === 'error') {
+        scheduleAutoClear();
+      }
     } else {
+      cancelAutoClear();
       startTimer();
     }
     render();
   };
   const clear = (): void => {
     stopTimer();
+    cancelAutoClear();
     try {
       ctx.ui.setWidget(STATUSLINE_KEY, undefined);
     } catch {
