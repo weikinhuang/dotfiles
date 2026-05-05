@@ -469,6 +469,15 @@ function mergeSignals(a: AbortSignal | undefined, b: AbortSignal | undefined): A
 interface BuildDepsOk<M> {
   ok: true;
   deps: PipelineDeps<M>;
+  /**
+   * The resolved parent model the pipeline is using. Same as
+   * `ctx.model` unless `extras.overrides.model` requested an
+   * override, in which case this is the Model<any> looked up from
+   * the registry. Threaded to the review phase so inherit-mode
+   * critic subagents see the same model the rest of the pipeline
+   * does.
+   */
+  parentModel: unknown;
 }
 interface BuildDepsErr {
   ok: false;
@@ -697,6 +706,7 @@ async function runResearchFlow(args: {
       notify,
       agentLoad,
       pipelineDeps: built.deps,
+      parentModel: built.parentModel,
       emitPhase: onPhase,
       liveBudget,
       ...(overrides.criticMaxTurns !== undefined ? { criticMaxTurns: overrides.criticMaxTurns } : {}),
@@ -917,7 +927,7 @@ function buildPipelineDeps(
     },
   };
 
-  return { ok: true, deps };
+  return { ok: true, deps, parentModel };
 }
 
 function describeModel(m: unknown): string {
@@ -1151,6 +1161,14 @@ interface RunReviewPhaseArgs {
    */
   liveBudget?: LiveBudget;
   /**
+   * Parent model used as the `inherit` fallback for the subjective
+   * critic spawn. When the caller applied a `--model` override in
+   * `buildPipelineDeps`, this must carry that resolved model so
+   * inherit-mode agents (the critic) honor the override rather
+   * than silently falling back to `ctx.model`.
+   */
+  parentModel?: unknown;
+  /**
    * Optional maxTurns cap for the subjective critic spawn.
    * Comes from the slash command's `--critic-max-turns` flag or
    * the tool's `criticMaxTurns` param.
@@ -1184,7 +1202,7 @@ interface RunReviewPhaseArgs {
  * verdict instead of hanging.
  */
 async function runReviewPhase(args: RunReviewPhaseArgs): Promise<ReviewWireResult | null> {
-  const { ctx, runRoot, notify, agentLoad, emitPhase, liveBudget, criticMaxTurns } = args;
+  const { ctx, runRoot, notify, agentLoad, emitPhase, liveBudget, criticMaxTurns, parentModel } = args;
   // Signal used by all review-loop runners. Prefer the caller's
   // signal (threaded from `runResearchFlow`) and fall back to the
   // command's own `ctx.signal`, so Esc fires regardless of entry
@@ -1236,7 +1254,7 @@ async function runReviewPhase(args: RunReviewPhaseArgs): Promise<ReviewWireResul
     }
     const resolution = resolveChildModel({
       agent: criticAgent,
-      parent: ctx.model as never,
+      parent: (parentModel ?? ctx.model) as never,
       modelRegistry: ctx.modelRegistry as never,
     });
     if (!resolution.ok) {
