@@ -248,22 +248,60 @@ export function reduceAllStatusline(
  * Produce the widget body (`string[]`) that `ctx.ui.setWidget(...)`
  * expects. Two lines, always:
  *
- *   1. `deep-research: <label>`
+ *   1. `deep-research: <label>`  (or `<spinner> research: <label>`
+ *      when `frame` is passed and the phase is actively working)
  *   2. `  elapsed <Xm YYs> · cost $0.123`
  *
  * A third message line is appended on terminal states so the user
  * sees why the widget stopped updating even if they missed the
  * `ctx.ui.notify` toast.
+ *
+ * When the extension's statusline controller drives a short-cadence
+ * re-render (e.g. every 80ms), it bumps `opts.frame` each tick so
+ * the braille spinner rotates — mirroring pi's own "Working…"
+ * indicator. Frozen states (`idle` / `done` / `error`) never show
+ * the spinner because the run is not doing active work.
  */
-export function renderStatuslineWidget(state: StatuslineState, now: number = Date.now()): string[] {
+export function renderStatuslineWidget(
+  state: StatuslineState,
+  now: number = Date.now(),
+  opts: { frame?: number } = {},
+): string[] {
+  const spinner = formatSpinner(state.phase, opts.frame);
   const elapsedMs = Math.max(0, now - state.startedAt);
   const lines: string[] = [];
-  lines.push(`deep-research: ${state.label}`);
+  lines.push(`${spinner}deep-research: ${state.label}`);
   lines.push(`  elapsed ${formatElapsed(elapsedMs)} · cost ${formatCost(state.costUsd)}`);
   if ((state.phase === 'done' || state.phase === 'error') && state.message) {
     lines.push(`  ${state.message}`);
   }
   return lines;
+}
+
+/**
+ * Braille spinner frames, matching the set pi uses in its own
+ * "Working…" indicator. Exported so tests can assert the frame
+ * sequence without reaching into this module's internals.
+ */
+export const SPINNER_FRAMES: readonly string[] = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'] as const;
+
+/**
+ * Pick the spinner prefix for a given phase + frame counter.
+ * Returns the empty string (no prefix) when the phase is a frozen
+ * terminal/idle state — a stalled run should not animate.
+ *
+ * Exported for unit tests; the main renderer inlines it via
+ * `formatSpinner` at the top of each render.
+ */
+export function spinnerPrefix(phase: PhaseKind, frame: number | undefined): string {
+  if (frame === undefined) return '';
+  if (phase === 'idle' || phase === 'done' || phase === 'error') return '';
+  const idx = Math.abs(Math.trunc(frame)) % SPINNER_FRAMES.length;
+  return `${SPINNER_FRAMES[idx]} `;
+}
+
+function formatSpinner(phase: PhaseKind, frame: number | undefined): string {
+  return spinnerPrefix(phase, frame);
 }
 
 // ──────────────────────────────────────────────────────────────────────

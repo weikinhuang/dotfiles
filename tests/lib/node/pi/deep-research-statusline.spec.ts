@@ -22,6 +22,8 @@ import {
   reduceAllStatusline,
   reduceStatusline,
   renderStatuslineWidget,
+  spinnerPrefix,
+  SPINNER_FRAMES,
 } from '../../../../lib/node/pi/deep-research-statusline.ts';
 
 describe('deep-research-statusline initial state', () => {
@@ -228,6 +230,54 @@ describe('renderStatuslineWidget', () => {
     const lines = renderStatuslineWidget(s, 10_000);
 
     expect(lines[1]).toBe('  elapsed 10s · cost $1.234');
+  });
+});
+
+describe('renderStatuslineWidget spinner', () => {
+  test('no spinner when frame is omitted (back-compat default)', () => {
+    const s = reduceStatusline(initialStatuslineState(0), { kind: 'planning' });
+    const lines = renderStatuslineWidget(s, 1_000);
+
+    expect(lines[0]).toBe('deep-research: planning');
+    expect(lines[0].codePointAt(0)).toBeLessThan(0x2800); // no braille
+  });
+
+  test('frame 0 prefixes the first braille char on an active phase', () => {
+    const s = reduceStatusline(initialStatuslineState(0), { kind: 'planning' });
+    const lines = renderStatuslineWidget(s, 1_000, { frame: 0 });
+
+    expect(lines[0]).toBe(`${SPINNER_FRAMES[0]} deep-research: planning`);
+  });
+
+  test('frame cycles through SPINNER_FRAMES', () => {
+    const s = reduceStatusline(initialStatuslineState(0), { kind: 'fanout-start', total: 3 });
+
+    for (let i = 0; i < SPINNER_FRAMES.length * 2; i++) {
+      const lines = renderStatuslineWidget(s, 1_000, { frame: i });
+
+      expect(lines[0].startsWith(SPINNER_FRAMES[i % SPINNER_FRAMES.length] + ' ')).toBe(true);
+    }
+  });
+
+  test('idle / done / error phases freeze (no spinner even with a frame)', () => {
+    const idle = initialStatuslineState(0);
+    const done = reduceStatusline(idle, { kind: 'done', message: 'ok' });
+    const err = reduceStatusline(idle, { kind: 'error', message: 'boom' });
+
+    for (const s of [idle, done, err]) {
+      const lines = renderStatuslineWidget(s, 1_000, { frame: 3 });
+
+      expect(lines[0].startsWith('deep-research:')).toBe(true); // no spinner prefix
+    }
+  });
+
+  test('spinnerPrefix handles negative / non-integer frames', () => {
+    expect(spinnerPrefix('planning', -1)).toBe(`${SPINNER_FRAMES[1]} `);
+    expect(spinnerPrefix('planning', 17.9)).toBe(`${SPINNER_FRAMES[17 % SPINNER_FRAMES.length]} `);
+    expect(spinnerPrefix('planning', undefined)).toBe('');
+    expect(spinnerPrefix('done', 3)).toBe('');
+    expect(spinnerPrefix('idle', 3)).toBe('');
+    expect(spinnerPrefix('error', 3)).toBe('');
   });
 });
 

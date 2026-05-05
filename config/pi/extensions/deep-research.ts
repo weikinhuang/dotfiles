@@ -95,6 +95,8 @@ import {
 import { buildCriticTask, parseVerdict } from '../../../lib/node/pi/iteration-loop-check-critic.ts';
 import { type Verdict } from '../../../lib/node/pi/iteration-loop-schema.ts';
 import { createAiFetchWebCliClientFromEnv } from '../../../lib/node/pi/research-ai-fetch-web-cli-client.ts';
+import { createLiveBudget, DEFAULT_BUDGET_PHASES, type LiveBudget } from '../../../lib/node/pi/research-budget-live.ts';
+import { createRunBudget } from '../../../lib/node/pi/research-budget.ts';
 import { createCostHook } from '../../../lib/node/pi/research-cost-hook.ts';
 import {
   type FanoutHandleLike,
@@ -412,13 +414,40 @@ function buildStatuslineController(ctx: {
   ui: { setWidget: (key: string, body: string[] | undefined) => void };
 }): StatuslineController {
   let state = initialStatuslineState(Date.now());
+  let frame = 0;
+  let timer: ReturnType<typeof setInterval> | null = null;
+
   const render = (): void => {
     try {
-      ctx.ui.setWidget(STATUSLINE_KEY, renderStatuslineWidget(state, Date.now()));
+      ctx.ui.setWidget(STATUSLINE_KEY, renderStatuslineWidget(state, Date.now(), { frame }));
     } catch {
       /* swallow — widget failures must never break the pipeline */
     }
   };
+
+  const startTimer = (): void => {
+    if (timer) return;
+    timer = setInterval(() => {
+      // Frames wrap naturally via the spinner modulo; we just
+      // need a monotonically-bumping counter. Cap it so long
+      // runs don't overflow after ~years, which is absurd but
+      // keeps the value bounded without a branch.
+      frame = (frame + 1) & 0x3fffffff;
+      render();
+    }, 80);
+    // Never block process exit on the spinner timer.
+    if (typeof (timer as { unref?: () => void }).unref === 'function') {
+      (timer as { unref: () => void }).unref();
+    }
+  };
+
+  const stopTimer = (): void => {
+    if (timer) {
+      clearInterval(timer);
+      timer = null;
+    }
+  };
+
   const emit = (event: PhaseEvent): void => {
     if (event.kind === 'start') {
       // Re-anchor the elapsed clock on explicit start so a second
@@ -428,9 +457,16 @@ function buildStatuslineController(ctx: {
     } else {
       state = reduceStatusline(state, event);
     }
+    // Terminal states freeze the spinner; active work animates.
+    if (state.phase === 'idle' || state.phase === 'done' || state.phase === 'error') {
+      stopTimer();
+    } else {
+      startTimer();
+    }
     render();
   };
   const clear = (): void => {
+    stopTimer();
     try {
       ctx.ui.setWidget(STATUSLINE_KEY, undefined);
     } catch {
@@ -480,12 +516,30 @@ async function runResearchFlow(args: {
   const statusline = args.statusline ?? buildStatuslineController(ctx);
   statusline.emit({ kind: 'start' });
 
+  // Live-updating RunBudget: accumulates per-phase cost +
+  // wall-clock by watching the same PhaseEvent stream the
+  // statusline consumes, and exposes PhaseTrackers the cost
+  // hooks route assistant-turn USD deltas into. A single
+  // `cost report` entry lands in the run's journal.md on exit.
+  const liveBudget = createLiveBudget({
+    budget: createRunBudget(DEFAULT_BUDGET_PHASES.map((p) => ({ ...p }))),
+  });
+  const onPhase = (event: PhaseEvent): void => {
+    statusline.emit(event);
+    try {
+      liveBudget.observePhaseEvent(event);
+    } catch {
+      /* swallow — budget observation must never break the run */
+    }
+  };
+
   const built = buildPipelineDeps(ctx, agentLoad, {
-    onPhase: statusline.emit,
+    onPhase,
+    liveBudget,
     ...(args.signal ? { signal: args.signal } : {}),
   });
   if (!built.ok) {
-    statusline.emit({ kind: 'error', message: built.error });
+    onPhase({ kind: 'error', message: built.error });
     return { kind: 'error', error: built.error };
   }
 
@@ -494,8 +548,22 @@ async function runResearchFlow(args: {
     outcome = await runResearchPipeline(question, built.deps);
   } catch (e) {
     const message = (e as Error).message ?? String(e);
-    statusline.emit({ kind: 'error', message });
+    onPhase({ kind: 'error', message });
+    liveBudget.appendSummary();
     return { kind: 'error', error: `pipeline threw: ${message}` };
+  }
+
+  // From here on the pipeline has returned a runRoot (every
+  // outcome kind carries one) so the live budget can emit its
+  // overrun warnings into the run's journal as phases close. The
+  // final `cost report` summary lands on the terminal done/error
+  // path below so review-phase cost is included.
+  if (outcome.runRoot) {
+    try {
+      liveBudget.setJournalPath(paths(outcome.runRoot).journal);
+    } catch {
+      /* swallow — journal wiring must never break the run */
+    }
   }
 
   if (surfacePipelineOutcome) {
@@ -504,19 +572,23 @@ async function runResearchFlow(args: {
 
   // Non-report terminal states: emit done / error and bail.
   if (outcome.kind === 'planner-stuck') {
-    statusline.emit({ kind: 'error', message: `planner stuck: ${outcome.reason}` });
+    onPhase({ kind: 'error', message: `planner stuck: ${outcome.reason}` });
+    liveBudget.appendSummary();
     return { kind: 'planner-stuck', runRoot: outcome.runRoot, reason: outcome.reason };
   }
   if (outcome.kind === 'checkpoint') {
-    statusline.emit({ kind: 'error', message: `plan-crit checkpoint (${outcome.outcome.kind})` });
+    onPhase({ kind: 'error', message: `plan-crit checkpoint (${outcome.outcome.kind})` });
+    liveBudget.appendSummary();
     return { kind: 'checkpoint', runRoot: outcome.runRoot, reason: outcome.outcome.kind };
   }
   if (outcome.kind === 'error') {
-    statusline.emit({ kind: 'error', message: outcome.error });
+    onPhase({ kind: 'error', message: outcome.error });
+    liveBudget.appendSummary();
     return { kind: 'error', runRoot: outcome.runRoot, error: outcome.error };
   }
   if (outcome.kind === 'fanout-complete') {
-    statusline.emit({ kind: 'done', message: 'fanout complete (no synth)' });
+    onPhase({ kind: 'done', message: 'fanout complete (no synth)' });
+    liveBudget.appendSummary();
     return {
       kind: 'fanout-complete',
       runRoot: outcome.runRoot,
@@ -535,12 +607,14 @@ async function runResearchFlow(args: {
       notify,
       agentLoad,
       pipelineDeps: built.deps,
-      emitPhase: statusline.emit,
+      emitPhase: onPhase,
+      liveBudget,
       ...(args.signal ? { signal: args.signal } : {}),
     });
   } catch (e) {
     const message = (e as Error).message ?? String(e);
-    statusline.emit({ kind: 'error', message });
+    onPhase({ kind: 'error', message });
+    liveBudget.appendSummary();
     return {
       kind: 'report-complete',
       reportPath: outcome.merge.reportPath,
@@ -556,7 +630,8 @@ async function runResearchFlow(args: {
     : review?.level === 'error'
       ? 'review failed'
       : 'review complete';
-  statusline.emit({ kind: 'done', message: doneMessage });
+  onPhase({ kind: 'done', message: doneMessage });
+  liveBudget.appendSummary();
 
   return {
     kind: 'report-complete',
@@ -577,6 +652,14 @@ interface PipelineDepsExtras {
   onPhase?: (event: PhaseEvent) => void;
   /** Additional abort signal merged into the pipeline's own. */
   signal?: AbortSignal;
+  /**
+   * Live-budget wrapper. When set, cost hooks for the parent
+   * session + each subagent spawn route their USD deltas into
+   * the budget's phase trackers. Wall-clock + overrun warnings
+   * are driven by `observePhaseEvent` wired through `onPhase`
+   * in the caller.
+   */
+  liveBudget?: LiveBudget;
 }
 
 function buildPipelineDeps(
@@ -649,10 +732,16 @@ function buildPipelineDeps(
         sessionManager: manager,
       });
       // Subscribe the cost hook so every assistant turn in the
-      // parent session (planner / self-critic / rewrite) emits a
-      // `{kind:'cost', deltaUsd}` into the statusline reducer.
-      if (extras.onPhase) {
-        const hook = createCostHook({ emit: extras.onPhase });
+      // parent session (planner / self-critic / rewrite / synth /
+      // merge / refine) emits a `{kind:'cost', deltaUsd}` into the
+      // statusline reducer AND lands on the currently-open phase
+      // bucket in the LiveBudget (parent-session phases switch
+      // over the session's lifetime, so we use the live tracker).
+      if (extras.onPhase || extras.liveBudget) {
+        const hook = createCostHook({
+          ...(extras.onPhase ? { emit: extras.onPhase } : {}),
+          ...(extras.liveBudget ? { tracker: extras.liveBudget.currentPhaseTracker } : {}),
+        });
         session.subscribe(hook.subscribe);
       }
       return wrapSession(session);
@@ -665,7 +754,13 @@ function buildPipelineDeps(
       });
       if (!resolution.ok) return { rawText: '', error: resolution.error };
       try {
-        const costHook = extras.onPhase ? createCostHook({ emit: extras.onPhase }) : undefined;
+        const costHook =
+          extras.onPhase || extras.liveBudget
+            ? createCostHook({
+                ...(extras.onPhase ? { emit: extras.onPhase } : {}),
+                ...(extras.liveBudget ? { tracker: extras.liveBudget.trackerFor('plan-crit') } : {}),
+              })
+            : undefined;
         const result = await runOneShotAgent({
           deps: { createAgentSession, DefaultResourceLoader, SessionManager, getAgentDir },
           cwd: ctx.cwd,
@@ -687,7 +782,7 @@ function buildPipelineDeps(
       }
     },
     fanoutSpawn: wrapFanoutForProgress(
-      buildSyncFanoutSpawner(ctx, webAgent, modelRegistry, parentModel, extras.onPhase),
+      buildSyncFanoutSpawner(ctx, webAgent, modelRegistry, parentModel, extras.onPhase, extras.liveBudget),
       extras.onPhase,
     ),
     mcpClient: createAiFetchWebCliClientFromEnv() ?? undefined,
@@ -800,6 +895,7 @@ function buildSyncFanoutSpawner<M>(
   },
   parent: M | undefined,
   onPhase: ((event: PhaseEvent) => void) | undefined,
+  liveBudget: LiveBudget | undefined,
 ): FanoutSpawner {
   return async (args: FanoutSpawnArgs): Promise<FanoutHandleLike> => {
     const resolution = resolveChildModel({ agent, parent, modelRegistry: modelRegistry as never });
@@ -809,7 +905,13 @@ function buildSyncFanoutSpawner<M>(
     const progressAt = Date.now();
     let result: FanoutHandleResult;
     try {
-      const costHook = onPhase ? createCostHook({ emit: onPhase }) : undefined;
+      const costHook =
+        onPhase || liveBudget
+          ? createCostHook({
+              ...(onPhase ? { emit: onPhase } : {}),
+              ...(liveBudget ? { tracker: liveBudget.trackerFor('fanout') } : {}),
+            })
+          : undefined;
       const run = await runOneShotAgent({
         deps: { createAgentSession, DefaultResourceLoader, SessionManager, getAgentDir },
         cwd: ctx.cwd,
@@ -918,6 +1020,12 @@ interface RunReviewPhaseArgs {
   pipelineDeps?: PipelineDeps<unknown>;
   /** Phase-5 observability emitter. */
   emitPhase?: (event: PhaseEvent) => void;
+  /**
+   * Live-budget wrapper, when the caller owns one. Threads through
+   * to the subjective critic's cost hook so its USD cost lands on
+   * the `'review'` bucket.
+   */
+  liveBudget?: LiveBudget;
   /** Additional abort signal threaded into the review loop. */
   signal?: AbortSignal;
 }
@@ -946,7 +1054,7 @@ interface RunReviewPhaseArgs {
  * verdict instead of hanging.
  */
 async function runReviewPhase(args: RunReviewPhaseArgs): Promise<ReviewWireResult | null> {
-  const { ctx, runRoot, notify, agentLoad, emitPhase } = args;
+  const { ctx, runRoot, notify, agentLoad, emitPhase, liveBudget } = args;
   // Signal used by all review-loop runners. Prefer the caller's
   // signal (threaded from `runResearchFlow`) and fall back to the
   // command's own `ctx.signal`, so Esc fires regardless of entry
@@ -1015,7 +1123,13 @@ async function runReviewPhase(args: RunReviewPhaseArgs): Promise<ReviewWireResul
       iteration,
     });
     try {
-      const costHook = emitPhase ? createCostHook({ emit: emitPhase }) : undefined;
+      const costHook =
+        emitPhase || liveBudget
+          ? createCostHook({
+              ...(emitPhase ? { emit: emitPhase } : {}),
+              ...(liveBudget ? { tracker: liveBudget.trackerFor('review') } : {}),
+            })
+          : undefined;
       const run = await runOneShotAgent({
         deps: { createAgentSession, DefaultResourceLoader, SessionManager, getAgentDir },
         cwd: ctx.cwd,
