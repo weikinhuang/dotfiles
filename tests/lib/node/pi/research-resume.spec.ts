@@ -15,8 +15,10 @@ import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
 import {
   countPriorReviewIterations,
+  detectProvenanceDrift,
   detectResumeStage,
   findStubbedSections,
+  formatProvenanceDrift,
   invalidateIncompleteFanoutTasks,
   listRecentRuns,
   scopeFanoutDeficit,
@@ -657,5 +659,82 @@ describe('findStubbedSections', () => {
     writeFileSync(reportPath, ['# Report', '', '## Sub-question 1', '', 'Prose with [^1].', ''].join('\n'), 'utf8');
 
     expect(findStubbedSections(reportPath)).toEqual([]);
+  });
+});
+
+// ──────────────────────────────────────────────────────────────────
+// detectProvenanceDrift / formatProvenanceDrift
+// ──────────────────────────────────────────────────────────────────
+
+function writePlanProvenance(
+  runRoot: string,
+  model: string,
+  extras: { thinkingLevel?: string | null; promptHash?: string } = {},
+): void {
+  mkdirSync(runRoot, { recursive: true });
+  const sidecar = {
+    model,
+    thinkingLevel: extras.thinkingLevel ?? null,
+    timestamp: '2026-01-01T00:00:00.000Z',
+    promptHash: extras.promptHash ?? 'abcdef012345',
+  };
+  writeFileSync(join(runRoot, 'plan.json.provenance.json'), JSON.stringify(sidecar, null, 2) + '\n', 'utf8');
+}
+
+describe('detectProvenanceDrift', () => {
+  let tmp: string;
+
+  beforeEach(() => {
+    tmp = makeTmp();
+  });
+
+  afterEach(() => {
+    rmSync(tmp, { recursive: true, force: true });
+  });
+
+  test('no override supplied → no drift', () => {
+    writePlanProvenance(tmp, 'openai/gpt-5');
+
+    expect(detectProvenanceDrift(tmp, {})).toEqual([]);
+  });
+
+  test('missing sidecar → no drift (nothing to compare against)', () => {
+    expect(detectProvenanceDrift(tmp, { model: 'openai/gpt-5' })).toEqual([]);
+  });
+
+  test('malformed sidecar → no drift (readProvenance returns null)', () => {
+    mkdirSync(tmp, { recursive: true });
+    writeFileSync(join(tmp, 'plan.json.provenance.json'), '{ not valid', 'utf8');
+
+    expect(detectProvenanceDrift(tmp, { model: 'openai/gpt-5' })).toEqual([]);
+  });
+
+  test('matching model → no drift', () => {
+    writePlanProvenance(tmp, 'openai/gpt-5');
+
+    expect(detectProvenanceDrift(tmp, { model: 'openai/gpt-5' })).toEqual([]);
+  });
+
+  test('differing model → single drift entry', () => {
+    writePlanProvenance(tmp, 'openai/gpt-5');
+    const drift = detectProvenanceDrift(tmp, { model: 'anthropic/claude-opus-4' });
+
+    expect(drift).toEqual([{ field: 'model', original: 'openai/gpt-5', resumeValue: 'anthropic/claude-opus-4' }]);
+  });
+});
+
+describe('formatProvenanceDrift', () => {
+  test('returns null for empty input', () => {
+    expect(formatProvenanceDrift([])).toBeNull();
+  });
+
+  test('renders a one-paragraph warning with one bullet per drift', () => {
+    const message = formatProvenanceDrift([
+      { field: 'model', original: 'openai/gpt-5', resumeValue: 'anthropic/opus' },
+    ]);
+
+    expect(message).not.toBeNull();
+    expect(message!).toContain('override(s) differ from the original run');
+    expect(message!).toContain('• model: openai/gpt-5 → anthropic/opus');
   });
 });

@@ -1,3 +1,4 @@
+/* eslint-disable no-use-before-define -- TS function declarations are hoisted; ordering here is public API (listRuns / summarizeRun) → helpers (inferResumability). */
 /**
  * Pure helpers for the deep-research extension's `/research --list`
  * and `/research --selftest` commands.
@@ -38,9 +39,10 @@
 import { existsSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { readJournal } from './research-journal.ts';
+import { readJournal, sumJournalCostUsd } from './research-journal.ts';
 import { paths, runRoot } from './research-paths.ts';
 import { PlanValidationError, readPlan } from './research-plan.ts';
+import { findStubbedSections, sumFanoutDeficit } from './research-resume.ts';
 import { type SelftestDiff, type SelftestResult } from './research-selftest.ts';
 import { fmtCost } from './token-format.ts';
 
@@ -111,6 +113,38 @@ function formatWallClock(sec: number): string {
 // ──────────────────────────────────────────────────────────────────────
 
 /**
+ * Resumability status surfaced by `/research --list`. Reports
+ * which `/research --resume` flow the user should reach for on
+ * this slug (or `done` / `error` terminals). Derived purely from
+ * on-disk artifacts — {@link sumFanoutDeficit},
+ * {@link findStubbedSections}, and plan.status.
+ *
+ *   - `done`                — plan.status=done and report.md has
+ *                             no `[section unavailable]` stubs.
+ *   - `needs-review`        — report.md exists but plan.status is
+ *                             not `done`; likely a prior
+ *                             `budget-exhausted` review. Resume
+ *                             via `--from=review --review-max-iter
+ *                             <N>`.
+ *   - `stubbed`             — report.md exists with one or more
+ *                             `[section unavailable]` sections;
+ *                             re-fanout the sub-questions with
+ *                             `--from=fanout --sq=<ids>`.
+ *   - `no-report`           — all findings complete but synth
+ *                             never ran (or was aborted before
+ *                             writing report.md). Resume
+ *                             `--from=synth`.
+ *   - `incomplete-fanout`   — one or more sub-questions missing
+ *                             findings or marked
+ *                             failed/aborted/pending. Resume
+ *                             `--from=fanout`.
+ *   - `error`               — plan.json missing / malformed /
+ *                             kind-mismatch. {@link RunSummary.error}
+ *                             carries the details.
+ */
+export type RunResumability = 'done' | 'needs-review' | 'stubbed' | 'no-report' | 'incomplete-fanout' | 'error';
+
+/**
  * Per-slug summary row surfaced by `/research --list`. Every field
  * is present but may be `null` when the underlying source of truth
  * isn't populated yet (no plan, no journal, cost not tracked in
@@ -124,8 +158,20 @@ export interface RunSummary {
   status: string | null;
   /** Journal-derived elapsed seconds (first → last entry). */
   wallClockSec: number | null;
-  /** Spent USD. Not tracked in Phase 1 — always null. */
+  /**
+   * Cumulative USD cost derived from `cost delta` journal entries.
+   * `null` when no cost entries are present (older runs / broken
+   * plan with no journal); `0` when the journal exists but has
+   * never recorded a cost delta.
+   */
   costUsd: number | null;
+  /**
+   * Resumability verdict — which `/research --resume` flow the
+   * user should reach for, or `done` / `error`. Populated for
+   * every row (even broken ones, which report `error`). `null`
+   * reserved for future states where inference is impossible.
+   */
+  resumability: RunResumability | null;
   /** Parse/load error if plan.json is missing or malformed. */
   error: string | null;
 }
@@ -141,16 +187,33 @@ export interface RunSummary {
  * `wallClockSec` is ALWAYS derived from the journal when present,
  * regardless of whether the plan loaded cleanly — a broken or
  * kind-mismatched plan still has user-visible elapsed time worth
- * surfacing. `costUsd` is left `null` in Phase 1 (no runtime
- * accounting yet).
+ * surfacing. `costUsd` comes from the same journal scan: a
+ * present-but-empty journal reads as `0`, and a plan-less slug
+ * preserves `null` so the table renders `—` rather than a
+ * misleading `$0.000`.
+ *
+ * `resumability` is inferred from on-disk artifacts via the
+ * shared `research-resume` helpers. An unloadable plan short-
+ * circuits to `'error'`; everything else walks the stage
+ * precedence (fanout deficit → no-report → stubbed →
+ * done/needs-review) and reports the earliest actionable stage.
  */
 export function summarizeRun(cwd: string, slug: string): RunSummary {
   const root = runRoot(cwd, slug);
   const p = paths(root);
   const wallClockSec = wallClockFromJournal(p.journal);
+  const hasJournal = existsSync(p.journal);
+  const costUsd = hasJournal ? sumJournalCostUsd(p.journal) : null;
 
   if (!existsSync(p.plan)) {
-    return { slug, status: null, wallClockSec, costUsd: null, error: 'plan.json not found' };
+    return {
+      slug,
+      status: null,
+      wallClockSec,
+      costUsd,
+      resumability: 'error',
+      error: 'plan.json not found',
+    };
   }
 
   try {
@@ -163,12 +226,14 @@ export function summarizeRun(cwd: string, slug: string): RunSummary {
         slug,
         status: null,
         wallClockSec,
-        costUsd: null,
+        costUsd,
+        resumability: 'error',
         error: `plan.json kind=${plan.kind} — not a deep-research run`,
       };
     }
 
-    return { slug, status: plan.status, wallClockSec, costUsd: null, error: null };
+    const resumability = inferResumability(root, plan.status, plan.subQuestions);
+    return { slug, status: plan.status, wallClockSec, costUsd, resumability, error: null };
   } catch (e) {
     // `PlanValidationError` carries a `path` pointer to the exact
     // field that failed validation — surface it so the `! …` row
@@ -177,8 +242,26 @@ export function summarizeRun(cwd: string, slug: string): RunSummary {
     const error =
       e instanceof PlanValidationError ? `plan validation failed at ${e.path}: ${e.message}` : (e as Error).message;
 
-    return { slug, status: null, wallClockSec, costUsd: null, error };
+    return { slug, status: null, wallClockSec, costUsd, resumability: 'error', error };
   }
+}
+
+/**
+ * Walk on-disk artifacts in resume-stage order and report the
+ * earliest actionable stage. Callers pass `plan.status` + the
+ * plan's sub-question list so we don't re-read `plan.json`.
+ */
+function inferResumability(
+  runRootPath: string,
+  planStatus: string,
+  subQuestions: readonly { id: string }[],
+): RunResumability {
+  const p = paths(runRootPath);
+  const ids = subQuestions.map((sq) => sq.id);
+  if (sumFanoutDeficit(runRootPath, ids).length > 0) return 'incomplete-fanout';
+  if (!existsSync(p.report)) return 'no-report';
+  if (findStubbedSections(p.report).length > 0) return 'stubbed';
+  return planStatus === 'done' ? 'done' : 'needs-review';
 }
 
 /**
@@ -223,21 +306,24 @@ export function listRuns(cwd: string): RunSummary[] {
 
 /**
  * Format `runs` as a fixed-width text table with columns
- * `slug | status | wall-clock | cost`. Returns a friendly
+ * `slug | status | resume | wall-clock | cost`. Returns a friendly
  * empty-state message when `runs` is empty so the command always
- * produces non-blank output.
+ * produces non-blank output. The `resume` column reports the
+ * {@link RunResumability} verdict so users can see at a glance
+ * which slugs need follow-up.
  */
 export function formatRunsTable(runs: readonly RunSummary[]): string {
   if (runs.length === 0) {
     return 'No research runs found under ./research/. Run `/research <question>` to start one.';
   }
 
-  const header = ['slug', 'status', 'wall-clock', 'cost'];
+  const header = ['slug', 'status', 'resume', 'wall-clock', 'cost'];
   const rows: string[][] = [header];
   for (const r of runs) {
     rows.push([
       r.slug,
       r.error ? `! ${r.error}` : (r.status ?? UNKNOWN_CELL),
+      r.resumability ?? UNKNOWN_CELL,
       r.wallClockSec === null ? UNKNOWN_CELL : formatWallClock(r.wallClockSec),
       r.costUsd === null ? UNKNOWN_CELL : fmtCost(r.costUsd),
     ]);

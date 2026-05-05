@@ -223,3 +223,39 @@ export function tailJournal(journalPath: string, n: number): JournalEntry[] {
 
   return all.slice(all.length - n);
 }
+
+/**
+ * Regex matching the cost-delta journal heading written by
+ * `research-cost-hook.createCostHook`: `cost delta · <phase> ·
+ * <USD> USD`. Group 1 is the phase label, group 2 the dollar
+ * amount. Kept here (not on the hook side) because every reader
+ * of the journal needs to parse it; one regex, one definition.
+ */
+const COST_DELTA_HEADING = /^cost delta · (.+?) · ([0-9]+(?:\.[0-9]+)?) USD$/;
+
+/**
+ * Sum every `cost delta · <phase> · <USD> USD` heading in the
+ * journal and return the aggregate USD total. Missing journal or
+ * no cost entries returns `0`.
+ *
+ * Used by `/research --list` to surface a real cost column
+ * (plan.json doesn't track cost) and by the `/research --resume`
+ * flow to journal a cumulative-cost line on re-entry so the user
+ * can see the accrued spend across resumes.
+ *
+ * Malformed dollar strings (the regex already rejects non-numeric
+ * tokens) are silently dropped — the journal is advisory, not a
+ * ledger; a bad line must never break the table render.
+ */
+export function sumJournalCostUsd(journalPath: string): number {
+  const entries = readJournal(journalPath);
+  let total = 0;
+  for (const entry of entries) {
+    const match = COST_DELTA_HEADING.exec(entry.heading);
+    if (!match) continue;
+    const usd = Number(match[2]);
+    if (!Number.isFinite(usd) || usd < 0) continue;
+    total += usd;
+  }
+  return total;
+}

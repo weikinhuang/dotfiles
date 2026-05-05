@@ -8,7 +8,12 @@ import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
-import { appendJournal, readJournal, tailJournal } from '../../../../lib/node/pi/research-journal.ts';
+import {
+  appendJournal,
+  readJournal,
+  sumJournalCostUsd,
+  tailJournal,
+} from '../../../../lib/node/pi/research-journal.ts';
 
 let cwd: string;
 let journal: string;
@@ -251,4 +256,59 @@ describe('appendJournal — atomic-write contract', () => {
   // re-test it here because `appendJournal` adds no additional
   // atomicity surface — it reads, composes, and calls
   // `atomicWriteFile` once.
+});
+
+describe('sumJournalCostUsd', () => {
+  test('missing journal returns 0', () => {
+    expect(sumJournalCostUsd(join(cwd, 'absent.md'))).toBe(0);
+  });
+
+  test('empty journal returns 0', () => {
+    writeFileSync(journal, '', 'utf8');
+
+    expect(sumJournalCostUsd(journal)).toBe(0);
+  });
+
+  test('journal with no cost-delta entries returns 0', () => {
+    appendJournal(journal, { level: 'step', heading: 'planner produced 3 sub-questions' });
+    appendJournal(journal, { level: 'step', heading: 'fanout complete' });
+
+    expect(sumJournalCostUsd(journal)).toBe(0);
+  });
+
+  test('sums every cost-delta heading', () => {
+    appendJournal(journal, { level: 'step', heading: 'cost delta · planning · 0.012000 USD' });
+    appendJournal(journal, { level: 'step', heading: 'cost delta · fanout · 0.400000 USD' });
+    appendJournal(journal, { level: 'step', heading: 'cost delta · synth · 0.080500 USD' });
+    appendJournal(journal, { level: 'step', heading: 'cost delta · review · 0.005000 USD' });
+
+    expect(sumJournalCostUsd(journal)).toBeCloseTo(0.4975, 6);
+  });
+
+  test('ignores malformed cost lines', () => {
+    appendJournal(journal, { level: 'step', heading: 'cost delta · planning · 0.1 USD' });
+    // Truncated / wrong shape — must not poison the total.
+    appendJournal(journal, { level: 'step', heading: 'cost delta · oops' });
+    appendJournal(journal, { level: 'step', heading: 'cost delta · x · abc USD' });
+    appendJournal(journal, { level: 'step', heading: 'cost delta · y · -1.0 USD' });
+
+    expect(sumJournalCostUsd(journal)).toBeCloseTo(0.1, 6);
+  });
+
+  test('scientific / exponent floats are rejected (keep the regex strict)', () => {
+    appendJournal(journal, { level: 'step', heading: 'cost delta · x · 1e-3 USD' });
+
+    expect(sumJournalCostUsd(journal)).toBe(0);
+  });
+
+  test('accumulates across resumes (multiple matching headings are summed)', () => {
+    // First run's entries.
+    appendJournal(journal, { level: 'step', heading: 'cost delta · planning · 0.010 USD' });
+    appendJournal(journal, { level: 'step', heading: 'cost delta · fanout · 0.200 USD' });
+    // Resume run appends more.
+    appendJournal(journal, { level: 'step', heading: 'cost delta · fanout · 0.050 USD' });
+    appendJournal(journal, { level: 'step', heading: 'cost delta · review · 0.001 USD' });
+
+    expect(sumJournalCostUsd(journal)).toBeCloseTo(0.261, 6);
+  });
 });

@@ -30,6 +30,7 @@ import { isUnavailableStub } from './deep-research-structural-check.ts';
 import { type ResumeStage } from './research-command-args.ts';
 import { paths } from './research-paths.ts';
 import { readPlan } from './research-plan.ts';
+import { readProvenance } from './research-provenance.ts';
 
 // ──────────────────────────────────────────────────────────────────────
 // Run-root validation.
@@ -506,4 +507,60 @@ export function findStubbedSections(reportPath: string): StubbedSection[] {
   }
   flush();
   return stubbed;
+}
+
+// ──────────────────────────────────────────────────────────────────
+// Provenance drift on resume.
+// ──────────────────────────────────────────────────────────────────
+
+/** Single drifted field on an existing run root vs a resume's overrides. */
+export interface ProvenanceDrift {
+  /** Field name drift applies to. v1 surfaces only `'model'`. */
+  field: 'model';
+  /** Model string persisted in `plan.json.provenance.json` at original-run time. */
+  original: string;
+  /** Model string the resume is about to use (from `--model`). */
+  resumeValue: string;
+}
+
+/**
+ * Compare a resume's pending overrides to the original run's
+ * provenance sidecar and report any drift the user should know
+ * about. Scope is deliberately narrow: only the parent `model`
+ * field, because {@link Provenance} is the only persisted record
+ * of what the original run used and it carries just `model`
+ * (plus `thinkingLevel`, which the extension doesn't surface
+ * today) — `--fanout-model`, `--critic-model`, `*-max-turns`
+ * are not persisted anywhere, so we cannot detect drift on them.
+ *
+ * When the sidecar is missing, corrupt, or the caller didn't
+ * pass `--model`, the helper returns `[]` (no drift to warn
+ * about). Callers render each drift as an advisory notify —
+ * we never block the resume on drift.
+ */
+export function detectProvenanceDrift(runRoot: string, resumeOverrides: { model?: string }): ProvenanceDrift[] {
+  if (!resumeOverrides.model) return [];
+  const p = paths(runRoot);
+  const original = readProvenance(p.plan);
+  if (!original?.model) return [];
+  if (original.model === resumeOverrides.model) return [];
+  return [{ field: 'model', original: original.model, resumeValue: resumeOverrides.model }];
+}
+
+/**
+ * Render a drift list as a single human-readable notify body.
+ * Returns `null` on empty input so callers can emit the hint
+ * unconditionally via `if (msg) notify(msg, 'warning')`.
+ */
+export function formatProvenanceDrift(drift: readonly ProvenanceDrift[]): string | null {
+  if (drift.length === 0) return null;
+  const lines: string[] = [];
+  lines.push(
+    `/research --resume: override(s) differ from the original run's provenance. ` +
+      `Findings already on disk were produced with the old value; the resume will apply the new value going forward.`,
+  );
+  for (const d of drift) {
+    lines.push(`  • ${d.field}: ${d.original} → ${d.resumeValue}`);
+  }
+  return lines.join('\n');
 }

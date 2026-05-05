@@ -128,7 +128,14 @@ describe('/research --list', () => {
     const runs = listRuns(sandbox);
 
     expect(runs).toEqual<RunSummary[]>([
-      { slug: 'demo', status: 'fanout', wallClockSec: null, costUsd: null, error: null },
+      {
+        slug: 'demo',
+        status: 'fanout',
+        wallClockSec: null,
+        costUsd: null,
+        resumability: 'no-report',
+        error: null,
+      },
     ]);
 
     const notify = mockNotify();
@@ -140,7 +147,7 @@ describe('/research --list', () => {
 
     expect(level).toBe('info');
     // Header row present.
-    expect(message).toMatch(/slug\s*\|\s*status\s*\|\s*wall-clock\s*\|\s*cost/);
+    expect(message).toMatch(/slug\s*\|\s*status\s*\|\s*resume\s*\|\s*wall-clock\s*\|\s*cost/);
     // Demo run appears with its status. Use substring matches since
     // the fixed-width formatter adds padding around each cell.
     expect(message).toContain('demo');
@@ -216,6 +223,147 @@ describe('/research --list', () => {
     // pointer from PlanValidationError so the user can jump straight
     // to the bad field.
     expect(runs[0].error).toMatch(/plan validation failed at \$\./);
+  });
+
+  test('resumability column reports no-report when report.md is absent and no fanout deficit', () => {
+    // Zero-sub-question plan → no fanout deficit. No report.md
+    // → earliest actionable stage is synth.
+    writeDemoRun(sandbox, 'demo', demoPlan({ status: 'fanout', subQuestions: [] }));
+    const run = listRuns(sandbox)[0];
+
+    expect(run.resumability).toBe('no-report');
+    expect(formatRunsTable([run])).toContain('no-report');
+  });
+
+  test('resumability column reports incomplete-fanout when findings are missing', () => {
+    const slug = 'deficit';
+    writeDemoRun(
+      sandbox,
+      slug,
+      demoPlan({
+        status: 'fanout',
+        subQuestions: [
+          { id: 'sq-1', question: 'A', status: 'pending' },
+          { id: 'sq-2', question: 'B', status: 'pending' },
+        ],
+      }),
+    );
+    const run = listRuns(sandbox).find((r) => r.slug === slug)!;
+
+    expect(run.resumability).toBe('incomplete-fanout');
+  });
+
+  test('resumability column reports stubbed when report.md has [section unavailable] sections', () => {
+    const slug = 'stubs';
+    writeDemoRun(
+      sandbox,
+      slug,
+      demoPlan({
+        status: 'done',
+        subQuestions: [{ id: 'sq-1', question: 'A', status: 'complete' }],
+      }),
+    );
+    const runDir = join(sandbox, 'research', slug);
+    // Findings + completed fanout so the stage walker reaches the report.
+    mkdirSync(join(runDir, 'findings'), { recursive: true });
+    writeFileSync(join(runDir, 'findings', 'sq-1.md'), 'finding sq-1\n');
+    writeFileSync(
+      join(runDir, 'fanout.json'),
+      JSON.stringify({
+        version: 1,
+        mode: 'sync',
+        agentName: 'web-researcher',
+        tasks: [{ id: 'sq-1', prompt: 'p', state: 'completed' }],
+      }),
+    );
+    writeFileSync(
+      join(runDir, 'report.md'),
+      ['# Report', '', '## A', '', '[section unavailable: no findings]', ''].join('\n'),
+    );
+
+    const run = listRuns(sandbox).find((r) => r.slug === slug)!;
+
+    expect(run.resumability).toBe('stubbed');
+  });
+
+  test('resumability column reports done when plan.status is done and report has no stubs', () => {
+    const slug = 'shipped';
+    writeDemoRun(
+      sandbox,
+      slug,
+      demoPlan({
+        status: 'done',
+        subQuestions: [{ id: 'sq-1', question: 'A', status: 'complete' }],
+      }),
+    );
+    const runDir = join(sandbox, 'research', slug);
+    mkdirSync(join(runDir, 'findings'), { recursive: true });
+    writeFileSync(join(runDir, 'findings', 'sq-1.md'), 'finding sq-1\n');
+    writeFileSync(
+      join(runDir, 'fanout.json'),
+      JSON.stringify({
+        version: 1,
+        mode: 'sync',
+        agentName: 'web-researcher',
+        tasks: [{ id: 'sq-1', prompt: 'p', state: 'completed' }],
+      }),
+    );
+    writeFileSync(
+      join(runDir, 'report.md'),
+      ['# Report', '', '## A', '', 'Real prose with a citation [^1].', ''].join('\n'),
+    );
+
+    const run = listRuns(sandbox).find((r) => r.slug === slug)!;
+
+    expect(run.resumability).toBe('done');
+  });
+
+  test('resumability column reports needs-review when report.md exists but plan.status is not done', () => {
+    const slug = 'mid-review';
+    writeDemoRun(
+      sandbox,
+      slug,
+      demoPlan({
+        status: 'subjective-review',
+        subQuestions: [{ id: 'sq-1', question: 'A', status: 'complete' }],
+      }),
+    );
+    const runDir = join(sandbox, 'research', slug);
+    mkdirSync(join(runDir, 'findings'), { recursive: true });
+    writeFileSync(join(runDir, 'findings', 'sq-1.md'), 'finding sq-1\n');
+    writeFileSync(
+      join(runDir, 'fanout.json'),
+      JSON.stringify({
+        version: 1,
+        mode: 'sync',
+        agentName: 'web-researcher',
+        tasks: [{ id: 'sq-1', prompt: 'p', state: 'completed' }],
+      }),
+    );
+    writeFileSync(join(runDir, 'report.md'), ['# Report', '', '## A', '', 'Real prose [^1].', ''].join('\n'));
+
+    const run = listRuns(sandbox).find((r) => r.slug === slug)!;
+
+    expect(run.resumability).toBe('needs-review');
+  });
+
+  test('error rows carry resumability=error and costUsd stays null', () => {
+    mkdirSync(join(sandbox, 'research', 'no-plan'), { recursive: true });
+    const run = listRuns(sandbox).find((r) => r.slug === 'no-plan')!;
+
+    expect(run.resumability).toBe('error');
+    expect(run.costUsd).toBeNull();
+  });
+
+  test('costUsd is derived from cost-delta journal entries', () => {
+    const journal =
+      '## [2025-01-02T03:04:05.000Z] [step] cost delta · planning · 0.010000 USD\n' +
+      '## [2025-01-02T03:05:35.000Z] [step] cost delta · fanout · 0.500000 USD\n';
+    writeDemoRun(sandbox, 'withcost', demoPlan({ status: 'done' }), { journal });
+    const run = listRuns(sandbox).find((r) => r.slug === 'withcost')!;
+
+    expect(run.costUsd).toBeCloseTo(0.51, 6);
+    expect(formatRunsTable([run])).toMatch(/\$0\.51/);
   });
 });
 
