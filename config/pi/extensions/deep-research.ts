@@ -129,6 +129,7 @@ import {
 import {
   type CommandNotify,
   type CommandNotifyLevel,
+  findExistingRun,
   runListCommand,
   runSelftestCommand,
 } from '../../../lib/node/pi/research-runs.ts';
@@ -385,6 +386,24 @@ export default function deepResearchExtension(pi: ExtensionAPI): void {
         );
         return;
       }
+
+      // Phase-5 collision prompt: if the slugified question
+      // already maps to a run on disk, either resume (interactive
+      // mode) or error out (print / RPC mode). This prevents the
+      // "spawn a sibling run with the same question" anti-pattern
+      // that wastes replanning + review budget. `continueFreshRun`
+      // is set when the user explicitly picks the fresh-run path;
+      // a cancel / undismissed dialog returns without running
+      // anything.
+      const continueFreshRun = await handleSlugCollision({
+        ctx,
+        notify,
+        question: parsed.question,
+        agentLoad,
+        overrides: parsed.overrides,
+        researchFlag,
+      });
+      if (!continueFreshRun) return;
 
       notify(
         `/research: starting pipeline — planner → self-critic → planning-critic → fanout → synth → report${formatOverridesSummary(parsed.overrides)}`,
@@ -900,6 +919,116 @@ async function runResearchFlow(args: {
     subjectiveApproved: reviewApproved,
     ...(review ? { summary: stubHint ? `${review.summary}\n\n${stubHint}` : review.summary } : {}),
   };
+}
+
+/**
+ * Phase-5 collision handler. Called at `/research <question>`
+ * entry time after `parsed.kind === 'question'` and before the
+ * pipeline spins up. Returns `true` when the caller should
+ * proceed with a fresh run, `false` when the caller should
+ * return without running anything (because we either resumed,
+ * errored, or the user cancelled).
+ *
+ * Interactive mode (`ctx.hasUI === true`):
+ *   1. `findExistingRun` matches the slugified question against
+ *      a `plan.json` on disk.
+ *   2. `ctx.ui.select` prompts: resume / fresh / cancel. The
+ *      resume option's label carries the run's live
+ *      resumability verdict + cumulative cost so the user can
+ *      decide at a glance.
+ *   3. "Resume existing run" → delegate to {@link runResumeFlow}
+ *      with the existing `runRoot` and no `--from` (so auto-
+ *      detection picks the earliest incomplete stage).
+ *   4. "Start a fresh run anyway" → return `true`; pipeline
+ *      proceeds. The planner picks its own slug after running,
+ *      so a collision here does not necessarily re-collide.
+ *   5. "Cancel" / dismissed dialog → return `false` with an
+ *      info notify so the user isn't left wondering.
+ *
+ * Non-interactive mode (`ctx.hasUI === false`, i.e. print/RPC
+ * or the LLM-invoked `research` tool): emit an error notify
+ * naming the existing run's resumability verdict and pointing
+ * the user at `/research --resume --run-root <path>`. No
+ * prompt path because there's no one to prompt.
+ *
+ * No existing run → return `true` unchanged. The slug-collision
+ * detection itself is cheap (one `statSync` + one plan.json
+ * parse) so it's safe to run for every `/research <question>`.
+ */
+async function handleSlugCollision(args: {
+  ctx: ExtensionCommandContext;
+  notify: CommandNotify;
+  question: string;
+  agentLoad: AgentLoadResult;
+  overrides: ResearchOverrides;
+  researchFlag: ResearchSessionFlag;
+}): Promise<boolean> {
+  const { ctx, notify, question, agentLoad, overrides, researchFlag } = args;
+  const existing = findExistingRun(ctx.cwd, question);
+  if (!existing) return true;
+
+  const runRootPath = join(ctx.cwd, 'research', existing.slug);
+  const resumeLabel = existing.resumability ?? 'unknown';
+  const costLabel = existing.costUsd === null ? 'no cost recorded' : `cost so far $${existing.costUsd.toFixed(3)}`;
+
+  if (!ctx.hasUI) {
+    notify(
+      [
+        `/research: a prior run for this question exists at ${runRootPath} (resumability=${resumeLabel}, ${costLabel}).`,
+        `  Resume it with \`/research --resume --run-root ${runRootPath}\` or pick a different question to start fresh.`,
+      ].join('\n'),
+      'error',
+    );
+    return false;
+  }
+
+  const resumeOption = `Resume existing run (${resumeLabel}, ${costLabel})`;
+  const freshOption = 'Start a fresh run anyway';
+  const cancelOption = 'Cancel';
+  let choice: string | undefined;
+  try {
+    choice = await ctx.ui.select(
+      `/research: existing run at ${existing.slug}`,
+      [resumeOption, freshOption, cancelOption],
+      ctx.signal ? { signal: ctx.signal } : {},
+    );
+  } catch (e) {
+    notify(`/research: collision prompt failed (${(e as Error).message}); cancelling.`, 'error');
+    return false;
+  }
+
+  if (choice === undefined || choice === cancelOption) {
+    notify('/research: cancelled (existing run left untouched).', 'info');
+    return false;
+  }
+
+  if (choice === resumeOption) {
+    if (researchFlag.active) {
+      notify(
+        '/research: another research run is already active in this session. Wait for it to finish before resuming.',
+        'warning',
+      );
+      return false;
+    }
+    researchFlag.active = true;
+    try {
+      await runResumeFlow({
+        ctx,
+        agentLoad,
+        notify,
+        resume: { runRoot: runRootPath },
+        overrides,
+        ...(ctx.signal ? { signal: ctx.signal } : {}),
+      });
+    } finally {
+      researchFlag.active = false;
+    }
+    return false;
+  }
+
+  // choice === freshOption — fall through to the pipeline.
+  notify(`/research: starting a fresh run; existing ${existing.slug} left untouched.`, 'info');
+  return true;
 }
 
 /**
