@@ -40,7 +40,7 @@ import { existsSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { readJournal, sumJournalCostUsd } from './research-journal.ts';
-import { paths, runRoot } from './research-paths.ts';
+import { paths, runRoot, slugify } from './research-paths.ts';
 import { PlanValidationError, readPlan } from './research-plan.ts';
 import { findStubbedSections, sumFanoutDeficit } from './research-resume.ts';
 import { type SelftestDiff, type SelftestResult } from './research-selftest.ts';
@@ -262,6 +262,33 @@ function inferResumability(
   if (!existsSync(p.report)) return 'no-report';
   if (findStubbedSections(p.report).length > 0) return 'stubbed';
   return planStatus === 'done' ? 'done' : 'needs-review';
+}
+
+/**
+ * Look up an existing run whose slug equals `slugify(question)`.
+ * Returns the {@link RunSummary} for that slug when a `plan.json`
+ * is present, or `null` when no such run exists.
+ *
+ * Used by the deep-research extension's question-mode path to
+ * detect a slug collision at command entry time — before the
+ * planner spins up — so the user can be prompted to resume the
+ * existing run instead of quietly colliding. The derivation
+ * uses the same {@link slugify} call the pipeline's journal
+ * pre-path uses, so a positive match here means the user's new
+ * `/research <question>` would have written into that slug's
+ * directory.
+ *
+ * Note: the planner may rewrite the slug after running, so a
+ * no-collision verdict here does not guarantee no collision
+ * later. Surfacing the common case (question prose stable
+ * across runs) is the point; the planner-rewrite corner case
+ * stays a pipeline-side concern.
+ */
+export function findExistingRun(cwd: string, question: string): RunSummary | null {
+  const slug = slugify(question);
+  const root = runRoot(cwd, slug);
+  if (!existsSync(paths(root).plan)) return null;
+  return summarizeRun(cwd, slug);
 }
 
 /**

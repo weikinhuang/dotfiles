@@ -41,6 +41,7 @@ import { type AutoresearchPlan, type DeepResearchPlan } from '../../../../lib/no
 import {
   type CommandNotify,
   type CommandNotifyLevel,
+  findExistingRun,
   formatRunsTable,
   formatSelftestResult,
   listRuns,
@@ -364,6 +365,56 @@ describe('/research --list', () => {
 
     expect(run.costUsd).toBeCloseTo(0.51, 6);
     expect(formatRunsTable([run])).toMatch(/\$0\.51/);
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────
+// findExistingRun — slug-collision detection
+// ───────────────────────────────────────────────────────────────────
+
+describe('findExistingRun', () => {
+  test('returns null when no research/ directory exists', () => {
+    expect(findExistingRun(sandbox, 'What changed in React 19?')).toBeNull();
+  });
+
+  test('returns null when the derived slug is not on disk', () => {
+    writeDemoRun(sandbox, 'different-slug', demoPlan({ status: 'done' }));
+
+    expect(findExistingRun(sandbox, 'What changed in React 19?')).toBeNull();
+  });
+
+  test('returns the RunSummary when the slugified question matches an existing run', () => {
+    // slugify("What changed in React 19?") → "what-changed-in-react-19"
+    writeDemoRun(sandbox, 'what-changed-in-react-19', demoPlan({ status: 'done' }));
+    const existing = findExistingRun(sandbox, 'What changed in React 19?');
+
+    expect(existing).not.toBeNull();
+    expect(existing!.slug).toBe('what-changed-in-react-19');
+    expect(existing!.status).toBe('done');
+  });
+
+  test('carries the run\u2019s resumability verdict so the caller can render a prompt', () => {
+    writeDemoRun(
+      sandbox,
+      'incomplete-slug',
+      demoPlan({
+        status: 'fanout',
+        subQuestions: [
+          { id: 'sq-1', question: 'A', status: 'pending' },
+          { id: 'sq-2', question: 'B', status: 'pending' },
+        ],
+      }),
+    );
+    const existing = findExistingRun(sandbox, 'incomplete slug');
+
+    expect(existing).not.toBeNull();
+    expect(existing!.resumability).toBe('incomplete-fanout');
+  });
+
+  test('an empty question falls back to the timestamp-slug and still checks disk', () => {
+    // slugify('') falls back to `r-<YYYYMMDD>-<HHMMSS>` — not on
+    // disk, so we get null.
+    expect(findExistingRun(sandbox, '   ')).toBeNull();
   });
 });
 
