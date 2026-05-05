@@ -105,9 +105,6 @@ when you need a stable shape.
 | `AI_FETCH_WEB_AUTH`    | optional | verbatim value for the `Authorization:` header, e.g. `Basic abc...` or `Bearer sk-...` |
 | `AI_FETCH_WEB_HEADERS` | optional | extra `Header: value` pairs, newline- or `;`-separated                                 |
 
-**Pi convenience fallback:** if `AI_FETCH_WEB_URL` is unset and `~/.pi/agent/mcp.json` defines an HTTP server named
-`fetch_web`, `ai-fetch-web` uses its URL and headers automatically. Non-pi harnesses just set the env vars.
-
 Verify configuration at any time:
 
 ```sh

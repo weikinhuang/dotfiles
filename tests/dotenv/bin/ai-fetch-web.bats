@@ -170,32 +170,6 @@ captured_headers() { cat "${FAKE_CURL_CAPTURE_DIR}/headers" 2>/dev/null; }
   assert_output --partial "no MCP server configured"
 }
 
-@test "ai-fetch-web: pi mcp.json fallback supplies url + headers" {
-  unset AI_FETCH_WEB_URL AI_FETCH_WEB_AUTH
-  mkdir -p "${HOME}/.pi/agent"
-  cat >"${HOME}/.pi/agent/mcp.json" <<'JSON'
-{
-  "mcpServers": {
-    "fetch_web": {
-      "type": "http",
-      "url": "http://pi-fallback.invalid/mcp/",
-      "headers": {
-        "Authorization": "Basic abcdef",
-        "x-mcp-servers": "fetch_web_mcp"
-      }
-    }
-  }
-}
-JSON
-  set_tool_text_response "ok"
-  run bash "${SCRIPT}" search hello
-  assert_success
-  [[ "$(captured_url)" == "http://pi-fallback.invalid/mcp/" ]]
-  run captured_headers
-  assert_output --partial "Authorization: Basic abcdef"
-  assert_output --partial "x-mcp-servers: fetch_web_mcp"
-}
-
 @test "ai-fetch-web: AI_FETCH_WEB_AUTH env becomes Authorization header" {
   set_tool_text_response "ok"
   run bash "${SCRIPT}" search q
@@ -591,8 +565,7 @@ Snippet: thing"
 # ──────────────────────────────────────────────────────────────────
 #
 # Gated on DOT_AI_FETCH_WEB_LIVE=1 so the default test run stays offline
-# and credential-free. Requires a valid ~/.pi/agent/mcp.json or
-# AI_FETCH_WEB_URL + AI_FETCH_WEB_AUTH.
+# and credential-free. Requires AI_FETCH_WEB_URL + AI_FETCH_WEB_AUTH.
 
 @test "ai-fetch-web [live]: defaults round-trip" {
   [[ "${DOT_AI_FETCH_WEB_LIVE:-}" == "1" ]] || skip "DOT_AI_FETCH_WEB_LIVE not set"

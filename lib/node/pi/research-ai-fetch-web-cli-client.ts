@@ -40,10 +40,7 @@
  *     is being removed as part of the Phase 6a migration.
  *   - No auth-header plumbing here. The CLI reads
  *     `AI_FETCH_WEB_URL` / `AI_FETCH_WEB_AUTH` / `AI_FETCH_WEB_HEADERS`
- *     from its own env, and has a `~/.pi/agent/mcp.json`
- *     convenience fallback for pi-managed installs. We
- *     propagate the parent env unchanged so either path works
- *     without a config knob here.
+ *     from its own env.
  */
 
 import { spawn as nodeSpawn } from 'node:child_process';

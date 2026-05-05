@@ -47,11 +47,6 @@ Configuration (env vars, harness-agnostic):
   AI_FETCH_WEB_HEADERS     Extra Header: value pairs, newline- or
                         semicolon-separated. Optional.
 
-Pi convenience fallback:
-  When AI_FETCH_WEB_URL is unset, ~/.pi/agent/mcp.json is consulted for an
-  HTTP server entry named "fetch_web". Non-pi harnesses just set the
-  env vars above.
-
 Run `ai-fetch-web <op> --help` for subcommand-specific usage.
 Exit codes: 0 ok, 1 tool/RPC error, 2 usage, 3 config/network/HTTP.
 HELPDOC
@@ -217,40 +212,14 @@ load_config() {
   local auth="${AI_FETCH_WEB_AUTH:-}"
   local extra="${AI_FETCH_WEB_HEADERS:-}"
 
-  if [[ -n "${FW_URL}" ]]; then
-    FW_CONFIG_SOURCE="AI_FETCH_WEB_URL env"
-  else
-    # Pi convenience fallback: ~/.pi/agent/mcp.json
-    local pi_cfg="${HOME}/.pi/agent/mcp.json"
-    if [[ -f "${pi_cfg}" ]]; then
-      local server_json
-      server_json="$(jq -c '.mcpServers.fetch_web // empty' <"${pi_cfg}" 2>/dev/null || true)"
-      if [[ -n "${server_json}" && "${server_json}" != "null" ]]; then
-        local url type
-        url="$(printf '%s' "${server_json}" | jq -r '.url // ""')"
-        type="$(printf '%s' "${server_json}" | jq -r '.type // ""')"
-        if [[ "${type}" == "http" && -n "${url}" ]]; then
-          FW_URL="${url}"
-          FW_CONFIG_SOURCE="${HOME}/.pi/agent/mcp.json"
-          # Extract headers as "Name: value" pairs.
-          local line
-          while IFS= read -r line; do
-            [[ -n "${line}" ]] && FW_HEADERS+=(-H "${line}")
-          done < <(printf '%s' "${server_json}" \
-            | jq -r '.headers // {} | to_entries[] | "\(.key): \(.value)"')
-        fi
-      fi
-    fi
-  fi
-
   if [[ -z "${FW_URL}" ]]; then
     echo "ai-fetch-web: no MCP server configured" >&2
-    echo "         set AI_FETCH_WEB_URL (and AI_FETCH_WEB_AUTH if needed), or" >&2
-    echo "         run inside a pi install with ~/.pi/agent/mcp.json" >&2
+    echo "         set AI_FETCH_WEB_URL (and AI_FETCH_WEB_AUTH if needed)" >&2
     exit 3
   fi
 
-  # Explicit env vars always layer on top of the pi fallback.
+  FW_CONFIG_SOURCE="AI_FETCH_WEB_URL env"
+
   if [[ -n "${auth}" ]]; then
     FW_HEADERS+=(-H "Authorization: ${auth}")
   fi
