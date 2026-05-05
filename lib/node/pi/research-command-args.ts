@@ -50,14 +50,14 @@
  * error); keeping them narrow avoids confusing shapes like
  * `/research --list --model openai/gpt-5`.
  *
- * No pi imports \u2014 the parser is data in / data out.
+ * No pi imports - the parser is data in / data out.
  */
 
-// \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+// -------------------------------------------------------------------
 // Parsed shape.
-// \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+// -------------------------------------------------------------------
 
-/** Overrides bundle \u2014 shared by the slash command + the tool. */
+/** Overrides bundle - shared by the slash command + the tool. */
 export interface ResearchOverrides {
   /**
    * Parent-model override in `provider/id` form. Validated by
@@ -105,7 +105,7 @@ export type ResearchCommandArgs =
   /** `/research --selftest [ignored-trailing]`. */
   | { kind: 'selftest'; trailing?: string }
   /**
-   * `/research [flags] <question...>` \u2014 the parser has already
+   * `/research [flags] <question...>` - the parser has already
    * extracted every recognised flag from the token stream, so
    * `question` is just the concatenated remaining tokens.
    */
@@ -113,9 +113,9 @@ export type ResearchCommandArgs =
   /** Malformed input that the handler should surface to the user. */
   | { kind: 'error'; error: string };
 
-// \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+// -------------------------------------------------------------------
 // Helpers exposed for the tool executor (reuse the same validation).
-// \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+// -------------------------------------------------------------------
 
 /**
  * Validate a model-override string. Accepts `provider/id`; rejects
@@ -134,13 +134,13 @@ export function parseModelSpec(spec: string): { provider: string; modelId: strin
   }
   const slash = spec.indexOf('/');
   if (slash <= 0 || slash === spec.length - 1) {
-    return { error: `invalid model override "${spec}" \u2014 expected "provider/id"` };
+    return { error: `invalid model override "${spec}" - expected "provider/id"` };
   }
   const provider = spec.slice(0, slash);
   const modelId = spec.slice(slash + 1);
   if (provider.trim() !== provider || modelId.trim() !== modelId) {
     return {
-      error: `invalid model override "${spec}" \u2014 provider / id must not have leading or trailing whitespace`,
+      error: `invalid model override "${spec}" - provider / id must not have leading or trailing whitespace`,
     };
   }
   return { provider, modelId };
@@ -161,14 +161,14 @@ export function parseMaxTurns(flag: string, raw: string): number | { error: stri
     return { error: `${flag} must be a positive integer, got ${JSON.stringify(raw)}` };
   }
   if (n > 1000) {
-    return { error: `${flag}=${n} is absurd \u2014 cap is 1000` };
+    return { error: `${flag}=${n} is absurd - cap is 1000` };
   }
   return n;
 }
 
-// \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+// -------------------------------------------------------------------
 // Main parser.
-// \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+// -------------------------------------------------------------------
 
 type KnownFlag =
   | '--model'
@@ -227,7 +227,7 @@ export function parseResearchCommandArgs(raw: string | undefined): ResearchComma
     const token = tokens[i];
 
     // Once a non-flag token appears, treat the rest as question
-    // body verbatim \u2014 avoids eating `--` mid-question.
+    // body verbatim - avoids eating `--` mid-question.
     if (!token.startsWith('--')) {
       seenQuestionToken = true;
       questionTokens.push(token);
