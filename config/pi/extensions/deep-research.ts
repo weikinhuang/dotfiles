@@ -112,12 +112,14 @@ import {
   type FanoutSpawner,
   type FanoutSpawnArgs,
 } from '../../../lib/node/pi/research-fanout.ts';
-import { appendJournal } from '../../../lib/node/pi/research-journal.ts';
+import { appendJournal, sumJournalCostUsd } from '../../../lib/node/pi/research-journal.ts';
 import { paths } from '../../../lib/node/pi/research-paths.ts';
 import { readPlan } from '../../../lib/node/pi/research-plan.ts';
 import {
   countPriorReviewIterations,
+  detectProvenanceDrift,
   detectResumeStage,
+  formatProvenanceDrift,
   invalidateIncompleteFanoutTasks,
   listRecentRuns,
   scopeFanoutDeficit,
@@ -1020,6 +1022,30 @@ async function runResumeFlow(args: {
   }
 
   notify(`/research --resume: stage=${stage} — ${stageReason}${formatOverridesSummary(overrides, resume)}`, 'info');
+
+  // Advisory: surface any drift between the pending overrides and
+  // the original run's `plan.json.provenance.json`. v1 compares
+  // only the parent `--model`; other overrides aren't persisted.
+  // Never blocks the resume.
+  const drift = detectProvenanceDrift(runRoot, overrides);
+  const driftHint = formatProvenanceDrift(drift);
+  if (driftHint) notify(driftHint, 'warning');
+
+  // Journal the cumulative cost accrued across prior runs on this
+  // slug before handing off to the pipeline. Downstream cost-hook
+  // entries keep appending, so `sumJournalCostUsd` on completion
+  // will keep climbing — exactly the behavior `/research --list`
+  // already relies on. The journal line is advisory; swallow any
+  // write failure so a broken journal can't break the resume.
+  try {
+    const priorCostUsd = sumJournalCostUsd(paths(runRoot).journal);
+    appendJournal(paths(runRoot).journal, {
+      level: 'step',
+      heading: `resume stage=${stage} · prior cumulative cost · ${priorCostUsd.toFixed(6)} USD`,
+    });
+  } catch {
+    /* swallow — journal is advisory */
+  }
 
   // ── 3. Dispatch by stage ────────────────────────────────────
   if (stage === 'review') {
