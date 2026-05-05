@@ -97,6 +97,12 @@ import { type Verdict } from '../../../lib/node/pi/iteration-loop-schema.ts';
 import { createAiFetchWebCliClientFromEnv } from '../../../lib/node/pi/research-ai-fetch-web-cli-client.ts';
 import { createLiveBudget, DEFAULT_BUDGET_PHASES, type LiveBudget } from '../../../lib/node/pi/research-budget-live.ts';
 import { createRunBudget } from '../../../lib/node/pi/research-budget.ts';
+import {
+  formatOverridesSummary,
+  parseResearchCommandArgs,
+  type ResearchOverrides,
+  validateToolOverrides,
+} from '../../../lib/node/pi/research-command-args.ts';
 import { createCostHook } from '../../../lib/node/pi/research-cost-hook.ts';
 import {
   type FanoutHandleLike,
@@ -126,9 +132,19 @@ import { resolveChildModel, runOneShotAgent, type AgentSessionLike } from '../..
 /** Usage string shown on a bare `/research` invocation. */
 const USAGE =
   'Usage:\n' +
-  '  /research <question>   — run the planner → synth pipeline; writes report.md\n' +
-  '  /research --list       — list runs under ./research/\n' +
-  '  /research --selftest   — run the research-core self-test fixture';
+  '  /research <question>                 — run the planner → synth pipeline; writes report.md\n' +
+  '  /research --list                     — list runs under ./research/\n' +
+  '  /research --selftest                 — run the research-core self-test fixture\n' +
+  '\n' +
+  'Question-mode flags (may appear in any order before the question):\n' +
+  '  --model provider/id                  override the parent research session’s model;\n' +
+  '                                         inherit-mode subagents (web-researcher, plan-crit,\n' +
+  '                                         critic) inherit it. Agents that pin a specific\n' +
+  '                                         model in their .md stay pinned.\n' +
+  '  --fanout-max-turns N                 maxTurns cap for every web-researcher fanout spawn\n' +
+  '                                         (default: web-researcher.md declares 20).\n' +
+  '  --critic-max-turns N                 maxTurns cap for the research-planning-critic +\n' +
+  '                                         subjective critic spawns.';
 
 /**
  * Statusline widget key, shared between the command handler and
@@ -137,14 +153,45 @@ const USAGE =
 const STATUSLINE_KEY = 'deep-research';
 
 /**
- * TypeBox schema for the LLM-callable `research` tool. Single
- * required field: the research question.
+ * TypeBox schema for the LLM-callable `research` tool.
+ *
+ *   - `question`         required — the research question itself.
+ *   - `model`            optional — parent-model override in
+ *                        `provider/id` form. inherit-mode subagents
+ *                        (web-researcher, plan-crit, critic)
+ *                        inherit it.
+ *   - `fanoutMaxTurns`   optional — maxTurns cap for every
+ *                        web-researcher fanout spawn.
+ *   - `criticMaxTurns`   optional — maxTurns cap for the
+ *                        research-planning-critic and the
+ *                        subjective critic spawns.
  */
 const ResearchToolParams = Type.Object({
   question: Type.String({
     description:
       'Research question. Runs the full deep-research pipeline (plan → fanout → synth → two-stage review) and returns a summary + report path.',
   }),
+  model: Type.Optional(
+    Type.String({
+      description:
+        'Optional parent-model override in "provider/id" form (e.g. "openai/gpt-5"). Replaces the parent research session’s model; inherit-mode subagents inherit it. Agents that pin a specific model in their .md stay pinned.',
+    }),
+  ),
+  fanoutMaxTurns: Type.Optional(
+    Type.Integer({
+      minimum: 1,
+      maximum: 1000,
+      description:
+        'Optional maxTurns cap for every web-researcher fanout spawn. Default is whatever the agent’s .md declares (20 as of today).',
+    }),
+  ),
+  criticMaxTurns: Type.Optional(
+    Type.Integer({
+      minimum: 1,
+      maximum: 1000,
+      description: 'Optional maxTurns cap for the research-planning-critic + subjective critic spawns.',
+    }),
+  ),
 });
 
 export default function deepResearchExtension(pi: ExtensionAPI): void {
@@ -207,31 +254,34 @@ export default function deepResearchExtension(pi: ExtensionAPI): void {
   pi.registerCommand('research', {
     description: 'Long-horizon web research: plan → fanout → synth → review. Writes ./research/<slug>/report.md.',
     handler: async (rawArgs, ctx) => {
-      const args = (rawArgs ?? '').trim();
-      const [firstToken = '', ...restTokens] = args.split(/\s+/);
-      const rest = restTokens.join(' ').trim();
       const notify: CommandNotify = (message: string, level: CommandNotifyLevel) => {
         ctx.ui.notify(message, level);
       };
 
-      if (args === '' || firstToken === '--help' || firstToken === '-h') {
+      const parsed = parseResearchCommandArgs(rawArgs);
+
+      if (parsed.kind === 'help') {
         notify(USAGE, 'info');
         return;
       }
-
-      if (firstToken === '--list') {
-        if (rest) notify(`/research --list: ignoring trailing args: ${JSON.stringify(rest)}`, 'warning');
+      if (parsed.kind === 'list') {
+        if (parsed.trailing)
+          notify(`/research --list: ignoring trailing args: ${JSON.stringify(parsed.trailing)}`, 'warning');
         runListCommand({ cwd: ctx.cwd, notify });
         return;
       }
-
-      if (firstToken === '--selftest') {
-        if (rest) notify(`/research --selftest: ignoring trailing args: ${JSON.stringify(rest)}`, 'warning');
+      if (parsed.kind === 'selftest') {
+        if (parsed.trailing)
+          notify(`/research --selftest: ignoring trailing args: ${JSON.stringify(parsed.trailing)}`, 'warning');
         await runSelftestCommand({ cwd: ctx.cwd, selftest: selftestDeepResearch, notify });
         return;
       }
+      if (parsed.kind === 'error') {
+        notify(`/research: ${parsed.error}`, 'error');
+        return;
+      }
 
-      // Everything else is treated as the research question.
+      // parsed.kind === 'question' — run the pipeline.
       try {
         reloadAgents(ctx.cwd);
       } catch (e) {
@@ -248,7 +298,7 @@ export default function deepResearchExtension(pi: ExtensionAPI): void {
       }
 
       notify(
-        `/research: starting pipeline — planner → self-critic → planning-critic → fanout → synth → report`,
+        `/research: starting pipeline — planner → self-critic → planning-critic → fanout → synth → report${formatOverridesSummary(parsed.overrides)}`,
         'info',
       );
       researchFlag.active = true;
@@ -256,9 +306,10 @@ export default function deepResearchExtension(pi: ExtensionAPI): void {
         await runResearchFlow({
           ctx,
           agentLoad,
-          question: args,
+          question: parsed.question,
           notify,
           surfacePipelineOutcome: true,
+          overrides: parsed.overrides,
         });
       } finally {
         researchFlag.active = false;
@@ -279,14 +330,33 @@ export default function deepResearchExtension(pi: ExtensionAPI): void {
     promptGuidelines: [
       'Use `research` only when the user asked for a written research report, not for a single-fact lookup — it takes minutes and spends real model budget.',
       'Only one `research` tool call may be in flight per session; do not issue a second call before the first has returned.',
+      'Only set `model`, `fanoutMaxTurns`, or `criticMaxTurns` when the user explicitly asks for one; the defaults (parent session’s model, agent-declared maxTurns) are correct for typical runs. Bump `fanoutMaxTurns` when sub-questions keep hitting max_turns on the web-researcher.',
     ],
     parameters: ResearchToolParams,
     async execute(_toolCallId, rawParams, signal, _onUpdate, ctx) {
-      const params = rawParams as unknown as { question: string };
-      const question = (params.question ?? '').trim();
+      const params = rawParams as unknown as {
+        question?: unknown;
+        model?: unknown;
+        fanoutMaxTurns?: unknown;
+        criticMaxTurns?: unknown;
+      };
+      const question = typeof params.question === 'string' ? params.question.trim() : '';
       if (!question) {
         throw new Error('research: `question` is empty');
       }
+
+      // Validate the optional overrides the LLM may have passed
+      // (`model` / `fanoutMaxTurns` / `criticMaxTurns`). Invalid
+      // input throws before we burn any model budget.
+      const validated = validateToolOverrides({
+        ...(params.model !== undefined ? { model: params.model } : {}),
+        ...(params.fanoutMaxTurns !== undefined ? { fanoutMaxTurns: params.fanoutMaxTurns } : {}),
+        ...(params.criticMaxTurns !== undefined ? { criticMaxTurns: params.criticMaxTurns } : {}),
+      });
+      if (!validated.ok) {
+        throw new Error(`research: ${validated.error}`);
+      }
+      const overrides = validated.overrides;
 
       // Reload agent definitions so a brand-new session picks up
       // the `web-researcher` / `research-planning-critic` agents
@@ -317,6 +387,7 @@ export default function deepResearchExtension(pi: ExtensionAPI): void {
             notify: notifyUi,
             ...(merged ? { signal: merged } : {}),
             surfacePipelineOutcome: false,
+            overrides,
           });
         },
       });
@@ -330,11 +401,20 @@ export default function deepResearchExtension(pi: ExtensionAPI): void {
       };
     },
     renderCall(args, theme, _context) {
-      const q =
-        typeof (args as { question?: unknown }).question === 'string'
-          ? ((args as { question: string }).question ?? '')
-          : '';
-      const label = theme.fg('toolTitle', theme.bold('research')) + ' ' + theme.fg('muted', truncateTool(q, 80));
+      const typed = args as {
+        question?: unknown;
+        model?: unknown;
+        fanoutMaxTurns?: unknown;
+        criticMaxTurns?: unknown;
+      };
+      const q = typeof typed.question === 'string' ? typed.question : '';
+      const overrideBits: string[] = [];
+      if (typeof typed.model === 'string' && typed.model.length > 0) overrideBits.push(`model=${typed.model}`);
+      if (typeof typed.fanoutMaxTurns === 'number') overrideBits.push(`fanout-max-turns=${typed.fanoutMaxTurns}`);
+      if (typeof typed.criticMaxTurns === 'number') overrideBits.push(`critic-max-turns=${typed.criticMaxTurns}`);
+      const overrides = overrideBits.length > 0 ? ` [${overrideBits.join(' ')}]` : '';
+      const label =
+        theme.fg('toolTitle', theme.bold('research')) + ' ' + theme.fg('muted', truncateTool(q, 80) + overrides);
       return new Text(label, 0, 0);
     },
     renderResult(result, _opts, theme, _context) {
@@ -511,8 +591,17 @@ async function runResearchFlow(args: {
    * always gets a fresh one bound to `ctx.ui.setWidget`.
    */
   statusline?: StatuslineController;
+  /**
+   * Per-run overrides produced by the slash-command parser or the
+   * `research` tool's schema validator. Pre-validated: `model` is
+   * already a well-formed `provider/id` string, `*MaxTurns` are
+   * already positive integers. See
+   * `lib/node/pi/research-command-args.ts`.
+   */
+  overrides?: ResearchOverrides;
 }): Promise<ResearchToolRunOutcome> {
   const { ctx, agentLoad, question, notify, surfacePipelineOutcome } = args;
+  const overrides = args.overrides ?? {};
   const statusline = args.statusline ?? buildStatuslineController(ctx);
   statusline.emit({ kind: 'start' });
 
@@ -536,6 +625,7 @@ async function runResearchFlow(args: {
   const built = buildPipelineDeps(ctx, agentLoad, {
     onPhase,
     liveBudget,
+    overrides,
     ...(args.signal ? { signal: args.signal } : {}),
   });
   if (!built.ok) {
@@ -609,6 +699,7 @@ async function runResearchFlow(args: {
       pipelineDeps: built.deps,
       emitPhase: onPhase,
       liveBudget,
+      ...(overrides.criticMaxTurns !== undefined ? { criticMaxTurns: overrides.criticMaxTurns } : {}),
       ...(args.signal ? { signal: args.signal } : {}),
     });
   } catch (e) {
@@ -660,6 +751,11 @@ interface PipelineDepsExtras {
    * in the caller.
    */
   liveBudget?: LiveBudget;
+  /**
+   * Per-run overrides (model / maxTurns). Pre-validated by the
+   * caller. See `lib/node/pi/research-command-args.ts`.
+   */
+  overrides?: ResearchOverrides;
 }
 
 function buildPipelineDeps(
@@ -680,7 +776,24 @@ function buildPipelineDeps(
   }
 
   const modelRegistry = ctx.modelRegistry;
-  const parentModel = ctx.model;
+  // Resolve the parent-model override (if any) once, up front.
+  // `parseResearchCommandArgs` / `validateToolOverrides` have
+  // already validated the shape — all we do here is look up the
+  // Model<any> via the same registry `runOneShotAgent` uses.
+  let parentModel = ctx.model;
+  if (extras.overrides?.model) {
+    const slash = extras.overrides.model.indexOf('/');
+    const provider = extras.overrides.model.slice(0, slash);
+    const modelId = extras.overrides.model.slice(slash + 1);
+    const resolved = modelRegistry.find(provider, modelId);
+    if (!resolved) {
+      return {
+        ok: false,
+        error: `--model ${extras.overrides.model} not registered in this pi session’s model registry (run /login or /models to inspect available models)`,
+      };
+    }
+    parentModel = resolved as typeof ctx.model;
+  }
   const modelLabel = describeModel(parentModel);
   // ExtensionCommandContext does not expose thinkingLevel; the
   // parent ExtensionAPI does, but capturing it requires a closure
@@ -772,6 +885,7 @@ function buildPipelineDeps(
           sessionManager: makeSubagentSessionManager(ctx),
           ...(costHook ? { onEvent: costHook.onEvent } : {}),
           ...(signal ? { signal } : {}),
+          ...(extras.overrides?.criticMaxTurns !== undefined ? { maxTurns: extras.overrides.criticMaxTurns } : {}),
         });
         if (result.stopReason !== 'completed') {
           return { rawText: result.finalText, error: result.errorMessage ?? `critic stop=${result.stopReason}` };
@@ -782,7 +896,15 @@ function buildPipelineDeps(
       }
     },
     fanoutSpawn: wrapFanoutForProgress(
-      buildSyncFanoutSpawner(ctx, webAgent, modelRegistry, parentModel, extras.onPhase, extras.liveBudget),
+      buildSyncFanoutSpawner(
+        ctx,
+        webAgent,
+        modelRegistry,
+        parentModel,
+        extras.onPhase,
+        extras.liveBudget,
+        extras.overrides?.fanoutMaxTurns,
+      ),
       extras.onPhase,
     ),
     mcpClient: createAiFetchWebCliClientFromEnv() ?? undefined,
@@ -896,6 +1018,7 @@ function buildSyncFanoutSpawner<M>(
   parent: M | undefined,
   onPhase: ((event: PhaseEvent) => void) | undefined,
   liveBudget: LiveBudget | undefined,
+  maxTurnsOverride: number | undefined,
 ): FanoutSpawner {
   return async (args: FanoutSpawnArgs): Promise<FanoutHandleLike> => {
     const resolution = resolveChildModel({ agent, parent, modelRegistry: modelRegistry as never });
@@ -923,6 +1046,7 @@ function buildSyncFanoutSpawner<M>(
         sessionManager: makeSubagentSessionManager(ctx),
         ...(costHook ? { onEvent: costHook.onEvent } : {}),
         ...(args.signal ? { signal: args.signal } : {}),
+        ...(maxTurnsOverride !== undefined ? { maxTurns: maxTurnsOverride } : {}),
       });
       if (run.stopReason === 'completed') {
         result = { ok: true, output: run.finalText };
@@ -1026,6 +1150,12 @@ interface RunReviewPhaseArgs {
    * the `'review'` bucket.
    */
   liveBudget?: LiveBudget;
+  /**
+   * Optional maxTurns cap for the subjective critic spawn.
+   * Comes from the slash command's `--critic-max-turns` flag or
+   * the tool's `criticMaxTurns` param.
+   */
+  criticMaxTurns?: number;
   /** Additional abort signal threaded into the review loop. */
   signal?: AbortSignal;
 }
@@ -1054,7 +1184,7 @@ interface RunReviewPhaseArgs {
  * verdict instead of hanging.
  */
 async function runReviewPhase(args: RunReviewPhaseArgs): Promise<ReviewWireResult | null> {
-  const { ctx, runRoot, notify, agentLoad, emitPhase, liveBudget } = args;
+  const { ctx, runRoot, notify, agentLoad, emitPhase, liveBudget, criticMaxTurns } = args;
   // Signal used by all review-loop runners. Prefer the caller's
   // signal (threaded from `runResearchFlow`) and fall back to the
   // command's own `ctx.signal`, so Esc fires regardless of entry
@@ -1141,6 +1271,7 @@ async function runReviewPhase(args: RunReviewPhaseArgs): Promise<ReviewWireResul
         sessionManager: makeSubagentSessionManager(ctx),
         ...(costHook ? { onEvent: costHook.onEvent } : {}),
         ...(reviewSignal ? { signal: reviewSignal } : {}),
+        ...(criticMaxTurns !== undefined ? { maxTurns: criticMaxTurns } : {}),
       });
       const parsed = parseVerdict(run.finalText);
       // `parseVerdict` is tolerant: on total failure it still returns

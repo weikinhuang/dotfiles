@@ -1,0 +1,346 @@
+/* Read the module comment for the spec; the
+ * `no-use-before-define` rule is disabled at the file scope
+ * because TS function declarations are hoisted and the reading
+ * order is top-down (public API → helpers). */
+/* eslint-disable no-use-before-define */
+
+/**
+ * Argument parser for the `/research` slash command.
+ *
+ * The slash-command handler used to split its raw argument string
+ * on whitespace and treat the first token as either a mode switch
+ * (`--help`, `--list`, `--selftest`) or the first word of the
+ * research question. That shape is fine for the original
+ * two-mode surface but wedges the moment you want to thread
+ * structured overrides (the parent model, per-agent maxTurns,
+ * ...): every new flag becomes a special case in the handler,
+ * and the tool-callable variant has to re-implement the parsing
+ * in TypeBox.
+ *
+ * This module centralises the parsing in one pure helper so:
+ *
+ *   - the slash command can hand us its whole `args` string and
+ *     get back a tagged union indicating which subcommand /
+ *     question + overrides the user meant;
+ *   - the tool executor can reuse the same override-validation
+ *     helpers so a `model` / `fanoutMaxTurns` string coming off
+ *     the LLM tool call is rejected with the same diagnostics
+ *     the slash user would see;
+ *   - a focused unit-test fixture covers every edge (missing
+ *     value, `=`-form, duplicate, unknown flag, trailing /
+ *     leading whitespace, mixed-ordering) in one place.
+ *
+ * Supported flags for the question mode:
+ *
+ *   `--model provider/id`        parent-model override. inherit-mode
+ *                                agents inherit it; agents that pin
+ *                                a specific model in their .md stay
+ *                                pinned.
+ *   `--fanout-max-turns N`       uniform maxTurns override for every
+ *                                web-researcher fanout spawn.
+ *   `--critic-max-turns N`       uniform maxTurns override for both
+ *                                the research-planning-critic and
+ *                                the subjective critic spawns.
+ *
+ * The `=` form (`--flag=value`) is supported alongside the
+ * space-separated form (`--flag value`).
+ *
+ * Subcommands (`--help` / `--list` / `--selftest`) remain first-
+ * token-only and do NOT accept overrides (passing one is an
+ * error); keeping them narrow avoids confusing shapes like
+ * `/research --list --model openai/gpt-5`.
+ *
+ * No pi imports \u2014 the parser is data in / data out.
+ */
+
+// \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+// Parsed shape.
+// \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+
+/** Overrides bundle \u2014 shared by the slash command + the tool. */
+export interface ResearchOverrides {
+  /**
+   * Parent-model override in `provider/id` form. Validated by
+   * {@link parseModelSpec}.
+   */
+  model?: string;
+  /** Max turns for every web-researcher fanout spawn. */
+  fanoutMaxTurns?: number;
+  /**
+   * Max turns for the research-planning-critic + subjective critic
+   * spawns.
+   */
+  criticMaxTurns?: number;
+}
+
+/**
+ * Tagged union returned by {@link parseResearchCommandArgs}. The
+ * slash-command handler dispatches on `kind`.
+ */
+export type ResearchCommandArgs =
+  /** `/research` on its own, or `/research --help` / `-h`. */
+  | { kind: 'help'; trailing?: string }
+  /** `/research --list [ignored-trailing]`. */
+  | { kind: 'list'; trailing?: string }
+  /** `/research --selftest [ignored-trailing]`. */
+  | { kind: 'selftest'; trailing?: string }
+  /**
+   * `/research [flags] <question...>` \u2014 the parser has already
+   * extracted every recognised flag from the token stream, so
+   * `question` is just the concatenated remaining tokens.
+   */
+  | { kind: 'question'; question: string; overrides: ResearchOverrides }
+  /** Malformed input that the handler should surface to the user. */
+  | { kind: 'error'; error: string };
+
+// \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+// Helpers exposed for the tool executor (reuse the same validation).
+// \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+
+/**
+ * Validate a model-override string. Accepts `provider/id`; rejects
+ * anything without a `/`, with leading/trailing slashes, or with
+ * an empty provider / id segment. Returns a normalised
+ * `{provider, modelId}` or a human-readable error.
+ *
+ * `subagent-spawn.ts` has an internal `parseModelSpec` that does
+ * the same thing for the `modelOverride` runtime path; this one
+ * lives on the pure side so the slash / tool surface can reject
+ * bad input before the run even starts.
+ */
+export function parseModelSpec(spec: string): { provider: string; modelId: string } | { error: string } {
+  if (typeof spec !== 'string' || spec.length === 0) {
+    return { error: 'model override must be a non-empty "provider/id" string' };
+  }
+  const slash = spec.indexOf('/');
+  if (slash <= 0 || slash === spec.length - 1) {
+    return { error: `invalid model override "${spec}" \u2014 expected "provider/id"` };
+  }
+  const provider = spec.slice(0, slash);
+  const modelId = spec.slice(slash + 1);
+  if (provider.trim() !== provider || modelId.trim() !== modelId) {
+    return {
+      error: `invalid model override "${spec}" \u2014 provider / id must not have leading or trailing whitespace`,
+    };
+  }
+  return { provider, modelId };
+}
+
+/**
+ * Validate a `--fanout-max-turns` / `--critic-max-turns` value.
+ * Accepts a positive integer string (no decimals, no sign). Caps
+ * at 1_000 to catch obvious "I pasted the wrong argument"
+ * mistakes without being so tight it surprises anyone.
+ */
+export function parseMaxTurns(flag: string, raw: string): number | { error: string } {
+  if (!/^[0-9]+$/.test(raw)) {
+    return { error: `${flag} must be a positive integer, got ${JSON.stringify(raw)}` };
+  }
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n <= 0) {
+    return { error: `${flag} must be a positive integer, got ${JSON.stringify(raw)}` };
+  }
+  if (n > 1000) {
+    return { error: `${flag}=${n} is absurd \u2014 cap is 1000` };
+  }
+  return n;
+}
+
+// \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+// Main parser.
+// \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+
+type KnownFlag = '--model' | '--fanout-max-turns' | '--critic-max-turns';
+const KNOWN_FLAGS: readonly KnownFlag[] = ['--model', '--fanout-max-turns', '--critic-max-turns'];
+
+/**
+ * Split a raw `/research` argument string into a
+ * {@link ResearchCommandArgs}. Trimming + whitespace-splitting
+ * happens inside; callers pass their `rawArgs` verbatim.
+ */
+export function parseResearchCommandArgs(raw: string | undefined): ResearchCommandArgs {
+  const trimmed = (raw ?? '').trim();
+
+  if (trimmed === '') return { kind: 'help' };
+
+  const tokens = trimmed.split(/\s+/);
+  const first = tokens[0] ?? '';
+
+  if (first === '--help' || first === '-h') {
+    const trailing = tokens.slice(1).join(' ').trim();
+    return trailing ? { kind: 'help', trailing } : { kind: 'help' };
+  }
+
+  if (first === '--list') {
+    const trailing = tokens.slice(1).join(' ').trim();
+    return trailing ? { kind: 'list', trailing } : { kind: 'list' };
+  }
+
+  if (first === '--selftest') {
+    const trailing = tokens.slice(1).join(' ').trim();
+    return trailing ? { kind: 'selftest', trailing } : { kind: 'selftest' };
+  }
+
+  // Question mode. Walk the tokens and peel off known flags. Any
+  // `--flag` we don't recognise is an error; leave value tokens
+  // alone so a question containing `--` is preserved verbatim
+  // once we're past the flag zone.
+  const overrides: ResearchOverrides = {};
+  const questionTokens: string[] = [];
+  let i = 0;
+  let seenQuestionToken = false;
+
+  while (i < tokens.length) {
+    const token = tokens[i];
+
+    // Once a non-flag token appears, treat the rest as question
+    // body verbatim \u2014 avoids eating `--` mid-question.
+    if (!token.startsWith('--')) {
+      seenQuestionToken = true;
+      questionTokens.push(token);
+      i += 1;
+      continue;
+    }
+    if (seenQuestionToken) {
+      questionTokens.push(token);
+      i += 1;
+      continue;
+    }
+
+    // `--flag=value` form.
+    const eq = token.indexOf('=');
+    let flag: string;
+    let value: string | undefined;
+    let valueCameFrom: 'inline' | 'next';
+    if (eq > 0) {
+      flag = token.slice(0, eq);
+      value = token.slice(eq + 1);
+      valueCameFrom = 'inline';
+    } else {
+      flag = token;
+      value = tokens[i + 1];
+      valueCameFrom = 'next';
+    }
+
+    if (!isKnownFlag(flag)) {
+      return { kind: 'error', error: `unknown flag ${flag} (known: ${KNOWN_FLAGS.join(', ')})` };
+    }
+
+    if (value === undefined || value === '') {
+      return { kind: 'error', error: `${flag} requires a value` };
+    }
+
+    const applied = applyFlag(flag, value, overrides);
+    if (!applied.ok) {
+      return { kind: 'error', error: applied.error };
+    }
+
+    i += valueCameFrom === 'inline' ? 1 : 2;
+  }
+
+  const question = questionTokens.join(' ').trim();
+  if (question === '') {
+    return { kind: 'error', error: 'no research question provided after flags' };
+  }
+  return { kind: 'question', question, overrides };
+}
+
+function isKnownFlag(flag: string): flag is KnownFlag {
+  return (KNOWN_FLAGS as readonly string[]).includes(flag);
+}
+
+function applyFlag(
+  flag: KnownFlag,
+  value: string,
+  overrides: ResearchOverrides,
+): { ok: true } | { ok: false; error: string } {
+  switch (flag) {
+    case '--model': {
+      if (overrides.model !== undefined) {
+        return { ok: false, error: `--model may only be specified once` };
+      }
+      const parsed = parseModelSpec(value);
+      if ('error' in parsed) return { ok: false, error: parsed.error };
+      overrides.model = `${parsed.provider}/${parsed.modelId}`;
+      return { ok: true };
+    }
+    case '--fanout-max-turns': {
+      if (overrides.fanoutMaxTurns !== undefined) {
+        return { ok: false, error: `--fanout-max-turns may only be specified once` };
+      }
+      const parsed = parseMaxTurns('--fanout-max-turns', value);
+      if (typeof parsed !== 'number') return { ok: false, error: parsed.error };
+      overrides.fanoutMaxTurns = parsed;
+      return { ok: true };
+    }
+    case '--critic-max-turns': {
+      if (overrides.criticMaxTurns !== undefined) {
+        return { ok: false, error: `--critic-max-turns may only be specified once` };
+      }
+      const parsed = parseMaxTurns('--critic-max-turns', value);
+      if (typeof parsed !== 'number') return { ok: false, error: parsed.error };
+      overrides.criticMaxTurns = parsed;
+      return { ok: true };
+    }
+  }
+}
+
+/**
+ * Validate an overrides bundle coming from the `research` tool
+ * (where the LLM can pass any JSON). Returns a cleaned copy
+ * (numbers normalised, model normalised) or a human-readable
+ * error. Shares every check with the slash-command parser above.
+ */
+export function validateToolOverrides(input: {
+  model?: unknown;
+  fanoutMaxTurns?: unknown;
+  criticMaxTurns?: unknown;
+}): { ok: true; overrides: ResearchOverrides } | { ok: false; error: string } {
+  const overrides: ResearchOverrides = {};
+
+  if (input.model !== undefined) {
+    if (typeof input.model !== 'string') {
+      return { ok: false, error: '`model` must be a "provider/id" string' };
+    }
+    const parsed = parseModelSpec(input.model);
+    if ('error' in parsed) return { ok: false, error: parsed.error };
+    overrides.model = `${parsed.provider}/${parsed.modelId}`;
+  }
+
+  if (input.fanoutMaxTurns !== undefined) {
+    const n = coerceNumeric(input.fanoutMaxTurns);
+    if (n === null) return { ok: false, error: '`fanoutMaxTurns` must be a positive integer' };
+    const parsed = parseMaxTurns('fanoutMaxTurns', String(n));
+    if (typeof parsed !== 'number') return { ok: false, error: parsed.error };
+    overrides.fanoutMaxTurns = parsed;
+  }
+
+  if (input.criticMaxTurns !== undefined) {
+    const n = coerceNumeric(input.criticMaxTurns);
+    if (n === null) return { ok: false, error: '`criticMaxTurns` must be a positive integer' };
+    const parsed = parseMaxTurns('criticMaxTurns', String(n));
+    if (typeof parsed !== 'number') return { ok: false, error: parsed.error };
+    overrides.criticMaxTurns = parsed;
+  }
+
+  return { ok: true, overrides };
+}
+
+function coerceNumeric(v: unknown): number | null {
+  if (typeof v === 'number' && Number.isFinite(v)) return Math.trunc(v);
+  if (typeof v === 'string' && /^[0-9]+$/.test(v.trim())) return Number(v.trim());
+  return null;
+}
+
+/**
+ * Render an overrides bundle as a short human-readable suffix for
+ * the USAGE / statusline / tool call summary. Returns `''` when
+ * nothing is set so callers can unconditionally concatenate.
+ */
+export function formatOverridesSummary(overrides: ResearchOverrides): string {
+  const parts: string[] = [];
+  if (overrides.model) parts.push(`model=${overrides.model}`);
+  if (overrides.fanoutMaxTurns !== undefined) parts.push(`fanout-max-turns=${overrides.fanoutMaxTurns}`);
+  if (overrides.criticMaxTurns !== undefined) parts.push(`critic-max-turns=${overrides.criticMaxTurns}`);
+  return parts.length > 0 ? ` [${parts.join(' ')}]` : '';
+}
