@@ -118,6 +118,8 @@ import { readPlan } from '../../../lib/node/pi/research-plan.ts';
 import {
   countPriorReviewIterations,
   detectResumeStage,
+  findStubbedSections,
+  invalidateIncompleteFanoutTasks,
   listRecentRuns,
   sumFanoutDeficit,
   validateRunRoot,
@@ -876,12 +878,21 @@ async function runResearchFlow(args: {
   onPhase({ kind: 'done', message: doneMessage });
   liveBudget.appendSummary();
 
+  // Phase-4 guardrail: if the final report still has
+  // `[section unavailable: …]` stubs the review loop exempts from
+  // the citation rule, the user needs to re-fetch those sub-
+  // questions — refinement cannot fix them. Surface a targeted
+  // resume hint and fold it into the tool summary so the LLM sees
+  // it too.
+  const stubHint = formatStubHint(outcome.runRoot);
+  if (stubHint) notify(stubHint, 'warning');
+
   return {
     kind: 'report-complete',
     reportPath: outcome.merge.reportPath,
     runRoot: outcome.runRoot,
     subjectiveApproved: reviewApproved,
-    ...(review ? { summary: review.summary } : {}),
+    ...(review ? { summary: stubHint ? `${review.summary}\n\n${stubHint}` : review.summary } : {}),
   };
 }
 
@@ -895,14 +906,11 @@ async function runResearchFlow(args: {
  *     re-enters the review loop with `startIteration = priorSnapshots + 1`
  *     and `maxIter = overrides.reviewMaxIter ?? 4`. Fully wired.
  *
- * Phase-2 stubs (return a clear error with actionable hint):
- *   - `--from=fanout`, `--from=synth`, `--from=plan-crit` require
- *     pipeline-level stage-skip plumbing not yet wired. The
- *     helpers in `lib/node/pi/research-resume.ts` already
- *     compute the correct `needsRefanout` set; a follow-up session
- *     threads them into `runResearchPipeline`. See
- *     `config/pi/RESEARCH-RESUME-PLAN.md` § "Incremental
- *     implementation phases".
+ * Phase-2 scope (shipping):
+ *   - `--from=plan-crit`, `--from=fanout`, `--from=synth`: dispatch
+ *     to {@link runResumePipelineStage}, which threads `resumeFrom`
+ *     + `resumeRunRoot` into `runResearchPipeline` so earlier
+ *     stages read their outputs from disk instead of re-running.
  */
 async function runResumeFlow(args: {
   ctx: ExtensionCommandContext;
@@ -985,23 +993,18 @@ async function runResumeFlow(args: {
     return;
   }
 
-  // Phase-2 stubs — helpful error, actionable next steps.
-  const deficit = needsRefanout.length > 0 ? needsRefanout.join(', ') : '<none>';
-  const hint =
-    stage === 'fanout'
-      ? `resume-from-fanout is not yet wired into this extension.\n` +
-        `  sub-questions needing re-fanout: ${deficit}\n` +
-        `  workaround: \`rm ${runRoot}/findings/<id>.md\` for each failing id and rerun \`/research <original-question>\`; ` +
-        `the planner will overwrite plan.json with an equivalent plan and the idempotent fanout will re-dispatch missing sub-questions.\n` +
-        `  follow-up: see config/pi/RESEARCH-RESUME-PLAN.md § "Phase 2: sub-question-scoped fanout"`
-      : stage === 'synth'
-        ? `resume-from-synth is not yet wired into this extension.\n` +
-          `  workaround: \`rm ${runRoot}/report.md\` and rerun \`/research <original-question>\`; fanout will skip completed tasks and drive synth + merge from the existing findings.\n` +
-          `  follow-up: see config/pi/RESEARCH-RESUME-PLAN.md`
-        : `resume-from-plan-crit is not yet wired into this extension.\n` +
-          `  workaround: inspect ${runRoot}/plan.json, rerun \`/research <original-question>\` to re-drive the planner + critic.\n` +
-          `  follow-up: see config/pi/RESEARCH-RESUME-PLAN.md`;
-  notify(`/research --resume: ${hint}`, 'error');
+  // Phase-2: dispatch plan-crit / fanout / synth through the
+  // real pipeline with `resumeFrom` + `resumeRunRoot` pinned.
+  await runResumePipelineStage({
+    ctx,
+    agentLoad: args.agentLoad,
+    notify,
+    runRoot,
+    stage,
+    needsRefanout,
+    overrides,
+    ...(args.signal ? { signal: args.signal } : {}),
+  });
 }
 
 /**
@@ -1110,6 +1113,192 @@ async function runResumeReviewStage(args: {
       : 'review complete';
   onPhase({ kind: 'done', message: doneMessage });
   liveBudget.appendSummary();
+
+  const stubHint = formatStubHint(runRoot);
+  if (stubHint) notify(stubHint, 'warning');
+}
+
+/**
+ * Phase-2 dispatcher: resume the real pipeline at `plan-crit`,
+ * `fanout`, or `synth`. Reads the original question from the
+ * on-disk `plan.json` (so the pipeline's planner phase — always
+ * called but skipped via `resumeFrom` — has a stable argument),
+ * invalidates failed/aborted/pending fanout tasks when resuming
+ * from `fanout`, and then calls {@link runResearchPipeline} with
+ * `resumeFrom` + `resumeRunRoot` pinned. The review phase runs
+ * after a `report-complete` outcome, same as
+ * {@link runResearchFlow}.
+ *
+ * Mirrors the shape of `runResearchFlow` deliberately: both build
+ * the same statusline + liveBudget wiring, both drive
+ * `runReviewPhase` on `report-complete`, both emit a terminal
+ * `done` / `error` event. The two functions share
+ * {@link buildPipelineDeps} so model / maxTurns overrides behave
+ * identically between fresh and resumed runs.
+ */
+async function runResumePipelineStage(args: {
+  ctx: ExtensionCommandContext;
+  agentLoad: AgentLoadResult;
+  notify: CommandNotify;
+  runRoot: string;
+  stage: 'plan-crit' | 'fanout' | 'synth';
+  needsRefanout: string[];
+  overrides: ResearchOverrides;
+  signal?: AbortSignal;
+}): Promise<void> {
+  const { ctx, agentLoad, notify, runRoot, stage, needsRefanout, overrides } = args;
+  const p = paths(runRoot);
+
+  // Read the question + plan from disk. Cannot proceed without it
+  // — `validateRunRoot` upstream already confirmed the file is
+  // parseable, but defend against a race / hand-edit that broke it.
+  let question: string;
+  try {
+    const plan = readPlan(p.plan);
+    if (plan.kind !== 'deep-research') {
+      notify(
+        `/research --resume --from=${stage}: plan.json under ${runRoot} is kind=${plan.kind}; expected deep-research`,
+        'error',
+      );
+      return;
+    }
+    question = plan.question;
+  } catch (e) {
+    notify(`/research --resume --from=${stage}: failed to read plan.json: ${(e as Error).message}`, 'error');
+    return;
+  }
+
+  // Fanout resume: flip failed/aborted/pending tasks back to
+  // 'pending' so the idempotent fanout dispatcher re-spawns only
+  // the ones that need it. No-op when needsRefanout is empty (all
+  // findings present and marked completed on disk).
+  if (stage === 'fanout' && needsRefanout.length > 0) {
+    const result = invalidateIncompleteFanoutTasks(runRoot, needsRefanout);
+    if (!result.ok) {
+      notify(
+        `/research --resume --from=fanout: fanout.json invalidation failed: ${result.error ?? '<unknown>'}`,
+        'error',
+      );
+      return;
+    }
+    if (result.reset.length > 0) {
+      notify(`/research --resume --from=fanout: re-dispatching ${result.reset.join(', ')}`, 'info');
+    }
+  }
+
+  const statusline = buildStatuslineController(ctx);
+  statusline.emit({ kind: 'start' });
+  const liveBudget = createLiveBudget({
+    budget: createRunBudget(DEFAULT_BUDGET_PHASES.map((phase) => ({ ...phase }))),
+  });
+  const onPhase = (event: PhaseEvent): void => {
+    statusline.emit(event);
+    try {
+      liveBudget.observePhaseEvent(event);
+    } catch {
+      /* swallow — budget observation must never break the run */
+    }
+  };
+  try {
+    liveBudget.setJournalPath(p.journal);
+  } catch {
+    /* swallow */
+  }
+
+  const built = buildPipelineDeps(ctx, agentLoad, {
+    onPhase,
+    liveBudget,
+    overrides,
+    ...(args.signal ? { signal: args.signal } : {}),
+  });
+  if (!built.ok) {
+    onPhase({ kind: 'error', message: built.error });
+    liveBudget.appendSummary();
+    notify(`/research --resume --from=${stage}: ${built.error}`, 'error');
+    return;
+  }
+
+  // Thread the resume flags into the pipeline deps. Cloning via
+  // spread is intentional — `built.deps` is shared with the review
+  // path below, and that path must NOT see resumeFrom set (review
+  // re-uses the same deps to spin up its refinement sessions).
+  const resumeDeps: PipelineDeps<unknown> = {
+    ...built.deps,
+    resumeFrom: stage,
+    resumeRunRoot: runRoot,
+  };
+
+  let outcome: PipelineOutcome;
+  try {
+    outcome = await runResearchPipeline(question, resumeDeps);
+  } catch (e) {
+    const message = (e as Error).message ?? String(e);
+    onPhase({ kind: 'error', message });
+    liveBudget.appendSummary();
+    notify(`/research --resume --from=${stage}: pipeline threw: ${message}`, 'error');
+    return;
+  }
+
+  surfaceOutcome(outcome, notify);
+
+  if (outcome.kind === 'planner-stuck') {
+    onPhase({ kind: 'error', message: `planner stuck: ${outcome.reason}` });
+    liveBudget.appendSummary();
+    return;
+  }
+  if (outcome.kind === 'checkpoint') {
+    onPhase({ kind: 'error', message: `plan-crit checkpoint (${outcome.outcome.kind})` });
+    liveBudget.appendSummary();
+    return;
+  }
+  if (outcome.kind === 'error') {
+    onPhase({ kind: 'error', message: outcome.error });
+    liveBudget.appendSummary();
+    return;
+  }
+  if (outcome.kind === 'fanout-complete') {
+    onPhase({ kind: 'done', message: 'fanout complete (no synth)' });
+    liveBudget.appendSummary();
+    return;
+  }
+
+  // report-complete — drive the review phase against the (re-)rendered
+  // report. Same shape as runResearchFlow's post-synth branch.
+  let review: ReviewWireResult | null = null;
+  try {
+    review = await runReviewPhase({
+      ctx,
+      runRoot: outcome.runRoot,
+      notify,
+      agentLoad,
+      pipelineDeps: built.deps,
+      parentModel: built.parentModel,
+      emitPhase: onPhase,
+      liveBudget,
+      ...(overrides.criticModel ? { criticModel: overrides.criticModel } : {}),
+      ...(overrides.criticMaxTurns !== undefined ? { criticMaxTurns: overrides.criticMaxTurns } : {}),
+      ...(overrides.reviewMaxIter !== undefined ? { reviewMaxIter: overrides.reviewMaxIter } : {}),
+      ...(args.signal ? { signal: args.signal } : {}),
+    });
+  } catch (e) {
+    const message = (e as Error).message ?? String(e);
+    onPhase({ kind: 'error', message });
+    liveBudget.appendSummary();
+    notify(`/research --resume --from=${stage}: review phase threw: ${message}`, 'error');
+    return;
+  }
+
+  const reviewApproved = review?.outcome.kind === 'passed';
+  const doneMessage = reviewApproved
+    ? 'review passed'
+    : review?.level === 'error'
+      ? 'review failed'
+      : 'review complete';
+  onPhase({ kind: 'done', message: doneMessage });
+  liveBudget.appendSummary();
+
+  const stubHint = formatStubHint(outcome.runRoot);
+  if (stubHint) notify(stubHint, 'warning');
 }
 
 /**
@@ -1462,6 +1651,44 @@ function buildSyncFanoutSpawner<M>(
 // ──────────────────────────────────────────────────────────────────────
 // Outcome surfacing.
 // ──────────────────────────────────────────────────────────────────────
+
+// ──────────────────────────────────────────────────────────────────────
+// Stub-section guardrail (Phase 4).
+// ──────────────────────────────────────────────────────────────────────
+
+/**
+ * Build a one-paragraph hint when the final `report.md` has one
+ * or more `[section unavailable: …]` stubs. The hint:
+ *
+ *   1. names the stubbed headings + their reason (truncated),
+ *   2. points the user at `/research --resume --from=fanout` as
+ *      the actionable next step, and
+ *   3. includes the `rm <runRoot>/findings/<id>.md` workaround
+ *      because Phase 3 (`--sq=<id>` targeting) isn't shipped yet.
+ *
+ * Returns `null` when no stubs are present so callers can emit
+ * the hint unconditionally via `if (h) notify(h, 'warning')`.
+ *
+ * The helper is side-effect-free: the disk read happens via the
+ * pure {@link findStubbedSections}; this function only formats the
+ * resulting list.
+ */
+function formatStubHint(runRoot: string): string | null {
+  const reportPath = paths(runRoot).report;
+  const stubbed = findStubbedSections(reportPath);
+  if (stubbed.length === 0) return null;
+  const lines: string[] = [];
+  lines.push(`/research: note — ${stubbed.length} sub-question section(s) are stubbed as [section unavailable].`);
+  for (const s of stubbed) {
+    const reason = s.reason.length > 0 ? ` — ${s.reason}` : '';
+    lines.push(`  • ${s.heading}${reason}`);
+  }
+  lines.push(`  To re-fetch: \`/research --resume --run-root ${runRoot} --from=fanout\``);
+  lines.push(
+    `  (\`--sq=<id>\` targeting is not yet wired; current workaround is \`rm ${runRoot}/findings/<id>.md\` for each stubbed section before the resume.)`,
+  );
+  return lines.join('\n');
+}
 
 function surfaceOutcome(outcome: PipelineOutcome, notify: CommandNotify): void {
   switch (outcome.kind) {
