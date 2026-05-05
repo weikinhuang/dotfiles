@@ -47,7 +47,7 @@
  *   PI_DEEP_RESEARCH_DISABLED=1   skip the extension entirely.
  */
 
-import { readdirSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -101,6 +101,8 @@ import {
   formatOverridesSummary,
   parseResearchCommandArgs,
   type ResearchOverrides,
+  type ResumeOverrides,
+  type ResumeStage,
   validateToolOverrides,
 } from '../../../lib/node/pi/research-command-args.ts';
 import { createCostHook } from '../../../lib/node/pi/research-cost-hook.ts';
@@ -113,6 +115,13 @@ import {
 import { appendJournal } from '../../../lib/node/pi/research-journal.ts';
 import { paths } from '../../../lib/node/pi/research-paths.ts';
 import { readPlan } from '../../../lib/node/pi/research-plan.ts';
+import {
+  countPriorReviewIterations,
+  detectResumeStage,
+  listRecentRuns,
+  sumFanoutDeficit,
+  validateRunRoot,
+} from '../../../lib/node/pi/research-resume.ts';
 import {
   type CommandNotify,
   type CommandNotifyLevel,
@@ -135,6 +144,14 @@ const USAGE =
   '  /research <question>                 — run the planner → synth pipeline; writes report.md\n' +
   '  /research --list                     — list runs under ./research/\n' +
   '  /research --selftest                 — run the research-core self-test fixture\n' +
+  '  /research --resume [flags]           — resume an existing run; auto-detects stage from\n' +
+  '                                         on-disk state unless `--from <stage>` is pinned\n' +
+  '\n' +
+  'Resume-mode flags (only valid with `--resume`):\n' +
+  '  --run-root <path>                    runRoot to resume (default: most-recent run under\n' +
+  '                                         ./research/)\n' +
+  '  --from <stage>                       pin the resume stage: plan-crit | fanout | synth |\n' +
+  '                                         review (overrides auto-detection)\n' +
   '\n' +
   'Question-mode flags (may appear in any order before the question):\n' +
   '  --model provider/id                  override the parent research session’s model;\n' +
@@ -151,7 +168,10 @@ const USAGE =
   '  --fanout-max-turns N                 maxTurns cap for every web-researcher fanout spawn\n' +
   '                                         (default: web-researcher.md declares 20).\n' +
   '  --critic-max-turns N                 maxTurns cap for the research-planning-critic +\n' +
-  '                                         subjective critic spawns.';
+  '                                         subjective critic spawns.\n' +
+  '  --review-max-iter N                  cap on cross-stage review iterations (default 4).\n' +
+  '                                         Also honored by `--resume` to extend the budget\n' +
+  '                                         on a prior `budget-exhausted` run.';
 
 /**
  * Statusline widget key, shared between the command handler and
@@ -215,6 +235,14 @@ const ResearchToolParams = Type.Object({
       minimum: 1,
       maximum: 1000,
       description: 'Optional maxTurns cap for the research-planning-critic + subjective critic spawns.',
+    }),
+  ),
+  reviewMaxIter: Type.Optional(
+    Type.Integer({
+      minimum: 1,
+      maximum: 1000,
+      description:
+        'Optional cap on cross-stage review iterations (default 4). Raise when the review loop previously hit `budget-exhausted` on fixable issues (e.g. missing citations).',
     }),
   ),
 });
@@ -301,6 +329,34 @@ export default function deepResearchExtension(pi: ExtensionAPI): void {
         await runSelftestCommand({ cwd: ctx.cwd, selftest: selftestDeepResearch, notify });
         return;
       }
+      if (parsed.kind === 'resume') {
+        try {
+          reloadAgents(ctx.cwd);
+        } catch (e) {
+          notify(`/research: failed to load agent definitions: ${(e as Error).message}`, 'error');
+          return;
+        }
+        if (researchFlag.active) {
+          notify(
+            '/research: another research run is already active in this session. Wait for it to finish before starting a new one.',
+            'warning',
+          );
+          return;
+        }
+        researchFlag.active = true;
+        try {
+          await runResumeFlow({
+            ctx,
+            agentLoad,
+            notify,
+            resume: parsed.resume,
+            overrides: parsed.overrides,
+          });
+        } finally {
+          researchFlag.active = false;
+        }
+        return;
+      }
       if (parsed.kind === 'error') {
         notify(`/research: ${parsed.error}`, 'error');
         return;
@@ -356,6 +412,7 @@ export default function deepResearchExtension(pi: ExtensionAPI): void {
       'Use `research` only when the user asked for a written research report, not for a single-fact lookup — it takes minutes and spends real model budget.',
       'Only one `research` tool call may be in flight per session; do not issue a second call before the first has returned.',
       'Only set `model`, `fanoutMaxTurns`, or `criticMaxTurns` when the user explicitly asks for one; the defaults (parent session’s model, agent-declared maxTurns) are correct for typical runs. Bump `fanoutMaxTurns` when sub-questions keep hitting max_turns on the web-researcher.',
+      'Bump `reviewMaxIter` (default 4) when the structural/subjective review loop has previously hit `budget-exhausted` on fixable issues — e.g. missing `[^n]` citations — and you want more refinement passes.',
     ],
     parameters: ResearchToolParams,
     async execute(_toolCallId, rawParams, signal, _onUpdate, ctx) {
@@ -367,6 +424,7 @@ export default function deepResearchExtension(pi: ExtensionAPI): void {
         criticModel?: unknown;
         fanoutMaxTurns?: unknown;
         criticMaxTurns?: unknown;
+        reviewMaxIter?: unknown;
       };
       const question = typeof params.question === 'string' ? params.question.trim() : '';
       if (!question) {
@@ -383,6 +441,7 @@ export default function deepResearchExtension(pi: ExtensionAPI): void {
         ...(params.criticModel !== undefined ? { criticModel: params.criticModel } : {}),
         ...(params.fanoutMaxTurns !== undefined ? { fanoutMaxTurns: params.fanoutMaxTurns } : {}),
         ...(params.criticMaxTurns !== undefined ? { criticMaxTurns: params.criticMaxTurns } : {}),
+        ...(params.reviewMaxIter !== undefined ? { reviewMaxIter: params.reviewMaxIter } : {}),
       });
       if (!validated.ok) {
         throw new Error(`research: ${validated.error}`);
@@ -440,6 +499,7 @@ export default function deepResearchExtension(pi: ExtensionAPI): void {
         criticModel?: unknown;
         fanoutMaxTurns?: unknown;
         criticMaxTurns?: unknown;
+        reviewMaxIter?: unknown;
       };
       const q = typeof typed.question === 'string' ? typed.question : '';
       const overrideBits: string[] = [];
@@ -452,6 +512,7 @@ export default function deepResearchExtension(pi: ExtensionAPI): void {
         overrideBits.push(`critic-model=${typed.criticModel}`);
       if (typeof typed.fanoutMaxTurns === 'number') overrideBits.push(`fanout-max-turns=${typed.fanoutMaxTurns}`);
       if (typeof typed.criticMaxTurns === 'number') overrideBits.push(`critic-max-turns=${typed.criticMaxTurns}`);
+      if (typeof typed.reviewMaxIter === 'number') overrideBits.push(`review-max-iter=${typed.reviewMaxIter}`);
       const overrides = overrideBits.length > 0 ? ` [${overrideBits.join(' ')}]` : '';
       const label =
         theme.fg('toolTitle', theme.bold('research')) + ' ' + theme.fg('muted', truncateTool(q, 80) + overrides);
@@ -790,6 +851,7 @@ async function runResearchFlow(args: {
       liveBudget,
       ...(overrides.criticModel ? { criticModel: overrides.criticModel } : {}),
       ...(overrides.criticMaxTurns !== undefined ? { criticMaxTurns: overrides.criticMaxTurns } : {}),
+      ...(overrides.reviewMaxIter !== undefined ? { reviewMaxIter: overrides.reviewMaxIter } : {}),
       ...(args.signal ? { signal: args.signal } : {}),
     });
   } catch (e) {
@@ -821,6 +883,233 @@ async function runResearchFlow(args: {
     subjectiveApproved: reviewApproved,
     ...(review ? { summary: review.summary } : {}),
   };
+}
+
+/**
+ * Resume-mode entry point for `/research --resume`. Validates the
+ * requested runRoot (default: most-recent run under `./research/`),
+ * detects or honors the pinned stage, and dispatches accordingly.
+ *
+ * Phase-1 scope (shipping):
+ *   - `--from=review` (default when `report.md` exists on disk):
+ *     re-enters the review loop with `startIteration = priorSnapshots + 1`
+ *     and `maxIter = overrides.reviewMaxIter ?? 4`. Fully wired.
+ *
+ * Phase-2 stubs (return a clear error with actionable hint):
+ *   - `--from=fanout`, `--from=synth`, `--from=plan-crit` require
+ *     pipeline-level stage-skip plumbing not yet wired. The
+ *     helpers in `lib/node/pi/research-resume.ts` already
+ *     compute the correct `needsRefanout` set; a follow-up session
+ *     threads them into `runResearchPipeline`. See
+ *     `config/pi/RESEARCH-RESUME-PLAN.md` § "Incremental
+ *     implementation phases".
+ */
+async function runResumeFlow(args: {
+  ctx: ExtensionCommandContext;
+  agentLoad: AgentLoadResult;
+  notify: CommandNotify;
+  resume: ResumeOverrides;
+  overrides: ResearchOverrides;
+  signal?: AbortSignal;
+}): Promise<void> {
+  const { ctx, notify, resume, overrides } = args;
+
+  // ── 1. Resolve runRoot ──────────────────────────────────────
+  let runRoot: string;
+  let slug: string;
+  if (resume.runRoot) {
+    const validated = validateRunRoot(ctx.cwd, resume.runRoot);
+    if (!validated.ok) {
+      notify(`/research --resume: ${validated.error}`, 'error');
+      return;
+    }
+    runRoot = validated.runRoot;
+    slug = validated.slug;
+  } else {
+    const recent = listRecentRuns(ctx.cwd);
+    if (recent.length === 0) {
+      notify(
+        '/research --resume: no prior runs found under ./research/ — start a fresh run with `/research <question>`',
+        'error',
+      );
+      return;
+    }
+    runRoot = recent[0].runRoot;
+    slug = recent[0].slug;
+    notify(`/research --resume: using most-recent run — ${slug}`, 'info');
+  }
+
+  // ── 2. Decide stage ─────────────────────────────────────────
+  let stage: ResumeStage;
+  let stageReason: string;
+  let needsRefanout: string[] = [];
+  if (resume.from) {
+    stage = resume.from;
+    stageReason = `--from=${resume.from} (user override)`;
+    if (stage === 'fanout') {
+      try {
+        const plan = readPlan(paths(runRoot).plan);
+        if (plan.kind === 'deep-research') {
+          needsRefanout = sumFanoutDeficit(
+            runRoot,
+            plan.subQuestions.map((sq) => sq.id),
+          );
+        }
+      } catch {
+        /* ignore — error already surfaced by validateRunRoot */
+      }
+    }
+  } else {
+    const detected = detectResumeStage(runRoot);
+    if (!detected.ok) {
+      notify(`/research --resume: ${detected.error}`, 'error');
+      return;
+    }
+    stage = detected.stage;
+    stageReason = detected.reason;
+    needsRefanout = detected.needsRefanout;
+  }
+
+  notify(`/research --resume: stage=${stage} — ${stageReason}${formatOverridesSummary(overrides, resume)}`, 'info');
+
+  // ── 3. Dispatch by stage ────────────────────────────────────
+  if (stage === 'review') {
+    await runResumeReviewStage({
+      ctx,
+      runRoot,
+      agentLoad: args.agentLoad,
+      notify,
+      overrides,
+      ...(args.signal ? { signal: args.signal } : {}),
+    });
+    return;
+  }
+
+  // Phase-2 stubs — helpful error, actionable next steps.
+  const deficit = needsRefanout.length > 0 ? needsRefanout.join(', ') : '<none>';
+  const hint =
+    stage === 'fanout'
+      ? `resume-from-fanout is not yet wired into this extension.\n` +
+        `  sub-questions needing re-fanout: ${deficit}\n` +
+        `  workaround: \`rm ${runRoot}/findings/<id>.md\` for each failing id and rerun \`/research <original-question>\`; ` +
+        `the planner will overwrite plan.json with an equivalent plan and the idempotent fanout will re-dispatch missing sub-questions.\n` +
+        `  follow-up: see config/pi/RESEARCH-RESUME-PLAN.md § "Phase 2: sub-question-scoped fanout"`
+      : stage === 'synth'
+        ? `resume-from-synth is not yet wired into this extension.\n` +
+          `  workaround: \`rm ${runRoot}/report.md\` and rerun \`/research <original-question>\`; fanout will skip completed tasks and drive synth + merge from the existing findings.\n` +
+          `  follow-up: see config/pi/RESEARCH-RESUME-PLAN.md`
+        : `resume-from-plan-crit is not yet wired into this extension.\n` +
+          `  workaround: inspect ${runRoot}/plan.json, rerun \`/research <original-question>\` to re-drive the planner + critic.\n` +
+          `  follow-up: see config/pi/RESEARCH-RESUME-PLAN.md`;
+  notify(`/research --resume: ${hint}`, 'error');
+}
+
+/**
+ * Phase-1 handler: re-enter the review loop against an existing
+ * run. No planner / fanout / synth work — reads `report.md` and
+ * rubrics from disk, counts prior review iterations, and drives
+ * `runReviewPhase` with `startIteration = N+1`.
+ */
+async function runResumeReviewStage(args: {
+  ctx: ExtensionCommandContext;
+  runRoot: string;
+  agentLoad: AgentLoadResult;
+  notify: CommandNotify;
+  overrides: ResearchOverrides;
+  signal?: AbortSignal;
+}): Promise<void> {
+  const { ctx, runRoot, agentLoad, notify, overrides } = args;
+  const p = paths(runRoot);
+  if (!existsSync(p.report)) {
+    notify(
+      `/research --resume --from=review: no report.md under ${runRoot} — cannot resume review. ` +
+        `Use \`/research <original-question>\` to drive the pipeline from the start.`,
+      'error',
+    );
+    return;
+  }
+  if (!existsSync(p.rubricSubjective) || !existsSync(p.rubricStructural)) {
+    notify(
+      `/research --resume --from=review: rubric files missing under ${runRoot}. ` +
+        `Expected ${p.rubricStructural} and ${p.rubricSubjective}.`,
+      'error',
+    );
+    return;
+  }
+
+  const priorIter = countPriorReviewIterations(runRoot);
+  const startIteration = priorIter + 1;
+  const reviewMaxIter = overrides.reviewMaxIter ?? 4;
+  notify(
+    `/research --resume --from=review: ${priorIter} prior review iteration(s) on disk; running iters ${startIteration}–${startIteration + reviewMaxIter - 1}`,
+    'info',
+  );
+
+  const statusline = buildStatuslineController(ctx);
+  statusline.emit({ kind: 'start' });
+  const liveBudget = createLiveBudget({
+    budget: createRunBudget(DEFAULT_BUDGET_PHASES.map((p2) => ({ ...p2 }))),
+  });
+  const onPhase = (event: PhaseEvent): void => {
+    statusline.emit(event);
+    try {
+      liveBudget.observePhaseEvent(event);
+    } catch {
+      /* swallow */
+    }
+  };
+  try {
+    liveBudget.setJournalPath(p.journal);
+  } catch {
+    /* swallow */
+  }
+
+  const built = buildPipelineDeps(ctx, agentLoad, {
+    onPhase,
+    liveBudget,
+    overrides,
+    ...(args.signal ? { signal: args.signal } : {}),
+  });
+  if (!built.ok) {
+    onPhase({ kind: 'error', message: built.error });
+    liveBudget.appendSummary();
+    notify(`/research --resume --from=review: ${built.error}`, 'error');
+    return;
+  }
+
+  let review: ReviewWireResult | null = null;
+  try {
+    review = await runReviewPhase({
+      ctx,
+      runRoot,
+      notify,
+      agentLoad,
+      pipelineDeps: built.deps,
+      parentModel: built.parentModel,
+      emitPhase: onPhase,
+      liveBudget,
+      reviewMaxIter,
+      startIteration,
+      ...(overrides.criticModel ? { criticModel: overrides.criticModel } : {}),
+      ...(overrides.criticMaxTurns !== undefined ? { criticMaxTurns: overrides.criticMaxTurns } : {}),
+      ...(args.signal ? { signal: args.signal } : {}),
+    });
+  } catch (e) {
+    const message = (e as Error).message ?? String(e);
+    onPhase({ kind: 'error', message });
+    liveBudget.appendSummary();
+    notify(`/research --resume --from=review: review phase threw: ${message}`, 'error');
+    return;
+  }
+
+  const reviewApproved = review?.outcome.kind === 'passed';
+  const doneMessage = reviewApproved
+    ? 'review passed'
+    : review?.level === 'error'
+      ? 'review failed'
+      : 'review complete';
+  onPhase({ kind: 'done', message: doneMessage });
+  liveBudget.appendSummary();
 }
 
 /**
@@ -1268,6 +1557,20 @@ interface RunReviewPhaseArgs {
    * the tool's `criticMaxTurns` param.
    */
   criticMaxTurns?: number;
+  /**
+   * Cap on cross-stage review iterations. Defaults to `4` when
+   * omitted. Overridden via `--review-max-iter` /
+   * `reviewMaxIter` or raised on a `/research --resume` to
+   * extend a prior `budget-exhausted` run.
+   */
+  reviewMaxIter?: number;
+  /**
+   * Iteration label for the first iteration. Defaults to `1` on
+   * a fresh review; resume flows compute this from the highest
+   * existing `snapshots/review/iter-NNN-*.md` so new iterations
+   * land as iter-(N+1), (N+2), … rather than overwriting.
+   */
+  startIteration?: number;
   /** Additional abort signal threaded into the review loop. */
   signal?: AbortSignal;
 }
@@ -1498,7 +1801,8 @@ async function runReviewPhase(args: RunReviewPhaseArgs): Promise<ReviewWireResul
       runStructural,
       runCritic,
       refineReport,
-      maxIter: 4,
+      maxIter: args.reviewMaxIter ?? 4,
+      ...(args.startIteration !== undefined ? { startIteration: args.startIteration } : {}),
       ...(reviewSignal ? { signal: reviewSignal } : {}),
       notify,
     });
