@@ -61,9 +61,29 @@
 export interface ResearchOverrides {
   /**
    * Parent-model override in `provider/id` form. Validated by
-   * {@link parseModelSpec}.
+   * {@link parseModelSpec}. Replaces the research pipeline's
+   * parent-session model (planner / self-crit / synth / merge /
+   * refine). Inherit-mode subagents that lack their own
+   * per-agent override below fall back to this.
    */
   model?: string;
+  /**
+   * Per-agent model override for the research-planning-critic
+   * subagent. Takes precedence over both `model` and the agent's
+   * .md declaration. Undefined → inherit the usual chain.
+   */
+  planCritModel?: string;
+  /**
+   * Per-agent model override for the web-researcher fanout
+   * workers. Takes precedence over both `model` and the agent's
+   * .md declaration.
+   */
+  fanoutModel?: string;
+  /**
+   * Per-agent model override for the subjective critic. Takes
+   * precedence over both `model` and the agent's .md declaration.
+   */
+  criticModel?: string;
   /** Max turns for every web-researcher fanout spawn. */
   fanoutMaxTurns?: number;
   /**
@@ -150,8 +170,21 @@ export function parseMaxTurns(flag: string, raw: string): number | { error: stri
 // Main parser.
 // \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
 
-type KnownFlag = '--model' | '--fanout-max-turns' | '--critic-max-turns';
-const KNOWN_FLAGS: readonly KnownFlag[] = ['--model', '--fanout-max-turns', '--critic-max-turns'];
+type KnownFlag =
+  | '--model'
+  | '--plan-crit-model'
+  | '--fanout-model'
+  | '--critic-model'
+  | '--fanout-max-turns'
+  | '--critic-max-turns';
+const KNOWN_FLAGS: readonly KnownFlag[] = [
+  '--model',
+  '--plan-crit-model',
+  '--fanout-model',
+  '--critic-model',
+  '--fanout-max-turns',
+  '--critic-max-turns',
+];
 
 /**
  * Split a raw `/research` argument string into a
@@ -255,15 +288,14 @@ function applyFlag(
   overrides: ResearchOverrides,
 ): { ok: true } | { ok: false; error: string } {
   switch (flag) {
-    case '--model': {
-      if (overrides.model !== undefined) {
-        return { ok: false, error: `--model may only be specified once` };
-      }
-      const parsed = parseModelSpec(value);
-      if ('error' in parsed) return { ok: false, error: parsed.error };
-      overrides.model = `${parsed.provider}/${parsed.modelId}`;
-      return { ok: true };
-    }
+    case '--model':
+      return applyModelFlag(flag, value, overrides, 'model');
+    case '--plan-crit-model':
+      return applyModelFlag(flag, value, overrides, 'planCritModel');
+    case '--fanout-model':
+      return applyModelFlag(flag, value, overrides, 'fanoutModel');
+    case '--critic-model':
+      return applyModelFlag(flag, value, overrides, 'criticModel');
     case '--fanout-max-turns': {
       if (overrides.fanoutMaxTurns !== undefined) {
         return { ok: false, error: `--fanout-max-turns may only be specified once` };
@@ -286,6 +318,29 @@ function applyFlag(
 }
 
 /**
+ * Keys on {@link ResearchOverrides} that hold a `provider/id`
+ * model string. Threaded through {@link applyModelFlag} so each
+ * of the four `--*-model` flags reuses one validation +
+ * duplicate-check path.
+ */
+type ModelField = 'model' | 'planCritModel' | 'fanoutModel' | 'criticModel';
+
+function applyModelFlag(
+  flag: string,
+  value: string,
+  overrides: ResearchOverrides,
+  field: ModelField,
+): { ok: true } | { ok: false; error: string } {
+  if (overrides[field] !== undefined) {
+    return { ok: false, error: `${flag} may only be specified once` };
+  }
+  const parsed = parseModelSpec(value);
+  if ('error' in parsed) return { ok: false, error: parsed.error };
+  overrides[field] = `${parsed.provider}/${parsed.modelId}`;
+  return { ok: true };
+}
+
+/**
  * Validate an overrides bundle coming from the `research` tool
  * (where the LLM can pass any JSON). Returns a cleaned copy
  * (numbers normalised, model normalised) or a human-readable
@@ -293,18 +348,24 @@ function applyFlag(
  */
 export function validateToolOverrides(input: {
   model?: unknown;
+  planCritModel?: unknown;
+  fanoutModel?: unknown;
+  criticModel?: unknown;
   fanoutMaxTurns?: unknown;
   criticMaxTurns?: unknown;
 }): { ok: true; overrides: ResearchOverrides } | { ok: false; error: string } {
   const overrides: ResearchOverrides = {};
 
-  if (input.model !== undefined) {
-    if (typeof input.model !== 'string') {
-      return { ok: false, error: '`model` must be a "provider/id" string' };
+  const modelFields: readonly ModelField[] = ['model', 'planCritModel', 'fanoutModel', 'criticModel'];
+  for (const field of modelFields) {
+    const v = input[field];
+    if (v === undefined) continue;
+    if (typeof v !== 'string') {
+      return { ok: false, error: `\`${field}\` must be a "provider/id" string` };
     }
-    const parsed = parseModelSpec(input.model);
+    const parsed = parseModelSpec(v);
     if ('error' in parsed) return { ok: false, error: parsed.error };
-    overrides.model = `${parsed.provider}/${parsed.modelId}`;
+    overrides[field] = `${parsed.provider}/${parsed.modelId}`;
   }
 
   if (input.fanoutMaxTurns !== undefined) {
@@ -340,6 +401,9 @@ function coerceNumeric(v: unknown): number | null {
 export function formatOverridesSummary(overrides: ResearchOverrides): string {
   const parts: string[] = [];
   if (overrides.model) parts.push(`model=${overrides.model}`);
+  if (overrides.planCritModel) parts.push(`plan-crit-model=${overrides.planCritModel}`);
+  if (overrides.fanoutModel) parts.push(`fanout-model=${overrides.fanoutModel}`);
+  if (overrides.criticModel) parts.push(`critic-model=${overrides.criticModel}`);
   if (overrides.fanoutMaxTurns !== undefined) parts.push(`fanout-max-turns=${overrides.fanoutMaxTurns}`);
   if (overrides.criticMaxTurns !== undefined) parts.push(`critic-max-turns=${overrides.criticMaxTurns}`);
   return parts.length > 0 ? ` [${parts.join(' ')}]` : '';

@@ -139,8 +139,15 @@ const USAGE =
   'Question-mode flags (may appear in any order before the question):\n' +
   '  --model provider/id                  override the parent research session’s model;\n' +
   '                                         inherit-mode subagents (web-researcher, plan-crit,\n' +
-  '                                         critic) inherit it. Agents that pin a specific\n' +
-  '                                         model in their .md stay pinned.\n' +
+  '                                         critic) inherit it unless they have their own\n' +
+  '                                         per-agent override below. Agents that pin a\n' +
+  '                                         specific model in their .md stay pinned.\n' +
+  '  --plan-crit-model provider/id        override the research-planning-critic subagent only\n' +
+  '                                         (takes precedence over --model).\n' +
+  '  --fanout-model provider/id           override every web-researcher fanout spawn only\n' +
+  '                                         (takes precedence over --model).\n' +
+  '  --critic-model provider/id           override the subjective critic subagent only\n' +
+  '                                         (takes precedence over --model).\n' +
   '  --fanout-max-turns N                 maxTurns cap for every web-researcher fanout spawn\n' +
   '                                         (default: web-researcher.md declares 20).\n' +
   '  --critic-max-turns N                 maxTurns cap for the research-planning-critic +\n' +
@@ -174,7 +181,25 @@ const ResearchToolParams = Type.Object({
   model: Type.Optional(
     Type.String({
       description:
-        'Optional parent-model override in "provider/id" form (e.g. "openai/gpt-5"). Replaces the parent research session’s model; inherit-mode subagents inherit it. Agents that pin a specific model in their .md stay pinned.',
+        'Optional parent-model override in "provider/id" form (e.g. "openai/gpt-5"). Replaces the parent research session’s model; inherit-mode subagents inherit it unless they also have their own per-agent override below. Agents that pin a specific model in their .md stay pinned.',
+    }),
+  ),
+  planCritModel: Type.Optional(
+    Type.String({
+      description:
+        'Optional model override ("provider/id") for the research-planning-critic subagent only. Takes precedence over `model`.',
+    }),
+  ),
+  fanoutModel: Type.Optional(
+    Type.String({
+      description:
+        'Optional model override ("provider/id") for every web-researcher fanout spawn only. Takes precedence over `model`. Useful for running fanout on a cheap model while keeping a stronger parent model.',
+    }),
+  ),
+  criticModel: Type.Optional(
+    Type.String({
+      description:
+        'Optional model override ("provider/id") for the subjective critic subagent only. Takes precedence over `model`.',
     }),
   ),
   fanoutMaxTurns: Type.Optional(
@@ -337,6 +362,9 @@ export default function deepResearchExtension(pi: ExtensionAPI): void {
       const params = rawParams as unknown as {
         question?: unknown;
         model?: unknown;
+        planCritModel?: unknown;
+        fanoutModel?: unknown;
+        criticModel?: unknown;
         fanoutMaxTurns?: unknown;
         criticMaxTurns?: unknown;
       };
@@ -346,10 +374,13 @@ export default function deepResearchExtension(pi: ExtensionAPI): void {
       }
 
       // Validate the optional overrides the LLM may have passed
-      // (`model` / `fanoutMaxTurns` / `criticMaxTurns`). Invalid
+      // (`model` / per-agent model overrides / maxTurns). Invalid
       // input throws before we burn any model budget.
       const validated = validateToolOverrides({
         ...(params.model !== undefined ? { model: params.model } : {}),
+        ...(params.planCritModel !== undefined ? { planCritModel: params.planCritModel } : {}),
+        ...(params.fanoutModel !== undefined ? { fanoutModel: params.fanoutModel } : {}),
+        ...(params.criticModel !== undefined ? { criticModel: params.criticModel } : {}),
         ...(params.fanoutMaxTurns !== undefined ? { fanoutMaxTurns: params.fanoutMaxTurns } : {}),
         ...(params.criticMaxTurns !== undefined ? { criticMaxTurns: params.criticMaxTurns } : {}),
       });
@@ -404,12 +435,21 @@ export default function deepResearchExtension(pi: ExtensionAPI): void {
       const typed = args as {
         question?: unknown;
         model?: unknown;
+        planCritModel?: unknown;
+        fanoutModel?: unknown;
+        criticModel?: unknown;
         fanoutMaxTurns?: unknown;
         criticMaxTurns?: unknown;
       };
       const q = typeof typed.question === 'string' ? typed.question : '';
       const overrideBits: string[] = [];
       if (typeof typed.model === 'string' && typed.model.length > 0) overrideBits.push(`model=${typed.model}`);
+      if (typeof typed.planCritModel === 'string' && typed.planCritModel.length > 0)
+        overrideBits.push(`plan-crit-model=${typed.planCritModel}`);
+      if (typeof typed.fanoutModel === 'string' && typed.fanoutModel.length > 0)
+        overrideBits.push(`fanout-model=${typed.fanoutModel}`);
+      if (typeof typed.criticModel === 'string' && typed.criticModel.length > 0)
+        overrideBits.push(`critic-model=${typed.criticModel}`);
       if (typeof typed.fanoutMaxTurns === 'number') overrideBits.push(`fanout-max-turns=${typed.fanoutMaxTurns}`);
       if (typeof typed.criticMaxTurns === 'number') overrideBits.push(`critic-max-turns=${typed.criticMaxTurns}`);
       const overrides = overrideBits.length > 0 ? ` [${overrideBits.join(' ')}]` : '';
@@ -709,6 +749,7 @@ async function runResearchFlow(args: {
       parentModel: built.parentModel,
       emitPhase: onPhase,
       liveBudget,
+      ...(overrides.criticModel ? { criticModel: overrides.criticModel } : {}),
       ...(overrides.criticMaxTurns !== undefined ? { criticMaxTurns: overrides.criticMaxTurns } : {}),
       ...(args.signal ? { signal: args.signal } : {}),
     });
@@ -874,6 +915,7 @@ function buildPipelineDeps(
         agent: criticAgent,
         parent: parentModel,
         modelRegistry,
+        ...(extras.overrides?.planCritModel ? { override: extras.overrides.planCritModel } : {}),
       });
       if (!resolution.ok) return { rawText: '', error: resolution.error };
       try {
@@ -914,6 +956,7 @@ function buildPipelineDeps(
         extras.onPhase,
         extras.liveBudget,
         extras.overrides?.fanoutMaxTurns,
+        extras.overrides?.fanoutModel,
       ),
       extras.onPhase,
     ),
@@ -1029,9 +1072,15 @@ function buildSyncFanoutSpawner<M>(
   onPhase: ((event: PhaseEvent) => void) | undefined,
   liveBudget: LiveBudget | undefined,
   maxTurnsOverride: number | undefined,
+  modelOverride: string | undefined,
 ): FanoutSpawner {
   return async (args: FanoutSpawnArgs): Promise<FanoutHandleLike> => {
-    const resolution = resolveChildModel({ agent, parent, modelRegistry: modelRegistry as never });
+    const resolution = resolveChildModel({
+      agent,
+      parent,
+      modelRegistry: modelRegistry as never,
+      ...(modelOverride ? { override: modelOverride } : {}),
+    });
     if (!resolution.ok) {
       throw new Error(`fanout spawn: ${resolution.error}`);
     }
@@ -1169,6 +1218,12 @@ interface RunReviewPhaseArgs {
    */
   parentModel?: unknown;
   /**
+   * Optional per-agent model override for the subjective critic
+   * (`--critic-model` / tool `criticModel`). Takes precedence
+   * over the inherit chain + `parentModel`.
+   */
+  criticModel?: string;
+  /**
    * Optional maxTurns cap for the subjective critic spawn.
    * Comes from the slash command's `--critic-max-turns` flag or
    * the tool's `criticMaxTurns` param.
@@ -1202,7 +1257,7 @@ interface RunReviewPhaseArgs {
  * verdict instead of hanging.
  */
 async function runReviewPhase(args: RunReviewPhaseArgs): Promise<ReviewWireResult | null> {
-  const { ctx, runRoot, notify, agentLoad, emitPhase, liveBudget, criticMaxTurns, parentModel } = args;
+  const { ctx, runRoot, notify, agentLoad, emitPhase, liveBudget, criticMaxTurns, parentModel, criticModel } = args;
   // Signal used by all review-loop runners. Prefer the caller's
   // signal (threaded from `runResearchFlow`) and fall back to the
   // command's own `ctx.signal`, so Esc fires regardless of entry
@@ -1256,6 +1311,7 @@ async function runReviewPhase(args: RunReviewPhaseArgs): Promise<ReviewWireResul
       agent: criticAgent,
       parent: (parentModel ?? ctx.model) as never,
       modelRegistry: ctx.modelRegistry as never,
+      ...(criticModel ? { override: criticModel } : {}),
     });
     if (!resolution.ok) {
       return {

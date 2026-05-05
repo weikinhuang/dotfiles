@@ -143,6 +143,46 @@ describe('parseResearchCommandArgs question mode', () => {
     });
   });
 
+  test('per-agent model flags parse independently of --model', () => {
+    expect(
+      parseResearchCommandArgs(
+        '--plan-crit-model openai/gpt-4.1 --fanout-model llama-cpp/qwen3 --critic-model anthropic/opus the question',
+      ),
+    ).toEqual({
+      kind: 'question',
+      question: 'the question',
+      overrides: {
+        planCritModel: 'openai/gpt-4.1',
+        fanoutModel: 'llama-cpp/qwen3',
+        criticModel: 'anthropic/opus',
+      },
+    });
+  });
+
+  test('--model coexists with per-agent model overrides', () => {
+    expect(
+      parseResearchCommandArgs('--model llama-cpp/qwen3 --critic-model anthropic/us.anthropic.claude-opus-4-7 topic'),
+    ).toEqual({
+      kind: 'question',
+      question: 'topic',
+      overrides: {
+        model: 'llama-cpp/qwen3',
+        criticModel: 'anthropic/us.anthropic.claude-opus-4-7',
+      },
+    });
+  });
+
+  test('duplicate per-agent model flag errors out', () => {
+    expect(expectCmdError(parseResearchCommandArgs('--fanout-model openai/a --fanout-model openai/b q'))).toMatch(
+      /--fanout-model may only be specified once/,
+    );
+  });
+
+  test('invalid per-agent model spec errors out', () => {
+    expect(parseResearchCommandArgs('--critic-model not-valid q').kind).toBe('error');
+    expect(parseResearchCommandArgs('--plan-crit-model / q').kind).toBe('error');
+  });
+
   test('all three flags, = form mixed with space form', () => {
     expect(
       parseResearchCommandArgs('--model=anthropic/claude-haiku --fanout-max-turns=40 --critic-max-turns 8 a question'),
@@ -211,6 +251,28 @@ describe('validateToolOverrides', () => {
     expect(validateToolOverrides({ model: 42 })).toMatchObject({ ok: false });
   });
 
+  test('per-agent model overrides validated independently', () => {
+    expect(
+      validateToolOverrides({
+        planCritModel: 'openai/gpt-5',
+        fanoutModel: 'llama-cpp/qwen3',
+        criticModel: 'anthropic/us.anthropic.claude-opus-4-7',
+      }),
+    ).toEqual({
+      ok: true,
+      overrides: {
+        planCritModel: 'openai/gpt-5',
+        fanoutModel: 'llama-cpp/qwen3',
+        criticModel: 'anthropic/us.anthropic.claude-opus-4-7',
+      },
+    });
+  });
+
+  test('invalid per-agent model value rejected', () => {
+    expect(validateToolOverrides({ fanoutModel: 'no-slash' })).toMatchObject({ ok: false });
+    expect(validateToolOverrides({ criticModel: 42 })).toMatchObject({ ok: false });
+  });
+
   test('numeric overrides accept number and numeric string', () => {
     expect(validateToolOverrides({ fanoutMaxTurns: 40 })).toEqual({
       ok: true,
@@ -252,6 +314,24 @@ describe('formatOverridesSummary', () => {
     expect(formatOverridesSummary({ criticMaxTurns: 8 })).toBe(' [critic-max-turns=8]');
     expect(formatOverridesSummary({ model: 'openai/gpt-5', fanoutMaxTurns: 40, criticMaxTurns: 8 })).toBe(
       ' [model=openai/gpt-5 fanout-max-turns=40 critic-max-turns=8]',
+    );
+  });
+
+  test('includes per-agent model overrides with their labelled form', () => {
+    expect(formatOverridesSummary({ planCritModel: 'openai/a' })).toBe(' [plan-crit-model=openai/a]');
+    expect(formatOverridesSummary({ fanoutModel: 'openai/b' })).toBe(' [fanout-model=openai/b]');
+    expect(formatOverridesSummary({ criticModel: 'openai/c' })).toBe(' [critic-model=openai/c]');
+    expect(
+      formatOverridesSummary({
+        model: 'openai/top',
+        planCritModel: 'openai/a',
+        fanoutModel: 'openai/b',
+        criticModel: 'openai/c',
+        fanoutMaxTurns: 5,
+        criticMaxTurns: 6,
+      }),
+    ).toBe(
+      ' [model=openai/top plan-crit-model=openai/a fanout-model=openai/b critic-model=openai/c fanout-max-turns=5 critic-max-turns=6]',
     );
   });
 });
