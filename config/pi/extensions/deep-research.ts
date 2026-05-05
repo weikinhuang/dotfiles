@@ -909,7 +909,13 @@ async function runResearchFlow(args: {
   // questions — refinement cannot fix them. Surface a targeted
   // resume hint and fold it into the tool summary so the LLM sees
   // it too.
-  const stubHint = formatStubHint(outcome.runRoot);
+  //
+  // The review-wire now short-circuits on stubbed reports and
+  // emits an equivalent "review skipped" notify before returning
+  // `kind: 'stubbed'`. Skip the post-loop hint on that path to
+  // avoid a double-emit — `review.summary` already carries the
+  // recovery command for the tool-summary fold below.
+  const stubHint = review?.outcome.kind === 'stubbed' ? null : formatStubHint(outcome.runRoot);
   if (stubHint) notify(stubHint, 'warning');
 
   return {
@@ -1311,7 +1317,10 @@ async function runResumeReviewStage(args: {
   onPhase({ kind: 'done', message: doneMessage });
   liveBudget.appendSummary();
 
-  const stubHint = formatStubHint(runRoot);
+  // Stubbed-report short-circuit already notified via
+  // `runDeepResearchReview`; skip the post-loop hint to avoid a
+  // duplicate "review skipped" message.
+  const stubHint = review?.outcome.kind === 'stubbed' ? null : formatStubHint(runRoot);
   if (stubHint) notify(stubHint, 'warning');
 }
 
@@ -1502,7 +1511,11 @@ async function runResumePipelineStage(args: {
   onPhase({ kind: 'done', message: doneMessage });
   liveBudget.appendSummary();
 
-  const stubHint = formatStubHint(outcome.runRoot);
+  // Stubbed-report short-circuit already notified via
+  // `runDeepResearchReview`; skip the post-loop hint on the
+  // resume pipeline path too so fresh-run and resume paths stay
+  // symmetric.
+  const stubHint = review?.outcome.kind === 'stubbed' ? null : formatStubHint(outcome.runRoot);
   if (stubHint) notify(stubHint, 'warning');
 }
 

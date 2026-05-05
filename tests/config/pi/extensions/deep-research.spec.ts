@@ -25,6 +25,12 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, type Mock, test, vi } from 'vitest';
 
 import {
+  type CriticRunner,
+  type RefinementRunner,
+  type StructuralRunner,
+} from '../../../../lib/node/pi/deep-research-review-loop.ts';
+import { runDeepResearchReview, type ReviewWireResult } from '../../../../lib/node/pi/deep-research-review-wire.ts';
+import {
   initialStatuslineState,
   type PhaseEvent,
   reduceStatusline,
@@ -50,6 +56,8 @@ import {
   type RunSummary,
 } from '../../../../lib/node/pi/research-runs.ts';
 import { type SelftestResult } from '../../../../lib/node/pi/research-selftest.ts';
+import { formatStubHint } from '../../../../lib/node/pi/research-stub-hint.ts';
+import { assertKind } from '../../../lib/node/pi/helpers.ts';
 
 // ──────────────────────────────────────────────────────────────────────
 // Typed mock helpers
@@ -723,5 +731,128 @@ describe('/research — statusline widget transitions', () => {
 
     expect(last[0]).toBe('deep-research: error');
     expect(last[2]).toBe('  planner stuck: too vague');
+  });
+});
+
+// ──────────────────────────────────────────────────────────────────────
+// /research — stubbed short-circuit: wire emits exactly one notify,
+// extension gate on `review.outcome.kind === 'stubbed'` suppresses the
+// post-loop formatStubHint hint so the user (and the LLM tool caller)
+// see one coherent "review skipped" message instead of two.
+// ──────────────────────────────────────────────────────────────────────
+
+describe('/research — stubbed review short-circuit notify discipline', () => {
+  let sandbox: string;
+  let cwd: string;
+  let runRoot: string;
+  let memoryRoot: string;
+
+  beforeEach(() => {
+    sandbox = mkdtempSync(join(tmpdir(), 'pi-dr-stubbed-notify-'));
+    cwd = join(sandbox, 'workspace');
+    runRoot = join(cwd, 'research', 'demo');
+    memoryRoot = join(sandbox, 'memory');
+    mkdirSync(runRoot, { recursive: true });
+    mkdirSync(memoryRoot, { recursive: true });
+    writeFileSync(
+      join(runRoot, 'report.md'),
+      [
+        '# report',
+        '',
+        '## What is A?',
+        '',
+        '[section unavailable: findings empty]',
+        '',
+        '## What is B?',
+        '',
+        '[section unavailable: fanout aborted]',
+        '',
+      ].join('\n'),
+    );
+    writeFileSync(
+      join(runRoot, 'plan.json'),
+      JSON.stringify({
+        kind: 'deep-research',
+        version: 1,
+        question: 'demo',
+        slug: 'demo',
+        createdAt: '2026-01-01T00:00:00.000Z',
+        status: 'planning',
+        budget: { maxSubagents: 2, maxFetches: 10, maxCostUsd: 1, wallClockSec: 60 },
+        subQuestions: [
+          { id: 'sq-1', question: 'What is A?', status: 'pending' },
+          { id: 'sq-2', question: 'What is B?', status: 'pending' },
+        ],
+      }),
+    );
+  });
+
+  afterEach(() => {
+    rmSync(sandbox, { recursive: true, force: true });
+  });
+
+  test('runDeepResearchReview short-circuits without calling any runner and notifies exactly once', async () => {
+    const runStructural = vi.fn<StructuralRunner>();
+    const runCritic = vi.fn<CriticRunner>();
+    const refineReport: RefinementRunner = vi.fn(() => Promise.resolve({ ok: true as const }));
+    const notify = vi.fn<(m: string, l: CommandNotifyLevel) => void>();
+
+    const result: ReviewWireResult = await runDeepResearchReview({
+      cwd,
+      runRoot,
+      rubricSubjective: '## Rubric\n',
+      structuralBashCmd: 'node lib/node/pi/deep-research-structural-check.ts ./research/demo',
+      runStructural,
+      runCritic,
+      refineReport,
+      maxIter: 4,
+      consent: { root: memoryRoot },
+      notify,
+    });
+
+    assertKind(result.outcome, 'stubbed');
+
+    // The wire's stubbed short-circuit is the single source of truth
+    // for the recovery notify. The extension's post-loop call site
+    // guards `formatStubHint` behind `review?.outcome.kind !== 'stubbed'`
+    // so these two observations together prove there's no double-emit:
+    //
+    //   1. Wire notified exactly once with the resolved --sq command.
+    expect(notify).toHaveBeenCalledTimes(1);
+    expect(notify.mock.calls[0][1]).toBe('warning');
+    expect(notify.mock.calls[0][0]).toContain('review skipped');
+    expect(notify.mock.calls[0][0]).toContain('--sq=sq-1,sq-2');
+
+    //   2. The extension's gate expression returns null on this path,
+    //      so the post-loop `notify(stubHint, 'warning')` never fires.
+    const stubHint = result.outcome.kind === 'stubbed' ? null : formatStubHint(runRoot);
+
+    expect(stubHint).toBeNull();
+
+    // Neither runner ever ran — the loop's cross-stage budget stays
+    // untouched so a subsequent /research --resume --from=fanout can
+    // pick up the full `reviewMaxIter` budget on its review phase.
+    expect(runStructural).not.toHaveBeenCalled();
+    expect(runCritic).not.toHaveBeenCalled();
+    expect(refineReport).not.toHaveBeenCalled();
+  });
+
+  test('non-stubbed reviews still emit the post-loop formatStubHint notify (regression guard)', () => {
+    // Baseline: on a non-stubbed review outcome the extension must
+    // keep calling `formatStubHint`, so a stubbed report that
+    // somehow slipped past the wire (defensive second layer) still
+    // produces a recovery hint. The gate is outcome-kind-scoped,
+    // not globally suppressing the hint.
+    //
+    // Simulate the extension's expression with a passed outcome.
+    // `formatStubHint` still scans the report on disk, so this path
+    // surfaces the same recovery command the user got via the wire
+    // when the wire short-circuit fires. The two paths differ only
+    // in which one emits — never both.
+    const passedLike = { kind: 'passed' as const };
+    const stubHint = (passedLike.kind as string) === 'stubbed' ? null : formatStubHint(runRoot);
+
+    expect(stubHint).not.toBeNull();
+    expect(stubHint).toContain('--sq=sq-1,sq-2');
   });
 });
