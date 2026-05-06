@@ -234,9 +234,33 @@ export function tailJournal(journalPath: string, n: number): JournalEntry[] {
 const COST_DELTA_HEADING = /^cost delta · (.+?) · ([0-9]+(?:\.[0-9]+)?) USD$/;
 
 /**
- * Sum every `cost delta · <phase> · <USD> USD` heading in the
- * journal and return the aggregate USD total. Missing journal or
- * no cost entries returns `0`.
+ * Regex matching the `total=<USD> USD …` line at the bottom of a
+ * `cost report` entry body (written by
+ * `research-budget-live.appendSummary`). Multi-line flag anchors
+ * it to the start of a body line — the body also contains
+ * `phase=<name> spent=<USD> USD wall=<seconds>s` lines which the
+ * regex explicitly does NOT match (would double-count against the
+ * `total=` line). Group 1 is the dollar amount.
+ */
+const COST_REPORT_TOTAL_LINE = /^total=([0-9]+(?:\.[0-9]+)?) USD\b/m;
+
+/**
+ * Sum cumulative USD spend recorded in the journal. Prefers
+ * per-turn `cost delta · <phase> · <USD> USD` headings written by
+ * `research-cost-hook.createCostHook` — those are higher
+ * resolution and survive resumes as a natural append. Falls back
+ * to the `total=<USD> USD` line inside every `cost report` entry
+ * body written by `research-budget-live.appendSummary` at
+ * pipeline exit, summing across multiple reports so resumes
+ * accumulate.
+ *
+ * Concretely: returns `max(sumDeltas, sumReportTotals)`. When
+ * both sources are populated for the same work they should agree
+ * (the report total IS the sum of per-turn deltas); `max` is
+ * defensive against either side under-reporting. The edge case
+ * where one resume segment has only deltas and another has only a
+ * cost report would under-report — documented but not handled,
+ * since the common case is uniform hook behavior per run.
  *
  * Used by `/research --list` to surface a real cost column
  * (plan.json doesn't track cost) and by the `/research --resume`
@@ -249,13 +273,22 @@ const COST_DELTA_HEADING = /^cost delta · (.+?) · ([0-9]+(?:\.[0-9]+)?) USD$/;
  */
 export function sumJournalCostUsd(journalPath: string): number {
   const entries = readJournal(journalPath);
-  let total = 0;
+  let deltaSum = 0;
+  let reportSum = 0;
   for (const entry of entries) {
-    const match = COST_DELTA_HEADING.exec(entry.heading);
-    if (!match) continue;
-    const usd = Number(match[2]);
-    if (!Number.isFinite(usd) || usd < 0) continue;
-    total += usd;
+    const deltaMatch = COST_DELTA_HEADING.exec(entry.heading);
+    if (deltaMatch) {
+      const usd = Number(deltaMatch[2]);
+      if (Number.isFinite(usd) && usd >= 0) deltaSum += usd;
+      continue;
+    }
+    if (entry.heading === 'cost report' && entry.body) {
+      const reportMatch = COST_REPORT_TOTAL_LINE.exec(entry.body);
+      if (reportMatch) {
+        const usd = Number(reportMatch[1]);
+        if (Number.isFinite(usd) && usd >= 0) reportSum += usd;
+      }
+    }
   }
-  return total;
+  return Math.max(deltaSum, reportSum);
 }

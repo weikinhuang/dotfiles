@@ -311,4 +311,96 @@ describe('sumJournalCostUsd', () => {
 
     expect(sumJournalCostUsd(journal)).toBeCloseTo(0.261, 6);
   });
+
+  test('falls back to `cost report` body total when no cost-delta entries exist', () => {
+    // Shape written by research-budget-live.appendSummary at
+    // pipeline exit: per-phase `phase=...spent=...USD` lines, then
+    // a blank line, then a `total=<USD> USD wall=<s>s` line. This
+    // is what real pipeline runs produce today; the cost-hook path
+    // that writes `cost delta` headings depends on
+    // `usage.cost.total` being populated by the provider SDK, which
+    // does not always happen (e.g. llama-cpp / self-hosted).
+    appendJournal(journal, {
+      level: 'step',
+      heading: 'cost report',
+      body: [
+        'phase=planner spent=0.000455 USD wall=49.42s',
+        'phase=plan-crit spent=0.000257 USD wall=33.48s',
+        'phase=fanout spent=0.000583 USD wall=477.22s',
+        'phase=synth spent=0.000129 USD wall=61.40s',
+        '',
+        'total=0.001424 USD wall=621.53s',
+      ].join('\n'),
+    });
+
+    expect(sumJournalCostUsd(journal)).toBeCloseTo(0.001424, 6);
+  });
+
+  test('sums `total=` across multiple `cost report` entries (resume case)', () => {
+    // Prior run wrote its own cost report, resume run wrote another.
+    // Cumulative spend is the sum of both totals.
+    appendJournal(journal, {
+      level: 'step',
+      heading: 'cost report',
+      body: 'phase=planner spent=1.00 USD wall=10.00s\n\ntotal=1.000000 USD wall=10.00s',
+    });
+    appendJournal(journal, {
+      level: 'step',
+      heading: 'cost report',
+      body: 'phase=fanout spent=2.50 USD wall=30.00s\n\ntotal=2.500000 USD wall=30.00s',
+    });
+
+    expect(sumJournalCostUsd(journal)).toBeCloseTo(3.5, 6);
+  });
+
+  test('ignores cost-report entries with no parseable total line', () => {
+    appendJournal(journal, {
+      level: 'step',
+      heading: 'cost report',
+      body: 'phase=planner spent=0.5 USD wall=10.00s',
+    });
+    appendJournal(journal, {
+      level: 'step',
+      heading: 'cost report',
+      body: 'total=not-a-number USD',
+    });
+    appendJournal(journal, {
+      level: 'step',
+      heading: 'cost report',
+      // Heading-only report (no body).
+    });
+
+    expect(sumJournalCostUsd(journal)).toBe(0);
+  });
+
+  test('only `cost report` heading (not a nested body line) is matched', () => {
+    // A step entry whose heading happens to contain `cost report`
+    // as part of a longer string must NOT be parsed as a cost
+    // report. The match requires the heading to equal 'cost report'
+    // exactly.
+    appendJournal(journal, {
+      level: 'step',
+      heading: 'emit cost report summary',
+      body: 'total=99.0 USD wall=0s',
+    });
+
+    expect(sumJournalCostUsd(journal)).toBe(0);
+  });
+
+  test('returns max when both cost-delta and cost-report sources are present', () => {
+    // Both sources populated for the same work should agree, but
+    // if they drift (e.g. a turn missed by the hook), `max` is
+    // defensive and picks the larger figure.
+    appendJournal(journal, { level: 'step', heading: 'cost delta · planning · 0.400 USD' });
+    appendJournal(journal, { level: 'step', heading: 'cost delta · fanout · 0.500 USD' });
+    appendJournal(journal, {
+      level: 'step',
+      heading: 'cost report',
+      // Hook sum = 0.9, but the report total is higher (1.0);
+      // report total wins because we take the max.
+      body: 'total=1.000000 USD wall=10s',
+    });
+
+    expect(sumJournalCostUsd(journal)).toBeCloseTo(1.0, 6);
+  });
 });
