@@ -86,6 +86,7 @@ interface ParsedSession {
   tokens: SessionTokens;
   toolCalls: number;
   toolBreakdown: Record<string, number>;
+  lastContextTokens?: number;
 }
 
 interface OpencodeMessageTokens {
@@ -119,6 +120,10 @@ function parseSessionData(db: DatabaseSync, sessionId: string): ParsedSession {
   let cost = 0;
   const tokens: SessionTokens = { input: 0, cacheRead: 0, cacheWrite: 0, output: 0, reasoning: 0 };
   const assistantMessageIds: string[] = [];
+  // Context consumed on the most recent assistant turn. Messages are ordered
+  // by time_created, so the last assistant row encountered is the latest
+  // completed turn. Context = input + cache.write + cache.read.
+  let lastContextTokens: number | undefined;
 
   for (const m of messages) {
     let d: OpencodeMessageData;
@@ -140,6 +145,8 @@ function parseSessionData(db: DatabaseSync, sessionId: string): ParsedSession {
       tokens.reasoning! += t.reasoning ?? 0;
       tokens.cacheWrite! += t.cache?.write ?? 0;
       tokens.cacheRead += t.cache?.read ?? 0;
+      const turnInput = (t.input ?? 0) + (t.cache?.write ?? 0) + (t.cache?.read ?? 0);
+      if (turnInput > 0) lastContextTokens = turnInput;
     }
   }
 
@@ -165,7 +172,7 @@ function parseSessionData(db: DatabaseSync, sessionId: string): ParsedSession {
     }
   }
 
-  return { userTurns, model, agent, cost, tokens, toolCalls, toolBreakdown };
+  return { userTurns, model, agent, cost, tokens, toolCalls, toolBreakdown, lastContextTokens };
 }
 
 function rowToSummary(row: SessionRow, parsed: ParsedSession, subagentCount: number): SessionSummary {
@@ -189,6 +196,7 @@ function rowToSummary(row: SessionRow, parsed: ParsedSession, subagentCount: num
   if (row.directory) summary.directory = row.directory;
   if (row.version) summary.version = row.version;
   if (parsed.cost > 0) summary.cost = parsed.cost;
+  if (parsed.lastContextTokens !== undefined) summary.lastContextTokens = parsed.lastContextTokens;
   return summary;
 }
 
