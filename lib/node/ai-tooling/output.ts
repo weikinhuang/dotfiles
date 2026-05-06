@@ -251,6 +251,15 @@ function buildListColumns(sessions: SessionSummary[]): ListColumn[] {
     color: COLORS.output,
     get: (s) => fmtSi(s.tokens.output),
   });
+  if (sessions.some((s) => s.lastContextTokens !== undefined)) {
+    cols.push({
+      header: 'CONTEXT',
+      width: 8,
+      align: 'right',
+      color: COLORS.context,
+      get: (s) => (s.lastContextTokens !== undefined ? fmtSi(s.lastContextTokens) : ''),
+    });
+  }
   cols.push({
     header: 'TOOLS',
     width: 6,
@@ -340,7 +349,7 @@ function printLabeledValue(label: string, value: string, labelWidth = 28): void 
   console.log(`  ${c(COLORS.label, label.padEnd(labelWidth))} ${value}`);
 }
 
-function printTokenBlock(tokens: SessionTokens, cost?: number): void {
+function printTokenBlock(tokens: SessionTokens, cost?: number, lastContextTokens?: number): void {
   console.log(c(COLORS.bold, 'Tokens'));
   printLabeledValue('Input', c(COLORS.input, fmtSi(tokens.input)));
   if ((tokens.cacheWrite ?? 0) > 0) {
@@ -350,6 +359,12 @@ function printTokenBlock(tokens: SessionTokens, cost?: number): void {
   printLabeledValue('Output', c(COLORS.output, fmtSi(tokens.output)));
   if ((tokens.reasoning ?? 0) > 0) {
     printLabeledValue('Reasoning', c(COLORS.reasoning, fmtSi(tokens.reasoning!)));
+  }
+  if (lastContextTokens !== undefined) {
+    // "Last turn" because logs only ever show the context the model saw on
+    // the most recently completed assistant response — the next request adds
+    // whatever the user has typed and any new tool results on top of it.
+    printLabeledValue('Context (last turn)', c(COLORS.context, fmtSi(lastContextTokens)));
   }
   if ((cost ?? 0) > 0) {
     printLabeledValue('Cost', c(COLORS.cost, fmtCost(cost!)));
@@ -471,7 +486,7 @@ export function printSessionDetail(detail: SessionDetail): void {
   }
   console.log();
 
-  printTokenBlock(detail.tokens, detail.cost);
+  printTokenBlock(detail.tokens, detail.cost, detail.lastContextTokens);
   printModelBreakdown(detail.modelBreakdown);
   printToolsSection(detail);
   printSkills(detail.skills);
@@ -551,6 +566,8 @@ function summaryToJson(s: SessionSummary): Record<string, unknown> {
   if (s.skills !== undefined) obj.skills = s.skills;
   if (s.cost !== undefined) obj.cost = s.cost;
   if (s.modelBreakdown !== undefined) obj.model_breakdown = modelBreakdownToJson(s.modelBreakdown);
+  if (s.lastContextTokens !== undefined) obj.last_context_tokens = s.lastContextTokens;
+  if (s.contextWindow !== undefined) obj.context_window = s.contextWindow;
   return obj;
 }
 

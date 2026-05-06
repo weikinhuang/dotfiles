@@ -18,6 +18,7 @@ export const COLORS = {
   tools: '\x1b[38;5;173m',
   agents: '\x1b[38;5;109m',
   cost: '\x1b[38;5;220m',
+  context: '\x1b[38;5;117m',
   header: '\x1b[38;5;244m',
   totals: '\x1b[38;5;179m',
 } as const;
