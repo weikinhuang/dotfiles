@@ -92,6 +92,7 @@ import {
   type ResearchSessionFlag,
   type ResearchToolRunOutcome,
 } from '../../../lib/node/pi/deep-research-tool.ts';
+import { withTransientRetry } from '../../../lib/node/pi/fanout-retry.ts';
 import { buildCriticTask, parseVerdict } from '../../../lib/node/pi/iteration-loop-check-critic.ts';
 import { type Verdict } from '../../../lib/node/pi/iteration-loop-schema.ts';
 import { createAiFetchWebCliClientFromEnv } from '../../../lib/node/pi/research-ai-fetch-web-cli-client.ts';
@@ -1829,19 +1830,40 @@ function buildSyncFanoutSpawner<M>(
               ...(liveBudget ? { tracker: liveBudget.trackerFor('fanout') } : {}),
             })
           : undefined;
-      const run = await runOneShotAgent({
-        deps: { createAgentSession, DefaultResourceLoader, SessionManager, getAgentDir },
-        cwd: ctx.cwd,
-        agent,
-        model: resolution.model,
-        task: args.task.prompt,
-        modelRegistry: modelRegistry as never,
-        agentDir: getAgentDir(),
-        sessionManager: makeSubagentSessionManager(ctx),
-        ...(costHook ? { onEvent: costHook.onEvent } : {}),
-        ...(args.signal ? { signal: args.signal } : {}),
-        ...(maxTurnsOverride !== undefined ? { maxTurns: maxTurnsOverride } : {}),
-      });
+      // Retry on transient network failures (Connection error /
+      // ECONNRESET / 429 / 5xx) so a brief backend blip doesn't kill
+      // the whole fanout batch. Observed failure mode: N concurrent
+      // subagents against a single local-model backend all hit a
+      // connection error at the same millisecond when the backend
+      // overloads. Jittered backoff in `withTransientRetry` prevents
+      // the retries from re-colliding at the same instant. Scoped to
+      // this callSite only — the fanout's own idempotency (one
+      // finding file per sub-question) + `--resume --from=fanout`
+      // remain the authoritative recovery mechanism for persistent
+      // failures. maxAttempts=3 means initial + 2 retries, ~4.5s
+      // total worst-case wait.
+      const run = await withTransientRetry(
+        () =>
+          runOneShotAgent({
+            deps: { createAgentSession, DefaultResourceLoader, SessionManager, getAgentDir },
+            cwd: ctx.cwd,
+            agent,
+            model: resolution.model,
+            task: args.task.prompt,
+            modelRegistry: modelRegistry as never,
+            agentDir: getAgentDir(),
+            sessionManager: makeSubagentSessionManager(ctx),
+            ...(costHook ? { onEvent: costHook.onEvent } : {}),
+            ...(args.signal ? { signal: args.signal } : {}),
+            ...(maxTurnsOverride !== undefined ? { maxTurns: maxTurnsOverride } : {}),
+          }),
+        {
+          maxAttempts: 3,
+          initialDelayMs: 1500,
+          maxDelayMs: 8000,
+          ...(args.signal ? { signal: args.signal } : {}),
+        },
+      );
       if (run.stopReason === 'completed') {
         result = { ok: true, output: run.finalText };
       } else if (run.stopReason === 'aborted') {
@@ -2266,20 +2288,35 @@ function safeReadFile(path: string): string | null {
  * `ai-tool-usage` had no evidence the research runs ever ran.
  *
  * Call per spawn (every research subagent gets its own jsonl in
- * that directory). Falls back to `SessionManager.inMemory(ctx.cwd)`
- * when the parent session id / dir is unavailable (in-memory test
- * harnesses, resume flows before a file-backed session exists) so
- * the pipeline never crashes on the persistence path.
+ * that directory). **Throws** when the parent session has no id
+ * or no dir (rare — typically `pi -p --no-session` or an in-memory
+ * test harness). Prior to this guard the helper silently fell back
+ * to `SessionManager.inMemory(ctx.cwd)` and child transcripts were
+ * dropped on the floor, which broke both cost/audit attribution
+ * (`pi session-usage` / `ai-tool-usage` had no evidence the run
+ * ever existed) and debuggability (no forensic trail when a fanout
+ * subagent errored). Callers that genuinely need an ephemeral
+ * run should surface the precondition to the user instead of
+ * burying it.
  */
 function makeSubagentSessionManager(ctx: ExtensionCommandContext): SessionManager {
+  let parentId: string | undefined;
+  let parentDir: string | undefined;
   try {
-    const parentId = ctx.sessionManager.getSessionId();
-    const parentDir = ctx.sessionManager.getSessionDir();
-    if (parentId && parentDir) {
-      return SessionManager.create(ctx.cwd, join(parentDir, 'subagents', parentId));
-    }
-  } catch {
-    /* swallow — fall through to in-memory below */
+    parentId = ctx.sessionManager.getSessionId();
+    parentDir = ctx.sessionManager.getSessionDir();
+  } catch (e) {
+    throw new Error(
+      `deep-research: cannot persist subagent session — parent sessionManager threw while reading id/dir (${(e as Error).message}). ` +
+        'Restart pi without --no-session (or set --session-dir) so subagent transcripts can be recorded for cost + audit tracking.',
+    );
   }
-  return SessionManager.inMemory(ctx.cwd);
+  if (!parentId || !parentDir) {
+    throw new Error(
+      'deep-research: cannot persist subagent session — parent session has no id/dir (running pi with --no-session?). ' +
+        'Restart pi without --no-session (or set --session-dir) so subagent transcripts are recorded for cost + audit tracking. ' +
+        'deep-research refuses to run against an untracked parent session because every fanout/synth/critic spawn would silently drop its transcript.',
+    );
+  }
+  return SessionManager.create(ctx.cwd, join(parentDir, 'subagents', parentId));
 }
