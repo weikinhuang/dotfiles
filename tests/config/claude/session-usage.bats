@@ -80,6 +80,9 @@ EOF
   # Tool calls are counted across every slice (each entry's tool_use blocks
   # are distinct partial chunks of the full response).
   assert_equal "$(jq '.totals.tool_calls' <<<"${output}")" 2
+  # Last-turn context = m2's input + cache_read + cache_write = 20 + 500 + 0.
+  # Must NOT be m1's dedup-inflated value.
+  assert_equal "$(jq '.sessions[0].last_context_tokens' <<<"${output}")" 520
 }
 
 @test "claude: mixed-model session prices each slice at its own rate" {

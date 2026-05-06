@@ -133,6 +133,7 @@ interface ParsedEntries {
   skills: string[];
   userTurns: number;
   preview: string;
+  lastContextTokens?: number;
 }
 
 function emptyTokens(): SessionTokens {
@@ -158,6 +159,12 @@ function parseEntries(entries: ClaudeEntry[]): ParsedEntries {
   // double-count tokens — tool_use blocks are still aggregated across all
   // entries since they are partial slices of the complete response.
   const countedMessageIds = new Set<string>();
+  // Track the most recent assistant turn's context consumption (input +
+  // cache_creation + cache_read). Since JSONL entries are in chronological
+  // order and each distinct message.id carries an identical `usage` object,
+  // overwriting on every newly-seen id yields the last completed turn.
+  let lastAssistantMsgId = '';
+  let lastContextTokens: number | undefined;
 
   for (const entry of entries) {
     if (typeof entry !== 'object' || entry === null) continue;
@@ -179,6 +186,13 @@ function parseEntries(entries: ClaudeEntry[]): ParsedEntries {
         const dCw = u.cache_creation_input_tokens ?? 0;
         const dCr = u.cache_read_input_tokens ?? 0;
         const dOut = u.output_tokens ?? 0;
+        if (msgId && msgId !== lastAssistantMsgId) {
+          lastAssistantMsgId = msgId;
+          lastContextTokens = dIn + dCw + dCr;
+        } else if (!msgId) {
+          // No id — still track the latest usage we saw.
+          lastContextTokens = dIn + dCw + dCr;
+        }
         tokens.input += dIn;
         tokens.cacheWrite! += dCw;
         tokens.cacheRead += dCr;
@@ -285,6 +299,7 @@ function parseEntries(entries: ClaudeEntry[]): ParsedEntries {
     skills: [...new Set(skills)].sort(),
     userTurns,
     preview,
+    lastContextTokens,
   };
 }
 
@@ -309,6 +324,7 @@ function buildSummary(sessionId: string, parsed: ParsedEntries, subagentCount: n
   if (parsed.skills.length > 0) summary.skills = parsed.skills;
   if (parsed.modelBreakdown.length > 0) summary.modelBreakdown = parsed.modelBreakdown;
   if (parsed.preview) summary.preview = parsed.preview;
+  if (parsed.lastContextTokens !== undefined) summary.lastContextTokens = parsed.lastContextTokens;
   return summary;
 }
 

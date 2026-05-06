@@ -85,6 +85,14 @@ CLI that scans `~/.claude/projects/` for session transcripts and prints summarie
 - **`--json`** — machine-readable JSON output.
 - **`--no-color`** — disable ANSI colors.
 
+### Columns and fields
+
+The list / detail views include a `CONTEXT` column (and `Context (last turn)` row in detail) when sessions carry
+per-turn usage. The value is the input tokens sent to the model on the most recently completed assistant response
+(`input_tokens + cache_creation_input_tokens + cache_read_input_tokens`). It is **not** a prediction of what the next
+request will send — the next request will add any post-assistant user text and tool results on top. JSON output exposes
+the same value as `last_context_tokens`.
+
 ## `settings-baseline.json`
 
 A reference baseline config for Claude Code.
