@@ -188,6 +188,14 @@ export interface PipelineDeps<M> {
    */
   maxConcurrent?: number;
   /**
+   * Wall-clock override for the fanout (seconds). When set,
+   * overrides `plan.budget.wallClockSec` when building the
+   * `FanoutSpec`. Wired from the user's `--wall-clock` /
+   * `wallClockSec` override so local-model runs can extend
+   * beyond the planner's default without editing `plan.json`.
+   */
+  wallClockSecOverride?: number;
+  /**
    * Optional McpClient used to populate the run's source store
    * after fanout lands. The synth stage drops citations for URLs
    * that aren't present in `sources/<hash>.md`, so without this
@@ -647,7 +655,7 @@ async function runFanoutPhase<M>(args: FanoutPhaseArgs<M>): Promise<FanoutResult
       id: sq.id,
       prompt: renderWebResearcherPrompt(plan, sq.id, runRoot),
     })),
-    wallClockSec: plan.budget.wallClockSec,
+    wallClockSec: deps.wallClockSecOverride ?? plan.budget.wallClockSec,
     ...(deps.maxConcurrent !== undefined
       ? { maxConcurrent: deps.maxConcurrent }
       : { maxConcurrent: plan.budget.maxSubagents }),

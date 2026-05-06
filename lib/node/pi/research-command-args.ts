@@ -41,6 +41,14 @@
  *   `--critic-max-turns N`       uniform maxTurns override for both
  *                                the research-planning-critic and
  *                                the subjective critic spawns.
+ *   `--fanout-parallel N`        cap on simultaneous web-researcher
+ *                                workers; `N=1` runs them serially.
+ *                                Overrides `plan.budget.maxSubagents`
+ *                                for the current run only.
+ *   `--wall-clock <dur>`         override the run's wall-clock budget.
+ *                                Accepts a bare integer (seconds) or
+ *                                a suffixed duration (`90s` / `30m` /
+ *                                `2h`); clamp at 24h.
  *
  * The `=` form (`--flag=value`) is supported alongside the
  * space-separated form (`--flag value`).
@@ -98,6 +106,22 @@ export interface ResearchOverrides {
    * `budget-exhausted` outcome.
    */
   reviewMaxIter?: number;
+  /**
+   * Hard cap on the number of web-researcher fanout workers
+   * running in parallel. Overrides `plan.budget.maxSubagents`
+   * for the current run; `1` forces serial execution, which is
+   * the sane shape when pointing fanout at a single local model
+   * (llama.cpp / Ollama) that can't handle concurrent requests.
+   */
+  fanoutParallel?: number;
+  /**
+   * Wall-clock override (seconds). Replaces the
+   * `plan.budget.wallClockSec` value {@link ../deep-research-pipeline}
+   * passes to the fanout. Useful for local-model runs where 2h+
+   * is realistic; the slash-command parser accepts
+   * `h` / `m` / `s` suffixes and normalises to seconds here.
+   */
+  wallClockSec?: number;
 }
 
 /**
@@ -222,6 +246,56 @@ export function parseMaxTurns(flag: string, raw: string): number | { error: stri
   return n;
 }
 
+/**
+ * Validate a `--fanout-parallel` value. Positive integer, capped
+ * at 64 (sanity bound — real fanouts rarely exceed a dozen; the
+ * cap guards against pasted garbage).
+ */
+export function parseParallel(flag: string, raw: string): number | { error: string } {
+  if (!/^[0-9]+$/.test(raw)) {
+    return { error: `${flag} must be a positive integer, got ${JSON.stringify(raw)}` };
+  }
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n <= 0) {
+    return { error: `${flag} must be a positive integer, got ${JSON.stringify(raw)}` };
+  }
+  if (n > 64) {
+    return { error: `${flag}=${n} exceeds the 64-worker cap` };
+  }
+  return n;
+}
+
+/** Hard ceiling for wall-clock overrides: 24h = 86400s. */
+const WALL_CLOCK_MAX_SEC = 86_400;
+
+/**
+ * Parse a `--wall-clock` value. Accepts:
+ *   - bare positive integer (interpreted as seconds),
+ *   - `Ns` / `Nm` / `Nh` with a positive integer `N`.
+ *
+ * Returns the value in seconds, clamped to {@link WALL_CLOCK_MAX_SEC}.
+ * Fractional durations are rejected — if the user wants 90 minutes
+ * they can write `90m` or `5400s` / `5400`.
+ */
+export function parseWallClockSec(flag: string, raw: string): number | { error: string } {
+  const match = /^([0-9]+)(s|m|h)?$/.exec(raw);
+  if (!match) {
+    return {
+      error: `${flag} must be a positive integer number of seconds, optionally suffixed with s/m/h, got ${JSON.stringify(raw)}`,
+    };
+  }
+  const n = Number(match[1]);
+  if (!Number.isInteger(n) || n <= 0) {
+    return { error: `${flag} must be a positive integer, got ${JSON.stringify(raw)}` };
+  }
+  const unit = match[2] ?? 's';
+  const seconds = unit === 'h' ? n * 3600 : unit === 'm' ? n * 60 : n;
+  if (seconds > WALL_CLOCK_MAX_SEC) {
+    return { error: `${flag}=${raw} exceeds the 24h cap (${WALL_CLOCK_MAX_SEC}s)` };
+  }
+  return seconds;
+}
+
 // -------------------------------------------------------------------
 // Main parser.
 // -------------------------------------------------------------------
@@ -233,6 +307,8 @@ type KnownFlag =
   | '--critic-model'
   | '--fanout-max-turns'
   | '--critic-max-turns'
+  | '--fanout-parallel'
+  | '--wall-clock'
   | '--run-root'
   | '--from'
   | '--sq'
@@ -244,6 +320,8 @@ const KNOWN_FLAGS: readonly KnownFlag[] = [
   '--critic-model',
   '--fanout-max-turns',
   '--critic-max-turns',
+  '--fanout-parallel',
+  '--wall-clock',
   '--run-root',
   '--from',
   '--sq',
@@ -397,6 +475,24 @@ function applyFlag(
       overrides.reviewMaxIter = parsed;
       return { ok: true };
     }
+    case '--fanout-parallel': {
+      if (overrides.fanoutParallel !== undefined) {
+        return { ok: false, error: `--fanout-parallel may only be specified once` };
+      }
+      const parsed = parseParallel('--fanout-parallel', value);
+      if (typeof parsed !== 'number') return { ok: false, error: parsed.error };
+      overrides.fanoutParallel = parsed;
+      return { ok: true };
+    }
+    case '--wall-clock': {
+      if (overrides.wallClockSec !== undefined) {
+        return { ok: false, error: `--wall-clock may only be specified once` };
+      }
+      const parsed = parseWallClockSec('--wall-clock', value);
+      if (typeof parsed !== 'number') return { ok: false, error: parsed.error };
+      overrides.wallClockSec = parsed;
+      return { ok: true };
+    }
     case '--run-root':
     case '--from':
     case '--sq':
@@ -524,6 +620,8 @@ export function validateToolOverrides(input: {
   fanoutMaxTurns?: unknown;
   criticMaxTurns?: unknown;
   reviewMaxIter?: unknown;
+  fanoutParallel?: unknown;
+  wallClockSec?: unknown;
 }): { ok: true; overrides: ResearchOverrides; reviewMaxIter?: number } | { ok: false; error: string } {
   const overrides: ResearchOverrides = {};
 
@@ -565,6 +663,22 @@ export function validateToolOverrides(input: {
     overrides.reviewMaxIter = parsed;
   }
 
+  if (input.fanoutParallel !== undefined) {
+    const n = coerceNumeric(input.fanoutParallel);
+    if (n === null) return { ok: false, error: '`fanoutParallel` must be a positive integer' };
+    const parsed = parseParallel('fanoutParallel', String(n));
+    if (typeof parsed !== 'number') return { ok: false, error: parsed.error };
+    overrides.fanoutParallel = parsed;
+  }
+
+  if (input.wallClockSec !== undefined) {
+    const n = coerceNumeric(input.wallClockSec);
+    if (n === null) return { ok: false, error: '`wallClockSec` must be a positive integer (seconds)' };
+    const parsed = parseWallClockSec('wallClockSec', String(n));
+    if (typeof parsed !== 'number') return { ok: false, error: parsed.error };
+    overrides.wallClockSec = parsed;
+  }
+
   return reviewMaxIter !== undefined ? { ok: true, overrides, reviewMaxIter } : { ok: true, overrides };
 }
 
@@ -593,5 +707,7 @@ export function formatOverridesSummary(overrides: ResearchOverrides, resume?: Re
   if (overrides.fanoutMaxTurns !== undefined) parts.push(`fanout-max-turns=${overrides.fanoutMaxTurns}`);
   if (overrides.criticMaxTurns !== undefined) parts.push(`critic-max-turns=${overrides.criticMaxTurns}`);
   if (overrides.reviewMaxIter !== undefined) parts.push(`review-max-iter=${overrides.reviewMaxIter}`);
+  if (overrides.fanoutParallel !== undefined) parts.push(`fanout-parallel=${overrides.fanoutParallel}`);
+  if (overrides.wallClockSec !== undefined) parts.push(`wall-clock=${overrides.wallClockSec}s`);
   return parts.length > 0 ? ` [${parts.join(' ')}]` : '';
 }

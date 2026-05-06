@@ -181,7 +181,15 @@ const USAGE =
   '                                         subjective critic spawns.\n' +
   '  --review-max-iter N                  cap on cross-stage review iterations (default 4).\n' +
   '                                         Also honored by `--resume` to extend the budget\n' +
-  '                                         on a prior `budget-exhausted` run.';
+  '                                         on a prior `budget-exhausted` run.\n' +
+  '  --fanout-parallel N                  cap simultaneous web-researcher workers. Overrides\n' +
+  '                                         plan.budget.maxSubagents for this run. Set to 1\n' +
+  '                                         when fanout points at a single local model that\n' +
+  '                                         cannot handle concurrent requests.\n' +
+  '  --wall-clock <dur>                   wall-clock override. Accepts a bare integer\n' +
+  '                                         (seconds) or a suffixed duration (`90s` / `30m` /\n' +
+  '                                         `2h`); clamp 24h. Replaces plan.budget.wallClockSec\n' +
+  '                                         for this run.';
 
 /**
  * Statusline widget key, shared between the command handler and
@@ -202,6 +210,12 @@ const STATUSLINE_KEY = 'deep-research';
  *   - `criticMaxTurns`   optional — maxTurns cap for the
  *                        research-planning-critic and the
  *                        subjective critic spawns.
+ *   - `fanoutParallel`   optional — cap on simultaneous fanout
+ *                        workers (overrides plan.budget.maxSubagents).
+ *                        Set to 1 for serial fanout against a single
+ *                        local model.
+ *   - `wallClockSec`     optional — wall-clock override in seconds
+ *                        (overrides plan.budget.wallClockSec).
  */
 const ResearchToolParams = Type.Object({
   question: Type.String({
@@ -253,6 +267,22 @@ const ResearchToolParams = Type.Object({
       maximum: 1000,
       description:
         "Optional cap on cross-stage review iterations (default 4). Raise when the review loop previously hit `budget-exhausted` on fixable issues (e.g. missing citations). On budget exhaustion the returned tool summary carries a closeness verdict (`Near-pass:` / `Stuck:`) and a ready-to-invoke `/research --resume --from=review --review-max-iter <N+2>` command — read the summary before deciding to call the tool again so a `Stuck:` outcome doesn't silently retry against an unsolvable report.",
+    }),
+  ),
+  fanoutParallel: Type.Optional(
+    Type.Integer({
+      minimum: 1,
+      maximum: 64,
+      description:
+        'Optional cap on simultaneous web-researcher fanout workers. Overrides the planner’s `maxSubagents` for this run only. Set to `1` when pointing fanout at a single local model (llama.cpp / Ollama) that can’t handle concurrent requests.',
+    }),
+  ),
+  wallClockSec: Type.Optional(
+    Type.Integer({
+      minimum: 1,
+      maximum: 86_400,
+      description:
+        'Optional wall-clock override for the fanout, in seconds. Replaces the planner’s `wallClockSec` for this run only. Use when a local-model run legitimately needs 2h+ and the planner’s default is too tight. Clamp is 86_400 (24h).',
     }),
   ),
 });
@@ -440,6 +470,8 @@ export default function deepResearchExtension(pi: ExtensionAPI): void {
       'Use `research` only when the user asked for a written research report, not for a single-fact lookup — it takes minutes and spends real model budget.',
       'Only one `research` tool call may be in flight per session; do not issue a second call before the first has returned.',
       'Only set `model`, `fanoutMaxTurns`, or `criticMaxTurns` when the user explicitly asks for one; the defaults (parent session’s model, agent-declared maxTurns) are correct for typical runs. Bump `fanoutMaxTurns` when sub-questions keep hitting max_turns on the web-researcher.',
+      'Set `fanoutParallel` to 1 when fanout points at a single local model (llama.cpp / Ollama) that cannot handle concurrent requests; otherwise leave it unset so the planner’s `maxSubagents` applies.',
+      'Set `wallClockSec` only when the user asks for a longer budget than the planner defaults to — local-model runs regularly need 2h+ (`wallClockSec: 7200`), while hosted-model runs should stick with the planner default.',
       'Bump `reviewMaxIter` (default 4) when the structural/subjective review loop has previously hit `budget-exhausted` on fixable issues — e.g. missing `[^n]` citations — and you want more refinement passes.',
     ],
     parameters: ResearchToolParams,
@@ -453,6 +485,8 @@ export default function deepResearchExtension(pi: ExtensionAPI): void {
         fanoutMaxTurns?: unknown;
         criticMaxTurns?: unknown;
         reviewMaxIter?: unknown;
+        fanoutParallel?: unknown;
+        wallClockSec?: unknown;
       };
       const question = typeof params.question === 'string' ? params.question.trim() : '';
       if (!question) {
@@ -470,6 +504,8 @@ export default function deepResearchExtension(pi: ExtensionAPI): void {
         ...(params.fanoutMaxTurns !== undefined ? { fanoutMaxTurns: params.fanoutMaxTurns } : {}),
         ...(params.criticMaxTurns !== undefined ? { criticMaxTurns: params.criticMaxTurns } : {}),
         ...(params.reviewMaxIter !== undefined ? { reviewMaxIter: params.reviewMaxIter } : {}),
+        ...(params.fanoutParallel !== undefined ? { fanoutParallel: params.fanoutParallel } : {}),
+        ...(params.wallClockSec !== undefined ? { wallClockSec: params.wallClockSec } : {}),
       });
       if (!validated.ok) {
         throw new Error(`research: ${validated.error}`);
@@ -528,6 +564,8 @@ export default function deepResearchExtension(pi: ExtensionAPI): void {
         fanoutMaxTurns?: unknown;
         criticMaxTurns?: unknown;
         reviewMaxIter?: unknown;
+        fanoutParallel?: unknown;
+        wallClockSec?: unknown;
       };
       const q = typeof typed.question === 'string' ? typed.question : '';
       const overrideBits: string[] = [];
@@ -541,6 +579,8 @@ export default function deepResearchExtension(pi: ExtensionAPI): void {
       if (typeof typed.fanoutMaxTurns === 'number') overrideBits.push(`fanout-max-turns=${typed.fanoutMaxTurns}`);
       if (typeof typed.criticMaxTurns === 'number') overrideBits.push(`critic-max-turns=${typed.criticMaxTurns}`);
       if (typeof typed.reviewMaxIter === 'number') overrideBits.push(`review-max-iter=${typed.reviewMaxIter}`);
+      if (typeof typed.fanoutParallel === 'number') overrideBits.push(`fanout-parallel=${typed.fanoutParallel}`);
+      if (typeof typed.wallClockSec === 'number') overrideBits.push(`wall-clock=${typed.wallClockSec}s`);
       const overrides = overrideBits.length > 0 ? ` [${overrideBits.join(' ')}]` : '';
       const label =
         theme.fg('toolTitle', theme.bold('research')) + ' ' + theme.fg('muted', truncateTool(q, 80) + overrides);
@@ -1598,6 +1638,8 @@ function buildPipelineDeps(
     runSynth: true, // Run full synth-sections + merge into report.md.
     ...(mergedSignal ? { signal: mergedSignal } : {}),
     ...(extras.onPhase ? { onPhase: extras.onPhase } : {}),
+    ...(extras.overrides?.fanoutParallel !== undefined ? { maxConcurrent: extras.overrides.fanoutParallel } : {}),
+    ...(extras.overrides?.wallClockSec !== undefined ? { wallClockSecOverride: extras.overrides.wallClockSec } : {}),
     createSession: async (): Promise<ResearchSessionLikeWithLifecycle> => {
       // Build a parent session for the planner / self-critic /
       // rewrite turns. Same shape runOneShotAgent uses, minus the

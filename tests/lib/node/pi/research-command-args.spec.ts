@@ -8,7 +8,9 @@ import {
   formatOverridesSummary,
   parseMaxTurns,
   parseModelSpec,
+  parseParallel,
   parseResearchCommandArgs,
+  parseWallClockSec,
   type ResearchCommandArgs,
   type ResumeStage,
   validateToolOverrides,
@@ -22,6 +24,16 @@ function expectModelError(r: ReturnType<typeof parseModelSpec>): string {
 
 function expectMaxTurnsError(r: ReturnType<typeof parseMaxTurns>): string {
   if (typeof r === 'number') throw new Error('expected parseMaxTurns to return an error');
+  return r.error;
+}
+
+function expectParallelError(r: ReturnType<typeof parseParallel>): string {
+  if (typeof r === 'number') throw new Error('expected parseParallel to return an error');
+  return r.error;
+}
+
+function expectWallClockError(r: ReturnType<typeof parseWallClockSec>): string {
+  if (typeof r === 'number') throw new Error('expected parseWallClockSec to return an error');
   return r.error;
 }
 
@@ -565,5 +577,189 @@ describe('formatOverridesSummary: resume + reviewMaxIter', () => {
 
   test('empty subQuestionIds array is omitted from the summary', () => {
     expect(formatOverridesSummary({}, { from: 'fanout', subQuestionIds: [] })).toBe(' [from=fanout]');
+  });
+});
+
+describe('parseParallel', () => {
+  test('accepts positive integers up to 64', () => {
+    expect(parseParallel('--fanout-parallel', '1')).toBe(1);
+    expect(parseParallel('--fanout-parallel', '8')).toBe(8);
+    expect(parseParallel('--fanout-parallel', '64')).toBe(64);
+  });
+
+  test('rejects zero, negative, decimals, non-numeric, empty', () => {
+    expect(parseParallel('--fanout-parallel', '0')).toHaveProperty('error');
+    expect(parseParallel('--fanout-parallel', '-1')).toHaveProperty('error');
+    expect(parseParallel('--fanout-parallel', '3.14')).toHaveProperty('error');
+    expect(parseParallel('--fanout-parallel', 'abc')).toHaveProperty('error');
+    expect(parseParallel('--fanout-parallel', '')).toHaveProperty('error');
+  });
+
+  test('rejects values above the 64-worker cap', () => {
+    expect(expectParallelError(parseParallel('--fanout-parallel', '65'))).toMatch(/exceeds the 64-worker cap/);
+  });
+});
+
+describe('parseWallClockSec', () => {
+  test('accepts bare integer as seconds', () => {
+    expect(parseWallClockSec('--wall-clock', '1')).toBe(1);
+    expect(parseWallClockSec('--wall-clock', '300')).toBe(300);
+    expect(parseWallClockSec('--wall-clock', '86400')).toBe(86_400);
+  });
+
+  test('accepts s / m / h suffixes and normalises to seconds', () => {
+    expect(parseWallClockSec('--wall-clock', '90s')).toBe(90);
+    expect(parseWallClockSec('--wall-clock', '30m')).toBe(30 * 60);
+    expect(parseWallClockSec('--wall-clock', '2h')).toBe(2 * 3600);
+    expect(parseWallClockSec('--wall-clock', '24h')).toBe(86_400);
+  });
+
+  test('rejects zero, negative, decimals, mixed garbage, empty', () => {
+    expect(parseWallClockSec('--wall-clock', '0')).toHaveProperty('error');
+    expect(parseWallClockSec('--wall-clock', '-30')).toHaveProperty('error');
+    expect(parseWallClockSec('--wall-clock', '1.5h')).toHaveProperty('error');
+    expect(parseWallClockSec('--wall-clock', '2hr')).toHaveProperty('error');
+    expect(parseWallClockSec('--wall-clock', 'abc')).toHaveProperty('error');
+    expect(parseWallClockSec('--wall-clock', '')).toHaveProperty('error');
+  });
+
+  test('rejects values above the 24h clamp', () => {
+    expect(expectWallClockError(parseWallClockSec('--wall-clock', '25h'))).toMatch(/24h cap/);
+    expect(expectWallClockError(parseWallClockSec('--wall-clock', '86401'))).toMatch(/24h cap/);
+  });
+});
+
+describe('parseResearchCommandArgs question mode: --fanout-parallel / --wall-clock', () => {
+  test('--fanout-parallel is accepted and normalised', () => {
+    const r = expectCmdQuestion(parseResearchCommandArgs('--fanout-parallel 1 some question'));
+
+    expect(r.question).toBe('some question');
+    expect(r.overrides.fanoutParallel).toBe(1);
+  });
+
+  test('--fanout-parallel accepts the `=` form', () => {
+    const r = expectCmdQuestion(parseResearchCommandArgs('--fanout-parallel=4 some question'));
+
+    expect(r.overrides.fanoutParallel).toBe(4);
+  });
+
+  test('--fanout-parallel is rejected when specified twice', () => {
+    const err = expectCmdError(parseResearchCommandArgs('--fanout-parallel 1 --fanout-parallel 2 q'));
+
+    expect(err).toMatch(/--fanout-parallel may only be specified once/);
+  });
+
+  test('--wall-clock accepts bare seconds', () => {
+    const r = expectCmdQuestion(parseResearchCommandArgs('--wall-clock 7200 local-model run'));
+
+    expect(r.overrides.wallClockSec).toBe(7200);
+  });
+
+  test('--wall-clock accepts h/m/s suffixes', () => {
+    expect(expectCmdQuestion(parseResearchCommandArgs('--wall-clock 2h q')).overrides.wallClockSec).toBe(2 * 3600);
+    expect(expectCmdQuestion(parseResearchCommandArgs('--wall-clock=30m q')).overrides.wallClockSec).toBe(30 * 60);
+    expect(expectCmdQuestion(parseResearchCommandArgs('--wall-clock 45s q')).overrides.wallClockSec).toBe(45);
+  });
+
+  test('--wall-clock is rejected when specified twice', () => {
+    const err = expectCmdError(parseResearchCommandArgs('--wall-clock 2h --wall-clock 3h q'));
+
+    expect(err).toMatch(/--wall-clock may only be specified once/);
+  });
+
+  test('--wall-clock rejects malformed values', () => {
+    const err = expectCmdError(parseResearchCommandArgs('--wall-clock 1.5h q'));
+
+    expect(err).toMatch(/--wall-clock/);
+  });
+
+  test('--fanout-parallel + --wall-clock compose with other overrides', () => {
+    const r = expectCmdQuestion(
+      parseResearchCommandArgs('--fanout-parallel 1 --wall-clock 2h --model llama-cpp/qwen3 some q'),
+    );
+
+    expect(r.overrides).toEqual({
+      model: 'llama-cpp/qwen3',
+      fanoutParallel: 1,
+      wallClockSec: 2 * 3600,
+    });
+    expect(r.question).toBe('some q');
+  });
+});
+
+describe('parseResearchCommandArgs resume mode: --fanout-parallel / --wall-clock', () => {
+  test('both overrides are accepted alongside --resume', () => {
+    const r = expectCmdResume(parseResearchCommandArgs('--resume --from fanout --fanout-parallel 1 --wall-clock 2h'));
+
+    expect(r.resume.from).toBe('fanout');
+    expect(r.overrides.fanoutParallel).toBe(1);
+    expect(r.overrides.wallClockSec).toBe(2 * 3600);
+  });
+});
+
+describe('validateToolOverrides: fanoutParallel', () => {
+  test('valid integer is normalised', () => {
+    const r = expectValidatedOk(validateToolOverrides({ fanoutParallel: 1 }));
+
+    expect(r.overrides.fanoutParallel).toBe(1);
+  });
+
+  test('non-integer is rejected', () => {
+    const r = expectValidatedErr(validateToolOverrides({ fanoutParallel: 'abc' }));
+
+    expect(r.error).toMatch(/`fanoutParallel` must be a positive integer/);
+  });
+
+  test('value above cap is rejected', () => {
+    const r = expectValidatedErr(validateToolOverrides({ fanoutParallel: 128 }));
+
+    expect(r.error).toMatch(/64-worker cap/);
+  });
+});
+
+describe('validateToolOverrides: wallClockSec', () => {
+  test('integer seconds are normalised', () => {
+    const r = expectValidatedOk(validateToolOverrides({ wallClockSec: 7200 }));
+
+    expect(r.overrides.wallClockSec).toBe(7200);
+  });
+
+  test('non-integer is rejected', () => {
+    const r = expectValidatedErr(validateToolOverrides({ wallClockSec: 'abc' }));
+
+    expect(r.error).toMatch(/`wallClockSec` must be a positive integer/);
+  });
+
+  test('value above 24h clamp is rejected', () => {
+    const r = expectValidatedErr(validateToolOverrides({ wallClockSec: 90_000 }));
+
+    expect(r.error).toMatch(/24h cap/);
+  });
+
+  test('absent fields are omitted entirely', () => {
+    const r = expectValidatedOk(validateToolOverrides({}));
+
+    expect(r.overrides.fanoutParallel).toBeUndefined();
+    expect(r.overrides.wallClockSec).toBeUndefined();
+  });
+});
+
+describe('formatOverridesSummary: fanoutParallel + wallClockSec', () => {
+  test('fanoutParallel appears in the summary', () => {
+    expect(formatOverridesSummary({ fanoutParallel: 1 })).toBe(' [fanout-parallel=1]');
+  });
+
+  test('wallClockSec appears in the summary with an s suffix', () => {
+    expect(formatOverridesSummary({ wallClockSec: 7200 })).toBe(' [wall-clock=7200s]');
+  });
+
+  test('both compose with other overrides in a stable order', () => {
+    expect(
+      formatOverridesSummary({
+        model: 'llama-cpp/qwen3',
+        fanoutParallel: 1,
+        wallClockSec: 7200,
+      }),
+    ).toBe(' [model=llama-cpp/qwen3 fanout-parallel=1 wall-clock=7200s]');
   });
 });
