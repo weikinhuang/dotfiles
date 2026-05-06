@@ -53,7 +53,11 @@ interface CodexPayload {
   forked_from_id?: string;
   model?: string;
   type?: string;
-  info?: { total_token_usage?: CodexTokenUsage };
+  info?: {
+    total_token_usage?: CodexTokenUsage;
+    last_token_usage?: CodexTokenUsage;
+    model_context_window?: number;
+  };
   name?: string;
   message?: string;
 }
@@ -126,6 +130,8 @@ interface ParsedSession {
   modelBreakdown: ModelTokenBreakdown[];
   toolCalls: number;
   toolBreakdown: Record<string, number>;
+  lastContextTokens?: number;
+  contextWindow?: number;
 }
 
 interface CodexTotalUsage {
@@ -156,6 +162,13 @@ function parseSessionFile(filePath: string): ParsedSession {
   let tokens: SessionTokens = emptyCodexTokens();
   const toolBreakdown: Record<string, number> = {};
   let toolCalls = 0;
+  // Codex emits `token_count` events on every turn; each carries an `info`
+  // block with `last_token_usage.input_tokens` (context size for that turn,
+  // already inclusive of the cached slice) and `model_context_window`.
+  // Quota-ping `token_count` events arrive with `info: null` and must be
+  // skipped. The last populated event wins.
+  let lastContextTokens: number | undefined;
+  let contextWindow: number | undefined;
 
   // Codex reports token_count events carrying a running cumulative total.
   // Track per-model usage by delta against the most recently seen
@@ -225,6 +238,12 @@ function parseSessionFile(filePath: string): ParsedSession {
         }
         last = curr;
         tokens = { input: curr.input, cacheRead: curr.cacheRead, output: curr.output, reasoning: curr.reasoning };
+        if (p.info.last_token_usage?.input_tokens !== undefined) {
+          lastContextTokens = p.info.last_token_usage.input_tokens;
+        }
+        if (typeof p.info.model_context_window === 'number') {
+          contextWindow = p.info.model_context_window;
+        }
       }
     }
 
@@ -265,6 +284,8 @@ function parseSessionFile(filePath: string): ParsedSession {
     modelBreakdown,
     toolCalls,
     toolBreakdown,
+    lastContextTokens,
+    contextWindow,
   };
 }
 
@@ -289,6 +310,8 @@ function parsedToSummary(p: ParsedSession, subagentCount: number): SessionSummar
   if (p.cliVersion) summary.version = p.cliVersion;
   if (p.preview) summary.preview = p.preview;
   if (p.modelBreakdown.length > 0) summary.modelBreakdown = p.modelBreakdown;
+  if (p.lastContextTokens !== undefined) summary.lastContextTokens = p.lastContextTokens;
+  if (p.contextWindow !== undefined) summary.contextWindow = p.contextWindow;
   return summary;
 }
 

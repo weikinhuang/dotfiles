@@ -38,3 +38,11 @@ CLI that scans `~/.codex/sessions/` for session transcripts and prints summaries
 - **`--limit, -n <N>`** — cap output to the top N sessions.
 - **`--json`** — machine-readable JSON output.
 - **`--no-color`** — disable ANSI colors.
+
+### Columns and fields
+
+The list / detail views include a `CONTEXT` column (and `Context (last turn)` row in detail) populated from the last
+`token_count` event's `info.last_token_usage.input_tokens`. Codex already reports this as the total input sent to the
+model for that turn (cached tokens included), so the column is the tokens the model saw on the most recently completed
+turn — not a prediction of what the next request will send. Codex also stores `info.model_context_window`, exposed as
+`context_window` in JSON output alongside `last_context_tokens`.
