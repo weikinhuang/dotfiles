@@ -57,6 +57,14 @@ Pi records per-message `usage.cost.total` on every assistant message, so unlike 
 does **not** fetch or cache the LiteLLM pricing table — costs come straight from the session file. `--no-cost` and
 `--refresh-prices` are accepted for interface parity with the other tools but have no effect.
 
+### Columns and fields
+
+The list / detail views include a `CONTEXT` column (and `Context (last turn)` row in detail) showing the input tokens
+sent to the model on the most recently completed assistant turn (`input + cacheRead + cacheWrite`; falls back to
+`totalTokens - output` when the provider omitted the breakdown). It is **not** a prediction of the next request — any
+post-assistant user text and tool results get added on top before the next turn. JSON output exposes the same value as
+`last_context_tokens`.
+
 ### Subagents
 
 The [`subagent` extension](./extensions/subagent.ts) writes each child transcript next to its parent at

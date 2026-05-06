@@ -64,6 +64,28 @@ EOF
   assert_equal "$(jq '.totals.tokens.cache_write' <<<"${output}")" 200
   assert_equal "$(jq '.sessions[0].cost' <<<"${output}")" 0.00335
   assert_equal "$(jq '.sessions[0].subagent_count' <<<"${output}")" 0
+  # Last-turn context = m2's input + cacheRead + cacheWrite = 100 + 1000 + 200.
+  assert_equal "$(jq '.sessions[0].last_context_tokens' <<<"${output}")" 1300
+}
+
+@test "pi: last_context_tokens reflects most recent assistant turn across model_change" {
+  # Two assistant turns with different models; the last turn's context is
+  # what the CLI should report regardless of which model dominated totals.
+  write_session "--proj--" "019dd000-aaaa-7000-0000-000000000010" <<'EOF'
+{"type":"session","version":3,"id":"019dd000-aaaa-7000-0000-000000000010","timestamp":"2026-05-01T19:00:00.000Z","cwd":"/proj"}
+{"type":"model_change","id":"mc1","parentId":null,"timestamp":"2026-05-01T19:00:00.100Z","provider":"anthropic","modelId":"claude-opus-4"}
+{"type":"message","id":"m1","parentId":null,"timestamp":"2026-05-01T19:00:01.000Z","message":{"role":"user","content":"hi"}}
+{"type":"message","id":"m2","parentId":"m1","timestamp":"2026-05-01T19:00:02.000Z","message":{"role":"assistant","model":"claude-opus-4","content":[{"type":"text","text":"hi back"}],"usage":{"input":10,"output":5,"cacheRead":5000,"cacheWrite":0,"cost":{"total":0.001}}}}
+{"type":"model_change","id":"mc2","parentId":"m2","timestamp":"2026-05-01T19:00:03.000Z","provider":"anthropic","modelId":"claude-sonnet-4"}
+{"type":"message","id":"m3","parentId":"m2","timestamp":"2026-05-01T19:00:04.000Z","message":{"role":"user","content":"again"}}
+{"type":"message","id":"m4","parentId":"m3","timestamp":"2026-05-01T19:00:05.000Z","message":{"role":"assistant","model":"claude-sonnet-4","content":[{"type":"text","text":"later"}],"usage":{"input":3,"output":2,"cacheRead":8000,"cacheWrite":50,"cost":{"total":0.0005}}}}
+EOF
+
+  run "${TOOL}" pi list --project /proj --json
+  assert_success
+
+  # Last turn is m4 (sonnet): 3 + 8000 + 50 = 8053.
+  assert_equal "$(jq '.sessions[0].last_context_tokens' <<<"${output}")" 8053
 }
 
 @test "pi: subagent_count reflects files under subagents/<parent-id>/" {

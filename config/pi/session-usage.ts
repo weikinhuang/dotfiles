@@ -134,6 +134,7 @@ interface ParsedPi {
   toolBytes: number;
   toolBreakdown: Record<string, number>;
   userTurns: number;
+  lastContextTokens?: number;
   // Indexed by childSessionId so loadSessionDetail() can enrich each child
   // transcript with its agent label / task / stop reason without re-reading
   // the parent file. Empty for child session files, which don't record
@@ -158,6 +159,11 @@ function parseEntries(entries: PiEntry[], fallbackSessionId: string): ParsedPi {
   let userTurns = 0;
   let preview = '';
   const subagentRuns = new Map<string, PiSubagentRunData>();
+  // Tracks context consumed on the most recent assistant turn, keyed to
+  // whatever model was active when that turn ran (per-message m.model wins
+  // over /model selections). Overwritten on every assistant message with
+  // usage, so the final value is the last completed turn.
+  let lastContextTokens: number | undefined;
   // Tracks the explicit model last chosen via `/model`. Assistant messages
   // also carry their own `model` field, which is authoritative for that
   // specific response — we prefer it when attributing token slices.
@@ -253,6 +259,17 @@ function parseEntries(entries: PiEntry[], fallbackSessionId: string): ParsedPi {
         slice.tokens.cacheWrite! += dCw;
         slice.cost += dCost;
         perModel.set(key, slice);
+
+        // Context used for this turn: prefer the explicit sum so partial
+        // usage objects (missing cacheRead/cacheWrite) still produce a
+        // sensible value. `totalTokens - output` is a safe fallback when
+        // input/cache* were omitted but totalTokens was set by the provider.
+        const sumInput = dIn + dCr + dCw;
+        if (sumInput > 0) {
+          lastContextTokens = sumInput;
+        } else if (typeof u.totalTokens === 'number' && u.totalTokens > 0) {
+          lastContextTokens = Math.max(0, u.totalTokens - dOut);
+        }
       }
 
       if (Array.isArray(m.content)) {
@@ -312,6 +329,7 @@ function parseEntries(entries: PiEntry[], fallbackSessionId: string): ParsedPi {
     toolBytes,
     toolBreakdown,
     userTurns,
+    lastContextTokens,
     subagentRuns,
   };
 }
@@ -344,6 +362,7 @@ function parsedToSummary(p: ParsedPi, subagentCount: number): SessionSummary {
   if (p.toolBytes > 0) summary.toolBytes = p.toolBytes;
   if (p.cost > 0) summary.cost = p.cost;
   if (p.modelBreakdown.length > 0) summary.modelBreakdown = p.modelBreakdown;
+  if (p.lastContextTokens !== undefined) summary.lastContextTokens = p.lastContextTokens;
   return summary;
 }
 
