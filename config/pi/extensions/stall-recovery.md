@@ -29,32 +29,81 @@ If the model produces any substantive text or tool call, we trust it.
 
 A follow-up user message is injected via `pi.sendUserMessage(..., { deliverAs: 'followUp' })` carrying a sentinel marker
 (`⟳ [pi-stall-recovery]`). The message is short and directive — weaker models respond better to concrete instructions
-than vague ones:
-
-- **Empty stall** → "Your previous turn produced no output. The task is not complete. Continue where you left off —
-  review any active todos, check the last tool result if there was one, and produce either the next tool call or the
-  final answer for the user."
-- **Error stall** → "Your previous turn failed with: `<error>`. Retry the same approach, or try a different one if the
-  error suggests the approach was wrong."
+than vague ones — and escalates in tone on the final allowed attempt (see "Retry prompt escalation" below).
 
 The retry triggers a fresh agent turn; any `before_agent_start` handlers (like the todo extension's active-plan
-injection) run automatically, re-anchoring the model.
+injection) run automatically, re-anchoring the model. If the retry happens to be the call that fires
+`stripThinkingFromStalledTurns` (see "Thinking-strip on retry" below), the provider receives a conversation with the
+stalled turn's `thinking` blocks removed — forcing a fresh reasoning pass on the imperative prompt.
 
 ## Retry budget
 
-In-memory per-prompt counter. Default max = 2 consecutive retries per user prompt. Reset on the `input` event when the
-source is **not** `extension` — i.e., a real user typed (or an RPC/API client sent) a new prompt. Synthesized messages
-from this extension don't reset the counter.
+Stateless, derived from the message history on every `agent_end`. The pure helper
+[`countTrailingStalls()`](../../../lib/node/pi/stall-detect.ts) walks `event.messages` backwards from the end and counts
+consecutive stalled assistant turns, using these rules:
 
-When the budget is exhausted:
+- An `assistant` turn that classifies as a stall → `count++`, keep walking.
+- An `assistant` turn that is healthy (text or tool call) → **stop**. Any intermediate successful turn in a multi-step
+  agent loop resets the budget automatically.
+- A `user` message carrying our sentinel (`⟳ [pi-stall-recovery]`) → our own nudge; transparent, keep walking.
+- A `user` message **without** the sentinel → a real user prompt; **stop**. This scopes the counter to the current
+  prompt without any in-memory state.
+- `toolResult` and other roles → transparent; keep walking.
 
-- `ctx.ui.notify(...)` surfaces a warning:
+The retry fires while `1 ≤ count ≤ maxRetries` (default `maxRetries=2`, i.e., two retries per prompt). When
+`count > maxRetries` the budget is exhausted:
+
+- `ctx.ui.notify(...)` surfaces a one-shot warning:
   `"Agent stalled N time(s) in a row (<detail>). Auto-retry paused — type to continue manually."`
 - The retry status is cleared from the footer.
-- The extension stops firing until the user sends a real prompt.
+- The extension stops firing until a real user prompt arrives (tracked by a single boolean, cleared in the `input`
+  handler).
 
-Loop prevention is layered: the budget alone would bound retries, but the `input` handler additionally ignores any
-prompt that itself carries the stall marker (defense against replay scenarios).
+The previous in-memory counter lost track of intermediate successes within an agent loop (those don't fire `agent_end`),
+which caused false "budget exhausted" notifications when a multi-step run happened to end with its first stall. The
+stateless counter fixes this — and makes reload-mid-stall correct for free, since it's reconstructed from the session
+history instead of volatile memory.
+
+Loop prevention is layered: the sentinel alone would bound retries (any `user` carrying it is transparent to the walk,
+so the count can never exceed the number of actual stalls), and the `input` handler additionally ignores any real prompt
+that echoes the sentinel — defense against replay scenarios.
+
+## Retry prompt escalation
+
+The nudge tone escalates with the attempt number:
+
+- **Attempt 1 (gentle).** "Your previous turn produced no output. The task is not complete. Continue where you left off
+  — review any active todos, check the last tool result if there was one, and produce either the next tool call or the
+  final answer for the user."
+- **Final attempt (imperative).** "Your previous N turn(s) produced ZERO output — no text, no tool calls. You MUST emit
+  content this turn: either a concrete tool_use block or a final text answer for the user. Do NOT return another empty
+  response. Do NOT spend the whole turn in extended thinking. If you have genuinely nothing to do, say so explicitly in
+  a short text block — silence is not an acceptable answer."
+
+Reasoning models that stalled on the gentle prompt will often re-enter the same rumination when asked the same way; the
+imperative wording is different enough to shift the strategy.
+
+## Thinking-strip on retry
+
+Registered on the `context` event, which fires before every LLM call. When the pending request ends with one of our
+retry nudges (detected via `STALL_MARKER`), [`stripThinkingFromStalledTurns()`](../../../lib/node/pi/stall-detect.ts)
+removes `thinking` content blocks from every trailing stalled assistant turn in the window. Runs as a no-op on every
+other call (healthy turns, normal prompts, tool-result round-trips).
+
+Rationale: extended-thinking providers (Claude w/ `thinkingSignature`, local Qwen3, etc.) replay the prior assistant's
+`thinking` blocks verbatim. If the last turn stalled because the model spent its whole output budget on rumination, the
+replay re-seeds the same rumination on the retry and it stalls again. Dropping the `thinking` blocks forces a fresh
+reasoning pass over the (now imperative) user nudge.
+
+Safety:
+
+- Only trailing **stalled** assistants are touched. Healthy assistants inside the window are a hard boundary and their
+  `thinking` is preserved verbatim — it's legitimate reasoning attached to successful output.
+- Stalled turns by definition emitted no text and no tool calls. Dropping their `thinking` blocks removes nothing the
+  conversation depends on — Anthropic's `thinkingSignature` continuity is only required when the next turn responds to a
+  `tool_use`, which an empty stall never has.
+- If stripping would leave an assistant message with zero content blocks, a single empty-text block is substituted so
+  the conversation structure stays provider-valid.
 
 ## UI
 
