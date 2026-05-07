@@ -1,7 +1,7 @@
 # Lib
 
 Pure TypeScript helpers shared across pi extensions, the Claude / Codex / opencode / pi session-usage CLIs, and the
-clipboard-server. Nothing here imports from the pi runtime (`@mariozechner/pi-coding-agent`) or any other agent-harness
+clipboard-server. Nothing here imports from the pi runtime (`@earendil-works/pi-coding-agent`) or any other agent-harness
 SDK — so every module is unit-testable with vitest and type-checked by the repo's root `tsconfig.json`.
 
 See root [AGENTS.md](../AGENTS.md) for repo-wide conventions; this file only documents what is different here.
@@ -27,7 +27,7 @@ See root [AGENTS.md](../AGENTS.md) for repo-wide conventions; this file only doc
 
 ### Pure modules only
 
-- `lib/node/**/*.ts` must import from `node:*` and peer `lib/node/**` only — never from `@mariozechner/pi-coding-agent`
+- `lib/node/**/*.ts` must import from `node:*` and peer `lib/node/**` only — never from `@earendil-works/pi-coding-agent`
   or any pi runtime. That's what lets the code live under the root `tsconfig.json` and get unit-tested without mocks.
 - Pi-coupled glue (dialog flows, `pi.on('tool_call', …)` handlers, command registration) belongs in
   [`../config/pi/extensions/<name>.ts`](../config/pi/extensions/) — not here. If a helper grows a pi import, split it.
@@ -64,7 +64,7 @@ keep modules pure (no pi imports); run `npm test` and `npm run tsc` before landi
 **Ask first**: adding a new top-level directory under `lib/` (e.g. a sibling to `node/`); pulling in a new runtime
 dependency that ships to end-user shells; changing a module's public export shape when multiple extensions consume it.
 
-**Never**: import from `@mariozechner/pi-coding-agent` or any other agent-runtime SDK from under this tree — that moves
+**Never**: import from `@earendil-works/pi-coding-agent` or any other agent-runtime SDK from under this tree — that moves
 the module into extension territory; commit generated artifacts or `.d.ts` bundles; suppress type errors with `any` or
 `@ts-ignore` instead of fixing the type.
 

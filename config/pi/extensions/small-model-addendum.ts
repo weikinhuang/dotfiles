@@ -43,7 +43,7 @@
  *   PI_SMALL_MODEL_ADDENDUM_DEBUG=1      notify on each injection decision
  */
 
-import { type ExtensionAPI, type ExtensionContext } from '@mariozechner/pi-coding-agent';
+import { type ExtensionAPI, type ExtensionContext } from '@earendil-works/pi-coding-agent';
 
 import {
   type AddendumConfig,

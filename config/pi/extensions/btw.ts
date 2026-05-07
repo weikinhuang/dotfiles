@@ -9,7 +9,7 @@
  * Pi's extension API doesn't expose a "call the LLM out of band"
  * primitive — `pi.sendMessage` / `pi.sendUserMessage` both append to the
  * session and trigger turns. To get ephemeral semantics we reach through
- * to the `@mariozechner/pi-ai` `complete()` function directly, using
+ * to the `@earendil-works/pi-ai` `complete()` function directly, using
  * pi's own helpers to reconstruct the branch context that would be sent
  * next turn:
  *
@@ -43,8 +43,8 @@
  * unit-tested under `vitest` without the pi runtime.
  */
 
-import { complete, type Context, type Message, type Model } from '@mariozechner/pi-ai';
-import { type ExtensionAPI, buildSessionContext, type ReadonlySessionManager } from '@mariozechner/pi-coding-agent';
+import { complete, type Context, type Message, type Model } from '@earendil-works/pi-ai';
+import { type ExtensionAPI, buildSessionContext, type ReadonlySessionManager } from '@earendil-works/pi-coding-agent';
 
 import {
   BTW_USAGE,
@@ -61,7 +61,7 @@ import {
 
 /**
  * Pi's default cache retention (per `StreamOptions` docs in
- * `@mariozechner/pi-ai/types.d.ts`). We pass it explicitly so the
+ * `@earendil-works/pi-ai/types.d.ts`). We pass it explicitly so the
  * request is byte-identical to what pi would have sent for the main
  * turn prefix, maximizing cache-hit odds.
  */

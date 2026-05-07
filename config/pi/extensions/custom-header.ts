@@ -16,8 +16,8 @@
  *   PI_CUSTOM_HEADER_DISABLED=1   restore pi's built-in header
  */
 
-import { type ExtensionAPI } from '@mariozechner/pi-coding-agent';
-import { truncateToWidth } from '@mariozechner/pi-tui';
+import { type ExtensionAPI } from '@earendil-works/pi-coding-agent';
+import { truncateToWidth } from '@earendil-works/pi-tui';
 
 /**
  * Hint segments shown after the `π pi` brand. Split into `{key, desc}` so

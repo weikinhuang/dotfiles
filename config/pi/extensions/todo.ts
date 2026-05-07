@@ -51,9 +51,9 @@
  *                                 injected block (default 10)
  */
 
-import { StringEnum } from '@mariozechner/pi-ai';
-import { type ExtensionAPI, type ExtensionContext, type Theme } from '@mariozechner/pi-coding-agent';
-import { matchesKey, Text, truncateToWidth } from '@mariozechner/pi-tui';
+import { StringEnum } from '@earendil-works/pi-ai';
+import { type ExtensionAPI, type ExtensionContext, type Theme } from '@earendil-works/pi-coding-agent';
+import { matchesKey, Text, truncateToWidth } from '@earendil-works/pi-tui';
 import { Type } from 'typebox';
 
 import { truncate } from '../../../lib/node/pi/shared.ts';

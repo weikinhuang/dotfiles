@@ -7,7 +7,7 @@
  * session history and without the side-question call using any tools.
  *
  * This module intentionally has zero dependencies on
- * `@mariozechner/pi-coding-agent` or `@mariozechner/pi-ai` so it can be
+ * `@earendil-works/pi-coding-agent` or `@earendil-works/pi-ai` so it can be
  * unit-tested under `vitest` without the pi runtime. The extension file
  * wires these helpers to the live API.
  */
@@ -83,7 +83,7 @@ export function parseModelSpec(spec: string | undefined): ParsedModelSpec | unde
 /**
  * Minimal shape of the objects inside an `AssistantMessage.content`
  * array that {@link extractAnswerText} knows how to handle. Declared
- * locally so this module has no dependency on `@mariozechner/pi-ai`.
+ * locally so this module has no dependency on `@earendil-works/pi-ai`.
  * Runtime shape compatibility is what counts — callers can pass the
  * real pi-ai types freely.
  */

@@ -47,7 +47,7 @@
 
 import { appendFileSync } from 'node:fs';
 
-import { type ExtensionAPI, type ExtensionContext, isBashToolResult } from '@mariozechner/pi-coding-agent';
+import { type ExtensionAPI, type ExtensionContext, isBashToolResult } from '@earendil-works/pi-coding-agent';
 
 import {
   type ConfigWarning,

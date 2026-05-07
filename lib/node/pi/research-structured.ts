@@ -32,7 +32,7 @@
  *
  * The module lives in the pi-runtime-aware half of the research
  * toolkit (it expects an `AgentSession`-shaped object). But it
- * does not import from `@mariozechner/pi-coding-agent` — the
+ * does not import from `@earendil-works/pi-coding-agent` — the
  * session + message shapes are structural, matching the precedent
  * in `subagent-spawn.ts` / `subagent-result.ts`. Tests plug in a
  * mock session without a live pi runtime.

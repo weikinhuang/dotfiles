@@ -49,9 +49,9 @@
  *                                       (default 2000)
  */
 
-import { StringEnum } from '@mariozechner/pi-ai';
-import { type ExtensionAPI, type ExtensionContext, type Theme } from '@mariozechner/pi-coding-agent';
-import { Text } from '@mariozechner/pi-tui';
+import { StringEnum } from '@earendil-works/pi-ai';
+import { type ExtensionAPI, type ExtensionContext, type Theme } from '@earendil-works/pi-coding-agent';
+import { Text } from '@earendil-works/pi-tui';
 import { Type } from 'typebox';
 
 import { formatWorkingNotes } from '../../../lib/node/pi/scratchpad-prompt.ts';

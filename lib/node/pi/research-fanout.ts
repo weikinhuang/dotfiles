@@ -34,7 +34,7 @@
  *      from where it left off without burning duplicate compute.
  *
  * **Transport abstraction.** The module does not import from
- * `@mariozechner/pi-coding-agent` directly. Instead callers inject
+ * `@earendil-works/pi-coding-agent` directly. Instead callers inject
  * a `FanoutSpawner` that, given a task and a mode, returns a
  * `FanoutHandleLike`. The real extension wires this to pi's
  * `subagent({run_in_background: true})` for `mode="background"` or

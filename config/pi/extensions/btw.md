@@ -13,7 +13,7 @@ transcript. Claude Code bundles this as `/btw`; this extension replicates the UX
 
 Pi's extension API doesn't expose a "call the LLM out of band" primitive — `pi.sendMessage` / `pi.sendUserMessage` both
 append to the session and trigger turns. `/btw` therefore reaches through the API and calls
-[`@mariozechner/pi-ai`](https://github.com/badlogic/pi-mono/tree/main/packages/ai)'s `complete()` function directly,
+[`@earendil-works/pi-ai`](https://github.com/badlogic/pi-mono/tree/main/packages/ai)'s `complete()` function directly,
 using pi's own helpers to reconstruct the branch context that would otherwise be sent next turn:
 
 1. Grab the current branch: `ctx.sessionManager.getBranch()`.

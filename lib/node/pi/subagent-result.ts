@@ -4,7 +4,7 @@
  * Pure module — no pi imports — so it can be unit-tested under `vitest`.
  * Mirrors the "content-part shape" approach in `btw.ts`: declares a
  * minimal local interface for `AssistantMessage.content[]` parts so this
- * module has no runtime dependency on `@mariozechner/pi-ai`.
+ * module has no runtime dependency on `@earendil-works/pi-ai`.
  *
  * The final assistant text is what the parent LLM actually sees. Every
  * tool call, every thinking block, every intermediate user/tool result

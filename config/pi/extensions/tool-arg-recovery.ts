@@ -60,7 +60,7 @@
 
 import { appendFileSync } from 'node:fs';
 
-import { type ExtensionAPI, type ExtensionContext } from '@mariozechner/pi-coding-agent';
+import { type ExtensionAPI, type ExtensionContext } from '@earendil-works/pi-coding-agent';
 
 import { buildRecoveryBlock, parseValidationFailure, type SchemaNode } from '../../../lib/node/pi/tool-arg-recovery.ts';
 

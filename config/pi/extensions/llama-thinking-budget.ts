@@ -56,7 +56,7 @@ import { appendFileSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
-import { type ExtensionAPI, type ExtensionContext } from '@mariozechner/pi-coding-agent';
+import { type ExtensionAPI, type ExtensionContext } from '@earendil-works/pi-coding-agent';
 
 type Level = 'minimal' | 'low' | 'medium' | 'high';
 

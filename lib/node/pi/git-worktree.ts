@@ -4,7 +4,7 @@
  * Derives the current git worktree name (for linked worktrees created via
  * `git worktree add`) entirely from on-disk metadata — no subprocess
  * required. Mirrors pi's own `findGitPaths` logic in
- * `@mariozechner/pi-coding-agent/dist/core/footer-data-provider.js` and
+ * `@earendil-works/pi-coding-agent/dist/core/footer-data-provider.js` and
  * surfaces what Claude Code hands to `config/claude/statusline-command.sh`
  * via the pre-computed `workspace.git_worktree` field.
  *

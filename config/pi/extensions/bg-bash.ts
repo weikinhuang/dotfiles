@@ -66,9 +66,9 @@ import { createWriteStream, mkdirSync, type WriteStream } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { StringEnum } from '@mariozechner/pi-ai';
-import { type ExtensionAPI, type ExtensionContext, type Theme } from '@mariozechner/pi-coding-agent';
-import { Text } from '@mariozechner/pi-tui';
+import { StringEnum } from '@earendil-works/pi-ai';
+import { type ExtensionAPI, type ExtensionContext, type Theme } from '@earendil-works/pi-coding-agent';
+import { Text } from '@earendil-works/pi-tui';
 import { Type } from 'typebox';
 
 import { requestBashApproval } from '../../../lib/node/pi/bash-gate.ts';

@@ -26,7 +26,7 @@
 
 import { basename } from 'node:path';
 
-import { type ExtensionAPI, type ExtensionContext } from '@mariozechner/pi-coding-agent';
+import { type ExtensionAPI, type ExtensionContext } from '@earendil-works/pi-coding-agent';
 
 const BRAILLE_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'] as const;
 const IDLE_GLYPH = 'π';

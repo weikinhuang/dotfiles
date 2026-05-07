@@ -47,8 +47,8 @@ import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { type ExtensionAPI, type ExtensionContext } from '@mariozechner/pi-coding-agent';
-import { Key } from '@mariozechner/pi-tui';
+import { type ExtensionAPI, type ExtensionContext } from '@earendil-works/pi-coding-agent';
+import { Key } from '@earendil-works/pi-tui';
 
 import { parseModelSpec } from '../../../lib/node/pi/btw.ts';
 import {

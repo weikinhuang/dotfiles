@@ -20,7 +20,7 @@
  *     "spawn → one answer → read → done" shape.
  *
  * This module intentionally has no dependency on
- * `@mariozechner/pi-coding-agent` — the real `createAgentSession`,
+ * `@earendil-works/pi-coding-agent` — the real `createAgentSession`,
  * `DefaultResourceLoader`, and `SessionManager` are injected by the
  * extension caller through `runOneShotAgent`'s `deps` object. That
  * keeps the helper testable under `vitest` without the pi runtime and
@@ -104,7 +104,7 @@ export function resolveChildModel<M>({
 
 /**
  * Narrow shape of the `AgentSession` returned by
- * `@mariozechner/pi-coding-agent`. We only need what `runOneShotAgent`
+ * `@earendil-works/pi-coding-agent`. We only need what `runOneShotAgent`
  * touches — subscribe, prompt, abort, dispose, and `state.messages`.
  */
 export interface AgentSessionLike {
@@ -123,7 +123,7 @@ export interface AgentSessionEventLike {
     errorMessage?: string;
     /**
      * Per-assistant-turn token + USD cost payload populated by pi's
-     * `AssistantMessage.usage` (see `@mariozechner/pi-ai`'s `Usage`
+     * `AssistantMessage.usage` (see `@earendil-works/pi-ai`'s `Usage`
      * type). `usage.cost.total` is the USD number `research-cost-hook`
      * sums to drive the statusline cost counter. Optional because
      * non-assistant events and aborted turns may lack it.

@@ -106,7 +106,7 @@ export interface ReadLayer {
   readFile: (path: string) => string | null;
 }
 
-/** Shape of pi's `parseFrontmatter` exported from `@mariozechner/pi-coding-agent`. */
+/** Shape of pi's `parseFrontmatter` exported from `@earendil-works/pi-coding-agent`. */
 export type FrontmatterParser = (content: string) => { frontmatter: Record<string, unknown>; body: string };
 
 export interface LoadAgentsOptions {

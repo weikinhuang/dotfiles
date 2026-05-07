@@ -28,8 +28,9 @@
   ],
   "exclude": [
     "node_modules",
+    ".pi",
     // Pi extensions are executed by pi's own runtime (jiti) against its
-    // globally-installed `@mariozechner/*` deps — they are not part of
+    // globally-installed `@earendil-works/*` deps — they are not part of
     // this repo's TS project, so we don't type-check them here.
     "config/pi/extensions/**"
   ]

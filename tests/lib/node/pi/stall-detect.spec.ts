@@ -80,7 +80,7 @@ test('classifyAssistant: error trims whitespace', () => {
 
 // User-initiated aborts (Ctrl+C) must NEVER be classified as a stall —
 // auto-retrying past them would fight the user. See
-// `StopReason` in `@mariozechner/pi-ai/types`.
+// `StopReason` in `@earendil-works/pi-ai/types`.
 test('classifyAssistant: stopReason="aborted" with empty turn → not a stall', () => {
   expect(classifyAssistant(snap({ stopReason: 'aborted' }))).toBe(null);
 });

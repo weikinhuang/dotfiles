@@ -50,7 +50,7 @@ export interface ParsedEditFailure {
  * extension then silently skips recovery for that result.
  *
  * Handles these canonical shapes emitted by
- * `@mariozechner/pi-coding-agent/dist/core/tools/edit-diff.js`:
+ * `@earendil-works/pi-coding-agent/dist/core/tools/edit-diff.js`:
  *
  *   - "Could not find the exact text in {path}. ..."           (single edit)
  *   - "Could not find edits[{N}] in {path}. ..."               (multi-edit)
@@ -103,7 +103,7 @@ export function parseEditFailure(text: string): ParsedEditFailure | undefined {
  * Mirrors pi's internal `normalizeForFuzzyMatch`. Re-implemented here
  * (not imported) to keep this module pure and testable without the pi
  * runtime. Keep in sync with
- * `@mariozechner/pi-coding-agent/dist/core/tools/edit-diff.js` if pi's
+ * `@earendil-works/pi-coding-agent/dist/core/tools/edit-diff.js` if pi's
  * normalization expands.
  */
 function piFuzzyNormalize(text: string): string {

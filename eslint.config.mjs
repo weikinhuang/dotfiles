@@ -1,10 +1,10 @@
 import js from '@eslint/js';
 import json from '@eslint/json';
 import vitest from '@vitest/eslint-plugin';
+import { defineConfig, globalIgnores } from 'eslint/config';
 import eslintConfigPrettierConfigs from 'eslint-config-prettier';
 import eslintPluginImport from 'eslint-plugin-import';
 import eslintPluginN from 'eslint-plugin-n';
-import { defineConfig, globalIgnores } from 'eslint/config';
 import globals from 'globals';
 import { configs as tseslintConfigs } from 'typescript-eslint';
 
@@ -253,7 +253,7 @@ export default defineConfig([
   },
 
   // Pi extensions: source files loaded by pi's own runtime (jiti) against
-  // pi's globally-installed `@mariozechner/*` packages. We keep lint
+  // pi's globally-installed `@earendil-works/*` packages. We keep lint
   // running for syntactic / portable rules, but turn off type-aware rules
   // (they would all fail because the packages aren't installed as
   // devDependencies here) and `import/no-unresolved` for the same reason.
@@ -269,7 +269,7 @@ export default defineConfig([
       },
     },
     rules: {
-      'import/no-unresolved': ['error', { ignore: ['^@mariozechner/', '^typebox$'] }],
+      'import/no-unresolved': ['error', { ignore: ['^@earendil-works/', '^typebox$'] }],
     },
   },
 
@@ -287,5 +287,9 @@ export default defineConfig([
 
     '!.storybook',
     '!**/.storybook',
+
+    'config/pi/checks/**/*',
+    'plans/**',
+    'research/**',
   ]),
 ]);

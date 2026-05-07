@@ -1,7 +1,7 @@
 /**
  * Pure helpers for config/pi/extensions/bash-permissions.ts.
  *
- * This module intentionally has zero dependencies on @mariozechner/pi-coding-agent
+ * This module intentionally has zero dependencies on @earendil-works/pi-coding-agent
  * so it can be imported and unit-tested under `vitest` without any
  * TypeScript toolchain or pi runtime.
  */

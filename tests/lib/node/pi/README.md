@@ -55,7 +55,7 @@ npx vitest tests/lib/node/pi/bash-permissions.spec.ts
 
 ## Design
 
-- **Lib code is pure.** `lib/node/pi/*.ts` imports only from `node:*` — never from `@mariozechner/pi-coding-agent`. That
+- **Lib code is pure.** `lib/node/pi/*.ts` imports only from `node:*` — never from `@earendil-works/pi-coding-agent`. That
   keeps tests hermetic, lets the helpers be reused across extensions without pulling in pi types, and allows them to
   live under the repo's regular TypeScript project so they're type-checked on every `npm run tsc`.
 - **Tests import from lib directly.** No mirroring, no jiti, no build step. If a helper's behavior changes the tests see
@@ -68,5 +68,5 @@ npx vitest tests/lib/node/pi/bash-permissions.spec.ts
   `tests/config/pi/extensions/` to document the extension command surface the helper backs, as called out in the
   per-phase handoff prompts in `plans/pi-deep-research.md` / `plans/pi-autoresearch.md`.
 - **Only extensions are excluded from root `tsconfig.json` and the main eslint type-aware rules** — they resolve
-  `@mariozechner/*` via pi's globally-installed package, which the repo's TS project doesn't know about. The pure
+  `@earendil-works/*` via pi's globally-installed package, which the repo's TS project doesn't know about. The pure
   helpers under [`../../../../lib/node/pi/`](../../../../lib/node/pi) and these tests get the full type-aware treatment.

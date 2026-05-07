@@ -7,7 +7,7 @@
  * emits `message_end` events whose `message.usage.cost.total` field
  * carries the USD cost of that assistant turn (pi populates it from
  * the underlying provider's usage payload — see
- * `@mariozechner/pi-ai`'s `Usage` type).
+ * `@earendil-works/pi-ai`'s `Usage` type).
  *
  * Before this module landed those numbers were silently dropped:
  *

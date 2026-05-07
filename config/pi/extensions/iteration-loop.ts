@@ -109,7 +109,7 @@ import { homedir } from 'node:os';
 import { dirname, isAbsolute, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { StringEnum } from '@mariozechner/pi-ai';
+import { StringEnum } from '@earendil-works/pi-ai';
 import {
   createAgentSession,
   DefaultResourceLoader,
@@ -118,8 +118,8 @@ import {
   getAgentDir,
   parseFrontmatter,
   SessionManager,
-} from '@mariozechner/pi-coding-agent';
-import { Text } from '@mariozechner/pi-tui';
+} from '@earendil-works/pi-coding-agent';
+import { Text } from '@earendil-works/pi-tui';
 import { Type } from 'typebox';
 
 import { anyArtifactMatch, extractEditTargets } from '../../../lib/node/pi/iteration-loop-artifact.ts';

@@ -30,7 +30,7 @@
 
 // Narrow structural shape of what the gate needs from an
 // `ExtensionContext`. Typed loosely so this module doesn't have to
-// import from `@mariozechner/pi-coding-agent` (which keeps it testable
+// import from `@earendil-works/pi-coding-agent` (which keeps it testable
 // under vitest without the pi runtime).
 export interface BashGateContext {
   hasUI: boolean;

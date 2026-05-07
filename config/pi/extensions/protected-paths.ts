@@ -94,7 +94,7 @@ import {
   type ExtensionContext,
   isToolCallEventType,
   type ToolCallEvent,
-} from '@mariozechner/pi-coding-agent';
+} from '@earendil-works/pi-coding-agent';
 
 import { clearConfigWarning, parseJsonc, warnBadConfigFileOnce } from '../../../lib/node/pi/jsonc.ts';
 import {
