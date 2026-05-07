@@ -9,10 +9,12 @@ import { expect, test, vi } from 'vitest';
 
 import {
   type BashDecision,
+  allSubcommands,
   checkAlwaysPrompt,
   checkHardcodedDeny,
   commandTokens,
   decideSubcommand,
+  extractCommandSubstitutions,
   maskQuotedRegions,
   matchesPattern,
   splitCompound,
@@ -168,13 +170,99 @@ test('checkHardcodedDeny: rm -r on root / home variants block', () => {
     'rm --recursive /',
     'rm -rf $HOME',
     'rm -rf $HOME/',
+    // Trailing `# comment` must not bypass the tail anchor. Bash
+    // evaluates `rm -rf / # haha` as `rm -rf /` followed by a comment
+    // (i.e. the rm still runs), so the denylist has to still fire.
+    'rm -rf / # haha',
+    'rm -rf / #haha',
+    'rm -rf ~ # comment',
+    'rm -rf $HOME   # cleanup',
   ]) {
     expect(checkHardcodedDeny(cmd), `should block: ${cmd}`).toBeTruthy();
   }
 });
 
-test('checkHardcodedDeny: rm on project paths does NOT block', () => {
-  for (const cmd of ['rm -rf ./build', 'rm -rf node_modules', 'rm ./foo', 'rm -f package-lock.json']) {
+test('checkHardcodedDeny: rm -r on `.` (cwd) family blocks', () => {
+  for (const cmd of [
+    'rm -rf .',
+    'rm -rf ./',
+    'rm -rf ./*',
+    // Classic footgun: `.*` globs to `.` and `..`, so this deletes
+    // cwd AND the parent.
+    'rm -rf .*',
+    'rm -rf . # oops',
+    'rm -rf -- .',
+    'rm -rf -- ./',
+  ]) {
+    expect(checkHardcodedDeny(cmd), `should block: ${cmd}`).toBeTruthy();
+  }
+});
+
+test('checkHardcodedDeny: rm -r on any `..`-traversal path blocks', () => {
+  // Any target that starts with `..` leaves cwd, so we block the whole
+  // family regardless of depth. Shallow `..`, deeper `../..`, absolute-ish
+  // escapes like `../../etc/passwd` — all covered.
+  for (const cmd of [
+    'rm -rf ..',
+    'rm -rf ../',
+    'rm -rf ../..',
+    'rm -rf ../../..',
+    'rm -rf ../foo',
+    'rm -rf ../../etc/passwd',
+    'rm -rf .. # oops',
+    'rm --recursive ../secrets',
+  ]) {
+    expect(checkHardcodedDeny(cmd), `should block: ${cmd}`).toBeTruthy();
+  }
+});
+
+test('checkHardcodedDeny: rm -r on bare `*` glob blocks', () => {
+  // `rm -rf *` deletes every non-hidden entry in cwd; `**` is the same
+  // (plus globstar-recursive when `shopt -s globstar` is set); `*/`
+  // wipes every immediate subdir. None of these pin a specific path.
+  // Narrower globs (`*.log`, `build/*`, `*foo*`) stay allowed — see the
+  // regression guard below.
+  for (const cmd of [
+    'rm -rf *',
+    'rm -rf **',
+    'rm -rf */',
+    'rm -rf **/',
+    'rm -fr *',
+    'rm -r *',
+    'rm --recursive *',
+    'rm -rf * # oops',
+    'rm -rf -- *',
+  ]) {
+    expect(checkHardcodedDeny(cmd), `should block: ${cmd}`).toBeTruthy();
+  }
+});
+
+test('checkHardcodedDeny: rm on project paths and dotfiles does NOT block', () => {
+  // Regression guard: paths that START with `.` or CONTAIN `*` but pin a
+  // specific target must NOT trip the new cwd / traversal / bare-`*`
+  // rules. A filename like `..foo` (leading dot-dot-letter) is valid
+  // and should pass.
+  for (const cmd of [
+    'rm -rf ./build',
+    'rm -rf ./node_modules',
+    'rm -rf ./.cache',
+    'rm -rf node_modules',
+    'rm -rf .git',
+    'rm -rf .gitignore',
+    'rm -rf .foo',
+    'rm -rf ..foo',
+    'rm ./foo',
+    'rm -f package-lock.json',
+    // Narrower globs — `*` appears but always pins a subset:
+    'rm -rf *.log',
+    'rm -rf *.tsx',
+    'rm -rf build/*',
+    'rm -rf *foo*',
+    'rm -rf foo*',
+    'rm -rf *bar',
+    'rm -rf a*b',
+    'rm -rf .config/*',
+  ]) {
     expect(checkHardcodedDeny(cmd), `should NOT block: ${cmd}`).toBe(null);
   }
 });
@@ -435,6 +523,142 @@ test('decideSubcommand: hardcoded denylist → block (reason mentions built-in)'
 
   expect(d.kind).toBe('block');
   expect(d.reason).toMatch(/built-in denylist/);
+});
+
+test('decideSubcommand: bare bash comment is auto-allowed', () => {
+  // `splitCompound` can hand us comment-only sub-commands from inputs
+  // like `echo hi; # note`. Bash evaluates those as no-ops, so blocking
+  // would be a spurious UX papercut.
+  for (const cmd of ['# just a comment', '#no space', '   # indented comment', '\t#tab-indented']) {
+    expect(decideSubcommand(cmd, emptyLayers()).kind, `should allow: ${JSON.stringify(cmd)}`).toBe('allow');
+  }
+});
+
+test('decideSubcommand: comment short-circuit runs BEFORE the hardcoded denylist', () => {
+  // `# rm -rf /` looks scary but bash treats the whole line as a comment
+  // and does nothing. The step-0 short-circuit must win over the
+  // hardcoded `rm -r` regex that would otherwise pattern-match it.
+  expect(decideSubcommand('# rm -rf /', emptyLayers()).kind).toBe('allow');
+  expect(decideSubcommand('  # mkfs.ext4 /dev/sda', emptyLayers()).kind).toBe('allow');
+});
+
+test('decideSubcommand: `#` mid-command is NOT a comment and still gates', () => {
+  // Bash treats `#` as a comment only at word boundary. `foo#bar` is a
+  // literal token; `echo foo # bar` is `echo foo` + comment. Neither
+  // should be short-circuited — the first is an unknown command that
+  // should prompt, the second is handled by the allow matcher on the
+  // `echo` portion (not by step 0).
+  expect(decideSubcommand('foo#bar', emptyLayers()).kind).toBe('prompt');
+  expect(decideSubcommand('echo foo # trailing', emptyLayers()).kind).toBe('prompt');
+});
+
+// ─────────────────────────────────────────────────────────────────────
+// extractCommandSubstitutions / allSubcommands
+// ─────────────────────────────────────────────────────────────────────
+
+test('extractCommandSubstitutions: $(cmd) basic forms', () => {
+  expect(extractCommandSubstitutions('ls $(rm -rf /)')).toEqual(['rm -rf /']);
+  expect(extractCommandSubstitutions('echo foo')).toEqual([]);
+  // Multiple substitutions in one command.
+  expect(extractCommandSubstitutions('cp $(a) $(b)')).toEqual(['a', 'b']);
+});
+
+test('extractCommandSubstitutions: backtick form', () => {
+  expect(extractCommandSubstitutions('cat `rm -rf /`')).toEqual(['rm -rf /']);
+  expect(extractCommandSubstitutions('echo `a` `b`')).toEqual(['a', 'b']);
+});
+
+test('extractCommandSubstitutions: <(cmd) / >(cmd) process substitution', () => {
+  expect(extractCommandSubstitutions('diff <(a) <(b)')).toEqual(['a', 'b']);
+  expect(extractCommandSubstitutions('tee >(logger -t foo)')).toEqual(['logger -t foo']);
+});
+
+test('extractCommandSubstitutions: substitution inside double quotes IS extracted', () => {
+  expect(extractCommandSubstitutions('echo "$(rm -rf /)"')).toEqual(['rm -rf /']);
+  expect(extractCommandSubstitutions('echo "prefix-$(date)-suffix"')).toEqual(['date']);
+});
+
+test('extractCommandSubstitutions: substitution inside single quotes is NOT extracted', () => {
+  expect(extractCommandSubstitutions("echo '$(rm -rf /)'")).toEqual([]);
+  expect(extractCommandSubstitutions("echo '`rm -rf /`'")).toEqual([]);
+});
+
+test('extractCommandSubstitutions: escaped `$` / backtick are NOT extracted', () => {
+  expect(extractCommandSubstitutions('echo \\$(not a sub)')).toEqual([]);
+  expect(extractCommandSubstitutions('echo \\`not a sub\\`')).toEqual([]);
+});
+
+test('extractCommandSubstitutions: $((arith)) is NOT treated as a command', () => {
+  expect(extractCommandSubstitutions('echo $(( 1 + 2 ))')).toEqual([]);
+  expect(extractCommandSubstitutions('echo $(( x + $(y) ))')).toEqual(['y']);
+  // And ${var} parameter expansion is ignored too.
+  expect(extractCommandSubstitutions('echo ${HOME}')).toEqual([]);
+  expect(extractCommandSubstitutions('echo ${var#prefix}')).toEqual([]);
+});
+
+test('extractCommandSubstitutions: nested substitutions surface every level', () => {
+  expect(extractCommandSubstitutions('echo $(a $(b $(c)))').sort()).toEqual(['a $(b $(c))', 'b $(c)', 'c']);
+});
+
+test('extractCommandSubstitutions: body compounds split on &&/;/||', () => {
+  expect(extractCommandSubstitutions('echo $(a && b; c)').sort()).toEqual(['a', 'b', 'c']);
+});
+
+test('extractCommandSubstitutions: quotes inside substitution body are honored when balancing', () => {
+  // The `)` inside `"..."` must NOT close the outer $( ).
+  expect(extractCommandSubstitutions('echo $( echo ")" ; rm -rf / )').sort()).toEqual(['echo ")"', 'rm -rf /']);
+});
+
+test('extractCommandSubstitutions: unbalanced substitution is ignored (does not throw)', () => {
+  expect(extractCommandSubstitutions('echo $(unterminated')).toEqual([]);
+  expect(extractCommandSubstitutions('echo `unterminated')).toEqual([]);
+});
+
+test('allSubcommands: union of splitCompound + extractCommandSubstitutions', () => {
+  expect(allSubcommands('ls $(rm -rf /) && echo done')).toEqual(['ls $(rm -rf /)', 'echo done', 'rm -rf /']);
+});
+
+test('allSubcommands: deduplicates identical sub-commands', () => {
+  expect(allSubcommands('echo $(a) && echo $(a)')).toEqual(['echo $(a)', 'a']);
+});
+
+// ─────────────────────────────────────────────────────────────────────
+// Integration: command-substitution bypass must be closed
+// ─────────────────────────────────────────────────────────────────────
+
+test('allSubcommands + decideSubcommand: hardcoded denylist now fires inside $()', () => {
+  // Pre-fix: every one of these bypassed the denylist because splitCompound
+  // kept the outer command intact and never surfaced the inner `rm -rf /`.
+  const layers = emptyLayers();
+  // Give the outer command a permissive allow so only the hidden `rm`
+  // can fail the check.
+  layers[2].rules.allow.push('ls*', 'echo*', 'cat*', 'diff*', '[[*');
+
+  for (const cmd of [
+    'ls $(rm -rf /)',
+    'echo $(rm -rf /)',
+    'echo "$(rm -rf /)"',
+    'cat `rm -rf /`',
+    'diff <(rm -rf /) a',
+    '[[ -n "$(rm -rf /)" ]]',
+    'echo $(echo $(rm -rf /))', // nested
+  ]) {
+    const decisions = allSubcommands(cmd).map((s) => decideSubcommand(s, layers));
+    const blocked = decisions.find((d) => d.kind === 'block') as (BashDecision & { reason: string }) | undefined;
+
+    expect(blocked, `${cmd} should surface a block`).toBeTruthy();
+    expect(blocked?.reason).toMatch(/built-in denylist/);
+  }
+});
+
+test('allSubcommands + decideSubcommand: single-quoted substitution does NOT fire (bash literal)', () => {
+  // `'$(rm -rf /)'` is a literal string to bash, so we must not block
+  // `echo '$(rm -rf /)'`.
+  const layers = emptyLayers();
+  layers[2].rules.allow.push('echo*');
+  const decisions = allSubcommands("echo '$(rm -rf /)'").map((s) => decideSubcommand(s, layers));
+
+  expect(decisions.every((d) => d.kind === 'allow')).toBe(true);
 });
 
 test('decideSubcommand: auto mode auto-allows unknown commands', () => {

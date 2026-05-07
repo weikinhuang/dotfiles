@@ -295,10 +295,24 @@ export function matchOne(command: string, layers: { scope: Scope; rules: LoadedR
  */
 export const HARDCODED_DENY: { pattern: RegExp; reason: string }[] = [
   // rm -r (any flag order/combo containing r/R, or --recursive) targeting
-  // /, ~, ~/, $HOME, or /* as the only remaining argument.
+  // a catastrophic or traversal-style location: `/`, `/*`, `~`, `~/`,
+  // `$HOME`, `.`, `./`, `./*`, `.*` (globs to `.` + `..`), any
+  // `..`-prefixed path (`..`, `../`, `../foo`, `../../bar`, …), or a
+  // bare `*`-glob (`*`, `**`, `*/`, `**/`) as the ONLY remaining argument.
+  // A leading `..` always traverses outside cwd so we block the whole
+  // family. Bare-`*` is blocked only when it IS the target — `rm -rf *.log`
+  // / `rm -rf build/*` / `rm -rf *foo*` stay allowed because they pin a
+  // narrower set. A trailing `# comment` is tolerated so `rm -rf / # haha`
+  // doesn't slip past the tail anchor — bash would execute the `rm` and
+  // then ignore the comment.
+  //
+  // Known limitations: multi-target forms (`rm -rf * .*`, `rm -rf / foo`)
+  // aren't caught; each individual target would have to be the lone arg
+  // for the regex to fire.
   {
-    pattern: /^\s*rm\s+(?:-[a-zA-Z]*[rR][a-zA-Z]*|--recursive)(?:\s+-[^\s]+)*\s+(?:\/|\/\*|~|~\/|\$HOME\/?)\s*$/,
-    reason: 'rm -r targeting /, ~, or $HOME',
+    pattern:
+      /^\s*rm\s+(?:-[a-zA-Z]*[rR][a-zA-Z]*|--recursive)(?:\s+-[^\s]+)*\s+(?:\/|\/\*|~|~\/|\$HOME\/?|\.\/\*|\.\/|\.\*|\.|\.\.(?:\/.*)?|\*+\/?)(?:\s+#.*)?\s*$/,
+    reason: 'rm -r targeting /, ~, $HOME, ., a ..-traversal path, or bare `*`',
   },
   // Classic fork bomb: :(){ :|:& };:
   {
@@ -509,6 +523,10 @@ export interface BashDecideOptions {
  * Decide what to do with a single sub-command, applying rules in this
  * order of precedence (earlier rules always win):
  *
+ *   0. Bare bash comment (`# ...`): treated as an allow, because bash
+ *      evaluates it as a no-op. Comes before the hardcoded denylist so
+ *      that `splitCompound` artefacts like `['echo hi', '# note']` don't
+ *      block the whole compound on the harmless second half.
  *   1. Hardcoded denylist (never overridable).
  *   2. Explicit user/project/session deny rules (never overridable).
  *   3. Explicit user/project/session allow rules.
@@ -529,6 +547,12 @@ export function decideSubcommand(
   layers: { scope: Scope; rules: LoadedRules }[],
   options: BashDecideOptions = {},
 ): BashDecision {
+  // 0. Bash comment — first non-whitespace char is `#`, so the whole
+  //    sub-command evaluates to nothing. Short-circuit before the
+  //    hardcoded denylist so patterns that aren't tail-anchored can't
+  //    incidentally match the comment body.
+  if (sub.trimStart().startsWith('#')) return { kind: 'allow' };
+
   // 1. Hardcoded deny.
   const hd = checkHardcodedDeny(sub);
   if (hd) return { kind: 'block', reason: `built-in denylist (${hd})` };
@@ -552,6 +576,230 @@ export function decideSubcommand(
 
   // 6. Prompt.
   return { kind: 'prompt' };
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Command / process substitution extraction
+// ─────────────────────────────────────────────────────────────────────
+
+/**
+ * Find the index of the `close` that balances the `open` at `openIdx`,
+ * respecting single / double quotes and backslash escapes within the
+ * enclosed region. Returns -1 if unbalanced.
+ *
+ * `openIdx` must point at the opening `open` character; scanning starts
+ * one past it with depth=1.
+ */
+function findMatchingClose(s: string, openIdx: number, endIdx: number, open: string, close: string): number {
+  let depth = 1;
+  let i = openIdx + 1;
+  let inSingle = false;
+  let inDouble = false;
+  while (i < endIdx) {
+    const c = s[i];
+    if (!inSingle && c === '\\' && i + 1 < endIdx) {
+      i += 2;
+      continue;
+    }
+    if (!inDouble && c === "'") {
+      inSingle = !inSingle;
+      i++;
+      continue;
+    }
+    if (!inSingle && c === '"') {
+      inDouble = !inDouble;
+      i++;
+      continue;
+    }
+    if (inSingle || inDouble) {
+      i++;
+      continue;
+    }
+    if (c === open) depth++;
+    else if (c === close) {
+      depth--;
+      if (depth === 0) return i;
+    }
+    i++;
+  }
+  return -1;
+}
+
+/**
+ * Return every sub-command hidden inside command-substitution or
+ * process-substitution contexts in `cmd`. Complements {@link splitCompound},
+ * which only handles top-level `&&` / `||` / `;` / newline separators.
+ *
+ * Recognises:
+ *   - `$(cmd)`       command substitution
+ *   - `` `cmd` ``    legacy command substitution
+ *   - `<(cmd)`       process substitution (input)
+ *   - `>(cmd)`       process substitution (output)
+ *
+ * Quoting / escape rules match bash:
+ *   - `'...'`                literal — contents are NOT extracted
+ *   - `"..."`                substitution still active — contents ARE extracted
+ *   - `\$(cmd)` / `` \` ``  escaped — not a substitution
+ *   - `${var}`               parameter expansion — ignored (starts with `${`, not `$(`)
+ *   - `$((expr))`            arithmetic expansion — skipped, not a command
+ *
+ * Nested substitutions are walked recursively. Extracted bodies are then
+ * passed through {@link splitCompound} so `$(a && b)` surfaces `a` and `b`
+ * independently.
+ *
+ * Defence-in-depth, not bulletproof shell parsing: a sufficiently
+ * adversarial string (e.g. unbalanced backticks, exotic heredoc forms)
+ * may evade the scanner. Matches here result in extra prompt / block
+ * decisions, never in weaker checks — so failure modes are fail-closed.
+ */
+export function extractCommandSubstitutions(cmd: string): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+
+  const push = (body: string): void => {
+    for (const part of splitCompound(body)) {
+      const trimmed = part.trim();
+      if (!trimmed) continue;
+      if (seen.has(trimmed)) continue;
+      seen.add(trimmed);
+      out.push(trimmed);
+    }
+  };
+
+  const scan = (s: string): void => {
+    const len = s.length;
+    let i = 0;
+    let inSingle = false;
+    let inDouble = false;
+
+    while (i < len) {
+      const ch = s[i];
+
+      // Backslash escape outside single quotes consumes the next char.
+      if (!inSingle && ch === '\\' && i + 1 < len) {
+        i += 2;
+        continue;
+      }
+
+      if (!inDouble && ch === "'") {
+        inSingle = !inSingle;
+        i++;
+        continue;
+      }
+
+      if (!inSingle && ch === '"') {
+        inDouble = !inDouble;
+        i++;
+        continue;
+      }
+
+      if (inSingle) {
+        i++;
+        continue;
+      }
+
+      // `$((...))` arithmetic expansion — not a command itself, but a
+      // real `$(cmd)` / backtick can appear nested inside the expression
+      // (e.g. `$(( x + $(y) ))`), so recursively scan the interior.
+      if (ch === '$' && s[i + 1] === '(' && s[i + 2] === '(') {
+        let depth = 2;
+        let j = i + 3;
+        while (j < len && depth > 0) {
+          const c = s[j];
+          if (c === '\\' && j + 1 < len) {
+            j += 2;
+            continue;
+          }
+          if (c === '(') depth++;
+          else if (c === ')') depth--;
+          j++;
+        }
+        // j is now one past the closing `))` (or at EOF if unbalanced).
+        if (j - 2 > i + 3) scan(s.slice(i + 3, j - 2));
+        i = j;
+        continue;
+      }
+
+      // `$(cmd)` command substitution.
+      if (ch === '$' && s[i + 1] === '(') {
+        const end = findMatchingClose(s, i + 1, len, '(', ')');
+        if (end >= 0) {
+          const body = s.slice(i + 2, end);
+          push(body);
+          scan(body);
+          i = end + 1;
+          continue;
+        }
+      }
+
+      // `<(cmd)` / `>(cmd)` process substitution. Require the preceding
+      // char be whitespace, `=`, or start-of-string so we don't misread
+      // a redirect like `2>(log)` — actually bash does accept `2>(log)`
+      // as process substitution, so just match any `<(` / `>(`.
+      if ((ch === '<' || ch === '>') && s[i + 1] === '(') {
+        const end = findMatchingClose(s, i + 1, len, '(', ')');
+        if (end >= 0) {
+          const body = s.slice(i + 2, end);
+          push(body);
+          scan(body);
+          i = end + 1;
+          continue;
+        }
+      }
+
+      // `` `cmd` `` backtick substitution. Find closing unescaped backtick.
+      if (ch === '`') {
+        let j = i + 1;
+        while (j < len) {
+          if (s[j] === '\\' && j + 1 < len) {
+            j += 2;
+            continue;
+          }
+          if (s[j] === '`') break;
+          j++;
+        }
+        if (j < len) {
+          const body = s.slice(i + 1, j);
+          push(body);
+          scan(body);
+          i = j + 1;
+          continue;
+        }
+      }
+
+      i++;
+    }
+  };
+
+  scan(cmd);
+  return out;
+}
+
+/**
+ * All sub-commands the permissions gate must clear for `cmd` to run:
+ * the union of {@link splitCompound} (top-level `&&` / `||` / `;` / newline
+ * splits) and {@link extractCommandSubstitutions} (hidden inside `$(…)`,
+ * backticks, and process substitutions). Each returned string is one
+ * independently-checkable sub-command.
+ *
+ * Exported for use by the bash-permissions extension orchestration —
+ * callers should iterate the result through {@link decideSubcommand}.
+ */
+export function allSubcommands(cmd: string): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const s of splitCompound(cmd)) {
+    const trimmed = s.trim();
+    if (!trimmed || seen.has(trimmed)) continue;
+    seen.add(trimmed);
+    out.push(trimmed);
+  }
+  for (const s of extractCommandSubstitutions(cmd)) {
+    if (seen.has(s)) continue;
+    seen.add(s);
+    out.push(s);
+  }
+  return out;
 }
 
 // ──────────────────────────────────────────────────────────────────────

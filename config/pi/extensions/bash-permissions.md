@@ -3,6 +3,24 @@
 Claude Code–style approval gate for the built-in `bash` tool. Intercepts every bash tool call and checks it against
 allow / deny rule sets before letting pi execute.
 
+## Baseline example
+
+[`../bash-permissions-example.json`](../bash-permissions-example.json) is a hand-curated read-only allowlist (file
+inspection, search, git read-only subcommands, npm/yarn/pnpm queries, docker queries, `cd` / `pushd` / `popd`,
+env/identity). Copy or merge into `~/.pi/bash-permissions.json` (user scope) or `<repo>/.pi/bash-permissions.json`
+(project scope), then layer your own write/build allowances on top.
+
+Footguns the baseline already guards against with `re:` rules:
+
+- `find -exec` / `-execdir` / `-ok` / `-okdir` / `-delete` / `-fprint` / `-fprintf` / `-fls`
+- `fd -x` / `-X` / `--exec` / `--exec-batch`
+- `rg --pre` (arbitrary per-file preprocessor) — `--pretty` and `--pre-glob` still pass
+- `git branch <name>` (creates), `git tag <name>` (creates), `git config key value` (writes)
+
+Semantics are pinned by
+[`tests/config/pi/bash-permissions-example.spec.ts`](../../../tests/config/pi/bash-permissions-example.spec.ts), which
+runs the bundled commands through the same `matchesPattern` / `splitCompound` helpers the extension uses at runtime.
+
 ## Rule layers
 
 Rules are loaded from three layers on every tool call. Deny beats allow across all layers.

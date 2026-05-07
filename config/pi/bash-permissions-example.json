@@ -1,0 +1,231 @@
+// Baseline **read-only** allow-list for the `bash-permissions` extension.
+//
+//   Extension:  config/pi/extensions/bash-permissions.ts
+//   Reference:  config/pi/extensions/bash-permissions.md
+//
+// Copy (or merge) into one of:
+//
+//   ~/.pi/bash-permissions.json       — user scope, every project
+//   <repo>/.pi/bash-permissions.json  — project scope, this repo only
+//
+// Semantics recap (full rules in bash-permissions.md):
+//   - `foo`         exact match
+//   - `foo*`        token-aware prefix (`git log*` ≠ `git logs`)
+//   - `re:<regex>`  unanchored JS regex (anchor with ^…$ for whole-command match)
+//   - `/re/flags`   JS regex with flags
+//   - Compound commands joined by &&, ||, ; are split and each side must pass
+//   - Deny beats allow across session / project / user layers
+//
+// Everything below either prints, lists, searches, or inspects state. Nothing
+// here mutates the filesystem, repo history, packages, containers, or network.
+// Add your own write/build commands in a separate file — don't muddy this one.
+{
+  "allow": [
+    // ── file inspection ────────────────────────────────────────────────────
+    "ls*",
+    "pwd",
+    "cat*",
+    "head*",
+    "tail*",
+    "file*",
+    "stat*",
+    "wc*",
+    "du*",
+    "df*",
+    "tree*",
+    "readlink*",
+    "realpath*",
+    "basename*",
+    "dirname*",
+    "which*",
+    "type*",
+    "command -v*",
+
+    // ── search ─────────────────────────────────────────────────────────────
+    // `find`, `fd`, and `rg` each have a flag that pivots them from "search"
+    // to "run an arbitrary subcommand per match" (or, in find's case, mutate
+    // the filesystem). Prefix matches like `find*` would let those through,
+    // so the three are gated by regex instead.
+    //   find: -exec / -execdir / -ok / -okdir run commands;
+    //         -delete removes files; -fprint / -fprintf / -fls write to a file.
+    //   fd:   -x / -X / --exec / --exec-batch run commands.
+    //   rg:   --pre <cmd> runs a preprocessor per matched file.
+    "re:^find(?!.*\\s-(exec|execdir|ok|okdir|delete|fprint|fprintf|fls)\\b)(\\s.*)?$",
+    "re:^fd(?!.*\\s(-x|-X|--exec|--exec-batch)\\b)(\\s.*)?$",
+    "re:^rg(?!.*\\s--pre(\\s|=))(\\s.*)?$",
+    "grep*",
+    "egrep*",
+    "fgrep*",
+    "ag*",
+    "locate*",
+
+    // ── git: read-only subcommands ─────────────────────────────────────────
+    "git status*",
+    "git log*",
+    "git show*",
+    "git diff*",
+    "git blame*",
+    "git reflog*",
+    "git describe*",
+    "git rev-parse*",
+    "git rev-list*",
+    "git ls-files*",
+    "git ls-tree*",
+    "git cat-file*",
+    "git shortlog*",
+    "git grep*",
+    "git remote",
+    "git remote -v",
+    "git remote show*",
+    "git remote get-url*",
+    "git stash list*",
+    "git stash show*",
+    "git worktree list*",
+    "git submodule status*",
+    // `git branch` lists; `git branch <name>` CREATES. Allow only list-y forms.
+    "re:^git branch(\\s+(-[alrvv]+|--all|--remotes|--show-current|--list( .+)?|--contains( .+)?|--merged( .+)?|--no-merged( .+)?))*\\s*$",
+    // Same story for `git tag`.
+    "re:^git tag(\\s+(-l|--list)( .+)?)?\\s*$",
+    // `git config --list` / `--get…` are read-only; bare `git config key value` writes.
+    "re:^git config\\s+(--list|--get|--get-all|--get-regexp)(\\s+.+)?$",
+
+    // ── node / package managers: read-only queries ─────────────────────────
+    "node --version",
+    "node -v",
+    "npm --version",
+    "npm -v",
+    "npm list*",
+    "npm ls*",
+    "npm outdated*",
+    "npm view*",
+    "npm info*",
+    "npm config get*",
+    "npm config list*",
+    "npx --version",
+    "yarn --version",
+    "yarn list*",
+    "yarn why*",
+    "pnpm --version",
+    "pnpm list*",
+    "pnpm why*",
+
+    // ── containers: read-only queries ──────────────────────────────────────
+    "docker ps*",
+    "docker images*",
+    "docker image ls*",
+    "docker container ls*",
+    "docker logs*",
+    "docker inspect*",
+    "docker version",
+    "docker info",
+    "docker stats --no-stream*",
+
+    // ── directory navigation ───────────────────────────────────────────────
+    // Each `bash` tool call runs in its own subshell, so a bare `cd foo`
+    // doesn't persist across calls. These rules matter because compound
+    // commands are split on `&&`, `||`, `;`, and each side is checked
+    // independently — `cd sub && run-thing` would otherwise be blocked
+    // at the `cd sub` half.
+    //
+    // Known quirk: `(cd sub && cmd)` splits into `['(cd sub', 'cmd)']`,
+    // so the opening paren sticks to the token and breaks the prefix
+    // match. Use `cd sub && cmd` (no subshell parens) or rely on the
+    // caller's cwd instead.
+    "cd*",
+    "pushd*",
+    "popd*",
+    "dirs*",
+
+    // ── shell builtins / conditionals ─────────────────────────────────────────────
+    // `set`, `shopt`, `alias` toggle shell state that is scoped to the
+    // subshell pi spawns for this tool call — the state vanishes on
+    // exit, so these can't be used to persist a surprise side effect
+    // across calls. `test` / `[` are pure predicate builtins.
+    "set*",
+    "shopt*",
+    "alias",
+    "alias -p",
+    "test*",
+    "[*",
+    // `[[ ... ]]` (conditional expression) and `(( ... ))` (arithmetic
+    // evaluation) are bash keywords, not commands — they're parsed by
+    // the shell directly and have no exec vector of their own. Still
+    // subject to the generic command-substitution caveat every `*` rule
+    // has (`[[ -n "$(rm -rf /)" ]]` is blocked by the hardcoded denylist
+    // on the `rm` side, not here).
+    "[[*",
+    "((*",
+
+    // ── text processing (readonly stream transforms) ──────────────────────────────
+    // Every tool here reads from stdin/argv and writes to stdout only —
+    // no in-place edits, no exec vectors. `sort` is the exception:
+    // `sort -o FILE` writes to FILE, so it's admitted via regex that
+    // rejects `-o`.
+    //
+    // Deliberately NOT in this list:
+    //   awk    — `system()` and `| "cmd"` run shell commands
+    //   yq     — `-i` / `--inplace` writes files
+    //   xargs  — universal pipe-to-arbitrary-command
+    //   less / more  — interactive pagers that can execute `!cmd`
+    //
+    // `sed` is admitted via regex — `-i` (in any bundle) and `--in-place`
+    // are rejected, but the GNU-sed `e` / `w` script commands live inside
+    // the quoted script argument and aren't parseable from out here. Use
+    // `sed` for read-only transformations only; author sed scripts
+    // containing `e` or `w` at your own risk.
+    "re:^sed(?!.*\\s(-[a-zA-Z]*i[a-zA-Z]*|--in-place)\\b)(\\s.*)?$",
+    "re:^sort(?!.*\\s(-o|--output)\\b)(\\s.*)?$",
+    "cut*",
+    "uniq*",
+    "tr*",
+    "nl*",
+    "tac*",
+    "rev",
+    "fold*",
+    "fmt*",
+    "column*",
+    "paste*",
+    "join*",
+    "comm*",
+    "diff*",
+    "cmp*",
+    "jq*",
+
+    // ── hashing / encoding / binary inspection (stdout-only) ──────────────────────
+    "md5sum*",
+    "sha1sum*",
+    "sha256sum*",
+    "sha512sum*",
+    "shasum*",
+    "b2sum*",
+    "cksum*",
+    "base64*",
+    "xxd*",
+    "od*",
+    "hexdump*",
+
+    // ── system / env info ──────────────────────────────────────────────────
+    "echo*",
+    "printf*",
+    "env",
+    "printenv*",
+    "date*",
+    "uname*",
+    "whoami",
+    "hostname*",
+    "id",
+    "id -u",
+    "id -g",
+    "uptime",
+    "ps*",
+    "true",
+    "false"
+  ],
+
+  // Additive deny list. The extension already hardcodes catastrophes
+  // (`rm -rf /`, fork bombs, `mkfs`, raw `dd`, `curl | sh`, …) and the
+  // `protected-paths` extension guards `.env*` / `~/.ssh` / `.git/` / etc.
+  // Add entries here only when you want belt-and-suspenders for a specific
+  // command on this machine or repo.
+  "deny": []
+}

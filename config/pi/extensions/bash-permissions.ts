@@ -95,12 +95,12 @@ import {
   uninstallBashGate,
 } from '../../../lib/node/pi/bash-gate.ts';
 import {
+  allSubcommands,
   type BashDecision,
   decideSubcommand,
   type LoadedRules,
   type RuleFile,
   type Scope,
-  splitCompound,
   twoTokenPattern,
 } from '../../../lib/node/pi/bash-match.ts';
 import { clearConfigWarning, parseJsonc, warnBadConfigFileOnce } from '../../../lib/node/pi/jsonc.ts';
@@ -395,7 +395,14 @@ export default function bashPermissions(pi: ExtensionAPI): void {
     if (!trimmed) return { allowed: true };
 
     const layers = loadLayers(ctx.cwd);
-    const subcommands = splitCompound(trimmed);
+    // Enumerate every sub-command the shell would actually execute —
+    // top-level `&&` / `||` / `;` / newline splits AND anything hidden
+    // inside `$(…)` / `` `…` `` / `<(…)` / `>(…)` substitutions. Each
+    // independently runs through the precedence ladder below, so a
+    // `rm -rf /` smuggled into a command-substitution argument is
+    // caught by the hardcoded denylist just as it would be if typed
+    // plainly.
+    const subcommands = allSubcommands(trimmed);
 
     // Single pass: apply the full precedence ladder per sub-command.
     // decideSubcommand enforces the invariant that auto mode NEVER beats
