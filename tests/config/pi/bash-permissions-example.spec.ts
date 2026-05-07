@@ -26,7 +26,13 @@ import { resolve } from 'node:path';
 
 import { beforeAll, describe, expect, test } from 'vitest';
 
-import { matchesPattern, splitCompound } from '../../../lib/node/pi/bash-match.ts';
+import {
+  matchesPattern,
+  splitCompound,
+  allSubcommands,
+  type BashDecision,
+  decideSubcommand,
+} from '../../../lib/node/pi/bash-match.ts';
 import { parseJsonc } from '../../../lib/node/pi/jsonc.ts';
 
 interface RuleFile {
@@ -287,6 +293,12 @@ describe('bash-permissions-example: shell builtins', () => {
     '(( 1 + 2 == 3 ))',
     '(( x > 0 ))',
     '(( COUNT++ ))',
+    // for / select / case — args aren't commands, so they need their own
+    // allow rule (`for*` / `select*` / `case*`).
+    'for f in *.ts',
+    'for i in 1 2 3',
+    'select opt in a b c',
+    'case "$x" in',
   ])('allows: %s', (cmd) => {
     expect(allowed(cmd)).toBe(true);
   });
@@ -388,6 +400,88 @@ describe('bash-permissions-example: text processing', () => {
     ['less foo', 'less can shell out via !cmd'],
   ])('rejects excluded tool: %s  (%s)', (cmd) => {
     expect(allowed(cmd)).toBe(false);
+  });
+});
+
+describe('bash-permissions-example: bat', () => {
+  test.each([
+    'bat file.ts',
+    'bat --plain file.ts',
+    'bat --paging=never file.ts',
+    'bat --list-languages',
+    'bat --list-themes',
+    'bat --language json file.txt',
+    'bat --style=plain file.ts',
+    'bat --cache-dir',
+    // Near-misses where `cache` appears but NOT as the cache subcommand.
+    'bat --ignored-suffix cache file.txt',
+    'bat file-cache.log',
+  ])('allows read-only: %s', (cmd) => {
+    expect(allowed(cmd)).toBe(true);
+  });
+
+  test.each([
+    // `bat cache ...` (any form) builds / clears the cache on disk.
+    ['bat cache', 'bare cache subcommand'],
+    ['bat cache --build', 'cache --build'],
+    ['bat cache --clear', 'cache --clear'],
+    // `--write-config` / `--generate-config-file` write config.
+    ['bat --write-config', '--write-config'],
+    ['bat --generate-config-file', '--generate-config-file'],
+    ['bat --plain --write-config', 'flag order'],
+  ])('rejects write form: %s  (%s)', (cmd) => {
+    expect(allowed(cmd)).toBe(false);
+  });
+});
+
+describe('bash-permissions-example: control-flow compounds', () => {
+  // Unlike every other test in this file, these exercise the full
+  // allSubcommands + decideSubcommand pipeline because `decideSubcommand`
+  // is what peels `if` / `then` / `while` / … off each sub before
+  // matching. A plain `allowed()` check on the raw compound would only
+  // see the outer command.
+  //
+  // Re-read the example here rather than relying on the module-level
+  // `rules` populated inside beforeAll — describe callbacks run at
+  // collect time, BEFORE beforeAll fires.
+  const localRules = parseJsonc<RuleFile>(readFileSync(EXAMPLE_PATH, 'utf8'));
+  const layers = [
+    { scope: 'session' as const, rules: { allow: [] as string[], deny: [] as string[] } },
+    { scope: 'project' as const, rules: { allow: [] as string[], deny: [] as string[] } },
+    { scope: 'user' as const, rules: { allow: localRules.allow, deny: localRules.deny } },
+  ];
+  const run = (cmd: string): BashDecision[] => allSubcommands(cmd).map((s) => decideSubcommand(s, layers));
+
+  test.each([
+    // Benign loops / conditionals whose inner commands are in the allowlist.
+    'if [[ -f foo ]]; then echo found; fi',
+    'while [[ -f foo ]]; do echo wait; done',
+    'for f in *.ts; do echo $f; done',
+    'if true; then echo yes; else echo no; fi',
+  ])('allows benign: %s', (cmd) => {
+    const decisions = run(cmd);
+
+    expect(
+      decisions.every((d) => d.kind === 'allow'),
+      `${cmd} subs=${JSON.stringify(allSubcommands(cmd))} verdicts=${JSON.stringify(decisions)}`,
+    ).toBe(true);
+  });
+
+  test.each([
+    // `rm -rf` smuggled into any branch must still block.
+    'if [[ -f foo ]]; then rm -rf /; fi',
+    'while true; do rm -rf ~; done',
+    'until test -f foo; do rm -rf ..; done',
+    'if ! test -f foo; then rm -rf $HOME; fi',
+    'if true; then echo yes; else rm -rf /; fi',
+    'for f in *.ts; do rm -rf .; done',
+  ])('blocks smuggled rm: %s', (cmd) => {
+    const decisions = run(cmd);
+
+    expect(
+      decisions.some((d) => d.kind === 'block'),
+      `${cmd} should surface a block`,
+    ).toBe(true);
   });
 });
 

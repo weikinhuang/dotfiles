@@ -18,6 +18,7 @@ import {
   maskQuotedRegions,
   matchesPattern,
   splitCompound,
+  stripControlFlowKeyword,
   twoTokenPattern,
 } from '../../../../lib/node/pi/bash-match.ts';
 
@@ -550,6 +551,134 @@ test('decideSubcommand: `#` mid-command is NOT a comment and still gates', () =>
   // `echo` portion (not by step 0).
   expect(decideSubcommand('foo#bar', emptyLayers()).kind).toBe('prompt');
   expect(decideSubcommand('echo foo # trailing', emptyLayers()).kind).toBe('prompt');
+});
+
+// ─────────────────────────────────────────────────────────────────────
+// stripControlFlowKeyword + control-flow integration
+// ─────────────────────────────────────────────────────────────────────
+
+test('stripControlFlowKeyword: standalone closers and bare keywords return null', () => {
+  for (const s of ['fi', 'done', 'esac', 'in', 'if', 'elif', 'then', 'else', 'while', 'until', 'do', '!']) {
+    expect(stripControlFlowKeyword(s), `bare keyword: ${s}`).toBe(null);
+  }
+
+  // Whitespace-only / empty sub.
+  expect(stripControlFlowKeyword('')).toBe(null);
+  expect(stripControlFlowKeyword('   ')).toBe(null);
+});
+
+test('stripControlFlowKeyword: leading keyword is peeled off', () => {
+  expect(stripControlFlowKeyword('if [[ -f foo ]]')).toBe('[[ -f foo ]]');
+  expect(stripControlFlowKeyword('elif [[ y ]]')).toBe('[[ y ]]');
+  expect(stripControlFlowKeyword('then rm -rf /')).toBe('rm -rf /');
+  expect(stripControlFlowKeyword('else echo x')).toBe('echo x');
+  expect(stripControlFlowKeyword('while true')).toBe('true');
+  expect(stripControlFlowKeyword('until test -f foo')).toBe('test -f foo');
+  expect(stripControlFlowKeyword('do echo hi')).toBe('echo hi');
+  expect(stripControlFlowKeyword('! test -f foo')).toBe('test -f foo');
+});
+
+test('stripControlFlowKeyword: iterative — multiple leading keywords unwind', () => {
+  // `then ! if true` -> `! if true` -> `if true` -> `true`.
+  expect(stripControlFlowKeyword('then ! if true')).toBe('true');
+  // `while ! test -f foo` -> `! test -f foo` -> `test -f foo`.
+  expect(stripControlFlowKeyword('while ! test -f foo')).toBe('test -f foo');
+  // Whitespace between keywords handled via trimStart after each peel.
+  expect(stripControlFlowKeyword('  then   foo')).toBe('foo');
+});
+
+test('stripControlFlowKeyword: commands with keyword-like prefixes are NOT stripped', () => {
+  // `ifconfig` must not be read as `if` + `config`. Same for `done_task`,
+  // `then_what`, etc. The matcher requires whitespace / tab right after
+  // the keyword, so these stay intact.
+  expect(stripControlFlowKeyword('ifconfig eth0')).toBe('ifconfig eth0');
+  expect(stripControlFlowKeyword('done_task.sh')).toBe('done_task.sh');
+  expect(stripControlFlowKeyword('whilewait')).toBe('whilewait');
+  // Plain commands pass through.
+  expect(stripControlFlowKeyword('echo hi')).toBe('echo hi');
+  expect(stripControlFlowKeyword('rm -rf /')).toBe('rm -rf /');
+});
+
+test('stripControlFlowKeyword: `for` / `select` / `case` are NOT stripped', () => {
+  // Their positional args aren't commands — they need explicit allow
+  // rules like `for*`. Stripping would hand over a non-command string
+  // to the gate.
+  expect(stripControlFlowKeyword('for f in *.ts')).toBe('for f in *.ts');
+  expect(stripControlFlowKeyword('select opt in a b c')).toBe('select opt in a b c');
+  expect(stripControlFlowKeyword('case "$x" in')).toBe('case "$x" in');
+});
+
+test('decideSubcommand: control-flow closer short-circuits to allow', () => {
+  for (const cmd of ['fi', 'done', 'esac', 'in', '   done   ']) {
+    expect(decideSubcommand(cmd, emptyLayers()).kind, `should allow: ${cmd}`).toBe('allow');
+  }
+});
+
+test('decideSubcommand: `then rm -rf /` still fires the hardcoded denylist', () => {
+  // The pre-strip bypass that motivated this whole feature. `then`,
+  // `do`, `else`, `elif`, `while`, `until`, `if`, `!` all unwrap so
+  // the inner `rm -rf /` gets the full gate.
+  for (const cmd of [
+    'then rm -rf /',
+    'do rm -rf ~',
+    'else rm -rf $HOME',
+    'while rm -rf /',
+    'until rm -rf .',
+    'if rm -rf *',
+    '! rm -rf /',
+    '  then   rm -rf /',
+    'then ! rm -rf /',
+  ]) {
+    const d = decideSubcommand(cmd, emptyLayers()) as BashDecision & { reason: string };
+
+    expect(d.kind, `should block: ${cmd}`).toBe('block');
+    expect(d.reason).toMatch(/built-in denylist/);
+  }
+});
+
+test('allSubcommands + decideSubcommand: full control-flow constructs blocked', () => {
+  // Integration: splitCompound breaks these into keyword-prefixed subs,
+  // and decideSubcommand's control-flow strip runs each through the
+  // hardcoded denylist on its effective command.
+  const layers = emptyLayers();
+  layers[2].rules.allow.push('echo*', 'true', '[[*', 'test*', 'for*', 'sleep*');
+
+  for (const cmd of [
+    'if [[ -f foo ]]; then rm -rf /; fi',
+    'while true; do rm -rf ~; done',
+    'until test -f foo; do rm -rf ..; done',
+    'if ! test -f foo; then rm -rf $HOME; fi',
+    'if true; then echo yes; else rm -rf /; fi',
+    'for f in *.ts; do rm -rf .; done',
+  ]) {
+    const decisions = allSubcommands(cmd).map((s) => decideSubcommand(s, layers));
+    const blocked = decisions.find((d) => d.kind === 'block') as (BashDecision & { reason: string }) | undefined;
+
+    expect(blocked, `${cmd} should surface a block`).toBeTruthy();
+    expect(blocked?.reason).toMatch(/built-in denylist/);
+  }
+});
+
+test('allSubcommands + decideSubcommand: benign control-flow constructs pass', () => {
+  // Regression guard: well-formed loops and conditionals with only
+  // allowed inner commands must not over-block.
+  const layers = emptyLayers();
+  layers[2].rules.allow.push('echo*', 'true', '[[*', 'test*', 'for*', 'sleep*');
+
+  for (const cmd of [
+    'if [[ -f foo ]]; then echo found; fi',
+    'while true; do echo loop; done',
+    'for f in *.ts; do echo $f; done',
+    'until test -f foo; do sleep 1; done',
+    'if true; then echo yes; else echo no; fi',
+  ]) {
+    const decisions = allSubcommands(cmd).map((s) => decideSubcommand(s, layers));
+
+    expect(
+      decisions.every((d) => d.kind === 'allow'),
+      `${cmd} subs: ${JSON.stringify(allSubcommands(cmd))} verdicts: ${JSON.stringify(decisions)}`,
+    ).toBe(true);
+  }
 });
 
 // ─────────────────────────────────────────────────────────────────────

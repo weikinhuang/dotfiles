@@ -503,6 +503,53 @@ export function checkAlwaysPrompt(command: string): string | null {
 }
 
 // ──────────────────────────────────────────────────────────────────────
+/**
+ * Strip leading bash control-flow syntax from a sub-command so the
+ * approval gate evaluates what bash will actually execute, not the
+ * syntactic wrapper around it.
+ *
+ * `splitCompound` cuts on `&&` / `||` / `;` / newlines, so a compound
+ * like `if [[ -f foo ]]; then rm -rf /; fi` surfaces as three subs:
+ * `['if [[ -f foo ]]', 'then rm -rf /', 'fi']`. Without normalization,
+ * `then rm -rf /` would sail past the hardcoded denylist (whose regex
+ * anchors to `^\s*rm\s+…`, not `^\s*then\s+rm\s+…`). We strip the
+ * leading keyword so the inner command gets the full gate.
+ *
+ * Returns:
+ *   - `null`  if the sub is pure syntax and nothing is executed
+ *             (`fi`, `done`, `esac`, `in`, or a bare keyword like `if`).
+ *   - string  the effective command after stripping (may equal input if
+ *             no leading syntax was found).
+ *
+ * Keywords stripped iteratively so `then ! rm -rf /` unwinds to
+ * `rm -rf /`. Deliberately NOT stripped: `for` / `select` / `case` —
+ * their positional args aren't executable commands, so they're left
+ * for a `for*` / `select*` / `case*` allow rule to admit. `!` is
+ * treated as a strippable modifier (bash's negation reserved word)
+ * because it appears in `if ! cmd` / `while ! cmd` idioms and the
+ * thing after it is what actually runs.
+ */
+export function stripControlFlowKeyword(sub: string): string | null {
+  const STANDALONE = new Set(['fi', 'done', 'esac', 'in']);
+  const STRIP = ['if', 'elif', 'then', 'else', 'while', 'until', 'do', '!'];
+
+  let current = sub.trim();
+  while (current.length > 0) {
+    if (STANDALONE.has(current)) return null;
+    let stripped = false;
+    for (const kw of STRIP) {
+      if (current === kw) return null;
+      if (current.startsWith(`${kw} `) || current.startsWith(`${kw}\t`)) {
+        current = current.slice(kw.length).trimStart();
+        stripped = true;
+        break;
+      }
+    }
+    if (!stripped) return current;
+  }
+  return null;
+}
+
 // Sub-command decision (combines hardcoded deny + user rules + auto mode)
 // ──────────────────────────────────────────────────────────────────────
 
@@ -527,6 +574,11 @@ export interface BashDecideOptions {
  *      evaluates it as a no-op. Comes before the hardcoded denylist so
  *      that `splitCompound` artefacts like `['echo hi', '# note']` don't
  *      block the whole compound on the harmless second half.
+ *   0.5. Control-flow keyword strip: `if`/`elif`/`then`/`else`/`while`/
+ *      `until`/`do`/`!` prefixes are peeled off, and standalone closers
+ *      (`fi`/`done`/`esac`/`in`) short-circuit to allow. Ensures that
+ *      `then rm -rf /` (a `splitCompound` artefact of `if …; then rm …;
+ *      fi`) gets checked as `rm -rf /` and trips the hardcoded denylist.
  *   1. Hardcoded denylist (never overridable).
  *   2. Explicit user/project/session deny rules (never overridable).
  *   3. Explicit user/project/session allow rules.
@@ -552,6 +604,12 @@ export function decideSubcommand(
   //    hardcoded denylist so patterns that aren't tail-anchored can't
   //    incidentally match the comment body.
   if (sub.trimStart().startsWith('#')) return { kind: 'allow' };
+
+  // 0.5. Control-flow keyword strip. `then rm -rf /` becomes `rm -rf /`
+  //      before the denylist sees it; `fi` / `done` / `esac` disappear.
+  const effective = stripControlFlowKeyword(sub);
+  if (effective === null) return { kind: 'allow' };
+  sub = effective;
 
   // 1. Hardcoded deny.
   const hd = checkHardcodedDeny(sub);

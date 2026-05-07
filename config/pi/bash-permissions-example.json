@@ -25,6 +25,13 @@
     "ls*",
     "pwd",
     "cat*",
+    // `bat` is a `cat` replacement; same read-only use case, but it has
+    // two mutation vectors we reject via regex:
+    //   * `bat cache ...`    builds / clears the syntax-and-theme cache
+    //   * `bat --write-config` / `--generate-config-file`    writes config
+    // Everything else — `bat file`, `bat --plain`, `bat --list-languages`,
+    // `bat --paging=never`, etc. — stays allowed.
+    "re:^bat(?!\\s+cache\\b)(?!.*\\s(--write-config|--generate-config-file)\\b)(\\s.*)?$",
     "head*",
     "tail*",
     "file*",
@@ -155,6 +162,15 @@
     // on the `rm` side, not here).
     "[[*",
     "((*",
+    // Control-flow constructs whose args aren't executable commands
+    // (their bodies are — and those run through the gate independently
+    // after `decideSubcommand`'s control-flow-keyword strip peels off
+    // any leading `if`/`while`/`then`/…). `for VAR in LIST` / `select`
+    // / `case EXPR in` all need an explicit allow here because their
+    // first-token form isn't covered by any other rule.
+    "for*",
+    "select*",
+    "case*",
 
     // ── text processing (readonly stream transforms) ──────────────────────────────
     // Every tool here reads from stdin/argv and writes to stdout only —
