@@ -23,6 +23,8 @@
  * or mutate `isError`, and it does NOT fire on reads that already hit
  * a truncation notice (pi's own `[Showing lines X-Y of Z…]` already
  * tells the model what to do there — our extra nudge would be noise).
+ * It also does NOT fire on binary reads (e.g. images), where `rg -n`
+ * and line-windowed re-reads don't make sense.
  *
  * Signal shape is deliberately narrow: callers pass in ONE
  * `TruncationLike` summarizing what pi's read tool reported (or what
@@ -66,10 +68,19 @@ export interface NudgeProbe {
   limit: number | undefined;
   /** Pi's truncation report / our synthesized version. */
   truncation: TruncationLike;
+  /**
+   * True when the read produced non-text content (e.g. an image).
+   * For these reads, line/byte thresholds don't apply — the model
+   * can't `rg -n` an image — so we skip the nudge entirely.
+   */
+  isBinary?: boolean;
 }
 
 export type NudgeDecision =
-  | { kind: 'skip'; reason: 'had-offset' | 'had-limit' | 'already-truncated' | 'small-file' | 'unknown-size' }
+  | {
+      kind: 'skip';
+      reason: 'had-offset' | 'had-limit' | 'already-truncated' | 'small-file' | 'unknown-size' | 'binary-content';
+    }
   | { kind: 'nudge'; reason: 'lines' | 'bytes'; nudge: string };
 
 function formatBytes(n: number): string {
@@ -106,6 +117,7 @@ function formatNudge(probe: NudgeProbe, reason: 'lines' | 'bytes', marker = NUDG
 export function classifyRead(probe: NudgeProbe, opts: NudgeOptions = {}): NudgeDecision {
   if (probe.offset !== undefined) return { kind: 'skip', reason: 'had-offset' };
   if (probe.limit !== undefined) return { kind: 'skip', reason: 'had-limit' };
+  if (probe.isBinary === true) return { kind: 'skip', reason: 'binary-content' };
   if (probe.truncation.truncated === true) return { kind: 'skip', reason: 'already-truncated' };
 
   const { totalLines, totalBytes } = probe.truncation;

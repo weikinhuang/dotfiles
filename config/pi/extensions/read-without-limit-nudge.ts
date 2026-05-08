@@ -99,6 +99,17 @@ export default function readWithoutLimitNudge(pi: ExtensionAPI): void {
     const offset = typeof input.offset === 'number' ? input.offset : undefined;
     const limit = typeof input.limit === 'number' ? input.limit : undefined;
 
+    // If pi returned any non-text content part (e.g. an image), skip
+    // the nudge entirely — `rg -n` and line-windowed re-reads don't
+    // apply to binary reads. Pi's read tool emits a small text preface
+    // (`Read image file […]`) plus an `image` part for image files, so
+    // we detect on the presence of any non-text part rather than the
+    // first part's type. Short-circuit before the `statSync` fallback.
+    if (event.content.some((part) => part.type !== 'text')) {
+      trace(`skip reason=binary-content path=${abs}`);
+      return undefined;
+    }
+
     // Prefer pi's own truncation report. It carries the authoritative
     // total line count when present. If absent, we still know the file
     // fit under pi's default cap — in that case we count lines from the

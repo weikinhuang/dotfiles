@@ -68,6 +68,34 @@ describe('classifyRead — skip paths', () => {
 
     expect(out.reason).toBe('small-file');
   });
+
+  test('binary-content: skip when the read returned non-text parts (e.g. image)', () => {
+    const out = classifyRead({
+      ...probe({ totalLines: 10_000, totalBytes: 10 * 1024 * 1024 }),
+      isBinary: true,
+    });
+
+    assertKind(out, 'skip');
+
+    expect(out.reason).toBe('binary-content');
+  });
+
+  test('binary-content: isBinary wins over had-offset / had-limit precedence', () => {
+    // Order of precedence in classifyRead: had-offset, had-limit,
+    // binary-content, then the rest. We don't want a binary read with
+    // offset to slip through to the truncation branch via synthesized
+    // byte thresholds, but we also don't want binary to mask an
+    // explicit offset/limit (those are already skip paths). Spot-check
+    // the ordering here so future reorderings surface in CI.
+    const withOffset = classifyRead({
+      ...probe({ totalLines: 10_000 }, { offset: 1 }),
+      isBinary: true,
+    });
+
+    assertKind(withOffset, 'skip');
+
+    expect(withOffset.reason).toBe('had-offset');
+  });
 });
 
 // ──────────────────────────────────────────────────────────────────────
