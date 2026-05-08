@@ -55,6 +55,19 @@
  * Rules augment (don't replace) the built-in matchers, and the two
  * config files stack (global first, project appended).
  *
+ * Pre-commit hook auto-detection (Task B): in addition to those two
+ * optional config files, the extension also inspects the project's
+ * `.husky/pre-commit` + `lint-staged.config.*` + `.lintstagedrc*` +
+ * `package.json` (`lint-staged` / `husky.hooks['pre-commit']`) at
+ * `session_start` and synthesizes an implicit rule that credits
+ * `git commit` (excluding `--no-verify` / `-n`) with whatever claim
+ * kinds those hook tools would satisfy. See
+ * `lib/node/pi/verify-hook-detect.ts` for the scan / mapping logic.
+ * Users never have to configure it — a successful commit in a repo
+ * with husky + lint-staged + eslint + oxfmt just works. The explicit
+ * `commandSatisfies` config still overrides anything the detector
+ * missed.
+ *
  * Pure logic (claim extraction, command patterns, steer formatting,
  * branch scanning, config loader) lives in `./lib/verify-detect.ts`
  * so it can be unit-tested under `vitest`.
@@ -85,6 +98,7 @@ import {
   loadSatisfyRules,
   partitionClaims,
 } from '../../../lib/node/pi/verify-detect.ts';
+import { detectHookRules } from '../../../lib/node/pi/verify-hook-detect.ts';
 
 /** Sentinel prepended to every steer — used for idempotency + discovery. */
 const VERIFY_MARKER = '⚠ [pi-verify-before-claim]';
@@ -108,10 +122,22 @@ export default function verifyBeforeClaim(pi: ExtensionAPI): void {
   const notifiedWarnings = new Set<string>();
 
   const loadConfig = (cwd: string): void => {
-    const result = loadSatisfyRules(cwd);
-    cachedRules = result.rules;
-    cachedWarnings = result.warnings;
-    trace(`config loaded: ${cachedRules.length} rule(s), ${cachedWarnings.length} warning(s)`);
+    const explicit = loadSatisfyRules(cwd);
+    const detected = detectHookRules(cwd);
+    // Order: detected first, explicit second. Both are equivalent at
+    // match time — `verifyingCommandMatches` short-circuits on the
+    // first hit — but putting the user's explicit config later keeps
+    // their intent visible in any debug dump that prints the rule
+    // list. Warnings concatenate in (global, project, detector) order
+    // so first-seen errors surface first.
+    cachedRules = [...detected.rules, ...explicit.rules];
+    cachedWarnings = [...explicit.warnings, ...detected.warnings];
+    trace(
+      `config loaded: ${cachedRules.length} rule(s) ` +
+        `(explicit=${explicit.rules.length}, ` +
+        `auto-detected=${detected.rules.length}${detected.info.tools.length > 0 ? `; tools=${detected.info.tools.join(',')}` : ''}), ` +
+        `${cachedWarnings.length} warning(s)`,
+    );
   };
 
   const surfaceWarnings = (ctx: ExtensionContext): void => {
