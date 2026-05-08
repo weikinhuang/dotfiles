@@ -126,3 +126,90 @@ export function detectStale(state: StreamWatchdogState, nowMs: number, stallMs: 
 export function peek(state: StreamWatchdogState): StreamEntry | null {
   return state.current;
 }
+
+// ──────────────────────────────────────────────────────────────────────
+// Follow-up nudge (mirrors `stall-detect.ts`'s `STALL_MARKER` + builder).
+//
+// When the watchdog aborts a silent stream, the provider finalises the
+// assistant message with `stopReason === 'aborted'` — which
+// `stall-recovery.ts` explicitly skips (it can't tell a user-initiated
+// Esc apart from a watchdog-initiated cancel). So the watchdog owns its
+// own follow-up path: after aborting, it injects a user-role nudge via
+// `pi.sendUserMessage(..., { deliverAs: 'followUp' })` from an
+// `agent_end` handler, where `isStreaming === false` and the fresh
+// prompt actually runs.
+//
+// The marker mirrors `STALL_MARKER` so a reload-mid-retry can see our
+// sentinel on the last user message and avoid double-firing, and so
+// users can recognise synthetic continuation messages in the
+// transcript. Text is kept short and imperative because the context
+// window is already bloated by the stalled reasoning chain that
+// triggered us.
+// ──────────────────────────────────────────────────────────────────────
+
+/** Sentinel prefix attached to every watchdog-synthesised nudge. */
+export const WATCHDOG_MARKER = '⟳ [pi-stream-watchdog]';
+
+/**
+ * Detect whether `text` already carries our sentinel. Mirrors
+ * `hasStallMarker` in `stall-detect.ts` so callers can ignore our own
+ * synthesised nudges when classifying input.
+ */
+export function hasWatchdogMarker(text: string): boolean {
+  return text.includes(WATCHDOG_MARKER);
+}
+
+/**
+ * Input for {@link buildWatchdogNudge}. `silentSec` and `elapsedSec`
+ * are rounded whole seconds (caller is responsible for conversion from
+ * ms) so the rendered message is deterministic under vitest.
+ */
+export interface WatchdogNudgeInput {
+  /** Seconds since the last `message_update` when we fired. */
+  silentSec: number;
+  /** Seconds since `message_start` when we fired (for context only). */
+  elapsedSec: number;
+  /** 1-indexed attempt number (first retry = 1). */
+  attempt: number;
+  /** Hard cap — once `attempt === maxAttempts`, this IS the final try. */
+  maxAttempts: number;
+}
+
+/**
+ * Build the follow-up user message the watchdog injects after aborting
+ * a stalled stream. Keeps the wording short and action-oriented:
+ *
+ *   - Explains WHY we aborted (so the model doesn't think the user
+ *     changed their mind) — timings come from the live poll state.
+ *   - Tells the model to resume the same task (the transcript up to
+ *     the abort is intact on the next turn; we want continuation,
+ *     not a restart).
+ *   - On the final attempt, tightens the language so the model
+ *     produces a concrete tool call or a text answer instead of
+ *     diving back into an extended-thinking tail.
+ *
+ * Mirrors `buildRetryMessage` in `stall-detect.ts` for consistency with
+ * the companion stall-recovery extension's nudges.
+ */
+export function buildWatchdogNudge(input: WatchdogNudgeInput): string {
+  const { silentSec, elapsedSec, attempt, maxAttempts } = input;
+  const budget = `(${attempt}/${maxAttempts})`;
+  const isFinalAttempt = attempt >= maxAttempts;
+  if (isFinalAttempt) {
+    return [
+      WATCHDOG_MARKER,
+      budget,
+      `Your previous turn's stream went silent for ${silentSec}s (${elapsedSec}s total) and was aborted.`,
+      `This is the final auto-retry — emit a concrete tool call or a short text answer THIS turn.`,
+      'Do NOT spend the whole turn in extended thinking; a silent response will be aborted again.',
+      'If genuinely stuck, say so in one sentence (e.g. "Blocked on: <reason>") rather than going silent.',
+    ].join(' ');
+  }
+  return [
+    WATCHDOG_MARKER,
+    budget,
+    `Your previous turn's stream went silent for ${silentSec}s (${elapsedSec}s total) and was aborted.`,
+    'Continue where you left off — review any active todos, recheck the last tool result if there was one,',
+    'and produce either the next tool call or the final answer. Keep thinking brief.',
+  ].join(' ');
+}

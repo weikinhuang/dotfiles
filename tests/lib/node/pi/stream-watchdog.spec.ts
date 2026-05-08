@@ -9,13 +9,16 @@
 import { expect, test } from 'vitest';
 
 import {
+  buildWatchdogNudge,
   clear,
   createState,
   detectStale,
+  hasWatchdogMarker,
   peek,
   recordEnd,
   recordHeartbeat,
   recordStart,
+  WATCHDOG_MARKER,
 } from '../../../../lib/node/pi/stream-watchdog.ts';
 
 const STALL_MS = 60_000;
@@ -225,4 +228,72 @@ test('detectStale: peek reflects the same entry returned', () => {
   const returned = detectStale(s, 70_000, STALL_MS);
 
   expect(peek(s)).toBe(returned);
+});
+
+// ───────────────────────────────────────────────────────────────────
+// WATCHDOG_MARKER / hasWatchdogMarker / buildWatchdogNudge
+// ───────────────────────────────────────────────────────────────────
+
+test('WATCHDOG_MARKER: is a distinct sentinel so it does not collide with STALL_MARKER', () => {
+  expect(WATCHDOG_MARKER.startsWith('⟳ [pi-')).toBe(true);
+  expect(WATCHDOG_MARKER).toContain('stream-watchdog');
+});
+
+test('hasWatchdogMarker: true when the text carries our sentinel', () => {
+  const msg = `${WATCHDOG_MARKER} (1/2) Your previous turn's stream went silent...`;
+
+  expect(hasWatchdogMarker(msg)).toBe(true);
+});
+
+test('hasWatchdogMarker: false for unrelated input (including stall-recovery nudges)', () => {
+  expect(hasWatchdogMarker('just a regular message')).toBe(false);
+  expect(hasWatchdogMarker('⟳ [pi-stall-recovery] (1/2) ...')).toBe(false);
+});
+
+test('buildWatchdogNudge: leads with the marker, attempt counter, and silence timing', () => {
+  const msg = buildWatchdogNudge({ silentSec: 63, elapsedSec: 120, attempt: 1, maxAttempts: 2 });
+
+  expect(msg.startsWith(WATCHDOG_MARKER)).toBe(true);
+  expect(msg).toContain('(1/2)');
+  expect(msg).toContain('silent for 63s');
+  expect(msg).toContain('120s total');
+});
+
+test('buildWatchdogNudge: non-final attempt asks the model to continue where it left off', () => {
+  const msg = buildWatchdogNudge({ silentSec: 60, elapsedSec: 60, attempt: 1, maxAttempts: 2 });
+
+  expect(msg).toContain('Continue where you left off');
+  expect(msg).not.toContain('final auto-retry');
+});
+
+test('buildWatchdogNudge: final attempt switches to the strict "concrete output" wording', () => {
+  const msg = buildWatchdogNudge({ silentSec: 75, elapsedSec: 200, attempt: 2, maxAttempts: 2 });
+
+  expect(msg).toContain('final auto-retry');
+  expect(msg).toContain('concrete tool call');
+  expect(msg).toContain('Blocked on:');
+  expect(msg).not.toContain('Continue where you left off');
+});
+
+test('buildWatchdogNudge: attempt > maxAttempts still renders the final variant (defensive)', () => {
+  // Caller shouldn't push us past the budget, but if they do we should
+  // degrade gracefully to the strict wording rather than render an
+  // out-of-band "keep going" message.
+  const msg = buildWatchdogNudge({ silentSec: 90, elapsedSec: 300, attempt: 3, maxAttempts: 2 });
+
+  expect(msg).toContain('(3/2)');
+  expect(msg).toContain('final auto-retry');
+});
+
+test('buildWatchdogNudge: renders the budget exactly once (marker + counter format pinned)', () => {
+  const msg = buildWatchdogNudge({ silentSec: 60, elapsedSec: 60, attempt: 1, maxAttempts: 2 });
+
+  expect(msg.match(/\(1\/2\)/g)).toHaveLength(1);
+  expect(msg.match(/\[pi-stream-watchdog\]/g)).toHaveLength(1);
+});
+
+test('buildWatchdogNudge: output is round-trippable through hasWatchdogMarker', () => {
+  const msg = buildWatchdogNudge({ silentSec: 60, elapsedSec: 60, attempt: 1, maxAttempts: 2 });
+
+  expect(hasWatchdogMarker(msg)).toBe(true);
 });
