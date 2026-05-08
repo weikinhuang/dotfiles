@@ -37,18 +37,27 @@ between files without changing the user-callable surface, or editing tests.
 
 - `## Core shell interface` - aliases and user-facing functions.
 - `## Built-in plugin interface` - plugin-exposed behavior and `DOT_PLUGIN_DISABLE_*` toggles.
-- `## Commands on PATH` - executables under any `bin/` directory.
-- `## Git aliases` - `git-*` subcommands.
+- `## Commands on PATH > ### Utility commands` - non-git executables under any `bin/` directory.
+- `## Commands on PATH > ### Git subcommands` - `git-*` scripts invoked as `git <name>`. NOTE: `## Git aliases` is for
+  git-config aliases like `gco` / `gst`, not for `git-*` scripts.
 - `## Hooks and extension points` - `chpwd` / `precmd` / `preexec`, per-phase hooks, `~/.bash_local` knobs.
-- `## Environment variables` - user-facing env vars and the full list of startup configuration variables.
+- `## Environment variables` has multiple subsections; pick by what the variable does:
+  - `### Runtime exports` - non-startup env vars exported at load.
+  - `### Startup configuration variables` - non-prompt `DOT_*` / `BASHRC_*` knobs read once during init.
+  - `### Prompt configuration variables > #### Prompt options` - prompt-specific `DOT_*` knobs (`DOT_DISABLE_PS1`,
+    `DOT_GIT_PROMPT_*`, `DOT_PS1_*`, etc.). A new prompt knob goes here, not under Startup configuration variables.
+  - `### Prompt configuration variables > #### Prompt segment helpers`, `#### Prompt symbol overrides`,
+    `#### Prompt color overrides` - pick the most specific subsection.
 - `## Additional tools` - vendored CLIs, completions, integrations.
 
 `README.md` Configuration Options table:
 
-- The table under `## Configuration Options` lists every `DOT_*` and `BASHRC_*` startup variable with its default and a
-  one-line description.
-- This table mirrors the startup configuration subsection of `REFERENCE.md`'s `## Environment variables`. Both must stay
-  in sync; the entries should match in name, default, and description shape.
+- The table under `## Configuration Options` is a single flat alphabetical list of every `DOT_*` and `BASHRC_*`
+  user-facing startup variable, regardless of whether `REFERENCE.md` splits it across
+  `### Startup configuration variables` and `#### Prompt options`. Add the entry exactly once.
+- Defaults and one-line descriptions should match the corresponding `REFERENCE.md` row in shape; `README.md` writes
+  `UNSET` in uppercase where `REFERENCE.md` uses lowercase `unset`. That casing difference is intentional; do not
+  normalize it.
 
 ## Workflow
 
@@ -80,7 +89,12 @@ diff <(grep -oE '`(DOT|BASHRC)_[A-Z0-9_]+`' README.md | sort -u) \
 ## Common pitfalls
 
 - Editing only `REFERENCE.md` for a new `DOT_*` knob and forgetting the `README.md` table.
-- Renaming a `git-*` subcommand and missing the link inside the `## Commands on PATH` table that points at the old file
+- Putting a `git-*` script in `## Git aliases`. That section is for git-config aliases (`gco`, `gst`, etc.). Scripts
+  named `git-<name>` belong under `## Commands on PATH > ### Git subcommands`.
+- Putting a prompt-related `DOT_*` knob in `### Startup configuration variables`. Prompt knobs go in
+  `### Prompt configuration variables > #### Prompt options`. Adding to both subsections duplicates the entry; pick the
+  more specific one.
+- Renaming a `git-*` subcommand and missing the link inside the `### Git subcommands` table that points at the old file
   path.
 - Adding a one-line description that restates the name. Match the density of neighboring rows; descriptions should add
   information, not paraphrase the identifier.

@@ -82,7 +82,9 @@ esac
 ### Multiple options
 
 A `while` loop over `$@` with explicit cases. Support both `--flag value` and `--flag=value`, plus short forms like
-`-l5` for single-letter flags. Print an error and exit 1 on unknown args. Always `exit 0` after `print_help`.
+`-l5` for single-letter flags. Print an error to `stderr` and `exit 1` on unknown args, missing flag values, or
+input-validation failures (non-numeric where numeric expected, empty required value, etc.). Always `exit 0` after
+`print_help`. Error messages should be prefixed with the script name, e.g. `foo: missing value for $1`.
 
 ```bash
 while [[ $# -gt 0 ]]; do
@@ -118,8 +120,10 @@ done
 
 ## Completion file
 
-Every public script ships with a sibling completion. Name it `<script>.bash` and define a `_dot_<name>` function wired
-up with `complete -F`.
+Every public script ships with a sibling completion. Name the file `<script>.bash` and define a `_dot_<name>` function
+wired up with `complete -F`. The function name must be a valid bash identifier, so for hyphenated scripts replace the
+hyphen with an underscore: `git-recent` becomes `_dot_git_recent`. The `complete -F` invocation still uses the original
+script name (`complete -F _dot_git_recent git-recent`).
 
 For scripts with positional args, flag values, or subcommand verbs, write a real completion function:
 
@@ -158,7 +162,14 @@ Private `__`-prefixed scripts do not need completion files.
 ## Test stub
 
 Tests mirror the script path: `dotenv/bin/foo` lands at `tests/dotenv/bin/foo.bats`. Test names start with the script
-name and a colon. Source helpers from `tests/helpers/common.bash`.
+name and a colon. Source helpers from `tests/helpers/common.bash`. The two helpers you almost always need:
+
+- `setup_test_bin` - creates a temp `bin/` prepended to `PATH` so subsequent stubs are visible.
+- `stub_command <name>` - reads a heredoc from stdin and writes a stub of `<name>` into the test bin. Use this to stub
+  external commands like `git`, `curl`, `openssl` so tests do not depend on the real binary's behavior or environment.
+
+Both live in `tests/helpers/common.bash`; check that file for additional helpers (`setup_isolated_home`, `prepend_path`,
+etc.) before reinventing them.
 
 ```bash
 #!/usr/bin/env bats
@@ -184,6 +195,17 @@ setup() {
   assert_failure
   assert_output --partial "unknown argument"
 }
+
+@test "foo: stubbed external command produces expected output" {
+  stub_command git <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' 'branch-a' 'branch-b'
+EOF
+
+  run bash "${SCRIPT}"
+  assert_success
+  assert_output --partial 'branch-a'
+}
 ```
 
 For internal-function unit tests, use `source_without_main` (see `TESTING.md`) instead of invoking the script as a
@@ -200,8 +222,8 @@ subprocess.
 4. Write the bats test under the mirrored path with at minimum a help-output test and an unknown-argument test. Add
    behavior tests for the script's actual logic.
 5. `chmod +x` the script.
-6. Update `REFERENCE.md`'s `## Commands on PATH` (and `## Git aliases` for `git-*` subcommands) per the `doc-sync`
-   skill.
+6. Update `REFERENCE.md` under `## Commands on PATH > ### Utility commands`, or `### Git subcommands` for `git-*`
+   scripts, per the `doc-sync` skill.
 7. Run `./dev/lint.sh` and `./dev/test-docker.sh tests/<path>/foo.bats` before committing.
 
 ## Common pitfalls
