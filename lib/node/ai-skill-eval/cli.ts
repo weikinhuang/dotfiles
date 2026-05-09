@@ -1,16 +1,16 @@
 // CLI entry for ai-skill-eval: argparse + subcommand dispatch.
 // SPDX-License-Identifier: MIT
 
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
 import { buildCriticPrompt, mergeCriticVerdict, writeCriticPrompt } from './critic.ts';
 import { countEvals, discoverSkills, loadEvalsFile, resolveScanRoots } from './discovery.ts';
 import { invokeCritic, invokeDriver, type DriverConfig } from './driver.ts';
-import { gradeDeterministic } from './grader.ts';
-import { buildEvalPrompt } from './prompt.ts';
+import { DEFAULT_TRIGGER_THRESHOLD, gradeDeterministic, parseReply, pickMajorityRunIndex } from './grader.ts';
+import { buildEvalPrompt, resolveRunsPerQuery } from './prompt.ts';
 import { hasFailures, loadGrades, renderJson, renderMarkdown, summarize } from './report.ts';
-import { type DriverKind, type EvalSpec, type SkillEntry } from './types.ts';
+import { type DriverKind, type EvalSpec, type EvalsFile, type SkillEntry } from './types.ts';
 
 const PROG = 'ai-skill-eval';
 const VERSION = '0.1.0';
@@ -47,6 +47,12 @@ Global options:
   --critic-cmd SHELL        Optional critic driver for subjective grading
                             (same protocol). When set, critic JSON verdicts
                             replace the default keyword-match grade.
+  --runs-per-query N        Run each eval N times and aggregate the TRIGGER
+                            votes into a trigger-rate. Overrides any
+                            \`runs_per_query\` in evals.json. Default: 3.
+  --trigger-threshold T     Pass threshold (0.0–1.0) for trigger_rate.
+                            \`>= T\` for should_trigger=true, \`< T\` for
+                            should_trigger=false. Default: 0.5.
   --only EVAL_ID            Filter to specific eval IDs (repeatable).
   --json                    Machine-readable JSON output (for list / report).
   -v, --verbose             Log each invocation to stderr.
@@ -90,6 +96,8 @@ interface CliOptions {
   driverCmd: string | null;
   model: string | null;
   criticCmd: string | null;
+  runsPerQuery: number | null;
+  triggerThreshold: number;
   json: boolean;
   verbose: boolean;
 }
@@ -165,6 +173,8 @@ export function parseArgs(argv: readonly string[]): CliOptions {
     driverCmd: null,
     model: null,
     criticCmd: null,
+    runsPerQuery: null,
+    triggerThreshold: DEFAULT_TRIGGER_THRESHOLD,
     json: false,
     verbose: false,
   };
@@ -210,6 +220,26 @@ export function parseArgs(argv: readonly string[]): CliOptions {
       case '--critic-cmd': {
         const { value, advance } = valueFor(arg, argv as string[], i);
         opts.criticCmd = value;
+        i += advance;
+        break;
+      }
+      case '--runs-per-query': {
+        const { value, advance } = valueFor(arg, argv as string[], i);
+        const n = Number.parseInt(value, 10);
+        if (!Number.isFinite(n) || n < 1) {
+          usageErr(`--runs-per-query expects a positive integer, got '${value}'`);
+        }
+        opts.runsPerQuery = n;
+        i += advance;
+        break;
+      }
+      case '--trigger-threshold': {
+        const { value, advance } = valueFor(arg, argv as string[], i);
+        const t = Number.parseFloat(value);
+        if (!Number.isFinite(t) || t < 0 || t > 1) {
+          usageErr(`--trigger-threshold expects a number between 0.0 and 1.0, got '${value}'`);
+        }
+        opts.triggerThreshold = t;
         i += advance;
         break;
       }
@@ -275,11 +305,17 @@ function includesEvalFilter(filters: readonly string[], skill: string, evalId: s
   return filters.some((f) => f === evalId || f === `${skill}:${evalId}`);
 }
 
+/**
+ * Run deterministic grading across all run files, then optionally replace
+ * expectation scores with the critic's JSON verdict. The critic is always fed
+ * a single reply: the majority-trigger run, matching the run used for the
+ * deterministic expectation scoring.
+ */
 function gradeWithOptionalCritic(
   opts: CliOptions,
   entry: SkillEntry,
   ev: EvalSpec,
-  resultFile: string,
+  resultFiles: readonly string[],
   gradeFile: string,
 ): void {
   gradeDeterministic({
@@ -287,11 +323,15 @@ function gradeWithOptionalCritic(
     evalId: ev.id,
     shouldTrigger: ev.should_trigger,
     expectations: ev.expectations,
-    resultFile,
+    resultFiles,
     gradeFile,
+    triggerThreshold: opts.triggerThreshold,
   });
 
   if (!opts.criticCmd) return;
+
+  const winnerIdx = pickMajorityRunIndex(resultFiles.map((f) => parseReply(readFileSync(f, 'utf8'))));
+  const winnerFile = resultFiles[winnerIdx] ?? resultFiles[0] ?? '';
 
   const base = gradeFile.replace(/\.json$/, '');
   const criticPromptFile = `${base}.critic-prompt.txt`;
@@ -301,7 +341,7 @@ function gradeWithOptionalCritic(
     evalId: ev.id,
     shouldTrigger: ev.should_trigger,
     expectations: ev.expectations,
-    resultFile,
+    resultFile: winnerFile,
   });
   writeCriticPrompt(criticPromptFile, criticPrompt);
   logVerbose(opts, `  critic: grading ${entry.name}/${ev.id}`);
@@ -317,25 +357,72 @@ function gradeWithOptionalCritic(
   }
 }
 
-function runOneEval(opts: CliOptions, entry: SkillEntry, skillBody: string, ev: EvalSpec): void {
+/**
+ * Resolve the per-run result-file paths for one eval. Files are
+ * `results/<eval-id>/run-{1..N}.txt` under the skill workspace.
+ */
+function resultFilesFor(skillWs: string, evalId: string, runs: number): string[] {
+  const dir = join(skillWs, 'results', evalId);
+  const out: string[] = [];
+  for (let i = 1; i <= runs; i += 1) out.push(join(dir, `run-${i}.txt`));
+  return out;
+}
+
+/**
+ * List any previously-written `results/<eval-id>/run-*.txt` files, useful for
+ * the `grade` subcommand when the caller didn't say how many runs happened.
+ */
+function existingResultFiles(skillWs: string, evalId: string): string[] {
+  const dir = join(skillWs, 'results', evalId);
+  if (!existsSync(dir)) return [];
+  return readdirSync(dir)
+    .filter((f) => /^run-\d+\.txt$/.test(f))
+    .sort((a, b) => {
+      const na = Number.parseInt(a.replace(/^run-|\.txt$/g, ''), 10);
+      const nb = Number.parseInt(b.replace(/^run-|\.txt$/g, ''), 10);
+      return na - nb;
+    })
+    .map((f) => join(dir, f));
+}
+
+/**
+ * Remove the flat `results/<eval-id>.txt` file from prior ai-skill-eval
+ * versions. Called once at the top of each `run` so the new per-run layout
+ * doesn't coexist with a stale flat file that'd mask freshness.
+ */
+function deleteLegacyFlatResult(skillWs: string, evalId: string): void {
+  const legacy = join(skillWs, 'results', `${evalId}.txt`);
+  if (existsSync(legacy)) rmSync(legacy, { force: true });
+}
+
+function runOneEval(opts: CliOptions, entry: SkillEntry, skillBody: string, ev: EvalSpec, file: EvalsFile): void {
+  const runs = resolveRunsPerQuery(ev, file, opts.runsPerQuery);
   const skillWs = join(opts.workspace, entry.name);
   const promptFile = join(skillWs, 'prompts', `${ev.id}.txt`);
-  const resultFile = join(skillWs, 'results', `${ev.id}.txt`);
+  const resultDir = join(skillWs, 'results', ev.id);
   const gradeFile = join(skillWs, 'grades', `${ev.id}.json`);
 
+  deleteLegacyFlatResult(skillWs, ev.id);
   mkdirSync(dirname(promptFile), { recursive: true });
-  mkdirSync(dirname(resultFile), { recursive: true });
+  mkdirSync(resultDir, { recursive: true });
   mkdirSync(dirname(gradeFile), { recursive: true });
   writeFileSync(promptFile, buildEvalPrompt(skillBody, ev.prompt));
 
-  logVerbose(opts, `running ${entry.name}/${ev.id} (should_trigger=${String(ev.should_trigger)})`);
-  const { exitCode, durationSec, bytes } = invokeDriver(driverConfig(opts), promptFile, resultFile);
-  logVerbose(opts, `  exit=${exitCode} dur=${durationSec}s bytes=${bytes}`);
-  if (exitCode !== 0) {
-    writeFileSync(`${resultFile}.error`, 'DRIVER_FAILED\n');
+  const resultFiles = resultFilesFor(skillWs, ev.id, runs);
+  for (let i = 0; i < runs; i += 1) {
+    const resultFile = resultFiles[i] ?? '';
+    logVerbose(
+      opts,
+      `running ${entry.name}/${ev.id} run ${i + 1}/${runs} (should_trigger=${String(ev.should_trigger)})`,
+    );
+    const { exitCode, durationSec, bytes } = invokeDriver(driverConfig(opts), promptFile, resultFile);
+    logVerbose(opts, `  exit=${exitCode} dur=${durationSec}s bytes=${bytes}`);
+    if (exitCode !== 0) {
+      writeFileSync(`${resultFile}.error`, 'DRIVER_FAILED\n');
+    }
   }
 
-  gradeWithOptionalCritic(opts, entry, ev, resultFile, gradeFile);
+  gradeWithOptionalCritic(opts, entry, ev, resultFiles, gradeFile);
 }
 
 function cmdList(opts: CliOptions): number {
@@ -376,24 +463,22 @@ function runOrGradeSkill(opts: CliOptions, entry: SkillEntry, mode: 'run' | 'gra
   }
   logVerbose(opts, `${mode}: ${entry.name} (${entry.evalsJson})`);
   const skillBody = readFileSync(entry.skillMd, 'utf8');
-  const evals = loadEvalsFile(entry.evalsJson).evals;
-  for (const ev of evals) {
+  const file = loadEvalsFile(entry.evalsJson);
+  for (const ev of file.evals) {
     if (!ev.id) continue;
     if (!includesEvalFilter(opts.skillFilters, entry.name, ev.id)) continue;
     if (mode === 'run') {
-      runOneEval(opts, entry, skillBody, ev);
+      runOneEval(opts, entry, skillBody, ev, file);
     } else {
       const skillWs = join(opts.workspace, entry.name);
-      const resultFile = join(skillWs, 'results', `${ev.id}.txt`);
+      const resultFiles = existingResultFiles(skillWs, ev.id);
       const gradeFile = join(skillWs, 'grades', `${ev.id}.json`);
-      try {
-        readFileSync(resultFile);
-      } catch {
-        logVerbose(opts, `grade: missing result ${resultFile} (run first)`);
+      if (resultFiles.length === 0) {
+        logVerbose(opts, `grade: missing results for ${entry.name}/${ev.id} (run first)`);
         continue;
       }
-      logVerbose(opts, `grading ${entry.name}/${ev.id}`);
-      gradeWithOptionalCritic(opts, entry, ev, resultFile, gradeFile);
+      logVerbose(opts, `grading ${entry.name}/${ev.id} across ${resultFiles.length} run(s)`);
+      gradeWithOptionalCritic(opts, entry, ev, resultFiles, gradeFile);
     }
   }
 }
@@ -445,10 +530,10 @@ function cmdRerun(opts: CliOptions): number {
     if (!entry.evalsJson) die(`skill '${skillName}' has no evals/evals.json`);
 
     const skillBody = readFileSync(entry.skillMd, 'utf8');
-    const evals = loadEvalsFile(entry.evalsJson).evals;
-    const ev = evals.find((e) => e.id === evalId);
+    const file = loadEvalsFile(entry.evalsJson);
+    const ev = file.evals.find((e) => e.id === evalId);
     if (!ev) die(`skill '${skillName}' has no eval '${evalId}'`);
-    runOneEval(opts, entry, skillBody, ev);
+    runOneEval(opts, entry, skillBody, ev, file);
   }
 
   return renderReport(opts, []);

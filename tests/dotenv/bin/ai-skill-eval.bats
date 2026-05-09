@@ -170,14 +170,14 @@ EOF
 @test "ai-skill-eval run: writes results + grades via --driver-cmd stub" {
   make_skill ".agents/skills" "sample" yes
   driver="$(stub_driver_script)"
-  run bash "${SCRIPT}" run --driver-cmd "${driver}" --workspace .ai-skill-eval
+  run bash "${SCRIPT}" run --driver-cmd "${driver}" --workspace .ai-skill-eval --runs-per-query 1
   assert_success
   assert_output --partial "# ai-skill-eval report"
   assert_output --partial "Correct TRIGGER detection: **2/2**"
 
-  # Workspace layout.
+  # Workspace layout uses the per-run results directory.
   [ -f ".ai-skill-eval/sample/prompts/positive-1.txt" ]
-  [ -f ".ai-skill-eval/sample/results/positive-1.txt" ]
+  [ -f ".ai-skill-eval/sample/results/positive-1/run-1.txt" ]
   [ -f ".ai-skill-eval/sample/grades/positive-1.json" ]
 
   # Grades are well-formed JSON with trigger_pass true for both evals.
@@ -186,7 +186,136 @@ import json
 for eid in ("positive-1", "negative-1"):
     g = json.load(open(f".ai-skill-eval/sample/grades/{eid}.json"))
     assert g["trigger_pass"] is True, g
+    assert g["runs"] == 1, g
 PY
+}
+
+@test "ai-skill-eval run: --runs-per-query aggregates 2 yes + 1 no into trigger_rate=0.67 pass" {
+  make_skill ".agents/skills" "sample" yes
+
+  # Stub driver that returns different outputs per run by counting invocations.
+  local counter_file="${BATS_TEST_TMPDIR}/run-counter"
+  echo 0 >"${counter_file}"
+  local driver="${BATS_TEST_TMPDIR}/stub-multirun.sh"
+  # Quoted heredoc so the child sees literal $n / $counter_file; inject the
+  # counter path via sed to sidestep parent-shell expansion ordering.
+  cat >"${driver}" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+counter_file="__COUNTER_FILE__"
+n=$(cat "${counter_file}")
+n=$((n + 1))
+printf '%s\n' "${n}" >"${counter_file}"
+if [[ ${n} -le 2 ]]; then
+  cat <<REPLY
+TRIGGER: yes
+REASON: run ${n} sees the trigger prompt
+NEXT_STEP: Apply the skill, mention \`sample\`, run \`shellcheck\` via \`./dev/lint.sh\`.
+REPLY
+else
+  cat <<REPLY
+TRIGGER: no
+REASON: run ${n} disagrees
+NEXT_STEP: Do not apply the skill.
+REPLY
+fi
+EOF
+  sed -i "s|__COUNTER_FILE__|${counter_file}|" "${driver}"
+  chmod +x "${driver}"
+
+  run bash "${SCRIPT}" run --driver-cmd "${driver}" --only positive-1 \
+    --runs-per-query 3 --trigger-threshold 0.5
+  assert_success
+
+  # All three run files landed under results/<eval-id>/run-N.txt.
+  [ -f ".ai-skill-eval/sample/results/positive-1/run-1.txt" ]
+  [ -f ".ai-skill-eval/sample/results/positive-1/run-2.txt" ]
+  [ -f ".ai-skill-eval/sample/results/positive-1/run-3.txt" ]
+
+  # Grade aggregates to triggers=2, runs=3, trigger_rate=0.67, trigger_pass=true.
+  python3 - <<'PY'
+import json
+g = json.load(open(".ai-skill-eval/sample/grades/positive-1.json"))
+assert g["runs"] == 3, g
+assert g["triggers"] == 2, g
+assert g["trigger_rate"] == 0.67, g
+assert g["trigger_pass"] is True, g
+assert len(g["per_run"]) == 3, g
+assert g["per_run"][0]["trigger"].lower().startswith("yes"), g
+assert g["per_run"][1]["trigger"].lower().startswith("yes"), g
+assert g["per_run"][2]["trigger"].lower().startswith("no"), g
+PY
+
+  # Report table carries the trigger-rate column with the N/M value.
+  run bash "${SCRIPT}" report
+  assert_success
+  assert_output --partial "Trigger rate"
+  assert_output --partial "| sample | positive-1 | yes | 2/3 |"
+}
+
+@test "ai-skill-eval run: --trigger-threshold tighter than trigger_rate flips trigger_pass to false" {
+  make_skill ".agents/skills" "sample" yes
+  local counter_file="${BATS_TEST_TMPDIR}/run-counter"
+  echo 0 >"${counter_file}"
+  local driver="${BATS_TEST_TMPDIR}/stub-multirun.sh"
+  cat >"${driver}" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+counter_file="__COUNTER_FILE__"
+n=$(cat "${counter_file}")
+n=$((n + 1))
+printf '%s\n' "${n}" >"${counter_file}"
+if [[ ${n} -le 2 ]]; then
+  printf 'TRIGGER: yes\nREASON: r\nNEXT_STEP: s\n'
+else
+  printf 'TRIGGER: no\nREASON: r\nNEXT_STEP: s\n'
+fi
+EOF
+  sed -i "s|__COUNTER_FILE__|${counter_file}|" "${driver}"
+  chmod +x "${driver}"
+
+  # trigger_rate will be 2/3 = 0.67; threshold 0.8 > 0.67 -> fail.
+  run bash "${SCRIPT}" run --driver-cmd "${driver}" --only positive-1 \
+    --runs-per-query 3 --trigger-threshold 0.8
+  # Report exit code 1 when any trigger_pass is false.
+  assert_failure
+  python3 - <<'PY'
+import json
+g = json.load(open(".ai-skill-eval/sample/grades/positive-1.json"))
+assert g["trigger_rate"] == 0.67, g
+assert g["trigger_pass"] is False, g
+PY
+}
+
+@test "ai-skill-eval run: deletes the legacy flat results/<eval-id>.txt on first R1a run" {
+  make_skill ".agents/skills" "sample" yes
+  # Seed a pre-R1a flat result file.
+  mkdir -p ".ai-skill-eval/sample/results"
+  printf 'stale pre-R1a\n' >".ai-skill-eval/sample/results/positive-1.txt"
+
+  driver="$(stub_driver_script)"
+  run bash "${SCRIPT}" run --driver-cmd "${driver}" --only positive-1 --runs-per-query 1
+  assert_success
+
+  # Flat file is gone; per-run layout is in place.
+  [ ! -e ".ai-skill-eval/sample/results/positive-1.txt" ]
+  [ -f ".ai-skill-eval/sample/results/positive-1/run-1.txt" ]
+}
+
+@test "ai-skill-eval: rejects --trigger-threshold outside 0.0–1.0" {
+  make_skill ".agents/skills" "sample" yes
+  run bash "${SCRIPT}" run --trigger-threshold 1.5
+  assert_failure
+  [ "$status" -eq 2 ]
+  assert_output --partial "--trigger-threshold"
+}
+
+@test "ai-skill-eval: rejects --runs-per-query values less than 1" {
+  make_skill ".agents/skills" "sample" yes
+  run bash "${SCRIPT}" run --runs-per-query 0
+  assert_failure
+  [ "$status" -eq 2 ]
+  assert_output --partial "--runs-per-query"
 }
 
 @test "ai-skill-eval run: --driver codex invokes codex exec with -o output capture" {
@@ -228,7 +357,7 @@ EOF
   sed -i "s|__ARGV_LOG__|${argv_log}|" "${bin}/codex"
   chmod +x "${bin}/codex"
 
-  PATH="${bin}:${PATH}" run bash "${SCRIPT}" run --driver codex --workspace .ai-skill-eval
+  PATH="${bin}:${PATH}" run bash "${SCRIPT}" run --driver codex --workspace .ai-skill-eval --runs-per-query 1
   assert_success
   assert_output --partial "Correct TRIGGER detection: **2/2**"
 
@@ -241,7 +370,7 @@ EOF
   [ "$(grep -c '^-s$' "${argv_log}" || true)" -eq 0 ]
 
   # Reply was captured via -o, not stdout redirection.
-  grep -q 'TRIGGER: yes' .ai-skill-eval/sample/results/positive-1.txt
+  grep -q 'TRIGGER: yes' .ai-skill-eval/sample/results/positive-1/run-1.txt
 }
 
 @test "ai-skill-eval run: positional arg filters to one skill" {

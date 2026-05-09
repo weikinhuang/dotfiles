@@ -20,10 +20,15 @@ function grade(partial: Partial<GradeRecord>): GradeRecord {
     skill: 'sample',
     eval_id: 'positive-1',
     should_trigger: true,
-    got_trigger: 'yes',
+    runs: 3,
+    triggers: 2,
+    trigger_rate: 0.67,
     trigger_pass: true,
-    reason: 'r',
-    next_step: 's',
+    per_run: [
+      { trigger: 'yes', reason: 'r1', next_step: 's1' },
+      { trigger: 'yes', reason: 'r2', next_step: 's2' },
+      { trigger: 'no', reason: 'r3', next_step: 's3' },
+    ],
     expectations: [{ text: 'e', passed: true, note: 'matched' }],
     expectation_pass: 1,
     expectation_total: 1,
@@ -74,10 +79,16 @@ describe('hasFailures', () => {
 describe('renderJson', () => {
   test('embeds summary + evals in a stable JSON shape', () => {
     const out = renderJson([grade({})]);
-    const parsed = JSON.parse(out) as { summary: { total_evals: number }; evals: GradeRecord[] };
+    const parsed = JSON.parse(out) as {
+      summary: { total_evals: number };
+      evals: GradeRecord[];
+    };
 
     expect(parsed.summary.total_evals).toBe(1);
     expect(parsed.evals).toHaveLength(1);
+    expect(parsed.evals[0]?.trigger_rate).toBe(0.67);
+    expect(parsed.evals[0]?.runs).toBe(3);
+    expect(parsed.evals[0]?.triggers).toBe(2);
   });
 });
 
@@ -88,6 +99,22 @@ describe('renderMarkdown', () => {
     expect(out).toContain('# ai-skill-eval report');
     expect(out).toContain('Correct TRIGGER detection: **1/1**');
     expect(out).toContain('| sample | positive-1 |');
+  });
+
+  test('per-eval table has a trigger-rate column showing N/M', () => {
+    const out = renderMarkdown([grade({})]);
+
+    expect(out).toContain('| Skill | Eval | Expected | Trigger rate | Trigger | Expectations |');
+    expect(out).toMatch(/\| sample \| positive-1 \| yes \| 2\/3 \|/);
+  });
+
+  test('detail section shows trigger rate + each per-run reply', () => {
+    const out = renderMarkdown([grade({})]);
+
+    expect(out).toContain('Trigger rate:** 2/3 (0.67)');
+    expect(out).toContain('Per-run replies:');
+    expect(out).toContain('Run 1: `yes`');
+    expect(out).toContain('Run 3: `no`');
   });
 
   test('renders critic flaws when the grade carries them', () => {

@@ -50,7 +50,7 @@ export function summarize(grades: readonly GradeRecord[]): ReportSummary {
   };
 }
 
-/** Report is "failing" when there are no grades or when any TRIGGER was mis-detected. */
+/** Report is "failing" when there are no grades or when any trigger_pass was false. */
 export function hasFailures(summary: ReportSummary): boolean {
   return !(summary.total_evals > 0 && summary.trigger_correct === summary.total_evals);
 }
@@ -58,6 +58,13 @@ export function hasFailures(summary: ReportSummary): boolean {
 export function renderJson(grades: readonly GradeRecord[]): string {
   const summary = summarize(grades);
   return `${JSON.stringify({ summary, evals: grades }, null, 2)}\n`;
+}
+
+/** Compact "N/M" label for a grade's trigger-rate column in the markdown table. */
+function triggerRateLabel(g: GradeRecord): string {
+  const triggers = g.triggers ?? 0;
+  const runs = g.runs ?? g.per_run?.length ?? 0;
+  return `${triggers}/${runs}`;
 }
 
 export function renderMarkdown(grades: readonly GradeRecord[]): string {
@@ -71,22 +78,32 @@ export function renderMarkdown(grades: readonly GradeRecord[]): string {
     '',
     '## Per-eval',
     '',
-    '| Skill | Eval | Expected | Got TRIGGER | Trigger | Expectations |',
+    '| Skill | Eval | Expected | Trigger rate | Trigger | Expectations |',
     '|---|---|---|---|---|---|',
   ];
   for (const g of grades) {
     const want = g.should_trigger ? 'yes' : 'no';
     const mark = g.trigger_pass ? '✅' : '❌';
     const exp = `${g.expectation_pass || 0}/${g.expectation_total || 0}`;
-    lines.push(`| ${g.skill} | ${g.eval_id} | ${want} | \`${g.got_trigger}\` | ${mark} | ${exp} |`);
+    lines.push(`| ${g.skill} | ${g.eval_id} | ${want} | ${triggerRateLabel(g)} | ${mark} | ${exp} |`);
   }
   lines.push('', '## Detail', '');
   for (const g of grades) {
     const mark = g.trigger_pass ? '✅ correct' : '❌ wrong';
+    const runs = g.runs ?? g.per_run?.length ?? 0;
+    const triggers = g.triggers ?? 0;
+    const rate = typeof g.trigger_rate === 'number' ? g.trigger_rate.toFixed(2) : '0.00';
     lines.push(`### ${g.skill} / ${g.eval_id}`, '');
-    lines.push(`- **Got TRIGGER:** \`${g.got_trigger}\` — ${mark}`);
-    lines.push(`- **REASON:** ${g.reason}`);
-    lines.push(`- **NEXT_STEP:** ${g.next_step}`);
+    lines.push(`- **Trigger rate:** ${triggers}/${runs} (${rate}) — ${mark}`);
+    if (Array.isArray(g.per_run) && g.per_run.length > 0) {
+      lines.push('- **Per-run replies:**');
+      g.per_run.forEach((r, i) => {
+        const t = r.trigger || '(empty)';
+        const reason = r.reason || '';
+        const step = r.next_step || '';
+        lines.push(`  - Run ${i + 1}: \`${t}\` — ${reason} / ${step}`);
+      });
+    }
     lines.push('- **Expectations:**');
     for (const exp of g.expectations ?? []) {
       const m = exp.passed ? '✅' : '⚠️';

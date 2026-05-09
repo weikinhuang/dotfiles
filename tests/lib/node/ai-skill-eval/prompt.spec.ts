@@ -2,7 +2,11 @@
 
 import { describe, expect, test } from 'vitest';
 
-import { buildEvalPrompt } from '../../../../lib/node/ai-skill-eval/prompt.ts';
+import {
+  DEFAULT_RUNS_PER_QUERY,
+  buildEvalPrompt,
+  resolveRunsPerQuery,
+} from '../../../../lib/node/ai-skill-eval/prompt.ts';
 
 describe('buildEvalPrompt', () => {
   test('embeds the skill body between SKILL markers', () => {
@@ -23,5 +27,30 @@ describe('buildEvalPrompt', () => {
     expect(out).toContain('TRIGGER:');
     expect(out).toContain('REASON:');
     expect(out).toContain('NEXT_STEP:');
+  });
+});
+
+describe('resolveRunsPerQuery', () => {
+  test('CLI override wins over per-eval, file, and default', () => {
+    expect(resolveRunsPerQuery({ runs_per_query: 5 }, { runs_per_query: 4 }, 7)).toBe(7);
+  });
+
+  test('per-eval override wins when no CLI override is set', () => {
+    expect(resolveRunsPerQuery({ runs_per_query: 5 }, { runs_per_query: 4 }, null)).toBe(5);
+  });
+
+  test('file-level default applies when neither CLI nor per-eval is set', () => {
+    expect(resolveRunsPerQuery({}, { runs_per_query: 4 }, null)).toBe(4);
+  });
+
+  test('falls back to the built-in default when nothing is specified', () => {
+    expect(resolveRunsPerQuery({}, null, null)).toBe(DEFAULT_RUNS_PER_QUERY);
+    expect(DEFAULT_RUNS_PER_QUERY).toBe(3);
+  });
+
+  test('ignores non-positive / non-integer values at any layer', () => {
+    expect(resolveRunsPerQuery({ runs_per_query: 0 }, { runs_per_query: 4 }, null)).toBe(4);
+    expect(resolveRunsPerQuery({ runs_per_query: 1.5 }, { runs_per_query: 4 }, null)).toBe(4);
+    expect(resolveRunsPerQuery({}, { runs_per_query: -1 }, null)).toBe(DEFAULT_RUNS_PER_QUERY);
   });
 });

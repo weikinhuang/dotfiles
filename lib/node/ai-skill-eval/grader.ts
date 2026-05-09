@@ -1,11 +1,14 @@
-// Deterministic grading for ai-skill-eval: parses the model's reply and
-// scores each expectation against a keyword-match heuristic.
+// Deterministic grading for ai-skill-eval: parses each run's reply, aggregates
+// TRIGGER detection across N runs into a trigger_rate, and scores each
+// expectation against a keyword-match heuristic applied to the majority run.
 // SPDX-License-Identifier: MIT
 
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 
 import { type ExpectationResult, type GradeRecord, type ParsedReply } from './types.ts';
+
+export const DEFAULT_TRIGGER_THRESHOLD = 0.5;
 
 /**
  * Parse the model's reply into its three structured fields. Lines that are
@@ -34,6 +37,39 @@ export function parseReply(text: string): ParsedReply {
     reason: acc.REASON.join(' ').trim(),
     next_step: acc.NEXT_STEP.join(' ').trim(),
   };
+}
+
+/** True when a parsed TRIGGER field began with "yes" (case-insensitive). */
+export function isTrigger(run: ParsedReply): boolean {
+  return run.trigger.toLowerCase().startsWith('yes');
+}
+
+/**
+ * Round a trigger-rate ratio to 2 decimal places so the JSON grade + markdown
+ * report show a stable, terse value (e.g. 2/3 -> 0.67 instead of 0.6666...).
+ */
+export function roundTriggerRate(n: number): number {
+  return Math.round(n * 100) / 100;
+}
+
+/**
+ * Pick the index of the run whose TRIGGER vote matched the majority. When the
+ * vote is tied we return 0 (the first run) so expectation grading stays
+ * deterministic regardless of run ordering.
+ */
+export function pickMajorityRunIndex(perRun: readonly ParsedReply[]): number {
+  if (perRun.length === 0) return 0;
+  const triggers = perRun.filter(isTrigger).length;
+  const n = perRun.length;
+  if (triggers * 2 > n) {
+    const idx = perRun.findIndex(isTrigger);
+    return idx >= 0 ? idx : 0;
+  }
+  if (triggers * 2 < n) {
+    const idx = perRun.findIndex((r) => !isTrigger(r));
+    return idx >= 0 ? idx : 0;
+  }
+  return 0;
 }
 
 /**
@@ -72,23 +108,19 @@ export interface DeterministicGradeInput {
   evalId: string;
   shouldTrigger: boolean;
   expectations: string[];
-  resultFile: string;
+  /** Per-run result file paths, in run order (run 1 first). */
+  resultFiles: readonly string[];
   gradeFile: string;
+  /** Pass threshold for `trigger_rate`; defaults to {@link DEFAULT_TRIGGER_THRESHOLD}. */
+  triggerThreshold?: number;
 }
 
-/**
- * Grade a single eval's result file and write the JSON grade record to disk.
- * Returns the in-memory record for callers that want to chain critics.
- */
-export function gradeDeterministic(input: DeterministicGradeInput): GradeRecord {
-  const { skill, evalId, shouldTrigger, expectations, resultFile, gradeFile } = input;
-  const raw = readFileSync(resultFile, 'utf8');
-  const parsed = parseReply(raw);
-  const trigYes = parsed.trigger.toLowerCase().startsWith('yes');
-  const triggerPass = trigYes === shouldTrigger;
-  const body = `${parsed.reason} ${parsed.next_step}`.toLowerCase();
-
-  const expResults: ExpectationResult[] = expectations.map((exp) => {
+function gradeExpectations(
+  expectations: readonly string[],
+  winner: ParsedReply,
+): { results: ExpectationResult[]; passCount: number } {
+  const body = `${winner.reason} ${winner.next_step}`.toLowerCase();
+  const results: ExpectationResult[] = expectations.map((exp) => {
     const kws = keywordsFor(exp);
     if (kws.length === 0) {
       return { text: exp, passed: false, note: 'no-specific-keywords' };
@@ -102,17 +134,45 @@ export function gradeDeterministic(input: DeterministicGradeInput): GradeRecord 
       note: `matched ${hits.length}/${kws.length} keywords: [${hits.join(', ')}]`,
     };
   });
+  return { results, passCount: results.filter((e) => e.passed).length };
+}
+
+/**
+ * Grade a single eval across its N run files and write the aggregated JSON
+ * grade record to disk. `trigger_pass` is computed from the trigger-rate
+ * against `triggerThreshold` (inclusive for `should_trigger=true`, strict for
+ * `should_trigger=false`). Expectations are scored once against the majority
+ * run's reply (or the first run on a tie).
+ *
+ * Returns the in-memory record for callers that want to chain a critic.
+ */
+export function gradeDeterministic(input: DeterministicGradeInput): GradeRecord {
+  const { skill, evalId, shouldTrigger, expectations, resultFiles, gradeFile } = input;
+  const threshold = input.triggerThreshold ?? DEFAULT_TRIGGER_THRESHOLD;
+  if (resultFiles.length === 0) {
+    throw new Error(`gradeDeterministic: no result files for ${skill}/${evalId}`);
+  }
+  const perRun: ParsedReply[] = resultFiles.map((f) => parseReply(readFileSync(f, 'utf8')));
+  const runs = perRun.length;
+  const triggers = perRun.filter(isTrigger).length;
+  const triggerRate = roundTriggerRate(triggers / runs);
+  const triggerPass = shouldTrigger ? triggerRate >= threshold : triggerRate < threshold;
+
+  const winnerIdx = pickMajorityRunIndex(perRun);
+  const winner = perRun[winnerIdx] ?? { trigger: '', reason: '', next_step: '' };
+  const { results: expResults, passCount } = gradeExpectations(expectations, winner);
 
   const grade: GradeRecord = {
     skill,
     eval_id: evalId,
     should_trigger: shouldTrigger,
-    got_trigger: parsed.trigger,
+    runs,
+    triggers,
+    trigger_rate: triggerRate,
     trigger_pass: triggerPass,
-    reason: parsed.reason,
-    next_step: parsed.next_step,
+    per_run: perRun,
     expectations: expResults,
-    expectation_pass: expResults.filter((e) => e.passed).length,
+    expectation_pass: passCount,
     expectation_total: expectations.length,
     grader: 'deterministic',
   };
