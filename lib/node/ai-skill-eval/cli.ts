@@ -12,6 +12,7 @@ import { DEFAULT_TRIGGER_THRESHOLD, gradeDeterministic, parseReply, pickMajority
 import { buildEvalPrompt, resolveRunsPerQuery } from './prompt.ts';
 import { hasFailures, loadGrades, renderJson, renderMarkdown, summarize } from './report.ts';
 import { type DriverKind, type EvalSpec, type EvalsFile, type GradeConfig, type SkillEntry } from './types.ts';
+import { formatFailure, validateSkillMd, type ValidationFailure } from './validate.ts';
 
 const PROG = 'ai-skill-eval';
 const VERSION = '0.1.0';
@@ -30,6 +31,8 @@ Subcommands:
   grade  [SKILL...]         Grade existing result files without re-running.
   rerun  SKILL:EVAL_ID...   Re-run named evals (e.g. 'plugin-conventions:positive-1').
   report [SKILL...]         Render markdown report from an existing workspace.
+  validate [SKILL...]       Validate SKILL.md frontmatter (name / description /
+                            compatibility / whitelist keys). No driver calls.
 
 Global options:
   --skill-root DIR          Directory to scan for SKILL.md files (repeatable).
@@ -97,7 +100,7 @@ Eval schema (<skill-dir>/evals/evals.json):
 Exit codes: 0 ok, 1 validation/run error, 2 usage error.
 `;
 
-type Subcommand = 'list' | 'run' | 'grade' | 'rerun' | 'report';
+type Subcommand = 'list' | 'run' | 'grade' | 'rerun' | 'report' | 'validate';
 
 interface CliOptions {
   subcommand: Subcommand;
@@ -170,11 +173,12 @@ export function parseArgs(argv: readonly string[]): CliOptions {
     case 'grade':
     case 'rerun':
     case 'report':
+    case 'validate':
       subcommand = first;
       break;
     default:
       if (first.startsWith('-')) {
-        usageErr(`unknown option '${first}' (expected subcommand: list, run, grade, rerun, report)`);
+        usageErr(`unknown option '${first}' (expected subcommand: list, run, grade, rerun, report, validate)`);
       }
       usageErr(`unknown subcommand '${first}'`);
   }
@@ -638,15 +642,48 @@ function renderReport(opts: CliOptions, wanted: readonly string[]): number {
   return hasFailures(summarize(withSkillGrades)) ? 1 : 0;
 }
 
+/**
+ * Walk discovered entries, lint each skill's SKILL.md, write a one-line
+ * diagnostic to stderr for every failure, and return the split. The run /
+ * grade pre-flight drops invalid skills from the work list; the `validate`
+ * subcommand uses the same helper to emit its report.
+ */
+function preflightValidate(entries: readonly SkillEntry[]): {
+  valid: SkillEntry[];
+  failures: ValidationFailure[];
+} {
+  const valid: SkillEntry[] = [];
+  const failures: ValidationFailure[] = [];
+  for (const entry of entries) {
+    const r = validateSkillMd(entry.skillMd);
+    if (r.ok) {
+      valid.push(entry);
+    } else {
+      failures.push(r);
+      process.stderr.write(`${PROG}: ${formatFailure(r)}\n`);
+      process.stderr.write(`${PROG}: skipping '${entry.name}' (frontmatter invalid)\n`);
+    }
+  }
+  return { valid, failures };
+}
+
 async function cmdRunOrGrade(opts: CliOptions, mode: 'run' | 'grade'): Promise<number> {
   const roots = resolveScanRoots(opts.skillRoots);
   const all = discoverSkills(roots);
   const wanted = opts.positional;
-  const entries = filterSkills(all, wanted).filter((e) => e.evalsJson);
+  const discovered = filterSkills(all, wanted).filter((e) => e.evalsJson);
 
-  if (entries.length === 0) {
+  if (discovered.length === 0) {
     const suffix = wanted.length > 0 ? ` matching: ${wanted.join(' ')}` : '';
     die(`no skills with evals/evals.json found${suffix}`);
+  }
+
+  // Pre-flight: SKILL.md frontmatter must lint clean before we spawn any
+  // driver calls. Invalid skills are reported to stderr and dropped; the
+  // final exit code stays 1 if any were skipped.
+  const { valid: entries, failures } = preflightValidate(discovered);
+  if (entries.length === 0) {
+    die('no valid skills remain after pre-flight validation (see stderr for details)');
   }
 
   if (mode === 'run') {
@@ -656,7 +693,8 @@ async function cmdRunOrGrade(opts: CliOptions, mode: 'run' | 'grade'): Promise<n
     for (const entry of entries) gradeOnlySkill(opts, entry);
   }
 
-  return renderReport(opts, wanted);
+  const reportCode = renderReport(opts, wanted);
+  return failures.length > 0 ? Math.max(1, reportCode) : reportCode;
 }
 
 async function cmdRerun(opts: CliOptions): Promise<number> {
@@ -678,6 +716,14 @@ async function cmdRerun(opts: CliOptions): Promise<number> {
     if (!entry) die(`skill '${skillName}' not found in scan roots: ${roots.join(' ')}`);
     if (!entry.evalsJson) die(`skill '${skillName}' has no evals/evals.json`);
 
+    // Per-skill pre-flight: a malformed SKILL.md in one rerun target still
+    // aborts the whole rerun so the user notices.
+    const verdict = validateSkillMd(entry.skillMd);
+    if (!verdict.ok) {
+      process.stderr.write(`${PROG}: ${formatFailure(verdict)}\n`);
+      die(`skill '${skillName}' failed frontmatter validation; fix SKILL.md and rerun`);
+    }
+
     const skillBody = readFileSync(entry.skillMd, 'utf8');
     const file = loadEvalsFile(entry.evalsJson);
     const ev = file.evals.find((e) => e.id === evalId);
@@ -693,6 +739,39 @@ async function cmdRerun(opts: CliOptions): Promise<number> {
 
 function cmdReport(opts: CliOptions): number {
   return renderReport(opts, opts.positional);
+}
+
+/**
+ * `ai-skill-eval validate [SKILL...]` — lint SKILL.md frontmatter for every
+ * discovered (or named) skill. Exits 1 if any fail, 0 otherwise. No driver
+ * calls.
+ */
+function cmdValidate(opts: CliOptions): number {
+  const roots = resolveScanRoots(opts.skillRoots);
+  const all = discoverSkills(roots);
+  const wanted = opts.positional;
+  const entries = filterSkills(all, wanted);
+
+  if (entries.length === 0) {
+    const suffix = wanted.length > 0 ? ` matching: ${wanted.join(' ')}` : '';
+    die(`no SKILL.md files found${suffix}`);
+  }
+
+  let failed = 0;
+  for (const entry of entries) {
+    const r = validateSkillMd(entry.skillMd);
+    if (r.ok) {
+      if (opts.verbose) process.stdout.write(`ok  ${entry.name}  ${entry.skillMd}\n`);
+    } else {
+      failed += 1;
+      process.stderr.write(`${formatFailure(r)}\n`);
+    }
+  }
+
+  if (!opts.verbose && failed === 0) {
+    process.stdout.write(`${entries.length} skill(s) validated\n`);
+  }
+  return failed > 0 ? 1 : 0;
 }
 
 export async function main(argv: readonly string[]): Promise<void> {
@@ -727,6 +806,9 @@ export async function main(argv: readonly string[]): Promise<void> {
         break;
       case 'report':
         code = cmdReport(opts);
+        break;
+      case 'validate':
+        code = cmdValidate(opts);
         break;
     }
     process.exit(code);

@@ -682,3 +682,82 @@ PY
   assert_output --partial "+100%"
   assert_output --partial "NOT evidence that the skill helped"
 }
+
+# ─────────────────────────────────────────────────────────────
+# R3.1: validate subcommand + run pre-flight
+# ─────────────────────────────────────────────────────────────
+
+make_skill_bad_frontmatter() {
+  # Like make_skill but overrides the SKILL.md to trip a validate rule.
+  # Args: <root> <skill-dir-name> <frontmatter-name-value>
+  local root="$1" name="$2" bad_name="$3"
+  make_skill "${root}" "${name}" yes
+  cat >"${root}/${name}/SKILL.md" <<SKILL
+---
+name: ${bad_name}
+description: 'Bad skill ${name}.'
+---
+
+# Bad skill
+SKILL
+}
+
+@test "ai-skill-eval validate: valid skill exits 0" {
+  make_skill ".agents/skills" "sample" yes
+  run bash "${SCRIPT}" validate
+  assert_success
+  assert_output --partial "1 skill(s) validated"
+}
+
+@test "ai-skill-eval validate: positional arg scopes to one skill" {
+  make_skill ".agents/skills" "alpha" yes
+  make_skill ".agents/skills" "beta" yes
+  run bash "${SCRIPT}" validate alpha
+  assert_success
+  assert_output --partial "1 skill(s) validated"
+}
+
+@test "ai-skill-eval validate: bad kebab-case name fails with a one-line diagnostic on stderr" {
+  make_skill_bad_frontmatter ".agents/skills" "sample" "Not_Kebab"
+  run bash "${SCRIPT}" validate
+  assert_failure
+  [ "$status" -eq 1 ]
+  # Diagnostic includes path:line, the rule id, and the offending value.
+  assert_output --partial "SKILL.md:2"
+  assert_output --partial "[name-kebab-case]"
+  assert_output --partial "Not_Kebab"
+}
+
+@test "ai-skill-eval validate: unknown frontmatter key fails with unknown-key rule" {
+  make_skill ".agents/skills" "sample" yes
+  cat >".agents/skills/sample/SKILL.md" <<'SKILL'
+---
+name: sample
+description: 'A tiny skill.'
+bogus: value
+---
+
+# body
+SKILL
+  run bash "${SCRIPT}" validate
+  assert_failure
+  assert_output --partial "[unknown-key]"
+  assert_output --partial "bogus"
+}
+
+@test "ai-skill-eval run: pre-flight skips a skill with a bad SKILL.md but still runs the valid one" {
+  make_skill ".agents/skills" "good-skill" yes
+  make_skill_bad_frontmatter ".agents/skills" "bad-skill" "Bad_Name"
+  driver="$(stub_driver_script)"
+
+  run bash "${SCRIPT}" run --driver-cmd "${driver}" --runs-per-query 1
+  # Pre-flight failure is surfaced via exit 1 even though the good skill ran.
+  assert_failure
+  [ "$status" -eq 1 ]
+  assert_output --partial "[name-kebab-case]"
+  assert_output --partial "skipping 'bad-skill'"
+
+  # The valid skill still produced grades; the bad one didn't.
+  [ -f ".ai-skill-eval/good-skill/with_skill/grades/positive-1.json" ]
+  [ ! -e ".ai-skill-eval/bad-skill/with_skill/grades/positive-1.json" ]
+}
