@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# ai-skill-eval -- harness-agnostic SKILL.md validation harness.
+# SPDX-License-Identifier: MIT
+#
+# Thin shim that resolves the dotfiles root and execs the TypeScript
+# implementation under lib/node/ai-skill-eval/. Logic lives there; this
+# file only exists so the tool is reachable from $PATH via the dotenv/bin
+# chain and pairs with its completion file.
+
+set -euo pipefail
+IFS=$'\n\t'
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+readonly SCRIPT_DIR
+DOTFILES_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd -P)"
+readonly DOTFILES_ROOT
+readonly TARGET="${DOTFILES_ROOT}/lib/node/ai-skill-eval/ai-skill-eval.ts"
+
+if [[ ! -x "${TARGET}" ]]; then
+  printf 'ai-skill-eval: missing executable %s\n' "${TARGET}" >&2
+  exit 1
+fi
+
+exec "${TARGET}" "$@"

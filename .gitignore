@@ -209,6 +209,8 @@ Thumbs.db:encryptable
 
 # ==================== AI Tooling ====================
 /_*/
+/.ai-skill-eval/
+**/evals/evals.json
 /.claude/settings.local.json
 /.codex/
 /.cursor/settings.json
