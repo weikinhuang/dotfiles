@@ -27,12 +27,13 @@
 //
 // SPDX-License-Identifier: MIT
 
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { invokeCritic } from './driver.ts';
 import { parseReply, pickMajorityRunIndex } from './grader.ts';
+import { listRunFilesAt } from './run-files.ts';
 import { iterationPath } from './workspace.ts';
 
 /** Basename of the directory holding per-eval comparator outputs, relative to iteration-A. */
@@ -198,18 +199,12 @@ export function assignLabels(iterationA: number, iterationB: number, rng: Rng): 
 /**
  * List the `run-*.txt` files for `evalId` under `iteration-<N>/with_skill/`,
  * sorted numerically. Returns `[]` when the directory does not exist.
+ * Thin adapter over the shared {@link listRunFilesAt} helper so `compare`,
+ * the `grade` CLI path, and the benchmark aggregator all agree on how to
+ * enumerate per-run replies.
  */
 export function listRunFiles(workspace: string, skill: string, iteration: number, evalId: string): string[] {
-  const dir = join(iterationPath(workspace, skill, iteration), 'with_skill', 'results', evalId);
-  if (!existsSync(dir)) return [];
-  return readdirSync(dir)
-    .filter((f) => /^run-\d+\.txt$/.test(f))
-    .sort((x, y) => {
-      const nx = Number.parseInt(x.replace(/^run-|\.txt$/g, ''), 10);
-      const ny = Number.parseInt(y.replace(/^run-|\.txt$/g, ''), 10);
-      return nx - ny;
-    })
-    .map((f) => join(dir, f));
+  return listRunFilesAt(workspace, skill, iteration, 'with_skill', evalId);
 }
 
 /**

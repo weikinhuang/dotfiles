@@ -34,6 +34,8 @@
 import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+import { loadIterationGrades } from './grade-loader.ts';
+import { listRunMetaFiles } from './run-files.ts';
 import { type GradeConfig, type GradeRecord } from './types.ts';
 import { iterationPath } from './workspace.ts';
 
@@ -122,11 +124,6 @@ function avg(values: readonly number[]): number {
   return values.reduce((s, v) => s + v, 0) / values.length;
 }
 
-function runIndex(name: string): number {
-  const m = /^run-(\d+)\.txt\.meta\.json$/.exec(name);
-  return m?.[1] ? Number.parseInt(m[1], 10) : 0;
-}
-
 /**
  * First-minus-second difference formatted for the schema. `null` when either
  * side is missing the metric (e.g. tokens unavailable on the claude driver).
@@ -197,25 +194,14 @@ export function loadSkillArtifacts(
   metas: Map<string, RunMetrics[]>;
 } {
   const skillDir = iterationPath(workspace, skill, iteration);
-  const grades: GradeRecord[] = [];
   const metas = new Map<string, RunMetrics[]>();
   if (!existsSync(skillDir) || !statSync(skillDir).isDirectory()) {
-    return { grades, metas };
+    return { grades: [], metas };
   }
+  // Grade records: delegate to the shared per-iteration loader so
+  // report + benchmark stay in lockstep on parsing + backfill rules.
+  const grades = loadIterationGrades(skillDir);
   for (const config of CONFIGS) {
-    const gradesDir = join(skillDir, config, 'grades');
-    if (existsSync(gradesDir)) {
-      for (const gf of readdirSync(gradesDir).sort()) {
-        if (!gf.endsWith('.json')) continue;
-        try {
-          const raw = JSON.parse(readFileSync(join(gradesDir, gf), 'utf8')) as GradeRecord;
-          if (!raw.config) raw.config = config;
-          grades.push(raw);
-        } catch {
-          // ignore malformed grade files
-        }
-      }
-    }
     const resultsDir = join(skillDir, config, 'results');
     if (!existsSync(resultsDir)) continue;
     for (const evalId of readdirSync(resultsDir).sort()) {
@@ -228,12 +214,9 @@ export function loadSkillArtifacts(
       }
       if (!st.isDirectory()) continue;
       const runMetas: RunMetrics[] = [];
-      const runFiles = readdirSync(evalDir)
-        .filter((f) => /^run-\d+\.txt\.meta\.json$/.test(f))
-        .sort((a, b) => runIndex(a) - runIndex(b));
-      for (const mf of runFiles) {
+      for (const metaPath of listRunMetaFiles(evalDir)) {
         try {
-          runMetas.push(JSON.parse(readFileSync(join(evalDir, mf), 'utf8')) as RunMetrics);
+          runMetas.push(JSON.parse(readFileSync(metaPath, 'utf8')) as RunMetrics);
         } catch {
           // Skip malformed sidecars; the stats fall back to null.
         }

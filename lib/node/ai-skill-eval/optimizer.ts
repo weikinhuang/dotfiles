@@ -326,6 +326,13 @@ export async function runOptimizeLoop(input: RunOptimizeInput): Promise<Optimize
   // when it was added later by a bigger holdout), otherwise fall back to
   // train. Ties break toward the earliest iteration because the forward
   // walk only replaces `best` on a strictly higher score.
+  if (iterations.length === 0) {
+    // Unreachable in practice: the for-loop body above always pushes at
+    // least one iteration before we get here (maxIterations >= 1). An
+    // explicit guard avoids a silent `undefined` crawl and makes the
+    // invariant legible to future readers.
+    throw new Error('optimize: no iterations recorded (maxIterations must be >= 1)');
+  }
   const useTest = iterations.some((h) => h.testTotal != null && h.testTotal > 0);
   const bestSource: 'test' | 'train' = useTest ? 'test' : 'train';
   let best: OptimizerIteration = iterations[0];

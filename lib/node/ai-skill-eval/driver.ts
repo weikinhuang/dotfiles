@@ -239,6 +239,14 @@ function runCodex(
   // discarded (carries the spurious "failed to record rollout items"
   // noise line).
   //
+  // Sidecar lifecycle: the `<outputFile>.log` is written every codex
+  // invocation and kept on success so `captureTokens` can rerun
+  // (e.g. when the caller regrades later). It lives alongside the
+  // run-N.txt in `.ai-skill-eval/<skill>/iteration-*/with_skill/results/`
+  // and is pruned whenever the workspace / iteration dir is removed;
+  // the CLI does not reap it inline. Callers wanting a clean tree can
+  // delete `<outputFile>.log` after grading completes.
+  //
   // Sandbox policy is deliberately unpinned: codex reads the user's
   // ~/.codex/config.toml default. Revisit if a run gets blocked.
   const prompt = readFileSync(promptFile, 'utf8');

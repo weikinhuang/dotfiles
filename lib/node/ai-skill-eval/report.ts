@@ -7,9 +7,10 @@
 // `report` subcommand.
 // SPDX-License-Identifier: MIT
 
-import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
+import { loadIterationGrades } from './grade-loader.ts';
 import { type GradeConfig, type GradeRecord } from './types.ts';
 import { iterationPath, latestIteration } from './workspace.ts';
 
@@ -19,8 +20,6 @@ export interface ReportSummary {
   expectation_pass: number;
   expectation_total: number;
 }
-
-const CONFIGS: readonly GradeConfig[] = ['with_skill', 'without_skill'];
 
 /**
  * Walk `<workspace>/<skill>/iteration-<N>/<config>/grades/*.json` for every
@@ -54,22 +53,7 @@ export function loadGrades(
     if (wanted.length > 0 && !wanted.includes(name)) continue;
     const iterN = iteration ?? latestIteration(workspace, name);
     if (iterN == null) continue;
-    const iterDir = iterationPath(workspace, name, iterN);
-    if (!existsSync(iterDir)) continue;
-    for (const config of CONFIGS) {
-      const gradesDir = join(iterDir, config, 'grades');
-      if (!existsSync(gradesDir)) continue;
-      for (const gf of readdirSync(gradesDir).sort()) {
-        if (!gf.endsWith('.json')) continue;
-        try {
-          const raw = JSON.parse(readFileSync(join(gradesDir, gf), 'utf8')) as GradeRecord;
-          if (!raw.config) raw.config = config;
-          grades.push(raw);
-        } catch {
-          // Ignore malformed grade files (matches the bash original).
-        }
-      }
-    }
+    grades.push(...loadIterationGrades(iterationPath(workspace, name, iterN)));
   }
   return grades;
 }
