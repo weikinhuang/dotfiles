@@ -10,4 +10,8 @@
 
 import { main } from './cli.ts';
 
-main(process.argv.slice(2));
+main(process.argv.slice(2)).catch((err: unknown) => {
+  const msg = err instanceof Error ? (err.stack ?? err.message) : String(err);
+  process.stderr.write(`ai-skill-eval: ${msg}\n`);
+  process.exit(1);
+});

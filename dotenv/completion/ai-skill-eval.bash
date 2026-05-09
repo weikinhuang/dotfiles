@@ -9,7 +9,7 @@ _dot_ai_skill_eval() {
 
   # Flags that take a free-form value: no suggestion.
   case "${prev}" in
-    --driver-cmd | --critic-cmd | --model | --only)
+    --driver-cmd | --critic-cmd | --model | --only | --num-workers | --timeout)
       return
       ;;
     --skill-root | --workspace)
@@ -38,7 +38,7 @@ _dot_ai_skill_eval() {
   # No subcommand yet: complete subcommand names and global flags.
   if [[ -z "${op}" ]]; then
     if [[ "${cur}" == -* ]]; then
-      mapfile -t COMPREPLY < <(compgen -W "--skill-root --workspace --driver --driver-cmd --model --critic-cmd --only --json -v --verbose -h --help --version" -- "${cur}")
+      mapfile -t COMPREPLY < <(compgen -W "--skill-root --workspace --driver --driver-cmd --model --critic-cmd --only --num-workers --timeout --json -v --verbose -h --help --version" -- "${cur}")
     else
       mapfile -t COMPREPLY < <(compgen -W "list run grade rerun report" -- "${cur}")
     fi
@@ -47,7 +47,7 @@ _dot_ai_skill_eval() {
 
   # Per-subcommand flag set.
   if [[ "${cur}" == -* ]]; then
-    local flags="--skill-root --workspace --driver --driver-cmd --model --critic-cmd --json -v --verbose -h --help"
+    local flags="--skill-root --workspace --driver --driver-cmd --model --critic-cmd --num-workers --timeout --json -v --verbose -h --help"
     case "${op}" in
       run | grade | rerun) flags="${flags} --only" ;;
     esac

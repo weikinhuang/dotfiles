@@ -511,3 +511,93 @@ assert g["expectations"][0]["passed"] is True
 assert "critic-noted flaw" in g.get("flaws", [])
 PY
 }
+
+# ──────────────────────────────────────────────────────────────────
+# R1b: --timeout + --num-workers
+# ──────────────────────────────────────────────────────────────────
+
+@test "ai-skill-eval run: --timeout 1 kills a sleep-5 driver stub and records DRIVER_TIMEOUT in the grade" {
+  make_skill ".agents/skills" "sample" yes
+
+  # Driver stub that would block for 5s if left alone. --timeout 1 must
+  # SIGTERM it, the SIGKILL fallback must land within the grace window,
+  # and the run output + grade must reflect the timeout.
+  local driver="${BATS_TEST_TMPDIR}/slow-driver.sh"
+  cat >"${driver}" <<'EOF'
+#!/usr/bin/env bash
+sleep 5
+printf 'TRIGGER: yes\nREASON: eventually\nNEXT_STEP: should not reach here.\n'
+EOF
+  chmod +x "${driver}"
+
+  # Capture wall-clock seconds via Bash's SECONDS. Sequential 5s would be
+  # far too slow; the timeout must kick in well under that.
+  SECONDS=0
+  run bash "${SCRIPT}" run --driver-cmd "${driver}" --only positive-1 \
+    --runs-per-query 1 --timeout 1
+  local elapsed=${SECONDS}
+  # Grading a timed-out run yields trigger_pass=false (report exits 1),
+  # so we assert on the grade contents instead of assert_success.
+  [ "${elapsed}" -lt 4 ] || fail "expected timeout to fire within 4s, took ${elapsed}s"
+
+  python3 - <<'PY'
+import json
+g = json.load(open(".ai-skill-eval/sample/grades/positive-1.json"))
+flaws = g.get("flaws", [])
+assert any("DRIVER_TIMEOUT" in f for f in flaws), f"expected DRIVER_TIMEOUT in flaws, got {flaws!r}"
+assert g["runs"] == 1, g
+PY
+
+  # A .error marker is written alongside the run output so `grade` can still
+  # distinguish timeouts from ordinary non-zero exits.
+  grep -q 'DRIVER_TIMEOUT' ".ai-skill-eval/sample/results/positive-1/run-1.txt"
+  [ -f ".ai-skill-eval/sample/results/positive-1/run-1.txt.error" ]
+  grep -q 'DRIVER_TIMEOUT' ".ai-skill-eval/sample/results/positive-1/run-1.txt.error"
+}
+
+@test "ai-skill-eval run: --num-workers 2 parallelises 4 sleep-1 driver calls under sequential wall time" {
+  # Four evals across two skills so even with --runs-per-query 1 the pool has
+  # four independent jobs to dispatch. Sleep 1s per call → sequential ≥ 4s,
+  # parallel-2 should land under 3s on any reasonable host.
+  make_skill ".agents/skills" "parallel-a" yes
+  make_skill ".agents/skills" "parallel-b" yes
+
+  local driver="${BATS_TEST_TMPDIR}/sleep1-driver.sh"
+  cat >"${driver}" <<'EOF'
+#!/usr/bin/env bash
+sleep 1
+cat <<REPLY
+TRIGGER: yes
+REASON: stub always triggers
+NEXT_STEP: Apply the skill.
+REPLY
+EOF
+  chmod +x "${driver}"
+
+  SECONDS=0
+  bash "${SCRIPT}" run --driver-cmd "${driver}" --only positive-1 \
+    --runs-per-query 1 --num-workers 2 --timeout 10 >/dev/null
+  local elapsed=${SECONDS}
+
+  [ "${elapsed}" -lt 3 ] || fail "expected --num-workers 2 on 4× sleep-1 jobs to finish under 3s, took ${elapsed}s"
+
+  # All four per-skill, per-eval run files exist.
+  [ -f ".ai-skill-eval/parallel-a/results/positive-1/run-1.txt" ]
+  [ -f ".ai-skill-eval/parallel-b/results/positive-1/run-1.txt" ]
+}
+
+@test "ai-skill-eval: rejects --num-workers values less than 1" {
+  make_skill ".agents/skills" "sample" yes
+  run bash "${SCRIPT}" run --num-workers 0
+  assert_failure
+  [ "$status" -eq 2 ]
+  assert_output --partial "--num-workers"
+}
+
+@test "ai-skill-eval: rejects negative --timeout" {
+  make_skill ".agents/skills" "sample" yes
+  run bash "${SCRIPT}" run --timeout -1
+  assert_failure
+  [ "$status" -eq 2 ]
+  assert_output --partial "--timeout"
+}

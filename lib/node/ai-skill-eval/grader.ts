@@ -152,9 +152,11 @@ export function gradeDeterministic(input: DeterministicGradeInput): GradeRecord 
   if (resultFiles.length === 0) {
     throw new Error(`gradeDeterministic: no result files for ${skill}/${evalId}`);
   }
-  const perRun: ParsedReply[] = resultFiles.map((f) => parseReply(readFileSync(f, 'utf8')));
+  const perRunTexts: string[] = resultFiles.map((f) => readFileSync(f, 'utf8'));
+  const perRun: ParsedReply[] = perRunTexts.map((t) => parseReply(t));
   const runs = perRun.length;
   const triggers = perRun.filter(isTrigger).length;
+  const timeoutRuns = perRunTexts.filter((t) => t.includes('DRIVER_TIMEOUT')).length;
   const triggerRate = roundTriggerRate(triggers / runs);
   const triggerPass = shouldTrigger ? triggerRate >= threshold : triggerRate < threshold;
 
@@ -176,6 +178,9 @@ export function gradeDeterministic(input: DeterministicGradeInput): GradeRecord 
     expectation_total: expectations.length,
     grader: 'deterministic',
   };
+  if (timeoutRuns > 0) {
+    grade.flaws = [`DRIVER_TIMEOUT on ${timeoutRuns}/${runs} run(s)`];
+  }
   mkdirSync(dirname(gradeFile), { recursive: true });
   writeFileSync(gradeFile, JSON.stringify(grade, null, 2));
   return grade;

@@ -4,6 +4,7 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
+import { runPool } from './concurrency.ts';
 import { buildCriticPrompt, mergeCriticVerdict, writeCriticPrompt } from './critic.ts';
 import { countEvals, discoverSkills, loadEvalsFile, resolveScanRoots } from './discovery.ts';
 import { invokeCritic, invokeDriver, type DriverConfig } from './driver.ts';
@@ -53,6 +54,15 @@ Global options:
   --trigger-threshold T     Pass threshold (0.0–1.0) for trigger_rate.
                             \`>= T\` for should_trigger=true, \`< T\` for
                             should_trigger=false. Default: 0.5.
+  --num-workers W           Run up to W driver invocations in parallel.
+                            Default: 1 (safe for local llama-cpp / pi;
+                            raise for hosted-model drivers that tolerate
+                            parallelism).
+  --timeout T               Kill any single driver call that exceeds T
+                            seconds; the run's output file gets a
+                            \`DRIVER_TIMEOUT\` marker appended and the grade
+                            surfaces it in \`flaws\`. Default: 30. \`0\` or
+                            negative disables the timeout.
   --only EVAL_ID            Filter to specific eval IDs (repeatable).
   --json                    Machine-readable JSON output (for list / report).
   -v, --verbose             Log each invocation to stderr.
@@ -98,6 +108,8 @@ interface CliOptions {
   criticCmd: string | null;
   runsPerQuery: number | null;
   triggerThreshold: number;
+  numWorkers: number;
+  timeoutMs: number;
   json: boolean;
   verbose: boolean;
 }
@@ -175,6 +187,8 @@ export function parseArgs(argv: readonly string[]): CliOptions {
     criticCmd: null,
     runsPerQuery: null,
     triggerThreshold: DEFAULT_TRIGGER_THRESHOLD,
+    numWorkers: 1,
+    timeoutMs: 30_000,
     json: false,
     verbose: false,
   };
@@ -243,6 +257,26 @@ export function parseArgs(argv: readonly string[]): CliOptions {
         i += advance;
         break;
       }
+      case '--num-workers': {
+        const { value, advance } = valueFor(arg, argv as string[], i);
+        const n = Number.parseInt(value, 10);
+        if (!Number.isFinite(n) || n < 1) {
+          usageErr(`--num-workers expects a positive integer, got '${value}'`);
+        }
+        opts.numWorkers = n;
+        i += advance;
+        break;
+      }
+      case '--timeout': {
+        const { value, advance } = valueFor(arg, argv as string[], i);
+        const t = Number.parseFloat(value);
+        if (!Number.isFinite(t) || t < 0) {
+          usageErr(`--timeout expects a non-negative number of seconds, got '${value}'`);
+        }
+        opts.timeoutMs = Math.round(t * 1000);
+        i += advance;
+        break;
+      }
       case '--only': {
         const { value, advance } = valueFor(arg, argv as string[], i);
         opts.skillFilters.push(value);
@@ -291,7 +325,12 @@ function logVerbose(opts: CliOptions, msg: string): void {
 }
 
 function driverConfig(opts: CliOptions): DriverConfig {
-  return { driver: opts.driver, driverCmd: opts.driverCmd, model: opts.model };
+  return {
+    driver: opts.driver,
+    driverCmd: opts.driverCmd,
+    model: opts.model,
+    timeoutMs: opts.timeoutMs > 0 ? opts.timeoutMs : null,
+  };
 }
 
 function filterSkills(entries: SkillEntry[], wanted: readonly string[]): SkillEntry[] {
@@ -395,7 +434,13 @@ function deleteLegacyFlatResult(skillWs: string, evalId: string): void {
   if (existsSync(legacy)) rmSync(legacy, { force: true });
 }
 
-function runOneEval(opts: CliOptions, entry: SkillEntry, skillBody: string, ev: EvalSpec, file: EvalsFile): void {
+function runOneEvalPrep(
+  opts: CliOptions,
+  entry: SkillEntry,
+  skillBody: string,
+  ev: EvalSpec,
+  file: EvalsFile,
+): { runs: number; promptFile: string; resultFiles: string[]; gradeFile: string } {
   const runs = resolveRunsPerQuery(ev, file, opts.runsPerQuery);
   const skillWs = join(opts.workspace, entry.name);
   const promptFile = join(skillWs, 'prompts', `${ev.id}.txt`);
@@ -408,21 +453,40 @@ function runOneEval(opts: CliOptions, entry: SkillEntry, skillBody: string, ev: 
   mkdirSync(dirname(gradeFile), { recursive: true });
   writeFileSync(promptFile, buildEvalPrompt(skillBody, ev.prompt));
 
-  const resultFiles = resultFilesFor(skillWs, ev.id, runs);
-  for (let i = 0; i < runs; i += 1) {
-    const resultFile = resultFiles[i] ?? '';
-    logVerbose(
-      opts,
-      `running ${entry.name}/${ev.id} run ${i + 1}/${runs} (should_trigger=${String(ev.should_trigger)})`,
-    );
-    const { exitCode, durationSec, bytes } = invokeDriver(driverConfig(opts), promptFile, resultFile);
-    logVerbose(opts, `  exit=${exitCode} dur=${durationSec}s bytes=${bytes}`);
-    if (exitCode !== 0) {
-      writeFileSync(`${resultFile}.error`, 'DRIVER_FAILED\n');
-    }
-  }
+  return { runs, promptFile, resultFiles: resultFilesFor(skillWs, ev.id, runs), gradeFile };
+}
 
-  gradeWithOptionalCritic(opts, entry, ev, resultFiles, gradeFile);
+interface DriverJob {
+  entry: SkillEntry;
+  ev: EvalSpec;
+  runIndex: number;
+  runs: number;
+  promptFile: string;
+  resultFile: string;
+}
+
+/**
+ * Run one driver invocation and persist its `.error` marker on failure /
+ * timeout. Failures do not throw — the caller continues on to grading so
+ * the resulting grade record reflects the partial run set (trigger_rate
+ * drops accordingly, and the grader appends `DRIVER_TIMEOUT` to `flaws`).
+ */
+async function runDriverJob(opts: CliOptions, job: DriverJob): Promise<void> {
+  logVerbose(
+    opts,
+    `running ${job.entry.name}/${job.ev.id} run ${job.runIndex + 1}/${job.runs} (should_trigger=${String(job.ev.should_trigger)})`,
+  );
+  const { exitCode, durationSec, bytes, timedOut } = await invokeDriver(
+    driverConfig(opts),
+    job.promptFile,
+    job.resultFile,
+  );
+  logVerbose(opts, `  exit=${exitCode} dur=${durationSec}s bytes=${bytes}${timedOut ? ' (TIMEOUT)' : ''}`);
+  if (timedOut) {
+    writeFileSync(`${job.resultFile}.error`, 'DRIVER_TIMEOUT\n');
+  } else if (exitCode !== 0) {
+    writeFileSync(`${job.resultFile}.error`, 'DRIVER_FAILED\n');
+  }
 }
 
 function cmdList(opts: CliOptions): number {
@@ -456,30 +520,74 @@ function cmdList(opts: CliOptions): number {
   return 0;
 }
 
-function runOrGradeSkill(opts: CliOptions, entry: SkillEntry, mode: 'run' | 'grade'): void {
+interface EvalPlan {
+  entry: SkillEntry;
+  ev: EvalSpec;
+  prep: { runs: number; promptFile: string; resultFiles: string[]; gradeFile: string };
+}
+
+function planRun(opts: CliOptions, entries: readonly SkillEntry[]): EvalPlan[] {
+  const plans: EvalPlan[] = [];
+  for (const entry of entries) {
+    if (!entry.evalsJson) {
+      logVerbose(opts, `skip ${entry.name} (no evals/evals.json)`);
+      continue;
+    }
+    logVerbose(opts, `run: ${entry.name} (${entry.evalsJson})`);
+    const skillBody = readFileSync(entry.skillMd, 'utf8');
+    const file = loadEvalsFile(entry.evalsJson);
+    for (const ev of file.evals) {
+      if (!ev.id) continue;
+      if (!includesEvalFilter(opts.skillFilters, entry.name, ev.id)) continue;
+      const prep = runOneEvalPrep(opts, entry, skillBody, ev, file);
+      plans.push({ entry, ev, prep });
+    }
+  }
+  return plans;
+}
+
+async function executeRunPlans(opts: CliOptions, plans: readonly EvalPlan[]): Promise<void> {
+  const jobs: DriverJob[] = [];
+  for (const plan of plans) {
+    for (let i = 0; i < plan.prep.runs; i += 1) {
+      jobs.push({
+        entry: plan.entry,
+        ev: plan.ev,
+        runIndex: i,
+        runs: plan.prep.runs,
+        promptFile: plan.prep.promptFile,
+        resultFile: plan.prep.resultFiles[i] ?? '',
+      });
+    }
+  }
+  if (jobs.length === 0) return;
+  await runPool(jobs, { limit: opts.numWorkers }, (job) => runDriverJob(opts, job));
+  // Grade after the whole pool has drained — keeps grading serial and
+  // deterministic regardless of how the driver jobs interleaved.
+  for (const plan of plans) {
+    gradeWithOptionalCritic(opts, plan.entry, plan.ev, plan.prep.resultFiles, plan.prep.gradeFile);
+  }
+}
+
+function gradeOnlySkill(opts: CliOptions, entry: SkillEntry): void {
   if (!entry.evalsJson) {
     logVerbose(opts, `skip ${entry.name} (no evals/evals.json)`);
     return;
   }
-  logVerbose(opts, `${mode}: ${entry.name} (${entry.evalsJson})`);
-  const skillBody = readFileSync(entry.skillMd, 'utf8');
+  logVerbose(opts, `grade: ${entry.name} (${entry.evalsJson})`);
   const file = loadEvalsFile(entry.evalsJson);
   for (const ev of file.evals) {
     if (!ev.id) continue;
     if (!includesEvalFilter(opts.skillFilters, entry.name, ev.id)) continue;
-    if (mode === 'run') {
-      runOneEval(opts, entry, skillBody, ev, file);
-    } else {
-      const skillWs = join(opts.workspace, entry.name);
-      const resultFiles = existingResultFiles(skillWs, ev.id);
-      const gradeFile = join(skillWs, 'grades', `${ev.id}.json`);
-      if (resultFiles.length === 0) {
-        logVerbose(opts, `grade: missing results for ${entry.name}/${ev.id} (run first)`);
-        continue;
-      }
-      logVerbose(opts, `grading ${entry.name}/${ev.id} across ${resultFiles.length} run(s)`);
-      gradeWithOptionalCritic(opts, entry, ev, resultFiles, gradeFile);
+    const skillWs = join(opts.workspace, entry.name);
+    const resultFiles = existingResultFiles(skillWs, ev.id);
+    const gradeFile = join(skillWs, 'grades', `${ev.id}.json`);
+    if (resultFiles.length === 0) {
+      logVerbose(opts, `grade: missing results for ${entry.name}/${ev.id} (run first)`);
+      continue;
     }
+    logVerbose(opts, `grading ${entry.name}/${ev.id} across ${resultFiles.length} run(s)`);
+    gradeWithOptionalCritic(opts, entry, ev, resultFiles, gradeFile);
   }
 }
 
@@ -493,7 +601,7 @@ function renderReport(opts: CliOptions, wanted: readonly string[]): number {
   return hasFailures(summarize(grades)) ? 1 : 0;
 }
 
-function cmdRunOrGrade(opts: CliOptions, mode: 'run' | 'grade'): number {
+async function cmdRunOrGrade(opts: CliOptions, mode: 'run' | 'grade'): Promise<number> {
   const roots = resolveScanRoots(opts.skillRoots);
   const all = discoverSkills(roots);
   const wanted = opts.positional;
@@ -504,14 +612,17 @@ function cmdRunOrGrade(opts: CliOptions, mode: 'run' | 'grade'): number {
     die(`no skills with evals/evals.json found${suffix}`);
   }
 
-  for (const entry of entries) {
-    runOrGradeSkill(opts, entry, mode);
+  if (mode === 'run') {
+    const plans = planRun(opts, entries);
+    await executeRunPlans(opts, plans);
+  } else {
+    for (const entry of entries) gradeOnlySkill(opts, entry);
   }
 
   return renderReport(opts, wanted);
 }
 
-function cmdRerun(opts: CliOptions): number {
+async function cmdRerun(opts: CliOptions): Promise<number> {
   if (opts.rerunTargets.length === 0) {
     usageErr('rerun requires at least one SKILL:EVAL_ID argument');
   }
@@ -520,6 +631,7 @@ function cmdRerun(opts: CliOptions): number {
   const all = discoverSkills(roots);
   const byName = new Map(all.map((e) => [e.name, e]));
 
+  const plans: EvalPlan[] = [];
   for (const target of opts.rerunTargets) {
     const sep = target.indexOf(':');
     if (sep <= 0) usageErr(`invalid rerun target '${target}' (expected SKILL:EVAL_ID)`);
@@ -533,9 +645,10 @@ function cmdRerun(opts: CliOptions): number {
     const file = loadEvalsFile(entry.evalsJson);
     const ev = file.evals.find((e) => e.id === evalId);
     if (!ev) die(`skill '${skillName}' has no eval '${evalId}'`);
-    runOneEval(opts, entry, skillBody, ev, file);
+    plans.push({ entry, ev, prep: runOneEvalPrep(opts, entry, skillBody, ev, file) });
   }
 
+  await executeRunPlans(opts, plans);
   return renderReport(opts, []);
 }
 
@@ -543,7 +656,7 @@ function cmdReport(opts: CliOptions): number {
   return renderReport(opts, opts.positional);
 }
 
-export function main(argv: readonly string[]): void {
+export async function main(argv: readonly string[]): Promise<void> {
   let opts: CliOptions;
   try {
     opts = parseArgs(argv);
@@ -565,13 +678,13 @@ export function main(argv: readonly string[]): void {
         code = cmdList(opts);
         break;
       case 'run':
-        code = cmdRunOrGrade(opts, 'run');
+        code = await cmdRunOrGrade(opts, 'run');
         break;
       case 'grade':
-        code = cmdRunOrGrade(opts, 'grade');
+        code = await cmdRunOrGrade(opts, 'grade');
         break;
       case 'rerun':
-        code = cmdRerun(opts);
+        code = await cmdRerun(opts);
         break;
       case 'report':
         code = cmdReport(opts);

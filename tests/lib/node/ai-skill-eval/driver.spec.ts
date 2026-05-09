@@ -59,14 +59,18 @@ function installStub(dir: string, name: string, body: string): void {
   chmodSync(path, 0o755);
 }
 
-function withPath(dir: string, fn: () => void): void {
+/**
+ * Async PATH-override helper. PATH is restored as soon as the callback
+ * returns (synchronously), which is fine because `invokeDriver`'s underlying
+ * `spawn` does the executable lookup synchronously before the Promise is
+ * returned.
+ */
+async function withPathAsync<R>(dir: string, fn: () => Promise<R>): Promise<R> {
   const prev = process.env.PATH;
   process.env.PATH = `${join(dir, 'bin')}${delimiter}${prev ?? ''}`;
-  try {
-    fn();
-  } finally {
-    process.env.PATH = prev;
-  }
+  const pending = fn();
+  process.env.PATH = prev;
+  return pending;
 }
 
 describe('resolveDriver', () => {
@@ -116,13 +120,13 @@ describe('invokeDriver (codex)', () => {
     rmSync(fx.dir, { recursive: true, force: true });
   });
 
-  test('passes exec subcommand + --skip-git-repo-check + --cd + -o and the prompt body as the last argv', () => {
+  test('passes exec subcommand + --skip-git-repo-check + --cd + -o and the prompt body as the last argv', async () => {
     installStub(fx.dir, 'codex', fx.stubScript('HELLO_CODEX'));
-    withPath(fx.dir, () => {
-      const r = invokeDriver({ driver: 'codex', driverCmd: null, model: null }, fx.promptFile, fx.outputFile);
+    const r = await withPathAsync(fx.dir, () =>
+      invokeDriver({ driver: 'codex', driverCmd: null, model: null }, fx.promptFile, fx.outputFile),
+    );
 
-      expect(r.exitCode).toBe(0);
-    });
+    expect(r.exitCode).toBe(0);
 
     const argv = readFileSync(fx.argvFile, 'utf8').trimEnd().split('\n');
 
@@ -139,37 +143,91 @@ describe('invokeDriver (codex)', () => {
     expect(argv).not.toContain('-m');
   });
 
-  test('passes -m <model> when model is set', () => {
+  test('passes -m <model> when model is set', async () => {
     installStub(fx.dir, 'codex', fx.stubScript('ok'));
-    withPath(fx.dir, () => {
-      invokeDriver({ driver: 'codex', driverCmd: null, model: 'gpt-5-codex' }, fx.promptFile, fx.outputFile);
-    });
+    await withPathAsync(fx.dir, () =>
+      invokeDriver({ driver: 'codex', driverCmd: null, model: 'gpt-5-codex' }, fx.promptFile, fx.outputFile),
+    );
     const argv = readFileSync(fx.argvFile, 'utf8').trimEnd().split('\n');
 
     expect(argv).toContain('-m');
     expect(argv[argv.indexOf('-m') + 1]).toBe('gpt-5-codex');
   });
 
-  test('captures the reply from -o into outputFile, not the stub stdout', () => {
+  test('captures the reply from -o into outputFile, not the stub stdout', async () => {
     installStub(fx.dir, 'codex', fx.stubScript('CODEX_FINAL_REPLY'));
-    withPath(fx.dir, () => {
-      const r = invokeDriver({ driver: 'codex', driverCmd: null, model: null }, fx.promptFile, fx.outputFile);
+    const r = await withPathAsync(fx.dir, () =>
+      invokeDriver({ driver: 'codex', driverCmd: null, model: null }, fx.promptFile, fx.outputFile),
+    );
 
-      expect(r.exitCode).toBe(0);
-      expect(r.bytes).toBeGreaterThan(0);
-    });
+    expect(r.exitCode).toBe(0);
+    expect(r.bytes).toBeGreaterThan(0);
 
     // The stub writes its reply to the -o path; our runCodex redirects
     // stdout/stderr to /dev/null, so outputFile is the sole source.
     expect(readFileSync(fx.outputFile, 'utf8')).toBe('CODEX_FINAL_REPLY');
   });
 
-  test('propagates non-zero exit codes', () => {
+  test('propagates non-zero exit codes', async () => {
     installStub(fx.dir, 'codex', `#!/usr/bin/env bash\nexit 7\n`);
-    withPath(fx.dir, () => {
-      const r = invokeDriver({ driver: 'codex', driverCmd: null, model: null }, fx.promptFile, fx.outputFile);
+    const r = await withPathAsync(fx.dir, () =>
+      invokeDriver({ driver: 'codex', driverCmd: null, model: null }, fx.promptFile, fx.outputFile),
+    );
 
-      expect(r.exitCode).toBe(7);
-    });
+    expect(r.exitCode).toBe(7);
+    expect(r.timedOut).toBe(false);
+  });
+});
+
+describe('invokeDriver (timeout)', () => {
+  let fx: StubFixture;
+
+  beforeEach(() => {
+    fx = makeFixture();
+  });
+
+  afterEach(() => {
+    rmSync(fx.dir, { recursive: true, force: true });
+  });
+
+  test('SIGKILLs a sleep-5 stub when timeoutMs=300 and appends DRIVER_TIMEOUT to the output file', async () => {
+    // Custom driver script that sleeps 5s then writes a reply: the timeout
+    // must fire first. Use a --driver-cmd wrapper so we don't depend on PATH
+    // probing of pi/claude/codex.
+    const stub = join(fx.dir, 'sleep-stub.sh');
+    writeFileSync(stub, `#!/usr/bin/env bash\nsleep 5\nprintf 'LATE_REPLY\\n'\n`);
+    chmodSync(stub, 0o755);
+
+    const t0 = Date.now();
+    const r = await invokeDriver(
+      { driver: null, driverCmd: stub, model: null, timeoutMs: 300 },
+      fx.promptFile,
+      fx.outputFile,
+    );
+    const elapsedMs = Date.now() - t0;
+
+    expect(r.timedOut).toBe(true);
+    // Elapsed time: timeoutMs (300ms) + SIGTERM→SIGKILL grace (up to 2s) +
+    // small event-loop overhead. Sleep would otherwise block ~5000ms.
+    expect(elapsedMs).toBeLessThan(3000);
+    expect(readFileSync(fx.outputFile, 'utf8')).toContain('DRIVER_TIMEOUT');
+    expect(readFileSync(fx.outputFile, 'utf8')).not.toContain('LATE_REPLY');
+  }, 10_000);
+
+  test('does not time out when the child finishes before timeoutMs', async () => {
+    const stub = join(fx.dir, 'fast-stub.sh');
+    writeFileSync(stub, `#!/usr/bin/env bash\nprintf 'FAST_REPLY\\n'\n`);
+    chmodSync(stub, 0o755);
+
+    const r = await invokeDriver(
+      { driver: null, driverCmd: stub, model: null, timeoutMs: 5000 },
+      fx.promptFile,
+      fx.outputFile,
+    );
+
+    expect(r.timedOut).toBe(false);
+    expect(r.exitCode).toBe(0);
+    expect(readFileSync(fx.outputFile, 'utf8')).toContain('FAST_REPLY');
+    expect(readFileSync(fx.outputFile, 'utf8')).not.toContain('DRIVER_TIMEOUT');
   });
 });
