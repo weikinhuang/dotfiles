@@ -4,9 +4,11 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
+import { analysisReportPath, renderAnalysisMarkdown, runAnalyze, type RunAnalyzeResult } from './analyze.ts';
 import { writeBenchmark, type BenchmarkDocument } from './benchmark.ts';
 import {
   aggregateCompare,
+  compareOutputDir,
   renderCompareMarkdown,
   runCompare,
   type CompareAggregate,
@@ -71,6 +73,12 @@ Subcommands:
                             files. Requires --iterations A,B and --critic-cmd;
                             writes per-eval compare-<eval-id>.json records
                             under iteration-A/vs-iteration-B/ plus a summary.
+  analyze  SKILL            Post-hoc analyzer over an existing compare
+                            output. Requires --iterations A,B and
+                            --critic-cmd; feeds both iterations' rendered
+                            SKILL.md plus reply transcripts to the critic
+                            and writes analyze-<eval-id>.json + analysis.md
+                            under iteration-A/vs-iteration-B/.
   optimize SKILL            Iteratively improve SKILL.md's \`description:\`
                             frontmatter against a trigger-only eval set
                             (<skill>/evals/trigger-evals.json, with fallback
@@ -161,6 +169,8 @@ Examples:
   ai-skill-eval grade plugin-conventions --critic-cmd 'claude -p "$(cat "$AI_SKILL_EVAL_PROMPT_FILE")" --bare'
   ai-skill-eval compare my-skill --iterations 1,2 \\
     --critic-cmd 'claude -p "$(cat "$AI_SKILL_EVAL_PROMPT_FILE")" --bare'
+  ai-skill-eval analyze my-skill --iterations 1,2 \\
+    --critic-cmd 'claude -p "$(cat "$AI_SKILL_EVAL_PROMPT_FILE")" --bare'
   ai-skill-eval report --json
 
 Eval schema (<skill-dir>/evals/evals.json):
@@ -172,7 +182,17 @@ Eval schema (<skill-dir>/evals/evals.json):
 Exit codes: 0 ok, 1 validation/run error, 2 usage error.
 `;
 
-type Subcommand = 'list' | 'run' | 'grade' | 'rerun' | 'report' | 'validate' | 'benchmark' | 'compare' | 'optimize';
+type Subcommand =
+  | 'list'
+  | 'run'
+  | 'grade'
+  | 'rerun'
+  | 'report'
+  | 'validate'
+  | 'benchmark'
+  | 'compare'
+  | 'analyze'
+  | 'optimize';
 
 interface CliOptions {
   subcommand: Subcommand;
@@ -256,13 +276,14 @@ export function parseArgs(argv: readonly string[]): CliOptions {
     case 'validate':
     case 'benchmark':
     case 'compare':
+    case 'analyze':
     case 'optimize':
       subcommand = first;
       break;
     default:
       if (first.startsWith('-')) {
         usageErr(
-          `unknown option '${first}' (expected subcommand: list, run, grade, rerun, report, validate, benchmark, compare, optimize)`,
+          `unknown option '${first}' (expected subcommand: list, run, grade, rerun, report, validate, benchmark, compare, analyze, optimize)`,
         );
       }
       usageErr(`unknown subcommand '${first}'`);
@@ -498,8 +519,8 @@ export function parseArgs(argv: readonly string[]): CliOptions {
     usageErr("--compare-to is only valid on the 'report' subcommand");
   }
 
-  if (opts.iterationsPair != null && opts.subcommand !== 'compare') {
-    usageErr("--iterations is only valid on the 'compare' subcommand");
+  if (opts.iterationsPair != null && opts.subcommand !== 'compare' && opts.subcommand !== 'analyze') {
+    usageErr("--iterations is only valid on the 'compare' and 'analyze' subcommands");
   }
 
   if (opts.write && opts.subcommand !== 'optimize') {
@@ -1048,6 +1069,72 @@ function cmdCompare(opts: CliOptions): number {
 }
 
 /**
+ * `ai-skill-eval analyze SKILL --iterations A,B --critic-cmd '...'` —
+ * R5.2 post-hoc analyzer. Reads the R5.1 compare records under
+ * `iteration-A/vs-iteration-B/`, feeds both iterations' rendered SKILL.md
+ * plus reply transcripts to the critic, and writes per-eval
+ * `analyze-<eval-id>.json` records alongside a combined `analysis.md`
+ * markdown report. Ties have no loser so they're recorded under
+ * `skipped` rather than `errors`; critic failures / JSON parse failures
+ * land under `errors` so the caller can tell the two apart.
+ */
+function cmdAnalyze(opts: CliOptions): number {
+  if (opts.positional.length !== 1) {
+    usageErr("analyze requires exactly one SKILL argument (e.g. 'ai-skill-eval analyze my-skill --iterations 1,2')");
+  }
+  if (opts.iterationsPair == null) {
+    usageErr('analyze requires --iterations A,B');
+  }
+  if (!opts.criticCmd) {
+    usageErr('analyze requires --critic-cmd (no built-in model choice)');
+  }
+  const skillName = opts.positional[0];
+  const [iterA, iterB] = opts.iterationsPair;
+
+  const roots = resolveScanRoots(opts.skillRoots);
+  const all = discoverSkills(roots);
+  const entry = all.find((e) => e.name === skillName);
+  if (!entry) die(`skill '${skillName}' not found in scan roots: ${roots.join(' ')}`);
+  if (!entry.evalsJson) die(`skill '${skillName}' has no evals/evals.json`);
+
+  const outDir = compareOutputDir(opts.workspace, skillName, iterA, iterB);
+  if (!existsSync(outDir)) {
+    die(`no compare output at ${outDir} (run \`ai-skill-eval compare\` first)`);
+  }
+
+  const file = loadEvalsFile(entry.evalsJson);
+  const evals = file.evals
+    .filter((ev) => ev.id)
+    .map((ev) => ({ id: ev.id, prompt: ev.prompt, expectations: ev.expectations ?? [] }));
+  if (evals.length === 0) {
+    die(`no evals found for '${skillName}' in ${entry.evalsJson}`);
+  }
+
+  const only = opts.skillFilters.length > 0 ? opts.skillFilters : undefined;
+  logVerbose(opts, `analyze ${skillName}: iteration-${iterA} vs iteration-${iterB}`);
+
+  const result: RunAnalyzeResult = runAnalyze({
+    workspace: opts.workspace,
+    skill: skillName,
+    iterationA: iterA,
+    iterationB: iterB,
+    criticCmd: opts.criticCmd,
+    evals,
+    only,
+    log: (msg) => logVerbose(opts, msg),
+  });
+
+  if (opts.json) {
+    process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+  } else {
+    process.stdout.write(renderAnalysisMarkdown(result));
+  }
+  logVerbose(opts, `analyze: wrote ${analysisReportPath(opts.workspace, skillName, iterA, iterB)}`);
+  if (result.errors.length > 0) return 1;
+  return 0;
+}
+
+/**
  * `ai-skill-eval optimize SKILL` — the R4 description-optimization loop.
  * Loads a trigger eval set, runs {@link runOptimizeLoop} with the same
  * driver abstraction `run` uses, prints the best-scoring description, and
@@ -1300,6 +1387,9 @@ export async function main(argv: readonly string[]): Promise<void> {
         break;
       case 'compare':
         code = cmdCompare(opts);
+        break;
+      case 'analyze':
+        code = cmdAnalyze(opts);
         break;
       case 'optimize':
         code = await cmdOptimize(opts);
