@@ -83,10 +83,14 @@ export function resolveScanRoots(provided: readonly string[]): string[] {
 
 export function loadEvalsFile(path: string): EvalsFile {
   const data = JSON.parse(readFileSync(path, 'utf8')) as Partial<EvalsFile>;
-  return {
+  const out: EvalsFile = {
     skill_name: data.skill_name,
     evals: Array.isArray(data.evals) ? data.evals : [],
   };
+  // Preserve file-level `runs_per_query` so `prompt.resolveRunsPerQuery`'s
+  // documented fallback chain (CLI → per-eval → file → default) actually fires.
+  if (data.runs_per_query !== undefined) out.runs_per_query = data.runs_per_query;
+  return out;
 }
 
 export function countEvals(path: string): number {

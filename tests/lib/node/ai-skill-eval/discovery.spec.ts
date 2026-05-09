@@ -142,6 +142,31 @@ describe('discovery', () => {
       expect(loadEvalsFile(path).evals).toHaveLength(2);
     });
 
+    test('loadEvalsFile preserves file-level `runs_per_query` so prompt.resolveRunsPerQuery can see it', () => {
+      const dir = join(cwd, '.agents/skills/rpq-file');
+      mkdirSync(join(dir, 'evals'), { recursive: true });
+      writeFileSync(join(dir, 'SKILL.md'), '---\nname: rpq-file\n---\n');
+      writeFileSync(
+        join(dir, 'evals', 'evals.json'),
+        JSON.stringify({
+          skill_name: 'rpq-file',
+          runs_per_query: 7,
+          evals: [{ id: 'x', should_trigger: true, prompt: 'p', expectations: [] }],
+        }),
+      );
+
+      const file = loadEvalsFile(join(dir, 'evals', 'evals.json'));
+
+      expect(file.runs_per_query).toBe(7);
+    });
+
+    test('loadEvalsFile omits runs_per_query when the source file does not set it', () => {
+      const dir = makeSkill('.agents/skills', 'no-rpq', true);
+      const path = join(dir, 'evals', 'evals.json');
+
+      expect(loadEvalsFile(path).runs_per_query).toBeUndefined();
+    });
+
     test('countEvals returns 0 when the file is missing or malformed', () => {
       expect(countEvals('/tmp/does-not-exist.json')).toBe(0);
 
