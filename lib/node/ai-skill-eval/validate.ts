@@ -22,6 +22,8 @@
 
 import { readFileSync } from 'node:fs';
 
+import { joinFrontmatterScalar } from './frontmatter.ts';
+
 /** Keys permitted at the top level of SKILL.md frontmatter. */
 export const ALLOWED_KEYS: ReadonlySet<string> = new Set([
   'name',
@@ -120,27 +122,14 @@ function parseTopLevelFields(lines: readonly string[]): { fields: Field[] } | { 
 }
 
 /**
- * Collapse a field's continuation lines into a single scalar string. Joins
- * fragments with a single space, strips one layer of surrounding single or
- * double quotes, and reverses the escapes a YAML double-quoted scalar would
- * emit (`\\` and `\"`). Good enough for the name / description /
- * compatibility length + shape checks; block scalars (`|` / `>`) are
- * stringified literally — their length check is conservative.
+ * Collapse a field's continuation lines into a single scalar string.
+ * Delegates to the shared {@link joinFrontmatterScalar} so validate and
+ * skill-md agree on quoting + block-scalar handling; before this was
+ * shared the two parsers disagreed on `description: >-` and the linter
+ * flagged every folded-block description as containing angle brackets.
  */
 function joinScalar(field: Field): string {
-  const joined = field.valueLines.join(' ').trim();
-  if (joined.length >= 2) {
-    const first = joined[0];
-    const last = joined[joined.length - 1];
-    if (first === '"' && last === '"') {
-      return joined.slice(1, -1).replace(/\\([\\"])/g, '$1');
-    }
-    if (first === "'" && last === "'") {
-      // YAML single-quoted scalars escape `'` as `''`.
-      return joined.slice(1, -1).replace(/''/g, "'");
-    }
-  }
-  return joined;
+  return joinFrontmatterScalar(field.valueLines);
 }
 
 /** Validate a SKILL.md file. Returns the first rule violation, or success. */

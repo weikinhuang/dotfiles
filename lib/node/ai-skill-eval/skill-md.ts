@@ -17,6 +17,8 @@
 
 import { readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 
+import { joinFrontmatterScalar } from './frontmatter.ts';
+
 /** Thrown when a file doesn't have a usable YAML frontmatter block. */
 export class SkillMdParseError extends Error {}
 
@@ -99,28 +101,12 @@ function parseFrontmatterFields(lines: readonly string[], closeLine: number, pat
 }
 
 /**
- * Collapse a field's raw value fragments into a single scalar string. Mirrors
- * the tiny YAML subset understood by `validate.ts`: single- or double-quoted
- * flow scalars get unquoted, everything else is joined with a single space.
- *
- * Block scalars (`|` / `>` prefix) aren't fully reconstituted — we just
- * return the joined body text, which is good enough for the length + shape
- * checks our callers perform.
+ * Collapse a field's raw value fragments into a single scalar string.
+ * Delegates to the shared {@link joinFrontmatterScalar} so this module
+ * and `validate.ts` agree on YAML block-scalar + quoting semantics.
  */
 function joinScalar(fragments: readonly string[]): string {
-  const first = fragments[0] ?? '';
-  // Block-scalar indicator: strip it and return the remaining fragments joined with a space.
-  if (first === '|' || first === '>' || /^[|>][-+]?\d*\s*$/.test(first)) {
-    return fragments.slice(1).join(' ').trim();
-  }
-  const joined = fragments.join(' ').trim();
-  if (joined.length >= 2) {
-    const f = joined[0];
-    const l = joined[joined.length - 1];
-    if (f === '"' && l === '"') return joined.slice(1, -1).replace(/\\([\\"])/g, '$1');
-    if (f === "'" && l === "'") return joined.slice(1, -1).replace(/''/g, "'");
-  }
-  return joined;
+  return joinFrontmatterScalar(fragments);
 }
 
 /** Same as {@link parseSkillMd} but takes the raw text instead of a path. Exposed for tests + `rewriteDescription`. */

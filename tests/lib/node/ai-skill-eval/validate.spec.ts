@@ -292,6 +292,27 @@ describe('validateSkillMd — description rules', () => {
 
     expect(validateSkillMd(withDesc(`'${bound}'`)).ok).toBe(true);
   });
+
+  test('folded block scalar (>-) does NOT false-trigger description-angle-brackets', () => {
+    // Regression: the validate joiner used to keep `>-` as the first
+    // character of the joined scalar, which tripped the angle-brackets
+    // rule on every SKILL.md that used YAML's folded block form.
+    const p = fx.write(
+      ['---', 'name: sample', 'description: >-', '  WHAT: do a thing. WHEN: always. DO-NOT: never.', '---', ''].join(
+        '\n',
+      ),
+    );
+
+    expect(validateSkillMd(p).ok).toBe(true);
+  });
+
+  test('literal block scalar (|) does NOT false-trigger description-angle-brackets', () => {
+    const p = fx.write(
+      ['---', 'name: sample', 'description: |', '  WHAT: line one.', '  WHEN: line two.', '---', ''].join('\n'),
+    );
+
+    expect(validateSkillMd(p).ok).toBe(true);
+  });
 });
 
 describe('validateSkillMd — compatibility rules', () => {
