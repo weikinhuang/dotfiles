@@ -65,6 +65,7 @@ describe('mergeCriticVerdict', () => {
     const base: GradeRecord = {
       skill: 'sample',
       eval_id: 'positive-1',
+      config: 'with_skill',
       should_trigger: true,
       runs: 1,
       triggers: 1,

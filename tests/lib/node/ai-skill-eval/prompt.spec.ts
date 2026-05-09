@@ -9,24 +9,48 @@ import {
 } from '../../../../lib/node/ai-skill-eval/prompt.ts';
 
 describe('buildEvalPrompt', () => {
-  test('embeds the skill body between SKILL markers', () => {
-    const out = buildEvalPrompt('# Skill body\ncontent', 'my scenario');
+  test('embeds the skill body between SKILL markers when withSkill=true', () => {
+    const out = buildEvalPrompt({ skillBody: '# Skill body\ncontent', scenario: 'my scenario', withSkill: true });
 
     expect(out).toContain('===== SKILL =====\n# Skill body\ncontent\n===== END SKILL =====');
   });
 
   test('includes the user scenario verbatim', () => {
-    const out = buildEvalPrompt('body', 'please handle a plugin-conventions task');
+    const out = buildEvalPrompt({
+      skillBody: 'body',
+      scenario: 'please handle a plugin-conventions task',
+      withSkill: true,
+    });
 
     expect(out).toContain('Scenario: please handle a plugin-conventions task');
   });
 
   test('includes the TRIGGER/REASON/NEXT_STEP response-shape instructions', () => {
-    const out = buildEvalPrompt('body', 'x');
+    const out = buildEvalPrompt({ skillBody: 'body', scenario: 'x', withSkill: true });
 
     expect(out).toContain('TRIGGER:');
     expect(out).toContain('REASON:');
     expect(out).toContain('NEXT_STEP:');
+  });
+
+  test('withSkill=false omits the SKILL block but keeps the scenario + TRIGGER/REASON/NEXT_STEP shape', () => {
+    const out = buildEvalPrompt({ skillBody: '# Skill body\ncontent', scenario: 'my scenario', withSkill: false });
+
+    expect(out).not.toContain('===== SKILL =====');
+    expect(out).not.toContain('===== END SKILL =====');
+    expect(out).not.toContain('# Skill body');
+    expect(out).toContain('Scenario: my scenario');
+    expect(out).toContain('TRIGGER:');
+    expect(out).toContain('REASON:');
+    expect(out).toContain('NEXT_STEP:');
+  });
+
+  test('withSkill=false rephrases the TRIGGER question away from "this skill"', () => {
+    const out = buildEvalPrompt({ skillBody: 'body', scenario: 'x', withSkill: false });
+
+    expect(out).not.toContain("this skill's WHEN clause");
+    // Baseline wording asks generically about specialized skills / conventions.
+    expect(out).toMatch(/specialized skill|specialized convention/);
   });
 });
 

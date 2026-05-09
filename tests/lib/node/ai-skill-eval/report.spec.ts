@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
 import {
+  groupByConfig,
   hasFailures,
   loadGrades,
   renderJson,
@@ -19,6 +20,7 @@ function grade(partial: Partial<GradeRecord>): GradeRecord {
   return {
     skill: 'sample',
     eval_id: 'positive-1',
+    config: 'with_skill',
     should_trigger: true,
     runs: 3,
     triggers: 2,
@@ -81,14 +83,27 @@ describe('renderJson', () => {
     const out = renderJson([grade({})]);
     const parsed = JSON.parse(out) as {
       summary: { total_evals: number };
+      summary_by_config: { with_skill: { total_evals: number } };
       evals: GradeRecord[];
     };
 
     expect(parsed.summary.total_evals).toBe(1);
+    expect(parsed.summary_by_config.with_skill.total_evals).toBe(1);
     expect(parsed.evals).toHaveLength(1);
     expect(parsed.evals[0]?.trigger_rate).toBe(0.67);
     expect(parsed.evals[0]?.runs).toBe(3);
     expect(parsed.evals[0]?.triggers).toBe(2);
+    expect(parsed.evals[0]?.config).toBe('with_skill');
+  });
+
+  test('summary_by_config carries a without_skill block when baseline grades exist', () => {
+    const out = renderJson([grade({ config: 'with_skill' }), grade({ config: 'without_skill' })]);
+    const parsed = JSON.parse(out) as {
+      summary_by_config: Record<string, { total_evals: number }>;
+    };
+
+    expect(parsed.summary_by_config.with_skill?.total_evals).toBe(1);
+    expect(parsed.summary_by_config.without_skill?.total_evals).toBe(1);
   });
 });
 
@@ -129,6 +144,69 @@ describe('renderMarkdown', () => {
 
     expect(out).toContain('❌ wrong');
   });
+
+  test('baseline run emits side-by-side with_skill vs without_skill table, Δ column, and the should_trigger=false footer note', () => {
+    const withSkill = grade({
+      config: 'with_skill',
+      triggers: 3,
+      runs: 3,
+      trigger_rate: 1,
+      trigger_pass: true,
+    });
+    const withoutSkill = grade({
+      config: 'without_skill',
+      triggers: 1,
+      runs: 3,
+      trigger_rate: 0.33,
+      trigger_pass: false,
+    });
+
+    const out = renderMarkdown([withSkill, withoutSkill]);
+
+    // Per-config summary blocks present.
+    expect(out).toContain('## with_skill');
+    expect(out).toContain('## without_skill (baseline)');
+    // Side-by-side table header and Δ column.
+    expect(out).toContain(
+      '| Skill | Eval | Expected | with_skill rate | without_skill rate | Δ trigger rate | with_skill pass | without_skill pass |',
+    );
+    // Row shows both rates and a signed delta (1.00 - 0.33 ≈ +67%).
+    expect(out).toMatch(/\| sample \| positive-1 \| yes \| 3\/3 \(1\.00\) \| 1\/3 \(0\.33\) \| \+67% \| ✅ \| ❌ \|/);
+    // Detail sections are tagged with their config.
+    expect(out).toContain('### sample / positive-1 [with_skill]');
+    expect(out).toContain('### sample / positive-1 [without_skill]');
+    // Footer calls out the should_trigger=false asymmetry.
+    expect(out).toMatch(/should_trigger=false.+baseline/);
+    expect(out).toMatch(/NOT evidence that the skill helped/);
+  });
+
+  test('baseline-less report omits the config-specific blocks and footer', () => {
+    const out = renderMarkdown([grade({})]);
+
+    expect(out).not.toContain('## with_skill');
+    expect(out).not.toContain('## without_skill');
+    expect(out).not.toContain('NOT evidence that the skill helped');
+  });
+});
+
+describe('groupByConfig', () => {
+  test('buckets grades into with_skill / without_skill arrays', () => {
+    const w = grade({ config: 'with_skill' });
+    const b = grade({ config: 'without_skill', eval_id: 'positive-2' });
+    const groups = groupByConfig([w, b, w]);
+
+    expect(groups.with_skill).toHaveLength(2);
+    expect(groups.without_skill).toHaveLength(1);
+    expect(groups.without_skill[0]?.eval_id).toBe('positive-2');
+  });
+
+  test('defaults grades with an unexpected config value to the with_skill bucket', () => {
+    const mystery = { ...grade({}), config: 'legacy' as 'with_skill' };
+    const groups = groupByConfig([mystery]);
+
+    expect(groups.with_skill).toHaveLength(1);
+    expect(groups.without_skill).toHaveLength(0);
+  });
 });
 
 describe('loadGrades', () => {
@@ -147,8 +225,8 @@ describe('loadGrades', () => {
   });
 
   test('loads grade.json files across skill subdirectories in sorted order', () => {
-    const dirA = join(ws, 'alpha', 'grades');
-    const dirB = join(ws, 'beta', 'grades');
+    const dirA = join(ws, 'alpha', 'with_skill', 'grades');
+    const dirB = join(ws, 'beta', 'with_skill', 'grades');
     mkdirSync(dirA, { recursive: true });
     mkdirSync(dirB, { recursive: true });
     writeFileSync(join(dirA, 'a.json'), JSON.stringify(grade({ skill: 'alpha' })));
@@ -159,8 +237,26 @@ describe('loadGrades', () => {
     expect(loaded.map((g) => g.skill)).toEqual(['alpha', 'beta']);
   });
 
+  test('loads with_skill and without_skill grades and tags each with its config', () => {
+    const withDir = join(ws, 'sample', 'with_skill', 'grades');
+    const withoutDir = join(ws, 'sample', 'without_skill', 'grades');
+    mkdirSync(withDir, { recursive: true });
+    mkdirSync(withoutDir, { recursive: true });
+    writeFileSync(join(withDir, 'positive-1.json'), JSON.stringify(grade({ config: 'with_skill' })));
+    // Older grade files missing `config` should be stamped by the loader.
+    const baselineRaw = { ...grade({ trigger_pass: false }) } as Record<string, unknown>;
+    delete baselineRaw.config;
+    writeFileSync(join(withoutDir, 'positive-1.json'), JSON.stringify(baselineRaw));
+
+    const loaded = loadGrades(ws, []);
+    const configs = loaded.map((g) => g.config).sort();
+
+    expect(configs).toEqual(['with_skill', 'without_skill']);
+    expect(loaded.every((g) => g.skill === 'sample')).toBe(true);
+  });
+
   test('respects the "wanted" filter', () => {
-    const dir = join(ws, 'alpha', 'grades');
+    const dir = join(ws, 'alpha', 'with_skill', 'grades');
     mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, 'a.json'), JSON.stringify(grade({ skill: 'alpha' })));
 
@@ -168,7 +264,7 @@ describe('loadGrades', () => {
   });
 
   test('ignores malformed grade files', () => {
-    const dir = join(ws, 'alpha', 'grades');
+    const dir = join(ws, 'alpha', 'with_skill', 'grades');
     mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, 'bad.json'), 'not json');
 

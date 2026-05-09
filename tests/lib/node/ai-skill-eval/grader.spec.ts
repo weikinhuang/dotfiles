@@ -168,6 +168,7 @@ describe('gradeDeterministic', () => {
     return gradeDeterministic({
       skill: 'sample',
       evalId: 'positive-1',
+      config: 'with_skill',
       shouldTrigger,
       expectations,
       resultFiles,
@@ -268,6 +269,7 @@ describe('gradeDeterministic', () => {
     gradeDeterministic({
       skill: 'sample',
       evalId: 'positive-1',
+      config: 'with_skill',
       shouldTrigger: true,
       expectations: ['one'],
       resultFiles,
@@ -281,7 +283,26 @@ describe('gradeDeterministic', () => {
     expect(parsed.triggers).toBe(2);
     expect(parsed.trigger_rate).toBe(1);
     expect(parsed.grader).toBe('deterministic');
+    expect(parsed.config).toBe('with_skill');
     expect(parsed.per_run).toHaveLength(2);
+  });
+
+  test('records config=without_skill when the baseline variant is graded', () => {
+    const resultFiles = [writeRun(1, 'TRIGGER: no\nREASON: r\nNEXT_STEP: s')];
+    const gradeFile = join(tmp, 'baseline', 'g.json');
+    const grade = gradeDeterministic({
+      skill: 'sample',
+      evalId: 'positive-1',
+      config: 'without_skill',
+      shouldTrigger: false,
+      expectations: ['x'],
+      resultFiles,
+      gradeFile,
+    });
+    const parsed = JSON.parse(readFileSync(gradeFile, 'utf8')) as GradeRecord;
+
+    expect(grade.config).toBe('without_skill');
+    expect(parsed.config).toBe('without_skill');
   });
 
   test('throws when given zero result files', () => {
@@ -289,6 +310,7 @@ describe('gradeDeterministic', () => {
       gradeDeterministic({
         skill: 'sample',
         evalId: 'positive-1',
+        config: 'with_skill',
         shouldTrigger: true,
         expectations: ['x'],
         resultFiles: [],

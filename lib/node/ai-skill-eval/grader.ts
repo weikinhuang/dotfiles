@@ -6,7 +6,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 
-import { type ExpectationResult, type GradeRecord, type ParsedReply } from './types.ts';
+import { type ExpectationResult, type GradeConfig, type GradeRecord, type ParsedReply } from './types.ts';
 
 export const DEFAULT_TRIGGER_THRESHOLD = 0.5;
 
@@ -106,6 +106,8 @@ export function keywordsFor(expectation: string): string[] {
 export interface DeterministicGradeInput {
   skill: string;
   evalId: string;
+  /** Which prompt variant produced `resultFiles` — threaded into the grade record so the report can split configs. */
+  config: GradeConfig;
   shouldTrigger: boolean;
   expectations: string[];
   /** Per-run result file paths, in run order (run 1 first). */
@@ -147,10 +149,10 @@ function gradeExpectations(
  * Returns the in-memory record for callers that want to chain a critic.
  */
 export function gradeDeterministic(input: DeterministicGradeInput): GradeRecord {
-  const { skill, evalId, shouldTrigger, expectations, resultFiles, gradeFile } = input;
+  const { skill, evalId, config, shouldTrigger, expectations, resultFiles, gradeFile } = input;
   const threshold = input.triggerThreshold ?? DEFAULT_TRIGGER_THRESHOLD;
   if (resultFiles.length === 0) {
-    throw new Error(`gradeDeterministic: no result files for ${skill}/${evalId}`);
+    throw new Error(`gradeDeterministic: no result files for ${skill}/${evalId} (${config})`);
   }
   const perRunTexts: string[] = resultFiles.map((f) => readFileSync(f, 'utf8'));
   const perRun: ParsedReply[] = perRunTexts.map((t) => parseReply(t));
@@ -167,6 +169,7 @@ export function gradeDeterministic(input: DeterministicGradeInput): GradeRecord 
   const grade: GradeRecord = {
     skill,
     eval_id: evalId,
+    config,
     should_trigger: shouldTrigger,
     runs,
     triggers,

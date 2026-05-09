@@ -11,7 +11,7 @@ import { invokeCritic, invokeDriver, type DriverConfig } from './driver.ts';
 import { DEFAULT_TRIGGER_THRESHOLD, gradeDeterministic, parseReply, pickMajorityRunIndex } from './grader.ts';
 import { buildEvalPrompt, resolveRunsPerQuery } from './prompt.ts';
 import { hasFailures, loadGrades, renderJson, renderMarkdown, summarize } from './report.ts';
-import { type DriverKind, type EvalSpec, type EvalsFile, type SkillEntry } from './types.ts';
+import { type DriverKind, type EvalSpec, type EvalsFile, type GradeConfig, type SkillEntry } from './types.ts';
 
 const PROG = 'ai-skill-eval';
 const VERSION = '0.1.0';
@@ -63,6 +63,10 @@ Global options:
                             \`DRIVER_TIMEOUT\` marker appended and the grade
                             surfaces it in \`flaws\`. Default: 30. \`0\` or
                             negative disables the timeout.
+  --baseline                Also run each eval in a \`without_skill\` baseline
+                            variant (scenario + structured-output request,
+                            no SKILL block). Report gains a side-by-side
+                            delta column. Default: off.
   --only EVAL_ID            Filter to specific eval IDs (repeatable).
   --json                    Machine-readable JSON output (for list / report).
   -v, --verbose             Log each invocation to stderr.
@@ -110,6 +114,7 @@ interface CliOptions {
   triggerThreshold: number;
   numWorkers: number;
   timeoutMs: number;
+  baseline: boolean;
   json: boolean;
   verbose: boolean;
 }
@@ -189,6 +194,7 @@ export function parseArgs(argv: readonly string[]): CliOptions {
     triggerThreshold: DEFAULT_TRIGGER_THRESHOLD,
     numWorkers: 1,
     timeoutMs: 30_000,
+    baseline: false,
     json: false,
     verbose: false,
   };
@@ -287,6 +293,10 @@ export function parseArgs(argv: readonly string[]): CliOptions {
         opts.json = true;
         i += 1;
         break;
+      case '--baseline':
+        opts.baseline = true;
+        i += 1;
+        break;
       case '-v':
       case '--verbose':
         opts.verbose = true;
@@ -354,12 +364,14 @@ function gradeWithOptionalCritic(
   opts: CliOptions,
   entry: SkillEntry,
   ev: EvalSpec,
+  config: GradeConfig,
   resultFiles: readonly string[],
   gradeFile: string,
 ): void {
   gradeDeterministic({
     skill: entry.name,
     evalId: ev.id,
+    config,
     shouldTrigger: ev.should_trigger,
     expectations: ev.expectations,
     resultFiles,
@@ -383,7 +395,7 @@ function gradeWithOptionalCritic(
     resultFile: winnerFile,
   });
   writeCriticPrompt(criticPromptFile, criticPrompt);
-  logVerbose(opts, `  critic: grading ${entry.name}/${ev.id}`);
+  logVerbose(opts, `  critic: grading ${entry.name}/${ev.id} (${config})`);
   const { exitCode, stdout } = invokeCritic(opts.criticCmd, criticPromptFile, criticOutFile);
   if (exitCode !== 0) {
     logVerbose(opts, '  critic: driver failed; keeping deterministic grade');
@@ -397,22 +409,24 @@ function gradeWithOptionalCritic(
 }
 
 /**
- * Resolve the per-run result-file paths for one eval. Files are
- * `results/<eval-id>/run-{1..N}.txt` under the skill workspace.
+ * Resolve the per-run result-file paths for one eval, under the given config
+ * subtree. Files are `<config>/results/<eval-id>/run-{1..N}.txt` relative to
+ * the skill workspace.
  */
-function resultFilesFor(skillWs: string, evalId: string, runs: number): string[] {
-  const dir = join(skillWs, 'results', evalId);
+function resultFilesFor(skillWs: string, config: GradeConfig, evalId: string, runs: number): string[] {
+  const dir = join(skillWs, config, 'results', evalId);
   const out: string[] = [];
   for (let i = 1; i <= runs; i += 1) out.push(join(dir, `run-${i}.txt`));
   return out;
 }
 
 /**
- * List any previously-written `results/<eval-id>/run-*.txt` files, useful for
- * the `grade` subcommand when the caller didn't say how many runs happened.
+ * List any previously-written `<config>/results/<eval-id>/run-*.txt` files,
+ * useful for the `grade` subcommand when the caller didn't say how many runs
+ * happened.
  */
-function existingResultFiles(skillWs: string, evalId: string): string[] {
-  const dir = join(skillWs, 'results', evalId);
+function existingResultFiles(skillWs: string, config: GradeConfig, evalId: string): string[] {
+  const dir = join(skillWs, config, 'results', evalId);
   if (!existsSync(dir)) return [];
   return readdirSync(dir)
     .filter((f) => /^run-\d+\.txt$/.test(f))
@@ -425,13 +439,19 @@ function existingResultFiles(skillWs: string, evalId: string): string[] {
 }
 
 /**
- * Remove the flat `results/<eval-id>.txt` file from prior ai-skill-eval
- * versions. Called once at the top of each `run` so the new per-run layout
- * doesn't coexist with a stale flat file that'd mask freshness.
+ * Remove legacy result files from pre-R2 workspaces before writing the new
+ * layout. Two shapes may linger:
+ *   - `results/<eval-id>.txt` (pre-R1a flat file)
+ *   - `results/<eval-id>/run-*.txt` (R1a flat per-run dir, sibling of the new
+ *     `with_skill/` / `without_skill/` subtrees)
+ * The new-layout files live under `<config>/results/…` so the legacy paths
+ * are safe to delete unconditionally on any R2 `run`.
  */
 function deleteLegacyFlatResult(skillWs: string, evalId: string): void {
-  const legacy = join(skillWs, 'results', `${evalId}.txt`);
-  if (existsSync(legacy)) rmSync(legacy, { force: true });
+  const legacyFlat = join(skillWs, 'results', `${evalId}.txt`);
+  if (existsSync(legacyFlat)) rmSync(legacyFlat, { force: true });
+  const legacyDir = join(skillWs, 'results', evalId);
+  if (existsSync(legacyDir)) rmSync(legacyDir, { recursive: true, force: true });
 }
 
 function runOneEvalPrep(
@@ -440,25 +460,27 @@ function runOneEvalPrep(
   skillBody: string,
   ev: EvalSpec,
   file: EvalsFile,
+  config: GradeConfig,
 ): { runs: number; promptFile: string; resultFiles: string[]; gradeFile: string } {
   const runs = resolveRunsPerQuery(ev, file, opts.runsPerQuery);
   const skillWs = join(opts.workspace, entry.name);
-  const promptFile = join(skillWs, 'prompts', `${ev.id}.txt`);
-  const resultDir = join(skillWs, 'results', ev.id);
-  const gradeFile = join(skillWs, 'grades', `${ev.id}.json`);
+  const promptFile = join(skillWs, config, 'prompts', `${ev.id}.txt`);
+  const resultDir = join(skillWs, config, 'results', ev.id);
+  const gradeFile = join(skillWs, config, 'grades', `${ev.id}.json`);
 
   deleteLegacyFlatResult(skillWs, ev.id);
   mkdirSync(dirname(promptFile), { recursive: true });
   mkdirSync(resultDir, { recursive: true });
   mkdirSync(dirname(gradeFile), { recursive: true });
-  writeFileSync(promptFile, buildEvalPrompt(skillBody, ev.prompt));
+  writeFileSync(promptFile, buildEvalPrompt({ skillBody, scenario: ev.prompt, withSkill: config === 'with_skill' }));
 
-  return { runs, promptFile, resultFiles: resultFilesFor(skillWs, ev.id, runs), gradeFile };
+  return { runs, promptFile, resultFiles: resultFilesFor(skillWs, config, ev.id, runs), gradeFile };
 }
 
 interface DriverJob {
   entry: SkillEntry;
   ev: EvalSpec;
+  config: GradeConfig;
   runIndex: number;
   runs: number;
   promptFile: string;
@@ -474,7 +496,7 @@ interface DriverJob {
 async function runDriverJob(opts: CliOptions, job: DriverJob): Promise<void> {
   logVerbose(
     opts,
-    `running ${job.entry.name}/${job.ev.id} run ${job.runIndex + 1}/${job.runs} (should_trigger=${String(job.ev.should_trigger)})`,
+    `running ${job.entry.name}/${job.ev.id} [${job.config}] run ${job.runIndex + 1}/${job.runs} (should_trigger=${String(job.ev.should_trigger)})`,
   );
   const { exitCode, durationSec, bytes, timedOut } = await invokeDriver(
     driverConfig(opts),
@@ -523,11 +545,17 @@ function cmdList(opts: CliOptions): number {
 interface EvalPlan {
   entry: SkillEntry;
   ev: EvalSpec;
+  config: GradeConfig;
   prep: { runs: number; promptFile: string; resultFiles: string[]; gradeFile: string };
+}
+
+function configsFor(opts: CliOptions): GradeConfig[] {
+  return opts.baseline ? ['with_skill', 'without_skill'] : ['with_skill'];
 }
 
 function planRun(opts: CliOptions, entries: readonly SkillEntry[]): EvalPlan[] {
   const plans: EvalPlan[] = [];
+  const configs = configsFor(opts);
   for (const entry of entries) {
     if (!entry.evalsJson) {
       logVerbose(opts, `skip ${entry.name} (no evals/evals.json)`);
@@ -539,8 +567,10 @@ function planRun(opts: CliOptions, entries: readonly SkillEntry[]): EvalPlan[] {
     for (const ev of file.evals) {
       if (!ev.id) continue;
       if (!includesEvalFilter(opts.skillFilters, entry.name, ev.id)) continue;
-      const prep = runOneEvalPrep(opts, entry, skillBody, ev, file);
-      plans.push({ entry, ev, prep });
+      for (const config of configs) {
+        const prep = runOneEvalPrep(opts, entry, skillBody, ev, file, config);
+        plans.push({ entry, ev, config, prep });
+      }
     }
   }
   return plans;
@@ -553,6 +583,7 @@ async function executeRunPlans(opts: CliOptions, plans: readonly EvalPlan[]): Pr
       jobs.push({
         entry: plan.entry,
         ev: plan.ev,
+        config: plan.config,
         runIndex: i,
         runs: plan.prep.runs,
         promptFile: plan.prep.promptFile,
@@ -565,7 +596,7 @@ async function executeRunPlans(opts: CliOptions, plans: readonly EvalPlan[]): Pr
   // Grade after the whole pool has drained — keeps grading serial and
   // deterministic regardless of how the driver jobs interleaved.
   for (const plan of plans) {
-    gradeWithOptionalCritic(opts, plan.entry, plan.ev, plan.prep.resultFiles, plan.prep.gradeFile);
+    gradeWithOptionalCritic(opts, plan.entry, plan.ev, plan.config, plan.prep.resultFiles, plan.prep.gradeFile);
   }
 }
 
@@ -576,18 +607,21 @@ function gradeOnlySkill(opts: CliOptions, entry: SkillEntry): void {
   }
   logVerbose(opts, `grade: ${entry.name} (${entry.evalsJson})`);
   const file = loadEvalsFile(entry.evalsJson);
+  const configs = configsFor(opts);
   for (const ev of file.evals) {
     if (!ev.id) continue;
     if (!includesEvalFilter(opts.skillFilters, entry.name, ev.id)) continue;
     const skillWs = join(opts.workspace, entry.name);
-    const resultFiles = existingResultFiles(skillWs, ev.id);
-    const gradeFile = join(skillWs, 'grades', `${ev.id}.json`);
-    if (resultFiles.length === 0) {
-      logVerbose(opts, `grade: missing results for ${entry.name}/${ev.id} (run first)`);
-      continue;
+    for (const config of configs) {
+      const resultFiles = existingResultFiles(skillWs, config, ev.id);
+      const gradeFile = join(skillWs, config, 'grades', `${ev.id}.json`);
+      if (resultFiles.length === 0) {
+        logVerbose(opts, `grade: missing ${config} results for ${entry.name}/${ev.id} (run first)`);
+        continue;
+      }
+      logVerbose(opts, `grading ${entry.name}/${ev.id} [${config}] across ${resultFiles.length} run(s)`);
+      gradeWithOptionalCritic(opts, entry, ev, config, resultFiles, gradeFile);
     }
-    logVerbose(opts, `grading ${entry.name}/${ev.id} across ${resultFiles.length} run(s)`);
-    gradeWithOptionalCritic(opts, entry, ev, resultFiles, gradeFile);
   }
 }
 
@@ -598,7 +632,10 @@ function renderReport(opts: CliOptions, wanted: readonly string[]): number {
   } else {
     process.stdout.write(renderMarkdown(grades));
   }
-  return hasFailures(summarize(grades)) ? 1 : 0;
+  // Baseline grades are diagnostic; the exit code tracks the with_skill run
+  // only. Reports on a workspace with zero with_skill grades still fail.
+  const withSkillGrades = grades.filter((g) => g.config !== 'without_skill');
+  return hasFailures(summarize(withSkillGrades)) ? 1 : 0;
 }
 
 async function cmdRunOrGrade(opts: CliOptions, mode: 'run' | 'grade'): Promise<number> {
@@ -645,7 +682,9 @@ async function cmdRerun(opts: CliOptions): Promise<number> {
     const file = loadEvalsFile(entry.evalsJson);
     const ev = file.evals.find((e) => e.id === evalId);
     if (!ev) die(`skill '${skillName}' has no eval '${evalId}'`);
-    plans.push({ entry, ev, prep: runOneEvalPrep(opts, entry, skillBody, ev, file) });
+    for (const config of configsFor(opts)) {
+      plans.push({ entry, ev, config, prep: runOneEvalPrep(opts, entry, skillBody, ev, file, config) });
+    }
   }
 
   await executeRunPlans(opts, plans);

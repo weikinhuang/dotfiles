@@ -29,25 +29,50 @@ export function resolveRunsPerQuery(
 }
 
 /**
+ * Input for {@link buildEvalPrompt}. `withSkill=true` embeds the SKILL.md body
+ * between `===== SKILL =====` markers (current behavior); `withSkill=false`
+ * emits only the scenario + structured-output request — the R2 baseline
+ * variant used by `--baseline` to measure what the model does without any
+ * skill nudging.
+ */
+export interface BuildEvalPromptInput {
+  skillBody: string;
+  scenario: string;
+  withSkill: boolean;
+}
+
+/**
  * Wrap a SKILL.md body and a user-supplied scenario into the structured prompt
  * the driver sees. The reply format (TRIGGER / REASON / NEXT_STEP) is parsed
  * back in grader.ts — keep them in lockstep.
+ *
+ * When `withSkill=false`, the SKILL block is omitted entirely and the TRIGGER
+ * question is rephrased to ask whether the scenario calls for a specialized
+ * convention, so the model is scored on its uncued priors.
  */
-export function buildEvalPrompt(skillBody: string, userPrompt: string): string {
-  return [
-    'You are an AI coding assistant working on a software project. The following skill is loaded in your context. Read it carefully, then answer the scenario that follows.',
-    '',
-    '===== SKILL =====',
-    skillBody,
-    '===== END SKILL =====',
-    '',
-    `Scenario: ${userPrompt}`,
+export function buildEvalPrompt(input: BuildEvalPromptInput): string {
+  const { skillBody, scenario, withSkill } = input;
+  const intro = withSkill
+    ? 'You are an AI coding assistant working on a software project. The following skill is loaded in your context. Read it carefully, then answer the scenario that follows.'
+    : 'You are an AI coding assistant working on a software project. Answer the scenario that follows.';
+  const triggerQuestion = withSkill
+    ? "TRIGGER: <yes or no \u2014 does this skill's WHEN clause apply to the scenario?>"
+    : 'TRIGGER: <yes or no \u2014 does this scenario call for applying a specialized skill or convention (rather than general reasoning)?>';
+  const lines: string[] = [intro, ''];
+  if (withSkill) {
+    lines.push('===== SKILL =====', skillBody, '===== END SKILL =====', '');
+  }
+  lines.push(
+    `Scenario: ${scenario}`,
     '',
     'Answer in EXACTLY this format, with these three labels and nothing else. Do not add extra prose, headings, or code fences before or after.',
     '',
-    "TRIGGER: <yes or no — does this skill's WHEN clause apply to the scenario?>",
+    triggerQuestion,
     'REASON: <one sentence explaining why or why not>',
-    "NEXT_STEP: <2–4 sentences describing the concrete action you would take next, which must reflect the skill's guidance if TRIGGER is yes>",
+    withSkill
+      ? "NEXT_STEP: <2\u20134 sentences describing the concrete action you would take next, which must reflect the skill's guidance if TRIGGER is yes>"
+      : 'NEXT_STEP: <2\u20134 sentences describing the concrete action you would take next>',
     '',
-  ].join('\n');
+  );
+  return lines.join('\n');
 }

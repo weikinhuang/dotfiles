@@ -50,9 +50,14 @@ export interface ExpectationResult {
  * Expectation grading runs once against the majority-trigger run's reply
  * (first run on a tie); the critic, when present, replaces those fields.
  */
+/** R2: which prompt variant produced this grade. `with_skill` is the default; `without_skill` is the baseline variant emitted by `--baseline`. */
+export type GradeConfig = 'with_skill' | 'without_skill';
+
 export interface GradeRecord {
   skill: string;
   eval_id: string;
+  /** R2 baseline comparison: which prompt variant this grade came from. */
+  config: GradeConfig;
   should_trigger: boolean;
   runs: number;
   triggers: number;

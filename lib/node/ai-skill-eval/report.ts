@@ -1,11 +1,13 @@
 // Report rendering for ai-skill-eval: loads per-skill grade JSON files out of
-// the workspace and emits either a markdown report or a JSON summary.
+// the workspace and emits either a markdown report or a JSON summary. R2
+// extends the loader to walk the `with_skill/` and `without_skill/` subtrees
+// and emits a side-by-side table + delta column when baseline grades exist.
 // SPDX-License-Identifier: MIT
 
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { type GradeRecord } from './types.ts';
+import { type GradeConfig, type GradeRecord } from './types.ts';
 
 export interface ReportSummary {
   total_evals: number;
@@ -14,6 +16,14 @@ export interface ReportSummary {
   expectation_total: number;
 }
 
+const CONFIGS: readonly GradeConfig[] = ['with_skill', 'without_skill'];
+
+/**
+ * Walk `<workspace>/<skill>/<config>/grades/*.json` for every skill directory
+ * and every known {@link GradeConfig} subtree. Grade records predating R2 are
+ * stamped with `config: 'with_skill'` at load time so older workspaces keep
+ * rendering sanely.
+ */
 export function loadGrades(workspace: string, wanted: readonly string[]): GradeRecord[] {
   if (!existsSync(workspace) || !statSync(workspace).isDirectory()) {
     throw new Error(`workspace ${workspace} does not exist (run first)`);
@@ -27,14 +37,18 @@ export function loadGrades(workspace: string, wanted: readonly string[]): GradeR
       continue;
     }
     if (wanted.length > 0 && !wanted.includes(name)) continue;
-    const gradesDir = join(skillDir, 'grades');
-    if (!existsSync(gradesDir)) continue;
-    for (const gf of readdirSync(gradesDir).sort()) {
-      if (!gf.endsWith('.json')) continue;
-      try {
-        grades.push(JSON.parse(readFileSync(join(gradesDir, gf), 'utf8')) as GradeRecord);
-      } catch {
-        // Ignore malformed grade files (matches the bash original).
+    for (const config of CONFIGS) {
+      const gradesDir = join(skillDir, config, 'grades');
+      if (!existsSync(gradesDir)) continue;
+      for (const gf of readdirSync(gradesDir).sort()) {
+        if (!gf.endsWith('.json')) continue;
+        try {
+          const raw = JSON.parse(readFileSync(join(gradesDir, gf), 'utf8')) as GradeRecord;
+          if (!raw.config) raw.config = config;
+          grades.push(raw);
+        } catch {
+          // Ignore malformed grade files (matches the bash original).
+        }
       }
     }
   }
@@ -50,14 +64,34 @@ export function summarize(grades: readonly GradeRecord[]): ReportSummary {
   };
 }
 
+/**
+ * Split grades by {@link GradeConfig} so callers can render each config as its
+ * own block and compute deltas eval-by-eval.
+ */
+export function groupByConfig(grades: readonly GradeRecord[]): Record<GradeConfig, GradeRecord[]> {
+  const out: Record<GradeConfig, GradeRecord[]> = { with_skill: [], without_skill: [] };
+  for (const g of grades) {
+    const key: GradeConfig = g.config === 'without_skill' ? 'without_skill' : 'with_skill';
+    out[key].push(g);
+  }
+  return out;
+}
+
 /** Report is "failing" when there are no grades or when any trigger_pass was false. */
 export function hasFailures(summary: ReportSummary): boolean {
   return !(summary.total_evals > 0 && summary.trigger_correct === summary.total_evals);
 }
 
 export function renderJson(grades: readonly GradeRecord[]): string {
-  const summary = summarize(grades);
-  return `${JSON.stringify({ summary, evals: grades }, null, 2)}\n`;
+  const groups = groupByConfig(grades);
+  const summaries: Record<string, ReportSummary> = { with_skill: summarize(groups.with_skill) };
+  if (groups.without_skill.length > 0) summaries.without_skill = summarize(groups.without_skill);
+  const payload: Record<string, unknown> = {
+    summary: summaries.with_skill,
+    summary_by_config: summaries,
+    evals: grades,
+  };
+  return `${JSON.stringify(payload, null, 2)}\n`;
 }
 
 /** Compact "N/M" label for a grade's trigger-rate column in the markdown table. */
@@ -67,53 +101,138 @@ function triggerRateLabel(g: GradeRecord): string {
   return `${triggers}/${runs}`;
 }
 
-export function renderMarkdown(grades: readonly GradeRecord[]): string {
-  const summary = summarize(grades);
-  const lines: string[] = [
-    '# ai-skill-eval report',
-    '',
-    `- Total evals: **${summary.total_evals}**`,
-    `- Correct TRIGGER detection: **${summary.trigger_correct}/${summary.total_evals}**`,
-    `- Expectation matches: **${summary.expectation_pass}/${summary.expectation_total}**`,
-    '',
+/**
+ * Signed, plus-leading delta in percentage points. `0` keeps a leading `+`
+ * for visual alignment with the non-zero rows.
+ */
+function formatDelta(a: number, b: number): string {
+  const d = a - b;
+  const pts = Math.round(d * 100);
+  return pts >= 0 ? `+${pts}%` : `${pts}%`;
+}
+
+function renderDetailSection(g: GradeRecord, lines: string[]): void {
+  const mark = g.trigger_pass ? '✅ correct' : '❌ wrong';
+  const runs = g.runs ?? g.per_run?.length ?? 0;
+  const triggers = g.triggers ?? 0;
+  const rate = typeof g.trigger_rate === 'number' ? g.trigger_rate.toFixed(2) : '0.00';
+  const configTag = g.config === 'without_skill' ? ' [without_skill]' : ' [with_skill]';
+  lines.push(`### ${g.skill} / ${g.eval_id}${configTag}`, '');
+  lines.push(`- **Trigger rate:** ${triggers}/${runs} (${rate}) — ${mark}`);
+  if (Array.isArray(g.per_run) && g.per_run.length > 0) {
+    lines.push('- **Per-run replies:**');
+    g.per_run.forEach((r, i) => {
+      const t = r.trigger || '(empty)';
+      const reason = r.reason || '';
+      const step = r.next_step || '';
+      lines.push(`  - Run ${i + 1}: \`${t}\` — ${reason} / ${step}`);
+    });
+  }
+  lines.push('- **Expectations:**');
+  for (const exp of g.expectations ?? []) {
+    const m = exp.passed ? '✅' : '⚠️';
+    lines.push(`  - ${m} ${exp.text}  *(${exp.note || ''})*`);
+  }
+  if (Array.isArray(g.flaws) && g.flaws.length > 0) {
+    lines.push('- **Critic flaws:**');
+    for (const fl of g.flaws) lines.push(`  - ${fl}`);
+  }
+  lines.push('');
+}
+
+function renderBasicTable(grades: readonly GradeRecord[], lines: string[]): void {
+  lines.push(
     '## Per-eval',
     '',
     '| Skill | Eval | Expected | Trigger rate | Trigger | Expectations |',
     '|---|---|---|---|---|---|',
-  ];
+  );
   for (const g of grades) {
     const want = g.should_trigger ? 'yes' : 'no';
     const mark = g.trigger_pass ? '✅' : '❌';
     const exp = `${g.expectation_pass || 0}/${g.expectation_total || 0}`;
     lines.push(`| ${g.skill} | ${g.eval_id} | ${want} | ${triggerRateLabel(g)} | ${mark} | ${exp} |`);
   }
+}
+
+function renderBaselineTable(
+  withSkill: readonly GradeRecord[],
+  withoutSkill: readonly GradeRecord[],
+  lines: string[],
+): void {
+  // Index baseline by skill:eval_id for O(1) pairing with the with_skill row.
+  const baseline = new Map<string, GradeRecord>();
+  for (const g of withoutSkill) baseline.set(`${g.skill}:${g.eval_id}`, g);
+  lines.push(
+    '## Per-eval (with_skill vs without_skill)',
+    '',
+    '| Skill | Eval | Expected | with_skill rate | without_skill rate | Δ trigger rate | with_skill pass | without_skill pass |',
+    '|---|---|---|---|---|---|---|---|',
+  );
+  for (const g of withSkill) {
+    const want = g.should_trigger ? 'yes' : 'no';
+    const wsRate = `${triggerRateLabel(g)} (${(g.trigger_rate ?? 0).toFixed(2)})`;
+    const b = baseline.get(`${g.skill}:${g.eval_id}`);
+    const bRate = b ? `${triggerRateLabel(b)} (${(b.trigger_rate ?? 0).toFixed(2)})` : '—';
+    const delta = b ? formatDelta(g.trigger_rate ?? 0, b.trigger_rate ?? 0) : '—';
+    const wsMark = g.trigger_pass ? '✅' : '❌';
+    const bMark = b ? (b.trigger_pass ? '✅' : '❌') : '—';
+    lines.push(`| ${g.skill} | ${g.eval_id} | ${want} | ${wsRate} | ${bRate} | ${delta} | ${wsMark} | ${bMark} |`);
+  }
+}
+
+/**
+ * Render the markdown report. When any `without_skill` grades are present the
+ * output gains a per-config summary block, a side-by-side Δ table, and a
+ * footer calling out the R2 caveat for `should_trigger=false` evals.
+ */
+export function renderMarkdown(grades: readonly GradeRecord[]): string {
+  const groups = groupByConfig(grades);
+  const hasBaseline = groups.without_skill.length > 0;
+  const primary = hasBaseline ? groups.with_skill : grades;
+  const primarySummary = summarize(primary);
+  const lines: string[] = [
+    '# ai-skill-eval report',
+    '',
+    `- Total evals: **${primarySummary.total_evals}**`,
+    `- Correct TRIGGER detection: **${primarySummary.trigger_correct}/${primarySummary.total_evals}**`,
+    `- Expectation matches: **${primarySummary.expectation_pass}/${primarySummary.expectation_total}**`,
+    '',
+  ];
+
+  if (hasBaseline) {
+    const baselineSummary = summarize(groups.without_skill);
+    lines.push(
+      '## with_skill',
+      '',
+      `- Total evals: **${primarySummary.total_evals}**`,
+      `- Correct TRIGGER detection: **${primarySummary.trigger_correct}/${primarySummary.total_evals}**`,
+      `- Expectation matches: **${primarySummary.expectation_pass}/${primarySummary.expectation_total}**`,
+      '',
+      '## without_skill (baseline)',
+      '',
+      `- Total evals: **${baselineSummary.total_evals}**`,
+      `- Correct TRIGGER detection: **${baselineSummary.trigger_correct}/${baselineSummary.total_evals}**`,
+      `- Expectation matches: **${baselineSummary.expectation_pass}/${baselineSummary.expectation_total}**`,
+      `- Aggregate Δ trigger-rate pass: **${formatDelta(primarySummary.trigger_correct / Math.max(primarySummary.total_evals, 1), baselineSummary.trigger_correct / Math.max(baselineSummary.total_evals, 1))}**`,
+      '',
+    );
+    renderBaselineTable(groups.with_skill, groups.without_skill, lines);
+  } else {
+    renderBasicTable(grades, lines);
+  }
+
   lines.push('', '## Detail', '');
-  for (const g of grades) {
-    const mark = g.trigger_pass ? '✅ correct' : '❌ wrong';
-    const runs = g.runs ?? g.per_run?.length ?? 0;
-    const triggers = g.triggers ?? 0;
-    const rate = typeof g.trigger_rate === 'number' ? g.trigger_rate.toFixed(2) : '0.00';
-    lines.push(`### ${g.skill} / ${g.eval_id}`, '');
-    lines.push(`- **Trigger rate:** ${triggers}/${runs} (${rate}) — ${mark}`);
-    if (Array.isArray(g.per_run) && g.per_run.length > 0) {
-      lines.push('- **Per-run replies:**');
-      g.per_run.forEach((r, i) => {
-        const t = r.trigger || '(empty)';
-        const reason = r.reason || '';
-        const step = r.next_step || '';
-        lines.push(`  - Run ${i + 1}: \`${t}\` — ${reason} / ${step}`);
-      });
-    }
-    lines.push('- **Expectations:**');
-    for (const exp of g.expectations ?? []) {
-      const m = exp.passed ? '✅' : '⚠️';
-      lines.push(`  - ${m} ${exp.text}  *(${exp.note || ''})*`);
-    }
-    if (Array.isArray(g.flaws) && g.flaws.length > 0) {
-      lines.push('- **Critic flaws:**');
-      for (const fl of g.flaws) lines.push(`  - ${fl}`);
-    }
-    lines.push('');
+  for (const g of groups.with_skill) renderDetailSection(g, lines);
+  for (const g of groups.without_skill) renderDetailSection(g, lines);
+
+  if (hasBaseline) {
+    lines.push(
+      '---',
+      '',
+      "Note: for `should_trigger=false` evals, a baseline 'pass' means the model also declined to apply a skill — which is the **uncued** default, NOT evidence that the skill helped. Only the `should_trigger=true` rows where `with_skill` passed and `without_skill` failed are direct evidence the skill moved the model.",
+      '',
+    );
   }
   return `${lines.join('\n')}\n`;
 }
