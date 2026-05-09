@@ -60,6 +60,27 @@ function runClaude(promptFile: string, outputFile: string, model: string | null)
   return spawnToFile('claude', args, outputFile);
 }
 
+function runCodex(promptFile: string, outputFile: string, model: string | null): number {
+  // codex exec decorates stdout with session headers + token usage, so
+  // we use its -o flag to capture just the final message directly into
+  // outputFile. stdout/stderr are redirected to /dev/null so the decorated
+  // log doesn't clobber the captured reply.
+  //
+  // Sandbox policy is deliberately unpinned: codex reads the user's
+  // ~/.codex/config.toml default. Revisit if a run gets blocked.
+  const prompt = readFileSync(promptFile, 'utf8');
+  const args = ['exec', '--skip-git-repo-check', '-o', outputFile, '--cd', process.cwd()];
+  if (model) args.push('-m', model);
+  args.push(prompt);
+  const devNull = openSync('/dev/null', 'w');
+  try {
+    const r = spawnSync('codex', args, { stdio: ['ignore', devNull, devNull] });
+    return r.status ?? (r.error ? 127 : 1);
+  } finally {
+    closeSync(devNull);
+  }
+}
+
 function runCustom(driverCmd: string, promptFile: string, outputFile: string): number {
   return spawnToFile('bash', ['-c', driverCmd], outputFile, {
     env: { ...process.env, AI_SKILL_EVAL_PROMPT_FILE: promptFile },
@@ -70,9 +91,10 @@ function runCustom(driverCmd: string, promptFile: string, outputFile: string): n
 export function resolveDriver(cfg: DriverConfig): DriverKind {
   if (cfg.driver) return cfg.driver;
   const envDriver = process.env.AI_SKILL_EVAL_DRIVER;
-  if (envDriver === 'pi' || envDriver === 'claude') return envDriver;
+  if (envDriver === 'pi' || envDriver === 'claude' || envDriver === 'codex') return envDriver;
   if (hasCommand('pi')) return 'pi';
   if (hasCommand('claude')) return 'claude';
+  if (hasCommand('codex')) return 'codex';
   return 'pi';
 }
 
@@ -89,8 +111,11 @@ export function invokeDriver(cfg: DriverConfig, promptFile: string, outputFile: 
     } else if (driver === 'claude') {
       const model = cfg.model ?? process.env.AI_SKILL_EVAL_MODEL ?? null;
       exitCode = runClaude(promptFile, outputFile, model);
+    } else if (driver === 'codex') {
+      const model = cfg.model ?? process.env.AI_SKILL_EVAL_MODEL ?? null;
+      exitCode = runCodex(promptFile, outputFile, model);
     } else {
-      throw new Error(`unknown driver '${String(driver)}' (expected pi, claude, or set --driver-cmd)`);
+      throw new Error(`unknown driver '${String(driver)}' (expected pi, claude, codex, or set --driver-cmd)`);
     }
   }
   const durationSec = Math.round((Date.now() - start) / 1000);

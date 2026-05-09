@@ -189,6 +189,61 @@ for eid in ("positive-1", "negative-1"):
 PY
 }
 
+@test "ai-skill-eval run: --driver codex invokes codex exec with -o output capture" {
+  make_skill ".agents/skills" "sample" yes
+
+  # Stub `codex` on PATH: records its argv, writes a canned reply to -o.
+  local bin="${BATS_TEST_TMPDIR}/bin"
+  mkdir -p "${bin}"
+  local argv_log="${BATS_TEST_TMPDIR}/codex-argv.log"
+  # Build the stub with a quoted heredoc (literal "EOF") so the child
+  # script sees real $@ / $# rather than the parent's expansion; inject
+  # the two paths via sed.
+  cat >"${bin}/codex" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+ARGV_LOG="__ARGV_LOG__"
+printf '%s\n' "$@" >> "${ARGV_LOG}"
+printf -- '---END---\n' >> "${ARGV_LOG}"
+# Snapshot the prompt (last argv) before the -o extraction shifts it away.
+prompt="${@: -1}"
+out=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -o) out="$2"; shift 2 ;;
+    *)  shift ;;
+  esac
+done
+if [[ "${prompt}" == *"handle a"* ]]; then
+  reply=$'TRIGGER: yes\nREASON: codex stub saw trigger prompt\nNEXT_STEP: Apply the skill and mention `sample`.'
+else
+  reply=$'TRIGGER: no\nREASON: codex stub saw off-topic prompt\nNEXT_STEP: Do not apply the skill.'
+fi
+if [[ -n "${out}" ]]; then
+  printf '%s' "${reply}" > "${out}"
+else
+  printf '%s' "${reply}"
+fi
+EOF
+  sed -i "s|__ARGV_LOG__|${argv_log}|" "${bin}/codex"
+  chmod +x "${bin}/codex"
+
+  PATH="${bin}:${PATH}" run bash "${SCRIPT}" run --driver codex --workspace .ai-skill-eval
+  assert_success
+  assert_output --partial "Correct TRIGGER detection: **2/2**"
+
+  # codex was invoked with the expected arg shape.
+  grep -q '^exec$' "${argv_log}"
+  grep -q '^--skip-git-repo-check$' "${argv_log}"
+  grep -q '^-o$' "${argv_log}"
+  grep -q '^--cd$' "${argv_log}"
+  # Sandbox flag is intentionally NOT passed.
+  [ "$(grep -c '^-s$' "${argv_log}" || true)" -eq 0 ]
+
+  # Reply was captured via -o, not stdout redirection.
+  grep -q 'TRIGGER: yes' .ai-skill-eval/sample/results/positive-1.txt
+}
+
 @test "ai-skill-eval run: positional arg filters to one skill" {
   make_skill ".agents/skills" "keep-me" yes
   make_skill ".agents/skills" "skip-me" yes

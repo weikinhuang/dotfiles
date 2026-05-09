@@ -20,8 +20,8 @@ const HELP_TEXT = `Usage: ai-skill-eval <subcommand> [options]
 
 A harness-agnostic CLI for validating SKILL.md files with an LLM. Discovers
 SKILL.md files, runs sibling evals/evals.json scenarios through a driver
-(pi / claude / custom command), grades TRIGGER detection and expectation
-keyword-match, and emits a markdown report.
+(pi / claude / codex / custom command), grades TRIGGER detection and
+expectation keyword-match, and emits a markdown report.
 
 Subcommands:
   list                      List discovered skills with eval counts.
@@ -36,10 +36,11 @@ Global options:
                               .agents/skills, config/agents/skills,
                               config/pi/skills, .claude/skills
   --workspace DIR           Where to write results. Default: .ai-skill-eval/
-  --driver pi|claude|cmd    Model driver. Default: auto (pi if on PATH, else claude).
+  --driver pi|claude|codex  Built-in driver. Default: auto-detected from PATH
+                            (probe order pi \u2192 claude \u2192 codex).
   --model ID                Model id passed to the driver.
                             Defaults: pi \u2192 env AI_SKILL_EVAL_MODEL or
-                            llama-cpp/qwen3-6-35b-a3b; claude \u2192 driver default.
+                            llama-cpp/qwen3-6-35b-a3b; claude / codex \u2192 driver default.
   --driver-cmd SHELL        Custom driver command. Reads the prompt from the
                             file at $AI_SKILL_EVAL_PROMPT_FILE, writes the
                             model reply to stdout. Overrides --driver.
@@ -118,7 +119,7 @@ function valueFor(flag: string, argv: string[], i: number): { value: string; adv
 }
 
 function isKnownDriver(v: string): v is DriverKind {
-  return v === 'pi' || v === 'claude';
+  return v === 'pi' || v === 'claude' || v === 'codex';
 }
 
 export function parseArgs(argv: readonly string[]): CliOptions {

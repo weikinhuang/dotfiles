@@ -46,4 +46,4 @@ export interface GradeRecord {
   flaws?: string[];
 }
 
-export type DriverKind = 'pi' | 'claude';
+export type DriverKind = 'pi' | 'claude' | 'codex';

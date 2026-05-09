@@ -127,6 +127,9 @@ ai-skill-eval run --model llama-cpp/some-other-local
 # Use claude instead of pi:
 ai-skill-eval run --driver claude --model claude-haiku-4-5
 
+# Use codex (OpenAI CLI):
+ai-skill-eval run --driver codex --model gpt-5-codex
+
 # Custom driver (any command that reads $AI_SKILL_EVAL_PROMPT_FILE and prints the reply):
 ai-skill-eval run --driver-cmd 'ollama run llama3 < "$AI_SKILL_EVAL_PROMPT_FILE"'
 ```

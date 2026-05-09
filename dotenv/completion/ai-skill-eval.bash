@@ -17,7 +17,7 @@ _dot_ai_skill_eval() {
       return
       ;;
     --driver)
-      mapfile -t COMPREPLY < <(compgen -W "pi claude" -- "${cur}")
+      mapfile -t COMPREPLY < <(compgen -W "pi claude codex" -- "${cur}")
       return
       ;;
   esac
