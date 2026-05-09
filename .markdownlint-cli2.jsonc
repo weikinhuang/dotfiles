@@ -3,7 +3,7 @@
   "gitignore": true,
   "noBanner": true,
   "noProgress": true,
-  "ignores": ["lib/node/pi/research-selftest/fixtures/**", "plans/**"],
+  "ignores": ["lib/node/pi/research-selftest/fixtures/**", "lib/node/ai-skill-eval/prompts/**", "plans/**"],
   "customRules": [
     "@public-projects/agents-tooling/markdownlint/authoring-guide",
     "@public-projects/agents-tooling/markdownlint/skill-authoring-guide",

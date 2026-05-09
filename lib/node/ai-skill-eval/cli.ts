@@ -5,6 +5,13 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 
 import { dirname, join } from 'node:path';
 
 import { writeBenchmark, type BenchmarkDocument } from './benchmark.ts';
+import {
+  aggregateCompare,
+  renderCompareMarkdown,
+  runCompare,
+  type CompareAggregate,
+  type RunCompareResult,
+} from './compare.ts';
 import { runPool } from './concurrency.ts';
 import { buildCriticPrompt, mergeCriticVerdict, writeCriticPrompt } from './critic.ts';
 import { countEvals, discoverSkills, loadEvalsFile, resolveScanRoots } from './discovery.ts';
@@ -60,6 +67,10 @@ Subcommands:
   benchmark [SKILL...]      Emit aggregated benchmark.json + benchmark.md for
                             each skill under the workspace (stats over existing
                             grades + per-run metrics sidecars; no driver calls).
+  compare  SKILL            Blind A/B comparator over two iterations' reply
+                            files. Requires --iterations A,B and --critic-cmd;
+                            writes per-eval compare-<eval-id>.json records
+                            under iteration-A/vs-iteration-B/ plus a summary.
   optimize SKILL            Iteratively improve SKILL.md's \`description:\`
                             frontmatter against a trigger-only eval set
                             (<skill>/evals/trigger-evals.json, with fallback
@@ -113,6 +124,10 @@ Global options:
                             read commands.
   --compare-to N            On 'report', emit a cross-iteration delta
                             against iteration-N as the baseline.
+  --iterations A,B          On 'compare', the two iteration slots to diff
+                            (comma-separated). A and B must be distinct
+                            positive integers and both must already exist
+                            under the workspace.
   --eval-set PATH           On 'optimize', explicit path to the trigger eval
                             set. Default: <skill>/evals/trigger-evals.json,
                             falling back to <skill>/evals/evals.json (projected
@@ -144,6 +159,8 @@ Examples:
   ai-skill-eval run plugin-conventions --model llama-cpp/qwen3-6-35b-a3b
   ai-skill-eval rerun bats-test-conventions:positive-1
   ai-skill-eval grade plugin-conventions --critic-cmd 'claude -p "$(cat "$AI_SKILL_EVAL_PROMPT_FILE")" --bare'
+  ai-skill-eval compare my-skill --iterations 1,2 \\
+    --critic-cmd 'claude -p "$(cat "$AI_SKILL_EVAL_PROMPT_FILE")" --bare'
   ai-skill-eval report --json
 
 Eval schema (<skill-dir>/evals/evals.json):
@@ -155,7 +172,7 @@ Eval schema (<skill-dir>/evals/evals.json):
 Exit codes: 0 ok, 1 validation/run error, 2 usage error.
 `;
 
-type Subcommand = 'list' | 'run' | 'grade' | 'rerun' | 'report' | 'validate' | 'benchmark' | 'optimize';
+type Subcommand = 'list' | 'run' | 'grade' | 'rerun' | 'report' | 'validate' | 'benchmark' | 'compare' | 'optimize';
 
 interface CliOptions {
   subcommand: Subcommand;
@@ -175,6 +192,8 @@ interface CliOptions {
   baseline: boolean;
   iteration: number | null;
   compareTo: number | null;
+  /** Pair of iteration slots from `--iterations A,B`, only valid on `compare`. */
+  iterationsPair: [number, number] | null;
   evalSet: string | null;
   holdout: number;
   maxIterations: number;
@@ -236,13 +255,14 @@ export function parseArgs(argv: readonly string[]): CliOptions {
     case 'report':
     case 'validate':
     case 'benchmark':
+    case 'compare':
     case 'optimize':
       subcommand = first;
       break;
     default:
       if (first.startsWith('-')) {
         usageErr(
-          `unknown option '${first}' (expected subcommand: list, run, grade, rerun, report, validate, benchmark, optimize)`,
+          `unknown option '${first}' (expected subcommand: list, run, grade, rerun, report, validate, benchmark, compare, optimize)`,
         );
       }
       usageErr(`unknown subcommand '${first}'`);
@@ -266,6 +286,7 @@ export function parseArgs(argv: readonly string[]): CliOptions {
     baseline: false,
     iteration: null,
     compareTo: null,
+    iterationsPair: null,
     evalSet: null,
     holdout: 0.4,
     maxIterations: 5,
@@ -384,6 +405,27 @@ export function parseArgs(argv: readonly string[]): CliOptions {
         i += advance;
         break;
       }
+      case '--iterations': {
+        const { value, advance } = valueFor(arg, argv as string[], i);
+        const parts = value
+          .split(',')
+          .map((s) => s.trim())
+          .filter((s) => s.length > 0);
+        if (parts.length !== 2) {
+          usageErr(`--iterations expects 'A,B' with two positive integers, got '${value}'`);
+        }
+        const a = Number.parseInt(parts[0] ?? '', 10);
+        const b = Number.parseInt(parts[1] ?? '', 10);
+        if (!Number.isFinite(a) || a < 1 || !Number.isFinite(b) || b < 1) {
+          usageErr(`--iterations expects two positive integers, got '${value}'`);
+        }
+        if (a === b) {
+          usageErr(`--iterations A and B must differ, got '${value}'`);
+        }
+        opts.iterationsPair = [a, b];
+        i += advance;
+        break;
+      }
       case '--eval-set': {
         const { value, advance } = valueFor(arg, argv as string[], i);
         opts.evalSet = value;
@@ -454,6 +496,10 @@ export function parseArgs(argv: readonly string[]): CliOptions {
 
   if (opts.compareTo != null && opts.subcommand !== 'report') {
     usageErr("--compare-to is only valid on the 'report' subcommand");
+  }
+
+  if (opts.iterationsPair != null && opts.subcommand !== 'compare') {
+    usageErr("--iterations is only valid on the 'compare' subcommand");
   }
 
   if (opts.write && opts.subcommand !== 'optimize') {
@@ -937,6 +983,71 @@ function cmdReport(opts: CliOptions): number {
 }
 
 /**
+ * `ai-skill-eval compare SKILL --iterations A,B --critic-cmd '...'` — blind
+ * A/B comparator over two iterations' per-eval reply files. Evals are
+ * resolved from the skill's `evals/evals.json` so the comparator sees the
+ * scenario prompt + expectations for each turn. Per-eval records + a
+ * `summary.json` are written under
+ * `<workspace>/<skill>/iteration-<A>/vs-iteration-<B>/`; the markdown
+ * report goes to stdout (or JSON with `--json`).
+ */
+function cmdCompare(opts: CliOptions): number {
+  if (opts.positional.length !== 1) {
+    usageErr("compare requires exactly one SKILL argument (e.g. 'ai-skill-eval compare my-skill --iterations 1,2')");
+  }
+  if (opts.iterationsPair == null) {
+    usageErr('compare requires --iterations A,B');
+  }
+  if (!opts.criticCmd) {
+    usageErr('compare requires --critic-cmd (no built-in model choice)');
+  }
+  const skillName = opts.positional[0];
+  const [iterA, iterB] = opts.iterationsPair;
+
+  const roots = resolveScanRoots(opts.skillRoots);
+  const all = discoverSkills(roots);
+  const entry = all.find((e) => e.name === skillName);
+  if (!entry) die(`skill '${skillName}' not found in scan roots: ${roots.join(' ')}`);
+  if (!entry.evalsJson) die(`skill '${skillName}' has no evals/evals.json`);
+
+  if (!existsSync(iterationPath(opts.workspace, skillName, iterA))) {
+    die(`iteration-${iterA} not found under ${opts.workspace}/${skillName}/ (run first)`);
+  }
+  if (!existsSync(iterationPath(opts.workspace, skillName, iterB))) {
+    die(`iteration-${iterB} not found under ${opts.workspace}/${skillName}/ (run first)`);
+  }
+
+  const file = loadEvalsFile(entry.evalsJson);
+  const evals = file.evals
+    .filter((ev) => ev.id && includesEvalFilter(opts.skillFilters, skillName, ev.id))
+    .map((ev) => ({ id: ev.id, prompt: ev.prompt, expectations: ev.expectations ?? [] }));
+  if (evals.length === 0) {
+    die(`no evals to compare for '${skillName}' (evals.json empty or all filtered by --only)`);
+  }
+
+  logVerbose(opts, `compare ${skillName}: iteration-${iterA} vs iteration-${iterB} across ${evals.length} eval(s)`);
+
+  const result: RunCompareResult = runCompare({
+    workspace: opts.workspace,
+    skill: skillName,
+    iterationA: iterA,
+    iterationB: iterB,
+    criticCmd: opts.criticCmd,
+    evals,
+    log: (msg) => logVerbose(opts, msg),
+  });
+
+  if (opts.json) {
+    const agg: CompareAggregate = aggregateCompare(result);
+    process.stdout.write(`${JSON.stringify({ ...result, aggregate: agg }, null, 2)}\n`);
+  } else {
+    process.stdout.write(renderCompareMarkdown(result));
+  }
+  if (result.errors.length > 0) return 1;
+  return 0;
+}
+
+/**
  * `ai-skill-eval optimize SKILL` — the R4 description-optimization loop.
  * Loads a trigger eval set, runs {@link runOptimizeLoop} with the same
  * driver abstraction `run` uses, prints the best-scoring description, and
@@ -1186,6 +1297,9 @@ export async function main(argv: readonly string[]): Promise<void> {
         break;
       case 'benchmark':
         code = cmdBenchmark(opts);
+        break;
+      case 'compare':
+        code = cmdCompare(opts);
         break;
       case 'optimize':
         code = await cmdOptimize(opts);
