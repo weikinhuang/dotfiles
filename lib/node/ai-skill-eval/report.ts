@@ -1,13 +1,17 @@
 // Report rendering for ai-skill-eval: loads per-skill grade JSON files out of
-// the workspace and emits either a markdown report or a JSON summary. R2
-// extends the loader to walk the `with_skill/` and `without_skill/` subtrees
-// and emits a side-by-side table + delta column when baseline grades exist.
+// the workspace and emits either a markdown report or a JSON summary. R3.3
+// switched the workspace layout to
+// `<workspace>/<skill>/iteration-<N>/<config>/grades/`, so the loader now
+// resolves an iteration per skill (caller-provided override, or the latest
+// existing slot). A cross-iteration Δ renderer backs `--compare-to` on the
+// `report` subcommand.
 // SPDX-License-Identifier: MIT
 
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { type GradeConfig, type GradeRecord } from './types.ts';
+import { iterationPath, latestIteration } from './workspace.ts';
 
 export interface ReportSummary {
   total_evals: number;
@@ -19,12 +23,23 @@ export interface ReportSummary {
 const CONFIGS: readonly GradeConfig[] = ['with_skill', 'without_skill'];
 
 /**
- * Walk `<workspace>/<skill>/<config>/grades/*.json` for every skill directory
- * and every known {@link GradeConfig} subtree. Grade records predating R2 are
- * stamped with `config: 'with_skill'` at load time so older workspaces keep
- * rendering sanely.
+ * Walk `<workspace>/<skill>/iteration-<N>/<config>/grades/*.json` for every
+ * skill directory and every known {@link GradeConfig} subtree. Grade records
+ * predating R2 are stamped with `config: 'with_skill'` at load time so older
+ * workspaces keep rendering sanely.
+ *
+ * `iteration` selects the iteration subdir to read:
+ *   - `null` (default): pick `latestIteration(skill)`. Skills with no
+ *     iteration dirs are silently skipped.
+ *   - a positive integer: read exactly that iteration. Missing iteration
+ *     dirs for some skills are silently skipped; callers that need a hard
+ *     error should validate up front with {@link workspace.latestIteration}.
  */
-export function loadGrades(workspace: string, wanted: readonly string[]): GradeRecord[] {
+export function loadGrades(
+  workspace: string,
+  wanted: readonly string[],
+  iteration: number | null = null,
+): GradeRecord[] {
   if (!existsSync(workspace) || !statSync(workspace).isDirectory()) {
     throw new Error(`workspace ${workspace} does not exist (run first)`);
   }
@@ -37,8 +52,12 @@ export function loadGrades(workspace: string, wanted: readonly string[]): GradeR
       continue;
     }
     if (wanted.length > 0 && !wanted.includes(name)) continue;
+    const iterN = iteration ?? latestIteration(workspace, name);
+    if (iterN == null) continue;
+    const iterDir = iterationPath(workspace, name, iterN);
+    if (!existsSync(iterDir)) continue;
     for (const config of CONFIGS) {
-      const gradesDir = join(skillDir, config, 'grades');
+      const gradesDir = join(iterDir, config, 'grades');
       if (!existsSync(gradesDir)) continue;
       for (const gf of readdirSync(gradesDir).sort()) {
         if (!gf.endsWith('.json')) continue;
@@ -109,6 +128,17 @@ function formatDelta(a: number, b: number): string {
   const d = a - b;
   const pts = Math.round(d * 100);
   return pts >= 0 ? `+${pts}%` : `${pts}%`;
+}
+
+/**
+ * Percentage-point delta for expectation pass fractions. Reports the
+ * difference between the two pass rates (primary - baseline), rounded to
+ * integer points; stable enough for a table column.
+ */
+function formatExpectationDelta(pPass: number, pTotal: number, bPass: number, bTotal: number): string {
+  const pRate = pTotal > 0 ? pPass / pTotal : 0;
+  const bRate = bTotal > 0 ? bPass / bTotal : 0;
+  return formatDelta(pRate, bRate);
 }
 
 function renderDetailSection(g: GradeRecord, lines: string[]): void {
@@ -234,5 +264,63 @@ export function renderMarkdown(grades: readonly GradeRecord[]): string {
       '',
     );
   }
+  return `${lines.join('\n')}\n`;
+}
+
+/**
+ * Render the cross-iteration Δ section appended to `report --compare-to N`.
+ * Pairs primary vs compared by `(skill, eval_id, config)` and shows the
+ * per-eval trigger-rate + expectation-pass deltas. Missing counterparts on
+ * either side are shown as `—`; this is expected when evals were added or
+ * removed between iterations.
+ */
+export function renderCrossIterationMarkdown(
+  primary: readonly GradeRecord[],
+  compared: readonly GradeRecord[],
+  comparedIteration: number,
+): string {
+  const lines: string[] = [`## Cross-iteration Δ (baseline: iteration-${comparedIteration})`, ''];
+  if (primary.length === 0 && compared.length === 0) {
+    lines.push('_No grades on either side._', '');
+    return `${lines.join('\n')}\n`;
+  }
+  const index = new Map<string, GradeRecord>();
+  for (const g of compared) index.set(`${g.skill}:${g.eval_id}:${g.config ?? 'with_skill'}`, g);
+
+  lines.push(
+    '| Skill | Eval | Config | primary trigger | baseline trigger | Δ trigger | primary expect | baseline expect | Δ expect |',
+    '|---|---|---|---|---|---|---|---|---|',
+  );
+  for (const p of primary) {
+    const cfg = p.config ?? 'with_skill';
+    const key = `${p.skill}:${p.eval_id}:${cfg}`;
+    const b = index.get(key);
+    const pTrig = triggerRateLabel(p);
+    const bTrig = b ? triggerRateLabel(b) : '—';
+    const dTrig = b ? formatDelta(p.trigger_rate ?? 0, b.trigger_rate ?? 0) : '—';
+    const pExp = `${p.expectation_pass || 0}/${p.expectation_total || 0}`;
+    const bExp = b ? `${b.expectation_pass || 0}/${b.expectation_total || 0}` : '—';
+    const dExp = b
+      ? formatExpectationDelta(
+          p.expectation_pass || 0,
+          p.expectation_total || 0,
+          b.expectation_pass || 0,
+          b.expectation_total || 0,
+        )
+      : '—';
+    lines.push(`| ${p.skill} | ${p.eval_id} | ${cfg} | ${pTrig} | ${bTrig} | ${dTrig} | ${pExp} | ${bExp} | ${dExp} |`);
+  }
+
+  // Rows only present on the baseline side (eval removed since).
+  const primaryKeys = new Set(primary.map((g) => `${g.skill}:${g.eval_id}:${g.config ?? 'with_skill'}`));
+  for (const b of compared) {
+    const cfg = b.config ?? 'with_skill';
+    const key = `${b.skill}:${b.eval_id}:${cfg}`;
+    if (primaryKeys.has(key)) continue;
+    const bTrig = triggerRateLabel(b);
+    const bExp = `${b.expectation_pass || 0}/${b.expectation_total || 0}`;
+    lines.push(`| ${b.skill} | ${b.eval_id} | ${cfg} | — | ${bTrig} | — | — | ${bExp} | — |`);
+  }
+
   return `${lines.join('\n')}\n`;
 }

@@ -38,6 +38,7 @@ function seedGrade(
   config: GradeConfig,
   evalId: string,
   overrides: Partial<GradeRecord> = {},
+  iteration = 1,
 ): GradeRecord {
   const grade: GradeRecord = {
     skill,
@@ -58,7 +59,7 @@ function seedGrade(
     grader: 'deterministic',
     ...overrides,
   };
-  const gradesDir = join(workspace, skill, config, 'grades');
+  const gradesDir = join(workspace, skill, `iteration-${iteration}`, config, 'grades');
   mkdirSync(gradesDir, { recursive: true });
   writeFileSync(join(gradesDir, `${evalId}.json`), JSON.stringify(grade, null, 2));
   return grade;
@@ -70,8 +71,9 @@ function seedRuns(
   config: GradeConfig,
   evalId: string,
   runs: readonly RunMetrics[],
+  iteration = 1,
 ): void {
-  const dir = join(workspace, skill, config, 'results', evalId);
+  const dir = join(workspace, skill, `iteration-${iteration}`, config, 'results', evalId);
   mkdirSync(dir, { recursive: true });
   runs.forEach((meta, i) => {
     const runFile = join(dir, `run-${i + 1}.txt`);
@@ -128,7 +130,7 @@ describe('loadSkillArtifacts', () => {
       { exit_code: 0, duration_sec: 1.0, bytes: 50, timed_out: false, tokens: 100, tool_calls: null },
     ]);
 
-    const { grades, metas } = loadSkillArtifacts(fx.dir, fx.skill);
+    const { grades, metas } = loadSkillArtifacts(fx.dir, fx.skill, 1);
 
     expect(grades).toHaveLength(2);
     expect(metas.get('with_skill:e1')).toHaveLength(2);
@@ -136,7 +138,7 @@ describe('loadSkillArtifacts', () => {
   });
 
   test('missing skill directory returns empty sets (no throw)', () => {
-    const { grades, metas } = loadSkillArtifacts(fx.dir, 'nonexistent');
+    const { grades, metas } = loadSkillArtifacts(fx.dir, 'nonexistent', 1);
 
     expect(grades).toHaveLength(0);
     expect(metas.size).toBe(0);
@@ -164,7 +166,7 @@ describe('buildBenchmark', () => {
       { exit_code: 0, duration_sec: 4, bytes: 100, timed_out: false, tokens: 400, tool_calls: null },
     ]);
 
-    const doc = buildBenchmark(fx.dir, fx.skill, { timestamp: '2026-01-01T00:00:00Z' });
+    const doc = buildBenchmark(fx.dir, fx.skill, 1, { timestamp: '2026-01-01T00:00:00Z' });
 
     expect(doc.metadata.skill_name).toBe('sample');
     expect(doc.metadata.evals_run).toEqual(['e1', 'e2']);
@@ -188,7 +190,7 @@ describe('buildBenchmark', () => {
       { exit_code: 0, duration_sec: 2, bytes: 100, timed_out: false, tokens: 150, tool_calls: null },
     ]);
 
-    const doc = buildBenchmark(fx.dir, fx.skill, { timestamp: '2026-01-01T00:00:00Z' });
+    const doc = buildBenchmark(fx.dir, fx.skill, 1, { timestamp: '2026-01-01T00:00:00Z' });
 
     expect(doc.metadata.configurations).toEqual(['with_skill', 'without_skill']);
     expect(doc.run_summary.delta).toEqual({
@@ -209,7 +211,7 @@ describe('buildBenchmark', () => {
       { exit_code: 0, duration_sec: 15, bytes: 100, timed_out: false, tokens: 1200, tool_calls: null },
     ]);
 
-    const doc = buildBenchmark(fx.dir, fx.skill);
+    const doc = buildBenchmark(fx.dir, fx.skill, 1);
 
     expect(doc.run_summary.delta?.time_seconds).toBe('-5s');
     expect(doc.run_summary.delta?.tokens).toBe('-200');
@@ -222,7 +224,7 @@ describe('buildBenchmark', () => {
       { exit_code: 0, duration_sec: 3, bytes: 100, timed_out: false, tokens: null, tool_calls: null },
     ]);
 
-    const doc = buildBenchmark(fx.dir, fx.skill);
+    const doc = buildBenchmark(fx.dir, fx.skill, 1);
 
     expect(doc.run_summary.with_skill.tokens).toBeNull();
     expect(doc.run_summary.with_skill.time_seconds).not.toBeNull();
@@ -236,7 +238,7 @@ describe('buildBenchmark', () => {
       { exit_code: 0, duration_sec: 2, bytes: 100, timed_out: false, tokens: 100, tool_calls: null },
     ]);
 
-    const doc = buildBenchmark(fx.dir, fx.skill);
+    const doc = buildBenchmark(fx.dir, fx.skill, 1);
 
     expect(doc.notes.some((n) => /timeouts/i.test(n))).toBe(true);
   });
@@ -247,7 +249,7 @@ describe('buildBenchmark', () => {
       { exit_code: 0, duration_sec: 2, bytes: 100, timed_out: false, tokens: 100, tool_calls: null },
     ]);
 
-    const doc = buildBenchmark(fx.dir, fx.skill);
+    const doc = buildBenchmark(fx.dir, fx.skill, 1);
 
     expect(doc.run_summary.delta).toBeUndefined();
     expect(doc.notes.some((n) => /baseline/i.test(n))).toBe(true);
@@ -275,7 +277,7 @@ describe('renderBenchmarkMarkdown', () => {
       { exit_code: 0, duration_sec: 2.0, bytes: 100, timed_out: false, tokens: 150, tool_calls: null },
     ]);
 
-    const doc = buildBenchmark(fx.dir, fx.skill, { timestamp: '2026-01-01T00:00:00Z' });
+    const doc = buildBenchmark(fx.dir, fx.skill, 1, { timestamp: '2026-01-01T00:00:00Z' });
     const md = renderBenchmarkMarkdown(doc);
 
     expect(md).toContain('# Benchmark — sample');
@@ -296,7 +298,7 @@ describe('renderBenchmarkMarkdown', () => {
       { exit_code: 0, duration_sec: 2, bytes: 100, timed_out: false, tokens: 200, tool_calls: null },
     ]);
 
-    const doc = buildBenchmark(fx.dir, fx.skill);
+    const doc = buildBenchmark(fx.dir, fx.skill, 1);
     const md = renderBenchmarkMarkdown(doc);
 
     expect(md).toContain('| Metric | with_skill |');
@@ -305,7 +307,7 @@ describe('renderBenchmarkMarkdown', () => {
   });
 
   test('no configurations at all renders the "run first" hint', () => {
-    const doc = buildBenchmark(fx.dir, fx.skill);
+    const doc = buildBenchmark(fx.dir, fx.skill, 1);
     const md = renderBenchmarkMarkdown(doc);
 
     expect(md).toContain('No configurations found');
@@ -329,12 +331,15 @@ describe('writeBenchmark', () => {
       { exit_code: 0, duration_sec: 2, bytes: 100, timed_out: false, tokens: 200, tool_calls: null },
     ]);
 
-    const doc = writeBenchmark(fx.dir, fx.skill, { timestamp: '2026-01-01T00:00:00Z' });
+    const doc = writeBenchmark(fx.dir, fx.skill, 1, { timestamp: '2026-01-01T00:00:00Z' });
 
-    const jsonText = readFileSync(join(fx.dir, fx.skill, 'benchmark.json'), 'utf8');
+    const jsonText = readFileSync(join(fx.dir, fx.skill, 'iteration-1', 'benchmark.json'), 'utf8');
 
     expect(JSON.parse(jsonText).metadata.skill_name).toBe('sample');
-    expect(readFileSync(join(fx.dir, fx.skill, 'benchmark.md'), 'utf8')).toContain('# Benchmark — sample');
+    expect(JSON.parse(jsonText).metadata.iteration).toBe(1);
+    expect(readFileSync(join(fx.dir, fx.skill, 'iteration-1', 'benchmark.md'), 'utf8')).toContain(
+      '# Benchmark — sample (iteration-1)',
+    );
     expect(doc.metadata.skill_name).toBe('sample');
   });
 });

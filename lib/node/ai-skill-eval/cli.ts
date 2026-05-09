@@ -1,7 +1,7 @@
 // CLI entry for ai-skill-eval: argparse + subcommand dispatch.
 // SPDX-License-Identifier: MIT
 
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
 import { writeBenchmark, type BenchmarkDocument } from './benchmark.ts';
@@ -11,9 +11,24 @@ import { countEvals, discoverSkills, loadEvalsFile, resolveScanRoots } from './d
 import { invokeCritic, invokeDriver, type DriverConfig } from './driver.ts';
 import { DEFAULT_TRIGGER_THRESHOLD, gradeDeterministic, parseReply, pickMajorityRunIndex } from './grader.ts';
 import { buildEvalPrompt, resolveRunsPerQuery } from './prompt.ts';
-import { hasFailures, loadGrades, renderJson, renderMarkdown, summarize } from './report.ts';
+import {
+  hasFailures,
+  loadGrades,
+  renderCrossIterationMarkdown,
+  renderJson,
+  renderMarkdown,
+  summarize,
+} from './report.ts';
 import { type DriverKind, type EvalSpec, type EvalsFile, type GradeConfig, type SkillEntry } from './types.ts';
 import { formatFailure, validateSkillMd, type ValidationFailure } from './validate.ts';
+import {
+  cleanLegacyFlat,
+  iterationPath,
+  latestIteration,
+  listIterations,
+  nextIteration,
+  writeLatestSymlink,
+} from './workspace.ts';
 
 const PROG = 'ai-skill-eval';
 const VERSION = '0.1.0';
@@ -75,6 +90,13 @@ Global options:
                             no SKILL block). Report gains a side-by-side
                             delta column. Default: off.
   --only EVAL_ID            Filter to specific eval IDs (repeatable).
+  --iteration N             Which iteration-N subdir to write into (on run /
+                            rerun) or read from (on grade / report /
+                            benchmark). Default: auto-allocate the next
+                            slot on run, use the latest existing slot on
+                            read commands.
+  --compare-to N            On 'report', emit a cross-iteration delta
+                            against iteration-N as the baseline.
   --json                    Machine-readable JSON output (for list / report).
   -v, --verbose             Log each invocation to stderr.
   -h, --help                Show this help.
@@ -122,6 +144,8 @@ interface CliOptions {
   numWorkers: number;
   timeoutMs: number;
   baseline: boolean;
+  iteration: number | null;
+  compareTo: number | null;
   json: boolean;
   verbose: boolean;
 }
@@ -206,6 +230,8 @@ export function parseArgs(argv: readonly string[]): CliOptions {
     numWorkers: 1,
     timeoutMs: 30_000,
     baseline: false,
+    iteration: null,
+    compareTo: null,
     json: false,
     verbose: false,
   };
@@ -300,6 +326,26 @@ export function parseArgs(argv: readonly string[]): CliOptions {
         i += advance;
         break;
       }
+      case '--iteration': {
+        const { value, advance } = valueFor(arg, argv as string[], i);
+        const n = Number.parseInt(value, 10);
+        if (!Number.isFinite(n) || n < 1) {
+          usageErr(`--iteration expects a positive integer, got '${value}'`);
+        }
+        opts.iteration = n;
+        i += advance;
+        break;
+      }
+      case '--compare-to': {
+        const { value, advance } = valueFor(arg, argv as string[], i);
+        const n = Number.parseInt(value, 10);
+        if (!Number.isFinite(n) || n < 1) {
+          usageErr(`--compare-to expects a positive integer, got '${value}'`);
+        }
+        opts.compareTo = n;
+        i += advance;
+        break;
+      }
       case '--json':
         opts.json = true;
         i += 1;
@@ -336,6 +382,10 @@ export function parseArgs(argv: readonly string[]): CliOptions {
 
   if (!opts.workspace) {
     opts.workspace = process.env.AI_SKILL_EVAL_WORKSPACE ?? DEFAULT_WORKSPACE;
+  }
+
+  if (opts.compareTo != null && opts.subcommand !== 'report') {
+    usageErr("--compare-to is only valid on the 'report' subcommand");
   }
 
   return opts;
@@ -420,24 +470,24 @@ function gradeWithOptionalCritic(
 }
 
 /**
- * Resolve the per-run result-file paths for one eval, under the given config
- * subtree. Files are `<config>/results/<eval-id>/run-{1..N}.txt` relative to
- * the skill workspace.
+ * Resolve the per-run result-file paths for one eval, under the given
+ * iteration + config subtree. Files live at
+ * `<iterationDir>/<config>/results/<eval-id>/run-{1..N}.txt`.
  */
-function resultFilesFor(skillWs: string, config: GradeConfig, evalId: string, runs: number): string[] {
-  const dir = join(skillWs, config, 'results', evalId);
+function resultFilesFor(iterationDir: string, config: GradeConfig, evalId: string, runs: number): string[] {
+  const dir = join(iterationDir, config, 'results', evalId);
   const out: string[] = [];
   for (let i = 1; i <= runs; i += 1) out.push(join(dir, `run-${i}.txt`));
   return out;
 }
 
 /**
- * List any previously-written `<config>/results/<eval-id>/run-*.txt` files,
- * useful for the `grade` subcommand when the caller didn't say how many runs
- * happened.
+ * List any previously-written `<config>/results/<eval-id>/run-*.txt` files
+ * under the given iteration directory, useful for the `grade` subcommand
+ * when the caller didn't say how many runs happened.
  */
-function existingResultFiles(skillWs: string, config: GradeConfig, evalId: string): string[] {
-  const dir = join(skillWs, config, 'results', evalId);
+function existingResultFiles(iterationDir: string, config: GradeConfig, evalId: string): string[] {
+  const dir = join(iterationDir, config, 'results', evalId);
   if (!existsSync(dir)) return [];
   return readdirSync(dir)
     .filter((f) => /^run-\d+\.txt$/.test(f))
@@ -450,19 +500,38 @@ function existingResultFiles(skillWs: string, config: GradeConfig, evalId: strin
 }
 
 /**
- * Remove legacy result files from pre-R2 workspaces before writing the new
- * layout. Two shapes may linger:
- *   - `results/<eval-id>.txt` (pre-R1a flat file)
- *   - `results/<eval-id>/run-*.txt` (R1a flat per-run dir, sibling of the new
- *     `with_skill/` / `without_skill/` subtrees)
- * The new-layout files live under `<config>/results/…` so the legacy paths
- * are safe to delete unconditionally on any R2 `run`.
+ * Resolve the iteration slot a read-side command should operate on: the
+ * caller-provided `--iteration` override, or the latest existing iteration
+ * for `skill`. Dies with a friendly error when no iteration exists yet.
  */
-function deleteLegacyFlatResult(skillWs: string, evalId: string): void {
-  const legacyFlat = join(skillWs, 'results', `${evalId}.txt`);
-  if (existsSync(legacyFlat)) rmSync(legacyFlat, { force: true });
-  const legacyDir = join(skillWs, 'results', evalId);
-  if (existsSync(legacyDir)) rmSync(legacyDir, { recursive: true, force: true });
+function requireIterationForRead(workspace: string, skill: string, override: number | null): number {
+  if (override != null) {
+    if (!existsSync(iterationPath(workspace, skill, override))) {
+      die(`iteration-${override} not found for skill '${skill}'`);
+    }
+    return override;
+  }
+  const latest = latestIteration(workspace, skill);
+  if (latest == null) {
+    die(`no iterations found for skill '${skill}' (run first)`);
+  }
+  return latest;
+}
+
+/**
+ * Resolve the iteration slot a `run`/`rerun` should write into. When the
+ * caller passed `--iteration N`, we reuse that slot (overwriting any prior
+ * results). Otherwise we allocate `latest + 1` so each plain `run` starts a
+ * fresh iteration. When the skill has no iteration dirs yet AND legacy flat
+ * subdirs linger from a pre-R3.3 workspace, we nuke them so `iteration-1/`
+ * lands clean.
+ */
+function resolveIterationForRun(workspace: string, skill: string, override: number | null): number {
+  if (override != null) return override;
+  if (listIterations(workspace, skill).length === 0) {
+    cleanLegacyFlat(workspace, skill);
+  }
+  return nextIteration(workspace, skill);
 }
 
 function runOneEvalPrep(
@@ -472,20 +541,19 @@ function runOneEvalPrep(
   ev: EvalSpec,
   file: EvalsFile,
   config: GradeConfig,
+  iterationDir: string,
 ): { runs: number; promptFile: string; resultFiles: string[]; gradeFile: string } {
   const runs = resolveRunsPerQuery(ev, file, opts.runsPerQuery);
-  const skillWs = join(opts.workspace, entry.name);
-  const promptFile = join(skillWs, config, 'prompts', `${ev.id}.txt`);
-  const resultDir = join(skillWs, config, 'results', ev.id);
-  const gradeFile = join(skillWs, config, 'grades', `${ev.id}.json`);
+  const promptFile = join(iterationDir, config, 'prompts', `${ev.id}.txt`);
+  const resultDir = join(iterationDir, config, 'results', ev.id);
+  const gradeFile = join(iterationDir, config, 'grades', `${ev.id}.json`);
 
-  deleteLegacyFlatResult(skillWs, ev.id);
   mkdirSync(dirname(promptFile), { recursive: true });
   mkdirSync(resultDir, { recursive: true });
   mkdirSync(dirname(gradeFile), { recursive: true });
   writeFileSync(promptFile, buildEvalPrompt({ skillBody, scenario: ev.prompt, withSkill: config === 'with_skill' }));
 
-  return { runs, promptFile, resultFiles: resultFilesFor(skillWs, config, ev.id, runs), gradeFile };
+  return { runs, promptFile, resultFiles: resultFilesFor(iterationDir, config, ev.id, runs), gradeFile };
 }
 
 interface DriverJob {
@@ -591,14 +659,17 @@ function planRun(opts: CliOptions, entries: readonly SkillEntry[]): EvalPlan[] {
       logVerbose(opts, `skip ${entry.name} (no evals/evals.json)`);
       continue;
     }
-    logVerbose(opts, `run: ${entry.name} (${entry.evalsJson})`);
+    const iterationN = resolveIterationForRun(opts.workspace, entry.name, opts.iteration);
+    const iterDir = iterationPath(opts.workspace, entry.name, iterationN);
+    mkdirSync(iterDir, { recursive: true });
+    logVerbose(opts, `run: ${entry.name} -> iteration-${iterationN} (${entry.evalsJson})`);
     const skillBody = readFileSync(entry.skillMd, 'utf8');
     const file = loadEvalsFile(entry.evalsJson);
     for (const ev of file.evals) {
       if (!ev.id) continue;
       if (!includesEvalFilter(opts.skillFilters, entry.name, ev.id)) continue;
       for (const config of configs) {
-        const prep = runOneEvalPrep(opts, entry, skillBody, ev, file, config);
+        const prep = runOneEvalPrep(opts, entry, skillBody, ev, file, config, iterDir);
         plans.push({ entry, ev, config, prep });
       }
     }
@@ -628,6 +699,14 @@ async function executeRunPlans(opts: CliOptions, plans: readonly EvalPlan[]): Pr
   for (const plan of plans) {
     gradeWithOptionalCritic(opts, plan.entry, plan.ev, plan.config, plan.prep.resultFiles, plan.prep.gradeFile);
   }
+  // Refresh the `latest` symlink per touched skill. Best-effort: silently
+  // no-ops on platforms that don't allow symlinks without elevation.
+  const touched = new Map<string, number>();
+  for (const plan of plans) {
+    const latest = latestIteration(opts.workspace, plan.entry.name);
+    if (latest != null) touched.set(plan.entry.name, latest);
+  }
+  for (const [skill, iterN] of touched) writeLatestSymlink(opts.workspace, skill, iterN);
 }
 
 function gradeOnlySkill(opts: CliOptions, entry: SkillEntry): void {
@@ -635,16 +714,17 @@ function gradeOnlySkill(opts: CliOptions, entry: SkillEntry): void {
     logVerbose(opts, `skip ${entry.name} (no evals/evals.json)`);
     return;
   }
-  logVerbose(opts, `grade: ${entry.name} (${entry.evalsJson})`);
+  const iterationN = requireIterationForRead(opts.workspace, entry.name, opts.iteration);
+  const iterDir = iterationPath(opts.workspace, entry.name, iterationN);
+  logVerbose(opts, `grade: ${entry.name} (${entry.evalsJson}) @ iteration-${iterationN}`);
   const file = loadEvalsFile(entry.evalsJson);
   const configs = configsFor(opts);
   for (const ev of file.evals) {
     if (!ev.id) continue;
     if (!includesEvalFilter(opts.skillFilters, entry.name, ev.id)) continue;
-    const skillWs = join(opts.workspace, entry.name);
     for (const config of configs) {
-      const resultFiles = existingResultFiles(skillWs, config, ev.id);
-      const gradeFile = join(skillWs, config, 'grades', `${ev.id}.json`);
+      const resultFiles = existingResultFiles(iterDir, config, ev.id);
+      const gradeFile = join(iterDir, config, 'grades', `${ev.id}.json`);
       if (resultFiles.length === 0) {
         logVerbose(opts, `grade: missing ${config} results for ${entry.name}/${ev.id} (run first)`);
         continue;
@@ -656,11 +736,15 @@ function gradeOnlySkill(opts: CliOptions, entry: SkillEntry): void {
 }
 
 function renderReport(opts: CliOptions, wanted: readonly string[]): number {
-  const grades = loadGrades(opts.workspace, wanted);
+  const grades = loadGrades(opts.workspace, wanted, opts.iteration);
   if (opts.json) {
     process.stdout.write(renderJson(grades));
   } else {
     process.stdout.write(renderMarkdown(grades));
+  }
+  if (opts.compareTo != null) {
+    const compared = loadGrades(opts.workspace, wanted, opts.compareTo);
+    process.stdout.write(renderCrossIterationMarkdown(grades, compared, opts.compareTo));
   }
   // Baseline grades are diagnostic; the exit code tracks the with_skill run
   // only. Reports on a workspace with zero with_skill grades still fail.
@@ -733,6 +817,7 @@ async function cmdRerun(opts: CliOptions): Promise<number> {
   const byName = new Map(all.map((e) => [e.name, e]));
 
   const plans: EvalPlan[] = [];
+  const touched = new Set<string>();
   for (const target of opts.rerunTargets) {
     const sep = target.indexOf(':');
     if (sep <= 0) usageErr(`invalid rerun target '${target}' (expected SKILL:EVAL_ID)`);
@@ -750,16 +835,25 @@ async function cmdRerun(opts: CliOptions): Promise<number> {
       die(`skill '${skillName}' failed frontmatter validation; fix SKILL.md and rerun`);
     }
 
+    // Rerun targets the latest existing iteration by default (or --iteration N).
+    const iterationN = requireIterationForRead(opts.workspace, skillName, opts.iteration);
+    const iterDir = iterationPath(opts.workspace, skillName, iterationN);
+
     const skillBody = readFileSync(entry.skillMd, 'utf8');
     const file = loadEvalsFile(entry.evalsJson);
     const ev = file.evals.find((e) => e.id === evalId);
     if (!ev) die(`skill '${skillName}' has no eval '${evalId}'`);
     for (const config of configsFor(opts)) {
-      plans.push({ entry, ev, config, prep: runOneEvalPrep(opts, entry, skillBody, ev, file, config) });
+      plans.push({ entry, ev, config, prep: runOneEvalPrep(opts, entry, skillBody, ev, file, config, iterDir) });
     }
+    touched.add(skillName);
   }
 
   await executeRunPlans(opts, plans);
+  for (const skill of touched) {
+    const latest = latestIteration(opts.workspace, skill);
+    if (latest != null) writeLatestSymlink(opts.workspace, skill, latest);
+  }
   return renderReport(opts, []);
 }
 
@@ -832,18 +926,21 @@ function cmdBenchmark(opts: CliOptions): number {
 
   const docs: BenchmarkDocument[] = [];
   for (const skill of selected) {
-    const doc = writeBenchmark(opts.workspace, skill);
+    const iterationN = requireIterationForRead(opts.workspace, skill, opts.iteration);
+    const doc = writeBenchmark(opts.workspace, skill, iterationN);
     docs.push(doc);
-    logVerbose(opts, `benchmark: wrote ${join(opts.workspace, skill)}/benchmark.{json,md}`);
+    const target = join(iterationPath(opts.workspace, skill, iterationN));
+    logVerbose(opts, `benchmark: wrote ${target}/benchmark.{json,md} (iteration-${iterationN})`);
   }
 
   if (opts.json) {
     process.stdout.write(`${JSON.stringify(docs, null, 2)}\n`);
   } else {
     for (const doc of docs) {
-      process.stdout.write(
-        `# ${doc.metadata.skill_name}: benchmark written to ${join(opts.workspace, doc.metadata.skill_name)}/benchmark.{json,md}\n`,
-      );
+      const iterationN =
+        doc.metadata.iteration ?? requireIterationForRead(opts.workspace, doc.metadata.skill_name, opts.iteration);
+      const target = iterationPath(opts.workspace, doc.metadata.skill_name, iterationN);
+      process.stdout.write(`# ${doc.metadata.skill_name}: benchmark written to ${target}/benchmark.{json,md}\n`);
     }
   }
   return 0;

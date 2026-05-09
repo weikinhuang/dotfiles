@@ -176,17 +176,17 @@ EOF
   assert_output --partial "Correct TRIGGER detection: **2/2**"
 
   # Workspace layout nests under the config subtree (R2).
-  [ -f ".ai-skill-eval/sample/with_skill/prompts/positive-1.txt" ]
-  [ -f ".ai-skill-eval/sample/with_skill/results/positive-1/run-1.txt" ]
-  [ -f ".ai-skill-eval/sample/with_skill/grades/positive-1.json" ]
+  [ -f ".ai-skill-eval/sample/iteration-1/with_skill/prompts/positive-1.txt" ]
+  [ -f ".ai-skill-eval/sample/iteration-1/with_skill/results/positive-1/run-1.txt" ]
+  [ -f ".ai-skill-eval/sample/iteration-1/with_skill/grades/positive-1.json" ]
   # No baseline dir until --baseline is passed.
-  [ ! -e ".ai-skill-eval/sample/without_skill" ]
+  [ ! -e ".ai-skill-eval/sample/iteration-1/without_skill" ]
 
   # Grades are well-formed JSON with trigger_pass true for both evals.
   python3 - <<'PY'
 import json
 for eid in ("positive-1", "negative-1"):
-    g = json.load(open(f".ai-skill-eval/sample/with_skill/grades/{eid}.json"))
+    g = json.load(open(f".ai-skill-eval/sample/iteration-1/with_skill/grades/{eid}.json"))
     assert g["trigger_pass"] is True, g
     assert g["runs"] == 1, g
     assert g["config"] == "with_skill", g
@@ -231,14 +231,14 @@ EOF
   assert_success
 
   # All three run files landed under <config>/results/<eval-id>/run-N.txt.
-  [ -f ".ai-skill-eval/sample/with_skill/results/positive-1/run-1.txt" ]
-  [ -f ".ai-skill-eval/sample/with_skill/results/positive-1/run-2.txt" ]
-  [ -f ".ai-skill-eval/sample/with_skill/results/positive-1/run-3.txt" ]
+  [ -f ".ai-skill-eval/sample/iteration-1/with_skill/results/positive-1/run-1.txt" ]
+  [ -f ".ai-skill-eval/sample/iteration-1/with_skill/results/positive-1/run-2.txt" ]
+  [ -f ".ai-skill-eval/sample/iteration-1/with_skill/results/positive-1/run-3.txt" ]
 
   # Grade aggregates to triggers=2, runs=3, trigger_rate=0.67, trigger_pass=true.
   python3 - <<'PY'
 import json
-g = json.load(open(".ai-skill-eval/sample/with_skill/grades/positive-1.json"))
+g = json.load(open(".ai-skill-eval/sample/iteration-1/with_skill/grades/positive-1.json"))
 assert g["runs"] == 3, g
 assert g["triggers"] == 2, g
 assert g["trigger_rate"] == 0.67, g
@@ -284,28 +284,33 @@ EOF
   assert_failure
   python3 - <<'PY'
 import json
-g = json.load(open(".ai-skill-eval/sample/with_skill/grades/positive-1.json"))
+g = json.load(open(".ai-skill-eval/sample/iteration-1/with_skill/grades/positive-1.json"))
 assert g["trigger_rate"] == 0.67, g
 assert g["trigger_pass"] is False, g
 PY
 }
 
-@test "ai-skill-eval run: deletes the legacy flat results/<eval-id>.txt on first R2 run" {
+@test "ai-skill-eval run: deletes the legacy flat results/<eval-id>.txt and pre-R3.3 with_skill/ trees on first R3.3 run" {
   make_skill ".agents/skills" "sample" yes
-  # Seed a pre-R1a flat result file AND a pre-R2 flat per-run dir to prove
-  # both legacy shapes are purged before the R2 config-subtree layout lands.
+  # Seed every legacy shape the R3.3 cleanLegacyFlat knows about so we can
+  # prove the first R3.3 run lands a pristine iteration-1/ with no orphaned
+  # siblings.
   mkdir -p ".ai-skill-eval/sample/results/positive-1"
   printf 'stale pre-R1a\n' >".ai-skill-eval/sample/results/positive-1.txt"
   printf 'stale pre-R2\n' >".ai-skill-eval/sample/results/positive-1/run-1.txt"
+  mkdir -p ".ai-skill-eval/sample/with_skill/grades"
+  printf '{}' >".ai-skill-eval/sample/with_skill/grades/old.json"
+  printf '{}' >".ai-skill-eval/sample/benchmark.json"
 
   driver="$(stub_driver_script)"
   run bash "${SCRIPT}" run --driver-cmd "${driver}" --only positive-1 --runs-per-query 1
   assert_success
 
-  # Legacy flat file + legacy flat dir are gone; new config-subtree layout is in place.
-  [ ! -e ".ai-skill-eval/sample/results/positive-1.txt" ]
-  [ ! -e ".ai-skill-eval/sample/results/positive-1" ]
-  [ -f ".ai-skill-eval/sample/with_skill/results/positive-1/run-1.txt" ]
+  # All legacy siblings gone; the new iteration-N layout is in place.
+  [ ! -e ".ai-skill-eval/sample/results" ]
+  [ ! -e ".ai-skill-eval/sample/with_skill" ]
+  [ ! -e ".ai-skill-eval/sample/benchmark.json" ]
+  [ -f ".ai-skill-eval/sample/iteration-1/with_skill/results/positive-1/run-1.txt" ]
 }
 
 @test "ai-skill-eval: rejects --trigger-threshold outside 0.0–1.0" {
@@ -376,7 +381,7 @@ EOF
   [ "$(grep -c '^-s$' "${argv_log}" || true)" -eq 0 ]
 
   # Reply was captured via -o, not stdout redirection.
-  grep -q 'TRIGGER: yes' .ai-skill-eval/sample/with_skill/results/positive-1/run-1.txt
+  grep -q 'TRIGGER: yes' .ai-skill-eval/sample/iteration-1/with_skill/results/positive-1/run-1.txt
 }
 
 @test "ai-skill-eval run: positional arg filters to one skill" {
@@ -385,8 +390,8 @@ EOF
   driver="$(stub_driver_script)"
   run bash "${SCRIPT}" run keep-me --driver-cmd "${driver}"
   assert_success
-  [ -f ".ai-skill-eval/keep-me/with_skill/grades/positive-1.json" ]
-  [ ! -e ".ai-skill-eval/skip-me/with_skill/grades/positive-1.json" ]
+  [ -f ".ai-skill-eval/keep-me/iteration-1/with_skill/grades/positive-1.json" ]
+  [ ! -e ".ai-skill-eval/skip-me/iteration-1/with_skill/grades/positive-1.json" ]
 }
 
 @test "ai-skill-eval run: --only filter scopes to one eval id" {
@@ -394,8 +399,8 @@ EOF
   driver="$(stub_driver_script)"
   run bash "${SCRIPT}" run --driver-cmd "${driver}" --only positive-1
   assert_success
-  [ -f ".ai-skill-eval/sample/with_skill/grades/positive-1.json" ]
-  [ ! -e ".ai-skill-eval/sample/with_skill/grades/negative-1.json" ]
+  [ -f ".ai-skill-eval/sample/iteration-1/with_skill/grades/positive-1.json" ]
+  [ ! -e ".ai-skill-eval/sample/iteration-1/with_skill/grades/negative-1.json" ]
 }
 
 # ──────────────────────────────────────────────────────────────────
@@ -461,10 +466,13 @@ assert {e["eval_id"] for e in d["evals"]} == {"positive-1", "negative-1"}
 @test "ai-skill-eval rerun: targets a single skill:eval id" {
   make_skill ".agents/skills" "sample" yes
   driver="$(stub_driver_script)"
+  # rerun targets the latest iteration; seed one first via `run`.
+  bash "${SCRIPT}" run --driver-cmd "${driver}" --runs-per-query 1 >/dev/null
   run bash "${SCRIPT}" rerun sample:positive-1 --driver-cmd "${driver}"
   assert_success
-  [ -f ".ai-skill-eval/sample/with_skill/grades/positive-1.json" ]
-  [ ! -e ".ai-skill-eval/sample/with_skill/grades/negative-1.json" ]
+  [ -f ".ai-skill-eval/sample/iteration-1/with_skill/grades/positive-1.json" ]
+  # rerun does not allocate a new iteration.
+  [ ! -d ".ai-skill-eval/sample/iteration-2" ]
 }
 
 @test "ai-skill-eval rerun: invalid format exits 2" {
@@ -511,7 +519,7 @@ EOF
   # Grade file should reflect the critic verdict.
   python3 - <<'PY'
 import json
-g = json.load(open(".ai-skill-eval/sample/with_skill/grades/positive-1.json"))
+g = json.load(open(".ai-skill-eval/sample/iteration-1/with_skill/grades/positive-1.json"))
 assert g["grader"] == "critic", g["grader"]
 assert g["expectations"][0]["passed"] is True
 assert "critic-noted flaw" in g.get("flaws", [])
@@ -548,7 +556,7 @@ EOF
 
   python3 - <<'PY'
 import json
-g = json.load(open(".ai-skill-eval/sample/with_skill/grades/positive-1.json"))
+g = json.load(open(".ai-skill-eval/sample/iteration-1/with_skill/grades/positive-1.json"))
 flaws = g.get("flaws", [])
 assert any("DRIVER_TIMEOUT" in f for f in flaws), f"expected DRIVER_TIMEOUT in flaws, got {flaws!r}"
 assert g["runs"] == 1, g
@@ -556,9 +564,9 @@ PY
 
   # A .error marker is written alongside the run output so `grade` can still
   # distinguish timeouts from ordinary non-zero exits.
-  grep -q 'DRIVER_TIMEOUT' ".ai-skill-eval/sample/with_skill/results/positive-1/run-1.txt"
-  [ -f ".ai-skill-eval/sample/with_skill/results/positive-1/run-1.txt.error" ]
-  grep -q 'DRIVER_TIMEOUT' ".ai-skill-eval/sample/with_skill/results/positive-1/run-1.txt.error"
+  grep -q 'DRIVER_TIMEOUT' ".ai-skill-eval/sample/iteration-1/with_skill/results/positive-1/run-1.txt"
+  [ -f ".ai-skill-eval/sample/iteration-1/with_skill/results/positive-1/run-1.txt.error" ]
+  grep -q 'DRIVER_TIMEOUT' ".ai-skill-eval/sample/iteration-1/with_skill/results/positive-1/run-1.txt.error"
 }
 
 @test "ai-skill-eval run: --num-workers 2 parallelises 4 sleep-1 driver calls under sequential wall time" {
@@ -588,8 +596,8 @@ EOF
   [ "${elapsed}" -lt 3 ] || fail "expected --num-workers 2 on 4× sleep-1 jobs to finish under 3s, took ${elapsed}s"
 
   # All four per-skill, per-eval run files exist.
-  [ -f ".ai-skill-eval/parallel-a/with_skill/results/positive-1/run-1.txt" ]
-  [ -f ".ai-skill-eval/parallel-b/with_skill/results/positive-1/run-1.txt" ]
+  [ -f ".ai-skill-eval/parallel-a/iteration-1/with_skill/results/positive-1/run-1.txt" ]
+  [ -f ".ai-skill-eval/parallel-b/iteration-1/with_skill/results/positive-1/run-1.txt" ]
 }
 
 @test "ai-skill-eval: rejects --num-workers values less than 1" {
@@ -647,23 +655,23 @@ EOF
   assert_success
 
   # Both config subtrees exist with their own prompts/results/grades.
-  [ -f ".ai-skill-eval/sample/with_skill/prompts/positive-1.txt" ]
-  [ -f ".ai-skill-eval/sample/with_skill/results/positive-1/run-1.txt" ]
-  [ -f ".ai-skill-eval/sample/with_skill/grades/positive-1.json" ]
-  [ -f ".ai-skill-eval/sample/without_skill/prompts/positive-1.txt" ]
-  [ -f ".ai-skill-eval/sample/without_skill/results/positive-1/run-1.txt" ]
-  [ -f ".ai-skill-eval/sample/without_skill/grades/positive-1.json" ]
+  [ -f ".ai-skill-eval/sample/iteration-1/with_skill/prompts/positive-1.txt" ]
+  [ -f ".ai-skill-eval/sample/iteration-1/with_skill/results/positive-1/run-1.txt" ]
+  [ -f ".ai-skill-eval/sample/iteration-1/with_skill/grades/positive-1.json" ]
+  [ -f ".ai-skill-eval/sample/iteration-1/without_skill/prompts/positive-1.txt" ]
+  [ -f ".ai-skill-eval/sample/iteration-1/without_skill/results/positive-1/run-1.txt" ]
+  [ -f ".ai-skill-eval/sample/iteration-1/without_skill/grades/positive-1.json" ]
 
   # The without_skill prompt must NOT contain the SKILL marker block.
-  run grep -c '===== SKILL =====' ".ai-skill-eval/sample/without_skill/prompts/positive-1.txt"
+  run grep -c '===== SKILL =====' ".ai-skill-eval/sample/iteration-1/without_skill/prompts/positive-1.txt"
   assert_output "0"
-  grep -q '===== SKILL =====' ".ai-skill-eval/sample/with_skill/prompts/positive-1.txt"
+  grep -q '===== SKILL =====' ".ai-skill-eval/sample/iteration-1/with_skill/prompts/positive-1.txt"
 
   # Grades carry the config field so the report can split them.
   python3 - <<'PY'
 import json
-w = json.load(open(".ai-skill-eval/sample/with_skill/grades/positive-1.json"))
-b = json.load(open(".ai-skill-eval/sample/without_skill/grades/positive-1.json"))
+w = json.load(open(".ai-skill-eval/sample/iteration-1/with_skill/grades/positive-1.json"))
+b = json.load(open(".ai-skill-eval/sample/iteration-1/without_skill/grades/positive-1.json"))
 assert w["config"] == "with_skill", w
 assert b["config"] == "without_skill", b
 assert w["trigger_pass"] is True, w
@@ -758,8 +766,8 @@ SKILL
   assert_output --partial "skipping 'bad-skill'"
 
   # The valid skill still produced grades; the bad one didn't.
-  [ -f ".ai-skill-eval/good-skill/with_skill/grades/positive-1.json" ]
-  [ ! -e ".ai-skill-eval/bad-skill/with_skill/grades/positive-1.json" ]
+  [ -f ".ai-skill-eval/good-skill/iteration-1/with_skill/grades/positive-1.json" ]
+  [ ! -e ".ai-skill-eval/bad-skill/iteration-1/with_skill/grades/positive-1.json" ]
 }
 
 # ─────────────────────────────────────────────────────────────
@@ -772,21 +780,21 @@ SKILL
   bash "${SCRIPT}" run --driver-cmd "${driver}" --runs-per-query 2 >/dev/null
 
   # Per-run metrics sidecars should exist alongside each run file.
-  [ -f ".ai-skill-eval/sample/with_skill/results/positive-1/run-1.txt.meta.json" ]
-  [ -f ".ai-skill-eval/sample/with_skill/results/positive-1/run-2.txt.meta.json" ]
+  [ -f ".ai-skill-eval/sample/iteration-1/with_skill/results/positive-1/run-1.txt.meta.json" ]
+  [ -f ".ai-skill-eval/sample/iteration-1/with_skill/results/positive-1/run-2.txt.meta.json" ]
 
   run bash "${SCRIPT}" benchmark
   assert_success
   assert_output --partial "benchmark.{json,md}"
 
-  [ -f ".ai-skill-eval/sample/benchmark.json" ]
-  [ -f ".ai-skill-eval/sample/benchmark.md" ]
+  [ -f ".ai-skill-eval/sample/iteration-1/benchmark.json" ]
+  [ -f ".ai-skill-eval/sample/iteration-1/benchmark.md" ]
 
   # JSON shape matches skill-creator's schema: metadata.skill_name, runs[],
   # run_summary.with_skill with mean/stddev/min/max.
   python3 - <<'PY'
 import json
-doc = json.load(open(".ai-skill-eval/sample/benchmark.json"))
+doc = json.load(open(".ai-skill-eval/sample/iteration-1/benchmark.json"))
 assert doc["metadata"]["skill_name"] == "sample", doc["metadata"]
 assert doc["metadata"]["configurations"] == ["with_skill"], doc["metadata"]
 assert len(doc["runs"]) == 2, doc["runs"]
@@ -799,8 +807,8 @@ assert "delta" not in doc["run_summary"]
 PY
 
   # Markdown carries the benchmark header + a pass_rate row.
-  run cat ".ai-skill-eval/sample/benchmark.md"
-  assert_output --partial "# Benchmark — sample"
+  run cat ".ai-skill-eval/sample/iteration-1/benchmark.md"
+  assert_output --partial "# Benchmark — sample (iteration-1)"
   assert_output --partial "| pass_rate |"
   assert_output --partial "| time_seconds |"
 }
@@ -828,11 +836,11 @@ EOF
 
   run bash "${SCRIPT}" benchmark
   assert_success
-  [ -f ".ai-skill-eval/sample/benchmark.json" ]
+  [ -f ".ai-skill-eval/sample/iteration-1/benchmark.json" ]
 
   python3 - <<'PY'
 import json
-doc = json.load(open(".ai-skill-eval/sample/benchmark.json"))
+doc = json.load(open(".ai-skill-eval/sample/iteration-1/benchmark.json"))
 assert doc["metadata"]["configurations"] == ["with_skill", "without_skill"], doc["metadata"]
 delta = doc["run_summary"]["delta"]
 # with_skill expectation_pass > without_skill expectation_pass.
@@ -840,7 +848,7 @@ assert delta["pass_rate"].startswith("+"), delta
 PY
 
   # Markdown gains a Δ column.
-  run cat ".ai-skill-eval/sample/benchmark.md"
+  run cat ".ai-skill-eval/sample/iteration-1/benchmark.md"
   assert_output --partial "Δ"
   assert_output --partial "| without_skill |"
 }
@@ -862,6 +870,136 @@ PY
 
   run bash "${SCRIPT}" benchmark alpha
   assert_success
-  [ -f ".ai-skill-eval/alpha/benchmark.json" ]
-  [ ! -e ".ai-skill-eval/beta/benchmark.json" ]
+  [ -f ".ai-skill-eval/alpha/iteration-1/benchmark.json" ]
+  [ ! -e ".ai-skill-eval/beta/iteration-1/benchmark.json" ]
+}
+
+# ─────────────────────────────────────────────────────────────
+# R3.3: iteration-N workspace layout
+# ─────────────────────────────────────────────────────────────
+
+@test "ai-skill-eval run: consecutive runs land in iteration-1 then iteration-2 and update the latest symlink" {
+  make_skill ".agents/skills" "sample" yes
+  driver="$(stub_driver_script)"
+
+  bash "${SCRIPT}" run --driver-cmd "${driver}" --only positive-1 --runs-per-query 1 >/dev/null
+  [ -d ".ai-skill-eval/sample/iteration-1" ]
+  [ ! -d ".ai-skill-eval/sample/iteration-2" ]
+  # latest symlink points at iteration-1.
+  [ -L ".ai-skill-eval/sample/latest" ]
+  [ "$(readlink .ai-skill-eval/sample/latest)" = "iteration-1" ]
+
+  bash "${SCRIPT}" run --driver-cmd "${driver}" --only positive-1 --runs-per-query 1 >/dev/null
+  [ -d ".ai-skill-eval/sample/iteration-1" ]
+  [ -d ".ai-skill-eval/sample/iteration-2" ]
+  [ "$(readlink .ai-skill-eval/sample/latest)" = "iteration-2" ]
+  # Both iterations have their own grade files.
+  [ -f ".ai-skill-eval/sample/iteration-1/with_skill/grades/positive-1.json" ]
+  [ -f ".ai-skill-eval/sample/iteration-2/with_skill/grades/positive-1.json" ]
+}
+
+@test "ai-skill-eval run: --iteration N overwrites that existing iteration instead of allocating a new one" {
+  make_skill ".agents/skills" "sample" yes
+  driver="$(stub_driver_script)"
+
+  bash "${SCRIPT}" run --driver-cmd "${driver}" --only positive-1 --runs-per-query 1 >/dev/null
+  bash "${SCRIPT}" run --driver-cmd "${driver}" --only positive-1 --runs-per-query 1 --iteration 1 >/dev/null
+
+  [ -d ".ai-skill-eval/sample/iteration-1" ]
+  [ ! -d ".ai-skill-eval/sample/iteration-2" ]
+}
+
+@test "ai-skill-eval report: --iteration N targets a specific iteration and --compare-to M emits a cross-iteration Δ section" {
+  make_skill ".agents/skills" "sample" yes
+
+  # First run: driver says YES to trigger prompts.
+  yes_driver="$(stub_driver_script)"
+  bash "${SCRIPT}" run --driver-cmd "${yes_driver}" --only positive-1 --runs-per-query 1 >/dev/null
+
+  # Second run: driver says NO, producing a divergent grade. The run itself
+  # exits non-zero because trigger_pass=false on a should_trigger=true eval;
+  # that's expected — we care that iteration-2 is written.
+  local no_driver="${BATS_TEST_TMPDIR}/no-driver.sh"
+  cat >"${no_driver}" <<'EOF'
+#!/usr/bin/env bash
+printf 'TRIGGER: no\nREASON: no\nNEXT_STEP: skip.\n'
+EOF
+  chmod +x "${no_driver}"
+  bash "${SCRIPT}" run --driver-cmd "${no_driver}" --only positive-1 --runs-per-query 1 >/dev/null || true
+  [ -d ".ai-skill-eval/sample/iteration-2" ]
+
+  # Default `report` picks iteration-2 (latest).
+  run bash "${SCRIPT}" report
+  assert_failure # iteration-2 trigger_pass=false on a should_trigger=true eval
+  assert_output --partial "| sample | positive-1 | yes | 0/1 |"
+
+  # Explicit --iteration 1 picks the first run: should_trigger=true passed.
+  run bash "${SCRIPT}" report --iteration 1
+  assert_success
+  assert_output --partial "| sample | positive-1 | yes | 1/1 |"
+
+  # --compare-to 1 appends the cross-iteration Δ section.
+  run bash "${SCRIPT}" report --compare-to 1
+  assert_output --partial "Cross-iteration Δ (baseline: iteration-1)"
+  # Primary = iteration-2 (0/1), baseline = iteration-1 (1/1) → Δ = -100%.
+  assert_output --partial "-100%"
+}
+
+@test "ai-skill-eval: --compare-to is only valid on report" {
+  make_skill ".agents/skills" "sample" yes
+  run bash "${SCRIPT}" run --compare-to 1
+  assert_failure
+  [ "$status" -eq 2 ]
+  assert_output --partial "--compare-to"
+}
+
+@test "ai-skill-eval rerun: targets the latest iteration by default" {
+  make_skill ".agents/skills" "sample" yes
+  driver="$(stub_driver_script)"
+  bash "${SCRIPT}" run --driver-cmd "${driver}" --runs-per-query 1 >/dev/null
+  bash "${SCRIPT}" run --driver-cmd "${driver}" --runs-per-query 1 >/dev/null
+
+  # Mutate the result under iteration-2 so we can detect rerun touched it.
+  printf 'stale\n' >".ai-skill-eval/sample/iteration-2/with_skill/results/positive-1/run-1.txt"
+
+  bash "${SCRIPT}" rerun sample:positive-1 --driver-cmd "${driver}" >/dev/null
+  grep -q 'TRIGGER: yes' ".ai-skill-eval/sample/iteration-2/with_skill/results/positive-1/run-1.txt"
+  # No new iteration-3 allocated.
+  [ ! -d ".ai-skill-eval/sample/iteration-3" ]
+}
+
+@test "ai-skill-eval benchmark: --iteration N targets the requested iteration" {
+  make_skill ".agents/skills" "sample" yes
+  driver="$(stub_driver_script)"
+  bash "${SCRIPT}" run --driver-cmd "${driver}" --runs-per-query 1 >/dev/null
+  bash "${SCRIPT}" run --driver-cmd "${driver}" --runs-per-query 1 >/dev/null
+
+  # Default benchmark targets iteration-2 (latest).
+  run bash "${SCRIPT}" benchmark
+  assert_success
+  [ -f ".ai-skill-eval/sample/iteration-2/benchmark.json" ]
+  [ ! -f ".ai-skill-eval/sample/iteration-1/benchmark.json" ]
+
+  # --iteration 1 targets the older slot.
+  run bash "${SCRIPT}" benchmark --iteration 1
+  assert_success
+  [ -f ".ai-skill-eval/sample/iteration-1/benchmark.json" ]
+
+  python3 - <<'PY'
+import json
+doc = json.load(open(".ai-skill-eval/sample/iteration-1/benchmark.json"))
+assert doc["metadata"]["iteration"] == 1, doc["metadata"]
+PY
+}
+
+@test "ai-skill-eval report: errors when the requested iteration does not exist" {
+  make_skill ".agents/skills" "sample" yes
+  driver="$(stub_driver_script)"
+  bash "${SCRIPT}" run --driver-cmd "${driver}" --runs-per-query 1 >/dev/null
+
+  run bash "${SCRIPT}" report --iteration 99
+  # --iteration 99 on a fresh workspace has no grades to render; the
+  # iteration-less report loader silently skips the skill and the exit
+  # code reflects "no with_skill grades" via hasFailures.
+  assert_failure
 }

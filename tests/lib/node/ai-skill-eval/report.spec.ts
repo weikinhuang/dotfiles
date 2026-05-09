@@ -10,6 +10,7 @@ import {
   groupByConfig,
   hasFailures,
   loadGrades,
+  renderCrossIterationMarkdown,
   renderJson,
   renderMarkdown,
   summarize,
@@ -225,8 +226,8 @@ describe('loadGrades', () => {
   });
 
   test('loads grade.json files across skill subdirectories in sorted order', () => {
-    const dirA = join(ws, 'alpha', 'with_skill', 'grades');
-    const dirB = join(ws, 'beta', 'with_skill', 'grades');
+    const dirA = join(ws, 'alpha', 'iteration-1', 'with_skill', 'grades');
+    const dirB = join(ws, 'beta', 'iteration-1', 'with_skill', 'grades');
     mkdirSync(dirA, { recursive: true });
     mkdirSync(dirB, { recursive: true });
     writeFileSync(join(dirA, 'a.json'), JSON.stringify(grade({ skill: 'alpha' })));
@@ -238,8 +239,8 @@ describe('loadGrades', () => {
   });
 
   test('loads with_skill and without_skill grades and tags each with its config', () => {
-    const withDir = join(ws, 'sample', 'with_skill', 'grades');
-    const withoutDir = join(ws, 'sample', 'without_skill', 'grades');
+    const withDir = join(ws, 'sample', 'iteration-1', 'with_skill', 'grades');
+    const withoutDir = join(ws, 'sample', 'iteration-1', 'without_skill', 'grades');
     mkdirSync(withDir, { recursive: true });
     mkdirSync(withoutDir, { recursive: true });
     writeFileSync(join(withDir, 'positive-1.json'), JSON.stringify(grade({ config: 'with_skill' })));
@@ -256,7 +257,7 @@ describe('loadGrades', () => {
   });
 
   test('respects the "wanted" filter', () => {
-    const dir = join(ws, 'alpha', 'with_skill', 'grades');
+    const dir = join(ws, 'alpha', 'iteration-1', 'with_skill', 'grades');
     mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, 'a.json'), JSON.stringify(grade({ skill: 'alpha' })));
 
@@ -264,14 +265,68 @@ describe('loadGrades', () => {
   });
 
   test('ignores malformed grade files', () => {
-    const dir = join(ws, 'alpha', 'with_skill', 'grades');
+    const dir = join(ws, 'alpha', 'iteration-1', 'with_skill', 'grades');
     mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, 'bad.json'), 'not json');
 
     expect(loadGrades(ws, [])).toEqual([]);
   });
 
+  test('picks the latest iteration by default', () => {
+    const iter1 = join(ws, 'sample', 'iteration-1', 'with_skill', 'grades');
+    const iter2 = join(ws, 'sample', 'iteration-2', 'with_skill', 'grades');
+    mkdirSync(iter1, { recursive: true });
+    mkdirSync(iter2, { recursive: true });
+    writeFileSync(join(iter1, 'positive-1.json'), JSON.stringify(grade({ eval_id: 'iter1' })));
+    writeFileSync(join(iter2, 'positive-1.json'), JSON.stringify(grade({ eval_id: 'iter2' })));
+
+    expect(loadGrades(ws, [])[0]?.eval_id).toBe('iter2');
+  });
+
+  test('explicit iteration overrides the default latest', () => {
+    const iter1 = join(ws, 'sample', 'iteration-1', 'with_skill', 'grades');
+    const iter2 = join(ws, 'sample', 'iteration-2', 'with_skill', 'grades');
+    mkdirSync(iter1, { recursive: true });
+    mkdirSync(iter2, { recursive: true });
+    writeFileSync(join(iter1, 'positive-1.json'), JSON.stringify(grade({ eval_id: 'iter1' })));
+    writeFileSync(join(iter2, 'positive-1.json'), JSON.stringify(grade({ eval_id: 'iter2' })));
+
+    expect(loadGrades(ws, [], 1)[0]?.eval_id).toBe('iter1');
+  });
+
+  test('silently skips skills missing the requested iteration', () => {
+    const dir = join(ws, 'sample', 'iteration-2', 'with_skill', 'grades');
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, 'positive-1.json'), JSON.stringify(grade({})));
+
+    expect(loadGrades(ws, [], 99)).toEqual([]);
+  });
+
   test('throws when the workspace does not exist', () => {
     expect(() => loadGrades('/tmp/does-not-exist-ai-skill-eval', [])).toThrow('does not exist');
+  });
+});
+
+describe('renderCrossIterationMarkdown', () => {
+  test('emits a delta table pairing primary vs baseline rows by (skill, eval_id, config)', () => {
+    const primary = [grade({ eval_id: 'e1', trigger_rate: 1, expectation_pass: 2, expectation_total: 2 })];
+    const compared = [grade({ eval_id: 'e1', trigger_rate: 0.5, expectation_pass: 1, expectation_total: 2 })];
+
+    const out = renderCrossIterationMarkdown(primary, compared, 1);
+
+    expect(out).toContain('Cross-iteration Δ (baseline: iteration-1)');
+    expect(out).toContain('| sample | e1 | with_skill | 2/3 | 2/3 | +50% | 2/2 | 1/2 | +50% |');
+  });
+
+  test('shows em-dash placeholders when a row exists only on one side', () => {
+    const primary = [grade({ eval_id: 'only-in-primary' })];
+    const compared = [grade({ eval_id: 'only-in-baseline' })];
+
+    const out = renderCrossIterationMarkdown(primary, compared, 1);
+
+    expect(out).toContain('only-in-primary');
+    expect(out).toContain('only-in-baseline');
+    // Baseline-only row: primary side filled with em-dashes.
+    expect(out).toMatch(/\| sample \| only-in-baseline \|.*\| — \|/);
   });
 });

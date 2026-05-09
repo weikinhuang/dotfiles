@@ -35,6 +35,7 @@ import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from '
 import { join } from 'node:path';
 
 import { type GradeConfig, type GradeRecord } from './types.ts';
+import { iterationPath } from './workspace.ts';
 
 const CONFIGS: readonly GradeConfig[] = ['with_skill', 'without_skill'];
 
@@ -95,6 +96,8 @@ export interface BenchmarkDelta {
 export interface BenchmarkDocument {
   metadata: {
     skill_name: string;
+    /** Which iteration-N subdir this benchmark was aggregated over. */
+    iteration: number;
     timestamp: string;
     evals_run: string[];
     runs_per_configuration: number;
@@ -178,19 +181,22 @@ export function stats(values: readonly number[]): MetricStats | null {
 // ──────────────────────────────────────────────────────────────────────
 
 /**
- * Load every grade record under `<workspace>/<skill>/<config>/grades/*.json`
- * and the matching per-run `<resultFile>.meta.json` sidecars for that skill.
- * Only grade records for `skill` are returned; the meta-file map is keyed by
- * `<config>:<eval_id>` and holds the per-run metrics arrays in run order.
+ * Load every grade record under
+ * `<workspace>/<skill>/iteration-<N>/<config>/grades/*.json` and the
+ * matching per-run `<resultFile>.meta.json` sidecars for that skill +
+ * iteration. Only grade records for `skill` are returned; the meta-file map
+ * is keyed by `<config>:<eval_id>` and holds the per-run metrics arrays in
+ * run order.
  */
 export function loadSkillArtifacts(
   workspace: string,
   skill: string,
+  iteration: number,
 ): {
   grades: GradeRecord[];
   metas: Map<string, RunMetrics[]>;
 } {
-  const skillDir = join(workspace, skill);
+  const skillDir = iterationPath(workspace, skill, iteration);
   const grades: GradeRecord[] = [];
   const metas = new Map<string, RunMetrics[]>();
   if (!existsSync(skillDir) || !statSync(skillDir).isDirectory()) {
@@ -277,12 +283,18 @@ function buildNotes(grades: readonly GradeRecord[], configurations: readonly Gra
 // ──────────────────────────────────────────────────────────────────────
 
 /**
- * Build the {@link BenchmarkDocument} for one skill. Stats are computed from
- * the grade records (eval-level pass_rate) and the per-run metrics sidecars
- * (time_seconds, tokens) loaded from the workspace.
+ * Build the {@link BenchmarkDocument} for one skill + iteration. Stats are
+ * computed from the grade records (eval-level pass_rate) and the per-run
+ * metrics sidecars (time_seconds, tokens) loaded from
+ * `<workspace>/<skill>/iteration-<N>/`.
  */
-export function buildBenchmark(workspace: string, skill: string, opts: { timestamp?: string } = {}): BenchmarkDocument {
-  const { grades, metas } = loadSkillArtifacts(workspace, skill);
+export function buildBenchmark(
+  workspace: string,
+  skill: string,
+  iteration: number,
+  opts: { timestamp?: string } = {},
+): BenchmarkDocument {
+  const { grades, metas } = loadSkillArtifacts(workspace, skill, iteration);
 
   // Per-config collections: eval-level pass rates + flattened per-run
   // time/tokens samples.
@@ -351,6 +363,7 @@ export function buildBenchmark(workspace: string, skill: string, opts: { timesta
   return {
     metadata: {
       skill_name: skill,
+      iteration,
       timestamp: opts.timestamp ?? new Date().toISOString(),
       evals_run: [...evalIds].sort(),
       runs_per_configuration: maxRunsPerConfig,
@@ -410,7 +423,7 @@ function renderRow(
  */
 export function renderBenchmarkMarkdown(doc: BenchmarkDocument): string {
   const lines: string[] = [
-    `# Benchmark \u2014 ${doc.metadata.skill_name}`,
+    `# Benchmark \u2014 ${doc.metadata.skill_name} (iteration-${doc.metadata.iteration})`,
     '',
     `- Generated: \`${doc.metadata.timestamp}\``,
     `- Evals: ${doc.metadata.evals_run.length} (${doc.metadata.evals_run.join(', ') || '\u2014'})`,
@@ -448,14 +461,19 @@ export function renderBenchmarkMarkdown(doc: BenchmarkDocument): string {
 // ──────────────────────────────────────────────────────────────────────
 
 /**
- * Build, render, and persist benchmark artifacts for `skill` under
- * `<workspace>/<skill>/benchmark.{json,md}`. Returns the constructed
- * document so callers (notably the CLI) can inspect or print it.
+ * Build, render, and persist benchmark artifacts for `skill` + `iteration`
+ * under `<workspace>/<skill>/iteration-<N>/benchmark.{json,md}`. Returns the
+ * constructed document so callers (notably the CLI) can inspect or print it.
  */
-export function writeBenchmark(workspace: string, skill: string, opts: { timestamp?: string } = {}): BenchmarkDocument {
-  const doc = buildBenchmark(workspace, skill, opts);
-  const skillDir = join(workspace, skill);
-  writeFileSync(join(skillDir, 'benchmark.json'), `${JSON.stringify(doc, null, 2)}\n`);
-  writeFileSync(join(skillDir, 'benchmark.md'), renderBenchmarkMarkdown(doc));
+export function writeBenchmark(
+  workspace: string,
+  skill: string,
+  iteration: number,
+  opts: { timestamp?: string } = {},
+): BenchmarkDocument {
+  const doc = buildBenchmark(workspace, skill, iteration, opts);
+  const iterDir = iterationPath(workspace, skill, iteration);
+  writeFileSync(join(iterDir, 'benchmark.json'), `${JSON.stringify(doc, null, 2)}\n`);
+  writeFileSync(join(iterDir, 'benchmark.md'), renderBenchmarkMarkdown(doc));
   return doc;
 }
