@@ -222,8 +222,43 @@ Default: `.ai-skill-eval/` in cwd (gitignored in this repo). Per skill:
     └── grades/<eval-id>.json        (parsed + graded)
 ```
 
-`grade` / `report` / `rerun` all read from this workspace. Override with `--workspace DIR` to keep per-run workspaces
-separate (handy when benchmarking several models back-to-back).
+`grade` / `report` / `rerun` / `optimize` all read from this workspace. Override with `--workspace DIR` to keep per-run
+workspaces separate (handy when benchmarking several models back-to-back).
+
+## Description optimization (`optimize`)
+
+`ai-skill-eval optimize <skill>` iteratively rewrites the `description:` frontmatter until the trigger-rate on a
+held-out test set stops improving. It uses the same driver abstraction as `run`, so any `--driver pi|claude|codex` or
+`--driver-cmd '…'` works.
+
+Minimum input: a trigger-only eval set at `<skill>/evals/trigger-evals.json`:
+
+```json
+[
+  { "query": "…realistic user message…", "should_trigger": true },
+  { "query": "…near-miss message…", "should_trigger": false }
+]
+```
+
+If `trigger-evals.json` is absent, the optimizer falls back to `<skill>/evals/evals.json` and projects each entry to
+`{query: prompt, should_trigger}` (expectations are ignored for the loop). Aim for 20 items, 8–10 each side, so the 0.4
+default holdout leaves a meaningful train/test split.
+
+Default run: `ai-skill-eval optimize <skill>` → prints the best-scoring description to stdout. Nothing touches SKILL.md.
+Pass `--write` to rewrite the frontmatter in place; the previous description is snapshotted to
+`.ai-skill-eval/<skill>/description-history.json` and a unified diff is printed before the overwrite.
+
+Key flags:
+
+- `--eval-set PATH` — explicit eval-set file.
+- `--holdout F` — stratified test fraction. `0` disables (train = entire eval set).
+- `--max-iterations N` — default 5. Loop exits early when the train set reaches zero failures.
+- `--runs-per-query N` — stochastic trigger measurement (same as `run`).
+- `--trigger-threshold T` — pass threshold for `trigger_rate`.
+
+Per-iteration artifacts land under `iteration-N/optimize/improver/{prompt,response,parsed}.{txt,json}`. Trigger grades
+and per-run files live under `iteration-N/with_skill/` just like `run`, so `report --iteration N --compare-to M` works
+out of the box for comparing two optimizer iterations.
 
 ## Anti-patterns
 

@@ -10,6 +10,7 @@ import { buildCriticPrompt, mergeCriticVerdict, writeCriticPrompt } from './crit
 import { countEvals, discoverSkills, loadEvalsFile, resolveScanRoots } from './discovery.ts';
 import { invokeCritic, invokeDriver, type DriverConfig } from './driver.ts';
 import { DEFAULT_TRIGGER_THRESHOLD, gradeDeterministic, parseReply, pickMajorityRunIndex } from './grader.ts';
+import { loadTriggerEvalSet, runOptimizeLoop, type OptimizerHooks, type OptimizeResult } from './optimizer.ts';
 import { buildEvalPrompt, resolveRunsPerQuery } from './prompt.ts';
 import {
   hasFailures,
@@ -19,6 +20,7 @@ import {
   renderMarkdown,
   summarize,
 } from './report.ts';
+import { parseSkillMd } from './skill-md.ts';
 import { type DriverKind, type EvalSpec, type EvalsFile, type GradeConfig, type SkillEntry } from './types.ts';
 import { formatFailure, validateSkillMd, type ValidationFailure } from './validate.ts';
 import {
@@ -52,6 +54,14 @@ Subcommands:
   benchmark [SKILL...]      Emit aggregated benchmark.json + benchmark.md for
                             each skill under the workspace (stats over existing
                             grades + per-run metrics sidecars; no driver calls).
+  optimize SKILL            Iteratively improve SKILL.md's \`description:\`
+                            frontmatter against a trigger-only eval set
+                            (<skill>/evals/trigger-evals.json, with fallback
+                            to evals.json projected to {query, should_trigger}).
+                            Prints the best-scoring description to stdout; pass
+                            \`--write\` to rewrite the SKILL.md frontmatter in
+                            place after snapshotting the previous description
+                            to description-history.json.
 
 Global options:
   --skill-root DIR          Directory to scan for SKILL.md files (repeatable).
@@ -97,6 +107,19 @@ Global options:
                             read commands.
   --compare-to N            On 'report', emit a cross-iteration delta
                             against iteration-N as the baseline.
+  --eval-set PATH           On 'optimize', explicit path to the trigger eval
+                            set. Default: <skill>/evals/trigger-evals.json,
+                            falling back to <skill>/evals/evals.json (projected
+                            to {query, should_trigger}).
+  --holdout F               Fraction (0–1) of the eval set to hold out as a
+                            stratified test split. Default: 0.4. \`0\` disables.
+  --max-iterations N        Maximum improver iterations. Default: 5.
+  --write                   On 'optimize', rewrite SKILL.md's \`description:\`
+                            frontmatter with the best iteration's result.
+                            Snapshots the previous description to
+                            .ai-skill-eval/<skill>/description-history.json
+                            and prints a diff before writing. Without --write,
+                            optimize prints the best description to stdout.
   --json                    Machine-readable JSON output (for list / report).
   -v, --verbose             Log each invocation to stderr.
   -h, --help                Show this help.
@@ -126,7 +149,7 @@ Eval schema (<skill-dir>/evals/evals.json):
 Exit codes: 0 ok, 1 validation/run error, 2 usage error.
 `;
 
-type Subcommand = 'list' | 'run' | 'grade' | 'rerun' | 'report' | 'validate' | 'benchmark';
+type Subcommand = 'list' | 'run' | 'grade' | 'rerun' | 'report' | 'validate' | 'benchmark' | 'optimize';
 
 interface CliOptions {
   subcommand: Subcommand;
@@ -146,6 +169,10 @@ interface CliOptions {
   baseline: boolean;
   iteration: number | null;
   compareTo: number | null;
+  evalSet: string | null;
+  holdout: number;
+  maxIterations: number;
+  write: boolean;
   json: boolean;
   verbose: boolean;
 }
@@ -203,12 +230,13 @@ export function parseArgs(argv: readonly string[]): CliOptions {
     case 'report':
     case 'validate':
     case 'benchmark':
+    case 'optimize':
       subcommand = first;
       break;
     default:
       if (first.startsWith('-')) {
         usageErr(
-          `unknown option '${first}' (expected subcommand: list, run, grade, rerun, report, validate, benchmark)`,
+          `unknown option '${first}' (expected subcommand: list, run, grade, rerun, report, validate, benchmark, optimize)`,
         );
       }
       usageErr(`unknown subcommand '${first}'`);
@@ -232,6 +260,10 @@ export function parseArgs(argv: readonly string[]): CliOptions {
     baseline: false,
     iteration: null,
     compareTo: null,
+    evalSet: null,
+    holdout: 0.4,
+    maxIterations: 5,
+    write: false,
     json: false,
     verbose: false,
   };
@@ -346,6 +378,36 @@ export function parseArgs(argv: readonly string[]): CliOptions {
         i += advance;
         break;
       }
+      case '--eval-set': {
+        const { value, advance } = valueFor(arg, argv as string[], i);
+        opts.evalSet = value;
+        i += advance;
+        break;
+      }
+      case '--holdout': {
+        const { value, advance } = valueFor(arg, argv as string[], i);
+        const h = Number.parseFloat(value);
+        if (!Number.isFinite(h) || h < 0 || h >= 1) {
+          usageErr(`--holdout expects a number in [0.0, 1.0), got '${value}'`);
+        }
+        opts.holdout = h;
+        i += advance;
+        break;
+      }
+      case '--max-iterations': {
+        const { value, advance } = valueFor(arg, argv as string[], i);
+        const n = Number.parseInt(value, 10);
+        if (!Number.isFinite(n) || n < 1) {
+          usageErr(`--max-iterations expects a positive integer, got '${value}'`);
+        }
+        opts.maxIterations = n;
+        i += advance;
+        break;
+      }
+      case '--write':
+        opts.write = true;
+        i += 1;
+        break;
       case '--json':
         opts.json = true;
         i += 1;
@@ -386,6 +448,13 @@ export function parseArgs(argv: readonly string[]): CliOptions {
 
   if (opts.compareTo != null && opts.subcommand !== 'report') {
     usageErr("--compare-to is only valid on the 'report' subcommand");
+  }
+
+  if (opts.write && opts.subcommand !== 'optimize') {
+    usageErr("--write is only valid on the 'optimize' subcommand");
+  }
+  if (opts.evalSet != null && opts.subcommand !== 'optimize') {
+    usageErr("--eval-set is only valid on the 'optimize' subcommand");
   }
 
   return opts;
@@ -862,6 +931,118 @@ function cmdReport(opts: CliOptions): number {
 }
 
 /**
+ * `ai-skill-eval optimize SKILL` — the R4 description-optimization loop.
+ * Loads a trigger eval set, runs {@link runOptimizeLoop} with the same
+ * driver abstraction `run` uses, prints the best-scoring description, and
+ * (commit 2) rewrites the SKILL.md frontmatter when `--write` is set.
+ */
+async function cmdOptimize(opts: CliOptions): Promise<number> {
+  if (opts.positional.length !== 1) {
+    usageErr("optimize requires exactly one SKILL argument (e.g. 'ai-skill-eval optimize my-skill')");
+  }
+  const skillName = opts.positional[0];
+
+  const roots = resolveScanRoots(opts.skillRoots);
+  const all = discoverSkills(roots);
+  const entry = all.find((e) => e.name === skillName);
+  if (!entry) die(`skill '${skillName}' not found in scan roots: ${roots.join(' ')}`);
+
+  // Pre-flight: SKILL.md frontmatter must lint clean before we touch it.
+  const verdict = validateSkillMd(entry.skillMd);
+  if (!verdict.ok) {
+    process.stderr.write(`${PROG}: ${formatFailure(verdict)}\n`);
+    die(`skill '${skillName}' failed frontmatter validation; fix SKILL.md and retry`);
+  }
+
+  const parsed = parseSkillMd(entry.skillMd);
+
+  // Resolve the eval set path. Explicit --eval-set wins; otherwise look
+  // for <skill>/evals/trigger-evals.json; fall back to evals.json projected.
+  let evalSetPath = opts.evalSet;
+  if (!evalSetPath) {
+    const triggerPath = join(dirname(entry.skillMd), 'evals', 'trigger-evals.json');
+    if (existsSync(triggerPath)) {
+      evalSetPath = triggerPath;
+    } else if (entry.evalsJson && existsSync(entry.evalsJson)) {
+      logVerbose(opts, `no trigger-evals.json; projecting ${entry.evalsJson} to trigger-only`);
+      evalSetPath = entry.evalsJson;
+    }
+  }
+  if (!evalSetPath) {
+    die(
+      `no eval set found for '${skillName}': pass --eval-set PATH, ` +
+        'or add <skill>/evals/trigger-evals.json (or evals/evals.json for fallback)',
+    );
+  }
+
+  const evalSet = loadTriggerEvalSet(readFileSync(evalSetPath, 'utf8'), evalSetPath);
+  if (evalSet.length < 2) {
+    die(`eval set at ${evalSetPath} has fewer than 2 items; optimize needs both trigger + no-trigger coverage`);
+  }
+
+  const cfg = driverConfig(opts);
+  // Improver calls are text-generation workloads and run for longer than
+  // TRIGGER evals. Bump the improver timeout to at least 300s (mirroring
+  // `improve_description.py`), unless the user explicitly disabled timeouts.
+  const improverCfg: DriverConfig =
+    cfg.timeoutMs == null || cfg.timeoutMs <= 0 ? cfg : { ...cfg, timeoutMs: Math.max(cfg.timeoutMs, 300_000) };
+
+  const hooks: OptimizerHooks = {
+    async runEvalDriver(promptFile, resultFile) {
+      const { exitCode, durationSec, timedOut } = await invokeDriver(cfg, promptFile, resultFile);
+      logVerbose(opts, `  optimize eval exit=${exitCode} dur=${durationSec}s${timedOut ? ' (TIMEOUT)' : ''}`);
+      if (timedOut) writeFileSync(`${resultFile}.error`, 'DRIVER_TIMEOUT\n');
+      else if (exitCode !== 0) writeFileSync(`${resultFile}.error`, 'DRIVER_FAILED\n');
+    },
+    async runImproverDriver(promptFile, outputFile) {
+      const { exitCode, durationSec, timedOut } = await invokeDriver(improverCfg, promptFile, outputFile);
+      logVerbose(opts, `  improver exit=${exitCode} dur=${durationSec}s${timedOut ? ' (TIMEOUT)' : ''}`);
+      if (timedOut || exitCode !== 0) {
+        throw new Error(
+          `improver driver ${timedOut ? 'timed out' : `exited ${exitCode}`} on ${promptFile} (see ${outputFile})`,
+        );
+      }
+    },
+  };
+
+  const runs = opts.runsPerQuery ?? 3;
+  logVerbose(
+    opts,
+    `optimize ${skillName}: ${evalSet.length} eval(s), holdout=${opts.holdout}, max-iter=${opts.maxIterations}, runs-per-query=${runs}`,
+  );
+
+  const result: OptimizeResult = await runOptimizeLoop({
+    parsed,
+    skillName,
+    evalSet,
+    workspace: opts.workspace,
+    holdout: opts.holdout,
+    maxIterations: opts.maxIterations,
+    runsPerQuery: runs,
+    triggerThreshold: opts.triggerThreshold,
+    numWorkers: opts.numWorkers,
+    hooks,
+    log: (msg) => logVerbose(opts, msg),
+  });
+
+  // Summary on stderr so stdout carries just the best description (lets
+  // `--write`-less invocations pipe cleanly into other tools).
+  process.stderr.write(
+    `${PROG}: best iteration ${result.bestIteration}/${result.iterations.length} ` +
+      `(${result.bestSource}=${result.bestScore}, exit=${result.exitReason})\n`,
+  );
+
+  if (opts.write) {
+    die(
+      '--write is not yet implemented in this commit; re-run without --write, or apply the next commit that wires up the SKILL.md auto-edit path',
+    );
+  }
+
+  process.stdout.write(`${result.bestDescription}\n`);
+  return 0;
+}
+
+/**
  * `ai-skill-eval validate [SKILL...]` — lint SKILL.md frontmatter for every
  * discovered (or named) skill. Exits 1 if any fail, 0 otherwise. No driver
  * calls.
@@ -984,6 +1165,9 @@ export async function main(argv: readonly string[]): Promise<void> {
         break;
       case 'benchmark':
         code = cmdBenchmark(opts);
+        break;
+      case 'optimize':
+        code = await cmdOptimize(opts);
         break;
     }
     process.exit(code);

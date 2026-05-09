@@ -1003,3 +1003,167 @@ PY
   # code reflects "no with_skill grades" via hasFailures.
   assert_failure
 }
+
+# ──────────────────────────────────────────────────────────────────
+# optimize (R4)
+# ──────────────────────────────────────────────────────────────────
+
+# Build a trigger-eval stub driver for the optimizer:
+#   - Reads $AI_SKILL_EVAL_PROMPT_FILE.
+#   - If the prompt looks like an IMPROVER call (mentions 'available_skills'),
+#     it emits a canned <new_description> block containing the 'optimized'
+#     marker text below.
+#   - Otherwise it's a TRIGGER eval: returns 'yes' only when the SKILL block
+#     itself carries the 'optimized' marker AND the scenario contains
+#     OPT-YES. That way iteration 1 (initial description) fails every
+#     positive, the improver runs, and iteration 2 (optimized description)
+#     passes every positive — forcing the loop through the improver path.
+optimize_stub_driver_script() {
+  local path="${BATS_TEST_TMPDIR}/optimize-stub.sh"
+  cat >"${path}" <<'EOS'
+#!/usr/bin/env bash
+set -euo pipefail
+prompt="$(cat "${AI_SKILL_EVAL_PROMPT_FILE}")"
+
+if printf '%s' "${prompt}" | grep -q 'available_skills'; then
+  printf '<new_description>Use the optimized skill whenever the user mentions OPT-YES in their scenario. Do not trigger on OPT-NO scenarios.</new_description>\n'
+  exit 0
+fi
+
+if printf '%s' "${prompt}" | grep -q 'optimized skill whenever the user mentions OPT-YES' \
+   && printf '%s' "${prompt}" | grep -q 'Scenario: .*OPT-YES'; then
+  printf 'TRIGGER: yes\nREASON: scenario says OPT-YES.\nNEXT_STEP: apply the skill.\n'
+else
+  printf 'TRIGGER: no\nREASON: scenario does not match.\nNEXT_STEP: skip the skill.\n'
+fi
+EOS
+  chmod +x "${path}"
+  printf '%s\n' "${path}"
+}
+
+# Build a skill + trigger-evals.json eval set for optimizer testing.
+make_optimize_skill() {
+  local root="$1" name="$2"
+  mkdir -p "${root}/${name}/evals"
+  cat >"${root}/${name}/SKILL.md" <<SKILL
+---
+name: ${name}
+description: 'Initial description that doesn''t match well.'
+---
+
+# ${name}
+
+Placeholder body.
+SKILL
+  cat >"${root}/${name}/evals/trigger-evals.json" <<'JSON'
+[
+  {"query": "Please handle this OPT-YES task for me.", "should_trigger": true},
+  {"query": "Another OPT-YES situation arises.", "should_trigger": true},
+  {"query": "OPT-YES is happening again.", "should_trigger": true},
+  {"query": "OPT-YES time.", "should_trigger": true},
+  {"query": "This is OPT-NO territory.", "should_trigger": false},
+  {"query": "Avoid OPT-NO content please.", "should_trigger": false},
+  {"query": "OPT-NO is not relevant.", "should_trigger": false},
+  {"query": "Do not apply when OPT-NO.", "should_trigger": false}
+]
+JSON
+}
+
+@test "ai-skill-eval optimize: requires exactly one skill argument" {
+  make_optimize_skill ".agents/skills" "optsmoke"
+  run bash "${SCRIPT}" optimize
+  assert_failure
+  [ "$status" -eq 2 ]
+  assert_output --partial "optimize requires exactly one SKILL"
+
+  run bash "${SCRIPT}" optimize optsmoke extra
+  assert_failure
+  [ "$status" -eq 2 ]
+}
+
+@test "ai-skill-eval optimize: rejects --write flag (commit 1, not yet implemented)" {
+  make_optimize_skill ".agents/skills" "optsmoke"
+  driver="$(optimize_stub_driver_script)"
+  run bash "${SCRIPT}" optimize optsmoke \
+    --driver-cmd "${driver}" \
+    --holdout 0 --max-iterations 1 --runs-per-query 1 --timeout 0 --write
+  assert_failure
+  assert_output --partial "--write is not yet implemented"
+}
+
+@test "ai-skill-eval optimize: --eval-set on other subcommands is rejected as usage error" {
+  run bash "${SCRIPT}" run --eval-set foo.json
+  assert_failure
+  [ "$status" -eq 2 ]
+  assert_output --partial "--eval-set is only valid on the 'optimize' subcommand"
+}
+
+@test "ai-skill-eval optimize: --holdout out of range exits 2" {
+  run bash "${SCRIPT}" optimize anything --holdout 1.5
+  assert_failure
+  [ "$status" -eq 2 ]
+  assert_output --partial "--holdout"
+
+  run bash "${SCRIPT}" optimize anything --holdout -0.1
+  assert_failure
+  [ "$status" -eq 2 ]
+}
+
+@test "ai-skill-eval optimize: writes iteration-N workspace + improver logs and leaves SKILL.md untouched" {
+  make_optimize_skill ".agents/skills" "optsmoke"
+  local skill_md=".agents/skills/optsmoke/SKILL.md"
+  local before_mtime
+  before_mtime="$(stat -c %Y "${skill_md}")"
+
+  driver="$(optimize_stub_driver_script)"
+  run bash "${SCRIPT}" optimize optsmoke \
+    --driver-cmd "${driver}" \
+    --holdout 0 --max-iterations 2 --runs-per-query 1 --timeout 0
+
+  assert_success
+  # Canned improver response is the "best" description (iteration 2) because
+  # iteration 1 fails (initial description never triggers on OPT-YES).
+  assert_output --partial "Use the optimized skill whenever the user mentions OPT-YES"
+
+  # Iteration-N layout: optimizer runs two iterations, each with its own
+  # iteration-N slot under the skill workspace.
+  [ -d ".ai-skill-eval/optsmoke/iteration-1/with_skill/grades" ]
+  [ -d ".ai-skill-eval/optsmoke/iteration-2/with_skill/grades" ]
+  # Improver transcripts land under iteration-1/optimize/improver.
+  [ -f ".ai-skill-eval/optsmoke/iteration-1/optimize/improver/prompt.txt" ]
+  [ -f ".ai-skill-eval/optsmoke/iteration-1/optimize/improver/response.txt" ]
+  [ -f ".ai-skill-eval/optsmoke/iteration-1/optimize/improver/parsed.json" ]
+  # The final iteration (2) does NOT have an improver subdir because the
+  # loop breaks right after grading.
+  [ ! -d ".ai-skill-eval/optsmoke/iteration-2/optimize/improver" ]
+
+  # SKILL.md untouched (no --write).
+  local after_mtime
+  after_mtime="$(stat -c %Y "${skill_md}")"
+  [ "${before_mtime}" = "${after_mtime}" ]
+  grep -q 'Initial description' "${skill_md}"
+
+  # History file is NOT written without --write.
+  [ ! -f ".ai-skill-eval/optsmoke/description-history.json" ]
+
+  # Summary line goes to stderr.
+  echo "${stderr:-}${output}" | grep -E "best iteration [0-9]+/[0-9]+" >/dev/null
+}
+
+@test "ai-skill-eval optimize: falls back to evals.json when trigger-evals.json is absent" {
+  make_skill ".agents/skills" "optfallback" yes
+  driver="$(optimize_stub_driver_script)"
+  run bash "${SCRIPT}" optimize optfallback \
+    --driver-cmd "${driver}" \
+    --holdout 0 --max-iterations 1 --runs-per-query 1 --timeout 0 --verbose
+  # The existing make_skill fixture produces 2 evals (1 positive + 1
+  # negative) via evals.json; the optimizer should project them into the
+  # trigger-only shape and run one iteration. Exit status 0 (the stub
+  # returns TRIGGER=no for everything since prompts don't contain "OPT-YES",
+  # so the negative passes and the positive fails; one iteration is fine).
+  assert_success
+  # The stub's canned improver output would be emitted, but we only care
+  # that the fallback path wrote a grade file.
+  [ -f ".ai-skill-eval/optfallback/iteration-1/with_skill/grades/positive-1.json" ]
+  [ -f ".ai-skill-eval/optfallback/iteration-1/with_skill/grades/negative-1.json" ]
+}

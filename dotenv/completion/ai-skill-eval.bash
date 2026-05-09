@@ -9,11 +9,15 @@ _dot_ai_skill_eval() {
 
   # Flags that take a free-form value: no suggestion.
   case "${prev}" in
-    --driver-cmd | --critic-cmd | --model | --only | --num-workers | --timeout | --iteration | --compare-to)
+    --driver-cmd | --critic-cmd | --model | --only | --num-workers | --timeout | --iteration | --compare-to | --holdout | --max-iterations)
       return
       ;;
     --skill-root | --workspace)
       mapfile -t COMPREPLY < <(compgen -d -- "${cur}")
+      return
+      ;;
+    --eval-set)
+      mapfile -t COMPREPLY < <(compgen -f -- "${cur}")
       return
       ;;
     --driver)
@@ -40,7 +44,7 @@ _dot_ai_skill_eval() {
     if [[ "${cur}" == -* ]]; then
       mapfile -t COMPREPLY < <(compgen -W "--skill-root --workspace --driver --driver-cmd --model --critic-cmd --only --num-workers --timeout --iteration --compare-to --json -v --verbose -h --help --version" -- "${cur}")
     else
-      mapfile -t COMPREPLY < <(compgen -W "list run grade rerun report validate benchmark" -- "${cur}")
+      mapfile -t COMPREPLY < <(compgen -W "list run grade rerun report validate benchmark optimize" -- "${cur}")
     fi
     return
   fi
@@ -52,6 +56,7 @@ _dot_ai_skill_eval() {
       run | grade | rerun) flags="${flags} --only --iteration" ;;
       report) flags="${flags} --iteration --compare-to" ;;
       benchmark) flags="${flags} --iteration" ;;
+      optimize) flags="${flags} --eval-set --holdout --max-iterations --runs-per-query --trigger-threshold --write" ;;
     esac
     mapfile -t COMPREPLY < <(compgen -W "${flags}" -- "${cur}")
     return
@@ -62,7 +67,7 @@ _dot_ai_skill_eval() {
   # and the current directory has skills to scan; otherwise fall back to
   # file completion so the user can point at a skill path directly.
   case "${op}" in
-    run | grade | report | validate | benchmark)
+    run | grade | report | validate | benchmark | optimize)
       local names=""
       if command -v ai-skill-eval >/dev/null 2>&1; then
         names="$(ai-skill-eval list --json 2>/dev/null | python3 -c 'import json,sys; d=json.load(sys.stdin); print(" ".join(s["name"] for s in d))' 2>/dev/null)"
