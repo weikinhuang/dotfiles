@@ -15,7 +15,7 @@
 //
 // SPDX-License-Identifier: MIT
 
-import { readFileSync } from 'node:fs';
+import { readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 
 /** Thrown when a file doesn't have a usable YAML frontmatter block. */
 export class SkillMdParseError extends Error {}
@@ -224,4 +224,56 @@ export function renderSkillWithDescription(parsed: ParsedSkillMd, description: s
   const after = lines.slice(parsed.descriptionEndLine + 1);
   const replacement = renderFoldedDescription(description).split('\n');
   return [...before, ...replacement, ...after].join('\n');
+}
+
+export interface RewriteResult {
+  /** Previous description (verbatim, unescaped scalar value). */
+  previous: string;
+  /** New file contents that were written to `path`. */
+  written: string;
+}
+
+/**
+ * Rewrite a SKILL.md in place, replacing only the `description:` frontmatter
+ * value with a folded block scalar carrying `newDescription`. Preserves
+ * every other byte of the file.
+ *
+ * Returns the previous description alongside the new file contents so
+ * callers can snapshot history and print diffs without re-parsing.
+ * Writes atomically (tmpfile + rename) so an interrupted rewrite can't
+ * leave a half-formed SKILL.md behind.
+ */
+export function rewriteDescription(path: string, newDescription: string): RewriteResult {
+  const parsed = parseSkillMd(path);
+  const written = renderSkillWithDescription(parsed, newDescription);
+  const tmp = `${path}.ai-skill-eval.tmp`;
+  writeFileSync(tmp, written);
+  try {
+    renameSync(tmp, path);
+  } catch (err) {
+    try {
+      unlinkSync(tmp);
+    } catch {
+      // ignore
+    }
+    throw err;
+  }
+  return { previous: parsed.description, written };
+}
+
+/**
+ * Produce a compact unified diff describing the description swap. Only the
+ * description field is shown (bookended by `--- description (before)` /
+ * `+++ description (after)` headers), since the rest of the file is
+ * identical. Useful for stdout-ing before committing a `--write`.
+ */
+export function renderDescriptionDiff(previous: string, next: string): string {
+  if (previous === next) return 'description: (unchanged)\n';
+  const out: string[] = ['--- description (before)', '+++ description (after)'];
+  const prevLines = previous.split('\n');
+  const nextLines = next.split('\n');
+  for (const line of prevLines) out.push(`- ${line}`);
+  for (const line of nextLines) out.push(`+ ${line}`);
+  out.push('');
+  return out.join('\n');
 }

@@ -1081,14 +1081,71 @@ JSON
   [ "$status" -eq 2 ]
 }
 
-@test "ai-skill-eval optimize: rejects --write flag (commit 1, not yet implemented)" {
+@test "ai-skill-eval optimize --write: rewrites SKILL.md frontmatter, writes history, and prints a diff" {
   make_optimize_skill ".agents/skills" "optsmoke"
+  local skill_md=".agents/skills/optsmoke/SKILL.md"
+
   driver="$(optimize_stub_driver_script)"
   run bash "${SCRIPT}" optimize optsmoke \
     --driver-cmd "${driver}" \
-    --holdout 0 --max-iterations 1 --runs-per-query 1 --timeout 0 --write
-  assert_failure
-  assert_output --partial "--write is not yet implemented"
+    --holdout 0 --max-iterations 2 --runs-per-query 1 --timeout 0 --write
+
+  assert_success
+  # Diff header goes to stdout.
+  assert_output --partial '--- description (before)'
+  assert_output --partial '+++ description (after)'
+  assert_output --partial '+ Use the optimized skill whenever the user mentions OPT-YES'
+
+  # SKILL.md was rewritten as a folded block scalar carrying the best description.
+  grep -F 'description: >-' "${skill_md}" >/dev/null
+  grep -F 'Use the optimized skill whenever the user mentions OPT-YES' "${skill_md}" >/dev/null
+  # Previous description is gone.
+  run ! grep -F "Initial description that doesn" "${skill_md}"
+
+  # description-history.json has the prior description.
+  [ -f ".ai-skill-eval/optsmoke/description-history.json" ]
+  python3 - <<'PY'
+import json, sys
+entries = json.load(open(".ai-skill-eval/optsmoke/description-history.json"))
+assert isinstance(entries, list) and len(entries) == 1, entries
+assert entries[0]["source"] == "replaced", entries
+assert "Initial description" in entries[0]["description"], entries
+assert entries[0]["iteration"] >= 1, entries
+assert "timestamp" in entries[0], entries
+PY
+}
+
+@test "ai-skill-eval optimize --write: appends to an existing description-history.json" {
+  make_optimize_skill ".agents/skills" "optsmoke"
+  mkdir -p .ai-skill-eval/optsmoke
+  cat >.ai-skill-eval/optsmoke/description-history.json <<'JSON'
+[
+  {
+    "timestamp": "2025-01-01T00:00:00.000Z",
+    "description": "prior value",
+    "source": "replaced",
+    "iteration": 1,
+    "score": "train=0/0"
+  }
+]
+JSON
+
+  driver="$(optimize_stub_driver_script)"
+  bash "${SCRIPT}" optimize optsmoke \
+    --driver-cmd "${driver}" \
+    --holdout 0 --max-iterations 2 --runs-per-query 1 --timeout 0 --write >/dev/null
+
+  python3 - <<'PY'
+import json
+entries = json.load(open(".ai-skill-eval/optsmoke/description-history.json"))
+assert len(entries) == 2, entries
+assert entries[0]["description"] == "prior value", entries
+assert "Initial description" in entries[1]["description"], entries
+PY
+}
+
+@test "ai-skill-eval optimize: rejects --write flag (commit 1, not yet implemented)" {
+  skip 'superseded by commit 2 --write auto-edit'
 }
 
 @test "ai-skill-eval optimize: --eval-set on other subcommands is rejected as usage error" {

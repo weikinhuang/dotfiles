@@ -18,7 +18,7 @@
 //
 // SPDX-License-Identifier: MIT
 
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { runPool } from './concurrency.ts';
@@ -408,3 +408,57 @@ export function loadTriggerEvalSet(raw: string, sourcePath: string): TriggerEval
 
 /** Re-export for callers that want to parse a SKILL.md string into the shape `runOptimizeLoop` expects. */
 export { parseSkillMdText };
+
+/** One entry of `.ai-skill-eval/<skill>/description-history.json`. */
+export interface DescriptionHistoryEntry {
+  timestamp: string;
+  description: string;
+  /** `replaced` today; reserved for future origins (e.g. `seeded`). */
+  source: 'replaced';
+  /** Optimizer iteration whose best description was written. */
+  iteration: number;
+  /** `N/M` score string that picked this iteration (e.g. train=7/8 or test=3/4). */
+  score: string;
+}
+
+/**
+ * Append `entry` to the skill's `description-history.json` and write the
+ * updated list back atomically. Creates a fresh single-element file when
+ * the history doesn't exist yet. Silently treats an unreadable or
+ * malformed existing file as "empty" so a corrupted sidecar never blocks
+ * a `--write` run — the whole point is to snapshot the live description
+ * before we overwrite it.
+ */
+export function appendDescriptionHistory(path: string, entry: DescriptionHistoryEntry): DescriptionHistoryEntry[] {
+  let prev: DescriptionHistoryEntry[] = [];
+  try {
+    const raw = readFileSync(path, 'utf8');
+    const parsed = JSON.parse(raw) as unknown;
+    if (Array.isArray(parsed)) {
+      prev = parsed.filter((e): e is DescriptionHistoryEntry => {
+        return (
+          !!e &&
+          typeof e === 'object' &&
+          typeof (e as DescriptionHistoryEntry).description === 'string' &&
+          typeof (e as DescriptionHistoryEntry).timestamp === 'string'
+        );
+      });
+    }
+  } catch {
+    // Missing or corrupt history — start fresh.
+  }
+  const out = [...prev, entry];
+  const tmp = `${path}.tmp`;
+  writeFileSync(tmp, `${JSON.stringify(out, null, 2)}\n`);
+  try {
+    renameSync(tmp, path);
+  } catch (err) {
+    try {
+      unlinkSync(tmp);
+    } catch {
+      // ignore
+    }
+    throw err;
+  }
+  return out;
+}

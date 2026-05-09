@@ -10,7 +10,13 @@ import { buildCriticPrompt, mergeCriticVerdict, writeCriticPrompt } from './crit
 import { countEvals, discoverSkills, loadEvalsFile, resolveScanRoots } from './discovery.ts';
 import { invokeCritic, invokeDriver, type DriverConfig } from './driver.ts';
 import { DEFAULT_TRIGGER_THRESHOLD, gradeDeterministic, parseReply, pickMajorityRunIndex } from './grader.ts';
-import { loadTriggerEvalSet, runOptimizeLoop, type OptimizerHooks, type OptimizeResult } from './optimizer.ts';
+import {
+  appendDescriptionHistory,
+  loadTriggerEvalSet,
+  runOptimizeLoop,
+  type OptimizerHooks,
+  type OptimizeResult,
+} from './optimizer.ts';
 import { buildEvalPrompt, resolveRunsPerQuery } from './prompt.ts';
 import {
   hasFailures,
@@ -20,7 +26,7 @@ import {
   renderMarkdown,
   summarize,
 } from './report.ts';
-import { parseSkillMd } from './skill-md.ts';
+import { parseSkillMd, renderDescriptionDiff, rewriteDescription } from './skill-md.ts';
 import { type DriverKind, type EvalSpec, type EvalsFile, type GradeConfig, type SkillEntry } from './types.ts';
 import { formatFailure, validateSkillMd, type ValidationFailure } from './validate.ts';
 import {
@@ -1033,9 +1039,24 @@ async function cmdOptimize(opts: CliOptions): Promise<number> {
   );
 
   if (opts.write) {
-    die(
-      '--write is not yet implemented in this commit; re-run without --write, or apply the next commit that wires up the SKILL.md auto-edit path',
-    );
+    // Snapshot the live description into the per-skill history file
+    // BEFORE rewriting SKILL.md, so an interrupted write still leaves
+    // the prior description recoverable.
+    const historyPath = join(opts.workspace, skillName, 'description-history.json');
+    mkdirSync(dirname(historyPath), { recursive: true });
+    appendDescriptionHistory(historyPath, {
+      timestamp: new Date().toISOString(),
+      description: parsed.description,
+      source: 'replaced',
+      iteration: result.bestIteration,
+      score: `${result.bestSource}=${result.bestScore}`,
+    });
+
+    process.stdout.write(renderDescriptionDiff(parsed.description, result.bestDescription));
+    const { previous } = rewriteDescription(entry.skillMd, result.bestDescription);
+    process.stderr.write(`${PROG}: wrote ${entry.skillMd} (previous description snapshotted to ${historyPath})\n`);
+    process.stderr.write(`${PROG}: previous description was ${previous.length} chars\n`);
+    return 0;
   }
 
   process.stdout.write(`${result.bestDescription}\n`);

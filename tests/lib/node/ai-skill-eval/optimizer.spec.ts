@@ -6,8 +6,10 @@ import { join } from 'node:path';
 import { describe, expect, test } from 'vitest';
 
 import {
+  appendDescriptionHistory,
   loadTriggerEvalSet,
   runOptimizeLoop,
+  type DescriptionHistoryEntry,
   type OptimizerHooks,
   type TriggerEval,
 } from '../../../../lib/node/ai-skill-eval/optimizer.ts';
@@ -357,5 +359,53 @@ describe('loadTriggerEvalSet', () => {
   test('rejects malformed input', () => {
     expect(() => loadTriggerEvalSet('null', 'src')).toThrowError();
     expect(() => loadTriggerEvalSet(JSON.stringify([{ query: 1, should_trigger: true }]), 'src')).toThrowError();
+  });
+});
+
+describe('appendDescriptionHistory', () => {
+  const baseEntry = (overrides: Partial<DescriptionHistoryEntry> = {}): DescriptionHistoryEntry => ({
+    timestamp: '2026-01-01T00:00:00.000Z',
+    description: 'old value',
+    source: 'replaced',
+    iteration: 2,
+    score: '6/8',
+    ...overrides,
+  });
+
+  test('creates a fresh single-element file when history does not exist', () => {
+    const path = join(freshDir('history-'), 'description-history.json');
+    const out = appendDescriptionHistory(path, baseEntry());
+
+    expect(out).toHaveLength(1);
+
+    const onDisk = JSON.parse(readFileSync(path, 'utf8')) as DescriptionHistoryEntry[];
+
+    expect(onDisk).toHaveLength(1);
+    expect(onDisk[0].description).toBe('old value');
+  });
+
+  test('appends to an existing history file preserving prior entries', () => {
+    const path = join(freshDir('history-'), 'description-history.json');
+    writeFileSync(
+      path,
+      JSON.stringify(
+        [baseEntry({ iteration: 1, description: 'first', timestamp: '2025-06-01T00:00:00.000Z' })],
+        null,
+        2,
+      ),
+    );
+    const out = appendDescriptionHistory(path, baseEntry({ iteration: 2, description: 'second' }));
+
+    expect(out).toHaveLength(2);
+    expect(out[0].description).toBe('first');
+    expect(out[1].description).toBe('second');
+  });
+
+  test('recovers from a corrupt history file by starting fresh', () => {
+    const path = join(freshDir('history-'), 'description-history.json');
+    writeFileSync(path, '{ not valid json ');
+    const out = appendDescriptionHistory(path, baseEntry());
+
+    expect(out).toHaveLength(1);
   });
 });
