@@ -9,4 +9,29 @@
   "MD024": {
     "siblings_only": true,
   },
+
+  // custom rules
+  "skill-authoring-guide-folder-layout": {
+    "allowedDirectories": ["scripts", "references", "assets", "evals"],
+  },
+  "authoring-guide-non-empty-required-sections": {
+    "checks": [
+      {
+        "filePatterns": ["(^|/)AGENTS\\.md$"],
+        "headings": ["Commands", "Directory map", "Key patterns", "Boundaries", "References"],
+      },
+      {
+        "filePatterns": ["^docs/.+\\.md$"],
+        "headings": ["Related docs"],
+      },
+      {
+        "filePatterns": ["^\\.agents/skills/.+/SKILL\\.md$", "^config/.+/skills/.+/SKILL\\.md$"],
+        "headings": [],
+      },
+    ],
+  },
+  "authoring-guide-skill-required-sections": {
+    "filePatterns": ["^\\.agents/skills/.+/SKILL\\.md$", "^config/.+/skills/.+/SKILL\\.md$"],
+    "requiredHeadings": [],
+  },
 }
