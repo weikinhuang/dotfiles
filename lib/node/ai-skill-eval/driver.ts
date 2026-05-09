@@ -27,9 +27,19 @@ export interface DriverConfig {
 
 export interface DriverResult {
   exitCode: number;
+  /** Wall-clock duration, rounded to 2 decimal places. */
   durationSec: number;
   bytes: number;
   timedOut: boolean;
+  /**
+   * Parsed token count if the driver exposed one. `null` when the driver
+   * doesn't surface usage info (claude without `--output-format=stream-json`)
+   * or when the log line couldn't be parsed. Best-effort; callers should not
+   * rely on a specific format.
+   */
+  tokens: number | null;
+  /** Tool-call count — null until a driver-level capture exists. */
+  toolCalls: number | null;
 }
 
 export interface CriticInvocation {
@@ -61,14 +71,32 @@ function spawnToFileAsync(
   cmd: string,
   args: readonly string[],
   outputFile: string,
-  options: { env?: NodeJS.ProcessEnv; timeoutMs?: number | null; devNullStdio?: boolean } = {},
+  options: {
+    env?: NodeJS.ProcessEnv;
+    timeoutMs?: number | null;
+    devNullStdio?: boolean;
+    /**
+     * When set (only meaningful with `devNullStdio`), stdout is captured
+     * into `stdoutFile` instead of `/dev/null` while stderr still goes to
+     * `/dev/null`. Used by the codex driver so its decorated stdout log
+     * (carrying token-usage info) survives for {@link captureTokens} to
+     * parse after the run, without clobbering the `-o` reply in
+     * `outputFile`.
+     */
+    stdoutFile?: string | null;
+  } = {},
 ): Promise<SpawnToFileResult> {
   return new Promise<SpawnToFileResult>((resolve) => {
-    // `devNullStdio` lets the codex driver redirect stdout/stderr to /dev/null
-    // while still using `outputFile` for the appended DRIVER_TIMEOUT marker.
-    const stdioFd = options.devNullStdio ? openSync('/dev/null', 'w') : openSync(outputFile, 'w');
+    // `devNullStdio` lets the codex driver redirect stderr (at least) away
+    // from `outputFile` while still using `outputFile` for the appended
+    // DRIVER_TIMEOUT marker.
+    const captureToSidecar = options.devNullStdio === true && options.stdoutFile != null;
+    const stdoutFd = captureToSidecar
+      ? openSync(options.stdoutFile!, 'w')
+      : openSync(options.devNullStdio ? '/dev/null' : outputFile, 'w');
+    const stderrFd = captureToSidecar ? openSync('/dev/null', 'w') : stdoutFd;
     const spawnOpts: SpawnOptions = {
-      stdio: ['ignore', stdioFd, stdioFd],
+      stdio: ['ignore', stdoutFd, stderrFd],
       env: options.env ?? process.env,
     };
     let child;
@@ -76,9 +104,16 @@ function spawnToFileAsync(
       child = spawn(cmd, args, spawnOpts);
     } catch (err) {
       try {
-        closeSync(stdioFd);
+        closeSync(stdoutFd);
       } catch {
         // ignore
+      }
+      if (captureToSidecar) {
+        try {
+          closeSync(stderrFd);
+        } catch {
+          // ignore
+        }
       }
       void err;
       resolve({ exitCode: 127, timedOut: false });
@@ -112,9 +147,16 @@ function spawnToFileAsync(
       if (termTimer) clearTimeout(termTimer);
       if (killTimer) clearTimeout(killTimer);
       try {
-        closeSync(stdioFd);
+        closeSync(stdoutFd);
       } catch {
         // ignore
+      }
+      if (captureToSidecar) {
+        try {
+          closeSync(stderrFd);
+        } catch {
+          // ignore
+        }
       }
       if (timedOut) {
         try {
@@ -192,8 +234,10 @@ function runCodex(
 ): Promise<SpawnToFileResult> {
   // codex exec decorates stdout with session headers + token usage, so
   // we use its -o flag to capture just the final message directly into
-  // outputFile. stdout/stderr are redirected to /dev/null so the decorated
-  // log doesn't clobber the captured reply.
+  // outputFile. stdout goes to a `<outputFile>.log` sidecar so
+  // {@link captureTokens} can parse usage after the run; stderr is
+  // discarded (carries the spurious "failed to record rollout items"
+  // noise line).
   //
   // Sandbox policy is deliberately unpinned: codex reads the user's
   // ~/.codex/config.toml default. Revisit if a run gets blocked.
@@ -201,7 +245,11 @@ function runCodex(
   const args = ['exec', '--skip-git-repo-check', '-o', outputFile, '--cd', process.cwd()];
   if (model) args.push('-m', model);
   args.push(prompt);
-  return spawnToFileAsync('codex', args, outputFile, { timeoutMs, devNullStdio: true });
+  return spawnToFileAsync('codex', args, outputFile, {
+    timeoutMs,
+    devNullStdio: true,
+    stdoutFile: `${outputFile}.log`,
+  });
 }
 
 function runCustom(
@@ -227,14 +275,74 @@ export function resolveDriver(cfg: DriverConfig): DriverKind {
   return 'pi';
 }
 
+/**
+ * Regex-matches common token-usage patterns against a captured driver log.
+ * Returns the first matched integer or null when nothing matches. Patterns
+ * cover codex's `tokens used: 12,345`, pi's `tokens: 4200` style, and the
+ * generic `total tokens: N` footer some wrappers emit. Kept exported for
+ * unit tests.
+ */
+export function parseTokens(text: string): number | null {
+  if (!text) return null;
+  const patterns: RegExp[] = [
+    /\btokens\s+used\s*:\s*([\d,]+)/i,
+    /\btotal[_ ]tokens\s*:\s*([\d,]+)/i,
+    /\btokens\s*:\s*([\d,]+)/i,
+    /\busage\s*:\s*([\d,]+)\s*tokens?/i,
+  ];
+  for (const re of patterns) {
+    const m = re.exec(text);
+    if (m?.[1]) {
+      const n = Number.parseInt(m[1].replace(/,/g, ''), 10);
+      if (Number.isFinite(n) && n >= 0) return n;
+    }
+  }
+  return null;
+}
+
+/**
+ * Best-effort token-count extraction from the captured driver output. Each
+ * driver exposes usage differently:
+ *
+ *   - **pi** appends a usage footer to its reply (captured in `outputFile`).
+ *     We look for `tokens:` / `total tokens:` / similar lines and take the
+ *     first match.
+ *   - **codex** decorates stdout with headers + `tokens used: 12,345`. Our
+ *     {@link runCodex} routes stdout to `<outputFile>.log`; we parse that
+ *     sidecar.
+ *   - **claude** `-p` doesn't emit usage on its default stdout and
+ *     `--output-format=stream-json` parsing is out of scope for this round.
+ *     Returns null.
+ *   - **custom** (`--driver-cmd`) falls through pi-style parsing of
+ *     `outputFile` so a user-supplied wrapper that appends a token line
+ *     still surfaces.
+ *
+ * On any parse failure or missing file the function returns `null` rather
+ * than throwing — callers treat null as "unavailable for this run".
+ */
+export function captureTokens(driver: DriverKind | 'custom', outputFile: string): number | null {
+  if (driver === 'claude') return null;
+  const sourcePath = driver === 'codex' ? `${outputFile}.log` : outputFile;
+  let text = '';
+  try {
+    text = readFileSync(sourcePath, 'utf8');
+  } catch {
+    return null;
+  }
+  return parseTokens(text);
+}
+
 export async function invokeDriver(cfg: DriverConfig, promptFile: string, outputFile: string): Promise<DriverResult> {
   const start = Date.now();
   const timeoutMs = cfg.timeoutMs && cfg.timeoutMs > 0 ? cfg.timeoutMs : null;
   let outcome: SpawnToFileResult;
+  let driverKind: DriverKind | 'custom';
   if (cfg.driverCmd) {
     outcome = await runCustom(cfg.driverCmd, promptFile, outputFile, timeoutMs);
+    driverKind = 'custom';
   } else {
     const driver = resolveDriver(cfg);
+    driverKind = driver;
     if (driver === 'pi') {
       const model = cfg.model ?? process.env.AI_SKILL_EVAL_MODEL ?? 'llama-cpp/qwen3-6-35b-a3b';
       outcome = await runPi(promptFile, outputFile, model, timeoutMs);
@@ -248,14 +356,22 @@ export async function invokeDriver(cfg: DriverConfig, promptFile: string, output
       throw new Error(`unknown driver '${String(driver)}' (expected pi, claude, codex, or set --driver-cmd)`);
     }
   }
-  const durationSec = Math.round((Date.now() - start) / 1000);
+  const durationSec = Math.round((Date.now() - start) / 10) / 100;
   let bytes = 0;
   try {
     bytes = statSync(outputFile).size;
   } catch {
     bytes = 0;
   }
-  return { exitCode: outcome.exitCode, durationSec, bytes, timedOut: outcome.timedOut };
+  const tokens = captureTokens(driverKind, outputFile);
+  return {
+    exitCode: outcome.exitCode,
+    durationSec,
+    bytes,
+    timedOut: outcome.timedOut,
+    tokens,
+    toolCalls: null,
+  };
 }
 
 /**

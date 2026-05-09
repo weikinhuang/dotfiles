@@ -4,6 +4,7 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
+import { writeBenchmark, type BenchmarkDocument } from './benchmark.ts';
 import { runPool } from './concurrency.ts';
 import { buildCriticPrompt, mergeCriticVerdict, writeCriticPrompt } from './critic.ts';
 import { countEvals, discoverSkills, loadEvalsFile, resolveScanRoots } from './discovery.ts';
@@ -33,6 +34,9 @@ Subcommands:
   report [SKILL...]         Render markdown report from an existing workspace.
   validate [SKILL...]       Validate SKILL.md frontmatter (name / description /
                             compatibility / whitelist keys). No driver calls.
+  benchmark [SKILL...]      Emit aggregated benchmark.json + benchmark.md for
+                            each skill under the workspace (stats over existing
+                            grades + per-run metrics sidecars; no driver calls).
 
 Global options:
   --skill-root DIR          Directory to scan for SKILL.md files (repeatable).
@@ -100,7 +104,7 @@ Eval schema (<skill-dir>/evals/evals.json):
 Exit codes: 0 ok, 1 validation/run error, 2 usage error.
 `;
 
-type Subcommand = 'list' | 'run' | 'grade' | 'rerun' | 'report' | 'validate';
+type Subcommand = 'list' | 'run' | 'grade' | 'rerun' | 'report' | 'validate' | 'benchmark';
 
 interface CliOptions {
   subcommand: Subcommand;
@@ -174,11 +178,14 @@ export function parseArgs(argv: readonly string[]): CliOptions {
     case 'rerun':
     case 'report':
     case 'validate':
+    case 'benchmark':
       subcommand = first;
       break;
     default:
       if (first.startsWith('-')) {
-        usageErr(`unknown option '${first}' (expected subcommand: list, run, grade, rerun, report, validate)`);
+        usageErr(
+          `unknown option '${first}' (expected subcommand: list, run, grade, rerun, report, validate, benchmark)`,
+        );
       }
       usageErr(`unknown subcommand '${first}'`);
   }
@@ -502,12 +509,31 @@ async function runDriverJob(opts: CliOptions, job: DriverJob): Promise<void> {
     opts,
     `running ${job.entry.name}/${job.ev.id} [${job.config}] run ${job.runIndex + 1}/${job.runs} (should_trigger=${String(job.ev.should_trigger)})`,
   );
-  const { exitCode, durationSec, bytes, timedOut } = await invokeDriver(
+  const { exitCode, durationSec, bytes, timedOut, tokens, toolCalls } = await invokeDriver(
     driverConfig(opts),
     job.promptFile,
     job.resultFile,
   );
-  logVerbose(opts, `  exit=${exitCode} dur=${durationSec}s bytes=${bytes}${timedOut ? ' (TIMEOUT)' : ''}`);
+  logVerbose(
+    opts,
+    `  exit=${exitCode} dur=${durationSec}s bytes=${bytes}${tokens != null ? ` tokens=${tokens}` : ''}${timedOut ? ' (TIMEOUT)' : ''}`,
+  );
+  // Per-run metrics sidecar feeds the `benchmark` subcommand (R3.2). Written
+  // for every run, including failures and timeouts, so aggregate stats have
+  // a stable input even when the grader later records DRIVER_TIMEOUT flaws.
+  const meta = {
+    exit_code: exitCode,
+    duration_sec: durationSec,
+    bytes,
+    timed_out: timedOut,
+    tokens,
+    tool_calls: toolCalls,
+  };
+  try {
+    writeFileSync(`${job.resultFile}.meta.json`, `${JSON.stringify(meta, null, 2)}\n`);
+  } catch {
+    // Metrics are diagnostic; a write failure should not break the run.
+  }
   if (timedOut) {
     writeFileSync(`${job.resultFile}.error`, 'DRIVER_TIMEOUT\n');
   } else if (exitCode !== 0) {
@@ -774,6 +800,55 @@ function cmdValidate(opts: CliOptions): number {
   return failed > 0 ? 1 : 0;
 }
 
+/**
+ * `ai-skill-eval benchmark [SKILL...]` — aggregate existing grades +
+ * per-run `.meta.json` sidecars under the workspace into a
+ * schema-compatible `benchmark.json` + human-readable `benchmark.md` per
+ * skill. No driver calls; meant to run after `run` (optionally with
+ * `--baseline` to populate the `without_skill` column + delta block).
+ *
+ * Exits 1 if a named skill has no workspace directory, or if no benchmark
+ * could be produced for any skill. Otherwise exits 0 even when one skill
+ * is missing a config (we still write whatever we have).
+ */
+function cmdBenchmark(opts: CliOptions): number {
+  if (!existsSync(opts.workspace)) {
+    die(`workspace ${opts.workspace} does not exist (run first)`);
+  }
+  const wanted = opts.positional;
+  const skillDirs = readdirSync(opts.workspace).filter((name) => {
+    const full = join(opts.workspace, name);
+    try {
+      return existsSync(full) && readdirSync(full).length > 0;
+    } catch {
+      return false;
+    }
+  });
+  const selected = wanted.length > 0 ? skillDirs.filter((n) => wanted.includes(n)) : skillDirs;
+  if (selected.length === 0) {
+    const suffix = wanted.length > 0 ? ` matching: ${wanted.join(' ')}` : '';
+    die(`no skill workspaces found${suffix}`);
+  }
+
+  const docs: BenchmarkDocument[] = [];
+  for (const skill of selected) {
+    const doc = writeBenchmark(opts.workspace, skill);
+    docs.push(doc);
+    logVerbose(opts, `benchmark: wrote ${join(opts.workspace, skill)}/benchmark.{json,md}`);
+  }
+
+  if (opts.json) {
+    process.stdout.write(`${JSON.stringify(docs, null, 2)}\n`);
+  } else {
+    for (const doc of docs) {
+      process.stdout.write(
+        `# ${doc.metadata.skill_name}: benchmark written to ${join(opts.workspace, doc.metadata.skill_name)}/benchmark.{json,md}\n`,
+      );
+    }
+  }
+  return 0;
+}
+
 export async function main(argv: readonly string[]): Promise<void> {
   let opts: CliOptions;
   try {
@@ -809,6 +884,9 @@ export async function main(argv: readonly string[]): Promise<void> {
         break;
       case 'validate':
         code = cmdValidate(opts);
+        break;
+      case 'benchmark':
+        code = cmdBenchmark(opts);
         break;
     }
     process.exit(code);

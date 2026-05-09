@@ -761,3 +761,107 @@ SKILL
   [ -f ".ai-skill-eval/good-skill/with_skill/grades/positive-1.json" ]
   [ ! -e ".ai-skill-eval/bad-skill/with_skill/grades/positive-1.json" ]
 }
+
+# ─────────────────────────────────────────────────────────────
+# R3.2: benchmark subcommand
+# ─────────────────────────────────────────────────────────────
+
+@test "ai-skill-eval benchmark: writes benchmark.json + benchmark.md under workspace (with_skill only)" {
+  make_skill ".agents/skills" "sample" yes
+  driver="$(stub_driver_script)"
+  bash "${SCRIPT}" run --driver-cmd "${driver}" --runs-per-query 2 >/dev/null
+
+  # Per-run metrics sidecars should exist alongside each run file.
+  [ -f ".ai-skill-eval/sample/with_skill/results/positive-1/run-1.txt.meta.json" ]
+  [ -f ".ai-skill-eval/sample/with_skill/results/positive-1/run-2.txt.meta.json" ]
+
+  run bash "${SCRIPT}" benchmark
+  assert_success
+  assert_output --partial "benchmark.{json,md}"
+
+  [ -f ".ai-skill-eval/sample/benchmark.json" ]
+  [ -f ".ai-skill-eval/sample/benchmark.md" ]
+
+  # JSON shape matches skill-creator's schema: metadata.skill_name, runs[],
+  # run_summary.with_skill with mean/stddev/min/max.
+  python3 - <<'PY'
+import json
+doc = json.load(open(".ai-skill-eval/sample/benchmark.json"))
+assert doc["metadata"]["skill_name"] == "sample", doc["metadata"]
+assert doc["metadata"]["configurations"] == ["with_skill"], doc["metadata"]
+assert len(doc["runs"]) == 2, doc["runs"]
+assert all(r["configuration"] == "with_skill" for r in doc["runs"])
+summary = doc["run_summary"]["with_skill"]
+for k in ("pass_rate", "time_seconds"):
+    assert set(summary[k].keys()) == {"mean", "stddev", "min", "max"}, summary[k]
+# Without --baseline there's no delta block.
+assert "delta" not in doc["run_summary"]
+PY
+
+  # Markdown carries the benchmark header + a pass_rate row.
+  run cat ".ai-skill-eval/sample/benchmark.md"
+  assert_output --partial "# Benchmark — sample"
+  assert_output --partial "| pass_rate |"
+  assert_output --partial "| time_seconds |"
+}
+
+@test "ai-skill-eval benchmark: --baseline produces delta block with signed deltas" {
+  make_skill ".agents/skills" "sample" yes
+
+  # Stub driver that says YES when the prompt has the SKILL block, else NO,
+  # so expectations pass with_skill and fail without_skill.
+  local driver="${BATS_TEST_TMPDIR}/baseline-driver.sh"
+  cat >"${driver}" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+prompt="$(cat "${AI_SKILL_EVAL_PROMPT_FILE}")"
+if [[ "${prompt}" == *"===== SKILL ====="* ]]; then
+  printf 'TRIGGER: yes\nREASON: saw SKILL\nNEXT_STEP: Apply the skill, mention `sample`, run `shellcheck` via `./dev/lint.sh`.\n'
+else
+  printf 'TRIGGER: no\nREASON: no SKILL\nNEXT_STEP: plain reply.\n'
+fi
+EOF
+  chmod +x "${driver}"
+
+  bash "${SCRIPT}" run --driver-cmd "${driver}" --only positive-1 \
+    --baseline --runs-per-query 1 >/dev/null
+
+  run bash "${SCRIPT}" benchmark
+  assert_success
+  [ -f ".ai-skill-eval/sample/benchmark.json" ]
+
+  python3 - <<'PY'
+import json
+doc = json.load(open(".ai-skill-eval/sample/benchmark.json"))
+assert doc["metadata"]["configurations"] == ["with_skill", "without_skill"], doc["metadata"]
+delta = doc["run_summary"]["delta"]
+# with_skill expectation_pass > without_skill expectation_pass.
+assert delta["pass_rate"].startswith("+"), delta
+PY
+
+  # Markdown gains a Δ column.
+  run cat ".ai-skill-eval/sample/benchmark.md"
+  assert_output --partial "Δ"
+  assert_output --partial "| without_skill |"
+}
+
+@test "ai-skill-eval benchmark: empty workspace aborts with exit 1" {
+  run bash "${SCRIPT}" benchmark
+  assert_failure
+  # The workspace dir is auto-created by main(), so we fail on "no skill
+  # workspaces found" rather than "does not exist". Either message signals
+  # the user needs to run `ai-skill-eval run` first.
+  assert_output --partial "no skill workspaces found"
+}
+
+@test "ai-skill-eval benchmark: positional arg scopes to one skill" {
+  make_skill ".agents/skills" "alpha" yes
+  make_skill ".agents/skills" "beta" yes
+  driver="$(stub_driver_script)"
+  bash "${SCRIPT}" run --driver-cmd "${driver}" --runs-per-query 1 >/dev/null
+
+  run bash "${SCRIPT}" benchmark alpha
+  assert_success
+  [ -f ".ai-skill-eval/alpha/benchmark.json" ]
+  [ ! -e ".ai-skill-eval/beta/benchmark.json" ]
+}
