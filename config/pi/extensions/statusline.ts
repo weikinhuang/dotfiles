@@ -335,12 +335,8 @@ export default function extension(pi: ExtensionAPI): void {
         const remainingPct = ctxUsage?.percent != null ? Math.max(0, Math.min(100, 100 - ctxUsage.percent)) : null;
         const modelId = ctx.model?.id ?? 'no-model';
         // Only models with `reasoning: true` expose a meaningful thinking level;
-        // everything else reports "off" regardless of ctx.getThinkingLevel().
-        // `getThinkingLevel` lives on `ExtensionActions` (interactive mode
-        // only), not on the base `ExtensionContext`. Probe defensively so
-        // print/RPC mode falls through to `undefined` instead of type-erroring.
-        const getThinkingLevel = (ctx as { getThinkingLevel?: () => string | undefined }).getThinkingLevel;
-        const thinkingLevel = ctx.model?.reasoning ? getThinkingLevel?.() : undefined;
+        // everything else reports "off" regardless of pi.getThinkingLevel().
+        const thinkingLevel = ctx.model?.reasoning ? pi?.getThinkingLevel() : undefined;
         const sessionId = ctx.sessionManager.getSessionId?.();
         const shortSessionId = sessionId ? sessionId.slice(0, 8) : '';
 
