@@ -270,6 +270,23 @@ export default defineConfig([
     },
     rules: {
       'import/no-unresolved': ['error', { ignore: ['^@earendil-works/', '^typebox$'] }],
+      // Pi's `@earendil-works/*` packages and `typebox` are provided by
+      // pi's global install at runtime and intentionally not in this
+      // repo's `package.json` (the same reason `import/no-unresolved`
+      // is relaxed above). Suppress `n/no-extraneous-import` so lint
+      // doesn't flip when a developer temporarily `--no-save`s pi for
+      // local type-checking.
+      'n/no-extraneous-import': [
+        'error',
+        {
+          allowModules: [
+            '@earendil-works/pi-coding-agent',
+            '@earendil-works/pi-ai',
+            '@earendil-works/pi-tui',
+            'typebox',
+          ],
+        },
+      ],
     },
   },
 
