@@ -333,7 +333,7 @@ export default function extension(pi: ExtensionAPI): void {
         const branch = footerData.getGitBranch();
         const ctxUsage = ctx.getContextUsage();
         const remainingPct = ctxUsage?.percent != null ? Math.max(0, Math.min(100, 100 - ctxUsage.percent)) : null;
-        const modelId = ctx.model?.id ?? 'no-model';
+        const modelId = ctx.model?.name ?? ctx.model?.id ?? 'no-model';
         // Only models with `reasoning: true` expose a meaningful thinking level;
         // everything else reports "off" regardless of pi.getThinkingLevel().
         const thinkingLevel = ctx.model?.reasoning ? pi?.getThinkingLevel() : undefined;
