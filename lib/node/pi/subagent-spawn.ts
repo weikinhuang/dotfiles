@@ -136,14 +136,23 @@ export interface AgentSessionEventLike {
   };
 }
 
-/** Session creator — matches pi's `createAgentSession` return shape. */
+/**
+ * Session creator — matches pi's `createAgentSession` return shape.
+ *
+ * `authStorage` is intentionally omitted from the args type: pi uses it
+ * only to build a default `modelRegistry`, which we always pass in
+ * explicitly, so the field is a runtime no-op here. Leaving it out also
+ * keeps the dep type assignable from pi's real `createAgentSession`,
+ * whose `authStorage` is typed as `AuthStorage | undefined` rather than
+ * `unknown` — a mismatch this pure module cannot express without
+ * importing pi types.
+ */
 export type CreateAgentSessionDep<M, S> = (args: {
   cwd: string;
   model: M;
   thinkingLevel: AgentDef['thinkingLevel'];
   tools: string[];
   modelRegistry: ModelRegistryLike<M> & { authStorage: unknown };
-  authStorage: unknown;
   resourceLoader: ResourceLoaderLike;
   sessionManager: S;
 }) => Promise<{ session: AgentSessionLike }>;
@@ -283,7 +292,6 @@ export async function runOneShotAgent<M, S>(options: RunOneShotAgentOptions<M, S
     thinkingLevel: agent.thinkingLevel,
     tools: agent.tools,
     modelRegistry,
-    authStorage: modelRegistry.authStorage,
     resourceLoader,
     sessionManager,
   });

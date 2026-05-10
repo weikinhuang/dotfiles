@@ -109,14 +109,16 @@ import { homedir } from 'node:os';
 import { dirname, isAbsolute, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { StringEnum } from '@earendil-works/pi-ai';
+import { type Model, StringEnum } from '@earendil-works/pi-ai';
 import {
   createAgentSession,
   DefaultResourceLoader,
   type ExtensionAPI,
   type ExtensionContext,
   getAgentDir,
+  type ModelRegistry,
   parseFrontmatter,
+  type ResourceLoader,
   SessionManager,
 } from '@earendil-works/pi-coding-agent';
 import { Text } from '@earendil-works/pi-tui';
@@ -181,7 +183,21 @@ import {
   loadAgents,
   type ReadLayer,
 } from '../../../lib/node/pi/subagent-loader.ts';
-import { resolveChildModel, runOneShotAgent } from '../../../lib/node/pi/subagent-spawn.ts';
+import { resolveChildModel, runOneShotAgent, type CreateAgentSessionDep } from '../../../lib/node/pi/subagent-spawn.ts';
+
+/**
+ * Pi's `createAgentSession` types `modelRegistry` as the concrete
+ * `ModelRegistry` class, while `lib/node/pi/subagent-spawn.ts` uses a
+ * pi-free structural `ModelRegistryLike` so the helper can stay
+ * unit-testable without pi imports. See the matching wrapper in
+ * `deep-research.ts` for the full rationale.
+ */
+const piCreateAgentSession: CreateAgentSessionDep<Model<any>, SessionManager> = (args) =>
+  createAgentSession({
+    ...args,
+    modelRegistry: args.modelRegistry as ModelRegistry,
+    resourceLoader: args.resourceLoader as ResourceLoader,
+  });
 import {
   type BranchEntry as VerifyBranchEntry,
   collectBashCommandsSinceLastUser,
@@ -875,7 +891,7 @@ export default function iterationLoopExtension(pi: ExtensionAPI): void {
     let result;
     try {
       result = await runOneShotAgent({
-        deps: { createAgentSession, DefaultResourceLoader, SessionManager, getAgentDir },
+        deps: { createAgentSession: piCreateAgentSession, DefaultResourceLoader, SessionManager, getAgentDir },
         cwd: ctx.cwd,
         agent,
         model: modelResolution.model,
@@ -884,7 +900,7 @@ export default function iterationLoopExtension(pi: ExtensionAPI): void {
         agentDir: getAgentDir(),
         signal,
         onEvent: ({ event }) => {
-          if (event.type === 'message_end' && event.message.role === 'assistant') {
+          if (event.type === 'message_end' && event.message?.role === 'assistant') {
             const usage = (event.message as { usage?: { cost?: { total?: number } } }).usage;
             if (usage?.cost?.total != null && Number.isFinite(usage.cost.total)) {
               cost += usage.cost.total;

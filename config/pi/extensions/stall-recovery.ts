@@ -187,8 +187,7 @@ export default function stallRecovery(pi: ExtensionAPI): void {
   // reasoning pass instead of resuming the rumination that emitted no
   // output last time.
   pi.on('context', (event) => {
-    const messages = (event as { messages: unknown[] }).messages;
-    return { messages: stripThinkingFromStalledTurns(messages) };
+    return { messages: stripThinkingFromStalledTurns(event.messages) };
   });
 
   pi.on('session_shutdown', () => {

@@ -1345,6 +1345,7 @@ export default function subagentExtension(pi: ExtensionAPI): void {
       if (rawTo.length === 0) {
         return {
           content: [{ type: 'text', text: 'subagent_send: missing `to` handle' }],
+          details: undefined,
           isError: true,
         };
       }
@@ -1358,6 +1359,7 @@ export default function subagentExtension(pi: ExtensionAPI): void {
               text: `subagent_send: no subagent with handle "${rawTo}". Known handles: ${active}`,
             },
           ],
+          details: undefined,
           isError: true,
         };
       }
@@ -1378,6 +1380,7 @@ export default function subagentExtension(pi: ExtensionAPI): void {
               text: 'subagent_send: `text` is not combinable with `action: "abort"` — pick one.',
             },
           ],
+          details: undefined,
           isError: true,
         };
       }
@@ -1391,6 +1394,7 @@ export default function subagentExtension(pi: ExtensionAPI): void {
                 text: `subagent_send: ${entry.handle} has already finished. Use \`action: "wait"\` to retrieve the final answer.`,
               },
             ],
+            details: undefined,
             isError: true,
           };
         }
@@ -1402,6 +1406,7 @@ export default function subagentExtension(pi: ExtensionAPI): void {
           const msg = e instanceof Error ? e.message : String(e);
           return {
             content: [{ type: 'text', text: `subagent_send: steer failed — ${msg}` }],
+            details: undefined,
             isError: true,
           };
         }

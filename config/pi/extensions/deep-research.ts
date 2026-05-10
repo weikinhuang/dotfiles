@@ -52,13 +52,16 @@ import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import  { type Model } from '@earendil-works/pi-ai';
 import {
   createAgentSession,
   DefaultResourceLoader,
   type ExtensionAPI,
-  type ExtensionCommandContext,
+  type ExtensionContext,
   getAgentDir,
+  type ModelRegistry,
   parseFrontmatter,
+  type ResourceLoader,
   SessionManager,
 } from '@earendil-works/pi-coding-agent';
 import { Text } from '@earendil-works/pi-tui';
@@ -143,7 +146,28 @@ import {
   loadAgents,
   type ReadLayer,
 } from '../../../lib/node/pi/subagent-loader.ts';
-import { resolveChildModel, runOneShotAgent, type AgentSessionLike } from '../../../lib/node/pi/subagent-spawn.ts';
+import {
+  resolveChildModel,
+  runOneShotAgent,
+  type AgentSessionLike,
+  type CreateAgentSessionDep,
+} from '../../../lib/node/pi/subagent-spawn.ts';
+
+/**
+ * Pi's `createAgentSession` types `modelRegistry` as the concrete
+ * `ModelRegistry` class, while `lib/node/pi/subagent-spawn.ts` uses a
+ * pi-free structural `ModelRegistryLike` so the helper can stay
+ * unit-testable without pi imports (see `lib/AGENTS.md`). The two
+ * shapes are compatible at runtime — pi's `ModelRegistry` satisfies
+ * `ModelRegistryLike` — but not structurally assignable, so we bridge
+ * them with a thin wrapper that casts `modelRegistry` at the call.
+ */
+const piCreateAgentSession: CreateAgentSessionDep<Model<any>, SessionManager> = (args) =>
+  createAgentSession({
+    ...args,
+    modelRegistry: args.modelRegistry as ModelRegistry,
+    resourceLoader: args.resourceLoader as ResourceLoader,
+  });
 
 /** Usage string shown on a bare `/research` invocation. */
 const USAGE =
@@ -797,7 +821,7 @@ function buildStatuslineController(ctx: {
  * `research-tool` summary already says everything).
  */
 async function runResearchFlow(args: {
-  ctx: ExtensionCommandContext;
+  ctx: ExtensionContext;
   agentLoad: AgentLoadResult;
   question: string;
   notify: CommandNotify;
@@ -1003,7 +1027,7 @@ async function runResearchFlow(args: {
  * parse) so it's safe to run for every `/research <question>`.
  */
 async function handleSlugCollision(args: {
-  ctx: ExtensionCommandContext;
+  ctx: ExtensionContext;
   notify: CommandNotify;
   question: string;
   agentLoad: AgentLoadResult;
@@ -1095,7 +1119,7 @@ async function handleSlugCollision(args: {
  *     stages read their outputs from disk instead of re-running.
  */
 async function runResumeFlow(args: {
-  ctx: ExtensionCommandContext;
+  ctx: ExtensionContext;
   agentLoad: AgentLoadResult;
   notify: CommandNotify;
   resume: ResumeOverrides;
@@ -1258,7 +1282,7 @@ async function runResumeFlow(args: {
  * `runReviewPhase` with `startIteration = N+1`.
  */
 async function runResumeReviewStage(args: {
-  ctx: ExtensionCommandContext;
+  ctx: ExtensionContext;
   runRoot: string;
   agentLoad: AgentLoadResult;
   notify: CommandNotify;
@@ -1384,7 +1408,7 @@ async function runResumeReviewStage(args: {
  * identically between fresh and resumed runs.
  */
 async function runResumePipelineStage(args: {
-  ctx: ExtensionCommandContext;
+  ctx: ExtensionContext;
   agentLoad: AgentLoadResult;
   notify: CommandNotify;
   runRoot: string;
@@ -1586,7 +1610,7 @@ interface PipelineDepsExtras {
 }
 
 function buildPipelineDeps(
-  ctx: ExtensionCommandContext,
+  ctx: ExtensionContext,
   agentLoad: AgentLoadResult,
   extras: PipelineDepsExtras = {},
 ): BuildDepsOk<unknown> | BuildDepsErr {
@@ -1622,7 +1646,7 @@ function buildPipelineDeps(
     parentModel = resolved as typeof ctx.model;
   }
   const modelLabel = describeModel(parentModel);
-  // ExtensionCommandContext does not expose thinkingLevel; the
+  // ExtensionContext does not expose thinkingLevel; the
   // parent ExtensionAPI does, but capturing it requires a closure
   // here. Record `null` — the provenance module accepts null as
   // an explicit "not recorded" signal (see research-provenance).
@@ -1705,7 +1729,7 @@ function buildPipelineDeps(
               })
             : undefined;
         const result = await runOneShotAgent({
-          deps: { createAgentSession, DefaultResourceLoader, SessionManager, getAgentDir },
+          deps: { createAgentSession: piCreateAgentSession, DefaultResourceLoader, SessionManager, getAgentDir },
           cwd: ctx.cwd,
           agent: criticAgent,
           model: resolution.model,
@@ -1839,8 +1863,8 @@ function wrapSession(session: AgentSessionLike): ResearchSessionLikeWithLifecycl
  * validation + quarantine + resume paths run) without requiring
  * the extension to plumb real background subagent handles yet.
  */
-function buildSyncFanoutSpawner<M>(
-  ctx: ExtensionCommandContext,
+function buildSyncFanoutSpawner<M extends Model<any>>(
+  ctx: ExtensionContext,
   agent: AgentDef,
   modelRegistry: {
     find: (provider: string, id: string) => unknown;
@@ -1887,7 +1911,7 @@ function buildSyncFanoutSpawner<M>(
       const run = await withTransientRetry(
         () =>
           runOneShotAgent({
-            deps: { createAgentSession, DefaultResourceLoader, SessionManager, getAgentDir },
+            deps: { createAgentSession: piCreateAgentSession, DefaultResourceLoader, SessionManager, getAgentDir },
             cwd: ctx.cwd,
             agent,
             model: resolution.model,
@@ -1987,7 +2011,7 @@ function surfaceOutcome(outcome: PipelineOutcome, notify: CommandNotify): void {
 // ─────────────────────────────────────────────────────────────────────
 
 interface RunReviewPhaseArgs {
-  ctx: ExtensionCommandContext;
+  ctx: ExtensionContext;
   runRoot: string;
   notify: CommandNotify;
   agentLoad: AgentLoadResult;
@@ -2148,7 +2172,7 @@ async function runReviewPhase(args: RunReviewPhaseArgs): Promise<ReviewWireResul
             })
           : undefined;
       const run = await runOneShotAgent({
-        deps: { createAgentSession, DefaultResourceLoader, SessionManager, getAgentDir },
+        deps: { createAgentSession: piCreateAgentSession, DefaultResourceLoader, SessionManager, getAgentDir },
         cwd: ctx.cwd,
         agent: criticAgent,
         model: resolution.model,
@@ -2341,7 +2365,7 @@ function safeReadFile(path: string): string | null {
  * run should surface the precondition to the user instead of
  * burying it.
  */
-function makeSubagentSessionManager(ctx: ExtensionCommandContext): SessionManager {
+function makeSubagentSessionManager(ctx: ExtensionContext): SessionManager {
   let parentId: string | undefined;
   let parentDir: string | undefined;
   try {

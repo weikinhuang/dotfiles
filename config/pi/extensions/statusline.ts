@@ -46,7 +46,7 @@ import { basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { type AssistantMessage, type ToolResultMessage } from '@earendil-works/pi-ai';
-import { type ExtensionAPI } from '@earendil-works/pi-coding-agent';
+import { type ExtensionAPI, type ExtensionContext } from '@earendil-works/pi-coding-agent';
 import { truncateToWidth, visibleWidth } from '@earendil-works/pi-tui';
 
 import {
@@ -336,7 +336,11 @@ export default function extension(pi: ExtensionAPI): void {
         const modelId = ctx.model?.id ?? 'no-model';
         // Only models with `reasoning: true` expose a meaningful thinking level;
         // everything else reports "off" regardless of ctx.getThinkingLevel().
-        const thinkingLevel = ctx.model?.reasoning ? ctx.getThinkingLevel?.() : undefined;
+        // `getThinkingLevel` lives on `ExtensionActions` (interactive mode
+        // only), not on the base `ExtensionContext`. Probe defensively so
+        // print/RPC mode falls through to `undefined` instead of type-erroring.
+        const getThinkingLevel = (ctx as { getThinkingLevel?: () => string | undefined }).getThinkingLevel;
+        const thinkingLevel = ctx.model?.reasoning ? getThinkingLevel?.() : undefined;
         const sessionId = ctx.sessionManager.getSessionId?.();
         const shortSessionId = sessionId ? sessionId.slice(0, 8) : '';
 
@@ -484,11 +488,11 @@ export default function extension(pi: ExtensionAPI): void {
   });
 
   // Refresh the footer whenever session state changes so tokens/cost/turns update live.
-  const refresh = (_event: unknown, ctx: { ui: { requestRender?: () => void } } & Record<string, unknown>): void => {
+  const refresh = (_event: unknown, ctx: ExtensionContext): void => {
     // Extensions don't have direct access to tui.requestRender, but pi re-renders on
     // message/turn events already. Still, touching setStatus(undefined) is a safe no-op
     // that guarantees a repaint on hosts that debounce aggressively.
-    (ctx as { ui: { setStatus: (k: string, v: string | undefined) => void } }).ui.setStatus('statusline', undefined);
+    ctx.ui.setStatus('statusline', undefined);
   };
   pi.on('message_end', refresh);
   pi.on('turn_end', refresh);

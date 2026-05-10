@@ -44,7 +44,19 @@
  */
 
 import { complete, type Context, type Message, type Model } from '@earendil-works/pi-ai';
-import { type ExtensionAPI, buildSessionContext, type ReadonlySessionManager } from '@earendil-works/pi-coding-agent';
+import {
+  type ExtensionAPI,
+  buildSessionContext,
+  convertToLlm,
+  type SessionManager,
+} from '@earendil-works/pi-coding-agent';
+
+/**
+ * Read-only subset of `SessionManager` — pi 0.74 dropped the public
+ * `ReadonlySessionManager` alias, so we redeclare the narrow Pick we
+ * actually use.
+ */
+type ReadonlySessionManager = Pick<SessionManager, 'getBranch' | 'getSessionId'>;
 
 import {
   BTW_USAGE,
@@ -155,7 +167,8 @@ export default function btw(pi: ExtensionAPI): void {
       // 4. Reconstruct the current branch as an LLM message list.
       const sessionView: SessionView = ctx.sessionManager;
       const entries = sessionView.getBranch();
-      const { messages: existingMessages } = buildSessionContext(entries);
+      const { messages: existingAgentMessages } = buildSessionContext(entries);
+      const existingMessages = convertToLlm(existingAgentMessages);
       const sideQuestion: Message = {
         role: 'user',
         content: userContent,
