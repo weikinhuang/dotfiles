@@ -349,11 +349,13 @@ function parsedToSummary(p: ParsedPi, subagentCount: number): SessionSummary {
     tokens: p.tokens,
     toolCalls: p.toolCalls,
     toolBreakdown: p.toolBreakdown,
-    // Pi's `subagent` extension writes each child session next to the parent
-    // under `subagents/<parent-session-id>/`. Mirror claude/codex: list/
-    // totals count parent tokens only; child tokens become their own rows in
-    // `session <uuid>`. Forked/cloned sessions live as sibling top-level
-    // .jsonl files and are shown as their own entries, not nested here.
+    // Pi's `subagent` / `deep-research` / `iteration-loop` extensions write
+    // each child session under `<parent-session-id>/subagents/` (Claude Code
+    // mirror layout — see `config/pi/extensions/AGENTS.md`). Mirror
+    // claude/codex: list/ totals count parent tokens only; child tokens
+    // become their own rows in `session <uuid>`. Forked/cloned sessions live
+    // as sibling top-level .jsonl files and are shown as their own entries,
+    // not nested here.
     subagentCount,
   };
   if (p.sessionName) summary.title = p.sessionName;
@@ -380,14 +382,19 @@ function parseSessionFile(filePath: string): ParsedPi {
 // ---------------------------------------------------------------------------
 
 /**
- * The subagent extension writes child transcripts to
- * `<projectDir>/subagents/<parent-session-id>/<timestamp>_<child-id>.jsonl`.
+ * The subagent / deep-research / iteration-loop extensions write child
+ * transcripts to
+ * `<projectDir>/<parent-session-id>/subagents/<timestamp>_<child-id>.jsonl`,
+ * mirroring Claude Code's
+ * `~/.claude/projects/<cwd-slug>/<parent-sid>/subagents/agent-<aid>.jsonl`
+ * layout (see
+ * [`config/pi/extensions/AGENTS.md`](./extensions/AGENTS.md)).
  * We locate `<projectDir>` by stripping the parent session filename off the
  * input path — all subagent files share the same `<projectDir>` root as
  * their parent.
  */
 function subagentDirFor(parentFilePath: string, parentSessionId: string): string {
-  return path.join(path.dirname(parentFilePath), SUBAGENTS_DIRNAME, parentSessionId);
+  return path.join(path.dirname(parentFilePath), parentSessionId, SUBAGENTS_DIRNAME);
 }
 
 function listSubagentFiles(parentFilePath: string, parentSessionId: string): string[] {

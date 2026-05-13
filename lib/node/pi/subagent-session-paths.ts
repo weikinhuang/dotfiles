@@ -3,15 +3,20 @@
  *
  * Pure module — no pi imports — so it can be unit-tested under `vitest`.
  *
- * Layout:
+ * Layout (mirrors Claude Code's
+ * `~/.claude/projects/<cwd-slug>/<parentSid>/subagents/agent-<aid>.jsonl`):
  *
- *   <root>/<parent-cwd-slug>/subagents/<parent-session-id>/
+ *   <root>/<parent-cwd-slug>/<parent-session-id>/subagents/
  *     <iso-timestamp>_<child-session-id>.jsonl
  *
  * Anchoring on `<parent-cwd-slug>` (not the throwaway worktree path for
  * `isolation: "worktree"` children) keeps the transcript alongside the
  * parent's own sessions in `~/.pi/agent/sessions/<slug>/`, so
  * `session-usage.ts`-style tools see related artefacts as a unit.
+ * Within that slug, the child transcript is nested under the parent
+ * session id so `<parentSid>/subagents/` mirrors how Claude lays out
+ * its `~/.claude/projects/<slug>/<parentSid>/subagents/` tree — see
+ * [`config/pi/extensions/AGENTS.md`](../../../config/pi/extensions/AGENTS.md).
  *
  * Retention: `sweepStaleSessions` deletes child session files older than
  * `retainDays`. Invoked from `session_start` (catches pre-crash leftovers)
@@ -48,7 +53,7 @@ export interface ChildSessionDirArgs {
  */
 export function childSessionDir(args: ChildSessionDirArgs): string {
   const root = args.root ?? subagentSessionRoot();
-  return join(root, cwdSlug(args.parentCwd), SUBAGENT_SESSION_DIRNAME, args.parentSessionId);
+  return join(root, cwdSlug(args.parentCwd), args.parentSessionId, SUBAGENT_SESSION_DIRNAME);
 }
 
 /**
@@ -81,7 +86,7 @@ export interface SweepResult {
 }
 
 /**
- * Walk `<root>/*\/subagents/*\/*.jsonl` and remove files older than
+ * Walk `<root>/*\/*\/subagents/*.jsonl` and remove files older than
  * `retainDays`. Injected fs so tests drive the whole thing with
  * in-memory data.
  *
@@ -98,18 +103,18 @@ export function sweepStaleSessions(root: string, retainDays: number, fs: SweepFs
   if (!projectDirs) return out;
 
   for (const projName of projectDirs) {
-    const subagents = join(root, projName, SUBAGENT_SESSION_DIRNAME);
-    const st = fs.stat(subagents);
-    if (!st?.isDirectory) continue;
-    const sessionDirs = fs.readdir(subagents) ?? [];
+    const projDir = join(root, projName);
+    const projStat = fs.stat(projDir);
+    if (!projStat?.isDirectory) continue;
+    const sessionDirs = fs.readdir(projDir) ?? [];
     for (const sid of sessionDirs) {
-      const sessionDir = join(subagents, sid);
-      const sst = fs.stat(sessionDir);
+      const subagents = join(projDir, sid, SUBAGENT_SESSION_DIRNAME);
+      const sst = fs.stat(subagents);
       if (!sst?.isDirectory) continue;
-      const files = fs.readdir(sessionDir) ?? [];
+      const files = fs.readdir(subagents) ?? [];
       for (const fname of files) {
         if (!fname.endsWith('.jsonl')) continue;
-        const full = join(sessionDir, fname);
+        const full = join(subagents, fname);
         const fst = fs.stat(full);
         if (!fst?.isFile) continue;
         out.scanned++;

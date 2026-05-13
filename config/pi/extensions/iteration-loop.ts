@@ -183,6 +183,7 @@ import {
   loadAgents,
   type ReadLayer,
 } from '../../../lib/node/pi/subagent-loader.ts';
+import { resolveSubagentSessionDir } from '../../../lib/node/pi/subagent-session-dir.ts';
 import { resolveChildModel, runOneShotAgent, type CreateAgentSessionDep } from '../../../lib/node/pi/subagent-spawn.ts';
 
 /**
@@ -598,10 +599,12 @@ export default function iterationLoopExtension(pi: ExtensionAPI): void {
     // event.turnIndex is 0-indexed per pi-coding-agent's TurnStartEvent.
     // This hook only receives the PARENT session's turn_start — the
     // critic subagent runs in its own AgentSession (via
-    // runOneShotAgent) with `SessionManager.inMemory` + no shared pi
-    // extension registry, so its events never reach this callback. If
-    // pi ever starts piping subagent events through the parent, adjust
-    // this handler to filter by `event.sessionId === pi.sessionId`.
+    // runOneShotAgent) with a disk-backed `SessionManager.create`
+    // pointed at the Claude-mirror layout (see
+    // `config/pi/extensions/AGENTS.md`) + no shared pi extension
+    // registry, so its events never reach this callback. If pi ever
+    // starts piping subagent events through the parent, adjust this
+    // handler to filter by `event.sessionId === pi.sessionId`.
     currentTurnIndex = (event as { turnIndex?: number }).turnIndex ?? currentTurnIndex + 1;
     checkRanThisTurn = false;
   });
@@ -899,6 +902,20 @@ export default function iterationLoopExtension(pi: ExtensionAPI): void {
         modelRegistry: ctx.modelRegistry,
         agentDir: getAgentDir(),
         signal,
+        // Persist the critic transcript under
+        // `<parentSessionDir>/<parentSid>/subagents/` (Claude Code
+        // mirror layout — see `config/pi/extensions/AGENTS.md`).
+        // Without this the spawn falls back to
+        // `SessionManager.inMemory(cwd)` and the critic's transcript
+        // is dropped on the floor, breaking `pi session-usage` cost
+        // attribution and forensic debugging when the critic errors.
+        sessionManager: SessionManager.create(
+          ctx.cwd,
+          resolveSubagentSessionDir({
+            parentSessionManager: ctx.sessionManager,
+            extensionLabel: 'iteration-loop',
+          }),
+        ),
         onEvent: ({ event }) => {
           if (event.type === 'message_end' && event.message?.role === 'assistant') {
             const usage = (event.message as { usage?: { cost?: { total?: number } } }).usage;

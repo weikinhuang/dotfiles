@@ -52,7 +52,7 @@ import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import  { type Model } from '@earendil-works/pi-ai';
+import { type Model } from '@earendil-works/pi-ai';
 import {
   createAgentSession,
   DefaultResourceLoader,
@@ -146,6 +146,7 @@ import {
   loadAgents,
   type ReadLayer,
 } from '../../../lib/node/pi/subagent-loader.ts';
+import { resolveSubagentSessionDir } from '../../../lib/node/pi/subagent-session-dir.ts';
 import {
   resolveChildModel,
   runOneShotAgent,
@@ -2339,50 +2340,29 @@ function safeReadFile(path: string): string | null {
 
 /**
  * Build a fresh {@link SessionManager} that persists a child
- * session under
- * `<parentSessionDir>/subagents/<parentSessionId>/`.
+ * session under `<parentSessionDir>/<parentSessionId>/subagents/`.
  *
- * This is the same directory convention the harness's built-in
- * `subagent` tool uses, and the one
- * [`config/pi/session-usage.ts`](../session-usage.ts) walks to
- * attribute child-session usage + cost back to the parent pi
- * session. Before this helper landed, every research-pipeline
- * spawn went through `SessionManager.inMemory(ctx.cwd)` — the
- * default on
- * [`subagent-spawn.ts`](../../../lib/node/pi/subagent-spawn.ts)
- * — so child transcripts never hit disk and `pi session-usage` /
- * `ai-tool-usage` had no evidence the research runs ever ran.
+ * This is the Claude Code mirror layout (see
+ * [`config/pi/extensions/AGENTS.md`](./AGENTS.md)) walked by
+ * [`config/pi/session-usage.ts`](../session-usage.ts) to attribute
+ * child-session usage + cost back to the parent pi session.
  *
- * Call per spawn (every research subagent gets its own jsonl in
- * that directory). **Throws** when the parent session has no id
- * or no dir (rare — typically `pi -p --no-session` or an in-memory
- * test harness). Prior to this guard the helper silently fell back
- * to `SessionManager.inMemory(ctx.cwd)` and child transcripts were
- * dropped on the floor, which broke both cost/audit attribution
- * (`pi session-usage` / `ai-tool-usage` had no evidence the run
- * ever existed) and debuggability (no forensic trail when a fanout
- * subagent errored). Callers that genuinely need an ephemeral
- * run should surface the precondition to the user instead of
- * burying it.
+ * The path resolution + precondition checks live in the pure helper
+ * [`resolveSubagentSessionDir`](../../../lib/node/pi/subagent-session-dir.ts);
+ * this wrapper only adds the pi-runtime `SessionManager.create(…)`
+ * call. Deep-research's pre-Claude-mirror history — silently falling
+ * back to `SessionManager.inMemory(ctx.cwd)` when the parent session
+ * had no id — broke both cost/audit attribution (`pi session-usage`
+ * / `ai-tool-usage` had no evidence the run ever existed) and
+ * debuggability (no forensic trail when a fanout subagent errored);
+ * the helper now throws instead.
  */
 function makeSubagentSessionManager(ctx: ExtensionContext): SessionManager {
-  let parentId: string | undefined;
-  let parentDir: string | undefined;
-  try {
-    parentId = ctx.sessionManager.getSessionId();
-    parentDir = ctx.sessionManager.getSessionDir();
-  } catch (e) {
-    throw new Error(
-      `deep-research: cannot persist subagent session — parent sessionManager threw while reading id/dir (${(e as Error).message}). ` +
-        'Restart pi without --no-session (or set --session-dir) so subagent transcripts can be recorded for cost + audit tracking.',
-    );
-  }
-  if (!parentId || !parentDir) {
-    throw new Error(
-      'deep-research: cannot persist subagent session — parent session has no id/dir (running pi with --no-session?). ' +
-        'Restart pi without --no-session (or set --session-dir) so subagent transcripts are recorded for cost + audit tracking. ' +
-        'deep-research refuses to run against an untracked parent session because every fanout/synth/critic spawn would silently drop its transcript.',
-    );
-  }
-  return SessionManager.create(ctx.cwd, join(parentDir, 'subagents', parentId));
+  return SessionManager.create(
+    ctx.cwd,
+    resolveSubagentSessionDir({
+      parentSessionManager: ctx.sessionManager,
+      extensionLabel: 'deep-research',
+    }),
+  );
 }

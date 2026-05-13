@@ -33,14 +33,24 @@ describe('subagentSessionRoot', () => {
 });
 
 describe('childSessionDir', () => {
-  test('anchors on parent cwd slug + parent session id', () => {
+  test('mirrors Claude Code layout: <root>/<cwd-slug>/<parentSid>/subagents', () => {
     const dir = childSessionDir({
       parentCwd: '/mnt/d/proj',
       parentSessionId: 'parent-abc',
       root: '/root',
     });
 
-    expect(dir).toBe('/root/--mnt-d-proj--/subagents/parent-abc');
+    expect(dir).toBe('/root/--mnt-d-proj--/parent-abc/subagents');
+  });
+
+  test('does NOT use the legacy <cwd-slug>/subagents/<parentSid> ordering', () => {
+    const dir = childSessionDir({
+      parentCwd: '/mnt/d/proj',
+      parentSessionId: 'parent-abc',
+      root: '/root',
+    });
+
+    expect(dir).not.toBe('/root/--mnt-d-proj--/subagents/parent-abc');
   });
 });
 
@@ -93,9 +103,9 @@ describe('sweepStaleSessions', () => {
     const fresh = now - 1 * 24 * 60 * 60 * 1000;
     const tree: Record<string, { name: string; mtimeMs: number; kind: 'file' | 'dir' }[]> = {
       '/root': [{ name: '--mnt-d-proj--', mtimeMs: now, kind: 'dir' }],
-      '/root/--mnt-d-proj--': [{ name: 'subagents', mtimeMs: now, kind: 'dir' }],
-      '/root/--mnt-d-proj--/subagents': [{ name: 'parent-abc', mtimeMs: now, kind: 'dir' }],
-      '/root/--mnt-d-proj--/subagents/parent-abc': [
+      '/root/--mnt-d-proj--': [{ name: 'parent-abc', mtimeMs: now, kind: 'dir' }],
+      '/root/--mnt-d-proj--/parent-abc': [{ name: 'subagents', mtimeMs: now, kind: 'dir' }],
+      '/root/--mnt-d-proj--/parent-abc/subagents': [
         { name: 'old.jsonl', mtimeMs: stale, kind: 'file' },
         { name: 'new.jsonl', mtimeMs: fresh, kind: 'file' },
         { name: 'README.txt', mtimeMs: stale, kind: 'file' },

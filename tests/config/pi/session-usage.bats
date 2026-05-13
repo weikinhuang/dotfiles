@@ -5,7 +5,8 @@
 # Pi records real cost in each assistant message's `usage.cost.total`, so
 # unlike claude/codex we never consult the LiteLLM pricing table. These
 # tests focus on pi-specific behavior: session header parsing, custom
-# subagent-run entries, and the `subagents/<parent-id>/` child layout.
+# subagent-run entries, and the `<parent-id>/subagents/` child layout
+# (Claude Code mirror — see config/pi/extensions/AGENTS.md).
 
 setup() {
   load '../../helpers/common'
@@ -37,12 +38,13 @@ write_session() {
 }
 
 # Writes a subagent child JSONL under
-# $SESSIONS_DIR/<slug>/subagents/<parent-sid>/<timestamp>_<child-sid>.jsonl.
+# $SESSIONS_DIR/<slug>/<parent-sid>/subagents/<timestamp>_<child-sid>.jsonl
+# (Claude Code mirror layout).
 write_subagent() {
   local slug="$1"
   local parent_sid="$2"
   local child_sid="$3"
-  local dir="${SESSIONS_DIR}/${slug}/subagents/${parent_sid}"
+  local dir="${SESSIONS_DIR}/${slug}/${parent_sid}/subagents"
   mkdir -p "${dir}"
   local ts="${4:-2026-05-01T19-01-00-000Z}"
   cat >"${dir}/${ts}_${child_sid}.jsonl"
@@ -88,7 +90,7 @@ EOF
   assert_equal "$(jq '.sessions[0].last_context_tokens' <<<"${output}")" 8053
 }
 
-@test "pi: subagent_count reflects files under subagents/<parent-id>/" {
+@test "pi: subagent_count reflects files under <parent-id>/subagents/" {
   write_session "--proj--" "019dd000-aaaa-7000-0000-000000000001" <<'EOF'
 {"type":"session","version":3,"id":"019dd000-aaaa-7000-0000-000000000001","timestamp":"2026-05-01T19:00:00.000Z","cwd":"/proj"}
 {"type":"message","id":"m1","parentId":null,"timestamp":"2026-05-01T19:00:01.000Z","message":{"role":"user","content":"spawn some agents"}}
