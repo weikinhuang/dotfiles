@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -10,7 +10,9 @@ let sandbox = '';
 let savedDotfilesRoot: string | undefined;
 
 beforeEach(() => {
-  sandbox = mkdtempSync(join(tmpdir(), 'pi-git-prompt-'));
+  // realpath so expected paths match what resolveGitPromptScript returns on
+  // macOS, where /var/folders is a symlink to /private/var/folders.
+  sandbox = realpathSync(mkdtempSync(join(tmpdir(), 'pi-git-prompt-')));
   savedDotfilesRoot = process.env.DOTFILES_ROOT;
   delete process.env.DOTFILES_ROOT;
 });
