@@ -72,9 +72,10 @@ import {
 import { Key } from '@earendil-works/pi-tui';
 
 import { askForPermission } from '../../../lib/node/pi/approval-prompt.ts';
+import { evaluateBashPolicy } from '../../../lib/node/pi/mode/bash-policy.ts';
 import { mergeAgentInheritance, type AgentRecord } from '../../../lib/node/pi/mode/inherit.ts';
-import { isInsideWriteRoots } from '../../../lib/node/pi/mode/match.ts';
-import { type ParsedMode, parseModeFile, type ModeWarning } from '../../../lib/node/pi/mode/parse.ts';
+import { formatModeListing } from '../../../lib/node/pi/mode/list.ts';
+import { type ModeWarning, parseModeFile, type ParsedMode } from '../../../lib/node/pi/mode/parse.ts';
 import { resolveWriteRoots } from '../../../lib/node/pi/mode/resolve.ts';
 import { loadModeSettings, type ModeSettings, type SettingsLayer } from '../../../lib/node/pi/mode/settings.ts';
 import {
@@ -83,6 +84,7 @@ import {
   type SnapshotApi,
   type SnapshotState,
 } from '../../../lib/node/pi/mode/snapshot.ts';
+import { decideWriteGate } from '../../../lib/node/pi/mode/write-gate.ts';
 import { loadAgents, defaultAgentLayers } from '../../../lib/node/pi/subagent-loader.ts';
 
 const STATUS_KEY = 'mode';
@@ -411,30 +413,11 @@ export default function modeExtension(pi: ExtensionAPI): void {
   // tool_call gating
   // ────────────────────────────────────────────────────────────────────
 
-  const getInputPath = (event: ToolCallEvent): string => {
+  const matchToolCallPath = (event: ToolCallEvent): string => {
     if (isToolCallEventType('write', event) || isToolCallEventType('edit', event)) {
       return String(event.input?.path ?? '').trim();
     }
     return '';
-  };
-
-  const matchBashPrefix = (cmd: string, patterns: readonly string[]): boolean => {
-    const head = cmd.trim().split(/\s+/)[0] ?? '';
-    for (const pat of patterns) {
-      // Trivial matcher: exact, prefix-with-trailing-`*`, or wildcard `*`.
-      // Defer richer glob semantics to v2; the catalog's bashAllow lists
-      // (e.g. `"ai-fetch-web *"`, `"rg *"`) only ever care about the
-      // command name plus a `*` placeholder.
-      if (pat === '*') return true;
-      const star = pat.indexOf('*');
-      if (star === -1) {
-        if (head === pat) return true;
-      } else {
-        const prefix = pat.slice(0, star).trim();
-        if (prefix === '' || head === prefix.replace(/\s+$/, '')) return true;
-      }
-    }
-    return false;
   };
 
   pi.on('tool_call', async (event, ctx) => {
@@ -446,19 +429,14 @@ export default function modeExtension(pi: ExtensionAPI): void {
     // ── Bash policy ────────────────────────────────────────────────
     if (isToolCallEventType('bash', event)) {
       const cmd = String((event.input as { command?: unknown })?.command ?? '');
-      const allow = active.parsed.bashAllow;
-      const deny = active.parsed.bashDeny;
-      if (deny.length > 0 && matchBashPrefix(cmd, deny)) {
-        return {
-          block: true,
-          reason: `mode "${activeName}" denies bash command (matched bashDeny)`,
-        };
-      }
-      if (allow.length > 0 && !matchBashPrefix(cmd, allow)) {
-        return {
-          block: true,
-          reason: `mode "${activeName}" allows only: ${allow.join(', ')}`,
-        };
+      const policy = evaluateBashPolicy({
+        command: cmd,
+        bashAllow: active.parsed.bashAllow,
+        bashDeny: active.parsed.bashDeny,
+        modeName: activeName ?? '',
+      });
+      if (policy.kind === 'block') {
+        return { block: true, reason: policy.reason };
       }
       return undefined;
     }
@@ -467,41 +445,34 @@ export default function modeExtension(pi: ExtensionAPI): void {
     const isWrite = isToolCallEventType('write', event) || isToolCallEventType('edit', event);
     if (!isWrite) return undefined;
 
-    const inputPath = getInputPath(event);
+    const inputPath = matchToolCallPath(event);
     if (!inputPath) return undefined;
 
     const absolute = resolve(ctx.cwd, inputPath);
-    if (sessionAllow.has(absolute)) return undefined;
-
-    // Empty writeRoots ⇒ this mode disallows writes entirely.
-    // Non-empty + path inside ⇒ allow without prompting.
-    const insideRoots = active.resolvedWriteRoots.length > 0 && isInsideWriteRoots(absolute, active.resolvedWriteRoots);
-    if (insideRoots) return undefined;
-
-    const detail =
-      active.resolvedWriteRoots.length === 0
-        ? `mode "${activeName}" disallows writes`
-        : `mode "${activeName}" writeRoots: ${active.resolvedWriteRoots.join(', ')}`;
-
-    if (!ctx.hasUI) {
-      if (violationDefault === 'allow') return undefined;
-      return {
-        block: true,
-        reason:
-          `No UI for approval. Path "${inputPath}" is outside ${detail}. ` +
-          'Set PI_MODE_VIOLATION_DEFAULT=allow to override, or pick a path under writeRoots.',
-      };
+    const gate = decideWriteGate({
+      absolutePath: absolute,
+      inputPath,
+      resolvedWriteRoots: active.resolvedWriteRoots,
+      sessionAllow,
+      hasUI: ctx.hasUI,
+      violationDefault,
+      modeName: activeName ?? '',
+    });
+    if (gate.kind === 'allow') return undefined;
+    if (gate.kind === 'block') {
+      return { block: true, reason: gate.reason };
     }
 
+    // gate.kind === 'prompt' — dispatch the approval UI.
     const decision = await askForPermission(ctx, {
       tool: event.toolName,
       path: inputPath,
-      detail,
+      detail: gate.detail,
     });
     if (decision.kind === 'deny') {
       return {
         block: true,
-        reason: decision.feedback ?? `Blocked by user (${detail})`,
+        reason: decision.feedback ?? `Blocked by user (${gate.detail})`,
       };
     }
     if (decision.kind === 'allow-session') {
@@ -552,13 +523,8 @@ export default function modeExtension(pi: ExtensionAPI): void {
           );
           return;
         }
-        const activeLine = activeName ? `(active: ${activeName})` : '(no mode active)';
-        const lines = nameOrder.map((n) => {
-          const star = n === activeName ? '* ' : '  ';
-          const desc = modes[n]?.description ?? '';
-          return `${star}${n} — ${desc}`;
-        });
-        ctx.ui.notify([activeLine, ...lines].join('\n'), 'info');
+        const lines = formatModeListing({ nameOrder, modes, activeName });
+        ctx.ui.notify(lines.join('\n'), 'info');
         return;
       }
       if (arg === 'off' || arg === '(none)') {
