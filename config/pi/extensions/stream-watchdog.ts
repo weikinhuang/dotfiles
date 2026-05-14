@@ -59,7 +59,14 @@
  *
  * Environment:
  *   PI_STREAM_WATCHDOG_DISABLED=1        skip the extension entirely
- *   PI_STREAM_WATCHDOG_STALL_MS=N        silence threshold, ms (default 120000)
+ *   PI_STREAM_WATCHDOG_STALL_MS=N        soft silent-stream threshold, ms
+ *                                        (default 120000). Suppressed while
+ *                                        a tool call is in flight.
+ *   PI_STREAM_WATCHDOG_HARD_STALL_MS=N   hard wall-clock cap since the last
+ *                                        forward-progress event, ms (default
+ *                                        1800000 / 30 min). Always applies,
+ *                                        regardless of in-flight tools —
+ *                                        catches genuinely runaway tools.
  *   PI_STREAM_WATCHDOG_POLL_MS=N         poll interval, ms (default 5000)
  *   PI_STREAM_WATCHDOG_ABORT=0           notify only; do not auto-abort
  *   PI_STREAM_WATCHDOG_MAX_RETRIES=N     consecutive auto-retries per user
@@ -81,10 +88,14 @@ import {
   recordEnd,
   recordHeartbeat,
   recordStart,
+  recordToolCall,
+  recordToolResult,
+  resetInFlightTools,
 } from '../../../lib/node/pi/stream-watchdog.ts';
 
 const STATUS_KEY = 'stream-watchdog';
 const DEFAULT_STALL_MS = 120_000;
+const DEFAULT_HARD_STALL_MS = 1_800_000;
 const DEFAULT_POLL_MS = 5_000;
 const DEFAULT_MAX_RETRIES = 2;
 
@@ -120,6 +131,7 @@ export default function streamWatchdog(pi: ExtensionAPI): void {
   if (process.env.PI_STREAM_WATCHDOG_DISABLED === '1') return;
 
   const stallMs = parsePositiveInt(process.env.PI_STREAM_WATCHDOG_STALL_MS, DEFAULT_STALL_MS);
+  const hardStallMs = parsePositiveInt(process.env.PI_STREAM_WATCHDOG_HARD_STALL_MS, DEFAULT_HARD_STALL_MS);
   const pollMs = parsePositiveInt(process.env.PI_STREAM_WATCHDOG_POLL_MS, DEFAULT_POLL_MS);
   const autoAbort = process.env.PI_STREAM_WATCHDOG_ABORT !== '0';
   const maxRetries = parseNonNegativeInt(process.env.PI_STREAM_WATCHDOG_MAX_RETRIES, DEFAULT_MAX_RETRIES);
@@ -171,18 +183,26 @@ export default function streamWatchdog(pi: ExtensionAPI): void {
       if (!ctx) return;
 
       const nowMs = Date.now();
-      const stale = detectStale(state, nowMs, stallMs);
+      const stale = detectStale(state, nowMs, stallMs, hardStallMs);
       if (!stale) return;
 
       const silentSec = Math.round((nowMs - stale.lastHeartbeat) / 1000);
       const elapsedSec = Math.round((nowMs - stale.startedAt) / 1000);
+      const toolName = stale.inFlightTool;
+      const reasonSuffix =
+        stale.reason === 'hard' ? ` (hard wall-clock cap${toolName ? `, tool: ${toolName}` : ''})` : '';
 
       if (!autoAbort) {
         ctx.ui.notify(
-          `Stream watchdog: stream silent for ${silentSec}s (${elapsedSec}s total) — press Esc to cancel.`,
+          `Stream watchdog: stream silent for ${silentSec}s (${elapsedSec}s total)${reasonSuffix} — press Esc to cancel.`,
           'warning',
         );
-        ctx.ui.setStatus(STATUS_KEY, `⟳ stream-watchdog: stream silent ${silentSec}s`);
+        ctx.ui.setStatus(
+          STATUS_KEY,
+          stale.reason === 'hard' && toolName
+            ? `⟳ stream-watchdog: tool ${toolName} stalled ${elapsedSec}s`
+            : `⟳ stream-watchdog: stream silent ${silentSec}s`,
+        );
         return;
       }
 
@@ -212,8 +232,17 @@ export default function streamWatchdog(pi: ExtensionAPI): void {
       // Within budget: abort AND latch a nudge for the `agent_end`
       // handler to deliver once the stream has fully unwound.
       pendingNudge = { silentSec, elapsedSec };
-      ctx.ui.notify(`Stream watchdog: no tokens for ${silentSec}s (${elapsedSec}s total). Aborting turn.`, 'warning');
-      ctx.ui.setStatus(STATUS_KEY, `⟳ stream-watchdog: aborted after ${silentSec}s of silence`);
+      const abortMsg =
+        stale.reason === 'hard' && toolName
+          ? `Stream watchdog: tool ${toolName} has been running for ${elapsedSec}s without forward progress${reasonSuffix}. Aborting turn.`
+          : `Stream watchdog: no tokens for ${silentSec}s (${elapsedSec}s total)${reasonSuffix}. Aborting turn.`;
+      ctx.ui.notify(abortMsg, 'warning');
+      ctx.ui.setStatus(
+        STATUS_KEY,
+        stale.reason === 'hard' && toolName
+          ? `⟳ stream-watchdog: aborted tool ${toolName} after ${elapsedSec}s`
+          : `⟳ stream-watchdog: aborted after ${silentSec}s of silence`,
+      );
       try {
         ctx.abort();
       } catch (e) {
@@ -271,6 +300,26 @@ export default function streamWatchdog(pi: ExtensionAPI): void {
     recordHeartbeat(state, Date.now());
   });
 
+  // ── Tool-call awareness ──────────────────────────────────────────
+  // Suppress the soft silent-stream branch while a tool call is in
+  // flight: the model is correctly silent because the parent asked it
+  // to wait on the tool. The hard wall-clock branch still applies
+  // (`PI_STREAM_WATCHDOG_HARD_STALL_MS`, default 30 min) and catches
+  // genuinely runaway tools that never return. Both events are also
+  // forward-progress heartbeats so the post-tool window starts fresh.
+  pi.on('tool_call', (event, ctx) => {
+    if (!state.current) return;
+    latestCtx = ctx;
+    const toolName = (event as { toolName?: string }).toolName ?? '(unknown)';
+    recordToolCall(state, Date.now(), toolName);
+  });
+
+  pi.on('tool_result', (_event, ctx) => {
+    if (!state.current) return;
+    latestCtx = ctx;
+    recordToolResult(state, Date.now());
+  });
+
   pi.on('message_end', (event, ctx) => {
     const msg = (event as { message?: { role?: string } }).message;
     if (!msg || msg.role !== 'assistant') return;
@@ -283,6 +332,11 @@ export default function streamWatchdog(pi: ExtensionAPI): void {
 
   pi.on('agent_end', (event, ctx) => {
     latestCtx = ctx;
+
+    // Defensive (D6): a dropped tool_result event — provider error,
+    // malformed shape, anything — must not leave the soft branch
+    // permanently suppressed. Reset at every turn boundary.
+    resetInFlightTools(state);
 
     // Deliver the latched nudge. By the time `agent_end` has
     // propagated through `_agentEventQueue`, `finishRun()` has flipped
