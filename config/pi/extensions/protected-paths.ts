@@ -89,13 +89,9 @@ import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 
-import {
-  type ExtensionAPI,
-  type ExtensionContext,
-  isToolCallEventType,
-  type ToolCallEvent,
-} from '@earendil-works/pi-coding-agent';
+import { type ExtensionAPI, isToolCallEventType, type ToolCallEvent } from '@earendil-works/pi-coding-agent';
 
+import { askForPermission } from '../../../lib/node/pi/approval-prompt.ts';
 import { clearConfigWarning, parseJsonc, warnBadConfigFileOnce } from '../../../lib/node/pi/jsonc.ts';
 import {
   classifyRead,
@@ -104,7 +100,6 @@ import {
   emptyConfig,
   expandTilde,
   mergeConfigs,
-  type Protection,
   type ProtectionConfig,
 } from '../../../lib/node/pi/paths.ts';
 
@@ -170,44 +165,6 @@ function mergedConfig(layers: ConfigLayer[]): ProtectionConfig {
 }
 
 // ──────────────────────────────────────────────────────────────────────
-// Prompt
-// ──────────────────────────────────────────────────────────────────────
-
-type Decision = { kind: 'allow-once' } | { kind: 'allow-session' } | { kind: 'deny'; feedback?: string };
-
-async function askForPermission(
-  ctx: ExtensionContext,
-  toolName: string,
-  path: string,
-  protection: Protection,
-): Promise<Decision> {
-  interface Entry {
-    label: string;
-    decision: Decision | 'deny-feedback';
-  }
-  const entries: Entry[] = [
-    { label: 'Allow once', decision: { kind: 'allow-once' } },
-    { label: `Allow "${path}" for this session`, decision: { kind: 'allow-session' } },
-    { label: 'Deny', decision: { kind: 'deny' } },
-    { label: 'Deny with feedback…', decision: 'deny-feedback' },
-  ];
-
-  const choice = await ctx.ui.select(
-    `⚠️  ${toolName} wants to touch a protected path:\n\n  ${path}\n  (${protection.detail})\n\nHow should pi proceed?`,
-    entries.map((e) => e.label),
-  );
-
-  const picked = entries.find((e) => e.label === choice);
-  if (!picked) return { kind: 'deny' };
-
-  if (picked.decision === 'deny-feedback') {
-    const feedback = await ctx.ui.input('Tell the assistant why:', 'e.g. read docs/foo.md instead');
-    return { kind: 'deny', feedback: feedback?.trim() || undefined };
-  }
-  return picked.decision;
-}
-
-// ──────────────────────────────────────────────────────────────────────
 // Extension
 // ──────────────────────────────────────────────────────────────────────
 
@@ -266,7 +223,11 @@ export default function protectedPaths(pi: ExtensionAPI): void {
       };
     }
 
-    const decision = await askForPermission(ctx, event.toolName, inputPath, protection);
+    const decision = await askForPermission(ctx, {
+      tool: event.toolName,
+      path: inputPath,
+      detail: protection.detail,
+    });
     if (decision.kind === 'deny') {
       return {
         block: true,
