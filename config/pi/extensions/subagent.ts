@@ -112,6 +112,7 @@ import {
   type SweepFs,
 } from '../../../lib/node/pi/subagent-session-paths.ts';
 import { resolveChildModel } from '../../../lib/node/pi/subagent-spawn.ts';
+import { resolveMaxTurns } from '../../../lib/node/pi/subagent-budget.ts';
 
 const SUBAGENT_CUSTOM_TYPE = 'subagent-run';
 const STATUS_KEY = 'subagent';
@@ -131,6 +132,7 @@ interface SubagentParamsT {
   agent: string;
   task: string;
   modelOverride?: string;
+  maxTurns?: number;
   returnFormat?: 'text' | 'json';
   run_in_background?: boolean;
 }
@@ -699,6 +701,14 @@ export default function subagentExtension(pi: ExtensionAPI): void {
           'Defaults to false (synchronous — the parent turn blocks until the child finishes).',
       }),
     ),
+    maxTurns: Type.Optional(
+      Type.Integer({
+        minimum: 1,
+        maximum: 1000,
+        description:
+          "Optional `maxTurns` cap for this dispatch. Default is whatever the agent's `.md` declares (20 for `general-purpose` as of today). Raise when delegating a known multi-file implementation that exceeds the default. Bounded by `PI_SUBAGENT_MAX_TURNS` if set.",
+      }),
+    ),
   });
 
   const SubagentSendParams = Type.Object({
@@ -735,12 +745,13 @@ export default function subagentExtension(pi: ExtensionAPI): void {
     agent: AgentDef;
     task: string;
     modelOverride: string | undefined;
+    maxTurnsOverride: number | undefined;
     ctx: ExtensionContext;
     parentSignal: AbortSignal | undefined;
     /** When true, the caller owns the semaphore release — drive() skips it. */
     background: boolean;
   }): Promise<SpawnResult> {
-    const { agent, task, modelOverride, ctx, parentSignal, background } = args;
+    const { agent, task, modelOverride, maxTurnsOverride, ctx, parentSignal, background } = args;
     const start = Date.now();
     const agg = makeAggregate();
 
@@ -845,7 +856,11 @@ export default function subagentExtension(pi: ExtensionAPI): void {
     const handle = handleCounter.next(agent.name);
 
     // ── Subscribe to child events ─────────────────────────────────────
-    const maxTurns = Math.min(agent.maxTurns, envPositiveInt('PI_SUBAGENT_MAX_TURNS', Number.MAX_SAFE_INTEGER));
+    const maxTurns = resolveMaxTurns({
+      override: maxTurnsOverride,
+      agentDefault: agent.maxTurns,
+      envCap: envPositiveInt('PI_SUBAGENT_MAX_TURNS', Number.MAX_SAFE_INTEGER),
+    });
     let reachedMaxTurns = false;
     // We trigger `child.abort()` ourselves on maxTurns, timeout, or parent
     // signal — any of those counts as an "aborted" outcome even though
@@ -1130,6 +1145,7 @@ export default function subagentExtension(pi: ExtensionAPI): void {
           agent,
           task: params.task,
           modelOverride: params.modelOverride,
+          maxTurnsOverride: params.maxTurns,
           ctx,
           parentSignal: signal,
           background,

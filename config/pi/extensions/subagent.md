@@ -105,6 +105,17 @@ lockstep.
 - `/agents show <name>` — print the full frontmatter + body of a single agent (useful for confirming an override took
   effect).
 
+## Per-call overrides
+
+The `subagent` tool accepts a few optional fields that override the agent definition for a single dispatch. Use these
+sparingly — the agent frontmatter defaults are the right starting point, and the env-var ceilings (see
+[Environment variables](#environment-variables)) always win.
+
+| Field           | Type                          | Effect                                                                                                                                                                                                                                                          |
+| --------------- | ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `modelOverride` | `string` (`provider/modelId`) | Replaces the agent's `model` for this dispatch. Falls back to `PI_SUBAGENT_MODEL` if unset.                                                                                                                                                                     |
+| `maxTurns`      | `integer` (1–1000)            | Replaces the agent's `maxTurns` for this dispatch. Lifts the cap above the agent default when delegating a known multi-file implementation; can also lower it. `PI_SUBAGENT_MAX_TURNS` still acts as the global ceiling — resolved cap is `min(maxTurns, env)`. |
+
 ## Worktree caveat
 
 `isolation: "worktree"` severs continuity with the parent's `memory` / `scratchpad` / `todo` state because
