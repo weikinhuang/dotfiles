@@ -37,6 +37,9 @@ const mkAgent = (overrides: Partial<AgentDef> = {}): AgentDef => ({
   timeoutMs: 10_000,
   isolation: 'shared-cwd',
   appendSystemPrompt: undefined,
+  bashAllow: [],
+  bashDeny: [],
+  writeRoots: [],
   body: 'body',
   ...overrides,
 });

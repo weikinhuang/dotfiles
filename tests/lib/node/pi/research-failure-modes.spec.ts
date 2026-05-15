@@ -219,6 +219,9 @@ function fakeAgent(): AgentDef {
     timeoutMs: 10_000,
     isolation: 'shared-cwd',
     appendSystemPrompt: undefined,
+    bashAllow: [],
+    bashDeny: [],
+    writeRoots: [],
     body: 'fake body',
   };
 }

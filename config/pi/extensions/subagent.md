@@ -43,17 +43,38 @@ Markdown files with YAML frontmatter, discovered across three priority layers (h
 
 Frontmatter schema:
 
-| Field                | Type                       | Default                  | Meaning                                                                                         |
-| -------------------- | -------------------------- | ------------------------ | ----------------------------------------------------------------------------------------------- |
-| `name`               | string (required)          | —                        | LLM-visible agent identifier. Must match `[a-z][a-z0-9-]*`.                                     |
-| `description`        | string (required)          | —                        | Explains WHEN to delegate. Surfaced to the parent LLM in the tool description.                  |
-| `tools`              | string[]                   | `[read, grep, find, ls]` | Allowlist of built-in + extension tool names. Unknown entries drop with a startup warning.      |
-| `model`              | `inherit` \| `provider/id` | `inherit`                | Which model answers. `inherit` reuses the parent's current model.                               |
-| `thinkingLevel`      | `off…xhigh`                | inherit                  | Clamped to the chosen model's capabilities.                                                     |
-| `maxTurns`           | number                     | `20`                     | Hard cap on agent turns (enforced by counting `turn_end` + calling `child.abort()`).            |
-| `timeoutMs`          | number                     | `180000`                 | Wall-clock cap — aborts the child session.                                                      |
-| `isolation`          | `shared-cwd` \| `worktree` | `shared-cwd`             | `worktree` creates `.git/worktrees/pi-subagent-<uuid>/`; removed on completion or stale sweep.  |
-| `appendSystemPrompt` | string                     | —                        | Extra text appended to pi's default system prompt, before the Markdown body. Rare escape hatch. |
+| Field                | Type                       | Default                  | Meaning                                                                                                                                                                                                                                                               |
+| -------------------- | -------------------------- | ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `name`               | string (required)          | —                        | LLM-visible agent identifier. Must match `[a-z][a-z0-9-]*`.                                                                                                                                                                                                           |
+| `description`        | string (required)          | —                        | Explains WHEN to delegate. Surfaced to the parent LLM in the tool description.                                                                                                                                                                                        |
+| `tools`              | string[]                   | `[read, grep, find, ls]` | Allowlist of built-in + extension tool names. Unknown entries drop with a startup warning.                                                                                                                                                                            |
+| `model`              | `inherit` \| `provider/id` | `inherit`                | Which model answers. `inherit` reuses the parent's current model.                                                                                                                                                                                                     |
+| `thinkingLevel`      | `off…xhigh`                | inherit                  | Clamped to the chosen model's capabilities.                                                                                                                                                                                                                           |
+| `maxTurns`           | number                     | `20`                     | Hard cap on agent turns (enforced by counting `turn_end` + calling `child.abort()`).                                                                                                                                                                                  |
+| `timeoutMs`          | number                     | `180000`                 | Wall-clock cap — aborts the child session.                                                                                                                                                                                                                            |
+| `isolation`          | `shared-cwd` \| `worktree` | `shared-cwd`             | `worktree` creates `.git/worktrees/pi-subagent-<uuid>/`; removed on completion or stale sweep.                                                                                                                                                                        |
+| `appendSystemPrompt` | string                     | —                        | Extra text appended to pi's default system prompt, before the Markdown body. Rare escape hatch.                                                                                                                                                                       |
+| `bashAllow`          | string[]                   | `[]`                     | Per-agent bash allowlist enforced inside the child session via the inline `agent-gate` extension factory. Same matcher semantics as persona's `bashAllow` (head-token exact / `prefix *` / `*`). Empty means "no opinion".                                            |
+| `bashDeny`           | string[]                   | `[]`                     | Per-agent bash denylist. `bashAllow` wins over `bashDeny` on overlap, mirroring the persona side. Empty means "no opinion".                                                                                                                                           |
+| `writeRoots`         | string[]                   | `[]`                     | Positive `write` / `edit` allowlist enforced inside the child. Tilde and `{projectSlug}` substitution. Empty means writes are unconstrained inside the child (current default). Non-empty means writes outside the listed roots are blocked with a tool-result error. |
+| `requestOptions`     | object                     | —                        | Free-form deep-merge into the child's outgoing provider payload via `before_provider_request`. Same shape and `apis: [...]` filter as persona's `requestOptions`. See [`./persona.md`](./persona.md) `requestOptions`.                                                |
+
+### Per-agent gate enforcement
+
+`bashAllow` / `bashDeny` / `writeRoots` / `requestOptions` are enforced by an inline `ExtensionFactory` installed inside
+the child session, NOT by the parent's `bash-permissions` / `protected-paths` / `persona` extensions. Pi's extension
+loader supports `extensionFactories` on `DefaultResourceLoader` even when `noExtensions: true` is set, which is how the
+subagent extension keeps the layered-on-disk extensions out of children while still gating per-agent.
+
+- The factory closes over the agent's resolved configuration at spawn time, so each child enforces its own rules
+  independently — parallel subagents do not share state.
+- `writeRoots` resolves at spawn time relative to the child cwd (homedir + `{projectSlug}` substitution mirrors the
+  persona resolver). Non-empty `writeRoots` is a binding allowlist; empty `writeRoots` is treated as "no opinion".
+- The child runs with `hasUI: false`, so the gate never prompts — a `write` outside `writeRoots` is blocked with a
+  diagnostic the model can act on. `bash` denials work the same way.
+- The supplementary `lib/node/pi/subagent/active-agent.ts` cross-extension singleton publishes the running agent's
+  snapshot so parent observers (statusline integrations etc.) can see what's running, but it is NOT used for enforcement
+  — the inline factory's per-child closure is the authoritative gate.
 
 Default agents shipped with the dotfiles:
 

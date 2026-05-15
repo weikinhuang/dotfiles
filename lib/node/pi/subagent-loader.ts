@@ -58,6 +58,8 @@ export const DEFAULT_AGENT_TIMEOUT_MS = 180_000;
 const NAME_PATTERN = /^[a-z][a-z0-9-]*$/;
 const ISOLATION_VALUES: readonly AgentIsolation[] = ['shared-cwd', 'worktree'];
 
+import { parseRequestOptions, type RequestOptionsConfig } from './request-options.ts';
+
 export interface AgentDef {
   /** Source path of the `.md` file. Useful for `/agents show`. */
   path: string;
@@ -81,6 +83,22 @@ export interface AgentDef {
   isolation: AgentIsolation;
   /** Optional extra text appended to the default system prompt. */
   appendSystemPrompt: string | undefined;
+  /**
+   * Optional bash command-prefix allowlist enforced inside the child
+   * session. Same matcher semantics as persona's `bashAllow` (see
+   * `lib/node/pi/persona/bash-policy.ts`). Empty list means "no opinion".
+   */
+  bashAllow: string[];
+  /** Optional bash deny patterns enforced inside the child session. */
+  bashDeny: string[];
+  /**
+   * Positive `write` / `edit` allowlist enforced inside the child
+   * session. Resolution mirrors persona's `writeRoots`. Empty list
+   * means writes are unconstrained inside the child (current default).
+   */
+  writeRoots: string[];
+  /** Optional `requestOptions` block deep-merged into the child's provider payload. */
+  requestOptions?: RequestOptionsConfig;
   /** Markdown body — the agent's role prompt. */
   body: string;
 }
@@ -130,6 +148,10 @@ interface FrontmatterRaw extends Record<string, unknown> {
   timeoutMs?: unknown;
   isolation?: unknown;
   appendSystemPrompt?: unknown;
+  bashAllow?: unknown;
+  bashDeny?: unknown;
+  writeRoots?: unknown;
+  requestOptions?: unknown;
 }
 
 function toStringOrUndefined(v: unknown): string | undefined {
@@ -141,6 +163,33 @@ function toStringOrUndefined(v: unknown): string | undefined {
 function toPositiveNumber(v: unknown): number | undefined {
   if (typeof v !== 'number' || !Number.isFinite(v) || v <= 0) return undefined;
   return v;
+}
+
+/**
+ * Validate an arbitrary `string[]` frontmatter field. `undefined` skips
+ * silently; anything else that isn't `string[]` warns and returns
+ * `undefined`. Per-entry non-string values are dropped with a warning.
+ */
+function toStringArray(
+  value: unknown,
+  field: string,
+  path: string,
+  warnings: AgentLoadWarning[],
+): string[] | undefined {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value)) {
+    warnings.push({ path, reason: `\`${field}\` must be an array of strings` });
+    return undefined;
+  }
+  const kept: string[] = [];
+  for (const raw of value) {
+    if (typeof raw !== 'string') {
+      warnings.push({ path, reason: `\`${field}\` entry "${String(raw)}" is not a string (dropped)` });
+      continue;
+    }
+    kept.push(raw);
+  }
+  return kept;
 }
 
 /**
@@ -247,6 +296,16 @@ export function validateAgent(args: {
 
   const appendSystemPrompt = toStringOrUndefined(fm.appendSystemPrompt);
 
+  // bashAllow / bashDeny / writeRoots: per-agent gates enforced inside
+  // the child session via the inline `agent-gate` extension factory
+  // (see `config/pi/extensions/subagent.ts`). Empty arrays mean "no
+  // opinion". Same matcher semantics as the persona equivalents.
+  const bashAllow = toStringArray(fm.bashAllow, 'bashAllow', path, warnings) ?? [];
+  const bashDeny = toStringArray(fm.bashDeny, 'bashDeny', path, warnings) ?? [];
+  const writeRoots = toStringArray(fm.writeRoots, 'writeRoots', path, warnings) ?? [];
+
+  const requestOptions = parseRequestOptions(fm.requestOptions, (reason) => warnings.push({ path, reason }));
+
   return {
     path,
     source,
@@ -259,6 +318,10 @@ export function validateAgent(args: {
     timeoutMs,
     isolation,
     appendSystemPrompt,
+    bashAllow,
+    bashDeny,
+    writeRoots,
+    requestOptions,
     body: body.trimEnd(),
   };
 }

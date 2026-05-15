@@ -92,6 +92,82 @@ describe('validateAgent', () => {
     expect(out?.timeoutMs).toBe(180_000);
     expect(out?.isolation).toBe('shared-cwd');
     expect(out?.body).toBe('You are an exploration sub-agent.');
+    // New gate fields default to empty / undefined when omitted.
+    expect(out?.bashAllow).toEqual([]);
+    expect(out?.bashDeny).toEqual([]);
+    expect(out?.writeRoots).toEqual([]);
+    expect(out?.requestOptions).toBeUndefined();
+  });
+
+  test('parses bashAllow / bashDeny / writeRoots / requestOptions', () => {
+    const warnings: AgentLoadWarning[] = [];
+    const out = validateAgent({
+      path: '/p/agent.md',
+      source: 'project',
+      frontmatter: {
+        name: 'planner',
+        description: 'plan agent',
+        bashAllow: ['rg *', 'ai-fetch-web *'],
+        bashDeny: ['curl *'],
+        writeRoots: ['plans/', '~/.pi/personas/{projectSlug}/'],
+        requestOptions: {
+          apis: ['openai-completions'],
+          temperature: 0.6,
+          chat_template_kwargs: { enable_thinking: true },
+        },
+      },
+      body: 'body',
+      knownToolNames: KNOWN_TOOLS,
+      warnings,
+    });
+
+    expect(warnings).toEqual([]);
+    expect(out?.bashAllow).toEqual(['rg *', 'ai-fetch-web *']);
+    expect(out?.bashDeny).toEqual(['curl *']);
+    expect(out?.writeRoots).toEqual(['plans/', '~/.pi/personas/{projectSlug}/']);
+    expect(out?.requestOptions).toEqual({
+      apis: ['openai-completions'],
+      temperature: 0.6,
+      chat_template_kwargs: { enable_thinking: true },
+    });
+  });
+
+  test('non-string bashAllow entries dropped with warnings', () => {
+    const warnings: AgentLoadWarning[] = [];
+    const out = validateAgent({
+      path: '/p/agent.md',
+      source: 'project',
+      frontmatter: {
+        name: 'planner',
+        description: 'plan agent',
+        bashAllow: ['rg *', 42, 'ai-fetch-web *'],
+      },
+      body: 'body',
+      knownToolNames: KNOWN_TOOLS,
+      warnings,
+    });
+
+    expect(out?.bashAllow).toEqual(['rg *', 'ai-fetch-web *']);
+    expect(warnings.some((w) => w.reason.includes('bashAllow'))).toBe(true);
+  });
+
+  test('non-array bashAllow → warning, field dropped to []', () => {
+    const warnings: AgentLoadWarning[] = [];
+    const out = validateAgent({
+      path: '/p/agent.md',
+      source: 'project',
+      frontmatter: {
+        name: 'planner',
+        description: 'plan agent',
+        bashAllow: 'rg *',
+      },
+      body: 'body',
+      knownToolNames: KNOWN_TOOLS,
+      warnings,
+    });
+
+    expect(out?.bashAllow).toEqual([]);
+    expect(warnings.some((w) => w.reason.includes('bashAllow'))).toBe(true);
   });
 
   test('rejects invalid name shape', () => {

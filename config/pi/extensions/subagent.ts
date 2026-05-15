@@ -63,7 +63,7 @@
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync, unlinkSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import {
@@ -76,6 +76,7 @@ import {
   type AgentSessionEvent,
   type ExtensionAPI,
   type ExtensionContext,
+  type ExtensionFactory,
 } from '@earendil-works/pi-coding-agent';
 import { Text } from '@earendil-works/pi-tui';
 import { Type } from 'typebox';
@@ -113,6 +114,9 @@ import {
 } from '../../../lib/node/pi/subagent-session-paths.ts';
 import { resolveChildModel } from '../../../lib/node/pi/subagent-spawn.ts';
 import { resolveMaxTurns } from '../../../lib/node/pi/subagent-budget.ts';
+import { resolveWriteRoots } from '../../../lib/node/pi/persona/resolve.ts';
+import { setActiveAgent, clearActiveAgent } from '../../../lib/node/pi/subagent/active-agent.ts';
+import { createAgentGateFactory } from '../../../lib/node/pi/subagent/agent-gate.ts';
 
 const SUBAGENT_CUSTOM_TYPE = 'subagent-run';
 const STATUS_KEY = 'subagent';
@@ -811,6 +815,43 @@ export default function subagentExtension(pi: ExtensionAPI): void {
       : SessionManager.create(childCwd, sessionDir);
 
     let child: AgentSession;
+    // Resolve the agent's writeRoots (frontmatter strings) into absolute
+    // paths against the child cwd so the inline agent-gate factory has
+    // a stable form to compare against.
+    const resolvedAgentWriteRoots = resolveWriteRoots(agent.writeRoots, {
+      cwd: childCwd,
+      homedir: homedir(),
+      projectSlug: basename(childCwd),
+    });
+    const enforceAgentWriteRoots = resolvedAgentWriteRoots.length > 0;
+    // Inline ExtensionFactory installed in the child session that
+    // enforces the agent's bashAllow/bashDeny/writeRoots and merges
+    // requestOptions into the outgoing provider payload. This is the
+    // canonical enforcement path — the parent's bash-permissions /
+    // protected-paths extensions don't see the child's tool calls when
+    // `noExtensions: true` is set on the resourceLoader. Inline
+    // extensionFactories load even with that flag.
+    const agentGateFactory = createAgentGateFactory({
+      config: {
+        name: agent.name,
+        bashAllow: agent.bashAllow,
+        bashDeny: agent.bashDeny,
+        resolvedWriteRoots: resolvedAgentWriteRoots,
+        requestOptions: agent.requestOptions,
+      },
+      enforceWriteRoots: enforceAgentWriteRoots,
+      resolveAbsolute: resolve,
+    });
+    // Pi's `ExtensionFactory` is `(pi: ExtensionAPI) => void | Promise<void>`;
+    // the helper's loose typing keeps it pure-testable. The cast here is
+    // the runtime adapter.
+    setActiveAgent({
+      name: agent.name,
+      resolvedWriteRoots: resolvedAgentWriteRoots,
+      bashAllow: agent.bashAllow,
+      bashDeny: agent.bashDeny,
+      requestOptions: agent.requestOptions,
+    });
     try {
       const agentDir = getAgentDir();
       const appendParts: string[] = [];
@@ -824,6 +865,7 @@ export default function subagentExtension(pi: ExtensionAPI): void {
         noSkills: true,
         noPromptTemplates: true,
         appendSystemPrompt: appendParts.length > 0 ? appendParts : undefined,
+        extensionFactories: [agentGateFactory as unknown as ExtensionFactory],
       });
       await resourceLoader.reload();
       const created = await createAgentSession({
@@ -838,6 +880,7 @@ export default function subagentExtension(pi: ExtensionAPI): void {
       });
       child = created.session;
     } catch (e) {
+      clearActiveAgent();
       return {
         kind: 'error',
         result: cleanupAndError({
@@ -1013,6 +1056,7 @@ export default function subagentExtension(pi: ExtensionAPI): void {
       }
 
       child.dispose();
+      clearActiveAgent();
 
       // ── Cleanup the worktree (if any) ───────────────────────────────
       if (worktree) removeWorktree(ctx.cwd, worktree);
