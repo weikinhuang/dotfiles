@@ -151,9 +151,10 @@ need a few extra patterns on top of the operational baseline:
 - **`ai-fetch-web` for grounding when no dossier exists (or as fallback when one does), in-voice reporting, no URL
   paste.** When the persona uses web search to verify a claim, fold the result into how the persona would actually say
   it. Never paste search results, snippets, or URLs. Validation question: “does the response read like the character
-  remembered, or like a chat-with-search bot?” — the latter is a fail. Note that `bashAllow: ['ai-fetch-web *']` is
-  intersection-only with `bash-permissions.json`; the command must also be on the user-global allowlist or the call dies
-  before persona’s allow is consulted (see [`../extensions/persona.md`](../extensions/persona.md) “Bash policy”).
+  remembered, or like a chat-with-search bot?” — the latter is a fail. The active persona's `bashAllow` vouches for
+  matching commands at the [`bash-permissions.ts`](../extensions/bash-permissions.ts) layer, so a persona shipping
+  `bashAllow: ['ai-fetch-web *']` Just Works in `pi -p` / non-UI mode without forcing the user to also widen their
+  `~/.pi/bash-permissions.json` allowlist (see [`../extensions/persona.md`](../extensions/persona.md) “Bash policy”).
 - **Multi-version characters: separate files when rules diverge; blend in one body when register slides.** When two
   versions of a character differ in _which rules apply_ — e.g. “redirect on real-world prompts” vs. “look real-world
   facts up” — they need separate persona files because the rule contracts differ. When two versions only differ in _mood

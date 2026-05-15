@@ -11,12 +11,27 @@ describe('active-persona singleton', () => {
     expect(getActivePersona()).toBeUndefined();
   });
 
-  test('setActivePersona stores name + writeRoots', () => {
-    setActivePersona({ name: 'plan', resolvedWriteRoots: ['/repo/plans/'] });
+  test('setActivePersona stores name + writeRoots + bash lists', () => {
+    setActivePersona({
+      name: 'plan',
+      resolvedWriteRoots: ['/repo/plans/'],
+      bashAllow: ['rg *'],
+      bashDeny: ['curl *'],
+    });
     const got = getActivePersona();
 
     expect(got?.name).toBe('plan');
     expect(got?.resolvedWriteRoots).toEqual(['/repo/plans/']);
+    expect(got?.bashAllow).toEqual(['rg *']);
+    expect(got?.bashDeny).toEqual(['curl *']);
+  });
+
+  test('bash lists default to empty arrays when omitted', () => {
+    setActivePersona({ name: 'plan', resolvedWriteRoots: ['/repo/plans/'] });
+    const got = getActivePersona();
+
+    expect(got?.bashAllow).toEqual([]);
+    expect(got?.bashDeny).toEqual([]);
   });
 
   test('clearActivePersona resets to undefined', () => {
@@ -33,32 +48,58 @@ describe('active-persona singleton', () => {
     expect(getActivePersona()).toBeUndefined();
   });
 
-  test('snapshot is defensively copied — mutating caller array does not bleed in', () => {
+  test('snapshot is defensively copied — mutating caller arrays does not bleed in', () => {
     const roots = ['/repo/plans/'];
-    setActivePersona({ name: 'plan', resolvedWriteRoots: roots });
+    const allow = ['rg *'];
+    const deny = ['curl *'];
+    setActivePersona({ name: 'plan', resolvedWriteRoots: roots, bashAllow: allow, bashDeny: deny });
     roots.push('/repo/other/');
+    allow.push('ai-fetch-web *');
+    deny.push('npm *');
 
     expect(getActivePersona()?.resolvedWriteRoots).toEqual(['/repo/plans/']);
+    expect(getActivePersona()?.bashAllow).toEqual(['rg *']);
+    expect(getActivePersona()?.bashDeny).toEqual(['curl *']);
   });
 
   test('returned snapshot is frozen — callers cannot mutate it back into the singleton', () => {
-    setActivePersona({ name: 'plan', resolvedWriteRoots: ['/repo/plans/'] });
+    setActivePersona({
+      name: 'plan',
+      resolvedWriteRoots: ['/repo/plans/'],
+      bashAllow: ['rg *'],
+      bashDeny: ['curl *'],
+    });
     const snap = getActivePersona();
 
     expect(snap).toBeDefined();
     expect(() => {
       (snap?.resolvedWriteRoots as string[]).push('/evil/');
     }).toThrow();
+    expect(() => {
+      (snap?.bashAllow as string[]).push('curl *');
+    }).toThrow();
+    expect(() => {
+      (snap?.bashDeny as string[]).pop();
+    }).toThrow();
     expect(getActivePersona()?.resolvedWriteRoots).toEqual(['/repo/plans/']);
+    expect(getActivePersona()?.bashAllow).toEqual(['rg *']);
+    expect(getActivePersona()?.bashDeny).toEqual(['curl *']);
   });
 
-  test('replacing an active snapshot overwrites both name and writeRoots', () => {
-    setActivePersona({ name: 'plan', resolvedWriteRoots: ['/repo/plans/'] });
+  test('replacing an active snapshot overwrites every field', () => {
+    setActivePersona({
+      name: 'plan',
+      resolvedWriteRoots: ['/repo/plans/'],
+      bashAllow: ['rg *'],
+      bashDeny: ['curl *'],
+    });
     setActivePersona({ name: 'review', resolvedWriteRoots: ['/repo/reviews/'] });
 
     expect(getActivePersona()).toEqual({
       name: 'review',
       resolvedWriteRoots: ['/repo/reviews/'],
+      bashAllow: [],
+      bashDeny: [],
     });
   });
 });

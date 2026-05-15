@@ -11,9 +11,22 @@
  *   - `"foo"`          — exact head-token match (`cmd.trim().split(/\s+/)[0]` === `"foo"`).
  *   - `"foo *"`        — head-token equals everything before the first `*`, trimmed.
  *
- * Modes only **tighten**: `bash-permissions.ts` runs first; if it
- * already denied the call, this helper never sees it. When a mode
- * declares both lists, deny wins on overlap (deny is checked first).
+ * Resolution order (allow wins over deny on overlap, allow-list mode
+ * still applies when allow is non-empty):
+ *
+ *   1. Empty allow + empty deny       → allow (mode has no opinion).
+ *   2. `bashAllow` matches             → allow (carves out of any deny).
+ *   3. `bashDeny` matches              → block.
+ *   4. `bashAllow` non-empty, no match → block (allow-list mode).
+ *   5. Otherwise                       → allow.
+ *
+ * The intuition: `bashAllow: ["rg *"], bashDeny: ["*"]` means "deny
+ * everything, but carve out rg" — rg is allowed, everything else is
+ * blocked by either the allow-list (rule 4) or the explicit deny
+ * (rule 3, when allow is empty). Rule 4 specifically means a non-empty
+ * `bashAllow` is still restrictive: a command with no allow match and
+ * no deny match is still blocked, because declaring `bashAllow` at all
+ * is a positive assertion of “ONLY these commands”.
  */
 
 const HEAD_TOKEN_RE = /\s+/;
@@ -51,16 +64,22 @@ export interface BashPolicyOptions {
 /**
  * Resolve a per-mode bash decision. Order:
  *
- *   1. Empty deny + empty allow → `allow` (mode has no opinion).
- *   2. `bashDeny` matches → `block` with the deny-rule reason.
- *   3. `bashAllow` is non-empty AND no entry matches → `block` with
- *      the allow-list reason.
- *   4. Otherwise → `allow`.
+ *   1. Empty allow + empty deny       → `allow` (mode has no opinion).
+ *   2. `bashAllow` matches             → `allow` (carves out of any deny).
+ *   3. `bashDeny` matches              → `block` with the deny-rule reason.
+ *   4. `bashAllow` non-empty, no match → `block` with the allow-list reason.
+ *   5. Otherwise                       → `allow`.
  *
- * Both lists may be present; rule 2 wins on overlap.
+ * Both lists may be present; allow wins on overlap so a persona can
+ * write `bashAllow: ["rg *"], bashDeny: ["*"]` to mean “deny
+ * everything except rg”.
  */
 export function evaluateBashPolicy(opts: BashPolicyOptions): BashPolicyDecision {
   const { command, bashAllow, bashDeny, personaName } = opts;
+
+  if (bashAllow.length > 0 && matchBashPattern(command, bashAllow)) {
+    return { kind: 'allow' };
+  }
 
   if (bashDeny.length > 0 && matchBashPattern(command, bashDeny)) {
     return {
@@ -69,7 +88,7 @@ export function evaluateBashPolicy(opts: BashPolicyOptions): BashPolicyDecision 
     };
   }
 
-  if (bashAllow.length > 0 && !matchBashPattern(command, bashAllow)) {
+  if (bashAllow.length > 0) {
     return {
       kind: 'block',
       reason: `persona "${personaName}" allows only: ${bashAllow.join(', ')}`,

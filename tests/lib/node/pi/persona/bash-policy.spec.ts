@@ -73,16 +73,51 @@ test('evaluateBashPolicy: deny `*` blocks any command (catalog plan/journal/role
   expect(result.reason).toContain('bashDeny');
 });
 
-test('evaluateBashPolicy: deny matches → block; allow ignored on overlap', () => {
-  // Pathological mode that allows AND denies the same prefix; deny wins.
+test('evaluateBashPolicy: deny matches → block when allow does not match', () => {
+  // bashAllow only carves out for matching commands; a deny that doesn't
+  // also match the same command still blocks.
   const result = evaluateBashPolicy({
     command: 'rm -rf /',
-    bashAllow: ['rm *'],
+    bashAllow: ['rg *'],
     bashDeny: ['rm *'],
     personaName: 'paranoid',
   });
 
   expect(result.kind).toBe('block');
+});
+
+test('evaluateBashPolicy: allow wins over deny on overlap', () => {
+  // Pathological mode that allows AND denies the same prefix; allow wins
+  // so the user-author's bashAllow is the explicit carve-out.
+  expect(
+    evaluateBashPolicy({
+      command: 'rm -rf /tmp/foo',
+      bashAllow: ['rm *'],
+      bashDeny: ['rm *'],
+      personaName: 'paranoid',
+    }),
+  ).toEqual({ kind: 'allow' });
+});
+
+test('evaluateBashPolicy: bashAllow carves out of bashDeny `*`', () => {
+  // The user-friendly "deny everything except rg" pattern.
+  expect(
+    evaluateBashPolicy({
+      command: 'rg pattern',
+      bashAllow: ['rg *'],
+      bashDeny: ['*'],
+      personaName: 'rg-only',
+    }),
+  ).toEqual({ kind: 'allow' });
+
+  const blocked = evaluateBashPolicy({
+    command: 'curl https://example.com',
+    bashAllow: ['rg *'],
+    bashDeny: ['*'],
+    personaName: 'rg-only',
+  });
+
+  expect(blocked.kind).toBe('block');
 });
 
 test('evaluateBashPolicy: non-empty allow, head matches → allow', () => {
@@ -111,7 +146,7 @@ test('evaluateBashPolicy: non-empty allow, head misses → block with allow-list
   expect(result.reason).toContain('rg *');
 });
 
-test('evaluateBashPolicy: deny + allow, deny matches first', () => {
+test('evaluateBashPolicy: deny + allow, deny matches when allow does not', () => {
   const result = evaluateBashPolicy({
     command: 'rm -rf /etc',
     bashAllow: ['rg *'],

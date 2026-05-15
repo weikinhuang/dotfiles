@@ -387,7 +387,12 @@ export default function personaExtension(pi: ExtensionAPI): void {
 
     activeName = name;
     active = resolved;
-    setActivePersona({ name, resolvedWriteRoots: resolved.resolvedWriteRoots });
+    setActivePersona({
+      name,
+      resolvedWriteRoots: resolved.resolvedWriteRoots,
+      bashAllow: resolved.parsed.bashAllow,
+      bashDeny: resolved.parsed.bashDeny,
+    });
     updateStatus(ctx);
     pi.appendEntry(CUSTOM_TYPE, { name });
     if (debug) ctx.ui.notify(`persona: activated "${name}"`, 'info');

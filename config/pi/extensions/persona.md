@@ -131,15 +131,40 @@ persona needs `realpath` semantics.
 
 ## Bash policy
 
-Per-persona `bashAllow` / `bashDeny` layer on top of [`bash-permissions.ts`](./bash-permissions.ts). Bash-permissions
-runs first; if it denies, persona never sees the call. If it allows, persona's deny still wins, then persona's allow
-filters the remainder. Matcher semantics are deliberately trivial:
+Per-persona `bashAllow` / `bashDeny` layer on top of [`bash-permissions.ts`](./bash-permissions.ts). The two extensions
+compose as follows:
+
+1. **Hardcoded deny** in `bash-permissions.ts` (rm -rf /, mkfs, fork bombs, …) ALWAYS blocks first.
+2. **Explicit deny** rules in `bash-permissions.json` (any layer) block.
+3. **Always-prompt list** (sudo / doas / pkexec / …) ALWAYS forces a dialog — a persona's `bashAllow` cannot wave
+   privilege escalation through.
+4. **Explicit allow** rules in `bash-permissions.json` (any layer) allow.
+5. **Persona vouch.** When the active persona's `bashAllow` matches the sub-command, `bash-permissions.ts` treats the
+   call as session-allowed by the user-author of the persona file. No file on disk is touched. This vouch is the reason
+   a persona shipping `bashAllow: ['ai-fetch-web *']` Just Works in `pi -p` / non-UI mode without forcing the user to
+   also widen their `~/.pi/bash-permissions.json` allowlist. Implementation:
+   [`lib/node/pi/persona/bash-vouch.ts`](../../../lib/node/pi/persona/bash-vouch.ts) consulting the same
+   [`active.ts`](../../../lib/node/pi/persona/active.ts) singleton that powers the `writeRoots` vouch.
+6. Otherwise: prompt (UI) or block with a diagnostic (non-UI).
+
+After `bash-permissions.ts` admits the call, persona's own `tool_call` handler runs `evaluateBashPolicy`:
+
+1. `bashAllow` matches → allow (carves out of any persona-level deny).
+2. `bashDeny` matches → block.
+3. `bashAllow` non-empty but doesn't match → block (allow-list mode — declaring `bashAllow` at all is a positive
+   assertion of “ONLY these commands”).
+4. Otherwise allow.
+
+So `bashAllow` wins over `bashDeny` on overlap. Concretely: shipping `bashAllow: ["rg *"]` + `bashDeny: ["*"]` means
+“deny everything, except carve out rg” — `rg pattern` runs, every other command is blocked.
+
+Matcher semantics are deliberately trivial:
 
 - Exact match (`"git status"` matches the head token after splitting on whitespace).
 - Prefix-with-trailing-`*` (`"ai-fetch-web *"` matches any command whose head is `ai-fetch-web`).
 - Wildcard `*` matches everything.
 
-Personas that ship `bashDeny: ["*"]` (e.g. `plan`, `journal`, `roleplay`, `review`) deny all bash. Personas with
+Personas that ship `bashDeny: ["*"]` alone (e.g. `plan`, `journal`, `roleplay`, `review`) deny all bash. Personas with
 `bashAllow: ["ai-fetch-web *", "rg *"]` (e.g. `chat`, `research`) restrict bash to those prefixes. Richer glob semantics
 are deferred to v2.
 
@@ -160,7 +185,7 @@ it doesn't accidentally route a write through `subagent(...)` to bypass the pare
 | ---------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | [`preset.ts`](./preset.ts)                     | Orthogonal. Both extensions snapshot/restore independently. The effective active-tool set is the **intersection** because each calls `pi.setActiveTools` with its own list. Last-write-wins on `model` / `thinkingLevel`.                                                                                                                                                                                                                                                                                                              |
 | [`protected-paths.ts`](./protected-paths.ts)   | Persona's `writeRoots` are now a **positive vouch** that protected-paths honors: writes targeting a path inside the active persona's resolved `writeRoots` skip the protected-paths gate entirely (reads are unaffected). The vouch flows through `lib/node/pi/persona/active.ts`'s singleton, which persona publishes on activate / clear / `session_shutdown`. Persona's own write-gate still runs first; if a path is outside `writeRoots`, both gates can still block. Persona reuses protected-paths's `askForPermission` helper. |
-| [`bash-permissions.ts`](./bash-permissions.ts) | Persona's `bashAllow` / `bashDeny` layer on top. Bash-permissions runs first; if it allows, persona's deny still wins. If it denies, persona never sees the call.                                                                                                                                                                                                                                                                                                                                                                      |
+| [`bash-permissions.ts`](./bash-permissions.ts) | Two-way composition. Bash-permissions runs first: hardcoded deny / explicit deny / always-prompt always win. The active persona's `bashAllow` then **vouches** for sub-commands at the unknown-command step (mirrors `writeRoots` → protected-paths), so personas Just Work in `pi -p` without widening `~/.pi/bash-permissions.json` on disk. After admission, persona's own `tool_call` handler enforces its `bashDeny` (terminal) and `bashAllow` (restrictive only).                                                               |
 | [`subagent.ts`](./subagent.ts)                 | Subagent dispatch is **not** intercepted by persona (D4). Children run with their own agent file's `tools`.                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | [`statusline.ts`](./statusline.ts)             | Persona emits a `persona:<name>` badge segment, sibling to `preset:<name>`. Render order is whatever statusline already produces.                                                                                                                                                                                                                                                                                                                                                                                                      |
 | [`btw.ts`](./btw.ts)                           | `/btw` runs out-of-band — it doesn't go through `tool_call`. Persona does not constrain `/btw` (and shouldn't).                                                                                                                                                                                                                                                                                                                                                                                                                        |

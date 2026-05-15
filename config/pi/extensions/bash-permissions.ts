@@ -9,6 +9,16 @@
  *   2. User rules:     `~/.pi/bash-permissions.json`
  *   3. Session rules:  in-memory, cleared on session_shutdown
  *
+ * In addition, when a `persona` is active, sub-commands matching the
+ * persona's `bashAllow` are treated as session-allowed by the
+ * user-author of the persona file (allow wins over the persona's own
+ * `bashDeny` on overlap, mirroring `evaluateBashPolicy`). This vouch
+ * is session-scoped only — nothing is written to any
+ * `bash-permissions.json` on disk — and it is NOT applied to the
+ * always-prompt list (sudo / doas / pkexec / …), which still requires
+ * an explicit dialog. See `lib/node/pi/persona/bash-vouch.ts` and
+ * `lib/node/pi/persona/active.ts` for the singleton plumbing.
+ *
  * Rule files are JSONC — `//` line comments and C-style block comments
  * are allowed so you can annotate why a rule exists. Trailing commas are
  * not supported. Malformed files log one `console.warn` per unique
@@ -104,6 +114,8 @@ import {
   twoTokenPattern,
 } from '../../../lib/node/pi/bash-match.ts';
 import { clearConfigWarning, parseJsonc, warnBadConfigFileOnce } from '../../../lib/node/pi/jsonc.ts';
+import { getActivePersona } from '../../../lib/node/pi/persona/active.ts';
+import { personaVouchBash } from '../../../lib/node/pi/persona/bash-vouch.ts';
 import { setBashAutoEnabled } from '../../../lib/node/pi/session-flags.ts';
 import { truncate } from '../../../lib/node/pi/shared.ts';
 
@@ -412,12 +424,25 @@ export default function bashPermissions(pi: ExtensionAPI): void {
     // flags that so the dialog can tell the user why.
     const unknown: string[] = [];
     const alwaysPromptReasons = new Map<string, string>();
+    // Cross-extension vouch: when the active persona declares the
+    // command in its `bashAllow`, treat it as session-allowed by the
+    // user-author of the persona file. Mirrors the writeRoots vouch in
+    // `protected-paths.ts`. Persona's `bashAllow` wins over its own
+    // `bashDeny` on overlap (see `evaluateBashPolicy`), so the vouch
+    // does too. Skipped for the always-prompt carve-out (sudo / doas /
+    // pkexec / …) — privilege escalation must always show the dialog
+    // regardless of who vouched.
+    const activePersona = getActivePersona();
     for (const sub of subcommands) {
       const decision: BashDecision = decideSubcommand(sub, layers, { auto: sessionAuto });
       if (decision.kind === 'block') {
         return { allowed: false, reason: `Blocked by ${decision.reason} (matched "${sub}")` };
       }
       if (decision.kind === 'prompt') {
+        if (!decision.reason) {
+          const vouch = personaVouchBash({ command: sub, active: activePersona });
+          if (vouch.vouched) continue;
+        }
         unknown.push(sub);
         if (decision.reason) alwaysPromptReasons.set(sub, decision.reason);
       }
