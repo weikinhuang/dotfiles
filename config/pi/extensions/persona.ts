@@ -77,6 +77,7 @@ import { mergeAgentInheritance, type AgentRecord } from '../../../lib/node/pi/pe
 import { formatPersonaListing } from '../../../lib/node/pi/persona/list.ts';
 import { type PersonaWarning, parsePersonaFile, type ParsedPersona } from '../../../lib/node/pi/persona/parse.ts';
 import { resolveWriteRoots } from '../../../lib/node/pi/persona/resolve.ts';
+import { clearActivePersona, setActivePersona } from '../../../lib/node/pi/persona/active.ts';
 import {
   loadPersonaSettings,
   type PersonaSettings,
@@ -386,6 +387,7 @@ export default function personaExtension(pi: ExtensionAPI): void {
 
     activeName = name;
     active = resolved;
+    setActivePersona({ name, resolvedWriteRoots: resolved.resolvedWriteRoots });
     updateStatus(ctx);
     pi.appendEntry(CUSTOM_TYPE, { name });
     if (debug) ctx.ui.notify(`persona: activated "${name}"`, 'info');
@@ -411,6 +413,7 @@ export default function personaExtension(pi: ExtensionAPI): void {
     activeName = undefined;
     active = undefined;
     originalSnapshot = undefined;
+    clearActivePersona();
     pi.appendEntry(CUSTOM_TYPE, { name: null });
     updateStatus(ctx);
     if (debug) ctx.ui.notify('persona: cleared', 'info');
@@ -648,6 +651,7 @@ export default function personaExtension(pi: ExtensionAPI): void {
     activeName = undefined;
     active = undefined;
     originalSnapshot = undefined;
+    clearActivePersona();
     sessionAllow.clear();
     notifiedWarnings.clear();
   });

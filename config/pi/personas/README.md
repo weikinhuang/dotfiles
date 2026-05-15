@@ -12,18 +12,18 @@ This directory is the **shipped catalog**. Users override per-persona-name by dr
 
 ## Index
 
-| Persona                        | `agent:` ref | writeRoots               | One-liner                                                   |
-| ------------------------------ | ------------ | ------------------------ | ----------------------------------------------------------- |
-| [`chat.md`](./chat.md)         | —            | (none)                   | Long-form Q&A with web access; no writes.                   |
-| [`debug.md`](./debug.md)       | —            | (none)                   | Reproduce-and-instrument; cannot modify files.              |
-| [`explain.md`](./explain.md)   | —            | (none)                   | Walk through code already in context, no tools beyond read. |
-| [`journal.md`](./journal.md)   | —            | `journal/`               | Date-templated reflective log.                              |
-| [`kb.md`](./kb.md)             | —            | `~/notes/{projectSlug}/` | Curate knowledge base + memories.                           |
-| [`plan.md`](./plan.md)         | `plan`       | `plans/`                 | Drop a plan doc; never edits source.                        |
-| [`research.md`](./research.md) | —            | `research/`              | Interactive research notes (sibling of `/research`).        |
-| [`review.md`](./review.md)     | `explore`    | `reviews/`               | Read-only on source, drop a markdown PR review.             |
-| [`roleplay.md`](./roleplay.md) | —            | `drafts/`                | Fiction / brainstorming with persistent character notes.    |
-| [`shell.md`](./shell.md)       | —            | (none)                   | Ops persona: AI runs commands but never edits files.        |
+| Persona                        | `agent:` ref | writeRoots  | One-liner                                                   |
+| ------------------------------ | ------------ | ----------- | ----------------------------------------------------------- |
+| [`chat.md`](./chat.md)         | —            | (none)      | Long-form Q&A with web access; no writes.                   |
+| [`debug.md`](./debug.md)       | —            | (none)      | Reproduce-and-instrument; cannot modify files.              |
+| [`explain.md`](./explain.md)   | —            | (none)      | Walk through code already in context, no tools beyond read. |
+| [`journal.md`](./journal.md)   | —            | `journal/`  | Date-templated reflective log.                              |
+| [`kb.md`](./kb.md)             | —            | `notes/`    | Curate knowledge base + memories.                           |
+| [`plan.md`](./plan.md)         | `plan`       | `plans/`    | Drop a plan doc; never edits source.                        |
+| [`research.md`](./research.md) | —            | `research/` | Interactive research notes (sibling of `/research`).        |
+| [`review.md`](./review.md)     | `explore`    | `reviews/`  | Read-only on source, drop a markdown PR review.             |
+| [`roleplay.md`](./roleplay.md) | —            | `drafts/`   | Fiction / brainstorming with persistent character notes.    |
+| [`shell.md`](./shell.md)       | —            | (none)      | Ops persona: AI runs commands but never edits files.        |
 
 ## How to add a persona
 

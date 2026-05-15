@@ -84,6 +84,22 @@ Config files are JSONC — `//` line comments and C-style block comments are all
 Rule files are re-read on every tool call, so edits take effect immediately. Missing files are silent; malformed JSONC
 logs a single `[protected-paths]` warning per unique error.
 
+## Composition with the persona extension
+
+When the [`persona.ts`](./persona.ts) extension has an active persona, this extension treats the persona's resolved
+`writeRoots` as a **positive vouch**: any `write` / `edit` whose absolute path is inside one of those roots skips the
+protected-paths gate entirely. The author of a persona file is opting into that directory by declaring it in
+`writeRoots`, so re-prompting via protected-paths would be redundant and (in non-UI mode) deadlocking — the same write
+would get blocked twice with no way for the model to recover.
+
+Reads are **not** affected: `read` rules still apply even inside an active persona's `writeRoots`. Reading a `.env` is
+still suspicious regardless of who's authoring the persona.
+
+The vouch flows through the singleton at
+[`../../../lib/node/pi/persona/active.ts`](../../../lib/node/pi/persona/active.ts), which the persona extension
+publishes on activation / clear / `session_shutdown`. If `persona.ts` isn't loaded, the singleton stays empty and this
+extension behaves exactly as it did before.
+
 ## Commands
 
 - `/protected-paths` — list the active protection rules grouped by source and the current session allowlist.

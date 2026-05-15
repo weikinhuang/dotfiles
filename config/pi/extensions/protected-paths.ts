@@ -102,6 +102,8 @@ import {
   mergeConfigs,
   type ProtectionConfig,
 } from '../../../lib/node/pi/paths.ts';
+import { getActivePersona } from '../../../lib/node/pi/persona/active.ts';
+import { isInsideWriteRoots } from '../../../lib/node/pi/persona/match.ts';
 
 // ──────────────────────────────────────────────────────────────────────
 // Rule file loading
@@ -207,6 +209,19 @@ export default function protectedPaths(pi: ExtensionAPI): void {
     // `/Users/.../foo` forms of the same file.
     const absolute = resolve(ctx.cwd, expandTilde(inputPath));
     if (sessionAllow.has(absolute)) return undefined;
+
+    // If a persona has explicitly declared this path under its writeRoots,
+    // treat that as the user-author of the persona file vouching for it
+    // and skip the gate. This composition lets personas legitimately
+    // declare write access to dirs outside the workspace (e.g. `journal/`,
+    // `notes/`, or absolute paths under `~/notes/...`) without the user
+    // having to approve the same write twice (persona write-gate AND
+    // protected-paths) on every call. Reads are unaffected — writeRoots
+    // are a write-side declaration only.
+    if (isWrite) {
+      const active = getActivePersona();
+      if (active && isInsideWriteRoots(absolute, active.resolvedWriteRoots)) return undefined;
+    }
 
     const config = mergedConfig(loadLayers(ctx.cwd));
     const protection = isRead ? classifyRead(inputPath, ctx.cwd, config) : classifyWrite(inputPath, ctx.cwd, config);
