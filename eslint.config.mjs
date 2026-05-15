@@ -1,10 +1,9 @@
 import js from '@eslint/js';
 import json from '@eslint/json';
 import vitest from '@vitest/eslint-plugin';
-import { defineConfig, globalIgnores } from 'eslint/config';
-import eslintConfigPrettierConfigs from 'eslint-config-prettier';
 import eslintPluginImport from 'eslint-plugin-import';
 import eslintPluginN from 'eslint-plugin-n';
+import { defineConfig, globalIgnores } from 'eslint/config';
 import globals from 'globals';
 import { configs as tseslintConfigs } from 'typescript-eslint';
 
@@ -121,21 +120,6 @@ export default defineConfig([
       'import/no-cycle': 'error',
       'import/no-self-import': 'error',
       'import/no-useless-path-segments': 'error',
-      'import/order': [
-        'error',
-        {
-          groups: ['builtin', 'external', 'internal', 'parent', 'sibling', 'index', 'object', 'type'],
-          pathGroups: [
-            {
-              pattern: '@/**',
-              group: 'internal',
-              position: 'after',
-            },
-          ],
-          distinctGroup: false,
-          alphabetize: { order: 'asc', caseInsensitive: true },
-        },
-      ],
     },
   },
 
@@ -216,9 +200,6 @@ export default defineConfig([
       'spaced-comment': 'off',
     },
   },
-
-  // Prettier rules
-  eslintConfigPrettierConfigs,
 
   // Language options
   {

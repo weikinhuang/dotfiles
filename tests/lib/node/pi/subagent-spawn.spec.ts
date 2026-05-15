@@ -167,7 +167,7 @@ function makeFakeSession(script: {
     prompt: (): Promise<void> => {
       for (const e of script.events) {
         if (aborted) break;
-        for (const s of [...subscribers]) s(e);
+        for (const s of subscribers) s(e);
       }
       return script.promptThrows ? Promise.reject(script.promptThrows) : Promise.resolve();
     },

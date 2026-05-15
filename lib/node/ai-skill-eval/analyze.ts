@@ -350,7 +350,7 @@ export function parseAnalyzerVerdict(raw: string): AnalyzerVerdict {
       typeof summaryRaw.comparator_reasoning === 'string'
         ? summaryRaw.comparator_reasoning
         : typeof summaryRaw.reasoning === 'string'
-          ? (summaryRaw.reasoning)
+          ? summaryRaw.reasoning
           : '',
   };
 

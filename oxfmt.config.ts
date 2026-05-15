@@ -6,6 +6,9 @@ export default defineConfig({
   proseWrap: 'always',
   semi: true,
   singleQuote: true,
-  sortImports: true,
   trailingComma: 'all',
+  ignorePatterns: [
+    // multiline
+    'lib/node/pi/research-selftest/fixtures/**',
+  ],
 });

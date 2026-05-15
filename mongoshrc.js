@@ -18,7 +18,7 @@
   function getHost() {
     try {
       return db.serverStatus().host;
-    } catch (error) {
+    } catch {
       return '';
     }
   }
@@ -26,7 +26,7 @@
   function getHello() {
     try {
       return db.hello();
-    } catch (error) {
+    } catch {
       return {};
     }
   }
@@ -44,7 +44,7 @@
     } else {
       try {
         state = states[rs.status().myState] || 'UNKNOWN';
-      } catch (error) {
+      } catch {
         state = 'UNKNOWN';
       }
     }
