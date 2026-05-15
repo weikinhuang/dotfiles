@@ -15,6 +15,8 @@
 
 import { basename } from 'node:path';
 
+import { parseRequestOptions, type RequestOptionsConfig } from '../request-options.ts';
+
 const THINKING_LEVELS = ['off', 'low', 'medium', 'high'] as const;
 export type PersonaThinkingLevel = (typeof THINKING_LEVELS)[number];
 
@@ -32,6 +34,7 @@ export interface PersonaFrontmatterRaw extends Record<string, unknown> {
   model?: unknown;
   thinkingLevel?: unknown;
   appendSystemPrompt?: unknown;
+  requestOptions?: unknown;
 }
 
 /**
@@ -50,6 +53,8 @@ export interface ParsedPersona {
   model?: string;
   thinkingLevel?: PersonaThinkingLevel;
   appendSystemPrompt?: string;
+  /** Free-form deep-merge into the outgoing provider payload. See `lib/node/pi/request-options.ts`. */
+  requestOptions?: RequestOptionsConfig;
   body: string;
   source: string;
 }
@@ -186,6 +191,8 @@ export function parsePersonaFile(opts: ParsePersonaOptions): ParsedPersona | nul
 
   const appendSystemPrompt = toStringOrUndefined(fm.appendSystemPrompt);
 
+  const requestOptions = parseRequestOptions(fm.requestOptions, (reason) => warnings.push({ path, reason }));
+
   return {
     name,
     description,
@@ -197,6 +204,7 @@ export function parsePersonaFile(opts: ParsePersonaOptions): ParsedPersona | nul
     model,
     thinkingLevel,
     appendSystemPrompt,
+    requestOptions,
     body: parsed.body,
     source: path,
   };

@@ -25,18 +25,19 @@ are dropped with a warning and the remaining valid tools are still applied.
 A persona is a markdown file: YAML frontmatter on top, body underneath. The frontmatter is a strict superset of the
 agent frontmatter [`subagent.ts`](./subagent.ts) parses, so a persona file can be referenced as an agent and vice versa.
 
-| Field                | Type                                   | Purpose                                                                                                                         |
-| -------------------- | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| `name`               | `string`                               | Persona name. Filename stem if omitted. Must be unique across layers.                                                           |
-| `description`        | `string`                               | One-line shown by `/persona` listing and tab-completion.                                                                        |
-| `agent`              | `string?`                              | **Persona-only.** Reference to an agent in the layered registry. Inherits `tools`, `model`, `thinkingLevel`, body.              |
-| `tools`              | `string[]?`                            | Tool allowlist for the **parent** session. Validated against `pi.getAllTools()`; unknowns warned-and-dropped.                   |
-| `writeRoots`         | `string[]?`                            | **Persona-only.** Positive allowlist for `write` / `edit`. Tilde + `{projectSlug}` substitution. Empty ⇒ no writes.             |
-| `bashAllow`          | `string[]?`                            | **Persona-only.** Bash command-prefix allowlist layered on `bash-permissions.ts`.                                               |
-| `bashDeny`           | `string[]?`                            | **Persona-only.** Bash deny patterns layered on `bash-permissions.ts`. `["*"]` blocks all.                                      |
-| `model`              | `string?` (`"provider/modelId"`)       | Model override. Parsed and resolved against `ctx.modelRegistry` with auth check.                                                |
-| `thinkingLevel`      | `"off" \| "low" \| "medium" \| "high"` | Thinking level override.                                                                                                        |
-| `appendSystemPrompt` | `string?`                              | **Persona-only.** Extra text appended after the body — useful when layering project-specific text onto an `agent:`-ref persona. |
+| Field                | Type                                   | Purpose                                                                                                                                              |
+| -------------------- | -------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `name`               | `string`                               | Persona name. Filename stem if omitted. Must be unique across layers.                                                                                |
+| `description`        | `string`                               | One-line shown by `/persona` listing and tab-completion.                                                                                             |
+| `agent`              | `string?`                              | **Persona-only.** Reference to an agent in the layered registry. Inherits `tools`, `model`, `thinkingLevel`, body.                                   |
+| `tools`              | `string[]?`                            | Tool allowlist for the **parent** session. Validated against `pi.getAllTools()`; unknowns warned-and-dropped.                                        |
+| `writeRoots`         | `string[]?`                            | **Persona-only.** Positive allowlist for `write` / `edit`. Tilde + `{projectSlug}` substitution. Empty ⇒ no writes.                                  |
+| `bashAllow`          | `string[]?`                            | **Persona-only.** Bash command-prefix allowlist layered on `bash-permissions.ts`.                                                                    |
+| `bashDeny`           | `string[]?`                            | **Persona-only.** Bash deny patterns layered on `bash-permissions.ts`. `["*"]` blocks all.                                                           |
+| `model`              | `string?` (`"provider/modelId"`)       | Model override. Parsed and resolved against `ctx.modelRegistry` with auth check.                                                                     |
+| `thinkingLevel`      | `"off" \| "low" \| "medium" \| "high"` | Thinking level override.                                                                                                                             |
+| `appendSystemPrompt` | `string?`                              | **Persona-only.** Extra text appended after the body — useful when layering project-specific text onto an `agent:`-ref persona.                      |
+| `requestOptions`     | `object?`                              | **Persona-only.** Free-form fields deep-merged into the outgoing provider payload via `before_provider_request`. See `requestOptions` section below. |
 
 The body markdown becomes the persona system-prompt section, prepended via `before_agent_start` with a two-newline
 separator (parity with preset's `appendSystemPrompt`). A standalone persona (no `agent:` ref) uses its body verbatim. An
@@ -52,8 +53,8 @@ See [`../../../lib/node/pi/persona/`](../../../lib/node/pi/persona/) for the par
 A persona file with `agent: plan` resolves the name through the same layered agent registry the
 [`subagent.ts`](./subagent.ts) extension uses — `<cwd>/.pi/agents/` overrides `~/.pi/agents/` overrides
 [`../agents/`](../agents/), first hit wins. The inherited record contributes `tools`, `model`, `thinkingLevel`, and
-body. Persona-only fields (`writeRoots`, `bashAllow`, `bashDeny`, `appendSystemPrompt`) layer on top. A user who forks
-an agent locally automatically gets the fork wherever a persona references it.
+body. Persona-only fields (`writeRoots`, `bashAllow`, `bashDeny`, `appendSystemPrompt`, `requestOptions`) layer on top.
+A user who forks an agent locally automatically gets the fork wherever a persona references it.
 
 Standalone personas (no `agent:` ref) are also valid: supply `tools`, optionally `model` / `thinkingLevel`, and the body
 serves as the system-prompt addendum directly.
@@ -167,6 +168,37 @@ Matcher semantics are deliberately trivial:
 Personas that ship `bashDeny: ["*"]` alone (e.g. `plan`, `journal`, `roleplay`, `review`) deny all bash. Personas with
 `bashAllow: ["ai-fetch-web *", "rg *"]` (e.g. `chat`, `research`) restrict bash to those prefixes. Richer glob semantics
 are deferred to v2.
+
+## `requestOptions`
+
+A persona may carry a free-form `requestOptions` block that is deep-merged into the outgoing provider payload via pi's
+`before_provider_request` event whenever that persona is active. The merge runs after pi-ai has built the payload, so an
+explicit `temperature: 0.7` from the persona overwrites pi-ai's defaults for that field. Pure-helper implementation +
+schema lives in [`lib/node/pi/request-options.ts`](../../../lib/node/pi/request-options.ts).
+
+```yaml
+requestOptions:
+  apis: [openai-completions] # optional API filter
+  temperature: 0.7
+  top_p: 0.95
+  top_k: 40
+  chat_template_kwargs:
+    enable_thinking: true
+```
+
+Merge rules:
+
+- Top-level keys are deep-merged into the payload — nested objects recurse, arrays / primitives from the override fully
+  replace the original. So a persona can add `chat_template_kwargs.enable_thinking` without nuking the
+  `preserve_thinking` key pi-ai already injects for the qwen-chat-template thinking format.
+- The reserved `apis` key is a string list of API families this block applies to (e.g. `["openai-completions"]`,
+  `["anthropic-messages"]`). When omitted or empty, the override applies to every provider.
+- The `apis` filter matters because some providers (Anthropic Messages especially, and Bedrock Converse) reject unknown
+  top-level fields with a 400. Scoping a llama.cpp-only `chat_template_kwargs` block to `apis: [openai-completions]`
+  keeps it from leaking into an Anthropic payload when the user changes models mid-session.
+- Field names match the **provider wire format**, not pi-ai's internal `StreamOptions` (which only formally exposes
+  `temperature`, `maxTokens`, `metadata`, `cacheRetention`, `thinkingBudgets`). Use `top_p` / `top_k` / `stop` /
+  `chat_template_kwargs` etc. as the upstream API expects them.
 
 ## Subagents run unrestricted
 

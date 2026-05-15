@@ -109,4 +109,37 @@ describe('parsePersonaFile', () => {
 
     expect(result?.body).toBe(body);
   });
+
+  test('requestOptions absent → undefined, no warnings', () => {
+    const { result, warnings } = run({ name: 'm' });
+
+    expect(warnings).toEqual([]);
+    expect(result?.requestOptions).toBeUndefined();
+  });
+
+  test('requestOptions object → forwarded verbatim', () => {
+    const { result, warnings } = run({
+      name: 'm',
+      requestOptions: {
+        apis: ['openai-completions'],
+        temperature: 0.7,
+        chat_template_kwargs: { enable_thinking: true },
+      },
+    });
+
+    expect(warnings).toEqual([]);
+    expect(result?.requestOptions).toEqual({
+      apis: ['openai-completions'],
+      temperature: 0.7,
+      chat_template_kwargs: { enable_thinking: true },
+    });
+  });
+
+  test('requestOptions non-object → warning, persona still returned', () => {
+    const { result, warnings } = run({ name: 'm', requestOptions: 'temperature=0.7' });
+
+    expect(result).not.toBeNull();
+    expect(result?.requestOptions).toBeUndefined();
+    expect(warnings.some((w) => w.reason.includes('requestOptions'))).toBe(true);
+  });
 });

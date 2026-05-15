@@ -55,6 +55,11 @@
  *   PI_PERSONA_VIOLATION_DEFAULT=allow   in non-UI mode, allow writes
  *                                     outside writeRoots instead of
  *                                     blocking
+ *   PI_PERSONA_REQUEST_OPTIONS_DEBUG=1   log merged payload from the
+ *                                     `before_provider_request` handler
+ *                                     to stderr (useful when validating
+ *                                     a `requestOptions` block reaches
+ *                                     the provider as expected)
  */
 
 import { readdirSync, readFileSync } from 'node:fs';
@@ -90,6 +95,7 @@ import {
   type SnapshotState,
 } from '../../../lib/node/pi/persona/snapshot.ts';
 import { decideWriteGate } from '../../../lib/node/pi/persona/write-gate.ts';
+import { applyRequestOptions } from '../../../lib/node/pi/request-options.ts';
 import { loadAgents, defaultAgentLayers } from '../../../lib/node/pi/subagent-loader.ts';
 
 const STATUS_KEY = 'persona';
@@ -507,6 +513,41 @@ export default function personaExtension(pi: ExtensionAPI): void {
   });
 
   // ────────────────────────────────────────────────────────────────────
+  // Provider-payload deep-merge from `requestOptions`
+  // ────────────────────────────────────────────────────────────────────
+  //
+  // Pi's `before_provider_request` event lets handlers replace the
+  // outgoing payload before it goes over HTTP. We use it to inject the
+  // active persona's `requestOptions` (deep-merged via
+  // `lib/node/pi/request-options.ts`) so a persona shipping
+  // `requestOptions: { temperature: 0.7, chat_template_kwargs: { ... } }`
+  // applies those fields to every request it drives. The optional
+  // `apis: [...]` filter scopes the override to one or more API
+  // families so a llama.cpp-only `chat_template_kwargs` block doesn't
+  // leak into an Anthropic payload when the user changes models
+  // mid-session.
+
+  pi.on('before_provider_request', (event, ctx) => {
+    if (!active || !active.parsed.requestOptions) return undefined;
+    const payload = (event as { payload: unknown }).payload;
+    const api = (ctx.model as { api?: string } | undefined)?.api;
+    const merged = applyRequestOptions({ payload, options: active.parsed.requestOptions, api });
+    if (merged === payload) return undefined;
+    if (process.env.PI_PERSONA_REQUEST_OPTIONS_DEBUG === '1') {
+      try {
+        console.error(
+          `[persona:requestOptions] api=${api ?? '(unknown)'} merged=${JSON.stringify(
+            (merged as Record<string, unknown> | null) ?? null,
+          )}`,
+        );
+      } catch {
+        // ignore JSON serialization errors
+      }
+    }
+    return merged;
+  });
+
+  // ────────────────────────────────────────────────────────────────────
   // CLI flag + commands
   // ────────────────────────────────────────────────────────────────────
 
@@ -569,6 +610,9 @@ export default function personaExtension(pi: ExtensionAPI): void {
           `  bashDeny:      ${resolved.parsed.bashDeny.join(', ') || '(empty)'}`,
           `  model:         ${resolved.parsed.model ?? '(inherit)'}`,
           `  thinkingLevel: ${resolved.parsed.thinkingLevel ?? '(inherit)'}`,
+          `  requestOptions:${
+            resolved.parsed.requestOptions ? ` ${JSON.stringify(resolved.parsed.requestOptions)}` : ' (none)'
+          }`,
           `  body length:   ${resolved.parsed.body.length} chars`,
           `  prompt length: ${resolved.systemPromptAddendum.length} chars`,
         ];
