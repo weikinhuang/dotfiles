@@ -36,6 +36,24 @@ test('resolveWriteRoots: {projectSlug} substitution', () => {
   expect(resolveWriteRoots(['journal/{projectSlug}/'], ctx)).toEqual(['/repo/journal/dotfiles/']);
 });
 
+test('resolveWriteRoots: tilde + nested ~/.pi/personas/<persona>-notes/ shape', () => {
+  // Followup #6 in plans/persona-extension-followups.md — the
+  // Exusiai-style "persona writes scratch notes under the user-global
+  // persona dir" pattern. Validates tilde expansion through several
+  // path segments without any {projectSlug} or cwd substitution.
+  expect(resolveWriteRoots(['~/.pi/personas/exusiai-notes/'], ctx)).toEqual([
+    '/home/alice/.pi/personas/exusiai-notes/',
+  ]);
+});
+
+test('resolveWriteRoots: tilde + {projectSlug} compound', () => {
+  // Same Exusiai shape but per-project: confirms tilde and
+  // {projectSlug} substitution compose correctly.
+  expect(resolveWriteRoots(['~/.pi/personas/{projectSlug}/notes/'], ctx)).toEqual([
+    '/home/alice/.pi/personas/dotfiles/notes/',
+  ]);
+});
+
 test('resolveWriteRoots: absolute path returned untouched (no trailing slash)', () => {
   expect(resolveWriteRoots(['/etc/foo'], ctx)).toEqual(['/etc/foo']);
 });
