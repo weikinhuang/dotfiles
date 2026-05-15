@@ -80,6 +80,13 @@ import { askForPermission } from '../../../lib/node/pi/approval-prompt.ts';
 import { evaluateBashPolicy } from '../../../lib/node/pi/persona/bash-policy.ts';
 import { mergeAgentInheritance, type AgentRecord } from '../../../lib/node/pi/persona/inherit.ts';
 import { formatPersonaListing } from '../../../lib/node/pi/persona/list.ts';
+import {
+  formatPersonaInfoLines,
+  formatPersonaListLines,
+  formatPersonaValidate,
+  type PersonaInfoInput,
+  type PersonaListItem,
+} from '../../../lib/node/pi/persona/info.ts';
 import { type PersonaWarning, parsePersonaFile, type ParsedPersona } from '../../../lib/node/pi/persona/parse.ts';
 import { resolveWriteRoots } from '../../../lib/node/pi/persona/resolve.ts';
 import { clearActivePersona, setActivePersona } from '../../../lib/node/pi/persona/active.ts';
@@ -270,10 +277,11 @@ export default function personaExtension(pi: ExtensionAPI): void {
     }
   };
 
-  const loadAll = (ctx: ExtensionContext): void => {
+  const loadAll = (ctx: ExtensionContext): PersonaWarning[] => {
     const warnings = [...loadPersonas(ctx.cwd), ...loadSettingsLayers(ctx.cwd)];
     loadAgentsRegistry(ctx.cwd);
     surfaceWarnings(ctx, warnings);
+    return warnings;
   };
 
   // ────────────────────────────────────────────────────────────────────
@@ -317,6 +325,28 @@ export default function personaExtension(pi: ExtensionAPI): void {
 
     return { parsed: merged, resolvedWriteRoots, systemPromptAddendum, inheritedFrom };
   };
+
+  /**
+   * Adapter that flattens the runtime `ActivePersona` shape into the
+   * structural input expected by `formatPersonaInfoLines`. Pulled out
+   * so both the `/persona info` slash command and the
+   * `--persona-info` CLI flag can render the same output without
+   * duplicating the field plumbing.
+   */
+  const toPersonaInfoInput = (name: string, a: ActivePersona): PersonaInfoInput => ({
+    name,
+    source: a.parsed.source,
+    inheritedFrom: a.inheritedFrom,
+    tools: a.parsed.tools ?? undefined,
+    resolvedWriteRoots: a.resolvedWriteRoots,
+    bashAllow: a.parsed.bashAllow,
+    bashDeny: a.parsed.bashDeny,
+    model: a.parsed.model ?? null,
+    thinkingLevel: a.parsed.thinkingLevel ?? null,
+    requestOptions: a.parsed.requestOptions,
+    bodyLength: a.parsed.body.length,
+    promptLength: a.systemPromptAddendum.length,
+  });
 
   // ────────────────────────────────────────────────────────────────────
   // Apply / clear
@@ -556,6 +586,25 @@ export default function personaExtension(pi: ExtensionAPI): void {
     type: 'string',
   });
 
+  // Non-interactive query / validation flags. These short-circuit the
+  // session at `session_start` (print to stdout/stderr + process.exit)
+  // because slash commands are not dispatched in `pi -p` mode — see
+  // followup #3 in plans/persona-extension-followups.md.
+  pi.registerFlag('persona-info', {
+    description: 'Print resolved persona <name> (frontmatter + writeRoots + lengths) and exit',
+    type: 'string',
+  });
+  pi.registerFlag('list-personas', {
+    description: 'List loaded personas (name + source + description) and exit',
+    type: 'boolean',
+    default: false,
+  });
+  pi.registerFlag('validate-personas', {
+    description: 'Parse every persona file, report warnings, exit non-zero on warnings',
+    type: 'boolean',
+    default: false,
+  });
+
   pi.registerCommand('persona', {
     description:
       'Switch persona: `/persona` lists, `/persona <name>` activates, `/persona off` clears, `/persona info <name>` debugs',
@@ -600,22 +649,7 @@ export default function personaExtension(pi: ExtensionAPI): void {
           ctx.ui.notify(`persona info: unknown "${name}"`, 'error');
           return;
         }
-        const lines = [
-          `persona "${name}"`,
-          `  source:        ${resolved.parsed.source}`,
-          `  inheritedFrom: ${resolved.inheritedFrom ?? '(standalone)'}`,
-          `  tools:         ${(resolved.parsed.tools ?? []).join(', ') || '(inherit / none)'}`,
-          `  writeRoots:    ${resolved.resolvedWriteRoots.join(', ') || '(none — writes disallowed)'}`,
-          `  bashAllow:     ${resolved.parsed.bashAllow.join(', ') || '(empty)'}`,
-          `  bashDeny:      ${resolved.parsed.bashDeny.join(', ') || '(empty)'}`,
-          `  model:         ${resolved.parsed.model ?? '(inherit)'}`,
-          `  thinkingLevel: ${resolved.parsed.thinkingLevel ?? '(inherit)'}`,
-          `  requestOptions:${
-            resolved.parsed.requestOptions ? ` ${JSON.stringify(resolved.parsed.requestOptions)}` : ' (none)'
-          }`,
-          `  body length:   ${resolved.parsed.body.length} chars`,
-          `  prompt length: ${resolved.systemPromptAddendum.length} chars`,
-        ];
+        const lines = formatPersonaInfoLines(toPersonaInfoInput(name, resolved));
         ctx.ui.notify(lines.join('\n'), 'info');
         return;
       }
@@ -655,7 +689,49 @@ export default function personaExtension(pi: ExtensionAPI): void {
   // ────────────────────────────────────────────────────────────────────
 
   pi.on('session_start', async (_event, ctx) => {
-    loadAll(ctx);
+    const warnings = loadAll(ctx);
+
+    // ── Non-interactive query / validation flags ──────────────────
+    // These short-circuit before any model interaction. Slash
+    // commands aren't dispatched in `pi -p` mode, so we expose the
+    // same surface via flags. Followup #3 in
+    // plans/persona-extension-followups.md.
+    const flagPersonaInfo = pi.getFlag('persona-info');
+    const flagListPersonas = pi.getFlag('list-personas') === true;
+    const flagValidatePersonas = pi.getFlag('validate-personas') === true;
+
+    if (typeof flagPersonaInfo === 'string' && flagPersonaInfo.length > 0) {
+      const target = flagPersonaInfo;
+      const resolved = resolveActive(target, ctx);
+      if (!resolved) {
+        process.stderr.write(`persona-info: unknown "${target}" (available: ${nameOrder.join(', ') || '(none)'})\n`);
+        process.exit(1);
+      }
+      const lines = formatPersonaInfoLines(toPersonaInfoInput(target, resolved));
+      process.stdout.write(`${lines.join('\n')}\n`);
+      process.exit(0);
+    }
+
+    if (flagListPersonas) {
+      const items: PersonaListItem[] = nameOrder.map((n) => ({
+        name: n,
+        source: personas[n]?.sourceLayer ?? 'unknown',
+        description: personas[n]?.description,
+        active: n === activeName,
+      }));
+      const lines = formatPersonaListLines(items);
+      process.stdout.write(`${lines.join('\n')}\n`);
+      process.exit(0);
+    }
+
+    if (flagValidatePersonas) {
+      const out = formatPersonaValidate({
+        warnings: warnings.map((w) => ({ path: w.path, reason: w.reason })),
+        totalLoaded: nameOrder.length,
+      });
+      process.stdout.write(`${out.lines.join('\n')}\n`);
+      process.exit(out.exitCode);
+    }
 
     // Restore from session entries (on /resume): last `persona-state`
     // entry's `name`, or null if it was explicitly cleared.

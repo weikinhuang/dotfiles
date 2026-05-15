@@ -103,10 +103,21 @@ User-global is `~/.pi/persona-settings.json` with the same shape; the project la
 - `Ctrl+Shift+M` — cycle through personas in `nameOrder`, then `(none)`, then back to the first.
 - `--persona <name>` CLI flag — activate at `session_start`. Flag wins over the session-restored persona and over
   `PI_PERSONA_DEFAULT`.
+- `--persona-info <name>` CLI flag — print the resolved persona (same surface as `/persona info <name>`) to stdout and
+  exit. Useful in `pi -p` / scripting mode where slash commands are not dispatched. Exits non-zero if `<name>` is
+  unknown.
+- `--list-personas` CLI flag — print one line per loaded persona (`name  [source] description`) and exit 0. The active
+  persona, if any, is prefixed with `*`.
+- `--validate-personas` CLI flag — parse every persona file across all layers, print one `<path>: <reason>` per warning,
+  and exit non-zero if any warning fired. Designed for CI gating: `pi --validate-personas && …`.
 
 > **Why `--persona` and not `--mode`?** Pi's CLI parser reserves `--mode` for the built-in output-mode flag
 > (`text|json|rpc`); a user-extension flag named `mode` is silently shadowed. `--persona` sidesteps the collision and
 > reads naturally given the body IS a persona overlay.
+>
+> The three query / validation flags (`--persona-info`, `--list-personas`, `--validate-personas`) short-circuit at
+> `session_start` via `process.exit()` — they print to stdout (or stderr on error) and never invoke a model. Run with
+> `--no-session` if you don't want the validation invocation to leave a session transcript on disk.
 
 ## Write-scope gate
 

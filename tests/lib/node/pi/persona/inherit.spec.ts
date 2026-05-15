@@ -15,6 +15,7 @@ function baseMode(over: Partial<ParsedPersona> = {}): ParsedPersona {
     bashDeny: [],
     body: '',
     source: '/modes/plan.md',
+    sourceLayer: 'shipped',
     ...over,
   };
 }

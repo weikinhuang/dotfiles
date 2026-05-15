@@ -56,7 +56,10 @@ export interface ParsedPersona {
   /** Free-form deep-merge into the outgoing provider payload. See `lib/node/pi/request-options.ts`. */
   requestOptions?: RequestOptionsConfig;
   body: string;
+  /** Absolute path of the source file. */
   source: string;
+  /** Layered-discovery tag (`shipped` / `user` / `project`). */
+  sourceLayer: PersonaSourceLayer;
 }
 
 export interface PersonaWarning {
@@ -111,7 +114,7 @@ function stemFromPath(p: string): string {
  * frontmatter keys are tolerated silently.
  */
 export function parsePersonaFile(opts: ParsePersonaOptions): ParsedPersona | null {
-  const { path, raw, knownToolNames, parseFrontmatter, warnings } = opts;
+  const { path, raw, knownToolNames, parseFrontmatter, warnings, source } = opts;
 
   let parsed: { frontmatter: Record<string, unknown>; body: string };
   try {
@@ -207,5 +210,6 @@ export function parsePersonaFile(opts: ParsePersonaOptions): ParsedPersona | nul
     requestOptions,
     body: parsed.body,
     source: path,
+    sourceLayer: source,
   };
 }
