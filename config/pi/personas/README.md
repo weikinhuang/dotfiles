@@ -89,11 +89,24 @@ You do **not** have `<negative tool list>`. Don't try to fake `<that tool>` via 
   before reading it.
 - **Imperative bullets, not declarative ones.** “Write files as markdown with kebab-case names” binds; “Files are
   markdown, kebab-case names” reads as worldbuilding.
+- **Lead behavioural rules with the positive imperative; demote the negation to a tail clause.** Weak models can
+  over-apply a “you don’t do X” rule as “emit nothing” — they read the user’s prompt as “wants me to do X”, check the
+  rule, and silent-stop with zero output tokens (`stopReason: "stop"`, `output: 0`). Pattern:
+  `**Always answer direct questions in voice.** … Only when the user asks for multi-step work, redirect.` rather than
+  `Don’t take over multi-step work; redirect to chat / plan.` Observed on `qwen3-6-35b-a3b` against an early-draft
+  observer-mode persona; rewriting rule 2 to lead with the positive imperative fixed it on the first re-probe.
 - **Strongest behavioral rule goes at bullet #2 of “How to work”**, immediately after the goal-shaped #1 (“lead with the
   answer” / “land the file at path X”). Bullet #2 should be the thing the user is most likely to violate by accident
   (e.g. for `chat.md`: “one question per turn”). Don’t bury this rule at #4 or #5.
 - **Pair every “Don’t X” with a positive replacement.** Bare prohibitions don’t redirect drift-prone models — they need
   somewhere to land. “Don’t speculate about code you haven’t read; instead, `read` it or mark the point as a question.”
+- **When a rule forbids a specific phrasing, enumerate the synonyms — and lean on the positive replacement.** A rule
+  like `Don’t break frame with "I checked the dossier"` will be violated by `"straight from the dossier"`,
+  `"the dossier has"`, `"according to my files"`. Drift-prone models find synonyms reflexively. Two complementary fixes:
+  (a) list 3–5 specific forbidden phrasings inline so the rule pattern-matches more than one variant, (b) phrase the
+  _positive replacement_ precisely (“speak as if you remembered”, “deliver the line as if it’s yours”). The positive
+  replacement does more work than the negation — without it, even small models will find another synonym to drift into.
+  Whack-a-mole on the negation alone is futile; the positive frame is the real binding.
 - **Add “don’t announce the rule” when an instruction is unusual.** Without that addendum, opus-class models will
   narrate the constraint at the user (“per my rules I only take the first one this turn…”). Phrase the _consequence_
   positively (“packing all three would give you a shallow version of each”) so the model can volunteer it in its own
@@ -104,6 +117,49 @@ You do **not** have `<negative tool list>`. Don't try to fake `<that tool>` via 
 - **Don’t make the model refer to itself by persona name.** Add an anti-pattern bullet: “don’t refer to yourself as ‘the
   X persona’ in replies.” Otherwise small models will robotically prefix replies with role labels.
 
+### Patterns specific to character personas (and other strongly-voiced ones)
+
+Most shipped personas above are _operational_ — they describe a role (planner, reviewer, journaler) without asserting a
+specific identity. Personas that ARE a specific entity (a fictional character, a real-world voice, a branded mascot)
+need a few extra patterns on top of the operational baseline:
+
+- **Add a `## Character` section between `## Tools` and `## How to work`.** Hoist _who_ the persona is — name, origin,
+  tone, key relationships, address forms — above the rules so the model anchors identity before behaviour. Operational
+  personas don’t have this section because they don’t ARE anyone.
+- **Encode address-form discipline as a positive rule AND an anti-pattern.** “You call them X / Y” inside `## Character`
+  keeps direct address right; a parallel anti-pattern bullet at the bottom (“Don’t call them Z; that name belongs to …”)
+  catches third-person-narration drift, where weak models will leak the wrong name even when direct address is fine.
+- **Default to “guess and ask” for out-of-character knowledge gaps.** When the user asks something the persona shouldn’t
+  authoritatively know, have the persona react in voice with a guess shaped like something they DO know, then ask to
+  confirm or correct. Cheap, fast, keeps the scene flowing. Reach for `ai-fetch-web` only when accuracy actually matters
+  — see the next bullet.
+- **For large source-cited canon, ship a `read`-on-demand dossier rather than baking it into the body.** When the
+  source-of-truth canon is more than ~500 words, drop it at a user-global path (e.g. `~/.pi/personas/<name>-canon.md`),
+  add `read` of that path to the persona’s `## Tools` section, add `rg *` to `bashAllow` so the model can grep without
+  pulling 87 KB into context, and write the canon-verification rule as
+  `**check your dossier first; treat it as memory, not research**`. Fallback to `ai-fetch-web` only when the dossier
+  doesn’t cover the question. This keeps the persona **model-portable** — different backing models won’t drift on canon
+  because they’re reading the same cited file rather than reaching for training data. **Sync caveat:** if the dossier
+  source-of-truth lives in your project repo (e.g. produced by a research pass), the runtime copy at
+  `~/.pi/personas/...` needs a one-line `cp` after dossier updates; capture that in a project memory or it goes stale
+  silently. **Weak-model caveat:** dossier-grounding stacks several rules at once (tool-selection + brief register +
+  character flavor + anti-attribution), and qwen3-class models can drop pieces under that load — confabulating canon
+  while _claiming_ dossier-grounding is the worst failure mode. Validate dossier-grounding personas on both tiers; if
+  you must pick one, validate against the smallest model you’ll realistically use for that persona, and consider
+  deferring deep canon questions to a sibling persona via a `/persona ...` redirect when brief register can’t carry the
+  load.
+- **`ai-fetch-web` for grounding when no dossier exists (or as fallback when one does), in-voice reporting, no URL
+  paste.** When the persona uses web search to verify a claim, fold the result into how the persona would actually say
+  it. Never paste search results, snippets, or URLs. Validation question: “does the response read like the character
+  remembered, or like a chat-with-search bot?” — the latter is a fail. Note that `bashAllow: ['ai-fetch-web *']` is
+  intersection-only with `bash-permissions.json`; the command must also be on the user-global allowlist or the call dies
+  before persona’s allow is consulted (see [`../extensions/persona.md`](../extensions/persona.md) “Bash policy”).
+- **Multi-version characters: separate files when rules diverge; blend in one body when register slides.** When two
+  versions of a character differ in _which rules apply_ — e.g. “redirect on real-world prompts” vs. “look real-world
+  facts up” — they need separate persona files because the rule contracts differ. When two versions only differ in _mood
+  / experience level / register_ but obey the same rules, blend in one body and let the user cue the slide via scene
+  framing.
+
 ### Validating a new or changed persona
 
 Before shipping a persona body change, validate against both tiers — they catch different failure modes:
@@ -111,15 +167,101 @@ Before shipping a persona body change, validate against both tiers — they catc
 - **Small-model probe** (binding check): run 3–5 prompts that probe each anti-pattern through
   `pi -p '<prompt>' --persona <name> --model llama-cpp/qwen3-6-35b-a3b --no-session`. The local llama-cpp model is
   single-flight — run probes serially, not in parallel. Watch for: rule-leaking, ignored constraints, fabricated
-  citations, jargon echo.
+  citations, jargon echo, **silent-stop on a direct question** (zero output tokens — usually means a negation-heavy rule
+  is over-applying; see “Lead behavioural rules with the positive imperative” above).
 - **Large-model probe** (over-rigidity check): run **one** prompt that targets the most unusual rule through
   `--model amazon-bedrock/us.anthropic.claude-opus-4-7`. Watch for: meta-narration of the rule (“per my system
   prompt…”), patronizing tone, refusal to use judgment when the rule’s spirit allows it.
 - **Iterate the prompt, not the model.** When a probe fails, change the wording (imperative → positive, soft → hard, add
   anti-loophole, add “don’t announce”). Re-run only the failing probe. Re-verify against the _other_ tier when wording
   softens, since softening can regress small-model binding.
+- **Diagnosing empty replies.** If `pi -p` text mode returns zero bytes, re-run with
+  `pi -p '…' --persona <name> --model … --no-session --mode json 2>&1 | rg -o '"stopReason":"[^"]*"|"output":[0-9]+|"content":\[\]'`
+  to confirm whether the model emitted nothing (silent-stop pattern) or pi suppressed something downstream. Same trick
+  works for confirming a tool was actually called when the prose response is suspiciously vague — grep for
+  `"name":"bash"` or your tool name in the JSON stream.
 
 See the [`chat.md`](./chat.md) commit history for a worked example of the v0 → v1 → v2 iteration that passed both tiers.
+
+## Bootstrap prompt for creating a new persona via an agent session
+
+Paste the block below at the top of a fresh `pi` (or Claude-Code) session, fill in the bracketed fields, and send. Fill
+in what you already know; leave anything else as `<unknown>` — step 1 of the workflow tells the agent to ask via the
+`questionnaire` tool before writing. The block is verbatim-copyable; no editing required beyond the spec block.
+
+```text
+I want to create a new pi persona. Read these first, in order:
+
+1. config/pi/personas/README.md (this file) — patterns, skeleton, validation playbook.
+2. config/pi/extensions/persona.md — frontmatter schema, layering, bash and write gates.
+3. config/pi/personas/chat.md as the operational-persona reference. If any character
+   personas already exist under ~/.pi/personas/, read one of those as the
+   character-persona + dossier-grounding reference; otherwise note the absence.
+
+Persona spec (fill what you know; leave the rest as <unknown> and ask me):
+
+- name (filename stem):       <name>
+- one-line description:       <text>
+- type:                       operational | character
+- file location:              ~/.pi/personas/<name>.md (user-global)
+                              | <cwd>/.pi/personas/<name>.md (project-local)
+                              | config/pi/personas/<name>.md (shipped catalog)
+- writeRoots:                 <path | "none">
+- tools:                      <subset of read, scratchpad, memory, write, edit, bash>
+- bashAllow:                  <list | "none">  (chat.md and exusiai*.md show common shapes)
+- canon dossier (chars only): <path | "none">  (use the README’s read-on-demand pattern
+                              when canon material is > ~500 words)
+
+Workflow I expect:
+
+1. ASK first. Use the `questionnaire` tool (or equivalent) to surface design choices the
+   README calls out for this persona type. At minimum: strongest behavioural rule (the
+   rule #2 candidate), deliverable shape, and — for character personas — version /
+   timeline, user role + address form, vulnerability gating, topic-gated registers
+   (faith / jargon / etc.), flirty / NSFW cap, out-of-character knowledge handling.
+   Don’t write the file before answers come back.
+
+2. WRITE following the README skeleton. Lead rules with positive imperatives; pair every
+   “Don’t X” with a positive replacement; enumerate synonyms when forbidding a specific
+   phrasing.
+
+3. WIRE a `read`-on-demand dossier (character personas with > ~500 words of canon only):
+   drop the cited dossier at `~/.pi/personas/<name>-canon.md`, add `read` of that path
+   to the persona’s `## Tools` section, add `rg *` to `bashAllow`, write the
+   canon-check rule per the README’s “read-on-demand dossier” bullet, and include the
+   synonym anti-loophole list in the rule text.
+
+4. VALIDATE per the README’s “Validating a new or changed persona”. Minimum: 3 probes
+   on `llama-cpp/qwen3-6-35b-a3b` (single-flight, serial via `bg_bash`) covering each
+   anti-pattern, plus 1 probe on `amazon-bedrock/us.anthropic.claude-opus-4-7`
+   targeting the most unusual rule. Iterate the WORDING, not the model. Re-verify
+   the other tier when wording softens. If a probe returns 0 bytes, re-run with
+   `--mode json` and grep for the silent-stop pattern documented in the README.
+
+5. ITERATE if any probe fails. Apply the documented fix from this README:
+   silent-stop on a negation-heavy rule → invert to positive imperative; attribution
+   leak via synonyms → enumerate the synonyms and sharpen the positive replacement;
+   confabulation while claiming dossier-grounding → add “if neither tool gave you
+   the answer, just say ‘that’s not coming back to me’”.
+
+6. SURFACE any new persona-extension limitation you discover in
+   `plans/persona-extension-followups.md` (one entry per finding, format per the
+   existing entries).
+
+7. HAND OFF with: file paths, frontmatter summary, validation results table
+   (probe / model / verdict), and any design tradeoffs I didn’t pre-decide.
+
+Hard constraints:
+
+- Don’t add facts from your own training data; if a character persona needs deep
+  canon, point me at a research pass to produce a cited dossier first.
+- Don’t bloat the body with backstory; prefer a read-on-demand dossier when canon
+  is > ~500 words.
+- Don’t ship without both tiers passing (or an explicit weak-model caveat
+  documented inside the persona body, if a tier-specific workaround is unavoidable).
+
+Now ask me your clarifying questions.
+```
 
 ## Related docs
 
