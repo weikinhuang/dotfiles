@@ -7,9 +7,9 @@ Claude Code–style footer for pi. Ports the data exposed by
 ## Example
 
 ```text
-[user#host pi-test (main *+$%) ⎇ feature-x 82% left $0.042 §a0cd2e69] claude-opus-4-7 • high
+[user#host pi-test (main *+$%) ⎇ feature-x 82% left $0.042 §a0cd2e69] claude-opus-4-7 • high persona:plan
  ↳ M(3):↑1k/↻ 12k/↓180 R 92% | S:↑4k/↻ 48k/W 1.2k/↓720 R 92% | ⚒ S:6(~3k)
-plan-mode: on   preset: fast   ⠋ thinking…
+preset: fast   ⠋ thinking…
 ```
 
 ## Line 1 — shell-style context
@@ -36,6 +36,9 @@ plan-mode: on   preset: fast   ⠋ thinking…
 - **`<model>`** — `ctx.model.id`.
 - **`• <level>`** — `ctx.getThinkingLevel()` when `ctx.model.reasoning` is true (one of `off`, `minimal`, `low`,
   `medium`, `high`, `xhigh`). Mirrors pi's built-in `<model> • <level>` footer suffix; omitted for non-reasoning models.
+- **`persona:<name>`** — set by [`./persona.ts`](./persona.ts) via `ctx.ui.setStatus('persona', ...)`. Pulled out of the
+  alphabetised line-3 strip and rendered here so the active persona stays alongside the model + thinking hints it
+  actually overrides. Hidden when no persona is active.
 
 ## Line 2 — token and tool totals
 
@@ -54,7 +57,8 @@ equivalent data sources.
 ## Line 3 — extension statuses
 
 - Renders `footerData.getExtensionStatuses()` — values set by other extensions via `ctx.ui.setStatus(key, text)` (e.g.
-  plan-mode, preset, working-indicator, [`bash-permissions.ts`](./bash-permissions.ts)).
+  preset, working-indicator, [`bash-permissions.ts`](./bash-permissions.ts)).
+- The `persona` key is intentionally consumed on line 1 (next to the model + thinking level) and excluded here.
 - Because `ctx.ui.setFooter(...)` replaces pi's built-in footer, these statuses would otherwise be muted; appending them
   as a 3rd line keeps every extension's status visible.
 - Entries are sorted by key for stable ordering, newlines/tabs are collapsed to single spaces, and the line is truncated

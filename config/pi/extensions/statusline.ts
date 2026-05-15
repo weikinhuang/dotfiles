@@ -95,6 +95,7 @@ const PALETTE = {
   cost: '\x1b[38;5;108m',
   sessionId: '\x1b[38;5;244m',
   model: '\x1b[38;5;33m',
+  persona: '\x1b[38;5;141m',
 } as const;
 
 const paint = (code: string, text: string): string => `${code}${text}${RESET}`;
@@ -392,6 +393,15 @@ export default function extension(pi: ExtensionAPI): void {
           // but rendered in grey so the model id stays the prominent element.
           line1Parts.push(paint(PALETTE.grey, ` • ${thinkingLevel}`));
         }
+        // `persona:<name>` segment, sourced from the persona extension's
+        // setStatus(STATUS_KEY = 'persona', ...). Pulled onto line 1 (after
+        // thinkingLevel) instead of the alphabetised line-3 strip so the
+        // active persona stays visible alongside the model + thinking hints
+        // it actually overrides.
+        const personaStatus = footerData.getExtensionStatuses().get('persona');
+        if (personaStatus) {
+          line1Parts.push(' ', paint(PALETTE.persona, personaStatus.replace(/[\r\n\t]+/g, ' ')));
+        }
 
         // --- line 2: ↳ M:↑/↻/↓ | S:↑/↻/↓ | ⚒ S:n(~bytes) ---
         const line2Parts: string[] = [];
@@ -454,11 +464,13 @@ export default function extension(pi: ExtensionAPI): void {
           );
         }
 
-        // --- line 3: other extensions' statuses (plan-mode, preset, working-indicator, …) ---
+        // --- line 3: other extensions' statuses (preset, working-indicator, …) ---
         // setFooter() replaces pi's built-in footer, which would otherwise render
         // footerData.getExtensionStatuses(); append them here so ctx.ui.setStatus(...)
-        // from other extensions stays visible.
+        // from other extensions stays visible. `persona` is consumed on line 1 above
+        // and excluded here to avoid double-rendering.
         const line3Parts = [...footerData.getExtensionStatuses().entries()]
+          .filter(([k]) => k !== 'persona')
           .sort(([a], [b]) => a.localeCompare(b))
           .map(([, v]) => v.replace(/[\r\n\t]+/g, ' '));
 
