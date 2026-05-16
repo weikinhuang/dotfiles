@@ -93,7 +93,7 @@ of the user at the parent scope. Opt in per-agent by adding `memory` to its `too
 Each child invocation writes to its own on-disk session file:
 
 ```text
-~/.pi/agent/sessions/<parent-cwd-slug>/subagents/<parent-session-id>/ <iso-timestamp>\_<child-session-id>.jsonl
+~/.pi/agent/sessions/<parent-cwd-slug>/<parent-session-id>/subagents/<iso-timestamp>\_<child-session-id>.jsonl
 ```
 
 Mirrors Claude Code's per-`Task` session files so the user can audit, resume, or fork a delegated run. The parent

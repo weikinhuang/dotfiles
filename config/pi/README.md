@@ -70,7 +70,7 @@ post-assistant user text and tool results get added on top before the next turn.
 ### Subagents
 
 The [`subagent` extension](./extensions/subagent.ts) writes each child transcript next to its parent at
-`~/.pi/agent/sessions/<parent-cwd-slug>/subagents/<parent-session-id>/<timestamp>_<child-session-id>.jsonl`, and emits a
+`~/.pi/agent/sessions/<parent-cwd-slug>/<parent-session-id>/subagents/<timestamp>_<child-session-id>.jsonl`, and emits a
 matching `type:"custom", customType:"subagent-run"` audit entry in the parent session with the child's agent name, the
 task string, the stop reason, and the child session id. `session-usage.ts` picks both up:
 

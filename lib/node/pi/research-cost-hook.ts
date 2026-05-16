@@ -21,7 +21,7 @@
  *     research runs to their parent session either.
  *
  * The extension shell fixes (A) by persisting every child under
- * `<projectSessionsDir>/subagents/<parentId>/`; this module fixes
+ * `<projectSessionsDir>/<parentId>/subagents/`; this module fixes
  * (B) by producing an `onEvent` callback compatible with
  * `runOneShotAgent.onEvent` (and, by shape, with
  * `AgentSession.subscribe` for the long-lived parent session used

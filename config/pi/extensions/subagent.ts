@@ -27,7 +27,7 @@
  *     markdown final answer on expand. Child tool calls are NEVER
  *     streamed inline.
  *   - Child sessions persist to their own files under
- *     `<root>/<parent-cwd-slug>/subagents/<parent-session-id>/` so
+ *     `<root>/<parent-cwd-slug>/<parent-session-id>/subagents/` so
  *     `session-usage.ts` picks them up next to the parent's session.
  *   - Parent-side audit via `pi.appendEntry('subagent-run', details)`
  *     so /fork, /tree, and session-usage can see delegated runs.

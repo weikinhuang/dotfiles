@@ -1678,7 +1678,7 @@ function buildPipelineDeps(
         noPromptTemplates: true,
       });
       await resource.reload();
-      // Persist this session under `<sessionDir>/subagents/<parentId>/`
+      // Persist this session under `<sessionDir>/<parentId>/subagents/`
       // so `pi session-usage` / `ai-tool-usage` can attribute its
       // usage + cost back to the parent pi session — same layout
       // the harness's built-in `subagent` tool uses. Falls back to

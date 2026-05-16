@@ -59,7 +59,7 @@ export interface ResolveSubagentSessionDirArgs {
 }
 
 /**
- * Returns the directory `<parentSessionDir>/subagents/<parentSessionId>`.
+ * Returns the directory `<parentSessionDir>/<parentSessionId>/subagents`.
  *
  * Throws when the parent session has no id or no dir — see the
  * module docstring for the rationale (we refuse to silently fall
