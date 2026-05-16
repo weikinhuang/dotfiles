@@ -1,17 +1,19 @@
 # Pi extensions
 
-Conventions for extensions under [`../extensions/`](../extensions/) — the `.ts` extension shells loaded via
+<!-- markdownlint-disable authoring-guide-doc-size-budget -->
+
+Conventions for extensions under [`../extensions/`](../extensions/) - the `.ts` extension shells loaded via
 [`../settings-baseline.json`](../settings-baseline.json). See [README.md](./README.md) for the per-extension index and
 root [AGENTS.md](../../../AGENTS.md) for repo-wide rules; this file documents only what is different in this directory.
 
 ## Commands
 
-- `npm test` — vitest covers the pure helpers under [`../../../lib/node/pi/`](../../../lib/node/pi) plus the extension
+- `npm test` - vitest covers the pure helpers under [`../../../lib/node/pi/`](../../../lib/node/pi) plus the extension
   command-surface specs under [`../../../tests/config/pi/extensions/`](../../../tests/config/pi/extensions).
-- `npm run tsc` — type-checks every helper imported by these extensions. The `.ts` extension files themselves are
+- `npm run tsc` - type-checks every helper imported by these extensions. The `.ts` extension files themselves are
   excluded from the root `tsconfig.json` (they resolve `@earendil-works/*` via pi's globally-installed package, which
   the root TS project doesn't know about), so type errors for extension shells only surface at runtime.
-- `./dev/lint.sh` — shellcheck + shfmt picks up any shell scripts under this tree.
+- `./dev/lint.sh` - shellcheck + shfmt picks up any shell scripts under this tree.
 
 ## Key patterns
 
@@ -31,9 +33,9 @@ runtime behaviour. New extensions add both files **and** a row in [README.md](./
 
 ### Subagent spawns MUST persist their session transcript to disk
 
-Every extension that spawns a child `AgentSession` — through `runOneShotAgent`
+Every extension that spawns a child `AgentSession` - through `runOneShotAgent`
 ([`../../../lib/node/pi/subagent-spawn.ts`](../../../lib/node/pi/subagent-spawn.ts)), `createAgentSession`, or any
-future helper — **must** pass an explicit disk-backed `SessionManager`. Never accept the runOneShotAgent default
+future helper - **must** pass an explicit disk-backed `SessionManager`. Never accept the runOneShotAgent default
 (`SessionManager.inMemory(cwd)`) and never call `SessionManager.inMemory(...)` from a spawn site.
 
 **Why:** in-memory sessions silently drop the child's transcript at process exit. That breaks two things downstream:
@@ -62,7 +64,7 @@ await runOneShotAgent({
 });
 ```
 
-The helper throws (with a `Restart pi without --no-session` message) when the parent session has no id or no dir —
+The helper throws (with a `Restart pi without --no-session` message) when the parent session has no id or no dir -
 surface that to the user instead of falling back to in-memory. Pi's `subagent.ts` is the one explicit opt-out, gated
 behind `PI_SUBAGENT_NO_PERSIST=1` for the rare ephemeral-debug-run case.
 
@@ -80,7 +82,7 @@ runOneShotAgent spawns) and [`subagent-session-paths.ts`](../../../lib/node/pi/s
 
 ### No direct embedding-API calls
 
-Extensions stay model-agnostic. Don't call OpenAI / Anthropic / etc. embedding endpoints directly — route through
+Extensions stay model-agnostic. Don't call OpenAI / Anthropic / etc. embedding endpoints directly - route through
 `runOneShotAgent` with the configured model so the user's provider+model selection is the single source of truth.
 
 ## Boundaries
@@ -90,7 +92,7 @@ Extensions stay model-agnostic. Don't call OpenAI / Anthropic / etc. embedding e
 adding/removing an extension; add or update the matching deep doc (`<name>.md`) when behaviour changes.
 
 **Ask first**: introducing a new spawn helper that bypasses `subagent-spawn.ts` / `subagent-session-dir.ts`; adding a
-new on-disk path layout for subagent transcripts; moving extension logic into `lib/node/pi/` (pure helpers only —
+new on-disk path layout for subagent transcripts; moving extension logic into `lib/node/pi/` (pure helpers only -
 nothing that imports `@earendil-works/*`).
 
 **Never**: pass `SessionManager.inMemory(...)` to a spawn site (use the `PI_SUBAGENT_NO_PERSIST=1` opt-out in
@@ -100,11 +102,11 @@ chunk of pure logic that isn't covered by a vitest spec under
 
 ## References
 
-- [README.md](./README.md) — extension index + per-extension deep-doc table.
-- [`../../../lib/node/pi/subagent-session-dir.ts`](../../../lib/node/pi/subagent-session-dir.ts) — the helper every
+- [README.md](./README.md) - extension index + per-extension deep-doc table.
+- [`../../../lib/node/pi/subagent-session-dir.ts`](../../../lib/node/pi/subagent-session-dir.ts) - the helper every
   spawn site goes through.
-- [`../../../lib/node/pi/subagent-spawn.ts`](../../../lib/node/pi/subagent-spawn.ts) — `runOneShotAgent` plus its
+- [`../../../lib/node/pi/subagent-spawn.ts`](../../../lib/node/pi/subagent-spawn.ts) - `runOneShotAgent` plus its
   dependency-injected types.
-- [`../session-usage.ts`](../session-usage.ts) — walker that proves transcripts landed on disk.
-- [`../../../lib/AGENTS.md`](../../../lib/AGENTS.md) — pure-helper rules for
+- [`../session-usage.ts`](../session-usage.ts) - walker that proves transcripts landed on disk.
+- [`../../../lib/AGENTS.md`](../../../lib/AGENTS.md) - pure-helper rules for
   [`../../../lib/node/pi/`](../../../lib/node/pi) modules consumed here.

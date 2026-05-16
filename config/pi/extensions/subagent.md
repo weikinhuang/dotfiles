@@ -2,7 +2,7 @@
 
 Claude Code `Task` / opencode / codex-style in-process sub-agent delegation. The parent LLM calls a single
 `subagent(agent, task)` tool; the extension spins up a throwaway child `AgentSession` with its own context, tool
-allowlist, and — optionally — a dedicated model or a git-worktree sandbox. The parent only sees the child's final
+allowlist, and - optionally - a dedicated model or a git-worktree sandbox. The parent only sees the child's final
 answer; intermediate tool churn stays in the child's own session file.
 
 ## Why
@@ -20,13 +20,13 @@ Registers one tool (`subagent`) with `executionMode: "parallel"` and one command
 - **Single call, parallel fan-out.** The parent model invokes `subagent` once per delegation; to fan out, it calls the
   tool multiple times in one assistant turn. An in-process semaphore caps concurrency at
   [`PI_SUBAGENT_CONCURRENCY`](#environment-variables) (default 4, hard ceiling 8).
-- **No nested delegation.** The default agent definitions do NOT include `subagent` in their tool lists — Claude Code,
+- **No nested delegation.** The default agent definitions do NOT include `subagent` in their tool lists - Claude Code,
   opencode, and codex all make the same choice. Prevents runaway fan-out.
 - **Context isolation.** Child starts with no parent chat history. Only the workspace's `AGENTS.md` / `CLAUDE.md` files
   and the agent definition's system-prompt body are injected.
 - **Guardrail inheritance.** `bash-permissions.json` / `protected-paths.json` rule layers apply in the child because
   both extensions re-read them on every tool call. The **session allowlist** (in-memory approvals) does NOT cross the
-  boundary — fresh child, fresh approvals.
+  boundary - fresh child, fresh approvals.
 - **Parent never sees intermediate tool output.** The child's own session file records every call; the parent's
   `tool_result` carries only the final answer text. A collapsible `subagent-run` message in the parent transcript
   renders the one-liner status with an expand-to-markdown view of the answer.
@@ -45,19 +45,19 @@ Frontmatter schema:
 
 | Field                | Type                       | Default                  | Meaning                                                                                                                                                                                                                                                               |
 | -------------------- | -------------------------- | ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `name`               | string (required)          | —                        | LLM-visible agent identifier. Must match `[a-z][a-z0-9-]*`.                                                                                                                                                                                                           |
-| `description`        | string (required)          | —                        | Explains WHEN to delegate. Surfaced to the parent LLM in the tool description.                                                                                                                                                                                        |
+| `name`               | string (required)          | -                        | LLM-visible agent identifier. Must match `[a-z][a-z0-9-]*`.                                                                                                                                                                                                           |
+| `description`        | string (required)          | -                        | Explains WHEN to delegate. Surfaced to the parent LLM in the tool description.                                                                                                                                                                                        |
 | `tools`              | string[]                   | `[read, grep, find, ls]` | Allowlist of built-in + extension tool names. Unknown entries drop with a startup warning.                                                                                                                                                                            |
 | `model`              | `inherit` \| `provider/id` | `inherit`                | Which model answers. `inherit` reuses the parent's current model.                                                                                                                                                                                                     |
 | `thinkingLevel`      | `off…xhigh`                | inherit                  | Clamped to the chosen model's capabilities.                                                                                                                                                                                                                           |
 | `maxTurns`           | number                     | `20`                     | Hard cap on agent turns (enforced by counting `turn_end` + calling `child.abort()`).                                                                                                                                                                                  |
-| `timeoutMs`          | number                     | `180000`                 | Wall-clock cap — aborts the child session.                                                                                                                                                                                                                            |
+| `timeoutMs`          | number                     | `180000`                 | Wall-clock cap - aborts the child session.                                                                                                                                                                                                                            |
 | `isolation`          | `shared-cwd` \| `worktree` | `shared-cwd`             | `worktree` creates `.git/worktrees/pi-subagent-<uuid>/`; removed on completion or stale sweep.                                                                                                                                                                        |
-| `appendSystemPrompt` | string                     | —                        | Extra text appended to pi's default system prompt, before the Markdown body. Rare escape hatch.                                                                                                                                                                       |
+| `appendSystemPrompt` | string                     | -                        | Extra text appended to pi's default system prompt, before the Markdown body. Rare escape hatch.                                                                                                                                                                       |
 | `bashAllow`          | string[]                   | `[]`                     | Per-agent bash allowlist enforced inside the child session via the inline `agent-gate` extension factory. Same matcher semantics as persona's `bashAllow` (head-token exact / `prefix *` / `*`). Empty means "no opinion".                                            |
 | `bashDeny`           | string[]                   | `[]`                     | Per-agent bash denylist. `bashAllow` wins over `bashDeny` on overlap, mirroring the persona side. Empty means "no opinion".                                                                                                                                           |
 | `writeRoots`         | string[]                   | `[]`                     | Positive `write` / `edit` allowlist enforced inside the child. Tilde and `{projectSlug}` substitution. Empty means writes are unconstrained inside the child (current default). Non-empty means writes outside the listed roots are blocked with a tool-result error. |
-| `requestOptions`     | object                     | —                        | Free-form deep-merge into the child's outgoing provider payload via `before_provider_request`. Same shape and `apis: [...]` filter as persona's `requestOptions`. See [`./persona.md`](./persona.md) `requestOptions`.                                                |
+| `requestOptions`     | object                     | -                        | Free-form deep-merge into the child's outgoing provider payload via `before_provider_request`. Same shape and `apis: [...]` filter as persona's `requestOptions`. See [`./persona.md`](./persona.md) `requestOptions`.                                                |
 
 ### Per-agent gate enforcement
 
@@ -67,25 +67,25 @@ loader supports `extensionFactories` on `DefaultResourceLoader` even when `noExt
 subagent extension keeps the layered-on-disk extensions out of children while still gating per-agent.
 
 - The factory closes over the agent's resolved configuration at spawn time, so each child enforces its own rules
-  independently — parallel subagents do not share state.
+  independently - parallel subagents do not share state.
 - `writeRoots` resolves at spawn time relative to the child cwd (homedir + `{projectSlug}` substitution mirrors the
   persona resolver). Non-empty `writeRoots` is a binding allowlist; empty `writeRoots` is treated as "no opinion".
-- The child runs with `hasUI: false`, so the gate never prompts — a `write` outside `writeRoots` is blocked with a
+- The child runs with `hasUI: false`, so the gate never prompts - a `write` outside `writeRoots` is blocked with a
   diagnostic the model can act on. `bash` denials work the same way.
 - The supplementary `lib/node/pi/subagent/active-agent.ts` cross-extension singleton publishes the running agent's
   snapshot so parent observers (statusline integrations etc.) can see what's running, but it is NOT used for enforcement
-  — the inline factory's per-child closure is the authoritative gate.
+  - the inline factory's per-child closure is the authoritative gate.
 
 Default agents shipped with the dotfiles:
 
-- **`explore`** — read-only (`read, grep, find, ls`), `thinkingLevel: low`, `maxTurns: 12`. Use for "find X across the
+- **`explore`** - read-only (`read, grep, find, ls`), `thinkingLevel: low`, `maxTurns: 12`. Use for "find X across the
   codebase" / "summarize what this module does".
-- **`plan`** — same read-only toolkit, `thinkingLevel: medium`, `maxTurns: 16`. Turns a vague problem into a
+- **`plan`** - same read-only toolkit, `thinkingLevel: medium`, `maxTurns: 16`. Turns a vague problem into a
   step-by-step implementation plan grounded in real files.
-- **`general-purpose`** — full default tool set (`bash, read, write, edit, grep, find, ls`), `maxTurns: 20`. Catch-all
+- **`general-purpose`** - full default tool set (`bash, read, write, edit, grep, find, ls`), `maxTurns: 20`. Catch-all
   when the subtask needs both reads and edits.
 
-All three deliberately exclude `memory` from their tool lists — sub-agents should not be writing durable notes on behalf
+All three deliberately exclude `memory` from their tool lists - sub-agents should not be writing durable notes on behalf
 of the user at the parent scope. Opt in per-agent by adding `memory` to its `tools` list.
 
 ## Session persistence
@@ -98,7 +98,7 @@ Each child invocation writes to its own on-disk session file:
 
 Mirrors Claude Code's per-`Task` session files so the user can audit, resume, or fork a delegated run. The parent
 session also records a `subagent-run` custom entry carrying stop reason, token counts, cost, and the child session file
-path — so `/fork` / `/tree` / `session-usage.ts` can reference it after the fact.
+path - so `/fork` / `/tree` / `session-usage.ts` can reference it after the fact.
 
 On `session_start` (parent-crash recovery) AND `session_shutdown` (happy path) the extension sweeps stale
 `pi-subagent-*` worktrees and deletes child session files older than [`PI_SUBAGENT_RETAIN_DAYS`](#environment-variables)
@@ -107,7 +107,7 @@ days (default 30).
 ## Statusline integration
 
 Subagent state is owned by this extension and surfaced via `ctx.ui.setStatus('subagent', …)`. The custom
-[`statusline.ts`](./statusline.md) already renders extension statuses on line 3 — no changes there. Formats:
+[`statusline.ts`](./statusline.md) already renders extension statuses on line 3 - no changes there. Formats:
 
 ```text
 subagent:explore ⏳ M(2):↑320/↻ 2.1k/↓180 R 87% $0.004 ctx:8% model:qwen3-6-35b-a3b
@@ -122,46 +122,46 @@ lockstep.
 
 ## Commands
 
-- `/agents` (or `/agents list`) — list every loaded agent with its source layer + one-line description.
-- `/agents show <name>` — print the full frontmatter + body of a single agent (useful for confirming an override took
+- `/agents` (or `/agents list`) - list every loaded agent with its source layer + one-line description.
+- `/agents show <name>` - print the full frontmatter + body of a single agent (useful for confirming an override took
   effect).
 
 ## Per-call overrides
 
 The `subagent` tool accepts a few optional fields that override the agent definition for a single dispatch. Use these
-sparingly — the agent frontmatter defaults are the right starting point, and the env-var ceilings (see
+sparingly - the agent frontmatter defaults are the right starting point, and the env-var ceilings (see
 [Environment variables](#environment-variables)) always win.
 
 | Field           | Type                          | Effect                                                                                                                                                                                                                                                          |
 | --------------- | ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `modelOverride` | `string` (`provider/modelId`) | Replaces the agent's `model` for this dispatch. Falls back to `PI_SUBAGENT_MODEL` if unset.                                                                                                                                                                     |
-| `maxTurns`      | `integer` (1–1000)            | Replaces the agent's `maxTurns` for this dispatch. Lifts the cap above the agent default when delegating a known multi-file implementation; can also lower it. `PI_SUBAGENT_MAX_TURNS` still acts as the global ceiling — resolved cap is `min(maxTurns, env)`. |
+| `maxTurns`      | `integer` (1–1000)            | Replaces the agent's `maxTurns` for this dispatch. Lifts the cap above the agent default when delegating a known multi-file implementation; can also lower it. `PI_SUBAGENT_MAX_TURNS` still acts as the global ceiling - resolved cap is `min(maxTurns, env)`. |
 
 ## Worktree caveat
 
 `isolation: "worktree"` severs continuity with the parent's `memory` / `scratchpad` / `todo` state because
-`cwdSlug(worktreePath)` differs from `cwdSlug(parentCwd)`. That's deliberate — the worktree is a sandbox. If a sub-agent
+`cwdSlug(worktreePath)` differs from `cwdSlug(parentCwd)`. That's deliberate - the worktree is a sandbox. If a sub-agent
 needs the parent's project-scoped memories, keep `isolation: "shared-cwd"`.
 
 ## Environment variables
 
-- `PI_SUBAGENT_DISABLED=1` — skip the extension entirely.
-- `PI_SUBAGENT_DEBUG=1` — surface every child lifecycle event via `ctx.ui.notify`.
-- `PI_SUBAGENT_CONCURRENCY=N` — max concurrent children (default `4`, floor `1`, ceiling `8`).
-- `PI_SUBAGENT_NO_PERSIST=1` — use `SessionManager.inMemory()` instead of disk-backed child sessions.
-- `PI_SUBAGENT_SESSION_ROOT=<path>` — override `~/.pi/agent/sessions` as the child session root (ramdisk, etc.).
-- `PI_SUBAGENT_RETAIN_DAYS=N` — retain child session files for N days before the startup sweep deletes them (default
+- `PI_SUBAGENT_DISABLED=1` - skip the extension entirely.
+- `PI_SUBAGENT_DEBUG=1` - surface every child lifecycle event via `ctx.ui.notify`.
+- `PI_SUBAGENT_CONCURRENCY=N` - max concurrent children (default `4`, floor `1`, ceiling `8`).
+- `PI_SUBAGENT_NO_PERSIST=1` - use `SessionManager.inMemory()` instead of disk-backed child sessions.
+- `PI_SUBAGENT_SESSION_ROOT=<path>` - override `~/.pi/agent/sessions` as the child session root (ramdisk, etc.).
+- `PI_SUBAGENT_RETAIN_DAYS=N` - retain child session files for N days before the startup sweep deletes them (default
   `30`).
-- `PI_SUBAGENT_STATUS_LINGER_MS=N` — keep completed status visible for N ms (default `5000`).
-- `PI_SUBAGENT_MAX_TURNS=N` — global max-turns cap. Wins over per-agent settings.
-- `PI_SUBAGENT_TIMEOUT_MS=N` — global wall-clock cap in ms. Wins over per-agent settings.
-- `PI_SUBAGENT_MODEL=provider/id` — global model override applied to every child.
+- `PI_SUBAGENT_STATUS_LINGER_MS=N` - keep completed status visible for N ms (default `5000`).
+- `PI_SUBAGENT_MAX_TURNS=N` - global max-turns cap. Wins over per-agent settings.
+- `PI_SUBAGENT_TIMEOUT_MS=N` - global wall-clock cap in ms. Wins over per-agent settings.
+- `PI_SUBAGENT_MODEL=provider/id` - global model override applied to every child.
 
 ## Hot reload
 
 Edit [`extensions/subagent.ts`](./subagent.ts) or the helpers under [`lib/node/pi/subagent-*.ts`](../../../lib/node/pi)
 and run `/reload` inside an interactive pi session. New or edited `.md` files under any of the three agent directories
-are picked up on the next `/reload` (or when any `/agents` subcommand runs — the command rescans before listing).
+are picked up on the next `/reload` (or when any `/agents` subcommand runs - the command rescans before listing).
 
 **Caveat:** the `subagent` tool's LLM-visible description (the list of available agents baked into the tool schema) is
 captured at `registerTool` time. `/reload` re-runs the extension factory and so refreshes it; a `.md` file dropped in

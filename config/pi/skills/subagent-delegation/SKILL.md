@@ -11,7 +11,7 @@ description: >-
 # Subagent Delegation
 
 A subagent is a fresh pi session with its own context, tool allowlist, and (optionally) a different model. The parent
-pays for the child's **final answer only** — every intermediate `read`, `grep`, and `bash` stays in the child's session.
+pays for the child's **final answer only** - every intermediate `read`, `grep`, and `bash` stays in the child's session.
 That makes subagents a context-compression tool, not a parallelism gimmick.
 
 This skill is the policy for the **parent** side of that contract: when to spawn a child, how to brief it, and what NOT
@@ -24,12 +24,12 @@ Reach for `subagent` when at least one of these is true:
 - **Noisy discovery.** The next move would `rg` / `read` a bunch of files to answer a question you need one sentence
   from. Classic fit for the `explore` agent.
 - **Unknown-sized exploration.** You don't know how many files you'll have to read to answer "where does X get
-  initialized?" — cap the blast radius by handing it to a child.
+  initialized?" - cap the blast radius by handing it to a child.
 - **Fan-out.** Two or more independent questions/tasks that don't depend on each other. Multiple `subagent` calls in one
   assistant turn run concurrently (see `subagent-background`).
 - **Cheaper model is enough.** The subtask is mechanical (grep, count, list files, summarize a doc). Push it to a weak
   local model via `modelOverride` while the parent stays on a stronger model.
-- **Planning before coding.** Non-trivial change on an unfamiliar codebase — let the `plan` agent produce a file-level
+- **Planning before coding.** Non-trivial change on an unfamiliar codebase - let the `plan` agent produce a file-level
   plan you can execute inline.
 - **Dangerous or experimental changes.** An agent with `isolation: worktree` gives you a sandbox the parent workspace
   never sees until you decide to apply it.
@@ -39,9 +39,9 @@ Do NOT delegate when:
 - You already have the file open / know the exact lines. Spawning a child to do `read path --offset N --limit 40` is
   pure overhead.
 - The task needs **the parent's in-memory context** (prior tool results, user clarifications, unsaved reasoning). The
-  child starts from zero — explaining all that in `task` is more expensive than doing it inline.
+  child starts from zero - explaining all that in `task` is more expensive than doing it inline.
 - The task is **one tool call**. A single `rg` or `read` is cheaper than spawning a session.
-- You are a subagent. Nesting is disabled by design — the `subagent` tool is not exposed to children.
+- You are a subagent. Nesting is disabled by design - the `subagent` tool is not exposed to children.
 
 ## Pick the right agent type
 
@@ -54,7 +54,7 @@ Do NOT delegate when:
 Rules of thumb:
 
 - Start with `explore` for any read-only question. It's the cheapest and can't damage the tree.
-- Reach for `plan` before a multi-file change — a file-level plan in the parent is worth more than three rounds of
+- Reach for `plan` before a multi-file change - a file-level plan in the parent is worth more than three rounds of
   "wait, which file?".
 - Use `general-purpose` only when the child actually needs to write or run commands. Don't give it write access as
   insurance.
@@ -68,17 +68,17 @@ read. Everything it needs must be in the `task` string.
 
 Structure every `task` with these four pieces:
 
-1. **Goal** — one sentence saying what done looks like.
-2. **Constraints** — paths to look in, paths to ignore, files that are off-limits, conventions to follow.
-3. **Known context** — the handful of paths / symbols / line numbers you've already found. Saves the child from
+1. **Goal** - one sentence saying what done looks like.
+2. **Constraints** - paths to look in, paths to ignore, files that are off-limits, conventions to follow.
+3. **Known context** - the handful of paths / symbols / line numbers you've already found. Saves the child from
    re-discovering them.
-4. **Expected answer shape** — exactly what you want back. A list? A path + line number? A short plan? JSON?
+4. **Expected answer shape** - exactly what you want back. A list? A path + line number? A short plan? JSON?
 
 ### Good `task`
 
 ```markdown
 Find every call site of `searchHandler` in src/ and list each as
-`path:line — <one-line description of the surrounding block>`. Ignore dist/, node_modules/, and any \*.test.ts files.
+`path:line - <one-line description of the surrounding block>`. Ignore dist/, node_modules/, and any \*.test.ts files.
 Known: `searchHandler` is defined at src/api/search.ts:412. Return a bullet list, most-used file first.
 ```
 
@@ -99,10 +99,10 @@ invent an output shape. You'll get something, but it won't be what you needed.
   api folder".
 - **Cap the scope.** "Look only in `src/api/**/*.ts`" prevents the child from wandering into `external/`.
 - **State what NOT to do.** "Do not edit files" for exploration tasks; "Do not run migrations" for db work.
-- **Forbid recursion explicitly** if the child might try: "You cannot call `subagent`." (It can't — but saying so
+- **Forbid recursion explicitly** if the child might try: "You cannot call `subagent`." (It can't - but saying so
   short-circuits attempts that burn turns.)
 
-## `modelOverride` — push grunt work to cheap models
+## `modelOverride` - push grunt work to cheap models
 
 `modelOverride: "provider/model-id"` runs the child on a different model than the parent. The pattern that matters for
 weak local models:
@@ -127,10 +127,10 @@ When NOT to use it:
 Pair `modelOverride` with `returnFormat: "json"` and a strict schema in `task` when you need machine-readable output
 from a model that loves to narrate.
 
-## `returnFormat: "json"` — structured handoffs
+## `returnFormat: "json"` - structured handoffs
 
 Set `returnFormat: "json"` and the harness parses the child's final answer as JSON before returning. If parsing fails,
-you get the raw text plus an error flag — not a crash.
+you get the raw text plus an error flag - not a crash.
 
 Use this when:
 
@@ -150,12 +150,12 @@ Do not include prose before or after the JSON.
 
 Every agent declares `isolation: shared-cwd` or `isolation: worktree`:
 
-- **`shared-cwd`** (default for `explore` / `plan` / `general-purpose`) — child writes land in the parent's tree. Fast
+- **`shared-cwd`** (default for `explore` / `plan` / `general-purpose`) - child writes land in the parent's tree. Fast
   and simple; be careful with destructive tasks.
-- **`worktree`** — child runs in a temporary git worktree. Use for risky refactors, experiments, or "try this and show
+- **`worktree`** - child runs in a temporary git worktree. Use for risky refactors, experiments, or "try this and show
   me the diff" tasks. The parent sees the diff in the child's final answer.
 
-You don't pass isolation at call time — it's baked into the agent definition. If you need worktree isolation and the
+You don't pass isolation at call time - it's baked into the agent definition. If you need worktree isolation and the
 agent you want is `shared-cwd`, either author a new agent or do the work inline with clear rollback.
 
 ## Anti-patterns
@@ -166,7 +166,7 @@ agent you want is `shared-cwd`, either author a new agent or do the work inline 
   inline.
 - **Don't use `general-purpose` as a default.** Write access is a liability for read-only questions. Start with
   `explore`.
-- **Don't chain subagents serially when they're independent.** Spawn them in the same turn — they run concurrently.
+- **Don't chain subagents serially when they're independent.** Spawn them in the same turn - they run concurrently.
 - **Don't abandon background children.** If you spawned with `run_in_background: true`, finish the handshake (see
   `subagent-background`). Orphans consume tokens until they exit.
 - **Don't trust weak-model output without verification.** When you used `modelOverride` to downgrade, spot-check one or

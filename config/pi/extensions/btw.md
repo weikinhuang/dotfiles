@@ -5,13 +5,13 @@ session without saving the Q&A to history and without letting the model call too
 
 ## Why
 
-Quick questions during a long session — "what file did we edit three turns ago?", "summarize the plan in two bullets",
-"which approach did we rule out?" — don't need a new user turn. They don't need tool access. They shouldn't clutter the
+Quick questions during a long session - "what file did we edit three turns ago?", "summarize the plan in two bullets",
+"which approach did we rule out?" - don't need a new user turn. They don't need tool access. They shouldn't clutter the
 transcript. Claude Code bundles this as `/btw`; this extension replicates the UX on pi.
 
 ## Mechanism
 
-Pi's extension API doesn't expose a "call the LLM out of band" primitive — `pi.sendMessage` / `pi.sendUserMessage` both
+Pi's extension API doesn't expose a "call the LLM out of band" primitive - `pi.sendMessage` / `pi.sendUserMessage` both
 append to the session and trigger turns. `/btw` therefore reaches through the API and calls
 [`@earendil-works/pi-ai`](https://github.com/badlogic/pi-mono/tree/main/packages/ai)'s `complete()` function directly,
 using pi's own helpers to reconstruct the branch context that would otherwise be sent next turn:
@@ -32,16 +32,16 @@ using pi's own helpers to reconstruct the branch context that would otherwise be
 
 6. Render the answer via `ctx.ui.notify` with a one-line footer (model · tokens · cached · out · $cost · duration ·
    `ephemeral`).
-7. Do **not** call `pi.sendMessage` / `pi.sendUserMessage` / `pi.appendEntry` — that's what keeps the Q&A ephemeral.
+7. Do **not** call `pi.sendMessage` / `pi.sendUserMessage` / `pi.appendEntry` - that's what keeps the Q&A ephemeral.
 
 ## What's inherited from the main turn
 
-- **Model** — `ctx.model`, including any `/model` switch the user did mid-session. Override with `PI_BTW_MODEL`.
-- **System prompt** — `ctx.getSystemPrompt()`, which includes every extension's injected sections.
-- **Messages** — the branch's full message list, so the side question sees everything the main turn would have.
-- **`sessionId` + `cacheRetention: "short"`** — these are the load-bearing knobs for prompt-cache reuse.
-- **API key + custom headers** — via `ModelRegistry.getApiKeyAndHeaders()`, so OAuth / basic-auth / proxies work.
-- **`signal`** — the session's abort signal, so Ctrl+C cancels the side question cleanly.
+- **Model** - `ctx.model`, including any `/model` switch the user did mid-session. Override with `PI_BTW_MODEL`.
+- **System prompt** - `ctx.getSystemPrompt()`, which includes every extension's injected sections.
+- **Messages** - the branch's full message list, so the side question sees everything the main turn would have.
+- **`sessionId` + `cacheRetention: "short"`** - these are the load-bearing knobs for prompt-cache reuse.
+- **API key + custom headers** - via `ModelRegistry.getApiKeyAndHeaders()`, so OAuth / basic-auth / proxies work.
+- **`signal`** - the session's abort signal, so Ctrl+C cancels the side question cleanly.
 
 ## What's NOT inherited
 
@@ -64,15 +64,15 @@ Fields render only when present (e.g. `cached` is omitted when zero, `$` is omit
 
 ## Commands
 
-- `/btw <question>` — answer a side question. With no argument, prints the usage help.
+- `/btw <question>` - answer a side question. With no argument, prints the usage help.
 
 ## Environment variables
 
-- `PI_BTW_DISABLED=1` — skip the extension entirely (no `/btw` command registered).
-- `PI_BTW_MODEL=provider/modelId` — answer side questions with a specific model instead of the session's current one.
+- `PI_BTW_DISABLED=1` - skip the extension entirely (no `/btw` command registered).
+- `PI_BTW_MODEL=provider/modelId` - answer side questions with a specific model instead of the session's current one.
   Useful for pairing a big reasoning model on the main turn with a cheaper fast model on side questions. Falls back to
   the current model with a warning if the override isn't registered.
-- `PI_BTW_INCLUDE_TOOLS=1` — pass the currently-active tools to the side-question call instead of `[]`. Escape hatch for
+- `PI_BTW_INCLUDE_TOOLS=1` - pass the currently-active tools to the side-question call instead of `[]`. Escape hatch for
   debugging; defeats the whole point of the command.
 
 ## Hot reload

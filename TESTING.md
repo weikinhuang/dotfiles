@@ -21,7 +21,7 @@ Tests run inside a Docker container to provide a clean, isolated environment fre
 
 ### Quiet mode
 
-Only prints failing tests and a summary line — useful for CI and agents:
+Only prints failing tests and a summary line - useful for CI and agents:
 
 ```bash
 ./dev/test-docker.sh -q

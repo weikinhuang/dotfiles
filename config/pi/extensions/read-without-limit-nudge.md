@@ -7,11 +7,11 @@ size, `rg -n` or a windowed `read` would have been the better first move” so t
 Signal sources (in priority order):
 
 1. Pi’s own `details.truncation.totalLines` / `.totalBytes`. Populated when pi truncated or the user’s `limit` stopped
-   early — the strongest signal.
+   early - the strongest signal.
 2. Fallback: when pi didn’t populate truncation (file fit inside the default caps), `statSync` the file and synthesize a
    `TruncationLike` from byte size. Line count isn’t cheap without re-reading, so the fallback path is byte-only.
 
-Decision rules (OR together — whichever triggers first):
+Decision rules (OR together - whichever triggers first):
 
 - Skip when `offset` or `limit` is already present, or pi already reported truncation (pi’s own
   `[Showing lines X-Y of Z…]` footer already steers).
@@ -23,11 +23,11 @@ The nudge is appended as a second text part, leaving pi’s original content unt
 
 ## Environment variables
 
-- `PI_READ_LIMIT_NUDGE_DISABLED=1` — skip the extension entirely.
-- `PI_READ_LIMIT_NUDGE_MIN_LINES=N` — nudge threshold in lines (default `400`).
-- `PI_READ_LIMIT_NUDGE_MIN_BYTES=N` — nudge threshold in bytes (default `20480` = 20 KB).
-- `PI_READ_LIMIT_NUDGE_DEBUG=1` — `ctx.ui.notify` on every decision.
-- `PI_READ_LIMIT_NUDGE_TRACE=<path>` — append one line per decision to `<path>`.
+- `PI_READ_LIMIT_NUDGE_DISABLED=1` - skip the extension entirely.
+- `PI_READ_LIMIT_NUDGE_MIN_LINES=N` - nudge threshold in lines (default `400`).
+- `PI_READ_LIMIT_NUDGE_MIN_BYTES=N` - nudge threshold in bytes (default `20480` = 20 KB).
+- `PI_READ_LIMIT_NUDGE_DEBUG=1` - `ctx.ui.notify` on every decision.
+- `PI_READ_LIMIT_NUDGE_TRACE=<path>` - append one line per decision to `<path>`.
 
 ## Hot reload
 

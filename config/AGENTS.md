@@ -7,9 +7,9 @@ Non-shell configuration files consumed by third-party tools. Most subdirectories
 
 ## Commands
 
-- `./dev/lint.sh` — shellcheck + shfmt (touches `statusline-command.sh` and other shell under this tree).
-- `./dev/test-docker.sh tests/config/` — run bats coverage for any config shell script that has tests.
-- `npx vitest run tests/config/` — run vitest coverage for `session-usage.ts` specs under this tree.
+- `./dev/lint.sh` - shellcheck + shfmt (touches `statusline-command.sh` and other shell under this tree).
+- `./dev/test-docker.sh tests/config/` - run bats coverage for any config shell script that has tests.
+- `npx vitest run tests/config/` - run vitest coverage for `session-usage.ts` specs under this tree.
 
 ## Directory map
 
@@ -30,7 +30,7 @@ See [README.md](./README.md) for the full per-directory table; high-level groupi
 - Mount point is a shell plugin in [`../plugins/`](../plugins/), typically via an env var like `RIPGREP_CONFIG_PATH` or
   `BAT_CONFIG_PATH`. When changing **what the tool reads**, update both the config file here and the plugin in lockstep.
 - When **adding a new tool**, add both the config subdirectory AND a corresponding row to the
-  [REFERENCE.md "Tool defaults" table](../REFERENCE.md) — that table is the canonical list.
+  [REFERENCE.md "Tool defaults" table](../REFERENCE.md) - that table is the canonical list.
 - Keep filenames exactly as the tool expects (`bat/config`, `ripgrep/config`, `eza/solarized-dark.yml`). Renaming breaks
   the plugin.
 
@@ -58,7 +58,7 @@ after touching shell files under this tree.
 
 ## References
 
-- [README.md](./README.md) — per-directory index and consumer table.
-- [../REFERENCE.md](../REFERENCE.md) — "Tool defaults" table: canonical list of every config subdir + its plugin.
-- [claude/AGENTS.md](./claude/AGENTS.md), [pi/README.md](./pi/README.md) — product-specific rules for the two
+- [README.md](./README.md) - per-directory index and consumer table.
+- [../REFERENCE.md](../REFERENCE.md) - "Tool defaults" table: canonical list of every config subdir + its plugin.
+- [claude/AGENTS.md](./claude/AGENTS.md), [pi/README.md](./pi/README.md) - product-specific rules for the two
   code-bearing subdirs with their own agent docs.

@@ -55,10 +55,10 @@ cd; mkdir -p ~/.dotfiles \
 
 ## Reference
 
-- [**REFERENCE.md**](./REFERENCE.md) — canonical list of every alias, function, env var, and `git` subcommand added by
+- [**REFERENCE.md**](./REFERENCE.md) - canonical list of every alias, function, env var, and `git` subcommand added by
   these dotfiles.
-- [**PROMPT.md**](./PROMPT.md) — prompt format, symbols, and customization options.
-- [**TESTING.md**](./TESTING.md) — bats test framework, helpers, and writing conventions.
+- [**PROMPT.md**](./PROMPT.md) - prompt format, symbols, and customization options.
+- [**TESTING.md**](./TESTING.md) - bats test framework, helpers, and writing conventions.
 
 ### High level overview
 

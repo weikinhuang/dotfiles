@@ -2,24 +2,24 @@
 name: ai-skill-eval
 description:
   'WHAT: Use the `ai-skill-eval` CLI to validate that an AI model (especially a small local one) actually follows a
-  SKILL.md — run per-skill evals through a driver, grade TRIGGER detection + expectation match, and read the report.
+  SKILL.md - run per-skill evals through a driver, grade TRIGGER detection + expectation match, and read the report.
   WHEN: You have drafted or edited a SKILL.md, or a teammate wants proof a skill still works after a rewrite, or you
   want to regression-test a whole skill set against a new model. DO-NOT: Skip writing positive + negative evals; claim a
   skill is validated without quoting the report; rely on the deterministic keyword-match grade as the final judgment
-  when a subjective rubric is at stake — plug in `--critic-cmd` instead.'
+  when a subjective rubric is at stake - plug in `--critic-cmd` instead.'
 ---
 
 # ai-skill-eval
 
 The `ai-skill-eval` CLI ships on `$PATH` via this dotfiles repo. It exists so that any SKILL.md edit can be empirically
-re-tested against a real model — most usefully a cheap local one (default: `llama-cpp/qwen3-6-35b-a3b` via `pi -p`) so
+re-tested against a real model - most usefully a cheap local one (default: `llama-cpp/qwen3-6-35b-a3b` via `pi -p`) so
 the author gets fast signal on whether a small model can actually follow what the skill says.
 
 ## When to reach for this skill
 
 - You drafted a new SKILL.md and want proof a small model reads it correctly.
 - You edited an existing skill's WHAT / WHEN / DO-NOT and want to confirm the change didn't regress trigger detection.
-- Someone asks "does this skill still work against model X?" — run the eval with `--model X`.
+- Someone asks "does this skill still work against model X?" - run the eval with `--model X`.
 - You want to extend coverage by adding more scenarios to an existing skill's `evals/evals.json`.
 
 Skip this skill when:
@@ -31,9 +31,9 @@ Skip this skill when:
 ## Prerequisites
 
 1. `ai-skill-eval` is on `$PATH` (installed by this dotfiles repo; verify with `command -v ai-skill-eval`).
-2. A driver is available — either `pi` or `claude` on `$PATH`, or a `--driver-cmd` string you supply.
+2. A driver is available - either `pi` or `claude` on `$PATH`, or a `--driver-cmd` string you supply.
 3. The skill under test has a sibling `evals/evals.json` (see schema below). If not, author it first.
-4. `node` ≥ 24 is on `$PATH` — the CLI is a TypeScript executable that relies on Node's built-in type-stripping (present
+4. `node` ≥ 24 is on `$PATH` - the CLI is a TypeScript executable that relies on Node's built-in type-stripping (present
    in this repo's test Docker image).
 
 ## Authoring evals (the heart of skill validation)
@@ -73,7 +73,7 @@ Each skill gets one `evals/evals.json` file sibling to its `SKILL.md`. The file 
 Rules of thumb for writing evals:
 
 - **Prompts read like real user messages.** "Please fix the bug on line 42" beats "Scenario: bug at line X".
-- **Expectations name concrete artifacts.** Backtick-quote file paths, command names, and flags — the deterministic
+- **Expectations name concrete artifacts.** Backtick-quote file paths, command names, and flags - the deterministic
   grader keyword-matches on those. Natural-language expectations need `--critic-cmd` to judge well.
 - **Negative evals are load-bearing.** A skill that fires on everything is as broken as one that never fires. Ship a
   negative case for every positive.
@@ -134,7 +134,7 @@ ai-skill-eval run --driver codex --model gpt-5-codex
 ai-skill-eval run --driver-cmd 'ollama run llama3 < "$AI_SKILL_EVAL_PROMPT_FILE"'
 ```
 
-`rerun` REQUIRES the `SKILL:EVAL_ID` form (colon + eval id) — `rerun plugin-conventions` alone is a usage error. If you
+`rerun` REQUIRES the `SKILL:EVAL_ID` form (colon + eval id) - `rerun plugin-conventions` alone is a usage error. If you
 want to re-run the whole skill, use `run plugin-conventions` instead.
 
 ### Re-grade without re-running
@@ -179,10 +179,10 @@ ai-skill-eval report plugin-conventions
 
 Every grade file includes:
 
-- `trigger_pass` — hard signal. If this is ever false, the skill's WHEN clause is ambiguous. Revise before shipping.
-- `expectation_pass` / `expectation_total` — soft signal under deterministic grading; hard signal under critic.
-- `reason` / `next_step` — the model's actual reply, useful for reading why a grade came out the way it did.
-- `grader` — `"deterministic"` or `"critic"`, so you know which verdict you're looking at.
+- `trigger_pass` - hard signal. If this is ever false, the skill's WHEN clause is ambiguous. Revise before shipping.
+- `expectation_pass` / `expectation_total` - soft signal under deterministic grading; hard signal under critic.
+- `reason` / `next_step` - the model's actual reply, useful for reading why a grade came out the way it did.
+- `grader` - `"deterministic"` or `"critic"`, so you know which verdict you're looking at.
 
 **Success criteria for shipping a skill:**
 
@@ -190,8 +190,8 @@ Every grade file includes:
 2. Under critic: `expectation_pass / expectation_total >= 0.85` with `flaws` addressed or documented.
 3. The `NEXT_STEP` text for each positive eval names the specific commands/paths/conventions the skill taught.
 
-If (1) fails, the skill's WHEN clause is wrong or weak — rewrite it, don't patch around it. If (2) or (3) fails, the
-skill's DO list isn't emphatic enough — check if a rule is buried in prose; promote it into a dedicated section with a
+If (1) fails, the skill's WHEN clause is wrong or weak - rewrite it, don't patch around it. If (2) or (3) fails, the
+skill's DO list isn't emphatic enough - check if a rule is buried in prose; promote it into a dedicated section with a
 canonical example.
 
 ## Iteration workflow
@@ -200,7 +200,7 @@ canonical example.
 2. Write/update `evals/evals.json` (positive + negative per skill, minimum).
 3. `ai-skill-eval run <skill>` and read the markdown report.
 4. For each failing eval:
-   - Read the `NEXT_STEP` text carefully — what did the model miss?
+   - Read the `NEXT_STEP` text carefully - what did the model miss?
    - If the miss is in the skill's wording, revise the skill. Common fixes:
      - Canonical commands that paraphrased away → promote to an explicit code block.
      - Rules that got dropped → split into their own named section.
@@ -250,11 +250,11 @@ Pass `--write` to rewrite the frontmatter in place; the previous description is 
 
 Key flags:
 
-- `--eval-set PATH` — explicit eval-set file.
-- `--holdout F` — stratified test fraction. `0` disables (train = entire eval set).
-- `--max-iterations N` — default 5. Loop exits early when the train set reaches zero failures.
-- `--runs-per-query N` — stochastic trigger measurement (same as `run`).
-- `--trigger-threshold T` — pass threshold for `trigger_rate`.
+- `--eval-set PATH` - explicit eval-set file.
+- `--holdout F` - stratified test fraction. `0` disables (train = entire eval set).
+- `--max-iterations N` - default 5. Loop exits early when the train set reaches zero failures.
+- `--runs-per-query N` - stochastic trigger measurement (same as `run`).
+- `--trigger-threshold T` - pass threshold for `trigger_rate`.
 
 Per-iteration artifacts land under `iteration-N/optimize/improver/{prompt,response,parsed}.{txt,json}`. Trigger grades
 and per-run files live under `iteration-N/with_skill/` just like `run`, so `report --iteration N --compare-to M` works
@@ -264,9 +264,9 @@ out of the box for comparing two optimizer iterations.
 
 - **Shipping a skill with only positive evals.** One positive per skill tells you it triggers; without a negative you
   don't know whether it _only_ triggers on the right scenarios.
-- **Treating a 0/N deterministic expectation score as failure.** The default grader is a lower bound — 0/N on
+- **Treating a 0/N deterministic expectation score as failure.** The default grader is a lower bound - 0/N on
   well-written skills is common when expectations are natural-language. Run with `--critic-cmd` before despairing.
-- **Editing expectations to match the model's reply.** If the model got it wrong, the skill is probably wrong — fix the
+- **Editing expectations to match the model's reply.** If the model got it wrong, the skill is probably wrong - fix the
   skill. Only edit expectations when the original wording was genuinely unverifiable.
 - **Running against only one model.** Skills that pass qwen3 pass claude-haiku; the reverse isn't guaranteed. Test on
   the weakest model you support.
@@ -286,4 +286,4 @@ out of the box for comparing two optimizer iterations.
 | Want subjective grading                              | add `--critic-cmd 'claude -p "$(cat "$AI_SKILL_EVAL_PROMPT_FILE")" --bare'`                       |
 | Drive a non-pi/claude model                          | `--driver-cmd 'your-wrapper.sh'` where the wrapper reads `$AI_SKILL_EVAL_PROMPT_FILE`             |
 | Machine-readable grades for CI                       | `ai-skill-eval report --json`                                                                     |
-| Write the first eval                                 | See the JSON schema in the "Authoring evals" section above — one positive, one negative, minimum. |
+| Write the first eval                                 | See the JSON schema in the "Authoring evals" section above - one positive, one negative, minimum. |

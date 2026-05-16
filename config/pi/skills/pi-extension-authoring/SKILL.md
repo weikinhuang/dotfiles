@@ -1,7 +1,7 @@
 ---
 name: pi-extension-authoring
 description:
-  "WHAT: Conventions for adding or modifying a pi extension under config/pi/extensions/ in this repo — the .ts + .md
+  "WHAT: Conventions for adding or modifying a pi extension under config/pi/extensions/ in this repo - the .ts + .md
   pair, where pure helpers and unit tests live, how to wire it into settings-baseline.json, and how to smoke-test
   against the local qwen3 small model. WHEN: User asks to add a new pi extension, extract extension logic into a shared
   helper, or modify an existing extension's behavior. DO-NOT: Put business logic in the .ts extension file (extract to
@@ -58,7 +58,7 @@ The robustness machinery in every extension carries the load across model tiers.
 `if (tier === 'weak')` branches.
 
 - Detection patterns (regex / heuristics) stay the same regardless of which model is running.
-- Nudge text stays the same — don't "dumb down" for small models; a clear instruction is a clear instruction.
+- Nudge text stays the same - don't "dumb down" for small models; a clear instruction is a clear instruction.
 - When a feature genuinely needs a cheap model (e.g. a critic subagent's grader), use `modelOverride` on the subagent
   call site, not a tier switch inside the extension.
 - See the companion memory `research-extensions-robustness-principle`.
@@ -67,9 +67,9 @@ The robustness machinery in every extension carries the load across model tiers.
 
 If the extension uses a local tiny model (e.g. `llama-cpp/qwen3-6-35b-a3b`) for a subtask:
 
-- Route through `runOneShotAgent` (or a `tiny-helper` subagent) — never embed the model id directly.
+- Route through `runOneShotAgent` (or a `tiny-helper` subagent) - never embed the model id directly.
 - Gate via a setting that defaults off. When the tiny model is disabled or unavailable, the extension falls back to
-  deterministic behavior — never errors out.
+  deterministic behavior - never errors out.
 - The tiny model must never touch user-visible research content or verification verdicts. It's for plumbing (heuristic
   classification, phrase extraction) only.
 - See the companion memory `research-tiny-model-non-load-bearing-rule`.
@@ -78,14 +78,14 @@ If the extension uses a local tiny model (e.g. `llama-cpp/qwen3-6-35b-a3b`) for 
 
 The `.md` file is the reference, not a tutorial. Mirror the shape of existing docs like `verify-before-claim.md`:
 
-1. **One-sentence purpose** — what failure mode the extension addresses.
-2. **Composition table** (when multiple extensions listen on the same hook) — how this extension distinguishes its
+1. **One-sentence purpose** - what failure mode the extension addresses.
+2. **Composition table** (when multiple extensions listen on the same hook) - how this extension distinguishes its
    signal from siblings.
-3. **Detection** — the exact patterns / walks / heuristics. Link into the helper file.
-4. **Rule / config shape** — with a JSONC example when the extension supports per-project overrides.
-5. **Environment variables** — `PI_<NAME>_DISABLED`, `PI_<NAME>_VERBOSE`, `PI_<NAME>_TRACE=<path>`. Standard trio;
+3. **Detection** - the exact patterns / walks / heuristics. Link into the helper file.
+4. **Rule / config shape** - with a JSONC example when the extension supports per-project overrides.
+5. **Environment variables** - `PI_<NAME>_DISABLED`, `PI_<NAME>_VERBOSE`, `PI_<NAME>_TRACE=<path>`. Standard trio;
    include what applies.
-6. **Hot reload** — which files trigger `/reload`, which require a session restart.
+6. **Hot reload** - which files trigger `/reload`, which require a session restart.
 
 Update `config/pi/extensions/README.md`'s index table in the same commit.
 
@@ -101,13 +101,13 @@ pi -p "<scenario prompt>" --model llama-cpp/qwen3-6-35b-a3b --no-session
 
 Scenarios to exercise:
 
-- The detection positive case — does the extension fire?
-- An explicit negative — confirm the check exempts legitimate work.
-- The idempotency path — the sentinel-marker check means the same user message must NOT re-trigger the extension on a
+- The detection positive case - does the extension fire?
+- An explicit negative - confirm the check exempts legitimate work.
+- The idempotency path - the sentinel-marker check means the same user message must NOT re-trigger the extension on a
   retry.
 
 For visual / critic extensions that call a critic subagent, confirm the critic can attach images (`read <png>`
-auto-attaches on recognized extensions — `png`, `jpg`, `gif`, `webp`).
+auto-attaches on recognized extensions - `png`, `jpg`, `gif`, `webp`).
 
 See the memory `local-qwen3-6-35b-a3b-vision-model-for-pi-testing` for the full invocation including the proxy unset.
 
@@ -131,19 +131,19 @@ Add an entry under `extensions`:
 
 - **Logic in the `.ts` extension file.** Tests can't reach it without spinning up pi. Extract to `lib/node/pi/`.
 - **Tier-specific branches.** Small-model vs big-model code paths. Use robust detection + gentle nudges instead.
-- **Tiny model on the hot path.** If the extension errors when the local model is unreachable, it's load-bearing —
+- **Tiny model on the hot path.** If the extension errors when the local model is unreachable, it's load-bearing -
   refactor to a deterministic fallback.
 - **Skipping the deep `.md` doc.** The `.md` is the contract for future readers. The extension index in
   `extensions/README.md` links to it.
 - **No `PI_<NAME>_DISABLED` escape hatch.** Every extension should be silenceable by env var.
 - **Re-triggering on the extension's own nudge.** Use a sentinel marker (e.g. `⚠ [pi-<name>]`) on the injected message
   and short-circuit when it's present on the most recent user message.
-- **Leaving the test gap — no `lib/node/pi/*.spec.ts` for the helper.** Small regressions in detection patterns destroy
+- **Leaving the test gap - no `lib/node/pi/*.spec.ts` for the helper.** Small regressions in detection patterns destroy
   the guardrail's value; tests catch those.
 
 ## Checklist before finishing
 
-1. `.ts` extension under `config/pi/extensions/` — thin, no business logic.
+1. `.ts` extension under `config/pi/extensions/` - thin, no business logic.
 2. `.md` deep doc with detection + config + env vars + hot-reload sections.
 3. Pure helpers extracted to `lib/node/pi/`.
 4. Vitest spec under `tests/lib/node/pi/`. `npm test` passes.

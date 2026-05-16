@@ -6,9 +6,9 @@ directory.
 
 ## Commands
 
-- `./dev/lint.sh` — shellcheck + shfmt on `statusline-command.sh` (and anything else tracked here).
-- `./dev/test-docker.sh tests/config/claude/statusline-command.bats` — bats coverage for the status line.
-- `npx vitest run tests/config/claude` — vitest coverage for `session-usage.ts` if you add specs.
+- `./dev/lint.sh` - shellcheck + shfmt on `statusline-command.sh` (and anything else tracked here).
+- `./dev/test-docker.sh tests/config/claude/statusline-command.bats` - bats coverage for the status line.
+- `npx vitest run tests/config/claude` - vitest coverage for `session-usage.ts` if you add specs.
 
 ## Directory map
 
@@ -19,11 +19,11 @@ directory.
 | [`settings-baseline.json`](./settings-baseline.json) | Reference baseline that mirrors `~/.claude/settings.json`.                                                 |
 | [`settings-local.json`](./settings-local.json)       | Local-LLM friendly sample configuration.                                                                   |
 | [`CLAUDE-local.md`](./CLAUDE-local.md)               | Personal tool-preference instructions Claude Code picks up when symlinked to `~/.claude/CLAUDE.md`.        |
-| [`README.md`](./README.md)                           | Human-facing reference for every file in this directory — keep in lockstep with changes (see rules below). |
+| [`README.md`](./README.md)                           | Human-facing reference for every file in this directory - keep in lockstep with changes (see rules below). |
 
 ## Key patterns
 
-Keep [README.md](./README.md) in sync with any change to this directory. Specifically —
+Keep [README.md](./README.md) in sync with any change to this directory. Specifically:
 
 - When **adding, renaming, or removing** a file, update both the `Files` list and the per-file section.
 - When changing **statusline output** (new segment, new/removed color, different separator, new env var), update the
@@ -46,6 +46,6 @@ baseline files without preserving runtime-managed keys (e.g. `lastChangelogVersi
 
 ## References
 
-- [README.md](./README.md) — per-file deep reference; the authoritative source for statusline format and CLI flags.
-- [../../AGENTS.md](../../AGENTS.md) — repo-wide conventions.
-- [../pi/README.md](../pi/README.md) — sibling pi config with the same `statusline` / `session-usage` pattern.
+- [README.md](./README.md) - per-file deep reference; the authoritative source for statusline format and CLI flags.
+- [../../AGENTS.md](../../AGENTS.md) - repo-wide conventions.
+- [../pi/README.md](../pi/README.md) - sibling pi config with the same `statusline` / `session-usage` pattern.

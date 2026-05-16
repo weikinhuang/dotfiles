@@ -53,7 +53,7 @@ Scripts in `dotenv/bin/` and platform `bin/` dirs are added to `$PATH`. Git subc
 For helper functions inside standalone `bin/` scripts, prefer plain helper names by default. Reserve script-specific
 prefixes only when they materially improve clarity or avoid collisions during test sourcing.
 
-Argument parsing patterns — use `genpasswd` as the reference implementation:
+Argument parsing patterns - use `genpasswd` as the reference implementation:
 
 - **Help-only** (no other flags): use a leading `case "${1:-}" in -h | --help) ... esac`
 - **Multiple options**: use a `while [[ $# -gt 0 ]]; do case "$1" in` loop with `shift`; support both `--flag value` and
@@ -79,7 +79,7 @@ arrays. Declare hooks in `~/.bash_local` or `~/.bash_local.d/*.sh`.
 
 ### Shell style
 
-`./dev/lint.sh` (shfmt + shellcheck) is the source of truth — see [CONTRIBUTING.md](./CONTRIBUTING.md#style) for the
+`./dev/lint.sh` (shfmt + shellcheck) is the source of truth - see [CONTRIBUTING.md](./CONTRIBUTING.md#style) for the
 full flag set. Naming conventions that tooling can't enforce (`__dot_*` / `internal::…`, cache-write routing) live in
 [dotenv/AGENTS.md](./dotenv/AGENTS.md).
 

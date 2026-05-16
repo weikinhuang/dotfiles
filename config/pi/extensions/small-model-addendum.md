@@ -1,9 +1,9 @@
 # `small-model-addendum.ts`
 
-Appends a short, directive reminder block to the system prompt on every turn — but only when the active provider/model
+Appends a short, directive reminder block to the system prompt on every turn - but only when the active provider/model
 is on a configured allow-list. Aimed at weak self-hosted models (qwen3-30B-A3B, gpt-oss-20B, other ~3–30B chat models)
 that need repeated reinforcement of the behaviours other extensions encourage (`todo`, `scratchpad`,
-`verify-before-claim`, `context-budget`, …) — their hints compete with every other signal in the prompt and get tuned
+`verify-before-claim`, `context-budget`, …) - their hints compete with every other signal in the prompt and get tuned
 out on small models.
 
 ## What it does
@@ -33,9 +33,9 @@ User config lives at `~/.pi/agent/small-model-addendum.json` or project `.pi/sma
 }
 ```
 
-- `providers: string[]` — providers to apply the addendum to, regardless of model id.
-- `models: string[]` — fully qualified `provider/modelId` matches.
-- `text: string` — addendum body appended verbatim to the system prompt.
+- `providers: string[]` - providers to apply the addendum to, regardless of model id.
+- `models: string[]` - fully qualified `provider/modelId` matches.
+- `text: string` - addendum body appended verbatim to the system prompt.
 
 When both `providers` and `models` are empty the extension is a no-op (installed but silent). Missing fields fall back
 to sensible defaults; the default `text` lives in
@@ -45,8 +45,8 @@ error pair).
 
 ## Environment variables
 
-- `PI_SMALL_MODEL_ADDENDUM_DISABLED=1` — skip the extension entirely.
-- `PI_SMALL_MODEL_ADDENDUM_DEBUG=1` — `ctx.ui.notify` every decision (appended / skipped with the matched model label).
+- `PI_SMALL_MODEL_ADDENDUM_DISABLED=1` - skip the extension entirely.
+- `PI_SMALL_MODEL_ADDENDUM_DEBUG=1` - `ctx.ui.notify` every decision (appended / skipped with the matched model label).
 
 ## Hot reload
 

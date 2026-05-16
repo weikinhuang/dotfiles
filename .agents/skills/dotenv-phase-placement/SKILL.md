@@ -41,14 +41,14 @@ Directories load in this order, each adding to (not replacing) the previous laye
 dotenv/           (always)
 dotenv/darwin/    (macOS only)
 dotenv/linux/     (Linux only)
-dotenv/wsl/       (WSL — loaded on top of linux/)
-dotenv/wsl2/      (WSL 2 — loaded on top of wsl/)
+dotenv/wsl/       (WSL - loaded on top of linux/)
+dotenv/wsl2/      (WSL 2 - loaded on top of wsl/)
 dotenv/tmux/      (only inside tmux)
 dotenv/screen/    (only inside GNU screen)
 dotenv/ssh/       (only inside an SSH session)
 ```
 
-Rule: if the addition is platform-specific, put it in the platform subdir's phase file — never in a shared file guarded
+Rule: if the addition is platform-specific, put it in the platform subdir's phase file - never in a shared file guarded
 with `if [[ "$(uname)" == Darwin ]]`. The platform chain already does that dispatch.
 
 ## Decision tree
@@ -103,10 +103,10 @@ See the `bats-test-conventions` skill for when and how.
 ## Anti-patterns
 
 - **Runtime `uname` check in a shared file.** Move to a platform subdir; that's what the subdir chain is for.
-- **Cross-phase dependencies.** Defining an alias in `functions.sh` or vice versa — it'll load at the wrong time.
+- **Cross-phase dependencies.** Defining an alias in `functions.sh` or vice versa - it'll load at the wrong time.
   Respect the phase order.
 - **New phase file names.** `lib/load.sh` hard-codes the seven listed above; a made-up name silently doesn't load.
-  Adding a new phase requires coordinated changes to `lib/load.sh` — ask first.
+  Adding a new phase requires coordinated changes to `lib/load.sh` - ask first.
 - **`export` inside `functions.sh`.** Belongs in `exports.sh` so it's available before functions are sourced.
 - **Forgetting a platform chain means WSL gets `linux/` AND `wsl/`.** If the addition is WSL-only, put it in
   `dotenv/wsl/`, not duplicated under `dotenv/linux/`.

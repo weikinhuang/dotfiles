@@ -1,7 +1,7 @@
 ---
 name: minimal-diff
 description:
-  'WHAT: Keep edits narrow — change only the lines the task requires, preserve surrounding formatting, and never rewrite
+  'WHAT: Keep edits narrow - change only the lines the task requires, preserve surrounding formatting, and never rewrite
   a file when a targeted edit suffices. WHEN: Any modification to an existing file. DO-NOT: Reformat unrelated regions,
   reorder imports or keys for tidiness, normalize whitespace outside the edit, or rewrite a file with a whole-file write
   when a small replacement would do.'
@@ -29,7 +29,7 @@ This applies to:
 Any modification to an existing file. Especially important when:
 
 - The file is under version control and the diff will be reviewed.
-- The repo has an auto-formatter — formatter churn should be its own commit, never mixed with a logic change.
+- The repo has an auto-formatter - formatter churn should be its own commit, never mixed with a logic change.
 - You're fixing a bug or adding a small feature in a large file.
 
 Skip this skill when the user explicitly asks for one of:
@@ -59,7 +59,7 @@ Ask yourself before finalizing:
 ## Anti-patterns
 
 - **"While I'm here" renames.** Rename in a separate commit with a clear message.
-- **Re-alphabetizing imports / keys for tidiness.** If the file's existing order is inconsistent, leave it — a dedicated
+- **Re-alphabetizing imports / keys for tidiness.** If the file's existing order is inconsistent, leave it - a dedicated
   sort commit is the right place for that.
 - **Running a formatter mid-edit and committing the combined diff.** The formatter's hunks and your logic hunks should
   never share a commit.

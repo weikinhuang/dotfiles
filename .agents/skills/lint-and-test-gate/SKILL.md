@@ -24,7 +24,7 @@ Match what you touched to the command you run:
 | Any `.bats` file (added or edited)                    | `./dev/test-docker.sh tests/<changed-path>.bats` then `./dev/test-docker.sh` |
 | Any `lib/node/**/*.ts` or `lib/node/**/*.spec.ts`     | `npm test`                                                                   |
 | Anything that changed shell AND added/changed a test  | Run both gates above.                                                        |
-| A public-surface doc change (REFERENCE.md, README.md) | No gate — but confirm the change is consistent with the code.                |
+| A public-surface doc change (REFERENCE.md, README.md) | No gate - but confirm the change is consistent with the code.                |
 
 Always prefer a focused run first (single file / single path), then a full-suite run to catch ordering breakage.
 
@@ -42,12 +42,12 @@ bats-assert versions and bypasses host drift. `-q` mutes pass noise, which is us
 ## Quote the pass tail
 
 When the gate passes, copy the last 3-6 lines of output into your reply. For bats that's the summary line
-(`<N> tests, 0 failures`); for shellcheck it's silent on success so `./dev/lint.sh` exiting 0 is the signal — say so
+(`<N> tests, 0 failures`); for shellcheck it's silent on success so `./dev/lint.sh` exiting 0 is the signal - say so
 explicitly.
 
 Good:
 
-> Ran `./dev/lint.sh` — exited 0 (no shellcheck or shfmt findings).
+> Ran `./dev/lint.sh` - exited 0 (no shellcheck or shfmt findings).
 >
 > Ran `./dev/test-docker.sh tests/dotenv/bin/git-sync.bats`:
 >
@@ -71,7 +71,7 @@ If in doubt, run the gate. The cost is small; the cost of claiming done on a bro
 
 ## Lint-staged and pre-commit
 
-If `lint-staged` / git hooks are wired in, they run a subset of gates on commit. That's backup, not a substitute — run
+If `lint-staged` / git hooks are wired in, they run a subset of gates on commit. That's backup, not a substitute - run
 the gate yourself first so you can react to failures without a broken commit in progress.
 
 ## Anti-patterns
@@ -82,7 +82,7 @@ the gate yourself first so you can react to failures without a broken commit in 
 - **Using `./dev/test.sh` because Docker feels slow.** Docker is the reference environment. If it's slow, run focused
   tests during development and the full suite before claiming done.
 - **Claiming pass without quoting the output.** Users shouldn't have to rerun to confirm.
-- **Running `npm test` when only shell changed.** Wrong gate — it won't catch shell issues and wastes time.
+- **Running `npm test` when only shell changed.** Wrong gate - it won't catch shell issues and wastes time.
 - **Ignoring shellcheck findings.** They're treated as errors, not warnings, by `./dev/lint.sh`. Fix them.
 
 ## Quick reference

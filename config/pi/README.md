@@ -22,12 +22,12 @@ reference on each area.
 Pi auto-discovers `extensions/`, `skills/`, `agents/`, and `themes/` via the matching arrays in
 [`settings-baseline.json`](./settings-baseline.json). Paths accept `~`, absolute paths, and globs. See the
 [pi settings docs](https://github.com/badlogic/pi-mono/blob/main/packages/coding-agent/docs/settings.md#resources) for
-the full list of resource directories pi scans — the settings entries are additive to the built-in
+the full list of resource directories pi scans - the settings entries are additive to the built-in
 `~/.pi/agent/{extensions,themes}` and `.pi/{extensions,themes}` auto-discovery paths, not a replacement.
 
 ## `settings-baseline.json`
 
-Reference baseline config for pi. Copy (or merge) into `~/.pi/agent/settings.json` — pi manages a few runtime-only keys
+Reference baseline config for pi. Copy (or merge) into `~/.pi/agent/settings.json` - pi manages a few runtime-only keys
 there (e.g. `lastChangelogVersion`) that are intentionally omitted from the baseline.
 
 The `extensions` / `skills` / `agents` / `themes` arrays are what wire the directories in this repo into pi; everything
@@ -37,33 +37,34 @@ else is preference (default provider/model, default thinking level, theme select
 
 CLI that walks `~/.pi/agent/sessions/` and summarizes session token / cost / tool usage. Same UX as
 [`../claude/session-usage.ts`](../claude/session-usage.ts) and [`../codex/session-usage.ts`](../codex/session-usage.ts)
-— shares the rendering / arg-parsing harness under [`../../lib/node/ai-tooling/`](../../lib/node/ai-tooling).
+
+- shares the rendering / arg-parsing harness under [`../../lib/node/ai-tooling/`](../../lib/node/ai-tooling).
 
 ### Commands
 
-- `list` — all sessions for the current project (cwd). Default.
-- `session <uuid>` — detailed single-session report. Accepts a UUID prefix.
-- `totals` — usage bucketed by day or week. Scopes to the current project when `--project` is given; otherwise
+- `list` - all sessions for the current project (cwd). Default.
+- `session <uuid>` - detailed single-session report. Accepts a UUID prefix.
+- `totals` - usage bucketed by day or week. Scopes to the current project when `--project` is given; otherwise
   aggregates across every project.
 
 ### Options
 
-- `--project, -p <path>` — filter by project directory (default: `$PWD`).
-- `--user-dir, -u <dir>` — pi agent dir (default: `~/.pi/agent`).
-- `--json` — machine-readable output.
-- `--sort <field>`, `--limit, -n <N>`, `--group-by, -g <day|week>`, `--no-color` — standard across all adapters.
+- `--project, -p <path>` - filter by project directory (default: `$PWD`).
+- `--user-dir, -u <dir>` - pi agent dir (default: `~/.pi/agent`).
+- `--json` - machine-readable output.
+- `--sort <field>`, `--limit, -n <N>`, `--group-by, -g <day|week>`, `--no-color` - standard across all adapters.
 
 ### Data source
 
 Pi records per-message `usage.cost.total` on every assistant message, so unlike the Claude and Codex adapters this one
-does **not** fetch or cache the LiteLLM pricing table — costs come straight from the session file. `--no-cost` and
+does **not** fetch or cache the LiteLLM pricing table - costs come straight from the session file. `--no-cost` and
 `--refresh-prices` are accepted for interface parity with the other tools but have no effect.
 
 ### Columns and fields
 
 The list / detail views include a `CONTEXT` column (and `Context (last turn)` row in detail) showing the input tokens
 sent to the model on the most recently completed assistant turn (`input + cacheRead + cacheWrite`; falls back to
-`totalTokens - output` when the provider omitted the breakdown). It is **not** a prediction of the next request — any
+`totalTokens - output` when the provider omitted the breakdown). It is **not** a prediction of the next request - any
 post-assistant user text and tool results get added on top before the next turn. JSON output exposes the same value as
 `last_context_tokens`.
 
@@ -75,19 +76,19 @@ matching `type:"custom", customType:"subagent-run"` audit entry in the parent se
 task string, the stop reason, and the child session id. `session-usage.ts` picks both up:
 
 - `list` / `totals` populate the `AGENTS` column with the child file count; parent-session token totals stay parent-only
-  (matching claude / codex semantics — child tokens never double-count into parent rollups).
+  (matching claude / codex semantics - child tokens never double-count into parent rollups).
 - `session <uuid>` parses every child `.jsonl` for its own tokens, cost, model, and tool breakdown, and enriches the row
   with `agent_label` (= `agent`), `role` (= `handle`, e.g. `sub_explore_1`), and `description` (= truncated `task`) from
   the matching `subagent-run` entry.
-- Orphaned child transcripts (crash-leftovers without a recorded parent entry) still render — the agent label is just
+- Orphaned child transcripts (crash-leftovers without a recorded parent entry) still render - the agent label is just
   empty.
 
 ## Related docs
 
-- [extensions/README.md](./extensions/README.md) — per-extension index and deep references.
-- [README-skills.md](./README-skills.md) — skill index and policy summary.
-- [agents/README.md](./agents/README.md) — subagent definitions.
-- [../claude/README.md](../claude/README.md) — sibling Claude Code config.
-- [../codex/README.md](../codex/README.md) — sibling Codex CLI config.
-- [pi settings docs](https://github.com/badlogic/pi-mono/blob/main/packages/coding-agent/docs/settings.md) — upstream
+- [extensions/README.md](./extensions/README.md) - per-extension index and deep references.
+- [README-skills.md](./README-skills.md) - skill index and policy summary.
+- [agents/README.md](./agents/README.md) - subagent definitions.
+- [../claude/README.md](../claude/README.md) - sibling Claude Code config.
+- [../codex/README.md](../codex/README.md) - sibling Codex CLI config.
+- [pi settings docs](https://github.com/badlogic/pi-mono/blob/main/packages/coding-agent/docs/settings.md) - upstream
   settings reference.

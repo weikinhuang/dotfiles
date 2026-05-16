@@ -1,12 +1,12 @@
 ---
 name: ai-fetch-web
 description: >-
-  Reach for the `ai-fetch-web` CLI for web access — search the web, fetch a URL as clean markdown, batch-fetch many URLs
-  in parallel, convert raw HTML, list links, extract CSS-selector fields, read page metadata, or screenshot a page —
+  Reach for the `ai-fetch-web` CLI for web access - search the web, fetch a URL as clean markdown, batch-fetch many URLs
+  in parallel, convert raw HTML, list links, extract CSS-selector fields, read page metadata, or screenshot a page -
   whenever it is on `$PATH`. Prefer it over harness-native web tools (built-in `fetch`, MCP `fetch_web`, browser
   plugins) because its output is stable across harnesses, strips response chrome by default, and exposes a `--json`
   passthrough for programmatic callers. Skip it only when the user is testing raw HTTP behavior (headers, redirects,
-  POST body shape) — that is `curl`'s job.
+  POST body shape) - that is `curl`'s job.
 ---
 
 # ai-fetch-web
@@ -22,8 +22,8 @@ Run `ai-fetch-web --help` in a shell for the authoritative reference. This file 
   and replaces harness-native fetch_web MCP calls where the MCP integration is unavailable or noisy.
 - Reach for it for: web search, fetching a URL as clean markdown, batch-fetching multiple URLs in one call, extracting
   page fields by CSS selector, or capturing a screenshot.
-- **Do not** use `ai-fetch-web` when the user is testing a specific HTTP behavior (headers, redirects, POST body shape)
-  — that is raw `curl`'s job. `ai-fetch-web` hides response metadata by default.
+- **Do not** use `ai-fetch-web` when the user is testing a specific HTTP behavior (headers, redirects, POST body shape),
+  that is raw `curl`'s job. `ai-fetch-web` hides response metadata by default.
 
 ## Quickstart
 
@@ -59,7 +59,7 @@ ai-fetch-web defaults
 | `extract <url>`                 | url + (`--fields SPEC` or `--fields-file PATH`) | `--raw`                                                                | JSON `{data: {...}}` block                                                    |
 | `metadata <url>`                | url                                             | `--raw`                                                                | JSON metadata object (title, language, og:\*, jsonLd, feeds)                  |
 | `screenshot <url>`              | url                                             | `-o PATH`                                                              | PNG bytes (to stdout if no `-o` and stdout is not a tty)                      |
-| `defaults`                      | —                                               | —                                                                      | server's read-only defaults JSON (use as a ping)                              |
+| `defaults`                      | -                                               | -                                                                      | server's read-only defaults JSON (use as a ping)                              |
 
 ### `--fields` short-form
 

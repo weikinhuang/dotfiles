@@ -1,12 +1,12 @@
 # `tool-arg-recovery.ts`
 
-Targeted recovery block for TypeBox validation failures — the `edit-recovery`-style pattern applied to every tool call,
+Targeted recovery block for TypeBox validation failures - the `edit-recovery`-style pattern applied to every tool call,
 not just `edit`.
 
 When the LLM emits a tool call whose arguments don’t match the tool’s TypeBox schema, pi-ai’s `validateToolArguments`
 throws a canonical message (`Validation failed for tool "X":\n  - <path>: <message>\n\nReceived arguments: {...}`),
 which pi wraps via `createErrorToolResult(error.message)`. Small self-hosted models read that raw error, guess at a fix,
-and retry with the same wrong shape — because the error tells them WHAT’s wrong but not what a working payload looks
+and retry with the same wrong shape - because the error tells them WHAT’s wrong but not what a working payload looks
 like.
 
 This extension intercepts `tool_result` on validation failures, cross-references the tool’s schema via
@@ -21,7 +21,7 @@ This extension intercepts `tool_result` on validation failures, cross-references
 - a “do not retry with the same arguments” footer
 
 Pi’s original error stays intact at index 0; the recovery block is appended as a second text part, matching
-[`extensions/edit-recovery.ts`](./edit-recovery.ts)’s composition pattern. No auto-retry — surfacing the mistake keeps
+[`extensions/edit-recovery.ts`](./edit-recovery.ts)’s composition pattern. No auto-retry - surfacing the mistake keeps
 [`verify-before-claim`](./verify-before-claim.md), [`loop-breaker`](./loop-breaker.ts), and
 [`stall-recovery`](./stall-recovery.md) honest.
 
@@ -47,10 +47,10 @@ Do NOT retry with the same arguments. Fix the types/fields above, then call the 
 
 ## Environment variables
 
-- `PI_TOOL_ARG_RECOVERY_DISABLED=1` — skip the extension entirely.
-- `PI_TOOL_ARG_RECOVERY_DEBUG=1` — `ctx.ui.notify` on every decision.
-- `PI_TOOL_ARG_RECOVERY_TRACE=<path>` — append one line per decision to `<path>` (useful in `-p` / RPC mode).
-- `PI_TOOL_ARG_RECOVERY_MAX_EXAMPLE_CHARS=N` — cap on the serialized corrected example (default `1500`). Past the cap
+- `PI_TOOL_ARG_RECOVERY_DISABLED=1` - skip the extension entirely.
+- `PI_TOOL_ARG_RECOVERY_DEBUG=1` - `ctx.ui.notify` on every decision.
+- `PI_TOOL_ARG_RECOVERY_TRACE=<path>` - append one line per decision to `<path>` (useful in `-p` / RPC mode).
+- `PI_TOOL_ARG_RECOVERY_MAX_EXAMPLE_CHARS=N` - cap on the serialized corrected example (default `1500`). Past the cap
   the fenced block is omitted; the diagnosis still renders.
 
 ## Hot reload

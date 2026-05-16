@@ -7,12 +7,12 @@ worked test-file anatomy.
 
 ## Commands
 
-- `./dev/test-docker.sh tests/dotenv/bin/git-sync.bats` — run a single test file.
-- `./dev/test-docker.sh tests/dotenv/bin/` — run all tests in a directory.
-- `./dev/test-docker.sh -q` — quiet mode, only failures and summary.
-- `npm test` — run the vitest suite (`tests/**/*.spec.ts`).
-- `npx vitest run tests/lib/node/pi/jsonc.spec.ts` — run a single vitest spec.
-- `npx vitest tests/lib/node/pi/jsonc.spec.ts` — watch mode for a single spec.
+- `./dev/test-docker.sh tests/dotenv/bin/git-sync.bats` - run a single test file.
+- `./dev/test-docker.sh tests/dotenv/bin/` - run all tests in a directory.
+- `./dev/test-docker.sh -q` - quiet mode, only failures and summary.
+- `npm test` - run the vitest suite (`tests/**/*.spec.ts`).
+- `npx vitest run tests/lib/node/pi/jsonc.spec.ts` - run a single vitest spec.
+- `npx vitest tests/lib/node/pi/jsonc.spec.ts` - watch mode for a single spec.
 
 ## Directory map
 
@@ -56,11 +56,11 @@ See [tests/dotenv/bin/git-sync.bats](./dotenv/bin/git-sync.bats) for a full git-
 **Ask first**: adding a new helper to `helpers/common.bash` (prefer a test-file–local function first); changing the
 Docker base image or bats version in [`../dev/Dockerfile.test`](../dev/Dockerfile.test).
 
-**Never**: depend on host-installed tools — stub external commands; write to real `HOME` — use `setup_isolated_home`.
+**Never**: depend on host-installed tools - stub external commands; write to real `HOME` - use `setup_isolated_home`.
 
 ## References
 
-- [helpers/common.bash](./helpers/common.bash) — full helper API and stub implementations.
-- [TESTING.md](../TESTING.md) — framework overview, Docker image, helper tables, mock behavior, test-file anatomy
+- [helpers/common.bash](./helpers/common.bash) - full helper API and stub implementations.
+- [TESTING.md](../TESTING.md) - framework overview, Docker image, helper tables, mock behavior, test-file anatomy
   examples.
-- [lib/node/pi/README.md](./lib/node/pi/README.md) — vitest suite overview for the TypeScript helpers.
+- [lib/node/pi/README.md](./lib/node/pi/README.md) - vitest suite overview for the TypeScript helpers.

@@ -1,17 +1,17 @@
 ---
 name: bats-test-conventions
 description:
-  "WHAT: Conventions for bats tests in this repo — file path mirroring, `@test` naming, which helpers from
+  "WHAT: Conventions for bats tests in this repo - file path mirroring, `@test` naming, which helpers from
   tests/helpers/common.bash to use, when to use source_without_main vs subprocess invocation. WHEN: User asks to add or
   edit a `.bats` test file anywhere under tests/. DO-NOT: Put tests under tests/bin/ instead of mirroring the source
-  path; invent new helper names when common.bash already has one; rely on the host's real `git` / `curl` / `ssh` — stub
+  path; invent new helper names when common.bash already has one; rely on the host's real `git` / `curl` / `ssh` - stub
   them."
 ---
 
 # Bats Test Conventions
 
 Bats covers the shell side of this repo (scripts, plugins, phase files). TypeScript helpers under `lib/node/` use vitest
-instead — don't mix them. TESTING.md has the full helper catalog; this skill is the short version.
+instead - don't mix them. TESTING.md has the full helper catalog; this skill is the short version.
 
 ## When this applies
 
@@ -19,7 +19,7 @@ instead — don't mix them. TESTING.md has the full helper catalog; this skill i
 - Editing an existing `.bats` file and wondering which helper to use.
 - Deciding whether a new test should be a subprocess run or a sourced unit test.
 
-Skip this skill for `*.spec.ts` vitest specs — use the `ts-vs-bats-router` skill instead.
+Skip this skill for `*.spec.ts` vitest specs - use the `ts-vs-bats-router` skill instead.
 
 ## File path mirrors source path
 
@@ -35,10 +35,10 @@ The test file path is the source file path, with `tests/` prepended and `.bats` 
 
 Do NOT put tests under `tests/bin/` or `tests/scripts/`. Reviewers expect to navigate by parallel path.
 
-## @test naming — REQUIRED prefix
+## @test naming - REQUIRED prefix
 
 Every `@test` block starts with the script or feature name followed by `:` (colon + space) and a short description. This
-is not optional — it's how test grep works in this repo.
+is not optional - it's how test grep works in this repo.
 
 ```bash
 @test "git-sync: prints help with -h" { ... }
@@ -61,7 +61,7 @@ will be flagged in review.
 ## The two-helper starting set
 
 Every test file sources `tests/helpers/common.bash`. In `setup()`, bats' `load` drops the `.bash` extension for you, so
-you write `load '../../helpers/common'` — but when referring to the file itself in documentation or comments, always
+you write `load '../../helpers/common'` - but when referring to the file itself in documentation or comments, always
 call it `tests/helpers/common.bash` (the actual on-disk filename):
 
 ```bash
@@ -82,7 +82,7 @@ The helpers you reach for first:
 | `prepend_path`        | Shortcut for putting an arbitrary dir at the front of `$PATH`.                                               |
 | `source_without_main` | Sources a script WITHOUT running its main body, so unit-tested functions are accessible.                     |
 
-Before adding a helper of your own, `rg -n "^[a-z_]+ *()" tests/helpers/common.bash` — odds are it exists.
+Before adding a helper of your own, `rg -n "^[a-z_]+ *()" tests/helpers/common.bash` - odds are it exists.
 
 ## Subprocess vs sourced
 
@@ -138,7 +138,7 @@ Plain `[ "$status" -eq 0 ]` works but gives worse failure messages.
 | Whole subtree                         | `./dev/test-docker.sh tests/plugins/`            |
 | Local run (needs host bats + helpers) | `./dev/test.sh`                                  |
 
-Prefer Docker — it pins the bats / bats-assert version and sidesteps host drift.
+Prefer Docker - it pins the bats / bats-assert version and sidesteps host drift.
 
 ## Anti-patterns
 
@@ -147,7 +147,7 @@ Prefer Docker — it pins the bats / bats-assert version and sidesteps host drif
 - **Tests that `cd` into the repo root without restoring `$PWD`.** Use `$BATS_TEST_TMPDIR` as the working dir.
 - **Sharing state between `@test` blocks.** Each `@test` gets a fresh `$BATS_TEST_TMPDIR`; if you need shared fixtures,
   create them in `setup_file` (see bats docs) or per-test in `setup`.
-- **Skipping helper reuse — writing `mkdir -p "$HOME/.config" …` inline** when `setup_isolated_home` does it.
+- **Skipping helper reuse - writing `mkdir -p "$HOME/.config" …` inline** when `setup_isolated_home` does it.
 - **Asserting on exact output when the script emits version-dependent strings.** Use `--partial`.
 - **Inventing a new prefix style.** `<script>:` is the repo convention.
 

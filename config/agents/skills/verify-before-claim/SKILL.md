@@ -24,9 +24,9 @@ Use this skill any time all of these are true:
 
 Skip it when:
 
-- The user explicitly asked for a draft, sketch, or commentary — not a finished change.
+- The user explicitly asked for a draft, sketch, or commentary - not a finished change.
 - The change has no executable surface (pure documentation, a README edit, a comment-only diff).
-- A separate iteration loop (e.g. a declared `check` task) already owns the verification — the loop's pass verdict is
+- A separate iteration loop (e.g. a declared `check` task) already owns the verification - the loop's pass verdict is
   sufficient.
 
 ## How to pick the verification command
@@ -43,13 +43,13 @@ Pick the narrowest command that can reject the change.
 | Bug fix with a reproducer               | Run the reproducer before (optional) and after; both pastes help.  |
 
 If no verifier exists yet, either (a) write one as part of the change, or (b) downgrade the claim: say "written but
-unverified — please run X to confirm" instead of "done".
+unverified - please run X to confirm" instead of "done".
 
 ## The contract
 
 1. Make the edit.
 2. Run the verification command in the same turn as the claim.
-3. Quote the relevant pass output (exit 0, "OK", "42 passed", etc.) in the reply — not as a screenshot of your plan, but
+3. Quote the relevant pass output (exit 0, "OK", "42 passed", etc.) in the reply - not as a screenshot of your plan, but
    as the literal tail of the command output.
 4. Only then say "done" / "ready" / equivalent.
 
@@ -69,11 +69,11 @@ Without a fresh pass output, rewrite as: "edit is written; run `<command>` to co
 ## Anti-patterns
 
 - **Claiming on "the diff looks right".** The diff looking right is a necessary precondition, not the check itself.
-- **Running the verifier and forgetting to quote it.** If the user can't see the pass output, they'll rerun it anyway —
+- **Running the verifier and forgetting to quote it.** If the user can't see the pass output, they'll rerun it anyway -
   paste the last few lines.
 - **Running a broader verifier when a narrow one exists.** A single-file test run that passes is a stronger signal than
   a big suite whose tail got truncated.
 - **Running the verifier in a separate background job and claiming done before it finishes.** If you used a background
   runner, wait for exit and quote the result before the claim.
-- **Claiming a negative result ("the test now fails correctly") without showing the failure text.** Same rule —
+- **Claiming a negative result ("the test now fails correctly") without showing the failure text.** Same rule -
   reproduce it in-turn.

@@ -10,7 +10,7 @@ description:
 
 # Plan First
 
-Write the plan before doing the work. The `todo` tool is your external memory — anything you record there stays visible
+Write the plan before doing the work. The `todo` tool is your external memory - anything you record there stays visible
 on every future turn, even after context compaction, and lets the user see exactly where you are in a multi-step task.
 
 ## When to plan
@@ -50,7 +50,7 @@ is small, more only if it's genuinely complex.
 { "action": "start", "id": 1 }
 ```
 
-Only one todo may be `in_progress` at a time — this is enforced by the tool. Trying to start a second one while another
+Only one todo may be `in_progress` at a time - this is enforced by the tool. Trying to start a second one while another
 is active will return an error.
 
 **3. Do the work.** Use other tools (read / bash / edit / write / grep / etc.) to execute the current item. Stay focused
@@ -60,11 +60,11 @@ on the one thing that's `in_progress`.
 to the `review` column:
 
 ```json
-{ "action": "review", "id": 1, "note": "fix applied — need to run tests" }
+{ "action": "review", "id": 1, "note": "fix applied - need to run tests" }
 ```
 
 `review` can only be entered from `in_progress`, and at most one item may be in review at a time (separate limit from
-`in_progress` — you can have one `in_progress` and one `review` simultaneously, e.g. tests running on item A while you
+`in_progress` - you can have one `in_progress` and one `review` simultaneously, e.g. tests running on item A while you
 start coding item B). The `note` is optional but helpful as a reminder of what still needs verifying.
 
 **5. Verify.** Actually check the outcome matches what the step promised:
@@ -82,11 +82,11 @@ return to `review`.
 { "action": "complete", "id": 1 }
 ```
 
-From `review`, the note is optional — the review step was the verification parking, so the tool trusts that verification
+From `review`, the note is optional - the review step was the verification parking, so the tool trusts that verification
 happened. You can add a final note (`"note": "all 47 tests pass"`) if it's worth recording.
 
 If verification is immediate (e.g., you ran the tests as part of doing the work and don't need a separate parking step),
-you can skip `review` and go straight from `in_progress` to `complete` — but the tool will then **require** a `note`
+you can skip `review` and go straight from `in_progress` to `complete` - but the tool will then **require** a `note`
 describing what verified the outcome:
 
 ```json
@@ -98,8 +98,8 @@ evidence makes you confident it's done.
 
 **7. Next item.** Call `start` on the next pending todo. Repeat.
 
-**8. Handle obstacles.** If you can't make progress — missing info, broken env, failing test you can't diagnose, unclear
-spec — don't silently move on. Call `block` with a `note` explaining the blocker:
+**8. Handle obstacles.** If you can't make progress - missing info, broken env, failing test you can't diagnose, unclear
+spec - don't silently move on. Call `block` with a `note` explaining the blocker:
 
 ```json
 { "action": "block", "id": 3, "note": "The test harness requires FOO_TOKEN which isn't in the env" }
@@ -124,7 +124,7 @@ Then surface the blocker to the user. They can unblock you or repivot.
 - **Don't stack items in `review`.** One review slot; verify and `complete` (or `start` again to revise) before parking
   another.
 - **Don't claim you're "done" while `in_progress`, `review`, or `pending` todos remain.** Either finish them or mark
-  them blocked and explain why. The harness will catch and re-prompt you if you try — save the round trip by
+  them blocked and explain why. The harness will catch and re-prompt you if you try - save the round trip by
   self-checking first.
 - **Don't over-decompose.** "Open file", "read line 10", "close file" is too fine-grained. One verifiable outcome per
   todo.
@@ -177,11 +177,11 @@ For later items that need verification (like running tests), park first:
 
 | Action     | Required          | Optional | Purpose                                                                                                                             |
 | ---------- | ----------------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| `list`     | —                 | —        | Print the current plan.                                                                                                             |
-| `add`      | `text` OR `items` | —        | Append one (or many) pending todos.                                                                                                 |
-| `start`    | `id`              | —        | Mark a todo `in_progress`. At most one at a time. Also used to move a `review` item back to `in_progress` when more work is needed. |
+| `list`     | -                 | -        | Print the current plan.                                                                                                             |
+| `add`      | `text` OR `items` | -        | Append one (or many) pending todos.                                                                                                 |
+| `start`    | `id`              | -        | Mark a todo `in_progress`. At most one at a time. Also used to move a `review` item back to `in_progress` when more work is needed. |
 | `review`   | `id`              | `note`   | Move an `in_progress` item to `review` (verification parking). At most one at a time.                                               |
 | `complete` | `id`              | `note`¹  | Mark a todo done. ¹**Required** when transitioning directly from `in_progress`; optional from `review` or other states.             |
-| `block`    | `id`, `note`      | —        | Flag a blocker; `note` is required.                                                                                                 |
-| `reopen`   | `id`              | —        | Return a completed or blocked todo to `pending`.                                                                                    |
-| `clear`    | —                 | —        | Wipe the plan. Use when pivoting direction entirely.                                                                                |
+| `block`    | `id`, `note`      | -        | Flag a blocker; `note` is required.                                                                                                 |
+| `reopen`   | `id`              | -        | Return a completed or blocked todo to `pending`.                                                                                    |
+| `clear`    | -                 | -        | Wipe the plan. Use when pivoting direction entirely.                                                                                |

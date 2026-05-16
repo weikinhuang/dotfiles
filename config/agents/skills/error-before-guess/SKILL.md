@@ -16,7 +16,7 @@ before touching anything. The fix starts with the error text, not with a hunch.
 
 After any non-zero exit:
 
-1. **Echo the error verbatim in your reply.** Paste the literal failing line — including file path, line/column numbers,
+1. **Echo the error verbatim in your reply.** Paste the literal failing line - including file path, line/column numbers,
    and any error codes (e.g. `SC2086`, `TS2322`, `E9999`). Not a paraphrase, not a summary: copy the bytes. If your
    reply contains only a description like "an unquoted variable" or "a type error" without the raw error line, you
    failed the skill. The error text is the evidence; the paraphrase is a commentary on it.
@@ -39,7 +39,7 @@ After any non-zero exit:
 Skip this skill when:
 
 - The failure is expected and the user already told you to ignore it.
-- The error text is literally absent (e.g. a silent `exit 1` with no output — in which case rerun with `-v` / `--debug`
+- The error text is literally absent (e.g. a silent `exit 1` with no output - in which case rerun with `-v` / `--debug`
   / `set -x` to surface one).
 
 ## Common error shapes and where to look
@@ -49,11 +49,11 @@ Skip this skill when:
 | `file.ts:42:10: error TS2322: ...`                  | Open `file.ts` at line 42, col 10.                                    |
 | `ModuleNotFoundError: No module named 'foo'`        | Check the package is installed; check the Python/Node path.           |
 | `command not found: foo`                            | Check `$PATH`; check the install step ran; check shell restart.       |
-| `Permission denied (publickey)`                     | SSH agent / key / `~/.ssh/config` — NOT the code.                     |
+| `Permission denied (publickey)`                     | SSH agent / key / `~/.ssh/config` - NOT the code.                     |
 | `EACCES: permission denied, open '/path'`           | Filesystem permission on `/path`, not the program.                    |
 | `jq: error (at <stdin>:1): ...`                     | The input JSON, not the jq expression (usually).                      |
 | `bash: line N: X: unbound variable` (with `set -u`) | Variable `X` at line N of the script.                                 |
-| `assertion failed: expected X, got Y`               | The assertion site — the gap between expected and actual IS the clue. |
+| `assertion failed: expected X, got Y`               | The assertion site - the gap between expected and actual IS the clue. |
 | Stack trace                                         | Bottom-of-stack frame that is still YOUR code, not library code.      |
 
 ## Anti-patterns

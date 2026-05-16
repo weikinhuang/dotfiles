@@ -12,15 +12,15 @@ tool returns a flat text block of answers plus structured `details` back as the 
 
 Question kinds:
 
-- **single** — radio list; pressing `Enter` (or a digit `1`-`9`) selects and auto-advances to the next tab.
-- **multi** — checkbox list with `[ ]` / `[x]` rows and a trailing `→ Next` terminator that commits the selection once
+- **single** - radio list; pressing `Enter` (or a digit `1`-`9`) selects and auto-advances to the next tab.
+- **multi** - checkbox list with `[ ]` / `[x]` rows and a trailing `→ Next` terminator that commits the selection once
   `minSelect` is satisfied.
-- **free** — no option list; typing drops straight into an `Editor` instance and `Enter` (editor-submit) saves the
+- **free** - no option list; typing drops straight into an `Editor` instance and `Enter` (editor-submit) saves the
   answer.
 
 Every option row can ship a `preview` string (ASCII art / code / diff) rendered in a bordered side pane beside the
 highlighted option when the terminal is ≥100 cols wide (`PREVIEW_MIN_WIDTH`), stacked below the options otherwise. Each
-question can opt into a `Type something.` row (`allowOther`, default on) whose row _is_ the live input field — printable
+question can opt into a `Type something.` row (`allowOther`, default on) whose row _is_ the live input field - printable
 keys flow into it, `Enter` commits it as a custom answer, and the buffer is persisted per-question across tab
 navigation. Each question can also opt into notes via `n` (`allowNotes`, default on), which opens the editor and
 attaches a `note` string to the answer. Finally, `c` triggers the "Chat about this" escape hatch: cancels the
@@ -30,8 +30,8 @@ questionnaire and returns `chatRequested: true` plus the question id the user wa
 
 Top-level params:
 
-- `questions: Question[]` — required, non-empty.
-- `allowChat?: boolean` — show the `c` escape hatch + footer hint. Default `true`.
+- `questions: Question[]` - required, non-empty.
+- `allowChat?: boolean` - show the `c` escape hatch + footer hint. Default `true`.
 
 Per question:
 
@@ -49,10 +49,10 @@ Per question:
 
 Per option:
 
-- `value: string` — returned as the answer's `value`.
-- `label: string` — display label.
-- `description?: string` — muted sub-line below the label.
-- `preview?: string` — multi-line; rendered in the side/bottom preview pane when highlighted.
+- `value: string` - returned as the answer's `value`.
+- `label: string` - display label.
+- `description?: string` - muted sub-line below the label.
+- `preview?: string` - multi-line; rendered in the side/bottom preview pane when highlighted.
 
 Answer shape returned to the model (one per question in `details.answers`):
 
@@ -68,24 +68,24 @@ chat-request the `content` is a one-line summary and `details.cancelled` / `deta
 
 ## TUI affordances
 
-- `↑` / `↓` — navigate options (no `j`/`k` alias).
-- `1`-`9` — jump to option N. On `single`, also auto-confirms unless the target is the `Type something.` row. On
-  `multi`, only moves the cursor — `Space` is still required to toggle.
-- `Space` — toggle checkbox on `multi`. No-op on `Next` / `Type something.` rows.
-- `Enter` — select (single) / toggle (multi, alias for Space) / commit `Next` / commit `Type something.` / submit the
+- `↑` / `↓` - navigate options (no `j`/`k` alias).
+- `1`-`9` - jump to option N. On `single`, also auto-confirms unless the target is the `Type something.` row. On
+  `multi`, only moves the cursor - `Space` is still required to toggle.
+- `Space` - toggle checkbox on `multi`. No-op on `Next` / `Type something.` rows.
+- `Enter` - select (single) / toggle (multi, alias for Space) / commit `Next` / commit `Type something.` / submit the
   editor in `free` + `note` modes.
-- `Tab` / `Shift+Tab` / `←` / `→` — switch question tabs (only when there is more than one question); wraps through the
+- `Tab` / `Shift+Tab` / `←` / `→` - switch question tabs (only when there is more than one question); wraps through the
   trailing `✓ Submit` review tab.
-- `n` — open the notes editor for the current question (when `allowNotes`). Submitting stores the note; submitting empty
+- `n` - open the notes editor for the current question (when `allowNotes`). Submitting stores the note; submitting empty
   clears it.
-- `c` — "Chat about this" escape hatch (when `allowChat`, and not while focused on the `Type something.` row).
-- `Esc` — cancel the questionnaire. On a non-empty `Type something.` row, first press clears the buffer; second press
+- `c` - "Chat about this" escape hatch (when `allowChat`, and not while focused on the `Type something.` row).
+- `Esc` - cancel the questionnaire. On a non-empty `Type something.` row, first press clears the buffer; second press
   cancels.
-- Tab bar — each question renders as `☐ Label` (unanswered, muted) or `■ Label` (answered, success color), with the
+- Tab bar - each question renders as `☐ Label` (unanswered, muted) or `■ Label` (answered, success color), with the
   active tab reverse-video; the trailing `✓ Submit` tab lights up once every question has an answer.
-- Review tab — lists every answer (or `(unanswered)`) with notes, warns about missing answers, and offers a
+- Review tab - lists every answer (or `(unanswered)`) with notes, warns about missing answers, and offers a
   `Submit answers` / `Cancel` picker. `Submit answers` is disabled until all questions are answered.
-- Footer — dynamic help line reflecting the current mode (editor vs options vs review, multi vs single, whether notes /
+- Footer - dynamic help line reflecting the current mode (editor vs options vs review, multi vs single, whether notes /
   chat are enabled).
 
 ## Environment variables

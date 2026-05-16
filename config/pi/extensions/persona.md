@@ -1,6 +1,6 @@
 # `persona.ts`
 
-Named persona overlay for the parent session — pick a persona (planner, chat, knowledge-base, journal, …) and the parent
+Named persona overlay for the parent session - pick a persona (planner, chat, knowledge-base, journal, …) and the parent
 gets the persona body folded into the system prompt, a tool allowlist, an optional model/thinkingLevel swap, a positive
 `writeRoots` gate with ask-on-violation, and optional `bashAllow` / `bashDeny` layered on top of
 [`bash-permissions.ts`](./bash-permissions.ts). Personas are the missing-piece complement to [`preset.ts`](./preset.ts)
@@ -36,7 +36,7 @@ agent frontmatter [`subagent.ts`](./subagent.ts) parses, so a persona file can b
 | `bashDeny`           | `string[]?`                            | **Persona-only.** Bash deny patterns layered on `bash-permissions.ts`. `["*"]` blocks all.                                                           |
 | `model`              | `string?` (`"provider/modelId"`)       | Model override. Parsed and resolved against `ctx.modelRegistry` with auth check.                                                                     |
 | `thinkingLevel`      | `"off" \| "low" \| "medium" \| "high"` | Thinking level override.                                                                                                                             |
-| `appendSystemPrompt` | `string?`                              | **Persona-only.** Extra text appended after the body — useful when layering project-specific text onto an `agent:`-ref persona.                      |
+| `appendSystemPrompt` | `string?`                              | **Persona-only.** Extra text appended after the body - useful when layering project-specific text onto an `agent:`-ref persona.                      |
 | `requestOptions`     | `object?`                              | **Persona-only.** Free-form fields deep-merged into the outgoing provider payload via `before_provider_request`. See `requestOptions` section below. |
 
 The body markdown becomes the persona system-prompt section, prepended via `before_agent_start` with a two-newline
@@ -51,7 +51,7 @@ See [`../../../lib/node/pi/persona/`](../../../lib/node/pi/persona/) for the par
 ## Agent inheritance (`agent: <name>` ref)
 
 A persona file with `agent: plan` resolves the name through the same layered agent registry the
-[`subagent.ts`](./subagent.ts) extension uses — `<cwd>/.pi/agents/` overrides `~/.pi/agents/` overrides
+[`subagent.ts`](./subagent.ts) extension uses - `<cwd>/.pi/agents/` overrides `~/.pi/agents/` overrides
 [`../agents/`](../agents/), first hit wins. The inherited record contributes `tools`, `model`, `thinkingLevel`, and
 body. Persona-only fields (`writeRoots`, `bashAllow`, `bashDeny`, `appendSystemPrompt`, `requestOptions`) layer on top.
 A user who forks an agent locally automatically gets the fork wherever a persona references it.
@@ -68,7 +68,7 @@ Personas are loaded in order, later layers override earlier by persona name:
 3. **Project-local**: `<cwd>/.pi/personas/`.
 
 Missing directories are silently skipped; parse errors surface once each via `ctx.ui.notify(..., 'warning')`, de-duped
-by `path + reason` — same UX as `preset.ts` and `subagent-loader.ts`. Files named `README.md` are skipped so a catalog
+by `path + reason` - same UX as `preset.ts` and `subagent-loader.ts`. Files named `README.md` are skipped so a catalog
 README can sit alongside its persona files.
 
 ## `<cwd>/.pi/persona-settings.json`
@@ -95,20 +95,20 @@ User-global is `~/.pi/persona-settings.json` with the same shape; the project la
 
 ## Commands
 
-- `/persona` — list every loaded persona with its one-line description; mark the active one with `*`.
-- `/persona <name>` — activate the named persona. Tab-completion is wired via `getArgumentCompletions`.
-- `/persona off` (or `/persona (none)`) — clear the active persona and restore the snapshot taken at activation time.
-- `/persona info <name>` — print the resolved persona (frontmatter + resolved `writeRoots` + body length + inheritance
+- `/persona` - list every loaded persona with its one-line description; mark the active one with `*`.
+- `/persona <name>` - activate the named persona. Tab-completion is wired via `getArgumentCompletions`.
+- `/persona off` (or `/persona (none)`) - clear the active persona and restore the snapshot taken at activation time.
+- `/persona info <name>` - print the resolved persona (frontmatter + resolved `writeRoots` + body length + inheritance
   source). Useful for debugging the agent-inheritance merge.
-- `Ctrl+Shift+M` — cycle through personas in `nameOrder`, then `(none)`, then back to the first.
-- `--persona <name>` CLI flag — activate at `session_start`. Flag wins over the session-restored persona and over
+- `Ctrl+Shift+M` - cycle through personas in `nameOrder`, then `(none)`, then back to the first.
+- `--persona <name>` CLI flag - activate at `session_start`. Flag wins over the session-restored persona and over
   `PI_PERSONA_DEFAULT`.
-- `--persona-info <name>` CLI flag — print the resolved persona (same surface as `/persona info <name>`) to stdout and
+- `--persona-info <name>` CLI flag - print the resolved persona (same surface as `/persona info <name>`) to stdout and
   exit. Useful in `pi -p` / scripting mode where slash commands are not dispatched. Exits non-zero if `<name>` is
   unknown.
-- `--list-personas` CLI flag — print one line per loaded persona (`name  [source] description`) and exit 0. The active
+- `--list-personas` CLI flag - print one line per loaded persona (`name  [source] description`) and exit 0. The active
   persona, if any, is prefixed with `*`.
-- `--validate-personas` CLI flag — parse every persona file across all layers, print one `<path>: <reason>` per warning,
+- `--validate-personas` CLI flag - parse every persona file across all layers, print one `<path>: <reason>` per warning,
   and exit non-zero if any warning fired. Designed for CI gating: `pi --validate-personas && …`.
 
 > **Why `--persona` and not `--mode`?** Pi's CLI parser reserves `--mode` for the built-in output-mode flag
@@ -116,7 +116,7 @@ User-global is `~/.pi/persona-settings.json` with the same shape; the project la
 > reads naturally given the body IS a persona overlay.
 >
 > The three query / validation flags (`--persona-info`, `--list-personas`, `--validate-personas`) short-circuit at
-> `session_start` via `process.exit()` — they print to stdout (or stderr on error) and never invoke a model. Run with
+> `session_start` via `process.exit()` - they print to stdout (or stderr on error) and never invoke a model. Run with
 > `--no-session` if you don't want the validation invocation to leave a session transcript on disk.
 
 ## Write-scope gate
@@ -126,17 +126,17 @@ resolves the input path against `ctx.cwd` and checks `isInsideWriteRoots`. If th
 resolved `writeRoots`, the call passes through unchanged. If it's outside, persona invokes the same `askForPermission`
 helper [`protected-paths.ts`](./protected-paths.ts) uses, offering three options:
 
-1. **Allow once** — single-shot, no caching.
-2. **Allow this session** — adds the absolute path to a `sessionAllow` cache so subsequent writes to the same path don't
+1. **Allow once** - single-shot, no caching.
+2. **Allow this session** - adds the absolute path to a `sessionAllow` cache so subsequent writes to the same path don't
    re-prompt.
-3. **Deny + feedback** — returns `{ block: true, reason: <feedback> }` so the model gets an explicit deny message and
+3. **Deny + feedback** - returns `{ block: true, reason: <feedback> }` so the model gets an explicit deny message and
    can pick a path under `writeRoots` next turn.
 
-An empty `writeRoots` array means writes are disallowed entirely — every `write` / `edit` triggers the prompt with the
+An empty `writeRoots` array means writes are disallowed entirely - every `write` / `edit` triggers the prompt with the
 `persona "<name>" disallows writes` reason. In no-UI mode (`-p`, JSON, RPC without UI) the default is to **block**;
 `PI_PERSONA_VIOLATION_DEFAULT=allow` flips that to allow-on-violation.
 
-`writeRoots` matching is **lexical** — it does not call `realpath`. A path that textually escapes via a symlink is
+`writeRoots` matching is **lexical** - it does not call `realpath`. A path that textually escapes via a symlink is
 treated as its link path, not its target, mirroring `protected-paths.ts`'s convention. If `plans/leak` is a symlink to
 `~/.ssh/`, a write to `plans/leak/config` is allowed by the gate. Documented limitation; harden in v2 if a shipped
 persona needs `realpath` semantics.
@@ -148,7 +148,7 @@ compose as follows:
 
 1. **Hardcoded deny** in `bash-permissions.ts` (rm -rf /, mkfs, fork bombs, …) ALWAYS blocks first.
 2. **Explicit deny** rules in `bash-permissions.json` (any layer) block.
-3. **Always-prompt list** (sudo / doas / pkexec / …) ALWAYS forces a dialog — a persona's `bashAllow` cannot wave
+3. **Always-prompt list** (sudo / doas / pkexec / …) ALWAYS forces a dialog - a persona's `bashAllow` cannot wave
    privilege escalation through.
 4. **Explicit allow** rules in `bash-permissions.json` (any layer) allow.
 5. **Persona vouch.** When the active persona's `bashAllow` matches the sub-command, `bash-permissions.ts` treats the
@@ -163,12 +163,12 @@ After `bash-permissions.ts` admits the call, persona's own `tool_call` handler r
 
 1. `bashAllow` matches → allow (carves out of any persona-level deny).
 2. `bashDeny` matches → block.
-3. `bashAllow` non-empty but doesn't match → block (allow-list mode — declaring `bashAllow` at all is a positive
+3. `bashAllow` non-empty but doesn't match → block (allow-list mode - declaring `bashAllow` at all is a positive
    assertion of “ONLY these commands”).
 4. Otherwise allow.
 
 So `bashAllow` wins over `bashDeny` on overlap. Concretely: shipping `bashAllow: ["rg *"]` + `bashDeny: ["*"]` means
-“deny everything, except carve out rg” — `rg pattern` runs, every other command is blocked.
+“deny everything, except carve out rg” - `rg pattern` runs, every other command is blocked.
 
 Matcher semantics are deliberately trivial:
 
@@ -199,7 +199,7 @@ requestOptions:
 
 Merge rules:
 
-- Top-level keys are deep-merged into the payload — nested objects recurse, arrays / primitives from the override fully
+- Top-level keys are deep-merged into the payload - nested objects recurse, arrays / primitives from the override fully
   replace the original. So a persona can add `chat_template_kwargs.enable_thinking` without nuking the
   `preserve_thinking` key pi-ai already injects for the qwen-chat-template thinking format.
 - The reserved `apis` key is a string list of API families this block applies to (e.g. `["openai-completions"]`,
@@ -215,7 +215,7 @@ Merge rules:
 
 Persona constraints attach to the **parent** session's `tool_call` events only. The `tool_call` interceptor explicitly
 short-circuits when `event.toolName === 'subagent'` or `'subagent_send'`, so a subagent dispatched by the parent runs
-with whatever its agent file's `tools` declare — even if the parent persona would forbid them. This is documented
+with whatever its agent file's `tools` declare - even if the parent persona would forbid them. This is documented
 behaviour, not a leak. If you're in the `explain` persona (read-only) and dispatch a `general-purpose` subagent, that
 child can still write anywhere its own agent file allows.
 
@@ -231,16 +231,16 @@ it doesn't accidentally route a write through `subagent(...)` to bypass the pare
 | [`bash-permissions.ts`](./bash-permissions.ts) | Two-way composition. Bash-permissions runs first: hardcoded deny / explicit deny / always-prompt always win. The active persona's `bashAllow` then **vouches** for sub-commands at the unknown-command step (mirrors `writeRoots` → protected-paths), so personas Just Work in `pi -p` without widening `~/.pi/bash-permissions.json` on disk. After admission, persona's own `tool_call` handler enforces its `bashDeny` (terminal) and `bashAllow` (restrictive only).                                                               |
 | [`subagent.ts`](./subagent.ts)                 | Subagent dispatch is **not** intercepted by persona (D4). Children run with their own agent file's `tools`.                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | [`statusline.ts`](./statusline.ts)             | Persona emits a `persona:<name>` badge segment, sibling to `preset:<name>`. Render order is whatever statusline already produces.                                                                                                                                                                                                                                                                                                                                                                                                      |
-| [`btw.ts`](./btw.ts)                           | `/btw` runs out-of-band — it doesn't go through `tool_call`. Persona does not constrain `/btw` (and shouldn't).                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| [`btw.ts`](./btw.ts)                           | `/btw` runs out-of-band - it doesn't go through `tool_call`. Persona does not constrain `/btw` (and shouldn't).                                                                                                                                                                                                                                                                                                                                                                                                                        |
 
 ## Environment variables
 
-- `PI_PERSONA_DISABLED=1` — skip the extension entirely (no flag, command, or shortcut registered).
-- `PI_PERSONA_DEBUG=1` — `ctx.ui.notify` on every internal decision (snapshot taken, persona activated, write violation,
+- `PI_PERSONA_DISABLED=1` - skip the extension entirely (no flag, command, or shortcut registered).
+- `PI_PERSONA_DEBUG=1` - `ctx.ui.notify` on every internal decision (snapshot taken, persona activated, write violation,
   …).
-- `PI_PERSONA_DEFAULT=<name>` — auto-activate at `session_start` when neither `--persona` nor a session-restored persona
+- `PI_PERSONA_DEFAULT=<name>` - auto-activate at `session_start` when neither `--persona` nor a session-restored persona
   is set.
-- `PI_PERSONA_VIOLATION_DEFAULT=allow` — in non-UI mode, allow writes outside `writeRoots` instead of blocking.
+- `PI_PERSONA_VIOLATION_DEFAULT=allow` - in non-UI mode, allow writes outside `writeRoots` instead of blocking.
 
 Activation precedence at `session_start`: `--persona` flag > session-restored persona (from the last `persona-state`
 entry on `/resume`) > `PI_PERSONA_DEFAULT`.

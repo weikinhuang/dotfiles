@@ -1,15 +1,15 @@
 # Dotenv
 
-Core shell environment for the dotfiles — aliases, functions, exports, completions, the prompt, loader internals, and
+Core shell environment for the dotfiles - aliases, functions, exports, completions, the prompt, loader internals, and
 per-platform overrides. See root [AGENTS.md](../AGENTS.md) for repo-wide conventions; this file only documents what is
 different here.
 
 ## Commands
 
-- `./dev/lint.sh` — shellcheck + shfmt on everything under this tree.
-- `./dev/test-docker.sh tests/dotenv/bin/<script>.bats` — run bats coverage for one `bin/` script.
-- `./dev/test-docker.sh tests/dotenv/aliases.bats` — run the top-level phase-file tests.
-- `./dev/test-docker.sh tests/dotenv/` — full bats suite for this tree.
+- `./dev/lint.sh` - shellcheck + shfmt on everything under this tree.
+- `./dev/test-docker.sh tests/dotenv/bin/<script>.bats` - run bats coverage for one `bin/` script.
+- `./dev/test-docker.sh tests/dotenv/aliases.bats` - run the top-level phase-file tests.
+- `./dev/test-docker.sh tests/dotenv/` - full bats suite for this tree.
 
 ## Directory map
 
@@ -69,11 +69,11 @@ subcommands, hooks, prompt options, `$PATH` additions); add or update bats cover
 phase file that consumers may be hooking from `~/.bash_local`; adding a new platform subdirectory.
 
 **Never**: break phase-file naming (`aliases.sh` / `functions.sh` / … are hard-coded in `lib/load.sh`); execute commands
-at source time that block a non-interactive shell from loading; rely on a tool being installed — always guard
+at source time that block a non-interactive shell from loading; rely on a tool being installed - always guard
 integrations with `command -v`.
 
 ## References
 
-- [`../README.md`](../README.md) — installation, phase loading order, customization knobs.
-- [`../REFERENCE.md`](../REFERENCE.md) — canonical public shell surface.
-- [`../PROMPT.md`](../PROMPT.md) — segment architecture for [`prompt.sh`](./prompt.sh) and [`lib/prompt*.sh`](./lib/).
+- [`../README.md`](../README.md) - installation, phase loading order, customization knobs.
+- [`../REFERENCE.md`](../REFERENCE.md) - canonical public shell surface.
+- [`../PROMPT.md`](../PROMPT.md) - segment architecture for [`prompt.sh`](./prompt.sh) and [`lib/prompt*.sh`](./lib/).

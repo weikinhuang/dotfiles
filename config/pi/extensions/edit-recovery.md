@@ -1,7 +1,7 @@
 # `edit-recovery.ts`
 
 Appends a recovery block to `edit` tool errors when `oldText` didn't match the file verbatim. Aimed at small self-hosted
-models that paraphrase leading indentation, collapse whitespace runs, or swap tabs for spaces — their edits regularly
+models that paraphrase leading indentation, collapse whitespace runs, or swap tabs for spaces - their edits regularly
 fail pi's fuzzy-match pass and without help they retry the same near-identical garbage two or three times before giving
 up.
 
@@ -17,7 +17,7 @@ On every `tool_result` where the tool is `edit` and `isError: true`:
 4. Append the recovery block as a second text part so pi's original error stays at position 0. Composes cleanly with
    downstream `tool_result` handlers (e.g. [`tool-output-condenser.ts`](./tool-output-condenser.md)).
 
-Auto-retry is deliberately **not** attempted — that hides the fault from
+Auto-retry is deliberately **not** attempted - that hides the fault from
 [`verify-before-claim.ts`](./verify-before-claim.md) / [`stall-recovery.ts`](./stall-recovery.md) /
 [`todo.ts`](./todo.md) guardrails and masks "model didn't understand what it was doing" failures. Surfacing the actual
 file content lets the model succeed on the retry without losing the honest turn shape.
@@ -36,13 +36,13 @@ Returned by [`locateAndFormat`](../../../lib/node/pi/edit-recovery.ts); shapes t
 
 ## Environment variables
 
-- `PI_EDIT_RECOVERY_DISABLED=1` — skip the extension entirely.
-- `PI_EDIT_RECOVERY_MAX_BYTES=<n>` — max file size to scan (default `262144` = 256 KB). Larger files bail with
+- `PI_EDIT_RECOVERY_DISABLED=1` - skip the extension entirely.
+- `PI_EDIT_RECOVERY_MAX_BYTES=<n>` - max file size to scan (default `262144` = 256 KB). Larger files bail with
   `kind=unreadable`.
-- `PI_EDIT_RECOVERY_CONTEXT_LINES=<n>` — lines of context above/below each candidate (default `2`).
-- `PI_EDIT_RECOVERY_MAX_CANDIDATES=<n>` — cap per-result (default `5`) to keep the recovery block bounded.
-- `PI_EDIT_RECOVERY_DEBUG=1` — `ctx.ui.notify` each decision.
-- `PI_EDIT_RECOVERY_TRACE=<path>` — append one line per decision to `<path>`. Useful in `-p` / RPC mode.
+- `PI_EDIT_RECOVERY_CONTEXT_LINES=<n>` - lines of context above/below each candidate (default `2`).
+- `PI_EDIT_RECOVERY_MAX_CANDIDATES=<n>` - cap per-result (default `5`) to keep the recovery block bounded.
+- `PI_EDIT_RECOVERY_DEBUG=1` - `ctx.ui.notify` each decision.
+- `PI_EDIT_RECOVERY_TRACE=<path>` - append one line per decision to `<path>`. Useful in `-p` / RPC mode.
 
 ## Hot reload
 

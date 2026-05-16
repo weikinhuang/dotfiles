@@ -117,7 +117,7 @@ Bedrock Claude; large edit payloads can take 60-90s between flushes.
 Original (~90 lines, full per-file walkthrough, test counts, lint sign-off, regex explanation):
 
 ```text
-config/pi: bash-permissions — strip control-flow keywords + add for/select/case/bat
+config/pi: bash-permissions - strip control-flow keywords + add for/select/case/bat
 
 Closes a control-flow bypass in the decision gate and expands the
 `readonly` baseline example with the missing shell-syntax coverage.
@@ -127,7 +127,7 @@ Closes a control-flow bypass in the decision gate and expands the
      like `if [[ -f foo ]]; then rm -rf /; fi` surfaces as three subs:
      ['if [[ -f foo ]]', 'then rm -rf /', 'fi']. The hardcoded rm
      denylist regex anchors to `^\s*rm\s+...`, so `then rm -rf /` used
-     to sail past it — a real smuggle vector via any if/while/until
+     to sail past it - a real smuggle vector via any if/while/until
      branch.
    ...
 [80 more lines]

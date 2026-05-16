@@ -19,10 +19,10 @@ inside a POSIX shell.
 | [`wsl/native-wrappers/git.bat`](./wsl/native-wrappers/git.bat)                                                   | Lets Windows-native tools (JetBrains, VS Code) delegate `git` to the WSL version. |
 | [`wsl/native-wrappers/ssh.bat`](./wsl/native-wrappers/ssh.bat)                                                   | Points VS Code Remote-SSH at the WSL `ssh` client.                                |
 | [`darwin/DefaultKeyBinding.dict`](./darwin/DefaultKeyBinding.dict)                                               | macOS `HOME` / `END` remapping to match other platforms.                          |
-| [`termux/setup-termux.sh`](./termux/setup-termux.sh), [`termux/setup-pkg-extra.sh`](./termux/setup-pkg-extra.sh) | Termux `pkg` bootstrap scripts — base + extras.                                   |
+| [`termux/setup-termux.sh`](./termux/setup-termux.sh), [`termux/setup-pkg-extra.sh`](./termux/setup-pkg-extra.sh) | Termux `pkg` bootstrap scripts - base + extras.                                   |
 
 ## Related docs
 
-- [../AGENTS.md](../AGENTS.md) — root agent guide.
-- [../README.md](../README.md) — installation and configuration overview.
-- [../REFERENCE.md](../REFERENCE.md) — public shell interface (aliases, functions, env vars, `git` subcommands).
+- [../AGENTS.md](../AGENTS.md) - root agent guide.
+- [../README.md](../README.md) - installation and configuration overview.
+- [../REFERENCE.md](../REFERENCE.md) - public shell interface (aliases, functions, env vars, `git` subcommands).

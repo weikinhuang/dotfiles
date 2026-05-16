@@ -1,6 +1,6 @@
 # Plugins
 
-Numbered bash plugins loaded during the `plugin` phase — after `completion`, before `prompt`. Each plugin integrates one
+Numbered bash plugins loaded during the `plugin` phase - after `completion`, before `prompt`. Each plugin integrates one
 external tool (`fzf`, `direnv`, `bat`, …) or sets one family of shell options. Only
 [`00-bash-opts.sh`](./00-bash-opts.sh) and [`00-chpwd-hook.sh`](./00-chpwd-hook.sh) load by default; the rest need
 `DOT_INCLUDE_BUILTIN_PLUGINS=1`. Local `~/.bash_local.d/*.plugin` files interleave by basename. See root
@@ -8,18 +8,18 @@ external tool (`fzf`, `direnv`, `bat`, …) or sets one family of shell options.
 
 ## Commands
 
-- `./dev/lint.sh` — shellcheck + shfmt on every plugin.
-- `./dev/test-docker.sh tests/plugins/<name>.bats` — run bats coverage for one plugin when it exists.
-- `DOT_INCLUDE_BUILTIN_PLUGINS=1 env -i PATH="$PATH" HOME="$HOME" bash -l` — smoke-test a plugin interactively in a
+- `./dev/lint.sh` - shellcheck + shfmt on every plugin.
+- `./dev/test-docker.sh tests/plugins/<name>.bats` - run bats coverage for one plugin when it exists.
+- `DOT_INCLUDE_BUILTIN_PLUGINS=1 env -i PATH="$PATH" HOME="$HOME" bash -l` - smoke-test a plugin interactively in a
   fresh shell.
-- `DOT_PLUGIN_DISABLE_<name>=1 env -i … bash -l` — confirm a plugin is correctly guarded when its tool is absent.
+- `DOT_PLUGIN_DISABLE_<name>=1 env -i … bash -l` - confirm a plugin is correctly guarded when its tool is absent.
 
 ## Directory map
 
 | Path                                                                                       | Purpose                                                                                        |
 | ------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------- |
 | [`00-*.sh`](./00-bash-opts.sh)                                                             | Baseline shell options and hooks that must load first (bash opts, chpwd hook, `cd`, direnv).   |
-| [`05-*.sh`](./05-ls.sh)                                                                    | `ls` defaults — before tool wrappers so `eza`/`fd`/etc. can override.                          |
+| [`05-*.sh`](./05-ls.sh)                                                                    | `ls` defaults - before tool wrappers so `eza`/`fd`/etc. can override.                          |
 | [`10-*.sh`](./10-fzf.sh)                                                                   | Tool integrations that mostly set env vars or aliases (`fzf`, `eza`, `fd`, `ripgrep`, `less`). |
 | [`20-*.sh`](./20-nvm.sh)                                                                   | Heavy one-off integrations (`nvm`) that benefit from lazy loading.                             |
 | [`30-*.sh`](./30-git.sh)                                                                   | Tool integrations with completion setup, pager configuration, or cache-backed rendering.       |
@@ -49,7 +49,7 @@ Respect existing env vars (e.g. `: "${FZF_DEFAULT_OPTS:=…}"`). Users override 
 
 ### Header
 
-Start with `# shellcheck shell=bash`, a one-line purpose, and `# SPDX-License-Identifier: MIT`. No shebang — plugins are
+Start with `# shellcheck shell=bash`, a one-line purpose, and `# SPDX-License-Identifier: MIT`. No shebang - plugins are
 sourced.
 
 ### Disable surface
@@ -64,14 +64,14 @@ retargeting a plugin; ship shellcheck-clean code (`./dev/lint.sh` must pass); ad
 [`../tests/plugins/`](../tests/plugins/) for non-trivial behavior.
 
 **Ask first**: adding a new numeric prefix tier; adding a plugin that loads by default (not gated behind
-`DOT_INCLUDE_BUILTIN_PLUGINS=1`) — only two such plugins exist today (`00-bash-opts.sh`, `00-chpwd-hook.sh`).
+`DOT_INCLUDE_BUILTIN_PLUGINS=1`) - only two such plugins exist today (`00-bash-opts.sh`, `00-chpwd-hook.sh`).
 
 **Never**: perform blocking network / subprocess work at source time (the plugin phase runs in every interactive shell);
-assume a tool is on `$PATH` without `command -v`; edit files under [`../external/`](../external/) — wrap them from a
+assume a tool is on `$PATH` without `command -v`; edit files under [`../external/`](../external/) - wrap them from a
 plugin instead.
 
 ## References
 
-- [`../README.md`](../README.md) — plugin phase behaviour, `DOT_INCLUDE_BUILTIN_PLUGINS`, `DOT_PLUGIN_DISABLE_<name>`.
-- [`../REFERENCE.md`](../REFERENCE.md) — "Tool defaults" table: every plugin and the tool it configures.
-- [`../external/AGENTS.md`](../external/AGENTS.md) — vendored scripts that some plugins source (`git-prompt.sh`, etc.).
+- [`../README.md`](../README.md) - plugin phase behaviour, `DOT_INCLUDE_BUILTIN_PLUGINS`, `DOT_PLUGIN_DISABLE_<name>`.
+- [`../REFERENCE.md`](../REFERENCE.md) - "Tool defaults" table: every plugin and the tool it configures.
+- [`../external/AGENTS.md`](../external/AGENTS.md) - vendored scripts that some plugins source (`git-prompt.sh`, etc.).

@@ -24,7 +24,7 @@ you:
 
 - The full user research question (for context).
 - One sub-question to answer.
-- Optional search hints (URLs or query strings the planner suggested — NOT a required reading list).
+- Optional search hints (URLs or query strings the planner suggested - NOT a required reading list).
 - Success criteria for this sub-question.
 - The absolute path the findings file must be written to (the extension hands you an absolute path because your cwd is
   the workspace root, not the run directory; writing to a bare `findings/<id>.md` would land in the wrong place).
@@ -63,7 +63,7 @@ When a page is small and you only want a glance, piping the body through `head -
 ai-fetch-web fetch https://example.com/a | head -c 2000
 ```
 
-Do NOT dump a full article into stdout and expect to work with it — write to disk first, then `read`.
+Do NOT dump a full article into stdout and expect to work with it - write to disk first, then `read`.
 
 ### Fetch many URLs in one server-side batch
 
@@ -72,7 +72,7 @@ ai-fetch-web fetch-many <url1> <url2> <url3> > /tmp/batch.md
 ```
 
 Faster than calling `fetch` once per URL when you have multiple candidates in hand. The output is per-URL status block +
-body; always redirect into a file and `read` it — batches are even bigger than individual fetches and must not land in a
+body; always redirect into a file and `read` it - batches are even bigger than individual fetches and must not land in a
 tool-output block.
 
 ### Inspect the result object directly
@@ -100,7 +100,7 @@ ai-fetch-web fetch https://example.com/a --json | jq -r '.structuredContent.arti
   support a claim, drop the claim.
 - **Cap your content length.** The findings file must fit under ~4,000 characters total. The extension will truncate
   anything longer and log a warning. Use bullet lists, not prose.
-- **Write atomically.** Use a single `write` call at the end with the full file body. Do not stream edits — a partial
+- **Write atomically.** Use a single `write` call at the end with the full file body. Do not stream edits - a partial
   file looks malformed to the extension's validator.
 - **Respect robots / auth.** `ai-fetch-web` already enforces robots. If a page requires JS or auth, note it under
   `## Open questions` and move on.
@@ -124,32 +124,32 @@ order, with at least one non-empty line between each:
 
 ## Sources
 
-- [S1] <URL> — <short description>
-- [S2] <URL> — <short description>
+- [S1] <URL> - <short description>
+- [S2] <URL> - <short description>
 
 ## Open questions
 
-- <bullet 1 — what could not be answered from the fetched pages>
+- <bullet 1 - what could not be answered from the fetched pages>
 - (or "None." when every angle was covered)
 ```
 
 Rules for each section:
 
-- `# Sub-question:` — MUST appear as the very first line, exactly this heading prefix. The assigned sub-question string
+- `# Sub-question:` - MUST appear as the very first line, exactly this heading prefix. The assigned sub-question string
   follows on the same line after the colon + space.
-- `## Findings` — between 1 and ~20 bullets. Each bullet must cite at least one `[S<n>]` source (unless the section is
+- `## Findings` - between 1 and ~20 bullets. Each bullet must cite at least one `[S<n>]` source (unless the section is
   empty because every fetch failed, in which case the section body is the literal string
-  `(no findings — see Open questions)`).
-- `## Sources` — one bullet per unique URL, numbered `[S1]`, `[S2]`, ... in fetch order. The URL is mandatory; the short
+  `(no findings - see Open questions)`).
+- `## Sources` - one bullet per unique URL, numbered `[S1]`, `[S2]`, ... in fetch order. The URL is mandatory; the short
   description is optional but helpful. Do NOT fabricate. Every `[S<n>]` cited in `## Findings` must be present here.
-- `## Open questions` — bullets explaining what could not be answered, or the literal string `None.` when everything was
+- `## Open questions` - bullets explaining what could not be answered, or the literal string `None.` when everything was
   answered. Always present.
 
 No other headings. No prose between the title and the first section. No trailing prose after `## Open questions`.
 
 ## Re-prompt handling
 
-If the extension re-prompts you with `"previous output didn't match required headers: <diff>. Rewrite."` — rewrite using
+If the extension re-prompts you with `"previous output didn't match required headers: <diff>. Rewrite."` - rewrite using
 the headers it listed. Do NOT argue about the schema; the parent's validator is the authority.
 
 ## Budget
@@ -157,4 +157,4 @@ the headers it listed. Do NOT argue about the schema; the parent's validator is 
 Soft budget for a single sub-question: up to ~6 `ai-fetch-web` calls, ~10 turns, $0.15 spend. If you're running long,
 write whatever you have under `## Findings` and use `## Open questions` to declare what you couldn't cover.
 
-Do NOT delegate recursively. You cannot call `subagent` — finish your own sub-question and stop.
+Do NOT delegate recursively. You cannot call `subagent` - finish your own sub-question and stop.

@@ -2,17 +2,17 @@
 
 Pure TypeScript helpers shared across pi extensions, the Claude / Codex / opencode / pi session-usage CLIs, and the
 clipboard-server. Nothing here imports from the pi runtime (`@earendil-works/pi-coding-agent`) or any other
-agent-harness SDK — so every module is unit-testable with vitest and type-checked by the repo's root `tsconfig.json`.
+agent-harness SDK - so every module is unit-testable with vitest and type-checked by the repo's root `tsconfig.json`.
 
 See root [AGENTS.md](../AGENTS.md) for repo-wide conventions; this file only documents what is different here.
 
 ## Commands
 
-- `npm test` — run the full vitest suite (covers every spec under [`../tests/lib/`](../tests/lib/)).
-- `npx vitest run tests/lib/node/pi/<name>.spec.ts` — run a single spec.
-- `npx vitest tests/lib/node/pi/<name>.spec.ts` — watch mode for a single spec.
-- `npm run tsc` — type-check the whole lib surface (root `tsconfig.json`).
-- `npm run format` — `oxfmt` on TypeScript files.
+- `npm test` - run the full vitest suite (covers every spec under [`../tests/lib/`](../tests/lib/)).
+- `npx vitest run tests/lib/node/pi/<name>.spec.ts` - run a single spec.
+- `npx vitest tests/lib/node/pi/<name>.spec.ts` - watch mode for a single spec.
+- `npm run tsc` - type-check the whole lib surface (root `tsconfig.json`).
+- `npm run format` - `oxfmt` on TypeScript files.
 
 ## Directory map
 
@@ -27,11 +27,11 @@ See root [AGENTS.md](../AGENTS.md) for repo-wide conventions; this file only doc
 
 ### Pure modules only
 
-- `lib/node/**/*.ts` must import from `node:*` and peer `lib/node/**` only — never from
+- `lib/node/**/*.ts` must import from `node:*` and peer `lib/node/**` only - never from
   `@earendil-works/pi-coding-agent` or any pi runtime. That's what lets the code live under the root `tsconfig.json` and
   get unit-tested without mocks.
 - Pi-coupled glue (dialog flows, `pi.on('tool_call', …)` handlers, command registration) belongs in
-  [`../config/pi/extensions/<name>.ts`](../config/pi/extensions/) — not here. If a helper grows a pi import, split it.
+  [`../config/pi/extensions/<name>.ts`](../config/pi/extensions/) - not here. If a helper grows a pi import, split it.
 
 ### Test mirror
 
@@ -45,7 +45,7 @@ See root [AGENTS.md](../AGENTS.md) for repo-wide conventions; this file only doc
 
 ### Module naming
 
-- Kebab-case filenames (`iteration-loop-reducer.ts`, `bash-match.ts`). No `index.ts` barrels — each module is imported
+- Kebab-case filenames (`iteration-loop-reducer.ts`, `bash-match.ts`). No `index.ts` barrels - each module is imported
   by its explicit filename so refactors are greppable.
 - Related modules share a prefix (`iteration-loop-*`, `deep-research-*`, `todo-*`, `scratchpad-*`) so the lib tree stays
   navigable at 80+ files.
@@ -65,13 +65,13 @@ keep modules pure (no pi imports); run `npm test` and `npm run tsc` before landi
 **Ask first**: adding a new top-level directory under `lib/` (e.g. a sibling to `node/`); pulling in a new runtime
 dependency that ships to end-user shells; changing a module's public export shape when multiple extensions consume it.
 
-**Never**: import from `@earendil-works/pi-coding-agent` or any other agent-runtime SDK from under this tree — that
+**Never**: import from `@earendil-works/pi-coding-agent` or any other agent-runtime SDK from under this tree - that
 moves the module into extension territory; commit generated artifacts or `.d.ts` bundles; suppress type errors with
 `any` or `@ts-ignore` instead of fixing the type.
 
 ## References
 
-- [`../tests/lib/node/pi/README.md`](../tests/lib/node/pi/README.md) — spec index covering every module here.
-- [`../config/pi/extensions/README.md`](../config/pi/extensions/README.md) — downstream consumers of these helpers.
-- [`../config/pi/README.md`](../config/pi/README.md) — pi config overview including which extensions import which lib
+- [`../tests/lib/node/pi/README.md`](../tests/lib/node/pi/README.md) - spec index covering every module here.
+- [`../config/pi/extensions/README.md`](../config/pi/extensions/README.md) - downstream consumers of these helpers.
+- [`../config/pi/README.md`](../config/pi/README.md) - pi config overview including which extensions import which lib
   modules.

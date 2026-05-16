@@ -21,9 +21,9 @@ with their own `README.md` document custom tooling on top of the stock config.
 
 ## Related docs
 
-- [../AGENTS.md](../AGENTS.md) — root agent guide.
-- [../REFERENCE.md](../REFERENCE.md) — "Tool defaults" table cross-referencing each config directory to the shell plugin
+- [../AGENTS.md](../AGENTS.md) - root agent guide.
+- [../REFERENCE.md](../REFERENCE.md) - "Tool defaults" table cross-referencing each config directory to the shell plugin
   that consumes it.
-- [pi/README.md](./pi/README.md) — pi config (deepest subtree — has its own extension / skill / agent indexes).
-- [claude/README.md](./claude/README.md) — Claude Code config.
-- [codex/README.md](./codex/README.md) — Codex CLI config.
+- [pi/README.md](./pi/README.md) - pi config (deepest subtree - has its own extension / skill / agent indexes).
+- [claude/README.md](./claude/README.md) - Claude Code config.
+- [codex/README.md](./codex/README.md) - Codex CLI config.

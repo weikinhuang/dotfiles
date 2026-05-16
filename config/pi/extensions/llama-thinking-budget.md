@@ -18,7 +18,7 @@ numeric `thinking_budget_tokens` (field name configurable) derived from the curr
 
 ## How the injection works
 
-- Hook: `pi.on('before_provider_request', …)` — returns a mutated payload clone (`{ ...p, [field]: budget }`),
+- Hook: `pi.on('before_provider_request', …)` - returns a mutated payload clone (`{ ...p, [field]: budget }`),
   optionally deleting `reasoning_effort` when `stripEffort` is set.
 - Detect the reasoning signal in the payload, in order:
   1. `reasoning_effort` string → use directly as the level.
@@ -53,10 +53,10 @@ Opt in per provider in `~/.pi/agent/models.json` or project `.pi/models.json` (p
 
 All keys are optional:
 
-- `field` — numeric field name injected. Default `"thinking_budget_tokens"`.
-- `stripEffort` — delete `reasoning_effort` after injection. Default `false`.
-- `models` — allow-list of model ids. Omit to match every model on the provider.
-- `budgets` — per-level override (`minimal` / `low` / `medium` / `high` → positive int).
+- `field` - numeric field name injected. Default `"thinking_budget_tokens"`.
+- `stripEffort` - delete `reasoning_effort` after injection. Default `false`.
+- `models` - allow-list of model ids. Omit to match every model on the provider.
+- `budgets` - per-level override (`minimal` / `low` / `medium` / `high` → positive int).
 
 Budget resolution order per level (first defined wins): env override → provider `budgets` → pi settings
 `thinkingBudgets` (from `~/.pi/agent/settings.json` then project `.pi/settings.json`) → built-in defaults
@@ -64,11 +64,11 @@ Budget resolution order per level (first defined wins): env override → provide
 
 ## Environment variables
 
-- `PI_LLAMA_BUDGET_MINIMAL` — override minimal-level budget (positive int).
-- `PI_LLAMA_BUDGET_LOW` — override low-level budget.
-- `PI_LLAMA_BUDGET_MEDIUM` — override medium-level budget.
-- `PI_LLAMA_BUDGET_HIGH` — override high-level budget.
-- `PI_LLAMA_BUDGET_DEBUG=/path/to/log` — append one line per decision (inject / skip + reason) to this file. Unset =
+- `PI_LLAMA_BUDGET_MINIMAL` - override minimal-level budget (positive int).
+- `PI_LLAMA_BUDGET_LOW` - override low-level budget.
+- `PI_LLAMA_BUDGET_MEDIUM` - override medium-level budget.
+- `PI_LLAMA_BUDGET_HIGH` - override high-level budget.
+- `PI_LLAMA_BUDGET_DEBUG=/path/to/log` - append one line per decision (inject / skip + reason) to this file. Unset =
   silent.
 
 ## Hot reload

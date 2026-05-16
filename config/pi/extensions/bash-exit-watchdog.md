@@ -1,7 +1,7 @@
 # `bash-exit-watchdog.ts`
 
 Re-surfaces bash non-zero exit codes that small models miss because pi's built-in `Command exited with code N` marker
-lives at the tail of the output — often after 50 KB of stdout and a
+lives at the tail of the output - often after 50 KB of stdout and a
 [`tool-output-condenser`](./tool-output-condenser.md) condensation note. Without help the model carries on as if the
 command succeeded.
 
@@ -19,7 +19,7 @@ On every `tool_result` where `isError: true` and the tool was `bash`:
    of the content parts are passed through untouched.
 
 The rewrite shape is `{ content: [{ type: 'text', text: '<warning>\n<original>' }, ...event.content.slice(1)] }`, which
-chains cleanly with [`tool-output-condenser.ts`](./tool-output-condenser.md) — condensation applies to the body, the
+chains cleanly with [`tool-output-condenser.ts`](./tool-output-condenser.md) - condensation applies to the body, the
 short header rides through intact.
 
 Complements [`verify-before-claim.ts`](./verify-before-claim.md): that extension catches "tests pass" claims without
@@ -44,9 +44,9 @@ pair).
 
 ## Environment variables
 
-- `PI_EXIT_WATCHDOG_DISABLED=1` — skip the extension entirely.
-- `PI_EXIT_WATCHDOG_DEBUG=1` — `ctx.ui.notify` every decision (flagged / suppressed).
-- `PI_EXIT_WATCHDOG_TRACE=<path>` — append one line per decision to `<path>`. Useful in `-p` / RPC mode.
+- `PI_EXIT_WATCHDOG_DISABLED=1` - skip the extension entirely.
+- `PI_EXIT_WATCHDOG_DEBUG=1` - `ctx.ui.notify` every decision (flagged / suppressed).
+- `PI_EXIT_WATCHDOG_TRACE=<path>` - append one line per decision to `<path>`. Useful in `-p` / RPC mode.
 
 ## Hot reload
 

@@ -14,11 +14,11 @@ asking the user.
 3. On trigger, the extension sends a synthesized steering message via
    `pi.sendMessage({ customType: 'loop-breaker-nudge', content: <nudge>, display: true }, { deliverAs: 'steer' })`. The
    `<nudge>` text is built by [`buildNudge`](../../../lib/node/pi/loop-breaker.ts) and tells the model to change
-   approach — e.g. "read the file first", "grep for the symbol instead", "check the error message".
+   approach - e.g. "read the file first", "grep for the symbol instead", "check the error message".
 4. The ring buffer is cleared on trigger so call `N+1` while the model is pivoting doesn't retrigger the nudge.
 5. The statusline footer shows `⟳ loop-breaker: steered (N repeats)` until the next reset.
 
-Detection is strictly additive — the tool call itself is **not** blocked. Blocking interacts badly with
+Detection is strictly additive - the tool call itself is **not** blocked. Blocking interacts badly with
 [`verify-before-claim.ts`](./verify-before-claim.md) / [`todo.ts`](./todo.md) guardrails and removes the "one more try
 with different inputs" escape hatch.
 
@@ -26,18 +26,18 @@ with different inputs" escape hatch.
 
 The history clears (and the statusline key unsets) on:
 
-- `session_start` — fresh session, fresh window.
-- `input` where `event.source !== 'extension'` — a real user typed (or an RPC/API client sent) a new prompt. Messages
+- `session_start` - fresh session, fresh window.
+- `input` where `event.source !== 'extension'` - a real user typed (or an RPC/API client sent) a new prompt. Messages
   synthesized by this extension don't reset the counter, to prevent replay scenarios from masking a real loop.
-- `session_shutdown` — tidy on exit.
+- `session_shutdown` - tidy on exit.
 
 ## Environment variables
 
-- `PI_LOOP_BREAKER_DISABLED=1` — skip the extension entirely.
-- `PI_LOOP_BREAKER_THRESHOLD=N` — repeats required to trigger (default `3`).
-- `PI_LOOP_BREAKER_WINDOW=N` — rolling window size (default `6`). `threshold > window` is effectively "never fire".
-- `PI_LOOP_BREAKER_DEBUG=1` — `ctx.ui.notify` every decision. Noisy; use while tuning.
-- `PI_LOOP_BREAKER_TRACE=<path>` — append one line per decision to `<path>`. Useful in `-p` / RPC mode where `notify` is
+- `PI_LOOP_BREAKER_DISABLED=1` - skip the extension entirely.
+- `PI_LOOP_BREAKER_THRESHOLD=N` - repeats required to trigger (default `3`).
+- `PI_LOOP_BREAKER_WINDOW=N` - rolling window size (default `6`). `threshold > window` is effectively "never fire".
+- `PI_LOOP_BREAKER_DEBUG=1` - `ctx.ui.notify` every decision. Noisy; use while tuning.
+- `PI_LOOP_BREAKER_TRACE=<path>` - append one line per decision to `<path>`. Useful in `-p` / RPC mode where `notify` is
   a no-op.
 
 ## Hot reload

@@ -4,14 +4,14 @@ Configuration, personal instructions, and custom tooling for [Claude Code](https
 
 ## Files
 
-- [`statusline-command.sh`](#statusline-commandsh) — two-line status line rendered at the bottom of every Claude Code
+- [`statusline-command.sh`](#statusline-commandsh) - two-line status line rendered at the bottom of every Claude Code
   session.
-- [`session-usage.ts`](#session-usagets) — CLI that walks `~/.claude/projects/` and summarizes transcript token/tool
+- [`session-usage.ts`](#session-usagets) - CLI that walks `~/.claude/projects/` and summarizes transcript token/tool
   usage.
-- [`settings-baseline.json`](#settings-baselinejson) — mirrors `~/.claude/settings.json`.
-- [`settings-local.json`](#settings-localjson) — mirrors `~/.claude/settings.json`.
-- [`CLAUDE-local.md`](./CLAUDE-local.md) — personal, workspace-level instructions appended to Claude Code's `CLAUDE.md`
-  context (tool preferences, response style). Not consumed by this repo's dotfiles directly — Claude Code picks it up
+- [`settings-baseline.json`](#settings-baselinejson) - mirrors `~/.claude/settings.json`.
+- [`settings-local.json`](#settings-localjson) - mirrors `~/.claude/settings.json`.
+- [`CLAUDE-local.md`](./CLAUDE-local.md) - personal, workspace-level instructions appended to Claude Code's `CLAUDE.md`
+  context (tool preferences, response style). Not consumed by this repo's dotfiles directly - Claude Code picks it up
   when symlinked to `~/.claude/CLAUDE.md` (or similar).
 
 ## `statusline-command.sh`
@@ -26,32 +26,32 @@ Two-line status line in the dotfiles PS1 style. Claude Code invokes it after eve
  ↳ M(12):↑2k/↻ 14k/↓340 | A(2):↑45k/↻ 120k/↓3k | S:↑120k/↻ 1.2M/↓8k | ⚒ A:12(~4k) S:47(~18k)
 ```
 
-### Line 1 — shell-style context
+### Line 1 - shell-style context
 
-- **`user#host,<profile>`** — same user/host the shell prompt shows. will show the named claude code profile when
+- **`user#host,<profile>`** - same user/host the shell prompt shows. will show the named claude code profile when
   `CLAUDE_CODE_PROFILE_NAME` is set.
-- **`cwd`** — basename of `workspace.current_dir`.
-- **`(git …)`** — rendered through [`external/git-prompt.sh`](../../external/git-prompt.sh).
-- **`⎇ <name>`** — linked worktree indicator. Only shown when `workspace.git_worktree` is set.
-- **`N% left`** — context-window remaining.
-- **`$N.NNN`** — session cost in USD.
-- **`5h:N%·<time>` and `7d:N%·<time>`** — Pro/Max rate-limit windows: percent used and countdown to reset.
-- **`§xxxxxxxx`** — first 8 chars of the session UUID. Use as a prefix for `session-usage.ts session <id>`.
-- **`<model>`** — model display name.
+- **`cwd`** - basename of `workspace.current_dir`.
+- **`(git …)`** - rendered through [`external/git-prompt.sh`](../../external/git-prompt.sh).
+- **`⎇ <name>`** - linked worktree indicator. Only shown when `workspace.git_worktree` is set.
+- **`N% left`** - context-window remaining.
+- **`$N.NNN`** - session cost in USD.
+- **`5h:N%·<time>` and `7d:N%·<time>`** - Pro/Max rate-limit windows: percent used and countdown to reset.
+- **`§xxxxxxxx`** - first 8 chars of the session UUID. Use as a prefix for `session-usage.ts session <id>`.
+- **`<model>`** - model display name.
 
-### Line 2 — token and tool totals
+### Line 2 - token and tool totals
 
-- **`M:↑in/↻ cached/↓out`** — most recent API call. `↑` input + cache-creation, `↻` cache-read, `↓` output. Becomes
+- **`M:↑in/↻ cached/↓out`** - most recent API call. `↑` input + cache-creation, `↻` cache-read, `↓` output. Becomes
   `M(N):…` when the turn is available.
-- **`A(N):↑in/↻ cached/↓out`** — cumulative subagent totals.
-- **`S:↑in/↻ cached/↓out`** — cumulative main-session totals.
-- **`⚒ A:N(~tokens) S:N(~tokens)`** — tool call counts; paren values are estimated tool-result tokens (bytes/4).
+- **`A(N):↑in/↻ cached/↓out`** - cumulative subagent totals.
+- **`S:↑in/↻ cached/↓out`** - cumulative main-session totals.
+- **`⚒ A:N(~tokens) S:N(~tokens)`** - tool call counts; paren values are estimated tool-result tokens (bytes/4).
 
 ### Environment variables
 
-- **`CLAUDE_CODE_PROFILE_NAME`** — when set, appended to the host segment (`,profile`) in the tmux/screen PS1 style. The
+- **`CLAUDE_CODE_PROFILE_NAME`** - when set, appended to the host segment (`,profile`) in the tmux/screen PS1 style. The
   [`claude` wrapper](../../plugins/30-claude.sh) sets this automatically when invoked with `-u <profile>`.
-- **`DOT_DISABLE_HYPERLINKS`** — disables OSC 8 hyperlinks for the cwd and cost segments.
+- **`DOT_DISABLE_HYPERLINKS`** - disables OSC 8 hyperlinks for the cwd and cost segments.
 
 ### Caching
 
@@ -77,20 +77,20 @@ CLI that scans `~/.claude/projects/` for session transcripts and prints summarie
 
 ### Options
 
-- **`--project, -p <slug|path>`** — project to inspect. Accepts a slug (directory name under `~/.claude/projects/`) or
+- **`--project, -p <slug|path>`** - project to inspect. Accepts a slug (directory name under `~/.claude/projects/`) or
   any path, which gets resolved to a slug. Defaults to the project matching `$PWD`.
-- **`--user-dir, -u <dir>`** — alternate Claude profile root. Defaults to `~/.claude`.
-- **`--sort <field>`** — `date` (default), `tokens`, `duration`, or `tools`.
-- **`--limit, -n <N>`** — cap output to the top N sessions.
-- **`--json`** — machine-readable JSON output.
-- **`--no-color`** — disable ANSI colors.
+- **`--user-dir, -u <dir>`** - alternate Claude profile root. Defaults to `~/.claude`.
+- **`--sort <field>`** - `date` (default), `tokens`, `duration`, or `tools`.
+- **`--limit, -n <N>`** - cap output to the top N sessions.
+- **`--json`** - machine-readable JSON output.
+- **`--no-color`** - disable ANSI colors.
 
 ### Columns and fields
 
 The list / detail views include a `CONTEXT` column (and `Context (last turn)` row in detail) when sessions carry
 per-turn usage. The value is the input tokens sent to the model on the most recently completed assistant response
 (`input_tokens + cache_creation_input_tokens + cache_read_input_tokens`). It is **not** a prediction of what the next
-request will send — the next request will add any post-assistant user text and tool results on top. JSON output exposes
+request will send - the next request will add any post-assistant user text and tool results on top. JSON output exposes
 the same value as `last_context_tokens`.
 
 ## `settings-baseline.json`

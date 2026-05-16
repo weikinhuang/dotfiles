@@ -2,7 +2,7 @@
 name: grep-before-read
 description:
   Default to `rg`/`grep` for discovery instead of reading whole files. Use whenever you're hunting for a symbol,
-  function, pattern, or a specific line in a repo you don't already have fully loaded in context — especially on files
+  function, pattern, or a specific line in a repo you don't already have fully loaded in context - especially on files
   over ~400 lines, unknown codebases, or when the user asks "where is X defined/used?". Read only after you know the
   target lines; use `offset`/`limit` to pull just the region you need. Do NOT use when the file is already loaded in
   context, when a test suite already scopes the discovery, or when the user handed you an exact path to a short file.
@@ -131,7 +131,7 @@ Total spend: ~800 tokens. Same answer.
 
 Once `rg` points you at a specific file and line range:
 
-1. `read <path> --offset <line> --limit <small_window>` — pull only the region you need.
+1. `read <path> --offset <line> --limit <small_window>` - pull only the region you need.
 2. Record the location in `scratchpad` ("`searchHandler` @ src/api/search.ts:412") so you don't re-grep next turn.
 3. Only widen the `limit` or drop it entirely if the first window was obviously too small.
 
@@ -140,7 +140,7 @@ Once `rg` points you at a specific file and line range:
 - **Don't `read` a file over 400 lines without `offset`/`limit`.** The `read-without-limit-nudge` extension will point
   this out anyway; pre-empt it.
 - **Don't grep the same pattern twice in a turn.** If the first `rg` result was useful, note it in `scratchpad`; if it
-  was useless, adjust the pattern (add anchors, restrict paths, escape metacharacters) — don't rerun unchanged.
+  was useless, adjust the pattern (add anchors, restrict paths, escape metacharacters) - don't rerun unchanged.
 - **Don't `rg | head`-pattern in pi.** `rg` already caps its own output, and piping can mask errors. If the result set
   is huge, tighten the regex or add `-g` globs.
 - **Don't reach for `find -name X | xargs grep`.** `rg` already walks the tree respecting `.gitignore`, and
