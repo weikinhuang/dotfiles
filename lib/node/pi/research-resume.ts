@@ -8,13 +8,13 @@
  * should re-enter the pipeline, plus the minimal disk-surgery a
  * resume needs to do before re-invoking existing stage functions:
  *
- *   - {@link validateRunRoot}              \u2014 is this directory a plausible run root?
- *   - {@link listRecentRuns}               \u2014 pick the most-recent run when `--run-root` is absent.
- *   - {@link countPriorReviewIterations}   \u2014 N prior review snapshots so the next iter is N+1.
- *   - {@link detectResumeStage}            \u2014 earliest incomplete stage, with reasoning string.
- *   - {@link invalidateIncompleteFanoutTasks} \u2014 flip failed/aborted tasks back to 'pending'
+ *   - {@link validateRunRoot}              - is this directory a plausible run root?
+ *   - {@link listRecentRuns}               - pick the most-recent run when `--run-root` is absent.
+ *   - {@link countPriorReviewIterations}   - N prior review snapshots so the next iter is N+1.
+ *   - {@link detectResumeStage}            - earliest incomplete stage, with reasoning string.
+ *   - {@link invalidateIncompleteFanoutTasks} - flip failed/aborted tasks back to 'pending'
  *                                               so the idempotent fanout re-dispatches them.
- *   - {@link findStubbedSections}          \u2014 scan `report.md` for `[section unavailable: \u2026]`
+ *   - {@link findStubbedSections}          - scan `report.md` for `[section unavailable: …]`
  *                                               blocks so the extension can surface a
  *                                               targeted "resume from fanout" hint.
  *
@@ -386,7 +386,7 @@ export interface InvalidateFanoutResult {
  * a reset is the correct remedy.
  *
  * If `fanout.json` is absent or malformed the function returns
- * `ok: true` with `reset: []` \u2014 there is nothing to invalidate; the
+ * `ok: true` with `reset: []` - there is nothing to invalidate; the
  * caller should invoke fanout, which will create a fresh file.
  */
 export function invalidateIncompleteFanoutTasks(runRoot: string, ids: readonly string[]): InvalidateFanoutResult {
@@ -455,7 +455,7 @@ export interface StubbedSection {
 /**
  * Walk `reportPath`, split on `^## ` H2 boundaries, and return any
  * section whose body is a whole-section
- * `[section unavailable: \u2026]` stub emitted by
+ * `[section unavailable: …]` stub emitted by
  * `deep-research-synth-sections`. Used by the extension's review
  * path to surface a targeted "run /research --resume --from=fanout
  * to re-fetch these" hint instead of letting the review loop burn

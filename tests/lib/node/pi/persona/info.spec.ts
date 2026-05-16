@@ -1,5 +1,5 @@
 /**
- * Tests for `lib/node/pi/persona/info.ts` \u2014 pure formatters for the
+ * Tests for `lib/node/pi/persona/info.ts` — pure formatters for the
  * persona CLI flags `--persona-info`, `--list-personas`,
  * `--validate-personas`.
  */
@@ -14,7 +14,7 @@ import {
   type PersonaListItem,
 } from '../../../../../lib/node/pi/persona/info.ts';
 
-// \u2500\u2500 formatPersonaInfoLines \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+// -- formatPersonaInfoLines ---------------------------------------------------------------
 
 describe('formatPersonaInfoLines', () => {
   const baseInput = (overrides: Partial<PersonaInfoInput> = {}): PersonaInfoInput => ({
@@ -105,7 +105,7 @@ describe('formatPersonaInfoLines', () => {
   });
 });
 
-// \u2500\u2500 formatPersonaListLines \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+// -- formatPersonaListLines ---------------------------------------------------------------
 
 describe('formatPersonaListLines', () => {
   test('empty input → single fallback line', () => {
@@ -141,7 +141,7 @@ describe('formatPersonaListLines', () => {
   });
 });
 
-// \u2500\u2500 formatPersonaValidate \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+// -- formatPersonaValidate --------------------------------------------------------------
 
 describe('formatPersonaValidate', () => {
   test('no warnings → exit 0 + OK summary', () => {

@@ -4,8 +4,8 @@
  * deep-research extension after a review run.
  *
  * When the final `report.md` still contains `[section unavailable:
- * \u2026]` stubs emitted by `deep-research-synth-sections` on an empty
- * findings file, refinement cannot fix them \u2014 the user needs to
+ * …]` stubs emitted by `deep-research-synth-sections` on an empty
+ * findings file, refinement cannot fix them — the user needs to
  * re-fetch those sub-questions. This helper walks the report,
  * resolves each stubbed heading to its `plan.subQuestions[*].id`,
  * and returns a copy-pasteable `/research --resume` command
@@ -21,7 +21,7 @@
  * so the shape still copy-pastes into a working command.
  *
  * Pure + advisory: missing / unreadable `report.md` returns
- * `null` (no stubs \u2192 no hint); a malformed `plan.json` is
+ * `null` (no stubs → no hint); a malformed `plan.json` is
  * swallowed and falls through to the placeholder path. This
  * helper must never throw into the notify path.
  */
@@ -86,7 +86,7 @@ export function resolveStubbedSectionIds(
  *      `plan.subQuestions[*].question`.
  *   2. Case-insensitive trimmed match, picking the single bucket
  *      member when the normalized heading appears exactly once.
- *   3. Give up \u2192 placeholder path for that heading.
+ *   3. Give up → placeholder path for that heading.
  *
  * When any heading fails to resolve, the helper emits the
  * placeholder command for the whole hint so the copy-paste never
@@ -168,7 +168,7 @@ function readPlanSubQuestions(planPath: string): PlanSubQuestionHandle[] {
     if (plan.kind !== 'deep-research') return [];
     return plan.subQuestions.map((sq) => ({ id: sq.id, question: sq.question }));
   } catch {
-    /* advisory hint \u2014 never break on a malformed plan.json */
+    /* advisory hint — never break on a malformed plan.json */
     return [];
   }
 }

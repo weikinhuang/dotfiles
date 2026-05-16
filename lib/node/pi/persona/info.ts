@@ -12,30 +12,30 @@
  *
  * Three exports, three concerns:
  *
- *  - `formatPersonaInfoLines(input)` \u2014 multi-line dump of one resolved
+ *  - `formatPersonaInfoLines(input)` — multi-line dump of one resolved
  *    persona (source, inheritedFrom, tools, writeRoots, bashAllow,
  *    bashDeny, model, thinkingLevel, requestOptions, body / prompt
  *    lengths). Mirrors what `/persona info <name>` already prints.
  *
- *  - `formatPersonaListLines(items)` \u2014 one line per persona with the
+ *  - `formatPersonaListLines(items)` — one line per persona with the
  *    layered source tag (`[shipped]` / `[user]` / `[project]`) and a
  *    `*` prefix on the active one. Tighter than the interactive
  *    `/persona` listing because the `-p` audience is reading stdout,
  *    not a notify popup.
  *
- *  - `formatPersonaValidate(input)` \u2014 walks the warnings the parsing
+ *  - `formatPersonaValidate(input)` — walks the warnings the parsing
  *    pipeline accumulated and returns `{ exitCode, lines }`. Exit code
  *    is non-zero iff at least one warning fired, so CI scripts can
- *    `pi --validate-personas && \u2026` confidently.
+ *    `pi --validate-personas && …` confidently.
  *
- * Inputs are deliberately structural (plain shapes \u2014 no pi imports)
+ * Inputs are deliberately structural (plain shapes — no pi imports)
  * so the persona extension shell can construct them from its parsed
  * persona records without re-resolving anything, and the spec can
  * exercise edge cases (missing optional fields, no warnings, mixed
  * sources) without the runtime in scope.
  */
 
-// \u2500\u2500 Persona-info formatter \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+// -- Persona-info formatter -----------------------------------------------------------------------
 
 /** Structural shape consumed by `formatPersonaInfoLines`. */
 export interface PersonaInfoInput {
@@ -88,7 +88,7 @@ export function formatPersonaInfoLines(input: PersonaInfoInput): string[] {
   ];
 }
 
-// \u2500\u2500 Persona-list formatter \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+// -- Persona-list formatter ---------------------------------------------------------------------
 
 export interface PersonaListItem {
   readonly name: string;
@@ -106,7 +106,7 @@ export interface PersonaListItem {
  *
  *   * chat            [shipped] Long-form Q&A with web access; no writes.
  *     plan            [shipped] Drop a plan doc; never edits source.
- *     exusiai-buddy   [user]    \u2026
+ *     exusiai-buddy   [user]    …
  */
 export function formatPersonaListLines(items: readonly PersonaListItem[]): string[] {
   if (items.length === 0) return ['(no personas loaded)'];
@@ -121,7 +121,7 @@ export function formatPersonaListLines(items: readonly PersonaListItem[]): strin
   });
 }
 
-// \u2500\u2500 Persona-validate formatter \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+// -- Persona-validate formatter -----------------------------------------------------------------
 
 export interface PersonaValidateWarning {
   readonly path: string;

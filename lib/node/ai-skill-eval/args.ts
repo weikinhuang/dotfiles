@@ -63,10 +63,10 @@ Global options:
                               config/pi/skills, .claude/skills
   --workspace DIR           Where to write results. Default: .ai-skill-eval/
   --driver pi|claude|codex  Built-in driver. Default: auto-detected from PATH
-                            (probe order pi \u2192 claude \u2192 codex).
+                            (probe order pi → claude → codex).
   --model ID                Model id passed to the driver.
-                            Defaults: pi \u2192 env AI_SKILL_EVAL_MODEL or
-                            llama-cpp/qwen3-6-35b-a3b; claude / codex \u2192 driver default.
+                            Defaults: pi → env AI_SKILL_EVAL_MODEL or
+                            llama-cpp/qwen3-6-35b-a3b; claude / codex → driver default.
   --driver-cmd SHELL        Custom driver command. Reads the prompt from the
                             file at $AI_SKILL_EVAL_PROMPT_FILE, writes the
                             model reply to stdout. Overrides --driver.

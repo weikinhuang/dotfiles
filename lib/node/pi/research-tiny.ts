@@ -4,9 +4,6 @@
  * URL type classification, fuzzy match, etc.) that have a
  * deterministic fallback when the model is unavailable.
  *
- * The core contract is documented in
- * [`plans/pi-research-core.md`](../../../plans/pi-research-core.md):
- *
  *   - When settings do not resolve a `tinyModel`, every adapter
  *     function returns `null` immediately and callers take the
  *     deterministic path.
