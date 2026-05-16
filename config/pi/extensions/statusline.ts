@@ -400,7 +400,7 @@ export default function extension(pi: ExtensionAPI): void {
         // it actually overrides.
         const personaStatus = footerData.getExtensionStatuses().get('persona');
         if (personaStatus) {
-          line1Parts.push(' ', paint(PALETTE.persona, personaStatus.replace(/[\r\n\t]+/g, ' ')));
+          line1Parts.push(paint(PALETTE.grey, ' • '), paint(PALETTE.persona, personaStatus.replace(/[\r\n\t]+/g, ' ')));
         }
 
         // --- line 2: ↳ M:↑/↻/↓ | S:↑/↻/↓ | ⚒ S:n(~bytes) ---
