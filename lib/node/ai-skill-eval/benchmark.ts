@@ -252,7 +252,7 @@ function buildNotes(grades: readonly GradeRecord[], configurations: readonly Gra
   const notes: string[] = [];
   const flaws = grades.flatMap((g) => (Array.isArray(g.flaws) ? g.flaws : []));
   const timeouts = flaws.filter((f) => /TIMEOUT/i.test(f)).length;
-  if (timeouts > 0) notes.push(`Driver timeouts on ${timeouts} grade(s) \u2014 benchmark stats may be compressed`);
+  if (timeouts > 0) notes.push(`Driver timeouts on ${timeouts} grade(s) - benchmark stats may be compressed`);
   if (configurations.length < 2) {
     notes.push(
       'Only one configuration present; delta block is omitted. Run with `--baseline` to populate without_skill stats.',
@@ -363,7 +363,7 @@ export function buildBenchmark(
 // ──────────────────────────────────────────────────────────────────────
 
 function formatStatsCell(s: MetricStats | null, kind: 'percent' | 'seconds' | 'tokens' | 'tool_calls'): string {
-  if (s == null) return '\u2014';
+  if (s == null) return '-';
   if (kind === 'percent') {
     const meanPct = Math.round(s.mean * 100);
     const sdPct = Math.round(s.stddev * 100);
@@ -371,7 +371,7 @@ function formatStatsCell(s: MetricStats | null, kind: 'percent' | 'seconds' | 't
   }
   if (kind === 'seconds') return `${s.mean.toFixed(2)}s ± ${s.stddev.toFixed(2)}s`;
   if (kind === 'tokens') return `${Math.round(s.mean)} ± ${Math.round(s.stddev)}`;
-  return '\u2014';
+  return '-';
 }
 
 function renderRow(
@@ -393,7 +393,7 @@ function renderRow(
           : key === 'tokens'
             ? delta?.tokens
             : null;
-    cells.push(key === 'tool_calls' || value == null ? '\u2014' : value);
+    cells.push(key === 'tool_calls' || value == null ? '-' : value);
   }
   return `| ${cells.join(' | ')} |`;
 }
@@ -406,12 +406,12 @@ function renderRow(
  */
 export function renderBenchmarkMarkdown(doc: BenchmarkDocument): string {
   const lines: string[] = [
-    `# Benchmark \u2014 ${doc.metadata.skill_name} (iteration-${doc.metadata.iteration})`,
+    `# Benchmark - ${doc.metadata.skill_name} (iteration-${doc.metadata.iteration})`,
     '',
     `- Generated: \`${doc.metadata.timestamp}\``,
-    `- Evals: ${doc.metadata.evals_run.length} (${doc.metadata.evals_run.join(', ') || '\u2014'})`,
+    `- Evals: ${doc.metadata.evals_run.length} (${doc.metadata.evals_run.join(', ') || '-'})`,
     `- Runs per configuration: ${doc.metadata.runs_per_configuration}`,
-    `- Configurations: ${doc.metadata.configurations.join(', ') || '\u2014'}`,
+    `- Configurations: ${doc.metadata.configurations.join(', ') || '-'}`,
     '',
   ];
 

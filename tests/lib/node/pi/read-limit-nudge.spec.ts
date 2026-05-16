@@ -1,5 +1,5 @@
 /**
- * Tests for lib/node/pi/read-limit-nudge.ts — pure module, no pi.
+ * Tests for lib/node/pi/read-limit-nudge.ts - pure module, no pi.
  */
 
 import { describe, expect, test } from 'vitest';
@@ -28,7 +28,7 @@ function probe(trunc: TruncationLike, opts: { offset?: number; limit?: number; p
 // skip paths
 // ──────────────────────────────────────────────────────────────────────
 
-describe('classifyRead — skip paths', () => {
+describe('classifyRead - skip paths', () => {
   test('had-offset: skip when offset is present', () => {
     const out = classifyRead(probe({ totalLines: 10_000 }, { offset: 100 }));
 
@@ -102,7 +102,7 @@ describe('classifyRead — skip paths', () => {
 // nudge paths
 // ──────────────────────────────────────────────────────────────────────
 
-describe('classifyRead — nudge paths', () => {
+describe('classifyRead - nudge paths', () => {
   test('nudge by lines at the default threshold', () => {
     const out = classifyRead(probe({ totalLines: DEFAULT_MIN_LINES }));
 

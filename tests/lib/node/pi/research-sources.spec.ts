@@ -3,14 +3,14 @@
  *
  * The suite is organized into three rings:
  *
- *   1. URL normalization — a hand-written table for pinning specific
+ *   1. URL normalization - a hand-written table for pinning specific
  *      semantics (tracking-param strip, default port, fragment, case)
  *      PLUS a programmatic grid that produces 200+ coverage cases by
  *      combining hosts × casings × protocols × query-param shapes.
- *   2. Cache key stability — sha256 prefix length, canonical form
+ *   2. Cache key stability - sha256 prefix length, canonical form
  *      across semantically-equal variants, idempotency under repeat
  *      normalization.
- *   3. Source store — round-trip through `fetchAndStore`,
+ *   3. Source store - round-trip through `fetchAndStore`,
  *      `getById`, `listRun`; cache-miss → fetch → cache-hit pattern;
  *      recovery from a broken cache (missing / malformed ref);
  *      search-web flow caching hits.
@@ -89,10 +89,10 @@ function frozenClock(iso: string): () => Date {
 }
 
 // ──────────────────────────────────────────────────────────────────────
-// URL normalization — hand-written "pinning" cases.
+// URL normalization - hand-written "pinning" cases.
 // ──────────────────────────────────────────────────────────────────────
 
-describe('normalizeUrl — canonical table', () => {
+describe('normalizeUrl - canonical table', () => {
   // Each entry pins a specific rule. Expected values are exactly
   // what WHATWG URL serialization produces after our rules are
   // applied, so changes here are a deliberate contract change.
@@ -152,10 +152,10 @@ describe('normalizeUrl — canonical table', () => {
 });
 
 // ──────────────────────────────────────────────────────────────────────
-// URL normalization — programmatic grid (ensures ≥ 200 cases total).
+// URL normalization - programmatic grid (ensures ≥ 200 cases total).
 // ──────────────────────────────────────────────────────────────────────
 
-describe('normalizeUrl — combinatoric grid', () => {
+describe('normalizeUrl - combinatoric grid', () => {
   const hosts = ['example.com', 'sub.example.com', 'foo.example.org', 'a-b-c.example.net', 'site.example.co.uk'];
   const casings: ((s: string) => string)[] = [
     (s) => s,
@@ -254,7 +254,7 @@ describe('hashKey', () => {
     expect(k1).not.toBe(k2);
   });
 
-  test('normalizes before hashing — tracking params do not change the key', () => {
+  test('normalizes before hashing - tracking params do not change the key', () => {
     const a = hashKey('https://example.com/?utm_source=x');
     const b = hashKey('https://example.com/');
 
@@ -263,10 +263,10 @@ describe('hashKey', () => {
 });
 
 // ──────────────────────────────────────────────────────────────────────
-// fetchAndStore — round-trip through the cache.
+// fetchAndStore - round-trip through the cache.
 // ──────────────────────────────────────────────────────────────────────
 
-describe('fetchAndStore — round-trip', () => {
+describe('fetchAndStore - round-trip', () => {
   test('fetches on miss, stores markdown + ref sidecar', async () => {
     const mcp = new MockMcpClient();
     const url = 'https://example.com/article';
@@ -351,10 +351,10 @@ describe('fetchAndStore — round-trip', () => {
 });
 
 // ──────────────────────────────────────────────────────────────────────
-// Idempotent re-fetch — second call hits cache.
+// Idempotent re-fetch - second call hits cache.
 // ──────────────────────────────────────────────────────────────────────
 
-describe('fetchAndStore — idempotent re-fetch', () => {
+describe('fetchAndStore - idempotent re-fetch', () => {
   test('second call returns method=cached and does not re-invoke MCP', async () => {
     const mcp = new MockMcpClient();
     const url = 'https://example.com/twice';
@@ -388,7 +388,7 @@ describe('fetchAndStore — idempotent re-fetch', () => {
 // Broken-cache recovery.
 // ──────────────────────────────────────────────────────────────────────
 
-describe('fetchAndStore — broken-cache recovery', () => {
+describe('fetchAndStore - broken-cache recovery', () => {
   test('missing .md alongside a valid ref triggers a re-fetch', async () => {
     const mcp = new MockMcpClient();
     const url = 'https://example.com/repair-md';
@@ -485,7 +485,7 @@ describe('fetchAndStore — broken-cache recovery', () => {
 
     expect(first.method).toBe('failed');
 
-    // Now the upstream recovers — the retry should fetch, not cache.
+    // Now the upstream recovers - the retry should fetch, not cache.
     mcp.fetchResponses.set(url, { content: 'finally', title: 'ok' });
     const second = await fetchAndStore(runRoot, url, mcp);
 
@@ -609,7 +609,7 @@ describe('searchWeb', () => {
   test('skips search results that have no URL', async () => {
     const mcp = new MockMcpClient();
     mcp.searchResponses.set('q', {
-      // @ts-expect-error — exercising defensive filtering for malformed search output.
+      // @ts-expect-error - exercising defensive filtering for malformed search output.
       results: [{ url: '' }, { url: 'https://example.com/x' }, { title: 'no url' }],
     });
     mcp.fetchResponses.set('https://example.com/x', { content: 'x', title: 'x' });
@@ -638,10 +638,10 @@ describe('SourceRef shape', () => {
 });
 
 // ──────────────────────────────────────────────────────────────────────
-// contentHash semantics — body-only.
+// contentHash semantics - body-only.
 // ──────────────────────────────────────────────────────────────────────
 
-describe('SourceRef.contentHash — body-only semantic', () => {
+describe('SourceRef.contentHash - body-only semantic', () => {
   test('equals sha256 of the raw fetched body, NOT the on-disk bytes', async () => {
     const mcp = new MockMcpClient();
     const url = 'https://example.com/hash-body';
@@ -661,7 +661,7 @@ describe('SourceRef.contentHash — body-only semantic', () => {
 
     const ref1 = await fetchAndStore(runRoot, url, mcp);
 
-    // Distinct run root — frontmatter timestamps will differ, but the
+    // Distinct run root - frontmatter timestamps will differ, but the
     // content hash is body-only, so it must match.
     const otherRoot = join(cwd, 'research', 'other-run');
     mcp.fetchResponses.set(url, { content: body, title: 'T' });
@@ -672,10 +672,10 @@ describe('SourceRef.contentHash — body-only semantic', () => {
 });
 
 // ──────────────────────────────────────────────────────────────────────
-// Validator tightening — non-failed refs must carry a non-empty hash.
+// Validator tightening - non-failed refs must carry a non-empty hash.
 // ──────────────────────────────────────────────────────────────────────
 
-describe('cache ref validator — contentHash strictness', () => {
+describe('cache ref validator - contentHash strictness', () => {
   test('on-disk ref with empty contentHash on a non-failed method triggers a re-fetch', async () => {
     const mcp = new MockMcpClient();
     const url = 'https://example.com/empty-hash';

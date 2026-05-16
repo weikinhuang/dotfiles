@@ -1,5 +1,5 @@
 /**
- * Stall-recovery extension for pi — auto-retry when the model stops
+ * Stall-recovery extension for pi - auto-retry when the model stops
  * without producing work.
  *
  * Companion to the `todo` extension's completion-claim guardrail. The two
@@ -7,7 +7,7 @@
  *
  *   - `todo` guardrail: model claims done while open todos remain.
  *   - `stall-recovery`: model produces nothing at all (empty turn or
- *     provider error) — common with weaker local models, reasoning
+ *     provider error) - common with weaker local models, reasoning
  *     models whose "thinking" phase completes without emitting content,
  *     and transient network / rate-limit errors.
  *
@@ -18,7 +18,7 @@
  * How it works:
  *
  *   1. On `agent_end`, scan `event.messages` with `countTrailingStalls`
- *      — a stateless counter that walks backwards and counts consecutive
+ *      - a stateless counter that walks backwards and counts consecutive
  *      stalled assistant turns since the last real user prompt. Any
  *      healthy assistant turn (text or tool call) in the window resets
  *      the count to zero, so intermediate successes inside a multi-step
@@ -32,7 +32,7 @@
  *
  *   3. When `countTrailingStalls === maxRetries` we've already fired the
  *      maximum retries for this prompt, so we surface a one-shot notify
- *      ("Auto-retry paused — type to continue manually") and stop until
+ *      ("Auto-retry paused - type to continue manually") and stop until
  *      the user intervenes. The `input` handler clears the one-shot
  *      flag when a real user prompt arrives.
  *
@@ -91,7 +91,7 @@ export default function stallRecovery(pi: ExtensionAPI): void {
   })();
   const verbose = process.env.PI_STALL_RECOVERY_VERBOSE === '1';
 
-  // The retry budget itself is stateless — we recompute it from the
+  // The retry budget itself is stateless - we recompute it from the
   // message history on every agent_end via `countTrailingStalls`. The
   // only piece we keep in memory is whether we've already surfaced the
   // "budget exhausted" notify for the current prompt, so we don't spam
@@ -106,7 +106,7 @@ export default function stallRecovery(pi: ExtensionAPI): void {
     // Only reset on real user input. Our own sendUserMessage calls fire
     // input events with source='extension'; resetting on those is
     // harmless (the budget is stateless) but clearing the exhausted
-    // notice is wrong — wait for a real prompt.
+    // notice is wrong - wait for a real prompt.
     if (event.source === 'extension') return;
     if (typeof event.text === 'string' && hasStallMarker(event.text)) return;
     budgetExhaustedNotified = false;
@@ -122,7 +122,7 @@ export default function stallRecovery(pi: ExtensionAPI): void {
     const messages = (event as { messages?: readonly unknown[] }).messages ?? [];
 
     // Use the last assistant snapshot only to describe the reason in UI
-    // output — the decision of whether to fire is driven by the
+    // output - the decision of whether to fire is driven by the
     // trailing-stall count so we don't double-count or miss intermediate
     // successes.
     const snapshot = lastAssistantSnapshot(messages);
@@ -130,7 +130,7 @@ export default function stallRecovery(pi: ExtensionAPI): void {
     const reason: StallReason | null = classifyAssistant(snapshot);
 
     if (!reason) {
-      // Healthy final turn — clear any lingering retry status and the
+      // Healthy final turn - clear any lingering retry status and the
       // one-shot exhausted-notify flag.
       if (budgetExhaustedNotified) {
         budgetExhaustedNotified = false;
@@ -148,7 +148,7 @@ export default function stallRecovery(pi: ExtensionAPI): void {
         budgetExhaustedNotified = true;
         const detail = reason.kind === 'error' ? `error: ${reason.error}` : 'empty response';
         ctx.ui.notify(
-          `Agent stalled ${trailing} time(s) in a row (${detail}). Auto-retry paused — type to continue manually.`,
+          `Agent stalled ${trailing} time(s) in a row (${detail}). Auto-retry paused - type to continue manually.`,
           'warning',
         );
         clearStatus(ctx);
@@ -165,7 +165,7 @@ export default function stallRecovery(pi: ExtensionAPI): void {
 
     ctx.ui.setStatus(
       STATUS_KEY,
-      `⟳ Auto-retrying stalled turn (${attempt}/${maxRetries})${reason.kind === 'error' ? ' — transport error' : ''}…`,
+      `⟳ Auto-retrying stalled turn (${attempt}/${maxRetries})${reason.kind === 'error' ? ' - transport error' : ''}…`,
     );
 
     const nudge = buildRetryMessage(reason, attempt, maxRetries);
@@ -191,7 +191,7 @@ export default function stallRecovery(pi: ExtensionAPI): void {
   });
 
   pi.on('session_shutdown', () => {
-    // Nothing to persist — the budget is stateless and the
+    // Nothing to persist - the budget is stateless and the
     // exhausted-notify flag is fine to lose on shutdown. Declared only
     // so the extension has a visible lifecycle hook if future changes
     // need cleanup.

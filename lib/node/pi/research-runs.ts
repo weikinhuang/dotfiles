@@ -18,7 +18,7 @@
  *     plan parses but isn't a deep-research plan are filtered out
  *     (they belong to a sibling extension).
  *   - `formatRunsTable(runs)` formats the summary as a fixed-width
- *     text table — `slug | status | wall-clock | cost`. Empty input
+ *     text table - `slug | status | wall-clock | cost`. Empty input
  *     returns a friendly "no runs found" sentence so the command
  *     output is never blank.
  *   - `formatSelftestResult(result)` pretty-prints the selftest
@@ -31,7 +31,7 @@
  * Wall-clock is derived from `journal.md` (first → last entry
  * timestamp) because the plan schema doesn't track elapsed time
  * yet. Cost isn't tracked at all in Phase 1, so the table shows
- * "—" for missing fields. Phase 5 wires statusline widgets that
+ * "-" for missing fields. Phase 5 wires statusline widgets that
  * will populate richer stats; until then the table stays honest
  * about what it knows.
  */
@@ -50,11 +50,11 @@ import { fmtCost } from './token-format.ts';
 // Private constants + helpers
 // ──────────────────────────────────────────────────────────────────────
 
-/** Name reserved by the autoresearch extension — skipped by `listRuns`. */
+/** Name reserved by the autoresearch extension - skipped by `listRuns`. */
 const LAB_DIRNAME = 'lab';
 
 /** Placeholder shown when a column's value is unknown. */
-const UNKNOWN_CELL = '—';
+const UNKNOWN_CELL = '-';
 
 /**
  * Maximum per-diff rows surfaced by `formatSelftestResult` before
@@ -116,29 +116,29 @@ function formatWallClock(sec: number): string {
  * Resumability status surfaced by `/research --list`. Reports
  * which `/research --resume` flow the user should reach for on
  * this slug (or `done` / `error` terminals). Derived purely from
- * on-disk artifacts — {@link sumFanoutDeficit},
+ * on-disk artifacts - {@link sumFanoutDeficit},
  * {@link findStubbedSections}, and plan.status.
  *
- *   - `done`                — plan.status=done and report.md has
+ *   - `done`                - plan.status=done and report.md has
  *                             no `[section unavailable]` stubs.
- *   - `needs-review`        — report.md exists but plan.status is
+ *   - `needs-review`        - report.md exists but plan.status is
  *                             not `done`; likely a prior
  *                             `budget-exhausted` review. Resume
  *                             via `--from=review --review-max-iter
  *                             <N>`.
- *   - `stubbed`             — report.md exists with one or more
+ *   - `stubbed`             - report.md exists with one or more
  *                             `[section unavailable]` sections;
  *                             re-fanout the sub-questions with
  *                             `--from=fanout --sq=<ids>`.
- *   - `no-report`           — all findings complete but synth
+ *   - `no-report`           - all findings complete but synth
  *                             never ran (or was aborted before
  *                             writing report.md). Resume
  *                             `--from=synth`.
- *   - `incomplete-fanout`   — one or more sub-questions missing
+ *   - `incomplete-fanout`   - one or more sub-questions missing
  *                             findings or marked
  *                             failed/aborted/pending. Resume
  *                             `--from=fanout`.
- *   - `error`               — plan.json missing / malformed /
+ *   - `error`               - plan.json missing / malformed /
  *                             kind-mismatch. {@link RunSummary.error}
  *                             carries the details.
  */
@@ -149,7 +149,7 @@ export type RunResumability = 'done' | 'needs-review' | 'stubbed' | 'no-report' 
  * is present but may be `null` when the underlying source of truth
  * isn't populated yet (no plan, no journal, cost not tracked in
  * Phase 1). `error` is non-null for slugs whose plan.json failed
- * to load or parse — the row is still returned so the user can see
+ * to load or parse - the row is still returned so the user can see
  * the broken run and decide what to do with it.
  */
 export interface RunSummary {
@@ -166,7 +166,7 @@ export interface RunSummary {
    */
   costUsd: number | null;
   /**
-   * Resumability verdict — which `/research --resume` flow the
+   * Resumability verdict - which `/research --resume` flow the
    * user should reach for, or `done` / `error`. Populated for
    * every row (even broken ones, which report `error`). `null`
    * reserved for future states where inference is impossible.
@@ -185,11 +185,11 @@ export interface RunSummary {
  * public entry point is `listRuns`.
  *
  * `wallClockSec` is ALWAYS derived from the journal when present,
- * regardless of whether the plan loaded cleanly — a broken or
+ * regardless of whether the plan loaded cleanly - a broken or
  * kind-mismatched plan still has user-visible elapsed time worth
  * surfacing. `costUsd` comes from the same journal scan: a
  * present-but-empty journal reads as `0`, and a plan-less slug
- * preserves `null` so the table renders `—` rather than a
+ * preserves `null` so the table renders `-` rather than a
  * misleading `$0.000`.
  *
  * `resumability` is inferred from on-disk artifacts via the
@@ -220,7 +220,7 @@ export function summarizeRun(cwd: string, slug: string): RunSummary {
     const plan = readPlan(p.plan);
     if (plan.kind !== 'deep-research') {
       // An autoresearch plan found outside `research/lab/` is
-      // legal but not a deep-research run — surface the mismatch
+      // legal but not a deep-research run - surface the mismatch
       // so the user can relocate it rather than silently drop it.
       return {
         slug,
@@ -228,7 +228,7 @@ export function summarizeRun(cwd: string, slug: string): RunSummary {
         wallClockSec,
         costUsd,
         resumability: 'error',
-        error: `plan.json kind=${plan.kind} — not a deep-research run`,
+        error: `plan.json kind=${plan.kind} - not a deep-research run`,
       };
     }
 
@@ -236,7 +236,7 @@ export function summarizeRun(cwd: string, slug: string): RunSummary {
     return { slug, status: plan.status, wallClockSec, costUsd, resumability, error: null };
   } catch (e) {
     // `PlanValidationError` carries a `path` pointer to the exact
-    // field that failed validation — surface it so the `! …` row
+    // field that failed validation - surface it so the `! …` row
     // in the list table points the user at the bad field rather
     // than just showing a generic parse error.
     const error =
@@ -270,8 +270,8 @@ function inferResumability(
  * is present, or `null` when no such run exists.
  *
  * Used by the deep-research extension's question-mode path to
- * detect a slug collision at command entry time — before the
- * planner spins up — so the user can be prompted to resume the
+ * detect a slug collision at command entry time - before the
+ * planner spins up - so the user can be prompted to resume the
  * existing run instead of quietly colliding. The derivation
  * uses the same {@link slugify} call the pipeline's journal
  * pre-path uses, so a positive match here means the user's new

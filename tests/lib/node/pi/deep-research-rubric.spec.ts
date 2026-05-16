@@ -100,7 +100,7 @@ describe('renderStructuralRubric', () => {
   test('prefixes the title with the plan slug for greppability', () => {
     const body = renderStructuralRubric(makePlan());
 
-    expect(body).toContain('# Structural Rubric — demo-plan');
+    expect(body).toContain('# Structural Rubric - demo-plan');
   });
 });
 
@@ -110,7 +110,7 @@ describe('renderSubjectiveRubric', () => {
 
     for (const item of STRUCTURAL_CHECK_ITEMS) {
       // The whole bullet text shouldn't appear verbatim in the
-      // subjective rubric — this is the contract that keeps the
+      // subjective rubric - this is the contract that keeps the
       // critic focused on judgement-only items.
       expect(body).not.toContain(item.text);
     }

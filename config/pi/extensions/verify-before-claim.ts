@@ -1,5 +1,5 @@
 /**
- * Verify-before-claim extension for pi — flags verification claims the
+ * Verify-before-claim extension for pi - flags verification claims the
  * model makes without running a verifier in the same turn.
  *
  * Generalization of the `todo` extension's completion-claim guardrail.
@@ -16,7 +16,7 @@
  *   2. Walk the branch backward to the most recent user message,
  *      collecting every bash command that ran in between via
  *      `collectBashCommandsSinceLastUser` (covers both the `bash`
- *      tool and `bg_bash` start-action calls — see the helper for
+ *      tool and `bg_bash` start-action calls - see the helper for
  *      details).
  *
  *   3. Partition claims into (verified, unverified) using liberal
@@ -38,7 +38,7 @@
  * All three inject messages with distinct sentinels and check for their
  * own sentinel before firing, so they never re-trigger on their own
  * nudges. They CAN fire together on the same turn if the model makes
- * multiple kinds of claim — that's fine, each reaches the model
+ * multiple kinds of claim - that's fine, each reaches the model
  * separately and the model can address them independently.
  *
  * Per-project / per-user config (JSONC, all optional) at
@@ -65,7 +65,7 @@
  * `git commit` (excluding `--no-verify` / `-n`) with whatever claim
  * kinds those hook tools would satisfy. See
  * `lib/node/pi/verify-hook-detect.ts` for the scan / mapping logic.
- * Users never have to configure it — a successful commit in a repo
+ * Users never have to configure it - a successful commit in a repo
  * with husky + lint-staged + eslint + oxfmt just works. The explicit
  * `commandSatisfies` config still overrides anything the detector
  * missed.
@@ -102,7 +102,7 @@ import {
 } from '../../../lib/node/pi/verify-detect.ts';
 import { detectHookRules } from '../../../lib/node/pi/verify-hook-detect.ts';
 
-/** Sentinel prepended to every steer — used for idempotency + discovery. */
+/** Sentinel prepended to every steer - used for idempotency + discovery. */
 const VERIFY_MARKER = '⚠ [pi-verify-before-claim]';
 
 export default function verifyBeforeClaim(pi: ExtensionAPI): void {
@@ -127,8 +127,8 @@ export default function verifyBeforeClaim(pi: ExtensionAPI): void {
     const explicit = loadSatisfyRules(cwd);
     const detected = detectHookRules(cwd);
     // Order: detected first, explicit second. Both are equivalent at
-    // match time — `verifyingCommandMatches` short-circuits on the
-    // first hit — but putting the user's explicit config later keeps
+    // match time - `verifyingCommandMatches` short-circuits on the
+    // first hit - but putting the user's explicit config later keeps
     // their intent visible in any debug dump that prints the rule
     // list. Warnings concatenate in (global, project, detector) order
     // so first-seen errors surface first.
@@ -195,7 +195,7 @@ export default function verifyBeforeClaim(pi: ExtensionAPI): void {
     if (unverified.length === 0) return;
 
     // Idempotency: if the previous user message already carries our
-    // marker, we already steered this turn — let the model respond to
+    // marker, we already steered this turn - let the model respond to
     // that nudge on its own rather than piling on.
     if (lastUserMessageHasMarker(branch, VERIFY_MARKER)) {
       trace('skip: previous user message already carries marker');

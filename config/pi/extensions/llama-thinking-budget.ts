@@ -9,9 +9,9 @@
  *   - "qwen" / "zai"              -> `enable_thinking: true`
  *
  * None of those carry a numeric budget. This extension watches
- * `before_provider_request`, detects any of the three signals, and — for
+ * `before_provider_request`, detects any of the three signals, and - for
  * providers that opt in via a `thinkingBudgetInjection` block in
- * `models.json` — adds a numeric `thinking_budget_tokens` (configurable
+ * `models.json` - adds a numeric `thinking_budget_tokens` (configurable
  * field name) to the payload. When the payload only carries a boolean
  * (qwen / qwen-chat-template), the current thinking level is read from
  * the session so we know which budget to use.
@@ -152,7 +152,7 @@ function loadSettingsBudgets(): Partial<Record<Level, number>> {
 
 function loadProviderInjections(): Map<string, InjectionConfig> {
   const out = new Map<string, InjectionConfig>();
-  // Global first, then project — project wins by being applied last.
+  // Global first, then project - project wins by being applied last.
   for (const path of [join(homedir(), '.pi', 'agent', 'models.json'), join(process.cwd(), '.pi', 'models.json')]) {
     const parsed = readJson(path);
     if (!parsed || typeof parsed !== 'object') continue;
@@ -187,7 +187,7 @@ function resolveBudget(
 
 export default function llamaThinkingBudgetExtension(pi: ExtensionAPI): void {
   const providers = loadProviderInjections();
-  if (providers.size === 0) return; // No providers opted in — no-op.
+  if (providers.size === 0) return; // No providers opted in - no-op.
 
   const settings = loadSettingsBudgets();
   const env = envBudgets();

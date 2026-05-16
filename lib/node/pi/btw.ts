@@ -23,20 +23,20 @@ import { trimOrUndefined } from './shared.ts';
  * model. Kept short and directive: weaker models behave better when told
  * exactly what mode they're in and what they can't do.
  *
- * Ordering matters — the directive goes at the top of the user message
+ * Ordering matters - the directive goes at the top of the user message
  * so the model reads it before the question itself. We deliberately do
  * NOT modify the system prompt: changing the prompt's prefix would break
  * prompt-cache hits for this call, which is the main cost lever.
  */
 export const SIDE_QUESTION_DIRECTIVE =
-  '[Side question — answer concisely using only the context already loaded in this conversation. ' +
+  '[Side question - answer concisely using only the context already loaded in this conversation. ' +
   'Do not propose or call tools. This Q&A will not be saved to the session history.]';
 
 /**
  * Build the `content` string for the synthetic user message appended to
  * the end of the branch when answering a side question. The directive
  * goes first, then a blank line, then the user's question. Returns
- * `undefined` when the question is empty after trim — callers should
+ * `undefined` when the question is empty after trim - callers should
  * surface a usage message instead of calling the model.
  */
 export function buildSideQuestionUserContent(question: string): string | undefined {
@@ -84,7 +84,7 @@ export function parseModelSpec(spec: string | undefined): ParsedModelSpec | unde
  * Minimal shape of the objects inside an `AssistantMessage.content`
  * array that {@link extractAnswerText} knows how to handle. Declared
  * locally so this module has no dependency on `@earendil-works/pi-ai`.
- * Runtime shape compatibility is what counts — callers can pass the
+ * Runtime shape compatibility is what counts - callers can pass the
  * real pi-ai types freely.
  */
 export interface AssistantContentPart {
@@ -123,7 +123,7 @@ export interface BtwFooterStats {
   model: string;
   /** Total tokens consumed by the side-question call. */
   totalTokens?: number;
-  /** Cache-read tokens — helps confirm prompt caching engaged. */
+  /** Cache-read tokens - helps confirm prompt caching engaged. */
   cacheReadTokens?: number;
   /** Output tokens emitted by the model. */
   outputTokens?: number;
@@ -205,7 +205,7 @@ export const BTW_USAGE = [
   '',
   "Ask a side question about this session's context without saving the Q&A to history",
   'and without letting the model call tools. Inherits the current model, system prompt,',
-  'and conversation — so prompt caching from the main turn reuses.',
+  'and conversation - so prompt caching from the main turn reuses.',
   '',
   'Example:',
   '  /btw what file did we edit three turns ago?',

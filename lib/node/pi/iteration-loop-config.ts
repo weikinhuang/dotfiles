@@ -14,24 +14,24 @@
  *
  * Supported keys (all optional):
  *
- *   claim_regexes                  string[]  — replace built-in
+ *   claim_regexes                  string[]  - replace built-in
  *                                              artifact-correctness
  *                                              claim patterns.
- *   claim_regexes_extra            string[]  — APPEND to built-ins
+ *   claim_regexes_extra            string[]  - APPEND to built-ins
  *                                              instead of replacing.
- *   strict_nudge_after_n_edits     integer   — default 2.
- *   max_iter_default               integer   — forwarded to the
+ *   strict_nudge_after_n_edits     integer   - default 2.
+ *   max_iter_default               integer   - forwarded to the
  *                                              `declare` action when
  *                                              the model omits
  *                                              maxIter.
- *   cost_cap_default_usd           number    — same, for maxCostUsd.
- *   archive_on_close               boolean   — default true.
+ *   cost_cap_default_usd           number    - same, for maxCostUsd.
+ *   archive_on_close               boolean   - default true.
  *
  * Later files override earlier ones for scalar values.
  * `claim_regexes` (replace) from a later file wins over an earlier
  * `claim_regexes_extra`; `claim_regexes_extra` stacks additively.
  *
- * No pi imports — this module is unit-tested under vitest.
+ * No pi imports - this module is unit-tested under vitest.
  */
 
 import { readFileSync } from 'node:fs';
@@ -41,12 +41,12 @@ import { join } from 'node:path';
 import { parseJsonc } from './jsonc.ts';
 
 /**
- * Built-in claim regexes — artifact-correctness sign-offs the
+ * Built-in claim regexes - artifact-correctness sign-offs the
  * iteration-loop wants to catch. Complement to verify-before-claim's
  * test/lint/build regexes: those fire on "tests pass" etc., these
  * fire on "looks right / matches spec / done".
  *
- * Patterns are intentionally narrow — only match claims that sound
+ * Patterns are intentionally narrow - only match claims that sound
  * like the artifact is DONE, not e.g. "the rendering looks right so
  * far" (which contains hedges the pattern rejects). False positives
  * just add noise; false negatives let genuinely-unverified claims
@@ -66,7 +66,7 @@ export const BUILT_IN_CLAIM_REGEXES: readonly string[] = [
 ];
 
 export interface IterationLoopConfig {
-  /** Compiled claim regexes — built-ins by default, replaced or
+  /** Compiled claim regexes - built-ins by default, replaced or
    *  appended to via the JSONC files. */
   claimRegexes: RegExp[];
   /** Number of edits-to-artifact per turn that triggers the strict

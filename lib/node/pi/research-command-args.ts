@@ -127,7 +127,7 @@ export interface ResearchOverrides {
 /**
  * Stages at which a `--resume` can re-enter the pipeline. Each
  * corresponds to a function-call boundary inside
- * `runResearchPipeline` — auto-detection in
+ * `runResearchPipeline` - auto-detection in
  * {@link ../research-resume} inspects disk and picks the earliest
  * incomplete stage; a user-supplied `--from=<stage>` overrides it.
  */
@@ -178,7 +178,7 @@ export type ResearchCommandArgs =
   | { kind: 'selftest'; trailing?: string }
   /**
    * `/research --resume [--run-root <path>] [--from <stage>]
-   *   [--review-max-iter N] [overrides]` — resume an existing
+   *   [--review-max-iter N] [overrides]` - resume an existing
    * run. `runRoot` defaults to the most-recent `./research/*` if
    * omitted; `from` is auto-detected from on-disk state if
    * omitted.
@@ -248,7 +248,7 @@ export function parseMaxTurns(flag: string, raw: string): number | { error: stri
 
 /**
  * Validate a `--fanout-parallel` value. Positive integer, capped
- * at 64 (sanity bound — real fanouts rarely exceed a dozen; the
+ * at 64 (sanity bound - real fanouts rarely exceed a dozen; the
  * cap guards against pasted garbage).
  */
 export function parseParallel(flag: string, raw: string): number | { error: string } {
@@ -274,7 +274,7 @@ const WALL_CLOCK_MAX_SEC = 86_400;
  *   - `Ns` / `Nm` / `Nh` with a positive integer `N`.
  *
  * Returns the value in seconds, clamped to {@link WALL_CLOCK_MAX_SEC}.
- * Fractional durations are rejected — if the user wants 90 minutes
+ * Fractional durations are rejected - if the user wants 90 minutes
  * they can write `90m` or `5400s` / `5400`.
  */
 export function parseWallClockSec(flag: string, raw: string): number | { error: string } {

@@ -174,7 +174,7 @@ describe('upgrade', () => {
   });
 });
 
-describe('upgrade — structural error paths', () => {
+describe('upgrade - structural error paths', () => {
   test('rejects a non-object input with a $ path', () => {
     const err = catchThrown(() => upgrade('plan'));
 
@@ -291,7 +291,7 @@ describe('readPlan / writePlan', () => {
 // Failure modes.
 // ──────────────────────────────────────────────────────────────────────
 
-describe('readPlan / writePlan — failure modes', () => {
+describe('readPlan / writePlan - failure modes', () => {
   test('atomic-write contract: no temp file remains after write', () => {
     const p = join(cwd, 'plan.json');
     writePlan(p, deepResearch);

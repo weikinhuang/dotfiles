@@ -1,15 +1,15 @@
 /**
  * Per-mode bash policy: layers a `bashAllow` / `bashDeny` decision on
  * top of whatever `config/pi/extensions/bash-permissions.ts` already
- * resolved for the call. Pure module — no pi imports — so the matcher
+ * resolved for the call. Pure module - no pi imports - so the matcher
  * + decision tree are unit-tested directly under vitest.
  *
  * Pattern semantics (kept deliberately small; richer glob support is
  * a v2 follow-up if a shipped mode legitimately needs it):
  *
- *   - `"*"`            — wildcard, matches any command.
- *   - `"foo"`          — exact head-token match (`cmd.trim().split(/\s+/)[0]` === `"foo"`).
- *   - `"foo *"`        — head-token equals everything before the first `*`, trimmed.
+ *   - `"*"`            - wildcard, matches any command.
+ *   - `"foo"`          - exact head-token match (`cmd.trim().split(/\s+/)[0]` === `"foo"`).
+ *   - `"foo *"`        - head-token equals everything before the first `*`, trimmed.
  *
  * Resolution order (allow wins over deny on overlap, allow-list mode
  * still applies when allow is non-empty):
@@ -21,7 +21,7 @@
  *   5. Otherwise                       → allow.
  *
  * The intuition: `bashAllow: ["rg *"], bashDeny: ["*"]` means "deny
- * everything, but carve out rg" — rg is allowed, everything else is
+ * everything, but carve out rg" - rg is allowed, everything else is
  * blocked by either the allow-list (rule 4) or the explicit deny
  * (rule 3, when allow is empty). Rule 4 specifically means a non-empty
  * `bashAllow` is still restrictive: a command with no allow match and

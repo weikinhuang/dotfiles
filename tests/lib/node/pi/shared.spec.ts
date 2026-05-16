@@ -1,7 +1,7 @@
 /**
  * Tests for lib/node/pi/shared.ts.
  *
- * Pure module — no pi runtime needed.
+ * Pure module - no pi runtime needed.
  */
 
 import { expect, test } from 'vitest';
@@ -146,7 +146,7 @@ test('sha256Hex: accepts Buffer inputs and matches the equivalent string', () =>
 });
 
 test('sha256Hex: treats string inputs as UTF-8 (multibyte)', () => {
-  // é is two bytes in UTF-8 — the digest matches the UTF-8 byte sequence,
+  // é is two bytes in UTF-8 - the digest matches the UTF-8 byte sequence,
   // not any other encoding. Regression-guard for a future "helpful"
   // change to e.g. Latin-1.
   expect(sha256Hex('é')).toBe(sha256Hex(Buffer.from([0xc3, 0xa9])));

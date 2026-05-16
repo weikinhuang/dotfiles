@@ -47,14 +47,14 @@ test('stripJsonComments: // and /* inside strings are NOT stripped', () => {
 });
 
 test('stripJsonComments: escaped quotes do not end strings early', () => {
-  // `"a\"b // not a comment"` — the escaped quote keeps us inside the string.
+  // `"a\"b // not a comment"` - the escaped quote keeps us inside the string.
   const src = '{"s": "a\\"b // still inside"}';
 
   expect(stripJsonComments(src)).toBe(src);
 });
 
 test('stripJsonComments: backslash-quote pairs inside a string', () => {
-  // `{"s": "\\"}` — a single backslash then end-of-string. Must round-trip.
+  // `{"s": "\\"}` - a single backslash then end-of-string. Must round-trip.
   const src = '{"s": "\\\\"}';
 
   expect(stripJsonComments(src)).toBe(src);
@@ -109,7 +109,7 @@ test('parseJsonc: realistic rule file with commentary', () => {
 });
 
 test('parseJsonc: propagates SyntaxError from malformed JSON', () => {
-  // Trailing commas are NOT supported — verify they still throw, so a
+  // Trailing commas are NOT supported - verify they still throw, so a
   // future decision to allow them is a deliberate opt-in.
   expect(() => parseJsonc('{"a": 1,}')).toThrow(SyntaxError);
   // Genuinely broken input also throws.

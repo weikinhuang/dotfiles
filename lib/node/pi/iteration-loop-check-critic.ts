@@ -1,15 +1,15 @@
 /**
  * Critic-kind check executor helpers for the iteration-loop.
  *
- * This module does NOT spawn the subagent itself — that's the
+ * This module does NOT spawn the subagent itself - that's the
  * extension's job (it owns the pi runtime handle). Instead we export
  * two pure pieces:
  *
- *   1. `buildCriticTask(spec, artifactPath)` — construct the `task`
+ *   1. `buildCriticTask(spec, artifactPath)` - construct the `task`
  *      string handed to the critic subagent, including the rubric,
  *      the artifact path, and the strict JSON output contract.
  *
- *   2. `parseVerdict(raw)` — tolerant parser that extracts a Verdict
+ *   2. `parseVerdict(raw)` - tolerant parser that extracts a Verdict
  *      object from the critic's final message. Handles:
  *      - Leading/trailing prose (extract first/last `{...}`).
  *      - Markdown code fences (```json ... ```).
@@ -19,7 +19,7 @@
  *        Verdict rather than throwing, so the loop can still record
  *        the iteration and move on).
  *
- * The critic task template is deliberately terse and imperative —
+ * The critic task template is deliberately terse and imperative -
  * weak-model critics produce better structured output when the
  * contract is blunt and leaves no room for preamble.
  *
@@ -34,8 +34,8 @@ import { type CriticCheckSpec, type Issue, type IssueSeverity, type Verdict } fr
 
 /**
  * The rubric is user-authored text injected into the critic task
- * template. To keep prompt-injection risk low — especially with weak
- * models that follow "last instruction wins" — we rewrite any
+ * template. To keep prompt-injection risk low - especially with weak
+ * models that follow "last instruction wins" - we rewrite any
  * triple-backtick fence or triple-quote run the rubric contains so it
  * can't collide with the surrounding template's "return JSON only,
  * no markdown fences" instruction. The replacement text is still
@@ -106,14 +106,14 @@ export function buildCriticTask(input: BuildCriticTaskInput): string {
   lines.push('');
   lines.push('Rules:');
   lines.push('  - `approved: true` requires ALL rubric items pass. Partial credit goes in `score`.');
-  lines.push('  - Issue descriptions must say WHAT is wrong and WHERE — "label X is missing"');
+  lines.push('  - Issue descriptions must say WHAT is wrong and WHERE - "label X is missing"');
   lines.push('    beats "labels are off".');
   lines.push('  - Do not include ANYTHING outside the JSON object. No markdown fences.');
   return lines.join('\n');
 }
 
 // ──────────────────────────────────────────────────────────────────────
-// Verdict parser — public entry point declared after its internals.
+// Verdict parser - public entry point declared after its internals.
 // ──────────────────────────────────────────────────────────────────────
 
 export interface ParseVerdictResult {
@@ -139,9 +139,9 @@ export interface ParseVerdictResult {
 function stripFences(text: string): { text: string; recoveries: string[] } {
   const recoveries: string[] = [];
   // Match an opening fence at the start and optional closing fence at
-  // the end. Language tags range wildly — qwen3 uses `json`, small
+  // the end. Language tags range wildly - qwen3 uses `json`, small
   // models sometimes emit `JSON5` / `javascript` / bare ``` / even
-  // nothing — so accept any alphanumeric run before the newline.
+  // nothing - so accept any alphanumeric run before the newline.
   const openRe = /^```[a-zA-Z0-9]*\s*\n?/;
   const closeRe = /\n?```\s*$/;
   let out = text;
@@ -199,7 +199,7 @@ function sliceJsonObject(text: string): { json: string | null; recoveries: strin
       }
     }
   }
-  // Unbalanced — no matching close.
+  // Unbalanced - no matching close.
   return { json: null, recoveries: [...recoveries, 'unbalanced braces'] };
 }
 
@@ -269,7 +269,7 @@ function normalizeVerdict(parsed: unknown, raw: string, prior: string[]): ParseV
   }
   const o = parsed as Record<string, unknown>;
 
-  // approved — required, but tolerate truthy/falsy coercions.
+  // approved - required, but tolerate truthy/falsy coercions.
   let approved: boolean;
   if (typeof o.approved === 'boolean') {
     approved = o.approved;
@@ -281,7 +281,7 @@ function normalizeVerdict(parsed: unknown, raw: string, prior: string[]): ParseV
     recoveries.push('missing/invalid `approved`; defaulted to false');
   }
 
-  // issues — required array, but tolerate missing or wrongly-typed.
+  // issues - required array, but tolerate missing or wrongly-typed.
   let issuesRaw: unknown[] = [];
   if (Array.isArray(o.issues)) {
     issuesRaw = o.issues;
@@ -301,7 +301,7 @@ function normalizeVerdict(parsed: unknown, raw: string, prior: string[]): ParseV
 
   // Consistency check: if approved=true but issues are present with
   // severity=blocker, that's incoherent. Downgrade approved AND clamp
-  // score — otherwise a verdict like `{approved:true, score:1,
+  // score - otherwise a verdict like `{approved:true, score:1,
   // issues:[{severity:"blocker"}]}` would keep score=1 after the
   // approved downgrade and silently win best-so-far against a
   // legitimately-scored non-approved verdict.
@@ -334,12 +334,12 @@ function normalizeVerdict(parsed: unknown, raw: string, prior: string[]): ParseV
 }
 
 // ──────────────────────────────────────────────────────────────────────
-// Verdict parser — public entry point declared after its internals.
+// Verdict parser - public entry point declared after its internals.
 // ──────────────────────────────────────────────────────────────────────
 
 /**
  * Tolerant verdict parser. Given a critic's raw final message,
- * extract a Verdict. Never throws — on total failure, returns a
+ * extract a Verdict. Never throws - on total failure, returns a
  * synthetic failure Verdict with the raw text preserved in `raw`.
  */
 export function parseVerdict(rawText: string): ParseVerdictResult {

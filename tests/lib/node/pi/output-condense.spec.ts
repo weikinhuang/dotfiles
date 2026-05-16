@@ -1,7 +1,7 @@
 /**
  * Tests for lib/node/pi/output-condense.ts.
  *
- * Pure module — no pi runtime needed.
+ * Pure module - no pi runtime needed.
  */
 
 import { expect, test } from 'vitest';
@@ -121,7 +121,7 @@ test('condense: head/tail overlap case (headLines + tailLines ≥ total) returns
 
 test('condense: clamps tiny maxBytes to the 512-byte floor', () => {
   const lines = Array.from({ length: 50 }, (_, i) => `line ${i + 1} padded padded padded`);
-  // Setting maxBytes to 1 must not crash — lib enforces a floor.
+  // Setting maxBytes to 1 must not crash - lib enforces a floor.
   const r = condense(lines.join('\n'), { maxBytes: 1, maxLines: 5, headLines: 2, tailLines: 2 });
 
   expect(r.truncated).toBe(true);
@@ -140,7 +140,7 @@ test('condense: clamps tiny maxLines to the 20-line floor', () => {
 });
 
 test('condense: reports accurate original byte count (UTF-8 aware)', () => {
-  // Emoji is multi-byte in UTF-8 — originalBytes must reflect encoded length.
+  // Emoji is multi-byte in UTF-8 - originalBytes must reflect encoded length.
   const text = '✓ ok\n✓ ok\n✓ ok';
   const r = condense(text, { maxBytes: 10_000, maxLines: 100 });
 

@@ -1,7 +1,7 @@
 /**
  * Tests for lib/node/pi/loop-breaker.ts.
  *
- * Pure module — no pi runtime needed.
+ * Pure module - no pi runtime needed.
  */
 
 import { describe, expect, test } from 'vitest';
@@ -84,7 +84,7 @@ describe('pushAndCheck', () => {
     expect(result).toEqual({ kind: 'repeat', count: 3 });
   });
 
-  test('trimming — old entries drop out of the window', () => {
+  test('trimming - old entries drop out of the window', () => {
     const h: string[] = [];
     // Fill the window with 'a' then push 6 non-'a's; now 'a' should be evicted.
     pushAndCheck(h, 'a', 6, 3);
@@ -123,7 +123,7 @@ describe('pushAndCheck', () => {
     pushAndCheck(h, 'b', 6, 3);
     pushAndCheck(h, 'a', 6, 3);
     pushAndCheck(h, 'b', 6, 3);
-    // 'a' appears twice in-window, 'b' appears twice — neither hit threshold=3 yet.
+    // 'a' appears twice in-window, 'b' appears twice - neither hit threshold=3 yet.
     const third = pushAndCheck(h, 'a', 6, 3);
 
     expect(third).toEqual({ kind: 'repeat', count: 3 });

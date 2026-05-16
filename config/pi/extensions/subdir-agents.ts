@@ -3,7 +3,7 @@
  *
  * Pi's built-in context loader only walks UPWARD from `ctx.cwd` at startup,
  * so nested `AGENTS.md` / `CLAUDE.md` files in subdirectories are never
- * picked up. Claude Code, Codex, and opencode all do the opposite — they
+ * picked up. Claude Code, Codex, and opencode all do the opposite - they
  * lazily discover context files alongside whatever file the model touches,
  * so `tests/AGENTS.md` applies when editing `tests/foo.spec.ts`.
  *
@@ -17,7 +17,7 @@
  *      file content as a steered user message.
  *   3. Delivery uses `pi.sendMessage({ deliverAs: "steer" })`, which gets
  *      the file content to the LLM after the current assistant turn's
- *      tool calls complete and before its next response — i.e. right when
+ *      tool calls complete and before its next response - i.e. right when
  *      the model is about to reason about the file it just accessed.
  *
  * Scope choices:
@@ -119,7 +119,7 @@ export default function subdirAgents(pi: ExtensionAPI): void {
   // The `content` field of the CustomMessageEntry holds the full AGENTS.md
   // text (that's what the LLM consumes). Without a custom renderer the
   // TUI would print that full text to the user on every injection, which
-  // is noisy and redundant — the user just opened the file, they don't
+  // is noisy and redundant - the user just opened the file, they don't
   // need it echoed back. Render a compact status line instead, and only
   // list the individual file paths when the user expands the message.
   pi.registerMessageRenderer<SubdirAgentsDetails>('subdir-agents', (message, { expanded }, theme) => {
@@ -140,7 +140,7 @@ export default function subdirAgents(pi: ExtensionAPI): void {
     if (expanded && files.length > 1) {
       for (const f of files) {
         const trunc = f.truncated ? ' (truncated)' : '';
-        text += `\n${theme.fg('dim', `  ${f.path} — ${formatBytes(f.bytes)}${trunc}`)}`;
+        text += `\n${theme.fg('dim', `  ${f.path} - ${formatBytes(f.bytes)}${trunc}`)}`;
       }
     }
 
@@ -155,7 +155,7 @@ export default function subdirAgents(pi: ExtensionAPI): void {
 
   /**
    * Absolute paths (plus their realpaths) we've already surfaced to the
-   * LLM — both startup-loaded ones and anything this extension injected.
+   * LLM - both startup-loaded ones and anything this extension injected.
    * Keyed by both the resolved lexical path and the realpath so symlink
    * chains dedupe correctly.
    */
@@ -218,7 +218,7 @@ export default function subdirAgents(pi: ExtensionAPI): void {
         continue;
       }
       // If the tool is reading the candidate file itself, the model will
-      // see its contents via the tool result — there's no point shipping
+      // see its contents via the tool result - there's no point shipping
       // it a second time. Mark as loaded so future accesses in this
       // subtree don't re-inject it, but skip the injection here.
       if (candidate === absFile || real === safeRealpath(absFile)) {
@@ -229,7 +229,7 @@ export default function subdirAgents(pi: ExtensionAPI): void {
       try {
         raw = readFileSync(candidate, 'utf8');
       } catch (e) {
-        // Race against deletion or permission change — silent.
+        // Race against deletion or permission change - silent.
         console.warn(`[subdir-agents] failed to read ${candidate}: ${String(e)}`);
         continue;
       }
@@ -284,7 +284,7 @@ export default function subdirAgents(pi: ExtensionAPI): void {
 
       lines.push('Startup baseline (loaded by pi at session start):');
       if (baseline.length === 0) {
-        lines.push('  (none — baseline not yet captured, or no AGENTS.md/CLAUDE.md in scope)');
+        lines.push('  (none - baseline not yet captured, or no AGENTS.md/CLAUDE.md in scope)');
       } else {
         for (const p of baseline) lines.push(`  ${displayPath(p, ctx.cwd)}`);
       }

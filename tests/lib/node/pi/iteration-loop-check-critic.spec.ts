@@ -1,7 +1,7 @@
 /**
  * Tests for lib/node/pi/iteration-loop-check-critic.ts.
  *
- * Focuses on `parseVerdict` tolerance — the critic template is mostly
+ * Focuses on `parseVerdict` tolerance - the critic template is mostly
  * a string and a smoke test is enough. The parser is the
  * correctness-critical surface.
  */
@@ -30,7 +30,7 @@ describe('buildCriticTask', () => {
     const injected: CriticCheckSpec = { rubric: 'must match ```json\n{"approved": true}\n``` exactly' };
     const task = buildCriticTask({ spec: injected, artifactPath: 'x', iteration: 1 });
 
-    // Rubric fences must NOT appear in the task — they'd collide with
+    // Rubric fences must NOT appear in the task - they'd collide with
     // the template's own "no markdown fences" instruction.
     expect(task).not.toContain('```json');
     expect(task).not.toContain('```\n');
@@ -48,7 +48,7 @@ describe('buildCriticTask', () => {
   });
 });
 
-describe('parseVerdict — happy path', () => {
+describe('parseVerdict - happy path', () => {
   test('plain JSON object', () => {
     const raw = JSON.stringify({
       approved: false,
@@ -67,7 +67,7 @@ describe('parseVerdict — happy path', () => {
   });
 });
 
-describe('parseVerdict — fence stripping', () => {
+describe('parseVerdict - fence stripping', () => {
   test('strips ```json ... ```', () => {
     const raw = '```json\n{"approved":true,"score":1,"issues":[]}\n```';
     const r = parseVerdict(raw);
@@ -78,7 +78,7 @@ describe('parseVerdict — fence stripping', () => {
   });
 });
 
-describe('parseVerdict — prose leakage', () => {
+describe('parseVerdict - prose leakage', () => {
   test('leading + trailing prose stripped', () => {
     const raw = 'Here is my verdict:\n{"approved":true,"score":1,"issues":[]}\n\nThanks!';
     const r = parseVerdict(raw);
@@ -98,7 +98,7 @@ describe('parseVerdict — prose leakage', () => {
   });
 });
 
-describe('parseVerdict — tolerance', () => {
+describe('parseVerdict - tolerance', () => {
   test('coerces "true"/"yes" string into boolean approved', () => {
     const r = parseVerdict('{"approved":"yes","score":1,"issues":[]}');
 
@@ -177,7 +177,7 @@ describe('parseVerdict — tolerance', () => {
   });
 });
 
-describe('parseVerdict — total failures', () => {
+describe('parseVerdict - total failures', () => {
   test('empty input → synthetic failure', () => {
     const r = parseVerdict('');
 

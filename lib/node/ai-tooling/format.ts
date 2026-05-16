@@ -64,7 +64,7 @@ export function fmtDuration(secs: number): string {
 }
 
 export function fmtDate(iso: string): string {
-  if (!iso) return '—';
+  if (!iso) return '-';
   const d = new Date(iso);
   const mm = String(d.getMonth() + 1).padStart(2, '0');
   const dd = String(d.getDate()).padStart(2, '0');
@@ -74,7 +74,7 @@ export function fmtDate(iso: string): string {
 }
 
 export function fmtDateFull(iso: string): string {
-  if (!iso) return '—';
+  if (!iso) return '-';
   const d = new Date(iso);
   const y = d.getFullYear();
   const mm = String(d.getMonth() + 1).padStart(2, '0');

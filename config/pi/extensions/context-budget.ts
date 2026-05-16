@@ -1,14 +1,14 @@
 /**
- * Context-budget extension for pi — surfaces the model's own context-window
+ * Context-budget extension for pi - surfaces the model's own context-window
  * usage inside its system prompt and optionally triggers auto-compaction.
  *
  * Pi's footer already shows `N% left` to the user via `ctx.getContextUsage()`,
- * but the model doesn't see the footer — only the system prompt. Weaker
+ * but the model doesn't see the footer - only the system prompt. Weaker
  * models (and some confident larger ones) will happily run a dozen 10KB
  * `read`s back to back without noticing they've burned through the window.
  * This extension closes the loop: each turn's system prompt ends with a
- * one-line advisory — "Context: 72% used (13k tokens left of 200k). Prefer
- * targeted `rg` / `read --offset / --limit` …" — so the model sees the
+ * one-line advisory - "Context: 72% used (13k tokens left of 200k). Prefer
+ * targeted `rg` / `read --offset / --limit` …" - so the model sees the
  * number AND the remediation in the same place.
  *
  * The tone escalates with usage. See `formatBudgetLine` in
@@ -25,7 +25,7 @@
  * is set to a percent in (0, 100), the extension will call `ctx.compact()`
  * once when usage EDGE-TRIGGERS across that threshold (i.e. was below on
  * the previous turn and is above now). The edge-trigger means we don't
- * re-compact every turn while sitting above the line. Off by default —
+ * re-compact every turn while sitting above the line. Off by default -
  * auto-compaction is a big hammer.
  *
  * Composes naturally with the statusline and todo / scratchpad
@@ -166,11 +166,11 @@ export default function contextBudget(pi: ExtensionAPI): void {
 
       // Header: usage + thresholds
       if (!usage || usage.percent === null || usage.tokens === null) {
-        lines.push('Context usage: (unknown — typically right after compaction, before the next LLM response)');
+        lines.push('Context usage: (unknown - typically right after compaction, before the next LLM response)');
       } else {
         const tokensLeft = Math.max(0, usage.contextWindow - usage.tokens);
         lines.push(
-          `Context usage: ${Math.round(usage.percent)}% — ${formatTokens(usage.tokens)} used, ${formatTokens(tokensLeft)} left of ${formatTokens(usage.contextWindow)} window`,
+          `Context usage: ${Math.round(usage.percent)}% - ${formatTokens(usage.tokens)} used, ${formatTokens(tokensLeft)} left of ${formatTokens(usage.contextWindow)} window`,
         );
       }
       lines.push(
@@ -180,7 +180,7 @@ export default function contextBudget(pi: ExtensionAPI): void {
         lines.push(
           `Auto-compact: edge-triggers at ${autoCompactThreshold}% (previous turn below, current at or above)` +
             (compactedThisSession
-              ? ' — already fired this session, waiting for usage to dip back under threshold'
+              ? ' - already fired this session, waiting for usage to dip back under threshold'
               : ''),
         );
       } else {

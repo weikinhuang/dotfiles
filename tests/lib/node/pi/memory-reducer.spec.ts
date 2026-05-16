@@ -1,7 +1,7 @@
 /**
  * Tests for lib/node/pi/memory-reducer.ts.
  *
- * Pure module — no pi runtime needed.
+ * Pure module - no pi runtime needed.
  */
 
 import { expect, test } from 'vitest';
@@ -155,7 +155,7 @@ test('parseFrontmatter: roundtrips values containing # (YAML comment char)', () 
   };
   const out = serializeMemory(input);
 
-  // Must be quoted — an unquoted `#` would look like a comment to any
+  // Must be quoted - an unquoted `#` would look like a comment to any
   // standards-compliant YAML reader.
   expect(out).toContain('name: "name with #hashtag"');
 
@@ -301,7 +301,7 @@ test('renderMemoryMd: global scope shows only user/feedback headings', () => {
   expect(out).toContain('## feedback');
   expect(out).not.toContain('## project');
   expect(out).not.toContain('## reference');
-  expect(out).toContain('- [a](user/a.md) — desc a');
+  expect(out).toContain('- [a](user/a.md) - desc a');
 });
 
 test('renderMemoryMd: project scope shows all four type headings', () => {
@@ -315,8 +315,8 @@ test('renderMemoryMd: project scope shows all four type headings', () => {
   expect(out).toContain('## feedback');
   expect(out).toContain('## project');
   expect(out).toContain('## reference');
-  expect(out).toContain('- [X](feedback/x.md) — x-desc');
-  expect(out).toContain('- [y](project/y.md) — desc y');
+  expect(out).toContain('- [X](feedback/x.md) - x-desc');
+  expect(out).toContain('- [y](project/y.md) - desc y');
 });
 
 test('renderMemoryMd: empty input still renders headers', () => {

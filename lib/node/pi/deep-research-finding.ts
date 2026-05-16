@@ -1,4 +1,4 @@
-/* Read "Internals" at the bottom — public API comes first. The
+/* Read "Internals" at the bottom - public API comes first. The
  * `no-use-before-define` rule is disabled at the file scope because
  * TS function declarations are hoisted and this ordering reads
  * top-down (public API → helpers). */
@@ -25,13 +25,13 @@
  *
  * This module is the pure part of that pipeline:
  *
- *   - {@link validateFindingText} — shape checker against the
+ *   - {@link validateFindingText} - shape checker against the
  *     schema, returns a structured diff usable both as a
  *     pass/fail signal AND as the body of the re-prompt.
- *   - {@link renderRePrompt} — build the "here's what you did
+ *   - {@link renderRePrompt} - build the "here's what you did
  *     wrong, rewrite the file" turn fed back to the fanout
  *     driver.
- *   - {@link classifyFindings} — decide, given the current
+ *   - {@link classifyFindings} - decide, given the current
  *     failure-counter state for a sub-question, whether to
  *     accept / re-prompt / quarantine.
  *
@@ -43,7 +43,7 @@
  * When the adapter is enabled, we rewrite each `## Sources` entry's
  * human description through `callTinyRewrite(ctx, "normalize-title",
  * ...)` before the file is accepted. Classification errors / tiny
- * failures keep the original title — this is decorative only.
+ * failures keep the original title - this is decorative only.
  */
 
 import { existsSync } from 'node:fs';
@@ -79,7 +79,7 @@ export interface FindingValidationOk {
   /** True when truncation took place to satisfy the cap. */
   truncated: boolean;
   /**
-   * Structured view of the parsed sections — handed to the
+   * Structured view of the parsed sections - handed to the
    * source-title normalization pass if the tiny adapter is active.
    */
   sections: {
@@ -130,7 +130,7 @@ export function validateFindingText(text: string): FindingValidation {
   if (sources < 0) issues.push(`missing section "${FINDING_HEADINGS.sources}"`);
   if (openQuestions < 0) issues.push(`missing section "${FINDING_HEADINGS.openQuestions}"`);
 
-  // Order check — only meaningful when all three are present.
+  // Order check - only meaningful when all three are present.
   if (findings >= 0 && sources >= 0 && openQuestions >= 0) {
     if (!(findings < sources && sources < openQuestions)) {
       issues.push(
@@ -221,7 +221,7 @@ export function renderRePrompt(failure: FindingValidationFail, subQuestionId: st
     '  - bullet cites [S1], [S2] …',
     '',
     '  ## Sources',
-    '  - [S1] <URL> — <short description>',
+    '  - [S1] <URL> - <short description>',
     '',
     '  ## Open questions',
     '  - bullet, or "None."',
@@ -243,7 +243,7 @@ export type FindingAction =
  * Given a validation result AND the prior failure-counter for this
  * sub-question, decide whether to accept, ask for one re-prompt, or
  * quarantine. The counter is owned by the caller (see
- * `research-quarantine.failureCounter`) — we're pure.
+ * `research-quarantine.failureCounter`) - we're pure.
  */
 export function classifyFindings(args: { text: string; subQuestionId: string; priorFailures: number }): FindingAction {
   const validation = validateFindingText(args.text);
@@ -272,14 +272,14 @@ export function classifyFindings(args: { text: string; subQuestionId: string; pr
 // Tiny-model source-title normalization (optional).
 // ──────────────────────────────────────────────────────────────────────
 
-const SOURCE_LINE_RE = /^- \[(S\d+)\] (\S+)(?: — (.*))?$/;
+const SOURCE_LINE_RE = /^- \[(S\d+)\] (\S+)(?: - (.*))?$/;
 
 /**
  * Extract the URLs cited in a finding's `## Sources` section, in
  * document order. The finding schema (see the agent definition at
  * `config/pi/agents/web-researcher.md`) emits lines of the form
  *
- *     - [S1] <URL> — <description>
+ *     - [S1] <URL> - <description>
  *
  * and `## Sources` is bounded by the next `## ` heading. Lines
  * that don't match {@link SOURCE_LINE_RE} are skipped silently
@@ -291,7 +291,7 @@ const SOURCE_LINE_RE = /^- \[(S\d+)\] (\S+)(?: — (.*))?$/;
  * Keeping the parser co-located with the regex keeps the "the
  * finding schema lives here" contract intact.
  *
- * Tolerant on input — a body with no `## Sources` section, or an
+ * Tolerant on input - a body with no `## Sources` section, or an
  * empty one, returns `[]`.
  */
 export function extractFindingSourceUrls(body: string): string[] {
@@ -320,7 +320,7 @@ export interface NormalizeSourceTitlesOpts<M> {
 
 /**
  * For each `## Sources` entry, rewrite the human description
- * (everything after the ` — `) through the tiny adapter's
+ * (everything after the ` - `) through the tiny adapter's
  * `normalize-title` task when the adapter is enabled. Returns a
  * new sources block string with descriptions substituted;
  * non-matching lines are preserved verbatim.
@@ -354,7 +354,7 @@ export async function normalizeSourceTitles<M>(opts: NormalizeSourceTitlesOpts<M
       rewritten = null;
     }
     const finalDesc = rewritten && rewritten.trim().length > 0 ? rewritten.trim() : desc;
-    out.push(`- [${label}] ${url} — ${finalDesc}`);
+    out.push(`- [${label}] ${url} - ${finalDesc}`);
   }
   return out.join('\n');
 }
@@ -372,7 +372,7 @@ export function writeFindingFile(path: string, body: string): void {
 }
 
 /**
- * True when `path` already exists — used by the extension to skip
+ * True when `path` already exists - used by the extension to skip
  * re-validation work on a resume where the finding already landed
  * and was accepted.
  */

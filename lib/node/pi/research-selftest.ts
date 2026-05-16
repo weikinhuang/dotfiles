@@ -6,7 +6,7 @@
  * citations, fanout, watchdog, provenance, ...) into a pipeline.
  * When the toolkit ships or when a dev edits a shared module, the
  * first question is "does the pipeline still wire up end-to-end?"
- * — NOT "does every individual module test pass?".
+ * - NOT "does every individual module test pass?".
  *
  * This module is the answer. `selftestDeepResearch` and
  * `selftestAutoresearch` run a deterministic mini-pipeline against
@@ -23,7 +23,7 @@
  * <-> provenance, citations <-> sources), not to reproduce a
  * full `/research` run.
  *
- * All LLM-style inputs are hardcoded — no `callTyped` is ever
+ * All LLM-style inputs are hardcoded - no `callTyped` is ever
  * invoked, so the selftest runs without a session, without a
  * model, and without the pi runtime. That's what lets the
  * selftest double as a CI smoke test and as a first-run sanity
@@ -66,7 +66,7 @@ export interface SelftestOpts {
    */
   cwd: string;
   /**
-   * When true, the pipeline is NOT executed — the function only
+   * When true, the pipeline is NOT executed - the function only
    * returns what it would do. Useful for plumbing smoke tests.
    */
   dryRun?: boolean;
@@ -88,12 +88,12 @@ export interface SelftestResult {
   ok: boolean;
   /** Absolute path of the run root the selftest wrote to. */
   runRoot: string;
-  /** Empty when `ok` — populated otherwise, one entry per file. */
+  /** Empty when `ok` - populated otherwise, one entry per file. */
   diffs: SelftestDiff[];
 }
 
 // ──────────────────────────────────────────────────────────────────────
-// Hardcoded fixture inputs — single source of truth.
+// Hardcoded fixture inputs - single source of truth.
 // ──────────────────────────────────────────────────────────────────────
 
 const BUDGET: PlanBudget = {
@@ -255,7 +255,7 @@ async function runDeepResearchPipeline(root: string): Promise<void> {
     });
   }
 
-  // 3. Sources — exercised through fetchAndStore + the mock MCP.
+  // 3. Sources - exercised through fetchAndStore + the mock MCP.
   const mcp = makeMockMcpClient();
   const refs: { url: string; id: string }[] = [];
   for (const s of DR_FIXTURE.sources) {
@@ -265,7 +265,7 @@ async function runDeepResearchPipeline(root: string): Promise<void> {
     refs.push({ url: s.url, id: ref.id });
   }
 
-  // 4. Finding. Written directly — no subagent in the fixture
+  // 4. Finding. Written directly - no subagent in the fixture
   //    path (the selftest is explicitly LLM-free).
   const findingPath = join(p.findings, `${DR_FIXTURE.finding.id}.md`);
   atomicWriteFile(findingPath, DR_FIXTURE.finding.body);
@@ -315,7 +315,7 @@ function runAutoresearchPipeline(root: string): void {
 /**
  * Recursively enumerate every file under `root`, returning paths
  * relative to `root` with forward-slash separators. Skips
- * directory entries — only file bytes are part of the contract.
+ * directory entries - only file bytes are part of the contract.
  */
 function listTree(root: string): string[] {
   const out: string[] = [];
@@ -387,11 +387,11 @@ function fixtureExpectedDir(flow: 'deep-research' | 'autoresearch'): string {
 /**
  * Run the deep-research mini-pipeline and diff the result tree
  * against the committed golden. Returns a `SelftestResult` with
- * either `ok: true, diffs: []` or `ok: false, diffs: [...]` —
+ * either `ok: true, diffs: []` or `ok: false, diffs: [...]` -
  * callers surface the diffs to the user.
  *
  * `opts.dryRun` returns an `ok: true` result without touching the
- * filesystem — useful for plumbing smoke tests that only want to
+ * filesystem - useful for plumbing smoke tests that only want to
  * verify the function is callable.
  */
 export async function selftestDeepResearch(opts: SelftestOpts): Promise<SelftestResult> {
@@ -420,14 +420,14 @@ export function selftestAutoresearch(opts: SelftestOpts): Promise<SelftestResult
 }
 
 // ──────────────────────────────────────────────────────────────────────
-// Golden regeneration — dev-time only.
+// Golden regeneration - dev-time only.
 // ──────────────────────────────────────────────────────────────────────
 
 /**
  * Regenerate the committed `fixtures/deep-research/expected/`
  * tree from the current pipeline. Intended for use from a
  * one-shot dev script when a module's on-disk shape changes
- * intentionally — not from test code. Running this in CI would
+ * intentionally - not from test code. Running this in CI would
  * silently mask regressions, so it is NOT wired into any test
  * path.
  *

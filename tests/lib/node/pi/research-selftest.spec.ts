@@ -84,7 +84,7 @@ describe('selftestDeepResearch', () => {
 
     // Edit the report to force a mismatch on a second run. We
     // can't just call selftestDeepResearch twice because the
-    // pipeline rewrites the tree — so we inline the comparator
+    // pipeline rewrites the tree - so we inline the comparator
     // logic via a direct edit + manual diff check using a second
     // tempdir.
     writeFileSync(join(ok.runRoot, 'report.md'), 'tampered\n');

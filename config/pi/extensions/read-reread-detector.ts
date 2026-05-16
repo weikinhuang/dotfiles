@@ -2,7 +2,7 @@
  * Read-reread-detector extension for pi.
  *
  * Small self-hosted models (qwen3-30B-A3B, gpt-oss-20B, …) regularly
- * `read` the same file 3–5 times across a single task — once to orient,
+ * `read` the same file 3–5 times across a single task - once to orient,
  * again after forgetting, again on a follow-up. `loop-breaker` catches
  * only IDENTICAL repeats (same `(toolName, input)` hash 3× in a row).
  * This extension catches the broader case: same file, same contents,
@@ -99,7 +99,7 @@ export default function readRereadDetector(pi: ExtensionAPI): void {
   });
 
   // Any real user input starts a fresh turn for "N turns ago" accounting.
-  // Extension-synthesized messages do NOT bump — they're part of the same
+  // Extension-synthesized messages do NOT bump - they're part of the same
   // logical turn the model is thinking through.
   pi.on('input', (event) => {
     if (event.source === 'extension') return;

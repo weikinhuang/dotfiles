@@ -7,22 +7,22 @@
  * What the extension does: when pi's built-in `bash` tool returns
  * `isError: true` (exit code ≠ 0), pi already embeds a
  * "Command exited with code N" line at the tail of the tool output.
- * Small self-hosted models regularly miss that line — it's buried
- * under stdout noise, sometimes past the condensation marker — and
+ * Small self-hosted models regularly miss that line - it's buried
+ * under stdout noise, sometimes past the condensation marker - and
  * carry on as if the command succeeded.
  *
  * This module exposes:
  *
- *   - `parseExitCode(content)` — pulls the exit code out of pi's
+ *   - `parseExitCode(content)` - pulls the exit code out of pi's
  *     existing trailing "Command exited with code N" line, returning
  *     `undefined` if no such line exists.
- *   - `SuppressRule` / `shouldSuppress` — optional allow-list for
+ *   - `SuppressRule` / `shouldSuppress` - optional allow-list for
  *     commands where a non-zero exit is routine (e.g. `grep` with no
  *     matches returns 1; `diff` returns 1 when files differ). Rules
  *     match on command regex plus optional exit-code list.
- *   - `loadConfig` — JSONC config loader with the same layering as
+ *   - `loadConfig` - JSONC config loader with the same layering as
  *     the other `config/pi/extensions/*.ts` (global then project).
- *   - `formatWarning` — the unmissable header we prepend to the tool
+ *   - `formatWarning` - the unmissable header we prepend to the tool
  *     result content.
  */
 
@@ -33,7 +33,7 @@ import { join } from 'node:path';
 import { parseJsonc } from './jsonc.ts';
 
 export interface SuppressRule {
-  /** Regex compiled lazily — matched against `event.input.command`. */
+  /** Regex compiled lazily - matched against `event.input.command`. */
   commandPattern: string;
   /**
    * When present, only exit codes in this list suppress the warning
@@ -52,12 +52,12 @@ export interface ConfigWarning {
 }
 
 const DEFAULT_SUPPRESSIONS: SuppressRule[] = [
-  // grep exits 1 on no-match — the LLM asking "is X present?" isn't a failure.
+  // grep exits 1 on no-match - the LLM asking "is X present?" isn't a failure.
   // exitCodes: [1] so "grep: no such file" (exit 2) still warns.
   { commandPattern: '(?:^|[\\s&|;(])grep(?=[\\s]|$)', exitCodes: [1] },
   // same for common grep variants
   { commandPattern: '(?:^|[\\s&|;(])(rg|ag|ack)(?=[\\s]|$)', exitCodes: [1] },
-  // diff exits 1 when files differ — often intentional
+  // diff exits 1 when files differ - often intentional
   { commandPattern: '(?:^|[\\s&|;(])diff(?=[\\s]|$)', exitCodes: [1] },
 ];
 
@@ -84,7 +84,7 @@ export function parseExitCode(content: string): number | undefined {
  * exit code for commands it matches; a rule with `exitCodes`
  * suppresses only when the exit code is in the list.
  *
- * Malformed regexes are skipped silently — the caller handles that
+ * Malformed regexes are skipped silently - the caller handles that
  * via config warnings at load time.
  */
 export function shouldSuppress(command: string, exitCode: number, rules: readonly SuppressRule[]): boolean {

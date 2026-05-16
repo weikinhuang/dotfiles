@@ -280,7 +280,7 @@ describe('renderBenchmarkMarkdown', () => {
     const doc = buildBenchmark(fx.dir, fx.skill, 1, { timestamp: '2026-01-01T00:00:00Z' });
     const md = renderBenchmarkMarkdown(doc);
 
-    expect(md).toContain('# Benchmark — sample');
+    expect(md).toContain('# Benchmark - sample');
     expect(md).toContain('| Metric | with_skill | without_skill | Δ |');
     // Pass-rate row rendered in X% ± Y% form.
     expect(md).toContain('| pass_rate | 100% ± 0% | 50% ± 0% | +50% |');
@@ -289,7 +289,7 @@ describe('renderBenchmarkMarkdown', () => {
     // tokens bare counts.
     expect(md).toContain('| tokens | 300 ± 0 | 150 ± 0 | +150 |');
     // tool_calls not captured yet; em-dashes all the way across.
-    expect(md).toContain('| tool_calls | — | — | — |');
+    expect(md).toContain('| tool_calls | - | - | - |');
   });
 
   test('single-config doc omits the delta column', () => {
@@ -338,7 +338,7 @@ describe('writeBenchmark', () => {
     expect(JSON.parse(jsonText).metadata.skill_name).toBe('sample');
     expect(JSON.parse(jsonText).metadata.iteration).toBe(1);
     expect(readFileSync(join(fx.dir, fx.skill, 'iteration-1', 'benchmark.md'), 'utf8')).toContain(
-      '# Benchmark — sample (iteration-1)',
+      '# Benchmark - sample (iteration-1)',
     );
     expect(doc.metadata.skill_name).toBe('sample');
   });

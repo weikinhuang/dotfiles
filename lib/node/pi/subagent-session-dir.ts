@@ -2,14 +2,14 @@
  * Resolve the on-disk directory where a `runOneShotAgent` child
  * session should record its `<timestamp>_<sid>.jsonl` transcript.
  *
- * Pure module — no pi imports — so it can be unit-tested under
+ * Pure module - no pi imports - so it can be unit-tested under
  * `vitest`. The pi-coupled glue (`SessionManager.create(cwd, dir)`)
  * stays in the calling extension; this helper owns only the path
  * convention + the precondition check.
  *
  * Convention (mirrors Claude Code's
  * `~/.claude/projects/<cwd-slug>/<parentSid>/subagents/agent-<aid>.jsonl`
- * layout — see [`config/pi/extensions/AGENTS.md`](../../../config/pi/extensions/AGENTS.md)):
+ * layout - see [`config/pi/extensions/AGENTS.md`](../../../config/pi/extensions/AGENTS.md)):
  *
  *     <parentSessionDir>/<parentSessionId>/subagents/
  *
@@ -24,7 +24,7 @@
  * Why this exists: the default `sessionManager` on
  * [`runOneShotAgent`](./subagent-spawn.ts) is `SessionManager.inMemory(cwd)`,
  * so any extension that omits the field silently drops the child's
- * transcript on the floor — breaking both cost/audit attribution
+ * transcript on the floor - breaking both cost/audit attribution
  * (`pi session-usage` / `ai-tool-usage` see no evidence the run
  * happened) and forensic debuggability when a fanout child errors.
  * Every `runOneShotAgent` call site MUST resolve its session
@@ -39,7 +39,7 @@ import { join } from 'node:path';
  * Subset of pi's `SessionManager` we need to derive the child
  * session dir. Both methods may throw or return empty when the
  * parent session is in-memory (e.g. `pi -p --no-session` or a test
- * harness that didn't wire a session) — this helper turns either
+ * harness that didn't wire a session) - this helper turns either
  * failure mode into a single, descriptive `Error`.
  */
 export interface ParentSessionManagerLike {
@@ -61,7 +61,7 @@ export interface ResolveSubagentSessionDirArgs {
 /**
  * Returns the directory `<parentSessionDir>/<parentSessionId>/subagents`.
  *
- * Throws when the parent session has no id or no dir — see the
+ * Throws when the parent session has no id or no dir - see the
  * module docstring for the rationale (we refuse to silently fall
  * back to an in-memory session manager). Callers that genuinely
  * need an ephemeral run should surface the precondition to the
@@ -77,14 +77,14 @@ export function resolveSubagentSessionDir(args: ResolveSubagentSessionDirArgs): 
     parentDir = parentSessionManager.getSessionDir();
   } catch (e) {
     throw new Error(
-      `${extensionLabel}: cannot persist subagent session — parent sessionManager threw while reading id/dir (${(e as Error).message}). ` +
+      `${extensionLabel}: cannot persist subagent session - parent sessionManager threw while reading id/dir (${(e as Error).message}). ` +
         'Restart pi without --no-session (or set --session-dir) so subagent transcripts can be recorded for cost + audit tracking.',
     );
   }
 
   if (!parentId || !parentDir) {
     throw new Error(
-      `${extensionLabel}: cannot persist subagent session — parent session has no id/dir (running pi with --no-session?). ` +
+      `${extensionLabel}: cannot persist subagent session - parent session has no id/dir (running pi with --no-session?). ` +
         'Restart pi without --no-session (or set --session-dir) so subagent transcripts are recorded for cost + audit tracking. ' +
         `${extensionLabel} refuses to run against an untracked parent session because every spawn would silently drop its transcript.`,
     );

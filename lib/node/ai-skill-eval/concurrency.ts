@@ -3,7 +3,7 @@
 // `runPool` walks a list of work items and invokes `worker` for each one,
 // keeping at most `limit` invocations in flight concurrently. Results are
 // returned in input order regardless of completion order. There's no
-// worker_threads / cluster here — the work items are I/O-bound driver calls
+// worker_threads / cluster here - the work items are I/O-bound driver calls
 // and we only need async concurrency, not parallel CPU.
 //
 // A rejected worker propagates out of `runPool` immediately. In-flight

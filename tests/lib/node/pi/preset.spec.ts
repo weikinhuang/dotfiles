@@ -1,7 +1,7 @@
 /**
  * Tests for lib/node/pi/preset.ts.
  *
- * Pure module — no pi runtime needed.
+ * Pure module - no pi runtime needed.
  */
 
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';

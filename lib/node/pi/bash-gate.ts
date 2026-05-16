@@ -10,15 +10,15 @@
  *
  * This module exposes a tiny contract:
  *
- *   - `installBashGate(fn)` — called once by `bash-permissions.ts` on
+ *   - `installBashGate(fn)` - called once by `bash-permissions.ts` on
  *     load to register its gating function.
- *   - `requestBashApproval(command, ctx)` — called by any other
+ *   - `requestBashApproval(command, ctx)` - called by any other
  *     extension that wants to run bash, before spawning the process.
  *
  * When no gate is installed (i.e. `PI_BASH_PERMISSIONS_DISABLED=1` or
  * the user hasn't deployed the permissions extension at all), the
  * helper returns `{ allowed: true }`. That matches the built-in `bash`
- * tool's behavior in the same scenario — if bash-permissions is off,
+ * tool's behavior in the same scenario - if bash-permissions is off,
  * both tools are equally ungated.
  *
  * Because pi's extension loader creates a fresh jiti instance per
@@ -64,7 +64,7 @@ function getSlot(): BashGateSlot {
 
 /**
  * Install (or replace) the active gate function. Safe to call on every
- * extension load — the last caller wins. `bash-permissions.ts` clears
+ * extension load - the last caller wins. `bash-permissions.ts` clears
  * the slot on `session_shutdown` so a subsequent reload that disables
  * the gate via `PI_BASH_PERMISSIONS_DISABLED=1` takes effect.
  */
@@ -84,7 +84,7 @@ export function isBashGateInstalled(): boolean {
 
 /**
  * Ask the installed gate to approve `command`. When no gate is
- * installed we return `{ allowed: true }` — see module docstring for
+ * installed we return `{ allowed: true }` - see module docstring for
  * the reasoning.
  */
 export async function requestBashApproval(command: string, ctx: BashGateContext): Promise<BashGateDecision> {

@@ -1,5 +1,5 @@
 /**
- * Todo extension for pi — plan-driven tracking for multi-step work.
+ * Todo extension for pi - plan-driven tracking for multi-step work.
  *
  * Ships a `todo` tool + `/todos` command plus three weak-model affordances
  * on top of pi's stock todo example (examples/extensions/todo.ts):
@@ -7,7 +7,7 @@
  *   1. Richer state model: { pending | in_progress | completed | blocked }.
  *      Hard invariant: at most one `in_progress` at a time (`actStart`
  *      returns an error otherwise). Serial focus is the behavior weaker
- *      models need trained into them — silently allowing parallel work
+ *      models need trained into them - silently allowing parallel work
  *      produces drift-prone plans.
  *
  *   2. System-prompt auto-injection (`before_agent_start`). The current
@@ -303,7 +303,7 @@ export default function todoExtension(pi: ExtensionAPI): void {
       if (!looksLikeCompletionClaim(assistantText)) return;
 
       // Loop guard: if the last user message on the branch already carries
-      // our marker, we've already steered this turn — don't fire again.
+      // our marker, we've already steered this turn - don't fire again.
       if (lastUserMessageHasMarker(ctx, GUARDRAIL_MARKER)) return;
 
       const inprog = state.todos.find((t) => t.status === 'in_progress');
@@ -327,12 +327,12 @@ export default function todoExtension(pi: ExtensionAPI): void {
     label: 'Todo',
     description:
       'Plan and track multi-step work. Actions: list, add (text or items[]), start (id), review (id [, note]), complete (id [, note]), block (id, note), reopen (id), clear. One todo may be in_progress at a time, and one in review. Move in_progress → review when work is done but needs verification, then → complete once verified.',
-    promptSnippet: 'Plan multi-step work up front and track progress across turns — use for any task with >1-2 steps',
+    promptSnippet: 'Plan multi-step work up front and track progress across turns - use for any task with >1-2 steps',
     promptGuidelines: [
       'Call `todo` with action "add" and an `items` array BEFORE starting work on multi-step tasks, so the plan survives compaction and is visible every turn.',
       'Keep exactly one `todo` in_progress at a time via action "start". When the work is done but not yet verified, move it to review (action "review") before starting anything else.',
-      'Complete items only after verification. If going straight from in_progress, include a `note` describing what verified the outcome (tests passed, file written, etc.). If going through review, completion can be plain — the review step was the verification parking.',
-      'If you hit an obstacle, use action "block" with a `note` explaining why — do not silently abandon items.',
+      'Complete items only after verification. If going straight from in_progress, include a `note` describing what verified the outcome (tests passed, file written, etc.). If going through review, completion can be plain - the review step was the verification parking.',
+      'If you hit an obstacle, use action "block" with a `note` explaining why - do not silently abandon items.',
     ],
     parameters: TodoParams,
 

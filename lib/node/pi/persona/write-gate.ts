@@ -2,7 +2,7 @@
  * Per-mode write-scope gate. Decides whether a `write` / `edit` tool
  * call should be allowed, prompted, or blocked based on the active
  * mode's resolved `writeRoots` plus the session-allow cache and the
- * runtime's UI availability. Pure module — no pi imports — so the
+ * runtime's UI availability. Pure module - no pi imports - so the
  * decision tree is unit-tested directly under vitest.
  *
  * The helper stops *before* the actual `askForPermission` prompt: when
@@ -12,7 +12,7 @@
  * passes back in on subsequent calls.
  *
  * See `plans/pi-mode-extension.md` decisions D3 (ask-on-violation),
- * D8 (no realpath — symlink-escapes inherit the link path).
+ * D8 (no realpath - symlink-escapes inherit the link path).
  */
 
 import { isInsideWriteRoots } from './match.ts';

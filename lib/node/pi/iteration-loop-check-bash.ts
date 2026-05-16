@@ -11,7 +11,7 @@
  *   - `jq:<expr>`: apply `jq -e <expr>` to stdout; pass iff jq exits
  *     0 AND output is truthy. Requires `jq` on PATH.
  *
- * The resulting `Verdict` uses score 1.0 for pass, 0.0 for fail —
+ * The resulting `Verdict` uses score 1.0 for pass, 0.0 for fail -
  * bash is binary. Issues are populated on fail with a single entry
  * summarizing the failure shape ("exit 2", "regex did not match",
  * "jq: expected .status=='ok'") so the model has something to react
@@ -365,20 +365,20 @@ export async function runJqPredicate(
       } else {
         done({
           passed: false,
-          failReason: `jq exited ${code}${err.trim() ? ` — ${err.trim().split('\n')[0]}` : ''}`,
+          failReason: `jq exited ${code}${err.trim() ? ` - ${err.trim().split('\n')[0]}` : ''}`,
         });
       }
     });
     try {
       child.stdin?.end(stdin);
     } catch {
-      /* stdin already closed — harmless */
+      /* stdin already closed - harmless */
     }
   });
 }
 
 // ──────────────────────────────────────────────────────────────────────
-// Main entry point — placed last so all helpers it fans out to are
+// Main entry point - placed last so all helpers it fans out to are
 // already declared above.
 // ──────────────────────────────────────────────────────────────────────
 

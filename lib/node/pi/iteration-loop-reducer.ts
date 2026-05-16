@@ -6,7 +6,7 @@
  * `toolResult.details` payload AND a mirrored
  * `customType: 'iteration-state'` session entry. On `session_start` /
  * `session_tree`, the reducer scans newest-to-oldest for the most
- * recent valid snapshot and returns it (or `null` — there is no
+ * recent valid snapshot and returns it (or `null` - there is no
  * "active loop" until the user accepts a spec).
  *
  * Action handlers are pure `(state, args) -> ActionResult`. The
@@ -15,14 +15,14 @@
  *
  * Actions:
  *
- *   - `actAccept` — seed a fresh state when the user accepts a draft.
+ *   - `actAccept` - seed a fresh state when the user accepts a draft.
  *     No prior state needed.
- *   - `actRecordEdit` — increment `editsSinceLastCheck`. Called from
+ *   - `actRecordEdit` - increment `editsSinceLastCheck`. Called from
  *     the extension's `after_tool_call` hook when a write/edit
  *     targets the declared artifact.
- *   - `actRun` — record a completed iteration. Consumes a Verdict
+ *   - `actRun` - record a completed iteration. Consumes a Verdict
  *     and run metadata; returns the new state.
- *   - `actClose` — mark the loop terminated with a stop reason.
+ *   - `actClose` - mark the loop terminated with a stop reason.
  *
  * No pi imports.
  */
@@ -74,7 +74,7 @@ export function stateFromEntry(entry: BranchEntry): IterationState | null {
 
 /**
  * Walk a branch newest-to-oldest; return the most recent valid state
- * or `null`. Callers decide what "null" means — typically "no loop is
+ * or `null`. Callers decide what "null" means - typically "no loop is
  * active, fall back to empty-until-accept".
  */
 export function reduceBranch(branch: readonly BranchEntry[]): IterationState | null {
@@ -96,7 +96,7 @@ export type { ActionError };
 export type ActionResult = GenericActionResult<IterationState>;
 
 // ──────────────────────────────────────────────────────────────────────
-// actAccept — seed state at the moment of user acceptance.
+// actAccept - seed state at the moment of user acceptance.
 // ──────────────────────────────────────────────────────────────────────
 
 export interface AcceptArgs {
@@ -107,7 +107,7 @@ export interface AcceptArgs {
 /**
  * Called when the user accepts a draft. Initializes a fresh state
  * rooted at the given timestamp. If a state already exists for this
- * task (it shouldn't — the extension enforces single-task in v1), we
+ * task (it shouldn't - the extension enforces single-task in v1), we
  * overwrite it: accepting a new draft means "start over."
  */
 export function actAccept(_prev: IterationState | null, args: AcceptArgs): ActionResult {
@@ -121,17 +121,17 @@ export function actAccept(_prev: IterationState | null, args: AcceptArgs): Actio
     return { ok: false, error: `accept requires a parseable ISO8601 \`acceptedAt\` (got "${args.acceptedAt}")` };
   }
   const fresh = emptyIterationState(args.task, args.acceptedAt);
-  return { ok: true, state: fresh, summary: `Accepted task "${args.task}" — ready for iteration 1.` };
+  return { ok: true, state: fresh, summary: `Accepted task "${args.task}" - ready for iteration 1.` };
 }
 
 // ──────────────────────────────────────────────────────────────────────
-// actRecordEdit — bump edits-since-check counter.
+// actRecordEdit - bump edits-since-check counter.
 // ──────────────────────────────────────────────────────────────────────
 
 /**
  * Called from `after_tool_call` when a write/edit targets the
  * declared artifact. Returns an error (not a state change) when the
- * loop is already terminated — a stopped loop shouldn't accrue edit
+ * loop is already terminated - a stopped loop shouldn't accrue edit
  * tracking.
  */
 export function actRecordEdit(prev: IterationState | null): ActionResult {
@@ -149,7 +149,7 @@ export function actRecordEdit(prev: IterationState | null): ActionResult {
 }
 
 // ──────────────────────────────────────────────────────────────────────
-// actRun — record a completed iteration.
+// actRun - record a completed iteration.
 // ──────────────────────────────────────────────────────────────────────
 
 function defaultSummary(v: Verdict): string {
@@ -157,7 +157,7 @@ function defaultSummary(v: Verdict): string {
   if (v.issues.length === 0) return 'not approved';
   const first = v.issues[0];
   const rest = v.issues.length > 1 ? ` (+${v.issues.length - 1} more)` : '';
-  return `not approved — [${first.severity}] ${first.description}${rest}`;
+  return `not approved - [${first.severity}] ${first.description}${rest}`;
 }
 
 export interface RunArgs {
@@ -185,13 +185,13 @@ export interface RunArgs {
  *   - Non-approved verdicts with a snapshot win iff `selectBestSoFar`
  *     says they beat the current bestSoFar.
  *   - Without a snapshot, bestSoFar can't be updated (we have no
- *     path/hash to record) — the bestSoFar from earlier iterations is
+ *     path/hash to record) - the bestSoFar from earlier iterations is
  *     preserved.
  */
 export function actRun(prev: IterationState | null, args: RunArgs): ActionResult {
   if (!prev) return { ok: false, error: 'no active loop (accept a draft first)' };
   if (prev.stopReason) {
-    return { ok: false, error: `loop already terminated (${prev.stopReason}) — cannot record another run` };
+    return { ok: false, error: `loop already terminated (${prev.stopReason}) - cannot record another run` };
   }
   if (!args.verdict) return { ok: false, error: 'run requires `verdict`' };
   if (typeof args.costDeltaUsd !== 'number' || !Number.isFinite(args.costDeltaUsd) || args.costDeltaUsd < 0) {
@@ -211,7 +211,7 @@ export function actRun(prev: IterationState | null, args: RunArgs): ActionResult
   };
   next.costUsd = prev.costUsd + args.costDeltaUsd;
 
-  // Best-so-far — only updatable when we have a snapshot path/hash to record.
+  // Best-so-far - only updatable when we have a snapshot path/hash to record.
   if (args.snapshot) {
     const candidate: BestSoFar = {
       iteration: next.iteration,
@@ -221,7 +221,7 @@ export function actRun(prev: IterationState | null, args: RunArgs): ActionResult
       artifactHash: args.snapshot.hash,
     };
     // Normalize older bestSoFar entries that predate the `approved`
-    // field — default missing approval to `false` so the selector
+    // field - default missing approval to `false` so the selector
     // treats them as not-approved (safe: only way to clobber is a
     // strictly-better candidate).
     const currentBest =
@@ -247,12 +247,12 @@ export function actRun(prev: IterationState | null, args: RunArgs): ActionResult
   return {
     ok: true,
     state: next,
-    summary: `Iter ${next.iteration}: ${verdictWord} — score ${next.lastVerdict.score.toFixed(2)}${stopTail}`,
+    summary: `Iter ${next.iteration}: ${verdictWord} - score ${next.lastVerdict.score.toFixed(2)}${stopTail}`,
   };
 }
 
 // ──────────────────────────────────────────────────────────────────────
-// actClose — explicit termination.
+// actClose - explicit termination.
 // ──────────────────────────────────────────────────────────────────────
 
 export interface CloseArgs {
@@ -260,7 +260,7 @@ export interface CloseArgs {
 }
 
 /**
- * Explicitly close the loop. No-op when already closed (idempotent —
+ * Explicitly close the loop. No-op when already closed (idempotent -
  * re-closing keeps the original stop reason).
  */
 export function actClose(prev: IterationState | null, args: CloseArgs): ActionResult {

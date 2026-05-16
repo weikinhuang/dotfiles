@@ -1,5 +1,5 @@
 /**
- * Scratchpad extension for pi — unstructured working notes that survive
+ * Scratchpad extension for pi - unstructured working notes that survive
  * compaction and travel with the session branch.
  *
  * Companion to the `todo` extension. Where `todo` holds a typed plan
@@ -22,7 +22,7 @@
  *      character cap so long-running sessions don't eat the whole prompt.
  *      This is the biggest weak-model affordance after the `todo`
  *      guardrail: the model doesn't have to remember to call `list` every
- *      turn — the state is always in front of it.
+ *      turn - the state is always in front of it.
  *
  *   3. Compaction resilience. Each successful tool call mirrors the
  *      post-action state to a `customType: 'scratchpad-state'` session
@@ -80,7 +80,7 @@ const ScratchpadParams = Type.Object({
   body: Type.Optional(
     Type.String({
       description:
-        'Note body (for action "append"; optional for "update" — include to change the note text). Free-form markdown, one note per call.',
+        'Note body (for action "append"; optional for "update" - include to change the note text). Free-form markdown, one note per call.',
     }),
   ),
   heading: Type.Optional(
@@ -164,7 +164,7 @@ export default function scratchpadExtension(pi: ExtensionAPI): void {
       'Carry decisions, paths, test commands, and other unstructured working state across turns so they survive compaction.',
     promptGuidelines: [
       'Use `scratchpad` (action `append`) to record any detail you want to remember next turn: chosen approach, flaky test names, environment paths, user answers. Prefer short, factual notes over long narrative.',
-      'Call `scratchpad` action `update` or `remove` when a note becomes outdated — stale notes are worse than no notes.',
+      'Call `scratchpad` action `update` or `remove` when a note becomes outdated - stale notes are worse than no notes.',
       'Do NOT duplicate the `todo` plan in the scratchpad. Use `todo` for action items that still need doing; use `scratchpad` for context and references.',
     ],
     parameters: ScratchpadParams,
@@ -260,7 +260,7 @@ export default function scratchpadExtension(pi: ExtensionAPI): void {
         }
         const block = formatWorkingNotes(state, { maxChars: maxInjectedChars });
         if (!block) {
-          ctx.ui.notify("(scratchpad is empty — nothing would be injected into the next turn's system prompt)", 'info');
+          ctx.ui.notify("(scratchpad is empty - nothing would be injected into the next turn's system prompt)", 'info');
           return;
         }
         ctx.ui.notify(

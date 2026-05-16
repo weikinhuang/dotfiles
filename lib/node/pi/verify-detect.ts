@@ -1,7 +1,7 @@
 /**
  * Pure helpers for the verify-before-claim extension.
  *
- * No pi imports — testable under `vitest`.
+ * No pi imports - testable under `vitest`.
  *
  * The extension's job is to detect when the model signs off with a
  * verification claim ("tests pass", "lint is clean", "it builds", …)
@@ -48,7 +48,7 @@ export type ClaimKind = 'tests-pass' | 'lint-clean' | 'types-check' | 'build-cle
 
 export interface Claim {
   kind: ClaimKind;
-  /** The text that matched — surfaced in the steer so the model knows what we're calling out. */
+  /** The text that matched - surfaced in the steer so the model knows what we're calling out. */
   phrase: string;
 }
 
@@ -60,7 +60,7 @@ export interface Claim {
  * One entry per claim kind. The regex runs against the TAIL of the
  * assistant's final message (see `extractClaims`). Anchoring to the tail
  * keeps false positives low without forcing an explicit `$` anchor on
- * every pattern — the scan window already bounds where the match must
+ * every pattern - the scan window already bounds where the match must
  * appear.
  *
  * Patterns use word-boundaries on both sides of the keyword so e.g.
@@ -141,7 +141,7 @@ const NEGATIVE_HINT_RE =
  * claims? Returns a deduplicated list of `Claim` (by kind, keeping the
  * first phrase seen).
  *
- * Scans only the last 600 characters of the message — claims live in
+ * Scans only the last 600 characters of the message - claims live in
  * the sign-off, and bounding the window is what lets us avoid past-tense
  * false positives ("earlier the tests were passing, but then I changed
  * X").
@@ -152,7 +152,7 @@ export function extractClaims(text: string): Claim[] {
   if (!tail.trim()) return [];
 
   // Per-sentence conditional rejection. Testing NEGATIVE_HINT_RE against
-  // the whole tail was too coarse — a conditional in one clause would
+  // the whole tail was too coarse - a conditional in one clause would
   // suppress an unconditional claim in a later clause of the same tail
   // ("If tests pass quickly, we ship. Anyway, all tests pass."). Split
   // on sentence terminators, keep each fragment's conditional check
@@ -173,7 +173,7 @@ export function extractClaims(text: string): Claim[] {
 }
 
 // ──────────────────────────────────────────────────────────────────────
-// Command matchers — "did the model run something that would verify
+// Command matchers - "did the model run something that would verify
 // the claim?"
 // ──────────────────────────────────────────────────────────────────────
 
@@ -187,7 +187,7 @@ export function extractClaims(text: string): Claim[] {
  * that merely referencing a tool name counts (e.g. `cat jest.config.js`
  * must NOT count as running jest).
  *
- * The general shape is: "<tool>(<space or end>)" — we require a word
+ * The general shape is: "<tool>(<space or end>)" - we require a word
  * boundary after the tool so `jestlike` / `pytestify` don't match, and
  * we include common sub-commands (`npm test`, `cargo test`, `go test`)
  * as two-token phrases.
@@ -300,7 +300,7 @@ const COMMAND_PATTERNS: Record<ClaimKind, readonly RegExp[]> = {
 
 /**
  * Does `command` look like it would verify a claim of `kind`? The test
- * is liberal — see the module header.
+ * is liberal - see the module header.
  *
  * Optional `extras`: user-supplied rules that augment the built-in
  * matchers. Each rule names a command-prefix regex plus the set of
@@ -376,7 +376,7 @@ export function buildSteer(unverified: readonly Claim[], marker: string): string
   } else {
     parts.push("You made several verification claims I can't cross-check against your tool calls in this turn:");
     for (const c of unverified) {
-      parts.push(`  - ${HUMAN_KIND[c.kind]} — "${truncate(c.phrase, 80, { trim: true })}"`);
+      parts.push(`  - ${HUMAN_KIND[c.kind]} - "${truncate(c.phrase, 80, { trim: true })}"`);
     }
   }
   parts.push(
@@ -413,12 +413,12 @@ export interface BranchEntry {
  * harness's foreground exec tool; `bg_bash` is the
  * `config/pi/extensions/bg-bash.ts` extension's start-a-job action,
  * which puts the literal shell line in the same `command` slot. From
- * the verify-before-claim perspective they're equivalent — both
+ * the verify-before-claim perspective they're equivalent - both
  * prove the model actually ran the verifier in this turn.
  *
  * `bg_bash`'s other actions (`wait`, `logs`, `signal`, …) don't
  * carry a `command` argument, so they fall through the
- * `typeof === 'string'` guard below and contribute nothing — same
+ * `typeof === 'string'` guard below and contribute nothing - same
  * way a bare `bash` call with an empty command would.
  */
 const SHELL_TOOL_NAMES: ReadonlySet<string> = new Set(['bash', 'bg_bash']);
@@ -426,12 +426,12 @@ const SHELL_TOOL_NAMES: ReadonlySet<string> = new Set(['bash', 'bg_bash']);
 /**
  * Walk `branch` BACKWARDS from the leaf and collect every bash
  * command executed since the most recent user message. Returns them
- * in reverse order (doesn't matter for the extension's use — we pass
+ * in reverse order (doesn't matter for the extension's use - we pass
  * the list to `partitionClaims` which scans all of them).
  *
  * We look at three kinds of source:
  *   - Assistant messages with `toolCall` content parts whose name is
- *     in `SHELL_TOOL_NAMES` (`bash` / `bg_bash`) — the command
+ *     in `SHELL_TOOL_NAMES` (`bash` / `bg_bash`) - the command
  *     lives in `arguments.command`.
  *   - Tool-result messages for those same tool names with an
  *     `input.command` on them (some pi versions record the
@@ -465,7 +465,7 @@ export function collectBashCommandsSinceLastUser(branch: readonly BranchEntry[])
     } else if (entry.type === 'message' && msg.role === 'bashExecution') {
       // Pi also records user-triggered `!cmd` and tool bash via a
       // dedicated `bashExecution` message. Treat those as verifiers
-      // too — the user may have run `npm test` inline before the model
+      // too - the user may have run `npm test` inline before the model
       // claimed success.
       const ex = msg as unknown as { command?: unknown };
       const cmd = typeof ex.command === 'string' ? ex.command : '';
@@ -554,7 +554,7 @@ export function lastUserMessageHasMarker(branch: readonly BranchEntry[], marker:
 //   }
 //
 // Project rules are appended onto global rules, not replacing them.
-// Order within the merged list doesn't matter — `verifyingCommandMatches`
+// Order within the merged list doesn't matter - `verifyingCommandMatches`
 // short-circuits on the first match regardless.
 // ──────────────────────────────────────────────────────────────────────
 
@@ -567,7 +567,7 @@ const VALID_KINDS: ReadonlySet<ClaimKind> = new Set<ClaimKind>([
   'ci-green',
 ]);
 
-/** User-facing rule shape — the raw JSONC entry. */
+/** User-facing rule shape - the raw JSONC entry. */
 export interface CommandSatisfiesRule {
   pattern: string;
   kinds: ClaimKind[];

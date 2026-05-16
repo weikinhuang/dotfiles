@@ -12,7 +12,7 @@
  * for a configured threshold, the stream is considered stalled. The
  * typical cause is a local inference server (llama.cpp, Ollama) whose
  * HTTP connection is still open but the generation thread has stopped
- * producing tokens — thinking models on modest hardware are the common
+ * producing tokens - thinking models on modest hardware are the common
  * trigger.
  *
  * Scope choices, explicitly:
@@ -30,8 +30,8 @@
  *     ends (or is cleared). One notify per stuck stream is enough; the
  *     extension layer decides whether to also abort.
  *   - We do NOT retain history across streams. There's at most one
- *     assistant stream in flight at any time — pi doesn't pipeline
- *     multiple concurrently — so a single-slot state is both correct
+ *     assistant stream in flight at any time - pi doesn't pipeline
+ *     multiple concurrently - so a single-slot state is both correct
  *     and trivially testable.
  */
 
@@ -58,7 +58,7 @@ export interface StreamEntry {
  * Tool-call awareness:
  *   - `inFlightTools` is incremented on every `tool_call` event and
  *     decremented (clamped at 0) on every `tool_result`. While > 0,
- *     the soft silent-stream branch of `detectStale` is suppressed —
+ *     the soft silent-stream branch of `detectStale` is suppressed -
  *     a long-running subagent / bash / bg_bash dispatch legitimately
  *     produces zero `message_update` events between call and result.
  *   - `inFlightToolNames` is a parallel stack of tool names so the
@@ -66,7 +66,7 @@ export interface StreamEntry {
  *     currently blocking forward progress. Top of stack is the most
  *     recent in-flight tool.
  *   - `lastForwardProgress` tracks the most recent forward-progress
- *     event of ANY kind — a stream heartbeat OR a tool lifecycle
+ *     event of ANY kind - a stream heartbeat OR a tool lifecycle
  *     event. Drives the hard wall-clock cap, which fires regardless
  *     of in-flight tools so a genuinely-runaway tool can't suppress
  *     the watchdog forever.
@@ -87,7 +87,7 @@ export function createState(): StreamWatchdogState {
 }
 
 /**
- * Record the start of an assistant stream. Resets any prior entry — if
+ * Record the start of an assistant stream. Resets any prior entry - if
  * a previous stream somehow never got an `end` event (reload mid-turn,
  * provider reconnect), replacing it is the right move: the new stream
  * is the one we care about now.
@@ -102,7 +102,7 @@ export function recordStart(state: StreamWatchdogState, nowMs: number, id?: stri
  * update). Bumps `lastHeartbeat` and clears the `notified` latch so a
  * stream that went silent, notified, and then recovered can be flagged
  * again if it silently stalls a second time. No-op if no stream is in
- * flight — late updates after `message_end` are ignored.
+ * flight - late updates after `message_end` are ignored.
  */
 export function recordHeartbeat(state: StreamWatchdogState, nowMs: number): void {
   if (!state.current) return;
@@ -116,7 +116,7 @@ export function recordHeartbeat(state: StreamWatchdogState, nowMs: number): void
  * the tool name onto the stack, and updates `lastForwardProgress` so
  * the hard cap restarts its clock from "tool just started" rather than
  * from the last token streamed before the model dispatched. Caller is
- * responsible for the `state.current` guard — tool events outside of
+ * responsible for the `state.current` guard - tool events outside of
  * an active stream should not be tracked.
  */
 export function recordToolCall(state: StreamWatchdogState, nowMs: number, toolName: string): void {
@@ -127,7 +127,7 @@ export function recordToolCall(state: StreamWatchdogState, nowMs: number, toolNa
 
 /**
  * Record the end of a tool call. Decrements the in-flight counter
- * (clamped at 0 — a stray `tool_result` without a matching `tool_call`
+ * (clamped at 0 - a stray `tool_result` without a matching `tool_call`
  * is a no-op rather than an error), pops the most recent name (if
  * any), and updates `lastForwardProgress`.
  */
@@ -142,7 +142,7 @@ export function recordToolResult(state: StreamWatchdogState, nowMs: number): voi
  * boundaries (`agent_end`) so that a dropped `tool_result` event
  * (provider error, malformed payload) can't permanently suppress the
  * soft watchdog. Does NOT touch `state.current` or
- * `lastForwardProgress` — only the tool counters.
+ * `lastForwardProgress` - only the tool counters.
  */
 export function resetInFlightTools(state: StreamWatchdogState): void {
   state.inFlightTools = 0;
@@ -169,10 +169,10 @@ export function clear(state: StreamWatchdogState): void {
 /**
  * Result returned by {@link detectStale} when a stream has gone stale.
  *
- * - `reason: 'soft'` — the model's stream went silent past `softStallMs`
+ * - `reason: 'soft'` - the model's stream went silent past `softStallMs`
  *   AND no tool call was in flight. This is the classic "model is
  *   hung mid-generation" signal.
- * - `reason: 'hard'` — `hardStallMs` has elapsed since the last
+ * - `reason: 'hard'` - `hardStallMs` has elapsed since the last
  *   forward-progress event of ANY kind (heartbeat OR tool event).
  *   Fires regardless of in-flight tools and is the operator brake
  *   against a runaway long tool dispatch.
@@ -196,15 +196,15 @@ export interface StaleResult {
  *
  * Two thresholds, separately tunable:
  *
- *   - `softStallMs` — silence on the assistant stream. ONLY checked
+ *   - `softStallMs` - silence on the assistant stream. ONLY checked
  *     when no tool calls are in flight; while a tool is running the
  *     stream is legitimately silent and we don't want to abort.
- *   - `hardStallMs` — wall-clock since the last forward-progress
+ *   - `hardStallMs` - wall-clock since the last forward-progress
  *     event of any kind. ALWAYS checked. The brake against a runaway
  *     tool that ignores its own per-tool timeout.
  *
  * When BOTH conditions would fire (no in-flight tool + both elapsed),
- * the soft branch wins — it's the more specific signal ("the model is
+ * the soft branch wins - it's the more specific signal ("the model is
  * hung" rather than "some forward progress event happened too long
  * ago"). Documented here because the precedence isn't obvious from
  * the threshold values alone.
@@ -219,7 +219,7 @@ export function detectStale(
   softStallMs: number,
   // Optional so existing 3-arg callers keep working until Phase 1 wires
   // the new threshold through the extension shell. Number.MAX_SAFE_INTEGER
-  // means the hard branch never fires — same as having no hard cap at all.
+  // means the hard branch never fires - same as having no hard cap at all.
   hardStallMs: number = Number.MAX_SAFE_INTEGER,
 ): StaleResult | null {
   const cur = state.current;
@@ -231,7 +231,7 @@ export function detectStale(
   const softFired = state.inFlightTools === 0 && silentMs >= softStallMs;
   const hardFired = forwardSilentMs >= hardStallMs;
 
-  // Soft wins when both branches fire — see JSDoc.
+  // Soft wins when both branches fire - see JSDoc.
   if (softFired) {
     cur.notified = true;
     return {
@@ -269,7 +269,7 @@ export function peek(state: StreamWatchdogState): StreamEntry | null {
 // Follow-up nudge (mirrors `stall-detect.ts`'s `STALL_MARKER` + builder).
 //
 // When the watchdog aborts a silent stream, the provider finalises the
-// assistant message with `stopReason === 'aborted'` — which
+// assistant message with `stopReason === 'aborted'` - which
 // `stall-recovery.ts` explicitly skips (it can't tell a user-initiated
 // Esc apart from a watchdog-initiated cancel). So the watchdog owns its
 // own follow-up path: after aborting, it injects a user-role nudge via
@@ -309,7 +309,7 @@ export interface WatchdogNudgeInput {
   elapsedSec: number;
   /** 1-indexed attempt number (first retry = 1). */
   attempt: number;
-  /** Hard cap — once `attempt === maxAttempts`, this IS the final try. */
+  /** Hard cap - once `attempt === maxAttempts`, this IS the final try. */
   maxAttempts: number;
 }
 
@@ -318,7 +318,7 @@ export interface WatchdogNudgeInput {
  * a stalled stream. Keeps the wording short and action-oriented:
  *
  *   - Explains WHY we aborted (so the model doesn't think the user
- *     changed their mind) — timings come from the live poll state.
+ *     changed their mind) - timings come from the live poll state.
  *   - Tells the model to resume the same task (the transcript up to
  *     the abort is intact on the next turn; we want continuation,
  *     not a restart).
@@ -338,7 +338,7 @@ export function buildWatchdogNudge(input: WatchdogNudgeInput): string {
       WATCHDOG_MARKER,
       budget,
       `Your previous turn's stream went silent for ${silentSec}s (${elapsedSec}s total) and was aborted.`,
-      `This is the final auto-retry — emit a concrete tool call or a short text answer THIS turn.`,
+      `This is the final auto-retry - emit a concrete tool call or a short text answer THIS turn.`,
       'Do NOT spend the whole turn in extended thinking; a silent response will be aborted again.',
       'If genuinely stuck, say so in one sentence (e.g. "Blocked on: <reason>") rather than going silent.',
     ].join(' ');
@@ -347,7 +347,7 @@ export function buildWatchdogNudge(input: WatchdogNudgeInput): string {
     WATCHDOG_MARKER,
     budget,
     `Your previous turn's stream went silent for ${silentSec}s (${elapsedSec}s total) and was aborted.`,
-    'Continue where you left off — review any active todos, recheck the last tool result if there was one,',
+    'Continue where you left off - review any active todos, recheck the last tool result if there was one,',
     'and produce either the next tool call or the final answer. Keep thinking brief.',
   ].join(' ');
 }

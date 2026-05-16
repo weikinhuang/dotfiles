@@ -18,7 +18,7 @@
  *     …
  *
  * Entries are separated by a blank line. Parsing is deliberately
- * forgiving — a corrupt entry is skipped, not fatal.
+ * forgiving - a corrupt entry is skipped, not fatal.
  *
  * Atomicity: `appendJournal` reads the whole file, appends the new
  * entry, and writes the full new contents through `atomicWriteFile`.
@@ -41,10 +41,10 @@ import { atomicWriteFile } from './atomic-write.ts';
 /**
  * Severity / category for a journal entry.
  *
- *   - `info`  — routine observation ("cache hit", "skipped X").
- *   - `step`  — a meaningful pipeline transition ("planner done").
- *   - `warn`  — something recoverable went wrong.
- *   - `error` — something non-recoverable happened; callers SHOULD
+ *   - `info`  - routine observation ("cache hit", "skipped X").
+ *   - `step`  - a meaningful pipeline transition ("planner done").
+ *   - `warn`  - something recoverable went wrong.
+ *   - `error` - something non-recoverable happened; callers SHOULD
  *     pair this with a quarantine or a stuck escalation.
  */
 export type JournalLevel = 'info' | 'step' | 'warn' | 'error';
@@ -142,7 +142,7 @@ export function appendJournal(journalPath: string, input: AppendJournalInput): v
 /**
  * Heading-line matcher. Requires the line to start with `## [` so
  * bracketed mentions elsewhere in the heading text don't accidentally
- * look like new entries. The third bracket is the level token —
+ * look like new entries. The third bracket is the level token -
  * matched permissively here and filtered by `LEVELS` membership
  * later so an unknown level cleanly demotes the line to body text.
  */
@@ -159,7 +159,7 @@ function parse(text: string): JournalEntry[] {
 
   const flush = (): void => {
     if (!current) return;
-    // Strip only leading/trailing newlines — NOT all whitespace — so
+    // Strip only leading/trailing newlines - NOT all whitespace - so
     // indented body content (e.g. a code block starting with spaces)
     // round-trips without losing its indentation. The leading-newline
     // case is created by the blank separator line between a heading
@@ -201,7 +201,7 @@ function parse(text: string): JournalEntry[] {
  * Read the journal and return all entries in chronological order
  * (oldest first). A missing file returns an empty array. Malformed
  * regions (everything before the first heading, blocks whose
- * heading line doesn't parse) are silently dropped — the journal is
+ * heading line doesn't parse) are silently dropped - the journal is
  * a debugging tool, not a schema-validated store.
  */
 export function readJournal(journalPath: string): JournalEntry[] {
@@ -237,7 +237,7 @@ const COST_DELTA_HEADING = /^cost delta · (.+?) · ([0-9]+(?:\.[0-9]+)?) USD$/;
  * Regex matching the `total=<USD> USD …` line at the bottom of a
  * `cost report` entry body (written by
  * `research-budget-live.appendSummary`). Multi-line flag anchors
- * it to the start of a body line — the body also contains
+ * it to the start of a body line - the body also contains
  * `phase=<name> spent=<USD> USD wall=<seconds>s` lines which the
  * regex explicitly does NOT match (would double-count against the
  * `total=` line). Group 1 is the dollar amount.
@@ -247,7 +247,7 @@ const COST_REPORT_TOTAL_LINE = /^total=([0-9]+(?:\.[0-9]+)?) USD\b/m;
 /**
  * Sum cumulative USD spend recorded in the journal. Prefers
  * per-turn `cost delta · <phase> · <USD> USD` headings written by
- * `research-cost-hook.createCostHook` — those are higher
+ * `research-cost-hook.createCostHook` - those are higher
  * resolution and survive resumes as a natural append. Falls back
  * to the `total=<USD> USD` line inside every `cost report` entry
  * body written by `research-budget-live.appendSummary` at
@@ -259,7 +259,7 @@ const COST_REPORT_TOTAL_LINE = /^total=([0-9]+(?:\.[0-9]+)?) USD\b/m;
  * (the report total IS the sum of per-turn deltas); `max` is
  * defensive against either side under-reporting. The edge case
  * where one resume segment has only deltas and another has only a
- * cost report would under-report — documented but not handled,
+ * cost report would under-report - documented but not handled,
  * since the common case is uniform hook behavior per run.
  *
  * Used by `/research --list` to surface a real cost column
@@ -268,7 +268,7 @@ const COST_REPORT_TOTAL_LINE = /^total=([0-9]+(?:\.[0-9]+)?) USD\b/m;
  * can see the accrued spend across resumes.
  *
  * Malformed dollar strings (the regex already rejects non-numeric
- * tokens) are silently dropped — the journal is advisory, not a
+ * tokens) are silently dropped - the journal is advisory, not a
  * ledger; a bad line must never break the table render.
  */
 export function sumJournalCostUsd(journalPath: string): number {

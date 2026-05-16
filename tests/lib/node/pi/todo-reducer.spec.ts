@@ -3,7 +3,7 @@
  *
  * The lib module has zero pi dependencies so these tests run without the
  * pi runtime. Branch entries are duck-typed fakes with just the fields
- * the reducer actually inspects — no SessionManager mocking.
+ * the reducer actually inspects - no SessionManager mocking.
  */
 
 import { expect, test } from 'vitest';
@@ -67,7 +67,7 @@ function seeded(): TodoState {
   return s.state;
 }
 
-// Seed + `actStart(id)` — ready-made state with one in_progress todo.
+// Seed + `actStart(id)` - ready-made state with one in_progress todo.
 function startedSeed(id = 1): TodoState {
   const r = actStart(seeded(), id);
   assertOk(r);
@@ -654,8 +654,8 @@ test('formatText: renders each status with its marker', () => {
   expect(out).toMatch(/\[ \] #1 a/);
   expect(out).toMatch(/\[\*\] #2 b/);
   expect(out).toMatch(/\[x\] #3 c/);
-  expect(out).toMatch(/\[!\] #4 d — why/);
-  expect(out).toMatch(/\[\?\] #5 e — awaiting ci/);
+  expect(out).toMatch(/\[!\] #4 d - why/);
+  expect(out).toMatch(/\[\?\] #5 e - awaiting ci/);
 });
 
 // ──────────────────────────────────────────────────────────────────────

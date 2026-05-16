@@ -60,11 +60,11 @@ export type BranchEntry = GenericBranchEntry;
 /**
  * Lifecycle for a job:
  *
- *   - `running`    — spawned, process still alive
- *   - `exited`     — process exited on its own (see `exitCode`)
- *   - `signaled`   — process killed by a signal (see `signal`)
- *   - `error`      — spawn failed, or an internal error was recorded
- *   - `terminated` — state was rehydrated from the branch in a new
+ *   - `running`    - spawned, process still alive
+ *   - `exited`     - process exited on its own (see `exitCode`)
+ *   - `signaled`   - process killed by a signal (see `signal`)
+ *   - `error`      - spawn failed, or an internal error was recorded
+ *   - `terminated` - state was rehydrated from the branch in a new
  *                    runtime; the original process is gone and not
  *                    reattachable. Distinct from `signaled` so the LLM
  *                    can tell "I killed it" from "pi restarted".
@@ -189,20 +189,20 @@ export function markLiveJobsTerminated(state: BgBashState, now: number): BgBashS
  *
  * A replayed snapshot can be in any of these states:
  *
- *   - `running`    — unreachable ghost. The child process belonged to
+ *   - `running`    - unreachable ghost. The child process belonged to
  *                    the previous runtime (we don't reattach on
  *                    rehydrate), so the LLM can't `wait` / `signal` /
  *                    `stdin` against it. Drop.
- *   - `terminated` — legacy best-effort finalization that
+ *   - `terminated` - legacy best-effort finalization that
  *                    `markLiveJobsTerminated` produced. Purely
  *                    informational with no exit code or signal name;
  *                    nothing the LLM can act on. Drop.
- *   - `signaled`   — terminal. Its 'exit' listener recorded the
+ *   - `signaled`   - terminal. Its 'exit' listener recorded the
  *                    signal name (and usually exitCode too). Keep as
  *                    history so the LLM can see that a previous turn
  *                    killed this job.
- *   - `exited`     — terminal with a clean exit code. Keep.
- *   - `error`      — terminal with a recorded error message. Keep.
+ *   - `exited`     - terminal with a clean exit code. Keep.
+ *   - `error`      - terminal with a recorded error message. Keep.
  *
  * `nextId` is preserved so newly-started jobs can't collide with ids
  * from the dropped ghosts.
@@ -232,11 +232,11 @@ export function reduceBranch(branch: readonly BranchEntry[]): BgBashState {
 }
 
 // ──────────────────────────────────────────────────────────────────────
-// Pure action helpers — (state, args) → result. The extension's
+// Pure action helpers - (state, args) → result. The extension's
 // `execute()` dispatches and then mirrors state to the branch.
 //
 // Mutations that depend on live child processes (spawn, kill, wait,
-// stdin, log reads) are NOT covered here — those are side-effectful
+// stdin, log reads) are NOT covered here - those are side-effectful
 // and live in the extension glue. Only registry bookkeeping that has
 // a pure data transition lives in this module.
 // ──────────────────────────────────────────────────────────────────────
@@ -251,7 +251,7 @@ export function findJob(state: BgBashState, id: string): JobSummary | undefined 
 
 /**
  * Upsert a summary by id. New entries are appended; existing ones are
- * overwritten in place (order preserved). Returns a new state — the
+ * overwritten in place (order preserved). Returns a new state - the
  * input is not mutated.
  */
 export function upsertJob(state: BgBashState, summary: JobSummary): BgBashState {
@@ -349,15 +349,15 @@ export function formatJobLine(job: JobSummary, now: number): string {
   const head = `[${job.id}]${label} ${statusIcon(job.status)} ${cmd}`;
   switch (job.status) {
     case 'running':
-      return `${head} — running ${dur}, ${bytes}`;
+      return `${head} - running ${dur}, ${bytes}`;
     case 'exited':
-      return `${head} — exited ${job.exitCode ?? '?'} after ${dur}, ${bytes}`;
+      return `${head} - exited ${job.exitCode ?? '?'} after ${dur}, ${bytes}`;
     case 'signaled':
-      return `${head} — ${job.signal ?? 'signal'} after ${dur}, ${bytes}`;
+      return `${head} - ${job.signal ?? 'signal'} after ${dur}, ${bytes}`;
     case 'error':
-      return `${head} — error: ${job.error ?? 'unknown'}`;
+      return `${head} - error: ${job.error ?? 'unknown'}`;
     case 'terminated':
-      return `${head} — terminated (pi session ended), ran ${dur}, ${bytes}`;
+      return `${head} - terminated (pi session ended), ran ${dur}, ${bytes}`;
   }
 }
 

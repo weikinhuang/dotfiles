@@ -389,7 +389,7 @@ describe('scopeFanoutDeficit', () => {
     ]);
     const scoped = scopeFanoutDeficit(tmp, ['sq-1', 'sq-2', 'sq-3', 'sq-4'], ['sq-3', 'sq-1']);
 
-    // Plan order is sq-1, sq-3 — not filter order.
+    // Plan order is sq-1, sq-3 - not filter order.
     expect(scoped.ids).toEqual(['sq-1', 'sq-3']);
     expect(scoped.unknown).toEqual([]);
   });
@@ -637,7 +637,7 @@ describe('findStubbedSections', () => {
       '',
       '## Sub-question 3',
       '',
-      'Another real section citing [^2] — mentions "section unavailable" in passing.',
+      'Another real section citing [^2] - mentions "section unavailable" in passing.',
       '',
       '## Sub-question 4',
       '',

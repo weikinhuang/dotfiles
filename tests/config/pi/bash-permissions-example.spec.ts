@@ -11,9 +11,9 @@
  *   2. Commands we advertise as "read-only" really do match an allow rule,
  *      using the same `matchesPattern` function the extension calls at
  *      runtime.
- *   3. The known footguns we gate with regex — `find -exec` / `-delete`,
+ *   3. The known footguns we gate with regex - `find -exec` / `-delete`,
  *      `fd -x` / `--exec`, `rg --pre`, and the mutating forms of
- *      `git branch` / `git tag` / `git config` — stay rejected. If
+ *      `git branch` / `git tag` / `git config` - stay rejected. If
  *      someone "simplifies" `find*` back to a plain prefix, this spec
  *      fails.
  *
@@ -81,7 +81,7 @@ describe('bash-permissions-example: file shape', () => {
 });
 
 // ──────────────────────────────────────────────────────────────────────
-// find — the original footgun that motivated the regex rule
+// find - the original footgun that motivated the regex rule
 // ──────────────────────────────────────────────────────────────────────
 
 describe('bash-permissions-example: find', () => {
@@ -115,7 +115,7 @@ describe('bash-permissions-example: find', () => {
 });
 
 // ──────────────────────────────────────────────────────────────────────
-// fd — same footgun, different flags
+// fd - same footgun, different flags
 // ──────────────────────────────────────────────────────────────────────
 
 describe('bash-permissions-example: fd', () => {
@@ -129,7 +129,7 @@ describe('bash-permissions-example: fd', () => {
 });
 
 // ──────────────────────────────────────────────────────────────────────
-// rg — --pre runs an arbitrary preprocessor per file
+// rg - --pre runs an arbitrary preprocessor per file
 // ──────────────────────────────────────────────────────────────────────
 
 describe('bash-permissions-example: rg', () => {
@@ -152,7 +152,7 @@ describe('bash-permissions-example: rg', () => {
 });
 
 // ──────────────────────────────────────────────────────────────────────
-// git — bare subcommand lists, positional arg mutates
+// git - bare subcommand lists, positional arg mutates
 // ──────────────────────────────────────────────────────────────────────
 
 describe('bash-permissions-example: git branch', () => {
@@ -223,7 +223,7 @@ describe('bash-permissions-example: git config', () => {
 });
 
 // ──────────────────────────────────────────────────────────────────────
-// cd / pushd / popd — directory navigation under compound-split
+// cd / pushd / popd - directory navigation under compound-split
 // ──────────────────────────────────────────────────────────────────────
 
 describe('bash-permissions-example: cd / pushd / popd', () => {
@@ -255,7 +255,7 @@ describe('bash-permissions-example: cd / pushd / popd', () => {
 
   test('known quirk: `(cd sub && ls)` subshell parens break the prefix match', () => {
     // Documented in the example file's navigation-section comment. If this
-    // test ever starts passing, the comment should be retired — but until
+    // test ever starts passing, the comment should be retired - but until
     // splitCompound strips `(` / `)` from subcommands, parenthesised
     // subshell form will continue to be blocked.
     const parts = splitCompound('(cd sub && ls)');
@@ -293,7 +293,7 @@ describe('bash-permissions-example: shell builtins', () => {
     '(( 1 + 2 == 3 ))',
     '(( x > 0 ))',
     '(( COUNT++ ))',
-    // for / select / case — args aren't commands, so they need their own
+    // for / select / case - args aren't commands, so they need their own
     // allow rule (`for*` / `select*` / `case*`).
     'for f in *.ts',
     'for i in 1 2 3',
@@ -346,7 +346,7 @@ describe('bash-permissions-example: text processing', () => {
 
   test.each([
     // `sort -o FILE` / `sort --output=FILE` writes to disk without needing
-    // shell redirection — this is the one footgun the regex must block.
+    // shell redirection - this is the one footgun the regex must block.
     ['sort -o out foo', '-o writes to file'],
     ['sort foo -o out', '-o anywhere in args'],
     ['sort --output=out foo', '--output= long form'],
@@ -374,7 +374,7 @@ describe('bash-permissions-example: text processing', () => {
 
   test.each([
     // Near-misses that contain the letter `i` in an option but aren't
-    // `-i` / `--in-place` — they must still pass the regex.
+    // `-i` / `--in-place` - they must still pass the regex.
     'sed --line-length=80 foo',
     'sed --posix s/a/b/ foo',
     'sed --quiet s/a/b/ foo',
@@ -442,7 +442,7 @@ describe('bash-permissions-example: control-flow compounds', () => {
   // see the outer command.
   //
   // Re-read the example here rather than relying on the module-level
-  // `rules` populated inside beforeAll — describe callbacks run at
+  // `rules` populated inside beforeAll - describe callbacks run at
   // collect time, BEFORE beforeAll fires.
   const localRules = parseJsonc<RuleFile>(readFileSync(EXAMPLE_PATH, 'utf8'));
   const layers = [

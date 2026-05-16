@@ -4,7 +4,7 @@
  * `agent:` reference inherits the agent's `tools` / `model` /
  * `thinkingLevel` / body when the mode itself doesn't override them.
  *
- * Pure module — no pi imports. The agent record is passed in by the
+ * Pure module - no pi imports. The agent record is passed in by the
  * caller (which resolves the layered agent registry separately) so this
  * module stays trivially testable.
  */
@@ -26,7 +26,7 @@ export interface AgentRecord {
 /**
  * Return a new `ParsedPersona` with agent fields layered in where the mode
  * itself didn't specify them. `writeRoots`, `bashAllow`, `bashDeny`,
- * and `appendSystemPrompt` are passed through unchanged — they live
+ * and `appendSystemPrompt` are passed through unchanged - they live
  * only on modes (no agent counterpart).
  *
  * Returns the input mode unchanged when there's no `agent:` ref or no

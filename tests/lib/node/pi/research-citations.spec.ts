@@ -91,9 +91,9 @@ describe('renumber', () => {
     const r = renumber(draft, indexOf(src('a'), src('b'), src('c')));
 
     expect(r.footnotes).toBe(
-      '[^1]: title-b — https://example.com/b\n' +
-        '[^2]: title-a — https://example.com/a\n' +
-        '[^3]: title-c — https://example.com/c\n',
+      '[^1]: title-b - https://example.com/b\n' +
+        '[^2]: title-a - https://example.com/a\n' +
+        '[^3]: title-c - https://example.com/c\n',
     );
   });
 
@@ -101,14 +101,14 @@ describe('renumber', () => {
     const draft = '{{SRC:a}}';
     const r = renumber(draft, indexOf({ id: 'a', title: 'a  \n  noisy\ttitle', url: 'https://x' }));
 
-    expect(r.footnotes).toBe('[^1]: a noisy title — https://x\n');
+    expect(r.footnotes).toBe('[^1]: a noisy title - https://x\n');
   });
 
   test('empty title falls back to (untitled)', () => {
     const draft = '{{SRC:a}}';
     const r = renumber(draft, indexOf({ id: 'a', title: '', url: 'https://x' }));
 
-    expect(r.footnotes).toBe('[^1]: (untitled) — https://x\n');
+    expect(r.footnotes).toBe('[^1]: (untitled) - https://x\n');
   });
 
   test('no known placeholders → empty footnotes block', () => {
@@ -124,13 +124,13 @@ describe('renumber', () => {
 // Failure modes.
 // ──────────────────────────────────────────────────────────────────────
 
-describe('renumber — failure modes', () => {
+describe('renumber - failure modes', () => {
   test('unknown placeholders are left untouched (loud, not silent)', () => {
     const draft = 'good {{SRC:a}} bad {{SRC:ghost}} good {{SRC:a}}';
     const r = renumber(draft, indexOf(src('a')));
 
     expect(r.report).toBe('good [^1] bad {{SRC:ghost}} good [^1]');
-    expect(r.footnotes).toBe('[^1]: title-a — https://example.com/a\n');
+    expect(r.footnotes).toBe('[^1]: title-a - https://example.com/a\n');
   });
 
   test('mixed known+unknown: validator separately reports the unknown', () => {
@@ -173,7 +173,7 @@ describe('renumber — failure modes', () => {
   });
 
   test('an id of length zero is not a valid placeholder match', () => {
-    // `{{SRC:}}` — no id — does not match our regex (requires at
+    // `{{SRC:}}` - no id - does not match our regex (requires at
     // least one char before `}`). Defense-in-depth against
     // dangling-colon model outputs.
     const draft = '{{SRC:}} and {{SRC:x}}';

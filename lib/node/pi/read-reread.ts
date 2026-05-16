@@ -1,7 +1,7 @@
 /**
  * Pure helpers for the read-reread-detector extension.
  *
- * No pi / fs imports — the extension layer stats files and provides
+ * No pi / fs imports - the extension layer stats files and provides
  * signatures. This module just keeps the bookkeeping and builds the
  * nudge text, so it's testable with synthetic inputs under `vitest`.
  *
@@ -24,7 +24,7 @@
  * The signature gates false positives: if the file was genuinely
  * modified between reads (build step, write via `edit`, external
  * change) the signature differs and we stay quiet. If the model reads
- * different slices of the same file we still nudge — that's the very
+ * different slices of the same file we still nudge - that's the very
  * case we want to catch.
  */
 
@@ -45,11 +45,11 @@ export interface ReadRecord {
   offset: number | undefined;
   /** limit passed to the earlier read (undefined = open-ended). */
   limit: number | undefined;
-  /** Session-turn counter at time of read — monotonic per session. */
+  /** Session-turn counter at time of read - monotonic per session. */
   turn: number;
 }
 
-/** Input for `checkReread` — new read's full signal. */
+/** Input for `checkReread` - new read's full signal. */
 export interface RereadProbe {
   sig: FileSignature;
   offset: number | undefined;
@@ -69,14 +69,14 @@ export type RereadDecision =
  * should use one instance per session and reset on `session_start`.
  *
  * Bounded by `maxEntries` (default 256) using plain insertion-order
- * eviction — we don't need exact LRU; a read-heavy session that touches
+ * eviction - we don't need exact LRU; a read-heavy session that touches
  * thousands of files won't benefit from tracking the deep tail anyway.
  */
 export class ReadHistory {
   private readonly records = new Map<string, ReadRecord>();
   constructor(private readonly maxEntries = 256) {}
 
-  /** Remove all records — intended for session_start / session_shutdown. */
+  /** Remove all records - intended for session_start / session_shutdown. */
   clear(): void {
     this.records.clear();
   }
@@ -139,7 +139,7 @@ export interface FormatNudgeOptions {
   displayPath: string;
   /** How the new read compared to history. */
   decision: Extract<RereadDecision, { kind: 'same-slice' | 'different-slice' }>;
-  /** Current turn — used to state "already read N turns ago". */
+  /** Current turn - used to state "already read N turns ago". */
   currentTurn: number;
   /** Marker (defaults to NUDGE_MARKER). */
   marker?: string;
@@ -182,7 +182,7 @@ export function formatNudge(opts: FormatNudgeOptions): string {
     '',
     `You read this unchanged file ${turnPhrase} (${prevSlice}). If you're iterating through it, capture what you find`,
     "in `scratchpad` so the next read doesn't have to start over. If you're hunting for a specific symbol, try",
-    '`rg -n "<pattern>" <path>` instead — it returns only the matching lines.',
+    '`rg -n "<pattern>" <path>` instead - it returns only the matching lines.',
   ].join('\n');
 }
 

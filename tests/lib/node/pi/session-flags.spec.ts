@@ -31,7 +31,7 @@ test('session-flags: write in copy A is visible in copy B (globalThis singleton)
   // Precondition: two distinct module records. If this assertion ever
   // starts failing it means we've gone back to a shared module cache
   // and the regression guard no longer exercises the pi-loader scenario
-  // — update the test setup (e.g. bump the query string).
+  // - update the test setup (e.g. bump the query string).
   expect(setBashAutoEnabledA).not.toBe(setBashAutoEnabledB);
 
   setBashAutoEnabledA(true);

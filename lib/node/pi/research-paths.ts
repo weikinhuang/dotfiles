@@ -2,7 +2,7 @@
  * Path + slug helpers for the research-core shared toolkit.
  *
  * No pi imports so this module can be unit-tested under `vitest`
- * without the pi runtime. Deliberately pure and synchronous — no
+ * without the pi runtime. Deliberately pure and synchronous - no
  * filesystem access, no subprocess, no clock unless the caller passes
  * `fallbackTimestamp`. That keeps callers free to compose on top
  * without mocking wall-clock time.
@@ -102,7 +102,7 @@ export function slugify(input: string, opts: SlugifyOpts = {}): string {
   if (normalized.length <= max) return normalized;
 
   // Truncate, then re-trim the trailing dash that truncation may have
-  // stranded — `"foo-bar-baz"` cut at 7 chars would otherwise read
+  // stranded - `"foo-bar-baz"` cut at 7 chars would otherwise read
   // `"foo-bar"` fine but `"foo--bar"` cut at 5 yields `"foo--"`.
   return normalized.slice(0, max).replace(/-+$/g, '');
 }
@@ -134,14 +134,14 @@ export function quarantineDir(parentPath: string): string {
 // ──────────────────────────────────────────────────────────────────────
 
 /**
- * `<cwd>/research/<slug>/` — root dir for a deep-research run.
+ * `<cwd>/research/<slug>/` - root dir for a deep-research run.
  */
 export function runRoot(cwd: string, slug: string): string {
   return join(cwd, 'research', slug);
 }
 
 /**
- * `<cwd>/research/lab/<slug>/` — root dir for an autoresearch run.
+ * `<cwd>/research/lab/<slug>/` - root dir for an autoresearch run.
  * The `lab/` subdir keeps experiment runs visually separated from
  * deep-research reports without splitting the top-level `research/`
  * tree.
@@ -157,30 +157,30 @@ export function labRoot(cwd: string, slug: string): string {
  *
  * Directory-typed entries (`sources`, `findings`, `snapshots`,
  * `experiments`) are bare directory paths without a trailing
- * separator — `path.join` does not add one. Callers compose children
+ * separator - `path.join` does not add one. Callers compose children
  * with `path.join(p.findings, 'f-1.md')` rather than string
  * concatenation.
  */
 export interface RunPaths {
-  /** `plan.json` — canonical plan state. Consumed by `research-plan`. */
+  /** `plan.json` - canonical plan state. Consumed by `research-plan`. */
   plan: string;
-  /** `journal.md` — append-only markdown journal. */
+  /** `journal.md` - append-only markdown journal. */
   journal: string;
-  /** `report.md` — final synthesized report (deep-research). */
+  /** `report.md` - final synthesized report (deep-research). */
   report: string;
-  /** `rubric-structural.md` — deterministic structural rubric consumed by the Phase-4 `kind=bash` check. */
+  /** `rubric-structural.md` - deterministic structural rubric consumed by the Phase-4 `kind=bash` check. */
   rubricStructural: string;
-  /** `rubric-subjective.md` — subjective rubric consumed by the Phase-4 `kind=critic` stage. */
+  /** `rubric-subjective.md` - subjective rubric consumed by the Phase-4 `kind=critic` stage. */
   rubricSubjective: string;
-  /** `sources/` — per-run source cache directory. */
+  /** `sources/` - per-run source cache directory. */
   sources: string;
-  /** `findings/` — per-sub-question finding dir (deep-research). */
+  /** `findings/` - per-sub-question finding dir (deep-research). */
   findings: string;
-  /** `snapshots/` — iteration-loop artifact snapshots. */
+  /** `snapshots/` - iteration-loop artifact snapshots. */
   snapshots: string;
-  /** `fanout.json` — live handle file for `research-fanout`. */
+  /** `fanout.json` - live handle file for `research-fanout`. */
   fanout: string;
-  /** `experiments/` — per-experiment dir (autoresearch). */
+  /** `experiments/` - per-experiment dir (autoresearch). */
   experiments: string;
   /**
    * Derive the quarantine dir for a specific child path rooted under
@@ -192,7 +192,7 @@ export interface RunPaths {
   /**
    * Canonical provenance-sidecar path for an artifact: `<file>.provenance.json`
    * for non-markdown files. Markdown files carry provenance in a YAML
-   * frontmatter block — see `research-provenance.writeSidecar`. The
+   * frontmatter block - see `research-provenance.writeSidecar`. The
    * returned sidecar path is still useful for markdown callers that
    * want to migrate content to a sidecar instead.
    */

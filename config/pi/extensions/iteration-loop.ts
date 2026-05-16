@@ -1,5 +1,5 @@
 /**
- * Iteration-loop extension for pi — disciplined RL-style feedback
+ * Iteration-loop extension for pi - disciplined RL-style feedback
  * loops on artifact-producing tasks.
  *
  * Headline idea: the agent declares a check up front, produces an
@@ -23,7 +23,7 @@
  *     or retract the claim. De-duped against `verify-before-claim`:
  *     if that extension would ALSO fire on the same final message
  *     (i.e. there are unverified test/lint/build claims), we
- *     suppress our claim nudge and let v-b-c handle it — the strict
+ *     suppress our claim nudge and let v-b-c handle it - the strict
  *     edit nudge still fires because it addresses a different
  *     trigger.
  *
@@ -43,7 +43,7 @@
  *
  * ## Phase 3 scope (previous commit)
  *
- * Phase 3 implemented `check run` — the actual iteration dispatcher. For `kind=bash` the extension shells out via
+ * Phase 3 implemented `check run` - the actual iteration dispatcher. For `kind=bash` the extension shells out via
  * `runBashCheck` (zero cost). For `kind=critic` the extension spawns
  * a fresh `AgentSession` against the critic agent definition,
  * collects the final JSON verdict, and charges the aggregated
@@ -77,11 +77,11 @@
  * ## State layout
  *
  * On disk (rooted at `<cwd>/.pi/checks/`):
- *   - `<task>.draft.json`         — proposed but not accepted.
- *   - `<task>.json`               — accepted active check spec.
- *   - `<task>.snapshots/…`        — per-iteration artifact snapshots
+ *   - `<task>.draft.json`         - proposed but not accepted.
+ *   - `<task>.json`               - accepted active check spec.
+ *   - `<task>.snapshots/…`        - per-iteration artifact snapshots
  *                                   (Phase 3+ populates these).
- *   - `archive/<ts>-<task>/`      — closed tasks land here.
+ *   - `archive/<ts>-<task>/`      - closed tasks land here.
  *
  * In the session branch:
  *   - `toolResult.details: IterationState` on each successful
@@ -321,7 +321,7 @@ interface ToolReturn {
 
 function debug(enabled: boolean, msg: string): void {
   if (!enabled) return;
-  // Stderr only — never touch stdout so we don't contaminate tool output.
+  // Stderr only - never touch stdout so we don't contaminate tool output.
   try {
     process.stderr.write(`[iteration-loop] ${msg}\n`);
   } catch {
@@ -382,7 +382,7 @@ function buildSpecFromParams(
       !passOn.startsWith('regex:') &&
       !passOn.startsWith('jq:')
     ) {
-      return { ok: false, error: `invalid passOn "${passOn}" — use exit-zero, regex:<pat>, or jq:<expr>` };
+      return { ok: false, error: `invalid passOn "${passOn}" - use exit-zero, regex:<pat>, or jq:<expr>` };
     }
     const bash: BashCheckSpec = { cmd };
     if (passOn && passOn !== 'exit-zero') bash.passOn = passOn as BashCheckSpec['passOn'];
@@ -424,14 +424,14 @@ function formatListing(tasks: TaskListing[], archive: ReturnType<typeof listArch
   } else {
     lines.push(`Tasks (${tasks.length}):`);
     for (const t of tasks) {
-      lines.push(`  [${t.state}] ${t.task}  — ${t.path}`);
+      lines.push(`  [${t.state}] ${t.task}  - ${t.path}`);
     }
   }
   if (archive.length > 0) {
     lines.push('');
     lines.push(`Archive (${archive.length} entr${archive.length === 1 ? 'y' : 'ies'}):`);
     for (const a of archive.slice(0, 10)) {
-      lines.push(`  ${a.timestamp || '(no-ts)'}  ${a.task}  — ${a.dir}`);
+      lines.push(`  ${a.timestamp || '(no-ts)'}  ${a.task}  - ${a.dir}`);
     }
     if (archive.length > 10) lines.push(`  … ${archive.length - 10} more`);
   }
@@ -441,7 +441,7 @@ function formatListing(tasks: TaskListing[], archive: ReturnType<typeof listArch
 /**
  * Look up the declared artifact path for `task` on disk. Returns
  * null when no active spec exists, the file is missing, or it
- * failed to parse — callers treat null as "no artifact to talk
+ * failed to parse - callers treat null as "no artifact to talk
  * about" and fall back to a generic message.
  */
 function readArtifactPath(cwd: string, task: string): string | null {
@@ -476,7 +476,7 @@ export default function iterationLoopExtension(pi: ExtensionAPI): void {
   const debugEnabled = process.env.PI_ITERATION_LOOP_DEBUG === '1';
 
   // In-memory mirror of the current branch's iteration state. `null`
-  // means "no loop has been accepted on this branch" — a pre-accept
+  // means "no loop has been accepted on this branch" - a pre-accept
   // declare leaves state null; it's the `accept` action that seeds it.
   let state: IterationState | null = null;
 
@@ -536,7 +536,7 @@ export default function iterationLoopExtension(pi: ExtensionAPI): void {
   // successful `check run` execution (we reset at `turn_start`); the
   // claim & strict nudges both suppress when it's true, because any
   // run means the model already verified. Idempotency against
-  // re-delivery races is handled by `lastUserMessageHasMarker` — we
+  // re-delivery races is handled by `lastUserMessageHasMarker` - we
   // key off CLAIM_NUDGE_MARKER / STRICT_NUDGE_MARKER so repeated
   // invocations don't re-fire once a nudge has been delivered.
   let checkRanThisTurn = false;
@@ -597,7 +597,7 @@ export default function iterationLoopExtension(pi: ExtensionAPI): void {
 
   pi.on('turn_start', (event) => {
     // event.turnIndex is 0-indexed per pi-coding-agent's TurnStartEvent.
-    // This hook only receives the PARENT session's turn_start — the
+    // This hook only receives the PARENT session's turn_start - the
     // critic subagent runs in its own AgentSession (via
     // runOneShotAgent) with a disk-backed `SessionManager.create`
     // pointed at the Claude-mirror layout (see
@@ -648,7 +648,7 @@ export default function iterationLoopExtension(pi: ExtensionAPI): void {
       const read = readSpec(ctx.cwd, state.task);
       if (read.state === 'active' && read.spec) artifactPath = read.spec.artifact;
     } catch {
-      /* readSpec failures mean we skip tracking this turn — fine */
+      /* readSpec failures mean we skip tracking this turn - fine */
     }
     if (!artifactPath) return;
     if (!anyArtifactMatch(artifactPath, targets, ctx.cwd)) return;
@@ -675,7 +675,7 @@ export default function iterationLoopExtension(pi: ExtensionAPI): void {
   //
   //   - Claim nudge: final assistant message matches an artifact-
   //     correctness claim regex. De-duped against
-  //     `verify-before-claim` — if v-b-c would fire on the same
+  //     `verify-before-claim` - if v-b-c would fire on the same
   //     message (it has unverified test/lint/build claims), we
   //     suppress ours. We re-run v-b-c's detection helpers inline
   //     so hook-ordering doesn't matter.
@@ -723,7 +723,7 @@ export default function iterationLoopExtension(pi: ExtensionAPI): void {
     if (!text) return;
     const matched = matchesClaimRegex(loopConfig.claimRegexes, text);
     if (!matched) return;
-    // Suppress when the strict nudge already fired this turn —
+    // Suppress when the strict nudge already fired this turn -
     // firing both at once overwhelms the model and the strict
     // message already tells it to run the check.
     if (strictSent) {
@@ -748,7 +748,7 @@ export default function iterationLoopExtension(pi: ExtensionAPI): void {
       }
     } catch (e) {
       debug(debugEnabled, `v-b-c dedupe check threw: ${(e as Error).message}`);
-      /* fall through to send — better to nag than silently swallow */
+      /* fall through to send - better to nag than silently swallow */
     }
     const claimFired = lastUserMessageHasMarker(branch, CLAIM_NUDGE_MARKER);
     if (claimFired) {
@@ -817,7 +817,7 @@ export default function iterationLoopExtension(pi: ExtensionAPI): void {
 
     const result: ActionResult = actAccept(state, { task, acceptedAt: accepted.spec.acceptedAt ?? nowIso() });
     if (!result.ok) {
-      // Should not happen — we just wrote a valid spec — but surface it
+      // Should not happen - we just wrote a valid spec - but surface it
       // rather than crashing.
       return errorReturn('accept', task, result.error);
     }
@@ -904,7 +904,7 @@ export default function iterationLoopExtension(pi: ExtensionAPI): void {
         signal,
         // Persist the critic transcript under
         // `<parentSessionDir>/<parentSid>/subagents/` (Claude Code
-        // mirror layout — see `config/pi/extensions/AGENTS.md`).
+        // mirror layout - see `config/pi/extensions/AGENTS.md`).
         // Without this the spawn falls back to
         // `SessionManager.inMemory(cwd)` and the critic's transcript
         // is dropped on the floor, breaking `pi session-usage` cost
@@ -947,10 +947,10 @@ export default function iterationLoopExtension(pi: ExtensionAPI): void {
     // ── Validation ────────────────────────────────────────────────────
     const read = readSpec(ctx.cwd, task);
     if (read.state === 'none') {
-      return errorReturn('run', task, `no check declared for task "${task}" — call \`check declare\` first`);
+      return errorReturn('run', task, `no check declared for task "${task}" - call \`check declare\` first`);
     }
     if (read.state === 'draft') {
-      return errorReturn('run', task, `task "${task}" has a draft pending — call \`check accept task=${task}\` first`);
+      return errorReturn('run', task, `task "${task}" has a draft pending - call \`check accept task=${task}\` first`);
     }
     if (!read.spec) {
       return errorReturn('run', task, read.error ?? `failed to load spec for "${task}"`);
@@ -976,7 +976,7 @@ export default function iterationLoopExtension(pi: ExtensionAPI): void {
       return errorReturn(
         'run',
         task,
-        `loop already terminated (${state.stopReason}) — close and re-declare to continue iterating`,
+        `loop already terminated (${state.stopReason}) - close and re-declare to continue iterating`,
       );
     }
 
@@ -996,7 +996,7 @@ export default function iterationLoopExtension(pi: ExtensionAPI): void {
         const bytes = readFileSync(prevPath);
         prevHash = createHash('sha256').update(bytes).digest('hex');
       } catch {
-        /* previous snapshot missing or unreadable — treat as no fixpoint candidate */
+        /* previous snapshot missing or unreadable - treat as no fixpoint candidate */
       }
     }
     let snapshot: { path: string; hash: string } | null = null;
@@ -1053,7 +1053,7 @@ export default function iterationLoopExtension(pi: ExtensionAPI): void {
         }
       }
     } else {
-      // All CheckKind variants handled above — if a new kind ever lands
+      // All CheckKind variants handled above - if a new kind ever lands
       // without a dispatch branch, this closes the hole loudly.
       const exhaustive: never = spec.kind;
       return errorReturn('run', task, `unknown check kind "${String(exhaustive as unknown)}"`);
@@ -1120,7 +1120,7 @@ export default function iterationLoopExtension(pi: ExtensionAPI): void {
     if (snapshot) {
       lines.push(`Snapshot: ${snapshot.path}`);
     } else {
-      lines.push(`Snapshot: (artifact "${spec.artifact}" not found on disk — fixpoint detection disabled)`);
+      lines.push(`Snapshot: (artifact "${spec.artifact}" not found on disk - fixpoint detection disabled)`);
     }
     if (state.bestSoFar) {
       lines.push(
@@ -1131,7 +1131,7 @@ export default function iterationLoopExtension(pi: ExtensionAPI): void {
     if (stopReason) {
       lines.push(`Stop reason: ${stopReason}`);
       if (stopReason === 'passed') {
-        lines.push(`Loop passed — call \`check close task=${task} reason=passed\` to archive it.`);
+        lines.push(`Loop passed - call \`check close task=${task} reason=passed\` to archive it.`);
       } else {
         lines.push(
           `Loop terminated without passing. Either \`check close task=${task} reason=${stopReason}\` to archive the best-so-far, or edit the artifact / spec and re-declare.`,
@@ -1208,7 +1208,7 @@ export default function iterationLoopExtension(pi: ExtensionAPI): void {
       }
     }
 
-    // Archive on close (default behavior — mirrors the plan's v1 decision).
+    // Archive on close (default behavior - mirrors the plan's v1 decision).
     let archivedTo: string | null = null;
     try {
       archivedTo = archiveTask(ctx.cwd, task, nowIso());
@@ -1223,7 +1223,7 @@ export default function iterationLoopExtension(pi: ExtensionAPI): void {
     }
 
     debug(debugEnabled, `close: task=${task} reason=${reason} archivedTo=${archivedTo ?? '(nothing)'}`);
-    const lines = [`Closed task "${task}" — reason: ${reason}.`];
+    const lines = [`Closed task "${task}" - reason: ${reason}.`];
     if (archivedTo) lines.push(`Archived to ${archivedTo}`);
     else lines.push('Nothing on disk to archive.');
     return {
@@ -1243,7 +1243,7 @@ export default function iterationLoopExtension(pi: ExtensionAPI): void {
     label: 'Check',
     description:
       'Declare and run an iteration-loop check against an artifact. Actions: ' +
-      '`declare` (draft a spec — kind=bash|critic, artifact=<path>, plus kind-specific args), ' +
+      '`declare` (draft a spec - kind=bash|critic, artifact=<path>, plus kind-specific args), ' +
       '`accept` (user/model confirms the draft, starts the loop), ' +
       '`run` (execute one iteration; dispatches the check and records the verdict), ' +
       '`status` (read the current spec + iteration state), ' +
@@ -1254,10 +1254,10 @@ export default function iterationLoopExtension(pi: ExtensionAPI): void {
       'For artifact-producing tasks (rendered image, SVG, generated config, regex output) declare a check up front and iterate until the verdict approves.',
     promptGuidelines: [
       'Call `check` with action `declare` before producing the artifact. Pick `kind=bash` for deterministic pass/fail (tests, validators, exit-code commands) or `kind=critic` for subjective or visual verification (images, prose, design).',
-      'After declaring, surface the draft JSON to the user and ask them to accept it. Do not call `check run` until the user has accepted via `check accept` (the extension enforces this — drafts cannot run).',
+      'After declaring, surface the draft JSON to the user and ask them to accept it. Do not call `check run` until the user has accepted via `check accept` (the extension enforces this - drafts cannot run).',
       'Iterate in a tight loop: edit → `check run` → read verdict → edit. Do NOT claim the artifact is done without a passing verdict from `check run` this turn.',
       'On budget exhaustion (`budget-iter` / `budget-cost` / `wall-clock`), report the best-so-far snapshot to the user and let them decide to extend the budget or accept it.',
-      'Call `check close reason=<reason>` when the loop terminates — it archives the task directory under `.pi/checks/archive/`.',
+      'Call `check close reason=<reason>` when the loop terminates - it archives the task directory under `.pi/checks/archive/`.',
     ],
     parameters: CheckParams,
 
@@ -1323,12 +1323,12 @@ export default function iterationLoopExtension(pi: ExtensionAPI): void {
       switch (details.action) {
         case 'declare':
           parts.push(
-            `${theme.fg('accent', '✎ declare')}${theme.fg('muted', taskLabel)}${theme.fg('dim', ' — draft written')}`,
+            `${theme.fg('accent', '✎ declare')}${theme.fg('muted', taskLabel)}${theme.fg('dim', ' - draft written')}`,
           );
           break;
         case 'accept':
           parts.push(
-            `${theme.fg('success', '✓ accept')}${theme.fg('muted', taskLabel)}${theme.fg('dim', ' — loop armed')}`,
+            `${theme.fg('success', '✓ accept')}${theme.fg('muted', taskLabel)}${theme.fg('dim', ' - loop armed')}`,
           );
           break;
         case 'run': {

@@ -1,5 +1,5 @@
 /**
- * Tests for lib/node/pi/read-reread.ts — pure module, no pi runtime.
+ * Tests for lib/node/pi/read-reread.ts - pure module, no pi runtime.
  */
 
 import { describe, expect, test } from 'vitest';

@@ -80,7 +80,7 @@ export interface RunOptimizeInput {
   log?: (msg: string) => void;
 }
 
-/** Record of one optimizer iteration — one candidate description + its scores. */
+/** Record of one optimizer iteration - one candidate description + its scores. */
 export interface OptimizerIteration {
   /** 1-indexed optimizer iteration number. */
   iteration: number;
@@ -253,7 +253,7 @@ export async function runOptimizeLoop(input: RunOptimizeInput): Promise<Optimize
     );
 
     // Exit conditions:
-    //   - train set has zero failures (or is empty — vacuous "all pass")
+    //   - train set has zero failures (or is empty - vacuous "all pass")
     //   - reached the max-iterations cap
     if (trainPassed === trainResults.length) {
       exitReason = 'all_passed';
@@ -384,7 +384,7 @@ function coerceTriggerEval(item: unknown, sourcePath: string, idx: number): Trig
  *   - The R4 flat shape: `[{query, should_trigger}, ...]`
  *   - A fallback projection of the full `evals.json`: `{ "evals": [{prompt, should_trigger, ...}] }`
  *     is converted to `[{query: prompt, should_trigger}]`. Expectations are
- *     discarded — the optimizer only scores TRIGGER rate.
+ *     discarded - the optimizer only scores TRIGGER rate.
  */
 export function loadTriggerEvalSet(raw: string, sourcePath: string): TriggerEval[] {
   const data = JSON.parse(raw) as unknown;
@@ -433,7 +433,7 @@ export interface DescriptionHistoryEntry {
  * updated list back atomically. Creates a fresh single-element file when
  * the history doesn't exist yet. Silently treats an unreadable or
  * malformed existing file as "empty" so a corrupted sidecar never blocks
- * a `--write` run — the whole point is to snapshot the live description
+ * a `--write` run - the whole point is to snapshot the live description
  * before we overwrite it.
  */
 export function appendDescriptionHistory(path: string, entry: DescriptionHistoryEntry): DescriptionHistoryEntry[] {
@@ -452,7 +452,7 @@ export function appendDescriptionHistory(path: string, entry: DescriptionHistory
       });
     }
   } catch {
-    // Missing or corrupt history — start fresh.
+    // Missing or corrupt history - start fresh.
   }
   const out = [...prev, entry];
   const tmp = `${path}.tmp`;

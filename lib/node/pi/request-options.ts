@@ -1,12 +1,12 @@
 /**
  * Pure helper for the `requestOptions` field on persona / agent
  * frontmatter. Pi exposes a `before_provider_request` extension event
- * whose handler can replace the outgoing provider payload — that is the
+ * whose handler can replace the outgoing provider payload - that is the
  * surface we use to inject arbitrary per-request fields (`temperature`,
  * `top_p`, `top_k`, `chat_template_kwargs`, OpenRouter routing, …)
  * without forking pi-ai.
  *
- * Pure module — no pi imports — so the merge + filter rules are
+ * Pure module - no pi imports - so the merge + filter rules are
  * unit-testable under vitest. `applyRequestOptions` is called from the
  * extension's `before_provider_request` handler with the live payload
  * and the active persona's / agent's resolved `requestOptions`.
@@ -31,8 +31,8 @@
  * `chat_template_kwargs.enable_thinking` without nuking the
  * `preserve_thinking` key pi-ai already injects for the
  * qwen-chat-template thinking format). Arrays and primitives from the
- * override fully replace the original — last-write-wins, no
- * concatenation, no deep-equals — to keep semantics predictable.
+ * override fully replace the original - last-write-wins, no
+ * concatenation, no deep-equals - to keep semantics predictable.
  *
  * ## Why the `apis` filter
  *
@@ -58,7 +58,7 @@ export interface RequestOptionsConfig {
 export interface ApplyRequestOptionsArgs {
   /**
    * Live provider payload (the body about to be sent over HTTP).
-   * Provider-specific shape — opaque to this helper. Non-object payloads
+   * Provider-specific shape - opaque to this helper. Non-object payloads
    * are returned unchanged.
    */
   payload: unknown;
@@ -88,7 +88,7 @@ function isPlainObject(v: unknown): v is Record<string, unknown> {
 /**
  * Recursive merge: for every key in `override`, if both sides are plain
  * objects we recurse, otherwise the override value wins. Arrays /
- * primitives from the override fully replace the original — they do
+ * primitives from the override fully replace the original - they do
  * NOT concatenate. The merge produces a new top-level object so the
  * caller can hand it straight back to pi-ai without the original being
  * mutated.
@@ -143,7 +143,7 @@ export function applyRequestOptions(args: ApplyRequestOptionsArgs): unknown {
 /**
  * Validate a raw frontmatter `requestOptions` value. Returns the parsed
  * config or `undefined` (with a warning pushed) when the shape is
- * unusable. The validation is intentionally permissive — only the
+ * unusable. The validation is intentionally permissive - only the
  * shapes the pure-helper relies on (top-level object, optional `apis`
  * string array) are enforced. Provider-specific keys are passed through
  * untouched.

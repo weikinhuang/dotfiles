@@ -7,7 +7,7 @@
  * module captures and replays that state through a structural API so
  * it can be tested without pulling in `@earendil-works/*`.
  *
- * Pure module — no pi imports.
+ * Pure module - no pi imports.
  */
 
 import { type PersonaThinkingLevel } from './parse.ts';
@@ -48,7 +48,7 @@ export function snapshotSession(api: SnapshotApi, currentAddendum?: string): Sna
 
 /**
  * Push the snapshot back through `api`. Order matters: model first,
- * thinking level next, tools last — if any setter throws, the
+ * thinking level next, tools last - if any setter throws, the
  * already-applied scalars stay correct and the caller still sees a
  * consistent partial restore.
  */

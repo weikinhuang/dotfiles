@@ -27,7 +27,7 @@ const VALID = [
   '- Paris is the capital city [S1].',
   '',
   '## Sources',
-  '- [S1] https://example.com/paris — Paris page',
+  '- [S1] https://example.com/paris - Paris page',
   '',
   '## Open questions',
   '- None.',
@@ -80,7 +80,7 @@ describe('validateFindingText', () => {
       '# Sub-question: Q',
       '',
       '## Sources',
-      '- [S1] https://example.com/x — desc',
+      '- [S1] https://example.com/x - desc',
       '',
       '## Findings',
       '- claim [S1]',
@@ -116,7 +116,7 @@ describe('validateFindingText', () => {
 });
 
 // ──────────────────────────────────────────────────────────────────────
-// classifyFindings — failure-counter policy.
+// classifyFindings - failure-counter policy.
 // ──────────────────────────────────────────────────────────────────────
 
 describe('classifyFindings', () => {
@@ -161,7 +161,7 @@ describe('normalizeSourceTitles', () => {
       callTinyMatch: () => Promise.resolve(null),
       getTotalCost: () => 0,
     };
-    const body = '- [S1] https://example.com — Raw Page Title | SiteName';
+    const body = '- [S1] https://example.com - Raw Page Title | SiteName';
     const out = await normalizeSourceTitles({
       sections: { subQuestion: '', findings: '', sources: body, openQuestions: '' },
       adapter,
@@ -186,8 +186,8 @@ describe('normalizeSourceTitles', () => {
       getTotalCost: () => 0,
     };
     const body = [
-      '- [S1] https://example.com — Raw Page Title | SiteName',
-      '- [S2] https://foo.test/x — Foo Bar Baz | SiteName',
+      '- [S1] https://example.com - Raw Page Title | SiteName',
+      '- [S2] https://foo.test/x - Foo Bar Baz | SiteName',
     ].join('\n');
     const out = await normalizeSourceTitles({
       sections: { subQuestion: '', findings: '', sources: body, openQuestions: '' },
@@ -208,7 +208,7 @@ describe('normalizeSourceTitles', () => {
       callTinyMatch: () => Promise.resolve(null),
       getTotalCost: () => 0,
     };
-    const body = '- [S1] https://example.com — Untouched';
+    const body = '- [S1] https://example.com - Untouched';
     const out = await normalizeSourceTitles({
       sections: { subQuestion: '', findings: '', sources: body, openQuestions: '' },
       adapter,
@@ -250,8 +250,8 @@ describe('extractFindingSourceUrls', () => {
       '- claim [S1]',
       '',
       '## Sources',
-      '- [S1] https://example.com/a — first',
-      '- [S2] https://example.com/b — second',
+      '- [S1] https://example.com/a - first',
+      '- [S2] https://example.com/b - second',
       '',
       '## Open questions',
       '- None.',
@@ -275,9 +275,9 @@ describe('extractFindingSourceUrls', () => {
   test('stops scanning at the next ## heading', () => {
     const body = [
       '## Sources',
-      '- [S1] https://example.com/a — first',
+      '- [S1] https://example.com/a - first',
       '## Open questions',
-      '- [S99] https://evil.example — not-a-source',
+      '- [S99] https://evil.example - not-a-source',
     ].join('\n');
 
     expect(extractFindingSourceUrls(body)).toEqual(['https://example.com/a']);
@@ -288,8 +288,8 @@ describe('extractFindingSourceUrls', () => {
       '## Sources',
       '  free-form preamble',
       '- not a source line',
-      '- [S1] https://example.com/a — desc',
-      '- [bad] https://nope.example — garbage',
+      '- [S1] https://example.com/a - desc',
+      '- [bad] https://nope.example - garbage',
     ].join('\n');
 
     expect(extractFindingSourceUrls(body)).toEqual(['https://example.com/a']);

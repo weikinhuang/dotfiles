@@ -111,12 +111,12 @@ test('formatActivePlan: renders In review section with ⋯ marker', () => {
   const out = formatActivePlan(
     mkState([
       { id: 1, text: 'x', status: 'pending' },
-      { id: 2, text: 'awaiting tests', status: 'review', note: 'ran npm test — waiting for ci' },
+      { id: 2, text: 'awaiting tests', status: 'review', note: 'ran npm test - waiting for ci' },
     ]),
   )!;
 
   expect(out).toMatch(/In review/);
-  expect(out).toMatch(/⋯ #2 awaiting tests {2}\(ran npm test — waiting for ci\)/);
+  expect(out).toMatch(/⋯ #2 awaiting tests {2}\(ran npm test - waiting for ci\)/);
 });
 
 test('formatActivePlan: returns non-null when only review items exist', () => {

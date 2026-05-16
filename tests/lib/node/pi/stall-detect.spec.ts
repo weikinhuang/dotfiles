@@ -1,7 +1,7 @@
 /**
  * Tests for lib/node/pi/stall-detect.ts.
  *
- * Pure module — no pi runtime needed.
+ * Pure module - no pi runtime needed.
  */
 
 import { expect, test } from 'vitest';
@@ -78,7 +78,7 @@ test('classifyAssistant: error trims whitespace', () => {
   expect(classifyAssistant(snap({ error: '  timeout  ' }))).toEqual({ kind: 'error', error: 'timeout' });
 });
 
-// User-initiated aborts (Ctrl+C) must NEVER be classified as a stall —
+// User-initiated aborts (Ctrl+C) must NEVER be classified as a stall -
 // auto-retrying past them would fight the user. See
 // `StopReason` in `@earendil-works/pi-ai/types`.
 test('classifyAssistant: stopReason="aborted" with empty turn → not a stall', () => {
@@ -424,7 +424,7 @@ test('countTrailingStalls: intermediate healthy assistant resets the streak (eve
 
 test('countTrailingStalls: a real (non-marker) user input breaks the streak', () => {
   // If the user manually typed "continue" and the next turn stalled
-  // again, only the single trailing stall should count — the manual
+  // again, only the single trailing stall should count - the manual
   // continue resets the budget.
   const msgs = [userMsg('do a thing'), emptyAsst(), stallNudge(1, 2), emptyAsst(), userMsg('continue'), emptyAsst()];
 
@@ -451,7 +451,7 @@ test('countTrailingStalls: accepts wrapped `{ message }` shape', () => {
 test('countTrailingStalls: aborted turn is not a stall (does not contribute to count)', () => {
   const aborted = { role: 'assistant', content: [], stopReason: 'aborted' };
   // The aborted turn is healthy-from-our-perspective, so the walk stops
-  // there — trailing count is 0.
+  // there - trailing count is 0.
 
   expect(countTrailingStalls([userMsg('do a thing'), aborted])).toBe(0);
 });
@@ -490,7 +490,7 @@ test('stripThinkingFromStalledTurns: strips thinking blocks from trailing stall 
 test('stripThinkingFromStalledTurns: healthy turns in the window are NOT stripped even if they contain thinking', () => {
   // A turn with non-empty text AND thinking is considered healthy by
   // `classifyAssistant` (text trims non-empty). Healthy turns are a
-  // hard boundary for the walk — we never touch their thinking,
+  // hard boundary for the walk - we never touch their thinking,
   // because the legitimate reasoning there is part of the successful
   // turn's trail and stripping it could break provider continuity.
   const healthy: Record<string, unknown> = {
@@ -558,7 +558,7 @@ test('stripThinkingFromStalledTurns: stops at a real user prompt (does not cross
   const msgs: Record<string, unknown>[] = [
     userMsg('first prompt') as Record<string, unknown>,
     olderStall,
-    userMsg('continue') as Record<string, unknown>, // real user input — resets boundary
+    userMsg('continue') as Record<string, unknown>, // real user input - resets boundary
     newStall,
     stallNudge(1, 2) as Record<string, unknown>,
   ];

@@ -190,7 +190,7 @@ describe('tailJournal', () => {
 // Failure modes.
 // ──────────────────────────────────────────────────────────────────────
 
-describe('readJournal — failure modes', () => {
+describe('readJournal - failure modes', () => {
   test('text before the first heading is ignored', () => {
     writeFileSync(
       journal,
@@ -214,7 +214,7 @@ describe('readJournal — failure modes', () => {
     expect(entries.length).toBe(1);
     expect(entries[0].heading).toBe('one');
     // The bogus heading is preserved as body text of the only
-    // recognized entry — callers see it, understand something is
+    // recognized entry - callers see it, understand something is
     // wrong, and can decide what to do. We do not crash.
     expect(entries[0].body).toContain('[bogus]');
   });
@@ -226,7 +226,7 @@ describe('readJournal — failure modes', () => {
   });
 });
 
-describe('appendJournal — atomic-write contract', () => {
+describe('appendJournal - atomic-write contract', () => {
   test('no .tmp- files remain after a sequence of appends', () => {
     for (let i = 0; i < 20; i++) {
       appendJournal(journal, {
@@ -254,7 +254,7 @@ describe('appendJournal — atomic-write contract', () => {
   // mix) is a property of `atomic-write.atomicWriteFile` itself and is
   // covered by `tests/lib/node/pi/atomic-write.spec.ts`. We do not
   // re-test it here because `appendJournal` adds no additional
-  // atomicity surface — it reads, composes, and calls
+  // atomicity surface - it reads, composes, and calls
   // `atomicWriteFile` once.
 });
 
@@ -287,7 +287,7 @@ describe('sumJournalCostUsd', () => {
 
   test('ignores malformed cost lines', () => {
     appendJournal(journal, { level: 'step', heading: 'cost delta · planning · 0.1 USD' });
-    // Truncated / wrong shape — must not poison the total.
+    // Truncated / wrong shape - must not poison the total.
     appendJournal(journal, { level: 'step', heading: 'cost delta · oops' });
     appendJournal(journal, { level: 'step', heading: 'cost delta · x · abc USD' });
     appendJournal(journal, { level: 'step', heading: 'cost delta · y · -1.0 USD' });

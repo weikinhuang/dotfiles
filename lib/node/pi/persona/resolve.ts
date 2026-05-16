@@ -1,7 +1,7 @@
 /**
  * Resolve `writeRoots` entries from a mode file into absolute paths.
  *
- * Pure module — no pi imports — so it stays unit-testable.
+ * Pure module - no pi imports - so it stays unit-testable.
  *
  * Per `plans/pi-mode-extension.md` (D8), this resolver operates on
  * path strings only and never calls `realpath`. The link path wins:
@@ -48,7 +48,7 @@ function resolveOne(rawEntry: string, ctx: ResolveContext): string {
   }
 
   // 3) remember whether the substituted (pre-resolve) string ended in '/'
-  //    — `path.resolve` strips trailing slashes, but the matcher relies
+  //    - `path.resolve` strips trailing slashes, but the matcher relies
   //    on this convention, so we re-append.
   const hadTrailingSlash = expanded.length > 1 && expanded.endsWith('/');
 

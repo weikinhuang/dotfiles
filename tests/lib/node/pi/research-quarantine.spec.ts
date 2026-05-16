@@ -157,7 +157,7 @@ describe('failureCounter', () => {
 // Failure modes.
 // ──────────────────────────────────────────────────────────────────────
 
-describe('failureCounter — failure modes', () => {
+describe('failureCounter - failure modes', () => {
   test('corrupt state file is treated as empty state', () => {
     const state = join(cwd, 'state.json');
     writeFileSync(state, 'not json {');
@@ -188,7 +188,7 @@ describe('failureCounter — failure modes', () => {
     expect(c.get('worse')).toBe(0);
   });
 
-  test('atomic-write contract — no temp files after operations', () => {
+  test('atomic-write contract - no temp files after operations', () => {
     const dir = join(cwd, 'dir');
     mkdirSync(dir);
     const c = failureCounter(join(dir, 'state.json'));
@@ -202,7 +202,7 @@ describe('failureCounter — failure modes', () => {
   });
 });
 
-describe('quarantine — failure modes', () => {
+describe('quarantine - failure modes', () => {
   test('produces a traversable directory even under deeply nested parents', () => {
     const deep = join(cwd, 'a', 'b', 'c');
     mkdirSync(deep, { recursive: true });

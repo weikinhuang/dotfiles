@@ -8,7 +8,7 @@
  *
  * v1.5 will add glob support (`out-*.svg`, `dist/**\/bundle.js`); the
  * matcher signature is already shaped for that by taking a
- * `declared` string and a `candidate` string — callers shouldn't need
+ * `declared` string and a `candidate` string - callers shouldn't need
  * to change when we upgrade the implementation.
  *
  * Normalization rules:
@@ -18,7 +18,7 @@
  *   - `..` and `.` segments are collapsed by `path.resolve`.
  *   - Trailing slashes are stripped.
  *   - Case-sensitive comparison (matches POSIX filesystem semantics;
- *     Windows/case-insensitive FSes are out of scope for v1 — pi's
+ *     Windows/case-insensitive FSes are out of scope for v1 - pi's
  *     target platforms are linux/darwin/wsl).
  *
  * No pi imports.
@@ -45,7 +45,7 @@ export function normalizePath(p: string | undefined | null, cwd: string): string
  * `artifact`? Both are normalized against `cwd` before comparison.
  *
  * Returns false on any unparseable input (null, undefined, empty
- * string, wrong type) — the caller should treat those as "did not
+ * string, wrong type) - the caller should treat those as "did not
  * touch the artifact" rather than erroring.
  */
 export function artifactMatches(
@@ -92,7 +92,7 @@ export function anyArtifactMatch(
  *   - { files: [{ path: string }, ...] }       // multi-file edits
  *   - { edits: [{ path: string }, ...] }       // some multi-edit tools
  *
- * Unknown shapes return an empty array. This is conservative — we
+ * Unknown shapes return an empty array. This is conservative - we
  * miss-track some exotic tools rather than over-trigger nudges on
  * tools that weren't really edits.
  */

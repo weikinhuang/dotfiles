@@ -10,7 +10,7 @@
  *      runs proceed silently. The consent flag lives under the
  *      user's global memory dir (see `deep-research-review-config`).
  *   2. Record the spec for each check via the iteration-loop
- *      storage helpers — `writeDraft` then `acceptDraft` — so the
+ *      storage helpers - `writeDraft` then `acceptDraft` - so the
  *      task shows up in `/check list` and survives pi restarts.
  *      This is the "declare / accept" half of the tool surface.
  *   3. Call `runReviewLoop` with `runStructural` /
@@ -27,7 +27,7 @@
  *   exercises the core algorithm; the extension wiring adds the
  *   consent / task-state / notify layer on top.
  *
- * No pi imports — this module is unit-testable under vitest and
+ * No pi imports - this module is unit-testable under vitest and
  * the production extension consumes it with real pi deps bound.
  */
 
@@ -65,12 +65,12 @@ export const SUBJECTIVE_TASK = 'deep-research-subjective';
 // ──────────────────────────────────────────────────────────────────────
 
 export interface ReviewWireDeps {
-  /** Agent cwd — where `.pi/checks/` lives. */
+  /** Agent cwd - where `.pi/checks/` lives. */
   cwd: string;
-  /** Deep-research run root — where `report.md` + `rubric-*.md` live. */
+  /** Deep-research run root - where `report.md` + `rubric-*.md` live. */
   runRoot: string;
   /**
-   * Subjective rubric body (contents of `rubric-subjective.md`) —
+   * Subjective rubric body (contents of `rubric-subjective.md`) -
    * materialized upstream by the synth phase, read once and
    * threaded in here so the critic spec carries it.
    */
@@ -129,7 +129,7 @@ export interface ReviewWireResult {
  *   - Format + notify.
  *
  * Errors in the declare/accept plumbing are journaled and then
- * swallowed so review still attempts to run — the in-memory
+ * swallowed so review still attempts to run - the in-memory
  * runners are the authoritative source of the verdict.
  */
 export async function runDeepResearchReview(deps: ReviewWireDeps): Promise<ReviewWireResult> {
@@ -156,7 +156,7 @@ export async function runDeepResearchReview(deps: ReviewWireDeps): Promise<Revie
     const summary = formatStubbedReviewSummary(deps.runRoot, stubbedSections);
     safeJournal(
       journalPath,
-      `review short-circuit: ${stubbedSections.length} stubbed section(s) \u2014 skipping loop`,
+      `review short-circuit: ${stubbedSections.length} stubbed section(s) - skipping loop`,
       summary,
       'warn',
     );
@@ -164,7 +164,7 @@ export async function runDeepResearchReview(deps: ReviewWireDeps): Promise<Revie
     return {
       outcome: { kind: 'stubbed', stubbed: stubbedSections, reportPath },
       // Consent is neither needed nor recorded on the short-
-      // circuit path — the loop never ran, so there's nothing
+      // circuit path - the loop never ran, so there's nothing
       // to auto-accept. The next non-stubbed review will pick
       // up the bootstrap the first time the loop actually runs.
       consented: false,
@@ -182,14 +182,14 @@ export async function runDeepResearchReview(deps: ReviewWireDeps): Promise<Revie
     firstTimeConsent = true;
     priorConsent = recordConsent({ ...consentOpts, ...(deps.now ? { now: deps.now } : {}) });
     notify(
-      '/research: first-time review-loop consent recorded — future runs will auto-accept the structural + subjective iteration-loop checks without prompting.',
+      '/research: first-time review-loop consent recorded - future runs will auto-accept the structural + subjective iteration-loop checks without prompting.',
       'info',
     );
     safeJournal(journalPath, 'review consent recorded', priorConsent.at ?? now().toISOString());
   }
 
   // ── 2. Declare both iteration-loop checks ─────────────────
-  // The specs are informational — the pi runtime doesn't invoke
+  // The specs are informational - the pi runtime doesn't invoke
   // them (we call the injected runners directly), but surfacing
   // them through `/check list` keeps the tool surface coherent
   // with what the plan promises. We best-effort through failures
@@ -270,7 +270,7 @@ export async function runDeepResearchReview(deps: ReviewWireDeps): Promise<Revie
 }
 
 // ──────────────────────────────────────────────────────────────────────
-// Spec builders — exported for tests + downstream observability.
+// Spec builders - exported for tests + downstream observability.
 // ──────────────────────────────────────────────────────────────────────
 
 export interface BuildStructuralSpecInput {
@@ -325,7 +325,7 @@ export function buildSubjectiveSpec(input: BuildSubjectiveSpecInput): CheckSpec 
  * copy-pasteable `/research --resume --run-root <path>
  * --from=review --review-max-iter <N+2>` command the parent pi/LLM
  * agent can re-invoke without hand-editing. Tests that call
- * {@link formatOutcome} directly may omit the context — the
+ * {@link formatOutcome} directly may omit the context - the
  * closeness block is appended only when both fields are set.
  */
 export interface FormatOutcomeContext {
@@ -346,8 +346,8 @@ export interface FormatOutcomeContext {
  * `/research --resume … --review-max-iter <N+REVIEW_RESUME_BUMP>`
  * command. The closeness block is appended to the existing
  * summary text (rather than a new `closenessHint` field) so every
- * existing caller — including tool-summary folds in
- * `deep-research-tool.ts` — surfaces it for free.
+ * existing caller - including tool-summary folds in
+ * `deep-research-tool.ts` - surfaces it for free.
  */
 export function formatOutcome(
   outcome: ReviewLoopOutcome,
@@ -364,14 +364,14 @@ export function formatOutcome(
     case 'stubbed':
       // The wire's short-circuit path builds the full recovery
       // summary via {@link formatStubbedReviewSummary} before ever
-      // calling {@link formatOutcome} — that's what the user and
+      // calling {@link formatOutcome} - that's what the user and
       // the LLM see. This branch exists for callers that invoke
       // {@link formatOutcome} directly on a {@link ReviewLoopOutcome}
       // (tests, downstream renderers) so the switch exhaustively
       // covers the union without falling through.
       return {
         summary:
-          `/research: review skipped \u2014 ${outcome.stubbed.length} sub-question section(s) are stubbed as ` +
+          `/research: review skipped - ${outcome.stubbed.length} sub-question section(s) are stubbed as ` +
           `[section unavailable]. Re-fetch before re-running review.`,
         level: 'warning',
       };
@@ -405,7 +405,7 @@ export function formatOutcome(
         const bump = ctx.maxIter + REVIEW_RESUME_BUMP;
         if (closeness === 'near-pass') {
           lines.push(
-            `  Near-pass: the parent agent may continue with a small bump \u2014 one more iteration is likely to converge.`,
+            `  Near-pass: the parent agent may continue with a small bump - one more iteration is likely to converge.`,
           );
         } else if (closeness === 'stuck') {
           lines.push(
@@ -421,7 +421,7 @@ export function formatOutcome(
     case 'structural-override':
       return {
         summary:
-          `/research: review FAILED — critic approved (${outcome.critic.score.toFixed(2)}) but the structural check regressed on iter ${outcome.iterations}. ` +
+          `/research: review FAILED - critic approved (${outcome.critic.score.toFixed(2)}) but the structural check regressed on iter ${outcome.iterations}. ` +
           `Structure wins: ${outcome.structural.failures.length} structural failure${outcome.structural.failures.length === 1 ? '' : 's'}. ` +
           `First: ${outcome.structural.failures[0]?.message ?? '(none)'}.`,
         level: 'warning',

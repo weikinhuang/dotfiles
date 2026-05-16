@@ -1,7 +1,7 @@
 /**
  * Tests for lib/node/pi/subdir-agents.ts.
  *
- * Pure module — no pi runtime needed.
+ * Pure module - no pi runtime needed.
  */
 
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync, symlinkSync } from 'node:fs';
@@ -33,7 +33,7 @@ test('normalizeAbs: strips trailing separator', () => {
 });
 
 test('normalizeAbs: leaves root path alone', () => {
-  // On POSIX the root is `/` — stripping it would leave '' which is wrong.
+  // On POSIX the root is `/` - stripping it would leave '' which is wrong.
   const a = normalizeAbs('/');
 
   expect(a.length).toBeGreaterThanOrEqual(1);
@@ -302,7 +302,7 @@ describe('candidateContextPaths integration (tmpdir)', () => {
     mkdirSync(join(root, 'tests', 'unit'), { recursive: true });
     writeFileSync(join(root, 'AGENTS.md'), 'root');
     writeFileSync(join(root, 'tests', 'AGENTS.md'), 'tests');
-    // CLAUDE.md symlinked to AGENTS.md at root — verifies callers can
+    // CLAUDE.md symlinked to AGENTS.md at root - verifies callers can
     // dedupe via realpath (we don't test dedup here, just that the
     // candidate list still includes the symlinked name).
     symlinkSync(join(root, 'AGENTS.md'), join(root, 'CLAUDE.md'));

@@ -5,7 +5,7 @@
  * statusline and the subagent extension render token numbers, cost, and
  * cache-hit ratios in the same style without copy/paste drift.
  *
- * Pure module — no pi imports — so it can be unit-tested under `vitest`.
+ * Pure module - no pi imports - so it can be unit-tested under `vitest`.
  * Keep any new formatter here tight and unit-covered; every call site
  * should render the same way across the app.
  */
@@ -33,7 +33,7 @@ export function fmtCost(c: number): string {
 
 /**
  * Prompt-cache hit ratio as an integer percent, or `null` when the
- * denominator is zero (nothing billed on the input side yet — no ratio
+ * denominator is zero (nothing billed on the input side yet - no ratio
  * to report).
  */
 export function cacheHitRatioPct(usage: { input: number; cacheRead: number }): number | null {

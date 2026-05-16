@@ -5,20 +5,20 @@
  * without the pi runtime.
  *
  * Small self-hosted models regularly get stuck calling the same tool
- * with the same arguments repeatedly — most often `read` with the
+ * with the same arguments repeatedly - most often `read` with the
  * same offset or `bash` with a command that keeps failing the same
  * way. They'll burn 5–10 turns before giving up.
  *
  * This module provides:
  *
- *   - `makeKey(toolName, input)` — canonical key for a tool call.
+ *   - `makeKey(toolName, input)` - canonical key for a tool call.
  *     Uses a stable JSON encoding so `{a:1,b:2}` and `{b:2,a:1}`
  *     hash identically.
- *   - `pushAndCheck(history, key, window, threshold)` — append a
+ *   - `pushAndCheck(history, key, window, threshold)` - append a
  *     key to the rolling history window and report whether that key
  *     has repeated `threshold` times inside the window. The extension
  *     uses this to decide whether to fire a steering message.
- *   - `buildNudge(toolName, count)` — the short, directive message
+ *   - `buildNudge(toolName, count)` - the short, directive message
  *     we inject as a followup when a repeat is detected.
  */
 
@@ -28,7 +28,7 @@ export type CallCheck = { kind: 'ok' } | { kind: 'repeat'; count: number };
  * Stringify `value` with a stable key ordering. Intended to make
  * `makeKey('bash', { timeout: 30, command: 'x' })` and
  * `makeKey('bash', { command: 'x', timeout: 30 })` produce the same
- * key. Handles cycles by emitting `"[Circular]"` rather than throwing —
+ * key. Handles cycles by emitting `"[Circular]"` rather than throwing -
  * tool inputs shouldn't be cyclic, but defensive against fuzz tests.
  */
 export function stableStringify(value: unknown): string {
@@ -77,13 +77,13 @@ export function pushAndCheck(history: string[], key: string, window: number, thr
 
 /**
  * Steering message we inject via `pi.sendMessage({ deliverAs: 'steer' })`.
- * Deliberately terse and directive — the point is to break the loop,
+ * Deliberately terse and directive - the point is to break the loop,
  * not explain it philosophically.
  */
 export function buildNudge(toolName: string, count: number): string {
   return (
     `You have now called \`${toolName}\` with identical arguments ${count} times in a row and received ` +
-    `the same result each time. A different approach is required — either change the arguments, try a ` +
+    `the same result each time. A different approach is required - either change the arguments, try a ` +
     `different tool, or ask the user for guidance. Do NOT retry \`${toolName}\` with the same arguments again.`
   );
 }

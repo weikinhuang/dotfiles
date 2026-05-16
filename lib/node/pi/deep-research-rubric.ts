@@ -8,22 +8,22 @@
  *   - `rubric-structural.md` is input to the `kind=bash`
  *     deterministic check (`deep-research-structural-check`). Its
  *     bullets are the exact structural invariants the check
- *     enforces — every bullet here corresponds to a deterministic
+ *     enforces - every bullet here corresponds to a deterministic
  *     test we can run without a model.
  *
  *   - `rubric-subjective.md` is input to the `kind=critic` stage
  *     (subjective rubric passed to the `critic` agent via the
  *     iteration-loop). It deliberately does NOT re-list the
- *     structural items — those are already enforced, and asking
+ *     structural items - those are already enforced, and asking
  *     the critic to re-judge them wastes tokens + produces noisy
  *     "approved despite structural issue" verdicts.
  *
  * Both files land in the run root (`./research/<slug>/`) and are
- * editable by the user before the review runs — the `memory` +
+ * editable by the user before the review runs - the `memory` +
  * consent flag path will surface a "rubric was edited" nudge in
  * Phase 4, but this module only writes them.
  *
- * Pure module — no pi imports, no subprocess, no LLM.
+ * Pure module - no pi imports, no subprocess, no LLM.
  */
 
 import { existsSync } from 'node:fs';
@@ -51,7 +51,7 @@ export interface RubricPaths {
 
 /**
  * Derive {@link RubricPaths} from a run root. Thin wrapper over
- * `research-paths.paths()` — exists so callers can express "I
+ * `research-paths.paths()` - exists so callers can express "I
  * need the rubric pair" without reaching into the full `RunPaths`
  * bag.
  */
@@ -91,7 +91,7 @@ export const STRUCTURAL_CHECK_ITEMS: readonly StructuralCheckItem[] = [
   },
   {
     id: 'footnote-markers-resolve',
-    text: 'Every `[^n]` footnote marker in the report body has a matching `[^n]: <title> — <url>` entry in the footnotes block.',
+    text: 'Every `[^n]` footnote marker in the report body has a matching `[^n]: <title> - <url>` entry in the footnotes block.',
   },
   {
     id: 'footnote-urls-in-store',
@@ -111,7 +111,7 @@ export const STRUCTURAL_CHECK_ITEMS: readonly StructuralCheckItem[] = [
   },
   {
     id: 'no-bare-urls-in-body',
-    text: 'Bare URLs in the body (outside the footnotes block) come from the source store — no hallucinated URLs pasted into prose.',
+    text: 'Bare URLs in the body (outside the footnotes block) come from the source store - no hallucinated URLs pasted into prose.',
   },
   {
     id: 'every-section-cites-a-source',
@@ -130,10 +130,10 @@ export const STRUCTURAL_CHECK_ITEMS: readonly StructuralCheckItem[] = [
  */
 export function renderStructuralRubric(plan: DeepResearchPlan): string {
   const lines: string[] = [];
-  lines.push(`# Structural Rubric — ${plan.slug}`);
+  lines.push(`# Structural Rubric - ${plan.slug}`);
   lines.push('');
   lines.push(
-    `This rubric is enforced automatically by the Phase 4 ${'`kind=bash`'} structural check. No model judgment — every item below corresponds to a deterministic test.`,
+    `This rubric is enforced automatically by the Phase 4 ${'`kind=bash`'} structural check. No model judgment - every item below corresponds to a deterministic test.`,
   );
   lines.push('');
   lines.push(`## Checks`);
@@ -147,11 +147,11 @@ export function renderStructuralRubric(plan: DeepResearchPlan): string {
   lines.push(`- Question: ${plan.question}`);
   lines.push(`- Sub-questions (${plan.subQuestions.length}):`);
   for (const sq of plan.subQuestions) {
-    lines.push(`  - \`${sq.id}\` — ${sq.question}`);
+    lines.push(`  - \`${sq.id}\` - ${sq.question}`);
   }
   lines.push('');
   lines.push(
-    `Edit this file before running \`/research\` only to tighten the structural contract — adding bullets that are NOT deterministically checkable belongs in \`rubric-subjective.md\`.`,
+    `Edit this file before running \`/research\` only to tighten the structural contract - adding bullets that are NOT deterministically checkable belongs in \`rubric-subjective.md\`.`,
   );
   lines.push('');
   return lines.join('\n');
@@ -164,10 +164,10 @@ export function renderStructuralRubric(plan: DeepResearchPlan): string {
  */
 export function renderSubjectiveRubric(plan: DeepResearchPlan): string {
   const lines: string[] = [];
-  lines.push(`# Subjective Rubric — ${plan.slug}`);
+  lines.push(`# Subjective Rubric - ${plan.slug}`);
   lines.push('');
   lines.push(
-    `Used by the Phase 4 ${'`kind=critic`'} stage. Structural items (footnote resolution, placeholder scrubbing, section completeness) are already enforced deterministically — do NOT judge them here.`,
+    `Used by the Phase 4 ${'`kind=critic`'} stage. Structural items (footnote resolution, placeholder scrubbing, section completeness) are already enforced deterministically - do NOT judge them here.`,
   );
   lines.push('');
   lines.push(`## Rubric`);
@@ -194,7 +194,7 @@ export function renderSubjectiveRubric(plan: DeepResearchPlan): string {
   lines.push(`- Question: ${plan.question}`);
   lines.push(`- Sub-questions (${plan.subQuestions.length}):`);
   for (const sq of plan.subQuestions) {
-    lines.push(`  - \`${sq.id}\` — ${sq.question}`);
+    lines.push(`  - \`${sq.id}\` - ${sq.question}`);
   }
   lines.push('');
   lines.push(
@@ -218,7 +218,7 @@ export interface WriteRubricOpts {
   plan: DeepResearchPlan;
   /**
    * When true, do not touch files that already exist on disk.
-   * Matches the resume / user-edit use case — Phase 4 callers
+   * Matches the resume / user-edit use case - Phase 4 callers
    * pass this after the user has already edited the rubric. Default
    * is `false` (write unconditionally, overwriting any previous
    * auto-generated content).

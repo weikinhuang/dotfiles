@@ -1,4 +1,4 @@
-/* Read "Internals" at the bottom — public API comes first. The
+/* Read "Internals" at the bottom - public API comes first. The
  * `no-use-before-define` rule is disabled at the file scope because
  * TS function declarations are hoisted and this ordering reads
  * top-down (public API → helpers). */
@@ -28,7 +28,7 @@
  *   - One discriminated `PhaseEvent` per transition, so tests can
  *     script transitions as a flat array and diff the rendered
  *     widget.
- *   - No clock coupling inside the reducer — the caller passes
+ *   - No clock coupling inside the reducer - the caller passes
  *     `now` when it wants elapsed-time rendering.
  *   - No pi imports.
  *
@@ -96,7 +96,7 @@ export type PhaseEvent =
 /** Machine-readable snapshot of the current widget state. */
 export interface StatuslineState {
   phase: PhaseKind;
-  /** Human label suitable for the top line — e.g. `"fanout 3/6"`. */
+  /** Human label suitable for the top line - e.g. `"fanout 3/6"`. */
   label: string;
   /** `Date.now()` at the moment the run started. */
   startedAt: number;
@@ -258,7 +258,7 @@ export function reduceAllStatusline(
  *
  * When the extension's statusline controller drives a short-cadence
  * re-render (e.g. every 80ms), it bumps `opts.frame` each tick so
- * the braille spinner rotates — mirroring pi's own "Working…"
+ * the braille spinner rotates - mirroring pi's own "Working…"
  * indicator. Frozen states (`idle` / `done` / `error`) never show
  * the spinner because the run is not doing active work.
  */
@@ -288,7 +288,7 @@ export const SPINNER_FRAMES: readonly string[] = ['⠋', '⠙', '⠹', '⠸', '�
 /**
  * Pick the spinner prefix for a given phase + frame counter.
  * Returns the empty string (no prefix) when the phase is a frozen
- * terminal/idle state — a stalled run should not animate.
+ * terminal/idle state - a stalled run should not animate.
  *
  * Exported for unit tests; the main renderer inlines it via
  * `formatSpinner` at the top of each render.

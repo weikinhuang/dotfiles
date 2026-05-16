@@ -1,7 +1,7 @@
 /**
  * Tests for lib/node/pi/subagent-aggregate.ts.
  *
- * Pure module — no pi runtime needed. Covers:
+ * Pure module - no pi runtime needed. Covers:
  *   - empty snapshot defaults
  *   - single + multi record summation
  *   - failure tracking separate from count
@@ -103,7 +103,7 @@ describe('makeSubagentAggregate', () => {
     });
   });
 
-  test('snapshot returns a copy — mutating it does not leak back', () => {
+  test('snapshot returns a copy - mutating it does not leak back', () => {
     const agg = makeSubagentAggregate();
 
     agg.record(run({ turns: 2, input: 50 }));

@@ -11,23 +11,23 @@
  *
  * The schema is a discriminated union on `kind` with two variants:
  *
- *   1. `kind: "deep-research"` — the deep-research extension's plan.
+ *   1. `kind: "deep-research"` - the deep-research extension's plan.
  *      Tracks a flat list of sub-questions, each produced by the
  *      planner and handed off to a fanout subagent.
- *   2. `kind: "autoresearch"` — the autoresearch extension's plan.
+ *   2. `kind: "autoresearch"` - the autoresearch extension's plan.
  *      Tracks a list of experiments, each with a hypothesis, a
  *      working directory, and a metrics schema the experiment's
  *      `metrics.json` is validated against.
  *
  * The two share a budget shape and a `stuck` terminal status (for
- * the escape-hatch path — see `research-stuck.ts`). `status` uses
+ * the escape-hatch path - see `research-stuck.ts`). `status` uses
  * variant-specific enum strings so a misrouted read ("I loaded an
  * autoresearch plan while expecting deep-research") is caught at
  * the `kind` discriminator rather than producing a silently-
  * validating-but-wrong plan.
  *
  * Plain-TS validators (mirroring `iteration-loop-schema.ts`) rather
- * than TypeBox — the plan text cites that module as the precedent,
+ * than TypeBox - the plan text cites that module as the precedent,
  * and `typebox` is not a dep of the root tsconfig. `upgrade()`
  * returns a typed error describing exactly which field failed so
  * callers can surface actionable diagnostics to the journal.
@@ -46,7 +46,7 @@ import { isRecord } from './shared.ts';
 
 /**
  * Budget envelope the planner hands off to the dispatcher. Values
- * are hard caps — the dispatcher aborts on overrun, logs to the
+ * are hard caps - the dispatcher aborts on overrun, logs to the
  * journal, and (typically) quarantines the in-flight artifact.
  *
  *   - `maxSubagents`: per-run parallel subagent cap.
@@ -345,12 +345,12 @@ function upgradeAutoresearch(raw: Record<string, unknown>): AutoresearchPlan {
  * the first structural problem localized. "Tolerant" here means:
  * unknown fields are ignored rather than rejected, and array order
  * is preserved rather than normalized. It does NOT mean we invent
- * missing fields — a plan without a `budget` fails to upgrade.
+ * missing fields - a plan without a `budget` fails to upgrade.
  *
  * Use this at every boundary where the plan may have been produced
  * outside our own writer (reading `plan.json` from disk, parsing a
  * planner subagent's output, merging a user's manual edit). Writers
- * should not call this — they produce known-good values.
+ * should not call this - they produce known-good values.
  */
 export function upgrade(raw: unknown): Plan {
   if (!isRecord(raw)) {

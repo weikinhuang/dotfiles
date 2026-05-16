@@ -34,7 +34,7 @@ describe('makeSessionPreview', () => {
     expect(out.endsWith('\u2026')).toBe(true);
 
     // The character right before the ellipsis must not be a letter that
-    // starts a word — i.e. we should have landed on a space boundary.
+    // starts a word - i.e. we should have landed on a space boundary.
     const body = out.slice(0, -1);
 
     expect(body.endsWith(' ')).toBe(false);

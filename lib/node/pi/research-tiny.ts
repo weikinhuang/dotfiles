@@ -19,13 +19,13 @@
  * The adapter is split into two layers:
  *
  *   1. Pure helpers:
- *        - {@link resolveTinySettings} — settings-file resolver.
+ *        - {@link resolveTinySettings} - settings-file resolver.
  *        - {@link getCallCount}, {@link incrementCallCount},
- *          {@link shouldCall} — per-run call counter persisted
+ *          {@link shouldCall} - per-run call counter persisted
  *          under `<runRoot>/.tiny-count`.
  *      These have no pi dependencies. Tests exercise them directly.
  *
- *   2. Adapter factory ({@link createTinyAdapter}) — produces an
+ *   2. Adapter factory ({@link createTinyAdapter}) - produces an
  *      object with `isEnabled`, `callTinyRewrite`,
  *      `callTinyClassify`, `callTinyMatch`, and friends. The
  *      factory takes a `TinyAdapterWiring` carrying the pi deps
@@ -36,7 +36,7 @@
  * Cost tracking: `message_end` assistant events expose
  * `usage.cost.total`. The adapter sums those into a per-run total
  * the caller can read via `getTotalCost()`. Missing cost data is
- * tolerated — we do not fail the call, just under-count.
+ * tolerated - we do not fail the call, just under-count.
  */
 
 import { existsSync, readFileSync } from 'node:fs';
@@ -58,13 +58,13 @@ import { resolveChildModel, type ModelRegistryLike } from './subagent-spawn.ts';
 export interface TinySettings {
   /** Resolved model spec of the form `provider/model-id`. */
   tinyModel: string;
-  /** Which file produced the winning value — useful for diagnostics. */
+  /** Which file produced the winning value - useful for diagnostics. */
   source: string;
 }
 
 export interface ResolveTinySettingsOpts {
   cwd: string;
-  /** Override for `~` — lets tests point at a temp home. Defaults to `os.homedir()`. */
+  /** Override for `~` - lets tests point at a temp home. Defaults to `os.homedir()`. */
   home?: string;
 }
 
@@ -72,7 +72,7 @@ export interface ResolveTinySettingsOpts {
  * Validate + normalize a `provider/model-id` value. Delegates the
  * grammar check to `parseModelSpec` (the same helper the subagent /
  * iteration-loop paths use) so every setting that resolves here
- * goes through the same `provider/model-id` rules — non-empty
+ * goes through the same `provider/model-id` rules - non-empty
  * provider + non-empty model id, whitespace around the `/`
  * tolerated, normalized on return.
  */
@@ -88,7 +88,7 @@ function readJsonFile(path: string): unknown {
   try {
     const body = readFileSync(path, 'utf8');
     // JSONC so user-authored settings files may carry `//` comments
-    // — matches the convention used by the other settings readers
+    // - matches the convention used by the other settings readers
     // in this directory (preset.ts, iteration-loop-config.ts, …).
     return parseJsonc(body);
   } catch {
@@ -99,10 +99,10 @@ function readJsonFile(path: string): unknown {
 /**
  * Resolve the `tinyModel` setting from, in order:
  *
- *   1. `<cwd>/.pi/research-tiny.json` — `{tinyModel: "…"}` or a
+ *   1. `<cwd>/.pi/research-tiny.json` - `{tinyModel: "…"}` or a
  *      bare string.
- *   2. `<home>/.pi/agent/research-tiny.json` — same shape.
- *   3. `<home>/.pi/agent/settings.json` — under `research.tinyModel`.
+ *   2. `<home>/.pi/agent/research-tiny.json` - same shape.
+ *   3. `<home>/.pi/agent/settings.json` - under `research.tinyModel`.
  *
  * First hit wins. Returns `null` when none of the locations have a
  * non-empty `provider/model` string.
@@ -141,7 +141,7 @@ export function resolveTinySettings(opts: ResolveTinySettingsOpts): TinySettings
 }
 
 // ──────────────────────────────────────────────────────────────────────
-// Per-run call counter (purely filesystem — no wiring needed)
+// Per-run call counter (purely filesystem - no wiring needed)
 // ──────────────────────────────────────────────────────────────────────
 
 function counterPath(runRoot: string): string {
@@ -150,7 +150,7 @@ function counterPath(runRoot: string): string {
 
 /**
  * Read the current call count for `runRoot`. Returns 0 when the
- * counter file does not exist or is unreadable — a corrupted
+ * counter file does not exist or is unreadable - a corrupted
  * counter is equivalent to "fresh run" from the adapter's point of
  * view.
  */
@@ -174,7 +174,7 @@ export function getCallCount(runRoot: string): number {
  * budget overrun.
  *
  * Not concurrency-safe across simultaneous adapter calls against
- * the SAME runRoot — read-modify-write on the counter file races.
+ * the SAME runRoot - read-modify-write on the counter file races.
  * Fine in practice because a single adapter call is sequential per
  * spawn; consumers issuing concurrent tiny calls should serialize
  * them at the call site.
@@ -209,7 +209,7 @@ export function shouldCall(runRoot: string, maxCalls: number): boolean {
  */
 export interface TinyCallContext<M> {
   cwd: string;
-  /** Parent's current model — inherited when settings don't override. */
+  /** Parent's current model - inherited when settings don't override. */
   model: M | undefined;
   modelRegistry: ModelRegistryLike<M> & { authStorage: unknown };
   /** Parent turn signal. */
@@ -218,7 +218,7 @@ export interface TinyCallContext<M> {
    * Optional run-root. When provided, the adapter consults
    * {@link shouldCall} / {@link incrementCallCount} against this
    * directory. When omitted, the call counter is disabled for this
-   * call (used by the rare "no run directory yet" path — e.g. the
+   * call (used by the rare "no run directory yet" path - e.g. the
    * slugify call that produces the run directory in the first place).
    */
   runRoot?: string;
@@ -254,7 +254,7 @@ export interface TinyRunResult {
 }
 
 /**
- * Shim over `runOneShotAgent` — tests replace this with a mock
+ * Shim over `runOneShotAgent` - tests replace this with a mock
  * that returns scripted `TinyRunResult` values without spawning
  * anything. Production wires through `subagent-spawn.runOneShotAgent`.
  */
@@ -284,7 +284,7 @@ export interface TinyAdapterWiring<M> {
   tinyHelperAgent: AgentDef | null;
   /** One-shot spawner. Usually `runOneShotAgent` wrapped. */
   runOneShot: TinyRunOneShot<M>;
-  /** Optional journal path — stall/error lines are written here. */
+  /** Optional journal path - stall/error lines are written here. */
   journalPath?: string;
   /** Per-call output length cap. Default 120 chars. */
   maxOutputChars?: number;
@@ -311,7 +311,7 @@ export interface TinyCallOpts {
  *   h. validate (empty / `"null"` / too long / wrong label) → `null`.
  *   i. return string / label / candidate.
  *
- * `getTotalCost()` is advisory — unavailable cost data is tolerated.
+ * `getTotalCost()` is advisory - unavailable cost data is tolerated.
  */
 export interface TinyAdapter<M = unknown> {
   isEnabled(): boolean;
@@ -348,7 +348,7 @@ function journal(wiring: { journalPath?: string }, level: JournalLevel, heading:
   try {
     appendJournal(wiring.journalPath, body !== undefined ? { level, heading, body } : { level, heading });
   } catch {
-    /* swallow — journal failure never breaks the adapter */
+    /* swallow - journal failure never breaks the adapter */
   }
 }
 
@@ -416,7 +416,7 @@ export function createTinyAdapter<M>(wiring: TinyAdapterWiring<M>): TinyAdapter<
         incrementCallCount(ctx.runRoot);
       } catch (e) {
         journal(wiring, 'warn', 'tiny-adapter counter write failed', e instanceof Error ? e.message : String(e));
-        // continue anyway — the budget check already passed
+        // continue anyway - the budget check already passed
       }
     }
 
@@ -508,7 +508,7 @@ export function createTinyAdapter<M>(wiring: TinyAdapterWiring<M>): TinyAdapter<
  *
  * `excerpt` should be a short, context-appropriate string (~400
  * chars or less). Callers compose it from whatever makes the
- * sidecar greppable post-hoc — a task name, a sub-question id,
+ * sidecar greppable post-hoc - a task name, a sub-question id,
  * the first line of the prompt. The adapter enforces its own
  * output-length cap (default 120 chars) so a verbose excerpt
  * doesn't leak into the summary.
@@ -523,7 +523,7 @@ export async function tinyProvenanceSummary<M>(
     const out = await adapter.callTinyRewrite(ctx, 'summarize-provenance', excerpt);
     if (typeof out === 'string' && out.trim().length > 0) return out.trim();
   } catch {
-    /* swallow — summary is advisory */
+    /* swallow - summary is advisory */
   }
   return null;
 }

@@ -1,4 +1,4 @@
-/* Read "Internals" at the bottom — public API comes first. The
+/* Read "Internals" at the bottom - public API comes first. The
  * `no-use-before-define` rule is disabled at the file scope because
  * TS function declarations are hoisted and this ordering reads
  * top-down (public API → helpers). */
@@ -24,7 +24,7 @@
  * pipeline deps, bridging the notify hook to `ctx.ui.notify`)
  * lives in `config/pi/extensions/deep-research.ts`.
  *
- * No pi imports — the module is unit-testable under vitest.
+ * No pi imports - the module is unit-testable under vitest.
  */
 
 import { type CommandNotify, type CommandNotifyLevel } from './research-runs.ts';
@@ -63,7 +63,7 @@ export type ResearchToolRunOutcome =
       reportPath: string;
       runRoot: string;
       subjectiveApproved?: boolean;
-      /** Optional human-readable extra line — e.g. reviewer verdict. */
+      /** Optional human-readable extra line - e.g. reviewer verdict. */
       summary?: string;
     }
   | {
@@ -97,7 +97,7 @@ export type ResearchToolRunner = (question: string, signal?: AbortSignal) => Pro
  * Notify callback shape. Re-exported as local aliases over the
  * `CommandNotify` / `CommandNotifyLevel` types from
  * `research-runs.ts` so the slash-command side and the tool side
- * share a single definition — nothing duplicates, and the local
+ * share a single definition - nothing duplicates, and the local
  * aliases keep the public surface of this module self-documenting.
  */
 export type NotifyLevel = CommandNotifyLevel;
@@ -157,7 +157,7 @@ export function createResearchToolExecutor(
       return { ...formatted, outcome };
     } catch (e) {
       const message = (e as Error).message ?? String(e);
-      const summary = `research: pipeline threw — ${message}`;
+      const summary = `research: pipeline threw - ${message}`;
       deps.notify?.(summary, 'error');
       throw e;
     } finally {
@@ -190,7 +190,7 @@ export function formatResearchToolSummary(outcome: ResearchToolRunOutcome): { su
     }
     case 'planner-stuck':
       return {
-        summary: `research: planner emitted stuck — ${outcome.reason}. No plan written; refine the question and retry.`,
+        summary: `research: planner emitted stuck - ${outcome.reason}. No plan written; refine the question and retry.`,
         level: 'warning',
       };
     case 'checkpoint':
@@ -201,8 +201,8 @@ export function formatResearchToolSummary(outcome: ResearchToolRunOutcome): { su
     case 'error':
       return {
         summary: outcome.runRoot
-          ? `research: pipeline errored — ${outcome.error}. See ${outcome.runRoot}/journal.md for details.`
-          : `research: pipeline errored — ${outcome.error}`,
+          ? `research: pipeline errored - ${outcome.error}. See ${outcome.runRoot}/journal.md for details.`
+          : `research: pipeline errored - ${outcome.error}`,
         level: 'error',
       };
   }

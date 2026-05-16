@@ -1,9 +1,9 @@
 /**
- * Subagent — Claude Code / opencode / codex-style task delegation for pi.
+ * Subagent - Claude Code / opencode / codex-style task delegation for pi.
  *
  * The parent LLM calls a `subagent(agent, task)` tool; the extension
  * spawns an in-process child `AgentSession` with its own context
- * window, tool allowlist, and — optionally — a dedicated model or a
+ * window, tool allowlist, and - optionally - a dedicated model or a
  * git-worktree sandbox. The parent only sees the final answer text;
  * all intermediate tool churn stays in the child's own session file.
  *
@@ -31,7 +31,7 @@
  *     `session-usage.ts` picks them up next to the parent's session.
  *   - Parent-side audit via `pi.appendEntry('subagent-run', details)`
  *     so /fork, /tree, and session-usage can see delegated runs.
- *   - Statusline integration through `ctx.ui.setStatus('subagent', …)` —
+ *   - Statusline integration through `ctx.ui.setStatus('subagent', …)` -
  *     statusline.ts already renders extension statuses on line 3.
  *   - Companion `/agents` command lists loaded agent definitions
  *     (`/agents`), shows one (`/agents show <name>`), or lists active
@@ -202,7 +202,7 @@ function envConcurrency(): number {
  * The fast path increments `active` before returning; the slow path
  * parks on the queue, and the increment happens in `release()`'s
  * resumption of the waiter (since `release()` does NOT decrement
- * `active` for the waiter's sake — the waiter simply inherits the
+ * `active` for the waiter's sake - the waiter simply inherits the
  * released slot).
  */
 class Semaphore {
@@ -216,7 +216,7 @@ class Semaphore {
       return;
     }
     await new Promise<void>((resolve) => this.queue.push(resolve));
-    // Waiter inherits the slot released by the prior holder — no
+    // Waiter inherits the slot released by the prior holder - no
     // additional `active++` needed because `release()` intentionally
     // skipped its `active--` when a waiter was present.
   }
@@ -303,7 +303,7 @@ function runGit(cwd: string, args: string[]): boolean {
 interface CreatedWorktree {
   /** Absolute path of the checkout inside the temp dir. */
   path: string;
-  /** Outer temp dir — must be `rm -rf`d after `git worktree remove`. */
+  /** Outer temp dir - must be `rm -rf`d after `git worktree remove`. */
   tmpDir: string;
   /** Branch name created by `git worktree add -b`. */
   branch: string;
@@ -320,7 +320,7 @@ function createWorktree(cwd: string): CreatedWorktree | { error: string } {
   try {
     rmSync(tmp, { recursive: true, force: true });
   } catch {
-    // tmp may not have been fully created — benign.
+    // tmp may not have been fully created - benign.
   }
   return { error: `git worktree add failed for ${path}` };
 }
@@ -329,7 +329,7 @@ function removeWorktree(parentCwd: string, wt: Pick<CreatedWorktree, 'path' | 't
   // `git worktree remove --force` tears down the checkout AND removes the
   // .git/worktrees/<branch>/ bookkeeping. If that fails (repo renamed,
   // moved, or corrupted), fall back to wiping the outer tmp dir so we
-  // at least don't leak disk — the bookkeeping pointer can be cleaned up
+  // at least don't leak disk - the bookkeeping pointer can be cleaned up
   // by the next `git worktree prune` sweep.
   const removedViaGit = runGit(parentCwd, ['worktree', 'remove', '--force', wt.path]);
   if (!removedViaGit) {
@@ -345,7 +345,7 @@ function removeWorktree(parentCwd: string, wt: Pick<CreatedWorktree, 'path' | 't
     try {
       rmSync(wt.tmpDir, { recursive: true, force: true });
     } catch {
-      // benign — empty dir only
+      // benign - empty dir only
     }
   }
   // Branch deletion is best-effort; if the branch was checked out
@@ -446,7 +446,7 @@ export default function subagentExtension(pi: ExtensionAPI): void {
 
   const debug = process.env.PI_SUBAGENT_DEBUG === '1';
 
-  // Directory containing this extension file — used to resolve the
+  // Directory containing this extension file - used to resolve the
   // shipped `config/pi/agents/` sibling directory without relying on
   // `DOTFILES_ROOT` or similar.
   const extDir = dirname(fileURLToPath(import.meta.url));
@@ -469,7 +469,7 @@ export default function subagentExtension(pi: ExtensionAPI): void {
   const lingerTimers = new Set<ReturnType<typeof setTimeout>>();
 
   // Background-children registry (v2). Every spawned child lands here
-  // keyed by its short handle — both synchronous and background calls.
+  // keyed by its short handle - both synchronous and background calls.
   // Sync callers keep the entry around for subsequent `subagent_send`
   // lookups; background callers outlive the spawning turn. Pruned on
   // session_shutdown and by `pruneBackgroundRegistry` past PI_SUBAGENT_BG_MAX.
@@ -610,7 +610,7 @@ export default function subagentExtension(pi: ExtensionAPI): void {
   pi.on('session_shutdown', (_event, ctx) => {
     // Drain running background children first. We fire `abort()` on
     // each and wait up to PI_SUBAGENT_BG_SHUTDOWN_MS total for their
-    // drive() loops to settle — this gives them a chance to dispose
+    // drive() loops to settle - this gives them a chance to dispose
     // cleanly + cleanup worktrees. If the deadline passes, we fall
     // through and let GC handle the rest; disposal may be incomplete
     // but shutdown must never hang.
@@ -633,11 +633,11 @@ export default function subagentExtension(pi: ExtensionAPI): void {
       ]);
     }
 
-    // Happy-path sweep. Both sweeps are best-effort — shutdown must
+    // Happy-path sweep. Both sweeps are best-effort - shutdown must
     // not block or throw.
     try {
       sweepStaleWorktrees(ctx.cwd, () => {
-        // silent — shutdown sweep is best-effort
+        // silent - shutdown sweep is best-effort
       });
     } catch {
       // never block shutdown
@@ -668,7 +668,7 @@ export default function subagentExtension(pi: ExtensionAPI): void {
     });
     return [
       'Delegate a subtask to a specialized sub-agent that runs with its own fresh context, tool allowlist, and (optionally) model.',
-      "The parent sees only the child's final answer text — intermediate tool calls stay in the child's own session file.",
+      "The parent sees only the child's final answer text - intermediate tool calls stay in the child's own session file.",
       'Parallel fan-out is supported: call this tool multiple times in one assistant turn and the invocations run concurrently.',
       '',
       formatAgentListDescription(items),
@@ -682,7 +682,7 @@ export default function subagentExtension(pi: ExtensionAPI): void {
     }),
     task: Type.String({
       description:
-        'What the sub-agent should do. Be specific — the sub-agent starts with NO context from this conversation. ' +
+        'What the sub-agent should do. Be specific - the sub-agent starts with NO context from this conversation. ' +
         'Include paths, constraints, and the expected answer shape. One task per call.',
     }),
     modelOverride: Type.Optional(
@@ -702,7 +702,7 @@ export default function subagentExtension(pi: ExtensionAPI): void {
         description:
           'Launch the sub-agent in the background and return a handle immediately. ' +
           'Use `subagent_send` to poll, steer, or await completion. ' +
-          'Defaults to false (synchronous — the parent turn blocks until the child finishes).',
+          'Defaults to false (synchronous - the parent turn blocks until the child finishes).',
       }),
     ),
     maxTurns: Type.Optional(
@@ -734,7 +734,7 @@ export default function subagentExtension(pi: ExtensionAPI): void {
   });
 
   // ────────────────────────────────────────────────────────────────────
-  // Delegation — `spawnChild` does the up-front setup, returns an
+  // Delegation - `spawnChild` does the up-front setup, returns an
   // entry + a `drive()` that awaits the prompt and settles the entry.
   //
   // Synchronous callers: await `drive()` inline.
@@ -752,7 +752,7 @@ export default function subagentExtension(pi: ExtensionAPI): void {
     maxTurnsOverride: number | undefined;
     ctx: ExtensionContext;
     parentSignal: AbortSignal | undefined;
-    /** When true, the caller owns the semaphore release — drive() skips it. */
+    /** When true, the caller owns the semaphore release - drive() skips it. */
     background: boolean;
   }): Promise<SpawnResult> {
     const { agent, task, modelOverride, maxTurnsOverride, ctx, parentSignal, background } = args;
@@ -802,7 +802,7 @@ export default function subagentExtension(pi: ExtensionAPI): void {
     // ── Session + ResourceLoader + child creation ─────────────────────
     //
     // All three can throw. Wrap them in one try/catch so the worktree
-    // gets cleaned up on any failure — the prior split let a
+    // gets cleaned up on any failure - the prior split let a
     // `resourceLoader.reload()` throw bypass the cleanup path.
     const noPersist = process.env.PI_SUBAGENT_NO_PERSIST === '1';
     const sessionDir = childSessionDir({
@@ -827,7 +827,7 @@ export default function subagentExtension(pi: ExtensionAPI): void {
     // Inline ExtensionFactory installed in the child session that
     // enforces the agent's bashAllow/bashDeny/writeRoots and merges
     // requestOptions into the outgoing provider payload. This is the
-    // canonical enforcement path — the parent's bash-permissions /
+    // canonical enforcement path - the parent's bash-permissions /
     // protected-paths extensions don't see the child's tool calls when
     // `noExtensions: true` is set on the resourceLoader. Inline
     // extensionFactories load even with that flag.
@@ -906,7 +906,7 @@ export default function subagentExtension(pi: ExtensionAPI): void {
     });
     let reachedMaxTurns = false;
     // We trigger `child.abort()` ourselves on maxTurns, timeout, or parent
-    // signal — any of those counts as an "aborted" outcome even though
+    // signal - any of those counts as an "aborted" outcome even though
     // `parentSignal.aborted` stays false for the first two.
     let abortedByUs = false;
 
@@ -1076,7 +1076,7 @@ export default function subagentExtension(pi: ExtensionAPI): void {
       // aggregate so the statusline's line-2 Σ(N):… segment reflects
       // the cumulative cost of delegated work. We intentionally count
       // errored / aborted / max_turns runs too (with `failed: true`)
-      // — tokens + cost were still spent and users want to see them.
+      // - tokens + cost were still spent and users want to see them.
       getSessionSubagentAggregate().record({
         turns: agg.turns,
         input: agg.input,
@@ -1146,7 +1146,7 @@ export default function subagentExtension(pi: ExtensionAPI): void {
       'Delegate a subtask to a fresh sub-agent session so intermediate exploration stays out of your context.',
     promptGuidelines: [
       'Use `subagent` when the next step would read many files, run a broad `grep`, or otherwise produce intermediate noise you will not use yourself. Prefer the `explore` agent for read-only discovery and the `plan` agent for implementation planning.',
-      'The sub-agent starts with no context — describe the goal, constraints, and desired output shape inside `task`.',
+      'The sub-agent starts with no context - describe the goal, constraints, and desired output shape inside `task`.',
       'To fan out work, call `subagent` multiple times in one turn. Runs execute concurrently; the tool aggregates per-call results.',
       'Do NOT call `subagent` from inside a sub-agent. Nesting is disabled by design.',
     ],
@@ -1198,7 +1198,7 @@ export default function subagentExtension(pi: ExtensionAPI): void {
         semaphore.release();
         const err = e instanceof Error ? e.message : String(e);
         return {
-          content: [{ type: 'text', text: `subagent: spawn failed — ${err}` }],
+          content: [{ type: 'text', text: `subagent: spawn failed - ${err}` }],
           details: {
             agent: agent.name,
             agentSource: agent.source,
@@ -1239,7 +1239,7 @@ export default function subagentExtension(pi: ExtensionAPI): void {
             const msg = e instanceof Error ? e.message : String(e);
             const durationMs = Date.now() - entry.startedAt;
             result = {
-              content: `subagent ${agent.name}: drive failed — ${msg}`,
+              content: `subagent ${agent.name}: drive failed - ${msg}`,
               details: {
                 agent: agent.name,
                 agentSource: agent.source,
@@ -1325,7 +1325,7 @@ export default function subagentExtension(pi: ExtensionAPI): void {
 
       // `returnFormat: 'json'` asks us to validate that the child
       // produced parseable JSON. On failure we flag isError so the
-      // parent LLM can retry the call — the raw text still reaches
+      // parent LLM can retry the call - the raw text still reaches
       // the parent via `content`, and details.stopReason preserves the
       // original outcome.
       let isError = out.isError;
@@ -1377,7 +1377,7 @@ export default function subagentExtension(pi: ExtensionAPI): void {
   });
 
   // ────────────────────────────────────────────────────────────────────
-  // subagent_send — resume/steer/abort/poll background children (v2)
+  // subagent_send - resume/steer/abort/poll background children (v2)
   // ────────────────────────────────────────────────────────────────────
 
   pi.registerTool({
@@ -1394,7 +1394,7 @@ export default function subagentExtension(pi: ExtensionAPI): void {
       'Use `subagent_send({ to, action: "wait" })` to retrieve the final answer of a background child once it has had time to make progress.',
       'Use `subagent_send({ to, action: "status" })` for a cheap progress check that does not block.',
       'Use `subagent_send({ to, text: "…" })` to inject additional guidance into a still-running child.',
-      'Only the parent session can call this tool — it is not exposed to sub-agents.',
+      'Only the parent session can call this tool - it is not exposed to sub-agents.',
     ],
     parameters: SubagentSendParams,
     executionMode: 'parallel',
@@ -1437,7 +1437,7 @@ export default function subagentExtension(pi: ExtensionAPI): void {
           content: [
             {
               type: 'text',
-              text: 'subagent_send: `text` is not combinable with `action: "abort"` — pick one.',
+              text: 'subagent_send: `text` is not combinable with `action: "abort"` - pick one.',
             },
           ],
           details: undefined,
@@ -1465,7 +1465,7 @@ export default function subagentExtension(pi: ExtensionAPI): void {
         } catch (e) {
           const msg = e instanceof Error ? e.message : String(e);
           return {
-            content: [{ type: 'text', text: `subagent_send: steer failed — ${msg}` }],
+            content: [{ type: 'text', text: `subagent_send: steer failed - ${msg}` }],
             details: undefined,
             isError: true,
           };
@@ -1499,7 +1499,7 @@ export default function subagentExtension(pi: ExtensionAPI): void {
         try {
           await entry.session.abort();
         } catch {
-          // abort is best-effort — drive() will observe the aborted flag.
+          // abort is best-effort - drive() will observe the aborted flag.
         }
         // Wait briefly for drive to settle so we return a stable snapshot.
         try {
@@ -1521,7 +1521,7 @@ export default function subagentExtension(pi: ExtensionAPI): void {
 
       if (action === 'wait') {
         // Cancelling the parent tool turn (via `signal`) releases the
-        // wait without aborting the child — the child keeps running
+        // wait without aborting the child - the child keeps running
         // in the background and the parent can re-attach with another
         // `wait` call. If neither signal nor completion fires the
         // promise never resolves, so race them.

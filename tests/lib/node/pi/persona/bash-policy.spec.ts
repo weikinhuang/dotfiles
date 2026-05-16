@@ -8,7 +8,7 @@ import { evaluateBashPolicy, matchBashPattern } from '../../../../../lib/node/pi
 import { assertKind } from '../helpers.ts';
 
 // ──────────────────────────────────────────────────────────────────────
-// matchBashPattern — pattern semantics
+// matchBashPattern - pattern semantics
 // ──────────────────────────────────────────────────────────────────────
 
 test('matchBashPattern: empty patterns → false', () => {
@@ -50,7 +50,7 @@ test('matchBashPattern: ai-fetch-web hyphenated head (catalog precedent)', () =>
 });
 
 // ──────────────────────────────────────────────────────────────────────
-// evaluateBashPolicy — decision tree
+// evaluateBashPolicy - decision tree
 // ──────────────────────────────────────────────────────────────────────
 
 test('evaluateBashPolicy: empty allow + empty deny → allow (mode has no opinion)', () => {

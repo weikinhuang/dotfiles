@@ -20,18 +20,18 @@
  * `bashAllow` / `writeRoots` / `requestOptions` is the inline
  * `agent-gate` extension factory installed inside the child session
  * itself (see `config/pi/extensions/subagent.ts`). The singleton here
- * is supplementary surface — useful for parent-side observers (e.g.
+ * is supplementary surface - useful for parent-side observers (e.g.
  * statusline integrations) and for symmetry with `persona/active.ts`.
  *
  * Concurrency: pi can fan out multiple subagents in parallel; the
  * single slot here represents whichever agent was most recently set,
  * not a stack. That is acceptable for the supplementary observer use
  * case but means consumers must NOT use this singleton for
- * enforcement — the inline factory's per-child closure is the
+ * enforcement - the inline factory's per-child closure is the
  * authoritative gate.
  */
 
-import  { type RequestOptionsConfig } from '../request-options.ts';
+import { type RequestOptionsConfig } from '../request-options.ts';
 
 export interface ActiveAgentSnapshot {
   readonly name: string;

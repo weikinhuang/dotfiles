@@ -14,8 +14,8 @@
  * Pi wraps that via `createErrorToolResult(error.message)` and fires
  * `tool_result` with `isError: true`. Small self-hosted models
  * (qwen3-30B-A3B, gpt-oss-20B, …) respond to that error text by
- * guessing at a fix and retrying the same shape — `id: "1"` instead
- * of `1`, missing required props, swapped `text`/`body`, etc. —
+ * guessing at a fix and retrying the same shape - `id: "1"` instead
+ * of `1`, missing required props, swapped `text`/`body`, etc. -
  * because the raw error tells them WHAT's wrong but not what a
  * working payload looks like.
  *
@@ -34,7 +34,7 @@
  *
  * Composition:
  *
- *   - We do NOT auto-retry — surfacing the mistake keeps
+ *   - We do NOT auto-retry - surfacing the mistake keeps
  *     `verify-before-claim` / `loop-breaker` / `stall-recovery`
  *     honest, and lets the model actually see what it got wrong.
  *   - Runs BEFORE `tool-output-condenser` (alphabetical extension

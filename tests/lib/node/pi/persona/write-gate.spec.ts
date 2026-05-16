@@ -168,7 +168,7 @@ test('decideWriteGate: sessionAllow short-circuits even without UI', () => {
 // integration: simulate sessionAllow accumulation across calls
 // ──────────────────────────────────────────────────────────────────────
 
-test('decideWriteGate: repeated outside-roots calls — first prompts, second is cached', () => {
+test('decideWriteGate: repeated outside-roots calls - first prompts, second is cached', () => {
   // Simulates the shell: prompt → user picks "allow this session" → caller
   // adds path to sessionAllow → next call to the same path returns allow.
   const sessionAllow = new Set<string>();

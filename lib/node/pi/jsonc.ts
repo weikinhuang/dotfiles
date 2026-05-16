@@ -1,6 +1,6 @@
 /**
  * Tiny JSONC parser: JSON plus `//` line comments and C-style block
- * comments. Trailing commas are NOT supported — keep your hand-edited
+ * comments. Trailing commas are NOT supported - keep your hand-edited
  * rule files strict so `git diff` stays clean.
  *
  * Designed to be zero-dep, small enough to audit, and to preserve line
@@ -36,7 +36,7 @@ export function stripJsonComments(text: string): string {
   while (i < len) {
     const ch = text[i];
 
-    // Enter a string literal — emit verbatim up to the closing quote,
+    // Enter a string literal - emit verbatim up to the closing quote,
     // honoring backslash escapes so `"a\"b"` stays one string.
     if (ch === '"') {
       const start = i;
@@ -44,7 +44,7 @@ export function stripJsonComments(text: string): string {
       while (i < len) {
         if (text[i] === '\\') {
           // Skip the backslash and whatever it escapes (might be `\n`,
-          // `\t`, `\"`, `\\`, `\uXXXX`, etc. — JSON.parse validates).
+          // `\t`, `\"`, `\\`, `\uXXXX`, etc. - JSON.parse validates).
           i += 2;
           continue;
         }
@@ -101,7 +101,7 @@ export function parseJsonc<T = unknown>(text: string): T {
  * reported again.
  *
  * Exists to keep the "warn once per bad config file" pattern identical
- * across `bash-permissions` and `protected-paths` — previously duplicated
+ * across `bash-permissions` and `protected-paths` - previously duplicated
  * in both extensions with drifting comments.
  */
 const warnedBadConfigFiles = new Map<string, string>();

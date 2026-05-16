@@ -1,19 +1,19 @@
 // Improver prompt template for the description-optimization loop (R4).
 //
 // Port of `improve_description.py` from Claude Code's skill-creator. Pure
-// prompt assembly + response parsing — no I/O, no driver spawn. The
+// prompt assembly + response parsing - no I/O, no driver spawn. The
 // optimizer wires this into the same `invokeDriver` path the trigger eval
 // uses.
 //
 // Two prompt variants:
 //
-//   1. {@link buildImproverPrompt} — the primary single-turn call. Includes
+//   1. {@link buildImproverPrompt} - the primary single-turn call. Includes
 //      the current description, per-eval failure summary, *blinded* history
 //      of previous attempts (test_* keys stripped by the caller), and the
 //      full SKILL.md body as context. Response is expected to be wrapped in
 //      `<new_description>…</new_description>`.
 //
-//   2. {@link buildShortenPrompt} — the 1024-char safety net. The primary
+//   2. {@link buildShortenPrompt} - the 1024-char safety net. The primary
 //      prompt states the 1024-char hard limit, but a model may still blow
 //      past it. When that happens, we issue a fresh single-turn call that
 //      quotes the too-long version verbatim and asks for a rewrite.
@@ -22,7 +22,7 @@
 
 /**
  * Per-query trigger result fed into the improver prompt. Subset of the full
- * grade record — we only surface the bits the improver cares about.
+ * grade record - we only surface the bits the improver cares about.
  */
 export interface ImproverTriggerResult {
   query: string;
@@ -81,7 +81,7 @@ export function blindHistoryEntry<T extends Record<string, unknown>>(entry: T): 
 /**
  * Build the single-turn improver prompt. The prompt body is a near-verbatim
  * port of `improve_description.py`'s prompt so existing ergonomics carry
- * over — the imperative-voice tips, the "don't overfit" guidance, and the
+ * over - the imperative-voice tips, the "don't overfit" guidance, and the
  * hard 1024-char reminder.
  */
 export function buildImproverPrompt(input: BuildImproverPromptInput): string {
@@ -94,7 +94,7 @@ export function buildImproverPrompt(input: BuildImproverPromptInput): string {
 
   const lines: string[] = [];
   lines.push(
-    `You are optimizing a skill description for a skill called "${input.skillName}". A "skill" is sort of like a prompt, but with progressive disclosure — there's a title and description that an AI coding assistant sees when deciding whether to use the skill, and then if it does use the skill, it reads the .md file which has lots more details and potentially links to other resources in the skill folder.`,
+    `You are optimizing a skill description for a skill called "${input.skillName}". A "skill" is sort of like a prompt, but with progressive disclosure - there's a title and description that an AI coding assistant sees when deciding whether to use the skill, and then if it does use the skill, it reads the .md file which has lots more details and potentially links to other resources in the skill folder.`,
     '',
     `The description appears in the assistant's "available_skills" list. When a user sends a query, the assistant decides whether to invoke the skill based solely on the title and on this description. Your goal is to write a description that triggers for relevant queries, and doesn't trigger for irrelevant ones.`,
     '',
@@ -123,7 +123,7 @@ export function buildImproverPrompt(input: BuildImproverPromptInput): string {
   }
 
   if (input.blindedHistory.length > 0) {
-    lines.push('PREVIOUS ATTEMPTS (do NOT repeat these — try something structurally different):', '');
+    lines.push('PREVIOUS ATTEMPTS (do NOT repeat these - try something structurally different):', '');
     for (const h of input.blindedHistory) {
       const tp = h.train_passed ?? 0;
       const tt = h.train_total ?? 0;
@@ -154,12 +154,12 @@ export function buildImproverPrompt(input: BuildImproverPromptInput): string {
     '1. Avoid overfitting',
     "2. The list might get loooong and it's injected into ALL queries and there might be a lot of skills, so we don't want to blow too much space on any given description.",
     '',
-    'Concretely, your description should not be more than about 100-200 words, even if that comes at the cost of accuracy. There is a 1024-character hard limit — descriptions over that will be truncated, so stay comfortably under it.',
+    'Concretely, your description should not be more than about 100-200 words, even if that comes at the cost of accuracy. There is a 1024-character hard limit - descriptions over that will be truncated, so stay comfortably under it.',
     '',
     "Here are some tips that we've found to work well in writing these descriptions:",
-    '- The skill should be phrased in the imperative — "Use this skill for" rather than "this skill does"',
+    '- The skill should be phrased in the imperative - "Use this skill for" rather than "this skill does"',
     "- The skill description should focus on the user's intent, what they are trying to achieve, vs. the implementation details of how the skill works.",
-    "- The description competes with other skills for the assistant's attention — make it distinctive and immediately recognizable.",
+    "- The description competes with other skills for the assistant's attention - make it distinctive and immediately recognizable.",
     "- If you're getting lots of failures after repeated attempts, change things up. Try different sentence structures or wordings.",
     '',
     "I'd encourage you to be creative and mix up the style in different iterations since you'll have multiple opportunities to try different approaches and we'll just grab the highest-scoring one at the end.",

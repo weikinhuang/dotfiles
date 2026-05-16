@@ -1,7 +1,7 @@
 /**
  * Tests for lib/node/pi/bg-bash-prompt.ts.
  *
- * Pure module — no pi runtime needed.
+ * Pure module - no pi runtime needed.
  */
 
 import { expect, test } from 'vitest';
@@ -113,7 +113,7 @@ test('soft cap truncates recent jobs and emits the list-trailer', () => {
   }
   const out = formatBackgroundJobs(mkState(jobs), { now: NOW, recentCap: 20, maxChars: 400 })!;
 
-  expect(out).toMatch(/not shown — call `bg_bash` with action `list`/);
+  expect(out).toMatch(/not shown - call `bg_bash` with action `list`/);
   // Tool guidance trailer is replaced when truncated.
   expect(out.includes('Use `bg_bash`')).toBe(false);
 });

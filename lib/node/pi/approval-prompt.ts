@@ -24,11 +24,11 @@ export interface ApprovalPromptContext {
 /**
  * Discriminated union returned by `askForPermission`.
  *
- *   - `allow-once`     — proceed with the current call only.
- *   - `allow-session`  — proceed AND remember; subsequent calls to the
+ *   - `allow-once`     - proceed with the current call only.
+ *   - `allow-session`  - proceed AND remember; subsequent calls to the
  *                        same path/key skip the prompt for the rest of
  *                        the session.
- *   - `deny`           — block the call. Optional `feedback` carries
+ *   - `deny`           - block the call. Optional `feedback` carries
  *                        the user's free-text reason back to the model.
  *                        Empty/whitespace-only feedback is normalised
  *                        to `undefined` so callers can render a default.
@@ -51,7 +51,7 @@ export interface ApprovalPromptArgs {
  *
  * If the underlying `ctx.ui.select` returns `undefined` (e.g. the
  * dialog was dismissed), this function defaults to `{ kind: 'deny' }`
- * — same fail-closed behaviour the inlined helper had.
+ * - same fail-closed behaviour the inlined helper had.
  */
 export async function askForPermission(
   ctx: ApprovalPromptContext,

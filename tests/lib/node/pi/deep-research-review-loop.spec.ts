@@ -1,7 +1,7 @@
 /**
  * Tests for lib/node/pi/deep-research-review-loop.ts.
  *
- * The review loop is pure orchestration — this spec drives it with
+ * The review loop is pure orchestration - this spec drives it with
  * scripted `runStructural` / `runCritic` / `refineReport` mocks and
  * asserts the Phase 4 acceptance-criteria shapes:
  *
@@ -13,7 +13,7 @@
  *       critic approves on iter 2, terminal `passed`.
  *   (3) Structurally-broken report with an approving critic →
  *       after the critic approves, the re-check structural fails
- *       and the outcome is `structural-override` — structure wins.
+ *       and the outcome is `structural-override` - structure wins.
  *   (4) `maxIter = 1` + first structural fail → budget-exhausted
  *       with best-so-far pointing at the iter-1 snapshot.
  */
@@ -174,12 +174,12 @@ function scriptedRefine(): {
 // (1) Unresolved footnote fails structural → refinement fixes it.
 // ──────────────────────────────────────────────────────────────────────
 
-describe('runReviewLoop — structural refinement', () => {
+describe('runReviewLoop - structural refinement', () => {
   test('(1) unresolved footnote fails structural, refinement fixes it, critic approves', async () => {
     const structural = scriptedStructural([
-      failingStructural(), // iter 1 — fails
-      passingStructural(), // iter 2 — passes
-      passingStructural(), // iter 2 — re-check after critic approve
+      failingStructural(), // iter 1 - fails
+      passingStructural(), // iter 2 - passes
+      passingStructural(), // iter 2 - re-check after critic approve
     ]);
     const critic = scriptedCritic([approvedCritic()]);
     const { refine, calls: refineCalls } = scriptedRefine();
@@ -208,7 +208,7 @@ describe('runReviewLoop — structural refinement', () => {
 // (2) Structurally clean but poorly cited → critic refines.
 // ──────────────────────────────────────────────────────────────────────
 
-describe('runReviewLoop — subjective refinement', () => {
+describe('runReviewLoop - subjective refinement', () => {
   test('(2) critic rejects on iter 1, refinement fixes, critic approves on iter 2', async () => {
     const structural = scriptedStructural([
       passingStructural(), // iter 1 structural
@@ -239,14 +239,14 @@ describe('runReviewLoop — subjective refinement', () => {
 });
 
 // ──────────────────────────────────────────────────────────────────────
-// (3) "Structure wins" override — critic approves but structural fails.
+// (3) "Structure wins" override - critic approves but structural fails.
 // ──────────────────────────────────────────────────────────────────────
 
-describe('runReviewLoop — structure wins override', () => {
+describe('runReviewLoop - structure wins override', () => {
   test('(3) critic approves but re-check structural fails → structural-override', async () => {
     const structural = scriptedStructural([
-      passingStructural(), // iter 1 primary structural — passes so critic gets a shot
-      failingStructural(), // iter 1 re-check — regresses after critic approves
+      passingStructural(), // iter 1 primary structural - passes so critic gets a shot
+      failingStructural(), // iter 1 re-check - regresses after critic approves
     ]);
     const critic = scriptedCritic([approvedCritic()]);
     const { refine, calls: refineCalls } = scriptedRefine();
@@ -264,7 +264,7 @@ describe('runReviewLoop — structure wins override', () => {
     expect(outcome.iterations).toBe(1);
     expect(outcome.structural.ok).toBe(false);
     expect(outcome.critic.approved).toBe(true);
-    // No refinement attempted — the override short-circuits.
+    // No refinement attempted - the override short-circuits.
     expect(refineCalls).toHaveLength(0);
   });
 });
@@ -273,7 +273,7 @@ describe('runReviewLoop — structure wins override', () => {
 // (4) maxIter=1 + first structural fail → budget exhausted + best-so-far.
 // ──────────────────────────────────────────────────────────────────────
 
-describe('runReviewLoop — budget exhaustion', () => {
+describe('runReviewLoop - budget exhaustion', () => {
   test('(4) maxIter=1 and structural fails once → budget-exhausted; bestSoFar set', async () => {
     const structural = scriptedStructural([failingStructural()]);
     const critic = scriptedCritic([]);
@@ -356,7 +356,7 @@ describe('runReviewLoop — budget exhaustion', () => {
 // Refinement-error path.
 // ──────────────────────────────────────────────────────────────────────
 
-describe('runReviewLoop — refinement errors', () => {
+describe('runReviewLoop - refinement errors', () => {
   test('refine returns { ok: false } → error outcome with bestSoFar populated', async () => {
     const structural = scriptedStructural([failingStructural()]);
     const critic = scriptedCritic([]);
@@ -394,7 +394,7 @@ describe('runReviewLoop — refinement errors', () => {
 });
 
 // ──────────────────────────────────────────────────────────────────────
-// Nudge formatters — pure.
+// Nudge formatters - pure.
 // ──────────────────────────────────────────────────────────────────────
 
 describe('buildStructuralNudge / buildSubjectiveNudge', () => {
@@ -424,7 +424,7 @@ describe('buildStructuralNudge / buildSubjectiveNudge', () => {
   });
 });
 
-describe('runReviewLoop — startIteration (resume flows)', () => {
+describe('runReviewLoop - startIteration (resume flows)', () => {
   // Use the outer describe block's runRoot via require-style reuse would be ugly;
   // instead build a tiny local fixture identical to the other blocks.
   let localRoot: string;
@@ -518,14 +518,14 @@ describe('runReviewLoop — startIteration (resume flows)', () => {
 });
 
 // ──────────────────────────────────────────────────────────────────────
-// Stubbed outcome — produced by the review-wire short-circuit,
+// Stubbed outcome - produced by the review-wire short-circuit,
 // not by the loop itself. Documented here so the discriminated
 // union's {@link ReviewLoopOutcome} shape stays exhaustively
 // covered across the lib boundary (wire tests drive the actual
 // short-circuit).
 // ──────────────────────────────────────────────────────────────────────
 
-describe('ReviewLoopOutcome shape — stubbed variant', () => {
+describe('ReviewLoopOutcome shape - stubbed variant', () => {
   test('{ kind: "stubbed" } is assignable to ReviewLoopOutcome and carries stubbed sections + reportPath', () => {
     const outcome: ReviewLoopOutcome = {
       kind: 'stubbed',
@@ -536,7 +536,7 @@ describe('ReviewLoopOutcome shape — stubbed variant', () => {
 
     expect(outcome.stubbed).toHaveLength(1);
     expect(outcome.reportPath).toBe('/tmp/demo/report.md');
-    // `iterations` is deliberately absent — the short-circuit
+    // `iterations` is deliberately absent - the short-circuit
     // never ran a review iteration. Document the omission so a
     // future edit that adds the field has to revisit the
     // contract explicitly.
@@ -544,7 +544,7 @@ describe('ReviewLoopOutcome shape — stubbed variant', () => {
   });
 });
 
-// Closeness classifier — pure predicate truth table.
+// Closeness classifier - pure predicate truth table.
 // Non-budget-exhausted outcomes never get classified as near-pass
 // or stuck; the wire only invokes the classifier inside its
 // budget-exhausted branch. The `unknown` verdict here guards the

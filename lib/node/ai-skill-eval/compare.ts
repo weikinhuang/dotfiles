@@ -85,7 +85,7 @@ export function buildComparatorPrompt(inputs: ComparatorInputs, template = loadC
   const expectationsBlock =
     inputs.expectations.length > 0
       ? inputs.expectations.map((exp, i) => `  ${i + 1}. ${exp}`).join('\n')
-      : '  (none — judge on content + structure only)';
+      : '  (none - judge on content + structure only)';
 
   return [
     template.trimEnd(),
@@ -121,7 +121,7 @@ export function buildComparatorPrompt(inputs: ComparatorInputs, template = loadC
     'Respond with STRICT JSON matching this schema, no prose, no code fences:',
     '{"winner": "A"|"B"|"tie", "reason": "...", "scores": {"a": {"overall_score": 0-10, ...}, "b": {"overall_score": 0-10, ...}}}',
     '',
-    'The `scores` object is optional — omit it if you did not generate rubric numbers — but `winner` and `reason` are required.',
+    'The `scores` object is optional - omit it if you did not generate rubric numbers - but `winner` and `reason` are required.',
   ].join('\n');
 }
 
@@ -240,7 +240,7 @@ export interface CompareRecord {
   winner_iteration: number | null;
   reason: string;
   scores?: ComparatorVerdict['scores'];
-  /** Raw JSON decoded from the critic's stdout — useful for analyzer/debug. */
+  /** Raw JSON decoded from the critic's stdout - useful for analyzer/debug. */
   raw_verdict: unknown;
 }
 
@@ -270,7 +270,7 @@ export function compareRecordPath(
   return join(compareOutputDir(workspace, skill, iterationA, iterationB), `compare-${evalId}.json`);
 }
 
-/** Spec-injectable critic surface — signature matches {@link invokeCritic} minus the runtime coupling. */
+/** Spec-injectable critic surface - signature matches {@link invokeCritic} minus the runtime coupling. */
 export type CriticInvoker = (
   criticCmd: string,
   promptFile: string,
@@ -312,7 +312,7 @@ export interface RunCompareResult {
  * per-eval JSON records + a `summary.json` under
  * `iteration-<A>/vs-iteration-<B>/`. Evals whose iteration is missing a
  * reply file (or whose critic call fails / returns unparseable JSON) are
- * reported via `errors` and skipped — the overall run keeps going so a
+ * reported via `errors` and skipped - the overall run keeps going so a
  * single bad eval doesn't tank the aggregate.
  */
 export function runCompare(input: RunCompareInput): RunCompareResult {

@@ -21,7 +21,7 @@
  *   - `before_provider_request`: deep-merges `requestOptions` into the
  *     outgoing payload via `applyRequestOptions`.
  *
- * Pure module — no pi imports. The runtime types pi expects
+ * Pure module - no pi imports. The runtime types pi expects
  * (`ExtensionAPI`, `ToolCallEvent`) are described loosely here so the
  * factory stays unit-testable under vitest. The runtime caller in
  * `subagent.ts` casts the result to pi's `ExtensionFactory`.
@@ -37,11 +37,11 @@ import { isInsideWriteRoots } from '../persona/match.ts';
 import { applyRequestOptions, type RequestOptionsConfig } from '../request-options.ts';
 
 // ──────────────────────────────────────────────────────────────────────
-// Loose runtime shapes — pi's actual types are pulled in by the caller.
+// Loose runtime shapes - pi's actual types are pulled in by the caller.
 // ──────────────────────────────────────────────────────────────────────
 
 export interface AgentGateConfig {
-  /** Agent name — surfaced in block reason strings. */
+  /** Agent name - surfaced in block reason strings. */
   name: string;
   /** bashAllow / bashDeny patterns (same matcher as persona). */
   bashAllow: readonly string[];
@@ -69,7 +69,7 @@ export interface AgentGateBeforeProviderRequestEvent {
 }
 
 /**
- * Tool-call handler return shape — matches pi's
+ * Tool-call handler return shape - matches pi's
  * `ExtensionHandlerResult<ToolCallEvent>`. Returning `undefined` lets
  * the call proceed; `{ block: true, reason }` denies the call with the
  * given message surfaced to the model.
@@ -93,13 +93,13 @@ export interface AgentGateExtensionAPI {
 // ──────────────────────────────────────────────────────────────────────
 
 /**
- * Resolve a `tool_call` event into a gate decision. Pure — extracted
+ * Resolve a `tool_call` event into a gate decision. Pure - extracted
  * from `createAgentGateFactory` so the decision matrix is unit-testable
  * without driving an `ExtensionAPI` mock.
  *
  * Decision matrix:
  *   - `subagent` / `subagent_send` tool calls are NEVER gated (matches
- *     `persona.ts` behaviour — children chain freely).
+ *     `persona.ts` behaviour - children chain freely).
  *   - `bash` runs `evaluateBashPolicy` against the agent's allow/deny
  *     lists. A non-allow decision blocks the call with the policy's
  *     reason string.
@@ -129,7 +129,7 @@ export interface DecideAgentGateOptions {
 export function decideAgentGate(opts: DecideAgentGateOptions): AgentGateToolCallResult {
   const { event, config, cwd, resolveAbsolute, enforceWriteRoots } = opts;
 
-  // Subagent dispatch is never gated — chain freely (matches persona.ts).
+  // Subagent dispatch is never gated - chain freely (matches persona.ts).
   if (event.toolName === 'subagent' || event.toolName === 'subagent_send') return undefined;
 
   if (event.toolName === 'bash') {
@@ -143,7 +143,7 @@ export function decideAgentGate(opts: DecideAgentGateOptions): AgentGateToolCall
       bashDeny: config.bashDeny,
       // bash-policy formats the reason as `persona "<name>" denies…`. Pass
       // a name like `agent <name>` so the resulting string reads
-      // `persona "agent <name>" denies…` — ugly with the leading
+      // `persona "agent <name>" denies…` - ugly with the leading
       // "persona" but readable; renaming the param is left for a
       // follow-up that touches both consumers in lockstep.
       personaName: `agent ${config.name}`,
@@ -170,7 +170,7 @@ export function decideAgentGate(opts: DecideAgentGateOptions): AgentGateToolCall
     return {
       block: true,
       reason:
-        `agent "${config.name}" allows writes only inside: ${config.resolvedWriteRoots.join(', ')} — ` +
+        `agent "${config.name}" allows writes only inside: ${config.resolvedWriteRoots.join(', ')} - ` +
         `"${inputPath}" is outside`,
     };
   }
@@ -182,7 +182,7 @@ export interface CreateAgentGateFactoryOptions {
   config: AgentGateConfig;
   enforceWriteRoots: boolean;
   /**
-   * Path resolver — the runtime caller passes Node's `path.resolve`.
+   * Path resolver - the runtime caller passes Node's `path.resolve`.
    * Keeping it injectable lets tests drive the factory without touching
    * the filesystem.
    */

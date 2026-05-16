@@ -1,7 +1,7 @@
 /**
  * Filesystem layout + sweep helpers for the subagent extension.
  *
- * Pure module — no pi imports — so it can be unit-tested under `vitest`.
+ * Pure module - no pi imports - so it can be unit-tested under `vitest`.
  *
  * Layout (mirrors Claude Code's
  * `~/.claude/projects/<cwd-slug>/<parentSid>/subagents/agent-<aid>.jsonl`):
@@ -15,7 +15,7 @@
  * `session-usage.ts`-style tools see related artefacts as a unit.
  * Within that slug, the child transcript is nested under the parent
  * session id so `<parentSid>/subagents/` mirrors how Claude lays out
- * its `~/.claude/projects/<slug>/<parentSid>/subagents/` tree — see
+ * its `~/.claude/projects/<slug>/<parentSid>/subagents/` tree - see
  * [`config/pi/extensions/AGENTS.md`](../../../config/pi/extensions/AGENTS.md).
  *
  * Retention: `sweepStaleSessions` deletes child session files older than
@@ -90,7 +90,7 @@ export interface SweepResult {
  * `retainDays`. Injected fs so tests drive the whole thing with
  * in-memory data.
  *
- * Directory errors (missing root, unreadable parent) are silent — the
+ * Directory errors (missing root, unreadable parent) are silent - the
  * sweep is best-effort and must never block a session from starting.
  */
 export function sweepStaleSessions(root: string, retainDays: number, fs: SweepFs): SweepResult {

@@ -12,7 +12,7 @@
 // top-level scalar field's continuation lines into a single string,
 // honouring single / double quoting and block-scalar indicators. Nested
 // maps, tagged scalars, anchors / aliases, and multi-document streams
-// are all out of scope — mirroring upstream `quick_validate.py`.
+// are all out of scope - mirroring upstream `quick_validate.py`.
 //
 // SPDX-License-Identifier: MIT
 
@@ -25,7 +25,7 @@
  *   1. A leading `|` / `>` (optionally with YAML chomping / indent
  *      indicators like `|-`, `>2+`) is treated as a block-scalar lead.
  *      The indicator itself is dropped and the remaining fragments are
- *      joined with a single space — good enough for the length / shape
+ *      joined with a single space - good enough for the length / shape
  *      checks our callers perform on `description` / `compatibility`.
  *   2. Single- or double-quoted flow scalars are unquoted, with the
  *      usual `\\` / `\"` (double) and `''` (single) escape rules.

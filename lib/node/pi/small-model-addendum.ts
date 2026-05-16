@@ -6,7 +6,7 @@
  *
  * The extension appends a short, directive reminder block to the system
  * prompt whenever the active model is one we've classified as "small
- * self-hosted" — models like qwen3-30B-A3B or gpt-oss-20B served via
+ * self-hosted" - models like qwen3-30B-A3B or gpt-oss-20B served via
  * llama.cpp / vLLM. They benefit disproportionately from terse,
  * repeated reinforcement of the behaviors our broader toolkit encourages
  * (grep before read, verify before claim, don't loop on the same tool
@@ -38,7 +38,7 @@
  * Precedence: project config overlays onto global config key-by-key
  * (arrays replace wholesale, `text` replaces). Missing config files are
  * silent. Malformed config files log a single diagnostic to stderr and
- * the file is ignored — the extension never crashes pi.
+ * the file is ignored - the extension never crashes pi.
  */
 
 import { readFileSync } from 'node:fs';
@@ -54,7 +54,7 @@ export interface AddendumConfig {
 }
 
 /**
- * Loose duck-typed shape of `ctx.model` — we only need `provider` and
+ * Loose duck-typed shape of `ctx.model` - we only need `provider` and
  * `id`, and both may legitimately be absent in some ExtensionContext
  * states (e.g. before a model is resolved).
  */
@@ -70,7 +70,7 @@ export interface ConfigWarning {
 }
 
 /**
- * Default addendum text. Deliberately terse — weak models tune their
+ * Default addendum text. Deliberately terse - weak models tune their
  * verbosity to the shape of what they see. Five bullets is enough to
  * reinforce behavior without bloating every turn's system prompt.
  */
@@ -79,9 +79,9 @@ export const DEFAULT_ADDENDUM = [
   '',
   '- Prefer `grep -n` plus targeted `read --offset/--limit` over full-file reads.',
   '- After every code change, run a verification step (test / lint / rerun) before claiming done.',
-  '- If a tool call fails twice with the same arguments, change the approach — do not retry unchanged.',
+  '- If a tool call fails twice with the same arguments, change the approach - do not retry unchanged.',
   '- Never claim "I\'m done" while `pending`, `in_progress`, or `review` todos remain.',
-  '- When an iteration-loop task is active (system prompt shows `## Iteration Loop`), never claim the artifact "looks right / matches the spec / is done" without a passing `check run` verdict this turn — edit, `check run`, read the verdict, repeat.',
+  '- When an iteration-loop task is active (system prompt shows `## Iteration Loop`), never claim the artifact "looks right / matches the spec / is done" without a passing `check run` verdict this turn - edit, `check run`, read the verdict, repeat.',
   '- Keep responses short. Skip preambles like "Sure, I\'ll help with that."',
 ].join('\n');
 
@@ -152,7 +152,7 @@ export function loadConfig(
   }
 
   // When a user drops in a config with only `providers` / `models` (no
-  // `text`), they want the default addendum — which is what
+  // `text`), they want the default addendum - which is what
   // DEFAULT_CONFIG.text already is, so no extra handling needed.
   // `anyLoaded` is exposed for tests / debug logging only.
   void anyLoaded;

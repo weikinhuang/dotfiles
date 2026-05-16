@@ -31,7 +31,7 @@ afterEach(() => {
   stdoutSpy.mockRestore();
 });
 
-describe('parseArgs — defaults', () => {
+describe('parseArgs - defaults', () => {
   test('list: defaults workspace, runs, threshold, timeout, workers', () => {
     const opts = parseArgs(['list']);
 
@@ -62,7 +62,7 @@ describe('parseArgs — defaults', () => {
   });
 });
 
-describe('parseArgs — flag shapes', () => {
+describe('parseArgs - flag shapes', () => {
   test('--timeout converts seconds → ms', () => {
     expect(parseArgs(['list', '--timeout', '15']).timeoutMs).toBe(15_000);
     expect(parseArgs(['list', '--timeout=60']).timeoutMs).toBe(60_000);
@@ -118,7 +118,7 @@ describe('parseArgs — flag shapes', () => {
   });
 });
 
-describe('parseArgs — subcommand / flag mutual exclusion', () => {
+describe('parseArgs - subcommand / flag mutual exclusion', () => {
   test('--compare-to is only valid on `report`', () => {
     expect(parseArgs(['report', '--compare-to', '2']).compareTo).toBe(2);
     expect(() => parseArgs(['run', '--compare-to', '2'])).toThrow(UsageError);
@@ -149,7 +149,7 @@ describe('parseArgs — subcommand / flag mutual exclusion', () => {
   });
 });
 
-describe('parseArgs — AI_SKILL_EVAL_WORKSPACE fallback', () => {
+describe('parseArgs - AI_SKILL_EVAL_WORKSPACE fallback', () => {
   let prev: string | undefined;
 
   beforeEach(() => {

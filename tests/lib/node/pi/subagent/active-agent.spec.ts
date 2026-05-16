@@ -1,5 +1,5 @@
 /**
- * Tests for `lib/node/pi/subagent/active-agent.ts` — globalThis-anchored
+ * Tests for `lib/node/pi/subagent/active-agent.ts` - globalThis-anchored
  * cross-extension singleton tracking the currently-running child agent.
  */
 

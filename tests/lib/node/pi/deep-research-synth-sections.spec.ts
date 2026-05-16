@@ -135,7 +135,7 @@ function writeFinding(runRoot: string, id: string, sources: { label: string; url
   const dir = join(runRoot, 'findings');
   mkdirSync(dir, { recursive: true });
   const sourcesBody =
-    sources.length === 0 ? '  - None.' : sources.map((s) => `- [${s.label}] ${s.url} — description`).join('\n');
+    sources.length === 0 ? '  - None.' : sources.map((s) => `- [${s.label}] ${s.url} - description`).join('\n');
   const body = [
     `# Sub-question: ${id}`,
     '',
@@ -232,7 +232,7 @@ describe('makeSectionOutputSchema', () => {
 
   test('accepts zero-citation markdown when no sources are available (nothing to cite)', () => {
     const schema = makeSectionOutputSchema(new Set());
-    const r = schema.validate({ markdown: '## X\n\nUncited prose is fine here — the finding had no sources.' });
+    const r = schema.validate({ markdown: '## X\n\nUncited prose is fine here - the finding had no sources.' });
 
     expect(r.ok).toBe(true);
   });
@@ -546,7 +546,7 @@ describe('runAllSections', () => {
       { id: 'sq-c', question: 'C?' },
     ]);
     // Pre-existing snapshot for sq-a + sq-c so the pass-through
-    // outcome maps to a real file. sq-b has no snapshot yet —
+    // outcome maps to a real file. sq-b has no snapshot yet -
     // we'll synth it fresh.
     const sectionsDir = join(runRoot, 'snapshots', 'sections');
     mkdirSync(sectionsDir, { recursive: true });

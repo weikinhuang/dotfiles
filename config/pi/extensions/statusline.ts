@@ -1,5 +1,5 @@
 /**
- * Statusline for pi — Claude Code–style 2-line footer.
+ * Statusline for pi - Claude Code–style 2-line footer.
  *
  * Replaces pi's built-in footer with a layout that mirrors
  * config/claude/statusline-command.sh:
@@ -7,7 +7,7 @@
  *   [user#host cwd (branch) ctx% left $cost §sessid] model
  *    ↳ M(turn):↑in/↻ cached/↓out | S:↑in/↻ cached/↓out | ⚒ S:n(~bytes)
  *
- * Data sources (all available to extensions — no shell subprocess needed):
+ * Data sources (all available to extensions - no shell subprocess needed):
  *   - ctx.getContextUsage()        → tokens / percent of context window
  *   - ctx.sessionManager           → per-message usage, session id, tool results
  *   - ctx.model                    → current model id
@@ -20,7 +20,7 @@
  * themes and matches the interactive shell prompt.
  *
  * For branch decoration (dirty/staged/stash/untracked/upstream) we shell out
- * to the dotfiles-vendored `external/git-prompt.sh` — the same script that
+ * to the dotfiles-vendored `external/git-prompt.sh` - the same script that
  * powers `PS1` and `config/claude/statusline-command.sh`. Results are cached
  * per-cwd with a short TTL (see `./lib/git-prompt.ts`) and invalidated on
  * `footerData.onBranchChange`. If the helper can't be located or bash fails,
@@ -28,7 +28,7 @@
  *
  * Linked worktree names (`git worktree add <name>`) are resolved by reading
  * `.git` / `.git/worktrees/<name>/commondir` directly via `./lib/git-worktree.ts`
- * — no subprocess required. Mirrors Claude Code's `workspace.git_worktree`
+ * - no subprocess required. Mirrors Claude Code's `workspace.git_worktree`
  * field and renders ` ⎇ <name>` after the branch segment.
  *
  * Environment variables:
@@ -61,7 +61,7 @@ import { getSessionSubagentAggregate } from '../../../lib/node/pi/subagent-aggre
 import { fmtCost, fmtSi } from '../../../lib/node/pi/token-format.ts';
 
 /**
- * Resolved once at module load. `null` means we never found the helper — the
+ * Resolved once at module load. `null` means we never found the helper - the
  * extension then always falls back to `footerData.getGitBranch()`.
  */
 const GIT_PROMPT_SCRIPT_PATH: string | null = (() => {
@@ -126,7 +126,7 @@ function cwdFileUrl(cwd: string, hyperlinksEnabled: boolean): string | null {
     return `file://wsl.localhost/${wslDistro}${cwd}`;
   }
 
-  // Skip hyperlinks when the terminal is attached to a remote session — the
+  // Skip hyperlinks when the terminal is attached to a remote session - the
   // local viewer can't resolve file:// paths on the remote host.
   if (process.env.SSH_CLIENT || process.env.SSH_TTY || process.env.SSH_CONNECTION) return null;
 
@@ -261,20 +261,20 @@ export default function extension(pi: ExtensionAPI): void {
         const entry = gitCache.get(cwd);
         const fresh = entry && Date.now() - entry.ts < GIT_SEGMENT_TTL_MS;
         if (!fresh) scheduleGitFetch(cwd);
-        // Prefer the decorated value when we have one, even if stale — it's a
+        // Prefer the decorated value when we have one, even if stale - it's a
         // better approximation than the plain branch while the refetch runs.
         return entry?.value || fallback;
       };
 
       // Per-session cache of worktree info keyed by cwd. resolveWorktreeInfo
       // is pure fs (existsSync / readFileSync on a handful of tiny files) so
-      // caching is mostly about avoiding log spam during rapid repaints —
+      // caching is mostly about avoiding log spam during rapid repaints -
       // there's no network or subprocess cost to pay. `null` is cached too,
       // so non-git cwds don't re-stat `.git` on every keystroke.
       const worktreeCache = new Map<string, WorktreeInfo | null>();
 
       const unsubBranch = footerData.onBranchChange(() => {
-        // HEAD (or reftable) moved — every cached decorated segment is now
+        // HEAD (or reftable) moved - every cached decorated segment is now
         // suspect. Stamp them stale so the next render kicks off a refetch.
         for (const entry of gitCache.values()) entry.ts = 0;
         // Worktree metadata can also shift (e.g. `git worktree add` / `remove`
@@ -443,7 +443,7 @@ export default function extension(pi: ExtensionAPI): void {
           line2Parts.push(paint(PALETTE.tool, `⚒ S:${agg.toolCalls}${bytesSuffix}`));
         }
 
-        // Σ(N):… — session-total subagent usage (count, tokens, cost)
+        // Σ(N):… - session-total subagent usage (count, tokens, cost)
         // populated by the subagent extension through the shared
         // getSessionSubagentAggregate() singleton. Mirrors the M(…)/S:
         // shape so the three aggregates read consistently. Shown only

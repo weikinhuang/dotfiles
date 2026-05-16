@@ -5,7 +5,7 @@
  * hands it to the `research-planning-critic` subagent (shipped by
  * research-core Phase 5) for a neutral pre-flight judgment:
  * "is this plan worth spending fanout budget on?". The critic
- * returns a JSON verdict `{approved, score, issues, summary}` —
+ * returns a JSON verdict `{approved, score, issues, summary}` -
  * see `config/pi/agents/research-planning-critic.md` for the
  * agent's output contract and `iteration-loop-check-critic.ts`
  * for the tolerant parser we share here.
@@ -25,7 +25,7 @@
  *     infrastructure trouble.
  *
  * Pure module. The subagent spawn is behind an injected
- * `PlanningCriticRunner` — the extension wires this to
+ * `PlanningCriticRunner` - the extension wires this to
  * `runOneShotAgent` + the `research-planning-critic` AgentDef.
  * Tests pass a mock runner that scripts critic responses.
  */
@@ -50,7 +50,7 @@ import { isRecord } from './shared.ts';
 /**
  * Minimal shim over a one-shot critic subagent invocation. The
  * extension wires this to `runOneShotAgent({agent: 'research-
- * planning-critic', ...})` — tests pass a mock.
+ * planning-critic', ...})` - tests pass a mock.
  *
  * Contract:
  *   - Input `task` is the full prompt string to hand to the
@@ -77,7 +77,7 @@ export type PlanningCriticRunner = (args: {
  * to `plan.json`), but this is the shipped baseline.
  *
  * Kept narrow: the critic's job is "worth spending fanout budget
- * on?" — not "perfect plan?". Each line is a single rubric item.
+ * on?" - not "perfect plan?". Each line is a single rubric item.
  */
 export const DEFAULT_PLANNING_RUBRIC = [
   'Every sub-question covers a distinct angle (no redundancy, no near-duplicates).',
@@ -107,7 +107,7 @@ export function buildPlanningCriticTask(planPath: string, rubric: string): strin
     '',
     rubric,
     '',
-    'Use `read` to open the plan file if needed. Return the JSON verdict shape your agent prompt specifies — `{approved, score, issues, summary}`. Do NOT emit anything outside the JSON object.',
+    'Use `read` to open the plan file if needed. Return the JSON verdict shape your agent prompt specifies - `{approved, score, issues, summary}`. Do NOT emit anything outside the JSON object.',
   ].join('\n');
 }
 
@@ -119,7 +119,7 @@ export function buildPlanningCriticTask(planPath: string, rubric: string): strin
  * Render the rewrite prompt fed into the parent session when the
  * critic rejects the plan. Echoes the critic's `issues[]` verbatim
  * so the model sees the same actionable criticism the critic
- * emitted — vague critic nudges produce vague rewrites, which is
+ * emitted - vague critic nudges produce vague rewrites, which is
  * why the agent's prompt requires specific `issues`.
  *
  * Exported for testing.
@@ -139,7 +139,7 @@ export function renderRewritePrompt(plan: DeepResearchPlan, verdict: Verdict): s
     'Issues:',
     ...issueLines,
     '',
-    'Rewrite the plan to resolve every blocker- and major-severity issue. Emit the planner output schema again — the same JSON shape as before:',
+    'Rewrite the plan to resolve every blocker- and major-severity issue. Emit the planner output schema again - the same JSON shape as before:',
     '{',
     '  "slug": "<optional>",',
     '  "subQuestions": [{"id":"sq-1","question":"...","searchHints":["..."],"successCriteria":["..."]}, ...],',
@@ -168,7 +168,7 @@ export function renderRewritePrompt(plan: DeepResearchPlan, verdict: Verdict): s
  *     `rewrites` is 1 (the auto-rewrite that also got rejected).
  *   - `error`: infrastructure failure reading the critic output. The
  *     extension logs a warn and falls back to "no planning-critic
- *     review" — this matches `structure-wins-over-subjective`: if
+ *     review" - this matches `structure-wins-over-subjective`: if
  *     the deterministic check (later in the pipeline) rejects, it
  *     overrides any critic silence here.
  *   - `rewrite-stuck`: the rewrite turn emitted `stuck`. Same
@@ -181,7 +181,7 @@ export type PlanningCriticOutcome =
   | { kind: 'rewrite-stuck'; stuck: Stuck; verdict: Verdict; plan: DeepResearchPlan };
 
 // ──────────────────────────────────────────────────────────────────────
-// Internals — hoisted above the public entry so `no-use-before-define`
+// Internals - hoisted above the public entry so `no-use-before-define`
 // doesn't complain about forward references.
 // ──────────────────────────────────────────────────────────────────────
 
@@ -211,7 +211,7 @@ function summarizeRejection(v: Verdict): string {
   const issueCount = v.issues.length;
   const summary = v.summary && v.summary.length > 0 ? v.summary : '(no summary)';
 
-  return `${summary} — ${issueCount} issue${issueCount === 1 ? '' : 's'}`;
+  return `${summary} - ${issueCount} issue${issueCount === 1 ? '' : 's'}`;
 }
 
 async function invokeCritic(
@@ -242,7 +242,7 @@ async function invokeCritic(
 
   if (parsed.failed) {
     journalIf(opts, 'warn', 'planning-critic verdict parse failed', raw.rawText.slice(0, 200));
-    // `parsed.verdict` still carries a synthetic "failure" verdict —
+    // `parsed.verdict` still carries a synthetic "failure" verdict -
     // we prefer to treat an unparseable response as an infra error so
     // the extension escalates to user checkpoint rather than
     // silently fanning out.
@@ -355,6 +355,6 @@ export async function runPlanningCritic(opts: PlanningCriticOpts): Promise<Plann
 }
 
 // ──────────────────────────────────────────────────────────────────────
-// Tail — (internals block previously lived here; now hoisted above
+// Tail - (internals block previously lived here; now hoisted above
 // the public entry point.)
 // ──────────────────────────────────────────────────────────────────────

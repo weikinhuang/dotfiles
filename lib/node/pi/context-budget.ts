@@ -1,18 +1,18 @@
 /**
  * Pure helpers for the context-budget extension.
  *
- * No pi imports — testable under `vitest`.
+ * No pi imports - testable under `vitest`.
  *
  * The extension's job is to surface the model's own context-window usage
  * INSIDE its own prompt, so weaker models don't blow through the window
  * with oversized `read`s and `rg`s. Pi already shows `N% left` in the
  * footer (via `ctx.getContextUsage()`), but the model doesn't see the
- * footer — it only sees the system prompt. This extension bridges that
+ * footer - it only sees the system prompt. This extension bridges that
  * gap with a single-line advisory appended to the system prompt each
  * turn.
  *
  * Separately, the extension can trigger compaction automatically when
- * usage crosses a configurable percent threshold — a narrower, simpler
+ * usage crosses a configurable percent threshold - a narrower, simpler
  * version of the stock `trigger-compact.ts` example that uses percent
  * rather than raw tokens and respects the user's setup (it won't fire
  * if the extension is disabled or the threshold is 100+).
@@ -62,11 +62,11 @@ export function formatTokens(n: number): string {
 
 /**
  * Render the single-line advisory injected into the system prompt. Returns
- * `null` when nothing should be said — either because usage is unknown,
+ * `null` when nothing should be said - either because usage is unknown,
  * or because we're well under the minimum-percent threshold.
  *
  * The line is short by design: it competes with everything else in the
- * system prompt and a terse "N% used, X tokens left — prefer targeted
+ * system prompt and a terse "N% used, X tokens left - prefer targeted
  * reads" has more signal-per-token than a paragraph.
  */
 export function formatBudgetLine(usage: ContextUsageLike | null | undefined, opts: BudgetOptions = {}): string | null {
@@ -82,10 +82,10 @@ export function formatBudgetLine(usage: ContextUsageLike | null | undefined, opt
   const headroom = `${formatTokens(tokensLeft)} tokens left of ${formatTokens(usage.contextWindow)}`;
   const base = `Context: ${pctStr} used (${headroom}).`;
   if (pct >= critP) {
-    return `${base} You are running out of context — finish what's essential now. Prefer targeted \`rg\` with patterns, \`read\` with \`offset\` / \`limit\`, and avoid broad reads or long bash output. Consider \`/compact\` if you need more room.`;
+    return `${base} You are running out of context - finish what's essential now. Prefer targeted \`rg\` with patterns, \`read\` with \`offset\` / \`limit\`, and avoid broad reads or long bash output. Consider \`/compact\` if you need more room.`;
   }
   if (pct >= warnP) {
-    return `${base} Be efficient with tool output — favor targeted \`rg\`/\`grep\` over broad reads, and \`read\` with \`offset\` / \`limit\` on large files.`;
+    return `${base} Be efficient with tool output - favor targeted \`rg\`/\`grep\` over broad reads, and \`read\` with \`offset\` / \`limit\` on large files.`;
   }
   return `${base} Prefer targeted \`rg\` with patterns over broad reads; use \`read --offset / --limit\` on large files.`;
 }
@@ -93,7 +93,7 @@ export function formatBudgetLine(usage: ContextUsageLike | null | undefined, opt
 /**
  * Decide whether the auto-compaction trigger should fire for the given
  * usage and threshold. Returns `true` when crossing from below-threshold
- * to at-or-above-threshold — a proper "edge trigger" so we don't fire
+ * to at-or-above-threshold - a proper "edge trigger" so we don't fire
  * every turn while sitting above the line.
  *
  * `previousPercent` is the percent reported on the PRIOR turn (null /

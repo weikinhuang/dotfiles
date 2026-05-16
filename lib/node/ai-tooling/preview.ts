@@ -29,7 +29,7 @@ function stripHarnessEnvelopes(s: string): string {
  *
  * Normalizes whitespace, strips harness envelopes, and truncates with a
  * trailing `…`. Returns an empty string when nothing meaningful remains
- * — callers should `if (preview) summary.preview = preview`.
+ * - callers should `if (preview) summary.preview = preview`.
  */
 export function makeSessionPreview(raw: string | undefined | null, maxLen = 120): string {
   if (!raw) return '';

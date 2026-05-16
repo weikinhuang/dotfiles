@@ -183,7 +183,7 @@ describe('actClose', () => {
     const r2 = actClose(r.state, { reason: 'passed' });
     assertOk(r2);
 
-    expect(r2.state.stopReason).toBe('user-closed'); // idempotent — keeps original
+    expect(r2.state.stopReason).toBe('user-closed'); // idempotent - keeps original
   });
 
   test('rejects invalid reason', () => {

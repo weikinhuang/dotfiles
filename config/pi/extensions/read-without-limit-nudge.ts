@@ -4,7 +4,7 @@
  * When the LLM calls `read` on a large file without `offset` / `limit`,
  * append a short steer reminding it that `rg -n` (or `read` with a
  * window) is usually the better first move. Does not block or auto-
- * retry — the current read still succeeds; we just surface the
+ * retry - the current read still succeeds; we just surface the
  * better pattern for the NEXT call.
  *
  * Signal sources:
@@ -13,12 +13,12 @@
  *      pi's own `ReadToolDetails`. Pi only populates `truncation` when
  *      it actually truncated or the user's `limit` stopped early. So
  *      this branch mostly fires on the "you got truncated, next time
- *      be targeted" case — which is the strongest signal.
+ *      be targeted" case - which is the strongest signal.
  *
  *   2. Fallback: when pi didn't populate truncation (file fits within
  *      default 2000-line / 50KB caps), we count lines directly from
  *      the read result content (pi already gave them to us) and
- *      `statSync` the file for byte size — no second disk read.
+ *      `statSync` the file for byte size - no second disk read.
  *
  * Decision logic lives in
  * `lib/node/pi/read-limit-nudge.ts` and is unit-tested under
@@ -100,7 +100,7 @@ export default function readWithoutLimitNudge(pi: ExtensionAPI): void {
     const limit = typeof input.limit === 'number' ? input.limit : undefined;
 
     // If pi returned any non-text content part (e.g. an image), skip
-    // the nudge entirely — `rg -n` and line-windowed re-reads don't
+    // the nudge entirely - `rg -n` and line-windowed re-reads don't
     // apply to binary reads. Pi's read tool emits a small text preface
     // (`Read image file […]`) plus an `image` part for image files, so
     // we detect on the presence of any non-text part rather than the
@@ -112,7 +112,7 @@ export default function readWithoutLimitNudge(pi: ExtensionAPI): void {
 
     // Prefer pi's own truncation report. It carries the authoritative
     // total line count when present. If absent, we still know the file
-    // fit under pi's default cap — in that case we count lines from the
+    // fit under pi's default cap - in that case we count lines from the
     // result content (pi already gave them to us) and fall back to
     // `statSync` for byte size.
     let truncation: TruncationLike;
@@ -125,7 +125,7 @@ export default function readWithoutLimitNudge(pi: ExtensionAPI): void {
       };
     } else {
       // Count lines from the first text part of event.content. That's the
-      // file content pi just served to the model — avoids a second read.
+      // file content pi just served to the model - avoids a second read.
       // `split('\n').length` overcounts by one for text that ends in a
       // newline (the common case); correct for that so the threshold
       // compares against the real line count.

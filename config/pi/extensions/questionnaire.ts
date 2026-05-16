@@ -1,5 +1,5 @@
 /**
- * Questionnaire extension for pi — Claude-Code-style structured Q&A.
+ * Questionnaire extension for pi - Claude-Code-style structured Q&A.
  *
  * Registers a `questionnaire` tool that overrides the bundled example in
  * the same slot (pi loads extensions by filename, same tool name = single
@@ -884,7 +884,7 @@ export default function questionnaire(pi: ExtensionAPI): void {
             }
             let line = `${theme.fg('muted', ` ${question.label}: `)}${theme.fg('text', display)}`;
             if (answer.note) {
-              line += theme.fg('dim', `  — note: ${answer.note}`);
+              line += theme.fg('dim', `  - note: ${answer.note}`);
             }
             lines.push(truncateToWidth(line, width));
           }
@@ -970,7 +970,7 @@ export default function questionnaire(pi: ExtensionAPI): void {
           : null;
         const summary = qLabel
           ? `User requested chat about ${qLabel}. Continue the conversation ` +
-            'naturally — do not re-ask via questionnaire.'
+            'naturally - do not re-ask via questionnaire.'
           : 'User requested chat about the questionnaire. Continue in prose.';
         return {
           content: [{ type: 'text', text: summary }],
@@ -1044,7 +1044,7 @@ export default function questionnaire(pi: ExtensionAPI): void {
         } else {
           body = a.index ? `${a.index}. ${a.label ?? ''}` : (a.label ?? '');
         }
-        const noteSuffix = a.note ? theme.fg('dim', `  — ${a.note}`) : '';
+        const noteSuffix = a.note ? theme.fg('dim', `  - ${a.note}`) : '';
         const icon = a.wasCustom ? '✎' : '✓';
         return `${theme.fg('success', `${icon} `)}${theme.fg('accent', a.id)}: ${body}${noteSuffix}`;
       });

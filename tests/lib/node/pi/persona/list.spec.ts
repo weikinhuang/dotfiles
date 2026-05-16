@@ -20,7 +20,7 @@ test('formatPersonaListing: no active mode → "(no mode active)" header + inden
     activeName: undefined,
   });
 
-  expect(lines).toEqual(['(no mode active)', '  chat — Long-form Q&A', '  plan — Plan docs']);
+  expect(lines).toEqual(['(no mode active)', '  chat - Long-form Q&A', '  plan - Plan docs']);
 });
 
 test('formatPersonaListing: active mode marked with `* ` prefix', () => {
@@ -33,7 +33,7 @@ test('formatPersonaListing: active mode marked with `* ` prefix', () => {
     activeName: 'plan',
   });
 
-  expect(lines).toEqual(['(active: plan)', '  chat — Long-form Q&A', '* plan — Plan docs']);
+  expect(lines).toEqual(['(active: plan)', '  chat - Long-form Q&A', '* plan - Plan docs']);
 });
 
 test('formatPersonaListing: missing description renders empty after the em-dash', () => {
@@ -43,7 +43,7 @@ test('formatPersonaListing: missing description renders empty after the em-dash'
     activeName: undefined,
   });
 
-  expect(lines).toEqual(['(no mode active)', '  mystery — ']);
+  expect(lines).toEqual(['(no mode active)', '  mystery - ']);
 });
 
 test('formatPersonaListing: active mode missing from modes map still renders header', () => {
@@ -70,5 +70,5 @@ test('formatPersonaListing: name order is preserved (caller is responsible for s
     activeName: undefined,
   });
 
-  expect(lines.slice(1)).toEqual(['  z-mode — z', '  a-mode — a', '  m-mode — m']);
+  expect(lines.slice(1)).toEqual(['  z-mode - z', '  a-mode - a', '  m-mode - m']);
 });

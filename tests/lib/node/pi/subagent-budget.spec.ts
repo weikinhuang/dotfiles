@@ -5,7 +5,7 @@
  * `plans/pi-subagent-overrides.md` decision D3:
  *   - Per-call override replaces the agent default.
  *   - PI_SUBAGENT_MAX_TURNS (envCap) always wins as the operator brake.
- *   - The helper itself does no validation — TypeBox at the schema
+ *   - The helper itself does no validation - TypeBox at the schema
  *     layer enforces minimum/maximum bounds.
  */
 

@@ -7,10 +7,10 @@
  * The block is formatted as a short `## Background Jobs` section with
  * two subsections:
  *
- *   - **Running** — jobs with status `running` or `signaled` (signaled
+ *   - **Running** - jobs with status `running` or `signaled` (signaled
  *     but not yet reaped). Always rendered, even when empty, because
  *     it's the state the model most needs to remember.
- *   - **Recent** — the most-recently-ended terminal jobs, capped.
+ *   - **Recent** - the most-recently-ended terminal jobs, capped.
  *
  * If there are no jobs at all we return `null` so the extension can skip
  * injection entirely.
@@ -94,7 +94,7 @@ export function formatBackgroundJobs(state: BgBashState, opts: FormatOptions = {
 
   pushLine('');
   if (truncated) {
-    pushLine(`(${skipped} more job(s) not shown — call \`bg_bash\` with action \`list\` to see all.)`);
+    pushLine(`(${skipped} more job(s) not shown - call \`bg_bash\` with action \`list\` to see all.)`);
   } else {
     pushLine(
       'Use `bg_bash` (`status`, `logs`, `wait`, `signal`, `remove`) to inspect, steer, or reap these jobs. Start new ones with `start`; prefer this over the foreground `bash` tool for anything that may run long (dev servers, test suites, builds, watchers).',

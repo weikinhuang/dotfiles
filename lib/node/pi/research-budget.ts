@@ -1,7 +1,7 @@
 /**
  * Budget + stop-reason helpers for research runs.
  *
- * Thin wrapper over `lib/node/pi/iteration-loop-budget.ts` — the
+ * Thin wrapper over `lib/node/pi/iteration-loop-budget.ts` - the
  * iteration-loop already owns a tested implementation of
  * `computeStopReason` / `selectBestSoFar`, so research-core simply
  * re-exports them rather than re-implementing the semantics. Both
@@ -22,7 +22,7 @@
  *     that performs one phase's work, measures its cost + wall-
  *     clock, accumulates totals into the budget, and appends a
  *     `warn` entry to the run's journal the first time a phase
- *     exceeds its cap. It does NOT abort the callback — the phase is
+ *     exceeds its cap. It does NOT abort the callback - the phase is
  *     allowed to complete; overruns are surfaced as diagnostics for
  *     the caller to decide what to do next (escalate, continue,
  *     quarantine). This mirrors how `iteration-loop-budget`'s stop-
@@ -42,7 +42,7 @@
  *     in the consuming extension (deep-research / autoresearch) if
  *     it needs resume across pi restarts.
  *
- * No pi imports — takes a plain `journalPath` string so tests exercise
+ * No pi imports - takes a plain `journalPath` string so tests exercise
  * the journal hook without a pi runtime.
  */
 
@@ -58,7 +58,7 @@ import {
 import { appendJournal } from './research-journal.ts';
 
 // ──────────────────────────────────────────────────────────────────────
-// Re-exports — keep the iteration-loop stop-reason machinery under
+// Re-exports - keep the iteration-loop stop-reason machinery under
 // research-friendly import paths so callers never have to reach past
 // research-core into the iteration-loop internals.
 // ──────────────────────────────────────────────────────────────────────
@@ -80,15 +80,15 @@ export {
 /**
  * Declarative cap for one phase of a research pipeline.
  *
- *   - `name`            — free-form identifier ("planner", "synth",
+ *   - `name`            - free-form identifier ("planner", "synth",
  *                         "critic", "experiment-3"). Must be unique
  *                         within a `RunBudget.phases` list; the
  *                         factory validates uniqueness.
- *   - `maxCostUsd`      — soft USD cap. First overrun is logged as a
+ *   - `maxCostUsd`      - soft USD cap. First overrun is logged as a
  *                         warning; subsequent overruns in the same
  *                         phase are NOT re-logged (noise reduction).
- *   - `maxWallClockSec` — soft wall-clock cap, measured per phase in
- *                         seconds. Independent of the cost cap —
+ *   - `maxWallClockSec` - soft wall-clock cap, measured per phase in
+ *                         seconds. Independent of the cost cap -
  *                         either can fire its own overrun log.
  *
  * Both caps are non-negative finite numbers. The factory throws on
@@ -137,7 +137,7 @@ export interface CreateRunBudgetOpts {
    * Path to the run's journal.md. When set, overrun warnings are
    * appended there via `research-journal.appendJournal`. When unset,
    * overruns are tracked internally (`overrunLogged`) but not
-   * surfaced — the caller can inspect the budget after the fact.
+   * surfaced - the caller can inspect the budget after the fact.
    */
   journalPath?: string;
 }
@@ -252,7 +252,7 @@ function logOverrunsOnce(budget: RunBudget, phase: PhaseBudget): void {
  *
  * Behavior:
  *   - `phaseName` must resolve to a `PhaseBudget` in `budget.phases`
- *     (throws on unknown phase — a misnamed phase is always a bug).
+ *     (throws on unknown phase - a misnamed phase is always a bug).
  *   - The callback receives a `PhaseTracker`. Its `addCost` method
  *     is how the callback reports LLM or network cost incurred
  *     during the phase. If `fn` does not call `addCost`, only wall-
@@ -261,7 +261,7 @@ function logOverrunsOnce(budget: RunBudget, phase: PhaseBudget): void {
  *   - Wall-clock is measured as `now()` at entry vs. `now()` at exit
  *     (including the time spent inside a rejected promise). A
  *     thrown `fn` still records its wall-clock usage into the
- *     budget before re-throwing — a failed phase that ate the
+ *     budget before re-throwing - a failed phase that ate the
  *     budget should be visible in the running totals.
  *   - Overrun warnings go to `budget.journalPath` (when set) via
  *     `research-journal.appendJournal` with level `warn`.

@@ -241,7 +241,7 @@ describe('archiveTask', () => {
     const ts = '2026-05-01T12-00-00Z';
     const first = archiveTask(cwd, 'default', ts);
 
-    // Second archive using the same timestamp — must not collide or lose data.
+    // Second archive using the same timestamp - must not collide or lose data.
     writeDraft(cwd, mkSpec());
     acceptDraft(cwd, 'default', '2026-05-01T00:05:01Z');
     const second = archiveTask(cwd, 'default', ts);

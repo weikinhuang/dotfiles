@@ -1,7 +1,7 @@
 /**
  * Formatting helpers for the subagent extension.
  *
- * Pure module — no pi imports — so it can be unit-tested under `vitest`.
+ * Pure module - no pi imports - so it can be unit-tested under `vitest`.
  * Lives alongside `subagent-loader.ts` / `subagent-result.ts` because the
  * three types share the same `AgentDef` shape and aren't useful apart.
  *
@@ -36,11 +36,11 @@ function shorten(s: string, cap: number): string {
  * Build the `agent` param's description string. Agents are listed
  * alphabetically with the source layer tagged so users see which
  * override is in play at a glance. Used by the extension when calling
- * `pi.registerTool` — baked in at startup.
+ * `pi.registerTool` - baked in at startup.
  */
 export function formatAgentListDescription(items: readonly AgentListItem[]): string {
   if (items.length === 0) {
-    return 'Sub-agent type name. No agent definitions loaded — drop Markdown files into `~/.pi/agents/` or `.pi/agents/`.';
+    return 'Sub-agent type name. No agent definitions loaded - drop Markdown files into `~/.pi/agents/` or `.pi/agents/`.';
   }
   const sorted = [...items].sort((a, b) => a.name.localeCompare(b.name));
   const maxName = sorted.reduce((m, a) => Math.max(m, a.name.length), 0);
@@ -48,7 +48,7 @@ export function formatAgentListDescription(items: readonly AgentListItem[]): str
   for (const a of sorted) {
     const pad = ' '.repeat(Math.max(1, maxName + 2 - a.name.length));
     const sourceTag = a.source && a.source !== 'global' ? ` [${a.source}]` : '';
-    lines.push(`  ${a.name}${pad}— ${shorten(a.description, SHORT_DESCRIPTION_CAP)}${sourceTag}`);
+    lines.push(`  ${a.name}${pad}- ${shorten(a.description, SHORT_DESCRIPTION_CAP)}${sourceTag}`);
   }
   return lines.join('\n');
 }

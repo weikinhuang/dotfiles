@@ -3,9 +3,9 @@
  *
  * Two independent surfaces:
  *
- *   1. Pure helpers (settings resolver + call counter) — tested with
+ *   1. Pure helpers (settings resolver + call counter) - tested with
  *      real filesystem fixtures in `mkdtempSync` dirs, no pi.
- *   2. Adapter factory — tested via a mock `runOneShot` that returns
+ *   2. Adapter factory - tested via a mock `runOneShot` that returns
  *      scripted `TinyRunResult` values. No subagent, no agent load,
  *      no network.
  *
@@ -336,7 +336,7 @@ describe('createTinyAdapter.isEnabled', () => {
 });
 
 describe('createTinyAdapter (disabled paths)', () => {
-  test('(a) tinyModel unset — every call returns null without invoking the mock', async () => {
+  test('(a) tinyModel unset - every call returns null without invoking the mock', async () => {
     const run = scriptedRun([]);
     const wiring = makeWiring({ settings: null, runOneShot: run });
     const adapter = createTinyAdapter(wiring);
@@ -534,7 +534,7 @@ describe('createTinyAdapter (budget / counter)', () => {
 });
 
 // ──────────────────────────────────────────────────────────────────────
-// tinyProvenanceSummary — convenience wrapper
+// tinyProvenanceSummary - convenience wrapper
 // ──────────────────────────────────────────────────────────────────────
 
 describe('tinyProvenanceSummary', () => {

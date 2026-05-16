@@ -1,14 +1,14 @@
 /**
  * Pure helpers for the read-without-limit-nudge extension.
  *
- * No pi imports — unit-testable under `vitest`.
+ * No pi imports - unit-testable under `vitest`.
  *
  * ## What the extension does
  *
  * Pi's `read` tool accepts `offset` + `limit`. When omitted, the tool
  * serves the file from line 1 up to the default cap (2000 lines /
  * 50KB). Small models routinely call `read` on big files without those
- * hints — burning 30–40k tokens per read — even though they only
+ * hints - burning 30–40k tokens per read - even though they only
  * wanted to find a single symbol that `rg -n` would have located in
  * two orders of magnitude less context.
  *
@@ -22,7 +22,7 @@
  * The nudge is appended to the tool result content; it does NOT block
  * or mutate `isError`, and it does NOT fire on reads that already hit
  * a truncation notice (pi's own `[Showing lines X-Y of Z…]` already
- * tells the model what to do there — our extra nudge would be noise).
+ * tells the model what to do there - our extra nudge would be noise).
  * It also does NOT fire on binary reads (e.g. images), where `rg -n`
  * and line-windowed re-reads don't make sense.
  *
@@ -70,8 +70,8 @@ export interface NudgeProbe {
   truncation: TruncationLike;
   /**
    * True when the read produced non-text content (e.g. an image).
-   * For these reads, line/byte thresholds don't apply — the model
-   * can't `rg -n` an image — so we skip the nudge entirely.
+   * For these reads, line/byte thresholds don't apply - the model
+   * can't `rg -n` an image - so we skip the nudge entirely.
    */
   isBinary?: boolean;
 }
@@ -111,7 +111,7 @@ function formatNudge(probe: NudgeProbe, reason: 'lines' | 'bytes', marker = NUDG
  * reason) or a skip (with a diagnostic reason for tracing).
  *
  * We require EITHER a known `totalLines` or a known `totalBytes`; with
- * neither we skip (`unknown-size`). The two thresholds OR together —
+ * neither we skip (`unknown-size`). The two thresholds OR together -
  * whichever triggers first wins.
  */
 export function classifyRead(probe: NudgeProbe, opts: NudgeOptions = {}): NudgeDecision {

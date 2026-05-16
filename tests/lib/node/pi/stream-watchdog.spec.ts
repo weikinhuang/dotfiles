@@ -1,7 +1,7 @@
 /**
  * Tests for lib/node/pi/stream-watchdog.ts.
  *
- * Pure module — no pi runtime needed. We drive the state machine with
+ * Pure module - no pi runtime needed. We drive the state machine with
  * explicit `nowMs` values rather than real wall-clock time so every
  * assertion is deterministic.
  */
@@ -62,7 +62,7 @@ test('recordStart: replaces any prior entry (covers missing-end edge case)', () 
   const s = createState();
   recordStart(s, 1_000, 'first');
   recordHeartbeat(s, 2_000);
-  // No `recordEnd` — simulate a dropped end event (reload mid-stream,
+  // No `recordEnd` - simulate a dropped end event (reload mid-stream,
   // provider reconnect, etc.). The new stream should win.
   recordStart(s, 5_000, 'second');
 
@@ -149,7 +149,7 @@ test('detectStale: null when the stream is within the stall threshold', () => {
   const s = createState();
   recordStart(s, 1_000);
 
-  // 30s elapsed — under the 60s threshold.
+  // 30s elapsed - under the 60s threshold.
   expect(detectStale(s, 31_000, STALL_MS, NEVER_HARD)).toBe(null);
   expect(s.current?.notified).toBe(false);
 });
@@ -205,7 +205,7 @@ test('detectStale: returns null on repeated calls for the same stale stream (one
 test('detectStale: a heartbeat arriving before the poll resets the clock', () => {
   const s = createState();
   recordStart(s, 1_000);
-  // 40s in, a token arrives — stream is healthy.
+  // 40s in, a token arrives - stream is healthy.
   recordHeartbeat(s, 41_000);
 
   // Poll runs at 50s total elapsed, but only 9s since the last beat.
@@ -311,7 +311,7 @@ test('buildWatchdogNudge: output is round-trippable through hasWatchdogMarker', 
 });
 
 // ──────────────────────────────────────────────────────────────────────
-// recordToolCall / recordToolResult — counter + name stack
+// recordToolCall / recordToolResult - counter + name stack
 // ──────────────────────────────────────────────────────────────────────
 
 test('recordToolCall + recordToolResult: single round-trip pushes/pops the name and updates lastForwardProgress', () => {
@@ -362,7 +362,7 @@ test('recordToolResult: clamps at zero when called more times than recordToolCal
 
   expect(s.inFlightTools).toBe(0);
   expect(s.inFlightToolNames).toEqual([]);
-  // lastForwardProgress still advances — the events are still "forward
+  // lastForwardProgress still advances - the events are still "forward
   // progress" from the runtime's perspective even if our bookkeeping
   // is out of sync.
   expect(s.lastForwardProgress).toBe(4_000);
@@ -401,7 +401,7 @@ test('recordHeartbeat after recordToolCall: updates lastForwardProgress AND last
 });
 
 // ──────────────────────────────────────────────────────────────────────
-// detectStale — soft branch with tool-call awareness
+// detectStale - soft branch with tool-call awareness
 // ──────────────────────────────────────────────────────────────────────
 
 test('detectStale soft: tool in flight + soft elapsed but NOT hard ⇒ null (suppressed)', () => {
@@ -428,7 +428,7 @@ test('detectStale soft: no tool in flight + soft elapsed ⇒ { reason: soft, inF
 });
 
 // ──────────────────────────────────────────────────────────────────────
-// detectStale — hard branch
+// detectStale - hard branch
 // ──────────────────────────────────────────────────────────────────────
 
 test('detectStale hard: tool in flight + hard elapsed ⇒ { reason: hard, inFlightTool: <last pushed name> }', () => {

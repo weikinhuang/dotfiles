@@ -2,8 +2,8 @@
  * Provenance sidecar writer + reader for research-toolkit artifacts.
  *
  * Every file produced by a research run (plan, findings, report,
- * experiment logs, ...) records who wrote it — model id, thinking
- * level, timestamp, and a hash of the prompt that produced it — so a
+ * experiment logs, ...) records who wrote it - model id, thinking
+ * level, timestamp, and a hash of the prompt that produced it - so a
  * later reader can audit "which model did this?" without guessing
  * from context. This is the load-bearing piece for the robustness
  * principle's "record which model wrote what" clause.
@@ -23,7 +23,7 @@
  * the file already carries a frontmatter block, we replace it
  * in-place; otherwise we prepend. Non-frontmatter bytes are never
  * rewritten. The sidecar writer for non-markdown is a straight
- * overwrite — collisions are loud (fails validation) rather than
+ * overwrite - collisions are loud (fails validation) rather than
  * silently merged.
  *
  * No pi imports. Uses only `node:crypto`, `node:fs`, and
@@ -47,7 +47,7 @@ import { isRecord, sha256HexPrefix } from './shared.ts';
  *   the same value they passed to the session.
  * - `thinkingLevel`: pi's thinking-level string (`off` / `low` / etc.)
  *   or `null` when the caller intentionally does not want to record it
- *   (e.g. non-LLM-authored artifacts). Never omitted — a null carries
+ *   (e.g. non-LLM-authored artifacts). Never omitted - a null carries
  *   different meaning than "we forgot."
  * - `timestamp`: ISO8601 UTC string. Callers pass `new Date().toISOString()`.
  * - `promptHash`: 12-char sha256 hex prefix of the prompt that produced
@@ -55,7 +55,7 @@ import { isRecord, sha256HexPrefix } from './shared.ts';
  * - `summary` (optional): short human-readable one-liner describing
  *   what the artifact contains. Populated by the tiny-model adapter's
  *   `summarize-provenance` task when enabled; omitted entirely when
- *   the adapter is off. Cosmetic — makes `grep` over provenance
+ *   the adapter is off. Cosmetic - makes `grep` over provenance
  *   readable without changing load-bearing behavior, so every
  *   reader must tolerate its absence.
  */
@@ -73,7 +73,7 @@ export interface Provenance {
 
 /**
  * Short content-addressable fingerprint of a prompt. We use the
- * first 12 hex chars of sha256 — enough to disambiguate at the scale
+ * first 12 hex chars of sha256 - enough to disambiguate at the scale
  * of a single research run without dragging 64 chars through every
  * journal entry. Full collisions within one run would require
  * ~16M prompts; we tolerate the residual risk for readability.
@@ -90,7 +90,7 @@ export function hashPrompt(prompt: string): string {
  * Strip an inline YAML provenance frontmatter block (`--- ... ---`
  * at the very start of `text`) and return what remains. A body
  * that does not start with `---\n` is returned unchanged. Kept
- * minimal — we only need to discard the block, not parse it, and
+ * minimal - we only need to discard the block, not parse it, and
  * we do NOT take a dependency on `parseFrontmatter` so any
  * research-core caller can safely reuse the helper without
  * pulling the full YAML stack into scope.
@@ -129,7 +129,7 @@ export function stripProvenanceFrontmatter(text: string): string {
 // ──────────────────────────────────────────────────────────────────────
 
 /**
- * `<artifact>.provenance.json` — the sibling sidecar path for any
+ * `<artifact>.provenance.json` - the sibling sidecar path for any
  * non-markdown artifact. Duplicated (instead of imported from
  * `research-paths`) so this module does not take a dependency on
  * another research-* module's layout decisions for its own writes.
@@ -141,7 +141,7 @@ export function sidecarPathFor(artifactPath: string): string {
 
 /**
  * True when we write the metadata as YAML frontmatter (inline) rather
- * than as a sibling sidecar JSON. The check is extension-based — the
+ * than as a sibling sidecar JSON. The check is extension-based - the
  * whole toolkit agrees markdown means `.md`. `.markdown` is
  * intentionally treated as sidecar because it is rare and render
  * tooling support is inconsistent.
@@ -151,7 +151,7 @@ function isMarkdown(artifactPath: string): boolean {
 }
 
 // ──────────────────────────────────────────────────────────────────────
-// YAML frontmatter — narrow emit + parse.
+// YAML frontmatter - narrow emit + parse.
 // ──────────────────────────────────────────────────────────────────────
 
 /**
@@ -162,8 +162,8 @@ const FM_DELIM = '---';
 
 /**
  * Regex matching a leading frontmatter block. Captures:
- *   [1] — the frontmatter body (between the delimiters)
- *   [2] — the rest of the document (everything after the closing
+ *   [1] - the frontmatter body (between the delimiters)
+ *   [2] - the rest of the document (everything after the closing
  *         delimiter and its newline)
  *
  * Requires the opening `---` to be the very first line (no blank
@@ -205,7 +205,7 @@ function wrapFrontmatter(body: string): string {
 /**
  * Parse a narrow subset of YAML sufficient for our own frontmatter
  * emitter. Recognizes `key: "quoted"`, `key: null`, and tolerates
- * surrounding whitespace. Unknown/malformed lines are ignored — a
+ * surrounding whitespace. Unknown/malformed lines are ignored - a
  * call that produces no usable fields returns `null` upstream.
  *
  * Deliberately hand-rolled instead of pulling in a YAML library: we
@@ -231,7 +231,7 @@ function parseYamlBody(body: string): Partial<Record<string, string | null>> {
       const parsed: unknown = JSON.parse(raw);
       if (typeof parsed === 'string') out[key] = parsed;
       else if (parsed === null) out[key] = null;
-      // numbers/booleans/objects not expected — ignore.
+      // numbers/booleans/objects not expected - ignore.
     } catch {
       // Unquoted scalar: accept as-is.
       out[key] = raw;
@@ -258,7 +258,7 @@ function splitFrontmatter(text: string): { body: string | null; rest: string } {
 /**
  * Cast a parsed YAML/JSON record into `Provenance` if it has the
  * required fields with the required types. Missing or wrong-typed
- * fields make the whole record reject — an incomplete provenance is
+ * fields make the whole record reject - an incomplete provenance is
  * worse than none.
  */
 function toProvenance(raw: unknown): Provenance | null {
@@ -269,7 +269,7 @@ function toProvenance(raw: unknown): Provenance | null {
   if (typeof timestamp !== 'string' || timestamp.length === 0) return null;
   if (typeof promptHash !== 'string' || promptHash.length === 0) return null;
   const out: Provenance = { model, thinkingLevel, timestamp, promptHash };
-  // `summary` is optional. We accept only non-empty strings — any
+  // `summary` is optional. We accept only non-empty strings - any
   // other shape (null, numeric, empty string) drops silently so a
   // misconfigured sidecar doesn't surface a `summary: ""` field to
   // downstream readers.
@@ -303,7 +303,7 @@ function writeMarkdownFrontmatter(artifactPath: string, p: Provenance): void {
  *     frontmatter block at the top of the file. If the file does not
  *     yet exist, it is created with *only* the frontmatter (the
  *     artifact body is presumed to land later). If the file already
- *     has a frontmatter block, the block is replaced in-place — the
+ *     has a frontmatter block, the block is replaced in-place - the
  *     rest of the document is preserved byte-for-byte.
  *   - Every other extension: a sibling `<artifact>.provenance.json`
  *     file is written atomically. The artifact itself is never read
@@ -369,7 +369,7 @@ function readFromSidecar(artifactPath: string): Provenance | null {
  *   - Other paths → first look for a sibling sidecar; there is no
  *     sensible frontmatter fallback for non-markdown.
  *
- * Returns `null` on any parse failure rather than throwing — callers
+ * Returns `null` on any parse failure rather than throwing - callers
  * treat "no provenance" and "corrupt provenance" the same (they
  * rewrite on the next save). A noisier diagnostic is the journal's
  * job, not this module's.

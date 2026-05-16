@@ -27,7 +27,7 @@
  *          still recoverable via the returned path.
  *
  *   - After every state mutation we persist a snapshot of the registry
- *     (metadata only — not the live ChildProcess / buffers) to the
+ *     (metadata only - not the live ChildProcess / buffers) to the
  *     session branch as both a `toolResult.details` payload and a
  *     `customType: 'bg-bash-state'` custom entry. This survives
  *     `/compact` and travels with `/fork`, `/tree`.
@@ -104,7 +104,7 @@ const DEFAULT_INJECTED_CHARS = 1500;
 const DEFAULT_BUFFER_BYTES = 1024 * 1024;
 const DEFAULT_KILL_GRACE_MS = 3000;
 const DEFAULT_WAIT_MS = 15_000;
-const MAX_LOG_RESPONSE_BYTES = 32 * 1024; // ~6k tokens — keep LLM responses small
+const MAX_LOG_RESPONSE_BYTES = 32 * 1024; // ~6k tokens - keep LLM responses small
 const TAIL_PREVIEW_BYTES = 200;
 
 // ──────────────────────────────────────────────────────────────────────
@@ -308,7 +308,7 @@ function mergeStreams(job: LiveJob, stream: StreamName): string {
   if (stream === 'stdout') return job.stdout.read().content;
   if (stream === 'stderr') return job.stderr.read().content;
   // "merged": we don't track interleaving timestamps in memory. The
-  // on-disk log file IS interleaved in wall-clock order — callers
+  // on-disk log file IS interleaved in wall-clock order - callers
   // that need exact ordering should read the file. Here we return
   // stdout then stderr with a labeled separator.
   const out = job.stdout.read().content;
@@ -327,7 +327,7 @@ function readStream(
   if (stream === 'stdout') return job.stdout.read(opts);
   if (stream === 'stderr') return job.stderr.read(opts);
   // For merged streams we pick a synthetic cursor and totals by
-  // summing both streams — good enough for the LLM; exact resumable
+  // summing both streams - good enough for the LLM; exact resumable
   // reads require picking one stream.
   const outR = job.stdout.read(opts);
   const errR = job.stderr.read(opts);
@@ -411,7 +411,7 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
   const killGraceMs = parseIntEnv('PI_BG_BASH_KILL_GRACE_MS', DEFAULT_KILL_GRACE_MS, 0);
 
   // Per-runtime stores. Both are rebuilt from the branch on session_start;
-  // `live` is always empty there (we can't reattach) — only `state` is
+  // `live` is always empty there (we can't reattach) - only `state` is
   // hydrated so the LLM can still inspect the job metadata.
   let state: BgBashState = emptyState();
   const live = new Map<string, LiveJob>();
@@ -428,7 +428,7 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
   //
   // `uiRef` is captured on session_start and refreshed every time pi hands
   // us a fresh ctx (before_agent_start, session_tree). This keeps the ref
-  // pointed at whatever the current UI surface is — some session replace
+  // pointed at whatever the current UI surface is - some session replace
   // flows rebind `ctx.ui`.
   let uiRef: ExtensionContext['ui'] | undefined;
   let lastStatusRunning = -1; // sentinel: forces the first paint
@@ -470,7 +470,7 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
     try {
       await prev;
     } catch {
-      /* previous queueant threw/rejected — we still run our prompt */
+      /* previous queueant threw/rejected - we still run our prompt */
     }
     try {
       return await requestBashApproval(command, {
@@ -524,7 +524,7 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
     // If we dropped anything, persist immediately so the next snapshot
     // on the branch reflects the clean slate.
     if (pruned.jobs.length !== replayed.jobs.length) persist();
-    // `live` is not populated — the child processes are gone.
+    // `live` is not populated - the child processes are gone.
     uiRef = ctx.ui;
     lastStatusRunning = -1;
     updateStatusline();
@@ -817,7 +817,7 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
       };
       const text = summary.logFile
         ? `(no in-memory buffer; read the log file directly: ${summary.logFile})`
-        : '(no logs available — job predates this runtime)';
+        : '(no logs available - job predates this runtime)';
       return { content: [{ type: 'text', text }], details };
     }
 
@@ -867,7 +867,7 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
       logExcerpt: content,
     };
     const header = `--- [${id}] ${stream}: ${totalBytes} bytes total, ${droppedBytes} dropped from memory${
-      droppedBefore ? ' (your cursor was evicted — fall back to logFile)' : ''
+      droppedBefore ? ' (your cursor was evicted - fall back to logFile)' : ''
     } ---`;
     const tailNote = summary.logFile ? `\n--- full log: ${summary.logFile} ---` : '';
     return {
@@ -1014,12 +1014,12 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
 
   pi.on('session_tree', (_event, ctx) => {
     // After /tree or /fork, state may have moved to a different point
-    // in history — rehydrate.
+    // in history - rehydrate.
     rebuildFromSession(ctx);
   });
 
   pi.on('session_shutdown', async () => {
-    // Best-effort reap of every live job. We can't await forever — pi
+    // Best-effort reap of every live job. We can't await forever - pi
     // is already on its way out. SIGTERM everything, wait up to
     // `killGraceMs`, then SIGKILL the stragglers.
     const livingIds = [...live.keys()];
@@ -1075,7 +1075,7 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
       'Run shell commands in the background and interact with them across subsequent turns. ' +
       'Actions: start (spawn a new job), list (all jobs), status (one job), logs (stdout/stderr, supports tail/grep/sinceCursor), ' +
       'wait (block up to timeoutMs for exit), signal (send SIGINT/SIGTERM/SIGKILL/... to the job process group), ' +
-      'stdin (write to a running job — only works when the job was started with interactiveStdin=true), ' +
+      'stdin (write to a running job - only works when the job was started with interactiveStdin=true), ' +
       'remove (drop a terminal job from the registry). ' +
       'By default jobs run with stdin redirected from /dev/null so non-interactive commands that happen to read ' +
       "stdin (pi's own CLI, cat, ssh, grep) don't hang waiting for EOF. Pass interactiveStdin=true on start if " +
@@ -1087,8 +1087,8 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
       'Use `bg_bash` action `start` instead of `bash` whenever a command might run long (>5s), never exits on its own (dev servers, watchers), or should continue while you do other work.',
       'After `bg_bash start`, remember the returned `id`. Call `bg_bash` action `wait` with a short `timeoutMs` to poll for exit, or action `logs` with `sinceCursor` to stream new output incrementally.',
       'Use `bg_bash` action `signal` (SIGTERM by default, SIGKILL if stuck) to stop a job cleanly; the whole process group is targeted so children die too.',
-      'Prefer `bg_bash` action `logs` with `tail` or `grep` over returning the full buffer — the ring buffer caps memory but log responses still eat context.',
-      'Leave `interactiveStdin` unset for normal commands — stdin is /dev/null by default so nothing hangs waiting for input. Only pass `interactiveStdin: true` when you specifically plan to drive a REPL / long-lived interactive process via action `stdin` (e.g. `sqlite3`, `python -i`, `psql`).',
+      'Prefer `bg_bash` action `logs` with `tail` or `grep` over returning the full buffer - the ring buffer caps memory but log responses still eat context.',
+      'Leave `interactiveStdin` unset for normal commands - stdin is /dev/null by default so nothing hangs waiting for input. Only pass `interactiveStdin: true` when you specifically plan to drive a REPL / long-lived interactive process via action `stdin` (e.g. `sqlite3`, `python -i`, `psql`).',
     ],
     parameters: BgBashParams,
 

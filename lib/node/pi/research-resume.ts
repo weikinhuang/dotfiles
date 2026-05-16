@@ -72,7 +72,7 @@ export function validateRunRoot(cwd: string, runRoot: string): ValidateRunRootRe
   if (!existsSync(planPath)) {
     return {
       ok: false,
-      error: `runRoot has no plan.json: ${abs} — not a deep-research run`,
+      error: `runRoot has no plan.json: ${abs} - not a deep-research run`,
     };
   }
   try {
@@ -200,7 +200,7 @@ export type DetectResumeStageResult = DetectResumeStageOk | DetectResumeStageErr
 export function detectResumeStage(runRoot: string): DetectResumeStageResult {
   const p = paths(runRoot);
   if (!existsSync(p.plan)) {
-    return { ok: false, error: `no plan.json under ${runRoot} — nothing to resume` };
+    return { ok: false, error: `no plan.json under ${runRoot} - nothing to resume` };
   }
   let plan;
   try {
@@ -238,7 +238,7 @@ export function detectResumeStage(runRoot: string): DetectResumeStageResult {
   return {
     ok: true,
     stage: 'review',
-    reason: 'report.md exists — resuming review phase',
+    reason: 'report.md exists - resuming review phase',
     needsRefanout: [],
   };
 }
@@ -292,7 +292,7 @@ export function sumFanoutDeficit(runRoot: string, subQuestionIds: readonly strin
       for (const id of subQuestionIds) need.add(id);
     }
   } else {
-    // No fanout.json at all — every sub-question is a candidate.
+    // No fanout.json at all - every sub-question is a candidate.
     for (const id of subQuestionIds) need.add(id);
   }
 
@@ -332,7 +332,7 @@ export interface ScopedDeficit {
  *     stay stable across runs.
  *
  * Callers with an empty `filter` should use
- * {@link sumFanoutDeficit} directly — an empty filter yields an
+ * {@link sumFanoutDeficit} directly - an empty filter yields an
  * empty id set here, which is almost never what a caller means
  * by "no targeting applied".
  */
@@ -365,7 +365,7 @@ export interface InvalidateFanoutResult {
   ok: boolean;
   /** Ids whose state was flipped back to 'pending'. */
   reset: string[];
-  /** Ids that were already 'pending' or 'completed' — left alone. */
+  /** Ids that were already 'pending' or 'completed' - left alone. */
   untouched: string[];
   /** When `ok=false`, the reason. */
   error?: string;
@@ -382,7 +382,7 @@ export interface InvalidateFanoutResult {
  * `ids` list (typically {@link sumFanoutDeficit}'s output), so a
  * completed-state entry in that list is assumed inconsistent with
  * disk (e.g. the subagent said "completed" but the finding file is
- * missing — the sq-1/sq-3 anti-pattern observed in real runs) and
+ * missing - the sq-1/sq-3 anti-pattern observed in real runs) and
  * a reset is the correct remedy.
  *
  * If `fanout.json` is absent or malformed the function returns
@@ -530,12 +530,12 @@ export interface ProvenanceDrift {
  * field, because {@link Provenance} is the only persisted record
  * of what the original run used and it carries just `model`
  * (plus `thinkingLevel`, which the extension doesn't surface
- * today) — `--fanout-model`, `--critic-model`, `*-max-turns`
+ * today) - `--fanout-model`, `--critic-model`, `*-max-turns`
  * are not persisted anywhere, so we cannot detect drift on them.
  *
  * When the sidecar is missing, corrupt, or the caller didn't
  * pass `--model`, the helper returns `[]` (no drift to warn
- * about). Callers render each drift as an advisory notify —
+ * about). Callers render each drift as an advisory notify -
  * we never block the resume on drift.
  */
 export function detectProvenanceDrift(runRoot: string, resumeOverrides: { model?: string }): ProvenanceDrift[] {

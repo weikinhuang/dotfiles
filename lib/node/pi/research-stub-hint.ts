@@ -5,7 +5,7 @@
  *
  * When the final `report.md` still contains `[section unavailable:
  * …]` stubs emitted by `deep-research-synth-sections` on an empty
- * findings file, refinement cannot fix them — the user needs to
+ * findings file, refinement cannot fix them - the user needs to
  * re-fetch those sub-questions. This helper walks the report,
  * resolves each stubbed heading to its `plan.subQuestions[*].id`,
  * and returns a copy-pasteable `/research --resume` command
@@ -40,10 +40,10 @@ interface PlanSubQuestionHandle {
  * Resolution of a `StubbedSection[]` array against the on-disk
  * plan's sub-question list.
  *
- *   - `ok: true`  — every stubbed heading resolved to a unique
+ *   - `ok: true`  - every stubbed heading resolved to a unique
  *                  `plan.subQuestions[*].id`; `ids` is in report
  *                  order (one id per stubbed section).
- *   - `ok: false` — at least one heading could not be resolved;
+ *   - `ok: false` - at least one heading could not be resolved;
  *                  `ids` holds the partial list of resolutions
  *                  but must NOT be rendered as-is (callers fall
  *                  back to a placeholder template). The all-or-
@@ -65,7 +65,7 @@ export interface ResolvedStubbedSectionIds {
  * stubbed short-circuit render identical `--sq=<ids>` commands.
  *
  * A missing or malformed `plan.json` degrades to
- * `{ ok: false, ids: [] }` — the hint is advisory and must never
+ * `{ ok: false, ids: [] }` - the hint is advisory and must never
  * throw into the notify path.
  */
 export function resolveStubbedSectionIds(
@@ -103,9 +103,9 @@ export function formatStubHint(runRoot: string): string | null {
   const resolved = resolveStubbedSectionIds(runRoot, stubbed);
 
   const lines: string[] = [];
-  lines.push(`/research: note \u2014 ${stubbed.length} sub-question section(s) are stubbed as [section unavailable].`);
+  lines.push(`/research: note - ${stubbed.length} sub-question section(s) are stubbed as [section unavailable].`);
   for (const s of stubbed) {
-    const reason = s.reason.length > 0 ? ` \u2014 ${s.reason}` : '';
+    const reason = s.reason.length > 0 ? ` - ${s.reason}` : '';
     lines.push(`  \u2022 ${s.heading}${reason}`);
   }
   if (resolved.ok) {
@@ -127,7 +127,7 @@ export function formatStubHint(runRoot: string): string | null {
  * stubbed short-circuit. Communicates two things the refinement-
  * based {@link formatStubHint} does not:
  *
- *   1. The review loop was SKIPPED — no iterations burned.
+ *   1. The review loop was SKIPPED - no iterations burned.
  *   2. The user (or parent LLM agent) must re-fetch the listed
  *      sub-questions before re-running review; refinement cannot
  *      recover from a missing-findings stub.
@@ -142,11 +142,11 @@ export function formatStubbedReviewSummary(runRoot: string, stubbed: readonly St
 
   const lines: string[] = [];
   lines.push(
-    `/research: review skipped \u2014 ${stubbed.length} sub-question section(s) are stubbed as [section unavailable].` +
+    `/research: review skipped - ${stubbed.length} sub-question section(s) are stubbed as [section unavailable].` +
       ` Refinement cannot recover missing findings; re-fetch before re-running review.`,
   );
   for (const s of stubbed) {
-    const reason = s.reason.length > 0 ? ` \u2014 ${s.reason}` : '';
+    const reason = s.reason.length > 0 ? ` - ${s.reason}` : '';
     lines.push(`  \u2022 ${s.heading}${reason}`);
   }
   if (resolved.ok) {
@@ -168,7 +168,7 @@ function readPlanSubQuestions(planPath: string): PlanSubQuestionHandle[] {
     if (plan.kind !== 'deep-research') return [];
     return plan.subQuestions.map((sq) => ({ id: sq.id, question: sq.question }));
   } catch {
-    /* advisory hint — never break on a malformed plan.json */
+    /* advisory hint - never break on a malformed plan.json */
     return [];
   }
 }

@@ -60,7 +60,7 @@ const TOP_KEY_RE = /^([A-Za-z][\w-]*)\s*:\s*(.*?)\s*$/;
  * Walk the frontmatter header, grouping lines into top-level fields. A
  * "top-level" line is column-0, starts with a letter, and matches `key:`.
  * Anything else (indent, blank, `#`, list dash) is treated as a
- * continuation of the current field — blank lines inside a block scalar
+ * continuation of the current field - blank lines inside a block scalar
  * get preserved in the field's span but their content is not appended to
  * `valueFragments`.
  */

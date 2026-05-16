@@ -107,7 +107,7 @@ describe('isStuck (type guard for unions)', () => {
 // Failure modes + invariants.
 // ──────────────────────────────────────────────────────────────────────
 
-describe('Stuck — failure modes', () => {
+describe('Stuck - failure modes', () => {
   test('STUCK_STATUS is exactly the literal string "stuck"', () => {
     expect(STUCK_STATUS).toBe('stuck');
   });

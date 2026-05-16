@@ -37,7 +37,7 @@ test('resolveWriteRoots: {projectSlug} substitution', () => {
 });
 
 test('resolveWriteRoots: tilde + nested ~/.pi/personas/<persona>-notes/ shape', () => {
-  // Followup #6 in plans/persona-extension-followups.md — the
+  // Followup #6 in plans/persona-extension-followups.md - the
   // Exusiai-style "persona writes scratch notes under the user-global
   // persona dir" pattern. Validates tilde expansion through several
   // path segments without any {projectSlug} or cwd substitution.
@@ -63,10 +63,10 @@ test('resolveWriteRoots: absolute path with trailing slash preserved', () => {
 });
 
 // ──────────────────────────────────────────────────────────────────────
-// Symlink lock — D8 in plans/pi-mode-extension.md.
+// Symlink lock - D8 in plans/pi-mode-extension.md.
 // resolveWriteRoots MUST NOT call realpath. The returned path should
 // equal the LINK path, not the symlink target. Future readers: do not
-// "fix" this by introducing realpathSync — see plan decision D8.
+// "fix" this by introducing realpathSync - see plan decision D8.
 // ──────────────────────────────────────────────────────────────────────
 
 let sandbox = '';
@@ -79,7 +79,7 @@ afterEach(() => {
   rmSync(sandbox, { recursive: true, force: true });
 });
 
-test('resolveWriteRoots: does NOT follow symlinks (D8 — link path wins)', () => {
+test('resolveWriteRoots: does NOT follow symlinks (D8 - link path wins)', () => {
   // Real directory:   <sandbox>/real-plans/
   // Symlink:          <sandbox>/plans -> <sandbox>/real-plans
   // We pass the LINK path; the resolver must return the LINK path,
@@ -92,7 +92,7 @@ test('resolveWriteRoots: does NOT follow symlinks (D8 — link path wins)', () =
   const out = resolveWriteRoots([linkDir + '/'], { ...ctx, cwd: sandbox });
 
   expect(out).toEqual([linkDir + '/']);
-  // Sanity: the realpath would be different — confirms the assertion above is meaningful.
+  // Sanity: the realpath would be different - confirms the assertion above is meaningful.
   expect(realpathSync(linkDir)).toBe(realDir);
   expect(out[0]).not.toBe(realDir + '/');
 });

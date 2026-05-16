@@ -9,14 +9,14 @@
  *
  * Forked from examples/extensions/titlebar-spinner.ts with two changes:
  *   1. Idle title shows `π - <cwd>` instead of dropping the indicator.
- *   2. Session name is deliberately omitted — for most of this user's
+ *   2. Session name is deliberately omitted - for most of this user's
  *      sessions it's noise, and the cwd basename is the more reliable
  *      "which project am I in" signal.
  *
  * Limitations:
  *   - cwd is re-read on each tick while the spinner runs, but pi does not
  *     emit a cwd-change event, so when idle the title only refreshes on
- *     the next agent_start / agent_end boundary. Good enough — the cwd
+ *     the next agent_start / agent_end boundary. Good enough - the cwd
  *     rarely changes mid-session and the statusline footer always shows
  *     the live value.
  *
@@ -52,7 +52,7 @@ export default function extension(pi: ExtensionAPI): void {
   }
 
   function startAnimation(ctx: ExtensionContext): void {
-    // Clear any stale timer before installing a new one — belt-and-braces
+    // Clear any stale timer before installing a new one - belt-and-braces
     // in case agent_end didn't fire (e.g. a future pi bug or reload-runtime).
     if (timer) clearInterval(timer);
     frameIndex = 0;

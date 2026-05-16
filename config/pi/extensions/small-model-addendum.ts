@@ -8,7 +8,7 @@
  * their own hints, but when the active model is small those hints
  * compete with every other signal in the system prompt and get tuned
  * out. This extension closes the gap by appending a short, directive
- * reminder block to the system prompt on every turn — only when the
+ * reminder block to the system prompt on every turn - only when the
  * active model matches a configured provider or model id.
  *
  * How it fires:
@@ -61,7 +61,7 @@ export default function smallModelAddendum(pi: ExtensionAPI): void {
 
   const debug = process.env.PI_SMALL_MODEL_ADDENDUM_DEBUG === '1';
 
-  // Lazy config load — cached per-session. The config files are small
+  // Lazy config load - cached per-session. The config files are small
   // and rarely change; we reload on session_start to pick up edits
   // without requiring `/reload`.
   let cached: { config: AddendumConfig; warnings: ConfigWarning[] } | undefined;

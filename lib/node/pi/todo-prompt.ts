@@ -10,7 +10,7 @@
  *   - `looksLikeCompletionClaim`: best-effort heuristic for "the assistant
  *     just signed off as done". Used by `agent_end` to decide whether to
  *     fire the follow-up steer when `in_progress` / `pending` todos are
- *     still open. Intentionally loose — false positives merely produce a
+ *     still open. Intentionally loose - false positives merely produce a
  *     nudge, false negatives silently skip the guardrail.
  *
  * Both are covered by unit tests.
@@ -31,7 +31,7 @@ export interface FormatOptions {
  *   3. blocked (surface unresolved obstacles)
  *
  * Returns `null` when state contains nothing but `completed` items (or is
- * empty) so the caller can skip the injection — no point nagging the
+ * empty) so the caller can skip the injection - no point nagging the
  * model about a finished plan.
  */
 export function formatActivePlan(state: TodoState, opts: FormatOptions = {}): string | null {
@@ -73,7 +73,7 @@ export function formatActivePlan(state: TodoState, opts: FormatOptions = {}): st
   }
 
   if (blocked.length > 0) {
-    lines.push('Blocked (unresolved — surface to the user):');
+    lines.push('Blocked (unresolved - surface to the user):');
     for (const t of blocked) lines.push(`  ⛔ ${render(t)}`);
     lines.push('');
   }
@@ -82,9 +82,9 @@ export function formatActivePlan(state: TodoState, opts: FormatOptions = {}): st
   lines.push('- One item `in_progress` at a time (action `start`).');
   lines.push('- When work on an item is done but not yet verified, move it to `review` (action `review`).');
   lines.push(
-    '- Mark `complete` after verification. From `in_progress` directly, include a `note` describing what verified it. From `review`, the note is optional — the review step already parked it for verification.',
+    '- Mark `complete` after verification. From `in_progress` directly, include a `note` describing what verified it. From `review`, the note is optional - the review step already parked it for verification.',
   );
-  lines.push('- If stuck, `block` with a `note` — never silently abandon an item.');
+  lines.push('- If stuck, `block` with a `note` - never silently abandon an item.');
   lines.push('- `add` new items when additional work surfaces mid-task.');
 
   return lines.join('\n');
@@ -95,12 +95,12 @@ export function formatActivePlan(state: TodoState, opts: FormatOptions = {}): st
 // ──────────────────────────────────────────────────────────────────────
 
 // Phrases typical of a final "I'm done" sign-off. Anchored to the TAIL of
-// the message — the phrase must be the last meaningful content, with only
+// the message - the phrase must be the last meaningful content, with only
 // punctuation / markdown fences / closing quotes after it. A short list of
 // conversational trailers ("here", "now", "for you") is tolerated so that
 // things like "I'm all done here." still match.
 //
-// Intentionally loose at the START (plain `\b`) — false positives would
+// Intentionally loose at the START (plain `\b`) - false positives would
 // match mid-body mentions like "I finished the first pass" without an
 // anchor, so we rely on the `$` anchor plus the short-trailer allowlist to
 // keep the phrase at the end. NEGATIVE_HINT_RE rejects conditionals /
@@ -116,7 +116,7 @@ const NEGATIVE_HINT_RE =
 /**
  * Heuristic: does the tail of `text` read like a final "done" sign-off?
  *
- * Only the last ~300 chars are inspected — the sign-off always lives near
+ * Only the last ~300 chars are inspected - the sign-off always lives near
  * the end, and looking at the full body multiplies false positives (any
  * past-tense mention of "finished" or "complete" would trip).
  */

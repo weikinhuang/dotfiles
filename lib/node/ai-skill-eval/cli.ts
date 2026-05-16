@@ -225,7 +225,7 @@ interface DriverJob {
 
 /**
  * Run one driver invocation and persist its `.error` marker on failure /
- * timeout. Failures do not throw — the caller continues on to grading so
+ * timeout. Failures do not throw - the caller continues on to grading so
  * the resulting grade record reflects the partial run set (trigger_rate
  * drops accordingly, and the grader appends `DRIVER_TIMEOUT` to `flaws`).
  */
@@ -351,7 +351,7 @@ async function executeRunPlans(opts: CliOptions, plans: readonly EvalPlan[]): Pr
   }
   if (jobs.length === 0) return;
   await runPool(jobs, { limit: opts.numWorkers }, (job) => runDriverJob(opts, job));
-  // Grade after the whole pool has drained — keeps grading serial and
+  // Grade after the whole pool has drained - keeps grading serial and
   // deterministic regardless of how the driver jobs interleaved.
   for (const plan of plans) {
     gradeWithOptionalCritic(opts, plan.entry, plan.ev, plan.config, plan.prep.resultFiles, plan.prep.gradeFile);
@@ -519,7 +519,7 @@ function cmdReport(opts: CliOptions): number {
 }
 
 /**
- * `ai-skill-eval compare SKILL --iterations A,B --critic-cmd '...'` — blind
+ * `ai-skill-eval compare SKILL --iterations A,B --critic-cmd '...'` - blind
  * A/B comparator over two iterations' per-eval reply files. Evals are
  * resolved from the skill's `evals/evals.json` so the comparator sees the
  * scenario prompt + expectations for each turn. Per-eval records + a
@@ -584,7 +584,7 @@ function cmdCompare(opts: CliOptions): number {
 }
 
 /**
- * `ai-skill-eval analyze SKILL --iterations A,B --critic-cmd '...'` —
+ * `ai-skill-eval analyze SKILL --iterations A,B --critic-cmd '...'` -
  * R5.2 post-hoc analyzer. Reads the R5.1 compare records under
  * `iteration-A/vs-iteration-B/`, feeds both iterations' rendered SKILL.md
  * plus reply transcripts to the critic, and writes per-eval
@@ -650,7 +650,7 @@ function cmdAnalyze(opts: CliOptions): number {
 }
 
 /**
- * `ai-skill-eval optimize SKILL` — the R4 description-optimization loop.
+ * `ai-skill-eval optimize SKILL` - the R4 description-optimization loop.
  * Loads a trigger eval set, runs {@link runOptimizeLoop} with the same
  * driver abstraction `run` uses, prints the best-scoring description, and
  * (commit 2) rewrites the SKILL.md frontmatter when `--write` is set.
@@ -777,7 +777,7 @@ async function cmdOptimize(opts: CliOptions): Promise<number> {
 }
 
 /**
- * `ai-skill-eval validate [SKILL...]` — lint SKILL.md frontmatter for every
+ * `ai-skill-eval validate [SKILL...]` - lint SKILL.md frontmatter for every
  * discovered (or named) skill. Exits 1 if any fail, 0 otherwise. No driver
  * calls.
  */
@@ -810,7 +810,7 @@ function cmdValidate(opts: CliOptions): number {
 }
 
 /**
- * `ai-skill-eval benchmark [SKILL...]` — aggregate existing grades +
+ * `ai-skill-eval benchmark [SKILL...]` - aggregate existing grades +
  * per-run `.meta.json` sidecars under the workspace into a
  * schema-compatible `benchmark.json` + human-readable `benchmark.md` per
  * skill. No driver calls; meant to run after `run` (optionally with

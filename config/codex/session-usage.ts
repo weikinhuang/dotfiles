@@ -172,7 +172,7 @@ function parseSessionFile(filePath: string): ParsedSession {
 
   // Codex reports token_count events carrying a running cumulative total.
   // Track per-model usage by delta against the most recently seen
-  // turn_context.model — that way a mid-session model change (rare in Codex
+  // turn_context.model - that way a mid-session model change (rare in Codex
   // but technically possible via profile switches) still prices correctly.
   let currentModel = '';
   const perModel = new Map<string, SessionTokens>();

@@ -156,7 +156,7 @@ test('DEFAULT_CONFIG: write category adds node_modules and .git', () => {
 });
 
 // ──────────────────────────────────────────────────────────────────────
-// classify — low-level
+// classify - low-level
 // ──────────────────────────────────────────────────────────────────────
 
 test('classify: path-prefix rule beats outside-workspace for useful detail', () => {
@@ -212,7 +212,7 @@ test('classifyRead: does NOT gate on write-only rules (node_modules, .git)', () 
   const c = defaults();
 
   // Reading node_modules / .git contents is routine (inspecting vendored code,
-  // git logs via file inspection, etc.) — only writing to them is dangerous.
+  // git logs via file inspection, etc.) - only writing to them is dangerous.
   expect(classifyRead('node_modules/react/index.js', CWD_OUTSIDE_HOME, c)).toBe(null);
   expect(classifyRead('.git/HEAD', CWD_OUTSIDE_HOME, c)).toBe(null);
 });

@@ -150,10 +150,10 @@ function refiner(): {
 }
 
 // ──────────────────────────────────────────────────────────────────────
-// Scenario (A) — unresolved footnote → structural refinement → pass.
+// Scenario (A) - unresolved footnote → structural refinement → pass.
 // ──────────────────────────────────────────────────────────────────────
 
-describe('runDeepResearchReview — scenario A (structural refinement)', () => {
+describe('runDeepResearchReview - scenario A (structural refinement)', () => {
   test('unresolved footnote: fails structural, refines, passes', async () => {
     const runStructural: StructuralRunner = scripted<StructuralCheckResult>([
       failingStructural(),
@@ -196,10 +196,10 @@ describe('runDeepResearchReview — scenario A (structural refinement)', () => {
 });
 
 // ──────────────────────────────────────────────────────────────────────
-// Scenario (B) — clean but poorly-cited → subjective refinement.
+// Scenario (B) - clean but poorly-cited → subjective refinement.
 // ──────────────────────────────────────────────────────────────────────
 
-describe('runDeepResearchReview — scenario B (subjective refinement)', () => {
+describe('runDeepResearchReview - scenario B (subjective refinement)', () => {
   test('structurally clean, critic rejects, refines, critic approves', async () => {
     const runStructural = scripted<StructuralCheckResult>([
       passingStructural(),
@@ -231,10 +231,10 @@ describe('runDeepResearchReview — scenario B (subjective refinement)', () => {
 });
 
 // ──────────────────────────────────────────────────────────────────────
-// Scenario (C) — structural-override (structure wins).
+// Scenario (C) - structural-override (structure wins).
 // ──────────────────────────────────────────────────────────────────────
 
-describe('runDeepResearchReview — scenario C (structure wins)', () => {
+describe('runDeepResearchReview - scenario C (structure wins)', () => {
   test('critic approves but re-check fails → structural-override warning', async () => {
     const runStructural = scripted<StructuralCheckResult>([passingStructural(), failingStructural()]);
     const runCritic = scripted<Verdict>([approvedCritic()]);
@@ -264,10 +264,10 @@ describe('runDeepResearchReview — scenario C (structure wins)', () => {
 });
 
 // ──────────────────────────────────────────────────────────────────────
-// Scenario (D) — budget exhaustion with best-so-far.
+// Scenario (D) - budget exhaustion with best-so-far.
 // ──────────────────────────────────────────────────────────────────────
 
-describe('runDeepResearchReview — scenario D (budget exhausted)', () => {
+describe('runDeepResearchReview - scenario D (budget exhausted)', () => {
   test('maxIter=1 + failing structural → warning summary + best-so-far + near-pass closeness + resume command', async () => {
     const runStructural = scripted<StructuralCheckResult>([failingStructural()]);
     const runCritic = scripted<Verdict>([]);
@@ -382,12 +382,12 @@ describe('runDeepResearchReview — scenario D (budget exhausted)', () => {
   });
 });
 
-// Scenario (E) — stubbed short-circuit: report has
+// Scenario (E) - stubbed short-circuit: report has
 // `[section unavailable: …]` stubs → wire skips the loop and
 // returns a terminal `kind: 'stubbed'` outcome with the
 // recovery command already in the summary.
 
-describe('runDeepResearchReview — scenario E (stubbed short-circuit)', () => {
+describe('runDeepResearchReview - scenario E (stubbed short-circuit)', () => {
   test('stubbed report bypasses the loop and returns kind=stubbed without running any runner', async () => {
     // Seed a report with two stubbed sub-question sections and
     // a plan.json that resolves both headings to concrete ids.
@@ -447,7 +447,7 @@ describe('runDeepResearchReview — scenario E (stubbed short-circuit)', () => {
     expect(result.outcome.stubbed.map((s) => s.heading)).toEqual(['What is A?', 'What is B?']);
     expect(result.outcome.reportPath).toBe(join(runRoot, 'report.md'));
 
-    // Neither runner was called — the short-circuit happens
+    // Neither runner was called - the short-circuit happens
     // before the loop spins up.
     expect(runStructural).not.toHaveBeenCalled();
     expect(runCritic).not.toHaveBeenCalled();
@@ -462,7 +462,7 @@ describe('runDeepResearchReview — scenario E (stubbed short-circuit)', () => {
     expect(result.summary).toContain('--sq=sq-1,sq-2');
     expect(result.summary).toContain(`--run-root ${runRoot}`);
 
-    // Exactly one notify (the summary itself) — no consent
+    // Exactly one notify (the summary itself) - no consent
     // bootstrap on the short-circuit path since the loop never
     // ran, and no separate recovery-hint notify.
     expect(notify).toHaveBeenCalledTimes(1);
@@ -521,10 +521,10 @@ describe('runDeepResearchReview — scenario E (stubbed short-circuit)', () => {
 });
 
 // ──────────────────────────────────────────────────────────────────────
-// Consent bootstrap behavior — the second run skips the consent notify.
+// Consent bootstrap behavior - the second run skips the consent notify.
 // ──────────────────────────────────────────────────────────────────────
 
-describe('runDeepResearchReview — consent flow', () => {
+describe('runDeepResearchReview - consent flow', () => {
   test('second run does not re-notify consent', async () => {
     const runStructural = scripted<StructuralCheckResult>([passingStructural(), passingStructural()]);
     const runCritic = scripted<Verdict>([approvedCritic()]);
@@ -575,7 +575,7 @@ describe('runDeepResearchReview — consent flow', () => {
 // Iteration-loop spec persistence.
 // ──────────────────────────────────────────────────────────────────────
 
-describe('runDeepResearchReview — iteration-loop storage', () => {
+describe('runDeepResearchReview - iteration-loop storage', () => {
   test('declare + accept lands both task specs on disk; archive on close', async () => {
     const runStructural = scripted<StructuralCheckResult>([passingStructural(), passingStructural()]);
     const runCritic = scripted<Verdict>([approvedCritic()]);
@@ -608,7 +608,7 @@ describe('runDeepResearchReview — iteration-loop storage', () => {
   test('writeDraft refused (active task already present) does not block the review loop', async () => {
     // Pre-populate an active structural task so `writeDraft` in
     // the wire returns { ok: false }. The review loop must still
-    // run against the injected runners — the iteration-loop
+    // run against the injected runners - the iteration-loop
     // storage is informational, not load-bearing.
     const { writeDraft: writeDraftDirect, acceptDraft: acceptDraftDirect } =
       await import('../../../../lib/node/pi/iteration-loop-storage.ts');
@@ -646,7 +646,7 @@ describe('runDeepResearchReview — iteration-loop storage', () => {
     });
 
     // Loop still terminates successfully against the scripted
-    // runners even though writeDraft was refused — the injected
+    // runners even though writeDraft was refused - the injected
     // runners are the authoritative verdict source.
     assertKind(result.outcome, 'passed');
   });

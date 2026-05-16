@@ -1,5 +1,5 @@
 /**
- * Single-line header for pi — replaces the default mascot + multi-line
+ * Single-line header for pi - replaces the default mascot + multi-line
  * keybinding hints with one compact strip:
  *
  *     π pi · escape interrupt · ctrl+c/ctrl+d clear/exit · / commands · ! bash · ctrl+o more
@@ -30,7 +30,7 @@ import { truncateToWidth } from '@earendil-works/pi-tui';
  * header is visually indistinguishable from a hand-rolled pi default.
  *
  * The bindings themselves are hardcoded rather than read from pi's
- * KeybindingsManager on purpose — this header is deliberately static and
+ * KeybindingsManager on purpose - this header is deliberately static and
  * the user has already committed to vanilla keybinds.
  */
 const HINTS: readonly { key: string; desc: string }[] = [
@@ -50,10 +50,10 @@ export default function extension(pi: ExtensionAPI): void {
       // Match pi's own logo treatment: bold + accent fg.
       const brand = theme.bold(theme.fg('accent', 'π pi'));
       const sep = theme.fg('muted', ' · ');
-      // key in dim, description in muted — same split as rawKeyHint() in
+      // key in dim, description in muted - same split as rawKeyHint() in
       // pi's interactive-mode.js compactInstructions.
       const hints = HINTS.map(({ key, desc }) => `${theme.fg('dim', key)} ${theme.fg('muted', desc)}`).join(sep);
-      // Precompute the static string — nothing depends on `width` besides
+      // Precompute the static string - nothing depends on `width` besides
       // the truncation, so rebuilding per render() call would just burn CPU.
       const line = `${brand}${sep}${hints}`;
       return {

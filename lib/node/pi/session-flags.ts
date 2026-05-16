@@ -8,7 +8,7 @@
  * ⚠️  Pi's extension loader (`dist/core/extensions/loader.js`) creates a
  * fresh jiti instance per extension with `moduleCache: false`, so relying
  * on Node's ESM module cache to dedupe `./lib/session-flags.ts` between
- * the two extensions does NOT work — each import produces its own copy
+ * the two extensions does NOT work - each import produces its own copy
  * with its own module-scoped `let`. To get a real process-wide singleton
  * we anchor the state on `globalThis` behind a symbol key. Every copy of
  * this module reads/writes the same slot, so writes from

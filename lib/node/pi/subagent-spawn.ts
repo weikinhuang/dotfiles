@@ -4,15 +4,15 @@
  * Extracted from `config/pi/extensions/subagent.ts` so other extensions
  * that need to spawn a one-shot child agent (currently the iteration-loop
  * critic) can go through the same pipeline without cloning the spawn
- * path — model resolution, timeout + abort wiring, turn-count enforcement,
+ * path - model resolution, timeout + abort wiring, turn-count enforcement,
  * stop-reason classification, and final-text extraction.
  *
  * Two exports:
- *   - `resolveChildModel(...)` — pure model resolution for a child agent,
+ *   - `resolveChildModel(...)` - pure model resolution for a child agent,
  *     given (optional) spec override + agent default + parent inherit.
  *     Used by both the full subagent spawn (worktree / background /
  *     audit mirror) and the critic one-shot.
- *   - `runOneShotAgent(...)` — single-prompt spawn: create the session,
+ *   - `runOneShotAgent(...)` - single-prompt spawn: create the session,
  *     subscribe, drive `child.prompt(task)`, enforce timeout + maxTurns
  *     + parent signal, return classification. Callers that need richer
  *     orchestration (worktrees, snapshots, multi-prompt children) stay
@@ -20,14 +20,14 @@
  *     "spawn → one answer → read → done" shape.
  *
  * This module intentionally has no dependency on
- * `@earendil-works/pi-coding-agent` — the real `createAgentSession`,
+ * `@earendil-works/pi-coding-agent` - the real `createAgentSession`,
  * `DefaultResourceLoader`, and `SessionManager` are injected by the
  * extension caller through `runOneShotAgent`'s `deps` object. That
  * keeps the helper testable under `vitest` without the pi runtime and
  * matches the `ReadLayer` / `SpawnLike` dependency-injection pattern
  * already in use for other `lib/node/pi/` helpers.
  *
- * No disposal policy on the session — `runOneShotAgent` already calls
+ * No disposal policy on the session - `runOneShotAgent` already calls
  * `session.dispose()` by default; the caller can pass `keepSession: true`
  * to opt out and inspect `session.state.messages` first.
  */
@@ -53,7 +53,7 @@ export interface ResolveChildModelOptions<M> {
   override?: string | undefined;
   /** Agent default model (or `'inherit'`). */
   agent: AgentDef;
-  /** Parent's current model — used when override is absent AND the agent is `inherit`. */
+  /** Parent's current model - used when override is absent AND the agent is `inherit`. */
   parent: M | undefined;
   /** Model registry used to resolve `provider/id` to a runtime model descriptor. */
   modelRegistry: ModelRegistryLike<M>;
@@ -105,7 +105,7 @@ export function resolveChildModel<M>({
 /**
  * Narrow shape of the `AgentSession` returned by
  * `@earendil-works/pi-coding-agent`. We only need what `runOneShotAgent`
- * touches — subscribe, prompt, abort, dispose, and `state.messages`.
+ * touches - subscribe, prompt, abort, dispose, and `state.messages`.
  */
 export interface AgentSessionLike {
   subscribe(handler: (event: AgentSessionEventLike) => void): () => void;
@@ -137,14 +137,14 @@ export interface AgentSessionEventLike {
 }
 
 /**
- * Session creator — matches pi's `createAgentSession` return shape.
+ * Session creator - matches pi's `createAgentSession` return shape.
  *
  * `authStorage` is intentionally omitted from the args type: pi uses it
  * only to build a default `modelRegistry`, which we always pass in
  * explicitly, so the field is a runtime no-op here. Leaving it out also
  * keeps the dep type assignable from pi's real `createAgentSession`,
  * whose `authStorage` is typed as `AuthStorage | undefined` rather than
- * `unknown` — a mismatch this pure module cannot express without
+ * `unknown` - a mismatch this pure module cannot express without
  * importing pi types.
  */
 export type CreateAgentSessionDep<M, S> = (args: {
@@ -173,11 +173,11 @@ export interface DefaultResourceLoaderCtorArgs {
   appendSystemPrompt?: string[];
 }
 
-/** Dependency injection bundle — the extension passes pi's real constructors here. */
+/** Dependency injection bundle - the extension passes pi's real constructors here. */
 export interface RunOneShotDeps<M, S> {
   createAgentSession: CreateAgentSessionDep<M, S>;
   DefaultResourceLoader: new (args: DefaultResourceLoaderCtorArgs) => ResourceLoaderLike;
-  /** SessionManager — only `inMemory(cwd)` is invoked by the helper. */
+  /** SessionManager - only `inMemory(cwd)` is invoked by the helper. */
   SessionManager: { inMemory(cwd: string): S };
   /** Agent-dir resolver (pi's `getAgentDir`). */
   getAgentDir(): string;

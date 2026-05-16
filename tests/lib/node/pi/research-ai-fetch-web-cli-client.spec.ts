@@ -4,7 +4,7 @@
  *
  * Every test injects a fake `spawn` so we exercise argv
  * construction, env threading, stdin piping, JSON parsing, and
- * structured-content extraction against deterministic bytes —
+ * structured-content extraction against deterministic bytes -
  * no actual subprocesses spawn during `npm test`.
  */
 

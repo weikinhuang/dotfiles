@@ -12,14 +12,14 @@
  *
  * The flag is stored as a `reference`-type memory entry on disk
  * under the user's global memory root, so the preference survives
- * sessions, pi restarts, and across workspaces — exactly what the
+ * sessions, pi restarts, and across workspaces - exactly what the
  * plan calls for ("auto-accept both under a one-time consent flag
  * stored via `memory`"). Using the memory directory (rather than a
  * bespoke config file) keeps the consent surface greppable from
  * the same place the user inspects all other cross-session
  * preferences.
  *
- * No pi imports — this module is unit-testable under vitest with a
+ * No pi imports - this module is unit-testable under vitest with a
  * temp memory root.
  */
 
@@ -80,7 +80,7 @@ export function consentPath(opts: ReviewConsentOpts = {}): string {
  * doesn't satisfy the `reference`-memory contract
  * (`parseFrontmatter` returns null). A file that does parse but
  * lacks an `acceptedAt:` line still counts as consented with
- * `at: null` — the user clearly consented at some point, the
+ * `at: null` - the user clearly consented at some point, the
  * timestamp is just missing metadata.
  */
 export function readConsent(opts: ReviewConsentOpts = {}): ReviewConsentState {
@@ -94,7 +94,7 @@ export function readConsent(opts: ReviewConsentOpts = {}): ReviewConsentState {
   }
   // Gate "consented" on the memory-reducer's strict frontmatter
   // parse. A file without `type`/`name`/`description` headers is
-  // treated as malformed — safer than trusting mere existence,
+  // treated as malformed - safer than trusting mere existence,
   // so a stray text file cannot silently opt the user into
   // auto-accept. Malformed file → `consented: false`.
   const parsed = parseFrontmatter(body);
@@ -111,7 +111,7 @@ export function readConsent(opts: ReviewConsentOpts = {}): ReviewConsentState {
 }
 
 /**
- * Record the consent. Idempotent — calling twice overwrites the
+ * Record the consent. Idempotent - calling twice overwrites the
  * timestamp but does not change behavior.
  */
 export function recordConsent(opts: ReviewConsentOpts = {}): ReviewConsentState {
@@ -124,7 +124,7 @@ export function recordConsent(opts: ReviewConsentOpts = {}): ReviewConsentState 
     `description: ${CONSENT_DESCRIPTION}\n` +
     `acceptedAt: ${at}\n` +
     `---\n\n` +
-    `The user consented to /research's Phase-4 review loop auto-accepting the structural + subjective iteration-loop check drafts on every run. Delete this file to revoke the consent — the next /research will re-prompt on the first review pass.\n`;
+    `The user consented to /research's Phase-4 review loop auto-accepting the structural + subjective iteration-loop check drafts on every run. Delete this file to revoke the consent - the next /research will re-prompt on the first review pass.\n`;
   ensureDirSync(join(opts.root ?? memoryRoot(), 'global', 'reference'));
   atomicWriteFile(p, body);
   return { consented: true, at };

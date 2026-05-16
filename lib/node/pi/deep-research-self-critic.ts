@@ -15,16 +15,16 @@
  *     planner's live session. The schema is the same
  *     {@link plannerOutputSchema} used by the planner, so a
  *     rewrite that doesn't pass validation is treated as "keep the
- *     original" — better to ship the original plan than to
+ *     original" - better to ship the original plan than to
  *     dictate a broken rewrite.
  *   - A `Stuck` response here (the model signalling it can't
- *     rewrite) is NOT an escalation — self-critic is advisory. We
+ *     rewrite) is NOT an escalation - self-critic is advisory. We
  *     keep the original plan and journal the `stuck` reason so
  *     the user can see why the rewrite was skipped.
  *   - When the rewrite IS accepted, we rebuild `plan.json` via
  *     `research-plan.writePlan` (same structural upgrade as the
  *     planner did) and refresh the provenance sidecar. The
- *     pre-rewrite plan is preserved in the journal line ONLY —
+ *     pre-rewrite plan is preserved in the journal line ONLY -
  *     there is no separate snapshot file, because the planning-
  *     critic stage produces its own audit trail if the rewrite
  *     turns out wrong.
@@ -51,7 +51,7 @@ import { isRecord } from './shared.ts';
 
 /**
  * Render the self-critic prompt. The prompt is deliberately short
- * and imperative — we want the model to scan its own output and
+ * and imperative - we want the model to scan its own output and
  * correct it, not to narrate the rubric.
  */
 export function renderSelfCriticPrompt(plan: DeepResearchPlan): string {
@@ -105,7 +105,7 @@ export function rewriteDiffers(before: DeepResearchPlan, after: PlannerOutput): 
     if (a.id !== b.id) return true;
     if (a.question !== b.question) return true;
   }
-  // Identical ids+questions in the same order — count search-hint
+  // Identical ids+questions in the same order - count search-hint
   // / success-criteria changes as a rewrite worth persisting so
   // the model's triage ordering survives.
   for (const sq of after.subQuestions) {
@@ -117,7 +117,7 @@ export function rewriteDiffers(before: DeepResearchPlan, after: PlannerOutput): 
 }
 
 // ──────────────────────────────────────────────────────────────────────
-// Internals — hoisted above the public entry so `no-use-before-define`
+// Internals - hoisted above the public entry so `no-use-before-define`
 // doesn't complain about forward references.
 // ──────────────────────────────────────────────────────────────────────
 
@@ -170,7 +170,7 @@ export interface SelfCriticOpts<M> {
   /** Current plan just written by the planner. */
   plan: DeepResearchPlan;
   /**
-   * Session the planner used — self-critic continues the same
+   * Session the planner used - self-critic continues the same
    * conversation so the model can see its own earlier reply.
    */
   session: ResearchSessionLike;

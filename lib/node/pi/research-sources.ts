@@ -38,7 +38,7 @@
  *     `atomic-write.atomicWriteFile`; concurrent callers never see
  *     a half-written source file.
  *   - **Tolerant reads.** `getById` / `listRun` silently skip
- *     malformed cache entries rather than throwing — a broken entry
+ *     malformed cache entries rather than throwing - a broken entry
  *     is a re-fetch candidate, not a fatal error. `fetchAndStore`
  *     detects a broken cache (missing / invalid JSON, missing .md)
  *     and re-fetches, overwriting the bad entry.
@@ -61,34 +61,34 @@ import { isRecord, sha256Hex, sha256HexPrefix } from './shared.ts';
 /**
  * On-disk metadata describing a cached source. One `.json` file per
  * cached URL under `<runRoot>/sources/`. The sibling `.md` file (or
- * `.txt`, depending on fetch format — though markdown is the only
+ * `.txt`, depending on fetch format - though markdown is the only
  * production output today) holds the actual content.
  *
- *   - `id`           — `hashKey(url)`. Also the cache file basename.
- *   - `url`          — normalized URL used to derive the key. The
+ *   - `id`           - `hashKey(url)`. Also the cache file basename.
+ *   - `url`          - normalized URL used to derive the key. The
  *                      original caller-supplied URL is lost once it
  *                      normalizes; callers who need the raw form
  *                      retain it themselves.
- *   - `title`        — page title if fetch_web returned one, else
+ *   - `title`        - page title if fetch_web returned one, else
  *                      the normalized URL as a readable fallback.
- *   - `fetchedAt`    — ISO8601 timestamp of the successful fetch
+ *   - `fetchedAt`    - ISO8601 timestamp of the successful fetch
  *                      (or of the most recent re-fetch after cache
  *                      repair). Not updated on cached hits.
- *   - `contentHash`  — sha256 hex of the fetched body bytes (the
+ *   - `contentHash`  - sha256 hex of the fetched body bytes (the
  *                      exact string the MCP client returned, before
  *                      we prepend any provenance frontmatter). Use
  *                      this to detect whether two runs fetched the
  *                      same resource content, or to diff against a
  *                      re-fetch. Empty string on `method: 'failed'`.
- *   - `method`       — how the ref was produced by this call:
+ *   - `method`       - how the ref was produced by this call:
  *                      `fetch` (cache miss → network),
  *                      `cached` (cache hit, no network),
  *                      `failed` (network attempted, failed; no
  *                      content persisted, the ref is returned so
  *                      callers can journal / escalate).
- *   - `mediaType`    — fetch_web's reported media type, else
+ *   - `mediaType`    - fetch_web's reported media type, else
  *                      `text/markdown` (the default fetch format).
- *   - `errorReason?` — present only when `method === 'failed'`.
+ *   - `errorReason?` - present only when `method === 'failed'`.
  *                      The stringified underlying error (the `err.message`
  *                      from the thrown fetch call, or the string form
  *                      of the value when a non-Error was thrown). Lets
@@ -107,7 +107,7 @@ export interface SourceRef {
 }
 
 /**
- * Full source record — `ref` plus the cached content bytes.
+ * Full source record - `ref` plus the cached content bytes.
  * Returned by `getById`. `content` is empty for a historical
  * `failed` ref (should not happen in practice since failed refs
  * are not persisted, but the type accommodates it).
@@ -118,7 +118,7 @@ export interface Source {
 }
 
 // ──────────────────────────────────────────────────────────────────────
-// McpClient abstraction — what this module needs from fetch_web.
+// McpClient abstraction - what this module needs from fetch_web.
 // ──────────────────────────────────────────────────────────────────────
 
 /**
@@ -129,7 +129,7 @@ export interface Source {
  *
  * Keeping the interface narrow (three methods, small arg shapes)
  * means research-core does not drift when MCP fetch_web adds
- * parameters — the bridge in the consuming extension can ignore
+ * parameters - the bridge in the consuming extension can ignore
  * them or expose them behind an opt-in extension point.
  */
 export interface McpClient {
@@ -191,7 +191,7 @@ export interface McpSearchResultItem {
 
 /**
  * Tracking-parameter matchers. The plan specifies utm_*, fbclid,
- * gclid, and mc_* — we stick to exactly those so behavior is
+ * gclid, and mc_* - we stick to exactly those so behavior is
  * predictable; adding more (yclid, msclkid, ...) would broaden the
  * contract without a matching test guarantee.
  */
@@ -209,7 +209,7 @@ function isTrackingParam(name: string): boolean {
  *   - Parse via WHATWG URL so invalid inputs throw `TypeError` (the
  *     same error `new URL` throws). Callers catch upstream.
  *   - Lowercase scheme + host. Path + query keys/values stay
- *     case-sensitive — URLs are case-sensitive below the authority
+ *     case-sensitive - URLs are case-sensitive below the authority
  *     component in HTTP, and flattening would collide distinct
  *     resources.
  *   - Strip default ports (`:80` on http, `:443` on https). Other
@@ -265,7 +265,7 @@ export function normalizeUrl(input: string): string {
 
 /**
  * Hash a URL that has ALREADY been through `normalizeUrl`. Skip this
- * entry point unless you have an already-normalized string in hand —
+ * entry point unless you have an already-normalized string in hand -
  * callers who pass raw URLs should use `hashKey` so they stay on the
  * single normalize-then-hash pipeline.
  */
@@ -320,7 +320,7 @@ function isSourceRefShape(v: unknown): v is SourceRef {
   if (typeof v.contentHash !== 'string') return false;
   if (!isSourceMethod(v.method)) return false;
   if (typeof v.mediaType !== 'string' || v.mediaType.length === 0) return false;
-  // `contentHash` must be non-empty for any ref we persist — only
+  // `contentHash` must be non-empty for any ref we persist - only
   // `failed` refs (which are NEVER persisted) are allowed an empty
   // hash. Tightening here means an on-disk ref with an empty hash
   // is rejected as malformed and triggers a re-fetch, which is
@@ -363,7 +363,7 @@ function persist(input: PersistInput): SourceRef {
 
   // Frontmatter carrying provenance: the fetch was performed by the
   // MCP fetch_web bridge, not authored by an LLM. `promptHash`
-  // doubles as the cache key here — the "prompt" of a fetch is its
+  // doubles as the cache key here - the "prompt" of a fetch is its
   // URL, and the key is already `sha256(normalizedUrl) prefix-12`.
   const prov: Provenance = {
     model: 'mcp/fetch_web',
@@ -378,7 +378,7 @@ function persist(input: PersistInput): SourceRef {
     url: input.normalizedUrl,
     title: input.title,
     fetchedAt: input.fetchedAt,
-    // Hash the body bytes as returned by the MCP client — NOT the
+    // Hash the body bytes as returned by the MCP client - NOT the
     // full on-disk file, which also includes the provenance
     // frontmatter. Body-only means two runs that fetched the same
     // resource produce the same hash even if their provenance
@@ -402,7 +402,7 @@ export interface FetchAndStoreOpts {
   /**
    * Fetch format passed to the MCP client. Defaults to
    * `readability` which yields markdown optimized for reading. The
-   * stored file is always written as `<id>.md` regardless — the
+   * stored file is always written as `<id>.md` regardless - the
    * format parameter controls what the upstream renderer produces.
    */
   format?: McpFetchUrlInput['format'];
@@ -456,12 +456,12 @@ export async function fetchAndStore(
 ): Promise<SourceRef> {
   // Normalize once, hash the normalized form. The old call chain
   // (`const id = hashKey(url)`) did the normalization twice per
-  // cache miss — cheap, but pointlessly so.
+  // cache miss - cheap, but pointlessly so.
   const normalized = normalizeUrl(url);
   const id = hashKeyOfNormalized(normalized);
 
   // Probe the cache. Accept a ref only if both sibling files are
-  // readable — a stray .json with no .md is a broken cache entry
+  // readable - a stray .json with no .md is a broken cache entry
   // that we want to repair via re-fetch.
   const cachedRef = readRef(runRoot, id);
   if (cachedRef && existsSync(contentPath(runRoot, id))) {
@@ -537,7 +537,7 @@ export function getById(runRoot: string, id: string): Source | null {
 /**
  * List every valid source ref in the run's cache. Order is stable
  * (alphabetical by id) so repeated calls produce identical output
- * — convenient for diffing snapshots between runs. Malformed or
+ * - convenient for diffing snapshots between runs. Malformed or
  * orphaned entries are silently skipped.
  */
 export function listRun(runRoot: string): SourceRef[] {
@@ -570,7 +570,7 @@ export interface SearchWebOpts extends FetchAndStoreOpts {
  * Search, then cache each hit. Returns a `SourceRef[]` in the
  * upstream search engine's ranking order (we do NOT re-rank).
  * Failed fetches appear as `method: 'failed'` refs inline with
- * successful hits — callers filter as needed.
+ * successful hits - callers filter as needed.
  *
  * Fetches are issued serially (not in parallel) to keep MCP
  * pressure predictable; callers that need parallel fetch batching

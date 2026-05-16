@@ -38,7 +38,7 @@ function asFailure(r: ReturnType<typeof validateSkillMd>): ValidationFailure {
   return r;
 }
 
-describe('validateSkillMd — happy path', () => {
+describe('validateSkillMd - happy path', () => {
   let fx: Fixture;
 
   beforeEach(() => {
@@ -99,7 +99,7 @@ describe('validateSkillMd — happy path', () => {
   });
 });
 
-describe('validateSkillMd — fence errors', () => {
+describe('validateSkillMd - fence errors', () => {
   let fx: Fixture;
 
   beforeEach(() => {
@@ -134,7 +134,7 @@ describe('validateSkillMd — fence errors', () => {
   });
 });
 
-describe('validateSkillMd — key shape', () => {
+describe('validateSkillMd - key shape', () => {
   let fx: Fixture;
 
   beforeEach(() => {
@@ -187,7 +187,7 @@ describe('validateSkillMd — key shape', () => {
   });
 });
 
-describe('validateSkillMd — name rules', () => {
+describe('validateSkillMd - name rules', () => {
   let fx: Fixture;
 
   beforeEach(() => {
@@ -253,7 +253,7 @@ describe('validateSkillMd — name rules', () => {
   });
 });
 
-describe('validateSkillMd — description rules', () => {
+describe('validateSkillMd - description rules', () => {
   let fx: Fixture;
 
   beforeEach(() => {
@@ -315,7 +315,7 @@ describe('validateSkillMd — description rules', () => {
   });
 });
 
-describe('validateSkillMd — compatibility rules', () => {
+describe('validateSkillMd - compatibility rules', () => {
   let fx: Fixture;
 
   beforeEach(() => {

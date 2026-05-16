@@ -1,7 +1,7 @@
 /**
  * Tests for lib/node/pi/iteration-loop-check-bash.ts.
  *
- * Uses real /bin/bash for the exit-code + regex predicate tests —
+ * Uses real /bin/bash for the exit-code + regex predicate tests -
  * fast enough for CI and exercises the real spawn path. Timeout test
  * uses a short cap against `sleep 10`.
  */
@@ -63,7 +63,7 @@ describe('regex: predicate', () => {
 
 describe('output truncation', () => {
   test('large stdout truncated flag set', async () => {
-    // 10 KiB of output — exceeds STDOUT_MAX (8 KiB).
+    // 10 KiB of output - exceeds STDOUT_MAX (8 KiB).
     const r = await runBashCheck({ cmd: `printf '%.0sa' {1..10240}` }, { cwd });
 
     expect(r.observation.stdout.length).toBeLessThanOrEqual(8 * 1024);

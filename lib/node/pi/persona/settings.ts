@@ -5,7 +5,7 @@
  * granularity matters: a project layer that sets `writeRoots.plan`
  * must NOT clobber a user layer that set `writeRoots.journal`.
  *
- * Pure module — no pi imports — so it's directly unit-testable. The
+ * Pure module - no pi imports - so it's directly unit-testable. The
  * caller reads file contents (via fs / pi APIs) and passes them in.
  */
 

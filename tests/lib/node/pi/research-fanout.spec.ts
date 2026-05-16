@@ -6,7 +6,7 @@
  * are scripted per task id. No real subagents, no real timers.
  *
  * A virtual `clock` + `sleep` pair lets `research-watchdog.watch`
- * march forward deterministically — the same technique used in
+ * march forward deterministically - the same technique used in
  * `research-watchdog.spec.ts`.
  */
 
@@ -29,7 +29,7 @@ function mkRunRoot(): string {
   return mkdtempSync(join(tmpdir(), 'research-fanout-'));
 }
 
-/** Virtual clock — same shape as the watchdog spec's helper. */
+/** Virtual clock - same shape as the watchdog spec's helper. */
 function makeClock(startMs = 1_000_000): { now: () => number; sleep: (ms: number) => Promise<void> } {
   let current = startMs;
   return {
@@ -222,7 +222,7 @@ describe('fanout', () => {
   test('one task aborts immediately and does not block others', async () => {
     const runRoot = mkRunRoot();
     const clock = makeClock();
-    // Handle whose wait() says "aborted by user" — bucketed as aborted.
+    // Handle whose wait() says "aborted by user" - bucketed as aborted.
     const cancelled = makeHandle({
       id: 't-cancel',
       statuses: [{ done: true, lastProgressAt: clock.now() }],
@@ -311,7 +311,7 @@ describe('fanout', () => {
           reason: 'prior error',
           finishedAt: '2025-01-01T00:00:01.000Z',
         },
-        // t3 was spawned but not finished — resume should re-dispatch.
+        // t3 was spawned but not finished - resume should re-dispatch.
         {
           id: 't3',
           prompt: 'Q3',
@@ -359,7 +359,7 @@ describe('fanout', () => {
     expect(result.failed).toEqual([{ id: 't2', reason: 'prior error' }]);
     expect(result.aborted).toHaveLength(0);
 
-    // Only the missing tasks were spawned — t1 and t2 never hit the
+    // Only the missing tasks were spawned - t1 and t2 never hit the
     // spawner.
     const spawnedIds = log.args.map((a) => a.id).sort();
 

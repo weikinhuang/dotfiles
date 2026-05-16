@@ -1,7 +1,7 @@
 /**
  * Tests for lib/node/pi/bg-bash-reducer.ts.
  *
- * Pure module — no pi runtime needed.
+ * Pure module - no pi runtime needed.
  */
 
 import { expect, test } from 'vitest';
@@ -401,7 +401,7 @@ test('formatDuration: seconds → m+s → h+m', () => {
   expect(formatDuration(3_660_000)).toBe('1h1m');
 });
 
-test('formatJobLine: running — duration + bytes', () => {
+test('formatJobLine: running - duration + bytes', () => {
   const j = mkJob({
     id: 'abc',
     label: 'tests',

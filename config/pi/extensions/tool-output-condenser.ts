@@ -1,5 +1,5 @@
 /**
- * Tool-output-condenser extension for pi — tighter head+tail truncation
+ * Tool-output-condenser extension for pi - tighter head+tail truncation
  * for noisy tool results so they don't eat the session.
  *
  * Pi's built-in bash / rg / grep tools already truncate at 50KB / 2000
@@ -39,7 +39,7 @@
  *     cycles.
  *
  *   - Errors during tempfile writing are logged via ctx.ui.notify
- *     (warning level) but do not block — we fall back to returning
+ *     (warning level) but do not block - we fall back to returning
  *     the condensed text without the "full output saved to" pointer.
  *
  * Pure logic (line counting, head/tail windowing, budget accounting,
@@ -119,7 +119,7 @@ function buildBanner(
   ];
   if (fullOutputPath) {
     parts.push(
-      `Full output saved to: ${fullOutputPath} — re-read with the \`read\` tool (\`offset\` / \`limit\`) if you need specific lines.`,
+      `Full output saved to: ${fullOutputPath} - re-read with the \`read\` tool (\`offset\` / \`limit\`) if you need specific lines.`,
     );
   } else {
     parts.push(
@@ -146,7 +146,7 @@ export default function toolOutputCondenser(pi: ExtensionAPI): void {
     if (!tools.has(toolName.toLowerCase())) return undefined;
 
     // event.content is an array of content parts. We only condense
-    // text parts — image parts pass through unchanged.
+    // text parts - image parts pass through unchanged.
     const content = (event as { content?: unknown }).content;
     if (!Array.isArray(content) || content.length === 0) return undefined;
 
@@ -165,7 +165,7 @@ export default function toolOutputCondenser(pi: ExtensionAPI): void {
     const result = condense(firstTextValue, options);
     if (!result.truncated) return undefined;
 
-    // Reuse pi's own fullOutputPath if the built-in already wrote one —
+    // Reuse pi's own fullOutputPath if the built-in already wrote one -
     // avoids leaving two breadcrumbs / two tempfiles for the same call.
     let fullOutputPath = extractFullOutputPath((event as { details?: unknown }).details);
     if (!fullOutputPath) {

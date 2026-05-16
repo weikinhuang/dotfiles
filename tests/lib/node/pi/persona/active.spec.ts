@@ -48,7 +48,7 @@ describe('active-persona singleton', () => {
     expect(getActivePersona()).toBeUndefined();
   });
 
-  test('snapshot is defensively copied — mutating caller arrays does not bleed in', () => {
+  test('snapshot is defensively copied - mutating caller arrays does not bleed in', () => {
     const roots = ['/repo/plans/'];
     const allow = ['rg *'];
     const deny = ['curl *'];
@@ -62,7 +62,7 @@ describe('active-persona singleton', () => {
     expect(getActivePersona()?.bashDeny).toEqual(['curl *']);
   });
 
-  test('returned snapshot is frozen — callers cannot mutate it back into the singleton', () => {
+  test('returned snapshot is frozen - callers cannot mutate it back into the singleton', () => {
     setActivePersona({
       name: 'plan',
       resolvedWriteRoots: ['/repo/plans/'],

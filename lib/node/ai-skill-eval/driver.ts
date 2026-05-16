@@ -38,7 +38,7 @@ export interface DriverResult {
    * rely on a specific format.
    */
   tokens: number | null;
-  /** Tool-call count — null until a driver-level capture exists. */
+  /** Tool-call count - null until a driver-level capture exists. */
   toolCalls: number | null;
 }
 
@@ -326,7 +326,7 @@ export function parseTokens(text: string): number | null {
  *     still surfaces.
  *
  * On any parse failure or missing file the function returns `null` rather
- * than throwing — callers treat null as "unavailable for this run".
+ * than throwing - callers treat null as "unavailable for this run".
  */
 export function captureTokens(driver: DriverKind | 'custom', outputFile: string): number | null {
   if (driver === 'claude') return null;

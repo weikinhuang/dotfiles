@@ -1,5 +1,5 @@
 /**
- * The "stuck" escape-hatch type — a first-class value a planner,
+ * The "stuck" escape-hatch type - a first-class value a planner,
  * synthesizer, or critic can return instead of fabricating content
  * when it genuinely does not know how to proceed.
  *
@@ -9,7 +9,7 @@
  * fabricating side of that rule. When a typed-output call (see the
  * planned `research-structured.callTyped`) returns a `Stuck` value,
  * the caller decides whether to escalate, retry with a nudge, or
- * quarantine the input — but it never silently turns `Stuck` into
+ * quarantine the input - but it never silently turns `Stuck` into
  * fake content.
  *
  * We compose `Stuck` into every typed-LLM-output schema used across
@@ -42,7 +42,7 @@ import { isRecord } from './shared.ts';
 export const STUCK_STATUS = 'stuck' as const;
 
 /**
- * The structural shape the model emits — or that a caller constructs
+ * The structural shape the model emits - or that a caller constructs
  * when it wants to surface a `Stuck` locally. `reason` is mandatory
  * and must be non-empty; we treat an empty reason as a validation
  * failure on the spirit-of-the-API grounds that "I'm stuck, but I
@@ -60,7 +60,7 @@ export interface Stuck {
  * consistent.
  *
  * Trims `reason`. Throws a `TypeError` if `reason` is empty after
- * trimming — a `Stuck` without a reason is not a legal value.
+ * trimming - a `Stuck` without a reason is not a legal value.
  */
 export function stuck(reason: string): Stuck {
   const trimmed = reason.trim();
@@ -83,7 +83,7 @@ export function stuck(reason: string): Stuck {
  *   - `status` must be exactly the literal `STUCK_STATUS`.
  *   - `reason` must be a non-empty string after trimming (an empty
  *     or whitespace-only reason is treated as malformed).
- *   - Extra fields are ignored — forward-compatible with future
+ *   - Extra fields are ignored - forward-compatible with future
  *     additions like a suggested next step.
  */
 export function isStuckShape(v: unknown): v is Stuck {
@@ -103,7 +103,7 @@ export function isStuckShape(v: unknown): v is Stuck {
  *     // r: MyShape from here on
  *
  * `T` is constrained to `object` so the union `Stuck | T` is a
- * discriminated union on `.status` — scalar `T` (e.g. `string`)
+ * discriminated union on `.status` - scalar `T` (e.g. `string`)
  * would not narrow.
  */
 export function isStuck<T extends object>(v: Stuck | T): v is Stuck {

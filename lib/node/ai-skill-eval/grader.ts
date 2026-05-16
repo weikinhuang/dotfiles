@@ -106,7 +106,7 @@ export function keywordsFor(expectation: string): string[] {
 export interface DeterministicGradeInput {
   skill: string;
   evalId: string;
-  /** Which prompt variant produced `resultFiles` — threaded into the grade record so the report can split configs. */
+  /** Which prompt variant produced `resultFiles` - threaded into the grade record so the report can split configs. */
   config: GradeConfig;
   shouldTrigger: boolean;
   expectations: string[];

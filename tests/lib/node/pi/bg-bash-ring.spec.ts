@@ -1,7 +1,7 @@
 /**
  * Tests for lib/node/pi/bg-bash-ring.ts.
  *
- * Pure module — no pi runtime needed.
+ * Pure module - no pi runtime needed.
  */
 
 import { expect, test } from 'vitest';
@@ -73,8 +73,8 @@ test('read maxBytes caps to a byte-length tail', () => {
 test('eviction: drops oldest chunks when total exceeds cap', () => {
   const r = new RingBuffer({ maxBytes: 10 });
   r.append('aaaaa'); // 5 bytes
-  r.append('bbbbb'); // 5 bytes, total 10 — fits
-  r.append('ccccc'); // 5 bytes, total 15 — evicts 'aaaaa'
+  r.append('bbbbb'); // 5 bytes, total 10 - fits
+  r.append('ccccc'); // 5 bytes, total 15 - evicts 'aaaaa'
 
   const out = r.read();
 
@@ -86,7 +86,7 @@ test('eviction: drops oldest chunks when total exceeds cap', () => {
 test('eviction: partial eviction trims the front of the oldest chunk', () => {
   const r = new RingBuffer({ maxBytes: 6 });
   r.append('abcdef'); // fills
-  r.append('xy'); // overflow by 2 — front of 'abcdef' chopped by 2
+  r.append('xy'); // overflow by 2 - front of 'abcdef' chopped by 2
   const out = r.read();
 
   expect(out.content).toBe('cdefxy');
@@ -200,10 +200,10 @@ test('grep: maxMatches clamps to the last N matches', () => {
 test('eviction: trims on codepoint boundaries (no broken multi-byte)', () => {
   // Each "é" is 2 UTF-8 bytes.
   const r = new RingBuffer({ maxBytes: 3 });
-  r.append('éé'); // 4 bytes — overflow by 1; we'd like to return a valid-UTF-8 suffix.
+  r.append('éé'); // 4 bytes - overflow by 1; we'd like to return a valid-UTF-8 suffix.
   const out = r.read();
 
-  // Either we return just the second 'é' (2 bytes, valid) or empty — we
+  // Either we return just the second 'é' (2 bytes, valid) or empty - we
   // must NEVER return a mid-codepoint byte. Assert the string decodes
   // without a replacement char.
   expect(out.content.includes('\uFFFD')).toBe(false);

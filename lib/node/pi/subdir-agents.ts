@@ -27,7 +27,7 @@ export const DEFAULT_CONTEXT_FILE_NAMES: readonly string[] = ['AGENTS.md', 'CLAU
 /**
  * Normalize a cwd or file path to an absolute, resolved path with any
  * trailing separator stripped. Relative inputs are resolved against
- * `process.cwd()` — callers that already know their absolute cwd should
+ * `process.cwd()` - callers that already know their absolute cwd should
  * pass absolute paths to stay hermetic.
  */
 export function normalizeAbs(p: string): string {
@@ -38,7 +38,7 @@ export function normalizeAbs(p: string): string {
 
 /**
  * Return `true` if `absFilePath` is inside `absCwd` (or equals it).
- * Uses lexical `path.relative` — does NOT follow symlinks. A path
+ * Uses lexical `path.relative` - does NOT follow symlinks. A path
  * exactly equal to `absCwd` counts as inside.
  */
 export function isInsideCwd(absFilePath: string, absCwd: string): boolean {
@@ -57,19 +57,19 @@ export function isInsideCwd(absFilePath: string, absCwd: string): boolean {
  * Walks `dirname(filePath)` upward. The walk starts at the file's
  * directory (so a file in `tests/unit/foo.ts` checks `tests/unit/` and
  * `tests/`) and stops after visiting `cwd` (so the workspace-root
- * `AGENTS.md` is included — it'll almost always already be in the
+ * `AGENTS.md` is included - it'll almost always already be in the
  * loaded-set, but making the walk inclusive keeps the pure helper
  * symmetric and obvious).
  *
  * If `filePath` is outside `cwd`, returns an empty list. That's the
  * deliberate scope choice: pi's startup already walks UP from cwd, and
- * this extension fills in the DOWNWARD direction — not sideways into
+ * this extension fills in the DOWNWARD direction - not sideways into
  * other repos.
  *
  * The returned list contains one entry per (directory, filename) pair in
  * the order directories are visited (deepest first), and within each
  * directory in the order `fileNames` was passed. No existence check is
- * performed — that's the caller's job.
+ * performed - that's the caller's job.
  */
 export function candidateContextPaths(
   filePath: string,
@@ -83,7 +83,7 @@ export function candidateContextPaths(
 
   const out: string[] = [];
   const seenDirs = new Set<string>();
-  // Start at dirname(file). If the file IS cwd (unlikely — cwd is a
+  // Start at dirname(file). If the file IS cwd (unlikely - cwd is a
   // directory), dirname steps to its parent, which isInsideCwd rejects.
   let dir = dirname(absFile);
   // Guard: if the caller accidentally passed a directory as `filePath`
@@ -152,7 +152,7 @@ export function displayPath(absPath: string, cwd: string): string {
 /**
  * Build the steered-message content announcing one or more newly
  * discovered context files to the model. Files are rendered in the
- * order given — callers typically pass shallowest-first so the model
+ * order given - callers typically pass shallowest-first so the model
  * reads parent guidance before child overrides, but that's a style
  * choice, not a correctness requirement.
  */
@@ -165,7 +165,7 @@ export function formatContextInjection(files: readonly LoadedContextFile[], cwd:
   lines.push('');
   lines.push(
     'You just accessed files under a subdirectory with its own `AGENTS.md` / `CLAUDE.md`. ' +
-      'These instructions apply to work in that subtree and supplement — not replace — the ' +
+      'These instructions apply to work in that subtree and supplement - not replace - the ' +
       'project-root context already loaded at startup.',
   );
   lines.push('');
@@ -175,7 +175,7 @@ export function formatContextInjection(files: readonly LoadedContextFile[], cwd:
     lines.push(f.content.replace(/\r\n/g, '\n'));
     if (f.truncated) {
       lines.push('');
-      lines.push(`[truncated — read \`${displayed}\` directly with the read tool for the full file]`);
+      lines.push(`[truncated - read \`${displayed}\` directly with the read tool for the full file]`);
     }
     lines.push('</context>');
     lines.push('');
@@ -212,7 +212,7 @@ export function formatBytes(n: number): string {
  * Default cap for a single context file's content, in bytes. Large
  * AGENTS.md files are rare but possible (this repo's root one is ~7 KB).
  * The cap exists to stop a runaway file from blowing the LLM's context
- * window, not to enforce a hard rule — the model can always re-read the
+ * window, not to enforce a hard rule - the model can always re-read the
  * file directly with the `read` tool.
  */
 export const DEFAULT_CONTEXT_FILE_BYTE_CAP = 16 * 1024;

@@ -3,14 +3,14 @@
  *
  * `research-fanout` spawns background subagents via
  * `subagent({run_in_background: true})`; the parent session drives
- * all of them in parallel and needs to detect the "child is stuck —
+ * all of them in parallel and needs to detect the "child is stuck -
  * producing no output for too long" failure mode before it burns a
  * fanout's wall-clock budget on a silently-hung helper. That's the
  * job of this module.
  *
  * `watch(opts)` polls a handle's `status()` on a configurable
  * interval. Each status report carries a `lastProgressAt` timestamp
- * — the caller (or the shim that wraps `subagent_send`) is
+ * - the caller (or the shim that wraps `subagent_send`) is
  * responsible for bumping it whenever the child emits a new
  * assistant/tool message. When `now - lastProgressAt` exceeds
  * `staleThresholdMs`, we:
@@ -30,13 +30,13 @@
  * do with it).
  *
  * **The status shim owns its own timeout.** A `handle.status()`
- * call that hangs forever will hang this watchdog too — we don't
+ * call that hangs forever will hang this watchdog too - we don't
  * race it against `pollIntervalMs` because in practice the shim
  * wraps `subagent_send action: status` which has pi's own timeout
  * pipeline. If a shim is built on something without a timeout,
  * wrap it first.
  *
- * Deliberately minimal dependencies — the pi types we need
+ * Deliberately minimal dependencies - the pi types we need
  * (subagent handle, abort signal) are expressed as structural
  * interfaces so tests can pass a hand-rolled mock handle that
  * script-drives a sequence of status reports without a live
@@ -44,7 +44,7 @@
  *
  * The module imports `research-journal` for optional stall logging
  * and `research-stuck`-style thinking in reason messages (but not
- * the module — the reason is a plain string).
+ * the module - the reason is a plain string).
  */
 
 import { appendJournal } from './research-journal.ts';
@@ -57,14 +57,14 @@ import { appendJournal } from './research-journal.ts';
  * One poll of a running handle. The shim wrapping `subagent_send
  * action: status` produces this shape.
  *
- *   - `done` means the child has finished — any path to termination
+ *   - `done` means the child has finished - any path to termination
  *     (completed, aborted, errored). After `done: true`, the
  *     watchdog stops.
  *   - `lastProgressAt` is the epoch-ms timestamp of the most recent
  *     observed progress event (new assistant text, new tool call
  *     result). Callers that only have "output so far" can fall back
  *     to "current time if output changed, previous timestamp
- *     otherwise" — either is valid as long as it's monotone
+ *     otherwise" - either is valid as long as it's monotone
  *     per-handle.
  *   - `progressHint` is a short human summary surfaced in stall
  *     reason messages (e.g. `"last turn: tool=fetch_url"`).
@@ -96,18 +96,18 @@ export interface WatchdogOpts {
   handle: WatchdogHandleLike;
   /**
    * Milliseconds of no-progress after which the handle is declared
-   * stalled. Default 5 minutes — matches the spec. Set lower in
+   * stalled. Default 5 minutes - matches the spec. Set lower in
    * tests.
    */
   staleThresholdMs?: number;
   /**
-   * Polling interval. Default 10 seconds — matches the spec.
+   * Polling interval. Default 10 seconds - matches the spec.
    * Tests set this small, often combined with an injected `sleep`.
    */
   pollIntervalMs?: number;
   /**
    * Whether to call `handle.abort(reason)` on stall. Default true.
-   * `false` turns the watchdog into a pure observer — useful when a
+   * `false` turns the watchdog into a pure observer - useful when a
    * parent controller wants to decide abort policy itself.
    */
   abortOnStall?: boolean;
@@ -122,7 +122,7 @@ export interface WatchdogOpts {
   now?: () => number;
   /** Injected sleep. Default `setTimeout`-backed. */
   sleep?: (ms: number) => Promise<void>;
-  /** Parent's abort signal — stop polling immediately if fired. */
+  /** Parent's abort signal - stop polling immediately if fired. */
   signal?: AbortSignal;
 }
 
@@ -170,7 +170,7 @@ function buildStallReason(args: BuildStallReasonArgs): string {
  *   3. No progress for `staleThresholdMs`? Fire `onStall`, optionally
  *      abort, return `stalled`.
  *
- * None of the callbacks throw-propagates — a misbehaving callback
+ * None of the callbacks throw-propagates - a misbehaving callback
  * (e.g. `onStall` throws, or the journal write fails) does not
  * prevent the watchdog from terminating cleanly. We swallow such
  * errors rather than leaking them into the fanout orchestrator,
@@ -205,7 +205,7 @@ export async function watch(opts: WatchdogOpts): Promise<WatchdogResult> {
     try {
       status = await opts.handle.status();
     } catch (e) {
-      // A failing status call is itself a signal — classify as
+      // A failing status call is itself a signal - classify as
       // errored so the caller can decide what to do. We don't
       // retry here; retry belongs in the status-shim.
       const msg = e instanceof Error ? e.message : String(e);
@@ -238,7 +238,7 @@ export async function watch(opts: WatchdogOpts): Promise<WatchdogResult> {
       try {
         opts.onStall?.(reason);
       } catch {
-        /* swallow — see module header */
+        /* swallow - see module header */
       }
 
       if (opts.journalPath) {
@@ -249,7 +249,7 @@ export async function watch(opts: WatchdogOpts): Promise<WatchdogResult> {
             body: reason,
           });
         } catch {
-          /* swallow — journal failures never abort the watchdog */
+          /* swallow - journal failures never abort the watchdog */
         }
       }
 
@@ -259,7 +259,7 @@ export async function watch(opts: WatchdogOpts): Promise<WatchdogResult> {
           await opts.handle.abort(reason);
           aborted = true;
         } catch {
-          /* swallow — the child may already be dead */
+          /* swallow - the child may already be dead */
         }
       }
       return { kind: 'stalled', lastStatus: status, aborted, reason };

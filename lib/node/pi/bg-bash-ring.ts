@@ -23,7 +23,7 @@
  * with a `TextDecoder` in streaming mode upstream, so each `append` sees
  * validated UTF-8.
  *
- * No pi imports — testable under `vitest`.
+ * No pi imports - testable under `vitest`.
  */
 
 import { BYTE_ENCODER, byteLen } from './shared.ts';
@@ -73,7 +73,7 @@ function findNthNewlineFromEnd(s: string, n: number): number {
   // rather than an empty trailing line.
   let endExclusive = s.length;
   if (endExclusive > 0 && s.charCodeAt(endExclusive - 1) === 10) {
-    // endExclusive stays the same — we count this `\n` as part of the
+    // endExclusive stays the same - we count this `\n` as part of the
     // last line, not as a separator. We just don't treat it as the
     // "first newline from end".
     endExclusive--;
@@ -196,7 +196,7 @@ export class RingBuffer {
     const chunk: Chunk = { text, size, startCursor: this.total };
     this.total += size;
 
-    // If a single append blows past the cap, keep just its tail — we
+    // If a single append blows past the cap, keep just its tail - we
     // never want to retain more than `maxBytes` bytes, but we also
     // always want to return *something* on the next read even if the
     // caller writes a single 5MB chunk.
@@ -251,7 +251,7 @@ export class RingBuffer {
         this.retainedBytes -= removed;
         this.dropped += removed;
         // `sliceUtf8Suffix` may have advanced past enough continuation
-        // bytes that we're now BELOW the cap — fine, we're done.
+        // bytes that we're now BELOW the cap - fine, we're done.
         // It may also (rarely) still leave us slightly above the cap
         // if the leading codepoint was very wide; fall through to the
         // loop, which will chop another chunk if one exists.
@@ -356,11 +356,11 @@ export class RingBuffer {
 
     // Compute the starting cursor for this slice. If we consumed the
     // buffer from the very beginning, droppedBefore may be true for
-    // downstream callers — but `tailLines` doesn't take a cursor, so
+    // downstream callers - but `tailLines` doesn't take a cursor, so
     // report the current retained start.
     const retainedStart = this.chunks.length > 0 ? this.chunks[0].startCursor : this.total;
     // Rough approximation: when we trimmed within a chunk the cursor
-    // moves, but we don't expose it — callers use this purely for
+    // moves, but we don't expose it - callers use this purely for
     // display. `cursor` still advances to the end of the stream so
     // later `read({ sinceCursor: r.cursor })` picks up new data.
     void firstIncludedChunkIndex;

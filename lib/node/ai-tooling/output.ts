@@ -25,8 +25,8 @@ function computeDateRange(sessions: { startTime: string }[]): { start: string; e
     .map((s) => s.startTime)
     .filter(Boolean)
     .sort();
-  const start = dates[0] ? fmtDateFull(dates[0]).slice(0, 10) : '—';
-  const end = dates.length > 0 ? fmtDateFull(dates[dates.length - 1]).slice(0, 10) : '—';
+  const start = dates[0] ? fmtDateFull(dates[0]).slice(0, 10) : '-';
+  const end = dates.length > 0 ? fmtDateFull(dates[dates.length - 1]).slice(0, 10) : '-';
   return { start, end };
 }
 
@@ -323,7 +323,7 @@ export function printSessionTable(sessions: SessionSummary[], label?: string): v
       '    ' +
       c(COLORS.bold, 'Range') +
       '  ' +
-      c(COLORS.time, `${range.start} — ${range.end}`),
+      c(COLORS.time, `${range.start} - ${range.end}`),
   );
   console.log();
 
@@ -362,7 +362,7 @@ function printTokenBlock(tokens: SessionTokens, cost?: number, lastContextTokens
   }
   if (lastContextTokens !== undefined) {
     // "Last turn" because logs only ever show the context the model saw on
-    // the most recently completed assistant response — the next request adds
+    // the most recently completed assistant response - the next request adds
     // whatever the user has typed and any new tool results on top of it.
     printLabeledValue('Context (last turn)', c(COLORS.context, fmtSi(lastContextTokens)));
   }
@@ -458,14 +458,14 @@ export function printSessionDetail(detail: SessionDetail): void {
   if (detail.title) {
     console.log(c(COLORS.bold, 'Title') + '    ' + c(COLORS.label, detail.title));
   } else if (detail.preview) {
-    // Only render Preview when there isn't an explicit Title — keeping a
+    // Only render Preview when there isn't an explicit Title - keeping a
     // single "what is this session" row at the top of the detail header.
     console.log(c(COLORS.bold, 'Preview') + '  ' + c(COLORS.label, detail.preview));
   }
   console.log(
     c(COLORS.bold, 'Model') +
       '    ' +
-      c(COLORS.model, detail.model || '—') +
+      c(COLORS.model, detail.model || '-') +
       (detail.agent ? '  ' + c(COLORS.agents, `(${detail.agent})`) : ''),
   );
   if (detail.directory) {
@@ -714,7 +714,7 @@ export function printTotalsTable(
       '    ' +
       c(COLORS.bold, 'Range') +
       '    ' +
-      c(COLORS.time, `${range.start} — ${range.end}`) +
+      c(COLORS.time, `${range.start} - ${range.end}`) +
       '    ' +
       c(COLORS.bold, 'Group') +
       '    ' +

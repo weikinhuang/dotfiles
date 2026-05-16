@@ -4,7 +4,7 @@
  * No pi imports so this module can be unit-tested under `vitest`
  * without the pi runtime.
  *
- * The memory tree mirrors pi's own session layout — same cwd-slug scheme
+ * The memory tree mirrors pi's own session layout - same cwd-slug scheme
  * under `<root>/projects/<cwd-slug>/` as pi uses for
  * `~/.pi/agent/sessions/<cwd-slug>/`. That way the project dir for a given
  * workspace lines up one-to-one with its session directory.
@@ -42,7 +42,7 @@ export { atomicWriteFile, ensureDirSync };
 /**
  * Transform a cwd into the directory name pi uses for its session store:
  * replace `/` with `-` and wrap in `--…--`. So `/mnt/d/foo` becomes
- * `--mnt-d-foo--`. Pure — no subprocess, no git lookup.
+ * `--mnt-d-foo--`. Pure - no subprocess, no git lookup.
  *
  * The leading/trailing double-dash is pi's own visual marker that this is
  * a full-path-encoded directory rather than a normal name.
@@ -76,7 +76,7 @@ export function uniqueSlug(base: string, taken: ReadonlySet<string>): string {
     const candidate = `${base}-${i}`;
     if (!taken.has(candidate)) return candidate;
   }
-  // Pathological fallback — shouldn't happen in practice.
+  // Pathological fallback - shouldn't happen in practice.
   return `${base}-${Date.now()}`;
 }
 
@@ -155,7 +155,7 @@ export function scanScope(
     try {
       files = readdirSync(dir);
     } catch {
-      continue; // directory absent — fine.
+      continue; // directory absent - fine.
     }
     for (const name of files) {
       if (!name.endsWith('.md')) continue;

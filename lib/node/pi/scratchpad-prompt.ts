@@ -17,7 +17,7 @@
  * A soft character cap protects the system prompt from runaway notebooks:
  * once the cap is reached we emit a trailer pointing the model at the
  * `scratchpad` tool with action `list` to see the rest. The cap is a
- * budget, not a hard limit — each rendered note fits whole; we stop
+ * budget, not a hard limit - each rendered note fits whole; we stop
  * adding notes once the next one would blow the budget.
  */
 
@@ -54,7 +54,7 @@ function groupByHeading(notes: readonly ScratchNote[]): [string, ScratchNote[]][
 /**
  * Build the "## Working Notes" block injected into the system prompt
  * every turn. Returns `null` when the scratchpad is empty so the caller
- * can skip injection — no point reserving tokens for nothing.
+ * can skip injection - no point reserving tokens for nothing.
  */
 export function formatWorkingNotes(state: ScratchpadState, opts: FormatOptions = {}): string | null {
   if (state.notes.length === 0) return null;
@@ -98,7 +98,7 @@ export function formatWorkingNotes(state: ScratchpadState, opts: FormatOptions =
   }
 
   if (truncated) {
-    lines.push(`(${skipped} more note(s) not shown — call \`scratchpad\` with action \`list\` to see all.)`);
+    lines.push(`(${skipped} more note(s) not shown - call \`scratchpad\` with action \`list\` to see all.)`);
   } else {
     lines.push(
       'Keep these notes accurate with the `scratchpad` tool (`append`, `update`, `remove`, `clear`). Use it for decisions, file paths, test commands, and any other state that should survive compaction.',

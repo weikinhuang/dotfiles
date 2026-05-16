@@ -80,7 +80,7 @@ describe('parseTolerant', () => {
   });
 
   test('slices the first JSON object out of trailing prose', () => {
-    const raw = 'Sure — here you go: {"color":"amber","count":1}\n\nLet me know if you need more.';
+    const raw = 'Sure - here you go: {"color":"amber","count":1}\n\nLet me know if you need more.';
 
     expect(parseTolerant(raw)).toEqual({ color: 'amber', count: 1 });
   });

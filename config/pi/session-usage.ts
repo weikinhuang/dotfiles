@@ -25,7 +25,7 @@ interface PiContext {
   sessionsDir: string;
   // When set, listSessions() filters to sessions whose cwd (from the
   // SessionHeader) equals or is a descendant of this path. An empty string
-  // means "no filter — all projects" (used by the `totals` command).
+  // means "no filter - all projects" (used by the `totals` command).
   filterCwd: string;
   projectLabel: string;
 }
@@ -166,7 +166,7 @@ function parseEntries(entries: PiEntry[], fallbackSessionId: string): ParsedPi {
   let lastContextTokens: number | undefined;
   // Tracks the explicit model last chosen via `/model`. Assistant messages
   // also carry their own `model` field, which is authoritative for that
-  // specific response — we prefer it when attributing token slices.
+  // specific response - we prefer it when attributing token slices.
   let currentModel = '';
 
   for (const entry of entries) {
@@ -213,7 +213,7 @@ function parseEntries(entries: PiEntry[], fallbackSessionId: string): ParsedPi {
       // Every role=user message is a user-authored turn. Pi stores extension
       // injections under a distinct `custom_message` entry type (not
       // role=user), so no harness-prefix filter is needed here. User content
-      // may be a string or a TextContent/ImageContent array — both count.
+      // may be a string or a TextContent/ImageContent array - both count.
       userTurns++;
       if (!preview) {
         // Flatten the first user message's text blocks into a snippet so the
@@ -351,7 +351,7 @@ function parsedToSummary(p: ParsedPi, subagentCount: number): SessionSummary {
     toolBreakdown: p.toolBreakdown,
     // Pi's `subagent` / `deep-research` / `iteration-loop` extensions write
     // each child session under `<parent-session-id>/subagents/` (Claude Code
-    // mirror layout — see `config/pi/extensions/AGENTS.md`). Mirror
+    // mirror layout - see `config/pi/extensions/AGENTS.md`). Mirror
     // claude/codex: list/ totals count parent tokens only; child tokens
     // become their own rows in `session <uuid>`. Forked/cloned sessions live
     // as sibling top-level .jsonl files and are shown as their own entries,
@@ -390,7 +390,7 @@ function parseSessionFile(filePath: string): ParsedPi {
  * layout (see
  * [`config/pi/extensions/AGENTS.md`](./extensions/AGENTS.md)).
  * We locate `<projectDir>` by stripping the parent session filename off the
- * input path — all subagent files share the same `<projectDir>` root as
+ * input path - all subagent files share the same `<projectDir>` root as
  * their parent.
  */
 function subagentDirFor(parentFilePath: string, parentSessionId: string): string {
@@ -414,7 +414,7 @@ function parsedToSubagent(p: ParsedPi, meta: PiSubagentRunData | undefined): Sub
   // Child transcripts are authoritative for token counts, tool calls, model
   // breakdown, and cost (pi records real cost per assistant message). The
   // parent-side `subagent-run` entry contributes the agent identity and the
-  // task string that the parent used to spawn the child — neither of which
+  // task string that the parent used to spawn the child - neither of which
   // appears in the child's own .jsonl.
   const sa: Subagent = {
     agentId: p.sessionId,
@@ -425,7 +425,7 @@ function parsedToSubagent(p: ParsedPi, meta: PiSubagentRunData | undefined): Sub
     toolBreakdown: p.toolBreakdown,
   };
   if (meta?.task) {
-    // Keep the task snippet short — some spawns paste multi-paragraph
+    // Keep the task snippet short - some spawns paste multi-paragraph
     // prompts; we want the detail view readable.
     sa.description = meta.task.length > 160 ? `${meta.task.slice(0, 157)}…` : meta.task;
   }
@@ -480,7 +480,7 @@ function resolveSessionFile(sessionsDir: string, sessionId: string): string {
     process.exit(1);
   }
 
-  // Fall back to scanning headers — handles the rare case where the filename
+  // Fall back to scanning headers - handles the rare case where the filename
   // UUID differs from the header id (e.g. a renamed file).
   const headerMatches = files.filter((f) => {
     try {
@@ -558,7 +558,7 @@ Options:
   -h, --help           Show this help
 
 Costs come directly from pi's own usage.cost.total field on each assistant
-message — no pricing fetch is needed. --no-cost and --refresh-prices are
+message - no pricing fetch is needed. --no-cost and --refresh-prices are
 accepted for interface parity with the other tools but have no effect here.`;
 
 const adapter: SessionUsageAdapter<PiContext> = {

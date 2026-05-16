@@ -22,7 +22,7 @@ export const GIT_PROMPT_FILENAME = 'external/git-prompt.sh';
 /**
  * How long a cached `__git_ps1` result stays fresh. Kept deliberately short
  * because dirty/untracked/stash flags change whenever the working tree
- * changes and we have no fs watcher for the workdir — only a git HEAD
+ * changes and we have no fs watcher for the workdir - only a git HEAD
  * watcher via `footerData.onBranchChange` that invalidates the cache.
  */
 export const GIT_SEGMENT_TTL_MS = 5_000;
@@ -126,7 +126,7 @@ export function fetchGitSegmentAsync(options: FetchGitSegmentOptions): Promise<s
         // __git_ps1 uses printf with a leading space (" (%s)"), so the
         // segment we want preserves that single leading space and has any
         // line terminators / tabs collapsed out. We intentionally do NOT
-        // .trim() — trimming would drop the leading space and visually
+        // .trim() - trimming would drop the leading space and visually
         // glue the branch to the preceding cwd.
         const raw = (stdout ?? '').toString();
         const cleaned = raw.replace(/[\r\n\t]+/g, ' ').replace(/\s+$/, '');

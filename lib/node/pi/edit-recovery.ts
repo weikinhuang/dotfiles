@@ -46,7 +46,7 @@ export interface ParsedEditFailure {
 
 /**
  * Best-effort parser for pi's edit-tool error messages. Returns
- * `undefined` when we don't recognize the message shape — the
+ * `undefined` when we don't recognize the message shape - the
  * extension then silently skips recovery for that result.
  *
  * Handles these canonical shapes emitted by
@@ -59,7 +59,7 @@ export interface ParsedEditFailure {
  */
 export function parseEditFailure(text: string): ParsedEditFailure | undefined {
   if (typeof text !== 'string' || text.length === 0) return undefined;
-  // Take the last non-empty line — pi throws with just the message,
+  // Take the last non-empty line - pi throws with just the message,
   // but the harness may prepend partial context. The canonical error
   // is always a single line.
   const line = text
@@ -121,7 +121,7 @@ function piFuzzyNormalize(text: string): string {
 /**
  * Aggressive per-line normalize: apply pi's fuzzy normalize, then
  * strip leading whitespace and collapse runs of any whitespace to
- * single spaces. Used purely for LOCATING the intended region — the
+ * single spaces. Used purely for LOCATING the intended region - the
  * extension's output still shows the file's raw bytes verbatim so
  * the model can paste them into the retry.
  *
@@ -163,7 +163,7 @@ export function findCandidates(normalizedFile: readonly string[], normalizedOld:
   if (normalizedOld.length === 0) return out;
   // Special-case single-line oldText against a multi-line file: also
   // support match against a substring of a file line for completeness.
-  // Keep behavior conservative — we still prefer full-line equality.
+  // Keep behavior conservative - we still prefer full-line equality.
   for (let i = 0; i + normalizedOld.length <= normalizedFile.length; i++) {
     let all = true;
     for (let j = 0; j < normalizedOld.length; j++) {
@@ -183,7 +183,7 @@ export function findCandidates(normalizedFile: readonly string[], normalizedOld:
  * Fallback when exact multi-line match fails: return every line in
  * the file whose normalized text equals the FIRST non-empty line of
  * the normalized oldText. The extension shows these as "anchor"
- * candidates — "we couldn't match the full block but here are lines
+ * candidates - "we couldn't match the full block but here are lines
  * that might be the start of the target".
  *
  * Returns candidates sorted by file position. The end-line of each
@@ -255,7 +255,7 @@ export interface RecoveryInput {
   edits: readonly { oldText: string; newText: string }[];
   /**
    * Raw file content as read from disk. When undefined the caller
-   * couldn't read the file (missing, too large, permissions) — we
+   * couldn't read the file (missing, too large, permissions) - we
    * still emit the parsed error + short guidance.
    */
   fileContent?: string;
@@ -270,7 +270,7 @@ export interface RecoveryInput {
 export interface RecoveryOutput {
   /**
    * Markdown-ish recovery block to append to the tool result. When
-   * `undefined`, the caller should emit nothing — either the error
+   * `undefined`, the caller should emit nothing - either the error
    * wasn't recognizable or nothing useful was found.
    */
   text: string | undefined;
@@ -338,7 +338,7 @@ function formatAnchors(
   });
   return (
     `edit-recovery: No block in ${path} matched the whole \`${label}\` even with whitespace ignored. ` +
-    `The first line of your oldText does appear here, though — the target may be close:\n\n` +
+    `The first line of your oldText does appear here, though - the target may be close:\n\n` +
     blocks.join('\n\n') +
     `\n\nIf the target is one of these regions, copy \`${label}\` verbatim from the block. Otherwise use \`read\` or \`grep\` to locate it before retrying.`
   );
@@ -348,7 +348,7 @@ function formatNoMatch(parsed: ParsedEditFailure, path: string): string {
   const label = labelFor(parsed);
   return (
     `edit-recovery: Whitespace-insensitive search also failed in ${path}. ` +
-    `\`${label}\` may not exist in the file at all — re-\`read\` the file or \`grep\` for a shorter anchor before retrying.`
+    `\`${label}\` may not exist in the file at all - re-\`read\` the file or \`grep\` for a shorter anchor before retrying.`
   );
 }
 
@@ -373,7 +373,7 @@ export function locateAndFormat(input: RecoveryInput): RecoveryOutput {
   }
 
   const normalizedOld = normalizeAggressiveLines(edit.oldText)
-    // Drop leading / trailing wholly-empty lines — matching is already
+    // Drop leading / trailing wholly-empty lines - matching is already
     // lenient about blank lines and they only widen the window.
     .filter((line, i, arr) => !(line === '' && (i === 0 || i === arr.length - 1)));
   const normalizedFile = normalizeAggressiveLines(input.fileContent);

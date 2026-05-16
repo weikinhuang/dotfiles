@@ -12,23 +12,23 @@
  *
  * Three exports, three concerns:
  *
- *  - `formatPersonaInfoLines(input)` — multi-line dump of one resolved
+ *  - `formatPersonaInfoLines(input)` - multi-line dump of one resolved
  *    persona (source, inheritedFrom, tools, writeRoots, bashAllow,
  *    bashDeny, model, thinkingLevel, requestOptions, body / prompt
  *    lengths). Mirrors what `/persona info <name>` already prints.
  *
- *  - `formatPersonaListLines(items)` — one line per persona with the
+ *  - `formatPersonaListLines(items)` - one line per persona with the
  *    layered source tag (`[shipped]` / `[user]` / `[project]`) and a
  *    `*` prefix on the active one. Tighter than the interactive
  *    `/persona` listing because the `-p` audience is reading stdout,
  *    not a notify popup.
  *
- *  - `formatPersonaValidate(input)` — walks the warnings the parsing
+ *  - `formatPersonaValidate(input)` - walks the warnings the parsing
  *    pipeline accumulated and returns `{ exitCode, lines }`. Exit code
  *    is non-zero iff at least one warning fired, so CI scripts can
  *    `pi --validate-personas && …` confidently.
  *
- * Inputs are deliberately structural (plain shapes — no pi imports)
+ * Inputs are deliberately structural (plain shapes - no pi imports)
  * so the persona extension shell can construct them from its parsed
  * persona records without re-resolving anything, and the spec can
  * exercise edge cases (missing optional fields, no warnings, mixed
@@ -66,7 +66,7 @@ export interface PersonaInfoInput {
 export function formatPersonaInfoLines(input: PersonaInfoInput): string[] {
   const toolsStr = input.tools && input.tools.length > 0 ? input.tools.join(', ') : '(inherit / none)';
   const writeRootsStr =
-    input.resolvedWriteRoots.length > 0 ? input.resolvedWriteRoots.join(', ') : '(none — writes disallowed)';
+    input.resolvedWriteRoots.length > 0 ? input.resolvedWriteRoots.join(', ') : '(none - writes disallowed)';
   const requestOptionsStr =
     input.requestOptions && Object.keys(input.requestOptions).length > 0
       ? ` ${JSON.stringify(input.requestOptions)}`

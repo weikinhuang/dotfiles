@@ -101,7 +101,7 @@ configuration variables table in [REFERENCE.md](./REFERENCE.md) so both stay syn
 changing the dotenv loading order.
 
 **Never**: edit files in `external/` (vendored third-party); commit secrets or credentials; remove or rename existing
-dotenv layout files without updating `dotenv/lib/load.sh`.
+dotenv layout files without updating `dotenv/lib/load.sh`; use em-dashes (`—`).
 
 ## References
 

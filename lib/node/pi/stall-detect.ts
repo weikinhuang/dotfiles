@@ -5,17 +5,17 @@
  * without the pi runtime.
  *
  * The extension's job is to detect when an agent turn ended without
- * producing meaningful work — either because the model stopped silently
+ * producing meaningful work - either because the model stopped silently
  * (common with weaker local models and with reasoning models whose
  * "thinking" phase completes without emitting content) or because the
- * provider/transport errored out — and fire a follow-up nudge that pokes
+ * provider/transport errored out - and fire a follow-up nudge that pokes
  * the agent loop into another turn. The classifier here decides whether
  * a turn looks stalled; the extension handles budget, UI, and delivery.
  *
  * Detection is deliberately conservative: we only fire on two unambiguous
  * signals, `empty` (no text + no tool calls) and `error` (explicit error
  * field somewhere on the turn). Hedging / punting detection was considered
- * and rejected — the false-positive rate would be too high, and the todo
+ * and rejected - the false-positive rate would be too high, and the todo
  * extension's completion-claim guardrail catches a related case ("claimed
  * done but didn't deliver") from a separate angle. The two extensions are
  * orthogonal and compose naturally.
@@ -47,7 +47,7 @@ export interface AssistantSnapshot {
    * Provider `stopReason` when available, e.g. `"stop"`, `"toolUse"`,
    * `"length"`, `"error"`, or `"aborted"`. Carried through so the
    * classifier can distinguish user-initiated aborts (Ctrl+C) from
-   * genuine stalls — we must NEVER treat an explicit user interrupt as
+   * genuine stalls - we must NEVER treat an explicit user interrupt as
    * something to auto-retry past.
    */
   stopReason?: string;
@@ -130,7 +130,7 @@ export function classifyAssistant(snap: AssistantSnapshot): StallReason | null {
 /**
  * Extract an `AssistantSnapshot` from an arbitrary assistant-message
  * object. Handles both string-content and content-part-array shapes
- * defensively — provider adapters vary, and we'd rather under-fire than
+ * defensively - provider adapters vary, and we'd rather under-fire than
  * throw.
  *
  * Returns `null` if the input isn't recognizably an assistant message;
@@ -176,7 +176,7 @@ export function snapshotFromAssistantMessage(message: unknown): AssistantSnapsho
  * Pull the last assistant snapshot from a sequence of turn messages. The
  * `agent_end` event carries `event.messages` which includes the user
  * prompt, every assistant/toolResult cycle, and any errors along the way.
- * We only care about the FINAL assistant message — that's the one that
+ * We only care about the FINAL assistant message - that's the one that
  * either produced work (good) or stalled (bad).
  *
  * Returns `null` if the sequence contains no assistant message at all
@@ -193,7 +193,7 @@ export function lastAssistantSnapshot(messages: readonly unknown[]): AssistantSn
 /**
  * Count consecutive trailing stall turns in a message history, reading
  * backwards from the end. The returned count is the number of retries
- * already attempted for the current real-user prompt — i.e., `0` means
+ * already attempted for the current real-user prompt - i.e., `0` means
  * no trailing stall (either empty history or the last assistant turn was
  * healthy), `1` means the last assistant turn stalled, `2` means the
  * last two assistant turns both stalled, etc.
@@ -250,7 +250,7 @@ export function countTrailingStalls(messages: readonly unknown[]): number {
  * agent into another turn. Carries the sentinel so the extension can
  * detect its own prior injections and enforce the retry budget.
  *
- * Messages are short and directive by design — weaker models benefit from
+ * Messages are short and directive by design - weaker models benefit from
  * concrete instructions ("continue where you left off") over vague ones
  * ("please continue").
  *
@@ -270,17 +270,17 @@ export function buildRetryMessage(reason: StallReason, attempt: number, maxAttem
         return [
           STALL_MARKER,
           budget,
-          `Your previous ${attempt} turn(s) produced ZERO output — no text, no tool calls.`,
+          `Your previous ${attempt} turn(s) produced ZERO output - no text, no tool calls.`,
           'You MUST emit content this turn: either a concrete tool_use block or a final text answer for the user.',
           'Do NOT return another empty response. Do NOT spend the whole turn in extended thinking.',
           'If you have genuinely nothing to do, say so explicitly in a short text block (e.g. "Task complete" or',
-          '"Blocked on: <reason>") — silence is not an acceptable answer.',
+          '"Blocked on: <reason>") - silence is not an acceptable answer.',
         ].join(' ');
       }
       return [
         STALL_MARKER,
         budget,
-        'Your previous turn produced no output. The task is not complete. Continue where you left off —',
+        'Your previous turn produced no output. The task is not complete. Continue where you left off -',
         'review any active todos, check the last tool result if there was one, and produce either the',
         'next tool call or the final answer for the user.',
       ].join(' ');
@@ -291,7 +291,7 @@ export function buildRetryMessage(reason: StallReason, attempt: number, maxAttem
           budget,
           `Your previous ${attempt} turn(s) failed with transport errors (last: ${truncate(reason.error, 160)}).`,
           'Retry once more. If the error looks transient (rate limit, DNS, timeout) just re-run the same call.',
-          'If it looks structural (4xx, schema mismatch), change approach — e.g. smaller batch, different tool,',
+          'If it looks structural (4xx, schema mismatch), change approach - e.g. smaller batch, different tool,',
           'or report the failure back to the user in a text block instead of silently giving up.',
         ].join(' ');
       }
@@ -315,8 +315,8 @@ export function buildRetryMessage(reason: StallReason, attempt: number, maxAttem
  *
  * Rationale: reasoning models (extended-thinking Claude, local Qwen3,
  * etc.) that stall once often stall again on the retry because the
- * provider replays the prior `thinking` block — complete with
- * `thinkingSignature` — and the model just resumes the same rumination
+ * provider replays the prior `thinking` block - complete with
+ * `thinkingSignature` - and the model just resumes the same rumination
  * that produced no output last time. By dropping those `thinking` blocks
  * before the retry call we force a fresh reasoning pass over the new
  * (imperative) user nudge.
@@ -343,7 +343,7 @@ export function buildRetryMessage(reason: StallReason, attempt: number, maxAttem
  * Operates on whatever shape the caller passes (bare `AgentMessage` or
  * session-wrapped `{ message }`) and mutates entries in place. pi's
  * `emitContext` hands handlers a `structuredClone` of the real message
- * list, so in-place mutation is the idiomatic move here — we return the
+ * list, so in-place mutation is the idiomatic move here - we return the
  * same array reference to make the intent explicit.
  */
 export function stripThinkingFromStalledTurns<T>(messages: T[]): T[] {
@@ -369,7 +369,7 @@ export function stripThinkingFromStalledTurns<T>(messages: T[]): T[] {
       break; // real user input → end of window
     }
     if (role === 'assistant') {
-      // Classify the assistant turn BEFORE touching its content —
+      // Classify the assistant turn BEFORE touching its content -
       // healthy turns (text or tool call) are the boundary of the
       // trailing stall window and must not have their thinking stripped.
       const snap = snapshotFromAssistantMessage(raw);

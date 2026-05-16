@@ -81,7 +81,7 @@ test('resolveWorktreeInfo: linked worktree exposes its name from .git/worktrees/
 test('resolveWorktreeInfo: linked worktree without a commondir file is treated conservatively as no worktree', () => {
   // `commondir` is the signal that distinguishes linked worktrees from
   // submodules (which use the same `.git`-as-pointer-file scheme). Without
-  // it we refuse to guess — returning null avoids mislabelling a submodule
+  // it we refuse to guess - returning null avoids mislabelling a submodule
   // or `--separate-git-dir` repo. Modern git (≥ 2.5) always writes this file
   // for `git worktree add`, so this only affects hand-crafted layouts.
   const repo = setupMainRepo();

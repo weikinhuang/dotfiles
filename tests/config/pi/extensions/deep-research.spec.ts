@@ -3,7 +3,7 @@
  *
  * The extension shell lives at
  * `config/pi/extensions/deep-research.ts` and is intentionally
- * thin — all logic is delegated to the pure helpers in
+ * thin - all logic is delegated to the pure helpers in
  * `lib/node/pi/research-runs.ts`. This spec drives those helpers
  * end-to-end against the exact `{cwd, notify, selftest}` shape
  * the extension uses, so the two stay in lockstep.
@@ -12,7 +12,7 @@
  * `tests/lib/node/pi/README.md`) puts pure-helper specs under
  * `tests/lib/node/pi/`. This spec sits under
  * `tests/config/pi/extensions/` because the Phase-1 handoff prompt
- * for `plans/pi-deep-research.md` requires that exact path — it
+ * for `plans/pi-deep-research.md` requires that exact path - it
  * documents the extension's command surface, not the helper
  * module. All the code under test is still pure (no pi-runtime
  * imports).
@@ -215,7 +215,7 @@ describe('/research --list', () => {
     expect(runs[0]).toMatchObject({
       slug: 'stray-lab',
       status: null,
-      error: 'plan.json kind=autoresearch — not a deep-research run',
+      error: 'plan.json kind=autoresearch - not a deep-research run',
     });
   });
 
@@ -377,7 +377,7 @@ describe('/research --list', () => {
 });
 
 // ───────────────────────────────────────────────────────────────────
-// findExistingRun — slug-collision detection
+// findExistingRun - slug-collision detection
 // ───────────────────────────────────────────────────────────────────
 
 describe('findExistingRun', () => {
@@ -420,7 +420,7 @@ describe('findExistingRun', () => {
   });
 
   test('an empty question falls back to the timestamp-slug and still checks disk', () => {
-    // slugify('') falls back to `r-<YYYYMMDD>-<HHMMSS>` — not on
+    // slugify('') falls back to `r-<YYYYMMDD>-<HHMMSS>` - not on
     // disk, so we get null.
     expect(findExistingRun(sandbox, '   ')).toBeNull();
   });
@@ -513,7 +513,7 @@ describe('formatSelftestResult', () => {
 });
 
 // ──────────────────────────────────────────────────────────────────────
-// Phase 5 — `research` tool surface
+// Phase 5 - `research` tool surface
 // ──────────────────────────────────────────────────────────────────────
 //
 // These specs exercise the same helpers the extension shell wires
@@ -524,7 +524,7 @@ describe('formatSelftestResult', () => {
 // tool boundary: single-active-run invariant, summary surfaced,
 // notify wired with the right level + report path.
 
-describe('/research — model-driven research tool', () => {
+describe('/research - model-driven research tool', () => {
   test('report-complete outcome surfaces the report path in the tool summary', async () => {
     const flag = createResearchSessionFlag();
     const runPipeline: ResearchToolRunner = () =>
@@ -562,7 +562,7 @@ describe('/research — model-driven research tool', () => {
 
     const execute = createResearchToolExecutor({ flag, runPipeline });
 
-    // Fire the first call but don't await it yet — it stays in flight.
+    // Fire the first call but don't await it yet - it stays in flight.
     const firstP = execute('q1');
     // Give the event loop a turn so the executor has flipped `flag.active = true`.
     await Promise.resolve();
@@ -616,7 +616,7 @@ describe('/research — model-driven research tool', () => {
 });
 
 // ──────────────────────────────────────────────────────────────────────
-// Phase 5 — statusline state machine drives the widget
+// Phase 5 - statusline state machine drives the widget
 // ──────────────────────────────────────────────────────────────────────
 //
 // The extension wires a `buildStatuslineController(ctx)` helper
@@ -626,7 +626,7 @@ describe('/research — model-driven research tool', () => {
 // produces a fresh widget body the extension would hand to
 // `ctx.ui.setWidget("deep-research", lines)`.
 
-describe('/research — statusline widget transitions', () => {
+describe('/research - statusline widget transitions', () => {
   test('every phase transition updates the widget contents', () => {
     // Fake `ctx.ui.setWidget` captures every call.
     interface WidgetCall {
@@ -673,7 +673,7 @@ describe('/research — statusline widget transitions', () => {
       emit(e);
     }
 
-    // One widget call per transition — no missed updates.
+    // One widget call per transition - no missed updates.
     expect(widgetCalls).toHaveLength(events.length);
 
     for (const c of widgetCalls) {
@@ -735,13 +735,13 @@ describe('/research — statusline widget transitions', () => {
 });
 
 // ──────────────────────────────────────────────────────────────────────
-// /research — stubbed short-circuit: wire emits exactly one notify,
+// /research - stubbed short-circuit: wire emits exactly one notify,
 // extension gate on `review.outcome.kind === 'stubbed'` suppresses the
 // post-loop formatStubHint hint so the user (and the LLM tool caller)
 // see one coherent "review skipped" message instead of two.
 // ──────────────────────────────────────────────────────────────────────
 
-describe('/research — stubbed review short-circuit notify discipline', () => {
+describe('/research - stubbed review short-circuit notify discipline', () => {
   let sandbox: string;
   let cwd: string;
   let runRoot: string;
@@ -829,7 +829,7 @@ describe('/research — stubbed review short-circuit notify discipline', () => {
 
     expect(stubHint).toBeNull();
 
-    // Neither runner ever ran — the loop's cross-stage budget stays
+    // Neither runner ever ran - the loop's cross-stage budget stays
     // untouched so a subsequent /research --resume --from=fanout can
     // pick up the full `reviewMaxIter` budget on its review phase.
     expect(runStructural).not.toHaveBeenCalled();
@@ -848,7 +848,7 @@ describe('/research — stubbed review short-circuit notify discipline', () => {
     // `formatStubHint` still scans the report on disk, so this path
     // surfaces the same recovery command the user got via the wire
     // when the wire short-circuit fires. The two paths differ only
-    // in which one emits — never both.
+    // in which one emits - never both.
     const passedLike = { kind: 'passed' as const };
     const stubHint = (passedLike.kind as string) === 'stubbed' ? null : formatStubHint(runRoot);
 
@@ -858,14 +858,14 @@ describe('/research — stubbed review short-circuit notify discipline', () => {
 });
 
 // ──────────────────────────────────────────────────────────────────────
-// /research — LLM-facing tool surfaces the closeness verdict + resume
+// /research - LLM-facing tool surfaces the closeness verdict + resume
 // command the lib wire folds into the review summary on
 // budget-exhausted. The tool is the hand-off surface the parent
 // pi/LLM agent sees; it reads the returned summary and decides
 // whether to re-invoke `research` with a bumped reviewMaxIter.
 // ──────────────────────────────────────────────────────────────────────
 
-describe('/research — tool surfaces closeness verdict + resume command on budget-exhausted', () => {
+describe('/research - tool surfaces closeness verdict + resume command on budget-exhausted', () => {
   test('near-pass summary passes through to the tool result so the LLM can read it', async () => {
     // The pipeline runner collapses the review outcome into a
     // `report-complete` with `subjectiveApproved: false` and a
@@ -879,7 +879,7 @@ describe('/research — tool surfaces closeness verdict + resume command on budg
       '  best-so-far: iter 4 (structural, score 0.00) → /r/snap/iter-004-structural.md',
       '  last structural failures (1):',
       '    - [footnote-markers-resolve] unresolved marker [^3]',
-      '  Near-pass: the parent agent may continue with a small bump — one more iteration is likely to converge.',
+      '  Near-pass: the parent agent may continue with a small bump - one more iteration is likely to converge.',
       '  Resume: `/research --resume --run-root /tmp/research/demo --from=review --review-max-iter 6`',
     ].join('\n');
 
@@ -944,7 +944,7 @@ describe('/research — tool surfaces closeness verdict + resume command on budg
     // if they want to force another pass.
   });
 
-  test('passing review (no budget-exhausted) carries no closeness verdict \u2014 LLM sees only the success summary', async () => {
+  test('passing review (no budget-exhausted) carries no closeness verdict - LLM sees only the success summary', async () => {
     const passSummary =
       '/research: review PASSED after 2 iterations (structural ok, critic 0.92). Report ready at /tmp/research/demo/report.md.';
     const flag = createResearchSessionFlag();

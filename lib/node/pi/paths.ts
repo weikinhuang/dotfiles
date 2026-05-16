@@ -42,10 +42,10 @@ export interface ProtectionRules {
  * have different strictness:
  *
  *   read   applies to the `read` tool. Outside-workspace is NOT enforced
- *          (reading files outside cwd is often legit — nearby READMEs,
+ *          (reading files outside cwd is often legit - nearby READMEs,
  *          dotfiles, etc.).
  *   write  applies to `write` / `edit`. Outside-workspace IS enforced.
- *          The effective write rule set is `read ∪ write` — anything
+ *          The effective write rule set is `read ∪ write` - anything
  *          sensitive-to-read is trivially sensitive-to-write, so there's
  *          no point forcing users to duplicate entries.
  */
@@ -62,7 +62,7 @@ export interface ProtectionConfig {
  * Expand a leading `~` to the user's home directory.
  *
  * Handles `~`, `~/foo`, and (on Windows) `~\foo`. `~user/` is intentionally
- * NOT supported — it requires a password-db lookup and is almost never
+ * NOT supported - it requires a password-db lookup and is almost never
  * emitted by an LLM. Anything else (e.g. `$HOME/foo`) is left alone; pi's
  * tools don't do shell env-var expansion either, so the literal string is
  * what would actually be used.
@@ -159,7 +159,7 @@ export function mergeConfigs(
 }
 
 /**
- * Built-in defaults. These are always active — user config only ADDS to
+ * Built-in defaults. These are always active - user config only ADDS to
  * them. If you need to turn a default off, set PI_PROTECTED_PATHS_DISABLED=1
  * and build your own gate.
  *
@@ -188,7 +188,7 @@ export interface ClassifyOptions {
   /**
    * Whether to treat a path outside `cwd` as protected. `true` for
    * writes (default), `false` for reads (reading external files is
-   * often legitimate — nearby READMEs, config templates, etc.).
+   * often legitimate - nearby READMEs, config templates, etc.).
    */
   checkOutsideWorkspace?: boolean;
 }
@@ -202,12 +202,12 @@ export interface ClassifyOptions {
  * silently resolved to `./~/.ssh/id_rsa`.
  *
  * Precedence (first match wins):
- *   1. path-prefix       — catches `~/.ssh/*` etc. Checked first so the
+ *   1. path-prefix       - catches `~/.ssh/*` etc. Checked first so the
  *                          user sees a specific reason rather than a
  *                          generic "outside workspace".
- *   2. outside-workspace — only if `checkOutsideWorkspace` is true
- *   3. basename          — globs on the basename
- *   4. segment           — exact match on any path segment
+ *   2. outside-workspace - only if `checkOutsideWorkspace` is true
+ *   3. basename          - globs on the basename
+ *   4. segment           - exact match on any path segment
  */
 export function classify(
   inputPath: string,

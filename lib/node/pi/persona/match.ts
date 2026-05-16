@@ -2,7 +2,7 @@
  * Path-string membership test for mode `writeRoots`.
  *
  * Per `plans/pi-mode-extension.md` (D8): operate on path strings only.
- * Symlink targets are NOT followed — the link path is what matters.
+ * Symlink targets are NOT followed - the link path is what matters.
  * This is the lock that keeps mode boundaries predictable; do not
  * "fix" by adding `realpath` without a deliberate plan revision.
  *

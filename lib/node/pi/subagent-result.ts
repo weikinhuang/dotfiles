@@ -1,14 +1,14 @@
 /**
  * Result extraction for the subagent extension.
  *
- * Pure module — no pi imports — so it can be unit-tested under `vitest`.
+ * Pure module - no pi imports - so it can be unit-tested under `vitest`.
  * Mirrors the "content-part shape" approach in `btw.ts`: declares a
  * minimal local interface for `AssistantMessage.content[]` parts so this
  * module has no runtime dependency on `@earendil-works/pi-ai`.
  *
  * The final assistant text is what the parent LLM actually sees. Every
  * tool call, every thinking block, every intermediate user/tool result
- * is stripped out — that context stays in the child session file for
+ * is stripped out - that context stays in the child session file for
  * later auditing but never pollutes the parent.
  */
 
@@ -26,7 +26,7 @@ export interface AssistantMessageLike {
 }
 
 export interface AgentMessageLike {
-  /** May be `user`, `assistant`, `toolResult`, `custom`, … — we only inspect `assistant`. */
+  /** May be `user`, `assistant`, `toolResult`, `custom`, … - we only inspect `assistant`. */
   role: string;
   content?: readonly AssistantContentPart[];
 }

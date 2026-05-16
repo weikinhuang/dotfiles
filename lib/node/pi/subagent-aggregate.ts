@@ -6,13 +6,13 @@
  *
  * pi loads each extension via its own jiti instance with
  * `moduleCache: false`, so a plain module-level `let singleton`
- * produces two separate objects — one inside the subagent extension
+ * produces two separate objects - one inside the subagent extension
  * and one inside the statusline extension. We anchor the aggregate
  * on `globalThis` behind a `Symbol.for()` key so both copies resolve
  * to the same underlying instance, matching the pattern used by
  * `lib/node/pi/bash-gate.ts` and `session-flags.ts`.
  *
- * The reducer is deliberately pure — no pi imports — so it can be
+ * The reducer is deliberately pure - no pi imports - so it can be
  * exercised under vitest without spinning up the extension runtime.
  * Callers feed it plain numbers and a `failed` flag; the module never
  * inspects live subagent state on its own.

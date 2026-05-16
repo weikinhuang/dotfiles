@@ -14,7 +14,7 @@
  *   `config/pi/extensions/deep-research.ts` wires them through the
  *   same underlying primitives (`iteration-loop-check-bash.ts`,
  *   `iteration-loop-check-critic.ts`) the tool uses, so behavior is
- *   identical — this is "via its tool surface" at the primitive
+ *   identical - this is "via its tool surface" at the primitive
  *   level rather than re-invoking the tool dispatcher from inside
  *   another extension (pi does not expose a direct tool-invocation
  *   API for peers).
@@ -31,7 +31,7 @@
  *      b. Structural passed. Run critic.
  *         - On critic approve, re-run structural as a sanity
  *           check. If structural now fails, emit the
- *           `structural-override` outcome — "structure wins" over
+ *           `structural-override` outcome - "structure wins" over
  *           the critic's approval. This is the regression test
  *           path (the critic's verdict does not rescue a
  *           structurally-broken report).
@@ -89,7 +89,7 @@ import { type StubbedSection } from './research-resume.ts';
 
 /**
  * Injected by tests and the production extension to produce one
- * structural verdict per iteration. Errors propagate — the review
+ * structural verdict per iteration. Errors propagate - the review
  * loop surfaces them as `{ kind: 'error', error }` outcomes.
  */
 export type StructuralRunner = (opts: { iteration: number }) => Promise<StructuralCheckResult>;
@@ -160,7 +160,7 @@ export type ReviewLoopOutcome =
       stage: 'structural' | 'subjective';
       iterations: number;
       bestSoFar: ReviewSnapshot | null;
-      /** Most recent structural verdict (always populated — at least one ran). */
+      /** Most recent structural verdict (always populated - at least one ran). */
       lastStructural: StructuralCheckResult;
       /** Most recent critic verdict, if the critic ran at least once. */
       lastCritic: Verdict | null;
@@ -168,7 +168,7 @@ export type ReviewLoopOutcome =
   | {
       /**
        * Critic approved but the re-run structural check regressed.
-       * Returned even when iterations remain — the failure is not a
+       * Returned even when iterations remain - the failure is not a
        * refinement problem; it's a consistency problem between the
        * two stages.
        */
@@ -180,7 +180,7 @@ export type ReviewLoopOutcome =
   | {
       /**
        * A runner or refiner threw / returned an error. The loop
-       * aborts rather than swallowing — the caller decides whether
+       * aborts rather than swallowing - the caller decides whether
        * to escalate or fall back to best-so-far from a prior run.
        */
       kind: 'error';
@@ -193,7 +193,7 @@ export type ReviewLoopOutcome =
        * Terminal outcome produced by the review-wire when the
        * freshly-rendered `report.md` still contains one or more
        * `[section unavailable: …]` sub-question stubs. The loop
-       * itself never returns this variant — refinement cannot add
+       * itself never returns this variant - refinement cannot add
        * missing findings, so spending iterations on a stubbed
        * report burns budget without any chance of converging.
        * Instead, {@link ./deep-research-review-wire.runDeepResearchReview}
@@ -202,7 +202,7 @@ export type ReviewLoopOutcome =
        * to the user (or the parent LLM agent) without waiting for
        * the loop to exhaust its budget.
        *
-       * `iterations` is deliberately omitted — the loop never
+       * `iterations` is deliberately omitted - the loop never
        * ran, so there is no iteration count to report.
        */
       kind: 'stubbed';
@@ -235,7 +235,7 @@ export interface ReviewLoopDeps {
    * after counting `N` prior `snapshots/review/iter-NNN-*.md`
    * files so the new snapshots land as iter-(N+1), (N+2), …
    * rather than overwriting. `maxIter` still means "count of
-   * iterations to run" — so `startIteration=5, maxIter=4`
+   * iterations to run" - so `startIteration=5, maxIter=4`
    * executes iters 5, 6, 7, 8.
    */
   startIteration?: number;
@@ -260,11 +260,11 @@ export function buildStructuralNudge(result: StructuralCheckResult): string {
   const lines: string[] = [];
   lines.push('The structural review rejected the report. Fix every issue below and preserve all passing checks:');
   for (const f of result.failures) {
-    const loc = f.location ? ` — at ${f.location}` : '';
+    const loc = f.location ? ` - at ${f.location}` : '';
     lines.push(`  - [${f.id}] ${f.message}${loc}`);
   }
   lines.push(
-    'Do not invent new sources to satisfy footnote resolution — use only URLs already present in sources/. ' +
+    'Do not invent new sources to satisfy footnote resolution - use only URLs already present in sources/. ' +
       'If a citation cannot be sourced from the store, remove the footnote marker and rewrite the sentence.',
   );
   return lines.join('\n');
@@ -272,7 +272,7 @@ export function buildStructuralNudge(result: StructuralCheckResult): string {
 
 /**
  * Build a subjective refinement nudge from a critic's verdict. The
- * structural items are excluded (the critic doesn't judge them —
+ * structural items are excluded (the critic doesn't judge them -
  * they're already deterministic), so every issue here is a
  * subjective-rubric gap.
  */
@@ -288,7 +288,7 @@ export function buildSubjectiveNudge(verdict: Verdict): string {
   if (verdict.issues.length > 0) {
     lines.push('Fix every issue below while preserving the structural contract:');
     for (const issue of verdict.issues) {
-      const loc = issue.location ? ` — at ${issue.location}` : '';
+      const loc = issue.location ? ` - at ${issue.location}` : '';
       lines.push(`  - [${issue.severity}] ${issue.description}${loc}`);
     }
   }
@@ -337,7 +337,7 @@ function snapshotReport(runRoot: string, iteration: number, stage: ReviewSnapsho
 
 /**
  * Selector honoring the iteration-loop's "approved beats
- * higher-scored-but-not-approved" rule — a structurally-passing
+ * higher-scored-but-not-approved" rule - a structurally-passing
  * but subjectively-rejected report (score 0.7) outranks an
  * unapproved structural-fail snapshot (score 0.0). Ties broken by
  * iteration recency.
@@ -559,7 +559,7 @@ export function formatIssue(issue: Issue): string {
 //
 // Thresholds are hardcoded (no user-facing knob): tests consume the
 // exported constants, and telemetry-driven tuning is a follow-up
-// flag — the classifier is easier to reason about when the numbers
+// flag - the classifier is easier to reason about when the numbers
 // don't move per invocation.
 // ───────────────────────────────────────────────────────────────────
 
@@ -590,7 +590,7 @@ export const REVIEW_RESUME_BUMP = 2;
 
 /**
  * Classify a `budget-exhausted` outcome for the parent agent.
- * Non-`budget-exhausted` outcomes return `'unknown'` — callers
+ * Non-`budget-exhausted` outcomes return `'unknown'` - callers
  * should only ask about {@link ReviewLoopOutcome} kinds where a
  * closeness verdict is defined. Keeping the function total (no
  * throws, no narrowing panics) lets the review-wire invoke it
@@ -599,7 +599,7 @@ export const REVIEW_RESUME_BUMP = 2;
  * Rules (all must hold for `'near-pass'`):
  *
  *   - `outcome.kind === 'budget-exhausted'`.
- *   - `outcome.bestSoFar !== null` — something must actually be
+ *   - `outcome.bestSoFar !== null` - something must actually be
  *     on disk to refine from. A budget exhaustion with no
  *     snapshot is a worse-than-stuck failure mode (refinement
  *     never produced a salvageable body).
@@ -608,14 +608,14 @@ export const REVIEW_RESUME_BUMP = 2;
  *        NEAR_PASS_STRUCTURAL_MAX_FAILURES`. The structural-check
  *       module currently does not tag failures with a severity
  *       level, so the "no blocker" clause in the handoff is a
- *       trivial pass — every structural failure is treated as the
+ *       trivial pass - every structural failure is treated as the
  *       same weight. If structural failures later carry a
  *       severity enum, extend this branch to reject blockers
  *       before returning `'near-pass'`.
  *   - For `stage === 'subjective'`:
  *       `outcome.lastCritic?.score >= NEAR_PASS_SUBJECTIVE_MIN_SCORE`.
  *       A `null` critic score (the critic runner failed to parse a
- *       verdict) falls through to `'stuck'` — we need a concrete
+ *       verdict) falls through to `'stuck'` - we need a concrete
  *       number to decide "close".
  *
  * Anything else that was `budget-exhausted` returns `'stuck'`.

@@ -8,7 +8,7 @@
  * entries on session_start / session_tree. Because each tool call emits the
  * full post-action state as both `toolResult.details` AND a mirrored custom
  * entry (`customType: 'todo-state'`), we don't need to replay an action log
- * — we just find the LAST valid snapshot on the branch and use it. That's
+ * - we just find the LAST valid snapshot on the branch and use it. That's
  * O(n) with a reverse scan and naturally correct across /fork, /tree, and
  * /compact.
  *
@@ -19,8 +19,8 @@
  *
  * Action handlers (actAdd / actStart / actComplete / …) are pure functions
  * returning either a new state + summary string, or a typed error. They
- * encode the state-transition invariants — especially "at most one todo
- * may be in_progress at a time" — so weaker models trained by `plan-first`
+ * encode the state-transition invariants - especially "at most one todo
+ * may be in_progress at a time" - so weaker models trained by `plan-first`
  * get hard feedback instead of silent drift.
  */
 
@@ -110,7 +110,7 @@ export function reduceBranch(branch: readonly BranchEntry[]): TodoState {
 }
 
 // ──────────────────────────────────────────────────────────────────────
-// Action handlers — pure (state, args) -> result. The tool's execute()
+// Action handlers - pure (state, args) -> result. The tool's execute()
 // just dispatches to these, then mirrors the resulting state.
 // ──────────────────────────────────────────────────────────────────────
 
@@ -148,7 +148,7 @@ function statusMark(s: TodoStatus): string {
 export function formatText(state: TodoState): string {
   if (state.todos.length === 0) return 'No todos';
   return state.todos
-    .map((t) => `[${statusMark(t.status)}] #${t.id} ${t.text}${t.note ? ` — ${t.note}` : ''}`)
+    .map((t) => `[${statusMark(t.status)}] #${t.id} ${t.text}${t.note ? ` - ${t.note}` : ''}`)
     .join('\n');
 }
 
@@ -205,7 +205,7 @@ export function actComplete(state: TodoState, id: number | undefined, note: stri
   const todo = findTodo(next, id);
   if (!todo) return { ok: false, error: `#${id} not found` };
   // Completing directly from in_progress requires a note describing what
-  // verified the outcome — that's the guardrail against premature "done"
+  // verified the outcome - that's the guardrail against premature "done"
   // claims. Going through `review` first acts as the verification parking
   // step, so completing from review (or any other state) keeps the note
   // optional.
@@ -230,12 +230,12 @@ export function actBlock(state: TodoState, id: number | undefined, note: string 
   if (!todo) return { ok: false, error: `#${id} not found` };
   todo.status = 'blocked';
   todo.note = note.trim();
-  return { ok: true, state: next, summary: `Blocked #${id}: ${todo.text} — ${todo.note}` };
+  return { ok: true, state: next, summary: `Blocked #${id}: ${todo.text} - ${todo.note}` };
 }
 
 /**
  * Move an item into the `review` column: work is done, verification is
- * pending. Only `in_progress` items can enter review — weaker models try
+ * pending. Only `in_progress` items can enter review - weaker models try
  * to "review" unstarted items otherwise, which defeats the purpose.
  *
  * WIP=1 on review (independent of WIP=1 on in_progress): you can have

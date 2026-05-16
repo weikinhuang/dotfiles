@@ -123,7 +123,7 @@ describe('quarantineDir', () => {
 // Failure-mode / pathological inputs.
 // ──────────────────────────────────────────────────────────────────────
 
-describe('slugify — failure modes', () => {
+describe('slugify - failure modes', () => {
   test('handles a single char input', () => {
     expect(slugify('a')).toBe('a');
   });

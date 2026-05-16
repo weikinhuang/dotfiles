@@ -138,9 +138,9 @@ function validReport(): string {
     '',
     'Wrap-up paragraph.',
     '',
-    '[^1]: Source 1 — https://example.com/a',
-    '[^2]: Source 2 — https://example.com/b',
-    '[^3]: Source 3 — https://example.com/c',
+    '[^1]: Source 1 - https://example.com/a',
+    '[^2]: Source 2 - https://example.com/b',
+    '[^3]: Source 3 - https://example.com/c',
     '',
   ].join('\n');
 }
@@ -157,7 +157,7 @@ function validSources(): SourceRef[] {
 // Happy path.
 // ──────────────────────────────────────────────────────────────────────
 
-describe('checkReportStructure — happy path', () => {
+describe('checkReportStructure - happy path', () => {
   test('well-formed report with matching sources + sections passes', () => {
     const runRoot = makeRun({ plan: makePlan(), report: validReport(), sources: validSources() });
 
@@ -188,11 +188,11 @@ describe('checkReportStructure — happy path', () => {
 // report-exists.
 // ──────────────────────────────────────────────────────────────────────
 
-describe('checkReportStructure — report-exists', () => {
+describe('checkReportStructure - report-exists', () => {
   test('missing report.md short-circuits to a single failure', () => {
     const runRoot = makeRun({
       plan: makePlan(),
-      report: 'ignored — omitReport: true is set below',
+      report: 'ignored - omitReport: true is set below',
       sources: validSources(),
       omitReport: true,
     });
@@ -210,11 +210,11 @@ describe('checkReportStructure — report-exists', () => {
 // footnote-markers-resolve.
 // ──────────────────────────────────────────────────────────────────────
 
-describe('checkReportStructure — footnote-markers-resolve', () => {
+describe('checkReportStructure - footnote-markers-resolve', () => {
   test('body [^n] marker without a matching definition fails', () => {
     // `validReport` has 3 markers + 3 defs. Drop the [^3] def so
     // the marker becomes dangling.
-    const report = validReport().replace('[^3]: Source 3 — https://example.com/c\n', '');
+    const report = validReport().replace('[^3]: Source 3 - https://example.com/c\n', '');
     const runRoot = makeRun({ plan: makePlan(), report, sources: validSources() });
 
     const result = checkReportStructure({ runRoot });
@@ -248,12 +248,12 @@ describe('checkReportStructure — footnote-markers-resolve', () => {
 // footnote-urls-in-store.
 // ──────────────────────────────────────────────────────────────────────
 
-describe('checkReportStructure — footnote-urls-in-store', () => {
+describe('checkReportStructure - footnote-urls-in-store', () => {
   test('mismatched URL fails with a specific diagnostic', () => {
     // Source [^3] points at a URL that isn't in the store.
     const report = validReport().replace(
-      '[^3]: Source 3 — https://example.com/c',
-      '[^3]: Source 3 — https://example.com/unknown',
+      '[^3]: Source 3 - https://example.com/c',
+      '[^3]: Source 3 - https://example.com/unknown',
     );
     const runRoot = makeRun({ plan: makePlan(), report, sources: validSources() });
 
@@ -271,8 +271,8 @@ describe('checkReportStructure — footnote-urls-in-store', () => {
     // footnote URL carries a utm_source=... param; the store has
     // the canonical URL. normalizeUrl collapses them.
     const report = validReport().replace(
-      '[^1]: Source 1 — https://example.com/a',
-      '[^1]: Source 1 — https://example.com/a?utm_source=newsletter&utm_medium=email',
+      '[^1]: Source 1 - https://example.com/a',
+      '[^1]: Source 1 - https://example.com/a?utm_source=newsletter&utm_medium=email',
     );
     const runRoot = makeRun({ plan: makePlan(), report, sources: validSources() });
 
@@ -282,7 +282,7 @@ describe('checkReportStructure — footnote-urls-in-store', () => {
   });
 
   test('footnote without a URL fails with footnote-urls-in-store', () => {
-    const report = validReport().replace('[^3]: Source 3 — https://example.com/c', '[^3]: Source 3');
+    const report = validReport().replace('[^3]: Source 3 - https://example.com/c', '[^3]: Source 3');
     const runRoot = makeRun({ plan: makePlan(), report, sources: validSources() });
 
     const result = checkReportStructure({ runRoot });
@@ -308,8 +308,8 @@ describe('checkReportStructure — footnote-urls-in-store', () => {
       makeSource('wiki00000000', wikiUrl, 'Wikipedia: Rust'),
     ];
     const report = validReport().replace(
-      '[^3]: Source 3 — https://example.com/c',
-      `[^3]: Wikipedia: Rust — ${wikiUrl}`,
+      '[^3]: Source 3 - https://example.com/c',
+      `[^3]: Wikipedia: Rust - ${wikiUrl}`,
     );
     const runRoot = makeRun({ plan: makePlan(), report, sources });
 
@@ -326,12 +326,12 @@ describe('checkReportStructure — footnote-urls-in-store', () => {
     // The balanced-parens rule must not regress the old
     // trailing-punctuation behavior when the paren is clearly
     // prose, not part of the URL. The sentence reads
-    // `(see https://example.com/a)` — `)` has no matching `(`
+    // `(see https://example.com/a)` - `)` has no matching `(`
     // inside the URL, so it should be stripped before
     // normalization.
     const report = validReport().replace(
-      '[^1]: Source 1 — https://example.com/a',
-      '[^1]: Source 1 — https://example.com/a)',
+      '[^1]: Source 1 - https://example.com/a',
+      '[^1]: Source 1 - https://example.com/a)',
     );
     const runRoot = makeRun({ plan: makePlan(), report, sources: validSources() });
 
@@ -348,8 +348,8 @@ describe('checkReportStructure — footnote-urls-in-store', () => {
       makeSource('wiki00000000', wikiUrl, 'Wikipedia: Rust'),
     ];
     const report = validReport().replace(
-      '[^3]: Source 3 — https://example.com/c',
-      `[^3]: Wikipedia: Rust — ${wikiUrl}.`,
+      '[^3]: Source 3 - https://example.com/c',
+      `[^3]: Wikipedia: Rust - ${wikiUrl}.`,
     );
     const runRoot = makeRun({ plan: makePlan(), report, sources });
 
@@ -363,7 +363,7 @@ describe('checkReportStructure — footnote-urls-in-store', () => {
 // no-unresolved-placeholders.
 // ──────────────────────────────────────────────────────────────────────
 
-describe('checkReportStructure — no-unresolved-placeholders', () => {
+describe('checkReportStructure - no-unresolved-placeholders', () => {
   test('remaining {{SRC:...}} placeholder fails', () => {
     const report = validReport().replace(
       'Discussion of alternatives [^3].',
@@ -387,14 +387,14 @@ describe('checkReportStructure — no-unresolved-placeholders', () => {
 // every-sub-question-has-section.
 // ──────────────────────────────────────────────────────────────────────
 
-describe('checkReportStructure — every-sub-question-has-section', () => {
+describe('checkReportStructure - every-sub-question-has-section', () => {
   test('plan with 3 sub-questions but report with 2 sections fails', () => {
     // Drop the third section entirely (heading + body).
     const report = validReport()
       .replace('## Trade-offs?\n\nDiscussion of alternatives [^3].\n\n', '')
       // Also drop the [^3] marker + def so we don't spurious-fail on
       // footnote checks; we want to isolate the missing-section fail.
-      .replace('[^3]: Source 3 — https://example.com/c\n', '');
+      .replace('[^3]: Source 3 - https://example.com/c\n', '');
     const runRoot = makeRun({ plan: makePlan(), report, sources: validSources() });
 
     const result = checkReportStructure({ runRoot });
@@ -426,8 +426,8 @@ describe('checkReportStructure — every-sub-question-has-section', () => {
       '',
       'wrap',
       '',
-      '[^1]: Source 1 — https://example.com/a',
-      '[^2]: Source 2 — https://example.com/b',
+      '[^1]: Source 1 - https://example.com/a',
+      '[^2]: Source 2 - https://example.com/b',
     ].join('\n');
     const runRoot = makeRun({
       plan: makePlan(),
@@ -463,8 +463,8 @@ describe('checkReportStructure — every-sub-question-has-section', () => {
       '',
       'wrap',
       '',
-      '[^1]: Source 1 — https://example.com/a',
-      '[^2]: Source 3 — https://example.com/c',
+      '[^1]: Source 1 - https://example.com/a',
+      '[^2]: Source 3 - https://example.com/c',
     ].join('\n');
     const runRoot = makeRun({
       plan: makePlan(),
@@ -483,7 +483,7 @@ describe('checkReportStructure — every-sub-question-has-section', () => {
 // no-duplicate-footnote-ids.
 // ──────────────────────────────────────────────────────────────────────
 
-describe('checkReportStructure — every-section-cites-a-source', () => {
+describe('checkReportStructure - every-section-cites-a-source', () => {
   test('section without any [^n] marker fails', () => {
     const report = [
       '# title',
@@ -504,8 +504,8 @@ describe('checkReportStructure — every-section-cites-a-source', () => {
       '',
       'wrap',
       '',
-      '[^1]: Source 1 — https://example.com/a',
-      '[^2]: Source 2 — https://example.com/b',
+      '[^1]: Source 1 - https://example.com/a',
+      '[^2]: Source 2 - https://example.com/b',
       '',
     ].join('\n');
     const runRoot = makeRun({
@@ -547,8 +547,8 @@ describe('checkReportStructure — every-section-cites-a-source', () => {
       '',
       'wrap',
       '',
-      '[^1]: Source 1 — https://example.com/a',
-      '[^2]: Source 2 — https://example.com/b',
+      '[^1]: Source 1 - https://example.com/a',
+      '[^2]: Source 2 - https://example.com/b',
       '',
     ].join('\n');
     const runRoot = makeRun({
@@ -600,12 +600,12 @@ describe('checkReportStructure — every-section-cites-a-source', () => {
   });
 });
 
-describe('checkReportStructure — no-duplicate-footnote-ids', () => {
+describe('checkReportStructure - no-duplicate-footnote-ids', () => {
   test('duplicate [^1]: definition fails', () => {
     // Append a second [^1] definition.
     const report = validReport().replace(
-      '[^1]: Source 1 — https://example.com/a\n',
-      '[^1]: Source 1 — https://example.com/a\n[^1]: Source 1 — https://example.com/a\n',
+      '[^1]: Source 1 - https://example.com/a\n',
+      '[^1]: Source 1 - https://example.com/a\n[^1]: Source 1 - https://example.com/a\n',
     );
     const runRoot = makeRun({ plan: makePlan(), report, sources: validSources() });
 
@@ -638,8 +638,8 @@ describe('checkReportStructure — no-duplicate-footnote-ids', () => {
       '',
       'wrap',
       '',
-      '[^1]: Source 1 — https://example.com/a',
-      '[^3]: Source 3 — https://example.com/c',
+      '[^1]: Source 1 - https://example.com/a',
+      '[^3]: Source 3 - https://example.com/c',
     ].join('\n');
     const runRoot = makeRun({
       plan: makePlan(),
@@ -661,7 +661,7 @@ describe('checkReportStructure — no-duplicate-footnote-ids', () => {
 // no-bare-urls-in-body.
 // ──────────────────────────────────────────────────────────────────────
 
-describe('checkReportStructure — no-bare-urls-in-body', () => {
+describe('checkReportStructure - no-bare-urls-in-body', () => {
   test('bare URL in body that is not in the store fails', () => {
     const report = validReport().replace(
       'Background paragraph citing a source [^1].',
@@ -682,7 +682,7 @@ describe('checkReportStructure — no-bare-urls-in-body', () => {
   test('bare URL in body that IS in the store passes silently', () => {
     const report = validReport().replace(
       'Background paragraph citing a source [^1].',
-      'Background paragraph — see https://example.com/a — and source [^1].',
+      'Background paragraph - see https://example.com/a - and source [^1].',
     );
     const runRoot = makeRun({ plan: makePlan(), report, sources: validSources() });
 
@@ -709,11 +709,11 @@ describe('checkReportStructure — no-bare-urls-in-body', () => {
   });
 
   test('sentence-ending punctuation on a footnote URL is tolerated', () => {
-    // Same fix applies to footnote definition URLs — a trailing
+    // Same fix applies to footnote definition URLs - a trailing
     // period shouldn't demote the store-match to a mismatch.
     const report = validReport().replace(
-      '[^1]: Source 1 — https://example.com/a',
-      '[^1]: Source 1 — https://example.com/a.',
+      '[^1]: Source 1 - https://example.com/a',
+      '[^1]: Source 1 - https://example.com/a.',
     );
     const runRoot = makeRun({ plan: makePlan(), report, sources: validSources() });
 
@@ -724,7 +724,7 @@ describe('checkReportStructure — no-bare-urls-in-body', () => {
 
   test('URLs inside the footnotes block are NOT flagged', () => {
     // validReport already has URLs inside the footnote definitions;
-    // the happy-path test asserts ok=true, so this is covered —
+    // the happy-path test asserts ok=true, so this is covered -
     // here we additionally assert bareUrlsInBody=0, i.e. the
     // partitioning works.
     const runRoot = makeRun({ plan: makePlan(), report: validReport(), sources: validSources() });
@@ -782,7 +782,7 @@ function makeStats(): {
 }
 
 // ──────────────────────────────────────────────────────────────────────
-// CLI smoke test — exercise the `node <module> <runRoot>` shape
+// CLI smoke test - exercise the `node <module> <runRoot>` shape
 // the `kind=bash` iteration-loop check will invoke.
 // ──────────────────────────────────────────────────────────────────────
 

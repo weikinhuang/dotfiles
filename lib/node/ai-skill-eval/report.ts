@@ -132,14 +132,14 @@ function renderDetailSection(g: GradeRecord, lines: string[]): void {
   const rate = typeof g.trigger_rate === 'number' ? g.trigger_rate.toFixed(2) : '0.00';
   const configTag = g.config === 'without_skill' ? ' [without_skill]' : ' [with_skill]';
   lines.push(`### ${g.skill} / ${g.eval_id}${configTag}`, '');
-  lines.push(`- **Trigger rate:** ${triggers}/${runs} (${rate}) — ${mark}`);
+  lines.push(`- **Trigger rate:** ${triggers}/${runs} (${rate}) - ${mark}`);
   if (Array.isArray(g.per_run) && g.per_run.length > 0) {
     lines.push('- **Per-run replies:**');
     g.per_run.forEach((r, i) => {
       const t = r.trigger || '(empty)';
       const reason = r.reason || '';
       const step = r.next_step || '';
-      lines.push(`  - Run ${i + 1}: \`${t}\` — ${reason} / ${step}`);
+      lines.push(`  - Run ${i + 1}: \`${t}\` - ${reason} / ${step}`);
     });
   }
   lines.push('- **Expectations:**');
@@ -187,10 +187,10 @@ function renderBaselineTable(
     const want = g.should_trigger ? 'yes' : 'no';
     const wsRate = `${triggerRateLabel(g)} (${(g.trigger_rate ?? 0).toFixed(2)})`;
     const b = baseline.get(`${g.skill}:${g.eval_id}`);
-    const bRate = b ? `${triggerRateLabel(b)} (${(b.trigger_rate ?? 0).toFixed(2)})` : '—';
-    const delta = b ? formatDelta(g.trigger_rate ?? 0, b.trigger_rate ?? 0) : '—';
+    const bRate = b ? `${triggerRateLabel(b)} (${(b.trigger_rate ?? 0).toFixed(2)})` : '-';
+    const delta = b ? formatDelta(g.trigger_rate ?? 0, b.trigger_rate ?? 0) : '-';
     const wsMark = g.trigger_pass ? '✅' : '❌';
-    const bMark = b ? (b.trigger_pass ? '✅' : '❌') : '—';
+    const bMark = b ? (b.trigger_pass ? '✅' : '❌') : '-';
     lines.push(`| ${g.skill} | ${g.eval_id} | ${want} | ${wsRate} | ${bRate} | ${delta} | ${wsMark} | ${bMark} |`);
   }
 }
@@ -244,7 +244,7 @@ export function renderMarkdown(grades: readonly GradeRecord[]): string {
     lines.push(
       '---',
       '',
-      "Note: for `should_trigger=false` evals, a baseline 'pass' means the model also declined to apply a skill — which is the **uncued** default, NOT evidence that the skill helped. Only the `should_trigger=true` rows where `with_skill` passed and `without_skill` failed are direct evidence the skill moved the model.",
+      "Note: for `should_trigger=false` evals, a baseline 'pass' means the model also declined to apply a skill - which is the **uncued** default, NOT evidence that the skill helped. Only the `should_trigger=true` rows where `with_skill` passed and `without_skill` failed are direct evidence the skill moved the model.",
       '',
     );
   }
@@ -255,7 +255,7 @@ export function renderMarkdown(grades: readonly GradeRecord[]): string {
  * Render the cross-iteration Δ section appended to `report --compare-to N`.
  * Pairs primary vs compared by `(skill, eval_id, config)` and shows the
  * per-eval trigger-rate + expectation-pass deltas. Missing counterparts on
- * either side are shown as `—`; this is expected when evals were added or
+ * either side are shown as `-`; this is expected when evals were added or
  * removed between iterations.
  */
 export function renderCrossIterationMarkdown(
@@ -280,10 +280,10 @@ export function renderCrossIterationMarkdown(
     const key = `${p.skill}:${p.eval_id}:${cfg}`;
     const b = index.get(key);
     const pTrig = triggerRateLabel(p);
-    const bTrig = b ? triggerRateLabel(b) : '—';
-    const dTrig = b ? formatDelta(p.trigger_rate ?? 0, b.trigger_rate ?? 0) : '—';
+    const bTrig = b ? triggerRateLabel(b) : '-';
+    const dTrig = b ? formatDelta(p.trigger_rate ?? 0, b.trigger_rate ?? 0) : '-';
     const pExp = `${p.expectation_pass || 0}/${p.expectation_total || 0}`;
-    const bExp = b ? `${b.expectation_pass || 0}/${b.expectation_total || 0}` : '—';
+    const bExp = b ? `${b.expectation_pass || 0}/${b.expectation_total || 0}` : '-';
     const dExp = b
       ? formatExpectationDelta(
           p.expectation_pass || 0,
@@ -291,7 +291,7 @@ export function renderCrossIterationMarkdown(
           b.expectation_pass || 0,
           b.expectation_total || 0,
         )
-      : '—';
+      : '-';
     lines.push(`| ${p.skill} | ${p.eval_id} | ${cfg} | ${pTrig} | ${bTrig} | ${dTrig} | ${pExp} | ${bExp} | ${dExp} |`);
   }
 
@@ -303,7 +303,7 @@ export function renderCrossIterationMarkdown(
     if (primaryKeys.has(key)) continue;
     const bTrig = triggerRateLabel(b);
     const bExp = `${b.expectation_pass || 0}/${b.expectation_total || 0}`;
-    lines.push(`| ${b.skill} | ${b.eval_id} | ${cfg} | — | ${bTrig} | — | — | ${bExp} | — |`);
+    lines.push(`| ${b.skill} | ${b.eval_id} | ${cfg} | - | ${bTrig} | - | - | ${bExp} | - |`);
   }
 
   return `${lines.join('\n')}\n`;

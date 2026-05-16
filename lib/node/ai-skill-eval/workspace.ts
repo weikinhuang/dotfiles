@@ -101,7 +101,7 @@ const LEGACY_FLAT_ENTRIES: readonly string[] = [
 /**
  * Remove pre-R3.3 flat-layout files and subdirs from `<workspace>/<skill>/`.
  * No-op when the skill workspace has no legacy entries. Iteration subdirs
- * (`iteration-N/`) are never touched — only the sibling legacy entries are.
+ * (`iteration-N/`) are never touched - only the sibling legacy entries are.
  */
 export function cleanLegacyFlat(workspace: string, skill: string): void {
   const dir = skillWorkspace(workspace, skill);

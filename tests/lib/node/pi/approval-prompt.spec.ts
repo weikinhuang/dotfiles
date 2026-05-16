@@ -1,7 +1,7 @@
 /**
  * Tests for lib/node/pi/approval-prompt.ts.
  *
- * Pure module — no pi runtime needed. Stub the structural
+ * Pure module - no pi runtime needed. Stub the structural
  * `ApprovalPromptContext` directly.
  */
 
@@ -65,7 +65,7 @@ describe('askForPermission', () => {
 
     expect(decision).toEqual({ kind: 'allow-session' });
 
-    // Session label is path-templated — confirm the prompt offered it.
+    // Session label is path-templated - confirm the prompt offered it.
     const offered = select.mock.calls[0]?.[1] as string[];
 
     expect(offered).toContain(sessionLabel);

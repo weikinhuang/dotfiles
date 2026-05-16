@@ -7,7 +7,7 @@
  * that wraps one phase's async work, measures it, and appends a
  * `warn` entry to `journal.md` on overrun. That decorator model is
  * a perfect fit for a freshly-refactored pipeline where each phase
- * is a single callable — but the current deep-research pipeline
+ * is a single callable - but the current deep-research pipeline
  * emits observability via a `PhaseEvent` stream rather than
  * exposing per-phase awaitables, and the long-lived parent session
  * straddles multiple phases (planner → self-crit → synth → merge →
@@ -25,7 +25,7 @@
  *      firing overrun warnings) and open the incoming one.
  *   3. Hand a `PhaseTracker` to every cost-hook / subagent spawn
  *      so per-assistant-turn cost deltas land in the right
- *      phase's accumulator — either a phase known at the call
+ *      phase's accumulator - either a phase known at the call
  *      site (`trackerFor('fanout')`) or the current phase
  *      inferred from observed events (`currentPhaseTracker`, used
  *      for the long-lived parent session).
@@ -52,7 +52,7 @@
  *   - Phase mapping is conservative: events that do not clearly
  *     belong to a named phase (`fanout-progress`, `cost`, `done`,
  *     `error`, `start`) do not force a phase switch. `done` and
- *     `error` are the only terminal events — they close the
+ *     `error` are the only terminal events - they close the
  *     current phase without opening a new one.
  */
 
@@ -70,15 +70,15 @@ import { appendJournal } from './research-journal.ts';
  * the budget machinery doesn't carry UI-only states (`idle`,
  * `done`, `error`, `structural`) as separate cost buckets.
  *
- *   - `planner`    — planner agent + self-critic rewrite turns.
+ *   - `planner`    - planner agent + self-critic rewrite turns.
  *                    Same budget bucket because both run on the
  *                    parent session during the planning phase.
- *   - `plan-crit`  — planning-critic subagent spawn.
- *   - `fanout`     — web-researcher subagent spawns.
- *   - `synth`      — per-section synth turns on the parent session.
- *   - `merge`      — final merge turn on the parent session.
- *   - `refine`     — refinement synth turns (per review iteration).
- *   - `review`     — subjective critic subagent spawns. Structural
+ *   - `plan-crit`  - planning-critic subagent spawn.
+ *   - `fanout`     - web-researcher subagent spawns.
+ *   - `synth`      - per-section synth turns on the parent session.
+ *   - `merge`      - final merge turn on the parent session.
+ *   - `refine`     - refinement synth turns (per review iteration).
+ *   - `review`     - subjective critic subagent spawns. Structural
  *                    review is a deterministic bash check with no
  *                    LLM cost, so it does not get its own bucket.
  */
@@ -87,7 +87,7 @@ export type BudgetPhase = 'planner' | 'plan-crit' | 'fanout' | 'synth' | 'merge'
 /**
  * Generous per-phase caps used by the production deep-research
  * extension. These are advisory: `trackPhase` / LiveBudget only
- * log a `warn` entry when a phase blows through its cap — nothing
+ * log a `warn` entry when a phase blows through its cap - nothing
  * is aborted.
  *
  * Numbers calibrated against a claude-haiku fanout run spanning
@@ -153,7 +153,7 @@ export interface LiveBudget {
   observePhaseEvent(event: PhaseEvent): void;
   /**
    * Tracker whose `addCost` lands on the currently-open phase.
-   * Use for the long-lived parent session — its assistant turns
+   * Use for the long-lived parent session - its assistant turns
    * span multiple phases, so the correct bucket depends on when
    * the turn lands.
    */
@@ -224,7 +224,7 @@ export function createLiveBudget(opts: CreateLiveBudgetOpts): LiveBudget {
             body: `spent ${phaseCost.toFixed(6)} USD / cap ${phase.maxCostUsd.toFixed(6)} USD`,
           });
         } catch {
-          /* swallow — journaling is best-effort */
+          /* swallow - journaling is best-effort */
         }
       }
     }
@@ -256,7 +256,7 @@ export function createLiveBudget(opts: CreateLiveBudgetOpts): LiveBudget {
   };
 
   const openPhase = (name: BudgetPhase): void => {
-    if (currentPhase === name) return; // idempotent — repeated event for the same phase
+    if (currentPhase === name) return; // idempotent - repeated event for the same phase
     closeCurrent();
     currentPhase = name;
     currentPhaseStartMs = now();

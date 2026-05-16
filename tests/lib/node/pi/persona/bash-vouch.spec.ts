@@ -1,12 +1,12 @@
 /**
- * Tests for lib/node/pi/persona/bash-vouch.ts — pure helper that
+ * Tests for lib/node/pi/persona/bash-vouch.ts - pure helper that
  * decides whether the active persona's bashAllow vouches for a bash
  * sub-command at the bash-permissions layer.
  */
 
 import { describe, expect, test } from 'vitest';
 
-import  { type ActivePersonaSnapshot } from '../../../../../lib/node/pi/persona/active.ts';
+import { type ActivePersonaSnapshot } from '../../../../../lib/node/pi/persona/active.ts';
 import { personaVouchBash } from '../../../../../lib/node/pi/persona/bash-vouch.ts';
 
 const snapshot = (overrides: Partial<ActivePersonaSnapshot> = {}): ActivePersonaSnapshot => ({
@@ -68,7 +68,7 @@ describe('personaVouchBash', () => {
   test('bashDeny does NOT short-circuit a matching bashAllow (allow wins)', () => {
     // Mirrors evaluateBashPolicy: allow > deny on overlap. A persona
     // shipping `bashAllow: ['*'], bashDeny: ['curl *']` is asserting
-    // "I trust everything" — the broader allow wins.
+    // "I trust everything" - the broader allow wins.
     const active = snapshot({ bashAllow: ['*'], bashDeny: ['curl *'] });
     const result = personaVouchBash({ command: 'curl https://example.com', active });
 
@@ -79,7 +79,7 @@ describe('personaVouchBash', () => {
   test('bashDeny matters only when bashAllow does not match', () => {
     // Vouch fires only when bashAllow matches. With bashAllow that
     // doesn't cover the command, the function returns no-vouch
-    // regardless of bashDeny — bash-permissions then handles the
+    // regardless of bashDeny - bash-permissions then handles the
     // command on its own (and persona's own enforcement layer blocks
     // it via the deny).
     const active = snapshot({ bashAllow: ['rg *'], bashDeny: ['curl *'] });
@@ -93,7 +93,7 @@ describe('personaVouchBash', () => {
     const result = personaVouchBash({ command: 'ai-fetch-web search foo', active });
 
     expect(result.vouched).toBe(true);
-    // Specificity not enforced — first listed match wins. Both are valid;
+    // Specificity not enforced - first listed match wins. Both are valid;
     // assert the actual behaviour so the diagnostic is predictable.
     expect(result.matchedPattern).toBe('ai-fetch-web *');
   });

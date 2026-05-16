@@ -1,7 +1,7 @@
 /**
  * Cross-module failure-mode suite for research-core.
  *
- * These invariants span MORE THAN ONE research-* module — individual
+ * These invariants span MORE THAN ONE research-* module - individual
  * module specs cannot assert them because the contract lives at the
  * seam between modules. They are the evidence that the
  * research-extensions robustness principle holds: the machinery
@@ -78,13 +78,13 @@ beforeEach(() => {
 
 afterEach(() => {
   // Restore perms on the atomic-write simulation dir if a test
-  // left it chmodded — `rmSync(..., { force: true })` ignores
+  // left it chmodded - `rmSync(..., { force: true })` ignores
   // ENOENT but cannot remove a non-empty read-only dir. Best-effort
   // restore before the final rm.
   try {
     chmodSync(tmpDir, 0o755);
   } catch {
-    /* ignore — may already be writable or already removed */
+    /* ignore - may already be writable or already removed */
   }
   rmSync(tmpDir, { recursive: true, force: true });
 });
@@ -135,7 +135,7 @@ function makeSession(scripted: string[]): ResearchSessionLike {
 // ──────────────────────────────────────────────────────────────────────
 // Helpers: MCP client, watchdog clock + handle.
 //
-// These shapes duplicate patterns in sibling specs on purpose — each
+// These shapes duplicate patterns in sibling specs on purpose - each
 // research-*.spec.ts owns its own fixtures rather than reaching into
 // a shared module. See research-watchdog.spec.ts for the canonical
 // `makeClock` / `makeHandle`, research-sources.spec.ts for the
@@ -148,7 +148,7 @@ function makeSession(scripted: string[]): ResearchSessionLike {
 /**
  * Client that answers any normalized form of one URL with the same
  * markdown body. The returned response's `url` field is the ORIGINAL
- * caller-supplied URL (captured from the factory argument) — the
+ * caller-supplied URL (captured from the factory argument) - the
  * source store records `normalizeUrl(url)` in the persisted ref
  * regardless, so the literal here is just a placeholder.
  */
@@ -259,7 +259,7 @@ function fakeCtx(cwd: string): {
 }
 
 // ──────────────────────────────────────────────────────────────────────
-// Representative-subset runner — used by the non-load-bearing
+// Representative-subset runner - used by the non-load-bearing
 // invariant (test 8) to assert bit-identical outcomes with and
 // without `tinyModel` configured.
 // ──────────────────────────────────────────────────────────────────────
@@ -309,7 +309,7 @@ async function runRepresentativeSubset(rootDir: string): Promise<{
   ]);
   const sourceFileCount = listRun(runRoot).length;
 
-  // (d) journal — a single successful append gives us the entry
+  // (d) journal - a single successful append gives us the entry
   //     count surface; the full atomic-write contract under
   //     simulated interrupt lives in its dedicated test so this
   //     helper stays side-effect-predictable across the two passes.
@@ -344,7 +344,7 @@ async function runRepresentativeSubset(rootDir: string): Promise<{
 }
 
 // ──────────────────────────────────────────────────────────────────────
-// "Running as root" gate — chmod is a no-op against uid 0, so the
+// "Running as root" gate - chmod is a no-op against uid 0, so the
 // atomic-write simulation test becomes inconclusive under root. The
 // invariant still holds; we just can't exercise the failure path.
 // ──────────────────────────────────────────────────────────────────────
@@ -352,7 +352,7 @@ async function runRepresentativeSubset(rootDir: string): Promise<{
 const RUNNING_AS_ROOT = typeof process.getuid === 'function' && process.getuid() === 0;
 
 // ──────────────────────────────────────────────────────────────────────
-// Assertions — one test() block per cross-module invariant.
+// Assertions - one test() block per cross-module invariant.
 // ──────────────────────────────────────────────────────────────────────
 
 describe('research failure modes', () => {
@@ -391,7 +391,7 @@ describe('research failure modes', () => {
     // who want throw-on-exhaust wire `fallback: () => { throw ... }`.
     // This asserts the surface: exhausted retries must either
     // produce a caller-authored value OR propagate the caller's
-    // typed error — never `undefined`.
+    // typed error - never `undefined`.
     const session = makeSession(['prose only', 'still prose', 'nope']);
     const onRetry = vi.fn();
 
@@ -416,10 +416,10 @@ describe('research failure modes', () => {
     expect(onRetry).toHaveBeenCalledTimes(3);
   });
 
-  test('fanout.json alongside plan.json writes cleanly — readPlan reads plan, fanout.json stays intact', async () => {
+  test('fanout.json alongside plan.json writes cleanly - readPlan reads plan, fanout.json stays intact', async () => {
     // research-plan and (future) research-fanout both land files in
-    // the same run directory. They don't truly race — Node.js runs
-    // sync fs calls sequentially on a single thread — but their
+    // the same run directory. They don't truly race - Node.js runs
+    // sync fs calls sequentially on a single thread - but their
     // tempfile suffixes must stay unique so interleaved writes don't
     // collide or leak residue. atomic-write's pid+timestamp+counter
     // suffix is what buys us that; this test pins the contract end-
@@ -493,7 +493,7 @@ describe('research failure modes', () => {
     'appendJournal under simulated interrupt produces a full entry or no entry (atomic-write contract)',
     () => {
       // chmodSync to block the tempfile write is our interrupt
-      // simulation — atomicWriteFile throws inside appendJournal
+      // simulation - atomicWriteFile throws inside appendJournal
       // without having touched the destination. The destination
       // must keep its full old content (or stay absent); a
       // truncated entry at the tail would be a violation of the
@@ -504,7 +504,7 @@ describe('research failure modes', () => {
 
       expect(readJournal(path)).toHaveLength(1);
 
-      // Block any new file creation in `tmpDir` — atomicWriteFile's
+      // Block any new file creation in `tmpDir` - atomicWriteFile's
       // tempfile creation fails with EACCES before the rename step.
       chmodSync(tmpDir, 0o555);
       let threw = false;
@@ -518,7 +518,7 @@ describe('research failure modes', () => {
 
       expect(threw).toBe(true);
 
-      // Full old content survives — not truncated, not partially
+      // Full old content survives - not truncated, not partially
       // rewritten.
       const after = readFileSync(path, 'utf8');
 
@@ -579,7 +579,7 @@ describe('research failure modes', () => {
   });
 
   test('tiny adapter (tinyModel unset): every call returns null without invoking the runner', async () => {
-    // Non-load-bearing plumbing — part 1: with no settings
+    // Non-load-bearing plumbing - part 1: with no settings
     // resolved, the adapter is permanently disabled and MUST short-
     // circuit every call surface without spawning anything.
     const runner = vi.fn<TinyRunOneShot<FakeModel>>(noopRunOneShot());
@@ -602,12 +602,12 @@ describe('research failure modes', () => {
   });
 
   test('failure-mode representative subset is identical with and without tinyModel configured', async () => {
-    // Non-load-bearing plumbing — part 2: flipping the tiny adapter
+    // Non-load-bearing plumbing - part 2: flipping the tiny adapter
     // between unset (no settings) and set (settings + mock runner)
     // must not change the outcome of any cross-module failure-mode
     // invariant. The subset run here exercises quarantine +
     // provenance, callTyped, source de-dup, journal append, and
-    // watchdog pure observation — none of which touch the tiny
+    // watchdog pure observation - none of which touch the tiny
     // adapter. If a future change starts threading tiny calls
     // through any of these paths, this test will flip red and flag
     // the regression.
@@ -627,7 +627,7 @@ describe('research failure modes', () => {
       const resultA = await runRepresentativeSubset(runDirA);
 
       // --- Pass B: tiny adapter enabled (but none of the subset
-      //             helpers actually invoke it — that's the point). ---
+      //             helpers actually invoke it - that's the point). ---
       const settingsOn: TinySettings = { tinyModel: 'local/tiny-1', source: '/virtual/settings.json' };
       const runner = vi.fn<TinyRunOneShot<FakeModel>>(noopRunOneShot());
       const adapterOn = createTinyAdapter<FakeModel>({
@@ -645,7 +645,7 @@ describe('research failure modes', () => {
       expect(resultB).toEqual(resultA);
 
       // And the tiny runner must not have been invoked by the
-      // subset — if something in the subset acquired a tiny-adapter
+      // subset - if something in the subset acquired a tiny-adapter
       // dependency, this catches it.
       expect(runner).not.toHaveBeenCalled();
     } finally {

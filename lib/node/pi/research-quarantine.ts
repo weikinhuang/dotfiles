@@ -17,7 +17,7 @@
  * Quarantine is paired with a small on-disk failure counter so
  * callers can implement "twice-malformed → quarantine" policies
  * without stitching together their own JSON state. The counter is
- * deliberately minimal — bump / get / reset keyed by opaque id; the
+ * deliberately minimal - bump / get / reset keyed by opaque id; the
  * meaning of "attempt" is the caller's.
  *
  * Atomic policy:
@@ -30,7 +30,7 @@
  *     with no reason.json until the subsequent write lands).
  *   - When a `<path>.provenance.json` sidecar exists it is moved
  *     by a second `renameSync` call. That rename is NOT atomic
- *     with the artifact's rename — a crash in between leaves the
+ *     with the artifact's rename - a crash in between leaves the
  *     artifact moved and the sidecar stranded at the source path.
  *     The reader contract is tolerant (`readProvenance` returns
  *     `null` when no sidecar is found) so the partial state
@@ -100,7 +100,7 @@ export interface QuarantineResult {
 
 /**
  * Shape persisted in `reason.json` inside each quarantine target
- * directory. Keep the schema narrow — `reason` is free-form so
+ * directory. Keep the schema narrow - `reason` is free-form so
  * callers can paste raw validation errors without reshaping them.
  */
 export interface QuarantineReason {
@@ -119,7 +119,7 @@ export interface QuarantineReason {
 // ──────────────────────────────────────────────────────────────────────
 
 /**
- * `YYYYMMDDTHHMMSSZ` — compact UTC stamp used as the quarantine
+ * `YYYYMMDDTHHMMSSZ` - compact UTC stamp used as the quarantine
  * directory suffix. Same-second ties are broken by `firstAvailable`.
  */
 function compactTimestamp(d: Date): string {
@@ -235,7 +235,7 @@ export interface FailureCounter {
  * Open a failure counter backed by `stateFile`. The file holds a
  * JSON object `{ [id: string]: number }`; corrupt files are treated
  * as empty state on read (a corrupted counter should not brick the
- * research pipeline — quarantine is still available).
+ * research pipeline - quarantine is still available).
  *
  * Each mutation rewrites the whole file atomically. Fine for the
  * expected scale (dozens of ids, hundreds of bumps per run); if a

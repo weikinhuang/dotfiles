@@ -1,4 +1,4 @@
-/* Read "Internals" at the bottom — public API comes first. The
+/* Read "Internals" at the bottom - public API comes first. The
  * `no-use-before-define` rule is disabled at the file scope because
  * TS function declarations are hoisted and this ordering reads
  * top-down (public API → helpers). */
@@ -23,7 +23,7 @@
  *   3. Concatenate title → intro → sections → conclusion.
  *   4. Validate every `{{SRC:<id>}}` placeholder against the
  *      run's source store (via `research-citations.validatePlaceholders`).
- *      Unknown ids fail HARD — we refuse to render a draft with a
+ *      Unknown ids fail HARD - we refuse to render a draft with a
  *      hallucinated source, matching the plan's Risks section:
  *      "research-citations REJECTS the draft if any placeholder
  *      references an unknown ID".
@@ -39,7 +39,7 @@
  *
  *   - `callTyped` nudge + retry + fallback on merge metadata.
  *   - Structure check (`validatePlaceholders`) is a hard gate
- *     between synth output and the rendered report — a
+ *     between synth output and the rendered report - a
  *     hallucinated `{{SRC:...}}` throws a typed
  *     {@link UnknownPlaceholderError} the caller surfaces to the
  *     journal, never silently renders a dangling citation.
@@ -106,7 +106,7 @@ export class UnknownPlaceholderError extends Error {
 /**
  * What the merge LLM turn emits: a brief title + introductory
  * paragraphs + concluding paragraph. Sections ARE NOT regenerated
- * here — the synth stage already wrote them. This turn exists so
+ * here - the synth stage already wrote them. This turn exists so
  * the report has a cohesive wrapper, not so it rewrites content.
  */
 export interface MergeOutput {
@@ -226,7 +226,7 @@ export interface SynthMergeOpts<M> {
   /**
    * Per-sub-question outcomes from the synth stage. Ordering in
    * the final report follows `plan.subQuestions`, NOT the order of
-   * this array — outcomes are looked up by id.
+   * this array - outcomes are looked up by id.
    */
   sectionOutcomes: readonly SectionOutcome[];
   /**
@@ -243,12 +243,12 @@ export interface SynthMergeOpts<M> {
   /** Journal path; swallowed on missing dir. */
   journalPath?: string;
   /**
-   * Pre-loaded source index. Optional — we fall back to
+   * Pre-loaded source index. Optional - we fall back to
    * `research-sources.listRun(runRoot)`. Lets the driver share
    * the index with synth-sections so the store is walked once.
    */
   sourceIndex?: readonly SourceRef[];
-  /** Optional tiny adapter — error humanization + provenance summary. */
+  /** Optional tiny adapter - error humanization + provenance summary. */
   tinyAdapter?: TinyAdapter<M>;
   tinyCtx?: TinyCallContext<M>;
   /**
@@ -333,11 +333,11 @@ export async function runSynthMerge<M>(opts: SynthMergeOpts<M>): Promise<SynthMe
   let meta: MergeOutput;
   let usedFallback = false;
   if (isStuckShape(typed)) {
-    journalIf(opts, 'warn', `merge emitted stuck — using deterministic wrapper`, typed.reason);
+    journalIf(opts, 'warn', `merge emitted stuck - using deterministic wrapper`, typed.reason);
     meta = deterministic;
     usedFallback = true;
   } else if (typed === FALLBACK_SENTINEL) {
-    journalIf(opts, 'warn', `merge retries exhausted — using deterministic wrapper`);
+    journalIf(opts, 'warn', `merge retries exhausted - using deterministic wrapper`);
     meta = deterministic;
     usedFallback = true;
   } else {
@@ -515,7 +515,7 @@ function firstParagraphLead(body: string): string {
 /**
  * Deterministic wrapper used when the merge LLM turn exhausts
  * retries or emits `stuck`. Keeps the report shipping even when
- * the glue call fails — matches the robustness principle's "the
+ * the glue call fails - matches the robustness principle's "the
  * fallback is a narrower-but-valid result, not a silent skip".
  */
 function buildDeterministicMerge(plan: DeepResearchPlan): MergeOutput {
@@ -534,7 +534,7 @@ function buildDeterministicMerge(plan: DeepResearchPlan): MergeOutput {
       .slice(0, MERGE_INTRO_MAX),
     conclusion: [
       `See the sub-question sections above for the detailed, cited findings.`,
-      `Contradictions or gaps between sources — if any — are flagged inline in the relevant section.`,
+      `Contradictions or gaps between sources - if any - are flagged inline in the relevant section.`,
     ]
       .join(' ')
       .slice(0, MERGE_CONCLUSION_MAX),
@@ -577,7 +577,7 @@ function composeDraft(args: {
 
 /**
  * Cheap footnote counter used for the journal line. Not a
- * structural check — that's Phase 4's job.
+ * structural check - that's Phase 4's job.
  */
 function countFootnotes(report: string): number {
   const matches = report.match(/^\[\^[0-9]+\]:/gm);
@@ -587,7 +587,7 @@ function countFootnotes(report: string): number {
 /**
  * Build the short excerpt handed to `tinyProvenanceSummary` for
  * the report sidecar. Only the plan's top-level question + the
- * start of the merge prompt — the tiny helper has a 120-char
+ * start of the merge prompt - the tiny helper has a 120-char
  * output cap so there's no value in feeding it the whole
  * prompt.
  */

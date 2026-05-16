@@ -3,7 +3,7 @@
  *
  * Covers the mapping logic (structural failures → sub-question
  * refinement targets), the nudge formatters, and the end-to-end
- * disk state produced by `refineReport` — a re-synthesized
+ * disk state produced by `refineReport` - a re-synthesized
  * section replaces its snapshot, the merge rewrites `report.md`,
  * and untouched sections keep their previous bodies.
  *
@@ -80,7 +80,7 @@ function writeFinding(runRoot: string, id: string, sources: { label: string; url
   const dir = join(runRoot, 'findings');
   mkdirSync(dir, { recursive: true });
   const sourcesBody =
-    sources.length === 0 ? '  - None.' : sources.map((s) => `- [${s.label}] ${s.url} — description`).join('\n');
+    sources.length === 0 ? '  - None.' : sources.map((s) => `- [${s.label}] ${s.url} - description`).join('\n');
   const body = [
     `# Sub-question: ${id}`,
     '',
@@ -276,7 +276,7 @@ function mergeReply(title: string, intro: string, conclusion: string): string {
   return JSON.stringify({ title, introduction: intro, conclusion });
 }
 
-describe('refineReport — structural stage, per-section path', () => {
+describe('refineReport - structural stage, per-section path', () => {
   test('re-runs section synth for the named sub-question and preserves the untouched one', async () => {
     const plan = makePlan([
       { id: 'sq-1', question: 'What did X do?' },
@@ -363,7 +363,7 @@ describe('refineReport — structural stage, per-section path', () => {
   });
 });
 
-describe('refineReport — structural stage, merge-only path', () => {
+describe('refineReport - structural stage, merge-only path', () => {
   test('skips section synth when no failure pins to a section', async () => {
     const plan = makePlan([{ id: 'sq-1', question: 'Q1?' }]);
     writeSource(runRoot, { id: 'a1', url: 'https://example.com/a', title: 'A1' });
@@ -392,7 +392,7 @@ describe('refineReport — structural stage, merge-only path', () => {
   });
 });
 
-describe('refineReport — subjective stage', () => {
+describe('refineReport - subjective stage', () => {
   test('runs merge only with the critic nudge threaded into the prompt', async () => {
     const plan = makePlan([{ id: 'sq-1', question: 'Q1?' }]);
     writeSource(runRoot, { id: 'a1', url: 'https://example.com/a', title: 'A1' });

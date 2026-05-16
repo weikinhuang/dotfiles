@@ -1,5 +1,5 @@
 /**
- * Bash permission gate for pi — Claude Code–style approval flow.
+ * Bash permission gate for pi - Claude Code–style approval flow.
  *
  * Intercepts every `bash` tool call and matches the command against
  * allow/deny rule sets loaded from three layers (deny beats allow, most
@@ -13,13 +13,13 @@
  * persona's `bashAllow` are treated as session-allowed by the
  * user-author of the persona file (allow wins over the persona's own
  * `bashDeny` on overlap, mirroring `evaluateBashPolicy`). This vouch
- * is session-scoped only — nothing is written to any
- * `bash-permissions.json` on disk — and it is NOT applied to the
+ * is session-scoped only - nothing is written to any
+ * `bash-permissions.json` on disk - and it is NOT applied to the
  * always-prompt list (sudo / doas / pkexec / …), which still requires
  * an explicit dialog. See `lib/node/pi/persona/bash-vouch.ts` and
  * `lib/node/pi/persona/active.ts` for the singleton plumbing.
  *
- * Rule files are JSONC — `//` line comments and C-style block comments
+ * Rule files are JSONC - `//` line comments and C-style block comments
  * are allowed so you can annotate why a rule exists. Trailing commas are
  * not supported. Malformed files log one `console.warn` per unique
  * path+error (re-checked each tool call) and are otherwise ignored;
@@ -32,7 +32,7 @@
  * disable (not recommended).
  *
  * An ALWAYS_PROMPT list (sudo, doas, run0, pkexec, gosu, su) forces a
- * prompt even when `/bash-auto` is on — privilege escalation is the one
+ * prompt even when `/bash-auto` is on - privilege escalation is the one
  * case where silent auto-run is never appropriate. An explicit allow
  * rule still bypasses the prompt for users who want a specific command
  * like `sudo apt-get install -y -qq foo` to auto-run. Set
@@ -46,19 +46,19 @@
  *                     you want whole-command matches.
  *   "/pattern/flags" → JS regex with flags (`[gimsuy]*`). Config-file only.
  *
- * Regex rules are intended for hand-edited config files — the approval
+ * Regex rules are intended for hand-edited config files - the approval
  * dialog's "save rule" options only produce exact / prefix strings.
  *
  * Compound commands joined by `&&`, `||`, or `;` are split and every
  * sub-command must pass independently. Pipes (`|`) are intentionally
- * left intact — piping is usually benign and splitting them produces
+ * left intact - piping is usually benign and splitting them produces
  * too many spurious prompts.
  *
  * When a command isn't covered by any rule, the user is asked:
  *   1. Allow once
  *   2. Allow "<exact>" for this session
  *   3. Always allow "<exact>" (project scope)
- *   4. Always allow "<tok1> <tok2>*" (project scope) — only if a sensible
+ *   4. Always allow "<tok1> <tok2>*" (project scope) - only if a sensible
  *      second token exists
  *   5. Always allow "<tok1>*" (user scope)
  *   6. Deny
@@ -85,7 +85,7 @@
  *   PI_BASH_PERMISSIONS_NO_HARDCODED_DENY=1   disable the built-in denylist
  *   PI_BASH_PERMISSIONS_NO_ALWAYS_PROMPT=1    disable the always-prompt list
  *                                             (sudo etc. auto-allowed
- *                                             under /bash-auto — risky)
+ *                                             under /bash-auto - risky)
  *
  * Pure helpers (splitCompound, matchesPattern, checkHardcodedDeny, …)
  * live in ./lib/bash-match.ts so they can be unit-tested under
@@ -135,7 +135,7 @@ function readRules(path: string): LoadedRules {
   try {
     raw = readFileSync(path, 'utf8');
   } catch {
-    // File missing / unreadable — silent. Missing rule files are the
+    // File missing / unreadable - silent. Missing rule files are the
     // common case (new project with no `.pi/bash-permissions.json`).
     return { allow: [], deny: [] };
   }
@@ -176,7 +176,7 @@ function addRule(path: string, kind: 'allow' | 'deny', pattern: string): void {
 /**
  * Collapse whitespace (including newlines) to single spaces and truncate.
  *
- * Pi's ExtensionSelectorComponent has no scrolling / height clamp — it
+ * Pi's ExtensionSelectorComponent has no scrolling / height clamp - it
  * renders every child line directly. If the dialog grows taller than the
  * terminal, the terminal itself scrolls and the UI flickers wildly on
  * every repaint. Keeping the rendered command to one short line is the
@@ -326,7 +326,7 @@ async function askForPermissionBatch(
   const summaryLines = visible.map((sub, idx) => {
     const reason = extras.alwaysPromptReasons?.get(sub);
     const marker = reason ? '  ⚡ ' : '  ';
-    return `${marker}${idx + 1}. ${compactForDialog(sub, 100)}${reason ? ` — ${reason}` : ''}`;
+    return `${marker}${idx + 1}. ${compactForDialog(sub, 100)}${reason ? ` - ${reason}` : ''}`;
   });
   if (hidden > 0) summaryLines.push(`  … and ${hidden} more`);
   const summary = summaryLines.join('\n');
@@ -407,7 +407,7 @@ export default function bashPermissions(pi: ExtensionAPI): void {
     if (!trimmed) return { allowed: true };
 
     const layers = loadLayers(ctx.cwd);
-    // Enumerate every sub-command the shell would actually execute —
+    // Enumerate every sub-command the shell would actually execute -
     // top-level `&&` / `||` / `;` / newline splits AND anything hidden
     // inside `$(…)` / `` `…` `` / `<(…)` / `>(…)` substitutions. Each
     // independently runs through the precedence ladder below, so a
@@ -419,7 +419,7 @@ export default function bashPermissions(pi: ExtensionAPI): void {
     // Single pass: apply the full precedence ladder per sub-command.
     // decideSubcommand enforces the invariant that auto mode NEVER beats
     // the hardcoded denylist, explicit deny rules, or the always-prompt
-    // list — that's the "except for risky actions" carve-out. When a
+    // list - that's the "except for risky actions" carve-out. When a
     // prompt is required because of always-prompt, the decision's reason
     // flags that so the dialog can tell the user why.
     const unknown: string[] = [];
@@ -430,7 +430,7 @@ export default function bashPermissions(pi: ExtensionAPI): void {
     // `protected-paths.ts`. Persona's `bashAllow` wins over its own
     // `bashDeny` on overlap (see `evaluateBashPolicy`), so the vouch
     // does too. Skipped for the always-prompt carve-out (sudo / doas /
-    // pkexec / …) — privilege escalation must always show the dialog
+    // pkexec / …) - privilege escalation must always show the dialog
     // regardless of who vouched.
     const activePersona = getActivePersona();
     for (const sub of subcommands) {
@@ -595,8 +595,8 @@ export default function bashPermissions(pi: ExtensionAPI): void {
       else if (arg === 'status' || arg === '?') {
         ctx.ui.notify(
           sessionAuto
-            ? '⚡ Auto mode ON — bash commands auto-run except hardcoded deny / explicit deny rules.'
-            : '✅ Auto mode OFF — bash commands require approval.',
+            ? '⚡ Auto mode ON - bash commands auto-run except hardcoded deny / explicit deny rules.'
+            : '✅ Auto mode OFF - bash commands require approval.',
           'info',
         );
         return;
@@ -615,7 +615,7 @@ export default function bashPermissions(pi: ExtensionAPI): void {
       if (sessionAuto) {
         ctx.ui.setStatus('bash-auto', '⚡ auto');
         ctx.ui.notify(
-          '⚡ Auto mode ON — bash commands will auto-run this session.\n' +
+          '⚡ Auto mode ON - bash commands will auto-run this session.\n' +
             'Hardcoded deny (rm -rf /, mkfs, …) and explicit deny rules still block.\n' +
             'protected-paths is unaffected (writes to .env / outside-workspace still prompt).\n' +
             'Run /bash-auto off to turn it back off.',
@@ -623,7 +623,7 @@ export default function bashPermissions(pi: ExtensionAPI): void {
         );
       } else {
         ctx.ui.setStatus('bash-auto', undefined);
-        ctx.ui.notify('✅ Auto mode OFF — bash commands require approval again.', 'info');
+        ctx.ui.notify('✅ Auto mode OFF - bash commands require approval again.', 'info');
       }
     },
   });

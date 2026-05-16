@@ -41,11 +41,11 @@ test('isInsideWriteRoots: root without trailing slash still works for nested', (
 });
 
 // ──────────────────────────────────────────────────────────────────────
-// Symlink-escape lock — D8 in plans/pi-mode-extension.md.
+// Symlink-escape lock - D8 in plans/pi-mode-extension.md.
 //
 // isInsideWriteRoots operates on path strings only. A symlink whose
 // target is OUTSIDE the root must still count as INSIDE when the LINK
-// path lives inside the root. The link path is what matters — the
+// path lives inside the root. The link path is what matters - the
 // target is irrelevant. Future readers: do NOT "fix" this by adding
 // realpath; the lock is intentional. See plan decision D8.
 // ──────────────────────────────────────────────────────────────────────
@@ -60,7 +60,7 @@ afterEach(() => {
   rmSync(sandbox, { recursive: true, force: true });
 });
 
-test('isInsideWriteRoots: symlink target NOT followed (D8 — link path wins)', () => {
+test('isInsideWriteRoots: symlink target NOT followed (D8 - link path wins)', () => {
   // <sandbox>/plans/leak  → symlink to /etc/passwd (target outside root)
   const plansDir = join(sandbox, 'plans');
   mkdirSync(plansDir, { recursive: true });

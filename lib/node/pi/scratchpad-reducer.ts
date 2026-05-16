@@ -6,7 +6,7 @@
  *
  * The scratchpad is the unstructured counterpart to the todo extension:
  * where `todo` holds a typed plan, the scratchpad holds free-form working
- * notes — decisions the model made, file paths it keeps losing, test
+ * notes - decisions the model made, file paths it keeps losing, test
  * commands it wants to re-run, TODOs the user asked about in passing.
  *
  * State persistence mirrors `todo-reducer.ts`:
@@ -37,7 +37,7 @@ export interface ScratchNote {
   id: number;
   /**
    * Optional short label rendered as a bold heading in the injected
-   * prompt block. Heading is *descriptive*, not a key — duplicate
+   * prompt block. Heading is *descriptive*, not a key - duplicate
    * headings are allowed and group naturally when rendered.
    */
   heading?: string;
@@ -104,7 +104,7 @@ export function reduceBranch(branch: readonly BranchEntry[]): ScratchpadState {
 }
 
 // ──────────────────────────────────────────────────────────────────────
-// Action handlers — pure (state, args) -> result. The tool's execute()
+// Action handlers - pure (state, args) -> result. The tool's execute()
 // just dispatches to these, then mirrors the resulting state.
 // ──────────────────────────────────────────────────────────────────────
 
@@ -157,7 +157,7 @@ export function actUpdate(
   if (!note) return { ok: false, error: `#${id} not found` };
   if (body !== undefined) {
     const trimmedBody = trimOrUndefined(body);
-    if (!trimmedBody) return { ok: false, error: 'update with empty `body` — use `remove` to delete the note' };
+    if (!trimmedBody) return { ok: false, error: 'update with empty `body` - use `remove` to delete the note' };
     note.body = trimmedBody;
   }
   if (heading !== undefined) {

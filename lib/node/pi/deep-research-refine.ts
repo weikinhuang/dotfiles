@@ -1,4 +1,4 @@
-/* Read "Internals" at the bottom — public API comes first. The
+/* Read "Internals" at the bottom - public API comes first. The
  * `no-use-before-define` rule is disabled at the file scope
  * because TS function declarations are hoisted and this file
  * reads top-down (public API → helpers). */
@@ -32,13 +32,13 @@
  *      so the intro / conclusion / ordering are rewritten. This
  *      handles:
  *      - `no-unresolved-placeholders`, `no-bare-urls-in-body`,
- *        `no-duplicate-footnote-ids` — global post-merge text
+ *        `no-duplicate-footnote-ids` - global post-merge text
  *        hygiene issues.
- *      - `every-sub-question-has-section` — merge re-runs
+ *      - `every-sub-question-has-section` - merge re-runs
  *        `loadSectionBody` for each sub-question, so a previously-
  *        missing section either resurfaces from disk or gets a
  *        stub.
- *      - critic verdict issues — subjective polish live in the
+ *      - critic verdict issues - subjective polish live in the
  *        merge prompt anyway.
  *
  * Why not re-run `runAllSections` for the whole plan? Cost and
@@ -46,7 +46,7 @@
  * and preserves sections the structural check was happy with. The
  * cost of the merge pass is fixed either way.
  *
- * This module is pure — it consumes a caller-supplied session and
+ * This module is pure - it consumes a caller-supplied session and
  * never loads pi's extension APIs. Tests inject a mocked session
  * factory and scripted `callTyped` replies to verify the mapping
  * logic, the nudge formatting, and the end-to-end disk state.
@@ -84,7 +84,7 @@ export interface RefineReportArgs<M> {
   session: ResearchSessionLike;
   model: string;
   thinkingLevel: string | null;
-  /** Shared source index; optional — we call listRun if omitted. */
+  /** Shared source index; optional - we call listRun if omitted. */
   sourceIndex?: readonly SourceRef[];
   /** Sub-question ids whose findings were quarantined upstream. */
   quarantinedFindings?: ReadonlySet<string>;
@@ -115,7 +115,7 @@ export interface RefineReportResult {
  * specific section. Everything else falls through to the
  * merge-only path.
  *
- * `every-section-cites-a-source` is the primary driver — it
+ * `every-section-cites-a-source` is the primary driver - it
  * carries a `location === sq.question` that maps cleanly back to
  * a sub-question. The marker-resolution ids are included here
  * opportunistically: a re-synth of the owning section often fixes
@@ -206,7 +206,7 @@ export function buildStructuralMergeNudge(failures: readonly StructuralFailure[]
     'The previous draft of the report failed the structural check with issues the per-section refinement cannot address. Specific issues:',
     ...bullets,
     '',
-    'Tighten the intro, conclusion, and section ordering so these issues do not recur. Do NOT introduce new footnote markers or source ids in the intro/conclusion — those come from the section bodies.',
+    'Tighten the intro, conclusion, and section ordering so these issues do not recur. Do NOT introduce new footnote markers or source ids in the intro/conclusion - those come from the section bodies.',
   ].join('\n');
 }
 
@@ -343,7 +343,7 @@ async function refineMergeOnly<M>(
     appendJournal(p.journal, {
       level: 'step',
       heading: `refinement: merge-only re-run (stage=${args.stage}, iter ${args.iteration})`,
-      body: nudge.length > 0 ? nudge : '(no nudge — empty verdict)',
+      body: nudge.length > 0 ? nudge : '(no nudge - empty verdict)',
     });
   } catch {
     /* swallow */
@@ -389,13 +389,13 @@ function composeSectionOutcomes(
     if (refreshed) return refreshed;
     const sectionPath = join(sectionsDir, `${sq.id}.md`);
     if (!existsSync(sectionPath)) {
-      // No snapshot on disk — either the initial synth phase
+      // No snapshot on disk - either the initial synth phase
       // produced a stuck / missing-finding outcome for this
       // sub-question, or the fanout subagent never wrote a
       // finding for it. Either way there's nothing to compose
       // from; merge will render a `[section unavailable: …]`
       // stub using this reason. Keep the message short and
-      // user-facing — the absolute path the previous revision
+      // user-facing - the absolute path the previous revision
       // included added zero signal for the reader.
       return {
         kind: 'missing-finding' as const,

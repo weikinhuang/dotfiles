@@ -8,7 +8,7 @@
  * the same moment. The pi-ai SDK surfaces these as thrown
  * `Error("Connection error.")` / `fetch failed` / `ECONNRESET` etc.,
  * which the fanout layer faithfully records as
- * `{ ok: false, reason: <msg> }` — at which point the only
+ * `{ ok: false, reason: <msg> }` - at which point the only
  * recovery is `/research --resume --from=fanout --sq=<failed ids>`.
  *
  * This helper adds a thin retry layer *inside* the spawner, so a
@@ -19,7 +19,7 @@
  *
  * Design choices:
  *   - Retries are wrapped *around* the single LLM call, not the
- *     outer fanout loop — the fanout's own idempotency (one finding
+ *     outer fanout loop - the fanout's own idempotency (one finding
  *     file per sub-question) already handles broader recovery.
  *   - Jittered exponential backoff so 5 concurrent retries don't
  *     re-collide at the same millisecond (which is exactly what
@@ -61,7 +61,7 @@ export const TRANSIENT_ERROR_PATTERNS: readonly RegExp[] = [
   /\bENOTFOUND\b/, // intermittent DNS failures
 
   // HTTP-level transient statuses. Anchored to avoid matching "429ers"
-  // or "503-byte response" — look for the code as a bare token.
+  // or "503-byte response" - look for the code as a bare token.
   /(?:^|\D)429(?:\D|$)/,
   /(?:^|\D)500(?:\D|$)/,
   /(?:^|\D)502(?:\D|$)/,
@@ -163,9 +163,9 @@ export async function withTransientRetry<T>(fn: (attempt: number) => Promise<T>,
       return await fn(attempt);
     } catch (err) {
       lastErr = err;
-      // Last attempt — nothing to wait for, just rethrow.
+      // Last attempt - nothing to wait for, just rethrow.
       if (attempt >= maxAttempts) throw err;
-      // Non-transient — bail out immediately so we don't paper
+      // Non-transient - bail out immediately so we don't paper
       // over a real problem (auth, validation, quota).
       if (!classifyTransientError(err)) throw err;
 
@@ -174,7 +174,7 @@ export async function withTransientRetry<T>(fn: (attempt: number) => Promise<T>,
       await sleep(delayMs);
     }
   }
-  // Unreachable — the loop always either returns or throws. Kept
+  // Unreachable - the loop always either returns or throws. Kept
   // as a belt-and-suspenders bail-out that preserves the last real
   // error if we somehow fell through without one being thrown.
   if (lastErr instanceof Error) throw lastErr;

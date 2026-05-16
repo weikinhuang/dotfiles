@@ -360,7 +360,7 @@ describe('runPlanner', () => {
     expect(result.plannerOutput?.subQuestions[2].searchHints).toEqual(['only-one']);
   });
 
-  test('(h) redundant planner output (valid schema but duplicated-content sub-questions) is still persisted — self-critic is the gate', async () => {
+  test('(h) redundant planner output (valid schema but duplicated-content sub-questions) is still persisted - self-critic is the gate', async () => {
     // The planner schema is silent about SEMANTIC redundancy; it
     // only enforces structural uniqueness (id uniqueness). So a
     // structurally-valid "redundant" plan (same questions under

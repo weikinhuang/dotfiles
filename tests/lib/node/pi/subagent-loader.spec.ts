@@ -1,7 +1,7 @@
 /**
  * Tests for lib/node/pi/subagent-loader.ts.
  *
- * Pure module — pi's `parseFrontmatter` is injected, so tests supply a
+ * Pure module - pi's `parseFrontmatter` is injected, so tests supply a
  * small YAML-subset parser that covers the frontmatter shapes used in
  * the default agent definitions.
  */
@@ -399,7 +399,7 @@ body`,
   });
 
   test('README.md is skipped without a frontmatter warning', () => {
-    // Directory-index READMEs are human-facing docs, not agent specs — the
+    // Directory-index READMEs are human-facing docs, not agent specs - the
     // loader must not treat them as malformed agents.
     const files = {
       '/g/README.md': '# pi subagent definitions\n\nIndex of agents in this dir.\n',

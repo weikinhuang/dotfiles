@@ -1,11 +1,11 @@
-/* Read "Internals" at the bottom — public API comes first. The
+/* Read "Internals" at the bottom - public API comes first. The
  * `no-use-before-define` rule is disabled at the file scope
  * because TS function declarations are hoisted and this file
  * reads top-down (public API → helpers). */
 /* eslint-disable no-use-before-define */
 
 /**
- * Deep-research structural check — Phase 4 first-stage validator.
+ * Deep-research structural check - Phase 4 first-stage validator.
  *
  * This module is the deterministic half of the two-stage review
  * loop declared by `config/pi/extensions/deep-research.ts`. It
@@ -19,28 +19,28 @@
  * materialized as `rubric-structural.md` in the run root. Every
  * item in that list maps onto one check in this module:
  *
- *   - `report-exists`                  — `report.md` is readable.
- *   - `footnote-markers-resolve`       — every `[^n]` marker in
+ *   - `report-exists`                  - `report.md` is readable.
+ *   - `footnote-markers-resolve`       - every `[^n]` marker in
  *                                         the body has a matching
- *                                         `[^n]: <title> — <url>`
+ *                                         `[^n]: <title> - <url>`
  *                                         entry in the footnotes
  *                                         block.
- *   - `footnote-urls-in-store`         — every footnote URL is
+ *   - `footnote-urls-in-store`         - every footnote URL is
  *                                         present as a
  *                                         `sources/<hash>.json`
  *                                         entry in the run's
  *                                         source store.
- *   - `no-unresolved-placeholders`     — no `{{SRC:<id>}}`
+ *   - `no-unresolved-placeholders`     - no `{{SRC:<id>}}`
  *                                         placeholders remain
  *                                         anywhere in the report.
- *   - `every-sub-question-has-section` — the report contains at
+ *   - `every-sub-question-has-section` - the report contains at
  *                                         least `plan.subQuestions.length`
  *                                         `## …` headings
  *                                         (Conclusion excluded).
- *   - `no-duplicate-footnote-ids`      — `[^n]:` footnote
+ *   - `no-duplicate-footnote-ids`      - `[^n]:` footnote
  *                                         definitions are unique
  *                                         and densely numbered.
- *   - `no-bare-urls-in-body`           — URLs embedded in the body
+ *   - `no-bare-urls-in-body`           - URLs embedded in the body
  *                                         prose (outside the
  *                                         footnote block) come
  *                                         from the source store;
@@ -48,12 +48,12 @@
  *
  * Two entry points:
  *
- *   1. Pure library ({@link checkReportStructure}) — takes a run
+ *   1. Pure library ({@link checkReportStructure}) - takes a run
  *      root, returns a `{ ok, failures, stats }` result. This is
  *      what the review-loop orchestrator consumes and what
  *      deep-research-structural-check.spec.ts drives.
  *
- *   2. CLI (the bottom of this file) — invoked as
+ *   2. CLI (the bottom of this file) - invoked as
  *      `node <path>/deep-research-structural-check.ts <runRoot>`
  *      by the `kind=bash` iteration-loop check. Exits 0 on pass,
  *      non-zero on fail, and prints a diagnostic to stderr for
@@ -166,7 +166,7 @@ const FOOTNOTE_MARKER_RE = /\[\^(\d+)\](?!:)/g;
  * Match `[^n]:` footnote definitions. Anchored to start-of-line
  * (via `m` flag) so a stray `[^n]:` inside a paragraph doesn't
  * get parsed as a definition. The body after the colon captures
- * title + url (separator convention is ` — `, per
+ * title + url (separator convention is ` - `, per
  * `research-citations.renumber`).
  */
 const FOOTNOTE_ENTRY_RE = /^\[\^(\d+)\]:\s*(.+?)\s*$/gm;
@@ -174,7 +174,7 @@ const FOOTNOTE_ENTRY_RE = /^\[\^(\d+)\]:\s*(.+?)\s*$/gm;
 /**
  * `{{SRC:<id>}}` placeholder that Phase-3 synth should have
  * renumbered. Canonical pattern imported from
- * `research-citations.ts` (aliased above) — keeping one source of
+ * `research-citations.ts` (aliased above) - keeping one source of
  * truth prevents a future id-character-class change in one place
  * from silently drifting from the other.
  */
@@ -183,7 +183,7 @@ const FOOTNOTE_ENTRY_RE = /^\[\^(\d+)\]:\s*(.+?)\s*$/gm;
 
 /**
  * URL matcher used for bare-url detection. Deliberately forgiving
- * — we're looking for anything that looks like an http/https URL
+ * - we're looking for anything that looks like an http/https URL
  * in prose. Trailing ASCII punctuation is stripped via
  * {@link trimTrailingPunctuation} before the URL is normalized
  * (otherwise a sentence-ending `.`, `,`, `)` clings to the match
@@ -267,11 +267,11 @@ const NON_SECTION_HEADINGS: ReadonlySet<string> = new Set(['Conclusion']);
  * refinement path can emit one targeted nudge per class of issue.
  *
  * Missing `report.md` short-circuits to a single
- * `report-exists` failure — every downstream check needs the
+ * `report-exists` failure - every downstream check needs the
  * report to be readable, so continuing would emit misleading
  * diagnostics.
  *
- * Missing / malformed `plan.json` short-circuits similarly — we
+ * Missing / malformed `plan.json` short-circuits similarly - we
  * can't count sub-questions without it.
  */
 export function checkReportStructure(opts: CheckReportStructureOpts): StructuralCheckResult {
@@ -313,7 +313,7 @@ export function checkReportStructure(opts: CheckReportStructureOpts): Structural
 
   // ── plan ─────────────────────────────────────────────────────
   // We allow plan-load failures to surface as a
-  // `every-sub-question-has-section` miss — without a plan we
+  // `every-sub-question-has-section` miss - without a plan we
   // can't verify sub-question coverage. The caller (review-loop)
   // is expected to treat a missing plan as a bigger problem than
   // any structural verdict anyway.
@@ -325,7 +325,7 @@ export function checkReportStructure(opts: CheckReportStructureOpts): Structural
     } else {
       failures.push({
         id: 'every-sub-question-has-section',
-        message: `plan.json kind="${plan.kind}" — deep-research structural check expects kind="deep-research"`,
+        message: `plan.json kind="${plan.kind}" - deep-research structural check expects kind="deep-research"`,
         location: planPath,
       });
     }
@@ -349,7 +349,7 @@ export function checkReportStructure(opts: CheckReportStructureOpts): Structural
     try {
       knownUrls.add(normalizeUrl(ref.url));
     } catch {
-      // Malformed url in the store — skip it rather than throw;
+      // Malformed url in the store - skip it rather than throw;
       // the bare-url check below surfaces a clean fail for any
       // unmatched body URL regardless.
     }
@@ -402,7 +402,7 @@ export function checkReportStructure(opts: CheckReportStructureOpts): Structural
       });
     }
   }
-  // Also flag footnote entries that no body marker references — a
+  // Also flag footnote entries that no body marker references - a
   // dangling definition is a synth bug worth surfacing so the
   // refinement nudge can trim it.
   for (const [n] of footnotes) {
@@ -421,7 +421,7 @@ export function checkReportStructure(opts: CheckReportStructureOpts): Structural
     if (!entry.url) {
       failures.push({
         id: 'footnote-urls-in-store',
-        message: `footnote [^${n}]: has no URL (expected "[^${n}]: <title> — <url>")`,
+        message: `footnote [^${n}]: has no URL (expected "[^${n}]: <title> - <url>")`,
         location: `[^${n}]:`,
       });
       continue;
@@ -453,7 +453,7 @@ export function checkReportStructure(opts: CheckReportStructureOpts): Structural
   for (const ph of placeholders) {
     failures.push({
       id: 'no-unresolved-placeholders',
-      message: `unresolved placeholder ${ph} remains in the report — synth should have renumbered it`,
+      message: `unresolved placeholder ${ph} remains in the report - synth should have renumbered it`,
       location: ph,
     });
   }
@@ -472,7 +472,7 @@ export function checkReportStructure(opts: CheckReportStructureOpts): Structural
       id: 'every-sub-question-has-section',
       message:
         `report has ${headings.length} sub-question section${headings.length === 1 ? '' : 's'} ` +
-        `but plan.json declares ${planSubQuestionCount} — every sub-question needs a "## …" section or ` +
+        `but plan.json declares ${planSubQuestionCount} - every sub-question needs a "## …" section or ` +
         `an explicit "[section unavailable: …]" stub`,
     });
   }
@@ -499,7 +499,7 @@ export function checkReportStructure(opts: CheckReportStructureOpts): Structural
       failures.push({
         id: 'every-section-cites-a-source',
         message:
-          `section "${slice.heading}" has no [^n] footnote marker — every non-stubbed sub-question ` +
+          `section "${slice.heading}" has no [^n] footnote marker - every non-stubbed sub-question ` +
           `section must cite at least one source (or be written as "[section unavailable: …]")`,
         location: slice.heading,
       });
@@ -527,14 +527,14 @@ export function checkReportStructure(opts: CheckReportStructureOpts): Structural
     if (!knownUrls.has(norm)) {
       failures.push({
         id: 'no-bare-urls-in-body',
-        message: `body URL ${rawUrl} is not in the source store — no hallucinated URLs allowed in prose`,
+        message: `body URL ${rawUrl} is not in the source store - no hallucinated URLs allowed in prose`,
         location: rawUrl,
       });
     }
   }
   // Intentionally: bare URLs that ARE in the store pass silently.
   // The rubric allows them (the report may quote a source URL
-  // inline before citing the footnote) — we only fail on URLs
+  // inline before citing the footnote) - we only fail on URLs
   // that would embarrass the user.
   // Note: footnotesBlock is excluded because it intentionally
   // contains URLs.
@@ -544,7 +544,7 @@ export function checkReportStructure(opts: CheckReportStructureOpts): Structural
 }
 
 // ──────────────────────────────────────────────────────────────────────
-// Internals — report partitioning.
+// Internals - report partitioning.
 // ──────────────────────────────────────────────────────────────────────
 
 interface FootnoteEntry {
@@ -555,7 +555,7 @@ interface FootnoteEntry {
 
 interface Partitioned {
   /**
-   * The report body — everything up to (but not including) the
+   * The report body - everything up to (but not including) the
    * first footnote-definition line. URL checks, marker checks,
    * and section counting run against this string.
    */
@@ -574,11 +574,11 @@ interface Partitioned {
 /**
  * Split the report into (body, footnotes block) and parse each
  * `[^n]:` definition. We treat the first footnote-definition line
- * as the boundary — everything after it is the footnotes block.
+ * as the boundary - everything after it is the footnotes block.
  *
  * Why the first line and not a blank-line-separated heading?
  * Because `research-citations.renumber` emits footnotes without a
- * heading (just `[^1]: <title> — <url>` lines), and users may
+ * heading (just `[^1]: <title> - <url>` lines), and users may
  * have edited the body to match. Using the first `[^n]:` as the
  * boundary avoids depending on a specific separator.
  */
@@ -610,7 +610,7 @@ function partitionReport(report: string): Partitioned {
     const { title, url } = splitTitleUrl(rest);
     if (footnotes.has(n)) {
       duplicates.add(n);
-      // Keep the first entry we saw — duplicates are already
+      // Keep the first entry we saw - duplicates are already
       // surfaced separately via `no-duplicate-footnote-ids`.
       continue;
     }
@@ -622,19 +622,19 @@ function partitionReport(report: string): Partitioned {
 /**
  * Split a footnote definition body into `(title, url)`. The
  * canonical separator emitted by `research-citations.renumber` is
- * ` — ` (em-dash with spaces). We fall back to "trailing URL" —
+ * ` - ` (em-dash with spaces). We fall back to "trailing URL" -
  * i.e. if the line contains an http(s) URL, take the last one as
  * the URL and treat the preceding text as the title. This
  * tolerates user-edited footnotes that use a hyphen separator or
  * omit one entirely.
  */
 function splitTitleUrl(raw: string): { title: string; url: string } {
-  // Canonical separator first — em-dash with spaces.
-  const em = raw.lastIndexOf(' — ');
+  // Canonical separator first - em-dash with spaces.
+  const em = raw.lastIndexOf(' - ');
   if (em >= 0) {
     return {
       title: raw.slice(0, em).trim(),
-      url: raw.slice(em + ' — '.length).trim(),
+      url: raw.slice(em + ' - '.length).trim(),
     };
   }
   // Trailing URL fallback.
@@ -645,7 +645,7 @@ function splitTitleUrl(raw: string): { title: string; url: string } {
     return {
       title: raw
         .slice(0, idx)
-        .replace(/[—\-:\s]+$/, '')
+        .replace(/[-\-:\s]+$/, '')
         .trim(),
       url,
     };
@@ -662,7 +662,7 @@ interface BodySlice {
 
 /**
  * Split a report body into per-`## ` slices. Content before the
- * first H2 (title + abstract + intro) is dropped — those parts
+ * first H2 (title + abstract + intro) is dropped - those parts
  * carry no per-sub-question citation contract. Pure string op.
  */
 function sliceBodyByH2(body: string): BodySlice[] {
@@ -693,7 +693,7 @@ function sliceBodyByH2(body: string): BodySlice[] {
  *
  * Exported for {@link ../research-resume.findStubbedSections},
  * which uses it to surface an "N sub-question sections are
- * stubbed — resume from fanout to re-fetch" hint at review-phase
+ * stubbed - resume from fanout to re-fetch" hint at review-phase
  * exit.
  */
 export function isUnavailableStub(contents: string): boolean {
@@ -740,7 +740,7 @@ invocation error.`;
 /**
  * Entry point for the `kind=bash` iteration-loop check. Not
  * exported as a regular function because callers inside the pipeline
- * should use {@link checkReportStructure} directly — the CLI is
+ * should use {@link checkReportStructure} directly - the CLI is
  * only for the bash-check subshell.
  */
 function main(argv: readonly string[]): number {
@@ -769,7 +769,7 @@ function main(argv: readonly string[]): number {
     // the script manually sees a confirmation. The bash check's
     // `exit-zero` predicate ignores stdout content.
     process.stdout.write(
-      `ok — ${result.stats.sections} section(s), ${result.stats.footnoteMarkers} marker(s), ` +
+      `ok - ${result.stats.sections} section(s), ${result.stats.footnoteMarkers} marker(s), ` +
         `${result.stats.footnoteEntries} footnote entr${result.stats.footnoteEntries === 1 ? 'y' : 'ies'}, ` +
         `${result.stats.sourcesInStore} source(s) in store\n`,
     );

@@ -2,7 +2,7 @@
  * Shared scaffolding for the todo / scratchpad reducers (and any future
  * "LLM-managed state mirrored into the session branch" extensions).
  *
- * No pi imports — testable under `vitest` with no runtime.
+ * No pi imports - testable under `vitest` with no runtime.
  *
  * The two reducer modules (`todo-reducer.ts`, `scratchpad-reducer.ts`)
  * share three nearly-identical pieces:
@@ -10,7 +10,7 @@
  *   1. The `BranchEntry` duck-type describing the minimal shape of a
  *      pi session entry we inspect when replaying state.
  *   2. The `ActionResult<S>` discriminated union returned by every
- *      pure action handler — success carries the new state + a human
+ *      pure action handler - success carries the new state + a human
  *      summary, failure carries an error string.
  *   3. The branch-replay walk: each tool call mirrors its post-action
  *      state as BOTH a `toolResult.details` payload AND a
@@ -59,7 +59,7 @@ export type ActionResult<S> = ActionSuccess<S> | ActionError;
  * payload structure AND narrows the return type to `S`.
  *
  * Callers provide a `clone` fn so the returned value is a defensive
- * copy — the session entry payloads are owned by pi and we mustn't
+ * copy - the session entry payloads are owned by pi and we mustn't
  * alias them across actions.
  */
 export function stateFromEntryGeneric<S>(
@@ -82,7 +82,7 @@ export function stateFromEntryGeneric<S>(
 
 /**
  * Walk `branch` newest-to-oldest and return the first valid state
- * snapshot found. Returns `null` when no entry matched — callers
+ * snapshot found. Returns `null` when no entry matched - callers
  * typically fall back to their own `emptyState()`.
  */
 export function findLatestStateInBranch<S>(

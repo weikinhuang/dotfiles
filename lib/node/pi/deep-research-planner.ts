@@ -12,7 +12,7 @@
  * Deterministic fallback (per plan): if `callTyped` exhausts retries
  * without a valid response, emit a one-sub-question plan where the
  * sole sub-question equals the whole user question. Narrower scope
- * than a rich plan, but still a usable run — per the robustness
+ * than a rich plan, but still a usable run - per the robustness
  * principle, a silently-fake plan is the failure mode we refuse.
  *
  * Pure module. Takes a `ResearchSessionLike` (already-driven parent
@@ -20,7 +20,7 @@
  * imports. Hand-rolled validators rather than TypeBox, matching the
  * precedent established by `research-plan.ts` and
  * `iteration-loop-schema.ts`. The plan text lists TypeBox as the
- * preferred schema library — revisit once the shared toolkit adopts
+ * preferred schema library - revisit once the shared toolkit adopts
  * it, so every `callTyped` caller gets TypeBox together instead of
  * one module drifting out of the hand-rolled convention.
  *
@@ -42,7 +42,7 @@
  *
  * Caller contract: the session is already set up with whatever
  * system prompt etc the parent wants. This module only sends the
- * planner prompt (and — during retries — the error-humanized nudges
+ * planner prompt (and - during retries - the error-humanized nudges
  * via `callTyped`'s internal retry loop). The session's message
  * state is preserved on return so the self-critic can run a second
  * turn over it.
@@ -66,7 +66,7 @@ import { isRecord } from './shared.ts';
 
 /**
  * Minimum / maximum sub-question count the planner is allowed to
- * emit. Narrower than the v0 draft (4–8) — 3–6 favors depth per
+ * emit. Narrower than the v0 draft (4–8) - 3–6 favors depth per
  * question and reduces per-sub-question context pressure. The plan
  * text's Components section is the source of truth.
  */
@@ -90,7 +90,7 @@ export interface PlannerSubQuestion {
 }
 
 /**
- * Planner's structured output. Narrower than `DeepResearchPlan` —
+ * Planner's structured output. Narrower than `DeepResearchPlan` -
  * the planner does not set status, findingsPath, or assignedAgent;
  * those are pipeline state the extension manages.
  */
@@ -194,7 +194,7 @@ export const plannerOutputSchema: SchemaLike<PlannerOutput> = {
 
 /**
  * Render the planner prompt for the parent session. Deliberately
- * small and imperative — the robustness principle says prompt
+ * small and imperative - the robustness principle says prompt
  * tweaks should help every model, not be forked per-tier.
  *
  * Callers passing a non-default budget get the cap numbers echoed
@@ -317,7 +317,7 @@ function journalIf<M>(
   try {
     appendJournal(opts.journalPath, body !== undefined ? { level, heading, body } : { level, heading });
   } catch {
-    /* swallow — journal failures never break the planner */
+    /* swallow - journal failures never break the planner */
   }
 }
 
@@ -365,7 +365,7 @@ function buildOnRetry<M>(opts: PlannerOpts<M>): ((error: string, attempt: number
   const ctx = opts.tinyCtx;
 
   if (!adapter || !ctx || !adapter.isEnabled()) {
-    // Adapter disabled — raw error flows through unchanged.
+    // Adapter disabled - raw error flows through unchanged.
     return opts.onRetry;
   }
   return (error, attempt) => {
@@ -382,7 +382,7 @@ function buildOnRetry<M>(opts: PlannerOpts<M>): ((error: string, attempt: number
         }
       })
       .catch(() => {
-        /* swallow — humanization is advisory */
+        /* swallow - humanization is advisory */
       });
   };
 }
@@ -450,7 +450,7 @@ export interface PlannerOpts<M> {
   session: ResearchSessionLike;
   /**
    * Caller's model provenance string (e.g. `anthropic/claude-sonnet-4-5`).
-   * Recorded on the provenance sidecar. Pass `""` when unknown —
+   * Recorded on the provenance sidecar. Pass `""` when unknown -
    * the provenance module tolerates an empty-ish value, but
    * callers should surface whatever pi reports for the parent
    * model so post-hoc audits stay honest.
@@ -476,7 +476,7 @@ export interface PlannerOpts<M> {
   tinyCtx?: TinyCallContext<M>;
   /**
    * Per-run tiny-call budget key in `tinyCtx.maxCalls`. The planner
-   * consumes AT MOST 3 + subQuestions-count tiny calls — slug
+   * consumes AT MOST 3 + subQuestions-count tiny calls - slug
    * (1) + error humanization (≤2 during retries) + one classify per
    * search hint. The call-counter in `tinyCtx.runRoot` enforces the
    * plan-wide 30-call cap.
@@ -492,7 +492,7 @@ export interface PlannerOpts<M> {
    */
   maxRetries?: number;
   /**
-   * Optional `onRetry` pass-through — the extension wires this to
+   * Optional `onRetry` pass-through - the extension wires this to
    * journal each validation failure. When set, the planner layers
    * tiny error-humanization ON TOP before calling this hook so the
    * journal and the model both see the friendlier string.
@@ -545,7 +545,7 @@ export interface PlannerResult {
  *   6. Promote `PlannerOutput` → `DeepResearchPlan`, then
  *      `writePlan` + `writeSidecar`.
  *
- * The returned `session` is the SAME session the caller passed —
+ * The returned `session` is the SAME session the caller passed -
  * its message state now includes the planner's prompt + reply so
  * the self-critic can ask for a rewrite in the same context.
  */

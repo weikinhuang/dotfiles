@@ -101,9 +101,9 @@ describe('formatStubHint', () => {
 
     // Counts + per-heading bullets appear.
     expect(hint).toContain('2 sub-question section(s) are stubbed');
-    expect(hint).toContain('• What is B? — no findings on disk');
-    expect(hint).toContain('• What is C? — synth emitted empty body');
-    // Real --sq=<ids> command path — no placeholder.
+    expect(hint).toContain('• What is B? - no findings on disk');
+    expect(hint).toContain('• What is C? - synth emitted empty body');
+    // Real --sq=<ids> command path - no placeholder.
     expect(hint).toContain(`--sq=sq-2,sq-3`);
     expect(hint).toContain(`--run-root ${tmp}`);
     expect(hint).toContain('--from=fanout');
@@ -312,8 +312,8 @@ describe('formatStubbedReviewSummary', () => {
     expect(summary).toContain('review skipped');
     expect(summary).toContain('2 sub-question section(s)');
     expect(summary).toContain('Refinement cannot recover missing findings');
-    expect(summary).toContain('\u2022 Q1 \u2014 no findings on disk');
-    expect(summary).toContain('\u2022 Q2 \u2014 fanout task aborted');
+    expect(summary).toContain('\u2022 Q1 - no findings on disk');
+    expect(summary).toContain('\u2022 Q2 - fanout task aborted');
     expect(summary).toContain(`--run-root ${tmp}`);
     expect(summary).toContain('--from=fanout');
     expect(summary).toContain('--sq=sq-1,sq-2');

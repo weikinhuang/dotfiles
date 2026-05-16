@@ -24,7 +24,7 @@
  * containing the message.
  *
  * Small models read that error, guess at a fix, and often retry the
- * same shape — because the raw error tells them WHAT's wrong (type
+ * same shape - because the raw error tells them WHAT's wrong (type
  * mismatch at `id`) but doesn't show them a working example. This
  * module converts a parsed validation failure plus the tool's
  * (optional) TypeBox schema into a terse recovery block with:
@@ -95,7 +95,7 @@ const ISSUE_LINE_RE = /^\s*-\s+([^:]+):\s*(.+?)\s*$/;
 /**
  * Parse a `Validation failed for tool "X":` error block emitted by
  * pi-ai's `validateToolArguments`. Returns `undefined` on anything that
- * doesn't start with the exact canonical header — we don't want to
+ * doesn't start with the exact canonical header - we don't want to
  * false-trigger on tool execute errors that happen to contain the word
  * "validation".
  */
@@ -162,7 +162,7 @@ export function resolveSchemaPath(schema: SchemaNode | undefined, path: string):
   for (const raw of parts) {
     if (!node) return undefined;
     if (/^\d+$/.test(raw)) {
-      // array index — descend into `items`
+      // array index - descend into `items`
       node = node.items;
       continue;
     }
@@ -174,7 +174,7 @@ export function resolveSchemaPath(schema: SchemaNode | undefined, path: string):
 /**
  * Render a short, human-friendly description of the expected type at
  * this schema node. Falls back to `(unknown)` when the node is absent
- * or opaque. Deliberately terse — this goes into a tool-result text
+ * or opaque. Deliberately terse - this goes into a tool-result text
  * block for small models.
  */
 export function describeSchema(node: SchemaNode | undefined): string {
@@ -209,7 +209,7 @@ function firstWord(s: string): string {
  * node. Used to synthesize a corrected payload when the model passed
  * the wrong type. Prefers enum[0] / item descriptions / type defaults.
  *
- * `depth` guards against deeply recursive schemas — past 3 levels we
+ * `depth` guards against deeply recursive schemas - past 3 levels we
  * emit a placeholder rather than recurse further.
  */
 export function exampleValue(node: SchemaNode | undefined, depth = 0): unknown {

@@ -3,7 +3,7 @@
 //
 // Every `ai-skill-eval run` writes its per-run replies to
 // `<iteration>/<config>/results/<eval-id>/run-{1,2,3}.txt`. Multiple
-// call sites need to enumerate those files in numeric order — the CLI
+// call sites need to enumerate those files in numeric order - the CLI
 // to hand them back to `gradeDeterministic` after the fact, the
 // benchmark aggregator to read the sibling `run-*.txt.meta.json`
 // sidecars, and the comparator to pick a canonical reply. Before this
@@ -26,7 +26,7 @@ const META_FILE_RE = /^run-(\d+)\.txt\.meta\.json$/;
  * path joined back onto `dir` and sorted by the captured integer. Returns
  * `[]` when `dir` doesn't exist so callers don't have to guard
  * separately. `pattern` must have a capture group whose first match is
- * the numeric run index — the helper's sole job.
+ * the numeric run index - the helper's sole job.
  */
 function listByRunIndex(dir: string, pattern: RegExp): string[] {
   if (!existsSync(dir)) return [];

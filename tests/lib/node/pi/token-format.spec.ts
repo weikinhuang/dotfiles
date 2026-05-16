@@ -1,7 +1,7 @@
 /**
  * Tests for lib/node/pi/token-format.ts.
  *
- * Pure module — no pi runtime needed.
+ * Pure module - no pi runtime needed.
  */
 
 import { describe, expect, test } from 'vitest';

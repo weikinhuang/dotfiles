@@ -104,7 +104,7 @@ describe('runOptimizeLoop', () => {
     // Trigger "yes" on positives ("pos" in the scenario) and "no" on negatives.
     const { hooks, rec } = makeHooks({
       triggerYesFor: (prompt) => prompt.includes('Scenario: pos '),
-      improverResponse: () => '<new_description>ignored — loop should exit early</new_description>',
+      improverResponse: () => '<new_description>ignored - loop should exit early</new_description>',
     });
     const res = await runOptimizeLoop({
       parsed,
@@ -146,7 +146,7 @@ describe('runOptimizeLoop', () => {
           if (/Scenario: neg 1\b/.test(prompt)) return true;
           return isPos;
         }
-        // iteration 3: regression — two false triggers.
+        // iteration 3: regression - two false triggers.
         if (/Scenario: neg 1\b/.test(prompt)) return true;
         if (/Scenario: neg 3\b/.test(prompt)) return true;
         return isPos;
@@ -207,7 +207,7 @@ describe('runOptimizeLoop', () => {
     let improverCalls = 0;
     const hooks: OptimizerHooks = {
       runEvalDriver(_promptFile, resultFile) {
-        // Every query returns TRIGGER=no — all positives in the eval set
+        // Every query returns TRIGGER=no - all positives in the eval set
         // fail, guaranteeing the improver runs.
         writeFileSync(resultFile, cannedReply(false));
         return Promise.resolve();
@@ -249,7 +249,7 @@ describe('runOptimizeLoop', () => {
     let capturedImproverPrompt = '';
     const hooks: OptimizerHooks = {
       runEvalDriver(_promptFile, resultFile) {
-        // Every query returns TRIGGER=no — positives fail, so the
+        // Every query returns TRIGGER=no - positives fail, so the
         // improver runs each iteration.
         writeFileSync(resultFile, cannedReply(false));
         return Promise.resolve();
@@ -280,7 +280,7 @@ describe('runOptimizeLoop', () => {
 
     expect(res.iterations.length).toBeGreaterThanOrEqual(2);
     // Sanity: the captured iterations actually recorded non-null test
-    // scores — otherwise the blinding assertions would be vacuous.
+    // scores - otherwise the blinding assertions would be vacuous.
     expect(res.iterations[0].testTotal).not.toBeNull();
     // The improver prompt for iteration 2 should name train_passed but
     // never mention test_passed / test_total / test_results.

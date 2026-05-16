@@ -27,7 +27,7 @@ export type ThinkingLevel = 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhi
 const THINKING_LEVELS: readonly ThinkingLevel[] = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh'] as const;
 
 export interface Preset {
-  /** `provider/modelId` form. Optional — preset may toggle only thinking / tools / prompt. */
+  /** `provider/modelId` form. Optional - preset may toggle only thinking / tools / prompt. */
   model?: string;
   /** Thinking level. Validated against `THINKING_LEVELS` at load time. */
   thinkingLevel?: ThinkingLevel;
@@ -46,7 +46,7 @@ export interface PresetWarning {
 
 export interface LoadResult {
   presets: PresetsConfig;
-  /** Names in priority (highest wins) order — useful for deterministic listing. */
+  /** Names in priority (highest wins) order - useful for deterministic listing. */
   nameOrder: string[];
   warnings: PresetWarning[];
 }

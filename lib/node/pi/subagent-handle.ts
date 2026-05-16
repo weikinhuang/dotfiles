@@ -14,7 +14,7 @@
  * collisions never matter because the extension only looks up
  * handles inside its current in-memory registry.
  *
- * Deliberately pure — no pi imports — so vitest can exercise it
+ * Deliberately pure - no pi imports - so vitest can exercise it
  * without the full pi runtime.
  */
 
@@ -40,7 +40,7 @@ export function makeHandleCounter(): HandleCounter {
  * Resolve a user-supplied id against a registry keyed by handle.
  * Accepts:
  *   - the canonical short handle (`sub_explore_3`)
- *   - the full child session id (fallback — handy if a prior
+ *   - the full child session id (fallback - handy if a prior
  *     assistant turn echoed the session id instead of the handle,
  *     since pi audit entries expose both)
  * Returns the matching entry or `undefined`.

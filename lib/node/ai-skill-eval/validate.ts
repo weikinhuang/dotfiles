@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 //
 // Port of `~/.claude/skills/skill-creator/scripts/quick_validate.py`. Pure
-// structural check — no driver is spawned. The rules below mirror the
+// structural check - no driver is spawned. The rules below mirror the
 // Python original so a skill that passes there also passes here.
 //
 // Rules:
@@ -14,7 +14,7 @@
 //   - `description` is required: ≤1024 chars, no `<` or `>` characters.
 //   - `compatibility` (optional): ≤500 chars.
 //
-// The parser understands a deliberately small YAML subset — enough to
+// The parser understands a deliberately small YAML subset - enough to
 // identify top-level keys and extract scalar string values for `name`,
 // `description`, and `compatibility`. Nested content under `metadata:` or
 // `allowed-tools:` is accepted without being examined, matching how
@@ -111,7 +111,7 @@ function parseTopLevelFields(lines: readonly string[]): { fields: Field[] } | { 
       continue;
     }
 
-    // Indented continuation — attach to the current field.
+    // Indented continuation - attach to the current field.
     if (!current) {
       return { error: `indented content before any key: ${line}`, line: i };
     }

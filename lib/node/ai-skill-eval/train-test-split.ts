@@ -31,7 +31,7 @@ export interface SplitResult<T> {
 }
 
 /**
- * Mulberry32 — a small, fast, 32-bit seeded PRNG. Returns `[0, 1)`. Adequate
+ * Mulberry32 - a small, fast, 32-bit seeded PRNG. Returns `[0, 1)`. Adequate
  * for our reproducibility-of-splits use case; NOT cryptographically strong.
  */
 export function mulberry32(seed: number): () => number {

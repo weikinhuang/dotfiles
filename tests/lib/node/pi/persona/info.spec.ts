@@ -1,5 +1,5 @@
 /**
- * Tests for `lib/node/pi/persona/info.ts` — pure formatters for the
+ * Tests for `lib/node/pi/persona/info.ts` - pure formatters for the
  * persona CLI flags `--persona-info`, `--list-personas`,
  * `--validate-personas`.
  */
@@ -41,7 +41,7 @@ describe('formatPersonaInfoLines', () => {
       '  source:        shipped',
       '  inheritedFrom: (standalone)',
       '  tools:         read, bash',
-      '  writeRoots:    (none — writes disallowed)',
+      '  writeRoots:    (none - writes disallowed)',
       '  bashAllow:     rg *',
       '  bashDeny:      (empty)',
       '  model:         (inherit)',

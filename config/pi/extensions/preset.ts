@@ -21,8 +21,8 @@
  * first; later layers override earlier by preset name):
  *
  *   1. `config/pi/presets.json` shipped with the dotfiles repo.
- *   2. `~/.pi/agent/presets.json` — user-global overrides.
- *   3. `<cwd>/.pi/presets.json` — project-local overrides.
+ *   2. `~/.pi/agent/presets.json` - user-global overrides.
+ *   3. `<cwd>/.pi/presets.json` - project-local overrides.
  *
  * Example:
  *
@@ -133,7 +133,7 @@ export default function presetExtension(pi: ExtensionAPI): void {
 
     // Model. When the preset asks for a model that we can't actually apply
     // (malformed spec, unknown model, no auth), bail before marking the
-    // preset active — users ask for a preset *because of* its model swap,
+    // preset active - users ask for a preset *because of* its model swap,
     // so silently running with the wrong model while the status badge
     // says "preset active" is worse than refusing.
     if (preset.model) {
@@ -219,7 +219,7 @@ export default function presetExtension(pi: ExtensionAPI): void {
         }
         const lines = nameOrder.map((n) => {
           const prefix = n === activePresetName ? '* ' : '  ';
-          return `${prefix}${n} — ${describePreset(presets[n]!)}`;
+          return `${prefix}${n} - ${describePreset(presets[n]!)}`;
         });
         const activeLine = activePresetName ? `(active: ${activePresetName})` : '(no preset active)';
         ctx.ui.notify([activeLine, ...lines].join('\n'), 'info');
@@ -240,7 +240,7 @@ export default function presetExtension(pi: ExtensionAPI): void {
     },
   });
 
-  // ───────── Ctrl+Shift+U — cycle ─────────
+  // ───────── Ctrl+Shift+U - cycle ─────────
   pi.registerShortcut(Key.ctrlShift('u'), {
     description: 'Cycle presets',
     handler: async (ctx) => {

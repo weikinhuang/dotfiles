@@ -1,7 +1,7 @@
 /**
  * Tests for lib/node/pi/small-model-addendum.ts.
  *
- * Pure module — no pi runtime needed. Uses tmpdir to exercise the
+ * Pure module - no pi runtime needed. Uses tmpdir to exercise the
  * file-backed config loader.
  */
 
@@ -52,7 +52,7 @@ describe('matchesModel', () => {
   });
 
   test('ignores id-only listings that lack a provider prefix', () => {
-    // Users must always write `provider/id` — a bare id is ambiguous.
+    // Users must always write `provider/id` - a bare id is ambiguous.
     expect(matchesModel({ provider: 'llama-cpp', id: 'qwen3-6-35b-a3b' }, cfg({ models: ['qwen3-6-35b-a3b'] }))).toBe(
       false,
     );

@@ -1,7 +1,7 @@
 /**
  * Tests for lib/node/pi/bash-exit-watchdog.ts.
  *
- * Pure module — no pi runtime needed.
+ * Pure module - no pi runtime needed.
  */
 
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
@@ -63,7 +63,7 @@ describe('shouldSuppress with defaults', () => {
     expect(shouldSuppress('grep foo file.txt', 1, DEFAULT_SUPPRESSIONS)).toBe(true);
   });
 
-  test('grep exit 2 (file not found) is NOT suppressed — that IS a failure', () => {
+  test('grep exit 2 (file not found) is NOT suppressed - that IS a failure', () => {
     expect(shouldSuppress('grep foo missing.txt', 2, DEFAULT_SUPPRESSIONS)).toBe(false);
   });
 

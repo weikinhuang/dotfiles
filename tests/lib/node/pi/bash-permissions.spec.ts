@@ -202,7 +202,7 @@ test('checkHardcodedDeny: rm -r on `.` (cwd) family blocks', () => {
 test('checkHardcodedDeny: rm -r on any `..`-traversal path blocks', () => {
   // Any target that starts with `..` leaves cwd, so we block the whole
   // family regardless of depth. Shallow `..`, deeper `../..`, absolute-ish
-  // escapes like `../../etc/passwd` — all covered.
+  // escapes like `../../etc/passwd` - all covered.
   for (const cmd of [
     'rm -rf ..',
     'rm -rf ../',
@@ -221,7 +221,7 @@ test('checkHardcodedDeny: rm -r on bare `*` glob blocks', () => {
   // `rm -rf *` deletes every non-hidden entry in cwd; `**` is the same
   // (plus globstar-recursive when `shopt -s globstar` is set); `*/`
   // wipes every immediate subdir. None of these pin a specific path.
-  // Narrower globs (`*.log`, `build/*`, `*foo*`) stay allowed — see the
+  // Narrower globs (`*.log`, `build/*`, `*foo*`) stay allowed - see the
   // regression guard below.
   for (const cmd of [
     'rm -rf *',
@@ -254,7 +254,7 @@ test('checkHardcodedDeny: rm on project paths and dotfiles does NOT block', () =
     'rm -rf ..foo',
     'rm ./foo',
     'rm -f package-lock.json',
-    // Narrower globs — `*` appears but always pins a subset:
+    // Narrower globs - `*` appears but always pins a subset:
     'rm -rf *.log',
     'rm -rf *.tsx',
     'rm -rf build/*',
@@ -318,7 +318,7 @@ test('checkHardcodedDeny: unquoted keywords still fire when mixed with quoted st
   expect(checkHardcodedDeny('echo "about to" && mkfs.ext4 /dev/sda1')).toBeTruthy();
 
   // Anchored patterns like `^\s*rm` require splitCompound to isolate
-  // the sub-command first — that's how checkHardcodedDeny is actually
+  // the sub-command first - that's how checkHardcodedDeny is actually
   // invoked in production. Verify the full pipeline catches it.
   const cmd = 'echo "nuking" ; rm -rf /';
   const fires = splitCompound(cmd).some((sub) => checkHardcodedDeny(sub));
@@ -327,7 +327,7 @@ test('checkHardcodedDeny: unquoted keywords still fire when mixed with quoted st
 });
 
 test('checkHardcodedDeny: documented quoted-target trade-off', () => {
-  // `rm -rf "/"` with the target quoted is NOT caught — this is the
+  // `rm -rf "/"` with the target quoted is NOT caught - this is the
   // intentional trade-off for eliminating commit-message false-positives.
   // Bash evaluates it identically to `rm -rf /`, so a truly malicious
   // command would simply drop the quotes. Users who need tighter
@@ -370,12 +370,12 @@ test('maskQuotedRegions: double-quoted interior is masked, quotes kept', () => {
 
 test('maskQuotedRegions: single-quoted interior is masked; backslashes are literal', () => {
   expect(maskQuotedRegions("echo 'mkfs'")).toBe(`echo '${NUL.repeat(4)}'`);
-  // Inside single quotes, backslash is NOT an escape — both chars masked.
+  // Inside single quotes, backslash is NOT an escape - both chars masked.
   expect(maskQuotedRegions("echo 'a\\nb'")).toBe(`echo '${NUL.repeat(4)}'`);
 });
 
 test('maskQuotedRegions: backslash-escaped quote inside double quotes is masked', () => {
-  // Bash-level input `"a\"b"` — 6 characters: " a \ " b "
+  // Bash-level input `"a\"b"` - 6 characters: " a \ " b "
   //   open-quote, a, backslash, escaped-quote, b, close-quote.
   // The masker preserves offsets, so all 4 interior chars are replaced
   // with NULs (including the backslash and the escaped quote).
@@ -449,7 +449,7 @@ test('maskQuotedRegions: unclosed heredoc masks the remainder', () => {
 
 test('maskQuotedRegions: heredoc with dangerous-looking CLOSING line still safe', () => {
   // Body may contain the delimiter word inside a line, but only an
-  // exact delimiter line closes — make sure the body is still fully
+  // exact delimiter line closes - make sure the body is still fully
   // masked.
   const input = 'python3 <<EOF\nx = "EOF inside mkfs"\nEOF';
   const out = maskQuotedRegions(input);
@@ -546,7 +546,7 @@ test('decideSubcommand: comment short-circuit runs BEFORE the hardcoded denylist
 test('decideSubcommand: `#` mid-command is NOT a comment and still gates', () => {
   // Bash treats `#` as a comment only at word boundary. `foo#bar` is a
   // literal token; `echo foo # bar` is `echo foo` + comment. Neither
-  // should be short-circuited — the first is an unknown command that
+  // should be short-circuited - the first is an unknown command that
   // should prompt, the second is handled by the allow matcher on the
   // `echo` portion (not by step 0).
   expect(decideSubcommand('foo#bar', emptyLayers()).kind).toBe('prompt');
@@ -578,7 +578,7 @@ test('stripControlFlowKeyword: leading keyword is peeled off', () => {
   expect(stripControlFlowKeyword('! test -f foo')).toBe('test -f foo');
 });
 
-test('stripControlFlowKeyword: iterative — multiple leading keywords unwind', () => {
+test('stripControlFlowKeyword: iterative - multiple leading keywords unwind', () => {
   // `then ! if true` -> `! if true` -> `if true` -> `true`.
   expect(stripControlFlowKeyword('then ! if true')).toBe('true');
   // `while ! test -f foo` -> `! test -f foo` -> `test -f foo`.
@@ -600,7 +600,7 @@ test('stripControlFlowKeyword: commands with keyword-like prefixes are NOT strip
 });
 
 test('stripControlFlowKeyword: `for` / `select` / `case` are NOT stripped', () => {
-  // Their positional args aren't commands — they need explicit allow
+  // Their positional args aren't commands - they need explicit allow
   // rules like `for*`. Stripping would hand over a non-command string
   // to the gate.
   expect(stripControlFlowKeyword('for f in *.ts')).toBe('for f in *.ts');
@@ -817,7 +817,7 @@ test('decideSubcommand: auto mode NEVER beats explicit deny rules', () => {
 
 test('decideSubcommand: deny beats allow within the same layer stack', () => {
   const layers = emptyLayers();
-  // A user deny rule and a conflicting user allow rule — matchOne's deny
+  // A user deny rule and a conflicting user allow rule - matchOne's deny
   // pass runs first, so deny should win.
   layers[2].rules.deny.push('git push*');
   layers[2].rules.allow.push('git push*');
@@ -904,7 +904,7 @@ test('decideSubcommand: auto mode does NOT skip ALWAYS_PROMPT (sudo)', () => {
 test('decideSubcommand: explicit allow rule still bypasses ALWAYS_PROMPT', () => {
   // A user who trusts a specific sudo invocation can still save an
   // allow rule and have it auto-run under `/bash-auto`. Pattern
-  // semantics are token-aware prefix (see matchesPattern) — the `*` on
+  // semantics are token-aware prefix (see matchesPattern) - the `*` on
   // `install*` matches the space boundary before any positional args.
   const layers = emptyLayers();
   layers[1].rules.allow.push('sudo apt-get install*');
@@ -941,6 +941,6 @@ test('decideSubcommand: auto off + sudo still prompts (no regression)', () => {
   };
 
   expect(d.kind).toBe('prompt');
-  // The reason is set either way — callers can use it regardless of auto.
+  // The reason is set either way - callers can use it regardless of auto.
   expect(d.reason).toMatch(/sudo/);
 });

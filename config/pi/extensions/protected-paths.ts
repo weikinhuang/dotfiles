@@ -12,12 +12,12 @@
  *                    dangerous to MUTATE even if reading is fine. Defaults:
  *                      segments: node_modules, .git
  *
- * The effective write rule set is `read ∪ write` — anything sensitive to
+ * The effective write rule set is `read ∪ write` - anything sensitive to
  * read is trivially sensitive to write, so there's no point duplicating
  * entries. The `read` rules do NOT include an outside-workspace check
  * (reading external files is often legit); `write` rules do.
  *
- * Rules are additive across four layers (any match prompts — there's
+ * Rules are additive across four layers (any match prompts - there's
  * deliberately no "deny" escape hatch, since the point of the gate is
  * to make accidental access LOUD):
  *
@@ -51,13 +51,13 @@
  *
  * The session allowlist is shared across tools: approving a path for the
  * session satisfies subsequent reads AND writes of the same file. That's
- * intentional — if you vetted the path for one access, you vetted it for
+ * intentional - if you vetted the path for one access, you vetted it for
  * the other.
  *
  * In non-interactive mode (print / JSON / RPC without UI) the gate blocks
  * by default so the model sees a concrete reason and can retry differently.
  *
- * The `bash` tool is intentionally NOT gated here — `bash-permissions.ts`
+ * The `bash` tool is intentionally NOT gated here - `bash-permissions.ts`
  * owns that channel. `grep`, `find`, `ls` also aren't gated (yet); their
  * output is already constrained by pi's size limits and they rarely
  * exfiltrate secrets on their own. Add them here if that assumption changes.
@@ -65,7 +65,7 @@
  * A leading `~` is expanded to the current user's home before classification
  * (`~/.ssh/config` → `$HOME/.ssh/config`), so tilde paths can't sneak past
  * the path-prefix or basename checks. `~user/` syntax is NOT supported.
- * Symlink-following is intentionally NOT attempted — the gate uses
+ * Symlink-following is intentionally NOT attempted - the gate uses
  * `path.resolve()` (lexical), so symlinks that escape a protected path
  * are treated as their link path. Fix with file-watcher-grade logic if
  * you need it.
@@ -121,7 +121,7 @@ function readConfig(path: string): ProtectionConfig {
   try {
     raw = readFileSync(path, 'utf8');
   } catch {
-    // File missing / unreadable — silent.
+    // File missing / unreadable - silent.
     return emptyConfig();
   }
   try {
@@ -140,7 +140,7 @@ function envExtraConfig(): ProtectionConfig {
     .map((s) => s.trim())
     .filter(Boolean);
   if (extras.length === 0) return emptyConfig();
-  // Apply to both read and write — users setting this want "extra-strict".
+  // Apply to both read and write - users setting this want "extra-strict".
   return {
     read: { basenames: [...extras], segments: [], paths: [] },
     write: { basenames: [...extras], segments: [], paths: [] },
@@ -188,7 +188,7 @@ export default function protectedPaths(pi: ExtensionAPI): void {
   const defaultFallback = process.env.PI_PROTECTED_PATHS_DEFAULT === 'allow' ? 'allow' : 'deny';
 
   // Shared session allowlist: resolved-absolute paths the user OK'd this
-  // session. Approving a path OK's it for both reads AND writes — if you
+  // session. Approving a path OK's it for both reads AND writes - if you
   // vetted the path for one, you vetted it for the other.
   const sessionAllow = new Set<string>();
 
@@ -216,7 +216,7 @@ export default function protectedPaths(pi: ExtensionAPI): void {
     // declare write access to dirs outside the workspace (e.g. `journal/`,
     // `notes/`, or absolute paths under `~/notes/...`) without the user
     // having to approve the same write twice (persona write-gate AND
-    // protected-paths) on every call. Reads are unaffected — writeRoots
+    // protected-paths) on every call. Reads are unaffected - writeRoots
     // are a write-side declaration only.
     if (isWrite) {
       const active = getActivePersona();
@@ -290,7 +290,7 @@ export default function protectedPaths(pi: ExtensionAPI): void {
 
       lines.push('');
       lines.push(`Scope: outside ${ctx.cwd} always prompts on write/edit (outside-workspace rule)`);
-      lines.push('       reads outside the workspace are NOT auto-prompted — add a rule if needed');
+      lines.push('       reads outside the workspace are NOT auto-prompted - add a rule if needed');
 
       lines.push('');
       lines.push('Session allowlist (shared between read/write, cleared on session_shutdown):');

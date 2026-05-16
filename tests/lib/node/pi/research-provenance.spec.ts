@@ -63,10 +63,10 @@ describe('sidecarPathFor', () => {
 });
 
 // ──────────────────────────────────────────────────────────────────────
-// Non-markdown — sidecar round-trip.
+// Non-markdown - sidecar round-trip.
 // ──────────────────────────────────────────────────────────────────────
 
-describe('writeSidecar / readProvenance — JSON sidecar', () => {
+describe('writeSidecar / readProvenance - JSON sidecar', () => {
   test('writes a sibling .provenance.json for a .json artifact', () => {
     const p = join(cwd, 'plan.json');
     writeFileSync(p, '{"k":1}');
@@ -111,10 +111,10 @@ describe('writeSidecar / readProvenance — JSON sidecar', () => {
 });
 
 // ──────────────────────────────────────────────────────────────────────
-// Markdown — frontmatter round-trip.
+// Markdown - frontmatter round-trip.
 // ──────────────────────────────────────────────────────────────────────
 
-describe('writeSidecar / readProvenance — markdown frontmatter', () => {
+describe('writeSidecar / readProvenance - markdown frontmatter', () => {
   test('creates the file with just frontmatter when it does not exist', () => {
     const p = join(cwd, 'findings', 'f-1.md');
     writeSidecar(p, sample);
@@ -202,7 +202,7 @@ describe('writeSidecar / readProvenance — markdown frontmatter', () => {
 // Failure modes.
 // ──────────────────────────────────────────────────────────────────────
 
-describe('readProvenance — failure modes', () => {
+describe('readProvenance - failure modes', () => {
   test('returns null when the artifact does not exist and no sidecar', () => {
     expect(readProvenance(join(cwd, 'missing.json'))).toBeNull();
     expect(readProvenance(join(cwd, 'missing.md'))).toBeNull();
@@ -234,13 +234,13 @@ describe('readProvenance — failure modes', () => {
     expect(readProvenance(p)).toBeNull();
   });
 
-  test('atomic-write semantics — no partial sidecar left on disk', () => {
+  test('atomic-write semantics - no partial sidecar left on disk', () => {
     // The atomic-write helper either produces the final file or
     // produces nothing (its tempfile gets renamed into place). This
     // test exercises the normal path; a "simulate mid-write crash"
     // test would require exposing an injection point. The existing
     // atomic-write.spec.ts already covers temp-file hygiene under
-    // back-to-back writes — here we just verify no .tmp-* residue
+    // back-to-back writes - here we just verify no .tmp-* residue
     // for the provenance path.
     const p = join(cwd, 'z.json');
     writeFileSync(p, '{}');
@@ -254,7 +254,7 @@ describe('readProvenance — failure modes', () => {
   });
 });
 
-describe('writeSidecar — policy', () => {
+describe('writeSidecar - policy', () => {
   test('writing twice on a .json artifact overwrites the sidecar', () => {
     const p = join(cwd, 'x.json');
     writeFileSync(p, '{}');

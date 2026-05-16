@@ -1,5 +1,5 @@
 /**
- * Memory extension for pi — cross-session, multi-layered durable notes.
+ * Memory extension for pi - cross-session, multi-layered durable notes.
  *
  * Port of Claude Code's "auto memory" feature. Durable knowledge is
  * kept as small markdown files on disk and indexed by a per-scope
@@ -9,14 +9,14 @@
  * fetched on demand via `memory read <id>`.
  *
  * Memory types:
- *   - `user`      — facts about the user (role, preferences, expertise). Cross-project by default.
- *   - `feedback`  — corrections + validated approaches (don't-do-X / keep-doing-Y). Cross-project by default.
- *   - `project`   — initiatives, decisions, incidents for *this* workspace.
- *   - `reference` — pointers to external systems (Linear projects, dashboards). Per-workspace.
+ *   - `user`      - facts about the user (role, preferences, expertise). Cross-project by default.
+ *   - `feedback`  - corrections + validated approaches (don't-do-X / keep-doing-Y). Cross-project by default.
+ *   - `project`   - initiatives, decisions, incidents for *this* workspace.
+ *   - `reference` - pointers to external systems (Linear projects, dashboards). Per-workspace.
  *
  * Scopes:
- *   - `global`    — `<root>/global/<type>/<slug>.md`, shared across every pi session.
- *   - `project`   — `<root>/projects/<cwd-slug>/<type>/<slug>.md`, keyed on the cwd
+ *   - `global`    - `<root>/global/<type>/<slug>.md`, shared across every pi session.
+ *   - `project`   - `<root>/projects/<cwd-slug>/<type>/<slug>.md`, keyed on the cwd
  *                   the same way pi keys `~/.pi/agent/sessions/<cwd-slug>/`.
  *
  * Disk is the source of truth. On `session_start` the extension scans
@@ -127,7 +127,7 @@ const MemoryParams = Type.Object({
 
 // Mirrors the TypeBox schema above. Kept explicit (rather than derived via
 // typebox's `Static<typeof MemoryParams>`) so the local action helpers can
-// be read at a glance. Must stay in sync with `MemoryParams` — if you add
+// be read at a glance. Must stay in sync with `MemoryParams` - if you add
 // a field there, add it here too.
 interface MemoryParamsT {
   action: 'list' | 'read' | 'save' | 'update' | 'remove' | 'search';
@@ -300,7 +300,7 @@ export default function memoryExtension(pi: ExtensionAPI): void {
         isError: true,
       };
     }
-    const header = `[${resolved.scope}/${resolved.type}] ${resolved.id} — ${resolved.name}\n${resolved.description}\n`;
+    const header = `[${resolved.scope}/${resolved.type}] ${resolved.id} - ${resolved.name}\n${resolved.description}\n`;
     return {
       content: `${header}\n${body.trim()}\n`,
       details: { action: 'read', state: cloneState(state), entry: { ...resolved }, body },
@@ -360,7 +360,7 @@ export default function memoryExtension(pi: ExtensionAPI): void {
       // keep going
     }
     return {
-      content: `Saved memory [${scope}/${params.type}] ${slug} — ${entry.name}\n\n${formatText(state)}`,
+      content: `Saved memory [${scope}/${params.type}] ${slug} - ${entry.name}\n\n${formatText(state)}`,
       details: { action: 'save', state: cloneState(state), entry },
     };
   };
@@ -393,13 +393,13 @@ export default function memoryExtension(pi: ExtensionAPI): void {
     }
     const nextDescription = params.description !== undefined ? params.description.trim() : resolved.description;
     // When the caller omits `body`, we preserve the on-disk body. If we can't
-    // read it, refuse to clobber — rewriting the file with an empty body here
+    // read it, refuse to clobber - rewriting the file with an empty body here
     // would silently destroy content.
     let nextBody: string;
     if (params.body !== undefined) {
       nextBody = params.body.trim();
       if (nextBody.length === 0) {
-        const error = '`body` may not be empty — use `remove` to delete the memory';
+        const error = '`body` may not be empty - use `remove` to delete the memory';
         return {
           content: `Error: ${error}`,
           details: { action: 'update', state: cloneState(state), error },
@@ -409,7 +409,7 @@ export default function memoryExtension(pi: ExtensionAPI): void {
     } else {
       const existing = fileBodyFor(resolved, cwd);
       if (existing === null) {
-        const error = `cannot preserve body: "${resolved.id}" is not readable on disk — pass \`body\` explicitly or re-save`;
+        const error = `cannot preserve body: "${resolved.id}" is not readable on disk - pass \`body\` explicitly or re-save`;
         return {
           content: `Error: ${error}`,
           details: { action: 'update', state: cloneState(state), error },
@@ -418,7 +418,7 @@ export default function memoryExtension(pi: ExtensionAPI): void {
       }
       nextBody = existing.trim();
       if (nextBody.length === 0) {
-        const error = `existing body for "${resolved.id}" is empty — pass \`body\` explicitly`;
+        const error = `existing body for "${resolved.id}" is empty - pass \`body\` explicitly`;
         return {
           content: `Error: ${error}`,
           details: { action: 'update', state: cloneState(state), error },
@@ -460,7 +460,7 @@ export default function memoryExtension(pi: ExtensionAPI): void {
       // keep going
     }
     return {
-      content: `Updated memory [${entry.scope}/${entry.type}] ${entry.id} — ${entry.name}\n\n${formatText(state)}`,
+      content: `Updated memory [${entry.scope}/${entry.type}] ${entry.id} - ${entry.name}\n\n${formatText(state)}`,
       details: { action: 'update', state: cloneState(state), entry },
     };
   };
@@ -525,7 +525,7 @@ export default function memoryExtension(pi: ExtensionAPI): void {
         details: { action: 'search', state: cloneState(state), matches: [] },
       };
     }
-    const lines = matches.map((e) => `  [${e.scope}/${e.type}] ${e.id} — ${e.name}: ${e.description}`);
+    const lines = matches.map((e) => `  [${e.scope}/${e.type}] ${e.id} - ${e.name}: ${e.description}`);
     return {
       content: `Matches for "${q}" (${matches.length}):\n${lines.join('\n')}`,
       details: { action: 'search', state: cloneState(state), matches },
@@ -542,14 +542,14 @@ export default function memoryExtension(pi: ExtensionAPI): void {
       'Durable cross-session memory for user preferences, validated approaches, project decisions, and reference pointers.',
     promptGuidelines: [
       'Save a memory (`memory` action `save`) when the user corrects your approach, states a preference, validates a non-obvious choice, or references an external system. Include `type`, `name`, a 1-line `description`, and the `body`.',
-      'Do NOT save memories for code patterns, git history, or ephemeral task state — read the code or `git log` instead.',
+      'Do NOT save memories for code patterns, git history, or ephemeral task state - read the code or `git log` instead.',
       'Default scopes: `user`/`feedback` → global (cross-project); `project`/`reference` → project (this workspace only). Override with `scope` when a user/feedback memory is workspace-specific.',
-      'Before relying on a memory, verify it is still accurate — names/files can be renamed or removed since the memory was written. If stale, `update` or `remove` it.',
+      'Before relying on a memory, verify it is still accurate - names/files can be renamed or removed since the memory was written. If stale, `update` or `remove` it.',
     ],
     parameters: MemoryParams,
 
     async execute(_toolCallId, params: MemoryParamsT, _signal, _onUpdate, ctx) {
-      // Keep `cwd` fresh — tool calls can happen long after session_start
+      // Keep `cwd` fresh - tool calls can happen long after session_start
       // and the cwd in ctx may have changed across commands.
       if (ctx?.cwd && ctx.cwd !== cwd) {
         cwd = ctx.cwd;
@@ -658,7 +658,7 @@ export default function memoryExtension(pi: ExtensionAPI): void {
         }
         const block = formatMemoryIndex(state, { maxChars: maxInjectedChars });
         if (!block) {
-          ctx.ui.notify("(no memories — nothing would be injected into the next turn's system prompt)", 'info');
+          ctx.ui.notify("(no memories - nothing would be injected into the next turn's system prompt)", 'info');
           return;
         }
         ctx.ui.notify(

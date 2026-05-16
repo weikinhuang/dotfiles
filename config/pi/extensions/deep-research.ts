@@ -1,4 +1,4 @@
-/* Read "Internals" at the bottom — public command surface comes
+/* Read "Internals" at the bottom - public command surface comes
  * first. The `no-use-before-define` rule is disabled at the file
  * scope because TS function declarations are hoisted and this
  * ordering reads top-down (command handler → helpers). */
@@ -35,7 +35,7 @@
  * modules. This file is the thin pi-coupled wiring layer: build
  * the parent `AgentSession`, wire `runOneShotAgent` as both the
  * planning-critic runner and the fanout spawner (sync mode for
- * now — background fanout lands in a follow-up once the
+ * now - background fanout lands in a follow-up once the
  * extension exposes the right subagent handle surface), forward
  * status notifications, and delegate command parsing + summary
  * rendering to the pure helpers in
@@ -159,8 +159,8 @@ import {
  * `ModelRegistry` class, while `lib/node/pi/subagent-spawn.ts` uses a
  * pi-free structural `ModelRegistryLike` so the helper can stay
  * unit-testable without pi imports (see `lib/AGENTS.md`). The two
- * shapes are compatible at runtime — pi's `ModelRegistry` satisfies
- * `ModelRegistryLike` — but not structurally assignable, so we bridge
+ * shapes are compatible at runtime - pi's `ModelRegistry` satisfies
+ * `ModelRegistryLike` - but not structurally assignable, so we bridge
  * them with a thin wrapper that casts `modelRegistry` at the call.
  */
 const piCreateAgentSession: CreateAgentSessionDep<Model<any>, SessionManager> = (args) =>
@@ -173,10 +173,10 @@ const piCreateAgentSession: CreateAgentSessionDep<Model<any>, SessionManager> = 
 /** Usage string shown on a bare `/research` invocation. */
 const USAGE =
   'Usage:\n' +
-  '  /research <question>                 — run the planner → synth pipeline; writes report.md\n' +
-  '  /research --list                     — list runs under ./research/\n' +
-  '  /research --selftest                 — run the research-core self-test fixture\n' +
-  '  /research --resume [flags]           — resume an existing run; auto-detects stage from\n' +
+  '  /research <question>                 - run the planner → synth pipeline; writes report.md\n' +
+  '  /research --list                     - list runs under ./research/\n' +
+  '  /research --selftest                 - run the research-core self-test fixture\n' +
+  '  /research --resume [flags]           - resume an existing run; auto-detects stage from\n' +
   '                                         on-disk state unless `--from <stage>` is pinned\n' +
   '\n' +
   'Resume-mode flags (only valid with `--resume`):\n' +
@@ -225,21 +225,21 @@ const STATUSLINE_KEY = 'deep-research';
 /**
  * TypeBox schema for the LLM-callable `research` tool.
  *
- *   - `question`         required — the research question itself.
- *   - `model`            optional — parent-model override in
+ *   - `question`         required - the research question itself.
+ *   - `model`            optional - parent-model override in
  *                        `provider/id` form. inherit-mode subagents
  *                        (web-researcher, plan-crit, critic)
  *                        inherit it.
- *   - `fanoutMaxTurns`   optional — maxTurns cap for every
+ *   - `fanoutMaxTurns`   optional - maxTurns cap for every
  *                        web-researcher fanout spawn.
- *   - `criticMaxTurns`   optional — maxTurns cap for the
+ *   - `criticMaxTurns`   optional - maxTurns cap for the
  *                        research-planning-critic and the
  *                        subjective critic spawns.
- *   - `fanoutParallel`   optional — cap on simultaneous fanout
+ *   - `fanoutParallel`   optional - cap on simultaneous fanout
  *                        workers (overrides plan.budget.maxSubagents).
  *                        Set to 1 for serial fanout against a single
  *                        local model.
- *   - `wallClockSec`     optional — wall-clock override in seconds
+ *   - `wallClockSec`     optional - wall-clock override in seconds
  *                        (overrides plan.budget.wallClockSec).
  */
 const ResearchToolParams = Type.Object({
@@ -291,7 +291,7 @@ const ResearchToolParams = Type.Object({
       minimum: 1,
       maximum: 1000,
       description:
-        "Optional cap on cross-stage review iterations (default 4). Raise when the review loop previously hit `budget-exhausted` on fixable issues (e.g. missing citations). On budget exhaustion the returned tool summary carries a closeness verdict (`Near-pass:` / `Stuck:`) and a ready-to-invoke `/research --resume --from=review --review-max-iter <N+2>` command — read the summary before deciding to call the tool again so a `Stuck:` outcome doesn't silently retry against an unsolvable report.",
+        "Optional cap on cross-stage review iterations (default 4). Raise when the review loop previously hit `budget-exhausted` on fixable issues (e.g. missing citations). On budget exhaustion the returned tool summary carries a closeness verdict (`Near-pass:` / `Stuck:`) and a ready-to-invoke `/research --resume --from=review --review-max-iter <N+2>` command - read the summary before deciding to call the tool again so a `Stuck:` outcome doesn't silently retry against an unsolvable report.",
     }),
   ),
   fanoutParallel: Type.Optional(
@@ -315,7 +315,7 @@ const ResearchToolParams = Type.Object({
 export default function deepResearchExtension(pi: ExtensionAPI): void {
   if (process.env.PI_DEEP_RESEARCH_DISABLED === '1') return;
 
-  // Load agent definitions once per session_start — we need
+  // Load agent definitions once per session_start - we need
   // `web-researcher` and `research-planning-critic` agents to
   // dispatch their respective roles.
   const extDir = dirname(fileURLToPath(import.meta.url));
@@ -354,7 +354,7 @@ export default function deepResearchExtension(pi: ExtensionAPI): void {
     try {
       reloadAgents(ctx.cwd);
     } catch {
-      /* swallow — command handler surfaces a friendlier error */
+      /* swallow - command handler surfaces a friendlier error */
     }
     // Clear any stale widget from a prior session.
     try {
@@ -427,7 +427,7 @@ export default function deepResearchExtension(pi: ExtensionAPI): void {
         return;
       }
 
-      // parsed.kind === 'question' — run the pipeline.
+      // parsed.kind === 'question' - run the pipeline.
       try {
         reloadAgents(ctx.cwd);
       } catch (e) {
@@ -462,7 +462,7 @@ export default function deepResearchExtension(pi: ExtensionAPI): void {
       if (!continueFreshRun) return;
 
       notify(
-        `/research: starting pipeline — planner → self-critic → planning-critic → fanout → synth → report${formatOverridesSummary(parsed.overrides)}`,
+        `/research: starting pipeline - planner → self-critic → planning-critic → fanout → synth → report${formatOverridesSummary(parsed.overrides)}`,
         'info',
       );
       researchFlag.active = true;
@@ -482,7 +482,7 @@ export default function deepResearchExtension(pi: ExtensionAPI): void {
   });
 
   // ──────────────────────────────────────────────────────────────────
-  // `research` tool — LLM-callable version of the same pipeline.
+  // `research` tool - LLM-callable version of the same pipeline.
   // ──────────────────────────────────────────────────────────────────
   pi.registerTool({
     name: 'research',
@@ -492,12 +492,12 @@ export default function deepResearchExtension(pi: ExtensionAPI): void {
     promptSnippet:
       'For long-horizon research questions that warrant a fully-cited report, call `research` instead of an ad-hoc web fetch.',
     promptGuidelines: [
-      'Use `research` only when the user asked for a written research report, not for a single-fact lookup — it takes minutes and spends real model budget.',
+      'Use `research` only when the user asked for a written research report, not for a single-fact lookup - it takes minutes and spends real model budget.',
       'Only one `research` tool call may be in flight per session; do not issue a second call before the first has returned.',
       'Only set `model`, `fanoutMaxTurns`, or `criticMaxTurns` when the user explicitly asks for one; the defaults (parent session’s model, agent-declared maxTurns) are correct for typical runs. Bump `fanoutMaxTurns` when sub-questions keep hitting max_turns on the web-researcher.',
       'Set `fanoutParallel` to 1 when fanout points at a single local model (llama.cpp / Ollama) that cannot handle concurrent requests; otherwise leave it unset so the planner’s `maxSubagents` applies.',
-      'Set `wallClockSec` only when the user asks for a longer budget than the planner defaults to — local-model runs regularly need 2h+ (`wallClockSec: 7200`), while hosted-model runs should stick with the planner default.',
-      'Bump `reviewMaxIter` (default 4) when the structural/subjective review loop has previously hit `budget-exhausted` on fixable issues — e.g. missing `[^n]` citations — and you want more refinement passes.',
+      'Set `wallClockSec` only when the user asks for a longer budget than the planner defaults to - local-model runs regularly need 2h+ (`wallClockSec: 7200`), while hosted-model runs should stick with the planner default.',
+      'Bump `reviewMaxIter` (default 4) when the structural/subjective review loop has previously hit `budget-exhausted` on fixable issues - e.g. missing `[^n]` citations - and you want more refinement passes.',
     ],
     parameters: ResearchToolParams,
     async execute(_toolCallId, rawParams, signal, _onUpdate, ctx) {
@@ -550,7 +550,7 @@ export default function deepResearchExtension(pi: ExtensionAPI): void {
         try {
           ctx.ui.notify(message, level);
         } catch {
-          /* swallow — notify is best-effort */
+          /* swallow - notify is best-effort */
         }
       };
 
@@ -679,7 +679,7 @@ interface BuildDepsErr {
 }
 
 /**
- * Statusline controller — wraps the pure reducer from
+ * Statusline controller - wraps the pure reducer from
  * `deep-research-statusline.ts` with the mutable state +
  * `ctx.ui.setWidget` side-effects the extension needs to keep the
  * widget in sync with pipeline phase transitions.
@@ -711,7 +711,7 @@ function buildStatuslineController(ctx: {
     try {
       ctx.ui.setWidget(STATUSLINE_KEY, renderStatuslineWidget(state, Date.now(), { frame }));
     } catch {
-      /* swallow — widget failures must never break the pipeline */
+      /* swallow - widget failures must never break the pipeline */
     }
   };
 
@@ -767,7 +767,7 @@ function buildStatuslineController(ctx: {
       // run's wall-clock.
       state = initialStatuslineState(Date.now());
       // A new run cancels any pending dismissal from the previous
-      // terminal state — the spinner will be driving the widget
+      // terminal state - the spinner will be driving the widget
       // again in a moment.
       cancelAutoClear();
     } else {
@@ -860,7 +860,7 @@ async function runResearchFlow(args: {
     try {
       liveBudget.observePhaseEvent(event);
     } catch {
-      /* swallow — budget observation must never break the run */
+      /* swallow - budget observation must never break the run */
     }
   };
 
@@ -894,7 +894,7 @@ async function runResearchFlow(args: {
     try {
       liveBudget.setJournalPath(paths(outcome.runRoot).journal);
     } catch {
-      /* swallow — journal wiring must never break the run */
+      /* swallow - journal wiring must never break the run */
     }
   }
 
@@ -930,7 +930,7 @@ async function runResearchFlow(args: {
     };
   }
 
-  // report-complete — run the review phase.
+  // report-complete - run the review phase.
   let review: ReviewWireResult | null = null;
   try {
     review = await runReviewPhase({
@@ -972,14 +972,14 @@ async function runResearchFlow(args: {
   // Phase-4 guardrail: if the final report still has
   // `[section unavailable: …]` stubs the review loop exempts from
   // the citation rule, the user needs to re-fetch those sub-
-  // questions — refinement cannot fix them. Surface a targeted
+  // questions - refinement cannot fix them. Surface a targeted
   // resume hint and fold it into the tool summary so the LLM sees
   // it too.
   //
   // The review-wire now short-circuits on stubbed reports and
   // emits an equivalent "review skipped" notify before returning
   // `kind: 'stubbed'`. Skip the post-loop hint on that path to
-  // avoid a double-emit — `review.summary` already carries the
+  // avoid a double-emit - `review.summary` already carries the
   // recovery command for the tool-summary fold below.
   const stubHint = review?.outcome.kind === 'stubbed' ? null : formatStubHint(outcome.runRoot);
   if (stubHint) notify(stubHint, 'warning');
@@ -1098,7 +1098,7 @@ async function handleSlugCollision(args: {
     return false;
   }
 
-  // choice === freshOption — fall through to the pipeline.
+  // choice === freshOption - fall through to the pipeline.
   notify(`/research: starting a fresh run; existing ${existing.slug} left untouched.`, 'info');
   return true;
 }
@@ -1144,14 +1144,14 @@ async function runResumeFlow(args: {
     const recent = listRecentRuns(ctx.cwd);
     if (recent.length === 0) {
       notify(
-        '/research --resume: no prior runs found under ./research/ — start a fresh run with `/research <question>`',
+        '/research --resume: no prior runs found under ./research/ - start a fresh run with `/research <question>`',
         'error',
       );
       return;
     }
     runRoot = recent[0].runRoot;
     slug = recent[0].slug;
-    notify(`/research --resume: using most-recent run — ${slug}`, 'info');
+    notify(`/research --resume: using most-recent run - ${slug}`, 'info');
   }
 
   // ── 2. Decide stage ─────────────────────────────────────────
@@ -1175,10 +1175,10 @@ async function runResumeFlow(args: {
   let stageReason: string;
   let needsRefanout: string[] = [];
   if (resume.from || filterIds.length > 0) {
-    // `--sq` without `--from` defaults to fanout — the only stage
+    // `--sq` without `--from` defaults to fanout - the only stage
     // where a sub-question filter is meaningful.
     stage = resume.from ?? 'fanout';
-    stageReason = resume.from ? `--from=${resume.from} (user override)` : `--sq supplied — defaulting stage to fanout`;
+    stageReason = resume.from ? `--from=${resume.from} (user override)` : `--sq supplied - defaulting stage to fanout`;
     if (stage === 'fanout') {
       let planSubQuestionIds: string[] = [];
       try {
@@ -1187,7 +1187,7 @@ async function runResumeFlow(args: {
           planSubQuestionIds = plan.subQuestions.map((sq) => sq.id);
         }
       } catch {
-        /* ignore — error already surfaced by validateRunRoot */
+        /* ignore - error already surfaced by validateRunRoot */
       }
       if (filterIds.length > 0) {
         const scoped = scopeFanoutDeficit(runRoot, planSubQuestionIds, filterIds);
@@ -1201,7 +1201,7 @@ async function runResumeFlow(args: {
         }
         if (scoped.ids.length === 0) {
           notify(
-            `/research --resume: nothing to re-fanout — ${filterIds.join(', ')} already complete on disk.`,
+            `/research --resume: nothing to re-fanout - ${filterIds.join(', ')} already complete on disk.`,
             'info',
           );
           return;
@@ -1222,7 +1222,7 @@ async function runResumeFlow(args: {
     needsRefanout = detected.needsRefanout;
   }
 
-  notify(`/research --resume: stage=${stage} — ${stageReason}${formatOverridesSummary(overrides, resume)}`, 'info');
+  notify(`/research --resume: stage=${stage} - ${stageReason}${formatOverridesSummary(overrides, resume)}`, 'info');
 
   // Advisory: surface any drift between the pending overrides and
   // the original run's `plan.json.provenance.json`. v1 compares
@@ -1235,7 +1235,7 @@ async function runResumeFlow(args: {
   // Journal the cumulative cost accrued across prior runs on this
   // slug before handing off to the pipeline. Downstream cost-hook
   // entries keep appending, so `sumJournalCostUsd` on completion
-  // will keep climbing — exactly the behavior `/research --list`
+  // will keep climbing - exactly the behavior `/research --list`
   // already relies on. The journal line is advisory; swallow any
   // write failure so a broken journal can't break the resume.
   try {
@@ -1245,7 +1245,7 @@ async function runResumeFlow(args: {
       heading: `resume stage=${stage} · prior cumulative cost · ${priorCostUsd.toFixed(6)} USD`,
     });
   } catch {
-    /* swallow — journal is advisory */
+    /* swallow - journal is advisory */
   }
 
   // ── 3. Dispatch by stage ────────────────────────────────────
@@ -1278,7 +1278,7 @@ async function runResumeFlow(args: {
 
 /**
  * Phase-1 handler: re-enter the review loop against an existing
- * run. No planner / fanout / synth work — reads `report.md` and
+ * run. No planner / fanout / synth work - reads `report.md` and
  * rubrics from disk, counts prior review iterations, and drives
  * `runReviewPhase` with `startIteration = N+1`.
  */
@@ -1294,7 +1294,7 @@ async function runResumeReviewStage(args: {
   const p = paths(runRoot);
   if (!existsSync(p.report)) {
     notify(
-      `/research --resume --from=review: no report.md under ${runRoot} — cannot resume review. ` +
+      `/research --resume --from=review: no report.md under ${runRoot} - cannot resume review. ` +
         `Use \`/research <original-question>\` to drive the pipeline from the start.`,
       'error',
     );
@@ -1393,8 +1393,8 @@ async function runResumeReviewStage(args: {
 /**
  * Phase-2 dispatcher: resume the real pipeline at `plan-crit`,
  * `fanout`, or `synth`. Reads the original question from the
- * on-disk `plan.json` (so the pipeline's planner phase — always
- * called but skipped via `resumeFrom` — has a stable argument),
+ * on-disk `plan.json` (so the pipeline's planner phase - always
+ * called but skipped via `resumeFrom` - has a stable argument),
  * invalidates failed/aborted/pending fanout tasks when resuming
  * from `fanout`, and then calls {@link runResearchPipeline} with
  * `resumeFrom` + `resumeRunRoot` pinned. The review phase runs
@@ -1429,7 +1429,7 @@ async function runResumePipelineStage(args: {
   const p = paths(runRoot);
 
   // Read the question + plan from disk. Cannot proceed without it
-  // — `validateRunRoot` upstream already confirmed the file is
+  // - `validateRunRoot` upstream already confirmed the file is
   // parseable, but defend against a race / hand-edit that broke it.
   let question: string;
   try {
@@ -1475,7 +1475,7 @@ async function runResumePipelineStage(args: {
     try {
       liveBudget.observePhaseEvent(event);
     } catch {
-      /* swallow — budget observation must never break the run */
+      /* swallow - budget observation must never break the run */
     }
   };
   try {
@@ -1498,7 +1498,7 @@ async function runResumePipelineStage(args: {
   }
 
   // Thread the resume flags into the pipeline deps. Cloning via
-  // spread is intentional — `built.deps` is shared with the review
+  // spread is intentional - `built.deps` is shared with the review
   // path below, and that path must NOT see resumeFrom set (review
   // re-uses the same deps to spin up its refinement sessions).
   const resumeDeps: PipelineDeps<unknown> = {
@@ -1542,7 +1542,7 @@ async function runResumePipelineStage(args: {
     return;
   }
 
-  // report-complete — drive the review phase against the (re-)rendered
+  // report-complete - drive the review phase against the (re-)rendered
   // report. Same shape as runResearchFlow's post-synth branch.
   let review: ReviewWireResult | null = null;
   try {
@@ -1630,7 +1630,7 @@ function buildPipelineDeps(
   const modelRegistry = ctx.modelRegistry;
   // Resolve the parent-model override (if any) once, up front.
   // `parseResearchCommandArgs` / `validateToolOverrides` have
-  // already validated the shape — all we do here is look up the
+  // already validated the shape - all we do here is look up the
   // Model<any> via the same registry `runOneShotAgent` uses.
   let parentModel = ctx.model;
   if (extras.overrides?.model) {
@@ -1649,7 +1649,7 @@ function buildPipelineDeps(
   const modelLabel = describeModel(parentModel);
   // ExtensionContext does not expose thinkingLevel; the
   // parent ExtensionAPI does, but capturing it requires a closure
-  // here. Record `null` — the provenance module accepts null as
+  // here. Record `null` - the provenance module accepts null as
   // an explicit "not recorded" signal (see research-provenance).
   const thinkingLabel: string | null = null;
 
@@ -1680,7 +1680,7 @@ function buildPipelineDeps(
       await resource.reload();
       // Persist this session under `<sessionDir>/<parentId>/subagents/`
       // so `pi session-usage` / `ai-tool-usage` can attribute its
-      // usage + cost back to the parent pi session — same layout
+      // usage + cost back to the parent pi session - same layout
       // the harness's built-in `subagent` tool uses. Falls back to
       // an in-memory manager when the parent session id is
       // unavailable (tests, resume flows).
@@ -1766,7 +1766,7 @@ function buildPipelineDeps(
     mcpClient: createAiFetchWebCliClientFromEnv() ?? undefined,
     onCriticCheckpoint: (outcome) => {
       ctx.ui.notify(
-        `/research: planning-critic rejected the plan (${outcome.kind}). Plan is on disk — edit ./research/<slug>/plan.json and rerun \`/research <question>\` to retry. Pipeline halted before fanout.`,
+        `/research: planning-critic rejected the plan (${outcome.kind}). Plan is on disk - edit ./research/<slug>/plan.json and rerun \`/research <question>\` to retry. Pipeline halted before fanout.`,
         'warning',
       );
       return { continue: false };
@@ -1808,7 +1808,7 @@ function wrapFanoutForProgress(
         try {
           onPhase({ kind: 'fanout-progress', done });
         } catch {
-          /* swallow — observability must never break fanout */
+          /* swallow - observability must never break fanout */
         }
         return res;
       } catch (e) {
@@ -1855,7 +1855,7 @@ function wrapSession(session: AgentSessionLike): ResearchSessionLikeWithLifecycl
  * `runOneShotAgent` serially (the fanout dispatcher respects
  * `maxConcurrent`, and we set it to 1 downstream so tasks execute
  * one-at-a-time). The returned handle looks "background-like" so
- * the watchdog + fanout machinery can drive it unchanged — on
+ * the watchdog + fanout machinery can drive it unchanged - on
  * construction we've already run the task synchronously, so the
  * first `status()` reports `done: true` and `wait()` returns the
  * cached result.
@@ -1904,7 +1904,7 @@ function buildSyncFanoutSpawner<M extends Model<any>>(
       // connection error at the same millisecond when the backend
       // overloads. Jittered backoff in `withTransientRetry` prevents
       // the retries from re-colliding at the same instant. Scoped to
-      // this callSite only — the fanout's own idempotency (one
+      // this callSite only - the fanout's own idempotency (one
       // finding file per sub-question) + `--resume --from=fanout`
       // remain the authoritative recovery mechanism for persistent
       // failures. maxAttempts=3 means initial + 2 retries, ~4.5s
@@ -1988,13 +1988,13 @@ function surfaceOutcome(outcome: PipelineOutcome, notify: CommandNotify): void {
     }
     case 'planner-stuck':
       notify(
-        `/research: planner emitted stuck — ${outcome.reason}\nPlan NOT written. Refine the question and retry.`,
+        `/research: planner emitted stuck - ${outcome.reason}\nPlan NOT written. Refine the question and retry.`,
         'warning',
       );
       return;
     case 'checkpoint':
       notify(
-        `/research: planning-critic did not approve the plan (${outcome.outcome.kind}). Plan is at ${outcome.runRoot}/plan.json — edit it and rerun \`/research\`.`,
+        `/research: planning-critic did not approve the plan (${outcome.outcome.kind}). Plan is at ${outcome.runRoot}/plan.json - edit it and rerun \`/research\`.`,
         'warning',
       );
       return;
@@ -2008,7 +2008,7 @@ function surfaceOutcome(outcome: PipelineOutcome, notify: CommandNotify): void {
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// Phase 4 review phase — two-stage structural + subjective check.
+// Phase 4 review phase - two-stage structural + subjective check.
 // ─────────────────────────────────────────────────────────────────────
 
 interface RunReviewPhaseArgs {
@@ -2021,7 +2021,7 @@ interface RunReviewPhaseArgs {
    * label, and thinkingLevel used by the refinement runner to
    * spin up a fresh synth session for each refinement iteration.
    * Optional because resume flows (which skip the pipeline run)
-   * may want to drive review without a rebuild — in that case
+   * may want to drive review without a rebuild - in that case
    * `refineReport` degrades to the journal-only stub.
    */
   pipelineDeps?: PipelineDeps<unknown>;
@@ -2076,7 +2076,7 @@ interface RunReviewPhaseArgs {
  * after `runResearchPipeline` returns `report-complete`.
  *
  * The structural runner calls {@link checkReportStructure} directly
- * (pure, deterministic) — identical semantics to the bash-check
+ * (pure, deterministic) - identical semantics to the bash-check
  * surface the iteration-loop would spawn, without the subprocess.
  *
  * The critic runner spawns the `critic` agent via `runOneShotAgent`
@@ -2131,7 +2131,7 @@ async function runReviewPhase(args: RunReviewPhaseArgs): Promise<ReviewWireResul
     }
     const criticAgent = agentLoad.agents.get('critic');
     if (!criticAgent) {
-      // Missing agent — degrade gracefully: return a rejected
+      // Missing agent - degrade gracefully: return a rejected
       // verdict the review loop surfaces as a refinement target.
       return {
         approved: false,
@@ -2189,8 +2189,8 @@ async function runReviewPhase(args: RunReviewPhaseArgs): Promise<ReviewWireResul
       // `parseVerdict` is tolerant: on total failure it still returns
       // a synthesized `verdict` (approved: false, score 0, with the
       // parse error in `issues[0].description`) alongside a
-      // `failed: true` flag. Use that verdict directly — surfacing
-      // the real failure mode to the refinement nudge — and just
+      // `failed: true` flag. Use that verdict directly - surfacing
+      // the real failure mode to the refinement nudge - and just
       // log the parse trouble for debugging. The earlier code read
       // `parsed.ok` / `parsed.error` (fields that don't exist on
       // `ParseVerdictResult`), which made every critic run look
@@ -2203,7 +2203,7 @@ async function runReviewPhase(args: RunReviewPhaseArgs): Promise<ReviewWireResul
             body: parsed.recovery ?? 'no recovery hint',
           });
         } catch {
-          /* swallow — journal is best-effort here */
+          /* swallow - journal is best-effort here */
         }
       }
       return parsed.verdict;
@@ -2230,7 +2230,7 @@ async function runReviewPhase(args: RunReviewPhaseArgs): Promise<ReviewWireResul
 
     const pipelineDeps = args.pipelineDeps;
     if (!pipelineDeps) {
-      // No pipeline deps in scope — nothing to drive a real
+      // No pipeline deps in scope - nothing to drive a real
       // re-synth. Journal the nudge (already done above) and
       // declare success so the review loop progresses to its
       // budget-exhaustion path and the user sees a surfaced
@@ -2282,7 +2282,7 @@ async function runReviewPhase(args: RunReviewPhaseArgs): Promise<ReviewWireResul
         try {
           await session.dispose();
         } catch {
-          /* swallow — dispose is best-effort */
+          /* swallow - dispose is best-effort */
         }
       }
     }
@@ -2311,7 +2311,7 @@ async function runReviewPhase(args: RunReviewPhaseArgs): Promise<ReviewWireResul
 /**
  * Build the bash command string we record in the structural check
  * spec. The production review path calls `checkReportStructure`
- * directly; this string is purely informational — it shows up in
+ * directly; this string is purely informational - it shows up in
  * `/check list` output so a user can see what a manual structural
  * re-run would look like.
  *
@@ -2350,9 +2350,9 @@ function safeReadFile(path: string): string | null {
  * The path resolution + precondition checks live in the pure helper
  * [`resolveSubagentSessionDir`](../../../lib/node/pi/subagent-session-dir.ts);
  * this wrapper only adds the pi-runtime `SessionManager.create(…)`
- * call. Deep-research's pre-Claude-mirror history — silently falling
+ * call. Deep-research's pre-Claude-mirror history - silently falling
  * back to `SessionManager.inMemory(ctx.cwd)` when the parent session
- * had no id — broke both cost/audit attribution (`pi session-usage`
+ * had no id - broke both cost/audit attribution (`pi session-usage`
  * / `ai-tool-usage` had no evidence the run ever existed) and
  * debuggability (no forensic trail when a fanout subagent errored);
  * the helper now throws instead.

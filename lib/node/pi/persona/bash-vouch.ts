@@ -22,13 +22,13 @@
  *     own `bashDeny` on overlap, mirroring `evaluateBashPolicy`).
  *   - `bashAllow` non-empty but no match → no vouch.
  *
- * The vouch is *session-scoped only* — it does NOT mutate any
+ * The vouch is *session-scoped only* - it does NOT mutate any
  * `bash-permissions.json` file on disk. When the persona is cleared
  * (or another persona activates), the vouch goes away.
  */
 
 import { matchBashPattern } from './bash-policy.ts';
-import  { type ActivePersonaSnapshot } from './active.ts';
+import { type ActivePersonaSnapshot } from './active.ts';
 
 export interface PersonaVouchOptions {
   command: string;
@@ -57,7 +57,7 @@ export function personaVouchBash(opts: PersonaVouchOptions): PersonaVouchResult 
   // Find the specific allow pattern that matched so we can surface it
   // in diagnostic strings (helpful for `--mode json` traces and the
   // optional notify-on-vouch path). Persona's own `bashDeny` is
-  // intentionally NOT consulted here — `evaluateBashPolicy` lets
+  // intentionally NOT consulted here - `evaluateBashPolicy` lets
   // `bashAllow` win on overlap, so the vouch must too.
   for (const pat of active.bashAllow) {
     if (matchBashPattern(command, [pat])) {

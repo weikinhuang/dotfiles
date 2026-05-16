@@ -1,7 +1,7 @@
 /**
  * Pure helpers for the tool-output-condenser extension.
  *
- * No pi imports — testable under `vitest`.
+ * No pi imports - testable under `vitest`.
  *
  * Pi's built-in bash / rg / grep tools already truncate at 50KB / 2000
  * lines, which is sensible for "don't explode the process" but fairly
@@ -29,13 +29,13 @@
  *     budget minus the marker's share, so the condensed output is
  *     bounded above by roughly `maxBytes`.
  *   - If only the byte budget is exceeded but line count fits, we still
- *     condense — a 400-line single-line log of 4KB per line is just as
+ *     condense - a 400-line single-line log of 4KB per line is just as
  *     wasteful as 2000 normal lines.
  *   - If only the line budget is exceeded but bytes fit, we still
  *     condense so the model isn't staring at 800 lines of boilerplate.
  *
  * The condense is LOSSY but a "Full output saved to …" breadcrumb is
- * the caller's responsibility — the extension handles the temp-file I/O
+ * the caller's responsibility - the extension handles the temp-file I/O
  * so this module stays pure.
  */
 
@@ -174,7 +174,7 @@ export function condense(text: string, opts: CondenseOptions = {}): CondenseResu
         outputLines: originalLines,
       };
     }
-    // Falls through: large bytes but few lines — still need to condense.
+    // Falls through: large bytes but few lines - still need to condense.
   }
 
   const omittedLines = Math.max(0, originalLines - head.length - tail.length);

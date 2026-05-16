@@ -2,7 +2,7 @@
  * Loop-breaker extension for pi.
  *
  * Small self-hosted models regularly get stuck calling the same tool
- * with the same arguments 3+ times in a row — `read` with the same
+ * with the same arguments 3+ times in a row - `read` with the same
  * offset, `bash` rerunning the same failing command, `grep` for a
  * pattern that never matches. They then burn 5–10 turns before giving
  * up or asking the user.
@@ -19,7 +19,7 @@
  *     `verify-before-claim` / `todo` guardrails and removes the "one
  *     more try with different inputs" escape hatch. Steering is
  *     strictly additive.
- *   - The history survives across turns within a session — a slow
+ *   - The history survives across turns within a session - a slow
  *     loop ("same read every turn for 3 turns") is the exact case
  *     we want to catch. It resets only on (a) new user input that
  *     isn't our own synthesized nudge, (b) session_start.
@@ -65,7 +65,7 @@ export default function loopBreaker(pi: ExtensionAPI): void {
     try {
       appendFileSync(tracePath, `[loop-breaker] ${msg}\n`, 'utf8');
     } catch {
-      /* ignore — never break a turn over diagnostics */
+      /* ignore - never break a turn over diagnostics */
     }
   };
 

@@ -1,4 +1,4 @@
-// Tests for lib/node/ai-skill-eval/analyze.ts — the R5.2 post-hoc analyzer.
+// Tests for lib/node/ai-skill-eval/analyze.ts - the R5.2 post-hoc analyzer.
 
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -178,7 +178,7 @@ describe('buildAnalyzerPrompt', () => {
       'RUBRIC',
     );
 
-    expect(prompt).toContain('(none — judge on content + structure only)');
+    expect(prompt).toContain('(none - judge on content + structure only)');
   });
 });
 
@@ -354,7 +354,7 @@ describe('runAnalyze', () => {
       reason: 'A is clearer\nand more complete',
       raw_verdict: {},
     });
-    // Tie — should be reported under `skipped`.
+    // Tie - should be reported under `skipped`.
     seedCompareRecord(ws, {
       skill: 's',
       eval_id: 'tied',
@@ -642,7 +642,7 @@ describe('renderAnalysisMarkdown', () => {
           },
         },
       ],
-      skipped: [{ eval_id: 'tied', reason: 'tie — no loser to analyze' }],
+      skipped: [{ eval_id: 'tied', reason: 'tie - no loser to analyze' }],
       errors: [{ eval_id: 'broken', reason: 'critic exit 1' }],
     };
 
@@ -652,7 +652,7 @@ describe('renderAnalysisMarkdown', () => {
     expect(md).toContain('- analyzed: 1');
     expect(md).toContain('- skipped (ties): 1');
     expect(md).toContain('- errors: 1');
-    expect(md).toContain('## e1 — winner iteration-2, loser iteration-1');
+    expect(md).toContain('## e1 - winner iteration-2, loser iteration-1');
     expect(md).toContain('> A was clearer and more complete');
     expect(md).toContain('### Winner strengths (iteration-2)');
     expect(md).toContain('- clear steps');
@@ -660,13 +660,13 @@ describe('renderAnalysisMarkdown', () => {
     expect(md).toContain('- vague WHEN');
     expect(md).toContain('### Suggestions for iteration-1');
     expect(md).toContain(
-      '- **[high]** _instructions_ — replace "as needed" with numbered list _(impact: reduce ambiguity)_',
+      '- **[high]** _instructions_ - replace "as needed" with numbered list _(impact: reduce ambiguity)_',
     );
-    expect(md).toContain('- **[low]** _tools_ — add linter');
+    expect(md).toContain('- **[low]** _tools_ - add linter');
     expect(md).toContain('### Transcript insights');
     expect(md).toContain('- **winner:** read -> validate');
     expect(md).toContain('## skipped');
-    expect(md).toContain('- tied: tie — no loser to analyze');
+    expect(md).toContain('- tied: tie - no loser to analyze');
     expect(md).toContain('## errors');
     expect(md).toContain('- broken: critic exit 1');
   });

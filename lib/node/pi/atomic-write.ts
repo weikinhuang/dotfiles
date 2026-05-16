@@ -4,7 +4,7 @@
  * Writing in place can leave a half-written file if the process dies
  * mid-write. The standard fix is "write to a temp file, then rename":
  * POSIX `rename(2)` is atomic on the same filesystem, so the destination
- * either has the full old bytes or the full new bytes — never a mix.
+ * either has the full old bytes or the full new bytes - never a mix.
  *
  * Two minor policies applied on top:
  *   - The temp suffix includes `${pid}-${Date.now()}-${counter}` so
@@ -14,17 +14,17 @@
  *   - Parent directory is `mkdir -p`-ed first so callers don't need to
  *     know whether the path already exists.
  *
- * No `fsync` — the caller's "atomicity" needs are satisfied by the
+ * No `fsync` - the caller's "atomicity" needs are satisfied by the
  * rename barrier. Durability under power loss would require fsync of
  * both the tempfile and the parent dir, which is slow enough that we
  * only want it gated behind an opt-in flag. Not needed today.
  *
  * This module replaces two older per-feature implementations:
- *   - `memory-paths.ts::atomicWriteFile` (static `.tmp` suffix — racy)
+ *   - `memory-paths.ts::atomicWriteFile` (static `.tmp` suffix - racy)
  *   - `iteration-loop-storage.ts::atomicWriteFile` (pid+ts suffix)
  * Both now delegate here.
  *
- * No pi imports — testable under `vitest` with a temp cwd.
+ * No pi imports - testable under `vitest` with a temp cwd.
  */
 
 import { mkdirSync, renameSync, writeFileSync } from 'node:fs';

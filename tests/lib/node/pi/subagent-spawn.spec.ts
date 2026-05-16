@@ -148,7 +148,7 @@ describe('resolveChildModel', () => {
 });
 
 // ──────────────────────────────────────────────────────────────────────
-// runOneShotAgent — via injected mocks
+// runOneShotAgent - via injected mocks
 // ──────────────────────────────────────────────────────────────────────
 
 /** Build a fake session whose event stream the test script replays. */
@@ -373,7 +373,7 @@ describe('runOneShotAgent', () => {
     const sentinelB = { id: 'session-manager' as const };
 
     // `createAgentSession` captures whatever `sessionManager` we
-    // pass — use that to confirm `runOneShotAgent` threaded our
+    // pass - use that to confirm `runOneShotAgent` threaded our
     // override instead of falling back to `SessionManager.inMemory`.
     let seen: unknown = undefined;
     const deps: RunOneShotDeps<FakeModel, { id: 'session-manager' }> = {

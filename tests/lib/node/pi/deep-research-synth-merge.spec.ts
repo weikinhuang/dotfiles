@@ -220,7 +220,7 @@ describe('runSynthMerge', () => {
       sourceIds: ['src2', 'src1'],
     });
 
-    // Deliberately swap outcome array order — plan ordering should
+    // Deliberately swap outcome array order - plan ordering should
     // win over argument order.
     const session = makeSession([VALID_MERGE]);
     const result = await runSynthMerge({
@@ -248,8 +248,8 @@ describe('runSynthMerge', () => {
     expect(report).toContain('and [^1]');
 
     // Footnotes block appended.
-    expect(report).toContain('[^1]: S1 — https://example.com/1');
-    expect(report).toContain('[^2]: S2 — https://example.com/2');
+    expect(report).toContain('[^1]: S1 - https://example.com/1');
+    expect(report).toContain('[^2]: S2 - https://example.com/2');
 
     expect(result.footnoteCount).toBe(2);
     expect(result.stubbedSubQuestions).toEqual([]);
@@ -263,7 +263,7 @@ describe('runSynthMerge', () => {
     // Inject a section that references a hallucinated id. The
     // synth stage's schema validator would have rejected this,
     // but here we bypass synth and feed the bad body directly
-    // into merge — acceptance: research-citations refuses.
+    // into merge - acceptance: research-citations refuses.
     const sectionA = okOutcome({
       runRoot,
       subQuestionId: 'sq-a',
@@ -496,7 +496,7 @@ describe('runSynthMerge', () => {
     const report = readFileSync(result.reportPath, 'utf8');
 
     // The snapshot's inlined promptHash must NOT appear anywhere
-    // in the report — the report has its own provenance
+    // in the report - the report has its own provenance
     // frontmatter written by merge, but the snapshot's `abc` hash
     // is specific to the section and must be dropped.
     expect(report).not.toContain('promptHash: "abc"');

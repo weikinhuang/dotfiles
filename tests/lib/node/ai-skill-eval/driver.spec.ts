@@ -321,7 +321,7 @@ describe('invokeDriver token capture', () => {
     );
 
     expect(typeof r.durationSec).toBe('number');
-    // Fast stub — duration should be under 2 seconds but non-negative.
+    // Fast stub - duration should be under 2 seconds but non-negative.
     expect(r.durationSec).toBeGreaterThanOrEqual(0);
     expect(r.durationSec).toBeLessThan(2);
     // 2-decimal rounding: no more than 2 fractional digits in the text form.

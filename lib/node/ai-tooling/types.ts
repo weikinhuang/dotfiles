@@ -64,8 +64,8 @@ export interface SessionSummary {
   modelBreakdown?: ModelTokenBreakdown[];
   // Context consumed on the most recent completed assistant turn (input +
   // cache_read + cache_write). This is not a true "next message" prediction
-  // — the next request will add any post-last-assistant user text and tool
-  // results on top — but it is the best signal available from a closed log.
+  // - the next request will add any post-last-assistant user text and tool
+  // results on top - but it is the best signal available from a closed log.
   // Populated by every adapter whose session format carries per-turn usage.
   lastContextTokens?: number;
   // Model context window max, when the log carries it (Codex only today).

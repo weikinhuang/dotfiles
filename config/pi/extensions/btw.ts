@@ -1,5 +1,5 @@
 /**
- * `/btw` — Claude Code–style ephemeral side-question command.
+ * `/btw` - Claude Code–style ephemeral side-question command.
  *
  * The user types `/btw <question>` and gets an answer synthesized from
  * the current session's already-loaded context, without:
@@ -7,7 +7,7 @@
  *   2. Letting the model call tools (tools: [] in the Context we pass).
  *
  * Pi's extension API doesn't expose a "call the LLM out of band"
- * primitive — `pi.sendMessage` / `pi.sendUserMessage` both append to the
+ * primitive - `pi.sendMessage` / `pi.sendUserMessage` both append to the
  * session and trigger turns. To get ephemeral semantics we reach through
  * to the `@earendil-works/pi-ai` `complete()` function directly, using
  * pi's own helpers to reconstruct the branch context that would be sent
@@ -19,7 +19,7 @@
  *   4. Resolve creds: ctx.modelRegistry.getApiKeyAndHeaders(ctx.model)
  *   5. Call pi-ai's complete() with tools: [] and sessionId set so
  *      prompt caching engages.
- *   6. Render the answer via ctx.ui.notify — DO NOT persist it.
+ *   6. Render the answer via ctx.ui.notify - DO NOT persist it.
  *
  * Request parameters we inherit: model, system prompt (ctx.getSystemPrompt),
  * messages (via buildSessionContext), apiKey + headers (via ModelRegistry),
@@ -37,7 +37,7 @@
  *   PI_BTW_MODEL=provider/id   answer side questions with a specific model
  *                              instead of the session's current model
  *   PI_BTW_INCLUDE_TOOLS=1     pass the currently-active tools to the call
- *                              (escape hatch — defeats the whole point)
+ *                              (escape hatch - defeats the whole point)
  *
  * Pure helpers live in ../../../lib/node/pi/btw.ts so they can be
  * unit-tested under `vitest` without the pi runtime.
@@ -52,7 +52,7 @@ import {
 } from '@earendil-works/pi-coding-agent';
 
 /**
- * Read-only subset of `SessionManager` — pi 0.74 dropped the public
+ * Read-only subset of `SessionManager` - pi 0.74 dropped the public
  * `ReadonlySessionManager` alias, so we redeclare the narrow Pick we
  * actually use.
  */
@@ -86,7 +86,7 @@ const CACHE_RETENTION = 'short' as const;
 type ModelLike = Model<any>;
 
 /**
- * Narrow read-only session manager surface — intentionally a Pick of
+ * Narrow read-only session manager surface - intentionally a Pick of
  * only the methods this extension uses, so the helpers can be reasoned
  * about without dragging in the full pi type.
  */
@@ -98,7 +98,7 @@ type SessionView = Pick<ReadonlySessionManager, 'getBranch' | 'getSessionId'>;
 
 /** No-op unsubscribe. Shared so we don't allocate per call. */
 const NO_UNSUBSCRIBE = (): void => {
-  // intentionally empty — nothing to clean up when there was nothing to subscribe.
+  // intentionally empty - nothing to clean up when there was nothing to subscribe.
 };
 
 /**
@@ -151,7 +151,7 @@ export default function btw(pi: ExtensionAPI): void {
       }
       if (!model) {
         ctx.ui.notify(
-          'No active model — /btw needs a model to answer the side question. Run /login or select one with /model first.',
+          'No active model - /btw needs a model to answer the side question. Run /login or select one with /model first.',
           'error',
         );
         return;
@@ -176,7 +176,7 @@ export default function btw(pi: ExtensionAPI): void {
       };
       const messages: Message[] = [...existingMessages, sideQuestion];
 
-      // 5. Assemble the Context. Tools default to empty — side questions
+      // 5. Assemble the Context. Tools default to empty - side questions
       //    answer from context, not by running code.
       const context: Context = {
         systemPrompt: ctx.getSystemPrompt(),
@@ -225,7 +225,7 @@ export default function btw(pi: ExtensionAPI): void {
       }
 
       // 7. Render. `ctx.ui.notify` is the dismissible-overlay-ish
-      //    channel in pi — it's what statusline, scratchpad, and the
+      //    channel in pi - it's what statusline, scratchpad, and the
       //    other extensions use for non-persistent output. We do NOT
       //    call pi.sendMessage / pi.sendUserMessage / pi.appendEntry;
       //    that's what keeps the Q&A ephemeral.

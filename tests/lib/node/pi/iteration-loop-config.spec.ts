@@ -97,7 +97,7 @@ describe('loadIterationLoopConfig', () => {
 
     expect(config.claimRegexes.length).toBe(BUILT_IN_CLAIM_REGEXES.length + 1);
 
-    const matched = config.claimRegexes.some((r) => r.test('mission complete — moving on'));
+    const matched = config.claimRegexes.some((r) => r.test('mission complete - moving on'));
 
     expect(matched).toBe(true);
   });

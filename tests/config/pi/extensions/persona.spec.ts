@@ -2,7 +2,7 @@
  * Tests for the `mode` extension's command surface.
  *
  * The extension shell lives at `config/pi/extensions/mode.ts` and is
- * intentionally thin — all decisions are delegated to the pure
+ * intentionally thin - all decisions are delegated to the pure
  * helpers under `lib/node/pi/mode/`. This spec drives those helpers
  * end-to-end against the same shapes the extension uses, so the two
  * stay in lockstep without faking pi's runtime.
@@ -13,7 +13,7 @@
  * Layout note: the repo convention puts pure-helper specs under
  * `tests/lib/node/pi/`. This spec sits under
  * `tests/config/pi/extensions/` because Phase 4 of
- * `plans/pi-mode-extension.md` requires that exact path — it
+ * `plans/pi-mode-extension.md` requires that exact path - it
  * documents the extension's command surface, not the helper modules.
  * All code under test is still pure (no pi-runtime imports).
  */
@@ -82,7 +82,7 @@ const SHIPPED_CATALOG = {
 const SHIPPED_NAME_ORDER = ['chat', 'explain', 'plan', 'research'];
 
 // ──────────────────────────────────────────────────────────────────────
-// Plan assertion #1 — `/mode` lists shipped modes; `/mode <name>`
+// Plan assertion #1 - `/mode` lists shipped modes; `/mode <name>`
 // activates and notifies; `/mode off` restores.
 // ──────────────────────────────────────────────────────────────────────
 
@@ -94,8 +94,8 @@ test('plan #1: `/mode` (no args) lists every catalog mode with description, no a
   });
 
   expect(lines[0]).toBe('(no mode active)');
-  expect(lines).toContain('  chat — Long-form Q&A with web access; no writes.');
-  expect(lines).toContain('  plan — Drop a plan doc; never edits source.');
+  expect(lines).toContain('  chat - Long-form Q&A with web access; no writes.');
+  expect(lines).toContain('  plan - Drop a plan doc; never edits source.');
 
   // No `* ` prefix on any catalog row when nothing is active.
   for (const line of lines.slice(1)) expect(line.startsWith('* ')).toBe(false);
@@ -109,8 +109,8 @@ test('plan #1: `/mode plan` activates → listing marks `* plan` and header read
   });
 
   expect(lines[0]).toBe('(active: plan)');
-  expect(lines).toContain('* plan — Drop a plan doc; never edits source.');
-  expect(lines).toContain('  chat — Long-form Q&A with web access; no writes.');
+  expect(lines).toContain('* plan - Drop a plan doc; never edits source.');
+  expect(lines).toContain('  chat - Long-form Q&A with web access; no writes.');
 });
 
 test('plan #1: activation snapshots → mutates → `/mode off` restores prior state', () => {
@@ -155,7 +155,7 @@ test('plan #1: activation calls `ctx.ui.notify` with `mode: "<name>" activated`'
 });
 
 // ──────────────────────────────────────────────────────────────────────
-// Plan assertions #2 / #3 — write inside roots is allowed; outside
+// Plan assertions #2 / #3 - write inside roots is allowed; outside
 // triggers the prompt.
 // ──────────────────────────────────────────────────────────────────────
 
@@ -193,7 +193,7 @@ test('plan #3: `write` to path outside `writeRoots` triggers a prompt with mode 
 });
 
 // ──────────────────────────────────────────────────────────────────────
-// Plan assertion #4 — UI deny → block. The deny path is the shell's
+// Plan assertion #4 - UI deny → block. The deny path is the shell's
 // wiring of `askForPermission` → `{ block, reason }`. We test the
 // post-prompt branch by simulating the `decideWriteGate` → `prompt`
 // → `askForPermission` → `deny` chain at the contract level.
@@ -231,7 +231,7 @@ test('plan #4: prompt + deny feedback → caller produces `{ block: true, reason
 });
 
 // ──────────────────────────────────────────────────────────────────────
-// Plan assertion #5 — `allow-session` caches the path so subsequent
+// Plan assertion #5 - `allow-session` caches the path so subsequent
 // calls bypass the prompt entirely.
 // ──────────────────────────────────────────────────────────────────────
 
@@ -269,7 +269,7 @@ test('plan #5: `allow-session` decision caches path → second `decideWriteGate`
 });
 
 // ──────────────────────────────────────────────────────────────────────
-// Plan assertion #6 — no-UI runtime: blocks unless
+// Plan assertion #6 - no-UI runtime: blocks unless
 // `PI_PERSONA_VIOLATION_DEFAULT=allow` flips the default.
 // ──────────────────────────────────────────────────────────────────────
 
@@ -306,7 +306,7 @@ test('plan #6: no-UI + `PI_PERSONA_VIOLATION_DEFAULT=allow` → allow (override)
 });
 
 // ──────────────────────────────────────────────────────────────────────
-// Plan assertion #7 — `subagent` / `subagent_send` tool calls are NOT
+// Plan assertion #7 - `subagent` / `subagent_send` tool calls are NOT
 // intercepted by mode (D4). The shell short-circuits on these tool
 // names BEFORE reaching either policy helper.
 // ──────────────────────────────────────────────────────────────────────
@@ -315,7 +315,7 @@ test('plan #7 (D4): the shell skips `subagent` + `subagent_send` tool names', ()
   // The shell's contract:
   //   if (event.toolName === 'subagent' || event.toolName === 'subagent_send') return undefined;
   // We assert the predicate that guards the skip rather than driving the helpers, since the
-  // skip lives in `mode.ts`'s `pi.on('tool_call', …)` handler — see config/pi/extensions/mode.ts.
+  // skip lives in `mode.ts`'s `pi.on('tool_call', …)` handler - see config/pi/extensions/mode.ts.
   const skipped = (toolName: string): boolean => toolName === 'subagent' || toolName === 'subagent_send';
 
   expect(skipped('subagent')).toBe(true);
@@ -325,12 +325,12 @@ test('plan #7 (D4): the shell skips `subagent` + `subagent_send` tool names', ()
 });
 
 // ──────────────────────────────────────────────────────────────────────
-// Plan assertion #8 — mode + preset coexist independently. Both call
+// Plan assertion #8 - mode + preset coexist independently. Both call
 // `pi.setActiveTools` with their own list; `mode off` must leave any
 // preset's snapshot untouched.
 // ──────────────────────────────────────────────────────────────────────
 
-test('plan #8: mode + preset snapshot independently — clearing mode leaves preset state alone', () => {
+test('plan #8: mode + preset snapshot independently - clearing mode leaves preset state alone', () => {
   // Initial: bare session.
   const api = makeApi({
     model: 'anthropic/claude-haiku',
@@ -345,18 +345,18 @@ test('plan #8: mode + preset snapshot independently — clearing mode leaves pre
   api.state.activeTools = ['read', 'write', 'edit', 'bash', 'todo'];
 
   // Then activate `mode:plan` on top (mode snapshots the preset-mutated
-  // state; that's fine — D8 says mode is orthogonal).
+  // state; that's fine - D8 says mode is orthogonal).
   const modeSnap = snapshotSession(api);
   api.state.activeTools = ['read', 'grep', 'find', 'ls', 'todo', 'scratchpad', 'write', 'edit'];
 
-  // `/mode off` — restore mode's snapshot. Preset's state should be back.
+  // `/mode off` - restore mode's snapshot. Preset's state should be back.
   restoreSession(api, modeSnap);
 
   expect(api.state.model).toBe('anthropic/claude-opus');
   expect(api.state.thinkingLevel).toBe('high');
   expect(api.state.activeTools).toEqual(['read', 'write', 'edit', 'bash', 'todo']);
 
-  // `/preset off` — restore preset's snapshot. Bare session is back.
+  // `/preset off` - restore preset's snapshot. Bare session is back.
   restoreSession(api, presetSnap);
 
   expect(api.state.model).toBe('anthropic/claude-haiku');
@@ -365,7 +365,7 @@ test('plan #8: mode + preset snapshot independently — clearing mode leaves pre
 });
 
 // ──────────────────────────────────────────────────────────────────────
-// Catalog smoke — the shipped modes' bash policies match what the
+// Catalog smoke - the shipped modes' bash policies match what the
 // `Mode catalog` table in plans/pi-mode-extension.md promises.
 // ──────────────────────────────────────────────────────────────────────
 
@@ -401,7 +401,7 @@ test('catalog: chat-mode `bashAllow` allows `rg`, blocks `curl`', () => {
 });
 
 test('catalog: debug-mode (no bash policy) → all commands allowed by mode (bash-permissions still gates)', () => {
-  // debug.md ships with no bashAllow / bashDeny — mode has no opinion;
+  // debug.md ships with no bashAllow / bashDeny - mode has no opinion;
   // the underlying `bash-permissions.ts` rule engine is the only gate.
   const decision = evaluateBashPolicy({
     command: 'rm -rf /',

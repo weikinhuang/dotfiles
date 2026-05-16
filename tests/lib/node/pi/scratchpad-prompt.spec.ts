@@ -1,7 +1,7 @@
 /**
  * Tests for lib/node/pi/scratchpad-prompt.ts.
  *
- * Pure module — no pi runtime needed.
+ * Pure module - no pi runtime needed.
  */
 
 import { expect, test } from 'vitest';
@@ -69,7 +69,7 @@ test('formatWorkingNotes: soft cap truncates and emits trailer', () => {
   // Truncation trailer must mention skipped count and the tool hint.
   expect(out).toMatch(/more note\(s\) not shown/i);
   expect(out).toMatch(/scratchpad.*list/);
-  // Output is soft-capped — allow some overshoot, but it must not
+  // Output is soft-capped - allow some overshoot, but it must not
   // contain every note.
   expect(out.length).toBeLessThan(3000);
   expect(out.includes('#40 ')).toBe(false);

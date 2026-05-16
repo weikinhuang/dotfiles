@@ -156,7 +156,7 @@ function parseEntries(entries: ClaudeEntry[]): ParsedEntries {
   // Claude Code splits one assistant response across multiple JSONL entries
   // (e.g. thinking block, then tool_use chunks) and repeats the full `usage`
   // object on each one. Count usage exactly once per message.id so we don't
-  // double-count tokens — tool_use blocks are still aggregated across all
+  // double-count tokens - tool_use blocks are still aggregated across all
   // entries since they are partial slices of the complete response.
   const countedMessageIds = new Set<string>();
   // Track the most recent assistant turn's context consumption (input +
@@ -190,7 +190,7 @@ function parseEntries(entries: ClaudeEntry[]): ParsedEntries {
           lastAssistantMsgId = msgId;
           lastContextTokens = dIn + dCw + dCr;
         } else if (!msgId) {
-          // No id — still track the latest usage we saw.
+          // No id - still track the latest usage we saw.
           lastContextTokens = dIn + dCw + dCr;
         }
         tokens.input += dIn;

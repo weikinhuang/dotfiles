@@ -1,7 +1,7 @@
 /**
  * Tests for lib/node/pi/subagent-session-paths.ts.
  *
- * Pure module — fs is injected.
+ * Pure module - fs is injected.
  */
 
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';

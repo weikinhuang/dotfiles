@@ -4,20 +4,20 @@
  * During synthesis, an LLM writes a draft that references sources
  * via placeholders of the form `{{SRC:<id>}}`. The id is the
  * hash-keyed source identifier produced by the source store (see
- * the planned `research-sources.ts` — this module intentionally
+ * the planned `research-sources.ts` - this module intentionally
  * stays filesystem-free so it can be unit-tested in isolation).
  *
  * After synthesis, we need two things:
  *
- *   1. **Validation** — every placeholder the model emitted must
+ *   1. **Validation** - every placeholder the model emitted must
  *      point at a source we actually have. An unknown id means the
  *      model hallucinated a source, and the report needs to fail
  *      structural review rather than silently shipping a dangling
  *      citation. `validatePlaceholders` is the gate for that.
  *
- *   2. **Rewrite** — replace `{{SRC:<id>}}` with stable `[^N]`
+ *   2. **Rewrite** - replace `{{SRC:<id>}}` with stable `[^N]`
  *      markers and emit a footnotes block containing
- *      `[^N]: <title> — <url>` entries in first-use order. That's
+ *      `[^N]: <title> - <url>` entries in first-use order. That's
  *      what `renumber` does.
  *
  * Both functions are pure: strings in, strings out. No filesystem,
@@ -33,7 +33,7 @@
 
 /**
  * Matches a single placeholder token. The id sub-match captures
- * everything up to the next `}` — no greediness across lines, no
+ * everything up to the next `}` - no greediness across lines, no
  * embedded `}` characters (our source store's hash-prefix ids are
  * lowercase hex, so the restriction is not load-bearing, but it
  * keeps the grammar unambiguous if a future id scheme adds
@@ -44,7 +44,7 @@
  *
  * Exported so the structural check
  * (`deep-research-structural-check.ts`) can reuse the canonical
- * pattern — keeping one regex prevents a format tweak here from
+ * pattern - keeping one regex prevents a format tweak here from
  * silently diverging from the post-render validator.
  */
 export const SRC_PLACEHOLDER_RE = /\{\{SRC:([^}]+)\}\}/g;
@@ -64,7 +64,7 @@ export interface Placeholder {
 /**
  * Minimal shape the `renumber` function needs to render a footnote.
  * Full `SourceRef` (see `research-sources.ts` in Phase 2) is a
- * superset — we accept only what we use so this module can be
+ * superset - we accept only what we use so this module can be
  * exercised without pulling in the source store's richer types.
  */
 export interface CitationSource {
@@ -79,7 +79,7 @@ export interface CitationSource {
 
 /**
  * Find every placeholder occurrence in `draft`, in document order.
- * Duplicates are NOT deduped — the caller decides whether they care
+ * Duplicates are NOT deduped - the caller decides whether they care
  * about each occurrence or the set of unique ids.
  */
 export function extractPlaceholders(draft: string): Placeholder[] {
@@ -150,8 +150,8 @@ export interface RenumberResult {
    * A newline-terminated markdown footnotes block enumerating
    * every known source referenced by the report. Format:
    *
-   *     [^1]: <title> — <url>
-   *     [^2]: <title> — <url>
+   *     [^1]: <title> - <url>
+   *     [^2]: <title> - <url>
    *     ...
    *
    * When the report references zero known sources, `footnotes` is
@@ -180,7 +180,7 @@ export interface RenumberResult {
  *   - Footnote entries use the title verbatim but collapse
  *     embedded newlines/tabs into single spaces so the block stays
  *     on one line per entry. The url is appended after an em-dash
- *     (` — `) separator.
+ *     (` - `) separator.
  */
 export function renumber(draft: string, sourceIndex: ReadonlyMap<string, CitationSource>): RenumberResult {
   // First-use order of *known* ids in the draft.
@@ -194,7 +194,7 @@ export function renumber(draft: string, sourceIndex: ReadonlyMap<string, Citatio
   // the returned string preserves non-matched characters verbatim.
   const report = draft.replace(SRC_PLACEHOLDER_RE, (full, id: string) => {
     const n = order.get(id);
-    // Unknown-id path — leave the placeholder intact for the
+    // Unknown-id path - leave the placeholder intact for the
     // post-render validator to catch.
     if (n === undefined) return full;
     return `[^${n}]`;
@@ -210,7 +210,7 @@ export function renumber(draft: string, sourceIndex: ReadonlyMap<string, Citatio
       // `sourceIndex.has(id)` is true by construction of `order`.
       const src = sourceIndex.get(id)!;
       const title = src.title.replace(/\s+/g, ' ').trim() || '(untitled)';
-      return `[^${n}]: ${title} — ${src.url}`;
+      return `[^${n}]: ${title} - ${src.url}`;
     })
     .join('\n');
 

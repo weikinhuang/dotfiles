@@ -3,29 +3,29 @@
  * detector for the iteration-loop.
  *
  * Pure functions over (CheckSpec, IterationState, Verdict). No disk
- * I/O, no pi imports — unit-testable in isolation.
+ * I/O, no pi imports - unit-testable in isolation.
  *
  * Stop-reason precedence (first match wins):
  *
- *   1. `user-closed`         — set by the extension on `check close`;
+ *   1. `user-closed`         - set by the extension on `check close`;
  *                              not computed here.
- *   2. `passed`              — the latest verdict was approved.
- *   3. `fixpoint`            — two consecutive iterations produced
+ *   2. `passed`              - the latest verdict was approved.
+ *   3. `fixpoint`            - two consecutive iterations produced
  *                              the same artifact hash AND the latest
  *                              verdict is not approved (no point
- *                              iterating further — the actor's
+ *                              iterating further - the actor's
  *                              edits aren't changing anything).
- *   4. `budget-cost`         — cumulative cost ≥ maxCostUsd.
- *   5. `budget-iter`         — iteration count ≥ maxIter.
- *   6. `wall-clock`          — elapsed seconds since `startedAt` ≥
+ *   4. `budget-cost`         - cumulative cost ≥ maxCostUsd.
+ *   5. `budget-iter`         - iteration count ≥ maxIter.
+ *   6. `wall-clock`          - elapsed seconds since `startedAt` ≥
  *                              wallClockSeconds.
- *   7. `null`                — keep going.
+ *   7. `null`                - keep going.
  *
  * The ordering matters: `passed` outranks every budget cap because a
  * verdict approved *on the last iteration budget allowed* is still a
  * pass, not an exhaustion. Similarly `fixpoint` outranks budgets
  * because it's a harder signal ("more iterations won't help") than
- * "you've spent enough" — surfacing it gives the user a better
+ * "you've spent enough" - surfacing it gives the user a better
  * diagnostic.
  */
 
@@ -46,7 +46,7 @@ import {
  * A fixpoint is when the current artifact hash equals the previous
  * iteration's artifact hash. We pull the previous hash from
  * `bestSoFar` (if it's the immediate predecessor) OR from the tail
- * of `history` — but history entries don't carry the snapshot hash,
+ * of `history` - but history entries don't carry the snapshot hash,
  * so this function takes the prior hash as an argument. Callers
  * (the extension) pass it explicitly after looking it up via storage.
  *
@@ -76,12 +76,12 @@ export function isFixpoint(prevHash: string | null, currentHash: string): boolea
  */
 export function selectBestSoFar(current: BestSoFar | null, candidate: BestSoFar): BestSoFar {
   if (!current) return candidate;
-  // Approved beats not-approved, full stop — the loop's goal is "find a
+  // Approved beats not-approved, full stop - the loop's goal is "find a
   // passing verdict", so a later-but-lower-scored approved iteration
   // is still strictly better than an earlier not-approved one.
   if (candidate.approved && !current.approved) return candidate;
   if (!candidate.approved && current.approved) return current;
-  // Same approval status — higher score wins, ties go to the freshest
+  // Same approval status - higher score wins, ties go to the freshest
   // iteration so the user sees recent work.
   if (candidate.score > current.score) return candidate;
   if (candidate.score === current.score && candidate.iteration > current.iteration) return candidate;
@@ -113,7 +113,7 @@ export interface ComputeStopReasonInput {
    */
   previousArtifactHash: string | null;
   /**
-   * Current clock — injected for deterministic tests. Production
+   * Current clock - injected for deterministic tests. Production
    * callers pass `() => new Date()` or `() => mockedDate`.
    */
   now: Date;
@@ -134,12 +134,12 @@ export function computeStopReason(input: ComputeStopReasonInput): StopReason | n
   // (1) user-closed is set externally. (2) passed.
   if (state.lastVerdict?.approved) return 'passed';
 
-  // (3) fixpoint — only meaningful with two snapshots to compare.
+  // (3) fixpoint - only meaningful with two snapshots to compare.
   if (currentArtifactHash !== null && isFixpoint(previousArtifactHash, currentArtifactHash)) {
     return 'fixpoint';
   }
 
-  // (4) cost cap — soft, but enforced.
+  // (4) cost cap - soft, but enforced.
   if (state.costUsd >= budget.maxCostUsd) return 'budget-cost';
 
   // (5) iteration cap.

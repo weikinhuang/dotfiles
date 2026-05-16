@@ -1,7 +1,7 @@
 /**
  * Mode-file parser for `config/pi/extensions/mode.ts`.
  *
- * Pure module — no pi imports — so it can be unit-tested under `vitest`.
+ * Pure module - no pi imports - so it can be unit-tested under `vitest`.
  * The frontmatter parser is injected (matches `subagent-loader.ts`) so
  * the extension wires pi's `parseFrontmatter` while tests can drive the
  * loader with a stub.
@@ -10,7 +10,7 @@
  * `plans/pi-mode-extension.md` → "Mode file schema (frontmatter)").
  * Mode-only fields: `agent`, `writeRoots`, `bashAllow`, `bashDeny`,
  * `appendSystemPrompt`. Validation collects warnings rather than
- * throwing — one bad mode file should never blind the whole catalog.
+ * throwing - one bad mode file should never blind the whole catalog.
  */
 
 import { basename } from 'node:path';
@@ -22,7 +22,7 @@ export type PersonaThinkingLevel = (typeof THINKING_LEVELS)[number];
 
 export type PersonaSourceLayer = 'shipped' | 'user' | 'project';
 
-/** Raw, untyped frontmatter — every field is `unknown` until validated. */
+/** Raw, untyped frontmatter - every field is `unknown` until validated. */
 export interface PersonaFrontmatterRaw extends Record<string, unknown> {
   name?: unknown;
   description?: unknown;
@@ -39,7 +39,7 @@ export interface PersonaFrontmatterRaw extends Record<string, unknown> {
 
 /**
  * Result of validating a mode `.md` file. `tools` is `undefined` when
- * the field is absent in frontmatter — the inheritance pass will pull
+ * the field is absent in frontmatter - the inheritance pass will pull
  * it from the referenced agent (D5 in the plan).
  */
 export interface ParsedPersona {
@@ -73,7 +73,7 @@ export interface ParsePersonaOptions {
   raw: string;
   knownToolNames: ReadonlySet<string>;
   parseFrontmatter: (raw: string) => { frontmatter: Record<string, unknown>; body: string };
-  /** Mutated in place — same pattern as `subagent-loader.ts`. */
+  /** Mutated in place - same pattern as `subagent-loader.ts`. */
   warnings: PersonaWarning[];
 }
 
@@ -138,7 +138,7 @@ export function parsePersonaFile(opts: ParsePersonaOptions): ParsedPersona | nul
   const description = toStringOrUndefined(fm.description);
   const agent = toStringOrUndefined(fm.agent);
 
-  // tools: undefined when omitted — inheritance pass fills from agent.
+  // tools: undefined when omitted - inheritance pass fills from agent.
   let tools: string[] | undefined;
   if (fm.tools !== undefined) {
     const arr = toStringArray(fm.tools, 'tools', path, warnings);
@@ -155,7 +155,7 @@ export function parsePersonaFile(opts: ParsePersonaOptions): ParsedPersona | nul
       }
       tools = kept;
     }
-    // If `arr` is undefined (bad shape), `tools` stays undefined — the
+    // If `arr` is undefined (bad shape), `tools` stays undefined - the
     // mode is still returned, deferring tool resolution to inheritance
     // or to the caller noticing the warning.
   }

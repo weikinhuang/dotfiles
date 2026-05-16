@@ -13,8 +13,8 @@
  *
  *   1. **k-of-N partial failure tolerance.** One stalled, errored,
  *      or crashed child MUST NOT take down the others. Every task
- *      is wrapped in try/catch and its outcome — success or
- *      failure — is isolated to its own slot in the result
+ *      is wrapped in try/catch and its outcome - success or
+ *      failure - is isolated to its own slot in the result
  *      buckets.
  *
  *   2. **Per-handle watchdog.** Each task runs under
@@ -84,7 +84,7 @@ export interface FanoutTask {
  *     `run_in_background` is unavailable (print mode, hook context,
  *     test harness). Tasks run through the same spawner interface
  *     but the spawner is expected to execute them inline. The
- *     fanout still respects `maxConcurrent` — sync with
+ *     fanout still respects `maxConcurrent` - sync with
  *     `maxConcurrent: 1` is the natural "run them one after
  *     another" shape.
  */
@@ -125,7 +125,7 @@ export interface FanoutResult {
 /**
  * Final outcome of a single handle, as returned by the spawner's
  * `wait()` method. `aborted` distinguishes a polite external abort
- * from a plain failure — when the flag is set, the fanout buckets
+ * from a plain failure - when the flag is set, the fanout buckets
  * the task as `aborted` rather than `failed`.
  */
 export type FanoutHandleResult = { ok: true; output: string } | { ok: false; reason: string; aborted?: boolean };
@@ -155,7 +155,7 @@ export interface FanoutSpawnArgs {
 /** Transport adapter supplied by the caller / extension wiring. */
 export type FanoutSpawner = (args: FanoutSpawnArgs) => Promise<FanoutHandleLike>;
 
-/** Dependency bag — mirrors the wiring style in research-tiny.ts. */
+/** Dependency bag - mirrors the wiring style in research-tiny.ts. */
 export interface FanoutDeps {
   /** Spawner bridging to the real subagent runtime (or a mock). */
   spawn: FanoutSpawner;
@@ -171,7 +171,7 @@ export interface FanoutDeps {
   clock?: () => number;
   /** Sleep override (tests use a virtual clock). */
   sleep?: (ms: number) => Promise<void>;
-  /** Parent abort signal — fires wall-clock-early termination too. */
+  /** Parent abort signal - fires wall-clock-early termination too. */
   signal?: AbortSignal;
 }
 
@@ -296,7 +296,7 @@ function makeMergedAbort(
       if (!controller.signal.aborted)
         controller.abort(new Error(`fanout wall-clock exceeded (${Math.round(timeoutMs / 1000)}s)`));
     }, timeoutMs);
-    // Don't keep the process alive waiting on a fanout timer — the
+    // Don't keep the process alive waiting on a fanout timer - the
     // deadline is advisory; the caller's normal flow always clears
     // it before the fanout resolves.
     if (typeof (timer as { unref?: () => void }).unref === 'function') {
@@ -318,7 +318,7 @@ function makeMergedAbort(
 // ──────────────────────────────────────────────────────────────────────
 
 // Defaults are provided by the underlying `research-watchdog`
-// when the caller doesn't set them — nothing to re-declare here.
+// when the caller doesn't set them - nothing to re-declare here.
 
 interface RunOneArgs {
   spec: FanoutSpec;
@@ -343,7 +343,7 @@ async function runOne(args: RunOneArgs): Promise<void> {
     try {
       appendJournal(deps.journalPath, { level, heading, body: reason });
     } catch {
-      /* swallow — journal failures never break the dispatcher */
+      /* swallow - journal failures never break the dispatcher */
     }
   };
 
@@ -399,12 +399,12 @@ async function runOne(args: RunOneArgs): Promise<void> {
   }
 
   if (watchResult.kind === 'aborted-by-parent') {
-    // Try to abort the handle defensively — the parent caller may
+    // Try to abort the handle defensively - the parent caller may
     // have bailed without giving the spawner a chance to react.
     try {
       await handle.abort('fanout aborted (parent signal or deadline)');
     } catch {
-      /* swallow — child may already be dead */
+      /* swallow - child may already be dead */
     }
     taskRec.state = 'aborted';
     taskRec.reason = 'fanout aborted (parent signal or deadline)';
@@ -423,7 +423,7 @@ async function runOne(args: RunOneArgs): Promise<void> {
   }
 
   // Watchdog observed normal completion. Ask the handle for its
-  // final answer — this is the step that translates the child's
+  // final answer - this is the step that translates the child's
   // session state into a string we can hand back to the parent.
   let waitResult: FanoutHandleResult;
   try {
@@ -447,7 +447,7 @@ async function runOne(args: RunOneArgs): Promise<void> {
   }
 
   // Non-ok. Aborted is distinguished from plain failure by the
-  // `aborted` flag — spawners that know a child was canceled
+  // `aborted` flag - spawners that know a child was canceled
   // externally (user Ctrl-C, subagent_send abort) set it.
   if (waitResult.aborted) {
     taskRec.state = 'aborted';
@@ -493,7 +493,7 @@ export async function fanout(spec: FanoutSpec, runRoot: string, deps: FanoutDeps
   const tasks: PersistedTask[] = spec.tasks.map((t) => {
     const existing = priorById.get(t.id);
     if (existing && isTerminal(existing.state)) {
-      // Preserve the prompt the terminal task was dispatched with —
+      // Preserve the prompt the terminal task was dispatched with -
       // if the caller changed the prompt between runs we trust the
       // on-disk result (the user explicitly opted into resume by
       // keeping the same run root).
@@ -569,7 +569,7 @@ export async function fanout(spec: FanoutSpec, runRoot: string, deps: FanoutDeps
   }
 
   // 5. If the deadline fired while tasks were still pending, those
-  //    are left in `pending` — classify them as aborted so the
+  //    are left in `pending` - classify them as aborted so the
   //    result buckets are complete.
   const finalizedAt = nowFn().toISOString();
   let changedPostDispatch = false;

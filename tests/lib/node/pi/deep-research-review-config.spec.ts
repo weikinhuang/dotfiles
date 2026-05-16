@@ -56,7 +56,7 @@ describe('deep-research-review-config', () => {
   });
 
   test('readConsent treats a malformed file (no frontmatter) as NOT consented', () => {
-    // Create a file with no frontmatter — parseFrontmatter returns
+    // Create a file with no frontmatter - parseFrontmatter returns
     // null, so readConsent reports the safer "not consented"
     // state. This prevents a stray text file from silently opting
     // a user into auto-accept.
@@ -71,7 +71,7 @@ describe('deep-research-review-config', () => {
 
   test('readConsent still consents when frontmatter lacks acceptedAt', () => {
     // A valid frontmatter stamp without `acceptedAt` is still a
-    // consent signal — the timestamp is just missing metadata
+    // consent signal - the timestamp is just missing metadata
     // (e.g. hand-edited by the user). The user clearly created
     // the file on purpose.
     mkdirSync(join(sandbox, 'global', 'reference'), { recursive: true });
@@ -91,7 +91,7 @@ describe('deep-research-review-config', () => {
     expect(state.at).toBeNull();
   });
 
-  test('recordConsent is idempotent — second call updates the timestamp', () => {
+  test('recordConsent is idempotent - second call updates the timestamp', () => {
     recordConsent({ root: sandbox, now: () => new Date('2025-04-05T06:07:08Z') });
     const second = recordConsent({ root: sandbox, now: () => new Date('2026-01-01T00:00:00Z') });
 

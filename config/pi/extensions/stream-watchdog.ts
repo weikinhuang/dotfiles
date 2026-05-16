@@ -1,9 +1,9 @@
 /**
- * Stream-watchdog extension for pi — abort when the model response
+ * Stream-watchdog extension for pi - abort when the model response
  * stream has gone silent.
  *
  * Complement to `stall-recovery.ts`, which fires AFTER a turn ends
- * empty. This extension fires DURING a turn when nothing is flowing —
+ * empty. This extension fires DURING a turn when nothing is flowing -
  * the classic "llama.cpp (or any local / remote provider) has the HTTP
  * connection open but has stopped emitting tokens" hang. Common on
  * thinking-level=high with modest local hardware; also seen on flaky
@@ -20,7 +20,7 @@
  *      helper `detectStale()` whether the current stream has gone quiet
  *      for `>= stallMs`. If so:
  *        - Always: `ctx.ui.notify` a warning with the silent duration.
- *        - Default: `ctx.abort()` — programmatic equivalent of Esc;
+ *        - Default: `ctx.abort()` - programmatic equivalent of Esc;
  *          the next turn's stall-recovery (or plain retry) can take
  *          over.
  *        - Opt-out via `PI_STREAM_WATCHDOG_ABORT=0` if you just want
@@ -54,7 +54,7 @@
  *   adapter). `stall-recovery`'s classifier explicitly returns `null`
  *   on `aborted` so it doesn't auto-retry a user-initiated (or here,
  *   watchdog-initiated) cancel. If the provider reports the abort as a
- *   generic error instead, `stall-recovery` WILL retry — which is the
+ *   generic error instead, `stall-recovery` WILL retry - which is the
  *   desired behaviour for "stream hung → abort → re-issue".
  *
  * Environment:
@@ -65,7 +65,7 @@
  *   PI_STREAM_WATCHDOG_HARD_STALL_MS=N   hard wall-clock cap since the last
  *                                        forward-progress event, ms (default
  *                                        1800000 / 30 min). Always applies,
- *                                        regardless of in-flight tools —
+ *                                        regardless of in-flight tools -
  *                                        catches genuinely runaway tools.
  *   PI_STREAM_WATCHDOG_POLL_MS=N         poll interval, ms (default 5000)
  *   PI_STREAM_WATCHDOG_ABORT=0           notify only; do not auto-abort
@@ -115,7 +115,7 @@ function parseNonNegativeInt(raw: string | undefined, fallback: number): number 
  * Walk `event.messages` backwards looking for the last assistant
  * message so we can read its `stopReason`. Kept inline (not in
  * `lib/node/pi/stream-watchdog.ts`) because the shape is pi-agent
- * specific — once we reach for more pi types, this belongs in the
+ * specific - once we reach for more pi types, this belongs in the
  * extension tree.
  */
 function findLastAssistant(messages: readonly unknown[] | undefined): { stopReason?: string } | undefined {
@@ -152,7 +152,7 @@ export default function streamWatchdog(pi: ExtensionAPI): void {
   // Latch populated in the poll callback when we decide to auto-retry.
   // The actual `sendUserMessage` happens from the `agent_end` handler
   // because calling it synchronously from the timer would queue via
-  // `_queueFollowUp` (agent still streaming) — and `runAgent`'s abort
+  // `_queueFollowUp` (agent still streaming) - and `runAgent`'s abort
   // path `return`s before the outer loop drains follow-ups, so the
   // queued message would never actually run. By the time `agent_end`
   // has propagated through `_agentEventQueue`, `isStreaming === false`
@@ -194,7 +194,7 @@ export default function streamWatchdog(pi: ExtensionAPI): void {
 
       if (!autoAbort) {
         ctx.ui.notify(
-          `Stream watchdog: stream silent for ${silentSec}s (${elapsedSec}s total)${reasonSuffix} — press Esc to cancel.`,
+          `Stream watchdog: stream silent for ${silentSec}s (${elapsedSec}s total)${reasonSuffix} - press Esc to cancel.`,
           'warning',
         );
         ctx.ui.setStatus(
@@ -213,7 +213,7 @@ export default function streamWatchdog(pi: ExtensionAPI): void {
         if (!budgetExhaustedNotified) {
           budgetExhaustedNotified = true;
           ctx.ui.notify(
-            `Stream watchdog: stalled ${maxRetries} time(s) in a row. Auto-retry paused — type to continue manually.`,
+            `Stream watchdog: stalled ${maxRetries} time(s) in a row. Auto-retry paused - type to continue manually.`,
             'warning',
           );
         }
@@ -267,11 +267,11 @@ export default function streamWatchdog(pi: ExtensionAPI): void {
   pi.on('input', (event, ctx) => {
     // Only reset on real user input. Synthesized follow-ups from other
     // extensions (stall-recovery, loop-breaker) shouldn't flush our
-    // state — if the model is already mid-stream in response to our
+    // state - if the model is already mid-stream in response to our
     // own nudge, we still want to watch for silence.
     if (event.source === 'extension') return;
     // Belt-and-suspenders: if a user typed our own marker back at us
-    // (replay via interactive / rpc), don't reset the budget — that
+    // (replay via interactive / rpc), don't reset the budget - that
     // would defeat the retry cap.
     if (typeof event.text === 'string' && hasWatchdogMarker(event.text)) return;
     latestCtx = ctx;
@@ -333,14 +333,14 @@ export default function streamWatchdog(pi: ExtensionAPI): void {
   pi.on('agent_end', (event, ctx) => {
     latestCtx = ctx;
 
-    // Defensive (D6): a dropped tool_result event — provider error,
-    // malformed shape, anything — must not leave the soft branch
+    // Defensive (D6): a dropped tool_result event - provider error,
+    // malformed shape, anything - must not leave the soft branch
     // permanently suppressed. Reset at every turn boundary.
     resetInFlightTools(state);
 
     // Deliver the latched nudge. By the time `agent_end` has
     // propagated through `_agentEventQueue`, `finishRun()` has flipped
-    // `isStreaming` back to `false` — so `pi.sendUserMessage` here
+    // `isStreaming` back to `false` - so `pi.sendUserMessage` here
     // takes the fresh-prompt branch and the new turn actually runs.
     if (pendingNudge) {
       // Sanity-check the abort actually took effect. If a race left the
@@ -373,7 +373,7 @@ export default function streamWatchdog(pi: ExtensionAPI): void {
       return;
     }
 
-    // No pending nudge — if the turn ended cleanly, reset our retry
+    // No pending nudge - if the turn ended cleanly, reset our retry
     // counter so a stall 30 minutes from now gets a fresh budget.
     const lastAssistant = findLastAssistant((event as { messages?: readonly unknown[] }).messages);
     const stop = lastAssistant?.stopReason;

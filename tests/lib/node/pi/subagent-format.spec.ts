@@ -1,7 +1,7 @@
 /**
  * Tests for lib/node/pi/subagent-format.ts.
  *
- * Pure module — no pi runtime needed.
+ * Pure module - no pi runtime needed.
  */
 
 import { describe, expect, test } from 'vitest';
@@ -40,7 +40,7 @@ describe('formatAgentListDescription', () => {
     expect(lines[2]).toContain('explore');
     expect(lines[2]).toContain('[user]');
     expect(lines[3]).toContain('plan');
-    expect(lines[3]).not.toContain('[global]'); // global is the default — untagged
+    expect(lines[3]).not.toContain('[global]'); // global is the default - untagged
   });
 
   test('truncates long descriptions', () => {
@@ -264,7 +264,7 @@ describe('formatRunningChildrenList', () => {
     const out = formatRunningChildrenList(entries, 10_000);
 
     expect(out).toContain('3.0s'); // from the formatter itself
-    // No trailing 10s — would duplicate the duration the completed-line already carries.
+    // No trailing 10s - would duplicate the duration the completed-line already carries.
     expect(out.trimEnd()).not.toMatch(/\s10s$/);
   });
 });

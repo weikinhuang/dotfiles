@@ -1,4 +1,4 @@
-// Tests for lib/node/ai-skill-eval/compare.ts — the R5.1 blind A/B comparator.
+// Tests for lib/node/ai-skill-eval/compare.ts - the R5.1 blind A/B comparator.
 
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -129,7 +129,7 @@ describe('buildComparatorPrompt', () => {
       'RUBRIC',
     );
 
-    expect(prompt).toContain('(none — judge on content + structure only)');
+    expect(prompt).toContain('(none - judge on content + structure only)');
   });
 
   test('surfaces a read error inline when a reply file is missing', () => {

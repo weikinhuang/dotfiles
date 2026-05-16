@@ -68,7 +68,7 @@ export default function bashExitWatchdog(pi: ExtensionAPI): void {
     try {
       appendFileSync(tracePath, `[exit-watchdog] ${msg}\n`, 'utf8');
     } catch {
-      /* ignore trace write failures — never break a turn over diagnostics */
+      /* ignore trace write failures - never break a turn over diagnostics */
     }
   };
 

@@ -8,7 +8,7 @@
  *
  *   - Reads only DECLARATIVE config: shell-script text, JSON /
  *     JSONC, and property lookups inside `package.json`. We NEVER
- *     evaluate user JS/TS config (`lint-staged.config.mjs`, etc.) —
+ *     evaluate user JS/TS config (`lint-staged.config.mjs`, etc.) -
  *     that would require running user code at session-start, which is
  *     a security and portability landmine. Instead we text-scan the
  *     file for known tool tokens. That handles the common shape
@@ -18,12 +18,12 @@
  *
  *   - Supports: `.husky/pre-commit` (Husky v7+), `package.json` ->
  *     `husky.hooks.pre-commit` (Husky v4 legacy), `lint-staged.config.*`
- *     (any extension — text-scanned), `.lintstagedrc` /
+ *     (any extension - text-scanned), `.lintstagedrc` /
  *     `.lintstagedrc.json` (JSONC), `package.json` -> `lint-staged`
  *     (inline config).
  *
  *   - Does NOT support: `.pre-commit-config.yaml` (pre-commit.com)
- *     in this MVP — no YAML parser in the repo today. If a project
+ *     in this MVP - no YAML parser in the repo today. If a project
  *     uses it, users can add explicit `commandSatisfies` rules via
  *     `verify-before-claim.json` as a fallback.
  *
@@ -38,7 +38,7 @@
  *
  *   For each known tool token we observe in a hook config, add the
  *   claim-kinds that tool would plausibly satisfy. Err LIBERAL on the
- *   match (find the tool once anywhere in the file → count it) —
+ *   match (find the tool once anywhere in the file → count it) -
  *   false positives suppress a legitimate nudge (annoying but safe),
  *   false negatives cry wolf on a real claim (worse UX). Same
  *   asymmetry as `verify-detect.ts`'s command matchers.
@@ -52,7 +52,7 @@
  *   breadcrumb so warnings / debug tools can tell where it came from.
  *
  *   If no kinds are inferred (no hook config, or hook config uses
- *   tools we don't recognise), we return `{ rules: [], ... }` — same
+ *   tools we don't recognise), we return `{ rules: [], ... }` - same
  *   shape as `loadSatisfyRules` so the extension can concat both
  *   lists blindly.
  *
@@ -60,7 +60,7 @@
  *
  *   Parse failures on the JSON files produce structured warnings
  *   (mirrors `loadSatisfyRules`'s `ConfigWarning[]` shape). Missing
- *   files are silent — not every project has a pre-commit hook.
+ *   files are silent - not every project has a pre-commit hook.
  */
 
 import { readFileSync } from 'node:fs';
@@ -90,7 +90,7 @@ interface ToolPattern {
 }
 
 // Order roughly "most-specific first" so `ruff format` wins over `ruff`.
-// Matching is not short-circuited — every pattern is tested — but the
+// Matching is not short-circuited - every pattern is tested - but the
 // `info.tools` list reflects the encountered order.
 const TOOL_PATTERNS: readonly ToolPattern[] = [
   // Formatters
@@ -107,7 +107,7 @@ const TOOL_PATTERNS: readonly ToolPattern[] = [
   { name: 'eslint', token: /\beslint\b/i, kinds: ['lint-clean'] },
   { name: 'oxlint', token: /\boxlint\b/i, kinds: ['lint-clean'] },
   { name: 'shellcheck', token: /\bshellcheck\b/i, kinds: ['lint-clean'] },
-  // shfmt both formats AND lints shell — credit both.
+  // shfmt both formats AND lints shell - credit both.
   { name: 'shfmt', token: /\bshfmt\b/i, kinds: ['format-clean', 'lint-clean'] },
   { name: 'ruff', token: /\bruff\b/i, kinds: ['lint-clean'] },
   { name: 'pylint', token: /\bpylint\b/i, kinds: ['lint-clean'] },
@@ -137,7 +137,7 @@ const TOOL_PATTERNS: readonly ToolPattern[] = [
   { name: 'bats', token: /\bbats\b/i, kinds: ['tests-pass'] },
 
   // Local wrapper scripts (common across this repo and lots of others).
-  // These are intentionally broad — matching `./dev/lint.sh` or a bare
+  // These are intentionally broad - matching `./dev/lint.sh` or a bare
   // `lint.sh` mention counts as both lint AND format because local
   // wrappers conventionally bundle both.
   {
@@ -174,7 +174,7 @@ export interface DetectHookRulesResult {
 
 /**
  * Candidate filenames for lint-staged configs that we TEXT-SCAN rather
- * than parse (JS / TS / MJS / CJS). We never `import()` these — see
+ * than parse (JS / TS / MJS / CJS). We never `import()` these - see
  * module header. Order here is immaterial: we scan every one that
  * exists, and the tool-token set is merged regardless.
  */
@@ -246,7 +246,7 @@ function scanParsedLintStaged(config: unknown, source: string, scan: (text: stri
  * Discover `cwd`'s pre-commit hook configuration and synthesize a
  * `commandSatisfies` rule covering a successful `git commit`.
  *
- * Safe to call repeatedly — it's pure I/O + text parsing, no caching.
+ * Safe to call repeatedly - it's pure I/O + text parsing, no caching.
  * The extension calls this once per `session_start` alongside
  * `loadSatisfyRules(cwd)`.
  */
@@ -273,7 +273,7 @@ export function detectHookRules(cwd: string): DetectHookRulesResult {
   if (huskyText !== null) {
     scanText(huskyText, huskyPath);
     // If the husky script calls lint-staged, the real tool list lives
-    // in the lint-staged config — which we'll scan below regardless,
+    // in the lint-staged config - which we'll scan below regardless,
     // so no extra plumbing needed here. We only need to record that
     // the hook exists; the text-scan above handles any direct tool
     // invocations (`./dev/lint.sh`, inline `eslint`, etc.).
@@ -281,7 +281,7 @@ export function detectHookRules(cwd: string): DetectHookRulesResult {
 
   // ── 2. lint-staged configs (code + JSON) ──────────────────────────
   // Code-shaped configs: read as text, scan for tool tokens. We never
-  // evaluate them — see module header.
+  // evaluate them - see module header.
   for (const name of LINT_STAGED_CODE_CANDIDATES) {
     const p = join(cwd, name);
     const text = tryReadFile(p);

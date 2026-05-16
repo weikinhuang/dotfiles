@@ -1,5 +1,5 @@
 /**
- * Tests for `lib/node/pi/subagent/agent-gate.ts` — pure decision matrix
+ * Tests for `lib/node/pi/subagent/agent-gate.ts` - pure decision matrix
  * for the inline agent-gate extension factory installed inside child
  * subagent sessions.
  */
@@ -27,7 +27,7 @@ const resolveAbsolute = (cwd: string, p: string): string => (p.startsWith('/') ?
 const ev = (toolName: string, input: Record<string, unknown> = {}): AgentGateToolCallEvent => ({ toolName, input });
 
 // ──────────────────────────────────────────────────────────────────────
-// decideAgentGate — bash branch
+// decideAgentGate - bash branch
 // ──────────────────────────────────────────────────────────────────────
 
 describe('decideAgentGate: bash', () => {
@@ -56,7 +56,7 @@ describe('decideAgentGate: bash', () => {
     ).toBeUndefined();
   });
 
-  test('bashAllow narrows — matching command passes', () => {
+  test('bashAllow narrows - matching command passes', () => {
     const config = baseConfig({ bashAllow: ['rg *'] });
 
     expect(
@@ -70,7 +70,7 @@ describe('decideAgentGate: bash', () => {
     ).toBeUndefined();
   });
 
-  test('bashAllow narrows — non-matching command blocks', () => {
+  test('bashAllow narrows - non-matching command blocks', () => {
     const config = baseConfig({ bashAllow: ['rg *'] });
     const result = decideAgentGate({
       event: ev('bash', { command: 'curl https://example.com' }),
@@ -84,7 +84,7 @@ describe('decideAgentGate: bash', () => {
     expect(result?.reason).toContain('agent plan');
   });
 
-  test('bashAllow + bashDeny — allow wins on overlap (matches persona semantics)', () => {
+  test('bashAllow + bashDeny - allow wins on overlap (matches persona semantics)', () => {
     const config = baseConfig({ bashAllow: ['rg *'], bashDeny: ['*'] });
 
     expect(
@@ -124,7 +124,7 @@ describe('decideAgentGate: bash', () => {
 });
 
 // ──────────────────────────────────────────────────────────────────────
-// decideAgentGate — write / edit branch
+// decideAgentGate - write / edit branch
 // ──────────────────────────────────────────────────────────────────────
 
 describe('decideAgentGate: write / edit', () => {
@@ -185,7 +185,7 @@ describe('decideAgentGate: write / edit', () => {
     expect(result?.reason).toContain('/repo/src/main.ts');
   });
 
-  test('empty path string short-circuits (allow — pi will reject the call itself)', () => {
+  test('empty path string short-circuits (allow - pi will reject the call itself)', () => {
     const config = baseConfig({ resolvedWriteRoots: ['/repo/plans/'] });
 
     expect(
@@ -215,7 +215,7 @@ describe('decideAgentGate: write / edit', () => {
 });
 
 // ──────────────────────────────────────────────────────────────────────
-// createAgentGateFactory — wires both handlers and merges requestOptions
+// createAgentGateFactory - wires both handlers and merges requestOptions
 // ──────────────────────────────────────────────────────────────────────
 
 describe('createAgentGateFactory', () => {
@@ -230,10 +230,10 @@ describe('createAgentGateFactory', () => {
     const toolCalls: ToolCallHandler[] = [];
     const requests: RequestHandler[] = [];
     const api: AgentGateExtensionAPI = {
-      on: ((event: string, handler: unknown): void => {
+      on: (event: string, handler: unknown): void => {
         if (event === 'tool_call') toolCalls.push(handler as ToolCallHandler);
         if (event === 'before_provider_request') requests.push(handler as RequestHandler);
-      }),
+      },
     };
     return { api, toolCalls, requests };
   };

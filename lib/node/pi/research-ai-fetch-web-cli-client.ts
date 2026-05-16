@@ -9,7 +9,7 @@
  * least one fetch_web tool's `input_schema` uses top-level
  * `oneOf/allOf/anyOf`, which Anthropic refuses. Reverting
  * `directTools` fixes the parent session but leaves the
- * `web-researcher` subagent with zero fetch capability — the
+ * `web-researcher` subagent with zero fetch capability - the
  * pi-mcp-adapter gateway is only exposed as the generic `mcp`
  * tool, which is too thin a shape to ask a small model to drive.
  *
@@ -137,7 +137,7 @@ export interface FindAiFetchWebBinaryOpts {
  * absolute path, or `null` when nothing is found. An explicit
  * `AI_FETCH_WEB_BIN` env var short-circuits the lookup.
  *
- * The factory does not require this — callers that inject a
+ * The factory does not require this - callers that inject a
  * `bin` override skip PATH entirely. The helper is here so the
  * extension can decide whether to degrade (no source-store
  * populate) when the CLI isn't installed.
@@ -241,7 +241,7 @@ function parseJsonResult(subcommand: string, run: RunResult): unknown {
  * array and a typed `structuredContent` object (on tools that
  * declare an output schema). The `ai-fetch-web` CLI passes both
  * through when `--json` is set. We always prefer
- * `structuredContent` because it's schema-typed — the text
+ * `structuredContent` because it's schema-typed - the text
  * content has a prelude we'd otherwise have to scrape.
  */
 function getStructuredContent(result: unknown): Record<string, unknown> | null {

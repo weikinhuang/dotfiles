@@ -9,10 +9,10 @@
  *
  * The iteration-loop state is split across two stores:
  *
- *   1. **On disk** — the check spec (`CheckSpec`) and artifact
+ *   1. **On disk** - the check spec (`CheckSpec`) and artifact
  *      snapshots. Spec is user-facing (drafted by the model, accepted
  *      by the user) and needs to survive pi restarts.
- *   2. **In the session branch** — the per-session iteration state
+ *   2. **In the session branch** - the per-session iteration state
  *      (`IterationState`): iteration count, verdict history,
  *      best-so-far pointer, edits-since-last-check counter. Mirrored
  *      into tool results + a custom entry so `/fork` and `/compact`
@@ -33,19 +33,19 @@
  */
 
 // ──────────────────────────────────────────────────────────────────────
-// Check spec — what the user declared and accepted.
+// Check spec - what the user declared and accepted.
 // ──────────────────────────────────────────────────────────────────────
 
-/** Discriminator for the check kind. `diff` is v1.5 — not in v1. */
+/** Discriminator for the check kind. `diff` is v1.5 - not in v1. */
 export type CheckKind = 'bash' | 'critic';
 
 /**
  * How a bash check decides pass/fail.
  *
- * - `exit-zero` (default) — exit code 0 ⇒ pass. Anything else ⇒ fail.
- * - `regex:<pattern>` — pass iff stdout (not stderr) matches `pattern`
+ * - `exit-zero` (default) - exit code 0 ⇒ pass. Anything else ⇒ fail.
+ * - `regex:<pattern>` - pass iff stdout (not stderr) matches `pattern`
  *   (JS regex, no flags). Exit code is ignored.
- * - `jq:<expr>` — pass iff `jq -e <expr>` applied to stdout returns a
+ * - `jq:<expr>` - pass iff `jq -e <expr>` applied to stdout returns a
  *   truthy value. Exit code is ignored. Requires `jq` on PATH; if
  *   missing, the check fails with a clear diagnostic.
  */
@@ -117,7 +117,7 @@ export interface CheckSpec {
 }
 
 // ──────────────────────────────────────────────────────────────────────
-// Verdict — what a single `check run` produced.
+// Verdict - what a single `check run` produced.
 // ──────────────────────────────────────────────────────────────────────
 
 export type IssueSeverity = 'blocker' | 'major' | 'minor';
@@ -160,7 +160,7 @@ export interface Verdict {
 }
 
 // ──────────────────────────────────────────────────────────────────────
-// Stop reasons — what terminated the loop (or null while active).
+// Stop reasons - what terminated the loop (or null while active).
 // ──────────────────────────────────────────────────────────────────────
 
 export type StopReason =
@@ -172,7 +172,7 @@ export type StopReason =
   | 'user-closed'; //     explicit `check close`
 
 // ──────────────────────────────────────────────────────────────────────
-// Iteration state — lives in the session branch (see reducer).
+// Iteration state - lives in the session branch (see reducer).
 // ──────────────────────────────────────────────────────────────────────
 
 export interface BestSoFar {
@@ -394,7 +394,7 @@ export function isIterationStateShape(v: unknown): v is IterationState {
 }
 
 // ──────────────────────────────────────────────────────────────────────
-// Factory helpers — canonical empty state, budget defaults.
+// Factory helpers - canonical empty state, budget defaults.
 // ──────────────────────────────────────────────────────────────────────
 
 export const DEFAULT_BUDGET: Required<BudgetSpec> = {

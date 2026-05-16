@@ -1,4 +1,4 @@
-/* Read "Internals" at the bottom — public API comes first. The
+/* Read "Internals" at the bottom - public API comes first. The
  * `no-use-before-define` rule is disabled at the file scope because
  * TS function declarations are hoisted and this ordering reads
  * top-down (public API → helpers). */
@@ -27,7 +27,7 @@
  *     + fallback. The fallback is a `null` sentinel the caller
  *     detects as "no usable section."
  *   - The caller-supplied validator rejects drafts that cite
- *     source ids outside the known set — so the nudge loop also
+ *     source ids outside the known set - so the nudge loop also
  *     catches hallucinated citations in-session, before merge ever
  *     sees them.
  *   - Per-section failure is isolated. A section that exhausts
@@ -47,10 +47,10 @@
  *
  * Optional tiny-model integrations:
  *
- *   - `callTyped` validation-error humanization — feeds a friendlier
+ *   - `callTyped` validation-error humanization - feeds a friendlier
  *     string into the retry nudge. Best-effort; `null` from the
  *     adapter leaves the raw error in place.
- *   - Provenance `summary` line — one short string describing what
+ *   - Provenance `summary` line - one short string describing what
  *     this section covers, attached to the frontmatter of the
  *     section file. Cosmetic; sidecars omit `summary` when the
  *     adapter is off.
@@ -109,7 +109,7 @@ export const SECTION_FINDING_BODY_CHARS = 4000;
 
 /**
  * Structured output from the section synth turn. `markdown` is the
- * section body; we do NOT ask for a title / heading separately —
+ * section body; we do NOT ask for a title / heading separately -
  * the model emits a leading `## <heading>` line inside `markdown`
  * per the prompt's instructions, so merge can concatenate sections
  * without having to reassemble titles.
@@ -145,7 +145,7 @@ export function makeSectionOutputSchema(knownIds: ReadonlySet<string>): SchemaLi
       // When the finding offers sources to cite, the section MUST
       // cite at least one of them. A zero-citation output silently
       // accepted here turns into a structural-check failure later
-      // anyway — better to flag it now so `callTyped`'s retry
+      // anyway - better to flag it now so `callTyped`'s retry
       // loop feeds a specific nudge back to the model on the next
       // attempt. `knownIds.size === 0` (no sources available) is
       // a legitimate reason to skip citations; don't require them
@@ -156,7 +156,7 @@ export function makeSectionOutputSchema(knownIds: ReadonlySet<string>): SchemaLi
         return {
           ok: false,
           error:
-            `section contains no {{SRC:<id>}} placeholders — at least one citation is required when sources ` +
+            `section contains no {{SRC:<id>}} placeholders - at least one citation is required when sources ` +
             `are available. Cite with {{SRC:<id>}} using one of: ${allow}`,
         };
       }
@@ -171,7 +171,7 @@ export function makeSectionOutputSchema(knownIds: ReadonlySet<string>): SchemaLi
 
 /**
  * Render the synth prompt for a single sub-question. Deliberately
- * imperative and short — robustness comes from the nudge loop and
+ * imperative and short - robustness comes from the nudge loop and
  * the schema validator, not from prompt cleverness.
  *
  * `sources` is the enumeration the validator will accept; the
@@ -187,7 +187,7 @@ export function renderSectionPrompt(
 ): string {
   const sourceLines =
     sources.length === 0
-      ? '  (no sources — do not emit any {{SRC:...}} placeholders)'
+      ? '  (no sources - do not emit any {{SRC:...}} placeholders)'
       : sources.map((s) => `  - id=${s.id} url=${s.url} title=${s.title || '(untitled)'}`).join('\n');
 
   const extra =
@@ -217,7 +217,7 @@ export function renderSectionPrompt(
     `- The markdown body must start with "## " + a focused heading derived from the sub-question.`,
     `- Every substantive claim ends with a {{SRC:<id>}} placeholder referencing one of the sources listed above.`,
     `- Do NOT cite ids not in the list. Do NOT invent ids.`,
-    `- Do NOT emit footnote markers like [^1] — those are added later.`,
+    `- Do NOT emit footnote markers like [^1] - those are added later.`,
     `- Keep the section under ~1500 tokens (~6000 chars).`,
     `- If the findings cannot answer the sub-question, emit {"status":"stuck","reason":"..."} instead of fabricating.`,
     `- Reply with JSON only. No prose preamble. No markdown fences around the JSON.`,
@@ -259,7 +259,7 @@ export interface SectionSynthOpts<M> {
    * Set of sub-question ids whose findings were quarantined
    * upstream (Phase 2's `absorbFindings`). Allows the caller to
    * short-circuit to `missing-finding` without re-reading the
-   * quarantine directory. Optional — when omitted we rely solely
+   * quarantine directory. Optional - when omitted we rely solely
    * on the on-disk `findings/<id>.md` presence check.
    */
   quarantinedFindings?: ReadonlySet<string>;
@@ -269,11 +269,11 @@ export interface SectionSynthOpts<M> {
   maxRetries?: number;
   /** Journal path; swallowed on missing-dir error. */
   journalPath?: string;
-  /** Optional tiny adapter — error humanization + provenance summary. */
+  /** Optional tiny adapter - error humanization + provenance summary. */
   tinyAdapter?: TinyAdapter<M>;
   tinyCtx?: TinyCallContext<M>;
   /**
-   * Parsed listing of sources in the run's source store. Optional —
+   * Parsed listing of sources in the run's source store. Optional -
    * when omitted we call `research-sources.listRun(runRoot)`.
    * Passing it in lets the driver load the store once and reuse it
    * across all sub-questions.
@@ -366,7 +366,7 @@ export async function runSectionSynth<M>(opts: SectionSynthOpts<M>): Promise<Sec
     });
   }
 
-  // ── 6. Success — normalize, write file + sidecar. ─────────────
+  // ── 6. Success - normalize, write file + sidecar. ─────────────
   const { markdown, truncated } = normalizeSectionMarkdown(typed.markdown);
   const sectionPath = join(sectionsDir, `${sq.id}.md`);
   const sourceIds = uniquePlaceholderIds(markdown);
@@ -434,7 +434,7 @@ export interface AllSectionsOpts<M> extends Omit<SectionSynthOpts<M>, 'subQuesti
 
 /**
  * Synthesize every sub-question in `plan.subQuestions` order.
- * Failures are isolated — one section's quarantine / stuck never
+ * Failures are isolated - one section's quarantine / stuck never
  * aborts the remaining sub-questions. Returns the full outcome list
  * so the caller (merge stage) can emit visible stubs for missing
  * sections.
@@ -511,7 +511,7 @@ export function buildSnapshotPassThroughOutcome(runRoot: string, subQuestionId: 
     };
   }
   // Sentinel: empty `markdown` tells `loadSectionBody` to read
-  // from `sectionPath` on disk — avoids double-reading the
+  // from `sectionPath` on disk - avoids double-reading the
   // snapshot here and in merge.
   return {
     kind: 'ok',
@@ -538,7 +538,7 @@ function journalIf<M>(
   try {
     appendJournal(opts.journalPath, body !== undefined ? { level, heading, body } : { level, heading });
   } catch {
-    /* swallow — journal failures never break the synth */
+    /* swallow - journal failures never break the synth */
   }
 }
 
@@ -596,7 +596,7 @@ function truncate(s: string, max: number): string {
 /**
  * Parse the `## Sources` section in a finding body via the
  * shared schema helper (`deep-research-finding.extractFindingSourceUrls`)
- * — we never re-implement the regex here; the schema lives in
+ * - we never re-implement the regex here; the schema lives in
  * one module.
  */
 
@@ -605,7 +605,7 @@ function truncate(s: string, max: number): string {
  * `CitationSource` records ready for the prompt + the validator.
  * URL matching goes through `normalizeUrl` so callers that cite
  * with tracking params still land on the cached entry. Unmatched
- * URLs are dropped — a source we don't have cached is not
+ * URLs are dropped - a source we don't have cached is not
  * citable at synth time.
  *
  * Secondary path: `findingsPath` on the SubQuestion may point
@@ -672,8 +672,8 @@ function uniquePlaceholderIds(markdown: string): string[] {
 /**
  * Build the short excerpt handed to `tinyProvenanceSummary` for a
  * section's sidecar. The tiny helper only needs to see what the
- * section is about — a single sub-question id + question + the
- * start of the prompt — not the full finding body.
+ * section is about - a single sub-question id + question + the
+ * start of the prompt - not the full finding body.
  */
 function renderSummaryExcerpt(sq: SubQuestion, prompt: string): string {
   return `sub-question ${sq.id}: ${sq.question}\n${truncate(prompt, 400)}`;
@@ -687,7 +687,7 @@ function renderSummaryExcerpt(sq: SubQuestion, prompt: string): string {
  *
  * When `bodyAttempt` is `null` we write a tiny placeholder marker
  * (`<!-- section unavailable -->`) just so `quarantine()` has
- * something to move — research-quarantine requires the source file
+ * something to move - research-quarantine requires the source file
  * to exist.
  */
 function quarantineSection<M>(args: {
@@ -703,7 +703,7 @@ function quarantineSection<M>(args: {
     const body = bodyAttempt ?? '<!-- section unavailable: retries exhausted -->\n';
     atomicWriteFile(markerPath, body);
   } catch {
-    /* swallow — quarantine is best-effort */
+    /* swallow - quarantine is best-effort */
   }
   let movedTo: string | undefined;
   try {

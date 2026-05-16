@@ -125,7 +125,7 @@ describe('createRunBudget', () => {
 });
 
 // ──────────────────────────────────────────────────────────────────────
-// trackPhase — happy path + accumulation.
+// trackPhase - happy path + accumulation.
 // ──────────────────────────────────────────────────────────────────────
 
 /**
@@ -238,10 +238,10 @@ describe('trackPhase', () => {
 });
 
 // ──────────────────────────────────────────────────────────────────────
-// trackPhase — overrun journal entries.
+// trackPhase - overrun journal entries.
 // ──────────────────────────────────────────────────────────────────────
 
-describe('trackPhase — overrun logging', () => {
+describe('trackPhase - overrun logging', () => {
   test('writes a warn entry when the cost cap is exceeded', async () => {
     const journalPath = join(cwd, 'journal.md');
     const b = createRunBudget([phasePlanner], { journalPath });
@@ -353,10 +353,10 @@ describe('trackPhase — overrun logging', () => {
 });
 
 // ──────────────────────────────────────────────────────────────────────
-// computeStopReason — covers every stop reason the module produces.
+// computeStopReason - covers every stop reason the module produces.
 // ──────────────────────────────────────────────────────────────────────
 
-describe('computeStopReason — every stop reason', () => {
+describe('computeStopReason - every stop reason', () => {
   test('returns null when no cap is hit and no verdict is approved', () => {
     expect(
       computeStopReason({
@@ -392,7 +392,7 @@ describe('computeStopReason — every stop reason', () => {
   });
 
   test('"passed" outranks "budget-iter" / "budget-cost" / "wall-clock"', () => {
-    // Hit all budget caps simultaneously — `passed` still wins.
+    // Hit all budget caps simultaneously - `passed` still wins.
     expect(
       computeStopReason({
         spec: bashSpec({ budget: { maxIter: 1, maxCostUsd: 0.01, wallClockSeconds: 1 } }),

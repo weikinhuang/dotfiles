@@ -99,7 +99,7 @@ describe('active: after a not-approved run', () => {
     };
     const block = renderIterationBlock(bashSpec(), 'active', state, { now });
 
-    expect(block!).toContain('Last verdict: not approved — score 0.62');
+    expect(block!).toContain('Last verdict: not approved - score 0.62');
     expect(block!).toContain('[blocker] labels missing');
     expect(block!).toContain('[minor] colors off');
     expect(block!).toContain('Best so far:  iter 1 (score 0.70)');

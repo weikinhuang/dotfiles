@@ -808,7 +808,7 @@ PY
 
   # Markdown carries the benchmark header + a pass_rate row.
   run cat ".ai-skill-eval/sample/iteration-1/benchmark.md"
-  assert_output --partial "# Benchmark — sample (iteration-1)"
+  assert_output --partial "# Benchmark - sample (iteration-1)"
   assert_output --partial "| pass_rate |"
   assert_output --partial "| time_seconds |"
 }

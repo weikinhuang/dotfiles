@@ -1,7 +1,7 @@
 /**
  * Tests for lib/node/pi/verify-detect.ts.
  *
- * Pure module — no pi runtime needed.
+ * Pure module - no pi runtime needed.
  */
 
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
@@ -110,7 +110,7 @@ test('extractClaims: distant "if"/"when" does NOT suppress an unrelated later cl
   expect(kinds).toEqual(['lint-clean', 'tests-pass']);
 });
 
-test('extractClaims: window — only the tail counts as a sign-off', () => {
+test('extractClaims: window - only the tail counts as a sign-off', () => {
   // Claim buried more than 600 chars before the end → not detected.
   const prefix = 'x '.repeat(500) + 'Earlier the tests passed.';
   const tail = '\n\nI then made unrelated changes to documentation. ' + 'y '.repeat(400);
@@ -118,7 +118,7 @@ test('extractClaims: window — only the tail counts as a sign-off', () => {
   expect(extractClaims(prefix + tail)).toEqual([]);
 });
 
-test('extractClaims: tail-anchored — claim right at the end is detected even with noise before', () => {
+test('extractClaims: tail-anchored - claim right at the end is detected even with noise before', () => {
   const out = extractClaims('lots of setup and exploration… Now all tests pass.');
 
   expect(kindsOf(out)).toEqual(['tests-pass']);
@@ -430,7 +430,7 @@ test('collectBashCommandsSinceLastUser: picks up bg_bash toolResult input.comman
 test('collectBashCommandsSinceLastUser: ignores bg_bash actions without a command (wait/logs/signal)', () => {
   // bg_bash's `wait`, `logs`, `signal`, `status`, `remove` actions
   // operate on a job id and don't carry a fresh shell line. They
-  // must NOT count as verifiers — only the original `start` does.
+  // must NOT count as verifiers - only the original `start` does.
   const branch: BranchEntry[] = [
     user('verify it'),
     {

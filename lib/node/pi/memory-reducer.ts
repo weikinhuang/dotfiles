@@ -6,7 +6,7 @@
  *
  * Memory lives on disk (source of truth). This module handles:
  *   - `MemoryEntry` / `MemoryIndex` / `MemoryState` types.
- *   - Strict three-key frontmatter parse + serialize (no external YAML dep —
+ *   - Strict three-key frontmatter parse + serialize (no external YAML dep -
  *     the frontmatter surface is intentionally tiny: `name`, `description`,
  *     `type`).
  *   - Pure index CRUD (callers pair these with disk writes in the extension).
@@ -52,7 +52,7 @@ export interface MemoryState {
   /**
    * The cwd-slug used for the current project scope (mirrors pi's
    * session-dir name). `null` when the workspace doesn't have a
-   * resolved cwd yet — e.g. before `session_start`.
+   * resolved cwd yet - e.g. before `session_start`.
    */
   projectSlug: string | null;
 }
@@ -144,7 +144,7 @@ const FENCE = '---';
  * Undo `yamlValue`'s quoting for a frontmatter value. Double-quoted
  * values have their `\\` / `\"` escapes reversed so a roundtrip of a
  * backslash- or quote-bearing value is stable. Single-quoted values
- * are treated as literal — they only appear if a human hand-edits the
+ * are treated as literal - they only appear if a human hand-edits the
  * file, and we never emit them.
  */
 function stripQuotes(raw: string): string {
@@ -182,7 +182,7 @@ export function parseFrontmatter(raw: string): ParsedMemoryFile | null {
   const header = src.slice(afterOpen, end);
   // Step over the closing `\n---` + trailing newline. When the match came
   // from `closeIdxEof` (no final newline), bodyStart may equal src.length,
-  // and the slice below yields an empty body — fine.
+  // and the slice below yields an empty body - fine.
   const bodyStart = end + FENCE.length + 2;
   const body = bodyStart <= src.length ? src.slice(bodyStart) : '';
 
@@ -200,7 +200,7 @@ export function parseFrontmatter(raw: string): ParsedMemoryFile | null {
       if (!(MEMORY_TYPES as readonly string[]).includes(value)) return null;
       partial.type = value as MemoryType;
     }
-    // Unknown keys are ignored — allows for forward compatibility.
+    // Unknown keys are ignored - allows for forward compatibility.
   }
 
   if (typeof partial.name !== 'string' || partial.name.length === 0) return null;
@@ -217,7 +217,7 @@ export function parseFrontmatter(raw: string): ParsedMemoryFile | null {
   };
 }
 
-/** Escape a value for our strict YAML subset — wrap in double quotes if
+/** Escape a value for our strict YAML subset - wrap in double quotes if
  *  it contains anything that would confuse either our parser or a
  *  standards-compliant YAML reader (e.g. `#` starts a comment, `:` splits
  *  key/value, surrounding quotes alter parsing). */
@@ -260,7 +260,7 @@ export function findEntry(index: MemoryIndex, scope: MemoryScope, id: string): M
 }
 
 /**
- * Return the set of entry slugs currently in a given scope — useful when
+ * Return the set of entry slugs currently in a given scope - useful when
  * the disk layer needs to pick a non-colliding slug before a save.
  */
 export function takenSlugs(index: MemoryIndex, scope: MemoryScope): Set<string> {
@@ -320,7 +320,7 @@ export function renderMemoryMd(entries: readonly MemoryEntry[], scope: MemorySco
       continue;
     }
     for (const e of group) {
-      lines.push(`- [${e.name}](${type}/${e.id}.md) — ${e.description}`);
+      lines.push(`- [${e.name}](${type}/${e.id}.md) - ${e.description}`);
     }
     lines.push('');
   }
@@ -338,11 +338,11 @@ export function formatText(state: MemoryState): string {
   const parts: string[] = [];
   if (global.length > 0) {
     parts.push(`Global (${global.length}):`);
-    for (const e of global) parts.push(`  [${e.type}] ${e.id} — ${e.name}: ${e.description}`);
+    for (const e of global) parts.push(`  [${e.type}] ${e.id} - ${e.name}: ${e.description}`);
   }
   if (project.length > 0) {
     parts.push(`Project${state.projectSlug ? ` ${state.projectSlug}` : ''} (${project.length}):`);
-    for (const e of project) parts.push(`  [${e.type}] ${e.id} — ${e.name}: ${e.description}`);
+    for (const e of project) parts.push(`  [${e.type}] ${e.id} - ${e.name}: ${e.description}`);
   }
   return parts.join('\n');
 }

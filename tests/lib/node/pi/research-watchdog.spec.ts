@@ -84,7 +84,7 @@ describe('watch', () => {
 
   test('(b) no output past threshold fires stall callback and aborts', async () => {
     const clock = makeClock(1_000_000);
-    // Snapshot always reports lastProgressAt fixed at start — never
+    // Snapshot always reports lastProgressAt fixed at start - never
     // advances. After enough sleep ticks, elapsed >= threshold.
     const handle = makeHandle('h-stalled', [{ done: false, lastProgressAt: 1_000_000, progressHint: 'fetch_url' }]);
     const onStall = vi.fn();

@@ -1,6 +1,6 @@
 /**
- * Listing formatter for `/mode` (no args). Pure module — no pi
- * imports — so the format is unit-tested directly under vitest. The
+ * Listing formatter for `/mode` (no args). Pure module - no pi
+ * imports - so the format is unit-tested directly under vitest. The
  * extension shell calls this and pipes the result into
  * `ctx.ui.notify`.
  */
@@ -26,8 +26,8 @@ export interface FormatPersonaListingOptions {
  * Format:
  *
  *   (active: plan)            ← or `(no mode active)`
- *   * plan — Drop a plan doc; never edits source.
- *     chat — Long-form Q&A with web access; no writes.
+ *   * plan - Drop a plan doc; never edits source.
+ *     chat - Long-form Q&A with web access; no writes.
  *     …
  *
  * The active mode is prefixed with `* ` (two chars including the
@@ -44,7 +44,7 @@ export function formatPersonaListing(opts: FormatPersonaListingOptions): string[
   const lines = nameOrder.map((name) => {
     const star = name === activeName ? '* ' : '  ';
     const desc = modes[name]?.description ?? '';
-    return `${star}${name} — ${desc}`;
+    return `${star}${name} - ${desc}`;
   });
 
   return [header, ...lines];

@@ -58,7 +58,7 @@ export function setAnalyzerTemplateForTest(template: string | null): void {
 /**
  * Extract the SKILL body buildEvalPrompt emits between
  * `===== SKILL =====` / `===== END SKILL =====` markers. Returns the
- * whole file verbatim when the markers are absent — callers want *some*
+ * whole file verbatim when the markers are absent - callers want *some*
  * context for the analyzer rather than silently dropping the input.
  */
 export function extractSkillBodyFromPrompt(promptContents: string): string {
@@ -92,7 +92,7 @@ export function analysisReportPath(workspace: string, skill: string, iterationA:
  * Walk the R5.1 `vs-iteration-<B>/` directory for `compare-*.json`
  * records, parse them, and skip files that don't match the
  * {@link CompareRecord} shape. Returns records sorted by eval id for
- * deterministic output. Throws if the directory is missing — the caller
+ * deterministic output. Throws if the directory is missing - the caller
  * has a nicer error path than we can synthesize here.
  */
 function isCompareRecord(v: unknown): v is CompareRecord {
@@ -166,7 +166,7 @@ export function buildAnalyzerPrompt(inputs: AnalyzerInputs, template = loadAnaly
   const expectationsBlock =
     inputs.expectations.length > 0
       ? inputs.expectations.map((exp, i) => `  ${i + 1}. ${exp}`).join('\n')
-      : '  (none — judge on content + structure only)';
+      : '  (none - judge on content + structure only)';
 
   return [
     template.trimEnd(),
@@ -265,7 +265,7 @@ export interface AnalyzerVerdict {
     winner_execution_pattern?: string;
     loser_execution_pattern?: string;
   };
-  /** Raw JSON decoded from the critic's stdout — useful for debug / downstream tooling. */
+  /** Raw JSON decoded from the critic's stdout - useful for debug / downstream tooling. */
   raw: unknown;
 }
 
@@ -387,7 +387,7 @@ export interface AnalyzeError {
   reason: string;
 }
 
-/** Record of an eval that was skipped (not an error) — e.g. a tie with no loser. */
+/** Record of an eval that was skipped (not an error) - e.g. a tie with no loser. */
 export interface AnalyzeSkip {
   eval_id: string;
   reason: string;
@@ -402,7 +402,7 @@ export interface RunAnalyzeResult {
   errors: AnalyzeError[];
 }
 
-/** Spec-injectable critic surface — signature matches {@link invokeCritic}. */
+/** Spec-injectable critic surface - signature matches {@link invokeCritic}. */
 export type CriticInvoker = (
   criticCmd: string,
   promptFile: string,
@@ -447,7 +447,7 @@ export function renderAnalysisMarkdown(result: RunAnalyzeResult): string {
   );
 
   for (const r of result.records) {
-    lines.push(`## ${r.eval_id} — winner iteration-${r.winner_iteration}, loser iteration-${r.loser_iteration}`, '');
+    lines.push(`## ${r.eval_id} - winner iteration-${r.winner_iteration}, loser iteration-${r.loser_iteration}`, '');
     if (r.comparator_reason.trim().length > 0) {
       lines.push('**Comparator reason:**', '', `> ${r.comparator_reason.replace(/\n/g, ' ')}`, '');
     }
@@ -468,7 +468,7 @@ export function renderAnalysisMarkdown(result: RunAnalyzeResult): string {
     } else {
       for (const s of r.verdict.improvement_suggestions) {
         const impact = s.expected_impact.trim().length > 0 ? ` _(impact: ${s.expected_impact})_` : '';
-        lines.push(`- **[${s.priority}]** _${s.category}_ — ${s.suggestion}${impact}`);
+        lines.push(`- **[${s.priority}]** _${s.category}_ - ${s.suggestion}${impact}`);
       }
       lines.push('');
     }
@@ -528,7 +528,7 @@ export function runAnalyze(input: RunAnalyzeInput): RunAnalyzeResult {
     if (onlySet && !onlySet.has(record.eval_id)) continue;
 
     if (record.winner_label === 'tie' || record.winner_iteration == null) {
-      out.skipped.push({ eval_id: record.eval_id, reason: 'tie — no loser to analyze' });
+      out.skipped.push({ eval_id: record.eval_id, reason: 'tie - no loser to analyze' });
       log(`  skip ${record.eval_id}: tie`);
       continue;
     }

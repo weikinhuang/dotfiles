@@ -29,7 +29,7 @@ export interface MatchResult {
 }
 
 // ──────────────────────────────────────────────────────────────────────
-// splitCompound — heredoc- and quote-aware command splitter
+// splitCompound - heredoc- and quote-aware command splitter
 // ──────────────────────────────────────────────────────────────────────
 
 function escapeRegex(s: string): string {
@@ -60,7 +60,7 @@ function parseHeredocOpener(
   while (command[k] === ' ' || command[k] === '\t') k++;
 
   // Delimiter: 'word', "word", or bare identifier. `<<$VAR` and other expansions
-  // aren't statically resolvable — bail out and let the caller keep scanning.
+  // aren't statically resolvable - bail out and let the caller keep scanning.
   const q = command[k];
   if (q === "'" || q === '"') {
     const end = command.indexOf(q, k + 1);
@@ -82,7 +82,7 @@ function parseHeredocOpener(
  *
  * Returns the body length and closer length on success, or a sentinel
  * `{ bodyLen: rest.length, closerLen: 0 }` when the heredoc is
- * unclosed — in that case the caller should absorb the rest of the
+ * unclosed - in that case the caller should absorb the rest of the
  * command as body.
  */
 function findHeredocCloser(
@@ -102,12 +102,12 @@ function findHeredocCloser(
  * Split a compound command on top-level `&&`, `||`, `;`, and unquoted newlines.
  *
  * Heredoc bodies (`<<EOF ... EOF`, `<<'END' ... END`, `<<-EOF ... EOF`) are
- * treated as opaque — no splitting occurs between the `<<` marker and the line
+ * treated as opaque - no splitting occurs between the `<<` marker and the line
  * matching the closing delimiter. This prevents splitting what is actually
  * script content for another language (Python, Node, SQL, …) on newlines.
  *
  * Pipes (`|`) are intentionally left intact. Quoting/escaping is handled
- * simplistically (single/double quotes, backslash escapes) — good enough to
+ * simplistically (single/double quotes, backslash escapes) - good enough to
  * stop trivial evasion without reimplementing a shell parser. Here-strings
  * (`<<<`) and unresolvable heredoc delimiters (`<<$VAR`) fall through to
  * normal scanning.
@@ -149,7 +149,7 @@ export function splitCompound(command: string): string[] {
 
     // Heredoc detection: `<<[-]DELIM` outside quotes.
     if (ch === '<' && command[i + 1] === '<') {
-      // Here-string `<<<` is NOT a heredoc — consume all three `<` so the
+      // Here-string `<<<` is NOT a heredoc - consume all three `<` so the
       // outer loop doesn't re-enter heredoc detection at i+1 and mis-parse
       // the following word as a delimiter.
       if (command[i + 2] === '<') {
@@ -168,7 +168,7 @@ export function splitCompound(command: string): string[] {
         i += bodyLen + closerLen;
         continue;
       }
-      // Unresolvable delimiter (e.g. `<<$VAR`) — fall through to normal scanning.
+      // Unresolvable delimiter (e.g. `<<$VAR`) - fall through to normal scanning.
     }
 
     const rest2 = command.slice(i, i + 2);
@@ -192,7 +192,7 @@ export function splitCompound(command: string): string[] {
 }
 
 // ──────────────────────────────────────────────────────────────────────
-// matchesPattern — exact / prefix* / regex
+// matchesPattern - exact / prefix* / regex
 // ──────────────────────────────────────────────────────────────────────
 
 /**
@@ -209,7 +209,7 @@ const warnedBadPatterns = new Set<string>();
  * exact-string match that would surprise the user).
  */
 export function tryCompileRegexRule(pattern: string): RegExp | null | false {
-  // `re:<source>` — explicit, unambiguous, no flags.
+  // `re:<source>` - explicit, unambiguous, no flags.
   if (pattern.startsWith('re:')) {
     try {
       return new RegExp(pattern.slice(3));
@@ -222,7 +222,7 @@ export function tryCompileRegexRule(pattern: string): RegExp | null | false {
     }
   }
 
-  // `/source/flags` — only when the trailing portion after the LAST `/`
+  // `/source/flags` - only when the trailing portion after the LAST `/`
   // consists solely of JS regex flag chars. This keeps absolute-path
   // commands like "/usr/bin/true" as plain exact strings.
   if (pattern.length >= 2 && pattern.startsWith('/')) {
@@ -248,7 +248,7 @@ export function tryCompileRegexRule(pattern: string): RegExp | null | false {
 
 export function matchesPattern(command: string, pattern: string): boolean {
   const regex = tryCompileRegexRule(pattern);
-  if (regex === false) return false; // bad regex — never match
+  if (regex === false) return false; // bad regex - never match
   if (regex) return regex.test(command);
 
   if (pattern.endsWith('*')) {
@@ -284,7 +284,7 @@ export function matchOne(command: string, layers: { scope: Scope; rules: LoadedR
 }
 
 // ──────────────────────────────────────────────────────────────────────
-// Hardcoded denylist — unambiguous footguns that should never auto-run
+// Hardcoded denylist - unambiguous footguns that should never auto-run
 // ──────────────────────────────────────────────────────────────────────
 
 /**
@@ -300,10 +300,10 @@ export const HARDCODED_DENY: { pattern: RegExp; reason: string }[] = [
   // `..`-prefixed path (`..`, `../`, `../foo`, `../../bar`, …), or a
   // bare `*`-glob (`*`, `**`, `*/`, `**/`) as the ONLY remaining argument.
   // A leading `..` always traverses outside cwd so we block the whole
-  // family. Bare-`*` is blocked only when it IS the target — `rm -rf *.log`
+  // family. Bare-`*` is blocked only when it IS the target - `rm -rf *.log`
   // / `rm -rf build/*` / `rm -rf *foo*` stay allowed because they pin a
   // narrower set. A trailing `# comment` is tolerated so `rm -rf / # haha`
-  // doesn't slip past the tail anchor — bash would execute the `rm` and
+  // doesn't slip past the tail anchor - bash would execute the `rm` and
   // then ignore the comment.
   //
   // Known limitations: multi-target forms (`rm -rf * .*`, `rm -rf / foo`)
@@ -345,7 +345,7 @@ export const HARDCODED_DENY: { pattern: RegExp; reason: string }[] = [
  * Replace the interior of every quoted substring in `command` with NUL
  * bytes, leaving the quote characters themselves in place. Used to prevent
  * hardcoded-denylist regexes from matching dangerous keywords that appear
- * only inside string literals — for example a `mkfs` or `rm -rf /` mentioned
+ * only inside string literals - for example a `mkfs` or `rm -rf /` mentioned
  * in a `git commit -m "..."` message body, an `echo "..."`, or a heredoc.
  *
  * Quote handling:
@@ -354,7 +354,7 @@ export const HARDCODED_DENY: { pattern: RegExp; reason: string }[] = [
  *   - Heredoc bodies (`<<EOF ... EOF`, `<<'END' ... END`, `<<-EOF ... EOF`):
  *     body content is masked; the opener (`<<EOF`) and closing delimiter
  *     line (`\nEOF`) are preserved verbatim. Here-strings (`<<<`) are
- *     NOT masked — they behave like normal args.
+ *     NOT masked - they behave like normal args.
  *   - Outside quotes: backslash also escapes the next char (e.g. `\\n`
  *     line continuation).
  *
@@ -365,7 +365,7 @@ export const HARDCODED_DENY: { pattern: RegExp; reason: string }[] = [
  * `$`) still align with the original command.
  *
  * Trade-off: `rm -rf "/"` (target quoted) will NOT be caught by the
- * hardcoded denylist — the target is masked. This is intentional. Bash
+ * hardcoded denylist - the target is masked. This is intentional. Bash
  * evaluates `rm -rf "/"` the same as `rm -rf /`, so a truly malicious
  * command would just drop the quotes; gaining false-positive resistance
  * on legitimate `echo "..."` / commit-message cases is the better
@@ -439,7 +439,7 @@ export function maskQuotedRegions(command: string): string {
         i += bodyLen + closerLen;
         continue;
       }
-      // Unresolvable delimiter (e.g. `<<$VAR`) — fall through to normal scanning.
+      // Unresolvable delimiter (e.g. `<<$VAR`) - fall through to normal scanning.
     }
 
     out += ch;
@@ -458,11 +458,11 @@ export function checkHardcodedDeny(command: string): string | null {
 }
 
 // ──────────────────────────────────────────────────────────────────
-// Always-prompt list — never auto-allowed, even in `/bash-auto` mode
+// Always-prompt list - never auto-allowed, even in `/bash-auto` mode
 // ──────────────────────────────────────────────────────────────────
 
 /**
- * Patterns that always require explicit user approval — auto mode never
+ * Patterns that always require explicit user approval - auto mode never
  * bypasses them. Unlike {@link HARDCODED_DENY}, matches here are not
  * blocks: an explicit project/user/session allow rule still wins, so a
  * user who knows what they're doing can `/bash-allow "sudo apt-get
@@ -471,7 +471,7 @@ export function checkHardcodedDeny(command: string): string | null {
  *
  * Scope: the commands below all run the rest of the command line as a
  * different (usually root) user. That's exactly the case where a human
- * should confirm — the tool's usual safety rails (project rules, allow
+ * should confirm - the tool's usual safety rails (project rules, allow
  * lists scoped by prefix) assume non-root semantics.
  *
  * Disable with PI_BASH_PERMISSIONS_NO_ALWAYS_PROMPT=1.
@@ -522,7 +522,7 @@ export function checkAlwaysPrompt(command: string): string | null {
  *             no leading syntax was found).
  *
  * Keywords stripped iteratively so `then ! rm -rf /` unwinds to
- * `rm -rf /`. Deliberately NOT stripped: `for` / `select` / `case` —
+ * `rm -rf /`. Deliberately NOT stripped: `for` / `select` / `case` -
  * their positional args aren't executable commands, so they're left
  * for a `for*` / `select*` / `case*` allow rule to admit. `!` is
  * treated as a strippable modifier (bash's negation reserved word)
@@ -560,7 +560,7 @@ export interface BashDecideOptions {
    * Auto-allow any sub-command that got past the hardcoded denylist,
    * explicit user/project/session deny rules, and the always-prompt
    * list. Used by the `/bash-auto` toggle. Hardcoded deny, explicit
-   * deny, and always-prompt are NEVER overridable by this flag —
+   * deny, and always-prompt are NEVER overridable by this flag -
    * that's the whole point of the "except for risky actions" carve-out.
    */
   auto?: boolean;
@@ -591,7 +591,7 @@ export interface BashDecideOptions {
  * `reason` contains the always-prompt match reason so the caller can
  * surface "⚡ auto mode cannot skip this" in the approval dialog.
  *
- * Pure function — no UI side effects. Callers collect decisions across
+ * Pure function - no UI side effects. Callers collect decisions across
  * sub-commands and surface prompts / blocks to the user as appropriate.
  */
 export function decideSubcommand(
@@ -599,7 +599,7 @@ export function decideSubcommand(
   layers: { scope: Scope; rules: LoadedRules }[],
   options: BashDecideOptions = {},
 ): BashDecision {
-  // 0. Bash comment — first non-whitespace char is `#`, so the whole
+  // 0. Bash comment - first non-whitespace char is `#`, so the whole
   //    sub-command evaluates to nothing. Short-circuit before the
   //    hardcoded denylist so patterns that aren't tail-anchored can't
   //    incidentally match the comment body.
@@ -695,11 +695,11 @@ function findMatchingClose(s: string, openIdx: number, endIdx: number, open: str
  *   - `>(cmd)`       process substitution (output)
  *
  * Quoting / escape rules match bash:
- *   - `'...'`                literal — contents are NOT extracted
- *   - `"..."`                substitution still active — contents ARE extracted
- *   - `\$(cmd)` / `` \` ``  escaped — not a substitution
- *   - `${var}`               parameter expansion — ignored (starts with `${`, not `$(`)
- *   - `$((expr))`            arithmetic expansion — skipped, not a command
+ *   - `'...'`                literal - contents are NOT extracted
+ *   - `"..."`                substitution still active - contents ARE extracted
+ *   - `\$(cmd)` / `` \` ``  escaped - not a substitution
+ *   - `${var}`               parameter expansion - ignored (starts with `${`, not `$(`)
+ *   - `$((expr))`            arithmetic expansion - skipped, not a command
  *
  * Nested substitutions are walked recursively. Extracted bodies are then
  * passed through {@link splitCompound} so `$(a && b)` surfaces `a` and `b`
@@ -708,7 +708,7 @@ function findMatchingClose(s: string, openIdx: number, endIdx: number, open: str
  * Defence-in-depth, not bulletproof shell parsing: a sufficiently
  * adversarial string (e.g. unbalanced backticks, exotic heredoc forms)
  * may evade the scanner. Matches here result in extra prompt / block
- * decisions, never in weaker checks — so failure modes are fail-closed.
+ * decisions, never in weaker checks - so failure modes are fail-closed.
  */
 export function extractCommandSubstitutions(cmd: string): string[] {
   const out: string[] = [];
@@ -756,7 +756,7 @@ export function extractCommandSubstitutions(cmd: string): string[] {
         continue;
       }
 
-      // `$((...))` arithmetic expansion — not a command itself, but a
+      // `$((...))` arithmetic expansion - not a command itself, but a
       // real `$(cmd)` / backtick can appear nested inside the expression
       // (e.g. `$(( x + $(y) ))`), so recursively scan the interior.
       if (ch === '$' && s[i + 1] === '(' && s[i + 2] === '(') {
@@ -792,7 +792,7 @@ export function extractCommandSubstitutions(cmd: string): string[] {
 
       // `<(cmd)` / `>(cmd)` process substitution. Require the preceding
       // char be whitespace, `=`, or start-of-string so we don't misread
-      // a redirect like `2>(log)` — actually bash does accept `2>(log)`
+      // a redirect like `2>(log)` - actually bash does accept `2>(log)`
       // as process substitution, so just match any `<(` / `>(`.
       if ((ch === '<' || ch === '>') && s[i + 1] === '(') {
         const end = findMatchingClose(s, i + 1, len, '(', ')');
@@ -840,7 +840,7 @@ export function extractCommandSubstitutions(cmd: string): string[] {
  * backticks, and process substitutions). Each returned string is one
  * independently-checkable sub-command.
  *
- * Exported for use by the bash-permissions extension orchestration —
+ * Exported for use by the bash-permissions extension orchestration -
  * callers should iterate the result through {@link decideSubcommand}.
  */
 export function allSubcommands(cmd: string): string[] {

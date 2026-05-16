@@ -1,7 +1,7 @@
 /**
  * Tests for lib/node/pi/verify-hook-detect.ts.
  *
- * Pure filesystem-driven detector — we fabricate scratch directory
+ * Pure filesystem-driven detector - we fabricate scratch directory
  * layouts under `tmpdir()` and call `detectHookRules(cwd)` against
  * them. No pi runtime, no network, no process spawning.
  */
@@ -87,7 +87,7 @@ test('.husky/pre-commit with ./dev/lint.sh → credits both lint-clean and forma
 
 test('.husky/pre-commit invoking lint-staged records husky path as a source', () => {
   // When husky just calls lint-staged, the husky script has no tool
-  // tokens of its own — the tools come from lint-staged config. We
+  // tokens of its own - the tools come from lint-staged config. We
   // shouldn't record the husky path as a source in that case.
   writeFile('.husky/pre-commit', '#!/usr/bin/env sh\nnpx lint-staged\n');
   const { info } = detectHookRules(workdir);
@@ -115,7 +115,7 @@ test('lint-staged.config.mjs with oxfmt + eslint literal commands → credits li
 });
 
 test('lint-staged.config.cjs detected alongside .mjs variant', () => {
-  // Only one candidate file present — make sure we don't require the
+  // Only one candidate file present - make sure we don't require the
   // .mjs specifically.
   writeFile('lint-staged.config.cjs', "module.exports = { '*.ts': ['prettier --write', 'tsc --noEmit'] };");
   const { info } = detectHookRules(workdir);
@@ -325,7 +325,7 @@ describe('synthesized rule pattern', () => {
 // ──────────────────────────────────────────────────────────────────────
 
 test('info.tools is deduplicated across sources', () => {
-  // eslint mentioned in BOTH husky and lint-staged — should appear once.
+  // eslint mentioned in BOTH husky and lint-staged - should appear once.
   writeFile('.husky/pre-commit', '#!/usr/bin/env sh\nnpx eslint .\n');
   writeFile('lint-staged.config.mjs', "export default { '*.ts': ['eslint'] };");
 
@@ -346,7 +346,7 @@ test('info.kinds is deduplicated across sources', () => {
 });
 
 test('info.sources excludes files that existed but matched nothing', () => {
-  // Hook file exists but is just `exit 0` — no tool tokens.
+  // Hook file exists but is just `exit 0` - no tool tokens.
   writeFile('.husky/pre-commit', '#!/usr/bin/env sh\nexit 0\n');
   const { info } = detectHookRules(workdir);
 

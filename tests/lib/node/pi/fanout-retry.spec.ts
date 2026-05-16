@@ -201,7 +201,7 @@ describe('withTransientRetry', () => {
     await expect(
       withTransientRetry(fn, { sleep: sleepSpy, signal: controller.signal, random: () => 0.5 }),
     ).rejects.toThrow(/Connection error/);
-    // Called exactly once — the abort short-circuits attempt 2 and
+    // Called exactly once - the abort short-circuits attempt 2 and
     // surfaces the last transient error rather than a generic abort.
     expect(fn).toHaveBeenCalledTimes(1);
   });

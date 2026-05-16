@@ -12,7 +12,7 @@
  *   archive/
  *     <ts>-<task>/             whole task dir moved here on close
  *
- * State (iteration count, history, best-so-far) is NOT here — it
+ * State (iteration count, history, best-so-far) is NOT here - it
  * lives in the session branch via `iteration-loop-reducer.ts`. The
  * disk layout is only for things that cross sessions: the check spec
  * itself (user accepts → should survive a pi restart) and the
@@ -23,7 +23,7 @@
  * missing files (return null) so the extension never crashes on a
  * freshly initialized workspace.
  *
- * No pi imports — testable under `vitest` with a temp cwd.
+ * No pi imports - testable under `vitest` with a temp cwd.
  */
 
 import {
@@ -105,7 +105,7 @@ function safeParseJson(raw: string): unknown {
 }
 
 // ──────────────────────────────────────────────────────────────────────
-// Spec I/O — draft, active, accept, close
+// Spec I/O - draft, active, accept, close
 // ──────────────────────────────────────────────────────────────────────
 
 export interface ReadSpecResult {
@@ -148,14 +148,14 @@ export function readSpec(cwd: string, task: string): ReadSpecResult {
 
 /**
  * Write a draft spec. Overwrites any prior draft for the same task.
- * Fails if an accepted spec already exists — declaring a new draft
+ * Fails if an accepted spec already exists - declaring a new draft
  * while a task is live is a user error.
  */
 export function writeDraft(cwd: string, spec: CheckSpec): { ok: true } | { ok: false; error: string } {
   if (existsSync(activePath(cwd, spec.task))) {
     return {
       ok: false,
-      error: `task "${spec.task}" already has an accepted check at ${activePath(cwd, spec.task)} — close it before declaring a new draft`,
+      error: `task "${spec.task}" already has an accepted check at ${activePath(cwd, spec.task)} - close it before declaring a new draft`,
     };
   }
   atomicWriteFile(draftPath(cwd, spec.task), JSON.stringify(spec, null, 2));
@@ -180,7 +180,7 @@ export function acceptDraft(
   // both see no active file and both write. `atomicWriteFile`'s
   // rename is atomic so the file is never half-written, but the
   // last writer wins and overwrites the first acceptance's
-  // acceptedAt timestamp. That's acceptable here — acceptance is a
+  // acceptedAt timestamp. That's acceptable here - acceptance is a
   // user-gated action in practice, and the spec content itself is
   // identical across racers (both came from the same draft).
   if (existsSync(active)) {
@@ -249,7 +249,7 @@ export function archiveTask(cwd: string, task: string, timestamp: string): strin
   const hasActive = existsSync(active);
   const hasSnaps = existsSync(snaps);
   if (!hasActive && !hasSnaps) return null;
-  // Archive dirs use `<safeTs>__<task>` — a double-underscore separator
+  // Archive dirs use `<safeTs>__<task>` - a double-underscore separator
   // so hyphens in either timestamps (always) or task names (user-chosen)
   // round-trip cleanly through `listArchive`'s parser. `safeTs` strips
   // anything that isn't a safe filename char; `task` is re-normalized
@@ -292,7 +292,7 @@ export function archiveTask(cwd: string, task: string, timestamp: string): strin
  *   - the snapshot path
  *   - the sha256 hash of the bytes (hex), used for fixpoint detection
  *
- * Returns null when the artifact doesn't exist — caller decides
+ * Returns null when the artifact doesn't exist - caller decides
  * whether that's an error (check run before first edit) or expected.
  */
 export function snapshotArtifact(
@@ -301,7 +301,7 @@ export function snapshotArtifact(
   iteration: number,
   artifactPath: string,
 ): { path: string; hash: string } | null {
-  // Respect absolute artifact paths — otherwise `join(cwd, '/abs/path')` on
+  // Respect absolute artifact paths - otherwise `join(cwd, '/abs/path')` on
   // POSIX produces `/cwd/abs/path` which never exists. Only prepend cwd for
   // relative artifacts.
   const src = isAbsolute(artifactPath) ? artifactPath : join(cwd, artifactPath);
@@ -339,7 +339,7 @@ export interface TaskListing {
 
 /**
  * List every active + draft task under `.pi/checks/`. Does NOT walk
- * the archive dir — use `listArchive` for that.
+ * the archive dir - use `listArchive` for that.
  */
 export function listTasks(cwd: string): TaskListing[] {
   const dir = checksDir(cwd);
@@ -360,7 +360,7 @@ export function listTasks(cwd: string): TaskListing[] {
       out.push({ task: name.slice(0, -'.json'.length), state: 'active', path: full });
     }
   }
-  // Dedupe — an active spec supersedes a draft with the same name
+  // Dedupe - an active spec supersedes a draft with the same name
   const byTask = new Map<string, TaskListing>();
   for (const t of out) {
     const prev = byTask.get(t.task);
@@ -391,7 +391,7 @@ export function listArchive(cwd: string): ArchiveListing[] {
       continue;
     }
     if (!s.isDirectory()) continue;
-    // `<ts>__<task>` — split on the LAST occurrence of the separator
+    // `<ts>__<task>` - split on the LAST occurrence of the separator
     // so pathologically odd (sanitized) task names still round-trip.
     // Fall back to legacy single-dash split for archives written before
     // the separator change so existing trees stay listable.

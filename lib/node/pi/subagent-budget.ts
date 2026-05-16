@@ -1,7 +1,7 @@
 /**
  * Resolve the effective maxTurns cap for one subagent dispatch.
  *
- * Pure module — no pi imports — so it can be unit-tested under
+ * Pure module - no pi imports - so it can be unit-tested under
  * vitest. The extension at config/pi/extensions/subagent.ts is the
  * only consumer; see plans/pi-subagent-overrides.md for the design.
  *

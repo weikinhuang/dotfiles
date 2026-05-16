@@ -1,4 +1,4 @@
-/* Read "Internals" at the bottom — public API comes first. The
+/* Read "Internals" at the bottom - public API comes first. The
  * `no-use-before-define` rule is disabled at the file scope because
  * TS function declarations are hoisted and this ordering reads
  * top-down (public API → helpers). */
@@ -24,15 +24,15 @@
  *
  *   - `plan.json` + `plan.json.provenance.json` (from planner /
  *     self-critic / planning-critic).
- *   - `journal.md` — every phase boundary, retry, nudge, stall,
+ *   - `journal.md` - every phase boundary, retry, nudge, stall,
  *     quarantine lands here.
- *   - `findings/<id>.md` — one per sub-question that completed.
- *   - `findings/<id>.md.provenance.json` — model+ts sidecar.
- *   - `findings/_quarantined/<id>/…` — malformed findings + reason.
- *   - `fanout.json` — resume-friendly handle state.
+ *   - `findings/<id>.md` - one per sub-question that completed.
+ *   - `findings/<id>.md.provenance.json` - model+ts sidecar.
+ *   - `findings/_quarantined/<id>/…` - malformed findings + reason.
+ *   - `fanout.json` - resume-friendly handle state.
  *
  * This file does NOT decide whether background or sync fanout is
- * used — the extension picks the mode based on pi's environment.
+ * used - the extension picks the mode based on pi's environment.
  *
  * Robustness posture (see `research-extensions-robustness-principle`):
  *
@@ -46,7 +46,7 @@
  *   - Fanout child stall → `research-watchdog` aborts + retries in
  *     parent session (configured by the extension; the pipeline
  *     just threads the spawner through).
- *   - One subagent failing does NOT abort the run — the fanout
+ *   - One subagent failing does NOT abort the run - the fanout
  *     dispatcher buckets each task independently.
  *
  * None of the above is tier-specific.
@@ -105,7 +105,7 @@ import { type TinyAdapter, type TinyCallContext } from './research-tiny.ts';
  *
  * Review is listed here for symmetry with the command-surface
  * {@link ../research-command-args.ResumeStage} enum, but the
- * pipeline itself does NOT execute a review phase — that lives in
+ * pipeline itself does NOT execute a review phase - that lives in
  * the extension's `runReviewPhase` and is driven separately by
  * `runResumeReviewStage`. Callers must never pass `resumeFrom:
  * 'review'` here; {@link runResearchPipeline} rejects it with an
@@ -201,7 +201,7 @@ export interface PipelineDeps<M> {
    * that aren't present in `sources/<hash>.md`, so without this
    * every section synthesizes without footnotes. When unset the
    * pipeline skips the populate step and logs a journal warning
-   * once — handy for fixture-driven unit tests that don't want
+   * once - handy for fixture-driven unit tests that don't want
    * to touch the network. Wired from
    * `research-ai-fetch-web-cli-client.createAiFetchWebCliClientFromEnv()`
    * in the extension (which shells out to the `ai-fetch-web` CLI).
@@ -226,15 +226,15 @@ export interface PipelineDeps<M> {
    * pipeline skips every stage strictly earlier than
    * `resumeFrom`.
    *
-   *   - `plan-crit` — skip planner + self-critic, re-run
+   *   - `plan-crit` - skip planner + self-critic, re-run
    *     planning-critic against the hand-edited / on-disk plan.
-   *   - `fanout`    — skip plan+self-crit+plan-crit; run fanout
-   *     (idempotent — the caller should have run
+   *   - `fanout`    - skip plan+self-crit+plan-crit; run fanout
+   *     (idempotent - the caller should have run
    *     `invalidateIncompleteFanoutTasks` first when re-dispatch
    *     is desired) + synth + merge.
-   *   - `synth`     — skip every earlier stage; read findings
+   *   - `synth`     - skip every earlier stage; read findings
    *     from disk and run synth + merge only.
-   *   - `review`    — NOT supported at the pipeline level. The
+   *   - `review`    - NOT supported at the pipeline level. The
    *     extension drives review resume directly via
    *     `runResumeReviewStage` (no pipeline invocation). Passing
    *     `'review'` here is a programmer error.
@@ -271,7 +271,7 @@ export interface PipelineDeps<M> {
    * from the hook are swallowed for the same reason.
    *
    * Per-task `fanout-progress` granularity is NOT emitted by the
-   * pipeline itself — it only emits one `fanout-start` (before
+   * pipeline itself - it only emits one `fanout-start` (before
    * `research-fanout`) and one `fanout-progress` with the final
    * cumulative count (after it returns). Extensions that want
    * sub-task progress can wrap their `fanoutSpawn` to emit extra
@@ -317,7 +317,7 @@ export type PipelineOutcome =
       sections: SectionOutcome[];
       merge: SynthMergeResult;
     }
-  /** Planner emitted a stuck shape — no plan on disk; user checkpoint. */
+  /** Planner emitted a stuck shape - no plan on disk; user checkpoint. */
   | { kind: 'planner-stuck'; runRoot: string; reason: string }
   /** Planning-critic rejected twice (or its rewrite emitted stuck). */
   | {
@@ -326,7 +326,7 @@ export type PipelineOutcome =
       plan: DeepResearchPlan;
       outcome: PlanningCriticOutcome;
     }
-  /** Runner failed to produce a usable verdict — infrastructure trouble. */
+  /** Runner failed to produce a usable verdict - infrastructure trouble. */
   | { kind: 'error'; runRoot: string; plan: DeepResearchPlan | null; error: string };
 
 // ──────────────────────────────────────────────────────────────────────
@@ -469,7 +469,7 @@ export async function runResearchPipeline<M>(question: string, deps: PipelineDep
         });
       }
     } catch (e) {
-      // Rubric emission is not load-bearing — the Phase 4 review
+      // Rubric emission is not load-bearing - the Phase 4 review
       // surfaces the problem when the files are missing. Journal
       // the failure and continue.
       try {
@@ -503,7 +503,7 @@ export async function runResearchPipeline<M>(question: string, deps: PipelineDep
       if (deficit.length > 0) {
         throw new Error(
           `runResearchPipeline: resumeFrom=${deps.resumeFrom} but findings incomplete for: ${deficit.join(', ')} ` +
-            `— resume from fanout instead (/research --resume --from=fanout)`,
+            `- resume from fanout instead (/research --resume --from=fanout)`,
         );
       }
       fanoutResult = loadResumeFanoutSnapshot(runRoot, plan);
@@ -547,7 +547,7 @@ export async function runResearchPipeline<M>(question: string, deps: PipelineDep
     // tools, but those responses never made it into the run's
     // source store. Walk every accepted finding's `## Sources`
     // block and call `research-sources.fetchAndStore` for each
-    // URL — this is the ONLY populate step; without it the synth
+    // URL - this is the ONLY populate step; without it the synth
     // stage drops every citation because `collectReferencedSources`
     // filters by the on-disk source index.
     await populateSourceStore({
@@ -682,7 +682,7 @@ async function runFanoutPhase<M>(args: FanoutPhaseArgs<M>): Promise<FanoutResult
  * imperative; small models need the schema repeated inline.
  *
  * `runRoot` is required so the prompt can hand the subagent an
- * absolute output path — with `isolation: shared-cwd` the
+ * absolute output path - with `isolation: shared-cwd` the
  * subagent's cwd is the workspace root, NOT the run root, so a
  * relative `findings/<id>.md` would land at
  * `<workspace>/findings/<id>.md` instead of the run directory.
@@ -700,9 +700,9 @@ export function renderWebResearcherPrompt(plan: DeepResearchPlan, subQuestionId:
     `Root question (context only): ${plan.question}`,
     `Your sub-question: ${sq.question}`,
     `Write your findings to this ABSOLUTE path (your cwd is the workspace root, not the run directory): ${absPath}`,
-    `The file will land at "${relPath}" under the run root — pass the absolute path above to your \`write\` tool.`,
+    `The file will land at "${relPath}" under the run root - pass the absolute path above to your \`write\` tool.`,
     '',
-    'Use the `ai-fetch-web` CLI via your `bash` tool for every page I/O. Redirect large fetches to a temp file and then `read` the file — do NOT dump full article bodies into a single tool-output block:',
+    'Use the `ai-fetch-web` CLI via your `bash` tool for every page I/O. Redirect large fetches to a temp file and then `read` the file - do NOT dump full article bodies into a single tool-output block:',
     '',
     '  bash: ai-fetch-web search "<query>" --limit 5',
     '  bash: ai-fetch-web fetch <url> > /tmp/src.md   # then: read /tmp/src.md',
@@ -716,7 +716,7 @@ export function renderWebResearcherPrompt(plan: DeepResearchPlan, subQuestionId:
     '  - bullet cites [S1], [S2] …',
     '',
     '  ## Sources',
-    '  - [S1] <URL> — <description>',
+    '  - [S1] <URL> - <description>',
     '',
     '  ## Open questions',
     '  - bullet, or "None."',
@@ -742,7 +742,7 @@ interface AbsorbArgs<M> {
  * when present so re-prompts written to disk in a prior session
  * are absorbed on resume). Malformed → re-prompt (logged; the
  * pipeline's retry budget is one re-prompt enforced by the
- * failure-counter — two failures triggers quarantine). Accepted
+ * failure-counter - two failures triggers quarantine). Accepted
  * findings get a provenance sidecar; optionally we run the tiny
  * source-title normalization pass.
  *
@@ -754,7 +754,7 @@ interface AbsorbArgs<M> {
  * {@link stripProvenanceFrontmatter} from `research-provenance.ts`
  * so the two consumers (this resume path and
  * `deep-research-synth-merge.loadSectionBody`) share the same
- * implementation — a snapshot body written with an inlined
+ * implementation - a snapshot body written with an inlined
  * provenance frontmatter otherwise leaks the `---…---` block
  * into the merged report and confuses every downstream parser.
  */
@@ -788,7 +788,7 @@ async function absorbFindings<M>(args: AbsorbArgs<M>): Promise<string[]> {
 
     // Prefer the on-disk file (the agent's `write` tool put it
     // there). Fall back to the spawner's returned output string
-    // — useful for mocked spawners that don't touch the file
+    // - useful for mocked spawners that don't touch the file
     // system, and for synchronous-fallback runs where the agent
     // returns the file body inline.
     //
@@ -856,7 +856,7 @@ async function absorbFindings<M>(args: AbsorbArgs<M>): Promise<string[]> {
     }
 
     if (action.kind === 'reprompt') {
-      // Phase 2 does NOT attempt an in-pipeline re-prompt — the
+      // Phase 2 does NOT attempt an in-pipeline re-prompt - the
       // single-attempt semantics of `research-fanout` mean a
       // re-prompt is a new fanout task, which the extension owns
       // after the user intervenes. Bump the counter and emit the
@@ -881,7 +881,7 @@ async function absorbFindings<M>(args: AbsorbArgs<M>): Promise<string[]> {
       // confident zero-citation section. Mark the sub-question
       // quarantined for synth purposes so it gets a visible
       // `[section unavailable: ...]` stub in the merged report
-      // — the on-disk file stays put for `--resume` inspection.
+      // - the on-disk file stays put for `--resume` inspection.
       quarantined.push(subQuestionId);
       continue;
     }
@@ -903,7 +903,7 @@ async function absorbFindings<M>(args: AbsorbArgs<M>): Promise<string[]> {
         }
       }
     } else {
-      // The spawner never landed a file — persist the raw body
+      // The spawner never landed a file - persist the raw body
       // into the quarantine dir directly so the reader has
       // something to inspect.
       const tempPath = join(p.findings, `${subQuestionId}.md`);
@@ -935,7 +935,7 @@ async function absorbFindings<M>(args: AbsorbArgs<M>): Promise<string[]> {
   }
 
   // Aborted / failed fanout tasks also leave the sub-question
-  // without findings — journal an explicit entry so synth knows
+  // without findings - journal an explicit entry so synth knows
   // why the section will be missing.
   for (const f of fanoutResult.failed) {
     try {
@@ -990,7 +990,7 @@ interface PopulateArgs<M> {
  * URLs dropped (with a journal warning) rather than busting the
  * budget.
  *
- * Degrades gracefully when `deps.mcpClient` is unset — journal a
+ * Degrades gracefully when `deps.mcpClient` is unset - journal a
  * one-shot warning and return. The downstream synth stage will
  * still run but produce zero-citation sections; structural check
  * will fail the refinement loop, which is the right outcome for a
@@ -1005,7 +1005,7 @@ async function populateSourceStore<M>(args: PopulateArgs<M>): Promise<void> {
       appendJournal(p.journal, {
         level: 'warn',
         heading: 'source-store populate skipped',
-        body: 'no McpClient injected — synth will produce zero-citation sections unless a downstream cache is populated by other means.',
+        body: 'no McpClient injected - synth will produce zero-citation sections unless a downstream cache is populated by other means.',
       });
     } catch {
       /* swallow */
@@ -1089,7 +1089,7 @@ interface SynthPhaseArgs<M> {
  * path) threads through unchanged.
  *
  * Errors from `runSynthMerge` (notably {@link UnknownPlaceholderError})
- * propagate — the caller maps them to a `{kind:'error'}` outcome.
+ * propagate - the caller maps them to a `{kind:'error'}` outcome.
  */
 async function runSynthPhase<M>(args: SynthPhaseArgs<M>): Promise<{
   sections: SectionOutcome[];
@@ -1099,7 +1099,7 @@ async function runSynthPhase<M>(args: SynthPhaseArgs<M>): Promise<{
   const p = paths(runRoot);
   ensureDirSync(runRoot);
 
-  // One listing used by both stages — `research-sources.listRun`
+  // One listing used by both stages - `research-sources.listRun`
   // is O(N) in the source store size; not load-bearing for speed
   // but avoids doing it twice.
   const sourceIndex: SourceRef[] = listRun(runRoot);
@@ -1160,7 +1160,7 @@ async function runSynthPhase<M>(args: SynthPhaseArgs<M>): Promise<{
  * fanout.json predates the `state` field.
  *
  * The `output` field on completed entries is deliberately left as
- * whatever `fanout.json` persisted — downstream synth reads the
+ * whatever `fanout.json` persisted - downstream synth reads the
  * finding files on disk directly via
  * {@link deep-research-synth-sections.runAllSections}, never from
  * `fanoutResult.completed[*].output`.
@@ -1187,7 +1187,7 @@ function loadResumeFanoutSnapshot(runRoot: string, plan: DeepResearchPlan): Fano
         }
       }
     } catch {
-      /* swallow — fall through to per-id lookup below */
+      /* swallow - fall through to per-id lookup below */
     }
   }
 
@@ -1219,7 +1219,7 @@ function loadResumeFanoutSnapshot(runRoot: string, plan: DeepResearchPlan): Fano
 }
 
 /**
- * Best-effort guess of the run root before the planner runs —
+ * Best-effort guess of the run root before the planner runs -
  * only used for the journal path we hand the planner. When the
  * planner's slug resolution yields a different directory, the
  * journal still lands in the right place because `appendJournal`
@@ -1238,7 +1238,7 @@ function loadResumeFanoutSnapshot(runRoot: string, plan: DeepResearchPlan): Fano
  * directory-not-found case writes nothing.
  */
 function resolveRunRootFromCwd(cwd: string, question: string): string {
-  // Minimal slug — deterministic, no tiny involvement. The planner
+  // Minimal slug - deterministic, no tiny involvement. The planner
   // picks the real slug afterwards.
   const slug =
     question
@@ -1252,7 +1252,7 @@ function resolveRunRootFromCwd(cwd: string, question: string): string {
 }
 
 /**
- * Fire-and-forget phase emitter. Never awaits, never re-throws —
+ * Fire-and-forget phase emitter. Never awaits, never re-throws -
  * observability MUST NOT block or break the pipeline.
  */
 function emitPhase<M>(deps: PipelineDeps<M>, event: PhaseEvent): void {
@@ -1260,6 +1260,6 @@ function emitPhase<M>(deps: PipelineDeps<M>, event: PhaseEvent): void {
   try {
     deps.onPhase(event);
   } catch {
-    /* swallow — observability hook failures are never load-bearing */
+    /* swallow - observability hook failures are never load-bearing */
   }
 }

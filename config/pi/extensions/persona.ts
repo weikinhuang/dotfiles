@@ -14,12 +14,12 @@
  *     layers on top of `bash-permissions.ts`.
  *
  * Personas are markdown files (frontmatter + body) loaded from three
- * layered directories — same project → user → repo precedence
+ * layered directories - same project → user → repo precedence
  * `agents/` and `presets.json` use:
  *
  *   1. `config/pi/personas/` shipped with the dotfiles repo.
- *   2. `~/.pi/personas/` — user-global.
- *   3. `<cwd>/.pi/personas/` — project-local.
+ *   2. `~/.pi/personas/` - user-global.
+ *   3. `<cwd>/.pi/personas/` - project-local.
  *
  * A persona file may declare `agent: <name>` to inherit `tools`,
  * `model`, `thinkingLevel`, and `body` from an existing
@@ -29,7 +29,7 @@
  *
  * Surfaces:
  *
- *   - `--persona <name>` CLI flag — activate at `session_start`.
+ *   - `--persona <name>` CLI flag - activate at `session_start`.
  *   - `/persona` lists every loaded persona and shows the active one.
  *   - `/persona <name>` activates.
  *   - `/persona off` / `/persona (none)` clears and restores the
@@ -39,7 +39,7 @@
  *   - `Ctrl+Shift+M` cycles personas (parity with preset's
  *     `Ctrl+Shift+U`).
  *
- * Composition with preset.ts: orthogonal — both extensions
+ * Composition with preset.ts: orthogonal - both extensions
  * snapshot/restore independently. The EFFECTIVE tool set is the
  * intersection because each extension calls `pi.setActiveTools`
  * with its own list. Subagents (D4) are NOT gated by persona; the
@@ -149,7 +149,7 @@ export default function personaExtension(pi: ExtensionAPI): void {
   const notifiedWarnings = new Set<string>();
 
   // ────────────────────────────────────────────────────────────────────
-  // SnapshotApi adapter — wraps pi's runtime surfaces. Pi's
+  // SnapshotApi adapter - wraps pi's runtime surfaces. Pi's
   // ThinkingLevel is wider than the parsed persona's enum (it includes
   // 'minimal' and 'xhigh'); the adapter accepts the wider set so
   // snapshot/restore round-trips don't silently coerce.
@@ -165,7 +165,7 @@ export default function personaExtension(pi: ExtensionAPI): void {
       // Snapshot/restore writes the model back via ctx.modelRegistry;
       // see restoreFromSnapshot below for the actual setter call.
       // The SnapshotApi.setModel is only used by snapshot.ts itself,
-      // which doesn't roundtrip through this adapter — leave a no-op
+      // which doesn't roundtrip through this adapter - leave a no-op
       // here and apply via the explicit restore path below.
       void spec;
     },
@@ -233,7 +233,7 @@ export default function personaExtension(pi: ExtensionAPI): void {
   const loadAgentsRegistry = (cwd: string): void => {
     // Reuse the same loader pi's subagent extension uses so a fork
     // of an agent file (e.g. `<cwd>/.pi/agents/plan.md`) is what persona
-    // inheritance picks up — the layered-registry decision (D5).
+    // inheritance picks up - the layered-registry decision (D5).
     const knownToolNames = new Set(pi.getAllTools().map((t) => t.name));
     const result = loadAgents({
       layers: defaultAgentLayers({ extensionDir: extDir, userPiDir, cwd }),
@@ -408,7 +408,7 @@ export default function personaExtension(pi: ExtensionAPI): void {
     const ok = await applyModelAndThinking(resolved, ctx);
     if (!ok) return;
 
-    // Tools — validate against the live tool registry; skip silently
+    // Tools - validate against the live tool registry; skip silently
     // if the persona declares no tools (e.g. `chat` persona body-only).
     const requestedTools = resolved.parsed.tools;
     if (requestedTools && requestedTools.length > 0) {
@@ -439,7 +439,7 @@ export default function personaExtension(pi: ExtensionAPI): void {
     if (originalSnapshot) {
       // Restore tools + thinking via the snapshot helper, model
       // explicitly via ctx.modelRegistry (snapshot.setModel is a no-op
-      // — the SnapshotApi adapter doesn't roundtrip model setters).
+      // - the SnapshotApi adapter doesn't roundtrip model setters).
       restoreSession(snapshotApi(ctx), originalSnapshot);
       if (originalSnapshot.model) {
         const slash = originalSnapshot.model.indexOf('/');
@@ -514,7 +514,7 @@ export default function personaExtension(pi: ExtensionAPI): void {
       return { block: true, reason: gate.reason };
     }
 
-    // gate.kind === 'prompt' — dispatch the approval UI.
+    // gate.kind === 'prompt' - dispatch the approval UI.
     const decision = await askForPermission(ctx, {
       tool: event.toolName,
       path: inputPath,
@@ -588,7 +588,7 @@ export default function personaExtension(pi: ExtensionAPI): void {
 
   // Non-interactive query / validation flags. These short-circuit the
   // session at `session_start` (print to stdout/stderr + process.exit)
-  // because slash commands are not dispatched in `pi -p` mode — see
+  // because slash commands are not dispatched in `pi -p` mode - see
   // followup #3 in plans/persona-extension-followups.md.
   pi.registerFlag('persona-info', {
     description: 'Print resolved persona <name> (frontmatter + writeRoots + lengths) and exit',

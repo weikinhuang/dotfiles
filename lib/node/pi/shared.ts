@@ -1,6 +1,6 @@
 /**
  * Small, dependency-free utilities shared across the other `lib/node/pi/*`
- * modules. No pi imports — testable under `vitest`.
+ * modules. No pi imports - testable under `vitest`.
  *
  * These helpers were previously duplicated (ellipsis truncation lived in
  * three separate modules with slightly different trim semantics; `byteLen`
@@ -23,7 +23,7 @@ export interface TruncateOptions {
  *
  * Guarantees:
  *   - Returns `s` (or the trimmed form) unchanged when it already fits.
- *   - When truncating, the returned string is exactly `n` chars long —
+ *   - When truncating, the returned string is exactly `n` chars long -
  *     `n - 1` original chars plus the `…` ellipsis.
  *   - `n <= 0` yields an empty string; `n === 1` yields just `…` when
  *     the input was longer than 0 chars (otherwise empty).
@@ -57,7 +57,7 @@ export function byteLen(s: string): number {
   return BYTE_ENCODER.encode(s).length;
 }
 
-// sha256 helpers — one shared implementation used by the three call
+// sha256 helpers - one shared implementation used by the three call
 // sites that used to each instantiate `createHash('sha256')` on their
 // own (`research-provenance.hashPrompt`, `research-sources` for
 // cache-key + content-hash, `iteration-loop-storage` for snapshot
@@ -93,7 +93,7 @@ export function sha256HexPrefix(input: string | Buffer, n: number): string {
 }
 
 /**
- * Type guard for "plain object" values — rejects `null`, arrays, and
+ * Type guard for "plain object" values - rejects `null`, arrays, and
  * scalars. The canonical first step in a structural validator before
  * reading properties off an untrusted payload (JSON from disk, model
  * output, session-entry state). Kept here so every validator shares

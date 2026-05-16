@@ -1,7 +1,7 @@
 /**
  * Agent-definition loader for the subagent extension.
  *
- * Pure module — no pi imports — so it can be unit-tested under `vitest`.
+ * Pure module - no pi imports - so it can be unit-tested under `vitest`.
  * File I/O is injected via a `ReadLayer` interface so the extension
  * wires up `fs.readdirSync` / `fs.readFileSync` while tests drive the
  * loader with in-memory fixtures.
@@ -65,9 +65,9 @@ export interface AgentDef {
   path: string;
   /** Which layer this definition came from (lowest layer that wins). */
   source: AgentSourceLayer;
-  /** Agent identifier — what the LLM passes as `subagent(agent="…")`. */
+  /** Agent identifier - what the LLM passes as `subagent(agent="…")`. */
   name: string;
-  /** Human-facing "when to use" blurb — shown to the parent LLM. */
+  /** Human-facing "when to use" blurb - shown to the parent LLM. */
   description: string;
   /** Validated tool allowlist. */
   tools: string[];
@@ -75,9 +75,9 @@ export interface AgentDef {
   model: AgentModel;
   /** Thinking level override, or undefined to inherit. */
   thinkingLevel: ThinkingLevel | undefined;
-  /** Hard cap on agent turns — enforced by counting `turn_end`. */
+  /** Hard cap on agent turns - enforced by counting `turn_end`. */
   maxTurns: number;
-  /** Wall-clock cap in ms — enforced by an aborting timer. */
+  /** Wall-clock cap in ms - enforced by an aborting timer. */
   timeoutMs: number;
   /** `shared-cwd` reuses parent cwd; `worktree` spins up a git worktree. */
   isolation: AgentIsolation;
@@ -99,7 +99,7 @@ export interface AgentDef {
   writeRoots: string[];
   /** Optional `requestOptions` block deep-merged into the child's provider payload. */
   requestOptions?: RequestOptionsConfig;
-  /** Markdown body — the agent's role prompt. */
+  /** Markdown body - the agent's role prompt. */
   body: string;
 }
 
@@ -113,7 +113,7 @@ export interface AgentLoadResult {
   agents: Map<string, AgentDef>;
   /** Alphabetical order for deterministic listing. */
   nameOrder: string[];
-  /** All diagnostics — surface once per unique `(path, reason)`. */
+  /** All diagnostics - surface once per unique `(path, reason)`. */
   warnings: AgentLoadWarning[];
 }
 
@@ -130,11 +130,11 @@ export type FrontmatterParser = (content: string) => { frontmatter: Record<strin
 export interface LoadAgentsOptions {
   /** Ordered lowest→highest priority. Typically `[global, user, project]`. */
   layers: { source: AgentSourceLayer; dir: string }[];
-  /** Every tool name pi currently exposes — used to validate `tools`. */
+  /** Every tool name pi currently exposes - used to validate `tools`. */
   knownToolNames: ReadonlySet<string>;
   /** File I/O adapter. */
   fs: ReadLayer;
-  /** Frontmatter parser — inject pi's `parseFrontmatter` at the extension layer. */
+  /** Frontmatter parser - inject pi's `parseFrontmatter` at the extension layer. */
   parseFrontmatter: FrontmatterParser;
 }
 
@@ -223,7 +223,7 @@ export function validateAgent(args: {
     return null;
   }
 
-  // Tools — default when absent, validate every entry when present.
+  // Tools - default when absent, validate every entry when present.
   let tools: string[] = [...DEFAULT_AGENT_TOOLS];
   if (fm.tools !== undefined) {
     if (!Array.isArray(fm.tools)) {
@@ -341,7 +341,7 @@ export function loadAgents(options: LoadAgentsOptions): AgentLoadResult {
     if (!names) continue;
     for (const fname of names) {
       if (!fname.endsWith('.md')) continue;
-      // README.md is documentation for humans, not an agent spec — skip it
+      // README.md is documentation for humans, not an agent spec - skip it
       // without emitting a `missing or empty frontmatter` warning.
       if (fname.toLowerCase() === 'readme.md') continue;
       const path = join(layer.dir, fname);

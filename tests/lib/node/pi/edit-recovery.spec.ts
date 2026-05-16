@@ -1,7 +1,7 @@
 /**
  * Tests for lib/node/pi/edit-recovery.ts.
  *
- * Pure module — no pi runtime needed.
+ * Pure module - no pi runtime needed.
  */
 
 import { describe, expect, test } from 'vitest';
@@ -132,7 +132,7 @@ describe('findCandidates', () => {
   });
 
   test('two candidate ranges', () => {
-    const old = ['}']; // literal close-brace lines — appears twice
+    const old = ['}']; // literal close-brace lines - appears twice
 
     expect(findCandidates(normFile, old)).toEqual([
       { startLine: 3, endLine: 3 },
@@ -383,7 +383,7 @@ describe('locateAndFormat: duplicate case with only one match (rare)', () => {
       pathForDisplay: 'x.ts',
     });
 
-    // Our normalize is case-sensitive — so only the first line should match.
+    // Our normalize is case-sensitive - so only the first line should match.
     expect(out.kind).toBe('exact-1');
   });
 });

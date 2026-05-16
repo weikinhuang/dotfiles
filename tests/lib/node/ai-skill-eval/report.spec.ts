@@ -327,6 +327,6 @@ describe('renderCrossIterationMarkdown', () => {
     expect(out).toContain('only-in-primary');
     expect(out).toContain('only-in-baseline');
     // Baseline-only row: primary side filled with em-dashes.
-    expect(out).toMatch(/\| sample \| only-in-baseline \|.*\| — \|/);
+    expect(out).toMatch(/\| sample \| only-in-baseline \|.*\| - \|/);
   });
 });

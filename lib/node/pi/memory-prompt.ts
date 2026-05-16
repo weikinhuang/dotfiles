@@ -1,7 +1,7 @@
 /**
  * System-prompt renderer for the memory extension.
  *
- * No pi imports — testable under `vitest`.
+ * No pi imports - testable under `vitest`.
  *
  * Every turn the extension injects the `MEMORY.md` indices (global +
  * project) under a `## Memory` header so the model can see what's
@@ -9,7 +9,7 @@
  * fetched on demand via `memory read <id>`; we only inject the
  * one-line-per-memory index here.
  *
- * A soft character cap protects the system prompt — once the cap is
+ * A soft character cap protects the system prompt - once the cap is
  * reached we emit a trailer pointing at the tool. The cap is a budget,
  * not a hard limit: each rendered entry fits whole; we stop adding
  * entries once the next one would blow the budget.
@@ -58,7 +58,7 @@ function renderScope(
     lines.push(heading);
     used += heading.length + 1;
     for (const e of group) {
-      const line = `- ${e.name} (\`${e.id}\`) — ${e.description}`;
+      const line = `- ${e.name} (\`${e.id}\`) - ${e.description}`;
       if (used + line.length + 1 > budget && lines.length > 2) {
         truncated = true;
         skipped++;
@@ -69,7 +69,7 @@ function renderScope(
     }
   }
   if (lines.length === 1) {
-    // No content at all — drop the header.
+    // No content at all - drop the header.
     return { lines: [], used: 0, skipped, truncated };
   }
   lines.push('');
@@ -79,7 +79,7 @@ function renderScope(
 /**
  * Build the `## Memory` block injected into the system prompt each turn.
  * Returns `null` when both scopes are empty so the caller can skip
- * injection — no point reserving tokens for nothing.
+ * injection - no point reserving tokens for nothing.
  */
 export function formatMemoryIndex(state: MemoryState, opts: FormatOptions = {}): string | null {
   const globalEntries = state.index.global;
@@ -114,7 +114,7 @@ export function formatMemoryIndex(state: MemoryState, opts: FormatOptions = {}):
   }
 
   if (truncated) {
-    lines.push(`(${totalSkipped} more memory entry(ies) not shown — call \`memory\` with action \`list\` to see all.)`);
+    lines.push(`(${totalSkipped} more memory entry(ies) not shown - call \`memory\` with action \`list\` to see all.)`);
   } else {
     lines.push(
       'Call `memory` with action `read` + the id in backticks to load full content, `save` to persist new durable notes, `update` / `remove` to keep the index accurate.',

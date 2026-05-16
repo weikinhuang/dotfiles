@@ -1,7 +1,7 @@
 /**
  * Tests for lib/node/pi/branch-state.ts.
  *
- * Pure module — no pi runtime needed. The helper exercised here is what
+ * Pure module - no pi runtime needed. The helper exercised here is what
  * backs both `todo-reducer.reduceBranch` and
  * `scratchpad-reducer.reduceBranch`; this spec pins the generic
  * extraction behaviour independently of either caller.

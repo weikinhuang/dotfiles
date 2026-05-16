@@ -100,7 +100,7 @@ describe('createLiveBudget', () => {
 
     live.observePhaseEvent({ kind: 'fanout-start', total: 3 });
     clock.advance(5_000);
-    live.observePhaseEvent({ kind: 'fanout-start', total: 3 }); // duplicate — ignored
+    live.observePhaseEvent({ kind: 'fanout-start', total: 3 }); // duplicate - ignored
     live.observePhaseEvent({ kind: 'fanout-progress', done: 1 }); // non-mapping, ignored
     clock.advance(5_000);
     live.observePhaseEvent({ kind: 'done' });
@@ -216,7 +216,7 @@ describe('createLiveBudget', () => {
       live.trackerFor('fanout').addCost(0.18);
       clock.advance(10_000);
 
-      // Terminal event deliberately omitted — appendSummary must
+      // Terminal event deliberately omitted - appendSummary must
       // close the open phase itself so a crashing pipeline still
       // gets a summary.
       live.appendSummary();
@@ -264,7 +264,7 @@ describe('createLiveBudget', () => {
 
     expect(snap.currentPhase).toBe('planner');
     expect(snap.perPhase.planner.costUsd).toBeCloseTo(0.05, 6);
-    // wallClock hasn't been committed yet (phase still open) — it's 0.
+    // wallClock hasn't been committed yet (phase still open) - it's 0.
     expect(snap.perPhase.planner.wallClockSec).toBe(0);
     expect(snap.totalCostUsd).toBeCloseTo(0.05, 6);
   });

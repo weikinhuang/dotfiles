@@ -39,7 +39,7 @@ afterEach(() => {
 });
 
 // ──────────────────────────────────────────────────────────────────────
-// cwdSlug — must match pi's session-dir naming convention.
+// cwdSlug - must match pi's session-dir naming convention.
 // ──────────────────────────────────────────────────────────────────────
 
 test('cwdSlug: nested posix path', () => {
@@ -117,7 +117,7 @@ test('globalDir / projectDir / fileFor / indexFileFor line up', () => {
 });
 
 // ──────────────────────────────────────────────────────────────────────
-// atomicWriteFile — parent auto-created, replaces existing file.
+// atomicWriteFile - parent auto-created, replaces existing file.
 // ──────────────────────────────────────────────────────────────────────
 
 test('atomicWriteFile: creates parent and writes contents', () => {
@@ -168,7 +168,7 @@ test('scanScope: global skips project-only types', () => {
     { name: 'Tests', description: 'tests rule', type: 'feedback' },
     '',
   );
-  // A project-only type under global — should be ignored even if present.
+  // A project-only type under global - should be ignored even if present.
   writeMemory(join(scopeDir, 'project'), 'bogus.md', { name: 'X', description: 'd', type: 'project' }, '');
   const { entries, warnings } = scanScope(scopeDir, 'global');
   const ids = entries.map((e) => e.id).sort();

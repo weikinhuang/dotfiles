@@ -130,7 +130,7 @@ function validFinding(id: string): string {
     `- Some claim about ${id} [S1].`,
     '',
     '## Sources',
-    '- [S1] https://example.com — Example page',
+    '- [S1] https://example.com - Example page',
     '',
     '## Open questions',
     '- None.',
@@ -197,7 +197,7 @@ afterEach(() => {
 // Happy path.
 // ──────────────────────────────────────────────────────────────────────
 
-describe('runResearchPipeline — happy path', () => {
+describe('runResearchPipeline - happy path', () => {
   test('(1) planner → self-critic → planning-critic → fanout produces plan.json, findings, provenance', async () => {
     const { factory } = makeSessionFactory([plannerReply(), selfCriticNoChange()]);
     const runner = scriptedPlanningCritic([{ rawText: approvedVerdict() }]);
@@ -255,7 +255,7 @@ describe('runResearchPipeline — happy path', () => {
 // Self-critic rewrites a redundant plan.
 // ──────────────────────────────────────────────────────────────────────
 
-describe('runResearchPipeline — self-critic', () => {
+describe('runResearchPipeline - self-critic', () => {
   test('(2) rewrites a deliberately-redundant planner output', async () => {
     // Planner emits three copies of the same question; self-critic
     // rewrites them into three distinct questions.
@@ -306,7 +306,7 @@ describe('runResearchPipeline — self-critic', () => {
 // Planning-critic auto-rewrite path.
 // ──────────────────────────────────────────────────────────────────────
 
-describe('runResearchPipeline — planning-critic', () => {
+describe('runResearchPipeline - planning-critic', () => {
   test('(3) off-scope plan rejected → auto-rewrite → approved', async () => {
     const offScope = plannerReply(['sq-1', 'sq-2', 'sq-3']);
     // Self-critic passes through unchanged; the critic rejects.
@@ -379,7 +379,7 @@ describe('runResearchPipeline — planning-critic', () => {
 // already-completed tasks.
 // ──────────────────────────────────────────────────────────────────────
 
-describe('runResearchPipeline — fanout resume', () => {
+describe('runResearchPipeline - fanout resume', () => {
   test('(4) resume only spawns missing subagents', async () => {
     // Pre-populate the run root with a plan + fanout.json carrying
     // two terminal states and one pending.
@@ -471,8 +471,8 @@ describe('runResearchPipeline — fanout resume', () => {
 // Fanout tolerates failures and quarantines malformed output.
 // ──────────────────────────────────────────────────────────────────────
 
-describe('runResearchPipeline — partial failures', () => {
-  test('(6) one subagent fails (timeout reason) — run still completes', async () => {
+describe('runResearchPipeline - partial failures', () => {
+  test('(6) one subagent fails (timeout reason) - run still completes', async () => {
     const { factory } = makeSessionFactory([plannerReply(), selfCriticNoChange()]);
     const runner = scriptedPlanningCritic([{ rawText: approvedVerdict() }]);
     const spawner = scriptedSpawner(
@@ -631,7 +631,7 @@ describe('runResearchPipeline — partial failures', () => {
 // Tiny-adapter unset: pipeline still passes.
 // ──────────────────────────────────────────────────────────────────────
 
-describe('runResearchPipeline — tiny adapter unset (sanity)', () => {
+describe('runResearchPipeline - tiny adapter unset (sanity)', () => {
   test('(8) with no tiny adapter wired, the happy path still produces findings + provenance', async () => {
     const { factory } = makeSessionFactory([plannerReply(), selfCriticNoChange()]);
     const runner = scriptedPlanningCritic([{ rawText: approvedVerdict() }]);
@@ -661,7 +661,7 @@ describe('runResearchPipeline — tiny adapter unset (sanity)', () => {
 // Source-store populate (Phase 6).
 // ───────────────────────────────────────────────────────────────────
 
-describe('runResearchPipeline — source-store populate', () => {
+describe('runResearchPipeline - source-store populate', () => {
   test('(9) mcpClient populates sources/<hash>.md + sidecar from cited URLs', async () => {
     const { factory } = makeSessionFactory([plannerReply(['sq-1']), selfCriticNoChange()]);
     const runner = scriptedPlanningCritic([{ rawText: approvedVerdict() }]);
@@ -701,7 +701,7 @@ describe('runResearchPipeline — source-store populate', () => {
     expect(fetched).toHaveLength(1);
     expect(fetched[0]).toContain('example.com');
 
-    // sources/ got populated with one entry — the page markdown
+    // sources/ got populated with one entry - the page markdown
     // plus its JSON sidecar.
     const sourcesDir = join(outcome.runRoot, 'sources');
 
@@ -732,7 +732,7 @@ describe('runResearchPipeline — source-store populate', () => {
     expect(sidecar.title).toBe('Example page');
   });
 
-  test('(10) unset mcpClient — pipeline still completes, sources/ stays empty, journal records a warning', async () => {
+  test('(10) unset mcpClient - pipeline still completes, sources/ stays empty, journal records a warning', async () => {
     const { factory } = makeSessionFactory([plannerReply(['sq-1']), selfCriticNoChange()]);
     const runner = scriptedPlanningCritic([{ rawText: approvedVerdict() }]);
     const spawner = scriptedSpawner(new Map([['sq-1', { kind: 'ok' as const, output: validFinding('sq-1') }]]));
@@ -769,7 +769,7 @@ describe('runResearchPipeline — source-store populate', () => {
     const spawner = scriptedSpawner(
       new Map([
         ['sq-1', { kind: 'ok' as const, output: validFinding('sq-1') }],
-        // sq-2 returns malformed text — absorbFindings quarantines it
+        // sq-2 returns malformed text - absorbFindings quarantines it
         // for synth purposes, and populate should skip it too.
         ['sq-2', { kind: 'ok' as const, output: 'not a valid finding schema' }],
       ]),
@@ -852,7 +852,7 @@ function seedResumeRunRoot(
   return runRoot;
 }
 
-describe('runResearchPipeline — resumeFrom', () => {
+describe('runResearchPipeline - resumeFrom', () => {
   test('resumeFrom without resumeRunRoot throws a clear error', async () => {
     const { factory } = makeSessionFactory([]);
 
@@ -949,7 +949,7 @@ describe('runResearchPipeline — resumeFrom', () => {
     // sq-2 is already on disk; fanout-spawner should not be hit for
     // any task because the resume should proceed to fanout
     // idempotently (every finding already complete) and then hit
-    // synth (not enabled here — runSynth unset).
+    // synth (not enabled here - runSynth unset).
     const spawner = vi.fn((_args: FanoutSpawnArgs): Promise<FanoutHandleLike> => {
       return Promise.reject(new Error('fanout should not dispatch; all tasks already complete'));
     });

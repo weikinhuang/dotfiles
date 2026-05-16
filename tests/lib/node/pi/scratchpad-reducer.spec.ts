@@ -1,7 +1,7 @@
 /**
  * Tests for lib/node/pi/scratchpad-reducer.ts.
  *
- * Pure module — no pi runtime needed.
+ * Pure module - no pi runtime needed.
  */
 
 import { expect, test } from 'vitest';
@@ -336,7 +336,7 @@ test('actRemove: does NOT reset nextId when removing the last note', () => {
   assertOk(r2);
 
   expect(r2.state.notes).toEqual([]);
-  // nextId intentionally does NOT reset — prevents id collisions if
+  // nextId intentionally does NOT reset - prevents id collisions if
   // the model references an old note number across a later append.
   expect(r2.state.nextId).toBe(3);
 });

@@ -2,7 +2,7 @@
  * Pure helpers for config/pi/extensions/statusline.ts.
  *
  * Derives the current git worktree name (for linked worktrees created via
- * `git worktree add`) entirely from on-disk metadata — no subprocess
+ * `git worktree add`) entirely from on-disk metadata - no subprocess
  * required. Mirrors pi's own `findGitPaths` logic in
  * `@earendil-works/pi-coding-agent/dist/core/footer-data-provider.js` and
  * surfaces what Claude Code hands to `config/claude/statusline-command.sh`
@@ -38,7 +38,7 @@ export interface WorktreeInfo {
    */
   repoDir: string;
   /**
-   * Worktree name for linked worktrees — `basename(gitDir)`, which git
+   * Worktree name for linked worktrees - `basename(gitDir)`, which git
    * guarantees equals the name passed to `git worktree add`. `null` for
    * the main worktree (where `gitDir === commonGitDir`).
    */

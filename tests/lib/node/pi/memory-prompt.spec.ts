@@ -1,7 +1,7 @@
 /**
  * Tests for lib/node/pi/memory-prompt.ts.
  *
- * Pure module — no pi runtime needed.
+ * Pure module - no pi runtime needed.
  */
 
 import { expect, test } from 'vitest';
@@ -34,7 +34,7 @@ test('formatMemoryIndex: single global memory renders a ## Memory block', () => 
   expect(out).toMatch(/^## Memory\n/);
   expect(out).toContain('### Global');
   expect(out).toContain('**user**');
-  expect(out).toContain('- tabs (`tabs`) — desc for tabs');
+  expect(out).toContain('- tabs (`tabs`) - desc for tabs');
   expect(out).not.toContain('### Project');
 });
 
@@ -44,7 +44,7 @@ test('formatMemoryIndex: project scope includes slug in label', () => {
   );
 
   expect(out).toContain('### Project (--tmp-foo--)');
-  expect(out).toContain('- Release plan (`release`) — Freeze Thu');
+  expect(out).toContain('- Release plan (`release`) - Freeze Thu');
 });
 
 test('formatMemoryIndex: both scopes rendered with headers', () => {
@@ -92,6 +92,6 @@ test('formatMemoryIndex: respects a minimum 500-char floor for the cap', () => {
   const out = formatMemoryIndex(mkState([entry('a', 'global', 'user', 'A', 'short')], []), { maxChars: 10 });
 
   expect(out).not.toBeNull();
-  // At least one entry rendered — sanity that the floor kicked in.
+  // At least one entry rendered - sanity that the floor kicked in.
   expect(out).toContain('- A (`a`)');
 });

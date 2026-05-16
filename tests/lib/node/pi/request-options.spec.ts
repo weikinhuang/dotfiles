@@ -1,5 +1,5 @@
 /**
- * Tests for lib/node/pi/request-options.ts — pure helper that
+ * Tests for lib/node/pi/request-options.ts - pure helper that
  * deep-merges per-persona / per-agent `requestOptions` into the
  * outgoing provider payload, with an optional `apis` filter.
  */
@@ -39,7 +39,7 @@ describe('applyRequestOptions', () => {
     expect(applyRequestOptions({ payload, options: { temperature: 0.7 } })).toEqual({ temperature: 0.7 });
   });
 
-  test('nested objects deep-merge — sibling keys preserved', () => {
+  test('nested objects deep-merge - sibling keys preserved', () => {
     // Mirrors the qwen-chat-template thinking case: pi-ai sets
     // `chat_template_kwargs: { enable_thinking, preserve_thinking }`,
     // and the persona may want to add or override `enable_thinking`
@@ -64,7 +64,7 @@ describe('applyRequestOptions', () => {
     expect(result).toEqual({ stop: ['END', 'STOP'] });
   });
 
-  test('apis filter — match → merge applies', () => {
+  test('apis filter - match → merge applies', () => {
     const payload = { temperature: 0.2 };
     const result = applyRequestOptions({
       payload,
@@ -75,7 +75,7 @@ describe('applyRequestOptions', () => {
     expect(result).toEqual({ temperature: 0.7 });
   });
 
-  test('apis filter — mismatch → payload unchanged', () => {
+  test('apis filter - mismatch → payload unchanged', () => {
     const payload = { temperature: 0.2 };
     const result = applyRequestOptions({
       payload,

@@ -226,7 +226,7 @@ function isKnownDriver(v: string): v is DriverKind {
 }
 
 /**
- * Parse `argv` (everything past `node script` — i.e. the subcommand is
+ * Parse `argv` (everything past `node script` - i.e. the subcommand is
  * at index 0) into a fully-defaulted {@link CliOptions}. Throws
  * {@link UsageError} on flag-shape problems; `--help` / `--version` /
  * no-args exit the process directly. The {@link RuntimeError} path via

@@ -24,7 +24,7 @@ export const GRADE_CONFIGS: readonly GradeConfig[] = ['with_skill', 'without_ski
  * the parsed grade records in directory-sorted order. Grade records
  * missing the `config` field (pre-R2 workspaces) are stamped with the
  * directory they were read from. Malformed JSON files are silently
- * skipped — matches the report behaviour callers already depend on.
+ * skipped - matches the report behaviour callers already depend on.
  */
 export function loadIterationGrades(iterationDir: string): GradeRecord[] {
   const out: GradeRecord[] = [];
@@ -39,7 +39,7 @@ export function loadIterationGrades(iterationDir: string): GradeRecord[] {
         if (!raw.config) raw.config = config;
         out.push(raw);
       } catch {
-        // Ignore malformed grade files — the report / benchmark skip them.
+        // Ignore malformed grade files - the report / benchmark skip them.
       }
     }
   }
