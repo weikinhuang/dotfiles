@@ -125,7 +125,7 @@ export function parsePersonaFile(opts: ParsePersonaOptions): ParsedPersona | nul
   }
 
   if (!parsed.frontmatter || Object.keys(parsed.frontmatter).length === 0) {
-    warnings.push({ path, reason: 'missing or empty frontmatter' });
+    // No frontmatter - silently skip; the file is not a persona.
     return null;
   }
 

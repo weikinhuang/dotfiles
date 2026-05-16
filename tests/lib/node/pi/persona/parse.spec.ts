@@ -58,12 +58,11 @@ describe('parsePersonaFile', () => {
     expect(result?.tools).toBeUndefined();
   });
 
-  test('empty frontmatter → null + warning', () => {
+  test('empty frontmatter → null silently (no warning)', () => {
     const { result, warnings } = run({});
 
     expect(result).toBeNull();
-    expect(warnings).toHaveLength(1);
-    expect(warnings[0].reason).toMatch(/missing or empty frontmatter/);
+    expect(warnings).toHaveLength(0);
   });
 
   test('unknown FM key is tolerated silently', () => {
