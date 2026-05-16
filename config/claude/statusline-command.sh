@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # @see https://code.claude.com/docs/en/statusline
-# Claude Code status line — mirrors the dotfiles PS1 style:
+# Claude Code status line - mirrors the dotfiles PS1 style:
 #   [user#host cwd (git branch $%=) ctx% left Msg:↑input/↻ cached/↓output Session:↑input/↻ cached/↓output cost §sessid] model
 # SPDX-License-Identifier: MIT
 
@@ -247,7 +247,7 @@ main() {
 
   # Pull every stdin field in a single jq pass so we pay the interpreter startup cost once.
   # Fields are joined with \x1f (unit separator) rather than tab because bash's `read` with
-  # IFS set to whitespace collapses consecutive separators — that would shift empty fields.
+  # IFS set to whitespace collapses consecutive separators - that would shift empty fields.
   # Note: workspace.git_worktree wins over worktree.name since it covers all linked worktrees.
   IFS=$'\x1f' read -r cwd model remaining input_tokens cached_tokens output_tokens \
     total_input_tokens total_output_tokens cost_usd transcript_path worktree_name \
@@ -321,7 +321,7 @@ main() {
     ((rate_pct_int >= RATE_LIMIT_NEAR_THRESHOLD)) && rate_seven_color="${RATE_LIMIT_WARN_COLOR}"
   fi
 
-  # Short session id — the first 8 chars of the UUID are enough to cross-reference
+  # Short session id - the first 8 chars of the UUID are enough to cross-reference
   # a run in ~/.claude/projects/*/ without dominating the status line.
   session_id_part=""
   if [[ -n "${session_id}" ]]; then
@@ -330,7 +330,7 @@ main() {
 
   # Aggregate transcript-derived metrics up front so downstream segments (M: turn count,
   # A: subagent count, S: breakdown, tools tally) can all draw from the same numbers.
-  # Cache result keyed by the main transcript's mtime — statusline re-renders that don't
+  # Cache result keyed by the main transcript's mtime - statusline re-renders that don't
   # change the transcript (permission-mode toggles, vim-mode flips) become cache hits.
   if [[ -n "${transcript_path}" ]] && [[ -f "${transcript_path}" ]]; then
     local cache_file current_mtime cached_mtime cached_agent cached_session agent_tsv session_tsv

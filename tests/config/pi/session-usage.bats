@@ -6,7 +6,7 @@
 # unlike claude/codex we never consult the LiteLLM pricing table. These
 # tests focus on pi-specific behavior: session header parsing, custom
 # subagent-run entries, and the `<parent-id>/subagents/` child layout
-# (Claude Code mirror — see config/pi/extensions/AGENTS.md).
+# (Claude Code mirror - see config/pi/extensions/AGENTS.md).
 
 setup() {
   load '../../helpers/common'

@@ -13,7 +13,7 @@ function internal::load-hook-run() {
   # if declared in function format
   if command -v "dotfiles_hook_${file}_${type}" &>/dev/null; then
     # eval is required for Bash 3 compat: namerefs are unavailable, so
-    # we build the array-append dynamically. Values are safe — they come
+    # we build the array-append dynamically. Values are safe - they come
     # from the deterministic hook_array_name constructed above.
     eval "${hook_array_name}+=('dotfiles_hook_${file}_${type}')"
   fi

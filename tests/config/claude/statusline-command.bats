@@ -287,7 +287,7 @@ EOF
 @test "statusline-command: flips rate limit color to warn red at or above 85% per window" {
   create_statusline_repo
   local now=1700000000
-  # 5h over threshold, 7d under — only the 5h half should wrap in the warn ANSI code.
+  # 5h over threshold, 7d under - only the 5h half should wrap in the warn ANSI code.
   write_statusline_payload_with_rate_limits "${TEST_REPO}" "91" "$((now + 2100))" "40" "$((now + 259200))"
 
   run env NOW_OVERRIDE="${now}" SCRIPT="${SCRIPT}" PAYLOAD="${PAYLOAD}" bash -c 'bash "${SCRIPT}" < "${PAYLOAD}"'
@@ -329,7 +329,7 @@ EOF
   run env SCRIPT="${SCRIPT}" PAYLOAD="${PAYLOAD}" bash -c 'bash "${SCRIPT}" < "${PAYLOAD}"'
   assert_success
   assert_output --partial "§abcd1234"
-  # Full UUID must not leak through — only the first 8 chars render.
+  # Full UUID must not leak through - only the first 8 chars render.
   [[ "${output}" != *"abcd1234-ef56"* ]]
 }
 

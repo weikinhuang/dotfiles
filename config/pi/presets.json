@@ -10,7 +10,7 @@
   // Precedence: this file (shipped) → ~/.pi/agent/presets.json (user) →
   // <cwd>/.pi/presets.json (project). Later layers override by name.
 
-  // Local qwen3 on llama.cpp — the daily-driver for cheap grunt work.
+  // Local qwen3 on llama.cpp - the daily-driver for cheap grunt work.
   // Thinking=high + thinking-budget-injection (via models.json) plus
   // a conservative tool set focused on the bread-and-butter loop.
   "qwen3-local": {
@@ -26,7 +26,7 @@
     "tools": ["bash", "read", "write", "edit", "grep", "find", "ls"]
   },
 
-  // Remote Claude Opus 4, no thinking — cheapest path to a one-shot
+  // Remote Claude Opus 4, no thinking - cheapest path to a one-shot
   // clarification or refactor on a small known target.
   "opus-fast": {
     "model": "amazon-bedrock/us.anthropic.claude-opus-4-7",
@@ -35,11 +35,11 @@
   },
 
   // Read-only discovery mode. Safe to attach to any unfamiliar repo.
-  // No bash / write / edit — forces the agent to just look. Thinking
+  // No bash / write / edit - forces the agent to just look. Thinking
   // high so it makes the most of what it reads.
   "read-only": {
     "thinkingLevel": "high",
     "tools": ["read", "grep", "find", "ls"],
-    "appendSystemPrompt": "READ-ONLY MODE. You cannot modify files or run shell commands. Explore, analyze, and summarize — do not propose edits beyond describing what should change."
+    "appendSystemPrompt": "READ-ONLY MODE. You cannot modify files or run shell commands. Explore, analyze, and summarize - do not propose edits beyond describing what should change."
   }
 }

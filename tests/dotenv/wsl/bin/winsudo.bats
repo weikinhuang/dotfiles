@@ -18,14 +18,14 @@ printf 'SSHD_CALLED %s\n' "$@"
 SSHD
   chmod +x "${MOCK_BIN}/sshd"
 
-  # nc stub (always succeeds — pretend port is open)
+  # nc stub (always succeeds - pretend port is open)
   cat >"${MOCK_BIN}/nc" <<'NC'
 #!/usr/bin/env bash
 exit 0
 NC
   chmod +x "${MOCK_BIN}/nc"
 
-  # ssh stub — prints the remote command it would run
+  # ssh stub - prints the remote command it would run
   cat >"${MOCK_BIN}/ssh" <<'SSH'
 #!/usr/bin/env bash
 # collect everything after "--"
@@ -153,7 +153,7 @@ SUDO
 }
 
 @test "winsudo: falls back to legacy when sudo.exe is not installed" {
-  # No sudo.exe in PATH — should attempt legacy init
+  # No sudo.exe in PATH - should attempt legacy init
   # powershell.exe mock will be called via internal::start-privileged-server
   run bash "${SCRIPT}" echo test
   assert_success

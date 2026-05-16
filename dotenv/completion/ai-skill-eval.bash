@@ -79,7 +79,7 @@ _dot_ai_skill_eval() {
       fi
       ;;
     rerun)
-      # SKILL:EVAL_ID — too dynamic to complete fully; offer skill name prefixes.
+      # SKILL:EVAL_ID - too dynamic to complete fully; offer skill name prefixes.
       local names=""
       if command -v ai-skill-eval >/dev/null 2>&1; then
         names="$(ai-skill-eval list --json 2>/dev/null | python3 -c 'import json,sys; d=json.load(sys.stdin); print(" ".join(s["name"]+":" for s in d))' 2>/dev/null)"

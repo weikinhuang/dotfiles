@@ -144,7 +144,7 @@ EOF
 }
 
 @test "claude: totals --group-by week merges days into the same Monday bucket" {
-  # 2026-04-21 is Tuesday, 2026-04-23 is Thursday — same ISO week (starts Monday 2026-04-20).
+  # 2026-04-21 is Tuesday, 2026-04-23 is Thursday - same ISO week (starts Monday 2026-04-20).
   write_session "-proj" "s1" <<'EOF'
 {"type":"assistant","timestamp":"2026-04-21T10:00:00Z","message":{"id":"a1","model":"test-opus","usage":{"input_tokens":100,"output_tokens":50,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}
 EOF

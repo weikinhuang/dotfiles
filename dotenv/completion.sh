@@ -77,7 +77,7 @@ _dot_complete_command_offset() {
   _dot_complete_delegate "${target}"
 }
 
-# sudo CMD ARGS... — route to CMD's completion (replaces plain `complete -cf`).
+# sudo CMD ARGS... - route to CMD's completion (replaces plain `complete -cf`).
 complete -F _dot_complete_command_offset sudo
 
 # Source per-command completions for scripts in dotenv/bin/.
@@ -100,7 +100,7 @@ __dot_register_alias_completions() {
     alias_def="${alias_def#-- }"
     alias_name="${alias_def%%=*}"
     [[ -z "${alias_name}" ]] && continue
-    # No `=` was found — not an alias definition we can parse.
+    # No `=` was found - not an alias definition we can parse.
     [[ "${alias_name}" == "${alias_def}" ]] && continue
     # The `complete` builtin can't register names starting with `-`.
     [[ "${alias_name}" == -* ]] && continue

@@ -5,8 +5,8 @@
 //
 // Copy (or merge) into one of:
 //
-//   ~/.pi/bash-permissions.json       — user scope, every project
-//   <repo>/.pi/bash-permissions.json  — project scope, this repo only
+//   ~/.pi/bash-permissions.json       - user scope, every project
+//   <repo>/.pi/bash-permissions.json  - project scope, this repo only
 //
 // Semantics recap (full rules in bash-permissions.md):
 //   - `foo`         exact match
@@ -18,7 +18,7 @@
 //
 // Everything below either prints, lists, searches, or inspects state. Nothing
 // here mutates the filesystem, repo history, packages, containers, or network.
-// Add your own write/build commands in a separate file — don't muddy this one.
+// Add your own write/build commands in a separate file - don't muddy this one.
 {
   "allow": [
     // ── file inspection ────────────────────────────────────────────────────
@@ -29,8 +29,8 @@
     // two mutation vectors we reject via regex:
     //   * `bat cache ...`    builds / clears the syntax-and-theme cache
     //   * `bat --write-config` / `--generate-config-file`    writes config
-    // Everything else — `bat file`, `bat --plain`, `bat --list-languages`,
-    // `bat --paging=never`, etc. — stays allowed.
+    // Everything else - `bat file`, `bat --plain`, `bat --list-languages`,
+    // `bat --paging=never`, etc. - stays allowed.
     "re:^bat(?!\\s+cache\\b)(?!.*\\s(--write-config|--generate-config-file)\\b)(\\s.*)?$",
     "head*",
     "tail*",
@@ -131,7 +131,7 @@
     // Each `bash` tool call runs in its own subshell, so a bare `cd foo`
     // doesn't persist across calls. These rules matter because compound
     // commands are split on `&&`, `||`, `;`, and each side is checked
-    // independently — `cd sub && run-thing` would otherwise be blocked
+    // independently - `cd sub && run-thing` would otherwise be blocked
     // at the `cd sub` half.
     //
     // Known quirk: `(cd sub && cmd)` splits into `['(cd sub', 'cmd)']`,
@@ -145,7 +145,7 @@
 
     // ── shell builtins / conditionals ─────────────────────────────────────────────
     // `set`, `shopt`, `alias` toggle shell state that is scoped to the
-    // subshell pi spawns for this tool call — the state vanishes on
+    // subshell pi spawns for this tool call - the state vanishes on
     // exit, so these can't be used to persist a surprise side effect
     // across calls. `test` / `[` are pure predicate builtins.
     "set*",
@@ -155,7 +155,7 @@
     "test*",
     "[*",
     // `[[ ... ]]` (conditional expression) and `(( ... ))` (arithmetic
-    // evaluation) are bash keywords, not commands — they're parsed by
+    // evaluation) are bash keywords, not commands - they're parsed by
     // the shell directly and have no exec vector of their own. Still
     // subject to the generic command-substitution caveat every `*` rule
     // has (`[[ -n "$(rm -rf /)" ]]` is blocked by the hardcoded denylist
@@ -163,7 +163,7 @@
     "[[*",
     "((*",
     // Control-flow constructs whose args aren't executable commands
-    // (their bodies are — and those run through the gate independently
+    // (their bodies are - and those run through the gate independently
     // after `decideSubcommand`'s control-flow-keyword strip peels off
     // any leading `if`/`while`/`then`/…). `for VAR in LIST` / `select`
     // / `case EXPR in` all need an explicit allow here because their
@@ -173,18 +173,18 @@
     "case*",
 
     // ── text processing (readonly stream transforms) ──────────────────────────────
-    // Every tool here reads from stdin/argv and writes to stdout only —
+    // Every tool here reads from stdin/argv and writes to stdout only -
     // no in-place edits, no exec vectors. `sort` is the exception:
     // `sort -o FILE` writes to FILE, so it's admitted via regex that
     // rejects `-o`.
     //
     // Deliberately NOT in this list:
-    //   awk    — `system()` and `| "cmd"` run shell commands
-    //   yq     — `-i` / `--inplace` writes files
-    //   xargs  — universal pipe-to-arbitrary-command
-    //   less / more  — interactive pagers that can execute `!cmd`
+    //   awk    - `system()` and `| "cmd"` run shell commands
+    //   yq     - `-i` / `--inplace` writes files
+    //   xargs  - universal pipe-to-arbitrary-command
+    //   less / more  - interactive pagers that can execute `!cmd`
     //
-    // `sed` is admitted via regex — `-i` (in any bundle) and `--in-place`
+    // `sed` is admitted via regex - `-i` (in any bundle) and `--in-place`
     // are rejected, but the GNU-sed `e` / `w` script commands live inside
     // the quoted script argument and aren't parseable from out here. Use
     // `sed` for read-only transformations only; author sed scripts

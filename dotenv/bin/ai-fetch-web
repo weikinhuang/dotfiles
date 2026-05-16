@@ -243,8 +243,8 @@ load_config() {
 #
 # Reads the raw HTTP body from stdin. Emits a single JSON-RPC response
 # object on stdout. Handles both framings the server may use:
-#   * bare JSON     — body starts with "{"
-#   * SSE message   — one or more "data:" lines, optionally preceded
+#   * bare JSON     - body starts with "{"
+#   * SSE message   - one or more "data:" lines, optionally preceded
 #                     by "event: message", terminated by a blank line
 # Exits non-zero when the body is empty or contains no data lines.
 
@@ -479,7 +479,7 @@ build_args_fetch_url() {
 build_args_fetch_urls() {
   # $1 = format (may be empty); remaining args are the URLs.
   # The fetch_urls server tool requires `urls: [{url, format?}, ...]`
-  # — an array of fetch_url argument objects, not bare URL strings.
+  # - an array of fetch_url argument objects, not bare URL strings.
   local format="$1"
   shift
   local -a urls=("$@")

@@ -27,7 +27,7 @@ setup() {
 
   # Codex costs use the LiteLLM pricing table; seed a deterministic cache so
   # the loader skips the network fetch. Rates don't matter for the context
-  # assertions below — presence is enough.
+  # assertions below - presence is enough.
   mkdir -p "${XDG_CACHE_HOME}/ai-tool-usage"
   local now
   now=$(date -u +%Y-%m-%dT%H:%M:%SZ)

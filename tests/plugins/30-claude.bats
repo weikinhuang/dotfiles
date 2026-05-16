@@ -106,7 +106,7 @@ make_profile() {
   assert_line 'ANTHROPIC_BASE_URL=https://example.test'
 }
 
-@test "30-claude: subshell isolates env — caller's shell unchanged" {
+@test "30-claude: subshell isolates env - caller's shell unchanged" {
   make_profile work 'export ANTHROPIC_BASE_URL=https://example.test' >/dev/null
   source "${REPO_ROOT}/plugins/30-claude.sh"
 

@@ -102,7 +102,7 @@ make_profile() {
   assert_line 'OPENAI_BASE_URL=https://example.test'
 }
 
-@test "30-codex: subshell isolates env — caller's shell unchanged" {
+@test "30-codex: subshell isolates env - caller's shell unchanged" {
   make_profile aws 'export OPENAI_BASE_URL=https://example.test' >/dev/null
   source "${REPO_ROOT}/plugins/30-codex.sh"
 

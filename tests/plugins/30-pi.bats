@@ -106,7 +106,7 @@ make_profile() {
   assert_line 'ANTHROPIC_API_KEY=profile-key'
 }
 
-@test "30-pi: subshell isolates env — caller's shell unchanged" {
+@test "30-pi: subshell isolates env - caller's shell unchanged" {
   make_profile work 'export ANTHROPIC_API_KEY=profile-key' >/dev/null
   source "${REPO_ROOT}/plugins/30-pi.sh"
 

@@ -2,6 +2,8 @@
 # Tests for dotenv/bin/ai-skill-eval.
 # SPDX-License-Identifier: MIT
 
+bats_require_minimum_version 1.5.0
+
 setup() {
   load '../../helpers/common'
   setup_test_bin
@@ -624,7 +626,7 @@ EOF
   make_skill ".agents/skills" "sample" yes
 
   # Stub driver that says YES when the prompt includes the SKILL block
-  # and NO when it doesn't — so baseline runs diverge from the with_skill
+  # and NO when it doesn't - so baseline runs diverge from the with_skill
   # runs and the report gains a non-trivial delta.
   local driver="${BATS_TEST_TMPDIR}/stub-baseline.sh"
   cat >"${driver}" <<'EOF'
@@ -918,7 +920,7 @@ PY
 
   # Second run: driver says NO, producing a divergent grade. The run itself
   # exits non-zero because trigger_pass=false on a should_trigger=true eval;
-  # that's expected — we care that iteration-2 is written.
+  # that's expected - we care that iteration-2 is written.
   local no_driver="${BATS_TEST_TMPDIR}/no-driver.sh"
   cat >"${no_driver}" <<'EOF'
 #!/usr/bin/env bash
@@ -1017,7 +1019,7 @@ PY
 #     itself carries the 'optimized' marker AND the scenario contains
 #     OPT-YES. That way iteration 1 (initial description) fails every
 #     positive, the improver runs, and iteration 2 (optimized description)
-#     passes every positive — forcing the loop through the improver path.
+#     passes every positive - forcing the loop through the improver path.
 optimize_stub_driver_script() {
   local path="${BATS_TEST_TMPDIR}/optimize-stub.sh"
   cat >"${path}" <<'EOS'
