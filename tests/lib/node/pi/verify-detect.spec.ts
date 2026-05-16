@@ -390,6 +390,102 @@ test('collectBashCommandsSinceLastUser: no user message yet → scans everything
   expect(collectBashCommandsSinceLastUser(branch)).toEqual(['npm test']);
 });
 
+test('collectBashCommandsSinceLastUser: picks up bg_bash toolCall args.command', () => {
+  const branch: BranchEntry[] = [
+    user('verify it'),
+    {
+      type: 'message',
+      message: {
+        role: 'assistant',
+        content: [
+          {
+            type: 'toolCall',
+            name: 'bg_bash',
+            arguments: { action: 'start', command: 'npm test' },
+          },
+        ],
+      },
+    },
+  ];
+
+  expect(collectBashCommandsSinceLastUser(branch)).toEqual(['npm test']);
+});
+
+test('collectBashCommandsSinceLastUser: picks up bg_bash toolResult input.command', () => {
+  const branch: BranchEntry[] = [
+    user('verify it'),
+    {
+      type: 'message',
+      message: {
+        role: 'toolResult',
+        toolName: 'bg_bash',
+        input: { action: 'start', command: 'pytest -q' },
+      },
+    },
+  ];
+
+  expect(collectBashCommandsSinceLastUser(branch)).toEqual(['pytest -q']);
+});
+
+test('collectBashCommandsSinceLastUser: ignores bg_bash actions without a command (wait/logs/signal)', () => {
+  // bg_bash's `wait`, `logs`, `signal`, `status`, `remove` actions
+  // operate on a job id and don't carry a fresh shell line. They
+  // must NOT count as verifiers — only the original `start` does.
+  const branch: BranchEntry[] = [
+    user('verify it'),
+    {
+      type: 'message',
+      message: {
+        role: 'assistant',
+        content: [
+          {
+            type: 'toolCall',
+            name: 'bg_bash',
+            arguments: { action: 'wait', id: 'abc12345', timeoutMs: 60000 },
+          },
+          {
+            type: 'toolCall',
+            name: 'bg_bash',
+            arguments: { action: 'logs', id: 'abc12345', tail: 20 },
+          },
+        ],
+      },
+    },
+  ];
+
+  expect(collectBashCommandsSinceLastUser(branch)).toEqual([]);
+});
+
+test('collectBashCommandsSinceLastUser: mixed bash + bg_bash in one turn contributes both', () => {
+  // Real-world shape: model launches the slow verifier via bg_bash,
+  // then runs a quick foreground bash check. Both must be visible to
+  // the partitioner so a `tests-pass` + `lint-clean` claim is
+  // satisfied by the union.
+  const branch: BranchEntry[] = [
+    user('verify it'),
+    {
+      type: 'message',
+      message: {
+        role: 'assistant',
+        content: [
+          {
+            type: 'toolCall',
+            name: 'bg_bash',
+            arguments: { action: 'start', command: 'npm test' },
+          },
+          {
+            type: 'toolCall',
+            name: 'bash',
+            arguments: { command: './dev/lint.sh' },
+          },
+        ],
+      },
+    },
+  ];
+
+  expect(new Set(collectBashCommandsSinceLastUser(branch))).toEqual(new Set(['npm test', './dev/lint.sh']));
+});
+
 // ──────────────────────────────────────────────────────────────────────
 // extractLastAssistantText
 // ──────────────────────────────────────────────────────────────────────

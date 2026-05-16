@@ -24,8 +24,9 @@ On `agent_end`, [`lib/node/pi/verify-detect.ts`](../../../lib/node/pi/verify-det
    conditionals (“if the tests pass…”, “hopefully the build is clean”) are rejected outright.
 
 2. Walks the branch backward to the most recent user message, collecting every bash command that ran in between —
-   assistant `toolCall` parts with `name === 'bash'`, `toolResult` entries with `toolName === 'bash'`, and
-   `bashExecution` messages (user-invoked `!cmd`).
+   assistant `toolCall` parts whose name is `bash` or `bg_bash` (the latter from [`./bg-bash.ts`](./bg-bash.md) — only
+   the `start` action carries a `command` arg, the others fall through), `toolResult` entries with the same `toolName`
+   filter, and `bashExecution` messages (user-invoked `!cmd`).
 
 3. Partitions claims into `(verified, unverified)` using liberal per-kind command patterns: e.g. `tests-pass` matches
    `jest`, `vitest`, `mocha`, `pytest`, `cargo test`, `cargo nextest run`, `go test`, `bats`, `node --test`, `npm test`,

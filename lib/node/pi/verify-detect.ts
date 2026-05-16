@@ -408,16 +408,36 @@ export interface BranchEntry {
 }
 
 /**
+ * Tool names whose `arguments.command` / `input.command` carry a
+ * shell line we should treat as a verifier candidate. `bash` is the
+ * harness's foreground exec tool; `bg_bash` is the
+ * `config/pi/extensions/bg-bash.ts` extension's start-a-job action,
+ * which puts the literal shell line in the same `command` slot. From
+ * the verify-before-claim perspective they're equivalent — both
+ * prove the model actually ran the verifier in this turn.
+ *
+ * `bg_bash`'s other actions (`wait`, `logs`, `signal`, …) don't
+ * carry a `command` argument, so they fall through the
+ * `typeof === 'string'` guard below and contribute nothing — same
+ * way a bare `bash` call with an empty command would.
+ */
+const SHELL_TOOL_NAMES: ReadonlySet<string> = new Set(['bash', 'bg_bash']);
+
+/**
  * Walk `branch` BACKWARDS from the leaf and collect every bash
  * command executed since the most recent user message. Returns them
  * in reverse order (doesn't matter for the extension's use — we pass
  * the list to `partitionClaims` which scans all of them).
  *
- * We look at two kinds of source:
+ * We look at three kinds of source:
  *   - Assistant messages with `toolCall` content parts whose name is
- *     `bash` — the command lives in `arguments.command`.
- *   - Tool-result messages for `bash` with an `input.command` on them
- *     (some pi versions record the invocation on the result side).
+ *     in `SHELL_TOOL_NAMES` (`bash` / `bg_bash`) — the command
+ *     lives in `arguments.command`.
+ *   - Tool-result messages for those same tool names with an
+ *     `input.command` on them (some pi versions record the
+ *     invocation on the result side).
+ *   - `bashExecution` messages (user-invoked `!cmd`) carrying their
+ *     shell line in `command`.
  *
  * The scan stops at the previous user message so we only report what
  * THIS turn actually ran. Any earlier bash call doesn't count.
@@ -434,11 +454,11 @@ export function collectBashCommandsSinceLastUser(branch: readonly BranchEntry[])
         if (!raw || typeof raw !== 'object') continue;
         const c = raw as { type?: string; name?: string; arguments?: { command?: unknown } };
         if (c.type !== 'toolCall') continue;
-        if (c.name !== 'bash') continue;
+        if (typeof c.name !== 'string' || !SHELL_TOOL_NAMES.has(c.name)) continue;
         const cmd = typeof c.arguments?.command === 'string' ? c.arguments.command : '';
         if (cmd.trim()) out.push(cmd);
       }
-    } else if (msg.role === 'toolResult' && msg.toolName === 'bash') {
+    } else if (msg.role === 'toolResult' && typeof msg.toolName === 'string' && SHELL_TOOL_NAMES.has(msg.toolName)) {
       const input = msg.input as { command?: unknown } | undefined;
       const cmd = typeof input?.command === 'string' ? input.command : '';
       if (cmd.trim()) out.push(cmd);

@@ -15,7 +15,9 @@
  *
  *   2. Walk the branch backward to the most recent user message,
  *      collecting every bash command that ran in between via
- *      `collectBashCommandsSinceLastUser`.
+ *      `collectBashCommandsSinceLastUser` (covers both the `bash`
+ *      tool and `bg_bash` start-action calls — see the helper for
+ *      details).
  *
  *   3. Partition claims into (verified, unverified) using liberal
  *      command-match patterns PLUS any user `commandSatisfies` rules
