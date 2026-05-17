@@ -9,7 +9,7 @@ _dot_ai_fetch_web() {
 
   # Flags that take a free-form value: don't suggest anything.
   case "${prev}" in
-    --limit | --engines | --categories | --format | \
+    --limit | --engines | --categories | --format | --renderer | \
       --timeout-ms | --html-file | --base-url | \
       --fields | --fields-file | -o | --output)
       return
@@ -45,8 +45,8 @@ _dot_ai_fetch_web() {
     local flags=""
     case "${op}" in
       search) flags="--limit --engines --categories --json -h --help" ;;
-      fetch) flags="--format --raw --json -h --help" ;;
-      fetch-many) flags="--format --raw --json -h --help" ;;
+      fetch) flags="--format --renderer --raw --json -h --help" ;;
+      fetch-many) flags="--format --renderer --raw --json -h --help" ;;
       convert) flags="--html-file --base-url --format --raw --json -h --help" ;;
       links) flags="--raw --json -h --help" ;;
       extract) flags="--fields --fields-file --raw --json -h --help" ;;

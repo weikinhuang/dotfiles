@@ -234,6 +234,26 @@ X-Two: beta;X-Three: gamma"
   [[ "$(jq -r .params.arguments.format <<<"$(captured_payload)")" == "html" ]]
 }
 
+@test "ai-fetch-web fetch: --renderer is passed through" {
+  set_tool_text_response "{}"
+  run bash "${SCRIPT}" fetch https://example.com --renderer http
+  assert_success
+  [[ "$(jq -r .params.arguments.renderer <<<"$(captured_payload)")" == "http" ]]
+}
+
+@test "ai-fetch-web fetch: omits renderer when not given" {
+  set_tool_text_response "body"
+  run bash "${SCRIPT}" fetch https://example.com
+  assert_success
+  [[ "$(jq -r '.params.arguments | has("renderer")' <<<"$(captured_payload)")" == "false" ]]
+}
+
+@test "ai-fetch-web fetch: rejects unknown --renderer value" {
+  run bash "${SCRIPT}" fetch https://example.com --renderer pdf
+  assert_failure 2
+  [[ "${output}" =~ "--renderer must be one of: http, browser" ]]
+}
+
 @test "ai-fetch-web fetch-many: wraps each URL in an object" {
   set_tool_text_response "body"
   run bash "${SCRIPT}" fetch-many https://a.example https://b.example
@@ -254,6 +274,23 @@ X-Two: beta;X-Three: gamma"
   payload="$(captured_payload)"
   [[ "$(jq -r '.params.arguments.urls[0].format' <<<"${payload}")" == "markdown" ]]
   [[ "$(jq -r '.params.arguments | has("format")' <<<"${payload}")" == "false" ]]
+}
+
+@test "ai-fetch-web fetch-many: applies --renderer per-URL, not top-level" {
+  set_tool_text_response "body"
+  run bash "${SCRIPT}" fetch-many --renderer http https://a.example https://b.example
+  assert_success
+  local payload
+  payload="$(captured_payload)"
+  [[ "$(jq -r '.params.arguments.urls[0].renderer' <<<"${payload}")" == "http" ]]
+  [[ "$(jq -r '.params.arguments.urls[1].renderer' <<<"${payload}")" == "http" ]]
+  [[ "$(jq -r '.params.arguments | has("renderer")' <<<"${payload}")" == "false" ]]
+}
+
+@test "ai-fetch-web fetch-many: rejects unknown --renderer value" {
+  run bash "${SCRIPT}" fetch-many --renderer pdf https://a.example
+  assert_failure 2
+  [[ "${output}" =~ "--renderer must be one of: http, browser" ]]
 }
 
 @test "ai-fetch-web fetch-many: reads URLs from stdin with -" {
@@ -546,7 +583,7 @@ Snippet: thing"
 
 @test "ai-fetch-web: build_args_fetch_urls wraps bare urls in objects" {
   source_without_main "${SCRIPT}"
-  run build_args_fetch_urls "" https://a.example https://b.example
+  run build_args_fetch_urls "" "" https://a.example https://b.example
   assert_success
   [[ "$(jq -r '.urls | length' <<<"${output}")" == "2" ]]
   [[ "$(jq -r '.urls[0].url' <<<"${output}")" == "https://a.example" ]]
@@ -555,9 +592,18 @@ Snippet: thing"
 
 @test "ai-fetch-web: build_args_fetch_urls applies format per-url" {
   source_without_main "${SCRIPT}"
-  run build_args_fetch_urls "markdown" https://a.example
+  run build_args_fetch_urls "markdown" "" https://a.example
   assert_success
   [[ "$(jq -r '.urls[0].format' <<<"${output}")" == "markdown" ]]
+}
+
+@test "ai-fetch-web: build_args_fetch_urls applies renderer per-url" {
+  source_without_main "${SCRIPT}"
+  run build_args_fetch_urls "" "http" https://a.example https://b.example
+  assert_success
+  [[ "$(jq -r '.urls[0].renderer' <<<"${output}")" == "http" ]]
+  [[ "$(jq -r '.urls[1].renderer' <<<"${output}")" == "http" ]]
+  [[ "$(jq -r '.urls[0] | has("format")' <<<"${output}")" == "false" ]]
 }
 
 # ──────────────────────────────────────────────────────────────────

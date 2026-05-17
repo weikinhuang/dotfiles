@@ -49,17 +49,17 @@ ai-fetch-web defaults
 
 ## Subcommand reference
 
-| Subcommand                      | Required args                                   | Notable flags                                                          | Default stdout                                                                |
-| ------------------------------- | ----------------------------------------------- | ---------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
-| `search <query>`                | query                                           | `--limit N`, `--engines a,b`, `--categories c`                         | `Query: ...\nResult Count: N\n\n<numbered results with URL/Snippet>`          |
-| `fetch <url>`                   | url                                             | `--format markdown\|html\|text\|readability\|summary\|chunks`, `--raw` | article body (markdown by default); response metadata stripped unless `--raw` |
-| `fetch-many <url>... \| -`      | urls (or `-` + stdin, one URL per line)         | `--format`, `--raw`                                                    | per-request status/prelude + body blocks                                      |
-| `convert --html-file PATH \| -` | HTML source                                     | `--base-url URL`, `--format`, `--raw`                                  | converted body                                                                |
-| `links <url>`                   | url                                             | `--raw`                                                                | markdown link list, one per line                                              |
-| `extract <url>`                 | url + (`--fields SPEC` or `--fields-file PATH`) | `--raw`                                                                | JSON `{data: {...}}` block                                                    |
-| `metadata <url>`                | url                                             | `--raw`                                                                | JSON metadata object (title, language, og:\*, jsonLd, feeds)                  |
-| `screenshot <url>`              | url                                             | `-o PATH`                                                              | PNG bytes (to stdout if no `-o` and stdout is not a tty)                      |
-| `defaults`                      | -                                               | -                                                                      | server's read-only defaults JSON (use as a ping)                              |
+| Subcommand                      | Required args                                   | Notable flags                                                                                      | Default stdout                                                                |
+| ------------------------------- | ----------------------------------------------- | -------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| `search <query>`                | query                                           | `--limit N`, `--engines a,b`, `--categories c`                                                     | `Query: ...\nResult Count: N\n\n<numbered results with URL/Snippet>`          |
+| `fetch <url>`                   | url                                             | `--format markdown\|html\|text\|readability\|summary\|chunks`, `--renderer http\|browser`, `--raw` | article body (markdown by default); response metadata stripped unless `--raw` |
+| `fetch-many <url>... \| -`      | urls (or `-` + stdin, one URL per line)         | `--format`, `--renderer`, `--raw`                                                                  | per-request status/prelude + body blocks                                      |
+| `convert --html-file PATH \| -` | HTML source                                     | `--base-url URL`, `--format`, `--raw`                                                              | converted body                                                                |
+| `links <url>`                   | url                                             | `--raw`                                                                                            | markdown link list, one per line                                              |
+| `extract <url>`                 | url + (`--fields SPEC` or `--fields-file PATH`) | `--raw`                                                                                            | JSON `{data: {...}}` block                                                    |
+| `metadata <url>`                | url                                             | `--raw`                                                                                            | JSON metadata object (title, language, og:\*, jsonLd, feeds)                  |
+| `screenshot <url>`              | url                                             | `-o PATH`                                                                                          | PNG bytes (to stdout if no `-o` and stdout is not a tty)                      |
+| `defaults`                      | -                                               | -                                                                                                  | server's read-only defaults JSON (use as a ping)                              |
 
 ### `--fields` short-form
 

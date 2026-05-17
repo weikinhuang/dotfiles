@@ -78,7 +78,13 @@ Fetch one URL and return the article body.
 
 Flags:
   --format FMT        markdown (default) | html | text
+  --renderer FMT      http | browser; opt out of the headless browser to get
+                      raw bytes (e.g. JSON APIs); server default applies if
+                      omitted
   --raw               keep the fetch_web header prelude (Article-Title:, etc.)
+
+Example:
+  ai-fetch-web fetch https://api.github.com/repos/foo/bar --renderer http
 EOF
       ;;
     fetch-many)
@@ -91,7 +97,12 @@ Fetch many URLs in parallel (handled server-side).
 Flags:
   --format FMT        passed per-URL (markdown | html | text | readability |
                       summary | chunks); server default: readability
+  --renderer FMT      passed per-URL (http | browser); opt out of the headless
+                      browser; server default applies if omitted
   --raw               keep per-request header preludes in the rendered output
+
+Example:
+  ai-fetch-web fetch-many https://api.github.com/repos/foo/bar --renderer http
 EOF
       ;;
     convert)
@@ -472,22 +483,44 @@ build_args_search() {
 build_args_fetch_url() {
   local url="$1"
   local format="${2:-}"
-  jq -n --arg u "${url}" --arg f "${format}" \
-    '{url: $u} + (if $f == "" then {} else {format: $f} end)'
+  local renderer="${3:-}"
+  jq -n --arg u "${url}" --arg f "${format}" --arg r "${renderer}" \
+    '
+      {url: $u}
+      + (if $f == "" then {} else {format: $f} end)
+      + (if $r == "" then {} else {renderer: $r} end)
+    '
 }
 
 build_args_fetch_urls() {
-  # $1 = format (may be empty); remaining args are the URLs.
-  # The fetch_urls server tool requires `urls: [{url, format?}, ...]`
-  # - an array of fetch_url argument objects, not bare URL strings.
+  # $1 = format (may be empty); $2 = renderer (may be empty); remaining
+  # args are the URLs. The fetch_urls server tool requires
+  # `urls: [{url, format?, renderer?}, ...]` - an array of fetch_url
+  # argument objects, not bare URL strings.
   local format="$1"
-  shift
+  local renderer="$2"
+  shift 2
   local -a urls=("$@")
   printf '%s\n' "${urls[@]}" \
-    | jq -R --arg f "${format}" '
-        if $f == "" then {url: .} else {url: ., format: $f} end
+    | jq -R --arg f "${format}" --arg r "${renderer}" '
+        {url: .}
+        + (if $f == "" then {} else {format: $f} end)
+        + (if $r == "" then {} else {renderer: $r} end)
       ' \
     | jq -s '{urls: .}'
+}
+
+# Validate a --renderer value. Accepts only "http" or "browser"; exits 2
+# with a clear error otherwise. Empty input is a no-op (caller chose to
+# omit the flag and let the server default apply).
+validate_renderer() {
+  local op="$1"
+  local value="$2"
+  case "${value}" in
+    "" | http | browser) return 0 ;;
+  esac
+  echo "ai-fetch-web ${op}: --renderer must be one of: http, browser (got '${value}')" >&2
+  exit 2
 }
 
 build_args_convert_html() {
@@ -611,6 +644,7 @@ cmd_search() {
 cmd_fetch() {
   local url=""
   local format=""
+  local renderer=""
   local raw=""
   case "${1:-}" in
     -h | --help)
@@ -630,6 +664,14 @@ cmd_fetch() {
         ;;
       --format=*)
         format="${1#*=}"
+        shift
+        ;;
+      --renderer)
+        renderer="${2:-}"
+        shift 2
+        ;;
+      --renderer=*)
+        renderer="${1#*=}"
         shift
         ;;
       --raw)
@@ -659,9 +701,10 @@ cmd_fetch() {
     echo "ai-fetch-web fetch: missing <url>" >&2
     exit 2
   fi
+  validate_renderer fetch "${renderer}"
 
   local args result
-  args="$(build_args_fetch_url "${url}" "${format}")"
+  args="$(build_args_fetch_url "${url}" "${format}" "${renderer}")"
   result="$(rpc_call "fetch_web-fetch_url" "${args}")"
   if [[ -n "${FW_JSON:-}" ]]; then
     printf '%s\n' "${result}"
@@ -679,6 +722,7 @@ cmd_fetch() {
 
 cmd_fetch_many() {
   local format=""
+  local renderer=""
   local raw=""
   local -a urls=()
   case "${1:-}" in
@@ -699,6 +743,14 @@ cmd_fetch_many() {
         ;;
       --format=*)
         format="${1#*=}"
+        shift
+        ;;
+      --renderer)
+        renderer="${2:-}"
+        shift 2
+        ;;
+      --renderer=*)
+        renderer="${1#*=}"
         shift
         ;;
       --raw)
@@ -732,9 +784,10 @@ cmd_fetch_many() {
     echo "ai-fetch-web fetch-many: no URLs given" >&2
     exit 2
   fi
+  validate_renderer fetch-many "${renderer}"
 
   local args result
-  args="$(build_args_fetch_urls "${format}" "${urls[@]}")"
+  args="$(build_args_fetch_urls "${format}" "${renderer}" "${urls[@]}")"
   result="$(rpc_call "fetch_web-fetch_urls" "${args}")"
   if [[ -n "${FW_JSON:-}" ]]; then
     printf '%s\n' "${result}"
