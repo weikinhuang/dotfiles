@@ -41,6 +41,7 @@ interactive pi session to pick up changes without restarting.
 | [`tool-arg-recovery.ts`](./tool-arg-recovery.ts)               | [tool-arg-recovery.md](./tool-arg-recovery.md)               | Parses TypeBox validation errors and appends a corrected-example recovery block.                                                                                                     |
 | [`tool-output-condenser.ts`](./tool-output-condenser.ts)       | [tool-output-condenser.md](./tool-output-condenser.md)       | Head+tail truncation of noisy tool results with a re-`read`able stash path.                                                                                                          |
 | [`verify-before-claim.ts`](./verify-before-claim.ts)           | [verify-before-claim.md](./verify-before-claim.md)           | Detects "tests pass" / "lint is clean" claims without a matching bash invocation and nudges for a re-run.                                                                            |
+| [`waveform-indicator.ts`](./waveform-indicator.ts)             | [waveform-indicator.md](./waveform-indicator.md)             | Replaces pi's default braille spinner with a scrolling music-style waveform + rainbow shimmer, and the `Working...` label with a shimmering `Thinking...`.                           |
 
 ## Related docs
 
