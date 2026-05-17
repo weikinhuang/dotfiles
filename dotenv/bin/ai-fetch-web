@@ -29,6 +29,7 @@ Subcommands:
   convert     [--html-file P | -]      convert raw HTML to markdown/text
   links       <url>                    list hyperlinks on a page
   extract     <url> --fields SPEC      extract CSS-selector fields (schema)
+  query       <url> --selector CSS     query a single CSS selector (text/html/attr)
   metadata    <url>                    page metadata (title, og:*, meta)
   screenshot  <url> [-o PATH]          PNG screenshot (stdout or file)
   defaults                             read-only MCP server defaults
@@ -82,9 +83,21 @@ Flags:
                       raw bytes (e.g. JSON APIs); server default applies if
                       omitted
   --raw               keep the fetch_web header prelude (Article-Title:, etc.)
+  --continue          when the response is truncated, automatically follow
+                      continuation tokens until the body is complete or
+                      --max-bytes is reached; output is concatenated
+  --max-bytes N       cumulative client-side byte cap when paging with
+                      --continue (default: 1048576 = 1 MiB); ignored without
+                      --continue. The per-request server cap is fixed by the
+                      MCP_FETCH_CONTINUATION_MAX_BYTES env on the server.
+
+When the response is truncated and --continue is not set, a hint with the
+continuation token and a copy-pasteable follow-up command is printed to
+stderr.
 
 Example:
   ai-fetch-web fetch https://api.github.com/repos/foo/bar --renderer http
+  ai-fetch-web fetch https://example.com/big.json --renderer http --continue
 EOF
       ;;
     fetch-many)
@@ -126,6 +139,20 @@ Usage: ai-fetch-web links <url> [--raw]
 Fetch a page and list its hyperlinks (one markdown link per line).
 
 Flags:
+  --raw               keep the fetch header prelude in the output
+EOF
+      ;;
+    query)
+      cat <<'EOF'
+Usage: ai-fetch-web query <url> --selector CSS [--attr text|html|<name>] [--raw]
+
+Query a single CSS selector on the page and return its text, inner HTML,
+or a named attribute value.
+
+Flags:
+  --selector CSS      CSS selector (required)
+  --attr WHAT         what to return: "text" (default), "html", or an HTML
+                      attribute name (e.g. href, src, data-id)
   --raw               keep the fetch header prelude in the output
 EOF
       ;;
@@ -646,6 +673,8 @@ cmd_fetch() {
   local format=""
   local renderer=""
   local raw=""
+  local do_continue=""
+  local max_bytes=""
   case "${1:-}" in
     -h | --help)
       print_op_help fetch
@@ -678,6 +707,18 @@ cmd_fetch() {
         raw=1
         shift
         ;;
+      --continue)
+        do_continue=1
+        shift
+        ;;
+      --max-bytes)
+        max_bytes="${2:-}"
+        shift 2
+        ;;
+      --max-bytes=*)
+        max_bytes="${1#*=}"
+        shift
+        ;;
       --)
         shift
         break
@@ -701,23 +742,61 @@ cmd_fetch() {
     echo "ai-fetch-web fetch: missing <url>" >&2
     exit 2
   fi
+  if [[ -n "${max_bytes}" && ! "${max_bytes}" =~ ^[0-9]+$ ]]; then
+    echo "ai-fetch-web fetch: --max-bytes must be a non-negative integer (got '${max_bytes}')" >&2
+    exit 2
+  fi
   validate_renderer fetch "${renderer}"
+
+  local cap="${max_bytes:-1048576}"
 
   local args result
   args="$(build_args_fetch_url "${url}" "${format}" "${renderer}")"
   result="$(rpc_call "fetch_web-fetch_url" "${args}")"
   if [[ -n "${FW_JSON:-}" ]]; then
     printf '%s\n' "${result}"
-  else
-    local text
-    text="$(printf '%s' "${result}" | extract_text)"
-    if [[ -z "${raw}" ]]; then
-      printf '%s' "${text}" | strip_fetch_prelude
-    else
-      printf '%s' "${text}"
-    fi
-    printf '\n'
+    return 0
   fi
+
+  local text token
+  text="$(printf '%s' "${result}" | extract_text)"
+  token="$(printf '%s' "${result}" | jq -r '.structuredContent.continuationToken // empty')"
+
+  emit_fetch_chunk() {
+    if [[ -z "${raw}" ]]; then
+      printf '%s' "$1" | strip_fetch_prelude
+    else
+      printf '%s' "$1"
+    fi
+  }
+
+  emit_fetch_chunk "${text}"
+  local total
+  total=$(printf '%s' "${text}" | wc -c)
+
+  if [[ -n "${do_continue}" ]]; then
+    while [[ -n "${token}" && "${total}" -lt "${cap}" ]]; do
+      args="$(jq -n --arg t "${token}" '{continuationToken: $t}')"
+      result="$(rpc_call "fetch_web-fetch_url" "${args}")"
+      text="$(printf '%s' "${result}" | extract_text)"
+      token="$(printf '%s' "${result}" | jq -r '.structuredContent.continuationToken // empty')"
+      emit_fetch_chunk "${text}"
+      total=$((total + $(printf '%s' "${text}" | wc -c)))
+    done
+    if [[ -n "${token}" && "${total}" -ge "${cap}" ]]; then
+      printf 'ai-fetch-web fetch: --max-bytes cap (%s) reached; remaining body left on server.\n' "${cap}" >&2
+      printf '  resume with: ai-fetch-web fetch --continue --max-bytes %s   # token: %s\n' "${cap}" "${token}" >&2
+    fi
+  elif [[ -n "${token}" ]]; then
+    printf 'ai-fetch-web fetch: response truncated; pass --continue to follow continuation tokens.\n' >&2
+    printf '  continuation token: %s\n' "${token}" >&2
+    printf '  resume with: ai-fetch-web fetch %s --continue%s%s\n' \
+      "${url}" \
+      "${format:+ --format ${format}}" \
+      "${renderer:+ --renderer ${renderer}}" >&2
+  fi
+
+  printf '\n'
 }
 
 cmd_fetch_many() {
@@ -1045,6 +1124,89 @@ cmd_extract() {
   fi
 }
 
+cmd_query() {
+  local url=""
+  local selector=""
+  local attr=""
+  local raw=""
+  case "${1:-}" in
+    -h | --help)
+      print_op_help query
+      exit 0
+      ;;
+  esac
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      -h | --help)
+        print_op_help query
+        exit 0
+        ;;
+      --selector)
+        selector="${2:-}"
+        shift 2
+        ;;
+      --selector=*)
+        selector="${1#*=}"
+        shift
+        ;;
+      --attr)
+        attr="${2:-}"
+        shift 2
+        ;;
+      --attr=*)
+        attr="${1#*=}"
+        shift
+        ;;
+      --raw)
+        raw=1
+        shift
+        ;;
+      --)
+        shift
+        break
+        ;;
+      -*)
+        echo "ai-fetch-web query: unknown flag: $1" >&2
+        exit 2
+        ;;
+      *)
+        if [[ -z "${url}" ]]; then
+          url="$1"
+        else
+          echo "ai-fetch-web query: unexpected extra argument: $1" >&2
+          exit 2
+        fi
+        shift
+        ;;
+    esac
+  done
+  if [[ -z "${url}" ]]; then
+    echo "ai-fetch-web query: missing <url>" >&2
+    exit 2
+  fi
+  if [[ -z "${selector}" ]]; then
+    echo "ai-fetch-web query: missing --selector" >&2
+    exit 2
+  fi
+
+  local args result
+  args="$(jq -n --arg u "${url}" --arg s "${selector}" --arg a "${attr}" \
+    '{url: $u, selector: $s} + (if $a == "" then {} else {attr: $a} end)')"
+  result="$(rpc_call "fetch_web-query_selector" "${args}")"
+  if [[ -n "${FW_JSON:-}" ]]; then
+    printf '%s\n' "${result}"
+  else
+    local text
+    text="$(printf '%s' "${result}" | extract_text)"
+    if [[ -z "${raw}" ]]; then
+      printf '%s' "${text}" | strip_fetch_prelude
+    else
+      printf '%s' "${text}"
+    fi
+    printf '\n'
+  fi
+}
+
 cmd_metadata() {
   local url=""
   local raw=""
@@ -1295,6 +1457,7 @@ main() {
     convert) cmd_convert "$@" ;;
     links) cmd_links "$@" ;;
     extract) cmd_extract "$@" ;;
+    query) cmd_query "$@" ;;
     metadata) cmd_metadata "$@" ;;
     screenshot) cmd_screenshot "$@" ;;
     defaults) cmd_defaults "$@" ;;

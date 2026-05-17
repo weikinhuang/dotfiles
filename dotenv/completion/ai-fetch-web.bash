@@ -11,7 +11,7 @@ _dot_ai_fetch_web() {
   case "${prev}" in
     --limit | --engines | --categories | --format | --renderer | \
       --timeout-ms | --html-file | --base-url | \
-      --fields | --fields-file | -o | --output)
+      --fields | --fields-file | --selector | --attr | -o | --output)
       return
       ;;
   esac
@@ -34,7 +34,7 @@ _dot_ai_fetch_web() {
     if [[ "${cur}" == -* ]]; then
       mapfile -t COMPREPLY < <(compgen -W "--json --timeout-ms -v --verbose -q --quiet -h --help" -- "${cur}")
     else
-      mapfile -t COMPREPLY < <(compgen -W "search fetch fetch-many convert links extract metadata screenshot defaults help" -- "${cur}")
+      mapfile -t COMPREPLY < <(compgen -W "search fetch fetch-many convert links extract query metadata screenshot defaults help" -- "${cur}")
     fi
     return
   fi
@@ -50,6 +50,7 @@ _dot_ai_fetch_web() {
       convert) flags="--html-file --base-url --format --raw --json -h --help" ;;
       links) flags="--raw --json -h --help" ;;
       extract) flags="--fields --fields-file --raw --json -h --help" ;;
+      query) flags="--selector --attr --raw --json -h --help" ;;
       metadata) flags="--raw --json -h --help" ;;
       screenshot) flags="-o --output --json -h --help" ;;
       defaults) flags="--json -h --help" ;;
