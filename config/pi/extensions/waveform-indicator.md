@@ -67,13 +67,45 @@ animations look related but not identical.
 
 - `/waveform` - print the current style.
 - `/waveform scroll` - scrolling waveform (default).
+- `/waveform spectrum` - independent bouncing bars rendered as a green → yellow → red EQ heat-map; see
+  [Spectrum bars](#spectrum-bars) below for the shape and color rules.
 - `/waveform off` - hide the indicator entirely. The shimmering label still renders.
 - `/waveform reset` - restore pi's default braille spinner and the default `Working...` label.
+
+The chosen style persists to `~/.pi/waveform-indicator.json` (matching the layout of `bash-permissions.json`) so it
+sticks across pi sessions. `/waveform reset` deletes the file. If the persistence write fails (read-only home,
+permission denied, full disk) the extension surfaces the error via `ctx.ui.notify` and keeps running with the chosen
+mode for the current session.
 
 ## Environment variables
 
 - `PI_WAVEFORM_INDICATOR_DISABLED=1` - skip the extension entirely; pi's default indicator and label remain untouched.
   Useful inside subagent harnesses or non-interactive smoke tests where ANSI noise muddles the output.
+- `PI_WAVEFORM_INDICATOR_MODE=<scroll|spectrum|off|default>` - override the persisted mode for this shell only, without
+  rewriting `~/.pi/waveform-indicator.json`. An unknown value is ignored (extension falls through to the persisted file,
+  then to `'scroll'`). Useful for one-off `pi --print` runs or subagents you want pinned to a specific style.
+
+## Persistence
+
+The chosen mode is stored in `~/.pi/waveform-indicator.json`:
+
+```json
+{
+  "mode": "spectrum"
+}
+```
+
+Resolution order at session start (first hit wins):
+
+1. `PI_WAVEFORM_INDICATOR_MODE` env var (must be a known mode).
+2. The persisted file's `mode` field.
+3. Fallback `'scroll'`.
+
+Writes go through the shared [`atomic-write.ts`](../../../lib/node/pi/atomic-write.ts) helper so a crash mid-write can't
+leave the file half-rendered. Read-side: malformed JSON, an unknown mode, or a missing file all silently fall through to
+step 3 - a corrupted file never breaks startup. The pure read/write/clear helpers and the resolve order live in
+[`waveform-indicator-state.ts`](../../../lib/node/pi/waveform-indicator-state.ts) and are covered by
+[`tests/lib/node/pi/waveform-indicator-state.spec.ts`](../../../tests/lib/node/pi/waveform-indicator-state.spec.ts).
 
 ## Future hooks
 
@@ -87,14 +119,34 @@ in a closure variable, and have `renderLabel(tick)` read from that cache (with a
 phrase is still pending). Per [`extensions/AGENTS.md`](./AGENTS.md), the spawn site needs a disk-backed
 `SessionManager.create(...)` via `resolveSubagentSessionDir` - never `SessionManager.inMemory(...)`.
 
+## Spectrum bars
+
+Alternate pattern selected by `/waveform spectrum`. Twenty independent bars (10 glyphs × 2 columns) bounce on their own
+phases, like a music spectrum analyzer rather than one continuous wave. Each bar is a sum of four commensurable sines
+(periods 120, 60, 40, 30 - all divide 120) with hand-picked per-column phase offsets so neighbours don't lock-step.
+After `SPECTRUM_BAR_PERIOD` (= 120) frames every bar returns to its starting height, so the loop is seamless at the
+default `totalFrames=120`.
+
+**Color: heat-map, not rainbow.** Each glyph picks its hue from the taller of its two bars on a 120° → 0° gradient -
+short bars glow green, mid-height yellow, tall red - which gives the classic EQ-display look. A slow `hueSpeed=3`°
+rainbow drift is layered on top so held bars don't look static; the same `hueSpeed * totalFrames = 360°` constraint that
+makes the waveform's color loop seamless applies here too. The spec asserts both the positive and negative case.
+
+**Why a different color treatment for spectrum vs scroll:** the scrolling wave already uses a per-glyph rainbow, so
+coloring the spectrum the same way would make the two modes blur visually. The heat-map is iconic for spectrum displays
+and reads as a different visual language at a glance.
+
 ## Pure helpers
 
 Lives in [`../../../lib/node/pi/waveform-indicator.ts`](../../../lib/node/pi/waveform-indicator.ts). Public exports:
 
 - `encodeBrailleColumns(leftHeight, rightHeight)` - sample-pair → braille glyph.
 - `waveShape(x)` - periodic wave sample at sample-index `x`.
-- `WAVE_SHAPE_PERIOD` - the period constant (12 today).
-- `buildIndicatorFrames(opts)` - the full pre-rendered animation.
+- `WAVE_SHAPE_PERIOD` - the wave period constant (60 today).
+- `buildIndicatorFrames(opts)` - the full pre-rendered scrolling-wave animation.
+- `spectrumBar(k, t)` - bar height for column `k` at frame `t`.
+- `SPECTRUM_BAR_PERIOD` - the spectrum-bar period constant (120 today).
+- `buildSpectrumFrames(opts)` - the full pre-rendered spectrum-bars animation.
 - `shimmerLabel(text, tick, opts)` - per-codepoint truecolor wrap.
 - `hslToRgb(h, s, l)`, `colorize(text, rgb)` - building blocks for callers that want to render their own variants.
 

@@ -19,8 +19,14 @@
  * Knobs:
  *   /waveform                 show current style
  *   /waveform scroll          right-to-left scrolling waveform (default)
+ *   /waveform spectrum        independent bouncing bars, EQ-style heat-map color
  *   /waveform off             hide the indicator entirely (keep label)
  *   /waveform reset           restore pi's default spinner + "Working..." label
+ *
+ * The chosen style persists to `~/.pi/waveform-indicator.json` so it
+ * sticks across pi sessions. `/waveform reset` clears the file. The
+ * `PI_WAVEFORM_INDICATOR_MODE` env var overrides the file when set, for
+ * one-shot per-shell overrides.
  *
  * Future hook: the label is produced by `renderLabel(tick)`; swap that
  * function for one that calls a tiny model (or any other generator) and
@@ -28,7 +34,12 @@
  *
  * Environment:
  *   PI_WAVEFORM_INDICATOR_DISABLED=1   leave pi's default indicator alone
+ *   PI_WAVEFORM_INDICATOR_MODE=<mode>  override the persisted mode for
+ *                                     this session (scroll|spectrum|off|default)
  */
+
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 
 import {
   type ExtensionAPI,
@@ -36,11 +47,23 @@ import {
   type WorkingIndicatorOptions,
 } from '@earendil-works/pi-coding-agent';
 
-import { buildIndicatorFrames, shimmerLabel } from '../../../lib/node/pi/waveform-indicator.ts';
+import { buildIndicatorFrames, buildSpectrumFrames, shimmerLabel } from '../../../lib/node/pi/waveform-indicator.ts';
+import {
+  type WaveformMode,
+  clearWaveformState,
+  resolveInitialWaveformMode,
+  writeWaveformState,
+} from '../../../lib/node/pi/waveform-indicator-state.ts';
 
-type Mode = 'scroll' | 'off' | 'default';
+type Mode = WaveformMode;
 
-const FRAME_INTERVAL_MS = 80;
+const STATE_PATH = join(homedir(), '.pi', 'waveform-indicator.json');
+
+const FRAME_INTERVAL_MS = 50;
+// Per-mode frame intervals. The label ticker stays at FRAME_INTERVAL_MS
+// because shimmer drift speed is independent of the indicator rate.
+const SCROLL_FRAME_INTERVAL_MS = 80;
+const SPECTRUM_FRAME_INTERVAL_MS = 50;
 const DEFAULT_LABEL = 'Thinking...';
 const HIDDEN_INDICATOR: WorkingIndicatorOptions = { frames: [] };
 
@@ -58,7 +81,12 @@ function indicatorFor(mode: Mode): WorkingIndicatorOptions | undefined {
     case 'scroll':
       return {
         frames: buildIndicatorFrames(),
-        intervalMs: FRAME_INTERVAL_MS,
+        intervalMs: SCROLL_FRAME_INTERVAL_MS,
+      };
+    case 'spectrum':
+      return {
+        frames: buildSpectrumFrames(),
+        intervalMs: SPECTRUM_FRAME_INTERVAL_MS,
       };
     case 'off':
       return HIDDEN_INDICATOR;
@@ -71,6 +99,8 @@ function describeMode(mode: Mode): string {
   switch (mode) {
     case 'scroll':
       return 'scrolling waveform';
+    case 'spectrum':
+      return 'spectrum bars';
     case 'off':
       return 'hidden';
     case 'default':
@@ -81,7 +111,7 @@ function describeMode(mode: Mode): string {
 export default function extension(pi: ExtensionAPI): void {
   if (process.env.PI_WAVEFORM_INDICATOR_DISABLED === '1') return;
 
-  let mode: Mode = 'scroll';
+  let mode: Mode = resolveInitialWaveformMode(STATE_PATH);
   let labelTimer: ReturnType<typeof setInterval> | null = null;
   let tick = 0;
 
@@ -142,18 +172,29 @@ export default function extension(pi: ExtensionAPI): void {
   });
 
   pi.registerCommand('waveform', {
-    description: 'Set the streaming working indicator: scroll, off, or reset (restore pi default).',
+    description: 'Set the streaming working indicator: scroll, spectrum, off, or reset (restore pi default).',
     handler: async (args, ctx) => {
       const arg = args.trim().toLowerCase();
       if (!arg) {
         ctx.ui.notify(`Waveform indicator: ${describeMode(mode)}`, 'info');
         return;
       }
-      if (arg !== 'scroll' && arg !== 'off' && arg !== 'reset') {
-        ctx.ui.notify('Usage: /waveform [scroll|off|reset]', 'error');
+      if (arg !== 'scroll' && arg !== 'spectrum' && arg !== 'off' && arg !== 'reset') {
+        ctx.ui.notify('Usage: /waveform [scroll|spectrum|off|reset]', 'error');
         return;
       }
       mode = arg === 'reset' ? 'default' : (arg as Mode);
+      // Persist before applying so a UI failure mid-apply doesn't leave
+      // the file out of sync with the user's expressed intent.
+      try {
+        if (arg === 'reset') {
+          clearWaveformState(STATE_PATH);
+        } else {
+          writeWaveformState(STATE_PATH, mode);
+        }
+      } catch (e) {
+        ctx.ui.notify(`Could not persist waveform mode to ${STATE_PATH}: ${(e as Error).message}`, 'error');
+      }
       applyIndicator(ctx);
       // If we're mid-stream the label ticker is running - reapply now.
       if (labelTimer) {
