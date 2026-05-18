@@ -79,9 +79,8 @@ arrays. Declare hooks in `~/.bash_local` or `~/.bash_local.d/*.sh`.
 
 ### Shell style
 
-`./dev/lint.sh` (shfmt + shellcheck) is the source of truth - see [CONTRIBUTING.md](./CONTRIBUTING.md#style) for the
-full flag set. Naming conventions that tooling can't enforce (`__dot_*` / `internal::…`, cache-write routing) live in
-[dotenv/AGENTS.md](./dotenv/AGENTS.md).
+`./dev/lint.sh` (shfmt + shellcheck) is the source of truth. Naming conventions that tooling can't enforce (`__dot_*` /
+`internal::…`, cache-write routing) live in [dotenv/AGENTS.md](./dotenv/AGENTS.md).
 
 ### Customization model
 
@@ -101,7 +100,7 @@ configuration variables table in [REFERENCE.md](./REFERENCE.md) so both stay syn
 changing the dotenv loading order.
 
 **Never**: edit files in `external/` (vendored third-party); commit secrets or credentials; remove or rename existing
-dotenv layout files without updating `dotenv/lib/load.sh`; use em-dashes (`—`).
+dotenv layout files without updating `dotenv/lib/load.sh`; use em-dashes (`—`) in prose.
 
 ## References
 
@@ -110,6 +109,5 @@ dotenv layout files without updating `dotenv/lib/load.sh`; use em-dashes (`—`)
   the 300-line reference-doc cap; treat as a tabular lookup, not narrative)
 - [PROMPT.md](./PROMPT.md) -- prompt format, symbols, and customization options
 - [README.md](./README.md) -- installation, configuration, hooks, file loading order
-- [CONTRIBUTING.md](./CONTRIBUTING.md) -- branch + PR flow, style, and commit conventions
 - [config/README.md](./config/README.md) -- non-shell tool configuration index (claude, codex, pi, git, vim, tmux, …)
 - [utils/README.md](./utils/README.md) -- platform setup guides (macOS, WSL, Termux) and native wrappers

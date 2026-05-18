@@ -127,11 +127,11 @@ describe('formatPersonaListLines', () => {
   test('name column padded to widest entry so source tags align', () => {
     const items: PersonaListItem[] = [
       { name: 'chat', source: 'shipped', description: 'one' },
-      { name: 'exusiai-buddy', source: 'user', description: 'two' },
+      { name: 'coding-buddy', source: 'user', description: 'two' },
     ];
     const lines = formatPersonaListLines(items);
 
-    expect(lines).toEqual(['  chat           [shipped] one', '  exusiai-buddy  [user] two']);
+    expect(lines).toEqual(['  chat          [shipped] one', '  coding-buddy  [user] two']);
   });
 
   test('missing description → no trailing space-em-dash', () => {
@@ -162,7 +162,7 @@ describe('formatPersonaValidate', () => {
     const out = formatPersonaValidate({
       warnings: [
         { path: '/p/chat.md', reason: 'unknown tool: ai-fetch-web' },
-        { path: '/p/exusiai.md', reason: 'agent "missing" not found' },
+        { path: '/p/coding.md', reason: 'agent "missing" not found' },
       ],
       totalLoaded: 4,
     });
@@ -170,7 +170,7 @@ describe('formatPersonaValidate', () => {
     expect(out.exitCode).toBe(1);
     expect(out.lines).toEqual([
       '/p/chat.md: unknown tool: ai-fetch-web',
-      '/p/exusiai.md: agent "missing" not found',
+      '/p/coding.md: agent "missing" not found',
       '2 warning(s); 4 persona(s) loaded',
     ]);
   });

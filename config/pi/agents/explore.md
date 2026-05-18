@@ -6,7 +6,7 @@ description:
 tools: [read, grep, find, ls]
 model: inherit
 thinkingLevel: low
-maxTurns: 12
+maxTurns: 20
 isolation: shared-cwd
 timeoutMs: 180000
 ---

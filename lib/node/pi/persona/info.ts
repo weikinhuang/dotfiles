@@ -106,7 +106,7 @@ export interface PersonaListItem {
  *
  *   * chat            [shipped] Long-form Q&A with web access; no writes.
  *     plan            [shipped] Drop a plan doc; never edits source.
- *     exusiai-buddy   [user]    …
+ *     coding-buddy    [user]    …
  */
 export function formatPersonaListLines(items: readonly PersonaListItem[]): string[] {
   if (items.length === 0) return ['(no personas loaded)'];

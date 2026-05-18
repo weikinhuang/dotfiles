@@ -10,7 +10,7 @@ import { type ActivePersonaSnapshot } from '../../../../../lib/node/pi/persona/a
 import { personaVouchBash } from '../../../../../lib/node/pi/persona/bash-vouch.ts';
 
 const snapshot = (overrides: Partial<ActivePersonaSnapshot> = {}): ActivePersonaSnapshot => ({
-  name: overrides.name ?? 'exusiai',
+  name: overrides.name ?? 'coding-buddy',
   resolvedWriteRoots: overrides.resolvedWriteRoots ?? [],
   bashAllow: overrides.bashAllow ?? [],
   bashDeny: overrides.bashDeny ?? [],
@@ -34,7 +34,7 @@ describe('personaVouchBash', () => {
 
     expect(personaVouchBash({ command: 'ai-fetch-web search foo', active })).toEqual({
       vouched: true,
-      personaName: 'exusiai',
+      personaName: 'coding-buddy',
       matchedPattern: 'ai-fetch-web *',
     });
   });
@@ -44,7 +44,7 @@ describe('personaVouchBash', () => {
 
     expect(personaVouchBash({ command: 'rg --files', active })).toEqual({
       vouched: true,
-      personaName: 'exusiai',
+      personaName: 'coding-buddy',
       matchedPattern: 'rg',
     });
   });
@@ -60,7 +60,7 @@ describe('personaVouchBash', () => {
 
     expect(personaVouchBash({ command: 'whatever --flag', active })).toEqual({
       vouched: true,
-      personaName: 'exusiai',
+      personaName: 'coding-buddy',
       matchedPattern: '*',
     });
   });

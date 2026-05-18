@@ -220,3 +220,6 @@ Thumbs.db:encryptable
 /plans/
 /research/
 TODO.md
+
+# ==================== Misc ====================
+/.npmrc

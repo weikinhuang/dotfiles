@@ -209,7 +209,7 @@ Persona spec (fill what you know; leave the rest as <unknown> and ask me):
                               | config/pi/personas/<name>.md (shipped catalog)
 - writeRoots:                 <path | "none">
 - tools:                      <subset of read, scratchpad, memory, write, edit, bash>
-- bashAllow:                  <list | "none">  (chat.md and exusiai*.md show common shapes)
+- bashAllow:                  <list | "none">  (chat.md show common shapes)
 - canon dossier (chars only): <path | "none">  (use the README’s read-on-demand pattern
                               when canon material is > ~500 words)
 
