@@ -82,6 +82,6 @@ npx vitest tests/lib/node/pi/bash-permissions.spec.ts
   extension shells. Those specs still drive only pure helpers (no pi-runtime imports); the path lives under
   `tests/config/pi/extensions/` to document the extension command surface the helper backs, as called out in the
   per-phase handoff prompts in `plans/pi-deep-research.md` / `plans/pi-autoresearch.md`.
-- **Only extensions are excluded from root `tsconfig.json` and the main eslint type-aware rules** - they resolve
+- **Only extensions are excluded from root `tsconfig.json` and the main oxlint type-aware rules** - they resolve
   `@earendil-works/*` via pi's globally-installed package, which the repo's TS project doesn't know about. The pure
   helpers under [`../../../../lib/node/pi/`](../../../../lib/node/pi) and these tests get the full type-aware treatment.

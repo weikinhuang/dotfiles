@@ -1,4 +1,4 @@
-/* eslint-disable no-use-before-define -- TS function declarations are hoisted; ordering here is public API (listRuns / summarizeRun) → helpers (inferResumability). */
+/* oxlint-disable no-use-before-define -- TS function declarations are hoisted; ordering here is public API (listRuns / summarizeRun) → helpers (inferResumability). */
 /**
  * Pure helpers for the deep-research extension's `/research --list`
  * and `/research --selftest` commands.

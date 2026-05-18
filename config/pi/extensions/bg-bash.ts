@@ -251,7 +251,7 @@ interface LiveJob {
 
 // ──────────────────────────────────────────────────────────────────────
 // Module-scope pure helpers. Defined above the extension factory so
-// eslint's `no-use-before-define` stays happy and so they're trivial
+// oxlint's `no-use-before-define` stays happy and so they're trivial
 // to import into unit tests if we ever want to.
 // ──────────────────────────────────────────────────────────────────────
 
@@ -732,7 +732,7 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
   };
 
   // ── Action implementations. Closures over `state`, `live`, `pi`,
-  //    `startJob`. Defined before `registerTool` so eslint's
+  //    `startJob`. Defined before `registerTool` so oxlint's
   //    `no-use-before-define` is satisfied.
   // ──────────────────────────────────────────────────────────────────
 

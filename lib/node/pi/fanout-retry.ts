@@ -152,10 +152,10 @@ export async function withTransientRetry<T>(fn: (attempt: number) => Promise<T>,
       // Surface the last real error if we had one; otherwise a
       // plain abort. Never swallow the reason we were retrying.
       // `lastErr` is typed `unknown` (caught value) so we fork on
-      // `instanceof Error` to keep @typescript-eslint/only-throw-error
+      // `instanceof Error` to keep @typescript-oxlint/only-throw-error
       // happy without lying about the type.
       if (lastErr instanceof Error) throw lastErr;
-      // eslint-disable-next-line no-use-before-define -- stringifyUnknown is a hoisted function declaration defined below the loop; inlining the stringify dispatch here would duplicate it between this branch and the fall-through.
+      // oxlint-disable-next-line no-use-before-define -- stringifyUnknown is a hoisted function declaration defined below the loop; inlining the stringify dispatch here would duplicate it between this branch and the fall-through.
       if (lastErr !== undefined) throw new Error(stringifyUnknown(lastErr));
       throw new Error('aborted');
     }
@@ -180,7 +180,7 @@ export async function withTransientRetry<T>(fn: (attempt: number) => Promise<T>,
   // as a belt-and-suspenders bail-out that preserves the last real
   // error if we somehow fell through without one being thrown.
   if (lastErr instanceof Error) throw lastErr;
-  // eslint-disable-next-line no-use-before-define -- see note above on the in-loop aborted branch.
+  // oxlint-disable-next-line no-use-before-define -- see note above on the in-loop aborted branch.
   if (lastErr !== undefined) throw new Error(stringifyUnknown(lastErr));
   throw new Error('withTransientRetry: exhausted attempts');
 }

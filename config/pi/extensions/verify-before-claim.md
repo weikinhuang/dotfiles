@@ -30,7 +30,7 @@ On `agent_end`, [`lib/node/pi/verify-detect.ts`](../../../lib/node/pi/verify-det
 
 3. Partitions claims into `(verified, unverified)` using liberal per-kind command patterns: e.g. `tests-pass` matches
    `jest`, `vitest`, `mocha`, `pytest`, `cargo test`, `cargo nextest run`, `go test`, `bats`, `node --test`, `npm test`,
-   `pnpm run test`, `./dev/test-docker.sh`, etc. `lint-clean` matches `eslint`, `shellcheck`, `ruff`, `rubocop`,
+   `pnpm run test`, `./dev/test-docker.sh`, etc. `lint-clean` matches `oxlint`, `shellcheck`, `ruff`, `rubocop`,
    `cargo clippy`, `golangci-lint`, `./dev/lint.sh`, and more. Matching is deliberately liberal - false positives merely
    suppress a nudge, false negatives merely produce one extra nudge.
 
@@ -44,11 +44,11 @@ On `agent_end`, [`lib/node/pi/verify-detect.ts`](../../../lib/node/pi/verify-det
 
 Patterns require a command-start anchor (`^` / whitespace / `&|;(`) AND a command-end lookahead (whitespace / end of
 string / `&|;)<>`). The end anchor explicitly excludes `.` so `cat jest.config.js` does **not** match `jest` and
-`eslint.config.mjs` does **not** match `eslint`. Both are common false-positive vectors the unit tests pin down.
+`oxlint.config.ts` does **not** match `oxlint`. Both are common false-positive vectors the unit tests pin down.
 
 ## Pre-commit hook auto-detection
 
-In most modern JS/TS repos, a successful `git commit` runs `eslint` / `oxfmt` / `prettier` / `markdownlint` / etc. via
+In most modern JS/TS repos, a successful `git commit` runs `oxlint` / `oxfmt` / `prettier` / `markdownlint` / etc. via
 Husky + lint-staged. Without help, this extension can't see those runs - it only sees the outer `git commit` command -
 and nags on any "lint is clean" / "formatting is clean" sign-off that followed the commit.
 

@@ -2,7 +2,7 @@
  * `no-use-before-define` rule is disabled at the file scope because
  * TS function declarations are hoisted and this ordering reads
  * top-down (public API → helpers). */
-/* eslint-disable no-use-before-define */
+/* oxlint-disable no-use-before-define */
 
 /**
  * Deep-research finding validator + quarantine orchestration.

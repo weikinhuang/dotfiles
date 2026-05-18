@@ -66,7 +66,7 @@
  * kinds those hook tools would satisfy. See
  * `lib/node/pi/verify-hook-detect.ts` for the scan / mapping logic.
  * Users never have to configure it - a successful commit in a repo
- * with husky + lint-staged + eslint + oxfmt just works. The explicit
+ * with husky + lint-staged + oxlint + oxfmt just works. The explicit
  * `commandSatisfies` config still overrides anything the detector
  * missed.
  *

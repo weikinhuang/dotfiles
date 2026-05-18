@@ -77,7 +77,7 @@ When a body is warranted:
 ## Never include
 
 - Test counts: "375/375 pass", "92 files, 2656 tests".
-- Lint/typecheck sign-offs: "tsc clean", "shellcheck/shfmt clean", "eslint clean on touched files".
+- Lint/typecheck sign-offs: "tsc clean", "shellcheck/shfmt clean", "oxlint clean on touched files".
 - Per-file change walkthroughs (`~ path  description` blocks, "Files:" sections).
 - Per-test enumeration of what each spec covers.
 - "Out of scope" sections - only mention an omission if a reader would reasonably expect it to be in scope.

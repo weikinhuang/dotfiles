@@ -83,11 +83,11 @@ const CLAIM_PATTERNS: readonly PatternEntry[] = [
   // Lint clean / no lint errors / lints? passes.
   {
     kind: 'lint-clean',
-    re: /\b(?:lint(?:er|ing)?|eslint|shellcheck|ruff|pylint|rubocop|clippy)\s+(?:is\s+)?(?:now\s+)?(?:all\s+)?(?:clean|green|passes|passed|ok|happy|succeed(?:ed|s)?)\b/i,
+    re: /\b(?:lint(?:er|ing)?|eslint|oxlint|shellcheck|ruff|pylint|rubocop|clippy)\s+(?:is\s+)?(?:now\s+)?(?:all\s+)?(?:clean|green|passes|passed|ok|happy|succeed(?:ed|s)?)\b/i,
   },
   {
     kind: 'lint-clean',
-    re: /\bno\s+(?:more\s+)?(?:lint|eslint|shellcheck|ruff|clippy|rubocop)\s+(?:errors?|warnings?|issues?|complaints?)\b/i,
+    re: /\bno\s+(?:more\s+)?(?:lint|eslint|oxlint|shellcheck|ruff|clippy|rubocop)\s+(?:errors?|warnings?|issues?|complaints?)\b/i,
   },
   // Types check / typechecks / no type errors / tsc is clean.
   {
@@ -228,7 +228,7 @@ const COMMAND_PATTERNS: Record<ClaimKind, readonly RegExp[]> = {
     new RegExp(`${CMD_START}node\\s+--test\\b`, 'i'),
   ],
   'lint-clean': [
-    new RegExp(`${CMD_START}(?:npx\\s+|pnpm\\s+|yarn\\s+|bun\\s+)?eslint${CMD_END}`, 'i'),
+    new RegExp(`${CMD_START}(?:npx\\s+|pnpm\\s+|yarn\\s+|bun\\s+)?(eslint|oxlint)${CMD_END}`, 'i'),
     new RegExp(`${CMD_START}shellcheck${CMD_END}`, 'i'),
     new RegExp(`${CMD_START}shfmt${CMD_END}`, 'i'),
     new RegExp(`${CMD_START}ruff${CMD_END}`, 'i'),
@@ -281,7 +281,7 @@ const COMMAND_PATTERNS: Record<ClaimKind, readonly RegExp[]> = {
     new RegExp(`${CMD_START}biome\\s+format${CMD_END}`, 'i'),
     new RegExp(`${CMD_START}(?:npm|pnpm|yarn|bun)\\s+(?:run\\s+)?(?:format|fmt)${CMD_END}`, 'i'),
     // Meta-scripts that conventionally bundle lint + format (shellcheck + shfmt,
-    // eslint + oxfmt, etc.). Running `./dev/lint.sh` or `npm run lint` almost
+    // oxlint + oxfmt, etc.). Running `./dev/lint.sh` or `npm run lint` almost
     // always means formatting is checked too; accepting them for `format-clean`
     // is a deliberate false-negative-suppression call -- the cost of missing a
     // real over-claim is lower than nagging every time the user runs a lint

@@ -1,4 +1,4 @@
-/* eslint-disable no-use-before-define */
+/* oxlint-disable no-use-before-define */
 
 /**
  * Extension-side wiring for the Phase-4 deep-research review loop.

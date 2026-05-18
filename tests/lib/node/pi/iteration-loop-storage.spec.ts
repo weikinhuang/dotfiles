@@ -72,7 +72,7 @@ describe('writeDraft / readSpec / acceptDraft', () => {
 
     expect(r.ok).toBe(true);
 
-    // eslint-disable-next-line vitest/no-conditional-in-test, vitest/no-conditional-expect
+    // oxlint-disable-next-line vitest/no-conditional-in-test, vitest/no-conditional-expect
     if (r.ok) expect(r.spec.acceptedAt).toBe('2026-05-01T00:05:00Z');
 
     expect(existsSync(activePath(cwd, 'default'))).toBe(true);

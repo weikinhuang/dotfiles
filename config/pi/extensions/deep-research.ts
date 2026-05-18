@@ -2,7 +2,7 @@
  * first. The `no-use-before-define` rule is disabled at the file
  * scope because TS function declarations are hoisted and this
  * ordering reads top-down (command handler → helpers). */
-/* eslint-disable no-use-before-define */
+/* oxlint-disable no-use-before-define */
 
 /**
  * Deep-research extension for pi.

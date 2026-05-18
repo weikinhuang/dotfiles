@@ -30,7 +30,7 @@ import { BYTE_ENCODER, byteLen } from './shared.ts';
 
 // ──────────────────────────────────────────────────────────────────────
 // UTF-8 byte-window helpers. Module-private, but declared above the
-// class so eslint's `no-use-before-define` is satisfied.
+// class so oxlint's `no-use-before-define` is satisfied.
 // ──────────────────────────────────────────────────────────────────────
 
 /**

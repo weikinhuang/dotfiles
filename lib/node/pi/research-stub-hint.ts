@@ -1,4 +1,4 @@
-/* eslint-disable no-use-before-define -- TS function declarations are hoisted; ordering here is public API → helpers. */
+/* oxlint-disable no-use-before-define -- TS function declarations are hoisted; ordering here is public API → helpers. */
 /**
  * Format the Phase-4 stub-detection hint surfaced by the
  * deep-research extension after a review run.

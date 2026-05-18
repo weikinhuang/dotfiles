@@ -1,4 +1,4 @@
-/* eslint-disable no-use-before-define */
+/* oxlint-disable no-use-before-define */
 
 /**
  * Tests for lib/node/pi/deep-research-structural-check.ts.

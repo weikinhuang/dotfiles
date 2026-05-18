@@ -5,7 +5,7 @@ import { expect, test } from 'vitest';
 // comment before the second import for the full rationale. The
 // `import/no-duplicates` rule can't express "distinct records", so
 // disable it just for this pair.
-/* eslint-disable import/no-duplicates */
+/* oxlint-disable import/no-duplicates */
 import {
   isBashAutoEnabled as isBashAutoEnabledA,
   setBashAutoEnabled as setBashAutoEnabledA,
@@ -18,7 +18,7 @@ import {
   isBashAutoEnabled as isBashAutoEnabledB,
   setBashAutoEnabled as setBashAutoEnabledB,
 } from '../../../../lib/node/pi/session-flags.ts?copy=b';
-/* eslint-enable import/no-duplicates */
+/* oxlint-enable import/no-duplicates */
 
 test('session-flags: default state is OFF', () => {
   setBashAutoEnabledA(false);

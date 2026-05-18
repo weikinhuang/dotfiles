@@ -6,7 +6,7 @@
   "license": "MIT",
   "type": "module",
   "scripts": {
-    "eslint": "eslint .",
+    "oxlint": "oxlint --fix .",
     "prepare": "husky || true",
     "oxfmt": "oxfmt",
     "format": "oxfmt",
@@ -18,16 +18,9 @@
     "tsc": "tsc --noEmit"
   },
   "devDependencies": {
-    "@eslint/eslintrc": "^3.3.5",
-    "@eslint/js": "^9.39.4",
     "@eslint/json": "^1.2.0",
     "@types/node": "^25.9.0",
     "@vitest/coverage-v8": "^4.1.5",
-    "@vitest/eslint-plugin": "^1.6.16",
-    "eslint": "^9.39.4",
-    "eslint-import-resolver-typescript": "^4.4.4",
-    "eslint-plugin-import": "^2.32.0",
-    "eslint-plugin-n": "^17.24.0",
     "globals": "^17.5.0",
     "husky": "^9.1.7",
     "lint-staged": "^16.4.0",
@@ -37,7 +30,6 @@
     "oxlint": "^1.65.0",
     "oxlint-tsgolint": "^0.23.0",
     "typescript": "^6.0.3",
-    "typescript-eslint": "^8.59.0",
     "vitest": "^4.1.5"
   },
   "engines": {

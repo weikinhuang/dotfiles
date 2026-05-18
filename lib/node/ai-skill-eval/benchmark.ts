@@ -112,7 +112,7 @@ export interface BenchmarkDocument {
 
 // ──────────────────────────────────────────────────────────────────────
 // Small primitives (defined first so downstream helpers can reference them
-// without tripping eslint's no-use-before-define).
+// without tripping oxlint's no-use-before-define).
 // ──────────────────────────────────────────────────────────────────────
 
 function round4(n: number): number {

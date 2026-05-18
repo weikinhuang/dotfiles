@@ -55,7 +55,7 @@ export function parseArgs(argv: string[], opts: ParseArgsOptions): ParsedArgs {
       case '--help':
         console.log(opts.help);
         process.exit(0);
-      // eslint-disable-next-line no-fallthrough -- process.exit never returns
+      // oxlint-disable-next-line no-fallthrough -- process.exit never returns
       case '--json':
         args.json = true;
         break;

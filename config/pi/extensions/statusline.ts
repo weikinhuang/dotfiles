@@ -312,7 +312,7 @@ export default function extension(pi: ExtensionAPI): void {
           // footer (or no footer) for that frame instead of crashing.
           if (disposed) return [];
           try {
-            // eslint-disable-next-line no-use-before-define -- `renderFooter` is a hoisted function declaration below, split out so the outer render can wrap it in a single try/catch without interleaving control flow.
+            // oxlint-disable-next-line no-use-before-define -- `renderFooter` is a hoisted function declaration below, split out so the outer render can wrap it in a single try/catch without interleaving control flow.
             return renderFooter(width);
           } catch {
             // Mark disposed on any render error so scheduled git fetches
@@ -325,7 +325,7 @@ export default function extension(pi: ExtensionAPI): void {
 
       // Render body extracted so the outer `render` can wrap it in
       // one try/catch without interleaving control flow. Declared
-      // before the returned object to keep ESLint's
+      // before the returned object to keep Oxlint's
       // `no-use-before-define` happy (function declarations hoist
       // regardless, but the lint rule inspects source order).
       function renderFooter(width: number): string[] {

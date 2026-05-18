@@ -212,7 +212,7 @@ export function detectResumeStage(runRoot: string): DetectResumeStageResult {
     return { ok: false, error: `plan is kind=${plan.kind}; expected deep-research` };
   }
 
-  // eslint-disable-next-line no-use-before-define -- sumFanoutDeficit is a function declaration; hoisting is safe
+  // oxlint-disable-next-line no-use-before-define -- sumFanoutDeficit is a function declaration; hoisting is safe
   const needsRefanout = sumFanoutDeficit(
     runRoot,
     plan.subQuestions.map((sq) => sq.id),

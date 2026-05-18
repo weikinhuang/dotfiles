@@ -5,7 +5,7 @@
  * pi runtime.
  */
 
-/* eslint-disable no-control-regex -- this whole file inspects ANSI SGR escapes */
+/* oxlint-disable no-control-regex -- this whole file inspects ANSI SGR escapes */
 
 import { describe, expect, test } from 'vitest';
 
