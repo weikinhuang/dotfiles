@@ -366,7 +366,7 @@ function buildSpecFromParams(
   },
 ): { ok: true; spec: CheckSpec } | { ok: false; error: string } {
   if (!params.kind) return { ok: false, error: 'declare requires `kind` (bash or critic)' };
-  if (!params.artifact || !params.artifact.trim()) {
+  if (!params.artifact?.trim()) {
     return { ok: false, error: 'declare requires `artifact` (path relative to cwd)' };
   }
 
@@ -1013,7 +1013,7 @@ export default function iterationLoopExtension(pi: ExtensionAPI): void {
       if (!isBashCheckSpecShape(spec.spec)) {
         return errorReturn('run', task, 'bash spec is malformed on disk');
       }
-      const bashSpec = spec.spec as BashCheckSpec;
+      const bashSpec = spec.spec;
       try {
         verdict = await runBashCheck(bashSpec, { cwd: ctx.cwd }, { signal });
       } catch (e) {
@@ -1028,7 +1028,7 @@ export default function iterationLoopExtension(pi: ExtensionAPI): void {
       if (!isCriticCheckSpecShape(spec.spec)) {
         return errorReturn('run', task, 'critic spec is malformed on disk');
       }
-      const criticSpec = spec.spec as CriticCheckSpec;
+      const criticSpec = spec.spec;
       const runResult = await runCriticSubagent({
         ctx,
         signal,
@@ -1160,14 +1160,14 @@ export default function iterationLoopExtension(pi: ExtensionAPI): void {
 
   const doStatus = (params: { task?: string }, ctx: ExtensionContext): ToolReturn => {
     const task = (params.task ?? DEFAULT_TASK).trim() || DEFAULT_TASK;
-    const text = formatStatusText(ctx.cwd, task, state && state.task === task ? state : null);
+    const text = formatStatusText(ctx.cwd, task, state?.task === task ? state : null);
     const read = readSpec(ctx.cwd, task);
     return {
       content: [{ type: 'text', text }],
       details: {
         action: 'status',
         task,
-        state: state && state.task === task ? cloneIterationState(state) : null,
+        state: state?.task === task ? cloneIterationState(state) : null,
         spec: read.spec,
         specState: read.state,
       },
@@ -1196,7 +1196,7 @@ export default function iterationLoopExtension(pi: ExtensionAPI): void {
     }
 
     let closedState: IterationState | null = null;
-    if (state && state.task === task) {
+    if (state?.task === task) {
       const result: ActionResult = actClose(state, { reason });
       if (!result.ok) return errorReturn('close', task, result.error);
       state = result.state;
@@ -1333,7 +1333,7 @@ export default function iterationLoopExtension(pi: ExtensionAPI): void {
           break;
         case 'run': {
           const s = details.state ?? null;
-          if (!s || !s.lastVerdict) {
+          if (!s?.lastVerdict) {
             parts.push(theme.fg('dim', `… run${taskLabel} (no verdict recorded)`));
           } else {
             const mark = s.lastVerdict.approved ? theme.fg('success', '✓') : theme.fg('warning', '·');

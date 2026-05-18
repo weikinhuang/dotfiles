@@ -68,7 +68,7 @@ export default function smallModelAddendum(pi: ExtensionAPI): void {
   let lastNotifiedWarnings = new Set<string>();
 
   const getConfig = (cwd: string): AddendumConfig => {
-    if (!cached) cached = loadConfig(cwd);
+    cached ??= loadConfig(cwd);
     return cached.config;
   };
 

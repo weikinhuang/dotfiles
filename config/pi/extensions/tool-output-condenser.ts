@@ -154,7 +154,7 @@ export default function toolOutputCondenser(pi: ExtensionAPI): void {
     let firstTextValue = '';
     for (let i = 0; i < content.length; i++) {
       const part = content[i] as { type?: unknown; text?: unknown } | undefined;
-      if (part && part.type === 'text' && typeof part.text === 'string') {
+      if (part?.type === 'text' && typeof part.text === 'string') {
         firstTextIdx = i;
         firstTextValue = part.text;
         break;
@@ -168,12 +168,10 @@ export default function toolOutputCondenser(pi: ExtensionAPI): void {
     // Reuse pi's own fullOutputPath if the built-in already wrote one -
     // avoids leaving two breadcrumbs / two tempfiles for the same call.
     let fullOutputPath = extractFullOutputPath((event as { details?: unknown }).details);
-    if (!fullOutputPath) {
-      fullOutputPath = await writeFullOutputFile(firstTextValue, toolName, ctx).catch((err) => {
-        if (ctx.hasUI) ctx.ui.notify(`tool-output-condenser: failed to write tempfile: ${String(err)}`, 'warning');
-        return undefined;
-      });
-    }
+    fullOutputPath ??= await writeFullOutputFile(firstTextValue, toolName, ctx).catch((err) => {
+      if (ctx.hasUI) ctx.ui.notify(`tool-output-condenser: failed to write tempfile: ${String(err)}`, 'warning');
+      return undefined;
+    });
 
     // Build the breadcrumb the model sees: condensed text + footer
     // explaining what happened and where to find the rest.

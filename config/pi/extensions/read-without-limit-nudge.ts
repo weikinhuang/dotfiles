@@ -131,7 +131,7 @@ export default function readWithoutLimitNudge(pi: ExtensionAPI): void {
       // compares against the real line count.
       let totalLines: number | undefined;
       const first = event.content[0];
-      if (first && first.type === 'text' && typeof first.text === 'string') {
+      if (first?.type === 'text' && typeof first.text === 'string') {
         const text = first.text;
         if (text.length === 0) totalLines = 0;
         else totalLines = text.split('\n').length - (text.endsWith('\n') ? 1 : 0);

@@ -204,7 +204,7 @@ export default function presetExtension(pi: ExtensionAPI): void {
   pi.registerCommand('preset', {
     description: 'Switch preset: `/preset` lists, `/preset <name>` activates, `/preset off` clears',
     getArgumentCompletions: (prefix: string) => {
-      const items = nameOrder.map((n) => ({ value: n, label: n, description: describePreset(presets[n]!) }));
+      const items = nameOrder.map((n) => ({ value: n, label: n, description: describePreset(presets[n]) }));
       items.push({ value: 'off', label: 'off', description: 'Clear preset, restore prior state' });
       const filtered = items.filter((i) => i.value.startsWith(prefix));
       return filtered.length > 0 ? filtered : null;
@@ -219,7 +219,7 @@ export default function presetExtension(pi: ExtensionAPI): void {
         }
         const lines = nameOrder.map((n) => {
           const prefix = n === activePresetName ? '* ' : '  ';
-          return `${prefix}${n} - ${describePreset(presets[n]!)}`;
+          return `${prefix}${n} - ${describePreset(presets[n])}`;
         });
         const activeLine = activePresetName ? `(active: ${activePresetName})` : '(no preset active)';
         ctx.ui.notify([activeLine, ...lines].join('\n'), 'info');

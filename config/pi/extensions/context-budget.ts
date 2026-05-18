@@ -100,7 +100,8 @@ export default function contextBudget(pi: ExtensionAPI): void {
 
   // `null` if unset → auto-compaction disabled.
   const autoCompactThreshold = parsePercentEnv('PI_CONTEXT_BUDGET_AUTO_COMPACT_PERCENT', null);
-  const autoCompactInstructions = process.env.PI_CONTEXT_BUDGET_AUTO_COMPACT_INSTRUCTIONS?.trim() || undefined;
+  const autoCompactRaw = process.env.PI_CONTEXT_BUDGET_AUTO_COMPACT_INSTRUCTIONS?.trim();
+  const autoCompactInstructions = autoCompactRaw?.length ? autoCompactRaw : undefined;
 
   // Remember the prior turn's percent so we can edge-trigger compaction.
   // Reset on session_start so we don't carry stale state across sessions.

@@ -117,9 +117,9 @@ function cwdFileUrl(cwd: string, hyperlinksEnabled: boolean): string | null {
 
   const wslDistro = process.env.WSL_DISTRO_NAME;
   if (wslDistro) {
-    const mntMatch = cwd.match(/^\/mnt\/([a-z])(\/.*)?$/);
+    const mntMatch = /^\/mnt\/([a-z])(\/.*)?$/.exec(cwd);
     if (mntMatch) {
-      const drive = mntMatch[1]!.toUpperCase();
+      const drive = mntMatch[1].toUpperCase();
       const rest = mntMatch[2] ?? '';
       return `file:///${drive}:${rest}`;
     }
@@ -209,7 +209,7 @@ export default function extension(pi: ExtensionAPI): void {
     try {
       return userInfo().username;
     } catch {
-      return process.env.USER || process.env.USERNAME || 'user';
+      return process.env.USER ?? process.env.USERNAME ?? 'user';
     }
   })();
   const host = (() => {
@@ -245,7 +245,7 @@ export default function extension(pi: ExtensionAPI): void {
         gitCache.set(cwd, entry);
         void fetchGitSegmentAsync({
           // GIT_PROMPT_SCRIPT_PATH is non-null when gitPromptEnabled.
-          scriptPath: GIT_PROMPT_SCRIPT_PATH as string,
+          scriptPath: GIT_PROMPT_SCRIPT_PATH,
           cwd,
         }).then((value) => {
           entry.inFlight = false;
@@ -263,7 +263,7 @@ export default function extension(pi: ExtensionAPI): void {
         if (!fresh) scheduleGitFetch(cwd);
         // Prefer the decorated value when we have one, even if stale - it's a
         // better approximation than the plain branch while the refetch runs.
-        return entry?.value || fallback;
+        return entry?.value ?? fallback;
       };
 
       // Per-session cache of worktree info keyed by cwd. resolveWorktreeInfo

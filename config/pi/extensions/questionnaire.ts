@@ -228,7 +228,7 @@ export default function questionnaire(pi: ExtensionAPI): void {
       // Normalize questions with defaults.
       const questions: Question[] = params.questions.map((q, i) => ({
         id: q.id,
-        label: q.label || `Q${i + 1}`,
+        label: q.label?.length ? q.label : `Q${i + 1}`,
         prompt: q.prompt,
         kind: (q.kind ?? 'single') as QuestionKind,
         options: q.options ?? [],
@@ -495,7 +495,7 @@ export default function questionnaire(pi: ExtensionAPI): void {
           }
 
           // ─── Free-text question: straight to editor ───────────────
-          if (q && q.kind === 'free') {
+          if (q?.kind === 'free') {
             if (matchesKey(data, Key.escape)) {
               submit({ cancelled: true });
               return;
@@ -774,7 +774,7 @@ export default function questionnaire(pi: ExtensionAPI): void {
         function renderPreviewPane(height: number, width: number): string[] {
           const opts = currentOptions();
           const opt = opts[optionIndex];
-          if (!opt || !opt.preview) return [];
+          if (!opt?.preview) return [];
           const raw = opt.preview.split('\n');
           const lines = raw.map((l) => truncateToWidth(l, width));
           // Draw a light rounded box around the preview.
@@ -986,7 +986,8 @@ export default function questionnaire(pi: ExtensionAPI): void {
       }
 
       const answerLines = result.answers.map((a) => {
-        const qLabel = questions.find((q) => q.id === a.id)?.label || a.id;
+        const found = questions.find((q) => q.id === a.id);
+        const qLabel = found?.label?.length ? found.label : a.id;
         let body: string;
         if (a.kind === 'multi') {
           const parts = (a.indices ?? []).map((idx, i) => `${idx}. ${a.labels?.[i] ?? ''}`);
@@ -1009,7 +1010,7 @@ export default function questionnaire(pi: ExtensionAPI): void {
     renderCall(args, theme, _context) {
       const qs = (args.questions as { id: string; label?: string; kind?: string }[]) ?? [];
       const count = qs.length;
-      const labels = qs.map((q) => q.label || q.id).join(', ');
+      const labels = qs.map((q) => (q.label?.length ? q.label : q.id)).join(', ');
       let text = theme.fg('toolTitle', theme.bold('questionnaire '));
       text += theme.fg('muted', `${count} question${count !== 1 ? 's' : ''}`);
       if (labels) {

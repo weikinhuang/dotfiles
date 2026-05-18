@@ -76,7 +76,7 @@ export default function bashExitWatchdog(pi: ExtensionAPI): void {
   const notified = new Set<string>();
 
   const getConfig = (cwd: string): WatchdogConfig => {
-    if (!cached) cached = loadConfig(cwd);
+    cached ??= loadConfig(cwd);
     return cached.config;
   };
 
@@ -103,7 +103,7 @@ export default function bashExitWatchdog(pi: ExtensionAPI): void {
 
     // First text part typically carries all stdout/stderr + pi's tail marker.
     const first = event.content[0];
-    if (!first || first.type !== 'text') return undefined;
+    if (first?.type !== 'text') return undefined;
     const original = first.text;
     const exitCode = parseExitCode(original);
     if (exitCode === undefined || exitCode === 0) return undefined;

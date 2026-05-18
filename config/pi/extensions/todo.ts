@@ -139,7 +139,7 @@ function extractLastAssistantText(event: unknown): string {
   const messages = (event as { messages?: readonly unknown[] }).messages ?? [];
   for (let i = messages.length - 1; i >= 0; i--) {
     const m = messages[i] as { role?: string; content?: unknown } | undefined;
-    if (!m || m.role !== 'assistant') continue;
+    if (m?.role !== 'assistant') continue;
     if (typeof m.content === 'string') return m.content;
     if (Array.isArray(m.content)) {
       const parts: string[] = [];
@@ -164,10 +164,10 @@ function extractLastAssistantText(event: unknown): string {
 function lastUserMessageHasMarker(ctx: ExtensionContext, marker: string): boolean {
   const branch = ctx.sessionManager.getBranch() as unknown as readonly BranchEntry[];
   for (let i = branch.length - 1; i >= 0; i--) {
-    const entry = branch[i]!;
+    const entry = branch[i];
     if (entry.type !== 'message') continue;
     const msg = entry.message as { role?: string; content?: unknown } | undefined;
-    if (!msg || msg.role !== 'user') continue;
+    if (msg?.role !== 'user') continue;
     let text = '';
     if (typeof msg.content === 'string') text = msg.content;
     else if (Array.isArray(msg.content)) {

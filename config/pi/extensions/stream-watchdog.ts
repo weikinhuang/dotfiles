@@ -285,7 +285,7 @@ export default function streamWatchdog(pi: ExtensionAPI): void {
 
   pi.on('message_start', (event, ctx) => {
     const msg = (event as { message?: { role?: string; responseId?: string } }).message;
-    if (!msg || msg.role !== 'assistant') return;
+    if (msg?.role !== 'assistant') return;
     latestCtx = ctx;
     recordStart(state, Date.now(), msg.responseId);
     startPolling();
@@ -322,7 +322,7 @@ export default function streamWatchdog(pi: ExtensionAPI): void {
 
   pi.on('message_end', (event, ctx) => {
     const msg = (event as { message?: { role?: string } }).message;
-    if (!msg || msg.role !== 'assistant') return;
+    if (msg?.role !== 'assistant') return;
     latestCtx = ctx;
     recordEnd(state);
     stopPolling();

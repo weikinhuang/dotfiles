@@ -552,7 +552,7 @@ export default function subagentExtension(pi: ExtensionAPI): void {
       return;
     }
     if (entries.length === 1) {
-      ctx.ui.setStatus(STATUS_KEY, formatSubagentStatus(entries[0]!));
+      ctx.ui.setStatus(STATUS_KEY, formatSubagentStatus(entries[0]));
       return;
     }
     ctx.ui.setStatus(STATUS_KEY, formatParallelSubagentStatus(entries));
@@ -1367,7 +1367,7 @@ export default function subagentExtension(pi: ExtensionAPI): void {
       const source = details.agentSource ? theme.fg('muted', ` (${details.agentSource})`) : '';
       const lead = `${glyph} ${theme.fg('toolTitle', theme.bold(agent))}${source}`;
       const first = result.content.find((c) => c.type === 'text');
-      const body = first && first.type === 'text' ? first.text : '';
+      const body = first?.type === 'text' ? first.text : '';
       if (expanded && body.trim()) {
         return new Text(`${lead}\n${theme.fg('text', body)}`, 0, 0);
       }
@@ -1645,7 +1645,7 @@ export default function subagentExtension(pi: ExtensionAPI): void {
 
       const match = /^show\s+(\S+)$/.exec(raw);
       if (match) {
-        const name = match[1]!;
+        const name = match[1];
         const a = loadResult.agents.get(name);
         if (!a) {
           ctx.ui.notify(

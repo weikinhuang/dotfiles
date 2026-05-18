@@ -276,7 +276,8 @@ async function askForPermission(
 
   if (picked.decision === 'deny-feedback') {
     const feedback = await ctx.ui.input('Tell the assistant why:', 'e.g. use the test script instead');
-    return { kind: 'deny', feedback: feedback?.trim() || undefined };
+    const trimmed = feedback?.trim();
+    return { kind: 'deny', feedback: trimmed?.length ? trimmed : undefined };
   }
   return picked.decision;
 }
@@ -347,7 +348,8 @@ async function askForPermissionBatch(
 
   if (picked.decision === 'deny-feedback') {
     const feedback = await ctx.ui.input('Tell the assistant why:', 'e.g. split these into separate calls');
-    return { kind: 'deny', feedback: feedback?.trim() || undefined };
+    const trimmed = feedback?.trim();
+    return { kind: 'deny', feedback: trimmed?.length ? trimmed : undefined };
   }
   return picked.decision;
 }
@@ -514,7 +516,8 @@ export default function bashPermissions(pi: ExtensionAPI): void {
 
   pi.on('tool_call', async (event, ctx) => {
     if (event.toolName !== 'bash') return undefined;
-    const command = String(event.input?.command ?? '').trim();
+    const rawCmd = (event.input as { command?: unknown } | undefined)?.command;
+    const command = (typeof rawCmd === 'string' ? rawCmd : '').trim();
     if (!command) return undefined;
 
     const decision = await gateBashCommand(command, ctx);

@@ -119,7 +119,7 @@ export default function editRecovery(pi: ExtensionAPI): void {
     // in before our hook (pi's tool output condenser is alphabetically
     // later in the dotfiles extension dir), so we get the raw error.
     const first = event.content[0];
-    if (!first || first.type !== 'text') return undefined;
+    if (first?.type !== 'text') return undefined;
     const errorText = first.text;
 
     const parsed = parseEditFailure(errorText);

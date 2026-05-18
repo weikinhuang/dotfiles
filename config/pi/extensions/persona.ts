@@ -308,7 +308,7 @@ export default function personaExtension(pi: ExtensionAPI): void {
 
     // settings.json override for writeRoots.
     const overrideRoots = settings.writeRoots[name];
-    const rawRoots = overrideRoots !== undefined ? overrideRoots : merged.writeRoots;
+    const rawRoots = overrideRoots ?? merged.writeRoots;
 
     const resolvedWriteRoots = resolveWriteRoots(rawRoots, {
       cwd: ctx.cwd,
@@ -479,7 +479,8 @@ export default function personaExtension(pi: ExtensionAPI): void {
 
     // ── Bash policy ────────────────────────────────────────────────
     if (isToolCallEventType('bash', event)) {
-      const cmd = String((event.input as { command?: unknown })?.command ?? '');
+      const rawCmd = (event.input as { command?: unknown } | undefined)?.command;
+      const cmd = typeof rawCmd === 'string' ? rawCmd : '';
       const policy = evaluateBashPolicy({
         command: cmd,
         bashAllow: active.parsed.bashAllow,
@@ -558,7 +559,7 @@ export default function personaExtension(pi: ExtensionAPI): void {
   // mid-session.
 
   pi.on('before_provider_request', (event, ctx) => {
-    if (!active || !active.parsed.requestOptions) return undefined;
+    if (!active?.parsed.requestOptions) return undefined;
     const payload = (event as { payload: unknown }).payload;
     const api = (ctx.model as { api?: string } | undefined)?.api;
     const merged = applyRequestOptions({ payload, options: active.parsed.requestOptions, api });

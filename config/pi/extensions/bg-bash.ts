@@ -381,7 +381,7 @@ function renderRegistryLine(j: JobSummary, theme: Theme): string {
 /** Best-effort signal send to a job's process group. */
 function sendSignalTo(job: LiveJob, sig: SignalName): boolean {
   const child = job.child;
-  if (!child || child.exitCode !== null || child.pid === undefined) return false;
+  if (child?.exitCode !== null || child.pid === undefined) return false;
   try {
     // Negative pid => whole process group. The child was spawned with
     // `detached: true`, so its pid IS the pgid.
@@ -489,7 +489,8 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
 
   const ensureLogDir = (): string => {
     if (logDir) return logDir;
-    const base = process.env.PI_BG_BASH_LOG_DIR || join(tmpdir(), 'pi-bg-bash');
+    const envBase = process.env.PI_BG_BASH_LOG_DIR;
+    const base = envBase?.length ? envBase : join(tmpdir(), 'pi-bg-bash');
     const suffix = `${process.pid}-${Date.now().toString(36)}`;
     logDir = join(base, suffix);
     try {
@@ -618,12 +619,12 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
       // the wait so a stuck stream can't hang spawn-failure reporting.
       if (logStream) {
         const finished = new Promise<void>((resolve) => {
-          logStream!.once('finish', resolve);
-          logStream!.once('error', resolve);
+          logStream.once('finish', resolve);
+          logStream.once('error', resolve);
         });
         const timeout = new Promise<void>((resolve) => setTimeout(resolve, 500));
         logStream.end();
-        Promise.race([finished, timeout]).then(() => setExited());
+        void Promise.race([finished, timeout]).then(() => setExited());
       } else {
         setExited();
       }

@@ -113,7 +113,7 @@ export default function toolArgRecovery(pi: ExtensionAPI): void {
     if (!event.isError) return undefined;
 
     const first = event.content[0];
-    if (!first || first.type !== 'text') return undefined;
+    if (first?.type !== 'text') return undefined;
     const errorText = first.text;
 
     const failure = parseValidationFailure(errorText);

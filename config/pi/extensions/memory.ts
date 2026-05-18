@@ -517,7 +517,7 @@ export default function memoryExtension(pi: ExtensionAPI): void {
         continue;
       }
       const body = fileBodyFor(e, cwd);
-      if (body && body.toLowerCase().includes(needle)) matches.push(e);
+      if (body?.toLowerCase().includes(needle)) matches.push(e);
     }
     if (matches.length === 0) {
       return {
