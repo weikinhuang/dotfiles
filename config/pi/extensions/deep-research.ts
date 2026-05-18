@@ -1468,7 +1468,7 @@ async function runResumePipelineStage(args: {
   const statusline = buildStatuslineController(ctx);
   statusline.emit({ kind: 'start' });
   const liveBudget = createLiveBudget({
-    budget: createRunBudget(DEFAULT_BUDGET_PHASES.map((phase) => ({ ...phase }))),
+    budget: createRunBudget(DEFAULT_BUDGET_PHASES.map((phase) => Object.assign({}, phase))),
   });
   const onPhase = (event: PhaseEvent): void => {
     statusline.emit(event);

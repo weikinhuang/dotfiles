@@ -38,6 +38,7 @@ export async function runPool<T, R>(
       next += 1;
       if (i >= n) return;
       // Non-null assertion is safe: `i < n` guarantees the index is in range.
+      // oxlint-disable-next-line no-await-in-loop -- each worker pulls the next index sequentially; concurrency comes from launching `limit` runOne() instances in parallel
       results[i] = await worker(items[i], i);
     }
   };

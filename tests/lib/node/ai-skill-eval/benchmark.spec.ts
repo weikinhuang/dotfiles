@@ -14,6 +14,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
 import {
   buildBenchmark,
+  type BenchmarkDocument,
   loadSkillArtifacts,
   renderBenchmarkMarkdown,
   stats,
@@ -335,8 +336,10 @@ describe('writeBenchmark', () => {
 
     const jsonText = readFileSync(join(fx.dir, fx.skill, 'iteration-1', 'benchmark.json'), 'utf8');
 
-    expect(JSON.parse(jsonText).metadata.skill_name).toBe('sample');
-    expect(JSON.parse(jsonText).metadata.iteration).toBe(1);
+    const parsed = JSON.parse(jsonText) as BenchmarkDocument;
+
+    expect(parsed.metadata.skill_name).toBe('sample');
+    expect(parsed.metadata.iteration).toBe(1);
     expect(readFileSync(join(fx.dir, fx.skill, 'iteration-1', 'benchmark.md'), 'utf8')).toContain(
       '# Benchmark - sample (iteration-1)',
     );

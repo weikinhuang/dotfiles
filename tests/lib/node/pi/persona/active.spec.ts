@@ -73,14 +73,20 @@ describe('active-persona singleton', () => {
 
     expect(snap).toBeDefined();
     expect(() => {
-      (snap?.resolvedWriteRoots as string[]).push('/evil/');
-    }).toThrow();
+      const s = getActivePersona();
+      if (!s) throw new Error('expected active persona');
+      (s.resolvedWriteRoots as string[]).push('/evil/');
+    }).toThrow(/read.?only|frozen|not extensible|cannot (add|delete|assign)/i);
     expect(() => {
-      (snap?.bashAllow as string[]).push('curl *');
-    }).toThrow();
+      const s = getActivePersona();
+      if (!s) throw new Error('expected active persona');
+      (s.bashAllow as string[]).push('curl *');
+    }).toThrow(/read.?only|frozen|not extensible|cannot (add|delete|assign)/i);
     expect(() => {
-      (snap?.bashDeny as string[]).pop();
-    }).toThrow();
+      const s = getActivePersona();
+      if (!s) throw new Error('expected active persona');
+      (s.bashDeny as string[]).pop();
+    }).toThrow(/read.?only|frozen|not extensible|cannot (add|delete|assign)/i);
     expect(getActivePersona()?.resolvedWriteRoots).toEqual(['/repo/plans/']);
     expect(getActivePersona()?.bashAllow).toEqual(['rg *']);
     expect(getActivePersona()?.bashDeny).toEqual(['curl *']);

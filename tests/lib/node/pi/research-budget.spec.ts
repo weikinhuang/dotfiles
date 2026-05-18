@@ -118,9 +118,15 @@ describe('createRunBudget', () => {
   });
 
   test('rejects non-finite / negative caps', () => {
-    expect(() => createRunBudget([{ name: 'p', maxCostUsd: Number.NaN, maxWallClockSec: 1 }])).toThrow();
-    expect(() => createRunBudget([{ name: 'p', maxCostUsd: 1, maxWallClockSec: -1 }])).toThrow();
-    expect(() => createRunBudget([{ name: 'p', maxCostUsd: Infinity, maxWallClockSec: 1 }])).toThrow();
+    expect(() => createRunBudget([{ name: 'p', maxCostUsd: Number.NaN, maxWallClockSec: 1 }])).toThrow(
+      /maxCostUsd must be a non-negative finite number/,
+    );
+    expect(() => createRunBudget([{ name: 'p', maxCostUsd: 1, maxWallClockSec: -1 }])).toThrow(
+      /maxWallClockSec must be a non-negative finite number/,
+    );
+    expect(() => createRunBudget([{ name: 'p', maxCostUsd: Infinity, maxWallClockSec: 1 }])).toThrow(
+      /maxCostUsd must be a non-negative finite number/,
+    );
   });
 });
 

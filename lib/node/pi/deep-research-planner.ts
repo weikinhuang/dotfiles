@@ -419,6 +419,7 @@ async function applyTinyPriority<M>(output: PlannerOutput, opts: PlannerOpts<M>)
       let label: string | null = null;
 
       try {
+        // oxlint-disable-next-line no-await-in-loop -- tiny-model classify runs sequentially to avoid local-model concurrency limits
         label = await adapter.callTinyClassify(ctx, 'classify-url-type', hint, labels);
       } catch {
         label = null;

@@ -275,6 +275,7 @@ export async function callTyped<T>(opts: CallTypedOpts<T>): Promise<T | Stuck> {
   let lastError = 'unknown validation error';
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     const nextPrompt = attempt === 1 ? opts.prompt : renderValidationNudge(lastError);
+    // oxlint-disable-next-line no-await-in-loop -- each retry must observe the previous attempt's failure to compose the next nudge
     await opts.session.prompt(nextPrompt);
 
     const raw = extract(opts.session.state.messages);

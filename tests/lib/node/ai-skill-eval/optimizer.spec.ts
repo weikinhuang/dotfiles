@@ -357,8 +357,10 @@ describe('loadTriggerEvalSet', () => {
   });
 
   test('rejects malformed input', () => {
-    expect(() => loadTriggerEvalSet('null', 'src')).toThrowError();
-    expect(() => loadTriggerEvalSet(JSON.stringify([{ query: 1, should_trigger: true }]), 'src')).toThrowError();
+    expect(() => loadTriggerEvalSet('null', 'src')).toThrowError(/expected a flat/i);
+    expect(() => loadTriggerEvalSet(JSON.stringify([{ query: 1, should_trigger: true }]), 'src')).toThrowError(
+      /query must be a string/i,
+    );
   });
 });
 

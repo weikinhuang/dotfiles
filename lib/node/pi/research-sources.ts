@@ -591,6 +591,7 @@ export async function searchWeb(
   const refs: SourceRef[] = [];
   for (const item of searchResult.results) {
     if (typeof item.url !== 'string' || item.url.length === 0) continue;
+    // oxlint-disable-next-line no-await-in-loop -- sequential fetch keeps MCP rate-limit headroom and preserves source order
     refs.push(await fetchAndStore(runRoot, item.url, mcpClient, fetchOpts));
   }
   return refs;

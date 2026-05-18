@@ -188,7 +188,7 @@ describe('runDeepResearchReview - scenario A (structural refinement)', () => {
     expect(result.firstTimeConsent).toBe(true);
 
     // First notify = consent bootstrap, last = summary.
-    const messages = notify.mock.calls.map(([m]) => m);
+    const messages = notify.mock.calls.map(([m]) => m as string);
 
     expect(messages[0]).toContain('first-time review-loop consent');
     expect(messages.at(-1)).toContain('review PASSED');
@@ -565,7 +565,7 @@ describe('runDeepResearchReview - consent flow', () => {
     expect(result2.firstTimeConsent).toBe(false);
 
     // Only the summary notify, not a second consent bootstrap.
-    const messages = notify2.mock.calls.map(([m]) => m);
+    const messages = notify2.mock.calls.map(([m]) => m as string);
 
     expect(messages.filter((s) => s.includes('first-time'))).toEqual([]);
   });

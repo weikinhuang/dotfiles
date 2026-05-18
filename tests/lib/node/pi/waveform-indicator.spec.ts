@@ -185,6 +185,7 @@ describe('buildIndicatorFrames', () => {
     for (const frame of frames) {
       const stripped = stripAnsi(frame);
 
+      // oxlint-disable-next-line typescript/no-misused-spread -- braille code points are intentional; we assert codepoint count, not grapheme clusters
       expect([...stripped]).toHaveLength(8);
 
       // Every code point must live in the U+2800..U+28FF braille block.

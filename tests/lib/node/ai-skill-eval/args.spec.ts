@@ -16,19 +16,17 @@ class ExitCalled extends Error {
   }
 }
 
-let exitSpy: ReturnType<typeof vi.spyOn>;
 let stdoutSpy: ReturnType<typeof vi.spyOn>;
 
 beforeEach(() => {
-  exitSpy = vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
+  vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
     throw new ExitCalled(code ?? 0);
   }) as never);
   stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
 });
 
 afterEach(() => {
-  exitSpy.mockRestore();
-  stdoutSpy.mockRestore();
+  vi.restoreAllMocks();
 });
 
 describe('parseArgs - defaults', () => {
@@ -96,7 +94,7 @@ describe('parseArgs - flag shapes', () => {
   });
 
   test('--driver rejects unknown values', () => {
-    expect(() => parseArgs(['list', '--driver', 'gemini'])).toThrow();
+    expect(() => parseArgs(['list', '--driver', 'gemini'])).toThrow(/unknown driver/i);
   });
 
   test('repeatable flags (--skill-root, --only) accumulate', () => {

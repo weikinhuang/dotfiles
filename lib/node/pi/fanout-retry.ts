@@ -160,6 +160,7 @@ export async function withTransientRetry<T>(fn: (attempt: number) => Promise<T>,
       throw new Error('aborted');
     }
     try {
+      // oxlint-disable-next-line no-await-in-loop -- retry loop must observe the previous attempt's outcome
       return await fn(attempt);
     } catch (err) {
       lastErr = err;
@@ -171,6 +172,7 @@ export async function withTransientRetry<T>(fn: (attempt: number) => Promise<T>,
 
       const delayMs = computeBackoffMs(attempt, opts);
       opts.onRetry?.(attempt, err, delayMs);
+      // oxlint-disable-next-line no-await-in-loop -- backoff sleep is the whole point of the retry loop
       await sleep(delayMs);
     }
   }

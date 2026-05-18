@@ -206,10 +206,12 @@ async function start(opts: Options): Promise<void> {
   let ready = false;
   for (let i = 0; i < 30; i++) {
     try {
+      // oxlint-disable-next-line no-await-in-loop -- poll-then-sleep until the socket is ready
       await isListening(socket);
       ready = true;
       break;
     } catch {}
+    // oxlint-disable-next-line no-await-in-loop -- 20ms backoff between readiness probes
     await new Promise((r) => setTimeout(r, 20));
   }
 

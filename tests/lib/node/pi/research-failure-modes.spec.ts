@@ -439,6 +439,7 @@ describe('research failure modes', () => {
     // rounds so a hypothetical tmp-suffix collision has multiple
     // chances to surface.
     for (let round = 0; round < 10; round++) {
+      // oxlint-disable-next-line no-await-in-loop -- rounds must serialize so each pair of writers fully resolves before the next round starts
       await Promise.all([
         Promise.resolve().then(() => {
           writePlan(layout.plan, { ...plan, status: round % 2 === 0 ? 'planning' : 'fanout' });

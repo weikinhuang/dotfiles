@@ -274,6 +274,7 @@ export async function refineReport<M>(args: RefineReportArgs<M>): Promise<Refine
     } catch {
       /* swallow */
     }
+    // oxlint-disable-next-line no-await-in-loop -- each section refine consumes the previous section's outcome
     const outcome = await runSectionSynth<M>({
       runRoot: args.runRoot,
       plan: args.plan,

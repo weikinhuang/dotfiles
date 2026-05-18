@@ -198,6 +198,7 @@ export async function runOptimizeLoop(input: RunOptimizeInput): Promise<Optimize
     }
 
     // Fan the driver calls out through the concurrency limiter.
+    // oxlint-disable-next-line no-await-in-loop -- iterations are sequential by design (each round trains on the prior round's grades); concurrency lives inside runPool
     await runPool(jobs, { limit: numWorkers }, async (job) => {
       await hooks.runEvalDriver(job.promptFile, job.resultFile);
     });
@@ -288,6 +289,7 @@ export async function runOptimizeLoop(input: RunOptimizeInput): Promise<Optimize
     const primaryPromptFile = join(improverDir, 'prompt.txt');
     const primaryResponseFile = join(improverDir, 'response.txt');
     writeFileSync(primaryPromptFile, primaryPrompt);
+    // oxlint-disable-next-line no-await-in-loop -- improver runs once per round and feeds the next round's candidate
     await hooks.runImproverDriver(primaryPromptFile, primaryResponseFile);
     const primaryRaw = readFileSync(primaryResponseFile, 'utf8');
     let candidate = parseNewDescription(primaryRaw);
@@ -307,6 +309,7 @@ export async function runOptimizeLoop(input: RunOptimizeInput): Promise<Optimize
       const shortenPromptFile = join(improverDir, 'shorten-prompt.txt');
       const shortenResponseFile = join(improverDir, 'shorten-response.txt');
       writeFileSync(shortenPromptFile, shortenPrompt);
+      // oxlint-disable-next-line no-await-in-loop -- shorten pass depends on the primary improver's candidate from the same round
       await hooks.runImproverDriver(shortenPromptFile, shortenResponseFile);
       const shortenRaw = readFileSync(shortenResponseFile, 'utf8');
       const rewritten = parseNewDescription(shortenRaw);

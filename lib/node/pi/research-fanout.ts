@@ -561,6 +561,7 @@ export async function fanout(spec: FanoutSpec, runRoot: string, deps: FanoutDeps
         void launch(pendingIdx[nextIdx++]);
       }
       if (active.size > 0) {
+        // oxlint-disable-next-line no-await-in-loop -- Promise.race throttles the launch loop until at least one slot frees up
         await Promise.race(active);
       }
     }

@@ -259,6 +259,7 @@ async function runDeepResearchPipeline(root: string): Promise<void> {
   const mcp = makeMockMcpClient();
   const refs: { url: string; id: string }[] = [];
   for (const s of DR_FIXTURE.sources) {
+    // oxlint-disable-next-line no-await-in-loop -- selftest exercises sources sequentially so id ordering matches the fixture
     const ref = await fetchAndStore(root, s.url, mcp, {
       now: () => new Date(s.fetchedAtIso),
     });

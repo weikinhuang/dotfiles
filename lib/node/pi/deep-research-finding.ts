@@ -349,6 +349,7 @@ export async function normalizeSourceTitles<M>(opts: NormalizeSourceTitlesOpts<M
     }
     let rewritten: string | null = null;
     try {
+      // oxlint-disable-next-line no-await-in-loop -- tiny-model rewrites run sequentially to avoid local-model concurrency limits
       rewritten = await adapter.callTinyRewrite(ctx, 'normalize-title', desc);
     } catch {
       rewritten = null;

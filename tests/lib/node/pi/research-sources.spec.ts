@@ -146,8 +146,8 @@ describe('normalizeUrl - canonical table', () => {
   }
 
   test('throws on invalid URL', () => {
-    expect(() => normalizeUrl('not a url')).toThrow();
-    expect(() => normalizeUrl('')).toThrow();
+    expect(() => normalizeUrl('not a url')).toThrow(/invalid url/i);
+    expect(() => normalizeUrl('')).toThrow(/invalid url/i);
   });
 });
 
@@ -529,6 +529,7 @@ describe('getById / listRun', () => {
     const mcp = new MockMcpClient();
     const urls = ['https://a.example.com/', 'https://b.example.com/', 'https://c.example.com/'];
     for (const u of urls) mcp.fetchResponses.set(u, { content: `body ${u}`, title: u });
+    // oxlint-disable-next-line no-await-in-loop -- test asserts alphabetical id order, which depends on sequential writes
     for (const u of urls) await fetchAndStore(runRoot, u, mcp);
 
     const listed = listRun(runRoot);

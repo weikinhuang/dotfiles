@@ -194,6 +194,7 @@ export async function watch(opts: WatchdogOpts): Promise<WatchdogResult> {
     }
 
     if (!firstIteration) {
+      // oxlint-disable-next-line no-await-in-loop -- poll interval is intentionally sequential
       await sleep(pollIntervalMs);
       if (opts.signal?.aborted) {
         return { kind: 'aborted-by-parent', lastStatus };
@@ -203,6 +204,7 @@ export async function watch(opts: WatchdogOpts): Promise<WatchdogResult> {
 
     let status: WatchdogStatus;
     try {
+      // oxlint-disable-next-line no-await-in-loop -- one status probe per poll tick
       status = await opts.handle.status();
     } catch (e) {
       // A failing status call is itself a signal - classify as
@@ -256,6 +258,7 @@ export async function watch(opts: WatchdogOpts): Promise<WatchdogResult> {
       let aborted = false;
       if (abortOnStall) {
         try {
+          // oxlint-disable-next-line no-await-in-loop -- abort on stall is fired at most once per loop iteration
           await opts.handle.abort(reason);
           aborted = true;
         } catch {

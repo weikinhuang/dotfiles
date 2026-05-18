@@ -478,6 +478,7 @@ export async function runAllSections<M>(opts: AllSectionsOpts<M>): Promise<Secti
       ...(opts.tinyCtx ? { tinyCtx: opts.tinyCtx } : {}),
       ...(opts.extraInstructions ? { extraInstructions: opts.extraInstructions } : {}),
     };
+    // oxlint-disable-next-line no-await-in-loop -- sections synthesize sequentially so each one can reference prior outcomes via journal
     const outcome = await runSectionSynth(perSection);
     out.push(outcome);
     opts.onSection?.(outcome);

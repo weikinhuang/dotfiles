@@ -372,6 +372,7 @@ export async function runReviewLoop(deps: ReviewLoopDeps): Promise<ReviewLoopOut
     // ── Structural stage ──────────────────────────────────────
     let structural: StructuralCheckResult;
     try {
+      // oxlint-disable-next-line no-await-in-loop -- each iteration depends on the prior structural verdict
       structural = await deps.runStructural({ iteration: iter });
     } catch (e) {
       return {
@@ -411,6 +412,7 @@ export async function runReviewLoop(deps: ReviewLoopDeps): Promise<ReviewLoopOut
           lastCritic,
         };
       }
+      // oxlint-disable-next-line no-await-in-loop -- structural refinement pass must complete before the next review iteration
       const refineResult = await deps.refineReport({
         stage: 'structural',
         nudge: buildStructuralNudge(structural),
@@ -431,6 +433,7 @@ export async function runReviewLoop(deps: ReviewLoopDeps): Promise<ReviewLoopOut
     // ── Critic stage ──────────────────────────────────────────
     let critic: Verdict;
     try {
+      // oxlint-disable-next-line no-await-in-loop -- critic stage runs after structural in each review iteration
       critic = await deps.runCritic({ iteration: iter });
     } catch (e) {
       return {
@@ -456,6 +459,7 @@ export async function runReviewLoop(deps: ReviewLoopDeps): Promise<ReviewLoopOut
       // iterations drifted the structure.
       let reStructural: StructuralCheckResult;
       try {
+        // oxlint-disable-next-line no-await-in-loop -- re-running structural to confirm subjective refines did not regress structure
         reStructural = await deps.runStructural({ iteration: iter });
       } catch (e) {
         return {
@@ -505,6 +509,7 @@ export async function runReviewLoop(deps: ReviewLoopDeps): Promise<ReviewLoopOut
         lastCritic: critic,
       };
     }
+    // oxlint-disable-next-line no-await-in-loop -- subjective refinement pass must complete before the next review iteration
     const refineResult = await deps.refineReport({
       stage: 'subjective',
       nudge: buildSubjectiveNudge(critic),

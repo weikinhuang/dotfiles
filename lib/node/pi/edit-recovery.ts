@@ -65,8 +65,7 @@ export function parseEditFailure(text: string): ParsedEditFailure | undefined {
   const line = text
     .split('\n')
     .map((l) => l.trim())
-    .filter(Boolean)
-    .pop();
+    .findLast(Boolean);
   if (!line) return undefined;
 
   let m: RegExpExecArray | null;

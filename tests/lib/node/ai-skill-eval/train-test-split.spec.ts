@@ -52,7 +52,7 @@ describe('shuffle', () => {
     const input = [1, 2, 3, 4, 5, 6, 7, 8];
     const out = shuffle(input, mulberry32(7));
 
-    expect(out.slice().sort()).toStrictEqual(input.slice().sort());
+    expect(out.slice().sort((a, b) => a - b)).toStrictEqual(input.slice().sort((a, b) => a - b));
   });
 
   test('does not mutate the input array', () => {

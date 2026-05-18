@@ -22,7 +22,7 @@ import {
 } from '../../../../lib/node/pi/research-budget-live.ts';
 import { createRunBudget } from '../../../../lib/node/pi/research-budget.ts';
 
-const ALL_PHASES = DEFAULT_BUDGET_PHASES.map((p) => ({ ...p }));
+const ALL_PHASES = DEFAULT_BUDGET_PHASES.map((p) => Object.assign({}, p));
 
 function fakeClock(): { now: () => number; advance: (ms: number) => void } {
   let t = 1_000_000;

@@ -68,8 +68,10 @@ describe('active-agent singleton', () => {
     expect(getActiveAgent()?.bashDeny).toEqual(['curl *']);
 
     expect(() => {
-      (getActiveAgent()?.bashAllow as string[]).push('evil');
-    }).toThrow();
+      const agent = getActiveAgent();
+      if (!agent) throw new Error('expected active agent');
+      (agent.bashAllow as string[]).push('evil');
+    }).toThrow(/read.?only|frozen|not extensible|cannot (add|delete|assign)/i);
   });
 
   test('replacing an active snapshot overwrites every field', () => {

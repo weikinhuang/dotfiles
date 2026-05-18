@@ -816,6 +816,7 @@ async function absorbFindings<M>(args: AbsorbArgs<M>): Promise<string[]> {
       // Optional tiny source-title normalization (decorative only).
       if (deps.tinyAdapter && deps.tinyCtx && deps.tinyAdapter.isEnabled()) {
         try {
+          // oxlint-disable-next-line no-await-in-loop -- single tiny-model call per accept iteration; not parallelizable across iterations
           const normalizedSources = await normalizeSourceTitles({
             sections: action.sections,
             adapter: deps.tinyAdapter,
@@ -1039,6 +1040,7 @@ async function populateSourceStore<M>(args: PopulateArgs<M>): Promise<void> {
         continue;
       }
       try {
+        // oxlint-disable-next-line no-await-in-loop -- sequential fetch keeps MCP rate-limit headroom
         const ref = await fetchAndStore(runRoot, url, client, nowFactory);
         if (ref.method === 'cached') cacheHits += 1;
         else if (ref.method === 'fetch') fetched += 1;
