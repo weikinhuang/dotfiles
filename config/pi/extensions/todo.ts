@@ -73,10 +73,13 @@ import {
   cloneState,
   emptyState,
   formatText,
+  formatTodoProgress,
+  groupTodos,
   reduceBranch,
   TODO_CUSTOM_TYPE,
   type Todo,
   type TodoState,
+  transitionGlyphs,
 } from '../../../lib/node/pi/todo-reducer.ts';
 
 // Sentinel prepended to the guardrail steer. We detect it on the most
@@ -115,23 +118,112 @@ interface TodoDetails extends TodoState {
 // Helpers
 // ──────────────────────────────────────────────────────────────────────
 
-function renderTodoLine(t: Todo, theme: Theme): string {
-  const marker =
-    t.status === 'completed'
-      ? theme.fg('success', '✓')
-      : t.status === 'in_progress'
-        ? theme.fg('accent', theme.bold('→'))
-        : t.status === 'review'
-          ? theme.fg('warning', '⋯')
-          : t.status === 'blocked'
-            ? theme.fg('error', '⛔')
-            : t.status === 'cancelled'
-              ? theme.fg('muted', '⊘')
-              : theme.fg('dim', '○');
+/** Themed status glyph for a todo. Single source of truth for the
+ * symbol set; mirrors `statusGlyph` in `todo-reducer.ts` but applies
+ * the per-status theme colour. */
+function renderStatusGlyph(status: Todo['status'], theme: Theme): string {
+  switch (status) {
+    case 'completed':
+      return theme.fg('success', '✓');
+    case 'in_progress':
+      return theme.fg('accent', theme.bold('→'));
+    case 'review':
+      return theme.fg('warning', '⋯');
+    case 'blocked':
+      return theme.fg('error', '⛔');
+    case 'cancelled':
+      return theme.fg('muted', '⊘');
+    case 'pending':
+      return theme.fg('dim', '○');
+  }
+}
+
+/** Single-line item render used by the inline `renderResult` grouped
+ * sections. Notes are inline-parenthetical so each item is one row. */
+function renderInlineTodo(t: Todo, theme: Theme, idPad: number): string {
+  const glyph = renderStatusGlyph(t.status, theme);
+  const idStr = `#${t.id}`.padEnd(idPad);
   const textStyled =
     t.status === 'completed' || t.status === 'cancelled' ? theme.fg('dim', t.text) : theme.fg('text', t.text);
-  const note = t.note ? ` ${theme.fg('dim', `(${t.note})`)}` : '';
-  return `  ${marker} ${theme.fg('accent', `#${t.id}`)} ${textStyled}${note}`;
+  const note = t.note ? `  ${theme.fg('dim', `(${t.note})`)}` : '';
+  return `  ${glyph} ${theme.fg('accent', idStr)} ${textStyled}${note}`;
+}
+
+/** Item render used inside the `/todos` overlay. Notes go on a
+ * continuation line prefixed `• ` (overlay rows are 2-line items when
+ * the note is set). */
+function renderOverlayTodoLines(t: Todo, theme: Theme, idPad: number): string[] {
+  const glyph = renderStatusGlyph(t.status, theme);
+  const idStr = `#${t.id}`.padEnd(idPad);
+  const textStyled =
+    t.status === 'completed' || t.status === 'cancelled' ? theme.fg('dim', t.text) : theme.fg('text', t.text);
+  const head = `    ${glyph} ${theme.fg('accent', idStr)} ${textStyled}`;
+  if (!t.note) return [head];
+  // Continuation indent: 4 (item indent) + 1 (glyph) + 1 (space) + idPad + 1 (space) = 7 + idPad
+  const cont = `${' '.repeat(7 + idPad)}${theme.fg('dim', `• ${t.note}`)}`;
+  return [head, cont];
+}
+
+/**
+ * Header rule for the overlay: `─── Todos ───…─── 3/10 ───`. Title is
+ * accent-themed, dashes are borderMuted, chip is muted. When `chip` is
+ * undefined the rule falls back to the original `─── Title ───…` shape
+ * (used for the empty-state overlay so nothing reads "0/0").
+ */
+function formatHeaderRule(title: string, chip: string | undefined, width: number, theme: Theme): string {
+  const lead = '─'.repeat(3);
+  const titleSegment = ` ${title} `;
+  if (!chip) {
+    const fill = '─'.repeat(Math.max(0, width - lead.length - titleSegment.length));
+    return theme.fg('borderMuted', lead) + theme.fg('accent', titleSegment) + theme.fg('borderMuted', fill);
+  }
+  const chipSegment = ` ${chip} `;
+  const trail = '─'.repeat(3);
+  const middle = '─'.repeat(Math.max(1, width - lead.length - titleSegment.length - chipSegment.length - trail.length));
+  return (
+    theme.fg('borderMuted', lead) +
+    theme.fg('accent', titleSegment) +
+    theme.fg('borderMuted', middle) +
+    theme.fg('muted', chipSegment) +
+    theme.fg('borderMuted', trail)
+  );
+}
+
+/**
+ * Ordered list of the six groups in their display order.
+ * `withCount` controls whether the section header carries `(N)` (only
+ * `Cancelled` and `Completed` do; the active groups are short enough
+ * that the count is redundant).
+ */
+const OVERLAY_SECTIONS: readonly { key: keyof ReturnType<typeof groupTodos>; label: string; withCount: boolean }[] = [
+  { key: 'in_progress', label: 'In progress', withCount: false },
+  { key: 'review', label: 'Review', withCount: false },
+  { key: 'pending', label: 'Pending', withCount: false },
+  { key: 'blocked', label: 'Blocked', withCount: false },
+  { key: 'cancelled', label: 'Cancelled', withCount: true },
+  { key: 'completed', label: 'Completed', withCount: true },
+];
+
+/** Post-action status for the `<from> → <to>` triplet rendered in
+ * `renderCall`. Pairs with `transitionGlyphs` from the reducer; that
+ * helper supplies the `from` glyph, this one supplies the `to`. */
+function actionToStatus(action: string): Todo['status'] {
+  switch (action) {
+    case 'start':
+      return 'in_progress';
+    case 'review':
+      return 'review';
+    case 'complete':
+      return 'completed';
+    case 'block':
+      return 'blocked';
+    case 'cancel':
+      return 'cancelled';
+    case 'reopen':
+      return 'pending';
+    default:
+      return 'pending';
+  }
 }
 
 /**
@@ -211,29 +303,41 @@ class TodoOverlay {
     if (this.cachedLines && this.cachedWidth === width) return this.cachedLines;
     const th = this.theme;
     const lines: string[] = [''];
-    const title = th.fg('accent', ' Todos ');
-    lines.push(
-      truncateToWidth(
-        th.fg('borderMuted', '─'.repeat(3)) + title + th.fg('borderMuted', '─'.repeat(Math.max(0, width - 10))),
-        width,
-      ),
-    );
+
+    const total = this.state.todos.length;
+    const completed = this.state.todos.filter((t) => t.status === 'completed').length;
+    const chip = total > 0 ? `${completed}/${total}` : undefined;
+    lines.push(truncateToWidth(formatHeaderRule('Todos', chip, width, th), width));
     lines.push('');
 
-    if (this.state.todos.length === 0) {
+    if (total === 0) {
       lines.push(truncateToWidth(`  ${th.fg('dim', 'No todos yet. Ask the agent to plan a multi-step task.')}`, width));
     } else {
-      const counts = { pending: 0, in_progress: 0, review: 0, completed: 0, blocked: 0, cancelled: 0 };
-      for (const t of this.state.todos) counts[t.status]++;
-      const summary =
-        `${counts.completed}/${this.state.todos.length} done` +
-        (counts.in_progress ? ` · ${counts.in_progress} active` : '') +
-        (counts.review ? ` · ${counts.review} in review` : '') +
-        (counts.pending ? ` · ${counts.pending} pending` : '') +
-        (counts.blocked ? ` · ${counts.blocked} blocked` : '');
-      lines.push(truncateToWidth(`  ${th.fg('muted', summary)}`, width));
+      // Progress bar adapts to terminal width: 8 cells at 80 cols,
+      // wider when there's room (capped at 20 so it never dominates).
+      const barWidth = Math.max(4, Math.min(20, Math.floor(width / 10)));
+      const progress = formatTodoProgress(this.state, { width: barWidth });
+      const pctText = `${progress.pct}%`;
+      const progressLine = `  ${th.fg('success', progress.bar)}  ${th.fg('muted', pctText)}${progress.summary ? `   ${th.fg('muted', progress.summary)}` : ''}`;
+      lines.push(truncateToWidth(progressLine, width));
       lines.push('');
-      for (const t of this.state.todos) lines.push(truncateToWidth(renderTodoLine(t, th), width));
+
+      const groups = groupTodos(this.state);
+      const idPad = Math.max(...this.state.todos.map((t) => String(t.id).length)) + 1; // include '#'
+      let firstSection = true;
+      for (const section of OVERLAY_SECTIONS) {
+        const items = groups[section.key];
+        if (items.length === 0) continue;
+        if (!firstSection) lines.push('');
+        firstSection = false;
+        const headerLabel = section.withCount ? `${section.label} (${items.length})` : section.label;
+        lines.push(truncateToWidth(`  ${th.fg('muted', headerLabel)}`, width));
+        for (const t of items) {
+          for (const row of renderOverlayTodoLines(t, th, idPad)) {
+            lines.push(truncateToWidth(row, width));
+          }
+        }
+      }
     }
 
     lines.push('');
@@ -398,9 +502,13 @@ export default function todoExtension(pi: ExtensionAPI): void {
     renderCall(args, theme, _context) {
       let text = theme.fg('toolTitle', theme.bold('todo ')) + theme.fg('muted', args.action);
       if (args.id !== undefined) text += ` ${theme.fg('accent', `#${args.id}`)}`;
+      const triplet = transitionGlyphs(args.action);
+      if (triplet) {
+        text += `  ${theme.fg('dim', triplet.from)} ${theme.fg('dim', '→')} ${renderStatusGlyph(actionToStatus(args.action), theme)}`;
+      }
       if (args.text) text += ` ${theme.fg('dim', `"${truncate(args.text, 60)}"`)}`;
       if (Array.isArray(args.items)) text += ` ${theme.fg('dim', `[${args.items.length} items]`)}`;
-      if (args.note) text += ` ${theme.fg('dim', `(${truncate(args.note, 40)})`)}`;
+      if (args.note) text += `  ${theme.fg('dim', `(${truncate(args.note, 60)})`)}`;
       return new Text(text, 0, 0);
     },
 
@@ -413,22 +521,41 @@ export default function todoExtension(pi: ExtensionAPI): void {
       if (todos.length === 0) {
         return new Text(theme.fg('dim', 'No todos'), 0, 0);
       }
-      const counts = { pending: 0, in_progress: 0, review: 0, completed: 0, blocked: 0, cancelled: 0 };
-      for (const t of todos) counts[t.status]++;
-      const display = expanded ? todos : todos.slice(0, 8);
-      const parts: string[] = [
-        theme.fg(
-          'muted',
-          `${counts.completed}/${todos.length} done` +
-            (counts.in_progress ? ` · ${counts.in_progress} active` : '') +
-            (counts.review ? ` · ${counts.review} in review` : '') +
-            (counts.blocked ? ` · ${counts.blocked} blocked` : ''),
-        ),
-      ];
-      for (const t of display) parts.push(renderTodoLine(t, theme));
-      if (!expanded && todos.length > display.length) {
-        parts.push(theme.fg('dim', `  … ${todos.length - display.length} more`));
+      const totals = { todos, nextId: 0 } satisfies TodoState;
+      const progress = formatTodoProgress(totals, { width: 8 });
+      const groups = groupTodos(totals);
+      const idPad = Math.max(...todos.map((t) => String(t.id).length)) + 1;
+
+      const parts: string[] = [];
+      const headerSummary = progress.summary ? ` · ${progress.summary}` : '';
+      parts.push(
+        theme.fg('muted', `${groups.completed.length}/${todos.length} done  `) +
+          progress.bar +
+          theme.fg('muted', headerSummary),
+      );
+
+      const renderSection = (label: string, items: Todo[], withCount: boolean): void => {
+        if (items.length === 0) return;
+        parts.push('');
+        parts.push(theme.fg('muted', withCount ? `${label} (${items.length})` : label));
+        for (const t of items) parts.push(renderInlineTodo(t, theme, idPad));
+      };
+
+      renderSection('In progress', groups.in_progress, false);
+      renderSection('Review', groups.review, false);
+      renderSection('Pending', groups.pending, false);
+      renderSection('Blocked', groups.blocked, false);
+      // Cancelled is uncapped: the note carries the why-it-closed reason
+      // and that signal is worth seeing in collapsed view.
+      renderSection('Cancelled', groups.cancelled, true);
+
+      if (expanded || groups.completed.length === 0) {
+        renderSection('Completed', groups.completed, true);
+      } else {
+        parts.push('');
+        parts.push(theme.fg('dim', `  … ${groups.completed.length} completed (Ctrl+O to expand)`));
       }
+
       return new Text(parts.join('\n'), 0, 0);
     },
   });

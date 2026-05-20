@@ -255,7 +255,11 @@ export function formatTodoProgress(state: TodoState, opts: FormatProgressOptions
   };
   for (const t of state.todos) counts[t.status]++;
   const pct = total === 0 ? 0 : Math.round((counts.completed / total) * 100);
-  const filled = total === 0 ? 0 : Math.round((counts.completed / total) * width);
+  // Round-half-up via Math.round for the bar so the cell count tracks
+  // the percentage chip; the 30%/8-cell case in plans/pi-todo-overlay.md
+  // mock shows 3 cells (ceil of 2.4) but we lock to Math.round so 0%
+  // stays at 0 cells and 100% stays at `width` cells.
+  const filled = total === 0 ? 0 : Math.min(width, Math.max(0, Math.round((counts.completed / total) * width)));
   const bar = '▰'.repeat(filled) + '▱'.repeat(width - filled);
   const chips: string[] = [];
   if (counts.in_progress) chips.push(`${counts.in_progress} active`);
