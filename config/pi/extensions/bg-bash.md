@@ -68,10 +68,26 @@ via `markLiveJobsTerminated` so the next runtime sees them as historical rather 
 
 ## Commands
 
-- `/bg-bash [list]` - notify with `formatState`.
+- `/bg-bash` or `/bg-bash list` - open the bottom-anchored overlay. Top section is a structured job list
+  (id · status glyph · phrase · duration · bytes · cmd); bottom section is the merged log tail (last 8 lines) for the
+  highlighted job. Follow mode is default-on for running jobs; a 500 ms tick re-reads the in-memory ring buffer. Without
+  a UI surface (`ctx.hasUI === false`) the command falls back to a `formatState` notify so headless calls still print
+  something useful.
 - `/bg-bash logs <id>` - dump in-memory stdout + stderr for a live job.
 - `/bg-bash kill <id> [signal]` - signal a live job (default `SIGTERM`).
 - `/bg-bash clear` - drop terminal jobs from the registry; live jobs untouched.
+
+### Overlay keybindings
+
+- `↑` / `↓` (or `Ctrl+P` / `Ctrl+N`) -- move the selection.
+- `f` -- toggle freeze on the highlighted job's tail. Follow defaults to on for running jobs; freezing lets you read
+  scrollback without the tail scrolling out from under you. The mid-rule chip drops the `follow` marker when frozen.
+- `k` / `K` -- send `SIGTERM` / `SIGKILL` to the highlighted job. Routed through the same `actSignal` helper used by the
+  `bg_bash` tool, so the registry stays consistent across surfaces.
+- `r` -- remove the highlighted job from the registry (terminal jobs only). Routes through `actRemove`.
+- `c` -- clear every terminal job from the registry (live jobs untouched). Shares its implementation with the
+  `/bg-bash clear` sub-verb.
+- `Escape` (or `Ctrl+C`) -- close the overlay.
 
 ## Environment variables
 

@@ -68,7 +68,7 @@ import { join } from 'node:path';
 
 import { StringEnum } from '@earendil-works/pi-ai';
 import { type ExtensionAPI, type ExtensionContext, type Theme } from '@earendil-works/pi-coding-agent';
-import { Text } from '@earendil-works/pi-tui';
+import { type Component, matchesKey, Text, truncateToWidth } from '@earendil-works/pi-tui';
 import { Type } from 'typebox';
 
 import { requestBashApproval } from '../../../lib/node/pi/bash-gate.ts';
@@ -82,7 +82,11 @@ import {
   cloneSummary,
   emptyState,
   findJob,
+  formatJobHeader,
   formatJobLine,
+  formatJobRow,
+  formatLogTailExitHeader,
+  formatLogTailHeader,
   formatState,
   type JobStatus,
   type JobSummary,
@@ -90,7 +94,6 @@ import {
   pruneUnattachableJobs,
   reduceBranch,
   removeJob,
-  statusIcon,
   upsertJob,
 } from '../../../lib/node/pi/bg-bash-reducer.ts';
 import { RingBuffer } from '../../../lib/node/pi/bg-bash-ring.ts';
@@ -357,11 +360,45 @@ function droppedFor(job: LiveJob, stream: StreamName): number {
   return job.stdout.byteLengthDropped + job.stderr.byteLengthDropped;
 }
 
-function finalLine(job: JobSummary, theme: Theme): string {
-  return `${statusIcon(job.status)} ${theme.fg('toolTitle', theme.bold(`[${job.id}]`))} ${theme.fg(
-    'muted',
-    formatJobLine(job, Date.now()).replace(/^\[\w+\][^ ]* /, ''),
-  )}`;
+/**
+ * Theme the stable single-line header produced by `formatJobHeader`. The
+ * helper returns a plain string of the form
+ * `<glyph> [<id>]<label?>  <cmd>   <phrase>   <bytes>` which we colour
+ * here so the lead glyph stays visually distinct from the muted body.
+ */
+function renderJobHeader(job: JobSummary, theme: Theme, opts: { timedOut?: boolean } = {}): string {
+  const raw = formatJobHeader(job, Date.now(), opts);
+  // Slice off the lead `<glyph> ` so we can colour it separately.
+  const glyph = raw.slice(0, 1);
+  const rest = raw.slice(2);
+  // Re-extract the `[<id>]` so it can be bolded.
+  const idMatch = /^\[[^\]]+\]/.exec(rest);
+  if (!idMatch) {
+    return `${theme.fg(glyphColor(job, opts), glyph)} ${theme.fg('muted', rest)}`;
+  }
+  const idSeg = idMatch[0];
+  const tail = rest.slice(idSeg.length);
+  return (
+    `${theme.fg(glyphColor(job, opts), glyph)} ` +
+    `${theme.fg('toolTitle', theme.bold(idSeg))}` +
+    `${theme.fg('muted', tail)}`
+  );
+}
+
+function glyphColor(job: JobSummary, opts: { timedOut?: boolean }): string {
+  if (opts.timedOut) return 'warning';
+  switch (job.status) {
+    case 'running':
+      return 'warning';
+    case 'exited':
+      return (job.exitCode ?? 0) === 0 ? 'success' : 'error';
+    case 'signaled':
+      return 'warning';
+    case 'error':
+      return 'error';
+    case 'terminated':
+      return 'muted';
+  }
 }
 
 function renderRegistryLine(j: JobSummary, theme: Theme): string {
@@ -395,6 +432,236 @@ function sendSignalTo(job: LiveJob, sig: SignalName): boolean {
     } catch {
       return false;
     }
+  }
+}
+
+// ──────────────────────────────────────────────────────────────────────
+// /bg-bash overlay
+// ──────────────────────────────────────────────────────────────────────
+
+/**
+ * Header / mid-rule renderer: `─── Title ───…─── Chip ───`. Title is
+ * accent-themed, dashes are borderMuted, chip is muted. When `chip` is
+ * undefined the rule falls back to the plain `─── Title ───…` shape
+ * (used for empty-state). Mirrors the helper in todo.ts / subagent.ts so
+ * all three overlays share visual style.
+ */
+function formatHeaderRule(title: string, chip: string | undefined, width: number, theme: Theme): string {
+  const lead = '─'.repeat(3);
+  const titleSegment = ` ${title} `;
+  if (!chip) {
+    const fill = '─'.repeat(Math.max(0, width - lead.length - titleSegment.length));
+    return theme.fg('borderMuted', lead) + theme.fg('accent', titleSegment) + theme.fg('borderMuted', fill);
+  }
+  const chipSegment = ` ${chip} `;
+  const trail = '─'.repeat(3);
+  const middle = '─'.repeat(Math.max(1, width - lead.length - titleSegment.length - chipSegment.length - trail.length));
+  return (
+    theme.fg('borderMuted', lead) +
+    theme.fg('accent', titleSegment) +
+    theme.fg('borderMuted', middle) +
+    theme.fg('muted', chipSegment) +
+    theme.fg('borderMuted', trail)
+  );
+}
+
+const OVERLAY_TICK_MS = 500;
+const OVERLAY_TAIL_LINES = 8;
+
+interface OverlayDeps {
+  getState: () => BgBashState;
+  getLive: (id: string) => LiveJob | undefined;
+  onSignal: (id: string, sig: SignalName) => void;
+  onRemove: (id: string) => void;
+  onClearTerminal: () => void;
+}
+
+class BgBashOverlay implements Component {
+  private selected = 0;
+  /** Per-job freeze state; toggled by `f`. */
+  private readonly frozenHandles = new Set<string>();
+
+  constructor(
+    private readonly deps: OverlayDeps,
+    private readonly theme: Theme,
+    private readonly onClose: () => void,
+  ) {}
+
+  handleInput(data: string): void {
+    if (matchesKey(data, 'escape') || matchesKey(data, 'ctrl+c')) {
+      this.onClose();
+      return;
+    }
+    if (matchesKey(data, 'up') || matchesKey(data, 'ctrl+p')) {
+      this.move(-1);
+      return;
+    }
+    if (matchesKey(data, 'down') || matchesKey(data, 'ctrl+n')) {
+      this.move(1);
+      return;
+    }
+    if (data === 'f') {
+      this.toggleFreeze();
+      return;
+    }
+    if (data === 'k') {
+      this.signalSelected('SIGTERM');
+      return;
+    }
+    if (data === 'K') {
+      this.signalSelected('SIGKILL');
+      return;
+    }
+    if (data === 'r') {
+      this.removeSelected();
+      return;
+    }
+    if (data === 'c') {
+      this.deps.onClearTerminal();
+      return;
+    }
+  }
+
+  invalidate(): void {
+    /* no-op: render rebuilds on every tick so live byte counts stay fresh */
+  }
+
+  private jobs(): JobSummary[] {
+    return this.deps.getState().jobs;
+  }
+
+  private move(delta: number): void {
+    const jobs = this.jobs();
+    if (jobs.length === 0) return;
+    this.selected = Math.max(0, Math.min(jobs.length - 1, this.selected + delta));
+  }
+
+  private currentJob(): JobSummary | undefined {
+    const jobs = this.jobs();
+    if (jobs.length === 0) return undefined;
+    if (this.selected >= jobs.length) this.selected = jobs.length - 1;
+    return jobs[this.selected];
+  }
+
+  private toggleFreeze(): void {
+    const job = this.currentJob();
+    if (!job) return;
+    if (this.frozenHandles.has(job.id)) this.frozenHandles.delete(job.id);
+    else this.frozenHandles.add(job.id);
+  }
+
+  private signalSelected(sig: SignalName): void {
+    const job = this.currentJob();
+    if (!job || job.status !== 'running') return;
+    this.deps.onSignal(job.id, sig);
+  }
+
+  private removeSelected(): void {
+    const job = this.currentJob();
+    if (!job || job.status === 'running') return;
+    this.deps.onRemove(job.id);
+  }
+
+  render(width: number): string[] {
+    const th = this.theme;
+    const jobs = this.jobs();
+    const now = Date.now();
+    const lines: string[] = [''];
+
+    const runningCount = jobs.filter((j) => j.status === 'running' || j.status === 'signaled').length;
+    let chip: string | undefined;
+    if (jobs.length === 0) chip = '0 jobs';
+    else if (runningCount > 0) chip = `${jobs.length} jobs · ${runningCount} running`;
+    else chip = `${jobs.length} jobs`;
+    lines.push(truncateToWidth(formatHeaderRule('Background jobs', chip, width, th), width));
+    lines.push('');
+
+    if (jobs.length === 0) {
+      lines.push(truncateToWidth(`  ${th.fg('dim', '(no background jobs)')}`, width));
+      lines.push('');
+      lines.push(truncateToWidth(`  ${th.fg('dim', 'Press Escape to close')}`, width));
+      lines.push('');
+      return lines;
+    }
+
+    if (this.selected >= jobs.length) this.selected = jobs.length - 1;
+
+    // Top section: structured job rows with right-padded phrase / dur /
+    // bytes columns so the cmd column lines up across rows.
+    const rows = jobs.map((j) => formatJobRow(j, now, { width: Math.max(40, width - 4) }));
+    const phraseWidth = Math.max(...rows.map((r) => r.statusPhrase.length));
+    const durWidth = Math.max(...rows.map((r) => r.duration.length));
+    const bytesWidth = Math.max(...rows.map((r) => r.bytes.length));
+    const idWidth = Math.max(...rows.map((r) => r.id.length));
+    for (let i = 0; i < jobs.length; i++) {
+      const j = jobs[i];
+      const r = rows[i];
+      const marker = i === this.selected ? th.fg('accent', '>') : ' ';
+      const glyphColored = th.fg(glyphColor(j, {}), r.statusGlyph);
+      const line =
+        `  ${marker} ${th.fg('toolTitle', th.bold(r.id.padEnd(idWidth)))} ${glyphColored} ` +
+        `${th.fg('muted', r.statusPhrase.padEnd(phraseWidth))}   ` +
+        `${th.fg('dim', r.duration.padEnd(durWidth))}   ` +
+        `${th.fg('dim', r.bytes.padEnd(bytesWidth))}   ` +
+        `${th.fg('text', r.cmd)}`;
+      lines.push(truncateToWidth(line, width));
+    }
+
+    // Mid-rule + log tail for the highlighted job.
+    const sel = jobs[this.selected];
+    const live = this.deps.getLive(sel.id);
+    const followDefault = sel.status === 'running' || sel.status === 'signaled';
+    const frozen = this.frozenHandles.has(sel.id);
+    const following = followDefault && !frozen;
+    const midTitle = `[${sel.id}] ${truncate(sel.command.replace(/\s+/g, ' '), Math.max(20, width - 60))}`;
+    const midChip = followDefault
+      ? formatLogTailHeader(sel, { stdoutBytes: sel.stdoutBytes, stderrBytes: sel.stderrBytes, following })
+      : formatLogTailExitHeader(sel);
+
+    lines.push('');
+    lines.push(truncateToWidth(formatHeaderRule(midTitle, midChip, width, th), width));
+    lines.push('');
+
+    // Tail: last OVERLAY_TAIL_LINES lines from the merged in-memory ring.
+    if (live) {
+      const merged = mergeStreams(live, 'merged');
+      const tail = tailLines(merged, OVERLAY_TAIL_LINES).trimEnd();
+      if (!tail) {
+        lines.push(truncateToWidth(`  ${th.fg('dim', '(no output yet)')}`, width));
+      } else {
+        const tailRows = tail.split('\n');
+        for (const row of tailRows) {
+          lines.push(truncateToWidth(`  ${th.fg('toolOutput', row)}`, width));
+        }
+        // Hint to expand if there's clearly more than the visible tail.
+        const totalLines = merged ? merged.split('\n').length : 0;
+        if (totalLines > tailRows.length) {
+          const moreCount = totalLines - tailRows.length;
+          lines.push(truncateToWidth(`  ${th.fg('dim', `… ${moreCount} more lines (bg_bash logs ${sel.id})`)}`, width));
+        }
+      }
+    } else if (sel.logFile) {
+      lines.push(truncateToWidth(`  ${th.fg('dim', `(no in-memory buffer; see ${sel.logFile})`)}`, width));
+    } else {
+      lines.push(truncateToWidth(`  ${th.fg('dim', '(no logs available)')}`, width));
+    }
+
+    // Footer hint: keys vary based on whether the highlighted job is
+    // live or terminal so we don't advertise actions that would no-op.
+    const helpParts = ['↑/↓ move'];
+    if (followDefault) {
+      helpParts.push(frozen ? 'f follow' : 'f freeze');
+      helpParts.push('k SIGTERM', 'K SIGKILL');
+    } else {
+      helpParts.push('r remove');
+    }
+    helpParts.push('c clear terminal');
+    helpParts.push('Press Escape to close');
+    lines.push('');
+    lines.push(truncateToWidth(`  ${th.fg('dim', helpParts.join(' · '))}`, width));
+    lines.push('');
+
+    return lines;
   }
 }
 
@@ -1153,37 +1420,45 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
       const parts: string[] = [];
 
       // Action-specific lead line first.
+      //
+      // `logs` / `wait` / `status` share the stable `formatJobHeader`
+      // shape (glyph derived from job status, not the action). `start`
+      // and `signal` use action-specific leads.
       if (details.action === 'start' && details.job) {
-        parts.push(
-          `${theme.fg('success', '▶')} ${theme.fg('toolTitle', theme.bold(`[${details.job.id}]`))} ${theme.fg(
-            'dim',
-            `pid ${details.job.pid ?? '?'}`,
-          )} ${theme.fg('muted', truncate(details.job.command, 120))}`,
-        );
-      } else if (details.action === 'wait') {
-        if (details.timedOut) parts.push(theme.fg('warning', '⏱ waited, still running'));
-        else if (details.job) parts.push(finalLine(details.job, theme));
+        if (details.job.status === 'error') {
+          parts.push(
+            `${theme.fg('error', '✗')} ${theme.fg('toolTitle', theme.bold(`[${details.job.id}]`))} ` +
+              `${theme.fg('muted', `spawn failed: ${details.job.error ?? 'unknown'}`)}`,
+          );
+        } else {
+          parts.push(
+            `${theme.fg('success', '▶')} ${theme.fg('toolTitle', theme.bold(`[${details.job.id}]`))}  ` +
+              `${theme.fg('dim', `pid ${details.job.pid ?? '?'}`)}  ` +
+              `${theme.fg('muted', truncate(details.job.command.replace(/\s+/g, ' '), 80))}`,
+          );
+          const cwdStr = details.job.cwd ? details.job.cwd.replace(homedir(), '~') : '';
+          if (cwdStr) {
+            parts.push(`   ${theme.fg('dim', `cwd ${cwdStr}`)}`);
+          }
+        }
+      } else if (details.action === 'wait' && details.job) {
+        parts.push(renderJobHeader(details.job, theme, { timedOut: details.timedOut === true }));
       } else if (details.action === 'signal' && details.job) {
+        const sig = details.job.signal ?? 'signal';
         parts.push(
-          `${theme.fg('warning', '⚡')} sent ${theme.fg('accent', details.job.signal ?? 'signal')} to ${theme.fg(
-            'toolTitle',
-            theme.bold(`[${details.job.id}]`),
-          )}`,
+          `${theme.fg('warning', '⚡')} ${theme.fg('toolTitle', theme.bold(`[${details.job.id}]`))}  ` +
+            `${theme.fg('accent', sig)} ${theme.fg('muted', 'sent  ·  awaiting exit')}`,
         );
       } else if (details.action === 'stdin' && details.job) {
         parts.push(
           `${theme.fg('muted', '↳ wrote to stdin of ')}${theme.fg('toolTitle', theme.bold(`[${details.job.id}]`))}`,
         );
       } else if (details.action === 'logs' && details.job) {
-        const bytes = details.totalBytes ?? 0;
-        let head = `${statusIcon(details.job.status)} ${theme.fg('toolTitle', theme.bold(`[${details.job.id}]`))} ${theme.fg(
-          'dim',
-          `${bytes} total bytes`,
-        )}`;
+        let head = renderJobHeader(details.job, theme);
         if (details.droppedBefore) head += ` ${theme.fg('warning', '(cursor evicted)')}`;
         parts.push(head);
       } else if (details.action === 'status' && details.job) {
-        parts.push(finalLine(details.job, theme));
+        parts.push(renderJobHeader(details.job, theme));
       } else if (details.action === 'remove' && details.job) {
         parts.push(`${theme.fg('muted', '✕ removed ')}${theme.fg('dim', `[${details.job.id}]`)}`);
       }
@@ -1197,23 +1472,18 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
         }
       }
 
-      // Registry summary (always appended for context).
-      //
-      // For `action: 'list'` the user explicitly asked for the full
-      // registry, so always render every job regardless of expanded
-      // state. For every other action the registry is just incidental
-      // context, so keep the 5-job cap with a Ctrl+O expand hint when
-      // there's more hiding.
-      const count = jobs.length;
-      const showAll = expanded || details.action === 'list';
-      if (count === 0 && details.action !== 'start') {
-        parts.push(theme.fg('dim', '(no background jobs)'));
-      } else if (count > 0) {
-        parts.push(theme.fg('muted', `Registry: ${count} job(s)`));
-        const show = showAll ? jobs : jobs.slice(0, 5);
-        for (const j of show) parts.push(renderRegistryLine(j, theme));
-        if (count > show.length) {
-          parts.push(theme.fg('dim', `  … ${count - show.length} more (Ctrl+O to expand)`));
+      // Registry tail. Only `list` renders this. Every other action's
+      // card was getting dominated by the registry dump in scrollback
+      // (see captures/08-bgbash-inline-scrollback.txt). The empty-state
+      // `(no background jobs)` hint is preserved for `list` so an
+      // intentionally empty registry still has a visible result.
+      if (details.action === 'list') {
+        const count = jobs.length;
+        if (count === 0) {
+          parts.push(theme.fg('dim', '(no background jobs)'));
+        } else {
+          parts.push(theme.fg('muted', `Registry: ${count} job(s)`));
+          for (const j of jobs) parts.push(renderRegistryLine(j, theme));
         }
       }
 
@@ -1223,8 +1493,27 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
 
   // ── /bg-bash command (user-facing inspection / control) ────────────
 
+  /**
+   * Drop every terminal (non-live) job from the registry, returning how
+   * many were removed. Shared between the `/bg-bash clear` sub-verb and
+   * the overlay's `c` keybinding so both surfaces stay consistent.
+   */
+  const clearTerminalJobs = (): number => {
+    const before = state.jobs.length;
+    state = {
+      ...state,
+      jobs: state.jobs.filter((j) => j.status === 'running' || j.status === 'signaled'),
+    };
+    const removed = before - state.jobs.length;
+    if (removed > 0) {
+      persist();
+      updateStatusline();
+    }
+    return removed;
+  };
+
   pi.registerCommand('bg-bash', {
-    description: 'Inspect the background-job registry (list / logs / kill / clear).',
+    description: 'Inspect the background-job registry (overlay, plus list / logs / kill / clear sub-verbs).',
     getArgumentCompletions: (prefix) => {
       const opts = ['list', 'logs', 'kill', 'clear'];
       const items = opts.filter((o) => o.startsWith(prefix)).map((o) => ({ value: o, label: o }));
@@ -1234,7 +1523,42 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
       const [sub, ...rest] = (args ?? '').trim().split(/\s+/);
 
       if (!sub || sub === 'list') {
-        ctx.ui.notify(formatState(state, Date.now()), 'info');
+        if (!ctx.hasUI) {
+          ctx.ui.notify(formatState(state, Date.now()), 'info');
+          return;
+        }
+        let ticker: ReturnType<typeof setInterval> | undefined;
+        let overlay: BgBashOverlay | undefined;
+        await ctx.ui.custom<void>((tui, theme, _kb, done) => {
+          overlay = new BgBashOverlay(
+            {
+              getState: () => state,
+              getLive: (id) => live.get(id),
+              onSignal: (id, sig) => {
+                // Route through actSignal so the bash-permissions /
+                // state-update path matches the `bg_bash` tool.
+                actSignal({ id, signal: sig });
+              },
+              onRemove: (id) => {
+                actRemove({ id });
+              },
+              onClearTerminal: () => {
+                clearTerminalJobs();
+              },
+            },
+            theme,
+            () => {
+              if (ticker) clearInterval(ticker);
+              ticker = undefined;
+              done();
+            },
+          );
+          ticker = setInterval(() => {
+            tui.requestRender();
+          }, OVERLAY_TICK_MS);
+          return overlay;
+        });
+        if (ticker) clearInterval(ticker);
         return;
       }
       if (sub === 'logs') {
@@ -1268,15 +1592,8 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
         return;
       }
       if (sub === 'clear') {
-        // Drop all terminal jobs from the registry; leave live ones alone.
-        const before = state.jobs.length;
-        state = {
-          ...state,
-          jobs: state.jobs.filter((j) => j.status === 'running' || j.status === 'signaled'),
-        };
-        persist();
-        updateStatusline();
-        ctx.ui.notify(`Cleared ${before - state.jobs.length} terminal job(s).`, 'info');
+        const removed = clearTerminalJobs();
+        ctx.ui.notify(`Cleared ${removed} terminal job(s).`, 'info');
         return;
       }
       ctx.ui.notify(`Unknown subcommand: ${sub}. Usage: /bg-bash [list|logs <id>|kill <id> [sig]|clear]`, 'warning');

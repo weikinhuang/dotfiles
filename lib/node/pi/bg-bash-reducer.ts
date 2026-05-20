@@ -366,6 +366,187 @@ export function formatState(state: BgBashState, now: number): string {
   return state.jobs.map((j) => formatJobLine(j, now)).join('\n');
 }
 
+// ──────────────────────────────────────────────────────────────────────
+// Overlay / inline-card formatters used by the bg-bash extension's
+// `renderResult` and the `/bg-bash` overlay. Kept here so the strings
+// match across surfaces and can be vitest-tested without the pi runtime.
+// ──────────────────────────────────────────────────────────────────────
+
+/**
+ * Status glyph for the inline `renderResult` header. Distinguishes
+ * non-zero exit codes (`✗`) from clean exits (`✓`) and uses `⚠` for
+ * signaled jobs so it's not confused with a non-zero exit. `⌛` is used
+ * when the caller passes `timedOut: true` to indicate that the wait
+ * action timed out before the (still-running) job finished.
+ */
+function headerGlyph(job: JobSummary, opts: { timedOut?: boolean }): string {
+  if (opts.timedOut) return '⌛';
+  switch (job.status) {
+    case 'running':
+      return '●';
+    case 'exited':
+      return (job.exitCode ?? 0) === 0 ? '✓' : '✗';
+    case 'signaled':
+      return '⚠';
+    case 'error':
+      return '✗';
+    case 'terminated':
+      return '◌';
+  }
+}
+
+/**
+ * Status phrase for the inline `renderResult` header. Combines lifecycle
+ * state with duration / exit metadata in a single segment so the header
+ * has a stable column layout.
+ */
+function headerStatusPhrase(job: JobSummary, now: number, opts: { timedOut?: boolean }): string {
+  const ended = job.endedAt ?? now;
+  const dur = formatDuration(ended - job.startedAt);
+  if (opts.timedOut) {
+    const runDur = formatDuration(now - job.startedAt);
+    return `still running ${runDur}`;
+  }
+  switch (job.status) {
+    case 'running':
+      return `running ${dur}`;
+    case 'exited':
+      return `exit ${job.exitCode ?? '?'} in ${dur}`;
+    case 'signaled':
+      return `${job.signal ?? 'signal'} after ${dur}`;
+    case 'error':
+      return `error: ${job.error ?? 'unknown'}`;
+    case 'terminated':
+      return `terminated, ran ${dur}`;
+  }
+}
+
+/**
+ * Compact bytes summary: `stdout X / stderr Y` when both streams have
+ * data, otherwise just the single combined total (avoids the noise of
+ * `… / stderr 0B` on stdout-only commands).
+ */
+function bytesSummary(job: JobSummary): string {
+  const total = job.stdoutBytes + job.stderrBytes;
+  if (job.stderrBytes > 0 && job.stdoutBytes > 0) {
+    return `stdout ${formatBytes(job.stdoutBytes)} / stderr ${formatBytes(job.stderrBytes)}`;
+  }
+  return formatBytes(total);
+}
+
+/**
+ * Stable single-line header used by the bg_bash inline cards
+ * (`start` is special-cased upstream because its glyph and phrase are
+ * action-specific; this covers `logs` / `wait` / `status` / overlay rows).
+ *
+ * Shape: `<glyph> [<id>]<labelMaybe>  <cmd>   <status-phrase>   <bytes>`
+ */
+export function formatJobHeader(job: JobSummary, now: number, opts: { timedOut?: boolean } = {}): string {
+  const glyph = headerGlyph(job, opts);
+  const phrase = headerStatusPhrase(job, now, opts);
+  const bytes = bytesSummary(job);
+  const cmd = truncate(job.command.replace(/\s+/g, ' '), 80);
+  const label = job.label ? ` ${job.label}` : '';
+  return `${glyph} [${job.id}]${label}  ${cmd}   ${phrase}   ${bytes}`;
+}
+
+/**
+ * Structured columns for one job row in the `/bg-bash` overlay.
+ *
+ * The overlay composes the row by joining the columns with padding so
+ * the duration / bytes columns align. `cmd` is truncated to fit the
+ * remaining width once the other columns are reserved.
+ */
+export interface JobRow {
+  id: string;
+  statusGlyph: string;
+  statusPhrase: string;
+  duration: string;
+  bytes: string;
+  cmd: string;
+}
+
+const ROW_FIXED_COLS = 1 /* marker */ + 1 /* space */ + 1 /* glyph */ + 3 /* spaces */;
+
+export function formatJobRow(job: JobSummary, now: number, opts: { width?: number } = {}): JobRow {
+  const ended = job.endedAt ?? now;
+  const dur = formatDuration(ended - job.startedAt);
+  const totalBytes = job.stdoutBytes + job.stderrBytes;
+  const phrase: string =
+    job.status === 'running'
+      ? 'running'
+      : job.status === 'exited'
+        ? `exited ${job.exitCode ?? '?'}`
+        : job.status === 'signaled'
+          ? (job.signal ?? 'signal')
+          : job.status === 'error'
+            ? 'error'
+            : 'terminated';
+  const id = `[${job.id}]`;
+  const glyph = headerGlyph(job, {});
+  const width = opts.width ?? 80;
+  // Leave room for marker + glyph + id + phrase + duration + bytes
+  // and 5 inter-column spaces (2 per gap). Anything beyond that gets
+  // truncated. Floor at 12 so very narrow widths still show *some* cmd.
+  const reserved = ROW_FIXED_COLS + id.length + phrase.length + dur.length + formatBytes(totalBytes).length + 4 * 3;
+  const cmdCap = Math.max(12, width - reserved);
+  const cmd = truncate(job.command.replace(/\s+/g, ' '), cmdCap);
+  return { id, statusGlyph: glyph, statusPhrase: phrase, duration: dur, bytes: formatBytes(totalBytes), cmd };
+}
+
+/**
+ * Chip text for the overlay's log-tail mid-rule when the highlighted
+ * job is still live (the mid-rule reads `─── [<id>] <cmd> ─── <chip> ─`).
+ * `following=true` adds a `· follow` segment so the user can tell at a
+ * glance whether the tail is auto-scrolling.
+ */
+export function formatLogTailHeader(
+  job: JobSummary,
+  opts: { stdoutBytes: number; stderrBytes: number; following: boolean },
+): string {
+  const stdoutPart = `stdout ${formatBytes(opts.stdoutBytes)}`;
+  const stderrPart = `stderr ${formatBytes(opts.stderrBytes)}`;
+  const segs: string[] = [];
+  if (job.pid !== undefined) segs.push(`pid ${job.pid}`);
+  segs.push(`${stdoutPart} / ${stderrPart}`);
+  if (opts.following) segs.push('follow');
+  return segs.join(' · ');
+}
+
+/**
+ * Chip text for the overlay's log-tail mid-rule when the highlighted
+ * job has exited. Shows the exit phrase, total bytes, and the path of
+ * the on-disk log so the user can `tail -f` it outside pi.
+ */
+export function formatLogTailExitHeader(job: JobSummary, opts: { logPath?: string } = {}): string {
+  const ended = job.endedAt ?? job.startedAt;
+  const dur = formatDuration(ended - job.startedAt);
+  let exitPhrase: string;
+  switch (job.status) {
+    case 'exited':
+      exitPhrase = `exit ${job.exitCode ?? '?'} in ${dur}`;
+      break;
+    case 'signaled':
+      exitPhrase = `${job.signal ?? 'signal'} after ${dur}`;
+      break;
+    case 'error':
+      exitPhrase = `error: ${job.error ?? 'unknown'}`;
+      break;
+    case 'terminated':
+      exitPhrase = `terminated, ran ${dur}`;
+      break;
+    case 'running':
+      // Caller should have used `formatLogTailHeader`; fall back gracefully.
+      exitPhrase = `running ${dur}`;
+      break;
+  }
+  const totalBytes = formatBytes(job.stdoutBytes + job.stderrBytes);
+  const segs = [exitPhrase, totalBytes];
+  const path = opts.logPath ?? job.logFile;
+  if (path) segs.push(`log ${path}`);
+  return segs.join(' · ');
+}
+
 /**
  * Split jobs into running / recent buckets. "Recent" is every terminal
  * job sorted newest-first, optionally capped.
