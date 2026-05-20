@@ -61,6 +61,7 @@ import { formatActivePlan, looksLikeCompletionClaim } from '../../../lib/node/pi
 import {
   actAdd,
   actBlock,
+  actCancel,
   actClear,
   actComplete,
   actList,
@@ -85,7 +86,7 @@ const GUARDRAIL_MARKER = '⚠ [pi-todo-guardrail]';
 const MAX_INJECTED_DEFAULT = 10;
 
 const TodoParams = Type.Object({
-  action: StringEnum(['list', 'add', 'start', 'review', 'complete', 'block', 'reopen', 'clear'] as const),
+  action: StringEnum(['list', 'add', 'start', 'review', 'complete', 'block', 'cancel', 'reopen', 'clear'] as const),
   text: Type.Optional(Type.String({ description: 'Todo text (for action "add")' })),
   items: Type.Optional(
     Type.Array(Type.String(), {
@@ -94,13 +95,13 @@ const TodoParams = Type.Object({
   ),
   id: Type.Optional(
     Type.Number({
-      description: 'Todo ID (for actions "start", "review", "complete", "block", "reopen")',
+      description: 'Todo ID (for actions "start", "review", "complete", "block", "cancel", "reopen")',
     }),
   ),
   note: Type.Optional(
     Type.String({
       description:
-        'Free-form note. REQUIRED for "block" (reason the task is blocked) and for "complete" when coming directly from in_progress (what verified the outcome). Optional elsewhere.',
+        'Free-form note. REQUIRED for "block" (what external dependency is being waited on), for "cancel" (why the item is no longer in scope), and for "complete" when coming directly from in_progress (what verified the outcome). Optional elsewhere.',
     }),
   ),
 });
@@ -124,8 +125,11 @@ function renderTodoLine(t: Todo, theme: Theme): string {
           ? theme.fg('warning', '⋯')
           : t.status === 'blocked'
             ? theme.fg('error', '⛔')
-            : theme.fg('dim', '○');
-  const textStyled = t.status === 'completed' ? theme.fg('dim', t.text) : theme.fg('text', t.text);
+            : t.status === 'cancelled'
+              ? theme.fg('muted', '⊘')
+              : theme.fg('dim', '○');
+  const textStyled =
+    t.status === 'completed' || t.status === 'cancelled' ? theme.fg('dim', t.text) : theme.fg('text', t.text);
   const note = t.note ? ` ${theme.fg('dim', `(${t.note})`)}` : '';
   return `  ${marker} ${theme.fg('accent', `#${t.id}`)} ${textStyled}${note}`;
 }
@@ -219,7 +223,7 @@ class TodoOverlay {
     if (this.state.todos.length === 0) {
       lines.push(truncateToWidth(`  ${th.fg('dim', 'No todos yet. Ask the agent to plan a multi-step task.')}`, width));
     } else {
-      const counts = { pending: 0, in_progress: 0, review: 0, completed: 0, blocked: 0 };
+      const counts = { pending: 0, in_progress: 0, review: 0, completed: 0, blocked: 0, cancelled: 0 };
       for (const t of this.state.todos) counts[t.status]++;
       const summary =
         `${counts.completed}/${this.state.todos.length} done` +
@@ -314,7 +318,7 @@ export default function todoExtension(pi: ExtensionAPI): void {
       if (inReview) parts.push(`#${inReview.id} is in review awaiting verification ("${inReview.text}").`);
       if (pending.length > 0) parts.push(`${pending.length} pending item(s) remain.`);
       parts.push(
-        'Either finish the work and call `todo` with action `complete` / `block`, or explain to the user why the plan is abandoned.',
+        'Either finish the work and call `todo` with action `complete` / `block` / `cancel`, or explain to the user why the plan is abandoned.',
       );
 
       pi.sendUserMessage(parts.join(' '), { deliverAs: 'followUp' });
@@ -326,13 +330,13 @@ export default function todoExtension(pi: ExtensionAPI): void {
     name: 'todo',
     label: 'Todo',
     description:
-      'Plan and track multi-step work. Actions: list, add (text or items[]), start (id), review (id [, note]), complete (id [, note]), block (id, note), reopen (id), clear. One todo may be in_progress at a time, and one in review. Move in_progress → review when work is done but needs verification, then → complete once verified.',
+      'Plan and track multi-step work. Actions: list, add (text or items[]), start (id), review (id [, note]), complete (id [, note]), block (id, note), cancel (id, note), reopen (id), clear. One todo may be in_progress at a time, and one in review. Move in_progress → review when work is done but needs verification, then → complete once verified.',
     promptSnippet: 'Plan multi-step work up front and track progress across turns - use for any task with >1-2 steps',
     promptGuidelines: [
       'Call `todo` with action "add" and an `items` array BEFORE starting work on multi-step tasks, so the plan survives compaction and is visible every turn.',
       'Keep exactly one `todo` in_progress at a time via action "start". When the work is done but not yet verified, move it to review (action "review") before starting anything else.',
       'Complete items only after verification. If going straight from in_progress, include a `note` describing what verified the outcome (tests passed, file written, etc.). If going through review, completion can be plain - the review step was the verification parking.',
-      'If you hit an obstacle, use action "block" with a `note` explaining why - do not silently abandon items.',
+      'Use action "block" with a `note` when work is still needed but parked on an external dependency. Use action "cancel" with a `note` when an item is no longer in scope (superseded, duplicate, pivoted). Never silently abandon items.',
     ],
     parameters: TodoParams,
 
@@ -356,6 +360,9 @@ export default function todoExtension(pi: ExtensionAPI): void {
           break;
         case 'block':
           result = actBlock(state, params.id, params.note);
+          break;
+        case 'cancel':
+          result = actCancel(state, params.id, params.note);
           break;
         case 'reopen':
           result = actReopen(state, params.id);
@@ -406,7 +413,7 @@ export default function todoExtension(pi: ExtensionAPI): void {
       if (todos.length === 0) {
         return new Text(theme.fg('dim', 'No todos'), 0, 0);
       }
-      const counts = { pending: 0, in_progress: 0, review: 0, completed: 0, blocked: 0 };
+      const counts = { pending: 0, in_progress: 0, review: 0, completed: 0, blocked: 0, cancelled: 0 };
       for (const t of todos) counts[t.status]++;
       const display = expanded ? todos : todos.slice(0, 8);
       const parts: string[] = [

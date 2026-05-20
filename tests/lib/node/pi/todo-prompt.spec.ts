@@ -104,7 +104,52 @@ test('formatActivePlan: includes guidance footer reminding the model of the work
   expect(out).toMatch(/one item `in_progress` at a time/i);
   expect(out).toMatch(/move it to `review`/);
   expect(out).toMatch(/Mark `complete` after verification/);
-  expect(out).toMatch(/`block` with a `note`/);
+  expect(out).toMatch(/`block`/);
+});
+
+test('formatActivePlan: spells out the block-vs-cancel rule', () => {
+  const out = formatActivePlan(mkState([{ id: 1, text: 'x', status: 'in_progress' }]))!;
+  // block: parked on an external dependency
+  expect(out).toMatch(/`block`/);
+  expect(out).toMatch(/external dependency/i);
+  // cancel: no longer in scope
+  expect(out).toMatch(/`cancel`/);
+  expect(out).toMatch(/no longer in scope/i);
+});
+
+test('formatActivePlan: renders Cancelled bucket with count and ⊘ marker', () => {
+  const out = formatActivePlan(
+    mkState([
+      { id: 1, text: 'active', status: 'in_progress' },
+      { id: 2, text: 'dropped one', status: 'cancelled', note: 'superseded by #3' },
+      { id: 3, text: 'dropped two', status: 'cancelled', note: 'duplicate' },
+    ]),
+  )!;
+
+  expect(out).toMatch(/Cancelled \(2\)/);
+  expect(out).toMatch(/⊘ #2 dropped one {2}\(superseded by #3\)/);
+  expect(out).toMatch(/⊘ #3 dropped two {2}\(duplicate\)/);
+});
+
+test('formatActivePlan: returns non-null when only cancelled items exist', () => {
+  const out = formatActivePlan(mkState([{ id: 1, text: 'x', status: 'cancelled', note: 'pivoted' }]));
+
+  expect(out).not.toBe(null);
+  expect(out!).toMatch(/Cancelled \(1\)/);
+});
+
+test('formatActivePlan: keeps cancelled bucket after blocked', () => {
+  const out = formatActivePlan(
+    mkState([
+      { id: 1, text: 'a', status: 'blocked', note: 'waiting' },
+      { id: 2, text: 'b', status: 'cancelled', note: 'dropped' },
+    ]),
+  )!;
+  const idxBlocked = out.indexOf('Blocked');
+  const idxCancelled = out.indexOf('Cancelled');
+
+  expect(idxBlocked).toBeGreaterThanOrEqual(0);
+  expect(idxCancelled, 'cancelled must follow blocked').toBeGreaterThan(idxBlocked);
 });
 
 test('formatActivePlan: renders In review section with ⋯ marker', () => {

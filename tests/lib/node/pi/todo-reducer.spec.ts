@@ -11,6 +11,7 @@ import { expect, test } from 'vitest';
 import {
   actAdd,
   actBlock,
+  actCancel,
   actClear,
   actComplete,
   actList,
@@ -21,13 +22,17 @@ import {
   cloneState,
   emptyState,
   formatText,
+  formatTodoProgress,
+  groupTodos,
   isTodoStateShape,
   reduceBranch,
   stateFromEntry,
+  statusGlyph,
   TODO_CUSTOM_TYPE,
   TODO_TOOL_NAME,
   type Todo,
   type TodoState,
+  transitionGlyphs,
 } from '../../../../lib/node/pi/todo-reducer.ts';
 import { assertErr, assertOk } from './helpers.ts';
 
@@ -107,6 +112,12 @@ test('isTodoStateShape: rejects non-array todos', () => {
 
 test('isTodoStateShape: accepts review status', () => {
   expect(isTodoStateShape({ todos: [{ id: 1, text: 'x', status: 'review', note: 'awaiting ci' }], nextId: 2 })).toBe(
+    true,
+  );
+});
+
+test('isTodoStateShape: accepts cancelled status', () => {
+  expect(isTodoStateShape({ todos: [{ id: 1, text: 'x', status: 'cancelled', note: 'superseded' }], nextId: 2 })).toBe(
     true,
   );
 });
@@ -602,10 +613,267 @@ test('actReopen: restores todo to pending from blocked, clearing note', () => {
   expect(r.state.todos.find((t) => t.id === 1)!.note).toBe(undefined);
 });
 
+test('actReopen: restores todo to pending from cancelled, clearing note', () => {
+  const c = actCancel(seeded(), 1, 'superseded');
+  assertOk(c);
+  const r = actReopen(c.state, 1);
+  assertOk(r);
+  const t = r.state.todos.find((x) => x.id === 1)!;
+
+  expect(t.status).toBe('pending');
+  expect(t.note).toBe(undefined);
+});
+
 test('actReopen: missing id returns error', () => {
   const r = actReopen(seeded(), undefined);
 
   expect(r.ok).toBe(false);
+});
+
+// ──────────────────────────────────────────────────────────────────────
+// actCancel
+// ──────────────────────────────────────────────────────────────────────
+
+test('actCancel: requires id', () => {
+  const r = actCancel(seeded(), undefined, 'reason');
+
+  expect(r.ok).toBe(false);
+});
+
+test('actCancel: requires note', () => {
+  const r = actCancel(seeded(), 1, undefined);
+  assertErr(r);
+
+  expect(r.error).toMatch(/note/);
+});
+
+test('actCancel: rejects whitespace-only note', () => {
+  const r = actCancel(seeded(), 1, '   ');
+  assertErr(r);
+
+  expect(r.error).toMatch(/note/);
+});
+
+test('actCancel: unknown id returns error', () => {
+  const r = actCancel(seeded(), 99, 'reason');
+  assertErr(r);
+
+  expect(r.error).toMatch(/#99/);
+});
+
+test('actCancel: cancels a pending item with trimmed note', () => {
+  const r = actCancel(seeded(), 2, '  superseded by #3  ');
+  assertOk(r);
+  const t = r.state.todos.find((x) => x.id === 2)!;
+
+  expect(t.status).toBe('cancelled');
+  expect(t.note).toBe('superseded by #3');
+});
+
+test('actCancel: cancels an in_progress item', () => {
+  const r = actCancel(startedSeed(1), 1, 'pivoted');
+  assertOk(r);
+
+  expect(r.state.todos.find((t) => t.id === 1)!.status).toBe('cancelled');
+});
+
+test('actCancel: cancels a review item', () => {
+  const parked = actReview(startedSeed(1), 1, 'awaiting ci');
+  assertOk(parked);
+  const r = actCancel(parked.state, 1, 'no longer relevant');
+  assertOk(r);
+
+  expect(r.state.todos.find((t) => t.id === 1)!.status).toBe('cancelled');
+});
+
+test('actCancel: cancels a blocked item', () => {
+  const blocked = actBlock(seeded(), 1, 'waiting on dep');
+  assertOk(blocked);
+  const r = actCancel(blocked.state, 1, 'dep killed - feature dropped');
+  assertOk(r);
+  const t = r.state.todos.find((x) => x.id === 1)!;
+
+  expect(t.status).toBe('cancelled');
+  expect(t.note).toBe('dep killed - feature dropped');
+});
+
+test('actCancel: cancels an already-cancelled item (updates note)', () => {
+  const c1 = actCancel(seeded(), 1, 'first reason');
+  assertOk(c1);
+  const c2 = actCancel(c1.state, 1, 'second reason');
+  assertOk(c2);
+
+  expect(c2.state.todos.find((t) => t.id === 1)!.note).toBe('second reason');
+});
+
+test('actCancel: rejects completed item (use reopen first)', () => {
+  const done = actComplete(seeded(), 1, 'verified');
+  assertOk(done);
+  const r = actCancel(done.state, 1, 'oops');
+  assertErr(r);
+
+  expect(r.error).toMatch(/completed/);
+  expect(r.error).toMatch(/reopen/);
+});
+
+// ──────────────────────────────────────────────────────────────────────
+// transitionGlyphs
+// ──────────────────────────────────────────────────────────────────────
+
+test('transitionGlyphs: cancel returns ⊘ as the to glyph', () => {
+  const g = transitionGlyphs('cancel');
+
+  expect(g).not.toBe(null);
+  expect(g!.to).toBe('⊘');
+  expect(typeof g!.from).toBe('string');
+  expect(g!.from.length).toBeGreaterThan(0);
+});
+
+test('transitionGlyphs: known actions return non-null pairs', () => {
+  for (const action of ['start', 'review', 'complete', 'block', 'cancel', 'reopen']) {
+    expect(transitionGlyphs(action)).not.toBe(null);
+  }
+});
+
+test('transitionGlyphs: non-transition actions return null', () => {
+  expect(transitionGlyphs('add')).toBe(null);
+  expect(transitionGlyphs('list')).toBe(null);
+  expect(transitionGlyphs('clear')).toBe(null);
+  expect(transitionGlyphs('unknown')).toBe(null);
+});
+
+test('transitionGlyphs: to glyph matches statusGlyph mapping', () => {
+  expect(transitionGlyphs('start')!.to).toBe(statusGlyph('in_progress'));
+  expect(transitionGlyphs('review')!.to).toBe(statusGlyph('review'));
+  expect(transitionGlyphs('complete')!.to).toBe(statusGlyph('completed'));
+  expect(transitionGlyphs('block')!.to).toBe(statusGlyph('blocked'));
+  expect(transitionGlyphs('cancel')!.to).toBe(statusGlyph('cancelled'));
+  expect(transitionGlyphs('reopen')!.to).toBe(statusGlyph('pending'));
+});
+
+// ──────────────────────────────────────────────────────────────────────
+// groupTodos
+// ──────────────────────────────────────────────────────────────────────
+
+test('groupTodos: empty state returns empty buckets', () => {
+  const g = groupTodos(emptyState());
+
+  expect(g.in_progress).toEqual([]);
+  expect(g.review).toEqual([]);
+  expect(g.pending).toEqual([]);
+  expect(g.blocked).toEqual([]);
+  expect(g.cancelled).toEqual([]);
+  expect(g.completed).toEqual([]);
+});
+
+test('groupTodos: returns the cancelled bucket', () => {
+  const s = mkState([
+    { id: 1, text: 'a', status: 'pending' },
+    { id: 2, text: 'b', status: 'cancelled', note: 'superseded' },
+    { id: 3, text: 'c', status: 'cancelled', note: 'duplicate' },
+  ]);
+  const g = groupTodos(s);
+
+  expect(g.cancelled.map((t) => t.id)).toEqual([2, 3]);
+  expect(g.cancelled[0].note).toBe('superseded');
+});
+
+test('groupTodos: buckets every status correctly', () => {
+  const s = mkState([
+    { id: 1, text: 'a', status: 'pending' },
+    { id: 2, text: 'b', status: 'in_progress' },
+    { id: 3, text: 'c', status: 'review' },
+    { id: 4, text: 'd', status: 'completed' },
+    { id: 5, text: 'e', status: 'blocked', note: 'why' },
+    { id: 6, text: 'f', status: 'cancelled', note: 'why' },
+  ]);
+  const g = groupTodos(s);
+
+  expect(g.pending.map((t) => t.id)).toEqual([1]);
+  expect(g.in_progress.map((t) => t.id)).toEqual([2]);
+  expect(g.review.map((t) => t.id)).toEqual([3]);
+  expect(g.completed.map((t) => t.id)).toEqual([4]);
+  expect(g.blocked.map((t) => t.id)).toEqual([5]);
+  expect(g.cancelled.map((t) => t.id)).toEqual([6]);
+});
+
+test('groupTodos: returns defensive copies', () => {
+  const s = mkState([{ id: 1, text: 'a', status: 'pending' }]);
+  const g = groupTodos(s);
+  g.pending[0].text = 'mutated';
+
+  expect(s.todos[0].text).toBe('a');
+});
+
+// ──────────────────────────────────────────────────────────────────────
+// formatTodoProgress
+// ──────────────────────────────────────────────────────────────────────
+
+test('formatTodoProgress: empty state -> 0% with empty bar', () => {
+  const r = formatTodoProgress(emptyState(), { width: 8 });
+
+  expect(r.pct).toBe(0);
+  expect(r.bar).toBe('▱'.repeat(8));
+  expect(r.summary).toBe('');
+});
+
+test('formatTodoProgress: matches the planned 8-cell bar shape', () => {
+  const s = mkState([
+    { id: 1, text: 'a', status: 'completed' },
+    { id: 2, text: 'b', status: 'completed' },
+    { id: 3, text: 'c', status: 'completed' },
+    { id: 4, text: 'd', status: 'in_progress' },
+    { id: 5, text: 'e', status: 'review' },
+    { id: 6, text: 'f', status: 'pending' },
+    { id: 7, text: 'g', status: 'pending' },
+    { id: 8, text: 'h', status: 'blocked', note: 'x' },
+    { id: 9, text: 'i', status: 'cancelled', note: 'x' },
+    { id: 10, text: 'j', status: 'cancelled', note: 'x' },
+  ]);
+  const r = formatTodoProgress(s, { width: 8 });
+
+  expect(r.pct).toBe(30);
+  expect(r.bar).toMatch(/^▰+▱+$/);
+  expect(r.bar.length).toBe(8);
+  expect(r.summary).toBe('1 active · 1 review · 2 pending · 1 blocked · 2 cancelled');
+});
+
+test('formatTodoProgress: omits zero-count chips', () => {
+  const s = mkState([
+    { id: 1, text: 'a', status: 'completed' },
+    { id: 2, text: 'b', status: 'pending' },
+  ]);
+  const r = formatTodoProgress(s);
+
+  expect(r.summary).toBe('1 pending');
+});
+
+test('formatTodoProgress: cancelled chip appears when non-zero', () => {
+  const s = mkState([
+    { id: 1, text: 'a', status: 'pending' },
+    { id: 2, text: 'b', status: 'cancelled', note: 'x' },
+  ]);
+  const r = formatTodoProgress(s);
+
+  expect(r.summary).toMatch(/1 cancelled/);
+});
+
+test('formatTodoProgress: width is configurable', () => {
+  const s = mkState([{ id: 1, text: 'a', status: 'completed' }]);
+  const r = formatTodoProgress(s, { width: 20 });
+
+  expect(r.bar.length).toBe(20);
+});
+
+test('formatTodoProgress: 100% completion fills the bar', () => {
+  const s = mkState([
+    { id: 1, text: 'a', status: 'completed' },
+    { id: 2, text: 'b', status: 'completed' },
+  ]);
+  const r = formatTodoProgress(s, { width: 8 });
+
+  expect(r.pct).toBe(100);
+  expect(r.bar).toBe('▰'.repeat(8));
 });
 
 // ──────────────────────────────────────────────────────────────────────

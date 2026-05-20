@@ -40,8 +40,15 @@ export function formatActivePlan(state: TodoState, opts: FormatOptions = {}): st
   const review = state.todos.filter((t) => t.status === 'review');
   const pending = state.todos.filter((t) => t.status === 'pending');
   const blocked = state.todos.filter((t) => t.status === 'blocked');
+  const cancelled = state.todos.filter((t) => t.status === 'cancelled');
 
-  if (inProgress.length === 0 && review.length === 0 && pending.length === 0 && blocked.length === 0) {
+  if (
+    inProgress.length === 0 &&
+    review.length === 0 &&
+    pending.length === 0 &&
+    blocked.length === 0 &&
+    cancelled.length === 0
+  ) {
     return null;
   }
 
@@ -78,13 +85,24 @@ export function formatActivePlan(state: TodoState, opts: FormatOptions = {}): st
     lines.push('');
   }
 
+  if (cancelled.length > 0) {
+    lines.push(`Cancelled (${cancelled.length}) - out of scope, kept for context:`);
+    for (const t of cancelled) lines.push(`  ⊘ ${render(t)}`);
+    lines.push('');
+  }
+
   lines.push('Keep this plan accurate with the `todo` tool:');
   lines.push('- One item `in_progress` at a time (action `start`).');
   lines.push('- When work on an item is done but not yet verified, move it to `review` (action `review`).');
   lines.push(
     '- Mark `complete` after verification. From `in_progress` directly, include a `note` describing what verified it. From `review`, the note is optional - the review step already parked it for verification.',
   );
-  lines.push('- If stuck, `block` with a `note` - never silently abandon an item.');
+  lines.push(
+    '- Use `block` when work is still needed but parked on an external dependency (waiting on review, broken upstream, missing data); the note explains what is being waited on.',
+  );
+  lines.push(
+    '- Use `cancel` when the item is no longer in scope (superseded, duplicate, pivoted, no longer relevant); the note explains why. Never silently abandon an item.',
+  );
   lines.push('- `add` new items when additional work surfaces mid-task.');
 
   return lines.join('\n');

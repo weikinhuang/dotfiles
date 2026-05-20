@@ -33,7 +33,7 @@ import {
   stateFromEntryGeneric,
 } from './branch-state.ts';
 
-export type TodoStatus = 'pending' | 'in_progress' | 'review' | 'completed' | 'blocked';
+export type TodoStatus = 'pending' | 'in_progress' | 'review' | 'completed' | 'blocked' | 'cancelled';
 
 export interface Todo {
   id: number;
@@ -82,7 +82,8 @@ export function isTodoStateShape(value: unknown): value is TodoState {
       t.status !== 'in_progress' &&
       t.status !== 'review' &&
       t.status !== 'completed' &&
-      t.status !== 'blocked'
+      t.status !== 'blocked' &&
+      t.status !== 'cancelled'
     ) {
       return false;
     }
@@ -135,9 +136,134 @@ function statusMark(s: TodoStatus): string {
       return '?';
     case 'blocked':
       return '!';
+    case 'cancelled':
+      return '-';
     case 'pending':
       return ' ';
   }
+}
+
+/**
+ * Glyph rendered next to each todo in TUI / overlay output. Kept here
+ * (alongside the plaintext `statusMark` used by `formatText`) so the
+ * extension shell and the overlay share one source of truth for the
+ * symbol set.
+ */
+export function statusGlyph(s: TodoStatus): string {
+  switch (s) {
+    case 'completed':
+      return '✓';
+    case 'in_progress':
+      return '→';
+    case 'review':
+      return '⋯';
+    case 'blocked':
+      return '⛔';
+    case 'cancelled':
+      return '⊘';
+    case 'pending':
+      return '○';
+  }
+}
+
+/**
+ * Default `<from> → <to>` glyph pair for an action's status transition.
+ * `renderCall` runs before `execute` and only has the tool args, so the
+ * "from" side is a sensible per-action default rather than the actual
+ * previous status (the inline card is a hint, not an audit trail).
+ *
+ * Returns `null` for actions that don't model a single-item status
+ * transition (`add`, `list`, `clear`).
+ */
+export function transitionGlyphs(action: string): { from: string; to: string } | null {
+  switch (action) {
+    case 'start':
+      return { from: '○', to: '→' };
+    case 'review':
+      return { from: '→', to: '⋯' };
+    case 'complete':
+      return { from: '⋯', to: '✓' };
+    case 'block':
+      return { from: '○', to: '⛔' };
+    case 'cancel':
+      return { from: '○', to: '⊘' };
+    case 'reopen':
+      return { from: '✓', to: '○' };
+    default:
+      return null;
+  }
+}
+
+/**
+ * Bucket the state's todos into the six status groups in the fixed
+ * display order used by the overlay and grouped `renderResult`. Each
+ * bucket preserves the original todo order from `state.todos`.
+ */
+export interface TodoGroups {
+  in_progress: Todo[];
+  review: Todo[];
+  pending: Todo[];
+  blocked: Todo[];
+  cancelled: Todo[];
+  completed: Todo[];
+}
+
+export function groupTodos(state: TodoState): TodoGroups {
+  const groups: TodoGroups = {
+    in_progress: [],
+    review: [],
+    pending: [],
+    blocked: [],
+    cancelled: [],
+    completed: [],
+  };
+  for (const t of state.todos) groups[t.status].push({ ...t });
+  return groups;
+}
+
+export interface FormatProgressOptions {
+  /** Total cells in the bar. Default 8. Floored to 1. */
+  width?: number;
+}
+
+export interface FormatProgressResult {
+  /** `▰` filled + `▱` empty train, exactly `width` cells. */
+  bar: string;
+  /** Integer percentage 0-100; 0 when state is empty. */
+  pct: number;
+  /** Count-chip line; non-zero buckets only, joined by ` · `. */
+  summary: string;
+}
+
+/**
+ * Pure formatter for the overlay / renderResult progress chip line.
+ * `pct` is `completed / total` (cancelled items count in the
+ * denominator: they were planned, then closed out without being done).
+ * The summary chip line surfaces every non-zero non-completed bucket
+ * so closed-but-not-done items stay visible.
+ */
+export function formatTodoProgress(state: TodoState, opts: FormatProgressOptions = {}): FormatProgressResult {
+  const width = Math.max(1, Math.floor(opts.width ?? 8));
+  const total = state.todos.length;
+  const counts = {
+    pending: 0,
+    in_progress: 0,
+    review: 0,
+    completed: 0,
+    blocked: 0,
+    cancelled: 0,
+  };
+  for (const t of state.todos) counts[t.status]++;
+  const pct = total === 0 ? 0 : Math.round((counts.completed / total) * 100);
+  const filled = total === 0 ? 0 : Math.round((counts.completed / total) * width);
+  const bar = '▰'.repeat(filled) + '▱'.repeat(width - filled);
+  const chips: string[] = [];
+  if (counts.in_progress) chips.push(`${counts.in_progress} active`);
+  if (counts.review) chips.push(`${counts.review} review`);
+  if (counts.pending) chips.push(`${counts.pending} pending`);
+  if (counts.blocked) chips.push(`${counts.blocked} blocked`);
+  if (counts.cancelled) chips.push(`${counts.cancelled} cancelled`);
+  return { bar, pct, summary: chips.join(' · ') };
 }
 
 /**
@@ -273,6 +399,40 @@ export function actReview(state: TodoState, id: number | undefined, note: string
   return { ok: true, state: next, summary: `Moved #${id} to review: ${todo.text}` };
 }
 
+/**
+ * Close an item without claiming it was done. Distinct from `block`:
+ * `cancel` means the item is out of scope (superseded / duplicate /
+ * pivoted away), `block` means the work is still needed but parked on
+ * an external dependency. Note is required so the why-it-closed reason
+ * travels with the state. Allowed from any non-`completed` status.
+ */
+export function actCancel(state: TodoState, id: number | undefined, note: string | undefined): ActionResult {
+  if (id === undefined) return { ok: false, error: 'cancel requires `id`' };
+  if (!note?.trim()) {
+    return {
+      ok: false,
+      error: 'cancel requires `note` (why the item is no longer in scope: superseded, duplicate, pivoted, etc.)',
+    };
+  }
+  const next = cloneState(state);
+  const todo = findTodo(next, id);
+  if (!todo) return { ok: false, error: `#${id} not found` };
+  if (todo.status === 'completed') {
+    return {
+      ok: false,
+      error: `#${id} is completed; use \`reopen\` first if you really need to cancel it.`,
+    };
+  }
+  todo.status = 'cancelled';
+  todo.note = note.trim();
+  return { ok: true, state: next, summary: `Cancelled #${id}: ${todo.text} - ${todo.note}` };
+}
+
+/**
+ * Restore a todo to `pending`, clearing any note. Accepts a source in
+ * `completed`, `blocked`, or `cancelled`; pending / in_progress /
+ * review items are reopened as a no-op-with-note-clear.
+ */
 export function actReopen(state: TodoState, id: number | undefined): ActionResult {
   if (id === undefined) return { ok: false, error: 'reopen requires `id`' };
   const next = cloneState(state);
