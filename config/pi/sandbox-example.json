@@ -1,0 +1,81 @@
+// Sandbox-only knobs for the kernel-level `sandbox` extension (Phase 3,
+// not yet wired). Filesystem rules live in the unified
+// `~/.pi/filesystem.json` (see config/pi/filesystem-example.json).
+//
+//   Extension (Phase 3): config/pi/extensions/sandbox.ts
+//   Reference (Phase 3): config/pi/extensions/sandbox.md
+//   Pure helpers:        lib/node/pi/sandbox/{config-schema,config-load,
+//                                              config-translate,active,
+//                                              platform,linux-rules-compile,
+//                                              violations-log,wrapper-slot}.ts
+//
+// Copy (or merge) into one of:
+//
+//   ~/.pi/sandbox.json            - user scope, every project
+//   <repo>/.pi/sandbox.json       - project scope, this repo only
+//
+// All fields are optional - omit to inherit the shipped defaults.
+//
+// IMPORTANT: this file does NOT control the standalone `srt` CLI.
+// `srt` reads `~/.srt-settings.json`; pi reads `~/.pi/sandbox.json`.
+// Keep them separate so `srt` from a shell prompt has different
+// policy from pi (deliberate, per plan decision #2).
+{
+  "network": {
+    // Domain ALLOW-list. Empty = deny all. Sandboxed bash that hits a
+    // non-allowlisted domain triggers the network ask-callback (UI
+    // dialog) or falls through to PI_SANDBOX_NETWORK_DEFAULT.
+    //
+    // Recipes (uncomment as needed):
+    //   "allow": [
+    //     "github.com",            // git push will publish to ANY repo
+    //                              // your creds let you push to - tighten
+    //                              // with a future MITM filterRequest hook
+    //     "api.github.com",
+    //     "registry.npmjs.org",
+    //     "pypi.org",
+    //     "files.pythonhosted.org",
+    //     "127.0.0.1",             // localhost LLM (ollama, llama.cpp)
+    //     "*.cloudfront.net"       // BROAD - many CDN domains share this
+    //   ]
+    "allow": [],
+
+    // Explicit deny-list checked BEFORE the allow-list. Useful for
+    // pinning a known-bad host even when its parent is allowed.
+    "deny": []
+  },
+
+  "unixSockets": {
+    // Sockets sandboxed bash may connect to. Most users leave this
+    // empty.
+    //
+    //   "/var/run/docker.sock"  -- effectively root-equivalent;
+    //                              do not allow casually.
+    "allow": []
+
+    // Bypass for users who explicitly opt out of socket sandboxing.
+    // Surfaces a startup warning when set. Off by default.
+    // "allowAll": false
+  },
+
+  "flags": {
+    // Required when pi runs inside Docker / nested containers.
+    // Surface via PI_SANDBOX_NESTED=1 instead of editing the file.
+    "weakerNestedSandbox": false,
+
+    // macOS-only escape for Go programs that need TLS verification
+    // (gh, gcloud, terraform, kubectl). Surface via
+    // PI_SANDBOX_WEAKER_NET=1.
+    "weakerNetworkIsolation": false,
+
+    // Allow sandboxed bash to bind 127.0.0.1 sockets (dev-server
+    // tests, integration suites that spin up local HTTP).
+    "allowLocalBinding": false,
+
+    // Linux-only: bwrap accepts only literal paths, so basename /
+    // segment rules from `filesystem.json` are compiled to existing
+    // on-disk paths via `rg --files --max-depth N`. Default 3 covers
+    // most workspaces; raise for deep monorepos. Bounded 1..10.
+    "linuxRuleDepth": 3
+  }
+}

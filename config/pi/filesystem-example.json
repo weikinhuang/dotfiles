@@ -1,0 +1,74 @@
+// Baseline filesystem-policy config consumed by both the in-process
+// `filesystem` extension (replaces `protected-paths` in Phase 3) and
+// the kernel-level `sandbox` extension via @anthropic-ai/sandbox-runtime.
+//
+//   Pure helper: lib/node/pi/filesystem-policy/{schema,load,classify}.ts
+//   Translator (Phase 3): config/pi/extensions/filesystem.ts +
+//                         lib/node/pi/sandbox/config-translate.ts
+//
+// Copy (or merge) into one of:
+//
+//   ~/.pi/filesystem.json         - user scope, every project
+//   <repo>/.pi/filesystem.json    - project scope, this repo only
+//
+// Schema recap (full rules in plan section 4.2):
+//
+//   read.deny.{basenames,segments,paths}   block reads
+//   read.allow.{...}                       allow-back inside a deny prefix
+//   write.allow.{basenames,segments,paths} ALLOW-ONLY: writes outside paths gate
+//   write.deny.{basenames,segments,paths}  carve holes inside the allowed area
+//
+// Every rule supports tilde expansion (`~/...`) and segment expressions
+// like `.git/hooks` (matches the directory and everything under it).
+{
+  "read": {
+    // Block reads of anything that holds secrets, private keys, or
+    // cloud creds. The in-process gate prompts; the kernel sandbox
+    // returns EACCES so even `cat ~/.ssh/id_rsa` from a smuggled
+    // `sh -c "..."` is denied at the syscall.
+    "deny": {
+      "basenames": [".env", ".env.*", ".envrc"],
+      "segments": [],
+      "paths": ["~/.ssh", "~/.aws", "~/.gnupg", "~/.config/gh", "~/.kube", "~/.docker/config.json"]
+    },
+
+    // Carve narrow holes inside the deny set. Empty by default.
+    // Example: "allow back" `~/.config/gh/hosts.yml` only:
+    //   "allow": { "paths": ["~/.config/gh/hosts.yml"] }
+    "allow": {
+      "basenames": [],
+      "segments": [],
+      "paths": []
+    }
+  },
+
+  "write": {
+    // ALLOW-ONLY for writes. The default `"."` covers the workspace
+    // (the session's `ctx.cwd`, NOT `process.cwd()`); `/tmp` keeps
+    // throwaway scripts working. Anything outside is denied at BOTH
+    // layers. Persona `writeRoots` are merged on top at runtime.
+    //
+    // Add explicit roots a persona doesn't already cover, e.g.
+    //   "paths": [".", "/tmp", "~/notes"]
+    "allow": {
+      "basenames": [],
+      "segments": [],
+      "paths": [".", "/tmp"]
+    },
+
+    // Hole-poke inside `write.allow`. `.git/hooks` and `.git/config`
+    // are mandatory to keep models from rewriting hooks (a known
+    // exfil trick). `node_modules` is preserved so a typo doesn't
+    // mutate vendored deps.
+    //
+    // The kernel sandbox enforces these on Linux (bwrap overlay).
+    // On macOS, sandbox-exec silently DROPS deny rules pointing at
+    // not-yet-existing files - the in-process gate still blocks
+    // them lexically. See plan section 9.20.
+    "deny": {
+      "basenames": [".env", ".env.*"],
+      "segments": [".git/hooks", ".git/config", "node_modules"],
+      "paths": []
+    }
+  }
+}
