@@ -25,6 +25,8 @@ export interface AgentListItem {
 }
 
 const SHORT_DESCRIPTION_CAP = 160;
+/** Cap used by the `/agents` overlay row list; preview block carries the overflow. */
+export const OVERLAY_DESCRIPTION_CAP = 55;
 
 function shorten(s: string, cap: number): string {
   const collapsed = s.replace(/\s+/g, ' ').trim();
@@ -69,6 +71,18 @@ export interface SubagentRunSnapshot {
   /** Context window of the child's model. */
   contextWindow?: number;
   durationMs?: number;
+  /** Optional task summary - rendered in the running overlay preview block. */
+  task?: string;
+  /** Optional short handle (`sub_explore_1`) - rendered alongside the agent name. */
+  handle?: string;
+  /** Optional `maxTurns` cap for the child run - shown as `turn N/max`. */
+  maxTurns?: number;
+  /** Optional source layer for the agent definition (global / user / project). */
+  agentSource?: 'global' | 'user' | 'project';
+  /** Optional cache-write tokens (only some providers bill them). */
+  cacheWrite?: number;
+  /** Per-tool call counts for the child run, sourced from `tool_execution_start` events. */
+  byTool?: Readonly<Record<string, number>>;
 }
 
 function stateGlyph(state: SubagentRunState): string {
@@ -179,6 +193,285 @@ export function formatRunningChildrenList(entries: readonly RunningChildListItem
     lines.push(`  ${e.handle}${pad}${status}${suffix}`);
   }
   return lines.join('\n');
+}
+
+// ──────────────────────────────────────────────────────────────────────
+// /agents overlay helpers
+// ──────────────────────────────────────────────────────────────────────
+
+/** Subset of `AgentDef` consumed by the preview formatter. */
+export interface AgentPreviewSource {
+  name: string;
+  description: string;
+  source: 'global' | 'user' | 'project';
+  path: string;
+  tools: readonly string[];
+  model: 'inherit' | { provider: string; modelId: string };
+  maxTurns: number;
+  timeoutMs: number;
+  isolation: 'shared-cwd' | 'worktree';
+}
+
+/** Cap on the preview-block description prose (chars). Overflow gets `…`. */
+const PREVIEW_DESCRIPTION_CAP = 320;
+
+function formatModel(model: AgentPreviewSource['model']): string {
+  if (model === 'inherit') return 'inherit';
+  return `${model.provider}/${model.modelId}`;
+}
+
+/**
+ * Cap a description for the `/agents` overlay row list. The preview
+ * block below the rule carries the full text, so this is a hard truncate
+ * at ~55 chars - enough to read intent at 80 cols without crowding the
+ * `[<source>]` tag on the right.
+ */
+export function formatAgentListRowDescription(description: string, cap: number = OVERLAY_DESCRIPTION_CAP): string {
+  return shorten(description, cap);
+}
+
+/**
+ * Build the preview-block lines rendered below the row list in the
+ * `/agents` overlay. Pure - returns an array of plain strings the
+ * overlay theme wraps + truncates to width.
+ *
+ * Layout:
+ *   <path>
+ *   (blank)
+ *   tools:  read, grep, find, ls
+ *   model:  inherit       maxTurns: 20    timeoutMs: 180s
+ *   isolation: shared-cwd
+ *   (blank)
+ *   <description prose, soft-capped>
+ */
+export function formatAgentPreview(agent: AgentPreviewSource): string[] {
+  const lines: string[] = [];
+  lines.push(agent.path);
+  lines.push('');
+  const toolsLine = `tools:  ${agent.tools.length > 0 ? agent.tools.join(', ') : '(none)'}`;
+  lines.push(toolsLine);
+  const timeoutS = Math.round(agent.timeoutMs / 1000);
+  lines.push(`model:  ${formatModel(agent.model)}       maxTurns: ${agent.maxTurns}    timeoutMs: ${timeoutS}s`);
+  lines.push(`isolation: ${agent.isolation}`);
+  lines.push('');
+  const prose = agent.description.replace(/\s+/g, ' ').trim();
+  const capped = prose.length > PREVIEW_DESCRIPTION_CAP ? `${prose.slice(0, PREVIEW_DESCRIPTION_CAP - 1).trimEnd()}…` : prose;
+  lines.push(capped);
+  return lines;
+}
+
+// ──────────────────────────────────────────────────────────────────────
+// /agents:running overlay helpers
+// ──────────────────────────────────────────────────────────────────────
+
+const BAR_FILLED = '▰';
+const BAR_EMPTY = '▱';
+
+/**
+ * Context-usage bar: `▰▰▱▱▱▱▱▱  8%`. Width is the count of cells
+ * (default 8). Falls back to an empty bar when context info is missing.
+ */
+export function formatContextBar(
+  snap: Pick<SubagentRunSnapshot, 'contextTokens' | 'contextWindow'>,
+  options: { width?: number } = {},
+): string {
+  const width = options.width ?? 8;
+  const tokens = snap.contextTokens;
+  const window = snap.contextWindow;
+  if (tokens == null || !window || window <= 0) {
+    return `${BAR_EMPTY.repeat(width)}  --%`;
+  }
+  const pct = Math.min(100, Math.max(0, Math.round((tokens / window) * 100)));
+  const filled = Math.min(width, Math.round((pct / 100) * width));
+  const bar = `${BAR_FILLED.repeat(filled)}${BAR_EMPTY.repeat(width - filled)}`;
+  return `${bar}  ${pct}%`;
+}
+
+/** Maximum number of per-tool entries rendered before the `· +N more` suffix. */
+const TOOL_COUNT_TOP_N = 5;
+
+/**
+ * `read(7) · grep(3) · bash(1)` for a child snapshot. Sorted descending
+ * by count, then ascending by tool name for stability. Returns `null`
+ * when no tool calls have been recorded so callers can hide the line.
+ */
+export function formatToolCallCounts(snap: Pick<SubagentRunSnapshot, 'byTool'>): string | null {
+  const by = snap.byTool;
+  if (!by) return null;
+  const entries = Object.entries(by).filter(([, n]) => n > 0);
+  if (entries.length === 0) return null;
+  entries.sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  const head = entries.slice(0, TOOL_COUNT_TOP_N).map(([name, count]) => `${name}(${count})`);
+  const more = entries.length - TOOL_COUNT_TOP_N;
+  if (more > 0) head.push(`+${more} more`);
+  return head.join(' · ');
+}
+
+/**
+ * Stop-reason → glyph table used by both the renderResult scorecard
+ * and the running-overlay rows. `spawned` is the v2 addition for
+ * background dispatches (parent sees `⏳`, not `✗`).
+ */
+export type ScorecardStopReason = 'completed' | 'max_turns' | 'aborted' | 'error' | 'running' | 'spawned';
+
+export interface ScorecardGlyphInfo {
+  glyph: string;
+  /** Theme token name (matches `theme.fg(...)` keys). */
+  themeColor: 'success' | 'warning' | 'error' | 'accent';
+}
+
+export function scorecardGlyph(stopReason: ScorecardStopReason | undefined): ScorecardGlyphInfo {
+  switch (stopReason) {
+    case 'completed':
+      return { glyph: '✓', themeColor: 'success' };
+    case 'max_turns':
+      return { glyph: '∎', themeColor: 'warning' };
+    case 'aborted':
+      return { glyph: '⚠', themeColor: 'warning' };
+    case 'error':
+      return { glyph: '✗', themeColor: 'error' };
+    case 'running':
+    case 'spawned':
+    default:
+      return { glyph: '⏳', themeColor: 'accent' };
+  }
+}
+
+const RUNNING_ROW_INDENT = '       ';
+
+/**
+ * 4-line block for one entry in `/agents:running`:
+ *   `<handle> <agent> <state> <elapsed>  turn N/max`
+ *   `M(N) ↑in ↻cached ↓out  R xx%  $cost`
+ *   `ctx <bar>  model <model>`
+ *   `tools: read(7) · grep(3)`  (omitted when empty)
+ */
+export function formatRunningChildRow(
+  entry: { handle: string; snapshot: SubagentRunSnapshot; startedAt: number },
+  now: number,
+  options: { width?: number; selected?: boolean } = {},
+): string[] {
+  const { snapshot: snap, handle, startedAt } = entry;
+  const elapsedMs = Math.max(0, now - startedAt);
+  const elapsedStr = fmtDurationShort(elapsedMs);
+  const stateLabel =
+    snap.state === 'running'
+      ? 'running'
+      : snap.state === 'completed'
+        ? 'done'
+        : snap.state === 'aborted'
+          ? 'aborted'
+          : snap.state === 'max_turns'
+            ? 'max turns'
+            : 'error';
+  const glyph = scorecardGlyph(snap.state === 'running' ? 'running' : snap.state).glyph;
+  const turnChip =
+    snap.maxTurns && snap.maxTurns > 0 ? `turn ${snap.turns}/${snap.maxTurns}` : `turn ${snap.turns}`;
+
+  const head = [`${entry.handle ? handle : ''}`, snap.agent, glyph, stateLabel, elapsedStr, turnChip]
+    .filter((s) => s && s.length > 0)
+    .join(' ');
+
+  const tokenLabel = snap.turns > 0 ? `M(${snap.turns})` : 'M';
+  const denom = snap.input + snap.cacheRead;
+  const ratio = denom > 0 ? ` R ${Math.round((snap.cacheRead / denom) * 100)}%` : '';
+  const tokenLine = `${tokenLabel} ↑${fmtSi(snap.input)} ↻ ${fmtSi(snap.cacheRead)} ↓${fmtSi(snap.output)}${ratio}  ${fmtCost(snap.cost || 0)}`;
+
+  const ctxLine = `ctx ${formatContextBar(snap, { width: 8 })}   model ${snap.model ?? 'inherit'}`;
+
+  const lines = [head, `${RUNNING_ROW_INDENT}${tokenLine}`, `${RUNNING_ROW_INDENT}${ctxLine}`];
+  const tools = formatToolCallCounts(snap);
+  if (tools) lines.push(`${RUNNING_ROW_INDENT}tools: ${tools}`);
+  // `options.width` is reserved for future tighter truncation; today the
+  // overlay caller applies `truncateToWidth` line-by-line. Keep the
+  // parameter present so the call sites are stable.
+  void options.width;
+  void options.selected;
+  return lines;
+}
+
+// ──────────────────────────────────────────────────────────────────────
+// subagent + subagent_send renderResult scorecard
+// ──────────────────────────────────────────────────────────────────────
+
+const SCORECARD_INDENT = '   ';
+
+/**
+ * Render the multi-line scorecard body shared by `subagent` (sync
+ * completion), `subagent_send wait`, `subagent_send status`, and the
+ * inline preview in `/agents:running`. Does NOT include the lead glyph
+ * line - callers prefix that themselves so they can pick the colour /
+ * label that matches the surface (e.g. `⏳ explore  (global)`).
+ *
+ * Returns 3-4 lines, indented two-spaces deep:
+ *   `3 turns / 20 max · ↑1.2k / ↻ 4.5k / ↓180 · R 79% · $0.004 · 4.2s`
+ *   `stop: completed   ctx:8%   model: qwen3-coder-30b`
+ *   `tools: read(7) · grep(3) · bash(1)`  (omitted when empty)
+ */
+export function formatSubagentScorecard(snap: SubagentRunSnapshot): string[] {
+  const lines: string[] = [];
+
+  const turnSeg =
+    snap.maxTurns && snap.maxTurns > 0
+      ? `${snap.turns} ${snap.turns === 1 ? 'turn' : 'turns'} / ${snap.maxTurns} max`
+      : `${snap.turns} ${snap.turns === 1 ? 'turn' : 'turns'}`;
+  const tokenSegs = [
+    `↑${fmtSi(snap.input)}`,
+    `↻ ${fmtSi(snap.cacheRead)}`,
+    `↓${fmtSi(snap.output)}`,
+  ];
+  if (snap.cacheWrite && snap.cacheWrite > 0) tokenSegs.splice(2, 0, `W ${fmtSi(snap.cacheWrite)}`);
+  const tokenSeg = tokenSegs.join(' / ');
+  const denom = snap.input + snap.cacheRead;
+  const ratioSeg = denom > 0 ? `R ${Math.round((snap.cacheRead / denom) * 100)}%` : null;
+  const costSeg = snap.cost > 0 ? fmtCost(snap.cost) : null;
+  const durSeg = snap.durationMs != null ? fmtDurationShort(snap.durationMs) : null;
+  const firstSegs = [turnSeg, tokenSeg, ratioSeg, costSeg, durSeg].filter((s): s is string => Boolean(s));
+  lines.push(`${SCORECARD_INDENT}${firstSegs.join(' · ')}`);
+
+  const stopLabel =
+    snap.state === 'running'
+      ? 'running'
+      : snap.state === 'completed'
+        ? 'completed'
+        : snap.state === 'max_turns'
+          ? 'max_turns'
+          : snap.state === 'aborted'
+            ? 'aborted'
+            : 'error';
+  const ctxSeg =
+    snap.contextTokens != null && snap.contextWindow && snap.contextWindow > 0
+      ? `ctx:${Math.min(100, Math.round((snap.contextTokens / snap.contextWindow) * 100))}%`
+      : null;
+  const modelSeg = snap.model ? `model: ${snap.model}` : null;
+  const stopSegs = [`stop: ${stopLabel}`, ctxSeg, modelSeg].filter((s): s is string => Boolean(s));
+  lines.push(`${SCORECARD_INDENT}${stopSegs.join('   ')}`);
+
+  const tools = formatToolCallCounts(snap);
+  if (tools) lines.push(`${SCORECARD_INDENT}tools: ${tools}`);
+
+  return lines;
+}
+
+/**
+ * Lead line shared by `subagent` + `subagent_send` renderResult:
+ *   `⏳ explore  (global)   sub_explore_1`
+ * Caller themes / colours individual segments; this returns the raw
+ * plain-text composition (the glyph is included verbatim).
+ */
+export function formatScorecardLead(args: {
+  agent: string;
+  agentSource?: 'global' | 'user' | 'project';
+  handle?: string;
+  stopReason: ScorecardStopReason | undefined;
+  /** Optional suffix - e.g. `"spawned in background"`. */
+  suffix?: string;
+}): string {
+  const g = scorecardGlyph(args.stopReason);
+  const sourceTag = args.agentSource ? ` (${args.agentSource})` : '';
+  const handleTag = args.handle ? `   ${args.handle}` : '';
+  const suffix = args.suffix ? `   ${args.suffix}` : '';
+  return `${g.glyph} ${args.agent}${sourceTag}${handleTag}${suffix}`;
 }
 
 /**

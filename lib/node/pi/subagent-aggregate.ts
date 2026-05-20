@@ -148,3 +148,45 @@ export function __resetSessionSubagentAggregateForTests(): void {
   const slot = getSlot();
   slot.instance = undefined;
 }
+
+// ──────────────────────────────────────────────────────────────────────
+// Per-handle running aggregate
+// ──────────────────────────────────────────────────────────────────────
+
+/**
+ * Live per-handle counters used by the `/agents:running` overlay and the
+ * `subagent`/`subagent_send` scorecards. The extension's
+ * `child.subscribe(...)` callback updates `byTool` from each
+ * `tool_execution_start` event and re-publishes a `SubagentRunSnapshot`
+ * for the renderer.
+ *
+ * Distinct from `SubagentAggregate` (session totals): one
+ * `ChildToolAggregate` per spawned child, dropped on session shutdown.
+ */
+export interface ChildToolAggregate {
+  /** Per-tool call counts. Mutated in place by `record`. */
+  byTool: Record<string, number>;
+}
+
+/**
+ * Add one tool-call to a `ChildToolAggregate`. Pure / synchronous - the
+ * extension calls this from inside its subscribe handler.
+ */
+export function recordToolCall(agg: ChildToolAggregate, toolName: string): void {
+  if (!toolName) return;
+  agg.byTool[toolName] = (agg.byTool[toolName] ?? 0) + 1;
+}
+
+/** Build an empty `ChildToolAggregate`. */
+export function makeChildToolAggregate(): ChildToolAggregate {
+  return { byTool: {} };
+}
+
+/**
+ * Read-only freeze of the `byTool` map for handing to the formatter
+ * helpers. Returns a fresh object so mutations of the original map
+ * after the snapshot don't leak back into prior renders.
+ */
+export function snapshotByTool(agg: ChildToolAggregate): Readonly<Record<string, number>> {
+  return { ...agg.byTool };
+}

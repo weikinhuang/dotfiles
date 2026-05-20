@@ -15,7 +15,10 @@ import { afterEach, describe, expect, test, vi } from 'vitest';
 import {
   __resetSessionSubagentAggregateForTests,
   getSessionSubagentAggregate,
+  makeChildToolAggregate,
   makeSubagentAggregate,
+  recordToolCall,
+  snapshotByTool,
   type SubagentRunRecord,
 } from '../../../../lib/node/pi/subagent-aggregate.ts';
 
@@ -170,5 +173,37 @@ describe('getSessionSubagentAggregate', () => {
     fromA.record(run({ turns: 2, cost: 0.3 }));
 
     expect(fromB.snapshot()).toMatchObject({ count: 1, turns: 2, cost: 0.3 });
+  });
+});
+
+describe('ChildToolAggregate', () => {
+  test('empty aggregate has no tool counts', () => {
+    expect(snapshotByTool(makeChildToolAggregate())).toEqual({});
+  });
+
+  test('recordToolCall increments per tool name', () => {
+    const agg = makeChildToolAggregate();
+    recordToolCall(agg, 'read');
+    recordToolCall(agg, 'read');
+    recordToolCall(agg, 'grep');
+
+    expect(snapshotByTool(agg)).toEqual({ read: 2, grep: 1 });
+  });
+
+  test('snapshot returns a copy that does not leak future mutations', () => {
+    const agg = makeChildToolAggregate();
+    recordToolCall(agg, 'read');
+    const snap = snapshotByTool(agg);
+    recordToolCall(agg, 'read');
+
+    expect(snap).toEqual({ read: 1 });
+    expect(snapshotByTool(agg)).toEqual({ read: 2 });
+  });
+
+  test('empty tool name is ignored', () => {
+    const agg = makeChildToolAggregate();
+    recordToolCall(agg, '');
+
+    expect(snapshotByTool(agg)).toEqual({});
   });
 });

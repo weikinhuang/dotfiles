@@ -8,11 +8,20 @@ import { describe, expect, test } from 'vitest';
 
 import {
   type AgentListItem,
+  type AgentPreviewSource,
   formatAgentListDescription,
+  formatAgentListRowDescription,
+  formatAgentPreview,
+  formatContextBar,
   formatParallelSubagentStatus,
+  formatRunningChildRow,
   formatRunningChildrenList,
+  formatScorecardLead,
   formatSpawnMessage,
+  formatSubagentScorecard,
   formatSubagentStatus,
+  formatToolCallCounts,
+  scorecardGlyph,
   type RunningChildListItem,
   type SubagentRunSnapshot,
 } from '../../../../lib/node/pi/subagent-format.ts';
@@ -266,5 +275,304 @@ describe('formatRunningChildrenList', () => {
     expect(out).toContain('3.0s'); // from the formatter itself
     // No trailing 10s - would duplicate the duration the completed-line already carries.
     expect(out.trimEnd()).not.toMatch(/\s10s$/);
+  });
+});
+
+// ──────────────────────────────────────────────────────────────────────
+// /agents overlay helpers
+// ──────────────────────────────────────────────────────────────────────
+
+const previewAgent: AgentPreviewSource = {
+  name: 'explore',
+  description:
+    'Read-only code exploration. Use when the user asks "find X across the codebase" or "summarize what this module does" - keeps the parent context clean by running grep/find/read in a throwaway session.',
+  source: 'global',
+  path: '/Users/me/.dotfiles/config/pi/agents/explore.md',
+  tools: ['read', 'grep', 'find', 'ls'],
+  model: 'inherit',
+  maxTurns: 20,
+  timeoutMs: 180_000,
+  isolation: 'shared-cwd',
+};
+
+describe('formatAgentListRowDescription', () => {
+  test('caps at ~55 chars with an ellipsis', () => {
+    const out = formatAgentListRowDescription('a'.repeat(120));
+
+    expect(out.length).toBeLessThanOrEqual(55);
+    expect(out).toMatch(/…$/);
+  });
+
+  test('collapses whitespace inside the row', () => {
+    expect(formatAgentListRowDescription('multi\nline   desc')).toBe('multi line desc');
+  });
+});
+
+describe('formatAgentPreview', () => {
+  test('emits path, frontmatter summary, blank, prose', () => {
+    const lines = formatAgentPreview(previewAgent);
+
+    expect(lines[0]).toContain('/explore.md');
+    expect(lines[1]).toBe('');
+    expect(lines[2]).toContain('tools:');
+    expect(lines[2]).toContain('read, grep, find, ls');
+    expect(lines[3]).toContain('model:  inherit');
+    expect(lines[3]).toContain('maxTurns: 20');
+    expect(lines[3]).toContain('timeoutMs: 180s');
+    expect(lines[4]).toContain('isolation: shared-cwd');
+    expect(lines[5]).toBe('');
+    expect(lines[6]).toContain('Read-only code exploration');
+  });
+
+  test('renders provider/id model when not inherit', () => {
+    const lines = formatAgentPreview({
+      ...previewAgent,
+      model: { provider: 'amazon-bedrock', modelId: 'claude-sonnet-4' },
+    });
+
+    expect(lines.some((l) => l.includes('amazon-bedrock/claude-sonnet-4'))).toBe(true);
+  });
+
+  test('caps the description prose with an ellipsis', () => {
+    const lines = formatAgentPreview({ ...previewAgent, description: 'x '.repeat(400) });
+    const prose = lines[lines.length - 1];
+
+    expect(prose).toMatch(/…$/);
+    expect(prose.length).toBeLessThan(360);
+  });
+});
+
+// ──────────────────────────────────────────────────────────────────────
+// /agents:running overlay helpers
+// ──────────────────────────────────────────────────────────────────────
+
+describe('formatContextBar', () => {
+  test('renders filled cells proportional to usage', () => {
+    const out = formatContextBar({ contextTokens: 25_000, contextWindow: 100_000 }, { width: 8 });
+
+    expect(out).toContain('▰▰');
+    expect(out).toContain('▱');
+    expect(out).toMatch(/25%$/);
+  });
+
+  test('renders empty bar with --% when context is unknown', () => {
+    expect(formatContextBar({}, { width: 4 })).toBe('▱▱▱▱  --%');
+  });
+
+  test('clamps to width when usage exceeds 100%', () => {
+    const out = formatContextBar({ contextTokens: 500_000, contextWindow: 100_000 }, { width: 8 });
+
+    expect(out).toContain('▰▰▰▰▰▰▰▰');
+    expect(out).toMatch(/100%$/);
+  });
+});
+
+describe('formatToolCallCounts', () => {
+  test('returns null when nothing recorded', () => {
+    expect(formatToolCallCounts({})).toBeNull();
+    expect(formatToolCallCounts({ byTool: {} })).toBeNull();
+  });
+
+  test('sorts descending by count, joins with ·', () => {
+    const out = formatToolCallCounts({ byTool: { bash: 1, grep: 3, read: 7 } });
+
+    expect(out).toBe('read(7) · grep(3) · bash(1)');
+  });
+
+  test('truncates after top 5 with +N more', () => {
+    const byTool = { a: 6, b: 5, c: 4, d: 3, e: 2, f: 1, g: 1 };
+    const out = formatToolCallCounts({ byTool });
+
+    expect(out).toContain('a(6)');
+    expect(out).toContain('e(2)');
+    expect(out).toContain('+2 more');
+    expect(out).not.toContain('f(1)');
+  });
+});
+
+describe('formatRunningChildRow', () => {
+  const baseSnap: SubagentRunSnapshot = {
+    agent: 'explore',
+    state: 'running',
+    model: 'qwen3-coder-30b',
+    turns: 3,
+    input: 1200,
+    cacheRead: 4500,
+    output: 180,
+    cost: 0.004,
+    contextTokens: 8000,
+    contextWindow: 100_000,
+    maxTurns: 20,
+    byTool: { read: 7, grep: 3, bash: 1 },
+  };
+
+  test('emits 4 lines for a running child with tools', () => {
+    const lines = formatRunningChildRow(
+      { handle: 'bg-1', snapshot: baseSnap, startedAt: 0 },
+      12_000,
+    );
+
+    expect(lines).toHaveLength(4);
+    expect(lines[0]).toContain('bg-1');
+    expect(lines[0]).toContain('explore');
+    expect(lines[0]).toContain('⏳');
+    expect(lines[0]).toContain('12s');
+    expect(lines[0]).toContain('turn 3/20');
+    expect(lines[1]).toContain('M(3)');
+    expect(lines[1]).toContain('↑1k');
+    expect(lines[1]).toContain('R 79%');
+    expect(lines[2]).toContain('ctx');
+    expect(lines[2]).toContain('8%');
+    expect(lines[2]).toContain('model qwen3-coder-30b');
+    expect(lines[3]).toContain('tools: read(7) · grep(3) · bash(1)');
+  });
+
+  test('omits tools line when byTool is empty', () => {
+    const lines = formatRunningChildRow(
+      { handle: 'bg-2', snapshot: { ...baseSnap, byTool: {} }, startedAt: 0 },
+      3000,
+    );
+
+    expect(lines).toHaveLength(3);
+    expect(lines.find((l) => l.startsWith('       tools:'))).toBeUndefined();
+  });
+
+  test('falls back to bare turn count when maxTurns is unset', () => {
+    const lines = formatRunningChildRow(
+      { handle: 'bg-3', snapshot: { ...baseSnap, maxTurns: undefined }, startedAt: 0 },
+      3000,
+    );
+
+    expect(lines[0]).toContain('turn 3');
+    expect(lines[0]).not.toContain('/');
+  });
+
+  test('uses the snapshot state to pick the glyph for terminal children', () => {
+    const lines = formatRunningChildRow(
+      { handle: 'bg-4', snapshot: { ...baseSnap, state: 'completed' }, startedAt: 0 },
+      4200,
+    );
+
+    expect(lines[0]).toContain('✓');
+    expect(lines[0]).toContain('done');
+  });
+});
+
+// ──────────────────────────────────────────────────────────────────────
+// scorecard
+// ──────────────────────────────────────────────────────────────────────
+
+describe('scorecardGlyph', () => {
+  test('maps every stop reason to a glyph', () => {
+    expect(scorecardGlyph('completed').glyph).toBe('✓');
+    expect(scorecardGlyph('max_turns').glyph).toBe('∎');
+    expect(scorecardGlyph('aborted').glyph).toBe('⚠');
+    expect(scorecardGlyph('error').glyph).toBe('✗');
+    expect(scorecardGlyph('spawned').glyph).toBe('⏳');
+    expect(scorecardGlyph('running').glyph).toBe('⏳');
+  });
+
+  test('missing / unknown stopReason defaults to spawned glyph', () => {
+    expect(scorecardGlyph(undefined).glyph).toBe('⏳');
+  });
+});
+
+describe('formatScorecardLead', () => {
+  test('includes agent, source, handle, suffix', () => {
+    const out = formatScorecardLead({
+      agent: 'explore',
+      agentSource: 'global',
+      handle: 'sub_explore_1',
+      stopReason: 'spawned',
+      suffix: 'spawned in background',
+    });
+
+    expect(out.startsWith('⏳ explore (global)')).toBe(true);
+    expect(out).toContain('sub_explore_1');
+    expect(out).toContain('spawned in background');
+  });
+
+  test('handles missing optional fields', () => {
+    const out = formatScorecardLead({ agent: 'plan', stopReason: 'completed' });
+
+    expect(out).toBe('✓ plan');
+  });
+});
+
+describe('formatSubagentScorecard', () => {
+  test('renders the three-line scorecard for a completed run with tools', () => {
+    const lines = formatSubagentScorecard({
+      agent: 'explore',
+      state: 'completed',
+      model: 'qwen3-coder-30b',
+      turns: 3,
+      input: 1200,
+      cacheRead: 4500,
+      output: 180,
+      cost: 0.004,
+      durationMs: 4200,
+      contextTokens: 8000,
+      contextWindow: 100_000,
+      maxTurns: 20,
+      byTool: { read: 7, grep: 3, bash: 1 },
+    });
+
+    expect(lines).toHaveLength(3);
+    expect(lines[0]).toContain('3 turns / 20 max');
+    expect(lines[0]).toContain('↑1k / ↻ 5k / ↓180');
+    expect(lines[0]).toContain('R 79%');
+    expect(lines[0]).toContain('$0.004');
+    expect(lines[0]).toContain('4.2s');
+    expect(lines[1]).toContain('stop: completed');
+    expect(lines[1]).toContain('ctx:8%');
+    expect(lines[1]).toContain('model: qwen3-coder-30b');
+    expect(lines[2]).toContain('tools: read(7) · grep(3) · bash(1)');
+  });
+
+  test('hides tools line when no calls recorded', () => {
+    const lines = formatSubagentScorecard({
+      agent: 'plan',
+      state: 'running',
+      turns: 1,
+      input: 4000,
+      cacheRead: 0,
+      output: 111,
+      cost: 0,
+    });
+
+    expect(lines).toHaveLength(2);
+    expect(lines[0]).toContain('1 turn');
+    expect(lines[1]).toContain('stop: running');
+  });
+
+  test('singular "turn" when turns=1', () => {
+    const lines = formatSubagentScorecard({
+      agent: 'plan',
+      state: 'completed',
+      turns: 1,
+      maxTurns: 20,
+      input: 0,
+      cacheRead: 0,
+      output: 0,
+      cost: 0,
+    });
+
+    expect(lines[0]).toMatch(/\b1 turn\b/);
+    expect(lines[0]).not.toMatch(/\b1 turns\b/);
+  });
+
+  test('omits maxTurns segment when not provided', () => {
+    const lines = formatSubagentScorecard({
+      agent: 'plan',
+      state: 'completed',
+      turns: 2,
+      input: 0,
+      cacheRead: 0,
+      output: 0,
+      cost: 0,
+    });
+
+    expect(lines[0]).toContain('2 turns');
+    expect(lines[0]).not.toContain('max');
   });
 });

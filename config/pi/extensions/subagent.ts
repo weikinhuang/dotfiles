@@ -77,18 +77,45 @@ import {
   type ExtensionAPI,
   type ExtensionContext,
   type ExtensionFactory,
+  type Theme,
 } from '@earendil-works/pi-coding-agent';
-import { Text } from '@earendil-works/pi-tui';
+import { matchesKey, Text, truncateToWidth, type Component } from '@earendil-works/pi-tui';
 import { Type } from 'typebox';
 
-import { getSessionSubagentAggregate } from '../../../lib/node/pi/subagent-aggregate.ts';
+import {
+  getSessionSubagentAggregate,
+  makeChildToolAggregate,
+  recordToolCall,
+  snapshotByTool,
+  type ChildToolAggregate,
+} from '../../../lib/node/pi/subagent-aggregate.ts';
+import {
+  ActivityRing,
+  activityPushModeFor,
+  applyActivityLine,
+  formatActivityLine,
+  getSessionActivityRings,
+  makeActivityState,
+  tailJsonl,
+  type ActivityEvent,
+} from '../../../lib/node/pi/subagent-activity.ts';
 import {
   formatAgentListDescription,
+  formatAgentListRowDescription,
+  formatAgentPreview,
+  formatContextBar,
   formatParallelSubagentStatus,
+  formatRunningChildRow,
   formatRunningChildrenList,
+  formatScorecardLead,
   formatSpawnMessage,
+  formatSubagentScorecard,
   formatSubagentStatus,
+  formatToolCallCounts,
+  scorecardGlyph,
+  type AgentPreviewSource,
   type RunningChildListItem,
+  type ScorecardStopReason,
   type SubagentRunSnapshot,
 } from '../../../lib/node/pi/subagent-format.ts';
 import { makeHandleCounter, resolveHandle } from '../../../lib/node/pi/subagent-handle.ts';
@@ -147,7 +174,7 @@ interface SubagentSendParamsT {
   text?: string;
 }
 
-export type SubagentStopReason = 'completed' | 'max_turns' | 'aborted' | 'error' | 'running';
+export type SubagentStopReason = 'completed' | 'max_turns' | 'aborted' | 'error' | 'running' | 'spawned';
 
 export interface SubagentDetails {
   agent: string;
@@ -172,6 +199,14 @@ export interface SubagentDetails {
   childSessionId?: string;
   handle?: string;
   error?: string;
+  /** Cap on the child's turn count (for the `turn N/max` scorecard segment). */
+  maxTurns?: number;
+  /** Per-tool call counts populated from `tool_execution_start` events. */
+  byTool?: Readonly<Record<string, number>>;
+  /** Context-tokens snapshot at the time of the result (when available). */
+  contextTokens?: number;
+  /** Context window of the child's model. */
+  contextWindow?: number;
 }
 
 // ──────────────────────────────────────────────────────────────────────
@@ -384,6 +419,8 @@ interface ChildAggregate {
   cost: number;
   contextTokens: number;
   errorFromChild: string | undefined;
+  /** Per-tool call counts populated from `tool_execution_start` events. */
+  tools: ChildToolAggregate;
 }
 
 function makeAggregate(): ChildAggregate {
@@ -396,6 +433,7 @@ function makeAggregate(): ChildAggregate {
     cost: 0,
     contextTokens: 0,
     errorFromChild: undefined,
+    tools: makeChildToolAggregate(),
   };
 }
 
@@ -435,6 +473,390 @@ function cleanupAndError(args: {
 }): { content: string; details: SubagentDetails; isError: true } {
   if (args.worktree) removeWorktree(args.parentCwd, args.worktree);
   return toolErrorResult(args);
+}
+
+// ──────────────────────────────────────────────────────────────────────
+// Scorecard rendering (shared by `subagent` + `subagent_send`)
+// ──────────────────────────────────────────────────────────────────────
+
+function stopReasonToState(reason: ScorecardStopReason): SubagentRunSnapshot['state'] {
+  switch (reason) {
+    case 'completed':
+      return 'completed';
+    case 'max_turns':
+      return 'max_turns';
+    case 'aborted':
+      return 'aborted';
+    case 'error':
+      return 'error';
+    case 'running':
+    case 'spawned':
+    default:
+      return 'running';
+  }
+}
+
+/**
+ * Re-hydrate a partial `SubagentDetails` (from a tool result) into a
+ * `SubagentRunSnapshot` so the same scorecard formatter can render it.
+ */
+function detailsToSnapshot(details: Partial<SubagentDetails>, stopReason: ScorecardStopReason): SubagentRunSnapshot {
+  return {
+    agent: details.agent ?? '',
+    agentSource: details.agentSource,
+    state: stopReasonToState(stopReason),
+    model: details.model,
+    turns: details.turns ?? 0,
+    input: details.tokens?.input ?? 0,
+    cacheRead: details.tokens?.cacheRead ?? 0,
+    cacheWrite: details.tokens?.cacheWrite ?? 0,
+    output: details.tokens?.output ?? 0,
+    cost: details.cost ?? 0,
+    durationMs: details.durationMs,
+    contextTokens: details.contextTokens,
+    contextWindow: details.contextWindow,
+    task: details.task,
+    handle: details.handle,
+    maxTurns: details.maxTurns,
+    byTool: details.byTool,
+  };
+}
+
+/**
+ * Theme-aware wrapper around `formatScorecardLead` +
+ * `formatSubagentScorecard`. Returns a single multi-line string -
+ * callers wrap it in a `Text` component.
+ */
+function renderScorecard(args: {
+  theme: Theme;
+  agent: string;
+  agentSource?: 'global' | 'user' | 'project';
+  handle?: string;
+  stopReason: ScorecardStopReason;
+  snapshot: SubagentRunSnapshot;
+  leadSuffix?: string;
+}): string {
+  const { theme, agent, agentSource, handle, stopReason, snapshot, leadSuffix } = args;
+  const glyphInfo = scorecardGlyph(stopReason);
+  const glyph = theme.fg(glyphInfo.themeColor, glyphInfo.glyph);
+  const source = agentSource ? theme.fg('muted', ` (${agentSource})`) : '';
+  const handleSeg = handle ? `   ${theme.fg('accent', handle)}` : '';
+  const suffix = leadSuffix ? `   ${theme.fg('muted', leadSuffix)}` : '';
+  const lead = `${glyph} ${theme.fg('toolTitle', theme.bold(agent))}${source}${handleSeg}${suffix}`;
+  const card = formatSubagentScorecard(snapshot).map((l) => theme.fg('muted', l));
+  return [lead, ...card].join('\n');
+}
+
+// ──────────────────────────────────────────────────────────────────────
+// /agents overlay primitives
+// ──────────────────────────────────────────────────────────────────────
+
+function formatHeaderRule(title: string, chip: string | undefined, width: number, theme: Theme): string {
+  const lead = '─'.repeat(3);
+  const titleSegment = ` ${title} `;
+  if (!chip) {
+    const fill = '─'.repeat(Math.max(0, width - lead.length - titleSegment.length));
+    return theme.fg('borderMuted', lead) + theme.fg('accent', titleSegment) + theme.fg('borderMuted', fill);
+  }
+  const chipSegment = ` ${chip} `;
+  const trail = '─'.repeat(3);
+  const middle = '─'.repeat(Math.max(1, width - lead.length - titleSegment.length - chipSegment.length - trail.length));
+  return (
+    theme.fg('borderMuted', lead) +
+    theme.fg('accent', titleSegment) +
+    theme.fg('borderMuted', middle) +
+    theme.fg('muted', chipSegment) +
+    theme.fg('borderMuted', trail)
+  );
+}
+
+/**
+ * Loaded-list overlay rendered by `/agents`. Two horizontal rules
+ * separate a row list (top) from a preview block (bottom); selection
+ * is driven by the arrow keys, escape closes.
+ */
+class AgentsLoadedOverlay implements Component {
+  private agents: AgentPreviewSource[];
+  private selected = 0;
+  private cachedWidth?: number;
+  private cachedLines?: string[];
+
+  constructor(
+    agents: AgentPreviewSource[],
+    private readonly theme: Theme,
+    private readonly onClose: () => void,
+  ) {
+    this.agents = agents;
+  }
+
+  handleInput(data: string): void {
+    if (matchesKey(data, 'escape') || matchesKey(data, 'ctrl+c')) {
+      this.onClose();
+      return;
+    }
+    if (matchesKey(data, 'up') || matchesKey(data, 'ctrl+p')) {
+      this.move(-1);
+      return;
+    }
+    if (matchesKey(data, 'down') || matchesKey(data, 'ctrl+n')) {
+      this.move(1);
+      return;
+    }
+  }
+
+  invalidate(): void {
+    this.cachedWidth = undefined;
+    this.cachedLines = undefined;
+  }
+
+  private move(delta: number): void {
+    if (this.agents.length === 0) return;
+    this.selected = Math.max(0, Math.min(this.agents.length - 1, this.selected + delta));
+    this.invalidate();
+  }
+
+  render(width: number): string[] {
+    if (this.cachedLines && this.cachedWidth === width) return this.cachedLines;
+    const th = this.theme;
+    const lines: string[] = [''];
+
+    const count = this.agents.length;
+    const chip = count > 0 ? `${count} agent${count === 1 ? '' : 's'}` : undefined;
+    lines.push(truncateToWidth(formatHeaderRule('Loaded sub-agents', chip, width, th), width));
+    lines.push('');
+
+    if (count === 0) {
+      lines.push(
+        truncateToWidth(`  ${th.fg('dim', 'No agents loaded. Drop Markdown definitions into ~/.pi/agents/.')}`, width),
+      );
+      lines.push('');
+      lines.push(truncateToWidth(`  ${th.fg('dim', 'Press Escape to close')}`, width));
+      lines.push('');
+      this.cachedWidth = width;
+      this.cachedLines = lines;
+      return lines;
+    }
+
+    const maxName = this.agents.reduce((m, a) => Math.max(m, a.name.length), 0);
+    const sourcePad = '[global] '.length; // widest tag with trailing space
+    for (let i = 0; i < this.agents.length; i++) {
+      const a = this.agents[i];
+      const marker = i === this.selected ? th.fg('accent', '>') : ' ';
+      const namePad = ' '.repeat(Math.max(1, maxName + 2 - a.name.length));
+      const sourceTag = `[${a.source}]`;
+      const sourceSeg = th.fg('muted', sourceTag + ' '.repeat(Math.max(1, sourcePad - sourceTag.length)));
+      const desc = formatAgentListRowDescription(a.description);
+      const styled = i === this.selected ? th.fg('text', a.name) : th.fg('dim', a.name);
+      const row = `  ${marker} ${styled}${namePad}${sourceSeg} ${th.fg('dim', desc)}`;
+      lines.push(truncateToWidth(row, width));
+    }
+
+    const selected = this.agents[this.selected];
+    lines.push('');
+    lines.push(
+      truncateToWidth(formatHeaderRule(`${selected.name}  [${selected.source}]`, undefined, width, th), width),
+    );
+    lines.push('');
+    for (const previewLine of formatAgentPreview(selected)) {
+      // First line is the path (dim); the rest of the body is text-tone.
+      const styled = previewLine.startsWith('/') ? th.fg('dim', previewLine) : th.fg('text', previewLine);
+      lines.push(truncateToWidth(`  ${styled}`, width));
+    }
+    lines.push('');
+    lines.push(truncateToWidth(`  ${th.fg('dim', '↑/↓ move · Press Escape to close')}`, width));
+    lines.push('');
+
+    this.cachedWidth = width;
+    this.cachedLines = lines;
+    return lines;
+  }
+}
+
+/**
+ * Running-children overlay rendered by `/agents:running`. Live tick
+ * every 1 s; each row block lays out handle, agent, state, elapsed,
+ * `turn N/max`, token line, ctx bar, model, and (optional) tool counts.
+ * Below the row list, a preview block summarises the highlighted child
+ * + renders the bounded activity-tail ring.
+ */
+interface RunningOverlayEntry {
+  handle: string;
+  agent: string;
+  agentSource?: 'global' | 'user' | 'project';
+  task: string;
+  snapshot: SubagentRunSnapshot;
+  startedAt: number;
+  /** Wall-clock millis of the last `pushStatus` call. */
+  lastUpdateMs: number;
+  /** True while the entry is live; false for terminal children. */
+  running: boolean;
+  /** Path to the child's JSONL transcript on disk (for the disk-tail fallback). */
+  sessionFile: string | undefined;
+}
+
+const RUNNING_TICK_MS = 1000;
+
+class AgentsRunningOverlay implements Component {
+  private selected = 0;
+  /** `f` toggles freeze for the highlighted child's activity tail. */
+  private frozenHandles = new Set<string>();
+  /** Cached width / lines so static frames don't redraw on every tick. */
+  private cachedWidth?: number;
+  private cachedLines?: string[];
+
+  constructor(
+    private readonly getEntries: () => RunningOverlayEntry[],
+    private readonly rings: Map<string, ActivityRing>,
+    private readonly theme: Theme,
+    private readonly onClose: () => void,
+  ) {}
+
+  handleInput(data: string): void {
+    if (matchesKey(data, 'escape') || matchesKey(data, 'ctrl+c')) {
+      this.onClose();
+      return;
+    }
+    if (matchesKey(data, 'up') || matchesKey(data, 'ctrl+p')) {
+      this.move(-1);
+      return;
+    }
+    if (matchesKey(data, 'down') || matchesKey(data, 'ctrl+n')) {
+      this.move(1);
+      return;
+    }
+    if (data === 'f') {
+      this.toggleFreeze();
+      return;
+    }
+  }
+
+  invalidate(): void {
+    this.cachedWidth = undefined;
+    this.cachedLines = undefined;
+  }
+
+  private move(delta: number): void {
+    const entries = this.getEntries();
+    if (entries.length === 0) return;
+    this.selected = Math.max(0, Math.min(entries.length - 1, this.selected + delta));
+    this.invalidate();
+  }
+
+  private toggleFreeze(): void {
+    const entries = this.getEntries();
+    if (entries.length === 0) return;
+    const handle = entries[Math.min(this.selected, entries.length - 1)].handle;
+    const ring = this.rings.get(handle);
+    if (!ring) return;
+    if (this.frozenHandles.has(handle)) {
+      this.frozenHandles.delete(handle);
+      ring.resume();
+    } else {
+      this.frozenHandles.add(handle);
+      ring.freeze();
+    }
+    this.invalidate();
+  }
+
+  render(width: number): string[] {
+    // We cannot cache by width alone because the live tick changes the
+    // payload. Each render rebuilds; the overlay sits behind a 1 s
+    // request-render tick so cost is negligible.
+    void this.cachedWidth;
+    void this.cachedLines;
+
+    const th = this.theme;
+    const entries = this.getEntries();
+    const now = Date.now();
+    const lines: string[] = [''];
+
+    const chip = entries.length === 0 ? '0 active' : `${entries.length} active · ${RUNNING_TICK_MS}ms`;
+    lines.push(truncateToWidth(formatHeaderRule('Running sub-agents', chip, width, th), width));
+    lines.push('');
+
+    if (entries.length === 0) {
+      lines.push(truncateToWidth(`  ${th.fg('dim', 'No background sub-agents running.')}`, width));
+      lines.push('');
+      lines.push(truncateToWidth(`  ${th.fg('dim', 'Press Escape to close')}`, width));
+      lines.push('');
+      return lines;
+    }
+
+    if (this.selected >= entries.length) this.selected = entries.length - 1;
+
+    for (let i = 0; i < entries.length; i++) {
+      const e = entries[i];
+      const marker = i === this.selected ? th.fg('accent', '>') : ' ';
+      const rowLines = formatRunningChildRow(
+        { handle: e.handle, snapshot: e.snapshot, startedAt: e.startedAt },
+        now,
+        { width },
+      );
+      lines.push(truncateToWidth(`  ${marker} ${th.fg('text', rowLines[0])}`, width));
+      for (let j = 1; j < rowLines.length; j++) {
+        lines.push(truncateToWidth(`    ${th.fg('dim', rowLines[j])}`, width));
+      }
+    }
+
+    const sel = entries[this.selected];
+    lines.push('');
+    lines.push(truncateToWidth(formatHeaderRule(`${sel.handle}  ${sel.agent}`, undefined, width, th), width));
+    lines.push('');
+    if (sel.task) {
+      const taskWrap = capLine(sel.task, Math.max(40, width - 14));
+      lines.push(truncateToWidth(`  ${th.fg('muted', 'task    ')}${th.fg('text', taskWrap)}`, width));
+    }
+    const spawnedAgo = fmtDurationShort(Math.max(0, now - sel.startedAt));
+    const updateAgo = fmtDurationShort(Math.max(0, now - sel.lastUpdateMs));
+    lines.push(
+      truncateToWidth(
+        `  ${th.fg('muted', 'spawned ')}${spawnedAgo} ago${' '.repeat(4)}${th.fg('muted', 'last update ')}${updateAgo} ago`,
+        width,
+      ),
+    );
+
+    // Activity tail
+    const ring = this.rings.get(sel.handle);
+    const frozen = this.frozenHandles.has(sel.handle);
+    const live = sel.running && !frozen;
+    const tailChip = frozen ? 'tail · frozen' : sel.running ? `tail · ${RUNNING_TICK_MS}ms · live` : 'tail · final';
+    lines.push('');
+    lines.push(truncateToWidth(formatHeaderRule('activity', tailChip, width, th), width));
+    lines.push('');
+    const tailLines = ring
+      ? ring.snapshot()
+      : sel.sessionFile
+        ? tailJsonl(sel.sessionFile, { maxLines: 32 })
+        : [];
+    if (tailLines.length === 0) {
+      lines.push(truncateToWidth(`  ${th.fg('dim', '(no activity yet)')}`, width));
+    } else {
+      for (const tl of tailLines.slice(-12)) {
+        lines.push(truncateToWidth(`  ${th.fg('dim', tl)}`, width));
+      }
+    }
+
+    lines.push('');
+    lines.push(
+      truncateToWidth(`  ${th.fg('dim', '↑/↓ move · f freeze tail · Press Escape to close')}`, width),
+    );
+    lines.push('');
+    void live;
+    return lines;
+  }
+}
+
+function fmtDurationShort(ms: number): string {
+  if (!Number.isFinite(ms) || ms < 0) return '';
+  if (ms < 1000) return `${Math.round(ms)}ms`;
+  if (ms < 10_000) return `${(ms / 1000).toFixed(1)}s`;
+  return `${Math.round(ms / 1000)}s`;
+}
+
+function capLine(s: string, cap: number): string {
+  const collapsed = s.replace(/\s+/g, ' ').trim();
+  if (collapsed.length <= cap) return collapsed;
+  return `${collapsed.slice(0, cap - 1).trimEnd()}…`;
 }
 
 // ──────────────────────────────────────────────────────────────────────
@@ -518,13 +940,22 @@ export default function subagentExtension(pi: ExtensionAPI): void {
       task: entry.task,
       model: snap.model,
       turns: snap.turns,
-      tokens: { input: snap.input, cacheRead: snap.cacheRead, cacheWrite: 0, output: snap.output },
+      tokens: {
+        input: snap.input,
+        cacheRead: snap.cacheRead,
+        cacheWrite: snap.cacheWrite ?? 0,
+        output: snap.output,
+      },
       cost: snap.cost,
       durationMs: Date.now() - entry.startedAt,
       stopReason: 'running',
       childSessionId: entry.childSessionId,
       childSessionFile: entry.childSessionFile,
       handle: entry.handle,
+      maxTurns: snap.maxTurns,
+      byTool: snap.byTool,
+      contextTokens: snap.contextTokens,
+      contextWindow: snap.contextWindow,
     };
   };
 
@@ -655,6 +1086,7 @@ export default function subagentExtension(pi: ExtensionAPI): void {
     lingerTimers.clear();
     backgroundChildren.clear();
     handleCounter.reset();
+    getSessionActivityRings().clear();
   });
 
   // ────────────────────────────────────────────────────────────────────
@@ -915,16 +1347,22 @@ export default function subagentExtension(pi: ExtensionAPI): void {
       opts?: { durationMs?: number },
     ): SubagentRunSnapshot => ({
       agent: agent.name,
+      agentSource: agent.source,
       state,
       model: childModel?.id,
       turns: agg.turns,
       input: agg.input,
       cacheRead: agg.cacheRead,
+      cacheWrite: agg.cacheWrite,
       output: agg.output,
       cost: agg.cost,
       contextTokens: agg.contextTokens > 0 ? agg.contextTokens : undefined,
       contextWindow: childModel?.contextWindow,
       durationMs: opts?.durationMs,
+      task,
+      handle,
+      maxTurns,
+      byTool: snapshotByTool(agg.tools),
     });
 
     const initialSnap = makeSnapshot('running');
@@ -961,8 +1399,30 @@ export default function subagentExtension(pi: ExtensionAPI): void {
 
     pushStatus('running');
 
+    // Per-handle activity ring + cursor state. The overlay reads the
+    // ring via `getSessionActivityRings()` so it survives jiti
+    // re-evaluation of this extension module. State + ring are dropped
+    // in `drive()`'s finally so the registry doesn't accumulate handles
+    // across long-running sessions.
+    const activityRing = new ActivityRing({ capacity: 64 });
+    const activityState = makeActivityState();
+    getSessionActivityRings().set(handle, activityRing);
+
     const unsubscribe = child.subscribe((event: AgentSessionEvent) => {
       if (debug) ctx.ui.notify(`subagent[${agent.name}]: ${event.type}`, 'info');
+
+      // Activity-tail rendering. Pure formatter; safe to call before
+      // / after the counter updates below. Routing through
+      // `activityPushModeFor` collapses streaming assistant deltas to a
+      // single cursor line in the ring rather than one row per token.
+      const activityEvent = event as unknown as ActivityEvent;
+      const line = formatActivityLine(activityEvent, activityState);
+      if (line) applyActivityLine(activityRing, line, activityPushModeFor(activityEvent));
+
+      if (event.type === 'tool_execution_start') {
+        recordToolCall(agg.tools, event.toolName ?? '');
+        pushStatus('running');
+      }
       if (event.type === 'turn_end') {
         agg.turns++;
         if (agg.turns >= maxTurns) {
@@ -1118,6 +1578,10 @@ export default function subagentExtension(pi: ExtensionAPI): void {
         childSessionFile,
         handle,
         error: stopReason === 'error' ? (agg.errorFromChild ?? childError?.message) : undefined,
+        maxTurns,
+        byTool: snapshotByTool(agg.tools),
+        contextTokens: agg.contextTokens > 0 ? agg.contextTokens : undefined,
+        contextWindow: childModel?.contextWindow,
       };
 
       const result: RunChildResult = {
@@ -1128,6 +1592,10 @@ export default function subagentExtension(pi: ExtensionAPI): void {
 
       entry.running = false;
       entry.outcome = result;
+      // Keep the per-handle activity ring around so terminal entries
+      // still tail past activity in `/agents:running`. The ring is
+      // dropped on session_shutdown along with the rest of the
+      // per-handle state.
       return result;
     };
 
@@ -1226,6 +1694,15 @@ export default function subagentExtension(pi: ExtensionAPI): void {
       const { entry, drive } = spawn;
 
       if (background) {
+        // Background spawns return immediately with `stopReason: 'spawned'`
+        // so the parent renderResult picks the `⏳` glyph from
+        // `scorecardGlyph` rather than falling through to the error
+        // glyph (`✗`). The actual `drive()` outcome - with a real
+        // stopReason - lands on the entry once it settles.
+        const spawnedDetails: SubagentDetails = {
+          ...entryToRunningDetails(entry),
+          stopReason: 'spawned',
+        };
         // Kick drive() off into the void. Semaphore release + audit
         // entry happen inside the async IIFE once drive() settles.
         // Completion promise is wired BEFORE the registry insert so
@@ -1287,7 +1764,7 @@ export default function subagentExtension(pi: ExtensionAPI): void {
               text: formatSpawnMessage({ handle: entry.handle, agent: agent.name, task: params.task }),
             },
           ],
-          details: entryToRunningDetails(entry),
+          details: spawnedDetails,
           isError: false,
         };
       }
@@ -1355,19 +1832,34 @@ export default function subagentExtension(pi: ExtensionAPI): void {
 
     renderResult(result, { expanded }, theme, _context) {
       const details = (result.details ?? {}) as Partial<SubagentDetails>;
-      const glyph =
-        details.stopReason === 'completed'
-          ? theme.fg('success', '✓')
-          : details.stopReason === 'max_turns'
-            ? theme.fg('warning', '∎')
-            : details.stopReason === 'aborted'
-              ? theme.fg('warning', '⚠')
-              : theme.fg('error', '✗');
-      const agent = details.agent ?? '(agent)';
-      const source = details.agentSource ? theme.fg('muted', ` (${details.agentSource})`) : '';
-      const lead = `${glyph} ${theme.fg('toolTitle', theme.bold(agent))}${source}`;
+      const stopReason: ScorecardStopReason = (details.stopReason as ScorecardStopReason | undefined) ?? 'spawned';
+      const lead = renderScorecard({
+        theme,
+        agent: details.agent ?? '(agent)',
+        agentSource: details.agentSource,
+        handle: details.handle,
+        stopReason,
+        snapshot: detailsToSnapshot(details, stopReason),
+        // For successful background spawns we want a "spawned in background"
+        // suffix so the card visually mirrors the toast text.
+        leadSuffix: stopReason === 'spawned' ? 'spawned in background' : undefined,
+      });
       const first = result.content.find((c) => c.type === 'text');
       const body = first?.type === 'text' ? first.text : '';
+      // Background spawns embed handle + task + hint into `content`; that
+      // duplicates the scorecard lead, so we lean on the scorecard for
+      // the visible card and only show the body when there is something
+      // distinct to read (sync completion or wait response).
+      if (stopReason === 'spawned') {
+        const taskLine = details.task
+          ? theme.fg('dim', `   task: ${details.task.length > 80 ? `${details.task.slice(0, 79)}…` : details.task}`)
+          : '';
+        const hint = theme.fg(
+          'muted',
+          '   Use `subagent_send` to check status, steer, or retrieve the result.',
+        );
+        return new Text([lead, taskLine, hint].filter(Boolean).join('\n'), 0, 0);
+      }
       if (expanded && body.trim()) {
         return new Text(`${lead}\n${theme.fg('text', body)}`, 0, 0);
       }
@@ -1577,6 +2069,56 @@ export default function subagentExtension(pi: ExtensionAPI): void {
       }
       return new Text(text, 0, 0);
     },
+
+    /**
+     * Mirror the parent `subagent` card shape so the parent's scrollback
+     * shows a consistent scorecard regardless of whether the child was
+     * sync or background. The lead glyph is picked from the action +
+     * the snapshot's stopReason; the body slot carries the final answer
+     * (wait) or stays empty (status / abort).
+     */
+    renderResult(result, { expanded }, theme, context) {
+      const details = (result.details ?? {}) as Partial<SubagentDetails>;
+      // For `status` we treat `running` as the active state so the
+      // scorecard's stop line reads `running`. For `wait` we report the
+      // final stopReason. For `abort` we report `aborted` regardless of
+      // whatever drive() classified - the user asked for an abort.
+      const callArgs = (context.args ?? {}) as Partial<SubagentSendParamsT>;
+      const action = callArgs.action ?? (callArgs.text ? 'send' : 'status');
+      let stopReason: ScorecardStopReason;
+      if (action === 'status') {
+        stopReason = details.stopReason === 'running' ? 'running' : ((details.stopReason as ScorecardStopReason | undefined) ?? 'running');
+      } else if (action === 'abort') {
+        stopReason = 'aborted';
+      } else if (action === 'wait') {
+        stopReason = (details.stopReason as ScorecardStopReason | undefined) ?? 'completed';
+      } else {
+        // `send` (steering) keeps today's pi default rendering - mirror
+        // it by collapsing to the lead line only.
+        stopReason = (details.stopReason as ScorecardStopReason | undefined) ?? 'running';
+      }
+      const card = renderScorecard({
+        theme,
+        agent: details.agent ?? '(agent)',
+        agentSource: details.agentSource,
+        handle: details.handle,
+        stopReason,
+        snapshot: detailsToSnapshot(details, stopReason),
+      });
+      const first = result.content.find((c) => c.type === 'text');
+      const body = first?.type === 'text' ? first.text : '';
+      if (action === 'abort') {
+        return new Text(`${card}\n${theme.fg('dim', '   (aborted by parent)')}`, 0, 0);
+      }
+      if (action === 'wait') {
+        if (!body.trim()) return new Text(card, 0, 0);
+        if (expanded) return new Text(`${card}\n\n${theme.fg('text', body)}`, 0, 0);
+        const preview = body.length > 240 ? `${body.slice(0, 240)}…` : body;
+        return new Text(`${card}\n\n${theme.fg('text', preview)}`, 0, 0);
+      }
+      // status: no body slot.
+      return new Text(card, 0, 0);
+    },
   });
 
   // ────────────────────────────────────────────────────────────────────
@@ -1614,32 +2156,14 @@ export default function subagentExtension(pi: ExtensionAPI): void {
       surfaceWarnings(ctx, loadResult.warnings);
 
       if (raw === 'running') {
-        const entries: RunningChildListItem[] = [...backgroundChildren.values()].map((e) => ({
-          handle: e.handle,
-          snapshot: e.snapshot,
-          startedAt: e.startedAt,
-        }));
-        ctx.ui.notify(formatRunningChildrenList(entries), 'info');
-        return;
-      }
-
-      if (!raw || raw === 'list') {
-        if (loadResult.nameOrder.length === 0) {
-          ctx.ui.notify(
-            'subagent: no agents loaded. Drop Markdown definitions into ~/.pi/agents/ or .pi/agents/ in this project.',
-            'info',
-          );
-          return;
-        }
-        const lines: string[] = ['Loaded sub-agents:'];
-        const maxName = loadResult.nameOrder.reduce((m, n) => Math.max(m, n.length), 0);
-        for (const n of loadResult.nameOrder) {
-          const a = loadResult.agents.get(n);
-          if (!a) continue;
-          const pad = ' '.repeat(Math.max(1, maxName + 2 - n.length));
-          lines.push(`  ${n}${pad}[${a.source}]  ${a.description}`);
-        }
-        ctx.ui.notify(lines.join('\n'), 'info');
+        // Legacy path: `/agents running` (space spelling) was the v1
+        // spelling. We keep it as a shim that points users to the new
+        // colon-notation command. The actual overlay lives behind
+        // `agents:running`.
+        ctx.ui.notify(
+          'subagent: use `/agents:running` (colon notation) for the new live overlay.',
+          'info',
+        );
         return;
       }
 
@@ -1666,7 +2190,92 @@ export default function subagentExtension(pi: ExtensionAPI): void {
         return;
       }
 
-      ctx.ui.notify('subagent: usage: /agents [list] | /agents show <name>', 'warning');
+      if (raw && raw !== 'list') {
+        ctx.ui.notify('subagent: usage: /agents [list] | /agents show <name> | /agents:running', 'warning');
+        return;
+      }
+
+      // Loaded-list overlay. Fall back to a flat notify when the host
+      // lacks UI (print / rpc modes) so the command stays usable.
+      const agents: AgentPreviewSource[] = loadResult.nameOrder
+        .map((n) => loadResult.agents.get(n))
+        .filter((a): a is AgentDef => Boolean(a))
+        .map((a) => ({
+          name: a.name,
+          description: a.description,
+          source: a.source,
+          path: a.path,
+          tools: a.tools,
+          model: a.model,
+          maxTurns: a.maxTurns,
+          timeoutMs: a.timeoutMs,
+          isolation: a.isolation,
+        }));
+
+      if (!ctx.hasUI) {
+        if (agents.length === 0) {
+          ctx.ui.notify('subagent: no agents loaded.', 'info');
+          return;
+        }
+        const lines: string[] = ['Loaded sub-agents:'];
+        const maxName = agents.reduce((m, a) => Math.max(m, a.name.length), 0);
+        for (const a of agents) {
+          const pad = ' '.repeat(Math.max(1, maxName + 2 - a.name.length));
+          lines.push(`  ${a.name}${pad}[${a.source}]  ${formatAgentListRowDescription(a.description)}`);
+        }
+        ctx.ui.notify(lines.join('\n'), 'info');
+        return;
+      }
+
+      await ctx.ui.custom<void>((_tui, theme, _kb, done) => new AgentsLoadedOverlay(agents, theme, () => done()));
+    },
+  });
+
+  pi.registerCommand('agents:running', {
+    description: 'Live overlay listing active background sub-agents (auto-refreshing).',
+    handler: async (_args, ctx) => {
+      const buildEntries = (): RunningOverlayEntry[] => {
+        return [...backgroundChildren.values()]
+          .sort((a, b) => a.startedAt - b.startedAt)
+          .map((e) => ({
+            handle: e.handle,
+            agent: e.agent.name,
+            agentSource: e.agent.source,
+            task: e.task,
+            snapshot: e.snapshot,
+            startedAt: e.startedAt,
+            lastUpdateMs: e.startedAt + (e.snapshot.durationMs ?? Date.now() - e.startedAt),
+            running: e.running,
+            sessionFile: e.childSessionFile,
+          }));
+      };
+
+      if (!ctx.hasUI) {
+        const entries: RunningChildListItem[] = buildEntries().map((e) => ({
+          handle: e.handle,
+          snapshot: e.snapshot,
+          startedAt: e.startedAt,
+        }));
+        ctx.ui.notify(formatRunningChildrenList(entries), 'info');
+        return;
+      }
+
+      const rings = getSessionActivityRings();
+      let ticker: ReturnType<typeof setInterval> | undefined;
+      let overlay: AgentsRunningOverlay | undefined;
+      await ctx.ui.custom<void>((tui, theme, _kb, done) => {
+        overlay = new AgentsRunningOverlay(buildEntries, rings, theme, () => {
+          if (ticker) clearInterval(ticker);
+          ticker = undefined;
+          done();
+        });
+        ticker = setInterval(() => {
+          overlay?.invalidate();
+          tui.requestRender();
+        }, RUNNING_TICK_MS);
+        return overlay;
+      });
+      if (ticker) clearInterval(ticker);
     },
   });
 }
