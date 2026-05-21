@@ -14,9 +14,6 @@ This is the third (lowest) layer in pi's defense-in-depth chain - it composes wi
 | [`filesystem.ts`](./filesystem.md)             | `read` / `write` / `edit` | path classifier + UI prompt   | pi's in-process file tools                                    | doesn't see anything bash does                             |
 | `sandbox.ts`                                   | every bash subprocess     | OS kernel sandbox via ASRT    | filesystem / network / unix-socket calls by FILE not by REGEX | pi's own in-process tools (run inside the pi node process) |
 
-See plan section 2 of [`pi-sandbox-runtime-extension.md`](../../../plans/pi-sandbox-runtime-extension.md) for the full
-threat model.
-
 ## Default posture and graceful degradation
 
 Default-on. Wraps every bash subprocess as soon as deps are detected. Per plan section 6:
@@ -270,7 +267,6 @@ actual syscall denial (still requires the model-turn smoke above) but proves the
 
 - DNS-over-UDP exfil is not blocked (`dig @8.8.8.8 ...`). ASRT proxies HTTP/HTTPS/SOCKS5 but not raw UDP - documented as
   future work in
-  [`pi-sandbox-runtime-extension-followups.md`](../../../plans/pi-sandbox-runtime-extension-followups.md).
 - A long-running `bg_bash` job started under sandbox-config-A keeps that policy until it exits, even if the user later
   edits `.pi/sandbox.json`. `updateConfig()` only affects new spawns. Plan section 9.9.
 - macOS `sandbox-exec` silently drops `write.deny.paths` rules pointing at not-yet-existing files; Linux/bwrap enforces
@@ -281,4 +277,3 @@ actual syscall denial (still requires the model-turn smoke above) but proves the
 - ASRT is `0.0.x` research preview - the runtime API may break across minor bumps. The dep is pinned exact in
   `package.json`; a bump that drops a field surfaces as a typecheck error in `config-translate.ts`.
 - MCP server sandboxing is out of v1 scope; see
-  [`pi-sandbox-runtime-extension-followups.md`](../../../plans/pi-sandbox-runtime-extension-followups.md).

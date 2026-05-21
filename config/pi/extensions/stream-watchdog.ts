@@ -60,7 +60,7 @@
  * Environment:
  *   PI_STREAM_WATCHDOG_DISABLED=1        skip the extension entirely
  *   PI_STREAM_WATCHDOG_STALL_MS=N        soft silent-stream threshold, ms
- *                                        (default 120000). Suppressed while
+ *                                        (default 300000). Suppressed while
  *                                        a tool call is in flight.
  *   PI_STREAM_WATCHDOG_HARD_STALL_MS=N   hard wall-clock cap since the last
  *                                        forward-progress event, ms (default
@@ -96,7 +96,7 @@ import {
 } from '../../../lib/node/pi/stream-watchdog.ts';
 
 const STATUS_KEY = 'stream-watchdog';
-const DEFAULT_STALL_MS = 120_000;
+const DEFAULT_STALL_MS = 300_000;
 const DEFAULT_HARD_STALL_MS = 1_800_000;
 const DEFAULT_POLL_MS = 5_000;
 const DEFAULT_MAX_RETRIES = 2;

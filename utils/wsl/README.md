@@ -108,6 +108,7 @@ to:
 sudo apt-get update && sudo apt-get install -y --no-install-recommends \
     bash-completion \
     bc \
+    bubblewrap \
     ca-certificates \
     curl \
     direnv \

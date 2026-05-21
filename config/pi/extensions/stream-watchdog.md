@@ -36,7 +36,7 @@ Pi's tool phase and assistant-stream phase don't overlap in the event model:
 1. Model emits a `toolCall` → `message_end` fires → watchdog state is empty.
 2. Tool executes for N minutes → no `message_*` events → watchdog does nothing.
 3. Tool returns → model starts the next turn → `message_start` fires → watchdog re-arms.
-4. Model streams normally → heartbeats keep it healthy; 120 s of silence aborts.
+4. Model streams normally → heartbeats keep it healthy; 300 s of silence aborts.
 
 So the watchdog fundamentally can't fire while a tool is running, regardless of how long the tool takes.
 
@@ -79,7 +79,7 @@ boundaries.
 ## Environment variables
 
 - `PI_STREAM_WATCHDOG_DISABLED=1` - skip the extension entirely.
-- `PI_STREAM_WATCHDOG_STALL_MS=N` - silence threshold, ms. Default `120000` (2 min). Bump for genuinely slow
+- `PI_STREAM_WATCHDOG_STALL_MS=N` - silence threshold, ms. Default `300000` (5 min). Bump for genuinely slow
   local-inference setups if you see false positives; drop to `30000` for quick feedback during tuning.
 - `PI_STREAM_WATCHDOG_POLL_MS=N` - poll interval, ms. Default `5000` (5 s). Trade-off: lower values catch hangs sooner
   but burn more timer ticks. 5 s is a reasonable compromise; there's no reason to go below 1 s.
