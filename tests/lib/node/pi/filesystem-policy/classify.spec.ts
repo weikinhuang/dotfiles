@@ -202,4 +202,64 @@ describe('classifyWrite', () => {
     expect(classifyWrite('./src/x.ts', CWD, policy)?.reason).toBe('outside-allowed-write');
     expect(classifyWrite('/tmp/x', CWD, policy)?.reason).toBe('outside-allowed-write');
   });
+
+  // ── carve-back inside write.deny / read.deny ──────────────────────
+
+  test('write.allow.segments carves a hole inside write.deny.segments', () => {
+    const policy = mergePolicies(DEFAULT_POLICY, {
+      write: { allow: { segments: ['node_modules/.vite-temp'] } },
+    });
+    // Carved-out subtree: writes go through.
+    expect(classifyWrite('./node_modules/.vite-temp/cache.mjs', CWD, policy)).toBeNull();
+    expect(classifyWrite('./node_modules/.vite-temp/sub/dir/x.json', CWD, policy)).toBeNull();
+    // Sibling paths inside the same denied segment stay denied.
+    expect(classifyWrite('./node_modules/foo/index.js', CWD, policy)?.reason).toBe('deny-segment');
+    expect(classifyWrite('./node_modules/.bin/foo', CWD, policy)?.reason).toBe('deny-segment');
+  });
+
+  test('write.allow.basenames carves a hole inside write.deny.basenames', () => {
+    // .env.local matches both deny.basenames (`.env.*`) and the
+    // carve-back basename - the deny is overridden.
+    const policy = mergePolicies(DEFAULT_POLICY, {
+      write: { allow: { basenames: ['.env.local'] } },
+    });
+    expect(classifyWrite('./src/.env.local', CWD, policy)).toBeNull();
+    expect(classifyWrite('./src/.env.production', CWD, policy)?.reason).toBe('deny-basename');
+    expect(classifyWrite('./src/.env', CWD, policy)?.reason).toBe('deny-basename');
+  });
+
+  test('carve-back also overrides read.deny when classifying writes', () => {
+    // Mirrors the symmetric semantic: read-sensitive paths are
+    // write-sensitive UNLESS the user explicitly carved them back.
+    const policy = mergePolicies(DEFAULT_POLICY, {
+      write: {
+        allow: { paths: ['~/.ssh'], segments: ['known_hosts'] },
+      },
+    });
+    // Without the carve-back, this would hit read.deny on ~/.ssh.
+    expect(classifyWrite('~/.ssh/known_hosts', CWD, policy)).toBeNull();
+    // Sibling secrets inside ~/.ssh stay denied.
+    expect(classifyWrite('~/.ssh/id_rsa', CWD, policy)?.reason).toBe('deny-path-prefix');
+  });
+
+  test('write.allow.paths is OUTER GATE only - does not carve back', () => {
+    // Even though `.` (cwd) and `node_modules/.vite-temp` are both
+    // listed in write.allow.paths, the carve-back semantic only
+    // applies to basenames / segments. Without segments, writes to
+    // node_modules sub-paths still hit deny-segment.
+    const policy = mergePolicies(DEFAULT_POLICY, {
+      write: { allow: { paths: ['.', 'node_modules/.vite-temp'] } },
+    });
+    expect(classifyWrite('./node_modules/.vite-temp/x.mjs', CWD, policy)?.reason).toBe('deny-segment');
+  });
+
+  test('carve-back cannot widen outside the write.allow.paths gate', () => {
+    // Paths outside the outer gate fail at step 1 before the
+    // carve-back logic runs.
+    const policy = mergePolicies(DEFAULT_POLICY, {
+      write: { allow: { segments: ['node_modules/.vite-temp'] } },
+    });
+    // /etc/foo isn't under cwd or /tmp - outside-allowed-write fires.
+    expect(classifyWrite('/etc/node_modules/.vite-temp/x', CWD, policy)?.reason).toBe('outside-allowed-write');
+  });
 });

@@ -8,11 +8,18 @@
  *   3. No outside-workspace check on reads - reading nearby READMEs
  *      and dotfiles is routine.
  *
- * Write uses allow-only semantics:
+ * Write uses allow-only-with-carve-back semantics:
  *   1. If the path is NOT under any `write.allow.paths` prefix, gate
- *      with reason `outside-allowed-write`.
- *   2. Otherwise, if any `write.deny.*` entry matches, gate with the
- *      matching `deny-*` reason.
+ *      with reason `outside-allowed-write`. `write.allow.paths` is the
+ *      OUTER GATE only - it doesn't act as carve-back inside the deny
+ *      sets, so the default `'.'` doesn't accidentally cancel every
+ *      `write.deny.*` rule.
+ *   2. Otherwise, if any `write.deny.*` or `read.deny.*` entry
+ *      matches, gate with the matching `deny-*` reason - UNLESS a
+ *      matching `write.allow.basenames` or `write.allow.segments`
+ *      entry carves the path back. Carve-back mirrors `read.allow`
+ *      and lets a project policy say "deny `node_modules` writes,
+ *      EXCEPT under `node_modules/.vite-temp`".
  *
  * Pure module - no pi imports - so it's directly unit-testable.
  */
@@ -170,14 +177,21 @@ export function classifyRead(inputPath: string, cwd: string, policy: FilesystemP
  * Classify an `inputPath` for a `write` / `edit` tool call. Returns
  * null when the path is safe.
  *
- * Allow-only: if the path is not inside any `write.allow.paths` prefix,
- * gate with reason `outside-allowed-write`. The basenames / segments
- * sub-fields of `write.allow` are NOT used as allow-back overrides for
- * the path-prefix check - they only carry meaning inside the deny set.
+ * Allow-only with carve-back:
+ *   1. The path must be inside at least one `write.allow.paths` prefix
+ *      (the outer gate) or we return `outside-allowed-write`.
+ *   2. After the gate, walk `write.deny` ∪ `read.deny` (anything
+ *      read-sensitive is trivially write-sensitive). A match is a
+ *      gate, UNLESS
+ *   3. `write.allow.basenames` or `write.allow.segments` also matches,
+ *      which carves the path back through (returns null). Mirrors
+ *      `read.allow` for reads.
  *
- * After the allow gate, walk `write.deny` AND `read.deny` (anything
- * read-sensitive is trivially write-sensitive, so we union the two
- * deny sets when classifying writes).
+ * `write.allow.paths` is intentionally NOT a carve-back source - it's
+ * the outer gate. Otherwise the default `'.'` (cwd) would shadow every
+ * `write.deny.*` rule under the workspace. To carve out a sub-path of
+ * a denied dir, use `write.allow.segments` (`node_modules/.vite-temp`)
+ * or `write.allow.basenames`.
  */
 export function classifyWrite(inputPath: string, cwd: string, policy: FilesystemPolicy): FilesystemMatch | null {
   const absolute = resolve(cwd, expandTilde(inputPath));
@@ -197,15 +211,21 @@ export function classifyWrite(inputPath: string, cwd: string, policy: Filesystem
     };
   }
 
-  // Deny-within-allow check: read.deny ∪ write.deny.
+  // Carve-back rule set: only basenames + segments. Paths are reserved
+  // for the outer gate above (see the function's docstring for why).
+  const carveBack: FilesystemRules = {
+    basenames: policy.write.allow.basenames,
+    segments: policy.write.allow.segments,
+    paths: [],
+  };
+  const carved = (): boolean => matchRules(absolute, carveBack, cwd) !== null;
+
+  // Deny-within-allow check: write.deny first (more specific reason),
+  // then read.deny (read-sensitive ⊆ write-sensitive). Either deny is
+  // overridden by a carve-back match.
   const writeDenied = matchRules(absolute, policy.write.deny, cwd);
-  if (writeDenied) return writeDenied;
+  if (writeDenied && !carved()) return writeDenied;
   const readDenied = matchRules(absolute, policy.read.deny, cwd);
-  if (readDenied) {
-    // Allow-back via read.allow doesn't widen writes - reads-and-writes
-    // share read.deny because anything sensitive-to-read is sensitive-
-    // to-write, but the allow-back semantics are read-only.
-    return readDenied;
-  }
+  if (readDenied && !carved()) return readDenied;
   return null;
 }

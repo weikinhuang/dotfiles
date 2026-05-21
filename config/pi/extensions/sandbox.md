@@ -69,6 +69,11 @@ the unified policy:
   `/sandbox-rescan`. Default depth `3`, override via `flags.linuxRuleDepth` (clamped 1..10).
 - `~/.pi` is auto-added to `filesystem.write.allow.paths` so any extension that ever writes through a wrapped shell
   doesn't EPERM. This is cheap insurance - paths under it are pi-internal session/scratch files anyway.
+- **Carve-back relaxation.** When `filesystem.write.allow.{basenames,segments}` shadows a
+  `write.deny.{basenames, segments}` entry (`filesystem.ts` honors this as allow-back inside the deny set), the matching
+  kernel deny is STRIPPED before reaching ASRT - bwrap and sandbox-exec have no allow-back hook for writes, so
+  kernel-level enforcement is relaxed for the entire shadowed segment. `/sandbox` surfaces a lossy note for each strip
+  so the security tradeoff stays visible. The in-process gate is the only enforcer for the carved-out subtree.
 
 ## Slash commands
 

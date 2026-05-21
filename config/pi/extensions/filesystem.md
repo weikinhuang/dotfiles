@@ -15,9 +15,12 @@ The unified policy has two top-level categories with separate semantics:
 - **`read`** (deny-then-allow-back): a path matched by `read.deny.*` is gated unless it ALSO matches `read.allow.*`,
   which carves narrow "allow-back" holes inside an otherwise-denied prefix. Empty `read.deny.*` means "allow
   everything".
-- **`write`** (allow-only): the path must be inside one of `write.allow.paths`, otherwise the gate fires with reason
-  `outside-allowed-write`. Inside the allowed area, `write.deny.*` carves additional holes (`.git/hooks`, `.env*`, ...).
-  Writes outside the allow set always prompt (in-process) AND block (kernel sandbox).
+- **`write`** (allow-only with carve-back): the path must be inside one of `write.allow.paths`, otherwise the gate fires
+  with reason `outside-allowed-write`. Inside the allowed area, `write.deny.*` carves holes (`.git/hooks`, `.env*`,
+  ...) - which `write.allow.basenames` / `write.allow.segments` can carve back open again, mirroring `read.allow` for
+  the deny set. `write.allow.paths` is the OUTER GATE only and does NOT participate in carve-back, so the default `'.'`
+  (cwd) doesn't accidentally cancel every `write.deny.*` rule under the workspace. Writes outside the allow set always
+  prompt (in-process) AND block (kernel sandbox).
 
 Defaults (`DEFAULT_POLICY` in
 [`lib/node/pi/filesystem-policy/schema.ts`](../../../lib/node/pi/filesystem-policy/schema.ts)):
@@ -81,10 +84,14 @@ Files are JSONC (`//` and C-style block comments allowed). See
     },
   },
   "write": {
-    // ALLOW-ONLY: writes outside these paths are gated in-process AND
-    // by the kernel sandbox.
+    // OUTER GATE: writes outside these `paths` are gated in-process
+    // AND by the kernel sandbox. `basenames` / `segments` here act
+    // as CARVE-BACK inside the deny set (NOT extra outer-gate roots).
     "allow": {
       "basenames": [],
+      // Example: re-allow vitest's bundle dir back through the
+      // node_modules segment-deny:
+      //   "segments": ["node_modules/.vite-temp"]
       "segments": [],
       "paths": [".", "/tmp"],
     },

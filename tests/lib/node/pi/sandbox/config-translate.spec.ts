@@ -206,6 +206,68 @@ describe('translateToASRT - macOS mode', () => {
     expect(config.network.allowUnixSockets).toBeUndefined();
     expect(config.network.allowAllUnixSockets).toBeUndefined();
   });
+
+  // ── carve-back / kernel-deny strip ─────────────────────────
+
+  test('write.allow.segments shadows the matching kernel write-deny segment', () => {
+    const policy = mergePolicies({
+      write: {
+        allow: { paths: ['.'], segments: ['node_modules/.vite-temp'] },
+        deny: { segments: ['node_modules', '.git/hooks'] },
+      },
+    });
+    const { config, lossyNotes } = translateToASRT({
+      policy,
+      sandbox: baseSandbox(),
+      cwd,
+      homeDir: HOME,
+      mode: 'darwin',
+    });
+    // node_modules glob is stripped (vitest can write under .vite-temp
+    // at the kernel layer); .git/hooks deny stays.
+    expect(config.filesystem.denyWrite).not.toContain('**/node_modules/**');
+    expect(config.filesystem.denyWrite).toContain('**/.git/hooks/**');
+    expect(lossyNotes.find((n) => n.includes('kernel write-deny on segment `node_modules`'))).toBeDefined();
+  });
+
+  test('write.allow.basenames (exact match) shadows the matching kernel write-deny basename', () => {
+    const policy = mergePolicies({
+      write: {
+        allow: { paths: ['.'], basenames: ['.env.fixture'] },
+        deny: { basenames: ['.env.fixture', '.env.real'] },
+      },
+    });
+    const { config, lossyNotes } = translateToASRT({
+      policy,
+      sandbox: baseSandbox(),
+      cwd,
+      homeDir: HOME,
+      mode: 'darwin',
+    });
+    expect(config.filesystem.denyWrite).not.toContain('**/.env.fixture');
+    expect(config.filesystem.denyWrite).toContain('**/.env.real');
+    expect(lossyNotes.find((n) => n.includes('kernel write-deny on basename `.env.fixture`'))).toBeDefined();
+  });
+
+  test('non-matching carve-back leaves the deny in place (segment must equal-or-extend the deny)', () => {
+    const policy = mergePolicies({
+      write: {
+        // `node_modulez` is similar but NOT segment-equal, so it does
+        // not shadow `node_modules`.
+        allow: { paths: ['.'], segments: ['node_modulez/foo'] },
+        deny: { segments: ['node_modules'] },
+      },
+    });
+    const { config, lossyNotes } = translateToASRT({
+      policy,
+      sandbox: baseSandbox(),
+      cwd,
+      homeDir: HOME,
+      mode: 'darwin',
+    });
+    expect(config.filesystem.denyWrite).toContain('**/node_modules/**');
+    expect(lossyNotes.find((n) => n.includes('kernel write-deny on segment'))).toBeUndefined();
+  });
 });
 
 describe('translateToASRT - Linux mode', () => {
@@ -293,5 +355,66 @@ describe('translateToASRT - Linux mode', () => {
     });
     expect(lossyNotes.find((n) => /read\.deny\.paths.*missing-read/.test(n))).toBeDefined();
     expect(lossyNotes.find((n) => /write\.deny\.paths.*missing-write/.test(n))).toBeDefined();
+  });
+
+  test('write.allow.segments shadows the matching compiled write-deny path', () => {
+    // The compile pass turned `node_modules` into the literal
+    // /repo/node_modules; the carve-back tail-matches it and we
+    // strip the deny from the kernel layer.
+    const c = compiled({
+      read: { paths: [], inertBasenames: [], inertSegments: [], inertPaths: [] },
+      write: {
+        paths: ['/repo/node_modules', '/repo/.git/hooks'],
+        inertBasenames: [],
+        inertSegments: [],
+        inertPaths: [],
+      },
+    });
+    const policy = mergePolicies({
+      write: {
+        allow: { paths: ['.'], segments: ['node_modules/.vite-temp'] },
+        deny: { segments: ['node_modules', '.git/hooks'] },
+      },
+    });
+    const { config, lossyNotes } = translateToASRT({
+      policy,
+      sandbox: baseSandbox(),
+      cwd,
+      homeDir: HOME,
+      mode: 'linux',
+      compiled: c,
+    });
+    // node_modules deny stripped, .git/hooks deny preserved.
+    expect(config.filesystem.denyWrite).not.toContain('/repo/node_modules');
+    expect(config.filesystem.denyWrite).toContain('/repo/.git/hooks');
+    expect(lossyNotes.find((n) => n.includes('Linux: kernel write-deny on segment `node_modules`'))).toBeDefined();
+  });
+
+  test('write.allow.basenames shadow strips compiled paths whose basename matches', () => {
+    const c = compiled({
+      read: { paths: [], inertBasenames: [], inertSegments: [], inertPaths: [] },
+      write: {
+        paths: ['/repo/src/.env.fixture', '/repo/src/.env.real'],
+        inertBasenames: [],
+        inertSegments: [],
+        inertPaths: [],
+      },
+    });
+    const policy = mergePolicies({
+      write: {
+        allow: { paths: ['.'], basenames: ['.env.fixture'] },
+        deny: { basenames: ['.env.fixture', '.env.real'] },
+      },
+    });
+    const { config } = translateToASRT({
+      policy,
+      sandbox: baseSandbox(),
+      cwd,
+      homeDir: HOME,
+      mode: 'linux',
+      compiled: c,
+    });
+    expect(config.filesystem.denyWrite).not.toContain('/repo/src/.env.fixture');
+    expect(config.filesystem.denyWrite).toContain('/repo/src/.env.real');
   });
 });

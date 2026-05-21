@@ -1,0 +1,24 @@
+// Project-scoped filesystem-policy override for this repo. Merges on
+// top of the shipped DEFAULT_POLICY plus any ~/.pi/filesystem.json
+// the user has set. See config/pi/filesystem-example.json for the
+// full schema.
+{
+  "write": {
+    // Carve-back inside the default `node_modules` write-deny so vite
+    // / vitest can write its config-bundle timestamp + dep cache.
+    // Vite hardcodes `<nearest node_modules>/.vite-temp/` (see
+    // node_modules/vite/dist/node/chunks/node.js -> findNearestNodeModules)
+    // and `<nearest node_modules>/.vite/` for cacheDir, so neither can
+    // be redirected via vitest config.
+    //
+    // Effect:
+    //   - in-process gate (filesystem.ts) still denies writes to
+    //     other paths under node_modules, allows .vite-temp / .vite.
+    //   - kernel sandbox: the matching `node_modules` segment-deny is
+    //     stripped because nothing more granular is expressible via
+    //     ASRT's filesystem schema. /sandbox surfaces a lossy note.
+    "allow": {
+      "segments": ["node_modules/.vite-temp", "node_modules/.vite"]
+    }
+  }
+}

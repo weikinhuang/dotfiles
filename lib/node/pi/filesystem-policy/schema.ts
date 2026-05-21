@@ -5,9 +5,14 @@
  *
  * Read uses a "deny-then-allow-back" model: empty deny = allow
  * everything, an entry in `read.deny.*` blocks unless overridden by a
- * matching entry in `read.allow.*`. Write uses an "allow-only" model:
- * everything outside `write.allow.paths` is denied, then `write.deny.*`
- * carves additional holes inside the allowed area.
+ * matching entry in `read.allow.*`. Write uses an "allow-only with
+ * carve-back" model: everything outside `write.allow.paths` is denied,
+ * `write.deny.*` carves additional holes inside the allowed area, and
+ * `write.allow.basenames` / `write.allow.segments` carve those holes
+ * back open again (mirroring `read.allow` for the deny set). The
+ * `paths` sub-field of `write.allow` is the OUTER GATE only - it does
+ * NOT participate in carve-back, so the default `'.'` (cwd) doesn't
+ * accidentally cancel every `write.deny.*` rule under the workspace.
  *
  * The two models match what ASRT's `FsReadRestrictionConfig` /
  * `FsWriteRestrictionConfig` already do, so the in-process gate and the
@@ -57,9 +62,14 @@ export interface ReadPolicy {
 }
 
 export interface WritePolicy {
-  /** Allow-only: anything outside these patterns is denied. */
+  /** Allow-only: anything outside these `paths` (the OUTER GATE) is
+   *  denied. `basenames` and `segments` here are NOT outer-gate
+   *  expanders - they only act as carve-back inside `write.deny.*` /
+   *  `read.deny.*` (mirroring `read.allow` for the deny set). */
   allow: FilesystemRules;
-  /** Deny-within-allow: carves holes inside the allowed area. */
+  /** Deny-within-allow: carves holes inside the allowed area. A match
+   *  here is overridden by a matching entry in `write.allow.basenames`
+   *  / `write.allow.segments` (allow-back for writes). */
   deny: FilesystemRules;
 }
 

@@ -214,7 +214,8 @@ Thumbs.db:encryptable
 /.claude/settings.local.json
 /.codex/
 /.cursor/settings.json
-/.pi/
+/.pi/*
+!/.pi/filesystem.json
 /.vscode/settings.json
 /.tmp/
 /plans/

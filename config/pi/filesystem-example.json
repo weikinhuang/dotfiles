@@ -12,10 +12,17 @@
 //
 // Schema recap (full rules in plan section 4.2):
 //
-//   read.deny.{basenames,segments,paths}   block reads
-//   read.allow.{...}                       allow-back inside a deny prefix
-//   write.allow.{basenames,segments,paths} ALLOW-ONLY: writes outside paths gate
-//   write.deny.{basenames,segments,paths}  carve holes inside the allowed area
+//   read.deny.{basenames,segments,paths}     block reads
+//   read.allow.{basenames,segments,paths}    allow-back inside a deny prefix
+//   write.allow.paths                        OUTER GATE - writes outside
+//                                            denied. NOT a carve-back.
+//   write.allow.{basenames,segments}         CARVE-BACK inside write.deny
+//                                            (mirrors read.allow). Lets a
+//                                            project policy say "deny
+//                                            node_modules writes EXCEPT
+//                                            under node_modules/.vite-temp".
+//   write.deny.{basenames,segments,paths}    carve holes inside the
+//                                            allowed area.
 //
 // Every rule supports tilde expansion (`~/...`) and segment expressions
 // like `.git/hooks` (matches the directory and everything under it).
@@ -42,13 +49,21 @@
   },
 
   "write": {
-    // ALLOW-ONLY for writes. The default `"."` covers the workspace
-    // (the session's `ctx.cwd`, NOT `process.cwd()`); `/tmp` keeps
-    // throwaway scripts working. Anything outside is denied at BOTH
-    // layers. Persona `writeRoots` are merged on top at runtime.
+    // ALLOW-ONLY for writes. `paths` is the OUTER GATE: anything
+    // outside is denied at BOTH layers. The default `"."` covers the
+    // workspace (the session's `ctx.cwd`, NOT `process.cwd()`); `/tmp`
+    // keeps throwaway scripts working. Persona `writeRoots` merge on
+    // top at runtime.
     //
-    // Add explicit roots a persona doesn't already cover, e.g.
-    //   "paths": [".", "/tmp", "~/notes"]
+    // `basenames` and `segments` here act as CARVE-BACK inside the
+    // deny set (NOT extra outer-gate roots). Example: allow vitest's
+    // bundle dir back through the `node_modules` segment-deny:
+    //   "segments": ["node_modules/.vite-temp", "node_modules/.vite"]
+    // The in-process gate honors carve-back exactly. The kernel
+    // sandbox can't allow-back inside a deny via ASRT, so the matching
+    // kernel deny is RELAXED for the whole shadowed segment - look for
+    // a lossy note in `/sandbox` saying "kernel write-deny on segment
+    // X relaxed by a write.allow.segments carve-back" if that matters.
     "allow": {
       "basenames": [],
       "segments": [],
