@@ -5,6 +5,7 @@
 import { afterEach, describe, expect, test } from 'vitest';
 
 import {
+  __getInflightForTest,
   activeReconfigure,
   beginActiveReconfigure,
   clearActiveSandbox,
@@ -132,5 +133,29 @@ describe('activeReconfigure mutex', () => {
     done2();
     await waiter;
     expect(resolved).toBe(true);
+  });
+
+  test('slot.inflight is dropped after a paired begin/done cycle', async () => {
+    // Regression guard: previously `slot.inflight = previous.then(() => next)`
+    // built a chain that retained every prior promise via the closure.
+    // Over a long session that's one link per bash tool call, leaking
+    // memory monotonically. Now we drop the reference on resolve.
+    const done = beginActiveReconfigure();
+    expect(__getInflightForTest()).toBeDefined();
+    done();
+    // Drain microtasks: one task boundary is enough for the chain's
+    // `.then(() => slot.inflight = undefined)` to fire.
+    await new Promise<void>((r) => setImmediate(r));
+    expect(__getInflightForTest()).toBeUndefined();
+  });
+
+  test('overlapping begin/done pairs eventually drop the slot reference', async () => {
+    const done1 = beginActiveReconfigure();
+    const done2 = beginActiveReconfigure();
+    expect(__getInflightForTest()).toBeDefined();
+    done1();
+    done2();
+    await new Promise<void>((r) => setImmediate(r));
+    expect(__getInflightForTest()).toBeUndefined();
   });
 });

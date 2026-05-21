@@ -28,7 +28,7 @@
 
 import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { resolve, sep } from 'node:path';
 
 import { type FilesystemRules, type FilesystemPolicy } from '../filesystem-policy/schema.ts';
 
@@ -130,6 +130,47 @@ function parseRgOutput(out: string, cwd: string): string[] {
 }
 
 /**
+ * Collapse a per-file rg match to the outermost ancestor directory
+ * whose path tail equals `segParts`.
+ *
+ * Examples (Linux `sep === '/'`):
+ *
+ *   `/repo/node_modules/foo/bar.js` + `['node_modules']`
+ *     -> `/repo/node_modules`
+ *   `/repo/sub/node_modules/baz` + `['node_modules']`
+ *     -> `/repo/sub/node_modules`
+ *   `/repo/node_modules/p/node_modules/inner` + `['node_modules']`
+ *     -> `/repo/node_modules`  (outermost wins; recursive deny
+ *                                mount covers the inner one)
+ *   `/repo/.git/hooks/pre-commit.sample` + `['.git', 'hooks']`
+ *     -> `/repo/.git/hooks`
+ *   `/repo/.git/config` + `['.git', 'config']`
+ *     -> `/repo/.git/config`  (file path collapses to itself when
+ *                              the segment ends at the file's
+ *                              basename)
+ *
+ * Returns `undefined` when the path does not contain `segParts` as a
+ * contiguous component subsequence - which the rg glob produced by
+ * `rgArgsForSegment` shouldn't yield, but the defensive guard keeps a
+ * misconfigured rg runner from polluting the deny list.
+ */
+export function collapseToSegmentDir(absolutePath: string, segParts: string[]): string | undefined {
+  if (segParts.length === 0) return absolutePath;
+  const parts = absolutePath.split(sep);
+  for (let i = 0; i + segParts.length <= parts.length; i++) {
+    let ok = true;
+    for (let j = 0; j < segParts.length; j++) {
+      if (parts[i + j] !== segParts[j]) {
+        ok = false;
+        break;
+      }
+    }
+    if (ok) return parts.slice(0, i + segParts.length).join(sep);
+  }
+  return undefined;
+}
+
+/**
  * Compile a {@link FilesystemRules} set against the supplied roots.
  * Returns the deduped path list plus a per-rule inertness report.
  */
@@ -156,11 +197,24 @@ export function compileLinuxRules(rules: FilesystemRules, options: CompileLinuxR
 
   for (const segment of rules.segments) {
     let matched = false;
+    const segParts = segment.split(/[\\/]+/).filter((s) => s.length > 0);
     for (const root of roots) {
       const out = runRg(rgArgsForSegment(segment, depth), root);
       const found = parseRgOutput(out, root);
-      if (found.length > 0) matched = true;
-      for (const p of found) paths.add(p);
+      if (found.length === 0) continue;
+      matched = true;
+      // Collapse each per-file match to the OUTERMOST ancestor whose
+      // path tail equals `segParts`. Bwrap's deny mount is recursive
+      // (`--ro-bind /dev/null <dir>` masks every descendant), so the
+      // outermost match is sufficient AND minimal: emitting per-file
+      // paths fans out to thousands of bwrap args in workspaces with
+      // a populated `node_modules`, blowing past Linux's 128 KiB
+      // MAX_ARG_STRLEN on the resulting `bash -c '<wrapped>'` argv.
+      // Mirrors ASRT's own `linuxGetMandatoryDenyPaths` heuristic.
+      for (const file of found) {
+        const collapsed = collapseToSegmentDir(file, segParts);
+        if (collapsed) paths.add(collapsed);
+      }
     }
     if (!matched) inertSegments.push(segment);
   }

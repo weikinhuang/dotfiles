@@ -13,6 +13,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
 import {
+  collapseToSegmentDir,
   compileLinuxPolicy,
   compileLinuxRules,
   type RipgrepRunner,
@@ -75,14 +76,37 @@ describe('compileLinuxRules', () => {
     expect(r.inertBasenames).toEqual([]);
   });
 
-  test('segment rule with hits is collected; inert segments reported', () => {
+  test('segment rule hits collapse to the segment dir, not per-file', () => {
     const { runner } = stubRg({
-      '**/node_modules/**': ['node_modules/foo/index.js'],
+      // Per-file rg matches are collapsed to the outermost segment
+      // ancestor; bwrap's deny mount is recursive so this is both
+      // sufficient and necessary - emitting per-file paths blew the
+      // wrap past Linux MAX_ARG_STRLEN in node_modules-heavy repos.
+      '**/node_modules/**': ['node_modules/foo/index.js', 'node_modules/foo/pkg/sub.js', 'sub/node_modules/baz/x.ts'],
       '**/.terraform/**': [],
     });
     const r = compileLinuxRules(rules({ segments: ['node_modules', '.terraform'] }), { cwd, runRipgrep: runner });
-    expect(r.paths).toEqual([join(cwd, 'node_modules/foo/index.js')]);
+    expect(r.paths.sort()).toEqual([join(cwd, 'node_modules'), join(cwd, 'sub/node_modules')]);
     expect(r.inertSegments).toEqual(['.terraform']);
+  });
+
+  test('multi-segment rule (`.git/hooks`) collapses to the multi-segment dir', () => {
+    const { runner } = stubRg({
+      '**/.git/hooks/**': ['.git/hooks/pre-commit.sample', '.git/hooks/post-update.sample'],
+    });
+    const r = compileLinuxRules(rules({ segments: ['.git/hooks'] }), { cwd, runRipgrep: runner });
+    expect(r.paths).toEqual([join(cwd, '.git/hooks')]);
+  });
+
+  test('nested same-name segment occurrences collapse to the OUTERMOST one', () => {
+    // `node_modules/p/node_modules/inner` is covered for free by the
+    // outer `node_modules` mount - emitting the inner path would just
+    // double up bwrap binds.
+    const { runner } = stubRg({
+      '**/node_modules/**': ['node_modules/p/node_modules/inner/idx.js'],
+    });
+    const r = compileLinuxRules(rules({ segments: ['node_modules'] }), { cwd, runRipgrep: runner });
+    expect(r.paths).toEqual([join(cwd, 'node_modules')]);
   });
 
   test('explicit `paths` rules are passed through, missing ones reported inert', () => {
@@ -163,7 +187,8 @@ describe.skipIf(!hasRealRg())('compileLinuxRules — real ripgrep integration', 
     mkdirSync(join(cwd, 'node_modules', 'foo'), { recursive: true });
     writeFileSync(join(cwd, 'node_modules', 'foo', 'index.js'), '//');
     const r = compileLinuxRules(rules({ segments: ['node_modules'] }), { cwd });
-    expect(r.paths).toEqual([join(cwd, 'node_modules/foo/index.js')]);
+    // Per-file rg hits collapse to the segment dir.
+    expect(r.paths).toEqual([join(cwd, 'node_modules')]);
     expect(r.inertSegments).toEqual([]);
   });
 
@@ -193,6 +218,107 @@ describe('compileLinuxPolicy', () => {
     });
     const report = compileLinuxPolicy(policy, { cwd, runRipgrep: runner });
     expect(report.read.paths).toEqual([join(cwd, 'conf/secrets.yml')]);
-    expect(report.write.paths.sort()).toEqual([join(cwd, 'node_modules/foo/index.js'), join(cwd, 'src/.env')]);
+    // segment write.deny matches collapse to the segment dir.
+    expect(report.write.paths.sort()).toEqual([join(cwd, 'node_modules'), join(cwd, 'src/.env')]);
+  });
+});
+
+describe('collapseToSegmentDir', () => {
+  test('single-segment file inside a segment dir collapses to the dir', () => {
+    expect(collapseToSegmentDir('/repo/node_modules/foo/bar.js', ['node_modules'])).toBe('/repo/node_modules');
+  });
+
+  test('multiple sibling occurrences collapse to each occurrence', () => {
+    expect(collapseToSegmentDir('/repo/sub/node_modules/baz', ['node_modules'])).toBe('/repo/sub/node_modules');
+  });
+
+  test('nested same-name segment collapses to the OUTERMOST occurrence', () => {
+    // Outer node_modules covers everything beneath; emitting the inner
+    // path would just double up bwrap binds.
+    expect(collapseToSegmentDir('/repo/node_modules/p/node_modules/inner', ['node_modules'])).toBe(
+      '/repo/node_modules',
+    );
+  });
+
+  test('multi-segment rule (`.git/hooks`) collapses contiguously', () => {
+    expect(collapseToSegmentDir('/repo/.git/hooks/pre-commit.sample', ['.git', 'hooks'])).toBe('/repo/.git/hooks');
+  });
+
+  test('multi-segment rule pointing at a file (`.git/config`) collapses to the file path', () => {
+    expect(collapseToSegmentDir('/repo/.git/config', ['.git', 'config'])).toBe('/repo/.git/config');
+  });
+
+  test('non-matching path returns undefined (defensive against a misconfigured rg runner)', () => {
+    expect(collapseToSegmentDir('/repo/src/index.ts', ['node_modules'])).toBeUndefined();
+  });
+
+  test('empty segParts returns the path unchanged', () => {
+    expect(collapseToSegmentDir('/repo/foo', [])).toBe('/repo/foo');
+  });
+
+  test('partial-name match (e.g. `.gitconfig`) does not collapse to a `.git` segment', () => {
+    // Component match is exact - segment `.git` does not match `.gitconfig`.
+    expect(collapseToSegmentDir('/repo/.gitconfig/foo', ['.git'])).toBeUndefined();
+  });
+
+  test('non-contiguous match for multi-segment rule returns undefined', () => {
+    // segParts must appear contiguously: `.git` then `hooks`. A path
+    // with `.git/foo/hooks` should NOT match `.git/hooks`.
+    expect(collapseToSegmentDir('/repo/.git/foo/hooks/x', ['.git', 'hooks'])).toBeUndefined();
+  });
+});
+
+// Pin the wrap-input size at a small constant across N synthetic
+// `compileLinuxPolicy` calls against a stable workspace. Regression
+// guard against the E2BIG bug: in a node_modules-heavy repo the
+// previous per-file fan-out produced 1100+ paths in `write.deny`,
+// which translated to a 245 KiB bwrap argv vs Linux's 128 KiB
+// MAX_ARG_STRLEN limit.
+describe('wrap-size stability under repeated compilation', () => {
+  test('compileLinuxPolicy output stays bounded across 50 calls with a fixed workspace', () => {
+    const policy: FilesystemPolicy = {
+      read: {
+        deny: { basenames: ['.env'], segments: [], paths: [] },
+        allow: { basenames: [], segments: [], paths: [] },
+      },
+      write: {
+        allow: { basenames: [], segments: [], paths: ['.'] },
+        deny: { basenames: ['.env'], segments: ['node_modules', '.git/hooks'], paths: [] },
+      },
+    };
+    // Stub mimics a Node-heavy workspace: 1500 fake files inside
+    // node_modules + 8 hooks. Pre-fix this produced 1500+ paths in the
+    // compiled output; post-fix collapse must keep it bounded.
+    const nmFiles = Array.from({ length: 1500 }, (_, i) => `node_modules/p${i}/index.js`);
+    const hookFiles = [
+      '.git/hooks/applypatch-msg.sample',
+      '.git/hooks/commit-msg.sample',
+      '.git/hooks/post-update.sample',
+      '.git/hooks/pre-applypatch.sample',
+      '.git/hooks/pre-commit.sample',
+      '.git/hooks/pre-merge-commit.sample',
+      '.git/hooks/pre-push.sample',
+      '.git/hooks/pre-rebase.sample',
+    ];
+    const { runner } = stubRg({
+      '.env': ['src/.env'],
+      '**/node_modules/**': nmFiles,
+      '**/.git/hooks/**': hookFiles,
+    });
+
+    const sizes: number[] = [];
+    for (let i = 0; i < 50; i++) {
+      const r = compileLinuxPolicy(policy, { cwd, runRipgrep: runner });
+      sizes.push(r.write.paths.length);
+    }
+
+    // Must collapse to a small constant: <.env file>, <node_modules>,
+    // <.git/hooks> = 3 entries. Allow a small slack for future segment
+    // additions but FAIL LOUD if anyone reverts the collapse and lets
+    // the per-file fan-out come back.
+    expect(Math.max(...sizes)).toBeLessThanOrEqual(8);
+    // Stability: every call against the stable workspace produces the
+    // same output size.
+    expect(new Set(sizes).size).toBe(1);
   });
 });

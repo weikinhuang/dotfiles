@@ -152,6 +152,12 @@ export function clearActiveSandbox(): void {
  * a try/finally around the actual reload). If a reconfigure is already
  * in flight, the new caller chains onto it - sandbox.ts is responsible
  * for serializing reconfigures on its side.
+ *
+ * Once the chain resolves we drop the slot reference (when no later
+ * `beginActiveReconfigure` has already replaced it) so the chain GC's
+ * after each reconfigure - otherwise `slot.inflight` retains every
+ * prior promise via the `.then(() => next)` closure and grows one
+ * link per reconfigure for the lifetime of the session.
  */
 export function beginActiveReconfigure(): () => void {
   const slot = getSlot();
@@ -161,7 +167,11 @@ export function beginActiveReconfigure(): () => void {
   // type rules + oxlint's `no-empty-function`.
   const { promise: next, resolve: resolveFn } = Promise.withResolvers<void>();
   const previous = slot.inflight;
-  slot.inflight = previous ? previous.then(() => next) : next;
+  const chain = previous ? previous.then(() => next) : next;
+  slot.inflight = chain;
+  void chain.then(() => {
+    if (slot.inflight === chain) slot.inflight = undefined;
+  });
   return resolveFn;
 }
 
@@ -173,4 +183,11 @@ export async function activeReconfigure(): Promise<void> {
   const inflight = getSlot().inflight;
   if (!inflight) return;
   await inflight;
+}
+
+/** Test-only: peek at the slot's in-flight promise. Used by the
+ *  inflight-no-leak regression to verify that the chain reference is
+ *  dropped between paired `beginActiveReconfigure() / done()` calls. */
+export function __getInflightForTest(): Promise<void> | undefined {
+  return getSlot().inflight;
 }

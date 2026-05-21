@@ -83,7 +83,7 @@
  * shared).
  */
 
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 
@@ -239,6 +239,14 @@ interface AsrtSandboxManager {
     getViolations(): unknown[];
   };
   annotateStderrWithSandboxFailures(command: string, stderr: string): string;
+  /** Lightweight per-command cleanup. Removes the empty mount-point
+   *  files bwrap created on the host for non-existent deny paths AND
+   *  decrements ASRT's `activeSandboxCount`. Documented as safe to
+   *  call on any platform (no-op on macOS). Pi's `tool_result` hook
+   *  calls this after each bash invocation - skipping it leaks
+   *  `/tmp/claude-empty-*` dirs and the active-count gauge over a
+   *  long session. */
+  cleanupAfterCommand?(): void;
   getProxyPort?(): number | undefined;
   getSocksProxyPort?(): number | undefined;
 }
@@ -656,6 +664,38 @@ function planFor(state: RuntimeState): WrapPlan {
   return { kind: 'wrapped' };
 }
 
+// ─────────────────────────────────────────────────────────────────
+// E2BIG diagnostic - gated on PI_SANDBOX_E2BIG_DEBUG=<path|1>
+// ─────────────────────────────────────────────────────────────────
+
+/** Log per-wrap size + deny-list counts when the env var is set.
+ *  When `=1`, log to /tmp/sandbox-e2big.log; otherwise log to the
+ *  literal path. Best-effort; an EIO never breaks the wrap. */
+function e2bigDebugLog(state: RuntimeState, input: string, output: string): void {
+  const raw = process.env.PI_SANDBOX_E2BIG_DEBUG;
+  if (!raw) return;
+  const path = raw === '1' ? '/tmp/sandbox-e2big.log' : raw;
+  const fs = (
+    state.lastResolved?.asrtConfig as
+      | { filesystem?: { denyRead?: unknown[]; denyWrite?: unknown[]; allowWrite?: unknown[] } }
+      | undefined
+  )?.filesystem;
+  const denyRead = Array.isArray(fs?.denyRead) ? fs.denyRead.length : -1;
+  const denyWrite = Array.isArray(fs?.denyWrite) ? fs.denyWrite.length : -1;
+  const allowWrite = Array.isArray(fs?.allowWrite) ? fs.allowWrite.length : -1;
+  const inHead = input.replace(/\s+/g, ' ').slice(0, 80);
+  const line =
+    `${new Date().toISOString()} call=${state.wrapsAttempted} ` +
+    `in=${input.length} out=${output.length} ` +
+    `denyRead=${denyRead} denyWrite=${denyWrite} allowWrite=${allowWrite} ` +
+    `pid=${process.pid} inHead=${JSON.stringify(inHead)}\n`;
+  try {
+    appendFileSync(path, line);
+  } catch {
+    // Best-effort
+  }
+}
+
 /**
  * Wrap a command for the live SandboxManager when one is available;
  * otherwise return a structured result describing what the caller
@@ -695,6 +735,7 @@ async function performWrap(
   try {
     await activeReconfigure();
     const wrapped = await state.manager.wrapWithSandbox(command);
+    e2bigDebugLog(state, command, wrapped);
     return { command: wrapped, wrapped: true };
   } catch (e) {
     state.wrapsErrored++;
@@ -916,6 +957,13 @@ export default function sandbox(pi: ExtensionAPI): void {
   pi.on('tool_result', (event, ctx) => {
     if (event.toolName !== 'bash') return undefined;
     if (!state.manager || !state.initialized) return undefined;
+    // Per-command ASRT cleanup. Decrements ASRT's `activeSandboxCount`
+    // (incremented by the matching `wrapWithSandbox` in tool_call) and
+    // unlinks the empty mount-point files bwrap created on the host
+    // for non-existent deny paths. Skipping it leaks `/tmp/claude-empty-*`
+    // dirs and the active-count gauge over a long session. Safe to
+    // call on every platform - documented as no-op on macOS.
+    state.manager.cleanupAfterCommand?.();
     const original = (event.input as Record<symbol, unknown> | undefined)?.[SANDBOX_ORIGINAL_SYMBOL];
     const command =
       typeof original === 'string'
@@ -950,7 +998,9 @@ export default function sandbox(pi: ExtensionAPI): void {
       return undefined;
     }
     const splice = annotateBashResult(annotated, stderr, evt.content);
-    if (!splice) return undefined;
+    if (!splice) {
+      return undefined;
+    }
 
     // Best-effort: append a JSONL audit row.
     const record: SandboxViolationRecord = {
