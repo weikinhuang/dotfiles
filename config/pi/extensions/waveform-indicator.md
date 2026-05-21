@@ -84,6 +84,10 @@ animations look related but not identical.
 - `/waveform scroll` - scrolling waveform (default).
 - `/waveform spectrum` - independent bouncing bars rendered as a green → yellow → red EQ heat-map; see
   [Spectrum bars](#spectrum-bars) below for the shape and color rules.
+- `/waveform tokenrate` - live tokens-per-second bars, re-rendered each label tick from a running rate sample of the
+  model's output stream. Full-spectrum magnitude palette (blue → cyan → green → yellow → red) so a tall bar reads as
+  "hot" and a barely-there bar reads as "cold blue" without needing the chart in fine focus; see
+  [Token-rate bars](#token-rate-bars) below for the sampling rules and the single-frame caveat.
 - `/waveform off` - hide the indicator entirely. The shimmering label still renders.
 - `/waveform reset` - restore pi's default braille spinner and the default `Working...` label.
 
@@ -96,9 +100,10 @@ mode for the current session.
 
 - `PI_WAVEFORM_INDICATOR_DISABLED=1` - skip the extension entirely; pi's default indicator and label remain untouched.
   Useful inside subagent harnesses or non-interactive smoke tests where ANSI noise muddles the output.
-- `PI_WAVEFORM_INDICATOR_MODE=<scroll|spectrum|off|default>` - override the persisted mode for this shell only, without
-  rewriting `~/.pi/waveform-indicator.json`. An unknown value is ignored (extension falls through to the persisted file,
-  then to `'scroll'`). Useful for one-off `pi --print` runs or subagents you want pinned to a specific style.
+- `PI_WAVEFORM_INDICATOR_MODE=<scroll|spectrum|tokenrate|off|default>` - override the persisted mode for this shell
+  only, without rewriting `~/.pi/waveform-indicator.json`. An unknown value is ignored (extension falls through to the
+  persisted file, then to `'scroll'`). Useful for one-off `pi --print` runs or subagents you want pinned to a specific
+  style.
 - `PI_WAVEFORM_THINKING_PULSE=off` - suppress the breathing pulse on the thinking-effort segment of the dim suffix
   without disabling the rest of the extension. The other segments (elapsed, ↑/↓ tokens) keep their static dim wrap and
   the indicator keeps rendering. Any other value (including unset) leaves the pulse on; the default is on.
@@ -231,6 +236,62 @@ makes the waveform's color loop seamless applies here too. The spec asserts both
 coloring the spectrum the same way would make the two modes blur visually. The heat-map is iconic for spectrum displays
 and reads as a different visual language at a glance.
 
+## Token-rate bars
+
+Alternate pattern selected by `/waveform tokenrate`. The bars graph the model's output rate (tokens/sec) sampled live
+from the same byte-accumulator the suffix uses for its `↓` segment, so the bars and the dim counter agree on what
+they're measuring. Recently-streamed output appears at the right edge; older samples scroll left as fresh ones land.
+Idle = flat zero. Bursts of fast output spike the rightmost bars and those spikes drift left as they age.
+
+**Sampling rules.** The state machine lives in
+[`waveform-indicator-rate.ts`](../../../lib/node/pi/waveform-indicator-rate.ts) so it's covered by its own focused unit
+tests. On each label tick:
+
+1. Compute `currentTokens = committedUsage.output + max(currentUsage.output, ceil(currentMessageOutputBytes / 4))`
+   - the same "live ↓ estimate" formula the suffix uses, so both readouts agree.
+2. Step the rate machine with `(currentTokens, now)`. Returned rate is `Δ tokens / Δ seconds` with these guards:
+   - **Negative delta** (post-`message_end` byte counter reset, OR pi compaction shrinking `committedUsage` mid-turn) →
+     re-baseline, emit `rate = 0`. Without the re-baseline the buffer would stay stuck at zero until the cumulative
+     count caught up to the pre-shrink snapshot, which could be tens of seconds.
+   - **`dt < 1 ms`** → skip the sample without touching the baseline. Catches two ticks landing in the same millisecond
+     (or a sub-ms `Date.now()` wobble) so we never divide by ~zero.
+   - **First sample after `message_start`** → skip emission but anchor the baseline at message-start time. Without this,
+     the rightmost bar would paint full-saturated indigo for one frame as the byte accumulator races up from zero
+     against an artificially small `dt`.
+3. Push the rate (when defined) onto the right side of the 20-slot FIFO buffer; the oldest sample falls off the left.
+   The 20-slot length is a 10×2 geometry parity match - 10 braille glyphs × 2 columns. An odd-length buffer would leave
+   a half-glyph at the leading edge.
+4. Map each buffered rate to a `0..4` bar height with an autoscale: `height = round(4 * min(rate / scale, 1))` where
+   `scale = max(TOKEN_RATE_MIN_SCALE, max(rateBuffer))` and the floor is 30 tok/s. The floor keeps a single low-rate
+   sample from maxing the bars; the running max lifts the ceiling so sustained-fast streams stay readable.
+5. Encode pairs of heights into braille glyphs and apply the cool heat-map color (see below).
+6. Re-apply `setWorkingIndicator({ frames: [frame, frame], intervalMs })` with two copies of the same frame.
+
+**Single-frame caveat.** Pi's loader is built for static frame arrays it auto-cycles; pushing a one-element array risks
+the loader short-circuiting to "static spinner, no further refresh". The two-copies workaround makes the frame list look
+like a normal animation to pi while the per-tick re-apply does the actual driving. Cheap (one extra string ref per
+push), unambiguous, and easy to reason about - if a future pi version starts honouring single-frame arrays the
+workaround is a one-line revert.
+
+**Color: full-spectrum magnitude heat-map (blue → cyan → green → yellow → red).** Each glyph's hue is picked off the
+taller of its two bars and mapped linearly across `240° → 0°` - spanning the cool half of the wheel as well as the warm
+half. Low bars glow blue, near-low cyan, mid green, near-tall yellow, tall red. The wider hue range makes a 1-bar sample
+(cold blue) visually obvious next to a 2-bar sample (green), where a green-only-to-red gradient would render those two
+as nearly-the-same green and force the eye onto the bar height alone.
+
+Direction (uplink vs downlink) is already conveyed by the `↑` / `↓` arrow in the dim suffix, so the hue channel is free
+to carry intensity instead.
+
+**Why not the spectrum mode's green-to-red.** An earlier iteration used the spectrum mode's `120° → 0°` heat-map, but a
+freshly-streaming model produces a lot of mid-low bars that all rendered as nearly-identical green-yellow. Stretching
+the gradient across the full wheel gives each bar height its own clearly distinguishable colour.
+
+**Default behaviour.** `tokenrate` is opt-in via `/waveform tokenrate` (or `PI_WAVEFORM_INDICATOR_MODE=tokenrate`)
+rather than the default mode. `scroll` is decorative and works even before streaming starts; `tokenrate` has nothing to
+render until tokens flow, so it would look broken as a default. The persisted-state file picks it up the same way as the
+other modes, and an older binary that doesn't know about `tokenrate` silently falls through to its default - the file
+isn't corrupted, just ignored.
+
 ## Pure helpers
 
 Lives in [`../../../lib/node/pi/waveform-indicator.ts`](../../../lib/node/pi/waveform-indicator.ts). Public exports:
@@ -242,6 +303,12 @@ Lives in [`../../../lib/node/pi/waveform-indicator.ts`](../../../lib/node/pi/wav
 - `spectrumBar(k, t)` - bar height for column `k` at frame `t`.
 - `SPECTRUM_BAR_PERIOD` - the spectrum-bar period constant (120 today).
 - `buildSpectrumFrames(opts)` - the full pre-rendered spectrum-bars animation.
+- `pushTokenRateSample(buffer, rate)` - FIFO push for the tokenrate buffer; clamps non-finite / negative rates to 0.
+- `tokenRateBarsToHeights(buffer, opts)` - autoscale + clamp to `0..4`; returns the bar-height array.
+- `buildTokenRateFrame(heights, opts)` - encode height pairs into braille glyphs and apply the full-spectrum magnitude
+  heat-map color (blue → cyan → green → yellow → red).
+- `TOKEN_RATE_BUFFER_SIZE`, `TOKEN_RATE_MIN_SCALE`, `TOKEN_RATE_HUE_LOW`, `TOKEN_RATE_HUE_HIGH` - constants exported for
+  testability and so the extension shell doesn't redefine the magic numbers.
 - `shimmerLabel(text, tick, opts)` - per-codepoint truecolor wrap.
 - `hslToRgb(h, s, l)`, `colorize(text, rgb)` - building blocks for callers that want to render their own variants.
 
@@ -279,6 +346,24 @@ exercise every transition with plain object literals (no fake timers / fake stre
 `thinking → still thinking` 20 s threshold, the per-block timer restart, cumulative `thought for Ns` across interleaved
 blocks, and the full claude-code shapes seen in the wild (`(1m 18s · ↑ 3.6k tokens)`,
 `(42s · ↑ 1.7k tokens · thought for 4s)`, etc.).
+
+The token-rate sample machine lives in a sibling module
+[`../../../lib/node/pi/waveform-indicator-rate.ts`](../../../lib/node/pi/waveform-indicator-rate.ts). Public exports:
+
+- `TokenRateState` - serialisable state shape (`lastSampleAtMs`, `lastSampleTokens`, `skipNextSample`).
+- `MIN_SAMPLE_DT_MS` - the 1 ms sub-millisecond skip threshold.
+- `newTokenRateState()` - allocate a fresh state on `agent_start`.
+- `markMessageStart(state, nowMs, currentTokens)` - prime a skip on the next tick so the first computed rate aligns to
+  "tokens since text actually started flowing" rather than to the previous idle gap.
+- `markMessageEnd(state)` - clear the baseline so the next message re-baselines cleanly.
+- `stepTokenRate(state, currentTokens, nowMs)` - returns `{ rate, rebaselined }`. `rate` is `undefined` when the step
+  was a baseline-only step (cold start, sub-ms `dt`, first-sample-after-`message_start` skip), or `0` on a
+  negative-delta re-baseline, otherwise tokens/sec.
+
+Specs in
+[`tests/lib/node/pi/waveform-indicator-rate.spec.ts`](../../../tests/lib/node/pi/waveform-indicator-rate.spec.ts)
+exercise each rule in isolation and one end-to-end integration walk through a full message lifecycle, again with plain
+inputs - no fake timers required.
 
 ## Hot reload
 
