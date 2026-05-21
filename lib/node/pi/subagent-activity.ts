@@ -66,6 +66,12 @@ export function makeActivityState(): ActivityFormatState {
 const TOOL_ARG_CAP = 50;
 const MESSAGE_CAP = 160;
 
+function capText(s: string, cap: number): string {
+  const collapsed = s.replace(/\s+/g, ' ').trim();
+  if (collapsed.length <= cap) return collapsed;
+  return `${collapsed.slice(0, cap - 1).trimEnd()}…`;
+}
+
 function summariseArgs(args: unknown): string {
   if (args == null) return '';
   if (typeof args === 'string') return capText(args, TOOL_ARG_CAP);
@@ -81,7 +87,7 @@ function summariseArgs(args: unknown): string {
       const v = obj[key];
       if (typeof v === 'string' && v.length > 0) return capText(v, TOOL_ARG_CAP);
     }
-    const first = Object.values(obj).find((v) => typeof v === 'string' && (v as string).length > 0);
+    const first = Object.values(obj).find((v) => typeof v === 'string' && v.length > 0);
     if (typeof first === 'string') return capText(first, TOOL_ARG_CAP);
     return '';
   }
@@ -116,14 +122,8 @@ function summariseResult(result: unknown, isError: boolean | undefined): string 
   return '';
 }
 
-function capText(s: string, cap: number): string {
-  const collapsed = s.replace(/\s+/g, ' ').trim();
-  if (collapsed.length <= cap) return collapsed;
-  return `${collapsed.slice(0, cap - 1).trimEnd()}…`;
-}
-
 function extractAssistantText(message: ActivityEvent['message']): string {
-  if (!message || !message.content) return '';
+  if (!message?.content) return '';
   if (typeof message.content === 'string') return message.content;
   if (Array.isArray(message.content)) {
     const parts: string[] = [];

@@ -102,6 +102,7 @@ import {
   type BashGateContext,
   type BashGateDecision,
   installBashGate,
+  requestBashApproval,
   uninstallBashGate,
 } from '../../../lib/node/pi/bash-gate.ts';
 import {
@@ -117,6 +118,7 @@ import { clearConfigWarning, parseJsonc, warnBadConfigFileOnce } from '../../../
 import { getActivePersona } from '../../../lib/node/pi/persona/active.ts';
 import { personaVouchBash } from '../../../lib/node/pi/persona/bash-vouch.ts';
 import { setBashAutoEnabled } from '../../../lib/node/pi/session-flags.ts';
+import { registerSubagentInjection } from '../../../lib/node/pi/subagent-extension-injection.ts';
 import { truncate } from '../../../lib/node/pi/shared.ts';
 
 // ──────────────────────────────────────────────────────────────────────
@@ -355,11 +357,55 @@ async function askForPermissionBatch(
 }
 
 // ──────────────────────────────────────────────────────────────────────
+// Subagent injection: hook-only factory
+// ──────────────────────────────────────────────────────────────────────
+
+/**
+ * Hook-only `ExtensionFactory` installed inside spawned subagent
+ * sessions via `lib/node/pi/subagent-extension-injection.ts`. Registers
+ * ONLY a `tool_call` handler - no slash-command surface, no statusline
+ * glue - so the child stays minimal while still routing its `bash`
+ * tool calls through the parent's installed `bash-gate.ts` slot.
+ *
+ * Because the gate function itself is a closure inside `bashPermissions`
+ * (below) - capturing the parent's session rules, persona vouch,
+ * `sessionAuto` flag, and `defaultFallback` - the child's bash calls
+ * automatically inherit the parent's policy without re-loading any
+ * config files inside the child. Subagent UIs are non-interactive
+ * (`hasUI: false`), so unknown commands fall through to
+ * `PI_BASH_PERMISSIONS_DEFAULT` (default deny) just like a `pi -p` run.
+ *
+ * Exported as a stable function value so re-registering across
+ * `/reload` cycles is idempotent (the registry replaces by id).
+ */
+export function bashPermissionsFactoryHookOnly(pi: ExtensionAPI): void {
+  pi.on('tool_call', async (event, ctx) => {
+    if (event.toolName !== 'bash') return undefined;
+    const rawCmd = (event.input as { command?: unknown } | undefined)?.command;
+    const command = (typeof rawCmd === 'string' ? rawCmd : '').trim();
+    if (!command) return undefined;
+    const decision = await requestBashApproval(command, ctx);
+    if (decision.allowed) return undefined;
+    return { block: true, reason: decision.reason };
+  });
+}
+
+// ──────────────────────────────────────────────────────────────────────
 // Extension
 // ──────────────────────────────────────────────────────────────────────
 
 export default function bashPermissions(pi: ExtensionAPI): void {
   if (process.env.PI_BASH_PERMISSIONS_DISABLED === '1') return;
+
+  // Register the hook-only factory once per extension load so spawned
+  // subagents (deep-research / iteration-loop / `subagent`) re-apply
+  // the parent's bash gate against their own `tool_call` events. The
+  // factory is a static value - the gate function itself lives in the
+  // bash-gate slot installed by `installBashGate(...)` below, so the
+  // parent's session rules / persona vouch / hardcoded denylist all
+  // apply to children automatically. Re-registering replaces the prior
+  // entry, so a `/reload` doesn't accumulate stale factories.
+  registerSubagentInjection('bash-permissions', bashPermissionsFactoryHookOnly);
 
   const sessionRules: LoadedRules = { allow: [], deny: [] };
 

@@ -360,6 +360,22 @@ function droppedFor(job: LiveJob, stream: StreamName): number {
   return job.stdout.byteLengthDropped + job.stderr.byteLengthDropped;
 }
 
+function glyphColor(job: JobSummary, opts: { timedOut?: boolean }): string {
+  if (opts.timedOut) return 'warning';
+  switch (job.status) {
+    case 'running':
+      return 'warning';
+    case 'exited':
+      return (job.exitCode ?? 0) === 0 ? 'success' : 'error';
+    case 'signaled':
+      return 'warning';
+    case 'error':
+      return 'error';
+    case 'terminated':
+      return 'muted';
+  }
+}
+
 /**
  * Theme the stable single-line header produced by `formatJobHeader`. The
  * helper returns a plain string of the form
@@ -383,22 +399,6 @@ function renderJobHeader(job: JobSummary, theme: Theme, opts: { timedOut?: boole
     `${theme.fg('toolTitle', theme.bold(idSeg))}` +
     `${theme.fg('muted', tail)}`
   );
-}
-
-function glyphColor(job: JobSummary, opts: { timedOut?: boolean }): string {
-  if (opts.timedOut) return 'warning';
-  switch (job.status) {
-    case 'running':
-      return 'warning';
-    case 'exited':
-      return (job.exitCode ?? 0) === 0 ? 'success' : 'error';
-    case 'signaled':
-      return 'warning';
-    case 'error':
-      return 'error';
-    case 'terminated':
-      return 'muted';
-  }
 }
 
 function renderRegistryLine(j: JobSummary, theme: Theme): string {
@@ -552,7 +552,7 @@ class BgBashOverlay implements Component {
 
   private signalSelected(sig: SignalName): void {
     const job = this.currentJob();
-    if (!job || job.status !== 'running') return;
+    if (job?.status !== 'running') return;
     this.deps.onSignal(job.id, sig);
   }
 

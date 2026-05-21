@@ -56,7 +56,7 @@ import {
   resolveGitPromptScript,
 } from '../../../lib/node/pi/git-prompt.ts';
 import { resolveWorktreeInfo, type WorktreeInfo } from '../../../lib/node/pi/git-worktree.ts';
-import { isBashAutoEnabled } from '../../../lib/node/pi/session-flags.ts';
+import { getSandboxState, isBashAutoEnabled, type SandboxMode } from '../../../lib/node/pi/session-flags.ts';
 import { getSessionSubagentAggregate } from '../../../lib/node/pi/subagent-aggregate.ts';
 import { fmtCost, fmtSi } from '../../../lib/node/pi/token-format.ts';
 
@@ -96,9 +96,44 @@ const PALETTE = {
   sessionId: '\x1b[38;5;244m',
   model: '\x1b[38;5;33m',
   persona: '\x1b[38;5;141m',
+  sandbox: '\x1b[38;5;72m',
+  sandboxWarn: '\x1b[38;5;172m',
+  sandboxOff: '\x1b[38;5;160m',
 } as const;
 
 const paint = (code: string, text: string): string => `${code}${text}${RESET}`;
+
+/**
+ * Render the sandbox badge for line 1 of the statusline. Returns
+ * `null` when the sandbox is `off` (extension not loaded or pre-init)
+ * so we don't add a leading space for a nothing-segment.
+ *
+ *   wrapped       \ud83d\udee1\ufe0f          (deps OK + initialized)
+ *   identity      \ud83d\udee1\ufe0f?         (degraded - missing deps / unsupported)
+ *   bypassed      \ud83d\udee1\u0336          (sandbox-disable session bypass)
+ *   env-disabled  \ud83d\udee1\ufe0f\u00b7off      (PI_SANDBOX_DISABLED=1)
+ *
+ * Color palette:
+ *   wrapped       PALETTE.sandbox  (calm green)
+ *   identity      PALETTE.sandboxWarn (dim amber - degraded)
+ *   bypassed      PALETTE.sandboxOff (red - explicit user bypass)
+ *   env-disabled  PALETTE.sandboxOff (red)
+ */
+function renderSandboxBadge(mode: SandboxMode): string | null {
+  switch (mode) {
+    case 'wrapped':
+      return paint(PALETTE.sandbox, '\u{1F6E1}\uFE0F');
+    case 'identity':
+      return paint(PALETTE.sandboxWarn, '\u{1F6E1}\uFE0F?');
+    case 'bypassed':
+      return paint(PALETTE.sandboxOff, '\u{1F6E1}\u0336');
+    case 'env-disabled':
+      return paint(PALETTE.sandboxOff, '\u{1F6E1}\uFE0F\u00b7off');
+    case 'off':
+    default:
+      return null;
+  }
+}
 
 /**
  * Wrap text in an OSC 8 hyperlink escape sequence.
@@ -385,8 +420,16 @@ export default function extension(pi: ExtensionAPI): void {
         // it's obvious commands will run without prompting. State is
         // owned by bash-permissions.ts and read via ./lib/session-flags.ts.
         if (isBashAutoEnabled()) {
-          line1Parts.push(' ', paint(PALETTE.tool, '⚡'));
+          line1Parts.push(' ', paint(PALETTE.tool, '\u26a1'));
         }
+        // Sandbox indicator: published by sandbox.ts via
+        // session-flags.setSandboxState. Five visible states - see
+        // plan section 7's render table for the rationale. Rendered
+        // adjacent to the \u26a1 auto-mode glyph (so `\u26a1\ud83d\udee1\ufe0f` reads
+        // "defense-in-depth on") and toned down (dim / strikethrough)
+        // when the sandbox is bypassed or degraded.
+        const sandboxBadge = renderSandboxBadge(getSandboxState().mode);
+        if (sandboxBadge) line1Parts.push(' ', sandboxBadge);
         line1Parts.push(' ', paint(PALETTE.model, modelId));
         if (thinkingLevel) {
           // Matches pi's built-in footer (`<model> • <level>` / `<model> • thinking off`)

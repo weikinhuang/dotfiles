@@ -103,15 +103,12 @@ import {
   formatAgentListDescription,
   formatAgentListRowDescription,
   formatAgentPreview,
-  formatContextBar,
   formatParallelSubagentStatus,
   formatRunningChildRow,
   formatRunningChildrenList,
-  formatScorecardLead,
   formatSpawnMessage,
   formatSubagentScorecard,
   formatSubagentStatus,
-  formatToolCallCounts,
   scorecardGlyph,
   type AgentPreviewSource,
   type RunningChildListItem,
@@ -141,6 +138,7 @@ import {
 } from '../../../lib/node/pi/subagent-session-paths.ts';
 import { resolveChildModel } from '../../../lib/node/pi/subagent-spawn.ts';
 import { resolveMaxTurns } from '../../../lib/node/pi/subagent-budget.ts';
+import { collectSubagentInjections } from '../../../lib/node/pi/subagent-extension-injection.ts';
 import { resolveWriteRoots } from '../../../lib/node/pi/persona/resolve.ts';
 import { setActiveAgent, clearActiveAgent } from '../../../lib/node/pi/subagent/active-agent.ts';
 import { createAgentGateFactory } from '../../../lib/node/pi/subagent/agent-gate.ts';
@@ -696,6 +694,19 @@ interface RunningOverlayEntry {
 
 const RUNNING_TICK_MS = 1000;
 
+function fmtDurationShort(ms: number): string {
+  if (!Number.isFinite(ms) || ms < 0) return '';
+  if (ms < 1000) return `${Math.round(ms)}ms`;
+  if (ms < 10_000) return `${(ms / 1000).toFixed(1)}s`;
+  return `${Math.round(ms / 1000)}s`;
+}
+
+function capLine(s: string, cap: number): string {
+  const collapsed = s.replace(/\s+/g, ' ').trim();
+  if (collapsed.length <= cap) return collapsed;
+  return `${collapsed.slice(0, cap - 1).trimEnd()}…`;
+}
+
 class AgentsRunningOverlay implements Component {
   private selected = 0;
   /** `f` toggles freeze for the highlighted child's activity tail. */
@@ -787,11 +798,9 @@ class AgentsRunningOverlay implements Component {
     for (let i = 0; i < entries.length; i++) {
       const e = entries[i];
       const marker = i === this.selected ? th.fg('accent', '>') : ' ';
-      const rowLines = formatRunningChildRow(
-        { handle: e.handle, snapshot: e.snapshot, startedAt: e.startedAt },
-        now,
-        { width },
-      );
+      const rowLines = formatRunningChildRow({ handle: e.handle, snapshot: e.snapshot, startedAt: e.startedAt }, now, {
+        width,
+      });
       lines.push(truncateToWidth(`  ${marker} ${th.fg('text', rowLines[0])}`, width));
       for (let j = 1; j < rowLines.length; j++) {
         lines.push(truncateToWidth(`    ${th.fg('dim', rowLines[j])}`, width));
@@ -823,11 +832,7 @@ class AgentsRunningOverlay implements Component {
     lines.push('');
     lines.push(truncateToWidth(formatHeaderRule('activity', tailChip, width, th), width));
     lines.push('');
-    const tailLines = ring
-      ? ring.snapshot()
-      : sel.sessionFile
-        ? tailJsonl(sel.sessionFile, { maxLines: 32 })
-        : [];
+    const tailLines = ring ? ring.snapshot() : sel.sessionFile ? tailJsonl(sel.sessionFile, { maxLines: 32 }) : [];
     if (tailLines.length === 0) {
       lines.push(truncateToWidth(`  ${th.fg('dim', '(no activity yet)')}`, width));
     } else {
@@ -837,26 +842,11 @@ class AgentsRunningOverlay implements Component {
     }
 
     lines.push('');
-    lines.push(
-      truncateToWidth(`  ${th.fg('dim', '↑/↓ move · f freeze tail · Press Escape to close')}`, width),
-    );
+    lines.push(truncateToWidth(`  ${th.fg('dim', '↑/↓ move · f freeze tail · Press Escape to close')}`, width));
     lines.push('');
     void live;
     return lines;
   }
-}
-
-function fmtDurationShort(ms: number): string {
-  if (!Number.isFinite(ms) || ms < 0) return '';
-  if (ms < 1000) return `${Math.round(ms)}ms`;
-  if (ms < 10_000) return `${(ms / 1000).toFixed(1)}s`;
-  return `${Math.round(ms / 1000)}s`;
-}
-
-function capLine(s: string, cap: number): string {
-  const collapsed = s.replace(/\s+/g, ' ').trim();
-  if (collapsed.length <= cap) return collapsed;
-  return `${collapsed.slice(0, cap - 1).trimEnd()}…`;
 }
 
 // ──────────────────────────────────────────────────────────────────────
@@ -1297,7 +1287,17 @@ export default function subagentExtension(pi: ExtensionAPI): void {
         noSkills: true,
         noPromptTemplates: true,
         appendSystemPrompt: appendParts.length > 0 ? appendParts : undefined,
-        extensionFactories: [agentGateFactory as unknown as ExtensionFactory],
+        extensionFactories: [
+          // Global subagent-injection registry first - parent-side
+          // security gates (bash-permissions, filesystem) register
+          // hook-only factories there so child bash / read / write
+          // calls go through the same gates as the parent. The
+          // per-agent gate runs LAST so its agent-specific
+          // bashAllow / bashDeny / writeRoots can override (last
+          // tool_call handler wins on the same event).
+          ...(collectSubagentInjections() as unknown as ExtensionFactory[]),
+          agentGateFactory as unknown as ExtensionFactory,
+        ] satisfies ExtensionFactory[],
       });
       await resourceLoader.reload();
       const created = await createAgentSession({
@@ -1854,10 +1854,7 @@ export default function subagentExtension(pi: ExtensionAPI): void {
         const taskLine = details.task
           ? theme.fg('dim', `   task: ${details.task.length > 80 ? `${details.task.slice(0, 79)}…` : details.task}`)
           : '';
-        const hint = theme.fg(
-          'muted',
-          '   Use `subagent_send` to check status, steer, or retrieve the result.',
-        );
+        const hint = theme.fg('muted', '   Use `subagent_send` to check status, steer, or retrieve the result.');
         return new Text([lead, taskLine, hint].filter(Boolean).join('\n'), 0, 0);
       }
       if (expanded && body.trim()) {
@@ -2087,7 +2084,10 @@ export default function subagentExtension(pi: ExtensionAPI): void {
       const action = callArgs.action ?? (callArgs.text ? 'send' : 'status');
       let stopReason: ScorecardStopReason;
       if (action === 'status') {
-        stopReason = details.stopReason === 'running' ? 'running' : ((details.stopReason as ScorecardStopReason | undefined) ?? 'running');
+        stopReason =
+          details.stopReason === 'running'
+            ? 'running'
+            : ((details.stopReason as ScorecardStopReason | undefined) ?? 'running');
       } else if (action === 'abort') {
         stopReason = 'aborted';
       } else if (action === 'wait') {
@@ -2160,10 +2160,7 @@ export default function subagentExtension(pi: ExtensionAPI): void {
         // spelling. We keep it as a shim that points users to the new
         // colon-notation command. The actual overlay lives behind
         // `agents:running`.
-        ctx.ui.notify(
-          'subagent: use `/agents:running` (colon notation) for the new live overlay.',
-          'info',
-        );
+        ctx.ui.notify('subagent: use `/agents:running` (colon notation) for the new live overlay.', 'info');
         return;
       }
 

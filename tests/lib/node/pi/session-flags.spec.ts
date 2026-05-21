@@ -7,16 +7,20 @@ import { expect, test } from 'vitest';
 // disable it just for this pair.
 /* oxlint-disable import/no-duplicates */
 import {
+  getSandboxState as getSandboxStateA,
   isBashAutoEnabled as isBashAutoEnabledA,
   setBashAutoEnabled as setBashAutoEnabledA,
+  setSandboxState as setSandboxStateA,
 } from '../../../../lib/node/pi/session-flags.ts';
 // Import a second copy via a different specifier (query string defeats
 // the module cache and simulates pi's extension loader, which creates a
 // fresh jiti instance per extension with `moduleCache: false` and
 // therefore gives each extension its own module copy).
 import {
+  getSandboxState as getSandboxStateB,
   isBashAutoEnabled as isBashAutoEnabledB,
   setBashAutoEnabled as setBashAutoEnabledB,
+  setSandboxState as setSandboxStateB,
 } from '../../../../lib/node/pi/session-flags.ts?copy=b';
 /* oxlint-enable import/no-duplicates */
 
@@ -54,4 +58,40 @@ test('session-flags: toggling is idempotent and boolean-coerced', () => {
   setBashAutoEnabledA(false);
 
   expect(isBashAutoEnabledB()).toBe(false);
+});
+
+test('session-flags: sandbox state defaults to mode=off with no reason', () => {
+  setSandboxStateA({ mode: 'off' });
+
+  expect(getSandboxStateA()).toEqual({ mode: 'off' });
+  expect(getSandboxStateB()).toEqual({ mode: 'off' });
+});
+
+test('session-flags: sandbox writes from copy A are visible in copy B', () => {
+  // Same regression-guard pattern as bashAuto above.
+  expect(setSandboxStateA).not.toBe(setSandboxStateB);
+
+  setSandboxStateA({ mode: 'wrapped' });
+  expect(getSandboxStateA()).toEqual({ mode: 'wrapped' });
+  expect(getSandboxStateB(), 'sandbox state must cross module-instance boundary').toEqual({ mode: 'wrapped' });
+
+  setSandboxStateB({ mode: 'identity', reason: 'missing deps: bwrap, socat' });
+  expect(getSandboxStateA()).toEqual({ mode: 'identity', reason: 'missing deps: bwrap, socat' });
+  expect(getSandboxStateB()).toEqual({ mode: 'identity', reason: 'missing deps: bwrap, socat' });
+
+  setSandboxStateA({ mode: 'off' });
+});
+
+test('session-flags: sandbox snapshot is decoupled from the slot', () => {
+  setSandboxStateA({ mode: 'bypassed', reason: '/sandbox-disable' });
+
+  const snap = getSandboxStateA();
+  expect(snap).toEqual({ mode: 'bypassed', reason: '/sandbox-disable' });
+
+  // Mutating the snapshot must not change the slot.
+  snap.mode = 'wrapped';
+  snap.reason = 'mutated';
+  expect(getSandboxStateA()).toEqual({ mode: 'bypassed', reason: '/sandbox-disable' });
+
+  setSandboxStateA({ mode: 'off' });
 });

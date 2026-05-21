@@ -33,6 +33,7 @@
  */
 
 import { parseModelSpec } from './btw.ts';
+import { collectSubagentInjections, type SubagentExtensionFactory } from './subagent-extension-injection.ts';
 import { type AgentDef } from './subagent-loader.ts';
 import { extractFinalAssistantText, type AgentMessageLike } from './subagent-result.ts';
 
@@ -171,6 +172,15 @@ export interface DefaultResourceLoaderCtorArgs {
   noSkills: true;
   noPromptTemplates: true;
   appendSystemPrompt?: string[];
+  /**
+   * Inline factories loaded into the child session even though
+   * `noExtensions: true` skips the layered on-disk extensions. Pi's
+   * `DefaultResourceLoader` accepts this slot natively; we surface it
+   * here so `runOneShotAgent` can compose the global subagent-injection
+   * registry (`collectSubagentInjections()`) with any per-call factories
+   * the caller threads through `RunOneShotAgentOptions.extensionFactories`.
+   */
+  extensionFactories?: SubagentExtensionFactory[];
 }
 
 /** Dependency injection bundle - the extension passes pi's real constructors here. */
@@ -222,6 +232,18 @@ export interface RunOneShotAgentOptions<M, S> {
   onEvent?: (event: OneShotAgentEvent) => void;
   /** Don't call `session.dispose()` on return; caller owns the lifecycle. */
   keepSession?: boolean;
+  /**
+   * Per-call extension factories loaded into the child session. These
+   * compose AFTER the global subagent-injection registry returned by
+   * `collectSubagentInjections()`, so a per-call factory can override
+   * a globally-registered one (pi's runner uses last-registered-wins
+   * semantics for handlers on the same event).
+   *
+   * Most callers (deep-research, iteration-loop) leave this unset and
+   * rely solely on the registry; `subagent` style callers that build
+   * their own resource loader can mirror this composition manually.
+   */
+  extensionFactories?: SubagentExtensionFactory[];
 }
 
 export interface RunOneShotAgentResult {
@@ -275,6 +297,11 @@ export async function runOneShotAgent<M, S>(options: RunOneShotAgentOptions<M, S
   const appendParts: string[] = [];
   if (agent.appendSystemPrompt) appendParts.push(agent.appendSystemPrompt);
   if (agent.body.trim().length > 0) appendParts.push(agent.body.trim());
+  // Compose global subagent-injection registry first, then per-call
+  // factories - last-registered wins per pi's handler-chain semantics,
+  // so a caller can override a globally-registered hook on the same
+  // event by passing its own factory in `options.extensionFactories`.
+  const factories: SubagentExtensionFactory[] = [...collectSubagentInjections(), ...(options.extensionFactories ?? [])];
   const resourceLoader = new deps.DefaultResourceLoader({
     cwd,
     agentDir,
@@ -283,6 +310,7 @@ export async function runOneShotAgent<M, S>(options: RunOneShotAgentOptions<M, S
     noSkills: true,
     noPromptTemplates: true,
     appendSystemPrompt: appendParts.length > 0 ? appendParts : undefined,
+    ...(factories.length > 0 ? { extensionFactories: factories } : {}),
   });
   await resourceLoader.reload();
 

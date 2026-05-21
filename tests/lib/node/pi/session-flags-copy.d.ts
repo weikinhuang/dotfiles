@@ -4,6 +4,13 @@
 // survives duplicate module instances (the same scenario pi's jiti-based
 // extension loader creates in production).
 declare module '*/lib/node/pi/session-flags.ts?copy=b' {
+  export type SandboxMode = 'wrapped' | 'bypassed' | 'identity' | 'env-disabled' | 'off';
+  export interface SandboxState {
+    mode: SandboxMode;
+    reason?: string;
+  }
   export function isBashAutoEnabled(): boolean;
   export function setBashAutoEnabled(value: boolean): void;
+  export function getSandboxState(): SandboxState;
+  export function setSandboxState(value: SandboxState): void;
 }

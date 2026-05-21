@@ -488,21 +488,21 @@ Set these before the dotfiles are sourced, usually in `~/.bash_local`.
 
 Environment variables consumed by pi extensions in [`config/pi/extensions/`](./config/pi/extensions). Each extension's
 deep doc (`config/pi/extensions/<name>.md`) is the authoritative reference; this subsection only collects the
-user-facing knobs in one place. Variables marked `(unused until Phase 3)` are landed by Phase 1 of the
-[sandbox-runtime extension plan](./plans/pi-sandbox-runtime-extension.md) but have no runtime consumer until Phase 3
-wires `config/pi/extensions/sandbox.ts`.
+user-facing knobs in one place.
 
-| Variable                        | Default | Effect                                                                                                                                                                                      |
-| ------------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `PI_SANDBOX_DISABLED`           | unset   | bypass the sandbox extension entirely; bash subprocesses run unwrapped (Phase 3) (unused until Phase 3)                                                                                     |
-| `PI_SANDBOX_DRY_RUN`            | unset   | log the wrapped command but pass the original through; for debugging the wrap pipeline (unused until Phase 3)                                                                               |
-| `PI_SANDBOX_DEFAULT`            | `warn`  | fallback when `wrapWithSandbox` itself errors: `warn` (run unwrapped, log per-call), `allow` (run unwrapped silently), or `block` (refuse to run bash) (unused until Phase 3)               |
-| `PI_SANDBOX_NETWORK_DEFAULT`    | `block` | non-UI default for the network ask-callback when a sandboxed bash hits a non-allowlisted domain in `pi -p` mode: `block` (deny silently) or `allow` (admit silently) (unused until Phase 3) |
-| `PI_SANDBOX_NESTED`             | unset   | enable `flags.weakerNestedSandbox` for users running pi inside Docker / nested containers (unused until Phase 3)                                                                            |
-| `PI_SANDBOX_WEAKER_NET`         | unset   | enable `flags.weakerNetworkIsolation` (macOS Go-TLS escape hatch for `gh` / `gcloud` / `terraform` / `kubectl`) (unused until Phase 3)                                                      |
-| `PI_SANDBOX_EXTRA_ALLOW_DOMAIN` | unset   | additive comma-separated list of domains merged into `network.allow` (unused until Phase 3)                                                                                                 |
-| `PI_SANDBOX_ALLOW_ROOT`         | unset   | allow the sandbox extension to load when pi is running as root (containerised / privileged hosts where the threat model differs); off by default per plan section 6 (unused until Phase 3)  |
-| `PI_INSIDE_DOCKER`              | unset   | hint that pi is running inside a Docker / container; consumed by `lib/node/pi/sandbox/platform.ts` to recommend `flags.weakerNestedSandbox` (unused until Phase 3)                          |
+| Variable                        | Default | Effect                                                                                                                                                                                       |
+| ------------------------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `PI_SANDBOX_DISABLED`           | unset   | bypass the sandbox extension entirely; bash subprocesses run unwrapped, statusline shows `🛡️·off`                                                                                            |
+| `PI_SANDBOX_DRY_RUN`            | unset   | log the wrapped command but pass the original through; for debugging the wrap pipeline                                                                                                       |
+| `PI_SANDBOX_DEFAULT`            | `warn`  | fallback when `wrapWithSandbox` itself errors: `warn` (run unwrapped, log per-call), `allow` (run unwrapped silently), or `block` (refuse to run bash)                                       |
+| `PI_SANDBOX_NETWORK_DEFAULT`    | `deny`  | non-UI default for the network ask-callback when a sandboxed bash hits a non-allowlisted domain in `pi -p` mode: `deny` (silent block) or `allow` (silent admit)                             |
+| `PI_SANDBOX_NESTED`             | unset   | enable `flags.weakerNestedSandbox` for users running pi inside Docker / nested containers                                                                                                    |
+| `PI_SANDBOX_WEAKER_NET`         | unset   | enable `flags.weakerNetworkIsolation` (macOS Go-TLS escape hatch for `gh` / `gcloud` / `terraform` / `kubectl`)                                                                              |
+| `PI_SANDBOX_EXTRA_ALLOW_DOMAIN` | unset   | additive comma-separated list of domains merged into `network.allow`                                                                                                                         |
+| `PI_SANDBOX_ALLOW_ROOT`         | unset   | allow the sandbox extension to load when pi is running as root (containerised / privileged hosts where the threat model differs); off by default per plan section 6                          |
+| `PI_INSIDE_DOCKER`              | unset   | hint that pi is running inside a Docker / container; consumed by `lib/node/pi/sandbox/platform.ts` to recommend `flags.weakerNestedSandbox`                                                  |
+| `PI_PROTECTED_PATHS_DISABLED`   | unset   | bypass the in-process filesystem gate (`config/pi/extensions/filesystem.ts`) entirely. Env-var name is preserved across the rename from `protected-paths` so existing shell rcs keep working |
+| `PI_PROTECTED_PATHS_DEFAULT`    | `deny`  | non-UI fallback for the in-process filesystem gate: `deny` (block unknown protected paths) or `allow` (let them through)                                                                     |
 
 ### Prompt configuration variables
 

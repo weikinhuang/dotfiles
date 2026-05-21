@@ -31,6 +31,15 @@ Every extension ships with a deep doc next to it (`bg-bash.ts` ↔ `bg-bash.md`,
 The `.md` is the long-form reference for behaviour, env vars, and rule shapes; the `.ts` is the source of truth for
 runtime behaviour. New extensions add both files **and** a row in [README.md](./README.md)'s index table in lockstep.
 
+### Security gates auto-inject into subagent sessions
+
+Security-gate extensions (`bash-permissions.ts`, `filesystem.ts`, `sandbox.ts`) register a hook-only factory via
+[`registerSubagentInjection`](../../../lib/node/pi/subagent-extension-injection.ts) on extension load, so spawned
+subagent sessions (`runOneShotAgent`, the `subagent` extension's inline `DefaultResourceLoader`) automatically apply the
+parent's `tool_call` gate to child bash / read / write / edit calls. The factory mounts ONLY the `tool_call` handler -
+no slash commands, no statusline glue. New security-channel extensions follow the same pattern; non-security extensions
+do not.
+
 ### Subagent spawns MUST persist their session transcript to disk
 
 Every extension that spawns a child `AgentSession` - through `runOneShotAgent`

@@ -118,9 +118,10 @@ export DOT_AUTOLOAD_SSH_AGENT=1
 
 > Pi extension environment variables (e.g. `PI_SANDBOX_*`, `PI_BASH_PERMISSIONS_*`, `PI_PROTECTED_PATHS_*`) live in
 > their per-extension deep docs under [`config/pi/extensions/<name>.md`](./config/pi/extensions/) and the
-> ["Pi extension configuration"](./REFERENCE.md#pi-extension-configuration) subsection of `REFERENCE.md`. The Phase 1
-> sandbox-runtime extension landed `PI_SANDBOX_*` placeholders that have no runtime consumer until Phase 3 - see the
-> [extension plan](./plans/pi-sandbox-runtime-extension.md) for the staged rollout.
+> ["Pi extension configuration"](./REFERENCE.md#pi-extension-configuration) subsection of `REFERENCE.md`. The
+> `PI_PROTECTED_PATHS_*` knobs are consumed by the unified `filesystem` extension (renamed from `protected-paths` in
+> Phase 3 of the [sandbox-runtime extension plan](./plans/pi-sandbox-runtime-extension.md)); the env-var names are
+> preserved across the rename so existing shell rcs keep working.
 
 ## Custom hook points
 
