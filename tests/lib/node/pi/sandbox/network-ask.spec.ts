@@ -241,6 +241,38 @@ describe('buildNetworkAskCallback', () => {
     expect(parentUi.selectCalls[0].title).toContain('subagent.example.com:8080');
   });
 
+  test('saveProjectAllow throwing surfaces an error notify and returns false', async () => {
+    const ui = scriptedUi({
+      onSelect: (options) => options.find((o) => o.startsWith('Always allow github.com (project)')),
+    });
+    publishActiveUI(ui);
+    const deps = makeDeps({
+      saveProjectAllow: vi.fn(() => {
+        throw new Error('Failed to parse /home/u/.pi/sandbox.json: Unexpected token } at line 4');
+      }),
+    });
+    const cb = buildNetworkAskCallback(deps);
+    expect(await cb({ host: 'github.com', port: 443 })).toBe(false);
+    expect(deps.triggerReconfigure).not.toHaveBeenCalled();
+    expect(ui.notifyCalls.some((n) => n.level === 'error' && n.msg.includes('Failed to parse'))).toBe(true);
+  });
+
+  test('saveUserAllowParent throwing surfaces an error notify and returns false', async () => {
+    const ui = scriptedUi({
+      onSelect: (options) => options.find((o) => o.startsWith('Always allow *.github.com (user)')),
+    });
+    publishActiveUI(ui);
+    const deps = makeDeps({
+      saveUserAllowParent: vi.fn(() => {
+        throw new Error('Failed to parse /home/u/.pi/sandbox.json: malformed');
+      }),
+    });
+    const cb = buildNetworkAskCallback(deps);
+    expect(await cb({ host: 'api.github.com', port: 443 })).toBe(false);
+    expect(deps.triggerReconfigure).not.toHaveBeenCalled();
+    expect(ui.notifyCalls.some((n) => n.level === 'error' && n.msg.includes('Failed to parse'))).toBe(true);
+  });
+
   test('hasUI: false on the published bridge falls through to env default', async () => {
     const noUi: UIBridge = {
       hasUI: false,

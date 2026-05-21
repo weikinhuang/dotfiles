@@ -16,6 +16,8 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { platform as osPlatform, release as osRelease } from 'node:os';
 
+import { shQuote } from '../util.ts';
+
 export type SandboxPlatformKind = 'darwin' | 'linux' | 'unsupported';
 
 export interface SandboxPlatformInfo {
@@ -67,15 +69,11 @@ export interface PlatformProbe {
 // Default probe (real-host implementation)
 // ──────────────────────────────────────────────────────────────────────
 
-function shellEscape(s: string): string {
-  return `'${s.replace(/'/g, "'\\''")}'`;
-}
-
 function defaultCommandExists(cmd: string): boolean {
   try {
     // Use the platform's `command -v` shim. We DELIBERATELY don't shell
     // out via `bash -lc` here because some hosts have very slow rc files.
-    execFileSync('/usr/bin/env', ['sh', '-c', `command -v ${shellEscape(cmd)}`], {
+    execFileSync('/usr/bin/env', ['sh', '-c', `command -v ${shQuote(cmd)}`], {
       stdio: ['ignore', 'ignore', 'ignore'],
     });
     return true;

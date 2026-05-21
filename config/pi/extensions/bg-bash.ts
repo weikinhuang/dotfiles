@@ -1036,6 +1036,12 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
     // process-group SIGTERM in `sendSignalTo` already covers wrapped
     // children - no extra AbortSignal plumbing through wrapWithSandbox.
     const wrap = await requestSandboxWrap(command, { cwd: ctx.cwd, hasUI: ctx.hasUI });
+    if (wrap.action === 'block') {
+      // PI_SANDBOX_DEFAULT=block: sandbox init/wrap failed. Refuse to
+      // launch the background job rather than silently downgrade to an
+      // unwrapped spawn (which would defeat the user's chosen policy).
+      return errorReturn('start', wrap.reason ?? 'Blocked by sandbox');
+    }
 
     const cwd = resolveCwd(ctx.cwd, params.cwd);
     const summary = startJob({

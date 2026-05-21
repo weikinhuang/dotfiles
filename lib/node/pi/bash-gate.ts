@@ -46,21 +46,13 @@ export type BashGateDecision = { allowed: true } | { allowed: false; reason: str
 
 export type BashGateFn = (command: string, ctx: BashGateContext) => Promise<BashGateDecision>;
 
+import { createGlobalSlot } from './global-slot.ts';
+
 interface BashGateSlot {
   gate?: BashGateFn;
 }
 
-const SLOT_KEY = Symbol.for('@dotfiles/pi/bash-gate');
-
-function getSlot(): BashGateSlot {
-  const g = globalThis as { [SLOT_KEY]?: BashGateSlot };
-  let slot = g[SLOT_KEY];
-  if (!slot) {
-    slot = {};
-    g[SLOT_KEY] = slot;
-  }
-  return slot;
-}
+const getSlot = createGlobalSlot<BashGateSlot>('@dotfiles/pi/bash-gate', () => ({}));
 
 /**
  * Install (or replace) the active gate function. Safe to call on every

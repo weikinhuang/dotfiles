@@ -92,7 +92,7 @@
  * `vitest` without pulling in the pi runtime.
  */
 
-import { mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 
@@ -115,6 +115,7 @@ import {
   twoTokenPattern,
 } from '../../../lib/node/pi/bash-match.ts';
 import { clearConfigWarning, parseJsonc, warnBadConfigFileOnce } from '../../../lib/node/pi/jsonc.ts';
+import { pickScopeFile } from '../../../lib/node/pi/scope-pick.ts';
 import { getActivePersona } from '../../../lib/node/pi/persona/active.ts';
 import { personaVouchBash } from '../../../lib/node/pi/persona/bash-vouch.ts';
 import { setBashAutoEnabled } from '../../../lib/node/pi/session-flags.ts';
@@ -189,21 +190,8 @@ function compactForDialog(s: string, maxLen = 160): string {
   return truncate(s.replace(/\s+/g, ' ').trim(), maxLen);
 }
 
-/** Pick project scope when a `.pi/` dir exists in cwd, else user scope. */
 function pickScopePath(cwd: string): string {
-  // Prefer project scope if the rules file or the `.pi/` dir already exists.
-  const projectPath = projectRulesPath(cwd);
-  try {
-    if (statSync(projectPath).isFile()) return projectPath;
-  } catch {
-    // fall through
-  }
-  try {
-    if (statSync(join(cwd, '.pi')).isDirectory()) return projectPath;
-  } catch {
-    // fall through
-  }
-  return USER_RULES_PATH;
+  return pickScopeFile({ cwd, projectFile: projectRulesPath(cwd), userFile: USER_RULES_PATH });
 }
 
 type Decision =

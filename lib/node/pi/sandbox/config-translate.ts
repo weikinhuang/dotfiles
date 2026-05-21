@@ -143,8 +143,12 @@ export function translateToASRT(options: TranslateToASRTOptions): TranslateToASR
   let denyWrite: string[];
 
   if (mode === 'linux') {
-    denyRead = linuxRuleStrings(options.compiled!, 'read');
-    denyWrite = linuxRuleStrings(options.compiled!, 'write');
+    // Narrow `compiled` once; the early-throw above guarantees presence
+    // here. Single `!` keeps oxlint's non-nullable-type-assertion-style
+    // happy without spraying bangs across the rest of this branch.
+    const compiled = options.compiled!;
+    denyRead = linuxRuleStrings(compiled, 'read');
+    denyWrite = linuxRuleStrings(compiled, 'write');
     // No `allowRead` compile pass on Linux - the in-process gate still
     // honors `read.allow.*`, but bwrap's deny path is a flat list. We
     // surface the divergence as a lossy note when a non-empty allow
@@ -156,24 +160,33 @@ export function translateToASRT(options: TranslateToASRTOptions): TranslateToASR
     ) {
       lossyNotes.push('Linux: read.allow.* is not translated to bwrap; the in-process gate still honors it.');
     }
-    if (options.compiled!.read.inertBasenames.length > 0) {
+    if (compiled.read.inertBasenames.length > 0) {
       lossyNotes.push(
-        `Linux: read.deny.basenames found no on-disk matches at depth ${options.compiled!.read.inertBasenames.length}: ${options.compiled!.read.inertBasenames.join(', ')}`,
+        `Linux: read.deny.basenames found no on-disk matches: ${compiled.read.inertBasenames.join(', ')}`,
       );
     }
-    if (options.compiled!.read.inertSegments.length > 0) {
+    if (compiled.read.inertSegments.length > 0) {
+      lossyNotes.push(`Linux: read.deny.segments found no on-disk matches: ${compiled.read.inertSegments.join(', ')}`);
+    }
+    if (compiled.write.inertBasenames.length > 0) {
       lossyNotes.push(
-        `Linux: read.deny.segments found no on-disk matches: ${options.compiled!.read.inertSegments.join(', ')}`,
+        `Linux: write.deny.basenames found no on-disk matches: ${compiled.write.inertBasenames.join(', ')}`,
       );
     }
-    if (options.compiled!.write.inertBasenames.length > 0) {
+    if (compiled.write.inertSegments.length > 0) {
       lossyNotes.push(
-        `Linux: write.deny.basenames found no on-disk matches: ${options.compiled!.write.inertBasenames.join(', ')}`,
+        `Linux: write.deny.segments found no on-disk matches: ${compiled.write.inertSegments.join(', ')}`,
       );
     }
-    if (options.compiled!.write.inertSegments.length > 0) {
+    // Explicit `paths` rules that don't currently exist on disk. Bwrap
+    // CAN enforce them when the parent dir is writable (see plan §9.22),
+    // but `/sandbox` should still surface them so users notice typos.
+    if (compiled.read.inertPaths.length > 0) {
+      lossyNotes.push(`Linux: read.deny.paths entries do not currently exist: ${compiled.read.inertPaths.join(', ')}`);
+    }
+    if (compiled.write.inertPaths.length > 0) {
       lossyNotes.push(
-        `Linux: write.deny.segments found no on-disk matches: ${options.compiled!.write.inertSegments.join(', ')}`,
+        `Linux: write.deny.paths entries do not currently exist: ${compiled.write.inertPaths.join(', ')}`,
       );
     }
   } else {
@@ -182,13 +195,21 @@ export function translateToASRT(options: TranslateToASRTOptions): TranslateToASR
     const allow = macosRuleStrings(policy.read.allow, cwd, home);
     allowRead = allow.length > 0 ? allow : undefined;
 
-    // Per plan section 9.20: nonexistent denyWrite paths silently
-    // become inert on macOS. Surface them so `/sandbox` can flag.
+    // Per plan section 9.22: nonexistent denyWrite/denyRead paths
+    // silently become inert on macOS (sandbox-exec resolves to realpath
+    // at profile-build time and drops missing rules). Surface them so
+    // `/sandbox` can flag.
     for (const raw of policy.write.deny.paths) {
-      const resolved = resolveRulePath(raw, cwd, home);
-      if (!fileExists(resolved)) {
+      if (!fileExists(resolveRulePath(raw, cwd, home))) {
         lossyNotes.push(
           `macOS: write.deny.paths entry ${raw} does not currently exist; sandbox-exec will silently drop the rule.`,
+        );
+      }
+    }
+    for (const raw of policy.read.deny.paths) {
+      if (!fileExists(resolveRulePath(raw, cwd, home))) {
+        lossyNotes.push(
+          `macOS: read.deny.paths entry ${raw} does not currently exist; sandbox-exec will silently drop the rule.`,
         );
       }
     }

@@ -83,7 +83,7 @@
  * shared).
  */
 
-import { mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 
@@ -94,14 +94,14 @@ import { buildNetworkAskCallback } from '../../../lib/node/pi/sandbox/network-as
 import { annotateBashResult } from '../../../lib/node/pi/sandbox/result-annotate.ts';
 import { type FilesystemPolicyLayer, loadFilesystemPolicy } from '../../../lib/node/pi/filesystem-policy/load.ts';
 import { type FilesystemPolicyWarning } from '../../../lib/node/pi/filesystem-policy/schema.ts';
-import { parseJsonc } from '../../../lib/node/pi/jsonc.ts';
+import { parseJsonc, warnBadConfigFileOnce } from '../../../lib/node/pi/jsonc.ts';
+import { pickScopeFile } from '../../../lib/node/pi/scope-pick.ts';
 import { getActivePersona } from '../../../lib/node/pi/persona/active.ts';
 import {
   activeReconfigure,
   beginActiveReconfigure,
   clearActiveSandbox,
   publishActiveSandbox,
-  type SandboxPlatformKind,
 } from '../../../lib/node/pi/sandbox/active.ts';
 import { loadSandboxConfig } from '../../../lib/node/pi/sandbox/config-load.ts';
 import { translateToASRT } from '../../../lib/node/pi/sandbox/config-translate.ts';
@@ -163,6 +163,20 @@ function readUtf8(path: string): string {
 // importers (sandbox.spec.ts) and future tooling don't need to know
 // about the lib split.
 export { alreadyWrapped, buildIdentityWrap, SANDBOX_ORIGINAL_SYMBOL, stripMarkerFromUserInput };
+
+/** True when this event's `input` already carries our original-command
+ *  stash, meaning a previous sandbox hook pass wrapped it. Symbol-keyed
+ *  so a model cannot fabricate it. */
+function hasOriginalStash(input: unknown): boolean {
+  return (input as Record<symbol, unknown> | undefined)?.[SANDBOX_ORIGINAL_SYMBOL] !== undefined;
+}
+
+function stashOriginalCommand(input: unknown, original: string): void {
+  Object.defineProperty(input as object, SANDBOX_ORIGINAL_SYMBOL, {
+    value: original,
+    enumerable: false,
+  });
+}
 
 /** Re-entry guard marker prepended to wrapped commands. The bash hook
  *  refuses to wrap a command that already starts with this prefix
@@ -331,12 +345,6 @@ function resolveAll(cwd: string, platform: SandboxPlatformInfo): ResolvedAll {
   };
 }
 
-/** Promote `kind: 'unsupported'` to a `SandboxPlatformKind` value
- *  the active singleton accepts (it's the same enum). */
-function toActivePlatform(kind: SandboxPlatformInfo['kind']): SandboxPlatformKind {
-  return kind;
-}
-
 // ─────────────────────────────────────────────────────────────────
 // Runtime state
 // ─────────────────────────────────────────────────────────────────
@@ -426,41 +434,47 @@ function surfaceFsWarnings(
 // the six-option network ask-callback dialog (see buildAskCallback).
 // ─────────────────────────────────────────────────────────────────
 
-/** Pick project scope when a `.pi/` dir exists in cwd, else user. */
 function pickScopeSandbox(cwd: string): string {
-  try {
-    if (statSync(projectSandboxPath(cwd)).isFile()) return projectSandboxPath(cwd);
-  } catch {
-    // fall through
-  }
-  try {
-    if (statSync(join(cwd, '.pi')).isDirectory()) return projectSandboxPath(cwd);
-  } catch {
-    // fall through
-  }
-  return USER_SANDBOX_PATH;
+  return pickScopeFile({ cwd, projectFile: projectSandboxPath(cwd), userFile: USER_SANDBOX_PATH });
 }
 function pickScopeFs(cwd: string): string {
-  try {
-    if (statSync(projectFsPath(cwd)).isFile()) return projectFsPath(cwd);
-  } catch {
-    // fall through
-  }
-  try {
-    if (statSync(join(cwd, '.pi')).isDirectory()) return projectFsPath(cwd);
-  } catch {
-    // fall through
-  }
-  return USER_FS_PATH;
+  return pickScopeFile({ cwd, projectFile: projectFsPath(cwd), userFile: USER_FS_PATH });
 }
 
-function readJsoncFile<T>(path: string, fallback: () => T): T {
+/** Thrown by {@link readJsoncFileForWrite} when an existing file fails
+ *  to parse. The slash-command handlers catch it and abort the write
+ *  with a clear notify, so a user with a malformed `~/.pi/sandbox.json`
+ *  doesn't lose their hand-edited rules + comments to a clobbering
+ *  `/sandbox-allow` save. */
+class JsoncReadError extends Error {
+  readonly path: string;
+  constructor(path: string, cause: unknown) {
+    super(`Failed to parse ${path}: ${cause instanceof Error ? cause.message : String(cause)}`);
+    this.name = 'JsoncReadError';
+    this.path = path;
+  }
+}
+
+/**
+ * Read+parse a JSONC config file for read-then-write modification.
+ * Missing or empty files fall back to {@link fallback} (a fresh write
+ * is fine). A file that EXISTS but fails to parse throws
+ * {@link JsoncReadError} so the caller can abort rather than silently
+ * overwrite the user's broken-but-recoverable file.
+ */
+function readJsoncFileForWrite<T>(path: string, fallback: () => T): T {
+  let raw: string;
   try {
-    const raw = readFileSync(path, 'utf8');
-    if (!raw.trim()) return fallback();
-    return parseJsonc<T>(raw);
+    raw = readFileSync(path, 'utf8');
   } catch {
     return fallback();
+  }
+  if (!raw.trim()) return fallback();
+  try {
+    return parseJsonc<T>(raw);
+  } catch (e) {
+    warnBadConfigFileOnce('sandbox', path, e);
+    throw new JsoncReadError(path, e);
   }
 }
 
@@ -476,12 +490,31 @@ interface SandboxJsonShape {
 }
 
 function addNetworkRule(path: string, kind: 'allow' | 'deny', domain: string): void {
-  const cur = readJsoncFile<SandboxJsonShape>(path, () => ({}));
+  const cur = readJsoncFileForWrite<SandboxJsonShape>(path, () => ({}));
   cur.network ??= {};
   const bucket = (cur.network[kind] ??= []);
   if (!bucket.includes(domain)) bucket.push(domain);
   bucket.sort();
   writeJsonFile(path, cur);
+}
+
+/** Run a write-side config mutation; surface a `JsoncReadError` as a
+ *  user-facing notify and return false (handler aborts without writing).
+ *  Other errors propagate. */
+function withSafeConfigWrite(ctx: ExtensionContext, action: () => void): boolean {
+  try {
+    action();
+    return true;
+  } catch (e) {
+    if (e instanceof JsoncReadError) {
+      ctx.ui.notify(
+        `sandbox: refusing to overwrite a malformed file.\n  ${e.message}\n  Fix the file by hand, then retry.`,
+        'error',
+      );
+      return false;
+    }
+    throw e;
+  }
 }
 
 interface FilesystemJsonShape {
@@ -493,7 +526,7 @@ interface FilesystemJsonShape {
 }
 
 function addWriteAllowPath(path: string, p: string): void {
-  const cur = readJsoncFile<FilesystemJsonShape>(path, () => ({}));
+  const cur = readJsoncFileForWrite<FilesystemJsonShape>(path, () => ({}));
   cur.write ??= {};
   cur.write.allow ??= {};
   cur.write.allow.paths ??= [];
@@ -555,7 +588,7 @@ async function reconfigure(state: RuntimeState, cwd: string, ctx?: ExtensionCont
     const publish = publishActiveSandbox({
       filesystem: resolved.fsPolicy,
       sandbox: resolved.sandboxResult.config,
-      platform: toActivePlatform(state.platform.kind),
+      platform: state.platform.kind,
     });
 
     if (state.manager && state.initialized && publish.changed) {
@@ -630,12 +663,13 @@ function planFor(state: RuntimeState): WrapPlan {
 
 /**
  * Wrap a command for the live SandboxManager when one is available;
- * otherwise return an identity-marker form so the re-entry guard
- * still recognizes the command as "already wrapped".
+ * otherwise return a structured result describing what the caller
+ * should do (identity-wrap, warn-then-run, or block).
  *
- * The wrapper-slot consumers (bg-bash in Phase 4) call this through
- * `requestSandboxWrap` instead of duplicating the logic, so the
- * sandbox + bg-bash paths produce identical wrap shapes.
+ * This is the single source of truth for the wrap pipeline. The bash
+ * tool_call hook AND the wrapper-slot consumers (bg-bash, the subagent
+ * hook-only factory) all flow through here, so PI_SANDBOX_DEFAULT=block
+ * blocks every channel consistently.
  */
 async function performWrap(
   command: string,
@@ -645,20 +679,23 @@ async function performWrap(
   state.wrapsAttempted++;
   const plan = planFor(state);
   if (plan.kind === 'identity') {
-    return { command, wrapped: false };
+    return { command, wrapped: false, action: 'identity', reason: plan.reason };
   }
   if (envTruthy(process.env.PI_SANDBOX_DRY_RUN)) {
-    return { command, wrapped: false };
+    return { command, wrapped: false, action: 'identity', reason: 'PI_SANDBOX_DRY_RUN=1' };
   }
   if (!state.initialized || !state.manager) {
-    // Init lazily; we don't have an ExtensionContext here so swallow
-    // notify-only branches to the wrapper-slot fallback.
     const fallback = envFallback();
-    if (fallback === 'allow' || fallback === 'warn') return { command, wrapped: false };
-    // 'block': returning the original command here would bypass the
-    // intent of `block`; the bash hook turns this into a `block: true`
-    // result above.
-    return { command, wrapped: false };
+    const reason = `sandbox not initialized (${state.lastWrapError ?? 'pending'})`;
+    if (fallback === 'block') {
+      return {
+        command,
+        wrapped: false,
+        action: 'block',
+        reason: `${reason}; refusing to run unwrapped under PI_SANDBOX_DEFAULT=block`,
+      };
+    }
+    return { command, wrapped: false, action: fallback === 'warn' ? 'warn' : 'identity', reason };
   }
   try {
     await activeReconfigure();
@@ -668,12 +705,16 @@ async function performWrap(
     state.wrapsErrored++;
     state.lastWrapError = e instanceof Error ? e.message : String(e);
     const fallback = envFallback();
+    const reason = `wrap failed: ${state.lastWrapError}`;
     if (fallback === 'block') {
-      // Surface the failure as an identity-wrap; the bash hook turns
-      // this into a block result via the `wrapped: false` flag.
-      return { command, wrapped: false };
+      return {
+        command,
+        wrapped: false,
+        action: 'block',
+        reason: `${reason}; refusing to run unwrapped under PI_SANDBOX_DEFAULT=block`,
+      };
     }
-    return { command, wrapped: false };
+    return { command, wrapped: false, action: fallback === 'warn' ? 'warn' : 'identity', reason };
   }
 }
 
@@ -696,20 +737,28 @@ export function sandboxFactoryHookOnly(pi: ExtensionAPI): void {
     const rawCmd = (event.input as { command?: unknown } | undefined)?.command;
     const original = typeof rawCmd === 'string' ? rawCmd : '';
     if (!original.trim()) return undefined;
-    if (alreadyWrapped(original)) return undefined;
+    // Re-entry guard: only true if WE wrapped this event in an earlier
+    // hook pass. Detecting via the original-stash symbol (which only
+    // this extension can write) prevents a model that prepends
+    // `__PI_SANDBOX_WRAPPED=` to its bash command from short-circuiting
+    // the wrap, which `alreadyWrapped(original)` cannot.
+    if (hasOriginalStash(event.input)) return undefined;
 
+    // Sanitize any pre-existing marker so a model that learns the
+    // marker can't smuggle past downstream re-entry checks either.
     const safe = stripMarkerFromUserInput(original);
     // Children share the parent's wrapper-slot. If empty, identity-
     // wrap (no-op) - matches the parent's degraded-fallback behavior.
     const slot = await import('../../../lib/node/pi/sandbox/wrapper-slot.ts');
     const result = await slot.requestSandboxWrap(safe, { hasUI: ctx.hasUI, cwd: ctx.cwd });
-    if (!result.wrapped) return undefined;
-
-    Object.defineProperty(event.input as object, SANDBOX_ORIGINAL_SYMBOL, {
-      value: original,
-      enumerable: false,
-    });
-    (event.input as { command: string }).command = result.command;
+    if (result.wrapped) {
+      stashOriginalCommand(event.input, original);
+      (event.input as { command: string }).command = result.command;
+      return undefined;
+    }
+    if (result.action === 'block') {
+      return { block: true, reason: result.reason ?? 'sandbox refused to wrap the command' };
+    }
     return undefined;
   });
 }
@@ -752,7 +801,8 @@ export default function sandbox(pi: ExtensionAPI): void {
 
   // Process-level cleanup hooks (plan section 9.8): if pi crashes
   // hard or the user SIGINTs, ASRT's proxy ports + sockets need to be
-  // released. session_shutdown also fires for clean exits.
+  // released. session_shutdown also fires for clean exits. We deregister
+  // these on `cleanup()` so `/reload` doesn't accumulate listeners.
   const cleanup = (): void => {
     if (state.manager && state.initialized) {
       // Fire-and-forget; we're shutting down.
@@ -764,6 +814,9 @@ export default function sandbox(pi: ExtensionAPI): void {
     clearActiveUI();
     uninstallSandboxWrapper();
     setSandboxState({ mode: 'off' });
+    process.off('exit', cleanup);
+    process.off('SIGTERM', cleanup);
+    process.off('SIGINT', cleanup);
   };
   process.on('exit', cleanup);
   process.on('SIGTERM', cleanup);
@@ -817,33 +870,25 @@ export default function sandbox(pi: ExtensionAPI): void {
     const rawCmd = (event.input as { command?: unknown } | undefined)?.command;
     const original = typeof rawCmd === 'string' ? rawCmd : '';
     if (!original.trim()) return undefined;
-    if (alreadyWrapped(original)) return undefined;
+    // Re-entry guard: see hasOriginalStash docstring. Using the symbol
+    // stash (which only we can set) instead of alreadyWrapped(original)
+    // closes the fail-open on model-supplied marker prefixes.
+    if (hasOriginalStash(event.input)) return undefined;
 
-    // Make sure the SandboxManager + active config are current.
+    // Make sure the SandboxManager + active config are current. Lazy-init
+    // ASRT here; failure modes (unsupported platform, missing deps, init
+    // throw, ...) are folded into performWrap's structured result below
+    // so PI_SANDBOX_DEFAULT=block blocks every channel consistently.
     await reconfigure(state, ctx.cwd, ctx);
+    await ensureManager(state, ctx.cwd, ctx);
 
-    const plan = planFor(state);
-    if (plan.kind === 'identity') {
-      return undefined;
-    }
+    const safe = stripMarkerFromUserInput(original);
 
-    const ok = await ensureManager(state, ctx.cwd, ctx);
-    if (!ok) {
-      const fallback = envFallback();
-      if (fallback === 'block') {
-        return {
-          block: true,
-          reason: `sandbox initialization failed (${state.lastWrapError ?? 'unknown'}); refusing to run unwrapped under PI_SANDBOX_DEFAULT=block`,
-        };
-      }
-      return undefined;
-    }
-
-    if (envTruthy(process.env.PI_SANDBOX_DRY_RUN)) {
+    if (envTruthy(process.env.PI_SANDBOX_DRY_RUN) && state.manager && state.initialized) {
       // Log to stderr so the user can confirm the wrap shape without
-      // running it.
+      // running it. Only meaningful when init actually succeeded.
       try {
-        const wrapped = await state.manager!.wrapWithSandbox(stripMarkerFromUserInput(original));
+        const wrapped = await state.manager.wrapWithSandbox(safe);
         ctx.ui.notify(`sandbox dry-run wrap:\n  ${wrapped}`, 'info');
       } catch {
         // ignore
@@ -851,32 +896,19 @@ export default function sandbox(pi: ExtensionAPI): void {
       return undefined;
     }
 
-    const safe = stripMarkerFromUserInput(original);
-    state.wrapsAttempted++;
-    try {
-      await activeReconfigure();
-      const wrapped = await state.manager!.wrapWithSandbox(safe);
-      Object.defineProperty(event.input as object, SANDBOX_ORIGINAL_SYMBOL, {
-        value: original,
-        enumerable: false,
-      });
-      (event.input as { command: string }).command = wrapped;
-      return undefined;
-    } catch (e) {
-      state.wrapsErrored++;
-      state.lastWrapError = e instanceof Error ? e.message : String(e);
-      const fallback = envFallback();
-      if (fallback === 'block') {
-        return {
-          block: true,
-          reason: `sandbox wrap failed (${state.lastWrapError}); refusing to run unwrapped under PI_SANDBOX_DEFAULT=block`,
-        };
-      }
-      if (fallback === 'warn') {
-        ctx.ui.notify(`sandbox: wrap failed, running unwrapped: ${state.lastWrapError}`, 'warning');
-      }
+    const result = await performWrap(safe, state, { hasUI: ctx.hasUI, cwd: ctx.cwd });
+    if (result.wrapped) {
+      stashOriginalCommand(event.input, original);
+      (event.input as { command: string }).command = result.command;
       return undefined;
     }
+    if (result.action === 'block') {
+      return { block: true, reason: result.reason ?? 'sandbox refused to wrap the command' };
+    }
+    if (result.action === 'warn' && result.reason) {
+      ctx.ui.notify(`sandbox: ${result.reason}`, 'warning');
+    }
+    return undefined;
   });
 
   // ─────────────────────────────────────────────────────────────────
@@ -1040,7 +1072,7 @@ export default function sandbox(pi: ExtensionAPI): void {
         return;
       }
       const path = pickScopeSandbox(ctx.cwd);
-      addNetworkRule(path, 'allow', domain);
+      if (!withSafeConfigWrite(ctx, () => addNetworkRule(path, 'allow', domain))) return;
       ctx.ui.notify(`Added network.allow "${domain}" \u2192 ${path}`, 'info');
       await reconfigure(state, ctx.cwd, ctx);
     },
@@ -1055,7 +1087,7 @@ export default function sandbox(pi: ExtensionAPI): void {
         return;
       }
       const path = pickScopeSandbox(ctx.cwd);
-      addNetworkRule(path, 'deny', domain);
+      if (!withSafeConfigWrite(ctx, () => addNetworkRule(path, 'deny', domain))) return;
       ctx.ui.notify(`Added network.deny "${domain}" \u2192 ${path}`, 'info');
       await reconfigure(state, ctx.cwd, ctx);
     },
@@ -1069,6 +1101,7 @@ export default function sandbox(pi: ExtensionAPI): void {
         ctx.ui.notify('Usage: /sandbox-allow-write <path>', 'warning');
         return;
       }
+      let targetPath: string;
       if (ctx.hasUI) {
         const choice = await ctx.ui.select(
           `\u26a0\ufe0f  This widens the write-allowlist:\n\n  ${p}\n\nWrites under this path will no longer prompt and the kernel sandbox will permit them. Confirm?`,
@@ -1078,14 +1111,12 @@ export default function sandbox(pi: ExtensionAPI): void {
           ctx.ui.notify('sandbox: not modified', 'info');
           return;
         }
-        const path = choice === 'Add (user scope)' ? USER_FS_PATH : pickScopeFs(ctx.cwd);
-        addWriteAllowPath(path, p);
-        ctx.ui.notify(`Added write.allow.paths "${p}" \u2192 ${path}`, 'info');
+        targetPath = choice === 'Add (user scope)' ? USER_FS_PATH : pickScopeFs(ctx.cwd);
       } else {
-        const path = pickScopeFs(ctx.cwd);
-        addWriteAllowPath(path, p);
-        ctx.ui.notify(`Added write.allow.paths "${p}" \u2192 ${path}`, 'info');
+        targetPath = pickScopeFs(ctx.cwd);
       }
+      if (!withSafeConfigWrite(ctx, () => addWriteAllowPath(targetPath, p))) return;
+      ctx.ui.notify(`Added write.allow.paths "${p}" \u2192 ${targetPath}`, 'info');
       await reconfigure(state, ctx.cwd, ctx);
     },
   });

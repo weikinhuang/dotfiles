@@ -22,6 +22,8 @@
  * directly. Tests use a lightweight stand-in.
  */
 
+import { createGlobalSlot } from './global-slot.ts';
+
 /** Opaque factory marker. Subagent-spawn (Phase 2) narrows this to
  *  `ExtensionFactory` when it imports the registry. */
 export type SubagentExtensionFactory = (...args: unknown[]) => unknown;
@@ -36,17 +38,9 @@ interface SubagentInjectionSlot {
   entries: RegisteredSubagentInjection[];
 }
 
-const SLOT_KEY = Symbol.for('@dotfiles/pi/subagent-extension-injection');
-
-function getSlot(): SubagentInjectionSlot {
-  const g = globalThis as { [SLOT_KEY]?: SubagentInjectionSlot };
-  let slot = g[SLOT_KEY];
-  if (!slot) {
-    slot = { entries: [] };
-    g[SLOT_KEY] = slot;
-  }
-  return slot;
-}
+const getSlot = createGlobalSlot<SubagentInjectionSlot>('@dotfiles/pi/subagent-extension-injection', () => ({
+  entries: [],
+}));
 
 /**
  * Register a hook-only factory by id. Re-registering the same id

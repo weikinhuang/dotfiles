@@ -19,7 +19,7 @@
  * are visible in others.
  */
 
-const STATE_KEY = Symbol.for('@dotfiles/pi/session-flags');
+import { createGlobalSlot } from './global-slot.ts';
 
 /**
  * Visible sandbox modes. `wrapped` is the happy path (kernel sandbox
@@ -43,17 +43,13 @@ interface SessionFlagsState {
   sandbox: SandboxState;
 }
 
-interface GlobalWithState {
-  [STATE_KEY]?: SessionFlagsState;
-}
+const getSlot = createGlobalSlot<SessionFlagsState>('@dotfiles/pi/session-flags', () => ({
+  bashAutoEnabled: false,
+  sandbox: { mode: 'off' },
+}));
 
 function getState(): SessionFlagsState {
-  const g = globalThis as GlobalWithState;
-  let state = g[STATE_KEY];
-  if (!state) {
-    state = { bashAutoEnabled: false, sandbox: { mode: 'off' } };
-    g[STATE_KEY] = state;
-  }
+  const state = getSlot();
   // Defensive: an older copy of this module (from a stale jiti cache
   // on `/reload`) may have populated the slot before `sandbox` existed.
   state.sandbox ??= { mode: 'off' };

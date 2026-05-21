@@ -5,6 +5,7 @@
  * basename-search oracle without spawning a real rg.
  */
 
+import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -124,14 +125,52 @@ describe('compileLinuxRules', () => {
     expect(args[idx + 1]).toBe('10');
   });
 
-  test('forwards --hidden and --no-ignore-vcs so .gitignore-pruned dirs still get scanned', () => {
+  test('forwards --hidden / --no-ignore / --no-config so user rg config + .gitignore cannot hide deny paths', () => {
     const { runner, calls } = stubRg({ '.env': [] });
     compileLinuxRules(rules({ basenames: ['.env'] }), {
       cwd,
       runRipgrep: runner,
     });
     expect(calls[0]).toContain('--hidden');
-    expect(calls[0]).toContain('--no-ignore-vcs');
+    expect(calls[0]).toContain('--no-ignore');
+    expect(calls[0]).toContain('--no-config');
+  });
+});
+
+function hasRealRg(): boolean {
+  try {
+    execFileSync('rg', ['--version'], { stdio: ['ignore', 'ignore', 'ignore'] });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+describe.skipIf(!hasRealRg())('compileLinuxRules — real ripgrep integration', () => {
+  // Guards against regression of the `--null-data` (input flag) vs
+  // `--null` / `-0` (output separator) confusion: the stub runner above
+  // accepts whatever args we pass, so a wrong flag wouldn't surface there.
+  test('basename hits parse correctly when spawning a real rg', () => {
+    mkdirSync(join(cwd, 'src'), { recursive: true });
+    writeFileSync(join(cwd, 'src', '.env'), 'X=1');
+    writeFileSync(join(cwd, 'src', 'other.txt'), 'unrelated');
+    const r = compileLinuxRules(rules({ basenames: ['.env'] }), { cwd });
+    expect(r.paths).toEqual([join(cwd, 'src/.env')]);
+    expect(r.inertBasenames).toEqual([]);
+  });
+
+  test('segment hits parse correctly when spawning a real rg', () => {
+    mkdirSync(join(cwd, 'node_modules', 'foo'), { recursive: true });
+    writeFileSync(join(cwd, 'node_modules', 'foo', 'index.js'), '//');
+    const r = compileLinuxRules(rules({ segments: ['node_modules'] }), { cwd });
+    expect(r.paths).toEqual([join(cwd, 'node_modules/foo/index.js')]);
+    expect(r.inertSegments).toEqual([]);
+  });
+
+  test('no on-disk match is reported as inert', () => {
+    const r = compileLinuxRules(rules({ basenames: ['.absent'] }), { cwd });
+    expect(r.paths).toEqual([]);
+    expect(r.inertBasenames).toEqual(['.absent']);
   });
 });
 

@@ -15,6 +15,7 @@
  */
 
 import { parseJsonc } from '../jsonc.ts';
+import { isPlainObject } from '../util.ts';
 
 import {
   type FilesystemPolicy,
@@ -55,10 +56,6 @@ export interface LoadFilesystemPolicyResult {
 // Validation
 // ──────────────────────────────────────────────────────────────────────
 
-function isObject(v: unknown): v is Record<string, unknown> {
-  return v !== null && typeof v === 'object' && !Array.isArray(v);
-}
-
 function validateRules(
   source: string,
   scope: string,
@@ -66,7 +63,7 @@ function validateRules(
   warnings: FilesystemPolicyWarning[],
 ): PartialRules | undefined {
   if (raw === undefined) return undefined;
-  if (!isObject(raw)) {
+  if (!isPlainObject(raw)) {
     warnings.push({ source, reason: `\`${scope}\` must be an object (dropped)` });
     return undefined;
   }
@@ -120,7 +117,7 @@ function validateLayer(layer: FilesystemPolicyLayer): {
     return { partial, warnings };
   }
 
-  if (!isObject(parsed)) {
+  if (!isPlainObject(parsed)) {
     warnings.push({
       source: layer.source,
       reason: 'expected a JSON object at top level',
@@ -129,7 +126,7 @@ function validateLayer(layer: FilesystemPolicyLayer): {
   }
 
   if (parsed.read !== undefined) {
-    if (!isObject(parsed.read)) {
+    if (!isPlainObject(parsed.read)) {
       warnings.push({ source: layer.source, reason: '`read` must be an object' });
     } else {
       partial.read = {
@@ -140,7 +137,7 @@ function validateLayer(layer: FilesystemPolicyLayer): {
   }
 
   if (parsed.write !== undefined) {
-    if (!isObject(parsed.write)) {
+    if (!isPlainObject(parsed.write)) {
       warnings.push({ source: layer.source, reason: '`write` must be an object' });
     } else {
       partial.write = {

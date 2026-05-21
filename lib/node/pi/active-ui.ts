@@ -16,6 +16,8 @@
  * doesn't have to import from `@earendil-works/*`.
  */
 
+import { createGlobalSlot } from './global-slot.ts';
+
 export interface UIBridge {
   hasUI: boolean;
   select(title: string, options: string[]): Promise<string | undefined>;
@@ -27,17 +29,7 @@ interface ActiveUISlot {
   ui?: UIBridge;
 }
 
-const SLOT_KEY = Symbol.for('@dotfiles/pi/active-ui');
-
-function getSlot(): ActiveUISlot {
-  const g = globalThis as { [SLOT_KEY]?: ActiveUISlot };
-  let slot = g[SLOT_KEY];
-  if (!slot) {
-    slot = {};
-    g[SLOT_KEY] = slot;
-  }
-  return slot;
-}
+const getSlot = createGlobalSlot<ActiveUISlot>('@dotfiles/pi/active-ui', () => ({}));
 
 /**
  * Publish the parent session's UI bridge. Safe to call repeatedly -

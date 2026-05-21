@@ -13,6 +13,7 @@
  */
 
 import { parseJsonc } from '../jsonc.ts';
+import { isPlainObject } from '../util.ts';
 
 import {
   type PartialSandboxConfig,
@@ -45,10 +46,6 @@ export interface LoadSandboxConfigResult {
 // Validation
 // ──────────────────────────────────────────────────────────────────────
 
-function isObject(v: unknown): v is Record<string, unknown> {
-  return v !== null && typeof v === 'object' && !Array.isArray(v);
-}
-
 function validateLayer(layer: SandboxConfigLayer): {
   partial: PartialSandboxConfig;
   warnings: SandboxConfigWarning[];
@@ -69,7 +66,7 @@ function validateLayer(layer: SandboxConfigLayer): {
     return { partial, warnings };
   }
 
-  if (!isObject(parsed)) {
+  if (!isPlainObject(parsed)) {
     warnings.push({
       source: layer.source,
       reason: 'expected a JSON object at top level',
@@ -80,7 +77,7 @@ function validateLayer(layer: SandboxConfigLayer): {
   for (const top of ['network', 'unixSockets', 'flags'] as const) {
     const v = parsed[top];
     if (v === undefined) continue;
-    if (!isObject(v)) {
+    if (!isPlainObject(v)) {
       warnings.push({
         source: layer.source,
         reason: `\`${top}\` must be an object (dropped)`,

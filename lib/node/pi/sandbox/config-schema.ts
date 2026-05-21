@@ -78,22 +78,29 @@ export function clampLinuxRuleDepth(value: number): number {
 }
 
 /** Defaults match plan section 6: deny-all network, no socket bypass,
- *  all flags off, depth 3. */
+ *  all flags off, depth 3.
+ *
+ *  Only the top level is frozen, NOT the inner arrays. Freezing the
+ *  arrays + then typing them as mutable `string[]` (the shape of
+ *  `SandboxConfig`) would create a type-vs-runtime gap where a future
+ *  `DEFAULT_SANDBOX_CONFIG.network.allow.push(...)` typechecks fine
+ *  but throws at runtime. The top-level freeze is enough to prevent
+ *  accidental reassignment of `DEFAULT_SANDBOX_CONFIG.network`. */
 export const DEFAULT_SANDBOX_CONFIG: Readonly<SandboxConfig> = Object.freeze({
-  network: Object.freeze({
-    allow: Object.freeze([]) as unknown as string[],
-    deny: Object.freeze([]) as unknown as string[],
-  }) as SandboxNetworkConfig,
-  unixSockets: Object.freeze({
-    allow: Object.freeze([]) as unknown as string[],
+  network: {
+    allow: [] as string[],
+    deny: [] as string[],
+  },
+  unixSockets: {
+    allow: [] as string[],
     allowAll: false,
-  }) as SandboxUnixSocketsConfig,
-  flags: Object.freeze({
+  },
+  flags: {
     weakerNestedSandbox: false,
     weakerNetworkIsolation: false,
     allowLocalBinding: false,
     linuxRuleDepth: LINUX_RULE_DEPTH_DEFAULT,
-  }) as SandboxFlags,
+  },
 });
 
 // ──────────────────────────────────────────────────────────────────────
@@ -197,7 +204,7 @@ export function mergeSandboxConfigs(layers: { source: string; partial: PartialSa
       pushStrings(out.unixSockets.allow, partial.unixSockets.allow, source, 'unixSockets.allow', warnings);
       out.unixSockets.allowAll = setBoolean(
         partial.unixSockets.allowAll,
-        out.unixSockets.allowAll ?? false,
+        out.unixSockets.allowAll === true,
         source,
         'unixSockets.allowAll',
         warnings,
@@ -237,10 +244,6 @@ export function mergeSandboxConfigs(layers: { source: string; partial: PartialSa
       }
     }
   }
-
-  // Final clamp guards against a configurable-default ever drifting out
-  // of bounds.
-  out.flags.linuxRuleDepth = clampLinuxRuleDepth(out.flags.linuxRuleDepth);
 
   return { config: out, warnings };
 }

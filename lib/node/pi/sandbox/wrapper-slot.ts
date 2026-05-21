@@ -34,31 +34,43 @@ export interface SandboxWrapContext {
   cwd: string;
 }
 
+/**
+ * Decision the caller should honor when `wrapped` is false:
+ *
+ *   `identity` (default) - run the command as supplied.
+ *   `warn`               - run unwrapped but surface `reason` to the user.
+ *   `block`              - refuse to run the command (the wrap was REQUIRED
+ *                          and failed, typically PI_SANDBOX_DEFAULT=block).
+ *
+ * Callers that ignore this field will silently downgrade `block` to
+ * `identity`, defeating PI_SANDBOX_DEFAULT=block for the channel they own.
+ */
+export type SandboxWrapAction = 'identity' | 'warn' | 'block';
+
 export interface SandboxWrapResult {
   /** Final shell-string to pass to `spawn`. Equal to `command` when
-   *  the slot is empty (identity-wrap). */
+   *  the slot is empty (identity-wrap) or when `action !== 'identity'`. */
   command: string;
-  /** True when the wrapper actually rewrote the command. */
+  /** True when the wrapper actually rewrote the command. When false,
+   *  consult `action` to decide whether to run, warn, or block. */
   wrapped: boolean;
+  /** Action the caller should take when `wrapped` is false. Omitted
+   *  (treat as `'identity'`) on the happy path. */
+  action?: SandboxWrapAction;
+  /** Human-readable rationale to surface in notifications or block
+   *  reasons. Always paired with `action !== 'identity'`. */
+  reason?: string;
 }
 
 export type SandboxWrapFn = (command: string, ctx: SandboxWrapContext) => Promise<SandboxWrapResult>;
+
+import { createGlobalSlot } from '../global-slot.ts';
 
 interface SandboxWrapperSlot {
   wrap?: SandboxWrapFn;
 }
 
-const SLOT_KEY = Symbol.for('@dotfiles/pi/sandbox/wrapper');
-
-function getSlot(): SandboxWrapperSlot {
-  const g = globalThis as { [SLOT_KEY]?: SandboxWrapperSlot };
-  let slot = g[SLOT_KEY];
-  if (!slot) {
-    slot = {};
-    g[SLOT_KEY] = slot;
-  }
-  return slot;
-}
+const getSlot = createGlobalSlot<SandboxWrapperSlot>('@dotfiles/pi/sandbox/wrapper', () => ({}));
 
 /**
  * Install (or replace) the active sandbox wrapper. Safe to call on

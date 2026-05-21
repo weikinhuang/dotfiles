@@ -27,7 +27,9 @@
 
 import { createHash } from 'node:crypto';
 
+import { createGlobalSlot } from '../global-slot.ts';
 import type { FilesystemPolicy } from '../filesystem-policy/schema.ts';
+
 import type { SandboxConfig } from './config-schema.ts';
 
 export type SandboxPlatformKind = 'darwin' | 'linux' | 'unsupported';
@@ -59,17 +61,7 @@ interface ActiveSandboxSlot {
   inflight?: Promise<void>;
 }
 
-const SLOT_KEY = Symbol.for('@dotfiles/pi/sandbox/active');
-
-function getSlot(): ActiveSandboxSlot {
-  const g = globalThis as { [SLOT_KEY]?: ActiveSandboxSlot };
-  let slot = g[SLOT_KEY];
-  if (!slot) {
-    slot = {};
-    g[SLOT_KEY] = slot;
-  }
-  return slot;
-}
+const getSlot = createGlobalSlot<ActiveSandboxSlot>('@dotfiles/pi/sandbox/active', () => ({}));
 
 /**
  * JSON.stringify replacer that emits object keys in sorted order so a
@@ -156,14 +148,6 @@ export function clearActiveSandbox(): void {
   slot.inflight = undefined;
 }
 
-/** Sentinel for {@link beginActiveReconfigure}'s `resolveFn` initial
- *  value. Never actually runs - the Promise constructor synchronously
- *  reassigns the variable - but `let resolveFn = () => {}` would trip
- *  oxlint's `no-empty-function`. */
-function noopResolve(): void {
-  /* unreachable - reassigned by Promise ctor */
-}
-
 /**
  * Mark a reconfigure as in-flight. Returns a `done()` callback that
  * resolves the in-flight promise; callers MUST invoke it (typically in
@@ -173,13 +157,12 @@ function noopResolve(): void {
  */
 export function beginActiveReconfigure(): () => void {
   const slot = getSlot();
-  // Sentinel reassigned by the Promise constructor below; the cast
-  // satisfies oxlint's `no-empty-function` while remaining unreachable.
-  let resolveFn: () => void = noopResolve;
+  // `Promise.withResolvers` (Node 22+) gives us the resolver without
+  // the `let resolveFn: () => void = noop` gymnastics that an inline
+  // `new Promise(resolve => {...})` would require to satisfy strict
+  // type rules + oxlint's `no-empty-function`.
+  const { promise: next, resolve: resolveFn } = Promise.withResolvers<void>();
   const previous = slot.inflight;
-  const next = new Promise<void>((resolve) => {
-    resolveFn = resolve;
-  });
   slot.inflight = previous ? previous.then(() => next) : next;
   return resolveFn;
 }

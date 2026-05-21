@@ -134,6 +134,21 @@ describe('translateToASRT - macOS mode', () => {
     expect(lossyNotes.find((n) => n.includes('silently drop'))).toBeDefined();
   });
 
+  test('non-existent denyRead path on macOS also surfaces a lossy note', () => {
+    const policy = mergePolicies({
+      read: { deny: { paths: [join(cwd, 'never-existed-read')] }, allow: {} },
+      write: { allow: { paths: ['.'] }, deny: {} },
+    });
+    const { lossyNotes } = translateToASRT({
+      policy,
+      sandbox: baseSandbox(),
+      cwd,
+      homeDir: HOME,
+      mode: 'darwin',
+    });
+    expect(lossyNotes.find((n) => n.includes('read.deny.paths') && n.includes('silently drop'))).toBeDefined();
+  });
+
   test('existing denyWrite path on macOS does NOT add a lossy note', () => {
     const present = join(cwd, 'present');
     mkdirSync(present, { recursive: true });
@@ -261,5 +276,22 @@ describe('translateToASRT - Linux mode', () => {
     expect(lossyNotes.find((n) => /read\.deny\.basenames.*\.env\.absent/.test(n))).toBeDefined();
     expect(lossyNotes.find((n) => /read\.deny\.segments.*\.terraform/.test(n))).toBeDefined();
     expect(lossyNotes.find((n) => /write\.deny\.basenames.*\.private/.test(n))).toBeDefined();
+  });
+
+  test('inertPaths from the compile pass become lossy notes', () => {
+    const c = compiled({
+      read: { paths: [], inertBasenames: [], inertSegments: [], inertPaths: ['/etc/missing-read'] },
+      write: { paths: [], inertBasenames: [], inertSegments: [], inertPaths: ['/etc/missing-write'] },
+    });
+    const { lossyNotes } = translateToASRT({
+      policy: basePolicy(),
+      sandbox: baseSandbox(),
+      cwd,
+      homeDir: HOME,
+      mode: 'linux',
+      compiled: c,
+    });
+    expect(lossyNotes.find((n) => /read\.deny\.paths.*missing-read/.test(n))).toBeDefined();
+    expect(lossyNotes.find((n) => /write\.deny\.paths.*missing-write/.test(n))).toBeDefined();
   });
 });

@@ -83,13 +83,11 @@ function defaultRipgrep(args: string[], cwd: string): string {
       stdio: ['ignore', 'pipe', 'ignore'],
       maxBuffer: 16 * 1024 * 1024,
     });
-  } catch (e) {
-    // Exit 1 from rg means "no matches" - that's a normal outcome, not
-    // an error. Anything else (binary missing, permission denied) we
-    // swallow and return empty: the lossy-translation report flags the
-    // rule as inert and the caller surfaces it.
-    const status = (e as { status?: number }).status;
-    if (status === 1) return '';
+  } catch {
+    // Exit 1 from rg means "no matches" - a normal outcome. Anything
+    // else (binary missing, permission denied) is also swallowed: the
+    // lossy-translation report flags rules that produced zero literal
+    // paths, which subsumes both cases from the user's perspective.
     return '';
   }
 }
@@ -98,25 +96,28 @@ function defaultRipgrep(args: string[], cwd: string): string {
 // Compile entrypoints
 // ──────────────────────────────────────────────────────────────────────
 
+// Shared rg flags for both basename and segment compilation. Order:
+//   --no-config       - ignore the user's ~/.ripgreprc / RIPGREP_CONFIG_PATH
+//                       so a personal `--glob=!node_modules` line can't
+//                       silently hide the very paths we're trying to deny.
+//   --no-ignore       - don't apply .gitignore / global ignore at all;
+//                       deny-rule resolution must see everything on disk.
+//   --hidden          - include dotfiles (most deny rules target dotfiles).
+//   --max-depth N     - cap traversal cost.
+//   -0 (= --null)     - emit results NUL-separated so paths with newlines
+//                       parse correctly. NOT --null-data (that's an INPUT
+//                       flag and silently no-ops with --files).
+const RG_BASE_FLAGS = ['--no-config', '--no-ignore', '--hidden'] as const;
+
 function rgArgsForBasename(glob: string, depth: number): string[] {
-  return ['--files', '--hidden', '--no-ignore-vcs', '--max-depth', String(depth), '--null-data', '--glob', glob];
+  return ['--files', ...RG_BASE_FLAGS, '--max-depth', String(depth), '-0', '--glob', glob];
 }
 
 function rgArgsForSegment(segment: string, depth: number): string[] {
-  // Segments turn into `<seg>/**` glob plus the inverse for nested
-  // matches. Bwrap's deny model walks paths recursively from the deny
-  // root, so we just need the directory itself - any descendants are
-  // covered by the bwrap mount.
-  return [
-    '--files',
-    '--hidden',
-    '--no-ignore-vcs',
-    '--max-depth',
-    String(depth),
-    '--null-data',
-    '--glob',
-    `**/${segment}/**`,
-  ];
+  // Bwrap's deny model walks paths recursively from the deny root, so
+  // we just need ONE file inside the segment dir to lock in the rule -
+  // any descendants are covered by the bwrap mount.
+  return ['--files', ...RG_BASE_FLAGS, '--max-depth', String(depth), '-0', '--glob', `**/${segment}/**`];
 }
 
 function parseRgOutput(out: string, cwd: string): string[] {

@@ -50,12 +50,7 @@ export function stripMarkerFromUserInput(command: string): string {
   }
 }
 
-/** Single-quote-escape a shell argument. Single-quoted strings have no
- *  shell metacharacter expansion; embedded single quotes are escaped
- *  via `'\''` (close, escape literal, reopen). */
-function shQuote(s: string): string {
-  return `'${s.replace(/'/g, "'\\''")}'`;
-}
+import { shQuote } from '../util.ts';
 
 /**
  * Build the identity-wrap shell-string used when ASRT itself can't be

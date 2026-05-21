@@ -30,15 +30,21 @@ interface FakeCtx {
   hasUI: boolean;
 }
 
+type SimulateResult = { blocked: true; reason: string } | { blocked: false; spawnCommand: string };
+
 /**
  * Mirror of the relevant slice of `actStart` + `startJob` in
- * `config/pi/extensions/bg-bash.ts`. Returns the command that would be
- * passed as the argument to `spawn('/bin/sh', ['-c', ...])`.
+ * `config/pi/extensions/bg-bash.ts`. Returns either the command that
+ * would be passed to `spawn('/bin/sh', ['-c', ...])`, or a `blocked`
+ * marker matching the `errorReturn('start', wrap.reason)` early-return.
  */
-async function simulateBgBashStart(command: string, ctx: FakeCtx): Promise<string> {
+async function simulateBgBashStart(command: string, ctx: FakeCtx): Promise<SimulateResult> {
   const wrap = await requestSandboxWrap(command, { cwd: ctx.cwd, hasUI: ctx.hasUI });
+  if (wrap.action === 'block') {
+    return { blocked: true, reason: wrap.reason ?? 'Blocked by sandbox' };
+  }
   const spawnCommand = wrap.wrapped ? wrap.command : undefined;
-  return spawnCommand ?? command;
+  return { blocked: false, spawnCommand: spawnCommand ?? command };
 }
 
 describe('bg_bash start + sandbox wrap', () => {
@@ -50,8 +56,8 @@ describe('bg_bash start + sandbox wrap', () => {
   });
 
   test('falls through unchanged when no sandbox wrap is installed', async () => {
-    const spawnCmd = await simulateBgBashStart('npm test', { cwd: '/workspace', hasUI: true });
-    expect(spawnCmd).toBe('npm test');
+    const result = await simulateBgBashStart('npm test', { cwd: '/workspace', hasUI: true });
+    expect(result).toEqual({ blocked: false, spawnCommand: 'npm test' });
   });
 
   test('uses the wrapped command when sandbox is active', async () => {
@@ -62,17 +68,33 @@ describe('bg_bash start + sandbox wrap', () => {
     };
     installSandboxWrapper(wrapFn);
 
-    const spawnCmd = await simulateBgBashStart('npm test', { cwd: '/workspace', hasUI: true });
+    const result = await simulateBgBashStart('npm test', { cwd: '/workspace', hasUI: true });
     expect(wrapCalls).toBe(1);
-    expect(spawnCmd).toBe('__PI_SANDBOX_WRAPPED=1 srt -- npm test');
+    expect(result).toEqual({ blocked: false, spawnCommand: '__PI_SANDBOX_WRAPPED=1 srt -- npm test' });
   });
 
   test('wrapper returning wrapped:false leaves the spawn command as the original', async () => {
     // Mirrors PI_SANDBOX_DISABLED / dry-run / unsupported-platform paths
     // where performWrap reports the command as not-actually-wrapped.
     installSandboxWrapper((cmd) => Promise.resolve({ command: cmd, wrapped: false }));
-    const spawnCmd = await simulateBgBashStart('echo hi', { cwd: '/workspace', hasUI: false });
-    expect(spawnCmd).toBe('echo hi');
+    const result = await simulateBgBashStart('echo hi', { cwd: '/workspace', hasUI: false });
+    expect(result).toEqual({ blocked: false, spawnCommand: 'echo hi' });
+  });
+
+  test('action:block refuses to spawn (PI_SANDBOX_DEFAULT=block path)', async () => {
+    installSandboxWrapper((cmd) =>
+      Promise.resolve({
+        command: cmd,
+        wrapped: false,
+        action: 'block',
+        reason: 'wrap failed: bwrap not found; refusing under PI_SANDBOX_DEFAULT=block',
+      }),
+    );
+    const result = await simulateBgBashStart('npm test', { cwd: '/workspace', hasUI: true });
+    expect(result).toEqual({
+      blocked: true,
+      reason: 'wrap failed: bwrap not found; refusing under PI_SANDBOX_DEFAULT=block',
+    });
   });
 
   test('passes hasUI + cwd through to the wrap function', async () => {

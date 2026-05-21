@@ -27,21 +27,13 @@ export interface ActivePersonaSnapshot {
   readonly bashDeny: readonly string[];
 }
 
+import { createGlobalSlot } from '../global-slot.ts';
+
 interface ActivePersonaSlot {
   active?: ActivePersonaSnapshot;
 }
 
-const SLOT_KEY = Symbol.for('@dotfiles/pi/persona/active');
-
-function getSlot(): ActivePersonaSlot {
-  const g = globalThis as { [SLOT_KEY]?: ActivePersonaSlot };
-  let slot = g[SLOT_KEY];
-  if (!slot) {
-    slot = {};
-    g[SLOT_KEY] = slot;
-  }
-  return slot;
-}
+const getSlot = createGlobalSlot<ActivePersonaSlot>('@dotfiles/pi/persona/active', () => ({}));
 
 export interface ActivePersonaInput {
   name: string;

@@ -106,13 +106,27 @@ async function runDialog(ui: UIBridge, host: string, labelTarget: string, deps: 
     return true;
   }
   if (choice === optAllowProject) {
-    const savedPath = deps.saveProjectAllow(host);
+    let savedPath: string;
+    try {
+      savedPath = deps.saveProjectAllow(host);
+    } catch (e) {
+      // `addNetworkRule` throws when the existing config file is
+      // unparseable. Surface that instead of overwriting the user's file.
+      ui.notify(`sandbox: ${e instanceof Error ? e.message : String(e)}`, 'error');
+      return false;
+    }
     ui.notify(`Added network.allow "${host}" → ${savedPath}`, 'info');
     await deps.triggerReconfigure();
     return true;
   }
   if (optAllowParentUser && choice === optAllowParentUser && parent) {
-    const savedPath = deps.saveUserAllowParent(parent);
+    let savedPath: string;
+    try {
+      savedPath = deps.saveUserAllowParent(parent);
+    } catch (e) {
+      ui.notify(`sandbox: ${e instanceof Error ? e.message : String(e)}`, 'error');
+      return false;
+    }
     ui.notify(`Added network.allow "${parent}" → ${savedPath}`, 'info');
     await deps.triggerReconfigure();
     return true;
