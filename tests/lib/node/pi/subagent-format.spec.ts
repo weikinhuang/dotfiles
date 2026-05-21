@@ -407,10 +407,7 @@ describe('formatRunningChildRow', () => {
   };
 
   test('emits 4 lines for a running child with tools', () => {
-    const lines = formatRunningChildRow(
-      { handle: 'bg-1', snapshot: baseSnap, startedAt: 0 },
-      12_000,
-    );
+    const lines = formatRunningChildRow({ handle: 'bg-1', snapshot: baseSnap, startedAt: 0 }, 12_000);
 
     expect(lines).toHaveLength(4);
     expect(lines[0]).toContain('bg-1');
@@ -428,10 +425,7 @@ describe('formatRunningChildRow', () => {
   });
 
   test('omits tools line when byTool is empty', () => {
-    const lines = formatRunningChildRow(
-      { handle: 'bg-2', snapshot: { ...baseSnap, byTool: {} }, startedAt: 0 },
-      3000,
-    );
+    const lines = formatRunningChildRow({ handle: 'bg-2', snapshot: { ...baseSnap, byTool: {} }, startedAt: 0 }, 3000);
 
     expect(lines).toHaveLength(3);
     expect(lines.find((l) => l.startsWith('       tools:'))).toBeUndefined();

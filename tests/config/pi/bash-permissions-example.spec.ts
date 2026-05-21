@@ -67,7 +67,7 @@ describe('bash-permissions-example: file shape', () => {
 
   test('allow list is non-empty; deny list is empty by design', () => {
     // The example file is purely additive allow. Catastrophic commands are
-    // handled by the extension's hardcoded denylist and by `protected-paths`.
+    // handled by the extension's hardcoded denylist and by the `filesystem` gate.
     expect(rules.allow.length).toBeGreaterThan(0);
     expect(rules.deny).toEqual([]);
   });

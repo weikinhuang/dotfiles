@@ -3,7 +3,7 @@
  * resolved `writeRoots`, `bashAllow`, and `bashDeny` patterns.
  *
  * The `persona` extension publishes here on activate / deactivate. Other
- * extensions (notably `protected-paths` and `bash-permissions`) query
+ * extensions (notably `filesystem` and `bash-permissions`) query
  * here so they can compose their own gates with the persona's: if a
  * persona has explicitly declared a directory as `writeRoots` or a
  * command pattern as `bashAllow`, that's a deliberate vouch and

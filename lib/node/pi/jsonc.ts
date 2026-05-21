@@ -101,8 +101,8 @@ export function parseJsonc<T = unknown>(text: string): T {
  * reported again.
  *
  * Exists to keep the "warn once per bad config file" pattern identical
- * across `bash-permissions` and `protected-paths` - previously duplicated
- * in both extensions with drifting comments.
+ * across the security-gate extensions (`bash-permissions`, `filesystem`,
+ * `sandbox`).
  */
 const warnedBadConfigFiles = new Map<string, string>();
 

@@ -282,11 +282,3 @@ actual syscall denial (still requires the model-turn smoke above) but proves the
   `package.json`; a bump that drops a field surfaces as a typecheck error in `config-translate.ts`.
 - MCP server sandboxing is out of v1 scope; see
   [`pi-sandbox-runtime-extension-followups.md`](../../../plans/pi-sandbox-runtime-extension-followups.md).
-
-## Migration from `protected-paths`
-
-The legacy `protected-paths` extension is replaced by `filesystem.ts` in the same PR that lands `sandbox.ts`. Run
-[`scripts/migrate-protected-paths.ts`](../../../scripts/migrate-protected-paths.ts) once after upgrading to translate
-any existing `~/.pi/protected-paths.json` into the unified schema. The script is idempotent and is removed in Phase 4.
-
-No migration is needed for the sandbox-only `~/.pi/sandbox.json` - it didn't exist before this phase.

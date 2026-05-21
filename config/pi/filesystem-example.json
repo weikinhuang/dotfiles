@@ -1,10 +1,9 @@
 // Baseline filesystem-policy config consumed by both the in-process
-// `filesystem` extension (replaces `protected-paths` in Phase 3) and
-// the kernel-level `sandbox` extension via @anthropic-ai/sandbox-runtime.
+// `filesystem` extension (read / write / edit) and the kernel-level
+// `sandbox` extension via @anthropic-ai/sandbox-runtime.
 //
-//   Pure helper: lib/node/pi/filesystem-policy/{schema,load,classify}.ts
-//   Translator (Phase 3): config/pi/extensions/filesystem.ts +
-//                         lib/node/pi/sandbox/config-translate.ts
+//   Pure helpers: lib/node/pi/filesystem-policy/{schema,load,classify}.ts
+//   Translator:   lib/node/pi/sandbox/config-translate.ts
 //
 // Copy (or merge) into one of:
 //

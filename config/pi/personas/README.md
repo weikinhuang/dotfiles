@@ -4,7 +4,7 @@ Persona definitions consumed by [`../extensions/persona.ts`](../extensions/perso
 `--persona` flag, and `Ctrl+Shift+M` cycle) and discovered via the layered `personas/` registry. Each file pins a
 session-lifetime persona - tools, write-path scope, bash policy, and a system-prompt body - so the parent session takes
 on a single role at a time. See [`../extensions/persona.md`](../extensions/persona.md) for the schema, layering rules,
-and `protected-paths`-style ask-on-violation UX.
+and `filesystem`-style ask-on-violation UX.
 
 This directory is the **shipped catalog**. Users override per-persona-name by dropping a file with the same stem under
 `~/.pi/personas/` (user-global) or `<cwd>/.pi/personas/` (project-local); later layers win. The persona loader ignores
@@ -268,5 +268,5 @@ Now ask me your clarifying questions.
 
 - [../extensions/persona.ts](../extensions/persona.ts) - the extension shell that loads this directory.
 - [../extensions/persona.md](../extensions/persona.md) - deep doc: schema, layering, ask-on-violation UX, env vars,
-  composition with `preset` / `protected-paths` / `bash-permissions`.
+  composition with `preset` / `filesystem` / `bash-permissions`.
 - [../agents/README.md](../agents/README.md) - the agent format `agent:`-ref personas inherit from.

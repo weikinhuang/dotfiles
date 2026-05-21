@@ -34,18 +34,15 @@ describe('formatActivityLine', () => {
   test('tool_execution_start summarises path / pattern / command args', () => {
     const state = makeActivityState();
 
-    expect(formatActivityLine({ type: 'tool_execution_start', toolName: 'read', args: { path: 'foo.ts' } }, state)).toBe(
-      '→ read  foo.ts',
-    );
     expect(
-      formatActivityLine(
-        { type: 'tool_execution_start', toolName: 'grep', args: { pattern: 'formatJobLine' } },
-        state,
-      ),
+      formatActivityLine({ type: 'tool_execution_start', toolName: 'read', args: { path: 'foo.ts' } }, state),
+    ).toBe('→ read  foo.ts');
+    expect(
+      formatActivityLine({ type: 'tool_execution_start', toolName: 'grep', args: { pattern: 'formatJobLine' } }, state),
     ).toBe('→ grep  formatJobLine');
-    expect(formatActivityLine({ type: 'tool_execution_start', toolName: 'bash', args: { command: 'ls -la' } }, state)).toBe(
-      '→ bash  ls -la',
-    );
+    expect(
+      formatActivityLine({ type: 'tool_execution_start', toolName: 'bash', args: { command: 'ls -la' } }, state),
+    ).toBe('→ bash  ls -la');
   });
 
   test('tool_execution_end renders chars / count / error', () => {
@@ -269,7 +266,7 @@ describe('applyActivityLine integration', () => {
     const state = makeActivityState();
     const events: ActivityEvent[] = [
       { type: 'turn_start' },
-      ...["I'm", " not", ' seeing', ' the', ' full', ' content'].map((d) => ({
+      ...["I'm", ' not', ' seeing', ' the', ' full', ' content'].map((d) => ({
         type: 'message_update',
         message: { role: 'assistant' as const },
         assistantMessageEvent: { type: 'text_delta', delta: d },
@@ -297,7 +294,10 @@ describe('applyActivityLine integration', () => {
         message: { role: 'assistant' as const },
         assistantMessageEvent: { type: 'text_delta', delta: ' answer' },
       },
-      { type: 'message_end', message: { role: 'assistant' as const, content: [{ type: 'text', text: 'final answer' }] } },
+      {
+        type: 'message_end',
+        message: { role: 'assistant' as const, content: [{ type: 'text', text: 'final answer' }] },
+      },
     ];
     for (const e of stream) {
       const line = formatActivityLine(e, state);
@@ -325,19 +325,16 @@ describe('tailJsonl', () => {
     ]);
     const out = tailJsonl('/fake/path.jsonl', { readFile: () => transcript });
 
-    expect(out).toEqual([
-      'turn 1',
-      '→ read  a.ts',
-      '← 5 chars',
-      'turn 2',
-      '→ grep  foo',
-      '← 1 item',
-    ]);
+    expect(out).toEqual(['turn 1', '→ read  a.ts', '← 5 chars', 'turn 2', '→ grep  foo', '← 1 item']);
   });
 
   test('caps to maxLines from the tail', () => {
     const transcript = fixture(
-      Array.from({ length: 50 }, (_, i) => ({ type: 'tool_execution_start', toolName: `t${i}`, args: { path: `x${i}` } })),
+      Array.from({ length: 50 }, (_, i) => ({
+        type: 'tool_execution_start',
+        toolName: `t${i}`,
+        args: { path: `x${i}` },
+      })),
     );
     const out = tailJsonl('/fake/path.jsonl', { readFile: () => transcript, maxLines: 5 });
 

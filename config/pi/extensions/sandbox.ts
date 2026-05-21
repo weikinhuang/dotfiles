@@ -89,7 +89,9 @@ import { dirname, join, resolve } from 'node:path';
 
 import { type ExtensionAPI, type ExtensionContext } from '@earendil-works/pi-coding-agent';
 
-import { clearActiveUI, getInteractiveActiveUI, publishActiveUI } from '../../../lib/node/pi/active-ui.ts';
+import { clearActiveUI, publishActiveUI } from '../../../lib/node/pi/active-ui.ts';
+import { buildNetworkAskCallback } from '../../../lib/node/pi/sandbox/network-ask.ts';
+import { annotateBashResult } from '../../../lib/node/pi/sandbox/result-annotate.ts';
 import { type FilesystemPolicyLayer, loadFilesystemPolicy } from '../../../lib/node/pi/filesystem-policy/load.ts';
 import { type FilesystemPolicyWarning } from '../../../lib/node/pi/filesystem-policy/schema.ts';
 import { parseJsonc } from '../../../lib/node/pi/jsonc.ts';
@@ -362,6 +364,13 @@ interface RuntimeState {
   wrapsErrored: number;
   /** Most recent wrap-error message. */
   lastWrapError?: string;
+  /** Session-only network allow set, populated by the `Allow ... for
+   *  this session` choice in the network ask-callback. Cleared on
+   *  session_shutdown along with the rest of the runtime state. */
+  sessionAllowedDomains: Set<string>;
+  /** Cwd captured during config resolution; the ask-callback uses it
+   *  to decide project vs user scope for `Always allow` choices. */
+  lastCwd?: string;
 }
 
 function newState(platform: SandboxPlatformInfo): RuntimeState {
@@ -373,6 +382,7 @@ function newState(platform: SandboxPlatformInfo): RuntimeState {
     degradedNotified: false,
     wrapsAttempted: 0,
     wrapsErrored: 0,
+    sessionAllowedDomains: new Set(),
   };
 }
 
@@ -411,35 +421,110 @@ function surfaceFsWarnings(
   }
 }
 
+// ─────────────────────────────────────────────────────────────────
+// Config-write helpers for /sandbox-allow / -deny / -allow-write and
+// the six-option network ask-callback dialog (see buildAskCallback).
+// ─────────────────────────────────────────────────────────────────
+
+/** Pick project scope when a `.pi/` dir exists in cwd, else user. */
+function pickScopeSandbox(cwd: string): string {
+  try {
+    if (statSync(projectSandboxPath(cwd)).isFile()) return projectSandboxPath(cwd);
+  } catch {
+    // fall through
+  }
+  try {
+    if (statSync(join(cwd, '.pi')).isDirectory()) return projectSandboxPath(cwd);
+  } catch {
+    // fall through
+  }
+  return USER_SANDBOX_PATH;
+}
+function pickScopeFs(cwd: string): string {
+  try {
+    if (statSync(projectFsPath(cwd)).isFile()) return projectFsPath(cwd);
+  } catch {
+    // fall through
+  }
+  try {
+    if (statSync(join(cwd, '.pi')).isDirectory()) return projectFsPath(cwd);
+  } catch {
+    // fall through
+  }
+  return USER_FS_PATH;
+}
+
+function readJsoncFile<T>(path: string, fallback: () => T): T {
+  try {
+    const raw = readFileSync(path, 'utf8');
+    if (!raw.trim()) return fallback();
+    return parseJsonc<T>(raw);
+  } catch {
+    return fallback();
+  }
+}
+
+function writeJsonFile(path: string, value: unknown): void {
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`, 'utf8');
+}
+
+interface SandboxJsonShape {
+  network?: { allow?: string[]; deny?: string[] };
+  unixSockets?: { allow?: string[]; allowAll?: boolean };
+  flags?: Record<string, unknown>;
+}
+
+function addNetworkRule(path: string, kind: 'allow' | 'deny', domain: string): void {
+  const cur = readJsoncFile<SandboxJsonShape>(path, () => ({}));
+  cur.network ??= {};
+  const bucket = (cur.network[kind] ??= []);
+  if (!bucket.includes(domain)) bucket.push(domain);
+  bucket.sort();
+  writeJsonFile(path, cur);
+}
+
+interface FilesystemJsonShape {
+  read?: { deny?: { basenames?: string[]; segments?: string[]; paths?: string[] }; allow?: unknown };
+  write?: {
+    allow?: { basenames?: string[]; segments?: string[]; paths?: string[] };
+    deny?: { basenames?: string[]; segments?: string[]; paths?: string[] };
+  };
+}
+
+function addWriteAllowPath(path: string, p: string): void {
+  const cur = readJsoncFile<FilesystemJsonShape>(path, () => ({}));
+  cur.write ??= {};
+  cur.write.allow ??= {};
+  cur.write.allow.paths ??= [];
+  if (!cur.write.allow.paths.includes(p)) cur.write.allow.paths.push(p);
+  cur.write.allow.paths.sort();
+  writeJsonFile(path, cur);
+}
+
 /**
  * Build the SandboxAskCallback fired by ASRT when a sandboxed bash
- * hits an un-allowlisted domain. Routes through the parent's
- * `active-ui.ts` singleton so subagent-triggered prompts surface in
- * the parent's UI; in non-UI mode (`pi -p` parent) the callback falls
- * through to `PI_SANDBOX_NETWORK_DEFAULT` (default deny).
- *
- * v1 wires the simple yes/no shape ASRT itself returns. The richer
- * 6-option dialog described in plan section 7 is a Phase 4 follow-up
- * (also wires `/sandbox-allow <domain>` from the same callback).
+ * hits an un-allowlisted domain. Wired up using the lib-level helper
+ * so the dialog flow is unit-testable without the extension shell.
  */
-function buildAskCallback(): (params: { host: string; port: number | undefined }) => Promise<boolean> {
-  return async (params) => {
-    const ui = getInteractiveActiveUI();
-    const labelTarget = params.port !== undefined ? `${params.host}:${params.port}` : params.host;
-    if (!ui) {
-      // No UI available - fall through to env default. Mirrors the
-      // `bash-permissions.ts` no-UI behavior.
-      return envNetworkDefault() === 'allow';
-    }
-    const choice = await ui.select(
-      `\u26a0\ufe0f  Sandboxed bash wants to connect to:\n\n  ${labelTarget}\n\n` + 'Allow this network connection?',
-      [`Allow once`, `Always allow ${labelTarget} (this session)`, `Deny`],
-    );
-    if (choice === 'Allow once' || choice === `Always allow ${labelTarget} (this session)`) {
-      return true;
-    }
-    return false;
-  };
+function buildAskCallback(
+  state: RuntimeState,
+  triggerReconfigure: () => Promise<void>,
+): (params: { host: string; port: number | undefined }) => Promise<boolean> {
+  return buildNetworkAskCallback({
+    sessionAllowedDomains: state.sessionAllowedDomains,
+    triggerReconfigure,
+    saveProjectAllow: (host) => {
+      const path = pickScopeSandbox(state.lastCwd ?? process.cwd());
+      addNetworkRule(path, 'allow', host);
+      return path;
+    },
+    saveUserAllowParent: (parent) => {
+      addNetworkRule(USER_SANDBOX_PATH, 'allow', parent);
+      return USER_SANDBOX_PATH;
+    },
+    envNetworkDefault,
+  });
 }
 
 /**
@@ -452,6 +537,7 @@ function buildAskCallback(): (params: { host: string; port: number | undefined }
  */
 async function reconfigure(state: RuntimeState, cwd: string, ctx?: ExtensionContext): Promise<ResolvedAll> {
   const done = beginActiveReconfigure();
+  state.lastCwd = cwd;
   try {
     const resolved = resolveAll(cwd, state.platform);
     if (ctx && resolved.fsWarnings.length > 0) {
@@ -503,7 +589,10 @@ async function ensureManager(state: RuntimeState, cwd: string, ctx: ExtensionCon
       publishStatusline(state);
       return false;
     }
-    await asrt.SandboxManager.initialize(resolved.asrtConfig, buildAskCallback(), false);
+    const askCallback = buildAskCallback(state, async () => {
+      await reconfigure(state, state.lastCwd ?? cwd, ctx);
+    });
+    await asrt.SandboxManager.initialize(resolved.asrtConfig, askCallback, false);
     state.manager = asrt.SandboxManager;
     state.initialized = true;
     publishStatusline(state);
@@ -586,86 +675,6 @@ async function performWrap(
     }
     return { command, wrapped: false };
   }
-}
-
-// ─────────────────────────────────────────────────────────────────
-// Config-write helpers for /sandbox-allow / -deny / -allow-write
-// ─────────────────────────────────────────────────────────────────
-
-/** Pick project scope when a `.pi/` dir exists in cwd, else user. */
-function pickScopeSandbox(cwd: string): string {
-  try {
-    if (statSync(projectSandboxPath(cwd)).isFile()) return projectSandboxPath(cwd);
-  } catch {
-    // fall through
-  }
-  try {
-    if (statSync(join(cwd, '.pi')).isDirectory()) return projectSandboxPath(cwd);
-  } catch {
-    // fall through
-  }
-  return USER_SANDBOX_PATH;
-}
-function pickScopeFs(cwd: string): string {
-  try {
-    if (statSync(projectFsPath(cwd)).isFile()) return projectFsPath(cwd);
-  } catch {
-    // fall through
-  }
-  try {
-    if (statSync(join(cwd, '.pi')).isDirectory()) return projectFsPath(cwd);
-  } catch {
-    // fall through
-  }
-  return USER_FS_PATH;
-}
-
-function readJsoncFile<T>(path: string, fallback: () => T): T {
-  try {
-    const raw = readFileSync(path, 'utf8');
-    if (!raw.trim()) return fallback();
-    return parseJsonc<T>(raw);
-  } catch {
-    return fallback();
-  }
-}
-
-function writeJsonFile(path: string, value: unknown): void {
-  mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`, 'utf8');
-}
-
-interface SandboxJsonShape {
-  network?: { allow?: string[]; deny?: string[] };
-  unixSockets?: { allow?: string[]; allowAll?: boolean };
-  flags?: Record<string, unknown>;
-}
-
-function addNetworkRule(path: string, kind: 'allow' | 'deny', domain: string): void {
-  const cur = readJsoncFile<SandboxJsonShape>(path, () => ({}));
-  cur.network ??= {};
-  const bucket = (cur.network[kind] ??= []);
-  if (!bucket.includes(domain)) bucket.push(domain);
-  bucket.sort();
-  writeJsonFile(path, cur);
-}
-
-interface FilesystemJsonShape {
-  read?: { deny?: { basenames?: string[]; segments?: string[]; paths?: string[] }; allow?: unknown };
-  write?: {
-    allow?: { basenames?: string[]; segments?: string[]; paths?: string[] };
-    deny?: { basenames?: string[]; segments?: string[]; paths?: string[] };
-  };
-}
-
-function addWriteAllowPath(path: string, p: string): void {
-  const cur = readJsoncFile<FilesystemJsonShape>(path, () => ({}));
-  cur.write ??= {};
-  cur.write.allow ??= {};
-  cur.write.allow.paths ??= [];
-  if (!cur.write.allow.paths.includes(p)) cur.write.allow.paths.push(p);
-  cur.write.allow.paths.sort();
-  writeJsonFile(path, cur);
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -887,32 +896,51 @@ export default function sandbox(pi: ExtensionAPI): void {
         : typeof (event.input as { command?: unknown } | undefined)?.command === 'string'
           ? (event.input as { command: string }).command
           : '';
-    const result = event.result as { stderr?: unknown; output?: unknown } | undefined;
-    const stderr = typeof result?.stderr === 'string' ? result.stderr : '';
+
+    // pi's bash tool returns content as `[{ type: 'text', text: ... }]`
+    // with stdout + stderr + a trailing tail marker. We feed that to
+    // ASRT's annotator and prefix the resulting hint to the content so
+    // the model sees a clear violation message instead of an opaque
+    // EPERM. Plan section 9.16.
+    const evt = event as {
+      content?: { type: string; text?: string }[];
+      result?: { stderr?: unknown; output?: unknown };
+      isError?: boolean;
+    };
+    const firstText = evt.content?.find((c) => c.type === 'text');
+    const stderr =
+      typeof evt.result?.stderr === 'string'
+        ? evt.result.stderr
+        : typeof firstText?.text === 'string'
+          ? firstText.text
+          : '';
     if (!stderr) return undefined;
+
+    let annotated: string;
     try {
-      const annotated = state.manager.annotateStderrWithSandboxFailures(command, stderr);
-      if (annotated && annotated !== stderr) {
-        // Best-effort: append a JSONL audit row.
-        const record: SandboxViolationRecord = {
-          ts: new Date().toISOString(),
-          kind: /network|connect|host|domain/i.test(annotated) ? 'net' : 'fs',
-          action: 'deny',
-          command,
-          cwd: ctx.cwd,
-          note: annotated.split('\n').slice(0, 4).join(' / '),
-        };
-        try {
-          appendViolation(USER_VIOLATIONS_LOG, record);
-        } catch {
-          // Best-effort logging; never let the audit log break the
-          // tool_result hook.
-        }
-      }
+      annotated = state.manager.annotateStderrWithSandboxFailures(command, stderr);
     } catch {
-      // ignore
+      return undefined;
     }
-    return undefined;
+    const splice = annotateBashResult(annotated, stderr, evt.content);
+    if (!splice) return undefined;
+
+    // Best-effort: append a JSONL audit row.
+    const record: SandboxViolationRecord = {
+      ts: new Date().toISOString(),
+      kind: splice.kind,
+      action: 'deny',
+      command,
+      cwd: ctx.cwd,
+      note: splice.hint.split('\n').slice(0, 4).join(' / '),
+    };
+    try {
+      appendViolation(USER_VIOLATIONS_LOG, record);
+    } catch {
+      // Best-effort logging; never let the audit log break the hook.
+    }
+
+    return { content: splice.content };
   });
 
   // ─────────────────────────────────────────────────────────────────
@@ -991,10 +1019,10 @@ export default function sandbox(pi: ExtensionAPI): void {
         lines.push('Lossy translation notes:');
         for (const n of resolved.lossyNotes) lines.push(`  ${n}`);
       }
-      const recent = readViolations(USER_VIOLATIONS_LOG, { limit: 5 });
+      const recent = readViolations(USER_VIOLATIONS_LOG, { limit: 10 });
       if (recent.length > 0) {
         lines.push('');
-        lines.push('Recent violations (5 most recent; /sandbox-violations for full):');
+        lines.push('Recent violations (10 most recent; /sandbox-violations for full):');
         for (const r of recent) {
           lines.push(`  ${r.ts} ${r.kind} ${r.action}${r.path ? ` ${r.path}` : ''}${r.host ? ` ${r.host}` : ''}`);
         }

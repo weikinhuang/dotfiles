@@ -1,15 +1,12 @@
 /**
  * Tests for `config/pi/extensions/filesystem.ts` - the in-process
- * filesystem gate that replaces `protected-paths.ts` in Phase 3 of
- * the sandbox-runtime extension.
+ * gate for `read` / `write` / `edit` tool calls.
  *
- * Per the project convention (see
- * `tests/config/pi/extensions/protected-paths-subagent.spec.ts`'s
- * docstring): this spec lives under `tests/config/pi/extensions/` to
- * document the extension contract, but only drives the underlying
- * pure lib helpers (`filesystem-policy/{schema,classify,load}.ts`).
- * The hook-only factory + the no-UI fallback path are mirrored
- * inline so the spec runs without a pi runtime.
+ * This spec lives under `tests/config/pi/extensions/` to document the
+ * extension contract, but only drives the underlying pure lib helpers
+ * (`filesystem-policy/{schema,classify,load}.ts`). The hook-only
+ * factory + the no-UI fallback path are mirrored inline so the spec
+ * runs without a pi runtime - same pattern as `sandbox.spec.ts`.
  *
  * Coverage:
  *
@@ -172,7 +169,7 @@ describe('filesystem layered loader', () => {
 //
 // Mirror of `filesystem.ts`'s `tool_call` handler so the spec can run
 // without a pi runtime. The structural fake matches the bash-permissions
-// / protected-paths sibling specs.
+// sibling spec.
 // ─────────────────────────────────────────────────────────────────
 
 import { resolve } from 'node:path';
@@ -306,7 +303,7 @@ describe('filesystem hook-only factory + child no-UI fallback', () => {
     expect(r).toBeUndefined();
   });
 
-  test('PI_PROTECTED_PATHS_DEFAULT=allow lets unknown protected paths through (defaultFallback=allow)', async () => {
+  test('PI_FILESYSTEM_DEFAULT=allow lets unknown protected paths through (defaultFallback=allow)', async () => {
     const { policy } = loadFilesystemPolicy([]);
     const handler = filesystemHandlerMirror({ policy, defaultFallback: 'allow' });
     const r = await handler({ toolName: 'read', input: { path: '.env' } }, { cwd: CWD, hasUI: false });

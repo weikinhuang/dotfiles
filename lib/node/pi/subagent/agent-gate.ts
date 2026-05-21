@@ -8,7 +8,7 @@
  * resource loader is built with `noExtensions: true` (the layered-on-disk
  * extensions are skipped, but inline factories still load). That is the
  * mechanism `subagent.ts` uses to enforce per-agent gates inside the
- * child without dragging the whole bash-permissions / protected-paths /
+ * child without dragging the whole bash-permissions / filesystem /
  * persona stack into the subagent process.
  *
  * The factory closes over the agent's resolved configuration and

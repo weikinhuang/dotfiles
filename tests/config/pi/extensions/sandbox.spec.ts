@@ -64,8 +64,7 @@ interface FakeExtensionAPI {
  * `config/pi/extensions/sandbox.ts`. We reproduce it here instead of
  * importing the full extension default export because vitest does not
  * have pi's runtime API on the test path - same tactic the
- * `bash-permissions-subagent.spec.ts` and `protected-paths-subagent.spec.ts`
- * specs use.
+ * `bash-permissions-subagent.spec.ts` spec uses.
  *
  * The factory:
  *   1. skips non-bash events,

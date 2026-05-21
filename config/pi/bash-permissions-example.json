@@ -240,7 +240,7 @@
 
   // Additive deny list. The extension already hardcodes catastrophes
   // (`rm -rf /`, fork bombs, `mkfs`, raw `dd`, `curl | sh`, …) and the
-  // `protected-paths` extension guards `.env*` / `~/.ssh` / `.git/` / etc.
+  // `filesystem` extension guards `.env*` / `~/.ssh` / `.git/` / etc.
   // Add entries here only when you want belt-and-suspenders for a specific
   // command on this machine or repo.
   "deny": []

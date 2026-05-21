@@ -1,17 +1,12 @@
 /**
  * Classification helpers for the unified `~/.pi/filesystem.json` policy.
  *
- * Absorbs (and supersedes) the path-matching helpers from
- * `lib/node/pi/paths.ts`, which `protected-paths.ts` consumes today and
- * is deleted in Phase 3 of the sandbox-runtime extension rollout.
- *
  * Read uses deny-then-allow-back semantics:
  *   1. If a `read.deny.*` entry matches, gate the path...
  *   2. ...unless a `read.allow.*` entry also matches, which "allows
  *      back" within an otherwise-denied prefix.
- *   3. No outside-workspace check on reads (matches existing
- *      `protected-paths` behavior - reading nearby READMEs and dotfiles
- *      is routine).
+ *   3. No outside-workspace check on reads - reading nearby READMEs
+ *      and dotfiles is routine.
  *
  * Write uses allow-only semantics:
  *   1. If the path is NOT under any `write.allow.paths` prefix, gate
@@ -181,8 +176,8 @@ export function classifyRead(inputPath: string, cwd: string, policy: FilesystemP
  * the path-prefix check - they only carry meaning inside the deny set.
  *
  * After the allow gate, walk `write.deny` AND `read.deny` (anything
- * read-sensitive is trivially write-sensitive, matching the existing
- * `protected-paths::classifyWrite` union behavior).
+ * read-sensitive is trivially write-sensitive, so we union the two
+ * deny sets when classifying writes).
  */
 export function classifyWrite(inputPath: string, cwd: string, policy: FilesystemPolicy): FilesystemMatch | null {
   const absolute = resolve(cwd, expandTilde(inputPath));

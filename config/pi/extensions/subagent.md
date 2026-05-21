@@ -24,8 +24,8 @@ Registers one tool (`subagent`) with `executionMode: "parallel"` and one command
   opencode, and codex all make the same choice. Prevents runaway fan-out.
 - **Context isolation.** Child starts with no parent chat history. Only the workspace's `AGENTS.md` / `CLAUDE.md` files
   and the agent definition's system-prompt body are injected.
-- **Guardrail inheritance.** `bash-permissions.json` / `protected-paths.json` rule layers apply in the child because
-  both extensions re-read them on every tool call. The **session allowlist** (in-memory approvals) does NOT cross the
+- **Guardrail inheritance.** `bash-permissions.json` / `filesystem.json` rule layers apply in the child because both
+  extensions re-read them on every tool call. The **session allowlist** (in-memory approvals) does NOT cross the
   boundary - fresh child, fresh approvals.
 - **Parent never sees intermediate tool output.** The child's own session file records every call; the parent's
   `tool_result` carries only the final answer text. A collapsible `subagent-run` message in the parent transcript
@@ -62,8 +62,8 @@ Frontmatter schema:
 ### Per-agent gate enforcement
 
 `bashAllow` / `bashDeny` / `writeRoots` / `requestOptions` are enforced by an inline `ExtensionFactory` installed inside
-the child session, NOT by the parent's `bash-permissions` / `protected-paths` / `persona` extensions. Pi's extension
-loader supports `extensionFactories` on `DefaultResourceLoader` even when `noExtensions: true` is set, which is how the
+the child session, NOT by the parent's `bash-permissions` / `filesystem` / `persona` extensions. Pi's extension loader
+supports `extensionFactories` on `DefaultResourceLoader` even when `noExtensions: true` is set, which is how the
 subagent extension keeps the layered-on-disk extensions out of children while still gating per-agent.
 
 - The factory closes over the agent's resolved configuration at spawn time, so each child enforces its own rules
@@ -131,9 +131,9 @@ lockstep.
   `<handle> <agent> <state> <elapsed> turn N/max`, a tokens line, a context-usage bar, model, and per-tool call counts
   (`read(7) · grep(3) · bash(1)`). Below the row list, a preview block summarises the highlighted child and tails a
   bounded ring (default 64 entries) of structured-event activity: `→ <tool>  <args>` / `← <result>` for tool calls,
-  `▌ <…>` while an assistant message is streaming, plus retry / compaction one-liners. Follow-mode is on by default
-  for live children; press `f` to freeze. Terminal children fall back to reading the child's on-disk JSONL transcript
-  via `tailJsonl(...)`. Escape closes.
+  `▌ <…>` while an assistant message is streaming, plus retry / compaction one-liners. Follow-mode is on by default for
+  live children; press `f` to freeze. Terminal children fall back to reading the child's on-disk JSONL transcript via
+  `tailJsonl(...)`. Escape closes.
 
 Both overlays follow the same `─── Title ───…─── chip ───` rule style as `/todos` and share the pure helpers in
 [`lib/node/pi/subagent-format.ts`](../../../lib/node/pi/subagent-format.ts) +

@@ -1,8 +1,7 @@
 /**
  * Shared `Allow once / Allow this session / Deny + feedback` approval
- * prompt. Extracted from `config/pi/extensions/protected-paths.ts` so
- * other extensions (notably the upcoming `mode.ts` write-roots gate)
- * can reuse the exact same UX.
+ * prompt used by `filesystem.ts` and any other extension that needs the
+ * same UX.
  *
  * Pure-helper conventions apply: the module is pi-runtime-free at
  * runtime and only depends on a structural slice of `ExtensionContext`

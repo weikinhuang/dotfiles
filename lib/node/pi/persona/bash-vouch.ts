@@ -4,8 +4,8 @@
  * a bash sub-command past the `bash-permissions` gate without prompting
  * or denying for "unknown command".
  *
- * Mirrors the existing writeRoots vouch in `protected-paths.ts`: a
- * persona that ships e.g. `bashAllow: ['ai-fetch-web *']` means the
+ * Mirrors the writeRoots vouch in `filesystem.ts`: a persona that
+ * ships e.g. `bashAllow: ['ai-fetch-web *']` means the
  * user-author of the persona file has already endorsed that command
  * for this persona's runs. With this helper, that endorsement extends
  * to bash-permissions itself, so the persona Just Works in `pi -p` /

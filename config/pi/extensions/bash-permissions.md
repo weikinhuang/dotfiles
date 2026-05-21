@@ -95,7 +95,7 @@ differently.
   | --------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
   | Hardcoded denylist (`rm -rf /`, fork bomb, `mkfs`, `dd` to raw disk, `curl \| sh`, …)                                                         | The approval prompt for unknown commands |
   | Explicit user/project/session deny rules                                                                                                      |                                          |
-  | `protected-paths` (reads of `.env*` / `~/.ssh`, writes to those plus `.git/`, `node_modules/`, or outside the workspace) - separate extension |                                          |
+  | `filesystem` gate (reads of `.env*` / `~/.ssh`, writes to those plus `.git/`, `node_modules/`, or outside the workspace) - separate extension |                                          |
 
   Auto-mode state is session-scoped and reset on `session_shutdown` / `/reload` / `/new`, so you always re-opt-in after
   a restart. While on, the custom [`statusline.ts`](./statusline.ts) renders a `⚡` indicator in the footer. State is

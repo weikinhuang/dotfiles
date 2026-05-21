@@ -68,10 +68,10 @@ via `markLiveJobsTerminated` so the next runtime sees them as historical rather 
 
 ## Commands
 
-- `/bg-bash` or `/bg-bash list` - open the bottom-anchored overlay. Top section is a structured job list
-  (id · status glyph · phrase · duration · bytes · cmd); bottom section is the merged log tail (last 8 lines) for the
-  highlighted job. Follow mode is default-on for running jobs; a 500 ms tick re-reads the in-memory ring buffer. Without
-  a UI surface (`ctx.hasUI === false`) the command falls back to a `formatState` notify so headless calls still print
+- `/bg-bash` or `/bg-bash list` - open the bottom-anchored overlay. Top section is a structured job list (id · status
+  glyph · phrase · duration · bytes · cmd); bottom section is the merged log tail (last 8 lines) for the highlighted
+  job. Follow mode is default-on for running jobs; a 500 ms tick re-reads the in-memory ring buffer. Without a UI
+  surface (`ctx.hasUI === false`) the command falls back to a `formatState` notify so headless calls still print
   something useful.
 - `/bg-bash logs <id>` - dump in-memory stdout + stderr for a live job.
 - `/bg-bash kill <id> [signal]` - signal a live job (default `SIGTERM`).
@@ -111,6 +111,12 @@ via `markLiveJobsTerminated` so the next runtime sees them as historical rather 
   `formatBackgroundJobs(state, { maxChars, now })` renders the system-prompt block.
 - [`../../../lib/node/pi/bash-gate.ts`](../../../lib/node/pi/bash-gate.ts) - `requestBashApproval`, shared with the
   built-in `bash` tool.
+- [`../../../lib/node/pi/sandbox/wrapper-slot.ts`](../../../lib/node/pi/sandbox/wrapper-slot.ts) - `requestSandboxWrap`,
+  the slot the [`sandbox`](./sandbox.md) extension fills with its `srt`/`sandbox-exec`/`bwrap` wrapper. `bg_bash start`
+  calls it after `requestBashApproval` so the spawned shell child runs under the kernel sandbox too. When no wrapper is
+  installed (sandbox extension disabled, missing deps, unsupported platform) the helper identity-wraps and `bg_bash`
+  keeps working unchanged. The Phase 0 kill-tree spike verified that `process.kill(-pid, sig)` reaps through both
+  `sandbox-exec` (macOS) and `bwrap` (Linux), so no extra signal plumbing is needed.
 
 ## Hot reload
 

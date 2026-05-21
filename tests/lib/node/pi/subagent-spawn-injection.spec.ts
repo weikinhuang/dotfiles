@@ -3,11 +3,11 @@
  * registry with per-call `extensionFactories` in the right order, and
  * that the merged list reaches `DefaultResourceLoader`'s ctor args.
  *
- * Phase 2 of the sandbox-runtime extension widens the spawn helper so
- * parent-side security gates (bash-permissions, protected-paths,
- * future sandbox) can register hook-only factories once at extension
- * load and have them auto-mount inside every child session - closing
- * a pre-existing silent gap where children loaded with
+ * The spawn helper accepts both a global registry (parent-side security
+ * gates - bash-permissions, filesystem, sandbox - call
+ * `registerSubagentInjection` once at extension load) and per-call
+ * `extensionFactories`. Together they auto-mount inside every child
+ * session, closing a pre-existing silent gap where children loaded with
  * `noExtensions: true` and bypassed the parent's `tool_call` chain.
  *
  * The DefaultResourceLoader stub captures its ctor args so the spec can
@@ -153,7 +153,7 @@ describe('runOneShotAgent + subagent-extension-injection', () => {
   });
 
   test('composes registry first, per-call last (override semantics)', async () => {
-    // Same id pattern as the real bash-permissions / protected-paths
+    // Same id pattern as the real bash-permissions / filesystem
     // factories - registered once on extension load. Order matters:
     // pi's runner uses last-registered-wins for handlers on the same
     // event, so per-call factories overlay the globals.

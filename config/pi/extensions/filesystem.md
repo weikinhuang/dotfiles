@@ -1,9 +1,8 @@
 # `filesystem.ts`
 
-Session-scoped approval gate for pi's built-in `read`, `write`, and `edit` tools. Replaces the legacy
-`protected-paths.ts` extension (removed in this commit); same prompt UX, same session allowlist, same persona-vouch
-composition - just sourced from the unified `~/.pi/filesystem.json` policy that the kernel-level
-[`sandbox.ts`](./sandbox.md) extension also reads.
+Session-scoped approval gate for pi's built-in `read`, `write`, and `edit` tools. Reads the unified
+`~/.pi/filesystem.json` policy shared with the kernel-level [`sandbox.ts`](./sandbox.md) extension so the in-process
+gate and the syscall gate stay in lockstep.
 
 Together with [`bash-permissions.ts`](./bash-permissions.md) (regex-layer bash gate) and [`sandbox.ts`](./sandbox.md)
 (kernel-layer sandbox), this is one of three composable security gates - see plan section 2 for the full threat-model
@@ -15,11 +14,10 @@ The unified policy has two top-level categories with separate semantics:
 
 - **`read`** (deny-then-allow-back): a path matched by `read.deny.*` is gated unless it ALSO matches `read.allow.*`,
   which carves narrow "allow-back" holes inside an otherwise-denied prefix. Empty `read.deny.*` means "allow
-  everything," matching today's `protected-paths` default.
+  everything".
 - **`write`** (allow-only): the path must be inside one of `write.allow.paths`, otherwise the gate fires with reason
   `outside-allowed-write`. Inside the allowed area, `write.deny.*` carves additional holes (`.git/hooks`, `.env*`, ...).
-  This is the **behavior change vs `protected-paths`**: writes outside the allow set always prompt (in-process) AND
-  block (kernel sandbox).
+  Writes outside the allow set always prompt (in-process) AND block (kernel sandbox).
 
 Defaults (`DEFAULT_POLICY` in
 [`lib/node/pi/filesystem-policy/schema.ts`](../../../lib/node/pi/filesystem-policy/schema.ts)):
@@ -52,9 +50,8 @@ Session-scoped only - no persistent allowlist for paths, because they're almost 
 The session allowlist is **shared** across `read` / `write` / `edit`: approving a path satisfies subsequent calls of
 either kind for the same absolute path until `session_shutdown`.
 
-In non-interactive mode (`pi -p`, JSON, RPC without UI) the gate blocks by default; set
-`PI_PROTECTED_PATHS_DEFAULT=allow` to override (env-var name is preserved across the rename for muscle-memory
-continuity).
+In non-interactive mode (`pi -p`, JSON, RPC without UI) the gate blocks by default; set `PI_FILESYSTEM_DEFAULT=allow` to
+override.
 
 ## Custom rules
 
@@ -144,7 +141,7 @@ This extension registers `filesystemFactoryHookOnly` via
 sessions (`runOneShotAgent`, the `subagent` extension's inline `DefaultResourceLoader`) automatically apply the gate to
 child `read` / `write` / `edit` calls. The factory mounts ONLY the `tool_call` handler - no slash command, no statusline
 glue. Children run with `hasUI: false`, so the approval dialog never fires; unknown protected paths fall through to
-`PI_PROTECTED_PATHS_DEFAULT` (default deny). Defaults / user / project / persona overlay are re-read from disk per call
+`PI_FILESYSTEM_DEFAULT` (default deny). Defaults / user / project / persona overlay are re-read from disk per call
 inside the child, so a matching policy entry still blocks the tool call.
 
 ## Commands
@@ -153,19 +150,5 @@ inside the child, so a matching policy entry still blocks the tool call.
 
 ## Environment variables
 
-- `PI_PROTECTED_PATHS_DISABLED=1` - bypass the gate entirely. Env-var name is preserved across the rename so existing
-  shell rcs keep working.
-- `PI_PROTECTED_PATHS_DEFAULT=allow` - in non-UI mode, allow unknown paths instead of blocking.
-
-## Migration from `protected-paths`
-
-Run [`scripts/migrate-protected-paths.ts`](../../../scripts/migrate-protected-paths.ts) once after upgrading to
-translate any existing `~/.pi/protected-paths.json` into the unified `~/.pi/filesystem.json` schema. The script is
-idempotent (re-running is a no-op) and is removed in Phase 4 of the sandbox-runtime rollout.
-
-The schema differences are:
-
-- `protected-paths.read` (allow-everything-by-default) → `filesystem.read.deny` (same posture).
-- `protected-paths.write` (deny-list, outside-workspace check) → `filesystem.write.deny` plus
-  `filesystem.write.allow.paths` defaulting to `['.', '/tmp']` (allow-only model). The migration adds those two paths
-  automatically; persona `writeRoots` are merged at runtime.
+- `PI_FILESYSTEM_DISABLED=1` - bypass the gate entirely.
+- `PI_FILESYSTEM_DEFAULT=allow` - in non-UI mode, allow unknown paths instead of blocking.

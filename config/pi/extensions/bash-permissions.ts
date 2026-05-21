@@ -74,9 +74,9 @@
  *   /bash-auto [on|off|status]
  *                           toggle auto-allow for the current session.
  *                           Hardcoded deny and explicit deny rules still
- *                           block; protected-paths (env / outside-workspace
- *                           / node_modules) is unaffected since it's a
- *                           separate extension.
+ *                           block; the `filesystem` gate (env /
+ *                           outside-workspace / node_modules) is
+ *                           unaffected since it's a separate extension.
  *
  * Environment:
  *   PI_BASH_PERMISSIONS_DISABLED=1            skip the gate entirely
@@ -475,7 +475,7 @@ export default function bashPermissions(pi: ExtensionAPI): void {
     // Cross-extension vouch: when the active persona declares the
     // command in its `bashAllow`, treat it as session-allowed by the
     // user-author of the persona file. Mirrors the writeRoots vouch in
-    // `protected-paths.ts`. Persona's `bashAllow` wins over its own
+    // `filesystem.ts`. Persona's `bashAllow` wins over its own
     // `bashDeny` on overlap (see `evaluateBashPolicy`), so the vouch
     // does too. Skipped for the always-prompt carve-out (sudo / doas /
     // pkexec / …) - privilege escalation must always show the dialog
@@ -666,7 +666,7 @@ export default function bashPermissions(pi: ExtensionAPI): void {
         ctx.ui.notify(
           '⚡ Auto mode ON - bash commands will auto-run this session.\n' +
             'Hardcoded deny (rm -rf /, mkfs, …) and explicit deny rules still block.\n' +
-            'protected-paths is unaffected (writes to .env / outside-workspace still prompt).\n' +
+            'filesystem gate is unaffected (writes to .env / outside-workspace still prompt).\n' +
             'Run /bash-auto off to turn it back off.',
           'warning',
         );

@@ -83,6 +83,63 @@ task string, the stop reason, and the child session id. `session-usage.ts` picks
 - Orphaned child transcripts (crash-leftovers without a recorded parent entry) still render - the agent label is just
   empty.
 
+## Sandboxing in action
+
+Three composable security gates ship enabled by default in [`settings-baseline.json`](./settings-baseline.json):
+
+1. [`bash-permissions`](./extensions/bash-permissions.md) - regex / UI gate at the LLM tool-call layer.
+2. [`filesystem`](./extensions/filesystem.md) - in-process gate for `read` / `write` / `edit` calls.
+3. [`sandbox`](./extensions/sandbox.md) - kernel-level sandbox (`sandbox-exec` on macOS, `bubblewrap` on Linux) that
+   wraps every bash subprocess via
+   [`@anthropic-ai/sandbox-runtime`](https://www.npmjs.com/package/@anthropic-ai/sandbox-runtime).
+
+### First run
+
+```text
+$ pi
+… sandbox: deps OK (sandbox-exec, ripgrep)
+… filesystem: defaults loaded; project policy at .pi/filesystem.json absent
+🛡️  ⚡    bash-permissions: auto mode off    filesystem: 0 rules    sandbox: wrapped
+
+You: please run the tests
+
+[pi opens the bash-permissions dialog the first time it sees `npm test`]
+  → Allow once
+  → Allow `npm test` for this session
+  → Always allow `npm test` (project)   ← writes .pi/bash-permissions.json
+  → Deny
+  → Deny with feedback…
+
+[sandbox wraps the approved command. The kernel blocks any escape - if the
+ model later tries `cat ~/.ssh/id_rsa`, the read EPERMs at the syscall layer
+ even though bash-permissions never sees that path inside the wrapper.]
+```
+
+### Statusline badge states
+
+| Badge                  | Meaning                                                                                |
+| ---------------------- | -------------------------------------------------------------------------------------- |
+| shield                 | sandbox on, deps OK, every bash subprocess wrapped                                     |
+| bolt + shield          | auto-mode on AND sandbox on (defense-in-depth visible at a glance)                     |
+| shield (strikethrough) | session bypass via `/sandbox-disable` - cleared on `session_shutdown`                  |
+| shield `?` (dim)       | identity-wrap because deps are missing or the platform is unsupported - run `/sandbox` |
+| shield `·off`          | bypassed via `PI_SANDBOX_DISABLED=1`                                                   |
+
+### When something blocks
+
+- The `/sandbox` slash command prints active config, dependency status, proxy ports, and the 10 most-recent violations.
+- `/sandbox-violations [--net|--fs]` dumps the JSONL audit log at `~/.pi/sandbox-violations.log`.
+- On a sandboxed bash failure, the model sees ASRT's annotated stderr (prefixed with
+  `⚠️ sandbox blocked this operation:`) instead of an opaque `EPERM` / `EROFS` - it knows to suggest
+  `/sandbox-allow <host>` or a wider `write.allow.paths`.
+- The bg-bash extension routes through the same wrap, so backgrounded jobs (`npm run dev`, watchers, dev servers) run
+  under the kernel sandbox too; `process.kill(-pid, sig)` still reaps the wrapped child cleanly on both platforms.
+
+### Running `pi -p` in CI
+
+See the ["Running pi -p in CI" section](./extensions/sandbox.md#running-pi--p-in-ci) of the sandbox deep-doc - three
+escalation rungs from pre-seeded `.pi/sandbox.json` to `PI_SANDBOX_DISABLED=1` for ephemeral containers.
+
 ## Related docs
 
 - [extensions/README.md](./extensions/README.md) - per-extension index and deep references.

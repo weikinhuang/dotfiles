@@ -5,7 +5,7 @@
  *
  * The `subagent` extension publishes here when a child run starts and
  * clears when it ends. Other extensions (notably `bash-permissions`,
- * `protected-paths`, and the `before_provider_request` handler in
+ * `filesystem`, and the `before_provider_request` handler in
  * `persona`) can read it to compose their own gates with the running
  * agent's declared `bashAllow` / `bashDeny` / `writeRoots` /
  * `requestOptions`.

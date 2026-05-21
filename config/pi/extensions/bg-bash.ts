@@ -73,6 +73,7 @@ import { Type } from 'typebox';
 
 import { requestBashApproval } from '../../../lib/node/pi/bash-gate.ts';
 import { formatBackgroundJobs } from '../../../lib/node/pi/bg-bash-prompt.ts';
+import { requestSandboxWrap } from '../../../lib/node/pi/sandbox/wrapper-slot.ts';
 import {
   allocateId as allocateJobId,
   BG_BASH_CUSTOM_TYPE,
@@ -804,6 +805,14 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
    */
   const startJob = (args: {
     command: string;
+    /**
+     * Command actually handed to `/bin/sh -c`. When the sandbox extension
+     * is active this is the `srt`-wrapped form returned by
+     * `requestSandboxWrap`; the JobSummary still records `command` as the
+     * original user-typed string so `list`/`status`/the overlay show what
+     * the model asked for, not the wrap shape.
+     */
+    spawnCommand?: string;
     cwd: string;
     label?: string;
     env?: Record<string, string>;
@@ -842,7 +851,7 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
     const stdinMode: 'ignore' | 'pipe' = args.interactiveStdin ? 'pipe' : 'ignore';
 
     try {
-      child = spawn('/bin/sh', ['-c', args.command], {
+      child = spawn('/bin/sh', ['-c', args.spawnCommand ?? args.command], {
         cwd: args.cwd,
         env: args.env ? { ...process.env, ...args.env } : process.env,
         stdio: [stdinMode, 'pipe', 'pipe'],
@@ -1022,9 +1031,16 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
     const gate = await gateSerialized(command, ctx);
     if (!gate.allowed) return errorReturn('start', `Blocked by bash-permissions: ${gate.reason}`);
 
+    // Phase 0's kill-tree spike confirmed `process.kill(-pid, sig)` reaps
+    // a sandbox-exec / bwrap intermediate cleanly, so the existing
+    // process-group SIGTERM in `sendSignalTo` already covers wrapped
+    // children - no extra AbortSignal plumbing through wrapWithSandbox.
+    const wrap = await requestSandboxWrap(command, { cwd: ctx.cwd, hasUI: ctx.hasUI });
+
     const cwd = resolveCwd(ctx.cwd, params.cwd);
     const summary = startJob({
       command,
+      spawnCommand: wrap.wrapped ? wrap.command : undefined,
       cwd,
       label: params.label,
       env: params.env,

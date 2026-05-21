@@ -1,7 +1,7 @@
 /**
  * Unified filesystem-policy schema consumed by both `filesystem.ts`
- * (the in-process gate that replaces `protected-paths.ts` in Phase 3)
- * and `sandbox.ts` (the kernel sandbox via @anthropic-ai/sandbox-runtime).
+ * (the in-process gate for read / write / edit) and `sandbox.ts` (the
+ * kernel sandbox via @anthropic-ai/sandbox-runtime).
  *
  * Read uses a "deny-then-allow-back" model: empty deny = allow
  * everything, an entry in `read.deny.*` blocks unless overridden by a
@@ -166,8 +166,7 @@ export function mergePolicies(...sources: (PartialFilesystemPolicy | undefined |
 /**
  * Built-in defaults that ship with pi. User and project layers ADD on
  * top - there is no "remove a default" knob for v1; if you need one,
- * disable the extension (`PI_PROTECTED_PATHS_DISABLED=1` until Phase 3
- * lands the rename).
+ * disable the extension (`PI_FILESYSTEM_DISABLED=1`).
  *
  * Defaults match plan section 6's "Default baseline":
  *

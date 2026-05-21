@@ -1,9 +1,8 @@
 /**
  * Filesystem permission gate for pi's `read`, `write`, and `edit`
- * tools. Replaces the legacy `protected-paths.ts` extension; same
- * approval UX, but reads the unified `~/.pi/filesystem.json` policy
- * shared with the kernel-level `sandbox.ts` extension (Phase 3 of the
- * sandbox-runtime plan).
+ * tools. Reads the unified `~/.pi/filesystem.json` policy shared with
+ * the kernel-level `sandbox.ts` extension so the in-process gate and
+ * the syscall-level gate stay in lockstep.
  *
  * Two threat models with separate rule sets:
  *
@@ -17,15 +16,9 @@
  *   - `write.deny.*` - carves holes inside the allow set
  *                      (.git/hooks, .git/config, node_modules, .env*).
  *
- * Behavior change vs `protected-paths.ts`:
- *
- *   - Writes are allow-only. The legacy `outside-workspace` reason is
- *     replaced by `outside-allowed-write`; the user-visible message
- *     names the configured roots so it's obvious what to add.
- *   - Read-sensitive entries are NOT auto-merged into `write.deny`.
- *     `classifyWrite` walks `read.deny` after `write.deny` itself, so
- *     the union behavior is preserved without the duplicate-config
- *     burden.
+ * `classifyWrite` walks `read.deny` after `write.deny`, so anything
+ * read-sensitive is automatically also write-sensitive without
+ * duplicate-config burden.
  *
  * Layered config (additive within categories, last layer wins on
  * scalars - see `lib/node/pi/filesystem-policy/load.ts`):
@@ -35,7 +28,7 @@
  *   3. Project `<repo>/.pi/filesystem.json` inside `ctx.cwd`
  *   4. Persona writeRoots                  (positive vouch, merged into write.allow.paths)
  *
- * Approval flow (interactive dialog, identical to `protected-paths`):
+ * Approval flow (interactive dialog):
  *
  *   1. Allow once
  *   2. Allow "<path>" for this session
@@ -44,8 +37,7 @@
  *
  * The session allowlist is shared across read/write/edit, cleared on
  * `session_shutdown`. In non-UI mode (print / RPC without UI) the gate
- * blocks by default; set `PI_PROTECTED_PATHS_DEFAULT=allow` (env-var
- * name preserved across the rename for muscle-memory continuity).
+ * blocks by default; set `PI_FILESYSTEM_DEFAULT=allow` to override.
  *
  * The `bash` tool is intentionally NOT gated here - `bash-permissions.ts`
  * owns that channel at the regex layer and `sandbox.ts` owns it at the
@@ -67,8 +59,8 @@
  * curated example with comments.
  *
  * Environment:
- *   PI_PROTECTED_PATHS_DISABLED=1     skip the gate entirely
- *   PI_PROTECTED_PATHS_DEFAULT=allow  in non-UI mode, allow instead
+ *   PI_FILESYSTEM_DISABLED=1     skip the gate entirely
+ *   PI_FILESYSTEM_DEFAULT=allow  in non-UI mode, allow instead
  *                                     of blocking
  *
  * Commands:
@@ -181,7 +173,7 @@ function getPathInput(event: ToolCallEvent): string {
 interface BuildHandlerOpts {
   /** Shared session allowlist of OK'd absolute paths. */
   sessionAllow: Set<string>;
-  /** Non-UI fallback policy (`PI_PROTECTED_PATHS_DEFAULT`). */
+  /** Non-UI fallback policy (`PI_FILESYSTEM_DEFAULT`). */
   defaultFallback: 'allow' | 'deny';
   /** Optional warning-tracker. The hook-only factory passes its own;
    *  the parent extension shares one with its `session_shutdown`. */
@@ -232,7 +224,7 @@ function makeFilesystemToolCallHandler(
         block: true,
         reason:
           `No UI available for approval. Filesystem-protected path "${inputPath}" ` +
-          `(${match.detail}). Set PI_PROTECTED_PATHS_DEFAULT=allow to override, ` +
+          `(${match.detail}). Set PI_FILESYSTEM_DEFAULT=allow to override, ` +
           'or pick a different path.',
       };
     }
@@ -270,7 +262,7 @@ function makeFilesystemToolCallHandler(
  * The child gets a fresh empty `sessionAllow` set; subagent sessions
  * run with `hasUI: false`, so the approval dialog branch never fires
  * and unknown protected paths fall through to
- * `PI_PROTECTED_PATHS_DEFAULT` (default deny). Defaults / user /
+ * `PI_FILESYSTEM_DEFAULT` (default deny). Defaults / user /
  * project layers are re-read from disk per call inside the child, so
  * a matching `read.deny` / `write.allow` / `write.deny` entry still
  * blocks the tool call.
@@ -279,8 +271,8 @@ function makeFilesystemToolCallHandler(
  * `/reload` cycles is idempotent (the registry replaces by id).
  */
 export function filesystemFactoryHookOnly(pi: ExtensionAPI): void {
-  if (process.env.PI_PROTECTED_PATHS_DISABLED === '1') return;
-  const defaultFallback = process.env.PI_PROTECTED_PATHS_DEFAULT === 'allow' ? 'allow' : 'deny';
+  if (process.env.PI_FILESYSTEM_DISABLED === '1') return;
+  const defaultFallback = process.env.PI_FILESYSTEM_DEFAULT === 'allow' ? 'allow' : 'deny';
   const sessionAllow = new Set<string>();
   pi.on('tool_call', makeFilesystemToolCallHandler({ sessionAllow, defaultFallback }));
 }
@@ -290,9 +282,9 @@ export function filesystemFactoryHookOnly(pi: ExtensionAPI): void {
 // ─────────────────────────────────────────────────────────────────
 
 export default function filesystem(pi: ExtensionAPI): void {
-  if (process.env.PI_PROTECTED_PATHS_DISABLED === '1') return;
+  if (process.env.PI_FILESYSTEM_DISABLED === '1') return;
 
-  const defaultFallback = process.env.PI_PROTECTED_PATHS_DEFAULT === 'allow' ? 'allow' : 'deny';
+  const defaultFallback = process.env.PI_FILESYSTEM_DEFAULT === 'allow' ? 'allow' : 'deny';
 
   // Shared session allowlist: resolved-absolute paths the user OK'd this
   // session. Approving a path OK's it for both reads AND writes - if you

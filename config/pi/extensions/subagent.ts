@@ -1250,7 +1250,7 @@ export default function subagentExtension(pi: ExtensionAPI): void {
     // enforces the agent's bashAllow/bashDeny/writeRoots and merges
     // requestOptions into the outgoing provider payload. This is the
     // canonical enforcement path - the parent's bash-permissions /
-    // protected-paths extensions don't see the child's tool calls when
+    // filesystem extensions don't see the child's tool calls when
     // `noExtensions: true` is set on the resourceLoader. Inline
     // extensionFactories load even with that flag.
     const agentGateFactory = createAgentGateFactory({

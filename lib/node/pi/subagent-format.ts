@@ -255,7 +255,8 @@ export function formatAgentPreview(agent: AgentPreviewSource): string[] {
   lines.push(`isolation: ${agent.isolation}`);
   lines.push('');
   const prose = agent.description.replace(/\s+/g, ' ').trim();
-  const capped = prose.length > PREVIEW_DESCRIPTION_CAP ? `${prose.slice(0, PREVIEW_DESCRIPTION_CAP - 1).trimEnd()}…` : prose;
+  const capped =
+    prose.length > PREVIEW_DESCRIPTION_CAP ? `${prose.slice(0, PREVIEW_DESCRIPTION_CAP - 1).trimEnd()}…` : prose;
   lines.push(capped);
   return lines;
 }
@@ -365,8 +366,7 @@ export function formatRunningChildRow(
             ? 'max turns'
             : 'error';
   const glyph = scorecardGlyph(snap.state === 'running' ? 'running' : snap.state).glyph;
-  const turnChip =
-    snap.maxTurns && snap.maxTurns > 0 ? `turn ${snap.turns}/${snap.maxTurns}` : `turn ${snap.turns}`;
+  const turnChip = snap.maxTurns && snap.maxTurns > 0 ? `turn ${snap.turns}/${snap.maxTurns}` : `turn ${snap.turns}`;
 
   const head = [`${entry.handle ? handle : ''}`, snap.agent, glyph, stateLabel, elapsedStr, turnChip]
     .filter((s) => s && s.length > 0)
@@ -415,11 +415,7 @@ export function formatSubagentScorecard(snap: SubagentRunSnapshot): string[] {
     snap.maxTurns && snap.maxTurns > 0
       ? `${snap.turns} ${snap.turns === 1 ? 'turn' : 'turns'} / ${snap.maxTurns} max`
       : `${snap.turns} ${snap.turns === 1 ? 'turn' : 'turns'}`;
-  const tokenSegs = [
-    `↑${fmtSi(snap.input)}`,
-    `↻ ${fmtSi(snap.cacheRead)}`,
-    `↓${fmtSi(snap.output)}`,
-  ];
+  const tokenSegs = [`↑${fmtSi(snap.input)}`, `↻ ${fmtSi(snap.cacheRead)}`, `↓${fmtSi(snap.output)}`];
   if (snap.cacheWrite && snap.cacheWrite > 0) tokenSegs.splice(2, 0, `W ${fmtSi(snap.cacheWrite)}`);
   const tokenSeg = tokenSegs.join(' / ');
   const denom = snap.input + snap.cacheRead;

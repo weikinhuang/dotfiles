@@ -2,17 +2,14 @@
  * Cross-extension registry of "hook-only factories" injected into
  * subagent (`runOneShotAgent`) child sessions.
  *
- * Today, subagents created via pi's `runOneShotAgent` load with
+ * Subagents created via pi's `runOneShotAgent` load with
  * `noExtensions: true`, so the parent's `tool_call` hooks (including
- * `bash-permissions`, `protected-paths` / `filesystem`, and the
- * upcoming `sandbox` extension) do not fire on subagent bash calls.
- * That's an existing silent security gap.
- *
- * Phase 2 of the sandbox-runtime extension widens
- * `lib/node/pi/subagent-spawn.ts` to accept a list of `extensionFactory`
- * callbacks; this module is the registry parent-side extensions use to
- * advertise their hook-only counterparts. Phase 1 only ships the
- * registry and its tests - the wiring lands in Phase 2.
+ * `bash-permissions`, `filesystem`, and `sandbox`) would not fire on
+ * subagent bash calls without an explicit injection. Each security-gate
+ * extension calls `registerSubagentInjection(...)` on load with a
+ * hook-only factory that mounts ONLY its `tool_call` handler (no
+ * statusline glue, no slash commands); `subagent-spawn.ts` threads
+ * those factories into the child's `DefaultResourceLoader`.
  *
  * Anchored on `globalThis` behind a `Symbol.for()` key so all jiti'd
  * module copies share state (same pattern as `bash-gate.ts`,
