@@ -7,7 +7,7 @@
 
 /* oxlint-disable no-control-regex -- this whole file inspects ANSI SGR escapes */
 
-import { describe, expect, test } from 'vitest';
+import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
 import {
   type LabelSuffixState,
@@ -18,6 +18,7 @@ import {
   formatThinkingEffort,
   formatTokens,
   newLabelSuffixState,
+  pulseDimText,
   resetTurnState,
 } from '../../../../lib/node/pi/waveform-indicator-suffix.ts';
 
@@ -36,6 +37,36 @@ function makeState(overrides: Partial<LabelSuffixState> = {}): LabelSuffixState 
     ...newLabelSuffixState(0),
     ...overrides,
   };
+}
+
+/**
+ * Force the SGR styling on regardless of the host's NO_COLOR / TTY
+ * state so the bulk of the spec sees today's behaviour. The dedicated
+ * NO_COLOR / non-TTY tests below restore + override these per-test.
+ */
+let savedNoColor: string | undefined;
+let savedIsTTY: unknown;
+
+beforeEach(() => {
+  savedNoColor = process.env.NO_COLOR;
+  delete process.env.NO_COLOR;
+  savedIsTTY = (process.stdout as { isTTY?: unknown }).isTTY;
+  (process.stdout as { isTTY?: unknown }).isTTY = true;
+});
+
+afterEach(() => {
+  if (savedNoColor === undefined) delete process.env.NO_COLOR;
+  else process.env.NO_COLOR = savedNoColor;
+  (process.stdout as { isTTY?: unknown }).isTTY = savedIsTTY;
+});
+
+/** Pull the RGB channel value out of `\x1b[2;38;2;v;v;vm…\x1b[0m`. */
+function extractPulseChannel(s: string): number | undefined {
+  const m = /\x1b\[2;38;2;(\d+);(\d+);(\d+)m/.exec(s);
+  if (m === null) return undefined;
+  const r = Number(m[1]);
+  if (Number(m[2]) !== r || Number(m[3]) !== r) return undefined;
+  return r;
 }
 
 // ──────────────────────────────────────────────────────────────────────
@@ -364,23 +395,23 @@ describe('formatSuffix', () => {
     expect(formatSuffix(state, 'off', 53_000)).toBe('(53s · ↓ 2.5k tokens)');
   });
 
-  test('liveInputTokens floors the ↑ segment when the provider has not streamed real input usage (caller passes per-turn delta)', () => {
+  test('inputDeltaTokens floors the ↑ segment when the provider has not streamed real input usage (caller passes per-turn delta)', () => {
     // Provider sent zeros for partial.usage.input throughout streaming -
     // we still want to render an honest input count from the very first
     // tick. Caller passes the per-turn delta of getContextUsage().
     const state = newLabelSuffixState(0);
 
-    expect(formatSuffix(state, 'off', 5_000, 1_280)).toBe('(5s · ↑ 1.3k tokens)');
+    expect(formatSuffix(state, 'off', 5_000, { inputDeltaTokens: 1_280 })).toBe('(5s · ↑ 1.3k tokens)');
   });
 
-  test('real input usage trumps a smaller liveInputTokens floor', () => {
+  test('real input usage trumps a smaller inputDeltaTokens floor', () => {
     // Once the provider has actually streamed input usage that exceeds
     // the caller's floor, prefer the real number so we don't regress
     // the displayed count.
     const state = newLabelSuffixState(0);
     state.committedUsage.input = 2_500;
 
-    expect(formatSuffix(state, 'off', 5_000, 1_000)).toBe('(5s · ↑ 2.5k tokens)');
+    expect(formatSuffix(state, 'off', 5_000, { inputDeltaTokens: 1_000 })).toBe('(5s · ↑ 2.5k tokens)');
   });
 
   test('downlink falls back to delta-byte estimate when partial.usage.output is zero', () => {
@@ -518,5 +549,204 @@ describe('dimText', () => {
 
   test('handles empty string', () => {
     expect(dimText('')).toBe('\x1b[2;38;5;245m\x1b[0m');
+  });
+
+  test('NO_COLOR (any non-empty value) short-circuits to unstyled text', () => {
+    process.env.NO_COLOR = '1';
+
+    expect(dimText('hi')).toBe('hi');
+
+    process.env.NO_COLOR = 'yes please';
+
+    expect(dimText('hi')).toBe('hi');
+  });
+
+  test('empty NO_COLOR does not suppress styling (matches the env convention)', () => {
+    process.env.NO_COLOR = '';
+
+    expect(dimText('hi')).toBe('\x1b[2;38;5;245mhi\x1b[0m');
+  });
+
+  test('process.stdout.isTTY === false short-circuits to unstyled text', () => {
+    (process.stdout as { isTTY?: unknown }).isTTY = false;
+
+    expect(dimText('hi')).toBe('hi');
+  });
+});
+
+// ──────────────────────────────────────────────────────────────────────
+// pulseDimText
+// ──────────────────────────────────────────────────────────────────────
+
+describe('pulseDimText', () => {
+  test('tick=0 paints the brightest frame (cos(0) = 1 → centre + depth)', () => {
+    // Defaults: centre 138, depth 15 → peak 153.
+    const ch = extractPulseChannel(pulseDimText('thinking', 0));
+
+    expect(ch).toBe(153);
+  });
+
+  test('tick=0 with custom depth still peaks at centre + depth', () => {
+    const ch = extractPulseChannel(pulseDimText('thinking', 0, { breatheDepth: 25 }));
+
+    expect(ch).toBe(163);
+  });
+
+  test('trough is dimmer than baseline grey-245 (138)', () => {
+    // With default 0.5 Hz @ 20 FPS the cosine hits -1 at tick=20.
+    const ch = extractPulseChannel(pulseDimText('thinking', 20));
+
+    expect(ch).toBeDefined();
+    expect(ch).toBeLessThan(138);
+    expect(ch).toBe(123);
+  });
+
+  test('returns "" on empty input (helper short-circuits even though caller usually has)', () => {
+    expect(pulseDimText('', 0)).toBe('');
+    expect(pulseDimText('', 12, { breatheSpeed: 0.5, breatheDepth: 20 })).toBe('');
+  });
+
+  test('breatheSpeed <= 0 falls through to a static dim render (no pulse)', () => {
+    expect(pulseDimText('thinking', 5, { breatheSpeed: 0 })).toBe('\x1b[2;38;5;245mthinking\x1b[0m');
+    expect(pulseDimText('thinking', 5, { breatheSpeed: -1 })).toBe('\x1b[2;38;5;245mthinking\x1b[0m');
+  });
+
+  test('non-finite breatheSpeed falls through to a static dim render', () => {
+    expect(pulseDimText('thinking', 5, { breatheSpeed: Number.NaN })).toBe('\x1b[2;38;5;245mthinking\x1b[0m');
+    expect(pulseDimText('thinking', 5, { breatheSpeed: Number.POSITIVE_INFINITY })).toBe(
+      '\x1b[2;38;5;245mthinking\x1b[0m',
+    );
+  });
+
+  test("breatheDepth = 0 reproduces today's static dim render byte-for-byte", () => {
+    expect(pulseDimText('thinking', 7, { breatheDepth: 0 })).toBe(dimText('thinking'));
+  });
+
+  test('channel value clamps to [0, 255] even with an absurd breatheDepth', () => {
+    // tick=0 → cos=1 → centre + depth. Centre 138 + depth 1000 = 1138, must clamp to 255.
+    const peak = extractPulseChannel(pulseDimText('thinking', 0, { breatheDepth: 1000 }));
+
+    expect(peak).toBe(255);
+
+    // tick=20 @ default 0.5 Hz → cos=-1 → centre - 1000 = -862, must clamp to 0.
+    const trough = extractPulseChannel(pulseDimText('thinking', 20, { breatheDepth: 1000 }));
+
+    expect(trough).toBe(0);
+  });
+
+  test('preserves inner text byte-for-byte', () => {
+    const inner = 'still thinking with medium effort';
+
+    expect(stripAnsi(pulseDimText(inner, 0))).toBe(inner);
+  });
+
+  test('NO_COLOR short-circuits to unstyled text', () => {
+    process.env.NO_COLOR = '1';
+
+    expect(pulseDimText('thinking', 0)).toBe('thinking');
+  });
+
+  test('non-TTY short-circuits to unstyled text', () => {
+    (process.stdout as { isTTY?: unknown }).isTTY = false;
+
+    expect(pulseDimText('thinking', 0)).toBe('thinking');
+  });
+});
+
+// ──────────────────────────────────────────────────────────────────────
+// formatSuffix - pulse two-pass render
+// ──────────────────────────────────────────────────────────────────────
+
+describe('formatSuffix pulse (opts.tick)', () => {
+  function makeThinkingState(): LabelSuffixState {
+    const state = newLabelSuffixState(0);
+    state.phase = 'downlink';
+    state.currentUsage = { input: 0, output: 759 };
+    state.thinking.activeStartedAtMs = 0;
+    return state;
+  }
+
+  test('wraps the thinking-effort segment in a truecolor pulse SGR and the rest in static dim', () => {
+    const state = makeThinkingState();
+    const out = formatSuffix(state, 'medium', 22_000, { tick: 0 });
+
+    // Three SGR escapes: dim(prefix) + pulse(thinking) + dim(')').
+    const escapes = out.match(SGR_RE) ?? [];
+
+    expect(escapes.length).toBe(6);
+    expect(stripAnsi(out)).toBe('(22s · ↓ 759 tokens · still thinking with medium effort)');
+    expect(out).toContain('\x1b[2;38;5;245m(22s · ↓ 759 tokens · \x1b[0m');
+    expect(out).toContain('\x1b[2;38;5;245m)\x1b[0m');
+    // Pulse SGR present, peak channel for tick=0.
+    expect(extractPulseChannel(out)).toBe(153);
+  });
+
+  test('tick=0 produces a brighter channel than the trough at tick=20', () => {
+    const state = makeThinkingState();
+    const peak = extractPulseChannel(formatSuffix(state, 'medium', 22_000, { tick: 0 }));
+    const trough = extractPulseChannel(formatSuffix(state, 'medium', 22_000, { tick: 20 }));
+
+    expect(peak).toBe(153);
+    expect(trough).toBe(123);
+    expect(peak).toBeGreaterThan(trough!);
+  });
+
+  test('segment-suppressed states emit no pulse SGR (falls back to single dim wrap)', () => {
+    // No thinking segment at all (level=off + no thinking blocks):
+    const idle = newLabelSuffixState(0);
+    const idleOut = formatSuffix(idle, 'off', 5_000, { tick: 0 });
+
+    expect(idleOut).toBe('\x1b[2;38;5;245m(5s)\x1b[0m');
+    // No truecolor pulse escape anywhere.
+    expect(extractPulseChannel(idleOut)).toBeUndefined();
+
+    // Non-thinking content has streamed → thinking segment suppressed:
+    const streamed = makeThinkingState();
+    streamed.thinking.hasStreamedNonThinkingContent = true;
+    const streamedOut = formatSuffix(streamed, 'medium', 22_000, { tick: 0 });
+
+    expect(stripAnsi(streamedOut)).toBe('(22s · ↓ 759 tokens)');
+    expect(extractPulseChannel(streamedOut)).toBeUndefined();
+  });
+
+  test("breatheDepth=0 emits no pulse SGR and renders the same visible text as today's static dim", () => {
+    const state = makeThinkingState();
+    const out = formatSuffix(state, 'medium', 22_000, { tick: 0, breatheDepth: 0 });
+
+    // No truecolor pulse SGR - all SGR escapes are the grey-245 baseline.
+    expect(extractPulseChannel(out)).toBeUndefined();
+    expect(stripAnsi(out)).toBe(stripAnsi(dimText(formatSuffix(state, 'medium', 22_000))));
+    // Every SGR escape is either DIM_OPEN or the full reset.
+    for (const sgr of out.match(SGR_RE) ?? []) {
+      expect(sgr === '\x1b[2;38;5;245m' || sgr === '\x1b[0m').toBe(true);
+    }
+  });
+
+  test("breatheSpeed <= 0 emits no pulse SGR and renders the same visible text as today's static dim", () => {
+    const state = makeThinkingState();
+    const plainText = stripAnsi(dimText(formatSuffix(state, 'medium', 22_000)));
+
+    for (const breatheSpeed of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
+      const out = formatSuffix(state, 'medium', 22_000, { tick: 5, breatheSpeed });
+
+      expect(extractPulseChannel(out)).toBeUndefined();
+      expect(stripAnsi(out)).toBe(plainText);
+    }
+  });
+
+  test('NO_COLOR short-circuits the whole pulse render to plain text', () => {
+    process.env.NO_COLOR = '1';
+    const state = makeThinkingState();
+    const out = formatSuffix(state, 'medium', 22_000, { tick: 0 });
+
+    expect(out).toBe('(22s · ↓ 759 tokens · still thinking with medium effort)');
+    expect(out.match(SGR_RE)).toBeNull();
+  });
+
+  test("omitting opts.tick preserves today's plain unstyled return shape", () => {
+    const state = makeThinkingState();
+
+    expect(formatSuffix(state, 'medium', 22_000)).toBe('(22s · ↓ 759 tokens · still thinking with medium effort)');
+    expect(formatSuffix(state, 'medium', 22_000, {})).toBe('(22s · ↓ 759 tokens · still thinking with medium effort)');
   });
 });

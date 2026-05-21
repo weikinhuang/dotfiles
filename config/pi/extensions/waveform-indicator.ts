@@ -51,6 +51,16 @@
  *   PI_WAVEFORM_INDICATOR_DISABLED=1   leave pi's default indicator alone
  *   PI_WAVEFORM_INDICATOR_MODE=<mode>  override the persisted mode for
  *                                     this session (scroll|spectrum|off|default)
+ *   PI_WAVEFORM_THINKING_PULSE=off     suppress the breathing pulse on the
+ *                                     thinking-effort segment of the suffix
+ *                                     (the rest of the suffix still dims as
+ *                                     before). Any other value keeps the
+ *                                     pulse on; the default is on.
+ *   PI_WAVEFORM_THINKING_PULSE_HZ=<f>  cosine frequency in Hz. Default 0.5
+ *                                     (≈ 2 s period). `<= 0` and non-finite
+ *                                     values short-circuit to a static dim
+ *                                     render (no pulse) - same effect as
+ *                                     `PI_WAVEFORM_THINKING_PULSE=off`.
  */
 
 import { homedir } from 'node:os';
@@ -81,6 +91,34 @@ type Mode = WaveformMode;
 
 const STATE_PATH = join(homedir(), '.pi', 'waveform-indicator.json');
 
+/**
+ * Read `PI_WAVEFORM_THINKING_PULSE` + `PI_WAVEFORM_THINKING_PULSE_HZ`
+ * and resolve them into the `{enabled, hz}` shape `formatSuffix`
+ * consumes. `PI_WAVEFORM_THINKING_PULSE=off` is the only opt-out; any
+ * other value (including unset) leaves the pulse on. A non-finite or
+ * `<= 0` Hz value flips `enabled` to false here so we never call
+ * `formatSuffix` with `tick` set in a way that would land on the
+ * static-peak `cos(0) = 1` frame.
+ */
+function resolveThinkingPulseConfig(env: NodeJS.ProcessEnv = process.env): {
+  enabled: boolean;
+  hz: number | undefined;
+} {
+  const rawDisable = env.PI_WAVEFORM_THINKING_PULSE;
+  if (typeof rawDisable === 'string' && rawDisable.toLowerCase() === 'off') {
+    return { enabled: false, hz: undefined };
+  }
+  const rawHz = env.PI_WAVEFORM_THINKING_PULSE_HZ;
+  if (rawHz === undefined || rawHz === '') {
+    return { enabled: true, hz: undefined };
+  }
+  const parsed = Number(rawHz);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return { enabled: false, hz: undefined };
+  }
+  return { enabled: true, hz: parsed };
+}
+
 const FRAME_INTERVAL_MS = 50;
 // Per-mode frame intervals. The label ticker stays at FRAME_INTERVAL_MS
 // because shimmer drift speed is independent of the indicator rate.
@@ -96,11 +134,17 @@ const HIDDEN_INDICATOR: WorkingIndicatorOptions = { frames: [] };
  * like ` (5s · ↑ 185 tokens · thinking with medium effort)`. Replace
  * the inner shimmer with a tiny-model call later without touching the
  * suffix path.
+ *
+ * Note: `suffix` is pre-styled (see `computeSuffix`). When the pulse is
+ * on, the thinking-effort segment carries its own SGR wrap and the rest
+ * gets the static dim baseline; when off, the whole suffix is wrapped in
+ * `dimText`. Either way it lands here ready to print, so this function
+ * just joins head + suffix without further styling.
  */
 function renderLabel(tick: number, suffix: string | undefined): string {
   const head = shimmerLabel(DEFAULT_LABEL, tick);
   if (suffix === undefined) return head;
-  return `${head} ${dimText(suffix)}`;
+  return `${head} ${suffix}`;
 }
 
 function indicatorFor(mode: Mode): WorkingIndicatorOptions | undefined {
@@ -139,6 +183,7 @@ export default function extension(pi: ExtensionAPI): void {
   if (process.env.PI_WAVEFORM_INDICATOR_DISABLED === '1') return;
 
   let mode: Mode = resolveInitialWaveformMode(STATE_PATH);
+  const pulseConfig = resolveThinkingPulseConfig();
   let labelTimer: ReturnType<typeof setInterval> | null = null;
   let tick = 0;
   // Tracks per-loop counters that drive the dim suffix. `null` outside
@@ -191,7 +236,18 @@ export default function extension(pi: ExtensionAPI): void {
     } catch {
       // Same defensive try as above.
     }
-    return formatSuffix(suffixState, level, Date.now(), inputDeltaTokens);
+    // When the pulse is on, `formatSuffix` returns a pre-styled string
+    // (two-pass dim baseline + breathing thinking-effort segment); when
+    // off, it returns the plain `(…)` text and we wrap with the same
+    // static dim baseline the suffix has used since day one.
+    if (pulseConfig.enabled) {
+      return formatSuffix(suffixState, level, Date.now(), {
+        inputDeltaTokens,
+        tick,
+        breatheSpeed: pulseConfig.hz,
+      });
+    }
+    return dimText(formatSuffix(suffixState, level, Date.now(), { inputDeltaTokens }));
   }
 
   function applyIndicator(ctx: ExtensionContext): void {

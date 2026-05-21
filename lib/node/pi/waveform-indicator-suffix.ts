@@ -19,6 +19,38 @@
 const DIM_OPEN = '\x1b[2;38;5;245m';
 const DIM_CLOSE = '\x1b[0m';
 
+/**
+ * RGB equivalent of xterm-256 grey-245 - the baseline channel value the
+ * thinking-effort pulse breathes around. Keeping it identical to the
+ * 256-color path means a breatheDepth=0 pulse reads identically to the
+ * static `dimText` wrap.
+ */
+const PULSE_CENTRE_RGB = 138;
+const DEFAULT_BREATHE_SPEED_HZ = 0.5;
+const DEFAULT_BREATHE_DEPTH = 15;
+/**
+ * Frames-per-second the label ticker runs at. The pulse formula uses
+ * this to convert `breatheSpeed` (cycles/sec) into a per-tick phase
+ * advance. Kept in lockstep with `FRAME_INTERVAL_MS` in the extension
+ * shell (50 ms → 20 FPS); changing one without the other would warp the
+ * pulse cadence.
+ */
+const PULSE_FRAMES_PER_SECOND = 20;
+
+/**
+ * Return true when SGR styling should be skipped (NO_COLOR set to any
+ * non-empty value, or stdout is not a TTY). Both `dimText` and
+ * `pulseDimText` consult this so the suffix renders consistently when
+ * piped or under NO_COLOR.
+ */
+function shouldSkipStyling(): boolean {
+  const noColor = process.env.NO_COLOR;
+  if (typeof noColor === 'string' && noColor !== '') return true;
+  const stdout = process.stdout as { isTTY?: boolean } | undefined;
+  if (stdout?.isTTY === false) return true;
+  return false;
+}
+
 // Chosen to match pi-ai's `ThinkingLevel`. Declared locally so this module
 // stays under the lib/AGENTS.md "no @earendil-works imports" rule. Kept in
 // lockstep with `packages/agent/src/types.ts` in the pi repo - currently
@@ -245,43 +277,150 @@ function formatTokenSegment(state: LabelSuffixState, liveInputTokens?: number): 
 }
 
 /**
+ * Wrap text in a faint truecolor SGR so it renders as dim grey and
+ * resets all attributes at the close. Suitable for the trailing parens
+ * appended to the rainbow-shimmered `Thinking...` label - the full reset
+ * (`\x1b[0m`) is fine here because the suffix is always last.
+ *
+ * Returns `text` unchanged when `NO_COLOR` is set (any non-empty value)
+ * or `process.stdout.isTTY === false` so the suffix degrades gracefully
+ * when piped or under explicit color-off requests. The same gate sits
+ * inside {@link pulseDimText}, in lockstep, so the two-pass render in
+ * {@link formatSuffix} keeps both segments consistent.
+ */
+export function dimText(text: string): string {
+  if (shouldSkipStyling()) return text;
+  return `${DIM_OPEN}${text}${DIM_CLOSE}`;
+}
+
+/**
+ * Optional knobs accepted by {@link pulseDimText}.
+ *
+ *   - `breatheSpeed`: cycles per second. Default {@link DEFAULT_BREATHE_SPEED_HZ}
+ *     (0.5 Hz ≈ 2 second period, matching claude-code's pulse cadence
+ *     by eye). Values that are non-finite or `<= 0` short-circuit to a
+ *     static {@link dimText} render so `PI_WAVEFORM_THINKING_PULSE_HZ=0`
+ *     does what users expect rather than letting `cos(0) = 1` paint a
+ *     stuck-at-peak frame forever.
+ *   - `breatheDepth`: half-amplitude channel swing around the
+ *     {@link PULSE_CENTRE_RGB} baseline. Default
+ *     {@link DEFAULT_BREATHE_DEPTH} (= 15, so peak 153, trough 123).
+ *     `0` reproduces today's static dim render. Larger values clamp at
+ *     `[0, 255]` so an absurd override can't emit invalid SGR.
+ */
+export interface PulseDimOpts {
+  breatheSpeed?: number;
+  breatheDepth?: number;
+}
+
+/**
+ * Wrap `text` in a faint + truecolor SGR whose channel value breathes
+ * with a slow cosine of `tick`. Used by {@link formatSuffix} to pulse
+ * the thinking-effort segment of the suffix while leaving the other
+ * segments static.
+ *
+ * Compatibility notes:
+ *
+ *   - `NO_COLOR` (any non-empty value) and `process.stdout.isTTY === false`
+ *     short-circuit to plain unstyled `text` - same gate as {@link dimText}.
+ *   - Some tmux/screen passthrough configs drop one attribute when faint
+ *     (`\x1b[2m`) is combined with truecolor (`\x1b[38;2;…m`). We pick the
+ *     truecolor channel as the primary signal so a session that drops the
+ *     faint attribute still gets a visible pulse, just without the dim
+ *     baseline.
+ *   - `tick = 0` always paints `cos(0) = 1` → the brightest frame, so a
+ *     freshly-opened thinking block doesn't first appear at the trough.
+ */
+export function pulseDimText(text: string, tick: number, opts: PulseDimOpts = {}): string {
+  if (text === '') return '';
+  if (shouldSkipStyling()) return text;
+  const breatheSpeed = opts.breatheSpeed ?? DEFAULT_BREATHE_SPEED_HZ;
+  const breatheDepth = opts.breatheDepth ?? DEFAULT_BREATHE_DEPTH;
+  // `<= 0` and non-finite Hz fall through to the static dim render so
+  // `PI_WAVEFORM_THINKING_PULSE_HZ=0` switches the pulse off rather than
+  // letting `cos(0) = 1` freeze the segment at peak forever. A
+  // `breatheDepth=0` swing produces the same byte output (no amplitude
+  // means no SGR change), so we delegate to `dimText` in both cases for
+  // a byte-for-byte match with today's static render.
+  if (!Number.isFinite(breatheSpeed) || breatheSpeed <= 0) return dimText(text);
+  if (!Number.isFinite(breatheDepth) || breatheDepth <= 0) return dimText(text);
+  const angle = (2 * Math.PI * tick * breatheSpeed) / PULSE_FRAMES_PER_SECOND;
+  const raw = PULSE_CENTRE_RGB + breatheDepth * Math.cos(angle);
+  const v = Math.max(0, Math.min(255, Math.round(raw)));
+  return `\x1b[2;38;2;${v};${v};${v}m${text}\x1b[0m`;
+}
+
+/**
+ * Optional knobs accepted by {@link formatSuffix}.
+ *
+ *   - `inputDeltaTokens`: per-turn input-token floor for the ↑ segment.
+ *     Same role as the old positional `liveInputTokens` argument.
+ *   - `tick`: when supplied, switches the renderer to a two-pass styled
+ *     output (dim baseline + breathing pulse on the thinking-effort
+ *     segment). Omit to get today's plain unstyled `(…)` string for the
+ *     caller to wrap.
+ *   - `breatheSpeed`, `breatheDepth`: forwarded to {@link pulseDimText}.
+ */
+export interface FormatSuffixOpts {
+  inputDeltaTokens?: number;
+  tick?: number;
+  breatheSpeed?: number;
+  breatheDepth?: number;
+}
+
+/**
  * Assemble the parenthesised suffix string. Returns `(elapsed)` at
  * minimum; appends a token segment when usage has been observed and the
  * relevant direction has > 0 tokens, then a thinking segment when one
  * is applicable. Segments are joined by ` · ` to match claude-code's
  * separator.
  *
- * `liveInputTokens` (optional) is whatever per-turn input count the
- * caller wants displayed when the provider hasn't streamed
+ * `opts.inputDeltaTokens` (optional) is whatever per-turn input count
+ * the caller wants displayed when the provider hasn't streamed
  * `partial.usage.input` yet. The extension passes the *delta* of
  * `getContextUsage().tokens` since the last `message_end` so the ↑
  * segment shows only the new content this turn (tool result / next
  * user message), not the cumulative full context size.
+ *
+ * When `opts.tick` is supplied, the return value is pre-styled: the
+ * thinking-effort segment is wrapped in a {@link pulseDimText} cosine
+ * pulse and everything else (parens, elapsed, tokens, separators) is
+ * wrapped in the same `\x1b[2;38;5;245m…\x1b[0m` baseline `dimText` uses
+ * - so a single `formatSuffix` call replaces the old
+ * `dimText(formatSuffix(…))` wrap at the call site. When `opts.tick` is
+ * omitted the return value is the plain unstyled `(…)` string (today's
+ * behaviour) and the caller is still expected to wrap it.
  */
 export function formatSuffix(
   state: LabelSuffixState,
   level: ThinkingLevel,
   nowMs: number,
-  liveInputTokens?: number,
+  opts: FormatSuffixOpts = {},
 ): string {
   const elapsedMs = nowMs - state.loopStartedAtMs;
   const parts: string[] = [formatElapsed(elapsedMs)];
 
-  const tokenSegment = formatTokenSegment(state, liveInputTokens);
+  const tokenSegment = formatTokenSegment(state, opts.inputDeltaTokens);
   if (tokenSegment !== undefined) parts.push(tokenSegment);
 
   const thinkingSegment = formatThinkingEffort(state, level, nowMs);
   if (thinkingSegment !== undefined) parts.push(thinkingSegment);
 
-  return `(${parts.join(' · ')})`;
-}
+  if (opts.tick === undefined) {
+    return `(${parts.join(' · ')})`;
+  }
 
-/**
- * Wrap text in a faint truecolor SGR so it renders as dim grey and
- * resets all attributes at the close. Suitable for the trailing parens
- * appended to the rainbow-shimmered `Thinking...` label - the full reset
- * (`\x1b[0m`) is fine here because the suffix is always last.
- */
-export function dimText(text: string): string {
-  return `${DIM_OPEN}${text}${DIM_CLOSE}`;
+  // Two-pass styled render. When there's no thinking segment to pulse,
+  // fall back to a single dim wrap so the output matches today's static
+  // render exactly - the pulse is opt-in per-segment, not per-suffix.
+  if (thinkingSegment === undefined) {
+    return dimText(`(${parts.join(' · ')})`);
+  }
+  const headParts = parts.slice(0, -1).join(' · ');
+  const prefix = `(${headParts} · `;
+  const pulse = pulseDimText(thinkingSegment, opts.tick, {
+    breatheSpeed: opts.breatheSpeed,
+    breatheDepth: opts.breatheDepth,
+  });
+  return `${dimText(prefix)}${pulse}${dimText(')')}`;
 }

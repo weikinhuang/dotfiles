@@ -99,6 +99,13 @@ mode for the current session.
 - `PI_WAVEFORM_INDICATOR_MODE=<scroll|spectrum|off|default>` - override the persisted mode for this shell only, without
   rewriting `~/.pi/waveform-indicator.json`. An unknown value is ignored (extension falls through to the persisted file,
   then to `'scroll'`). Useful for one-off `pi --print` runs or subagents you want pinned to a specific style.
+- `PI_WAVEFORM_THINKING_PULSE=off` - suppress the breathing pulse on the thinking-effort segment of the dim suffix
+  without disabling the rest of the extension. The other segments (elapsed, ↑/↓ tokens) keep their static dim wrap and
+  the indicator keeps rendering. Any other value (including unset) leaves the pulse on; the default is on.
+- `PI_WAVEFORM_THINKING_PULSE_HZ=<float>` - override the cosine frequency in Hz. Default `0.5` (≈ 2 s period - matches
+  claude-code's pulse cadence by eye). `<= 0` and non-finite values short-circuit to a static dim render (same effect as
+  `PI_WAVEFORM_THINKING_PULSE=off`) so `PI_WAVEFORM_THINKING_PULSE_HZ=0` does what users expect rather than letting
+  `cos(0) = 1` paint a stuck-at-peak frame forever.
 
 ## Persistence
 
@@ -170,6 +177,43 @@ The parenthesised suffix renders three optional segments separated by `·` to mi
 The whole suffix is wrapped in `\x1b[2;38;5;245m…\x1b[0m` (faint + 256-color grey-245, full reset at the close) so it
 reads as visually subordinate to the rainbow head.
 
+### Breathing pulse on the thinking-effort segment
+
+When the suffix carries a thinking-effort segment (`thinking with <level> effort`, `still thinking with <level> effort`,
+or `thought for Ns`), that segment renders with a slow truecolor cosine pulse around the same grey-245 baseline -
+claude-code's "Thinking..." line breathing transposed onto the suffix. The other segments (elapsed, ↑/↓ tokens, the
+parens, the `·` separators) keep the static `\x1b[2;38;5;245m…\x1b[0m` wrap so only the thinking text breathes.
+
+Mechanics:
+
+- Centre RGB `(138, 138, 138)` matches xterm-256 grey-245 so the pulse stays in the dim band visually subordinate to the
+  rainbow head.
+- Channel value = `centre + breatheDepth * cos(2π * tick * breatheSpeed / FRAMES_PER_SECOND)`. Defaults are
+  `breatheSpeed = 0.5` Hz (≈ 2 s period) and `breatheDepth = 15` (peak 153, trough 123). `tick = 0` lands on
+  `cos(0) = 1` so a freshly-opened thinking block first appears at the peak, not the trough.
+- Each SGR is `\x1b[2;38;2;v;v;vm…\x1b[0m` (faint + truecolor + full reset). The truecolor channel is the primary
+  signal: some `tmux` / `screen` passthrough configs drop one attribute when faint is combined with truecolor, but the
+  channel value still drives a visible pulse on its own - the pulse degrades to a colour-only effect, not a static
+  segment.
+- The suffix renderer suppresses the pulse SGR entirely when the thinking-effort segment is not present
+  (`getThinkingLevel()` is `off` / `minimal`, no thinking block has started this turn, or the segment is suppressed once
+  `text_start` / `toolcall_start` fired). In those states the suffix renders with today's single static dim wrap.
+
+Override knobs (shell-local; no persisted setting):
+
+- `PI_WAVEFORM_THINKING_PULSE=off` - opt out of the pulse without disabling the whole extension. The suffix still
+  renders, just without the breathing effect.
+- `PI_WAVEFORM_THINKING_PULSE_HZ=<float>` - override the default 0.5 Hz cadence. `<= 0` and non-finite values are
+  treated as `off`.
+
+### `NO_COLOR` and non-TTY behaviour
+
+Both `dimText` and `pulseDimText` short-circuit to plain unstyled text when `NO_COLOR` is set to any non-empty value or
+`process.stdout.isTTY === false`. That diverges from the pre-pulse `dimText` (which emitted SGR unconditionally) - the
+gate was folded into both helpers in lockstep so the two-pass pulse render and the static fallback render stay
+consistent under piped or `NO_COLOR=1` invocations. Inside an interactive terminal nothing changes; the suffix only
+loses its dim colour when something downstream has already opted out of colour.
+
 ## Spectrum bars
 
 Alternate pattern selected by `/waveform spectrum`. Twenty independent bars (10 glyphs × 2 columns) bounce on their own
@@ -217,8 +261,17 @@ exports:
 - `resetTurnState(state)` - clear per-turn fields without losing loop-level token totals.
 - `formatElapsed(ms)`, `formatTokens(n)` - the deterministic formatters used by the suffix.
 - `formatThinkingEffort(state, level, nowMs)` - state-machine renderer for the thinking segment.
-- `formatSuffix(state, level, nowMs)` - assembles the final `(…)` string.
-- `dimText(text)` - wraps the suffix in faint + grey-245 SGR.
+- `formatSuffix(state, level, nowMs, opts?)` - assembles the final `(…)` string. `opts.inputDeltaTokens` carries the
+  per-turn ↑ floor (today's `liveInputTokens`, moved into the opts bag); when `opts.tick` is supplied the renderer emits
+  a two-pass styled output that wraps the thinking-effort segment in `pulseDimText` and the rest in `dimText` - one call
+  replaces the old `dimText(formatSuffix(…))` wrap at the call site. When `opts.tick` is omitted the return value stays
+  an unstyled `(…)` string for the caller to wrap.
+- `dimText(text)` - wraps the suffix in faint + grey-245 SGR. Short-circuits to plain `text` when `NO_COLOR` is set (any
+  non-empty value) or `process.stdout.isTTY === false`.
+- `pulseDimText(text, tick, opts?)` - wraps `text` in `\x1b[2;38;2;v;v;vm…\x1b[0m` whose channel value breathes with a
+  cosine of `tick`. `opts.breatheSpeed` (Hz, default 0.5), `opts.breatheDepth` (channels, default 15); `<= 0` or
+  non-finite `breatheSpeed` and `breatheDepth = 0` both short-circuit to a static `dimText` render. Same `NO_COLOR` /
+  non-TTY gate as `dimText`.
 
 Specs in
 [`tests/lib/node/pi/waveform-indicator-suffix.spec.ts`](../../../tests/lib/node/pi/waveform-indicator-suffix.spec.ts)
