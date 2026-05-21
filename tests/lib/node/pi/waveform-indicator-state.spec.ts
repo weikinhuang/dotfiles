@@ -90,6 +90,25 @@ describe('readWaveformState', () => {
       expect(readWaveformState(statePath)).toBe(m);
     }
   });
+
+  test("'tokenrate' is recognized as a valid mode", () => {
+    // Sanity-check the union/parser landed for the new tokenrate mode so a
+    // forward-compat file written by a new binary loads cleanly.
+    writeWaveformState(statePath, 'tokenrate');
+
+    expect(readWaveformState(statePath)).toBe('tokenrate');
+  });
+
+  test('downgrade: a future unknown mode falls through to undefined without corrupting', () => {
+    // Simulates the downgrade case the plan calls out: an older binary
+    // encounters a mode it doesn't know about. The file is left alone, the
+    // reader returns undefined, and a re-run of the new binary picks the
+    // value back up - here we just assert the read-side falls through.
+    writeWaveformState(statePath, 'scroll');
+    writeFileSync(statePath, '{ "mode": "futurewave" }\n', 'utf8');
+
+    expect(readWaveformState(statePath)).toBeUndefined();
+  });
 });
 
 // ──────────────────────────────────────────────────────────────────────

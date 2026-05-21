@@ -8,7 +8,7 @@
  *
  * File shape:
  *   {
- *     "mode": "scroll" | "spectrum" | "off" | "default"
+ *     "mode": "scroll" | "spectrum" | "tokenrate" | "off" | "default"
  *   }
  *
  * The lookup order at startup is:
@@ -25,9 +25,9 @@ import { readFileSync, unlinkSync } from 'node:fs';
 
 import { atomicWriteFile } from './atomic-write.ts';
 
-export type WaveformMode = 'scroll' | 'spectrum' | 'off' | 'default';
+export type WaveformMode = 'scroll' | 'spectrum' | 'tokenrate' | 'off' | 'default';
 
-export const VALID_WAVEFORM_MODES: readonly WaveformMode[] = ['scroll', 'spectrum', 'off', 'default'];
+export const VALID_WAVEFORM_MODES: readonly WaveformMode[] = ['scroll', 'spectrum', 'tokenrate', 'off', 'default'];
 
 export function isWaveformMode(value: unknown): value is WaveformMode {
   return typeof value === 'string' && (VALID_WAVEFORM_MODES as readonly string[]).includes(value);
