@@ -35,6 +35,10 @@
  *   /waveform                 show current style
  *   /waveform scroll          right-to-left scrolling waveform (default)
  *   /waveform spectrum        independent bouncing bars, EQ-style heat-map color
+ *   /waveform tokenrate       live tokens-per-second bars, full-spectrum
+ *                             magnitude heat-map (blue → cyan → green → yellow
+ *                             → red). Re-rendered per label tick instead of
+ *                             from a pre-rendered loop.
  *   /waveform off             hide the indicator entirely (keep label)
  *   /waveform reset           restore pi's default spinner + "Working..." label
  *
@@ -50,7 +54,7 @@
  * Environment:
  *   PI_WAVEFORM_INDICATOR_DISABLED=1   leave pi's default indicator alone
  *   PI_WAVEFORM_INDICATOR_MODE=<mode>  override the persisted mode for
- *                                     this session (scroll|spectrum|off|default)
+ *                                     this session (scroll|spectrum|tokenrate|off|default)
  *   PI_WAVEFORM_THINKING_PULSE=off     suppress the breathing pulse on the
  *                                     thinking-effort segment of the suffix
  *                                     (the rest of the suffix still dims as
@@ -72,7 +76,22 @@ import {
   type WorkingIndicatorOptions,
 } from '@earendil-works/pi-coding-agent';
 
-import { buildIndicatorFrames, buildSpectrumFrames, shimmerLabel } from '../../../lib/node/pi/waveform-indicator.ts';
+import {
+  TOKEN_RATE_BUFFER_SIZE,
+  buildIndicatorFrames,
+  buildSpectrumFrames,
+  buildTokenRateFrame,
+  pushTokenRateSample,
+  shimmerLabel,
+  tokenRateBarsToHeights,
+} from '../../../lib/node/pi/waveform-indicator.ts';
+import {
+  type TokenRateState,
+  markMessageEnd as markRateMessageEnd,
+  markMessageStart as markRateMessageStart,
+  newTokenRateState,
+  stepTokenRate,
+} from '../../../lib/node/pi/waveform-indicator-rate.ts';
 import {
   type WaveformMode,
   clearWaveformState,
@@ -124,6 +143,11 @@ const FRAME_INTERVAL_MS = 50;
 // because shimmer drift speed is independent of the indicator rate.
 const SCROLL_FRAME_INTERVAL_MS = 80;
 const SPECTRUM_FRAME_INTERVAL_MS = 50;
+// Tokenrate re-renders the indicator on every label tick, so the
+// per-frame interval just tells pi how fast to interpolate within a push
+// (kept symmetric with the label tick so the chart updates as fast as it
+// is sampled).
+const TOKEN_RATE_FRAME_INTERVAL_MS = 50;
 const DEFAULT_LABEL = 'Thinking...';
 const HIDDEN_INDICATOR: WorkingIndicatorOptions = { frames: [] };
 
@@ -159,6 +183,13 @@ function indicatorFor(mode: Mode): WorkingIndicatorOptions | undefined {
         frames: buildSpectrumFrames(),
         intervalMs: SPECTRUM_FRAME_INTERVAL_MS,
       };
+    case 'tokenrate':
+      // Built per-tick from live token-rate samples, not from a static
+      // frame array. The label ticker re-applies a fresh single-frame
+      // indicator on every pulse; `undefined` here means "don't touch the
+      // indicator from session_start / agent_start" so the per-tick path
+      // owns the rendering.
+      return undefined;
     case 'off':
       return HIDDEN_INDICATOR;
     case 'default':
@@ -172,6 +203,8 @@ function describeMode(mode: Mode): string {
       return 'scrolling waveform';
     case 'spectrum':
       return 'spectrum bars';
+    case 'tokenrate':
+      return 'token-rate waveform';
     case 'off':
       return 'hidden';
     case 'default':
@@ -205,6 +238,47 @@ export default function extension(pi: ExtensionAPI): void {
   // (e.g. user asks a follow-up question) doesn't regress to the
   // cumulative full-context display.
   let prevContextTokensSnapshot: number | undefined = undefined;
+  // Token-rate (tokens/sec) state for the `tokenrate` mode. The buffer
+  // is a 20-slot circular FIFO (10 glyphs × 2 columns); the state
+  // machine carries the previous sample's timestamp + cumulative
+  // estimate so the per-tick rate is `Δ tokens / Δ seconds`. Allocated
+  // on `agent_start`, torn down on `agent_end` along with the suffix
+  // state, kept `null` outside an active agent loop so the indicator
+  // renders nothing between turns.
+  let rateState: TokenRateState | null = null;
+  let rateBuffer: number[] | null = null;
+
+  function liveOutputTokens(state: LabelSuffixState): number {
+    // Mirror the suffix's downlink formula so the rate samples and the
+    // ↓ counter agree on the same cumulative output: committed-so-far
+    // plus the live estimate (max of provider-streamed `currentUsage`
+    // and the byte-accumulator / 4 estimate).
+    const realOutputThisMessage = state.currentUsage?.output ?? 0;
+    const estimateThisMessage = Math.ceil(state.currentMessageOutputBytes / 4);
+    const liveThisMessage = Math.max(realOutputThisMessage, estimateThisMessage);
+    return state.committedUsage.output + liveThisMessage;
+  }
+
+  function renderTokenRateIndicator(ctx: ExtensionContext): void {
+    if (rateState === null || rateBuffer === null) return;
+    if (suffixState !== null) {
+      const step = stepTokenRate(rateState, liveOutputTokens(suffixState), Date.now());
+      if (step.rate !== undefined) {
+        pushTokenRateSample(rateBuffer, step.rate);
+      }
+    }
+    const heights = tokenRateBarsToHeights(rateBuffer);
+    const frame = buildTokenRateFrame(heights);
+    // Push two copies of the same frame so pi's loader doesn't
+    // short-circuit a one-element frame array as a static spinner -
+    // the per-tick call here is what actually drives the live update,
+    // but pi needs ≥2 frames to keep the render loop alive between
+    // pushes.
+    ctx.ui.setWorkingIndicator({
+      frames: [frame, frame],
+      intervalMs: TOKEN_RATE_FRAME_INTERVAL_MS,
+    });
+  }
 
   function computeSuffix(): string | undefined {
     if (suffixState === null) return undefined;
@@ -257,8 +331,11 @@ export default function extension(pi: ExtensionAPI): void {
   function applyLabel(ctx: ExtensionContext): void {
     if (mode === 'default') {
       ctx.ui.setWorkingMessage(undefined);
-    } else {
-      ctx.ui.setWorkingMessage(renderLabel(tick, computeSuffix()));
+      return;
+    }
+    ctx.ui.setWorkingMessage(renderLabel(tick, computeSuffix()));
+    if (mode === 'tokenrate') {
+      renderTokenRateIndicator(ctx);
     }
   }
 
@@ -306,6 +383,12 @@ export default function extension(pi: ExtensionAPI): void {
   pi.on('agent_start', async (_event, ctx) => {
     lastCtx = ctx;
     suffixState = newLabelSuffixState(Date.now());
+    // Allocate the tokenrate state regardless of the active mode so a
+    // mid-turn `/waveform tokenrate` toggle doesn't have to wait for the
+    // next `agent_start` to start sampling - the buffer + state machine
+    // are cheap (20 numbers + a few timestamps).
+    rateState = newTokenRateState();
+    rateBuffer = Array.from({ length: TOKEN_RATE_BUFFER_SIZE }, () => 0);
     // Note: we deliberately do NOT reset `prevContextTokensSnapshot`
     // here - that snapshot survives across agent loops in the same
     // session so a second user prompt also shows just its own delta
@@ -344,6 +427,12 @@ export default function extension(pi: ExtensionAPI): void {
         // Fresh assistant message starting; reset the per-message byte
         // accumulator so its estimate doesn't carry between messages.
         suffixState.currentMessageOutputBytes = 0;
+        // Prime the tokenrate state to skip the first post-start sample
+        // (it would otherwise paint a huge rightmost spike as the bytes
+        // counter races up from zero against an artificially small dt).
+        if (rateState !== null) {
+          markRateMessageStart(rateState, Date.now(), liveOutputTokens(suffixState));
+        }
         break;
       case 'text_start':
       case 'text_delta':
@@ -410,6 +499,12 @@ export default function extension(pi: ExtensionAPI): void {
     // The byte-estimate counter has now been replaced by the real
     // committed output tokens; reset so the next message starts fresh.
     suffixState.currentMessageOutputBytes = 0;
+    // Clear the rate baseline so the next message starts from a fresh
+    // sample rather than measuring a delta against a stale anchor. The
+    // negative-delta clause inside `stepTokenRate` covers the case where
+    // the byte counter resets mid-tick, but resetting here is the
+    // explicit lifecycle hook the plan calls out.
+    if (rateState !== null) markRateMessageEnd(rateState);
     // Snapshot the post-LLM-call context size so the next turn's ↑
     // segment renders only the *new* content (tool results / next user
     // message), not the full cumulative context. Tool results get
@@ -428,6 +523,8 @@ export default function extension(pi: ExtensionAPI): void {
     lastCtx = ctx;
     stopLabelTicker();
     suffixState = null;
+    rateState = null;
+    rateBuffer = null;
     // Note: we deliberately keep `prevContextTokensSnapshot` here -
     // a follow-up user prompt in the same session should compute its
     // ↑ delta against the post-last-message-end snapshot, not against
@@ -442,20 +539,23 @@ export default function extension(pi: ExtensionAPI): void {
   pi.on('session_shutdown', async () => {
     stopLabelTicker();
     suffixState = null;
+    rateState = null;
+    rateBuffer = null;
     lastCtx = null;
     prevContextTokensSnapshot = undefined;
   });
 
   pi.registerCommand('waveform', {
-    description: 'Set the streaming working indicator: scroll, spectrum, off, or reset (restore pi default).',
+    description:
+      'Set the streaming working indicator: scroll, spectrum, tokenrate, off, or reset (restore pi default).',
     handler: async (args, ctx) => {
       const arg = args.trim().toLowerCase();
       if (!arg) {
         ctx.ui.notify(`Waveform indicator: ${describeMode(mode)}`, 'info');
         return;
       }
-      if (arg !== 'scroll' && arg !== 'spectrum' && arg !== 'off' && arg !== 'reset') {
-        ctx.ui.notify('Usage: /waveform [scroll|spectrum|off|reset]', 'error');
+      if (arg !== 'scroll' && arg !== 'spectrum' && arg !== 'tokenrate' && arg !== 'off' && arg !== 'reset') {
+        ctx.ui.notify('Usage: /waveform [scroll|spectrum|tokenrate|off|reset]', 'error');
         return;
       }
       mode = arg === 'reset' ? 'default' : (arg as Mode);
