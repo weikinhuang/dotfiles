@@ -1627,7 +1627,7 @@ function buildPipelineDeps(
         error: `--model ${extras.overrides.model} not registered in this pi session’s model registry (run /login or /models to inspect available models)`,
       };
     }
-    parentModel = resolved as typeof ctx.model;
+    parentModel = resolved;
   }
   const modelLabel = describeModel(parentModel);
   // ExtensionContext does not expose thinkingLevel; the

@@ -267,7 +267,7 @@ export default defineConfig({
         // 'typescript/only-throw-error': 'off',
         // 'typescript/prefer-find': 'off',
         // 'typescript/prefer-includes': 'off',
-        'typescript/prefer-nullish-coalescing': 'off',
+        // 'typescript/prefer-nullish-coalescing': 'off',
         // 'typescript/prefer-optional-chain': 'off',
         // 'typescript/prefer-promise-reject-errors': 'off',
         // 'typescript/prefer-readonly': 'off',

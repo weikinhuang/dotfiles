@@ -1237,7 +1237,7 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
 
     if (params.text) {
       await new Promise<void>((resolve, reject) => {
-        job.child!.stdin!.write(params.text!, (err) => (err ? reject(err as Error) : resolve()));
+        job.child!.stdin!.write(params.text!, (err) => (err ? reject(err) : resolve()));
       });
     }
     if (params.eof) {
