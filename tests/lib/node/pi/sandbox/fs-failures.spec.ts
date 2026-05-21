@@ -130,6 +130,33 @@ describe('parseFsFailures', () => {
     expect(out.writePaths).toEqual(['/repo/dist']);
     expect(out.readPaths).toEqual(['/etc/shadow']);
   });
+
+  test('bwrap infrastructure lines are NOT reported as write failures', () => {
+    // bwrap emits these when creating stub bind-mount points for deny
+    // paths. This is sandbox plumbing, not a user-tool write failure.
+    const stderr = `bwrap: Can't create file at /home/user/project/.gitconfig: Permission denied\n`;
+    expect(parseFsFailures(stderr)).toEqual({ writePaths: [], readPaths: [] });
+  });
+
+  test('bwrap lines mixed with real write failures: only real failure surfaces', () => {
+    const stderr = [
+      `bwrap: Can't create file at /home/user/project/.gitconfig: Permission denied`,
+      `mkdir: cannot create directory '/repo/node_modules': Permission denied`,
+    ].join('\n');
+    const out = parseFsFailures(stderr);
+    expect(out.writePaths).toEqual(['/repo/node_modules']);
+    expect(out.readPaths).toEqual([]);
+  });
+
+  test('rg read error is classified as read (not write)', () => {
+    // ripgrep emits "error reading <path>: Permission denied" - the
+    // word "reading" contains the READ_VERB "read", so it must not
+    // trigger a write-allow dialog.
+    const stderr = `rg: error reading '/home/user/.gitconfig': Permission denied (os error 13)\n`;
+    const out = parseFsFailures(stderr);
+    expect(out.readPaths).toEqual(['/home/user/.gitconfig']);
+    expect(out.writePaths).toEqual([]);
+  });
 });
 
 describe('greatestCommonParent', () => {

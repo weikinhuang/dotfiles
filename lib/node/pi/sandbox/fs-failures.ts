@@ -169,6 +169,11 @@ export function parseFsFailures(stderr: string): ParsedFsFailures {
     if (!line) continue;
     const lower = line.toLowerCase();
     if (!DENIAL_MARKERS.some((marker) => lower.includes(marker))) continue;
+    // Skip bwrap infrastructure lines (stub bind-mount setup/teardown).
+    // bwrap creates empty host-side files as mount points for deny paths;
+    // if that fails it emits "bwrap: Can't create file at X: Permission
+    // denied". This is sandbox plumbing, not a user-tool write failure.
+    if (lower.startsWith('bwrap:')) continue;
     const paths = extractAbsPathsFromLine(line);
     if (paths.length === 0) continue;
     const kind = classifyLine(line);
