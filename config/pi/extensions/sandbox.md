@@ -108,6 +108,34 @@ six-option dialog (auto-write to `~/.pi/sandbox.json` etc.) is wired up in Phase
 Auto-mode (`/bash-auto`) does **NOT** skip the network prompt. Network access is too easy to abuse to cover behind an
 "allow everything" toggle.
 
+## Filesystem prompts (reactive)
+
+ASRT does **not** expose a filesystem ask-callback (only a network one), so we can't intercept a write before it hits
+the kernel. Instead, when a sandboxed bash fails with an EACCES / EPERM / read-only-fs error, the `tool_result` hook
+parses the bash stderr for absolute paths ([`fs-failures.ts`](../../../lib/node/pi/sandbox/fs-failures.ts)) and, when an
+interactive UI is published, offers a five-option dialog:
+
+1. `Allow once (this session)` - adds the parsed path (or its common parent) to an in-memory `sessionWriteAllow` set
+   that merges into `write.allow.paths` at the next `reconfigure`. Cleared on `session_shutdown`.
+2. `Always allow <commonParent> (project)` - appends to `<repo>/.pi/filesystem.json`'s `write.allow.paths`.
+3. `Always allow <commonParent> (user)` - appends to `~/.pi/filesystem.json`'s `write.allow.paths`.
+4. `Deny` - keeps the existing failure splice; the model sees the annotated stderr.
+5. `Deny with feedback…` - captures a free-form note via `ui.input` and surfaces it to both the user and the model.
+
+The "Always allow" options are hidden when the proposed common parent climbs above safe scopes (above cwd and not a
+one-segment dir under `$HOME`); in that case the user falls back to `Allow once` or `Deny`.
+
+The dialog **cannot** auto-retry the failed bash (pi's `tool_result` API has no re-execute mechanism). When the user
+accepts, a "user just granted access; you may retry the previous command on the next turn" hint is spliced into the
+model-visible content. The model decides whether to actually retry.
+
+In `pi -p` or any other `hasUI: false` mode, the dialog short-circuits to "deny" and the existing failure splice runs
+unchanged - the model sees the same annotated stderr it would have seen before.
+
+The `node_modules` segment is **not** in the default `write.deny` since workspaces are write-allowed by default
+(`write.allow.paths: ["."]` covers everything under `ctx.cwd`). Projects that opt back into denying `node_modules`
+writes get the reactive dialog the first time bash hits the deny.
+
 ## Statusline badge
 
 State is published via [`session-flags.ts`](../../../lib/node/pi/session-flags.ts)' `setSandboxState` and rendered by

@@ -54,12 +54,15 @@ describe('config/pi/filesystem-example.json', () => {
     expect(classifyWrite('/etc/hosts', CWD, policy)?.reason).toBe('outside-allowed-write');
   });
 
-  test('write.deny gates .env / .git/hooks / .git/config / node_modules inside cwd', () => {
+  test('write.deny gates .env / .git/hooks / .git/config inside cwd', () => {
     const { policy } = loadExample();
     expect(classifyWrite('./src/.env', CWD, policy)?.reason).toBe('deny-basename');
     expect(classifyWrite('./.git/hooks/pre-commit', CWD, policy)?.reason).toBe('deny-segment');
     expect(classifyWrite('./.git/config', CWD, policy)?.reason).toBe('deny-segment');
-    expect(classifyWrite('./node_modules/foo/index.js', CWD, policy)?.reason).toBe('deny-segment');
+    // node_modules is NOT in the example/default deny set; writes are
+    // allowed by the workspace outer-gate. Stricter project policies
+    // can opt back into denying it.
+    expect(classifyWrite('./node_modules/foo/index.js', CWD, policy)).toBeNull();
   });
 
   test('clean reads/writes inside cwd remain ungated', () => {

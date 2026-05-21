@@ -90,8 +90,10 @@ import { dirname, join, resolve } from 'node:path';
 import { type ExtensionAPI, type ExtensionContext } from '@earendil-works/pi-coding-agent';
 
 import { clearActiveUI, publishActiveUI } from '../../../lib/node/pi/active-ui.ts';
+import { buildFilesystemAskDialog } from '../../../lib/node/pi/sandbox/filesystem-ask.ts';
+import { parseFsFailures } from '../../../lib/node/pi/sandbox/fs-failures.ts';
 import { buildNetworkAskCallback } from '../../../lib/node/pi/sandbox/network-ask.ts';
-import { annotateBashResult } from '../../../lib/node/pi/sandbox/result-annotate.ts';
+import { annotateBashResult, prependBashHint } from '../../../lib/node/pi/sandbox/result-annotate.ts';
 import { type FilesystemPolicyLayer, loadFilesystemPolicy } from '../../../lib/node/pi/filesystem-policy/load.ts';
 import { type FilesystemPolicyWarning } from '../../../lib/node/pi/filesystem-policy/schema.ts';
 import { parseJsonc, warnBadConfigFileOnce } from '../../../lib/node/pi/jsonc.ts';
@@ -305,10 +307,14 @@ interface ResolvedAll {
 }
 
 /** Resolve the in-memory config snapshot from on-disk layers + the
- *  active persona overlay. Pure (no ASRT side-effects). The caller
- *  decides whether to publish to the active singleton + reconfigure
- *  the live SandboxManager. */
-function resolveAll(cwd: string, platform: SandboxPlatformInfo): ResolvedAll {
+ *  active persona overlay + the session-only write-allow set. Pure
+ *  (no ASRT side-effects). The caller decides whether to publish to
+ *  the active singleton + reconfigure the live SandboxManager. */
+function resolveAll(
+  cwd: string,
+  platform: SandboxPlatformInfo,
+  sessionWriteAllowPaths: readonly string[] = [],
+): ResolvedAll {
   const { fsLayers, sandboxLayers } = buildLayers(cwd);
   const persona = getActivePersona();
   const fs = loadFilesystemPolicy(fsLayers, {
@@ -316,6 +322,7 @@ function resolveAll(cwd: string, platform: SandboxPlatformInfo): ResolvedAll {
       persona && persona.resolvedWriteRoots.length > 0
         ? { source: `persona:${persona.name}`, paths: persona.resolvedWriteRoots }
         : undefined,
+    sessionWriteAllowPaths,
   });
   const sandboxResult = loadSandboxConfig(sandboxLayers, sandboxEnvOverlay());
 
@@ -379,6 +386,12 @@ interface RuntimeState {
    *  this session` choice in the network ask-callback. Cleared on
    *  session_shutdown along with the rest of the runtime state. */
   sessionAllowedDomains: Set<string>;
+  /** Session-only write-allow paths, populated by the `Allow once`
+   *  choice in the reactive filesystem-ask dialog. Merged into
+   *  `policy.write.allow.paths` during {@link resolveAll} so the
+   *  next `wrapWithSandbox` call respects them. Cleared on
+   *  `session_shutdown` along with the rest of the runtime state. */
+  sessionWriteAllow: Set<string>;
   /** Cwd captured during config resolution; the ask-callback uses it
    *  to decide project vs user scope for `Always allow` choices. */
   lastCwd?: string;
@@ -394,6 +407,7 @@ function newState(platform: SandboxPlatformInfo): RuntimeState {
     wrapsAttempted: 0,
     wrapsErrored: 0,
     sessionAllowedDomains: new Set(),
+    sessionWriteAllow: new Set(),
   };
 }
 
@@ -575,7 +589,7 @@ async function reconfigure(state: RuntimeState, cwd: string, ctx?: ExtensionCont
   const done = beginActiveReconfigure();
   state.lastCwd = cwd;
   try {
-    const resolved = resolveAll(cwd, state.platform);
+    const resolved = resolveAll(cwd, state.platform, Array.from(state.sessionWriteAllow));
     if (ctx && resolved.fsWarnings.length > 0) {
       surfaceFsWarnings(ctx, resolved.fsWarnings, state.notifiedWarnings);
     }
@@ -846,6 +860,8 @@ export default function sandbox(pi: ExtensionAPI): void {
     }
     state.initialized = false;
     state.manager = undefined;
+    state.sessionAllowedDomains.clear();
+    state.sessionWriteAllow.clear();
     clearActiveSandbox();
     clearActiveUI();
     uninstallSandboxWrapper();
@@ -954,7 +970,7 @@ export default function sandbox(pi: ExtensionAPI): void {
   // Also writes a JSONL audit row to ~/.pi/sandbox-violations.log
   // for forensic inspection via /sandbox-violations.
   // ─────────────────────────────────────────────────────────────────
-  pi.on('tool_result', (event, ctx) => {
+  pi.on('tool_result', async (event, ctx) => {
     if (event.toolName !== 'bash') return undefined;
     if (!state.manager || !state.initialized) return undefined;
     // Per-command ASRT cleanup. Decrements ASRT's `activeSandboxCount`
@@ -990,6 +1006,70 @@ export default function sandbox(pi: ExtensionAPI): void {
           ? firstText.text
           : '';
     if (!stderr) return undefined;
+
+    // Reactive filesystem-ask: parse the bash stderr ourselves so we
+    // can surface a "user just granted access, retry next turn?"
+    // dialog. ASRT has no filesystem ask-callback, and its log
+    // monitor (which populates the violation store) is macOS-only
+    // and we don't enable it - so direct stderr parsing is the only
+    // signal we have on either platform. See
+    // `lib/node/pi/sandbox/fs-failures.ts`.
+    const parsed = parseFsFailures(stderr);
+    if (parsed.writePaths.length > 0 && ctx.hasUI) {
+      const ask = buildFilesystemAskDialog({
+        sessionWriteAllow: state.sessionWriteAllow,
+        triggerReconfigure: async () => {
+          await reconfigure(state, state.lastCwd ?? ctx.cwd, ctx);
+        },
+        saveProjectWriteAllow: (p) => {
+          const path = pickScopeFs(ctx.cwd);
+          addWriteAllowPath(path, p);
+          return path;
+        },
+        saveUserWriteAllow: (p) => {
+          addWriteAllowPath(USER_FS_PATH, p);
+          return USER_FS_PATH;
+        },
+        cwd: ctx.cwd,
+      });
+      const outcome = await ask({ paths: parsed.writePaths, command });
+
+      if (outcome.kind === 'allow') {
+        const tag = '⚠️  sandbox blocked this write, but the user just granted access:';
+        const hint =
+          `scope:        ${outcome.scope}` +
+          `\nallowed:      ${outcome.allowedPath}` +
+          (outcome.savedPath ? `\nsaved to:     ${outcome.savedPath}` : '') +
+          `\n\nThe previous command did not run to completion under the` +
+          `\nupdated policy. You may retry the same command on the next` +
+          `\nturn if it is still useful.`;
+        const newContent = prependBashHint(evt.content, hint, tag);
+        if (newContent) {
+          const record: SandboxViolationRecord = {
+            ts: new Date().toISOString(),
+            kind: 'fs',
+            action: 'allow',
+            command,
+            cwd: ctx.cwd,
+            path: outcome.allowedPath,
+            note: `granted via fs-ask (${outcome.scope})`,
+          };
+          try {
+            appendViolation(USER_VIOLATIONS_LOG, record);
+          } catch {
+            // Best-effort logging; never let the audit log break the hook.
+          }
+          return { content: newContent };
+        }
+      } else if (outcome.kind === 'deny' && outcome.feedback) {
+        const tag = '⚠️  sandbox blocked this write; the user declined to widen the policy:';
+        const hint = `user feedback: ${outcome.feedback}`;
+        const newContent = prependBashHint(evt.content, hint, tag);
+        if (newContent) return { content: newContent };
+      }
+      // `kind: 'deny'` without feedback, or `kind: 'no-ui'`, falls
+      // through to the existing ASRT-annotation path below.
+    }
 
     let annotated: string;
     try {

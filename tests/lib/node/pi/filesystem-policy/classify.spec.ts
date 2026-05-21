@@ -162,7 +162,12 @@ describe('classifyWrite', () => {
   });
 
   test('write.deny inside the allow set still gates', () => {
-    const policy = defaults();
+    // node_modules is NOT in the shipped defaults anymore - workspaces
+    // are write-allowed - but a stricter project policy can opt back
+    // in. This test exercises that opt-in shape.
+    const policy = mergePolicies(DEFAULT_POLICY, {
+      write: { deny: { segments: ['node_modules'] } },
+    });
     expect(classifyWrite('./src/.env', CWD, policy)?.reason).toBe('deny-basename');
     expect(classifyWrite('./.git/hooks/pre-commit', CWD, policy)?.reason).toBe('deny-segment');
     expect(classifyWrite('./node_modules/foo/index.js', CWD, policy)?.reason).toBe('deny-segment');
@@ -206,8 +211,14 @@ describe('classifyWrite', () => {
   // ── carve-back inside write.deny / read.deny ──────────────────────
 
   test('write.allow.segments carves a hole inside write.deny.segments', () => {
+    // node_modules is NOT in the shipped defaults; this carve-back
+    // shape only makes sense when a stricter project policy added
+    // it back to write.deny.segments.
     const policy = mergePolicies(DEFAULT_POLICY, {
-      write: { allow: { segments: ['node_modules/.vite-temp'] } },
+      write: {
+        allow: { segments: ['node_modules/.vite-temp'] },
+        deny: { segments: ['node_modules'] },
+      },
     });
     // Carved-out subtree: writes go through.
     expect(classifyWrite('./node_modules/.vite-temp/cache.mjs', CWD, policy)).toBeNull();
@@ -247,8 +258,15 @@ describe('classifyWrite', () => {
     // listed in write.allow.paths, the carve-back semantic only
     // applies to basenames / segments. Without segments, writes to
     // node_modules sub-paths still hit deny-segment.
+    //
+    // `node_modules` is no longer in the shipped defaults, so we add
+    // it explicitly to exercise the deny path that this assertion
+    // depends on.
     const policy = mergePolicies(DEFAULT_POLICY, {
-      write: { allow: { paths: ['.', 'node_modules/.vite-temp'] } },
+      write: {
+        allow: { paths: ['.', 'node_modules/.vite-temp'] },
+        deny: { segments: ['node_modules'] },
+      },
     });
     expect(classifyWrite('./node_modules/.vite-temp/x.mjs', CWD, policy)?.reason).toBe('deny-segment');
   });

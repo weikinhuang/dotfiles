@@ -45,6 +45,12 @@ export interface LoadFilesystemPolicyOptions {
   includeDefaults?: boolean;
   /** Active persona's resolved writeRoots, merged into `write.allow.paths`. */
   personaOverlay?: PersonaWriteRootsOverlay;
+  /** Session-only write-allow paths granted by the "Allow once"
+   *  branch of the reactive filesystem-ask dialog. Merged into
+   *  `write.allow.paths` after the persona overlay so the next
+   *  `wrapWithSandbox` picks them up without touching any on-disk
+   *  config file. Cleared at session end. */
+  sessionWriteAllowPaths?: readonly string[];
 }
 
 export interface LoadFilesystemPolicyResult {
@@ -165,7 +171,7 @@ export function loadFilesystemPolicy(
   layers: FilesystemPolicyLayer[],
   options: LoadFilesystemPolicyOptions = {},
 ): LoadFilesystemPolicyResult {
-  const { includeDefaults = true, personaOverlay } = options;
+  const { includeDefaults = true, personaOverlay, sessionWriteAllowPaths } = options;
   const warnings: FilesystemPolicyWarning[] = [];
 
   const partials: PartialFilesystemPolicy[] = [];
@@ -180,6 +186,12 @@ export function loadFilesystemPolicy(
   if (personaOverlay && personaOverlay.paths.length > 0) {
     partials.push({
       write: { allow: { paths: [...personaOverlay.paths] } },
+    });
+  }
+
+  if (sessionWriteAllowPaths && sessionWriteAllowPaths.length > 0) {
+    partials.push({
+      write: { allow: { paths: [...sessionWriteAllowPaths] } },
     });
   }
 

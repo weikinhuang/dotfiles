@@ -18,9 +18,10 @@
 //                                            denied. NOT a carve-back.
 //   write.allow.{basenames,segments}         CARVE-BACK inside write.deny
 //                                            (mirrors read.allow). Lets a
-//                                            project policy say "deny
-//                                            node_modules writes EXCEPT
-//                                            under node_modules/.vite-temp".
+//                                            stricter project policy say
+//                                            "deny node_modules writes
+//                                            EXCEPT under
+//                                            node_modules/.vite-temp".
 //   write.deny.{basenames,segments,paths}    carve holes inside the
 //                                            allowed area.
 //
@@ -56,8 +57,8 @@
     // top at runtime.
     //
     // `basenames` and `segments` here act as CARVE-BACK inside the
-    // deny set (NOT extra outer-gate roots). Example: allow vitest's
-    // bundle dir back through the `node_modules` segment-deny:
+    // deny set (NOT extra outer-gate roots). Example use, ONLY if a
+    // project policy also adds `node_modules` to write.deny.segments:
     //   "segments": ["node_modules/.vite-temp", "node_modules/.vite"]
     // The in-process gate honors carve-back exactly. The kernel
     // sandbox can't allow-back inside a deny via ASRT, so the matching
@@ -72,8 +73,16 @@
 
     // Hole-poke inside `write.allow`. `.git/hooks` and `.git/config`
     // are mandatory to keep models from rewriting hooks (a known
-    // exfil trick). `node_modules` is preserved so a typo doesn't
-    // mutate vendored deps.
+    // exfil trick).
+    //
+    // `node_modules` is NOT denied by default - workspaces are
+    // write-allowed via `write.allow.paths: ["."]`, so dependency
+    // installs work without prompting. Projects that want a stricter
+    // stance can add it back:
+    //   "segments": [".git/hooks", ".git/config", "node_modules"]
+    // If you do, the reactive fs-ask dialog (see sandbox.md) will
+    // prompt you to allow writes back per-session or per-project the
+    // first time bash hits the deny.
     //
     // The kernel sandbox enforces these on Linux (bwrap overlay).
     // On macOS, sandbox-exec silently DROPS deny rules pointing at
@@ -81,7 +90,7 @@
     // them lexically. See plan section 9.20.
     "deny": {
       "basenames": [".env", ".env.*"],
-      "segments": [".git/hooks", ".git/config", "node_modules"],
+      "segments": [".git/hooks", ".git/config"],
       "paths": []
     }
   }

@@ -70,3 +70,35 @@ export function annotateBashResult(
   const kind: 'net' | 'fs' = /network|connect|host|domain/i.test(hint) ? 'net' : 'fs';
   return { content: newContent, hint, kind };
 }
+
+/**
+ * Prepend a free-form hint to the first text item of a bash tool_result
+ * content array. Returns the rewritten content, or undefined when the
+ * array is empty / has no text item we can splice into.
+ *
+ * Used by the reactive filesystem-ask flow to tell the model "the user
+ * just granted write access to X; you may retry the previous command on
+ * the next turn" after the user accepted the dialog. The hint is
+ * wrapped with the same `⚠️  sandbox …:` tag shape as
+ * {@link annotateBashResult} so transcripts read consistently across
+ * the preventive and reactive paths.
+ */
+export function prependBashHint(
+  content: readonly BashContentItem[] | undefined,
+  hint: string,
+  tag: string,
+): BashContentItem[] | undefined {
+  if (!content || content.length === 0) return undefined;
+  const trimmed = hint.trim();
+  if (!trimmed) return undefined;
+  const prefix = `${tag}\n${trimmed}\n---\n`;
+
+  const firstTextIdx = content.findIndex((c) => c.type === 'text');
+  if (firstTextIdx === -1) {
+    return [{ type: 'text', text: prefix }, ...content];
+  }
+  const first = content[firstTextIdx] as BashContentText;
+  return content.map((c, i) =>
+    i === firstTextIdx ? ({ ...first, text: `${prefix}${first.text ?? ''}` } satisfies BashContentText) : c,
+  );
+}

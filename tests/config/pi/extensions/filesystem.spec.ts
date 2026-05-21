@@ -77,7 +77,9 @@ describe('filesystem default policy', () => {
     expect(classifyWrite('./.env', CWD, p)?.reason).toBe('deny-basename');
     expect(classifyWrite('./.git/config', CWD, p)?.reason).toBe('deny-segment');
     expect(classifyWrite('./.git/hooks/pre-commit', CWD, p)?.reason).toBe('deny-segment');
-    expect(classifyWrite('./node_modules/foo', CWD, p)?.reason).toBe('deny-segment');
+    // node_modules is NOT carved out by the shipped defaults anymore;
+    // workspaces are write-allowed end-to-end.
+    expect(classifyWrite('./node_modules/foo', CWD, p)).toBeNull();
   });
 
   test('read.deny union also applies to writes (anything sensitive-to-read is sensitive-to-write)', () => {

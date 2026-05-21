@@ -134,7 +134,7 @@ describe('DEFAULT_POLICY', () => {
     ]);
     expect(DEFAULT_POLICY.write.allow.paths).toEqual(['.', '/tmp']);
     expect(DEFAULT_POLICY.write.deny.basenames).toEqual(['.env', '.env.*']);
-    expect(DEFAULT_POLICY.write.deny.segments).toEqual(['.git/hooks', '.git/config', 'node_modules']);
+    expect(DEFAULT_POLICY.write.deny.segments).toEqual(['.git/hooks', '.git/config']);
   });
 
   test('top-level shape is frozen', () => {

@@ -43,7 +43,10 @@ export interface FilesystemMatch {
  *              (`.git/hooks`) matches when the path contains that
  *              ordered subsequence; a single-segment string (`.git`,
  *              `node_modules`) matches when the path contains a segment
- *              with that exact name.
+ *              with that exact name. (Note: `node_modules` is NOT in
+ *              the shipped defaults - workspaces are write-allowed by
+ *              default, so dependency installs work without prompting.
+ *              Stricter project policies can add it back.)
  *   paths      tilde-expanded path prefixes, e.g. `~/.ssh`, `.`, `/tmp`.
  *              Matches when the resolved path equals the prefix or
  *              descends from it.
@@ -182,7 +185,14 @@ export function mergePolicies(...sources: (PartialFilesystemPolicy | undefined |
  *
  *   read.deny  - secrets, private keys, cloud creds.
  *   write.allow - cwd ('.') plus /tmp; persona writeRoots merge later.
- *   write.deny  - .env*, .git/hooks, .git/config, node_modules.
+ *   write.deny  - .env*, .git/hooks, .git/config.
+ *
+ * `node_modules` is intentionally NOT in the default write-deny.
+ * Workspaces are write-allowed via `write.allow.paths: ['.']`, so
+ * `npm install` and friends just work. Projects that want a stricter
+ * stance can opt back in via `.pi/filesystem.json`:
+ *
+ *   { "write": { "deny": { "segments": ["node_modules"] } } }
  *
  * The frozen object guards against accidental mutation; the loader
  * always merges into a fresh copy via {@link mergePolicies}.
@@ -200,7 +210,7 @@ export const DEFAULT_POLICY: Readonly<FilesystemPolicy> = Object.freeze({
     allow: Object.freeze({ basenames: [], segments: [], paths: ['.', '/tmp'] }),
     deny: Object.freeze({
       basenames: ['.env', '.env.*'],
-      segments: ['.git/hooks', '.git/config', 'node_modules'],
+      segments: ['.git/hooks', '.git/config'],
       paths: [],
     }),
   }),
