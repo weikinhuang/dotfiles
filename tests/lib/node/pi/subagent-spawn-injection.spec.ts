@@ -137,8 +137,8 @@ describe('runOneShotAgent + subagent-extension-injection', () => {
   });
 
   test('passes only registry factories when caller does not override', async () => {
-    const globalA: SubagentExtensionFactory = () => 'A';
-    const globalB: SubagentExtensionFactory = () => 'B';
+    const globalA: SubagentExtensionFactory = (): void => undefined;
+    const globalB: SubagentExtensionFactory = (): void => undefined;
     registerSubagentInjection('a', globalA);
     registerSubagentInjection('b', globalB);
 
@@ -147,7 +147,7 @@ describe('runOneShotAgent + subagent-extension-injection', () => {
   });
 
   test('passes only per-call factories when registry is empty', async () => {
-    const perCall: SubagentExtensionFactory = () => 'per-call';
+    const perCall: SubagentExtensionFactory = (): void => undefined;
     const captured = await runOnce({ extensionFactories: [perCall] });
     expect(captured.args?.extensionFactories).toEqual([perCall]);
   });
@@ -157,9 +157,9 @@ describe('runOneShotAgent + subagent-extension-injection', () => {
     // factories - registered once on extension load. Order matters:
     // pi's runner uses last-registered-wins for handlers on the same
     // event, so per-call factories overlay the globals.
-    const globalA: SubagentExtensionFactory = () => 'global-a';
-    const globalB: SubagentExtensionFactory = () => 'global-b';
-    const perCall: SubagentExtensionFactory = () => 'per-call';
+    const globalA: SubagentExtensionFactory = (): void => undefined;
+    const globalB: SubagentExtensionFactory = (): void => undefined;
+    const perCall: SubagentExtensionFactory = (): void => undefined;
     registerSubagentInjection('a', globalA);
     registerSubagentInjection('b', globalB);
 
@@ -168,8 +168,8 @@ describe('runOneShotAgent + subagent-extension-injection', () => {
   });
 
   test('re-registering the same id replaces - no duplicate factories on /reload', async () => {
-    const v1: SubagentExtensionFactory = () => 'v1';
-    const v2: SubagentExtensionFactory = () => 'v2';
+    const v1: SubagentExtensionFactory = (): void => undefined;
+    const v2: SubagentExtensionFactory = (): void => undefined;
     registerSubagentInjection('reloadable', v1);
     registerSubagentInjection('reloadable', v2);
 
@@ -178,7 +178,7 @@ describe('runOneShotAgent + subagent-extension-injection', () => {
   });
 
   test('keeps `noExtensions: true` so on-disk extensions remain skipped', async () => {
-    const f: SubagentExtensionFactory = () => 'x';
+    const f: SubagentExtensionFactory = (): void => undefined;
     registerSubagentInjection('f', f);
 
     const captured = await runOnce({});

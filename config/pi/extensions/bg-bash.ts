@@ -67,7 +67,7 @@ import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { StringEnum } from '@earendil-works/pi-ai';
-import { type ExtensionAPI, type ExtensionContext, type Theme } from '@earendil-works/pi-coding-agent';
+import { type ExtensionAPI, type ExtensionContext, type Theme, type ThemeColor } from '@earendil-works/pi-coding-agent';
 import { type Component, matchesKey, Text, truncateToWidth } from '@earendil-works/pi-tui';
 import { Type } from 'typebox';
 
@@ -356,7 +356,7 @@ function droppedFor(job: LiveJob, stream: StreamName): number {
   return job.stdout.byteLengthDropped + job.stderr.byteLengthDropped;
 }
 
-function glyphColor(job: JobSummary, opts: { timedOut?: boolean }): string {
+function glyphColor(job: JobSummary, opts: { timedOut?: boolean }): ThemeColor {
   if (opts.timedOut) return 'warning';
   switch (job.status) {
     case 'running':

@@ -21,21 +21,21 @@ const noop = (): undefined => undefined;
 describe('registerSubagentInjection', () => {
   test('rejects empty id and non-function factory', () => {
     expect(() => registerSubagentInjection('', noop)).toThrow(/`id` is required/);
-    expect(() => registerSubagentInjection('x', undefined as unknown as () => unknown)).toThrow(/must be a function/);
+    expect(() => registerSubagentInjection('x', undefined as unknown as () => void)).toThrow(/must be a function/);
   });
 
   test('appends new factories in registration order', () => {
-    const a = (): string => 'A';
-    const b = (): string => 'B';
+    const a = (): void => undefined;
+    const b = (): void => undefined;
     registerSubagentInjection('a', a);
     registerSubagentInjection('b', b);
     expect(collectSubagentInjections()).toEqual([a, b]);
   });
 
   test('re-registering the same id REPLACES the existing factory in place', () => {
-    const a1 = (): string => 'A1';
-    const a2 = (): string => 'A2';
-    const b = (): string => 'B';
+    const a1 = (): void => undefined;
+    const a2 = (): void => undefined;
+    const b = (): void => undefined;
     registerSubagentInjection('a', a1);
     registerSubagentInjection('b', b);
     registerSubagentInjection('a', a2);

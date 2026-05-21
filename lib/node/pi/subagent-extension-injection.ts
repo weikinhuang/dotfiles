@@ -25,8 +25,17 @@
 import { createGlobalSlot } from './global-slot.ts';
 
 /** Opaque factory marker. Subagent-spawn (Phase 2) narrows this to
- *  `ExtensionFactory` when it imports the registry. */
-export type SubagentExtensionFactory = (...args: unknown[]) => unknown;
+ *  `ExtensionFactory` when it imports the registry.
+ *
+ *  Shape mirrors pi's `ExtensionFactory` (`(pi: ExtensionAPI) => void |
+ *  Promise<void>`) closely enough to be assignable in both directions
+ *  without importing pi types: `any` on the parameter side preserves
+ *  the bidirectional variance pi's concrete factories rely on, and the
+ *  `void | Promise<void>` return matches pi's
+ *  `DefaultResourceLoader.extensionFactories` slot so the array can be
+ *  threaded straight through without a cast. */
+// oxlint-disable-next-line typescript/no-explicit-any -- needs bidirectional variance with pi's ExtensionFactory
+export type SubagentExtensionFactory = (...args: any[]) => void | Promise<void>;
 
 export interface RegisteredSubagentInjection {
   /** Stable id - used for de-dup and `unregisterSubagentInjection`. */

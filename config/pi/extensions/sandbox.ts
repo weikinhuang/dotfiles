@@ -87,7 +87,7 @@ import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 
-import { type ExtensionAPI, type ExtensionContext } from '@earendil-works/pi-coding-agent';
+import { type ExtensionAPI, type ExtensionContext, type ToolResultEvent } from '@earendil-works/pi-coding-agent';
 
 import { clearActiveUI, publishActiveUI } from '../../../lib/node/pi/active-ui.ts';
 import { buildFilesystemAskDialog } from '../../../lib/node/pi/sandbox/filesystem-ask.ts';
@@ -876,7 +876,12 @@ export default function sandbox(pi: ExtensionAPI): void {
 
   // Surface deps / platform notifications once at startup.
   pi.on('session_start', async (_event, ctx) => {
-    publishActiveUI(ctx.ui);
+    publishActiveUI({
+      hasUI: ctx.hasUI,
+      select: ctx.ui.select.bind(ctx.ui),
+      input: ctx.ui.input.bind(ctx.ui),
+      notify: ctx.ui.notify.bind(ctx.ui),
+    });
     if (platform.kind === 'unsupported') {
       ctx.ui.notify(`sandbox: ${platform.description}; bash will run unsandboxed`, 'warning');
       state.degradedNotified = true;
@@ -918,7 +923,12 @@ export default function sandbox(pi: ExtensionAPI): void {
   // the unwrapped value for transcript / `/bash-history` consumers.
   pi.on('tool_call', async (event, ctx) => {
     if (event.toolName !== 'bash') return undefined;
-    publishActiveUI(ctx.ui);
+    publishActiveUI({
+      hasUI: ctx.hasUI,
+      select: ctx.ui.select.bind(ctx.ui),
+      input: ctx.ui.input.bind(ctx.ui),
+      notify: ctx.ui.notify.bind(ctx.ui),
+    });
     const rawCmd = (event.input as { command?: unknown } | undefined)?.command;
     const original = typeof rawCmd === 'string' ? rawCmd : '';
     if (!original.trim()) return undefined;
@@ -1059,13 +1069,13 @@ export default function sandbox(pi: ExtensionAPI): void {
           } catch {
             // Best-effort logging; never let the audit log break the hook.
           }
-          return { content: newContent };
+          return { content: newContent as ToolResultEvent['content'] };
         }
       } else if (outcome.kind === 'deny' && outcome.feedback) {
         const tag = '⚠️  sandbox blocked this write; the user declined to widen the policy:';
         const hint = `user feedback: ${outcome.feedback}`;
         const newContent = prependBashHint(evt.content, hint, tag);
-        if (newContent) return { content: newContent };
+        if (newContent) return { content: newContent as ToolResultEvent['content'] };
       }
       // `kind: 'deny'` without feedback, or `kind: 'no-ui'`, falls
       // through to the existing ASRT-annotation path below.
@@ -1097,7 +1107,7 @@ export default function sandbox(pi: ExtensionAPI): void {
       // Best-effort logging; never let the audit log break the hook.
     }
 
-    return { content: splice.content };
+    return { content: splice.content as ToolResultEvent['content'] };
   });
 
   // ─────────────────────────────────────────────────────────────────
