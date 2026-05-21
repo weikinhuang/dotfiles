@@ -67,7 +67,7 @@
  *   /sandbox-rescan           recompile Linux rules (basenames/segments
  *                             -> literal paths via ripgrep).
  *   /sandbox-recheck          re-run dependency detection.
- *   /sandbox-disable          session-only bypass + statusline strikethrough.
+ *   /sandbox-disable          session-only bypass; statusline badge hidden.
  *
  * Pure helpers (config schema, layered loader, ASRT translator,
  * platform probe, Linux rule compilation, violations JSONL,

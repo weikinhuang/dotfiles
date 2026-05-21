@@ -18,14 +18,14 @@ This is the third (lowest) layer in pi's defense-in-depth chain - it composes wi
 
 Default-on. Wraps every bash subprocess as soon as deps are detected. Per plan section 6:
 
-| Situation                                                           | Behavior                                                                                 |
-| ------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| Platform unsupported (Windows, WSL1)                                | Identity-wrap. One-time `notify('warning', ...)`. Statusline `🛡️?`.                      |
-| Platform supported, deps missing (`bubblewrap`, `socat`, `ripgrep`) | Identity-wrap with loud install hints. Statusline `🛡️?`. Re-init via `/sandbox-recheck`. |
-| Platform supported, deps present                                    | Wrap normally. Statusline `🛡️`.                                                          |
-| pi running as root (`process.getuid() === 0`)                       | Refuse to load. Override via `PI_SANDBOX_ALLOW_ROOT=1`.                                  |
-| `PI_SANDBOX_DISABLED=1`                                             | Identity-wrap. Statusline `🛡️·off`.                                                      |
-| `/sandbox-disable` (session-only)                                   | Identity-wrap. Statusline shows strikethrough variant.                                   |
+| Situation                                                           | Behavior                                                                                  |
+| ------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| Platform unsupported (Windows, WSL1)                                | Identity-wrap. One-time `notify('warning', ...)`. Statusline `🛡️ ?`.                      |
+| Platform supported, deps missing (`bubblewrap`, `socat`, `ripgrep`) | Identity-wrap with loud install hints. Statusline `🛡️ ?`. Re-init via `/sandbox-recheck`. |
+| Platform supported, deps present                                    | Wrap normally. Statusline `🛡️`.                                                           |
+| pi running as root (`process.getuid() === 0`)                       | Refuse to load. Override via `PI_SANDBOX_ALLOW_ROOT=1`.                                   |
+| `PI_SANDBOX_DISABLED=1`                                             | Identity-wrap. Statusline `🛡️ ·off`.                                                      |
+| `/sandbox-disable` (session-only)                                   | Identity-wrap. Statusline badge hidden for the session.                                   |
 
 The extension never **crashes** pi when sandboxing fails to set up - it falls back per `PI_SANDBOX_DEFAULT` (default
 `warn`: run unwrapped + log per-call). Set `PI_SANDBOX_DEFAULT=block` to refuse to run bash if the wrap itself errors
@@ -84,8 +84,8 @@ the unified policy:
 - `/sandbox-rescan` - re-run the Linux rule compilation. macOS prints a no-op message.
 - `/sandbox-recheck` - re-run dependency detection (`bubblewrap`, `socat`, `ripgrep`). Useful after
   `apt install bubblewrap` without restarting pi.
-- `/sandbox-disable` - session-only bypass with a yellow warning notify and the strikethrough statusline badge. Cleared
-  on `session_shutdown`. Does **not** write a config file.
+- `/sandbox-disable` - session-only bypass with a yellow warning notify; the statusline badge is hidden for the duration
+  of the session. Cleared on `session_shutdown`. Does **not** write a config file.
 
 Deliberately omitted: `/sandbox-allow-read <path>` to add an `allowRead`-within-deny override. Footgun-shaped; users
 edit `~/.pi/filesystem.json` by hand for that.
@@ -108,13 +108,13 @@ Auto-mode (`/bash-auto`) does **NOT** skip the network prompt. Network access is
 State is published via [`session-flags.ts`](../../../lib/node/pi/session-flags.ts)' `setSandboxState` and rendered by
 [`statusline.ts`](./statusline.md):
 
-| State                                                   | Render                                        |
-| ------------------------------------------------------- | --------------------------------------------- |
-| Sandbox on, deps OK, no auto-mode                       | `🛡️`                                          |
-| Sandbox on + auto-mode on                               | `⚡🛡️` (defense-in-depth visible at a glance) |
-| Sandbox bypassed via `/sandbox-disable`                 | `🛡️` (strikethrough) plus warning color       |
-| Identity-wrapped (deps missing or unsupported platform) | `🛡️?` plus dim color                          |
-| `PI_SANDBOX_DISABLED=1`                                 | `🛡️·off`                                      |
+| State                                                   | Render                                         |
+| ------------------------------------------------------- | ---------------------------------------------- |
+| Sandbox on, deps OK, no auto-mode                       | `🛡️`                                           |
+| Sandbox on + auto-mode on                               | `⚡ 🛡️` (defense-in-depth visible at a glance) |
+| Sandbox bypassed via `/sandbox-disable`                 | (badge hidden)                                 |
+| Identity-wrapped (deps missing or unsupported platform) | `🛡️ ?` plus warning color                      |
+| `PI_SANDBOX_DISABLED=1`                                 | `🛡️ ·off`                                      |
 
 ## Composition with other extensions
 
@@ -144,7 +144,7 @@ State is published via [`session-flags.ts`](../../../lib/node/pi/session-flags.t
 
 | Variable                        | Default | Effect                                                                                                                                                |
 | ------------------------------- | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `PI_SANDBOX_DISABLED`           | unset   | bypass entirely; identity-wrap. Statusline `🛡️·off`.                                                                                                  |
+| `PI_SANDBOX_DISABLED`           | unset   | bypass entirely; identity-wrap. Statusline `🛡️ ·off`.                                                                                                 |
 | `PI_SANDBOX_DRY_RUN`            | unset   | log the wrapped command but pass the original through (for debugging the wrap pipeline).                                                              |
 | `PI_SANDBOX_DEFAULT`            | `warn`  | fallback when `wrapWithSandbox` itself errors: `warn` (run unwrapped + log per-call), `allow` (run unwrapped silently), `block` (refuse to run bash). |
 | `PI_SANDBOX_NETWORK_DEFAULT`    | `deny`  | non-UI default for the network ask-callback (`pi -p` mode): `deny` (silent block) or `allow` (silent admit).                                          |

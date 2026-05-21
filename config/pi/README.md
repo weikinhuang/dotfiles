@@ -117,13 +117,13 @@ You: please run the tests
 
 ### Statusline badge states
 
-| Badge                | Meaning                                                                                |
-| -------------------- | -------------------------------------------------------------------------------------- |
-| `🛡️`                 | sandbox on, deps OK, every bash subprocess wrapped                                     |
-| `⚡ 🛡️`              | auto-mode on AND sandbox on (defense-in-depth visible at a glance)                     |
-| `🛡️` (strikethrough) | session bypass via `/sandbox-disable` - cleared on `session_shutdown`                  |
-| `🛡️ ?` (dim)         | identity-wrap because deps are missing or the platform is unsupported - run `/sandbox` |
-| `🛡️ ·off`            | bypassed via `PI_SANDBOX_DISABLED=1`                                                   |
+| Badge     | Meaning                                                                                |
+| --------- | -------------------------------------------------------------------------------------- |
+| `🛡️`      | sandbox on, deps OK, every bash subprocess wrapped                                     |
+| `⚡ 🛡️`   | auto-mode on AND sandbox on (defense-in-depth visible at a glance)                     |
+| (hidden)  | session bypass via `/sandbox-disable` - cleared on `session_shutdown`                  |
+| `🛡️ ?`    | identity-wrap because deps are missing or the platform is unsupported - run `/sandbox` |
+| `🛡️ ·off` | bypassed via `PI_SANDBOX_DISABLED=1`                                                   |
 
 ### When something blocks
 

@@ -105,30 +105,41 @@ const paint = (code: string, text: string): string => `${code}${text}${RESET}`;
 
 /**
  * Render the sandbox badge for line 1 of the statusline. Returns
- * `null` when the sandbox is `off` (extension not loaded or pre-init)
- * so we don't add a leading space for a nothing-segment.
+ * `null` when the sandbox is effectively off (extension not loaded,
+ * pre-init, or session bypass) so we don't add a leading space for
+ * a nothing-segment.
  *
- *   wrapped       \ud83d\udee1\ufe0f          (deps OK + initialized)
- *   identity      \ud83d\udee1\ufe0f?         (degraded - missing deps / unsupported)
- *   bypassed      \ud83d\udee1\u0336          (sandbox-disable session bypass)
- *   env-disabled  \ud83d\udee1\ufe0f\u00b7off      (PI_SANDBOX_DISABLED=1)
+ * The trailing space after the shield emoji is intentional: some
+ * terminals render the VS16-presented \ud83d\udee1\ufe0f glyph wide enough that
+ * the next column collides with whatever follows.
+ *
+ *   wrapped       \ud83d\udee1\ufe0f<sp>             (deps OK + initialized)
+ *   identity      \ud83d\udee1\ufe0f<sp>?            (degraded - missing deps / unsupported)
+ *   bypassed      (hidden)              (/sandbox-disable session bypass)
+ *   env-disabled  \ud83d\udee1\ufe0f<sp>\u00b7off         (PI_SANDBOX_DISABLED=1)
+ *
+ * `bypassed` previously rendered \ud83d\udee1\u0336 with a combining strikethrough,
+ * but that produces broken glyphs on terminals that can't combine
+ * U+0336 onto an emoji. Since `bypassed` means "sandbox is off for
+ * this session", we just hide the badge - same as the `off` case.
  *
  * Color palette:
- *   wrapped       PALETTE.sandbox  (calm green)
- *   identity      PALETTE.sandboxWarn (dim amber - degraded)
- *   bypassed      PALETTE.sandboxOff (red - explicit user bypass)
- *   env-disabled  PALETTE.sandboxOff (red)
+ *   wrapped       PALETTE.sandbox     (calm green)
+ *   identity      PALETTE.sandboxWarn (amber - degraded; note that most
+ *                                      terminals don't apply foreground
+ *                                      colors to emoji, so only the `?`
+ *                                      suffix actually picks up the tint)
+ *   env-disabled  PALETTE.sandboxOff  (red)
  */
 function renderSandboxBadge(mode: SandboxMode): string | null {
   switch (mode) {
     case 'wrapped':
-      return paint(PALETTE.sandbox, '\u{1F6E1}\uFE0F');
+      return paint(PALETTE.sandbox, '\u{1F6E1}\uFE0F ');
     case 'identity':
-      return paint(PALETTE.sandboxWarn, '\u{1F6E1}\uFE0F?');
-    case 'bypassed':
-      return paint(PALETTE.sandboxOff, '\u{1F6E1}\u0336');
+      return paint(PALETTE.sandboxWarn, '\u{1F6E1}\uFE0F ?');
     case 'env-disabled':
-      return paint(PALETTE.sandboxOff, '\u{1F6E1}\uFE0F\u00b7off');
+      return paint(PALETTE.sandboxOff, '\u{1F6E1}\uFE0F \u00b7off');
+    case 'bypassed':
     case 'off':
     default:
       return null;
@@ -423,11 +434,11 @@ export default function extension(pi: ExtensionAPI): void {
           line1Parts.push(' ', paint(PALETTE.tool, '\u26a1'));
         }
         // Sandbox indicator: published by sandbox.ts via
-        // session-flags.setSandboxState. Five visible states - see
-        // plan section 7's render table for the rationale. Rendered
-        // adjacent to the \u26a1 auto-mode glyph (so `\u26a1\ud83d\udee1\ufe0f` reads
-        // "defense-in-depth on") and toned down (dim / strikethrough)
-        // when the sandbox is bypassed or degraded.
+        // session-flags.setSandboxState. Rendered adjacent to the
+        // \u26a1 auto-mode glyph (so `\u26a1 \ud83d\udee1\ufe0f` reads "defense-in-depth on")
+        // and tinted amber for `identity` (degraded) / red for
+        // `env-disabled`. The badge is hidden for the `bypassed` and
+        // `off` states - see renderSandboxBadge for the rationale.
         const sandboxBadge = renderSandboxBadge(getSandboxState().mode);
         if (sandboxBadge) line1Parts.push(' ', sandboxBadge);
         line1Parts.push(' ', paint(PALETTE.model, modelId));
