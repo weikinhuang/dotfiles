@@ -11,6 +11,8 @@
  * `vitest`.
  */
 
+import { readFileSync } from 'node:fs';
+
 /**
  * Return `text` with `//` line comments and C-style block comments
  * replaced by nothing (line comments) or spaces/newlines (block
@@ -116,4 +118,85 @@ export function warnBadConfigFileOnce(tag: string, path: string, error: unknown)
 
 export function clearConfigWarning(tag: string, path: string): void {
   warnedBadConfigFiles.delete(`${tag}\0${path}`);
+}
+
+/**
+ * Read + parse a JSONC config file with the "missing is fine, malformed
+ * warns once" policy. Used by single-file config loaders
+ * (`bash-permissions`, `filesystem-policy/load`, …) so the
+ * read/parse/warn/clear plumbing isn't re-implemented in each one.
+ *
+ * Behavior:
+ *   - Missing or unreadable file → return `fallback()` silently.
+ *   - Successful parse → `clearConfigWarning(tag, path)` then return value.
+ *   - Parse error → `warnBadConfigFileOnce(tag, path, e)` then return
+ *     `fallback()`. The fallback is invoked lazily so callers can pass a
+ *     factory for the failure-only allocation.
+ */
+export function loadJsoncConfigOrFallback<T>(tag: string, path: string, fallback: () => T): T {
+  let raw: string;
+  try {
+    raw = readFileSync(path, 'utf8');
+  } catch {
+    return fallback();
+  }
+  try {
+    const parsed = parseJsonc<T>(raw);
+    clearConfigWarning(tag, path);
+    return parsed;
+  } catch (e) {
+    warnBadConfigFileOnce(tag, path, e);
+    return fallback();
+  }
+}
+
+export interface ConfigWarning {
+  path: string;
+  error: string;
+}
+
+export interface TryReadJsoncOptions {
+  /**
+   * Require the parsed root to be a non-array object. Adds an explicit
+   * "config root must be an object" warning when the file parses to a
+   * string / number / array / null. Default `false` (accept any JSON
+   * value).
+   */
+  requireObject?: boolean;
+}
+
+/**
+ * Read + parse a JSONC file as part of a multi-path layered loader
+ * (`bash-exit-watchdog`, `iteration-loop-config`, `small-model-addendum`,
+ * `verify-hook-detect`). Each layer either contributes a parsed value or
+ * pushes a `ConfigWarning` for the caller to surface verbatim.
+ *
+ * Behavior:
+ *   - Missing or unreadable file → return `undefined` silently (no warning).
+ *   - Parse error → push `{path, error}` to `warnings`, return `undefined`.
+ *   - `opts.requireObject` set AND root is not a plain object → push
+ *     `{path, error: "config root must be an object"}`, return `undefined`.
+ *   - Otherwise → return the parsed value verbatim.
+ */
+export function tryReadJsoncFile(path: string, warnings: ConfigWarning[], opts: TryReadJsoncOptions = {}): unknown {
+  let raw: string;
+  try {
+    raw = readFileSync(path, 'utf8');
+  } catch {
+    return undefined;
+  }
+  let parsed: unknown;
+  try {
+    parsed = parseJsonc(raw);
+  } catch (e) {
+    warnings.push({ path, error: e instanceof Error ? e.message : String(e) });
+    return undefined;
+  }
+  if (opts.requireObject) {
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      warnings.push({ path, error: 'config root must be an object' });
+      return undefined;
+    }
+  }
+  return parsed;
 }

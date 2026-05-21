@@ -66,7 +66,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { parseJsonc } from './jsonc.ts';
+import { tryReadJsoncFile } from './jsonc.ts';
 import { type ClaimKind, type CompiledSatisfyRule, type ConfigWarning } from './verify-detect.ts';
 
 // ──────────────────────────────────────────────────────────────────────
@@ -203,15 +203,6 @@ function tryReadFile(path: string): string | null {
   }
 }
 
-function tryParseJsonc(raw: string, path: string, warnings: ConfigWarning[]): unknown {
-  try {
-    return parseJsonc(raw);
-  } catch (e) {
-    warnings.push({ path, error: e instanceof Error ? e.message : String(e) });
-    return undefined;
-  }
-}
-
 /**
  * Walk a parsed lint-staged config (shape: `{ glob: string |
  * string[] | …function serialised to string }`) and feed each
@@ -293,18 +284,15 @@ export function detectHookRules(cwd: string): DetectHookRulesResult {
   // crashes.
   for (const name of LINT_STAGED_JSON_CANDIDATES) {
     const p = join(cwd, name);
-    const text = tryReadFile(p);
-    if (text === null) continue;
-    const parsed = tryParseJsonc(text, p, warnings);
+    const parsed = tryReadJsoncFile(p, warnings);
     if (parsed === undefined) continue;
     scanParsedLintStaged(parsed, p, scanText);
   }
 
   // ── 3. package.json inline configs (lint-staged + husky v4) ───────
   const pkgPath = join(cwd, 'package.json');
-  const pkgText = tryReadFile(pkgPath);
-  if (pkgText !== null) {
-    const pkg = tryParseJsonc(pkgText, pkgPath, warnings);
+  {
+    const pkg = tryReadJsoncFile(pkgPath, warnings);
     if (pkg && typeof pkg === 'object') {
       const pkgObj = pkg as Record<string, unknown>;
       const lintStaged = pkgObj['lint-staged'];

@@ -50,44 +50,17 @@
  *   PI_EDIT_RECOVERY_TRACE=<path>       append one line per decision to <path>
  */
 
-import { appendFileSync, readFileSync, statSync } from 'node:fs';
-import { isAbsolute, resolve } from 'node:path';
+import { appendFileSync } from 'node:fs';
 
 import { type ExtensionAPI, type ExtensionContext, isEditToolResult } from '@earendil-works/pi-coding-agent';
 
 import { locateAndFormat, parseEditFailure } from '../../../lib/node/pi/edit-recovery.ts';
+import { boundedReadFile } from '../../../lib/node/pi/fs-safe.ts';
+import { parsePositiveInt } from '../../../lib/node/pi/parse-env.ts';
 
 const DEFAULT_MAX_BYTES = 262_144;
 const DEFAULT_CONTEXT_LINES = 2;
 const DEFAULT_MAX_CANDIDATES = 5;
-
-function parsePositiveInt(raw: string | undefined, fallback: number): number {
-  if (!raw) return fallback;
-  const n = Number.parseInt(raw, 10);
-  return Number.isFinite(n) && n > 0 ? n : fallback;
-}
-
-function resolveFileContent(
-  cwd: string,
-  inputPath: string,
-  maxBytes: number,
-): { content: string | undefined; reason?: string } {
-  const absolute = isAbsolute(inputPath) ? inputPath : resolve(cwd, inputPath);
-  let size: number;
-  try {
-    size = statSync(absolute).size;
-  } catch {
-    return { content: undefined, reason: 'stat failed (missing or unreadable)' };
-  }
-  if (size > maxBytes) {
-    return { content: undefined, reason: `file too large (${size} > ${maxBytes})` };
-  }
-  try {
-    return { content: readFileSync(absolute, 'utf8') };
-  } catch {
-    return { content: undefined, reason: 'read failed' };
-  }
-}
 
 export default function editRecovery(pi: ExtensionAPI): void {
   if (process.env.PI_EDIT_RECOVERY_DISABLED === '1') return;
@@ -151,7 +124,7 @@ export default function editRecovery(pi: ExtensionAPI): void {
       return undefined;
     }
 
-    const { content, reason } = resolveFileContent(ctx.cwd, path, maxBytes);
+    const { content, reason } = boundedReadFile(ctx.cwd, path, maxBytes);
 
     const out = locateAndFormat({
       errorText,

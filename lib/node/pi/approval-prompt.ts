@@ -34,6 +34,68 @@ export interface ApprovalPromptContext {
  */
 export type ApprovalDecision = { kind: 'allow-once' } | { kind: 'allow-session' } | { kind: 'deny'; feedback?: string };
 
+/**
+ * Sentinel decision value that tells {@link promptSelectWithFeedback}
+ * to follow up with a free-text input prompt and return a deny
+ * decision carrying that text. Use it wherever the picker offers a
+ * "Deny with feedback…" entry.
+ */
+export const DENY_WITH_FEEDBACK = { kind: 'deny-feedback' as const };
+export type DenyWithFeedback = typeof DENY_WITH_FEEDBACK;
+
+export interface PromptEntry<D> {
+  label: string;
+  decision: D | DenyWithFeedback;
+}
+
+export interface FeedbackPromptCopy {
+  title: string;
+  placeholder?: string;
+}
+
+/**
+ * Generic "pick one entry; if the user picks the deny-feedback
+ * sentinel, collect free text" helper. Consolidates the dialog
+ * scaffolding used by every extension-side approval gate
+ * (`filesystem.ts` via {@link askForPermission}, `bash-permissions.ts`
+ * for both single-command and batch prompts).
+ *
+ * Contract:
+ *   - On dialog dismissal (`ctx.ui.select` returns `undefined`) we
+ *     fall back to `buildDeny()` - fail-closed.
+ *   - On `deny-feedback` selection we prompt for input, trim it, and
+ *     pass it to `buildDeny`. Empty/whitespace-only input collapses to
+ *     `undefined` so callers can render a default.
+ *   - Otherwise we return the entry's decision verbatim.
+ *
+ * `D` is constrained to "something with a `kind`" so we can detect
+ * the deny-feedback sentinel without losing the discriminated-union
+ * shape on the way out.
+ */
+export async function promptSelectWithFeedback<D extends { kind: string }>(
+  ctx: ApprovalPromptContext,
+  title: string,
+  entries: readonly PromptEntry<D>[],
+  feedback: FeedbackPromptCopy,
+  buildDeny: (feedback?: string) => D,
+): Promise<D> {
+  const choice = await ctx.ui.select(
+    title,
+    entries.map((e) => e.label),
+  );
+  const picked = entries.find((e) => e.label === choice);
+  if (!picked) return buildDeny();
+  const decision = picked.decision;
+  if (decision.kind === 'deny-feedback') {
+    const fb = await ctx.ui.input(feedback.title, feedback.placeholder);
+    const trimmed = fb?.trim();
+    return buildDeny(trimmed && trimmed.length > 0 ? trimmed : undefined);
+  }
+  // TS can't narrow `D | DenyWithFeedback` past the literal check above
+  // when `D` is generic - asserting back to `D` is the standard escape.
+  return decision as D;
+}
+
 export interface ApprovalPromptArgs {
   /** The pi tool that triggered the prompt (e.g. `'write'`, `'edit'`). */
   tool: string;
@@ -57,33 +119,16 @@ export async function askForPermission(
   args: ApprovalPromptArgs,
 ): Promise<ApprovalDecision> {
   const { tool, path, detail } = args;
-
-  interface Entry {
-    label: string;
-    decision: ApprovalDecision | 'deny-feedback';
-  }
-  const entries: Entry[] = [
-    { label: 'Allow once', decision: { kind: 'allow-once' } },
-    { label: `Allow "${path}" for this session`, decision: { kind: 'allow-session' } },
-    { label: 'Deny', decision: { kind: 'deny' } },
-    { label: 'Deny with feedback…', decision: 'deny-feedback' },
-  ];
-
-  const choice = await ctx.ui.select(
+  return promptSelectWithFeedback<ApprovalDecision>(
+    ctx,
     `⚠️  ${tool} wants to touch a protected path:\n\n  ${path}\n  (${detail})\n\nHow should pi proceed?`,
-    entries.map((e) => e.label),
+    [
+      { label: 'Allow once', decision: { kind: 'allow-once' } },
+      { label: `Allow "${path}" for this session`, decision: { kind: 'allow-session' } },
+      { label: 'Deny', decision: { kind: 'deny' } },
+      { label: 'Deny with feedback…', decision: DENY_WITH_FEEDBACK },
+    ],
+    { title: 'Tell the assistant why:', placeholder: 'e.g. read docs/foo.md instead' },
+    (fb) => ({ kind: 'deny', feedback: fb }),
   );
-
-  const picked = entries.find((e) => e.label === choice);
-  if (!picked) return { kind: 'deny' };
-
-  if (picked.decision === 'deny-feedback') {
-    const feedback = await ctx.ui.input('Tell the assistant why:', 'e.g. read docs/foo.md instead');
-    const trimmed = feedback?.trim();
-    // Empty / whitespace-only feedback collapses to undefined so callers
-    // can render a default rather than echoing a blank line back.
-    if (trimmed && trimmed.length > 0) return { kind: 'deny', feedback: trimmed };
-    return { kind: 'deny' };
-  }
-  return picked.decision;
 }

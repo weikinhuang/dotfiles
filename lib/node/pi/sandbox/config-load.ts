@@ -13,7 +13,8 @@
  */
 
 import { parseJsonc } from '../jsonc.ts';
-import { isPlainObject } from '../util.ts';
+import { envTruthy } from '../parse-env.ts';
+import { isRecord } from '../shared.ts';
 
 import {
   type PartialSandboxConfig,
@@ -66,7 +67,7 @@ function validateLayer(layer: SandboxConfigLayer): {
     return { partial, warnings };
   }
 
-  if (!isPlainObject(parsed)) {
+  if (!isRecord(parsed)) {
     warnings.push({
       source: layer.source,
       reason: 'expected a JSON object at top level',
@@ -77,7 +78,7 @@ function validateLayer(layer: SandboxConfigLayer): {
   for (const top of ['network', 'unixSockets', 'flags'] as const) {
     const v = parsed[top];
     if (v === undefined) continue;
-    if (!isPlainObject(v)) {
+    if (!isRecord(v)) {
       warnings.push({
         source: layer.source,
         reason: `\`${top}\` must be an object (dropped)`,
@@ -95,16 +96,6 @@ function validateLayer(layer: SandboxConfigLayer): {
 // ──────────────────────────────────────────────────────────────────────
 // Env-var overlay
 // ──────────────────────────────────────────────────────────────────────
-
-/**
- * Tiny dotenv-style truthy check: `1`, `true`, `yes`, `on`
- * (case-insensitive). Empty / unset values are NOT truthy. Anything
- * else returns false (matching plan section 6's env-var convention).
- */
-function envTruthy(value: string | undefined): boolean {
-  if (!value) return false;
-  return ['1', 'true', 'yes', 'on'].includes(value.trim().toLowerCase());
-}
 
 function envOverlay(env: SandboxConfigEnv): PartialSandboxConfig {
   const partial: PartialSandboxConfig = {};

@@ -12,43 +12,19 @@
  * are never picked up automatically.
  */
 
-import { dirname, isAbsolute, relative, resolve, sep } from 'node:path';
+import { dirname, resolve } from 'node:path';
+
+import { displayPath, isInsideCwd, normalizeAbs } from './path-display.ts';
+
+// Re-export so existing imports from this module keep working. New
+// callers should import from `path-display.ts` directly.
+export { displayPath, isInsideCwd, normalizeAbs };
 
 // ──────────────────────────────────────────────────────────────────────
 // Types
 // ──────────────────────────────────────────────────────────────────────
 
 export const DEFAULT_CONTEXT_FILE_NAMES: readonly string[] = ['AGENTS.md', 'CLAUDE.md'];
-
-// ──────────────────────────────────────────────────────────────────────
-// Candidate discovery
-// ──────────────────────────────────────────────────────────────────────
-
-/**
- * Normalize a cwd or file path to an absolute, resolved path with any
- * trailing separator stripped. Relative inputs are resolved against
- * `process.cwd()` - callers that already know their absolute cwd should
- * pass absolute paths to stay hermetic.
- */
-export function normalizeAbs(p: string): string {
-  const abs = isAbsolute(p) ? resolve(p) : resolve(p);
-  if (abs.length > 1 && abs.endsWith(sep)) return abs.slice(0, -sep.length);
-  return abs;
-}
-
-/**
- * Return `true` if `absFilePath` is inside `absCwd` (or equals it).
- * Uses lexical `path.relative` - does NOT follow symlinks. A path
- * exactly equal to `absCwd` counts as inside.
- */
-export function isInsideCwd(absFilePath: string, absCwd: string): boolean {
-  if (absFilePath === absCwd) return true;
-  const rel = relative(absCwd, absFilePath);
-  if (rel === '') return true;
-  if (rel.startsWith('..')) return false;
-  if (isAbsolute(rel)) return false; // different drive on Windows
-  return true;
-}
 
 /**
  * List absolute candidate context-file paths to check when the model
@@ -132,21 +108,6 @@ export interface SubdirAgentsDetails {
     /** `true` if the content was truncated by {@link capContent}. */
     truncated: boolean;
   }[];
-}
-
-/**
- * Format a user-visible path for display in the injected message. If
- * `absPath` is inside `cwd`, returns a relative path; otherwise returns
- * `absPath` unchanged. Normalizes Windows separators to forward slashes
- * for consistent LLM output.
- */
-export function displayPath(absPath: string, cwd: string): string {
-  const absCwd = normalizeAbs(cwd);
-  const abs = normalizeAbs(absPath);
-  if (!isInsideCwd(abs, absCwd)) return abs.split(sep).join('/');
-  if (abs === absCwd) return '.';
-  const rel = relative(absCwd, abs);
-  return rel.split(sep).join('/');
 }
 
 /**

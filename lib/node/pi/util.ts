@@ -1,14 +1,11 @@
 /**
- * Tiny shared primitives used across pi-related lib helpers.
+ * Single-quote-escape a shell argument. Used by `sandbox/markers.ts`
+ * and `sandbox/platform.ts`. Pure module - no pi imports.
  *
- * Two utilities are factored here rather than duplicated:
- *
- *   - {@link shQuote} - single-quote-escape a shell argument; used by
- *     `sandbox/markers.ts` and `sandbox/platform.ts`.
- *   - {@link isPlainObject} - type-guard for `Record<string, unknown>`;
- *     used by `sandbox/config-load.ts` and `filesystem-policy/load.ts`.
- *
- * Pure module - no pi imports - so it's directly unit-testable.
+ * The plain-object type guard previously also lived here; it now ships
+ * from `shared.ts` as `isRecord` so the lib tree has one canonical
+ * "record" predicate. Callers that need the strict prototype check
+ * (rejecting class instances) should keep their local copy.
  */
 
 /**
@@ -20,13 +17,4 @@
  */
 export function shQuote(s: string): string {
   return `'${s.replace(/'/g, "'\\''")}'`;
-}
-
-/**
- * True when `v` is a non-null, non-array plain object. Narrows to
- * `Record<string, unknown>` so callers can index into it without a
- * cast.
- */
-export function isPlainObject(v: unknown): v is Record<string, unknown> {
-  return v !== null && typeof v === 'object' && !Array.isArray(v);
 }

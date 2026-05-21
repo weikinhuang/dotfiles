@@ -41,16 +41,11 @@ import { appendFileSync } from 'node:fs';
 import { type ExtensionAPI, type ExtensionContext } from '@earendil-works/pi-coding-agent';
 
 import { buildNudge, makeKey, pushAndCheck } from '../../../lib/node/pi/loop-breaker.ts';
+import { parsePositiveInt } from '../../../lib/node/pi/parse-env.ts';
 
 const DEFAULT_THRESHOLD = 3;
 const DEFAULT_WINDOW = 6;
 const STATUS_KEY = 'loop-breaker';
-
-function parsePositiveInt(raw: string | undefined, fallback: number): number {
-  if (!raw) return fallback;
-  const n = Number.parseInt(raw, 10);
-  return Number.isFinite(n) && n > 0 ? n : fallback;
-}
 
 export default function loopBreaker(pi: ExtensionAPI): void {
   if (process.env.PI_LOOP_BREAKER_DISABLED === '1') return;

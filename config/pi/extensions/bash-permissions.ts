@@ -92,7 +92,7 @@
  * `vitest` without pulling in the pi runtime.
  */
 
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 
@@ -112,15 +112,14 @@ import {
   type LoadedRules,
   type RuleFile,
   type Scope,
-  twoTokenPattern,
 } from '../../../lib/node/pi/bash-match.ts';
-import { clearConfigWarning, parseJsonc, warnBadConfigFileOnce } from '../../../lib/node/pi/jsonc.ts';
+import { askForPermission, askForPermissionBatch } from '../../../lib/node/pi/bash-permission-prompts.ts';
+import { loadJsoncConfigOrFallback } from '../../../lib/node/pi/jsonc.ts';
 import { pickScopeFile } from '../../../lib/node/pi/scope-pick.ts';
 import { getActivePersona } from '../../../lib/node/pi/persona/active.ts';
 import { personaVouchBash } from '../../../lib/node/pi/persona/bash-vouch.ts';
 import { setBashAutoEnabled } from '../../../lib/node/pi/session-flags.ts';
 import { registerSubagentInjection } from '../../../lib/node/pi/subagent-extension-injection.ts';
-import { truncate } from '../../../lib/node/pi/shared.ts';
 
 // ──────────────────────────────────────────────────────────────────────
 // Rule storage
@@ -134,25 +133,11 @@ function projectRulesPath(cwd: string): string {
 }
 
 function readRules(path: string): LoadedRules {
-  let raw: string;
-  try {
-    raw = readFileSync(path, 'utf8');
-  } catch {
-    // File missing / unreadable - silent. Missing rule files are the
-    // common case (new project with no `.pi/bash-permissions.json`).
-    return { allow: [], deny: [] };
-  }
-  try {
-    const parsed = parseJsonc<RuleFile>(raw);
-    clearConfigWarning('bash-permissions', path);
-    return {
-      allow: Array.isArray(parsed.allow) ? parsed.allow.map(String) : [],
-      deny: Array.isArray(parsed.deny) ? parsed.deny.map(String) : [],
-    };
-  } catch (e) {
-    warnBadConfigFileOnce('bash-permissions', path, e);
-    return { allow: [], deny: [] };
-  }
+  const parsed = loadJsoncConfigOrFallback<RuleFile>('bash-permissions', path, () => ({}));
+  return {
+    allow: Array.isArray(parsed.allow) ? parsed.allow.map(String) : [],
+    deny: Array.isArray(parsed.deny) ? parsed.deny.map(String) : [],
+  };
 }
 
 function writeRules(path: string, rules: LoadedRules): void {
@@ -172,176 +157,8 @@ function addRule(path: string, kind: 'allow' | 'deny', pattern: string): void {
   writeRules(path, current);
 }
 
-// ──────────────────────────────────────────────────────────────────────
-// Prompt helpers
-// ──────────────────────────────────────────────────────────────────────
-
-/**
- * Collapse whitespace (including newlines) to single spaces and truncate.
- *
- * Pi's ExtensionSelectorComponent has no scrolling / height clamp - it
- * renders every child line directly. If the dialog grows taller than the
- * terminal, the terminal itself scrolls and the UI flickers wildly on
- * every repaint. Keeping the rendered command to one short line is the
- * cheapest way to keep the dialog a predictable ~10–12 rows regardless of
- * how long the original bash call was.
- */
-function compactForDialog(s: string, maxLen = 160): string {
-  return truncate(s.replace(/\s+/g, ' ').trim(), maxLen);
-}
-
 function pickScopePath(cwd: string): string {
   return pickScopeFile({ cwd, projectFile: projectRulesPath(cwd), userFile: USER_RULES_PATH });
-}
-
-type Decision =
-  | { kind: 'allow-once' }
-  | { kind: 'allow-session-exact' }
-  | { kind: 'allow-project-exact' }
-  | { kind: 'allow-project-two-token'; pattern: string }
-  | { kind: 'allow-user-prefix'; pattern: string }
-  | { kind: 'deny'; feedback?: string };
-
-interface AskForPermissionContext {
-  /** Session auto mode is currently ON. */
-  auto?: boolean;
-  /** Reason the always-prompt list forced this prompt (e.g. "sudo"). */
-  alwaysPromptReason?: string;
-}
-
-async function askForPermission(
-  ctx: BashGateContext,
-  command: string,
-  extras: AskForPermissionContext = {},
-): Promise<Decision> {
-  const trimmed = command.trimStart();
-  const firstToken = trimmed.split(/[\s|&;<>()]/)[0] ?? command;
-  const twoToken = twoTokenPattern(command);
-  const userPrefixPattern = `${firstToken}*`;
-
-  interface Entry {
-    label: string;
-    decision: Decision | 'deny-feedback';
-  }
-  const entries: Entry[] = [
-    { label: 'Allow once', decision: { kind: 'allow-once' } },
-    {
-      label: `Allow "${truncate(command, 60)}" for this session`,
-      decision: { kind: 'allow-session-exact' },
-    },
-    {
-      label: `Always allow "${truncate(command, 60)}" (project)`,
-      decision: { kind: 'allow-project-exact' },
-    },
-  ];
-  if (twoToken) {
-    entries.push({
-      label: `Always allow "${twoToken}" (project)`,
-      decision: { kind: 'allow-project-two-token', pattern: twoToken },
-    });
-  }
-  entries.push({
-    label: `Always allow "${userPrefixPattern}" (user, all projects)`,
-    decision: { kind: 'allow-user-prefix', pattern: userPrefixPattern },
-  });
-  entries.push({ label: 'Deny', decision: { kind: 'deny' } });
-  entries.push({ label: 'Deny with feedback…', decision: 'deny-feedback' });
-
-  // `command` is shown inline in the dialog title; collapse newlines and
-  // cap the length so multi-line heredocs / long scripts don't blow the
-  // dialog past the terminal height (see compactForDialog).
-  const displayCommand = compactForDialog(command);
-  const titleLines: string[] = ['⚠️  Bash tool request:', '', `  ${displayCommand}`];
-  if (extras.auto && extras.alwaysPromptReason) {
-    titleLines.push('', `⚡ auto mode cannot skip this (${extras.alwaysPromptReason}).`);
-  }
-  titleLines.push('', 'How should pi proceed?');
-  const choice = await ctx.ui.select(
-    titleLines.join('\n'),
-    entries.map((e) => e.label),
-  );
-
-  const picked = entries.find((e) => e.label === choice);
-  if (!picked) return { kind: 'deny' };
-
-  if (picked.decision === 'deny-feedback') {
-    const feedback = await ctx.ui.input('Tell the assistant why:', 'e.g. use the test script instead');
-    const trimmed = feedback?.trim();
-    return { kind: 'deny', feedback: trimmed?.length ? trimmed : undefined };
-  }
-  return picked.decision;
-}
-
-type BatchDecision = { kind: 'allow-all-once' } | { kind: 'allow-all-session' } | { kind: 'deny'; feedback?: string };
-
-interface AskForPermissionBatchContext {
-  /** Session auto mode is currently ON. */
-  auto?: boolean;
-  /**
-   * Map sub-command → always-prompt reason. Sub-commands that aren't in
-   * the map landed in the prompt for the ordinary "unknown command"
-   * reason.
-   */
-  alwaysPromptReasons?: Map<string, string>;
-}
-
-/**
- * Coalesced prompt for a compound/multi-line bash call with ≥2 unknown
- * sub-commands. A single decision applies to all of them.
- */
-async function askForPermissionBatch(
-  ctx: BashGateContext,
-  fullCommand: string,
-  unknown: string[],
-  extras: AskForPermissionBatchContext = {},
-): Promise<BatchDecision> {
-  interface Entry {
-    label: string;
-    decision: BatchDecision | 'deny-feedback';
-  }
-  const entries: Entry[] = [
-    { label: `Allow all ${unknown.length} once`, decision: { kind: 'allow-all-once' } },
-    { label: `Allow all ${unknown.length} for this session`, decision: { kind: 'allow-all-session' } },
-    { label: 'Deny', decision: { kind: 'deny' } },
-    { label: 'Deny with feedback…', decision: 'deny-feedback' },
-  ];
-
-  // Cap the number of sub-commands rendered inline so the dialog stays
-  // within a reasonable height on small terminals; the remainder is
-  // summarised as a single "…and N more" line. Each visible sub-command
-  // is also whitespace-collapsed so multi-line fragments don't each
-  // expand into many rendered rows.
-  const MAX_VISIBLE_SUBS = 6;
-  const visible = unknown.slice(0, MAX_VISIBLE_SUBS);
-  const hidden = unknown.length - visible.length;
-  const summaryLines = visible.map((sub, idx) => {
-    const reason = extras.alwaysPromptReasons?.get(sub);
-    const marker = reason ? '  ⚡ ' : '  ';
-    return `${marker}${idx + 1}. ${compactForDialog(sub, 100)}${reason ? ` - ${reason}` : ''}`;
-  });
-  if (hidden > 0) summaryLines.push(`  … and ${hidden} more`);
-  const summary = summaryLines.join('\n');
-  const autoHint =
-    extras.auto && extras.alwaysPromptReasons && extras.alwaysPromptReasons.size > 0
-      ? '\n\n⚡ auto mode cannot skip the ⚡-marked sub-commands.'
-      : '';
-  const title =
-    `⚠️  Bash tool request with ${unknown.length} unknown sub-commands:\n\n${summary}${autoHint}\n\n` +
-    `Full command:\n  ${compactForDialog(fullCommand, 180)}\n\nHow should pi proceed?`;
-
-  const choice = await ctx.ui.select(
-    title,
-    entries.map((e) => e.label),
-  );
-  const picked = entries.find((e) => e.label === choice);
-  if (!picked) return { kind: 'deny' };
-
-  if (picked.decision === 'deny-feedback') {
-    const feedback = await ctx.ui.input('Tell the assistant why:', 'e.g. split these into separate calls');
-    const trimmed = feedback?.trim();
-    return { kind: 'deny', feedback: trimmed?.length ? trimmed : undefined };
-  }
-  return picked.decision;
 }
 
 // ──────────────────────────────────────────────────────────────────────

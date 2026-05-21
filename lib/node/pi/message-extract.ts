@@ -1,0 +1,63 @@
+/**
+ * Helpers for reaching into the loosely-typed message arrays carried on
+ * `agent_end` / `message_update` events.
+ *
+ * The event shape varies across providers (string content vs an array
+ * of content parts) and we want to handle both defensively. Two
+ * extensions previously had near-identical copies of these helpers:
+ *
+ *   - `config/pi/extensions/todo.ts::extractLastAssistantText`
+ *   - `config/pi/extensions/stream-watchdog.ts::findLastAssistant`
+ *
+ * Pure module - no pi imports - so it's directly unit-testable. The
+ * inputs are deliberately typed as `unknown` because the runtime
+ * provider payload shape isn't part of the lib's contract.
+ */
+
+/**
+ * Loose duck-type describing the fields we touch on a pi message. Real
+ * messages carry more, but the lib never trusts that.
+ */
+export interface LooseMessage {
+  readonly role?: string;
+  readonly stopReason?: string;
+  readonly content?: unknown;
+}
+
+/**
+ * Walk `messages` backwards and return the most recent message whose
+ * `role === 'assistant'`. Returns `undefined` for an empty / missing
+ * array or when no assistant message is found.
+ */
+export function findLastAssistantMessage(messages: readonly unknown[] | undefined): LooseMessage | undefined {
+  if (!Array.isArray(messages)) return undefined;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const msg = messages[i] as LooseMessage | undefined;
+    if (msg?.role === 'assistant') return msg;
+  }
+  return undefined;
+}
+
+/**
+ * Pull the visible text out of the last assistant message in
+ * `messages`. Handles both string content and the content-part array
+ * shape; non-text parts (tool calls, images, etc.) are skipped. Falls
+ * back to the empty string when no assistant message is present or its
+ * content is in an unrecognized form.
+ */
+export function extractLastAssistantText(messages: readonly unknown[] | undefined): string {
+  const msg = findLastAssistantMessage(messages);
+  if (!msg) return '';
+  if (typeof msg.content === 'string') return msg.content;
+  if (Array.isArray(msg.content)) {
+    const parts: string[] = [];
+    for (const c of msg.content) {
+      if (c && typeof c === 'object' && (c as { type?: string }).type === 'text') {
+        const text = (c as { text?: string }).text;
+        if (typeof text === 'string') parts.push(text);
+      }
+    }
+    return parts.join('\n');
+  }
+  return '';
+}

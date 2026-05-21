@@ -1,10 +1,14 @@
 /**
- * Tests for `lib/node/pi/util.ts` (shQuote + isPlainObject).
+ * Tests for `lib/node/pi/util.ts` (shQuote).
+ *
+ * The plain-object guard previously also lived in util.ts; it now
+ * ships from `shared.ts` as `isRecord` and is covered by
+ * `shared.spec.ts`.
  */
 
 import { describe, expect, test } from 'vitest';
 
-import { isPlainObject, shQuote } from '../../../../lib/node/pi/util.ts';
+import { shQuote } from '../../../../lib/node/pi/util.ts';
 
 describe('shQuote', () => {
   test('wraps a plain string in single quotes', () => {
@@ -27,21 +31,5 @@ describe('shQuote', () => {
     const out = shQuote("a'b'c");
     expect(out.startsWith("'")).toBe(true);
     expect(out.endsWith("'")).toBe(true);
-  });
-});
-
-describe('isPlainObject', () => {
-  test('true for plain objects', () => {
-    expect(isPlainObject({})).toBe(true);
-    expect(isPlainObject({ a: 1 })).toBe(true);
-  });
-
-  test('false for arrays, null, primitives, functions', () => {
-    expect(isPlainObject([])).toBe(false);
-    expect(isPlainObject(null)).toBe(false);
-    expect(isPlainObject(undefined)).toBe(false);
-    expect(isPlainObject('s')).toBe(false);
-    expect(isPlainObject(1)).toBe(false);
-    expect(isPlainObject(() => 0)).toBe(false);
   });
 });

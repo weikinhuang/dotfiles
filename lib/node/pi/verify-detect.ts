@@ -36,12 +36,9 @@
  *      doesn't already carry the marker.
  */
 
-import { readFileSync } from 'node:fs';
-import { homedir } from 'node:os';
-import { join } from 'node:path';
-
-import { parseJsonc } from './jsonc.ts';
+import type { ConfigWarning } from './jsonc.ts';
 import { truncate } from './shared.ts';
+import type { CompiledSatisfyRule } from './verify-detect-config.ts';
 
 /** The categories of claim we recognize. */
 export type ClaimKind = 'tests-pass' | 'lint-clean' | 'types-check' | 'build-clean' | 'format-clean' | 'ci-green';
@@ -534,132 +531,12 @@ export function lastUserMessageHasMarker(branch: readonly BranchEntry[], marker:
 }
 
 // ──────────────────────────────────────────────────────────────────────
-// User-configurable command→kinds rules (`commandSatisfies`)
-//
-// Shipped defaults cover the common cases; per-project / per-user
-// config extends them for scripts the matcher can't reasonably guess
-// at (custom CI wrappers, multi-tool meta-commands, repo-specific
-// verifiers).
-//
-// File layout (JSONC) at `~/.pi/agent/verify-before-claim.json` and
-// project `.pi/verify-before-claim.json`:
-//
-//   {
-//     "commandSatisfies": [
-//       { "pattern": "^\\./dev/lint\\.sh\\b",
-//         "kinds": ["lint-clean", "format-clean"] },
-//       { "pattern": "^make\\s+check\\b",
-//         "kinds": ["tests-pass", "lint-clean", "types-check"] }
-//     ]
-//   }
-//
-// Project rules are appended onto global rules, not replacing them.
-// Order within the merged list doesn't matter - `verifyingCommandMatches`
-// short-circuits on the first match regardless.
+// User-configurable command→kinds rules - re-exported from the config
+// loader sibling. Shipped defaults cover the common cases; per-project
+// / per-user config extends them for scripts the matcher can't
+// reasonably guess at (custom CI wrappers, multi-tool meta-commands,
+// repo-specific verifiers).
 // ──────────────────────────────────────────────────────────────────────
 
-const VALID_KINDS: ReadonlySet<ClaimKind> = new Set<ClaimKind>([
-  'tests-pass',
-  'lint-clean',
-  'types-check',
-  'build-clean',
-  'format-clean',
-  'ci-green',
-]);
-
-/** User-facing rule shape - the raw JSONC entry. */
-export interface CommandSatisfiesRule {
-  pattern: string;
-  kinds: ClaimKind[];
-}
-
-/** Compiled form passed into `partitionClaims` / `verifyingCommandMatches`. */
-export interface CompiledSatisfyRule {
-  re: RegExp;
-  kinds: Set<ClaimKind>;
-  /** The source config file path (for diagnostics). */
-  source: string;
-}
-
-export interface ConfigWarning {
-  path: string;
-  error: string;
-}
-
-/**
- * Read `verify-before-claim.json` from global + project locations and
- * return compiled `commandSatisfies` rules plus any load / parse
- * warnings. Missing files are silent; malformed JSON, unknown claim
- * kinds, and bad regexes produce structured warnings.
- *
- * The caller (the extension) surfaces warnings via `ctx.ui.notify`.
- */
-export function loadSatisfyRules(
-  cwd: string,
-  home: string = homedir(),
-): { rules: CompiledSatisfyRule[]; warnings: ConfigWarning[] } {
-  const warnings: ConfigWarning[] = [];
-  const rules: CompiledSatisfyRule[] = [];
-  const paths = [join(home, '.pi', 'agent', 'verify-before-claim.json'), join(cwd, '.pi', 'verify-before-claim.json')];
-
-  for (const path of paths) {
-    let raw: string;
-    try {
-      raw = readFileSync(path, 'utf8');
-    } catch {
-      continue;
-    }
-    let parsed: unknown;
-    try {
-      parsed = parseJsonc(raw);
-    } catch (e) {
-      warnings.push({ path, error: e instanceof Error ? e.message : String(e) });
-      continue;
-    }
-    if (!parsed || typeof parsed !== 'object') {
-      warnings.push({ path, error: 'config root must be an object' });
-      continue;
-    }
-    const { commandSatisfies } = parsed as { commandSatisfies?: unknown };
-    if (commandSatisfies === undefined) continue;
-    if (!Array.isArray(commandSatisfies)) {
-      warnings.push({ path, error: '`commandSatisfies` must be an array' });
-      continue;
-    }
-    for (const entry of commandSatisfies) {
-      if (!entry || typeof entry !== 'object') continue;
-      const e = entry as Record<string, unknown>;
-      if (typeof e.pattern !== 'string' || e.pattern.length === 0) {
-        warnings.push({ path, error: 'rule is missing a non-empty `pattern`' });
-        continue;
-      }
-      if (!Array.isArray(e.kinds) || e.kinds.length === 0) {
-        warnings.push({ path, error: `rule "${e.pattern}" is missing a non-empty \`kinds\` array` });
-        continue;
-      }
-      const kinds = new Set<ClaimKind>();
-      let ruleOk = true;
-      for (const k of e.kinds) {
-        if (typeof k !== 'string' || !VALID_KINDS.has(k as ClaimKind)) {
-          warnings.push({
-            path,
-            error: `rule "${e.pattern}" has unknown kind ${JSON.stringify(k)} (allowed: ${Array.from(VALID_KINDS).join(', ')})`,
-          });
-          ruleOk = false;
-          continue;
-        }
-        kinds.add(k as ClaimKind);
-      }
-      if (!ruleOk || kinds.size === 0) continue;
-      let re: RegExp;
-      try {
-        re = new RegExp(e.pattern);
-      } catch (err) {
-        warnings.push({ path, error: `rule "${e.pattern}" has invalid regex: ${String(err)}` });
-        continue;
-      }
-      rules.push({ re, kinds, source: path });
-    }
-  }
-  return { rules, warnings };
-}
+export type { ConfigWarning };
+export { type CommandSatisfiesRule, type CompiledSatisfyRule, loadSatisfyRules } from './verify-detect-config.ts';

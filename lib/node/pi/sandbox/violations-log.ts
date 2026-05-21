@@ -23,6 +23,7 @@ import { renameSync, statSync, appendFileSync, existsSync } from 'node:fs';
 import { dirname } from 'node:path';
 
 import { ensureDirSync } from '../atomic-write.ts';
+import { byteLen } from '../shared.ts';
 
 /** 5 MiB rotation cap matches plan section 3.2. */
 export const DEFAULT_VIOLATIONS_LOG_MAX_BYTES = 5 * 1024 * 1024;
@@ -72,7 +73,7 @@ export function appendViolation(
   ensureDirSync(dirname(logPath));
 
   const line = `${JSON.stringify(record)}\n`;
-  const bytesLine = Buffer.byteLength(line, 'utf8');
+  const bytesLine = byteLen(line);
 
   let rotated = false;
   let rotatedTo: string | undefined;

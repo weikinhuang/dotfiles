@@ -41,31 +41,20 @@
  *   PI_READ_LIMIT_NUDGE_TRACE=<path>   append one line per decision
  */
 
-import { appendFileSync, statSync } from 'node:fs';
-import { isAbsolute, relative, resolve } from 'node:path';
+import { appendFileSync } from 'node:fs';
+import { isAbsolute, resolve } from 'node:path';
 
 import { type ExtensionAPI, type ExtensionContext, isReadToolResult } from '@earendil-works/pi-coding-agent';
 
+import { safeStatSync } from '../../../lib/node/pi/fs-safe.ts';
+import { parsePositiveInt } from '../../../lib/node/pi/parse-env.ts';
+import { displayPath } from '../../../lib/node/pi/path-display.ts';
 import {
   classifyRead,
   DEFAULT_MIN_BYTES,
   DEFAULT_MIN_LINES,
   type TruncationLike,
 } from '../../../lib/node/pi/read-limit-nudge.ts';
-
-function parsePositiveInt(raw: string | undefined, fallback: number): number {
-  if (!raw) return fallback;
-  const n = Number.parseInt(raw, 10);
-  return Number.isFinite(n) && n > 0 ? n : fallback;
-}
-
-function displayPath(abs: string, cwd: string): string {
-  if (!isAbsolute(abs)) return abs;
-  const rel = relative(cwd, abs);
-  if (rel === '') return '.';
-  if (rel.startsWith('..')) return abs;
-  return rel;
-}
 
 export default function readWithoutLimitNudge(pi: ExtensionAPI): void {
   if (process.env.PI_READ_LIMIT_NUDGE_DISABLED === '1') return;
@@ -136,14 +125,12 @@ export default function readWithoutLimitNudge(pi: ExtensionAPI): void {
         if (text.length === 0) totalLines = 0;
         else totalLines = text.split('\n').length - (text.endsWith('\n') ? 1 : 0);
       }
-      let totalBytes: number | undefined;
-      try {
-        totalBytes = statSync(abs).size;
-      } catch {
+      const stat = safeStatSync(abs);
+      if (!stat) {
         trace(`skip: stat failed path=${abs}`);
         return undefined;
       }
-      truncation = { totalLines, totalBytes, truncated: false };
+      truncation = { totalLines, totalBytes: stat.size, truncated: false };
     }
 
     const decision = classifyRead(

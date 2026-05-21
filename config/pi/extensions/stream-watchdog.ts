@@ -79,6 +79,8 @@
 
 import { type ExtensionAPI, type ExtensionContext } from '@earendil-works/pi-coding-agent';
 
+import { findLastAssistantMessage } from '../../../lib/node/pi/message-extract.ts';
+import { parseNonNegativeInt, parsePositiveInt } from '../../../lib/node/pi/parse-env.ts';
 import {
   buildWatchdogNudge,
   clear,
@@ -98,34 +100,6 @@ const DEFAULT_STALL_MS = 120_000;
 const DEFAULT_HARD_STALL_MS = 1_800_000;
 const DEFAULT_POLL_MS = 5_000;
 const DEFAULT_MAX_RETRIES = 2;
-
-function parsePositiveInt(raw: string | undefined, fallback: number): number {
-  if (!raw) return fallback;
-  const n = Number.parseInt(raw, 10);
-  return Number.isFinite(n) && n > 0 ? n : fallback;
-}
-
-function parseNonNegativeInt(raw: string | undefined, fallback: number): number {
-  if (!raw) return fallback;
-  const n = Number.parseInt(raw, 10);
-  return Number.isFinite(n) && n >= 0 ? n : fallback;
-}
-
-/**
- * Walk `event.messages` backwards looking for the last assistant
- * message so we can read its `stopReason`. Kept inline (not in
- * `lib/node/pi/stream-watchdog.ts`) because the shape is pi-agent
- * specific - once we reach for more pi types, this belongs in the
- * extension tree.
- */
-function findLastAssistant(messages: readonly unknown[] | undefined): { stopReason?: string } | undefined {
-  if (!Array.isArray(messages)) return undefined;
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const msg = messages[i] as { role?: string; stopReason?: string } | undefined;
-    if (msg?.role === 'assistant') return msg;
-  }
-  return undefined;
-}
 
 export default function streamWatchdog(pi: ExtensionAPI): void {
   if (process.env.PI_STREAM_WATCHDOG_DISABLED === '1') return;
@@ -346,7 +320,7 @@ export default function streamWatchdog(pi: ExtensionAPI): void {
       // Sanity-check the abort actually took effect. If a race left the
       // stream ending normally (toolUse / stop), drop the nudge rather
       // than inject an unsolicited follow-up after a healthy turn.
-      const lastAssistant = findLastAssistant((event as { messages?: readonly unknown[] }).messages);
+      const lastAssistant = findLastAssistantMessage((event as { messages?: readonly unknown[] }).messages);
       const stop = lastAssistant?.stopReason;
       if (stop !== 'aborted' && stop !== 'error') {
         pendingNudge = null;
@@ -375,7 +349,7 @@ export default function streamWatchdog(pi: ExtensionAPI): void {
 
     // No pending nudge - if the turn ended cleanly, reset our retry
     // counter so a stall 30 minutes from now gets a fresh budget.
-    const lastAssistant = findLastAssistant((event as { messages?: readonly unknown[] }).messages);
+    const lastAssistant = findLastAssistantMessage((event as { messages?: readonly unknown[] }).messages);
     const stop = lastAssistant?.stopReason;
     if (stop && stop !== 'aborted' && stop !== 'error') {
       if (consecutiveRetries > 0 || budgetExhaustedNotified) {

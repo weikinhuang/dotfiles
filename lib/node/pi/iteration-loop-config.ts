@@ -34,11 +34,10 @@
  * No pi imports - this module is unit-tested under vitest.
  */
 
-import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
-import { parseJsonc } from './jsonc.ts';
+import { type ConfigWarning, tryReadJsoncFile } from './jsonc.ts';
 
 /**
  * Built-in claim regexes - artifact-correctness sign-offs the
@@ -81,10 +80,7 @@ export interface IterationLoopConfig {
   archiveOnClose: boolean;
 }
 
-export interface ConfigWarning {
-  path: string;
-  error: string;
-}
+export type { ConfigWarning };
 
 export interface ConfigLoadResult {
   config: IterationLoopConfig;
@@ -171,23 +167,8 @@ export function loadIterationLoopConfig(cwd: string, home: string = homedir()): 
   const extraRegexes: RegExp[] = [];
 
   for (const path of paths) {
-    let raw: string;
-    try {
-      raw = readFileSync(path, 'utf8');
-    } catch {
-      continue;
-    }
-    let parsed: unknown;
-    try {
-      parsed = parseJsonc(raw);
-    } catch (e) {
-      warnings.push({ path, error: e instanceof Error ? e.message : String(e) });
-      continue;
-    }
-    if (!parsed || typeof parsed !== 'object') {
-      warnings.push({ path, error: 'config root must be an object' });
-      continue;
-    }
+    const parsed = tryReadJsoncFile(path, warnings, { requireObject: true });
+    if (parsed === undefined) continue;
     const obj = parsed as Record<string, unknown>;
 
     // ── claim_regexes (replace) ─────────────────────────────────────

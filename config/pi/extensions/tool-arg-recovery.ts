@@ -62,15 +62,10 @@ import { appendFileSync } from 'node:fs';
 
 import { type ExtensionAPI, type ExtensionContext } from '@earendil-works/pi-coding-agent';
 
+import { parsePositiveInt } from '../../../lib/node/pi/parse-env.ts';
 import { buildRecoveryBlock, parseValidationFailure, type SchemaNode } from '../../../lib/node/pi/tool-arg-recovery.ts';
 
 const DEFAULT_MAX_EXAMPLE_CHARS = 1500;
-
-function parsePositiveInt(raw: string | undefined, fallback: number): number {
-  if (!raw) return fallback;
-  const n = Number.parseInt(raw, 10);
-  return Number.isFinite(n) && n > 0 ? n : fallback;
-}
 
 export default function toolArgRecovery(pi: ExtensionAPI): void {
   if (process.env.PI_TOOL_ARG_RECOVERY_DISABLED === '1') return;

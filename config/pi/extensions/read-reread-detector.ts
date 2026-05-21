@@ -38,37 +38,17 @@
  *   PI_READ_REREAD_TRACE=<path>   append one line per decision to <path>
  */
 
-import { appendFileSync, statSync } from 'node:fs';
-import { isAbsolute, relative, resolve } from 'node:path';
+import { appendFileSync } from 'node:fs';
+import { isAbsolute, resolve } from 'node:path';
 
 import { type ExtensionAPI, type ExtensionContext, isReadToolResult } from '@earendil-works/pi-coding-agent';
 
+import { parsePositiveInt } from '../../../lib/node/pi/parse-env.ts';
+import { displayPath } from '../../../lib/node/pi/path-display.ts';
 import { type FileSignature, formatNudge, ReadHistory, type RereadProbe } from '../../../lib/node/pi/read-reread.ts';
+import { safeStatSync } from '../../../lib/node/pi/fs-safe.ts';
 
 const DEFAULT_MAX_ENTRIES = 256;
-
-function parsePositiveInt(raw: string | undefined, fallback: number): number {
-  if (!raw) return fallback;
-  const n = Number.parseInt(raw, 10);
-  return Number.isFinite(n) && n > 0 ? n : fallback;
-}
-
-function stat(path: string): { mtimeMs: number; size: number } | undefined {
-  try {
-    const s = statSync(path);
-    return { mtimeMs: s.mtimeMs, size: s.size };
-  } catch {
-    return undefined;
-  }
-}
-
-function displayPath(abs: string, cwd: string): string {
-  if (!isAbsolute(abs)) return abs;
-  const rel = relative(cwd, abs);
-  if (rel === '') return '.';
-  if (rel.startsWith('..')) return abs;
-  return rel;
-}
 
 export default function readRereadDetector(pi: ExtensionAPI): void {
   if (process.env.PI_READ_REREAD_DISABLED === '1') return;
@@ -115,7 +95,7 @@ export default function readRereadDetector(pi: ExtensionAPI): void {
     if (!rawPath) return undefined;
     const abs = isAbsolute(rawPath) ? rawPath : resolve(ctx.cwd, rawPath);
 
-    const s = stat(abs);
+    const s = safeStatSync(abs);
     if (!s) {
       trace(`skip: stat failed path=${abs}`);
       return undefined;

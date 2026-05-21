@@ -52,11 +52,14 @@
  *   PI_LLAMA_BUDGET_MINIMAL / _LOW / _MEDIUM / _HIGH
  */
 
-import { appendFileSync, readFileSync } from 'node:fs';
+import { appendFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
 import { type ExtensionAPI, type ExtensionContext } from '@earendil-works/pi-coding-agent';
+
+import { readJsonOrUndefined } from '../../../lib/node/pi/fs-safe.ts';
+import { parseOptionalPositiveInt } from '../../../lib/node/pi/parse-env.ts';
 
 type Level = 'minimal' | 'low' | 'medium' | 'high';
 
@@ -98,29 +101,12 @@ interface InjectionConfig {
   budgets: Partial<Record<Level, number>>;
 }
 
-function parsePositiveInt(raw: unknown): number | undefined {
-  if (typeof raw === 'number') return Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : undefined;
-  if (typeof raw === 'string') {
-    const n = Number.parseInt(raw, 10);
-    return Number.isFinite(n) && n > 0 ? n : undefined;
-  }
-  return undefined;
-}
-
-function readJson(path: string): unknown {
-  try {
-    return JSON.parse(readFileSync(path, 'utf8'));
-  } catch {
-    return undefined;
-  }
-}
-
 function parseBudgets(raw: unknown): Partial<Record<Level, number>> {
   const out: Partial<Record<Level, number>> = {};
   if (!raw || typeof raw !== 'object') return out;
   const obj = raw as Record<string, unknown>;
   for (const level of LEVELS) {
-    const v = parsePositiveInt(obj[level]);
+    const v = parseOptionalPositiveInt(obj[level]);
     if (v !== undefined) out[level] = v;
   }
   return out;
@@ -142,7 +128,7 @@ function loadSettingsBudgets(): Partial<Record<Level, number>> {
   // Project-local overrides global; parse global first, then overlay project.
   const merged: Partial<Record<Level, number>> = {};
   for (const path of [join(homedir(), '.pi', 'agent', 'settings.json'), join(process.cwd(), '.pi', 'settings.json')]) {
-    const parsed = readJson(path);
+    const parsed = readJsonOrUndefined(path);
     if (!parsed || typeof parsed !== 'object') continue;
     const tb = (parsed as { thinkingBudgets?: unknown }).thinkingBudgets;
     Object.assign(merged, parseBudgets(tb));
@@ -154,7 +140,7 @@ function loadProviderInjections(): Map<string, InjectionConfig> {
   const out = new Map<string, InjectionConfig>();
   // Global first, then project - project wins by being applied last.
   for (const path of [join(homedir(), '.pi', 'agent', 'models.json'), join(process.cwd(), '.pi', 'models.json')]) {
-    const parsed = readJson(path);
+    const parsed = readJsonOrUndefined(path);
     if (!parsed || typeof parsed !== 'object') continue;
     const providers = (parsed as { providers?: Record<string, unknown> }).providers;
     if (!providers || typeof providers !== 'object') continue;
@@ -169,10 +155,10 @@ function loadProviderInjections(): Map<string, InjectionConfig> {
 
 function envBudgets(): Partial<Record<Level, number>> {
   return {
-    minimal: parsePositiveInt(process.env.PI_LLAMA_BUDGET_MINIMAL),
-    low: parsePositiveInt(process.env.PI_LLAMA_BUDGET_LOW),
-    medium: parsePositiveInt(process.env.PI_LLAMA_BUDGET_MEDIUM),
-    high: parsePositiveInt(process.env.PI_LLAMA_BUDGET_HIGH),
+    minimal: parseOptionalPositiveInt(process.env.PI_LLAMA_BUDGET_MINIMAL),
+    low: parseOptionalPositiveInt(process.env.PI_LLAMA_BUDGET_LOW),
+    medium: parseOptionalPositiveInt(process.env.PI_LLAMA_BUDGET_MEDIUM),
+    high: parseOptionalPositiveInt(process.env.PI_LLAMA_BUDGET_HIGH),
   };
 }
 

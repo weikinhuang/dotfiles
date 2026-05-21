@@ -56,8 +56,13 @@ import { type ExtensionAPI, type ExtensionContext, type Theme } from '@earendil-
 import { matchesKey, Text, truncateToWidth } from '@earendil-works/pi-tui';
 import { Type } from 'typebox';
 
+import { extractLastAssistantText } from '../../../lib/node/pi/message-extract.ts';
 import { truncate } from '../../../lib/node/pi/shared.ts';
 import { formatActivePlan, looksLikeCompletionClaim } from '../../../lib/node/pi/todo-prompt.ts';
+import {
+  type BranchEntry as VerifyBranchEntry,
+  lastUserMessageHasMarker as branchLastUserMessageHasMarker,
+} from '../../../lib/node/pi/verify-detect.ts';
 import {
   actAdd,
   actBlock,
@@ -226,56 +231,9 @@ function actionToStatus(action: string): Todo['status'] {
   }
 }
 
-/**
- * Pull the last assistant text from an `agent_end` event. The event's
- * message shape varies across providers (string content vs content-part
- * array), so we handle both defensively and fall back to empty string.
- */
-function extractLastAssistantText(event: unknown): string {
-  const messages = (event as { messages?: readonly unknown[] }).messages ?? [];
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const m = messages[i] as { role?: string; content?: unknown } | undefined;
-    if (m?.role !== 'assistant') continue;
-    if (typeof m.content === 'string') return m.content;
-    if (Array.isArray(m.content)) {
-      const parts: string[] = [];
-      for (const c of m.content) {
-        if (c && typeof c === 'object' && (c as { type?: string }).type === 'text') {
-          const text = (c as { text?: string }).text;
-          if (typeof text === 'string') parts.push(text);
-        }
-      }
-      return parts.join('\n');
-    }
-    return '';
-  }
-  return '';
-}
-
-/**
- * Check whether the most recent user message on the current branch
- * contains the guardrail marker. Used to prevent the guardrail from
- * re-firing on turns that already received a steer.
- */
 function lastUserMessageHasMarker(ctx: ExtensionContext, marker: string): boolean {
-  const branch = ctx.sessionManager.getBranch() as unknown as readonly BranchEntry[];
-  for (let i = branch.length - 1; i >= 0; i--) {
-    const entry = branch[i];
-    if (entry.type !== 'message') continue;
-    const msg = entry.message as { role?: string; content?: unknown } | undefined;
-    if (msg?.role !== 'user') continue;
-    let text = '';
-    if (typeof msg.content === 'string') text = msg.content;
-    else if (Array.isArray(msg.content)) {
-      for (const c of msg.content) {
-        if (c && typeof c === 'object' && (c as { type?: string }).type === 'text') {
-          text += (c as { text?: string }).text ?? '';
-        }
-      }
-    }
-    return text.includes(marker);
-  }
-  return false;
+  const branch = ctx.sessionManager.getBranch() as unknown as readonly VerifyBranchEntry[];
+  return branchLastUserMessageHasMarker(branch, marker);
 }
 
 // ──────────────────────────────────────────────────────────────────────
@@ -407,7 +365,7 @@ export default function todoExtension(pi: ExtensionAPI): void {
       );
       if (!hasOpen) return;
 
-      const assistantText = extractLastAssistantText(event);
+      const assistantText = extractLastAssistantText((event as { messages?: readonly unknown[] }).messages);
       if (!looksLikeCompletionClaim(assistantText)) return;
 
       // Loop guard: if the last user message on the branch already carries

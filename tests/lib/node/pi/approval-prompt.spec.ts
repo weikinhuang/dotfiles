@@ -11,6 +11,8 @@ import {
   type ApprovalPromptArgs,
   type ApprovalPromptContext,
   askForPermission,
+  DENY_WITH_FEEDBACK,
+  promptSelectWithFeedback,
 } from '../../../../lib/node/pi/approval-prompt.ts';
 
 // ──────────────────────────────────────────────────────────────────────
@@ -157,5 +159,82 @@ describe('askForPermission', () => {
     expect(prompt).toContain('edit');
     expect(prompt).toContain('/work/sensitive.json');
     expect(prompt).toContain('matches secrets glob');
+  });
+});
+
+// ──────────────────────────────────────────────────────────────────────
+// promptSelectWithFeedback - generic helper consumed by bash-permissions
+// for its 6-variant Decision type. Verify it preserves custom decisions
+// verbatim, defaults to the supplied `buildDeny`, and trims feedback.
+// ──────────────────────────────────────────────────────────────────────
+
+type BashLikeDecision =
+  | { kind: 'allow-once' }
+  | { kind: 'allow-pattern'; pattern: string }
+  | { kind: 'deny'; feedback?: string };
+
+describe('promptSelectWithFeedback', () => {
+  const entries = [
+    { label: 'Allow once', decision: { kind: 'allow-once' as const } },
+    { label: 'Allow pattern foo*', decision: { kind: 'allow-pattern' as const, pattern: 'foo*' } },
+    { label: 'Deny', decision: { kind: 'deny' as const } },
+    { label: 'Deny with feedback…', decision: DENY_WITH_FEEDBACK },
+  ];
+
+  test('preserves a custom decision variant verbatim (allow-pattern with payload)', async () => {
+    const { ctx } = fakeContext({ selectReturn: 'Allow pattern foo*' });
+
+    const out = await promptSelectWithFeedback<BashLikeDecision>(
+      ctx,
+      'pick',
+      entries,
+      { title: 'why?' },
+      (feedback) => ({ kind: 'deny', feedback }),
+    );
+
+    expect(out).toEqual({ kind: 'allow-pattern', pattern: 'foo*' });
+  });
+
+  test('routes deny-feedback sentinel through buildDeny with trimmed text', async () => {
+    const { ctx } = fakeContext({ selectReturn: 'Deny with feedback…', inputReturn: '  reason  ' });
+
+    const out = await promptSelectWithFeedback<BashLikeDecision>(
+      ctx,
+      'pick',
+      entries,
+      { title: 'why?' },
+      (feedback) => ({ kind: 'deny', feedback }),
+    );
+
+    expect(out).toEqual({ kind: 'deny', feedback: 'reason' });
+  });
+
+  test('uses buildDeny() on dismissal (select returns undefined)', async () => {
+    const { ctx, input } = fakeContext({ selectReturn: undefined });
+
+    const out = await promptSelectWithFeedback<BashLikeDecision>(
+      ctx,
+      'pick',
+      entries,
+      { title: 'why?' },
+      (feedback) => ({ kind: 'deny', feedback }),
+    );
+
+    expect(out).toEqual({ kind: 'deny', feedback: undefined });
+    expect(input).not.toHaveBeenCalled();
+  });
+
+  test('normalises whitespace-only feedback to undefined via buildDeny', async () => {
+    const { ctx } = fakeContext({ selectReturn: 'Deny with feedback…', inputReturn: '   ' });
+
+    const out = await promptSelectWithFeedback<BashLikeDecision>(
+      ctx,
+      'pick',
+      entries,
+      { title: 'why?' },
+      (feedback) => ({ kind: 'deny', feedback }),
+    );
+
+    expect(out).toEqual({ kind: 'deny', feedback: undefined });
   });
 });

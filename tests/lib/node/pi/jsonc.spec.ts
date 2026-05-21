@@ -2,9 +2,20 @@
  * Tests for lib/node/pi/jsonc.ts.
  */
 
-import { expect, test } from 'vitest';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
-import { parseJsonc, stripJsonComments } from '../../../../lib/node/pi/jsonc.ts';
+import { afterEach, beforeEach, describe, expect, test } from 'vitest';
+
+import {
+  clearConfigWarning,
+  type ConfigWarning,
+  loadJsoncConfigOrFallback,
+  parseJsonc,
+  stripJsonComments,
+  tryReadJsoncFile,
+} from '../../../../lib/node/pi/jsonc.ts';
 
 // ──────────────────────────────────────────────────────────────────────
 // stripJsonComments
@@ -140,4 +151,92 @@ test('parseJsonc: parse-error line numbers line up with original source', () => 
   const strippedLine = stripped.split('\n').findIndex((l) => l.includes('nope'));
 
   expect(strippedLine).toBe(origLine);
+});
+
+// ──────────────────────────────────────────────────────────────────────
+// loadJsoncConfigOrFallback / tryReadJsoncFile
+// ──────────────────────────────────────────────────────────────────────
+
+describe('loadJsoncConfigOrFallback / tryReadJsoncFile', () => {
+  let tmp: string;
+
+  beforeEach(() => {
+    tmp = mkdtempSync(join(tmpdir(), 'jsonc-config-'));
+  });
+
+  afterEach(() => {
+    rmSync(tmp, { recursive: true, force: true });
+  });
+
+  test('loadJsoncConfigOrFallback: returns parsed value on success', () => {
+    const p = join(tmp, 'ok.json');
+    writeFileSync(p, '{"a": 1}');
+
+    expect(loadJsoncConfigOrFallback('test-tag', p, () => ({}))).toEqual({ a: 1 });
+  });
+
+  test('loadJsoncConfigOrFallback: tolerates // comments', () => {
+    const p = join(tmp, 'jsonc.json');
+    writeFileSync(p, '// header\n{"a": 1}');
+
+    expect(loadJsoncConfigOrFallback('test-tag', p, () => ({}))).toEqual({ a: 1 });
+  });
+
+  test('loadJsoncConfigOrFallback: returns fallback when file is missing', () => {
+    const fallback = { a: 99 };
+    const out = loadJsoncConfigOrFallback('test-tag', join(tmp, 'nope.json'), () => fallback);
+
+    expect(out).toBe(fallback);
+  });
+
+  test('loadJsoncConfigOrFallback: returns fallback on parse error', () => {
+    const p = join(tmp, 'bad.json');
+    writeFileSync(p, '{ not: json');
+
+    // clearConfigWarning between tests so the dedup state doesn't bleed.
+    clearConfigWarning('test-tag', p);
+
+    expect(loadJsoncConfigOrFallback('test-tag', p, () => ({ fallback: true }))).toEqual({ fallback: true });
+  });
+
+  test('tryReadJsoncFile: missing file returns undefined and pushes no warning', () => {
+    const warnings: ConfigWarning[] = [];
+    const out = tryReadJsoncFile(join(tmp, 'nope.json'), warnings);
+
+    expect(out).toBeUndefined();
+    expect(warnings).toEqual([]);
+  });
+
+  test('tryReadJsoncFile: parse error pushes one warning and returns undefined', () => {
+    const warnings: ConfigWarning[] = [];
+    const p = join(tmp, 'bad.json');
+    writeFileSync(p, '{ definitely not json');
+
+    const out = tryReadJsoncFile(p, warnings);
+
+    expect(out).toBeUndefined();
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]?.path).toBe(p);
+  });
+
+  test('tryReadJsoncFile: requireObject rejects non-object roots', () => {
+    const warnings: ConfigWarning[] = [];
+    const p = join(tmp, 'array.json');
+    writeFileSync(p, '[1, 2, 3]');
+
+    const out = tryReadJsoncFile(p, warnings, { requireObject: true });
+
+    expect(out).toBeUndefined();
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]?.error).toMatch(/must be an object/);
+  });
+
+  test('tryReadJsoncFile: accepts arrays without requireObject', () => {
+    const warnings: ConfigWarning[] = [];
+    const p = join(tmp, 'array.json');
+    writeFileSync(p, '[1, 2, 3]');
+
+    expect(tryReadJsoncFile(p, warnings)).toEqual([1, 2, 3]);
+    expect(warnings).toEqual([]);
+  });
 });

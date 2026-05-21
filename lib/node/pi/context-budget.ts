@@ -49,16 +49,13 @@ export interface BudgetOptions {
   criticalPercent?: number;
 }
 
-/** Human-readable compact token format: 1.2M / 45k / 380. */
-export function formatTokens(n: number): string {
-  if (!Number.isFinite(n) || n <= 0) return '0';
-  if (n >= 1_000_000) {
-    const m = n / 1_000_000;
-    return `${m >= 10 ? m.toFixed(1) : m.toFixed(2)}M`;
-  }
-  if (n >= 1_000) return `${Math.round(n / 1000)}k`;
-  return `${Math.round(n)}`;
-}
+import { fmtSi } from './token-format.ts';
+
+// `formatTokens` was a byte-identical duplicate of `fmtSi`; alias it
+// here so existing call sites (and tests) keep working without
+// importing both names side by side. New callers should prefer
+// `fmtSi` from `token-format.ts` directly.
+export const formatTokens = fmtSi;
 
 /**
  * Render the single-line advisory injected into the system prompt. Returns

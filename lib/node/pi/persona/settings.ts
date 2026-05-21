@@ -10,6 +10,7 @@
  */
 
 import { parseJsonc } from '../jsonc.ts';
+import { isStringArray } from '../shared.ts';
 import { type PersonaWarning } from './parse.ts';
 
 export interface PersonaSettings {
@@ -26,10 +27,6 @@ export interface SettingsLayer {
 export interface LoadPersonaSettingsResult {
   merged: PersonaSettings;
   warnings: PersonaWarning[];
-}
-
-function isStringArray(v: unknown): v is string[] {
-  return Array.isArray(v) && v.every((e) => typeof e === 'string');
 }
 
 /**

@@ -25,9 +25,8 @@
  * Pure module - no pi imports - so it's directly unit-testable.
  */
 
-import { createHash } from 'node:crypto';
-
 import { createGlobalSlot } from '../global-slot.ts';
+import { sha256Hex } from '../shared.ts';
 import type { FilesystemPolicy } from '../filesystem-policy/schema.ts';
 
 import type { SandboxConfig } from './config-schema.ts';
@@ -87,8 +86,7 @@ function sortedReplacer(_key: string, value: unknown): unknown {
  * and assert no-op publishes don't bump the version slot's `cas`.
  */
 export function hashSandboxConfig(input: { filesystem: FilesystemPolicy; sandbox: SandboxConfig }): string {
-  const normalized = JSON.stringify(input, sortedReplacer);
-  return createHash('sha256').update(normalized).digest('hex');
+  return sha256Hex(JSON.stringify(input, sortedReplacer));
 }
 
 export interface PublishActiveSandboxInput {

@@ -9,6 +9,10 @@ import { expect, test } from 'vitest';
 import {
   byteLen,
   BYTE_ENCODER,
+  isFiniteNumber,
+  isNonEmptyString,
+  isRecord,
+  isStringArray,
   sha256Hex,
   sha256HexPrefix,
   trimOrUndefined,
@@ -166,4 +170,92 @@ test('sha256HexPrefix: rejects out-of-range n with RangeError', () => {
   expect(() => sha256HexPrefix('x', 65)).toThrow(RangeError);
   expect(() => sha256HexPrefix('x', 1.5)).toThrow(RangeError);
   expect(() => sha256HexPrefix('x', Number.NaN)).toThrow(RangeError);
+});
+
+// ──────────────────────────────────────────────────────────────────────
+// isRecord
+// ──────────────────────────────────────────────────────────────────────
+
+test('isRecord: true for plain objects', () => {
+  expect(isRecord({})).toBe(true);
+  expect(isRecord({ a: 1 })).toBe(true);
+});
+
+test('isRecord: true for class instances and null-proto objects', () => {
+  // Loose record check - accepts anything object-shaped that isn't an
+  // array. Callers that need to reject class instances roll their own
+  // strict variant (see request-options.ts).
+  class C {}
+  expect(isRecord(new C())).toBe(true);
+  expect(isRecord(Object.create(null))).toBe(true);
+});
+
+test('isRecord: false for arrays, null, primitives, functions', () => {
+  expect(isRecord([])).toBe(false);
+  expect(isRecord(null)).toBe(false);
+  expect(isRecord(undefined)).toBe(false);
+  expect(isRecord('s')).toBe(false);
+  expect(isRecord(1)).toBe(false);
+  expect(isRecord(() => 0)).toBe(false);
+});
+
+// ──────────────────────────────────────────────────────────────────────
+// isStringArray
+// ──────────────────────────────────────────────────────────────────────
+
+test('isStringArray: true for empty array', () => {
+  expect(isStringArray([])).toBe(true);
+});
+
+test('isStringArray: true for all-string arrays (including empty strings)', () => {
+  expect(isStringArray(['a', 'b'])).toBe(true);
+  expect(isStringArray([''])).toBe(true);
+});
+
+test('isStringArray: false when any element is non-string', () => {
+  expect(isStringArray(['a', 1])).toBe(false);
+  expect(isStringArray([null])).toBe(false);
+  expect(isStringArray([undefined])).toBe(false);
+});
+
+test('isStringArray: false for non-arrays', () => {
+  expect(isStringArray('abc')).toBe(false);
+  expect(isStringArray({ 0: 'a', length: 1 })).toBe(false);
+  expect(isStringArray(null)).toBe(false);
+});
+
+// ──────────────────────────────────────────────────────────────────────
+// isNonEmptyString
+// ──────────────────────────────────────────────────────────────────────
+
+test('isNonEmptyString: true only for strings with at least one char', () => {
+  expect(isNonEmptyString('a')).toBe(true);
+  expect(isNonEmptyString(' ')).toBe(true);
+});
+
+test('isNonEmptyString: false for empty string and non-string values', () => {
+  expect(isNonEmptyString('')).toBe(false);
+  expect(isNonEmptyString(undefined)).toBe(false);
+  expect(isNonEmptyString(null)).toBe(false);
+  expect(isNonEmptyString(0)).toBe(false);
+  expect(isNonEmptyString({})).toBe(false);
+});
+
+// ──────────────────────────────────────────────────────────────────────
+// isFiniteNumber
+// ──────────────────────────────────────────────────────────────────────
+
+test('isFiniteNumber: true for real finite numbers (including zero and negatives)', () => {
+  expect(isFiniteNumber(0)).toBe(true);
+  expect(isFiniteNumber(42)).toBe(true);
+  expect(isFiniteNumber(-3.14)).toBe(true);
+});
+
+test('isFiniteNumber: false for NaN, Infinity, non-numbers', () => {
+  expect(isFiniteNumber(Number.NaN)).toBe(false);
+  expect(isFiniteNumber(Infinity)).toBe(false);
+  expect(isFiniteNumber(-Infinity)).toBe(false);
+  expect(isFiniteNumber('5')).toBe(false);
+  expect(isFiniteNumber(null)).toBe(false);
+  expect(isFiniteNumber(undefined)).toBe(false);
 });

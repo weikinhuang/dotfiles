@@ -45,7 +45,7 @@ import { join } from 'node:path';
 
 import { atomicWriteFile } from './atomic-write.ts';
 import { parseModelSpec } from './btw.ts';
-import { parseJsonc } from './jsonc.ts';
+import { readJsoncOrUndefined } from './fs-safe.ts';
 import { appendJournal, type JournalLevel } from './research-journal.ts';
 import { isRecord } from './shared.ts';
 import { type AgentDef } from './subagent-loader.ts';
@@ -83,19 +83,6 @@ function parseTinyModel(raw: unknown): string | null {
   return `${parsed.provider}/${parsed.modelId}`;
 }
 
-function readJsonFile(path: string): unknown {
-  if (!existsSync(path)) return undefined;
-  try {
-    const body = readFileSync(path, 'utf8');
-    // JSONC so user-authored settings files may carry `//` comments
-    // - matches the convention used by the other settings readers
-    // in this directory (preset.ts, iteration-loop-config.ts, …).
-    return parseJsonc(body);
-  } catch {
-    return undefined;
-  }
-}
-
 /**
  * Resolve the `tinyModel` setting from, in order:
  *
@@ -130,7 +117,7 @@ export function resolveTinySettings(opts: ResolveTinySettingsOpts): TinySettings
   ];
 
   for (const candidate of candidates) {
-    const body = readJsonFile(candidate.path);
+    const body = readJsoncOrUndefined(candidate.path);
     if (body === undefined) continue;
     const value = parseTinyModel(candidate.extract(body));
     if (value !== null) {

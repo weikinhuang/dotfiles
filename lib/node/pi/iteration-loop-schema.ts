@@ -32,6 +32,8 @@
  * than operating on half-corrupt state.
  */
 
+import { isRecord } from './shared.ts';
+
 // ──────────────────────────────────────────────────────────────────────
 // Check spec - what the user declared and accepted.
 // ──────────────────────────────────────────────────────────────────────
@@ -237,10 +239,6 @@ export interface IterationState {
 // Runtime shape validators. Used by reducer / storage layers to
 // accept untrusted payloads (session entries, on-disk JSON).
 // ──────────────────────────────────────────────────────────────────────
-
-function isRecord(v: unknown): v is Record<string, unknown> {
-  return !!v && typeof v === 'object' && !Array.isArray(v);
-}
 
 function isNonNegativeFiniteNumber(v: unknown): v is number {
   return typeof v === 'number' && Number.isFinite(v) && v >= 0;

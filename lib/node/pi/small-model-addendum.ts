@@ -41,11 +41,10 @@
  * the file is ignored - the extension never crashes pi.
  */
 
-import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
-import { parseJsonc } from './jsonc.ts';
+import { type ConfigWarning, tryReadJsoncFile } from './jsonc.ts';
 
 export interface AddendumConfig {
   providers: string[];
@@ -64,10 +63,7 @@ export interface ModelRef {
 }
 
 /** Diagnostic emitted when a config file can't be parsed. */
-export interface ConfigWarning {
-  path: string;
-  error: string;
-}
+export type { ConfigWarning };
 
 /**
  * Default addendum text. Deliberately terse - weak models tune their
@@ -130,23 +126,8 @@ export function loadConfig(
   let anyLoaded = false;
 
   for (const path of paths) {
-    let raw: string;
-    try {
-      raw = readFileSync(path, 'utf8');
-    } catch {
-      continue; // missing file → silent
-    }
-    let parsed: unknown;
-    try {
-      parsed = parseJsonc(raw);
-    } catch (e) {
-      warnings.push({ path, error: e instanceof Error ? e.message : String(e) });
-      continue;
-    }
-    if (!parsed || typeof parsed !== 'object') {
-      warnings.push({ path, error: 'config root must be an object' });
-      continue;
-    }
+    const parsed = tryReadJsoncFile(path, warnings, { requireObject: true });
+    if (parsed === undefined) continue;
     merged = mergeInto(merged, parsed as Record<string, unknown>);
     anyLoaded = true;
   }

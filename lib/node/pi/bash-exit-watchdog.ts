@@ -26,11 +26,10 @@
  *     result content.
  */
 
-import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
-import { parseJsonc } from './jsonc.ts';
+import { type ConfigWarning, tryReadJsoncFile } from './jsonc.ts';
 
 export interface SuppressRule {
   /** Regex compiled lazily - matched against `event.input.command`. */
@@ -46,10 +45,7 @@ export interface WatchdogConfig {
   suppress: SuppressRule[];
 }
 
-export interface ConfigWarning {
-  path: string;
-  error: string;
-}
+export type { ConfigWarning };
 
 const DEFAULT_SUPPRESSIONS: SuppressRule[] = [
   // grep exits 1 on no-match - the LLM asking "is X present?" isn't a failure.
@@ -132,23 +128,8 @@ export function loadConfig(
   const extraRules: SuppressRule[] = [];
 
   for (const path of paths) {
-    let raw: string;
-    try {
-      raw = readFileSync(path, 'utf8');
-    } catch {
-      continue;
-    }
-    let parsed: unknown;
-    try {
-      parsed = parseJsonc(raw);
-    } catch (e) {
-      warnings.push({ path, error: e instanceof Error ? e.message : String(e) });
-      continue;
-    }
-    if (!parsed || typeof parsed !== 'object') {
-      warnings.push({ path, error: 'config root must be an object' });
-      continue;
-    }
+    const parsed = tryReadJsoncFile(path, warnings, { requireObject: true });
+    if (parsed === undefined) continue;
     const { suppress } = parsed as { suppress?: unknown };
     if (suppress === undefined) continue;
     if (!Array.isArray(suppress)) {
