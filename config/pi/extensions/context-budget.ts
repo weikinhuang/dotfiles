@@ -62,19 +62,11 @@ import {
   formatTokens,
   shouldAutoCompact,
 } from '../../../lib/node/pi/context-budget.ts';
+import { parsePercent } from '../../../lib/node/pi/parse-env.ts';
 
 const DEFAULT_MIN = 50;
 const DEFAULT_WARN = 80;
 const DEFAULT_CRITICAL = 90;
-
-function parsePercentEnv(name: string, fallback: number | null): number | null {
-  const raw = process.env[name];
-  if (!raw) return fallback;
-  const n = Number.parseFloat(raw);
-  if (!Number.isFinite(n)) return fallback;
-  if (n < 0 || n > 100) return fallback;
-  return n;
-}
 
 function triggerCompaction(ctx: ExtensionContext, customInstructions: string | undefined): void {
   if (ctx.hasUI) ctx.ui.notify('context-budget: triggering auto-compaction', 'info');
@@ -93,13 +85,13 @@ export default function contextBudget(pi: ExtensionAPI): void {
   if (process.env.PI_CONTEXT_BUDGET_DISABLED === '1') return;
 
   const options: BudgetOptions = {
-    minPercent: parsePercentEnv('PI_CONTEXT_BUDGET_MIN_PERCENT', DEFAULT_MIN) ?? DEFAULT_MIN,
-    warnPercent: parsePercentEnv('PI_CONTEXT_BUDGET_WARN_PERCENT', DEFAULT_WARN) ?? DEFAULT_WARN,
-    criticalPercent: parsePercentEnv('PI_CONTEXT_BUDGET_CRITICAL_PERCENT', DEFAULT_CRITICAL) ?? DEFAULT_CRITICAL,
+    minPercent: parsePercent(process.env.PI_CONTEXT_BUDGET_MIN_PERCENT, DEFAULT_MIN),
+    warnPercent: parsePercent(process.env.PI_CONTEXT_BUDGET_WARN_PERCENT, DEFAULT_WARN),
+    criticalPercent: parsePercent(process.env.PI_CONTEXT_BUDGET_CRITICAL_PERCENT, DEFAULT_CRITICAL),
   };
 
   // `null` if unset → auto-compaction disabled.
-  const autoCompactThreshold = parsePercentEnv('PI_CONTEXT_BUDGET_AUTO_COMPACT_PERCENT', null);
+  const autoCompactThreshold = parsePercent(process.env.PI_CONTEXT_BUDGET_AUTO_COMPACT_PERCENT, null);
   const autoCompactRaw = process.env.PI_CONTEXT_BUDGET_AUTO_COMPACT_INSTRUCTIONS?.trim();
   const autoCompactInstructions = autoCompactRaw?.length ? autoCompactRaw : undefined;
 

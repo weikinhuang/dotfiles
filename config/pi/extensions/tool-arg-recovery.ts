@@ -58,11 +58,10 @@
  *                                       the diagnosis)
  */
 
-import { appendFileSync } from 'node:fs';
-
-import { type ExtensionAPI, type ExtensionContext } from '@earendil-works/pi-coding-agent';
+import { type ExtensionAPI } from '@earendil-works/pi-coding-agent';
 
 import { parsePositiveInt } from '../../../lib/node/pi/parse-env.ts';
+import { makeDiagnostics } from '../../../lib/node/pi/recovery-diagnostics.ts';
 import { buildRecoveryBlock, parseValidationFailure, type SchemaNode } from '../../../lib/node/pi/tool-arg-recovery.ts';
 
 const DEFAULT_MAX_EXAMPLE_CHARS = 1500;
@@ -70,25 +69,15 @@ const DEFAULT_MAX_EXAMPLE_CHARS = 1500;
 export default function toolArgRecovery(pi: ExtensionAPI): void {
   if (process.env.PI_TOOL_ARG_RECOVERY_DISABLED === '1') return;
 
-  const debug = process.env.PI_TOOL_ARG_RECOVERY_DEBUG === '1';
-  const tracePath = process.env.PI_TOOL_ARG_RECOVERY_TRACE;
+  const { trace, notify } = makeDiagnostics({
+    label: 'tool-arg-recovery',
+    tracePath: process.env.PI_TOOL_ARG_RECOVERY_TRACE,
+    debug: process.env.PI_TOOL_ARG_RECOVERY_DEBUG === '1',
+  });
   const maxExampleChars = parsePositiveInt(
     process.env.PI_TOOL_ARG_RECOVERY_MAX_EXAMPLE_CHARS,
     DEFAULT_MAX_EXAMPLE_CHARS,
   );
-
-  const trace = (msg: string): void => {
-    if (!tracePath) return;
-    try {
-      appendFileSync(tracePath, `[tool-arg-recovery] ${msg}\n`, 'utf8');
-    } catch {
-      /* diagnostics must never break a turn */
-    }
-  };
-
-  const notify = (ctx: ExtensionContext, msg: string): void => {
-    if (debug && ctx.hasUI) ctx.ui.notify(msg, 'info');
-  };
 
   const lookupSchema = (toolName: string): SchemaNode | undefined => {
     try {

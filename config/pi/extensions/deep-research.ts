@@ -67,6 +67,7 @@ import {
 import { Text } from '@earendil-works/pi-tui';
 import { Type } from 'typebox';
 
+import { mergeAbortSignals } from '../../../lib/node/pi/abort-merge.ts';
 import {
   runResearchPipeline,
   type PipelineDeps,
@@ -96,6 +97,7 @@ import {
   type ResearchToolRunOutcome,
 } from '../../../lib/node/pi/deep-research-tool.ts';
 import { withTransientRetry } from '../../../lib/node/pi/fanout-retry.ts';
+import { readTextOrNull } from '../../../lib/node/pi/fs-safe.ts';
 import { buildCriticTask, parseVerdict } from '../../../lib/node/pi/iteration-loop-check-critic.ts';
 import { type Verdict } from '../../../lib/node/pi/iteration-loop-schema.ts';
 import { createAiFetchWebCliClientFromEnv } from '../../../lib/node/pi/research-ai-fetch-web-cli-client.ts';
@@ -153,6 +155,7 @@ import {
   type AgentSessionLike,
   type CreateAgentSessionDep,
 } from '../../../lib/node/pi/subagent-spawn.ts';
+import { shQuote } from '../../../lib/node/pi/util.ts';
 
 /**
  * Pi's `createAgentSession` types `modelRegistry` as the concrete
@@ -558,7 +561,7 @@ export default function deepResearchExtension(pi: ExtensionAPI): void {
         flag: researchFlag,
         notify: notifyUi,
         runPipeline: async (q, sig) => {
-          const merged = mergeSignals(signal, sig);
+          const merged = mergeAbortSignals(signal, sig);
           return runResearchFlow({
             ctx,
             agentLoad,
@@ -634,26 +637,6 @@ export default function deepResearchExtension(pi: ExtensionAPI): void {
 function truncateTool(s: string, max: number): string {
   if (s.length <= max) return s;
   return `${s.slice(0, max - 1)}…`;
-}
-
-/**
- * Merge two optional AbortSignals into one. Returns `undefined`
- * if neither is supplied. Callers thread the resulting signal
- * into spawners / runners so a hard cancel from either path tears
- * down the research flow promptly.
- */
-function mergeSignals(a: AbortSignal | undefined, b: AbortSignal | undefined): AbortSignal | undefined {
-  if (!a) return b;
-  if (!b) return a;
-  const ac = new AbortController();
-  const onAbort = (reason: unknown): void => {
-    if (!ac.signal.aborted) ac.abort(reason);
-  };
-  if (a.aborted) onAbort(a.reason);
-  else a.addEventListener('abort', () => onAbort(a.reason), { once: true });
-  if (b.aborted) onAbort(b.reason);
-  else b.addEventListener('abort', () => onAbort(b.reason), { once: true });
-  return ac.signal;
 }
 
 // ──────────────────────────────────────────────────────────────────────
@@ -2102,7 +2085,7 @@ async function runReviewPhase(args: RunReviewPhaseArgs): Promise<ReviewWireResul
   // point.
   const reviewSignal = args.signal ?? ctx.signal;
   const p = paths(runRoot);
-  const rubricSubjective = safeReadFile(p.rubricSubjective) ?? '';
+  const rubricSubjective = readTextOrNull(p.rubricSubjective) ?? '';
   const structuralBashCmd = buildStructuralBashCmd(runRoot);
 
   const runStructural: StructuralRunner = ({ iteration }) => {
@@ -2322,20 +2305,7 @@ async function runReviewPhase(args: RunReviewPhaseArgs): Promise<ReviewWireResul
  */
 function buildStructuralBashCmd(runRoot: string): string {
   const scriptPath = fileURLToPath(new URL('../../../lib/node/pi/deep-research-structural-check.ts', import.meta.url));
-  return `node ${shellQuote(scriptPath)} ${shellQuote(runRoot)}`;
-}
-
-/** Minimal POSIX shell single-quote for a single argument. */
-function shellQuote(arg: string): string {
-  return `'${arg.replace(/'/g, `'\\''`)}'`;
-}
-
-function safeReadFile(path: string): string | null {
-  try {
-    return readFileSync(path, 'utf8');
-  } catch {
-    return null;
-  }
+  return `node ${shQuote(scriptPath)} ${shQuote(runRoot)}`;
 }
 
 /**

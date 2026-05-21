@@ -139,9 +139,12 @@ import {
 import { resolveChildModel } from '../../../lib/node/pi/subagent-spawn.ts';
 import { resolveMaxTurns } from '../../../lib/node/pi/subagent-budget.ts';
 import { collectSubagentInjections } from '../../../lib/node/pi/subagent-extension-injection.ts';
+import { parsePositiveInt } from '../../../lib/node/pi/parse-env.ts';
 import { resolveWriteRoots } from '../../../lib/node/pi/persona/resolve.ts';
+import { Semaphore } from '../../../lib/node/pi/semaphore.ts';
 import { setActiveAgent, clearActiveAgent } from '../../../lib/node/pi/subagent/active-agent.ts';
 import { createAgentGateFactory } from '../../../lib/node/pi/subagent/agent-gate.ts';
+import { formatHeaderRule } from '../../../lib/node/pi/tui-rule.ts';
 
 const SUBAGENT_CUSTOM_TYPE = 'subagent-run';
 const STATUS_KEY = 'subagent';
@@ -211,57 +214,19 @@ export interface SubagentDetails {
 // Env helpers
 // ──────────────────────────────────────────────────────────────────────
 
+/**
+ * Named-env wrapper around `parsePositiveInt` with an optional upper
+ * clamp. Kept local because every subagent tunable is keyed off a
+ * `PI_SUBAGENT_*` env var name and this shape reads better at call
+ * sites than `parsePositiveInt(process.env.NAME, def)` repeated ~8x.
+ */
 function envPositiveInt(name: string, def: number, max?: number): number {
-  const raw = process.env[name];
-  if (!raw) return def;
-  const n = Number.parseInt(raw, 10);
-  if (!Number.isFinite(n) || n <= 0) return def;
+  const n = parsePositiveInt(process.env[name], def);
   return max !== undefined ? Math.min(n, max) : n;
 }
 
 function envConcurrency(): number {
   return Math.max(1, envPositiveInt('PI_SUBAGENT_CONCURRENCY', DEFAULT_CONCURRENCY, MAX_CONCURRENCY));
-}
-
-// ──────────────────────────────────────────────────────────────────────
-// Concurrency semaphore (process-wide)
-// ──────────────────────────────────────────────────────────────────────
-
-/**
- * Minimal async semaphore. `acquire` resolves only when the caller is
- * allowed to proceed (active count < limit); the caller must pair it
- * with a `release()` inside a finally. Waiters are resumed FIFO.
- *
- * The fast path increments `active` before returning; the slow path
- * parks on the queue, and the increment happens in `release()`'s
- * resumption of the waiter (since `release()` does NOT decrement
- * `active` for the waiter's sake - the waiter simply inherits the
- * released slot).
- */
-class Semaphore {
-  private active = 0;
-  private readonly queue: (() => void)[] = [];
-  constructor(private readonly limit: number) {}
-
-  async acquire(): Promise<void> {
-    if (this.active < this.limit) {
-      this.active++;
-      return;
-    }
-    await new Promise<void>((resolve) => this.queue.push(resolve));
-    // Waiter inherits the slot released by the prior holder - no
-    // additional `active++` needed because `release()` intentionally
-    // skipped its `active--` when a waiter was present.
-  }
-
-  release(): void {
-    const next = this.queue.shift();
-    if (next) {
-      next();
-      return;
-    }
-    this.active--;
-  }
 }
 
 // ──────────────────────────────────────────────────────────────────────
@@ -548,25 +513,6 @@ function renderScorecard(args: {
 // ──────────────────────────────────────────────────────────────────────
 // /agents overlay primitives
 // ──────────────────────────────────────────────────────────────────────
-
-function formatHeaderRule(title: string, chip: string | undefined, width: number, theme: Theme): string {
-  const lead = '─'.repeat(3);
-  const titleSegment = ` ${title} `;
-  if (!chip) {
-    const fill = '─'.repeat(Math.max(0, width - lead.length - titleSegment.length));
-    return theme.fg('borderMuted', lead) + theme.fg('accent', titleSegment) + theme.fg('borderMuted', fill);
-  }
-  const chipSegment = ` ${chip} `;
-  const trail = '─'.repeat(3);
-  const middle = '─'.repeat(Math.max(1, width - lead.length - titleSegment.length - chipSegment.length - trail.length));
-  return (
-    theme.fg('borderMuted', lead) +
-    theme.fg('accent', titleSegment) +
-    theme.fg('borderMuted', middle) +
-    theme.fg('muted', chipSegment) +
-    theme.fg('borderMuted', trail)
-  );
-}
 
 /**
  * Loaded-list overlay rendered by `/agents`. Two horizontal rules

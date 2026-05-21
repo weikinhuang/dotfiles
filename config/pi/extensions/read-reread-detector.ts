@@ -38,15 +38,15 @@
  *   PI_READ_REREAD_TRACE=<path>   append one line per decision to <path>
  */
 
-import { appendFileSync } from 'node:fs';
 import { isAbsolute, resolve } from 'node:path';
 
-import { type ExtensionAPI, type ExtensionContext, isReadToolResult } from '@earendil-works/pi-coding-agent';
+import { type ExtensionAPI, isReadToolResult } from '@earendil-works/pi-coding-agent';
 
+import { safeStatSync } from '../../../lib/node/pi/fs-safe.ts';
 import { parsePositiveInt } from '../../../lib/node/pi/parse-env.ts';
 import { displayPath } from '../../../lib/node/pi/path-display.ts';
 import { type FileSignature, formatNudge, ReadHistory, type RereadProbe } from '../../../lib/node/pi/read-reread.ts';
-import { safeStatSync } from '../../../lib/node/pi/fs-safe.ts';
+import { makeDiagnostics } from '../../../lib/node/pi/recovery-diagnostics.ts';
 
 const DEFAULT_MAX_ENTRIES = 256;
 
@@ -54,21 +54,11 @@ export default function readRereadDetector(pi: ExtensionAPI): void {
   if (process.env.PI_READ_REREAD_DISABLED === '1') return;
 
   const maxEntries = parsePositiveInt(process.env.PI_READ_REREAD_MAX_ENTRIES, DEFAULT_MAX_ENTRIES);
-  const debug = process.env.PI_READ_REREAD_DEBUG === '1';
-  const tracePath = process.env.PI_READ_REREAD_TRACE;
-
-  const trace = (msg: string): void => {
-    if (!tracePath) return;
-    try {
-      appendFileSync(tracePath, `[read-reread] ${msg}\n`, 'utf8');
-    } catch {
-      /* diagnostics must never break a turn */
-    }
-  };
-
-  const notify = (ctx: ExtensionContext, msg: string): void => {
-    if (debug && ctx.hasUI) ctx.ui.notify(msg, 'info');
-  };
+  const { trace, notify } = makeDiagnostics({
+    label: 'read-reread',
+    tracePath: process.env.PI_READ_REREAD_TRACE,
+    debug: process.env.PI_READ_REREAD_DEBUG === '1',
+  });
 
   let history = new ReadHistory(maxEntries);
   let turn = 0;

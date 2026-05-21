@@ -36,12 +36,11 @@
  *   PI_LOOP_BREAKER_TRACE=<path>     append one line per decision to <path>
  */
 
-import { appendFileSync } from 'node:fs';
-
 import { type ExtensionAPI, type ExtensionContext } from '@earendil-works/pi-coding-agent';
 
 import { buildNudge, makeKey, pushAndCheck } from '../../../lib/node/pi/loop-breaker.ts';
 import { parsePositiveInt } from '../../../lib/node/pi/parse-env.ts';
+import { makeDiagnostics } from '../../../lib/node/pi/recovery-diagnostics.ts';
 
 const DEFAULT_THRESHOLD = 3;
 const DEFAULT_WINDOW = 6;
@@ -52,17 +51,11 @@ export default function loopBreaker(pi: ExtensionAPI): void {
 
   const threshold = parsePositiveInt(process.env.PI_LOOP_BREAKER_THRESHOLD, DEFAULT_THRESHOLD);
   const windowSize = parsePositiveInt(process.env.PI_LOOP_BREAKER_WINDOW, DEFAULT_WINDOW);
-  const debug = process.env.PI_LOOP_BREAKER_DEBUG === '1';
-  const tracePath = process.env.PI_LOOP_BREAKER_TRACE;
-
-  const trace = (msg: string): void => {
-    if (!tracePath) return;
-    try {
-      appendFileSync(tracePath, `[loop-breaker] ${msg}\n`, 'utf8');
-    } catch {
-      /* ignore - never break a turn over diagnostics */
-    }
-  };
+  const { trace, notify } = makeDiagnostics({
+    label: 'loop-breaker',
+    tracePath: process.env.PI_LOOP_BREAKER_TRACE,
+    debug: process.env.PI_LOOP_BREAKER_DEBUG === '1',
+  });
 
   const history: string[] = [];
 
@@ -89,15 +82,13 @@ export default function loopBreaker(pi: ExtensionAPI): void {
     const check = pushAndCheck(history, key, windowSize, threshold);
 
     if (check.kind !== 'repeat') {
-      if (debug) ctx.ui.notify(`loop-breaker: ok (${event.toolName}, window=${history.length})`, 'info');
+      notify(ctx, `loop-breaker: ok (${event.toolName}, window=${history.length})`);
       return undefined;
     }
 
     const nudge = buildNudge(event.toolName, check.count);
     trace(`trigger tool=${event.toolName} count=${check.count}`);
-    if (debug) {
-      ctx.ui.notify(`loop-breaker: detected ${check.count} repeats of ${event.toolName}, steering`, 'warning');
-    }
+    notify(ctx, `loop-breaker: detected ${check.count} repeats of ${event.toolName}, steering`, 'warning');
     ctx.ui.setStatus(STATUS_KEY, `⟳ loop-breaker: steered (${check.count} repeats)`);
 
     // Clear the history so we don't retrigger on call N+1 while the

@@ -98,7 +98,9 @@ import {
   upsertJob,
 } from '../../../lib/node/pi/bg-bash-reducer.ts';
 import { RingBuffer } from '../../../lib/node/pi/bg-bash-ring.ts';
+import { parseClampedPositiveInt } from '../../../lib/node/pi/parse-env.ts';
 import { truncate } from '../../../lib/node/pi/shared.ts';
+import { formatHeaderRule } from '../../../lib/node/pi/tui-rule.ts';
 
 // ──────────────────────────────────────────────────────────────────────
 // Tuning
@@ -267,13 +269,6 @@ function errorReturn(action: BgBashAction, message: string): ToolReturn {
   };
 }
 
-function parseIntEnv(name: string, defaultValue: number, min: number): number {
-  const raw = process.env[name];
-  if (!raw) return defaultValue;
-  const n = Number.parseInt(raw, 10);
-  return Number.isFinite(n) && n >= min ? n : defaultValue;
-}
-
 function resolveCwd(agentCwd: string, supplied: string | undefined): string {
   if (!supplied) return agentCwd;
   if (supplied.startsWith('/')) return supplied;
@@ -439,32 +434,6 @@ function sendSignalTo(job: LiveJob, sig: SignalName): boolean {
 // ──────────────────────────────────────────────────────────────────────
 // /bg-bash overlay
 // ──────────────────────────────────────────────────────────────────────
-
-/**
- * Header / mid-rule renderer: `─── Title ───…─── Chip ───`. Title is
- * accent-themed, dashes are borderMuted, chip is muted. When `chip` is
- * undefined the rule falls back to the plain `─── Title ───…` shape
- * (used for empty-state). Mirrors the helper in todo.ts / subagent.ts so
- * all three overlays share visual style.
- */
-function formatHeaderRule(title: string, chip: string | undefined, width: number, theme: Theme): string {
-  const lead = '─'.repeat(3);
-  const titleSegment = ` ${title} `;
-  if (!chip) {
-    const fill = '─'.repeat(Math.max(0, width - lead.length - titleSegment.length));
-    return theme.fg('borderMuted', lead) + theme.fg('accent', titleSegment) + theme.fg('borderMuted', fill);
-  }
-  const chipSegment = ` ${chip} `;
-  const trail = '─'.repeat(3);
-  const middle = '─'.repeat(Math.max(1, width - lead.length - titleSegment.length - chipSegment.length - trail.length));
-  return (
-    theme.fg('borderMuted', lead) +
-    theme.fg('accent', titleSegment) +
-    theme.fg('borderMuted', middle) +
-    theme.fg('muted', chipSegment) +
-    theme.fg('borderMuted', trail)
-  );
-}
 
 const OVERLAY_TICK_MS = 500;
 const OVERLAY_TAIL_LINES = 8;
@@ -674,9 +643,13 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
   if (process.env.PI_BG_BASH_DISABLED === '1') return;
 
   const autoInjectEnabled = process.env.PI_BG_BASH_DISABLE_AUTOINJECT !== '1';
-  const maxInjectedChars = parseIntEnv('PI_BG_BASH_MAX_INJECTED_CHARS', DEFAULT_INJECTED_CHARS, 200);
-  const maxBufferBytes = parseIntEnv('PI_BG_BASH_MAX_BUFFER_BYTES', DEFAULT_BUFFER_BYTES, 0);
-  const killGraceMs = parseIntEnv('PI_BG_BASH_KILL_GRACE_MS', DEFAULT_KILL_GRACE_MS, 0);
+  const maxInjectedChars = parseClampedPositiveInt(
+    process.env.PI_BG_BASH_MAX_INJECTED_CHARS,
+    DEFAULT_INJECTED_CHARS,
+    200,
+  );
+  const maxBufferBytes = parseClampedPositiveInt(process.env.PI_BG_BASH_MAX_BUFFER_BYTES, DEFAULT_BUFFER_BYTES, 0);
+  const killGraceMs = parseClampedPositiveInt(process.env.PI_BG_BASH_KILL_GRACE_MS, DEFAULT_KILL_GRACE_MS, 0);
 
   // Per-runtime stores. Both are rebuilt from the branch on session_start;
   // `live` is always empty there (we can't reattach) - only `state` is

@@ -15,6 +15,7 @@ import {
   boundedReadFile,
   readJsonOrUndefined,
   readJsoncOrUndefined,
+  readTextOrNull,
   safeStatSync,
 } from '../../../../lib/node/pi/fs-safe.ts';
 
@@ -26,6 +27,27 @@ beforeEach(() => {
 
 afterEach(() => {
   rmSync(tmp, { recursive: true, force: true });
+});
+
+// ──────────────────────────────────────────────────────────────────────
+// readTextOrNull
+// ──────────────────────────────────────────────────────────────────────
+
+describe('readTextOrNull', () => {
+  test('returns file content as a string', () => {
+    const p = join(tmp, 'a.txt');
+    writeFileSync(p, 'hello world');
+
+    expect(readTextOrNull(p)).toBe('hello world');
+  });
+
+  test('returns null for a missing path', () => {
+    expect(readTextOrNull(join(tmp, 'nope.txt'))).toBeNull();
+  });
+
+  test('returns null for a directory path (EISDIR)', () => {
+    expect(readTextOrNull(tmp)).toBeNull();
+  });
 });
 
 // ──────────────────────────────────────────────────────────────────────

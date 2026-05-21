@@ -50,13 +50,12 @@
  *   PI_EDIT_RECOVERY_TRACE=<path>       append one line per decision to <path>
  */
 
-import { appendFileSync } from 'node:fs';
-
-import { type ExtensionAPI, type ExtensionContext, isEditToolResult } from '@earendil-works/pi-coding-agent';
+import { type ExtensionAPI, isEditToolResult } from '@earendil-works/pi-coding-agent';
 
 import { locateAndFormat, parseEditFailure } from '../../../lib/node/pi/edit-recovery.ts';
 import { boundedReadFile } from '../../../lib/node/pi/fs-safe.ts';
 import { parsePositiveInt } from '../../../lib/node/pi/parse-env.ts';
+import { makeDiagnostics } from '../../../lib/node/pi/recovery-diagnostics.ts';
 
 const DEFAULT_MAX_BYTES = 262_144;
 const DEFAULT_CONTEXT_LINES = 2;
@@ -68,21 +67,11 @@ export default function editRecovery(pi: ExtensionAPI): void {
   const maxBytes = parsePositiveInt(process.env.PI_EDIT_RECOVERY_MAX_BYTES, DEFAULT_MAX_BYTES);
   const contextLines = parsePositiveInt(process.env.PI_EDIT_RECOVERY_CONTEXT_LINES, DEFAULT_CONTEXT_LINES);
   const maxCandidates = parsePositiveInt(process.env.PI_EDIT_RECOVERY_MAX_CANDIDATES, DEFAULT_MAX_CANDIDATES);
-  const debug = process.env.PI_EDIT_RECOVERY_DEBUG === '1';
-  const tracePath = process.env.PI_EDIT_RECOVERY_TRACE;
-
-  const trace = (msg: string): void => {
-    if (!tracePath) return;
-    try {
-      appendFileSync(tracePath, `[edit-recovery] ${msg}\n`, 'utf8');
-    } catch {
-      /* diagnostics must never break a turn */
-    }
-  };
-
-  const notify = (ctx: ExtensionContext, msg: string, level: 'info' | 'warning' | 'error' = 'info'): void => {
-    if (debug) ctx.ui.notify(msg, level);
-  };
+  const { trace, notify } = makeDiagnostics({
+    label: 'edit-recovery',
+    tracePath: process.env.PI_EDIT_RECOVERY_TRACE,
+    debug: process.env.PI_EDIT_RECOVERY_DEBUG === '1',
+  });
 
   pi.on('tool_result', (event, ctx) => {
     if (!isEditToolResult(event)) return undefined;

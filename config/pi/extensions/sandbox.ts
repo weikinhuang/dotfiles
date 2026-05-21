@@ -95,6 +95,7 @@ import { annotateBashResult } from '../../../lib/node/pi/sandbox/result-annotate
 import { type FilesystemPolicyLayer, loadFilesystemPolicy } from '../../../lib/node/pi/filesystem-policy/load.ts';
 import { type FilesystemPolicyWarning } from '../../../lib/node/pi/filesystem-policy/schema.ts';
 import { parseJsonc, warnBadConfigFileOnce } from '../../../lib/node/pi/jsonc.ts';
+import { envTruthy } from '../../../lib/node/pi/parse-env.ts';
 import { pickScopeFile } from '../../../lib/node/pi/scope-pick.ts';
 import { getActivePersona } from '../../../lib/node/pi/persona/active.ts';
 import {
@@ -186,12 +187,6 @@ function stashOriginalCommand(input: unknown, original: string): void {
  *  from `lib/node/pi/sandbox/markers.ts` for the unit-test surface. */
 // (constant defined in markers.ts; re-export for back-compat below.)
 export { SANDBOX_MARKER };
-
-/** Truthy env-var helper - matches `lib/node/pi/sandbox/config-load.ts`. */
-function envTruthy(v: string | undefined): boolean {
-  if (!v) return false;
-  return ['1', 'true', 'yes', 'on'].includes(v.trim().toLowerCase());
-}
 
 function envFallback(): 'warn' | 'allow' | 'block' {
   const raw = (process.env.PI_SANDBOX_DEFAULT ?? 'warn').trim().toLowerCase();

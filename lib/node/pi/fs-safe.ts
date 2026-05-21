@@ -18,6 +18,21 @@ import { isAbsolute, resolve } from 'node:path';
 import { parseJsonc } from './jsonc.ts';
 
 /**
+ * `readFileSync(path, 'utf8')` that returns `null` on any error (missing,
+ * unreadable, EISDIR, …). The raw-text sibling of {@link readJsonOrUndefined}
+ * for callers that want "best-effort string read or null" without owning the
+ * try/catch themselves. Returns `null` (not `undefined`) so callers can
+ * distinguish "explicit miss" from "field not set" with `??`.
+ */
+export function readTextOrNull(path: string): string | null {
+  try {
+    return readFileSync(path, 'utf8');
+  } catch {
+    return null;
+  }
+}
+
+/**
  * `statSync(path)` that returns `undefined` when the path is missing or
  * unreadable. Only the two fields callers actually need (`mtimeMs`,
  * `size`) are surfaced - keeps the return type narrow and avoids leaking

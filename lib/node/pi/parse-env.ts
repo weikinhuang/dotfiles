@@ -64,3 +64,33 @@ export function envTruthy(value: string | undefined): boolean {
   if (!value) return false;
   return ['1', 'true', 'yes', 'on'].includes(value.trim().toLowerCase());
 }
+
+/**
+ * Parse `raw` as a positive integer and clamp it to `>= min`. Falls back
+ * to `fallback` when `raw` is missing / non-numeric / below `min`.
+ * `min` defaults to `1` (matches `parsePositiveInt` semantics). Used by
+ * `tool-output-condenser` where each tunable has a sane lower bound the
+ * user shouldn't be able to undershoot.
+ */
+export function parseClampedPositiveInt(raw: string | undefined, fallback: number, min = 1): number {
+  if (!raw) return fallback;
+  const n = Number.parseInt(raw, 10);
+  return Number.isFinite(n) && n >= min ? n : fallback;
+}
+
+/**
+ * Parse `raw` as a percentage in `[0, 100]`. Accepts decimals (e.g.
+ * `"72.5"`) via `parseFloat`. Returns `fallback` when `raw` is missing,
+ * non-finite, or outside the range. Pass `fallback = null` to express
+ * "unset means feature disabled" without picking a sentinel number -
+ * `context-budget` uses this for the auto-compaction threshold.
+ */
+export function parsePercent(raw: string | undefined, fallback: number): number;
+export function parsePercent(raw: string | undefined, fallback: null): number | null;
+export function parsePercent(raw: string | undefined, fallback: number | null): number | null {
+  if (!raw) return fallback;
+  const n = Number.parseFloat(raw);
+  if (!Number.isFinite(n)) return fallback;
+  if (n < 0 || n > 100) return fallback;
+  return n;
+}

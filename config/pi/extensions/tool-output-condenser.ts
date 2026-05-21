@@ -67,17 +67,10 @@ import { join } from 'node:path';
 import { type ExtensionAPI, type ExtensionContext } from '@earendil-works/pi-coding-agent';
 
 import { condense, type CondenseOptions, parseToolList } from '../../../lib/node/pi/output-condense.ts';
+import { parseClampedPositiveInt } from '../../../lib/node/pi/parse-env.ts';
 
 const DEFAULT_TOOLS = ['bash'] as const;
 const MARKER_HEADER = '⟨ [pi-tool-output-condenser] ⟩';
-
-function parseIntEnv(name: string, fallback: number, minimum = 1): number {
-  const raw = process.env[name];
-  if (!raw) return fallback;
-  const n = Number.parseInt(raw, 10);
-  if (!Number.isFinite(n) || n < minimum) return fallback;
-  return n;
-}
 
 function extractFullOutputPath(details: unknown): string | undefined {
   if (!details || typeof details !== 'object') return undefined;
@@ -134,10 +127,10 @@ export default function toolOutputCondenser(pi: ExtensionAPI): void {
 
   const tools = parseToolList(process.env.PI_CONDENSER_TOOLS, DEFAULT_TOOLS);
   const options: CondenseOptions = {
-    maxBytes: parseIntEnv('PI_CONDENSER_MAX_BYTES', 12 * 1024, 512),
-    maxLines: parseIntEnv('PI_CONDENSER_MAX_LINES', 400, 20),
-    headLines: parseIntEnv('PI_CONDENSER_HEAD_LINES', 80, 1),
-    tailLines: parseIntEnv('PI_CONDENSER_TAIL_LINES', 80, 1),
+    maxBytes: parseClampedPositiveInt(process.env.PI_CONDENSER_MAX_BYTES, 12 * 1024, 512),
+    maxLines: parseClampedPositiveInt(process.env.PI_CONDENSER_MAX_LINES, 400, 20),
+    headLines: parseClampedPositiveInt(process.env.PI_CONDENSER_HEAD_LINES, 80, 1),
+    tailLines: parseClampedPositiveInt(process.env.PI_CONDENSER_TAIL_LINES, 80, 1),
   };
 
   pi.on('tool_result', async (event, ctx) => {

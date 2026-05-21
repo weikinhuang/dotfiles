@@ -86,6 +86,7 @@ import {
   type TodoState,
   transitionGlyphs,
 } from '../../../lib/node/pi/todo-reducer.ts';
+import { formatHeaderRule } from '../../../lib/node/pi/tui-rule.ts';
 
 // Sentinel prepended to the guardrail steer. We detect it on the most
 // recent user message to make the guardrail idempotent across re-fires
@@ -167,31 +168,6 @@ function renderOverlayTodoLines(t: Todo, theme: Theme, idPad: number): string[] 
   // Continuation indent: 4 (item indent) + 1 (glyph) + 1 (space) + idPad + 1 (space) = 7 + idPad
   const cont = `${' '.repeat(7 + idPad)}${theme.fg('dim', `• ${t.note}`)}`;
   return [head, cont];
-}
-
-/**
- * Header rule for the overlay: `─── Todos ───…─── 3/10 ───`. Title is
- * accent-themed, dashes are borderMuted, chip is muted. When `chip` is
- * undefined the rule falls back to the original `─── Title ───…` shape
- * (used for the empty-state overlay so nothing reads "0/0").
- */
-function formatHeaderRule(title: string, chip: string | undefined, width: number, theme: Theme): string {
-  const lead = '─'.repeat(3);
-  const titleSegment = ` ${title} `;
-  if (!chip) {
-    const fill = '─'.repeat(Math.max(0, width - lead.length - titleSegment.length));
-    return theme.fg('borderMuted', lead) + theme.fg('accent', titleSegment) + theme.fg('borderMuted', fill);
-  }
-  const chipSegment = ` ${chip} `;
-  const trail = '─'.repeat(3);
-  const middle = '─'.repeat(Math.max(1, width - lead.length - titleSegment.length - chipSegment.length - trail.length));
-  return (
-    theme.fg('borderMuted', lead) +
-    theme.fg('accent', titleSegment) +
-    theme.fg('borderMuted', middle) +
-    theme.fg('muted', chipSegment) +
-    theme.fg('borderMuted', trail)
-  );
 }
 
 /**
