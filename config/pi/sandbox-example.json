@@ -20,6 +20,18 @@
 // `srt` reads `~/.srt-settings.json`; pi reads `~/.pi/sandbox.json`.
 // Keep them separate so `srt` from a shell prompt has different
 // policy from pi (deliberate, per plan decision #2).
+//
+// Mandatory write-denies layered on by the runtime (you cannot relax
+// these from this file): ASRT's `DANGEROUS_FILES` basenames
+// (`.gitconfig`, `.gitmodules`, `.bashrc`, `.bash_profile`, `.zshrc`,
+// `.zprofile`, `.profile`, `.ripgreprc`, `.mcp.json`) and the
+// directories from `getDangerousDirectories` (`.vscode`, `.idea`,
+// `.claude/commands`, `.claude/agents`). The pi extension pre-creates
+// empty stubs for these and for Claude Code's wider workspace pre-
+// touch set (`.npmrc`, `.yarnrc*`, `bunfig.toml`, `package.json`,
+// lockfiles) before every `wrapWithSandbox` to avoid a known bwrap
+// mount-point race on concurrent bash tool calls. See
+// `lib/node/pi/sandbox/dangerous-file-stubs.ts`.
 {
   "network": {
     // Domain ALLOW-list. Empty = deny all. Sandboxed bash that hits a

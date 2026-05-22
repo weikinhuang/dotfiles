@@ -34,7 +34,11 @@
     // returns EACCES so even `cat ~/.ssh/id_rsa` from a smuggled
     // `sh -c "..."` is denied at the syscall.
     "deny": {
-      "basenames": [".env", ".env.*", ".envrc"],
+      // `.netrc` matches the additional sensitive-file basename Claude
+      // Code stubs in its `assertScrubSandboxAvailable` pre-touch list;
+      // its presence here keeps `curl --netrc` credentials out of model
+      // reads even when no user policy adds it.
+      "basenames": [".env", ".env.*", ".envrc", ".netrc"],
       "segments": [],
       "paths": ["~/.ssh", "~/.aws", "~/.gnupg", "~/.config/gh", "~/.kube", "~/.docker/config.json"]
     },
@@ -73,7 +77,15 @@
 
     // Hole-poke inside `write.allow`. `.git/hooks` and `.git/config`
     // are mandatory to keep models from rewriting hooks (a known
-    // exfil trick).
+    // exfil trick). ASRT layers on its own mandatory write-denies for
+    // every Linux wrap regardless of this file: the basenames in
+    // `DANGEROUS_FILES` (`.gitconfig`, `.gitmodules`, `.bashrc`,
+    // `.bash_profile`, `.zshrc`, `.zprofile`, `.profile`, `.ripgreprc`,
+    // `.mcp.json`) and the directories from `getDangerousDirectories`
+    // (`.vscode`, `.idea`, `.claude/commands`, `.claude/agents`). Pi
+    // pre-creates stubs for those at the start of every wrap to avoid
+    // an ASRT bwrap mount-point race; see `lib/node/pi/sandbox/
+    // dangerous-file-stubs.ts`.
     //
     // `node_modules` is NOT denied by default - workspaces are
     // write-allowed via `write.allow.paths: ["."]`, so dependency
