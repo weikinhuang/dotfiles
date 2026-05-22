@@ -312,10 +312,14 @@ export default function streamWatchdog(pi: ExtensionAPI): void {
     // permanently suppressed. Reset at every turn boundary.
     resetInFlightTools(state);
 
-    // Deliver the latched nudge. By the time `agent_end` has
-    // propagated through `_agentEventQueue`, `finishRun()` has flipped
-    // `isStreaming` back to `false` - so `pi.sendUserMessage` here
-    // takes the fresh-prompt branch and the new turn actually runs.
+    // Deliver the latched nudge. Pi 0.75.4 moved `agent_end` into
+    // the awaited agent lifecycle, so the runtime still sees
+    // `isStreaming === true` while this handler runs. We defer the
+    // actual `pi.sendUserMessage` to the next event-loop tick via
+    // `setImmediate`, where `ctx.isIdle()` is true and the call takes
+    // the fresh-prompt branch (which actually triggers a new turn).
+    // Sending synchronously here would route through the follow-up
+    // queue, which the exiting agent loop never pulls.
     if (pendingNudge) {
       // Sanity-check the abort actually took effect. If a race left the
       // stream ending normally (toolUse / stop), drop the nudge rather
@@ -338,12 +342,18 @@ export default function streamWatchdog(pi: ExtensionAPI): void {
       }
       ctx.ui.setStatus(STATUS_KEY, `⟳ stream-watchdog: retrying stalled turn (${attempt}/${maxRetries})…`);
 
-      try {
-        pi.sendUserMessage(nudge, { deliverAs: 'followUp' });
-      } catch (e) {
-        clearStatus(ctx);
-        ctx.ui.notify(`stream-watchdog: failed to deliver follow-up: ${String(e)}`, 'error');
-      }
+      setImmediate(() => {
+        try {
+          if (ctx.isIdle()) {
+            pi.sendUserMessage(nudge);
+          } else {
+            pi.sendUserMessage(nudge, { deliverAs: 'followUp' });
+          }
+        } catch (e) {
+          clearStatus(ctx);
+          ctx.ui.notify(`stream-watchdog: failed to deliver follow-up: ${String(e)}`, 'error');
+        }
+      });
       return;
     }
 

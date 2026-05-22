@@ -47,10 +47,13 @@ provider stream terminates, pi emits `agent_end` with `stopReason === 'aborted'`
 
 Because pi-agent-core's abort path `return`s from `runAgent` **before** the outer loop's follow-up drain, calling
 `pi.sendUserMessage` synchronously from the poll timer would queue a follow-up that never actually runs. The watchdog
-therefore latches a `pendingNudge` during the poll and delivers it from the subsequent `agent_end` handler - by that
-point `finishRun()` has flipped `isStreaming` back to `false`, so `pi.sendUserMessage` takes the fresh-prompt branch and
-the retry turn actually kicks off. Sanity check: if the abort raced with a clean stream end (`toolUse` / `stop`), the
-nudge is dropped rather than injected after a healthy turn.
+therefore latches a `pendingNudge` during the poll and delivers it from the subsequent `agent_end` handler. Pi 0.75.4
+moved `agent_end` into the awaited agent lifecycle, so the handler now runs while the runtime still sees
+`isStreaming === true`; the watchdog defers the actual `pi.sendUserMessage` to the next event-loop tick via
+`setImmediate` and then uses `ctx.isIdle()` to pick between the fresh-prompt branch (the common case, which actually
+triggers a new turn) and the `deliverAs: 'followUp'` queue (defensive fallback if the user typed during the defer
+window). Sanity check: if the abort raced with a clean stream end (`toolUse` / `stop`), the nudge is dropped rather than
+injected after a healthy turn.
 
 Retries are capped per user prompt by `PI_STREAM_WATCHDOG_MAX_RETRIES` (default 2). On budget exhaustion the watchdog
 still aborts the hung stream (so the UI unfreezes) but skips the auto-retry and surfaces a one-shot warning so you know

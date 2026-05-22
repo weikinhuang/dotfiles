@@ -171,13 +171,33 @@ export default function stallRecovery(pi: ExtensionAPI): void {
     const nudge = buildRetryMessage(reason, attempt, maxRetries);
 
     try {
-      pi.sendUserMessage(nudge, { deliverAs: 'followUp' });
+      // Defer to the next event-loop tick so we land after the agent
+      // loop has fully unwound and `ctx.isIdle()` is true. Pi 0.75.4
+      // moved `agent_end` into the awaited agent lifecycle, so the
+      // handler runs while the runtime still sees `isStreaming ===
+      // true`. Calling `pi.sendUserMessage(..., { deliverAs:
+      // 'followUp' })` synchronously here routes the nudge through
+      // the follow-up queue, which the exiting agent loop never
+      // pulls - the message ends up surfaced as a `Follow-up: ⟳
+      // [pi-stall-recovery]` indicator with no LLM call.
+      setImmediate(() => {
+        try {
+          if (ctx.isIdle()) {
+            pi.sendUserMessage(nudge);
+          } else {
+            pi.sendUserMessage(nudge, { deliverAs: 'followUp' });
+          }
+        } catch (e) {
+          clearStatus(ctx);
+          ctx.ui.notify(`stall-recovery: failed to deliver retry message: ${String(e)}`, 'error');
+        }
+      });
     } catch (e) {
-      // sendUserMessage shouldn't throw in practice, but if delivery
-      // fails we clear the status so the user isn't left staring at a
-      // stuck "retrying…" footer. Surface the failure so it's visible.
+      // setImmediate scheduling shouldn't throw, but if it does we
+      // clear the status so the user isn't left staring at a stuck
+      // "retrying…" footer. Surface the failure so it's visible.
       clearStatus(ctx);
-      ctx.ui.notify(`stall-recovery: failed to deliver retry message: ${String(e)}`, 'error');
+      ctx.ui.notify(`stall-recovery: failed to schedule retry message: ${String(e)}`, 'error');
     }
   });
 

@@ -27,9 +27,16 @@ If the model produces any substantive text or tool call, we trust it.
 
 ## Recovery
 
-A follow-up user message is injected via `pi.sendUserMessage(..., { deliverAs: 'followUp' })` carrying a sentinel marker
-(`⟳ [pi-stall-recovery]`). The message is short and directive - weaker models respond better to concrete instructions
-than vague ones - and escalates in tone on the final allowed attempt (see "Retry prompt escalation" below).
+A follow-up user message is injected via `pi.sendUserMessage` carrying a sentinel marker (`⟳ [pi-stall-recovery]`). The
+message is short and directive - weaker models respond better to concrete instructions than vague ones - and escalates
+in tone on the final allowed attempt (see "Retry prompt escalation" below).
+
+Delivery is deferred one event-loop tick via `setImmediate`. Pi 0.75.4 moved `agent_end` into the awaited agent
+lifecycle, so the handler runs while the runtime still sees `isStreaming === true`; sending synchronously routes the
+nudge through the follow-up queue, which the exiting agent loop never pulls (the user sees a queued
+`Follow-up: ⟳ [pi-stall-recovery]` indicator with no LLM call). After the defer, `ctx.isIdle()` selects between an
+immediate fresh-prompt send (common case, triggers a turn) and `{ deliverAs: 'followUp' }` (defensive fallback if the
+user typed in the defer window).
 
 The retry triggers a fresh agent turn; any `before_agent_start` handlers (like the todo extension's active-plan
 injection) run automatically, re-anchoring the model. If the retry happens to be the call that fires

@@ -206,11 +206,31 @@ export default function verifyBeforeClaim(pi: ExtensionAPI): void {
     if (!steer) return;
 
     try {
-      pi.sendUserMessage(steer, { deliverAs: 'followUp' });
-      trace(`steered kinds=[${unverified.map((c) => c.kind).join(',')}]`);
+      // Defer one event-loop tick so we land after the agent loop
+      // unwinds and `ctx.isIdle()` is true. Pi 0.75.4 moved
+      // `agent_end` into the awaited agent lifecycle, so the
+      // synchronous handler still sees `isStreaming === true`. A
+      // direct `pi.sendUserMessage(..., { deliverAs: 'followUp' })`
+      // would route through the follow-up queue, which the exiting
+      // agent loop does not pull - the steer would surface as a
+      // queued `Follow-up: ⟳ [pi-verify-before-claim]` indicator
+      // instead of triggering a fresh turn.
+      setImmediate(() => {
+        try {
+          if (ctx.isIdle()) {
+            pi.sendUserMessage(steer);
+          } else {
+            pi.sendUserMessage(steer, { deliverAs: 'followUp' });
+          }
+          trace(`steered kinds=[${unverified.map((c) => c.kind).join(',')}]`);
+        } catch (e) {
+          ctx.ui.notify(`verify-before-claim: failed to deliver steer: ${String(e)}`, 'error');
+          trace(`deliver-failed: ${String(e)}`);
+        }
+      });
     } catch (e) {
-      ctx.ui.notify(`verify-before-claim: failed to deliver steer: ${String(e)}`, 'error');
-      trace(`deliver-failed: ${String(e)}`);
+      ctx.ui.notify(`verify-before-claim: failed to schedule steer: ${String(e)}`, 'error');
+      trace(`schedule-failed: ${String(e)}`);
     }
   });
 }

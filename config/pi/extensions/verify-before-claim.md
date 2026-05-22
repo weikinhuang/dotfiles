@@ -35,7 +35,11 @@ On `agent_end`, [`lib/node/pi/verify-detect.ts`](../../../lib/node/pi/verify-det
    suppress a nudge, false negatives merely produce one extra nudge.
 
 4. If `unverified.length > 0` AND the most recent user message doesn’t already carry the `⚠ [pi-verify-before-claim]`
-   sentinel, injects a follow-up user message via `pi.sendUserMessage(..., { deliverAs: 'followUp' })`:
+   sentinel, injects a follow-up user message via `pi.sendUserMessage`. Delivery is deferred one event-loop tick via
+   `setImmediate` because pi 0.75.4 moved `agent_end` into the awaited agent lifecycle, so the synchronous handler still
+   sees `isStreaming === true` and a direct send would queue the steer as a `Follow-up: ⚠ [pi-verify-before-claim]`
+   indicator with no LLM call. After the defer, `ctx.isIdle()` picks between an immediate send (common case) and
+   `{ deliverAs: 'followUp' }` as a defensive fallback:
 
    > You claimed “all tests pass” (tests pass), but I don’t see a tool call that would have verified it in this turn.
    > Either run the check and report the real outcome, or retract the claim and tell the user what you actually did.
