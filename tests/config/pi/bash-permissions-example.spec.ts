@@ -54,6 +54,11 @@ function allowed(command: string): boolean {
   return rules.allow.some((pattern) => matchesPattern(command, pattern));
 }
 
+/** True iff `command` matches at least one deny rule in the example file. */
+function denied(command: string): boolean {
+  return rules.deny.some((pattern) => matchesPattern(command, pattern));
+}
+
 // ──────────────────────────────────────────────────────────────────────
 // File shape
 // ──────────────────────────────────────────────────────────────────────
@@ -65,11 +70,18 @@ describe('bash-permissions-example: file shape', () => {
     expect(Array.isArray(rules.deny)).toBe(true);
   });
 
-  test('allow list is non-empty; deny list is empty by design', () => {
-    // The example file is purely additive allow. Catastrophic commands are
-    // handled by the extension's hardcoded denylist and by the `filesystem` gate.
+  test('allow list is non-empty; deny list carries the forge-CLI belt-and-suspenders entries', () => {
+    // The example file is mostly additive allow - the extension's hardcoded
+    // denylist and the `filesystem` gate catch the truly catastrophic shapes.
+    // The deny array only carries belt-and-suspenders entries for forge-CLI
+    // mutations whose blast radius is irreversible (account-scoped credentials,
+    // secret writes, extension installs, repo deletes).
     expect(rules.allow.length).toBeGreaterThan(0);
-    expect(rules.deny).toEqual([]);
+    expect(rules.deny.length).toBeGreaterThan(0);
+    for (const rule of rules.deny) {
+      expect(typeof rule).toBe('string');
+      expect(rule.length).toBeGreaterThan(0);
+    }
   });
 
   test('every allow rule is a non-empty string', () => {
@@ -571,6 +583,182 @@ describe('bash-permissions-example: readonly spot-checks', () => {
     'false',
   ])('allows: %s', (cmd) => {
     expect(allowed(cmd)).toBe(true);
+  });
+});
+
+// ──────────────────────────────────────────────────────────────────────
+// gh - GitHub CLI: prefix allows + GET-only `gh api` regex + denies
+// ──────────────────────────────────────────────────────────────────────
+
+describe('bash-permissions-example: gh', () => {
+  test.each([
+    'gh repo view weikinhuang/dotfiles',
+    'gh pr view 42',
+    'gh pr diff 42',
+    'gh pr list --state open',
+    'gh pr checks 42',
+    'gh issue view 1',
+    'gh issue list',
+    'gh run view 12345',
+    'gh run watch 12345',
+    'gh release view v1.0.0',
+    'gh workflow list',
+    'gh search prs --author=weikinhuang',
+    'gh status',
+    'gh auth status',
+    'gh config get editor',
+    'gh label list',
+    'gh ruleset list',
+    'gh variable list',
+    'gh secret list',
+    'gh browse',
+  ])('allows read-only: %s', (cmd) => {
+    expect(allowed(cmd)).toBe(true);
+  });
+
+  test.each([
+    // `gh api` defaults to GET - bare path and graphql query pass.
+    'gh api repos/foo/bar/pulls',
+    'gh api repos/foo/bar -H Accept:application/vnd.github+json',
+    'gh api graphql',
+    'gh api graphql -H X-Github-Next-Global-ID:1',
+  ])('allows `gh api` GET form: %s', (cmd) => {
+    expect(allowed(cmd)).toBe(true);
+  });
+
+  test.each([
+    ['gh api repos/foo/bar -X POST', '-X POST is a mutation'],
+    ['gh api repos/foo/bar -X PATCH', '-X PATCH is a mutation'],
+    ['gh api repos/foo/bar -X PUT', '-X PUT is a mutation'],
+    ['gh api repos/foo/bar --method DELETE', '--method DELETE is a mutation'],
+    ['gh api graphql -f query=mutation{addStar(input:{starrableId:"x"}){clientMutationId}}', '-f field arg = mutation'],
+    ['gh api repos/foo/bar -F draft=true', '-F field arg = mutation'],
+    ['gh api repos/foo/bar --field title=foo', '--field = mutation'],
+    ['gh api repos/foo/bar --raw-field body=foo', '--raw-field = mutation'],
+  ])('rejects `gh api` mutation form: %s  (%s)', (cmd) => {
+    expect(allowed(cmd)).toBe(false);
+  });
+
+  test.each([
+    // Explicit denies - belt-and-suspenders for irreversible / account-scoped commands.
+    'gh repo delete weikinhuang/test',
+    'gh auth login',
+    'gh auth logout',
+    'gh secret set FOO --body=bar',
+    'gh ssh-key add ~/.ssh/id_ed25519.pub',
+    'gh gpg-key add key.pub',
+    'gh extension install owner/gh-extension',
+  ])('denies (explicit): %s', (cmd) => {
+    expect(denied(cmd)).toBe(true);
+    expect(allowed(cmd)).toBe(false);
+  });
+
+  test.each([
+    // "Intentionally NOT in the file" - mutations that fall through to a prompt:
+    // neither allow nor deny matches, the user gets the approval dialog.
+    'gh pr create --title foo --body bar',
+    'gh pr merge 42',
+    'gh pr close 42',
+    'gh pr edit 42 --title new',
+    'gh pr comment 42 --body hi',
+    'gh pr review 42 --approve',
+    'gh issue create --title bug',
+    'gh issue close 1',
+    'gh issue edit 1 --title fixed',
+    'gh issue comment 1 --body hi',
+    'gh release create v1.0.0',
+    'gh release edit v1.0.0 --notes foo',
+    'gh release delete v1.0.0',
+    'gh workflow run ci.yml',
+    'gh run cancel 12345',
+    'gh run rerun 12345',
+    'gh run delete 12345',
+  ])('falls through to prompt (no allow, no deny): %s', (cmd) => {
+    expect(allowed(cmd)).toBe(false);
+    expect(denied(cmd)).toBe(false);
+  });
+});
+
+// ──────────────────────────────────────────────────────────────────────
+// glab - GitLab CLI: prefix allows + GET-only `glab api` regex + denies
+// ──────────────────────────────────────────────────────────────────────
+
+describe('bash-permissions-example: glab', () => {
+  test.each([
+    'glab mr view 42',
+    'glab mr list --state opened',
+    'glab mr diff 42',
+    'glab mr checkout 42',
+    'glab issue view 1',
+    'glab issue list',
+    'glab ci view 12345',
+    'glab ci status',
+    'glab ci trace 12345',
+    'glab release view v1.0.0',
+    'glab release list',
+    'glab repo view weikinhuang/dotfiles',
+    'glab repo search dotfiles',
+    'glab auth status',
+    'glab config get editor',
+    'glab label list',
+    'glab variable list',
+  ])('allows read-only: %s', (cmd) => {
+    expect(allowed(cmd)).toBe(true);
+  });
+
+  test.each(['glab api projects/1/merge_requests', 'glab api projects/1 -H Accept:application/json'])(
+    'allows `glab api` GET form: %s',
+    (cmd) => {
+      expect(allowed(cmd)).toBe(true);
+    },
+  );
+
+  test.each([
+    ['glab api projects/1 -X POST', '-X POST is a mutation'],
+    ['glab api projects/1 -X DELETE', '-X DELETE is a mutation'],
+    ['glab api projects/1 --method PATCH', '--method PATCH is a mutation'],
+    ['glab api projects/1 --method PUT', '--method PUT is a mutation'],
+    ['glab api projects/1 -f title=foo', '-f field arg = mutation'],
+    ['glab api projects/1 -F body=foo', '-F field arg = mutation'],
+    ['glab api projects/1 --field title=foo', '--field = mutation'],
+    ['glab api projects/1 --raw-field body=foo', '--raw-field = mutation'],
+  ])('rejects `glab api` mutation form: %s  (%s)', (cmd) => {
+    expect(allowed(cmd)).toBe(false);
+  });
+
+  test.each([
+    'glab repo delete weikinhuang/test',
+    'glab auth login',
+    'glab auth logout',
+    'glab variable set FOO bar',
+    'glab variable delete FOO',
+    'glab config set editor nvim',
+    'glab extension install owner/glab-extension',
+  ])('denies (explicit): %s', (cmd) => {
+    expect(denied(cmd)).toBe(true);
+    expect(allowed(cmd)).toBe(false);
+  });
+
+  test.each([
+    // "Intentionally NOT in the file" - mutations that fall through to a prompt.
+    'glab mr create --title foo',
+    'glab mr merge 42',
+    'glab mr close 42',
+    'glab mr update 42 --title new',
+    'glab mr note 42 --message hi',
+    'glab issue create --title bug',
+    'glab issue close 1',
+    'glab issue update 1 --title fixed',
+    'glab issue note 1 --message hi',
+    'glab release create v1.0.0',
+    'glab release delete v1.0.0',
+    'glab ci run',
+    'glab ci retry 12345',
+    'glab ci cancel 12345',
+    'glab ci delete 12345',
+  ])('falls through to prompt (no allow, no deny): %s', (cmd) => {
+    expect(allowed(cmd)).toBe(false);
+    expect(denied(cmd)).toBe(false);
   });
 });
 

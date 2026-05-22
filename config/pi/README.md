@@ -93,6 +93,13 @@ Three composable security gates ship enabled by default in [`settings-baseline.j
    wraps every bash subprocess via
    [`@anthropic-ai/sandbox-runtime`](https://www.npmjs.com/package/@anthropic-ai/sandbox-runtime).
 
+The shipped [`bash-permissions-example.json`](./bash-permissions-example.json) baseline covers the read-only forge-CLI
+surface for `gh` and `glab` (repo / pr / mr / issue / ci / run / release / workflow views and lists, `auth status`,
+`config get`, plus a GET-only regex gate for `gh api` / `glab api`). Account-scoped mutations - repo delete, auth
+login/logout, secret / variable writes, extension installs - are denied outright; project-scoped mutations like
+`gh pr create` or `glab mr merge` are intentionally left out so they hit the approval prompt and can be opted into per
+repo via `<repo>/.pi/bash-permissions.json`.
+
 ### First run
 
 ```text

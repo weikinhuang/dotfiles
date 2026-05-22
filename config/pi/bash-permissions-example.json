@@ -96,6 +96,84 @@
     // `git config --list` / `--get…` are read-only; bare `git config key value` writes.
     "re:^git config\\s+(--list|--get|--get-all|--get-regexp)(\\s+.+)?$",
 
+    // ── gh: read-only subcommands ──────────────────────────────────────────
+    // GitHub CLI read-only queries. Token-aware prefix or regex; nothing
+    // here mutates remote state.
+    //
+    // Deliberately NOT in this list (hit the approval prompt instead -
+    // opt in per repo via `<repo>/.pi/bash-permissions.json`):
+    //   gh pr create / merge / close / edit / comment / review
+    //   gh issue create / close / edit / comment
+    //   gh release create / edit / delete
+    //   gh workflow run
+    //   gh run cancel / rerun / delete
+    "gh repo view*",
+    "gh pr view*",
+    "gh pr list*",
+    "gh pr diff*",
+    "gh pr checks*",
+    "gh pr status*",
+    "gh issue view*",
+    "gh issue list*",
+    "gh issue status*",
+    "gh run view*",
+    "gh run list*",
+    "gh run watch*",
+    "gh release view*",
+    "gh release list*",
+    "gh workflow view*",
+    "gh workflow list*",
+    "gh search *",
+    "gh status*",
+    "gh auth status*",
+    "gh config get*",
+    "gh config list*",
+    "gh label list*",
+    "gh ruleset list*",
+    "gh variable list*",
+    "gh secret list*",
+    "gh browse*",
+    // `gh api` defaults to GET. Two lookaheads turn this into a
+    // read-only gate:
+    //   * first rejects any explicit non-GET method (`-X POST`,
+    //     `--method DELETE`, etc.) - leaves bare `gh api <path>`
+    //     and `gh api graphql` (which default to GET) untouched.
+    //   * second rejects any field arg (`-f`, `-F`, `--field`,
+    //     `--raw-field`) - field args only make sense for mutations,
+    //     including graphql mutations that pass `-f query=mutation{…}`.
+    "re:^gh api(?!.*\\s(-X|--method)\\s+(POST|PATCH|PUT|DELETE))(?!.*\\s(-f|-F|--field|--raw-field)\\b)(\\s.*)?$",
+
+    // ── glab: read-only subcommands ────────────────────────────────────────
+    // GitLab CLI read-only queries. Same shape as the `gh` block above.
+    //
+    // Deliberately NOT in this list (hit the approval prompt instead -
+    // opt in per repo via `<repo>/.pi/bash-permissions.json`):
+    //   glab mr create / merge / close / update / note
+    //   glab issue create / close / update / note
+    //   glab release create / delete
+    //   glab ci run / retry / cancel / delete
+    "glab mr view*",
+    "glab mr list*",
+    "glab mr diff*",
+    "glab mr checkout*",
+    "glab issue view*",
+    "glab issue list*",
+    "glab ci view*",
+    "glab ci list*",
+    "glab ci status*",
+    "glab ci trace*",
+    "glab release view*",
+    "glab release list*",
+    "glab repo view*",
+    "glab repo search*",
+    "glab auth status*",
+    "glab config get*",
+    "glab label list*",
+    "glab variable list*",
+    // `glab api` mirrors `gh api`: defaults to GET, mutations require
+    // an explicit `--method` / `-X` or a field arg, both rejected here.
+    "re:^glab api(?!.*\\s(--method|-X)\\s+(POST|PATCH|PUT|DELETE))(?!.*\\s(-f|-F|--field|--raw-field)\\b)(\\s.*)?$",
+
     // ── node / package managers: read-only queries ─────────────────────────
     "node --version",
     "node -v",
@@ -243,5 +321,24 @@
   // `filesystem` extension guards `.env*` / `~/.ssh` / `.git/` / etc.
   // Add entries here only when you want belt-and-suspenders for a specific
   // command on this machine or repo.
-  "deny": []
+  //
+  // The forge-CLI entries below would already fall through to the approval
+  // prompt (no allow match), but their blast radius is irreversible enough
+  // that we deny them outright as belt-and-suspenders.
+  "deny": [
+    "gh repo delete*", // irreversible: deletes the GitHub repository
+    "gh auth login*", // rewrites token storage / initiates an OAuth flow
+    "gh auth logout*", // wipes stored credentials
+    "gh secret set*", // writes a repo / org / env secret
+    "gh ssh-key add*", // attaches an SSH key to the account
+    "gh gpg-key add*", // attaches a GPG key to the account
+    "gh extension install*", // installs third-party code into the gh CLI
+    "glab repo delete*", // irreversible: deletes the GitLab project
+    "glab auth login*", // rewrites token storage / initiates an OAuth flow
+    "glab auth logout*", // wipes stored credentials
+    "glab variable set*", // writes a CI/CD variable
+    "glab variable delete*", // removes a CI/CD variable
+    "glab config set*", // mutates persistent glab config
+    "glab extension install*" // installs third-party code into the glab CLI
+  ]
 }
