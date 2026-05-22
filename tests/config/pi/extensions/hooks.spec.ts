@@ -61,9 +61,11 @@ interface FakeExtensionAPI {
  *   - allow    → skip remaining hooks for this event.
  *   - continue → run the next hook; tool proceeds if all return continue.
  */
-function preToolUseFactoryMirror(pi: FakeExtensionAPI, spawnFn: HookSpawnFn): void {
+function preToolUseFactoryMirror(pi: FakeExtensionAPI, spawnFn: HookSpawnFn, home: string): void {
   pi.on('tool_call', async (event, ctx) => {
-    const candidates = loadHooks({ cwd: ctx.cwd }).PreToolUse.filter((h) => matchesMatcher(h.matcher, event.toolName));
+    const candidates = loadHooks({ cwd: ctx.cwd, home }).PreToolUse.filter((h) =>
+      matchesMatcher(h.matcher, event.toolName),
+    );
     if (candidates.length === 0) return undefined;
 
     const controller = new AbortController();
@@ -91,7 +93,10 @@ function preToolUseFactoryMirror(pi: FakeExtensionAPI, spawnFn: HookSpawnFn): vo
   });
 }
 
-function buildSession(spawnFn: HookSpawnFn): {
+function buildSession(
+  spawnFn: HookSpawnFn,
+  home: string,
+): {
   fire(event: FakeToolCallEvent, ctx: FakeCtx): Promise<FakeToolCallResult>;
 } {
   let installed: FakeToolCallHandler | undefined;
@@ -100,7 +105,7 @@ function buildSession(spawnFn: HookSpawnFn): {
       if (event === 'tool_call') installed = handler;
     },
   };
-  preToolUseFactoryMirror(api, spawnFn);
+  preToolUseFactoryMirror(api, spawnFn, home);
   return {
     async fire(event, ctx) {
       if (!installed) throw new Error('factory did not register a tool_call handler');
@@ -158,7 +163,7 @@ describe('hooks extension - PreToolUse wiring', () => {
         stdout: JSON.stringify({ decision: 'block', reason: 'no bash for you' }),
       },
     });
-    const session = buildSession(spawn);
+    const session = buildSession(spawn, fakeHome);
 
     const r = await session.fire({ toolName: 'bash', input: { command: 'ls' } }, { cwd: tmpCwd, hasUI: false });
 
@@ -174,7 +179,7 @@ describe('hooks extension - PreToolUse wiring', () => {
       // Empty stdout → continue per `parseHookStdout`.
       '/h/log.sh': { stdout: '' },
     });
-    const session = buildSession(spawn);
+    const session = buildSession(spawn, fakeHome);
 
     const r = await session.fire({ toolName: 'bash', input: { command: 'ls' } }, { cwd: tmpCwd, hasUI: false });
 
@@ -187,7 +192,7 @@ describe('hooks extension - PreToolUse wiring', () => {
       PreToolUse: [{ matcher: 'edit', command: '/h/edit-only.sh' }],
     });
     const spawn = makeSpawn({});
-    const session = buildSession(spawn);
+    const session = buildSession(spawn, fakeHome);
 
     const r = await session.fire({ toolName: 'bash', input: { command: 'ls' } }, { cwd: tmpCwd, hasUI: false });
 
@@ -208,7 +213,7 @@ describe('hooks extension - PreToolUse wiring', () => {
       },
       '/h/should-not-run.sh': { stdout: 'irrelevant' },
     });
-    const session = buildSession(spawn);
+    const session = buildSession(spawn, fakeHome);
 
     const r = await session.fire({ toolName: 'bash', input: {} }, { cwd: tmpCwd, hasUI: false });
 

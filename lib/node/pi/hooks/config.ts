@@ -58,8 +58,11 @@ interface HookFile {
 }
 
 const TAG = 'hooks';
-const USER_RULES_PATH = join(homedir(), '.pi', 'hooks.json');
 const PROJECT_RULES_RELATIVE = join('.pi', 'hooks.json');
+
+function userRulesPath(home: string): string {
+  return join(home, '.pi', 'hooks.json');
+}
 
 function projectRulesPath(cwd: string): string {
   return resolve(cwd, PROJECT_RULES_RELATIVE);
@@ -156,6 +159,14 @@ function readHooksFile(path: string, scope: HookScope): Record<HookEvent, Hook[]
 export interface LoadHooksContext {
   cwd: string;
   /**
+   * Home directory for the user-layer file. Defaults to `os.homedir()`;
+   * tests inject a temp dir so a real `~/.pi/hooks.json` on the host
+   * can't contaminate the fixture. Resolved lazily on each call so a
+   * spawned subprocess that changes `HOME` mid-session still loads the
+   * right file.
+   */
+  home?: string;
+  /**
    * Session-scope hooks supplied by the extension shell. Layer 1 in
    * the merge order; project and user layers are read from disk.
    */
@@ -196,11 +207,12 @@ function normalizeOverride(src: Partial<Record<HookEvent, Hook[]>>, scope: HookS
 export function loadHooks(ctx: LoadHooksContext): Record<HookEvent, Hook[]> {
   const out = emptyConfig();
 
+  const home = ctx.home ?? homedir();
   const sessionRaw = ctx.sessionHooks ?? {};
   const project = ctx.projectHooks
     ? normalizeOverride(ctx.projectHooks, 'project')
     : readHooksFile(projectRulesPath(ctx.cwd), 'project');
-  const user = ctx.userHooks ? normalizeOverride(ctx.userHooks, 'user') : readHooksFile(USER_RULES_PATH, 'user');
+  const user = ctx.userHooks ? normalizeOverride(ctx.userHooks, 'user') : readHooksFile(userRulesPath(home), 'user');
 
   for (const event of HOOK_EVENTS) {
     const sessionHooks = rescope(sessionRaw[event] ?? [], 'session');
@@ -209,9 +221,13 @@ export function loadHooks(ctx: LoadHooksContext): Record<HookEvent, Hook[]> {
   return out;
 }
 
-/** Path of the on-disk user config, exported for the extension shell. */
-export function userHooksPath(): string {
-  return USER_RULES_PATH;
+/**
+ * Path of the on-disk user config, exported for the extension shell.
+ * `home` defaults to `os.homedir()`; resolved lazily so a test can pin
+ * a temp dir.
+ */
+export function userHooksPath(home: string = homedir()): string {
+  return userRulesPath(home);
 }
 
 /** Path of the on-disk project config, exported for the extension shell. */
