@@ -116,8 +116,9 @@ Hooks fire **after** `bash-permissions`, `filesystem`, and `sandbox` have approv
 clean: a malicious hook can refuse to let an approved command run, but it cannot vouch for one that the gates already
 rejected.
 
-Hooks run **outside** the kernel sandbox by default because they're user code, not model-emitted bash. Set
-`"sandboxed": true` on individual entries to wrap them.
+Hooks run **outside** the kernel sandbox by default because they're user code, not model-emitted bash. The
+`"sandboxed": true` field is reserved for the per-hook sandbox-wrap opt-in; v1 plumbs it end-to-end but does not yet
+wrap, so setting it today is a no-op. The schema is locked so users can write it ahead of the wrap landing.
 
 Within an event, hooks fire in array order: session-layer entries first, then project, then user. The order matches
 `bash-permissions`'s layer order so the `/hooks` listing reads the same way.

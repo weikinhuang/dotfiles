@@ -21,8 +21,9 @@
 //               `/` resolved against ctx.cwd; bare commands hit PATH.
 //               Invoked via `sh -c <command>` so pipes / redirects work.
 //   timeout   - ms before the runner kills the child (default 60000).
-//   sandboxed - opt the hook into the kernel sandbox (default false -
-//               hooks are user-trusted code).
+//   sandboxed - reserved for the per-hook sandbox-wrap opt-in. v1
+//               accepts the field but does not yet wrap, so setting
+//               it today is a no-op. Default false.
 //
 // Hooks are user-trusted; the harness runs them as the user, outside
 // the sandbox by default. They fire AFTER bash-permissions / filesystem
