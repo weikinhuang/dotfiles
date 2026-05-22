@@ -12,10 +12,14 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
 import {
+  DEFAULT_DYNAMIC_LABEL_PERSONA,
+  DEFAULT_MAX_CALLS_PER_SESSION,
   VALID_WAVEFORM_MODES,
   clearWaveformState,
   isWaveformMode,
+  readDynamicLabelRaw,
   readWaveformState,
+  resolveDynamicLabelConfig,
   resolveInitialWaveformMode,
   writeWaveformState,
 } from '../../../../lib/node/pi/waveform-indicator-state.ts';
@@ -190,5 +194,181 @@ describe('resolveInitialWaveformMode', () => {
     writeWaveformState(statePath, 'off');
 
     expect(resolveInitialWaveformMode(statePath, { PI_WAVEFORM_INDICATOR_MODE: '' })).toBe('off');
+  });
+});
+
+// ──────────────────────────────────────────────────────────────────────
+// dynamicLabel persistence + resolution
+// ──────────────────────────────────────────────────────────────────────
+
+/**
+ * Write a file with a `mode` plus an arbitrary `dynamicLabel` block.
+ * `writeWaveformState` deliberately only preserves a pre-existing
+ * dynamicLabel - it doesn't let callers WRITE one - so we drop the
+ * JSON in directly.
+ */
+function writeFullState(path: string, body: Record<string, unknown>): void {
+  // ensure parent dir exists - writeWaveformState would have created
+  // it, but our shortcut here uses raw writeFileSync.
+  writeWaveformState(path, 'scroll');
+  writeFileSync(path, `${JSON.stringify(body, null, 2)}\n`, 'utf8');
+}
+
+describe('writeWaveformState preserves dynamicLabel', () => {
+  test('a /waveform <mode> update keeps the existing dynamicLabel intact', () => {
+    writeFullState(statePath, {
+      mode: 'spectrum',
+      dynamicLabel: { enabled: true, tinyModel: 'openai/gpt-4o-mini' },
+    });
+    // Mimic the slash command updating only the mode.
+    writeWaveformState(statePath, 'tokenrate');
+    const round = JSON.parse(readFileSync(statePath, 'utf8')) as Record<string, unknown>;
+    expect(round.mode).toBe('tokenrate');
+    expect(round.dynamicLabel).toEqual({ enabled: true, tinyModel: 'openai/gpt-4o-mini' });
+  });
+});
+
+describe('readDynamicLabelRaw', () => {
+  test('returns undefined for missing file', () => {
+    expect(readDynamicLabelRaw(statePath)).toBeUndefined();
+  });
+
+  test('returns the raw dynamicLabel object verbatim', () => {
+    writeFullState(statePath, { mode: 'scroll', dynamicLabel: { enabled: true, tinyModel: 'foo/bar' } });
+    expect(readDynamicLabelRaw(statePath)).toEqual({ enabled: true, tinyModel: 'foo/bar' });
+  });
+
+  test('returns undefined when the file has no dynamicLabel block', () => {
+    writeWaveformState(statePath, 'scroll');
+    expect(readDynamicLabelRaw(statePath)).toBeUndefined();
+  });
+});
+
+describe('resolveDynamicLabelConfig', () => {
+  test('empty file → defaults: enabled=false, tinyModel=null, persona=daemon', () => {
+    const r = resolveDynamicLabelConfig(statePath, {});
+    expect(r.config.enabled).toBe(false);
+    expect(r.config.tinyModel).toBeNull();
+    expect(r.config.persona).toBe(DEFAULT_DYNAMIC_LABEL_PERSONA);
+    expect(r.config.maxCallsPerSession).toBe(DEFAULT_MAX_CALLS_PER_SESSION);
+    expect(r.warnings).toHaveLength(0);
+  });
+
+  test('valid file round-trips through resolver', () => {
+    writeFullState(statePath, {
+      mode: 'scroll',
+      dynamicLabel: {
+        enabled: true,
+        tinyModel: 'openai/gpt-4o-mini',
+        persona: 'exusiai-buddy',
+        maxCallsPerSession: 50,
+      },
+    });
+    const r = resolveDynamicLabelConfig(statePath, {});
+    expect(r.config).toEqual({
+      enabled: true,
+      tinyModel: 'openai/gpt-4o-mini',
+      persona: 'exusiai-buddy',
+      maxCallsPerSession: 50,
+    });
+    expect(r.warnings).toHaveLength(0);
+  });
+
+  test('enabled=true + missing tinyModel → silently disabled, no warning', () => {
+    writeFullState(statePath, { mode: 'scroll', dynamicLabel: { enabled: true } });
+    const r = resolveDynamicLabelConfig(statePath, {});
+    expect(r.config.enabled).toBe(false);
+    expect(r.config.tinyModel).toBeNull();
+    expect(r.warnings).toHaveLength(0);
+  });
+
+  test('garbage tinyModel (no slash) → disabled with warning', () => {
+    writeFullState(statePath, { mode: 'scroll', dynamicLabel: { enabled: true, tinyModel: 'garbage' } });
+    const r = resolveDynamicLabelConfig(statePath, {});
+    expect(r.config.enabled).toBe(false);
+    expect(r.config.tinyModel).toBeNull();
+    expect(r.warnings.length).toBeGreaterThan(0);
+    expect(r.warnings[0]).toMatch(/tinyModel "garbage"/);
+  });
+
+  test('malformed dynamicLabel block (not an object) falls through silently', () => {
+    writeFullState(statePath, { mode: 'scroll', dynamicLabel: 'not-an-object' });
+    const r = resolveDynamicLabelConfig(statePath, {});
+    expect(r.config.enabled).toBe(false);
+    expect(r.config.tinyModel).toBeNull();
+    expect(r.warnings).toHaveLength(0);
+  });
+
+  test('persona: "" opts out (preserved through resolver)', () => {
+    writeFullState(statePath, {
+      mode: 'scroll',
+      dynamicLabel: { enabled: true, tinyModel: 'openai/gpt-4o-mini', persona: '' },
+    });
+    const r = resolveDynamicLabelConfig(statePath, {});
+    expect(r.config.persona).toBe('');
+  });
+
+  test('PI_WAVEFORM_DYNAMIC_LABEL=on flips a disabled file', () => {
+    writeFullState(statePath, {
+      mode: 'scroll',
+      dynamicLabel: { enabled: false, tinyModel: 'openai/gpt-4o-mini' },
+    });
+    const r = resolveDynamicLabelConfig(statePath, { PI_WAVEFORM_DYNAMIC_LABEL: 'on' });
+    expect(r.config.enabled).toBe(true);
+  });
+
+  test('PI_WAVEFORM_DYNAMIC_LABEL=off flips an enabled file', () => {
+    writeFullState(statePath, {
+      mode: 'scroll',
+      dynamicLabel: { enabled: true, tinyModel: 'openai/gpt-4o-mini' },
+    });
+    const r = resolveDynamicLabelConfig(statePath, { PI_WAVEFORM_DYNAMIC_LABEL: 'off' });
+    expect(r.config.enabled).toBe(false);
+  });
+
+  test('PI_WAVEFORM_DYNAMIC_LABEL=on without a valid tinyModel stays disabled', () => {
+    // env on, file has no tinyModel - still disabled because the
+    // two-stage validation requires SOME parseable model.
+    writeFullState(statePath, { mode: 'scroll', dynamicLabel: { enabled: false } });
+    const r = resolveDynamicLabelConfig(statePath, { PI_WAVEFORM_DYNAMIC_LABEL: 'on' });
+    expect(r.config.enabled).toBe(false);
+    expect(r.config.tinyModel).toBeNull();
+  });
+
+  test('PI_WAVEFORM_DYNAMIC_LABEL_MODEL overrides a valid file value', () => {
+    writeFullState(statePath, {
+      mode: 'scroll',
+      dynamicLabel: { enabled: true, tinyModel: 'openai/gpt-4o-mini' },
+    });
+    const r = resolveDynamicLabelConfig(statePath, { PI_WAVEFORM_DYNAMIC_LABEL_MODEL: 'llama-cpp/qwen3-0.6b' });
+    expect(r.config.tinyModel).toBe('llama-cpp/qwen3-0.6b');
+    expect(r.config.enabled).toBe(true);
+  });
+
+  test('malformed PI_WAVEFORM_DYNAMIC_LABEL_MODEL falls back to file value (no silent disable)', () => {
+    writeFullState(statePath, {
+      mode: 'scroll',
+      dynamicLabel: { enabled: true, tinyModel: 'openai/gpt-4o-mini' },
+    });
+    const r = resolveDynamicLabelConfig(statePath, { PI_WAVEFORM_DYNAMIC_LABEL_MODEL: 'garbage' });
+    expect(r.config.tinyModel).toBe('openai/gpt-4o-mini');
+    expect(r.config.enabled).toBe(true);
+  });
+
+  test('PI_WAVEFORM_DYNAMIC_LABEL with an unknown value is ignored', () => {
+    writeFullState(statePath, {
+      mode: 'scroll',
+      dynamicLabel: { enabled: true, tinyModel: 'openai/gpt-4o-mini' },
+    });
+    const r = resolveDynamicLabelConfig(statePath, { PI_WAVEFORM_DYNAMIC_LABEL: 'yes' });
+    expect(r.config.enabled).toBe(true);
+  });
+
+  test('non-positive maxCallsPerSession falls back to default', () => {
+    writeFullState(statePath, {
+      mode: 'scroll',
+      dynamicLabel: { enabled: true, tinyModel: 'openai/gpt-4o-mini', maxCallsPerSession: -5 },
+    });
+    expect(resolveDynamicLabelConfig(statePath, {}).config.maxCallsPerSession).toBe(DEFAULT_MAX_CALLS_PER_SESSION);
   });
 });
