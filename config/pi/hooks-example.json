@@ -1,0 +1,69 @@
+// Annotated starter for the `hooks` extension.
+//
+//   Extension:  config/pi/extensions/hooks.ts
+//   Reference:  config/pi/extensions/hooks.md
+//
+// Copy (or merge) into one of:
+//
+//   ~/.pi/hooks.json       - user scope, every project
+//   <repo>/.pi/hooks.json  - project scope, this repo only
+//
+// Both layers are loaded on every event. Hooks fire in array order
+// within each layer; the first PreToolUse / UserPromptSubmit `block`
+// short-circuits the remainder.
+//
+// Field semantics (full rules in hooks.md):
+//   matcher   - tool-name selector: `"*"` matches every tool; `"bash"`
+//               exact; `"edit,write"` comma list; `"re:^edit$"` regex.
+//               Omit for events without a tool dimension
+//               (UserPromptSubmit / Stop / SessionStart).
+//   command   - path to the script. `~` expanded; relative paths with
+//               `/` resolved against ctx.cwd; bare commands hit PATH.
+//               Invoked via `sh -c <command>` so pipes / redirects work.
+//   timeout   - ms before the runner kills the child (default 60000).
+//   sandboxed - opt the hook into the kernel sandbox (default false -
+//               hooks are user-trusted code).
+//
+// Hooks are user-trusted; the harness runs them as the user, outside
+// the sandbox by default. They fire AFTER bash-permissions / filesystem
+// / sandbox have approved the call - a denied command never reaches a
+// PreToolUse hook. See hooks.md for the full decision matrix.
+//
+// Every entry below is commented out so a bare copy of this file
+// imports cleanly without firing anything. Uncomment the ones you want.
+{
+  "hooks": {
+    "PreToolUse": [
+      // ── Log every bash command before it runs ──────────────────────────
+      // The script reads the JSON payload from stdin. Empty stdout = continue,
+      // so the command still runs. Returning `{"decision":"block","reason":"…"}`
+      // would cancel the call with the reason surfaced to the model.
+      // {
+      //   "matcher": "bash",
+      //   "command": "~/.pi/hooks/log-bash.sh",
+      //   "timeout": 5000
+      // }
+    ],
+    "PostToolUse": [
+      // ── Run prettier on every edit / write ────────────────────────────
+      // PostToolUse cannot `block` (the tool already ran). Whatever the
+      // script prints on stdout is appended to the tool result as a
+      // second text part, so the model sees "what changed".
+      // {
+      //   "matcher": "edit,write",
+      //   "command": "~/.pi/hooks/run-prettier.sh",
+      //   "timeout": 10000
+      // }
+    ],
+    "UserPromptSubmit": [
+      // ── Inject cwd / branch context into every prompt ──────────────────
+      // No matcher (UserPromptSubmit has no tool dimension). The script's
+      // stdout is appended to the system prompt before the turn starts.
+      // {
+      //   "command": "~/.pi/hooks/inject-cwd.sh"
+      // }
+    ],
+    "Stop": [],
+    "SessionStart": []
+  }
+}
