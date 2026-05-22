@@ -19,7 +19,7 @@
  *     getDangerousDirectories() verbatim.
  */
 
-import { existsSync, mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -30,6 +30,8 @@ import {
   createDangerousFileStubs,
   DANGEROUS_DIR_STUBS,
   DANGEROUS_FILE_STUBS,
+  listDangerousStubPaths,
+  sweepOrphanDangerousStubs,
 } from '../../../../../lib/node/pi/sandbox/dangerous-file-stubs.ts';
 
 import {
@@ -127,9 +129,13 @@ describe('createDangerousFileStubs - directories', () => {
     expect(created).toContain(join(cwd, '.claude/agents'));
   });
 
-  test('does not record an intermediate that already exists', () => {
-    // Pre-populate .claude/ to simulate a project that already uses it.
+  test('does not record an intermediate that already exists with content', () => {
+    // Simulate a project that already uses .claude/. The directory is
+    // populated, so we must not adopt it for cleanup. (An EMPTY
+    // pre-existing .claude/ is treated as an orphan stub - covered by
+    // the adopt-on-EEXIST suite below.)
     mkdirSync(join(cwd, '.claude'));
+    writeFileSync(join(cwd, '.claude/.keep'), '', 'utf8');
     const created = createDangerousFileStubs(cwd);
     expect(created).not.toContain(join(cwd, '.claude'));
     // The leaf is still created.
@@ -186,5 +192,164 @@ describe('cleanupDangerousFileStubs', () => {
     rmSync(join(cwd, '.bashrc'));
     rmSync(join(cwd, '.vscode'), { recursive: true });
     expect(() => cleanupDangerousFileStubs(created)).not.toThrow();
+  });
+});
+
+describe('createDangerousFileStubs - adopt-on-EEXIST', () => {
+  test('adopts a leaked 0-byte stub file from a prior session for cleanup', () => {
+    // Simulate a SIGKILL-leaked stub: 0-byte file the previous pi
+    // process never got to clean up.
+    const leaked = join(cwd, '.bashrc');
+    closeSync(openSync(leaked, 'w', 0o644));
+    expect(statSync(leaked).size).toBe(0);
+
+    const created = createDangerousFileStubs(cwd);
+
+    // Now in this session's tracked set, so cleanup will GC it.
+    expect(created).toContain(leaked);
+    cleanupDangerousFileStubs(created);
+    expect(existsSync(leaked)).toBe(false);
+  });
+
+  test('does NOT adopt a 0-byte file flagged by isProtected', () => {
+    // Simulate a freshly-cloned but legitimately empty user file.
+    const userEmpty = join(cwd, '.bashrc');
+    closeSync(openSync(userEmpty, 'w', 0o644));
+
+    const created = createDangerousFileStubs(cwd, {
+      isProtected: (abs) => abs === userEmpty,
+    });
+
+    expect(created).not.toContain(userEmpty);
+    cleanupDangerousFileStubs(created);
+    expect(existsSync(userEmpty)).toBe(true);
+  });
+
+  test('does NOT adopt a non-empty pre-existing file even when not protected', () => {
+    const real = join(cwd, '.bashrc');
+    writeFileSync(real, 'export FOO=bar\n', 'utf8');
+    const created = createDangerousFileStubs(cwd);
+    expect(created).not.toContain(real);
+    expect(statSync(real).size).toBeGreaterThan(0);
+  });
+
+  test('adopts a leaked empty stub directory for rmdir', () => {
+    // Pre-create the dangerous-dir stub like a prior session would
+    // have. createDangerousFileStubs gets EEXIST and should adopt.
+    const leakedDir = join(cwd, '.vscode');
+    mkdirSync(leakedDir, { mode: 0o755 });
+
+    const created = createDangerousFileStubs(cwd);
+
+    expect(created).toContain(leakedDir);
+    cleanupDangerousFileStubs(created);
+    expect(existsSync(leakedDir)).toBe(false);
+  });
+
+  test('does NOT adopt a populated dangerous directory', () => {
+    const populated = join(cwd, '.idea');
+    mkdirSync(populated);
+    writeFileSync(join(populated, 'workspace.xml'), '<x/>\n', 'utf8');
+    const created = createDangerousFileStubs(cwd);
+    expect(created).not.toContain(populated);
+    expect(existsSync(join(populated, 'workspace.xml'))).toBe(true);
+  });
+
+  test('does NOT adopt an empty dangerous directory flagged by isProtected', () => {
+    const userEmptyDir = join(cwd, '.vscode');
+    mkdirSync(userEmptyDir);
+
+    const created = createDangerousFileStubs(cwd, {
+      isProtected: (abs) => abs === userEmptyDir,
+    });
+
+    expect(created).not.toContain(userEmptyDir);
+    cleanupDangerousFileStubs(created);
+    expect(existsSync(userEmptyDir)).toBe(true);
+  });
+});
+
+describe('listDangerousStubPaths', () => {
+  test('includes every dangerous-file basename', () => {
+    const paths = listDangerousStubPaths(cwd);
+    for (const name of DANGEROUS_FILE_STUBS) {
+      expect(paths).toContain(join(cwd, name));
+    }
+  });
+
+  test('walks every intermediate component of a nested dir stub', () => {
+    const paths = listDangerousStubPaths(cwd);
+    expect(paths).toContain(join(cwd, '.claude'));
+    expect(paths).toContain(join(cwd, '.claude/commands'));
+    expect(paths).toContain(join(cwd, '.claude/agents'));
+  });
+});
+
+describe('sweepOrphanDangerousStubs', () => {
+  test('removes leaked 0-byte stubs and empty stub dirs', () => {
+    // Hand-craft the leaked state: stubs that were created by a prior
+    // session whose shutdown handler never fired.
+    const leakedFile = join(cwd, '.bashrc');
+    const leakedDir = join(cwd, '.vscode');
+    closeSync(openSync(leakedFile, 'w', 0o644));
+    mkdirSync(leakedDir);
+
+    const removed = sweepOrphanDangerousStubs(cwd);
+
+    expect(removed).toContain(leakedFile);
+    expect(removed).toContain(leakedDir);
+    expect(existsSync(leakedFile)).toBe(false);
+    expect(existsSync(leakedDir)).toBe(false);
+  });
+
+  test('keeps user-authored files (non-empty) and populated directories', () => {
+    const realFile = join(cwd, '.bashrc');
+    const realDir = join(cwd, '.idea');
+    writeFileSync(realFile, 'export FOO=bar\n', 'utf8');
+    mkdirSync(realDir);
+    writeFileSync(join(realDir, 'workspace.xml'), '<x/>\n', 'utf8');
+
+    const removed = sweepOrphanDangerousStubs(cwd);
+
+    expect(removed).not.toContain(realFile);
+    expect(removed).not.toContain(realDir);
+    expect(existsSync(realFile)).toBe(true);
+    expect(existsSync(join(realDir, 'workspace.xml'))).toBe(true);
+  });
+
+  test('respects isProtected for both 0-byte files and empty dirs', () => {
+    const protectedFile = join(cwd, '.bashrc');
+    const protectedDir = join(cwd, '.vscode');
+    closeSync(openSync(protectedFile, 'w', 0o644));
+    mkdirSync(protectedDir);
+
+    const removed = sweepOrphanDangerousStubs(cwd, {
+      isProtected: (abs) => abs === protectedFile || abs === protectedDir,
+    });
+
+    expect(removed).not.toContain(protectedFile);
+    expect(removed).not.toContain(protectedDir);
+    expect(existsSync(protectedFile)).toBe(true);
+    expect(existsSync(protectedDir)).toBe(true);
+  });
+
+  test('is a no-op on a clean cwd', () => {
+    const removed = sweepOrphanDangerousStubs(cwd);
+    expect(removed).toEqual([]);
+  });
+
+  test('removes nested dir stubs deepest-first', () => {
+    // Both .claude and .claude/commands leaked from the prior session.
+    mkdirSync(join(cwd, '.claude'));
+    mkdirSync(join(cwd, '.claude/commands'));
+    mkdirSync(join(cwd, '.claude/agents'));
+
+    const removed = sweepOrphanDangerousStubs(cwd);
+
+    // All three rmdir'd in a single sweep.
+    expect(removed).toContain(join(cwd, '.claude/commands'));
+    expect(removed).toContain(join(cwd, '.claude/agents'));
+    expect(removed).toContain(join(cwd, '.claude'));
+    expect(existsSync(join(cwd, '.claude'))).toBe(false);
   });
 });

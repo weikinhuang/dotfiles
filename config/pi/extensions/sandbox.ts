@@ -94,9 +94,12 @@ import { clearActiveUI, publishActiveUI } from '../../../lib/node/pi/active-ui.t
 import {
   cleanupDangerousFileStubs,
   createDangerousFileStubs,
+  listDangerousStubPaths,
+  sweepOrphanDangerousStubs,
 } from '../../../lib/node/pi/sandbox/dangerous-file-stubs.ts';
 import { buildFilesystemAskDialog } from '../../../lib/node/pi/sandbox/filesystem-ask.ts';
 import { parseFsFailures } from '../../../lib/node/pi/sandbox/fs-failures.ts';
+import { gitTrackedSubset } from '../../../lib/node/pi/sandbox/git-tracked.ts';
 import { buildNetworkAskCallback } from '../../../lib/node/pi/sandbox/network-ask.ts';
 import { annotateBashResult, prependBashHint } from '../../../lib/node/pi/sandbox/result-annotate.ts';
 import { type FilesystemPolicyLayer, loadFilesystemPolicy } from '../../../lib/node/pi/filesystem-policy/load.ts';
@@ -407,6 +410,15 @@ interface RuntimeState {
    *  `lib/node/pi/sandbox/dangerous-file-stubs.ts`). Cleared on
    *  `session_shutdown`. */
   createdDangerousStubs: Set<string>;
+  /** Cwd whose `dangerousProtected` Set was last computed. Used to
+   *  invalidate the cache when the user runs `cd` mid-session. */
+  dangerousProtectedCwd?: string;
+  /** Cached set of git-tracked dangerous-stub paths under
+   *  {@link dangerousProtectedCwd}. Passed as `isProtected` to
+   *  `createDangerousFileStubs` / `sweepOrphanDangerousStubs` so
+   *  user-authored 0-byte files are never adopted + deleted.
+   *  Recomputed on cwd change via {@link refreshDangerousProtected}. */
+  dangerousProtected: Set<string>;
 }
 
 function newState(platform: SandboxPlatformInfo): RuntimeState {
@@ -421,7 +433,27 @@ function newState(platform: SandboxPlatformInfo): RuntimeState {
     sessionAllowedDomains: new Set(),
     sessionWriteAllow: new Set(),
     createdDangerousStubs: new Set(),
+    dangerousProtected: new Set(),
   };
+}
+
+/**
+ * Recompute {@link RuntimeState.dangerousProtected} for `cwd` if it
+ * differs from the cached value. The protected set is the subset of
+ * the dangerous-stub paths under `cwd` that are tracked in `cwd`'s
+ * git index, so a user-authored 0-byte file (e.g. a freshly-created
+ * `.npmrc`) is never adopted by the orphan-sweep on session_start or
+ * the adopt-on-EEXIST path inside `createDangerousFileStubs`.
+ *
+ * Synchronous: `gitTrackedSubset` runs `git ls-files` once per cwd
+ * change with a 2s timeout and folds every failure mode into
+ * `tracked = ∅`, which is the safe-but-permissive default for
+ * non-git scratch directories.
+ */
+function refreshDangerousProtected(state: RuntimeState, cwd: string): void {
+  if (state.dangerousProtectedCwd === cwd) return;
+  state.dangerousProtected = gitTrackedSubset(cwd, listDangerousStubPaths(cwd));
+  state.dangerousProtectedCwd = cwd;
 }
 
 /** Compute the effective {@link SandboxMode} for the statusline
@@ -764,7 +796,13 @@ async function performWrap(
     // Pre-create empty stubs for ASRT's DANGEROUS_FILES so concurrent
     // bwrap setups don't race on the mount-point `O_CREAT|O_WRONLY`
     // against a 0444 stub (see dangerous-file-stubs.ts module docs).
-    for (const abs of createDangerousFileStubs(process.cwd())) {
+    // The `isProtected` hook also lets the helper adopt orphan stubs
+    // a prior session leaked via SIGKILL, while leaving git-tracked
+    // 0-byte files (a freshly-cloned `.npmrc`, etc.) alone.
+    refreshDangerousProtected(state, process.cwd());
+    for (const abs of createDangerousFileStubs(process.cwd(), {
+      isProtected: (p) => state.dangerousProtected.has(p),
+    })) {
       state.createdDangerousStubs.add(abs);
     }
     const wrapped = await state.manager.wrapWithSandbox(command);
@@ -931,6 +969,22 @@ export default function sandbox(pi: ExtensionAPI): void {
     }
     // Pre-resolve so /sandbox can render even before the first bash.
     await reconfigure(state, ctx.cwd, ctx);
+
+    // Sweep cwd for dangerous-file stubs leaked by a prior pi session
+    // that exited too hard for the cleanup handler to fire (SIGKILL,
+    // OOM, WSL VM kill, parent shell crash). Skips git-tracked
+    // 0-byte files / empty dirs via the same `isProtected` hook used
+    // by `createDangerousFileStubs`. No-op on a clean cwd.
+    refreshDangerousProtected(state, ctx.cwd);
+    const swept = sweepOrphanDangerousStubs(ctx.cwd, {
+      isProtected: (p) => state.dangerousProtected.has(p),
+    });
+    if (swept.length > 0) {
+      ctx.ui.notify(
+        `sandbox: cleaned up ${swept.length} orphaned dangerous-file stub${swept.length === 1 ? '' : 's'} from a prior session`,
+        'info',
+      );
+    }
   });
 
   pi.on('session_shutdown', () => {

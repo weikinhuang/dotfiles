@@ -40,6 +40,16 @@
 import { closeSync, constants, mkdirSync, openSync, readdirSync, rmdirSync, statSync, unlinkSync } from 'node:fs';
 import { resolve, sep } from 'node:path';
 
+/** Per-call hook used to protect user-authored files / directories
+ *  from adoption + cleanup. Return `true` to skip a path. The default
+ *  (`undefined`) protects nothing - safe at the lib level because the
+ *  size + DANGEROUS_*_STUBS membership filter already excludes any
+ *  populated file or non-empty directory. The sandbox extension layers
+ *  a git-tracked check on top via this hook. */
+export interface DangerousStubOptions {
+  isProtected?: (abs: string) => boolean;
+}
+
 import {
   DANGEROUS_FILES as ASRT_DANGEROUS_FILES,
   getDangerousDirectories as asrtGetDangerousDirectories,
@@ -89,7 +99,8 @@ export const DANGEROUS_DIR_STUBS: readonly string[] = Object.freeze(asrtGetDange
  * so we'd just degrade to the same state we were in before this
  * mitigation existed.
  */
-export function createDangerousFileStubs(cwd: string): string[] {
+export function createDangerousFileStubs(cwd: string, opts: DangerousStubOptions = {}): string[] {
+  const isProtected = opts.isProtected ?? (() => false);
   const created: string[] = [];
   for (const name of DANGEROUS_FILE_STUBS) {
     const abs = resolve(cwd, name);
@@ -98,7 +109,21 @@ export function createDangerousFileStubs(cwd: string): string[] {
       closeSync(fd);
       created.push(abs);
     } catch {
-      // EEXIST or other; do not track for cleanup.
+      // EEXIST: this stub may be a leftover from a previous session
+      // that exited via SIGKILL / OOM / WSL VM kill before the
+      // shutdown handler could fire. Adopt it for cleanup iff it is
+      // still a 0-byte regular file AND the caller's `isProtected`
+      // hook (typically a git-tracked check) does not flag it as
+      // user-authored. Real, populated user files are filtered by
+      // the size guard; freshly-cloned 0-byte files are guarded by
+      // the git-tracked hook on top.
+      if (isProtected(abs)) continue;
+      try {
+        const st = statSync(abs);
+        if (st.isFile() && st.size === 0) created.push(abs);
+      } catch {
+        // stat failed (race / permissions); leave it alone.
+      }
     }
   }
   for (const name of DANGEROUS_DIR_STUBS) {
@@ -114,11 +139,53 @@ export function createDangerousFileStubs(cwd: string): string[] {
         mkdirSync(cur, { mode: 0o755 });
         created.push(cur);
       } catch {
-        // EEXIST or other; continue walking the next component.
+        // EEXIST or other: adopt the directory for cleanup iff it is
+        // an EMPTY directory AND the caller has not flagged it as
+        // protected. Populated dirs are skipped by the readdir guard;
+        // tracked-empty dirs (rare) are guarded by `isProtected`.
+        if (isProtected(cur)) continue;
+        try {
+          const st = statSync(cur);
+          if (st.isDirectory() && readdirSync(cur).length === 0) created.push(cur);
+        } catch {
+          // stat failed; bail this component but keep walking deeper
+          // in case the leaf itself is reachable. (mkdirSync on the
+          // next component will just throw and we'll handle it the
+          // same way.)
+        }
       }
     }
   }
   return created;
+}
+
+/**
+ * Enumerate every absolute path that the create-side helper might
+ * touch under `cwd`: every DANGEROUS_FILE_STUBS basename plus every
+ * intermediate component of every DANGEROUS_DIR_STUBS entry. Used by
+ * the orphan-sweep helper to drive `cleanupDangerousFileStubs` over
+ * the leaked-stub set on session start.
+ *
+ * Path-escape guard mirrors `createDangerousFileStubs` - directory
+ * names that would walk outside `cwd` are silently skipped.
+ */
+export function listDangerousStubPaths(cwd: string): string[] {
+  const out: string[] = [];
+  for (const name of DANGEROUS_FILE_STUBS) {
+    out.push(resolve(cwd, name));
+  }
+  for (const name of DANGEROUS_DIR_STUBS) {
+    const abs = resolve(cwd, name);
+    if (abs !== cwd && !abs.startsWith(cwd + sep)) continue;
+    const rel = abs.slice(cwd.length + 1);
+    const parts = rel.split(sep).filter((p) => p.length > 0);
+    let cur = cwd;
+    for (const p of parts) {
+      cur = cur + sep + p;
+      out.push(cur);
+    }
+  }
+  return out;
 }
 
 /**
@@ -153,4 +220,22 @@ export function cleanupDangerousFileStubs(created: Iterable<string>): string[] {
     }
   }
   return removed;
+}
+
+/**
+ * Sweep `cwd` for leaked dangerous-file stubs from a prior pi session
+ * that exited too hard for `process.on('exit' | SIGTERM | SIGINT)`
+ * to fire (SIGKILL, OOM, WSL VM kill, parent shell crash). Adopts any
+ * 0-byte stub file or empty stub directory not flagged by
+ * `opts.isProtected` and removes it via `cleanupDangerousFileStubs`,
+ * which already enforces the deepest-first + zero-byte + empty-dir
+ * invariants. Returns the absolute paths actually unlinked / rmdir'd.
+ *
+ * Safe to run unconditionally on session start: in a clean cwd the
+ * stat() calls all fail with ENOENT and the function is a no-op.
+ */
+export function sweepOrphanDangerousStubs(cwd: string, opts: DangerousStubOptions = {}): string[] {
+  const isProtected = opts.isProtected ?? (() => false);
+  const candidates = listDangerousStubPaths(cwd).filter((abs) => !isProtected(abs));
+  return cleanupDangerousFileStubs(candidates);
 }
