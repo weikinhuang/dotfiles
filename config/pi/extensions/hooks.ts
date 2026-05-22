@@ -7,7 +7,7 @@
  * the entry, not the model) wired in via two JSONC config files:
  *
  *   1. Project rules:  `.pi/hooks.json` inside ctx.cwd
- *   2. User rules:     `~/.pi/hooks.json`
+ *   2. User rules:     `<piAgentDir>/hooks.json` (default `~/.pi/agent/hooks.json`)
  *
  * Both files are re-read on every event so an edit takes effect on the
  * next tool call without needing `/reload`. A third "session" layer

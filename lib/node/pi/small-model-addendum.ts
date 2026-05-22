@@ -41,10 +41,10 @@
  * the file is ignored - the extension never crashes pi.
  */
 
-import { homedir } from 'node:os';
 import { join } from 'node:path';
 
 import { type ConfigWarning, tryReadJsoncFile } from './jsonc.ts';
+import { piAgentDir } from './pi-paths.ts';
 
 export interface AddendumConfig {
   providers: string[];
@@ -96,13 +96,10 @@ const DEFAULT_CONFIG: AddendumConfig = {
  */
 export function loadConfig(
   cwd: string,
-  home: string = homedir(),
+  agentDir: string = piAgentDir(),
 ): { config: AddendumConfig; warnings: ConfigWarning[] } {
   const warnings: ConfigWarning[] = [];
-  const paths = [
-    join(home, '.pi', 'agent', 'small-model-addendum.json'),
-    join(cwd, '.pi', 'small-model-addendum.json'),
-  ];
+  const paths = [join(agentDir, 'small-model-addendum.json'), join(cwd, '.pi', 'small-model-addendum.json')];
 
   const mergeInto = (base: AddendumConfig, patch: Record<string, unknown>): AddendumConfig => {
     const out: AddendumConfig = {

@@ -1,8 +1,8 @@
 ---
 name: hooks-author
 description:
-  'WHAT: When to reach for a user hook (`~/.pi/hooks.json` / `<repo>/.pi/hooks.json`) over an ad-hoc bash command or a
-  full pi extension, plus the JSONC shape, payload, and decision protocol of the `hooks` extension. WHEN: User asks
+  'WHAT: When to reach for a user hook (`~/.pi/agent/hooks.json` / `<repo>/.pi/hooks.json`) over an ad-hoc bash command
+  or a full pi extension, plus the JSONC shape, payload, and decision protocol of the `hooks` extension. WHEN: User asks
   things like "can I run X every time pi does Y", "from now on when Z happens, do W", "log every bash command", "format
   files after edit", "inject context into every prompt", or asks to wire a Claude Code hook into pi. DO-NOT: Suggest a
   hook for one-shot tasks (just run the bash); use a hook to replace a built-in gate (`bash-permissions` / `filesystem`
@@ -120,7 +120,7 @@ Anti-patterns inside the script:
 
 ## Author the config
 
-`~/.pi/hooks.json` is JSONC - `//` and `/* */` comments are allowed, trailing commas are not. Start from
+`~/.pi/agent/hooks.json` is JSONC - `//` and `/* */` comments are allowed, trailing commas are not. Start from
 [`config/pi/hooks-example.json`](../../hooks-example.json) and uncomment the event you need. Project-scoped hooks live
 at `<repo>/.pi/hooks.json` and merge with the user file on every event (deny-wins-block - the first `block` from any
 layer short-circuits).
@@ -141,8 +141,8 @@ After installing a hook, smoke-test it:
 1. `pi /hooks` - the entry should appear under the correct scope (user / project / session) and event.
 2. Run the matching trigger (`bash`, `edit`, etc.) and confirm the side effect (log line written, file formatted, prompt
    context injected).
-3. If silent, set `PI_HOOKS_DEBUG=1` (notify on every fire) or `PI_HOOKS_TRACE=~/.pi/hooks.trace` (one line per fire,
-   works in `-p` / RPC mode where notifications go nowhere) and rerun.
+3. If silent, set `PI_HOOKS_DEBUG=1` (notify on every fire) or `PI_HOOKS_TRACE=~/.pi/agent/hooks.trace` (one line per
+   fire, works in `-p` / RPC mode where notifications go nowhere) and rerun.
 
 ## Anti-patterns
 

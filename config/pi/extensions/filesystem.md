@@ -1,8 +1,8 @@
 # `filesystem.ts`
 
 Session-scoped approval gate for pi's built-in `read`, `write`, and `edit` tools. Reads the unified
-`~/.pi/filesystem.json` policy shared with the kernel-level [`sandbox.ts`](./sandbox.md) extension so the in-process
-gate and the syscall gate stay in lockstep.
+`~/.pi/agent/filesystem.json` policy shared with the kernel-level [`sandbox.ts`](./sandbox.md) extension so the
+in-process gate and the syscall gate stay in lockstep.
 
 Together with [`bash-permissions.ts`](./bash-permissions.md) (regex-layer bash gate) and [`sandbox.ts`](./sandbox.md)
 (kernel-layer sandbox), this is one of three composable security gates - see plan section 2 for the full threat-model
@@ -61,7 +61,7 @@ override.
 Layered, additive within categories:
 
 1. Built-in `DEFAULT_POLICY`
-2. User: `~/.pi/filesystem.json`
+2. User: `~/.pi/agent/filesystem.json`
 3. Project: `.pi/filesystem.json` inside `ctx.cwd`
 4. Persona overlay: the active persona's resolved `writeRoots` are merged into `write.allow.paths` (positive vouch)
 
@@ -124,7 +124,7 @@ publishes on activation / clear / `session_shutdown`. The persona's `writeRoots`
 
 ## Composition with the sandbox extension
 
-[`sandbox.ts`](./sandbox.md) reads the same `~/.pi/filesystem.json` and translates it into the
+[`sandbox.ts`](./sandbox.md) reads the same `~/.pi/agent/filesystem.json` and translates it into the
 [@anthropic-ai/sandbox-runtime](https://www.npmjs.com/package/@anthropic-ai/sandbox-runtime) `SandboxRuntimeConfig` so
 that the kernel-level enforcement matches the in-process gate. A read of `~/.ssh/id_rsa` smuggled through
 `bash -c 'cat ~/.ssh/id_rsa'` (which `bash-permissions` may have allowed) hits EPERM at the syscall layer; pi's own

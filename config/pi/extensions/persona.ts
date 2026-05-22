@@ -18,7 +18,7 @@
  * `agents/` and `presets.json` use:
  *
  *   1. `config/pi/personas/` shipped with the dotfiles repo.
- *   2. `~/.pi/personas/` - user-global.
+ *   2. `<piAgentDir>/personas/` - user-global (default `~/.pi/agent/personas/`).
  *   3. `<cwd>/.pi/personas/` - project-local.
  *
  * A persona file may declare `agent: <name>` to inherit `tools`,
@@ -103,6 +103,7 @@ import {
 } from '../../../lib/node/pi/persona/snapshot.ts';
 import { decideWriteGate } from '../../../lib/node/pi/persona/write-gate.ts';
 import { applyRequestOptions } from '../../../lib/node/pi/request-options.ts';
+import { piAgentDir } from '../../../lib/node/pi/pi-paths.ts';
 import { loadAgents, defaultAgentLayers } from '../../../lib/node/pi/subagent-loader.ts';
 
 const STATUS_KEY = 'persona';
@@ -127,7 +128,7 @@ export default function personaExtension(pi: ExtensionAPI): void {
 
   const extDir = dirname(fileURLToPath(import.meta.url));
   const shippedPersonasDir = join(extDir, '..', 'personas');
-  const userPiDir = join(homedir(), '.pi');
+  const userPiDir = piAgentDir();
 
   // ────────────────────────────────────────────────────────────────────
   // Module-level state
@@ -236,7 +237,7 @@ export default function personaExtension(pi: ExtensionAPI): void {
     // inheritance picks up - the layered-registry decision (D5).
     const knownToolNames = new Set(pi.getAllTools().map((t) => t.name));
     const result = loadAgents({
-      layers: defaultAgentLayers({ extensionDir: extDir, userPiDir, cwd }),
+      layers: defaultAgentLayers({ extensionDir: extDir, cwd }),
       knownToolNames,
       fs: { listMarkdownFiles: listMarkdown, readFile: readUtf8 },
       parseFrontmatter,
@@ -625,7 +626,7 @@ export default function personaExtension(pi: ExtensionAPI): void {
       if (!arg) {
         if (nameOrder.length === 0) {
           ctx.ui.notify(
-            'persona: no personas loaded (try shipping a catalog under config/pi/personas/ or ~/.pi/personas/)',
+            'persona: no personas loaded (try shipping a catalog under config/pi/personas/ or <piAgentDir>/personas/)',
             'warning',
           );
           return;

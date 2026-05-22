@@ -35,16 +35,16 @@ The extension never **crashes** pi when sandboxing fails to set up - it falls ba
 
 Two files, both JSONC, both hot-reloaded per tool call:
 
-- `~/.pi/filesystem.json` (or `<repo>/.pi/filesystem.json`) - **shared with [`filesystem.ts`](./filesystem.md)**. See
-  [`config/pi/filesystem-example.json`](../filesystem-example.json) and the `filesystem.ts` deep doc for the full
+- `~/.pi/agent/filesystem.json` (or `<repo>/.pi/filesystem.json`) - **shared with [`filesystem.ts`](./filesystem.md)**.
+  See [`config/pi/filesystem-example.json`](../filesystem-example.json) and the `filesystem.ts` deep doc for the full
   schema; this section only covers what the kernel sandbox does with the unified policy.
-- `~/.pi/sandbox.json` (or `<repo>/.pi/sandbox.json`) - **sandbox-only knobs**: `network`, `unixSockets`, `flags`. See
-  [`config/pi/sandbox-example.json`](../sandbox-example.json).
+- `~/.pi/agent/sandbox.json` (or `<repo>/.pi/sandbox.json`) - **sandbox-only knobs**: `network`, `unixSockets`, `flags`.
+  See [`config/pi/sandbox-example.json`](../sandbox-example.json).
 
 File resolution order, additive within categories:
 
 1. Built-in defaults (deny-all network, no socket bypass, all flags off, depth 3).
-2. User: `~/.pi/{filesystem,sandbox}.json`.
+2. User: `~/.pi/agent/{filesystem,sandbox}.json`.
 3. Project: `<repo>/.pi/{filesystem,sandbox}.json`.
 4. Env-var overlay: `PI_SANDBOX_NESTED`, `PI_SANDBOX_WEAKER_NET`, `PI_SANDBOX_EXTRA_ALLOW_DOMAIN`.
 5. Persona overlay: the active persona's resolved `writeRoots` are merged into `filesystem.write.allow.paths` so the
@@ -84,8 +84,8 @@ the unified policy:
 - `/sandbox-allow-write <path>` - add a path to `filesystem.write.allow.paths`. Confirms with a UI prompt because it
   weakens policy.
 - `/sandbox-violations [--net | --fs | --unix-socket]` - dump up to 50 most-recent records from
-  `~/.pi/sandbox-violations.log`. Filter by violation kind. The log is JSONL with size-rotation (5 MiB) so an audit
-  trail survives a pi crash.
+  `~/.pi/agent/sandbox-violations.log`. Filter by violation kind. The log is JSONL with size-rotation (5 MiB) so an
+  audit trail survives a pi crash.
 - `/sandbox-rescan` - re-run the Linux rule compilation. macOS prints a no-op message.
 - `/sandbox-recheck` - re-run dependency detection (`bubblewrap`, `socat`, `ripgrep`). Useful after
   `apt install bubblewrap` without restarting pi.
@@ -93,7 +93,7 @@ the unified policy:
   of the session. Cleared on `session_shutdown`. Does **not** write a config file.
 
 Deliberately omitted: `/sandbox-allow-read <path>` to add an `allowRead`-within-deny override. Footgun-shaped; users
-edit `~/.pi/filesystem.json` by hand for that.
+edit `~/.pi/agent/filesystem.json` by hand for that.
 
 ## Network ask-callback
 
@@ -103,7 +103,7 @@ subagent-triggered prompts surface in the parent's terminal rather than dead-end
 is `PI_SANDBOX_NETWORK_DEFAULT` (default `deny`).
 
 The v1 callback offers a simple three-way choice (allow once, allow `<host>` for this session, deny). The richer
-six-option dialog (auto-write to `~/.pi/sandbox.json` etc.) is wired up in Phase 4 - see plan section 7.
+six-option dialog (auto-write to `~/.pi/agent/sandbox.json` etc.) is wired up in Phase 4 - see plan section 7.
 
 Auto-mode (`/bash-auto`) does **NOT** skip the network prompt. Network access is too easy to abuse to cover behind an
 "allow everything" toggle.
@@ -118,7 +118,7 @@ interactive UI is published, offers a five-option dialog:
 1. `Allow once (this session)` - adds the parsed path (or its common parent) to an in-memory `sessionWriteAllow` set
    that merges into `write.allow.paths` at the next `reconfigure`. Cleared on `session_shutdown`.
 2. `Always allow <commonParent> (project)` - appends to `<repo>/.pi/filesystem.json`'s `write.allow.paths`.
-3. `Always allow <commonParent> (user)` - appends to `~/.pi/filesystem.json`'s `write.allow.paths`.
+3. `Always allow <commonParent> (user)` - appends to `~/.pi/agent/filesystem.json`'s `write.allow.paths`.
 4. `Deny` - keeps the existing failure splice; the model sees the annotated stderr.
 5. `Deny with feedback…` - captures a free-form note via `ui.input` and surfaces it to both the user and the model.
 
@@ -155,9 +155,9 @@ State is published via [`session-flags.ts`](../../../lib/node/pi/session-flags.t
   dialog sees the user's original command; sandbox.ts then rewrites `event.input.command` to `srt -- <cmd>`. The
   original command is preserved on `event.input[SANDBOX_ORIGINAL_SYMBOL]` for transcript renderers / `/bash-history`
   consumers.
-- **`filesystem.ts`**: shares the same `~/.pi/filesystem.json`. The in-process gate matches lexically and runs inside
-  pi's Node process; the kernel sandbox enforces by realpath at the syscall layer. Symlink-out-of-workspace cases will
-  disagree (the kernel follows the symlink, the in-process gate doesn't); the divergence is documented as a known
+- **`filesystem.ts`**: shares the same `~/.pi/agent/filesystem.json`. The in-process gate matches lexically and runs
+  inside pi's Node process; the kernel sandbox enforces by realpath at the syscall layer. Symlink-out-of-workspace cases
+  will disagree (the kernel follows the symlink, the in-process gate doesn't); the divergence is documented as a known
   limitation - fix shipped separately if needed.
 - **`persona.ts`**: persona's resolved `writeRoots` are merged into `filesystem.write.allow.paths` at policy-load time
   AND publish to [`sandbox/active.ts`](../../../lib/node/pi/sandbox/active.ts) so a `/persona switch` mid-session fires

@@ -6,7 +6,7 @@
  * specific layer wins for reporting):
  *
  *   1. Project rules:  `.pi/bash-permissions.json` inside ctx.cwd
- *   2. User rules:     `~/.pi/bash-permissions.json`
+ *   2. User rules:     `<piAgentDir>/bash-permissions.json` (default `~/.pi/agent/bash-permissions.json`)
  *   3. Session rules:  in-memory, cleared on session_shutdown
  *
  * In addition, when a `persona` is active, sub-commands matching the
@@ -93,7 +93,6 @@
  */
 
 import { mkdirSync, writeFileSync } from 'node:fs';
-import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 
 import { type ExtensionAPI } from '@earendil-works/pi-coding-agent';
@@ -115,6 +114,7 @@ import {
 } from '../../../lib/node/pi/bash-match.ts';
 import { askForPermission, askForPermissionBatch } from '../../../lib/node/pi/bash-permission-prompts.ts';
 import { loadJsoncConfigOrFallback } from '../../../lib/node/pi/jsonc.ts';
+import { piAgentPath } from '../../../lib/node/pi/pi-paths.ts';
 import { pickScopeFile } from '../../../lib/node/pi/scope-pick.ts';
 import { getActivePersona } from '../../../lib/node/pi/persona/active.ts';
 import { personaVouchBash } from '../../../lib/node/pi/persona/bash-vouch.ts';
@@ -125,7 +125,7 @@ import { registerSubagentInjection } from '../../../lib/node/pi/subagent-extensi
 // Rule storage
 // ──────────────────────────────────────────────────────────────────────
 
-const USER_RULES_PATH = join(homedir(), '.pi', 'bash-permissions.json');
+const USER_RULES_PATH = piAgentPath('bash-permissions.json');
 const PROJECT_RULES_RELATIVE = join('.pi', 'bash-permissions.json');
 
 function projectRulesPath(cwd: string): string {
@@ -308,7 +308,7 @@ export default function bashPermissions(pi: ExtensionAPI): void {
         allowed: false,
         reason:
           `No UI available for approval. Unknown command(s):\n  ${unknown.join('\n  ')}\n` +
-          'Add a rule via /bash-allow or by editing ~/.pi/bash-permissions.json, ' +
+          `Add a rule via /bash-allow or by editing ${USER_RULES_PATH}, ` +
           'or set PI_BASH_PERMISSIONS_DEFAULT=allow.',
       };
     }

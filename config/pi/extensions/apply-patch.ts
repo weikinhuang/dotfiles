@@ -46,7 +46,6 @@
  */
 
 import { readFileSync, statSync, unlinkSync } from 'node:fs';
-import { homedir } from 'node:os';
 import { isAbsolute, join, resolve } from 'node:path';
 
 import { type ExtensionAPI, type ExtensionContext } from '@earendil-works/pi-coding-agent';
@@ -63,11 +62,12 @@ import { type FilesystemPolicyWarning } from '../../../lib/node/pi/filesystem-po
 import { getActivePersona } from '../../../lib/node/pi/persona/active.ts';
 import { isInsideWriteRoots } from '../../../lib/node/pi/persona/match.ts';
 import { parsePositiveInt } from '../../../lib/node/pi/parse-env.ts';
+import { piAgentPath } from '../../../lib/node/pi/pi-paths.ts';
 import { makeDiagnostics } from '../../../lib/node/pi/recovery-diagnostics.ts';
 import { truncate } from '../../../lib/node/pi/shared.ts';
 
 const DEFAULT_MAX_BYTES = 1_048_576;
-const USER_RULES_PATH = join(homedir(), '.pi', 'filesystem.json');
+const USER_RULES_PATH = piAgentPath('filesystem.json');
 const PROJECT_RULES_RELATIVE = join('.pi', 'filesystem.json');
 
 const ApplyPatchParams = Type.Object({

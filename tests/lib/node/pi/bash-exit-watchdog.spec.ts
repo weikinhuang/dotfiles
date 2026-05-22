@@ -153,14 +153,14 @@ describe('formatWarning', () => {
 
 describe('loadConfig', () => {
   let workdir: string;
-  let home: string;
+  let agentDir: string;
   let cwd: string;
 
   beforeEach(() => {
     workdir = join(tmpdir(), `bew-test-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
-    home = join(workdir, 'home');
+    agentDir = join(workdir, 'agent');
     cwd = join(workdir, 'proj');
-    mkdirSync(join(home, '.pi', 'agent'), { recursive: true });
+    mkdirSync(agentDir, { recursive: true });
     mkdirSync(join(cwd, '.pi'), { recursive: true });
   });
 
@@ -169,7 +169,7 @@ describe('loadConfig', () => {
   });
 
   test('no config files → defaults only', () => {
-    const { config, warnings } = loadConfig(cwd, home);
+    const { config, warnings } = loadConfig(cwd, agentDir);
 
     expect(config.suppress).toEqual(DEFAULT_SUPPRESSIONS);
     expect(warnings).toEqual([]);
@@ -177,22 +177,19 @@ describe('loadConfig', () => {
 
   test('user rules extend defaults, do not replace', () => {
     writeFileSync(
-      join(home, '.pi', 'agent', 'exit-watchdog.json'),
+      join(agentDir, 'exit-watchdog.json'),
       JSON.stringify({ suppress: [{ commandPattern: '^./migrate', exitCodes: [3] }] }),
     );
-    const { config } = loadConfig(cwd, home);
+    const { config } = loadConfig(cwd, agentDir);
 
     expect(config.suppress.length).toBe(DEFAULT_SUPPRESSIONS.length + 1);
     expect(config.suppress.at(-1)).toEqual({ commandPattern: '^./migrate', exitCodes: [3] });
   });
 
   test('project rules further extend', () => {
-    writeFileSync(
-      join(home, '.pi', 'agent', 'exit-watchdog.json'),
-      JSON.stringify({ suppress: [{ commandPattern: '^./a' }] }),
-    );
+    writeFileSync(join(agentDir, 'exit-watchdog.json'), JSON.stringify({ suppress: [{ commandPattern: '^./a' }] }));
     writeFileSync(join(cwd, '.pi', 'exit-watchdog.json'), JSON.stringify({ suppress: [{ commandPattern: '^./b' }] }));
-    const { config } = loadConfig(cwd, home);
+    const { config } = loadConfig(cwd, agentDir);
     const patterns = config.suppress.map((r) => r.commandPattern);
 
     expect(patterns).toContain('^./a');
@@ -200,8 +197,8 @@ describe('loadConfig', () => {
   });
 
   test('malformed JSON produces a warning and is ignored', () => {
-    writeFileSync(join(home, '.pi', 'agent', 'exit-watchdog.json'), '{ not json');
-    const { config, warnings } = loadConfig(cwd, home);
+    writeFileSync(join(agentDir, 'exit-watchdog.json'), '{ not json');
+    const { config, warnings } = loadConfig(cwd, agentDir);
 
     expect(config.suppress).toEqual(DEFAULT_SUPPRESSIONS);
     expect(warnings.length).toBe(1);
@@ -209,10 +206,10 @@ describe('loadConfig', () => {
 
   test('malformed regex in user rule produces a warning and rule is skipped', () => {
     writeFileSync(
-      join(home, '.pi', 'agent', 'exit-watchdog.json'),
+      join(agentDir, 'exit-watchdog.json'),
       JSON.stringify({ suppress: [{ commandPattern: '[unclosed' }, { commandPattern: '^ok' }] }),
     );
-    const { config, warnings } = loadConfig(cwd, home);
+    const { config, warnings } = loadConfig(cwd, agentDir);
 
     expect(warnings.length).toBe(1);
     expect(config.suppress.some((r) => r.commandPattern === '^ok')).toBe(true);
@@ -220,8 +217,8 @@ describe('loadConfig', () => {
   });
 
   test('non-array `suppress` is rejected with a warning', () => {
-    writeFileSync(join(home, '.pi', 'agent', 'exit-watchdog.json'), JSON.stringify({ suppress: {} }));
-    const { config, warnings } = loadConfig(cwd, home);
+    writeFileSync(join(agentDir, 'exit-watchdog.json'), JSON.stringify({ suppress: {} }));
+    const { config, warnings } = loadConfig(cwd, agentDir);
 
     expect(config.suppress).toEqual(DEFAULT_SUPPRESSIONS);
     expect(warnings[0]?.error).toContain('array');
@@ -229,10 +226,10 @@ describe('loadConfig', () => {
 
   test('entries with non-string commandPattern are silently skipped (lenient)', () => {
     writeFileSync(
-      join(home, '.pi', 'agent', 'exit-watchdog.json'),
+      join(agentDir, 'exit-watchdog.json'),
       JSON.stringify({ suppress: [{ commandPattern: 42 }, { commandPattern: '^real' }] }),
     );
-    const { config, warnings } = loadConfig(cwd, home);
+    const { config, warnings } = loadConfig(cwd, agentDir);
 
     // No warning (strict would be noisy for trivial malformed entries); just drop it.
     expect(warnings).toEqual([]);
@@ -240,11 +237,8 @@ describe('loadConfig', () => {
   });
 
   test('JSONC comments are supported', () => {
-    writeFileSync(
-      join(home, '.pi', 'agent', 'exit-watchdog.json'),
-      `// comment\n{ "suppress": [{ "commandPattern": "^ok" }] }`,
-    );
-    const { config, warnings } = loadConfig(cwd, home);
+    writeFileSync(join(agentDir, 'exit-watchdog.json'), `// comment\n{ "suppress": [{ "commandPattern": "^ok" }] }`);
+    const { config, warnings } = loadConfig(cwd, agentDir);
 
     expect(warnings).toEqual([]);
     expect(config.suppress.some((r) => r.commandPattern === '^ok')).toBe(true);

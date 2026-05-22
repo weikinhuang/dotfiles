@@ -1,6 +1,6 @@
 /**
- * Translate the unified `~/.pi/filesystem.json` policy + sandbox-only
- * `~/.pi/sandbox.json` knobs into ASRT's `SandboxRuntimeConfig`.
+ * Translate the unified `<piAgentDir>/filesystem.json` policy + sandbox-only
+ * `<piAgentDir>/sandbox.json` knobs into ASRT's `SandboxRuntimeConfig`.
  *
  * Type-only ASRT touch: `import type { SandboxRuntimeConfig } from
  * '@anthropic-ai/sandbox-runtime'` keeps the translator structurally

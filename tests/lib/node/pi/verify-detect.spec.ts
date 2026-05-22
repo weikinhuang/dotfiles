@@ -662,14 +662,14 @@ test('partitionClaims: extras can rescue an otherwise-unverified claim', () => {
 
 describe('loadSatisfyRules', () => {
   let workdir: string;
-  let home: string;
+  let agentDir: string;
   let cwd: string;
 
   beforeEach(() => {
     workdir = join(tmpdir(), `vbc-test-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
-    home = join(workdir, 'home');
+    agentDir = join(workdir, 'agent');
     cwd = join(workdir, 'proj');
-    mkdirSync(join(home, '.pi', 'agent'), { recursive: true });
+    mkdirSync(agentDir, { recursive: true });
     mkdirSync(join(cwd, '.pi'), { recursive: true });
   });
 
@@ -678,7 +678,7 @@ describe('loadSatisfyRules', () => {
   });
 
   test('no config files → no rules, no warnings', () => {
-    const { rules, warnings } = loadSatisfyRules(cwd, home);
+    const { rules, warnings } = loadSatisfyRules(cwd, agentDir);
 
     expect(rules).toEqual([]);
     expect(warnings).toEqual([]);
@@ -686,12 +686,12 @@ describe('loadSatisfyRules', () => {
 
   test('global config is loaded', () => {
     writeFileSync(
-      join(home, '.pi', 'agent', 'verify-before-claim.json'),
+      join(agentDir, 'verify-before-claim.json'),
       JSON.stringify({
         commandSatisfies: [{ pattern: '^./dev/lint\\.sh', kinds: ['lint-clean', 'format-clean'] }],
       }),
     );
-    const { rules, warnings } = loadSatisfyRules(cwd, home);
+    const { rules, warnings } = loadSatisfyRules(cwd, agentDir);
 
     expect(warnings).toEqual([]);
     expect(rules).toHaveLength(1);
@@ -702,60 +702,60 @@ describe('loadSatisfyRules', () => {
 
   test('project rules stack on global rules (both kept)', () => {
     writeFileSync(
-      join(home, '.pi', 'agent', 'verify-before-claim.json'),
+      join(agentDir, 'verify-before-claim.json'),
       JSON.stringify({ commandSatisfies: [{ pattern: '^./a', kinds: ['tests-pass'] }] }),
     );
     writeFileSync(
       join(cwd, '.pi', 'verify-before-claim.json'),
       JSON.stringify({ commandSatisfies: [{ pattern: '^./b', kinds: ['lint-clean'] }] }),
     );
-    const { rules } = loadSatisfyRules(cwd, home);
+    const { rules } = loadSatisfyRules(cwd, agentDir);
 
     expect(rules).toHaveLength(2);
   });
 
   test('JSONC comments are supported', () => {
     writeFileSync(
-      join(home, '.pi', 'agent', 'verify-before-claim.json'),
+      join(agentDir, 'verify-before-claim.json'),
       `// repo-specific overrides\n{ "commandSatisfies": [\n  { "pattern": "^ok", "kinds": ["tests-pass"] } /* inline comment */\n] }`,
     );
-    const { rules, warnings } = loadSatisfyRules(cwd, home);
+    const { rules, warnings } = loadSatisfyRules(cwd, agentDir);
 
     expect(warnings).toEqual([]);
     expect(rules).toHaveLength(1);
   });
 
   test('malformed JSON produces a warning', () => {
-    writeFileSync(join(home, '.pi', 'agent', 'verify-before-claim.json'), '{ not json');
-    const { rules, warnings } = loadSatisfyRules(cwd, home);
+    writeFileSync(join(agentDir, 'verify-before-claim.json'), '{ not json');
+    const { rules, warnings } = loadSatisfyRules(cwd, agentDir);
 
     expect(rules).toEqual([]);
     expect(warnings).toHaveLength(1);
   });
 
   test('non-object root produces a warning', () => {
-    writeFileSync(join(home, '.pi', 'agent', 'verify-before-claim.json'), '"nope"');
-    const { warnings } = loadSatisfyRules(cwd, home);
+    writeFileSync(join(agentDir, 'verify-before-claim.json'), '"nope"');
+    const { warnings } = loadSatisfyRules(cwd, agentDir);
 
     expect(warnings[0]?.error).toContain('object');
   });
 
   test('non-array commandSatisfies produces a warning', () => {
     writeFileSync(
-      join(home, '.pi', 'agent', 'verify-before-claim.json'),
+      join(agentDir, 'verify-before-claim.json'),
       JSON.stringify({ commandSatisfies: { not: 'an-array' } }),
     );
-    const { warnings } = loadSatisfyRules(cwd, home);
+    const { warnings } = loadSatisfyRules(cwd, agentDir);
 
     expect(warnings[0]?.error).toContain('array');
   });
 
   test('rule missing pattern is dropped with a warning', () => {
     writeFileSync(
-      join(home, '.pi', 'agent', 'verify-before-claim.json'),
+      join(agentDir, 'verify-before-claim.json'),
       JSON.stringify({ commandSatisfies: [{ kinds: ['tests-pass'] }] }),
     );
-    const { rules, warnings } = loadSatisfyRules(cwd, home);
+    const { rules, warnings } = loadSatisfyRules(cwd, agentDir);
 
     expect(rules).toEqual([]);
     expect(warnings).toHaveLength(1);
@@ -763,10 +763,10 @@ describe('loadSatisfyRules', () => {
 
   test('rule with unknown kind is dropped with a warning', () => {
     writeFileSync(
-      join(home, '.pi', 'agent', 'verify-before-claim.json'),
+      join(agentDir, 'verify-before-claim.json'),
       JSON.stringify({ commandSatisfies: [{ pattern: '^ok', kinds: ['tests-pass', 'bogus'] }] }),
     );
-    const { rules, warnings } = loadSatisfyRules(cwd, home);
+    const { rules, warnings } = loadSatisfyRules(cwd, agentDir);
 
     expect(rules).toEqual([]);
     expect(warnings.some((w) => w.error.includes('bogus'))).toBe(true);
@@ -774,10 +774,10 @@ describe('loadSatisfyRules', () => {
 
   test('rule with invalid regex is dropped with a warning', () => {
     writeFileSync(
-      join(home, '.pi', 'agent', 'verify-before-claim.json'),
+      join(agentDir, 'verify-before-claim.json'),
       JSON.stringify({ commandSatisfies: [{ pattern: '[unclosed', kinds: ['tests-pass'] }] }),
     );
-    const { rules, warnings } = loadSatisfyRules(cwd, home);
+    const { rules, warnings } = loadSatisfyRules(cwd, agentDir);
 
     expect(rules).toEqual([]);
     expect(warnings[0]?.error).toMatch(/invalid regex/);

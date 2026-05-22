@@ -91,8 +91,8 @@ animations look related but not identical.
 - `/waveform off` - hide the indicator entirely. The shimmering label still renders.
 - `/waveform reset` - restore pi's default braille spinner and the default `Working...` label.
 
-The chosen style persists to `~/.pi/waveform-indicator.json` (matching the layout of `bash-permissions.json`) so it
-sticks across pi sessions. `/waveform reset` deletes the file. If the persistence write fails (read-only home,
+The chosen style persists to `~/.pi/agent/waveform-indicator.json` (matching the layout of `bash-permissions.json`) so
+it sticks across pi sessions. `/waveform reset` deletes the file. If the persistence write fails (read-only home,
 permission denied, full disk) the extension surfaces the error via `ctx.ui.notify` and keeps running with the chosen
 mode for the current session.
 
@@ -101,9 +101,9 @@ mode for the current session.
 - `PI_WAVEFORM_INDICATOR_DISABLED=1` - skip the extension entirely; pi's default indicator and label remain untouched.
   Useful inside subagent harnesses or non-interactive smoke tests where ANSI noise muddles the output.
 - `PI_WAVEFORM_INDICATOR_MODE=<scroll|spectrum|tokenrate|off|default>` - override the persisted mode for this shell
-  only, without rewriting `~/.pi/waveform-indicator.json`. An unknown value is ignored (extension falls through to the
-  persisted file, then to `'scroll'`). Useful for one-off `pi --print` runs or subagents you want pinned to a specific
-  style.
+  only, without rewriting `~/.pi/agent/waveform-indicator.json`. An unknown value is ignored (extension falls through to
+  the persisted file, then to `'scroll'`). Useful for one-off `pi --print` runs or subagents you want pinned to a
+  specific style.
 - `PI_WAVEFORM_THINKING_PULSE=off` - suppress the breathing pulse on the thinking-effort segment of the dim suffix
   without disabling the rest of the extension. The other segments (elapsed, ↑/↓ tokens) keep their static dim wrap and
   the indicator keeps rendering. Any other value (including unset) leaves the pulse on; the default is on.
@@ -114,7 +114,7 @@ mode for the current session.
 
 ## Persistence
 
-The chosen mode is stored in `~/.pi/waveform-indicator.json`:
+The chosen mode is stored in `~/.pi/agent/waveform-indicator.json`:
 
 ```json
 {
@@ -150,7 +150,7 @@ Avast! Boarding the codebase... (8s)        pirate persona, search prompt
 Pondering... (3s)                           neutral system prompt, no persona configured
 ```
 
-The feature is **off by default**. Opt in by adding a `dynamicLabel` block to `~/.pi/waveform-indicator.json`:
+The feature is **off by default**. Opt in by adding a `dynamicLabel` block to `~/.pi/agent/waveform-indicator.json`:
 
 ```json
 {
@@ -175,8 +175,8 @@ The feature is **off by default**. Opt in by adding a `dynamicLabel` block to `~
 
 `tinyModel` is well-suited to local llama-cpp models in the 0.6B-9B range: the phrase is short (<=60 chars), the prompt
 is tiny (<=200 chars + persona overlay), the 5 s timeout is tight, and there's no per-call USD cost. The setting lives
-in `~/.pi/waveform-indicator.json` (not piggy-backing on `~/.pi/agent/research-tiny.json`) - the waveform extension owns
-its own model resolution.
+in `~/.pi/agent/waveform-indicator.json` (not piggy-backing on `~/.pi/agent/research-tiny.json`) - the waveform
+extension owns its own model resolution.
 
 ### Two-stage `tinyModel` validation
 
@@ -243,7 +243,7 @@ to its system prompt. The persona is resolved across the same three layers `lib/
 supports, with "first hit wins" (project highest priority):
 
 1. `<cwd>/.pi/personas/<name>.md` (project)
-2. `~/.pi/personas/<name>.md` (user)
+2. `~/.pi/agent/personas/<name>.md` (user)
 3. `<extDir>/../personas/<name>.md` (shipped catalog - where the bundled `daemon-waveform.md` lives)
 
 The shipped [`daemon-waveform.md`](../personas/daemon-waveform.md) is the default persona, so the dynamic head works

@@ -41,9 +41,9 @@ export interface ActiveSandboxSnapshot {
    *  when the hash is unchanged - useful for "did anyone touch the
    *  config since I last looked?" assertions in tests). */
   readonly version: number;
-  /** Resolved filesystem policy from `~/.pi/filesystem.json`. */
+  /** Resolved filesystem policy from `<piAgentDir>/filesystem.json`. */
   readonly filesystem: FilesystemPolicy;
-  /** Resolved sandbox-only config from `~/.pi/sandbox.json`. */
+  /** Resolved sandbox-only config from `<piAgentDir>/sandbox.json`. */
   readonly sandbox: SandboxConfig;
   /** Detected platform kind so consumers can branch without re-running
    *  `os.platform()` everywhere. */

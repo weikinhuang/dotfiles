@@ -105,7 +105,6 @@
 
 import { createHash } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
-import { homedir } from 'node:os';
 import { dirname, isAbsolute, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -485,7 +484,6 @@ export default function iterationLoopExtension(pi: ExtensionAPI): void {
   // adds the edit-tracking hook that also keys off the declared
   // artifact path, which doesn't need the agent map.
   const extDir = dirname(fileURLToPath(import.meta.url));
-  const userPiDir = `${homedir()}/.pi`;
   let agentLoad: AgentLoadResult = { agents: new Map(), nameOrder: [], warnings: [] };
   const surfacedAgentWarnings = new Set<string>();
 
@@ -508,7 +506,7 @@ export default function iterationLoopExtension(pi: ExtensionAPI): void {
 
   const reloadAgents = (cwd: string): void => {
     const knownToolNames = new Set(pi.getAllTools().map((t) => t.name));
-    const layers = defaultAgentLayers({ extensionDir: extDir, userPiDir, cwd });
+    const layers = defaultAgentLayers({ extensionDir: extDir, cwd });
     agentLoad = loadAgents({
       layers,
       knownToolNames,

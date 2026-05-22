@@ -1,9 +1,9 @@
 /**
- * Layered loader for `~/.pi/sandbox.json` /
+ * Layered loader for `<piAgentDir>/sandbox.json` /
  * `<repo>/.pi/sandbox.json`. Layer order:
  *
  *   1. shipped defaults  ({@link DEFAULT_SANDBOX_CONFIG})
- *   2. user      `~/.pi/sandbox.json`
+ *   2. user      `<piAgentDir>/sandbox.json`
  *   3. project   `<repo>/.pi/sandbox.json`
  *   4. env-var overlay (`PI_SANDBOX_NESTED`, `PI_SANDBOX_WEAKER_NET`,
  *      `PI_SANDBOX_EXTRA_ALLOW_DOMAIN`)

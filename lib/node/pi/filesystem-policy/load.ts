@@ -1,10 +1,12 @@
 /**
- * Layered loader for the unified `~/.pi/filesystem.json` policy.
+ * Layered loader for the unified `<piAgentDir>/filesystem.json`
+ * policy (default `~/.pi/agent/filesystem.json`, overridable via
+ * `PI_CODING_AGENT_DIR`).
  *
  * Layer order (last wins per category, but additive within a category):
  *
  *   1. shipped defaults  ({@link DEFAULT_POLICY})
- *   2. user      `~/.pi/filesystem.json`
+ *   2. user      `<piAgentDir>/filesystem.json`
  *   3. project   `<repo>/.pi/filesystem.json`
  *   4. persona   active persona's resolved `writeRoots` (merged into
  *                `write.allow.paths`; persona is a positive vouch)

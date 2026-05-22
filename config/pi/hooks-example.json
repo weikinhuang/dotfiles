@@ -5,7 +5,7 @@
 //
 // Copy (or merge) into one of:
 //
-//   ~/.pi/hooks.json       - user scope, every project
+//   ~/.pi/agent/hooks.json       - user scope, every project
 //   <repo>/.pi/hooks.json  - project scope, this repo only
 //
 // Both layers are loaded on every event. Hooks fire in array order

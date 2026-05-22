@@ -29,10 +29,12 @@
  *
  * Configuration:
  *
- *   ~/.pi/sandbox.json     - sandbox-only knobs (network, unix sockets, flags).
- *                            See `config/pi/sandbox-example.json`.
- *   ~/.pi/filesystem.json  - shared with `filesystem.ts`. See
- *                            `config/pi/filesystem-example.json`.
+ *   <piAgentDir>/sandbox.json      - sandbox-only knobs (network, unix sockets, flags).
+ *                                    See `config/pi/sandbox-example.json`.
+ *   <piAgentDir>/filesystem.json   - shared with `filesystem.ts`. See
+ *                                    `config/pi/filesystem-example.json`.
+ *
+ *   `<piAgentDir>` defaults to `~/.pi/agent`; override via `PI_CODING_AGENT_DIR`.
  *
  * Environment overrides:
  *
@@ -84,7 +86,6 @@
  */
 
 import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 
 import { type ExtensionAPI, type ExtensionContext, type ToolResultEvent } from '@earendil-works/pi-coding-agent';
@@ -102,8 +103,10 @@ import { type FilesystemPolicyLayer, loadFilesystemPolicy } from '../../../lib/n
 import { type FilesystemPolicyWarning } from '../../../lib/node/pi/filesystem-policy/schema.ts';
 import { parseJsonc, warnBadConfigFileOnce } from '../../../lib/node/pi/jsonc.ts';
 import { envTruthy } from '../../../lib/node/pi/parse-env.ts';
+import { piAgentDir } from '../../../lib/node/pi/pi-paths.ts';
 import { pickScopeFile } from '../../../lib/node/pi/scope-pick.ts';
 import { getActivePersona } from '../../../lib/node/pi/persona/active.ts';
+
 import {
   activeReconfigure,
   beginActiveReconfigure,
@@ -144,7 +147,7 @@ import { registerSubagentInjection } from '../../../lib/node/pi/subagent-extensi
 // Constants + paths
 // ─────────────────────────────────────────────────────────────────
 
-const USER_PI_DIR = join(homedir(), '.pi');
+const USER_PI_DIR = piAgentDir();
 const USER_FS_PATH = join(USER_PI_DIR, 'filesystem.json');
 const USER_SANDBOX_PATH = join(USER_PI_DIR, 'sandbox.json');
 const USER_VIOLATIONS_LOG = join(USER_PI_DIR, 'sandbox-violations.log');
@@ -470,7 +473,7 @@ function pickScopeFs(cwd: string): string {
 
 /** Thrown by {@link readJsoncFileForWrite} when an existing file fails
  *  to parse. The slash-command handlers catch it and abort the write
- *  with a clear notify, so a user with a malformed `~/.pi/sandbox.json`
+ *  with a clear notify, so a user with a malformed `<piAgentDir>/sandbox.json`
  *  doesn't lose their hand-edited rules + comments to a clobbering
  *  `/sandbox-allow` save. */
 class JsoncReadError extends Error {
@@ -995,7 +998,7 @@ export default function sandbox(pi: ExtensionAPI): void {
   // Tool result hook: surface ASRT's annotated stderr when a
   // sandboxed bash failed, so the model gets a clear violation
   // message instead of an opaque EPERM. Plan section 9.16.
-  // Also writes a JSONL audit row to ~/.pi/sandbox-violations.log
+  // Also writes a JSONL audit row to <piAgentDir>/sandbox-violations.log
   // for forensic inspection via /sandbox-violations.
   // ─────────────────────────────────────────────────────────────────
   pi.on('tool_result', async (event, ctx) => {

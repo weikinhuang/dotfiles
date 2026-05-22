@@ -113,14 +113,14 @@ describe('appendAddendum', () => {
 
 describe('loadConfig', () => {
   let workdir: string;
-  let home: string;
+  let agentDir: string;
   let cwd: string;
 
   beforeEach(() => {
     workdir = join(tmpdir(), `sma-test-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
-    home = join(workdir, 'home');
+    agentDir = join(workdir, 'agent');
     cwd = join(workdir, 'proj');
-    mkdirSync(join(home, '.pi', 'agent'), { recursive: true });
+    mkdirSync(agentDir, { recursive: true });
     mkdirSync(join(cwd, '.pi'), { recursive: true });
   });
 
@@ -129,7 +129,7 @@ describe('loadConfig', () => {
   });
 
   test('returns defaults and no warnings when no files exist', () => {
-    const { config, warnings } = loadConfig(cwd, home);
+    const { config, warnings } = loadConfig(cwd, agentDir);
 
     expect(config.providers).toEqual([]);
     expect(config.models).toEqual([]);
@@ -138,11 +138,8 @@ describe('loadConfig', () => {
   });
 
   test('loads global config', () => {
-    writeFileSync(
-      join(home, '.pi', 'agent', 'small-model-addendum.json'),
-      JSON.stringify({ providers: ['llama-cpp'] }),
-    );
-    const { config, warnings } = loadConfig(cwd, home);
+    writeFileSync(join(agentDir, 'small-model-addendum.json'), JSON.stringify({ providers: ['llama-cpp'] }));
+    const { config, warnings } = loadConfig(cwd, agentDir);
 
     expect(config.providers).toEqual(['llama-cpp']);
     expect(config.text).toBe(DEFAULT_ADDENDUM); // falls back to default
@@ -151,14 +148,14 @@ describe('loadConfig', () => {
 
   test('project config overlays on top of global (arrays replace wholesale)', () => {
     writeFileSync(
-      join(home, '.pi', 'agent', 'small-model-addendum.json'),
+      join(agentDir, 'small-model-addendum.json'),
       JSON.stringify({ providers: ['llama-cpp'], models: ['a/b'], text: 'GLOBAL' }),
     );
     writeFileSync(
       join(cwd, '.pi', 'small-model-addendum.json'),
       JSON.stringify({ providers: ['local-vllm'], text: 'PROJECT' }),
     );
-    const { config } = loadConfig(cwd, home);
+    const { config } = loadConfig(cwd, agentDir);
 
     expect(config.providers).toEqual(['local-vllm']); // overridden
     expect(config.models).toEqual(['a/b']); // unchanged (not set in project)
@@ -167,18 +164,18 @@ describe('loadConfig', () => {
 
   test('supports JSONC comments', () => {
     writeFileSync(
-      join(home, '.pi', 'agent', 'small-model-addendum.json'),
+      join(agentDir, 'small-model-addendum.json'),
       `// a comment\n{ "providers": ["llama-cpp"] /* inline */ }`,
     );
-    const { config, warnings } = loadConfig(cwd, home);
+    const { config, warnings } = loadConfig(cwd, agentDir);
 
     expect(config.providers).toEqual(['llama-cpp']);
     expect(warnings).toEqual([]);
   });
 
   test('malformed JSON produces a warning and is otherwise ignored', () => {
-    writeFileSync(join(home, '.pi', 'agent', 'small-model-addendum.json'), '{ not json');
-    const { config, warnings } = loadConfig(cwd, home);
+    writeFileSync(join(agentDir, 'small-model-addendum.json'), '{ not json');
+    const { config, warnings } = loadConfig(cwd, agentDir);
 
     expect(config).toEqual({ providers: [], models: [], text: DEFAULT_ADDENDUM });
     expect(warnings).toHaveLength(1);
@@ -186,8 +183,8 @@ describe('loadConfig', () => {
   });
 
   test('non-object root is rejected with a warning', () => {
-    writeFileSync(join(home, '.pi', 'agent', 'small-model-addendum.json'), '"not an object"');
-    const { config, warnings } = loadConfig(cwd, home);
+    writeFileSync(join(agentDir, 'small-model-addendum.json'), '"not an object"');
+    const { config, warnings } = loadConfig(cwd, agentDir);
 
     expect(config.providers).toEqual([]);
     expect(warnings).toHaveLength(1);
@@ -196,20 +193,20 @@ describe('loadConfig', () => {
 
   test('empty text in config falls back to default (does not zero out addendum)', () => {
     writeFileSync(
-      join(home, '.pi', 'agent', 'small-model-addendum.json'),
+      join(agentDir, 'small-model-addendum.json'),
       JSON.stringify({ providers: ['llama-cpp'], text: '   ' }),
     );
-    const { config } = loadConfig(cwd, home);
+    const { config } = loadConfig(cwd, agentDir);
 
     expect(config.text).toBe(DEFAULT_ADDENDUM);
   });
 
   test('non-string entries in providers / models arrays are dropped', () => {
     writeFileSync(
-      join(home, '.pi', 'agent', 'small-model-addendum.json'),
+      join(agentDir, 'small-model-addendum.json'),
       JSON.stringify({ providers: ['llama-cpp', 42, null, ''], models: [{}, 'a/b'] }),
     );
-    const { config } = loadConfig(cwd, home);
+    const { config } = loadConfig(cwd, agentDir);
 
     expect(config.providers).toEqual(['llama-cpp']);
     expect(config.models).toEqual(['a/b']);

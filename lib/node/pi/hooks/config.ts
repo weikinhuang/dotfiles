@@ -7,7 +7,7 @@
  *                     extension closure - persisted across tool calls
  *                     within one pi session, cleared on shutdown).
  *   2. Project rules: `<cwd>/.pi/hooks.json`
- *   3. User rules:    `~/.pi/hooks.json`
+ *   3. User rules:    `<piAgentDir>/hooks.json` (default `~/.pi/agent/hooks.json`)
  *
  * Rule files are JSONC - `//` line comments and C-style block comments
  * are allowed so you can annotate why a hook exists. Malformed files
@@ -23,10 +23,10 @@
  * coverage of the validation logic.
  */
 
-import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 
 import { loadJsoncConfigOrFallback, parseJsonc } from '../jsonc.ts';
+import { piAgentDir } from '../pi-paths.ts';
 import { isRecord } from '../shared.ts';
 
 // ──────────────────────────────────────────────────────────────────────
@@ -60,8 +60,8 @@ interface HookFile {
 const TAG = 'hooks';
 const PROJECT_RULES_RELATIVE = join('.pi', 'hooks.json');
 
-function userRulesPath(home: string): string {
-  return join(home, '.pi', 'hooks.json');
+function userRulesPath(agentDir: string): string {
+  return join(agentDir, 'hooks.json');
 }
 
 function projectRulesPath(cwd: string): string {
@@ -159,13 +159,14 @@ function readHooksFile(path: string, scope: HookScope): Record<HookEvent, Hook[]
 export interface LoadHooksContext {
   cwd: string;
   /**
-   * Home directory for the user-layer file. Defaults to `os.homedir()`;
-   * tests inject a temp dir so a real `~/.pi/hooks.json` on the host
-   * can't contaminate the fixture. Resolved lazily on each call so a
-   * spawned subprocess that changes `HOME` mid-session still loads the
-   * right file.
+   * Pi agent dir for the user-layer file (e.g. `~/.pi/agent`).
+   * Defaults to `piAgentDir()`; tests inject a temp dir so a real
+   * `~/.pi/agent/hooks.json` on the host can't contaminate the
+   * fixture. Resolved lazily on each call so a spawned subprocess
+   * that changes `HOME` or `PI_CODING_AGENT_DIR` mid-session still
+   * loads the right file.
    */
-  home?: string;
+  agentDir?: string;
   /**
    * Session-scope hooks supplied by the extension shell. Layer 1 in
    * the merge order; project and user layers are read from disk.
@@ -207,12 +208,14 @@ function normalizeOverride(src: Partial<Record<HookEvent, Hook[]>>, scope: HookS
 export function loadHooks(ctx: LoadHooksContext): Record<HookEvent, Hook[]> {
   const out = emptyConfig();
 
-  const home = ctx.home ?? homedir();
+  const agentDir = ctx.agentDir ?? piAgentDir();
   const sessionRaw = ctx.sessionHooks ?? {};
   const project = ctx.projectHooks
     ? normalizeOverride(ctx.projectHooks, 'project')
     : readHooksFile(projectRulesPath(ctx.cwd), 'project');
-  const user = ctx.userHooks ? normalizeOverride(ctx.userHooks, 'user') : readHooksFile(userRulesPath(home), 'user');
+  const user = ctx.userHooks
+    ? normalizeOverride(ctx.userHooks, 'user')
+    : readHooksFile(userRulesPath(agentDir), 'user');
 
   for (const event of HOOK_EVENTS) {
     const sessionHooks = rescope(sessionRaw[event] ?? [], 'session');
@@ -223,11 +226,11 @@ export function loadHooks(ctx: LoadHooksContext): Record<HookEvent, Hook[]> {
 
 /**
  * Path of the on-disk user config, exported for the extension shell.
- * `home` defaults to `os.homedir()`; resolved lazily so a test can pin
- * a temp dir.
+ * `agentDir` defaults to `piAgentDir()`; resolved lazily so a test
+ * can pin a temp dir.
  */
-export function userHooksPath(home: string = homedir()): string {
-  return userRulesPath(home);
+export function userHooksPath(agentDir: string = piAgentDir()): string {
+  return userRulesPath(agentDir);
 }
 
 /** Path of the on-disk project config, exported for the extension shell. */

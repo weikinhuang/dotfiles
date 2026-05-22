@@ -7,7 +7,7 @@ allow / deny rule sets before letting pi execute.
 
 [`../bash-permissions-example.json`](../bash-permissions-example.json) is a hand-curated read-only allowlist (file
 inspection, search, git read-only subcommands, npm/yarn/pnpm queries, docker queries, `cd` / `pushd` / `popd`,
-env/identity). Copy or merge into `~/.pi/bash-permissions.json` (user scope) or `<repo>/.pi/bash-permissions.json`
+env/identity). Copy or merge into `~/.pi/agent/bash-permissions.json` (user scope) or `<repo>/.pi/bash-permissions.json`
 (project scope), then layer your own write/build allowances on top.
 
 Footguns the baseline already guards against with `re:` rules:
@@ -29,7 +29,7 @@ Rules are loaded from three layers on every tool call. Deny beats allow across a
 | ------- | -------------------------------------------------------- | ----------------------- |
 | Session | in-memory, cleared on `session_shutdown`                 | current pi session only |
 | Project | `.pi/bash-permissions.json` (resolved against `ctx.cwd`) | one repo                |
-| User    | `~/.pi/bash-permissions.json`                            | all projects            |
+| User    | `~/.pi/agent/bash-permissions.json`                      | all projects            |
 
 File schema (JSONC - `//` and `/* */` comments are allowed, trailing commas are not):
 
@@ -75,7 +75,7 @@ When an unknown command is about to run, pi shows a select dialog with:
 1. Allow once
 2. Allow `<exact cmd>` for this session
 3. Always allow `<exact cmd>` (project scope - writes to `.pi/bash-permissions.json`)
-4. Always allow `<first-token>*` (user scope - writes to `~/.pi/bash-permissions.json`)
+4. Always allow `<first-token>*` (user scope - writes to `~/.pi/agent/bash-permissions.json`)
 5. Deny
 6. Deny with feedback… - prompts for a reason that gets surfaced to the LLM as the block message
 

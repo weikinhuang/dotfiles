@@ -7,8 +7,8 @@ on a single role at a time. See [`../extensions/persona.md`](../extensions/perso
 and `filesystem`-style ask-on-violation UX.
 
 This directory is the **shipped catalog**. Users override per-persona-name by dropping a file with the same stem under
-`~/.pi/personas/` (user-global) or `<cwd>/.pi/personas/` (project-local); later layers win. The persona loader ignores
-`README.md` / `readme.md`, so this index can stay frontmatter-free.
+`~/.pi/agent/personas/` (user-global) or `<cwd>/.pi/personas/` (project-local); later layers win. The persona loader
+ignores `README.md` / `readme.md`, so this index can stay frontmatter-free.
 
 ## Index
 
@@ -38,7 +38,7 @@ This directory is the **shipped catalog**. Users override per-persona-name by dr
   replace the agent's values rather than merging - see [`plan.md`](./plan.md) and [`review.md`](./review.md) for
   examples.
 - **Project-local overrides** go under `<cwd>/.pi/personas/<name>.md`. User-global overrides go under
-  `~/.pi/personas/<name>.md`. Same stem ⇒ same persona name; later layer wins. `<cwd>/.pi/persona-settings.json`
+  `~/.pi/agent/personas/<name>.md`. Same stem ⇒ same persona name; later layer wins. `<cwd>/.pi/persona-settings.json`
   overrides `writeRoots` per-persona-name without rewriting the file.
 - **Parse warnings** surface once each via `ctx.ui.notify(..., 'warning')`. Bad frontmatter doesn't blind the catalog -
   the offending persona is dropped, others load. Run `/persona info <name>` after editing to see the resolved record.
@@ -135,27 +135,28 @@ need a few extra patterns on top of the operational baseline:
   confirm or correct. Cheap, fast, keeps the scene flowing. Reach for `ai-fetch-web` only when accuracy actually matters
   - see the next bullet.
 - **For large source-cited canon, ship a `read`-on-demand dossier rather than baking it into the body.** When the
-  source-of-truth canon is more than ~500 words, drop it at a user-global path (e.g. `~/.pi/personas/<name>-canon.md`),
-  add `read` of that path to the persona’s `## Tools` section, add `rg *` to `bashAllow` so the model can grep without
-  pulling 87 KB into context, and write the canon-verification rule as
+  source-of-truth canon is more than ~500 words, drop it at a user-global path (e.g.
+  `~/.pi/agent/personas/<name>-canon.md`), add `read` of that path to the persona’s `## Tools` section, add `rg *` to
+  `bashAllow` so the model can grep without pulling 87 KB into context, and write the canon-verification rule as
   `**check your dossier first; treat it as memory, not research**`. Fallback to `ai-fetch-web` only when the dossier
   doesn’t cover the question. This keeps the persona **model-portable** - different backing models won’t drift on canon
   because they’re reading the same cited file rather than reaching for training data. **Sync caveat:** if the dossier
   source-of-truth lives in your project repo (e.g. produced by a research pass), the runtime copy at
-  `~/.pi/personas/...` needs a one-line `cp` after dossier updates; capture that in a project memory or it goes stale
-  silently. **Weak-model caveat:** dossier-grounding stacks several rules at once (tool-selection + brief register +
-  character flavor + anti-attribution), and qwen3-class models can drop pieces under that load - confabulating canon
-  while _claiming_ dossier-grounding is the worst failure mode. Validate dossier-grounding personas on both tiers; if
-  you must pick one, validate against the smallest model you’ll realistically use for that persona, and consider
-  deferring deep canon questions to a sibling persona via a `/persona ...` redirect when brief register can’t carry the
-  load.
+  `~/.pi/agent/personas/...` needs a one-line `cp` after dossier updates; capture that in a project memory or it goes
+  stale silently. **Weak-model caveat:** dossier-grounding stacks several rules at once (tool-selection + brief
+  register + character flavor + anti-attribution), and qwen3-class models can drop pieces under that load -
+  confabulating canon while _claiming_ dossier-grounding is the worst failure mode. Validate dossier-grounding personas
+  on both tiers; if you must pick one, validate against the smallest model you’ll realistically use for that persona,
+  and consider deferring deep canon questions to a sibling persona via a `/persona ...` redirect when brief register
+  can’t carry the load.
 - **`ai-fetch-web` for grounding when no dossier exists (or as fallback when one does), in-voice reporting, no URL
   paste.** When the persona uses web search to verify a claim, fold the result into how the persona would actually say
   it. Never paste search results, snippets, or URLs. Validation question: “does the response read like the character
   remembered, or like a chat-with-search bot?” - the latter is a fail. The active persona's `bashAllow` vouches for
   matching commands at the [`bash-permissions.ts`](../extensions/bash-permissions.ts) layer, so a persona shipping
   `bashAllow: ['ai-fetch-web *']` Just Works in `pi -p` / non-UI mode without forcing the user to also widen their
-  `~/.pi/bash-permissions.json` allowlist (see [`../extensions/persona.md`](../extensions/persona.md) “Bash policy”).
+  `~/.pi/agent/bash-permissions.json` allowlist (see [`../extensions/persona.md`](../extensions/persona.md) “Bash
+  policy”).
 - **Multi-version characters: separate files when rules diverge; blend in one body when register slides.** When two
   versions of a character differ in _which rules apply_ - e.g. “redirect on real-world prompts” vs. “look real-world
   facts up” - they need separate persona files because the rule contracts differ. When two versions only differ in _mood
@@ -197,7 +198,7 @@ I want to create a new pi persona. Read these first, in order:
 1. config/pi/personas/README.md (this file) - patterns, skeleton, validation playbook.
 2. config/pi/extensions/persona.md - frontmatter schema, layering, bash and write gates.
 3. config/pi/personas/chat.md as the operational-persona reference. If any character
-   personas already exist under ~/.pi/personas/, read one of those as the
+   personas already exist under ~/.pi/agent/personas/, read one of those as the
    character-persona + dossier-grounding reference; otherwise note the absence.
 
 Persona spec (fill what you know; leave the rest as <unknown> and ask me):
@@ -205,7 +206,7 @@ Persona spec (fill what you know; leave the rest as <unknown> and ask me):
 - name (filename stem):       <name>
 - one-line description:       <text>
 - type:                       operational | character
-- file location:              ~/.pi/personas/<name>.md (user-global)
+- file location:              ~/.pi/agent/personas/<name>.md (user-global)
                               | <cwd>/.pi/personas/<name>.md (project-local)
                               | config/pi/personas/<name>.md (shipped catalog)
 - writeRoots:                 <path | "none">
@@ -228,7 +229,7 @@ Workflow I expect:
    phrasing.
 
 3. WIRE a `read`-on-demand dossier (character personas with > ~500 words of canon only):
-   drop the cited dossier at `~/.pi/personas/<name>-canon.md`, add `read` of that path
+   drop the cited dossier at `~/.pi/agent/personas/<name>-canon.md`, add `read` of that path
    to the persona’s `## Tools` section, add `rg *` to `bashAllow`, write the
    canon-check rule per the README’s “read-on-demand dossier” bullet, and include the
    synonym anti-loophole list in the rule text.

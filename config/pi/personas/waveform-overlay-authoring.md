@@ -46,7 +46,7 @@ only; expect format breakage on smaller models") and treat that as a known limit
 Same three-layer resolution as the rest of the persona registry; first hit wins:
 
 1. `<cwd>/.pi/personas/<name>.md` — project-local
-2. `~/.pi/personas/<name>.md` — user-global (the usual home for themed overlays)
+2. `~/.pi/agent/personas/<name>.md` — user-global (the usual home for themed overlays)
 3. `<repo>/config/pi/personas/<name>.md` — shipped catalog (where the default `daemon-waveform.md` lives)
 
 Frontmatter is intentionally thin — these personas are voice-only and own nothing the runtime cares about:
@@ -166,7 +166,7 @@ Compose the system prompt the way the extension does and probe it directly:
 SYS=$(awk 'BEGIN{c=0} /^---$/{c++; next} c>=2{print}' \
   config/pi/agents/waveform-phraser.md)
 OVERLAY=$(awk 'BEGIN{c=0} /^---$/{c++; next} c>=2{print}' \
-  ~/.pi/personas/<your-name>.md)
+  ~/.pi/agent/personas/<your-name>.md)
 printf '%s\n\n%s\n' "$SYS" "$OVERLAY" > /tmp/probe-system.txt
 
 pi --provider llama-cpp --model qwen3-5-9b \
@@ -220,8 +220,8 @@ the digest verbatim" anti-pattern to push the model toward mutation rather than 
 
 Once the persona file is in place at one of the three layers, point the extension config at it by setting
 `dynamicLabel.persona` in [`.pi/waveform-indicator.json`](../extensions/waveform-indicator.md#configuration) (project)
-or `~/.pi/waveform-indicator.json` (user-global) to the persona's filename stem. The extension hot-reloads the overlay
-on file change — no restart needed. Set `persona: ""` to opt out and run the neutral system prompt only.
+or `~/.pi/agent/waveform-indicator.json` (user-global) to the persona's filename stem. The extension hot-reloads the
+overlay on file change — no restart needed. Set `persona: ""` to opt out and run the neutral system prompt only.
 
 ## Related docs
 

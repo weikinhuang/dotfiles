@@ -17,8 +17,10 @@
  *   1. Allow once
  *   2. Allow `<host>` for this session  (in-memory set; not persisted)
  *   3. Always allow `<host>` (project)  (writes to .pi/sandbox.json
- *                                       when .pi/ exists, else ~/.pi/)
- *   4. Always allow `*.<parent>` (user) (writes to ~/.pi/sandbox.json;
+ *                                       when .pi/ exists, else
+ *                                       <piAgentDir>/sandbox.json)
+ *   4. Always allow `*.<parent>` (user) (writes to
+ *                                       <piAgentDir>/sandbox.json;
  *                                       omitted when no sensible parent)
  *   5. Deny
  *   6. Deny with feedback…              (captures text via ui.input

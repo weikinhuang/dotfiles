@@ -1,6 +1,6 @@
 // Sandbox-only knobs for the kernel-level `sandbox` extension (Phase 3,
 // not yet wired). Filesystem rules live in the unified
-// `~/.pi/filesystem.json` (see config/pi/filesystem-example.json).
+// `~/.pi/agent/filesystem.json` (see config/pi/filesystem-example.json).
 //
 //   Extension (Phase 3): config/pi/extensions/sandbox.ts
 //   Reference (Phase 3): config/pi/extensions/sandbox.md
@@ -11,13 +11,13 @@
 //
 // Copy (or merge) into one of:
 //
-//   ~/.pi/sandbox.json            - user scope, every project
+//   ~/.pi/agent/sandbox.json            - user scope, every project
 //   <repo>/.pi/sandbox.json       - project scope, this repo only
 //
 // All fields are optional - omit to inherit the shipped defaults.
 //
 // IMPORTANT: this file does NOT control the standalone `srt` CLI.
-// `srt` reads `~/.srt-settings.json`; pi reads `~/.pi/sandbox.json`.
+// `srt` reads `~/.srt-settings.json`; pi reads `~/.pi/agent/sandbox.json`.
 // Keep them separate so `srt` from a shell prompt has different
 // policy from pi (deliberate, per plan decision #2).
 //

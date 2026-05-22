@@ -1,7 +1,7 @@
 /**
- * Sandbox-only config schema (`~/.pi/sandbox.json` /
+ * Sandbox-only config schema (`<piAgentDir>/sandbox.json` /
  * `<repo>/.pi/sandbox.json`). Filesystem rules live in the unified
- * `~/.pi/filesystem.json` consumed by both `filesystem.ts` and
+ * `<piAgentDir>/filesystem.json` consumed by both `filesystem.ts` and
  * `sandbox.ts`; this file covers the ASRT-specific knobs that have no
  * sensible in-process counterpart: network domains, unix sockets, and
  * the platform-flag escape hatches.

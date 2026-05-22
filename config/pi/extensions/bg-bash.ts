@@ -99,6 +99,7 @@ import {
 } from '../../../lib/node/pi/bg-bash-reducer.ts';
 import { RingBuffer } from '../../../lib/node/pi/bg-bash-ring.ts';
 import { parseClampedPositiveInt } from '../../../lib/node/pi/parse-env.ts';
+import { piAgentPath } from '../../../lib/node/pi/pi-paths.ts';
 import { truncate } from '../../../lib/node/pi/shared.ts';
 import { formatHeaderRule } from '../../../lib/node/pi/tui-rule.ts';
 
@@ -737,8 +738,8 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
     try {
       mkdirSync(logDir, { recursive: true });
     } catch {
-      // Fall back to $HOME/.pi/bg-bash if tmpdir is unwritable.
-      logDir = join(homedir(), '.pi', 'bg-bash', suffix);
+      // Fall back to <piAgentDir>/bg-bash if tmpdir is unwritable.
+      logDir = piAgentPath('bg-bash', suffix);
       mkdirSync(logDir, { recursive: true });
     }
     return logDir;

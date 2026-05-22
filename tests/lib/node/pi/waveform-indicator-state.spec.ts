@@ -381,25 +381,25 @@ describe('resolveDynamicLabelConfig', () => {
 describe('resolveWaveformStatePath', () => {
   test('falls back to user-global when no project file exists', () => {
     const cwd = mkdtempSync(join(tmpdir(), 'pi-waveform-cwd-'));
-    const home = mkdtempSync(join(tmpdir(), 'pi-waveform-home-'));
+    const agentDir = mkdtempSync(join(tmpdir(), 'pi-waveform-agent-'));
     try {
-      expect(resolveWaveformStatePath({ cwd, home })).toBe(join(home, '.pi', 'waveform-indicator.json'));
+      expect(resolveWaveformStatePath({ cwd, agentDir })).toBe(join(agentDir, 'waveform-indicator.json'));
     } finally {
       rmSync(cwd, { recursive: true, force: true });
-      rmSync(home, { recursive: true, force: true });
+      rmSync(agentDir, { recursive: true, force: true });
     }
   });
 
   test('project-local file wins when present', () => {
     const cwd = mkdtempSync(join(tmpdir(), 'pi-waveform-cwd-'));
-    const home = mkdtempSync(join(tmpdir(), 'pi-waveform-home-'));
+    const agentDir = mkdtempSync(join(tmpdir(), 'pi-waveform-agent-'));
     try {
       const projectFile = join(cwd, '.pi', 'waveform-indicator.json');
       writeWaveformState(projectFile, 'tokenrate');
-      expect(resolveWaveformStatePath({ cwd, home })).toBe(projectFile);
+      expect(resolveWaveformStatePath({ cwd, agentDir })).toBe(projectFile);
     } finally {
       rmSync(cwd, { recursive: true, force: true });
-      rmSync(home, { recursive: true, force: true });
+      rmSync(agentDir, { recursive: true, force: true });
     }
   });
 });

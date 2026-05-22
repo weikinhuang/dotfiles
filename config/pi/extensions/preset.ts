@@ -43,7 +43,6 @@
  *   PI_PRESET_DEBUG=1         ctx.ui.notify on each decision
  */
 
-import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -51,6 +50,7 @@ import { type ExtensionAPI, type ExtensionContext } from '@earendil-works/pi-cod
 import { Key } from '@earendil-works/pi-tui';
 
 import { parseModelSpec } from '../../../lib/node/pi/btw.ts';
+import { piAgentPath } from '../../../lib/node/pi/pi-paths.ts';
 import {
   describePreset,
   loadPresetFiles,
@@ -89,7 +89,7 @@ export default function presetExtension(pi: ExtensionAPI): void {
 
   const loadAll = (cwd: string): void => {
     const result = loadPresetFiles(
-      [shippedPresetsPath, join(homedir(), '.pi', 'agent', 'presets.json'), join(cwd, '.pi', 'presets.json')],
+      [shippedPresetsPath, piAgentPath('presets.json'), join(cwd, '.pi', 'presets.json')],
       readFileOrUndefined,
     );
     presets = result.presets;

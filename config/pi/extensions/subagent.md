@@ -38,7 +38,7 @@ Markdown files with YAML frontmatter, discovered across three priority layers (h
 | Layer    | Path                            | Scope            |
 | -------- | ------------------------------- | ---------------- |
 | 1 (low)  | `~/.dotfiles/config/pi/agents/` | Global defaults  |
-| 2        | `~/.pi/agents/`                 | User overrides   |
+| 2        | `~/.pi/agent/agents/`           | User overrides   |
 | 3 (high) | `<cwd>/.pi/agents/`             | Project override |
 
 Frontmatter schema:

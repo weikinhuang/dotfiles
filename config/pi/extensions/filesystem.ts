@@ -1,6 +1,8 @@
 /**
  * Filesystem permission gate for pi's `read`, `write`, and `edit`
- * tools. Reads the unified `~/.pi/filesystem.json` policy shared with
+ * tools. Reads the unified `<piAgentDir>/filesystem.json` policy
+ * (default `~/.pi/agent/filesystem.json`, overridable via
+ * `PI_CODING_AGENT_DIR`) shared with
  * the kernel-level `sandbox.ts` extension so the in-process gate and
  * the syscall-level gate stay in lockstep.
  *
@@ -24,7 +26,7 @@
  * scalars - see `lib/node/pi/filesystem-policy/load.ts`):
  *
  *   1. Built-in DEFAULT_POLICY            (lib/node/pi/filesystem-policy/schema.ts)
- *   2. User    `~/.pi/filesystem.json`
+ *   2. User    `<piAgentDir>/filesystem.json`
  *   3. Project `<repo>/.pi/filesystem.json` inside `ctx.cwd`
  *   4. Persona writeRoots                  (positive vouch, merged into write.allow.paths)
  *
@@ -73,7 +75,6 @@
  */
 
 import { readFileSync } from 'node:fs';
-import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 
 import {
@@ -89,13 +90,14 @@ import { type FilesystemPolicyLayer, loadFilesystemPolicy } from '../../../lib/n
 import { type FilesystemPolicyWarning } from '../../../lib/node/pi/filesystem-policy/schema.ts';
 import { getActivePersona } from '../../../lib/node/pi/persona/active.ts';
 import { isInsideWriteRoots } from '../../../lib/node/pi/persona/match.ts';
+import { piAgentPath } from '../../../lib/node/pi/pi-paths.ts';
 import { registerSubagentInjection } from '../../../lib/node/pi/subagent-extension-injection.ts';
 
 // ─────────────────────────────────────────────────────────────────
 // Layer loading
 // ─────────────────────────────────────────────────────────────────
 
-const USER_RULES_PATH = join(homedir(), '.pi', 'filesystem.json');
+const USER_RULES_PATH = piAgentPath('filesystem.json');
 const PROJECT_RULES_RELATIVE = join('.pi', 'filesystem.json');
 
 function projectRulesPath(cwd: string): string {

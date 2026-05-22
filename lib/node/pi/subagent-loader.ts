@@ -24,8 +24,10 @@
  *   System prompt body...
  *
  * Definitions are merged across three priority layers (global defaults
- * shipped with the repo, user-scoped in `~/.pi/agents/`, project-scoped
- * in `<cwd>/.pi/agents/`). Later layers override by `name`.
+ * shipped with the repo, user-scoped under the pi agent dir at
+ * `<piAgentDir>/agents/` - default `~/.pi/agent/agents/`, overridable
+ * via `PI_CODING_AGENT_DIR` - and project-scoped at
+ * `<cwd>/.pi/agents/`). Later layers override by `name`.
  *
  * The loader validates:
  *   - `name` matches [a-z][a-z0-9-]* (required)
@@ -45,6 +47,7 @@
 import { join } from 'node:path';
 
 import { parseModelSpec } from './btw.ts';
+import { piAgentPath } from './pi-paths.ts';
 import { type ThinkingLevel, THINKING_LEVELS } from './preset.ts';
 
 export type AgentModel = 'inherit' | { provider: string; modelId: string };
@@ -379,20 +382,19 @@ export function loadAgents(options: LoadAgentsOptions): AgentLoadResult {
 
 /**
  * Helper: given `~/.dotfiles/config/pi/extensions` (where this file
- * resolves from) + cwd + homedir, return the three agent-definition
- * directories in priority order (global → user → project).
+ * resolves from) + cwd, return the three agent-definition
+ * directories in priority order (global → user → project). The user
+ * layer is `<piAgentDir>/agents/` and honors `PI_CODING_AGENT_DIR`.
  */
 export function defaultAgentLayers(args: {
   /** Directory containing the extension file (e.g. `.../extensions`). */
   extensionDir: string;
-  /** User-scoped pi config dir (e.g. `~/.pi`). */
-  userPiDir: string;
   /** Project cwd (e.g. `ctx.cwd`). */
   cwd: string;
 }): { source: AgentSourceLayer; dir: string }[] {
   return [
     { source: 'global', dir: join(args.extensionDir, '..', 'agents') },
-    { source: 'user', dir: join(args.userPiDir, 'agents') },
+    { source: 'user', dir: piAgentPath('agents') },
     { source: 'project', dir: join(args.cwd, '.pi', 'agents') },
   ];
 }

@@ -48,7 +48,6 @@
  */
 
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
-import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -322,7 +321,6 @@ export default function deepResearchExtension(pi: ExtensionAPI): void {
   // `web-researcher` and `research-planning-critic` agents to
   // dispatch their respective roles.
   const extDir = dirname(fileURLToPath(import.meta.url));
-  const userPiDir = `${homedir()}/.pi`;
   let agentLoad: AgentLoadResult = { agents: new Map(), nameOrder: [], warnings: [] };
 
   const readLayer: ReadLayer = {
@@ -344,7 +342,7 @@ export default function deepResearchExtension(pi: ExtensionAPI): void {
 
   const reloadAgents = (cwd: string): void => {
     const knownToolNames = new Set(pi.getAllTools().map((t) => t.name));
-    const layers = defaultAgentLayers({ extensionDir: extDir, userPiDir, cwd });
+    const layers = defaultAgentLayers({ extensionDir: extDir, cwd });
     agentLoad = loadAgents({
       layers,
       knownToolNames,

@@ -10,7 +10,7 @@
  * for this persona's runs. With this helper, that endorsement extends
  * to bash-permissions itself, so the persona Just Works in `pi -p` /
  * non-UI mode without forcing the user to also widen their persistent
- * `~/.pi/bash-permissions.json` allowlist.
+ * `<piAgentDir>/bash-permissions.json` allowlist.
  *
  * Pattern semantics match `evaluateBashPolicy` in `bash-policy.ts`
  * (the matcher persona.ts uses for its own `tool_call` enforcement) so

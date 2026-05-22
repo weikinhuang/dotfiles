@@ -100,7 +100,7 @@ export interface PersonaListItem {
 /**
  * Tighter, one-line-per-persona format suited to `pi -p` stdout.
  * Includes the layered source tag so users can disambiguate
- * `~/.pi/personas/chat.md` from the shipped `chat`.
+ * `<piAgentDir>/personas/chat.md` from the shipped `chat`.
  *
  * Format:
  *

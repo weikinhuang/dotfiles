@@ -5,7 +5,7 @@
 //
 // Copy (or merge) into one of:
 //
-//   ~/.pi/bash-permissions.json       - user scope, every project
+//   ~/.pi/agent/bash-permissions.json       - user scope, every project
 //   <repo>/.pi/bash-permissions.json  - project scope, this repo only
 //
 // Semantics recap (full rules in bash-permissions.md):

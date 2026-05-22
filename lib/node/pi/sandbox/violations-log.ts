@@ -1,6 +1,6 @@
 /**
  * JSONL audit log for sandbox violations at
- * `~/.pi/sandbox-violations.log` with size-rotation. Pi crashes lose
+ * `<piAgentDir>/sandbox-violations.log` with size-rotation. Pi crashes lose
  * any in-memory `SandboxViolationStore` entries; this preserves the
  * evidence the user actually wants when investigating a block.
  *

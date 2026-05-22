@@ -20,7 +20,7 @@
  *     via `subagent_send({ to, action: "wait" })`.
  *   - Agent definitions are Markdown files under:
  *       1. `~/.dotfiles/config/pi/agents/`   (global)
- *       2. `~/.pi/agents/`                   (user)
+ *       2. `<piAgentDir>/agents/`           (user, default `~/.pi/agent/agents/`)
  *       3. `<cwd>/.pi/agents/`               (project)
  *     Higher layers override by `name`.
  *   - Collapsible renderer shows a one-liner while running, the
@@ -42,7 +42,7 @@
  *   PI_SUBAGENT_DEBUG=1                 surface every child lifecycle event via ctx.ui.notify
  *   PI_SUBAGENT_CONCURRENCY=N           max concurrent children (default 4, floor 1, ceiling 8)
  *   PI_SUBAGENT_NO_PERSIST=1            use SessionManager.inMemory() instead of disk-backed sessions
- *   PI_SUBAGENT_SESSION_ROOT=<path>     override ~/.pi/agent/sessions as the session root
+ *   PI_SUBAGENT_SESSION_ROOT=<path>     override <piAgentDir>/sessions as the session root
  *   PI_SUBAGENT_RETAIN_DAYS=N           retain child session files for N days (default 30)
  *   PI_SUBAGENT_STATUS_LINGER_MS=N      keep completed status visible for N ms (default 5000)
  *   PI_SUBAGENT_MAX_TURNS=N             global max-turns cap (wins over per-agent setting)
@@ -571,7 +571,10 @@ class AgentsLoadedOverlay implements Component {
 
     if (count === 0) {
       lines.push(
-        truncateToWidth(`  ${th.fg('dim', 'No agents loaded. Drop Markdown definitions into ~/.pi/agents/.')}`, width),
+        truncateToWidth(
+          `  ${th.fg('dim', 'No agents loaded. Drop Markdown definitions into <piAgentDir>/agents/.')}`,
+          width,
+        ),
       );
       lines.push('');
       lines.push(truncateToWidth(`  ${th.fg('dim', 'Press Escape to close')}`, width));
@@ -808,7 +811,6 @@ export default function subagentExtension(pi: ExtensionAPI): void {
   // shipped `config/pi/agents/` sibling directory without relying on
   // `DOTFILES_ROOT` or similar.
   const extDir = dirname(fileURLToPath(import.meta.url));
-  const userPiDir = `${homedir()}/.pi`;
 
   let loadResult: AgentLoadResult = { agents: new Map(), nameOrder: [], warnings: [] };
   const surfacedWarnings = new Set<string>();
@@ -927,7 +929,7 @@ export default function subagentExtension(pi: ExtensionAPI): void {
 
   const reload = (cwd: string): void => {
     const knownToolNames = new Set(pi.getAllTools().map((t) => t.name));
-    const layers = defaultAgentLayers({ extensionDir: extDir, userPiDir, cwd });
+    const layers = defaultAgentLayers({ extensionDir: extDir, cwd });
     loadResult = loadAgents({
       layers,
       knownToolNames,

@@ -51,7 +51,7 @@ See [`../../../lib/node/pi/persona/`](../../../lib/node/pi/persona/) for the par
 ## Agent inheritance (`agent: <name>` ref)
 
 A persona file with `agent: plan` resolves the name through the same layered agent registry the
-[`subagent.ts`](./subagent.ts) extension uses - `<cwd>/.pi/agents/` overrides `~/.pi/agents/` overrides
+[`subagent.ts`](./subagent.ts) extension uses - `<cwd>/.pi/agents/` overrides `~/.pi/agent/agents/` overrides
 [`../agents/`](../agents/), first hit wins. The inherited record contributes `tools`, `model`, `thinkingLevel`, and
 body. Persona-only fields (`writeRoots`, `bashAllow`, `bashDeny`, `appendSystemPrompt`, `requestOptions`) layer on top.
 A user who forks an agent locally automatically gets the fork wherever a persona references it.
@@ -64,7 +64,7 @@ serves as the system-prompt addendum directly.
 Personas are loaded in order, later layers override earlier by persona name:
 
 1. **Shipped**: `../personas/` (sibling of this extension dir, resolved from `import.meta.url`).
-2. **User-global**: `~/.pi/personas/`.
+2. **User-global**: `~/.pi/agent/personas/`.
 3. **Project-local**: `<cwd>/.pi/personas/`.
 
 Missing directories are silently skipped; parse errors surface once each via `ctx.ui.notify(..., 'warning')`, de-duped
@@ -91,7 +91,7 @@ Optional per-project override layer for `writeRoots`. Same JSONC parser presets 
 }
 ```
 
-User-global is `~/.pi/persona-settings.json` with the same shape; the project layer wins per-persona-name.
+User-global is `~/.pi/agent/persona-settings.json` with the same shape; the project layer wins per-persona-name.
 
 ## Commands
 
@@ -154,7 +154,7 @@ compose as follows:
 5. **Persona vouch.** When the active persona's `bashAllow` matches the sub-command, `bash-permissions.ts` treats the
    call as session-allowed by the user-author of the persona file. No file on disk is touched. This vouch is the reason
    a persona shipping `bashAllow: ['ai-fetch-web *']` Just Works in `pi -p` / non-UI mode without forcing the user to
-   also widen their `~/.pi/bash-permissions.json` allowlist. Implementation:
+   also widen their `~/.pi/agent/bash-permissions.json` allowlist. Implementation:
    [`lib/node/pi/persona/bash-vouch.ts`](../../../lib/node/pi/persona/bash-vouch.ts) consulting the same
    [`active.ts`](../../../lib/node/pi/persona/active.ts) singleton that powers the `writeRoots` vouch.
 6. Otherwise: prompt (UI) or block with a diagnostic (non-UI).
@@ -228,7 +228,7 @@ it doesn't accidentally route a write through `subagent(...)` to bypass the pare
 | ---------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | [`preset.ts`](./preset.ts)                     | Orthogonal. Both extensions snapshot/restore independently. The effective active-tool set is the **intersection** because each calls `pi.setActiveTools` with its own list. Last-write-wins on `model` / `thinkingLevel`.                                                                                                                                                                                                                                                                                                     |
 | [`filesystem.ts`](./filesystem.ts)             | Persona's `writeRoots` are now a **positive vouch** that filesystem honors: writes targeting a path inside the active persona's resolved `writeRoots` skip the filesystem write gate entirely (reads are unaffected). The vouch flows through `lib/node/pi/persona/active.ts`'s singleton, which persona publishes on activate / clear / `session_shutdown`. Persona's own write-gate still runs first; if a path is outside `writeRoots`, both gates can still block. Persona reuses filesystem's `askForPermission` helper. |
-| [`bash-permissions.ts`](./bash-permissions.ts) | Two-way composition. Bash-permissions runs first: hardcoded deny / explicit deny / always-prompt always win. The active persona's `bashAllow` then **vouches** for sub-commands at the unknown-command step (mirrors `writeRoots` → filesystem), so personas Just Work in `pi -p` without widening `~/.pi/bash-permissions.json` on disk. After admission, persona's own `tool_call` handler enforces its `bashDeny` (terminal) and `bashAllow` (restrictive only).                                                           |
+| [`bash-permissions.ts`](./bash-permissions.ts) | Two-way composition. Bash-permissions runs first: hardcoded deny / explicit deny / always-prompt always win. The active persona's `bashAllow` then **vouches** for sub-commands at the unknown-command step (mirrors `writeRoots` → filesystem), so personas Just Work in `pi -p` without widening `~/.pi/agent/bash-permissions.json` on disk. After admission, persona's own `tool_call` handler enforces its `bashDeny` (terminal) and `bashAllow` (restrictive only).                                                     |
 | [`subagent.ts`](./subagent.ts)                 | Subagent dispatch is **not** intercepted by persona (D4). Children run with their own agent file's `tools`.                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | [`statusline.ts`](./statusline.ts)             | Persona emits a `persona:<name>` badge segment, sibling to `preset:<name>`. Render order is whatever statusline already produces.                                                                                                                                                                                                                                                                                                                                                                                             |
 | [`btw.ts`](./btw.ts)                           | `/btw` runs out-of-band - it doesn't go through `tool_call`. Persona does not constrain `/btw` (and shouldn't).                                                                                                                                                                                                                                                                                                                                                                                                               |

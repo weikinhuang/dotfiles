@@ -7,7 +7,7 @@
 //
 // Copy (or merge) into one of:
 //
-//   ~/.pi/filesystem.json         - user scope, every project
+//   ~/.pi/agent/filesystem.json         - user scope, every project
 //   <repo>/.pi/filesystem.json    - project scope, this repo only
 //
 // Schema recap (full rules in plan section 4.2):

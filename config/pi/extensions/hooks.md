@@ -7,8 +7,8 @@ shape closely enough that existing Claude Code hook scripts work with minimal re
 ## Baseline example
 
 [`../hooks-example.json`](../hooks-example.json) is an annotated JSONC starter with one commented-out example per event
-class. Copy or merge into `~/.pi/hooks.json` (user scope) or `<repo>/.pi/hooks.json` (project scope), then drop your
-script paths into the relevant `command` slots.
+class. Copy or merge into `~/.pi/agent/hooks.json` (user scope) or `<repo>/.pi/hooks.json` (project scope), then drop
+your script paths into the relevant `command` slots.
 
 ## Rule layers
 
@@ -19,7 +19,7 @@ the first hook to return `block` (where `block` is legal) short-circuits the rem
 | ------- | --------------------------------------------- | ----------------------------------------------------- |
 | Session | in-memory, cleared on `session_shutdown`      | current pi session only - reserved for a future slash |
 | Project | `.pi/hooks.json` (resolved against `ctx.cwd`) | one repo                                              |
-| User    | `~/.pi/hooks.json`                            | all projects                                          |
+| User    | `~/.pi/agent/hooks.json`                      | all projects                                          |
 
 File schema (JSONC - `//` and `/* */` comments are allowed, trailing commas are not):
 
@@ -127,7 +127,7 @@ Within an event, hooks fire in array order: session-layer entries first, then pr
 
 ### Log every bash command
 
-`~/.pi/hooks.json`:
+`~/.pi/agent/hooks.json`:
 
 ```jsonc
 {
@@ -194,6 +194,6 @@ The stdout is appended to `event.systemPrompt` for the upcoming turn.
 
 ## Hot reload
 
-Hook files are re-read on every event, so edits to `~/.pi/hooks.json` or `<repo>/.pi/hooks.json` take effect on the next
-tool call without `/reload`. Edits to the extension itself ([`hooks.ts`](./hooks.ts)) or its pure helpers under
+Hook files are re-read on every event, so edits to `~/.pi/agent/hooks.json` or `<repo>/.pi/hooks.json` take effect on
+the next tool call without `/reload`. Edits to the extension itself ([`hooks.ts`](./hooks.ts)) or its pure helpers under
 [`lib/node/pi/hooks/`](../../../lib/node/pi/hooks/) still need `/reload`.

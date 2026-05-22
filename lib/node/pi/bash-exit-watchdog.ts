@@ -26,10 +26,10 @@
  *     result content.
  */
 
-import { homedir } from 'node:os';
 import { join } from 'node:path';
 
 import { type ConfigWarning, tryReadJsoncFile } from './jsonc.ts';
+import { piAgentDir } from './pi-paths.ts';
 
 export interface SuppressRule {
   /** Regex compiled lazily - matched against `event.input.command`. */
@@ -120,10 +120,10 @@ export function formatWarning(exitCode: number, command: string): string {
  */
 export function loadConfig(
   cwd: string,
-  home: string = homedir(),
+  agentDir: string = piAgentDir(),
 ): { config: WatchdogConfig; warnings: ConfigWarning[] } {
   const warnings: ConfigWarning[] = [];
-  const paths = [join(home, '.pi', 'agent', 'exit-watchdog.json'), join(cwd, '.pi', 'exit-watchdog.json')];
+  const paths = [join(agentDir, 'exit-watchdog.json'), join(cwd, '.pi', 'exit-watchdog.json')];
 
   const extraRules: SuppressRule[] = [];
 

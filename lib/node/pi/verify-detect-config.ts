@@ -8,10 +8,10 @@
  * existing call sites keep working without touching their imports.
  */
 
-import { homedir } from 'node:os';
 import { join } from 'node:path';
 
 import { type ConfigWarning, tryReadJsoncFile } from './jsonc.ts';
+import { piAgentDir } from './pi-paths.ts';
 import type { ClaimKind } from './verify-detect.ts';
 
 const VALID_KINDS: ReadonlySet<ClaimKind> = new Set<ClaimKind>([
@@ -47,11 +47,11 @@ export interface CompiledSatisfyRule {
  */
 export function loadSatisfyRules(
   cwd: string,
-  home: string = homedir(),
+  agentDir: string = piAgentDir(),
 ): { rules: CompiledSatisfyRule[]; warnings: ConfigWarning[] } {
   const warnings: ConfigWarning[] = [];
   const rules: CompiledSatisfyRule[] = [];
-  const paths = [join(home, '.pi', 'agent', 'verify-before-claim.json'), join(cwd, '.pi', 'verify-before-claim.json')];
+  const paths = [join(agentDir, 'verify-before-claim.json'), join(cwd, '.pi', 'verify-before-claim.json')];
 
   for (const path of paths) {
     const parsed = tryReadJsoncFile(path, warnings, { requireObject: true });

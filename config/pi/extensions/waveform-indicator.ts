@@ -43,7 +43,7 @@
  *   /waveform reset           restore pi's default spinner + "Working..." label
  *
  * The chosen style persists to `<cwd>/.pi/waveform-indicator.json`
- * (project-local override) or `~/.pi/waveform-indicator.json` (user-
+ * (project-local override) or `<piAgentDir>/waveform-indicator.json` (user-
  * global) so it sticks across pi sessions. `/waveform reset` clears the
  * file. The `PI_WAVEFORM_INDICATOR_MODE` env var overrides the file when
  * set, for one-shot per-shell overrides.
@@ -69,7 +69,6 @@
  */
 
 import { appendFileSync, existsSync, readdirSync, readFileSync } from 'node:fs';
-import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -96,6 +95,7 @@ import {
 } from '../../../lib/node/pi/subagent-loader.ts';
 import { resolveSubagentSessionDir } from '../../../lib/node/pi/subagent-session-dir.ts';
 import { type CreateAgentSessionDep, resolveChildModel, runOneShotAgent } from '../../../lib/node/pi/subagent-spawn.ts';
+import { piAgentDir } from '../../../lib/node/pi/pi-paths.ts';
 import {
   TOKEN_RATE_BUFFER_SIZE,
   buildIndicatorFrames,
@@ -321,7 +321,7 @@ export default function extension(pi: ExtensionAPI): void {
   // ──────────────────────────────────────────────────────────────────
 
   // Resolved dynamic-label config. Re-resolved on session_start so a
-  // mid-pi `vi ~/.pi/waveform-indicator.json` edit followed by /reload
+  // mid-pi `vi <piAgentDir>/waveform-indicator.json` edit followed by /reload
   // picks up the new value. Default config is `enabled: false` so the
   // feature stays off until the user opts in.
   let dynamicLabelConfig: DynamicLabelConfig = {
@@ -349,12 +349,12 @@ export default function extension(pi: ExtensionAPI): void {
   const notifiedDynamicLabelWarnings = new Set<string>();
 
   const extDir = dirname(fileURLToPath(import.meta.url));
-  const userPiDir = join(homedir(), '.pi');
+  const userPiDir = piAgentDir();
 
   // Optional debug logger for the dynamic-label spawn pipeline. Enabled
   // by `PI_WAVEFORM_DYNAMIC_LABEL_DEBUG=1`; writes JSONL lines to
-  // `~/.pi/waveform-indicator.debug.log` so the user can audit which
-  // guard (stopReason, validator, abort, exception) is dropping a
+  // `<piAgentDir>/waveform-indicator.debug.log` so the user can audit
+  // which guard (stopReason, validator, abort, exception) is dropping a
   // spawn result. No-op when the env var is unset so production runs
   // pay zero overhead.
   const debugEnabled = process.env.PI_WAVEFORM_DYNAMIC_LABEL_DEBUG === '1';
@@ -476,7 +476,7 @@ export default function extension(pi: ExtensionAPI): void {
     // the user may flip enabled=on mid-session via env or by editing
     // the file + /reload.
     try {
-      const layers = defaultAgentLayers({ extensionDir: extDir, userPiDir, cwd: ctx.cwd });
+      const layers = defaultAgentLayers({ extensionDir: extDir, cwd: ctx.cwd });
       const knownToolNames = new Set(pi.getAllTools().map((t) => t.name));
       const loaded: AgentLoadResult = loadAgents({
         layers,

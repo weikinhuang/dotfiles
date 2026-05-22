@@ -1,5 +1,5 @@
 /**
- * Classification helpers for the unified `~/.pi/filesystem.json` policy.
+ * Classification helpers for the unified `<piAgentDir>/filesystem.json` policy.
  *
  * Read uses deny-then-allow-back semantics:
  *   1. If a `read.deny.*` entry matches, gate the path...
@@ -107,7 +107,7 @@ export function isUnderPath(absolutePath: string, prefix: string): boolean {
 /**
  * Resolve a rule-file `paths` entry to an absolute path. Tilde-expand,
  * then resolve against `cwd` so a `paths: ['.']` entry under
- * `~/.pi/filesystem.json` means "the session's cwd at evaluation time"
+ * `<piAgentDir>/filesystem.json` means "the session's cwd at evaluation time"
  * (matches plan section 3.2 - `.` resolves against `ctx.cwd`, not
  * `process.cwd`).
  */

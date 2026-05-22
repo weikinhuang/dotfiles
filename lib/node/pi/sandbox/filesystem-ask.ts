@@ -14,10 +14,11 @@
  *   1. Allow once (this session)        in-memory `sessionWriteAllow`
  *                                        set; cleared at session end.
  *   2. Always allow `<commonParent>`     writes to project `.pi/
- *      (project)                          filesystem.json` or `~/.pi/`
+ *      (project)                          filesystem.json` or to
+ *                                        `<piAgentDir>/filesystem.json`
  *                                        when no project file exists.
- *   3. Always allow `<commonParent>`     writes to `~/.pi/filesystem.json`.
- *      (user)
+ *   3. Always allow `<commonParent>`     writes to
+ *      (user)                             `<piAgentDir>/filesystem.json`.
  *   4. Deny                              keep the failure splice; the
  *                                        model sees the existing
  *                                        annotated stderr.
@@ -59,7 +60,7 @@ export interface FsAskDeps {
    *  dialog can echo it in the confirm notify. May throw on a
    *  malformed existing file - the dialog catches and surfaces. */
   saveProjectWriteAllow: (path: string) => string;
-  /** Persist `path` to user-scope `~/.pi/filesystem.json`. */
+  /** Persist `path` to user-scope `<piAgentDir>/filesystem.json`. */
   saveUserWriteAllow: (path: string) => string;
   /** Working directory of the original tool_call - used to validate
    *  the proposed common parent against {@link clampCommonParent}. */
