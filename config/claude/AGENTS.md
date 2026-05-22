@@ -6,8 +6,8 @@ directory.
 
 ## Commands
 
-- `./dev/lint.sh` - shellcheck + shfmt on `statusline-command.sh` (and anything else tracked here).
-- `./dev/test-docker.sh tests/config/claude/statusline-command.bats` - bats coverage for the status line.
+- `./dev/lint-shell.sh` - shellcheck + shfmt on `statusline-command.sh` (and anything else tracked here).
+- `./dev/test-bats-docker.sh tests/config/claude/statusline-command.bats` - bats coverage for the status line.
 - `npx vitest run tests/config/claude` - vitest coverage for `session-usage.ts` if you add specs.
 
 ## Directory map
@@ -31,7 +31,7 @@ Keep [README.md](./README.md) in sync with any change to this directory. Specifi
 - When changing **CLI flags or commands** on `session-usage.ts`, update its `Usage` / `Options`.
 - When changing **keys, env vars, or linked paths** in `settings-local.json`, update its section.
 
-After editing `statusline-command.sh`, run `./dev/lint.sh` and re-run the bats coverage above.
+After editing `statusline-command.sh`, run `./dev/lint-shell.sh` and re-run the bats coverage above.
 
 ## Boundaries
 

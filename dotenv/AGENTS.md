@@ -6,10 +6,10 @@ different here.
 
 ## Commands
 
-- `./dev/lint.sh` - shellcheck + shfmt on everything under this tree.
-- `./dev/test-docker.sh tests/dotenv/bin/<script>.bats` - run bats coverage for one `bin/` script.
-- `./dev/test-docker.sh tests/dotenv/aliases.bats` - run the top-level phase-file tests.
-- `./dev/test-docker.sh tests/dotenv/` - full bats suite for this tree.
+- `./dev/lint-shell.sh` - shellcheck + shfmt on everything under this tree.
+- `./dev/test-bats-docker.sh tests/dotenv/bin/<script>.bats` - run bats coverage for one `bin/` script.
+- `./dev/test-bats-docker.sh tests/dotenv/aliases.bats` - run the top-level phase-file tests.
+- `./dev/test-bats-docker.sh tests/dotenv/` - full bats suite for this tree.
 
 ## Directory map
 

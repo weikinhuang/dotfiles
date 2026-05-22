@@ -253,7 +253,7 @@ also checked with ShellCheck using its Bats parser.
 Validate the codebase locally:
 
 ```bash
-$ ./dev/lint.sh
+$ ./dev/lint-shell.sh
 OK
 ```
 

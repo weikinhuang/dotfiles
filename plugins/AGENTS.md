@@ -8,8 +8,8 @@ external tool (`fzf`, `direnv`, `bat`, …) or sets one family of shell options.
 
 ## Commands
 
-- `./dev/lint.sh` - shellcheck + shfmt on every plugin.
-- `./dev/test-docker.sh tests/plugins/<name>.bats` - run bats coverage for one plugin when it exists.
+- `./dev/lint-shell.sh` - shellcheck + shfmt on every plugin.
+- `./dev/test-bats-docker.sh tests/plugins/<name>.bats` - run bats coverage for one plugin when it exists.
 - `DOT_INCLUDE_BUILTIN_PLUGINS=1 env -i PATH="$PATH" HOME="$HOME" bash -l` - smoke-test a plugin interactively in a
   fresh shell.
 - `DOT_PLUGIN_DISABLE_<name>=1 env -i … bash -l` - confirm a plugin is correctly guarded when its tool is absent.
@@ -60,7 +60,7 @@ Document the disable switch in [`../REFERENCE.md`](../REFERENCE.md) when adding 
 ## Boundaries
 
 **Always**: guard with `command -v`; update [`../REFERENCE.md`](../REFERENCE.md)'s "Tool defaults" table when adding or
-retargeting a plugin; ship shellcheck-clean code (`./dev/lint.sh` must pass); add a bats spec under
+retargeting a plugin; ship shellcheck-clean code (`./dev/lint-shell.sh` must pass); add a bats spec under
 [`../tests/plugins/`](../tests/plugins/) for non-trivial behavior.
 
 **Ask first**: adding a new numeric prefix tier; adding a plugin that loads by default (not gated behind

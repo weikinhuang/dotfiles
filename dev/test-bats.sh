@@ -20,7 +20,7 @@ set -- "${args[@]+"${args[@]}"}"
 
 if ! command -v bats &>/dev/null; then
   echo "error: bats is not installed" >&2
-  echo "hint: run tests via Docker with: ./dev/test-docker.sh" >&2
+  echo "hint: run tests via Docker with: ./dev/test-bats-docker.sh" >&2
   exit 1
 fi
 

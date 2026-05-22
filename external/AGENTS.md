@@ -6,7 +6,8 @@ repo-wide conventions; this file only documents what is different here.
 
 ## Commands
 
-Vendored files are excluded from `./dev/lint.sh` by design - refresh them from upstream instead of editing in place.
+Vendored files are excluded from `./dev/lint-shell.sh` by design - refresh them from upstream instead of editing in
+place.
 
 - `curl -fsSL <upstream-url> -o external/<file>` - re-vendor one asset from its upstream URL. See
   [README.md](./README.md) for the canonical upstream URL per file.

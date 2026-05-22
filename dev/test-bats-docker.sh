@@ -22,7 +22,7 @@ while [[ $# -gt 0 ]]; do
       ;;
     -h | --help)
       cat <<'EOF'
-Usage: dev/test-docker.sh [--no-cache] [--pull] [TEST_ARGS...]
+Usage: dev/test-bats-docker.sh [--no-cache] [--pull] [TEST_ARGS...]
 
 Runs the Bats suite in the dotfiles-test container. Any unrecognized
 arguments are forwarded to dev/test.sh inside the container.

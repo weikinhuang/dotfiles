@@ -55,8 +55,8 @@ Derive the prefix from the source basename without extension:
 | `plugins/10-fzf.sh`          | `10-fzf:`      |
 | `dotenv/functions.sh::foo()` | `foo:`         |
 
-That prefix makes test grep usable (`./dev/test-docker.sh -q | grep git-sync`). Tests without the prefix pass CI but
-will be flagged in review.
+That prefix makes test grep usable (`./dev/test-bats-docker.sh -q | grep git-sync`). Tests without the prefix pass CI
+but will be flagged in review.
 
 ## The two-helper starting set
 
@@ -130,13 +130,13 @@ Plain `[ "$status" -eq 0 ]` works but gives worse failure messages.
 
 ## Running tests
 
-| Goal                                  | Command                                          |
-| ------------------------------------- | ------------------------------------------------ |
-| Full suite in Docker (recommended)    | `./dev/test-docker.sh`                           |
-| Quiet mode                            | `./dev/test-docker.sh -q`                        |
-| Single file                           | `./dev/test-docker.sh tests/dotenv/bin/foo.bats` |
-| Whole subtree                         | `./dev/test-docker.sh tests/plugins/`            |
-| Local run (needs host bats + helpers) | `./dev/test.sh`                                  |
+| Goal                                  | Command                                               |
+| ------------------------------------- | ----------------------------------------------------- |
+| Full suite in Docker (recommended)    | `./dev/test-bats-docker.sh`                           |
+| Quiet mode                            | `./dev/test-bats-docker.sh -q`                        |
+| Single file                           | `./dev/test-bats-docker.sh tests/dotenv/bin/foo.bats` |
+| Whole subtree                         | `./dev/test-bats-docker.sh tests/plugins/`            |
+| Local run (needs host bats + helpers) | `./dev/test-bats.sh`                                  |
 
 Prefer Docker - it pins the bats / bats-assert version and sidesteps host drift.
 

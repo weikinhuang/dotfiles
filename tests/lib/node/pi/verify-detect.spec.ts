@@ -148,7 +148,7 @@ test('verifyingCommandMatches: tests-pass matches common test runners', () => {
   expect(verifyingCommandMatches(kind, 'go test ./...')).toBe(true);
   expect(verifyingCommandMatches(kind, 'bats tests/')).toBe(true);
   expect(verifyingCommandMatches(kind, 'node --test config/pi/tests/')).toBe(true);
-  expect(verifyingCommandMatches(kind, './dev/test-docker.sh -q')).toBe(true);
+  expect(verifyingCommandMatches(kind, './dev/test-bats-docker.sh -q')).toBe(true);
 });
 
 test('verifyingCommandMatches: tests-pass does NOT match unrelated commands', () => {
@@ -168,7 +168,7 @@ test('verifyingCommandMatches: lint-clean matches common linters', () => {
   expect(verifyingCommandMatches(kind, 'shellcheck -s bash foo.sh')).toBe(true);
   expect(verifyingCommandMatches(kind, 'cargo clippy --all-targets')).toBe(true);
   expect(verifyingCommandMatches(kind, 'npm run lint')).toBe(true);
-  expect(verifyingCommandMatches(kind, './dev/lint.sh')).toBe(true);
+  expect(verifyingCommandMatches(kind, './dev/lint-shell.sh')).toBe(true);
 });
 
 test('verifyingCommandMatches: lint-clean does NOT match unrelated commands', () => {
@@ -355,9 +355,9 @@ test('collectBashCommandsSinceLastUser: picks up bash tool-result input.command'
 });
 
 test('collectBashCommandsSinceLastUser: picks up bashExecution entries', () => {
-  const branch: BranchEntry[] = [user('do it'), bashExec('./dev/lint.sh')];
+  const branch: BranchEntry[] = [user('do it'), bashExec('./dev/lint-shell.sh')];
 
-  expect(collectBashCommandsSinceLastUser(branch)).toEqual(['./dev/lint.sh']);
+  expect(collectBashCommandsSinceLastUser(branch)).toEqual(['./dev/lint-shell.sh']);
 });
 
 test('collectBashCommandsSinceLastUser: ignores non-bash tool calls', () => {
@@ -476,14 +476,14 @@ test('collectBashCommandsSinceLastUser: mixed bash + bg_bash in one turn contrib
           {
             type: 'toolCall',
             name: 'bash',
-            arguments: { command: './dev/lint.sh' },
+            arguments: { command: './dev/lint-shell.sh' },
           },
         ],
       },
     },
   ];
 
-  expect(new Set(collectBashCommandsSinceLastUser(branch))).toEqual(new Set(['npm test', './dev/lint.sh']));
+  expect(new Set(collectBashCommandsSinceLastUser(branch))).toEqual(new Set(['npm test', './dev/lint-shell.sh']));
 });
 
 // ──────────────────────────────────────────────────────────────────────
@@ -611,10 +611,10 @@ test('lastUserMessageHasMarker: string-content user messages too', () => {
 // verifyingCommandMatches / partitionClaims with extras
 // ──────────────────────────────────────────────────────────────────────
 
-test('format-clean default: ./dev/lint.sh counts as a formatter', () => {
-  expect(verifyingCommandMatches('format-clean', './dev/lint.sh')).toBe(true);
-  expect(verifyingCommandMatches('format-clean', 'dev/lint.sh')).toBe(true);
-  expect(verifyingCommandMatches('format-clean', './dev/lint.sh -q')).toBe(true);
+test('format-clean default: ./dev/lint-shell.sh counts as a formatter', () => {
+  expect(verifyingCommandMatches('format-clean', './dev/lint-shell.sh')).toBe(true);
+  expect(verifyingCommandMatches('format-clean', 'dev/lint-shell.sh')).toBe(true);
+  expect(verifyingCommandMatches('format-clean', './dev/lint-shell.sh -q')).toBe(true);
   expect(verifyingCommandMatches('format-clean', 'npm run lint')).toBe(true);
   expect(verifyingCommandMatches('format-clean', 'make lint')).toBe(true);
   expect(verifyingCommandMatches('format-clean', 'make check')).toBe(true);

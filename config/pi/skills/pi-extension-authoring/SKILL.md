@@ -150,6 +150,6 @@ Add an entry under `extensions`:
 5. Entry added to `extensions` array in `settings-baseline.json`.
 6. Row added to `config/pi/extensions/README.md` index table.
 7. `PI_<NAME>_DISABLED` env var supported; smoke-tested with qwen3.
-8. `./dev/lint.sh` passes for any shell / statusline touched.
+8. `./dev/lint-shell.sh` passes for any shell files touched.
 9. If a companion skill teaches WHEN to use this tool, add it under `config/pi/skills/<name>/SKILL.md` and cross-link
    from the `.md` and `README-skills.md`.

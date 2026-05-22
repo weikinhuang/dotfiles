@@ -16,7 +16,7 @@ Tests run inside a Docker container to provide a clean, isolated environment fre
 ### Full suite (recommended)
 
 ```bash
-./dev/test-docker.sh
+./dev/test-bats-docker.sh
 ```
 
 ### Quiet mode
@@ -24,13 +24,13 @@ Tests run inside a Docker container to provide a clean, isolated environment fre
 Only prints failing tests and a summary line - useful for CI and agents:
 
 ```bash
-./dev/test-docker.sh -q
+./dev/test-bats-docker.sh -q
 ```
 
 ### Single file
 
 ```bash
-./dev/test-docker.sh tests/dotenv/wsl/bin/winrun.bats
+./dev/test-bats-docker.sh tests/dotenv/wsl/bin/winrun.bats
 ```
 
 ### Run locally (without Docker)
@@ -39,7 +39,7 @@ Requires `bats`, `bats-support`, and `bats-assert` installed via apt:
 
 ```bash
 sudo apt install bats bats-support bats-assert
-./dev/test.sh
+./dev/test-bats.sh
 ```
 
 ## Test Layout
@@ -182,7 +182,7 @@ scripts. Bats files are formatted with `shfmt -ln bats` and also checked by Shel
 (`shellcheck -s bats -S warning`).
 
 ```bash
-./dev/lint.sh
+./dev/lint-shell.sh
 ```
 
 ## Docker Image

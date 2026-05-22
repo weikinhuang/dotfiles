@@ -8,7 +8,7 @@
  *
  *   - decisions made earlier in the session ("we chose approach B")
  *   - file paths it keeps rediscovering ("secrets live in config/env/*")
- *   - test / lint commands it keeps re-deriving ("./dev/test-docker.sh -q")
+ *   - test / lint commands it keeps re-deriving ("./dev/test-bats-docker.sh -q")
  *   - answers the user gave to clarifying questions
  *   - TODOs noticed in passing that don't belong in the structured plan
  *

@@ -237,8 +237,8 @@ const COMMAND_PATTERNS: Record<ClaimKind, readonly RegExp[]> = {
     new RegExp(`${CMD_START}go\\s+vet${CMD_END}`, 'i'),
     new RegExp(`${CMD_START}golangci-lint${CMD_END}`, 'i'),
     new RegExp(`${CMD_START}biome\\s+(?:lint|check)${CMD_END}`, 'i'),
-    new RegExp(`${CMD_START}(?:\\.\\/)?(?:dev\\/lint|bin\\/lint|script\\/lint)(?:\\.sh)?${CMD_END}`, 'i'),
-    new RegExp(`${CMD_START}(?:\\.\\/)?[\\w./-]*(?:^|\\/)lint\\.sh${CMD_END}`, 'i'),
+    new RegExp(`${CMD_START}(?:\\.\\/)?(?:dev\\/lint|bin\\/lint|script\\/lint)\\S*?(?:\\.sh)?${CMD_END}`, 'i'),
+    new RegExp(`${CMD_START}(?:\\.\\/)?[\\w./-]*(?:^|\\/)lint\\S*?\\.sh${CMD_END}`, 'i'),
   ],
   'types-check': [
     new RegExp(`${CMD_START}(?:npx\\s+|pnpm\\s+|yarn\\s+|bun\\s+)?tsc${CMD_END}`, 'i'),
@@ -278,15 +278,15 @@ const COMMAND_PATTERNS: Record<ClaimKind, readonly RegExp[]> = {
     new RegExp(`${CMD_START}biome\\s+format${CMD_END}`, 'i'),
     new RegExp(`${CMD_START}(?:npm|pnpm|yarn|bun)\\s+(?:run\\s+)?(?:format|fmt)${CMD_END}`, 'i'),
     // Meta-scripts that conventionally bundle lint + format (shellcheck + shfmt,
-    // oxlint + oxfmt, etc.). Running `./dev/lint.sh` or `npm run lint` almost
+    // oxlint + oxfmt, etc.). Running `npm run lint` almost
     // always means formatting is checked too; accepting them for `format-clean`
     // is a deliberate false-negative-suppression call -- the cost of missing a
     // real over-claim is lower than nagging every time the user runs a lint
     // wrapper. Projects that truly keep lint and format separate can opt out
     // via the `commandSatisfies` config layer.
     new RegExp(`${CMD_START}(?:npm|pnpm|yarn|bun)\\s+(?:run\\s+)?lint${CMD_END}`, 'i'),
-    new RegExp(`${CMD_START}(?:\\.\\/)?(?:dev\\/lint|bin\\/lint|script\\/lint)(?:\\.sh)?${CMD_END}`, 'i'),
-    new RegExp(`${CMD_START}(?:\\.\\/)?[\\w./-]*(?:^|\\/)lint\\.sh${CMD_END}`, 'i'),
+    new RegExp(`${CMD_START}(?:\\.\\/)?(?:dev\\/lint|bin\\/lint|script\\/lint)\\S*?(?:\\.sh)?${CMD_END}`, 'i'),
+    new RegExp(`${CMD_START}(?:\\.\\/)?[\\w./-]*(?:^|\\/)lint\\S*?\\.sh${CMD_END}`, 'i'),
     new RegExp(`${CMD_START}make\\s+(?:lint|check|format|fmt)${CMD_END}`, 'i'),
   ],
   'ci-green': [
@@ -302,7 +302,7 @@ const COMMAND_PATTERNS: Record<ClaimKind, readonly RegExp[]> = {
  * Optional `extras`: user-supplied rules that augment the built-in
  * matchers. Each rule names a command-prefix regex plus the set of
  * claim kinds the command satisfies. Example: `{ pattern: "^./dev/lint\\.sh\\b", kinds: ["lint-clean", "format-clean"] }`
- * tells us a single `./dev/lint.sh` invocation counts as both.
+ * tells us a single `./dev/lint-shell.sh` invocation counts as both.
  */
 export function verifyingCommandMatches(
   kind: ClaimKind,

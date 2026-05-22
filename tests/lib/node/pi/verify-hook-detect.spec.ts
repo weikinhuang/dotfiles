@@ -76,13 +76,13 @@ test('.husky/pre-commit invokes eslint directly → credits lint-clean', () => {
   expect(info.tools).toContain('eslint');
 });
 
-test('.husky/pre-commit with ./dev/lint.sh → credits both lint-clean and format-clean', () => {
-  writeFile('.husky/pre-commit', '#!/usr/bin/env sh\n./dev/lint.sh\n');
+test('.husky/pre-commit with ./dev/lint-shell.sh → credits both lint-clean and format-clean', () => {
+  writeFile('.husky/pre-commit', '#!/usr/bin/env sh\n./dev/lint-shell.sh\n');
   const { rules, info } = detectHookRules(workdir);
 
   expect(rules).toHaveLength(1);
   expect(sortedKinds([...rules[0].kinds])).toEqual(['format-clean', 'lint-clean']);
-  expect(info.tools).toContain('dev/lint.sh');
+  expect(info.tools).toContain('dev/lint-shell.sh');
 });
 
 test('.husky/pre-commit invoking lint-staged records husky path as a source', () => {

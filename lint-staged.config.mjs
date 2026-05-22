@@ -5,7 +5,7 @@ const config = {
   ],
   '*.{json,jsonc,json5,md,toml,yaml,yml}': ['oxfmt --no-error-on-unmatched-pattern'],
   '*.{md,mdc}': ['markdownlint-cli2 --fix --no-globs', 'oxfmt --no-error-on-unmatched-pattern'],
-  '*.sh': [() => './dev/lint.sh -f'],
+  '*.sh': [() => './dev/lint-shell.sh -f'],
 };
 
 export default config;

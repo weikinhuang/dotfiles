@@ -123,5 +123,5 @@ source basename (prefix included). Example: `plugins/30-zoxide.sh` → `tests/pl
 2. Write the file with the header, guard, and additive setup.
 3. Add `DOT_PLUGIN_DISABLE_<name>=1` support documentation in `REFERENCE.md`.
 4. Add a bats spec under `tests/plugins/<basename>.bats` if behavior is non-trivial.
-5. `./dev/lint.sh` and (if tests exist) `./dev/test-docker.sh tests/plugins/<basename>.bats`.
+5. `./dev/lint-shell.sh` and (if tests exist) `./dev/test-bats-docker.sh tests/plugins/<basename>.bats`.
 6. Smoke test: `DOT_INCLUDE_BUILTIN_PLUGINS=1 env -i PATH="$PATH" HOME="$HOME" bash -l`.

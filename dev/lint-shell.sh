@@ -9,7 +9,7 @@ FIX=
 
 print_help() {
   cat <<'EOF'
-Usage: dev/lint.sh [OPTION]...
+Usage: dev/lint-shell.sh [OPTION]...
 Run shellcheck + shfmt on tracked shell and bats files.
 
 Options:
@@ -28,7 +28,7 @@ while [[ $# -gt 0 ]]; do
       exit 0
       ;;
     *)
-      echo "lint.sh: unknown argument: $1" >&2
+      echo "lint-shell.sh: unknown argument: $1" >&2
       print_help >&2
       exit 1
       ;;

@@ -137,12 +137,12 @@ const TOOL_PATTERNS: readonly ToolPattern[] = [
   { name: 'bats', token: /\bbats\b/i, kinds: ['tests-pass'] },
 
   // Local wrapper scripts (common across this repo and lots of others).
-  // These are intentionally broad - matching `./dev/lint.sh` or a bare
-  // `lint.sh` mention counts as both lint AND format because local
+  // These are intentionally broad - matching `./dev/lint-shell.sh` or a bare
+  // `lint-shell.sh` mention counts as both lint AND format because local
   // wrappers conventionally bundle both.
   {
-    name: 'dev/lint.sh',
-    token: /(?:^|[\s"'`])(?:\.\/)?(?:dev|bin|script|scripts)\/lint\.sh\b/,
+    name: 'dev/lint-shell.sh',
+    token: /(?:^|[\s"'`])(?:\.\/)?(?:dev|bin|script|scripts)\/lint\S*\.sh\b/,
     kinds: ['lint-clean', 'format-clean'],
   },
 ];
@@ -267,7 +267,7 @@ export function detectHookRules(cwd: string): DetectHookRulesResult {
     // in the lint-staged config - which we'll scan below regardless,
     // so no extra plumbing needed here. We only need to record that
     // the hook exists; the text-scan above handles any direct tool
-    // invocations (`./dev/lint.sh`, inline `eslint`, etc.).
+    // invocations (`./dev/lint-shell.sh`, inline `eslint`, etc.).
   }
 
   // ── 2. lint-staged configs (code + JSON) ──────────────────────────

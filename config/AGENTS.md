@@ -7,8 +7,8 @@ Non-shell configuration files consumed by third-party tools. Most subdirectories
 
 ## Commands
 
-- `./dev/lint.sh` - shellcheck + shfmt (touches `statusline-command.sh` and other shell under this tree).
-- `./dev/test-docker.sh tests/config/` - run bats coverage for any config shell script that has tests.
+- `./dev/lint-shell.sh` - shellcheck + shfmt (touches `statusline-command.sh` and other shell under this tree).
+- `./dev/test-bats-docker.sh tests/config/` - run bats coverage for any config shell script that has tests.
 - `npx vitest run tests/config/` - run vitest coverage for `session-usage.ts` specs under this tree.
 
 ## Directory map
@@ -47,8 +47,8 @@ See [README.md](./README.md) for the full per-directory table; high-level groupi
 ## Boundaries
 
 **Always**: update [REFERENCE.md](../REFERENCE.md)'s "Tool defaults" table when adding, renaming, or retargeting a
-config subdirectory; keep [README.md](./README.md) in sync with directory additions / removals; run `./dev/lint.sh`
-after touching shell files under this tree.
+config subdirectory; keep [README.md](./README.md) in sync with directory additions / removals; run
+`./dev/lint-shell.sh` after touching shell files under this tree.
 
 **Ask first**: adding a new tool integration (new subdirectory + plugin pair); changing a [`../plugins/`](../plugins/) →
 `config/*/` binding (which file a plugin points the tool at).

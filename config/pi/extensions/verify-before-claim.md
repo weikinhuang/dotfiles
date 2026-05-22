@@ -30,9 +30,9 @@ On `agent_end`, [`lib/node/pi/verify-detect.ts`](../../../lib/node/pi/verify-det
 
 3. Partitions claims into `(verified, unverified)` using liberal per-kind command patterns: e.g. `tests-pass` matches
    `jest`, `vitest`, `mocha`, `pytest`, `cargo test`, `cargo nextest run`, `go test`, `bats`, `node --test`, `npm test`,
-   `pnpm run test`, `./dev/test-docker.sh`, etc. `lint-clean` matches `oxlint`, `shellcheck`, `ruff`, `rubocop`,
-   `cargo clippy`, `golangci-lint`, `./dev/lint.sh`, and more. Matching is deliberately liberal - false positives merely
-   suppress a nudge, false negatives merely produce one extra nudge.
+   `pnpm run test`, etc. `lint-clean` matches `oxlint`, `shellcheck`, `ruff`, `rubocop`, `cargo clippy`,
+   `golangci-lint`, and more. Matching is deliberately liberal - false positives merely suppress a nudge, false
+   negatives merely produce one extra nudge.
 
 4. If `unverified.length > 0` AND the most recent user message doesn’t already carry the `⚠ [pi-verify-before-claim]`
    sentinel, injects a follow-up user message via `pi.sendUserMessage`. Delivery is deferred one event-loop tick via

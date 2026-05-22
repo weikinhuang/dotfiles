@@ -84,7 +84,7 @@ diff <(grep -oE '`(DOT|BASHRC)_[A-Z0-9_]+`' README.md | sort -u) \
      <(grep -oE '`(DOT|BASHRC)_[A-Z0-9_]+`' REFERENCE.md | sort -u)
 ```
 
-- Run `./dev/lint.sh` if shell scripts changed; markdown is checked by `lint-staged` on commit.
+- Run `./dev/lint-shell.sh` if shell scripts changed; markdown is checked by `lint-staged` on commit.
 
 ## Common pitfalls
 

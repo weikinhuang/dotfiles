@@ -4,11 +4,11 @@ Cross-platform bash dotfiles for Linux, macOS, and WSL. Shell scripts, git utili
 
 ## Commands
 
-- `./dev/lint.sh` -- shellcheck + shfmt on all tracked shell scripts
-- `./dev/test-docker.sh` -- run full bats test suite in Docker (recommended)
-- `./dev/test-docker.sh -q` -- quiet mode, prints only failures and a summary
-- `./dev/test-docker.sh tests/dotenv/bin/git-sync.bats` -- run a single test file
-- `./dev/test.sh` -- run tests locally (requires apt-installed bats, bats-support, bats-assert)
+- `./dev/lint-shell.sh` -- shellcheck + shfmt on all tracked shell scripts
+- `./dev/test-bats-docker.sh` -- run full bats test suite in Docker (recommended)
+- `./dev/test-bats-docker.sh -q` -- quiet mode, prints only failures and a summary
+- `./dev/test-bats-docker.sh tests/dotenv/bin/git-sync.bats` -- run a single test file
+- `./dev/test-bats.sh` -- run tests locally (requires apt-installed bats, bats-support, bats-assert)
 - `npm test` -- run the vitest suite for TypeScript helpers under `lib/node/`
 
 ## Directory map
@@ -79,8 +79,8 @@ arrays. Declare hooks in `~/.bash_local` or `~/.bash_local.d/*.sh`.
 
 ### Shell style
 
-`./dev/lint.sh` (shfmt + shellcheck) is the source of truth. Naming conventions that tooling can't enforce (`__dot_*` /
-`internal::…`, cache-write routing) live in [dotenv/AGENTS.md](./dotenv/AGENTS.md).
+`./dev/lint-shell.sh` (shfmt + shellcheck) is the source of truth. Naming conventions that tooling can't enforce
+(`__dot_*` / `internal::…`, cache-write routing) live in [dotenv/AGENTS.md](./dotenv/AGENTS.md).
 
 ### Customization model
 
@@ -89,12 +89,12 @@ documented in [README.md](./README.md#configuration-options); see [REFERENCE.md]
 
 ## Boundaries
 
-**Always**: run `./dev/lint.sh` after changing shell scripts; run `./dev/test-docker.sh` after modifying or adding
-tests; place new tests mirroring their source path under `tests/`; update [REFERENCE.md](./REFERENCE.md) when changing
-the public shell surface, including aliases, functions, env vars, git subcommands, hooks, prompt options, plugin-exposed
-behavior, or commands on `$PATH`; when adding or renaming a user-facing `DOT_*` / `BASHRC_*` startup variable, update
-the Configuration Options table in [README.md](./README.md#configuration-options) in lockstep with the Startup
-configuration variables table in [REFERENCE.md](./REFERENCE.md) so both stay synced.
+**Always**: run `./dev/lint-shell.sh` after changing shell scripts; run `./dev/test-bats-docker.sh` after modifying or
+adding tests; place new tests mirroring their source path under `tests/`; update [REFERENCE.md](./REFERENCE.md) when
+changing the public shell surface, including aliases, functions, env vars, git subcommands, hooks, prompt options,
+plugin-exposed behavior, or commands on `$PATH`; when adding or renaming a user-facing `DOT_*` / `BASHRC_*` startup
+variable, update the Configuration Options table in [README.md](./README.md#configuration-options) in lockstep with the
+Startup configuration variables table in [REFERENCE.md](./REFERENCE.md) so both stay synced.
 
 **Ask first**: adding new plugins; modifying `bootstrap.sh` or `dotenv/lib/load.sh`; adding external dependencies;
 changing the dotenv loading order.

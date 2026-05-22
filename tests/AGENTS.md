@@ -7,9 +7,9 @@ worked test-file anatomy.
 
 ## Commands
 
-- `./dev/test-docker.sh tests/dotenv/bin/git-sync.bats` - run a single test file.
-- `./dev/test-docker.sh tests/dotenv/bin/` - run all tests in a directory.
-- `./dev/test-docker.sh -q` - quiet mode, only failures and summary.
+- `./dev/test-bats-docker.sh tests/dotenv/bin/git-sync.bats` - run a single test file.
+- `./dev/test-bats-docker.sh tests/dotenv/bin/` - run all tests in a directory.
+- `./dev/test-bats-docker.sh -q` - quiet mode, only failures and summary.
 - `npm test` - run the vitest suite (`tests/**/*.spec.ts`).
 - `npx vitest run tests/lib/node/pi/jsonc.spec.ts` - run a single vitest spec.
 - `npx vitest tests/lib/node/pi/jsonc.spec.ts` - watch mode for a single spec.

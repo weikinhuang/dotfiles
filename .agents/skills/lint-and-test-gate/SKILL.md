@@ -1,11 +1,11 @@
 ---
 name: lint-and-test-gate
 description:
-  'WHAT: After editing shell / bats / TypeScript in this repo, run the matching gate command (`./dev/lint.sh`,
-  `./dev/test-docker.sh`, or `npm test`) before claiming the change is done, and quote the pass output. WHEN: Any
-  finished edit in dotenv/, plugins/, tests/, config/, or lib/node/. DO-NOT: Run the local `./dev/test.sh` when
-  `./dev/test-docker.sh` is available; skip the gate because "it''s a small change"; claim done without quoting the pass
-  tail.'
+  'WHAT: After editing shell / bats / TypeScript in this repo, run the matching gate command (`./dev/lint-shell.sh`,
+  `./dev/test-bats-docker.sh`, or `npm test`) before claiming the change is done, and quote the pass output. WHEN: Any
+  finished edit in dotenv/, plugins/, tests/, config/, or lib/node/. DO-NOT: Run the local `./dev/test-bats.sh` when
+  `./dev/test-bats-docker.sh` is available; skip the gate because "it''s a small change"; claim done without quoting the
+  pass tail.'
 ---
 
 # Lint and Test Gate
@@ -18,38 +18,39 @@ pass output, then claim the change is done. This is the repo-specific instance o
 
 Match what you touched to the command you run:
 
-| Touched                                               | Gate command                                                                 |
-| ----------------------------------------------------- | ---------------------------------------------------------------------------- |
-| Any `.sh` file (dotenv, plugins, config, bin scripts) | `./dev/lint.sh`                                                              |
-| Any `.bats` file (added or edited)                    | `./dev/test-docker.sh tests/<changed-path>.bats` then `./dev/test-docker.sh` |
-| Any `lib/node/**/*.ts` or `lib/node/**/*.spec.ts`     | `npm test`                                                                   |
-| Anything that changed shell AND added/changed a test  | Run both gates above.                                                        |
-| A public-surface doc change (REFERENCE.md, README.md) | No gate - but confirm the change is consistent with the code.                |
+| Touched                                               | Gate command                                                                           |
+| ----------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| Any `.sh` file (dotenv, plugins, config, bin scripts) | `./dev/lint-shell.sh`                                                                  |
+| Any `.bats` file (added or edited)                    | `./dev/test-bats-docker.sh tests/<changed-path>.bats` then `./dev/test-bats-docker.sh` |
+| Any `lib/node/**/*.ts` or `lib/node/**/*.spec.ts`     | `npm test`                                                                             |
+| Anything that changed shell AND added/changed a test  | Run both gates above.                                                                  |
+| A public-surface doc change (REFERENCE.md, README.md) | No gate - but confirm the change is consistent with the code.                          |
 
 Always prefer a focused run first (single file / single path), then a full-suite run to catch ordering breakage.
 
 ## Docker is the default for bats
 
-Run `./dev/test-docker.sh`, not `./dev/test.sh`, unless Docker is unavailable. Docker pins the bats, bats-support, and
-bats-assert versions and bypasses host drift. `-q` mutes pass noise, which is useful when you're running the full suite:
+Run `./dev/test-bats-docker.sh`, not `./dev/test-bats.sh`, unless Docker is unavailable. Docker pins the bats,
+bats-support, and bats-assert versions and bypasses host drift. `-q` mutes pass noise, which is useful when you're
+running the full suite:
 
 ```bash
-./dev/test-docker.sh -q
-./dev/test-docker.sh tests/dotenv/bin/git-sync.bats     # focused
-./dev/test-docker.sh tests/plugins/                      # subtree
+./dev/test-bats-docker.sh -q
+./dev/test-bats-docker.sh tests/dotenv/bin/git-sync.bats     # focused
+./dev/test-bats-docker.sh tests/plugins/                      # subtree
 ```
 
 ## Quote the pass tail
 
 When the gate passes, copy the last 3-6 lines of output into your reply. For bats that's the summary line
-(`<N> tests, 0 failures`); for shellcheck it's silent on success so `./dev/lint.sh` exiting 0 is the signal - say so
-explicitly.
+(`<N> tests, 0 failures`); for shellcheck it's silent on success so `./dev/lint-shell.sh` exiting 0 is the signal - say
+so explicitly.
 
 Good:
 
-> Ran `./dev/lint.sh` - exited 0 (no shellcheck or shfmt findings).
+> Ran `./dev/lint-shell.sh` - exited 0 (no shellcheck or shfmt findings).
 >
-> Ran `./dev/test-docker.sh tests/dotenv/bin/git-sync.bats`:
+> Ran `./dev/test-bats-docker.sh tests/dotenv/bin/git-sync.bats`:
 >
 > ```text
 > 12 tests, 0 failures
@@ -79,19 +80,19 @@ the gate yourself first so you can react to failures without a broken commit in 
 - **"I only touched one line, no need to test."** Pass the gate anyway; one-line changes have bitten this repo before.
 - **Running just the focused test and skipping the suite on a refactor.** Cross-file changes need the full suite to
   catch ordering / isolation bugs.
-- **Using `./dev/test.sh` because Docker feels slow.** Docker is the reference environment. If it's slow, run focused
-  tests during development and the full suite before claiming done.
+- **Using `./dev/test-bats.sh` because Docker feels slow.** Docker is the reference environment. If it's slow, run
+  focused tests during development and the full suite before claiming done.
 - **Claiming pass without quoting the output.** Users shouldn't have to rerun to confirm.
 - **Running `npm test` when only shell changed.** Wrong gate - it won't catch shell issues and wastes time.
-- **Ignoring shellcheck findings.** They're treated as errors, not warnings, by `./dev/lint.sh`. Fix them.
+- **Ignoring shellcheck findings.** They're treated as errors, not warnings, by `./dev/lint-shell.sh`. Fix them.
 
 ## Quick reference
 
-| Change                                      | Run this                                                                  |
-| ------------------------------------------- | ------------------------------------------------------------------------- |
-| Tiny shell tweak                            | `./dev/lint.sh`                                                           |
-| New / edited bats test                      | `./dev/test-docker.sh tests/<path>.bats` then `./dev/test-docker.sh -q`   |
-| New bin script (script + completion + test) | `./dev/lint.sh` and `./dev/test-docker.sh tests/dotenv/bin/<script>.bats` |
-| New plugin                                  | `./dev/lint.sh` and `./dev/test-docker.sh tests/plugins/<name>.bats`      |
-| TypeScript helper in `lib/node/`            | `npm test`                                                                |
-| Mixed shell + TS                            | All three: `./dev/lint.sh`, `./dev/test-docker.sh -q`, `npm test`         |
+| Change                                      | Run this                                                                             |
+| ------------------------------------------- | ------------------------------------------------------------------------------------ |
+| Tiny shell tweak                            | `./dev/lint-shell.sh`                                                                |
+| New / edited bats test                      | `./dev/test-bats-docker.sh tests/<path>.bats` then `./dev/test-bats-docker.sh -q`    |
+| New bin script (script + completion + test) | `./dev/lint-shell.sh` and `./dev/test-bats-docker.sh tests/dotenv/bin/<script>.bats` |
+| New plugin                                  | `./dev/lint-shell.sh` and `./dev/test-bats-docker.sh tests/plugins/<name>.bats`      |
+| TypeScript helper in `lib/node/`            | `npm test`                                                                           |
+| Mixed shell + TS                            | All three: `./dev/lint-shell.sh`, `./dev/test-bats-docker.sh -q`, `npm test`         |

@@ -13,7 +13,6 @@ root [AGENTS.md](../../../AGENTS.md) for repo-wide rules; this file documents on
 - `npm run tsc` - type-checks every helper imported by these extensions. The `.ts` extension files themselves are
   excluded from the root `tsconfig.json` (they resolve `@earendil-works/*` via pi's globally-installed package, which
   the root TS project doesn't know about), so type errors for extension shells only surface at runtime.
-- `./dev/lint.sh` - shellcheck + shfmt picks up any shell scripts under this tree.
 
 ## Key patterns
 

@@ -105,8 +105,8 @@ describe('pickMajorityRunIndex', () => {
 
 describe('keywordsFor', () => {
   test('picks up backtick-quoted terms', () => {
-    expect(keywordsFor('Use `./dev/lint.sh` and `shellcheck`')).toEqual(
-      expect.arrayContaining(['./dev/lint.sh', 'shellcheck']),
+    expect(keywordsFor('Use `./dev/lint-shell.sh` and `shellcheck`')).toEqual(
+      expect.arrayContaining(['./dev/lint-shell.sh', 'shellcheck']),
     );
   });
 
@@ -184,7 +184,7 @@ describe('gradeDeterministic', () => {
         'TRIGGER: yes\nREASON: also yes\nNEXT_STEP: do y',
         'TRIGGER: no\nREASON: one run disagrees\nNEXT_STEP: skip',
       ],
-      ['Do `y` in `./dev/lint.sh`'],
+      ['Do `y` in `./dev/lint-shell.sh`'],
       true,
       0.5,
     );
@@ -239,10 +239,10 @@ describe('gradeDeterministic', () => {
     const grade = runGrade(
       [
         'TRIGGER: no\nREASON: unrelated prose\nNEXT_STEP: unrelated',
-        'TRIGGER: yes\nREASON: invoke ./dev/lint.sh first\nNEXT_STEP: run shellcheck and shfmt before commit',
-        'TRIGGER: yes\nREASON: ./dev/lint.sh again\nNEXT_STEP: run shellcheck and shfmt',
+        'TRIGGER: yes\nREASON: invoke ./dev/lint-shell.sh first\nNEXT_STEP: run shellcheck and shfmt before commit',
+        'TRIGGER: yes\nREASON: ./dev/lint-shell.sh again\nNEXT_STEP: run shellcheck and shfmt',
       ],
-      ['Run `shellcheck` and `shfmt` via `./dev/lint.sh`'],
+      ['Run `shellcheck` and `shfmt` via `./dev/lint-shell.sh`'],
       true,
     );
 

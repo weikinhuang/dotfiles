@@ -1,7 +1,7 @@
 # Project-wide defaults for ShellCheck.
 # SPDX-License-Identifier: MIT
 #
-# dev/lint.sh passes --source-path=SCRIPTDIR explicitly, but editors/IDEs
+# dev/lint-shell.sh passes --source-path=SCRIPTDIR explicitly, but editors/IDEs
 # (vscode, nvim via null-ls, etc.) invoke `shellcheck` with no flags, so
 # we mirror the same source-resolution rules here. That way the warnings
 # a contributor sees inline match exactly what CI flags.

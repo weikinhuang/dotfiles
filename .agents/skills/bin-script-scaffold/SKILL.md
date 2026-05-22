@@ -224,7 +224,7 @@ subprocess.
 5. `chmod +x` the script.
 6. Update `REFERENCE.md` under `## Commands on PATH > ### Utility commands`, or `### Git subcommands` for `git-*`
    scripts, per the `doc-sync` skill.
-7. Run `./dev/lint.sh` and `./dev/test-docker.sh tests/<path>/foo.bats` before committing.
+7. Run `./dev/lint-shell.sh` and `./dev/test-bats-docker.sh tests/<path>/foo.bats` before committing.
 
 ## Common pitfalls
 

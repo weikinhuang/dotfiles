@@ -215,7 +215,7 @@ if [[ ${n} -le 2 ]]; then
   cat <<REPLY
 TRIGGER: yes
 REASON: run ${n} sees the trigger prompt
-NEXT_STEP: Apply the skill, mention \`sample\`, run \`shellcheck\` via \`./dev/lint.sh\`.
+NEXT_STEP: Apply the skill, mention \`sample\`, run \`shellcheck\` via \`./dev/lint-shell.sh\`.
 REPLY
 else
   cat <<REPLY
@@ -637,7 +637,7 @@ if [[ "${prompt}" == *"===== SKILL ====="* ]]; then
   cat <<REPLY
 TRIGGER: yes
 REASON: saw the SKILL block
-NEXT_STEP: Apply the skill, mention \`sample\`, run \`shellcheck\` via \`./dev/lint.sh\`.
+NEXT_STEP: Apply the skill, mention \`sample\`, run \`shellcheck\` via \`./dev/lint-shell.sh\`.
 REPLY
 else
   cat <<REPLY
@@ -826,7 +826,7 @@ PY
 set -euo pipefail
 prompt="$(cat "${AI_SKILL_EVAL_PROMPT_FILE}")"
 if [[ "${prompt}" == *"===== SKILL ====="* ]]; then
-  printf 'TRIGGER: yes\nREASON: saw SKILL\nNEXT_STEP: Apply the skill, mention `sample`, run `shellcheck` via `./dev/lint.sh`.\n'
+  printf 'TRIGGER: yes\nREASON: saw SKILL\nNEXT_STEP: Apply the skill, mention `sample`, run `shellcheck` via `./dev/lint-shell.sh`.\n'
 else
   printf 'TRIGGER: no\nREASON: no SKILL\nNEXT_STEP: plain reply.\n'
 fi
