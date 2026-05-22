@@ -173,7 +173,7 @@ The feature is **off by default**. Opt in by adding a `dynamicLabel` block to `~
 | `persona`            | `"daemon"` | Name of a persona under one of the three layered `personas/` dirs. Set to `""` to opt out of any overlay (neutral system prompt only).          |
 | `maxCallsPerSession` | `20`       | Per-session cap. Once hit, every subsequent trigger short-circuits without spawning. Resets at the next pi `session_start`.                     |
 
-`tinyModel` is well-suited to local llama-cpp models in the 0.6B-9B range: the phrase is short (<=25 chars), the prompt
+`tinyModel` is well-suited to local llama-cpp models in the 0.6B-9B range: the phrase is short (<=60 chars), the prompt
 is tiny (<=200 chars + persona overlay), the 5 s timeout is tight, and there's no per-call USD cost. The setting lives
 in `~/.pi/waveform-indicator.json` (not piggy-backing on `~/.pi/agent/research-tiny.json`) - the waveform extension owns
 its own model resolution.
@@ -218,13 +218,15 @@ request id + an explicit `AbortController` wired into both the in-flight spawn A
    Before issuing a new spawn the reducer aborts the previous controller and stores the new one.
 2. The new controller's signal is composed with `ctx.signal` so user Ctrl-C tears down the spawn along with the turn.
 3. When a spawn returns, the reducer ignores the response if `requestId < state.lastAcceptedRequestId` (stale), if the
-   signal is aborted (cancelled), or if the validator rejects the body. Otherwise it updates `state.acceptedPhrase` and
-   `state.lastAcceptedRequestId`.
+   signal is aborted (cancelled), or if the validator rejects the body outright (multi-line, ANSI, control bytes,
+   literal `null`, opens on a non-letter). Phrases longer than the cap are truncated with a single `…` rather than
+   dropped. Otherwise it updates `state.acceptedPhrase` and `state.lastAcceptedRequestId`.
 4. Until any phrase has been accepted, the head renders the literal `Thinking...`.
 5. Once a phrase is accepted, it stays on screen even while a new spawn is in flight - no flicker back to `Thinking...`
    between triggers.
-6. Failure paths (timeout, validation reject, `stopReason !== 'completed'`, budget exhausted, persona load failed,
-   `tinyModel` registry-miss at spawn time) all keep the previously-accepted phrase, or render `Thinking...` if none.
+6. Failure paths (timeout, validator hard-reject, `stopReason` outside `completed`/`max_turns`, budget exhausted,
+   persona load failed, `tinyModel` registry-miss at spawn time) all keep the previously-accepted phrase, or render
+   `Thinking...` if none.
 
 **Reset points** - every one of these aborts the in-flight controller and clears stale spawn-in-flight bookkeeping:
 

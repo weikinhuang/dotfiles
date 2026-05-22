@@ -68,7 +68,7 @@
  *                                     `PI_WAVEFORM_THINKING_PULSE=off`.
  */
 
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { appendFileSync, existsSync, readdirSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -351,6 +351,24 @@ export default function extension(pi: ExtensionAPI): void {
   const extDir = dirname(fileURLToPath(import.meta.url));
   const userPiDir = join(homedir(), '.pi');
 
+  // Optional debug logger for the dynamic-label spawn pipeline. Enabled
+  // by `PI_WAVEFORM_DYNAMIC_LABEL_DEBUG=1`; writes JSONL lines to
+  // `~/.pi/waveform-indicator.debug.log` so the user can audit which
+  // guard (stopReason, validator, abort, exception) is dropping a
+  // spawn result. No-op when the env var is unset so production runs
+  // pay zero overhead.
+  const debugEnabled = process.env.PI_WAVEFORM_DYNAMIC_LABEL_DEBUG === '1';
+  const debugLogPath = join(userPiDir, 'waveform-indicator.debug.log');
+  function debugLog(event: string, fields: Record<string, unknown>): void {
+    if (!debugEnabled) return;
+    try {
+      const line = JSON.stringify({ ts: new Date().toISOString(), event, ...fields }) + '\n';
+      appendFileSync(debugLogPath, line, 'utf8');
+    } catch {
+      /* logging failures must never break the indicator */
+    }
+  }
+
   const personaFsAdapter: PersonaFsAdapter = {
     exists: (p) => {
       try {
@@ -545,12 +563,24 @@ export default function extension(pi: ExtensionAPI): void {
    *     one-shot warning).
    */
   function fireTriggerSpawn(ctx: ExtensionContext, phaseTag: string, contextDigest: string): void {
-    if (!dynamicLabelConfig.enabled || !dynamicLabelConfig.tinyModel) return;
-    if (!phraserAgent) return;
-    if (phraseState === null) return;
+    if (!dynamicLabelConfig.enabled || !dynamicLabelConfig.tinyModel) {
+      debugLog('skip', { reason: 'disabled-or-no-model', phaseTag });
+      return;
+    }
+    if (!phraserAgent) {
+      debugLog('skip', { reason: 'no-phraser-agent', phaseTag });
+      return;
+    }
+    if (phraseState === null) {
+      debugLog('skip', { reason: 'no-phrase-state', phaseTag });
+      return;
+    }
 
     // Per-turn dedup: at most one spawn per phaseTag per turn.
-    if (markFiredThisTurn(phraseState, phaseTag)) return;
+    if (markFiredThisTurn(phraseState, phaseTag)) {
+      debugLog('skip', { reason: 'already-fired-this-turn', phaseTag });
+      return;
+    }
 
     // Budget: hard short-circuit. Keep last accepted phrase on screen.
     if (phraseState.callsThisSession >= dynamicLabelConfig.maxCallsPerSession) {
@@ -559,6 +589,7 @@ export default function extension(pi: ExtensionAPI): void {
         'budget-exhausted',
         `dynamic-label budget of ${dynamicLabelConfig.maxCallsPerSession} calls exhausted; keeping last phrase`,
       );
+      debugLog('skip', { reason: 'budget-exhausted', phaseTag, calls: phraseState.callsThisSession });
       return;
     }
 
@@ -575,15 +606,20 @@ export default function extension(pi: ExtensionAPI): void {
         `model-miss:${dynamicLabelConfig.tinyModel}`,
         `tinyModel ${provider}/${modelId} not registered; keeping static label`,
       );
+      debugLog('skip', { reason: 'model-miss', phaseTag, model: dynamicLabelConfig.tinyModel });
       return;
     }
 
     const agent = buildSpawnAgent();
-    if (!agent) return;
+    if (!agent) {
+      debugLog('skip', { reason: 'no-spawn-agent', phaseTag });
+      return;
+    }
 
     const { requestId, signal } = issueRequest(phraseState, ctx.signal);
     const state = phraseState;
     const task = buildPhrasePrompt(phaseTag, contextDigest);
+    debugLog('spawn-fire', { requestId, phaseTag, contextDigest, model: dynamicLabelConfig.tinyModel });
 
     // Resolve the child model via the same helper iteration-loop uses
     // so an explicit `tinyModel` override goes through the shared
@@ -627,14 +663,64 @@ export default function extension(pi: ExtensionAPI): void {
       ),
     })
       .then((result) => {
-        if (signal.aborted) return;
-        if (result.stopReason !== 'completed') return;
-        const phrase = validatePhrase(result.finalText.split(/\r?\n/, 1)[0] ?? '');
-        if (phrase === null) return;
-        acceptPhrase(state, requestId, phrase, signal);
+        if (signal.aborted) {
+          debugLog('spawn-return', {
+            requestId,
+            phaseTag,
+            outcome: 'signal-aborted',
+            stopReason: result.stopReason,
+            finalText: result.finalText,
+          });
+          return;
+        }
+        // `runOneShotAgent`'s `turn_end` handler aborts the child as soon
+        // as `turns >= maxTurns`, so a one-turn natural completion (which
+        // is exactly what we want from the waveform-phraser) classifies
+        // as `max_turns`, not `completed`. Treat `max_turns` with a
+        // non-empty `finalText` as success - the response landed before
+        // the abort. `aborted` / `error` / empty-text outcomes still drop.
+        const accepted = result.stopReason === 'completed' || result.stopReason === 'max_turns';
+        if (!accepted || result.finalText.length === 0) {
+          debugLog('spawn-return', {
+            requestId,
+            phaseTag,
+            outcome: 'non-completed-stop',
+            stopReason: result.stopReason,
+            errorMessage: result.errorMessage,
+            finalText: result.finalText,
+          });
+          return;
+        }
+        const firstLine = result.finalText.split(/\r?\n/, 1)[0] ?? '';
+        const phrase = validatePhrase(firstLine);
+        if (phrase === null) {
+          debugLog('spawn-return', {
+            requestId,
+            phaseTag,
+            outcome: 'validator-rejected',
+            stopReason: result.stopReason,
+            firstLine,
+            finalText: result.finalText,
+          });
+          return;
+        }
+        const acceptResult = acceptPhrase(state, requestId, phrase, signal);
+        debugLog('spawn-return', {
+          requestId,
+          phaseTag,
+          outcome: `accept-${acceptResult}`,
+          stopReason: result.stopReason,
+          phrase,
+        });
       })
-      .catch(() => {
+      .catch((e) => {
         /* swallow - failures keep the previously-accepted phrase */
+        debugLog('spawn-return', {
+          requestId,
+          phaseTag,
+          outcome: 'thrown',
+          error: e instanceof Error ? `${e.name}: ${e.message}` : String(e),
+        });
       });
   }
 

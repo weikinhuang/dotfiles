@@ -41,8 +41,14 @@ import { mergeAbortSignals } from './abort-merge.ts';
 /** Fallback head rendered before any phrase lands and on every failure path. */
 export const FALLBACK_PHRASE = 'Thinking...';
 
-/** Hard cap on the cleaned phrase length, in user-visible characters. */
-export const DEFAULT_MAX_PHRASE_CHARS = 25;
+/**
+ * Hard cap on the cleaned phrase length, in user-visible characters.
+ * Sized for "a short phrase with a few words" - typically 5-8 words -
+ * so small local models (0.5B-1B class) that can't reliably stop at a
+ * tighter cap still land a usable phrase. The line still has to fit
+ * alongside the dim suffix on a typical 120-col terminal.
+ */
+export const DEFAULT_MAX_PHRASE_CHARS = 60;
 
 /** First-N characters captured from the user's prompt for the cached `promptDigest`. */
 export const PROMPT_DIGEST_CHARS = 200;
@@ -299,16 +305,25 @@ export interface ValidatePhraseOptions {
  * `null` when the response should be dropped on the floor (caller
  * keeps the previously-accepted phrase).
  *
- * Rejections:
+ * Rejections (return `null`):
  *
  *   - empty / whitespace-only
  *   - multi-line (one phrase, one line)
- *   - longer than `opts.maxChars` (default 25 user-visible chars)
  *   - contains an ANSI SGR escape (`[`) - model leaked colour
  *   - contains any other control char
  *   - literal `null` (the rule-sheet escape hatch)
  *   - starts with a non-letter (the daemon persona forbids opening
  *     on punctuation; this catches stray bullets or quote marks)
+ *
+ * Soft handling:
+ *
+ *   - phrases longer than `opts.maxChars` (default 60 user-visible
+ *     chars) are truncated to `maxChars - 1` characters with a
+ *     trailing single-character U+2026 ellipsis (`…`) appended.
+ *     Rejecting on length would freeze the head on the last
+ *     short-enough response; small local models (qwen3-5-0-8b
+ *     etc.) are loose about the cap and truncation is friendlier
+ *     than dropping.
  */
 export function validatePhrase(raw: string, opts: ValidatePhraseOptions = {}): string | null {
   if (typeof raw !== 'string') return null;
@@ -324,9 +339,16 @@ export function validatePhrase(raw: string, opts: ValidatePhraseOptions = {}): s
   // Use Array.from to count user-visible characters (handles surrogate
   // pairs - a single emoji is one char, not two code units).
   const chars = Array.from(trimmed);
-  if (chars.length > maxChars) return null;
   const first = chars[0] ?? '';
   if (!/^\p{L}/u.test(first)) return null;
+  if (chars.length > maxChars) {
+    // Truncate to one less than the cap so the appended ellipsis fits
+    // inside the user-visible budget. `stripTrailingPunctuation` keeps
+    // us from producing `Verbing the long thing....…` (ASCII dots
+    // immediately before the Unicode ellipsis).
+    const sliced = chars.slice(0, maxChars - 1).join('');
+    return stripTrailingPunctuation(sliced) + '…';
+  }
   return trimmed;
 }
 

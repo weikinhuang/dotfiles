@@ -64,13 +64,28 @@ describe('validatePhrase', () => {
     expect(validatePhrase('Pondering' + DEL)).toBeNull();
   });
 
-  test('rejects phrases exceeding the default 25-char cap', () => {
-    expect(validatePhrase('Polishing the very long abstract syntax tree...')).toBeNull();
+  test('truncates phrases exceeding the default 60-char cap with U+2026', () => {
+    const result = validatePhrase('Polishing the very long abstract syntax tree of every single file in the repo...');
+    expect(result).not.toBeNull();
+    expect(result).toMatch(/…$/u);
+    expect(Array.from(result ?? '').length).toBe(60);
+    expect(result?.startsWith('Polishing the very long')).toBe(true);
   });
 
-  test('respects a custom char cap', () => {
-    expect(validatePhrase('Tracing imports...', { maxChars: 10 })).toBeNull();
+  test('respects a custom char cap (truncates, does not reject)', () => {
+    const truncated = validatePhrase('Tracing imports...', { maxChars: 10 });
+    expect(truncated).not.toBeNull();
+    expect(truncated).toMatch(/…$/u);
+    expect(Array.from(truncated ?? '').length).toBe(10);
+    expect(truncated?.startsWith('Tracing')).toBe(true);
+    // Under-cap inputs pass through unchanged.
     expect(validatePhrase('Hi...', { maxChars: 10 })).toBe('Hi...');
+  });
+
+  test('truncation strips ASCII dots before the ellipsis so we never get "....…"', () => {
+    const result = validatePhrase('Verbing the long noun phrase here...', { maxChars: 10 });
+    // chars.slice(0, 9) = "Verbing t"; stripTrailingPunctuation no-op; append "…".
+    expect(result).toBe('Verbing t…');
   });
 
   test('counts user-visible characters via Array.from (surrogate-pair safe)', () => {
@@ -89,7 +104,7 @@ describe('validatePhrase', () => {
   });
 
   test('exposes DEFAULT_MAX_PHRASE_CHARS as a public constant', () => {
-    expect(DEFAULT_MAX_PHRASE_CHARS).toBe(25);
+    expect(DEFAULT_MAX_PHRASE_CHARS).toBe(60);
   });
 });
 
