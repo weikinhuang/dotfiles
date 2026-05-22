@@ -190,14 +190,14 @@ function internal::cache-write-atomic() {
 function internal::cache-refresh-async() {
   local cache_file="$1"
   local gen_cmd="$2"
-  local bg_pid
 
-  internal::cache-write-atomic "$cache_file" "$gen_cmd" >/dev/null 2>&1 &
-  bg_pid=$!
-  # Avoid interactive "Done" job notifications at the prompt.
-  if [[ "$(type -t disown 2>/dev/null)" == "builtin" ]]; then
-    disown "${bg_pid}" 2>/dev/null || true
-  fi
+  # Run the background job from a subshell so the parent shell never
+  # registers it in its job table. That suppresses both the "[1] PID"
+  # start notification (printed before any redirection on the foreground
+  # `cmd &` line) and the later "Done" message in interactive shells with
+  # job control on. Without this, `kubectl<TAB>` etc. paint the job-start
+  # message onto the prompt line right before readline redraws completions.
+  (internal::cache-write-atomic "$cache_file" "$gen_cmd" >/dev/null 2>&1 &)
 }
 
 function internal::cached-eval() {
