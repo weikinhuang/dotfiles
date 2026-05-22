@@ -29,13 +29,13 @@ File schema (JSONC - `//` and `/* */` comments are allowed, trailing commas are 
     "PreToolUse": [
       {
         "matcher": "bash",
-        "command": "~/.pi/hooks/log-bash.sh",
+        "command": "~/.pi/hooks-scripts/log-bash.sh",
         "timeout": 5000,
         "sandboxed": false,
       },
     ],
-    "PostToolUse": [{ "matcher": "edit,write", "command": "~/.pi/hooks/run-prettier.sh" }],
-    "UserPromptSubmit": [{ "command": "~/.pi/hooks/inject-cwd.sh" }],
+    "PostToolUse": [{ "matcher": "edit,write", "command": "~/.pi/hooks-scripts/run-prettier.sh" }],
+    "UserPromptSubmit": [{ "command": "~/.pi/hooks-scripts/inject-cwd.sh" }],
     "Stop": [],
     "SessionStart": [],
   },
@@ -132,12 +132,12 @@ Within an event, hooks fire in array order: session-layer entries first, then pr
 ```jsonc
 {
   "hooks": {
-    "PreToolUse": [{ "matcher": "bash", "command": "~/.pi/hooks/log-bash.sh", "timeout": 2000 }],
+    "PreToolUse": [{ "matcher": "bash", "command": "~/.pi/hooks-scripts/log-bash.sh", "timeout": 2000 }],
   },
 }
 ```
 
-`~/.pi/hooks/log-bash.sh` (read the payload from stdin, append to a log, return `continue`):
+`~/.pi/hooks-scripts/log-bash.sh` (read the payload from stdin, append to a log, return `continue`):
 
 ```bash
 #!/usr/bin/env bash
@@ -153,7 +153,7 @@ Empty stdout = `continue`, so the command runs.
 ```jsonc
 {
   "hooks": {
-    "PostToolUse": [{ "matcher": "edit,write", "command": "~/.pi/hooks/run-prettier.sh", "timeout": 10000 }],
+    "PostToolUse": [{ "matcher": "edit,write", "command": "~/.pi/hooks-scripts/run-prettier.sh", "timeout": 10000 }],
   },
 }
 ```
@@ -167,7 +167,7 @@ alphabetically later in `config/pi/extensions/`).
 ```jsonc
 {
   "hooks": {
-    "UserPromptSubmit": [{ "command": "~/.pi/hooks/inject-cwd.sh" }],
+    "UserPromptSubmit": [{ "command": "~/.pi/hooks-scripts/inject-cwd.sh" }],
   },
 }
 ```
