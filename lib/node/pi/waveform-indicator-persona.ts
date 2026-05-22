@@ -23,14 +23,14 @@
  *   1. `<cwd>/.pi/personas/<name>.md`
  *   2. `<home>/.pi/personas/<name>.md`
  *   3. `<extDir>/../personas/<name>.md` (shipped catalog, where the
- *      bundled `daemon.md` lives)
+ *      bundled `daemon-waveform.md` lives)
  *
  * Note: this is the same set of layers the persona extension uses,
  * but the precedence is inverted relative to the persona extension's
  * merge-by-overwrite pass. Both produce the same observable behaviour
  * ("project wins, shipped is the floor") - the persona extension
  * overwrites earlier wins, this loader short-circuits on the first
- * hit. The shipped layer always exists for the default `daemon`
+ * hit. The shipped layer always exists for the default `daemon-waveform`
  * persona, so layer 3 is the safety net that keeps the dynamic head
  * working on a fresh dotfiles install with no user / project
  * personas configured.
@@ -47,7 +47,7 @@ export interface PersonaLayerPaths {
   projectDir: string;
   /** `<home>/.pi/personas` - user-global overrides. */
   userDir: string;
-  /** `<extDir>/../personas` - shipped catalog (the `daemon.md` floor). */
+  /** `<extDir>/../personas` - shipped catalog (the `daemon-waveform.md` floor). */
   shippedDir: string;
 }
 

@@ -158,7 +158,7 @@ The feature is **off by default**. Opt in by adding a `dynamicLabel` block to `~
   "dynamicLabel": {
     "enabled": true,
     "tinyModel": "llama-cpp/qwen3-0.6b",
-    "persona": "daemon",
+    "persona": "daemon-waveform",
     "maxCallsPerSession": 20
   }
 }
@@ -166,12 +166,12 @@ The feature is **off by default**. Opt in by adding a `dynamicLabel` block to `~
 
 ### `dynamicLabel` schema
 
-| Field                | Default    | Notes                                                                                                                                           |
-| -------------------- | ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| `enabled`            | `false`    | When `false`, the head stays as the static `Thinking...`. The whole feature is off-by-default.                                                  |
-| `tinyModel`          | (required) | `provider/model-id`. Validated via `parseModelSpec`, same helper `research-tiny.ts` uses, so any model registered in pi works on equal footing. |
-| `persona`            | `"daemon"` | Name of a persona under one of the three layered `personas/` dirs. Set to `""` to opt out of any overlay (neutral system prompt only).          |
-| `maxCallsPerSession` | `20`       | Per-session cap. Once hit, every subsequent trigger short-circuits without spawning. Resets at the next pi `session_start`.                     |
+| Field                | Default             | Notes                                                                                                                                           |
+| -------------------- | ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `enabled`            | `false`             | When `false`, the head stays as the static `Thinking...`. The whole feature is off-by-default.                                                  |
+| `tinyModel`          | (required)          | `provider/model-id`. Validated via `parseModelSpec`, same helper `research-tiny.ts` uses, so any model registered in pi works on equal footing. |
+| `persona`            | `"daemon-waveform"` | Name of a persona under one of the three layered `personas/` dirs. Set to `""` to opt out of any overlay (neutral system prompt only).          |
+| `maxCallsPerSession` | `20`                | Per-session cap. Once hit, every subsequent trigger short-circuits without spawning. Resets at the next pi `session_start`.                     |
 
 `tinyModel` is well-suited to local llama-cpp models in the 0.6B-9B range: the phrase is short (<=60 chars), the prompt
 is tiny (<=200 chars + persona overlay), the 5 s timeout is tight, and there's no per-call USD cost. The setting lives
@@ -244,11 +244,13 @@ supports, with "first hit wins" (project highest priority):
 
 1. `<cwd>/.pi/personas/<name>.md` (project)
 2. `~/.pi/personas/<name>.md` (user)
-3. `<extDir>/../personas/<name>.md` (shipped catalog - where the bundled `daemon.md` lives)
+3. `<extDir>/../personas/<name>.md` (shipped catalog - where the bundled `daemon-waveform.md` lives)
 
-The shipped [`daemon.md`](../personas/daemon.md) is the default persona, so the dynamic head works out-of-the-box on a
-fresh dotfiles install without any user / project persona configured. Set `persona: "exusiai-buddy"` (or any other
-catalog entry) to swap the voice; set `persona: ""` to opt out of the overlay entirely (neutral system prompt only).
+The shipped [`daemon-waveform.md`](../personas/daemon-waveform.md) is the default persona, so the dynamic head works
+out-of-the-box on a fresh dotfiles install without any user / project persona configured. Set `persona: "<name>"` to
+swap the voice; set `persona: ""` to opt out of the overlay entirely (neutral system prompt only). For authoring a new
+themed overlay, see [`../personas/waveform-overlay-authoring.md`](../personas/waveform-overlay-authoring.md) - it covers
+the body skeleton, the 4B+ tiny-model floor, and the probe playbook.
 
 **Composition mechanism**: the spawn site shallow-clones the loaded `waveform-phraser` `AgentDef` and appends the
 persona body to its `appendSystemPrompt` field. This avoids a per-call hook on `runOneShotAgent`'s args; the clone is

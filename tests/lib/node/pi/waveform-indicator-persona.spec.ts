@@ -79,24 +79,30 @@ describe('resolvePersonaPath', () => {
 
   test('layer-order resolution: project beats user beats shipped', () => {
     const files = new Map([
-      ['/proj/.pi/personas/daemon.md', 'project'],
-      ['/home/u/.pi/personas/daemon.md', 'user'],
-      ['/repo/config/pi/personas/daemon.md', 'shipped'],
+      ['/proj/.pi/personas/daemon-waveform.md', 'project'],
+      ['/home/u/.pi/personas/daemon-waveform.md', 'user'],
+      ['/repo/config/pi/personas/daemon-waveform.md', 'shipped'],
     ]);
-    expect(resolvePersonaPath('daemon', LAYERS, fsFromMap(files))).toBe('/proj/.pi/personas/daemon.md');
+    expect(resolvePersonaPath('daemon-waveform', LAYERS, fsFromMap(files))).toBe(
+      '/proj/.pi/personas/daemon-waveform.md',
+    );
   });
 
   test('falls through project → user when project layer missing', () => {
     const files = new Map([
-      ['/home/u/.pi/personas/daemon.md', 'user'],
-      ['/repo/config/pi/personas/daemon.md', 'shipped'],
+      ['/home/u/.pi/personas/daemon-waveform.md', 'user'],
+      ['/repo/config/pi/personas/daemon-waveform.md', 'shipped'],
     ]);
-    expect(resolvePersonaPath('daemon', LAYERS, fsFromMap(files))).toBe('/home/u/.pi/personas/daemon.md');
+    expect(resolvePersonaPath('daemon-waveform', LAYERS, fsFromMap(files))).toBe(
+      '/home/u/.pi/personas/daemon-waveform.md',
+    );
   });
 
   test('falls through to shipped when neither project nor user carry it', () => {
-    const files = new Map([['/repo/config/pi/personas/daemon.md', 'shipped']]);
-    expect(resolvePersonaPath('daemon', LAYERS, fsFromMap(files))).toBe('/repo/config/pi/personas/daemon.md');
+    const files = new Map([['/repo/config/pi/personas/daemon-waveform.md', 'shipped']]);
+    expect(resolvePersonaPath('daemon-waveform', LAYERS, fsFromMap(files))).toBe(
+      '/repo/config/pi/personas/daemon-waveform.md',
+    );
   });
 
   test('returns null when no layer has the persona', () => {
@@ -109,14 +115,14 @@ describe('resolvePersonaPath', () => {
     // that. The lookup itself doesn't care about symlinks - the
     // adapter does. Here we just assert the loader walks the shippedDir
     // we hand it without rewriting the path.
-    const files = new Map([['/var/lib/dotfiles-real/config/pi/personas/daemon.md', 'shipped']]);
+    const files = new Map([['/var/lib/dotfiles-real/config/pi/personas/daemon-waveform.md', 'shipped']]);
     const symlinkLayers: PersonaLayerPaths = {
       projectDir: '/proj/.pi/personas',
       userDir: '/home/u/.pi/personas',
       shippedDir: '/var/lib/dotfiles-real/config/pi/personas',
     };
-    expect(resolvePersonaPath('daemon', symlinkLayers, fsFromMap(files))).toBe(
-      '/var/lib/dotfiles-real/config/pi/personas/daemon.md',
+    expect(resolvePersonaPath('daemon-waveform', symlinkLayers, fsFromMap(files))).toBe(
+      '/var/lib/dotfiles-real/config/pi/personas/daemon-waveform.md',
     );
   });
 });
@@ -135,7 +141,7 @@ This is the daemon body.
 
 describe('loadPersonaBody', () => {
   test('returns trimmed body on a well-formed persona file', () => {
-    const path = '/proj/.pi/personas/daemon.md';
+    const path = '/proj/.pi/personas/daemon-waveform.md';
     const fs = fsFromMap(new Map([[path, DAEMON_FILE]]));
     const result = loadPersonaBody(path, fakeParseFrontmatter, fs);
     expect(result.body).toBe('This is the daemon body.');

@@ -16,7 +16,7 @@
  *     "dynamicLabel": {
  *       "enabled": false,
  *       "tinyModel": "openai/gpt-4o-mini",
- *       "persona": "daemon",
+ *       "persona": "daemon-waveform",
  *       "maxCallsPerSession": 20
  *     }
  *   }
@@ -39,11 +39,11 @@
  *     `ctx.ui.notify`. Registry-miss at spawn time is a different
  *     beast and lives in the extension - this helper only handles the
  *     syntactic check.
- *   - `persona` defaults to `'daemon'` so a fresh dotfiles install
- *     gets a working voice without any config. Set to the empty
+ *   - `persona` defaults to `'daemon-waveform'` so a fresh dotfiles
+ *     install gets a working voice without any config. Set to the empty
  *     string (`""`) to opt out of the persona overlay (neutral
  *     system prompt only). Unknown / malformed values fall back to
- *     `'daemon'`.
+ *     `'daemon-waveform'`.
  *   - `maxCallsPerSession` defaults to 20. Non-positive / non-finite
  *     values fall back to the default.
  *
@@ -91,8 +91,8 @@ export function isWaveformMode(value: unknown): value is WaveformMode {
   return typeof value === 'string' && (VALID_WAVEFORM_MODES as readonly string[]).includes(value);
 }
 
-/** Default persona name baked into the shipped catalog (`config/pi/personas/daemon.md`). */
-export const DEFAULT_DYNAMIC_LABEL_PERSONA = 'daemon';
+/** Default persona name baked into the shipped catalog (`config/pi/personas/daemon-waveform.md`). */
+export const DEFAULT_DYNAMIC_LABEL_PERSONA = 'daemon-waveform';
 /** Per-session cap when the file omits `maxCallsPerSession`. */
 export const DEFAULT_MAX_CALLS_PER_SESSION = 20;
 
@@ -113,7 +113,7 @@ export interface DynamicLabelConfig {
   tinyModel: string | null;
   /**
    * Resolved persona name. Empty string means "opt out, neutral
-   * system prompt only" - distinct from the default `'daemon'`.
+   * system prompt only" - distinct from the default `'daemon-waveform'`.
    * The extension uses {@link DEFAULT_DYNAMIC_LABEL_PERSONA} for any
    * non-string / whitespace value.
    */
@@ -307,7 +307,7 @@ function readDynamicLabelFromFile(raw: unknown, warnings: string[]): DynamicLabe
   // Enabled-but-no-tinyModel is a silent-disable per the plan; no
   // explicit branch needed.
 
-  // persona: '' means opt-out; default to 'daemon' when missing.
+  // persona: '' means opt-out; default to 'daemon-waveform' when missing.
   let persona = DEFAULT_DYNAMIC_LABEL_PERSONA;
   if (typeof raw.persona === 'string') {
     persona = raw.persona;

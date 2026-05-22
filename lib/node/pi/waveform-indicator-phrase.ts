@@ -312,8 +312,8 @@ export interface ValidatePhraseOptions {
  *   - contains an ANSI SGR escape (`[`) - model leaked colour
  *   - contains any other control char
  *   - literal `null` (the rule-sheet escape hatch)
- *   - starts with a non-letter (the daemon persona forbids opening
- *     on punctuation; this catches stray bullets or quote marks)
+ *   - starts with a non-letter (the daemon-waveform persona forbids
+ *     opening on punctuation; this catches stray bullets or quote marks)
  *
  * Soft handling:
  *

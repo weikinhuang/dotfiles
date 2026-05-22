@@ -246,7 +246,7 @@ describe('readDynamicLabelRaw', () => {
 });
 
 describe('resolveDynamicLabelConfig', () => {
-  test('empty file → defaults: enabled=false, tinyModel=null, persona=daemon', () => {
+  test('empty file → defaults: enabled=false, tinyModel=null, persona=daemon-waveform', () => {
     const r = resolveDynamicLabelConfig(statePath, {});
     expect(r.config.enabled).toBe(false);
     expect(r.config.tinyModel).toBeNull();

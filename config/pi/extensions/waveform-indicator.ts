@@ -327,7 +327,7 @@ export default function extension(pi: ExtensionAPI): void {
   let dynamicLabelConfig: DynamicLabelConfig = {
     enabled: false,
     tinyModel: null,
-    persona: 'daemon',
+    persona: 'daemon-waveform',
     maxCallsPerSession: 20,
   };
   // Loaded agent registry. The waveform-phraser agent definition is
@@ -421,9 +421,9 @@ export default function extension(pi: ExtensionAPI): void {
   /**
    * Resolve the persona body for `name`. Empty string opts out
    * (returns `null` without a warning). Unknown / malformed personas
-   * fall back to the shipped `daemon` body when available; a one-shot
-   * notify fires for the first failure. Returns the trimmed body, or
-   * `null` when no overlay should be appended.
+   * fall back to the shipped `daemon-waveform` body when available; a
+   * one-shot notify fires for the first failure. Returns the trimmed
+   * body, or `null` when no overlay should be appended.
    */
   function resolvePersonaOverlay(ctx: ExtensionContext, name: string): string | null {
     if (name === '') return null;
@@ -439,10 +439,11 @@ export default function extension(pi: ExtensionAPI): void {
         `persona-missing:${name}`,
         `persona "${name}" not found in any layer; falling back to neutral prompt`,
       );
-      // Try `daemon` as a last-resort fallback when the user picked a
-      // non-existent name (so the default-persona path can never miss).
-      if (name !== 'daemon') {
-        const daemonPath = resolvePersonaPath('daemon', layers, personaFsAdapter);
+      // Try `daemon-waveform` as a last-resort fallback when the user
+      // picked a non-existent name (so the default-persona path can
+      // never miss).
+      if (name !== 'daemon-waveform') {
+        const daemonPath = resolvePersonaPath('daemon-waveform', layers, personaFsAdapter);
         if (daemonPath !== null) {
           const fallback = loadPersonaBody(daemonPath, parseFrontmatter, personaFsAdapter);
           return fallback.body;
