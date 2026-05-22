@@ -1,10 +1,14 @@
 /**
  * Persistent state for the waveform indicator.
  *
- * Stored as a single JSON file at `~/.pi/waveform-indicator.json`,
- * matching the layout pattern used by `bash-permissions.json`. Pi has no
- * generic settings store, so each extension that wants persistence rolls
- * its own tiny file under `~/.pi/`.
+ * Stored as a JSON file at one of two layered paths, mirroring the
+ * resolution `bash-permissions.json` already uses:
+ *
+ *   1. `<cwd>/.pi/waveform-indicator.json` - project-local override.
+ *   2. `~/.pi/waveform-indicator.json` - user-global default.
+ *
+ * Pi has no generic settings store, so each extension that wants
+ * persistence rolls its own tiny file under `.pi/`.
  *
  * File shape:
  *   {
@@ -53,11 +57,31 @@
  *     off when the file's value is fine.
  */
 
-import { readFileSync, unlinkSync } from 'node:fs';
+import { existsSync, readFileSync, unlinkSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 
 import { atomicWriteFile } from './atomic-write.ts';
 import { parseModelSpec } from './btw.ts';
 import { isRecord } from './shared.ts';
+
+/**
+ * Layered path resolution. Returns the project-local path when the
+ * file exists there, otherwise the user-global path. The extension
+ * caller hands us `ctx.cwd`; tests inject explicit `cwd` + `home` so
+ * a temp directory drives the layer walk.
+ */
+export interface WaveformStatePathOpts {
+  cwd: string;
+  home?: string;
+}
+
+export function resolveWaveformStatePath(opts: WaveformStatePathOpts): string {
+  const home = opts.home ?? homedir();
+  const projectPath = join(opts.cwd, '.pi', 'waveform-indicator.json');
+  if (existsSync(projectPath)) return projectPath;
+  return join(home, '.pi', 'waveform-indicator.json');
+}
 
 export type WaveformMode = 'scroll' | 'spectrum' | 'tokenrate' | 'off' | 'default';
 

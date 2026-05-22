@@ -42,10 +42,11 @@
  *   /waveform off             hide the indicator entirely (keep label)
  *   /waveform reset           restore pi's default spinner + "Working..." label
  *
- * The chosen style persists to `~/.pi/waveform-indicator.json` so it
- * sticks across pi sessions. `/waveform reset` clears the file. The
- * `PI_WAVEFORM_INDICATOR_MODE` env var overrides the file when set, for
- * one-shot per-shell overrides.
+ * The chosen style persists to `<cwd>/.pi/waveform-indicator.json`
+ * (project-local override) or `~/.pi/waveform-indicator.json` (user-
+ * global) so it sticks across pi sessions. `/waveform reset` clears the
+ * file. The `PI_WAVEFORM_INDICATOR_MODE` env var overrides the file when
+ * set, for one-shot per-shell overrides.
  *
  * Future hook: `renderLabel(tick, suffix)` builds the head from
  * `shimmerLabel`; swap that function for one that calls a tiny model
@@ -137,6 +138,7 @@ import {
   clearWaveformState,
   resolveDynamicLabelConfig,
   resolveInitialWaveformMode,
+  resolveWaveformStatePath,
   writeWaveformState,
 } from '../../../lib/node/pi/waveform-indicator-state.ts';
 import {
@@ -162,7 +164,11 @@ const piCreateAgentSession: CreateAgentSessionDep<Model<any>, SessionManager> = 
 
 type Mode = WaveformMode;
 
-const STATE_PATH = join(homedir(), '.pi', 'waveform-indicator.json');
+// Initial state-path snapshot. Pre-`session_start` we resolve against
+// `process.cwd()`; once pi hands us a `ctx.cwd` we re-resolve through
+// `resolveWaveformStatePath` and pick up a project-local file if the
+// session was started inside a repo that ships one.
+const INITIAL_STATE_PATH = resolveWaveformStatePath({ cwd: process.cwd() });
 
 /**
  * Read `PI_WAVEFORM_THINKING_PULSE` + `PI_WAVEFORM_THINKING_PULSE_HZ`
@@ -273,7 +279,11 @@ function describeMode(mode: Mode): string {
 export default function extension(pi: ExtensionAPI): void {
   if (process.env.PI_WAVEFORM_INDICATOR_DISABLED === '1') return;
 
-  let mode: Mode = resolveInitialWaveformMode(STATE_PATH);
+  let mode: Mode = resolveInitialWaveformMode(INITIAL_STATE_PATH);
+  // Re-resolved on session_start once ctx.cwd is available so a
+  // project-local `<cwd>/.pi/waveform-indicator.json` overrides the
+  // user-global file.
+  let statePath: string = INITIAL_STATE_PATH;
   const pulseConfig = resolveThinkingPulseConfig();
   let labelTimer: ReturnType<typeof setInterval> | null = null;
   let tick = 0;
@@ -437,7 +447,7 @@ export default function extension(pi: ExtensionAPI): void {
    * `session_start` so `/reload` picks up edits without restarting pi.
    */
   function reloadDynamicLabel(ctx: ExtensionContext): void {
-    const resolution = resolveDynamicLabelConfig(STATE_PATH);
+    const resolution = resolveDynamicLabelConfig(statePath);
     dynamicLabelConfig = resolution.config;
     for (const w of resolution.warnings) {
       notifyOnce(ctx, `state:${w}`, w);
@@ -776,11 +786,19 @@ export default function extension(pi: ExtensionAPI): void {
       /* ignore - keeps prevContextTokensSnapshot undefined and we fall
        * back to displaying the full context size on turn 1. */
     }
+    // Re-resolve the state path against ctx.cwd so a project-local
+    // `<cwd>/.pi/waveform-indicator.json` overrides the user-global
+    // file. The module-load snapshot used process.cwd(), which is
+    // usually right but doesn't survive a session that started in a
+    // different directory. Re-read the mode too so a project file
+    // saying `tokenrate` paints from the first frame even when the
+    // global file said `scroll`.
+    statePath = resolveWaveformStatePath({ cwd: ctx.cwd });
+    mode = resolveInitialWaveformMode(statePath);
     // Re-resolve the dynamic-label config + load the persona overlay +
     // the waveform-phraser agent definition. Re-doing this on every
-    // session_start (including /reload) means edits to
-    // `~/.pi/waveform-indicator.json` or the shipped agent file land
-    // without a pi restart.
+    // session_start (including /reload) means edits to the state file
+    // or the shipped agent file land without a pi restart.
     reloadDynamicLabel(ctx);
     applyIndicator(ctx);
     // Don't start the label ticker yet - pi only renders the loader during
@@ -1021,12 +1039,12 @@ export default function extension(pi: ExtensionAPI): void {
       // the file out of sync with the user's expressed intent.
       try {
         if (arg === 'reset') {
-          clearWaveformState(STATE_PATH);
+          clearWaveformState(statePath);
         } else {
-          writeWaveformState(STATE_PATH, mode);
+          writeWaveformState(statePath, mode);
         }
       } catch (e) {
-        ctx.ui.notify(`Could not persist waveform mode to ${STATE_PATH}: ${(e as Error).message}`, 'error');
+        ctx.ui.notify(`Could not persist waveform mode to ${statePath}: ${(e as Error).message}`, 'error');
       }
       applyIndicator(ctx);
       // If we're mid-stream the label ticker is running - reapply now.

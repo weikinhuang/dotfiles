@@ -21,6 +21,7 @@ import {
   readWaveformState,
   resolveDynamicLabelConfig,
   resolveInitialWaveformMode,
+  resolveWaveformStatePath,
   writeWaveformState,
 } from '../../../../lib/node/pi/waveform-indicator-state.ts';
 
@@ -370,5 +371,35 @@ describe('resolveDynamicLabelConfig', () => {
       dynamicLabel: { enabled: true, tinyModel: 'openai/gpt-4o-mini', maxCallsPerSession: -5 },
     });
     expect(resolveDynamicLabelConfig(statePath, {}).config.maxCallsPerSession).toBe(DEFAULT_MAX_CALLS_PER_SESSION);
+  });
+});
+
+// ──────────────────────────────────────────────────────────────────────
+// resolveWaveformStatePath: project layer overrides user layer
+// ──────────────────────────────────────────────────────────────────────
+
+describe('resolveWaveformStatePath', () => {
+  test('falls back to user-global when no project file exists', () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'pi-waveform-cwd-'));
+    const home = mkdtempSync(join(tmpdir(), 'pi-waveform-home-'));
+    try {
+      expect(resolveWaveformStatePath({ cwd, home })).toBe(join(home, '.pi', 'waveform-indicator.json'));
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  test('project-local file wins when present', () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'pi-waveform-cwd-'));
+    const home = mkdtempSync(join(tmpdir(), 'pi-waveform-home-'));
+    try {
+      const projectFile = join(cwd, '.pi', 'waveform-indicator.json');
+      writeWaveformState(projectFile, 'tokenrate');
+      expect(resolveWaveformStatePath({ cwd, home })).toBe(projectFile);
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+      rmSync(home, { recursive: true, force: true });
+    }
   });
 });
