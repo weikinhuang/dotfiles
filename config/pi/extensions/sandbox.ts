@@ -90,6 +90,10 @@ import { dirname, join, resolve } from 'node:path';
 import { type ExtensionAPI, type ExtensionContext, type ToolResultEvent } from '@earendil-works/pi-coding-agent';
 
 import { clearActiveUI, publishActiveUI } from '../../../lib/node/pi/active-ui.ts';
+import {
+  cleanupDangerousFileStubs,
+  createDangerousFileStubs,
+} from '../../../lib/node/pi/sandbox/dangerous-file-stubs.ts';
 import { buildFilesystemAskDialog } from '../../../lib/node/pi/sandbox/filesystem-ask.ts';
 import { parseFsFailures } from '../../../lib/node/pi/sandbox/fs-failures.ts';
 import { buildNetworkAskCallback } from '../../../lib/node/pi/sandbox/network-ask.ts';
@@ -395,6 +399,11 @@ interface RuntimeState {
   /** Cwd captured during config resolution; the ask-callback uses it
    *  to decide project vs user scope for `Always allow` choices. */
   lastCwd?: string;
+  /** Absolute paths of `DANGEROUS_FILES` stubs we pre-created in cwd
+   *  to work around the ASRT bwrap race (see
+   *  `lib/node/pi/sandbox/dangerous-file-stubs.ts`). Cleared on
+   *  `session_shutdown`. */
+  createdDangerousStubs: Set<string>;
 }
 
 function newState(platform: SandboxPlatformInfo): RuntimeState {
@@ -408,6 +417,7 @@ function newState(platform: SandboxPlatformInfo): RuntimeState {
     wrapsErrored: 0,
     sessionAllowedDomains: new Set(),
     sessionWriteAllow: new Set(),
+    createdDangerousStubs: new Set(),
   };
 }
 
@@ -748,6 +758,12 @@ async function performWrap(
   }
   try {
     await activeReconfigure();
+    // Pre-create empty stubs for ASRT's DANGEROUS_FILES so concurrent
+    // bwrap setups don't race on the mount-point `O_CREAT|O_WRONLY`
+    // against a 0444 stub (see dangerous-file-stubs.ts module docs).
+    for (const abs of createDangerousFileStubs(process.cwd())) {
+      state.createdDangerousStubs.add(abs);
+    }
     const wrapped = await state.manager.wrapWithSandbox(command);
     e2bigDebugLog(state, command, wrapped);
     return { command: wrapped, wrapped: true };
@@ -862,6 +878,8 @@ export default function sandbox(pi: ExtensionAPI): void {
     state.manager = undefined;
     state.sessionAllowedDomains.clear();
     state.sessionWriteAllow.clear();
+    cleanupDangerousFileStubs(state.createdDangerousStubs);
+    state.createdDangerousStubs.clear();
     clearActiveSandbox();
     clearActiveUI();
     uninstallSandboxWrapper();
