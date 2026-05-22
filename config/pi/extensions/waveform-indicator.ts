@@ -67,15 +67,34 @@
  *                                     `PI_WAVEFORM_THINKING_PULSE=off`.
  */
 
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
+import { type Model } from '@earendil-works/pi-ai';
 import {
+  createAgentSession,
+  DefaultResourceLoader,
   type ExtensionAPI,
   type ExtensionContext,
+  type ModelRegistry,
+  type ResourceLoader,
+  SessionManager,
+  getAgentDir,
+  parseFrontmatter,
   type WorkingIndicatorOptions,
 } from '@earendil-works/pi-coding-agent';
 
+import {
+  type AgentDef,
+  type AgentLoadResult,
+  type ReadLayer,
+  defaultAgentLayers,
+  loadAgents,
+} from '../../../lib/node/pi/subagent-loader.ts';
+import { resolveSubagentSessionDir } from '../../../lib/node/pi/subagent-session-dir.ts';
+import { type CreateAgentSessionDep, resolveChildModel, runOneShotAgent } from '../../../lib/node/pi/subagent-spawn.ts';
 import {
   TOKEN_RATE_BUFFER_SIZE,
   buildIndicatorFrames,
@@ -86,6 +105,26 @@ import {
   tokenRateBarsToHeights,
 } from '../../../lib/node/pi/waveform-indicator.ts';
 import {
+  FALLBACK_PHRASE,
+  type WaveformPhraseState,
+  abortInFlight,
+  acceptPhrase,
+  buildPhrasePrompt,
+  digestPrompt,
+  digestToolCall,
+  issueRequest,
+  markFiredThisTurn,
+  newWaveformPhraseState,
+  resetTurn,
+  validatePhrase,
+} from '../../../lib/node/pi/waveform-indicator-phrase.ts';
+import {
+  type PersonaFsAdapter,
+  type PersonaLayerPaths,
+  loadPersonaBody,
+  resolvePersonaPath,
+} from '../../../lib/node/pi/waveform-indicator-persona.ts';
+import {
   type TokenRateState,
   markMessageEnd as markRateMessageEnd,
   markMessageStart as markRateMessageStart,
@@ -93,8 +132,10 @@ import {
   stepTokenRate,
 } from '../../../lib/node/pi/waveform-indicator-rate.ts';
 import {
+  type DynamicLabelConfig,
   type WaveformMode,
   clearWaveformState,
+  resolveDynamicLabelConfig,
   resolveInitialWaveformMode,
   writeWaveformState,
 } from '../../../lib/node/pi/waveform-indicator-state.ts';
@@ -105,6 +146,19 @@ import {
   newLabelSuffixState,
   resetTurnState,
 } from '../../../lib/node/pi/waveform-indicator-suffix.ts';
+
+/**
+ * Pi's `createAgentSession` types `modelRegistry` as the concrete
+ * `ModelRegistry` class, while `lib/node/pi/subagent-spawn.ts` uses a
+ * structural `ModelRegistryLike` so the helper can stay testable
+ * without pi imports. Wrap pi's constructor so the types line up.
+ */
+const piCreateAgentSession: CreateAgentSessionDep<Model<any>, SessionManager> = (args) =>
+  createAgentSession({
+    ...args,
+    modelRegistry: args.modelRegistry as ModelRegistry,
+    resourceLoader: args.resourceLoader as ResourceLoader,
+  });
 
 type Mode = WaveformMode;
 
@@ -153,11 +207,15 @@ const HIDDEN_INDICATOR: WorkingIndicatorOptions = { frames: [] };
 
 /**
  * Produce the label string for tick `tick`. The base label is a
- * rainbow-shimmered "Thinking..."; when an agent loop is active and a
+ * rainbow-shimmered head (default `Thinking...`, or a tiny-model phrase
+ * once one has been accepted); when an agent loop is active and a
  * suffix state is being tracked, append a dim claude-code-style suffix
- * like ` (5s · ↑ 185 tokens · thinking with medium effort)`. Replace
- * the inner shimmer with a tiny-model call later without touching the
- * suffix path.
+ * like ` (5s · ↑ 185 tokens · thinking with medium effort)`.
+ *
+ * `headText` defaults to the static `Thinking...` fallback. The
+ * extension swaps in the accepted-phrase from `WaveformPhraseState`
+ * once a tiny-model spawn lands a valid phrase; until then we render
+ * the fallback so something always paints.
  *
  * Note: `suffix` is pre-styled (see `computeSuffix`). When the pulse is
  * on, the thinking-effort segment carries its own SGR wrap and the rest
@@ -165,8 +223,8 @@ const HIDDEN_INDICATOR: WorkingIndicatorOptions = { frames: [] };
  * `dimText`. Either way it lands here ready to print, so this function
  * just joins head + suffix without further styling.
  */
-function renderLabel(tick: number, suffix: string | undefined): string {
-  const head = shimmerLabel(DEFAULT_LABEL, tick);
+function renderLabel(tick: number, suffix: string | undefined, headText: string = DEFAULT_LABEL): string {
+  const head = shimmerLabel(headText, tick);
   if (suffix === undefined) return head;
   return `${head} ${suffix}`;
 }
@@ -247,6 +305,349 @@ export default function extension(pi: ExtensionAPI): void {
   // renders nothing between turns.
   let rateState: TokenRateState | null = null;
   let rateBuffer: number[] | null = null;
+
+  // ──────────────────────────────────────────────────────────────────
+  // Dynamic-label (persona-driven `Thinking...` head) state
+  // ──────────────────────────────────────────────────────────────────
+
+  // Resolved dynamic-label config. Re-resolved on session_start so a
+  // mid-pi `vi ~/.pi/waveform-indicator.json` edit followed by /reload
+  // picks up the new value. Default config is `enabled: false` so the
+  // feature stays off until the user opts in.
+  let dynamicLabelConfig: DynamicLabelConfig = {
+    enabled: false,
+    tinyModel: null,
+    persona: 'daemon',
+    maxCallsPerSession: 20,
+  };
+  // Loaded agent registry. The waveform-phraser agent definition is
+  // looked up by name; if it's missing we silently fall back to the
+  // static head (the agent is shipped with the dotfiles repo so a
+  // missing definition usually means the agents/ dir wasn't installed).
+  let phraserAgent: AgentDef | null = null;
+  // Pre-resolved persona overlay text - appended to a cloned AgentDef
+  // at spawn time. `null` means "no overlay" (neutral system prompt
+  // only); the `persona: ""` config opt-out also lands here as null.
+  let personaOverlay: string | null = null;
+  // Coalescing reducer state - request id, in-flight controller, per-
+  // turn dedup set, session call counter. Allocated lazily on the
+  // first trigger that fires (turn_start) so we don't pay for state
+  // when the feature is disabled.
+  let phraseState: WaveformPhraseState | null = null;
+  // One-shot notification tracker so we don't spam the same warning
+  // on every retry / reload.
+  const notifiedDynamicLabelWarnings = new Set<string>();
+
+  const extDir = dirname(fileURLToPath(import.meta.url));
+  const userPiDir = join(homedir(), '.pi');
+
+  const personaFsAdapter: PersonaFsAdapter = {
+    exists: (p) => {
+      try {
+        return existsSync(p);
+      } catch {
+        return false;
+      }
+    },
+    readFile: (p) => {
+      try {
+        return readFileSync(p, 'utf8');
+      } catch {
+        return null;
+      }
+    },
+  };
+
+  const agentReadLayer: ReadLayer = {
+    listMarkdownFiles: (dir) => {
+      try {
+        return readdirSync(dir);
+      } catch {
+        return null;
+      }
+    },
+    readFile: (p) => {
+      try {
+        return readFileSync(p, 'utf8');
+      } catch {
+        return null;
+      }
+    },
+  };
+
+  /**
+   * Surface a dynamic-label diagnostic via `ctx.ui.notify`, but only
+   * once per (key) per session - so a registry-miss at every turn
+   * doesn't paint a stream of duplicate warnings on screen.
+   */
+  function notifyOnce(ctx: ExtensionContext, key: string, body: string): void {
+    if (notifiedDynamicLabelWarnings.has(key)) return;
+    notifiedDynamicLabelWarnings.add(key);
+    try {
+      ctx.ui.notify(`waveform-indicator: ${body}`, 'warning');
+    } catch {
+      /* notify failures never break the indicator */
+    }
+  }
+
+  /**
+   * Resolve the persona body for `name`. Empty string opts out
+   * (returns `null` without a warning). Unknown / malformed personas
+   * fall back to the shipped `daemon` body when available; a one-shot
+   * notify fires for the first failure. Returns the trimmed body, or
+   * `null` when no overlay should be appended.
+   */
+  function resolvePersonaOverlay(ctx: ExtensionContext, name: string): string | null {
+    if (name === '') return null;
+    const layers: PersonaLayerPaths = {
+      projectDir: join(ctx.cwd, '.pi', 'personas'),
+      userDir: join(userPiDir, 'personas'),
+      shippedDir: join(extDir, '..', 'personas'),
+    };
+    const path = resolvePersonaPath(name, layers, personaFsAdapter);
+    if (path === null) {
+      notifyOnce(
+        ctx,
+        `persona-missing:${name}`,
+        `persona "${name}" not found in any layer; falling back to neutral prompt`,
+      );
+      // Try `daemon` as a last-resort fallback when the user picked a
+      // non-existent name (so the default-persona path can never miss).
+      if (name !== 'daemon') {
+        const daemonPath = resolvePersonaPath('daemon', layers, personaFsAdapter);
+        if (daemonPath !== null) {
+          const fallback = loadPersonaBody(daemonPath, parseFrontmatter, personaFsAdapter);
+          return fallback.body;
+        }
+      }
+      return null;
+    }
+    const result = loadPersonaBody(path, parseFrontmatter, personaFsAdapter);
+    if (result.body === null && result.warnings.length > 0) {
+      for (const w of result.warnings) {
+        notifyOnce(ctx, `persona:${w.path}:${w.reason}`, `persona "${name}": ${w.reason}`);
+      }
+    }
+    return result.body;
+  }
+
+  /**
+   * Re-resolve `dynamicLabelConfig`, reload the persona overlay, and
+   * (re-)load the waveform-phraser agent definition. Called on
+   * `session_start` so `/reload` picks up edits without restarting pi.
+   */
+  function reloadDynamicLabel(ctx: ExtensionContext): void {
+    const resolution = resolveDynamicLabelConfig(STATE_PATH);
+    dynamicLabelConfig = resolution.config;
+    for (const w of resolution.warnings) {
+      notifyOnce(ctx, `state:${w}`, w);
+    }
+
+    // Always load the agent definition even when disabled - cheap, and
+    // the user may flip enabled=on mid-session via env or by editing
+    // the file + /reload.
+    try {
+      const layers = defaultAgentLayers({ extensionDir: extDir, userPiDir, cwd: ctx.cwd });
+      const knownToolNames = new Set(pi.getAllTools().map((t) => t.name));
+      const loaded: AgentLoadResult = loadAgents({
+        layers,
+        knownToolNames,
+        fs: agentReadLayer,
+        parseFrontmatter,
+      });
+      phraserAgent = loaded.agents.get('waveform-phraser') ?? null;
+    } catch {
+      phraserAgent = null;
+    }
+
+    personaOverlay = resolvePersonaOverlay(ctx, dynamicLabelConfig.persona);
+  }
+
+  /**
+   * Clone `phraserAgent` with the persona body appended to its
+   * `appendSystemPrompt`. The clone is per-spawn so swapping personas
+   * mid-session is just a re-resolve at session_start - the cloned
+   * defs never accumulate.
+   */
+  function buildSpawnAgent(): AgentDef | null {
+    if (!phraserAgent) return null;
+    if (!personaOverlay) return phraserAgent;
+    const existing = phraserAgent.appendSystemPrompt?.trim() ?? '';
+    const composed = existing.length > 0 ? `${existing}\n\n${personaOverlay}` : personaOverlay;
+    return { ...phraserAgent, appendSystemPrompt: composed };
+  }
+
+  /**
+   * Headline for the current frame: the accepted phrase when one has
+   * landed, otherwise the static fallback. The reducer never clears
+   * `acceptedPhrase` once set, so this just returns whatever's in
+   * state.
+   */
+  function currentHead(): string {
+    return phraseState?.acceptedPhrase ?? FALLBACK_PHRASE;
+  }
+
+  /**
+   * Walk the session entries backward and return the most recent
+   * `role: 'user'` message text, collapsed to a single string. Used
+   * to seed the cached `promptDigest` on `turn_start`.
+   */
+  function findLatestUserMessageText(ctx: ExtensionContext): string {
+    let entries: readonly { type?: string; message?: unknown }[] = [];
+    try {
+      entries = ctx.sessionManager.getEntries() as readonly { type?: string; message?: unknown }[];
+    } catch {
+      return '';
+    }
+    for (let i = entries.length - 1; i >= 0; i--) {
+      const e = entries[i];
+      if (e.type !== 'message') continue;
+      const msg = e.message as { role?: string; content?: unknown } | undefined;
+      if (msg?.role !== 'user') continue;
+      const content = msg.content;
+      if (typeof content === 'string') return content;
+      if (Array.isArray(content)) {
+        const parts: string[] = [];
+        for (const part of content) {
+          if (part && typeof part === 'object' && (part as { type?: string }).type === 'text') {
+            const text = (part as { text?: unknown }).text;
+            if (typeof text === 'string') parts.push(text);
+          }
+        }
+        return parts.join(' ');
+      }
+    }
+    return '';
+  }
+
+  /**
+   * Fire a tiny-model phrase spawn for `phaseTag`. Returns immediately
+   * after issuing the request; the spawn promise runs in the
+   * background and lands its result via `acceptPhrase`. Short-circuits
+   * on:
+   *
+   *   - dynamic-label disabled
+   *   - phraser agent missing
+   *   - per-turn dedup already fired for this tag
+   *   - per-session budget exhausted
+   *   - the model registry doesn't know about `tinyModel` (the
+   *     spawn-time half of the two-stage validation - emits a
+   *     one-shot warning).
+   */
+  function fireTriggerSpawn(ctx: ExtensionContext, phaseTag: string, contextDigest: string): void {
+    if (!dynamicLabelConfig.enabled || !dynamicLabelConfig.tinyModel) return;
+    if (!phraserAgent) return;
+    if (phraseState === null) return;
+
+    // Per-turn dedup: at most one spawn per phaseTag per turn.
+    if (markFiredThisTurn(phraseState, phaseTag)) return;
+
+    // Budget: hard short-circuit. Keep last accepted phrase on screen.
+    if (phraseState.callsThisSession >= dynamicLabelConfig.maxCallsPerSession) {
+      notifyOnce(
+        ctx,
+        'budget-exhausted',
+        `dynamic-label budget of ${dynamicLabelConfig.maxCallsPerSession} calls exhausted; keeping last phrase`,
+      );
+      return;
+    }
+
+    // Spawn-time registry check (the second half of the two-stage
+    // validation). Don't fall back to a different model.
+    const slash = dynamicLabelConfig.tinyModel.indexOf('/');
+    if (slash <= 0) return; // shouldn't happen - we already parsed at load
+    const provider = dynamicLabelConfig.tinyModel.slice(0, slash);
+    const modelId = dynamicLabelConfig.tinyModel.slice(slash + 1);
+    const found = ctx.modelRegistry.find(provider, modelId);
+    if (!found) {
+      notifyOnce(
+        ctx,
+        `model-miss:${dynamicLabelConfig.tinyModel}`,
+        `tinyModel ${provider}/${modelId} not registered; keeping static label`,
+      );
+      return;
+    }
+
+    const agent = buildSpawnAgent();
+    if (!agent) return;
+
+    const { requestId, signal } = issueRequest(phraseState, ctx.signal);
+    const state = phraseState;
+    const task = buildPhrasePrompt(phaseTag, contextDigest);
+
+    // Resolve the child model via the same helper iteration-loop uses
+    // so an explicit `tinyModel` override goes through the shared
+    // precedence ladder. We already passed the registry hit check
+    // above, but resolveChildModel re-checks defensively.
+    const resolution = resolveChildModel({
+      override: dynamicLabelConfig.tinyModel,
+      agent,
+      parent: ctx.model,
+      modelRegistry: ctx.modelRegistry,
+    });
+    if (!resolution.ok) {
+      // Already aborted the controller via issueRequest; nothing else
+      // to do here - the resolution error is more of an internal
+      // diagnostic than a user-facing problem.
+      return;
+    }
+
+    // Background spawn - we never await this. The label ticker keeps
+    // painting whatever's in state.acceptedPhrase (or the fallback)
+    // until the promise lands and `acceptPhrase` updates state.
+    runOneShotAgent({
+      deps: { createAgentSession: piCreateAgentSession, DefaultResourceLoader, SessionManager, getAgentDir },
+      cwd: ctx.cwd,
+      agent,
+      model: resolution.model,
+      task,
+      modelRegistry: ctx.modelRegistry,
+      agentDir: getAgentDir(),
+      signal,
+      // Disk-backed session per `config/pi/extensions/AGENTS.md`. A
+      // missing parent session dir throws - we let that propagate so
+      // the user sees a clear "restart without --no-session" message
+      // rather than silently dropping transcripts.
+      sessionManager: SessionManager.create(
+        ctx.cwd,
+        resolveSubagentSessionDir({
+          parentSessionManager: ctx.sessionManager,
+          extensionLabel: 'waveform-indicator',
+        }),
+      ),
+    })
+      .then((result) => {
+        if (signal.aborted) return;
+        if (result.stopReason !== 'completed') return;
+        const phrase = validatePhrase(result.finalText.split(/\r?\n/, 1)[0] ?? '');
+        if (phrase === null) return;
+        acceptPhrase(state, requestId, phrase, signal);
+      })
+      .catch(() => {
+        /* swallow - failures keep the previously-accepted phrase */
+      });
+  }
+
+  /**
+   * Extract the most recent ToolCall part from a streaming partial
+   * AssistantMessage. The `toolcall_start` event fires before pi has
+   * finished streaming the args, so the input map may still be empty
+   * - we surface the tool name unconditionally and use whatever
+   * partial-input string is there for the digest.
+   */
+  function digestLatestToolCall(partial: unknown): { name: string; digest: string } {
+    if (!partial || typeof partial !== 'object') return { name: '', digest: '' };
+    const content = (partial as { content?: unknown }).content;
+    if (!Array.isArray(content)) return { name: '', digest: '' };
+    for (let i = content.length - 1; i >= 0; i--) {
+      const part = content[i] as { type?: string; toolName?: unknown; input?: unknown } | undefined;
+      if (part?.type !== 'toolCall') continue;
+      const name = typeof part.toolName === 'string' ? part.toolName : '';
+      const input = part.input;
+      return { name, digest: digestToolCall(name, input) };
+    }
+    return { name: '', digest: '' };
+  }
 
   function liveOutputTokens(state: LabelSuffixState): number {
     // Mirror the suffix's downlink formula so the rate samples and the
@@ -333,7 +734,7 @@ export default function extension(pi: ExtensionAPI): void {
       ctx.ui.setWorkingMessage(undefined);
       return;
     }
-    ctx.ui.setWorkingMessage(renderLabel(tick, computeSuffix()));
+    ctx.ui.setWorkingMessage(renderLabel(tick, computeSuffix(), currentHead()));
     if (mode === 'tokenrate') {
       renderTokenRateIndicator(ctx);
     }
@@ -375,6 +776,12 @@ export default function extension(pi: ExtensionAPI): void {
       /* ignore - keeps prevContextTokensSnapshot undefined and we fall
        * back to displaying the full context size on turn 1. */
     }
+    // Re-resolve the dynamic-label config + load the persona overlay +
+    // the waveform-phraser agent definition. Re-doing this on every
+    // session_start (including /reload) means edits to
+    // `~/.pi/waveform-indicator.json` or the shipped agent file land
+    // without a pi restart.
+    reloadDynamicLabel(ctx);
     applyIndicator(ctx);
     // Don't start the label ticker yet - pi only renders the loader during
     // streaming. Label gets seeded on agent_start.
@@ -389,6 +796,10 @@ export default function extension(pi: ExtensionAPI): void {
     // are cheap (20 numbers + a few timestamps).
     rateState = newTokenRateState();
     rateBuffer = Array.from({ length: TOKEN_RATE_BUFFER_SIZE }, () => 0);
+    // Allocate the phrase reducer on first agent_start; subsequent
+    // agent loops in the same session keep the accepted phrase so the
+    // head doesn't briefly flash back to the static fallback.
+    phraseState ??= newWaveformPhraseState();
     // Note: we deliberately do NOT reset `prevContextTokensSnapshot`
     // here - that snapshot survives across agent loops in the same
     // session so a second user prompt also shows just its own delta
@@ -403,6 +814,19 @@ export default function extension(pi: ExtensionAPI): void {
     // phase / currentUsage / thinking - matching the spec where
     // "thought for Ns" only reflects the current turn's blocks.
     if (suffixState !== null) resetTurnState(suffixState);
+
+    // Capture the user prompt that started this turn so the thinking /
+    // text triggers can reuse the digest without walking the session
+    // tree on every fire. Pi's TurnStartEvent payload only carries
+    // turnIndex + timestamp, so we walk ctx.sessionManager for the
+    // most-recent user message instead.
+    if (phraseState !== null) {
+      resetTurn(phraseState);
+      const userText = findLatestUserMessageText(ctx);
+      phraseState.promptDigest = userText.length > 0 ? digestPrompt(userText) : undefined;
+      const digest = phraseState.promptDigest ?? '';
+      fireTriggerSpawn(ctx, 'starting work on', digest);
+    }
   });
 
   pi.on('message_update', async (event, ctx) => {
@@ -446,6 +870,21 @@ export default function extension(pi: ExtensionAPI): void {
         // `_delta` directly.
         suffixState.phase = 'downlink';
         suffixState.thinking.hasStreamedNonThinkingContent = true;
+        if (ev.type === 'text_start' && phraseState !== null) {
+          // `responding about` trigger: the model has started its
+          // user-facing reply. Reuses the cached promptDigest captured
+          // on turn_start.
+          fireTriggerSpawn(ctx, 'responding about', phraseState.promptDigest ?? '');
+        } else if (ev.type === 'toolcall_start' && phraseState !== null) {
+          // `using <tool>` trigger: derive the digest from the partial
+          // assistant message's pending tool call. The partial carries
+          // a `toolName` and partial-args string; safe to swallow if
+          // the shape isn't there yet (we'll still spawn with just
+          // the phaseTag).
+          const partial = (ev as { partial?: { content?: unknown } }).partial;
+          const toolDigest = digestLatestToolCall(partial);
+          fireTriggerSpawn(ctx, `using ${toolDigest.name || 'tool'}`, toolDigest.digest);
+        }
         break;
       case 'thinking_start':
         suffixState.phase = 'downlink';
@@ -457,6 +896,11 @@ export default function extension(pi: ExtensionAPI): void {
         // The flag will flip back to true on the next text/toolcall
         // event, hiding the segment again.
         suffixState.thinking.hasStreamedNonThinkingContent = false;
+        if (phraseState !== null) {
+          // `reasoning about` trigger: another thinking block opened.
+          // Reuse the cached promptDigest.
+          fireTriggerSpawn(ctx, 'reasoning about', phraseState.promptDigest ?? '');
+        }
         break;
       case 'thinking_delta':
         // Thinking content event - no flag flip, just byte accumulation
@@ -525,14 +969,20 @@ export default function extension(pi: ExtensionAPI): void {
     suffixState = null;
     rateState = null;
     rateBuffer = null;
+    // Reset point #2: abort the in-flight phrase spawn but KEEP the
+    // accepted phrase so a follow-up agent loop in the same session
+    // re-uses it as the seed. The per-turn dedup set is cleared on
+    // the next turn_start, not here.
+    if (phraseState !== null) abortInFlight(phraseState);
     // Note: we deliberately keep `prevContextTokensSnapshot` here -
     // a follow-up user prompt in the same session should compute its
     // ↑ delta against the post-last-message-end snapshot, not against
     // a freshly cleared baseline.
     // Reset label so the next turn doesn't briefly flash a stale shimmer
-    // frame before agent_start kicks in again.
+    // frame before agent_start kicks in again. Uses the accepted phrase
+    // when one was landed this loop, otherwise the static fallback.
     if (mode !== 'default') {
-      ctx.ui.setWorkingMessage(renderLabel(0, undefined));
+      ctx.ui.setWorkingMessage(renderLabel(0, undefined, currentHead()));
     }
   });
 
@@ -543,6 +993,14 @@ export default function extension(pi: ExtensionAPI): void {
     rateBuffer = null;
     lastCtx = null;
     prevContextTokensSnapshot = undefined;
+    // Reset point #3: abort + drop ALL phrase state so nothing bleeds
+    // across pi sessions. /reload routes through session_shutdown +
+    // session_start, so reset point #4 collapses onto this code path.
+    if (phraseState !== null) {
+      abortInFlight(phraseState);
+      phraseState = null;
+    }
+    notifiedDynamicLabelWarnings.clear();
   });
 
   pi.registerCommand('waveform', {
