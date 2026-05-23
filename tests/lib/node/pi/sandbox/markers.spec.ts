@@ -10,9 +10,12 @@ import {
   alreadyWrapped,
   buildIdentityWrap,
   hasOriginalStash,
+  readCreatedStubs,
   readOriginalStash,
   SANDBOX_MARKER,
   SANDBOX_ORIGINAL_SYMBOL,
+  SANDBOX_STUBS_SYMBOL,
+  stashCreatedStubs,
   stashOriginalCommand,
   stripMarkerFromUserInput,
 } from '../../../../../lib/node/pi/sandbox/markers.ts';
@@ -125,5 +128,58 @@ describe('hasOriginalStash / stashOriginalCommand / readOriginalStash', () => {
 
   test('readOriginalStash returns undefined when stash is absent', () => {
     expect(readOriginalStash({ command: 'x' })).toBeUndefined();
+  });
+});
+
+describe('stashCreatedStubs / readCreatedStubs', () => {
+  test('round-trips the stub list verbatim', () => {
+    const input = { command: 'wrapped' };
+    stashCreatedStubs(input, ['/tmp/cwd/.bashrc', '/tmp/cwd/yarn.lock']);
+    expect(readCreatedStubs(input)).toEqual(['/tmp/cwd/.bashrc', '/tmp/cwd/yarn.lock']);
+  });
+
+  test('returns an empty array when no stash is set', () => {
+    expect(readCreatedStubs({ command: 'wrapped' })).toEqual([]);
+    expect(readCreatedStubs(undefined)).toEqual([]);
+    expect(readCreatedStubs(null)).toEqual([]);
+    expect(readCreatedStubs(42)).toEqual([]);
+  });
+
+  test('the stash is non-enumerable so JSON.stringify skips it', () => {
+    const input = { command: 'wrapped' };
+    stashCreatedStubs(input, ['/tmp/cwd/.bashrc']);
+    expect(JSON.stringify(input)).toBe('{"command":"wrapped"}');
+  });
+
+  test('the stash key is the exported symbol', () => {
+    const input = { command: 'wrapped' };
+    stashCreatedStubs(input, ['/a', '/b']);
+    const v = (input as Record<symbol, unknown>)[SANDBOX_STUBS_SYMBOL];
+    expect(Array.isArray(v)).toBe(true);
+    expect(v).toEqual(['/a', '/b']);
+  });
+
+  test('the stash is a frozen snapshot - mutating the source has no effect', () => {
+    const input = { command: 'wrapped' };
+    const source = ['/a', '/b'];
+    stashCreatedStubs(input, source);
+    source.push('/c');
+    expect(readCreatedStubs(input)).toEqual(['/a', '/b']);
+  });
+
+  test('drops non-string entries defensively', () => {
+    const input: Record<symbol, unknown> = {};
+    Object.defineProperty(input, SANDBOX_STUBS_SYMBOL, {
+      value: ['/a', 42, null, '/b'],
+      enumerable: false,
+      configurable: true,
+    });
+    expect(readCreatedStubs(input)).toEqual(['/a', '/b']);
+  });
+
+  test('stashing on a non-object input is a no-op (does not throw)', () => {
+    expect(() => stashCreatedStubs(undefined, ['/a'])).not.toThrow();
+    expect(() => stashCreatedStubs(null, ['/a'])).not.toThrow();
+    expect(() => stashCreatedStubs('a-string', ['/a'])).not.toThrow();
   });
 });

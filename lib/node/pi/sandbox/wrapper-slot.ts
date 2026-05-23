@@ -60,6 +60,13 @@ export interface SandboxWrapResult {
   /** Human-readable rationale to surface in notifications or block
    *  reasons. Always paired with `action !== 'identity'`. */
   reason?: string;
+  /** Snapshot of the dangerous-file stub paths the wrapper touched
+   *  (created or adopted via the EEXIST path) for THIS wrap. The
+   *  `tool_call` hook stashes this on `event.input` via
+   *  {@link stashCreatedStubs} so the matching `tool_result` hook can
+   *  decrement their refcount and unlink the ones whose count drops
+   *  to zero. Only set when `wrapped === true`. */
+  createdStubs?: readonly string[];
 }
 
 export type SandboxWrapFn = (command: string, ctx: SandboxWrapContext) => Promise<SandboxWrapResult>;

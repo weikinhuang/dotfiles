@@ -138,10 +138,13 @@ import {
 } from '../../../lib/node/pi/sandbox/violations-log.ts';
 import {
   hasOriginalStash,
+  readCreatedStubs,
   SANDBOX_ORIGINAL_SYMBOL,
+  stashCreatedStubs,
   stashOriginalCommand,
   stripMarkerFromUserInput,
 } from '../../../lib/node/pi/sandbox/markers.ts';
+import { decStubRefs, incStubRefs } from '../../../lib/node/pi/sandbox/stub-refcount.ts';
 import {
   installSandboxWrapper,
   type SandboxWrapFn,
@@ -329,11 +332,15 @@ interface RuntimeState {
   /** Cwd captured during config resolution; the ask-callback uses it
    *  to decide project vs user scope for `Always allow` choices. */
   lastCwd?: string;
-  /** Absolute paths of `DANGEROUS_FILES` stubs we pre-created in cwd
-   *  to work around the ASRT bwrap race (see
-   *  `lib/node/pi/sandbox/dangerous-file-stubs.ts`). Cleared on
-   *  `session_shutdown`. */
-  createdDangerousStubs: Set<string>;
+  /** Refcount keyed by absolute path of every dangerous-file stub
+   *  currently relied on by an in-flight `wrapWithSandbox`. Each
+   *  `tool_call` (per command) increments by one for every stub the
+   *  wrapper touched; the matching `tool_result` decrements. The
+   *  cleanup helper unlinks paths whose count drops to zero, so two
+   *  bg-bash commands that overlap on the same stubs only have them
+   *  removed when the LAST in-flight reference releases. Cleared on
+   *  `session_shutdown`. See `lib/node/pi/sandbox/stub-refcount.ts`. */
+  stubRefcount: Map<string, number>;
   /** Cwd whose `dangerousProtected` Set was last computed. Used to
    *  invalidate the cache when the user runs `cd` mid-session. */
   dangerousProtectedCwd?: string;
@@ -357,7 +364,7 @@ function newState(platform: SandboxPlatformInfo): RuntimeState {
     wrapsErrored: 0,
     sessionAllowedDomains: new Set(),
     sessionWriteAllow: new Set(),
-    createdDangerousStubs: new Set(),
+    stubRefcount: new Map(),
     dangerousProtected: new Set(),
   };
 }
@@ -616,18 +623,17 @@ async function performWrap(
     // a prior session leaked via SIGKILL, while leaving git-tracked
     // 0-byte files (a freshly-cloned `.npmrc`, etc.) alone.
     refreshDangerousProtected(state, process.cwd());
-    for (const abs of createDangerousFileStubs(process.cwd(), {
+    const created = createDangerousFileStubs(process.cwd(), {
       isProtected: (p) => state.dangerousProtected.has(p),
-    })) {
-      state.createdDangerousStubs.add(abs);
-    }
+    });
+    incStubRefs(state.stubRefcount, created);
     const wrapped = await state.manager.wrapWithSandbox(command);
     logE2bigWrap(
       { wrapsAttempted: state.wrapsAttempted, lastResolvedAsrtConfig: state.lastResolved?.asrtConfig },
       command,
       wrapped,
     );
-    return { command: wrapped, wrapped: true };
+    return { command: wrapped, wrapped: true, createdStubs: created };
   } catch (e) {
     state.wrapsErrored++;
     state.lastWrapError = e instanceof Error ? e.message : String(e);
@@ -678,6 +684,7 @@ export function sandboxFactoryHookOnly(pi: ExtensionAPI): void {
     const result = await slot.requestSandboxWrap(safe, { hasUI: ctx.hasUI, cwd: ctx.cwd });
     if (result.wrapped) {
       stashOriginalCommand(event.input, original);
+      stashCreatedStubs(event.input, result.createdStubs ?? []);
       (event.input as { command: string }).command = result.command;
       return undefined;
     }
@@ -737,8 +744,8 @@ export default function sandbox(pi: ExtensionAPI): void {
     state.manager = undefined;
     state.sessionAllowedDomains.clear();
     state.sessionWriteAllow.clear();
-    cleanupDangerousFileStubs(state.createdDangerousStubs);
-    state.createdDangerousStubs.clear();
+    cleanupDangerousFileStubs(state.stubRefcount.keys());
+    state.stubRefcount.clear();
     clearActiveSandbox();
     clearActiveUI();
     uninstallSandboxWrapper();
@@ -853,6 +860,7 @@ export default function sandbox(pi: ExtensionAPI): void {
     const result = await performWrap(safe, state, { hasUI: ctx.hasUI, cwd: ctx.cwd });
     if (result.wrapped) {
       stashOriginalCommand(event.input, original);
+      stashCreatedStubs(event.input, result.createdStubs ?? []);
       (event.input as { command: string }).command = result.command;
       return undefined;
     }
@@ -882,6 +890,22 @@ export default function sandbox(pi: ExtensionAPI): void {
     // dirs and the active-count gauge over a long session. Safe to
     // call on every platform - documented as no-op on macOS.
     state.manager.cleanupAfterCommand?.();
+
+    // Per-command dangerous-file-stub cleanup. The matching tool_call
+    // hook stashed the per-wrap stub list on `event.input` and bumped
+    // each path's refcount in `state.stubRefcount`; here we decrement
+    // and unlink the ones that hit zero. Skipping this leaves the
+    // stubs sitting in cwd until session_shutdown - the user sees
+    // `.bashrc`, `.gitconfig`, `bunfig.toml`, etc. as untracked files
+    // for the duration of the session even though every bash command
+    // has long since exited. Bg-bash makes the refcount load-bearing:
+    // two concurrent commands touching the same stubs only release
+    // them when the second `tool_result` fires.
+    const wrapStubs = readCreatedStubs(event.input);
+    if (wrapStubs.length > 0) {
+      const toRemove = decStubRefs(state.stubRefcount, wrapStubs);
+      if (toRemove.length > 0) cleanupDangerousFileStubs(toRemove);
+    }
     const original = (event.input as Record<symbol, unknown> | undefined)?.[SANDBOX_ORIGINAL_SYMBOL];
     const command =
       typeof original === 'string'

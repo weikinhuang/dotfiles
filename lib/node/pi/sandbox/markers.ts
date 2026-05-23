@@ -25,6 +25,14 @@ export const SANDBOX_MARKER = '__PI_SANDBOX_WRAPPED=1';
  *  serializers that JSON-stringify `event.input` skip it. */
 export const SANDBOX_ORIGINAL_SYMBOL = Symbol.for('@dotfiles/pi/sandbox/originalCommand');
 
+/** Symbol-keyed property where sandbox.ts stashes the per-wrap list of
+ *  dangerous-file stub paths it created/adopted on `event.input`, so
+ *  the matching `tool_result` hook can decrement their refcount and
+ *  unlink the ones whose count drops to zero. Symbol-keyed for the
+ *  same JSON-serializer-invisibility reason as the original-command
+ *  stash above. */
+export const SANDBOX_STUBS_SYMBOL = Symbol.for('@dotfiles/pi/sandbox/createdStubs');
+
 /** True when `command` already starts with the sandbox re-entry
  *  marker. Tested against the leading non-whitespace prefix so a user-
  *  prefixed `   __PI_SANDBOX_WRAPPED=1 ...` is also detected. */
@@ -107,4 +115,37 @@ export function readOriginalStash(input: unknown): string | undefined {
   if (input === null || typeof input !== 'object') return undefined;
   const v = (input as Record<symbol, unknown>)[SANDBOX_ORIGINAL_SYMBOL];
   return typeof v === 'string' ? v : undefined;
+}
+
+/**
+ * Stash the per-wrap list of dangerous-file stub paths on `input`
+ * under {@link SANDBOX_STUBS_SYMBOL}. The list is a snapshot of the
+ * paths `createDangerousFileStubs` actually touched (created or
+ * adopted via the EEXIST path) for THIS wrap, so the matching
+ * `tool_result` handler can decrement their refcount and unlink the
+ * ones whose count has dropped to zero. Empty / undefined input is
+ * silently ignored. Stored as a frozen copy so a downstream consumer
+ * can't accidentally mutate the stash.
+ */
+export function stashCreatedStubs(input: unknown, paths: readonly string[]): void {
+  if (input === null || typeof input !== 'object') return;
+  Object.defineProperty(input, SANDBOX_STUBS_SYMBOL, {
+    value: Object.freeze([...paths]),
+    enumerable: false,
+    configurable: true,
+  });
+}
+
+/**
+ * Read the per-wrap stub list previously stashed by
+ * {@link stashCreatedStubs}. Returns an empty array when the stash is
+ * absent or shaped unexpectedly, so the caller can iterate without a
+ * null check.
+ */
+export function readCreatedStubs(input: unknown): readonly string[] {
+  if (input === null || typeof input !== 'object') return [];
+  const v = (input as Record<symbol, unknown>)[SANDBOX_STUBS_SYMBOL];
+  if (!Array.isArray(v)) return [];
+  // Defensive: every entry must be a string, otherwise drop it.
+  return v.filter((x): x is string => typeof x === 'string');
 }
