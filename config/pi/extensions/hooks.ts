@@ -85,7 +85,7 @@ import {
 } from '../../../lib/node/pi/hooks/config.ts';
 import { matchesMatcher } from '../../../lib/node/pi/hooks/matcher.ts';
 import { type HookResult, nodeChildProcessSpawn, runHook } from '../../../lib/node/pi/hooks/runner.ts';
-import { parsePositiveInt } from '../../../lib/node/pi/parse-env.ts';
+import { envTruthy, parsePositiveInt } from '../../../lib/node/pi/parse-env.ts';
 import { makeDiagnostics } from '../../../lib/node/pi/recovery-diagnostics.ts';
 
 const DEFAULT_TIMEOUT_MS = 60000;
@@ -134,13 +134,13 @@ function getSessionId(ctx: ExtensionContext): string {
 }
 
 export default function hooks(pi: ExtensionAPI): void {
-  if (process.env.PI_HOOKS_DISABLED === '1') return;
+  if (envTruthy(process.env.PI_HOOKS_DISABLED)) return;
 
   const defaultTimeoutMs = parsePositiveInt(process.env.PI_HOOKS_TIMEOUT_MS, DEFAULT_TIMEOUT_MS);
   const { trace, notify } = makeDiagnostics({
     label: 'hooks',
     tracePath: process.env.PI_HOOKS_TRACE,
-    debug: process.env.PI_HOOKS_DEBUG === '1',
+    debug: envTruthy(process.env.PI_HOOKS_DEBUG),
   });
 
   /** Session-layer hooks supplied at runtime. Reserved for a future

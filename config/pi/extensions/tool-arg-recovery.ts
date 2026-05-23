@@ -60,19 +60,19 @@
 
 import { type ExtensionAPI } from '@earendil-works/pi-coding-agent';
 
-import { parsePositiveInt } from '../../../lib/node/pi/parse-env.ts';
+import { envTruthy, parsePositiveInt } from '../../../lib/node/pi/parse-env.ts';
 import { makeDiagnostics } from '../../../lib/node/pi/recovery-diagnostics.ts';
 import { buildRecoveryBlock, parseValidationFailure, type SchemaNode } from '../../../lib/node/pi/tool-arg-recovery.ts';
 
 const DEFAULT_MAX_EXAMPLE_CHARS = 1500;
 
 export default function toolArgRecovery(pi: ExtensionAPI): void {
-  if (process.env.PI_TOOL_ARG_RECOVERY_DISABLED === '1') return;
+  if (envTruthy(process.env.PI_TOOL_ARG_RECOVERY_DISABLED)) return;
 
   const { trace, notify } = makeDiagnostics({
     label: 'tool-arg-recovery',
     tracePath: process.env.PI_TOOL_ARG_RECOVERY_TRACE,
-    debug: process.env.PI_TOOL_ARG_RECOVERY_DEBUG === '1',
+    debug: envTruthy(process.env.PI_TOOL_ARG_RECOVERY_DEBUG),
   });
   const maxExampleChars = parsePositiveInt(
     process.env.PI_TOOL_ARG_RECOVERY_MAX_EXAMPLE_CHARS,

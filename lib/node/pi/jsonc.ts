@@ -200,3 +200,51 @@ export function tryReadJsoncFile(path: string, warnings: ConfigWarning[], opts: 
   }
   return parsed;
 }
+
+/**
+ * Thrown by {@link readJsoncForMutation} when the file exists but fails to
+ * parse. Slash-command handlers that mutate JSONC config files in place
+ * (network allow/deny lists, write-allow paths, …) catch this and abort
+ * the write with a user-facing notify, so a malformed-but-recoverable
+ * file is never clobbered. The `path` field is set so the handler's
+ * notify can name the offending file directly.
+ */
+export class JsoncReadError extends Error {
+  readonly path: string;
+  constructor(path: string, cause: unknown) {
+    super(`Failed to parse ${path}: ${cause instanceof Error ? cause.message : String(cause)}`);
+    this.name = 'JsoncReadError';
+    this.path = path;
+  }
+}
+
+/**
+ * Read + parse a JSONC config file for a read-then-mutate-then-write
+ * cycle. Distinct from {@link loadJsoncConfigOrFallback}'s warn-then-
+ * fallback policy: a file that EXISTS but fails to parse throws
+ * {@link JsoncReadError} so the caller can abort rather than silently
+ * overwrite a user's hand-edited rules + comments.
+ *
+ * Behavior:
+ *   - Missing or unreadable file → `fallback()` (a fresh write is fine).
+ *   - Empty / whitespace-only file → `fallback()` (treat as new).
+ *   - Parse error → emit a one-shot `warnBadConfigFileOnce(tag, path, e)`
+ *     then throw {@link JsoncReadError}.
+ *   - Successful parse → return the parsed value verbatim. (No
+ *     `clearConfigWarning` call here; that's the read-only loader's job.)
+ */
+export function readJsoncForMutation<T>(tag: string, path: string, fallback: () => T): T {
+  let raw: string;
+  try {
+    raw = readFileSync(path, 'utf8');
+  } catch {
+    return fallback();
+  }
+  if (!raw.trim()) return fallback();
+  try {
+    return parseJsonc<T>(raw);
+  } catch (e) {
+    warnBadConfigFileOnce(tag, path, e);
+    throw new JsoncReadError(path, e);
+  }
+}

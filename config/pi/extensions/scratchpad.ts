@@ -72,6 +72,7 @@ import {
   type ScratchpadState,
 } from '../../../lib/node/pi/scratchpad-reducer.ts';
 import { truncate } from '../../../lib/node/pi/shared.ts';
+import { envTruthy } from '../../../lib/node/pi/parse-env.ts';
 
 const MAX_INJECTED_CHARS_DEFAULT = 2000;
 
@@ -117,7 +118,7 @@ function renderNoteLine(n: ScratchNote, theme: Theme): string {
 // ──────────────────────────────────────────────────────────────────────
 
 export default function scratchpadExtension(pi: ExtensionAPI): void {
-  if (process.env.PI_SCRATCHPAD_DISABLED === '1') return;
+  if (envTruthy(process.env.PI_SCRATCHPAD_DISABLED)) return;
 
   const autoInjectEnabled = process.env.PI_SCRATCHPAD_DISABLE_AUTOINJECT !== '1';
   const maxInjectedChars = (() => {

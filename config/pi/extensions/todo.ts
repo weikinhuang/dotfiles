@@ -63,6 +63,7 @@ import {
   type BranchEntry as VerifyBranchEntry,
   lastUserMessageHasMarker as branchLastUserMessageHasMarker,
 } from '../../../lib/node/pi/verify-detect.ts';
+import { formatText, formatTodoProgress, groupTodos, transitionGlyphs } from '../../../lib/node/pi/todo-format.ts';
 import {
   actAdd,
   actBlock,
@@ -77,16 +78,13 @@ import {
   type BranchEntry,
   cloneState,
   emptyState,
-  formatText,
-  formatTodoProgress,
-  groupTodos,
   reduceBranch,
   TODO_CUSTOM_TYPE,
   type Todo,
   type TodoState,
-  transitionGlyphs,
 } from '../../../lib/node/pi/todo-reducer.ts';
 import { formatHeaderRule } from '../../../lib/node/pi/tui-rule.ts';
+import { envTruthy } from '../../../lib/node/pi/parse-env.ts';
 
 // Sentinel prepended to the guardrail steer. We detect it on the most
 // recent user message to make the guardrail idempotent across re-fires
@@ -294,7 +292,7 @@ class TodoOverlay {
 // ──────────────────────────────────────────────────────────────────────
 
 export default function todoExtension(pi: ExtensionAPI): void {
-  if (process.env.PI_TODO_DISABLED === '1') return;
+  if (envTruthy(process.env.PI_TODO_DISABLED)) return;
 
   const autoInjectEnabled = process.env.PI_TODO_DISABLE_AUTOINJECT !== '1';
   const guardrailEnabled = process.env.PI_TODO_DISABLE_GUARDRAIL !== '1';

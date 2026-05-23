@@ -78,19 +78,19 @@
  * without spawning ASRT or a real bash child.
  *
  * Subagent injection: `sandboxFactoryHookOnly` is registered via
- * `lib/node/pi/subagent-extension-injection.ts`, so spawned subagent
+ * `lib/node/pi/subagent/extension-injection.ts`, so spawned subagent
  * sessions also wrap their bash calls through the parent's
  * SandboxManager singleton (subagents run in the same Node process,
  * so the manager + active config + active UI + wrapper slot are
  * shared).
  */
 
-import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { join } from 'node:path';
 
 import { type ExtensionAPI, type ExtensionContext, type ToolResultEvent } from '@earendil-works/pi-coding-agent';
 
 import { clearActiveUI, publishActiveUI } from '../../../lib/node/pi/active-ui.ts';
+import { extractBashCommand } from '../../../lib/node/pi/bash/hook.ts';
 import {
   cleanupDangerousFileStubs,
   createDangerousFileStubs,
@@ -104,9 +104,11 @@ import { buildNetworkAskCallback } from '../../../lib/node/pi/sandbox/network-as
 import { annotateBashResult, prependBashHint } from '../../../lib/node/pi/sandbox/result-annotate.ts';
 import { type FilesystemPolicyLayer, loadFilesystemPolicy } from '../../../lib/node/pi/filesystem-policy/load.ts';
 import { type FilesystemPolicyWarning } from '../../../lib/node/pi/filesystem-policy/schema.ts';
-import { parseJsonc, warnBadConfigFileOnce } from '../../../lib/node/pi/jsonc.ts';
+import { readTextOrEmpty } from '../../../lib/node/pi/fs-safe.ts';
+import { JsoncReadError } from '../../../lib/node/pi/jsonc.ts';
+import { createNotifyOnce } from '../../../lib/node/pi/notify-once.ts';
 import { envTruthy } from '../../../lib/node/pi/parse-env.ts';
-import { piAgentDir } from '../../../lib/node/pi/pi-paths.ts';
+import { piAgentDir, piProjectPath } from '../../../lib/node/pi/pi-paths.ts';
 import { pickScopeFile } from '../../../lib/node/pi/scope-pick.ts';
 import { getActivePersona } from '../../../lib/node/pi/persona/active.ts';
 
@@ -116,9 +118,13 @@ import {
   clearActiveSandbox,
   publishActiveSandbox,
 } from '../../../lib/node/pi/sandbox/active.ts';
+import { type AsrtSandboxManager, loadAsrtModule } from '../../../lib/node/pi/sandbox/asrt-manager.ts';
 import { loadSandboxConfig } from '../../../lib/node/pi/sandbox/config-load.ts';
 import { translateToASRT } from '../../../lib/node/pi/sandbox/config-translate.ts';
+import { addNetworkRule, addWriteAllowPath } from '../../../lib/node/pi/sandbox/config-write.ts';
+import { logE2bigWrap } from '../../../lib/node/pi/sandbox/e2big-debug.ts';
 import { compileLinuxPolicy, type CompiledPolicyReport } from '../../../lib/node/pi/sandbox/linux-rules-compile.ts';
+import { resolveSandboxMode, resolveWrapPlan, type WrapPlan } from '../../../lib/node/pi/sandbox/plan.ts';
 import {
   defaultPlatformProbe,
   detectSandboxPlatform,
@@ -131,10 +137,9 @@ import {
   type SandboxViolationRecord,
 } from '../../../lib/node/pi/sandbox/violations-log.ts';
 import {
-  alreadyWrapped,
-  buildIdentityWrap,
-  SANDBOX_MARKER,
+  hasOriginalStash,
   SANDBOX_ORIGINAL_SYMBOL,
+  stashOriginalCommand,
   stripMarkerFromUserInput,
 } from '../../../lib/node/pi/sandbox/markers.ts';
 import {
@@ -144,7 +149,7 @@ import {
   uninstallSandboxWrapper,
 } from '../../../lib/node/pi/sandbox/wrapper-slot.ts';
 import { setSandboxState, type SandboxMode } from '../../../lib/node/pi/session-flags.ts';
-import { registerSubagentInjection } from '../../../lib/node/pi/subagent-extension-injection.ts';
+import { registerSubagentInjection } from '../../../lib/node/pi/subagent/extension-injection.ts';
 
 // ─────────────────────────────────────────────────────────────────
 // Constants + paths
@@ -154,51 +159,13 @@ const USER_PI_DIR = piAgentDir();
 const USER_FS_PATH = join(USER_PI_DIR, 'filesystem.json');
 const USER_SANDBOX_PATH = join(USER_PI_DIR, 'sandbox.json');
 const USER_VIOLATIONS_LOG = join(USER_PI_DIR, 'sandbox-violations.log');
-const PROJECT_FS_RELATIVE = join('.pi', 'filesystem.json');
-const PROJECT_SANDBOX_RELATIVE = join('.pi', 'sandbox.json');
 
 function projectFsPath(cwd: string): string {
-  return resolve(cwd, PROJECT_FS_RELATIVE);
+  return piProjectPath(cwd, 'filesystem.json');
 }
 function projectSandboxPath(cwd: string): string {
-  return resolve(cwd, PROJECT_SANDBOX_RELATIVE);
+  return piProjectPath(cwd, 'sandbox.json');
 }
-
-function readUtf8(path: string): string {
-  try {
-    return readFileSync(path, 'utf8');
-  } catch {
-    return '';
-  }
-}
-
-// Re-export the marker helpers under the same names so existing
-// importers (sandbox.spec.ts) and future tooling don't need to know
-// about the lib split.
-export { alreadyWrapped, buildIdentityWrap, SANDBOX_ORIGINAL_SYMBOL, stripMarkerFromUserInput };
-
-/** True when this event's `input` already carries our original-command
- *  stash, meaning a previous sandbox hook pass wrapped it. Symbol-keyed
- *  so a model cannot fabricate it. */
-function hasOriginalStash(input: unknown): boolean {
-  return (input as Record<symbol, unknown> | undefined)?.[SANDBOX_ORIGINAL_SYMBOL] !== undefined;
-}
-
-function stashOriginalCommand(input: unknown, original: string): void {
-  Object.defineProperty(input as object, SANDBOX_ORIGINAL_SYMBOL, {
-    value: original,
-    enumerable: false,
-  });
-}
-
-/** Re-entry guard marker prepended to wrapped commands. The bash hook
- *  refuses to wrap a command that already starts with this prefix
- *  (`alreadyWrapped()`), and `stripMarkerFromUserInput()` paranoidly
- *  removes a pre-existing copy from user input before wrapping so a
- *  model that learns the marker can't bypass the wrap. Re-exported
- *  from `lib/node/pi/sandbox/markers.ts` for the unit-test surface. */
-// (constant defined in markers.ts; re-export for back-compat below.)
-export { SANDBOX_MARKER };
 
 function envFallback(): 'warn' | 'allow' | 'block' {
   const raw = (process.env.PI_SANDBOX_DEFAULT ?? 'warn').trim().toLowerCase();
@@ -224,59 +191,9 @@ function envNetworkDefault(): 'allow' | 'deny' {
 // Config loading + ASRT manager glue
 // ─────────────────────────────────────────────────────────────────
 
-/** Loose structural shape of ASRT's SandboxManager - matches the
- *  `ISandboxManager` interface in
- *  `node_modules/@anthropic-ai/sandbox-runtime/dist/sandbox/sandbox-manager.d.ts`.
- *  We type structurally so this module doesn't have to import ASRT
- *  at type-level (typecheck excludes config/pi/extensions/**, but the
- *  parent package's own typecheck still benefits from a precise
- *  shape). */
-interface AsrtSandboxManager {
-  initialize(
-    runtimeConfig: unknown,
-    sandboxAskCallback?: (params: { host: string; port: number | undefined }) => Promise<boolean>,
-    enableLogMonitor?: boolean,
-  ): Promise<void>;
-  isSupportedPlatform(): boolean;
-  isSandboxingEnabled(): boolean;
-  wrapWithSandbox(
-    command: string,
-    binShell?: string,
-    customConfig?: unknown,
-    abortSignal?: AbortSignal,
-  ): Promise<string>;
-  updateConfig(newConfig: unknown): void;
-  reset(): Promise<void>;
-  getSandboxViolationStore(): {
-    getViolations(): unknown[];
-  };
-  annotateStderrWithSandboxFailures(command: string, stderr: string): string;
-  /** Lightweight per-command cleanup. Removes the empty mount-point
-   *  files bwrap created on the host for non-existent deny paths AND
-   *  decrements ASRT's `activeSandboxCount`. Documented as safe to
-   *  call on any platform (no-op on macOS). Pi's `tool_result` hook
-   *  calls this after each bash invocation - skipping it leaks
-   *  `/tmp/claude-empty-*` dirs and the active-count gauge over a
-   *  long session. */
-  cleanupAfterCommand?(): void;
-  getProxyPort?(): number | undefined;
-  getSocksProxyPort?(): number | undefined;
-}
-
-/** Lazy-imported ASRT module. Keeping it lazy avoids the require()
- *  cost on extension load (ASRT pulls in zod + a handful of native-y
- *  helpers); we only need it on the first bash call. */
-interface AsrtModule {
-  SandboxManager: AsrtSandboxManager;
-}
-
-let asrtCache: AsrtModule | null = null;
-async function loadAsrt(): Promise<AsrtModule> {
-  if (asrtCache) return asrtCache;
-  // Use dynamic import so a missing dep degrades gracefully.
-  asrtCache = (await import('@anthropic-ai/sandbox-runtime')) as unknown as AsrtModule;
-  return asrtCache;
-}
+// `AsrtSandboxManager`, `AsrtModule`, and the lazy `loadAsrtModule()`
+// loader live in `lib/node/pi/sandbox/asrt-manager.ts` so they're
+// vitest-testable and the structural shape is enforceable from lib.
 
 function buildLayers(cwd: string): {
   fsLayers: FilesystemPolicyLayer[];
@@ -284,12 +201,12 @@ function buildLayers(cwd: string): {
 } {
   return {
     fsLayers: [
-      { source: USER_FS_PATH, raw: readUtf8(USER_FS_PATH) },
-      { source: projectFsPath(cwd), raw: readUtf8(projectFsPath(cwd)) },
+      { source: USER_FS_PATH, raw: readTextOrEmpty(USER_FS_PATH) },
+      { source: projectFsPath(cwd), raw: readTextOrEmpty(projectFsPath(cwd)) },
     ],
     sandboxLayers: [
-      { source: USER_SANDBOX_PATH, raw: readUtf8(USER_SANDBOX_PATH) },
-      { source: projectSandboxPath(cwd), raw: readUtf8(projectSandboxPath(cwd)) },
+      { source: USER_SANDBOX_PATH, raw: readTextOrEmpty(USER_SANDBOX_PATH) },
+      { source: projectSandboxPath(cwd), raw: readTextOrEmpty(projectSandboxPath(cwd)) },
     ],
   };
 }
@@ -382,8 +299,15 @@ interface RuntimeState {
   reason?: string;
   /** Last resolved snapshot - used by `/sandbox` rendering. */
   lastResolved?: ResolvedAll;
-  /** Per-source warning de-dup so we only notify each one once. */
-  notifiedWarnings: Set<string>;
+  /** Per-source notify-once tracker for filesystem-policy warnings
+   *  surfaced from `loadFilesystemPolicy`. Keyed on `<source>|<reason>`,
+   *  rendered as `sandbox: <source>: <reason>` (warning severity). */
+  fsWarnings: ReturnType<typeof createNotifyOnce>;
+  /** Per-source notify-once tracker for sandbox-config warnings
+   *  surfaced from `loadSandboxConfig`. Separate tracker so a fs +
+   *  sandbox warning with the same path wouldn't accidentally dedup
+   *  against each other. */
+  sandboxWarnings: ReturnType<typeof createNotifyOnce>;
   /** Set when a degraded-fallback notify has been surfaced this
    *  session (graceful-degradation rule per plan section 6). */
   degradedNotified: boolean;
@@ -426,7 +350,8 @@ function newState(platform: SandboxPlatformInfo): RuntimeState {
     platform,
     initialized: false,
     bypassed: false,
-    notifiedWarnings: new Set(),
+    fsWarnings: createNotifyOnce({ tag: 'sandbox' }),
+    sandboxWarnings: createNotifyOnce({ tag: 'sandbox' }),
     degradedNotified: false,
     wrapsAttempted: 0,
     wrapsErrored: 0,
@@ -457,20 +382,17 @@ function refreshDangerousProtected(state: RuntimeState, cwd: string): void {
 }
 
 /** Compute the effective {@link SandboxMode} for the statusline
- *  badge. Plan section 7 enumerates the five visible states. */
+ *  badge. Plan section 7 enumerates the five visible states. Thin
+ *  wrapper around `lib/node/pi/sandbox/plan.ts::resolveSandboxMode`
+ *  that adapts the lib type back to the `SandboxMode` literal-union
+ *  re-exported from `session-flags.ts`. */
 function effectiveMode(state: RuntimeState): { mode: SandboxMode; reason?: string } {
-  if (envTruthy(process.env.PI_SANDBOX_DISABLED)) return { mode: 'env-disabled', reason: 'PI_SANDBOX_DISABLED=1' };
-  if (state.bypassed) return { mode: 'bypassed', reason: state.reason ?? '/sandbox-disable' };
-  if (state.platform.kind === 'unsupported') {
-    return { mode: 'identity', reason: state.platform.description };
-  }
-  if (state.platform.missingDeps.length > 0) {
-    return { mode: 'identity', reason: `missing deps: ${state.platform.missingDeps.join(', ')}` };
-  }
-  if (state.platform.isRoot && !envTruthy(process.env.PI_SANDBOX_ALLOW_ROOT)) {
-    return { mode: 'identity', reason: 'running as root (set PI_SANDBOX_ALLOW_ROOT=1 to override)' };
-  }
-  return state.initialized ? { mode: 'wrapped' } : { mode: 'wrapped', reason: 'pending first bash' };
+  return resolveSandboxMode({
+    platform: state.platform,
+    bypassed: state.bypassed,
+    initialized: state.initialized,
+    reason: state.reason,
+  }) as { mode: SandboxMode; reason?: string };
 }
 
 function publishStatusline(state: RuntimeState): void {
@@ -478,18 +400,9 @@ function publishStatusline(state: RuntimeState): void {
   setSandboxState(reason !== undefined ? { mode, reason } : { mode });
 }
 
-function surfaceFsWarnings(
-  ctx: ExtensionContext,
-  warnings: FilesystemPolicyWarning[],
-  notifiedWarnings: Set<string>,
-): void {
-  for (const w of warnings) {
-    const key = `${w.source}|${w.reason}`;
-    if (notifiedWarnings.has(key)) continue;
-    notifiedWarnings.add(key);
-    ctx.ui.notify(`sandbox: ${w.source}: ${w.reason}`, 'warning');
-  }
-}
+// `surfaceFsWarnings` was inlined into `reconfigure` once both warning
+// sources (fs-policy + sandbox-config) routed through `notify-once`'s
+// per-source dedup. See `state.fsWarnings` / `state.sandboxWarnings`.
 
 // ─────────────────────────────────────────────────────────────────
 // Config-write helpers for /sandbox-allow / -deny / -allow-write and
@@ -503,62 +416,18 @@ function pickScopeFs(cwd: string): string {
   return pickScopeFile({ cwd, projectFile: projectFsPath(cwd), userFile: USER_FS_PATH });
 }
 
-/** Thrown by {@link readJsoncFileForWrite} when an existing file fails
+/** Thrown by {@link readJsoncForMutation} when an existing file fails
  *  to parse. The slash-command handlers catch it and abort the write
  *  with a clear notify, so a user with a malformed `<piAgentDir>/sandbox.json`
  *  doesn't lose their hand-edited rules + comments to a clobbering
- *  `/sandbox-allow` save. */
-class JsoncReadError extends Error {
-  readonly path: string;
-  constructor(path: string, cause: unknown) {
-    super(`Failed to parse ${path}: ${cause instanceof Error ? cause.message : String(cause)}`);
-    this.name = 'JsoncReadError';
-    this.path = path;
-  }
-}
+ *  `/sandbox-allow` save. Imported directly from
+ *  {@link ../../../lib/node/pi/jsonc.ts | jsonc.ts}. */
+// (no re-export - downstream callers should import JsoncReadError from
+// `lib/node/pi/jsonc.ts` directly.)
 
-/**
- * Read+parse a JSONC config file for read-then-write modification.
- * Missing or empty files fall back to {@link fallback} (a fresh write
- * is fine). A file that EXISTS but fails to parse throws
- * {@link JsoncReadError} so the caller can abort rather than silently
- * overwrite the user's broken-but-recoverable file.
- */
-function readJsoncFileForWrite<T>(path: string, fallback: () => T): T {
-  let raw: string;
-  try {
-    raw = readFileSync(path, 'utf8');
-  } catch {
-    return fallback();
-  }
-  if (!raw.trim()) return fallback();
-  try {
-    return parseJsonc<T>(raw);
-  } catch (e) {
-    warnBadConfigFileOnce('sandbox', path, e);
-    throw new JsoncReadError(path, e);
-  }
-}
-
-function writeJsonFile(path: string, value: unknown): void {
-  mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`, 'utf8');
-}
-
-interface SandboxJsonShape {
-  network?: { allow?: string[]; deny?: string[] };
-  unixSockets?: { allow?: string[]; allowAll?: boolean };
-  flags?: Record<string, unknown>;
-}
-
-function addNetworkRule(path: string, kind: 'allow' | 'deny', domain: string): void {
-  const cur = readJsoncFileForWrite<SandboxJsonShape>(path, () => ({}));
-  cur.network ??= {};
-  const bucket = (cur.network[kind] ??= []);
-  if (!bucket.includes(domain)) bucket.push(domain);
-  bucket.sort();
-  writeJsonFile(path, cur);
-}
+// `addNetworkRule`, `addWriteAllowPath`, and the JSONC schema types
+// live in `lib/node/pi/sandbox/config-write.ts` so the slash-command
+// mutation pipeline is vitest-testable.
 
 /** Run a write-side config mutation; surface a `JsoncReadError` as a
  *  user-facing notify and return false (handler aborts without writing).
@@ -577,24 +446,6 @@ function withSafeConfigWrite(ctx: ExtensionContext, action: () => void): boolean
     }
     throw e;
   }
-}
-
-interface FilesystemJsonShape {
-  read?: { deny?: { basenames?: string[]; segments?: string[]; paths?: string[] }; allow?: unknown };
-  write?: {
-    allow?: { basenames?: string[]; segments?: string[]; paths?: string[] };
-    deny?: { basenames?: string[]; segments?: string[]; paths?: string[] };
-  };
-}
-
-function addWriteAllowPath(path: string, p: string): void {
-  const cur = readJsoncFileForWrite<FilesystemJsonShape>(path, () => ({}));
-  cur.write ??= {};
-  cur.write.allow ??= {};
-  cur.write.allow.paths ??= [];
-  if (!cur.write.allow.paths.includes(p)) cur.write.allow.paths.push(p);
-  cur.write.allow.paths.sort();
-  writeJsonFile(path, cur);
 }
 
 /**
@@ -635,15 +486,11 @@ async function reconfigure(state: RuntimeState, cwd: string, ctx?: ExtensionCont
   state.lastCwd = cwd;
   try {
     const resolved = resolveAll(cwd, state.platform, Array.from(state.sessionWriteAllow));
-    if (ctx && resolved.fsWarnings.length > 0) {
-      surfaceFsWarnings(ctx, resolved.fsWarnings, state.notifiedWarnings);
-    }
     if (ctx) {
-      for (const w of resolved.sandboxResult.warnings) {
-        const key = `sandbox|${w.source}|${w.reason}`;
-        if (state.notifiedWarnings.has(key)) continue;
-        state.notifiedWarnings.add(key);
-        ctx.ui.notify(`sandbox: ${w.source}: ${w.reason}`, 'warning');
+      const notify = ctx.ui.notify.bind(ctx.ui);
+      if (resolved.fsWarnings.length > 0) state.fsWarnings.surface(notify, resolved.fsWarnings);
+      if (resolved.sandboxResult.warnings.length > 0) {
+        state.sandboxWarnings.surface(notify, resolved.sandboxResult.warnings);
       }
     }
 
@@ -677,7 +524,7 @@ async function ensureManager(state: RuntimeState, cwd: string, ctx: ExtensionCon
   if (state.platform.isRoot && !envTruthy(process.env.PI_SANDBOX_ALLOW_ROOT)) return false;
 
   try {
-    const asrt = await loadAsrt();
+    const asrt = await loadAsrtModule();
     const resolved = state.lastResolved ?? (await reconfigure(state, cwd, ctx));
     if (!asrt.SandboxManager.isSupportedPlatform()) {
       state.reason = 'ASRT reports platform unsupported';
@@ -707,53 +554,22 @@ async function ensureManager(state: RuntimeState, cwd: string, ctx: ExtensionCon
   }
 }
 
-/** Resolve which mode the bash hook should take for `command`. */
-type WrapPlan = { kind: 'identity'; reason?: string } | { kind: 'wrapped' } | { kind: 'block'; reason: string };
-
+/** Resolve which mode the bash hook should take for `command`.
+ *  Thin wrapper around `lib/node/pi/sandbox/plan.ts::resolveWrapPlan`
+ *  that pipes through the live state. */
 function planFor(state: RuntimeState): WrapPlan {
-  if (envTruthy(process.env.PI_SANDBOX_DISABLED)) return { kind: 'identity', reason: 'PI_SANDBOX_DISABLED=1' };
-  if (state.bypassed) return { kind: 'identity', reason: '/sandbox-disable' };
-  if (state.platform.kind === 'unsupported') return { kind: 'identity', reason: state.platform.description };
-  if (state.platform.missingDeps.length > 0) {
-    return { kind: 'identity', reason: `missing deps: ${state.platform.missingDeps.join(', ')}` };
-  }
-  if (state.platform.isRoot && !envTruthy(process.env.PI_SANDBOX_ALLOW_ROOT)) {
-    return { kind: 'identity', reason: 'running as root' };
-  }
-  return { kind: 'wrapped' };
+  return resolveWrapPlan({
+    platform: state.platform,
+    bypassed: state.bypassed,
+    initialized: state.initialized,
+    reason: state.reason,
+  });
 }
 
 // ─────────────────────────────────────────────────────────────────
-// E2BIG diagnostic - gated on PI_SANDBOX_E2BIG_DEBUG=<path|1>
+// E2BIG diagnostic - see `lib/node/pi/sandbox/e2big-debug.ts` for
+// the per-wrap size logger gated on `PI_SANDBOX_E2BIG_DEBUG`.
 // ─────────────────────────────────────────────────────────────────
-
-/** Log per-wrap size + deny-list counts when the env var is set.
- *  When `=1`, log to /tmp/sandbox-e2big.log; otherwise log to the
- *  literal path. Best-effort; an EIO never breaks the wrap. */
-function e2bigDebugLog(state: RuntimeState, input: string, output: string): void {
-  const raw = process.env.PI_SANDBOX_E2BIG_DEBUG;
-  if (!raw) return;
-  const path = raw === '1' ? '/tmp/sandbox-e2big.log' : raw;
-  const fs = (
-    state.lastResolved?.asrtConfig as
-      | { filesystem?: { denyRead?: unknown[]; denyWrite?: unknown[]; allowWrite?: unknown[] } }
-      | undefined
-  )?.filesystem;
-  const denyRead = Array.isArray(fs?.denyRead) ? fs.denyRead.length : -1;
-  const denyWrite = Array.isArray(fs?.denyWrite) ? fs.denyWrite.length : -1;
-  const allowWrite = Array.isArray(fs?.allowWrite) ? fs.allowWrite.length : -1;
-  const inHead = input.replace(/\s+/g, ' ').slice(0, 80);
-  const line =
-    `${new Date().toISOString()} call=${state.wrapsAttempted} ` +
-    `in=${input.length} out=${output.length} ` +
-    `denyRead=${denyRead} denyWrite=${denyWrite} allowWrite=${allowWrite} ` +
-    `pid=${process.pid} inHead=${JSON.stringify(inHead)}\n`;
-  try {
-    appendFileSync(path, line);
-  } catch {
-    // Best-effort
-  }
-}
 
 /**
  * Wrap a command for the live SandboxManager when one is available;
@@ -806,7 +622,11 @@ async function performWrap(
       state.createdDangerousStubs.add(abs);
     }
     const wrapped = await state.manager.wrapWithSandbox(command);
-    e2bigDebugLog(state, command, wrapped);
+    logE2bigWrap(
+      { wrapsAttempted: state.wrapsAttempted, lastResolvedAsrtConfig: state.lastResolved?.asrtConfig },
+      command,
+      wrapped,
+    );
     return { command: wrapped, wrapped: true };
   } catch (e) {
     state.wrapsErrored++;
@@ -840,10 +660,8 @@ async function performWrap(
 export function sandboxFactoryHookOnly(pi: ExtensionAPI): void {
   if (envTruthy(process.env.PI_SANDBOX_DISABLED)) return;
   pi.on('tool_call', async (event, ctx) => {
-    if (event.toolName !== 'bash') return undefined;
-    const rawCmd = (event.input as { command?: unknown } | undefined)?.command;
-    const original = typeof rawCmd === 'string' ? rawCmd : '';
-    if (!original.trim()) return undefined;
+    const original = extractBashCommand(event);
+    if (!original) return undefined;
     // Re-entry guard: only true if WE wrapped this event in an earlier
     // hook pass. Detecting via the original-stash symbol (which only
     // this extension can write) prevents a model that prepends
@@ -1004,9 +822,8 @@ export default function sandbox(pi: ExtensionAPI): void {
       input: ctx.ui.input.bind(ctx.ui),
       notify: ctx.ui.notify.bind(ctx.ui),
     });
-    const rawCmd = (event.input as { command?: unknown } | undefined)?.command;
-    const original = typeof rawCmd === 'string' ? rawCmd : '';
-    if (!original.trim()) return undefined;
+    const original = extractBashCommand(event);
+    if (!original) return undefined;
     // Re-entry guard: see hasOriginalStash docstring. Using the symbol
     // stash (which only we can set) instead of alreadyWrapped(original)
     // closes the fail-open on model-supplied marker prefixes.

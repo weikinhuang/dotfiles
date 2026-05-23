@@ -39,7 +39,7 @@
 import { type ExtensionAPI, type ExtensionContext } from '@earendil-works/pi-coding-agent';
 
 import { buildNudge, makeKey, pushAndCheck } from '../../../lib/node/pi/loop-breaker.ts';
-import { parsePositiveInt } from '../../../lib/node/pi/parse-env.ts';
+import { envTruthy, parsePositiveInt } from '../../../lib/node/pi/parse-env.ts';
 import { makeDiagnostics } from '../../../lib/node/pi/recovery-diagnostics.ts';
 
 const DEFAULT_THRESHOLD = 3;
@@ -47,14 +47,14 @@ const DEFAULT_WINDOW = 6;
 const STATUS_KEY = 'loop-breaker';
 
 export default function loopBreaker(pi: ExtensionAPI): void {
-  if (process.env.PI_LOOP_BREAKER_DISABLED === '1') return;
+  if (envTruthy(process.env.PI_LOOP_BREAKER_DISABLED)) return;
 
   const threshold = parsePositiveInt(process.env.PI_LOOP_BREAKER_THRESHOLD, DEFAULT_THRESHOLD);
   const windowSize = parsePositiveInt(process.env.PI_LOOP_BREAKER_WINDOW, DEFAULT_WINDOW);
   const { trace, notify } = makeDiagnostics({
     label: 'loop-breaker',
     tracePath: process.env.PI_LOOP_BREAKER_TRACE,
-    debug: process.env.PI_LOOP_BREAKER_DEBUG === '1',
+    debug: envTruthy(process.env.PI_LOOP_BREAKER_DEBUG),
   });
 
   const history: string[] = [];

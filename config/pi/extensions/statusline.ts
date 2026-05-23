@@ -57,8 +57,9 @@ import {
 } from '../../../lib/node/pi/git-prompt.ts';
 import { resolveWorktreeInfo, type WorktreeInfo } from '../../../lib/node/pi/git-worktree.ts';
 import { getSandboxState, isBashAutoEnabled, type SandboxMode } from '../../../lib/node/pi/session-flags.ts';
-import { getSessionSubagentAggregate } from '../../../lib/node/pi/subagent-aggregate.ts';
+import { getSessionSubagentAggregate } from '../../../lib/node/pi/subagent/aggregate.ts';
 import { fmtCost, fmtSi } from '../../../lib/node/pi/token-format.ts';
+import { envTruthy } from '../../../lib/node/pi/parse-env.ts';
 
 /**
  * Resolved once at module load. `null` means we never found the helper - the
@@ -266,7 +267,7 @@ export default function extension(pi: ExtensionAPI): void {
     }
   })();
 
-  const disabled = process.env.PI_STATUSLINE_DISABLED === '1';
+  const disabled = envTruthy(process.env.PI_STATUSLINE_DISABLED);
   if (disabled) return;
 
   const hyperlinksEnabled =

@@ -56,3 +56,25 @@ export function atomicWriteFile(path: string, body: string | Buffer): void {
   writeFileSync(tmp, body);
   renameSync(tmp, path);
 }
+
+/**
+ * Pretty-print `value` as 2-space-indented JSON with a trailing newline
+ * and write it to `path`. Creates parent dirs as needed (atomic NOT
+ * required - JSON config files are short and the slash-command-driven
+ * call sites are not racy across pi processes).
+ *
+ * The trailing newline matches the convention `oxfmt` enforces for the
+ * repo's own JSONC fixtures, so a config file written here passes
+ * through `git diff` cleanly even after a hand-edit/round-trip.
+ *
+ * Used by the slash-command write paths in `bash-permissions`,
+ * `sandbox`, and any other extension that round-trips a JSON(C) config
+ * file via {@link readJsoncForMutation}. Bypasses the comment-preserving
+ * round-trip on purpose: comments survive `parseJsonc` reads but the
+ * structured value loses them; a write-back replaces the file's
+ * structural content while leaving us free to keep the schema simple.
+ */
+export function writeJsonFile(path: string, value: unknown): void {
+  ensureDirSync(dirname(path));
+  writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`, 'utf8');
+}

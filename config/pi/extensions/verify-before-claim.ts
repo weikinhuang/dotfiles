@@ -101,13 +101,15 @@ import {
   partitionClaims,
 } from '../../../lib/node/pi/verify-detect.ts';
 import { detectHookRules } from '../../../lib/node/pi/verify-hook-detect.ts';
+import { createNotifyOnce } from '../../../lib/node/pi/notify-once.ts';
+import { envTruthy } from '../../../lib/node/pi/parse-env.ts';
 
 /** Sentinel prepended to every steer - used for idempotency + discovery. */
 const VERIFY_MARKER = '⚠ [pi-verify-before-claim]';
 
 export default function verifyBeforeClaim(pi: ExtensionAPI): void {
-  if (process.env.PI_VERIFY_DISABLED === '1') return;
-  const verbose = process.env.PI_VERIFY_VERBOSE === '1';
+  if (envTruthy(process.env.PI_VERIFY_DISABLED)) return;
+  const verbose = envTruthy(process.env.PI_VERIFY_VERBOSE);
   const tracePath = process.env.PI_VERIFY_TRACE;
 
   const trace = (msg: string): void => {
@@ -121,7 +123,11 @@ export default function verifyBeforeClaim(pi: ExtensionAPI): void {
 
   let cachedRules: CompiledSatisfyRule[] = [];
   let cachedWarnings: ConfigWarning[] = [];
-  const notifiedWarnings = new Set<string>();
+  const warnings = createNotifyOnce<ConfigWarning>({
+    tag: 'verify-before-claim',
+    keyOf: (w) => `${w.path}:${w.error}`,
+    render: (w, tag) => `${tag}: ${w.path}: ${w.error}`,
+  });
 
   const loadConfig = (cwd: string): void => {
     const explicit = loadSatisfyRules(cwd);
@@ -143,18 +149,13 @@ export default function verifyBeforeClaim(pi: ExtensionAPI): void {
   };
 
   const surfaceWarnings = (ctx: ExtensionContext): void => {
-    for (const w of cachedWarnings) {
-      const key = `${w.path}:${w.error}`;
-      if (notifiedWarnings.has(key)) continue;
-      notifiedWarnings.add(key);
-      ctx.ui.notify(`verify-before-claim: ${w.path}: ${w.error}`, 'warning');
-    }
+    warnings.surface(ctx.ui.notify.bind(ctx.ui), cachedWarnings);
   };
 
   pi.on('session_start', (_event, ctx) => {
     cachedRules = [];
     cachedWarnings = [];
-    notifiedWarnings.clear();
+    warnings.reset();
     loadConfig(ctx.cwd);
     surfaceWarnings(ctx);
   });

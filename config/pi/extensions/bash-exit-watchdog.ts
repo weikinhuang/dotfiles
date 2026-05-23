@@ -56,12 +56,14 @@ import {
   parseExitCode,
   shouldSuppress,
   type WatchdogConfig,
-} from '../../../lib/node/pi/bash-exit-watchdog.ts';
+} from '../../../lib/node/pi/bash/exit-watchdog.ts';
+import { envTruthy } from '../../../lib/node/pi/parse-env.ts';
+import { createNotifyOnce } from '../../../lib/node/pi/notify-once.ts';
 
 export default function bashExitWatchdog(pi: ExtensionAPI): void {
-  if (process.env.PI_EXIT_WATCHDOG_DISABLED === '1') return;
+  if (envTruthy(process.env.PI_EXIT_WATCHDOG_DISABLED)) return;
 
-  const debug = process.env.PI_EXIT_WATCHDOG_DEBUG === '1';
+  const debug = envTruthy(process.env.PI_EXIT_WATCHDOG_DEBUG);
   const tracePath = process.env.PI_EXIT_WATCHDOG_TRACE;
   const trace = (msg: string): void => {
     if (!tracePath) return;
@@ -73,7 +75,11 @@ export default function bashExitWatchdog(pi: ExtensionAPI): void {
   };
 
   let cached: { config: WatchdogConfig; warnings: ConfigWarning[] } | undefined;
-  const notified = new Set<string>();
+  const warnings = createNotifyOnce<ConfigWarning>({
+    tag: 'exit-watchdog',
+    keyOf: (w) => `${w.path}:${w.error}`,
+    render: (w, tag) => `${tag}: failed to load ${w.path}: ${w.error}`,
+  });
 
   const getConfig = (cwd: string): WatchdogConfig => {
     cached ??= loadConfig(cwd);
@@ -82,17 +88,12 @@ export default function bashExitWatchdog(pi: ExtensionAPI): void {
 
   const surfaceWarnings = (ctx: ExtensionContext): void => {
     if (!cached) return;
-    for (const w of cached.warnings) {
-      const key = `${w.path}:${w.error}`;
-      if (notified.has(key)) continue;
-      notified.add(key);
-      ctx.ui.notify(`exit-watchdog: failed to load ${w.path}: ${w.error}`, 'warning');
-    }
+    warnings.surface(ctx.ui.notify.bind(ctx.ui), cached.warnings);
   };
 
   pi.on('session_start', (_event, ctx) => {
     cached = undefined;
-    notified.clear();
+    warnings.reset();
     getConfig(ctx.cwd);
     surfaceWarnings(ctx);
   });
@@ -129,6 +130,6 @@ export default function bashExitWatchdog(pi: ExtensionAPI): void {
 
   pi.on('session_shutdown', () => {
     cached = undefined;
-    notified.clear();
+    warnings.reset();
   });
 }

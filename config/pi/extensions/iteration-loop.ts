@@ -123,16 +123,16 @@ import {
 import { Text } from '@earendil-works/pi-tui';
 import { Type } from 'typebox';
 
-import { anyArtifactMatch, extractEditTargets } from '../../../lib/node/pi/iteration-loop-artifact.ts';
-import { computeStopReason } from '../../../lib/node/pi/iteration-loop-budget.ts';
-import { runBashCheck } from '../../../lib/node/pi/iteration-loop-check-bash.ts';
-import { buildCriticTask, parseVerdict } from '../../../lib/node/pi/iteration-loop-check-critic.ts';
+import { anyArtifactMatch, extractEditTargets } from '../../../lib/node/pi/iteration-loop/artifact.ts';
+import { computeStopReason } from '../../../lib/node/pi/iteration-loop/budget.ts';
+import { runBashCheck } from '../../../lib/node/pi/iteration-loop/check-bash.ts';
+import { buildCriticTask, parseVerdict } from '../../../lib/node/pi/iteration-loop/check-critic.ts';
 import {
   type IterationLoopConfig,
   loadIterationLoopConfig,
   matchesClaimRegex,
-} from '../../../lib/node/pi/iteration-loop-config.ts';
-import { renderIterationBlock } from '../../../lib/node/pi/iteration-loop-prompt.ts';
+} from '../../../lib/node/pi/iteration-loop/config.ts';
+import { renderIterationBlock } from '../../../lib/node/pi/iteration-loop/prompt.ts';
 import {
   actAccept,
   actClose,
@@ -143,7 +143,7 @@ import {
   ITERATION_CUSTOM_TYPE,
   ITERATION_TOOL_NAME,
   reduceBranch,
-} from '../../../lib/node/pi/iteration-loop-reducer.ts';
+} from '../../../lib/node/pi/iteration-loop/reducer.ts';
 import {
   type BashCheckSpec,
   type CheckKind,
@@ -151,13 +151,15 @@ import {
   cloneIterationState,
   emptyIterationState,
   type CriticCheckSpec,
-  isBashCheckSpecShape,
-  isCriticCheckSpecShape,
-  isStopReason,
   type IterationState,
   type StopReason,
   type Verdict,
-} from '../../../lib/node/pi/iteration-loop-schema.ts';
+} from '../../../lib/node/pi/iteration-loop/schema.ts';
+import {
+  isBashCheckSpecShape,
+  isCriticCheckSpecShape,
+  isStopReason,
+} from '../../../lib/node/pi/iteration-loop/guards.ts';
 import {
   acceptDraft,
   activePath,
@@ -172,7 +174,7 @@ import {
   type TaskListing,
   writeDraft,
   writeSnapshotVerdict,
-} from '../../../lib/node/pi/iteration-loop-storage.ts';
+} from '../../../lib/node/pi/iteration-loop/storage.ts';
 import { truncate } from '../../../lib/node/pi/shared.ts';
 import {
   type AgentDef,
@@ -181,13 +183,16 @@ import {
   defaultAgentLayers,
   loadAgents,
   type ReadLayer,
-} from '../../../lib/node/pi/subagent-loader.ts';
-import { resolveSubagentSessionDir } from '../../../lib/node/pi/subagent-session-dir.ts';
-import { resolveChildModel, runOneShotAgent, type CreateAgentSessionDep } from '../../../lib/node/pi/subagent-spawn.ts';
+} from '../../../lib/node/pi/subagent/loader.ts';
+import { resolveSubagentSessionDir } from '../../../lib/node/pi/subagent/session-dir.ts';
+import { resolveChildModel, runOneShotAgent, type CreateAgentSessionDep } from '../../../lib/node/pi/subagent/spawn.ts';
+import { envTruthy } from '../../../lib/node/pi/parse-env.ts';
+import { readTextOrNull } from '../../../lib/node/pi/fs-safe.ts';
+import { createNotifyOnce } from '../../../lib/node/pi/notify-once.ts';
 
 /**
  * Pi's `createAgentSession` types `modelRegistry` as the concrete
- * `ModelRegistry` class, while `lib/node/pi/subagent-spawn.ts` uses a
+ * `ModelRegistry` class, while `lib/node/pi/subagent/spawn.ts` uses a
  * pi-free structural `ModelRegistryLike` so the helper can stay
  * unit-testable without pi imports. See the matching wrapper in
  * `deep-research.ts` for the full rationale.
@@ -470,9 +475,9 @@ function formatStatusText(cwd: string, task: string, state: IterationState | nul
 // ──────────────────────────────────────────────────────────────────────
 
 export default function iterationLoopExtension(pi: ExtensionAPI): void {
-  if (process.env.PI_ITERATION_LOOP_DISABLED === '1') return;
+  if (envTruthy(process.env.PI_ITERATION_LOOP_DISABLED)) return;
 
-  const debugEnabled = process.env.PI_ITERATION_LOOP_DEBUG === '1';
+  const debugEnabled = envTruthy(process.env.PI_ITERATION_LOOP_DEBUG);
 
   // In-memory mirror of the current branch's iteration state. `null`
   // means "no loop has been accepted on this branch" - a pre-accept
@@ -485,7 +490,11 @@ export default function iterationLoopExtension(pi: ExtensionAPI): void {
   // artifact path, which doesn't need the agent map.
   const extDir = dirname(fileURLToPath(import.meta.url));
   let agentLoad: AgentLoadResult = { agents: new Map(), nameOrder: [], warnings: [] };
-  const surfacedAgentWarnings = new Set<string>();
+  const agentWarnings = createNotifyOnce<AgentLoadWarning>({
+    tag: 'iteration-loop',
+    keyOf: (w) => `${w.path}:${w.reason}`,
+    render: (w, tag) => `${tag}: ${w.path}: ${w.reason}`,
+  });
 
   const readLayer: ReadLayer = {
     listMarkdownFiles: (dir) => {
@@ -495,13 +504,7 @@ export default function iterationLoopExtension(pi: ExtensionAPI): void {
         return null;
       }
     },
-    readFile: (path) => {
-      try {
-        return readFileSync(path, 'utf8');
-      } catch {
-        return null;
-      }
-    },
+    readFile: readTextOrNull,
   };
 
   const reloadAgents = (cwd: string): void => {
@@ -515,13 +518,8 @@ export default function iterationLoopExtension(pi: ExtensionAPI): void {
     });
   };
 
-  const surfaceAgentWarnings = (ctx: ExtensionContext, warnings: readonly AgentLoadWarning[]): void => {
-    for (const w of warnings) {
-      const key = `${w.path}:${w.reason}`;
-      if (surfacedAgentWarnings.has(key)) continue;
-      surfacedAgentWarnings.add(key);
-      ctx.ui.notify(`iteration-loop: ${w.path}: ${w.reason}`, 'warning');
-    }
+  const surfaceAgentWarnings = (ctx: ExtensionContext, list: readonly AgentLoadWarning[]): void => {
+    agentWarnings.surface(ctx.ui.notify.bind(ctx.ui), list);
   };
 
   // Turn counter (used by Phase 4 guardrails + threaded through
@@ -539,12 +537,14 @@ export default function iterationLoopExtension(pi: ExtensionAPI): void {
   // invocations don't re-fire once a nudge has been delivered.
   let checkRanThisTurn = false;
   let loopConfig: IterationLoopConfig = loadIterationLoopConfig(process.cwd()).config;
-  const surfacedConfigWarnings = new Set<string>();
+  const configWarnings = createNotifyOnce<{ path: string; error: string }>({
+    tag: 'iteration-loop',
+    keyOf: (w) => `${w.path}:${w.error}`,
+    render: (w, tag) => `${tag}: ${w.path}: ${w.error}`,
+  });
 
-  const surfaceConfigWarnings = (ctx: ExtensionContext, warnings: readonly { path: string; error: string }[]): void => {
-    for (const w of warnings) {
-      ctx.ui.notify(`iteration-loop: ${w.path}: ${w.error}`, 'warning');
-    }
+  const surfaceConfigWarnings = (ctx: ExtensionContext, list: readonly { path: string; error: string }[]): void => {
+    configWarnings.surface(ctx.ui.notify.bind(ctx.ui), list);
   };
 
   /** Sentinels matching the `verify-before-claim` convention so the
@@ -575,13 +575,7 @@ export default function iterationLoopExtension(pi: ExtensionAPI): void {
     try {
       const result = loadIterationLoopConfig(ctx.cwd);
       loopConfig = result.config;
-      const fresh = result.warnings.filter((w) => {
-        const key = `${w.path}:${w.error}`;
-        if (surfacedConfigWarnings.has(key)) return false;
-        surfacedConfigWarnings.add(key);
-        return true;
-      });
-      surfaceConfigWarnings(ctx, fresh);
+      surfaceConfigWarnings(ctx, result.warnings);
     } catch (e) {
       debug(debugEnabled, `config reload failed: ${(e as Error).message}`);
     }
@@ -844,7 +838,7 @@ export default function iterationLoopExtension(pi: ExtensionAPI): void {
 
   // ── Critic subagent runner ─────────────────────────────────────────
   //
-  // Wraps the shared one-shot spawn helper (lib/node/pi/subagent-spawn.ts)
+  // Wraps the shared one-shot spawn helper (lib/node/pi/subagent/spawn.ts)
   // so the critic doesn't re-implement model resolution, timeout/abort
   // plumbing, or stop-reason classification. We only need aggregate
   // cost (for budget-cost enforcement) and the raw final text (for
@@ -1374,4 +1368,4 @@ export default function iterationLoopExtension(pi: ExtensionAPI): void {
 // Re-export the reducer types so ad-hoc consumers (e.g. a future
 // `/check` slash command) can read state without pulling in a second
 // import path.
-export type { IterationState } from '../../../lib/node/pi/iteration-loop-schema.ts';
+export type { IterationState } from '../../../lib/node/pi/iteration-loop/schema.ts';

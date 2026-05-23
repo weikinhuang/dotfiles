@@ -16,7 +16,7 @@
  * blocks (live "thinking with <level> effort" → "still thinking" after
  * 20 s in-block → "thought for Ns" once the block ends). The state
  * machine + format helpers live in
- * `lib/node/pi/waveform-indicator-suffix.ts`.
+ * `lib/node/pi/waveform-indicator/suffix.ts`.
  *
  * Pi UI surface used:
  *   ctx.ui.setWorkingIndicator({ frames, intervalMs })
@@ -68,7 +68,7 @@
  *                                     `PI_WAVEFORM_THINKING_PULSE=off`.
  */
 
-import { appendFileSync, existsSync, readdirSync, readFileSync } from 'node:fs';
+import { appendFileSync, existsSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -92,19 +92,19 @@ import {
   type ReadLayer,
   defaultAgentLayers,
   loadAgents,
-} from '../../../lib/node/pi/subagent-loader.ts';
-import { resolveSubagentSessionDir } from '../../../lib/node/pi/subagent-session-dir.ts';
-import { type CreateAgentSessionDep, resolveChildModel, runOneShotAgent } from '../../../lib/node/pi/subagent-spawn.ts';
+} from '../../../lib/node/pi/subagent/loader.ts';
+import { resolveSubagentSessionDir } from '../../../lib/node/pi/subagent/session-dir.ts';
+import { type CreateAgentSessionDep, resolveChildModel, runOneShotAgent } from '../../../lib/node/pi/subagent/spawn.ts';
 import { piAgentDir } from '../../../lib/node/pi/pi-paths.ts';
+import { buildIndicatorFrames } from '../../../lib/node/pi/waveform-indicator/wave.ts';
+import { shimmerLabel } from '../../../lib/node/pi/waveform-indicator/shimmer.ts';
+import { buildSpectrumFrames } from '../../../lib/node/pi/waveform-indicator/spectrum.ts';
 import {
   TOKEN_RATE_BUFFER_SIZE,
-  buildIndicatorFrames,
-  buildSpectrumFrames,
   buildTokenRateFrame,
   pushTokenRateSample,
-  shimmerLabel,
   tokenRateBarsToHeights,
-} from '../../../lib/node/pi/waveform-indicator.ts';
+} from '../../../lib/node/pi/waveform-indicator/token-rate.ts';
 import {
   FALLBACK_PHRASE,
   type WaveformPhraseState,
@@ -118,20 +118,20 @@ import {
   newWaveformPhraseState,
   resetTurn,
   validatePhrase,
-} from '../../../lib/node/pi/waveform-indicator-phrase.ts';
+} from '../../../lib/node/pi/waveform-indicator/phrase.ts';
 import {
   type PersonaFsAdapter,
   type PersonaLayerPaths,
   loadPersonaBody,
   resolvePersonaPath,
-} from '../../../lib/node/pi/waveform-indicator-persona.ts';
+} from '../../../lib/node/pi/waveform-indicator/persona.ts';
 import {
   type TokenRateState,
   markMessageEnd as markRateMessageEnd,
   markMessageStart as markRateMessageStart,
   newTokenRateState,
   stepTokenRate,
-} from '../../../lib/node/pi/waveform-indicator-rate.ts';
+} from '../../../lib/node/pi/waveform-indicator/rate.ts';
 import {
   type DynamicLabelConfig,
   type WaveformMode,
@@ -140,18 +140,20 @@ import {
   resolveInitialWaveformMode,
   resolveWaveformStatePath,
   writeWaveformState,
-} from '../../../lib/node/pi/waveform-indicator-state.ts';
+} from '../../../lib/node/pi/waveform-indicator/state.ts';
 import {
   type LabelSuffixState,
   dimText,
   formatSuffix,
   newLabelSuffixState,
   resetTurnState,
-} from '../../../lib/node/pi/waveform-indicator-suffix.ts';
+} from '../../../lib/node/pi/waveform-indicator/suffix.ts';
+import { envTruthy } from '../../../lib/node/pi/parse-env.ts';
+import { readTextOrNull } from '../../../lib/node/pi/fs-safe.ts';
 
 /**
  * Pi's `createAgentSession` types `modelRegistry` as the concrete
- * `ModelRegistry` class, while `lib/node/pi/subagent-spawn.ts` uses a
+ * `ModelRegistry` class, while `lib/node/pi/subagent/spawn.ts` uses a
  * structural `ModelRegistryLike` so the helper can stay testable
  * without pi imports. Wrap pi's constructor so the types line up.
  */
@@ -277,7 +279,7 @@ function describeMode(mode: Mode): string {
 }
 
 export default function extension(pi: ExtensionAPI): void {
-  if (process.env.PI_WAVEFORM_INDICATOR_DISABLED === '1') return;
+  if (envTruthy(process.env.PI_WAVEFORM_INDICATOR_DISABLED)) return;
 
   let mode: Mode = resolveInitialWaveformMode(INITIAL_STATE_PATH);
   // Re-resolved on session_start once ctx.cwd is available so a
@@ -357,7 +359,7 @@ export default function extension(pi: ExtensionAPI): void {
   // which guard (stopReason, validator, abort, exception) is dropping a
   // spawn result. No-op when the env var is unset so production runs
   // pay zero overhead.
-  const debugEnabled = process.env.PI_WAVEFORM_DYNAMIC_LABEL_DEBUG === '1';
+  const debugEnabled = envTruthy(process.env.PI_WAVEFORM_DYNAMIC_LABEL_DEBUG);
   const debugLogPath = join(userPiDir, 'waveform-indicator.debug.log');
   function debugLog(event: string, fields: Record<string, unknown>): void {
     if (!debugEnabled) return;
@@ -377,13 +379,7 @@ export default function extension(pi: ExtensionAPI): void {
         return false;
       }
     },
-    readFile: (p) => {
-      try {
-        return readFileSync(p, 'utf8');
-      } catch {
-        return null;
-      }
-    },
+    readFile: readTextOrNull,
   };
 
   const agentReadLayer: ReadLayer = {
@@ -394,13 +390,7 @@ export default function extension(pi: ExtensionAPI): void {
         return null;
       }
     },
-    readFile: (p) => {
-      try {
-        return readFileSync(p, 'utf8');
-      } catch {
-        return null;
-      }
-    },
+    readFile: readTextOrNull,
   };
 
   /**

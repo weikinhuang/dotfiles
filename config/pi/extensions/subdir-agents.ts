@@ -63,6 +63,7 @@ import {
   type LoadedContextFile,
   type SubdirAgentsDetails,
 } from '../../../lib/node/pi/subdir-agents.ts';
+import { envTruthy } from '../../../lib/node/pi/parse-env.ts';
 
 // ──────────────────────────────────────────────────────────────────────
 // Helpers
@@ -108,7 +109,7 @@ function parseFileNames(): readonly string[] {
 // ──────────────────────────────────────────────────────────────────────
 
 export default function subdirAgents(pi: ExtensionAPI): void {
-  if (process.env.PI_SUBDIR_AGENTS_DISABLED === '1') return;
+  if (envTruthy(process.env.PI_SUBDIR_AGENTS_DISABLED)) return;
 
   const fileNames = parseFileNames();
 

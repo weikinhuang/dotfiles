@@ -33,6 +33,21 @@ export function readTextOrNull(path: string): string | null {
 }
 
 /**
+ * `readFileSync(path, 'utf8')` that returns `''` on any error. The empty-string
+ * sibling of {@link readTextOrNull} for callers whose downstream parser treats
+ * `''` as "layer absent" (multi-layer config loaders that concatenate or merge
+ * rule files - filesystem-policy, sandbox, …). Returning `''` instead of
+ * `null` saves the caller a `?? ''` at every site.
+ */
+export function readTextOrEmpty(path: string): string {
+  try {
+    return readFileSync(path, 'utf8');
+  } catch {
+    return '';
+  }
+}
+
+/**
  * `statSync(path)` that returns `undefined` when the path is missing or
  * unreadable. Only the two fields callers actually need (`mtimeMs`,
  * `size`) are surfaced - keeps the return type narrow and avoids leaking

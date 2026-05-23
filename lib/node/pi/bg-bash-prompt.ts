@@ -20,7 +20,8 @@
  * the model at the `bg_bash list` action.
  */
 
-import { type BgBashState, formatJobLine, type JobSummary, partitionJobs } from './bg-bash-reducer.ts';
+import { formatJobLine, partitionJobs } from './bg-bash-format.ts';
+import { type BgBashState, type JobSummary } from './bg-bash-reducer.ts';
 
 const DEFAULT_RECENT_CAP = 5;
 

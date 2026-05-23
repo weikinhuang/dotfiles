@@ -46,7 +46,7 @@
  */
 
 import { readFileSync, statSync, unlinkSync } from 'node:fs';
-import { isAbsolute, join, resolve } from 'node:path';
+import { isAbsolute, resolve } from 'node:path';
 
 import { type ExtensionAPI, type ExtensionContext } from '@earendil-works/pi-coding-agent';
 import { Text } from '@earendil-works/pi-tui';
@@ -59,16 +59,16 @@ import { atomicWriteFile } from '../../../lib/node/pi/atomic-write.ts';
 import { classifyWrite, expandTilde } from '../../../lib/node/pi/filesystem-policy/classify.ts';
 import { loadFilesystemPolicy } from '../../../lib/node/pi/filesystem-policy/load.ts';
 import { type FilesystemPolicyWarning } from '../../../lib/node/pi/filesystem-policy/schema.ts';
+import { readTextOrEmpty } from '../../../lib/node/pi/fs-safe.ts';
 import { getActivePersona } from '../../../lib/node/pi/persona/active.ts';
 import { isInsideWriteRoots } from '../../../lib/node/pi/persona/match.ts';
-import { parsePositiveInt } from '../../../lib/node/pi/parse-env.ts';
-import { piAgentPath } from '../../../lib/node/pi/pi-paths.ts';
+import { envTruthy, parsePositiveInt } from '../../../lib/node/pi/parse-env.ts';
+import { piAgentPath, piProjectPath } from '../../../lib/node/pi/pi-paths.ts';
 import { makeDiagnostics } from '../../../lib/node/pi/recovery-diagnostics.ts';
 import { truncate } from '../../../lib/node/pi/shared.ts';
 
 const DEFAULT_MAX_BYTES = 1_048_576;
 const USER_RULES_PATH = piAgentPath('filesystem.json');
-const PROJECT_RULES_RELATIVE = join('.pi', 'filesystem.json');
 
 const ApplyPatchParams = Type.Object({
   patch: Type.String({
@@ -88,15 +88,11 @@ interface ApplyPatchDetails {
 // ──────────────────────────────────────────────────────────────────────
 
 function readLayer(path: string): string {
-  try {
-    return readFileSync(path, 'utf8');
-  } catch {
-    return '';
-  }
+  return readTextOrEmpty(path);
 }
 
 function projectRulesPath(cwd: string): string {
-  return resolve(cwd, PROJECT_RULES_RELATIVE);
+  return piProjectPath(cwd, 'filesystem.json');
 }
 
 function buildReadFile(cwd: string, maxBytes: number): ReadFile {
@@ -245,7 +241,7 @@ function planPaths(plan: WritePlan): string[] {
 // ──────────────────────────────────────────────────────────────────────
 
 export default function applyPatchExtension(pi: ExtensionAPI): void {
-  if (process.env.PI_APPLY_PATCH_DISABLED === '1') return;
+  if (envTruthy(process.env.PI_APPLY_PATCH_DISABLED)) return;
 
   const maxBytes = parsePositiveInt(process.env.PI_APPLY_PATCH_MAX_BYTES, DEFAULT_MAX_BYTES);
   const defaultFallback = process.env.PI_FILESYSTEM_DEFAULT === 'allow' ? 'allow' : 'deny';
@@ -254,7 +250,7 @@ export default function applyPatchExtension(pi: ExtensionAPI): void {
   const { trace, notify } = makeDiagnostics({
     label: 'apply-patch',
     tracePath: process.env.PI_APPLY_PATCH_TRACE,
-    debug: process.env.PI_APPLY_PATCH_DEBUG === '1',
+    debug: envTruthy(process.env.PI_APPLY_PATCH_DEBUG),
   });
 
   pi.on('session_shutdown', () => {

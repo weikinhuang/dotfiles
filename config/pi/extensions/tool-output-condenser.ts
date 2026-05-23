@@ -67,7 +67,7 @@ import { join } from 'node:path';
 import { type ExtensionAPI, type ExtensionContext } from '@earendil-works/pi-coding-agent';
 
 import { condense, type CondenseOptions, parseToolList } from '../../../lib/node/pi/output-condense.ts';
-import { parseClampedPositiveInt } from '../../../lib/node/pi/parse-env.ts';
+import { envTruthy, parseClampedPositiveInt } from '../../../lib/node/pi/parse-env.ts';
 
 const DEFAULT_TOOLS = ['bash'] as const;
 const MARKER_HEADER = '⟨ [pi-tool-output-condenser] ⟩';
@@ -123,7 +123,7 @@ function buildBanner(
 }
 
 export default function toolOutputCondenser(pi: ExtensionAPI): void {
-  if (process.env.PI_CONDENSER_DISABLED === '1') return;
+  if (envTruthy(process.env.PI_CONDENSER_DISABLED)) return;
 
   const tools = parseToolList(process.env.PI_CONDENSER_TOOLS, DEFAULT_TOOLS);
   const options: CondenseOptions = {

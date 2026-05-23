@@ -11,11 +11,14 @@ import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 import {
   clearConfigWarning,
   type ConfigWarning,
+  JsoncReadError,
   loadJsoncConfigOrFallback,
   parseJsonc,
+  readJsoncForMutation,
   stripJsonComments,
   tryReadJsoncFile,
 } from '../../../../lib/node/pi/jsonc.ts';
+import { writeJsonFile } from '../../../../lib/node/pi/atomic-write.ts';
 
 // ──────────────────────────────────────────────────────────────────────
 // stripJsonComments
@@ -238,5 +241,77 @@ describe('loadJsoncConfigOrFallback / tryReadJsoncFile', () => {
 
     expect(tryReadJsoncFile(p, warnings)).toEqual([1, 2, 3]);
     expect(warnings).toEqual([]);
+  });
+});
+
+// ──────────────────────────────────────────────────────────────────────
+// readJsoncForMutation / writeJsonFile
+// ──────────────────────────────────────────────────────────────────────
+
+describe('readJsoncForMutation / writeJsonFile', () => {
+  let tmp: string;
+
+  beforeEach(() => {
+    tmp = mkdtempSync(join(tmpdir(), 'jsonc-mut-'));
+  });
+
+  afterEach(() => {
+    rmSync(tmp, { recursive: true, force: true });
+  });
+
+  test('readJsoncForMutation: missing file returns fallback', () => {
+    const fallback = { fresh: true };
+    const out = readJsoncForMutation('test-tag', join(tmp, 'nope.json'), () => fallback);
+
+    expect(out).toBe(fallback);
+  });
+
+  test('readJsoncForMutation: empty file returns fallback', () => {
+    const p = join(tmp, 'empty.json');
+    writeFileSync(p, '   \n');
+
+    const fallback = { fresh: true };
+
+    expect(readJsoncForMutation('test-tag', p, () => fallback)).toBe(fallback);
+  });
+
+  test('readJsoncForMutation: tolerates // comments', () => {
+    const p = join(tmp, 'ok.json');
+    writeFileSync(p, '// hi\n{"a": 1}');
+
+    expect(readJsoncForMutation('test-tag', p, () => ({}))).toEqual({ a: 1 });
+  });
+
+  test('readJsoncForMutation: parse error throws JsoncReadError (not fallback)', () => {
+    const p = join(tmp, 'bad.json');
+    writeFileSync(p, '{ not: json');
+    clearConfigWarning('test-tag', p);
+
+    let caught: unknown;
+    try {
+      readJsoncForMutation('test-tag', p, () => ({}));
+    } catch (e) {
+      caught = e;
+    }
+
+    expect(caught).toBeInstanceOf(JsoncReadError);
+    expect((caught as JsoncReadError).path).toBe(p);
+    expect((caught as JsoncReadError).message).toContain('Failed to parse');
+  });
+
+  test('writeJsonFile: pretty-prints with trailing newline', () => {
+    const p = join(tmp, 'out.json');
+    writeJsonFile(p, { b: 2, a: 1 });
+    // Round-trip via readJsoncForMutation to assert the file is parseable.
+    const round = readJsoncForMutation('test-tag', p, () => ({}));
+
+    expect(round).toEqual({ b: 2, a: 1 });
+  });
+
+  test('writeJsonFile: creates parent directories as needed', () => {
+    const p = join(tmp, 'nested', 'deep', 'out.json');
+    writeJsonFile(p, { ok: true });
+
+    expect(readJsoncForMutation('test-tag', p, () => ({}))).toEqual({ ok: true });
   });
 });

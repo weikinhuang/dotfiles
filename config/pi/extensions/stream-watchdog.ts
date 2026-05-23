@@ -80,7 +80,7 @@
 import { type ExtensionAPI, type ExtensionContext } from '@earendil-works/pi-coding-agent';
 
 import { findLastAssistantMessage } from '../../../lib/node/pi/message-extract.ts';
-import { parseNonNegativeInt, parsePositiveInt } from '../../../lib/node/pi/parse-env.ts';
+import { envTruthy, parseNonNegativeInt, parsePositiveInt } from '../../../lib/node/pi/parse-env.ts';
 import {
   buildWatchdogNudge,
   clear,
@@ -102,14 +102,14 @@ const DEFAULT_POLL_MS = 5_000;
 const DEFAULT_MAX_RETRIES = 2;
 
 export default function streamWatchdog(pi: ExtensionAPI): void {
-  if (process.env.PI_STREAM_WATCHDOG_DISABLED === '1') return;
+  if (envTruthy(process.env.PI_STREAM_WATCHDOG_DISABLED)) return;
 
   const stallMs = parsePositiveInt(process.env.PI_STREAM_WATCHDOG_STALL_MS, DEFAULT_STALL_MS);
   const hardStallMs = parsePositiveInt(process.env.PI_STREAM_WATCHDOG_HARD_STALL_MS, DEFAULT_HARD_STALL_MS);
   const pollMs = parsePositiveInt(process.env.PI_STREAM_WATCHDOG_POLL_MS, DEFAULT_POLL_MS);
   const autoAbort = process.env.PI_STREAM_WATCHDOG_ABORT !== '0';
   const maxRetries = parseNonNegativeInt(process.env.PI_STREAM_WATCHDOG_MAX_RETRIES, DEFAULT_MAX_RETRIES);
-  const verbose = process.env.PI_STREAM_WATCHDOG_VERBOSE === '1';
+  const verbose = envTruthy(process.env.PI_STREAM_WATCHDOG_VERBOSE);
 
   const state = createState();
   let timer: ReturnType<typeof setInterval> | null = null;

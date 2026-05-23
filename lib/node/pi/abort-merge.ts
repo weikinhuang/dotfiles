@@ -14,7 +14,7 @@
  *     `AbortController` that aborts when either source does, forwarding
  *     the abort `reason`.
  *
- * This is intentionally distinct from `lib/node/pi/research-fanout.ts`'s
+ * This is intentionally distinct from `lib/node/pi/research/fanout.ts`'s
  * deadline-merge helper - that one returns the full `AbortController`
  * and ties to a wall-clock deadline. This is the pure pass-through
  * variant for spawners that just need a unified signal.

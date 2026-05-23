@@ -1,5 +1,5 @@
 /**
- * Tests for lib/node/pi/bash-match.ts.
+ * Tests for lib/node/pi/bash/match.ts.
  *
  * The lib module has zero pi dependencies so these tests run without the
  * pi runtime.
@@ -20,7 +20,7 @@ import {
   splitCompound,
   stripControlFlowKeyword,
   twoTokenPattern,
-} from '../../../../lib/node/pi/bash-match.ts';
+} from '../../../../lib/node/pi/bash/match.ts';
 
 // ──────────────────────────────────────────────────────────────────────
 // splitCompound

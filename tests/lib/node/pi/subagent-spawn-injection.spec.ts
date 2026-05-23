@@ -23,15 +23,15 @@ import {
   clearSubagentInjections,
   registerSubagentInjection,
   type SubagentExtensionFactory,
-} from '../../../../lib/node/pi/subagent-extension-injection.ts';
-import { type AgentDef } from '../../../../lib/node/pi/subagent-loader.ts';
+} from '../../../../lib/node/pi/subagent/extension-injection.ts';
+import { type AgentDef } from '../../../../lib/node/pi/subagent/loader.ts';
 import {
   type AgentSessionEventLike,
   type AgentSessionLike,
   type DefaultResourceLoaderCtorArgs,
   type RunOneShotDeps,
   runOneShotAgent,
-} from '../../../../lib/node/pi/subagent-spawn.ts';
+} from '../../../../lib/node/pi/subagent/spawn.ts';
 
 interface FakeModel {
   readonly id: string;

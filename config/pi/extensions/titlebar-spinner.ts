@@ -28,6 +28,8 @@ import { basename } from 'node:path';
 
 import { type ExtensionAPI, type ExtensionContext } from '@earendil-works/pi-coding-agent';
 
+import { envTruthy } from '../../../lib/node/pi/parse-env.ts';
+
 const BRAILLE_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'] as const;
 const IDLE_GLYPH = 'π';
 const FRAME_INTERVAL_MS = 80;
@@ -37,7 +39,7 @@ function idleTitle(): string {
 }
 
 export default function extension(pi: ExtensionAPI): void {
-  if (process.env.PI_TITLEBAR_SPINNER_DISABLED === '1') return;
+  if (envTruthy(process.env.PI_TITLEBAR_SPINNER_DISABLED)) return;
 
   let timer: ReturnType<typeof setInterval> | null = null;
   let frameIndex = 0;

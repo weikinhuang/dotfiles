@@ -62,7 +62,7 @@ import {
   formatTokens,
   shouldAutoCompact,
 } from '../../../lib/node/pi/context-budget.ts';
-import { parsePercent } from '../../../lib/node/pi/parse-env.ts';
+import { envTruthy, parsePercent } from '../../../lib/node/pi/parse-env.ts';
 
 const DEFAULT_MIN = 50;
 const DEFAULT_WARN = 80;
@@ -82,7 +82,7 @@ function triggerCompaction(ctx: ExtensionContext, customInstructions: string | u
 }
 
 export default function contextBudget(pi: ExtensionAPI): void {
-  if (process.env.PI_CONTEXT_BUDGET_DISABLED === '1') return;
+  if (envTruthy(process.env.PI_CONTEXT_BUDGET_DISABLED)) return;
 
   const options: BudgetOptions = {
     minPercent: parsePercent(process.env.PI_CONTEXT_BUDGET_MIN_PERCENT, DEFAULT_MIN),

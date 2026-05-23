@@ -43,7 +43,7 @@ import { isAbsolute, resolve } from 'node:path';
 import { type ExtensionAPI, isReadToolResult } from '@earendil-works/pi-coding-agent';
 
 import { safeStatSync } from '../../../lib/node/pi/fs-safe.ts';
-import { parsePositiveInt } from '../../../lib/node/pi/parse-env.ts';
+import { envTruthy, parsePositiveInt } from '../../../lib/node/pi/parse-env.ts';
 import { displayPath } from '../../../lib/node/pi/path-display.ts';
 import { type FileSignature, formatNudge, ReadHistory, type RereadProbe } from '../../../lib/node/pi/read-reread.ts';
 import { makeDiagnostics } from '../../../lib/node/pi/recovery-diagnostics.ts';
@@ -51,13 +51,13 @@ import { makeDiagnostics } from '../../../lib/node/pi/recovery-diagnostics.ts';
 const DEFAULT_MAX_ENTRIES = 256;
 
 export default function readRereadDetector(pi: ExtensionAPI): void {
-  if (process.env.PI_READ_REREAD_DISABLED === '1') return;
+  if (envTruthy(process.env.PI_READ_REREAD_DISABLED)) return;
 
   const maxEntries = parsePositiveInt(process.env.PI_READ_REREAD_MAX_ENTRIES, DEFAULT_MAX_ENTRIES);
   const { trace, notify } = makeDiagnostics({
     label: 'read-reread',
     tracePath: process.env.PI_READ_REREAD_TRACE,
-    debug: process.env.PI_READ_REREAD_DEBUG === '1',
+    debug: envTruthy(process.env.PI_READ_REREAD_DEBUG),
   });
 
   let history = new ReadHistory(maxEntries);

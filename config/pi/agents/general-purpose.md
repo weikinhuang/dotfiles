@@ -7,7 +7,7 @@ description:
 tools: [bash, read, write, edit, grep, find, ls]
 model: inherit
 thinkingLevel: medium
-maxTurns: 40
+maxTurns: 50
 isolation: shared-cwd
 timeoutMs: 300000
 ---

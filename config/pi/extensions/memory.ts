@@ -77,6 +77,7 @@ import {
   upsertEntry,
 } from '../../../lib/node/pi/memory-reducer.ts';
 import { truncate } from '../../../lib/node/pi/shared.ts';
+import { envTruthy } from '../../../lib/node/pi/parse-env.ts';
 
 const MAX_INJECTED_CHARS_DEFAULT = 3000;
 
@@ -227,7 +228,7 @@ function rebuildIndex(cwd: string): { state: MemoryState; warnings: string[] } {
 // ──────────────────────────────────────────────────────────────────────
 
 export default function memoryExtension(pi: ExtensionAPI): void {
-  if (process.env.PI_MEMORY_DISABLED === '1') return;
+  if (envTruthy(process.env.PI_MEMORY_DISABLED)) return;
 
   const autoInjectEnabled = process.env.PI_MEMORY_DISABLE_AUTOINJECT !== '1';
   const maxInjectedChars = (() => {

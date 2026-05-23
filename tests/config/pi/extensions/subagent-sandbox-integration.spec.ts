@@ -13,9 +13,9 @@
  *      session's hook-only factory sees the same installed function.
  *   2. `config/pi/extensions/sandbox.ts`'s `sandboxFactoryHookOnly` -
  *      the factory injected into spawned subagents via
- *      `lib/node/pi/subagent-extension-injection.ts`. It mounts ONLY
+ *      `lib/node/pi/subagent/extension-injection.ts`. It mounts ONLY
  *      a `tool_call` handler that calls `requestSandboxWrap`.
- *   3. `lib/node/pi/subagent-extension-injection.ts` - the registry
+ *   3. `lib/node/pi/subagent/extension-injection.ts` - the registry
  *      `runOneShotAgent` consumes to inject the factory.
  *
  * If any link in this chain breaks, a subagent's bash calls would
@@ -33,7 +33,7 @@ import {
   collectSubagentInjections,
   registerSubagentInjection,
   unregisterSubagentInjection,
-} from '../../../../lib/node/pi/subagent-extension-injection.ts';
+} from '../../../../lib/node/pi/subagent/extension-injection.ts';
 import {
   installSandboxWrapper,
   requestSandboxWrap,

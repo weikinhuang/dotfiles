@@ -92,9 +92,6 @@
  * `vitest` without pulling in the pi runtime.
  */
 
-import { mkdirSync, writeFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
-
 import { type ExtensionAPI } from '@earendil-works/pi-coding-agent';
 
 import {
@@ -103,7 +100,7 @@ import {
   installBashGate,
   requestBashApproval,
   uninstallBashGate,
-} from '../../../lib/node/pi/bash-gate.ts';
+} from '../../../lib/node/pi/bash/gate.ts';
 import {
   allSubcommands,
   type BashDecision,
@@ -111,25 +108,27 @@ import {
   type LoadedRules,
   type RuleFile,
   type Scope,
-} from '../../../lib/node/pi/bash-match.ts';
-import { askForPermission, askForPermissionBatch } from '../../../lib/node/pi/bash-permission-prompts.ts';
+} from '../../../lib/node/pi/bash/match.ts';
+import { extractBashCommand } from '../../../lib/node/pi/bash/hook.ts';
+import { askForPermission, askForPermissionBatch } from '../../../lib/node/pi/bash/permission-prompts.ts';
+import { writeJsonFile } from '../../../lib/node/pi/atomic-write.ts';
 import { loadJsoncConfigOrFallback } from '../../../lib/node/pi/jsonc.ts';
-import { piAgentPath } from '../../../lib/node/pi/pi-paths.ts';
+import { envTruthy } from '../../../lib/node/pi/parse-env.ts';
+import { piAgentPath, piProjectPath } from '../../../lib/node/pi/pi-paths.ts';
 import { pickScopeFile } from '../../../lib/node/pi/scope-pick.ts';
 import { getActivePersona } from '../../../lib/node/pi/persona/active.ts';
 import { personaVouchBash } from '../../../lib/node/pi/persona/bash-vouch.ts';
 import { setBashAutoEnabled } from '../../../lib/node/pi/session-flags.ts';
-import { registerSubagentInjection } from '../../../lib/node/pi/subagent-extension-injection.ts';
+import { registerSubagentInjection } from '../../../lib/node/pi/subagent/extension-injection.ts';
 
 // ──────────────────────────────────────────────────────────────────────
 // Rule storage
 // ──────────────────────────────────────────────────────────────────────
 
 const USER_RULES_PATH = piAgentPath('bash-permissions.json');
-const PROJECT_RULES_RELATIVE = join('.pi', 'bash-permissions.json');
 
 function projectRulesPath(cwd: string): string {
-  return resolve(cwd, PROJECT_RULES_RELATIVE);
+  return piProjectPath(cwd, 'bash-permissions.json');
 }
 
 function readRules(path: string): LoadedRules {
@@ -141,13 +140,12 @@ function readRules(path: string): LoadedRules {
 }
 
 function writeRules(path: string, rules: LoadedRules): void {
-  mkdirSync(dirname(path), { recursive: true });
   // Dedup + sort for stable diffs.
   const clean: RuleFile = {
     allow: Array.from(new Set(rules.allow)).sort(),
     deny: Array.from(new Set(rules.deny)).sort(),
   };
-  writeFileSync(path, `${JSON.stringify(clean, null, 2)}\n`, 'utf8');
+  writeJsonFile(path, clean);
 }
 
 function addRule(path: string, kind: 'allow' | 'deny', pattern: string): void {
@@ -167,7 +165,7 @@ function pickScopePath(cwd: string): string {
 
 /**
  * Hook-only `ExtensionFactory` installed inside spawned subagent
- * sessions via `lib/node/pi/subagent-extension-injection.ts`. Registers
+ * sessions via `lib/node/pi/subagent/extension-injection.ts`. Registers
  * ONLY a `tool_call` handler - no slash-command surface, no statusline
  * glue - so the child stays minimal while still routing its `bash`
  * tool calls through the parent's installed `bash-gate.ts` slot.
@@ -185,9 +183,7 @@ function pickScopePath(cwd: string): string {
  */
 export function bashPermissionsFactoryHookOnly(pi: ExtensionAPI): void {
   pi.on('tool_call', async (event, ctx) => {
-    if (event.toolName !== 'bash') return undefined;
-    const rawCmd = (event.input as { command?: unknown } | undefined)?.command;
-    const command = (typeof rawCmd === 'string' ? rawCmd : '').trim();
+    const command = extractBashCommand(event)?.trim();
     if (!command) return undefined;
     const decision = await requestBashApproval(command, ctx);
     if (decision.allowed) return undefined;
@@ -200,7 +196,7 @@ export function bashPermissionsFactoryHookOnly(pi: ExtensionAPI): void {
 // ──────────────────────────────────────────────────────────────────────
 
 export default function bashPermissions(pi: ExtensionAPI): void {
-  if (process.env.PI_BASH_PERMISSIONS_DISABLED === '1') return;
+  if (envTruthy(process.env.PI_BASH_PERMISSIONS_DISABLED)) return;
 
   // Register the hook-only factory once per extension load so spawned
   // subagents (deep-research / iteration-loop / `subagent`) re-apply
@@ -244,7 +240,7 @@ export default function bashPermissions(pi: ExtensionAPI): void {
    *   - pi's built-in `bash` tool (via the `tool_call` handler below
    *     which translates the result into `{ block, reason }`), and
    *   - the `bg_bash` extension (which imports this via
-   *     `lib/node/pi/bash-gate.ts` → `requestBashApproval`).
+   *     `lib/node/pi/bash/gate.ts` → `requestBashApproval`).
    *
    * Session-level "allow this for the rest of the session" decisions
    * made here automatically apply to both callers because `sessionRules`
@@ -362,13 +358,11 @@ export default function bashPermissions(pi: ExtensionAPI): void {
 
   // Publish the gate so sibling extensions (e.g. bg-bash) can route
   // their own bash-equivalent payloads through the same approval
-  // pipeline. The slot lives on `globalThis`, see `lib/node/pi/bash-gate.ts`.
+  // pipeline. The slot lives on `globalThis`, see `lib/node/pi/bash/gate.ts`.
   installBashGate(gateBashCommand);
 
   pi.on('tool_call', async (event, ctx) => {
-    if (event.toolName !== 'bash') return undefined;
-    const rawCmd = (event.input as { command?: unknown } | undefined)?.command;
-    const command = (typeof rawCmd === 'string' ? rawCmd : '').trim();
+    const command = extractBashCommand(event)?.trim();
     if (!command) return undefined;
 
     const decision = await gateBashCommand(command, ctx);

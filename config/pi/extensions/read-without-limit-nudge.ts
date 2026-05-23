@@ -47,7 +47,7 @@ import { isAbsolute, resolve } from 'node:path';
 import { type ExtensionAPI, type ExtensionContext, isReadToolResult } from '@earendil-works/pi-coding-agent';
 
 import { safeStatSync } from '../../../lib/node/pi/fs-safe.ts';
-import { parsePositiveInt } from '../../../lib/node/pi/parse-env.ts';
+import { envTruthy, parsePositiveInt } from '../../../lib/node/pi/parse-env.ts';
 import { displayPath } from '../../../lib/node/pi/path-display.ts';
 import {
   classifyRead,
@@ -57,11 +57,11 @@ import {
 } from '../../../lib/node/pi/read-limit-nudge.ts';
 
 export default function readWithoutLimitNudge(pi: ExtensionAPI): void {
-  if (process.env.PI_READ_LIMIT_NUDGE_DISABLED === '1') return;
+  if (envTruthy(process.env.PI_READ_LIMIT_NUDGE_DISABLED)) return;
 
   const minLines = parsePositiveInt(process.env.PI_READ_LIMIT_NUDGE_MIN_LINES, DEFAULT_MIN_LINES);
   const minBytes = parsePositiveInt(process.env.PI_READ_LIMIT_NUDGE_MIN_BYTES, DEFAULT_MIN_BYTES);
-  const debug = process.env.PI_READ_LIMIT_NUDGE_DEBUG === '1';
+  const debug = envTruthy(process.env.PI_READ_LIMIT_NUDGE_DEBUG);
   const tracePath = process.env.PI_READ_LIMIT_NUDGE_TRACE;
 
   const trace = (msg: string): void => {

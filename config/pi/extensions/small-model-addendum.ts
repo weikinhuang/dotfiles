@@ -53,19 +53,25 @@ import {
   matchesModel,
   type ModelRef,
 } from '../../../lib/node/pi/small-model-addendum.ts';
+import { createNotifyOnce } from '../../../lib/node/pi/notify-once.ts';
+import { envTruthy } from '../../../lib/node/pi/parse-env.ts';
 
 const STATUS_KEY = 'small-model-addendum';
 
 export default function smallModelAddendum(pi: ExtensionAPI): void {
-  if (process.env.PI_SMALL_MODEL_ADDENDUM_DISABLED === '1') return;
+  if (envTruthy(process.env.PI_SMALL_MODEL_ADDENDUM_DISABLED)) return;
 
-  const debug = process.env.PI_SMALL_MODEL_ADDENDUM_DEBUG === '1';
+  const debug = envTruthy(process.env.PI_SMALL_MODEL_ADDENDUM_DEBUG);
 
   // Lazy config load - cached per-session. The config files are small
   // and rarely change; we reload on session_start to pick up edits
   // without requiring `/reload`.
   let cached: { config: AddendumConfig; warnings: ConfigWarning[] } | undefined;
-  let lastNotifiedWarnings = new Set<string>();
+  const warnings = createNotifyOnce<ConfigWarning>({
+    tag: 'small-model-addendum',
+    keyOf: (w) => `${w.path}:${w.error}`,
+    render: (w, tag) => `${tag}: failed to load ${w.path}: ${w.error}`,
+  });
 
   const getConfig = (cwd: string): AddendumConfig => {
     cached ??= loadConfig(cwd);
@@ -74,12 +80,7 @@ export default function smallModelAddendum(pi: ExtensionAPI): void {
 
   const surfaceWarnings = (ctx: ExtensionContext): void => {
     if (!cached) return;
-    for (const w of cached.warnings) {
-      const key = `${w.path}:${w.error}`;
-      if (lastNotifiedWarnings.has(key)) continue;
-      lastNotifiedWarnings.add(key);
-      ctx.ui.notify(`small-model-addendum: failed to load ${w.path}: ${w.error}`, 'warning');
-    }
+    warnings.surface(ctx.ui.notify.bind(ctx.ui), cached.warnings);
   };
 
   const clearStatus = (ctx: ExtensionContext): void => {
@@ -90,7 +91,7 @@ export default function smallModelAddendum(pi: ExtensionAPI): void {
     // Force reload on each session_start so edits to the config files
     // are picked up on /new, /resume, /fork, /reload.
     cached = undefined;
-    lastNotifiedWarnings = new Set();
+    warnings.reset();
     const config = getConfig(ctx.cwd);
     surfaceWarnings(ctx);
     // Touch config once so we surface warnings even if no agent turn
@@ -129,6 +130,6 @@ export default function smallModelAddendum(pi: ExtensionAPI): void {
 
   pi.on('session_shutdown', () => {
     cached = undefined;
-    lastNotifiedWarnings = new Set();
+    warnings.reset();
   });
 }

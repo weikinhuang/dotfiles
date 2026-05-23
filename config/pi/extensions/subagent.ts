@@ -88,7 +88,7 @@ import {
   recordToolCall,
   snapshotByTool,
   type ChildToolAggregate,
-} from '../../../lib/node/pi/subagent-aggregate.ts';
+} from '../../../lib/node/pi/subagent/aggregate.ts';
 import {
   ActivityRing,
   activityPushModeFor,
@@ -98,7 +98,7 @@ import {
   makeActivityState,
   tailJsonl,
   type ActivityEvent,
-} from '../../../lib/node/pi/subagent-activity.ts';
+} from '../../../lib/node/pi/subagent/activity.ts';
 import {
   formatAgentListDescription,
   formatAgentListRowDescription,
@@ -114,8 +114,10 @@ import {
   type RunningChildListItem,
   type ScorecardStopReason,
   type SubagentRunSnapshot,
-} from '../../../lib/node/pi/subagent-format.ts';
-import { makeHandleCounter, resolveHandle } from '../../../lib/node/pi/subagent-handle.ts';
+} from '../../../lib/node/pi/subagent/format.ts';
+import { makeHandleCounter, resolveHandle } from '../../../lib/node/pi/subagent/handle.ts';
+import { createNotifyOnce } from '../../../lib/node/pi/notify-once.ts';
+import { readTextOrNull } from '../../../lib/node/pi/fs-safe.ts';
 import {
   type AgentDef,
   type AgentLoadResult,
@@ -123,23 +125,23 @@ import {
   defaultAgentLayers,
   loadAgents,
   type ReadLayer,
-} from '../../../lib/node/pi/subagent-loader.ts';
+} from '../../../lib/node/pi/subagent/loader.ts';
 import {
   classifyStopReason,
   extractFinalAssistantText,
   type AgentMessageLike,
-} from '../../../lib/node/pi/subagent-result.ts';
+} from '../../../lib/node/pi/subagent/result.ts';
 import {
   childSessionDir,
   listStaleWorktrees,
   subagentSessionRoot,
   sweepStaleSessions,
   type SweepFs,
-} from '../../../lib/node/pi/subagent-session-paths.ts';
-import { resolveChildModel } from '../../../lib/node/pi/subagent-spawn.ts';
-import { resolveMaxTurns } from '../../../lib/node/pi/subagent-budget.ts';
-import { collectSubagentInjections } from '../../../lib/node/pi/subagent-extension-injection.ts';
-import { parsePositiveInt } from '../../../lib/node/pi/parse-env.ts';
+} from '../../../lib/node/pi/subagent/session-paths.ts';
+import { resolveChildModel } from '../../../lib/node/pi/subagent/spawn.ts';
+import { resolveMaxTurns } from '../../../lib/node/pi/subagent/budget.ts';
+import { collectSubagentInjections } from '../../../lib/node/pi/subagent/extension-injection.ts';
+import { envTruthy, parsePositiveInt } from '../../../lib/node/pi/parse-env.ts';
 import { resolveWriteRoots } from '../../../lib/node/pi/persona/resolve.ts';
 import { Semaphore } from '../../../lib/node/pi/semaphore.ts';
 import { setActiveAgent, clearActiveAgent } from '../../../lib/node/pi/subagent/active-agent.ts';
@@ -242,13 +244,7 @@ function makeReadLayer(): ReadLayer {
         return null;
       }
     },
-    readFile: (path) => {
-      try {
-        return readFileSync(path, 'utf8');
-      } catch {
-        return null;
-      }
-    },
+    readFile: readTextOrNull,
   };
 }
 
@@ -803,9 +799,9 @@ class AgentsRunningOverlay implements Component {
 // ──────────────────────────────────────────────────────────────────────
 
 export default function subagentExtension(pi: ExtensionAPI): void {
-  if (process.env.PI_SUBAGENT_DISABLED === '1') return;
+  if (envTruthy(process.env.PI_SUBAGENT_DISABLED)) return;
 
-  const debug = process.env.PI_SUBAGENT_DEBUG === '1';
+  const debug = envTruthy(process.env.PI_SUBAGENT_DEBUG);
 
   // Directory containing this extension file - used to resolve the
   // shipped `config/pi/agents/` sibling directory without relying on
@@ -813,7 +809,11 @@ export default function subagentExtension(pi: ExtensionAPI): void {
   const extDir = dirname(fileURLToPath(import.meta.url));
 
   let loadResult: AgentLoadResult = { agents: new Map(), nameOrder: [], warnings: [] };
-  const surfacedWarnings = new Set<string>();
+  const warnings = createNotifyOnce<AgentLoadWarning>({
+    tag: 'subagent',
+    keyOf: (w) => `${w.path}:${w.reason}`,
+    render: (w, tag) => `${tag}: ${w.path}: ${w.reason}`,
+  });
 
   // Process-wide concurrency semaphore. Limit is captured once at
   // session start; changing `PI_SUBAGENT_CONCURRENCY` mid-session
@@ -938,13 +938,8 @@ export default function subagentExtension(pi: ExtensionAPI): void {
     });
   };
 
-  const surfaceWarnings = (ctx: ExtensionContext, warnings: readonly AgentLoadWarning[]): void => {
-    for (const w of warnings) {
-      const key = `${w.path}:${w.reason}`;
-      if (surfacedWarnings.has(key)) continue;
-      surfacedWarnings.add(key);
-      ctx.ui.notify(`subagent: ${w.path}: ${w.reason}`, 'warning');
-    }
+  const surfaceWarnings = (ctx: ExtensionContext, list: readonly AgentLoadWarning[]): void => {
+    warnings.surface(ctx.ui.notify.bind(ctx.ui), list);
   };
 
   // ────────────────────────────────────────────────────────────────────
@@ -1018,7 +1013,7 @@ export default function subagentExtension(pi: ExtensionAPI): void {
       // never block shutdown
     }
     loadResult = { agents: new Map(), nameOrder: [], warnings: [] };
-    surfacedWarnings.clear();
+    warnings.reset();
     runningChildren.clear();
     for (const t of lingerTimers) clearTimeout(t);
     lingerTimers.clear();
@@ -1131,7 +1126,7 @@ export default function subagentExtension(pi: ExtensionAPI): void {
 
     // ── Model resolution ──────────────────────────────────────────────
     // Shared with the iteration-loop's critic spawn via
-    // lib/node/pi/subagent-spawn.ts::resolveChildModel. Both extensions
+    // lib/node/pi/subagent/spawn.ts::resolveChildModel. Both extensions
     // surface the same diagnostic strings so users see consistent
     // messages; keeping the resolver in one place prevents drift.
     const modelSpecStr = modelOverride ?? process.env.PI_SUBAGENT_MODEL;
@@ -1174,7 +1169,7 @@ export default function subagentExtension(pi: ExtensionAPI): void {
     // All three can throw. Wrap them in one try/catch so the worktree
     // gets cleaned up on any failure - the prior split let a
     // `resourceLoader.reload()` throw bypass the cleanup path.
-    const noPersist = process.env.PI_SUBAGENT_NO_PERSIST === '1';
+    const noPersist = envTruthy(process.env.PI_SUBAGENT_NO_PERSIST);
     const sessionDir = childSessionDir({
       parentCwd: ctx.cwd,
       parentSessionId: ctx.sessionManager.getSessionId(),

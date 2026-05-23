@@ -62,7 +62,7 @@
  *                                     the provider as expected)
  */
 
-import { readdirSync, readFileSync } from 'node:fs';
+import { readdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -104,7 +104,10 @@ import {
 import { decideWriteGate } from '../../../lib/node/pi/persona/write-gate.ts';
 import { applyRequestOptions } from '../../../lib/node/pi/request-options.ts';
 import { piAgentDir } from '../../../lib/node/pi/pi-paths.ts';
-import { loadAgents, defaultAgentLayers } from '../../../lib/node/pi/subagent-loader.ts';
+import { loadAgents, defaultAgentLayers } from '../../../lib/node/pi/subagent/loader.ts';
+import { readTextOrNull } from '../../../lib/node/pi/fs-safe.ts';
+import { createNotifyOnce } from '../../../lib/node/pi/notify-once.ts';
+import { envTruthy } from '../../../lib/node/pi/parse-env.ts';
 
 const STATUS_KEY = 'persona';
 const CUSTOM_TYPE = 'persona-state';
@@ -121,9 +124,9 @@ interface ActivePersona {
 }
 
 export default function personaExtension(pi: ExtensionAPI): void {
-  if (process.env.PI_PERSONA_DISABLED === '1') return;
+  if (envTruthy(process.env.PI_PERSONA_DISABLED)) return;
 
-  const debug = process.env.PI_PERSONA_DEBUG === '1';
+  const debug = envTruthy(process.env.PI_PERSONA_DEBUG);
   const violationDefault = process.env.PI_PERSONA_VIOLATION_DEFAULT === 'allow' ? 'allow' : 'deny';
 
   const extDir = dirname(fileURLToPath(import.meta.url));
@@ -147,7 +150,11 @@ export default function personaExtension(pi: ExtensionAPI): void {
   let originalSnapshot: SnapshotState | undefined;
   /** Approval allowlist: resolved-absolute paths the user OK'd this session. */
   const sessionAllow = new Set<string>();
-  const notifiedWarnings = new Set<string>();
+  const warnings = createNotifyOnce<PersonaWarning>({
+    tag: 'persona',
+    keyOf: (w) => `${w.path}:${w.reason}`,
+    render: (w, tag) => `${tag}: ${w.path}: ${w.reason}`,
+  });
 
   // ────────────────────────────────────────────────────────────────────
   // SnapshotApi adapter - wraps pi's runtime surfaces. Pi's
@@ -190,13 +197,7 @@ export default function personaExtension(pi: ExtensionAPI): void {
     }
   };
 
-  const readUtf8 = (path: string): string | null => {
-    try {
-      return readFileSync(path, 'utf8');
-    } catch {
-      return null;
-    }
-  };
+  const readUtf8 = readTextOrNull;
 
   const loadPersonas = (cwd: string): PersonaWarning[] => {
     const warnings: PersonaWarning[] = [];
@@ -269,13 +270,8 @@ export default function personaExtension(pi: ExtensionAPI): void {
     return result.warnings;
   };
 
-  const surfaceWarnings = (ctx: ExtensionContext, warnings: PersonaWarning[]): void => {
-    for (const w of warnings) {
-      const key = `${w.path}:${w.reason}`;
-      if (notifiedWarnings.has(key)) continue;
-      notifiedWarnings.add(key);
-      ctx.ui.notify(`persona: ${w.path}: ${w.reason}`, 'warning');
-    }
+  const surfaceWarnings = (ctx: ExtensionContext, list: PersonaWarning[]): void => {
+    warnings.surface(ctx.ui.notify.bind(ctx.ui), list);
   };
 
   const loadAll = (ctx: ExtensionContext): PersonaWarning[] => {
@@ -565,7 +561,7 @@ export default function personaExtension(pi: ExtensionAPI): void {
     const api = (ctx.model as { api?: string } | undefined)?.api;
     const merged = applyRequestOptions({ payload, options: active.parsed.requestOptions, api });
     if (merged === payload) return undefined;
-    if (process.env.PI_PERSONA_REQUEST_OPTIONS_DEBUG === '1') {
+    if (envTruthy(process.env.PI_PERSONA_REQUEST_OPTIONS_DEBUG)) {
       try {
         console.error(
           `[persona:requestOptions] api=${api ?? '(unknown)'} merged=${JSON.stringify(
@@ -780,6 +776,6 @@ export default function personaExtension(pi: ExtensionAPI): void {
     originalSnapshot = undefined;
     clearActivePersona();
     sessionAllow.clear();
-    notifiedWarnings.clear();
+    warnings.reset();
   });
 }

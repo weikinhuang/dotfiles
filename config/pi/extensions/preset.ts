@@ -49,7 +49,8 @@ import { fileURLToPath } from 'node:url';
 import { type ExtensionAPI, type ExtensionContext } from '@earendil-works/pi-coding-agent';
 import { Key } from '@earendil-works/pi-tui';
 
-import { parseModelSpec } from '../../../lib/node/pi/btw.ts';
+import { parseModelSpec } from '../../../lib/node/pi/btw/model-spec.ts';
+import { createNotifyOnce } from '../../../lib/node/pi/notify-once.ts';
 import { piAgentPath } from '../../../lib/node/pi/pi-paths.ts';
 import {
   describePreset,
@@ -59,6 +60,7 @@ import {
   readFileOrUndefined,
   type ThinkingLevel,
 } from '../../../lib/node/pi/preset.ts';
+import { envTruthy } from '../../../lib/node/pi/parse-env.ts';
 
 const STATUS_KEY = 'preset';
 
@@ -70,9 +72,9 @@ interface OriginalState {
 }
 
 export default function presetExtension(pi: ExtensionAPI): void {
-  if (process.env.PI_PRESET_DISABLED === '1') return;
+  if (envTruthy(process.env.PI_PRESET_DISABLED)) return;
 
-  const debug = process.env.PI_PRESET_DEBUG === '1';
+  const debug = envTruthy(process.env.PI_PRESET_DEBUG);
 
   // Presets shipped in this dotfiles repo: sibling file `presets.json`
   // one directory up from this extension (i.e. `config/pi/presets.json`).
@@ -85,7 +87,11 @@ export default function presetExtension(pi: ExtensionAPI): void {
   let activePreset: Preset | undefined;
   let originalState: OriginalState | undefined;
   let pendingWarnings: ReturnType<typeof loadPresetFiles>['warnings'] = [];
-  const notifiedWarnings = new Set<string>();
+  const warnings = createNotifyOnce<{ path: string; error: string }>({
+    tag: 'preset',
+    keyOf: (w) => `${w.path}:${w.error}`,
+    render: (w, tag) => `${tag}: ${w.path}: ${w.error}`,
+  });
 
   const loadAll = (cwd: string): void => {
     const result = loadPresetFiles(
@@ -99,12 +105,7 @@ export default function presetExtension(pi: ExtensionAPI): void {
   };
 
   const surfaceWarnings = (ctx: ExtensionContext): void => {
-    for (const w of pendingWarnings) {
-      const key = `${w.path}:${w.error}`;
-      if (notifiedWarnings.has(key)) continue;
-      notifiedWarnings.add(key);
-      ctx.ui.notify(`preset: ${w.path}: ${w.error}`, 'warning');
-    }
+    warnings.surface(ctx.ui.notify.bind(ctx.ui), pendingWarnings);
     pendingWarnings = [];
   };
 
@@ -310,6 +311,6 @@ export default function presetExtension(pi: ExtensionAPI): void {
     activePresetName = undefined;
     activePreset = undefined;
     originalState = undefined;
-    notifiedWarnings.clear();
+    warnings.reset();
   });
 }

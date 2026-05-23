@@ -39,7 +39,7 @@
  *   PI_BTW_INCLUDE_TOOLS=1     pass the currently-active tools to the call
  *                              (escape hatch - defeats the whole point)
  *
- * Pure helpers live in ../../../lib/node/pi/btw.ts so they can be
+ * Pure helpers live in ../../../lib/node/pi/btw/ so they can be
  * unit-tested under `vitest` without the pi runtime.
  */
 
@@ -58,14 +58,11 @@ import {
  */
 type ReadonlySessionManager = Pick<SessionManager, 'getBranch' | 'getSessionId'>;
 
-import {
-  BTW_USAGE,
-  type BtwFooterStats,
-  buildSideQuestionUserContent,
-  extractAnswerText,
-  formatFooter,
-  parseModelSpec,
-} from '../../../lib/node/pi/btw.ts';
+import { extractAnswerText } from '../../../lib/node/pi/btw/answer.ts';
+import { type BtwFooterStats, formatFooter } from '../../../lib/node/pi/btw/footer.ts';
+import { parseModelSpec } from '../../../lib/node/pi/btw/model-spec.ts';
+import { BTW_USAGE, buildSideQuestionUserContent } from '../../../lib/node/pi/btw/user-message.ts';
+import { envTruthy } from '../../../lib/node/pi/parse-env.ts';
 
 // ──────────────────────────────────────────────────────────────────────
 // Constants
@@ -122,7 +119,7 @@ function onAbort(signal: AbortSignal, handler: () => void): () => void {
 // ──────────────────────────────────────────────────────────────────────
 
 export default function btw(pi: ExtensionAPI): void {
-  if (process.env.PI_BTW_DISABLED === '1') return;
+  if (envTruthy(process.env.PI_BTW_DISABLED)) return;
 
   pi.registerCommand('btw', {
     description: "Ask an ephemeral side question about this session's context (no tools, not saved)",
@@ -181,7 +178,7 @@ export default function btw(pi: ExtensionAPI): void {
       const context: Context = {
         systemPrompt: ctx.getSystemPrompt(),
         messages,
-        tools: process.env.PI_BTW_INCLUDE_TOOLS === '1' ? undefined : [],
+        tools: envTruthy(process.env.PI_BTW_INCLUDE_TOOLS) ? undefined : [],
       };
 
       // 6. Call the model. The AbortSignal is wired so Ctrl+C cancels

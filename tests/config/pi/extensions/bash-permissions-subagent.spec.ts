@@ -36,7 +36,7 @@ import {
   isBashGateInstalled,
   requestBashApproval,
   uninstallBashGate,
-} from '../../../../lib/node/pi/bash-gate.ts';
+} from '../../../../lib/node/pi/bash/gate.ts';
 
 // ──────────────────────────────────────────────────────────────────────
 // Stand-ins for pi's runtime types

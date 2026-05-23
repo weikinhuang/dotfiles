@@ -39,15 +39,15 @@
  * extension exposes the right subagent handle surface), forward
  * status notifications, and delegate command parsing + summary
  * rendering to the pure helpers in
- * `lib/node/pi/research-runs.ts` and
- * `lib/node/pi/deep-research-tool.ts`.
+ * `lib/node/pi/research/runs.ts` and
+ * `lib/node/pi/deep-research/tool.ts`.
  *
  * Environment:
  *
  *   PI_DEEP_RESEARCH_DISABLED=1   skip the extension entirely.
  */
 
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -72,36 +72,36 @@ import {
   type PipelineDeps,
   type PipelineOutcome,
   type ResearchSessionLikeWithLifecycle,
-} from '../../../lib/node/pi/deep-research-pipeline.ts';
-import { refineReport as refineReportRunner } from '../../../lib/node/pi/deep-research-refine.ts';
+} from '../../../lib/node/pi/deep-research/pipeline.ts';
+import { refineReport as refineReportRunner } from '../../../lib/node/pi/deep-research/refine.ts';
 import {
   type CriticRunner,
   type RefinementRunner,
   type StructuralRunner,
-} from '../../../lib/node/pi/deep-research-review-loop.ts';
-import { runDeepResearchReview, type ReviewWireResult } from '../../../lib/node/pi/deep-research-review-wire.ts';
+} from '../../../lib/node/pi/deep-research/review-loop.ts';
+import { runDeepResearchReview, type ReviewWireResult } from '../../../lib/node/pi/deep-research/review-wire.ts';
 import {
   initialStatuslineState,
   type PhaseEvent,
   reduceStatusline,
   renderStatuslineWidget,
   type StatuslineState,
-} from '../../../lib/node/pi/deep-research-statusline.ts';
-import { checkReportStructure } from '../../../lib/node/pi/deep-research-structural-check.ts';
+} from '../../../lib/node/pi/deep-research/statusline.ts';
+import { checkReportStructure } from '../../../lib/node/pi/deep-research/structural-check.ts';
 import {
   createResearchSessionFlag,
   createResearchToolExecutor,
   type NotifyFn,
   type ResearchSessionFlag,
   type ResearchToolRunOutcome,
-} from '../../../lib/node/pi/deep-research-tool.ts';
+} from '../../../lib/node/pi/deep-research/tool.ts';
 import { withTransientRetry } from '../../../lib/node/pi/fanout-retry.ts';
 import { readTextOrNull } from '../../../lib/node/pi/fs-safe.ts';
-import { buildCriticTask, parseVerdict } from '../../../lib/node/pi/iteration-loop-check-critic.ts';
-import { type Verdict } from '../../../lib/node/pi/iteration-loop-schema.ts';
-import { createAiFetchWebCliClientFromEnv } from '../../../lib/node/pi/research-ai-fetch-web-cli-client.ts';
-import { createLiveBudget, DEFAULT_BUDGET_PHASES, type LiveBudget } from '../../../lib/node/pi/research-budget-live.ts';
-import { createRunBudget } from '../../../lib/node/pi/research-budget.ts';
+import { buildCriticTask, parseVerdict } from '../../../lib/node/pi/iteration-loop/check-critic.ts';
+import { type Verdict } from '../../../lib/node/pi/iteration-loop/schema.ts';
+import { createAiFetchWebCliClientFromEnv } from '../../../lib/node/pi/research/ai-fetch-web-cli-client.ts';
+import { createLiveBudget, DEFAULT_BUDGET_PHASES, type LiveBudget } from '../../../lib/node/pi/research/budget-live.ts';
+import { createRunBudget } from '../../../lib/node/pi/research/budget.ts';
 import {
   formatOverridesSummary,
   parseResearchCommandArgs,
@@ -109,17 +109,17 @@ import {
   type ResumeOverrides,
   type ResumeStage,
   validateToolOverrides,
-} from '../../../lib/node/pi/research-command-args.ts';
-import { createCostHook } from '../../../lib/node/pi/research-cost-hook.ts';
+} from '../../../lib/node/pi/research/command-args.ts';
+import { createCostHook } from '../../../lib/node/pi/research/cost-hook.ts';
 import {
   type FanoutHandleLike,
   type FanoutHandleResult,
   type FanoutSpawner,
   type FanoutSpawnArgs,
-} from '../../../lib/node/pi/research-fanout.ts';
-import { appendJournal, sumJournalCostUsd } from '../../../lib/node/pi/research-journal.ts';
-import { paths } from '../../../lib/node/pi/research-paths.ts';
-import { readPlan } from '../../../lib/node/pi/research-plan.ts';
+} from '../../../lib/node/pi/research/fanout.ts';
+import { appendJournal, sumJournalCostUsd } from '../../../lib/node/pi/research/journal.ts';
+import { paths } from '../../../lib/node/pi/research/paths.ts';
+import { readPlan } from '../../../lib/node/pi/research/plan.ts';
 import {
   countPriorReviewIterations,
   detectProvenanceDrift,
@@ -130,35 +130,36 @@ import {
   scopeFanoutDeficit,
   sumFanoutDeficit,
   validateRunRoot,
-} from '../../../lib/node/pi/research-resume.ts';
+} from '../../../lib/node/pi/research/resume.ts';
 import {
   type CommandNotify,
   type CommandNotifyLevel,
   findExistingRun,
   runListCommand,
   runSelftestCommand,
-} from '../../../lib/node/pi/research-runs.ts';
-import { selftestDeepResearch } from '../../../lib/node/pi/research-selftest.ts';
-import { formatStubHint } from '../../../lib/node/pi/research-stub-hint.ts';
+} from '../../../lib/node/pi/research/runs.ts';
+import { selftestDeepResearch } from '../../../lib/node/pi/research/selftest.ts';
+import { formatStubHint } from '../../../lib/node/pi/research/stub-hint.ts';
 import {
   type AgentLoadResult,
   type AgentDef,
   defaultAgentLayers,
   loadAgents,
   type ReadLayer,
-} from '../../../lib/node/pi/subagent-loader.ts';
-import { resolveSubagentSessionDir } from '../../../lib/node/pi/subagent-session-dir.ts';
+} from '../../../lib/node/pi/subagent/loader.ts';
+import { resolveSubagentSessionDir } from '../../../lib/node/pi/subagent/session-dir.ts';
 import {
   resolveChildModel,
   runOneShotAgent,
   type AgentSessionLike,
   type CreateAgentSessionDep,
-} from '../../../lib/node/pi/subagent-spawn.ts';
+} from '../../../lib/node/pi/subagent/spawn.ts';
 import { shQuote } from '../../../lib/node/pi/util.ts';
+import { envTruthy } from '../../../lib/node/pi/parse-env.ts';
 
 /**
  * Pi's `createAgentSession` types `modelRegistry` as the concrete
- * `ModelRegistry` class, while `lib/node/pi/subagent-spawn.ts` uses a
+ * `ModelRegistry` class, while `lib/node/pi/subagent/spawn.ts` uses a
  * pi-free structural `ModelRegistryLike` so the helper can stay
  * unit-testable without pi imports (see `lib/AGENTS.md`). The two
  * shapes are compatible at runtime - pi's `ModelRegistry` satisfies
@@ -315,7 +316,7 @@ const ResearchToolParams = Type.Object({
 });
 
 export default function deepResearchExtension(pi: ExtensionAPI): void {
-  if (process.env.PI_DEEP_RESEARCH_DISABLED === '1') return;
+  if (envTruthy(process.env.PI_DEEP_RESEARCH_DISABLED)) return;
 
   // Load agent definitions once per session_start - we need
   // `web-researcher` and `research-planning-critic` agents to
@@ -331,13 +332,7 @@ export default function deepResearchExtension(pi: ExtensionAPI): void {
         return null;
       }
     },
-    readFile: (path) => {
-      try {
-        return readFileSync(path, 'utf8');
-      } catch {
-        return null;
-      }
-    },
+    readFile: readTextOrNull,
   };
 
   const reloadAgents = (cwd: string): void => {
@@ -819,7 +814,7 @@ async function runResearchFlow(args: {
    * `research` tool's schema validator. Pre-validated: `model` is
    * already a well-formed `provider/id` string, `*MaxTurns` are
    * already positive integers. See
-   * `lib/node/pi/research-command-args.ts`.
+   * `lib/node/pi/research/command-args.ts`.
    */
   overrides?: ResearchOverrides;
 }): Promise<ResearchToolRunOutcome> {
@@ -1586,7 +1581,7 @@ interface PipelineDepsExtras {
   liveBudget?: LiveBudget;
   /**
    * Per-run overrides (model / maxTurns). Pre-validated by the
-   * caller. See `lib/node/pi/research-command-args.ts`.
+   * caller. See `lib/node/pi/research/command-args.ts`.
    */
   overrides?: ResearchOverrides;
 }
@@ -2302,7 +2297,7 @@ async function runReviewPhase(args: RunReviewPhaseArgs): Promise<ReviewWireResul
  * `/mnt/c/Users/First Last/`) remain copy-pasteable.
  */
 function buildStructuralBashCmd(runRoot: string): string {
-  const scriptPath = fileURLToPath(new URL('../../../lib/node/pi/deep-research-structural-check.ts', import.meta.url));
+  const scriptPath = fileURLToPath(new URL('../../../lib/node/pi/deep-research/structural-check.ts', import.meta.url));
   return `node ${shQuote(scriptPath)} ${shQuote(runRoot)}`;
 }
 
@@ -2316,7 +2311,7 @@ function buildStructuralBashCmd(runRoot: string): string {
  * child-session usage + cost back to the parent pi session.
  *
  * The path resolution + precondition checks live in the pure helper
- * [`resolveSubagentSessionDir`](../../../lib/node/pi/subagent-session-dir.ts);
+ * [`resolveSubagentSessionDir`](../../../lib/node/pi/subagent/session-dir.ts);
  * this wrapper only adds the pi-runtime `SessionManager.create(…)`
  * call. Deep-research's pre-Claude-mirror history - silently falling
  * back to `SessionManager.inMemory(ctx.cwd)` when the parent session

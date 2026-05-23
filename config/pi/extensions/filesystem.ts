@@ -74,8 +74,7 @@
  * unit-tested under vitest without the pi runtime.
  */
 
-import { readFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { resolve } from 'node:path';
 
 import {
   type ExtensionAPI,
@@ -87,60 +86,28 @@ import {
 import { askForPermission } from '../../../lib/node/pi/approval-prompt.ts';
 import { classifyRead, classifyWrite, expandTilde } from '../../../lib/node/pi/filesystem-policy/classify.ts';
 import { type FilesystemPolicyLayer, loadFilesystemPolicy } from '../../../lib/node/pi/filesystem-policy/load.ts';
-import { type FilesystemPolicyWarning } from '../../../lib/node/pi/filesystem-policy/schema.ts';
+import { readTextOrEmpty } from '../../../lib/node/pi/fs-safe.ts';
+import { createNotifyOnce } from '../../../lib/node/pi/notify-once.ts';
+import { envTruthy } from '../../../lib/node/pi/parse-env.ts';
 import { getActivePersona } from '../../../lib/node/pi/persona/active.ts';
 import { isInsideWriteRoots } from '../../../lib/node/pi/persona/match.ts';
-import { piAgentPath } from '../../../lib/node/pi/pi-paths.ts';
-import { registerSubagentInjection } from '../../../lib/node/pi/subagent-extension-injection.ts';
+import { piAgentPath, piProjectPath } from '../../../lib/node/pi/pi-paths.ts';
+import { registerSubagentInjection } from '../../../lib/node/pi/subagent/extension-injection.ts';
 
 // ─────────────────────────────────────────────────────────────────
 // Layer loading
 // ─────────────────────────────────────────────────────────────────
 
 const USER_RULES_PATH = piAgentPath('filesystem.json');
-const PROJECT_RULES_RELATIVE = join('.pi', 'filesystem.json');
 
 function projectRulesPath(cwd: string): string {
-  return resolve(cwd, PROJECT_RULES_RELATIVE);
-}
-
-/** Read a layer file, returning blank string when missing/unreadable
- *  so the loader treats it as "layer absent" without warning. */
-function readLayer(path: string): string {
-  try {
-    return readFileSync(path, 'utf8');
-  } catch {
-    return '';
-  }
-}
-
-/** Track per-source warnings so we only notify once per unique reason
- *  across the lifetime of the session (matches `bash-permissions.ts`'s
- *  approach via `lib/node/pi/jsonc.ts`). */
-function makeWarningTracker(): {
-  surface: (ctx: ExtensionContext, warnings: FilesystemPolicyWarning[]) => void;
-  reset: () => void;
-} {
-  const seen = new Set<string>();
-  return {
-    surface(ctx, warnings) {
-      for (const w of warnings) {
-        const key = `${w.source}|${w.reason}`;
-        if (seen.has(key)) continue;
-        seen.add(key);
-        ctx.ui.notify(`filesystem: ${w.source}: ${w.reason}`, 'warning');
-      }
-    },
-    reset() {
-      seen.clear();
-    },
-  };
+  return piProjectPath(cwd, 'filesystem.json');
 }
 
 function buildLayers(cwd: string): FilesystemPolicyLayer[] {
   return [
-    { source: USER_RULES_PATH, raw: readLayer(USER_RULES_PATH) },
-    { source: projectRulesPath(cwd), raw: readLayer(projectRulesPath(cwd)) },
+    { source: USER_RULES_PATH, raw: readTextOrEmpty(USER_RULES_PATH) },
+    { source: projectRulesPath(cwd), raw: readTextOrEmpty(projectRulesPath(cwd)) },
   ];
 }
 
@@ -179,7 +146,7 @@ interface BuildHandlerOpts {
   defaultFallback: 'allow' | 'deny';
   /** Optional warning-tracker. The hook-only factory passes its own;
    *  the parent extension shares one with its `session_shutdown`. */
-  warnings?: ReturnType<typeof makeWarningTracker>;
+  warnings?: ReturnType<typeof createNotifyOnce>;
 }
 
 /**
@@ -215,7 +182,7 @@ function makeFilesystemToolCallHandler(
     }
 
     const { policy, warnings: layerWarnings } = resolveActivePolicy(ctx.cwd);
-    if (warnings && layerWarnings.length > 0) warnings.surface(ctx, layerWarnings);
+    if (warnings && layerWarnings.length > 0) warnings.surface(ctx.ui.notify.bind(ctx.ui), layerWarnings);
 
     const match = isRead ? classifyRead(inputPath, ctx.cwd, policy) : classifyWrite(inputPath, ctx.cwd, policy);
     if (!match) return undefined;
@@ -255,7 +222,7 @@ function makeFilesystemToolCallHandler(
 
 /**
  * Hook-only `ExtensionFactory` installed inside spawned subagent
- * sessions via `lib/node/pi/subagent-extension-injection.ts`. Mounts
+ * sessions via `lib/node/pi/subagent/extension-injection.ts`. Mounts
  * ONLY a `tool_call` handler - no `/filesystem` slash command, no
  * statusline glue - so the child stays minimal while still routing
  * `read` / `write` / `edit` calls through the same classify pipeline
@@ -273,7 +240,7 @@ function makeFilesystemToolCallHandler(
  * `/reload` cycles is idempotent (the registry replaces by id).
  */
 export function filesystemFactoryHookOnly(pi: ExtensionAPI): void {
-  if (process.env.PI_FILESYSTEM_DISABLED === '1') return;
+  if (envTruthy(process.env.PI_FILESYSTEM_DISABLED)) return;
   const defaultFallback = process.env.PI_FILESYSTEM_DEFAULT === 'allow' ? 'allow' : 'deny';
   const sessionAllow = new Set<string>();
   pi.on('tool_call', makeFilesystemToolCallHandler({ sessionAllow, defaultFallback }));
@@ -284,7 +251,7 @@ export function filesystemFactoryHookOnly(pi: ExtensionAPI): void {
 // ─────────────────────────────────────────────────────────────────
 
 export default function filesystem(pi: ExtensionAPI): void {
-  if (process.env.PI_FILESYSTEM_DISABLED === '1') return;
+  if (envTruthy(process.env.PI_FILESYSTEM_DISABLED)) return;
 
   const defaultFallback = process.env.PI_FILESYSTEM_DEFAULT === 'allow' ? 'allow' : 'deny';
 
@@ -292,7 +259,7 @@ export default function filesystem(pi: ExtensionAPI): void {
   // session. Approving a path OK's it for both reads AND writes - if you
   // vetted the path for one, you vetted it for the other.
   const sessionAllow = new Set<string>();
-  const warnings = makeWarningTracker();
+  const warnings = createNotifyOnce({ tag: 'filesystem' });
 
   // Register the hook-only factory so spawned subagents (deep-research /
   // iteration-loop / `subagent`) re-apply this gate against their own
@@ -319,7 +286,7 @@ export default function filesystem(pi: ExtensionAPI): void {
     description: 'Show the active filesystem policy (defaults / user / project / persona) and the session allowlist',
     handler: async (_args, ctx) => {
       const { policy, warnings: layerWarnings } = resolveActivePolicy(ctx.cwd);
-      if (layerWarnings.length > 0) warnings.surface(ctx, layerWarnings);
+      if (layerWarnings.length > 0) warnings.surface(ctx.ui.notify.bind(ctx.ui), layerWarnings);
 
       const lines: string[] = [];
       lines.push(`Source files (additive, additive within categories):`);

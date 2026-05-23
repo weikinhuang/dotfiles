@@ -4,7 +4,7 @@
  * The extension shell lives at
  * `config/pi/extensions/deep-research.ts` and is intentionally
  * thin - all logic is delegated to the pure helpers in
- * `lib/node/pi/research-runs.ts`. This spec drives those helpers
+ * `lib/node/pi/research/runs.ts`. This spec drives those helpers
  * end-to-end against the exact `{cwd, notify, selftest}` shape
  * the extension uses, so the two stay in lockstep.
  *
@@ -28,22 +28,22 @@ import {
   type CriticRunner,
   type RefinementRunner,
   type StructuralRunner,
-} from '../../../../lib/node/pi/deep-research-review-loop.ts';
-import { runDeepResearchReview, type ReviewWireResult } from '../../../../lib/node/pi/deep-research-review-wire.ts';
+} from '../../../../lib/node/pi/deep-research/review-loop.ts';
+import { runDeepResearchReview, type ReviewWireResult } from '../../../../lib/node/pi/deep-research/review-wire.ts';
 import {
   initialStatuslineState,
   type PhaseEvent,
   reduceStatusline,
   renderStatuslineWidget,
-} from '../../../../lib/node/pi/deep-research-statusline.ts';
+} from '../../../../lib/node/pi/deep-research/statusline.ts';
 import {
   createResearchSessionFlag,
   createResearchToolExecutor,
   type ResearchToolRunOutcome,
   type ResearchToolRunner,
   SINGLE_ACTIVE_ERROR,
-} from '../../../../lib/node/pi/deep-research-tool.ts';
-import { type AutoresearchPlan, type DeepResearchPlan } from '../../../../lib/node/pi/research-plan.ts';
+} from '../../../../lib/node/pi/deep-research/tool.ts';
+import { type AutoresearchPlan, type DeepResearchPlan } from '../../../../lib/node/pi/research/plan.ts';
 import {
   type CommandNotify,
   type CommandNotifyLevel,
@@ -54,9 +54,9 @@ import {
   runListCommand,
   runSelftestCommand,
   type RunSummary,
-} from '../../../../lib/node/pi/research-runs.ts';
-import { type SelftestResult } from '../../../../lib/node/pi/research-selftest.ts';
-import { formatStubHint } from '../../../../lib/node/pi/research-stub-hint.ts';
+} from '../../../../lib/node/pi/research/runs.ts';
+import { type SelftestResult } from '../../../../lib/node/pi/research/selftest.ts';
+import { formatStubHint } from '../../../../lib/node/pi/research/stub-hint.ts';
 import { assertKind } from '../../../lib/node/pi/helpers.ts';
 
 // ──────────────────────────────────────────────────────────────────────
@@ -801,7 +801,7 @@ describe('/research - stubbed review short-circuit notify discipline', () => {
       cwd,
       runRoot,
       rubricSubjective: '## Rubric\n',
-      structuralBashCmd: 'node lib/node/pi/deep-research-structural-check.ts ./research/demo',
+      structuralBashCmd: 'node lib/node/pi/deep-research/structural-check.ts ./research/demo',
       runStructural,
       runCritic,
       refineReport,

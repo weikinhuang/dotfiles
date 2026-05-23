@@ -66,3 +66,45 @@ import { shQuote } from '../util.ts';
 export function buildIdentityWrap(original: string): string {
   return `${SANDBOX_MARKER} sh -c ${shQuote(original)}`;
 }
+
+// ───────────────────────────────────────────────────────────────────────
+// Original-command stash helpers. Used by sandbox.ts's `tool_call`
+// hook to mark an event as already-wrapped and to recover the
+// pre-wrap command for transcript / bash-history consumers.
+// ───────────────────────────────────────────────────────────────────────
+
+/**
+ * True when `input` already carries our original-command stash,
+ * meaning a previous sandbox hook pass wrapped it. Symbol-keyed so
+ * a model cannot fabricate it (Symbols can't appear in JSON input).
+ */
+export function hasOriginalStash(input: unknown): boolean {
+  if (input === null || typeof input !== 'object') return false;
+  return (input as Record<symbol, unknown>)[SANDBOX_ORIGINAL_SYMBOL] !== undefined;
+}
+
+/**
+ * Stash the pre-wrap command on `input` under {@link SANDBOX_ORIGINAL_SYMBOL}.
+ * The property is non-enumerable so transcript serializers that
+ * JSON-stringify `event.input` skip it.
+ */
+export function stashOriginalCommand(input: unknown, original: string): void {
+  if (input === null || typeof input !== 'object') return;
+  Object.defineProperty(input, SANDBOX_ORIGINAL_SYMBOL, {
+    value: original,
+    enumerable: false,
+    configurable: true,
+  });
+}
+
+/**
+ * Read the previously-stashed pre-wrap command from `input`. Returns
+ * `undefined` if the stash isn't set or the input shape is unexpected.
+ * Used by the `tool_result` hook to surface the original command in
+ * audit-log records and the user-facing fs-ask dialog.
+ */
+export function readOriginalStash(input: unknown): string | undefined {
+  if (input === null || typeof input !== 'object') return undefined;
+  const v = (input as Record<symbol, unknown>)[SANDBOX_ORIGINAL_SYMBOL];
+  return typeof v === 'string' ? v : undefined;
+}

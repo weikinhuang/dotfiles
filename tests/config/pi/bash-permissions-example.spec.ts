@@ -32,7 +32,7 @@ import {
   allSubcommands,
   type BashDecision,
   decideSubcommand,
-} from '../../../lib/node/pi/bash-match.ts';
+} from '../../../lib/node/pi/bash/match.ts';
 import { parseJsonc } from '../../../lib/node/pi/jsonc.ts';
 
 interface RuleFile {

@@ -71,7 +71,15 @@ import { type ExtensionAPI, type ExtensionContext, type Theme, type ThemeColor }
 import { type Component, matchesKey, Text, truncateToWidth } from '@earendil-works/pi-tui';
 import { Type } from 'typebox';
 
-import { requestBashApproval } from '../../../lib/node/pi/bash-gate.ts';
+import { requestBashApproval } from '../../../lib/node/pi/bash/gate.ts';
+import {
+  formatJobHeader,
+  formatJobLine,
+  formatJobRow,
+  formatLogTailExitHeader,
+  formatLogTailHeader,
+  formatState,
+} from '../../../lib/node/pi/bg-bash-format.ts';
 import { formatBackgroundJobs } from '../../../lib/node/pi/bg-bash-prompt.ts';
 import { requestSandboxWrap } from '../../../lib/node/pi/sandbox/wrapper-slot.ts';
 import {
@@ -83,12 +91,6 @@ import {
   cloneSummary,
   emptyState,
   findJob,
-  formatJobHeader,
-  formatJobLine,
-  formatJobRow,
-  formatLogTailExitHeader,
-  formatLogTailHeader,
-  formatState,
   type JobStatus,
   type JobSummary,
   markLiveJobsTerminated,
@@ -98,7 +100,7 @@ import {
   upsertJob,
 } from '../../../lib/node/pi/bg-bash-reducer.ts';
 import { RingBuffer } from '../../../lib/node/pi/bg-bash-ring.ts';
-import { parseClampedPositiveInt } from '../../../lib/node/pi/parse-env.ts';
+import { envTruthy, parseClampedPositiveInt } from '../../../lib/node/pi/parse-env.ts';
 import { piAgentPath } from '../../../lib/node/pi/pi-paths.ts';
 import { truncate } from '../../../lib/node/pi/shared.ts';
 import { formatHeaderRule } from '../../../lib/node/pi/tui-rule.ts';
@@ -641,7 +643,7 @@ class BgBashOverlay implements Component {
 // ──────────────────────────────────────────────────────────────────────
 
 export default function bgBashExtension(pi: ExtensionAPI): void {
-  if (process.env.PI_BG_BASH_DISABLED === '1') return;
+  if (envTruthy(process.env.PI_BG_BASH_DISABLED)) return;
 
   const autoInjectEnabled = process.env.PI_BG_BASH_DISABLE_AUTOINJECT !== '1';
   const maxInjectedChars = parseClampedPositiveInt(

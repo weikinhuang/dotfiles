@@ -19,6 +19,8 @@
 import { type ExtensionAPI } from '@earendil-works/pi-coding-agent';
 import { truncateToWidth } from '@earendil-works/pi-tui';
 
+import { envTruthy } from '../../../lib/node/pi/parse-env.ts';
+
 /**
  * Hint segments shown after the `π pi` brand. Split into `{key, desc}` so
  * we can mirror pi's built-in two-tone palette:
@@ -42,7 +44,7 @@ const HINTS: readonly { key: string; desc: string }[] = [
 ];
 
 export default function extension(pi: ExtensionAPI): void {
-  if (process.env.PI_CUSTOM_HEADER_DISABLED === '1') return;
+  if (envTruthy(process.env.PI_CUSTOM_HEADER_DISABLED)) return;
 
   pi.on('session_start', async (_event, ctx) => {
     if (!ctx.hasUI) return;

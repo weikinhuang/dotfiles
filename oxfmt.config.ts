@@ -9,6 +9,6 @@ export default defineConfig({
   trailingComma: 'all',
   ignorePatterns: [
     // multiline
-    'lib/node/pi/research-selftest/fixtures/**',
+    'lib/node/pi/research/selftest-fixtures/**',
   ],
 });

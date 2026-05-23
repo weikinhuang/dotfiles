@@ -41,11 +41,11 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
 import { atomicWriteFile } from '../../../../lib/node/pi/atomic-write.ts';
-import { appendJournal, readJournal } from '../../../../lib/node/pi/research-journal.ts';
-import { paths } from '../../../../lib/node/pi/research-paths.ts';
-import { readPlan, writePlan, type DeepResearchPlan } from '../../../../lib/node/pi/research-plan.ts';
-import { readProvenance, writeSidecar, type Provenance } from '../../../../lib/node/pi/research-provenance.ts';
-import { quarantine } from '../../../../lib/node/pi/research-quarantine.ts';
+import { appendJournal, readJournal } from '../../../../lib/node/pi/research/journal.ts';
+import { paths } from '../../../../lib/node/pi/research/paths.ts';
+import { readPlan, writePlan, type DeepResearchPlan } from '../../../../lib/node/pi/research/plan.ts';
+import { readProvenance, writeSidecar, type Provenance } from '../../../../lib/node/pi/research/provenance.ts';
+import { quarantine } from '../../../../lib/node/pi/research/quarantine.ts';
 import {
   fetchAndStore,
   listRun,
@@ -54,17 +54,17 @@ import {
   type McpFetchUrlInput,
   type McpFetchUrlResult,
   type McpSearchWebResult,
-} from '../../../../lib/node/pi/research-sources.ts';
-import { callTyped, type ResearchSessionLike, type SchemaLike } from '../../../../lib/node/pi/research-structured.ts';
+} from '../../../../lib/node/pi/research/sources.ts';
+import { callTyped, type ResearchSessionLike, type SchemaLike } from '../../../../lib/node/pi/research/structured.ts';
 import {
   createTinyAdapter,
   type TinyAdapterWiring,
   type TinyRunOneShot,
   type TinyRunResult,
   type TinySettings,
-} from '../../../../lib/node/pi/research-tiny.ts';
-import { watch, type WatchdogHandleLike, type WatchdogStatus } from '../../../../lib/node/pi/research-watchdog.ts';
-import { type AgentDef } from '../../../../lib/node/pi/subagent-loader.ts';
+} from '../../../../lib/node/pi/research/tiny.ts';
+import { watch, type WatchdogHandleLike, type WatchdogStatus } from '../../../../lib/node/pi/research/watchdog.ts';
+import { type AgentDef } from '../../../../lib/node/pi/subagent/loader.ts';
 
 // ──────────────────────────────────────────────────────────────────────
 // Shared tempdir fixture

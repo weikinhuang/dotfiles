@@ -9,8 +9,11 @@ import { describe, expect, test } from 'vitest';
 import {
   alreadyWrapped,
   buildIdentityWrap,
+  hasOriginalStash,
+  readOriginalStash,
   SANDBOX_MARKER,
   SANDBOX_ORIGINAL_SYMBOL,
+  stashOriginalCommand,
   stripMarkerFromUserInput,
 } from '../../../../../lib/node/pi/sandbox/markers.ts';
 
@@ -86,5 +89,41 @@ describe('buildIdentityWrap', () => {
   });
   test('the identity-wrap output is itself recognised by alreadyWrapped', () => {
     expect(alreadyWrapped(buildIdentityWrap('git log'))).toBe(true);
+  });
+});
+
+describe('hasOriginalStash / stashOriginalCommand / readOriginalStash', () => {
+  test('hasOriginalStash returns false for empty / non-object input', () => {
+    expect(hasOriginalStash(undefined)).toBe(false);
+    expect(hasOriginalStash(null)).toBe(false);
+    expect(hasOriginalStash(42)).toBe(false);
+    expect(hasOriginalStash({})).toBe(false);
+  });
+
+  test('stash + read round-trips the command verbatim', () => {
+    const input = { command: 'wrapped' };
+    stashOriginalCommand(input, 'echo hi');
+
+    expect(hasOriginalStash(input)).toBe(true);
+    expect(readOriginalStash(input)).toBe('echo hi');
+  });
+
+  test('the stash is non-enumerable so JSON.stringify skips it', () => {
+    const input: { command: string } = { command: 'wrapped' };
+    stashOriginalCommand(input, 'echo hi');
+
+    expect(JSON.stringify(input)).toBe('{"command":"wrapped"}');
+  });
+
+  test('the stash key is the exported symbol', () => {
+    const input = { command: 'wrapped' };
+    stashOriginalCommand(input, 'echo hi');
+
+    const v = (input as Record<symbol, unknown>)[SANDBOX_ORIGINAL_SYMBOL];
+    expect(v).toBe('echo hi');
+  });
+
+  test('readOriginalStash returns undefined when stash is absent', () => {
+    expect(readOriginalStash({ command: 'x' })).toBeUndefined();
   });
 });

@@ -54,7 +54,7 @@ import { type ExtensionAPI, isEditToolResult } from '@earendil-works/pi-coding-a
 
 import { locateAndFormat, parseEditFailure } from '../../../lib/node/pi/edit-recovery.ts';
 import { boundedReadFile } from '../../../lib/node/pi/fs-safe.ts';
-import { parsePositiveInt } from '../../../lib/node/pi/parse-env.ts';
+import { envTruthy, parsePositiveInt } from '../../../lib/node/pi/parse-env.ts';
 import { makeDiagnostics } from '../../../lib/node/pi/recovery-diagnostics.ts';
 
 const DEFAULT_MAX_BYTES = 262_144;
@@ -62,7 +62,7 @@ const DEFAULT_CONTEXT_LINES = 2;
 const DEFAULT_MAX_CANDIDATES = 5;
 
 export default function editRecovery(pi: ExtensionAPI): void {
-  if (process.env.PI_EDIT_RECOVERY_DISABLED === '1') return;
+  if (envTruthy(process.env.PI_EDIT_RECOVERY_DISABLED)) return;
 
   const maxBytes = parsePositiveInt(process.env.PI_EDIT_RECOVERY_MAX_BYTES, DEFAULT_MAX_BYTES);
   const contextLines = parsePositiveInt(process.env.PI_EDIT_RECOVERY_CONTEXT_LINES, DEFAULT_CONTEXT_LINES);
@@ -70,7 +70,7 @@ export default function editRecovery(pi: ExtensionAPI): void {
   const { trace, notify } = makeDiagnostics({
     label: 'edit-recovery',
     tracePath: process.env.PI_EDIT_RECOVERY_TRACE,
-    debug: process.env.PI_EDIT_RECOVERY_DEBUG === '1',
+    debug: envTruthy(process.env.PI_EDIT_RECOVERY_DEBUG),
   });
 
   pi.on('tool_result', (event, ctx) => {
