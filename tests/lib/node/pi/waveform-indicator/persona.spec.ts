@@ -21,7 +21,7 @@ import {
 
 const LAYERS: PersonaLayerPaths = {
   projectDir: '/proj/.pi/personas',
-  userDir: '/home/u/.pi/personas',
+  userDir: '/home/u/.pi/agent/personas',
   shippedDir: '/repo/config/pi/personas',
 };
 
@@ -80,7 +80,7 @@ describe('resolvePersonaPath', () => {
   test('layer-order resolution: project beats user beats shipped', () => {
     const files = new Map([
       ['/proj/.pi/personas/daemon-waveform.md', 'project'],
-      ['/home/u/.pi/personas/daemon-waveform.md', 'user'],
+      ['/home/u/.pi/agent/personas/daemon-waveform.md', 'user'],
       ['/repo/config/pi/personas/daemon-waveform.md', 'shipped'],
     ]);
     expect(resolvePersonaPath('daemon-waveform', LAYERS, fsFromMap(files))).toBe(
@@ -90,11 +90,11 @@ describe('resolvePersonaPath', () => {
 
   test('falls through project → user when project layer missing', () => {
     const files = new Map([
-      ['/home/u/.pi/personas/daemon-waveform.md', 'user'],
+      ['/home/u/.pi/agent/personas/daemon-waveform.md', 'user'],
       ['/repo/config/pi/personas/daemon-waveform.md', 'shipped'],
     ]);
     expect(resolvePersonaPath('daemon-waveform', LAYERS, fsFromMap(files))).toBe(
-      '/home/u/.pi/personas/daemon-waveform.md',
+      '/home/u/.pi/agent/personas/daemon-waveform.md',
     );
   });
 
@@ -118,7 +118,7 @@ describe('resolvePersonaPath', () => {
     const files = new Map([['/var/lib/dotfiles-real/config/pi/personas/daemon-waveform.md', 'shipped']]);
     const symlinkLayers: PersonaLayerPaths = {
       projectDir: '/proj/.pi/personas',
-      userDir: '/home/u/.pi/personas',
+      userDir: '/home/u/.pi/agent/personas',
       shippedDir: '/var/lib/dotfiles-real/config/pi/personas',
     };
     expect(resolvePersonaPath('daemon-waveform', symlinkLayers, fsFromMap(files))).toBe(

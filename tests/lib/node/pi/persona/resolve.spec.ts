@@ -36,21 +36,21 @@ test('resolveWriteRoots: {projectSlug} substitution', () => {
   expect(resolveWriteRoots(['journal/{projectSlug}/'], ctx)).toEqual(['/repo/journal/dotfiles/']);
 });
 
-test('resolveWriteRoots: tilde + nested ~/.pi/personas/<persona>-notes/ shape', () => {
+test('resolveWriteRoots: tilde + nested ~/.pi/agent/personas/<persona>-notes/ shape', () => {
   // Followup #6 in plans/persona-extension-followups.md - the
   // Character-style "persona writes scratch notes under the user-global
   // persona dir" pattern. Validates tilde expansion through several
   // path segments without any {projectSlug} or cwd substitution.
-  expect(resolveWriteRoots(['~/.pi/personas/character-notes/'], ctx)).toEqual([
-    '/home/alice/.pi/personas/character-notes/',
+  expect(resolveWriteRoots(['~/.pi/agent/personas/character-notes/'], ctx)).toEqual([
+    '/home/alice/.pi/agent/personas/character-notes/',
   ]);
 });
 
 test('resolveWriteRoots: tilde + {projectSlug} compound', () => {
   // Same Character shape but per-project: confirms tilde and
   // {projectSlug} substitution compose correctly.
-  expect(resolveWriteRoots(['~/.pi/personas/{projectSlug}/notes/'], ctx)).toEqual([
-    '/home/alice/.pi/personas/dotfiles/notes/',
+  expect(resolveWriteRoots(['~/.pi/agent/personas/{projectSlug}/notes/'], ctx)).toEqual([
+    '/home/alice/.pi/agent/personas/dotfiles/notes/',
   ]);
 });
 

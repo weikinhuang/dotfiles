@@ -109,7 +109,7 @@ describe('validateAgent', () => {
         description: 'plan agent',
         bashAllow: ['rg *', 'ai-fetch-web *'],
         bashDeny: ['curl *'],
-        writeRoots: ['plans/', '~/.pi/personas/{projectSlug}/'],
+        writeRoots: ['plans/', '~/.pi/agent/personas/{projectSlug}/'],
         requestOptions: {
           apis: ['openai-completions'],
           temperature: 0.6,
@@ -124,7 +124,7 @@ describe('validateAgent', () => {
     expect(warnings).toEqual([]);
     expect(out?.bashAllow).toEqual(['rg *', 'ai-fetch-web *']);
     expect(out?.bashDeny).toEqual(['curl *']);
-    expect(out?.writeRoots).toEqual(['plans/', '~/.pi/personas/{projectSlug}/']);
+    expect(out?.writeRoots).toEqual(['plans/', '~/.pi/agent/personas/{projectSlug}/']);
     expect(out?.requestOptions).toEqual({
       apis: ['openai-completions'],
       temperature: 0.6,

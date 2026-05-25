@@ -21,7 +21,7 @@
  * Layer order (first hit wins, project highest priority):
  *
  *   1. `<cwd>/.pi/personas/<name>.md`
- *   2. `<home>/.pi/personas/<name>.md`
+ *   2. `<home>/.pi/agent/personas/<name>.md`
  *   3. `<extDir>/../personas/<name>.md` (shipped catalog, where the
  *      bundled `daemon-waveform.md` lives)
  *
@@ -45,7 +45,7 @@ import { parsePersonaFile, type PersonaWarning } from '../persona/parse.ts';
 export interface PersonaLayerPaths {
   /** `<cwd>/.pi/personas` - highest priority. */
   projectDir: string;
-  /** `<home>/.pi/personas` - user-global overrides. */
+  /** `<home>/.pi/agent/personas` - user-global overrides. */
   userDir: string;
   /** `<extDir>/../personas` - shipped catalog (the `daemon-waveform.md` floor). */
   shippedDir: string;
