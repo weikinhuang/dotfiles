@@ -73,12 +73,15 @@ import { Type } from 'typebox';
 
 import { requestBashApproval } from '../../../lib/node/pi/bash/gate.ts';
 import {
+  clampBytes,
   formatJobHeader,
   formatJobLine,
   formatJobRow,
   formatLogTailExitHeader,
   formatLogTailHeader,
   formatState,
+  tailLines,
+  tailN,
 } from '../../../lib/node/pi/bg-bash-format.ts';
 import { formatBackgroundJobs } from '../../../lib/node/pi/bg-bash-prompt.ts';
 import { requestSandboxWrap } from '../../../lib/node/pi/sandbox/wrapper-slot.ts';
@@ -279,31 +282,6 @@ function resolveCwd(agentCwd: string, supplied: string | undefined): string {
     return join(homedir(), supplied.slice(1).replace(/^\//, ''));
   }
   return join(agentCwd, supplied);
-}
-
-function tailLines(s: string, n: number): string {
-  if (n <= 0 || !s) return '';
-  const lines = s.split('\n');
-  const hasTrailingNewline = lines[lines.length - 1] === '';
-  const effective = hasTrailingNewline ? lines.slice(0, -1) : lines;
-  const start = Math.max(0, effective.length - n);
-  return effective.slice(start).join('\n') + (hasTrailingNewline ? '\n' : '');
-}
-
-function tailN(s: string, n: number): string {
-  return tailLines(s, n);
-}
-
-function clampBytes(s: string, maxBytes: number): string {
-  if (!Number.isFinite(maxBytes) || maxBytes < 0) return s;
-  const encoded = Buffer.byteLength(s, 'utf8');
-  if (encoded <= maxBytes) return s;
-  // Tail-preserving truncation: the tail of a log is usually what the
-  // LLM needs (errors, summaries, final state). The head is marked
-  // so the model knows to go to the on-disk log if it needs more.
-  const buf = Buffer.from(s, 'utf8');
-  const kept = buf.subarray(buf.length - maxBytes);
-  return `… [${encoded - maxBytes}B truncated; see logFile] …\n${kept.toString('utf8')}`;
 }
 
 function mergeStreams(job: LiveJob, stream: StreamName): string {

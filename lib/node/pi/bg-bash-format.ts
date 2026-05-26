@@ -43,6 +43,28 @@ export function formatDuration(ms: number): string {
   return rm === 0 ? `${h}h` : `${h}h${rm}m`;
 }
 
+export function tailLines(s: string, n: number): string {
+  if (n <= 0 || !s) return '';
+  const lines = s.split('\n');
+  const hasTrailingNewline = lines[lines.length - 1] === '';
+  const effective = hasTrailingNewline ? lines.slice(0, -1) : lines;
+  const start = Math.max(0, effective.length - n);
+  return effective.slice(start).join('\n') + (hasTrailingNewline ? '\n' : '');
+}
+
+export function tailN(s: string, n: number): string {
+  return tailLines(s, n);
+}
+
+export function clampBytes(s: string, maxBytes: number): string {
+  if (!Number.isFinite(maxBytes) || maxBytes < 0) return s;
+  const encoded = Buffer.byteLength(s, 'utf8');
+  if (encoded <= maxBytes) return s;
+  const buf = Buffer.from(s, 'utf8');
+  const kept = buf.subarray(buf.length - maxBytes);
+  return `… [${encoded - maxBytes}B truncated; see logFile] …\n${kept.toString('utf8')}`;
+}
+
 /**
  * One-line summary of a job suitable for the LLM. Same string used by
  * `list`, the prompt injection, and the tool's fallback content.

@@ -7,6 +7,7 @@
 import { expect, test } from 'vitest';
 
 import {
+  clampBytes,
   formatBytes,
   formatDuration,
   formatJobHeader,
@@ -18,6 +19,8 @@ import {
   hasLiveJobs,
   partitionJobs,
   statusIcon,
+  tailLines,
+  tailN,
 } from '../../../../lib/node/pi/bg-bash-format.ts';
 import { type BgBashState, emptyState, type JobSummary } from '../../../../lib/node/pi/bg-bash-reducer.ts';
 
@@ -109,6 +112,26 @@ test('formatDuration: seconds → m+s → h+m', () => {
   expect(formatDuration(61_000)).toBe('1m1s');
   expect(formatDuration(3_600_000)).toBe('1h');
   expect(formatDuration(3_660_000)).toBe('1h1m');
+});
+
+test('tailLines: returns the last N lines and preserves trailing newline', () => {
+  expect(tailLines('one\ntwo\nthree', 2)).toBe('two\nthree');
+  expect(tailLines('one\ntwo\nthree\n', 2)).toBe('two\nthree\n');
+  expect(tailLines('one\ntwo', 5)).toBe('one\ntwo');
+  expect(tailLines('one\ntwo', 0)).toBe('');
+});
+
+test('tailN: aliases tailLines for render call sites', () => {
+  expect(tailN('a\nb\nc', 1)).toBe('c');
+});
+
+test('clampBytes: preserves short logs and tail-clamps long logs', () => {
+  expect(clampBytes('short', 20)).toBe('short');
+  expect(clampBytes('abcdef', -1)).toBe('abcdef');
+
+  const out = clampBytes('abcdef', 3);
+
+  expect(out).toBe('… [3B truncated; see logFile] …\ndef');
 });
 
 test('formatJobLine: running - duration + bytes', () => {
