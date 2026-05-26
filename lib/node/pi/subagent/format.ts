@@ -339,6 +339,73 @@ export function scorecardGlyph(stopReason: ScorecardStopReason | undefined): Sco
   }
 }
 
+export function scorecardStopReasonToState(reason: ScorecardStopReason): SubagentRunSnapshot['state'] {
+  switch (reason) {
+    case 'completed':
+      return 'completed';
+    case 'max_turns':
+      return 'max_turns';
+    case 'aborted':
+      return 'aborted';
+    case 'error':
+      return 'error';
+    case 'running':
+    case 'spawned':
+    default:
+      return 'running';
+  }
+}
+
+export interface SubagentScorecardDetails {
+  agent?: string;
+  agentSource?: 'global' | 'user' | 'project';
+  task?: string;
+  model?: string;
+  turns?: number;
+  tokens?: {
+    input?: number;
+    cacheRead?: number;
+    cacheWrite?: number;
+    output?: number;
+  };
+  cost?: number;
+  durationMs?: number;
+  handle?: string;
+  maxTurns?: number;
+  byTool?: Readonly<Record<string, number>>;
+  contextTokens?: number;
+  contextWindow?: number;
+}
+
+/**
+ * Re-hydrate result details into a `SubagentRunSnapshot` so the same
+ * scorecard formatter can render `subagent` and `subagent_send` results.
+ */
+export function subagentDetailsToSnapshot(
+  details: SubagentScorecardDetails,
+  stopReason: ScorecardStopReason,
+): SubagentRunSnapshot {
+  return {
+    agent: details.agent ?? '',
+    agentSource: details.agentSource,
+    state: scorecardStopReasonToState(stopReason),
+    model: details.model,
+    turns: details.turns ?? 0,
+    input: details.tokens?.input ?? 0,
+    cacheRead: details.tokens?.cacheRead ?? 0,
+    cacheWrite: details.tokens?.cacheWrite ?? 0,
+    output: details.tokens?.output ?? 0,
+    cost: details.cost ?? 0,
+    durationMs: details.durationMs,
+    contextTokens: details.contextTokens,
+    contextWindow: details.contextWindow,
+    task: details.task,
+    handle: details.handle,
+    maxTurns: details.maxTurns,
+    byTool: details.byTool,
+  };
+}
+
 const RUNNING_ROW_INDENT = '       ';
 
 /**

@@ -110,6 +110,7 @@ import {
   formatSubagentScorecard,
   formatSubagentStatus,
   scorecardGlyph,
+  subagentDetailsToSnapshot,
   type AgentPreviewSource,
   type RunningChildListItem,
   type ScorecardStopReason,
@@ -420,49 +421,6 @@ function cleanupAndError(args: {
 // ──────────────────────────────────────────────────────────────────────
 // Scorecard rendering (shared by `subagent` + `subagent_send`)
 // ──────────────────────────────────────────────────────────────────────
-
-function stopReasonToState(reason: ScorecardStopReason): SubagentRunSnapshot['state'] {
-  switch (reason) {
-    case 'completed':
-      return 'completed';
-    case 'max_turns':
-      return 'max_turns';
-    case 'aborted':
-      return 'aborted';
-    case 'error':
-      return 'error';
-    case 'running':
-    case 'spawned':
-    default:
-      return 'running';
-  }
-}
-
-/**
- * Re-hydrate a partial `SubagentDetails` (from a tool result) into a
- * `SubagentRunSnapshot` so the same scorecard formatter can render it.
- */
-function detailsToSnapshot(details: Partial<SubagentDetails>, stopReason: ScorecardStopReason): SubagentRunSnapshot {
-  return {
-    agent: details.agent ?? '',
-    agentSource: details.agentSource,
-    state: stopReasonToState(stopReason),
-    model: details.model,
-    turns: details.turns ?? 0,
-    input: details.tokens?.input ?? 0,
-    cacheRead: details.tokens?.cacheRead ?? 0,
-    cacheWrite: details.tokens?.cacheWrite ?? 0,
-    output: details.tokens?.output ?? 0,
-    cost: details.cost ?? 0,
-    durationMs: details.durationMs,
-    contextTokens: details.contextTokens,
-    contextWindow: details.contextWindow,
-    task: details.task,
-    handle: details.handle,
-    maxTurns: details.maxTurns,
-    byTool: details.byTool,
-  };
-}
 
 /**
  * Theme-aware wrapper around `formatScorecardLead` +
@@ -1765,7 +1723,7 @@ export default function subagentExtension(pi: ExtensionAPI): void {
         agentSource: details.agentSource,
         handle: details.handle,
         stopReason,
-        snapshot: detailsToSnapshot(details, stopReason),
+        snapshot: subagentDetailsToSnapshot(details, stopReason),
         // For successful background spawns we want a "spawned in background"
         // suffix so the card visually mirrors the toast text.
         leadSuffix: stopReason === 'spawned' ? 'spawned in background' : undefined,
@@ -2029,7 +1987,7 @@ export default function subagentExtension(pi: ExtensionAPI): void {
         agentSource: details.agentSource,
         handle: details.handle,
         stopReason,
-        snapshot: detailsToSnapshot(details, stopReason),
+        snapshot: subagentDetailsToSnapshot(details, stopReason),
       });
       const first = result.content.find((c) => c.type === 'text');
       const body = first?.type === 'text' ? first.text : '';

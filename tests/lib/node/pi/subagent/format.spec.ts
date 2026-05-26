@@ -22,6 +22,8 @@ import {
   formatSubagentStatus,
   formatToolCallCounts,
   scorecardGlyph,
+  scorecardStopReasonToState,
+  subagentDetailsToSnapshot,
   type RunningChildListItem,
   type SubagentRunSnapshot,
 } from '../../../../../lib/node/pi/subagent/format.ts';
@@ -490,6 +492,71 @@ describe('formatScorecardLead', () => {
     const out = formatScorecardLead({ agent: 'plan', stopReason: 'completed' });
 
     expect(out).toBe('✓ plan');
+  });
+});
+
+describe('subagentDetailsToSnapshot', () => {
+  test('maps stop reasons to running snapshot states', () => {
+    expect(scorecardStopReasonToState('completed')).toBe('completed');
+    expect(scorecardStopReasonToState('max_turns')).toBe('max_turns');
+    expect(scorecardStopReasonToState('aborted')).toBe('aborted');
+    expect(scorecardStopReasonToState('error')).toBe('error');
+    expect(scorecardStopReasonToState('running')).toBe('running');
+    expect(scorecardStopReasonToState('spawned')).toBe('running');
+  });
+
+  test('rehydrates partial result details for scorecard rendering', () => {
+    expect(
+      subagentDetailsToSnapshot(
+        {
+          agent: 'explore',
+          agentSource: 'project',
+          task: 'map the repo',
+          model: 'qwen3',
+          turns: 3,
+          tokens: { input: 1200, cacheRead: 4500, cacheWrite: 300, output: 180 },
+          cost: 0.004,
+          durationMs: 4200,
+          handle: 'sub_explore_1',
+          maxTurns: 20,
+          byTool: { read: 7 },
+          contextTokens: 8000,
+          contextWindow: 100_000,
+        },
+        'completed',
+      ),
+    ).toEqual({
+      agent: 'explore',
+      agentSource: 'project',
+      state: 'completed',
+      model: 'qwen3',
+      turns: 3,
+      input: 1200,
+      cacheRead: 4500,
+      cacheWrite: 300,
+      output: 180,
+      cost: 0.004,
+      durationMs: 4200,
+      contextTokens: 8000,
+      contextWindow: 100_000,
+      task: 'map the repo',
+      handle: 'sub_explore_1',
+      maxTurns: 20,
+      byTool: { read: 7 },
+    });
+  });
+
+  test('fills scorecard defaults when result details are sparse', () => {
+    expect(subagentDetailsToSnapshot({}, 'spawned')).toMatchObject({
+      agent: '',
+      state: 'running',
+      turns: 0,
+      input: 0,
+      cacheRead: 0,
+      cacheWrite: 0,
+      output: 0,
+      cost: 0,
+    });
   });
 });
 
