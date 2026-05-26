@@ -3,7 +3,8 @@
  * file. The actual implementations have moved into category modules
  * under `./shared/`:
  *
- *   - `./shared/strings.ts`  - `truncate`, `trimOrUndefined`
+ *   - `./shared/strings.ts`  - `collapseWhitespace`, `truncate`,
+ *                              `trimOrUndefined`
  *   - `./shared/bytes.ts`    - `BYTE_ENCODER`, `byteLen`
  *   - `./shared/hash.ts`     - `sha256Hex`, `sha256HexPrefix`
  *   - `./shared/guards.ts`   - `isRecord`, `isStringArray`,
@@ -18,4 +19,4 @@
 export { BYTE_ENCODER, byteLen } from './shared/bytes.ts';
 export { isFiniteNumber, isNonEmptyString, isRecord, isStringArray } from './shared/guards.ts';
 export { sha256Hex, sha256HexPrefix } from './shared/hash.ts';
-export { truncate, trimOrUndefined, type TruncateOptions } from './shared/strings.ts';
+export { collapseWhitespace, truncate, trimOrUndefined, type TruncateOptions } from './shared/strings.ts';

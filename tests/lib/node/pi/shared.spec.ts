@@ -9,6 +9,7 @@ import { expect, test } from 'vitest';
 import {
   byteLen,
   BYTE_ENCODER,
+  collapseWhitespace,
   isFiniteNumber,
   isNonEmptyString,
   isRecord,
@@ -18,6 +19,22 @@ import {
   trimOrUndefined,
   truncate,
 } from '../../../../lib/node/pi/shared.ts';
+
+// ──────────────────────────────────────────────────────────────────────
+// collapseWhitespace
+// ──────────────────────────────────────────────────────────────────────
+
+test('collapseWhitespace: collapses runs to single spaces', () => {
+  expect(collapseWhitespace('a   b\tc')).toBe('a b c');
+});
+
+test('collapseWhitespace: trims leading and trailing whitespace', () => {
+  expect(collapseWhitespace('  a\nb  ')).toBe('a b');
+});
+
+test('collapseWhitespace: returns empty string for whitespace-only input', () => {
+  expect(collapseWhitespace('\n\t  ')).toBe('');
+});
 
 // ──────────────────────────────────────────────────────────────────────
 // truncate

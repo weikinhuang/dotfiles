@@ -17,6 +17,7 @@
  */
 
 import { fmtCost, fmtSi } from '../token-format.ts';
+import { collapseWhitespace } from '../shared.ts';
 
 export interface AgentListItem {
   name: string;
@@ -29,7 +30,7 @@ const SHORT_DESCRIPTION_CAP = 160;
 export const OVERLAY_DESCRIPTION_CAP = 55;
 
 function shorten(s: string, cap: number): string {
-  const collapsed = s.replace(/\s+/g, ' ').trim();
+  const collapsed = collapseWhitespace(s);
   if (collapsed.length <= cap) return collapsed;
   return `${collapsed.slice(0, cap - 1).trimEnd()}…`;
 }
@@ -254,7 +255,7 @@ export function formatAgentPreview(agent: AgentPreviewSource): string[] {
   lines.push(`model:  ${formatModel(agent.model)}       maxTurns: ${agent.maxTurns}    timeoutMs: ${timeoutS}s`);
   lines.push(`isolation: ${agent.isolation}`);
   lines.push('');
-  const prose = agent.description.replace(/\s+/g, ' ').trim();
+  const prose = collapseWhitespace(agent.description);
   const capped =
     prose.length > PREVIEW_DESCRIPTION_CAP ? `${prose.slice(0, PREVIEW_DESCRIPTION_CAP - 1).trimEnd()}…` : prose;
   lines.push(capped);

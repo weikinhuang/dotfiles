@@ -38,6 +38,7 @@
 import { homedir } from 'node:os';
 
 import { getInteractiveActiveUI, type UIBridge } from '../active-ui.ts';
+import { collapseWhitespace, truncate } from '../shared.ts';
 
 import { greatestCommonParent } from './fs-failures.ts';
 
@@ -110,9 +111,7 @@ export function clampCommonParent(parent: string, cwd: string, home: string): st
 }
 
 function truncateCommand(command: string, limit = 120): string {
-  const oneLine = command.replace(/\s+/g, ' ').trim();
-  if (oneLine.length <= limit) return oneLine;
-  return oneLine.slice(0, limit - 1) + '…';
+  return truncate(collapseWhitespace(command), limit);
 }
 
 async function runDialog(ui: UIBridge, params: AskParams, deps: FsAskDeps): Promise<FsAskOutcome> {

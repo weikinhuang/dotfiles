@@ -1,10 +1,15 @@
 /**
- * String utilities - ellipsis truncation and "trim or undefined".
+ * String utilities - whitespace cleanup, ellipsis truncation, and
+ * "trim or undefined".
  *
  * Re-exported from `../shared.ts` so callers that already import from
  * the barrel keep working unchanged. New callers can import from this
  * module directly when they only need the string helpers.
  */
+
+export function collapseWhitespace(s: string): string {
+  return s.replace(/\s+/g, ' ').trim();
+}
 
 export interface TruncateOptions {
   /** Trim whitespace from `s` before measuring / slicing. Default false. */

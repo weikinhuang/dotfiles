@@ -18,6 +18,8 @@
 
 import { readFileSync } from 'node:fs';
 
+import { collapseWhitespace } from '../shared.ts';
+
 // ──────────────────────────────────────────────────────────────────────
 // Event shapes (minimal subset matching `AgentSessionEvent` in pi)
 // ──────────────────────────────────────────────────────────────────────
@@ -67,7 +69,7 @@ const TOOL_ARG_CAP = 50;
 const MESSAGE_CAP = 160;
 
 function capText(s: string, cap: number): string {
-  const collapsed = s.replace(/\s+/g, ' ').trim();
+  const collapsed = collapseWhitespace(s);
   if (collapsed.length <= cap) return collapsed;
   return `${collapsed.slice(0, cap - 1).trimEnd()}…`;
 }

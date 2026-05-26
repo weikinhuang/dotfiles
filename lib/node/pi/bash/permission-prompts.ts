@@ -22,7 +22,7 @@
 import { DENY_WITH_FEEDBACK, promptSelectWithFeedback } from '../approval-prompt.ts';
 import type { BashGateContext } from './gate.ts';
 import { twoTokenPattern } from './match.ts';
-import { truncate } from '../shared.ts';
+import { collapseWhitespace, truncate } from '../shared.ts';
 
 /**
  * Decision returned by the single-command prompt. Includes every
@@ -78,7 +78,7 @@ export interface AskForPermissionBatchExtras {
  * regardless of how long the original bash call was.
  */
 export function compactForDialog(s: string, maxLen = 160): string {
-  return truncate(s.replace(/\s+/g, ' ').trim(), maxLen);
+  return truncate(collapseWhitespace(s), maxLen);
 }
 
 /**

@@ -30,6 +30,7 @@ import { join } from 'node:path';
 
 import { type ConfigWarning, tryReadJsoncFile } from '../jsonc.ts';
 import { piAgentDir } from '../pi-paths.ts';
+import { collapseWhitespace, truncate } from '../shared.ts';
 
 export interface SuppressRule {
   /** Regex compiled lazily - matched against `event.input.command`. */
@@ -103,8 +104,7 @@ export function shouldSuppress(command: string, exitCode: number, rules: readonl
  * result. Deliberately short, deliberately alarming.
  */
 export function formatWarning(exitCode: number, command: string): string {
-  const trimmed = command.replace(/\s+/g, ' ').trim();
-  const snippet = trimmed.length > 120 ? `${trimmed.slice(0, 117)}…` : trimmed;
+  const snippet = truncate(collapseWhitespace(command), 120);
   return (
     `⚠ Command FAILED with exit code ${exitCode}. ` +
     `Do NOT treat this output as a successful result.\n` +
