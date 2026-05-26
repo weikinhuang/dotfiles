@@ -81,16 +81,14 @@ export function compactForDialog(s: string, maxLen = 160): string {
   return truncate(collapseWhitespace(s), maxLen);
 }
 
-/**
- * Render the rich single-unknown-command prompt. Side-effect free -
- * the caller applies the returned decision (allow-list push, project
- * rule write, etc.) at its own discretion.
- */
-export async function askForPermission(
-  ctx: BashGateContext,
+export function buildBashPermissionPrompt(
   command: string,
   extras: AskForPermissionExtras = {},
-): Promise<BashPermissionDecision> {
+): {
+  title: string;
+  entries: { label: string; decision: BashPermissionDecision | typeof DENY_WITH_FEEDBACK }[];
+  feedback: { title: string; placeholder: string };
+} {
   const trimmed = command.trimStart();
   const firstToken = trimmed.split(/[\s|&;<>()]/)[0] ?? command;
   const twoToken = twoTokenPattern(command);
@@ -120,9 +118,6 @@ export async function askForPermission(
   entries.push({ label: 'Deny', decision: { kind: 'deny' } });
   entries.push({ label: 'Deny with feedback…', decision: DENY_WITH_FEEDBACK });
 
-  // `command` is shown inline in the dialog title; collapse newlines
-  // and cap the length so multi-line heredocs / long scripts don't
-  // blow the dialog past the terminal height (see compactForDialog).
   const displayCommand = compactForDialog(command);
   const titleLines: string[] = ['⚠️  Bash tool request:', '', `  ${displayCommand}`];
   if (extras.auto && extras.alwaysPromptReason) {
@@ -130,25 +125,22 @@ export async function askForPermission(
   }
   titleLines.push('', 'How should pi proceed?');
 
-  return promptSelectWithFeedback<BashPermissionDecision>(
-    ctx,
-    titleLines.join('\n'),
+  return {
+    title: titleLines.join('\n'),
     entries,
-    { title: 'Tell the assistant why:', placeholder: 'e.g. use the test script instead' },
-    (feedback) => ({ kind: 'deny', feedback }),
-  );
+    feedback: { title: 'Tell the assistant why:', placeholder: 'e.g. use the test script instead' },
+  };
 }
 
-/**
- * Coalesced prompt for a compound / multi-line bash call with ≥ 2
- * unknown sub-commands. A single decision applies to all of them.
- */
-export async function askForPermissionBatch(
-  ctx: BashGateContext,
+export function buildBashBatchPermissionPrompt(
   fullCommand: string,
   unknown: string[],
   extras: AskForPermissionBatchExtras = {},
-): Promise<BashBatchDecision> {
+): {
+  title: string;
+  entries: { label: string; decision: BashBatchDecision | typeof DENY_WITH_FEEDBACK }[];
+  feedback: { title: string; placeholder: string };
+} {
   const entries: { label: string; decision: BashBatchDecision | typeof DENY_WITH_FEEDBACK }[] = [
     { label: `Allow all ${unknown.length} once`, decision: { kind: 'allow-all-once' } },
     { label: `Allow all ${unknown.length} for this session`, decision: { kind: 'allow-all-session' } },
@@ -156,11 +148,6 @@ export async function askForPermissionBatch(
     { label: 'Deny with feedback…', decision: DENY_WITH_FEEDBACK },
   ];
 
-  // Cap the number of sub-commands rendered inline so the dialog
-  // stays within a reasonable height on small terminals; the remainder
-  // is summarised as a single "…and N more" line. Each visible
-  // sub-command is also whitespace-collapsed so multi-line fragments
-  // don't each expand into many rendered rows.
   const MAX_VISIBLE_SUBS = 6;
   const visible = unknown.slice(0, MAX_VISIBLE_SUBS);
   const hidden = unknown.length - visible.length;
@@ -179,11 +166,51 @@ export async function askForPermissionBatch(
     `⚠️  Bash tool request with ${unknown.length} unknown sub-commands:\n\n${summary}${autoHint}\n\n` +
     `Full command:\n  ${compactForDialog(fullCommand, 180)}\n\nHow should pi proceed?`;
 
-  return promptSelectWithFeedback<BashBatchDecision>(
-    ctx,
+  return {
     title,
     entries,
-    { title: 'Tell the assistant why:', placeholder: 'e.g. split these into separate calls' },
+    feedback: { title: 'Tell the assistant why:', placeholder: 'e.g. split these into separate calls' },
+  };
+}
+
+/**
+ * Render the rich single-unknown-command prompt. Side-effect free -
+ * the caller applies the returned decision (allow-list push, project
+ * rule write, etc.) at its own discretion.
+ */
+export async function askForPermission(
+  ctx: BashGateContext,
+  command: string,
+  extras: AskForPermissionExtras = {},
+): Promise<BashPermissionDecision> {
+  const prompt = buildBashPermissionPrompt(command, extras);
+
+  return promptSelectWithFeedback<BashPermissionDecision>(
+    ctx,
+    prompt.title,
+    prompt.entries,
+    prompt.feedback,
+    (feedback) => ({ kind: 'deny', feedback }),
+  );
+}
+
+/**
+ * Coalesced prompt for a compound / multi-line bash call with ≥ 2
+ * unknown sub-commands. A single decision applies to all of them.
+ */
+export async function askForPermissionBatch(
+  ctx: BashGateContext,
+  fullCommand: string,
+  unknown: string[],
+  extras: AskForPermissionBatchExtras = {},
+): Promise<BashBatchDecision> {
+  const prompt = buildBashBatchPermissionPrompt(fullCommand, unknown, extras);
+
+  return promptSelectWithFeedback<BashBatchDecision>(
+    ctx,
+    prompt.title,
+    prompt.entries,
+    prompt.feedback,
     (feedback) => ({ kind: 'deny', feedback }),
   );
 }

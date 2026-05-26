@@ -32,7 +32,7 @@
  * to opt out and inspect `session.state.messages` first.
  */
 
-import { parseModelSpec } from '../btw/model-spec.ts';
+import { parseModelSpec } from '../model-spec.ts';
 import { collectSubagentInjections, type SubagentExtensionFactory } from './extension-injection.ts';
 import { type AgentDef } from './loader.ts';
 import { extractFinalAssistantText, type AgentMessageLike } from './result.ts';
@@ -157,6 +157,25 @@ export type CreateAgentSessionDep<M, S> = (args: {
   resourceLoader: ResourceLoaderLike;
   sessionManager: S;
 }) => Promise<{ session: AgentSessionLike }>;
+
+export function adaptCreateAgentSession<M, S, MR, RL>(
+  createAgentSession: (args: {
+    cwd: string;
+    model: M;
+    thinkingLevel: AgentDef['thinkingLevel'];
+    tools: string[];
+    modelRegistry: MR;
+    resourceLoader: RL;
+    sessionManager: S;
+  }) => Promise<{ session: AgentSessionLike }>,
+): CreateAgentSessionDep<M, S> {
+  return (args) =>
+    createAgentSession({
+      ...args,
+      modelRegistry: args.modelRegistry as MR,
+      resourceLoader: args.resourceLoader as RL,
+    });
+}
 
 /** Minimal resource-loader shape (just the method `runOneShotAgent` awaits). */
 export interface ResourceLoaderLike {

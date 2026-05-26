@@ -58,7 +58,7 @@ import {
 import { resolveWorktreeInfo, type WorktreeInfo } from '../../../lib/node/pi/git-worktree.ts';
 import { getSandboxState, isBashAutoEnabled, type SandboxMode } from '../../../lib/node/pi/session-flags.ts';
 import { getSessionSubagentAggregate } from '../../../lib/node/pi/subagent/aggregate.ts';
-import { fmtCost, fmtSi } from '../../../lib/node/pi/token-format.ts';
+import { fmtCost, fmtSi, formatUsageLine } from '../../../lib/node/pi/token-format.ts';
 import { envTruthy } from '../../../lib/node/pi/parse-env.ts';
 
 /**
@@ -463,32 +463,27 @@ export default function extension(pi: ExtensionAPI): void {
 
         if (agg.lastIn + agg.lastCacheRead + agg.lastOut > 0) {
           const label = agg.turns > 0 ? `M(${agg.turns})` : 'M';
-          // Per-turn R = cache-hit ratio for the most recent assistant message;
-          // signals whether that specific turn hit the prompt cache.
-          const lastCacheDenom = agg.lastIn + agg.lastCacheRead;
-          const lastRatioSeg =
-            lastCacheDenom > 0 ? ` R ${Math.round((agg.lastCacheRead / lastCacheDenom) * 100)}%` : '';
           line2Parts.push(
             paint(
               PALETTE.token,
-              `${label}:↑${fmtSi(agg.lastIn)}/↻ ${fmtSi(agg.lastCacheRead)}/↓${fmtSi(agg.lastOut)}${lastRatioSeg}`,
+              `${label}:${formatUsageLine({ input: agg.lastIn, cacheRead: agg.lastCacheRead, output: agg.lastOut }, { includeRatio: true })}`,
             ),
           );
         }
 
         if (agg.sessionIn + agg.sessionCacheRead + agg.sessionOut > 0) {
-          // W = cache write tokens; only shown when non-zero. For models that write a lot
-          // to the prompt cache (Anthropic, Bedrock) this surfaces the cost delta of the
-          // first vs. subsequent turns.
-          const writeSeg = agg.sessionCacheWrite > 0 ? `/W ${fmtSi(agg.sessionCacheWrite)}` : '';
-          // R = cache-hit ratio (cacheRead / (input + cacheRead)). A quick indicator that
-          // prompt caching is actually engaging; near-zero means the cache is missing.
-          const cacheDenom = agg.sessionIn + agg.sessionCacheRead;
-          const ratioSeg = cacheDenom > 0 ? ` R ${Math.round((agg.sessionCacheRead / cacheDenom) * 100)}%` : '';
           line2Parts.push(
             paint(
               PALETTE.sessionToken,
-              `S:↑${fmtSi(agg.sessionIn)}/↻ ${fmtSi(agg.sessionCacheRead)}${writeSeg}/↓${fmtSi(agg.sessionOut)}${ratioSeg}`,
+              `S:${formatUsageLine(
+                {
+                  input: agg.sessionIn,
+                  cacheRead: agg.sessionCacheRead,
+                  cacheWrite: agg.sessionCacheWrite,
+                  output: agg.sessionOut,
+                },
+                { includeRatio: true },
+              )}`,
             ),
           );
         }
@@ -507,15 +502,9 @@ export default function extension(pi: ExtensionAPI): void {
         const subAgg = getSessionSubagentAggregate().snapshot();
         if (subAgg.count > 0) {
           const label = subAgg.failures > 0 ? `Σ(${subAgg.count}·${subAgg.failures}✗)` : `Σ(${subAgg.count})`;
-          const writeSeg = subAgg.cacheWrite > 0 ? `/W ${fmtSi(subAgg.cacheWrite)}` : '';
-          const cacheDenom = subAgg.input + subAgg.cacheRead;
-          const ratioSeg = cacheDenom > 0 ? ` R ${Math.round((subAgg.cacheRead / cacheDenom) * 100)}%` : '';
           const costSeg = subAgg.cost > 0 ? ` ${fmtCost(subAgg.cost)}` : '';
           line2Parts.push(
-            paint(
-              PALETTE.subagent,
-              `${label}:↑${fmtSi(subAgg.input)}/↻ ${fmtSi(subAgg.cacheRead)}${writeSeg}/↓${fmtSi(subAgg.output)}${ratioSeg}${costSeg}`,
-            ),
+            paint(PALETTE.subagent, `${label}:${formatUsageLine(subAgg, { includeRatio: true })}${costSeg}`),
           );
         }
 

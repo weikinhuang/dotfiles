@@ -47,7 +47,7 @@
 import { readdirSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { parseModelSpec } from '../btw/model-spec.ts';
+import { parseModelSpec } from '../model-spec.ts';
 import { readTextOrNull } from '../fs-safe.ts';
 import { piAgentPath } from '../pi-paths.ts';
 import { type ThinkingLevel, THINKING_LEVELS } from '../preset.ts';

@@ -5,6 +5,7 @@
 import { expect, test } from 'vitest';
 
 import {
+  extractAssistantContentText,
   extractAssistantMessageText,
   extractLastAssistantText,
   findLastAssistantMessage,
@@ -69,6 +70,39 @@ test('extractAssistantMessageText: supports custom joiner and trim', () => {
       { joiner: '', trim: true },
     ),
   ).toBe('one two');
+});
+
+test('extractAssistantContentText: joins consecutive text parts with no separator', () => {
+  const out = extractAssistantContentText(
+    [
+      { type: 'text', text: 'Hello, ' },
+      { type: 'text', text: 'world.' },
+    ],
+    { joiner: '', trim: true },
+  );
+
+  expect(out).toBe('Hello, world.');
+});
+
+test('extractAssistantContentText: drops non-text parts and trims the result', () => {
+  const out = extractAssistantContentText(
+    [
+      { type: 'thinking', text: 'hmm...' },
+      { type: 'toolCall', text: '{ "name": "bash" }' },
+      { type: 'text', text: '  The answer is 42.  \n' },
+      { type: 'text' },
+    ],
+    { joiner: '', trim: true },
+  );
+
+  expect(out).toBe('The answer is 42.');
+});
+
+test('extractAssistantContentText: returns empty string for empty / missing content', () => {
+  expect(extractAssistantContentText(undefined)).toBe('');
+  expect(extractAssistantContentText([])).toBe('');
+  expect(extractAssistantContentText([{ type: 'text' }])).toBe('');
+  expect(extractAssistantContentText([{ type: 'text', text: '' }])).toBe('');
 });
 
 // ──────────────────────────────────────────────────────────────────────

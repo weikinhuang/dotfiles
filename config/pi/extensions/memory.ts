@@ -38,8 +38,6 @@
  *   PI_MEMORY_ROOT=<path>            override `~/.pi/agent/memory`.
  */
 
-import { existsSync, readFileSync } from 'node:fs';
-
 import { StringEnum } from '@earendil-works/pi-ai';
 import { type ExtensionAPI, type ExtensionContext } from '@earendil-works/pi-coding-agent';
 import { Text } from '@earendil-works/pi-tui';
@@ -47,37 +45,38 @@ import { Type } from 'typebox';
 
 import {
   atomicWriteFile,
+  chooseMemorySlug,
   cwdSlug,
   fileFor,
   globalDir,
   indexFileFor,
   memoryRoot,
   projectDir,
+  readMemoryBody,
+  rebuildMemoryIndex,
   removeFileIfExists,
-  scanScope,
   slugifyName,
-  uniqueSlug,
 } from '../../../lib/node/pi/memory-paths.ts';
 import { formatMemoryIndex } from '../../../lib/node/pi/memory-prompt.ts';
 import {
   cloneState,
+  defaultMemoryScope,
   emptyState,
-  findEntry,
   formatText,
+  isMemoryTypeAllowedInScope,
   MEMORY_CUSTOM_TYPE,
   type MemoryEntry,
   type MemoryScope,
   type MemoryState,
   type MemoryType,
-  parseFrontmatter,
   removeEntry,
   renderMemoryMd,
+  resolveMemoryEntry,
   serializeMemory,
-  takenSlugs,
   upsertEntry,
 } from '../../../lib/node/pi/memory-reducer.ts';
 import { truncate } from '../../../lib/node/pi/shared.ts';
-import { envTruthy } from '../../../lib/node/pi/parse-env.ts';
+import { envTruthy, parseClampedPositiveInt } from '../../../lib/node/pi/parse-env.ts';
 
 const MAX_INJECTED_CHARS_DEFAULT = 3000;
 
@@ -154,73 +153,12 @@ interface MemoryDetails {
 // Helpers
 // ──────────────────────────────────────────────────────────────────────
 
-function defaultScope(type: MemoryType): MemoryScope {
-  return type === 'project' || type === 'reference' ? 'project' : 'global';
-}
-
-function isTypeAllowedInScope(type: MemoryType, scope: MemoryScope): boolean {
-  if (scope === 'global') return type === 'user' || type === 'feedback';
-  return true;
-}
-
 function writeIndex(scope: MemoryScope, cwd: string, entries: MemoryEntry[]): void {
   const md = renderMemoryMd(
     entries.filter((e) => e.scope === scope),
     scope,
   );
   atomicWriteFile(indexFileFor(scope, cwd), md);
-}
-
-/**
- * Pick a slug for a new memory: prefer the name-slug; if it collides
- * within the same scope, disambiguate with -2/-3. `excludeId` lets
- * rename-in-place skip the outgoing entry's own slug so `alice` → `alice`
- * stays `alice` instead of becoming `alice-2`.
- */
-function chooseSlug(state: MemoryState, scope: MemoryScope, name: string, excludeId?: string): string {
-  const base = slugifyName(name);
-  const taken = takenSlugs(state.index, scope);
-  if (excludeId !== undefined) taken.delete(excludeId);
-  return uniqueSlug(base, taken);
-}
-
-function resolveEntry(
-  state: MemoryState,
-  params: { id?: string; type?: MemoryType; scope?: MemoryScope },
-): MemoryEntry | { error: string } {
-  if (!params.id) return { error: '`id` is required' };
-  const scopes: MemoryScope[] = params.scope ? [params.scope] : ['project', 'global'];
-  for (const scope of scopes) {
-    const e = findEntry(state.index, scope, params.id);
-    if (!e) continue;
-    if (params.type && e.type !== params.type) continue;
-    return e;
-  }
-  return { error: `no memory "${params.id}" found${params.scope ? ` in scope "${params.scope}"` : ''}` };
-}
-
-function fileBodyFor(entry: MemoryEntry, cwd: string): string | null {
-  const path = fileFor(entry.scope, entry.type, entry.id, cwd);
-  if (!existsSync(path)) return null;
-  try {
-    const raw = readFileSync(path, 'utf8');
-    const parsed = parseFrontmatter(raw);
-    return parsed ? parsed.body : raw;
-  } catch {
-    return null;
-  }
-}
-
-function rebuildIndex(cwd: string): { state: MemoryState; warnings: string[] } {
-  const slug = cwdSlug(cwd);
-  const warnings: string[] = [];
-  const g = scanScope(globalDir(), 'global');
-  const p = scanScope(projectDir(cwd), 'project');
-  for (const w of [...g.warnings, ...p.warnings]) warnings.push(`${w.path}: ${w.reason}`);
-  return {
-    state: { index: { global: g.entries, project: p.entries }, projectSlug: slug },
-    warnings,
-  };
 }
 
 // ──────────────────────────────────────────────────────────────────────
@@ -231,12 +169,11 @@ export default function memoryExtension(pi: ExtensionAPI): void {
   if (envTruthy(process.env.PI_MEMORY_DISABLED)) return;
 
   const autoInjectEnabled = process.env.PI_MEMORY_DISABLE_AUTOINJECT !== '1';
-  const maxInjectedChars = (() => {
-    const raw = process.env.PI_MEMORY_MAX_INJECTED_CHARS;
-    if (!raw) return MAX_INJECTED_CHARS_DEFAULT;
-    const n = Number.parseInt(raw, 10);
-    return Number.isFinite(n) && n >= 500 ? n : MAX_INJECTED_CHARS_DEFAULT;
-  })();
+  const maxInjectedChars = parseClampedPositiveInt(
+    process.env.PI_MEMORY_MAX_INJECTED_CHARS,
+    MAX_INJECTED_CHARS_DEFAULT,
+    500,
+  );
 
   let state: MemoryState = emptyState();
   let cwd: string = process.cwd();
@@ -244,7 +181,7 @@ export default function memoryExtension(pi: ExtensionAPI): void {
 
   const rebuildFromDisk = (ctx: ExtensionContext): void => {
     cwd = ctx.cwd;
-    const { state: next, warnings } = rebuildIndex(cwd);
+    const { state: next, warnings } = rebuildMemoryIndex(cwd);
     state = next;
     for (const w of warnings) {
       if (surfacedWarnings.has(w)) continue;
@@ -284,7 +221,7 @@ export default function memoryExtension(pi: ExtensionAPI): void {
   };
 
   const actRead = (params: MemoryParamsT): { content: string; details: MemoryDetails; isError?: boolean } => {
-    const resolved = resolveEntry(state, params);
+    const resolved = resolveMemoryEntry(state, params);
     if ('error' in resolved) {
       return {
         content: `Error: ${resolved.error}`,
@@ -292,7 +229,7 @@ export default function memoryExtension(pi: ExtensionAPI): void {
         isError: true,
       };
     }
-    const body = fileBodyFor(resolved, cwd);
+    const body = readMemoryBody(resolved, cwd);
     if (body == null) {
       const error = `memory "${resolved.id}" not readable on disk`;
       return {
@@ -339,8 +276,8 @@ export default function memoryExtension(pi: ExtensionAPI): void {
         isError: true,
       };
     }
-    const scope = params.scope ?? defaultScope(params.type);
-    if (!isTypeAllowedInScope(params.type, scope)) {
+    const scope = params.scope ?? defaultMemoryScope(params.type);
+    if (!isMemoryTypeAllowedInScope(params.type, scope)) {
       const error = `type "${params.type}" cannot be saved in scope "${scope}" (use scope "project")`;
       return {
         content: `Error: ${error}`,
@@ -348,7 +285,7 @@ export default function memoryExtension(pi: ExtensionAPI): void {
         isError: true,
       };
     }
-    const slug = chooseSlug(state, scope, params.name);
+    const slug = chooseMemorySlug(state, scope, params.name);
     const serialized = serializeMemory({ name: params.name.trim(), description, type: params.type, body });
     atomicWriteFile(fileFor(scope, params.type, slug, cwd), serialized);
     const entry: MemoryEntry = { id: slug, scope, type: params.type, name: params.name.trim(), description };
@@ -367,7 +304,7 @@ export default function memoryExtension(pi: ExtensionAPI): void {
   };
 
   const actUpdate = (params: MemoryParamsT): { content: string; details: MemoryDetails; isError?: boolean } => {
-    const resolved = resolveEntry(state, params);
+    const resolved = resolveMemoryEntry(state, params);
     if ('error' in resolved) {
       return {
         content: `Error: ${resolved.error}`,
@@ -408,7 +345,7 @@ export default function memoryExtension(pi: ExtensionAPI): void {
         };
       }
     } else {
-      const existing = fileBodyFor(resolved, cwd);
+      const existing = readMemoryBody(resolved, cwd);
       if (existing === null) {
         const error = `cannot preserve body: "${resolved.id}" is not readable on disk - pass \`body\` explicitly or re-save`;
         return {
@@ -435,7 +372,7 @@ export default function memoryExtension(pi: ExtensionAPI): void {
       // a rename that collapses back to the same slug (or a reclaimed one)
       // doesn't get pushed to `-2`. Then remove the old file.
       nextIndex = removeEntry(nextIndex, resolved.scope, resolved.id);
-      nextId = chooseSlug({ index: nextIndex, projectSlug: state.projectSlug }, resolved.scope, params.name!);
+      nextId = chooseMemorySlug({ index: nextIndex, projectSlug: state.projectSlug }, resolved.scope, params.name!);
       removeFileIfExists(fileFor(resolved.scope, resolved.type, resolved.id, cwd));
     }
     const serialized = serializeMemory({
@@ -475,7 +412,7 @@ export default function memoryExtension(pi: ExtensionAPI): void {
         isError: true,
       };
     }
-    const resolved = resolveEntry(state, params);
+    const resolved = resolveMemoryEntry(state, params);
     if ('error' in resolved) {
       return {
         content: `Error: ${resolved.error}`,
@@ -517,7 +454,7 @@ export default function memoryExtension(pi: ExtensionAPI): void {
         matches.push(e);
         continue;
       }
-      const body = fileBodyFor(e, cwd);
+      const body = readMemoryBody(e, cwd);
       if (body?.toLowerCase().includes(needle)) matches.push(e);
     }
     if (matches.length === 0) {

@@ -76,38 +76,59 @@ interface AskParams {
   port: number | undefined;
 }
 
-async function runDialog(ui: UIBridge, host: string, labelTarget: string, deps: NetworkAskDeps): Promise<boolean> {
+export function buildNetworkAskPrompt(
+  host: string,
+  labelTarget: string,
+): {
+  parent: string | undefined;
+  title: string;
+  options: string[];
+  labels: {
+    allowOnce: string;
+    allowSession: string;
+    allowProject: string;
+    allowParentUser: string | undefined;
+    deny: string;
+    denyFeedback: string;
+  };
+} {
   const parent = parentDomainGlob(host);
-
-  const optAllowOnce = 'Allow once';
-  const optAllowSession = `Allow ${host} for this session`;
-  const optAllowProject = `Always allow ${host} (project)`;
-  const optAllowParentUser = parent ? `Always allow ${parent} (user)` : undefined;
-  const optDeny = 'Deny';
-  const optDenyFeedback = 'Deny with feedback…';
-
-  const options = [optAllowOnce, optAllowSession, optAllowProject];
-  if (optAllowParentUser) options.push(optAllowParentUser);
-  options.push(optDeny, optDenyFeedback);
-
-  const choice = await ui.select(
-    `⚠️  Sandboxed bash wants to connect to:\n\n  ${labelTarget}\n\nHow should pi proceed?`,
+  const labels = {
+    allowOnce: 'Allow once',
+    allowSession: `Allow ${host} for this session`,
+    allowProject: `Always allow ${host} (project)`,
+    allowParentUser: parent ? `Always allow ${parent} (user)` : undefined,
+    deny: 'Deny',
+    denyFeedback: 'Deny with feedback…',
+  };
+  const options = [labels.allowOnce, labels.allowSession, labels.allowProject];
+  if (labels.allowParentUser) options.push(labels.allowParentUser);
+  options.push(labels.deny, labels.denyFeedback);
+  return {
+    parent,
+    title: `⚠️  Sandboxed bash wants to connect to:\n\n  ${labelTarget}\n\nHow should pi proceed?`,
     options,
-  );
+    labels,
+  };
+}
 
-  if (!choice || choice === optDeny) return false;
-  if (choice === optDenyFeedback) {
+async function runDialog(ui: UIBridge, host: string, labelTarget: string, deps: NetworkAskDeps): Promise<boolean> {
+  const prompt = buildNetworkAskPrompt(host, labelTarget);
+  const choice = await ui.select(prompt.title, prompt.options);
+
+  if (!choice || choice === prompt.labels.deny) return false;
+  if (choice === prompt.labels.denyFeedback) {
     const feedback = await ui.input('Tell the assistant why:', 'e.g. use the staging mirror instead');
     const trimmed = feedback?.trim();
     if (trimmed) ui.notify(`sandbox: blocked ${labelTarget} - ${trimmed}`, 'warning');
     return false;
   }
-  if (choice === optAllowOnce) return true;
-  if (choice === optAllowSession) {
+  if (choice === prompt.labels.allowOnce) return true;
+  if (choice === prompt.labels.allowSession) {
     deps.sessionAllowedDomains.add(host);
     return true;
   }
-  if (choice === optAllowProject) {
+  if (choice === prompt.labels.allowProject) {
     let savedPath: string;
     try {
       savedPath = deps.saveProjectAllow(host);
@@ -121,15 +142,15 @@ async function runDialog(ui: UIBridge, host: string, labelTarget: string, deps: 
     await deps.triggerReconfigure();
     return true;
   }
-  if (optAllowParentUser && choice === optAllowParentUser && parent) {
+  if (prompt.labels.allowParentUser && choice === prompt.labels.allowParentUser && prompt.parent) {
     let savedPath: string;
     try {
-      savedPath = deps.saveUserAllowParent(parent);
+      savedPath = deps.saveUserAllowParent(prompt.parent);
     } catch (e) {
       ui.notify(`sandbox: ${e instanceof Error ? e.message : String(e)}`, 'error');
       return false;
     }
-    ui.notify(`Added network.allow "${parent}" → ${savedPath}`, 'info');
+    ui.notify(`Added network.allow "${prompt.parent}" → ${savedPath}`, 'info');
     await deps.triggerReconfigure();
     return true;
   }

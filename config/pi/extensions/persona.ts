@@ -103,7 +103,7 @@ import {
 } from '../../../lib/node/pi/persona/snapshot.ts';
 import { decideWriteGate } from '../../../lib/node/pi/persona/write-gate.ts';
 import { applyRequestOptions } from '../../../lib/node/pi/request-options.ts';
-import { piAgentDir } from '../../../lib/node/pi/pi-paths.ts';
+import { piAgentDir, piProjectPath } from '../../../lib/node/pi/pi-paths.ts';
 import { loadAgents, defaultAgentLayers } from '../../../lib/node/pi/subagent/loader.ts';
 import { readTextOrNull } from '../../../lib/node/pi/fs-safe.ts';
 import { createNotifyOnce } from '../../../lib/node/pi/notify-once.ts';
@@ -204,7 +204,7 @@ export default function personaExtension(pi: ExtensionAPI): void {
     const layers: { source: 'shipped' | 'user' | 'project'; dir: string }[] = [
       { source: 'shipped', dir: shippedPersonasDir },
       { source: 'user', dir: join(userPiDir, 'personas') },
-      { source: 'project', dir: join(cwd, '.pi', 'personas') },
+      { source: 'project', dir: piProjectPath(cwd, 'personas') },
     ];
     const knownToolNames = new Set(pi.getAllTools().map((t) => t.name));
     const collected: Record<string, ParsedPersona> = {};
@@ -259,7 +259,7 @@ export default function personaExtension(pi: ExtensionAPI): void {
   const loadSettingsLayers = (cwd: string): PersonaWarning[] => {
     const layers: SettingsLayer[] = [];
     const userPath = join(userPiDir, 'persona-settings.json');
-    const projectPath = join(cwd, '.pi', 'persona-settings.json');
+    const projectPath = piProjectPath(cwd, 'persona-settings.json');
     for (const path of [userPath, projectPath]) {
       const raw = readUtf8(path);
       if (raw === null) continue;

@@ -105,6 +105,24 @@ export interface ApprovalPromptArgs {
   detail: string;
 }
 
+export function buildApprovalPrompt(args: ApprovalPromptArgs): {
+  title: string;
+  entries: PromptEntry<ApprovalDecision>[];
+  feedback: FeedbackPromptCopy;
+} {
+  const { tool, path, detail } = args;
+  return {
+    title: `⚠️  ${tool} wants to touch a protected path:\n\n  ${path}\n  (${detail})\n\nHow should pi proceed?`,
+    entries: [
+      { label: 'Allow once', decision: { kind: 'allow-once' } },
+      { label: `Allow "${path}" for this session`, decision: { kind: 'allow-session' } },
+      { label: 'Deny', decision: { kind: 'deny' } },
+      { label: 'Deny with feedback…', decision: DENY_WITH_FEEDBACK },
+    ],
+    feedback: { title: 'Tell the assistant why:', placeholder: 'e.g. read docs/foo.md instead' },
+  };
+}
+
 /**
  * Ask the user how to proceed when an extension wants to gate a
  * tool call. Returns an `ApprovalDecision`; the caller is responsible
@@ -118,17 +136,9 @@ export async function askForPermission(
   ctx: ApprovalPromptContext,
   args: ApprovalPromptArgs,
 ): Promise<ApprovalDecision> {
-  const { tool, path, detail } = args;
-  return promptSelectWithFeedback<ApprovalDecision>(
-    ctx,
-    `⚠️  ${tool} wants to touch a protected path:\n\n  ${path}\n  (${detail})\n\nHow should pi proceed?`,
-    [
-      { label: 'Allow once', decision: { kind: 'allow-once' } },
-      { label: `Allow "${path}" for this session`, decision: { kind: 'allow-session' } },
-      { label: 'Deny', decision: { kind: 'deny' } },
-      { label: 'Deny with feedback…', decision: DENY_WITH_FEEDBACK },
-    ],
-    { title: 'Tell the assistant why:', placeholder: 'e.g. read docs/foo.md instead' },
-    (fb) => ({ kind: 'deny', feedback: fb }),
-  );
+  const prompt = buildApprovalPrompt(args);
+  return promptSelectWithFeedback<ApprovalDecision>(ctx, prompt.title, prompt.entries, prompt.feedback, (fb) => ({
+    kind: 'deny',
+    feedback: fb,
+  }));
 }

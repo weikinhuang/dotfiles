@@ -86,6 +86,15 @@ export function cloneState(s: MemoryState): MemoryState {
   return { index: cloneIndex(s.index), projectSlug: s.projectSlug };
 }
 
+export function defaultMemoryScope(type: MemoryType): MemoryScope {
+  return type === 'project' || type === 'reference' ? 'project' : 'global';
+}
+
+export function isMemoryTypeAllowedInScope(type: MemoryType, scope: MemoryScope): boolean {
+  if (scope === 'global') return type === 'user' || type === 'feedback';
+  return true;
+}
+
 // ──────────────────────────────────────────────────────────────────────
 // Shape validation (for branch-mirrored snapshots)
 // ──────────────────────────────────────────────────────────────────────
@@ -257,6 +266,21 @@ function entriesFor(index: MemoryIndex, scope: MemoryScope): MemoryEntry[] {
 
 export function findEntry(index: MemoryIndex, scope: MemoryScope, id: string): MemoryEntry | undefined {
   return entriesFor(index, scope).find((e) => e.id === id);
+}
+
+export function resolveMemoryEntry(
+  state: MemoryState,
+  params: { id?: string; type?: MemoryType; scope?: MemoryScope },
+): MemoryEntry | { error: string } {
+  if (!params.id) return { error: '`id` is required' };
+  const scopes: MemoryScope[] = params.scope ? [params.scope] : ['project', 'global'];
+  for (const scope of scopes) {
+    const e = findEntry(state.index, scope, params.id);
+    if (!e) continue;
+    if (params.type && e.type !== params.type) continue;
+    return e;
+  }
+  return { error: `no memory "${params.id}" found${params.scope ? ` in scope "${params.scope}"` : ''}` };
 }
 
 /**

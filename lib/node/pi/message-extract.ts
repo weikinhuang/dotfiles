@@ -45,14 +45,13 @@ function unwrapMessageEntry(entry: unknown, opts: FindLastAssistantMessageOption
   return message && typeof message === 'object' ? (message as LooseMessage) : undefined;
 }
 
-export function extractAssistantMessageText(msg: LooseMessage | undefined, opts: AssistantTextOptions = {}): string {
-  if (!msg) return '';
+export function extractAssistantContentText(content: unknown, opts: AssistantTextOptions = {}): string {
   const { joiner = '\n', trim = false } = opts;
   let text = '';
-  if (typeof msg.content === 'string') text = msg.content;
-  else if (Array.isArray(msg.content)) {
+  if (typeof content === 'string') text = content;
+  else if (Array.isArray(content)) {
     const parts: string[] = [];
-    for (const c of msg.content) {
+    for (const c of content) {
       if (c && typeof c === 'object' && (c as { type?: string }).type === 'text') {
         const part = (c as { text?: string }).text;
         if (typeof part === 'string') parts.push(part);
@@ -61,6 +60,11 @@ export function extractAssistantMessageText(msg: LooseMessage | undefined, opts:
     text = parts.join(joiner);
   }
   return trim ? text.trim() : text;
+}
+
+export function extractAssistantMessageText(msg: LooseMessage | undefined, opts: AssistantTextOptions = {}): string {
+  if (!msg) return '';
+  return extractAssistantContentText(msg.content, opts);
 }
 
 /**

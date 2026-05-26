@@ -58,10 +58,10 @@ import {
  */
 type ReadonlySessionManager = Pick<SessionManager, 'getBranch' | 'getSessionId'>;
 
-import { extractAnswerText } from '../../../lib/node/pi/btw/answer.ts';
 import { type BtwFooterStats, formatFooter } from '../../../lib/node/pi/btw/footer.ts';
-import { parseModelSpec } from '../../../lib/node/pi/btw/model-spec.ts';
 import { BTW_USAGE, buildSideQuestionUserContent } from '../../../lib/node/pi/btw/user-message.ts';
+import { extractAssistantContentText } from '../../../lib/node/pi/message-extract.ts';
+import { parseModelSpec } from '../../../lib/node/pi/model-spec.ts';
 import { envTruthy } from '../../../lib/node/pi/parse-env.ts';
 
 // ──────────────────────────────────────────────────────────────────────
@@ -203,7 +203,7 @@ export default function btw(pi: ExtensionAPI): void {
           ctx.ui.notify(`/btw: model returned ${resp.stopReason}${detail}`, 'error');
           return;
         }
-        answer = extractAnswerText(resp.content);
+        answer = extractAssistantContentText(resp.content, { joiner: '', trim: true });
         stats = {
           model: resp.model,
           totalTokens: resp.usage?.totalTokens,

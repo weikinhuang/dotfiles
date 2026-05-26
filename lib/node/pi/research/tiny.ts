@@ -44,7 +44,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 
 import { atomicWriteFile } from '../atomic-write.ts';
-import { parseModelSpec } from '../btw/model-spec.ts';
+import { parseModelSpec } from '../model-spec.ts';
 import { readJsoncOrUndefined } from '../fs-safe.ts';
 import { appendJournal, type JournalLevel } from './journal.ts';
 import { isRecord } from '../shared.ts';

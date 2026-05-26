@@ -49,9 +49,9 @@ import { fileURLToPath } from 'node:url';
 import { type ExtensionAPI, type ExtensionContext } from '@earendil-works/pi-coding-agent';
 import { Key } from '@earendil-works/pi-tui';
 
-import { parseModelSpec } from '../../../lib/node/pi/btw/model-spec.ts';
+import { parseModelSpec } from '../../../lib/node/pi/model-spec.ts';
 import { createNotifyOnce } from '../../../lib/node/pi/notify-once.ts';
-import { piAgentPath } from '../../../lib/node/pi/pi-paths.ts';
+import { piAgentPath, piProjectPath } from '../../../lib/node/pi/pi-paths.ts';
 import {
   describePreset,
   loadPresetFiles,
@@ -95,7 +95,7 @@ export default function presetExtension(pi: ExtensionAPI): void {
 
   const loadAll = (cwd: string): void => {
     const result = loadPresetFiles(
-      [shippedPresetsPath, piAgentPath('presets.json'), join(cwd, '.pi', 'presets.json')],
+      [shippedPresetsPath, piAgentPath('presets.json'), piProjectPath(cwd, 'presets.json')],
       readFileOrUndefined,
     );
     presets = result.presets;

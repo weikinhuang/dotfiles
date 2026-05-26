@@ -68,6 +68,7 @@ import { type ExtensionAPI, type ExtensionContext } from '@earendil-works/pi-cod
 
 import { condense, type CondenseOptions, parseToolList } from '../../../lib/node/pi/output-condense.ts';
 import { envTruthy, parseClampedPositiveInt } from '../../../lib/node/pi/parse-env.ts';
+import { formatCompactBytes } from '../../../lib/node/pi/shared.ts';
 
 const DEFAULT_TOOLS = ['bash'] as const;
 const MARKER_HEADER = '⟨ [pi-tool-output-condenser] ⟩';
@@ -92,12 +93,6 @@ async function writeFullOutputFile(text: string, toolName: string, _ctx: Extensi
   return file;
 }
 
-function formatSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes}B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(2)}MB`;
-}
-
 function buildBanner(
   result: { originalBytes: number; originalLines: number; outputBytes: number; outputLines: number },
   fullOutputPath: string | undefined,
@@ -108,7 +103,7 @@ function buildBanner(
   const parts = [
     MARKER_HEADER,
     `${toolName} output was condensed: kept ${result.outputLines} of ${result.originalLines} lines`,
-    `(${formatSize(result.outputBytes)} of ${formatSize(result.originalBytes)}); omitted ${savedLines} lines (${formatSize(savedBytes)}).`,
+    `(${formatCompactBytes(result.outputBytes)} of ${formatCompactBytes(result.originalBytes)}); omitted ${savedLines} lines (${formatCompactBytes(savedBytes)}).`,
   ];
   if (fullOutputPath) {
     parts.push(

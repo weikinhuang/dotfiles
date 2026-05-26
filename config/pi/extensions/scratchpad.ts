@@ -72,7 +72,7 @@ import {
   type ScratchpadState,
 } from '../../../lib/node/pi/scratchpad-reducer.ts';
 import { truncate } from '../../../lib/node/pi/shared.ts';
-import { envTruthy } from '../../../lib/node/pi/parse-env.ts';
+import { envTruthy, parseClampedPositiveInt } from '../../../lib/node/pi/parse-env.ts';
 
 const MAX_INJECTED_CHARS_DEFAULT = 2000;
 
@@ -121,12 +121,11 @@ export default function scratchpadExtension(pi: ExtensionAPI): void {
   if (envTruthy(process.env.PI_SCRATCHPAD_DISABLED)) return;
 
   const autoInjectEnabled = process.env.PI_SCRATCHPAD_DISABLE_AUTOINJECT !== '1';
-  const maxInjectedChars = (() => {
-    const raw = process.env.PI_SCRATCHPAD_MAX_INJECTED_CHARS;
-    if (!raw) return MAX_INJECTED_CHARS_DEFAULT;
-    const n = Number.parseInt(raw, 10);
-    return Number.isFinite(n) && n >= 200 ? n : MAX_INJECTED_CHARS_DEFAULT;
-  })();
+  const maxInjectedChars = parseClampedPositiveInt(
+    process.env.PI_SCRATCHPAD_MAX_INJECTED_CHARS,
+    MAX_INJECTED_CHARS_DEFAULT,
+    200,
+  );
 
   // In-memory mirror of the current branch's state. Reconstructed from
   // the session on session_start / session_tree and updated in place on

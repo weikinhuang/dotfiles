@@ -16,7 +16,7 @@
  * read at the call site.
  */
 
-export { BYTE_ENCODER, byteLen } from './shared/bytes.ts';
+export { BYTE_ENCODER, byteLen, formatCompactBytes } from './shared/bytes.ts';
 export { isFiniteNumber, isNonEmptyString, isRecord, isStringArray } from './shared/guards.ts';
 export { sha256Hex, sha256HexPrefix } from './shared/hash.ts';
 export { collapseWhitespace, truncate, trimOrUndefined, type TruncateOptions } from './shared/strings.ts';

@@ -9,15 +9,18 @@ import { expect, test } from 'vitest';
 import {
   cloneIndex,
   cloneState,
+  defaultMemoryScope,
   emptyIndex,
   emptyState,
   findEntry,
   formatText,
+  isMemoryTypeAllowedInScope,
   isMemoryStateShape,
   type MemoryEntry,
   parseFrontmatter,
   removeEntry,
   renderMemoryMd,
+  resolveMemoryEntry,
   serializeMemory,
   takenSlugs,
   upsertEntry,
@@ -287,6 +290,33 @@ test('takenSlugs: returns slugs of the given scope', () => {
 
   expect(Array.from(takenSlugs(idx, 'global')).sort()).toEqual(['a', 'b']);
   expect(Array.from(takenSlugs(idx, 'project')).sort()).toEqual(['c']);
+});
+
+test('defaultMemoryScope: user and feedback are global by default, project types are project-scoped', () => {
+  expect(defaultMemoryScope('user')).toBe('global');
+  expect(defaultMemoryScope('feedback')).toBe('global');
+  expect(defaultMemoryScope('project')).toBe('project');
+  expect(defaultMemoryScope('reference')).toBe('project');
+});
+
+test('isMemoryTypeAllowedInScope: global accepts only cross-project types', () => {
+  expect(isMemoryTypeAllowedInScope('user', 'global')).toBe(true);
+  expect(isMemoryTypeAllowedInScope('feedback', 'global')).toBe(true);
+  expect(isMemoryTypeAllowedInScope('project', 'global')).toBe(false);
+  expect(isMemoryTypeAllowedInScope('reference', 'project')).toBe(true);
+});
+
+test('resolveMemoryEntry: prefers project scope, supports filters, and reports misses', () => {
+  const state = {
+    index: { global: [gUser('same')], project: [pProject('same')] },
+    projectSlug: '--tmp--',
+  };
+
+  expect(resolveMemoryEntry(state, { id: 'same' })).toMatchObject({ scope: 'project' });
+  expect(resolveMemoryEntry(state, { id: 'same', scope: 'global' })).toMatchObject({ scope: 'global' });
+  expect(resolveMemoryEntry(state, { id: 'same', type: 'user' })).toMatchObject({ scope: 'global' });
+  expect(resolveMemoryEntry(state, {})).toEqual({ error: '`id` is required' });
+  expect(resolveMemoryEntry(state, { id: 'missing' })).toEqual({ error: 'no memory "missing" found' });
 });
 
 // ──────────────────────────────────────────────────────────────────────

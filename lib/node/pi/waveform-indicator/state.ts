@@ -63,7 +63,7 @@ import { existsSync, readFileSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { atomicWriteFile } from '../atomic-write.ts';
-import { parseModelSpec } from '../btw/model-spec.ts';
+import { parseModelSpec } from '../model-spec.ts';
 import { piAgentPath } from '../pi-paths.ts';
 import { isRecord } from '../shared.ts';
 

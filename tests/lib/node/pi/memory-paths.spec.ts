@@ -13,16 +13,20 @@ import { afterEach, beforeEach, expect, test } from 'vitest';
 
 import {
   atomicWriteFile,
+  chooseMemorySlug,
   cwdSlug,
   fileFor,
   globalDir,
   indexFileFor,
   memoryRoot,
   projectDir,
+  readMemoryBody,
+  rebuildMemoryIndex,
   scanScope,
   slugifyName,
   uniqueSlug,
 } from '../../../../lib/node/pi/memory-paths.ts';
+import { emptyState, type MemoryEntry, upsertEntry } from '../../../../lib/node/pi/memory-reducer.ts';
 
 let sandbox: string;
 const originalRoot = process.env.PI_MEMORY_ROOT;
@@ -86,6 +90,21 @@ test('uniqueSlug: returns base if free', () => {
 test('uniqueSlug: appends -2, -3 on collision', () => {
   expect(uniqueSlug('alice', new Set(['alice']))).toBe('alice-2');
   expect(uniqueSlug('alice', new Set(['alice', 'alice-2']))).toBe('alice-3');
+});
+
+test('chooseMemorySlug: slugifies and skips collisions in the selected scope', () => {
+  const entry: MemoryEntry = {
+    id: 'alice-prefers-tabs',
+    scope: 'global',
+    type: 'user',
+    name: 'Alice',
+    description: 'd',
+  };
+  const state = { ...emptyState(), index: upsertEntry(emptyState().index, entry) };
+
+  expect(chooseMemorySlug(state, 'global', 'Alice Prefers Tabs')).toBe('alice-prefers-tabs-2');
+  expect(chooseMemorySlug(state, 'project', 'Alice Prefers Tabs')).toBe('alice-prefers-tabs');
+  expect(chooseMemorySlug(state, 'global', 'Alice Prefers Tabs', 'alice-prefers-tabs')).toBe('alice-prefers-tabs');
 });
 
 // ──────────────────────────────────────────────────────────────────────
@@ -222,4 +241,36 @@ test('scanScope: mismatched directory/type yields a warning', () => {
   expect(entries).toEqual([]);
   expect(warnings).toHaveLength(1);
   expect(warnings[0].reason).toContain('type');
+});
+
+test('readMemoryBody: returns parsed body or raw markdown when frontmatter is absent', () => {
+  const cwd = '/tmp/pi-test';
+  const entry: MemoryEntry = {
+    id: 'alice',
+    scope: 'global',
+    type: 'user',
+    name: 'Alice',
+    description: 'd',
+  };
+  atomicWriteFile(
+    fileFor('global', 'user', 'alice', cwd),
+    ['---', 'name: Alice', 'description: d', 'type: user', '---', '', 'body text', ''].join('\n'),
+  );
+  atomicWriteFile(fileFor('global', 'user', 'raw', cwd), '# raw body\n');
+
+  expect(readMemoryBody(entry, cwd)?.trim()).toBe('body text');
+  expect(readMemoryBody({ ...entry, id: 'raw' }, cwd)).toBe('# raw body\n');
+});
+
+test('rebuildMemoryIndex: scans global and project scopes with project slug', () => {
+  const cwd = '/tmp/pi-test';
+  writeMemory(globalDir(), 'ignore.md', { name: 'bad', description: 'd', type: 'user' }, 'body');
+  writeMemory(join(globalDir(), 'user'), 'alice.md', { name: 'Alice', description: 'd', type: 'user' }, 'body');
+  writeMemory(join(projectDir(cwd), 'project'), 'launch.md', { name: 'Launch', description: 'd', type: 'project' }, '');
+
+  const rebuilt = rebuildMemoryIndex(cwd);
+
+  expect(rebuilt.state.projectSlug).toBe('--tmp-pi-test--');
+  expect(rebuilt.state.index.global.map((e) => e.id)).toEqual(['alice']);
+  expect(rebuilt.state.index.project.map((e) => e.id)).toEqual(['launch']);
 });

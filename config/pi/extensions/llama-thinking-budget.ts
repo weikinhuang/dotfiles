@@ -53,13 +53,12 @@
  */
 
 import { appendFileSync } from 'node:fs';
-import { join } from 'node:path';
 
 import { type ExtensionAPI, type ExtensionContext } from '@earendil-works/pi-coding-agent';
 
 import { readJsonOrUndefined } from '../../../lib/node/pi/fs-safe.ts';
 import { parseOptionalPositiveInt } from '../../../lib/node/pi/parse-env.ts';
-import { piAgentPath } from '../../../lib/node/pi/pi-paths.ts';
+import { piAgentPath, piProjectPath } from '../../../lib/node/pi/pi-paths.ts';
 
 type Level = 'minimal' | 'low' | 'medium' | 'high';
 
@@ -127,7 +126,7 @@ function parseInjection(raw: unknown): InjectionConfig | undefined {
 function loadSettingsBudgets(): Partial<Record<Level, number>> {
   // Project-local overrides global; parse global first, then overlay project.
   const merged: Partial<Record<Level, number>> = {};
-  for (const path of [piAgentPath('settings.json'), join(process.cwd(), '.pi', 'settings.json')]) {
+  for (const path of [piAgentPath('settings.json'), piProjectPath(process.cwd(), 'settings.json')]) {
     const parsed = readJsonOrUndefined(path);
     if (!parsed || typeof parsed !== 'object') continue;
     const tb = (parsed as { thinkingBudgets?: unknown }).thinkingBudgets;
@@ -139,7 +138,7 @@ function loadSettingsBudgets(): Partial<Record<Level, number>> {
 function loadProviderInjections(): Map<string, InjectionConfig> {
   const out = new Map<string, InjectionConfig>();
   // Global first, then project - project wins by being applied last.
-  for (const path of [piAgentPath('models.json'), join(process.cwd(), '.pi', 'models.json')]) {
+  for (const path of [piAgentPath('models.json'), piProjectPath(process.cwd(), 'models.json')]) {
     const parsed = readJsonOrUndefined(path);
     if (!parsed || typeof parsed !== 'object') continue;
     const providers = (parsed as { providers?: Record<string, unknown> }).providers;

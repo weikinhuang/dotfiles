@@ -25,6 +25,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
 import { clearActiveUI, publishActiveUI, type UIBridge } from '../../../../../lib/node/pi/active-ui.ts';
 import {
+  buildFilesystemAskPrompt,
   buildFilesystemAskDialog,
   clampCommonParent,
   type FsAskDeps,
@@ -115,6 +116,18 @@ describe('clampCommonParent', () => {
 describe('buildFilesystemAskDialog', () => {
   beforeEach(() => clearActiveUI());
   afterEach(() => clearActiveUI());
+
+  test('buildFilesystemAskPrompt returns copy, options, and safe parent without UI', () => {
+    const prompt = buildFilesystemAskPrompt(
+      { paths: ['/workspace/node_modules/foo', '/workspace/node_modules/bar'], command: 'npm install' },
+      { cwd: '/workspace' },
+      homedir(),
+    );
+
+    expect(prompt.safeParent).toBe('/workspace/node_modules');
+    expect(prompt.title).toContain('common parent: /workspace/node_modules');
+    expect(prompt.options).toContain('Always allow /workspace/node_modules (project)');
+  });
 
   test('returns no-ui when no interactive UI has been published', async () => {
     const deps = makeDeps();

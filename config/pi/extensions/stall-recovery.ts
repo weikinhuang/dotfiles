@@ -76,7 +76,7 @@ import {
   stripThinkingFromStalledTurns,
   type StallReason,
 } from '../../../lib/node/pi/stall-detect.ts';
-import { envTruthy } from '../../../lib/node/pi/parse-env.ts';
+import { envTruthy, parseNonNegativeInt } from '../../../lib/node/pi/parse-env.ts';
 
 const STATUS_KEY = 'stall-recovery';
 const MAX_RETRIES_DEFAULT = 2;
@@ -84,12 +84,7 @@ const MAX_RETRIES_DEFAULT = 2;
 export default function stallRecovery(pi: ExtensionAPI): void {
   if (envTruthy(process.env.PI_STALL_RECOVERY_DISABLED)) return;
 
-  const maxRetries = (() => {
-    const raw = process.env.PI_STALL_RECOVERY_MAX_RETRIES;
-    if (!raw) return MAX_RETRIES_DEFAULT;
-    const n = Number.parseInt(raw, 10);
-    return Number.isFinite(n) && n >= 0 ? n : MAX_RETRIES_DEFAULT;
-  })();
+  const maxRetries = parseNonNegativeInt(process.env.PI_STALL_RECOVERY_MAX_RETRIES, MAX_RETRIES_DEFAULT);
   const verbose = envTruthy(process.env.PI_STALL_RECOVERY_VERBOSE);
 
   // The retry budget itself is stateless - we recompute it from the

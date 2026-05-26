@@ -16,7 +16,7 @@
  *    aggregate line.
  */
 
-import { fmtCost, fmtSi } from '../token-format.ts';
+import { fmtCost, fmtSi, formatUsageLine } from '../token-format.ts';
 import { collapseWhitespace } from '../shared.ts';
 
 export interface AgentListItem {
@@ -124,9 +124,7 @@ export function formatSubagentStatus(snap: SubagentRunSnapshot): string {
   const parts: string[] = [head];
   if (snap.state === 'running') {
     const label = snap.turns > 0 ? `M(${snap.turns})` : 'M';
-    const denom = snap.input + snap.cacheRead;
-    const ratio = denom > 0 ? ` R ${Math.round((snap.cacheRead / denom) * 100)}%` : '';
-    parts.push(`${label}:↑${fmtSi(snap.input)}/↻ ${fmtSi(snap.cacheRead)}/↓${fmtSi(snap.output)}${ratio}`);
+    parts.push(`${label}:${formatUsageLine(snap, { includeRatio: true })}`);
     if (snap.cost > 0) parts.push(fmtCost(snap.cost));
     if (snap.contextTokens != null && snap.contextWindow && snap.contextWindow > 0) {
       const pct = Math.min(100, Math.round((snap.contextTokens / snap.contextWindow) * 100));

@@ -10,6 +10,7 @@ import { describe, expect, test } from 'vitest';
 
 import { type AgentDef } from '../../../../../lib/node/pi/subagent/loader.ts';
 import {
+  adaptCreateAgentSession,
   resolveChildModel,
   runOneShotAgent,
   type AgentSessionEventLike,
@@ -206,6 +207,43 @@ function mkDeps(session: AgentSessionLike): RunOneShotDeps<FakeModel, { id: 'ses
 }
 
 describe('runOneShotAgent', () => {
+  test('adaptCreateAgentSession centralizes concrete registry and loader casts', async () => {
+    const session = makeFakeSession({ events: [], finalText: '' });
+    const concreteRegistry = { find: () => ({ id: 'm' }), authStorage: {}, marker: 'registry' };
+    const concreteLoader = { reload: () => Promise.resolve(), marker: 'loader' };
+    let seen: unknown;
+    const createAgentSession = (args: {
+      cwd: string;
+      model: FakeModel;
+      thinkingLevel: AgentDef['thinkingLevel'];
+      tools: string[];
+      modelRegistry: typeof concreteRegistry;
+      resourceLoader: typeof concreteLoader;
+      sessionManager: { id: 'session-manager' };
+    }): Promise<{ session: AgentSessionLike }> => {
+      seen = args;
+      return Promise.resolve({ session });
+    };
+    const dep = adaptCreateAgentSession<
+      FakeModel,
+      { id: 'session-manager' },
+      typeof concreteRegistry,
+      typeof concreteLoader
+    >(createAgentSession);
+
+    await dep({
+      cwd: '/tmp',
+      model: { id: 'm' },
+      thinkingLevel: undefined,
+      tools: ['read'],
+      modelRegistry: concreteRegistry,
+      resourceLoader: concreteLoader,
+      sessionManager: { id: 'session-manager' },
+    });
+
+    expect(seen).toMatchObject({ modelRegistry: concreteRegistry, resourceLoader: concreteLoader });
+  });
+
   test('completes normally with finalText and completed stopReason', async () => {
     const session = makeFakeSession({
       events: [{ type: 'turn_end' }],

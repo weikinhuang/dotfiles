@@ -10,6 +10,7 @@ import {
   byteLen,
   BYTE_ENCODER,
   collapseWhitespace,
+  formatCompactBytes,
   isFiniteNumber,
   isNonEmptyString,
   isRecord,
@@ -141,6 +142,13 @@ test('byteLen: empty string is 0', () => {
 test('BYTE_ENCODER: is a reusable TextEncoder instance', () => {
   expect(BYTE_ENCODER).toBeInstanceOf(TextEncoder);
   expect(BYTE_ENCODER.encode('ab').length).toBe(2);
+});
+
+test('formatCompactBytes: renders B, KB, and MB without spaces', () => {
+  expect(formatCompactBytes(0)).toBe('0B');
+  expect(formatCompactBytes(1023)).toBe('1023B');
+  expect(formatCompactBytes(50 * 1024)).toBe('50.0KB');
+  expect(formatCompactBytes(5 * 1024 * 1024)).toBe('5.00MB');
 });
 
 // ───────────────────────────────────────────────────────────────────

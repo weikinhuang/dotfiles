@@ -30,8 +30,8 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 
 import { atomicWriteFile, ensureDirSync } from './atomic-write.ts';
-import { parseFrontmatter } from './memory-reducer.ts';
-import { type MemoryEntry, type MemoryScope, type MemoryType } from './memory-reducer.ts';
+import { parseFrontmatter, takenSlugs } from './memory-reducer.ts';
+import { type MemoryEntry, type MemoryScope, type MemoryState, type MemoryType } from './memory-reducer.ts';
 
 // `ensureDirSync` + `atomicWriteFile` are re-exported so memory-paths
 // consumers continue to import from this module; the canonical
@@ -78,6 +78,17 @@ export function uniqueSlug(base: string, taken: ReadonlySet<string>): string {
   }
   // Pathological fallback - shouldn't happen in practice.
   return `${base}-${Date.now()}`;
+}
+
+/**
+ * Pick a slug for a new or renamed memory inside `scope`.
+ * `excludeId` lets rename-in-place keep the outgoing entry's own slug.
+ */
+export function chooseMemorySlug(state: MemoryState, scope: MemoryScope, name: string, excludeId?: string): string {
+  const base = slugifyName(name);
+  const taken = takenSlugs(state.index, scope);
+  if (excludeId !== undefined) taken.delete(excludeId);
+  return uniqueSlug(base, taken);
 }
 
 /** Absolute path to the memory root, honouring `PI_MEMORY_ROOT`. */
@@ -128,6 +139,15 @@ export function readTextFile(path: string): string | null {
   } catch {
     return null;
   }
+}
+
+export function readMemoryBody(entry: MemoryEntry, cwd: string): string | null {
+  const path = fileFor(entry.scope, entry.type, entry.id, cwd);
+  if (!existsSync(path)) return null;
+  const raw = readTextFile(path);
+  if (raw == null) return null;
+  const parsed = parseFrontmatter(raw);
+  return parsed ? parsed.body : raw;
 }
 
 export interface ScanWarning {
@@ -197,4 +217,15 @@ export function scanScope(
   });
 
   return { entries, warnings };
+}
+
+export function rebuildMemoryIndex(cwd: string): { state: MemoryState; warnings: string[] } {
+  const warnings: string[] = [];
+  const g = scanScope(globalDir(), 'global');
+  const p = scanScope(projectDir(cwd), 'project');
+  for (const w of [...g.warnings, ...p.warnings]) warnings.push(`${w.path}: ${w.reason}`);
+  return {
+    state: { index: { global: g.entries, project: p.entries }, projectSlug: cwdSlug(cwd) },
+    warnings,
+  };
 }

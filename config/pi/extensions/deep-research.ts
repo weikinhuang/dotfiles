@@ -149,10 +149,10 @@ import {
 } from '../../../lib/node/pi/subagent/loader.ts';
 import { createPersistedSubagentSessionManager } from '../../../lib/node/pi/subagent/session-dir.ts';
 import {
+  adaptCreateAgentSession,
   resolveChildModel,
   runOneShotAgent,
   type AgentSessionLike,
-  type CreateAgentSessionDep,
 } from '../../../lib/node/pi/subagent/spawn.ts';
 import { truncate } from '../../../lib/node/pi/shared.ts';
 import { shQuote } from '../../../lib/node/pi/util.ts';
@@ -167,12 +167,9 @@ import { envTruthy } from '../../../lib/node/pi/parse-env.ts';
  * `ModelRegistryLike` - but not structurally assignable, so we bridge
  * them with a thin wrapper that casts `modelRegistry` at the call.
  */
-const piCreateAgentSession: CreateAgentSessionDep<Model<any>, SessionManager> = (args) =>
-  createAgentSession({
-    ...args,
-    modelRegistry: args.modelRegistry as ModelRegistry,
-    resourceLoader: args.resourceLoader as ResourceLoader,
-  });
+const piCreateAgentSession = adaptCreateAgentSession<Model<any>, SessionManager, ModelRegistry, ResourceLoader>(
+  createAgentSession,
+);
 
 /** Usage string shown on a bare `/research` invocation. */
 const USAGE =

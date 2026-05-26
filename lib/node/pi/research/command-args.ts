@@ -4,6 +4,8 @@
  * order is top-down (public API → helpers). */
 /* oxlint-disable no-use-before-define */
 
+import { parseStrictModelSpec } from '../model-spec.ts';
+
 /**
  * Argument parser for the `/research` slash command.
  *
@@ -203,27 +205,11 @@ export type ResearchCommandArgs =
  * an empty provider / id segment. Returns a normalised
  * `{provider, modelId}` or a human-readable error.
  *
- * `subagent-spawn.ts` has an internal `parseModelSpec` that does
- * the same thing for the `modelOverride` runtime path; this one
- * lives on the pure side so the slash / tool surface can reject
- * bad input before the run even starts.
+ * Shares the core parser with the `modelOverride` runtime path, but
+ * keeps the slash / tool surface's stricter whitespace diagnostics.
  */
 export function parseModelSpec(spec: string): { provider: string; modelId: string } | { error: string } {
-  if (typeof spec !== 'string' || spec.length === 0) {
-    return { error: 'model override must be a non-empty "provider/id" string' };
-  }
-  const slash = spec.indexOf('/');
-  if (slash <= 0 || slash === spec.length - 1) {
-    return { error: `invalid model override "${spec}" - expected "provider/id"` };
-  }
-  const provider = spec.slice(0, slash);
-  const modelId = spec.slice(slash + 1);
-  if (provider.trim() !== provider || modelId.trim() !== modelId) {
-    return {
-      error: `invalid model override "${spec}" - provider / id must not have leading or trailing whitespace`,
-    };
-  }
-  return { provider, modelId };
+  return parseStrictModelSpec(spec);
 }
 
 /**

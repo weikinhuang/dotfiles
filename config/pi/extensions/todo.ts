@@ -84,7 +84,7 @@ import {
   type TodoState,
 } from '../../../lib/node/pi/todo-reducer.ts';
 import { formatHeaderRule } from '../../../lib/node/pi/tui-rule.ts';
-import { envTruthy } from '../../../lib/node/pi/parse-env.ts';
+import { envTruthy, parsePositiveInt } from '../../../lib/node/pi/parse-env.ts';
 
 // Sentinel prepended to the guardrail steer. We detect it on the most
 // recent user message to make the guardrail idempotent across re-fires
@@ -296,12 +296,7 @@ export default function todoExtension(pi: ExtensionAPI): void {
 
   const autoInjectEnabled = process.env.PI_TODO_DISABLE_AUTOINJECT !== '1';
   const guardrailEnabled = process.env.PI_TODO_DISABLE_GUARDRAIL !== '1';
-  const maxInjected = (() => {
-    const raw = process.env.PI_TODO_MAX_INJECTED;
-    if (!raw) return MAX_INJECTED_DEFAULT;
-    const n = Number.parseInt(raw, 10);
-    return Number.isFinite(n) && n > 0 ? n : MAX_INJECTED_DEFAULT;
-  })();
+  const maxInjected = parsePositiveInt(process.env.PI_TODO_MAX_INJECTED, MAX_INJECTED_DEFAULT);
 
   // In-memory mirror of the current branch's state. Reconstructed from the
   // session on session_start / session_tree and updated in place on each

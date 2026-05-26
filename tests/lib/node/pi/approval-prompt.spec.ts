@@ -11,6 +11,7 @@ import {
   type ApprovalPromptArgs,
   type ApprovalPromptContext,
   askForPermission,
+  buildApprovalPrompt,
   DENY_WITH_FEEDBACK,
   promptSelectWithFeedback,
 } from '../../../../lib/node/pi/approval-prompt.ts';
@@ -49,6 +50,19 @@ const baseArgs: ApprovalPromptArgs = {
 // ──────────────────────────────────────────────────────────────────────
 
 describe('askForPermission', () => {
+  test('buildApprovalPrompt returns dialog copy and entries without touching UI', () => {
+    const prompt = buildApprovalPrompt(baseArgs);
+
+    expect(prompt.title).toContain('/repo/secret.txt');
+    expect(prompt.entries.map((e) => e.label)).toEqual([
+      'Allow once',
+      `Allow "${baseArgs.path}" for this session`,
+      'Deny',
+      'Deny with feedback…',
+    ]);
+    expect(prompt.feedback.placeholder).toContain('docs/foo.md');
+  });
+
   test('returns allow-once when user picks "Allow once"', async () => {
     const { ctx, select, input } = fakeContext({ selectReturn: 'Allow once' });
 

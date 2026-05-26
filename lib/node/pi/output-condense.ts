@@ -39,7 +39,7 @@
  * so this module stays pure.
  */
 
-import { byteLen } from './shared.ts';
+import { byteLen, formatCompactBytes } from './shared.ts';
 
 export interface CondenseOptions {
   /** Byte cap on the final condensed output. Default 12 KB. */
@@ -114,12 +114,6 @@ function takeHead(lines: readonly string[], n: number, maxBytes: number): string
   return out;
 }
 
-function formatSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes}B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(2)}MB`;
-}
-
 /**
  * Condense `text` to a head+tail summary when it exceeds the budget.
  * See module header for the strategy.
@@ -180,7 +174,7 @@ export function condense(text: string, opts: CondenseOptions = {}): CondenseResu
   const omittedLines = Math.max(0, originalLines - head.length - tail.length);
   const omittedBytes = Math.max(0, originalBytes - byteLen(head.join('\n')) - byteLen(tail.join('\n')));
 
-  const marker = `… [${omittedLines} line(s), ~${formatSize(omittedBytes)} omitted] …`;
+  const marker = `… [${omittedLines} line(s), ~${formatCompactBytes(omittedBytes)} omitted] …`;
   const condensedText = [...head, marker, ...tail].join('\n');
   const condensedBytes = byteLen(condensedText);
   const condensedLines = head.length + 1 + tail.length;

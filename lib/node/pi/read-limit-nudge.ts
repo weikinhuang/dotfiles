@@ -32,6 +32,8 @@
  * the offset/limit the model asked for.
  */
 
+import { formatCompactBytes } from './shared.ts';
+
 /**
  * Subset of pi's `TruncationResult` we care about. All fields
  * optional so callers can synthesize from `statSync` when pi didn't
@@ -83,17 +85,15 @@ export type NudgeDecision =
     }
   | { kind: 'nudge'; reason: 'lines' | 'bytes'; nudge: string };
 
-function formatBytes(n: number): string {
-  if (n < 1024) return `${n}B`;
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)}KB`;
-  return `${(n / (1024 * 1024)).toFixed(2)}MB`;
-}
-
 function formatNudge(probe: NudgeProbe, reason: 'lines' | 'bytes', marker = NUDGE_MARKER): string {
   const lines = probe.truncation.totalLines;
   const bytes = probe.truncation.totalBytes;
   const sizePhrase =
-    reason === 'lines' && lines !== undefined ? `${lines} lines` : bytes !== undefined ? formatBytes(bytes) : 'large';
+    reason === 'lines' && lines !== undefined
+      ? `${lines} lines`
+      : bytes !== undefined
+        ? formatCompactBytes(bytes)
+        : 'large';
 
   return [
     `${marker} ${probe.displayPath} (${sizePhrase})`,

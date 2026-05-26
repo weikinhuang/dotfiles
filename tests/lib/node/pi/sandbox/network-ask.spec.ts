@@ -24,6 +24,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
 import { clearActiveUI, publishActiveUI, type UIBridge } from '../../../../../lib/node/pi/active-ui.ts';
 import {
+  buildNetworkAskPrompt,
   buildNetworkAskCallback,
   type NetworkAskDeps,
   parentDomainGlob,
@@ -98,6 +99,14 @@ describe('parentDomainGlob', () => {
 describe('buildNetworkAskCallback', () => {
   beforeEach(() => clearActiveUI());
   afterEach(() => clearActiveUI());
+
+  test('buildNetworkAskPrompt returns title, options, and parent glob without UI', () => {
+    const prompt = buildNetworkAskPrompt('api.github.com', 'api.github.com:443');
+
+    expect(prompt.title).toContain('api.github.com:443');
+    expect(prompt.parent).toBe('*.github.com');
+    expect(prompt.options).toContain('Always allow *.github.com (user)');
+  });
 
   test('non-UI fallback returns true when envNetworkDefault=allow', async () => {
     // No publishActiveUI - the active-ui slot is empty.

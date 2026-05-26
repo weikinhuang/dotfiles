@@ -94,8 +94,8 @@ import {
   makeNodeReadLayer,
 } from '../../../lib/node/pi/subagent/loader.ts';
 import { createPersistedSubagentSessionManager } from '../../../lib/node/pi/subagent/session-dir.ts';
-import { type CreateAgentSessionDep, resolveChildModel, runOneShotAgent } from '../../../lib/node/pi/subagent/spawn.ts';
-import { piAgentDir } from '../../../lib/node/pi/pi-paths.ts';
+import { adaptCreateAgentSession, resolveChildModel, runOneShotAgent } from '../../../lib/node/pi/subagent/spawn.ts';
+import { piAgentDir, piProjectPath } from '../../../lib/node/pi/pi-paths.ts';
 import { buildIndicatorFrames } from '../../../lib/node/pi/waveform-indicator/wave.ts';
 import { shimmerLabel } from '../../../lib/node/pi/waveform-indicator/shimmer.ts';
 import { buildSpectrumFrames } from '../../../lib/node/pi/waveform-indicator/spectrum.ts';
@@ -157,12 +157,9 @@ import { readTextOrNull } from '../../../lib/node/pi/fs-safe.ts';
  * structural `ModelRegistryLike` so the helper can stay testable
  * without pi imports. Wrap pi's constructor so the types line up.
  */
-const piCreateAgentSession: CreateAgentSessionDep<Model<any>, SessionManager> = (args) =>
-  createAgentSession({
-    ...args,
-    modelRegistry: args.modelRegistry as ModelRegistry,
-    resourceLoader: args.resourceLoader as ResourceLoader,
-  });
+const piCreateAgentSession = adaptCreateAgentSession<Model<any>, SessionManager, ModelRegistry, ResourceLoader>(
+  createAgentSession,
+);
 
 type Mode = WaveformMode;
 
@@ -409,7 +406,7 @@ export default function extension(pi: ExtensionAPI): void {
   function resolvePersonaOverlay(ctx: ExtensionContext, name: string): string | null {
     if (name === '') return null;
     const layers: PersonaLayerPaths = {
-      projectDir: join(ctx.cwd, '.pi', 'personas'),
+      projectDir: piProjectPath(ctx.cwd, 'personas'),
       userDir: join(userPiDir, 'personas'),
       shippedDir: join(extDir, '..', 'personas'),
     };

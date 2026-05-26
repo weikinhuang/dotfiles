@@ -11,6 +11,8 @@ import type { BashGateContext } from '../../../../../lib/node/pi/bash/gate.ts';
 import {
   askForPermission,
   askForPermissionBatch,
+  buildBashBatchPermissionPrompt,
+  buildBashPermissionPrompt,
   type BashBatchDecision,
   type BashPermissionDecision,
   compactForDialog,
@@ -76,6 +78,14 @@ describe('compactForDialog', () => {
 // ──────────────────────────────────────────────────────────────────────
 
 describe('askForPermission', () => {
+  test('buildBashPermissionPrompt produces copy and decisions without UI', () => {
+    const prompt = buildBashPermissionPrompt('docker build .', { auto: true, alwaysPromptReason: 'docker' });
+
+    expect(prompt.title).toContain('auto mode cannot skip this (docker)');
+    expect(prompt.entries.map((e) => e.label).some((label) => label.includes('docker build'))).toBe(true);
+    expect(prompt.feedback.placeholder).toContain('test script');
+  });
+
   test('returns allow-once when "Allow once" picked', async () => {
     const { ctx } = fakeContext({ selectReturn: 'Allow once' });
 
@@ -152,6 +162,14 @@ describe('askForPermission', () => {
 // ──────────────────────────────────────────────────────────────────────
 
 describe('askForPermissionBatch', () => {
+  test('buildBashBatchPermissionPrompt caps visible sub-commands without UI', () => {
+    const unknown = Array.from({ length: 10 }, (_, i) => `cmd${i}`);
+    const prompt = buildBashBatchPermissionPrompt('compound', unknown);
+
+    expect(prompt.title).toContain('… and 4 more');
+    expect(prompt.entries.map((e) => e.label)).toContain('Allow all 10 once');
+  });
+
   test('returns allow-all-once on the corresponding label', async () => {
     const { ctx } = fakeContext({ selectReturn: 'Allow all 3 once' });
 

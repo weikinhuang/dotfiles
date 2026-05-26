@@ -114,22 +114,37 @@ function truncateCommand(command: string, limit = 120): string {
   return truncate(collapseWhitespace(command), limit);
 }
 
-async function runDialog(ui: UIBridge, params: AskParams, deps: FsAskDeps): Promise<FsAskOutcome> {
-  const home = homedir();
+export function buildFilesystemAskPrompt(
+  params: AskParams,
+  deps: Pick<FsAskDeps, 'cwd'>,
+  home: string = homedir(),
+): {
+  safeParent: string | undefined;
+  firstPath: string | undefined;
+  title: string;
+  options: string[];
+  labels: {
+    allowOnce: string;
+    allowProject: string | undefined;
+    allowUser: string | undefined;
+    deny: string;
+    denyFeedback: string;
+  };
+} {
   const parent = greatestCommonParent(params.paths);
   const safeParent = clampCommonParent(parent, deps.cwd, home);
   const firstPath = params.paths[0];
-
-  const optAllowOnce = 'Allow once (this session)';
-  const optAllowProject = safeParent ? `Always allow ${safeParent} (project)` : undefined;
-  const optAllowUser = safeParent ? `Always allow ${safeParent} (user)` : undefined;
-  const optDeny = 'Deny';
-  const optDenyFeedback = 'Deny with feedback…';
-
-  const options: string[] = [optAllowOnce];
-  if (optAllowProject) options.push(optAllowProject);
-  if (optAllowUser) options.push(optAllowUser);
-  options.push(optDeny, optDenyFeedback);
+  const labels = {
+    allowOnce: 'Allow once (this session)',
+    allowProject: safeParent ? `Always allow ${safeParent} (project)` : undefined,
+    allowUser: safeParent ? `Always allow ${safeParent} (user)` : undefined,
+    deny: 'Deny',
+    denyFeedback: 'Deny with feedback…',
+  };
+  const options: string[] = [labels.allowOnce];
+  if (labels.allowProject) options.push(labels.allowProject);
+  if (labels.allowUser) options.push(labels.allowUser);
+  options.push(labels.deny, labels.denyFeedback);
 
   const lines = [
     '⚠️  Sandboxed bash failed because of a write deny.',
@@ -146,47 +161,55 @@ async function runDialog(ui: UIBridge, params: AskParams, deps: FsAskDeps): Prom
   lines.push('');
   lines.push('How should pi proceed?');
 
-  const choice = await ui.select(lines.join('\n'), options);
+  return { safeParent, firstPath, title: lines.join('\n'), options, labels };
+}
 
-  if (!choice || choice === optDeny) return { kind: 'deny' };
+async function runDialog(ui: UIBridge, params: AskParams, deps: FsAskDeps): Promise<FsAskOutcome> {
+  const prompt = buildFilesystemAskPrompt(params, deps);
 
-  if (choice === optDenyFeedback) {
+  const choice = await ui.select(prompt.title, prompt.options);
+
+  if (!choice || choice === prompt.labels.deny) return { kind: 'deny' };
+
+  if (choice === prompt.labels.denyFeedback) {
     const feedback = await ui.input('Tell the assistant why:', 'e.g. write to /tmp instead');
     const trimmed = feedback?.trim();
     if (trimmed) ui.notify(`sandbox: blocked write - ${trimmed}`, 'warning');
     return { kind: 'deny', feedback: trimmed };
   }
 
-  if (choice === optAllowOnce) {
-    deps.sessionWriteAllow.add(safeParent ?? firstPath);
+  if (choice === prompt.labels.allowOnce) {
+    const allowedPath = prompt.safeParent ?? prompt.firstPath;
+    if (!allowedPath) return { kind: 'deny' };
+    deps.sessionWriteAllow.add(allowedPath);
     await deps.triggerReconfigure();
-    return { kind: 'allow', scope: 'session', allowedPath: safeParent ?? firstPath };
+    return { kind: 'allow', scope: 'session', allowedPath };
   }
 
-  if (optAllowProject && choice === optAllowProject && safeParent) {
+  if (prompt.labels.allowProject && choice === prompt.labels.allowProject && prompt.safeParent) {
     let savedPath: string;
     try {
-      savedPath = deps.saveProjectWriteAllow(safeParent);
+      savedPath = deps.saveProjectWriteAllow(prompt.safeParent);
     } catch (e) {
       ui.notify(`sandbox: ${e instanceof Error ? e.message : String(e)}`, 'error');
       return { kind: 'deny' };
     }
-    ui.notify(`Added write.allow.paths "${safeParent}" → ${savedPath}`, 'info');
+    ui.notify(`Added write.allow.paths "${prompt.safeParent}" → ${savedPath}`, 'info');
     await deps.triggerReconfigure();
-    return { kind: 'allow', scope: 'project', allowedPath: safeParent, savedPath };
+    return { kind: 'allow', scope: 'project', allowedPath: prompt.safeParent, savedPath };
   }
 
-  if (optAllowUser && choice === optAllowUser && safeParent) {
+  if (prompt.labels.allowUser && choice === prompt.labels.allowUser && prompt.safeParent) {
     let savedPath: string;
     try {
-      savedPath = deps.saveUserWriteAllow(safeParent);
+      savedPath = deps.saveUserWriteAllow(prompt.safeParent);
     } catch (e) {
       ui.notify(`sandbox: ${e instanceof Error ? e.message : String(e)}`, 'error');
       return { kind: 'deny' };
     }
-    ui.notify(`Added write.allow.paths "${safeParent}" → ${savedPath}`, 'info');
+    ui.notify(`Added write.allow.paths "${prompt.safeParent}" → ${savedPath}`, 'info');
     await deps.triggerReconfigure();
-    return { kind: 'allow', scope: 'user', allowedPath: safeParent, savedPath };
+    return { kind: 'allow', scope: 'user', allowedPath: prompt.safeParent, savedPath };
   }
 
   return { kind: 'deny' };

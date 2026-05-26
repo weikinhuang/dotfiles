@@ -185,7 +185,7 @@ import {
   makeNodeReadLayer,
 } from '../../../lib/node/pi/subagent/loader.ts';
 import { createPersistedSubagentSessionManager } from '../../../lib/node/pi/subagent/session-dir.ts';
-import { resolveChildModel, runOneShotAgent, type CreateAgentSessionDep } from '../../../lib/node/pi/subagent/spawn.ts';
+import { adaptCreateAgentSession, resolveChildModel, runOneShotAgent } from '../../../lib/node/pi/subagent/spawn.ts';
 import { envTruthy } from '../../../lib/node/pi/parse-env.ts';
 import { createNotifyOnce } from '../../../lib/node/pi/notify-once.ts';
 
@@ -196,12 +196,9 @@ import { createNotifyOnce } from '../../../lib/node/pi/notify-once.ts';
  * unit-testable without pi imports. See the matching wrapper in
  * `deep-research.ts` for the full rationale.
  */
-const piCreateAgentSession: CreateAgentSessionDep<Model<any>, SessionManager> = (args) =>
-  createAgentSession({
-    ...args,
-    modelRegistry: args.modelRegistry as ModelRegistry,
-    resourceLoader: args.resourceLoader as ResourceLoader,
-  });
+const piCreateAgentSession = adaptCreateAgentSession<Model<any>, SessionManager, ModelRegistry, ResourceLoader>(
+  createAgentSession,
+);
 import {
   type BranchEntry as VerifyBranchEntry,
   collectBashCommandsSinceLastUser,
