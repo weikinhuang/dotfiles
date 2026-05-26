@@ -68,7 +68,7 @@
  *                                     `PI_WAVEFORM_THINKING_PULSE=off`.
  */
 
-import { appendFileSync, existsSync, readdirSync } from 'node:fs';
+import { appendFileSync, existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -89,11 +89,11 @@ import {
 import {
   type AgentDef,
   type AgentLoadResult,
-  type ReadLayer,
   defaultAgentLayers,
   loadAgents,
+  makeNodeReadLayer,
 } from '../../../lib/node/pi/subagent/loader.ts';
-import { resolveSubagentSessionDir } from '../../../lib/node/pi/subagent/session-dir.ts';
+import { createPersistedSubagentSessionManager } from '../../../lib/node/pi/subagent/session-dir.ts';
 import { type CreateAgentSessionDep, resolveChildModel, runOneShotAgent } from '../../../lib/node/pi/subagent/spawn.ts';
 import { piAgentDir } from '../../../lib/node/pi/pi-paths.ts';
 import { buildIndicatorFrames } from '../../../lib/node/pi/waveform-indicator/wave.ts';
@@ -382,16 +382,7 @@ export default function extension(pi: ExtensionAPI): void {
     readFile: readTextOrNull,
   };
 
-  const agentReadLayer: ReadLayer = {
-    listMarkdownFiles: (dir) => {
-      try {
-        return readdirSync(dir);
-      } catch {
-        return null;
-      }
-    },
-    readFile: readTextOrNull,
-  };
+  const agentReadLayer = makeNodeReadLayer();
 
   /**
    * Surface a dynamic-label diagnostic via `ctx.ui.notify`, but only
@@ -645,13 +636,12 @@ export default function extension(pi: ExtensionAPI): void {
       // missing parent session dir throws - we let that propagate so
       // the user sees a clear "restart without --no-session" message
       // rather than silently dropping transcripts.
-      sessionManager: SessionManager.create(
-        ctx.cwd,
-        resolveSubagentSessionDir({
-          parentSessionManager: ctx.sessionManager,
-          extensionLabel: 'waveform-indicator',
-        }),
-      ),
+      sessionManager: createPersistedSubagentSessionManager({
+        cwd: ctx.cwd,
+        parentSessionManager: ctx.sessionManager,
+        extensionLabel: 'waveform-indicator',
+        SessionManager,
+      }),
     })
       .then((result) => {
         if (signal.aborted) {

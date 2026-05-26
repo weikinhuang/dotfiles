@@ -6,12 +6,17 @@
  * the default agent definitions.
  */
 
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
 import { describe, expect, test } from 'vitest';
 
 import {
   type AgentLoadWarning,
   type FrontmatterParser,
   loadAgents,
+  makeNodeReadLayer,
   type ReadLayer,
   validateAgent,
 } from '../../../../../lib/node/pi/subagent/loader.ts';
@@ -64,6 +69,22 @@ function makeFs(files: Record<string, string>, dirs: Record<string, string[]>): 
 }
 
 const KNOWN_TOOLS = new Set(['read', 'grep', 'find', 'ls', 'bash', 'edit', 'write']);
+
+describe('makeNodeReadLayer', () => {
+  test('lists directory entries and reads UTF-8 files', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'subagent-loader-'));
+    try {
+      writeFileSync(join(dir, 'explore.md'), 'body\n', 'utf8');
+      const fs = makeNodeReadLayer();
+
+      expect(fs.listMarkdownFiles(dir)).toContain('explore.md');
+      expect(fs.readFile(join(dir, 'explore.md'))).toBe('body\n');
+      expect(fs.listMarkdownFiles(join(dir, 'missing'))).toBeNull();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
 
 // ──────────────────────────────────────────────────────────────────────
 // validateAgent

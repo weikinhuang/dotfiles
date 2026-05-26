@@ -104,7 +104,7 @@
  */
 
 import { createHash } from 'node:crypto';
-import { readdirSync, readFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { dirname, isAbsolute, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -182,12 +182,11 @@ import {
   type AgentLoadWarning,
   defaultAgentLayers,
   loadAgents,
-  type ReadLayer,
+  makeNodeReadLayer,
 } from '../../../lib/node/pi/subagent/loader.ts';
-import { resolveSubagentSessionDir } from '../../../lib/node/pi/subagent/session-dir.ts';
+import { createPersistedSubagentSessionManager } from '../../../lib/node/pi/subagent/session-dir.ts';
 import { resolveChildModel, runOneShotAgent, type CreateAgentSessionDep } from '../../../lib/node/pi/subagent/spawn.ts';
 import { envTruthy } from '../../../lib/node/pi/parse-env.ts';
-import { readTextOrNull } from '../../../lib/node/pi/fs-safe.ts';
 import { createNotifyOnce } from '../../../lib/node/pi/notify-once.ts';
 
 /**
@@ -496,16 +495,7 @@ export default function iterationLoopExtension(pi: ExtensionAPI): void {
     render: (w, tag) => `${tag}: ${w.path}: ${w.reason}`,
   });
 
-  const readLayer: ReadLayer = {
-    listMarkdownFiles: (dir) => {
-      try {
-        return readdirSync(dir);
-      } catch {
-        return null;
-      }
-    },
-    readFile: readTextOrNull,
-  };
+  const readLayer = makeNodeReadLayer();
 
   const reloadAgents = (cwd: string): void => {
     const knownToolNames = new Set(pi.getAllTools().map((t) => t.name));
@@ -901,13 +891,12 @@ export default function iterationLoopExtension(pi: ExtensionAPI): void {
         // `SessionManager.inMemory(cwd)` and the critic's transcript
         // is dropped on the floor, breaking `pi session-usage` cost
         // attribution and forensic debugging when the critic errors.
-        sessionManager: SessionManager.create(
-          ctx.cwd,
-          resolveSubagentSessionDir({
-            parentSessionManager: ctx.sessionManager,
-            extensionLabel: 'iteration-loop',
-          }),
-        ),
+        sessionManager: createPersistedSubagentSessionManager({
+          cwd: ctx.cwd,
+          parentSessionManager: ctx.sessionManager,
+          extensionLabel: 'iteration-loop',
+          SessionManager,
+        }),
         onEvent: ({ event }) => {
           if (event.type === 'message_end' && event.message?.role === 'assistant') {
             const usage = (event.message as { usage?: { cost?: { total?: number } } }).usage;

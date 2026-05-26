@@ -44,9 +44,11 @@
  * the whole agent set.
  */
 
+import { readdirSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { parseModelSpec } from '../btw/model-spec.ts';
+import { readTextOrNull } from '../fs-safe.ts';
 import { piAgentPath } from '../pi-paths.ts';
 import { type ThinkingLevel, THINKING_LEVELS } from '../preset.ts';
 
@@ -125,6 +127,19 @@ export interface ReadLayer {
   listMarkdownFiles: (dir: string) => string[] | null;
   /** Read file contents as UTF-8, or `null` on error. */
   readFile: (path: string) => string | null;
+}
+
+export function makeNodeReadLayer(): ReadLayer {
+  return {
+    listMarkdownFiles: (dir) => {
+      try {
+        return readdirSync(dir);
+      } catch {
+        return null;
+      }
+    },
+    readFile: readTextOrNull,
+  };
 }
 
 /** Shape of pi's `parseFrontmatter` exported from `@earendil-works/pi-coding-agent`. */

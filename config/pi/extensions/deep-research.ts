@@ -47,7 +47,7 @@
  *   PI_DEEP_RESEARCH_DISABLED=1   skip the extension entirely.
  */
 
-import { existsSync, readdirSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -145,9 +145,9 @@ import {
   type AgentDef,
   defaultAgentLayers,
   loadAgents,
-  type ReadLayer,
+  makeNodeReadLayer,
 } from '../../../lib/node/pi/subagent/loader.ts';
-import { resolveSubagentSessionDir } from '../../../lib/node/pi/subagent/session-dir.ts';
+import { createPersistedSubagentSessionManager } from '../../../lib/node/pi/subagent/session-dir.ts';
 import {
   resolveChildModel,
   runOneShotAgent,
@@ -324,16 +324,7 @@ export default function deepResearchExtension(pi: ExtensionAPI): void {
   const extDir = dirname(fileURLToPath(import.meta.url));
   let agentLoad: AgentLoadResult = { agents: new Map(), nameOrder: [], warnings: [] };
 
-  const readLayer: ReadLayer = {
-    listMarkdownFiles: (dir) => {
-      try {
-        return readdirSync(dir);
-      } catch {
-        return null;
-      }
-    },
-    readFile: readTextOrNull,
-  };
+  const readLayer = makeNodeReadLayer();
 
   const reloadAgents = (cwd: string): void => {
     const knownToolNames = new Set(pi.getAllTools().map((t) => t.name));
@@ -2310,10 +2301,10 @@ function buildStructuralBashCmd(runRoot: string): string {
  * [`config/pi/session-usage.ts`](../session-usage.ts) to attribute
  * child-session usage + cost back to the parent pi session.
  *
- * The path resolution + precondition checks live in the pure helper
- * [`resolveSubagentSessionDir`](../../../lib/node/pi/subagent/session-dir.ts);
- * this wrapper only adds the pi-runtime `SessionManager.create(…)`
- * call. Deep-research's pre-Claude-mirror history - silently falling
+ * The path resolution, precondition checks, and injected
+ * `SessionManager.create(…)` call live in the pure structural helper
+ * [`createPersistedSubagentSessionManager`](../../../lib/node/pi/subagent/session-dir.ts).
+ * Deep-research's pre-Claude-mirror history - silently falling
  * back to `SessionManager.inMemory(ctx.cwd)` when the parent session
  * had no id - broke both cost/audit attribution (`pi session-usage`
  * / `ai-tool-usage` had no evidence the run ever existed) and
@@ -2321,11 +2312,10 @@ function buildStructuralBashCmd(runRoot: string): string {
  * the helper now throws instead.
  */
 function makeSubagentSessionManager(ctx: ExtensionContext): SessionManager {
-  return SessionManager.create(
-    ctx.cwd,
-    resolveSubagentSessionDir({
-      parentSessionManager: ctx.sessionManager,
-      extensionLabel: 'deep-research',
-    }),
-  );
+  return createPersistedSubagentSessionManager({
+    cwd: ctx.cwd,
+    parentSessionManager: ctx.sessionManager,
+    extensionLabel: 'deep-research',
+    SessionManager,
+  });
 }

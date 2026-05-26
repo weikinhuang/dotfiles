@@ -117,14 +117,13 @@ import {
 } from '../../../lib/node/pi/subagent/format.ts';
 import { makeHandleCounter, resolveHandle } from '../../../lib/node/pi/subagent/handle.ts';
 import { createNotifyOnce } from '../../../lib/node/pi/notify-once.ts';
-import { readTextOrNull } from '../../../lib/node/pi/fs-safe.ts';
 import {
   type AgentDef,
   type AgentLoadResult,
   type AgentLoadWarning,
   defaultAgentLayers,
   loadAgents,
-  type ReadLayer,
+  makeNodeReadLayer,
 } from '../../../lib/node/pi/subagent/loader.ts';
 import {
   classifyStopReason,
@@ -229,23 +228,6 @@ function envPositiveInt(name: string, def: number, max?: number): number {
 
 function envConcurrency(): number {
   return Math.max(1, envPositiveInt('PI_SUBAGENT_CONCURRENCY', DEFAULT_CONCURRENCY, MAX_CONCURRENCY));
-}
-
-// ──────────────────────────────────────────────────────────────────────
-// File I/O glue
-// ──────────────────────────────────────────────────────────────────────
-
-function makeReadLayer(): ReadLayer {
-  return {
-    listMarkdownFiles: (dir) => {
-      try {
-        return readdirSync(dir);
-      } catch {
-        return null;
-      }
-    },
-    readFile: readTextOrNull,
-  };
 }
 
 function makeSweepFs(): SweepFs {
@@ -933,7 +915,7 @@ export default function subagentExtension(pi: ExtensionAPI): void {
     loadResult = loadAgents({
       layers,
       knownToolNames,
-      fs: makeReadLayer(),
+      fs: makeNodeReadLayer(),
       parseFrontmatter,
     });
   };

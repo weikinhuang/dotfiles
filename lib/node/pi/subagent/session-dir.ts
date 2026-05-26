@@ -58,6 +58,15 @@ export interface ResolveSubagentSessionDirArgs {
   extensionLabel: string;
 }
 
+export interface SessionManagerCreateLike<S> {
+  create(cwd: string, sessionDir: string): S;
+}
+
+export interface CreatePersistedSubagentSessionManagerArgs<S> extends ResolveSubagentSessionDirArgs {
+  cwd: string;
+  SessionManager: SessionManagerCreateLike<S>;
+}
+
 /**
  * Returns the directory `<parentSessionDir>/<parentSessionId>/subagents`.
  *
@@ -91,4 +100,14 @@ export function resolveSubagentSessionDir(args: ResolveSubagentSessionDirArgs): 
   }
 
   return join(parentDir, parentId, 'subagents');
+}
+
+export function createPersistedSubagentSessionManager<S>(args: CreatePersistedSubagentSessionManagerArgs<S>): S {
+  return args.SessionManager.create(
+    args.cwd,
+    resolveSubagentSessionDir({
+      parentSessionManager: args.parentSessionManager,
+      extensionLabel: args.extensionLabel,
+    }),
+  );
 }

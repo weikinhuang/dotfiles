@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest';
 
 import {
+  createPersistedSubagentSessionManager,
   resolveSubagentSessionDir,
   type ParentSessionManagerLike,
 } from '../../../../../lib/node/pi/subagent/session-dir.ts';
@@ -100,5 +101,25 @@ describe('resolveSubagentSessionDir', () => {
 
     expect(fn).toThrow(/Restart pi without --no-session/);
     expect(fn).toThrow(/audit/);
+  });
+});
+
+describe('createPersistedSubagentSessionManager', () => {
+  test('wraps the resolved child transcript dir with SessionManager.create', () => {
+    const sessionManager = createPersistedSubagentSessionManager({
+      cwd: '/repo',
+      parentSessionManager: fakeParent({ id: 'sid', dir: '/sessions/project' }),
+      extensionLabel: 'waveform-indicator',
+      SessionManager: {
+        create(cwd: string, sessionDir: string): { cwd: string; sessionDir: string } {
+          return { cwd, sessionDir };
+        },
+      },
+    });
+
+    expect(sessionManager).toEqual({
+      cwd: '/repo',
+      sessionDir: '/sessions/project/sid/subagents',
+    });
   });
 });
