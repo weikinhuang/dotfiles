@@ -121,6 +121,84 @@ export interface CheckSpec {
   acceptedAt?: string;
 }
 
+export interface CheckDeclareParams {
+  kind?: string;
+  artifact?: string;
+  cmd?: string;
+  passOn?: string;
+  env?: Record<string, string>;
+  workdir?: string;
+  timeoutMs?: number;
+  rubric?: string;
+  agent?: string;
+  modelOverride?: string;
+  maxIter?: number;
+  maxCostUsd?: number;
+  wallClockSeconds?: number;
+}
+
+/**
+ * Build a CheckSpec from `check declare` params. Returns an error string
+ * when required fields are missing or malformed; callers remain
+ * responsible for writing the draft and surfacing the error.
+ */
+export function buildCheckSpecFromParams(
+  task: string,
+  params: CheckDeclareParams,
+  createdAt: string,
+): { ok: true; spec: CheckSpec } | { ok: false; error: string } {
+  if (!params.kind) return { ok: false, error: 'declare requires `kind` (bash or critic)' };
+  if (!params.artifact?.trim()) {
+    return { ok: false, error: 'declare requires `artifact` (path relative to cwd)' };
+  }
+
+  let kindSpec: BashCheckSpec | CriticCheckSpec;
+  if (params.kind === 'bash') {
+    const cmd = (params.cmd ?? '').trim();
+    if (!cmd) return { ok: false, error: 'declare kind=bash requires `cmd`' };
+    const passOn = params.passOn?.trim();
+    if (
+      passOn !== undefined &&
+      passOn !== '' &&
+      passOn !== 'exit-zero' &&
+      !passOn.startsWith('regex:') &&
+      !passOn.startsWith('jq:')
+    ) {
+      return { ok: false, error: `invalid passOn "${passOn}" - use exit-zero, regex:<pat>, or jq:<expr>` };
+    }
+    const bash: BashCheckSpec = { cmd };
+    if (passOn && passOn !== 'exit-zero') bash.passOn = passOn as BashCheckSpec['passOn'];
+    if (params.env) bash.env = params.env;
+    if (params.workdir) bash.workdir = params.workdir;
+    if (params.timeoutMs !== undefined) bash.timeoutMs = params.timeoutMs;
+    kindSpec = bash;
+  } else if (params.kind === 'critic') {
+    const rubric = (params.rubric ?? '').trim();
+    if (!rubric) return { ok: false, error: 'declare kind=critic requires `rubric`' };
+    const critic: CriticCheckSpec = { rubric };
+    if (params.agent) critic.agent = params.agent;
+    if (params.modelOverride) critic.modelOverride = params.modelOverride;
+    kindSpec = critic;
+  } else {
+    return { ok: false, error: `unknown kind "${String(params.kind)}"` };
+  }
+
+  const spec: CheckSpec = {
+    task,
+    kind: params.kind,
+    artifact: params.artifact.trim(),
+    spec: kindSpec,
+    createdAt,
+  };
+  if (params.maxIter !== undefined || params.maxCostUsd !== undefined || params.wallClockSeconds !== undefined) {
+    spec.budget = {};
+    if (params.maxIter !== undefined) spec.budget.maxIter = params.maxIter;
+    if (params.maxCostUsd !== undefined) spec.budget.maxCostUsd = params.maxCostUsd;
+    if (params.wallClockSeconds !== undefined) spec.budget.wallClockSeconds = params.wallClockSeconds;
+  }
+  return { ok: true, spec };
+}
+
 // ──────────────────────────────────────────────────────────────────────
 // Verdict - what a single `check run` produced.
 // ──────────────────────────────────────────────────────────────────────

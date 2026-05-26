@@ -10,6 +10,7 @@
 import { describe, expect, test } from 'vitest';
 
 import {
+  buildCheckSpecFromParams,
   cloneIterationState,
   DEFAULT_BUDGET,
   emptyIterationState,
@@ -29,12 +30,14 @@ import {
   isVerdictShape,
 } from '../../../../../lib/node/pi/iteration-loop/guards.ts';
 
+const startedAt = '2026-05-01T00:00:00Z';
+
 const validBashSpec = (): CheckSpec => ({
   task: 'default',
   kind: 'bash',
   artifact: 'out.svg',
   spec: { cmd: 'true', passOn: 'exit-zero' },
-  createdAt: '2026-05-01T00:00:00Z',
+  createdAt: startedAt,
 });
 
 const validCriticSpec = (): CheckSpec => ({
@@ -42,7 +45,7 @@ const validCriticSpec = (): CheckSpec => ({
   kind: 'critic',
   artifact: 'out.svg',
   spec: { rubric: 'must be a valid SVG' },
-  createdAt: '2026-05-01T00:00:00Z',
+  createdAt: startedAt,
 });
 
 describe('isCheckKind', () => {
@@ -128,6 +131,104 @@ describe('isCheckSpecShape', () => {
     const bad = { ...validBashSpec(), artifact: '' };
 
     expect(isCheckSpecShape(bad)).toBe(false);
+  });
+});
+
+describe('buildCheckSpecFromParams', () => {
+  test('builds bash specs with trimmed artifact and optional budget', () => {
+    const result = buildCheckSpecFromParams(
+      'default',
+      {
+        kind: 'bash',
+        artifact: ' out.svg ',
+        cmd: ' test -s out.svg ',
+        passOn: 'regex:<svg',
+        env: { CI: '1' },
+        workdir: 'site',
+        timeoutMs: 30_000,
+        maxIter: 4,
+        maxCostUsd: 0.5,
+        wallClockSeconds: 120,
+      },
+      '2026-05-01T00:00:00Z',
+    );
+
+    expect(result).toEqual({
+      ok: true,
+      spec: {
+        task: 'default',
+        kind: 'bash',
+        artifact: 'out.svg',
+        spec: {
+          cmd: 'test -s out.svg',
+          passOn: 'regex:<svg',
+          env: { CI: '1' },
+          workdir: 'site',
+          timeoutMs: 30_000,
+        },
+        createdAt: '2026-05-01T00:00:00Z',
+        budget: { maxIter: 4, maxCostUsd: 0.5, wallClockSeconds: 120 },
+      },
+    });
+  });
+
+  test('omits default bash passOn from the persisted spec', () => {
+    const result = buildCheckSpecFromParams(
+      'default',
+      { kind: 'bash', artifact: 'out.svg', cmd: 'true', passOn: 'exit-zero' },
+      '2026-05-01T00:00:00Z',
+    );
+
+    if (!result.ok) throw new Error(result.error);
+    expect(result.spec.spec).toEqual({ cmd: 'true' });
+  });
+
+  test('builds critic specs with optional agent and model override', () => {
+    const result = buildCheckSpecFromParams(
+      'default',
+      {
+        kind: 'critic',
+        artifact: 'out.svg',
+        rubric: 'must be a valid SVG',
+        agent: 'critic',
+        modelOverride: 'llama-cpp/qwen3',
+      },
+      '2026-05-01T00:00:00Z',
+    );
+
+    expect(result).toMatchObject({
+      ok: true,
+      spec: {
+        kind: 'critic',
+        spec: { rubric: 'must be a valid SVG', agent: 'critic', modelOverride: 'llama-cpp/qwen3' },
+      },
+    });
+  });
+
+  test('returns validation errors for incomplete declarations', () => {
+    expect(buildCheckSpecFromParams('default', {}, startedAt)).toMatchObject({ ok: false });
+    expect(buildCheckSpecFromParams('default', { kind: 'bash', artifact: 'out.svg' }, startedAt)).toMatchObject({
+      ok: false,
+      error: 'declare kind=bash requires `cmd`',
+    });
+    expect(buildCheckSpecFromParams('default', { kind: 'critic', artifact: 'out.svg' }, startedAt)).toMatchObject({
+      ok: false,
+      error: 'declare kind=critic requires `rubric`',
+    });
+  });
+
+  test('rejects unsupported bash passOn and unknown kinds', () => {
+    expect(
+      buildCheckSpecFromParams(
+        'default',
+        { kind: 'bash', artifact: 'out.svg', cmd: 'true', passOn: 'always' },
+        startedAt,
+      ),
+    ).toMatchObject({ ok: false, error: 'invalid passOn "always" - use exit-zero, regex:<pat>, or jq:<expr>' });
+    expect(buildCheckSpecFromParams('default', { kind: 'diff', artifact: 'out.svg' }, startedAt)).toMatchObject({
+      ok: false,
+      error: 'unknown kind "diff"',
+    });
   });
 });
 
