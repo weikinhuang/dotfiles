@@ -145,6 +145,7 @@ import { resolveWriteRoots } from '../../../lib/node/pi/persona/resolve.ts';
 import { Semaphore } from '../../../lib/node/pi/semaphore.ts';
 import { setActiveAgent, clearActiveAgent } from '../../../lib/node/pi/subagent/active-agent.ts';
 import { createAgentGateFactory } from '../../../lib/node/pi/subagent/agent-gate.ts';
+import { collapseWhitespace } from '../../../lib/node/pi/shared.ts';
 import { formatHeaderRule } from '../../../lib/node/pi/tui-rule.ts';
 
 const SUBAGENT_CUSTOM_TYPE = 'subagent-run';
@@ -629,7 +630,7 @@ function fmtDurationShort(ms: number): string {
 }
 
 function capLine(s: string, cap: number): string {
-  const collapsed = s.replace(/\s+/g, ' ').trim();
+  const collapsed = collapseWhitespace(s);
   if (collapsed.length <= cap) return collapsed;
   return `${collapsed.slice(0, cap - 1).trimEnd()}…`;
 }
