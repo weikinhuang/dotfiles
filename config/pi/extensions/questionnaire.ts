@@ -12,7 +12,7 @@
  *      the editor.
  *   2. Per-option `preview` string, rendered in a side pane beside the
  *      highlighted option. Falls back to stacking below the options when
- *      the terminal is narrower than `PREVIEW_MIN_WIDTH`.
+ *      the terminal is narrower than the preview split threshold.
  *   3. Per-question notes via `n`. Notes attach to the answer in the
  *      tool-result JSON under `note`.
  *   4. Digit jump-select (`1`-`9`). On single-select the digit also
@@ -42,59 +42,19 @@ import {
 } from '@earendil-works/pi-tui';
 import { Type } from 'typebox';
 
-// ─── Types ────────────────────────────────────────────────────────────────
-
-type QuestionKind = 'single' | 'multi' | 'free';
-
-interface QuestionOption {
-  value: string;
-  label: string;
-  description?: string;
-  preview?: string;
-}
-
-type RenderOption = QuestionOption & {
-  isOther?: boolean;
-  isNext?: boolean;
-};
-
-interface Question {
-  id: string;
-  label: string;
-  prompt: string;
-  kind: QuestionKind;
-  options: QuestionOption[];
-  allowOther: boolean;
-  allowNotes: boolean;
-  minSelect?: number;
-  maxSelect?: number;
-}
-
-interface Answer {
-  id: string;
-  kind: QuestionKind;
-  // single
-  value?: string;
-  label?: string;
-  index?: number;
-  // multi
-  values?: string[];
-  labels?: string[];
-  indices?: number[];
-  // free / "Type something." overflow
-  customText?: string;
-  wasCustom?: boolean;
-  // per-question note
-  note?: string;
-}
-
-interface QuestionnaireResult {
-  questions: Question[];
-  answers: Answer[];
-  cancelled: boolean;
-  chatRequested: boolean;
-  chatContextId: string | null;
-}
+import {
+  padVisibleText,
+  selectQuestionnairePreviewLayout,
+  zipQuestionnaireColumns,
+} from '../../../lib/node/pi/questionnaire/layout.ts';
+import {
+  normalizeQuestions,
+  questionRenderOptions,
+  type Answer,
+  type Question,
+  type QuestionnaireResult,
+  type RenderOption,
+} from '../../../lib/node/pi/questionnaire/model.ts';
 
 // ─── Schema ───────────────────────────────────────────────────────────────
 
@@ -146,12 +106,6 @@ const QuestionnaireParams = Type.Object({
   ),
 });
 
-// ─── Layout constants ─────────────────────────────────────────────────────
-
-const PREVIEW_MIN_WIDTH = 100; // below this, preview stacks below options
-const PREVIEW_LEFT_RATIO = 0.4;
-const PREVIEW_GUTTER = 2;
-
 // ─── Helpers ──────────────────────────────────────────────────────────────
 
 function errorResult(
@@ -172,24 +126,6 @@ function errorResult(
       chatContextId: null,
     },
   };
-}
-
-function padVisible(s: string, width: number): string {
-  const w = visibleWidth(s);
-  if (w >= width) return s;
-  return s + ' '.repeat(width - w);
-}
-
-function zipColumns(left: string[], right: string[], leftWidth: number, gutter: number): string[] {
-  const height = Math.max(left.length, right.length);
-  const out: string[] = [];
-  const pad = ' '.repeat(gutter);
-  for (let i = 0; i < height; i++) {
-    const l = left[i] ?? '';
-    const r = right[i] ?? '';
-    out.push(padVisible(l, leftWidth) + pad + r);
-  }
-  return out;
 }
 
 function digitFromKey(data: string): number | null {
@@ -226,17 +162,7 @@ export default function questionnaire(pi: ExtensionAPI): void {
       }
 
       // Normalize questions with defaults.
-      const questions: Question[] = params.questions.map((q, i) => ({
-        id: q.id,
-        label: q.label?.length ? q.label : `Q${i + 1}`,
-        prompt: q.prompt,
-        kind: (q.kind ?? 'single') as QuestionKind,
-        options: q.options ?? [],
-        allowOther: q.allowOther !== false,
-        allowNotes: q.allowNotes !== false,
-        minSelect: q.minSelect,
-        maxSelect: q.maxSelect,
-      }));
+      const questions: Question[] = normalizeQuestions(params.questions);
 
       const allowChat = params.allowChat !== false;
       const isMulti = questions.length > 1;
@@ -300,15 +226,7 @@ export default function questionnaire(pi: ExtensionAPI): void {
 
         function currentOptions(): RenderOption[] {
           const q = currentQuestion();
-          if (!q || q.kind === 'free') return [];
-          const opts: RenderOption[] = [...q.options];
-          if (q.allowOther) {
-            opts.push({ value: '__other__', label: 'Type something.', isOther: true });
-          }
-          if (q.kind === 'multi') {
-            opts.push({ value: '__next__', label: 'Next', isNext: true });
-          }
-          return opts;
+          return q ? questionRenderOptions(q) : [];
         }
 
         function multiSetFor(qid: string): Set<number> {
@@ -782,9 +700,9 @@ export default function questionnaire(pi: ExtensionAPI): void {
           const bot = theme.fg('dim', '└' + '─'.repeat(Math.max(0, width - 2)) + '┘');
           const body = lines
             .slice(0, Math.max(0, height - 2))
-            .map((l) => theme.fg('dim', '│ ') + padVisible(l, width - 4) + theme.fg('dim', ' │'));
+            .map((l) => theme.fg('dim', '│ ') + padVisibleText(l, width - 4, visibleWidth) + theme.fg('dim', ' │'));
           while (body.length < Math.max(0, height - 2)) {
-            body.push(theme.fg('dim', '│ ') + padVisible('', width - 4) + theme.fg('dim', ' │'));
+            body.push(theme.fg('dim', '│ ') + padVisibleText('', width - 4, visibleWidth) + theme.fg('dim', ' │'));
           }
           return [top, ...body, bot];
         }
@@ -812,23 +730,24 @@ export default function questionnaire(pi: ExtensionAPI): void {
           // Decide split vs stacked layout based on width and preview presence.
           const opts = currentOptions();
           const activePreview = opts[optionIndex]?.preview;
-          const useSplit = !!activePreview && width >= PREVIEW_MIN_WIDTH;
+          const previewLayout = selectQuestionnairePreviewLayout({ width, preview: activePreview });
 
-          if (useSplit) {
-            const leftWidth = Math.max(30, Math.floor(width * PREVIEW_LEFT_RATIO));
-            const rightWidth = width - leftWidth - PREVIEW_GUTTER;
-            const leftLines = renderOptionsList(leftWidth);
-            const rightLines = renderPreviewPane(leftLines.length, rightWidth);
-            const zipped = zipColumns(leftLines, rightLines, leftWidth, PREVIEW_GUTTER);
+          if (previewLayout.mode === 'split') {
+            const leftLines = renderOptionsList(previewLayout.leftWidth);
+            const rightLines = renderPreviewPane(leftLines.length, previewLayout.rightWidth);
+            const zipped = zipQuestionnaireColumns({
+              left: leftLines,
+              right: rightLines,
+              leftWidth: previewLayout.leftWidth,
+              gutter: previewLayout.gutter,
+              visibleWidth,
+            });
             for (const z of zipped) lines.push(z);
           } else {
             for (const l of renderOptionsList(width)) lines.push(l);
-            if (activePreview) {
+            if (previewLayout.mode === 'stacked') {
               lines.push('');
-              for (const l of renderPreviewPane(
-                Math.min(12, activePreview.split('\n').length + 2),
-                Math.min(width, 80),
-              )) {
+              for (const l of renderPreviewPane(previewLayout.previewHeight, previewLayout.previewWidth)) {
                 lines.push(l);
               }
             }
