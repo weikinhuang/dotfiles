@@ -4,7 +4,11 @@
 
 import { expect, test } from 'vitest';
 
-import { extractLastAssistantText, findLastAssistantMessage } from '../../../../lib/node/pi/message-extract.ts';
+import {
+  extractAssistantMessageText,
+  extractLastAssistantText,
+  findLastAssistantMessage,
+} from '../../../../lib/node/pi/message-extract.ts';
 
 // ──────────────────────────────────────────────────────────────────────
 // findLastAssistantMessage
@@ -37,6 +41,36 @@ test('findLastAssistantMessage: undefined entries do not crash', () => {
   expect(findLastAssistantMessage([undefined, null, { role: 'assistant' }])?.role).toBe('assistant');
 });
 
+test('findLastAssistantMessage: can unwrap branch entries', () => {
+  expect(
+    findLastAssistantMessage(
+      [{ message: { role: 'user', content: 'x' } }, { message: { role: 'assistant', content: 'y' } }],
+      {
+        unwrapMessage: true,
+      },
+    )?.content,
+  ).toBe('y');
+});
+
+// ──────────────────────────────────────────────────────────────────────
+// extractAssistantMessageText
+// ──────────────────────────────────────────────────────────────────────
+
+test('extractAssistantMessageText: supports custom joiner and trim', () => {
+  expect(
+    extractAssistantMessageText(
+      {
+        role: 'assistant',
+        content: [
+          { type: 'text', text: '  one ' },
+          { type: 'text', text: 'two  ' },
+        ],
+      },
+      { joiner: '', trim: true },
+    ),
+  ).toBe('one two');
+});
+
 // ──────────────────────────────────────────────────────────────────────
 // extractLastAssistantText
 // ──────────────────────────────────────────────────────────────────────
@@ -57,6 +91,14 @@ test('extractLastAssistantText: content-part array joins text parts with newline
     },
   ];
   expect(extractLastAssistantText(msgs)).toBe('one\ntwo');
+});
+
+test('extractLastAssistantText: can stop on aborted assistant messages', () => {
+  expect(
+    extractLastAssistantText([{ role: 'assistant', content: 'partial', stopReason: 'aborted' }], {
+      stopOnAborted: true,
+    }),
+  ).toBe('');
 });
 
 test('extractLastAssistantText: ignores non-text parts and missing text fields', () => {

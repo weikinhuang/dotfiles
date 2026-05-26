@@ -37,6 +37,7 @@
  */
 
 import type { ConfigWarning } from './jsonc.ts';
+import { extractLastAssistantText as extractLastAssistantTextFromMessages } from './message-extract.ts';
 import { truncate } from './shared.ts';
 import type { CompiledSatisfyRule } from './verify-detect-config.ts';
 
@@ -478,32 +479,10 @@ export function collectBashCommandsSinceLastUser(branch: readonly BranchEntry[])
  * so shape quirks are handled once.
  */
 export function extractLastAssistantText(messages: readonly unknown[]): string {
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const wrapped = messages[i] as { message?: unknown };
-    const m = (wrapped?.message ?? messages[i]) as
-      | { role?: string; content?: unknown; stopReason?: unknown }
-      | undefined;
-    if (m?.role !== 'assistant') continue;
-    // User hit Ctrl+C mid-response: the assistant text is a partial
-    // artifact, and scanning it for "tests pass" / "lint is clean"
-    // would produce false positives we'd then steer on. Treat aborted
-    // turns as if they had no text. Providers carry the signal as
-    // `stopReason === 'aborted'` (pi-agent-core ≥ recent).
-    if (m.stopReason === 'aborted') return '';
-    if (typeof m.content === 'string') return m.content;
-    if (Array.isArray(m.content)) {
-      const parts: string[] = [];
-      for (const c of m.content) {
-        if (c && typeof c === 'object' && (c as { type?: string }).type === 'text') {
-          const text = (c as { text?: string }).text;
-          if (typeof text === 'string') parts.push(text);
-        }
-      }
-      return parts.join('\n');
-    }
-    return '';
-  }
-  return '';
+  return extractLastAssistantTextFromMessages(messages, {
+    unwrapMessage: true,
+    stopOnAborted: true,
+  });
 }
 
 /**

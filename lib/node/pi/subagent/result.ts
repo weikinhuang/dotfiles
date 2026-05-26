@@ -12,6 +12,8 @@
  * later auditing but never pollutes the parent.
  */
 
+import { extractAssistantMessageText } from '../message-extract.ts';
+
 export type StopReason = 'completed' | 'max_turns' | 'aborted' | 'error';
 
 export interface AssistantContentPart {
@@ -45,13 +47,8 @@ export function extractFinalAssistantText(messages: readonly AgentMessageLike[] 
   for (let i = messages.length - 1; i >= 0; i--) {
     const m = messages[i];
     if (m.role !== 'assistant' || !m.content) continue;
-    const parts: string[] = [];
-    for (const part of m.content) {
-      if (part?.type === 'text' && typeof part.text === 'string' && part.text.length > 0) {
-        parts.push(part.text);
-      }
-    }
-    if (parts.length > 0) return parts.join('').trim();
+    const text = extractAssistantMessageText(m, { joiner: '', trim: true });
+    if (text.length > 0) return text;
   }
   return '';
 }
