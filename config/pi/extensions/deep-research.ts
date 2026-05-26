@@ -154,6 +154,7 @@ import {
   type AgentSessionLike,
   type CreateAgentSessionDep,
 } from '../../../lib/node/pi/subagent/spawn.ts';
+import { truncate } from '../../../lib/node/pi/shared.ts';
 import { shQuote } from '../../../lib/node/pi/util.ts';
 import { envTruthy } from '../../../lib/node/pi/parse-env.ts';
 
@@ -595,7 +596,7 @@ export default function deepResearchExtension(pi: ExtensionAPI): void {
       if (typeof typed.wallClockSec === 'number') overrideBits.push(`wall-clock=${typed.wallClockSec}s`);
       const overrides = overrideBits.length > 0 ? ` [${overrideBits.join(' ')}]` : '';
       const label =
-        theme.fg('toolTitle', theme.bold('research')) + ' ' + theme.fg('muted', truncateTool(q, 80) + overrides);
+        theme.fg('toolTitle', theme.bold('research')) + ' ' + theme.fg('muted', truncate(q, 80) + overrides);
       return new Text(label, 0, 0);
     },
     renderResult(result, _opts, theme, _context) {
@@ -616,11 +617,6 @@ export default function deepResearchExtension(pi: ExtensionAPI): void {
       return new Text(theme.fg('warning', `· ${outcome.kind}: ${'reason' in outcome ? outcome.reason : ''}`), 0, 0);
     },
   });
-}
-
-function truncateTool(s: string, max: number): string {
-  if (s.length <= max) return s;
-  return `${s.slice(0, max - 1)}…`;
 }
 
 // ──────────────────────────────────────────────────────────────────────
