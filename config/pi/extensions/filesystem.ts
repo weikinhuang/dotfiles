@@ -74,8 +74,6 @@
  * unit-tested under vitest without the pi runtime.
  */
 
-import { resolve } from 'node:path';
-
 import {
   type ExtensionAPI,
   type ExtensionContext,
@@ -84,24 +82,27 @@ import {
 } from '@earendil-works/pi-coding-agent';
 
 import { askForPermission } from '../../../lib/node/pi/approval-prompt.ts';
-import { classifyRead, classifyWrite, expandTilde } from '../../../lib/node/pi/filesystem-policy/classify.ts';
-import { type FilesystemPolicyLayer, loadFilesystemPolicy } from '../../../lib/node/pi/filesystem-policy/load.ts';
+import { classifyFilesystemAccess } from '../../../lib/node/pi/filesystem-policy/classify.ts';
+import {
+  filesystemProjectPolicyPath,
+  filesystemUserPolicyPath,
+  type FilesystemPolicyLayer,
+  loadFilesystemPolicy,
+} from '../../../lib/node/pi/filesystem-policy/load.ts';
 import { readTextOrEmpty } from '../../../lib/node/pi/fs-safe.ts';
 import { createNotifyOnce } from '../../../lib/node/pi/notify-once.ts';
 import { envTruthy } from '../../../lib/node/pi/parse-env.ts';
 import { getActivePersona } from '../../../lib/node/pi/persona/active.ts';
-import { isInsideWriteRoots } from '../../../lib/node/pi/persona/match.ts';
-import { piAgentPath, piProjectPath } from '../../../lib/node/pi/pi-paths.ts';
 import { registerSubagentInjection } from '../../../lib/node/pi/subagent/extension-injection.ts';
 
 // ─────────────────────────────────────────────────────────────────
 // Layer loading
 // ─────────────────────────────────────────────────────────────────
 
-const USER_RULES_PATH = piAgentPath('filesystem.json');
+const USER_RULES_PATH = filesystemUserPolicyPath();
 
 function projectRulesPath(cwd: string): string {
-  return piProjectPath(cwd, 'filesystem.json');
+  return filesystemProjectPolicyPath(cwd);
 }
 
 function buildLayers(cwd: string): FilesystemPolicyLayer[] {
@@ -171,21 +172,19 @@ function makeFilesystemToolCallHandler(
     const inputPath = getPathInput(event);
     if (!inputPath) return undefined;
 
-    const absolute = resolve(ctx.cwd, expandTilde(inputPath));
-    if (sessionAllow.has(absolute)) return undefined;
-
-    // Persona writeRoots vouch covers writes only - reading a `.env`
-    // is suspicious regardless of who's authoring the persona.
-    if (isWrite) {
-      const active = getActivePersona();
-      if (active && isInsideWriteRoots(absolute, active.resolvedWriteRoots)) return undefined;
-    }
-
     const { policy, warnings: layerWarnings } = resolveActivePolicy(ctx.cwd);
     if (warnings && layerWarnings.length > 0) warnings.surface(ctx.ui.notify.bind(ctx.ui), layerWarnings);
 
-    const match = isRead ? classifyRead(inputPath, ctx.cwd, policy) : classifyWrite(inputPath, ctx.cwd, policy);
-    if (!match) return undefined;
+    const active = isWrite ? getActivePersona() : undefined;
+    const accessDecision = classifyFilesystemAccess({
+      operation: isRead ? 'read' : 'write',
+      inputPath,
+      cwd: ctx.cwd,
+      policy,
+      sessionAllowPaths: sessionAllow,
+      personaWriteRoots: active?.resolvedWriteRoots,
+    });
+    if (accessDecision.kind === 'allow') return undefined;
 
     if (!ctx.hasUI) {
       if (defaultFallback === 'allow') return undefined;
@@ -193,24 +192,24 @@ function makeFilesystemToolCallHandler(
         block: true,
         reason:
           `No UI available for approval. Filesystem-protected path "${inputPath}" ` +
-          `(${match.detail}). Set PI_FILESYSTEM_DEFAULT=allow to override, ` +
+          `(${accessDecision.match.detail}). Set PI_FILESYSTEM_DEFAULT=allow to override, ` +
           'or pick a different path.',
       };
     }
 
-    const decision = await askForPermission(ctx, {
+    const promptDecision = await askForPermission(ctx, {
       tool: event.toolName,
       path: inputPath,
-      detail: match.detail,
+      detail: accessDecision.match.detail,
     });
-    if (decision.kind === 'deny') {
+    if (promptDecision.kind === 'deny') {
       return {
         block: true,
-        reason: decision.feedback ?? `Blocked by user (${match.detail})`,
+        reason: promptDecision.feedback ?? `Blocked by user (${accessDecision.match.detail})`,
       };
     }
-    if (decision.kind === 'allow-session') {
-      sessionAllow.add(absolute);
+    if (promptDecision.kind === 'allow-session') {
+      sessionAllow.add(accessDecision.absolutePath);
     }
     return undefined;
   };

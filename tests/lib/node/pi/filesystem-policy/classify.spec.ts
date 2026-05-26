@@ -8,6 +8,7 @@ import { describe, expect, test } from 'vitest';
 
 import {
   basenameOf,
+  classifyFilesystemAccess,
   classifyRead,
   classifyWrite,
   expandTilde,
@@ -279,5 +280,54 @@ describe('classifyWrite', () => {
     });
     // /etc/foo isn't under cwd or /tmp - outside-allowed-write fires.
     expect(classifyWrite('/etc/node_modules/.vite-temp/x', CWD, policy)?.reason).toBe('outside-allowed-write');
+  });
+});
+
+describe('classifyFilesystemAccess', () => {
+  test('returns allow for paths already allowed in the session', () => {
+    const absolute = `${CWD}/src/.env`;
+    const decision = classifyFilesystemAccess({
+      operation: 'read',
+      inputPath: 'src/.env',
+      cwd: CWD,
+      policy: defaults(),
+      sessionAllowPaths: new Set([absolute]),
+    });
+
+    expect(decision).toEqual({ kind: 'allow', absolutePath: absolute });
+  });
+
+  test('persona writeRoots vouch writes but not reads', () => {
+    const write = classifyFilesystemAccess({
+      operation: 'write',
+      inputPath: '~/notes/.env',
+      cwd: CWD,
+      policy: defaults(),
+      personaWriteRoots: [`${HOME}/notes`],
+    });
+    const read = classifyFilesystemAccess({
+      operation: 'read',
+      inputPath: '~/notes/.env',
+      cwd: CWD,
+      policy: defaults(),
+      personaWriteRoots: [`${HOME}/notes`],
+    });
+
+    expect(write.kind).toBe('allow');
+    expect(read.kind).toBe('prompt');
+  });
+
+  test('returns prompt with the absolute path and match detail', () => {
+    const decision = classifyFilesystemAccess({
+      operation: 'write',
+      inputPath: '~/notes/foo.md',
+      cwd: CWD,
+      policy: defaults(),
+    });
+
+    expect(decision.kind).toBe('prompt');
+    expect(decision.absolutePath).toBe(`${HOME}/notes/foo.md`);
+    if (decision.kind !== 'prompt') throw new Error('expected prompt decision');
+    expect(decision.match.reason).toBe('outside-allowed-write');
   });
 });

@@ -56,19 +56,21 @@ import { applyPatch, type ReadFile, type WritePlan } from '../../../lib/node/pi/
 import { parsePatch } from '../../../lib/node/pi/apply-patch/parse.ts';
 import { askForPermission } from '../../../lib/node/pi/approval-prompt.ts';
 import { atomicWriteFile } from '../../../lib/node/pi/atomic-write.ts';
-import { classifyWrite, expandTilde } from '../../../lib/node/pi/filesystem-policy/classify.ts';
-import { loadFilesystemPolicy } from '../../../lib/node/pi/filesystem-policy/load.ts';
+import { classifyFilesystemAccess } from '../../../lib/node/pi/filesystem-policy/classify.ts';
+import {
+  filesystemProjectPolicyPath,
+  filesystemUserPolicyPath,
+  loadFilesystemPolicy,
+} from '../../../lib/node/pi/filesystem-policy/load.ts';
 import { type FilesystemPolicyWarning } from '../../../lib/node/pi/filesystem-policy/schema.ts';
 import { readTextOrEmpty } from '../../../lib/node/pi/fs-safe.ts';
 import { getActivePersona } from '../../../lib/node/pi/persona/active.ts';
-import { isInsideWriteRoots } from '../../../lib/node/pi/persona/match.ts';
 import { envTruthy, parsePositiveInt } from '../../../lib/node/pi/parse-env.ts';
-import { piAgentPath, piProjectPath } from '../../../lib/node/pi/pi-paths.ts';
 import { makeDiagnostics } from '../../../lib/node/pi/recovery-diagnostics.ts';
 import { truncate } from '../../../lib/node/pi/shared.ts';
 
 const DEFAULT_MAX_BYTES = 1_048_576;
-const USER_RULES_PATH = piAgentPath('filesystem.json');
+const USER_RULES_PATH = filesystemUserPolicyPath();
 
 const ApplyPatchParams = Type.Object({
   patch: Type.String({
@@ -92,7 +94,7 @@ function readLayer(path: string): string {
 }
 
 function projectRulesPath(cwd: string): string {
-  return piProjectPath(cwd, 'filesystem.json');
+  return filesystemProjectPolicyPath(cwd);
 }
 
 function buildReadFile(cwd: string, maxBytes: number): ReadFile {
@@ -147,12 +149,15 @@ async function gatePaths(
   surfaceWarnings(warnings);
 
   for (const inputPath of paths) {
-    const absolute = resolve(ctx.cwd, expandTilde(inputPath));
-    if (sessionAllow.has(absolute)) continue;
-    if (active && isInsideWriteRoots(absolute, active.resolvedWriteRoots)) continue;
-
-    const match = classifyWrite(inputPath, ctx.cwd, policy);
-    if (!match) continue;
+    const accessDecision = classifyFilesystemAccess({
+      operation: 'write',
+      inputPath,
+      cwd: ctx.cwd,
+      policy,
+      sessionAllowPaths: sessionAllow,
+      personaWriteRoots: active?.resolvedWriteRoots,
+    });
+    if (accessDecision.kind === 'allow') continue;
 
     if (!ctx.hasUI) {
       if (defaultFallback === 'allow') continue;
@@ -161,7 +166,7 @@ async function gatePaths(
           path: inputPath,
           reason:
             `No UI available for approval. Filesystem-protected path "${inputPath}" ` +
-            `(${match.detail}). Set PI_FILESYSTEM_DEFAULT=allow to override, ` +
+            `(${accessDecision.match.detail}). Set PI_FILESYSTEM_DEFAULT=allow to override, ` +
             'or pick a different path.',
         },
       };
@@ -171,14 +176,14 @@ async function gatePaths(
     const decision = await askForPermission(ctx, {
       tool: 'apply_patch',
       path: inputPath,
-      detail: match.detail,
+      detail: accessDecision.match.detail,
     });
     if (decision.kind === 'deny') {
       return {
-        block: { path: inputPath, reason: decision.feedback ?? `Blocked by user (${match.detail})` },
+        block: { path: inputPath, reason: decision.feedback ?? `Blocked by user (${accessDecision.match.detail})` },
       };
     }
-    if (decision.kind === 'allow-session') sessionAllow.add(absolute);
+    if (decision.kind === 'allow-session') sessionAllow.add(accessDecision.absolutePath);
   }
 
   return {};

@@ -4,9 +4,20 @@
 
 import { describe, expect, test } from 'vitest';
 
-import { loadFilesystemPolicy } from '../../../../../lib/node/pi/filesystem-policy/load.ts';
+import {
+  FILESYSTEM_POLICY_FILENAME,
+  filesystemProjectPolicyPath,
+  filesystemUserPolicyPath,
+  loadFilesystemPolicy,
+} from '../../../../../lib/node/pi/filesystem-policy/load.ts';
 
 describe('loadFilesystemPolicy', () => {
+  test('path helpers resolve the shared filesystem policy file', () => {
+    expect(FILESYSTEM_POLICY_FILENAME).toBe('filesystem.json');
+    expect(filesystemUserPolicyPath()).toContain('/filesystem.json');
+    expect(filesystemProjectPolicyPath('/repo')).toBe('/repo/.pi/filesystem.json');
+  });
+
   test('shipped defaults are applied when no layers supplied', () => {
     const { policy, warnings } = loadFilesystemPolicy([]);
     expect(warnings).toEqual([]);

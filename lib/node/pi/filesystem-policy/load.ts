@@ -17,6 +17,7 @@
  */
 
 import { parseJsonc } from '../jsonc.ts';
+import { piAgentPath, piProjectPath } from '../pi-paths.ts';
 import { isRecord } from '../shared.ts';
 
 import {
@@ -58,6 +59,16 @@ export interface LoadFilesystemPolicyOptions {
 export interface LoadFilesystemPolicyResult {
   policy: FilesystemPolicy;
   warnings: FilesystemPolicyWarning[];
+}
+
+export const FILESYSTEM_POLICY_FILENAME = 'filesystem.json';
+
+export function filesystemUserPolicyPath(): string {
+  return piAgentPath(FILESYSTEM_POLICY_FILENAME);
+}
+
+export function filesystemProjectPolicyPath(cwd: string): string {
+  return piProjectPath(cwd, FILESYSTEM_POLICY_FILENAME);
 }
 
 // ──────────────────────────────────────────────────────────────────────

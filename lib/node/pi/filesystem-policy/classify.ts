@@ -229,3 +229,31 @@ export function classifyWrite(inputPath: string, cwd: string, policy: Filesystem
   if (readDenied && !carved()) return readDenied;
   return null;
 }
+
+export type FilesystemAccessOperation = 'read' | 'write';
+
+export type FilesystemAccessDecision =
+  | { kind: 'allow'; absolutePath: string }
+  | { kind: 'prompt'; absolutePath: string; match: FilesystemMatch };
+
+export interface ClassifyFilesystemAccessOptions {
+  operation: FilesystemAccessOperation;
+  inputPath: string;
+  cwd: string;
+  policy: FilesystemPolicy;
+  sessionAllowPaths?: ReadonlySet<string>;
+  personaWriteRoots?: readonly string[];
+}
+
+export function classifyFilesystemAccess(options: ClassifyFilesystemAccessOptions): FilesystemAccessDecision {
+  const { operation, inputPath, cwd, policy, sessionAllowPaths, personaWriteRoots = [] } = options;
+  const absolutePath = resolve(cwd, expandTilde(inputPath));
+
+  if (sessionAllowPaths?.has(absolutePath)) return { kind: 'allow', absolutePath };
+  if (operation === 'write' && personaWriteRoots.some((root) => isUnderPath(absolutePath, root))) {
+    return { kind: 'allow', absolutePath };
+  }
+
+  const match = operation === 'read' ? classifyRead(inputPath, cwd, policy) : classifyWrite(inputPath, cwd, policy);
+  return match ? { kind: 'prompt', absolutePath, match } : { kind: 'allow', absolutePath };
+}
