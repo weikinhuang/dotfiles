@@ -86,6 +86,13 @@ import {
 import { formatBackgroundJobs } from '../../../lib/node/pi/bg-bash-prompt.ts';
 import { requestSandboxWrap } from '../../../lib/node/pi/sandbox/wrapper-slot.ts';
 import {
+  bgBashStreamCursor,
+  bgBashStreamDropped,
+  bgBashStreamTotal,
+  mergeBgBashStreams,
+  readBgBashStream,
+} from '../../../lib/node/pi/bg-bash-stream.ts';
+import {
   allocateId as allocateJobId,
   BG_BASH_CUSTOM_TYPE,
   type BgBashState,
@@ -282,59 +289,6 @@ function resolveCwd(agentCwd: string, supplied: string | undefined): string {
     return join(homedir(), supplied.slice(1).replace(/^\//, ''));
   }
   return join(agentCwd, supplied);
-}
-
-function mergeStreams(job: LiveJob, stream: StreamName): string {
-  if (stream === 'stdout') return job.stdout.read().content;
-  if (stream === 'stderr') return job.stderr.read().content;
-  // "merged": we don't track interleaving timestamps in memory. The
-  // on-disk log file IS interleaved in wall-clock order - callers
-  // that need exact ordering should read the file. Here we return
-  // stdout then stderr with a labeled separator.
-  const out = job.stdout.read().content;
-  const err = job.stderr.read().content;
-  if (!out && !err) return '';
-  if (!err) return out;
-  if (!out) return err;
-  return `${out}\n--- stderr ---\n${err}`;
-}
-
-function readStream(
-  job: LiveJob,
-  stream: StreamName,
-  opts: { sinceCursor?: number; maxBytes?: number },
-): { content: string; cursor: number; droppedBefore: boolean; totalBytes: number; droppedBytes: number } {
-  if (stream === 'stdout') return job.stdout.read(opts);
-  if (stream === 'stderr') return job.stderr.read(opts);
-  // For merged streams we pick a synthetic cursor and totals by
-  // summing both streams - good enough for the LLM; exact resumable
-  // reads require picking one stream.
-  const outR = job.stdout.read(opts);
-  const errR = job.stderr.read(opts);
-  const content = mergeStreams(job, 'merged');
-  return {
-    content: opts.maxBytes !== undefined ? clampBytes(content, opts.maxBytes) : content,
-    cursor: outR.cursor + errR.cursor,
-    droppedBefore: outR.droppedBefore || errR.droppedBefore,
-    totalBytes: outR.totalBytes + errR.totalBytes,
-    droppedBytes: outR.droppedBytes + errR.droppedBytes,
-  };
-}
-
-function cursorFor(job: LiveJob, stream: StreamName): number {
-  if (stream === 'stdout') return job.stdout.byteLengthTotal;
-  if (stream === 'stderr') return job.stderr.byteLengthTotal;
-  return job.stdout.byteLengthTotal + job.stderr.byteLengthTotal;
-}
-
-function totalFor(job: LiveJob, stream: StreamName): number {
-  return cursorFor(job, stream);
-}
-
-function droppedFor(job: LiveJob, stream: StreamName): number {
-  if (stream === 'stdout') return job.stdout.byteLengthDropped;
-  if (stream === 'stderr') return job.stderr.byteLengthDropped;
-  return job.stdout.byteLengthDropped + job.stderr.byteLengthDropped;
 }
 
 function glyphColor(job: JobSummary, opts: { timedOut?: boolean }): ThemeColor {
@@ -575,7 +529,7 @@ class BgBashOverlay implements Component {
 
     // Tail: last OVERLAY_TAIL_LINES lines from the merged in-memory ring.
     if (live) {
-      const merged = mergeStreams(live, 'merged');
+      const merged = mergeBgBashStreams(live, 'merged');
       const tail = tailLines(merged, OVERLAY_TAIL_LINES).trimEnd();
       if (!tail) {
         lines.push(truncateToWidth(`  ${th.fg('dim', '(no output yet)')}`, width));
@@ -1075,14 +1029,14 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
     let droppedBytes: number;
 
     if (params.tail !== undefined && params.tail >= 0) {
-      const merged = mergeStreams(job, stream);
+      const merged = mergeBgBashStreams(job, stream);
       const lines = tailLines(merged, params.tail);
       content = clampBytes(lines, maxBytes);
-      cursor = cursorFor(job, stream);
-      totalBytes = totalFor(job, stream);
-      droppedBytes = droppedFor(job, stream);
+      cursor = bgBashStreamCursor(job, stream);
+      totalBytes = bgBashStreamTotal(job, stream);
+      droppedBytes = bgBashStreamDropped(job, stream);
     } else {
-      const r = readStream(job, stream, { sinceCursor: params.sinceCursor, maxBytes });
+      const r = readBgBashStream(job, stream, { sinceCursor: params.sinceCursor, maxBytes });
       content = r.content;
       cursor = r.cursor;
       droppedBefore = r.droppedBefore;
@@ -1162,7 +1116,7 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
       action: 'wait',
       job: cloneSummary(fresh),
       timedOut,
-      logExcerpt: timedOut ? undefined : tailN(mergeStreams(job, 'merged'), 20),
+      logExcerpt: timedOut ? undefined : tailN(mergeBgBashStreams(job, 'merged'), 20),
     };
     const text = timedOut
       ? `Still running after ${timeoutMs}ms: ${formatJobLine(fresh, Date.now())}`
