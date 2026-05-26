@@ -9,13 +9,13 @@ command succeeded.
 
 On every `tool_result` where `isError: true` and the tool was `bash`:
 
-1. Parse the exit code out of the trailing marker via [`parseExitCode`](../../../lib/node/pi/bash-exit-watchdog.ts).
+1. Parse the exit code out of the trailing marker via [`parseExitCode`](../../../lib/node/pi/bash/exit-watchdog.ts).
    Bail if zero / unparseable.
-2. Check the command string against the suppress list ([`shouldSuppress`](../../../lib/node/pi/bash-exit-watchdog.ts)).
+2. Check the command string against the suppress list ([`shouldSuppress`](../../../lib/node/pi/bash/exit-watchdog.ts)).
    Built-in defaults cover commands where non-zero exit is routine (e.g. `grep` with no matches, `diff` with
    differences).
 3. If not suppressed, prepend an unmissable warning header to the first text part via
-   [`formatWarning`](../../../lib/node/pi/bash-exit-watchdog.ts). Pi's original output is preserved below and the rest
+   [`formatWarning`](../../../lib/node/pi/bash/exit-watchdog.ts). Pi's original output is preserved below and the rest
    of the content parts are passed through untouched.
 
 The rewrite shape is `{ content: [{ type: 'text', text: '<warning>\n<original>' }, ...event.content.slice(1)] }`, which
@@ -51,5 +51,5 @@ pair).
 ## Hot reload
 
 Edit [`extensions/bash-exit-watchdog.ts`](./bash-exit-watchdog.ts) or
-[`lib/node/pi/bash-exit-watchdog.ts`](../../../lib/node/pi/bash-exit-watchdog.ts) and run `/reload` in an interactive pi
+[`lib/node/pi/bash/exit-watchdog.ts`](../../../lib/node/pi/bash/exit-watchdog.ts) and run `/reload` in an interactive pi
 session to pick up changes without restarting.

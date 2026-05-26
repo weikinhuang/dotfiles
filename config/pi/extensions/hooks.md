@@ -55,7 +55,7 @@ otherwise treated as empty. Missing files are silent.
 | `sandboxed` | `bool?`   | `false` | Reserved: opt the hook into the kernel sandbox (the same wrap pi uses for model-emitted bash). v1 plumbs the field end-to-end; the actual wrap lands in a follow-up commit so the schema doesn't shift later.                                                |
 
 Invalid regex matchers never match and print a single `console.warn` per unique pattern so typos are discoverable.
-Pattern semantics mirror `bash-permissions`'s `bash-match.ts` minus the prefix form (tool names are single tokens, so
+Pattern semantics mirror `bash-permissions`'s `bash/match.ts` minus the prefix form (tool names are single tokens, so
 `*` is the all-tools selector instead).
 
 ## Payload (stdin → hook)
@@ -110,11 +110,10 @@ exit code maps to `decision: "block"` with `stderr` as `reason` (mirrors Claude 
 
 ## Composition with the built-in gates
 
-Hooks fire **after** `bash-permissions`, `filesystem`, and `sandbox` have approved the call (D3 in
-[`plans/pi-cc-parity.md`](../../../plans/pi-cc-parity.md)). A bash command denied by `bash-permissions` never reaches a
-`PreToolUse` hook; a `read` to a denied path never reaches a `PreToolUse` hook either. This keeps the threat-model
-clean: a malicious hook can refuse to let an approved command run, but it cannot vouch for one that the gates already
-rejected.
+Hooks fire **after** `bash-permissions`, `filesystem`, and `sandbox` have approved the call. A bash command denied by
+`bash-permissions` never reaches a `PreToolUse` hook; a `read` to a denied path never reaches a `PreToolUse` hook
+either. This keeps the threat-model clean: a malicious hook can refuse to let an approved command run, but it cannot
+vouch for one that the gates already rejected.
 
 Hooks run **outside** the kernel sandbox by default because they're user code, not model-emitted bash. The
 `"sandboxed": true` field is reserved for the per-hook sandbox-wrap opt-in; v1 plumbs it end-to-end but does not yet

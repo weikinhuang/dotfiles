@@ -68,7 +68,7 @@ Personas are loaded in order, later layers override earlier by persona name:
 3. **Project-local**: `<cwd>/.pi/personas/`.
 
 Missing directories are silently skipped; parse errors surface once each via `ctx.ui.notify(..., 'warning')`, de-duped
-by `path + reason` - same UX as `preset.ts` and `subagent-loader.ts`. Files named `README.md` are skipped so a catalog
+by `path + reason` - same UX as `preset.ts` and `subagent/loader.ts`. Files named `README.md` are skipped so a catalog
 README can sit alongside its persona files.
 
 ## `<cwd>/.pi/persona-settings.json`

@@ -136,8 +136,8 @@ lockstep.
   `tailJsonl(...)`. Escape closes.
 
 Both overlays follow the same `─── Title ───…─── chip ───` rule style as `/todos` and share the pure helpers in
-[`lib/node/pi/subagent-format.ts`](../../../lib/node/pi/subagent-format.ts) +
-[`lib/node/pi/subagent-activity.ts`](../../../lib/node/pi/subagent-activity.ts) so the on-screen rendering can be unit-
+[`lib/node/pi/subagent/format.ts`](../../../lib/node/pi/subagent/format.ts) +
+[`lib/node/pi/subagent/activity.ts`](../../../lib/node/pi/subagent/activity.ts) so the on-screen rendering can be unit-
 tested without spinning pi up.
 
 ## Per-call overrides

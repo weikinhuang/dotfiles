@@ -33,7 +33,7 @@ runtime behaviour. New extensions add both files **and** a row in [README.md](./
 ### Security gates auto-inject into subagent sessions
 
 Security-gate extensions (`bash-permissions.ts`, `filesystem.ts`, `sandbox.ts`) register a hook-only factory via
-[`registerSubagentInjection`](../../../lib/node/pi/subagent-extension-injection.ts) on extension load, so spawned
+[`registerSubagentInjection`](../../../lib/node/pi/subagent/extension-injection.ts) on extension load, so spawned
 subagent sessions (`runOneShotAgent`, the `subagent` extension's inline `DefaultResourceLoader`) automatically apply the
 parent's `tool_call` gate to child bash / read / write / edit calls. The factory mounts ONLY the `tool_call` handler -
 no slash commands, no statusline glue. New security-channel extensions follow the same pattern; non-security extensions
@@ -42,7 +42,7 @@ do not.
 ### Subagent spawns MUST persist their session transcript to disk
 
 Every extension that spawns a child `AgentSession` - through `runOneShotAgent`
-([`../../../lib/node/pi/subagent-spawn.ts`](../../../lib/node/pi/subagent-spawn.ts)), `createAgentSession`, or any
+([`../../../lib/node/pi/subagent/spawn.ts`](../../../lib/node/pi/subagent/spawn.ts)), `createAgentSession`, or any
 future helper - **must** pass an explicit disk-backed `SessionManager`. Never accept the runOneShotAgent default
 (`SessionManager.inMemory(cwd)`) and never call `SessionManager.inMemory(...)` from a spawn site.
 
@@ -58,7 +58,7 @@ future helper - **must** pass an explicit disk-backed `SessionManager`. Never ac
 `SessionManager.create(...)`:
 
 ```ts
-import { resolveSubagentSessionDir } from '../../../lib/node/pi/subagent-session-dir.ts';
+import { resolveSubagentSessionDir } from '../../../lib/node/pi/subagent/session-dir.ts';
 
 await runOneShotAgent({
   // …
@@ -82,8 +82,8 @@ behind `PI_SUBAGENT_NO_PERSIST=1` for the rare ephemeral-debug-run case.
 <parentSessionDir>/<parentSid>/subagents/<timestamp>_<childSid>.jsonl
 ```
 
-The path-order convention is enforced by [`subagent-session-dir.ts`](../../../lib/node/pi/subagent-session-dir.ts) (for
-runOneShotAgent spawns) and [`subagent-session-paths.ts`](../../../lib/node/pi/subagent-session-paths.ts) (for the
+The path-order convention is enforced by [`subagent/session-dir.ts`](../../../lib/node/pi/subagent/session-dir.ts) (for
+runOneShotAgent spawns) and [`subagent/session-paths.ts`](../../../lib/node/pi/subagent/session-paths.ts) (for the
 `subagent` extension's worktree-anchored variant). Both are walked by [`session-usage.ts`](../session-usage.ts)'s
 `subagentDirFor`. If you change the layout, update all three modules + the bats fixture in
 [`../../../tests/config/pi/session-usage.bats`](../../../tests/config/pi/session-usage.bats) in lockstep.
@@ -96,10 +96,10 @@ Extensions stay model-agnostic. Don't call OpenAI / Anthropic / etc. embedding e
 ## Boundaries
 
 **Always**: pair every spawn site with a disk-backed `SessionManager.create(...)` via
-[`resolveSubagentSessionDir`](../../../lib/node/pi/subagent-session-dir.ts); update the `README.md` index when
+[`resolveSubagentSessionDir`](../../../lib/node/pi/subagent/session-dir.ts); update the `README.md` index when
 adding/removing an extension; add or update the matching deep doc (`<name>.md`) when behaviour changes.
 
-**Ask first**: introducing a new spawn helper that bypasses `subagent-spawn.ts` / `subagent-session-dir.ts`; adding a
+**Ask first**: introducing a new spawn helper that bypasses `subagent/spawn.ts` / `subagent/session-dir.ts`; adding a
 new on-disk path layout for subagent transcripts; moving extension logic into `lib/node/pi/` (pure helpers only -
 nothing that imports `@earendil-works/*`).
 
@@ -111,9 +111,9 @@ chunk of pure logic that isn't covered by a vitest spec under
 ## References
 
 - [README.md](./README.md) - extension index + per-extension deep-doc table.
-- [`../../../lib/node/pi/subagent-session-dir.ts`](../../../lib/node/pi/subagent-session-dir.ts) - the helper every
+- [`../../../lib/node/pi/subagent/session-dir.ts`](../../../lib/node/pi/subagent/session-dir.ts) - the helper every
   spawn site goes through.
-- [`../../../lib/node/pi/subagent-spawn.ts`](../../../lib/node/pi/subagent-spawn.ts) - `runOneShotAgent` plus its
+- [`../../../lib/node/pi/subagent/spawn.ts`](../../../lib/node/pi/subagent/spawn.ts) - `runOneShotAgent` plus its
   dependency-injected types.
 - [`../session-usage.ts`](../session-usage.ts) - walker that proves transcripts landed on disk.
 - [`../../../lib/AGENTS.md`](../../../lib/AGENTS.md) - pure-helper rules for

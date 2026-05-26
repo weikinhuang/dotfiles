@@ -131,8 +131,8 @@ Resolution order at session start (first hit wins):
 Writes go through the shared [`atomic-write.ts`](../../../lib/node/pi/atomic-write.ts) helper so a crash mid-write can't
 leave the file half-rendered. Read-side: malformed JSON, an unknown mode, or a missing file all silently fall through to
 step 3 - a corrupted file never breaks startup. The pure read/write/clear helpers and the resolve order live in
-[`waveform-indicator-state.ts`](../../../lib/node/pi/waveform-indicator-state.ts) and are covered by
-[`tests/lib/node/pi/waveform-indicator-state.spec.ts`](../../../tests/lib/node/pi/waveform-indicator-state.spec.ts).
+[`waveform-indicator/state.ts`](../../../lib/node/pi/waveform-indicator/state.ts) and are covered by
+[`tests/lib/node/pi/waveform-indicator/state.spec.ts`](../../../tests/lib/node/pi/waveform-indicator/state.spec.ts).
 
 ## Dynamic head: persona-driven tiny-model phrase
 
@@ -210,7 +210,7 @@ so `maxCallsPerSession: 20` covers ~5 turns of an actively-thinking agent.
 
 Multiple triggers can fire inside one turn even with dedup. Each spawn is async, so a slow earlier call could land after
 a faster later one. The coalescing reducer in
-[`waveform-indicator-phrase.ts`](../../../lib/node/pi/waveform-indicator-phrase.ts) handles this with a monotonic
+[`waveform-indicator/phrase.ts`](../../../lib/node/pi/waveform-indicator/phrase.ts) handles this with a monotonic
 request id + an explicit `AbortController` wired into both the in-flight spawn AND the parent turn signal (composed via
 [`abort-merge.ts`](../../../lib/node/pi/abort-merge.ts)):
 
@@ -284,7 +284,7 @@ parameter. Edit the file when you want to try a different persona.
 ### Spawn site + on-disk transcript
 
 The spawn site explicitly imports `resolveSubagentSessionDir` from
-[`subagent-session-dir.ts`](../../../lib/node/pi/subagent-session-dir.ts) and wraps the result with
+[`subagent/session-dir.ts`](../../../lib/node/pi/subagent/session-dir.ts) and wraps the result with
 `SessionManager.create(...)` per [`extensions/AGENTS.md`](./AGENTS.md). Never `SessionManager.inMemory(...)`. The
 transcript lands under `<parentSessionDir>/<parentSid>/subagents/<ts>_<childSid>.jsonl` so `pi session-usage` /
 `ai-tool-usage` can roll up the cost ("you spent $0.04 on Thinking-text rewrites this session").
@@ -385,7 +385,7 @@ they're measuring. Recently-streamed output appears at the right edge; older sam
 Idle = flat zero. Bursts of fast output spike the rightmost bars and those spikes drift left as they age.
 
 **Sampling rules.** The state machine lives in
-[`waveform-indicator-rate.ts`](../../../lib/node/pi/waveform-indicator-rate.ts) so it's covered by its own focused unit
+[`waveform-indicator/rate.ts`](../../../lib/node/pi/waveform-indicator/rate.ts) so it's covered by its own focused unit
 tests. On each label tick:
 
 1. Compute `currentTokens = committedUsage.output + max(currentUsage.output, ceil(currentMessageOutputBytes / 4))`
@@ -435,7 +435,7 @@ isn't corrupted, just ignored.
 
 ## Pure helpers
 
-Lives in [`../../../lib/node/pi/waveform-indicator.ts`](../../../lib/node/pi/waveform-indicator.ts). Public exports:
+Lives under [`../../../lib/node/pi/waveform-indicator/`](../../../lib/node/pi/waveform-indicator/). Public exports:
 
 - `encodeBrailleColumns(leftHeight, rightHeight)` - sample-pair → braille glyph.
 - `waveShape(x)` - periodic wave sample at sample-index `x`.
@@ -453,14 +453,13 @@ Lives in [`../../../lib/node/pi/waveform-indicator.ts`](../../../lib/node/pi/wav
 - `shimmerLabel(text, tick, opts)` - per-codepoint truecolor wrap.
 - `hslToRgb(h, s, l)`, `colorize(text, rgb)` - building blocks for callers that want to render their own variants.
 
-Specs in [`tests/lib/node/pi/waveform-indicator.spec.ts`](../../../tests/lib/node/pi/waveform-indicator.spec.ts) cover
-encoding edge cases (clamp, NaN, fractional rounding), HSL→RGB primaries, periodicity / dynamic range of the wave shape,
-frame structure (right glyph count, every glyph is in U+2800..U+28FF, every glyph is colorized), animation liveness (no
-two consecutive frames identical), seamless looping, and label shimmer (no whitespace coloring, codepoint-aware
-iteration).
+Specs under [`tests/lib/node/pi/waveform-indicator/`](../../../tests/lib/node/pi/waveform-indicator/) cover encoding
+edge cases (clamp, NaN, fractional rounding), HSL→RGB primaries, periodicity / dynamic range of the wave shape, frame
+structure (right glyph count, every glyph is in U+2800..U+28FF, every glyph is colorized), animation liveness (no two
+consecutive frames identical), seamless looping, and label shimmer (no whitespace coloring, codepoint-aware iteration).
 
 The dim suffix machinery lives in a sibling module
-[`../../../lib/node/pi/waveform-indicator-suffix.ts`](../../../lib/node/pi/waveform-indicator-suffix.ts). Public
+[`../../../lib/node/pi/waveform-indicator/suffix.ts`](../../../lib/node/pi/waveform-indicator/suffix.ts). Public
 exports:
 
 - `LabelSuffixState`, `ThinkingLevel` - serializable state shape + the local mirror of pi's thinking-level union.
@@ -482,14 +481,14 @@ exports:
   non-TTY gate as `dimText`.
 
 Specs in
-[`tests/lib/node/pi/waveform-indicator-suffix.spec.ts`](../../../tests/lib/node/pi/waveform-indicator-suffix.spec.ts)
+[`tests/lib/node/pi/waveform-indicator/suffix.spec.ts`](../../../tests/lib/node/pi/waveform-indicator/suffix.spec.ts)
 exercise every transition with plain object literals (no fake timers / fake streams), including the
 `thinking → still thinking` 20 s threshold, the per-block timer restart, cumulative `thought for Ns` across interleaved
 blocks, and the full claude-code shapes seen in the wild (`(1m 18s · ↑ 3.6k tokens)`,
 `(42s · ↑ 1.7k tokens · thought for 4s)`, etc.).
 
 The token-rate sample machine lives in a sibling module
-[`../../../lib/node/pi/waveform-indicator-rate.ts`](../../../lib/node/pi/waveform-indicator-rate.ts). Public exports:
+[`../../../lib/node/pi/waveform-indicator/rate.ts`](../../../lib/node/pi/waveform-indicator/rate.ts). Public exports:
 
 - `TokenRateState` - serialisable state shape (`lastSampleAtMs`, `lastSampleTokens`, `skipNextSample`).
 - `MIN_SAMPLE_DT_MS` - the 1 ms sub-millisecond skip threshold.
@@ -502,7 +501,7 @@ The token-rate sample machine lives in a sibling module
   negative-delta re-baseline, otherwise tokens/sec.
 
 Specs in
-[`tests/lib/node/pi/waveform-indicator-rate.spec.ts`](../../../tests/lib/node/pi/waveform-indicator-rate.spec.ts)
+[`tests/lib/node/pi/waveform-indicator/rate.spec.ts`](../../../tests/lib/node/pi/waveform-indicator/rate.spec.ts)
 exercise each rule in isolation and one end-to-end integration walk through a full message lifecycle, again with plain
 inputs - no fake timers required.
 

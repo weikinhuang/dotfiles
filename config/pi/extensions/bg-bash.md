@@ -8,7 +8,7 @@ LLM uses across subsequent turns to poll, steer, and collect output.
 
 Registers a single `bg_bash` tool with eight actions (`start`, `list`, `status`, `logs`, `wait`, `signal`, `stdin`,
 `remove`) plus a user-facing `/bg-bash` command. Each `start` routes through the shared
-[`bash-gate`](../../../lib/node/pi/bash-gate.ts) so bash-permissions allow/deny rules apply; approval prompts are
+[`bash/gate`](../../../lib/node/pi/bash/gate.ts) so bash-permissions allow/deny rules apply; approval prompts are
 serialized through a promise-chain mutex so concurrent `start` calls don't stack up racing dialogs.
 
 - **Spawn model.** `spawn('/bin/sh', ['-c', command], { detached: true, stdio: [stdinMode, 'pipe', 'pipe'] })`.
@@ -34,7 +34,7 @@ serialized through a promise-chain mutex so concurrent `start` calls don't stack
 
 | Action   | Required  | Optional                                                                                                            | Notes                                                                                                                                  |
 | -------- | --------- | ------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| `start`  | `command` | `cwd`, `label`, `env` (merged on top of `process.env`), `interactiveStdin` (false)                                  | Routes through `bash-gate`. `cwd` accepts absolute / `~`-relative / agent-cwd-relative.                                                |
+| `start`  | `command` | `cwd`, `label`, `env` (merged on top of `process.env`), `interactiveStdin` (false)                                  | Routes through `bash/gate`. `cwd` accepts absolute / `~`-relative / agent-cwd-relative.                                                |
 | `list`   | -         | -                                                                                                                   | Dumps the full registry via `formatState`.                                                                                             |
 | `status` | `id`      | -                                                                                                                   | Single-job line.                                                                                                                       |
 | `logs`   | `id`      | `stream` (`stdout`/`stderr`/`merged`, default `merged`), `tail`, `sinceCursor`, `grep`, `maxBytes` (default 32 KiB) | `grep` is a JS `RegExp` with no flags. Response is tail-preserving-truncated to `maxBytes` with a `… truncated; see logFile …` marker. |
@@ -109,7 +109,7 @@ via `markLiveJobsTerminated` so the next runtime sees them as historical rather 
   resumable `read({ sinceCursor, maxBytes })`, `tailPreview(n)`, `byteLengthTotal` / `byteLengthDropped`.
 - [`../../../lib/node/pi/bg-bash-prompt.ts`](../../../lib/node/pi/bg-bash-prompt.ts) -
   `formatBackgroundJobs(state, { maxChars, now })` renders the system-prompt block.
-- [`../../../lib/node/pi/bash-gate.ts`](../../../lib/node/pi/bash-gate.ts) - `requestBashApproval`, shared with the
+- [`../../../lib/node/pi/bash/gate.ts`](../../../lib/node/pi/bash/gate.ts) - `requestBashApproval`, shared with the
   built-in `bash` tool.
 - [`../../../lib/node/pi/sandbox/wrapper-slot.ts`](../../../lib/node/pi/sandbox/wrapper-slot.ts) - `requestSandboxWrap`,
   the slot the [`sandbox`](./sandbox.md) extension fills with its `srt`/`sandbox-exec`/`bwrap` wrapper. `bg_bash start`
@@ -121,6 +121,6 @@ via `markLiveJobsTerminated` so the next runtime sees them as historical rather 
 ## Hot reload
 
 Edit [`extensions/bg-bash.ts`](./bg-bash.ts) or any of the helpers under `../../../lib/node/pi/bg-bash-*.ts` /
-[`bash-gate.ts`](../../../lib/node/pi/bash-gate.ts) and run `/reload` in an interactive pi session to pick up changes
+[`bash/gate.ts`](../../../lib/node/pi/bash/gate.ts) and run `/reload` in an interactive pi session to pick up changes
 without restarting. Live jobs from the previous runtime survive the module reload (the `ChildProcess` handles are held
 by closures that get replaced) - prefer restarting pi if you need to re-attach cleanly.

@@ -168,7 +168,7 @@ State is published via [`session-flags.ts`](../../../lib/node/pi/session-flags.t
   works across pi's per-extension jiti module copies. Today (Phase 3) bg-bash hasn't been wired up yet, but the slot is
   registered on extension load so the wiring lands cleanly.
 - **Subagents** (`runOneShotAgent`): the extension registers `sandboxFactoryHookOnly` via
-  [`subagent-extension-injection.ts`](../../../lib/node/pi/subagent-extension-injection.ts), so spawned children also
+  [`subagent/extension-injection.ts`](../../../lib/node/pi/subagent/extension-injection.ts), so spawned children also
   wrap their bash calls through the same shared `SandboxManager` (subagents are in-process; the singleton + active
   config + UI bridge + wrapper slot are all shared). The factory mounts ONLY the `tool_call` handler - no slash
   commands, no statusline glue.

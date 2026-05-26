@@ -6,41 +6,41 @@ drive a plan → fanout → synth → two-stage-review pipeline, writing a fully
 
 ## What it does
 
-Thin pi-coupled wiring layer over the pure pipeline modules under `../../../lib/node/pi/deep-research-*.ts`. On
+Thin pi-coupled wiring layer over the pure pipeline modules under `../../../lib/node/pi/deep-research/`. On
 `session_start` it loads subagent definitions from [`../agents/`](../agents/) via
-[`subagent-loader.ts`](../../../lib/node/pi/subagent-loader.ts). A module-scope
-[`ResearchSessionFlag`](../../../lib/node/pi/deep-research-tool.ts) enforces one active run per session, shared by the
+[`subagent/loader.ts`](../../../lib/node/pi/subagent/loader.ts). A module-scope
+[`ResearchSessionFlag`](../../../lib/node/pi/deep-research/tool.ts) enforces one active run per session, shared by the
 command and tool.
 
-Pipeline stages (driven by [`runResearchPipeline`](../../../lib/node/pi/deep-research-pipeline.ts)):
+Pipeline stages (driven by [`runResearchPipeline`](../../../lib/node/pi/deep-research/pipeline.ts)):
 
 1. **Planner** (+ self-critic) - decomposes the question into sub-questions; writes `plan.json`.
 2. **Planning-critic** - [`research-planning-critic`](../agents/research-planning-critic.md) subagent reviews the plan;
    rejection is a checkpoint (user edits `plan.json` and reruns).
 3. **Fanout** - sync spawner runs one [`web-researcher`](../agents/web-researcher.md) per sub-question via
-   [`runOneShotAgent`](../../../lib/node/pi/subagent-spawn.ts), fetching via the MCP `fetch_web` CLI client
-   ([`research-ai-fetch-web-cli-client.ts`](../../../lib/node/pi/research-ai-fetch-web-cli-client.ts)). Progress feeds a
+   [`runOneShotAgent`](../../../lib/node/pi/subagent/spawn.ts), fetching via the MCP `fetch_web` CLI client
+   ([`research/ai-fetch-web-cli-client.ts`](../../../lib/node/pi/research/ai-fetch-web-cli-client.ts)). Progress feeds a
    live statusline.
 4. **Synth + merge** - per-section render then merge into `report.md`.
 5. **Two-stage review** - structural check
-   ([`deep-research-structural-check.ts`](../../../lib/node/pi/deep-research-structural-check.ts)) then subjective
-   critic, wired via [`deep-research-review-wire.ts`](../../../lib/node/pi/deep-research-review-wire.ts) /
-   [`deep-research-review-loop.ts`](../../../lib/node/pi/deep-research-review-loop.ts); refinement through
-   [`deep-research-refine.ts`](../../../lib/node/pi/deep-research-refine.ts).
+   ([`deep-research/structural-check.ts`](../../../lib/node/pi/deep-research/structural-check.ts)) then subjective
+   critic, wired via [`deep-research/review-wire.ts`](../../../lib/node/pi/deep-research/review-wire.ts) /
+   [`deep-research/review-loop.ts`](../../../lib/node/pi/deep-research/review-loop.ts); refinement through
+   [`deep-research/refine.ts`](../../../lib/node/pi/deep-research/refine.ts).
 
 Observability: every phase event feeds a pure reducer
-([`deep-research-statusline.ts`](../../../lib/node/pi/deep-research-statusline.ts)) rendered into
+([`deep-research/statusline.ts`](../../../lib/node/pi/deep-research/statusline.ts)) rendered into
 `ctx.ui.setWidget("deep-research", …)` with an 80 ms spinner and 8 s auto-dismiss. Cost hooks
-([`research-cost-hook.ts`](../../../lib/node/pi/research-cost-hook.ts)) route per-turn USD into a live budget
-([`research-budget-live.ts`](../../../lib/node/pi/research-budget-live.ts)) that appends a `cost report` to
+([`research/cost-hook.ts`](../../../lib/node/pi/research/cost-hook.ts)) route per-turn USD into a live budget
+([`research/budget-live.ts`](../../../lib/node/pi/research/budget-live.ts)) that appends a `cost report` to
 `journal.md`.
 
-Artifacts under `./research/<slug>/` (paths from [`research-paths.ts`](../../../lib/node/pi/research-paths.ts)):
+Artifacts under `./research/<slug>/` (paths from [`research/paths.ts`](../../../lib/node/pi/research/paths.ts)):
 `plan.json`, `fanout.json`, `findings/`, `snapshots/sections/<id>.md`, `rubric-structural.md`, `rubric-subjective.md`,
 `report.md`, `journal.md`.
 
 The `research` tool registers a TypeBox schema accepting `question` plus optional overrides (see below), validated by
-[`validateToolOverrides`](../../../lib/node/pi/research-command-args.ts). The tool rejects a second concurrent call, and
+[`validateToolOverrides`](../../../lib/node/pi/research/command-args.ts). The tool rejects a second concurrent call, and
 returns a one-screen summary plus a structured `outcome` (`report-complete` / `fanout-complete` / `planner-stuck` /
 `checkpoint` / `error`).
 
@@ -48,15 +48,15 @@ returns a one-screen summary plus a structured `outcome` (`report-complete` / `f
 
 - `/research <question>` - run the full pipeline. On slug collision with a prior run, prompts resume/fresh/cancel
   (interactive) or errors with a resume hint (print/RPC).
-- `/research --list` - table of prior runs via [`runListCommand`](../../../lib/node/pi/research-runs.ts).
-- `/research --selftest` - canned fixture via [`selftestDeepResearch`](../../../lib/node/pi/research-selftest.ts).
+- `/research --list` - table of prior runs via [`runListCommand`](../../../lib/node/pi/research/runs.ts).
+- `/research --selftest` - canned fixture via [`selftestDeepResearch`](../../../lib/node/pi/research/selftest.ts).
 - `/research --resume [--run-root <path>] [--from plan-crit|fanout|synth|review] [--sq <id>[,<id>…]]` - resume an
-  existing run. Stage auto-detected from on-disk state ([`detectResumeStage`](../../../lib/node/pi/research-resume.ts))
+  existing run. Stage auto-detected from on-disk state ([`detectResumeStage`](../../../lib/node/pi/research/resume.ts))
   unless `--from` is pinned; defaults to the most-recent run when `--run-root` is omitted. `--sq` is only valid with
   `--from=fanout` (or alone, which implies it).
 - Question-mode flags (any order): `--model`, `--plan-crit-model`, `--fanout-model`, `--critic-model`,
   `--fanout-max-turns`, `--critic-max-turns`, `--review-max-iter`, `--fanout-parallel`, `--wall-clock`. Parsed by
-  [`parseResearchCommandArgs`](../../../lib/node/pi/research-command-args.ts). `--wall-clock` accepts a bare integer
+  [`parseResearchCommandArgs`](../../../lib/node/pi/research/command-args.ts). `--wall-clock` accepts a bare integer
   (seconds) or a suffixed duration (`90s` / `30m` / `2h`; clamp 24h).
 
 ## Tool: `research`
@@ -85,7 +85,7 @@ Agents loaded from [`../agents/`](../agents/) via `defaultAgentLayers`:
 - [`research-planning-critic`](../agents/research-planning-critic.md) - structural critique of `plan.json`; may halt the
   pipeline at the plan-crit checkpoint.
 - [`critic`](../agents/critic.md) - subjective reviewer invoked inside the review loop via `runDeepResearchReview` /
-  `buildCriticTask` ([`iteration-loop-check-critic.ts`](../../../lib/node/pi/iteration-loop-check-critic.ts)).
+  `buildCriticTask` ([`iteration-loop/check-critic.ts`](../../../lib/node/pi/iteration-loop/check-critic.ts)).
 
 The planner, self-critic, rewrite, synth, merge, and refine turns run directly on the parent `AgentSession` (no
 dedicated subagent); structural checking is a pure module, not a subagent.
@@ -95,11 +95,12 @@ dedicated subagent); structural checking is a pure module, not a subagent.
 - `PI_DEEP_RESEARCH_DISABLED=1` - skip the extension entirely (no `/research` command or `research` tool registered).
 
 Additional env vars are consumed indirectly by
-[`createAiFetchWebCliClientFromEnv`](../../../lib/node/pi/research-ai-fetch-web-cli-client.ts) for the MCP fetch-web
+[`createAiFetchWebCliClientFromEnv`](../../../lib/node/pi/research/ai-fetch-web-cli-client.ts) for the MCP fetch-web
 client; see that module for specifics.
 
 ## Hot reload
 
 Edit [`extensions/deep-research.ts`](./deep-research.ts) or any companion under
-[`lib/node/pi/deep-research-*.ts`](../../../lib/node/pi/) / [`lib/node/pi/research-*.ts`](../../../lib/node/pi/) and run
-`/reload` in an interactive pi session to pick up changes without restarting.
+[`lib/node/pi/deep-research/`](../../../lib/node/pi/deep-research/) /
+[`lib/node/pi/research/`](../../../lib/node/pi/research/) and run `/reload` in an interactive pi session to pick up
+changes without restarting.

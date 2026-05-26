@@ -144,7 +144,7 @@ in-process gate here is unaffected (it matches lexically), so the two layers sta
 ## Subagent injection
 
 This extension registers `filesystemFactoryHookOnly` via
-[`registerSubagentInjection`](../../../lib/node/pi/subagent-extension-injection.ts) on load, so spawned subagent
+[`registerSubagentInjection`](../../../lib/node/pi/subagent/extension-injection.ts) on load, so spawned subagent
 sessions (`runOneShotAgent`, the `subagent` extension's inline `DefaultResourceLoader`) automatically apply the gate to
 child `read` / `write` / `edit` calls. The factory mounts ONLY the `tool_call` handler - no slash command, no statusline
 glue. Children run with `hasUI: false`, so the approval dialog never fires; unknown protected paths fall through to

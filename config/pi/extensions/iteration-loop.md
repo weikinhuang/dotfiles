@@ -64,25 +64,25 @@ On the session branch:
 - Skill: [`../skills/iterate-until-verified/SKILL.md`](../skills/iterate-until-verified/SKILL.md)
 - Critic subagent: [`../agents/critic.md`](../agents/critic.md)
 - Lib helpers (all under [`../../../lib/node/pi/`](../../../lib/node/pi/)):
-  - [`iteration-loop-schema.ts`](../../../lib/node/pi/iteration-loop-schema.ts) - `CheckSpec`, `IterationState`,
+  - [`iteration-loop/schema.ts`](../../../lib/node/pi/iteration-loop/schema.ts) - `CheckSpec`, `IterationState`,
     `Verdict`, `StopReason`, shape guards.
-  - [`iteration-loop-storage.ts`](../../../lib/node/pi/iteration-loop-storage.ts) - draft/active/archive paths,
+  - [`iteration-loop/storage.ts`](../../../lib/node/pi/iteration-loop/storage.ts) - draft/active/archive paths,
     `writeDraft`, `acceptDraft`, `snapshotArtifact`, `writeSnapshotVerdict`, `listTasks`, `listArchive`.
-  - [`iteration-loop-reducer.ts`](../../../lib/node/pi/iteration-loop-reducer.ts) - `actAccept` / `actRun` / `actClose`
+  - [`iteration-loop/reducer.ts`](../../../lib/node/pi/iteration-loop/reducer.ts) - `actAccept` / `actRun` / `actClose`
     / `actRecordEdit`, `reduceBranch`, `ITERATION_TOOL_NAME`, `ITERATION_CUSTOM_TYPE`.
-  - [`iteration-loop-budget.ts`](../../../lib/node/pi/iteration-loop-budget.ts) - `computeStopReason`.
-  - [`iteration-loop-check-bash.ts`](../../../lib/node/pi/iteration-loop-check-bash.ts) - `runBashCheck` with
+  - [`iteration-loop/budget.ts`](../../../lib/node/pi/iteration-loop/budget.ts) - `computeStopReason`.
+  - [`iteration-loop/check-bash.ts`](../../../lib/node/pi/iteration-loop/check-bash.ts) - `runBashCheck` with
     `exit-zero` / `regex:` / `jq:` predicates.
-  - [`iteration-loop-check-critic.ts`](../../../lib/node/pi/iteration-loop-check-critic.ts) - `buildCriticTask`,
+  - [`iteration-loop/check-critic.ts`](../../../lib/node/pi/iteration-loop/check-critic.ts) - `buildCriticTask`,
     `parseVerdict` (tolerant JSON recovery).
-  - [`iteration-loop-artifact.ts`](../../../lib/node/pi/iteration-loop-artifact.ts) - `extractEditTargets`,
+  - [`iteration-loop/artifact.ts`](../../../lib/node/pi/iteration-loop/artifact.ts) - `extractEditTargets`,
     `anyArtifactMatch` for edit tracking.
-  - [`iteration-loop-prompt.ts`](../../../lib/node/pi/iteration-loop-prompt.ts) - `renderIterationBlock` system-prompt
+  - [`iteration-loop/prompt.ts`](../../../lib/node/pi/iteration-loop/prompt.ts) - `renderIterationBlock` system-prompt
     block.
-  - [`iteration-loop-config.ts`](../../../lib/node/pi/iteration-loop-config.ts) - `loadIterationLoopConfig`,
+  - [`iteration-loop/config.ts`](../../../lib/node/pi/iteration-loop/config.ts) - `loadIterationLoopConfig`,
     `matchesClaimRegex` (reads `~/.pi/agent/iteration-loop.json` + `<cwd>/.pi/iteration-loop.json`).
-  - [`subagent-loader.ts`](../../../lib/node/pi/subagent-loader.ts) +
-    [`subagent-spawn.ts`](../../../lib/node/pi/subagent-spawn.ts) - agent registry and `runOneShotAgent` used by the
+  - [`subagent/loader.ts`](../../../lib/node/pi/subagent/loader.ts) +
+    [`subagent/spawn.ts`](../../../lib/node/pi/subagent/spawn.ts) - agent registry and `runOneShotAgent` used by the
     critic dispatch.
   - [`verify-detect.ts`](../../../lib/node/pi/verify-detect.ts) - shared with
     [`verify-before-claim.md`](./verify-before-claim.md) for claim-nudge dedupe.
@@ -94,10 +94,10 @@ On the session branch:
 
 Runtime knobs for claim regexes and `strictNudgeAfterNEdits` are not env vars - they live in
 `~/.pi/agent/iteration-loop.json` and `<cwd>/.pi/iteration-loop.json` (loaded via
-[`iteration-loop-config.ts`](../../../lib/node/pi/iteration-loop-config.ts)).
+[`iteration-loop/config.ts`](../../../lib/node/pi/iteration-loop/config.ts)).
 
 ## Hot reload
 
 Edit [`extensions/iteration-loop.ts`](./iteration-loop.ts) or any of the
-[`lib/node/pi/iteration-loop-*.ts`](../../../lib/node/pi/) helpers and run `/reload` in an interactive pi session to
-pick up changes without restarting.
+[`lib/node/pi/iteration-loop/`](../../../lib/node/pi/iteration-loop/) helpers and run `/reload` in an interactive pi
+session to pick up changes without restarting.

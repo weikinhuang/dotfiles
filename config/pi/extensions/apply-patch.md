@@ -79,8 +79,7 @@ path).
 ### `*** Move File: <from> -> <to>`
 
 Renames `from` to `to`. Optional `@@` hunks apply against the OLD path's content; the result is written at the NEW path
-and the old path is removed. One op per the plan's [D5 decision](../../../plans/pi-cc-parity.md#decisions-locked) — no
-`Delete File` + `Add File` workaround.
+and the old path is removed. One op per move - no `Delete File` + `Add File` workaround.
 
 ```text
 *** Begin Patch
@@ -170,8 +169,7 @@ a different op).
 ## Limitations
 
 - **Text only.** `*** Add File:` body is a sequence of `+`-prefixed lines; there's no binary / base64 path. Codex
-  sidesteps this too — track [the binary-file follow-up](../../../plans/pi-cc-parity.md#follow-ups-not-in-this-plan) if
-  you need it.
+  sidesteps this too; binary-file support stays a follow-up if you need it.
 - **No git-diff conversion.** Codex's format is its own thing; `apply_patch` does NOT parse `diff --git` /
   `@@ -1,3 +1,4 @@` headers. Hand-write the Codex shape (or generate it from the `apply-patch-format` skill).
 - **No streaming.** The full patch is parsed in memory before any I/O. Multi-megabyte patches are not a target use case

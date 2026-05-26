@@ -77,5 +77,5 @@ Fields render only when present (e.g. `cached` is omitted when zero, `$` is omit
 
 ## Hot reload
 
-Edit [`extensions/btw.ts`](./btw.ts) or [`lib/node/pi/btw.ts`](../../../lib/node/pi/btw.ts) and run `/reload` in an
-interactive pi session to pick up changes without restarting.
+Edit [`extensions/btw.ts`](./btw.ts) or helpers under [`lib/node/pi/btw/`](../../../lib/node/pi/btw/) and run `/reload`
+in an interactive pi session to pick up changes without restarting.
