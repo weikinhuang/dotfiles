@@ -7,24 +7,7 @@
  * resulting text through chalk + `wrapTextWithAnsi`, so colors render
  * naturally next to bold / italic / theme styling.
  *
- * Scope is intentionally minimal:
- *   - Streaming rewrite only (`message_update`).
- *   - No `message_end` mutation: the prototype showed pi persists the
- *     rewritten ANSI into session storage and then the model
- *     pattern-matches its own raw escape bytes from history. We
- *     deliberately leave session storage in the original `[c:NAME]`
- *     syntax.
- *   - No `before_provider_request` ANSI scrub: not needed when we don't
- *     mutate at `message_end`.
- *   - Foreground only (no `[bg:...]`).
- *
- * The trade-off of streaming-only is a brief raw-tag flash at the very
- * end of the stream: pi's interactive `case "message_end"` handler
- * calls `streamingComponent.updateContent(event.message)` with a fresh
- * agent clone of the final message, which doesn't have our mutation.
- * Documented in `color-tags.md` under "Known limits".
- *
- * Hooks (only two):
+ * Three hooks:
  *
  *   1. `before_agent_start` - append a `## Inline color tags` block to
  *      the system prompt teaching the model the bracket syntax. Skipped
@@ -32,9 +15,29 @@
  *
  *   2. `message_update` - mutate `event.message.content[i].text` (and
  *      `.thinking`) in place using `rewriteColorTags(text, resolver,
- *      { streaming: true })`. The same content array reference is held
- *      by pi's streamingComponent, so the mutation propagates to the
- *      live render.
+ *      { streaming: true })` so the live render shows colors as the
+ *      model types.
+ *
+ *   3. `context` - scrub ANSI SGR sequences from outgoing assistant
+ *      messages BEFORE the next provider request goes out. This is
+ *      what stops the feedback loop where the model sees raw
+ *      `\x1b[…m` bytes in conversation history (its own past output)
+ *      and starts emitting them itself.
+ *
+ * **Why we don't restore the message at message_end.** Pi's order on
+ * `message_end` is: extension handlers run first, THEN listeners
+ * (interactive-mode's `streamingComponent.updateContent`), THEN
+ * session-write. All three consume the same `event.message` object,
+ * and `MessageEndEventResult.message` mutates that object in place
+ * (see `agent-session.js`'s `_replaceMessageInPlace`). So returning a
+ * bracket-restored message at message_end would correctly clean
+ * session JSONL, but ALSO replace the colored live render with raw
+ * `[c:NAME]` text - permanently, until the user typed again. Keeping
+ * the live render colored is the priority; the cosmetic side effect
+ * is `\u001b` bytes in the on-disk session JSONL. The `context` hook
+ * scrubs those bytes before they reach the model on the next turn or
+ * on `pi --resume`, so there's no functional consequence to the
+ * dirty JSONL.
  *
  * Pure helpers live under `../../../lib/node/pi/color-tags/` and don't
  * import from `@earendil-works/*`, so they're unit-testable under the
@@ -56,7 +59,7 @@ import type { Theme, ThemeColor } from '@earendil-works/pi-coding-agent';
 
 import { appendColorPrompt, buildColorPromptAddendum } from '../../../lib/node/pi/color-tags/color-prompt.ts';
 import { type ColorResolver, rewriteColorTags } from '../../../lib/node/pi/color-tags/parse-color-tags.ts';
-import { CLOSE_FG, resolveColor } from '../../../lib/node/pi/color-tags/resolve-color.ts';
+import { CLOSE_FG, ESC, resolveColor } from '../../../lib/node/pi/color-tags/resolve-color.ts';
 import { envTruthy } from '../../../lib/node/pi/parse-env.ts';
 
 // ──────────────────────────────────────────────────────────────────────
@@ -142,8 +145,14 @@ interface MutableMessage {
   content?: MutableContentPart[];
 }
 
+interface MutableContextMessage {
+  role?: string;
+  content?: MutableContentPart[];
+}
+
 // ──────────────────────────────────────────────────────────────────────
-// Helpers
+// Helpers (defined before the extension default export so oxlint's
+// no-use-before-define is satisfied without relying on hoisting)
 // ──────────────────────────────────────────────────────────────────────
 
 /**
@@ -164,10 +173,22 @@ function buildResolver(theme: Theme): ColorResolver {
 }
 
 /**
- * Mutate text / thinking content parts in `message` in place. Returns
- * void - pi reads the same content array reference from
- * `event.message.content` during render, so an in-place mutation is
- * what makes the colors show up live.
+ * Strip every ANSI SGR (`\x1b[…m`) sequence from `text`. Used by the
+ * `context` handler to scrub history before it reaches the LLM. The
+ * regex matches CSI sequences ending in `m` - narrow enough that
+ * tool output containing other ANSI controls (cursor moves etc.) is
+ * left alone.
+ */
+const SGR_PATTERN = new RegExp(`${ESC}\\[[0-9;]*m`, 'g');
+function stripAnsi(text: string): string {
+  return text.replace(SGR_PATTERN, '');
+}
+
+/**
+ * Mutate text / thinking content parts in `message` in place. Pi
+ * reads the same content array reference from `event.message.content`
+ * during render, so an in-place mutation is what makes the colors
+ * show up live.
  */
 function applyToMessage(message: MutableMessage, resolver: ColorResolver): void {
   if (message.role !== 'assistant') return;
@@ -182,6 +203,70 @@ function applyToMessage(message: MutableMessage, resolver: ColorResolver): void 
       part.thinking = rewriteColorTags(part.thinking, resolver, { streaming: true });
     }
   }
+}
+
+/**
+ * Append a one-line per-event diagnostic to `PI_COLOR_TAGS_TRACE` if
+ * set. Best-effort - all IO errors are swallowed because failing to
+ * log must not break the live stream. Default off; set the env var
+ * to a writable path to enable.
+ */
+function traceMessageUpdate(message: MutableMessage): void {
+  const tracePath = process.env.PI_COLOR_TAGS_TRACE;
+  if (typeof tracePath !== 'string' || tracePath.length === 0 || tracePath === 'off') return;
+  if (!Array.isArray(message.content)) return;
+  const snapshot = message.content
+    .map((p) => {
+      if (typeof p?.text === 'string') return `[text len=${p.text.length}] ${p.text.slice(-200)}`;
+      if (typeof p?.thinking === 'string') return `[thinking len=${p.thinking.length}] ${p.thinking.slice(-120)}`;
+      return `[${p?.type ?? '?'}]`;
+    })
+    .join(' || ');
+  const openCount = snapshot.split('[c:').length - 1;
+  const closeCount = snapshot.split('[/c]').length - 1;
+  try {
+    appendFileSync(
+      tracePath,
+      `${new Date().toISOString()} parts=${message.content.length} [c:openCount=${openCount} [/c]closeCount=${closeCount}\n  snapshot: ${JSON.stringify(snapshot)}\n`,
+    );
+  } catch {
+    // swallow: trace is best-effort, never break the stream on log IO.
+  }
+}
+
+/**
+ * Belt-and-suspenders ANSI scrub for outgoing context messages. Only
+ * touches assistant parts that contain `\x1b` and only allocates a
+ * new message when something actually changed.
+ *
+ * `Object.assign({}, ...)` instead of object spread to satisfy
+ * oxlint's `oxc(no-map-spread)` rule.
+ */
+function scrubContextMessages(messages: MutableContextMessage[]): { messages: MutableContextMessage[] } | undefined {
+  let outerMutated = false;
+  const next = messages.map((m) => {
+    if (m?.role !== 'assistant' || !Array.isArray(m.content)) return m;
+    let partsMutated = false;
+    const newContent = m.content.map((part) => {
+      if (!part || typeof part !== 'object') return part;
+      const newPart: MutableContentPart = Object.assign({}, part);
+      if (typeof part.text === 'string' && part.text.includes(ESC)) {
+        newPart.text = stripAnsi(part.text);
+        partsMutated = true;
+      }
+      if (typeof part.thinking === 'string' && part.thinking.includes(ESC)) {
+        newPart.thinking = stripAnsi(part.thinking);
+        partsMutated = true;
+      }
+      return newPart;
+    });
+    if (partsMutated) {
+      outerMutated = true;
+      return Object.assign({}, m, { content: newContent });
+    }
+    return m;
+  });
+  return outerMutated ? { messages: next } : undefined;
 }
 
 // ──────────────────────────────────────────────────────────────────────
@@ -205,43 +290,15 @@ export default function colorTags(pi: ExtensionAPI): void {
     const message = (event as { message?: MutableMessage }).message;
     if (message?.role !== 'assistant') return undefined;
     const resolver = buildResolver(ctx.ui.theme);
-    // Optional per-event trace: snapshot before/after to disk so a debug
-    // session can confirm whether the model emitted tags and whether the
-    // rewriter changed anything. Default off; set PI_COLOR_TAGS_TRACE to
-    // a writable path to enable.
-    const tracePath = process.env.PI_COLOR_TAGS_TRACE;
-    const traceEnabled = typeof tracePath === 'string' && tracePath.length > 0 && tracePath !== 'off';
-    let beforeSnapshot = '';
-    if (traceEnabled && Array.isArray(message.content)) {
-      beforeSnapshot = message.content
-        .map((p) => {
-          if (typeof p?.text === 'string') return `[text len=${p.text.length}] ${p.text.slice(-200)}`;
-          if (typeof p?.thinking === 'string') return `[thinking len=${p.thinking.length}] ${p.thinking.slice(-120)}`;
-          return `[${p?.type ?? '?'}]`;
-        })
-        .join(' || ');
-    }
     applyToMessage(message, resolver);
-    if (traceEnabled && Array.isArray(message.content)) {
-      const afterSnapshot = message.content
-        .map((p) => {
-          if (typeof p?.text === 'string') return `[text len=${p.text.length}] ${p.text.slice(-200)}`;
-          if (typeof p?.thinking === 'string') return `[thinking len=${p.thinking.length}] ${p.thinking.slice(-120)}`;
-          return `[${p?.type ?? '?'}]`;
-        })
-        .join(' || ');
-      const openCount = beforeSnapshot.split('«c:').length - 1;
-      const closeCount = beforeSnapshot.split('«/c»').length - 1;
-      const changed = afterSnapshot !== beforeSnapshot ? 'YES' : 'no';
-      try {
-        appendFileSync(
-          tracePath,
-          `${new Date().toISOString()} parts=${message.content.length} «c:openCount=${openCount} «/c»closeCount=${closeCount} mutationChangedText=${changed}\n  before: ${JSON.stringify(beforeSnapshot)}\n  after:  ${JSON.stringify(afterSnapshot)}\n`,
-        );
-      } catch {
-        // swallow: trace is best-effort, never break the stream on log IO.
-      }
-    }
+    traceMessageUpdate(message);
     return undefined;
+  });
+
+  pi.on('context', (event) => {
+    const messages = (event as { messages?: MutableContextMessage[] }).messages;
+    if (!Array.isArray(messages)) return undefined;
+    const result = scrubContextMessages(messages);
+    return result ? { messages: result.messages as never } : undefined;
   });
 }

@@ -32,7 +32,7 @@ render  │ ok\x1b[39m otherwise)...                             │
         └──────────────────────────────────────────────────────┘
 ```
 
-Two hooks, in order of fire:
+Two hooks for the colored render path, plus one to keep history clean:
 
 1. **`before_agent_start`** appends a `## Inline color tags` section to the system prompt teaching the model the bracket
    syntax, the close-tag rule, the no-nesting rule, the full vocabulary (named-16, 256-index, hex, theme tokens), and
@@ -43,6 +43,11 @@ Two hooks, in order of fire:
    / `thinking` part on an assistant message, rewrites the cumulative text with
    `rewriteColorTags(text, resolver, { streaming: true })`. The mutation is in-place, so pi's `streamingComponent`
    re-renders from the same array reference and colors apply progressively as the model types.
+
+3. **`context`** runs whenever pi assembles `context.messages` for an outgoing provider request. It strips every
+   `\x1b[…m` SGR sequence from assistant parts that contain one, and returns a replacement messages array. This is what
+   stops the model from seeing its own past ANSI bytes in conversation history and starting to emit raw escape bytes
+   itself.
 
 Pure logic lives under [`lib/node/pi/color-tags/`](../../../lib/node/pi/color-tags/) and is unit-tested by
 [`tests/lib/node/pi/color-tags/`](../../../tests/lib/node/pi/color-tags/):
