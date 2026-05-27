@@ -212,3 +212,26 @@ export function loadCrossSessionHistory(opts: LoadHistoryOptions): string[] {
   if (collected.length <= maxPrompts) return collected;
   return collected.slice(collected.length - maxPrompts);
 }
+
+/**
+ * Dedup a chronological prompt list (oldest first) and return the unique
+ * prompts in **most-recent-first** order. The most recent occurrence of a
+ * prompt is the one kept, so a prompt that recurs over the months bubbles
+ * to the top of the reverse-search list rather than getting buried by its
+ * old self.
+ *
+ * Used by the reverse-search overlay - the editor's own arrow-up history
+ * already deduplicates consecutive duplicates and doesn't need this.
+ */
+export function dedupKeepMostRecent(prompts: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (let i = prompts.length - 1; i >= 0; i--) {
+    const prompt = prompts[i];
+    if (prompt === undefined) continue;
+    if (seen.has(prompt)) continue;
+    seen.add(prompt);
+    out.push(prompt);
+  }
+  return out;
+}

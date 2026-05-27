@@ -13,6 +13,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
 import {
+  dedupKeepMostRecent,
   DEFAULT_MAX_PROMPT_LENGTH,
   extractUserPromptsFromText,
   listSessionFilesNewestFirst,
@@ -254,5 +255,27 @@ describe('loadCrossSessionHistory', () => {
     writeFileSync(join(dir, 'broken.jsonl'), 'not-json\nstill-not-json\n');
     writeSession('good.jsonl', ['good-1'], 0);
     expect(loadCrossSessionHistory({ sessionDir: dir })).toEqual(['good-1']);
+  });
+});
+
+// ──────────────────────────────────────────────────────────────────────
+// dedupKeepMostRecent
+// ──────────────────────────────────────────────────────────────────────
+
+describe('dedupKeepMostRecent', () => {
+  test('reverses chronological list and drops duplicates, keeping most-recent', () => {
+    expect(dedupKeepMostRecent(['a', 'b', 'a', 'c'])).toEqual(['c', 'a', 'b']);
+  });
+
+  test('preserves single-occurrence order (most-recent first)', () => {
+    expect(dedupKeepMostRecent(['a', 'b', 'c'])).toEqual(['c', 'b', 'a']);
+  });
+
+  test('handles empty input', () => {
+    expect(dedupKeepMostRecent([])).toEqual([]);
+  });
+
+  test('all duplicates collapse to one entry', () => {
+    expect(dedupKeepMostRecent(['x', 'x', 'x'])).toEqual(['x']);
   });
 });
