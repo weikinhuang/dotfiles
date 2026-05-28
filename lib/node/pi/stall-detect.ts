@@ -12,23 +12,32 @@
  * the agent loop into another turn. The classifier here decides whether
  * a turn looks stalled; the extension handles budget, UI, and delivery.
  *
- * Detection is deliberately conservative: we only fire on two unambiguous
- * signals, `empty` (no text + no tool calls) and `error` (explicit error
- * field somewhere on the turn). Hedging / punting detection was considered
- * and rejected - the false-positive rate would be too high, and the todo
- * extension's completion-claim guardrail catches a related case ("claimed
- * done but didn't deliver") from a separate angle. The two extensions are
- * orthogonal and compose naturally.
+ * Detection is deliberately conservative: we only fire on the unambiguous
+ * `empty` signal (no text + no tool calls). Turns that carry an explicit
+ * error field are NOT classified as stalls - pi-agent-core already
+ * retries transport / provider failures internally, and layering our own
+ * retry on top produced cascades of "Agent is already processing" races
+ * without ever fixing the underlying network problem. Hedging / punting
+ * detection was likewise rejected - the false-positive rate would be too
+ * high, and the todo extension's completion-claim guardrail catches a
+ * related case ("claimed done but didn't deliver") from a separate angle.
+ * The extensions are orthogonal and compose naturally.
  */
-
-import { truncate } from './shared.ts';
 
 // ──────────────────────────────────────────────────────────────────────
 // Types
 // ──────────────────────────────────────────────────────────────────────
 
-/** What kind of stall we detected. */
-export type StallReason = { kind: 'empty' } | { kind: 'error'; error: string };
+/**
+ * What kind of stall we detected. Only `empty` is currently fired -
+ * transport / provider errors are intentionally NOT classified as
+ * stalls (pi-agent-core retries those itself). Kept as a tagged
+ * `interface` so the classifier can grow new `kind`s later without
+ * breaking call sites that already discriminate on `reason.kind`.
+ */
+export interface StallReason {
+  kind: 'empty';
+}
 
 /**
  * Duck-typed minimal shape of an assistant message's meaningful output.
@@ -117,9 +126,11 @@ export function hasStallMarker(text: string): boolean {
  */
 export function classifyAssistant(snap: AssistantSnapshot): StallReason | null {
   if (snap.stopReason === 'aborted') return null;
-  if (snap.error?.trim()) {
-    return { kind: 'error', error: snap.error.trim() };
-  }
+  // Transport / provider errors are NOT stalls. pi-agent-core already
+  // retries them up to N times before surfacing the failure; firing our
+  // own retry on top causes "Agent is already processing" races and
+  // never fixes the underlying network issue.
+  if (snap.error?.trim()) return null;
   const trimmed = snap.text.trim();
   if (trimmed.length === 0 && snap.toolCallCount === 0) {
     return { kind: 'empty' };
@@ -283,23 +294,6 @@ export function buildRetryMessage(reason: StallReason, attempt: number, maxAttem
         'Your previous turn produced no output. The task is not complete. Continue where you left off -',
         'review any active todos, check the last tool result if there was one, and produce either the',
         'next tool call or the final answer for the user.',
-      ].join(' ');
-    case 'error':
-      if (isFinalAttempt) {
-        return [
-          STALL_MARKER,
-          budget,
-          `Your previous ${attempt} turn(s) failed with transport errors (last: ${truncate(reason.error, 160)}).`,
-          'Retry once more. If the error looks transient (rate limit, DNS, timeout) just re-run the same call.',
-          'If it looks structural (4xx, schema mismatch), change approach - e.g. smaller batch, different tool,',
-          'or report the failure back to the user in a text block instead of silently giving up.',
-        ].join(' ');
-      }
-      return [
-        STALL_MARKER,
-        budget,
-        `Your previous turn failed with: ${truncate(reason.error, 200)}.`,
-        'Retry the same approach, or try a different one if the error suggests the approach was wrong.',
       ].join(' ');
   }
 }

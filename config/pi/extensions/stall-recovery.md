@@ -1,26 +1,29 @@
 # `stall-recovery.ts`
 
 Auto-retry when an agent turn ends without producing meaningful work. Aimed at weaker local models that stop mid-task
-and transport / provider failures that leave the session mid-stride. Companion to [`todo.ts`](./todo.md) - both fire on
-`agent_end`, but the two handle orthogonal failure modes and never double-fire on the same turn:
+without emitting any output. Companion to [`todo.ts`](./todo.md) - both fire on `agent_end`, but the two handle
+orthogonal failure modes and never double-fire on the same turn:
 
 |              | `stall-recovery` fires when…                                                                                      | `todo` guardrail fires when…                                                          |
 | ------------ | ----------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
-| Signal       | Turn produced **no** text and no tool calls, **or** the turn has an explicit error.                               | Turn produced text that reads like a "done" sign-off, **and** open todos still exist. |
-| Failure mode | Model stopped silently; provider errored.                                                                         | Model claimed completion prematurely.                                                 |
+| Signal       | Turn produced **no** text and no tool calls.                                                                      | Turn produced text that reads like a "done" sign-off, **and** open todos still exist. |
+| Failure mode | Model stopped silently.                                                                                           | Model claimed completion prematurely.                                                 |
 | Composition  | Fresh turn triggered via `sendUserMessage`; `todo`'s `before_agent_start` injection re-anchors the plan for free. | Prompts the model to finish / `block` the open items.                                 |
 
 ## Detection
 
 On `agent_end`, the extension extracts the last assistant message from `event.messages` and classifies it via
-[`classifyAssistant()`](../../../lib/node/pi/stall-detect.ts). Detection is deliberately conservative:
+[`classifyAssistant()`](../../../lib/node/pi/stall-detect.ts). Detection is deliberately conservative - we fire on a
+single unambiguous signal:
 
-1. **`empty`** - trimmed text is empty **and** no tool calls were issued in the final assistant message. This catches
-   the canonical "model just stopped" case: weak locals that emit a stop token too early, reasoning models whose
-   thinking phase completes without emitting content, mid-stream transport errors that leave the assistant message
-   empty.
-2. **`error`** - the assistant message (or event) carries an explicit error string. Covers rate limits, timeouts, and
-   structured provider failures that surface via `event.messages` rather than throwing.
+- **`empty`** - trimmed text is empty **and** no tool calls were issued in the final assistant message, **and** the
+  message carries no error field. This catches the canonical "model just stopped" case: weak locals that emit a stop
+  token too early, reasoning models whose thinking phase completes without emitting content.
+
+Transport / provider errors are deliberately **not** classified as stalls. pi-agent-core already retries them up to N
+times internally before surfacing the failure; firing our own retry on top produced cascades of "Agent is already
+processing" races without ever fixing the underlying network problem. An assistant turn carrying a non-empty `error` (or
+`errorMessage`) field is treated the same as a healthy turn for the purposes of the stall walk: it stops the streak.
 
 Hedging / punting text ("I'll look into that.") is deliberately **not** detected: the false-positive rate is too high.
 If the model produces any substantive text or tool call, we trust it.

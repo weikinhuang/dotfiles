@@ -56,26 +56,20 @@ test('classifyAssistant: question handoff → not a stall (text is present)', ()
   expect(classifyAssistant(snap({ text: 'Should I use approach A or approach B?' }))).toBe(null);
 });
 
-test('classifyAssistant: explicit error beats empty text', () => {
-  expect(classifyAssistant(snap({ error: 'connection reset by peer' }))).toEqual({
-    kind: 'error',
-    error: 'connection reset by peer',
-  });
+test('classifyAssistant: explicit error → not a stall (pi-agent-core handles transport retries)', () => {
+  expect(classifyAssistant(snap({ error: 'connection reset by peer' }))).toBe(null);
 });
 
-test('classifyAssistant: error field wins over populated text too (turn is broken)', () => {
-  expect(classifyAssistant(snap({ text: 'partial response…', error: 'stream aborted' }))).toEqual({
-    kind: 'error',
-    error: 'stream aborted',
-  });
+test('classifyAssistant: error field with populated text → not a stall (turn is errored, not stalled)', () => {
+  expect(classifyAssistant(snap({ text: 'partial response…', error: 'stream aborted' }))).toBe(null);
 });
 
-test('classifyAssistant: whitespace-only error is ignored (treat as no error)', () => {
+test('classifyAssistant: whitespace-only error is ignored (falls through to empty-text check)', () => {
   expect(classifyAssistant(snap({ error: '   ' }))).toEqual({ kind: 'empty' });
 });
 
-test('classifyAssistant: error trims whitespace', () => {
-  expect(classifyAssistant(snap({ error: '  timeout  ' }))).toEqual({ kind: 'error', error: 'timeout' });
+test('classifyAssistant: any non-empty error suppresses the stall (no auto-retry on transport failures)', () => {
+  expect(classifyAssistant(snap({ error: '  timeout  ' }))).toBe(null);
 });
 
 // User-initiated aborts (Ctrl+C) must NEVER be classified as a stall -
@@ -109,7 +103,9 @@ test('classifyAssistant: stopReason="aborted" with partial text → not a stall 
 
 test('classifyAssistant: other stopReasons do not suppress normal classification', () => {
   expect(classifyAssistant(snap({ stopReason: 'stop' }))).toEqual({ kind: 'empty' });
-  expect(classifyAssistant(snap({ stopReason: 'error', error: 'boom' }))).toEqual({ kind: 'error', error: 'boom' });
+  // stopReason='error' with an error field is still suppressed - errors
+  // are not stalls regardless of how the provider labels the stop.
+  expect(classifyAssistant(snap({ stopReason: 'error', error: 'boom' }))).toBe(null);
 });
 
 // ──────────────────────────────────────────────────────────────────────
@@ -283,23 +279,6 @@ test('buildRetryMessage: empty reason carries marker, budget, and directive', ()
   expect(m).toMatch(/continue where you left off/i);
 });
 
-test('buildRetryMessage: error reason surfaces the error verbatim', () => {
-  const m = buildRetryMessage({ kind: 'error', error: 'HTTP 429 rate limited' }, 2, 3);
-
-  expect(m).toMatch(/⟳ \[pi-stall-recovery\]/);
-  expect(m).toMatch(/\(2\/3\)/);
-  expect(m).toMatch(/HTTP 429 rate limited/);
-  expect(m).toMatch(/Retry the same approach/i);
-});
-
-test('buildRetryMessage: error truncates very long error strings', () => {
-  const long = 'x'.repeat(500);
-  const m = buildRetryMessage({ kind: 'error', error: long }, 1, 2);
-
-  expect(m.length, 'message should cap the embedded error').toBeLessThan(500);
-  expect(m, 'truncation marker present').toMatch(/…/);
-});
-
 test('hasStallMarker: detects our sentinel', () => {
   expect(hasStallMarker(`prefix ${STALL_MARKER} (1/2) continue…`)).toBe(true);
 });
@@ -323,16 +302,6 @@ test('buildRetryMessage: final attempt (empty) escalates to imperative tone', ()
   // Gentle message does not carry imperative vocabulary.
   expect(gentle).not.toMatch(/ZERO output/);
   expect(gentle).not.toMatch(/MUST emit/i);
-});
-
-test('buildRetryMessage: final attempt (error) escalates with transient/structural hint', () => {
-  const gentle = buildRetryMessage({ kind: 'error', error: 'HTTP 429' }, 1, 2);
-  const final = buildRetryMessage({ kind: 'error', error: 'HTTP 429' }, 2, 2);
-
-  expect(gentle).toMatch(/Retry the same approach/i);
-  expect(final).toMatch(/transient \(rate limit, DNS, timeout\)/i);
-  expect(final).toMatch(/structural \(4xx, schema mismatch\)/i);
-  expect(final).toMatch(/HTTP 429/);
 });
 
 test('buildRetryMessage: escalation triggers even when maxAttempts=1 (attempt>=max)', () => {
@@ -383,8 +352,11 @@ test('countTrailingStalls: single trailing empty stall → 1', () => {
   expect(countTrailingStalls([userMsg('do a thing'), emptyAsst()])).toBe(1);
 });
 
-test('countTrailingStalls: single trailing errored stall → 1', () => {
-  expect(countTrailingStalls([userMsg('do a thing'), erroredAsst('boom')])).toBe(1);
+test('countTrailingStalls: trailing errored turn does NOT count (errors are not stalls)', () => {
+  // Errored turns are handled by pi-agent-core's own transport retry,
+  // not by stall-recovery. The errored assistant breaks the streak the
+  // same way a healthy turn would, so trailing count is 0.
+  expect(countTrailingStalls([userMsg('do a thing'), erroredAsst('boom')])).toBe(0);
 });
 
 test('countTrailingStalls: two stalls with a nudge between → 2 (nudge is transparent)', () => {

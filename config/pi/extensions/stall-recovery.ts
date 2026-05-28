@@ -6,14 +6,17 @@
  * handle orthogonal failure modes:
  *
  *   - `todo` guardrail: model claims done while open todos remain.
- *   - `stall-recovery`: model produces nothing at all (empty turn or
- *     provider error) - common with weaker local models, reasoning
- *     models whose "thinking" phase completes without emitting content,
- *     and transient network / rate-limit errors.
+ *   - `stall-recovery`: model produces nothing at all (empty turn) -
+ *     common with weaker local models and reasoning models whose
+ *     "thinking" phase completes without emitting content. Transport /
+ *     provider errors are NOT retried here - pi-agent-core retries
+ *     those itself, and layering more retries caused cascades of
+ *     "Agent is already processing" races without fixing the
+ *     underlying network problem.
  *
  * They can't double-fire on the same turn: the todo guardrail requires a
  * completion-claim text, which only exists when the model produced
- * something; the stall classifier only fires on empty / errored turns.
+ * something; the stall classifier only fires on empty turns.
  *
  * How it works:
  *
@@ -142,9 +145,8 @@ export default function stallRecovery(pi: ExtensionAPI): void {
     if (trailing >= maxRetries + 1) {
       if (!budgetExhaustedNotified) {
         budgetExhaustedNotified = true;
-        const detail = reason.kind === 'error' ? `error: ${reason.error}` : 'empty response';
         ctx.ui.notify(
-          `Agent stalled ${trailing} time(s) in a row (${detail}). Auto-retry paused - type to continue manually.`,
+          `Agent stalled ${trailing} time(s) in a row (empty response). Auto-retry paused - type to continue manually.`,
           'warning',
         );
         clearStatus(ctx);
@@ -155,14 +157,10 @@ export default function stallRecovery(pi: ExtensionAPI): void {
     const attempt = trailing; // trailing=1 → first retry, trailing=maxRetries → last retry
 
     if (verbose) {
-      const detail = reason.kind === 'error' ? `error: ${reason.error}` : 'empty response';
-      ctx.ui.notify(`stall-recovery: detected ${detail}, retrying (${attempt}/${maxRetries})`, 'info');
+      ctx.ui.notify(`stall-recovery: detected empty response, retrying (${attempt}/${maxRetries})`, 'info');
     }
 
-    ctx.ui.setStatus(
-      STATUS_KEY,
-      `⟳ Auto-retrying stalled turn (${attempt}/${maxRetries})${reason.kind === 'error' ? ' - transport error' : ''}…`,
-    );
+    ctx.ui.setStatus(STATUS_KEY, `⟳ Auto-retrying stalled turn (${attempt}/${maxRetries})…`);
 
     const nudge = buildRetryMessage(reason, attempt, maxRetries);
 
