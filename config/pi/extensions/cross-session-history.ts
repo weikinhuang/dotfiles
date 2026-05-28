@@ -37,22 +37,26 @@
 
 import {
   CustomEditor,
-  type EditorFactory,
   type ExtensionAPI,
   type ExtensionUIContext,
+  type KeybindingsManager,
   type Theme,
 } from '@earendil-works/pi-coding-agent';
 import {
   type Component,
+  type EditorComponent,
   type Focusable,
   Input,
   Key,
-  type KeybindingsManager,
   matchesKey,
   type TUI,
   truncateToWidth,
   type EditorTheme,
 } from '@earendil-works/pi-tui';
+
+// `EditorFactory` is declared in pi-coding-agent's extension types but isn't
+// re-exported from the package entry point, so we mirror the signature here.
+type EditorFactory = (tui: TUI, theme: EditorTheme, keybindings: KeybindingsManager) => EditorComponent;
 
 import {
   dedupKeepMostRecent,
