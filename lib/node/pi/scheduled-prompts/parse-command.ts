@@ -1,0 +1,264 @@
+/**
+ * `/schedule` argument parsing + `/schedules` listing format for the
+ * scheduled-prompts extension.
+ *
+ * Grammar (flags may appear in any order; the prompt is everything
+ * after a bare `--`):
+ *
+ *   /schedule --cron "0 9 * * *" --jitter 5m --scope global \
+ *             --name "morning report" -- summarize my day
+ *   /schedule --every 30m -- keep the roleplay going
+ *   /schedule --in 10m -- remind me to stretch
+ *   /schedule --at 09:00 -- stand-up notes
+ *
+ * Exactly one trigger flag (`--cron` / `--every` / `--in` / `--at`) is
+ * required. Multi-token values (a cron expression) must be quoted so a
+ * single token carries the whole expression. The tokenizer honors
+ * single and double quotes.
+ *
+ * Time resolution for `--in` / `--at` is relative to an injected `now`
+ * so the parser stays pure and testable.
+ *
+ * Pure module - no pi imports - so it is directly unit-testable.
+ */
+
+import { formatDuration, parseDuration } from './duration.ts';
+import { parseCron } from './cron.ts';
+import { computeNextFire, describeTrigger, type Schedule, type ScheduleScope, type Trigger } from './schedule.ts';
+
+export interface ScheduleDraft {
+  trigger: Trigger;
+  jitterMs?: number;
+  scope: ScheduleScope;
+  name?: string;
+  prompt: string;
+}
+
+export type ParseResult = { ok: true; draft: ScheduleDraft } | { ok: false; error: string };
+
+/** Default scope for the `/schedule` command when `--scope` is omitted. */
+export const DEFAULT_COMMAND_SCOPE: ScheduleScope = 'global';
+
+export const SCHEDULE_USAGE = [
+  'Usage: /schedule <trigger> [options] -- <prompt>',
+  '',
+  'Trigger (exactly one):',
+  '  --cron "<m h dom mon dow>"   recurring, 5-field cron (local time)',
+  '  --every <dur>                recurring interval, e.g. 30m, 2h, 1d',
+  '  --in <dur>                   one-shot after a delay, e.g. 10m',
+  '  --at <HH:MM>                 one-shot at the next local HH:MM',
+  '',
+  'Options:',
+  '  --jitter <dur>               random extra delay added to each fire',
+  '  --scope global|project|session   default: global',
+  '  --name "<label>"             human-readable name shown in /schedules',
+  '',
+  'The prompt is everything after a bare `--`.',
+].join('\n');
+
+/** Split a command-argument string into tokens, honoring quotes. */
+export function tokenize(input: string): string[] {
+  const tokens: string[] = [];
+  let current = '';
+  let quote: '"' | "'" | null = null;
+  let started = false;
+  for (const ch of input) {
+    if (quote) {
+      if (ch === quote) {
+        quote = null;
+      } else {
+        current += ch;
+      }
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      quote = ch;
+      started = true;
+      continue;
+    }
+    if (ch === ' ' || ch === '\t' || ch === '\n') {
+      if (started) {
+        tokens.push(current);
+        current = '';
+        started = false;
+      }
+      continue;
+    }
+    current += ch;
+    started = true;
+  }
+  if (started) tokens.push(current);
+  return tokens;
+}
+
+function resolveAtTime(hhmm: string, now: Date): number | null {
+  const match = /^(\d{1,2}):(\d{2})$/.exec(hhmm.trim());
+  if (!match) return null;
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+  if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return null;
+  const target = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hour, minute, 0, 0);
+  if (target.getTime() <= now.getTime()) {
+    target.setDate(target.getDate() + 1);
+  }
+  return target.getTime();
+}
+
+function takeValue(tokens: string[], index: number, flag: string): { value: string; next: number } | string {
+  const next = tokens[index + 1];
+  if (next === undefined || next === '--') return `${flag} requires a value`;
+  return { value: next, next: index + 1 };
+}
+
+/**
+ * Parse a `/schedule` argument string into a draft or a human-readable
+ * error. `now` resolves relative triggers and defaults to the current
+ * time.
+ */
+export function parseScheduleCommand(input: string, now: Date = new Date()): ParseResult {
+  const tokens = tokenize(input);
+  if (tokens.length === 0) return { ok: false, error: 'no arguments' };
+
+  let trigger: Trigger | null = null;
+  let triggerFlag: string | null = null;
+  let jitterMs: number | undefined;
+  let scope: ScheduleScope = DEFAULT_COMMAND_SCOPE;
+  let name: string | undefined;
+  let prompt = '';
+
+  const setTrigger = (flag: string, next: Trigger): string | null => {
+    if (trigger !== null) return `only one trigger allowed (already set ${triggerFlag})`;
+    trigger = next;
+    triggerFlag = flag;
+    return null;
+  };
+
+  let i = 0;
+  while (i < tokens.length) {
+    const tok = tokens[i];
+    if (tok === '--') {
+      prompt = tokens.slice(i + 1).join(' ');
+      break;
+    }
+    switch (tok) {
+      case '--cron': {
+        const v = takeValue(tokens, i, '--cron');
+        if (typeof v === 'string') return { ok: false, error: v };
+        if (parseCron(v.value) === null) return { ok: false, error: `invalid cron expression: "${v.value}"` };
+        const err = setTrigger('--cron', { kind: 'cron', expr: v.value.trim() });
+        if (err) return { ok: false, error: err };
+        i = v.next;
+        break;
+      }
+      case '--every': {
+        const v = takeValue(tokens, i, '--every');
+        if (typeof v === 'string') return { ok: false, error: v };
+        const ms = parseDuration(v.value);
+        if (ms === null) return { ok: false, error: `invalid --every duration: "${v.value}"` };
+        const err = setTrigger('--every', { kind: 'interval', ms });
+        if (err) return { ok: false, error: err };
+        i = v.next;
+        break;
+      }
+      case '--in': {
+        const v = takeValue(tokens, i, '--in');
+        if (typeof v === 'string') return { ok: false, error: v };
+        const ms = parseDuration(v.value);
+        if (ms === null) return { ok: false, error: `invalid --in duration: "${v.value}"` };
+        const err = setTrigger('--in', { kind: 'once', at: now.getTime() + ms });
+        if (err) return { ok: false, error: err };
+        i = v.next;
+        break;
+      }
+      case '--at': {
+        const v = takeValue(tokens, i, '--at');
+        if (typeof v === 'string') return { ok: false, error: v };
+        const at = resolveAtTime(v.value, now);
+        if (at === null) return { ok: false, error: `invalid --at time (expected HH:MM): "${v.value}"` };
+        const err = setTrigger('--at', { kind: 'once', at });
+        if (err) return { ok: false, error: err };
+        i = v.next;
+        break;
+      }
+      case '--jitter': {
+        const v = takeValue(tokens, i, '--jitter');
+        if (typeof v === 'string') return { ok: false, error: v };
+        const ms = parseDuration(v.value);
+        if (ms === null) return { ok: false, error: `invalid --jitter duration: "${v.value}"` };
+        jitterMs = ms;
+        i = v.next;
+        break;
+      }
+      case '--scope': {
+        const v = takeValue(tokens, i, '--scope');
+        if (typeof v === 'string') return { ok: false, error: v };
+        if (v.value !== 'global' && v.value !== 'project' && v.value !== 'session') {
+          return { ok: false, error: `invalid --scope: "${v.value}" (expected global|project|session)` };
+        }
+        scope = v.value;
+        i = v.next;
+        break;
+      }
+      case '--name': {
+        const v = takeValue(tokens, i, '--name');
+        if (typeof v === 'string') return { ok: false, error: v };
+        name = v.value;
+        i = v.next;
+        break;
+      }
+      default:
+        return { ok: false, error: `unknown argument: "${tok}"` };
+    }
+    i++;
+  }
+
+  if (trigger === null) {
+    return { ok: false, error: 'a trigger is required (--cron, --every, --in, or --at)' };
+  }
+  if (prompt.trim().length === 0) {
+    return { ok: false, error: 'a prompt is required after `--`' };
+  }
+  return { ok: true, draft: { trigger, jitterMs, scope, name, prompt: prompt.trim() } };
+}
+
+function truncate(text: string, max: number): string {
+  const oneLine = text.replace(/\s+/g, ' ').trim();
+  return oneLine.length <= max ? oneLine : `${oneLine.slice(0, max - 1)}…`;
+}
+
+function formatNextFire(schedule: Schedule, now: number): string {
+  if (!schedule.enabled) return 'disabled';
+  const at = schedule.nextFireAt ?? computeNextFire(schedule, new Date(now)) ?? undefined;
+  if (at === undefined) return 'done';
+  const delta = at - now;
+  if (delta <= 0) return 'due now';
+  return `in ${formatDuration(delta)} (${new Date(at).toLocaleString()})`;
+}
+
+/** Render one schedule as a two-line listing entry. */
+export function formatScheduleLine(schedule: Schedule, now: number): string {
+  const flag = schedule.enabled ? '' : ' [off]';
+  const label = schedule.name ? ` "${schedule.name}"` : '';
+  const head = `  ${schedule.id}${label}${flag} - ${describeTrigger(schedule.trigger)}`;
+  const meta = `      next: ${formatNextFire(schedule, now)}  runs: ${schedule.runCount}`;
+  const body = `      prompt: ${truncate(schedule.prompt, 80)}`;
+  return `${head}\n${meta}\n${body}`;
+}
+
+/** Render the full `/schedules` listing, grouped by scope. */
+export function formatScheduleList(schedules: Schedule[], now: number): string {
+  if (schedules.length === 0) return 'No schedules. Create one with /schedule (see /schedule for usage).';
+  const groups: { scope: ScheduleScope; title: string }[] = [
+    { scope: 'global', title: 'Global (persisted, all sessions)' },
+    { scope: 'project', title: 'Project (persisted, this workspace)' },
+    { scope: 'session', title: 'Session (ephemeral)' },
+  ];
+  const parts: string[] = [];
+  for (const { scope, title } of groups) {
+    const inScope = schedules.filter((s) => s.scope === scope);
+    if (inScope.length === 0) continue;
+    parts.push(`${title}:`);
+    for (const s of inScope) parts.push(formatScheduleLine(s, now));
+  }
+  return parts.join('\n');
+}

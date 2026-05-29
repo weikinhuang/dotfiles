@@ -1,0 +1,149 @@
+/**
+ * Tests for lib/node/pi/scheduled-prompts/store.ts.
+ */
+
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+import { afterEach, beforeEach, describe, expect, test } from 'vitest';
+
+import { type Schedule, type Trigger } from '../../../../../lib/node/pi/scheduled-prompts/schedule.ts';
+import {
+  addToList,
+  findById,
+  globalSchedulesPath,
+  loadPersisted,
+  parseScheduleFile,
+  projectSchedulesPath,
+  readScopeFile,
+  removeFromList,
+  updateInList,
+  writeScopeFile,
+} from '../../../../../lib/node/pi/scheduled-prompts/store.ts';
+
+function makeSchedule(id: string, trigger: Trigger, over: Partial<Schedule> = {}): Schedule {
+  return {
+    id,
+    prompt: `prompt ${id}`,
+    trigger,
+    scope: 'global',
+    enabled: true,
+    createdAt: 1_000,
+    runCount: 0,
+    ...over,
+  };
+}
+
+describe('parseScheduleFile', () => {
+  test('returns valid schedules and drops malformed entries', () => {
+    const body = JSON.stringify({
+      version: 1,
+      schedules: [
+        makeSchedule('sp-ok', { kind: 'cron', expr: '0 9 * * *' }),
+        { id: 'sp-bad', prompt: 'x' }, // missing trigger/scope/etc
+        { not: 'a schedule' },
+        makeSchedule('sp-int', { kind: 'interval', ms: 1000 }),
+      ],
+    });
+    const parsed = parseScheduleFile(body);
+    expect(parsed.map((s) => s.id)).toEqual(['sp-ok', 'sp-int']);
+  });
+
+  test('tolerates malformed JSON and non-array schedules', () => {
+    expect(parseScheduleFile('not json')).toEqual([]);
+    expect(parseScheduleFile('{}')).toEqual([]);
+    expect(parseScheduleFile(JSON.stringify({ version: 1, schedules: 'nope' }))).toEqual([]);
+  });
+
+  test('rejects unknown trigger kinds and bad scopes', () => {
+    const body = JSON.stringify({
+      version: 1,
+      schedules: [
+        makeSchedule('sp-1', { kind: 'weird' } as unknown as Trigger),
+        makeSchedule('sp-2', { kind: 'cron', expr: '0 0 * * *' }, { scope: 'nope' as unknown as Schedule['scope'] }),
+      ],
+    });
+    expect(parseScheduleFile(body)).toEqual([]);
+  });
+});
+
+describe('disk round-trip', () => {
+  let dir: string;
+  const savedEnv = process.env.PI_CODING_AGENT_DIR;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'sp-store-'));
+    process.env.PI_CODING_AGENT_DIR = join(dir, 'agent');
+  });
+
+  afterEach(() => {
+    if (savedEnv === undefined) delete process.env.PI_CODING_AGENT_DIR;
+    else process.env.PI_CODING_AGENT_DIR = savedEnv;
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test('missing file reads as empty', () => {
+    expect(readScopeFile(globalSchedulesPath())).toEqual([]);
+  });
+
+  test('writeScopeFile then readScopeFile round-trips and writes versioned JSON', () => {
+    const path = globalSchedulesPath();
+    const schedules = [makeSchedule('sp-a', { kind: 'cron', expr: '0 9 * * *' })];
+    writeScopeFile(path, schedules);
+    expect(readScopeFile(path)).toEqual(schedules);
+    const onDisk = JSON.parse(readFileSync(path, 'utf8')) as { version: number };
+    expect(onDisk.version).toBe(1);
+    expect(readFileSync(path, 'utf8').endsWith('\n')).toBe(true);
+  });
+
+  test('loadPersisted reads both global and project scopes', () => {
+    const cwd = join(dir, 'repo');
+    writeScopeFile(globalSchedulesPath(), [makeSchedule('sp-g', { kind: 'interval', ms: 1000 })]);
+    writeScopeFile(projectSchedulesPath(cwd), [makeSchedule('sp-p', { kind: 'once', at: 5000 }, { scope: 'project' })]);
+    const loaded = loadPersisted(cwd);
+    expect(loaded.global.map((s) => s.id)).toEqual(['sp-g']);
+    expect(loaded.project.map((s) => s.id)).toEqual(['sp-p']);
+  });
+
+  test('hand-edited malformed file does not throw', () => {
+    const path = globalSchedulesPath();
+    // Seed a valid file first so the parent dir exists, then clobber it.
+    writeScopeFile(path, []);
+    writeFileSync(path, '{ broken', 'utf8');
+    expect(readScopeFile(path)).toEqual([]);
+  });
+});
+
+describe('list operations', () => {
+  const base = [
+    makeSchedule('sp-1', { kind: 'cron', expr: '0 9 * * *' }),
+    makeSchedule('sp-2', { kind: 'interval', ms: 1000 }),
+  ];
+
+  test('findById', () => {
+    expect(findById(base, 'sp-2')?.id).toBe('sp-2');
+    expect(findById(base, 'nope')).toBeUndefined();
+  });
+
+  test('addToList appends without mutating', () => {
+    const next = addToList(base, makeSchedule('sp-3', { kind: 'once', at: 1 }));
+    expect(next).toHaveLength(3);
+    expect(base).toHaveLength(2);
+  });
+
+  test('removeFromList returns the removed entry', () => {
+    const { list, removed } = removeFromList(base, 'sp-1');
+    expect(removed?.id).toBe('sp-1');
+    expect(list.map((s) => s.id)).toEqual(['sp-2']);
+    expect(removeFromList(base, 'nope').removed).toBeUndefined();
+  });
+
+  test('updateInList patches but preserves id', () => {
+    const { list, updated } = updateInList(base, 'sp-1', { enabled: false, id: 'hacked' });
+    expect(updated?.enabled).toBe(false);
+    expect(updated?.id).toBe('sp-1');
+    expect(findById(list, 'sp-1')?.enabled).toBe(false);
+    expect(updateInList(base, 'nope', { enabled: false }).updated).toBeUndefined();
+  });
+});
