@@ -5,9 +5,12 @@
 import { describe, expect, test } from 'vitest';
 
 import {
+  AFTER_BACKOFF_MAX_SCALE,
+  applyActivity,
   computeNextFire,
   describeTrigger,
   makeScheduleId,
+  pickPrompt,
   recordRun,
   reconcileSchedule,
   type Schedule,
@@ -72,6 +75,28 @@ describe('computeNextFire', () => {
     const s = makeSchedule({ kind: 'cron', expr: 'not a cron' });
     expect(computeNextFire(s, new Date(CREATED))).toBeNull();
   });
+
+  test('after fires a random delay within the window past the anchor', () => {
+    const s = makeSchedule({ kind: 'after', minMs: 30_000, maxMs: 300_000 });
+    const anchor = new Date(CREATED);
+    expect(computeNextFire(s, anchor, fixedRng(0))).toBe(CREATED + 30_000);
+    // rng ~1 lands at the top of the [min, max] window.
+    expect(computeNextFire(s, anchor, fixedRng(0.999999))).toBe(CREATED + 300_000);
+  });
+
+  test('after backs off by doubling the window per unanswered run, capped', () => {
+    const base = makeSchedule({ kind: 'after', minMs: 30_000, maxMs: 60_000 });
+    // 2 unanswered -> 4x window; min bound = 30s * 4 = 120s.
+    expect(computeNextFire({ ...base, unansweredRuns: 2 }, new Date(CREATED), fixedRng(0))).toBe(CREATED + 120_000);
+    // Beyond the cap, the scale saturates at AFTER_BACKOFF_MAX_SCALE.
+    const capped = computeNextFire({ ...base, unansweredRuns: 99 }, new Date(CREATED), fixedRng(0));
+    expect(capped).toBe(CREATED + 30_000 * AFTER_BACKOFF_MAX_SCALE);
+  });
+
+  test('maxRuns retires a schedule once the cap is reached', () => {
+    const s = makeSchedule({ kind: 'interval', ms: 30 * 60_000 }, { maxRuns: 3, runCount: 3 });
+    expect(computeNextFire(s, new Date(CREATED))).toBeNull();
+  });
 });
 
 describe('reconcileSchedule', () => {
@@ -117,6 +142,73 @@ describe('recordRun', () => {
     expect(ran.runCount).toBe(1);
     expect(ran.nextFireAt).toBeUndefined();
   });
+
+  test('after bumps unansweredRuns so the next gap backs off', () => {
+    const s = makeSchedule({ kind: 'after', minMs: 30_000, maxMs: 60_000 });
+    const ran = recordRun(s, CREATED, fixedRng(0));
+    expect(ran.unansweredRuns).toBe(1);
+    // Next gap now uses the 2x window: min bound 60s.
+    expect(ran.nextFireAt).toBe(CREATED + 60_000);
+  });
+
+  test('retires (no next fire) once maxRuns is hit', () => {
+    const s = makeSchedule({ kind: 'interval', ms: 30 * 60_000 }, { maxRuns: 1 });
+    const ran = recordRun(s, CREATED + 30 * 60_000);
+    expect(ran.runCount).toBe(1);
+    expect(ran.nextFireAt).toBeUndefined();
+  });
+});
+
+describe('applyActivity', () => {
+  test('resets an after timer and clears backoff on interactive input', () => {
+    const s = makeSchedule({ kind: 'after', minMs: 30_000, maxMs: 60_000 }, { unansweredRuns: 3, nextFireAt: CREATED });
+    const at = CREATED + 1_000_000;
+    const out = applyActivity(s, at, fixedRng(0), { resetBackoff: true });
+    expect(out.unansweredRuns).toBe(0);
+    expect(out.nextFireAt).toBe(at + 30_000);
+  });
+
+  test('re-anchors without clearing backoff on a turn ending', () => {
+    const s = makeSchedule({ kind: 'after', minMs: 30_000, maxMs: 60_000 }, { unansweredRuns: 2, nextFireAt: CREATED });
+    const at = CREATED + 1_000_000;
+    const out = applyActivity(s, at, fixedRng(0), { resetBackoff: false });
+    expect(out.unansweredRuns).toBe(2);
+    // Backoff preserved: 4x window, min bound 120s past the anchor.
+    expect(out.nextFireAt).toBe(at + 120_000);
+  });
+
+  test('leaves a disabled schedule untouched', () => {
+    const s = makeSchedule({ kind: 'after', minMs: 30_000, maxMs: 60_000 }, { enabled: false });
+    expect(applyActivity(s, CREATED + 5_000, fixedRng(0))).toBe(s);
+  });
+});
+
+describe('pickPrompt', () => {
+  test('returns the sole prompt for a single-prompt schedule', () => {
+    const s = makeSchedule({ kind: 'interval', ms: 1000 });
+    expect(pickPrompt(s, fixedRng(0)).text).toBe('do the thing');
+  });
+
+  test('random pick indexes the pool by rng and leaves the cursor', () => {
+    const s = makeSchedule({ kind: 'interval', ms: 1000 }, { prompts: ['a', 'b', 'c'], promptCursor: 0 });
+    expect(pickPrompt(s, fixedRng(0)).text).toBe('a');
+    expect(pickPrompt(s, fixedRng(0.5)).text).toBe('b');
+    expect(pickPrompt(s, fixedRng(0.99)).text).toBe('c');
+    expect(pickPrompt(s, fixedRng(0.5)).cursor).toBe(0);
+  });
+
+  test('round-robin advances the cursor and wraps', () => {
+    const s = makeSchedule(
+      { kind: 'interval', ms: 1000 },
+      { prompts: ['a', 'b'], promptPick: 'roundRobin', promptCursor: 1 },
+    );
+    const first = pickPrompt(s);
+    expect(first.text).toBe('b');
+    expect(first.cursor).toBe(0);
+    const second = pickPrompt({ ...s, promptCursor: first.cursor });
+    expect(second.text).toBe('a');
+    expect(second.cursor).toBe(1);
+  });
 });
 
 describe('makeScheduleId', () => {
@@ -131,5 +223,6 @@ describe('describeTrigger', () => {
     expect(describeTrigger({ kind: 'interval', ms: 30 * 60_000 })).toBe('every 30m');
     expect(describeTrigger({ kind: 'interval', ms: 2 * 3_600_000 })).toBe('every 2h');
     expect(describeTrigger({ kind: 'once', at: CREATED })).toContain('once at');
+    expect(describeTrigger({ kind: 'after', minMs: 30_000, maxMs: 300_000 })).toBe('after 30s-5m idle');
   });
 });

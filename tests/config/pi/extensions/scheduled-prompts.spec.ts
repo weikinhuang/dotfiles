@@ -23,6 +23,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
 import { formatScheduleList, parseScheduleCommand } from '../../../../lib/node/pi/scheduled-prompts/parse-command.ts';
 import {
+  applyActivity,
   computeNextFire,
   makeScheduleId,
   recordRun,
@@ -98,14 +99,21 @@ function createFromCommand(store: ScopeStore, input: string, now: number, id: st
   const result = parseScheduleCommand(input, new Date(now));
   if (!result.ok) throw new Error(`unexpected parse failure: ${result.error}`);
   const { draft } = result;
+  const isAfter = draft.trigger.kind === 'after';
   const schedule: Schedule = {
     id,
     name: draft.name,
     prompt: draft.prompt,
+    prompts: draft.prompts,
+    promptPick: draft.promptPick,
     trigger: draft.trigger,
     jitterMs: draft.jitterMs,
     scope: draft.scope,
     enabled: true,
+    resetOnActivity: draft.resetOnActivity ?? (isAfter || undefined),
+    whenIdle: draft.whenIdle ?? (isAfter || undefined),
+    maxRuns: draft.maxRuns,
+    chance: draft.chance,
     createdAt: now,
     runCount: 0,
   };
@@ -138,10 +146,25 @@ function fireDueInScope(store: ScopeStore, scope: ScheduleScope, now: number): s
     if (s.nextFireAt > now + 1000) continue;
     fired.push(s.prompt);
     const ran = recordRun(s, now);
-    next = ran.trigger.kind === 'once' ? removeFromList(next, s.id).list : updateInList(next, s.id, ran).list;
+    // nextFireAt undefined => spent `once` or retired (hit maxRuns).
+    next = ran.nextFireAt === undefined ? removeFromList(next, s.id).list : updateInList(next, s.id, ran).list;
   }
   if (fired.length > 0) store.write(scope, next);
   return fired;
+}
+
+// Re-anchor activity-aware schedules in a scope - mirrors `onActivity`.
+function onActivity(store: ScopeStore, scope: ScheduleScope, at: number, resetBackoff: boolean): void {
+  const list = store.read(scope);
+  let changed = false;
+  const updated = list.map((s) => {
+    if (!s.enabled) return s;
+    const applies = s.trigger.kind === 'after' || (resetBackoff && s.resetOnActivity === true);
+    if (!applies) return s;
+    changed = true;
+    return applyActivity(s, at, Math.random, { resetBackoff });
+  });
+  if (changed) store.write(scope, updated);
 }
 
 // Roll stale cached targets forward and persist - mirrors
@@ -251,6 +274,27 @@ describe('scheduled-prompts command surface', () => {
     expect(store.removeById(s.id)?.id).toBe('sp-cancel');
     expect(store.removeById('nope')).toBeUndefined();
     expect(store.all()).toHaveLength(0);
+  });
+
+  test('a maxRuns schedule retires (is removed) once the cap is hit', () => {
+    createFromCommand(store, '--every 30m --scope session --max-runs 2 -- ping', NOW, 'sp-cap');
+    expect(fireDueInScope(store, 'session', NOW + 30 * 60_000)).toEqual(['ping']);
+    expect(fireDueInScope(store, 'session', NOW + 60 * 60_000)).toEqual(['ping']);
+    // Second fire reached maxRuns -> schedule removed, nothing left to arm.
+    expect(store.read('session')).toHaveLength(0);
+    expect(soonestFire(store, NOW + 90 * 60_000)).toBeUndefined();
+  });
+
+  test('an after schedule resets its countdown when the user speaks', () => {
+    const s = createFromCommand(store, '--after 30s-5m --scope session -- still there?', NOW, 'sp-after');
+    expect(s.trigger.kind).toBe('after');
+    const speakAt = NOW + 2 * 60_000;
+    onActivity(store, 'session', speakAt, true);
+    const after = store.read('session')[0];
+    // Next fire is re-anchored to a window past the moment the user spoke.
+    expect(after.nextFireAt).toBeGreaterThanOrEqual(speakAt + 30_000);
+    expect(after.nextFireAt).toBeLessThanOrEqual(speakAt + 300_000);
+    expect(after.unansweredRuns).toBe(0);
   });
 
   test('makeScheduleId yields distinct-looking ids', () => {

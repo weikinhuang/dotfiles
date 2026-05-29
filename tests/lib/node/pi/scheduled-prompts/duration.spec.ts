@@ -4,7 +4,11 @@
 
 import { describe, expect, test } from 'vitest';
 
-import { formatDuration, parseDuration } from '../../../../../lib/node/pi/scheduled-prompts/duration.ts';
+import {
+  formatDuration,
+  parseDuration,
+  parseDurationRange,
+} from '../../../../../lib/node/pi/scheduled-prompts/duration.ts';
 
 describe('parseDuration', () => {
   test('parses single-unit durations', () => {
@@ -32,6 +36,24 @@ describe('parseDuration', () => {
 
   test('rejects zero', () => {
     expect(parseDuration('0s')).toBeNull();
+  });
+});
+
+describe('parseDurationRange', () => {
+  test('parses a min-max window', () => {
+    expect(parseDurationRange('30s-5m')).toEqual({ minMs: 30_000, maxMs: 300_000 });
+  });
+
+  test('treats a single duration as an equal-bounds range', () => {
+    expect(parseDurationRange('2m')).toEqual({ minMs: 120_000, maxMs: 120_000 });
+  });
+
+  test('rejects an inverted range and unparseable sides', () => {
+    expect(parseDurationRange('5m-30s')).toBeNull();
+    expect(parseDurationRange('5m-')).toBeNull();
+    expect(parseDurationRange('-5m')).toBeNull();
+    expect(parseDurationRange('5x-10m')).toBeNull();
+    expect(parseDurationRange('')).toBeNull();
   });
 });
 

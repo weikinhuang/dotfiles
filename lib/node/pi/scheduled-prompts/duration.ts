@@ -44,6 +44,26 @@ export function parseDuration(input: string): number | null {
 }
 
 /**
+ * Parse a duration range like `30s-5m` into `{ minMs, maxMs }`, or a
+ * single duration like `2m` into an equal-bounds range (`min === max`).
+ * Returns `null` when either side is unparseable or `min > max`. Used by
+ * the `after` trigger's random window.
+ */
+export function parseDurationRange(input: string): { minMs: number; maxMs: number } | null {
+  const trimmed = input.trim().toLowerCase();
+  if (trimmed.length === 0) return null;
+  const dash = trimmed.indexOf('-');
+  if (dash === -1) {
+    const ms = parseDuration(trimmed);
+    return ms === null ? null : { minMs: ms, maxMs: ms };
+  }
+  const minMs = parseDuration(trimmed.slice(0, dash));
+  const maxMs = parseDuration(trimmed.slice(dash + 1));
+  if (minMs === null || maxMs === null || minMs > maxMs) return null;
+  return { minMs, maxMs };
+}
+
+/**
  * Format a millisecond span as a compact `1d2h3m4s` string, dropping
  * zero components. Sub-second spans render as `0s`. Negative spans are
  * clamped to `0s` (used for "fires now" / overdue display).

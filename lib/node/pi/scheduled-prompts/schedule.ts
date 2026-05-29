@@ -3,11 +3,15 @@
  * extension.
  *
  * A `Schedule` couples a prompt to fire with a trigger describing WHEN
- * to fire it. Three trigger kinds:
+ * to fire it. Trigger kinds:
  *   - `cron`     recurring, 5-field cron expression (local time)
  *   - `interval` recurring, fixed millisecond cadence anchored on
  *                `createdAt` so the phase is stable across re-arms
  *   - `once`     a single fire at an absolute epoch-ms instant
+ *   - `after`    activity-anchored: a random `[minMs, maxMs]` after the
+ *                last conversation activity, repeating during silence
+ *                with an exponential backoff that resets when the user
+ *                speaks (see `applyActivity` / `recordRun`)
  *
  * Optional `jitterMs` shifts the computed fire time FORWARD by a random
  * `[0, jitterMs)` amount so multiple sessions / users don't stampede at
@@ -32,22 +36,62 @@ export type ScheduleScope = 'global' | 'project' | 'session';
 
 export const SCHEDULE_SCOPES: readonly ScheduleScope[] = ['global', 'project', 'session'];
 
-export type Trigger = { kind: 'cron'; expr: string } | { kind: 'interval'; ms: number } | { kind: 'once'; at: number };
+export type Trigger =
+  | { kind: 'cron'; expr: string }
+  | { kind: 'interval'; ms: number }
+  | { kind: 'once'; at: number }
+  /**
+   * Activity-anchored: fire a random `[minMs, maxMs]` after the last
+   * conversation activity, repeating during silence (with backoff) and
+   * resetting when the user speaks. The roleplay "feels alive" beat.
+   */
+  | { kind: 'after'; minMs: number; maxMs: number };
+
+/** How a multi-prompt schedule chooses which prompt to fire. */
+export type PromptPick = 'random' | 'roundRobin';
 
 export interface Schedule {
   id: string;
   name?: string;
+  /** Primary prompt; also the representative shown in listings. */
   prompt: string;
+  /**
+   * Optional pool of alternative prompts. When non-empty, each fire
+   * picks one of these (see `promptPick`) instead of `prompt`, so a
+   * recurring nudge can vary its content.
+   */
+  prompts?: string[];
+  promptPick?: PromptPick;
+  /** Round-robin cursor into `prompts` (advanced per fire). */
+  promptCursor?: number;
   trigger: Trigger;
   jitterMs?: number;
   scope: ScheduleScope;
   enabled: boolean;
+  /** Recompute `nextFireAt` from "now" on each interactive user input. */
+  resetOnActivity?: boolean;
+  /** Only fire while the agent is idle; defer (don't interrupt) if busy. */
+  whenIdle?: boolean;
+  /** Retire the schedule once `runCount` reaches this many fires. */
+  maxRuns?: number;
+  /** Probability in [0, 1] that a due fire actually fires. */
+  chance?: number;
+  /**
+   * Consecutive fires since the last interactive user input. Drives the
+   * `after` backoff; reset to 0 whenever the user speaks.
+   */
+  unansweredRuns?: number;
   createdAt: number;
   lastRunAt?: number;
   runCount: number;
   /** Cached next fire instant (epoch ms). Undefined when not armed. */
   nextFireAt?: number;
 }
+
+/** Each unanswered `after` fire widens the window by this factor... */
+export const AFTER_BACKOFF_FACTOR = 2;
+/** ...up to this cap, so the character backs off but never goes silent forever. */
+export const AFTER_BACKOFF_MAX_SCALE = 8;
 
 /** Random number source, injectable for deterministic tests. */
 export type Rng = () => number;
@@ -65,6 +109,8 @@ function jitterFor(schedule: Schedule, rng: Rng): number {
  * callers that want a stable target should compute once and cache.
  */
 export function computeNextFire(schedule: Schedule, after: Date, rng: Rng = Math.random): number | null {
+  // A retired schedule (hit its run cap) never fires again.
+  if (schedule.maxRuns !== undefined && schedule.runCount >= schedule.maxRuns) return null;
   const { trigger } = schedule;
   if (trigger.kind === 'once') {
     if (schedule.runCount > 0) return null;
@@ -76,6 +122,14 @@ export function computeNextFire(schedule: Schedule, after: Date, rng: Rng = Math
     const intervals = elapsed < 0 ? 0 : Math.floor(elapsed / trigger.ms) + 1;
     const base = schedule.createdAt + intervals * trigger.ms;
     return base + jitterFor(schedule, rng);
+  }
+  if (trigger.kind === 'after') {
+    if (trigger.minMs < 0 || trigger.maxMs < trigger.minMs || trigger.maxMs <= 0) return null;
+    const scale = Math.min(AFTER_BACKOFF_FACTOR ** (schedule.unansweredRuns ?? 0), AFTER_BACKOFF_MAX_SCALE);
+    const min = trigger.minMs * scale;
+    const max = trigger.maxMs * scale;
+    const delay = min + Math.floor(rng() * (max - min + 1));
+    return after.getTime() + delay;
   }
   const fields = parseCron(trigger.expr);
   if (fields === null) return null;
@@ -113,9 +167,51 @@ export function recordRun(schedule: Schedule, firedAt: number, rng: Rng = Math.r
     ...schedule,
     lastRunAt: firedAt,
     runCount: schedule.runCount + 1,
+    // `after` backs off across consecutive unanswered fires; other kinds
+    // ignore the counter.
+    unansweredRuns: schedule.trigger.kind === 'after' ? (schedule.unansweredRuns ?? 0) + 1 : schedule.unansweredRuns,
   };
   const next = computeNextFire(ran, new Date(firedAt), rng);
   return { ...ran, nextFireAt: next ?? undefined };
+}
+
+/**
+ * Recompute `nextFireAt` anchored at `at` (epoch ms) for an activity
+ * event. `resetBackoff` (true for interactive user input, false for an
+ * agent turn ending) zeroes the `after` backoff so the next beat returns
+ * to the base window. Disabled schedules are returned unchanged.
+ */
+export function applyActivity(
+  schedule: Schedule,
+  at: number,
+  rng: Rng = Math.random,
+  opts: { resetBackoff: boolean } = { resetBackoff: true },
+): Schedule {
+  if (!schedule.enabled) return schedule;
+  const base = opts.resetBackoff ? { ...schedule, unansweredRuns: 0 } : schedule;
+  const next = computeNextFire(base, new Date(at), rng);
+  return { ...base, nextFireAt: next ?? undefined };
+}
+
+/** The prompts a fire may choose from: the pool, or `[prompt]` if none. */
+export function scheduleCandidates(schedule: Schedule): string[] {
+  return schedule.prompts && schedule.prompts.length > 0 ? schedule.prompts : [schedule.prompt];
+}
+
+/**
+ * Pick the prompt text for a fire and the cursor to persist afterward.
+ * Single-prompt schedules return that prompt; multi-prompt schedules pick
+ * round-robin (advancing the cursor) or at random (cursor unchanged).
+ */
+export function pickPrompt(schedule: Schedule, rng: Rng = Math.random): { text: string; cursor: number } {
+  const candidates = scheduleCandidates(schedule);
+  const cursor = schedule.promptCursor ?? 0;
+  if (candidates.length === 1) return { text: candidates[0], cursor };
+  if (schedule.promptPick === 'roundRobin') {
+    const at = ((cursor % candidates.length) + candidates.length) % candidates.length;
+    return { text: candidates[at], cursor: (at + 1) % candidates.length };
+  }
+  return { text: candidates[Math.floor(rng() * candidates.length)], cursor };
 }
 
 /** A short, URL-safe schedule id like `sp-k3x9a2`. */
@@ -143,5 +239,7 @@ export function describeTrigger(trigger: Trigger): string {
       return `every ${formatIntervalMs(trigger.ms)}`;
     case 'once':
       return `once at ${new Date(trigger.at).toLocaleString()}`;
+    case 'after':
+      return `after ${formatIntervalMs(trigger.minMs)}-${formatIntervalMs(trigger.maxMs)} idle`;
   }
 }

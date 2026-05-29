@@ -59,9 +59,20 @@ function isTrigger(value: unknown): value is Trigger {
       return typeof t.ms === 'number' && Number.isFinite(t.ms);
     case 'once':
       return typeof t.at === 'number' && Number.isFinite(t.at);
+    case 'after':
+      return (
+        typeof t.minMs === 'number' &&
+        Number.isFinite(t.minMs) &&
+        typeof t.maxMs === 'number' &&
+        Number.isFinite(t.maxMs)
+      );
     default:
       return false;
   }
+}
+
+function isOptionalNumber(value: unknown): boolean {
+  return value === undefined || (typeof value === 'number' && Number.isFinite(value));
 }
 
 function isScheduleShape(value: unknown): value is Schedule {
@@ -78,6 +89,16 @@ function isScheduleShape(value: unknown): value is Schedule {
   if (s.jitterMs !== undefined && typeof s.jitterMs !== 'number') return false;
   if (s.lastRunAt !== undefined && typeof s.lastRunAt !== 'number') return false;
   if (s.nextFireAt !== undefined && typeof s.nextFireAt !== 'number') return false;
+  if (s.prompts !== undefined && (!Array.isArray(s.prompts) || !s.prompts.every((p) => typeof p === 'string'))) {
+    return false;
+  }
+  if (s.promptPick !== undefined && s.promptPick !== 'random' && s.promptPick !== 'roundRobin') return false;
+  if (!isOptionalNumber(s.promptCursor)) return false;
+  if (!isOptionalNumber(s.maxRuns)) return false;
+  if (!isOptionalNumber(s.chance)) return false;
+  if (!isOptionalNumber(s.unansweredRuns)) return false;
+  if (s.resetOnActivity !== undefined && typeof s.resetOnActivity !== 'boolean') return false;
+  if (s.whenIdle !== undefined && typeof s.whenIdle !== 'boolean') return false;
   return true;
 }
 

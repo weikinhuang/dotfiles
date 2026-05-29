@@ -13,10 +13,21 @@
  *   - project  `<cwd>/.pi/scheduled-prompts.json`    (this workspace)
  *   - session  in-process only, dies when this session ends
  *
- * Three trigger kinds (each with optional `--jitter`):
+ * Trigger kinds (each with optional `--jitter`):
  *   - cron      5-field expression in local time
  *   - interval  `--every 30m`
  *   - once      `--in 10m` / `--at 09:00`
+ *   - after     `--after 30s-5m` idle nudge: fires a random gap after the
+ *               conversation goes quiet, repeats during silence (backing
+ *               off), and resets when the user speaks. Fires only while
+ *               the agent is idle. The roleplay "feels alive" beat.
+ *
+ * Activity awareness: an interactive `input` event resets `after` (and
+ * any `--reset-on-activity`) timers and clears backoff; `turn_end`
+ * re-anchors idle nudges so the gap is measured after the agent's reply.
+ * Self-fires re-enter as `input` with source `extension` and are ignored.
+ * Other knobs: `--max-runs N` (retire), `--chance 0..1` (probabilistic
+ * fire), a multi-prompt pool (`-- a | b | c`, random or `--round-robin`).
  *
  * Surfaces:
  *   - `/schedule`   create a schedule
@@ -47,11 +58,13 @@ import { Type } from 'typebox';
 
 import { createGlobalSlot } from '../../../lib/node/pi/global-slot.ts';
 import { envTruthy } from '../../../lib/node/pi/parse-env.ts';
-import { formatDuration, parseDuration } from '../../../lib/node/pi/scheduled-prompts/duration.ts';
+import { formatDuration, parseDuration, parseDurationRange } from '../../../lib/node/pi/scheduled-prompts/duration.ts';
 import {
+  applyActivity,
   computeNextFire,
   describeTrigger,
   makeScheduleId,
+  pickPrompt,
   recordRun,
   reconcileSchedule,
   type Schedule,
@@ -83,16 +96,22 @@ const MAX_TIMEOUT = 2_147_483_647;
 // Fire schedules whose target is within this window of the wake-up, to
 // absorb timer slop.
 const FIRE_SLOP_MS = 1_000;
+// When an idle-only nudge comes due mid-turn, push it out by this much
+// rather than interrupting; a turn_end re-anchor usually fires it sooner.
+const DEFER_MS = 10_000;
 
 interface SchedulerSlot {
   timer: ReturnType<typeof setTimeout> | undefined;
   /** Ephemeral session-scope schedules; survive reload, die on quit. */
   sessions: Schedule[];
+  /** Epoch ms of the last interactive user input, for activity anchoring. */
+  lastActivityAt: number;
 }
 
 const getSlot = createGlobalSlot<SchedulerSlot>('@dotfiles/pi/scheduled-prompts', () => ({
   timer: undefined,
   sessions: [],
+  lastActivityAt: 0,
 }));
 
 export default function scheduledPromptsExtension(pi: ExtensionAPI): void {
@@ -131,13 +150,15 @@ export default function scheduledPromptsExtension(pi: ExtensionAPI): void {
 
   // ── Scheduler ───────────────────────────────────────────────────────
 
-  const deliver = (schedule: Schedule): void => {
+  const isIdle = (): boolean => !currentCtx || currentCtx.isIdle();
+
+  const deliver = (schedule: Schedule, text: string): void => {
     const named = schedule.name ? ` (${schedule.name})` : '';
     try {
-      if (!currentCtx || currentCtx.isIdle()) {
-        pi.sendUserMessage(schedule.prompt);
+      if (isIdle()) {
+        pi.sendUserMessage(text);
       } else {
-        pi.sendUserMessage(schedule.prompt, { deliverAs: 'followUp' });
+        pi.sendUserMessage(text, { deliverAs: 'followUp' });
       }
       debug(`fired ${schedule.id}${named}`);
       currentCtx?.ui.notify(`scheduled-prompts: fired ${schedule.id}${named}`, 'info');
@@ -146,8 +167,13 @@ export default function scheduledPromptsExtension(pi: ExtensionAPI): void {
     }
   };
 
+  // Whether a schedule should only fire while the agent is idle. `after`
+  // (idle nudge) defaults to idle-only; everything else fires regardless
+  // unless explicitly set.
+  const wantsIdle = (s: Schedule): boolean => s.whenIdle ?? s.trigger.kind === 'after';
+
   // Fire any due schedules in `scope`, persisting run bookkeeping (and
-  // removing spent one-shots). Returns nothing; re-arm happens after.
+  // removing spent/retired ones). Returns nothing; re-arm happens after.
   //
   // Fires on the *cached* `nextFireAt`: the timer always wakes a hair
   // after the target, so `nextFireAt` is slightly in the past here. We
@@ -162,9 +188,31 @@ export default function scheduledPromptsExtension(pi: ExtensionAPI): void {
     for (const s of list) {
       if (!s.enabled || s.nextFireAt === undefined) continue;
       if (s.nextFireAt > now + FIRE_SLOP_MS) continue;
-      deliver(s);
-      const ran = recordRun(s, now);
-      if (ran.trigger.kind === 'once') {
+
+      // Don't interrupt an active turn with an idle-only nudge; defer it.
+      if (wantsIdle(s) && !isIdle()) {
+        next = updateInList(next, s.id, { nextFireAt: now + DEFER_MS }).list;
+        changed = true;
+        continue;
+      }
+
+      // Probabilistic fire: on a miss, re-arm without counting a run.
+      if (s.chance !== undefined && Math.random() >= s.chance) {
+        debug(`chance-skip ${s.id}`);
+        if (s.trigger.kind === 'once') {
+          next = removeFromList(next, s.id).list;
+        } else {
+          next = updateInList(next, s.id, { nextFireAt: computeNextFire(s, new Date(now)) ?? undefined }).list;
+        }
+        changed = true;
+        continue;
+      }
+
+      const { text, cursor } = pickPrompt(s);
+      deliver(s, text);
+      const ran = recordRun({ ...s, promptCursor: cursor }, now);
+      // nextFireAt undefined => spent `once` or retired (hit maxRuns).
+      if (ran.nextFireAt === undefined) {
         next = removeFromList(next, s.id).list;
       } else {
         next = updateInList(next, s.id, ran).list;
@@ -172,6 +220,26 @@ export default function scheduledPromptsExtension(pi: ExtensionAPI): void {
       changed = true;
     }
     if (changed) writeScope(scope, next);
+  };
+
+  // Re-anchor activity-aware schedules in every scope to `at`. Interactive
+  // input resets the `after` backoff (resetBackoff); a turn ending does
+  // not (silence keeps escalating). `after` schedules always re-anchor;
+  // other kinds only do so when they opted into `resetOnActivity` and the
+  // event is interactive.
+  const onActivity = (at: number, resetBackoff: boolean): void => {
+    for (const scope of ['global', 'project', 'session'] as const) {
+      const list = readScope(scope);
+      let changed = false;
+      const updated = list.map((s) => {
+        if (!s.enabled) return s;
+        const applies = s.trigger.kind === 'after' || (resetBackoff && s.resetOnActivity === true);
+        if (!applies) return s;
+        changed = true;
+        return applyActivity(s, at, Math.random, { resetBackoff });
+      });
+      if (changed) writeScope(scope, updated);
+    }
   };
 
   // Bring every cached `nextFireAt` up to date for `now` and persist the
@@ -303,10 +371,31 @@ export default function scheduledPromptsExtension(pi: ExtensionAPI): void {
     if (event.reason !== 'reload') slot.sessions = [];
   });
 
+  // Interactive user input is the "you spoke" signal: reset `after`
+  // countdowns and backoff, and restart any reset-on-activity timer. Our
+  // own scheduled fires re-enter here as source `extension` and MUST be
+  // ignored, or an idle nudge would reset off itself.
+  pi.on('input', (event) => {
+    if (event.source !== 'interactive' && event.source !== 'rpc') return;
+    const now = Date.now();
+    getSlot().lastActivityAt = now;
+    onActivity(now, true);
+    rearm();
+  });
+
+  // The agent finished talking: re-anchor idle nudges from now so the gap
+  // is measured after the reply, without resetting backoff (continued
+  // silence keeps escalating).
+  pi.on('turn_end', () => {
+    onActivity(Date.now(), false);
+    rearm();
+  });
+
   // ── /schedule command ─────────────────────────────────────────────────
 
   pi.registerCommand('schedule', {
-    description: 'Schedule a recurring/one-shot prompt: /schedule --cron|--every|--in|--at ... -- <prompt>',
+    description:
+      'Schedule a recurring/one-shot/idle prompt: /schedule --cron|--every|--in|--at|--after ... -- <prompt>',
     handler: async (args, ctx) => {
       cwd = ctx.cwd;
       currentCtx = ctx;
@@ -322,14 +411,23 @@ export default function scheduledPromptsExtension(pi: ExtensionAPI): void {
       }
       const { draft } = result;
       const now = Date.now();
+      const isAfter = draft.trigger.kind === 'after';
       const schedule: Schedule = {
         id: makeScheduleId(),
         name: draft.name,
         prompt: draft.prompt,
+        prompts: draft.prompts,
+        promptPick: draft.promptPick,
         trigger: draft.trigger,
         jitterMs: draft.jitterMs,
         scope: draft.scope,
         enabled: true,
+        // `after` is an idle nudge: reset on activity and don't interrupt
+        // unless the user overrode those explicitly.
+        resetOnActivity: draft.resetOnActivity ?? (isAfter || undefined),
+        whenIdle: draft.whenIdle ?? (isAfter || undefined),
+        maxRuns: draft.maxRuns,
+        chance: draft.chance,
         createdAt: now,
         runCount: 0,
       };
@@ -439,6 +537,12 @@ export default function scheduledPromptsExtension(pi: ExtensionAPI): void {
     every: Type.Optional(Type.String({ description: 'Interval like 30m, 2h, 1d (create/update).' })),
     in: Type.Optional(Type.String({ description: 'One-shot delay like 10m (create/update).' })),
     at: Type.Optional(Type.String({ description: 'One-shot local time HH:MM (create/update).' })),
+    after: Type.Optional(
+      Type.String({
+        description:
+          'Idle-nudge window like "30s-5m": fire a random gap after the last activity, repeating during silence with backoff and resetting when the user speaks. Best for keeping a roleplay alive.',
+      }),
+    ),
     jitter: Type.Optional(Type.String({ description: 'Random extra delay added to each fire, e.g. 5m.' })),
     scope: Type.Optional(
       StringEnum(['global', 'project', 'session'] as const, {
@@ -447,6 +551,22 @@ export default function scheduledPromptsExtension(pi: ExtensionAPI): void {
     ),
     name: Type.Optional(Type.String({ description: 'Human-readable label shown in /schedules.' })),
     prompt: Type.Optional(Type.String({ description: 'The prompt text to fire (required for create).' })),
+    prompts: Type.Optional(
+      Type.Array(Type.String(), {
+        description: 'Pool of alternative prompts; each fire picks one (varies a recurring nudge). Overrides `prompt`.',
+      }),
+    ),
+    roundRobin: Type.Optional(
+      Type.Boolean({ description: 'Cycle the `prompts` pool in order instead of picking at random.' }),
+    ),
+    maxRuns: Type.Optional(Type.Number({ description: 'Retire the schedule after this many fires.' })),
+    chance: Type.Optional(Type.Number({ description: 'Probability 0..1 that a due fire actually fires.' })),
+    resetOnActivity: Type.Optional(
+      Type.Boolean({ description: 'Restart the timer on each interactive user message (default true for `after`).' }),
+    ),
+    whenIdle: Type.Optional(
+      Type.Boolean({ description: 'Only fire while the agent is idle, never mid-turn (default true for `after`).' }),
+    ),
     id: Type.Optional(Type.String({ description: 'Schedule id (required for update/delete).' })),
     enabled: Type.Optional(Type.Boolean({ description: 'Enable/disable a schedule (update).' })),
   });
@@ -457,18 +577,25 @@ export default function scheduledPromptsExtension(pi: ExtensionAPI): void {
     every?: string;
     in?: string;
     at?: string;
+    after?: string;
     jitter?: string;
     scope?: ScheduleScope;
     name?: string;
     prompt?: string;
+    prompts?: string[];
+    roundRobin?: boolean;
+    maxRuns?: number;
+    chance?: number;
+    resetOnActivity?: boolean;
+    whenIdle?: boolean;
     id?: string;
     enabled?: boolean;
   }
 
   const buildTrigger = (params: ScheduleToolParamsT, now: number): { trigger: Trigger } | { error: string } => {
-    const provided = [params.cron, params.every, params.in, params.at].filter((v) => v !== undefined);
-    if (provided.length === 0) return { error: 'a trigger is required (cron, every, in, or at)' };
-    if (provided.length > 1) return { error: 'only one trigger may be set (cron, every, in, or at)' };
+    const provided = [params.cron, params.every, params.in, params.at, params.after].filter((v) => v !== undefined);
+    if (provided.length === 0) return { error: 'a trigger is required (cron, every, in, at, or after)' };
+    if (provided.length > 1) return { error: 'only one trigger may be set (cron, every, in, at, or after)' };
     if (params.cron !== undefined) {
       if (parseCron(params.cron) === null) return { error: `invalid cron expression: "${params.cron}"` };
       return { trigger: { kind: 'cron', expr: params.cron.trim() } };
@@ -477,6 +604,11 @@ export default function scheduledPromptsExtension(pi: ExtensionAPI): void {
       const ms = parseDuration(params.every);
       if (ms === null) return { error: `invalid every duration: "${params.every}"` };
       return { trigger: { kind: 'interval', ms } };
+    }
+    if (params.after !== undefined) {
+      const range = parseDurationRange(params.after);
+      if (range === null) return { error: `invalid after range (expected min-max): "${params.after}"` };
+      return { trigger: { kind: 'after', minMs: range.minMs, maxMs: range.maxMs } };
     }
     if (params.in !== undefined) {
       const ms = parseDuration(params.in);
@@ -495,8 +627,10 @@ export default function scheduledPromptsExtension(pi: ExtensionAPI): void {
   };
 
   const toolCreate = (params: ScheduleToolParamsT): { content: string; isError?: boolean } => {
-    if (!params.prompt || params.prompt.trim().length === 0) {
-      return { content: 'Error: `prompt` is required for create.', isError: true };
+    const pool = (params.prompts ?? []).map((p) => p.trim()).filter((p) => p.length > 0);
+    const primary = pool[0] ?? params.prompt?.trim() ?? '';
+    if (primary.length === 0) {
+      return { content: 'Error: `prompt` (or non-empty `prompts`) is required for create.', isError: true };
     }
     const now = Date.now();
     const built = buildTrigger(params, now);
@@ -507,14 +641,24 @@ export default function scheduledPromptsExtension(pi: ExtensionAPI): void {
       if (j === null) return { content: `Error: invalid jitter duration: "${params.jitter}"`, isError: true };
       jitterMs = j;
     }
+    if (params.chance !== undefined && (params.chance <= 0 || params.chance > 1)) {
+      return { content: `Error: chance must be in (0, 1]: ${params.chance}`, isError: true };
+    }
+    const isAfter = built.trigger.kind === 'after';
     const schedule: Schedule = {
       id: makeScheduleId(),
       name: params.name,
-      prompt: params.prompt.trim(),
+      prompt: primary,
+      prompts: pool.length > 1 ? pool : undefined,
+      promptPick: params.roundRobin ? 'roundRobin' : undefined,
       trigger: built.trigger,
       jitterMs,
       scope: params.scope ?? 'session',
       enabled: true,
+      resetOnActivity: params.resetOnActivity ?? (isAfter || undefined),
+      whenIdle: params.whenIdle ?? (isAfter || undefined),
+      maxRuns: params.maxRuns,
+      chance: params.chance,
       createdAt: now,
       runCount: 0,
     };
@@ -532,20 +676,44 @@ export default function scheduledPromptsExtension(pi: ExtensionAPI): void {
     if (!existing) return { content: `Error: no schedule with id "${params.id}".`, isError: true };
     const patch: Partial<Schedule> = {};
     if (params.prompt !== undefined) patch.prompt = params.prompt.trim();
+    if (params.prompts !== undefined) {
+      const pool = params.prompts.map((p) => p.trim()).filter((p) => p.length > 0);
+      patch.prompts = pool.length > 1 ? pool : undefined;
+      if (pool.length > 0) patch.prompt = pool[0];
+    }
+    if (params.roundRobin !== undefined) patch.promptPick = params.roundRobin ? 'roundRobin' : 'random';
     if (params.name !== undefined) patch.name = params.name;
     if (params.enabled !== undefined) patch.enabled = params.enabled;
+    if (params.maxRuns !== undefined) patch.maxRuns = params.maxRuns;
+    if (params.resetOnActivity !== undefined) patch.resetOnActivity = params.resetOnActivity;
+    if (params.whenIdle !== undefined) patch.whenIdle = params.whenIdle;
+    if (params.chance !== undefined) {
+      if (params.chance <= 0 || params.chance > 1) {
+        return { content: `Error: chance must be in (0, 1]: ${params.chance}`, isError: true };
+      }
+      patch.chance = params.chance;
+    }
     if (params.jitter !== undefined) {
       const j = parseDuration(params.jitter);
       if (j === null) return { content: `Error: invalid jitter duration: "${params.jitter}"`, isError: true };
       patch.jitterMs = j;
     }
-    if (params.cron !== undefined || params.every !== undefined || params.in !== undefined || params.at !== undefined) {
+    if (
+      params.cron !== undefined ||
+      params.every !== undefined ||
+      params.in !== undefined ||
+      params.at !== undefined ||
+      params.after !== undefined
+    ) {
       const built = buildTrigger(params, Date.now());
       if ('error' in built) return { content: `Error: ${built.error}`, isError: true };
       patch.trigger = built.trigger;
     }
     if (Object.keys(patch).length === 0) {
-      return { content: 'Error: nothing to update (set prompt, name, enabled, jitter, or a trigger).', isError: true };
+      return {
+        content: 'Error: nothing to update (set prompt(s), name, enabled, jitter, chance, maxRuns, or a trigger).',
+        isError: true,
+      };
     }
     const updated = updateById(params.id, patch);
     rearm();
@@ -557,12 +725,13 @@ export default function scheduledPromptsExtension(pi: ExtensionAPI): void {
     name: 'schedule',
     label: 'Schedule',
     description:
-      'Schedule a prompt to fire at the agent later, on a timer. Use to self-continue a roleplay, queue a recurring report, or set a reminder. Actions: create ({prompt, one of cron|every|in|at, jitter?, scope?, name?}), list, update ({id, ...}), delete ({id}). Default scope is `session` (ephemeral); pass scope `global`/`project` to persist.',
-    promptSnippet: 'Queue recurring or one-shot prompts to fire at yourself on a timer (cron / interval / once).',
+      'Schedule a prompt to fire at the agent later, on a timer. Use to self-continue a roleplay, queue a recurring report, or set a reminder. Actions: create ({prompt or prompts[], one of cron|every|in|at|after, jitter?, scope?, name?, maxRuns?, chance?, resetOnActivity?, whenIdle?}), list, update ({id, ...}), delete ({id}). Default scope is `session` (ephemeral); pass scope `global`/`project` to persist.',
+    promptSnippet: 'Queue recurring, one-shot, or idle-nudge prompts to fire at yourself on a timer.',
     promptGuidelines: [
-      'Use `schedule` create to continue without a user nudge (roleplay "keep going") or to set up a recurring/one-shot ping. Provide `prompt` plus exactly one of `cron`, `every`, `in`, `at`.',
+      'Use `schedule` create to continue without a user nudge (roleplay "keep going") or to set up a recurring/one-shot ping. Provide `prompt` (or a `prompts` pool) plus exactly one of `cron`, `every`, `in`, `at`, `after`.',
+      'For a roleplay character that feels alive, use `after` with a window like "30s-5m": it fires a random gap after the conversation goes quiet, repeats (backing off) during silence, and resets when the user speaks. Give it a `prompts` pool so the beats vary.',
       'Default scope is `session` (gone when this session ends). Use scope `global` or `project` only when the user wants the schedule to persist across sessions.',
-      'Prefer a small `jitter` for recurring schedules that might collide with other sessions.',
+      'Use `maxRuns` to bound an aliveness nudge, and `chance` (<1) for organic unpredictability. Prefer a small `jitter` for recurring schedules that might collide with other sessions.',
     ],
     parameters: ScheduleToolParams,
 
@@ -607,7 +776,7 @@ export default function scheduledPromptsExtension(pi: ExtensionAPI): void {
       const a = args as ScheduleToolParamsT;
       let text = theme.fg('toolTitle', theme.bold('schedule ')) + theme.fg('muted', a.action);
       if (a.id) text += ` ${theme.fg('accent', a.id)}`;
-      const trig = a.cron ?? a.every ?? a.in ?? a.at;
+      const trig = a.cron ?? a.every ?? a.in ?? a.at ?? a.after;
       if (trig) text += ` ${theme.fg('dim', trig)}`;
       return new Text(text, 0, 0);
     },

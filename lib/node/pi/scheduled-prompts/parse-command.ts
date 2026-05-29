@@ -22,16 +22,31 @@
  * Pure module - no pi imports - so it is directly unit-testable.
  */
 
-import { formatDuration, parseDuration } from './duration.ts';
+import { formatDuration, parseDuration, parseDurationRange } from './duration.ts';
 import { parseCron } from './cron.ts';
-import { computeNextFire, describeTrigger, type Schedule, type ScheduleScope, type Trigger } from './schedule.ts';
+import {
+  computeNextFire,
+  describeTrigger,
+  type PromptPick,
+  type Schedule,
+  type ScheduleScope,
+  type Trigger,
+} from './schedule.ts';
 
 export interface ScheduleDraft {
   trigger: Trigger;
   jitterMs?: number;
   scope: ScheduleScope;
   name?: string;
+  /** Primary prompt (first of the pool). */
   prompt: string;
+  /** Prompt pool when more than one was given (split on `|`). */
+  prompts?: string[];
+  promptPick?: PromptPick;
+  resetOnActivity?: boolean;
+  whenIdle?: boolean;
+  maxRuns?: number;
+  chance?: number;
 }
 
 export type ParseResult = { ok: true; draft: ScheduleDraft } | { ok: false; error: string };
@@ -40,20 +55,28 @@ export type ParseResult = { ok: true; draft: ScheduleDraft } | { ok: false; erro
 export const DEFAULT_COMMAND_SCOPE: ScheduleScope = 'session';
 
 export const SCHEDULE_USAGE = [
-  'Usage: /schedule <trigger> [options] -- <prompt>',
+  'Usage: /schedule <trigger> [options] -- <prompt>[ | <prompt> ...]',
   '',
   'Trigger (exactly one):',
   '  --cron "<m h dom mon dow>"   recurring, 5-field cron (local time)',
   '  --every <dur>                recurring interval, e.g. 30m, 2h, 1d',
   '  --in <dur>                   one-shot after a delay, e.g. 10m',
   '  --at <HH:MM>                 one-shot at the next local HH:MM',
+  '  --after <min-max>            idle nudge a random gap after activity,',
+  '                               e.g. 30s-5m (repeats during silence)',
   '',
   'Options:',
   '  --jitter <dur>               random extra delay added to each fire',
   '  --scope global|project|session   default: session (ephemeral)',
   '  --name "<label>"             human-readable name shown in /schedules',
+  '  --max-runs <n>               retire after n fires',
+  '  --chance <0..1>              only fire with this probability when due',
+  '  --reset-on-activity          restart the timer when you send a message',
+  '  --when-idle                  only fire while the agent is idle',
+  '  --interrupt                  allow firing mid-turn (opposite of --when-idle)',
+  '  --round-robin                cycle a multi-prompt pool in order (default: random)',
   '',
-  'The prompt is everything after a bare `--`.',
+  'The prompt is everything after a bare `--`; split alternatives with ` | `.',
 ].join('\n');
 
 export const SCHEDULES_USAGE = [
@@ -136,6 +159,12 @@ export function parseScheduleCommand(input: string, now: Date = new Date()): Par
   let scope: ScheduleScope = DEFAULT_COMMAND_SCOPE;
   let name: string | undefined;
   let prompt = '';
+  let prompts: string[] | undefined;
+  let promptPick: PromptPick | undefined;
+  let resetOnActivity: boolean | undefined;
+  let whenIdle: boolean | undefined;
+  let maxRuns: number | undefined;
+  let chance: number | undefined;
 
   const setTrigger = (flag: string, next: Trigger): string | null => {
     if (trigger !== null) return `only one trigger allowed (already set ${triggerFlag})`;
@@ -148,7 +177,13 @@ export function parseScheduleCommand(input: string, now: Date = new Date()): Par
   while (i < tokens.length) {
     const tok = tokens[i];
     if (tok === '--') {
-      prompt = tokens.slice(i + 1).join(' ');
+      const rest = tokens.slice(i + 1).join(' ');
+      const pool = rest
+        .split('|')
+        .map((p) => p.trim())
+        .filter((p) => p.length > 0);
+      prompt = pool[0] ?? '';
+      if (pool.length > 1) prompts = pool;
       break;
     }
     switch (tok) {
@@ -191,6 +226,48 @@ export function parseScheduleCommand(input: string, now: Date = new Date()): Par
         i = v.next;
         break;
       }
+      case '--after': {
+        const v = takeValue(tokens, i, '--after');
+        if (typeof v === 'string') return { ok: false, error: v };
+        const range = parseDurationRange(v.value);
+        if (range === null) return { ok: false, error: `invalid --after range (expected min-max): "${v.value}"` };
+        const err = setTrigger('--after', { kind: 'after', minMs: range.minMs, maxMs: range.maxMs });
+        if (err) return { ok: false, error: err };
+        i = v.next;
+        break;
+      }
+      case '--max-runs': {
+        const v = takeValue(tokens, i, '--max-runs');
+        if (typeof v === 'string') return { ok: false, error: v };
+        const n = Number(v.value);
+        if (!Number.isInteger(n) || n <= 0)
+          return { ok: false, error: `invalid --max-runs (expected a positive integer): "${v.value}"` };
+        maxRuns = n;
+        i = v.next;
+        break;
+      }
+      case '--chance': {
+        const v = takeValue(tokens, i, '--chance');
+        if (typeof v === 'string') return { ok: false, error: v };
+        const c = Number(v.value);
+        if (!Number.isFinite(c) || c <= 0 || c > 1)
+          return { ok: false, error: `invalid --chance (expected 0..1): "${v.value}"` };
+        chance = c;
+        i = v.next;
+        break;
+      }
+      case '--reset-on-activity':
+        resetOnActivity = true;
+        break;
+      case '--when-idle':
+        whenIdle = true;
+        break;
+      case '--interrupt':
+        whenIdle = false;
+        break;
+      case '--round-robin':
+        promptPick = 'roundRobin';
+        break;
       case '--jitter': {
         const v = takeValue(tokens, i, '--jitter');
         if (typeof v === 'string') return { ok: false, error: v };
@@ -229,7 +306,22 @@ export function parseScheduleCommand(input: string, now: Date = new Date()): Par
   if (prompt.trim().length === 0) {
     return { ok: false, error: 'a prompt is required after `--`' };
   }
-  return { ok: true, draft: { trigger, jitterMs, scope, name, prompt: prompt.trim() } };
+  return {
+    ok: true,
+    draft: {
+      trigger,
+      jitterMs,
+      scope,
+      name,
+      prompt: prompt.trim(),
+      prompts,
+      promptPick,
+      resetOnActivity,
+      whenIdle,
+      maxRuns,
+      chance,
+    },
+  };
 }
 
 function truncate(text: string, max: number): string {
@@ -250,9 +342,16 @@ function formatNextFire(schedule: Schedule, now: number): string {
 export function formatScheduleLine(schedule: Schedule, now: number): string {
   const flag = schedule.enabled ? '' : ' [off]';
   const label = schedule.name ? ` "${schedule.name}"` : '';
-  const head = `  ${schedule.id}${label}${flag} - ${describeTrigger(schedule.trigger)}`;
-  const meta = `      next: ${formatNextFire(schedule, now)}  runs: ${schedule.runCount}`;
-  const body = `      prompt: ${truncate(schedule.prompt, 80)}`;
+  const attrs: string[] = [];
+  if (schedule.chance !== undefined) attrs.push(`chance ${Math.round(schedule.chance * 100)}%`);
+  if (schedule.resetOnActivity) attrs.push('reset-on-activity');
+  if (schedule.whenIdle) attrs.push('when-idle');
+  const attrStr = attrs.length > 0 ? `  [${attrs.join(', ')}]` : '';
+  const head = `  ${schedule.id}${label}${flag} - ${describeTrigger(schedule.trigger)}${attrStr}`;
+  const runs = schedule.maxRuns !== undefined ? `${schedule.runCount}/${schedule.maxRuns}` : `${schedule.runCount}`;
+  const meta = `      next: ${formatNextFire(schedule, now)}  runs: ${runs}`;
+  const pool = schedule.prompts && schedule.prompts.length > 1 ? ` (+${schedule.prompts.length - 1} more)` : '';
+  const body = `      prompt: ${truncate(schedule.prompt, 80)}${pool}`;
   return `${head}\n${meta}\n${body}`;
 }
 

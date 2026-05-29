@@ -110,6 +110,52 @@ describe('parseScheduleCommand', () => {
   test('rejects empty input', () => {
     expect(parseScheduleCommand('', NOW).ok).toBe(false);
   });
+
+  test('parses an --after idle window', () => {
+    const r = parseScheduleCommand('--after 30s-5m -- look around', NOW);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.draft.trigger).toEqual({ kind: 'after', minMs: 30_000, maxMs: 300_000 });
+  });
+
+  test('parses max-runs, chance, and boolean policy flags', () => {
+    const r = parseScheduleCommand('--every 1m --max-runs 5 --chance 0.5 --reset-on-activity --when-idle -- ping', NOW);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.draft.maxRuns).toBe(5);
+    expect(r.draft.chance).toBe(0.5);
+    expect(r.draft.resetOnActivity).toBe(true);
+    expect(r.draft.whenIdle).toBe(true);
+  });
+
+  test('--interrupt sets whenIdle false', () => {
+    const r = parseScheduleCommand('--after 1m-2m --interrupt -- go', NOW);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.draft.whenIdle).toBe(false);
+  });
+
+  test('splits a prompt pool on | and records round-robin', () => {
+    const r = parseScheduleCommand('--after 1m-2m --round-robin -- look around | hum a tune | check phone', NOW);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.draft.prompt).toBe('look around');
+    expect(r.draft.prompts).toEqual(['look around', 'hum a tune', 'check phone']);
+    expect(r.draft.promptPick).toBe('roundRobin');
+  });
+
+  test('a single prompt leaves the pool unset', () => {
+    const r = parseScheduleCommand('--every 1m -- keep going', NOW);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.draft.prompts).toBeUndefined();
+  });
+
+  test('rejects bad --after, --max-runs, and --chance values', () => {
+    expect(parseScheduleCommand('--after 5m-30s -- x', NOW).ok).toBe(false);
+    expect(parseScheduleCommand('--every 1m --max-runs 0 -- x', NOW).ok).toBe(false);
+    expect(parseScheduleCommand('--every 1m --chance 2 -- x', NOW).ok).toBe(false);
+  });
 });
 
 function sched(over: Partial<Schedule> & { id: string; trigger: Trigger }): Schedule {
@@ -146,6 +192,29 @@ describe('formatScheduleList', () => {
     expect(out).toContain('cron "0 9 * * *"');
     expect(out).toContain('Session');
     expect(out).toContain('[off]');
+  });
+
+  test('surfaces pool size, chance, max-runs, and policy flags', () => {
+    const list: Schedule[] = [
+      sched({
+        id: 'sp-alive',
+        scope: 'session',
+        trigger: { kind: 'after', minMs: 30_000, maxMs: 300_000 },
+        prompts: ['look around', 'hum a tune'],
+        chance: 0.5,
+        whenIdle: true,
+        resetOnActivity: true,
+        maxRuns: 10,
+        runCount: 3,
+      }),
+    ];
+    const out = formatScheduleList(list, NOW.getTime());
+    expect(out).toContain('after 30s-5m idle');
+    expect(out).toContain('chance 50%');
+    expect(out).toContain('when-idle');
+    expect(out).toContain('reset-on-activity');
+    expect(out).toContain('runs: 3/10');
+    expect(out).toContain('(+1 more)');
   });
 });
 

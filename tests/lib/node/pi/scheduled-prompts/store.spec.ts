@@ -66,6 +66,36 @@ describe('parseScheduleFile', () => {
     });
     expect(parseScheduleFile(body)).toEqual([]);
   });
+
+  test('accepts an after trigger and the phase-2 optional fields', () => {
+    const s = makeSchedule(
+      'sp-after',
+      { kind: 'after', minMs: 30_000, maxMs: 300_000 },
+      {
+        prompts: ['a', 'b'],
+        promptPick: 'roundRobin',
+        promptCursor: 1,
+        resetOnActivity: true,
+        whenIdle: true,
+        maxRuns: 5,
+        chance: 0.5,
+        unansweredRuns: 2,
+      },
+    );
+    const parsed = parseScheduleFile(JSON.stringify({ version: 1, schedules: [s] }));
+    expect(parsed).toEqual([s]);
+  });
+
+  test('rejects malformed phase-2 fields', () => {
+    const bad = [
+      makeSchedule('sp-a', { kind: 'after', minMs: 1, maxMs: 'x' } as unknown as Trigger),
+      makeSchedule('sp-b', { kind: 'interval', ms: 1000 }, { prompts: [1, 2] as unknown as string[] }),
+      makeSchedule('sp-c', { kind: 'interval', ms: 1000 }, { promptPick: 'sideways' as unknown as 'random' }),
+      makeSchedule('sp-d', { kind: 'interval', ms: 1000 }, { chance: 'high' as unknown as number }),
+      makeSchedule('sp-e', { kind: 'interval', ms: 1000 }, { whenIdle: 'yes' as unknown as boolean }),
+    ];
+    expect(parseScheduleFile(JSON.stringify({ version: 1, schedules: bad }))).toEqual([]);
+  });
 });
 
 describe('disk round-trip', () => {
