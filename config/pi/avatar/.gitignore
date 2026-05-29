@@ -1,0 +1,8 @@
+# Local PNG sprite art for the image protocols (kitty / iTerm2). This is
+# scratch art for testing only and is replaced in a follow-up change, so it is
+# never committed. The committed default avatar is the kaomoji set in
+# emotes/ascii/ascii.yaml, which the renderer falls back to whenever a set has
+# no PNG frames.
+emotes/default/
+emotes/**/*.png
+emotes/**/emotes.json

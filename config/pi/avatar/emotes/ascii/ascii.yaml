@@ -1,0 +1,303 @@
+# Kaomoji avatar set - the committed default for the `avatar` extension.
+#
+# Parsed by lib/node/pi/avatar/ascii-yaml.ts (a tiny purpose-built reader, not
+# a full YAML engine). Only three shapes are understood:
+#   state: "frame"              a single frame
+#   state:                      named frames (first = base, second = blink/swap)
+#     default: "frame"
+#     blink:   "frame"
+#   state:                      an ordered list of frames (cycled while active)
+#     - "frame a"
+#     - "frame b"
+#
+# Activity states are driven automatically by agent lifecycle events. Every
+# other key is an "emotion" the model can trigger inline with [emote:NAME].
+# Keep each face roughly <= 9 columns wide so it sits inside the avatar cell.
+
+# ── Activity states ──────────────────────────────────────────────────────────
+
+hi:
+  - '( ^_^)/'
+  - '( ^o^)/'
+
+idle:
+  default: '( ･_･ )'
+  blink: '( -_- )'
+
+wait:
+  - '( ･_･ )…'
+  - '( ･_･ )‥'
+
+think:
+  default: '( ･_･)?'
+  hard: '( ╯_╰)?'
+
+talk:
+  - '( ･ω･ )'
+  - '( ･ﻌ･ )'
+  - '( ･o･ )'
+  - '( ･O･ )'
+
+read:
+  - '( •_•)>'
+  - '( •_•)»'
+  - '( •_•)―'
+
+write:
+  - '( ._.)φ'
+  - '( ._.)φ̇'
+  - '( ._.) φ'
+
+tool:
+  - '( •_•)╾'
+  - '( •_•)╼'
+
+success:
+  - '( ^_^)b'
+  - '( ＾▽＾)b'
+
+failure:
+  - '( ×_× )'
+  - '( ;_; )'
+
+compact:
+  - '( ⊃_⊂ )'
+  - '( ⊃･_･)⊃'
+
+# ── Emotions (LLM-triggered via [emote:NAME]) ────────────────────────────────
+
+happy:
+  - '( ＾▽＾)'
+  - '( ´▽｀)'
+
+joy:
+  - '(*≧▽≦)'
+  - '(ﾉ´▽`)ﾉ'
+
+sad:
+  - '( ╥_╥ )'
+  - '( ╥﹏╥ )'
+
+angry:
+  - '( `Д´ )'
+  - '(╬ಠ益ಠ)'
+
+surprised:
+  - '( ﾟoﾟ )'
+  - '( ﾟOﾟ )'
+
+shocked:
+  - '( ﾟ0ﾟ )'
+  - '( ºroº )'
+
+love:
+  - '( ♡ω♡ )'
+  - '( ♥ヮ♥ )'
+
+laugh:
+  - '( ̄▽ ̄)'
+  - '(≧▽≦)'
+
+cry:
+  - '( T_T )'
+  - '( T▽T )'
+
+sob:
+  - '( ；﹏；)'
+  - '( ｡•́︿•̀｡)'
+
+wink:
+  - '( ^_- )'
+  - '( ~_- )'
+
+cool:
+  - '( ▀̿ ̿▀ )'
+  - '( ▀ω▀ )'
+
+confused:
+  - '( ﾟ⊿ﾟ)?'
+  - '( ・ัω・ั)'
+
+scared:
+  - '( ﾟдﾟ )'
+  - '(;ﾟдﾟ )'
+
+fear:
+  - '(((；ﾟ)))'
+  - '( ﾉꐦಠ)ﾉ'
+
+sleepy:
+  - '( ˘_˘ )'
+  - '( ˘ㅂ˘)z'
+
+tired:
+  - '( ´Д｀ )'
+  - '( ´∀`；)'
+
+shy:
+  - '( //_// )'
+  - '( 〃▽〃 )'
+
+blush:
+  - '( 〃ω〃 )'
+  - '( ´∀｀)♡'
+
+smug:
+  - '( ¬‿¬ )'
+  - '( ｰ‿ｰ )'
+
+excited:
+  - '(★▽★ )'
+  - '(☆▽☆ )'
+
+bored:
+  - '( ´ー｀ )'
+  - '( ﹃ ﹃ )'
+
+sick:
+  - '( ＠_＠ )'
+  - '( ´；ω；)'
+
+dizzy:
+  - '( @_@ )'
+  - '( ⊙﹏⊙ )'
+
+mischievous:
+  - '(¬‿¬ )ﾉ'
+  - '( ˙ ͜ʟ˙ )'
+
+evil:
+  - '( ｀ｰ´)ψ'
+  - '(屮ﾟДﾟ)屮'
+
+proud:
+  - '( ￣^￣)'
+  - '( ｀ー´ )'
+
+nervous:
+  - '( ;一_一)'
+  - '( ；・∀・)'
+
+determined:
+  - '( •̀_•́ )'
+  - '( ｰ̀⌄ｰ́ )'
+
+disappointed:
+  - '( ´_ゝ` )'
+  - '( ・へ・ )'
+
+hungry:
+  - '( ’﹃’ )'
+  - '( ˘▽˘)っ'
+
+celebrate:
+  - '( ≧▽≦)/'
+  - 'ヽ( ･∀･)ﾉ'
+
+party:
+  - 'ヽ(°〇°)ﾉ'
+  - 'ヽ(￣▽￣)'
+
+curious:
+  - '( ･ω･)?'
+  - '( ﾟｰﾟ)?'
+
+annoyed:
+  - '( ¬_¬ )'
+  - '( ￣ヘ￣)'
+
+relieved:
+  - '( ´ ▽ `)'
+  - '( ˘ ³˘ )'
+
+hopeful:
+  - '( ´•ω•` )'
+  - '( ＾ω＾ )'
+
+grumpy:
+  - '( ︶︿︶ )'
+  - '( ´へ｀ )'
+
+playful:
+  - '( ˆ ³ˆ )'
+  - '( ‘ω’)ﾉ'
+
+heartbroken:
+  - '( ╥ω╥ )'
+  - '( 。•́︿•̀。)'
+
+starstruck:
+  - '( ✧ω✧ )'
+  - '( ☆ω☆ )'
+
+sparkle:
+  - '( ✧▽✧ )'
+  - '(.✧ω✧.)'
+
+panic:
+  - '( ⊙o⊙;)'
+  - '(;ﾟロﾟ )'
+
+calm:
+  - '( ˘ ◡˘ )'
+  - '( ´ ▽ ` )'
+
+zen:
+  - '( ˘ ³˘)~'
+  - '( ´- ` )'
+
+mindblown:
+  - '( ⊙﹏⊙ )'
+  - '( ﾟ□ﾟ )'
+
+facepalm:
+  - '( ◞‸◟ )'
+  - '(-_-；)＼'
+
+victory:
+  - '( ✌ﾟ∀ﾟ)'
+  - '(•̀ᴗ•́)و'
+
+wave:
+  - '( ´ ▽ `)ﾉ'
+  - '( ・ω・)ﾉ'
+
+thumbsup:
+  - '( ﾟ∀ﾟ)b'
+  - '( ・∀・)b'
+
+neutral:
+  - '( ・_・ )'
+  - '( ´_ゝ` )'
+
+smile:
+  - '( ´ ∀ ` )'
+  - '( ◠‿◠ )'
+
+grin:
+  - '( ̄∇ ̄)'
+  - '( ﾟ∀ﾟ )'
+
+frown:
+  - '( ▔︿▔ )'
+  - '( ︶︿︶ )'
+
+pout:
+  - '( ´ㅂ` )'
+  - '( •ㅅ• )'
+
+worried:
+  - '( ・_・;)'
+  - '( ﾟーﾟ;)'
+
+content:
+  - '( ˘ ▽ ˘ )'
+  - '( ´ ꒳ ` )'
+
+embarrassed:
+  - '( 〃▽〃);'
+  - '( ＞﹏＜ )'
+
+smitten:
+  - '( ♡‿♡ )'
+  - '( ´ ∀ `)♡'
