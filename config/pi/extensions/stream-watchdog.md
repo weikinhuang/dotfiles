@@ -57,7 +57,11 @@ injected after a healthy turn.
 
 Retries are capped per user prompt by `PI_STREAM_WATCHDOG_MAX_RETRIES` (default 2). On budget exhaustion the watchdog
 still aborts the hung stream (so the UI unfreezes) but skips the auto-retry and surfaces a one-shot warning so you know
-to intervene. The counter resets on real user input and on any `agent_end` whose last assistant message closed cleanly.
+to intervene. The counter resets on a genuinely fresh idle user prompt and on any `agent_end` whose last assistant
+message closed cleanly. Mid-stream user steers and queued follow-ups (pi >= 0.77.0, surfaced as
+`InputEvent.streamingBehavior` of `"steer"` / `"followUp"`) do NOT reset the watchdog: the user is course-correcting
+the same in-flight turn the watchdog is supposed to be watching, so tearing down the poll there would defeat its job.
+The shared predicate is [`isFreshUserPrompt`](../../../lib/node/pi/input-event.ts).
 
 With `PI_STREAM_WATCHDOG_ABORT=0` the watchdog surfaces a `ctx.ui.notify` warning but leaves the abort to you. Useful
 while tuning `PI_STREAM_WATCHDOG_STALL_MS` against a noisy model - you can see how often the threshold would trigger

@@ -79,6 +79,7 @@ import {
   stripThinkingFromStalledTurns,
   type StallReason,
 } from '../../../lib/node/pi/stall-detect.ts';
+import { isFreshUserPrompt } from '../../../lib/node/pi/input-event.ts';
 import { envTruthy, parseNonNegativeInt } from '../../../lib/node/pi/parse-env.ts';
 
 const STATUS_KEY = 'stall-recovery';
@@ -102,11 +103,13 @@ export default function stallRecovery(pi: ExtensionAPI): void {
   };
 
   pi.on('input', (event, ctx) => {
-    // Only reset on real user input. Our own sendUserMessage calls fire
-    // input events with source='extension'; resetting on those is
-    // harmless (the budget is stateless) but clearing the exhausted
-    // notice is wrong - wait for a real prompt.
-    if (event.source === 'extension') return;
+    // Only reset on a genuinely fresh idle user prompt. The budget
+    // itself is stateless (recomputed from message history each
+    // agent_end), but clearing the one-shot "exhausted" notice on an
+    // extension-synthesized message or a mid-stream steer / queued
+    // follow-up (pi >= 0.77.0) is wrong - those don't end the stalled
+    // run, the user hasn't acknowledged the warning yet.
+    if (!isFreshUserPrompt(event)) return;
     if (typeof event.text === 'string' && hasStallMarker(event.text)) return;
     budgetExhaustedNotified = false;
     clearStatus(ctx);

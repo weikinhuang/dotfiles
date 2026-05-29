@@ -43,6 +43,7 @@ import { isAbsolute, resolve } from 'node:path';
 import { type ExtensionAPI, isReadToolResult } from '@earendil-works/pi-coding-agent';
 
 import { safeStatSync } from '../../../lib/node/pi/fs-safe.ts';
+import { isFreshUserPrompt } from '../../../lib/node/pi/input-event.ts';
 import { envTruthy, parsePositiveInt } from '../../../lib/node/pi/parse-env.ts';
 import { displayPath } from '../../../lib/node/pi/path-display.ts';
 import { type FileSignature, formatNudge, ReadHistory, type RereadProbe } from '../../../lib/node/pi/read-reread.ts';
@@ -68,11 +69,13 @@ export default function readRereadDetector(pi: ExtensionAPI): void {
     turn = 0;
   });
 
-  // Any real user input starts a fresh turn for "N turns ago" accounting.
-  // Extension-synthesized messages do NOT bump - they're part of the same
-  // logical turn the model is thinking through.
+  // Only a genuinely fresh idle user prompt starts a new turn for
+  // "N turns ago" accounting. Extension-synthesized messages and the
+  // pi-0.77.0+ mid-stream steers / queued follow-ups are all part of
+  // the same logical turn the model is thinking through, so they do
+  // not bump.
   pi.on('input', (event) => {
-    if (event.source === 'extension') return;
+    if (!isFreshUserPrompt(event)) return;
     turn++;
   });
 

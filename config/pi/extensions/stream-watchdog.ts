@@ -79,6 +79,7 @@
 
 import { type ExtensionAPI, type ExtensionContext } from '@earendil-works/pi-coding-agent';
 
+import { isFreshUserPrompt } from '../../../lib/node/pi/input-event.ts';
 import { findLastAssistantMessage } from '../../../lib/node/pi/message-extract.ts';
 import { envTruthy, parseNonNegativeInt, parsePositiveInt } from '../../../lib/node/pi/parse-env.ts';
 import {
@@ -239,11 +240,20 @@ export default function streamWatchdog(pi: ExtensionAPI): void {
   });
 
   pi.on('input', (event, ctx) => {
-    // Only reset on real user input. Synthesized follow-ups from other
-    // extensions (stall-recovery, loop-breaker) shouldn't flush our
-    // state - if the model is already mid-stream in response to our
-    // own nudge, we still want to watch for silence.
-    if (event.source === 'extension') return;
+    // Only reset on a genuinely fresh idle user prompt. Three cases we
+    // do NOT want to reset on, all of which are "same logical turn":
+    //   1. Synthesized follow-ups from other extensions
+    //      (stall-recovery, loop-breaker) - if the model is mid-stream
+    //      in response to our own nudge, keep watching for silence.
+    //   2. Mid-stream user steers (`streamingBehavior === 'steer'`,
+    //      pi >= 0.77.0) - the user is course-correcting an in-flight
+    //      turn, not starting a new one; tearing down the watchdog
+    //      here would defeat its job exactly when the user is most
+    //      likely to be watching it.
+    //   3. Queued follow-ups (`streamingBehavior === 'followUp'`) -
+    //      delivered after the current turn drains, but the in-flight
+    //      stream is still the original turn.
+    if (!isFreshUserPrompt(event)) return;
     // Belt-and-suspenders: if a user typed our own marker back at us
     // (replay via interactive / rpc), don't reset the budget - that
     // would defeat the retry cap.

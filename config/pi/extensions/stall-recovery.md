@@ -76,7 +76,10 @@ history instead of volatile memory.
 
 Loop prevention is layered: the sentinel alone would bound retries (any `user` carrying it is transparent to the walk,
 so the count can never exceed the number of actual stalls), and the `input` handler additionally ignores any real prompt
-that echoes the sentinel - defense against replay scenarios.
+that echoes the sentinel - defense against replay scenarios. The "budget exhausted" notify is cleared only on a
+genuinely fresh idle user prompt (the shared [`isFreshUserPrompt`](../../../lib/node/pi/input-event.ts) predicate);
+pi-0.77.0+ mid-stream steers / queued follow-ups (`InputEvent.streamingBehavior` of `"steer"` / `"followUp"`) do not
+clear it, since the stalled run hasn't actually ended yet.
 
 ## Retry prompt escalation
 

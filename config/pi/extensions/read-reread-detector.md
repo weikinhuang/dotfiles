@@ -14,8 +14,11 @@ the offset/limit the model asked for and the current turn. On any subsequent `re
   `rg -n "<pattern>" <path>` or `scratchpad` for incremental capture.
 - **changed** - mtime or size differs → silent, update the signature.
 
-The turn counter only bumps on REAL user input - extension-synthesized messages (`source: "extension"`) don’t count, so
-“N turns ago” stays semantically correct when other extensions inject steers between turns.
+The turn counter only bumps on a genuinely fresh idle user prompt - extension-synthesized messages
+(`source: "extension"`) and pi-0.77.0+ mid-stream steers / queued follow-ups (`InputEvent.streamingBehavior` of
+`"steer"` / `"followUp"`) don’t count, so “N turns ago” stays semantically correct when other extensions inject steers
+between turns or when the user adds a mid-turn correction. The shared predicate is
+[`isFreshUserPrompt`](../../../lib/node/pi/input-event.ts).
 
 Pure logic (history store, classification, nudge formatting) lives in
 [`lib/node/pi/read-reread.ts`](../../../lib/node/pi/read-reread.ts) so it can be unit-tested under `vitest` without

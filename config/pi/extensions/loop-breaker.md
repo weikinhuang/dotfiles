@@ -27,8 +27,11 @@ with different inputs" escape hatch.
 The history clears (and the statusline key unsets) on:
 
 - `session_start` - fresh session, fresh window.
-- `input` where `event.source !== 'extension'` - a real user typed (or an RPC/API client sent) a new prompt. Messages
-  synthesized by this extension don't reset the counter, to prevent replay scenarios from masking a real loop.
+- `input` that is a genuinely fresh idle user prompt (the shared
+  [`isFreshUserPrompt`](../../../lib/node/pi/input-event.ts) predicate). Extension-synthesized messages don't reset, to
+  prevent replay scenarios from masking a real loop; pi-0.77.0+ mid-stream steers / queued follow-ups
+  (`InputEvent.streamingBehavior` of `"steer"` / `"followUp"`) also don't reset, since the loop the user is steering
+  against is still the same in-flight turn.
 - `session_shutdown` - tidy on exit.
 
 ## Environment variables

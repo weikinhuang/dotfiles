@@ -38,6 +38,7 @@
 
 import { type ExtensionAPI, type ExtensionContext } from '@earendil-works/pi-coding-agent';
 
+import { isFreshUserPrompt } from '../../../lib/node/pi/input-event.ts';
 import { buildNudge, makeKey, pushAndCheck } from '../../../lib/node/pi/loop-breaker.ts';
 import { envTruthy, parsePositiveInt } from '../../../lib/node/pi/parse-env.ts';
 import { makeDiagnostics } from '../../../lib/node/pi/recovery-diagnostics.ts';
@@ -71,9 +72,12 @@ export default function loopBreaker(pi: ExtensionAPI): void {
   });
 
   pi.on('input', (event, ctx) => {
-    // Skip our own synthesized nudges so repeated steering doesn't
-    // keep wiping the history.
-    if (event.source === 'extension') return;
+    // Only reset on a genuinely fresh idle user prompt. Skip our own
+    // synthesized nudges (so repeated steering doesn't keep wiping the
+    // history) and pi-0.77.0+ mid-stream steers / queued follow-ups
+    // (same logical turn from the model's perspective; the loop the
+    // user is steering against is still in flight).
+    if (!isFreshUserPrompt(event)) return;
     reset(ctx, 'user input');
   });
 
