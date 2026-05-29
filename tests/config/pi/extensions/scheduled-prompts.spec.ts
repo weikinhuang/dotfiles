@@ -126,13 +126,14 @@ function soonestFire(store: ScopeStore, now: number): number | undefined {
 }
 
 // Fire due schedules in a scope - mirrors `fireDueInScope`. Returns the
-// prompts that would have been delivered.
+// prompts that would have been delivered. Fires on the *cached*
+// nextFireAt (no reconcile-forward): the timer wakes a hair after the
+// target, so the cached instant is slightly in the past at wake time.
 function fireDueInScope(store: ScopeStore, scope: ScheduleScope, now: number): string[] {
   const list = store.read(scope);
   let next = list;
   const fired: string[] = [];
-  for (const original of list) {
-    const s = reconcileSchedule(original, now);
+  for (const s of list) {
     if (!s.enabled || s.nextFireAt === undefined) continue;
     if (s.nextFireAt > now + 1000) continue;
     fired.push(s.prompt);
@@ -141,6 +142,19 @@ function fireDueInScope(store: ScopeStore, scope: ScheduleScope, now: number): s
   }
   if (fired.length > 0) store.write(scope, next);
   return fired;
+}
+
+// Roll stale cached targets forward and persist - mirrors
+// `reconcileScopePersist`, run at session_start.
+function reconcileScopePersist(store: ScopeStore, scope: ScheduleScope, now: number): void {
+  const list = store.read(scope);
+  let changed = false;
+  const next = list.map((s) => {
+    const r = reconcileSchedule(s, now);
+    if (r !== s) changed = true;
+    return r;
+  });
+  if (changed) store.write(scope, next);
 }
 
 describe('scheduled-prompts command surface', () => {
@@ -199,6 +213,26 @@ describe('scheduled-prompts command surface', () => {
     const after = readScopeFile(globalSchedulesPath())[0];
     expect(after.runCount).toBe(1);
     expect(after.nextFireAt).toBe(NOW + 60 * 60_000);
+  });
+
+  test('a recurring schedule fires when the timer wakes slightly late', () => {
+    createFromCommand(store, '--every 30m --scope global -- ping', NOW, 'sp-late');
+    // The timer always wakes a few ms after the cached target; fire on
+    // the cached instant rather than rolling forward and skipping it.
+    const lateWake = NOW + 30 * 60_000 + 250;
+    expect(fireDueInScope(store, 'global', lateWake)).toEqual(['ping']);
+    expect(readScopeFile(globalSchedulesPath())[0].runCount).toBe(1);
+  });
+
+  test('a recurring fire missed while pi was closed is skipped, not fired late', () => {
+    createFromCommand(store, '--every 30m --scope global -- ping', NOW, 'sp-missed');
+    // pi reopens two hours later: the cached target is long past.
+    const reopenedAt = NOW + 2 * 60 * 60_000 + 5_000;
+    reconcileScopePersist(store, 'global', reopenedAt);
+    const after = readScopeFile(globalSchedulesPath())[0];
+    // Rolled forward to a future interval, so reopening does not fire it.
+    expect(after.nextFireAt).toBeGreaterThan(reopenedAt);
+    expect(fireDueInScope(store, 'global', reopenedAt)).toEqual([]);
   });
 
   test('/schedules off disables a schedule so it does not fire', () => {

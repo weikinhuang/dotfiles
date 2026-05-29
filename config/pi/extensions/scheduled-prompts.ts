@@ -63,6 +63,7 @@ import {
   formatScheduleList,
   parseScheduleCommand,
   SCHEDULE_USAGE,
+  SCHEDULES_USAGE,
 } from '../../../lib/node/pi/scheduled-prompts/parse-command.ts';
 import {
   addToList,
@@ -147,12 +148,18 @@ export default function scheduledPromptsExtension(pi: ExtensionAPI): void {
 
   // Fire any due schedules in `scope`, persisting run bookkeeping (and
   // removing spent one-shots). Returns nothing; re-arm happens after.
+  //
+  // Fires on the *cached* `nextFireAt`: the timer always wakes a hair
+  // after the target, so `nextFireAt` is slightly in the past here. We
+  // must NOT reconcile-forward at this point (that would roll a
+  // recurring schedule to its next occurrence and skip the fire we just
+  // woke for). Schedules missed while pi was closed are skipped earlier,
+  // at `session_start`, where the reconciliation is persisted.
   const fireDueInScope = (scope: ScheduleScope, now: number): void => {
     const list = readScope(scope);
     let next = list;
     let changed = false;
-    for (const original of list) {
-      const s = reconcileSchedule(original, now);
+    for (const s of list) {
       if (!s.enabled || s.nextFireAt === undefined) continue;
       if (s.nextFireAt > now + FIRE_SLOP_MS) continue;
       deliver(s);
@@ -164,6 +171,21 @@ export default function scheduledPromptsExtension(pi: ExtensionAPI): void {
       }
       changed = true;
     }
+    if (changed) writeScope(scope, next);
+  };
+
+  // Bring every cached `nextFireAt` up to date for `now` and persist the
+  // result. Recurring schedules whose cached target fell into the past
+  // (a fire missed while pi was closed) are rolled forward to their next
+  // occurrence here, so the live fire path can trust cached targets.
+  const reconcileScopePersist = (scope: ScheduleScope, now: number): void => {
+    const list = readScope(scope);
+    let changed = false;
+    const next = list.map((s) => {
+      const r = reconcileSchedule(s, now);
+      if (r !== s) changed = true;
+      return r;
+    });
     if (changed) writeScope(scope, next);
   };
 
@@ -263,6 +285,10 @@ export default function scheduledPromptsExtension(pi: ExtensionAPI): void {
   pi.on('session_start', (_event, ctx) => {
     currentCtx = ctx;
     cwd = ctx.cwd;
+    const now = Date.now();
+    reconcileScopePersist('global', now);
+    reconcileScopePersist('project', now);
+    reconcileScopePersist('session', now);
     rearm();
   });
 
@@ -356,7 +382,7 @@ export default function scheduledPromptsExtension(pi: ExtensionAPI): void {
       if (!verb) {
         const now = Date.now();
         const reconciled = collectAll().map((s) => reconcileSchedule(s, now));
-        ctx.ui.notify(formatScheduleList(reconciled, now), 'info');
+        ctx.ui.notify(`${formatScheduleList(reconciled, now)}\n\n${SCHEDULES_USAGE}`, 'info');
         return;
       }
 

@@ -9,6 +9,7 @@ import {
   DEFAULT_COMMAND_SCOPE,
   formatScheduleList,
   parseScheduleCommand,
+  SCHEDULES_USAGE,
   tokenize,
 } from '../../../../../lib/node/pi/scheduled-prompts/parse-command.ts';
 
@@ -145,5 +146,13 @@ describe('formatScheduleList', () => {
     expect(out).toContain('cron "0 9 * * *"');
     expect(out).toContain('Session');
     expect(out).toContain('[off]');
+  });
+});
+
+describe('SCHEDULES_USAGE', () => {
+  test('documents every /schedules subverb', () => {
+    for (const verb of ['cancel', 'clear', 'on', 'off']) {
+      expect(SCHEDULES_USAGE).toContain(`/schedules ${verb}`);
+    }
   });
 });

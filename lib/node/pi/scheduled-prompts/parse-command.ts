@@ -37,7 +37,7 @@ export interface ScheduleDraft {
 export type ParseResult = { ok: true; draft: ScheduleDraft } | { ok: false; error: string };
 
 /** Default scope for the `/schedule` command when `--scope` is omitted. */
-export const DEFAULT_COMMAND_SCOPE: ScheduleScope = 'global';
+export const DEFAULT_COMMAND_SCOPE: ScheduleScope = 'session';
 
 export const SCHEDULE_USAGE = [
   'Usage: /schedule <trigger> [options] -- <prompt>',
@@ -50,10 +50,21 @@ export const SCHEDULE_USAGE = [
   '',
   'Options:',
   '  --jitter <dur>               random extra delay added to each fire',
-  '  --scope global|project|session   default: global',
+  '  --scope global|project|session   default: session (ephemeral)',
   '  --name "<label>"             human-readable name shown in /schedules',
   '',
   'The prompt is everything after a bare `--`.',
+].join('\n');
+
+export const SCHEDULES_USAGE = [
+  'Manage schedules:',
+  '  /schedules                     list all schedules',
+  '  /schedules cancel <id>         remove one schedule',
+  '  /schedules clear [scope|all]   remove a whole scope (default: all)',
+  '  /schedules on <id>             enable a schedule',
+  '  /schedules off <id>            disable a schedule',
+  '',
+  'Create one with /schedule (run /schedule for usage).',
 ].join('\n');
 
 /** Split a command-argument string into tokens, honoring quotes. */

@@ -41,8 +41,8 @@ persisted schedule don't stampede at the same instant. Jitter only ever delays, 
 | `project` | `<cwd>/.pi/scheduled-prompts.json`   | This workspace, until cancelled. |
 | `session` | in-process only                      | Dies when this session ends.     |
 
-The `/schedule` command defaults to `global` (explicit user intent to persist). The `schedule` tool defaults to
-`session` so the agent's self-scheduling is ephemeral unless asked otherwise.
+Both the `/schedule` command and the `schedule` tool default to `session`, so a schedule is ephemeral unless you pass
+`--scope global` / `--scope project` (or `scope` on the tool) to persist it across sessions.
 
 ## Commands
 
