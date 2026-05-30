@@ -49,17 +49,21 @@ shipped kaomoji set defines a wide range (`happy`, `sad`, `angry`, `love`, `cry`
 
 ## Rendering
 
-Minimal and scoped to the two image protocols worth supporting directly:
+Minimal and scoped to the image protocols worth supporting directly:
 
 - **kitty graphics** (APC `_G`) - kitty, Ghostty.
 - **iTerm2 inline images** (OSC 1337 `File=`) - iTerm2, WezTerm.
+- **sixel** (DCS `q`) - Windows Terminal (>= 1.22). Unlike the other two, the terminal can't decode the PNG itself, so
+  the avatar decodes it, scales it to the on-screen footprint, quantises it to a palette, and emits the sixel; sprite
+  transparency is preserved via the sixel background-select flag.
 - **kaomoji (ASCII)** fallback - everything else, including inside `tmux` / `screen`.
 
 Detection is environment-based (`KITTY_WINDOW_ID` / `GHOSTTY_RESOURCES_DIR` / `TERM_PROGRAM` → kitty; `ITERM_SESSION_ID`
-/ `WEZTERM_PANE` / `TERM_PROGRAM` → iterm2). When `$TMUX` is set (or `TERM` is `tmux*` / `screen*`) the avatar falls
-back to the kaomoji set, because image passthrough through a multiplexer is **not implemented yet** - that is future
-work. The kaomoji set is also used on an image-capable terminal whenever the resolved sprite set ships no PNG frames, so
-the avatar always renders. Override detection with the `render` config key or `PI_AVATAR_RENDER`.
+/ `WEZTERM_PANE` / `TERM_PROGRAM` → iterm2; `WT_SESSION` → sixel). kitty / iTerm2 win when more than one marker is
+present. When `$TMUX` is set (or `TERM` is `tmux*` / `screen*`) the avatar falls back to the kaomoji set, because image
+passthrough through a multiplexer is **not implemented yet** - that is future work. The kaomoji set is also used on an
+image-capable terminal whenever the resolved sprite set ships no PNG frames (or a PNG can't be decoded for the sixel
+path), so the avatar always renders. Override detection with the `render` config key or `PI_AVATAR_RENDER`.
 
 In kaomoji mode the widget collapses to the top border rule plus a single `face │ <tool tally>` line (the image modes
 keep the multi-line info panel). Set `compact` to `false` to keep the full panel in kaomoji mode too.
@@ -81,7 +85,7 @@ full default document.
 | `blinkInterval` | `[3000, 6000]`                               | Random `[min, max]` ms between idle blinks / think swaps.          |
 | `talkTickMs`    | `120`                                        | Interval (ms) between talk mouth frames.                           |
 | `cycleMs`       | `500`                                        | Frame cycle interval (ms) for read / write / tool / emotion.       |
-| `render`        | `"auto"`                                     | Force a protocol: `auto` / `kitty` / `iterm2` / `ascii`.           |
+| `render`        | `"auto"`                                     | Force a protocol: `auto` / `kitty` / `iterm2` / `sixel` / `ascii`. |
 | `compact`       | `true`                                       | In kaomoji mode, collapse to one `face │ tool tally` line.         |
 | `emotes`        | `[{ "model": "*", "emote-set": "default" }]` | Glob `model` → emote-set mappings; last match wins.                |
 
@@ -101,15 +105,16 @@ load in sorted filename order; frame 0 is the base, frame 1 the blink/swap alter
 [`ascii.yaml`](../avatar/emotes/ascii/ascii.yaml) keyed by those same state names plus the emotion names.
 
 The repo commits only the kaomoji set. PNG sprite art under `emotes/` is git-ignored scratch (see
-[`avatar/.gitignore`](../avatar/.gitignore)); drop your own PNG set in to light up the kitty / iTerm2 image path.
+[`avatar/.gitignore`](../avatar/.gitignore)); drop your own PNG set in to light up the kitty / iTerm2 / sixel image
+path.
 
 ## Environment variables
 
-| Variable              | Effect                                                             |
-| --------------------- | ------------------------------------------------------------------ |
-| `PI_AVATAR_DISABLED`  | Skip the extension entirely.                                       |
-| `PI_AVATAR_NO_PROMPT` | Keep the avatar but drop the `[emote:]` prompt addendum.           |
-| `PI_AVATAR_RENDER`    | Force a protocol (`kitty` / `iterm2` / `ascii`); overrides config. |
+| Variable              | Effect                                                                       |
+| --------------------- | ---------------------------------------------------------------------------- |
+| `PI_AVATAR_DISABLED`  | Skip the extension entirely.                                                 |
+| `PI_AVATAR_NO_PROMPT` | Keep the avatar but drop the `[emote:]` prompt addendum.                     |
+| `PI_AVATAR_RENDER`    | Force a protocol (`kitty` / `iterm2` / `sixel` / `ascii`); overrides config. |
 
 ## Command
 

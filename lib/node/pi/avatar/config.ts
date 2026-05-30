@@ -53,7 +53,9 @@ function asNumberPair(value: unknown): [number, number] | undefined {
 }
 
 function asRender(value: unknown): AvatarConfig['render'] | undefined {
-  if (value === 'auto' || value === 'kitty' || value === 'iterm2' || value === 'ascii') return value;
+  if (value === 'auto' || value === 'kitty' || value === 'iterm2' || value === 'sixel' || value === 'ascii') {
+    return value;
+  }
   return undefined;
 }
 

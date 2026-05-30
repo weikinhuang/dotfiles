@@ -26,10 +26,20 @@ describe('detectProtocol', () => {
     expect(detectProtocol({ TERM_PROGRAM: 'WezTerm' })).toBe('iterm2');
   });
 
+  test('sixel for Windows Terminal via WT_SESSION', () => {
+    expect(detectProtocol({ WT_SESSION: 'abc-123' })).toBe('sixel');
+  });
+
+  test('kitty / iterm2 win over Windows Terminal when both are present', () => {
+    expect(detectProtocol({ WT_SESSION: 'x', KITTY_WINDOW_ID: '1' })).toBe('kitty');
+    expect(detectProtocol({ WT_SESSION: 'x', ITERM_SESSION_ID: 'w0' })).toBe('iterm2');
+  });
+
   test('tmux/screen force ascii even with a capable outer terminal', () => {
     expect(detectProtocol({ TMUX: '/tmp/sock', KITTY_WINDOW_ID: '1' })).toBe('ascii');
     expect(detectProtocol({ TERM: 'screen-256color', ITERM_SESSION_ID: 'w0' })).toBe('ascii');
     expect(detectProtocol({ TERM: 'tmux-256color' })).toBe('ascii');
+    expect(detectProtocol({ TMUX: '/tmp/sock', WT_SESSION: 'x' })).toBe('ascii');
   });
 
   test('unknown terminal falls back to ascii', () => {
@@ -43,6 +53,7 @@ describe('resolveProtocol', () => {
     expect(resolveProtocol('ascii', { KITTY_WINDOW_ID: '1' })).toBe('ascii');
     expect(resolveProtocol('iterm2', { KITTY_WINDOW_ID: '1' })).toBe('iterm2');
     expect(resolveProtocol('kitty', {})).toBe('kitty');
+    expect(resolveProtocol('sixel', { KITTY_WINDOW_ID: '1' })).toBe('sixel');
   });
 
   test('auto (or unknown) defers to detection', () => {

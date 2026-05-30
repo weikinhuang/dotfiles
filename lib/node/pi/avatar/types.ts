@@ -7,7 +7,7 @@
  */
 
 /** Image protocols the minimal renderer can target, plus the text fallback. */
-export type Protocol = 'kitty' | 'iterm2' | 'ascii';
+export type Protocol = 'kitty' | 'iterm2' | 'sixel' | 'ascii';
 
 /**
  * Activity states driven automatically off pi lifecycle events. Each maps
@@ -62,7 +62,7 @@ export interface AvatarConfig {
   talkTickMs: number;
   /** Frame cycle interval (ms) for read/write/tool animations. */
   cycleMs: number;
-  /** Image protocol override; `auto` detects from the environment. */
+  /** Image protocol override; `auto` detects from the environment (`kitty` / `iterm2` / `sixel` / `ascii`). */
   render: 'auto' | Protocol;
   /** Collapse the kaomoji (ASCII) widget to a single `face | tool tally` line. Ignored in image modes. */
   compact: boolean;

@@ -13,14 +13,15 @@
  *      activity animation. This reuses the `color-tags` rewrite/scrub
  *      pattern (`before_agent_start` + `message_update` + `context`).
  *
- * Rendering is intentionally minimal: direct kitty graphics and direct
- * iTerm2 inline images, with a kaomoji (ASCII) fallback. The ASCII set is
- * also used inside tmux / screen (image passthrough is not implemented yet)
- * and whenever the resolved sprite set ships no PNG frames. The pure logic -
- * config layering, model->set glob resolution, marker parsing, escape
- * encoders, PNG sizing, terminal detection - lives under
- * `lib/node/pi/avatar/` and is unit-tested; only the pi-coupled glue
- * (widget, timers, event wiring) lives here.
+ * Rendering is intentionally minimal: direct kitty graphics, direct iTerm2
+ * inline images, and sixel (Windows Terminal >= 1.22), with a kaomoji
+ * (ASCII) fallback. The ASCII set is also used inside tmux / screen (image
+ * passthrough is not implemented yet) and whenever the resolved sprite set
+ * ships no PNG frames. The pure logic - config layering, model->set glob
+ * resolution, marker parsing, escape encoders, PNG sizing + decode, sixel
+ * encoding, terminal detection - lives under `lib/node/pi/avatar/` and is
+ * unit-tested; only the pi-coupled glue (widget, timers, event wiring)
+ * lives here.
  *
  * Sprites resolve project -> user -> shipped:
  *   <cwd>/.pi/extensions/avatar/emotes/<set>/
@@ -33,7 +34,7 @@
  * Environment:
  *   PI_AVATAR_DISABLED=1    skip the extension entirely
  *   PI_AVATAR_NO_PROMPT=1   keep the avatar, drop the [emote:] prompt addendum
- *   PI_AVATAR_RENDER=...     force a protocol (kitty|iterm2|ascii); overrides config
+ *   PI_AVATAR_RENDER=...     force a protocol (kitty|iterm2|sixel|ascii); overrides config
  */
 
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
@@ -48,6 +49,8 @@ import { coerceConfigLayer, mergeConfigLayers } from '../../../lib/node/pi/avata
 import { parseSimpleYaml } from '../../../lib/node/pi/avatar/ascii-yaml.ts';
 import { classifyStateDirs, isActivityState, pickRandom, resolveEmoteSet } from '../../../lib/node/pi/avatar/emotes.ts';
 import { encodeITermImage, encodeKittyImage } from '../../../lib/node/pi/avatar/encode.ts';
+import { decodePng } from '../../../lib/node/pi/avatar/png-decode.ts';
+import { encodeSixel, resizeNearest } from '../../../lib/node/pi/avatar/sixel.ts';
 import {
   appendEmotePrompt,
   buildEmotePromptAddendum,
@@ -183,6 +186,15 @@ function buildImageFrame(
   }
   const dims = readPngDimensions(data) ?? { width: 1, height: 1 };
   const rows = imageRows(dims, cols, cell);
+  if (protocol === 'sixel') {
+    // Sixel ships actual pixels: decode, scale to the on-screen footprint, encode.
+    const decoded = decodePng(data);
+    if (!decoded) return null;
+    const dstW = Math.max(1, Math.round(cols * cell.widthPx));
+    const dstH = Math.max(1, Math.round((decoded.height * dstW) / decoded.width));
+    const sequence = encodeSixel(resizeNearest(decoded, dstW, dstH));
+    return { kind: 'image', sequence, rows, cursorAdvances: true };
+  }
   const base64 = data.toString('base64');
   const size = { cols, rows };
   if (protocol === 'iterm2') {

@@ -31,7 +31,8 @@ describe('coerceConfigLayer', () => {
   test('rejects malformed blinkInterval and bad render values', () => {
     expect(coerceConfigLayer({ blinkInterval: [1000] }).blinkInterval).toBeUndefined();
     expect(coerceConfigLayer({ blinkInterval: ['a', 'b'] }).blinkInterval).toBeUndefined();
-    expect(coerceConfigLayer({ render: 'sixel' }).render).toBeUndefined();
+    expect(coerceConfigLayer({ render: 'jpeg' }).render).toBeUndefined();
+    expect(coerceConfigLayer({ render: 'sixel' }).render).toBe('sixel');
   });
 
   test('merges partial holdDuration over defaults', () => {
