@@ -82,8 +82,7 @@ Save each generated image as `<group>.<sheet>.png` into a sheets folder, e.g. `a
 
 ### 5. Slice into the set
 
-Slicing defaults to the path the extension scans, `~/.pi/agent/extensions/avatar/emotes/<set>` (honoring
-`PI_CODING_AGENT_DIR`):
+Slicing defaults to the path the extension scans, `~/.pi/agent/avatar/emotes/<set>` (honoring `PI_CODING_AGENT_DIR`):
 
 ```bash
 node config/pi/avatar/tools/slice-sheets.ts --set exusiai --in avatar-ref/sheets
@@ -92,8 +91,8 @@ node config/pi/avatar/tools/slice-sheets.ts --set exusiai --check
 
 ### 6. Wire it up and test
 
-Point the avatar at the set in your user config `~/.pi/agent/extensions/avatar/config.json` (not committed), then test
-in a kitty / iTerm2 terminal (`/avatar on`, drive activity, trigger `[emote:NAME]`):
+Point the avatar at the set in your user config `~/.pi/agent/avatar.json` (not committed), then test in a kitty / iTerm2
+terminal (`/avatar on`, drive activity, trigger `[emote:NAME]`):
 
 ```json
 { "emotes": [{ "model": "*", "emote-set": "exusiai" }] }

@@ -24,12 +24,12 @@
  * lives here.
  *
  * Sprites resolve project -> user -> shipped:
- *   <cwd>/.pi/extensions/avatar/emotes/<set>/
- *   <piAgentDir>/extensions/avatar/emotes/<set>/
+ *   <cwd>/.pi/avatar/emotes/<set>/
+ *   <piAgentDir>/avatar/emotes/<set>/
  *   config/pi/avatar/emotes/<set>/  (shipped; falls back to `default`)
  *
  * Config layers (lowest -> highest): shipped defaults ->
- * <piAgentDir>/extensions/avatar/config.json -> <cwd>/.pi/extensions/avatar/config.json.
+ * <piAgentDir>/avatar.json -> <cwd>/.pi/avatar.json.
  *
  * Environment:
  *   PI_AVATAR_DISABLED=1    skip the extension entirely
@@ -125,15 +125,15 @@ function readJson(path: string): unknown {
 }
 
 function loadConfig(cwd: string): AvatarConfig {
-  const userLayer = coerceConfigLayer(readJson(piAgentPath('extensions', 'avatar', 'config.json')));
-  const projectLayer = coerceConfigLayer(readJson(piProjectPath(cwd, 'extensions', 'avatar', 'config.json')));
+  const userLayer = coerceConfigLayer(readJson(piAgentPath('avatar.json')));
+  const projectLayer = coerceConfigLayer(readJson(piProjectPath(cwd, 'avatar.json')));
   return mergeConfigLayers(userLayer, projectLayer);
 }
 
 function findSetDir(setName: string, extEmotesDir: string, cwd: string): string {
   const candidates = [
-    piProjectPath(cwd, 'extensions', 'avatar', 'emotes', setName),
-    piAgentPath('extensions', 'avatar', 'emotes', setName),
+    piProjectPath(cwd, 'avatar', 'emotes', setName),
+    piAgentPath('avatar', 'emotes', setName),
     join(extEmotesDir, setName),
   ];
   for (const candidate of candidates) {

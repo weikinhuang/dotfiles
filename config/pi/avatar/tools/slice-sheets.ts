@@ -29,7 +29,7 @@
  *
  * Output: `<out>/<state>/<frame>.png` (frame 0 = base). <out> defaults to the
  * device-local set dir the extension scans:
- *   ~/.pi/agent/extensions/avatar/emotes/<set>   (honors PI_CODING_AGENT_DIR)
+ *   ~/.pi/agent/avatar/emotes/<set>   (honors PI_CODING_AGENT_DIR)
  *
  * Usage:
  *   node slice-sheets.ts --set <name> --in <sheets-dir> [--out <dir>] [--sheet a|b|x1|...]
@@ -118,7 +118,7 @@ function printHelp(): void {
       'Flags:',
       '  --set <name>     Emote-set name (output subdir + the name you map in config).',
       '  --in <dir>       Directory of <group>.<sheet>.png sheets to slice.',
-      '  --out <dir>      Output set dir. Default: <pi-agent>/extensions/avatar/emotes/<set>.',
+      '  --out <dir>      Output set dir. Default: <pi-agent>/avatar/emotes/<set>.',
       '  --sheet <name>   Only process this sheet (a|b|x1|...; default: all found).',
       '  --check          Report per-state frame coverage under --out and exit.',
       '  -h, --help       Show this help.',
@@ -137,7 +137,7 @@ function piAgentDir(): string {
 }
 
 function defaultOut(set: string): string {
-  return join(piAgentDir(), 'extensions', 'avatar', 'emotes', set);
+  return join(piAgentDir(), 'avatar', 'emotes', set);
 }
 
 function parseArgs(argv: string[]): SliceOpts {

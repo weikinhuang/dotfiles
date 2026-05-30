@@ -74,9 +74,8 @@ keep the multi-line info panel). Set `compact` to `false` to keep the full panel
 
 ## Configuration
 
-Config layers lowest → highest: shipped defaults → `~/.pi/agent/extensions/avatar/config.json` →
-`<cwd>/.pi/extensions/avatar/config.json`. See [`avatar/config.example.json`](../avatar/config.example.json) for the
-full default document.
+Config layers lowest → highest: shipped defaults → `~/.pi/agent/avatar.json` → `<cwd>/.pi/avatar.json`. See
+[`avatar/config.example.json`](../avatar/config.example.json) for the full default document.
 
 | Key             | Default                                      | Meaning                                                            |
 | --------------- | -------------------------------------------- | ------------------------------------------------------------------ |
@@ -98,8 +97,8 @@ full default document.
 Sets resolve project → user → shipped, falling back to the `default` set:
 
 ```text
-<cwd>/.pi/extensions/avatar/emotes/<set>/
-~/.pi/agent/extensions/avatar/emotes/<set>/
+<cwd>/.pi/avatar/emotes/<set>/
+~/.pi/agent/avatar/emotes/<set>/
 config/pi/avatar/emotes/<set>/   (default)
 ```
 
