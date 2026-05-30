@@ -25,10 +25,14 @@
  *      if ANY of the turn's bash commands looks like a verifier for
  *      that claim's kind.
  *
- *   4. If `unverified.length > 0` AND the most recent user message
- *      doesn't already carry our sentinel marker (idempotency guard),
- *      inject a follow-up user message with the steer via
- *      `pi.sendUserMessage(..., { deliverAs: 'followUp' })`.
+ *   4. If `unverified.length > 0` AND we have not already steered
+ *      this turn (the most recent user-equivalent boundary on the
+ *      branch is not our own custom-nudge entry), inject a follow-up
+ *      steer via `pi.sendMessage({ customType: 'verify-before-claim-steer',
+ *      ... }, { deliverAs: 'followUp' })`. The custom message
+ *      becomes a synthetic `user` turn at convertToLlm time so the
+ *      model still sees the steer text, but the nudge does NOT
+ *      pollute the editor's up-arrow history.
  *
  * Composes cleanly with the other `agent_end` extensions:
  *   - todo guardrail fires on a "done" sign-off with open todos.
@@ -106,6 +110,7 @@ import { envTruthy } from '../../../lib/node/pi/parse-env.ts';
 
 /** Sentinel prepended to every steer - used for idempotency + discovery. */
 const VERIFY_MARKER = '⚠ [pi-verify-before-claim]';
+const VERIFY_CUSTOM_TYPE = 'verify-before-claim-steer';
 
 export default function verifyBeforeClaim(pi: ExtensionAPI): void {
   if (envTruthy(process.env.PI_VERIFY_DISABLED)) return;
@@ -195,11 +200,13 @@ export default function verifyBeforeClaim(pi: ExtensionAPI): void {
 
     if (unverified.length === 0) return;
 
-    // Idempotency: if the previous user message already carries our
-    // marker, we already steered this turn - let the model respond to
-    // that nudge on its own rather than piling on.
-    if (lastUserMessageHasMarker(branch, VERIFY_MARKER)) {
-      trace('skip: previous user message already carries marker');
+    // Idempotency: if the previous user-equivalent boundary on the
+    // branch is our own custom-nudge entry, we already steered this
+    // turn - let the model respond to that nudge on its own rather
+    // than piling on. The legacy text-marker fallback also catches a
+    // user replay of `VERIFY_MARKER`.
+    if (lastUserMessageHasMarker(branch, VERIFY_MARKER, VERIFY_CUSTOM_TYPE)) {
+      trace('skip: previous user-equivalent boundary already carries marker');
       return;
     }
 
@@ -211,18 +218,22 @@ export default function verifyBeforeClaim(pi: ExtensionAPI): void {
       // unwinds and `ctx.isIdle()` is true. Pi 0.75.4 moved
       // `agent_end` into the awaited agent lifecycle, so the
       // synchronous handler still sees `isStreaming === true`. A
-      // direct `pi.sendUserMessage(..., { deliverAs: 'followUp' })`
+      // direct `pi.sendMessage(..., { deliverAs: 'followUp' })`
       // would route through the follow-up queue, which the exiting
       // agent loop does not pull - the steer would surface as a
       // queued `Follow-up: ⟳ [pi-verify-before-claim]` indicator
       // instead of triggering a fresh turn.
+      //
+      // Delivery uses a `custom` message type so the nudge does NOT
+      // pollute the editor's up-arrow history. Pi's convertToLlm
+      // serializes `custom` -> a synthetic `user` turn whose content
+      // still carries `VERIFY_MARKER`.
       setImmediate(() => {
         try {
-          if (ctx.isIdle()) {
-            pi.sendUserMessage(steer);
-          } else {
-            pi.sendUserMessage(steer, { deliverAs: 'followUp' });
-          }
+          pi.sendMessage(
+            { customType: VERIFY_CUSTOM_TYPE, content: steer, display: true },
+            ctx.isIdle() ? { triggerTurn: true } : { deliverAs: 'followUp' },
+          );
           trace(`steered kinds=[${unverified.map((c) => c.kind).join(',')}]`);
         } catch (e) {
           ctx.ui.notify(`verify-before-claim: failed to deliver steer: ${String(e)}`, 'error');
@@ -238,4 +249,4 @@ export default function verifyBeforeClaim(pi: ExtensionAPI): void {
 
 // Re-export the sentinel so consumers (tests, composed extensions) can
 // discover our marker without reaching into `./lib/`.
-export { VERIFY_MARKER };
+export { VERIFY_MARKER, VERIFY_CUSTOM_TYPE };

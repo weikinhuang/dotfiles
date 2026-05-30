@@ -392,10 +392,17 @@ export function buildSteer(unverified: readonly Claim[], marker: string): string
 
 /**
  * Minimal shape of a session branch entry. We only touch the fields we
- * need (role, content, toolName, input) so tests can fabricate fakes.
+ * need (role, content, toolName, input, customType) so tests can
+ * fabricate fakes.
+ *
+ * `pi.sendMessage({ customType, ... })` writes a `{ type: 'custom',
+ * customType: '<name>', ... }` entry to the branch. Some custom types
+ * are state mirrors (`*-state`), others are synthesized "user-equivalent"
+ * nudges that pi's convertToLlm serializes as a synthetic `user` turn.
  */
 export interface BranchEntry {
   readonly type?: string;
+  readonly customType?: string;
   readonly message?: {
     readonly role?: string;
     readonly toolName?: string;
@@ -403,6 +410,23 @@ export interface BranchEntry {
     readonly input?: unknown;
     readonly details?: unknown;
   };
+}
+
+/**
+ * Is this branch entry a custom message that pi serializes as a
+ * synthetic `user` turn (i.e. a "user-equivalent boundary" for the
+ * purposes of branch-walking idempotency guards)?
+ *
+ * State-mirror customs (the `*-state` snapshots written by reducers
+ * after every tool call) are NOT user-equivalent - they're invisible
+ * to convertToLlm. Everything else (`*-nudge`, `*-steer`, scheduled
+ * prompts, subdir-agents context injections, etc.) IS a boundary.
+ */
+function isNudgeCustomEntry(entry: BranchEntry): boolean {
+  if (entry.type !== 'custom') return false;
+  const ct = entry.customType;
+  if (typeof ct !== 'string' || ct.length === 0) return false;
+  return !ct.endsWith('-state');
 }
 
 /**
@@ -437,13 +461,16 @@ const SHELL_TOOL_NAMES: ReadonlySet<string> = new Set(['bash', 'bg_bash']);
  *   - `bashExecution` messages (user-invoked `!cmd`) carrying their
  *     shell line in `command`.
  *
- * The scan stops at the previous user message so we only report what
- * THIS turn actually ran. Any earlier bash call doesn't count.
+ * The scan stops at the previous user message - or at any synthesized
+ * user-equivalent custom nudge entry (e.g. a verify-before-claim
+ * `steer` written via `pi.sendMessage`) - so we only report what THIS
+ * turn actually ran. Any earlier bash call doesn't count.
  */
 export function collectBashCommandsSinceLastUser(branch: readonly BranchEntry[]): string[] {
   const out: string[] = [];
   for (let i = branch.length - 1; i >= 0; i--) {
     const entry = branch[i];
+    if (isNudgeCustomEntry(entry)) break;
     const msg = entry.message;
     if (!msg) continue;
     if (msg.role === 'user') break;
@@ -486,13 +513,39 @@ export function extractLastAssistantText(messages: readonly unknown[]): string {
 }
 
 /**
- * Does the most recent user message on the branch already carry
- * `marker`? Used as an idempotency guard so the extension doesn't
+ * Did the most recent user-equivalent entry on `branch` come from US
+ * (this nudge)? Used as an idempotency guard so the extension doesn't
  * steer twice in a row on the same turn.
+ *
+ * Walks newest-to-oldest; the first user-equivalent boundary it finds
+ * decides:
+ *
+ *   - Real `user` message: returns whether `marker` appears in the
+ *     content text. (Legacy path - covers user replays of our marker
+ *     and any nudge that has not yet migrated to `pi.sendMessage`.)
+ *   - Synthesized custom-nudge entry (`type: 'custom'`, non-`*-state`
+ *     customType): returns true iff `ownCustomType` is provided AND
+ *     equals the entry's customType. Any other extension's custom
+ *     nudge is still a boundary, but it is "not ours" so the answer
+ *     is false - we have NOT already steered this turn.
+ *   - Anything else (assistant, toolResult, state-mirror customs):
+ *     skipped.
+ *
+ * Pass `ownCustomType` whenever the caller's nudge is delivered via
+ * `pi.sendMessage({ customType: ... })`. Callers still on
+ * `sendUserMessage` can omit it - the legacy text-marker path on real
+ * user messages stays correct.
  */
-export function lastUserMessageHasMarker(branch: readonly BranchEntry[], marker: string): boolean {
+export function lastUserMessageHasMarker(
+  branch: readonly BranchEntry[],
+  marker: string,
+  ownCustomType?: string,
+): boolean {
   for (let i = branch.length - 1; i >= 0; i--) {
     const entry = branch[i];
+    if (isNudgeCustomEntry(entry)) {
+      return ownCustomType !== undefined && entry.customType === ownCustomType;
+    }
     const msg = entry.message;
     if (msg?.role !== 'user') continue;
     let text = '';

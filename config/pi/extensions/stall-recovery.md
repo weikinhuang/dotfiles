@@ -4,11 +4,11 @@ Auto-retry when an agent turn ends without producing meaningful work. Aimed at w
 without emitting any output. Companion to [`todo.ts`](./todo.md) - both fire on `agent_end`, but the two handle
 orthogonal failure modes and never double-fire on the same turn:
 
-|              | `stall-recovery` fires when…                                                                                      | `todo` guardrail fires when…                                                          |
-| ------------ | ----------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
-| Signal       | Turn produced **no** text and no tool calls.                                                                      | Turn produced text that reads like a "done" sign-off, **and** open todos still exist. |
-| Failure mode | Model stopped silently.                                                                                           | Model claimed completion prematurely.                                                 |
-| Composition  | Fresh turn triggered via `sendUserMessage`; `todo`'s `before_agent_start` injection re-anchors the plan for free. | Prompts the model to finish / `block` the open items.                                 |
+|              | `stall-recovery` fires when…                                                                                     | `todo` guardrail fires when…                                                          |
+| ------------ | ---------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| Signal       | Turn produced **no** text and no tool calls.                                                                     | Turn produced text that reads like a "done" sign-off, **and** open todos still exist. |
+| Failure mode | Model stopped silently.                                                                                          | Model claimed completion prematurely.                                                 |
+| Composition  | Fresh turn triggered via `pi.sendMessage`; `todo`'s `before_agent_start` injection re-anchors the plan for free. | Prompts the model to finish / `block` the open items.                                 |
 
 ## Detection
 
@@ -30,15 +30,17 @@ If the model produces any substantive text or tool call, we trust it.
 
 ## Recovery
 
-A follow-up user message is injected via `pi.sendUserMessage` carrying a sentinel marker (`⟳ [pi-stall-recovery]`). The
-message is short and directive - weaker models respond better to concrete instructions than vague ones - and escalates
-in tone on the final allowed attempt (see "Retry prompt escalation" below).
+A follow-up nudge is injected via `pi.sendMessage({ customType: 'stall-recovery-nudge', content, display: true })`
+carrying a sentinel marker (`⟳ [pi-stall-recovery]`) in `content`. Pi's convertToLlm serializes the `custom` entry as a
+synthetic `user` turn so the model sees identical content, but the nudge does NOT pollute the editor's up-arrow history
+(unlike a real `sendUserMessage`). The message is short and directive - weaker models respond better to concrete
+instructions than vague ones - and escalates in tone on the final allowed attempt (see "Retry prompt escalation" below).
 
 Delivery is deferred one event-loop tick via `setImmediate`. Pi 0.75.4 moved `agent_end` into the awaited agent
 lifecycle, so the handler runs while the runtime still sees `isStreaming === true`; sending synchronously routes the
 nudge through the follow-up queue, which the exiting agent loop never pulls (the user sees a queued
-`Follow-up: ⟳ [pi-stall-recovery]` indicator with no LLM call). After the defer, `ctx.isIdle()` selects between an
-immediate fresh-prompt send (common case, triggers a turn) and `{ deliverAs: 'followUp' }` (defensive fallback if the
+`Follow-up: ⟳ [pi-stall-recovery]` indicator with no LLM call). After the defer, `ctx.isIdle()` selects between
+`{ triggerTurn: true }` (common case, fires a fresh turn) and `{ deliverAs: 'followUp' }` (defensive fallback if the
 user typed in the defer window).
 
 The retry triggers a fresh agent turn; any `before_agent_start` handlers (like the todo extension's active-plan

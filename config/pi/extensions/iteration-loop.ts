@@ -34,10 +34,12 @@
  *     threshold (default 2) AND no check ran this turn AND the
  *     loop is active, inject a follow-up user message.
  *
- * Both nudges use `pi.sendUserMessage(..., { deliverAs: 'followUp'
- * })` with distinct sentinels. Each checks `lastUserMessageHasMarker`
- * on the branch for its own marker to avoid re-triggering on its
- * own nudge. Runtime config lives in
+ * Both nudges use `pi.sendMessage({ customType, ... }, { deliverAs:
+ * 'followUp' })` with distinct customTypes (and matching text
+ * sentinels in content). Each checks `lastUserMessageHasMarker` on
+ * the branch for its own customType to avoid re-triggering on its
+ * own nudge - and using a `custom` message keeps the nudges out of
+ * the editor's up-arrow history. Runtime config lives in
  * `~/.pi/agent/iteration-loop.json` + `<cwd>/.pi/iteration-loop.json`
  * (see `iteration-loop-config.ts`).
  *
@@ -207,7 +209,7 @@ import {
   lastUserMessageHasMarker,
   partitionClaims,
 } from '../../../lib/node/pi/verify-detect.ts';
-import { VERIFY_MARKER } from './verify-before-claim.ts';
+import { VERIFY_CUSTOM_TYPE, VERIFY_MARKER } from './verify-before-claim.ts';
 
 const DEFAULT_TASK = 'default';
 const STOP_REASONS = ['passed', 'budget-iter', 'budget-cost', 'wall-clock', 'fixpoint', 'user-closed'] as const;
@@ -465,6 +467,8 @@ export default function iterationLoopExtension(pi: ExtensionAPI): void {
    *  rename there doesn't silently break the de-dupe below. */
   const CLAIM_NUDGE_MARKER = '⚠ [pi-iteration-loop-claim]';
   const STRICT_NUDGE_MARKER = '⚠ [pi-iteration-loop-strict-edit]';
+  const CLAIM_NUDGE_CUSTOM_TYPE = 'iteration-loop-claim-nudge';
+  const STRICT_NUDGE_CUSTOM_TYPE = 'iteration-loop-strict-nudge';
 
   const rebuildFromSession = (ctx: ExtensionContext): void => {
     const branch = ctx.sessionManager.getBranch() as unknown as readonly BranchEntry[];
@@ -600,7 +604,7 @@ export default function iterationLoopExtension(pi: ExtensionAPI): void {
 
     // ── Strict edit-without-check nudge ───────────────────────────
     const threshold = loopConfig.strictNudgeAfterNEdits;
-    const strictFired = lastUserMessageHasMarker(branch, STRICT_NUDGE_MARKER);
+    const strictFired = lastUserMessageHasMarker(branch, STRICT_NUDGE_MARKER, STRICT_NUDGE_CUSTOM_TYPE);
     let strictSent = false;
     if (state.editsSinceLastCheck >= threshold && !strictFired) {
       const msg =
@@ -611,7 +615,14 @@ export default function iterationLoopExtension(pi: ExtensionAPI): void {
         `against the rubric before claiming anything about the artifact. ` +
         `If you're mid-edit and the next edit is atomic, make it, then run the check.`;
       try {
-        pi.sendUserMessage(msg, { deliverAs: 'followUp' });
+        // Delivery uses a `custom` message type so the nudge does
+        // NOT pollute the editor's up-arrow history. Pi's
+        // convertToLlm serializes `custom` -> a synthetic `user`
+        // turn whose content still carries `STRICT_NUDGE_MARKER`.
+        pi.sendMessage(
+          { customType: STRICT_NUDGE_CUSTOM_TYPE, content: msg, display: true },
+          { deliverAs: 'followUp' },
+        );
         strictSent = true;
         debug(
           debugEnabled,
@@ -643,7 +654,7 @@ export default function iterationLoopExtension(pi: ExtensionAPI): void {
       if (vbcClaims.length > 0) {
         const vbcCommands = collectBashCommandsSinceLastUser(branch);
         const { unverified } = partitionClaims(vbcClaims, vbcCommands, []);
-        const vbcAlreadySteered = lastUserMessageHasMarker(branch, VERIFY_MARKER);
+        const vbcAlreadySteered = lastUserMessageHasMarker(branch, VERIFY_MARKER, VERIFY_CUSTOM_TYPE);
         if (unverified.length > 0 && !vbcAlreadySteered) {
           debug(debugEnabled, 'claim nudge suppressed: verify-before-claim will fire');
           return;
@@ -653,7 +664,7 @@ export default function iterationLoopExtension(pi: ExtensionAPI): void {
       debug(debugEnabled, `v-b-c dedupe check threw: ${(e as Error).message}`);
       /* fall through to send - better to nag than silently swallow */
     }
-    const claimFired = lastUserMessageHasMarker(branch, CLAIM_NUDGE_MARKER);
+    const claimFired = lastUserMessageHasMarker(branch, CLAIM_NUDGE_MARKER, CLAIM_NUDGE_CUSTOM_TYPE);
     if (claimFired) {
       debug(debugEnabled, 'claim nudge suppressed: marker already on last user message');
       return;
@@ -664,7 +675,11 @@ export default function iterationLoopExtension(pi: ExtensionAPI): void {
       `Either run the check to confirm, or retract the claim. The iteration-loop contract is: ` +
       `no "looks right / done / matches spec" without a passing verdict in the same turn.`;
     try {
-      pi.sendUserMessage(msg, { deliverAs: 'followUp' });
+      // Delivery uses a `custom` message type so the nudge does
+      // NOT pollute the editor's up-arrow history. Pi's
+      // convertToLlm serializes `custom` -> a synthetic `user` turn
+      // whose content still carries `CLAIM_NUDGE_MARKER`.
+      pi.sendMessage({ customType: CLAIM_NUDGE_CUSTOM_TYPE, content: msg, display: true }, { deliverAs: 'followUp' });
       debug(debugEnabled, `claim nudge fired: matched /${matched.source}/`);
     } catch (e) {
       ctx.ui.notify(`iteration-loop: failed to deliver claim nudge: ${String(e)}`, 'error');

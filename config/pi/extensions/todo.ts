@@ -90,6 +90,7 @@ import { envTruthy, parsePositiveInt } from '../../../lib/node/pi/parse-env.ts';
 // recent user message to make the guardrail idempotent across re-fires
 // within a single turn (model ignores the steer and claims done again).
 const GUARDRAIL_MARKER = '⚠ [pi-todo-guardrail]';
+const GUARDRAIL_CUSTOM_TYPE = 'todo-guardrail-nudge';
 const MAX_INJECTED_DEFAULT = 10;
 
 const TodoParams = Type.Object({
@@ -205,9 +206,9 @@ function actionToStatus(action: string): Todo['status'] {
   }
 }
 
-function lastUserMessageHasMarker(ctx: ExtensionContext, marker: string): boolean {
+function lastUserMessageHasMarker(ctx: ExtensionContext, marker: string, customType?: string): boolean {
   const branch = ctx.sessionManager.getBranch() as unknown as readonly VerifyBranchEntry[];
-  return branchLastUserMessageHasMarker(branch, marker);
+  return branchLastUserMessageHasMarker(branch, marker, customType);
 }
 
 // ──────────────────────────────────────────────────────────────────────
@@ -337,9 +338,10 @@ export default function todoExtension(pi: ExtensionAPI): void {
       const assistantText = extractLastAssistantText((event as { messages?: readonly unknown[] }).messages);
       if (!looksLikeCompletionClaim(assistantText)) return;
 
-      // Loop guard: if the last user message on the branch already carries
-      // our marker, we've already steered this turn - don't fire again.
-      if (lastUserMessageHasMarker(ctx, GUARDRAIL_MARKER)) return;
+      // Loop guard: if the last user-equivalent boundary on the
+      // branch is our own custom-nudge entry, we've already steered
+      // this turn - don't fire again.
+      if (lastUserMessageHasMarker(ctx, GUARDRAIL_MARKER, GUARDRAIL_CUSTOM_TYPE)) return;
 
       const inprog = state.todos.find((t) => t.status === 'in_progress');
       const inReview = state.todos.find((t) => t.status === 'review');
@@ -352,7 +354,14 @@ export default function todoExtension(pi: ExtensionAPI): void {
         'Either finish the work and call `todo` with action `complete` / `block` / `cancel`, or explain to the user why the plan is abandoned.',
       );
 
-      pi.sendUserMessage(parts.join(' '), { deliverAs: 'followUp' });
+      // Delivery uses a `custom` message type so the nudge does NOT
+      // pollute the editor's up-arrow history. Pi's convertToLlm
+      // serializes `custom` -> a synthetic `user` turn whose content
+      // still carries `GUARDRAIL_MARKER`.
+      pi.sendMessage(
+        { customType: GUARDRAIL_CUSTOM_TYPE, content: parts.join(' '), display: true },
+        { deliverAs: 'followUp' },
+      );
     });
   }
 

@@ -5,10 +5,10 @@ both handle "pi is stuck waiting on the model" but from opposite sides:
 
 - **`stream-watchdog` fires mid-stream**: after `message_start` and before `message_end`, when no `message_update` has
   arrived for N seconds. The provider / local inference server has the HTTP connection open but has stopped emitting
-  tokens. Action: `ctx.abort()` - programmatic Esc - then, on the following `agent_end`, inject a user-role follow-up
-  nudge so the next turn actually runs without the user having to type.
+  tokens. Action: `ctx.abort()` - programmatic Esc - then, on the following `agent_end`, inject a synthetic
+  user-equivalent follow-up nudge (custom message) so the next turn actually runs without the user having to type.
 - **`stall-recovery` fires post-stream**: after a stream has already ended cleanly but with no text and no tool calls
-  (empty turn). Action: inject a follow-up user message via `pi.sendUserMessage` with a retry nudge.
+  (empty turn). Action: inject a follow-up nudge via `pi.sendMessage({ customType: 'stall-recovery-nudge', ... })`.
 - **Composition**: a watchdog-aborted turn is classified `aborted` by pi, and `stall-recovery`'s classifier explicitly
   ignores `aborted` - which is what we want. The watchdog owns the follow-up for its own aborts so `stall-recovery` can
   keep its "don't second-guess a user Esc" invariant; the two extensions never double-fire a retry.
@@ -46,22 +46,24 @@ When `autoAbort` is on (default), the poll calls `ctx.abort()` - the programmati
 provider stream terminates, pi emits `agent_end` with `stopReason === 'aborted'`, and the agent loop yields back.
 
 Because pi-agent-core's abort path `return`s from `runAgent` **before** the outer loop's follow-up drain, calling
-`pi.sendUserMessage` synchronously from the poll timer would queue a follow-up that never actually runs. The watchdog
+`pi.sendMessage` synchronously from the poll timer would queue a follow-up that never actually runs. The watchdog
 therefore latches a `pendingNudge` during the poll and delivers it from the subsequent `agent_end` handler. Pi 0.75.4
 moved `agent_end` into the awaited agent lifecycle, so the handler now runs while the runtime still sees
-`isStreaming === true`; the watchdog defers the actual `pi.sendUserMessage` to the next event-loop tick via
-`setImmediate` and then uses `ctx.isIdle()` to pick between the fresh-prompt branch (the common case, which actually
-triggers a new turn) and the `deliverAs: 'followUp'` queue (defensive fallback if the user typed during the defer
-window). Sanity check: if the abort raced with a clean stream end (`toolUse` / `stop`), the nudge is dropped rather than
-injected after a healthy turn.
+`isStreaming === true`; the watchdog defers the actual `pi.sendMessage` to the next event-loop tick via `setImmediate`
+and then uses `ctx.isIdle()` to pick between `{ triggerTurn: true }` (the common case, which actually fires a new turn)
+and `{ deliverAs: 'followUp' }` (defensive fallback if the user typed during the defer window). The nudge is delivered
+as a `custom` message (`customType: 'stream-watchdog-nudge'`) carrying the watchdog marker in content - pi's
+convertToLlm serializes it as a synthetic `user` turn so the model sees identical content but the nudge does NOT pollute
+the editor's up-arrow history. Sanity check: if the abort raced with a clean stream end (`toolUse` / `stop`), the nudge
+is dropped rather than injected after a healthy turn.
 
 Retries are capped per user prompt by `PI_STREAM_WATCHDOG_MAX_RETRIES` (default 2). On budget exhaustion the watchdog
 still aborts the hung stream (so the UI unfreezes) but skips the auto-retry and surfaces a one-shot warning so you know
 to intervene. The counter resets on a genuinely fresh idle user prompt and on any `agent_end` whose last assistant
 message closed cleanly. Mid-stream user steers and queued follow-ups (pi >= 0.77.0, surfaced as
-`InputEvent.streamingBehavior` of `"steer"` / `"followUp"`) do NOT reset the watchdog: the user is course-correcting
-the same in-flight turn the watchdog is supposed to be watching, so tearing down the poll there would defeat its job.
-The shared predicate is [`isFreshUserPrompt`](../../../lib/node/pi/input-event.ts).
+`InputEvent.streamingBehavior` of `"steer"` / `"followUp"`) do NOT reset the watchdog: the user is course-correcting the
+same in-flight turn the watchdog is supposed to be watching, so tearing down the poll there would defeat its job. The
+shared predicate is [`isFreshUserPrompt`](../../../lib/node/pi/input-event.ts).
 
 With `PI_STREAM_WATCHDOG_ABORT=0` the watchdog surfaces a `ctx.ui.notify` warning but leaves the abort to you. Useful
 while tuning `PI_STREAM_WATCHDOG_STALL_MS` against a noisy model - you can see how often the threshold would trigger

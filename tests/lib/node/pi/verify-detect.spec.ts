@@ -348,6 +348,28 @@ test('collectBashCommandsSinceLastUser: stops at the most recent user message', 
   expect(collectBashCommandsSinceLastUser(branch)).toEqual(['npm test']);
 });
 
+test('collectBashCommandsSinceLastUser: stops at a synthesized custom-nudge boundary', () => {
+  const branch: BranchEntry[] = [
+    user('do it'),
+    assistantCall('first npm test'),
+    { type: 'custom', customType: 'verify-before-claim-steer' },
+    assistantCall('npm test'),
+  ];
+
+  expect(collectBashCommandsSinceLastUser(branch)).toEqual(['npm test']);
+});
+
+test('collectBashCommandsSinceLastUser: state-mirror customs are transparent', () => {
+  const branch: BranchEntry[] = [
+    user('do it'),
+    assistantCall('npm test'),
+    { type: 'custom', customType: 'todo-state' },
+    assistantCall('eslint .'),
+  ];
+
+  expect(new Set(collectBashCommandsSinceLastUser(branch))).toEqual(new Set(['npm test', 'eslint .']));
+});
+
 test('collectBashCommandsSinceLastUser: picks up bash tool-result input.command', () => {
   const branch: BranchEntry[] = [user('do it'), toolResult('pytest -q')];
 
@@ -605,6 +627,43 @@ test('lastUserMessageHasMarker: string-content user messages too', () => {
   ];
 
   expect(lastUserMessageHasMarker(branch, MARKER)).toBe(true);
+});
+
+test('lastUserMessageHasMarker: matching nudge customType on most recent boundary → true', () => {
+  const branch: BranchEntry[] = [
+    user('do it'),
+    assistantCall('npm test'),
+    { type: 'custom', customType: 'verify-before-claim-steer' },
+  ];
+
+  expect(lastUserMessageHasMarker(branch, MARKER, 'verify-before-claim-steer')).toBe(true);
+});
+
+test('lastUserMessageHasMarker: another extension nudge is a boundary but not ours → false', () => {
+  const branch: BranchEntry[] = [
+    user(`${MARKER} earlier`),
+    assistantCall('npm test'),
+    { type: 'custom', customType: 'todo-guardrail-nudge' },
+  ];
+
+  expect(lastUserMessageHasMarker(branch, MARKER, 'verify-before-claim-steer')).toBe(false);
+});
+
+test('lastUserMessageHasMarker: state-mirror customs are NOT boundaries', () => {
+  const branch: BranchEntry[] = [
+    user(`${MARKER} hello`),
+    { type: 'custom', customType: 'todo-state' },
+    assistantCall('npm test'),
+    { type: 'custom', customType: 'scratchpad-state' },
+  ];
+
+  expect(lastUserMessageHasMarker(branch, MARKER, 'verify-before-claim-steer')).toBe(true);
+});
+
+test('lastUserMessageHasMarker: nudge boundary without ownCustomType → false', () => {
+  const branch: BranchEntry[] = [user(`${MARKER} earlier`), { type: 'custom', customType: 'todo-guardrail-nudge' }];
+
+  expect(lastUserMessageHasMarker(branch, MARKER)).toBe(false);
 });
 
 // ──────────────────────────────────────────────────────────────────────

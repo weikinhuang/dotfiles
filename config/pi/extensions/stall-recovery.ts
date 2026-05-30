@@ -27,11 +27,13 @@
  *      the count to zero, so intermediate successes inside a multi-step
  *      agent loop correctly "unspend" prior retries.
  *
- *   2. If the count is in `(0, maxRetries]` we inject a follow-up user
- *      message via `pi.sendUserMessage()` carrying a sentinel prefix.
- *      The follow-up triggers a fresh agent turn; other extensions
- *      (like `todo`) re-inject their context via `before_agent_start`
- *      on the retry automatically.
+ *   2. If the count is in `(0, maxRetries]` we inject a follow-up
+ *      message via `pi.sendMessage({ customType: 'stall-recovery-nudge' })`
+ *      carrying a sentinel prefix. The follow-up triggers a fresh
+ *      agent turn (synthesized as a `user` turn at convertToLlm time
+ *      so it doesn't pollute the editor's up-arrow history); other
+ *      extensions (like `todo`) re-inject their context via
+ *      `before_agent_start` on the retry automatically.
  *
  *   3. When `countTrailingStalls === maxRetries` we've already fired the
  *      maximum retries for this prompt, so we surface a one-shot notify
@@ -172,18 +174,24 @@ export default function stallRecovery(pi: ExtensionAPI): void {
       // loop has fully unwound and `ctx.isIdle()` is true. Pi 0.75.4
       // moved `agent_end` into the awaited agent lifecycle, so the
       // handler runs while the runtime still sees `isStreaming ===
-      // true`. Calling `pi.sendUserMessage(..., { deliverAs:
-      // 'followUp' })` synchronously here routes the nudge through
-      // the follow-up queue, which the exiting agent loop never
-      // pulls - the message ends up surfaced as a `Follow-up: ⟳
-      // [pi-stall-recovery]` indicator with no LLM call.
+      // true`. Calling `pi.sendMessage(..., { deliverAs: 'followUp' })`
+      // synchronously here routes the nudge through the follow-up
+      // queue, which the exiting agent loop never pulls - the message
+      // ends up surfaced as a `Follow-up: ⟳ [pi-stall-recovery]`
+      // indicator with no LLM call.
+      //
+      // Delivery uses `pi.sendMessage` with a `custom` type (rather
+      // than `sendUserMessage`) so the nudge does NOT pollute the
+      // editor's up-arrow history. Pi's convertToLlm serializes
+      // `custom` -> a synthetic `user` turn whose content still
+      // carries `STALL_MARKER`, which is what `countTrailingStalls`
+      // and `stripThinkingFromStalledTurns` key off of.
       setImmediate(() => {
         try {
-          if (ctx.isIdle()) {
-            pi.sendUserMessage(nudge);
-          } else {
-            pi.sendUserMessage(nudge, { deliverAs: 'followUp' });
-          }
+          pi.sendMessage(
+            { customType: 'stall-recovery-nudge', content: nudge, display: true },
+            ctx.isIdle() ? { triggerTurn: true } : { deliverAs: 'followUp' },
+          );
         } catch (e) {
           clearStatus(ctx);
           ctx.ui.notify(`stall-recovery: failed to deliver retry message: ${String(e)}`, 'error');

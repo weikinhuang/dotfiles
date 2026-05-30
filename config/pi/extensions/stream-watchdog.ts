@@ -125,13 +125,13 @@ export default function streamWatchdog(pi: ExtensionAPI): void {
   let consecutiveRetries = 0;
   let budgetExhaustedNotified = false;
   // Latch populated in the poll callback when we decide to auto-retry.
-  // The actual `sendUserMessage` happens from the `agent_end` handler
+  // The actual `sendMessage` happens from the `agent_end` handler
   // because calling it synchronously from the timer would queue via
   // `_queueFollowUp` (agent still streaming) - and `runAgent`'s abort
   // path `return`s before the outer loop drains follow-ups, so the
   // queued message would never actually run. By the time `agent_end`
   // has propagated through `_agentEventQueue`, `isStreaming === false`
-  // and `sendUserMessage` starts a fresh prompt as intended.
+  // and `sendMessage` starts a fresh prompt as intended.
   let pendingNudge: { silentSec: number; elapsedSec: number } | null = null;
 
   const clearStatus = (ctx: ExtensionContext | undefined): void => {
@@ -325,11 +325,17 @@ export default function streamWatchdog(pi: ExtensionAPI): void {
     // Deliver the latched nudge. Pi 0.75.4 moved `agent_end` into
     // the awaited agent lifecycle, so the runtime still sees
     // `isStreaming === true` while this handler runs. We defer the
-    // actual `pi.sendUserMessage` to the next event-loop tick via
+    // actual `pi.sendMessage` to the next event-loop tick via
     // `setImmediate`, where `ctx.isIdle()` is true and the call takes
     // the fresh-prompt branch (which actually triggers a new turn).
     // Sending synchronously here would route through the follow-up
     // queue, which the exiting agent loop never pulls.
+    //
+    // Delivery uses a `custom` message type so the nudge does NOT
+    // pollute the editor's up-arrow history. Pi's convertToLlm
+    // serializes `custom` -> a synthetic `user` turn whose content
+    // still carries `WATCHDOG_MARKER`, which downstream stall
+    // detectors key off of.
     if (pendingNudge) {
       // Sanity-check the abort actually took effect. If a race left the
       // stream ending normally (toolUse / stop), drop the nudge rather
@@ -354,11 +360,10 @@ export default function streamWatchdog(pi: ExtensionAPI): void {
 
       setImmediate(() => {
         try {
-          if (ctx.isIdle()) {
-            pi.sendUserMessage(nudge);
-          } else {
-            pi.sendUserMessage(nudge, { deliverAs: 'followUp' });
-          }
+          pi.sendMessage(
+            { customType: 'stream-watchdog-nudge', content: nudge, display: true },
+            ctx.isIdle() ? { triggerTurn: true } : { deliverAs: 'followUp' },
+          );
         } catch (e) {
           clearStatus(ctx);
           ctx.ui.notify(`stream-watchdog: failed to deliver follow-up: ${String(e)}`, 'error');
