@@ -65,6 +65,13 @@ describe('resolveProtocol', () => {
     expect(resolveProtocol('halfblock', {})).toBe('halfblock');
   });
 
+  test('image-protocol override wins inside tmux (renderer handles passthrough wrap)', () => {
+    expect(resolveProtocol('kitty', { TMUX: '/tmp/sock' })).toBe('kitty');
+    expect(resolveProtocol('iterm2', { TMUX: '/tmp/sock' })).toBe('iterm2');
+    expect(resolveProtocol('sixel', { TMUX: '/tmp/sock' })).toBe('sixel');
+    expect(resolveProtocol('kitty', { TERM: 'screen-256color' })).toBe('kitty');
+  });
+
   test('auto (or unknown) defers to detection', () => {
     expect(resolveProtocol('auto', { KITTY_WINDOW_ID: '1' })).toBe('kitty');
     expect(resolveProtocol('nonsense', { ITERM_SESSION_ID: 'w0' })).toBe('iterm2');

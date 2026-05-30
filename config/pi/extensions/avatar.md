@@ -71,10 +71,30 @@ Minimal and scoped to the image protocols worth supporting directly:
 
 Detection is environment-based (`KITTY_WINDOW_ID` / `GHOSTTY_RESOURCES_DIR` / `TERM_PROGRAM` → kitty; `ITERM_SESSION_ID`
 / `WEZTERM_PANE` / `TERM_PROGRAM` → iterm2; `WT_SESSION` → sixel). kitty / iTerm2 win when more than one marker is
-present. When `$TMUX` is set (or `TERM` is `tmux*` / `screen*`) the avatar falls back to the kaomoji set, because image
-passthrough through a multiplexer is **not implemented yet** - that is future work. The kaomoji set is also used on an
-image-capable terminal whenever the resolved sprite set ships no PNG frames (or a PNG can't be decoded for the sixel
-path), so the avatar always renders. Override detection with the `render` config key or `PI_AVATAR_RENDER`.
+present. When `$TMUX` is set (or `TERM` is `tmux*` / `screen*`) auto-detection conservatively returns kaomoji because
+outer-terminal env markers are typically scrubbed across panes; force the protocol with `render` / `PI_AVATAR_RENDER`
+when you know what the outer terminal is (see "tmux / screen" below). The kaomoji set is also used on an image-capable
+terminal whenever the resolved sprite set ships no PNG frames (or a PNG can't be decoded for the sixel path), so the
+avatar always renders. Override detection with the `render` config key or `PI_AVATAR_RENDER`.
+
+### tmux / screen
+
+Image protocols work through tmux when the user explicitly forces one (`render: "kitty"` / `"iterm2"` / `"sixel"`, or
+`PI_AVATAR_RENDER=...`). The renderer wraps the kitty APC / iTerm2 OSC 1337 / sixel DCS payload in tmux's DCS
+passthrough envelope (`ESC P tmux ; <doubled-inner-ESCs> ESC \`); tmux strips the envelope and forwards the payload to
+the outer terminal verbatim. Only the image escape is wrapped - surrounding CSI cursor controls and DECSC/DECRC stay
+tmux-native so the multiplexer's own cursor tracking still works.
+
+Requirements:
+
+- tmux >= 3.3 with `set -g allow-passthrough on` (without this tmux drops the wrapped payload).
+- An outer terminal that speaks the chosen protocol (kitty / Ghostty for `kitty`; iTerm2 / WezTerm for `iterm2`; Windows
+  Terminal >= 1.22, foot, xterm with sixel, etc. for `sixel`).
+- For tmux to forward outer-terminal env markers into new panes (informational; auto-detect through tmux is still off):
+  `set -ga update-environment "KITTY_WINDOW_ID GHOSTTY_RESOURCES_DIR ITERM_SESSION_ID WEZTERM_PANE WT_SESSION TERM_PROGRAM"`.
+
+If you'd rather keep the avatar self-contained inside tmux, `render: "halfblock"` is the recommended choice - it needs
+nothing in tmux beyond truecolor (`set -as terminal-features ",*:RGB"`).
 
 In kaomoji mode the widget collapses to the top border rule plus a single `face │ <tool tally>` line (the image modes
 keep the multi-line info panel). Set `compact` to `false` to keep the full panel in kaomoji mode too.

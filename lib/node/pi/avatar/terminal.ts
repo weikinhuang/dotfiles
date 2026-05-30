@@ -2,10 +2,16 @@
  * Pure terminal -> image-protocol detection for the `avatar` extension.
  *
  * Minimal scope: direct kitty graphics + direct iTerm2 inline images +
- * sixel (Windows Terminal >= 1.22), ASCII otherwise. tmux / screen force
- * ASCII because image passthrough is not implemented yet (future work).
+ * sixel (Windows Terminal >= 1.22), ASCII otherwise. Inside tmux / screen
+ * auto-detect returns ASCII as a safety net (outer-terminal env markers
+ * are typically scrubbed across panes, and image escapes get dropped
+ * without explicit user configuration). Users with `allow-passthrough on`
+ * configured can still force an image protocol via the `render` config
+ * key or `PI_AVATAR_RENDER`; {@link resolveProtocol} honours the override
+ * and the renderer wraps the payload in tmux's DCS passthrough envelope.
  */
 
+import { isInTmux } from './tmux.ts';
 import type { Protocol } from './types.ts';
 
 /** The subset of `process.env` the detector reads. */
@@ -23,18 +29,15 @@ export interface TerminalEnv {
 
 /**
  * Detect the best image protocol for the current terminal from `env`.
- * Returns `ascii` inside a multiplexer (no passthrough yet) and for any
- * terminal we can't positively identify as kitty- or iTerm2-capable.
+ * Returns `ascii` inside a multiplexer (auto-detect is conservative; users
+ * opt in to image-protocol passthrough via the `render` override) and for
+ * any terminal we can't positively identify as kitty- or iTerm2-capable.
  */
 export function detectProtocol(env: TerminalEnv): Protocol {
-  const term = (env.TERM ?? '').toLowerCase();
-
-  // No tmux/screen passthrough yet -> text fallback inside multiplexers.
-  if ((env.TMUX ?? '').length > 0 || term.startsWith('tmux') || term.startsWith('screen')) {
-    return 'ascii';
-  }
+  if (isInTmux(env)) return 'ascii';
 
   const termProgram = (env.TERM_PROGRAM ?? '').toLowerCase();
+  const term = (env.TERM ?? '').toLowerCase();
 
   if (
     (env.KITTY_WINDOW_ID ?? '').length > 0 ||

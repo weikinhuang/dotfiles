@@ -59,6 +59,7 @@ import {
   stripEmoteMarkers,
 } from '../../../lib/node/pi/avatar/markers.ts';
 import { readPngDimensions } from '../../../lib/node/pi/avatar/png.ts';
+import { isInTmux, wrapForTmux } from '../../../lib/node/pi/avatar/tmux.ts';
 import { resolveProtocol } from '../../../lib/node/pi/avatar/terminal.ts';
 import { formatToolTally, toolNameToState } from '../../../lib/node/pi/avatar/state.ts';
 import type { ActivityState, AvatarConfig, Protocol } from '../../../lib/node/pi/avatar/types.ts';
@@ -195,23 +196,32 @@ function buildImageFrame(
     const cells = encodeHalfblock(resizeNearest(decoded, cols, rows * 2));
     return { kind: 'halfblock', cells, rows: cells.length };
   }
+  const inTmux = isInTmux(process.env);
   if (protocol === 'sixel') {
     // Sixel ships actual pixels: decode, scale to the on-screen footprint, encode.
     const decoded = decodePng(data);
     if (!decoded) return null;
     const dstW = Math.max(1, Math.round(cols * cell.widthPx));
     const dstH = Math.max(1, Math.round((decoded.height * dstW) / decoded.width));
-    // The marker makes pi-tui treat the line as an image and skip its width
-    // guard; Windows Terminal ignores the no-op kitty APC and paints the sixel.
-    const sequence = SIXEL_IMAGE_LINE_MARKER + encodeSixel(resizeNearest(decoded, dstW, dstH));
+    const inner = encodeSixel(resizeNearest(decoded, dstW, dstH));
+    // Wrap only the DCS payload for tmux; the marker stays outside so pi-tui
+    // still sees `\x1b_G` at line start and skips its width guard. Outside
+    // tmux, the marker still sits in front of the bare sixel as before.
+    const wrapped = inTmux ? wrapForTmux(inner) : inner;
+    const sequence = SIXEL_IMAGE_LINE_MARKER + wrapped;
     return { kind: 'image', sequence, rows, style: 'sixel' };
   }
   const base64 = data.toString('base64');
   const size = { cols, rows };
+  // Kitty (`\x1b_G`) and iTerm2 (`\x1b]1337;File=`) lines stay recognised by
+  // pi-tui's `isImageLine` even when wrapped, because the doubled-ESC encoding
+  // preserves the protocol prefix as a substring.
   if (protocol === 'iterm2') {
-    return { kind: 'image', sequence: encodeITermImage(base64, size, data.length), rows, style: 'iterm2' };
+    const raw = encodeITermImage(base64, size, data.length);
+    return { kind: 'image', sequence: inTmux ? wrapForTmux(raw) : raw, rows, style: 'iterm2' };
   }
-  return { kind: 'image', sequence: encodeKittyImage(base64, size), rows, style: 'kitty' };
+  const raw = encodeKittyImage(base64, size);
+  return { kind: 'image', sequence: inTmux ? wrapForTmux(raw) : raw, rows, style: 'kitty' };
 }
 
 function discoverImageStore(setDir: string, protocol: Protocol, cols: number): BuiltStore {
