@@ -577,12 +577,14 @@ function buildInfoLines(
   ctx: ExtensionContext,
   pi: ExtensionAPI,
   toolCounts: ReadonlyMap<string, number>,
+  state: string,
 ): string[] {
   const lines: string[] = [];
   const model = ctx.model as ModelInfo | undefined;
   let modelStr = model?.name ?? 'no model';
   const level = thinkingLevel(pi);
   if (model?.reasoning === true && level !== undefined) modelStr += ` \u2022 ${level}`;
+  if (state.length > 0) modelStr += ` \u2022 ${state}`;
   lines.push(modelStr);
 
   const usage = ctx.getContextUsage();
@@ -805,7 +807,7 @@ export default function avatar(pi: ExtensionAPI): void {
           if (frame.kind === 'text' && config.compact) {
             return [rule, ...renderTextFrameCompact(frame, config.size, formatToolTally(toolCounts), sep, width)];
           }
-          const info = buildInfoLines(width, config, lastCtx, pi, toolCounts);
+          const info = buildInfoLines(width, config, lastCtx, pi, toolCounts, animator.currentState);
           const lines = [rule];
           if (frame.kind === 'image') {
             if (frame.style === 'sixel') {
