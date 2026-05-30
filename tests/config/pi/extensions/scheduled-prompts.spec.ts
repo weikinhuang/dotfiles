@@ -41,6 +41,7 @@ import {
   updateInList,
   writeScopeFile,
 } from '../../../../lib/node/pi/scheduled-prompts/store.ts';
+import { renderPrompt } from '../../../../lib/node/pi/scheduled-prompts/template.ts';
 
 /**
  * Minimal stand-in for the extension's per-scope store: global/project
@@ -144,7 +145,8 @@ function fireDueInScope(store: ScopeStore, scope: ScheduleScope, now: number): s
   for (const s of list) {
     if (!s.enabled || s.nextFireAt === undefined) continue;
     if (s.nextFireAt > now + 1000) continue;
-    fired.push(s.prompt);
+    const anchor = s.lastRunAt ?? s.createdAt;
+    fired.push(renderPrompt(s.prompt, { now, elapsedMs: now - anchor }));
     const ran = recordRun(s, now);
     // nextFireAt undefined => spent `once` or retired (hit maxRuns).
     next = ran.nextFireAt === undefined ? removeFromList(next, s.id).list : updateInList(next, s.id, ran).list;
@@ -295,6 +297,12 @@ describe('scheduled-prompts command surface', () => {
     expect(after.nextFireAt).toBeGreaterThanOrEqual(speakAt + 30_000);
     expect(after.nextFireAt).toBeLessThanOrEqual(speakAt + 300_000);
     expect(after.unansweredRuns).toBe(0);
+  });
+
+  test('substitutes the ${t} prompt variable at fire time', () => {
+    createFromCommand(store, '--every 30m --scope session -- continue - last run ${t} ago', NOW, 'sp-var');
+    // First fire 30m after creation: ${t} measures from createdAt.
+    expect(fireDueInScope(store, 'session', NOW + 30 * 60_000)).toEqual(['continue - last run 30m ago']);
   });
 
   test('makeScheduleId yields distinct-looking ids', () => {

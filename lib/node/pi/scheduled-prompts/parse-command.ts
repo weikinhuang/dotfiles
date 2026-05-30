@@ -77,6 +77,7 @@ export const SCHEDULE_USAGE = [
   '  --round-robin                cycle a multi-prompt pool in order (default: random)',
   '',
   'The prompt is everything after a bare `--`; split alternatives with ` | `.',
+  'Prompt variables: ${t} = elapsed since last run (or last message for --after), ${d} = current time.',
 ].join('\n');
 
 export const SCHEDULES_USAGE = [

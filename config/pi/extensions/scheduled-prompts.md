@@ -1,8 +1,9 @@
 # `scheduled-prompts.ts`
 
 Fire recurring, one-shot, or activity-anchored idle prompts at the agent on a timer, the way you would type them
-yourself. A fired prompt is delivered through `pi.sendUserMessage`, which always triggers a turn even when the agent is
-idle, so it lands exactly like user input.
+yourself. A fired prompt is delivered through `pi.sendMessage` as a `custom` message (with `triggerTurn` when idle).
+Pi's `convertToLlm` serializes `custom` messages into synthetic `user` turns, so the model sees the prompt exactly like
+user input, but it is not a real user message and therefore never lands in the editor's up-arrow input history.
 
 ## Why
 
@@ -63,6 +64,19 @@ Apply to any trigger:
 - `--when-idle` / `--interrupt` - only fire while idle, or allow firing mid-turn (default idle-only for `after`).
 - **Prompt pool** - give several prompts separated by `|` after the `--`; each fire picks one (random by default, or in
   order with `--round-robin`) so a recurring nudge varies. Example: `-- look around | hum a tune | check your phone`.
+
+## Prompt variables
+
+A prompt is run through variable substitution at fire time, so a nudge can reference how long it has been quiet or the
+current time:
+
+| Variable | Expands to                                                                                                        |
+| -------- | ----------------------------------------------------------------------------------------------------------------- |
+| `${t}`   | Elapsed since the anchor (`15s`, `2m`, `1h30m`); anchor = the previous run, or the last user message for `after`. |
+| `${d}`   | Current local date and time.                                                                                      |
+
+Unknown tokens pass through unchanged, so a prompt that legitimately contains `${foo}` is left alone. Example:
+`/schedule --after 30s-5m -- continue - last beat ${t} ago` fires as `continue - last beat 45s ago`.
 
 ## Scopes
 

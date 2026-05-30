@@ -5,8 +5,11 @@
  * Use cases: a roleplay character that keeps a conversation going
  * without a nudge, a "morning report" while pi is left running, a
  * periodic "summarize what changed" ping, etc. A fired prompt is
- * delivered via `pi.sendUserMessage`, which always triggers a turn even
- * when the agent is idle, so it lands exactly like user input.
+ * delivered via `pi.sendMessage` as a `custom` message (with
+ * `triggerTurn` when idle): pi's convertToLlm serializes `custom` -> a
+ * synthetic `user` turn, so the model sees it exactly like user input,
+ * but it is not a real user message and so stays out of the editor's
+ * up-arrow history.
  *
  * Three scopes:
  *   - global   `~/.pi/agent/scheduled-prompts.json`  (every session)
@@ -28,6 +31,8 @@
  * Self-fires re-enter as `input` with source `extension` and are ignored.
  * Other knobs: `--max-runs N` (retire), `--chance 0..1` (probabilistic
  * fire), a multi-prompt pool (`-- a | b | c`, random or `--round-robin`).
+ * Prompts may use `${t}` (elapsed since last run, or last user message
+ * for `after`) and `${d}` (current time); see `template.ts`.
  *
  * Surfaces:
  *   - `/schedule`   create a schedule
@@ -59,6 +64,7 @@ import { Type } from 'typebox';
 import { createGlobalSlot } from '../../../lib/node/pi/global-slot.ts';
 import { envTruthy } from '../../../lib/node/pi/parse-env.ts';
 import { formatDuration, parseDuration, parseDurationRange } from '../../../lib/node/pi/scheduled-prompts/duration.ts';
+import { renderPrompt } from '../../../lib/node/pi/scheduled-prompts/template.ts';
 import {
   applyActivity,
   computeNextFire,
@@ -155,11 +161,16 @@ export default function scheduledPromptsExtension(pi: ExtensionAPI): void {
   const deliver = (schedule: Schedule, text: string): void => {
     const named = schedule.name ? ` (${schedule.name})` : '';
     try {
-      if (isIdle()) {
-        pi.sendUserMessage(text);
-      } else {
-        pi.sendUserMessage(text, { deliverAs: 'followUp' });
-      }
+      // Deliver as a `custom` message rather than `sendUserMessage`: pi's
+      // convertToLlm serializes `custom` -> a synthetic `user` turn, so the
+      // model sees identical user content, but it is NOT a real user
+      // message and so never pollutes the editor's up-arrow history. When
+      // idle we start a fresh turn (`triggerTurn`); when the agent is busy
+      // we queue after the current turn (`followUp`) without interrupting.
+      pi.sendMessage(
+        { customType: 'scheduled-prompt', content: text, display: true },
+        isIdle() ? { triggerTurn: true } : { deliverAs: 'followUp' },
+      );
       debug(`fired ${schedule.id}${named}`);
       currentCtx?.ui.notify(`scheduled-prompts: fired ${schedule.id}${named}`, 'info');
     } catch (e) {
@@ -209,7 +220,11 @@ export default function scheduledPromptsExtension(pi: ExtensionAPI): void {
       }
 
       const { text, cursor } = pickPrompt(s);
-      deliver(s, text);
+      // `${t}` measures from the last user message for an idle nudge, else
+      // from the previous run; `${d}` is the current time.
+      const anchor =
+        s.trigger.kind === 'after' ? getSlot().lastActivityAt || s.createdAt : (s.lastRunAt ?? s.createdAt);
+      deliver(s, renderPrompt(text, { now, elapsedMs: now - anchor }));
       const ran = recordRun({ ...s, promptCursor: cursor }, now);
       // nextFireAt undefined => spent `once` or retired (hit maxRuns).
       if (ran.nextFireAt === undefined) {
@@ -732,6 +747,7 @@ export default function scheduledPromptsExtension(pi: ExtensionAPI): void {
       'For a roleplay character that feels alive, use `after` with a window like "30s-5m": it fires a random gap after the conversation goes quiet, repeats (backing off) during silence, and resets when the user speaks. Give it a `prompts` pool so the beats vary.',
       'Default scope is `session` (gone when this session ends). Use scope `global` or `project` only when the user wants the schedule to persist across sessions.',
       'Use `maxRuns` to bound an aliveness nudge, and `chance` (<1) for organic unpredictability. Prefer a small `jitter` for recurring schedules that might collide with other sessions.',
+      'A prompt may include `${t}` (elapsed since the last run, or since the last user message for `after`) and `${d}` (current time), e.g. "continue - last beat ${t} ago".',
     ],
     parameters: ScheduleToolParams,
 
