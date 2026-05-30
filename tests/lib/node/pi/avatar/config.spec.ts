@@ -33,6 +33,7 @@ describe('coerceConfigLayer', () => {
     expect(coerceConfigLayer({ blinkInterval: ['a', 'b'] }).blinkInterval).toBeUndefined();
     expect(coerceConfigLayer({ render: 'jpeg' }).render).toBeUndefined();
     expect(coerceConfigLayer({ render: 'sixel' }).render).toBe('sixel');
+    expect(coerceConfigLayer({ render: 'halfblock' }).render).toBe('halfblock');
   });
 
   test('merges partial holdDuration over defaults', () => {

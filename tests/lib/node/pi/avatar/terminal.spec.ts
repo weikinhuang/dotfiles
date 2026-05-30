@@ -46,6 +46,13 @@ describe('detectProtocol', () => {
     expect(detectProtocol({})).toBe('ascii');
     expect(detectProtocol({ TERM_PROGRAM: 'Apple_Terminal' })).toBe('ascii');
   });
+
+  test('halfblock is opt-in only - never returned by auto-detection', () => {
+    expect(detectProtocol({})).not.toBe('halfblock');
+    expect(detectProtocol({ KITTY_WINDOW_ID: '1' })).not.toBe('halfblock');
+    expect(detectProtocol({ WT_SESSION: 'x' })).not.toBe('halfblock');
+    expect(detectProtocol({ TERM_PROGRAM: 'Apple_Terminal' })).not.toBe('halfblock');
+  });
 });
 
 describe('resolveProtocol', () => {
@@ -54,6 +61,8 @@ describe('resolveProtocol', () => {
     expect(resolveProtocol('iterm2', { KITTY_WINDOW_ID: '1' })).toBe('iterm2');
     expect(resolveProtocol('kitty', {})).toBe('kitty');
     expect(resolveProtocol('sixel', { KITTY_WINDOW_ID: '1' })).toBe('sixel');
+    expect(resolveProtocol('halfblock', { KITTY_WINDOW_ID: '1' })).toBe('halfblock');
+    expect(resolveProtocol('halfblock', {})).toBe('halfblock');
   });
 
   test('auto (or unknown) defers to detection', () => {

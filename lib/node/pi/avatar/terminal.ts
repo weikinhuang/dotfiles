@@ -66,10 +66,18 @@ export function detectProtocol(env: TerminalEnv): Protocol {
 /**
  * Resolve the protocol from a config/env `override` falling back to
  * auto-detection. A concrete override (`kitty` / `iterm2` / `sixel` /
- * `ascii`) wins; `auto` (or anything else) defers to {@link detectProtocol}.
+ * `halfblock` / `ascii`) wins; `auto` (or anything else) defers to
+ * {@link detectProtocol}. `halfblock` is opt-in only: auto-detection never
+ * picks it.
  */
 export function resolveProtocol(override: string, env: TerminalEnv): Protocol {
-  if (override === 'kitty' || override === 'iterm2' || override === 'sixel' || override === 'ascii') {
+  if (
+    override === 'kitty' ||
+    override === 'iterm2' ||
+    override === 'sixel' ||
+    override === 'halfblock' ||
+    override === 'ascii'
+  ) {
     return override;
   }
   return detectProtocol(env);

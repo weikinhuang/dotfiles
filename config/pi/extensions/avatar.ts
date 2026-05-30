@@ -34,7 +34,7 @@
  * Environment:
  *   PI_AVATAR_DISABLED=1    skip the extension entirely
  *   PI_AVATAR_NO_PROMPT=1   keep the avatar, drop the [emote:] prompt addendum
- *   PI_AVATAR_RENDER=...     force a protocol (kitty|iterm2|sixel|ascii); overrides config
+ *   PI_AVATAR_RENDER=...     force a protocol (kitty|iterm2|sixel|halfblock|ascii); overrides config
  */
 
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
@@ -49,6 +49,7 @@ import { coerceConfigLayer, mergeConfigLayers } from '../../../lib/node/pi/avata
 import { parseSimpleYaml } from '../../../lib/node/pi/avatar/ascii-yaml.ts';
 import { classifyStateDirs, isActivityState, pickRandom, resolveEmoteSet } from '../../../lib/node/pi/avatar/emotes.ts';
 import { encodeITermImage, encodeKittyImage } from '../../../lib/node/pi/avatar/encode.ts';
+import { encodeHalfblock } from '../../../lib/node/pi/avatar/halfblock.ts';
 import { decodePng } from '../../../lib/node/pi/avatar/png-decode.ts';
 import { SIXEL_IMAGE_LINE_MARKER, encodeSixel, resizeNearest } from '../../../lib/node/pi/avatar/sixel.ts';
 import {
@@ -71,6 +72,7 @@ import { envTruthy } from '../../../lib/node/pi/parse-env.ts';
 
 type RenderedFrame =
   | { kind: 'image'; sequence: string; rows: number; style: 'kitty' | 'iterm2' | 'sixel' }
+  | { kind: 'halfblock'; cells: string[]; rows: number }
   | { kind: 'text'; lines: string[] };
 
 interface LoadedState {
@@ -186,6 +188,13 @@ function buildImageFrame(
   }
   const dims = readPngDimensions(data) ?? { width: 1, height: 1 };
   const rows = imageRows(dims, cols, cell);
+  if (protocol === 'halfblock') {
+    // Half-block packs two pixel rows into one cell-row, so target 2*rows px tall.
+    const decoded = decodePng(data);
+    if (!decoded) return null;
+    const cells = encodeHalfblock(resizeNearest(decoded, cols, rows * 2));
+    return { kind: 'halfblock', cells, rows: cells.length };
+  }
   if (protocol === 'sixel') {
     // Sixel ships actual pixels: decode, scale to the on-screen footprint, encode.
     const decoded = decodePng(data);
@@ -671,6 +680,28 @@ function renderSixelFrame(
   return lines;
 }
 
+/**
+ * Render a half-block (pixel-art) avatar frame. Each entry in `frame.cells`
+ * is a styled string of `size` cells (one cell = two stacked pixels) and
+ * already terminates with an SGR reset, so the separator and info text on
+ * the right stay unstyled. No cursor gymnastics: pi-tui's `extractAnsiCode`
+ * strips the SGR codes, so each cell counts as one visible column.
+ */
+function renderHalfblockFrame(
+  frame: RenderedFrame & { kind: 'halfblock' },
+  size: number,
+  info: string[],
+  sep: string,
+): string[] {
+  const blank = ' '.repeat(size);
+  const lines: string[] = [];
+  for (let i = 0; i < frame.rows; i++) {
+    const cell = frame.cells[i] ?? blank;
+    lines.push(` ${cell} ${sep} ${info[i] ?? ''}`);
+  }
+  return lines;
+}
+
 /** Collapse a kaomoji frame to a single ` face | tally ` line to save vertical space. */
 function renderTextFrameCompact(
   frame: RenderedFrame & { kind: 'text' },
@@ -774,6 +805,8 @@ export default function avatar(pi: ExtensionAPI): void {
             } else {
               lines.push(...renderKittyFrame(frame, config.size, info, sep));
             }
+          } else if (frame.kind === 'halfblock') {
+            lines.push(...renderHalfblockFrame(frame, config.size, info, sep));
           } else {
             lines.push(...renderTextFrame(frame, config.size, info, sep));
           }
