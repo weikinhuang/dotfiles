@@ -53,9 +53,13 @@ Minimal and scoped to the image protocols worth supporting directly:
 
 - **kitty graphics** (APC `_G`) - kitty, Ghostty.
 - **iTerm2 inline images** (OSC 1337 `File=`) - iTerm2, WezTerm.
-- **sixel** (DCS `q`) - Windows Terminal (>= 1.22). Unlike the other two, the terminal can't decode the PNG itself, so
-  the avatar decodes it, scales it to the on-screen footprint, quantises it to a palette, and emits the sixel; sprite
-  transparency is preserved via the sixel background-select flag.
+- **sixel** (DCS `q`) - Windows Terminal (>= 1.22) and other sixel-capable terminals. Unlike the other two, the terminal
+  can't decode the PNG itself, so the avatar decodes it, scales it to the on-screen footprint, quantises it to a
+  palette, and emits the sixel; sprite transparency is preserved via the sixel background-select flag. The sixel line is
+  prefixed with a no-op kitty graphics APC marker (`ESC _Gm=0; ESC \`) so pi-tui's `isImageLine()` treats it as an image
+  and skips the width-truncation guard - pi-tui does not recognise raw DCS lines and would otherwise count the
+  multi-kilobyte payload as visible columns and crash. Sixel terminals ignore the unknown kitty APC and paint the sixel
+  that follows.
 - **kaomoji (ASCII)** fallback - everything else, including inside `tmux` / `screen`.
 
 Detection is environment-based (`KITTY_WINDOW_ID` / `GHOSTTY_RESOURCES_DIR` / `TERM_PROGRAM` → kitty; `ITERM_SESSION_ID`

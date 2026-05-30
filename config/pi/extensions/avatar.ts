@@ -50,7 +50,7 @@ import { parseSimpleYaml } from '../../../lib/node/pi/avatar/ascii-yaml.ts';
 import { classifyStateDirs, isActivityState, pickRandom, resolveEmoteSet } from '../../../lib/node/pi/avatar/emotes.ts';
 import { encodeITermImage, encodeKittyImage } from '../../../lib/node/pi/avatar/encode.ts';
 import { decodePng } from '../../../lib/node/pi/avatar/png-decode.ts';
-import { encodeSixel, resizeNearest } from '../../../lib/node/pi/avatar/sixel.ts';
+import { SIXEL_IMAGE_LINE_MARKER, encodeSixel, resizeNearest } from '../../../lib/node/pi/avatar/sixel.ts';
 import {
   appendEmotePrompt,
   buildEmotePromptAddendum,
@@ -70,7 +70,7 @@ import { envTruthy } from '../../../lib/node/pi/parse-env.ts';
 // ──────────────────────────────────────────────────────────────────────
 
 type RenderedFrame =
-  | { kind: 'image'; sequence: string; rows: number; cursorAdvances: boolean }
+  | { kind: 'image'; sequence: string; rows: number; style: 'kitty' | 'iterm2' | 'sixel' }
   | { kind: 'text'; lines: string[] };
 
 interface LoadedState {
@@ -192,15 +192,17 @@ function buildImageFrame(
     if (!decoded) return null;
     const dstW = Math.max(1, Math.round(cols * cell.widthPx));
     const dstH = Math.max(1, Math.round((decoded.height * dstW) / decoded.width));
-    const sequence = encodeSixel(resizeNearest(decoded, dstW, dstH));
-    return { kind: 'image', sequence, rows, cursorAdvances: true };
+    // The marker makes pi-tui treat the line as an image and skip its width
+    // guard; Windows Terminal ignores the no-op kitty APC and paints the sixel.
+    const sequence = SIXEL_IMAGE_LINE_MARKER + encodeSixel(resizeNearest(decoded, dstW, dstH));
+    return { kind: 'image', sequence, rows, style: 'sixel' };
   }
   const base64 = data.toString('base64');
   const size = { cols, rows };
   if (protocol === 'iterm2') {
-    return { kind: 'image', sequence: encodeITermImage(base64, size, data.length), rows, cursorAdvances: true };
+    return { kind: 'image', sequence: encodeITermImage(base64, size, data.length), rows, style: 'iterm2' };
   }
-  return { kind: 'image', sequence: encodeKittyImage(base64, size), rows, cursorAdvances: false };
+  return { kind: 'image', sequence: encodeKittyImage(base64, size), rows, style: 'kitty' };
 }
 
 function discoverImageStore(setDir: string, protocol: Protocol, cols: number): BuiltStore {
@@ -625,6 +627,50 @@ function renderITermFrame(
   return lines;
 }
 
+/**
+ * Render a sixel avatar frame. Unlike kitty / iTerm2 (whose terminals track the
+ * image as an object and advance the cursor for us), sixel paints raw pixels
+ * into the cell grid, so the layout has to cooperate with pi-tui's differential
+ * renderer:
+ *
+ *   - Info text sits to the right of the image and is positioned with
+ *     cursor-forward (`CSI n C`), not spaces - spaces would draw over (and so
+ *     erase) the image pixels.
+ *   - The sixel is painted on the LAST emitted line, after pi-tui has issued its
+ *     per-line `\x1b[2K` erases for the block; painting on an earlier line would
+ *     get wiped by the next line's erase. `\x1b[{rows-1}A` walks the cursor up
+ *     to the top of the reserved block so the image paints downward over it.
+ *   - Before painting, the image's cell column is cleared row-by-row with
+ *     `\x1b[{n}X` (erase chars, left region only) so a previous frame's pixels
+ *     do not ghost through transparent areas of the new frame.
+ *   - The whole paint is wrapped in DECSC / DECRC (`\x1b7` / `\x1b8`) so the
+ *     cursor returns to the end of the last line, where pi-tui's cursor model
+ *     expects it. pi-tui itself does not use DECSC / DECRC.
+ */
+function renderSixelFrame(
+  frame: RenderedFrame & { kind: 'image' },
+  size: number,
+  info: string[],
+  sep: string,
+): string[] {
+  const skip = `\x1b[${1 + size}C`;
+  const lines: string[] = [];
+  for (let i = 0; i < frame.rows - 1; i++) {
+    lines.push(`${skip} ${sep} ${info[i] ?? ''}`);
+  }
+  const up = frame.rows > 1 ? `\x1b[${frame.rows - 1}A` : '';
+  const clearWidth = size + 1;
+  let paint = `\x1b7\r${up}`;
+  for (let r = 0; r < frame.rows; r++) {
+    paint += `\x1b[${clearWidth}X`;
+    if (r < frame.rows - 1) paint += '\x1b[1B';
+  }
+  paint += `${up}\x1b[1C${frame.sequence}\x1b8`;
+  const last = frame.rows - 1;
+  lines.push(`${skip} ${sep} ${info[last] ?? ''}${paint}`);
+  return lines;
+}
+
 /** Collapse a kaomoji frame to a single ` face | tally ` line to save vertical space. */
 function renderTextFrameCompact(
   frame: RenderedFrame & { kind: 'text' },
@@ -721,11 +767,13 @@ export default function avatar(pi: ExtensionAPI): void {
           const info = buildInfoLines(width, config, lastCtx, pi, toolCounts);
           const lines = [rule];
           if (frame.kind === 'image') {
-            lines.push(
-              ...(frame.cursorAdvances
-                ? renderITermFrame(frame, config.size, info, sep)
-                : renderKittyFrame(frame, config.size, info, sep)),
-            );
+            if (frame.style === 'sixel') {
+              lines.push(...renderSixelFrame(frame, config.size, info, sep));
+            } else if (frame.style === 'iterm2') {
+              lines.push(...renderITermFrame(frame, config.size, info, sep));
+            } else {
+              lines.push(...renderKittyFrame(frame, config.size, info, sep));
+            }
           } else {
             lines.push(...renderTextFrame(frame, config.size, info, sep));
           }

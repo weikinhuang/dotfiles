@@ -4,7 +4,12 @@
 
 import { describe, expect, test } from 'vitest';
 
-import { encodeSixel, resizeNearest, type RgbaImage } from '../../../../../lib/node/pi/avatar/sixel.ts';
+import {
+  SIXEL_IMAGE_LINE_MARKER,
+  encodeSixel,
+  resizeNearest,
+  type RgbaImage,
+} from '../../../../../lib/node/pi/avatar/sixel.ts';
 
 const ESC = '\x1b';
 
@@ -54,5 +59,22 @@ describe('encodeSixel', () => {
     expect(out).not.toContain(';2;');
     expect(out.startsWith(`${ESC}P`)).toBe(true);
     expect(out.endsWith(`${ESC}\\`)).toBe(true);
+  });
+});
+
+describe('SIXEL_IMAGE_LINE_MARKER', () => {
+  test('is an empty kitty graphics APC command', () => {
+    // pi-tui's isImageLine() matches any line containing the kitty `ESC _G`
+    // prefix, so this no-op APC exempts a sixel line from the width guard.
+    expect(SIXEL_IMAGE_LINE_MARKER).toBe(`${ESC}_Gm=0;${ESC}\\`);
+    expect(SIXEL_IMAGE_LINE_MARKER.startsWith(`${ESC}_G`)).toBe(true);
+    expect(SIXEL_IMAGE_LINE_MARKER.endsWith(`${ESC}\\`)).toBe(true);
+  });
+
+  test('prefixing a sixel sequence keeps the DCS payload intact', () => {
+    const line = SIXEL_IMAGE_LINE_MARKER + encodeSixel(solid(6, 1, [255, 0, 0, 255]));
+    expect(line.startsWith(`${ESC}_G`)).toBe(true);
+    expect(line).toContain(`${ESC}P0;1;0q"1;1;6;1`);
+    expect(line.endsWith(`${ESC}\\`)).toBe(true);
   });
 });

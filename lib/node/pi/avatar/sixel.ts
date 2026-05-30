@@ -16,6 +16,22 @@ const ESC = '\x1b';
 /** Alpha at or above this counts as opaque; below it is left transparent. */
 const ALPHA_THRESHOLD = 128;
 
+/**
+ * Prefix prepended to the rendered sixel line so pi-tui treats it as an inline
+ * image and skips its width-truncation guard.
+ *
+ * pi-tui's `isImageLine()` only recognises kitty (`ESC _G`) and iTerm2
+ * (`ESC ]1337;File=`) lines; a sixel DCS line (`ESC P ... ESC \`) is not
+ * recognised, and pi-tui's `visibleWidth()` does not strip DCS, so the
+ * multi-kilobyte sixel payload is counted as visible columns and the renderer
+ * throws "Rendered line N exceeds terminal width". This marker is an empty
+ * kitty graphics APC command (`m=0`, no payload): kitty-incapable terminals
+ * such as Windows Terminal ignore the unknown APC and paint the sixel that
+ * follows, while pi-tui sees the `ESC _G` substring and exempts the line from
+ * the guard. (Mirrors the approach used by the `pi-image-tools` extension.)
+ */
+export const SIXEL_IMAGE_LINE_MARKER = `${ESC}_Gm=0;${ESC}\\`;
+
 export interface RgbaImage {
   width: number;
   height: number;
