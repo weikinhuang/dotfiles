@@ -96,8 +96,9 @@ config/pi/avatar/emotes/<set>/   (default)
 ```
 
 A PNG set is a directory of state subdirectories of frames (`idle/`, `think/`, `talk/`, …, plus emotion dirs). Frames
-load in sorted filename order; frame 0 is the base and frame 1 the blink/swap alternate. The committed kaomoji set is a
-single [`ascii.yaml`](../avatar/emotes/ascii/ascii.yaml) keyed by those same state names plus the emotion names.
+load in sorted filename order; frame 0 is the base, frame 1 the blink/swap alternate, and any further frames (`2.png`,
+…) extend the cycle for animated states like `talk`. The committed kaomoji set is a single
+[`ascii.yaml`](../avatar/emotes/ascii/ascii.yaml) keyed by those same state names plus the emotion names.
 
 The repo commits only the kaomoji set. PNG sprite art under `emotes/` is git-ignored scratch (see
 [`avatar/.gitignore`](../avatar/.gitignore)); drop your own PNG set in to light up the kitty / iTerm2 image path.

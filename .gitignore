@@ -222,5 +222,9 @@ Thumbs.db:encryptable
 /research/
 TODO.md
 
+# ==================== Avatar extension ====================
+# Device-local avatar reference images + generated sprite sheets (per user/machine)
+/avatar-ref/
+
 # ==================== Misc ====================
 /.npmrc
