@@ -14,6 +14,7 @@ gitignored; only the tooling is committed.
 | [`sprite-manifest.ts`](./sprite-manifest.ts) | Source of truth: state groups, grid, target size, chroma, frame hints |
 | [`print-prompts.ts`](./print-prompts.ts)     | Renders ready-to-paste prompts from the manifest                      |
 | [`slice-sheets.ts`](./slice-sheets.ts)       | Slices generated sheets into `<state>/<frame>.png` (uses `magick`)    |
+| [`contact-sheet.ts`](./contact-sheet.ts)     | Builds a self-contained HTML preview of a sliced set to eyeball       |
 
 All three are plain TypeScript; Node 24 runs them directly (`node <script>.ts`), no build step.
 
@@ -89,7 +90,19 @@ node config/pi/avatar/tools/slice-sheets.ts --set exusiai --in avatar-ref/sheets
 node config/pi/avatar/tools/slice-sheets.ts --set exusiai --check
 ```
 
-### 6. Wire it up and test
+### 6. Preview in a browser (optional)
+
+Build a self-contained HTML page (frames embedded as base64) that shows every state's animated ping-pong preview plus
+its individual frames, grouped by manifest group, with have/expected frame counts - handy for spotting registration or
+scaling drift before wiring it up:
+
+```bash
+node config/pi/avatar/tools/contact-sheet.ts --set exusiai --out avatar-ref/contact.html
+# one group only, or link to files instead of embedding:
+node config/pi/avatar/tools/contact-sheet.ts --set exusiai --group sultry --out /tmp/sultry.html
+```
+
+### 7. Wire it up and test
 
 Point the avatar at the set in your user config `~/.pi/agent/avatar.json` (not committed), then test in a kitty / iTerm2
 terminal (`/avatar on`, drive activity, trigger `[emote:NAME]`):
