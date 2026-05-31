@@ -77,6 +77,8 @@ interface GenerateDetails {
   promptId?: string;
   savedPaths: string[];
   error?: string;
+  /** Latest streamed progress line (e.g. "generating 12/30"), shown while the result is partial. */
+  progress?: string;
 }
 
 // ──────────────────────────────────────────────────────────────────────
@@ -343,8 +345,11 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
       const conn: Conn = { base, headers, timeoutMs: config.timeoutMs };
 
       // Stream a progress line; pi's onUpdate wants a full tool result, so
-      // carry the (partial) details alongside the text.
+      // carry the (partial) details alongside the text. Stash the line on
+      // details too so renderResult can show it while the result is partial
+      // (the result renderer only sees details, not the content text).
       const report = (text: string): void => {
+        details.progress = text;
         if (onUpdate) onUpdate({ content: [{ type: 'text', text }], details });
       };
 
@@ -453,12 +458,31 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
       return new Text(`${head}${theme.fg('dim', preview)}`, 0, 0);
     },
 
-    renderResult(result, _opts, theme, _context) {
+    renderResult(result, options, theme, context) {
       const details = (result.details ?? {}) as Partial<GenerateDetails>;
       if (details.error) return new Text(theme.fg('error', `✗ ${details.error}`), 0, 0);
+
       const n = details.savedPaths?.length ?? 0;
-      const seed = details.seed !== undefined ? ` · seed ${details.seed}` : '';
-      return new Text(theme.fg('success', `✓ ${n} image${n === 1 ? '' : 's'}${seed}`), 0, 0);
+      const seedNote = details.seed !== undefined ? ` · seed ${details.seed}` : '';
+
+      // Still running: surface the live progress line (e.g. "generating 12/30")
+      // streamed over the websocket, or a neutral "working…" if none yet.
+      if ((options.isPartial || context.isPartial) && n === 0) {
+        const prog = details.progress ?? 'working…';
+        return new Text(theme.fg('dim', `⟳ ${prog}${seedNote}`), 0, 0);
+      }
+
+      const summary = theme.fg('success', `✓ ${n} image${n === 1 ? '' : 's'}${seedNote}`);
+      if (!options.expanded) return new Text(summary, 0, 0);
+
+      // Expanded (ctrl+o): show the full positive / negative prompt and paths.
+      const args = (context.args ?? {}) as { prompt?: string; negative?: string };
+      const label = (text: string): string => theme.fg('dim', text);
+      const lines = [summary];
+      if (args.prompt) lines.push(`${label('prompt:   ')}${args.prompt}`);
+      lines.push(`${label('negative: ')}${args.negative ?? '(workflow default)'}`);
+      for (const p of details.savedPaths ?? []) lines.push(`${label('saved:    ')}${p}`);
+      return new Text(lines.join('\n'), 0, 0);
     },
   });
 
