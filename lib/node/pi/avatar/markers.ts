@@ -26,7 +26,7 @@
  * stay visible for one frame and get stripped once the stream completes
  * them - same trade-off the color-tags rewriter makes.
  */
-const EMOTE_MARKER = /\[emote:([a-z0-9][a-z0-9_-]*)\]/gi;
+const EMOTE_MARKER = /\[emote:\s*([a-z0-9][a-z0-9_-]*)\]/gi;
 
 /** The heading the prompt addendum injects under (keys idempotency). */
 export const EMOTE_PROMPT_HEADING = '## Avatar emotes';
