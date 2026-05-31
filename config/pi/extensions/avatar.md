@@ -17,18 +17,21 @@ Two independent things drive the avatar.
 
 Lifecycle events animate the sprite:
 
-| State     | Trigger                                    | Animation                           |
-| --------- | ------------------------------------------ | ----------------------------------- |
-| `hi`      | ~500 ms after session start                | held, then falls back to `idle`     |
-| `idle`    | nothing happening                          | base frame with an occasional blink |
-| `wait`    | `agent_start` (prompt sent, no token yet)  | base frame with an occasional swap  |
-| `think`   | `thinking_start` / `thinking_delta`        | base frame with an occasional swap  |
-| `talk`    | assistant `text_delta`                     | mouth cycles at `talkTickMs`        |
-| `read`    | `read` tool, or any tool finishing cleanly | frame cycle at `cycleMs`            |
-| `write`   | `write` / `edit` / `apply_patch` tools     | frame cycle at `cycleMs`            |
-| `tool`    | any other tool starting                    | frame cycle at `cycleMs`            |
-| `failure` | a tool finishing with an error             | held, then falls back to `idle`     |
-| `compact` | `session_before_compact`                   | held until compaction finishes      |
+| State     | Trigger                                                               | Animation                           |
+| --------- | --------------------------------------------------------------------- | ----------------------------------- |
+| `hi`      | ~500 ms after session start                                           | held, then falls back to `idle`     |
+| `idle`    | nothing happening                                                     | base frame with an occasional blink |
+| `wait`    | `agent_start` (prompt sent, no token yet)                             | base frame with an occasional swap  |
+| `think`   | `thinking_start` / `thinking_delta`                                   | base frame with an occasional swap  |
+| `talk`    | assistant `text_delta`                                                | mouth cycles at `talkTickMs`        |
+| `read`    | `read` tool, or any tool finishing cleanly                            | frame cycle at `cycleMs`            |
+| `write`   | `write` / `edit` / `apply_patch` tools                                | frame cycle at `cycleMs`            |
+| `tool`    | any other tool starting                                               | frame cycle at `cycleMs`            |
+| `debug`   | `grep` / `glob` / find / list, or bash search/find/list/`git` inspect | frame cycle at `cycleMs`            |
+| `plan`    | `todo_write` / `update_plan`                                          | frame cycle at `cycleMs`            |
+| `fetch`   | `fetch` / web fetch/search, or bash `ai-fetch-web`                    | frame cycle at `cycleMs`            |
+| `failure` | a tool finishing with an error                                        | held, then falls back to `idle`     |
+| `compact` | `session_before_compact`                                              | held until compaction finishes      |
 
 ### Emotion overlay (LLM-triggered)
 

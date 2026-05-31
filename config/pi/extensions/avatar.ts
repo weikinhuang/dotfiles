@@ -5,7 +5,8 @@
  *
  *   1. **Activity (automatic).** Lifecycle events animate sprite states -
  *      `hi` on session start, `idle` (with blink), `think`, `talk`,
- *      `read` / `write` / `tool` (cycling), `failure`, `compact`.
+ *      `read` / `write` / `tool` / `debug` / `plan` / `fetch` (cycling, by
+ *      tool name), `failure`, `compact`.
  *   2. **Emotion (LLM-triggered).** The model emits a self-closing
  *      `[emote:happy]` marker inline in its reply; the marker is stripped
  *      from the visible text (and scrubbed from history) and switches the
@@ -61,7 +62,7 @@ import {
 import { readPngDimensions } from '../../../lib/node/pi/avatar/png.ts';
 import { isInTmux, wrapForTmux } from '../../../lib/node/pi/avatar/tmux.ts';
 import { resolveProtocol } from '../../../lib/node/pi/avatar/terminal.ts';
-import { formatToolTally, toolNameToState } from '../../../lib/node/pi/avatar/state.ts';
+import { bashCommandToState, formatToolTally, toolNameToState } from '../../../lib/node/pi/avatar/state.ts';
 import type { ActivityState, AvatarConfig, Protocol } from '../../../lib/node/pi/avatar/types.ts';
 import { piAgentPath, piProjectPath } from '../../../lib/node/pi/pi-paths.ts';
 import { fmtSi } from '../../../lib/node/pi/token-format.ts';
@@ -411,6 +412,9 @@ class Animator {
       case 'read':
       case 'write':
       case 'tool':
+      case 'debug':
+      case 'plan':
+      case 'fetch':
         this.enterCycle(state, this.config.cycleMs);
         break;
       case 'success':
@@ -749,6 +753,28 @@ function renderTextFrame(frame: RenderedFrame & { kind: 'text' }, size: number, 
 }
 
 // ──────────────────────────────────────────────────────────────────────
+// Tool -> activity-state resolution
+// ──────────────────────────────────────────────────────────────────────
+
+/** Safely read a `bash` tool's `command` string from the event args. */
+function bashCommand(args: unknown): string {
+  if (args !== null && typeof args === 'object' && 'command' in args) {
+    const command = (args as { command?: unknown }).command;
+    if (typeof command === 'string') return command;
+  }
+  return '';
+}
+
+/** Activity state for a starting tool, inspecting bash commands for known helpers. */
+function resolveToolState(toolName: string, args: unknown): ActivityState {
+  if (toolName === 'bash') {
+    const mapped = bashCommandToState(bashCommand(args));
+    if (mapped !== null) return mapped;
+  }
+  return toolNameToState(toolName);
+}
+
+// ──────────────────────────────────────────────────────────────────────
 // Extension
 // ──────────────────────────────────────────────────────────────────────
 
@@ -927,7 +953,7 @@ export default function avatar(pi: ExtensionAPI): void {
 
   pi.on('tool_execution_start', (event) => {
     toolCounts.set(event.toolName, (toolCounts.get(event.toolName) ?? 0) + 1);
-    if (widgetActive) animator.transitionTo(toolNameToState(event.toolName));
+    if (widgetActive) animator.transitionTo(resolveToolState(event.toolName, event.args));
   });
 
   pi.on('tool_execution_end', (event) => {

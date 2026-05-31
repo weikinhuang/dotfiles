@@ -408,7 +408,7 @@ infatuated:
   - '( ♡o♡ )'
   - '( ✧♡✧ )'
 
-# ── Workflow (agent activity, LLM-triggerable) ───────────────────────────────
+# ── Workflow (activity states, driven by tool name) ──────────────────────────
 
 debug:
   - '( ・◎・ )'
