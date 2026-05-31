@@ -305,6 +305,158 @@ export const GROUPS: Record<string, SpriteGroup> = {
       thumbsup: ['add a sparkle, slightly bigger grin'],
     },
   },
+
+  reactions: {
+    states: [
+      'eureka',
+      'focused',
+      'skeptical',
+      'frustrated',
+      'overwhelmed',
+      'smirk',
+      'deadpan',
+      'eyeroll',
+      'shrug',
+      'sigh',
+      'cozy',
+      'nostalgic',
+    ],
+    poses: {
+      eureka: 'eureka moment, lightbulb above the head, finger raised, delighted',
+      focused: 'intensely focused, narrowed eyes, locked in',
+      skeptical: 'skeptical, one eyebrow raised, doubtful',
+      frustrated: 'frustrated, gritted teeth, clenched fists',
+      overwhelmed: 'overwhelmed, swamped, swirl of stress marks',
+      smirk: 'confident one-sided smirk',
+      deadpan: 'deadpan, flat blank stare, dot eyes',
+      eyeroll: 'rolling eyes upward, exasperated',
+      shrug: 'shrugging, palms up, indifferent',
+      sigh: 'heavy sigh, breath escaping, shoulders dropping',
+      cozy: 'cozy and comfy, wrapped up warm with a mug',
+      nostalgic: 'nostalgic, wistful faraway gaze, small smile',
+    },
+    frames: {
+      eureka: ['a lightbulb flickers on above the head', 'lightbulb glows bright, eyes sparkling, finger up'],
+      frustrated: ['steam puffs from the head, fists clenched tighter', 'hair-tug, gritted teeth, veins popping'],
+      sigh: ['shoulders slump as a long breath escapes', 'deflated, head drooping'],
+      focused: ['eyes narrow a touch more, faint determination'],
+      skeptical: ['eyebrow raises higher, head tilts slightly'],
+      overwhelmed: ['more stress marks spinning around the head'],
+      deadpan: ['a single slow blink, still expressionless'],
+      eyeroll: ['eyes roll fully up and to the side'],
+      shrug: ['shoulders drop back down, hands turning over'],
+      cozy: ['takes a small sip from the warm mug, eyes closing'],
+      nostalgic: ['gaze drifts further away, a wistful little smile'],
+    },
+  },
+
+  social: {
+    states: ['grateful', 'apologetic', 'pleading', 'flirty', 'jealous', 'disgusted', 'sleeping'],
+    poses: {
+      grateful: 'grateful, hands pressed together, warm thankful smile',
+      apologetic: 'apologetic, sheepish, small bow, hand rubbing neck',
+      pleading: 'pleading, big shiny puppy eyes, hands clasped',
+      flirty: 'flirty, playful eyebrow, slight wink',
+      jealous: 'jealous, pouty side-glance, faint green spark',
+      disgusted: 'disgusted, recoiling, tongue out in distaste',
+      sleeping: 'fast asleep, eyes shut, peaceful, "Zzz" drifting up',
+    },
+    frames: {
+      grateful: ['a deeper bow, hands pressed together', 'looking up with a warm thankful smile'],
+      pleading: ['eyes grow bigger and shinier, hands clasped tighter', 'a hopeful tilt, lip trembling slightly'],
+      flirty: ['blows a little kiss with a wink', 'playful eyebrow raise, finger to lips'],
+      sleeping: ['a sleep bubble grows from the nose, slow breathing', 'bubble pops, "Zzz" drifts higher'],
+      apologetic: ['bows the head lower, hand rubbing the back of the neck'],
+      jealous: ['side-glance narrows, a small green spark flares'],
+      disgusted: ['recoils further, hand raised to block, tongue out'],
+    },
+  },
+
+  devotion: {
+    states: ['adore', 'swoon', 'yearning', 'kiss', 'hug', 'infatuated'],
+    poses: {
+      adore: 'adoring, hands clasped at the heart, devoted shining gaze',
+      swoon: 'swooning, swept off feet, hearts bursting',
+      yearning: 'yearning, reaching a hand out, wistful longing',
+      kiss: 'blowing a kiss, puckered lips, a heart drifting off',
+      hug: 'arms wide open for a warm embrace',
+      infatuated: 'infatuated, spiraling heart eyes, hearts everywhere',
+    },
+    frames: {
+      swoon: ['knees buckling, hearts bursting around', 'swept off feet, eyes spiraling into hearts'],
+      kiss: ['puckers lips, a heart launches off', 'a second heart drifts up, eyes closed sweetly'],
+      hug: ['arms open wider, leaning in for the embrace', 'wraps into a warm squeeze, eyes closed'],
+      infatuated: ['hearts swirl faster, spinning dizzily', 'completely lovestruck, eyes huge hearts'],
+      adore: ['hands clasped at the heart, eyes shining with devotion'],
+      yearning: ['reaches a hand further outward, longing deepens'],
+    },
+  },
+
+  workflow: {
+    states: ['debug', 'plan', 'fetch'],
+    poses: {
+      debug: 'debugging, peering through a magnifying glass, investigating',
+      plan: 'planning, sketching a roadmap on a floating blueprint',
+      fetch: 'fetching, waiting on a request, antenna with signal waves',
+    },
+    frames: {
+      debug: [
+        'magnifying glass sweeps the other way, eyes narrowed',
+        'spots something - a tiny "!" and a focused squint',
+      ],
+      plan: ['sketches another box on the floating blueprint', 'taps the plan with a confident nod'],
+      fetch: ['signal waves pulse outward from the antenna', 'a packet arrives with a little ping'],
+    },
+  },
+
+  // Tasteful mature-flirtation expressions for adult roleplay, kept strictly
+  // SFW: head-and-shoulders, fully clothed, emotion- and gaze-driven only - no
+  // nudity, suggestive posing, or explicit content. See `sheetRules` in
+  // print-prompts.ts for the extra guard clause applied to this group.
+  sultry: {
+    states: [
+      'sultry',
+      'smoulder',
+      'tease',
+      'bitelip',
+      'comehither',
+      'breathless',
+      'flustered',
+      'whisper',
+      'purr',
+      'nuzzle',
+      'smooch',
+      'coy',
+    ],
+    poses: {
+      sultry: 'half-lidded bedroom eyes, slow sly smile, warm flush',
+      smoulder: 'intense smoldering gaze, chin slightly down, lips together',
+      tease: 'provocative playful smirk, one finger curling, daring eyes',
+      bitelip: 'biting the lower lip, coy heat, glancing aside',
+      comehither: 'inviting come-here look, a single beckoning finger, sly smile',
+      breathless: 'flushed and lightly breathless, lips parted, caught off guard',
+      flustered: 'hot-and-bothered, deep blush, fanning the face with a hand',
+      whisper: 'leaning in close, a hand cupped to the mouth, intimate murmur',
+      purr: 'content cat-like satisfied look, half-closed eyes, sly smile',
+      nuzzle: 'affectionate close nuzzle, eyes softly shut, warm',
+      smooch: 'a bold playful kiss, eyes shut, a heart drifting off',
+      coy: 'shy-but-daring sidelong glance over the shoulder, small smile',
+    },
+    frames: {
+      tease: ['a quick wink with the smirk, finger to the lips', 'tongue just touching the lip, one brow raised'],
+      flustered: ['fans the face faster, blush deepening', 'looks away, steam puffing, totally flustered'],
+      smooch: ['puckers up, a heart launches off', 'eyes shut, a second heart drifts up'],
+      sultry: ['a slow wink, smile curling wider'],
+      smoulder: ['gaze sharpens, a single brow lifts'],
+      bitelip: ['lip bite eases into a coy smile'],
+      comehither: ['finger curls again, head tilts invitingly'],
+      breathless: ['a soft exhale, blush rising'],
+      whisper: ['leans in a touch closer, eyes flicking up'],
+      purr: ['eyes close fully, a satisfied little smile'],
+      nuzzle: ['nuzzles in closer, a small contented sigh'],
+      coy: ['peeks back a little further, smile widening'],
+    },
+  },
 };
 
 /** Every state across all groups, in group order. */

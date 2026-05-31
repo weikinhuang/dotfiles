@@ -68,14 +68,27 @@ function parseArgs(argv: string[]): PromptOpts {
   return opts;
 }
 
-function sheetRules(): string {
+/**
+ * Per-group content guard appended to the sheet rules. Keeps suggestive groups
+ * (e.g. `sultry`) tasteful and within image-UI policy: expression-driven, fully
+ * clothed, head-and-shoulders only - no nudity, suggestive posing, or explicit
+ * content.
+ */
+const GROUP_GUARDS: Record<string, string> = {
+  sultry:
+    'Keep every cell strictly safe-for-work and tasteful: head-and-shoulders only, fully clothed in the same outfit, expression- and gaze-driven flirtation. No nudity, no suggestive or revealing posing, no explicit or sexual content - just facial expression and a hint of body language.',
+};
+
+function sheetRules(groupName: string): string {
   const cells = GRID.cols * GRID.rows;
+  const guard = GROUP_GUARDS[groupName];
   return (
     `Arrange exactly ${cells} sprites in a strict, evenly spaced ${GRID.cols}x${GRID.rows} grid, read left-to-right then top-to-bottom, ` +
     `on a single flat ${CHROMA} (pure green) background. ` +
     `Outline every cell with a thin 1px solid bright cyan (${BORDER}) rectangular border - flat and fully saturated, no gradient or glow. Make all borders the exact same size and evenly spaced, with green gutters between them. ` +
     `Draw one sprite inside each border box at the EXACT same size and position in every cell: head near the top inner edge, centered horizontally, the same bust crop. Leave a clear band of plain green between the character and the cyan border on all sides - nothing should touch or cross the border. ` +
-    'The borders are alignment guides only (they get removed). No text, labels, numbers, drop shadows, or extra panel lines.'
+    'The borders are alignment guides only (they get removed). No text, labels, numbers, drop shadows, or extra panel lines.' +
+    (guard === undefined ? '' : ` ${guard}`)
   );
 }
 
@@ -87,7 +100,7 @@ function buildPrompt(groupName: string, sheet: Sheet): string {
   lines.push('');
   lines.push('Character: {identity}.');
   lines.push('');
-  lines.push(sheetRules());
+  lines.push(sheetRules(groupName));
   lines.push('');
   lines.push('Cells (one expression each):');
   sheet.cells.forEach((cell, i) => {

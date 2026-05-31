@@ -35,8 +35,8 @@ reuses another sheet's grid from the same group, so slice a group's sheets toget
 shared canvas with no inset or padding, so the box contents fill the frame exactly. Blank cells are skipped, partial
 sets are fine, so generate in batches.
 
-Groups: `activities`, `positive`, `affection`, `negative`, `shock`, `lowenergy`. State names match the kaomoji keys in
-[`../emotes/ascii/ascii.yaml`](../emotes/ascii/ascii.yaml).
+Groups: `activities`, `positive`, `affection`, `negative`, `shock`, `lowenergy`, `reactions`, `social`, `devotion`,
+`workflow`, `sultry`. State names match the kaomoji keys in [`../emotes/ascii/ascii.yaml`](../emotes/ascii/ascii.yaml).
 
 ## Steps
 
