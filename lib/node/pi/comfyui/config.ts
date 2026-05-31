@@ -1,0 +1,205 @@
+/**
+ * Pure config defaults + coercion + layering for the `comfyui` extension.
+ *
+ * The extension shell reads JSON from disk (shipped default -> user
+ * global `~/.pi/agent/comfyui.json` -> project local `<cwd>/.pi/comfyui.json`),
+ * feeds each parsed layer through {@link coerceConfigLayer} (untrusted
+ * `unknown` -> validated `Partial<ComfyuiConfig>`), then
+ * {@link mergeConfigLayers}. Keeping validation + merge + env
+ * interpolation here makes it unit-testable without touching the
+ * filesystem or the network.
+ *
+ * No pi imports.
+ */
+
+import type { AuthHeader, ComfyuiConfig, InputMapping, WorkflowConfig } from './types.ts';
+
+/** Shipped defaults used as the lowest config layer. */
+export const DEFAULT_CONFIG: ComfyuiConfig = {
+  baseUrl: 'http://127.0.0.1:8188',
+  timeoutMs: 180000,
+  saveDir: '.pi/comfyui-out',
+  defaultWorkflow: 'txt2img',
+  sendToModel: true,
+  workflows: {},
+};
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function asBoolean(value: unknown): boolean | undefined {
+  return typeof value === 'boolean' ? value : undefined;
+}
+
+function asString(value: unknown): string | undefined {
+  return typeof value === 'string' ? value : undefined;
+}
+
+function asPositiveNumber(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : undefined;
+}
+
+function asAuthHeader(value: unknown): AuthHeader | undefined {
+  if (!isObject(value)) return undefined;
+  const name = asString(value.name);
+  const headerValue = asString(value.value);
+  if (name === undefined || headerValue === undefined || name.length === 0) return undefined;
+  return { name, value: headerValue };
+}
+
+function asInputMapping(value: unknown): InputMapping | undefined {
+  if (!isObject(value)) return undefined;
+  const node = asString(value.node);
+  const key = asString(value.key);
+  if (node === undefined || key === undefined || node.length === 0 || key.length === 0) return undefined;
+  return { node, key };
+}
+
+function asInputMap(value: unknown): Record<string, InputMapping> | undefined {
+  if (!isObject(value)) return undefined;
+  const out: Record<string, InputMapping> = {};
+  for (const [name, raw] of Object.entries(value)) {
+    const mapping = asInputMapping(raw);
+    if (mapping !== undefined) out[name] = mapping;
+  }
+  return out;
+}
+
+function asWorkflowConfig(value: unknown): WorkflowConfig | undefined {
+  if (!isObject(value)) return undefined;
+  const file = asString(value.file);
+  if (file === undefined || file.length === 0) return undefined;
+  const inputs = asInputMap(value.inputs) ?? {};
+  return { file, inputs };
+}
+
+function asWorkflows(value: unknown): Record<string, WorkflowConfig> | undefined {
+  if (!isObject(value)) return undefined;
+  const out: Record<string, WorkflowConfig> = {};
+  for (const [name, raw] of Object.entries(value)) {
+    const workflow = asWorkflowConfig(raw);
+    if (workflow !== undefined) out[name] = workflow;
+  }
+  return out;
+}
+
+/**
+ * Validate an untrusted parsed JSON layer into a `Partial<ComfyuiConfig>`,
+ * dropping any field with the wrong type. Returns an empty object for a
+ * non-object input.
+ */
+export function coerceConfigLayer(raw: unknown): Partial<ComfyuiConfig> {
+  if (!isObject(raw)) return {};
+  const out: Partial<ComfyuiConfig> = {};
+
+  const baseUrl = asString(raw.baseUrl);
+  if (baseUrl !== undefined && baseUrl.length > 0) out.baseUrl = baseUrl;
+
+  const timeoutMs = asPositiveNumber(raw.timeoutMs);
+  if (timeoutMs !== undefined) out.timeoutMs = timeoutMs;
+
+  const saveDir = asString(raw.saveDir);
+  if (saveDir !== undefined && saveDir.length > 0) out.saveDir = saveDir;
+
+  const defaultWorkflow = asString(raw.defaultWorkflow);
+  if (defaultWorkflow !== undefined && defaultWorkflow.length > 0) out.defaultWorkflow = defaultWorkflow;
+
+  const sendToModel = asBoolean(raw.sendToModel);
+  if (sendToModel !== undefined) out.sendToModel = sendToModel;
+
+  const authHeader = asAuthHeader(raw.authHeader);
+  if (authHeader !== undefined) out.authHeader = authHeader;
+
+  const workflows = asWorkflows(raw.workflows);
+  if (workflows !== undefined) out.workflows = workflows;
+
+  return out;
+}
+
+/**
+ * Layer `overrides` over {@link DEFAULT_CONFIG} in priority order
+ * (lowest first). Scalars are replaced wholesale; `authHeader` is
+ * replaced wholesale by any layer that sets it; `workflows` merge by
+ * name so a higher layer can add new workflows or replace one by id
+ * without dropping the others.
+ */
+export function mergeConfigLayers(...overrides: Partial<ComfyuiConfig>[]): ComfyuiConfig {
+  const result: ComfyuiConfig = { ...DEFAULT_CONFIG, workflows: { ...DEFAULT_CONFIG.workflows } };
+
+  for (const layer of overrides) {
+    if (layer.baseUrl !== undefined) result.baseUrl = layer.baseUrl;
+    if (layer.timeoutMs !== undefined) result.timeoutMs = layer.timeoutMs;
+    if (layer.saveDir !== undefined) result.saveDir = layer.saveDir;
+    if (layer.defaultWorkflow !== undefined) result.defaultWorkflow = layer.defaultWorkflow;
+    if (layer.sendToModel !== undefined) result.sendToModel = layer.sendToModel;
+    if (layer.authHeader !== undefined) result.authHeader = { ...layer.authHeader };
+    if (layer.workflows !== undefined) result.workflows = { ...result.workflows, ...layer.workflows };
+  }
+
+  return result;
+}
+
+const ENV_REF = /\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g;
+
+/**
+ * Expand `${VAR}` references in `value` from `env`. An undefined or
+ * missing variable expands to the empty string, so a configured-but-unset
+ * token yields no credential rather than leaking the literal `${VAR}`.
+ */
+export function interpolateEnv(value: string, env: NodeJS.ProcessEnv = process.env): string {
+  return value.replace(ENV_REF, (_match, name: string) => env[name] ?? '');
+}
+
+/**
+ * Resolve the effective base URL: `PI_COMFYUI_URL` wins over the config
+ * value, then `${ENV}` interpolation is applied and any trailing slash
+ * is dropped so URL joining stays predictable.
+ */
+export function resolveBaseUrl(config: ComfyuiConfig, env: NodeJS.ProcessEnv = process.env): string {
+  const override = env.PI_COMFYUI_URL?.trim();
+  const raw = override !== undefined && override.length > 0 ? override : config.baseUrl;
+  return interpolateEnv(raw, env).replace(/\/+$/, '');
+}
+
+/**
+ * Build the request-header object from the configured auth header, with
+ * `${ENV}` interpolation applied. Returns an empty object when no auth
+ * header is configured or the interpolated value is empty.
+ */
+export function resolveAuthHeaders(
+  config: ComfyuiConfig,
+  env: NodeJS.ProcessEnv = process.env,
+): Record<string, string> {
+  if (config.authHeader === undefined) return {};
+  const value = interpolateEnv(config.authHeader.value, env);
+  if (value.length === 0) return {};
+  return { [config.authHeader.name]: value };
+}
+
+export interface SendDecision {
+  /** Whether to return the image in the tool result (fed to the model). */
+  send: boolean;
+  /** True when sending was suppressed because the model lacks image input. */
+  visionBlocked: boolean;
+}
+
+/**
+ * Decide whether to hand the generated image back to the model.
+ *
+ * `requested` is the resolved preference (`sendToModel` arg ?? config).
+ * Even when requested, sending is suppressed if the active model
+ * positively does not accept image input (`modelInput` is an array
+ * lacking `"image"`) - feeding a base64 PNG to a text-only model wastes
+ * tokens or errors. When `modelInput` is unknown (not an array), the
+ * preference is honored as-is so a detection gap never silently drops a
+ * supported image.
+ */
+export function resolveSendToModel(requested: boolean, modelInput: unknown): SendDecision {
+  if (!requested) return { send: false, visionBlocked: false };
+  if (Array.isArray(modelInput)) {
+    const inputs = modelInput as unknown[];
+    if (!inputs.includes('image')) return { send: false, visionBlocked: true };
+  }
+  return { send: true, visionBlocked: false };
+}

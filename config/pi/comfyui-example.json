@@ -1,0 +1,35 @@
+{
+  "baseUrl": "http://127.0.0.1:8188",
+  "timeoutMs": 180000,
+  "saveDir": ".pi/comfyui-out",
+  "defaultWorkflow": "txt2img",
+  "sendToModel": true,
+  "authHeader": { "name": "Authorization", "value": "Bearer ${PI_COMFYUI_TOKEN}" },
+  "workflows": {
+    "txt2img": {
+      "file": "~/.dotfiles/config/pi/comfyui/txt2img.api.json",
+      "inputs": {
+        "prompt": { "node": "6", "key": "text" },
+        "negative": { "node": "7", "key": "text" },
+        "seed": { "node": "3", "key": "seed" },
+        "steps": { "node": "3", "key": "steps" },
+        "cfg": { "node": "3", "key": "cfg" },
+        "width": { "node": "5", "key": "width" },
+        "height": { "node": "5", "key": "height" },
+        "batch": { "node": "5", "key": "batch_size" }
+      }
+    },
+    "img2img": {
+      "file": "~/.dotfiles/config/pi/comfyui/img2img.api.json",
+      "inputs": {
+        "prompt": { "node": "6", "key": "text" },
+        "negative": { "node": "7", "key": "text" },
+        "image": { "node": "10", "key": "image" },
+        "denoise": { "node": "3", "key": "denoise" },
+        "seed": { "node": "3", "key": "seed" },
+        "steps": { "node": "3", "key": "steps" },
+        "cfg": { "node": "3", "key": "cfg" }
+      }
+    }
+  }
+}

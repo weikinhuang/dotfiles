@@ -37,7 +37,7 @@ Reach for `apply_patch` when **any** of these hold:
 - The change spans more than one file and you want all-or-nothing atomicity.
 - The change is large enough that emitting it as a sequence of `edit` calls would burn many turns.
 - You need a rename (`Move File`) — `edit` cannot rename and a `Delete File` + `Add File` pair is not the same thing
-  (the plan explicitly forbids it; see [D5](../../../../plans/pi-cc-parity.md#decisions-locked)).
+  (the plan explicitly forbids it).
 - An opus-class model is driving and the change is non-trivial.
 
 Stay with `edit` when:
