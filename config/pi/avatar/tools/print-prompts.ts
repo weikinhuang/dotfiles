@@ -69,14 +69,19 @@ function parseArgs(argv: string[]): PromptOpts {
 }
 
 /**
- * Per-group content guard appended to the sheet rules. Keeps suggestive groups
- * (e.g. `sultry`) tasteful and within image-UI policy: expression-driven, fully
+ * Content guard appended to the sheet rules for suggestive / mature groups.
+ * Keeps them tasteful and within image-UI policy: expression-driven, fully
  * clothed, head-and-shoulders only - no nudity, suggestive posing, or explicit
- * content.
+ * content. Shared by `sultry` and the opt-in `mature` overlay groups.
  */
+const SFW_GUARD =
+  'Keep every cell strictly safe-for-work and tasteful: head-and-shoulders only, fully clothed in the same outfit, expression- and gaze-driven only. No nudity, no suggestive or revealing posing, no explicit or sexual content - just facial expression, flush, and a hint of body language.';
+
 const GROUP_GUARDS: Record<string, string> = {
-  sultry:
-    'Keep every cell strictly safe-for-work and tasteful: head-and-shoulders only, fully clothed in the same outfit, expression- and gaze-driven flirtation. No nudity, no suggestive or revealing posing, no explicit or sexual content - just facial expression and a hint of body language.',
+  sultry: SFW_GUARD,
+  desire: SFW_GUARD,
+  intensity: SFW_GUARD,
+  intimacy: SFW_GUARD,
 };
 
 function sheetRules(groupName: string): string {

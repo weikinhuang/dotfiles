@@ -37,8 +37,9 @@ shared canvas with no inset or padding, so the box contents fill the frame exact
 sets are fine, so generate in batches.
 
 Groups: `activities`, `positive`, `affection`, `negative`, `shock`, `lowenergy`, `reactions`, `social`, `devotion`,
-`workflow`, `sultry`, `insight`, `composure`, `bonding`, `closeness`, `antics`. State names match the kaomoji keys in
-[`../emotes/ascii/ascii.yaml`](../emotes/ascii/ascii.yaml).
+`workflow`, `sultry`, `insight`, `composure`, `bonding`, `closeness`, `antics`, `desire`, `intensity`, `intimacy`. State
+names match the kaomoji keys in [`../emotes/ascii/ascii.yaml`](../emotes/ascii/ascii.yaml) (the `desire` / `intensity` /
+`intimacy` groups match the opt-in [`mature`](../emotes/mature/ascii.yaml) overlay).
 
 ## Steps
 
