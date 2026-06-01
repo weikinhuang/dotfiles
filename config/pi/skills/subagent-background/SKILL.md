@@ -3,8 +3,7 @@ name: subagent-background
 description: >-
   Run subagents asynchronously with `run_in_background: true` and manage them with `subagent_send` (status / wait /
   steer / abort). Use when you want to fan out work, hide latency behind other steps, or keep the parent responsive
-  while a long child runs. Covers the full lifecycle, when async beats sync, steering mid-run, abort criteria, and the
-  "don't orphan children" rule. Pairs with `subagent-delegation` which covers WHEN and HOW to delegate at all.
+  while a long child runs. Pairs with `subagent-delegation`, which covers when and how to delegate at all.
 ---
 
 # Subagent Background Lifecycle

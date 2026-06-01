@@ -2,12 +2,9 @@
 name: oxlint-typescript-conventions
 description:
   "WHAT: Write TypeScript under `lib/node/`, `tests/`, and `config/pi/` that passes the repo's strict `oxlint
-  --type-aware` configuration on the first try, so the husky pre-commit hook (`oxlint && oxfmt --check`) does not reject
-  the commit. WHEN: User asks to add or edit a `.ts` / `.spec.ts` file anywhere outside `config/pi/extensions/` (the
-  extensions tree has a relaxed override in `oxlint.config.ts`). DO-NOT: Write async arrow-function test stubs that have
-  no `await`; use `/literal/.test(s)` when `s.includes(literal)` would do; declare functions below their first call
-  site; cast through a generic `Record` to silence `no-unsafe-assignment` without thinking about whether the cast is
-  actually safe; bypass the rules with `// oxlint-disable` instead of fixing the code."
+  --type-aware` configuration on the first try, so the husky pre-commit hook does not reject the commit. WHEN: User asks
+  to add or edit a `.ts` / `.spec.ts` file anywhere outside `config/pi/extensions/` (the extensions tree has a relaxed
+  override). DO-NOT: Bypass the rules with `// oxlint-disable` instead of fixing the code."
 ---
 
 # oxlint TypeScript conventions

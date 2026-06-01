@@ -1,14 +1,10 @@
 ---
 name: apply-patch-format
 description:
-  'WHAT: WHEN to reach for the `apply_patch` tool over `edit` / `write`, plus the strict Codex patch shape (`*** Begin
-  Patch` / `*** Add File` / `*** Update File` / `*** Delete File` / `*** Move File`, `@@` hunks with ` ` / `-` / `+`
-  line prefixes) the parser accepts. WHEN: User asks for a multi-file refactor, a rename + edit combo, a large diff
-  against one file, or any task an opus-class model is driving where the model would otherwise stack many `edit` calls
-  in a row. DO-NOT: Use `apply_patch` for single-line targeted edits (`edit` is shorter and feedback is tighter); use it
-  for binary content (the format is text-only); hand-write the format from memory (the markers and hunk prefixes are
-  strict and the parser will reject a paraphrase); skip context lines (each `@@` hunk needs unique surrounding context
-  so the locator finds the right region).'
+  When to reach for the `apply_patch` tool over `edit` / `write`, plus the strict Codex patch shape (`*** Begin Patch
+  ... *** End Patch` envelope with `@@` hunks). Use for multi-file refactors, rename + edit combos, large diffs against
+  one file, or any task where the model would otherwise stack many `edit` calls in a row. Do not use for single-line
+  targeted edits, binary content, hand-written patches from memory, or hunks without unique surrounding context.
 ---
 
 # Apply-Patch Format

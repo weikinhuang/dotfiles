@@ -1,14 +1,11 @@
 ---
 name: hooks-author
 description:
-  'WHAT: When to reach for a user hook (`~/.pi/agent/hooks.json` / `<repo>/.pi/hooks.json`) over an ad-hoc bash command
-  or a full pi extension, plus the JSONC shape, payload, and decision protocol of the `hooks` extension. WHEN: User asks
-  things like "can I run X every time pi does Y", "from now on when Z happens, do W", "log every bash command", "format
-  files after edit", "inject context into every prompt", or asks to wire a Claude Code hook into pi. DO-NOT: Suggest a
-  hook for one-shot tasks (just run the bash); use a hook to replace a built-in gate (`bash-permissions` / `filesystem`
-  / `sandbox` already run first); put logic inside the JSONC config (keep config thin, put logic in the script the hook
-  calls); recommend a hook for behavior that needs new pi events or tool registration (write a TypeScript extension
-  instead).'
+  When to reach for a user hook (`~/.pi/agent/hooks.json` / `<repo>/.pi/hooks.json`) over an ad-hoc bash command or a
+  full pi extension. Use when the user asks things like "can I run X every time pi does Y", "from now on when Z happens,
+  do W", "log every bash command", "format files after edit", "inject context into every prompt", or asks to wire a
+  Claude Code hook into pi. Do not suggest a hook for one-shot tasks, to replace a built-in gate, or for behavior that
+  needs new pi events or tool registration.
 ---
 
 # Hooks Author

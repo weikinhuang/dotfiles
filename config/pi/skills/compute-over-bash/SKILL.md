@@ -1,12 +1,10 @@
 ---
 name: compute-over-bash
 description: >-
-  Reach for the `compute` tool (sandboxed JavaScript, no approval prompt) instead of shelling out to `python3 -c`, `node
-  -e`, `bc`, `expr`, or a `jq` expression whenever the task is pure calculation or data transformation - arithmetic,
-  big-number math, base/radix conversion, date math, string/regex work, reshaping JSON, hashing (sha256), base64, or
-  UTF-8 byte work. Prefer it because it is deterministic, needs no permission dialog, and cannot touch the filesystem or
-  network. Skip it - and use bash - the moment the task needs files, network, environment, subprocesses, package
-  installs, running the project's own code or tests, or anything asynchronous.
+  Reach for the `compute` tool (sandboxed JavaScript) instead of shelling out to `python3 -c`, `node -e`, `bc`, `expr`,
+  or `jq` whenever the task is pure calculation or data transformation - arithmetic, big-number math, base/radix
+  conversion, date math, string/regex work, reshaping JSON, hashing (sha256), base64, or UTF-8 byte work. Skip it - and
+  use bash - the moment the task needs files, network, environment, subprocesses, or anything asynchronous.
 ---
 
 # Compute over bash

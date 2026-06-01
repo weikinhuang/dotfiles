@@ -1,14 +1,11 @@
 ---
 name: markdown
 description:
-  'WHAT: Author and edit markdown in this dotfiles repo so it conforms to the project markdownlint config
-  (`.markdownlint.jsonc` + the `@public-projects/agents-tooling` custom rules) and oxfmt prose-wrap settings, and runs
-  through `markdownlint-cli2 --fix` and `oxfmt` cleanly. WHEN: User asks to write, edit, restructure, or fix lint on any
-  `.md` / `.mdc` file under this repo (AGENTS.md, README.md, REFERENCE.md, docs/**, plans/**, .agents/skills/**, or the
-  pi/agent skills under config/). DO-NOT: Hand-format markdown with custom column widths or list styles, run prettier
-  instead of oxfmt, mass-rewrap a file mid-edit, or add a `README.md` inside a skill folder. Defer to the more specific
-  `commit-message`, `doc-sync`, or skill/plan/AGENTS authoring guides when those apply -- this skill only governs the
-  shared markdown-formatting surface.'
+  'WHAT: Author and edit markdown in this dotfiles repo so it conforms to the project markdownlint config and oxfmt
+  prose-wrap settings, and runs through `markdownlint-cli2 --fix` and `oxfmt` cleanly. WHEN: User asks to write, edit,
+  restructure, or fix lint on any `.md` / `.mdc` file. Defer to the more specific `commit-message`, `doc-sync`, or
+  skill/plan/AGENTS authoring guides when those apply. DO-NOT: Run prettier instead of oxfmt, mass-rewrap mid-edit, or
+  add a `README.md` inside a skill folder.'
 ---
 
 # Markdown authoring and linting

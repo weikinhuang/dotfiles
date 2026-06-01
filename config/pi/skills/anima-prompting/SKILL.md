@@ -1,27 +1,24 @@
 ---
 name: anima-prompting
 description:
-  'WHAT: How to write positive and negative prompts - and pick steps / cfg / sampler / resolution - for the CircleStone
-  Labs **Anima** anime / illustration model when calling the `generate_image` tool: Danbooru-tag + natural-language
-  craft, the `masterpiece, best quality, score_7, safe` prefix, the `@artist` rule, tag order, and a matching negative.
-  WHEN: The user asks you to generate, draw, or render an anime / illustration / character / non-photoreal image through
-  `generate_image` and the active workflow is Anima (anima-base diffusion model + qwen text encoder). DO-NOT: Use it for
-  photorealism (Anima is not a realism model); emit three-word prompts (short prompts produce plain or undesired/unsafe
-  output - add detail + safety tags); use underscores in tags except `score_N`; use SDXL-level prompt weights (Anima
-  needs higher, e.g. `(chibi:2)`); omit the `@` before an artist name (the effect is near-zero without it); rely on long
-  text rendering.'
+  Prompting rules for the CircleStone Labs **Anima** anime / illustration model. Use when the user asks to generate /
+  draw / render an anime / illustration / non-photoreal image on an Anima workflow. Anima is distinguished from the
+  Illustrious / NoobAI family by its score tags and `@artist` prefix syntax; do not use for photorealism.
 ---
 
 # Anima Prompting
 
 [Anima](https://huggingface.co/circlestone-labs/Anima) is a 2B anime / illustration text-to-image model (CircleStone
-Labs + Comfy Org). This skill teaches how to write the `prompt` and `negative` you pass to the
+Labs + Comfy Org), built on NVIDIA Cosmos with a qwen-text-encoder LLM adapter that has outsized influence on the
+generated image. This skill teaches how to write the `prompt` and `negative` you pass to the
 [`generate_image`](../../extensions/comfyui.md) tool so a small chat model drives it well on the first call. It is
 specific to Anima - the score tags, `@artist` rule, and qwen-text-encoder behavior below do not apply to a plain SD /
-SDXL workflow.
+SDXL workflow, nor to [[illustrious-prompting]] or [[noobai-vpred-prompting]].
 
-Anima is trained on **Danbooru-style tags, natural-language captions, and mixes of the two**. All three work; pick
-whichever fits the request and always lead with quality + safety tags.
+Anima is trained on **Danbooru-style tags, natural-language captions, and mixes of the two** (anime training data cuts
+off September 2025). All three work; pick whichever fits the request and always lead with quality + safety tags. The LLM
+adapter is what makes detailed prompts pay off here far more than on a plain SDXL model - terse prompts waste the
+model's strongest feature.
 
 ## The `generate_image` call
 
@@ -45,7 +42,8 @@ prompt every time. Do not pass `inputImage` (Anima here is text-to-image only).
 3. **Lowercase tags, spaces not underscores** - the only underscored tags are score tags (`score_7`). Prefer the
    Gelbooru spelling when a tag differs between boorus.
 4. **Be specific.** Anima's base style is plain; short prompts give bland or unexpected (sometimes unsafe) output. For
-   natural language aim for >=2 sentences.
+   natural language aim for >=2 sentences. For tag style aim for >=8 substantive tags after the prefix. The model card
+   warns explicitly: "The model may generate undesired content, especially if the prompt is short or lacking details."
 5. **Name then describe characters.**
    `Fern from Sousou no Frieren, with long purple hair and purple eyes, wearing a black coat...` - especially with
    multiple characters, describe each one's appearance or the model conflates them.
@@ -60,6 +58,57 @@ prompt every time. Do not pass `inputImage` (Anima here is text-to-image only).
 
 Order only matters between sections; within a section tags are free-order. You do not need every relevant tag - the
 model was trained with tag dropout.
+
+## Expanding a terse user request
+
+When the user asks for something short like "draw a cat girl" or "make me a witch", do **not** pass that string through.
+Expand it before calling `generate_image`:
+
+1. **Prefix:** add `masterpiece, best quality, score_7, safe,`.
+2. **Subject count + type:** infer `1girl` / `1boy` / `1other`, plus `solo` if a single character.
+3. **Character / series:** only if the user named one (`Frieren from Sousou no Frieren`); otherwise skip.
+4. **Appearance:** invent 3-5 concrete details - hair color + length, eye color, outfit, distinctive accessory. Match
+   the user's vibe; ask only if their wording is genuinely ambiguous about a load-bearing detail (e.g. "anime girl in a
+   kimono - red or blue?").
+5. **Pose / framing:** 1-2 tags - `looking at viewer`, `standing`, `upper body`, `cowboy shot`. Pick ONE framing tag.
+6. **Setting:** 2-4 tags or a clause - `sunlit library, tall window, dust motes`, or
+   `simple background, white background` for a clean character shot.
+7. **Lighting + palette:** 1-3 tags - `soft lighting`, `cinematic lighting`, `warm palette`, `muted colors`.
+8. **Era (optional):** add `year 2025` or `newest` for a modern look; skip for timeless.
+9. **Artist (optional):** only if the user named one - prepend `@` (e.g. `@nnn yryr`).
+10. **Negative:** always pass the recommended negative; add `extra fingers, text, watermark` for cleaner output.
+
+The goal is roughly 12-25 substantive items in the positive prompt. If the user wants to iterate, pass the prior `seed`
+back to vary by tweaking tags rather than restarting.
+
+## When the user supplies tags directly
+
+If the user hands you a tag list (or a tag list mixed with wildcards) instead of a terse English request, switch modes:
+
+1. **Preserve every user-supplied tag verbatim.** Do not paraphrase, deduplicate, reorder across sections, or "improve"
+   their wording.
+2. **Prepend the prefix if missing.** Add `masterpiece, best quality, score_7, safe,` only if the user did not already
+   include quality / safety tags.
+3. **Add spatial / positional words only.** Insert framing words like `in the center of the frame`, `foreground`,
+   `background`, `in front of`, `surrounded by`, `on either side` to disambiguate where elements sit. Do not add
+   weather, lighting, palette, or outfit details the user did not ask for.
+4. **Preserve dynamic-prompt wildcards exactly.** `{A|B}`, `{A,|B,|C}`, `{1-3$$ A|B|C}`, and `{A,B}_noun` are
+   wildcard-extension syntax (ComfyUI Impact-Pack, sd-dynamic-prompts) - they expand at generation time, not in your
+   prompt. Pass them through unchanged: never rewrite `{standing|sitting}` as `"standing or sitting"`, never pick one
+   branch, never delete a branch.
+5. **Append a one-sentence natural-language clause** describing spatial relationships - Anima's qwen adapter benefits
+   from prose, so a single closing sentence on top of the tag list usually improves coherence without adding
+   embellishment.
+
+```text
+prompt:   masterpiece, best quality, score_7, safe, 1girl, {standing|sitting}, classroom, desk, {morning|evening},
+          a young female student positioned in the center of the classroom in front of the desk, with the
+          {morning|evening} lighting implied by the scene
+negative: worst quality, low quality, score_1, score_2, score_3, artist name, nsfw
+```
+
+Concatenate the tag list and the natural-language clause into one `prompt` string (comma- or period-joined) - the tool
+takes a single string, and Anima reads mixed input fine.
 
 ## Negative prompt recipe
 
@@ -92,6 +141,7 @@ worst quality, low quality, score_1, score_2, score_3, artist name
 | Steps      | 30-50.                                                                                            |
 | CFG        | 4-5.                                                                                              |
 | Sampler    | `er_sde` is the neutral default; `euler_a` for softer lines; `dpmpp_2m_sde_gpu` for more variety. |
+| Scheduler  | Workflow default is fine; `beta57` gives a more painterly look with better textures.              |
 
 Sampler/scheduler live in the workflow file, not the tool args - mention a sampler only if asking the user to retune the
 workflow.
@@ -121,11 +171,24 @@ The wrapped lines above are a single comma/space-joined string each - pass them 
 
 - **Asking for realism / photos.** Anima is anime/illustration only and will not do realism - redirect or set
   expectations instead of fighting it.
-- **Three-word prompts.** `a cat girl` underuses the model and risks plain or unsafe output. Add quality + safety tags
-  and concrete details.
+- **Three-word prompts.** `a cat girl` underuses the model and risks plain or unsafe output. Run it through the
+  [expansion algorithm](#expanding-a-terse-user-request) - target ~12-25 substantive items. As a sketch, `a cat girl`
+  becomes:
+
+  ```text
+  masterpiece, best quality, score_7, safe, 1girl, solo, cat ears, cat tail, short brown hair, green eyes,
+  casual hoodie, sitting cross-legged, looking at viewer, simple background, soft lighting, newest
+  ```
+
 - **Underscores in tags.** `brown_hair` is wrong; write `brown hair`. Only `score_7` keeps the underscore.
 - **SDXL-level weights.** `(chibi:1.2)` barely moves Anima; use `(chibi:2)`.
 - **Forgetting `@` on an artist.** `nnn yryr` ~= no effect; `@nnn yryr` applies the style.
+- **Expanding wildcards.** `{standing|sitting}` is dynamic-prompt syntax that resolves at generation time. Rewriting it
+  as `"standing or sitting"`, picking one branch, or deleting it are all wrong - pass the literal `{...|...}` token
+  through unchanged.
+- **Paraphrasing user-supplied tags.** When the user gives you a tag list, do not "improve" it - preserve their tags
+  verbatim and only add spatial framing words. See
+  [When the user supplies tags directly](#when-the-user-supplies-tags-directly).
 - **Long text in the image.** Anima renders a single word or short phrase at best - do not promise a paragraph on a
   sign.
 - **Dropping the `negative` arg.** Always pass one; it is the main lever for quality and safety.

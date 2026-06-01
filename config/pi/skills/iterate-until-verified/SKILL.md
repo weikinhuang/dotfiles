@@ -4,9 +4,7 @@ description: >-
   Use the `check` tool to run a disciplined feedback loop whenever the task is "produce an artifact and confirm it
   satisfies a verifiable contract" - render an SVG / chart / diagram, generate a config / regex / test / fixture /
   snippet that has to match a spec, write code that has to pass a test suite, produce prose a critic can rubric-judge,
-  or "make a Y that does Z". Declare a check up front, let the user accept it, then edit → `check run` → read verdict →
-  edit until it passes or the budget is spent. Never claim the artifact is done without a passing verdict from `check
-  run` this turn.
+  or "make a Y that does Z". Never claim the artifact is done without a passing verdict from `check run` this turn.
 ---
 
 # Iterate Until Verified

@@ -1,11 +1,10 @@
 ---
 name: plugin-conventions
 description:
-  "WHAT: Conventions for files under plugins/ - numeric prefix for load order, `command -v` guard, disable-switch
-  contract, no-blocking-work-at-source-time rule. WHEN: User asks to add a new plugin, move an integration into a
-  plugin, or debug why a plugin isn't loading. DO-NOT: Skip the `command -v` guard; perform network/subprocess work at
-  source time; invent a new numeric tier without asking; assume the plugin loads by default (only `00-bash-opts.sh` and
-  `00-chpwd-hook.sh` do)."
+  "WHAT: Conventions for files under plugins/ - numeric load-order prefix, `command -v` guard, disable-switch contract,
+  no-blocking-work-at-source-time. WHEN: User asks to add a new plugin, move an integration into a plugin, or debug why
+  a plugin isn't loading. DO-NOT: Skip the `command -v` guard; perform network/subprocess work at source time; assume
+  the plugin loads by default."
 ---
 
 # Plugin Conventions

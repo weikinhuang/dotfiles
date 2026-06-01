@@ -2,10 +2,10 @@
 name: bin-script-scaffold
 description:
   'WHAT: Scaffold a new bin script in this dotfiles repo with the required sibling files: the script itself, a bash
-  completion file, and a bats test, using genpasswd as the argparse reference. WHEN: User asks to add a new git
-  subcommand, utility script, or any other executable under dotenv/bin or a platform-specific bin directory. DO-NOT:
-  Skip the completion file or the bats test stub; do not invent a new argument-parsing style when the script takes
-  flags; do not add scripts to external/ or to private __-prefixed paths without confirming intent.'
+  completion file, and a bats test. WHEN: User asks to add a new git subcommand, utility script, or any other executable
+  under dotenv/bin or a platform-specific bin directory. DO-NOT: Skip the completion file or the bats test stub; invent
+  a new argument-parsing style for flag-taking scripts; or add scripts to external/ or to private `__`-prefixed paths
+  without confirming intent.'
 ---
 
 # Bin script scaffold

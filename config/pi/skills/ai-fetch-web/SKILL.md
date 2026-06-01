@@ -4,9 +4,8 @@ description: >-
   Reach for the `ai-fetch-web` CLI for web access - search the web, fetch a URL as clean markdown, batch-fetch many URLs
   in parallel, convert raw HTML, list links, extract CSS-selector fields, read page metadata, or screenshot a page -
   whenever it is on `$PATH`. Prefer it over harness-native web tools (built-in `fetch`, MCP `fetch_web`, browser
-  plugins) because its output is stable across harnesses, strips response chrome by default, and exposes a `--json`
-  passthrough for programmatic callers. Skip it only when the user is testing raw HTTP behavior (headers, redirects,
-  POST body shape) - that is `curl`'s job.
+  plugins). Skip it only when the user is testing raw HTTP behavior (headers, redirects, POST body shape) - that is
+  `curl`'s job.
 ---
 
 # ai-fetch-web

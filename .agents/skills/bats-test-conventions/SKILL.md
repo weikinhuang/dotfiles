@@ -1,11 +1,9 @@
 ---
 name: bats-test-conventions
 description:
-  "WHAT: Conventions for bats tests in this repo - file path mirroring, `@test` naming, which helpers from
-  tests/helpers/common.bash to use, when to use source_without_main vs subprocess invocation. WHEN: User asks to add or
-  edit a `.bats` test file anywhere under tests/. DO-NOT: Put tests under tests/bin/ instead of mirroring the source
-  path; invent new helper names when common.bash already has one; rely on the host's real `git` / `curl` / `ssh` - stub
-  them."
+  "WHAT: Conventions for bats tests in this repo. WHEN: User asks to add or edit a `.bats` test file anywhere under
+  tests/. DO-NOT: Put tests under tests/bin/ instead of mirroring the source path; invent new helper names when
+  common.bash already has one; rely on the host's real `git` / `curl` / `ssh` - stub them."
 ---
 
 # Bats Test Conventions

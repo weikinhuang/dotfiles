@@ -1,11 +1,10 @@
 ---
 name: subagent-delegation
 description: >-
-  Delegate discovery, planning, and scoped edits to a `subagent` whenever the next steps would pollute the parent's
-  context with intermediate tool output you won't reuse. Covers when to delegate vs. do it inline, how to write a
-  zero-context `task` prompt, which agent type to pick (`explore` / `plan` / `general-purpose`), using `modelOverride`
-  to push grunt work to cheaper/weaker models, structured JSON handoffs, and the anti-patterns that make subagents worse
-  than inline work.
+  Delegate discovery, planning, and scoped edits to a `subagent` (agent types `explore` / `plan` / `general-purpose`)
+  whenever the next steps would pollute the parent's context with intermediate tool output you won't reuse. Use
+  `modelOverride` to push grunt work to cheaper / weaker models. Skip when the task fits in one tool call inline or when
+  you need the intermediate output to inform the next decision.
 ---
 
 # Subagent Delegation
