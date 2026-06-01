@@ -78,6 +78,12 @@ function asHoldDuration(value: unknown): Partial<HoldDuration> | undefined {
   return out;
 }
 
+function asStringArray(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const out = value.filter((item): item is string => typeof item === 'string');
+  return out.length > 0 ? out : undefined;
+}
+
 function asEmoteMappings(value: unknown): EmoteMapping[] | undefined {
   if (!Array.isArray(value)) return undefined;
   const out: EmoteMapping[] = [];
@@ -86,7 +92,10 @@ function asEmoteMappings(value: unknown): EmoteMapping[] | undefined {
     const model = asString(entry.model);
     const set = asString(entry['emote-set']);
     if (model !== undefined && set !== undefined) {
-      out.push({ model, 'emote-set': set });
+      const mapping: EmoteMapping = { model, 'emote-set': set };
+      const overlays = asStringArray(entry.overlays);
+      if (overlays !== undefined) mapping.overlays = overlays;
+      out.push(mapping);
     }
   }
   return out;

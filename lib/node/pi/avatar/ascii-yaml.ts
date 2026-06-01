@@ -70,3 +70,17 @@ export function parseSimpleYaml(text: string): AsciiFrameMap {
   flush();
   return result;
 }
+
+/**
+ * Merge parsed ascii frame maps in increasing precedence: later maps
+ * override earlier ones per state key. Lets an opt-in set's `ascii.yaml`
+ * (e.g. `mature`, `exusiai`) layer additively on top of the shared
+ * default kaomoji set instead of replacing it. Inputs are not mutated.
+ */
+export function mergeAsciiFrameMaps(maps: readonly AsciiFrameMap[]): AsciiFrameMap {
+  const merged: AsciiFrameMap = {};
+  for (const map of maps) {
+    for (const [key, value] of Object.entries(map)) merged[key] = value;
+  }
+  return merged;
+}

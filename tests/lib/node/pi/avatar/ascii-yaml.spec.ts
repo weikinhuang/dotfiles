@@ -4,7 +4,7 @@
 
 import { describe, expect, test } from 'vitest';
 
-import { parseSimpleYaml } from '../../../../../lib/node/pi/avatar/ascii-yaml.ts';
+import { mergeAsciiFrameMaps, parseSimpleYaml } from '../../../../../lib/node/pi/avatar/ascii-yaml.ts';
 
 describe('parseSimpleYaml', () => {
   test('parses inline scalars', () => {
@@ -29,5 +29,29 @@ describe('parseSimpleYaml', () => {
   test('handles multiple states in one document', () => {
     const out = parseSimpleYaml(['hi: "a"', 'talk:', '  close: "b"', 'tool:', '  - "c"', '  - "d"'].join('\n'));
     expect(out).toEqual({ hi: 'a', talk: { close: 'b' }, tool: ['c', 'd'] });
+  });
+});
+
+describe('mergeAsciiFrameMaps', () => {
+  test('returns an empty map for no layers', () => {
+    expect(mergeAsciiFrameMaps([])).toEqual({});
+  });
+
+  test('keeps base keys an overlay does not touch', () => {
+    const merged = mergeAsciiFrameMaps([{ happy: 'a', sad: 'b' }, { purr: 'c' }]);
+    expect(merged).toEqual({ happy: 'a', sad: 'b', purr: 'c' });
+  });
+
+  test('later layers override earlier keys', () => {
+    const merged = mergeAsciiFrameMaps([{ happy: 'base' }, { happy: 'overlay' }]);
+    expect(merged.happy).toBe('overlay');
+  });
+
+  test('does not mutate the input maps', () => {
+    const base = { happy: 'a' };
+    const overlay = { happy: 'b' };
+    mergeAsciiFrameMaps([base, overlay]);
+    expect(base).toEqual({ happy: 'a' });
+    expect(overlay).toEqual({ happy: 'b' });
   });
 });

@@ -37,6 +37,12 @@ export type ActivityState = (typeof ACTIVITY_STATES)[number];
 export interface EmoteMapping {
   model: string;
   'emote-set': string;
+  /**
+   * Extra kaomoji sets merged on top of the always-present default set,
+   * in the order listed (last wins per key), e.g. `["mature", "exusiai"]`.
+   * Overlays contribute kaomoji keys only; PNG art comes from `emote-set`.
+   */
+  overlays?: string[];
 }
 
 /** Hold durations (ms) for the transient states before they auto-transition. */

@@ -120,7 +120,7 @@ Config layers lowest → highest: shipped defaults → `~/.pi/agent/avatar.json`
 | `cycleMs`       | `500`                                        | Frame cycle interval (ms) for read / write / tool / emotion.                     |
 | `render`        | `"auto"`                                     | Force a protocol: `auto` / `kitty` / `iterm2` / `sixel` / `halfblock` / `ascii`. |
 | `compact`       | `true`                                       | In kaomoji mode, collapse to one `face │ tool tally` line.                       |
-| `emotes`        | `[{ "model": "*", "emote-set": "default" }]` | Glob `model` → emote-set mappings; last match wins.                              |
+| `emotes`        | `[{ "model": "*", "emote-set": "default" }]` | Glob `model` → emote-set mappings; last match wins. Each may add `overlays`.     |
 
 ### Sprite sets
 
@@ -140,6 +140,41 @@ load in sorted filename order; frame 0 is the base, frame 1 the blink/swap alter
 The repo commits only the kaomoji set. PNG sprite art under `emotes/` is git-ignored scratch (see
 [`avatar/.gitignore`](../avatar/.gitignore)); drop your own PNG set in to light up the kitty / iTerm2 / sixel image
 path.
+
+#### Layered (opt-in) kaomoji sets
+
+A set's `ascii.yaml` is not all-or-nothing: kaomoji sets layer in increasing precedence, so an opt-in set adds keys on
+top of the default instead of replacing it. For the resolved set `<set>` the loader merges, last wins per key:
+
+```text
+config/pi/avatar/emotes/ascii/ascii.yaml   (shared default base)
+config/pi/avatar/emotes/<set>/ascii.yaml    (shipped per-set overlay)
+<resolved set dir>/ascii.yaml                (project / user override)
+```
+
+This lets a set ship just its extra emotes while every default emote (`happy`, `think`, `talk`, …) keeps working.
+
+Compose several overlays at once with an `overlays` list on an `emotes` mapping. The shared default set is always the
+base layer; the base `emote-set` resolves as usual (and supplies any PNG art); then each name in `overlays` merges its
+kaomoji on top, in the order listed, last wins. Overlays contribute kaomoji keys only - PNG art always comes from the
+base `emote-set`. So the full kaomoji merge order is `default` → `emote-set` → each `overlays` entry. For example, a
+character set with the mature overlay, or just the default set plus mature:
+
+```json
+{ "emotes": [{ "model": "*claude*", "emote-set": "exusiai", "overlays": ["mature"] }] }
+{ "emotes": [{ "model": "*", "emote-set": "default", "overlays": ["mature"] }] }
+```
+
+One generic overlay ships in the repo:
+
+- [`mature`](../avatar/emotes/mature/ascii.yaml) - a richer intimate-roleplay vocabulary (desire, physical reaction,
+  intensity, consensual dynamics, vulnerability, aftercare). It is opt-in by design so it never surfaces in ordinary
+  coding sessions; kaomoji are text-only expressions, so every entry renders strictly SFW.
+
+Character-specific overlays are device-local rather than committed: drop a `<character>/ascii.yaml` (and any PNG art) in
+your user or project set dir (`~/.pi/agent/avatar/emotes/<character>/` or `<cwd>/.pi/avatar/emotes/<character>/`) and
+list it in `overlays`. The loader resolves each overlay name through the same project → user → shipped search, so a set
+that ships only PNG art still picks up a sibling `ascii.yaml` for the kaomoji fallback.
 
 ## Environment variables
 

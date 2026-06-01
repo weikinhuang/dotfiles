@@ -34,15 +34,19 @@ describe('resolveEmoteSet', () => {
   ];
 
   test('last match wins', () => {
-    expect(resolveEmoteSet('anthropic/claude-opus', mappings)).toEqual({ set: 'robot', ambiguous: false });
+    expect(resolveEmoteSet('anthropic/claude-opus', mappings)).toEqual({
+      set: 'robot',
+      overlays: [],
+      ambiguous: false,
+    });
   });
 
   test('falls back to default catch-all', () => {
-    expect(resolveEmoteSet('openai/gpt-5', mappings)).toEqual({ set: 'default', ambiguous: false });
+    expect(resolveEmoteSet('openai/gpt-5', mappings)).toEqual({ set: 'default', overlays: [], ambiguous: false });
   });
 
   test('empty mappings resolve to default', () => {
-    expect(resolveEmoteSet('any', [])).toEqual({ set: 'default', ambiguous: false });
+    expect(resolveEmoteSet('any', [])).toEqual({ set: 'default', overlays: [], ambiguous: false });
   });
 
   test('flags ambiguity when two specific patterns match', () => {
@@ -50,7 +54,36 @@ describe('resolveEmoteSet', () => {
       { model: '*opus*', 'emote-set': 'a' },
       { model: '*claude*', 'emote-set': 'b' },
     ];
-    expect(resolveEmoteSet('claude-opus', ambiguous)).toEqual({ set: 'b', ambiguous: true });
+    expect(resolveEmoteSet('claude-opus', ambiguous)).toEqual({ set: 'b', overlays: [], ambiguous: true });
+  });
+
+  test('carries overlays from the winning mapping', () => {
+    const withOverlays: EmoteMapping[] = [
+      { model: '*', 'emote-set': 'default' },
+      { model: '*claude*', 'emote-set': 'exusiai', overlays: ['mature'] },
+    ];
+    expect(resolveEmoteSet('anthropic/claude-opus', withOverlays)).toEqual({
+      set: 'exusiai',
+      overlays: ['mature'],
+      ambiguous: false,
+    });
+  });
+
+  test('overlays apply on top of the default base set', () => {
+    const onDefault: EmoteMapping[] = [{ model: '*', 'emote-set': 'default', overlays: ['mature'] }];
+    expect(resolveEmoteSet('openai/gpt-5', onDefault)).toEqual({
+      set: 'default',
+      overlays: ['mature'],
+      ambiguous: false,
+    });
+  });
+
+  test('a later match without overlays clears earlier overlays', () => {
+    const layered: EmoteMapping[] = [
+      { model: '*', 'emote-set': 'default', overlays: ['mature'] },
+      { model: '*gpt*', 'emote-set': 'robot' },
+    ];
+    expect(resolveEmoteSet('openai/gpt-5', layered)).toEqual({ set: 'robot', overlays: [], ambiguous: false });
   });
 });
 

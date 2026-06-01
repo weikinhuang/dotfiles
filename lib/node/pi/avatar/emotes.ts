@@ -33,6 +33,8 @@ export function globToRegex(pattern: string): RegExp {
 export interface ResolvedEmoteSet {
   /** The winning emote-set name (`default` when nothing matched). */
   set: string;
+  /** Extra kaomoji sets to layer on top of `set`, in order (last wins). */
+  overlays: string[];
   /** True when more than one non-`*` pattern matched (caller may warn). */
   ambiguous: boolean;
 }
@@ -40,18 +42,21 @@ export interface ResolvedEmoteSet {
 /**
  * Resolve which emote set to use for `modelId`. Last match wins, so
  * higher-priority config layers (appended later) override lower ones.
- * The catch-all `*` does not count toward ambiguity.
+ * The winning mapping's `overlays` (if any) are layered on top of its
+ * base set. The catch-all `*` does not count toward ambiguity.
  */
 export function resolveEmoteSet(modelId: string, emotes: readonly EmoteMapping[]): ResolvedEmoteSet {
   let matched: string | null = null;
+  let overlays: string[] = [];
   let specificMatches = 0;
   for (const entry of emotes) {
     if (globToRegex(entry.model).test(modelId)) {
       if (entry.model !== '*') specificMatches++;
       matched = entry['emote-set'];
+      overlays = entry.overlays ?? [];
     }
   }
-  return { set: matched ?? 'default', ambiguous: specificMatches > 1 };
+  return { set: matched ?? 'default', overlays, ambiguous: specificMatches > 1 };
 }
 
 export interface ClassifiedStates {

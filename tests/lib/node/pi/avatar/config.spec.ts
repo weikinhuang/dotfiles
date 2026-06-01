@@ -48,6 +48,26 @@ describe('coerceConfigLayer', () => {
     expect(out.emotes).toEqual([{ model: '*', 'emote-set': 'default' }]);
   });
 
+  test('parses overlays as a string array, dropping non-strings', () => {
+    const out = coerceConfigLayer({
+      emotes: [{ model: '*', 'emote-set': 'exusiai', overlays: ['mature', 7, 'extra'] }],
+    });
+    expect(out.emotes).toEqual([{ model: '*', 'emote-set': 'exusiai', overlays: ['mature', 'extra'] }]);
+  });
+
+  test('omits overlays when absent or empty', () => {
+    const out = coerceConfigLayer({
+      emotes: [
+        { model: '*', 'emote-set': 'default' },
+        { model: '*claude*', 'emote-set': 'robot', overlays: [] },
+      ],
+    });
+    expect(out.emotes).toEqual([
+      { model: '*', 'emote-set': 'default' },
+      { model: '*claude*', 'emote-set': 'robot' },
+    ]);
+  });
+
   test('non-object input yields an empty layer', () => {
     expect(coerceConfigLayer(null)).toEqual({});
     expect(coerceConfigLayer('str')).toEqual({});

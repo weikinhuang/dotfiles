@@ -47,7 +47,8 @@ import type { Component, TUI } from '@earendil-works/pi-tui';
 import { getCellDimensions, truncateToWidth, visibleWidth } from '@earendil-works/pi-tui';
 
 import { coerceConfigLayer, mergeConfigLayers } from '../../../lib/node/pi/avatar/config.ts';
-import { parseSimpleYaml } from '../../../lib/node/pi/avatar/ascii-yaml.ts';
+import type { AsciiFrameMap } from '../../../lib/node/pi/avatar/ascii-yaml.ts';
+import { mergeAsciiFrameMaps, parseSimpleYaml } from '../../../lib/node/pi/avatar/ascii-yaml.ts';
 import { classifyStateDirs, isActivityState, pickRandom, resolveEmoteSet } from '../../../lib/node/pi/avatar/emotes.ts';
 import { encodeITermImage, encodeKittyImage } from '../../../lib/node/pi/avatar/encode.ts';
 import { encodeHalfblock } from '../../../lib/node/pi/avatar/halfblock.ts';
@@ -246,24 +247,35 @@ function asciiFramesToLines(value: string | string[] | Record<string, string>): 
   return Object.values(value);
 }
 
-function discoverAsciiStore(setDir: string, extEmotesDir: string): BuiltStore {
-  const candidates = [join(setDir, 'ascii.yaml'), join(extEmotesDir, 'ascii', 'ascii.yaml')];
-  let text: string | null = null;
-  for (const candidate of candidates) {
-    if (!existsSync(candidate)) continue;
+function discoverAsciiStore(setNames: readonly string[], extEmotesDir: string, cwd: string): BuiltStore {
+  // Layer in increasing precedence so opt-in sets' kaomoji (e.g. `mature`,
+  // `exusiai`) extend the shared default rather than replacing it: shared
+  // default base, then each set name (base `emote-set` first, then overlays in
+  // order) as `<shipped>/ascii.yaml` + its resolved `<set-dir>/ascii.yaml`.
+  // Later layers win per key, so overlays override the base set.
+  const layerPaths = [join(extEmotesDir, 'ascii', 'ascii.yaml')];
+  for (const setName of setNames) {
+    layerPaths.push(join(extEmotesDir, setName, 'ascii.yaml'));
+    layerPaths.push(join(findSetDir(setName, extEmotesDir, cwd), 'ascii.yaml'));
+  }
+  const seen = new Set<string>();
+  const maps: AsciiFrameMap[] = [];
+  for (const path of layerPaths) {
+    if (seen.has(path)) continue;
+    seen.add(path);
+    if (!existsSync(path)) continue;
     try {
-      text = readFileSync(candidate, 'utf8');
-      break;
+      maps.push(parseSimpleYaml(readFileSync(path, 'utf8')));
     } catch {
-      /* try next candidate */
+      /* skip unreadable layer */
     }
   }
 
   const store: FrameStore = new Map();
   const emotions: string[] = [];
-  if (text === null) return { store, emotions };
+  if (maps.length === 0) return { store, emotions };
 
-  for (const [state, value] of Object.entries(parseSimpleYaml(text))) {
+  for (const [state, value] of Object.entries(mergeAsciiFrameMaps(maps))) {
     const texts = asciiFramesToLines(value);
     if (texts.length === 0) continue;
     const frames: RenderedFrame[] = texts.map((frameText) => ({ kind: 'text', lines: frameText.split('\n') }));
@@ -807,14 +819,15 @@ export default function avatar(pi: ExtensionAPI): void {
     const resolved = resolveEmoteSet(modelId, config.emotes);
     currentSet = resolved.set;
     const setDir = findSetDir(currentSet, extEmotesDir, cwd);
+    const asciiSetNames = [currentSet, ...resolved.overlays];
     let built =
       protocol === 'ascii'
-        ? discoverAsciiStore(setDir, extEmotesDir)
+        ? discoverAsciiStore(asciiSetNames, extEmotesDir, cwd)
         : discoverImageStore(setDir, protocol, config.size);
     // Graceful fallback: a set with no PNG frames (the committed state ships
     // only the kaomoji set) renders as ASCII text regardless of protocol.
     if (built.store.size === 0 && protocol !== 'ascii') {
-      built = discoverAsciiStore(setDir, extEmotesDir);
+      built = discoverAsciiStore(asciiSetNames, extEmotesDir, cwd);
     }
     renderer.setStore(built.store);
     emotions = built.emotions;

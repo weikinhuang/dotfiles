@@ -1,0 +1,167 @@
+# Opt-in "mature" kaomoji overlay for the `avatar` extension.
+#
+# These keys LAYER ON TOP OF the shared default set (config/pi/avatar/emotes/
+# ascii/ascii.yaml) - they only add the emotes below, every default emote still
+# works. The overlay is active only when a model is mapped to the `mature` set,
+# so it never leaks into ordinary coding sessions. Enable it in your avatar
+# config, e.g.:
+#
+#   { "emotes": [ { "model": "*", "emote-set": "mature" } ] }
+#
+# Content note: kaomoji are text-only facial expressions, so every entry here is
+# strictly SFW as rendered. They give the model a richer intimate-roleplay
+# vocabulary (desire, physical reaction, intensity, consensual dynamics,
+# vulnerability, aftercare) for opt-in adult scenes. Parsed by
+# lib/node/pi/avatar/ascii-yaml.ts; keep each face <= ~9 columns wide.
+
+# ── Desire and arousal (escalating) ─────────────────────────────────────────
+
+wanting:
+  - '( ´ ³`)っ'
+  - '( ˘ ³˘)っ'
+
+craving:
+  - '( ﾟдﾟ)♡'
+  - '( ´Д`)♡'
+
+aching:
+  - '( ´ﾟдﾟ`)'
+  - '( ﾟ﹏ﾟ`)'
+
+desperate:
+  - '( >﹏<。)'
+  - '(｡>﹏<)'
+
+hungry-desire:
+  - '( ˘ﾟ³ﾟ˘)'
+  - '( ´¬`)♡'
+
+intoxicated:
+  - '( ´▽`*)〜'
+  - '( ⓥ﹏ⓥ)'
+
+# ── Physical reactions ───────────────────────────────────────────────────────
+
+shudder:
+  - '( ﾟДﾟ;)〜'
+  - '( ´Д`;)〜'
+
+tremble:
+  - '( ﾟ﹏ﾟ;)'
+  - '( ´;﹏;`)'
+
+whimper:
+  - '( ´•̥﹏•̥`)'
+  - '( ╥﹏╥;)'
+
+moan:
+  - '( ˘ ³˘)〜'
+  - '( ´ε`)〜♡'
+
+panting:
+  - '( ´ﾟ³ﾟ;)'
+  - '( ˘ﾟ³ﾟ;)'
+
+quiver:
+  - '( ･ﻌ･;)〜'
+  - '( ﾟｰﾟ;)〜'
+
+weak:
+  - '( ˘﹏˘ )'
+  - '( ´﹏` )'
+
+# ── Intensity states ─────────────────────────────────────────────────────────
+
+overwhelmed-pleasure:
+  - '( >//▽//<)'
+  - '( ＞﹏＜//)'
+
+blissed:
+  - '( ˘▽˘)♡'
+  - '( ´ᵕ`)♡'
+
+dazed:
+  - '( ﾟｰﾟ@)'
+  - '( @_@; )'
+
+floating:
+  - '( ´▽`)oO'
+  - '( ˘ᵕ˘)~☆'
+
+wrecked:
+  - '( ×ﻌ×@)'
+  - '(＠×▽×＠)'
+
+drunk-on-sensation:
+  - '( ⓥ▽ⓥ@)'
+  - '( ´▽`@)〜'
+
+# ── Dynamics (consensual) ────────────────────────────────────────────────────
+
+submissive:
+  - '( ´ω`๑)…'
+  - '(๑˘•˘๑)'
+
+dominant:
+  - '( ¬‿¬)✧'
+  - '( ↼_↼)✧'
+
+teasing-control:
+  - '( ¬‿¬)σ♡'
+  - '( ｰ‿ｰ)σ'
+
+pleading-want:
+  - '(つ⌒﹏⌒)つ'
+  - '( ´•̥ω•̥`)'
+
+claimed:
+  - '( //♡_♡//)'
+  - '( ˘ω˘)♡ﾉ'
+
+worship:
+  - '(人 ♡ω♡)'
+  - '(つ♡ω♡)つ'
+
+# ── Vulnerability and intimacy ───────────────────────────────────────────────
+
+exposed:
+  - '( //ω//;)'
+  - '( *ﾉдﾉ)'
+
+surrendering:
+  - '(つ˘ω˘)つ'
+  - '( ´ω`)ﾉ…'
+
+trusting:
+  - '( ˘ω˘)ﾉ♡'
+  - '(っ´ω`)っ'
+
+bare:
+  - '( ´ω`//)'
+  - '( ˘ω˘;)'
+
+owned:
+  - '( //ω//)ゞ'
+  - '( ´ω`)ゞ♡'
+
+# ── Aftercare ────────────────────────────────────────────────────────────────
+
+sated:
+  - '( ˘ ³˘)♡'
+  - '( ´ᵕ`)~'
+
+limp:
+  - '( ˘﹏˘)з'
+  - '( ´ｰ`)з'
+
+boneless:
+  - '( ´ω`)з'
+  - '( ˘ω˘)зz'
+
+glowing:
+  - '( ´▽`)♡✧'
+  - '( ˘ᵕ˘)✧'
+
+cuddly-aftermath:
+  - '(っ˘ω˘ς)♡'
+  - '( ´ω`)っ♡'
