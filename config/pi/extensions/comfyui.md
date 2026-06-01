@@ -52,8 +52,13 @@ no-op.
 
 ## Configuration
 
-Config layers lowest to highest: the shipped `txt2img` default, then `~/.pi/agent/comfyui.json`, then
+Config layers lowest to highest: the shipped `txt2img` example, then `~/.pi/agent/comfyui.json`, then
 `<cwd>/.pi/comfyui.json`.
+
+The extension **auto-disables** when neither user nor project `comfyui.json` contributes a `workflows` entry - the
+shipped [`txt2img.api.json`](../comfyui/txt2img.api.json) is example scaffolding (it expects a
+`v1-5-pruned-emaonly.safetensors` checkpoint most servers won't have), not a real default. Drop at least one workflow
+into one of the config files to opt in; see [`../comfyui-example.json`](../comfyui-example.json) for a starting point.
 
 | Key               | Default                  | Meaning                                                                                       |
 | ----------------- | ------------------------ | --------------------------------------------------------------------------------------------- |

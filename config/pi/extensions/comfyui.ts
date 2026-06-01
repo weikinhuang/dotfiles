@@ -23,6 +23,11 @@
  * Config layers (lowest -> highest): shipped txt2img default ->
  * <piAgentDir>/comfyui.json -> <cwd>/.pi/comfyui.json.
  *
+ * The extension auto-disables when neither config file contributes a `workflows`
+ * entry. The shipped txt2img.api.json is an example, not a real default, so
+ * without user workflows we deregister rather than leak a broken option into the
+ * tool list.
+ *
  * Environment:
  *   PI_COMFYUI_DISABLED=1   skip the extension entirely
  *   PI_COMFYUI_URL=...      override the configured baseUrl
@@ -273,30 +278,6 @@ async function pingServer(conn: Conn): Promise<boolean> {
 // Tool parameters
 // ──────────────────────────────────────────────────────────────────────
 
-const GenerateParams = Type.Object({
-  prompt: Type.String({ description: 'Positive text prompt describing the image to generate.' }),
-  negative: Type.Optional(Type.String({ description: 'Negative prompt: concepts to avoid.' })),
-  workflow: Type.Optional(
-    Type.String({ description: 'Named workflow to run. Defaults to the configured default workflow.' }),
-  ),
-  width: Type.Optional(Type.Number({ description: 'Output width in pixels.' })),
-  height: Type.Optional(Type.Number({ description: 'Output height in pixels.' })),
-  steps: Type.Optional(Type.Number({ description: 'Sampler steps.' })),
-  cfg: Type.Optional(Type.Number({ description: 'CFG / guidance scale.' })),
-  seed: Type.Optional(Type.Number({ description: 'Seed for reproducibility. Omit for a fresh random seed.' })),
-  denoise: Type.Optional(Type.Number({ description: 'Denoise strength (img2img); 0-1.' })),
-  inputImage: Type.Optional(
-    Type.String({ description: 'Path to an input image for img2img workflows that accept one.' }),
-  ),
-  count: Type.Optional(Type.Number({ description: 'Batch size (number of images).' })),
-  sendToModel: Type.Optional(
-    Type.Boolean({
-      description:
-        'Whether to return the image to you (the model) for analysis. Defaults to the configured value (true). Set false to only save it to disk and keep the image out of context - use this when the user just wants the picture, not for you to inspect it. The image is automatically held back when the active model has no vision (image) input regardless of this value.',
-    }),
-  ),
-});
-
 // ──────────────────────────────────────────────────────────────────────
 // Extension
 // ──────────────────────────────────────────────────────────────────────
@@ -304,17 +285,65 @@ const GenerateParams = Type.Object({
 export default function comfyuiExtension(pi: ExtensionAPI): void {
   if (envTruthy(process.env.PI_COMFYUI_DISABLED)) return;
 
+  const cwd = process.cwd();
+  // Auto-disable when no user-supplied workflows exist. The shipped txt2img
+  // graph (config/pi/comfyui/txt2img.api.json) is an example - it expects a
+  // v1-5-pruned-emaonly checkpoint that most servers won't have - so registering
+  // the tool with only that available would leak a broken option into the model's
+  // tool list. The user has to point at their own workflow in
+  // ~/.pi/agent/comfyui.json or <cwd>/.pi/comfyui.json to opt in.
+  const userWorkflows = coerceConfigLayer(readJson(piAgentPath('comfyui.json'))).workflows ?? {};
+  const projectWorkflows = coerceConfigLayer(readJson(piProjectPath(cwd, 'comfyui.json'))).workflows ?? {};
+  if (Object.keys(userWorkflows).length === 0 && Object.keys(projectWorkflows).length === 0) return;
+
+  const registrationConfig = loadConfig(cwd);
+  const workflowNames = Object.keys(registrationConfig.workflows);
+  const defaultWorkflow = registrationConfig.defaultWorkflow;
+  const workflowList = workflowNames.join(', ') || '(none)';
+
+  const GenerateParams = Type.Object({
+    prompt: Type.String({ description: 'Positive text prompt describing the image to generate.' }),
+    negative: Type.Optional(Type.String({ description: 'Negative prompt: concepts to avoid.' })),
+    workflow: Type.Optional(
+      Type.String({
+        description: `Named workflow to run. Must be one of the configured names: ${workflowList}. Defaults to "${defaultWorkflow}". Each workflow has its own preconfigured checkpoint, sampler, scheduler, and dimensions - do not pass a checkpoint filename, model ID, or sampler name here, and do not invent a new workflow name.`,
+      }),
+    ),
+    width: Type.Optional(Type.Number({ description: 'Output width in pixels.' })),
+    height: Type.Optional(Type.Number({ description: 'Output height in pixels.' })),
+    steps: Type.Optional(Type.Number({ description: 'Sampler steps.' })),
+    cfg: Type.Optional(Type.Number({ description: 'CFG / guidance scale.' })),
+    seed: Type.Optional(Type.Number({ description: 'Seed for reproducibility. Omit for a fresh random seed.' })),
+    denoise: Type.Optional(Type.Number({ description: 'Denoise strength (img2img); 0-1.' })),
+    inputImage: Type.Optional(
+      Type.String({ description: 'Path to an input image for img2img workflows that accept one.' }),
+    ),
+    count: Type.Optional(Type.Number({ description: 'Batch size (number of images).' })),
+    sendToModel: Type.Optional(
+      Type.Boolean({
+        description:
+          'Whether to return the image to you (the model) for analysis. Defaults to the configured value (true). Set false to only save it to disk and keep the image out of context - use this when the user just wants the picture, not for you to inspect it. The image is automatically held back when the active model has no vision (image) input regardless of this value.',
+      }),
+    ),
+  });
+
   pi.registerTool({
     name: 'generate_image',
     label: 'Generate image',
     description:
-      'Generate an image from a text prompt using a local or remote ComfyUI server, and return it inline. Use this when the user asks to create, draw, render, or generate a picture/image/art. Runs a named ComfyUI workflow (default: txt2img); supports negative prompts, width/height, steps, cfg, seed, batch count, and img2img via inputImage. The generated PNG is saved to disk and returned so you can see it.',
-    promptSnippet:
-      'To create or render an image, call `generate_image` (runs a ComfyUI workflow) instead of describing the picture in text.',
+      `Generate an image from a text prompt using a local or remote ComfyUI server, and return it inline. ` +
+      `Use this when the user asks to create, draw, render, or generate a picture/image/art. ` +
+      `Runs one of the preconfigured ComfyUI workflows: ${workflowList} (default: ${defaultWorkflow}). ` +
+      `Each workflow bakes in its own checkpoint, sampler, and scheduler; do NOT inspect ComfyUI's installed models, query /object_info, or call the ComfyUI HTTP API directly to discover models or samplers - this tool already encapsulates that. ` +
+      `Supports negative prompts, width/height, steps, cfg, seed, batch count, and img2img via inputImage. ` +
+      `The generated PNG is saved to disk and returned so you can see it.`,
+    promptSnippet: `To create or render an image, call \`generate_image\` (runs one of the configured ComfyUI workflows: ${workflowList}) instead of describing the picture in text. Do not call ComfyUI's HTTP API directly.`,
     promptGuidelines: [
       'Use `generate_image` whenever the user wants a picture generated, not a textual description.',
+      `The \`workflow\` arg must be one of the configured names: ${workflowList}. Do not pass a checkpoint filename, a sampler name, or invent a new workflow.`,
+      "Do not call ComfyUI's HTTP endpoints (`/object_info`, `/models`, `/prompt`, `/view`, etc.) via bash, curl, or any other tool - `generate_image` is the only supported entry point.",
       'Omit `seed` to get a fresh random image; pass the `seed` echoed in a prior result to reproduce or vary one.',
-      'Only pass `inputImage` for img2img workflows; the default txt2img workflow does not accept one.',
+      'Only pass `inputImage` for img2img workflows; txt2img workflows do not accept one.',
     ],
     parameters: GenerateParams,
 
