@@ -12,15 +12,22 @@ import { type MemoryEntry, type MemoryState } from '../../../../lib/node/pi/memo
 
 const entry = (
   id: string,
-  scope: 'global' | 'project',
-  type: 'user' | 'feedback' | 'project' | 'reference',
+  scope: 'global' | 'project' | 'session',
+  type: 'user' | 'feedback' | 'project' | 'reference' | 'note',
   name = id,
   description = `desc for ${id}`,
 ): MemoryEntry => ({ id, scope, type, name, description });
 
-const mkState = (global: MemoryEntry[], project: MemoryEntry[], projectSlug: string | null = null): MemoryState => ({
-  index: { global, project },
+const mkState = (
+  global: MemoryEntry[],
+  project: MemoryEntry[],
+  projectSlug: string | null = null,
+  session: MemoryEntry[] = [],
+  sessionId: string | null = null,
+): MemoryState => ({
+  index: { global, project, session },
   projectSlug,
+  sessionId,
 });
 
 test('formatMemoryIndex: empty state returns null', () => {
@@ -61,6 +68,41 @@ test('formatMemoryIndex: both scopes rendered with headers', () => {
   expect(out).toContain('**feedback**');
   expect(out).toContain('### Project (--x--)');
   expect(out).toContain('**reference**');
+});
+
+test('formatMemoryIndex: session scope renders a labelled note block', () => {
+  const out = formatMemoryIndex(
+    mkState([], [], null, [entry('scratch', 'session', 'note', 'Scratch', 'in-progress refactor')], 'sid-42'),
+  );
+
+  expect(out).not.toBeNull();
+  expect(out).toContain('### Session (sid-42)');
+  expect(out).toContain('**note**');
+  expect(out).toContain('- Scratch (`scratch`) - in-progress refactor');
+});
+
+test('formatMemoryIndex: session-only state still renders a block', () => {
+  const out = formatMemoryIndex(mkState([], [], null, [entry('n', 'session', 'note')], 'sid'));
+
+  expect(out).not.toBeNull();
+  expect(out).toMatch(/^## Memory\n/);
+  expect(out).toContain('### Session (sid)');
+});
+
+test('formatMemoryIndex: all three scopes rendered together', () => {
+  const out = formatMemoryIndex(
+    mkState(
+      [entry('a', 'global', 'user')],
+      [entry('b', 'project', 'project')],
+      '--x--',
+      [entry('c', 'session', 'note')],
+      'sid',
+    ),
+  );
+
+  expect(out).toContain('### Global');
+  expect(out).toContain('### Project (--x--)');
+  expect(out).toContain('### Session (sid)');
 });
 
 test('formatMemoryIndex: empty type sections are omitted', () => {

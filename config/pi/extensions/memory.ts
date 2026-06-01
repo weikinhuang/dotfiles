@@ -13,11 +13,14 @@
  *   - `feedback`  - corrections + validated approaches (don't-do-X / keep-doing-Y). Cross-project by default.
  *   - `project`   - initiatives, decisions, incidents for *this* workspace.
  *   - `reference` - pointers to external systems (Linear projects, dashboards). Per-workspace.
+ *   - `note`      - freeform working notes for *this* session only (session scope exclusive).
  *
  * Scopes:
  *   - `global`    - `<root>/global/<type>/<slug>.md`, shared across every pi session.
  *   - `project`   - `<root>/projects/<cwd-slug>/<type>/<slug>.md`, keyed on the cwd
  *                   the same way pi keys `~/.pi/agent/sessions/<cwd-slug>/`.
+ *   - `session`   - `<root>/projects/<cwd-slug>/sessions/<session-id>/note/<slug>.md`, keyed on
+ *                   the session id; only ever loaded for the session that owns it. Holds `note`s.
  *
  * Disk is the source of truth. On `session_start` the extension scans
  * the memory directories and rebuilds its in-memory index. Tool writes
@@ -38,6 +41,8 @@
  *   PI_MEMORY_ROOT=<path>            override `~/.pi/agent/memory`.
  */
 
+import { readdirSync } from 'node:fs';
+
 import { StringEnum } from '@earendil-works/pi-ai';
 import { type ExtensionAPI, type ExtensionContext } from '@earendil-works/pi-coding-agent';
 import { Text } from '@earendil-works/pi-tui';
@@ -50,22 +55,27 @@ import {
   fileFor,
   globalDir,
   indexFileFor,
+  listSessionMemoryDirs,
   memoryRoot,
   projectDir,
+  pruneOrphanSessionDirs,
   readMemoryBody,
   rebuildMemoryIndex,
   removeFileIfExists,
+  sessionDir,
   slugifyName,
 } from '../../../lib/node/pi/memory-paths.ts';
 import { formatMemoryIndex } from '../../../lib/node/pi/memory-prompt.ts';
 import {
   cloneState,
   defaultMemoryScope,
+  defaultMemoryTypeForScope,
   emptyState,
   formatText,
   isMemoryTypeAllowedInScope,
   MEMORY_CUSTOM_TYPE,
   type MemoryEntry,
+  type MemoryIndex,
   type MemoryScope,
   type MemoryState,
   type MemoryType,
@@ -87,15 +97,15 @@ const MAX_INJECTED_CHARS_DEFAULT = 3000;
 const MemoryParams = Type.Object({
   action: StringEnum(['list', 'read', 'save', 'update', 'remove', 'search'] as const),
   type: Type.Optional(
-    StringEnum(['user', 'feedback', 'project', 'reference'] as const, {
+    StringEnum(['user', 'feedback', 'project', 'reference', 'note'] as const, {
       description:
-        'Memory type. Required for `save`. For `read`/`update`/`remove` it disambiguates when the same id exists in multiple types.',
+        'Memory type. Required for `save` (except session scope, which defaults to `note`). For `read`/`update`/`remove` it disambiguates when the same id exists in multiple types. `note` is exclusive to the session scope.',
     }),
   ),
   scope: Type.Optional(
-    StringEnum(['global', 'project'] as const, {
+    StringEnum(['global', 'project', 'session'] as const, {
       description:
-        'Scope. Defaults: user/feedback → global, project/reference → project. Required for `remove` to avoid deleting the wrong one.',
+        'Scope. Defaults: user/feedback → global, project/reference → project, note → session. `session` is keyed to the current session and not loaded by other sessions. Required for `remove` to avoid deleting the wrong one.',
     }),
   ),
   id: Type.Optional(
@@ -153,12 +163,60 @@ interface MemoryDetails {
 // Helpers
 // ──────────────────────────────────────────────────────────────────────
 
-function writeIndex(scope: MemoryScope, cwd: string, entries: MemoryEntry[]): void {
+function bucketFor(index: MemoryIndex, scope: MemoryScope): MemoryEntry[] {
+  if (scope === 'global') return index.global;
+  if (scope === 'session') return index.session;
+  return index.project;
+}
+
+function writeIndex(scope: MemoryScope, cwd: string, sessionId: string | null, entries: MemoryEntry[]): void {
   const md = renderMemoryMd(
     entries.filter((e) => e.scope === scope),
     scope,
   );
-  atomicWriteFile(indexFileFor(scope, cwd), md);
+  atomicWriteFile(indexFileFor(scope, cwd, sessionId), md);
+}
+
+/**
+ * Resolve the current session id, tolerating an absent/throwing session
+ * manager (e.g. `pi --no-session`). Returns `null` when there is no
+ * tracked session - session-scoped saves then surface a clear error.
+ */
+function readSessionId(ctx: ExtensionContext): string | null {
+  try {
+    return ctx.sessionManager?.getSessionId() ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The set of session ids that still have a transcript for this workspace
+ * - the `<sid>.jsonl` files in pi's session dir, plus the current
+ * session id (which may not be flushed yet). Returns `null` when no
+ * session dir is resolvable, so `gc` can refuse rather than prune
+ * everything against an empty live set.
+ */
+function liveSessionIds(ctx: ExtensionContext): Set<string> | null {
+  let dir: string | undefined;
+  let current: string | undefined;
+  try {
+    dir = ctx.sessionManager?.getSessionDir();
+    current = ctx.sessionManager?.getSessionId();
+  } catch {
+    return null;
+  }
+  if (!dir) return null;
+  const ids = new Set<string>();
+  try {
+    for (const name of readdirSync(dir)) {
+      if (name.endsWith('.jsonl')) ids.add(name.slice(0, -'.jsonl'.length));
+    }
+  } catch {
+    // Dir unreadable - fall through to at least keep the current session.
+  }
+  if (current) ids.add(current);
+  return ids;
 }
 
 // ──────────────────────────────────────────────────────────────────────
@@ -177,11 +235,13 @@ export default function memoryExtension(pi: ExtensionAPI): void {
 
   let state: MemoryState = emptyState();
   let cwd: string = process.cwd();
+  let sessionId: string | null = null;
   const surfacedWarnings = new Set<string>();
 
   const rebuildFromDisk = (ctx: ExtensionContext): void => {
     cwd = ctx.cwd;
-    const { state: next, warnings } = rebuildMemoryIndex(cwd);
+    sessionId = readSessionId(ctx);
+    const { state: next, warnings } = rebuildMemoryIndex(cwd, sessionId);
     state = next;
     for (const w of warnings) {
       if (surfacedWarnings.has(w)) continue;
@@ -229,7 +289,7 @@ export default function memoryExtension(pi: ExtensionAPI): void {
         isError: true,
       };
     }
-    const body = readMemoryBody(resolved, cwd);
+    const body = readMemoryBody(resolved, cwd, sessionId);
     if (body == null) {
       const error = `memory "${resolved.id}" not readable on disk`;
       return {
@@ -246,7 +306,10 @@ export default function memoryExtension(pi: ExtensionAPI): void {
   };
 
   const actSave = (params: MemoryParamsT): { content: string; details: MemoryDetails; isError?: boolean } => {
-    if (!params.type) {
+    // Resolve scope+type together so an explicit `scope: session` can
+    // default `type` to `note` (the only type valid there).
+    const type = params.type ?? (params.scope ? defaultMemoryTypeForScope(params.scope) : undefined);
+    if (!type) {
       return {
         content: 'Error: `type` is required for `save`',
         details: { action: 'save', state: cloneState(state), error: '`type` is required' },
@@ -276,9 +339,18 @@ export default function memoryExtension(pi: ExtensionAPI): void {
         isError: true,
       };
     }
-    const scope = params.scope ?? defaultMemoryScope(params.type);
-    if (!isMemoryTypeAllowedInScope(params.type, scope)) {
-      const error = `type "${params.type}" cannot be saved in scope "${scope}" (use scope "project")`;
+    const scope = params.scope ?? defaultMemoryScope(type);
+    if (!isMemoryTypeAllowedInScope(type, scope)) {
+      const error = `type "${type}" cannot be saved in scope "${scope}"`;
+      return {
+        content: `Error: ${error}`,
+        details: { action: 'save', state: cloneState(state), error },
+        isError: true,
+      };
+    }
+    if (scope === 'session' && !sessionId) {
+      const error =
+        'session memory is disabled: no active session id (running pi with --no-session?). Use scope `project` for durable notes instead.';
       return {
         content: `Error: ${error}`,
         details: { action: 'save', state: cloneState(state), error },
@@ -286,19 +358,19 @@ export default function memoryExtension(pi: ExtensionAPI): void {
       };
     }
     const slug = chooseMemorySlug(state, scope, params.name);
-    const serialized = serializeMemory({ name: params.name.trim(), description, type: params.type, body });
-    atomicWriteFile(fileFor(scope, params.type, slug, cwd), serialized);
-    const entry: MemoryEntry = { id: slug, scope, type: params.type, name: params.name.trim(), description };
+    const serialized = serializeMemory({ name: params.name.trim(), description, type, body });
+    atomicWriteFile(fileFor(scope, type, slug, cwd, sessionId), serialized);
+    const entry: MemoryEntry = { id: slug, scope, type, name: params.name.trim(), description };
     const nextIndex = upsertEntry(state.index, entry);
-    state = { index: nextIndex, projectSlug: state.projectSlug };
-    writeIndex(scope, cwd, scope === 'global' ? nextIndex.global : nextIndex.project);
+    state = { index: nextIndex, projectSlug: state.projectSlug, sessionId: state.sessionId };
+    writeIndex(scope, cwd, sessionId, bucketFor(nextIndex, scope));
     try {
       pi.appendEntry(MEMORY_CUSTOM_TYPE, cloneState(state));
     } catch {
       // keep going
     }
     return {
-      content: `Saved memory [${scope}/${params.type}] ${slug} - ${entry.name}\n\n${formatText(state)}`,
+      content: `Saved memory [${scope}/${type}] ${slug} - ${entry.name}\n\n${formatText(state)}`,
       details: { action: 'save', state: cloneState(state), entry },
     };
   };
@@ -345,7 +417,7 @@ export default function memoryExtension(pi: ExtensionAPI): void {
         };
       }
     } else {
-      const existing = readMemoryBody(resolved, cwd);
+      const existing = readMemoryBody(resolved, cwd, sessionId);
       if (existing === null) {
         const error = `cannot preserve body: "${resolved.id}" is not readable on disk - pass \`body\` explicitly or re-save`;
         return {
@@ -372,8 +444,12 @@ export default function memoryExtension(pi: ExtensionAPI): void {
       // a rename that collapses back to the same slug (or a reclaimed one)
       // doesn't get pushed to `-2`. Then remove the old file.
       nextIndex = removeEntry(nextIndex, resolved.scope, resolved.id);
-      nextId = chooseMemorySlug({ index: nextIndex, projectSlug: state.projectSlug }, resolved.scope, params.name!);
-      removeFileIfExists(fileFor(resolved.scope, resolved.type, resolved.id, cwd));
+      nextId = chooseMemorySlug(
+        { index: nextIndex, projectSlug: state.projectSlug, sessionId: state.sessionId },
+        resolved.scope,
+        params.name!,
+      );
+      removeFileIfExists(fileFor(resolved.scope, resolved.type, resolved.id, cwd, sessionId));
     }
     const serialized = serializeMemory({
       name: nextName,
@@ -381,7 +457,7 @@ export default function memoryExtension(pi: ExtensionAPI): void {
       type: resolved.type,
       body: nextBody,
     });
-    atomicWriteFile(fileFor(resolved.scope, resolved.type, nextId, cwd), serialized);
+    atomicWriteFile(fileFor(resolved.scope, resolved.type, nextId, cwd, sessionId), serialized);
     const entry: MemoryEntry = {
       id: nextId,
       scope: resolved.scope,
@@ -390,8 +466,8 @@ export default function memoryExtension(pi: ExtensionAPI): void {
       description: nextDescription,
     };
     nextIndex = upsertEntry(nextIndex, entry);
-    state = { index: nextIndex, projectSlug: state.projectSlug };
-    writeIndex(entry.scope, cwd, entry.scope === 'global' ? nextIndex.global : nextIndex.project);
+    state = { index: nextIndex, projectSlug: state.projectSlug, sessionId: state.sessionId };
+    writeIndex(entry.scope, cwd, sessionId, bucketFor(nextIndex, entry.scope));
     try {
       pi.appendEntry(MEMORY_CUSTOM_TYPE, cloneState(state));
     } catch {
@@ -405,7 +481,7 @@ export default function memoryExtension(pi: ExtensionAPI): void {
 
   const actRemove = (params: MemoryParamsT): { content: string; details: MemoryDetails; isError?: boolean } => {
     if (!params.scope) {
-      const error = '`scope` is required for `remove` (global or project)';
+      const error = '`scope` is required for `remove` (global, project, or session)';
       return {
         content: `Error: ${error}`,
         details: { action: 'remove', state: cloneState(state), error },
@@ -420,10 +496,10 @@ export default function memoryExtension(pi: ExtensionAPI): void {
         isError: true,
       };
     }
-    removeFileIfExists(fileFor(resolved.scope, resolved.type, resolved.id, cwd));
+    removeFileIfExists(fileFor(resolved.scope, resolved.type, resolved.id, cwd, sessionId));
     const nextIndex = removeEntry(state.index, resolved.scope, resolved.id);
-    state = { index: nextIndex, projectSlug: state.projectSlug };
-    writeIndex(resolved.scope, cwd, resolved.scope === 'global' ? nextIndex.global : nextIndex.project);
+    state = { index: nextIndex, projectSlug: state.projectSlug, sessionId: state.sessionId };
+    writeIndex(resolved.scope, cwd, sessionId, bucketFor(nextIndex, resolved.scope));
     try {
       pi.appendEntry(MEMORY_CUSTOM_TYPE, cloneState(state));
     } catch {
@@ -447,14 +523,14 @@ export default function memoryExtension(pi: ExtensionAPI): void {
     }
     const needle = q.toLowerCase();
     const matches: MemoryEntry[] = [];
-    const allEntries = [...state.index.global, ...state.index.project];
+    const allEntries = [...state.index.global, ...state.index.project, ...state.index.session];
     for (const e of allEntries) {
       const hay = [e.name, e.description, e.id].join(' ').toLowerCase();
       if (hay.includes(needle)) {
         matches.push(e);
         continue;
       }
-      const body = readMemoryBody(e, cwd);
+      const body = readMemoryBody(e, cwd, sessionId);
       if (body?.toLowerCase().includes(needle)) matches.push(e);
     }
     if (matches.length === 0) {
@@ -475,22 +551,28 @@ export default function memoryExtension(pi: ExtensionAPI): void {
     name: 'memory',
     label: 'Memory',
     description:
-      'Persistent multi-layered memory: durable notes about the user, feedback, project, and external references that survive across sessions. Stored on disk under ~/.pi/agent/memory. Actions: list, read (id), save ({type, name, description, body, scope?}), update (id, {name?, description?, body?}), remove (id, scope), search (query).',
+      'Persistent multi-layered memory: durable notes about the user, feedback, project, and external references that survive across sessions, plus session-scoped `note`s for the current session only. Stored on disk under ~/.pi/agent/memory. Actions: list, read (id), save ({type, name, description, body, scope?}), update (id, {name?, description?, body?}), remove (id, scope), search (query).',
     promptSnippet:
-      'Durable cross-session memory for user preferences, validated approaches, project decisions, and reference pointers.',
+      'Durable cross-session memory for user preferences, validated approaches, project decisions, and reference pointers, plus per-session working notes.',
     promptGuidelines: [
       'Save a memory (`memory` action `save`) when the user corrects your approach, states a preference, validates a non-obvious choice, or references an external system. Include `type`, `name`, a 1-line `description`, and the `body`.',
       'Do NOT save memories for code patterns, git history, or ephemeral task state - read the code or `git log` instead.',
-      'Default scopes: `user`/`feedback` → global (cross-project); `project`/`reference` → project (this workspace only). Override with `scope` when a user/feedback memory is workspace-specific.',
+      'Default scopes: `user`/`feedback` → global (cross-project); `project`/`reference` → project (this workspace only); `note` → session (this session only). Override with `scope` when a user/feedback memory is workspace-specific.',
+      'Use `scope: session` (type `note`) for working context that matters only within this session - it is not loaded by any other session. Use `project` for facts that should outlive the session.',
       'Before relying on a memory, verify it is still accurate - names/files can be renamed or removed since the memory was written. If stale, `update` or `remove` it.',
     ],
     parameters: MemoryParams,
 
     async execute(_toolCallId, params: MemoryParamsT, _signal, _onUpdate, ctx) {
-      // Keep `cwd` fresh - tool calls can happen long after session_start
-      // and the cwd in ctx may have changed across commands.
+      // Keep `cwd`/`sessionId` fresh - tool calls can happen long after
+      // session_start and the cwd/session in ctx may have changed across
+      // commands.
       if (ctx?.cwd && ctx.cwd !== cwd) {
         cwd = ctx.cwd;
+      }
+      if (ctx) {
+        const sid = readSessionId(ctx);
+        if (sid) sessionId = sid;
       }
       let out: { content: string; details: MemoryDetails; isError?: boolean };
       switch (params.action) {
@@ -557,17 +639,21 @@ export default function memoryExtension(pi: ExtensionAPI): void {
       const s = details.state ?? emptyState();
       const global = s.index?.global ?? [];
       const project = s.index?.project ?? [];
-      if (global.length === 0 && project.length === 0) {
+      const session = s.index?.session ?? [];
+      if (global.length === 0 && project.length === 0 && session.length === 0) {
         return new Text(theme.fg('dim', '(no memories)'), 0, 0);
       }
-      const parts: string[] = [theme.fg('muted', `${global.length} global · ${project.length} project`)];
-      const show = expanded ? [...global, ...project] : [...global, ...project].slice(0, 6);
+      const parts: string[] = [
+        theme.fg('muted', `${global.length} global · ${project.length} project · ${session.length} session`),
+      ];
+      const all = [...global, ...project, ...session];
+      const show = expanded ? all : all.slice(0, 6);
       for (const e of show) {
         parts.push(
           `  ${theme.fg('accent', e.id)} ${theme.fg('dim', `[${e.scope}/${e.type}]`)} ${truncate(e.name, 60)}`,
         );
       }
-      const total = global.length + project.length;
+      const total = all.length;
       if (!expanded && total > show.length) {
         parts.push(theme.fg('dim', `  … ${total - show.length} more`));
       }
@@ -577,7 +663,8 @@ export default function memoryExtension(pi: ExtensionAPI): void {
 
   // ── /memory command ─────────────────────────────────────────────────
   pi.registerCommand('memory', {
-    description: 'List memories (`list`), preview the injected index (`preview`), or print the memory dir (`dir`)',
+    description:
+      'List memories (`list`), preview the injected index (`preview`), print the memory dir (`dir`), rescan disk (`rescan`), or prune orphaned session memory (`gc`)',
     handler: async (args, ctx) => {
       const sub = (args ?? '').trim().toLowerCase();
       if (sub === '' || sub === 'list') {
@@ -609,7 +696,12 @@ export default function memoryExtension(pi: ExtensionAPI): void {
         const root = memoryRoot();
         const g = globalDir(root);
         const p = projectDir(ctx.cwd, root);
-        ctx.ui.notify(`Memory root: ${root}\nGlobal:  ${g}\nProject: ${p}\nProject slug: ${cwdSlug(ctx.cwd)}`, 'info');
+        const sid = readSessionId(ctx);
+        const sessionLine = sid ? sessionDir(ctx.cwd, sid, root) : '(no active session)';
+        ctx.ui.notify(
+          `Memory root: ${root}\nGlobal:  ${g}\nProject: ${p}\nSession: ${sessionLine}\nProject slug: ${cwdSlug(ctx.cwd)}\nSession id: ${sid ?? '(none)'}`,
+          'info',
+        );
         return;
       }
       if (sub === 'rescan') {
@@ -617,7 +709,28 @@ export default function memoryExtension(pi: ExtensionAPI): void {
         ctx.ui.notify(`Rescanned memory dirs.\n\n${formatText(state)}`, 'info');
         return;
       }
-      ctx.ui.notify(`Unknown subcommand: ${sub}. Usage: /memory [list|preview|dir|rescan]`, 'warning');
+      if (sub === 'gc') {
+        const live = liveSessionIds(ctx);
+        if (live === null) {
+          ctx.ui.notify(
+            'Cannot gc session memory: no session dir resolved (running pi with --no-session?). ' +
+              'Refusing to prune without a live-session set to compare against.',
+            'warning',
+          );
+          return;
+        }
+        const before = listSessionMemoryDirs(ctx.cwd);
+        const removed = pruneOrphanSessionDirs(ctx.cwd, live);
+        rebuildFromDisk(ctx);
+        ctx.ui.notify(
+          removed.length === 0
+            ? `No orphaned session memory to prune (${before.length} session dir(s) all have transcripts).`
+            : `Pruned ${removed.length} orphaned session memory dir(s):\n${removed.map((id) => `  ${id}`).join('\n')}`,
+          'info',
+        );
+        return;
+      }
+      ctx.ui.notify(`Unknown subcommand: ${sub}. Usage: /memory [list|preview|dir|rescan|gc]`, 'warning');
     },
   });
 }

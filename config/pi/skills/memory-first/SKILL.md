@@ -9,10 +9,11 @@ description:
 
 # Memory First
 
-The `memory` tool is durable, cross-session storage. Anything you save there survives session shutdown, context
-compaction, and new projects. Every turn the MEMORY.md index is injected into the system prompt under a `## Memory`
-header so you can see what's available without a tool call. Full bodies are fetched on demand via `memory` action
-`read`.
+The `memory` tool is durable, cross-session storage, plus a session-scoped `note` layer for context that should live
+only as long as the current session. Anything you save in the durable types survives session shutdown, context
+compaction, and new projects; a `note` survives compaction but not the session. Every turn the MEMORY.md index is
+injected into the system prompt under a `## Memory` header so you can see what's available without a tool call. Full
+bodies are fetched on demand via `memory` action `read`.
 
 This skill teaches WHEN to save, WHEN to recall, and WHAT NOT to save. The tool provides the mechanism; this doc
 provides the policy.
@@ -83,14 +84,32 @@ Save when:
 - They point at a dashboard: _"grafana.internal/d/api-latency is what oncall watches"_.
 - They name a Slack / docs / runbook location: _"#payments-eng is the channel for dispute escalations"_.
 
-## Scope choice - global vs project
+### `note` - working notes for this session only
+
+Freeform context that matters _now_, in this session, and is not worth keeping once the session ends. Session-scoped:
+keyed on the session id, only loaded for the session that wrote it, never seen by other sessions.
+
+Save when:
+
+- You want to stash mid-task context that should survive `/compact` but not leak into future sessions: _"the failing
+  test is flaky under load, retrying with `--runInBand` for now"_.
+- The user frames something as session-local: _"just for this run, treat the staging DB as read-only"_.
+
+This is heavier than the branch-local `scratchpad` tool: a `note` survives compaction and shows up in the injected
+index. Reach for `scratchpad` for throwaway jotting; reach for a `note` when the context should persist across the whole
+session. If the fact should outlive the session, it is a `project` memory, not a `note`.
+
+## Scope choice - global vs project vs session
 
 - **`user` / `feedback`** default to `global` - cross-project truths. Override to `project` only when the rule genuinely
   only applies to this one workspace (e.g. "in this repo, prefer integration over unit tests").
 - **`project` / `reference`** always `project` - a `freeze begins Thursday` memory from repo A means nothing in repo B.
+- **`note`** always `session` - and only available when pi has an active session id. Without one (e.g. `--no-session`)
+  session memory is disabled; use `project` instead.
 
-When in doubt, prefer `project`. A misplaced global memory pollutes every future session; a misplaced project memory
-just goes quiet when you leave the workspace.
+When in doubt, prefer `project` over `session` (a `note` vanishes with the session) and `project` over `global` (a
+misplaced global memory pollutes every future session; a misplaced project memory just goes quiet when you leave the
+workspace).
 
 ## When NOT to save
 
@@ -144,7 +163,7 @@ acting on stale info.
 
 | Action   | Required                                    | Optional        | Purpose                                            |
 | -------- | ------------------------------------------- | --------------- | -------------------------------------------------- |
-| `list`   | -                                           | -               | Print both indices (global + project).             |
+| `list`   | -                                           | -               | Print all indices (global + project + session).    |
 | `read`   | `id`                                        | `type`, `scope` | Load a memory's full body.                         |
 | `save`   | `type`, `name`, `description`, `body`       | `scope`         | Create a new memory.                               |
 | `update` | `id` + at least one of `name`/`desc`/`body` | `type`, `scope` | Rewrite fields on an existing memory.              |

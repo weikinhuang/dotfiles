@@ -4,8 +4,8 @@
  * No pi imports - testable under `vitest`.
  *
  * Every turn the extension injects the `MEMORY.md` indices (global +
- * project) under a `## Memory` header so the model can see what's
- * durable-state-available without a tool call. Full memory bodies are
+ * project + the current session) under a `## Memory` header so the model
+ * can see what's available without a tool call. Full memory bodies are
  * fetched on demand via `memory read <id>`; we only inject the
  * one-line-per-memory index here.
  *
@@ -84,7 +84,8 @@ function renderScope(
 export function formatMemoryIndex(state: MemoryState, opts: FormatOptions = {}): string | null {
   const globalEntries = state.index.global;
   const projectEntries = state.index.project;
-  if (globalEntries.length === 0 && projectEntries.length === 0) return null;
+  const sessionEntries = state.index.session;
+  if (globalEntries.length === 0 && projectEntries.length === 0 && sessionEntries.length === 0) return null;
   const cap = Math.max(500, opts.maxChars ?? 3000);
 
   const lines: string[] = ['## Memory', ''];
@@ -105,6 +106,17 @@ export function formatMemoryIndex(state: MemoryState, opts: FormatOptions = {}):
   if (projectEntries.length > 0) {
     const label = state.projectSlug ? `Project (${state.projectSlug})` : 'Project';
     const r = renderScope(label, projectEntries, ['user', 'feedback', 'project', 'reference'], cap - used);
+    if (r.lines.length > 0) {
+      lines.push(...r.lines);
+      used += r.used;
+    }
+    totalSkipped += r.skipped;
+    truncated = truncated || r.truncated;
+  }
+
+  if (sessionEntries.length > 0) {
+    const label = state.sessionId ? `Session (${state.sessionId})` : 'Session';
+    const r = renderScope(label, sessionEntries, ['note'], cap - used);
     if (r.lines.length > 0) {
       lines.push(...r.lines);
       used += r.used;

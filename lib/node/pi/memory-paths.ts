@@ -20,17 +20,24 @@
  *       feedback/<slug>.md
  *       project/<slug>.md
  *       reference/<slug>.md
+ *       sessions/<session-id>/
+ *         MEMORY.md
+ *         note/<slug>.md
+ *
+ * The `sessions/<session-id>/` subtree holds session-scoped `note`
+ * memory keyed the same way pi names its `<sid>.jsonl` transcript; it is
+ * only loaded for the session that owns it.
  *
  * `<root>` defaults to `~/.pi/agent/memory`, overridable via
  * `PI_MEMORY_ROOT`.
  */
 
-import { existsSync, readdirSync, readFileSync, statSync, unlinkSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, rmSync, statSync, unlinkSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
 import { atomicWriteFile, ensureDirSync } from './atomic-write.ts';
-import { parseFrontmatter, takenSlugs } from './memory-reducer.ts';
+import { parseFrontmatter, takenSlugs, validTypesForScope } from './memory-reducer.ts';
 import { type MemoryEntry, type MemoryScope, type MemoryState, type MemoryType } from './memory-reducer.ts';
 
 // `ensureDirSync` + `atomicWriteFile` are re-exported so memory-paths
@@ -106,10 +113,44 @@ export function projectDir(cwd: string, root: string = memoryRoot()): string {
   return join(root, 'projects', cwdSlug(cwd));
 }
 
+/** Parent dir holding every session's memory subtree for a workspace. */
+export function sessionsParentDir(cwd: string, root: string = memoryRoot()): string {
+  return join(projectDir(cwd, root), 'sessions');
+}
+
+/**
+ * Directory holding the session-scoped memory for a given session id,
+ * keyed the same way pi names its `<sid>.jsonl` transcript. Lives under
+ * the project dir so a workspace's sessions sit next to its durable
+ * project memory.
+ */
+export function sessionDir(cwd: string, sessionId: string, root: string = memoryRoot()): string {
+  return join(sessionsParentDir(cwd, root), sessionId);
+}
+
+/**
+ * Base directory for a scope. `session` requires a `sessionId` - callers
+ * resolving a session path without one have a bug, so we throw rather
+ * than silently writing to the project dir.
+ */
+function scopeBaseDir(scope: MemoryScope, cwd: string, sessionId: string | null, root: string): string {
+  if (scope === 'global') return globalDir(root);
+  if (scope === 'session') {
+    if (!sessionId) throw new Error('memory: session scope requires a sessionId');
+    return sessionDir(cwd, sessionId, root);
+  }
+  return projectDir(cwd, root);
+}
+
 /** Directory holding memories of `type` for a given scope. */
-export function typeDir(scope: MemoryScope, type: MemoryType, cwd: string, root: string = memoryRoot()): string {
-  const base = scope === 'global' ? globalDir(root) : projectDir(cwd, root);
-  return join(base, type);
+export function typeDir(
+  scope: MemoryScope,
+  type: MemoryType,
+  cwd: string,
+  sessionId: string | null = null,
+  root: string = memoryRoot(),
+): string {
+  return join(scopeBaseDir(scope, cwd, sessionId, root), type);
 }
 
 export function fileFor(
@@ -117,14 +158,19 @@ export function fileFor(
   type: MemoryType,
   slug: string,
   cwd: string,
+  sessionId: string | null = null,
   root: string = memoryRoot(),
 ): string {
-  return join(typeDir(scope, type, cwd, root), `${slug}.md`);
+  return join(typeDir(scope, type, cwd, sessionId, root), `${slug}.md`);
 }
 
-export function indexFileFor(scope: MemoryScope, cwd: string, root: string = memoryRoot()): string {
-  const base = scope === 'global' ? globalDir(root) : projectDir(cwd, root);
-  return join(base, 'MEMORY.md');
+export function indexFileFor(
+  scope: MemoryScope,
+  cwd: string,
+  sessionId: string | null = null,
+  root: string = memoryRoot(),
+): string {
+  return join(scopeBaseDir(scope, cwd, sessionId, root), 'MEMORY.md');
 }
 
 export function removeFileIfExists(path: string): boolean {
@@ -141,8 +187,8 @@ export function readTextFile(path: string): string | null {
   }
 }
 
-export function readMemoryBody(entry: MemoryEntry, cwd: string): string | null {
-  const path = fileFor(entry.scope, entry.type, entry.id, cwd);
+export function readMemoryBody(entry: MemoryEntry, cwd: string, sessionId: string | null = null): string | null {
+  const path = fileFor(entry.scope, entry.type, entry.id, cwd, sessionId);
   if (!existsSync(path)) return null;
   const raw = readTextFile(path);
   if (raw == null) return null;
@@ -166,8 +212,7 @@ export function scanScope(
   warnings: ScanWarning[] = [],
 ): { entries: MemoryEntry[]; warnings: ScanWarning[] } {
   const entries: MemoryEntry[] = [];
-  const validTypes: MemoryType[] =
-    scope === 'global' ? ['user', 'feedback'] : ['user', 'feedback', 'project', 'reference'];
+  const validTypes: MemoryType[] = validTypesForScope(scope);
 
   for (const type of validTypes) {
     const dir = join(scopeDir, type);
@@ -219,13 +264,67 @@ export function scanScope(
   return { entries, warnings };
 }
 
-export function rebuildMemoryIndex(cwd: string): { state: MemoryState; warnings: string[] } {
+export function rebuildMemoryIndex(
+  cwd: string,
+  sessionId: string | null = null,
+): { state: MemoryState; warnings: string[] } {
   const warnings: string[] = [];
   const g = scanScope(globalDir(), 'global');
   const p = scanScope(projectDir(cwd), 'project');
-  for (const w of [...g.warnings, ...p.warnings]) warnings.push(`${w.path}: ${w.reason}`);
+  // Only the current session's dir is scanned - other sessions' notes are
+  // never loaded, so session memory stays scoped to the session that owns it.
+  const s = sessionId ? scanScope(sessionDir(cwd, sessionId), 'session') : { entries: [], warnings: [] };
+  for (const w of [...g.warnings, ...p.warnings, ...s.warnings]) warnings.push(`${w.path}: ${w.reason}`);
   return {
-    state: { index: { global: g.entries, project: p.entries }, projectSlug: cwdSlug(cwd) },
+    state: {
+      index: { global: g.entries, project: p.entries, session: s.entries },
+      projectSlug: cwdSlug(cwd),
+      sessionId,
+    },
     warnings,
   };
+}
+
+/**
+ * List the session ids that currently have a memory subtree under a
+ * workspace (`<projectDir>/sessions/<id>/`). Returns directory names
+ * only; missing parent dir yields an empty list.
+ */
+export function listSessionMemoryDirs(cwd: string, root: string = memoryRoot()): string[] {
+  const parent = sessionsParentDir(cwd, root);
+  let names: string[];
+  try {
+    names = readdirSync(parent);
+  } catch {
+    return [];
+  }
+  return names.filter((name) => {
+    try {
+      return statSync(join(parent, name)).isDirectory();
+    } catch {
+      return false;
+    }
+  });
+}
+
+/**
+ * Delete session memory dirs whose id is not in `liveSessionIds` (i.e.
+ * sessions with no surviving transcript). Returns the ids that were
+ * pruned. The caller supplies the live set so this stays pure-ish and
+ * testable without reaching into pi's session store.
+ */
+export function pruneOrphanSessionDirs(
+  cwd: string,
+  liveSessionIds: Iterable<string>,
+  root: string = memoryRoot(),
+): string[] {
+  const live = liveSessionIds instanceof Set ? liveSessionIds : new Set(liveSessionIds);
+  const parent = sessionsParentDir(cwd, root);
+  const removed: string[] = [];
+  for (const id of listSessionMemoryDirs(cwd, root)) {
+    if (live.has(id)) continue;
+    rmSync(join(parent, id), { recursive: true, force: true });
+    removed.push(id);
+  }
+  return removed;
 }

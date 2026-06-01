@@ -27,10 +27,10 @@ import {
 // Types
 // ──────────────────────────────────────────────────────────────────────
 
-export const MEMORY_TYPES = ['user', 'feedback', 'project', 'reference'] as const;
+export const MEMORY_TYPES = ['user', 'feedback', 'project', 'reference', 'note'] as const;
 export type MemoryType = (typeof MEMORY_TYPES)[number];
 
-export const MEMORY_SCOPES = ['global', 'project'] as const;
+export const MEMORY_SCOPES = ['global', 'project', 'session'] as const;
 export type MemoryScope = (typeof MEMORY_SCOPES)[number];
 
 export interface MemoryEntry {
@@ -45,6 +45,12 @@ export interface MemoryEntry {
 export interface MemoryIndex {
   global: MemoryEntry[];
   project: MemoryEntry[];
+  /**
+   * Session-scoped entries, keyed on disk by the current session id. Only
+   * ever populated for the session that owns them - other sessions never
+   * scan this bucket.
+   */
+  session: MemoryEntry[];
 }
 
 export interface MemoryState {
@@ -55,6 +61,12 @@ export interface MemoryState {
    * resolved cwd yet - e.g. before `session_start`.
    */
   projectSlug: string | null;
+  /**
+   * The session id used for the current session scope (mirrors pi's
+   * `<sid>.jsonl` transcript name). `null` when there is no resolved
+   * session - e.g. before `session_start` or under `--no-session`.
+   */
+  sessionId: string | null;
 }
 
 export const MEMORY_TOOL_NAME = 'memory';
@@ -64,11 +76,11 @@ export const MEMORY_CUSTOM_TYPE = 'memory-state';
 export type BranchEntry = GenericBranchEntry;
 
 export function emptyIndex(): MemoryIndex {
-  return { global: [], project: [] };
+  return { global: [], project: [], session: [] };
 }
 
 export function emptyState(): MemoryState {
-  return { index: emptyIndex(), projectSlug: null };
+  return { index: emptyIndex(), projectSlug: null, sessionId: null };
 }
 
 export function cloneEntry(e: MemoryEntry): MemoryEntry {
@@ -79,20 +91,43 @@ export function cloneIndex(idx: MemoryIndex): MemoryIndex {
   return {
     global: idx.global.map(cloneEntry),
     project: idx.project.map(cloneEntry),
+    session: idx.session.map(cloneEntry),
   };
 }
 
 export function cloneState(s: MemoryState): MemoryState {
-  return { index: cloneIndex(s.index), projectSlug: s.projectSlug };
+  return { index: cloneIndex(s.index), projectSlug: s.projectSlug, sessionId: s.sessionId };
 }
 
 export function defaultMemoryScope(type: MemoryType): MemoryScope {
+  if (type === 'note') return 'session';
   return type === 'project' || type === 'reference' ? 'project' : 'global';
 }
 
+/**
+ * The default (and, for `session`, only) memory type for a scope. Lets
+ * `save` with an explicit `scope: 'session'` omit `type` since `note` is
+ * the only type valid there. Returns `undefined` for scopes that don't
+ * have a single obvious default - the caller must require `type`.
+ */
+export function defaultMemoryTypeForScope(scope: MemoryScope): MemoryType | undefined {
+  return scope === 'session' ? 'note' : undefined;
+}
+
 export function isMemoryTypeAllowedInScope(type: MemoryType, scope: MemoryScope): boolean {
+  if (scope === 'session') return type === 'note';
+  // `note` is exclusive to the session scope.
+  if (type === 'note') return false;
   if (scope === 'global') return type === 'user' || type === 'feedback';
   return true;
+}
+
+/** Types meaningful within a scope, in render order. Single source of
+ *  truth for the index renderer, the disk scanner, and the prompt block. */
+export function validTypesForScope(scope: MemoryScope): MemoryType[] {
+  if (scope === 'global') return ['user', 'feedback'];
+  if (scope === 'session') return ['note'];
+  return ['user', 'feedback', 'project', 'reference'];
 }
 
 // ──────────────────────────────────────────────────────────────────────
@@ -103,7 +138,7 @@ function isMemoryEntryShape(value: unknown): value is MemoryEntry {
   if (!value || typeof value !== 'object') return false;
   const v = value as Record<string, unknown>;
   if (typeof v.id !== 'string' || v.id.length === 0) return false;
-  if (v.scope !== 'global' && v.scope !== 'project') return false;
+  if (!(MEMORY_SCOPES as readonly string[]).includes(v.scope as MemoryScope)) return false;
   if (!MEMORY_TYPES.includes(v.type as MemoryType)) return false;
   if (typeof v.name !== 'string') return false;
   if (typeof v.description !== 'string') return false;
@@ -113,14 +148,17 @@ function isMemoryEntryShape(value: unknown): value is MemoryEntry {
 function isMemoryIndexShape(value: unknown): value is MemoryIndex {
   if (!value || typeof value !== 'object') return false;
   const v = value as Record<string, unknown>;
-  if (!Array.isArray(v.global) || !Array.isArray(v.project)) return false;
-  return v.global.every(isMemoryEntryShape) && v.project.every(isMemoryEntryShape);
+  if (!Array.isArray(v.global) || !Array.isArray(v.project) || !Array.isArray(v.session)) return false;
+  return (
+    v.global.every(isMemoryEntryShape) && v.project.every(isMemoryEntryShape) && v.session.every(isMemoryEntryShape)
+  );
 }
 
 export function isMemoryStateShape(value: unknown): value is MemoryState {
   if (!value || typeof value !== 'object') return false;
   const v = value as Record<string, unknown>;
   if (v.projectSlug !== null && typeof v.projectSlug !== 'string') return false;
+  if (v.sessionId !== null && typeof v.sessionId !== 'string') return false;
   return isMemoryIndexShape(v.index);
 }
 
@@ -261,7 +299,9 @@ export function serializeMemory(input: { name: string; description: string; type
 // ──────────────────────────────────────────────────────────────────────
 
 function entriesFor(index: MemoryIndex, scope: MemoryScope): MemoryEntry[] {
-  return scope === 'global' ? index.global : index.project;
+  if (scope === 'global') return index.global;
+  if (scope === 'session') return index.session;
+  return index.project;
 }
 
 export function findEntry(index: MemoryIndex, scope: MemoryScope, id: string): MemoryEntry | undefined {
@@ -273,7 +313,7 @@ export function resolveMemoryEntry(
   params: { id?: string; type?: MemoryType; scope?: MemoryScope },
 ): MemoryEntry | { error: string } {
   if (!params.id) return { error: '`id` is required' };
-  const scopes: MemoryScope[] = params.scope ? [params.scope] : ['project', 'global'];
+  const scopes: MemoryScope[] = params.scope ? [params.scope] : ['session', 'project', 'global'];
   for (const scope of scopes) {
     const e = findEntry(state.index, scope, params.id);
     if (!e) continue;
@@ -293,7 +333,7 @@ export function takenSlugs(index: MemoryIndex, scope: MemoryScope): Set<string> 
 
 export function upsertEntry(index: MemoryIndex, entry: MemoryEntry): MemoryIndex {
   const next = cloneIndex(index);
-  const target = entry.scope === 'global' ? next.global : next.project;
+  const target = entriesFor(next, entry.scope);
   const existing = target.findIndex((e) => e.id === entry.id);
   if (existing === -1) target.push(cloneEntry(entry));
   else target[existing] = cloneEntry(entry);
@@ -306,7 +346,7 @@ export function upsertEntry(index: MemoryIndex, entry: MemoryEntry): MemoryIndex
 
 export function removeEntry(index: MemoryIndex, scope: MemoryScope, id: string): MemoryIndex {
   const next = cloneIndex(index);
-  const target = scope === 'global' ? next.global : next.project;
+  const target = entriesFor(next, scope);
   const idx = target.findIndex((e) => e.id === id);
   if (idx !== -1) target.splice(idx, 1);
   return next;
@@ -333,8 +373,7 @@ function groupByType(entries: readonly MemoryEntry[]): Map<MemoryType, MemoryEnt
  */
 export function renderMemoryMd(entries: readonly MemoryEntry[], scope: MemoryScope): string {
   const lines: string[] = ['# Memory Index', ''];
-  const validTypes: MemoryType[] =
-    scope === 'global' ? ['user', 'feedback'] : ['user', 'feedback', 'project', 'reference'];
+  const validTypes: MemoryType[] = validTypesForScope(scope);
   const grouped = groupByType(entries);
   for (const type of validTypes) {
     lines.push(`## ${type}`);
@@ -357,8 +396,8 @@ export function renderMemoryMd(entries: readonly MemoryEntry[], scope: MemorySco
  * without the renderer.
  */
 export function formatText(state: MemoryState): string {
-  const { global, project } = state.index;
-  if (global.length === 0 && project.length === 0) return '(no memories saved)';
+  const { global, project, session } = state.index;
+  if (global.length === 0 && project.length === 0 && session.length === 0) return '(no memories saved)';
   const parts: string[] = [];
   if (global.length > 0) {
     parts.push(`Global (${global.length}):`);
@@ -367,6 +406,10 @@ export function formatText(state: MemoryState): string {
   if (project.length > 0) {
     parts.push(`Project${state.projectSlug ? ` ${state.projectSlug}` : ''} (${project.length}):`);
     for (const e of project) parts.push(`  [${e.type}] ${e.id} - ${e.name}: ${e.description}`);
+  }
+  if (session.length > 0) {
+    parts.push(`Session${state.sessionId ? ` ${state.sessionId}` : ''} (${session.length}):`);
+    for (const e of session) parts.push(`  [${e.type}] ${e.id} - ${e.name}: ${e.description}`);
   }
   return parts.join('\n');
 }

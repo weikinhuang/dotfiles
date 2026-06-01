@@ -18,11 +18,15 @@ import {
   fileFor,
   globalDir,
   indexFileFor,
+  listSessionMemoryDirs,
   memoryRoot,
   projectDir,
+  pruneOrphanSessionDirs,
   readMemoryBody,
   rebuildMemoryIndex,
   scanScope,
+  sessionDir,
+  sessionsParentDir,
   slugifyName,
   uniqueSlug,
 } from '../../../../lib/node/pi/memory-paths.ts';
@@ -133,6 +137,24 @@ test('globalDir / projectDir / fileFor / indexFileFor line up', () => {
   );
   expect(indexFileFor('global', cwd)).toBe(join(sandbox, 'global', 'MEMORY.md'));
   expect(indexFileFor('project', cwd)).toBe(join(sandbox, 'projects', '--tmp-pi-test--', 'MEMORY.md'));
+});
+
+test('sessionDir / session fileFor / indexFileFor are keyed under the project dir', () => {
+  const cwd = '/tmp/pi-test';
+  const sid = 'sess-1';
+
+  expect(sessionsParentDir(cwd)).toBe(join(sandbox, 'projects', '--tmp-pi-test--', 'sessions'));
+  expect(sessionDir(cwd, sid)).toBe(join(sandbox, 'projects', '--tmp-pi-test--', 'sessions', sid));
+  expect(fileFor('session', 'note', 'scratch', cwd, sid)).toBe(
+    join(sandbox, 'projects', '--tmp-pi-test--', 'sessions', sid, 'note', 'scratch.md'),
+  );
+  expect(indexFileFor('session', cwd, sid)).toBe(
+    join(sandbox, 'projects', '--tmp-pi-test--', 'sessions', sid, 'MEMORY.md'),
+  );
+});
+
+test('fileFor: session scope without a sessionId throws', () => {
+  expect(() => fileFor('session', 'note', 'scratch', '/tmp/pi-test')).toThrow(/session scope requires a sessionId/);
 });
 
 // ──────────────────────────────────────────────────────────────────────
@@ -273,4 +295,72 @@ test('rebuildMemoryIndex: scans global and project scopes with project slug', ()
   expect(rebuilt.state.projectSlug).toBe('--tmp-pi-test--');
   expect(rebuilt.state.index.global.map((e) => e.id)).toEqual(['alice']);
   expect(rebuilt.state.index.project.map((e) => e.id)).toEqual(['launch']);
+  expect(rebuilt.state.index.session).toEqual([]);
+  expect(rebuilt.state.sessionId).toBeNull();
+});
+
+test('scanScope: session sees only the note type', () => {
+  const cwd = '/tmp/pi-test';
+  const dir = sessionDir(cwd, 'sess-1');
+  writeMemory(join(dir, 'note'), 'a.md', { name: 'a', description: 'd', type: 'note' }, 'body');
+  // A durable type under the session dir must be ignored.
+  writeMemory(join(dir, 'user'), 'bogus.md', { name: 'b', description: 'd', type: 'user' }, '');
+  const { entries, warnings } = scanScope(dir, 'session');
+
+  expect(entries.map((e) => e.id)).toEqual(['a']);
+  expect(entries.every((e) => e.scope === 'session' && e.type === 'note')).toBe(true);
+  expect(warnings).toEqual([]);
+});
+
+test('rebuildMemoryIndex: scans the current session dir when a sessionId is given', () => {
+  const cwd = '/tmp/pi-test';
+  const sid = 'sess-current';
+  writeMemory(
+    join(sessionDir(cwd, sid), 'note'),
+    'scratch.md',
+    { name: 'Scratch', description: 'd', type: 'note' },
+    'b',
+  );
+  // Another session's notes must NOT leak into this session's index.
+  writeMemory(
+    join(sessionDir(cwd, 'sess-other'), 'note'),
+    'other.md',
+    { name: 'Other', description: 'd', type: 'note' },
+    '',
+  );
+
+  const rebuilt = rebuildMemoryIndex(cwd, sid);
+
+  expect(rebuilt.state.sessionId).toBe(sid);
+  expect(rebuilt.state.index.session.map((e) => e.id)).toEqual(['scratch']);
+});
+
+test('readMemoryBody: resolves a session note via its sessionId', () => {
+  const cwd = '/tmp/pi-test';
+  const sid = 'sess-1';
+  atomicWriteFile(
+    fileFor('session', 'note', 'scratch', cwd, sid),
+    ['---', 'name: Scratch', 'description: d', 'type: note', '---', '', 'note body', ''].join('\n'),
+  );
+  const entry: MemoryEntry = { id: 'scratch', scope: 'session', type: 'note', name: 'Scratch', description: 'd' };
+
+  expect(readMemoryBody(entry, cwd, sid)?.trim()).toBe('note body');
+});
+
+test('listSessionMemoryDirs / pruneOrphanSessionDirs: prune dirs with no live transcript', () => {
+  const cwd = '/tmp/pi-test';
+  for (const sid of ['live-1', 'live-2', 'orphan-1', 'orphan-2']) {
+    writeMemory(join(sessionDir(cwd, sid), 'note'), 'n.md', { name: 'n', description: 'd', type: 'note' }, 'b');
+  }
+
+  expect(listSessionMemoryDirs(cwd).sort()).toEqual(['live-1', 'live-2', 'orphan-1', 'orphan-2']);
+
+  const removed = pruneOrphanSessionDirs(cwd, new Set(['live-1', 'live-2'])).sort();
+
+  expect(removed).toEqual(['orphan-1', 'orphan-2']);
+  expect(listSessionMemoryDirs(cwd).sort()).toEqual(['live-1', 'live-2']);
+});
+
+test('pruneOrphanSessionDirs: no-op when parent dir is absent', () => {
+  expect(pruneOrphanSessionDirs('/tmp/never-used', new Set(['x']))).toEqual([]);
 });

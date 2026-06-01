@@ -10,6 +10,7 @@ import {
   cloneIndex,
   cloneState,
   defaultMemoryScope,
+  defaultMemoryTypeForScope,
   emptyIndex,
   emptyState,
   findEntry,
@@ -24,6 +25,7 @@ import {
   serializeMemory,
   takenSlugs,
   upsertEntry,
+  validTypesForScope,
 } from '../../../../lib/node/pi/memory-reducer.ts';
 
 // ──────────────────────────────────────────────────────────────────────
@@ -46,6 +48,14 @@ const pProject = (id: string, name = id, description = `desc ${id}`): MemoryEntr
   description,
 });
 
+const sNote = (id: string, name = id, description = `desc ${id}`): MemoryEntry => ({
+  id,
+  scope: 'session',
+  type: 'note',
+  name,
+  description,
+});
+
 // ──────────────────────────────────────────────────────────────────────
 // Shape validator
 // ──────────────────────────────────────────────────────────────────────
@@ -55,35 +65,59 @@ test('isMemoryStateShape: accepts empty state', () => {
 });
 
 test('isMemoryStateShape: accepts populated state with slug', () => {
-  const s = { index: { global: [gUser('a')], project: [] }, projectSlug: '--tmp--' };
+  const s = {
+    index: { global: [gUser('a')], project: [], session: [sNote('n')] },
+    projectSlug: '--tmp--',
+    sessionId: 'abc123',
+  };
 
   expect(isMemoryStateShape(s)).toBe(true);
 });
 
 test('isMemoryStateShape: rejects missing index', () => {
-  expect(isMemoryStateShape({ projectSlug: null })).toBe(false);
+  expect(isMemoryStateShape({ projectSlug: null, sessionId: null })).toBe(false);
+});
+
+test('isMemoryStateShape: rejects missing session bucket', () => {
+  expect(isMemoryStateShape({ index: { global: [], project: [] }, projectSlug: null, sessionId: null })).toBe(false);
 });
 
 test('isMemoryStateShape: rejects non-string projectSlug', () => {
-  expect(isMemoryStateShape({ index: emptyIndex(), projectSlug: 42 })).toBe(false);
+  expect(isMemoryStateShape({ index: emptyIndex(), projectSlug: 42, sessionId: null })).toBe(false);
+});
+
+test('isMemoryStateShape: rejects non-string sessionId', () => {
+  expect(isMemoryStateShape({ index: emptyIndex(), projectSlug: null, sessionId: 42 })).toBe(false);
 });
 
 test('isMemoryStateShape: rejects entry with bad type', () => {
   const bad = { id: 'a', scope: 'global', type: 'bogus', name: 'n', description: 'd' };
 
-  expect(isMemoryStateShape({ index: { global: [bad], project: [] }, projectSlug: null })).toBe(false);
+  expect(
+    isMemoryStateShape({ index: { global: [bad], project: [], session: [] }, projectSlug: null, sessionId: null }),
+  ).toBe(false);
 });
 
 test('isMemoryStateShape: rejects entry with bad scope', () => {
   const bad = { id: 'a', scope: 'weird', type: 'user', name: 'n', description: 'd' };
 
-  expect(isMemoryStateShape({ index: { global: [bad], project: [] }, projectSlug: null })).toBe(false);
+  expect(
+    isMemoryStateShape({ index: { global: [bad], project: [], session: [] }, projectSlug: null, sessionId: null }),
+  ).toBe(false);
 });
 
 test('isMemoryStateShape: rejects entry missing name', () => {
   const bad = { id: 'a', scope: 'global', type: 'user', description: 'd' };
 
-  expect(isMemoryStateShape({ index: { global: [bad], project: [] }, projectSlug: null })).toBe(false);
+  expect(
+    isMemoryStateShape({ index: { global: [bad], project: [], session: [] }, projectSlug: null, sessionId: null }),
+  ).toBe(false);
+});
+
+test('isMemoryStateShape: accepts a session note entry', () => {
+  const s = { index: { global: [], project: [], session: [sNote('n')] }, projectSlug: null, sessionId: 'sid' };
+
+  expect(isMemoryStateShape(s)).toBe(true);
 });
 
 // ──────────────────────────────────────────────────────────────────────
@@ -237,9 +271,19 @@ test('upsertEntry: inserts into correct scope and sorts by type/id', () => {
   idx = upsertEntry(idx, gUser('b'));
   idx = upsertEntry(idx, gUser('a'));
   idx = upsertEntry(idx, pProject('c'));
+  idx = upsertEntry(idx, sNote('n'));
 
   expect(idx.global.map((e) => e.id)).toEqual(['a', 'b']);
   expect(idx.project.map((e) => e.id)).toEqual(['c']);
+  expect(idx.session.map((e) => e.id)).toEqual(['n']);
+});
+
+test('removeEntry: removes from the session scope', () => {
+  let idx = upsertEntry(emptyIndex(), sNote('a'));
+  idx = upsertEntry(idx, sNote('b'));
+  const after = removeEntry(idx, 'session', 'a');
+
+  expect(after.session.map((e) => e.id)).toEqual(['b']);
 });
 
 test('upsertEntry: updates in place when id already exists', () => {
@@ -292,11 +336,18 @@ test('takenSlugs: returns slugs of the given scope', () => {
   expect(Array.from(takenSlugs(idx, 'project')).sort()).toEqual(['c']);
 });
 
-test('defaultMemoryScope: user and feedback are global by default, project types are project-scoped', () => {
+test('defaultMemoryScope: user and feedback are global by default, project types are project-scoped, note is session', () => {
   expect(defaultMemoryScope('user')).toBe('global');
   expect(defaultMemoryScope('feedback')).toBe('global');
   expect(defaultMemoryScope('project')).toBe('project');
   expect(defaultMemoryScope('reference')).toBe('project');
+  expect(defaultMemoryScope('note')).toBe('session');
+});
+
+test('defaultMemoryTypeForScope: session defaults to note, others have no default', () => {
+  expect(defaultMemoryTypeForScope('session')).toBe('note');
+  expect(defaultMemoryTypeForScope('global')).toBeUndefined();
+  expect(defaultMemoryTypeForScope('project')).toBeUndefined();
 });
 
 test('isMemoryTypeAllowedInScope: global accepts only cross-project types', () => {
@@ -306,15 +357,33 @@ test('isMemoryTypeAllowedInScope: global accepts only cross-project types', () =
   expect(isMemoryTypeAllowedInScope('reference', 'project')).toBe(true);
 });
 
-test('resolveMemoryEntry: prefers project scope, supports filters, and reports misses', () => {
+test('isMemoryTypeAllowedInScope: note is exclusive to the session scope', () => {
+  expect(isMemoryTypeAllowedInScope('note', 'session')).toBe(true);
+  expect(isMemoryTypeAllowedInScope('note', 'global')).toBe(false);
+  expect(isMemoryTypeAllowedInScope('note', 'project')).toBe(false);
+  // The session scope rejects the durable types.
+  expect(isMemoryTypeAllowedInScope('user', 'session')).toBe(false);
+  expect(isMemoryTypeAllowedInScope('project', 'session')).toBe(false);
+});
+
+test('validTypesForScope: each scope exposes its own type set', () => {
+  expect(validTypesForScope('global')).toEqual(['user', 'feedback']);
+  expect(validTypesForScope('project')).toEqual(['user', 'feedback', 'project', 'reference']);
+  expect(validTypesForScope('session')).toEqual(['note']);
+});
+
+test('resolveMemoryEntry: prefers session then project then global, supports filters, and reports misses', () => {
   const state = {
-    index: { global: [gUser('same')], project: [pProject('same')] },
+    index: { global: [gUser('same')], project: [pProject('same')], session: [sNote('same')] },
     projectSlug: '--tmp--',
+    sessionId: 'sid',
   };
 
-  expect(resolveMemoryEntry(state, { id: 'same' })).toMatchObject({ scope: 'project' });
+  expect(resolveMemoryEntry(state, { id: 'same' })).toMatchObject({ scope: 'session' });
+  expect(resolveMemoryEntry(state, { id: 'same', scope: 'project' })).toMatchObject({ scope: 'project' });
   expect(resolveMemoryEntry(state, { id: 'same', scope: 'global' })).toMatchObject({ scope: 'global' });
   expect(resolveMemoryEntry(state, { id: 'same', type: 'user' })).toMatchObject({ scope: 'global' });
+  expect(resolveMemoryEntry(state, { id: 'same', type: 'note' })).toMatchObject({ scope: 'session' });
   expect(resolveMemoryEntry(state, {})).toEqual({ error: '`id` is required' });
   expect(resolveMemoryEntry(state, { id: 'missing' })).toEqual({ error: 'no memory "missing" found' });
 });
@@ -356,6 +425,16 @@ test('renderMemoryMd: empty input still renders headers', () => {
   expect(out).toContain('## user');
 });
 
+test('renderMemoryMd: session scope shows only the note heading', () => {
+  const out = renderMemoryMd([sNote('scratch', 'Scratch', 'working note')], 'session');
+
+  expect(out).toContain('# Memory Index');
+  expect(out).toContain('## note');
+  expect(out).not.toContain('## user');
+  expect(out).not.toContain('## project');
+  expect(out).toContain('- [Scratch](note/scratch.md) - working note');
+});
+
 // ──────────────────────────────────────────────────────────────────────
 // formatText
 // ──────────────────────────────────────────────────────────────────────
@@ -364,17 +443,20 @@ test('formatText: no memories yields friendly message', () => {
   expect(formatText(emptyState())).toMatch(/no memories/i);
 });
 
-test('formatText: renders both scopes when populated', () => {
+test('formatText: renders all scopes when populated', () => {
   const state = {
-    index: { global: [gUser('a')], project: [pProject('b')] },
+    index: { global: [gUser('a')], project: [pProject('b')], session: [sNote('c')] },
     projectSlug: '--tmp--',
+    sessionId: 'sid-1',
   };
   const out = formatText(state);
 
   expect(out).toMatch(/Global \(1\)/);
   expect(out).toMatch(/Project --tmp-- \(1\)/);
+  expect(out).toMatch(/Session sid-1 \(1\)/);
   expect(out).toMatch(/\[user\] a/);
   expect(out).toMatch(/\[project\] b/);
+  expect(out).toMatch(/\[note\] c/);
 });
 
 // ──────────────────────────────────────────────────────────────────────
@@ -382,11 +464,13 @@ test('formatText: renders both scopes when populated', () => {
 // ──────────────────────────────────────────────────────────────────────
 
 test('cloneState: does not alias input', () => {
-  const s = { index: { global: [gUser('a')], project: [] }, projectSlug: null };
+  const s = { index: { global: [gUser('a')], project: [], session: [sNote('n')] }, projectSlug: null, sessionId: null };
   const c = cloneState(s);
   c.index.global[0].name = 'mutated';
+  c.index.session[0].name = 'mutated';
 
   expect(s.index.global[0].name).toBe('a');
+  expect(s.index.session[0].name).toBe('n');
 });
 
 test('cloneIndex: does not alias input', () => {
