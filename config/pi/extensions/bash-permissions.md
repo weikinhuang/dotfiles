@@ -107,6 +107,13 @@ differently.
 
 - `PI_BASH_PERMISSIONS_DISABLED=1` - bypass the gate entirely.
 - `PI_BASH_PERMISSIONS_DEFAULT=allow` - in non-interactive mode, allow unknown commands instead of blocking.
+- `PI_BASH_PERMISSIONS_NO_HARDCODED_DENY=1` - truthy flag (default off). Disable the built-in "never auto-run" denylist
+  (`rm -rf /`, fork bomb, `dd` to raw disk, `mkfs`, pipe-to-shell from the network, …) that is checked first and blocks
+  even a broad allow rule. Not recommended.
+- `PI_BASH_PERMISSIONS_NO_ALWAYS_PROMPT=1` - truthy flag (default off). Disable the always-prompt list (`sudo`, `doas`,
+  `run0`, `pkexec`, `gosu`, `su`) that forces a prompt even under `/bash-auto`. With it set, privilege escalation
+  auto-allows under `/bash-auto`, which is risky. An explicit allow rule already bypasses the prompt for a specific
+  command without this knob.
 
 ## Hot reload
 

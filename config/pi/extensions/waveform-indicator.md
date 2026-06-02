@@ -111,6 +111,9 @@ mode for the current session.
   claude-code's pulse cadence by eye). `<= 0` and non-finite values short-circuit to a static dim render (same effect as
   `PI_WAVEFORM_THINKING_PULSE=off`) so `PI_WAVEFORM_THINKING_PULSE_HZ=0` does what users expect rather than letting
   `cos(0) = 1` paint a stuck-at-peak frame forever.
+- `PI_WAVEFORM_DYNAMIC_LABEL_DEBUG=1` - truthy flag (default off). Enable a JSONL debug log of the dynamic-label spawn
+  pipeline at `<piAgentDir>/waveform-indicator.debug.log`, recording which guard (stopReason, validator, abort,
+  exception) dropped each spawn result. No-op when unset, so production runs pay zero overhead.
 
 ## Persistence
 

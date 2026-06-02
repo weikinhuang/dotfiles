@@ -96,6 +96,9 @@ boundaries.
 - `PI_STREAM_WATCHDOG_MAX_RETRIES=N` - consecutive auto-retries per user prompt after aborting a stalled stream. Default
   `2`. Set to `0` to disable the follow-up entirely (abort + notify only, like `stall-recovery`'s budget-exhausted
   state).
+- `PI_STREAM_WATCHDOG_HARD_STALL_MS=N` - hard wall-clock cap, ms, measured since the last token. Default `1800000` (30
+  min). Catches a stream that keeps trickling tokens (so it never trips `PI_STREAM_WATCHDOG_STALL_MS`) yet runs far too
+  long. Parsed as a positive integer; non-positive or unparseable values fall back to the default.
 - `PI_STREAM_WATCHDOG_DEBUG=1` - emit a `ctx.ui.notify` on every `message_start` / `message_end` and on every stall
   decision. Useful for tuning; leave off in normal use.
 

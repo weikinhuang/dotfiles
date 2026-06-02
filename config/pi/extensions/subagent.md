@@ -170,6 +170,12 @@ needs the parent's project-scoped memories, keep `isolation: "shared-cwd"`.
 - `PI_SUBAGENT_MAX_TURNS=N` - global max-turns cap. Wins over per-agent settings.
 - `PI_SUBAGENT_TIMEOUT_MS=N` - global wall-clock cap in ms. Wins over per-agent settings.
 - `PI_SUBAGENT_MODEL=provider/id` - global model override applied to every child.
+- `PI_SUBAGENT_BG_MAX=N` - max entries retained in the background-children registry; older completed entries are pruned
+  past this cap (default `32`). Parsed as a positive integer; non-positive or unparseable values fall back to the
+  default.
+- `PI_SUBAGENT_BG_SHUTDOWN_MS=N` - wall-clock budget, ms, for the `session_shutdown` drain that aborts and disposes
+  running background children (default `2000`). Past the deadline, shutdown falls through and leaves remaining disposal
+  to GC so it never hangs. Parsed as a positive integer; non-positive or unparseable values fall back to the default.
 
 ## Hot reload
 

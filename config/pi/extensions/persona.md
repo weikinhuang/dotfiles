@@ -241,6 +241,10 @@ it doesn't accidentally route a write through `subagent(...)` to bypass the pare
 - `PI_PERSONA_DEFAULT=<name>` - auto-activate at `session_start` when neither `--persona` nor a session-restored persona
   is set.
 - `PI_PERSONA_VIOLATION_DEFAULT=allow` - in non-UI mode, allow writes outside `writeRoots` instead of blocking.
+- `PI_PERSONA_REQUEST_OPTIONS_DEBUG=1` - truthy flag (default off). When the active persona defines `requestOptions`,
+  log the merged `before_provider_request` payload to stderr (`[persona:requestOptions] api=… merged=…`) so you can
+  confirm which override applied and which API family it scoped to. No-op when the persona has no `requestOptions` or
+  the merge is a no-op.
 
 Activation precedence at `session_start`: `--persona` flag > session-restored persona (from the last `persona-state`
 entry on `/resume`) > `PI_PERSONA_DEFAULT`.
