@@ -152,11 +152,12 @@ export async function buildInjectedGraph(
   wf: WorkflowConfig,
   name: string,
   params: GenParams,
+  cwd: string,
   homedir: string,
   report: (text: string) => void,
   signal: AbortSignal,
 ): Promise<{ graph?: ComfyWorkflow; seed?: number; error?: string }> {
-  const loaded = loadWorkflowGraph(wf.file, homedir);
+  const loaded = loadWorkflowGraph(wf.file, cwd, homedir);
   if (loaded.error || !loaded.graph) return { error: loaded.error ?? 'failed to load workflow' };
 
   let uploadedName: string | undefined;

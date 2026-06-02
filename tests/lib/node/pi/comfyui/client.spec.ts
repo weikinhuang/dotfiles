@@ -204,14 +204,21 @@ describe('buildInjectedGraph', () => {
   test('returns a mapping error for a missing workflow file without hitting the network', async () => {
     const { calls } = stubFetch(() => fakeResponse({}));
     const wf: WorkflowConfig = { file: '/missing/wf.json', inputs: { prompt: { node: '6', key: 'text' } } };
-    const out = await buildInjectedGraph(CONN, wf, 'txt2img', { prompt: 'x' }, HOME, noop, signal());
+    const out = await buildInjectedGraph(CONN, wf, 'txt2img', { prompt: 'x' }, dir, HOME, noop, signal());
     expect(out.error).toContain('workflow file not found');
     expect(calls).toHaveLength(0);
   });
 
   test('injects the prompt into the loaded graph', async () => {
     const wf: WorkflowConfig = { file: wfFile, inputs: { prompt: { node: '6', key: 'text' } } };
-    const out = await buildInjectedGraph(CONN, wf, 'txt2img', { prompt: 'a cat' }, HOME, noop, signal());
+    const out = await buildInjectedGraph(CONN, wf, 'txt2img', { prompt: 'a cat' }, dir, HOME, noop, signal());
+    expect(out.error).toBeUndefined();
+    expect(out.graph?.['6'].inputs?.text).toBe('a cat');
+  });
+
+  test('resolves a relative workflow file against cwd', async () => {
+    const wf: WorkflowConfig = { file: './wf.json', inputs: { prompt: { node: '6', key: 'text' } } };
+    const out = await buildInjectedGraph(CONN, wf, 'txt2img', { prompt: 'a cat' }, dir, HOME, noop, signal());
     expect(out.error).toBeUndefined();
     expect(out.graph?.['6'].inputs?.text).toBe('a cat');
   });
@@ -223,6 +230,7 @@ describe('buildInjectedGraph', () => {
       wf,
       'txt2img',
       { prompt: 'x', inputImage: '~/in.png' },
+      dir,
       HOME,
       noop,
       signal(),

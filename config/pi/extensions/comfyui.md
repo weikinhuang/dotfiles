@@ -145,6 +145,11 @@ Export a workflow from ComfyUI with "Save (API Format)", drop it somewhere reada
 map key receives the tool's `count` arg; the `image` map key receives the uploaded `inputImage` name. To get the node
 ids, open the API-format JSON (its top-level keys are the node ids) or enable node-id badges in the ComfyUI canvas.
 
+`file` resolves like every other config path: a leading `~` expands to your home dir, an absolute path is used as-is,
+and a relative path (`./local/wf.api.json`, `wf/foo.api.json`) resolves against the session cwd. Relative resolution is
+against the cwd regardless of which config layer declared the workflow, so a project-local `<cwd>/.pi/comfyui.json` can
+point at a graph checked into the project with `"file": "./comfyui/my.api.json"`.
+
 The shipped default [`../comfyui/txt2img.api.json`](../comfyui/txt2img.api.json) is the classic SD1.5 graph; it expects
 a `v1-5-pruned-emaonly.safetensors` checkpoint to be installed on the server. Repoint `defaultWorkflow` / `workflows` at
 your own graph + checkpoint as needed.

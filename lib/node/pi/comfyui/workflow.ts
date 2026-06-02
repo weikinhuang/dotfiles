@@ -13,6 +13,7 @@
  */
 
 import { existsSync } from 'node:fs';
+import { resolve } from 'node:path';
 
 import { readJsonOrUndefined } from '../fs-safe.ts';
 import { expandTilde } from '../path-expand.ts';
@@ -45,15 +46,22 @@ export function isComfyWorkflow(value: unknown): value is ComfyWorkflow {
 }
 
 /**
- * Read and validate a workflow file named in config. `file`'s leading
- * `~` is expanded against `homedir`, then the file is read and narrowed
- * with {@link isComfyWorkflow}. Returns `{ graph }` on success or a
- * human-readable `{ error }` (file missing / not a valid API-format
- * graph) so the extension can surface a clear failure instead of
- * POSTing garbage. `homedir` is passed in to keep the helper pure.
+ * Read and validate a workflow file named in config. `file` is resolved
+ * like every other config path: a leading `~` expands against `homedir`,
+ * an absolute path is used as-is, and a relative path (`./local/wf.json`,
+ * `wf/foo.json`) resolves against `cwd` (the session cwd). The file is
+ * then read and narrowed with {@link isComfyWorkflow}. Returns `{ graph }`
+ * on success or a human-readable `{ error }` (file missing / not a valid
+ * API-format graph) so the extension can surface a clear failure instead
+ * of POSTing garbage. `cwd` / `homedir` are passed in to keep the helper
+ * pure.
  */
-export function loadWorkflowGraph(file: string, homedir: string): { graph?: ComfyWorkflow; error?: string } {
-  const resolved = expandTilde(file, homedir);
+export function loadWorkflowGraph(
+  file: string,
+  cwd: string,
+  homedir: string,
+): { graph?: ComfyWorkflow; error?: string } {
+  const resolved = resolve(cwd, expandTilde(file, homedir));
   if (!existsSync(resolved)) return { error: `workflow file not found: ${resolved}` };
   const parsed = readJsonOrUndefined(resolved);
   if (!isComfyWorkflow(parsed)) return { error: `workflow file is not a valid API-format graph: ${resolved}` };

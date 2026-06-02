@@ -318,7 +318,7 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
 
       let socket: WebSocket | null = null;
       try {
-        const prep = await buildInjectedGraph(conn, wf, name, params, homedir(), report, runSignal);
+        const prep = await buildInjectedGraph(conn, wf, name, params, ctx.cwd, homedir(), report, runSignal);
         if (prep.error || !prep.graph) {
           details.error = prep.error;
           return {
@@ -681,7 +681,7 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
       if (sub === 'workflows') {
         const lines: string[] = [];
         for (const [name, wf] of Object.entries(config.workflows)) {
-          const loaded = loadWorkflowGraph(wf.file, homedir());
+          const loaded = loadWorkflowGraph(wf.file, ctx.cwd, homedir());
           if (loaded.error || !loaded.graph) {
             lines.push(`✗ ${name}: ${loaded.error ?? 'load failed'}`);
             continue;
