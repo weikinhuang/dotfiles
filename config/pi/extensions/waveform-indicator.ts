@@ -93,7 +93,9 @@ import {
   loadAgents,
   makeNodeReadLayer,
 } from '../../../lib/node/pi/subagent/loader.ts';
+import { isHelpArg } from '../../../lib/node/pi/commands/help.ts';
 import { createPersistedSubagentSessionManager } from '../../../lib/node/pi/subagent/session-dir.ts';
+import { WAVEFORM_USAGE } from '../../../lib/node/pi/waveform-indicator/usage.ts';
 import { adaptCreateAgentSession, resolveChildModel, runOneShotAgent } from '../../../lib/node/pi/subagent/spawn.ts';
 import { piAgentDir, piProjectPath } from '../../../lib/node/pi/pi-paths.ts';
 import { buildIndicatorFrames } from '../../../lib/node/pi/waveform-indicator/wave.ts';
@@ -1089,6 +1091,10 @@ export default function extension(pi: ExtensionAPI): void {
     description:
       'Set the streaming working indicator: scroll, spectrum, tokenrate, off, or reset (restore pi default).',
     handler: async (args, ctx) => {
+      if (isHelpArg(args)) {
+        ctx.ui.notify(WAVEFORM_USAGE, 'info');
+        return;
+      }
       const arg = args.trim().toLowerCase();
       if (!arg) {
         ctx.ui.notify(`Waveform indicator: ${describeMode(mode)}`, 'info');

@@ -46,6 +46,8 @@ import { Text } from '@earendil-works/pi-tui';
 import { Type } from 'typebox';
 
 import { atomicWriteFile } from '../../../lib/node/pi/atomic-write.ts';
+import { isHelpArg } from '../../../lib/node/pi/commands/help.ts';
+import { COMFYUI_USAGE } from '../../../lib/node/pi/comfyui/usage.ts';
 import { envTruthy } from '../../../lib/node/pi/parse-env.ts';
 import { piAgentPath, piProjectPath } from '../../../lib/node/pi/pi-paths.ts';
 import {
@@ -910,6 +912,10 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
     description:
       'Show ComfyUI status; `/comfyui workflows` to validate configured workflows; `/comfyui jobs` to list background generations.',
     handler: async (args, ctx) => {
+      if (isHelpArg(args)) {
+        ctx.ui.notify(COMFYUI_USAGE, 'info');
+        return;
+      }
       const config = loadConfig(ctx.cwd);
       const base = resolveBaseUrl(config);
       const headers = resolveAuthHeaders(config);

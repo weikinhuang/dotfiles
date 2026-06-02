@@ -54,7 +54,9 @@ import { type ExtensionAPI, type ExtensionContext, type Theme } from '@earendil-
 import { Text } from '@earendil-works/pi-tui';
 import { Type } from 'typebox';
 
+import { isHelpArg } from '../../../lib/node/pi/commands/help.ts';
 import { formatWorkingNotes } from '../../../lib/node/pi/scratchpad-prompt.ts';
+import { SCRATCHPAD_USAGE } from '../../../lib/node/pi/scratchpad/usage.ts';
 import {
   actAppend,
   actClear,
@@ -243,6 +245,10 @@ export default function scratchpadExtension(pi: ExtensionAPI): void {
   pi.registerCommand('scratchpad', {
     description: 'Show the scratchpad (no args or `list`) or `preview` the system-prompt injection',
     handler: async (args, ctx) => {
+      if (isHelpArg(args)) {
+        ctx.ui.notify(SCRATCHPAD_USAGE, 'info');
+        return;
+      }
       const sub = (args ?? '').trim().toLowerCase();
       if (sub === '' || sub === 'list') {
         ctx.ui.notify(formatText(state), 'info');

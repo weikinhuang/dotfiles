@@ -21,11 +21,13 @@
  *     blocks unknown protected paths under default deny.
  */
 
-import { afterEach, beforeEach, describe, expect, test } from 'vitest';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
+import { isHelpArg } from '../../../../lib/node/pi/commands/help.ts';
 import { classifyRead, classifyWrite, expandTilde } from '../../../../lib/node/pi/filesystem-policy/classify.ts';
 import { loadFilesystemPolicy } from '../../../../lib/node/pi/filesystem-policy/load.ts';
 import { type FilesystemPolicy } from '../../../../lib/node/pi/filesystem-policy/schema.ts';
+import { FILESYSTEM_USAGE } from '../../../../lib/node/pi/filesystem/usage.ts';
 import { clearActivePersona, setActivePersona } from '../../../../lib/node/pi/persona/active.ts';
 
 // ─────────────────────────────────────────────────────────────────
@@ -39,6 +41,21 @@ const CWD = '/repo';
 function defaults(): FilesystemPolicy {
   return loadFilesystemPolicy([]).policy;
 }
+
+describe('filesystem command help convention (§4.4)', () => {
+  test('/filesystem --help notifies FILESYSTEM_USAGE', () => {
+    const notify = vi.fn<(msg: string, level: 'info' | 'warning' | 'error') => void>();
+    // Mirrors the shell's `if (isHelpArg(args)) notify(FILESYSTEM_USAGE, 'info')`.
+    if (isHelpArg('--help')) notify(FILESYSTEM_USAGE, 'info');
+
+    expect(notify).toHaveBeenCalledTimes(1);
+    const [msg, level] = notify.mock.calls[0];
+    expect(level).toBe('info');
+    expect(msg).toBe(FILESYSTEM_USAGE);
+    expect(FILESYSTEM_USAGE.length).toBeGreaterThan(0);
+    expect(FILESYSTEM_USAGE).toContain('/filesystem');
+  });
+});
 
 describe('filesystem default policy', () => {
   test('read.deny gates .env basenames', () => {

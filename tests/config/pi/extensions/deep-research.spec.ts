@@ -43,6 +43,8 @@ import {
   type ResearchToolRunner,
   SINGLE_ACTIVE_ERROR,
 } from '../../../../lib/node/pi/deep-research/tool.ts';
+import { isHelpArg } from '../../../../lib/node/pi/commands/help.ts';
+import { parseResearchCommandArgs } from '../../../../lib/node/pi/research/command-args.ts';
 import { type AutoresearchPlan, type DeepResearchPlan } from '../../../../lib/node/pi/research/plan.ts';
 import {
   type CommandNotify,
@@ -112,6 +114,31 @@ beforeEach(() => {
 
 afterEach(() => {
   rmSync(sandbox, { recursive: true, force: true });
+});
+
+// ──────────────────────────────────────────────────────────────────────
+// Help convention (§4.2 + §4.4) - the shell prints USAGE on the bare
+// help tokens (via the shared `isHelpArg` guard) AND on empty/`--help`
+// args (via `parseResearchCommandArgs` → `kind: 'help'`). The shell
+// can't be imported under vitest, so we assert both routing layers it
+// composes.
+// ──────────────────────────────────────────────────────────────────────
+
+describe('/research help convention', () => {
+  test('isHelpArg catches the bare help tokens the parser does not', () => {
+    // The parser treats `help` / `?` as the first question token, so the
+    // shell relies on `isHelpArg` to short-circuit them to USAGE.
+    expect(isHelpArg('help')).toBe(true);
+    expect(isHelpArg('?')).toBe(true);
+    expect(isHelpArg('-h')).toBe(true);
+    expect(isHelpArg('--help')).toBe(true);
+  });
+
+  test('empty args and --help both parse to kind: "help" (prints USAGE)', () => {
+    expect(parseResearchCommandArgs('').kind).toBe('help');
+    expect(parseResearchCommandArgs('--help').kind).toBe('help');
+    expect(parseResearchCommandArgs('-h').kind).toBe('help');
+  });
 });
 
 // ──────────────────────────────────────────────────────────────────────

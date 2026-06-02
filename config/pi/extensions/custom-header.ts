@@ -19,6 +19,8 @@
 import { type ExtensionAPI } from '@earendil-works/pi-coding-agent';
 import { truncateToWidth } from '@earendil-works/pi-tui';
 
+import { isHelpArg } from '../../../lib/node/pi/commands/help.ts';
+import { BUILTIN_HEADER_USAGE } from '../../../lib/node/pi/custom-header/usage.ts';
 import { envTruthy } from '../../../lib/node/pi/parse-env.ts';
 
 /**
@@ -71,7 +73,11 @@ export default function extension(pi: ExtensionAPI): void {
 
   pi.registerCommand('builtin-header', {
     description: "Restore pi's default mascot + keybinding-hints header",
-    handler: async (_args, ctx) => {
+    handler: async (args, ctx) => {
+      if (isHelpArg(args)) {
+        ctx.ui.notify(BUILTIN_HEADER_USAGE, 'info');
+        return;
+      }
       ctx.ui.setHeader(undefined);
       ctx.ui.notify('Built-in header restored', 'info');
     },

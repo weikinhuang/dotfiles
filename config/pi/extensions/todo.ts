@@ -56,7 +56,9 @@ import { type ExtensionAPI, type ExtensionContext, type Theme } from '@earendil-
 import { matchesKey, Text, truncateToWidth } from '@earendil-works/pi-tui';
 import { Type } from 'typebox';
 
+import { isHelpArg } from '../../../lib/node/pi/commands/help.ts';
 import { extractLastAssistantText } from '../../../lib/node/pi/message-extract.ts';
+import { TODOS_USAGE } from '../../../lib/node/pi/todo/usage.ts';
 import { truncate } from '../../../lib/node/pi/shared.ts';
 import { formatActivePlan, looksLikeCompletionClaim } from '../../../lib/node/pi/todo-prompt.ts';
 import {
@@ -499,7 +501,11 @@ export default function todoExtension(pi: ExtensionAPI): void {
   // ── /todos command ──────────────────────────────────────────────────
   pi.registerCommand('todos', {
     description: 'Show the current todo list for this branch',
-    handler: async (_args, ctx) => {
+    handler: async (args, ctx) => {
+      if (isHelpArg(args)) {
+        ctx.ui.notify(TODOS_USAGE, 'info');
+        return;
+      }
       if (!ctx.hasUI) {
         ctx.ui.notify(formatText(state), 'info');
         return;

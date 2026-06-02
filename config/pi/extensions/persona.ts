@@ -77,6 +77,7 @@ import {
 import { Key } from '@earendil-works/pi-tui';
 
 import { askForPermission } from '../../../lib/node/pi/approval-prompt.ts';
+import { isHelpArg } from '../../../lib/node/pi/commands/help.ts';
 import { evaluateBashPolicy } from '../../../lib/node/pi/persona/bash-policy.ts';
 import { mergeAgentInheritance, type AgentRecord } from '../../../lib/node/pi/persona/inherit.ts';
 import { formatPersonaListing } from '../../../lib/node/pi/persona/list.ts';
@@ -89,6 +90,7 @@ import {
 } from '../../../lib/node/pi/persona/info.ts';
 import { type PersonaWarning, parsePersonaFile, type ParsedPersona } from '../../../lib/node/pi/persona/parse.ts';
 import { resolveWriteRoots } from '../../../lib/node/pi/persona/resolve.ts';
+import { PERSONA_USAGE } from '../../../lib/node/pi/persona/usage.ts';
 import { clearActivePersona, setActivePersona } from '../../../lib/node/pi/persona/active.ts';
 import {
   loadPersonaSettings,
@@ -618,6 +620,10 @@ export default function personaExtension(pi: ExtensionAPI): void {
       return filtered.length > 0 ? filtered : null;
     },
     handler: async (args, ctx) => {
+      if (isHelpArg(args)) {
+        ctx.ui.notify(PERSONA_USAGE, 'info');
+        return;
+      }
       const arg = (args ?? '').trim();
       if (!arg) {
         if (nameOrder.length === 0) {

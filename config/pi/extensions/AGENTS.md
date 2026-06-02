@@ -58,6 +58,38 @@ Reference implementations: [`bg-bash.ts`](./bg-bash.ts) (SIGTERM every live chil
 [`scheduled-prompts.ts`](./scheduled-prompts.ts) (clear the pending timer, keeping session schedules across a `reload`
 but dropping them on a real end).
 
+### Slash command conventions
+
+Two cross-cutting rules for every `pi.registerCommand` handler.
+
+**Empty-arg behaviour.** Pick one of two conventions, in priority order:
+
+1. **Show status / list when a sensible default exists.** A bare `/<cmd>` prints the thing the user most likely wants to
+   see. Anchors: `/memory`, `/scratchpad`, `/preset`, `/persona`, `/agents`, `/sandbox`, `/hooks`, `/filesystem`,
+   `/todos`, `/avatar`, `/context-budget` all list or show status with no args.
+2. **Show USAGE when there is no sensible default.** A command whose whole job is to take an argument (add a rule,
+   schedule a prompt) prints its USAGE string on empty args instead of erroring. Anchors: `/btw`, `/schedule`,
+   `/bash-allow`, `/bash-deny`, `/sandbox-allow`, `/sandbox-deny`, `/sandbox-allow-write`.
+
+**`--help` requirement.** Every command MUST respond to `help` / `--help` / `-h` / `?` by printing its USAGE string.
+Guard the top of the handler with the shared [`isHelpArg`](../../../lib/node/pi/commands/help.ts) helper:
+
+```ts
+import { isHelpArg } from '../../../lib/node/pi/commands/help.ts';
+
+handler: async (args, ctx) => {
+  if (isHelpArg(args)) {
+    ctx.ui.notify(USAGE, 'info');
+    return;
+  }
+  // …existing logic…
+};
+```
+
+The USAGE string is a `const` exported from a sibling pure module (`lib/node/pi/<ext>/usage.ts`, pattern:
+[`BTW_USAGE`](../../../lib/node/pi/btw/user-message.ts)) so the handler, the `--help` path, and the empty-arg path that
+falls under convention 2 all share one source of truth -- never inline the same usage text twice.
+
 ### Security gates auto-inject into subagent sessions
 
 Security-gate extensions (`bash-permissions.ts`, `filesystem.ts`, `sandbox.ts`) register a hook-only factory via

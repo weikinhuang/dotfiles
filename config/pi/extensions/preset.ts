@@ -49,7 +49,9 @@ import { fileURLToPath } from 'node:url';
 import { type ExtensionAPI, type ExtensionContext } from '@earendil-works/pi-coding-agent';
 import { Key } from '@earendil-works/pi-tui';
 
+import { isHelpArg } from '../../../lib/node/pi/commands/help.ts';
 import { parseModelSpec } from '../../../lib/node/pi/model-spec.ts';
+import { PRESET_USAGE } from '../../../lib/node/pi/preset/usage.ts';
 import { createNotifyOnce } from '../../../lib/node/pi/notify-once.ts';
 import { piAgentPath, piProjectPath } from '../../../lib/node/pi/pi-paths.ts';
 import {
@@ -211,6 +213,10 @@ export default function presetExtension(pi: ExtensionAPI): void {
       return filtered.length > 0 ? filtered : null;
     },
     handler: async (args, ctx) => {
+      if (isHelpArg(args)) {
+        ctx.ui.notify(PRESET_USAGE, 'info');
+        return;
+      }
       const arg = (args ?? '').trim();
       if (!arg) {
         // List

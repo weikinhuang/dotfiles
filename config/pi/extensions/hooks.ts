@@ -83,7 +83,9 @@ import {
   projectHooksPath,
   userHooksPath,
 } from '../../../lib/node/pi/hooks/config.ts';
+import { isHelpArg } from '../../../lib/node/pi/commands/help.ts';
 import { matchesMatcher } from '../../../lib/node/pi/hooks/matcher.ts';
+import { HOOKS_USAGE } from '../../../lib/node/pi/hooks/usage.ts';
 import { type HookResult, nodeChildProcessSpawn, runHook } from '../../../lib/node/pi/hooks/runner.ts';
 import { envTruthy, parsePositiveInt } from '../../../lib/node/pi/parse-env.ts';
 import { makeDiagnostics } from '../../../lib/node/pi/recovery-diagnostics.ts';
@@ -337,7 +339,11 @@ export default function hooks(pi: ExtensionAPI): void {
 
   pi.registerCommand('hooks', {
     description: 'Show all registered hooks (session / project / user) grouped by event',
-    handler: async (_args, ctx) => {
+    handler: async (args, ctx) => {
+      if (isHelpArg(args)) {
+        ctx.ui.notify(HOOKS_USAGE, 'info');
+        return;
+      }
       const merged = loadHooks({ cwd: ctx.cwd, sessionHooks });
       const lines: string[] = [];
       const sources: { scope: 'session' | 'project' | 'user'; where: string }[] = [

@@ -72,6 +72,8 @@ import { type Component, matchesKey, Text, truncateToWidth } from '@earendil-wor
 import { Type } from 'typebox';
 
 import { requestBashApproval } from '../../../lib/node/pi/bash/gate.ts';
+import { BG_BASH_USAGE } from '../../../lib/node/pi/bg-bash/usage.ts';
+import { isHelpArg } from '../../../lib/node/pi/commands/help.ts';
 import {
   clampBytes,
   formatJobHeader,
@@ -1450,6 +1452,10 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
       return items.length > 0 ? items : null;
     },
     handler: async (args, ctx) => {
+      if (isHelpArg(args)) {
+        ctx.ui.notify(BG_BASH_USAGE, 'info');
+        return;
+      }
       const [sub, ...rest] = (args ?? '').trim().split(/\s+/);
 
       if (!sub || sub === 'list') {

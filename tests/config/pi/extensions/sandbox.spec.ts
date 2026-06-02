@@ -23,12 +23,23 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
 // Pure helpers live under lib/ so the spec doesn't have to import
 // the extension shell (which depends on `@earendil-works/*`).
+import { isHelpArg } from '../../../../lib/node/pi/commands/help.ts';
 import {
   alreadyWrapped,
   buildIdentityWrap,
   SANDBOX_ORIGINAL_SYMBOL,
   stripMarkerFromUserInput,
 } from '../../../../lib/node/pi/sandbox/markers.ts';
+import {
+  SANDBOX_ALLOW_USAGE,
+  SANDBOX_ALLOW_WRITE_USAGE,
+  SANDBOX_DENY_USAGE,
+  SANDBOX_DISABLE_USAGE,
+  SANDBOX_RECHECK_USAGE,
+  SANDBOX_RESCAN_USAGE,
+  SANDBOX_USAGE,
+  SANDBOX_VIOLATIONS_USAGE,
+} from '../../../../lib/node/pi/sandbox/usage.ts';
 import {
   installSandboxWrapper,
   isSandboxWrapperInstalled,
@@ -118,6 +129,40 @@ const childCtx = (overrides: Partial<FakeChildCtx> = {}): FakeChildCtx => ({
   cwd: '/workspace',
   hasUI: false,
   ...overrides,
+});
+
+// ─────────────────────────────────────────────────────────────────
+// Help convention (§4.4) - each `/sandbox*` command guards its
+// handler with `isHelpArg(args)` → notify(USAGE). The shell can't be
+// imported under vitest, so we assert the contract against the shared
+// helper + the USAGE consts the handlers notify.
+// ─────────────────────────────────────────────────────────────────
+
+describe('sandbox command help convention', () => {
+  const cases: { command: string; usage: string }[] = [
+    { command: '/sandbox', usage: SANDBOX_USAGE },
+    { command: '/sandbox-allow', usage: SANDBOX_ALLOW_USAGE },
+    { command: '/sandbox-deny', usage: SANDBOX_DENY_USAGE },
+    { command: '/sandbox-allow-write', usage: SANDBOX_ALLOW_WRITE_USAGE },
+    { command: '/sandbox-violations', usage: SANDBOX_VIOLATIONS_USAGE },
+    { command: '/sandbox-rescan', usage: SANDBOX_RESCAN_USAGE },
+    { command: '/sandbox-recheck', usage: SANDBOX_RECHECK_USAGE },
+    { command: '/sandbox-disable', usage: SANDBOX_DISABLE_USAGE },
+  ];
+
+  for (const { command, usage } of cases) {
+    test(`${command} --help notifies a non-empty USAGE mentioning the command`, () => {
+      const notify = vi.fn<(msg: string, level: 'info' | 'warning' | 'error') => void>();
+      if (isHelpArg('--help')) notify(usage, 'info');
+
+      expect(notify).toHaveBeenCalledTimes(1);
+      const [msg, level] = notify.mock.calls[0];
+      expect(level).toBe('info');
+      expect(msg).toBe(usage);
+      expect(usage.length).toBeGreaterThan(0);
+      expect(usage).toContain(command);
+    });
+  }
 });
 
 // ─────────────────────────────────────────────────────────────────

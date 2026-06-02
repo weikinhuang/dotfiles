@@ -67,6 +67,7 @@ import { Text } from '@earendil-works/pi-tui';
 import { Type } from 'typebox';
 
 import { mergeAbortSignals } from '../../../lib/node/pi/abort-merge.ts';
+import { isHelpArg } from '../../../lib/node/pi/commands/help.ts';
 import {
   runResearchPipeline,
   type PipelineDeps,
@@ -400,6 +401,11 @@ export default function deepResearchExtension(pi: ExtensionAPI): void {
       const notify: CommandNotify = (message: string, level: CommandNotifyLevel) => {
         ctx.ui.notify(message, level);
       };
+
+      if (isHelpArg(rawArgs)) {
+        notify(USAGE, 'info');
+        return;
+      }
 
       const parsed = parseResearchCommandArgs(rawArgs);
 

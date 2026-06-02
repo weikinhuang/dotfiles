@@ -90,6 +90,7 @@ import { join } from 'node:path';
 import { type ExtensionAPI, type ExtensionContext, type ToolResultEvent } from '@earendil-works/pi-coding-agent';
 
 import { clearActiveUI, publishActiveUI } from '../../../lib/node/pi/active-ui.ts';
+import { isHelpArg } from '../../../lib/node/pi/commands/help.ts';
 import { extractBashCommand } from '../../../lib/node/pi/bash/hook.ts';
 import {
   cleanupDangerousFileStubs,
@@ -98,6 +99,16 @@ import {
   sweepOrphanDangerousStubs,
 } from '../../../lib/node/pi/sandbox/dangerous-file-stubs.ts';
 import { buildFilesystemAskDialog } from '../../../lib/node/pi/sandbox/filesystem-ask.ts';
+import {
+  SANDBOX_ALLOW_USAGE,
+  SANDBOX_ALLOW_WRITE_USAGE,
+  SANDBOX_DENY_USAGE,
+  SANDBOX_DISABLE_USAGE,
+  SANDBOX_RECHECK_USAGE,
+  SANDBOX_RESCAN_USAGE,
+  SANDBOX_USAGE,
+  SANDBOX_VIOLATIONS_USAGE,
+} from '../../../lib/node/pi/sandbox/usage.ts';
 import { parseFsFailures } from '../../../lib/node/pi/sandbox/fs-failures.ts';
 import { gitTrackedSubset } from '../../../lib/node/pi/sandbox/git-tracked.ts';
 import { buildNetworkAskCallback } from '../../../lib/node/pi/sandbox/network-ask.ts';
@@ -1032,7 +1043,11 @@ export default function sandbox(pi: ExtensionAPI): void {
 
   pi.registerCommand('sandbox', {
     description: 'Show sandbox status, configuration sources, and recent violations',
-    handler: async (_args, ctx) => {
+    handler: async (args, ctx) => {
+      if (isHelpArg(args)) {
+        ctx.ui.notify(SANDBOX_USAGE, 'info');
+        return;
+      }
       const resolved = await reconfigure(state, ctx.cwd, ctx);
       const lines: string[] = [];
       const { mode, reason } = effectiveMode(state);
@@ -1117,9 +1132,13 @@ export default function sandbox(pi: ExtensionAPI): void {
   pi.registerCommand('sandbox-allow', {
     description: 'Add a domain to the sandbox network allowlist',
     handler: async (args, ctx) => {
+      if (isHelpArg(args)) {
+        ctx.ui.notify(SANDBOX_ALLOW_USAGE, 'info');
+        return;
+      }
       const domain = args.trim();
       if (!domain) {
-        ctx.ui.notify('Usage: /sandbox-allow <domain>', 'warning');
+        ctx.ui.notify(SANDBOX_ALLOW_USAGE, 'warning');
         return;
       }
       const path = pickScopeSandbox(ctx.cwd);
@@ -1132,9 +1151,13 @@ export default function sandbox(pi: ExtensionAPI): void {
   pi.registerCommand('sandbox-deny', {
     description: 'Add a domain to the sandbox network denylist',
     handler: async (args, ctx) => {
+      if (isHelpArg(args)) {
+        ctx.ui.notify(SANDBOX_DENY_USAGE, 'info');
+        return;
+      }
       const domain = args.trim();
       if (!domain) {
-        ctx.ui.notify('Usage: /sandbox-deny <domain>', 'warning');
+        ctx.ui.notify(SANDBOX_DENY_USAGE, 'warning');
         return;
       }
       const path = pickScopeSandbox(ctx.cwd);
@@ -1147,9 +1170,13 @@ export default function sandbox(pi: ExtensionAPI): void {
   pi.registerCommand('sandbox-allow-write', {
     description: 'Add a path to filesystem.write.allow.paths (UI-confirmed; weakens policy)',
     handler: async (args, ctx) => {
+      if (isHelpArg(args)) {
+        ctx.ui.notify(SANDBOX_ALLOW_WRITE_USAGE, 'info');
+        return;
+      }
       const p = args.trim();
       if (!p) {
-        ctx.ui.notify('Usage: /sandbox-allow-write <path>', 'warning');
+        ctx.ui.notify(SANDBOX_ALLOW_WRITE_USAGE, 'warning');
         return;
       }
       let targetPath: string;
@@ -1175,6 +1202,10 @@ export default function sandbox(pi: ExtensionAPI): void {
   pi.registerCommand('sandbox-violations', {
     description: 'Show recent sandbox violations (--net / --fs to filter)',
     handler: async (args, ctx) => {
+      if (isHelpArg(args)) {
+        ctx.ui.notify(SANDBOX_VIOLATIONS_USAGE, 'info');
+        return;
+      }
       const trimmed = args.trim();
       const kind: SandboxViolationKind | undefined =
         trimmed === '--net'
@@ -1199,7 +1230,11 @@ export default function sandbox(pi: ExtensionAPI): void {
 
   pi.registerCommand('sandbox-rescan', {
     description: 'Recompile Linux rule basenames/segments to literal paths via ripgrep',
-    handler: async (_args, ctx) => {
+    handler: async (args, ctx) => {
+      if (isHelpArg(args)) {
+        ctx.ui.notify(SANDBOX_RESCAN_USAGE, 'info');
+        return;
+      }
       if (state.platform.kind !== 'linux') {
         ctx.ui.notify('sandbox-rescan: macOS uses sandbox-exec globs natively, no rescan needed', 'info');
         return;
@@ -1215,7 +1250,11 @@ export default function sandbox(pi: ExtensionAPI): void {
 
   pi.registerCommand('sandbox-recheck', {
     description: 'Re-run dependency detection (after installing bubblewrap / ripgrep / socat)',
-    handler: async (_args, ctx) => {
+    handler: async (args, ctx) => {
+      if (isHelpArg(args)) {
+        ctx.ui.notify(SANDBOX_RECHECK_USAGE, 'info');
+        return;
+      }
       const next = detectSandboxPlatform(defaultPlatformProbe());
       state.platform = next;
       ctx.ui.notify(
@@ -1230,7 +1269,11 @@ export default function sandbox(pi: ExtensionAPI): void {
 
   pi.registerCommand('sandbox-disable', {
     description: 'Session-only sandbox bypass (cleared on session_shutdown)',
-    handler: async (_args, ctx) => {
+    handler: async (args, ctx) => {
+      if (isHelpArg(args)) {
+        ctx.ui.notify(SANDBOX_DISABLE_USAGE, 'info');
+        return;
+      }
       state.bypassed = true;
       state.reason = '/sandbox-disable';
       publishStatusline(state);

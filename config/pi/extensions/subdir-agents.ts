@@ -63,7 +63,9 @@ import {
   type LoadedContextFile,
   type SubdirAgentsDetails,
 } from '../../../lib/node/pi/subdir-agents.ts';
+import { isHelpArg } from '../../../lib/node/pi/commands/help.ts';
 import { envTruthy } from '../../../lib/node/pi/parse-env.ts';
+import { SUBDIR_AGENTS_USAGE } from '../../../lib/node/pi/subdir-agents/usage.ts';
 
 // ──────────────────────────────────────────────────────────────────────
 // Helpers
@@ -277,7 +279,11 @@ export default function subdirAgents(pi: ExtensionAPI): void {
 
   pi.registerCommand('subdir-agents', {
     description: 'Show AGENTS.md/CLAUDE.md files discovered in subdirectories this session',
-    handler: async (_args, ctx) => {
+    handler: async (args, ctx) => {
+      if (isHelpArg(args)) {
+        ctx.ui.notify(SUBDIR_AGENTS_USAGE, 'info');
+        return;
+      }
       const lines: string[] = [];
 
       lines.push(`File names: ${fileNames.join(', ')}`);

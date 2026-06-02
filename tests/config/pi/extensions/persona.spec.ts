@@ -20,6 +20,7 @@
 
 import { expect, test, vi } from 'vitest';
 
+import { isHelpArg } from '../../../../lib/node/pi/commands/help.ts';
 import { evaluateBashPolicy } from '../../../../lib/node/pi/persona/bash-policy.ts';
 import { formatPersonaListing } from '../../../../lib/node/pi/persona/list.ts';
 import {
@@ -28,6 +29,7 @@ import {
   type SnapshotApi,
   snapshotSession,
 } from '../../../../lib/node/pi/persona/snapshot.ts';
+import { PERSONA_USAGE } from '../../../../lib/node/pi/persona/usage.ts';
 import { decideWriteGate } from '../../../../lib/node/pi/persona/write-gate.ts';
 import { assertKind } from '../../../lib/node/pi/helpers.ts';
 
@@ -152,6 +154,28 @@ test('plan #1: activation calls `ctx.ui.notify` with `mode: "<name>" activated`'
 
   expect(notify).toHaveBeenCalledTimes(1);
   expect(notify).toHaveBeenCalledWith('mode: "plan" activated', 'info');
+});
+
+// ──────────────────────────────────────────────────────────────────────
+// Help convention (§4.4) - the shell guards the handler with
+// `isHelpArg(args)` and notifies `PERSONA_USAGE`. The shell can't be
+// imported under vitest (it pulls in `@ln-works/*`), so we assert the
+// contract against the shared helper + USAGE const the handler uses.
+// ──────────────────────────────────────────────────────────────────────
+
+test('help: `/persona --help` notifies PERSONA_USAGE', () => {
+  const notify = vi.fn<(msg: string, level: 'info' | 'warning' | 'error') => void>();
+
+  // Replicates the shell's `if (isHelpArg(args)) notify(PERSONA_USAGE, 'info')`.
+  const args = '--help';
+  if (isHelpArg(args)) notify(PERSONA_USAGE, 'info');
+
+  expect(notify).toHaveBeenCalledTimes(1);
+  const [msg, level] = notify.mock.calls[0];
+  expect(level).toBe('info');
+  expect(msg).toBe(PERSONA_USAGE);
+  expect(PERSONA_USAGE.length).toBeGreaterThan(0);
+  expect(PERSONA_USAGE).toContain('/persona');
 });
 
 // ──────────────────────────────────────────────────────────────────────

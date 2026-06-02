@@ -110,6 +110,13 @@ import {
   type Scope,
 } from '../../../lib/node/pi/bash/match.ts';
 import { extractBashCommand } from '../../../lib/node/pi/bash/hook.ts';
+import {
+  BASH_ALLOW_USAGE,
+  BASH_AUTO_USAGE,
+  BASH_DENY_USAGE,
+  BASH_PERMISSIONS_USAGE,
+} from '../../../lib/node/pi/bash-permissions/usage.ts';
+import { isHelpArg } from '../../../lib/node/pi/commands/help.ts';
 import { askForPermission, askForPermissionBatch } from '../../../lib/node/pi/bash/permission-prompts.ts';
 import { writeJsonFile } from '../../../lib/node/pi/atomic-write.ts';
 import { loadJsoncConfigOrFallback } from '../../../lib/node/pi/jsonc.ts';
@@ -377,9 +384,13 @@ export default function bashPermissions(pi: ExtensionAPI): void {
   pi.registerCommand('bash-allow', {
     description: 'Add an allow rule for bash commands (pattern or exact)',
     handler: async (args, ctx) => {
+      if (isHelpArg(args)) {
+        ctx.ui.notify(BASH_ALLOW_USAGE, 'info');
+        return;
+      }
       const pattern = args.trim();
       if (!pattern) {
-        ctx.ui.notify('Usage: /bash-allow <exact-command | prefix*>', 'warning');
+        ctx.ui.notify(BASH_ALLOW_USAGE, 'warning');
         return;
       }
       const path = pickScopePath(ctx.cwd);
@@ -391,9 +402,13 @@ export default function bashPermissions(pi: ExtensionAPI): void {
   pi.registerCommand('bash-deny', {
     description: 'Add a deny rule for bash commands (pattern or exact)',
     handler: async (args, ctx) => {
+      if (isHelpArg(args)) {
+        ctx.ui.notify(BASH_DENY_USAGE, 'info');
+        return;
+      }
       const pattern = args.trim();
       if (!pattern) {
-        ctx.ui.notify('Usage: /bash-deny <exact-command | prefix*>', 'warning');
+        ctx.ui.notify(BASH_DENY_USAGE, 'warning');
         return;
       }
       const path = pickScopePath(ctx.cwd);
@@ -404,7 +419,11 @@ export default function bashPermissions(pi: ExtensionAPI): void {
 
   pi.registerCommand('bash-permissions', {
     description: 'Show all bash permission rules (session / project / user)',
-    handler: async (_args, ctx) => {
+    handler: async (args, ctx) => {
+      if (isHelpArg(args)) {
+        ctx.ui.notify(BASH_PERMISSIONS_USAGE, 'info');
+        return;
+      }
       const layers = loadLayers(ctx.cwd);
       const lines: string[] = [];
       for (const layer of layers) {
@@ -436,6 +455,10 @@ export default function bashPermissions(pi: ExtensionAPI): void {
       return items.length > 0 ? items : null;
     },
     handler: async (args, ctx) => {
+      if (isHelpArg(args)) {
+        ctx.ui.notify(BASH_AUTO_USAGE, 'info');
+        return;
+      }
       const arg = args.trim().toLowerCase();
       let next: boolean;
       if (arg === 'on' || arg === 'enable' || arg === '1') next = true;

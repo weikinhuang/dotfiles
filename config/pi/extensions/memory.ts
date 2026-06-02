@@ -65,7 +65,9 @@ import {
   sessionDir,
   slugifyName,
 } from '../../../lib/node/pi/memory-paths.ts';
+import { isHelpArg } from '../../../lib/node/pi/commands/help.ts';
 import { formatMemoryIndex } from '../../../lib/node/pi/memory-prompt.ts';
+import { MEMORY_USAGE } from '../../../lib/node/pi/memory/usage.ts';
 import {
   cloneState,
   defaultMemoryScope,
@@ -666,6 +668,10 @@ export default function memoryExtension(pi: ExtensionAPI): void {
     description:
       'List memories (`list`), preview the injected index (`preview`), print the memory dir (`dir`), rescan disk (`rescan`), or prune orphaned session memory (`gc`)',
     handler: async (args, ctx) => {
+      if (isHelpArg(args)) {
+        ctx.ui.notify(MEMORY_USAGE, 'info');
+        return;
+      }
       const sub = (args ?? '').trim().toLowerCase();
       if (sub === '' || sub === 'list') {
         ctx.ui.notify(formatText(state), 'info');

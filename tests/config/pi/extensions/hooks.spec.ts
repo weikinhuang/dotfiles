@@ -18,8 +18,10 @@ import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
+import { isHelpArg } from '../../../../lib/node/pi/commands/help.ts';
 import { type Hook, loadHooks } from '../../../../lib/node/pi/hooks/config.ts';
 import { matchesMatcher } from '../../../../lib/node/pi/hooks/matcher.ts';
+import { HOOKS_USAGE } from '../../../../lib/node/pi/hooks/usage.ts';
 import {
   type HookSpawnFn,
   type HookSpawnOptions,
@@ -126,6 +128,21 @@ function makeSpawn(perCommand: Record<string, Partial<HookSpawnResult>>): HookSp
 // ──────────────────────────────────────────────────────────────────────
 // Specs
 // ──────────────────────────────────────────────────────────────────────
+
+describe('hooks command help convention (§4.4)', () => {
+  test('/hooks --help notifies HOOKS_USAGE', () => {
+    const notify = vi.fn<(msg: string, level: 'info' | 'warning' | 'error') => void>();
+    // Mirrors the shell's `if (isHelpArg(args)) notify(HOOKS_USAGE, 'info')`.
+    if (isHelpArg('--help')) notify(HOOKS_USAGE, 'info');
+
+    expect(notify).toHaveBeenCalledTimes(1);
+    const [msg, level] = notify.mock.calls[0];
+    expect(level).toBe('info');
+    expect(msg).toBe(HOOKS_USAGE);
+    expect(HOOKS_USAGE.length).toBeGreaterThan(0);
+    expect(HOOKS_USAGE).toContain('/hooks');
+  });
+});
 
 describe('hooks extension - PreToolUse wiring', () => {
   let tmpCwd: string;

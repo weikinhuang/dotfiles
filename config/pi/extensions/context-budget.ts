@@ -62,6 +62,8 @@ import {
   formatTokens,
   shouldAutoCompact,
 } from '../../../lib/node/pi/context-budget.ts';
+import { isHelpArg } from '../../../lib/node/pi/commands/help.ts';
+import { CONTEXT_BUDGET_USAGE } from '../../../lib/node/pi/context-budget/usage.ts';
 import { envTruthy, parsePercent } from '../../../lib/node/pi/parse-env.ts';
 
 const DEFAULT_MIN = 50;
@@ -148,6 +150,10 @@ export default function contextBudget(pi: ExtensionAPI): void {
   pi.registerCommand('context-budget', {
     description: 'Preview the context-budget advisory that would be injected into the next turn',
     handler: async (args, ctx) => {
+      if (isHelpArg(args)) {
+        ctx.ui.notify(CONTEXT_BUDGET_USAGE, 'info');
+        return;
+      }
       const sub = (args ?? '').trim().toLowerCase();
       if (sub !== '' && sub !== 'preview') {
         ctx.ui.notify(`Unknown subcommand: ${sub}. Usage: /context-budget [preview]`, 'warning');

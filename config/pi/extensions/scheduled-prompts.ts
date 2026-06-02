@@ -61,6 +61,7 @@ import { type ExtensionAPI, type ExtensionContext } from '@earendil-works/pi-cod
 import { Text } from '@earendil-works/pi-tui';
 import { Type } from 'typebox';
 
+import { isHelpArg } from '../../../lib/node/pi/commands/help.ts';
 import { createGlobalSlot } from '../../../lib/node/pi/global-slot.ts';
 import { envTruthy } from '../../../lib/node/pi/parse-env.ts';
 import { formatDuration, parseDuration, parseDurationRange } from '../../../lib/node/pi/scheduled-prompts/duration.ts';
@@ -412,6 +413,10 @@ export default function scheduledPromptsExtension(pi: ExtensionAPI): void {
     description:
       'Schedule a recurring/one-shot/idle prompt: /schedule --cron|--every|--in|--at|--after ... -- <prompt>',
     handler: async (args, ctx) => {
+      if (isHelpArg(args)) {
+        ctx.ui.notify(SCHEDULE_USAGE, 'info');
+        return;
+      }
       cwd = ctx.cwd;
       currentCtx = ctx;
       const trimmed = (args ?? '').trim();
@@ -487,6 +492,10 @@ export default function scheduledPromptsExtension(pi: ExtensionAPI): void {
       return null;
     },
     handler: async (args, ctx) => {
+      if (isHelpArg(args)) {
+        ctx.ui.notify(SCHEDULES_USAGE, 'info');
+        return;
+      }
       cwd = ctx.cwd;
       currentCtx = ctx;
       const tokens = (args ?? '').trim().split(/\s+/).filter(Boolean);

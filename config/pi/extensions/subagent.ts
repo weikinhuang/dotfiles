@@ -116,7 +116,9 @@ import {
   type ScorecardStopReason,
   type SubagentRunSnapshot,
 } from '../../../lib/node/pi/subagent/format.ts';
+import { isHelpArg } from '../../../lib/node/pi/commands/help.ts';
 import { makeHandleCounter, resolveHandle } from '../../../lib/node/pi/subagent/handle.ts';
+import { AGENTS_RUNNING_USAGE, AGENTS_USAGE } from '../../../lib/node/pi/subagent/usage.ts';
 import { createNotifyOnce } from '../../../lib/node/pi/notify-once.ts';
 import {
   type AgentDef,
@@ -2035,6 +2037,10 @@ export default function subagentExtension(pi: ExtensionAPI): void {
     },
 
     handler: async (args, ctx) => {
+      if (isHelpArg(args)) {
+        ctx.ui.notify(AGENTS_USAGE, 'info');
+        return;
+      }
       const raw = (args ?? '').trim();
       reload(ctx.cwd);
       surfaceWarnings(ctx, loadResult.warnings);
@@ -2114,7 +2120,11 @@ export default function subagentExtension(pi: ExtensionAPI): void {
 
   pi.registerCommand('agents:running', {
     description: 'Live overlay listing active background sub-agents (auto-refreshing).',
-    handler: async (_args, ctx) => {
+    handler: async (args, ctx) => {
+      if (isHelpArg(args)) {
+        ctx.ui.notify(AGENTS_RUNNING_USAGE, 'info');
+        return;
+      }
       const buildEntries = (): RunningOverlayEntry[] => {
         return [...backgroundChildren.values()]
           .sort((a, b) => a.startedAt - b.startedAt)

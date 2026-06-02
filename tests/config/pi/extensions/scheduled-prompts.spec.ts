@@ -19,9 +19,15 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { afterEach, beforeEach, describe, expect, test } from 'vitest';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
-import { formatScheduleList, parseScheduleCommand } from '../../../../lib/node/pi/scheduled-prompts/parse-command.ts';
+import { isHelpArg } from '../../../../lib/node/pi/commands/help.ts';
+import {
+  formatScheduleList,
+  parseScheduleCommand,
+  SCHEDULE_USAGE,
+  SCHEDULES_USAGE,
+} from '../../../../lib/node/pi/scheduled-prompts/parse-command.ts';
 import {
   applyActivity,
   computeNextFire,
@@ -181,6 +187,27 @@ function reconcileScopePersist(store: ScopeStore, scope: ScheduleScope, now: num
   });
   if (changed) store.write(scope, next);
 }
+
+describe('scheduled-prompts help convention (§4.4)', () => {
+  test('/schedule --help notifies SCHEDULE_USAGE', () => {
+    const notify = vi.fn<(msg: string, level: 'info' | 'warning' | 'error') => void>();
+    if (isHelpArg('--help')) notify(SCHEDULE_USAGE, 'info');
+
+    expect(notify).toHaveBeenCalledTimes(1);
+    expect(notify.mock.calls[0]).toEqual([SCHEDULE_USAGE, 'info']);
+    expect(SCHEDULE_USAGE.length).toBeGreaterThan(0);
+    expect(SCHEDULE_USAGE).toContain('/schedule');
+  });
+
+  test('/schedules --help notifies SCHEDULES_USAGE', () => {
+    const notify = vi.fn<(msg: string, level: 'info' | 'warning' | 'error') => void>();
+    if (isHelpArg('--help')) notify(SCHEDULES_USAGE, 'info');
+
+    expect(notify).toHaveBeenCalledTimes(1);
+    expect(notify.mock.calls[0]).toEqual([SCHEDULES_USAGE, 'info']);
+    expect(SCHEDULES_USAGE.length).toBeGreaterThan(0);
+  });
+});
 
 describe('scheduled-prompts command surface', () => {
   let dir: string;

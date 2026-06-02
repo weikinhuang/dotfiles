@@ -47,6 +47,8 @@ import type { Component, TUI } from '@earendil-works/pi-tui';
 import { getCellDimensions, truncateToWidth, visibleWidth } from '@earendil-works/pi-tui';
 
 import { coerceConfigLayer, mergeConfigLayers } from '../../../lib/node/pi/avatar/config.ts';
+import { AVATAR_USAGE } from '../../../lib/node/pi/avatar/usage.ts';
+import { isHelpArg } from '../../../lib/node/pi/commands/help.ts';
 import type { AsciiFrameMap } from '../../../lib/node/pi/avatar/ascii-yaml.ts';
 import { mergeAsciiFrameMaps, parseSimpleYaml } from '../../../lib/node/pi/avatar/ascii-yaml.ts';
 import { classifyStateDirs, isActivityState, pickRandom, resolveEmoteSet } from '../../../lib/node/pi/avatar/emotes.ts';
@@ -992,6 +994,10 @@ export default function avatar(pi: ExtensionAPI): void {
   pi.registerCommand('avatar', {
     description: 'Show avatar status, or `/avatar on|off` to toggle the widget for this session.',
     handler: async (args, ctx) => {
+      if (isHelpArg(args)) {
+        ctx.ui.notify(AVATAR_USAGE, 'info');
+        return;
+      }
       const arg = args.trim().toLowerCase();
       if (arg === 'off') {
         unmountWidget(ctx);

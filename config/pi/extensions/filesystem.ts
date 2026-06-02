@@ -82,6 +82,8 @@ import {
 } from '@earendil-works/pi-coding-agent';
 
 import { askForPermission } from '../../../lib/node/pi/approval-prompt.ts';
+import { isHelpArg } from '../../../lib/node/pi/commands/help.ts';
+import { FILESYSTEM_USAGE } from '../../../lib/node/pi/filesystem/usage.ts';
 import { classifyFilesystemAccess } from '../../../lib/node/pi/filesystem-policy/classify.ts';
 import {
   filesystemProjectPolicyPath,
@@ -283,7 +285,11 @@ export default function filesystem(pi: ExtensionAPI): void {
 
   pi.registerCommand('filesystem', {
     description: 'Show the active filesystem policy (defaults / user / project / persona) and the session allowlist',
-    handler: async (_args, ctx) => {
+    handler: async (args, ctx) => {
+      if (isHelpArg(args)) {
+        ctx.ui.notify(FILESYSTEM_USAGE, 'info');
+        return;
+      }
       const { policy, warnings: layerWarnings } = resolveActivePolicy(ctx.cwd);
       if (layerWarnings.length > 0) warnings.surface(ctx.ui.notify.bind(ctx.ui), layerWarnings);
 

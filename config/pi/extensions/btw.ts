@@ -60,6 +60,7 @@ type ReadonlySessionManager = Pick<SessionManager, 'getBranch' | 'getSessionId'>
 
 import { type BtwFooterStats, formatFooter } from '../../../lib/node/pi/btw/footer.ts';
 import { BTW_USAGE, buildSideQuestionUserContent } from '../../../lib/node/pi/btw/user-message.ts';
+import { isHelpArg } from '../../../lib/node/pi/commands/help.ts';
 import { extractAssistantContentText } from '../../../lib/node/pi/message-extract.ts';
 import { parseModelSpec } from '../../../lib/node/pi/model-spec.ts';
 import { envTruthy } from '../../../lib/node/pi/parse-env.ts';
@@ -124,6 +125,10 @@ export default function btw(pi: ExtensionAPI): void {
   pi.registerCommand('btw', {
     description: "Ask an ephemeral side question about this session's context (no tools, not saved)",
     handler: async (args, ctx) => {
+      if (isHelpArg(args)) {
+        ctx.ui.notify(BTW_USAGE, 'info');
+        return;
+      }
       // 1. Parse the question.
       const userContent = buildSideQuestionUserContent(args ?? '');
       if (!userContent) {
