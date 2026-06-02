@@ -64,6 +64,7 @@ Budget resolution order per level (first defined wins): env override → provide
 
 ## Environment variables
 
+- `PI_LLAMA_THINKING_BUDGET_DISABLED=1` - skip the extension entirely (nothing registers).
 - `PI_LLAMA_BUDGET_MINIMAL` - override minimal-level budget (positive int).
 - `PI_LLAMA_BUDGET_LOW` - override low-level budget.
 - `PI_LLAMA_BUDGET_MEDIUM` - override medium-level budget.

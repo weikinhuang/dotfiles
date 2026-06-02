@@ -72,7 +72,7 @@
  *   PI_STREAM_WATCHDOG_MAX_RETRIES=N     consecutive auto-retries per user
  *                                        prompt after aborting a stalled
  *                                        stream (default 2)
- *   PI_STREAM_WATCHDOG_VERBOSE=1         log start/stale/end decisions
+ *   PI_STREAM_WATCHDOG_DEBUG=1           log start/stale/end decisions
  *                                        via ctx.ui.notify (useful for
  *                                        tuning against a noisy model)
  */
@@ -110,7 +110,7 @@ export default function streamWatchdog(pi: ExtensionAPI): void {
   const pollMs = parsePositiveInt(process.env.PI_STREAM_WATCHDOG_POLL_MS, DEFAULT_POLL_MS);
   const autoAbort = process.env.PI_STREAM_WATCHDOG_ABORT !== '0';
   const maxRetries = parseNonNegativeInt(process.env.PI_STREAM_WATCHDOG_MAX_RETRIES, DEFAULT_MAX_RETRIES);
-  const verbose = envTruthy(process.env.PI_STREAM_WATCHDOG_VERBOSE);
+  const verbose = envTruthy(process.env.PI_STREAM_WATCHDOG_DEBUG);
 
   const state = createState();
   let timer: ReturnType<typeof setInterval> | null = null;

@@ -112,7 +112,7 @@ list doesn't matter - `verifyingCommandMatches` short-circuits on the first matc
 ## Environment variables
 
 - `PI_VERIFY_DISABLED=1` - skip the extension entirely.
-- `PI_VERIFY_VERBOSE=1` - emit a `ctx.ui.notify` on every detection / decision. Useful for tuning the claim regexes
+- `PI_VERIFY_DEBUG=1` - emit a `ctx.ui.notify` on every detection / decision. Useful for tuning the claim regexes
   against a noisy local model.
 - `PI_VERIFY_TRACE=<path>` - append one line per `agent_end` decision AND one line per `session_start` config load
   (including auto-detected tool list) to `<path>`. Useful in `-p` / RPC modes where `ctx.ui.notify` is silent.

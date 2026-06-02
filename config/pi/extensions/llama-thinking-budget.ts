@@ -50,6 +50,11 @@
  *
  * Env overrides (take precedence over per-provider budgets):
  *   PI_LLAMA_BUDGET_MINIMAL / _LOW / _MEDIUM / _HIGH
+ *
+ * Env:
+ *   PI_LLAMA_THINKING_BUDGET_DISABLED=1  skip the extension entirely
+ *   PI_LLAMA_BUDGET_DEBUG=<path>         append one diagnostic line per
+ *                                        request decision to <path>
  */
 
 import { appendFileSync } from 'node:fs';
@@ -57,7 +62,7 @@ import { appendFileSync } from 'node:fs';
 import { type ExtensionAPI, type ExtensionContext } from '@earendil-works/pi-coding-agent';
 
 import { readJsonOrUndefined } from '../../../lib/node/pi/fs-safe.ts';
-import { parseOptionalPositiveInt } from '../../../lib/node/pi/parse-env.ts';
+import { envTruthy, parseOptionalPositiveInt } from '../../../lib/node/pi/parse-env.ts';
 import { piAgentPath, piProjectPath } from '../../../lib/node/pi/pi-paths.ts';
 
 type Level = 'minimal' | 'low' | 'medium' | 'high';
@@ -171,6 +176,10 @@ function resolveBudget(
 }
 
 export default function llamaThinkingBudgetExtension(pi: ExtensionAPI): void {
+  // TODO(phase-k): add a command-surface spec asserting this guard skips
+  // registration once this extension gains a spec file.
+  if (envTruthy(process.env.PI_LLAMA_THINKING_BUDGET_DISABLED)) return;
+
   const providers = loadProviderInjections();
   if (providers.size === 0) return; // No providers opted in - no-op.
 

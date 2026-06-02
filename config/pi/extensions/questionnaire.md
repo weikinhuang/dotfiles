@@ -90,7 +90,9 @@ chat-request the `content` is a one-line summary and `details.cancelled` / `deta
 
 ## Environment variables
 
-None. The tool has no env-var knobs; behaviour is fully driven by the per-call `questions` / `allowChat` parameters.
+- `PI_QUESTIONNAIRE_DISABLED=1` - skip the extension entirely; the `questionnaire` tool is not registered.
+
+Otherwise behaviour is fully driven by the per-call `questions` / `allowChat` parameters.
 
 ## Hot reload
 

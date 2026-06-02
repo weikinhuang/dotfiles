@@ -136,7 +136,7 @@ next turn produces meaningful work.
 - `PI_STALL_RECOVERY_DISABLED=1` - skip the extension entirely.
 - `PI_STALL_RECOVERY_MAX_RETRIES=N` - consecutive retries allowed per user prompt (default `2`). `N=0` disables the
   retry loop (the classifier still runs and the first stall triggers a notify).
-- `PI_STALL_RECOVERY_VERBOSE=1` - emit a `ctx.ui.notify` on every detection + retry decision. Useful for tuning when
+- `PI_STALL_RECOVERY_DEBUG=1` - emit a `ctx.ui.notify` on every detection + retry decision. Useful for tuning when
   running against a noisy local model.
 
 ## Hot reload

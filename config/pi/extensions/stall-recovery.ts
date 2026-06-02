@@ -63,7 +63,7 @@
  *   PI_STALL_RECOVERY_DISABLED=1     skip the extension entirely
  *   PI_STALL_RECOVERY_MAX_RETRIES=N  consecutive retries per user prompt
  *                                    (default 2)
- *   PI_STALL_RECOVERY_VERBOSE=1      log each detection + retry decision
+ *   PI_STALL_RECOVERY_DEBUG=1        log each detection + retry decision
  *                                    via ctx.ui.notify (useful for
  *                                    tuning the classifier on local
  *                                    models)
@@ -91,7 +91,7 @@ export default function stallRecovery(pi: ExtensionAPI): void {
   if (envTruthy(process.env.PI_STALL_RECOVERY_DISABLED)) return;
 
   const maxRetries = parseNonNegativeInt(process.env.PI_STALL_RECOVERY_MAX_RETRIES, MAX_RETRIES_DEFAULT);
-  const verbose = envTruthy(process.env.PI_STALL_RECOVERY_VERBOSE);
+  const verbose = envTruthy(process.env.PI_STALL_RECOVERY_DEBUG);
 
   // The retry budget itself is stateless - we recompute it from the
   // message history on every agent_end via `countTrailingStalls`. The

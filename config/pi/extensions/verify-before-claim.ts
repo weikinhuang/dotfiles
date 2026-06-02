@@ -80,7 +80,7 @@
  *
  * Environment:
  *   PI_VERIFY_DISABLED=1     skip the extension entirely
- *   PI_VERIFY_VERBOSE=1      emit a ctx.ui.notify on every detection +
+ *   PI_VERIFY_DEBUG=1        emit a ctx.ui.notify on every detection +
  *                            decision. Useful for tuning the claim
  *                            regexes against a noisy model.
  *   PI_VERIFY_TRACE=<path>   append one line per agent_end decision to
@@ -114,7 +114,7 @@ const VERIFY_CUSTOM_TYPE = 'verify-before-claim-steer';
 
 export default function verifyBeforeClaim(pi: ExtensionAPI): void {
   if (envTruthy(process.env.PI_VERIFY_DISABLED)) return;
-  const verbose = envTruthy(process.env.PI_VERIFY_VERBOSE);
+  const verbose = envTruthy(process.env.PI_VERIFY_DEBUG);
   const tracePath = process.env.PI_VERIFY_TRACE;
 
   const trace = (msg: string): void => {

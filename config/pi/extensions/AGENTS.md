@@ -58,6 +58,35 @@ Reference implementations: [`bg-bash.ts`](./bg-bash.ts) (SIGTERM every live chil
 [`scheduled-prompts.ts`](./scheduled-prompts.ts) (clear the pending timer, keeping session schedules across a `reload`
 but dropping them on a real end).
 
+### Configuration knobs
+
+Two-level disable convention, both checked with the canonical [`envTruthy`](../../../lib/node/pi/parse-env.ts) helper --
+never roll your own truthiness parse.
+
+- **Extension-level disable:** `PI_<NAME>_DISABLED=1` skips the whole extension. Guard at the top of the factory, after
+  imports, so nothing registers:
+
+  ```text
+  if (envTruthy(process.env.PI_<NAME>_DISABLED)) return;
+  ```
+
+  `<NAME>` is the extension's screaming-snake name (`PI_QUESTIONNAIRE_DISABLED`, `PI_LLAMA_THINKING_BUDGET_DISABLED`).
+  Every extension exposes this.
+
+- **Aspect-level disable:** `PI_<NAME>_DISABLE_<ASPECT>=1` turns off one feature (autoinjection, a guardrail, a prompt
+  surface) while the rest of the extension still loads. Reach for this only when a single extension owns more than one
+  independently-toggleable behaviour. Existing anchors: `PI_BG_BASH_DISABLE_AUTOINJECT`, `PI_MEMORY_DISABLE_AUTOINJECT`,
+  `PI_SCRATCHPAD_DISABLE_AUTOINJECT`, `PI_TODO_DISABLE_AUTOINJECT`, `PI_TODO_DISABLE_GUARDRAIL`,
+  `PI_STATUSLINE_DISABLE_GIT_PROMPT`, `PI_STATUSLINE_DISABLE_HYPERLINKS`.
+
+Verbose-output env vars name the volume, not the word "verbose" -- pick one term per channel:
+
+- `_TRACE`: structured per-event log (every hook invocation, every tool result, often to a file path). High volume.
+- `_DEBUG`: human-readable diagnostic output (one notify per detection / decision). Low-to-medium volume.
+
+An extension may carry both with the meanings above (`PI_APPLY_PATCH_DEBUG` + `PI_APPLY_PATCH_TRACE`). There is no third
+"verbose" term -- those two names cover every channel.
+
 ### Slash command conventions
 
 Three cross-cutting rules for every `pi.registerCommand` handler.

@@ -42,6 +42,7 @@ import {
 } from '@earendil-works/pi-tui';
 import { Type } from 'typebox';
 
+import { envTruthy } from '../../../lib/node/pi/parse-env.ts';
 import {
   padVisibleText,
   selectQuestionnairePreviewLayout,
@@ -142,6 +143,10 @@ function digitFromKey(data: string): number | null {
 // ─── Tool ─────────────────────────────────────────────────────────────────
 
 export default function questionnaire(pi: ExtensionAPI): void {
+  // TODO(phase-k): add a command-surface spec asserting this guard skips
+  // tool registration once this extension gains a spec file.
+  if (envTruthy(process.env.PI_QUESTIONNAIRE_DISABLED)) return;
+
   pi.registerTool({
     name: 'questionnaire',
     label: 'Questionnaire',
