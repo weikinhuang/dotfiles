@@ -13,6 +13,7 @@ import {
   compileBuiltInClaimRegexes,
   loadIterationLoopConfig,
   matchesClaimRegex,
+  resolveDeclareBudget,
 } from '../../../../../lib/node/pi/iteration-loop/config.ts';
 
 function makeSandbox(): { home: string; cwd: string } {
@@ -147,6 +148,28 @@ describe('loadIterationLoopConfig', () => {
     expect(config.maxIterDefault).toBe(null);
     expect(config.costCapDefaultUsd).toBe(null);
     expect(config.archiveOnClose).toBe(true);
+  });
+});
+
+describe('resolveDeclareBudget', () => {
+  test('per-call param wins over the config default', () => {
+    const r = resolveDeclareBudget({ maxIter: 3, maxCostUsd: 0.5 }, { maxIterDefault: 8, costCapDefaultUsd: 0.25 });
+    expect(r).toEqual({ maxIter: 3, maxCostUsd: 0.5 });
+  });
+
+  test('config default applies when the param is omitted', () => {
+    const r = resolveDeclareBudget({}, { maxIterDefault: 8, costCapDefaultUsd: 0.25 });
+    expect(r).toEqual({ maxIter: 8, maxCostUsd: 0.25 });
+  });
+
+  test('null config default collapses to undefined so the built-in fallback applies', () => {
+    const r = resolveDeclareBudget({}, { maxIterDefault: null, costCapDefaultUsd: null });
+    expect(r).toEqual({ maxIter: undefined, maxCostUsd: undefined });
+  });
+
+  test('mixes: param for one cap, config for the other', () => {
+    const r = resolveDeclareBudget({ maxIter: 2 }, { maxIterDefault: 8, costCapDefaultUsd: 0.25 });
+    expect(r).toEqual({ maxIter: 2, maxCostUsd: 0.25 });
   });
 });
 

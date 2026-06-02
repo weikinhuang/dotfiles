@@ -307,9 +307,26 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
       if (signal) signal.addEventListener('abort', () => ac.abort(), { once: true });
       const runSignal = ac.signal;
 
+      // Layer the config `defaults` block under the per-call params:
+      // `param ?? config.defaults?.X`. The graph builder only injects
+      // params that are present, so a default simply pre-fills the param
+      // before injection; the workflow-baked graph value stays the final
+      // fallback for anything neither the call nor the defaults set.
+      const d = config.defaults;
+      const resolvedParams = {
+        ...params,
+        negative: params.negative ?? d?.negative,
+        width: params.width ?? d?.width,
+        height: params.height ?? d?.height,
+        steps: params.steps ?? d?.steps,
+        cfg: params.cfg ?? d?.cfg,
+        denoise: params.denoise ?? d?.denoise,
+        count: params.count ?? d?.count,
+      };
+
       let socket: WebSocket | null = null;
       try {
-        const prep = await buildInjectedGraph(conn, wf, name, params, ctx.cwd, homedir(), report, runSignal);
+        const prep = await buildInjectedGraph(conn, wf, name, resolvedParams, ctx.cwd, homedir(), report, runSignal);
         if (prep.error || !prep.graph) {
           details.error = prep.error;
           return {
@@ -336,7 +353,7 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
             workflow: name,
             seed,
             prompt: params.prompt,
-            negative: params.negative,
+            negative: resolvedParams.negative,
             saveDir,
             sendToModel: requested,
             startedAt: Date.now(),

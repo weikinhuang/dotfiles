@@ -77,6 +77,33 @@ returns a one-screen summary plus a structured `outcome` (`report-complete` / `f
   for this run only. Typical local-model shape: `wallClockSec: 7200` (2h). Slash-command equivalent `--wall-clock`
   additionally accepts `h` / `m` / `s` suffixes.
 
+## Config file
+
+Every per-call override above can also be pinned as a per-project (`<cwd>/.pi/deep-research.json`) or per-user
+(`~/.pi/agent/deep-research.json`) DEFAULT, so a project that always fans out to a cheap local model doesn't have to
+pass the flag every run. deep-research has no per-param env knobs (only `PI_DEEP_RESEARCH_DISABLED`), so the layering is
+config-file-only: built-in (empty) → user config → project config, with the per-call / per-command override winning over
+all of them. The full resolution order, kept consistent with the other config-layered extensions:
+
+```text
+per-call param > project config > user config > (no env knob) > built-in default
+```
+
+Accepted keys are exactly the tool override fields (`model`, `planCritModel`, `fanoutModel`, `criticModel`,
+`fanoutMaxTurns`, `criticMaxTurns`, `reviewMaxIter`, `fanoutParallel`, `wallClockSec`) and are validated through the
+same [`validateToolOverrides`](../../../lib/node/pi/research/tool-overrides.ts) used by the tool surface; a malformed
+field drops that whole config layer with a `ctx.ui.notify` warning rather than poisoning a run. Pure logic lives in
+[`../../../lib/node/pi/deep-research/config.ts`](../../../lib/node/pi/deep-research/config.ts).
+
+```jsonc
+// <cwd>/.pi/deep-research.json - this project researches against a local model, serially, with a long budget
+{
+  "fanoutModel": "ollama/qwen2.5-coder",
+  "fanoutParallel": 1,
+  "wallClockSec": 7200,
+}
+```
+
 ## Subagents dispatched
 
 Agents loaded from [`../agents/`](../agents/) via `defaultAgentLayers`:
@@ -93,6 +120,8 @@ dedicated subagent); structural checking is a pure module, not a subagent.
 ## Environment variables
 
 - `PI_DEEP_RESEARCH_DISABLED=1` - skip the extension entirely (no `/research` command or `research` tool registered).
+
+There are no per-param env knobs; pin per-project defaults via the [config file](#config-file) instead.
 
 Additional env vars are consumed indirectly by
 [`createAiFetchWebCliClientFromEnv`](../../../lib/node/pi/research/ai-fetch-web-cli-client.ts) for the MCP fetch-web

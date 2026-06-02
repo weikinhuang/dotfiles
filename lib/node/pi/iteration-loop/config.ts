@@ -250,6 +250,28 @@ export function loadIterationLoopConfig(cwd: string, home: string = homedir()): 
 }
 
 /**
+ * Layer the config-file cap defaults under the per-call `declare`
+ * params. Resolution per cap: `param ?? config-default ?? built-in`,
+ * where the built-in fallback is deferred to `buildCheckSpecFromParams`
+ * / `resolveBudget` by collapsing a missing value to `undefined`.
+ *
+ * `maxIterDefault` / `costCapDefaultUsd` are `number | null` on the
+ * config (null = "no project default"), so the trailing `?? undefined`
+ * turns a null config value back into "unset" rather than pinning the
+ * cap to null. Kept here (not inline in the extension) so the override
+ * precedence is unit-testable without the pi runtime.
+ */
+export function resolveDeclareBudget(
+  params: { maxIter?: number; maxCostUsd?: number },
+  config: Pick<IterationLoopConfig, 'maxIterDefault' | 'costCapDefaultUsd'>,
+): { maxIter: number | undefined; maxCostUsd: number | undefined } {
+  return {
+    maxIter: params.maxIter ?? config.maxIterDefault ?? undefined,
+    maxCostUsd: params.maxCostUsd ?? config.costCapDefaultUsd ?? undefined,
+  };
+}
+
+/**
  * Does any of the compiled claim regexes match the given text?
  * Small helper kept here (rather than inline in the extension) so
  * the matching rule is easy to assert against in tests.

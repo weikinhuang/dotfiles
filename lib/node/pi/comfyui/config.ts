@@ -22,7 +22,7 @@
 import { readJsonOrUndefined } from '../fs-safe.ts';
 import { piAgentPath, piProjectPath } from '../pi-paths.ts';
 
-import type { AuthHeader, ComfyuiConfig, InputMapping, WorkflowConfig } from './types.ts';
+import type { AuthHeader, ComfyuiConfig, GenerationDefaults, InputMapping, WorkflowConfig } from './types.ts';
 
 /**
  * Input map for the shipped `txt2img` example workflow
@@ -75,6 +75,37 @@ function asAuthHeader(value: unknown): AuthHeader | undefined {
   const headerValue = asString(value.value);
   if (name === undefined || headerValue === undefined || name.length === 0) return undefined;
   return { name, value: headerValue };
+}
+
+/**
+ * Validate the optional `defaults` block. Drops any field with the
+ * wrong type; numeric fields must be finite and positive (a 0-px width
+ * or 0-step render is never intended). `negative` is a free-form string
+ * (empty allowed - an explicit empty negative prompt is meaningful).
+ * Returns undefined when no valid field survives so an all-garbage block
+ * doesn't pin an empty `defaults` object onto the merged config.
+ */
+function asGenerationDefaults(value: unknown): GenerationDefaults | undefined {
+  if (!isObject(value)) return undefined;
+  const out: GenerationDefaults = {};
+
+  const width = asPositiveNumber(value.width);
+  if (width !== undefined) out.width = width;
+  const height = asPositiveNumber(value.height);
+  if (height !== undefined) out.height = height;
+  const steps = asPositiveNumber(value.steps);
+  if (steps !== undefined) out.steps = steps;
+  const cfg = asPositiveNumber(value.cfg);
+  if (cfg !== undefined) out.cfg = cfg;
+  const denoise = asPositiveNumber(value.denoise);
+  if (denoise !== undefined) out.denoise = denoise;
+  const count = asPositiveNumber(value.count);
+  if (count !== undefined) out.count = count;
+
+  const negative = asString(value.negative);
+  if (negative !== undefined) out.negative = negative;
+
+  return Object.keys(out).length > 0 ? out : undefined;
 }
 
 function asInputMapping(value: unknown): InputMapping | undefined {
@@ -137,6 +168,9 @@ export function coerceConfigLayer(raw: unknown): Partial<ComfyuiConfig> {
   const sendToModel = asBoolean(raw.sendToModel);
   if (sendToModel !== undefined) out.sendToModel = sendToModel;
 
+  const defaults = asGenerationDefaults(raw.defaults);
+  if (defaults !== undefined) out.defaults = defaults;
+
   const authHeader = asAuthHeader(raw.authHeader);
   if (authHeader !== undefined) out.authHeader = authHeader;
 
@@ -149,9 +183,11 @@ export function coerceConfigLayer(raw: unknown): Partial<ComfyuiConfig> {
 /**
  * Layer `overrides` over {@link DEFAULT_CONFIG} in priority order
  * (lowest first). Scalars are replaced wholesale; `authHeader` is
- * replaced wholesale by any layer that sets it; `workflows` merge by
- * name so a higher layer can add new workflows or replace one by id
- * without dropping the others.
+ * replaced wholesale by any layer that sets it; `defaults` merge by
+ * field so a higher layer can override one generation default (e.g.
+ * `steps`) without dropping the others; `workflows` merge by name so a
+ * higher layer can add new workflows or replace one by id without
+ * dropping the others.
  */
 export function mergeConfigLayers(...overrides: Partial<ComfyuiConfig>[]): ComfyuiConfig {
   const result: ComfyuiConfig = { ...DEFAULT_CONFIG, workflows: { ...DEFAULT_CONFIG.workflows } };
@@ -162,6 +198,7 @@ export function mergeConfigLayers(...overrides: Partial<ComfyuiConfig>[]): Comfy
     if (layer.saveDir !== undefined) result.saveDir = layer.saveDir;
     if (layer.defaultWorkflow !== undefined) result.defaultWorkflow = layer.defaultWorkflow;
     if (layer.sendToModel !== undefined) result.sendToModel = layer.sendToModel;
+    if (layer.defaults !== undefined) result.defaults = { ...result.defaults, ...layer.defaults };
     if (layer.authHeader !== undefined) result.authHeader = { ...layer.authHeader };
     if (layer.workflows !== undefined) result.workflows = { ...result.workflows, ...layer.workflows };
   }

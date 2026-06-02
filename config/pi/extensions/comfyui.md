@@ -95,7 +95,21 @@ into one of the config files to opt in; see [`../comfyui-example.json`](../comfy
 | `saveDir`         | `.pi/comfyui-out`        | Where PNGs are written (relative to cwd, or an absolute path).                                |
 | `defaultWorkflow` | `txt2img`                | Workflow used when the tool call omits `workflow`.                                            |
 | `sendToModel`     | `true`                   | Return the image in the tool result (fed to the model next turn). `false` saves to disk only. |
+| `defaults`        | (none)                   | Generation-param defaults pre-filled when a call omits them; merge by field. See below.       |
 | `workflows`       | `{ txt2img: <shipped> }` | Named workflows; merge by name across layers.                                                 |
+
+Every scalar above resolves
+`per-call arg > project config (<cwd>/.pi/comfyui.json) > user config (~/.pi/agent/comfyui.json) > built-in default`. So
+a project that drops `sendToModel: false` into its `<cwd>/.pi/comfyui.json` renders save-only for every generation under
+that directory, while a global `~/.pi/agent/comfyui.json` setting it `true` still applies everywhere else - and an
+explicit per-call `sendToModel` arg wins over both.
+
+```jsonc
+// <cwd>/.pi/comfyui.json - this project saves images to disk without feeding them back to the model
+{
+  "sendToModel": false,
+}
+```
 
 With `sendToModel: false` (or the per-call `sendToModel` arg set false), the PNG is still written to `saveDir` but the
 tool result is a text-only summary with the saved path - the image is neither rendered inline nor sent to the model, so
@@ -153,6 +167,28 @@ point at a graph checked into the project with `"file": "./comfyui/my.api.json"`
 The shipped default [`../comfyui/txt2img.api.json`](../comfyui/txt2img.api.json) is the classic SD1.5 graph; it expects
 a `v1-5-pruned-emaonly.safetensors` checkpoint to be installed on the server. Repoint `defaultWorkflow` / `workflows` at
 your own graph + checkpoint as needed.
+
+### Generation defaults
+
+`width`, `height`, `steps`, `cfg`, `denoise`, `count`, and `negative` can only be baked per-workflow inside the graph
+JSON otherwise. The optional `defaults` block lets a user pin them per-project (or globally) without editing every
+workflow graph - e.g. "this project renders 1024x1024 at 30 steps":
+
+```jsonc
+// <cwd>/.pi/comfyui.json
+{
+  "defaults": { "width": 1024, "height": 1024, "steps": 30, "cfg": 5, "count": 1 },
+  "workflows": {
+    /* ... */
+  },
+}
+```
+
+Resolution per param is `per-call arg > config defaults > workflow-baked graph value`. A default just pre-fills the
+param before injection, so it is still only applied if the active workflow's input map names a node for it - a workflow
+that doesn't map `steps` ignores a `defaults.steps`. Numeric defaults must be positive; `negative` may be empty (an
+explicit empty negative prompt). The block merges by field across layers, so a project config can override a single
+default (e.g. `steps`) on top of a global one without redeclaring the rest.
 
 ## Environment variables
 

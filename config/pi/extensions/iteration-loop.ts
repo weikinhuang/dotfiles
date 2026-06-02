@@ -133,6 +133,7 @@ import {
   type IterationLoopConfig,
   loadIterationLoopConfig,
   matchesClaimRegex,
+  resolveDeclareBudget,
 } from '../../../lib/node/pi/iteration-loop/config.ts';
 import { renderIterationBlock } from '../../../lib/node/pi/iteration-loop/prompt.ts';
 import {
@@ -708,7 +709,14 @@ export default function iterationLoopExtension(pi: ExtensionAPI): void {
     ctx: ExtensionContext,
   ): ToolReturn => {
     const task = (params.task ?? DEFAULT_TASK).trim() || DEFAULT_TASK;
-    const built = buildCheckSpecFromParams(task, params, nowIso());
+    // Layer the config-file cap defaults under the per-call params:
+    // `param ?? project ?? user ?? built-in`. resolveDeclareBudget owns
+    // the precedence (and collapses the config's `null` "no default" back
+    // to undefined) so buildCheckSpecFromParams / resolveBudget supply the
+    // final hard-coded fallback when neither the call nor a config pins a cap.
+    const budgetDefaults = resolveDeclareBudget(params, loopConfig);
+    const declareParams = { ...params, maxIter: budgetDefaults.maxIter, maxCostUsd: budgetDefaults.maxCostUsd };
+    const built = buildCheckSpecFromParams(task, declareParams, nowIso());
     if (!built.ok) return errorReturn('declare', task, built.error);
 
     const written = writeDraft(ctx.cwd, built.spec);

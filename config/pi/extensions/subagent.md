@@ -143,13 +143,40 @@ tested without spinning pi up.
 ## Per-call overrides
 
 The `subagent` tool accepts a few optional fields that override the agent definition for a single dispatch. Use these
-sparingly - the agent frontmatter defaults are the right starting point, and the env-var ceilings (see
-[Environment variables](#environment-variables)) always win.
+sparingly - the agent frontmatter defaults are the right starting point, and the global ceilings (the
+[config file](#config-file) and its `PI_SUBAGENT_*` env layer) still apply.
 
-| Field           | Type                          | Effect                                                                                                                                                                                                                                                          |
-| --------------- | ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `modelOverride` | `string` (`provider/modelId`) | Replaces the agent's `model` for this dispatch. Falls back to `PI_SUBAGENT_MODEL` if unset.                                                                                                                                                                     |
-| `maxTurns`      | `integer` (1–1000)            | Replaces the agent's `maxTurns` for this dispatch. Lifts the cap above the agent default when delegating a known multi-file implementation; can also lower it. `PI_SUBAGENT_MAX_TURNS` still acts as the global ceiling - resolved cap is `min(maxTurns, env)`. |
+| Field           | Type                          | Effect                                                                                                                                                                                                                                                                                                   |
+| --------------- | ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `modelOverride` | `string` (`provider/modelId`) | Replaces the agent's `model` for this dispatch. Falls back to the config `model` (project > user > `PI_SUBAGENT_MODEL`) if unset.                                                                                                                                                                        |
+| `maxTurns`      | `integer` (1–1000)            | Replaces the agent's `maxTurns` for this dispatch. Lifts the cap above the agent default when delegating a known multi-file implementation; can also lower it. The config `maxTurns` (project > user > `PI_SUBAGENT_MAX_TURNS`) still acts as the global ceiling - resolved cap is `min(maxTurns, cap)`. |
+
+## Config file
+
+`model`, `maxTurns`, and `concurrency` are settable per-project (`<cwd>/.pi/subagent.json`) and per-user
+(`~/.pi/agent/subagent.json`) in addition to the `PI_SUBAGENT_*` env vars. Layers, lowest precedence first: built-in
+defaults → `PI_SUBAGENT_*` env knobs → user config → project config. A per-call tool override (`modelOverride` /
+`maxTurns`) still wins over all of these, so the full resolution order is:
+
+```text
+per-call param > project config > user config > env knob > built-in default
+```
+
+(Pure logic in [`../../../lib/node/pi/subagent/config.ts`](../../../lib/node/pi/subagent/config.ts).)
+
+| Key           | Type                          | Default | Effect                                                                                                   |
+| ------------- | ----------------------------- | ------- | -------------------------------------------------------------------------------------------------------- |
+| `model`       | `string` (`provider/modelId`) | (unset) | Global model override applied to every child (env: `PI_SUBAGENT_MODEL`).                                 |
+| `maxTurns`    | integer ≥ 1                   | (unset) | Global max-turns ceiling fed to `min(perCall ?? agentDefault, cap)` (env: `PI_SUBAGENT_MAX_TURNS`).      |
+| `concurrency` | integer (clamped 1–8)         | `4`     | Max concurrent children (env: `PI_SUBAGENT_CONCURRENCY`). Captured at load; changing it needs `/reload`. |
+
+```jsonc
+// <cwd>/.pi/subagent.json - this project fans out to a cheaper local model, lower turn budget
+{
+  "model": "ollama/qwen2.5-coder",
+  "maxTurns": 12,
+}
+```
 
 ## Worktree caveat
 
@@ -161,15 +188,18 @@ needs the parent's project-scoped memories, keep `isolation: "shared-cwd"`.
 
 - `PI_SUBAGENT_DISABLED=1` - skip the extension entirely.
 - `PI_SUBAGENT_DEBUG=1` - surface every child lifecycle event via `ctx.ui.notify`.
-- `PI_SUBAGENT_CONCURRENCY=N` - max concurrent children (default `4`, floor `1`, ceiling `8`).
+- `PI_SUBAGENT_CONCURRENCY=N` - max concurrent children (default `4`, floor `1`, ceiling `8`). Also settable via the
+  [config file](#config-file)'s `concurrency`, which wins over this env var.
 - `PI_SUBAGENT_NO_PERSIST=1` - use `SessionManager.inMemory()` instead of disk-backed child sessions.
 - `PI_SUBAGENT_SESSION_ROOT=<path>` - override `~/.pi/agent/sessions` as the child session root (ramdisk, etc.).
 - `PI_SUBAGENT_RETAIN_DAYS=N` - retain child session files for N days before the startup sweep deletes them (default
   `30`).
 - `PI_SUBAGENT_STATUS_LINGER_MS=N` - keep completed status visible for N ms (default `5000`).
-- `PI_SUBAGENT_MAX_TURNS=N` - global max-turns cap. Wins over per-agent settings.
+- `PI_SUBAGENT_MAX_TURNS=N` - global max-turns cap. Wins over per-agent settings. Also settable via the
+  [config file](#config-file)'s `maxTurns`, which wins over this env var.
 - `PI_SUBAGENT_TIMEOUT_MS=N` - global wall-clock cap in ms. Wins over per-agent settings.
-- `PI_SUBAGENT_MODEL=provider/id` - global model override applied to every child.
+- `PI_SUBAGENT_MODEL=provider/id` - global model override applied to every child. Also settable via the
+  [config file](#config-file)'s `model`, which wins over this env var.
 - `PI_SUBAGENT_BG_MAX=N` - max entries retained in the background-children registry; older completed entries are pruned
   past this cap (default `32`). Parsed as a positive integer; non-positive or unparseable values fall back to the
   default.

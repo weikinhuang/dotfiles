@@ -98,6 +98,35 @@ Runtime knobs for claim regexes and `strictNudgeAfterNEdits` are not env vars - 
 `~/.pi/agent/iteration-loop.json` and `<cwd>/.pi/iteration-loop.json` (loaded via
 [`iteration-loop/config.ts`](../../../lib/node/pi/iteration-loop/config.ts)).
 
+## Config file
+
+Optional JSON config layers, lowest precedence first: built-ins → user `~/.pi/agent/iteration-loop.json` → project
+`<cwd>/.pi/iteration-loop.json`. Every key is optional; a missing or malformed file degrades to defaults with a surfaced
+warning.
+
+| Key                          | Type        | Effect                                                                         |
+| ---------------------------- | ----------- | ------------------------------------------------------------------------------ |
+| `claim_regexes`              | `string[]`  | Replace the built-in artifact-correctness claim patterns.                      |
+| `claim_regexes_extra`        | `string[]`  | Append to the built-in patterns instead of replacing.                          |
+| `strict_nudge_after_n_edits` | integer ≥ 1 | Edits-to-artifact per turn before the strict nudge fires. Default 2.           |
+| `max_iter_default`           | integer ≥ 1 | Default `maxIter` cap when a `check declare` omits it. `null` = no default.    |
+| `cost_cap_default_usd`       | number ≥ 0  | Default `maxCostUsd` cap when a `check declare` omits it. `null` = no default. |
+| `archive_on_close`           | boolean     | Whether `check close` archives the task directory. Default true.               |
+
+The cap defaults resolve per declare as `param > project config > user config > built-in`: a `declare` call that passes
+`maxIter` / `maxCostUsd` wins; otherwise the project then user `*_default` applies; if neither pins one, the built-in
+budget (`maxIter` 5, `maxCostUsd` 0.10 - see [`schema.ts`](../../../lib/node/pi/iteration-loop/schema.ts)
+`resolveBudget`) is used. `wallClockSeconds` has no config default and always falls back to the built-in 600.
+
+```jsonc
+// <cwd>/.pi/iteration-loop.json - pin tighter caps for this project
+{
+  "max_iter_default": 8,
+  "cost_cap_default_usd": 0.25,
+  "strict_nudge_after_n_edits": 1,
+}
+```
+
 ## Hot reload
 
 Edit [`extensions/iteration-loop.ts`](./iteration-loop.ts) or any of the

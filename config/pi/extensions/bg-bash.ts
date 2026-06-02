@@ -72,6 +72,7 @@ import { type Component, matchesKey, Text, truncateToWidth } from '@earendil-wor
 import { Type } from 'typebox';
 
 import { requestBashApproval } from '../../../lib/node/pi/bash/gate.ts';
+import { type BgBashConfig, DEFAULT_BG_BASH_CONFIG, loadBgBashConfig } from '../../../lib/node/pi/bg-bash/config.ts';
 import { BG_BASH_USAGE } from '../../../lib/node/pi/bg-bash/usage.ts';
 import { completeSubverbs } from '../../../lib/node/pi/commands/complete.ts';
 import { isHelpArg } from '../../../lib/node/pi/commands/help.ts';
@@ -113,7 +114,7 @@ import {
   upsertJob,
 } from '../../../lib/node/pi/bg-bash-reducer.ts';
 import { RingBuffer } from '../../../lib/node/pi/bg-bash-ring.ts';
-import { envTruthy, parseClampedPositiveInt } from '../../../lib/node/pi/parse-env.ts';
+import { envTruthy } from '../../../lib/node/pi/parse-env.ts';
 import { piAgentPath } from '../../../lib/node/pi/pi-paths.ts';
 import { truncate } from '../../../lib/node/pi/shared.ts';
 import { formatHeaderRule } from '../../../lib/node/pi/tui-rule.ts';
@@ -122,11 +123,10 @@ import { formatHeaderRule } from '../../../lib/node/pi/tui-rule.ts';
 // Tuning
 // ──────────────────────────────────────────────────────────────────────
 
-const DEFAULT_INJECTED_CHARS = 1500;
-const DEFAULT_BUFFER_BYTES = 1024 * 1024;
-const DEFAULT_KILL_GRACE_MS = 3000;
-const DEFAULT_WAIT_MS = 15_000;
-const MAX_LOG_RESPONSE_BYTES = 32 * 1024; // ~6k tokens - keep LLM responses small
+// Defaults for the per-call params and the ring-buffer cap now live in
+// DEFAULT_BG_BASH_CONFIG (lib/node/pi/bg-bash/config.ts); the schema
+// descriptions below quote them so the help text never drifts from the
+// resolved fallback.
 const TAIL_PREVIEW_BYTES = 200;
 
 // ──────────────────────────────────────────────────────────────────────
@@ -192,12 +192,12 @@ const BgBashParams = Type.Object({
   ),
   maxBytes: Type.Optional(
     Type.Integer({
-      description: `\`logs\` only. Soft cap on response bytes. Default ${MAX_LOG_RESPONSE_BYTES}.`,
+      description: `\`logs\` only. Soft cap on response bytes. Default ${DEFAULT_BG_BASH_CONFIG.maxBytes} (overridable via bg-bash.json).`,
     }),
   ),
   timeoutMs: Type.Optional(
     Type.Integer({
-      description: `\`wait\` only. Milliseconds to wait for exit before returning with timedOut=true. Default ${DEFAULT_WAIT_MS}.`,
+      description: `\`wait\` only. Milliseconds to wait for exit before returning with timedOut=true. Default ${DEFAULT_BG_BASH_CONFIG.timeoutMs} (overridable via bg-bash.json).`,
     }),
   ),
   signal: Type.Optional(
@@ -580,14 +580,19 @@ class BgBashOverlay implements Component {
 export default function bgBashExtension(pi: ExtensionAPI): void {
   if (envTruthy(process.env.PI_BG_BASH_DISABLED)) return;
 
+  // Aspect-level disable - whether to register the system-prompt
+  // injection handler at all. Registration-time decision, so it stays an
+  // env read rather than a config-file field.
   const autoInjectEnabled = process.env.PI_BG_BASH_DISABLE_AUTOINJECT !== '1';
-  const maxInjectedChars = parseClampedPositiveInt(
-    process.env.PI_BG_BASH_MAX_INJECTED_CHARS,
-    DEFAULT_INJECTED_CHARS,
-    200,
-  );
-  const maxBufferBytes = parseClampedPositiveInt(process.env.PI_BG_BASH_MAX_BUFFER_BYTES, DEFAULT_BUFFER_BYTES, 0);
-  const killGraceMs = parseClampedPositiveInt(process.env.PI_BG_BASH_KILL_GRACE_MS, DEFAULT_KILL_GRACE_MS, 0);
+
+  // Resolved config (built-in -> env knob -> user -> project). Seeded at
+  // registration from `process.cwd()` (no ctx yet) and re-loaded on
+  // session_start once the real `ctx.cwd` is known, so a project-local
+  // `<cwd>/.pi/bg-bash.json` applies. The operational knobs
+  // (maxBufferBytes / killGraceMs / maxInjectedChars) and the per-call
+  // tool-param defaults (timeoutMs / stream / maxBytes / tail) both read
+  // off this object.
+  let config: BgBashConfig = loadBgBashConfig(process.cwd());
 
   // Per-runtime stores. Both are rebuilt from the branch on session_start;
   // `live` is always empty there (we can't reattach) - only `state` is
@@ -691,6 +696,10 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
   };
 
   const rebuildFromSession = (ctx: ExtensionContext): void => {
+    // Re-resolve config now that the real session cwd is known, so a
+    // project-local <cwd>/.pi/bg-bash.json takes effect (the
+    // registration-time load used process.cwd()).
+    config = loadBgBashConfig(ctx.cwd);
     const branch = ctx.sessionManager.getBranch() as unknown as readonly BranchEntry[];
     const replayed = reduceBranch(branch);
     // Drop jobs we can't interact with: anything still `running` /
@@ -734,8 +743,8 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
     const dir = ensureLogDir();
     const logFile = join(dir, `${id}.log`);
 
-    const stdout = new RingBuffer({ maxBytes: maxBufferBytes });
-    const stderr = new RingBuffer({ maxBytes: maxBufferBytes });
+    const stdout = new RingBuffer({ maxBytes: config.maxBufferBytes });
+    const stderr = new RingBuffer({ maxBytes: config.maxBufferBytes });
 
     let logStream: WriteStream | undefined;
     try {
@@ -1022,8 +1031,10 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
       return { content: [{ type: 'text', text }], details };
     }
 
-    const stream = params.stream ?? 'merged';
-    const maxBytes = params.maxBytes ?? MAX_LOG_RESPONSE_BYTES;
+    // Per-call param wins over the config default (`params.X ?? config.X`).
+    const stream = params.stream ?? config.stream;
+    const maxBytes = params.maxBytes ?? config.maxBytes;
+    const tail = params.tail ?? config.tail;
 
     let content: string;
     let cursor: number;
@@ -1031,9 +1042,9 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
     let totalBytes: number;
     let droppedBytes: number;
 
-    if (params.tail !== undefined && params.tail >= 0) {
+    if (tail !== undefined && tail >= 0) {
       const merged = mergeBgBashStreams(job, stream);
-      const lines = tailLines(merged, params.tail);
+      const lines = tailLines(merged, tail);
       content = clampBytes(lines, maxBytes);
       cursor = bgBashStreamCursor(job, stream);
       totalBytes = bgBashStreamTotal(job, stream);
@@ -1092,7 +1103,7 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
       return { content: [{ type: 'text', text: formatJobLine(summary, Date.now()) }], details };
     }
 
-    const timeoutMs = Math.max(0, params.timeoutMs ?? DEFAULT_WAIT_MS);
+    const timeoutMs = Math.max(0, params.timeoutMs ?? config.timeoutMs);
     let timedOut = false;
     await Promise.race([
       job.exited,
@@ -1234,7 +1245,7 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
     }
     await Promise.race([
       Promise.all(livingIds.map((id) => live.get(id)?.exited ?? Promise.resolve())),
-      new Promise((r) => setTimeout(r, killGraceMs)),
+      new Promise((r) => setTimeout(r, config.killGraceMs)),
     ]);
     for (const id of livingIds) {
       const job = live.get(id);
@@ -1254,7 +1265,7 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
       // statusline pointing at the current surface.
       uiRef = ctx.ui;
       updateStatusline();
-      const block = formatBackgroundJobs(state, { maxChars: maxInjectedChars, now: Date.now() });
+      const block = formatBackgroundJobs(state, { maxChars: config.maxInjectedChars, now: Date.now() });
       if (!block) return undefined;
       return { systemPrompt: `${event.systemPrompt}\n\n${block}` };
     });

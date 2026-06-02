@@ -79,6 +79,31 @@ describe('coerceConfigLayer', () => {
     });
   });
 
+  test('coerces a generation defaults block, dropping wrong-typed fields', () => {
+    const out = coerceConfigLayer({
+      defaults: { width: 1024, height: 1024, steps: 30, cfg: 5, denoise: 0.7, count: 2, negative: 'blurry' },
+    });
+    expect(out.defaults).toEqual({
+      width: 1024,
+      height: 1024,
+      steps: 30,
+      cfg: 5,
+      denoise: 0.7,
+      count: 2,
+      negative: 'blurry',
+    });
+  });
+
+  test('rejects non-positive / non-finite numeric defaults but keeps a valid negative', () => {
+    const out = coerceConfigLayer({ defaults: { width: 0, height: -5, steps: 'lots', negative: '' } });
+    expect(out.defaults).toEqual({ negative: '' });
+  });
+
+  test('an all-garbage defaults block is dropped entirely', () => {
+    expect(coerceConfigLayer({ defaults: { width: 0, steps: -1 } }).defaults).toBeUndefined();
+    expect(coerceConfigLayer({ defaults: 'nope' }).defaults).toBeUndefined();
+  });
+
   test('non-object input yields an empty layer', () => {
     expect(coerceConfigLayer(null)).toEqual({});
     expect(coerceConfigLayer('str')).toEqual({});
@@ -122,6 +147,18 @@ describe('mergeConfigLayers', () => {
   test('authHeader is replaced wholesale by a setting layer', () => {
     const out = mergeConfigLayers({ authHeader: { name: 'A', value: '1' } }, { authHeader: { name: 'B', value: '2' } });
     expect(out.authHeader).toEqual({ name: 'B', value: '2' });
+  });
+
+  test('defaults merge by field across layers', () => {
+    const out = mergeConfigLayers(
+      { defaults: { width: 512, height: 512, steps: 20 } },
+      { defaults: { steps: 30, cfg: 5 } },
+    );
+    expect(out.defaults).toEqual({ width: 512, height: 512, steps: 30, cfg: 5 });
+  });
+
+  test('no defaults block leaves defaults undefined', () => {
+    expect(mergeConfigLayers().defaults).toBeUndefined();
   });
 });
 

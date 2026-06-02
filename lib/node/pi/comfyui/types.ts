@@ -31,6 +31,27 @@ export interface WorkflowConfig {
   inputs: Record<string, InputMapping>;
 }
 
+/**
+ * Per-project / global generation-param defaults. Each field pre-fills
+ * the matching `generate_image` param when the model omits it, so a user
+ * can pin "this project renders 1024x1024 at 30 steps" without editing
+ * every workflow graph. Resolution is `param ?? defaults?.X ??
+ * workflow-baked value` - a default just supplies the param before the
+ * graph builder injects it, so a workflow that doesn't map a given input
+ * still ignores the default. All fields optional.
+ */
+export interface GenerationDefaults {
+  width?: number;
+  height?: number;
+  steps?: number;
+  cfg?: number;
+  denoise?: number;
+  /** Batch size; maps to the workflow's `batch` input. */
+  count?: number;
+  /** Negative prompt. */
+  negative?: string;
+}
+
 /** Fully-resolved extension config (defaults + user + project layers). */
 export interface ComfyuiConfig {
   /** ComfyUI server origin, e.g. `http://127.0.0.1:8188`. */
@@ -50,6 +71,12 @@ export interface ComfyuiConfig {
    * enter the model's context. A per-call `sendToModel` arg overrides it.
    */
   sendToModel: boolean;
+  /**
+   * Optional generation-param defaults applied before the per-call
+   * params and the workflow-baked graph values. See
+   * {@link GenerationDefaults}.
+   */
+  defaults?: GenerationDefaults;
   /** Named workflows keyed by the name the model passes to the tool. */
   workflows: Record<string, WorkflowConfig>;
 }

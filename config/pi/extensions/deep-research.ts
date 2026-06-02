@@ -101,6 +101,7 @@ import { withTransientRetry } from '../../../lib/node/pi/fanout-retry.ts';
 import { readTextOrNull } from '../../../lib/node/pi/fs-safe.ts';
 import { buildCriticTask, parseVerdict } from '../../../lib/node/pi/iteration-loop/check-critic.ts';
 import { type Verdict } from '../../../lib/node/pi/iteration-loop/schema.ts';
+import { applyDeepResearchDefaults, loadDeepResearchConfig } from '../../../lib/node/pi/deep-research/config.ts';
 import { createAiFetchWebCliClientFromEnv } from '../../../lib/node/pi/research/ai-fetch-web-cli-client.ts';
 import { createLiveBudget, DEFAULT_BUDGET_PHASES, type LiveBudget } from '../../../lib/node/pi/research/budget-live.ts';
 import { createRunBudget } from '../../../lib/node/pi/research/budget.ts';
@@ -341,6 +342,15 @@ export default function deepResearchExtension(pi: ExtensionAPI): void {
   // refreshed to `ctx.cwd` on session_start.
   let lastCwd = process.cwd();
 
+  // Config-file default overrides (model / fanout / maxTurns / parallel /
+  // wall-clock), layered user -> project. Seeded at registration and
+  // re-loaded on session_start from `ctx.cwd`. A per-call / per-command
+  // override still wins via `applyDeepResearchDefaults(defaults, perCall)`.
+  let configDefaults = loadDeepResearchConfig(process.cwd()).defaults;
+  // Track which config warnings we've already surfaced so a reload does
+  // not re-notify the same malformed-field message every session.
+  const surfacedConfigWarnings = new Set<string>();
+
   const readLayer = makeNodeReadLayer();
 
   const reloadAgents = (cwd: string): void => {
@@ -354,12 +364,28 @@ export default function deepResearchExtension(pi: ExtensionAPI): void {
     });
   };
 
+  const reloadConfig = (cwd: string, notify: (m: string, level: 'warning') => void): void => {
+    const result = loadDeepResearchConfig(cwd);
+    configDefaults = result.defaults;
+    for (const w of result.warnings) {
+      const key = `${w.path}:${w.error}`;
+      if (surfacedConfigWarnings.has(key)) continue;
+      surfacedConfigWarnings.add(key);
+      notify(`deep-research: ignoring ${w.path}: ${w.error}`, 'warning');
+    }
+  };
+
   pi.on('session_start', (_event, ctx) => {
     lastCwd = ctx.cwd;
     try {
       reloadAgents(ctx.cwd);
     } catch {
       /* swallow - command handler surfaces a friendlier error */
+    }
+    try {
+      reloadConfig(ctx.cwd, (m, level) => ctx.ui.notify(m, level));
+    } catch {
+      /* swallow - defaults stay at the last good value */
     }
     // Clear any stale widget from a prior session.
     try {
@@ -430,6 +456,13 @@ export default function deepResearchExtension(pi: ExtensionAPI): void {
       if (parsed.kind === 'help') {
         notify(USAGE, 'info');
         return;
+      }
+
+      // Layer the config-file defaults UNDER the per-command overrides so
+      // a `--model` / `--fanout-model` / … flag on the command still wins,
+      // but a project's pinned default applies when the flag is absent.
+      if (parsed.kind === 'resume' || parsed.kind === 'question') {
+        parsed.overrides = applyDeepResearchDefaults(configDefaults, parsed.overrides);
       }
       if (parsed.kind === 'list') {
         if (parsed.trailing)
@@ -584,7 +617,9 @@ export default function deepResearchExtension(pi: ExtensionAPI): void {
       if (!validated.ok) {
         throw new Error(`research: ${validated.error}`);
       }
-      const overrides = validated.overrides;
+      // Layer config-file defaults under the per-call overrides: a field
+      // the model passed wins; otherwise the project / user default applies.
+      const overrides = applyDeepResearchDefaults(configDefaults, validated.overrides);
 
       // Reload agent definitions so a brand-new session picks up
       // the `web-researcher` / `research-planning-critic` agents

@@ -142,6 +142,7 @@ import {
 } from '../../../lib/node/pi/subagent/session-paths.ts';
 import { resolveChildModel } from '../../../lib/node/pi/subagent/spawn.ts';
 import { resolveMaxTurns } from '../../../lib/node/pi/subagent/budget.ts';
+import { type SubagentConfig, loadSubagentConfig } from '../../../lib/node/pi/subagent/config.ts';
 import { collectSubagentInjections } from '../../../lib/node/pi/subagent/extension-injection.ts';
 import { envTruthy, parsePositiveInt } from '../../../lib/node/pi/parse-env.ts';
 import { resolveWriteRoots } from '../../../lib/node/pi/persona/resolve.ts';
@@ -154,8 +155,8 @@ import { formatHeaderRule } from '../../../lib/node/pi/tui-rule.ts';
 const SUBAGENT_CUSTOM_TYPE = 'subagent-run';
 const STATUS_KEY = 'subagent';
 
-const DEFAULT_CONCURRENCY = 4;
-const MAX_CONCURRENCY = 8;
+// Concurrency default + clamp now live in DEFAULT_SUBAGENT_CONFIG /
+// MIN_CONCURRENCY / MAX_CONCURRENCY (lib/node/pi/subagent/config.ts).
 const DEFAULT_STATUS_LINGER_MS = 5000;
 const DEFAULT_RETAIN_DAYS = 30;
 const DEFAULT_BG_REGISTRY_CAP = 32;
@@ -242,10 +243,6 @@ export interface SubagentDetails {
 function envPositiveInt(name: string, def: number, max?: number): number {
   const n = parsePositiveInt(process.env[name], def);
   return max !== undefined ? Math.min(n, max) : n;
-}
-
-function envConcurrency(): number {
-  return Math.max(1, envPositiveInt('PI_SUBAGENT_CONCURRENCY', DEFAULT_CONCURRENCY, MAX_CONCURRENCY));
 }
 
 function makeSweepFs(): SweepFs {
@@ -772,10 +769,18 @@ export default function subagentExtension(pi: ExtensionAPI): void {
     render: (w, tag) => `${tag}: ${w.path}: ${w.reason}`,
   });
 
+  // Resolved config (built-in -> env knob -> user -> project). Seeded at
+  // registration from `process.cwd()` (no ctx yet) and re-loaded on
+  // session_start from `ctx.cwd` so a project-local
+  // `<cwd>/.pi/subagent.json` applies. The per-dispatch `model` /
+  // `maxTurns` reads use this object; the concurrency semaphore is
+  // captured once below (changing it mid-session needs /reload).
+  let subagentConfig: SubagentConfig = loadSubagentConfig(process.cwd());
+
   // Process-wide concurrency semaphore. Limit is captured once at
-  // session start; changing `PI_SUBAGENT_CONCURRENCY` mid-session
-  // requires /reload.
-  const semaphore = new Semaphore(envConcurrency());
+  // registration; changing concurrency (config file or
+  // `PI_SUBAGENT_CONCURRENCY`) mid-session requires /reload.
+  const semaphore = new Semaphore(subagentConfig.concurrency);
 
   // Running-child registry for the statusline aggregate rendering. Each
   // child owns an entry here from acquire-time until its per-call linger
@@ -911,6 +916,11 @@ export default function subagentExtension(pi: ExtensionAPI): void {
 
   pi.on('session_start', (_event, ctx) => {
     reload(ctx.cwd);
+    // Re-resolve config from the real session cwd so a project-local
+    // <cwd>/.pi/subagent.json takes effect. `concurrency` is intentionally
+    // not re-applied to the already-constructed semaphore (needs /reload),
+    // matching the prior PI_SUBAGENT_CONCURRENCY behaviour.
+    subagentConfig = loadSubagentConfig(ctx.cwd);
     surfaceWarnings(ctx, loadResult.warnings);
     handleCounter.reset();
     backgroundChildren.clear();
@@ -1080,7 +1090,9 @@ export default function subagentExtension(pi: ExtensionAPI): void {
     // lib/node/pi/subagent/spawn.ts::resolveChildModel. Both extensions
     // surface the same diagnostic strings so users see consistent
     // messages; keeping the resolver in one place prevents drift.
-    const modelSpecStr = modelOverride ?? process.env.PI_SUBAGENT_MODEL;
+    // Per-call override wins, then the config layer
+    // (project > user > PI_SUBAGENT_MODEL env), then inherit.
+    const modelSpecStr = modelOverride ?? subagentConfig.model;
     const modelResolution = resolveChildModel({
       override: modelSpecStr,
       agent,
@@ -1228,7 +1240,9 @@ export default function subagentExtension(pi: ExtensionAPI): void {
     const maxTurns = resolveMaxTurns({
       override: maxTurnsOverride,
       agentDefault: agent.maxTurns,
-      envCap: envPositiveInt('PI_SUBAGENT_MAX_TURNS', Number.MAX_SAFE_INTEGER),
+      // Config layer (project > user > PI_SUBAGENT_MAX_TURNS env) supplies
+      // the global ceiling; absent = no cap.
+      envCap: subagentConfig.maxTurns ?? Number.MAX_SAFE_INTEGER,
     });
     let reachedMaxTurns = false;
     // We trigger `child.abort()` ourselves on maxTurns, timeout, or parent

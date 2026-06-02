@@ -99,6 +99,38 @@ via `markLiveJobsTerminated` so the next runtime sees them as historical rather 
 - `PI_BG_BASH_KILL_GRACE_MS=N` - SIGTERM→SIGKILL grace window on shutdown (default `3000`, floor `0`).
 - `PI_BG_BASH_LOG_DIR=…` - override log directory root (default `$TMPDIR/pi-bg-bash`).
 
+## Config file
+
+Optional `bg-bash.json` config layers let a project pin per-call tool-param defaults and the operational knobs that were
+previously env-only. Layers, lowest precedence first: built-in defaults → `PI_BG_BASH_*` env knobs → user
+`~/.pi/agent/bg-bash.json` → project `<cwd>/.pi/bg-bash.json`. A per-call tool param always wins over the config, so the
+full resolution order is:
+
+```text
+per-call param > project config > user config > env knob > built-in default
+```
+
+(Pure logic in [`../../../lib/node/pi/bg-bash/config.ts`](../../../lib/node/pi/bg-bash/config.ts); the shell only does
+`params.X ?? config.X`.)
+
+| Key                | Type                             | Default   | Effect                                                                  |
+| ------------------ | -------------------------------- | --------- | ----------------------------------------------------------------------- |
+| `timeoutMs`        | integer ≥ 0                      | `15000`   | Default `wait` timeout when a call omits `timeoutMs`.                   |
+| `stream`           | `stdout` \| `stderr` \| `merged` | `merged`  | Default `logs` stream when a call omits `stream`.                       |
+| `maxBytes`         | integer ≥ 1                      | `32768`   | Default soft cap on `logs` response bytes when a call omits `maxBytes`. |
+| `tail`             | integer ≥ 0                      | (unset)   | Default `logs` tail-line count; unset = return the whole buffer.        |
+| `maxBufferBytes`   | integer ≥ 0                      | `1048576` | Per-stream ring-buffer cap (env: `PI_BG_BASH_MAX_BUFFER_BYTES`).        |
+| `killGraceMs`      | integer ≥ 0                      | `3000`    | SIGTERM→SIGKILL grace on shutdown (env: `PI_BG_BASH_KILL_GRACE_MS`).    |
+| `maxInjectedChars` | integer ≥ 200                    | `1500`    | Injected-block soft cap (env: `PI_BG_BASH_MAX_INJECTED_CHARS`).         |
+
+```jsonc
+// <cwd>/.pi/bg-bash.json - this project's builds are slow; wait longer and tail logs by default
+{
+  "timeoutMs": 60000,
+  "tail": 40,
+}
+```
+
 ## Helpers
 
 - [`../../../lib/node/pi/bg-bash-reducer.ts`](../../../lib/node/pi/bg-bash-reducer.ts) - pure state model:

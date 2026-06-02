@@ -87,6 +87,22 @@ Verbose-output env vars name the volume, not the word "verbose" -- pick one term
 An extension may carry both with the meanings above (`PI_APPLY_PATCH_DEBUG` + `PI_APPLY_PATCH_TRACE`). There is no third
 "verbose" term -- those two names cover every channel.
 
+**Config-file layering for tool-param defaults.** Where a tool param is really a user _preference_ (not per-call data),
+expose it as a `<ext>.json` config layer in addition to / instead of an env knob. Put the pure coerce + merge + a
+`load<Ext>Config(cwd)` under `lib/node/pi/<ext>/config.ts` (mirror
+[`comfyui/config.ts`](../../../lib/node/pi/comfyui/config.ts)), read paths via
+[`piAgentPath` / `piProjectPath`](../../../lib/node/pi/pi-paths.ts), and have the shell only do `params.X ?? config.X`.
+When an extension has BOTH env knobs and a config file, the resolution order is:
+
+```text
+per-call param  >  project config (<cwd>/.pi/<ext>.json)  >  user config (<piAgentDir>/<ext>.json)  >  env knob  >  built-in default
+```
+
+Env sits below the config files so a committed project config wins over a stray shell export. Extensions with this
+layering today: `comfyui`, `iteration-loop` (cap defaults), `bg_bash`, `subagent`, `deep-research`. Tool params that are
+per-call _data_ (text, ids, actions, prompts -- `apply-patch`, `scratchpad`, `todo`, `memory`, `questionnaire`,
+`scheduled-prompts`, `wasm-compute`) get NO config layer.
+
 ### Slash command conventions
 
 Three cross-cutting rules for every `pi.registerCommand` handler.
