@@ -296,6 +296,20 @@ OK
 This was run successfully on macOS by the Phase 3 author against the shipped example configs; it does NOT exercise
 actual syscall denial (still requires the model-turn smoke above) but proves the wiring + ASRT-API surface is intact.
 
+## Hot reload
+
+- **Config files** (`filesystem.json` + `sandbox.json`) -- re-read on every tool call via `reconfigure`, which calls
+  `SandboxManager.updateConfig()`, so the live sandbox picks up edits without `/reload`.
+- **Platform + dependency detection** -- computed on `session_start`; re-run with `/sandbox-recheck` after installing
+  `bubblewrap` / `socat` / `ripgrep`, no `/reload` needed.
+- **Linux literal-path rule compilation** -- recomputed on `reconfigure`; force a fresh walk with `/sandbox-rescan`
+  after a `git checkout` or a fresh dotfile commit.
+- **Session-only state** (`/sandbox-disable`, the reactive write-allow set) -- cleared on `session_shutdown`; a
+  `/reload` resets it.
+- **The extension code itself** -- edits to [`sandbox.ts`](./sandbox.ts) or the helpers under
+  [`../../../lib/node/pi/sandbox/`](../../../lib/node/pi/sandbox) need `/reload`. In-flight bash children keep their old
+  policy until they exit.
+
 ## Known limitations (v1)
 
 - DNS-over-UDP exfil is not blocked (`dig @8.8.8.8 ...`). ASRT proxies HTTP/HTTPS/SOCKS5 but not raw UDP - documented as

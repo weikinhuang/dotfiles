@@ -155,6 +155,15 @@ inside the child, so a matching policy entry still blocks the tool call.
 
 - `/filesystem` - list the active resolved policy (defaults / user / project / persona) plus the session allowlist.
 
+## Hot reload
+
+- **Policy files** (`filesystem.json` defaults / user / project / persona overlay) -- re-read on every tool call, so
+  edits take effect immediately without `/reload`.
+- **Session allowlist** -- in-memory, cleared on `session_shutdown`; a `/reload` resets it to empty.
+- **`PI_FILESYSTEM_DEFAULT`** -- read once at registration, so changing it needs `/reload` (or a session restart).
+- **The extension code itself** -- edits to [`filesystem.ts`](./filesystem.ts) or the helpers under
+  [`../../../lib/node/pi/filesystem-policy/`](../../../lib/node/pi/filesystem-policy) need `/reload`.
+
 ## Environment variables
 
 - `PI_FILESYSTEM_DISABLED=1` - bypass the gate entirely.

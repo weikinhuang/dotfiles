@@ -184,6 +184,19 @@ that ships only PNG art still picks up a sibling `ascii.yaml` for the kaomoji fa
 | `PI_AVATAR_NO_PROMPT` | Keep the avatar but drop the `[emote:]` prompt addendum.                                   |
 | `PI_AVATAR_RENDER`    | Force a protocol (`kitty` / `iterm2` / `sixel` / `halfblock` / `ascii`); overrides config. |
 
+## Hot reload
+
+Edit [`avatar.ts`](./avatar.ts) or any helper under [`../../../lib/node/pi/avatar/`](../../../lib/node/pi/avatar) and
+run `/reload`. A `/reload` re-runs registration and fires `session_start`, so most state is re-resolved:
+
+- **Config (`avatar.json`) and the resolved sprite / kaomoji set** -- re-read on `session_start` (and on `/avatar on`),
+  so a `/reload` picks up edits to either.
+- **The mounted widget and its animation timers** -- torn down on `session_shutdown` and rebuilt on the next
+  `session_start`, so they always reflect the reloaded module.
+- **The model -> emote-set mapping** -- recomputed on `session_start` and on a model change.
+- **The `[emote:]` prompt addendum** -- rebuilt every `before_agent_start`, so it tracks the active set without a
+  reload.
+
 ## Command
 
 `/avatar` reports status (on/off, protocol, active set, emotion vocabulary). `/avatar off` hides the widget for the
