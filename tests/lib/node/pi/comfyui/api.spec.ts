@@ -10,6 +10,7 @@ import {
   buildQueueUrl,
   buildViewUrl,
   extractOutputImages,
+  historyHasError,
   isExecutionComplete,
   joinUrl,
   normalizeBaseUrl,
@@ -77,6 +78,21 @@ describe('extractOutputImages', () => {
     expect(extractOutputImages({}, 'p1')).toEqual([]);
     expect(extractOutputImages({ p1: {} }, 'p1')).toEqual([]);
     expect(extractOutputImages(null, 'p1')).toEqual([]);
+  });
+});
+
+describe('historyHasError', () => {
+  test('true only when the prompt entry reports status_str error', () => {
+    expect(historyHasError({ p1: { status: { status_str: 'error' } } }, 'p1')).toBe(true);
+    expect(historyHasError({ p1: { status: { status_str: 'success' } } }, 'p1')).toBe(false);
+  });
+
+  test('false for absent prompt, missing status, or malformed shapes', () => {
+    expect(historyHasError({}, 'p1')).toBe(false);
+    expect(historyHasError({ p1: {} }, 'p1')).toBe(false);
+    expect(historyHasError({ p1: { status: {} } }, 'p1')).toBe(false);
+    expect(historyHasError(null, 'p1')).toBe(false);
+    expect(historyHasError('nope', 'p1')).toBe(false);
   });
 });
 

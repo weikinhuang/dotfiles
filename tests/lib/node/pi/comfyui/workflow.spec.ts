@@ -2,12 +2,17 @@
  * Tests for lib/node/pi/comfyui/workflow.ts.
  */
 
-import { describe, expect, test } from 'vitest';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
 import type { ComfyWorkflow } from '../../../../../lib/node/pi/comfyui/types.ts';
 import {
   injectInputs,
   isComfyWorkflow,
+  loadWorkflowGraph,
   randomSeed,
   validateMapping,
 } from '../../../../../lib/node/pi/comfyui/workflow.ts';
@@ -90,6 +95,56 @@ describe('validateMapping', () => {
     const errors = validateMapping(sampleWorkflow(), map);
     expect(errors).toHaveLength(1);
     expect(errors[0]).toContain('ghost');
+  });
+});
+
+describe('loadWorkflowGraph', () => {
+  let tmp: string;
+
+  beforeEach(() => {
+    tmp = mkdtempSync(join(tmpdir(), 'comfyui-wf-spec-'));
+  });
+
+  afterEach(() => {
+    rmSync(tmp, { recursive: true, force: true });
+  });
+
+  test('reads and validates a workflow file', () => {
+    const file = join(tmp, 'wf.json');
+    writeFileSync(file, JSON.stringify(sampleWorkflow()));
+    const loaded = loadWorkflowGraph(file, tmp);
+    expect(loaded.error).toBeUndefined();
+    expect(loaded.graph?.['6'].inputs?.text).toBe('old positive');
+  });
+
+  test('expands a leading ~ against the supplied homedir', () => {
+    const file = join(tmp, 'home-wf.json');
+    writeFileSync(file, JSON.stringify(sampleWorkflow()));
+    const loaded = loadWorkflowGraph('~/home-wf.json', tmp);
+    expect(loaded.error).toBeUndefined();
+    expect(loaded.graph).toBeDefined();
+  });
+
+  test('errors when the file is missing', () => {
+    const loaded = loadWorkflowGraph(join(tmp, 'nope.json'), tmp);
+    expect(loaded.graph).toBeUndefined();
+    expect(loaded.error).toContain('workflow file not found');
+  });
+
+  test('errors when the file is not a valid API-format graph', () => {
+    const file = join(tmp, 'bad.json');
+    writeFileSync(file, JSON.stringify({ '1': { class_type: 'X' } }));
+    const loaded = loadWorkflowGraph(file, tmp);
+    expect(loaded.graph).toBeUndefined();
+    expect(loaded.error).toContain('not a valid API-format graph');
+  });
+
+  test('errors on malformed JSON', () => {
+    const file = join(tmp, 'broken.json');
+    writeFileSync(file, '{ not json');
+    const loaded = loadWorkflowGraph(file, tmp);
+    expect(loaded.graph).toBeUndefined();
+    expect(loaded.error).toContain('not a valid API-format graph');
   });
 });
 

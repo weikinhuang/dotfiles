@@ -12,6 +12,11 @@
  * No pi imports - testable under vitest.
  */
 
+import { existsSync } from 'node:fs';
+
+import { readJsonOrUndefined } from '../fs-safe.ts';
+import { expandTilde } from '../path-expand.ts';
+
 import type { ComfyWorkflow, InputMapping } from './types.ts';
 
 /** A value injectable into a workflow node input. */
@@ -37,6 +42,22 @@ export function isComfyWorkflow(value: unknown): value is ComfyWorkflow {
   const entries = Object.values(value);
   if (entries.length === 0) return false;
   return entries.every((node) => isObject(node) && isObject((node as { inputs?: unknown }).inputs));
+}
+
+/**
+ * Read and validate a workflow file named in config. `file`'s leading
+ * `~` is expanded against `homedir`, then the file is read and narrowed
+ * with {@link isComfyWorkflow}. Returns `{ graph }` on success or a
+ * human-readable `{ error }` (file missing / not a valid API-format
+ * graph) so the extension can surface a clear failure instead of
+ * POSTing garbage. `homedir` is passed in to keep the helper pure.
+ */
+export function loadWorkflowGraph(file: string, homedir: string): { graph?: ComfyWorkflow; error?: string } {
+  const resolved = expandTilde(file, homedir);
+  if (!existsSync(resolved)) return { error: `workflow file not found: ${resolved}` };
+  const parsed = readJsonOrUndefined(resolved);
+  if (!isComfyWorkflow(parsed)) return { error: `workflow file is not a valid API-format graph: ${resolved}` };
+  return { graph: parsed };
 }
 
 /**

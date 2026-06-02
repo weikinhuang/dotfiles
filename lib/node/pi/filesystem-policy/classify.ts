@@ -27,6 +27,8 @@
 import { homedir } from 'node:os';
 import { relative, resolve, sep } from 'node:path';
 
+import { expandTilde as expandTildeWith } from '../path-expand.ts';
+
 import { type FilesystemMatch, type FilesystemPolicy, type FilesystemRules } from './schema.ts';
 
 // ──────────────────────────────────────────────────────────────────────
@@ -38,13 +40,13 @@ import { type FilesystemMatch, type FilesystemPolicy, type FilesystemRules } fro
  * Expand a leading `~` to the user's home directory. `~user/` is NOT
  * supported (would require a password-db lookup). Anything else falls
  * through unchanged - pi tools don't shell-expand `$HOME` either.
+ *
+ * Thin `homedir()`-bound wrapper over the shared
+ * {@link expandTildeWith}; re-exported here because the filesystem-policy
+ * matchers (and `hooks.ts`) call it with a single arg.
  */
 export function expandTilde(p: string): string {
-  if (p === '~') return homedir();
-  if (p.startsWith('~/') || p.startsWith(`~${sep}`)) {
-    return homedir() + p.slice(1);
-  }
-  return p;
+  return expandTildeWith(p, homedir());
 }
 
 /** Convert `*` / `?` glob to an anchored RegExp; everything else literal. */

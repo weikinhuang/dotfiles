@@ -33,6 +33,8 @@ import { resolve, sep } from 'node:path';
 
 import type { SandboxRuntimeConfig } from '@anthropic-ai/sandbox-runtime';
 
+import { expandTilde } from '../path-expand.ts';
+
 import type { FilesystemPolicy, FilesystemRules } from '../filesystem-policy/schema.ts';
 
 import type { SandboxConfig } from './config-schema.ts';
@@ -74,9 +76,7 @@ function fileExists(p: string): boolean {
 
 /** Resolve a `paths` rule against the session cwd and the home dir. */
 function resolveRulePath(raw: string, cwd: string, home: string): string {
-  if (raw === '~') return home;
-  if (raw.startsWith('~/')) return home + raw.slice(1);
-  return resolve(cwd, raw);
+  return resolve(cwd, expandTilde(raw, home));
 }
 
 /** Convert a basename glob (`*.key`, `.env.*`, `.envrc`) to a sandbox-

@@ -20,16 +20,12 @@
 
 import { isAbsolute, resolve as pathResolve } from 'node:path';
 
+import { expandTilde } from '../path-expand.ts';
+
 export interface ResolveContext {
   cwd: string;
   homedir: string;
   projectSlug: string;
-}
-
-function expandTilde(input: string, homedir: string): string {
-  if (input === '~') return homedir;
-  if (input.startsWith('~/')) return `${homedir}/${input.slice(2)}`;
-  return input;
 }
 
 function substituteSlug(input: string, projectSlug: string): string {

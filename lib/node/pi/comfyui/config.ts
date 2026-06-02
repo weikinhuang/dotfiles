@@ -6,13 +6,42 @@
  * feeds each parsed layer through {@link coerceConfigLayer} (untrusted
  * `unknown` -> validated `Partial<ComfyuiConfig>`), then
  * {@link mergeConfigLayers}. Keeping validation + merge + env
- * interpolation here makes it unit-testable without touching the
- * filesystem or the network.
+ * interpolation here makes the core logic unit-testable without
+ * touching the network.
+ *
+ * {@link loadComfyuiConfig} / {@link loadUserWorkflowNames} additionally
+ * do the disk wiring (read the user + project JSON files, coerce, merge)
+ * so the extension shell only supplies the shipped-workflow file path -
+ * the one piece that is genuinely shell-specific. They read through
+ * {@link readJsonOrUndefined} so a missing / malformed file degrades to
+ * an empty layer rather than throwing.
  *
  * No pi imports.
  */
 
+import { readJsonOrUndefined } from '../fs-safe.ts';
+import { piAgentPath, piProjectPath } from '../pi-paths.ts';
+
 import type { AuthHeader, ComfyuiConfig, InputMapping, WorkflowConfig } from './types.ts';
+
+/**
+ * Input map for the shipped `txt2img` example workflow
+ * (`config/pi/comfyui/txt2img.api.json`). Pure data - it names the nodes
+ * + input keys each tunable param injects into. Only the on-disk file
+ * path is shell-specific, so the shell pairs this with its `extDir`
+ * join to build the shipped {@link WorkflowConfig}.
+ */
+export const SHIPPED_WORKFLOW_INPUTS: Record<string, InputMapping> = {
+  prompt: { node: '6', key: 'text' },
+  negative: { node: '7', key: 'text' },
+  seed: { node: '3', key: 'seed' },
+  steps: { node: '3', key: 'steps' },
+  cfg: { node: '3', key: 'cfg' },
+  denoise: { node: '3', key: 'denoise' },
+  width: { node: '5', key: 'width' },
+  height: { node: '5', key: 'height' },
+  batch: { node: '5', key: 'batch_size' },
+};
 
 /** Shipped defaults used as the lowest config layer. */
 export const DEFAULT_CONFIG: ComfyuiConfig = {
@@ -202,4 +231,35 @@ export function resolveSendToModel(requested: boolean, modelInput: unknown): Sen
     if (!inputs.includes('image')) return { send: false, visionBlocked: true };
   }
   return { send: true, visionBlocked: false };
+}
+
+/**
+ * Load the fully-resolved config for `cwd`, layering the shipped
+ * `txt2img` default (lowest) under the user-global
+ * `<piAgentDir>/comfyui.json` and the project-local `<cwd>/.pi/comfyui.json`.
+ *
+ * `shipped` is the shell-provided {@link WorkflowConfig} for the example
+ * workflow (it owns the on-disk path via `extDir`); everything else -
+ * reading + coercing + merging the user / project layers - is done here.
+ */
+export function loadComfyuiConfig(cwd: string, shipped: WorkflowConfig): ComfyuiConfig {
+  const base = { workflows: { txt2img: shipped } };
+  const userLayer = coerceConfigLayer(readJsonOrUndefined(piAgentPath('comfyui.json')));
+  const projectLayer = coerceConfigLayer(readJsonOrUndefined(piProjectPath(cwd, 'comfyui.json')));
+  return mergeConfigLayers(base, userLayer, projectLayer);
+}
+
+/**
+ * Names of the workflows the user contributes via the user-global and
+ * project-local config files, ignoring the shipped example default.
+ *
+ * The extension uses this for its auto-disable decision: the shipped
+ * `txt2img` graph expects a checkpoint most servers won't have, so when
+ * neither config file adds a workflow the tool is deregistered rather
+ * than leaking a broken option into the model's tool list.
+ */
+export function loadUserWorkflowNames(cwd: string): string[] {
+  const userWorkflows = coerceConfigLayer(readJsonOrUndefined(piAgentPath('comfyui.json'))).workflows ?? {};
+  const projectWorkflows = coerceConfigLayer(readJsonOrUndefined(piProjectPath(cwd, 'comfyui.json'))).workflows ?? {};
+  return [...Object.keys(userWorkflows), ...Object.keys(projectWorkflows)];
 }

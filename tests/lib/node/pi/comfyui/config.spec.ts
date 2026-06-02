@@ -2,17 +2,25 @@
  * Tests for lib/node/pi/comfyui/config.ts.
  */
 
-import { describe, expect, test } from 'vitest';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
 import {
   coerceConfigLayer,
   DEFAULT_CONFIG,
   interpolateEnv,
+  loadComfyuiConfig,
+  loadUserWorkflowNames,
   mergeConfigLayers,
   resolveAuthHeaders,
   resolveBaseUrl,
   resolveSendToModel,
+  SHIPPED_WORKFLOW_INPUTS,
 } from '../../../../../lib/node/pi/comfyui/config.ts';
+import type { WorkflowConfig } from '../../../../../lib/node/pi/comfyui/types.ts';
 
 describe('coerceConfigLayer', () => {
   test('keeps well-typed fields and drops wrong-typed ones', () => {
@@ -166,5 +174,79 @@ describe('resolveSendToModel', () => {
   test('honors the request when model capabilities are unknown', () => {
     expect(resolveSendToModel(true, undefined)).toEqual({ send: true, visionBlocked: false });
     expect(resolveSendToModel(true, null)).toEqual({ send: true, visionBlocked: false });
+  });
+});
+
+describe('SHIPPED_WORKFLOW_INPUTS', () => {
+  test('maps every shipped tunable to a node + input key', () => {
+    expect(SHIPPED_WORKFLOW_INPUTS.prompt).toEqual({ node: '6', key: 'text' });
+    expect(SHIPPED_WORKFLOW_INPUTS.batch).toEqual({ node: '5', key: 'batch_size' });
+    expect(Object.keys(SHIPPED_WORKFLOW_INPUTS)).toEqual([
+      'prompt',
+      'negative',
+      'seed',
+      'steps',
+      'cfg',
+      'denoise',
+      'width',
+      'height',
+      'batch',
+    ]);
+  });
+});
+
+describe('loadComfyuiConfig / loadUserWorkflowNames', () => {
+  let agentDir: string;
+  let cwd: string;
+  let prevAgentDir: string | undefined;
+  const shipped: WorkflowConfig = { file: '/ext/txt2img.api.json', inputs: SHIPPED_WORKFLOW_INPUTS };
+
+  beforeEach(() => {
+    agentDir = mkdtempSync(join(tmpdir(), 'comfyui-agent-'));
+    cwd = mkdtempSync(join(tmpdir(), 'comfyui-cwd-'));
+    prevAgentDir = process.env.PI_CODING_AGENT_DIR;
+    process.env.PI_CODING_AGENT_DIR = agentDir;
+  });
+
+  afterEach(() => {
+    if (prevAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
+    else process.env.PI_CODING_AGENT_DIR = prevAgentDir;
+    rmSync(agentDir, { recursive: true, force: true });
+    rmSync(cwd, { recursive: true, force: true });
+  });
+
+  const writeProject = (config: unknown): void => {
+    mkdirSync(join(cwd, '.pi'), { recursive: true });
+    writeFileSync(join(cwd, '.pi', 'comfyui.json'), JSON.stringify(config));
+  };
+  const writeUser = (config: unknown): void => {
+    writeFileSync(join(agentDir, 'comfyui.json'), JSON.stringify(config));
+  };
+
+  test('with no config files, returns defaults plus the shipped workflow', () => {
+    const config = loadComfyuiConfig(cwd, shipped);
+    expect(config.baseUrl).toBe(DEFAULT_CONFIG.baseUrl);
+    expect(config.workflows.txt2img).toEqual(shipped);
+    expect(loadUserWorkflowNames(cwd)).toEqual([]);
+  });
+
+  test('project config layers over user config over the shipped default', () => {
+    writeUser({ baseUrl: 'http://user:8188', workflows: { userwf: { file: 'u.json', inputs: {} } } });
+    writeProject({ baseUrl: 'http://project:8188', workflows: { projwf: { file: 'p.json', inputs: {} } } });
+    const config = loadComfyuiConfig(cwd, shipped);
+    expect(config.baseUrl).toBe('http://project:8188');
+    expect(Object.keys(config.workflows).sort()).toEqual(['projwf', 'txt2img', 'userwf']);
+  });
+
+  test('loadUserWorkflowNames ignores the shipped default and lists user + project names', () => {
+    writeUser({ workflows: { userwf: { file: 'u.json', inputs: {} } } });
+    writeProject({ workflows: { projwf: { file: 'p.json', inputs: {} } } });
+    expect(loadUserWorkflowNames(cwd).sort()).toEqual(['projwf', 'userwf']);
+  });
+
+  test('malformed config files degrade to no user workflows', () => {
+    writeFileSync(join(agentDir, 'comfyui.json'), '{ not json');
+    expect(loadUserWorkflowNames(cwd)).toEqual([]);
+    expect(loadComfyuiConfig(cwd, shipped).workflows.txt2img).toEqual(shipped);
   });
 });

@@ -45,30 +45,34 @@ import { StringEnum } from '@earendil-works/pi-ai';
 import { Text } from '@earendil-works/pi-tui';
 import { Type } from 'typebox';
 
+import { delay } from '../../../lib/node/pi/abortable-delay.ts';
 import { atomicWriteFile } from '../../../lib/node/pi/atomic-write.ts';
 import { completeSubverbs } from '../../../lib/node/pi/commands/complete.ts';
 import { isHelpArg } from '../../../lib/node/pi/commands/help.ts';
+import { expandTilde } from '../../../lib/node/pi/path-expand.ts';
+import { mimeFromName } from '../../../lib/node/pi/comfyui/images.ts';
 import { COMFYUI_USAGE } from '../../../lib/node/pi/comfyui/usage.ts';
 import { envTruthy } from '../../../lib/node/pi/parse-env.ts';
-import { piAgentPath, piProjectPath } from '../../../lib/node/pi/pi-paths.ts';
 import {
-  coerceConfigLayer,
-  mergeConfigLayers,
+  loadComfyuiConfig,
+  loadUserWorkflowNames,
   resolveAuthHeaders,
   resolveBaseUrl,
   resolveSendToModel,
+  SHIPPED_WORKFLOW_INPUTS,
 } from '../../../lib/node/pi/comfyui/config.ts';
 import {
   buildHistoryUrl,
   buildQueueUrl,
   buildViewUrl,
   extractOutputImages,
+  historyHasError,
   isExecutionComplete,
   joinUrl,
   parseWsMessage,
   toWsUrl,
 } from '../../../lib/node/pi/comfyui/api.ts';
-import { injectInputs, isComfyWorkflow, randomSeed, validateMapping } from '../../../lib/node/pi/comfyui/workflow.ts';
+import { injectInputs, loadWorkflowGraph, randomSeed, validateMapping } from '../../../lib/node/pi/comfyui/workflow.ts';
 import {
   addJob,
   findJob,
@@ -148,77 +152,14 @@ interface GenParams {
 
 const extDir = dirname(fileURLToPath(import.meta.url));
 
+// Only the on-disk path of the shipped example workflow is shell-specific;
+// its input map is pure data (SHIPPED_WORKFLOW_INPUTS in lib).
 function shippedWorkflow(): WorkflowConfig {
-  return {
-    file: join(extDir, '..', 'comfyui', 'txt2img.api.json'),
-    inputs: {
-      prompt: { node: '6', key: 'text' },
-      negative: { node: '7', key: 'text' },
-      seed: { node: '3', key: 'seed' },
-      steps: { node: '3', key: 'steps' },
-      cfg: { node: '3', key: 'cfg' },
-      denoise: { node: '3', key: 'denoise' },
-      width: { node: '5', key: 'width' },
-      height: { node: '5', key: 'height' },
-      batch: { node: '5', key: 'batch_size' },
-    },
-  };
-}
-
-// ──────────────────────────────────────────────────────────────────────
-// Pure-ish helpers
-// ──────────────────────────────────────────────────────────────────────
-
-function expandHome(path: string): string {
-  if (path === '~') return homedir();
-  if (path.startsWith('~/')) return join(homedir(), path.slice(2));
-  return path;
-}
-
-function mimeFromName(name: string): string {
-  const lower = name.toLowerCase();
-  if (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) return 'image/jpeg';
-  if (lower.endsWith('.webp')) return 'image/webp';
-  if (lower.endsWith('.gif')) return 'image/gif';
-  return 'image/png';
-}
-
-function readJson(path: string): unknown {
-  try {
-    if (!existsSync(path)) return null;
-    return JSON.parse(readFileSync(path, 'utf8')) as unknown;
-  } catch {
-    return null;
-  }
+  return { file: join(extDir, '..', 'comfyui', 'txt2img.api.json'), inputs: SHIPPED_WORKFLOW_INPUTS };
 }
 
 function loadConfig(cwd: string): ComfyuiConfig {
-  const base = { workflows: { txt2img: shippedWorkflow() } };
-  const userLayer = coerceConfigLayer(readJson(piAgentPath('comfyui.json')));
-  const projectLayer = coerceConfigLayer(readJson(piProjectPath(cwd, 'comfyui.json')));
-  return mergeConfigLayers(base, userLayer, projectLayer);
-}
-
-function loadWorkflowGraph(file: string): { graph?: ComfyWorkflow; error?: string } {
-  const resolved = expandHome(file);
-  if (!existsSync(resolved)) return { error: `workflow file not found: ${resolved}` };
-  const parsed = readJson(resolved);
-  if (!isComfyWorkflow(parsed)) return { error: `workflow file is not a valid API-format graph: ${resolved}` };
-  return { graph: parsed };
-}
-
-function delay(ms: number, signal: AbortSignal): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(resolve, ms);
-    signal.addEventListener(
-      'abort',
-      () => {
-        clearTimeout(timer);
-        reject(new Error('aborted'));
-      },
-      { once: true },
-    );
-  });
+  return loadComfyuiConfig(cwd, shippedWorkflow());
 }
 
 // ──────────────────────────────────────────────────────────────────────
@@ -242,7 +183,7 @@ async function submitPrompt(conn: Conn, graph: ComfyWorkflow, clientId: string, 
 }
 
 async function uploadImage(conn: Conn, filePath: string, signal: AbortSignal): Promise<string> {
-  const resolved = expandHome(filePath);
+  const resolved = expandTilde(filePath, homedir());
   if (!existsSync(resolved)) throw new Error(`input image not found: ${resolved}`);
   const bytes = readFileSync(resolved);
   const form = new FormData();
@@ -270,14 +211,6 @@ async function fetchImageBytes(conn: Conn, ref: ImageRef, signal: AbortSignal): 
   const res = await fetch(buildViewUrl(conn.base, ref), { headers: conn.headers, signal });
   if (!res.ok) throw new Error(`failed to fetch ${ref.filename} (HTTP ${res.status})`);
   return Buffer.from(await res.arrayBuffer());
-}
-
-/** True when ComfyUI's `/history` entry for `promptId` reports an execution error. */
-function historyHasError(history: unknown, promptId: string): boolean {
-  const entry = history && typeof history === 'object' ? (history as Record<string, unknown>)[promptId] : undefined;
-  const status =
-    entry && typeof entry === 'object' ? (entry as { status?: { status_str?: string } }).status : undefined;
-  return status?.status_str === 'error';
 }
 
 /** Fetch every output image, write each to `saveDir`, and return path + inline block. */
@@ -310,7 +243,7 @@ async function buildInjectedGraph(
   report: (text: string) => void,
   signal: AbortSignal,
 ): Promise<{ graph?: ComfyWorkflow; seed?: number; error?: string }> {
-  const loaded = loadWorkflowGraph(wf.file);
+  const loaded = loadWorkflowGraph(wf.file, homedir());
   if (loaded.error || !loaded.graph) return { error: loaded.error ?? 'failed to load workflow' };
 
   let uploadedName: string | undefined;
@@ -419,16 +352,29 @@ async function pingServer(conn: Conn): Promise<boolean> {
 export default function comfyuiExtension(pi: ExtensionAPI): void {
   if (envTruthy(process.env.PI_COMFYUI_DISABLED)) return;
 
-  const cwd = process.cwd();
+  // Registration-time seed only. Registration runs before any session
+  // exists, so there is no `ctx` to read `ctx.cwd` from yet - the real
+  // session cwd arrives on `session_start` below, where we re-point this.
+  // It is used here for two things that can only be decided at
+  // registration: the auto-disable gate, and the workflow list baked
+  // into the (immutable) tool description. Tool handlers and the command
+  // completions re-resolve from `ctx.cwd` / the updated `cwd` instead.
+  let cwd = process.cwd();
+
   // Auto-disable when no user-supplied workflows exist. The shipped txt2img
   // graph (config/pi/comfyui/txt2img.api.json) is an example - it expects a
   // v1-5-pruned-emaonly checkpoint that most servers won't have - so registering
   // the tool with only that available would leak a broken option into the model's
   // tool list. The user has to point at their own workflow in
   // ~/.pi/agent/comfyui.json or <cwd>/.pi/comfyui.json to opt in.
-  const userWorkflows = coerceConfigLayer(readJson(piAgentPath('comfyui.json'))).workflows ?? {};
-  const projectWorkflows = coerceConfigLayer(readJson(piProjectPath(cwd, 'comfyui.json'))).workflows ?? {};
-  if (Object.keys(userWorkflows).length === 0 && Object.keys(projectWorkflows).length === 0) return;
+  //
+  // This gate is necessarily registration-time: pi has no unregisterTool API,
+  // so we cannot register first and back out on `session_start`. It is keyed
+  // off the user-global config (cwd-independent) and the project config under
+  // the registration-time cwd. A project whose only workflows live under a
+  // later `ctx.cwd` that differs from the launch dir would miss this gate, but
+  // its handlers still work once that project's config loads at call time.
+  if (loadUserWorkflowNames(cwd).length === 0) return;
 
   const registrationConfig = loadConfig(cwd);
   const workflowNames = Object.keys(registrationConfig.workflows);
@@ -455,6 +401,11 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
   };
 
   pi.on('session_start', (_event, ctx) => {
+    // Re-point cwd from the registration-time `process.cwd()` seed to the
+    // real session cwd. The `/comfyui workflows` completion resolver
+    // closes over `cwd` (completions get no `ctx`), so this keeps it
+    // pointed at the session's project config after a `/reload`.
+    cwd = ctx.cwd;
     uiRef = ctx.ui;
     lastStatusRunning = -1;
     updateStatusline();
@@ -942,7 +893,7 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
       if (sub === 'workflows') {
         const lines: string[] = [];
         for (const [name, wf] of Object.entries(config.workflows)) {
-          const loaded = loadWorkflowGraph(wf.file);
+          const loaded = loadWorkflowGraph(wf.file, homedir());
           if (loaded.error || !loaded.graph) {
             lines.push(`✗ ${name}: ${loaded.error ?? 'load failed'}`);
             continue;

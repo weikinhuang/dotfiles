@@ -93,6 +93,20 @@ export function extractOutputImages(history: unknown, promptId: string): ImageRe
   return out;
 }
 
+/**
+ * True when ComfyUI's `/history` entry for `promptId` reports an
+ * execution error (`status.status_str === 'error'`). Tolerant of partial
+ * shapes - a missing entry, status, or field reads as "no error" so a
+ * still-running or absent prompt is never mistaken for a failure.
+ */
+export function historyHasError(history: unknown, promptId: string): boolean {
+  if (!isObject(history)) return false;
+  const entry = history[promptId];
+  if (!isObject(entry)) return false;
+  const status = (entry as { status?: { status_str?: string } }).status;
+  return status?.status_str === 'error';
+}
+
 /** A parsed websocket event, narrowed to the fields the extension uses. */
 export type WsEvent =
   | { type: 'progress'; value: number; max: number; promptId?: string }
