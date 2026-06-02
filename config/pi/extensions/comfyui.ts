@@ -34,9 +34,8 @@
  *   PI_COMFYUI_TOKEN=...    referenced by a config authHeader as ${PI_COMFYUI_TOKEN}
  */
 
-import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { basename, dirname, isAbsolute, join } from 'node:path';
+import { dirname, isAbsolute, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 
@@ -45,12 +44,8 @@ import { StringEnum } from '@earendil-works/pi-ai';
 import { Text } from '@earendil-works/pi-tui';
 import { Type } from 'typebox';
 
-import { delay } from '../../../lib/node/pi/abortable-delay.ts';
-import { atomicWriteFile } from '../../../lib/node/pi/atomic-write.ts';
 import { completeSubverbs } from '../../../lib/node/pi/commands/complete.ts';
 import { isHelpArg } from '../../../lib/node/pi/commands/help.ts';
-import { expandTilde } from '../../../lib/node/pi/path-expand.ts';
-import { mimeFromName } from '../../../lib/node/pi/comfyui/images.ts';
 import { COMFYUI_USAGE } from '../../../lib/node/pi/comfyui/usage.ts';
 import { envTruthy } from '../../../lib/node/pi/parse-env.ts';
 import {
@@ -61,18 +56,19 @@ import {
   resolveSendToModel,
   SHIPPED_WORKFLOW_INPUTS,
 } from '../../../lib/node/pi/comfyui/config.ts';
+import { extractOutputImages, historyHasError } from '../../../lib/node/pi/comfyui/api.ts';
 import {
-  buildHistoryUrl,
-  buildQueueUrl,
-  buildViewUrl,
-  extractOutputImages,
-  historyHasError,
-  isExecutionComplete,
-  joinUrl,
-  parseWsMessage,
-  toWsUrl,
-} from '../../../lib/node/pi/comfyui/api.ts';
-import { injectInputs, loadWorkflowGraph, randomSeed, validateMapping } from '../../../lib/node/pi/comfyui/workflow.ts';
+  buildInjectedGraph,
+  cancelPrompt,
+  type Conn,
+  fetchAndSave,
+  fetchHistory,
+  openProgressSocket,
+  pingServer,
+  submitPrompt,
+  waitForImages,
+} from '../../../lib/node/pi/comfyui/client.ts';
+import { loadWorkflowGraph, validateMapping } from '../../../lib/node/pi/comfyui/workflow.ts';
 import {
   addJob,
   findJob,
@@ -85,17 +81,11 @@ import {
   runningJobs,
   updateJob,
 } from '../../../lib/node/pi/comfyui/jobs.ts';
-import type { ComfyuiConfig, ComfyWorkflow, ImageRef, WorkflowConfig } from '../../../lib/node/pi/comfyui/types.ts';
+import type { ComfyuiConfig, WorkflowConfig } from '../../../lib/node/pi/comfyui/types.ts';
 
 // ──────────────────────────────────────────────────────────────────────
 // Types
 // ──────────────────────────────────────────────────────────────────────
-
-interface Conn {
-  base: string;
-  headers: Record<string, string>;
-  timeoutMs: number;
-}
 
 interface GenerateDetails {
   workflow: string;
@@ -123,29 +113,6 @@ interface JobsDetails {
   jobs?: ImageJob[];
 }
 
-/** One fetched output: the on-disk path plus the inline image block. */
-interface SavedImage {
-  savedPath: string;
-  block: { type: 'image'; data: string; mimeType: string };
-}
-
-/** Subset of `generate_image` params the prepare/submit helpers read. */
-interface GenParams {
-  prompt: string;
-  negative?: string;
-  workflow?: string;
-  width?: number;
-  height?: number;
-  steps?: number;
-  cfg?: number;
-  seed?: number;
-  denoise?: number;
-  inputImage?: string;
-  count?: number;
-  sendToModel?: boolean;
-  background?: boolean;
-}
-
 // ──────────────────────────────────────────────────────────────────────
 // Shipped default workflow (committed at config/pi/comfyui/txt2img.api.json)
 // ──────────────────────────────────────────────────────────────────────
@@ -160,185 +127,6 @@ function shippedWorkflow(): WorkflowConfig {
 
 function loadConfig(cwd: string): ComfyuiConfig {
   return loadComfyuiConfig(cwd, shippedWorkflow());
-}
-
-// ──────────────────────────────────────────────────────────────────────
-// ComfyUI HTTP / websocket
-// ──────────────────────────────────────────────────────────────────────
-
-async function submitPrompt(conn: Conn, graph: ComfyWorkflow, clientId: string, signal: AbortSignal): Promise<string> {
-  const res = await fetch(joinUrl(conn.base, '/prompt'), {
-    method: 'POST',
-    headers: { ...conn.headers, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ prompt: graph, client_id: clientId }),
-    signal,
-  });
-  if (!res.ok) {
-    const text = await res.text().catch(() => '');
-    throw new Error(`ComfyUI rejected the workflow (HTTP ${res.status}): ${text.slice(0, 800)}`);
-  }
-  const json = (await res.json()) as { prompt_id?: string };
-  if (typeof json.prompt_id !== 'string') throw new Error('ComfyUI did not return a prompt_id');
-  return json.prompt_id;
-}
-
-async function uploadImage(conn: Conn, filePath: string, signal: AbortSignal): Promise<string> {
-  const resolved = expandTilde(filePath, homedir());
-  if (!existsSync(resolved)) throw new Error(`input image not found: ${resolved}`);
-  const bytes = readFileSync(resolved);
-  const form = new FormData();
-  form.append('image', new Blob([bytes]), basename(resolved));
-  form.append('overwrite', 'true');
-  const res = await fetch(joinUrl(conn.base, '/upload/image'), {
-    method: 'POST',
-    headers: conn.headers,
-    body: form,
-    signal,
-  });
-  if (!res.ok) throw new Error(`image upload failed (HTTP ${res.status})`);
-  const json = (await res.json()) as { name?: string; subfolder?: string };
-  if (typeof json.name !== 'string') throw new Error('ComfyUI did not return an uploaded image name');
-  return json.subfolder ? `${json.subfolder}/${json.name}` : json.name;
-}
-
-async function fetchHistory(conn: Conn, promptId: string, signal: AbortSignal): Promise<unknown> {
-  const res = await fetch(buildHistoryUrl(conn.base, promptId), { headers: conn.headers, signal });
-  if (!res.ok) return null;
-  return res.json();
-}
-
-async function fetchImageBytes(conn: Conn, ref: ImageRef, signal: AbortSignal): Promise<Buffer> {
-  const res = await fetch(buildViewUrl(conn.base, ref), { headers: conn.headers, signal });
-  if (!res.ok) throw new Error(`failed to fetch ${ref.filename} (HTTP ${res.status})`);
-  return Buffer.from(await res.arrayBuffer());
-}
-
-/** Fetch every output image, write each to `saveDir`, and return path + inline block. */
-async function fetchAndSave(conn: Conn, refs: ImageRef[], saveDir: string, signal: AbortSignal): Promise<SavedImage[]> {
-  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-  return Promise.all(
-    refs.map(async (ref, i) => {
-      const bytes = await fetchImageBytes(conn, ref, signal);
-      const savedPath = join(saveDir, `comfyui-${stamp}-${i}-${ref.filename}`);
-      atomicWriteFile(savedPath, bytes);
-      return {
-        savedPath,
-        block: { type: 'image' as const, data: bytes.toString('base64'), mimeType: mimeFromName(ref.filename) },
-      };
-    }),
-  );
-}
-
-/**
- * Load the named workflow graph, upload any img2img input, compute the
- * seed, and inject every mapped param. Returns the ready-to-submit graph
- * plus the resolved seed, or a human-readable `error` for a bad workflow
- * file / mapping. `uploadImage` failures throw and are caught upstream.
- */
-async function buildInjectedGraph(
-  conn: Conn,
-  wf: WorkflowConfig,
-  name: string,
-  params: GenParams,
-  report: (text: string) => void,
-  signal: AbortSignal,
-): Promise<{ graph?: ComfyWorkflow; seed?: number; error?: string }> {
-  const loaded = loadWorkflowGraph(wf.file, homedir());
-  if (loaded.error || !loaded.graph) return { error: loaded.error ?? 'failed to load workflow' };
-
-  let uploadedName: string | undefined;
-  if (params.inputImage !== undefined) {
-    if (wf.inputs.image === undefined) return { error: `workflow "${name}" does not accept an input image` };
-    report('uploading input image…');
-    uploadedName = await uploadImage(conn, params.inputImage, signal);
-  }
-
-  const autoSeed = params.seed === undefined && wf.inputs.seed !== undefined ? randomSeed() : undefined;
-  const seed = params.seed ?? autoSeed;
-
-  const injected = injectInputs(loaded.graph, wf.inputs, {
-    prompt: params.prompt,
-    negative: params.negative,
-    seed,
-    steps: params.steps,
-    cfg: params.cfg,
-    denoise: params.denoise,
-    width: params.width,
-    height: params.height,
-    batch: params.count,
-    image: uploadedName,
-  });
-  if (injected.errors.length > 0) return { error: `workflow mapping error: ${injected.errors.join('; ')}` };
-  return { graph: injected.workflow, seed };
-}
-
-/** Best-effort removal of a still-queued prompt from ComfyUI's queue. */
-async function cancelPrompt(conn: Conn, promptId: string, signal: AbortSignal): Promise<void> {
-  try {
-    await fetch(buildQueueUrl(conn.base), {
-      method: 'POST',
-      headers: { ...conn.headers, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ delete: [promptId] }),
-      signal,
-    });
-  } catch {
-    // best-effort: a job already executing can't be dequeued
-  }
-}
-
-/** Best-effort progress stream; failures (incl. ws auth) are swallowed. */
-function openProgressSocket(
-  conn: Conn,
-  clientId: string,
-  promptId: string,
-  report: ((text: string) => void) | undefined,
-  signal: AbortSignal,
-): WebSocket | null {
-  if (!report) return null;
-  try {
-    const ws = new WebSocket(toWsUrl(conn.base, clientId));
-    ws.addEventListener('message', (ev: MessageEvent) => {
-      if (typeof ev.data !== 'string') return;
-      const event = parseWsMessage(ev.data);
-      if (!event) return;
-      if (event.type === 'progress' && (event.promptId === undefined || event.promptId === promptId)) {
-        report(`generating ${event.value}/${event.max}`);
-      } else if (isExecutionComplete(event, promptId)) {
-        report('rendering output…');
-      }
-    });
-    signal.addEventListener('abort', () => ws.close(), { once: true });
-    return ws;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Poll `/history` until the prompt produces image outputs (or aborts).
- * Written recursively rather than as a `while` so the sequential awaits
- * (one poll, then a delay) aren't flagged as parallelizable.
- */
-async function waitForImages(conn: Conn, promptId: string, signal: AbortSignal): Promise<ImageRef[]> {
-  if (signal.aborted) throw new Error('aborted');
-  const history = await fetchHistory(conn, promptId, signal);
-  const images = extractOutputImages(history, promptId);
-  if (images.length > 0) return images;
-  if (historyHasError(history, promptId)) throw new Error('ComfyUI reported an execution error (see server log)');
-  await delay(1000, signal);
-  return waitForImages(conn, promptId, signal);
-}
-
-async function pingServer(conn: Conn): Promise<boolean> {
-  try {
-    const res = await fetch(joinUrl(conn.base, '/system_stats'), {
-      headers: conn.headers,
-      signal: AbortSignal.timeout(5000),
-    });
-    return res.ok;
-  } catch {
-    return false;
-  }
 }
 
 // ──────────────────────────────────────────────────────────────────────
@@ -530,7 +318,7 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
 
       let socket: WebSocket | null = null;
       try {
-        const prep = await buildInjectedGraph(conn, wf, name, params, report, runSignal);
+        const prep = await buildInjectedGraph(conn, wf, name, params, homedir(), report, runSignal);
         if (prep.error || !prep.graph) {
           details.error = prep.error;
           return {
