@@ -76,4 +76,17 @@ export default function extension(pi: ExtensionAPI): void {
       ctx.ui.notify('Built-in header restored', 'info');
     },
   });
+
+  pi.on('session_shutdown', (_event, ctx) => {
+    // Release the mounted header so the closure capturing the outgoing
+    // ctx/theme isn't left installed across a /reload. The next
+    // session_start re-installs a fresh one; on a real exit this just
+    // hands the header strip back to pi's built-in renderer.
+    if (!ctx.hasUI) return;
+    try {
+      ctx.ui.setHeader(undefined);
+    } catch {
+      // best-effort: shutdown must never throw.
+    }
+  });
 }

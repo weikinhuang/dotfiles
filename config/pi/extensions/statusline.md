@@ -84,4 +84,7 @@ Uses only semantic theme tokens (`error`, `warning`, `mdListBullet`, `mdLink`, `
 
 ## Hot reload
 
-Edit the file and run `/reload` inside an interactive pi session to pick up changes without restarting.
+Edit the file and run `/reload` inside an interactive pi session to pick up changes without restarting. The
+`session_shutdown` handler hands the footer back with `setFooter(undefined)` (which fires the footer component's own
+`dispose()`, tearing down its branch-change subscription and per-cwd git/worktree caches) and clears the `statusline`
+status slot. The next `session_start` mounts a fresh footer, so no stale render survives the reload.

@@ -548,4 +548,20 @@ export default function extension(pi: ExtensionAPI): void {
   };
   pi.on('message_end', refresh);
   pi.on('turn_end', refresh);
+
+  pi.on('session_shutdown', (_event, ctx) => {
+    // Release the mounted footer + status slot. The footer factory
+    // captures the session_start `ctx` and owns a branch-change
+    // subscription it tears down via its own `dispose()` when pi
+    // replaces the component; handing the footer back to undefined
+    // triggers that disposal and stops stale renders bleeding across a
+    // /reload. The next session_start re-installs a fresh footer.
+    if (!ctx.hasUI) return;
+    try {
+      ctx.ui.setFooter(undefined);
+      ctx.ui.setStatus('statusline', undefined);
+    } catch {
+      // best-effort: shutdown must never throw.
+    }
+  });
 }

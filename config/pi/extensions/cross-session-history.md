@@ -92,5 +92,7 @@ into prompts you actually want to scroll back to.
 
 Edit [`extensions/cross-session-history.ts`](./cross-session-history.ts),
 [`lib/node/pi/cross-session-history.ts`](../../../lib/node/pi/cross-session-history.ts), or
-[`lib/node/pi/fuzzy-match.ts`](../../../lib/node/pi/fuzzy-match.ts) and run `/reload` in an interactive pi session. The
-next `session_start` event refreshes both prompt caches and re-installs the editor factory.
+[`lib/node/pi/fuzzy-match.ts`](../../../lib/node/pi/fuzzy-match.ts) and run `/reload` in an interactive pi session. On
+reload the `session_shutdown` handler hands the editor back to the previously-installed factory (the foreign editor, or
+pi's default) and drops the captured UI ref + both prompt caches, so our factory closure isn't left mounted. The next
+`session_start` then rebuilds the caches from disk and re-installs the editor factory cleanly.

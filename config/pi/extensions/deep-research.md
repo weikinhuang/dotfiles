@@ -103,4 +103,8 @@ client; see that module for specifics.
 Edit [`extensions/deep-research.ts`](./deep-research.ts) or any companion under
 [`lib/node/pi/deep-research/`](../../../lib/node/pi/deep-research/) /
 [`lib/node/pi/research/`](../../../lib/node/pi/research/) and run `/reload` in an interactive pi session to pick up
-changes without restarting.
+changes without restarting. The `session_shutdown` handler drains every live statusline controller - stopping its
+spinner `setInterval` and the 8s post-terminal auto-dismiss `setTimeout`, and unmounting the `deep-research` widget - so
+a reload fired mid-run (or during the auto-clear window) doesn't leave a timer or widget bound to the replaced `ctx`. An
+in-flight research run itself is not resumed by reload; re-run it (or `/research --resume`) after the new session
+starts.

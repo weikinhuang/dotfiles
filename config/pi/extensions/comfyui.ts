@@ -457,6 +457,24 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
     updateStatusline();
   });
 
+  pi.on('session_shutdown', (_event, ctx) => {
+    // Clear the statusline badge and drop the in-memory job registry so
+    // a /reload doesn't leave a stale `▦ img:N` count claiming the slot
+    // or surface a prior session's background jobs. ComfyUI owns the
+    // actual executions server-side, so dropping our metadata is safe;
+    // the user re-collects via the server's own history if needed.
+    if (ctx.hasUI) {
+      try {
+        ctx.ui.setStatus('comfyui', undefined);
+      } catch {
+        // best-effort: shutdown must never throw.
+      }
+    }
+    registry = emptyRegistry();
+    uiRef = undefined;
+    lastStatusRunning = -1;
+  });
+
   // Remind the model about pending background jobs each turn so even a
   // weak model remembers to collect them.
   pi.on('before_agent_start', (event, ctx) => {

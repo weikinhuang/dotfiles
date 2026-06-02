@@ -30,6 +30,34 @@ Every extension ships with a deep doc next to it (`bg-bash.ts` ↔ `bg-bash.md`,
 The `.md` is the long-form reference for behaviour, env vars, and rule shapes; the `.ts` is the source of truth for
 runtime behaviour. New extensions add both files **and** a row in [README.md](./README.md)'s index table in lockstep.
 
+### Lifecycle
+
+Any extension that **mounts a UI surface** (`ctx.ui.setHeader` / `setFooter` / `setWidget` / `setStatus` /
+`setEditorComponent`), **holds a timer** (`setInterval` / `setTimeout`), **opens a watcher** (`fs.watch` / a websocket /
+an event subscription), or **starts a child process** MUST register a `pi.on('session_shutdown', …)` handler that
+releases that resource. `/reload` routes through `session_shutdown` → `session_start`, so anything left mounted or
+ticking after shutdown leaks across the reload (a stale widget claiming a status slot, a spinner interval bound to a
+replaced `ctx`, a child still draining stdout). The shutdown handler is the only teardown hook that fires on both
+`/reload` and a real session end.
+
+Rules for the handler:
+
+- **Idempotent and never-throwing.** Wrap each risky release in its own `try/catch`; a shutdown handler that throws can
+  wedge pi's exit. Clearing a UI slot you never mounted is a safe no-op, so unconditional `setStatus(key, undefined)` /
+  `setWidget(key, undefined)` is fine.
+- **Guard UI calls with `ctx.hasUI`.** In print / RPC / `--no-session` modes there is no UI to release.
+- **Drop captured `ctx` and session-scoped state** (caches, registries, the last-seen `ctx.ui` ref) so the next
+  `session_start` rebuilds from scratch instead of reusing a stale closure.
+- **Don't add a handler for pure module-level constants or prompt addenda.** A `Map`/`Set` that is recomputed per call,
+  a static prompt string, or a per-call config load holds no durable resource - a shutdown handler there only bloats the
+  file without preventing a leak.
+
+Reference implementations: [`bg-bash.ts`](./bg-bash.ts) (SIGTERM every live child with a grace window),
+[`subagent.ts`](./subagent.ts) (abort + drain background children, cancel linger timers), [`avatar.ts`](./avatar.ts) /
+[`waveform-indicator.ts`](./waveform-indicator.ts) (unmount widget + clear animation timers + reset state), and
+[`scheduled-prompts.ts`](./scheduled-prompts.ts) (clear the pending timer, keeping session schedules across a `reload`
+but dropping them on a real end).
+
 ### Security gates auto-inject into subagent sessions
 
 Security-gate extensions (`bash-permissions.ts`, `filesystem.ts`, `sandbox.ts`) register a hook-only factory via

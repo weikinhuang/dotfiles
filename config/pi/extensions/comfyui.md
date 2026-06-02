@@ -167,6 +167,16 @@ configured, the default workflow, the configured workflow names, and `saveDir`. 
 configured workflow file and validates that every mapped node id exists in the graph, so a bad input map is caught
 without a generation round-trip. `/comfyui jobs` lists the current session's background generations and their status.
 
+## Hot reload
+
+Edit [`comfyui.ts`](./comfyui.ts) or any companion under [`../../../lib/node/pi/comfyui/`](../../../lib/node/pi/comfyui)
+and run `/reload` in an interactive pi session. The tool registration, workflow list, and tool description are computed
+at load time, so a `/reload` re-runs registration and picks up changes to `comfyui.json` / the workflow graphs. The
+`session_shutdown` handler clears the `comfyui` statusline badge (`▦ img:N`) and drops the in-memory background-job
+registry on reload, so a stale job count never bleeds into the next session. The jobs themselves run server-side and are
+not re-attached after reload - ComfyUI keeps each prompt under its id, so re-collect via the server's own history if a
+generation was in flight.
+
 ## Related docs
 
 - [README.md](./README.md) - extension index.

@@ -34,4 +34,6 @@ The `π pi` brand renders in bold + accent; each hint pair uses pi's own two-ton
 ## Hot reload
 
 Edit [`extensions/custom-header.ts`](./custom-header.ts) and run `/reload` in an interactive pi session to pick up
-changes without restarting.
+changes without restarting. The `session_shutdown` handler calls `setHeader(undefined)` on reload, so the mounted header
+(and the theme closure it captures) is released cleanly before the next `session_start` re-installs a fresh one - no
+stale header survives the reload.

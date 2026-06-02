@@ -224,6 +224,17 @@ const USAGE =
 const STATUSLINE_KEY = 'deep-research';
 
 /**
+ * Live statusline controllers, registered on construction and removed
+ * by their own `clear()`. Each owns a spinner `setInterval` and an
+ * auto-dismiss `setTimeout` (both `unref()`'d so they never block
+ * process exit) plus the mounted `setWidget` slot. The `session_shutdown`
+ * handler drains this set so a `/reload` partway through a run - or
+ * during the 8s post-terminal auto-clear window - tears the timers down
+ * and releases the widget instead of leaving them bound to a stale ctx.
+ */
+const liveStatuslineControllers = new Set<StatuslineController>();
+
+/**
  * TypeBox schema for the LLM-callable `research` tool.
  *
  *   - `question`         required - the research question itself.
@@ -346,6 +357,35 @@ export default function deepResearchExtension(pi: ExtensionAPI): void {
       ctx.ui.setWidget(STATUSLINE_KEY, undefined);
     } catch {
       /* swallow */
+    }
+  });
+
+  pi.on('session_shutdown', (_event, ctx) => {
+    // Drain every live statusline controller: each `clear()` stops its
+    // spinner interval + auto-dismiss timeout and unmounts the widget.
+    // Iterate a snapshot because `clear()` mutates the set. This catches
+    // a /reload fired mid-run or during the post-terminal auto-clear
+    // window, where the timers would otherwise stay live (and bound to a
+    // stale ctx) until process exit. Each `clear()` removes the
+    // controller from the set; deleting the in-progress element during a
+    // Set `for…of` is well-defined and does not skip survivors.
+    for (const controller of liveStatuslineControllers) {
+      try {
+        controller.clear();
+      } catch {
+        /* swallow - shutdown must never throw */
+      }
+    }
+    liveStatuslineControllers.clear();
+    // Belt-and-suspenders: drop any widget the drained controllers
+    // didn't own (e.g. the stale-widget clear above ran against a
+    // different ctx).
+    if (ctx.hasUI) {
+      try {
+        ctx.ui.setWidget(STATUSLINE_KEY, undefined);
+      } catch {
+        /* swallow */
+      }
     }
   });
 
@@ -754,12 +794,18 @@ function buildStatuslineController(ctx: {
     } catch {
       /* swallow */
     }
+    liveStatuslineControllers.delete(controller);
   };
-  return {
+  const controller: StatuslineController = {
     emit,
     current: () => state,
     clear,
   };
+  // Register so session_shutdown can drain any controller still holding
+  // a live spinner timer / mounted widget when pi tears the session down
+  // mid-run. `clear()` removes it again on the normal path.
+  liveStatuslineControllers.add(controller);
+  return controller;
 }
 
 /**

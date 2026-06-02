@@ -430,4 +430,23 @@ export default function crossSessionHistory(pi: ExtensionAPI): void {
       );
     }
   });
+
+  pi.on('session_shutdown', (_event, ctx) => {
+    // Hand the editor back to whatever was installed before us (the
+    // foreign factory, or pi's default) so our factory - which closes
+    // over `activeUi` / the prompt caches - isn't left mounted across a
+    // /reload. Then drop the captured ctx + caches; the next
+    // session_start rebuilds them from disk.
+    if (ctx.hasUI) {
+      try {
+        ctx.ui.setEditorComponent(foreignFactory);
+      } catch {
+        // best-effort: shutdown must never throw.
+      }
+    }
+    activeUi = undefined;
+    editorHistory = [];
+    searchHistory = [];
+    foreignFactory = undefined;
+  });
 }
