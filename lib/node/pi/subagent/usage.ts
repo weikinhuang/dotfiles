@@ -7,11 +7,6 @@ export const AGENTS_USAGE = [
   'Usage: /agents [list|show <name>|running]',
   '',
   'List loaded sub-agents (no args or `list`), show one definition',
-  '(`show <name>`), or list active background children (`running`).',
-].join('\n');
-
-export const AGENTS_RUNNING_USAGE = [
-  'Usage: /agents:running',
-  '',
-  'Open a live overlay listing active background sub-agents (auto-refreshing).',
+  '(`show <name>`), or open a live overlay of active background',
+  'children (`running`, auto-refreshing).',
 ].join('\n');

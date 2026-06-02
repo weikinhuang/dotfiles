@@ -345,7 +345,7 @@ describe('formatAgentPreview', () => {
 });
 
 // ──────────────────────────────────────────────────────────────────────
-// /agents:running overlay helpers
+// /agents running overlay helpers
 // ──────────────────────────────────────────────────────────────────────
 
 describe('formatContextBar', () => {

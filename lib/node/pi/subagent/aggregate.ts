@@ -154,7 +154,7 @@ export function __resetSessionSubagentAggregateForTests(): void {
 // ──────────────────────────────────────────────────────────────────────
 
 /**
- * Live per-handle counters used by the `/agents:running` overlay and the
+ * Live per-handle counters used by the `/agents running` overlay and the
  * `subagent`/`subagent_send` scorecards. The extension's
  * `child.subscribe(...)` callback updates `byTool` from each
  * `tool_execution_start` event and re-publishes a `SubagentRunSnapshot`

@@ -118,7 +118,7 @@ import {
 } from '../../../lib/node/pi/subagent/format.ts';
 import { isHelpArg } from '../../../lib/node/pi/commands/help.ts';
 import { makeHandleCounter, resolveHandle } from '../../../lib/node/pi/subagent/handle.ts';
-import { AGENTS_RUNNING_USAGE, AGENTS_USAGE } from '../../../lib/node/pi/subagent/usage.ts';
+import { AGENTS_USAGE } from '../../../lib/node/pi/subagent/usage.ts';
 import { createNotifyOnce } from '../../../lib/node/pi/notify-once.ts';
 import {
   type AgentDef,
@@ -559,7 +559,7 @@ class AgentsLoadedOverlay implements Component {
 }
 
 /**
- * Running-children overlay rendered by `/agents:running`. Live tick
+ * Running-children overlay rendered by `/agents running`. Live tick
  * every 1 s; each row block lays out handle, agent, state, elapsed,
  * `turn N/max`, token line, ctx bar, model, and (optional) tool counts.
  * Below the row list, a preview block summarises the highlighted child
@@ -1479,7 +1479,7 @@ export default function subagentExtension(pi: ExtensionAPI): void {
       entry.running = false;
       entry.outcome = result;
       // Keep the per-handle activity ring around so terminal entries
-      // still tail past activity in `/agents:running`. The ring is
+      // still tail past activity in `/agents running`. The ring is
       // dropped on session_shutdown along with the rest of the
       // per-handle state.
       return result;
@@ -2045,11 +2045,51 @@ export default function subagentExtension(pi: ExtensionAPI): void {
       surfaceWarnings(ctx, loadResult.warnings);
 
       if (raw === 'running') {
-        // Legacy path: `/agents running` (space spelling) was the v1
-        // spelling. We keep it as a shim that points users to the new
-        // colon-notation command. The actual overlay lives behind
-        // `agents:running`.
-        ctx.ui.notify('subagent: use `/agents:running` (colon notation) for the new live overlay.', 'info');
+        // Live overlay of active background children, auto-refreshing on a
+        // RUNNING_TICK_MS timer. Falls back to a flat notify when the host
+        // lacks UI (print / rpc modes).
+        const buildEntries = (): RunningOverlayEntry[] => {
+          return [...backgroundChildren.values()]
+            .sort((a, b) => a.startedAt - b.startedAt)
+            .map((e) => ({
+              handle: e.handle,
+              agent: e.agent.name,
+              agentSource: e.agent.source,
+              task: e.task,
+              snapshot: e.snapshot,
+              startedAt: e.startedAt,
+              lastUpdateMs: e.startedAt + (e.snapshot.durationMs ?? Date.now() - e.startedAt),
+              running: e.running,
+              sessionFile: e.childSessionFile,
+            }));
+        };
+
+        if (!ctx.hasUI) {
+          const entries: RunningChildListItem[] = buildEntries().map((e) => ({
+            handle: e.handle,
+            snapshot: e.snapshot,
+            startedAt: e.startedAt,
+          }));
+          ctx.ui.notify(formatRunningChildrenList(entries), 'info');
+          return;
+        }
+
+        const rings = getSessionActivityRings();
+        let ticker: ReturnType<typeof setInterval> | undefined;
+        let overlay: AgentsRunningOverlay | undefined;
+        await ctx.ui.custom<void>((tui, theme, _kb, done) => {
+          overlay = new AgentsRunningOverlay(buildEntries, rings, theme, () => {
+            if (ticker) clearInterval(ticker);
+            ticker = undefined;
+            done();
+          });
+          ticker = setInterval(() => {
+            overlay?.invalidate();
+            tui.requestRender();
+          }, RUNNING_TICK_MS);
+          return overlay;
+        });
+        if (ticker) clearInterval(ticker);
         return;
       }
 
@@ -2077,7 +2117,7 @@ export default function subagentExtension(pi: ExtensionAPI): void {
       }
 
       if (raw && raw !== 'list') {
-        ctx.ui.notify('subagent: usage: /agents [list] | /agents show <name> | /agents:running', 'warning');
+        ctx.ui.notify('subagent: usage: /agents [list] | /agents show <name> | /agents running', 'warning');
         return;
       }
 
@@ -2114,58 +2154,6 @@ export default function subagentExtension(pi: ExtensionAPI): void {
       }
 
       await ctx.ui.custom<void>((_tui, theme, _kb, done) => new AgentsLoadedOverlay(agents, theme, () => done()));
-    },
-  });
-
-  pi.registerCommand('agents:running', {
-    description: 'Live overlay listing active background sub-agents (auto-refreshing).',
-    handler: async (args, ctx) => {
-      if (isHelpArg(args)) {
-        ctx.ui.notify(AGENTS_RUNNING_USAGE, 'info');
-        return;
-      }
-      const buildEntries = (): RunningOverlayEntry[] => {
-        return [...backgroundChildren.values()]
-          .sort((a, b) => a.startedAt - b.startedAt)
-          .map((e) => ({
-            handle: e.handle,
-            agent: e.agent.name,
-            agentSource: e.agent.source,
-            task: e.task,
-            snapshot: e.snapshot,
-            startedAt: e.startedAt,
-            lastUpdateMs: e.startedAt + (e.snapshot.durationMs ?? Date.now() - e.startedAt),
-            running: e.running,
-            sessionFile: e.childSessionFile,
-          }));
-      };
-
-      if (!ctx.hasUI) {
-        const entries: RunningChildListItem[] = buildEntries().map((e) => ({
-          handle: e.handle,
-          snapshot: e.snapshot,
-          startedAt: e.startedAt,
-        }));
-        ctx.ui.notify(formatRunningChildrenList(entries), 'info');
-        return;
-      }
-
-      const rings = getSessionActivityRings();
-      let ticker: ReturnType<typeof setInterval> | undefined;
-      let overlay: AgentsRunningOverlay | undefined;
-      await ctx.ui.custom<void>((tui, theme, _kb, done) => {
-        overlay = new AgentsRunningOverlay(buildEntries, rings, theme, () => {
-          if (ticker) clearInterval(ticker);
-          ticker = undefined;
-          done();
-        });
-        ticker = setInterval(() => {
-          overlay?.invalidate();
-          tui.requestRender();
-        }, RUNNING_TICK_MS);
-        return overlay;
-      });
-      if (ticker) clearInterval(ticker);
     },
   });
 }

@@ -1,9 +1,13 @@
 /**
- * USAGE text for the `/builtin-header` command. Pure string module so
- * the extension shell and the `--help` path share one source of truth.
+ * USAGE text for the `/header` command. Pure string module so the
+ * extension shell and the `--help` path share one source of truth.
  */
-export const BUILTIN_HEADER_USAGE = [
-  'Usage: /builtin-header',
+export const HEADER_USAGE = [
+  'Usage: /header [builtin|custom]',
   '',
-  "Restore pi's default mascot + keybinding-hints header.",
+  'Switch the session header source:',
+  "  builtin   restore pi's default mascot + keybinding-hints header",
+  '  custom    install the compact single-line header strip',
+  '',
+  'With no argument, prints the header source currently in effect.',
 ].join('\n');

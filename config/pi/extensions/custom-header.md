@@ -19,8 +19,11 @@ The `π pi` brand renders in bold + accent; each hint pair uses pi's own two-ton
 
 ## Commands
 
-- `/builtin-header` - restore pi's built-in mascot + keybinding-hints header for the rest of the session. Useful if you
+- `/header` - print which header source is currently mounted (`custom` or `builtin`).
+- `/header builtin` - restore pi's built-in mascot + keybinding-hints header for the rest of the session. Useful if you
   want to rediscover the full keybinding list without restarting.
+- `/header custom` - re-install the compact single-line header strip (the default), e.g. after switching to the built-in
+  header.
 
 ## Notes
 

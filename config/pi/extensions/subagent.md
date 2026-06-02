@@ -127,7 +127,7 @@ lockstep.
   description). Escape closes.
 - `/agents show <name>` - print the full frontmatter + body of a single agent (useful for confirming an override took
   effect).
-- `/agents:running` - open the **Running sub-agents** live overlay (auto-refresh every 1s). Each row block shows
+- `/agents running` - open the **Running sub-agents** live overlay (auto-refresh every 1s). Each row block shows
   `<handle> <agent> <state> <elapsed> turn N/max`, a tokens line, a context-usage bar, model, and per-tool call counts
   (`read(7) · grep(3) · bash(1)`). Below the row list, a preview block summarises the highlighted child and tails a
   bounded ring (default 64 entries) of structured-event activity: `→ <tool>  <args>` / `← <result>` for tool calls,

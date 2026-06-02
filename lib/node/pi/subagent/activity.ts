@@ -1,5 +1,5 @@
 /**
- * Activity-tail primitives for the `/agents:running` overlay.
+ * Activity-tail primitives for the `/agents running` overlay.
  *
  * The overlay renders a bounded ring of one-line summaries underneath
  * the per-child preview block. Lines are derived from the child's
@@ -363,7 +363,7 @@ export interface TailJsonlOptions {
 /**
  * Read a child session's JSONL transcript from disk and reduce it to
  * the last N activity-tail lines. Used when the highlighted entry in
- * `/agents:running` is terminal (no live `child.subscribe`).
+ * `/agents running` is terminal (no live `child.subscribe`).
  *
  * The reader is best-effort: any line that fails to parse is skipped
  * silently so partial / truncated files still yield a useful tail.

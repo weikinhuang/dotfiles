@@ -261,7 +261,7 @@ export function formatAgentPreview(agent: AgentPreviewSource): string[] {
 }
 
 // ──────────────────────────────────────────────────────────────────────
-// /agents:running overlay helpers
+// /agents running overlay helpers
 // ──────────────────────────────────────────────────────────────────────
 
 const BAR_FILLED = '▰';
@@ -407,7 +407,7 @@ export function subagentDetailsToSnapshot(
 const RUNNING_ROW_INDENT = '       ';
 
 /**
- * 4-line block for one entry in `/agents:running`:
+ * 4-line block for one entry in `/agents running`:
  *   `<handle> <agent> <state> <elapsed>  turn N/max`
  *   `M(N) ↑in ↻cached ↓out  R xx%  $cost`
  *   `ctx <bar>  model <model>`
@@ -465,7 +465,7 @@ const SCORECARD_INDENT = '   ';
 /**
  * Render the multi-line scorecard body shared by `subagent` (sync
  * completion), `subagent_send wait`, `subagent_send status`, and the
- * inline preview in `/agents:running`. Does NOT include the lead glyph
+ * inline preview in `/agents running`. Does NOT include the lead glyph
  * line - callers prefix that themselves so they can pick the colour /
  * label that matches the surface (e.g. `⏳ explore  (global)`).
  *
