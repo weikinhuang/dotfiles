@@ -161,6 +161,20 @@ const DEFAULT_RETAIN_DAYS = 30;
 const DEFAULT_BG_REGISTRY_CAP = 32;
 const DEFAULT_BG_SHUTDOWN_MS = 2000;
 
+// Static prose for the `subagent` tool description. The enumerated agent list is
+// appended at registration time (it depends on which agents loaded), but keeping
+// the prose as an inline const literal keeps it grep-able by audit walkers.
+export const SUBAGENT_TOOL_DESCRIPTION = [
+  'Delegate a subtask to a specialized sub-agent that runs with its own fresh context, tool allowlist, and (optionally) model.',
+  "The parent sees only the child's final answer text - intermediate tool calls stay in the child's own session file.",
+  'Parallel fan-out is supported: call this tool multiple times in one assistant turn and the invocations run concurrently.',
+].join('\n');
+
+export const SUBAGENT_SEND_TOOL_DESCRIPTION =
+  'Interact with a background sub-agent that was spawned by `subagent({ run_in_background: true })`.\n' +
+  'Actions: `status` (current snapshot), `wait` (await final answer), `abort` (cancel a running child). Providing `text` without `action` steers the running child with a user message.\n' +
+  'Background children keep running even after the parent turn that spawned them ends; use this tool to retrieve their final answer.';
+
 // ──────────────────────────────────────────────────────────────────────
 // Types
 // ──────────────────────────────────────────────────────────────────────
@@ -974,13 +988,7 @@ export default function subagentExtension(pi: ExtensionAPI): void {
       const a = loadResult.agents.get(n);
       return { name: n, description: a?.description ?? '', source: a?.source };
     });
-    return [
-      'Delegate a subtask to a specialized sub-agent that runs with its own fresh context, tool allowlist, and (optionally) model.',
-      "The parent sees only the child's final answer text - intermediate tool calls stay in the child's own session file.",
-      'Parallel fan-out is supported: call this tool multiple times in one assistant turn and the invocations run concurrently.',
-      '',
-      formatAgentListDescription(items),
-    ].join('\n');
+    return [SUBAGENT_TOOL_DESCRIPTION, '', formatAgentListDescription(items)].join('\n');
   };
 
   const SubagentParams = Type.Object({
@@ -1758,11 +1766,7 @@ export default function subagentExtension(pi: ExtensionAPI): void {
   pi.registerTool({
     name: 'subagent_send',
     label: 'Subagent send',
-    description: [
-      'Interact with a background sub-agent that was spawned by `subagent({ run_in_background: true })`.',
-      'Actions: `status` (current snapshot), `wait` (await final answer), `abort` (cancel a running child). Providing `text` without `action` steers the running child with a user message.',
-      'Background children keep running even after the parent turn that spawned them ends; use this tool to retrieve their final answer.',
-    ].join('\n'),
+    description: SUBAGENT_SEND_TOOL_DESCRIPTION,
     promptSnippet:
       'Poll, steer, or await a background sub-agent previously spawned with `subagent({ run_in_background: true })`.',
     promptGuidelines: [
