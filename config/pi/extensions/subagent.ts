@@ -2012,8 +2012,7 @@ export default function subagentExtension(pi: ExtensionAPI): void {
   // ────────────────────────────────────────────────────────────────────
 
   pi.registerCommand('agents', {
-    description:
-      'List loaded sub-agents (`/agents`), show one definition (`/agents show <name>`), or list active background children (`/agents running`).',
+    description: 'Inspect loaded sub-agents and active background children',
     getArgumentCompletions: (prefix) => {
       const arg = prefix.trim();
       if (arg === '' || 'show'.startsWith(arg) || 'running'.startsWith(arg)) {

@@ -666,8 +666,7 @@ export default function memoryExtension(pi: ExtensionAPI): void {
 
   // ── /memory command ─────────────────────────────────────────────────
   pi.registerCommand('memory', {
-    description:
-      'List memories (`list`), preview the injected index (`preview`), print the memory dir (`dir`), rescan disk (`rescan`), or prune orphaned session memory (`gc`)',
+    description: 'Inspect or maintain durable cross-session memory',
     getArgumentCompletions: (prefix) =>
       completeSubverbs(prefix, {
         list: { description: 'List loaded memories' },

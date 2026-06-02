@@ -471,7 +471,7 @@ export default function bashPermissions(pi: ExtensionAPI): void {
   });
 
   pi.registerCommand('bash-auto', {
-    description: 'Toggle auto-allow for bash commands this session (hardcoded deny + explicit deny still block)',
+    description: 'Toggle session auto-allow for bash commands',
     getArgumentCompletions: (prefix) => {
       const opts = ['on', 'off', 'status'];
       const items = opts.filter((o) => o.startsWith(prefix)).map((o) => ({ value: o, label: o }));

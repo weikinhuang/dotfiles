@@ -606,8 +606,7 @@ export default function personaExtension(pi: ExtensionAPI): void {
   });
 
   pi.registerCommand('persona', {
-    description:
-      'Switch persona: `/persona` lists, `/persona <name>` activates, `/persona off` clears, `/persona info <name>` debugs',
+    description: 'Switch persona overlay (system prompt + tool/model swap)',
     getArgumentCompletions: (prefix: string) => {
       const parts = prefix.split(/\s+/);
       // Level 2+: `/persona info <name>` completes persona names. pi

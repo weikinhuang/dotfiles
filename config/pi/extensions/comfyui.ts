@@ -910,8 +910,7 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
   });
 
   pi.registerCommand('comfyui', {
-    description:
-      'Show ComfyUI status; `/comfyui workflows` to validate configured workflows; `/comfyui jobs` to list background generations.',
+    description: 'Inspect ComfyUI status, workflows, and background jobs',
     getArgumentCompletions: (prefix) =>
       completeSubverbs(prefix, {
         workflows: {

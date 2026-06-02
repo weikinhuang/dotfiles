@@ -410,8 +410,7 @@ export default function scheduledPromptsExtension(pi: ExtensionAPI): void {
   // ── /schedule command ─────────────────────────────────────────────────
 
   pi.registerCommand('schedule', {
-    description:
-      'Schedule a recurring/one-shot/idle prompt: /schedule --cron|--every|--in|--at|--after ... -- <prompt>',
+    description: 'Schedule a recurring / one-shot / idle prompt',
     handler: async (args, ctx) => {
       if (isHelpArg(args)) {
         ctx.ui.notify(SCHEDULE_USAGE, 'info');
