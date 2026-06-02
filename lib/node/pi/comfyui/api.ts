@@ -45,6 +45,16 @@ export function buildHistoryUrl(baseUrl: string, promptId: string): string {
   return joinUrl(baseUrl, `/history/${encodeURIComponent(promptId)}`);
 }
 
+/** URL for `POST /queue` (used with `{ delete: [promptId] }` to drop a queued job). */
+export function buildQueueUrl(baseUrl: string): string {
+  return joinUrl(baseUrl, '/queue');
+}
+
+/** URL for `POST /interrupt` (cancels the prompt ComfyUI is currently executing). */
+export function buildInterruptUrl(baseUrl: string): string {
+  return joinUrl(baseUrl, '/interrupt');
+}
+
 /**
  * Convert an `http(s)` base URL into the `ws(s)` `/ws` URL for `clientId`.
  * `https` upgrades to `wss`; anything else (including `http`) uses `ws`.

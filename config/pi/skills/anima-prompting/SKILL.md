@@ -15,10 +15,10 @@ generated image. This skill teaches how to write the `prompt` and `negative` you
 specific to Anima - the score tags, `@artist` rule, and qwen-text-encoder behavior below do not apply to a plain SD /
 SDXL workflow, nor to [[illustrious-prompting]] or [[noobai-vpred-prompting]].
 
-Anima is trained on **Danbooru-style tags, natural-language captions, and mixes of the two** (anime training data cuts
-off September 2025). All three work; pick whichever fits the request and always lead with quality + safety tags. The LLM
-adapter is what makes detailed prompts pay off here far more than on a plain SDXL model - terse prompts waste the
-model's strongest feature.
+Anima is trained on **Danbooru-style tags of the Gelbooru flavor, natural-language captions, and mixes of the two**
+(anime training data cuts off September 2025). All three work; pick whichever fits the request and always lead with
+quality + safety tags. The LLM adapter is what makes detailed prompts pay off here far more than on a plain SDXL model -
+terse prompts waste the model's strongest feature.
 
 ## The `generate_image` call
 

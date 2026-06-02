@@ -6,6 +6,8 @@ import { describe, expect, test } from 'vitest';
 
 import {
   buildHistoryUrl,
+  buildInterruptUrl,
+  buildQueueUrl,
   buildViewUrl,
   extractOutputImages,
   isExecutionComplete,
@@ -37,6 +39,11 @@ describe('url builders', () => {
 
   test('buildHistoryUrl encodes the prompt id', () => {
     expect(buildHistoryUrl('http://x:8188', 'abc-123')).toBe('http://x:8188/history/abc-123');
+  });
+
+  test('buildQueueUrl and buildInterruptUrl point at the right endpoints', () => {
+    expect(buildQueueUrl('http://x:8188/')).toBe('http://x:8188/queue');
+    expect(buildInterruptUrl('http://x:8188')).toBe('http://x:8188/interrupt');
   });
 
   test('toWsUrl upgrades scheme and appends clientId', () => {

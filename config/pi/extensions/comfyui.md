@@ -1,8 +1,9 @@
 # comfyui
 
-A local/remote [ComfyUI](https://github.com/comfyanonymous/ComfyUI) image-generation tool for pi. Registers a single
-`generate_image` tool the model calls to render an image, plus a `/comfyui` status command. The result is returned
-inline as a multimodal tool result, so it renders in the terminal and is visible to vision-capable models.
+A local/remote [ComfyUI](https://github.com/comfyanonymous/ComfyUI) image-generation tool for pi. Registers a
+`generate_image` tool the model calls to render an image, an `image_jobs` tool for background generations, and a
+`/comfyui` status command. The result is returned inline as a multimodal tool result, so it renders in the terminal and
+is visible to vision-capable models.
 
 This is a custom tool, not a replacement for pi's built-in (provider-routed) image generation - pi exposes no
 extension-pluggable image-provider hook, so a tool is the integration point, the same shape pi's own
@@ -45,10 +46,36 @@ tool result so the model can self-correct.
 | `inputImage`  | string  | Path to an input image (img2img workflows only).              |
 | `count`       | number  | Batch size.                                                   |
 | `sendToModel` | boolean | Override the `sendToModel` config default for this call.      |
+| `background`  | boolean | Submit and return now; collect later via `image_jobs`.        |
 
 Each parameter is injected only if the active workflow's input map names a node for it. Passing an arg the workflow does
 not map (or pointing `inputImage` at a workflow with no `image` mapping) returns a clear error rather than a silent
 no-op.
+
+## Background generation
+
+A slow render (many steps, large dimensions, a big batch) can be fired off without blocking the turn by calling
+`generate_image` with `background: true`. The tool submits the workflow, records a lightweight job, and returns the job
+id immediately. ComfyUI keeps executing it server-side, so nothing is lost when the turn ends.
+
+This works because ComfyUI queues every `POST /prompt` and persists the result under its `prompt_id`. A background job
+is therefore just metadata - the registry holds no process or buffer - and the actual PNGs are fetched on collection.
+
+### Tool: `image_jobs`
+
+| Action    | Notes                                                                                            |
+| --------- | ------------------------------------------------------------------------------------------------ |
+| `list`    | Show every background job and its status (`running` / `done` / `error` / `cancelled`).           |
+| `collect` | Poll the job (`id`); when its render is done, fetch the image(s) and return them inline.         |
+| `cancel`  | Best-effort drop of a still-queued job (`id`); a job already executing on the server may finish. |
+
+`collect` is safe to call repeatedly: it reports `still running` until ComfyUI finishes, then returns the image(s) and
+marks the job `done`. Collection honors the same `sendToModel` / vision rules as a foreground generation, evaluated
+against the model active at collect time. The PNG is always written to `saveDir` regardless.
+
+The registry lives only for the current pi session. Running jobs are surfaced two ways so the model does not forget
+them: a `▦ img:N` statusline indicator (via `statusline.ts`) and a `## Pending image jobs` block injected into the
+system prompt each turn. Use `/comfyui jobs` to list them yourself.
 
 ## Configuration
 
@@ -138,7 +165,7 @@ server the progress stream may not connect; polling still drives completion rega
 `/comfyui` reports status: resolved base URL and reachability (a `GET /system_stats` ping), whether an auth header is
 configured, the default workflow, the configured workflow names, and `saveDir`. `/comfyui workflows` loads each
 configured workflow file and validates that every mapped node id exists in the graph, so a bad input map is caught
-without a generation round-trip.
+without a generation round-trip. `/comfyui jobs` lists the current session's background generations and their status.
 
 ## Related docs
 

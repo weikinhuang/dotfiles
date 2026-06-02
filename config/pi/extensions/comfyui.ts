@@ -40,7 +40,8 @@ import { basename, dirname, isAbsolute, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 
-import { type ExtensionAPI } from '@earendil-works/pi-coding-agent';
+import { type ExtensionAPI, type ExtensionContext } from '@earendil-works/pi-coding-agent';
+import { StringEnum } from '@earendil-works/pi-ai';
 import { Text } from '@earendil-works/pi-tui';
 import { Type } from 'typebox';
 
@@ -56,6 +57,7 @@ import {
 } from '../../../lib/node/pi/comfyui/config.ts';
 import {
   buildHistoryUrl,
+  buildQueueUrl,
   buildViewUrl,
   extractOutputImages,
   isExecutionComplete,
@@ -64,6 +66,18 @@ import {
   toWsUrl,
 } from '../../../lib/node/pi/comfyui/api.ts';
 import { injectInputs, isComfyWorkflow, randomSeed, validateMapping } from '../../../lib/node/pi/comfyui/workflow.ts';
+import {
+  addJob,
+  findJob,
+  formatJobLine,
+  formatRegistry,
+  formatRunningBlock,
+  type ImageJob,
+  type JobRegistry,
+  emptyRegistry,
+  runningJobs,
+  updateJob,
+} from '../../../lib/node/pi/comfyui/jobs.ts';
 import type { ComfyuiConfig, ComfyWorkflow, ImageRef, WorkflowConfig } from '../../../lib/node/pi/comfyui/types.ts';
 
 // ──────────────────────────────────────────────────────────────────────
@@ -84,6 +98,45 @@ interface GenerateDetails {
   error?: string;
   /** Latest streamed progress line (e.g. "generating 12/30"), shown while the result is partial. */
   progress?: string;
+  /** True when the call only submitted the job and returned without waiting. */
+  background?: boolean;
+  /** Registry id of the background job this call started (when `background`). */
+  jobId?: string;
+}
+
+/** Action verbs accepted by the `image_jobs` tool. */
+type JobsAction = 'list' | 'collect' | 'cancel';
+
+interface JobsDetails {
+  action: JobsAction;
+  jobId?: string;
+  status?: ImageJob['status'];
+  savedPaths?: string[];
+  error?: string;
+  jobs?: ImageJob[];
+}
+
+/** One fetched output: the on-disk path plus the inline image block. */
+interface SavedImage {
+  savedPath: string;
+  block: { type: 'image'; data: string; mimeType: string };
+}
+
+/** Subset of `generate_image` params the prepare/submit helpers read. */
+interface GenParams {
+  prompt: string;
+  negative?: string;
+  workflow?: string;
+  width?: number;
+  height?: number;
+  steps?: number;
+  cfg?: number;
+  seed?: number;
+  denoise?: number;
+  inputImage?: string;
+  count?: number;
+  sendToModel?: boolean;
+  background?: boolean;
 }
 
 // ──────────────────────────────────────────────────────────────────────
@@ -216,6 +269,87 @@ async function fetchImageBytes(conn: Conn, ref: ImageRef, signal: AbortSignal): 
   return Buffer.from(await res.arrayBuffer());
 }
 
+/** True when ComfyUI's `/history` entry for `promptId` reports an execution error. */
+function historyHasError(history: unknown, promptId: string): boolean {
+  const entry = history && typeof history === 'object' ? (history as Record<string, unknown>)[promptId] : undefined;
+  const status =
+    entry && typeof entry === 'object' ? (entry as { status?: { status_str?: string } }).status : undefined;
+  return status?.status_str === 'error';
+}
+
+/** Fetch every output image, write each to `saveDir`, and return path + inline block. */
+async function fetchAndSave(conn: Conn, refs: ImageRef[], saveDir: string, signal: AbortSignal): Promise<SavedImage[]> {
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  return Promise.all(
+    refs.map(async (ref, i) => {
+      const bytes = await fetchImageBytes(conn, ref, signal);
+      const savedPath = join(saveDir, `comfyui-${stamp}-${i}-${ref.filename}`);
+      atomicWriteFile(savedPath, bytes);
+      return {
+        savedPath,
+        block: { type: 'image' as const, data: bytes.toString('base64'), mimeType: mimeFromName(ref.filename) },
+      };
+    }),
+  );
+}
+
+/**
+ * Load the named workflow graph, upload any img2img input, compute the
+ * seed, and inject every mapped param. Returns the ready-to-submit graph
+ * plus the resolved seed, or a human-readable `error` for a bad workflow
+ * file / mapping. `uploadImage` failures throw and are caught upstream.
+ */
+async function buildInjectedGraph(
+  conn: Conn,
+  wf: WorkflowConfig,
+  name: string,
+  params: GenParams,
+  report: (text: string) => void,
+  signal: AbortSignal,
+): Promise<{ graph?: ComfyWorkflow; seed?: number; error?: string }> {
+  const loaded = loadWorkflowGraph(wf.file);
+  if (loaded.error || !loaded.graph) return { error: loaded.error ?? 'failed to load workflow' };
+
+  let uploadedName: string | undefined;
+  if (params.inputImage !== undefined) {
+    if (wf.inputs.image === undefined) return { error: `workflow "${name}" does not accept an input image` };
+    report('uploading input image…');
+    uploadedName = await uploadImage(conn, params.inputImage, signal);
+  }
+
+  const autoSeed = params.seed === undefined && wf.inputs.seed !== undefined ? randomSeed() : undefined;
+  const seed = params.seed ?? autoSeed;
+
+  const injected = injectInputs(loaded.graph, wf.inputs, {
+    prompt: params.prompt,
+    negative: params.negative,
+    seed,
+    steps: params.steps,
+    cfg: params.cfg,
+    denoise: params.denoise,
+    width: params.width,
+    height: params.height,
+    batch: params.count,
+    image: uploadedName,
+  });
+  if (injected.errors.length > 0) return { error: `workflow mapping error: ${injected.errors.join('; ')}` };
+  return { graph: injected.workflow, seed };
+}
+
+/** Best-effort removal of a still-queued prompt from ComfyUI's queue. */
+async function cancelPrompt(conn: Conn, promptId: string, signal: AbortSignal): Promise<void> {
+  try {
+    await fetch(buildQueueUrl(conn.base), {
+      method: 'POST',
+      headers: { ...conn.headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ delete: [promptId] }),
+      signal,
+    });
+  } catch {
+    // best-effort: a job already executing can't be dequeued
+  }
+}
+
 /** Best-effort progress stream; failures (incl. ws auth) are swallowed. */
 function openProgressSocket(
   conn: Conn,
@@ -254,10 +388,7 @@ async function waitForImages(conn: Conn, promptId: string, signal: AbortSignal):
   const history = await fetchHistory(conn, promptId, signal);
   const images = extractOutputImages(history, promptId);
   if (images.length > 0) return images;
-  const entry = history && typeof history === 'object' ? (history as Record<string, unknown>)[promptId] : undefined;
-  const status =
-    entry && typeof entry === 'object' ? (entry as { status?: { status_str?: string } }).status : undefined;
-  if (status?.status_str === 'error') throw new Error('ComfyUI reported an execution error (see server log)');
+  if (historyHasError(history, promptId)) throw new Error('ComfyUI reported an execution error (see server log)');
   await delay(1000, signal);
   return waitForImages(conn, promptId, signal);
 }
@@ -301,6 +432,41 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
   const defaultWorkflow = registrationConfig.defaultWorkflow;
   const workflowList = workflowNames.join(', ') || '(none)';
 
+  // Background-job registry. In-memory and per-session: ComfyUI owns the
+  // actual execution and persists each prompt under its id, so a job is
+  // just metadata here. Not persisted to the session branch (unlike
+  // bg-bash) - reattaching to a prior runtime's promptId is best handled
+  // by re-submitting, and the server's own history outlives us anyway.
+  let registry: JobRegistry = emptyRegistry();
+
+  // Statusline slot (see statusline.ts): show a count of pending jobs and
+  // clear the slot when none are running so quiet sessions stay clean.
+  let uiRef: ExtensionContext['ui'] | undefined;
+  let lastStatusRunning = -1;
+  const updateStatusline = (): void => {
+    if (!uiRef) return;
+    const running = runningJobs(registry).length;
+    if (running === lastStatusRunning) return;
+    lastStatusRunning = running;
+    uiRef.setStatus('comfyui', running > 0 ? `▦ img:${running}` : undefined);
+  };
+
+  pi.on('session_start', (_event, ctx) => {
+    uiRef = ctx.ui;
+    lastStatusRunning = -1;
+    updateStatusline();
+  });
+
+  // Remind the model about pending background jobs each turn so even a
+  // weak model remembers to collect them.
+  pi.on('before_agent_start', (event, ctx) => {
+    uiRef = ctx.ui;
+    updateStatusline();
+    const block = formatRunningBlock(registry);
+    if (!block) return undefined;
+    return { systemPrompt: `${event.systemPrompt}\n\n${block}` };
+  });
+
   const GenerateParams = Type.Object({
     prompt: Type.String({ description: 'Positive text prompt describing the image to generate.' }),
     negative: Type.Optional(Type.String({ description: 'Negative prompt: concepts to avoid.' })),
@@ -323,6 +489,12 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
       Type.Boolean({
         description:
           'Whether to return the image to you (the model) for analysis. Defaults to the configured value (true). Set false to only save it to disk and keep the image out of context - use this when the user just wants the picture, not for you to inspect it. The image is automatically held back when the active model has no vision (image) input regardless of this value.',
+      }),
+    ),
+    background: Type.Optional(
+      Type.Boolean({
+        description:
+          'Submit the generation and return immediately without waiting for the image. Use for slow renders (many steps, large dimensions, batches) so you can keep working; the returned job id is collected later with the `image_jobs` tool (action `collect`). Default false (block until the image is ready).',
       }),
     ),
   });
@@ -363,15 +535,11 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
         };
       }
 
-      const loaded = loadWorkflowGraph(wf.file);
-      if (loaded.error || !loaded.graph) {
-        details.error = loaded.error;
-        return { content: [{ type: 'text', text: loaded.error ?? 'failed to load workflow' }], details, isError: true };
-      }
-
       const base = resolveBaseUrl(config);
       const headers = resolveAuthHeaders(config);
       const conn: Conn = { base, headers, timeoutMs: config.timeoutMs };
+      const saveDir = isAbsolute(config.saveDir) ? config.saveDir : join(ctx.cwd, config.saveDir);
+      const requested = params.sendToModel ?? config.sendToModel;
 
       // Stream a progress line; pi's onUpdate wants a full tool result, so
       // carry the (partial) details alongside the text. Stash the line on
@@ -390,68 +558,55 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
 
       let socket: WebSocket | null = null;
       try {
-        // img2img: upload the input image and reference it in the LoadImage node.
-        let uploadedName: string | undefined;
-        if (params.inputImage !== undefined) {
-          if (wf.inputs.image === undefined) {
-            details.error = `workflow "${name}" does not accept an input image`;
-            return { content: [{ type: 'text', text: details.error }], details, isError: true };
-          }
-          report('uploading input image…');
-          uploadedName = await uploadImage(conn, params.inputImage, runSignal);
-        }
-
-        const autoSeed = params.seed === undefined && wf.inputs.seed !== undefined ? randomSeed() : undefined;
-        const seed = params.seed ?? autoSeed;
-        details.seed = seed;
-
-        const injected = injectInputs(loaded.graph, wf.inputs, {
-          prompt: params.prompt,
-          negative: params.negative,
-          seed,
-          steps: params.steps,
-          cfg: params.cfg,
-          denoise: params.denoise,
-          width: params.width,
-          height: params.height,
-          batch: params.count,
-          image: uploadedName,
-        });
-        if (injected.errors.length > 0) {
-          details.error = injected.errors.join('; ');
+        const prep = await buildInjectedGraph(conn, wf, name, params, report, runSignal);
+        if (prep.error || !prep.graph) {
+          details.error = prep.error;
           return {
-            content: [{ type: 'text', text: `workflow mapping error: ${details.error}` }],
+            content: [{ type: 'text', text: prep.error ?? 'failed to prepare workflow' }],
             details,
             isError: true,
           };
         }
+        const seed = prep.seed;
+        details.seed = seed;
 
         const clientId = randomUUID();
         report('submitting to ComfyUI…');
-        const promptId = await submitPrompt(conn, injected.workflow, clientId, runSignal);
+        const promptId = await submitPrompt(conn, prep.graph, clientId, runSignal);
         details.promptId = promptId;
+        const seedNote = seed !== undefined ? ` (seed ${seed})` : '';
+
+        // Background: register the job and return without waiting. ComfyUI
+        // keeps running it server-side; the model collects it later via
+        // `image_jobs`.
+        if (params.background) {
+          const added = addJob(registry, {
+            promptId,
+            workflow: name,
+            seed,
+            prompt: params.prompt,
+            negative: params.negative,
+            saveDir,
+            sendToModel: requested,
+            startedAt: Date.now(),
+          });
+          registry = added.registry;
+          updateStatusline();
+          details.background = true;
+          details.jobId = added.created.id;
+          const text =
+            `Started background generation [${added.created.id}] via "${name}"${seedNote}. ` +
+            `Collect it later with the image_jobs tool (action collect, id ${added.created.id}).`;
+          return { content: [{ type: 'text', text }], details };
+        }
 
         socket = openProgressSocket(conn, clientId, promptId, onUpdate ? report : undefined, runSignal);
         const refs = await waitForImages(conn, promptId, runSignal);
 
-        const saveDir = isAbsolute(config.saveDir) ? config.saveDir : join(ctx.cwd, config.saveDir);
-        const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-        const saved = await Promise.all(
-          refs.map(async (ref, i) => {
-            const bytes = await fetchImageBytes(conn, ref, runSignal);
-            const savedPath = join(saveDir, `comfyui-${stamp}-${i}-${ref.filename}`);
-            atomicWriteFile(savedPath, bytes);
-            return {
-              savedPath,
-              block: { type: 'image' as const, data: bytes.toString('base64'), mimeType: mimeFromName(ref.filename) },
-            };
-          }),
-        );
+        const saved = await fetchAndSave(conn, refs, saveDir, runSignal);
         for (const s of saved) details.savedPaths.push(s.savedPath);
 
-        const requested = params.sendToModel ?? config.sendToModel;
         const decision = resolveSendToModel(requested, ctx.model?.input);
-        const seedNote = seed !== undefined ? ` (seed ${seed})` : '';
         const countNote = `${refs.length} image${refs.length === 1 ? '' : 's'}`;
         if (!decision.send) {
           const why = decision.visionBlocked
@@ -494,6 +649,12 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
       const n = details.savedPaths?.length ?? 0;
       const seedNote = details.seed !== undefined ? ` · seed ${details.seed}` : '';
 
+      // Background submission: no image yet, just the job handle.
+      if (details.background) {
+        const head = theme.fg('accent', `▶ background [${details.jobId ?? '?'}]`);
+        return new Text(`${head}${theme.fg('dim', seedNote)}`, 0, 0);
+      }
+
       // Still running: surface the live progress line (e.g. "generating 12/30")
       // streamed over the websocket, or a neutral "working…" if none yet.
       if ((options.isPartial || context.isPartial) && n === 0) {
@@ -515,14 +676,232 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
     },
   });
 
+  // ── image_jobs: manage background generations ──────────────────────
+
+  type ToolContent = { type: 'text'; text: string } | { type: 'image'; data: string; mimeType: string };
+  interface JobsReturn {
+    content: ToolContent[];
+    details: JobsDetails;
+    isError?: boolean;
+  }
+
+  const jobsError = (action: JobsAction, message: string): JobsReturn => ({
+    content: [{ type: 'text', text: message }],
+    details: { action, error: message },
+    isError: true,
+  });
+
+  const actListJobs = (): JobsReturn => ({
+    content: [{ type: 'text', text: formatRegistry(registry, Date.now()) }],
+    details: { action: 'list', jobs: registry.jobs },
+  });
+
+  const actCollect = async (
+    id: string | undefined,
+    ctx: ExtensionContext,
+    signal: AbortSignal | undefined,
+  ): Promise<JobsReturn> => {
+    if (!id) return jobsError('collect', 'collect requires `id`');
+    const job = findJob(registry, id);
+    if (!job) return jobsError('collect', `job [${id}] not found`);
+
+    if (job.status === 'cancelled') {
+      return {
+        content: [{ type: 'text', text: `[${id}] was cancelled.` }],
+        details: { action: 'collect', jobId: id, status: 'cancelled' },
+      };
+    }
+    if (job.status === 'error') {
+      return jobsError('collect', `[${id}] failed: ${job.error ?? 'unknown error'}`);
+    }
+    if (job.status === 'done') {
+      return {
+        content: [
+          { type: 'text', text: `[${id}] already collected: ${job.savedPaths.length} image(s) in ${job.saveDir}.` },
+        ],
+        details: { action: 'collect', jobId: id, status: 'done', savedPaths: job.savedPaths },
+      };
+    }
+
+    // Still running: poll `/history` once. If outputs are ready, fetch +
+    // save and hand them back; otherwise report and let the model re-poll.
+    const config = loadConfig(ctx.cwd);
+    const conn: Conn = {
+      base: resolveBaseUrl(config),
+      headers: resolveAuthHeaders(config),
+      timeoutMs: config.timeoutMs,
+    };
+    const ac = new AbortController();
+    const timer = setTimeout(() => ac.abort(), conn.timeoutMs);
+    if (signal) signal.addEventListener('abort', () => ac.abort(), { once: true });
+    try {
+      const history = await fetchHistory(conn, job.promptId, ac.signal);
+      const refs = extractOutputImages(history, job.promptId);
+      if (refs.length === 0) {
+        if (historyHasError(history, job.promptId)) {
+          const reason = 'ComfyUI reported an execution error (see server log)';
+          registry = updateJob(registry, id, { status: 'error', error: reason, endedAt: Date.now() });
+          updateStatusline();
+          return jobsError('collect', `[${id}] failed: ${reason}`);
+        }
+        return {
+          content: [{ type: 'text', text: `[${id}] still running (no output yet). Call collect again shortly.` }],
+          details: { action: 'collect', jobId: id, status: 'running' },
+        };
+      }
+
+      const saved = await fetchAndSave(conn, refs, job.saveDir, ac.signal);
+      const savedPaths = saved.map((s) => s.savedPath);
+      registry = updateJob(registry, id, { status: 'done', savedPaths, endedAt: Date.now() });
+      updateStatusline();
+
+      const decision = resolveSendToModel(job.sendToModel, ctx.model?.input);
+      const seedNote = job.seed !== undefined ? ` (seed ${job.seed})` : '';
+      const countNote = `${refs.length} image${refs.length === 1 ? '' : 's'}`;
+      const details: JobsDetails = { action: 'collect', jobId: id, status: 'done', savedPaths };
+      if (!decision.send) {
+        const why = decision.visionBlocked
+          ? ' (active model has no image input; not sent to model)'
+          : ' (image not sent to model)';
+        const text = `Collected ${countNote} from [${id}] via "${job.workflow}"${seedNote}. Saved to ${job.saveDir}.${why}`;
+        return { content: [{ type: 'text', text }], details };
+      }
+      const text = `Collected ${countNote} from [${id}] via "${job.workflow}"${seedNote}. Saved to ${job.saveDir}.`;
+      return { content: [{ type: 'text', text }, ...saved.map((s) => s.block)], details };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      const reason = ac.signal.aborted && !(signal?.aborted ?? false) ? `timed out after ${conn.timeoutMs}ms` : message;
+      return jobsError('collect', `collect failed for [${id}]: ${reason}`);
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+
+  const actCancel = async (
+    id: string | undefined,
+    ctx: ExtensionContext,
+    signal: AbortSignal | undefined,
+  ): Promise<JobsReturn> => {
+    if (!id) return jobsError('cancel', 'cancel requires `id`');
+    const job = findJob(registry, id);
+    if (!job) return jobsError('cancel', `job [${id}] not found`);
+    if (job.status !== 'running') return jobsError('cancel', `[${id}] is not running (status: ${job.status})`);
+
+    const config = loadConfig(ctx.cwd);
+    const conn: Conn = {
+      base: resolveBaseUrl(config),
+      headers: resolveAuthHeaders(config),
+      timeoutMs: config.timeoutMs,
+    };
+    const ac = new AbortController();
+    const timer = setTimeout(() => ac.abort(), 10000);
+    if (signal) signal.addEventListener('abort', () => ac.abort(), { once: true });
+    try {
+      await cancelPrompt(conn, job.promptId, ac.signal);
+    } finally {
+      clearTimeout(timer);
+    }
+    registry = updateJob(registry, id, { status: 'cancelled', endedAt: Date.now() });
+    updateStatusline();
+    return {
+      content: [
+        {
+          type: 'text',
+          text: `Cancelled [${id}] (best-effort: a job already executing on the server may still finish).`,
+        },
+      ],
+      details: { action: 'cancel', jobId: id, status: 'cancelled' },
+    };
+  };
+
+  const ImageJobsParams = Type.Object({
+    action: StringEnum(['list', 'collect', 'cancel'] as const, {
+      description:
+        'list (show all background jobs), collect (poll a job and return its images if ready), cancel (drop a still-queued job).',
+    }),
+    id: Type.Optional(
+      Type.String({ description: 'Job id from a background generate_image call (required for collect / cancel).' }),
+    ),
+  });
+
+  pi.registerTool({
+    name: 'image_jobs',
+    label: 'Image jobs',
+    description:
+      'Manage background image generations started by generate_image with background=true. ' +
+      'Actions: list (all background jobs and their status), collect (poll a job; when its render is done, fetch the image(s) and return them inline), ' +
+      'cancel (best-effort drop of a still-queued job). ' +
+      'collect is safe to call repeatedly - it reports "still running" until the image is ready.',
+    promptSnippet:
+      'After starting a background generation with generate_image (background=true), use image_jobs action collect with the returned id to retrieve the image once it is ready.',
+    promptGuidelines: [
+      'Only use `image_jobs` for jobs started by `generate_image` with `background: true`. Foreground generations return their image directly.',
+      'Poll with action `collect` and the job `id`; it returns "still running" until ComfyUI finishes, then returns the image(s).',
+      'Use action `list` to see every background job and its status; action `cancel` to drop one that is still queued.',
+    ],
+    parameters: ImageJobsParams,
+
+    async execute(_toolCallId, rawParams, signal, _onUpdate, ctx) {
+      const params = rawParams as unknown as { action: JobsAction; id?: string };
+      switch (params.action) {
+        case 'list':
+          return actListJobs();
+        case 'collect':
+          return await actCollect(params.id, ctx, signal);
+        case 'cancel':
+          return await actCancel(params.id, ctx, signal);
+      }
+    },
+
+    renderCall(args, theme, _context) {
+      const action = (args as { action?: string }).action ?? '';
+      const id = (args as { id?: string }).id;
+      let text = theme.fg('toolTitle', theme.bold('image_jobs ')) + theme.fg('muted', action);
+      if (id) text += ` ${theme.fg('accent', `[${id}]`)}`;
+      return new Text(text, 0, 0);
+    },
+
+    renderResult(result, _options, theme, _context) {
+      const details = (result.details ?? {}) as Partial<JobsDetails>;
+      if (details.error) return new Text(theme.fg('error', `✗ ${details.error}`), 0, 0);
+
+      if (details.action === 'list') {
+        const jobs = details.jobs ?? [];
+        if (jobs.length === 0) return new Text(theme.fg('dim', '(no background image jobs)'), 0, 0);
+        const now = Date.now();
+        return new Text(jobs.map((j) => theme.fg('text', formatJobLine(j, now))).join('\n'), 0, 0);
+      }
+
+      const id = details.jobId ?? '?';
+      switch (details.status) {
+        case 'running':
+          return new Text(theme.fg('dim', `⟳ [${id}] still running`), 0, 0);
+        case 'cancelled':
+          return new Text(theme.fg('muted', `◌ [${id}] cancelled`), 0, 0);
+        case 'done': {
+          const n = details.savedPaths?.length ?? 0;
+          return new Text(theme.fg('success', `✓ [${id}] ${n} image${n === 1 ? '' : 's'}`), 0, 0);
+        }
+        default:
+          return new Text(theme.fg('dim', `[${id}]`), 0, 0);
+      }
+    },
+  });
+
   pi.registerCommand('comfyui', {
-    description: 'Show ComfyUI status, or `/comfyui workflows` to validate configured workflows.',
+    description:
+      'Show ComfyUI status; `/comfyui workflows` to validate configured workflows; `/comfyui jobs` to list background generations.',
     handler: async (args, ctx) => {
       const config = loadConfig(ctx.cwd);
       const base = resolveBaseUrl(config);
       const headers = resolveAuthHeaders(config);
       const conn: Conn = { base, headers, timeoutMs: config.timeoutMs };
       const sub = args.trim().toLowerCase();
+
+      if (sub === 'jobs') {
+        ctx.ui.notify(formatRegistry(registry, Date.now()), 'info');
+        return;
+      }
 
       if (sub === 'workflows') {
         const lines: string[] = [];
