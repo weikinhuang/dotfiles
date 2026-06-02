@@ -43,6 +43,7 @@ import {
   type ResearchToolRunner,
   SINGLE_ACTIVE_ERROR,
 } from '../../../../lib/node/pi/deep-research/tool.ts';
+import { completeSubverbs, type SubverbSpec } from '../../../../lib/node/pi/commands/complete.ts';
 import { isHelpArg } from '../../../../lib/node/pi/commands/help.ts';
 import { parseResearchCommandArgs } from '../../../../lib/node/pi/research/command-args.ts';
 import { type AutoresearchPlan, type DeepResearchPlan } from '../../../../lib/node/pi/research/plan.ts';
@@ -138,6 +139,57 @@ describe('/research help convention', () => {
     expect(parseResearchCommandArgs('').kind).toBe('help');
     expect(parseResearchCommandArgs('--help').kind).toBe('help');
     expect(parseResearchCommandArgs('-h').kind).toBe('help');
+  });
+});
+
+// ──────────────────────────────────────────────────────────────────────
+// Argument completion (§4.1). The shell builds this spec over the shared
+// `completeSubverbs` helper, with `--resume`'s resolver reading run slugs
+// off disk via `listRuns(lastCwd)`. This block mirrors that exact spec so
+// the two stay in lockstep (the shell can't be imported under vitest).
+// ──────────────────────────────────────────────────────────────────────
+
+describe('/research argument completion', () => {
+  // Rebuilds the same spec object `deep-research.ts` passes, with the
+  // resolver bound to the per-test sandbox cwd.
+  const specFor = (cwd: string): SubverbSpec => ({
+    '--list': { description: 'List runs under ./research/' },
+    '--selftest': { description: 'Run the deep-research self-test' },
+    '--resume': {
+      description: 'Resume an existing run',
+      args: () => listRuns(cwd).map((r) => ({ label: r.slug, description: r.status ?? r.resumability ?? '' })),
+    },
+    '--help': { description: 'Show usage' },
+  });
+
+  test('level-1 lists the four flags', () => {
+    expect(completeSubverbs('', specFor(sandbox))?.map((c) => c.value)).toEqual([
+      '--list',
+      '--selftest',
+      '--resume',
+      '--help',
+    ]);
+  });
+
+  test('--resume <Tab> lists existing run slugs, value carrying the verb prefix', () => {
+    writeDemoRun(sandbox, 'capital-of-france', demoPlan({ slug: 'capital-of-france', status: 'fanout' }));
+    writeDemoRun(sandbox, 'tea-origins', demoPlan({ slug: 'tea-origins' }));
+
+    const out = completeSubverbs('--resume ', specFor(sandbox));
+    expect(out).toContainEqual({
+      value: '--resume capital-of-france',
+      label: 'capital-of-france',
+      description: 'fanout',
+    });
+    expect(out?.map((c) => c.label).sort()).toEqual(['capital-of-france', 'tea-origins']);
+  });
+
+  test('--resume filters slugs by the partial tail', () => {
+    writeDemoRun(sandbox, 'capital-of-france', demoPlan({ slug: 'capital-of-france' }));
+    writeDemoRun(sandbox, 'tea-origins', demoPlan({ slug: 'tea-origins' }));
+
+    const out = completeSubverbs('--resume tea', specFor(sandbox));
+    expect(out?.map((c) => c.value)).toEqual(['--resume tea-origins']);
   });
 });
 

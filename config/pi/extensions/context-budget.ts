@@ -62,6 +62,7 @@ import {
   formatTokens,
   shouldAutoCompact,
 } from '../../../lib/node/pi/context-budget.ts';
+import { completeSubverbs } from '../../../lib/node/pi/commands/complete.ts';
 import { isHelpArg } from '../../../lib/node/pi/commands/help.ts';
 import { CONTEXT_BUDGET_USAGE } from '../../../lib/node/pi/context-budget/usage.ts';
 import { envTruthy, parsePercent } from '../../../lib/node/pi/parse-env.ts';
@@ -149,6 +150,10 @@ export default function contextBudget(pi: ExtensionAPI): void {
   //                                tone band you're in and why.
   pi.registerCommand('context-budget', {
     description: 'Preview the context-budget advisory that would be injected into the next turn',
+    getArgumentCompletions: (prefix) =>
+      completeSubverbs(prefix, {
+        preview: { description: 'Preview the advisory injected next turn' },
+      }),
     handler: async (args, ctx) => {
       if (isHelpArg(args)) {
         ctx.ui.notify(CONTEXT_BUDGET_USAGE, 'info');

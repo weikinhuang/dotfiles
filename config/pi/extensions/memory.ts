@@ -65,6 +65,7 @@ import {
   sessionDir,
   slugifyName,
 } from '../../../lib/node/pi/memory-paths.ts';
+import { completeSubverbs } from '../../../lib/node/pi/commands/complete.ts';
 import { isHelpArg } from '../../../lib/node/pi/commands/help.ts';
 import { formatMemoryIndex } from '../../../lib/node/pi/memory-prompt.ts';
 import { MEMORY_USAGE } from '../../../lib/node/pi/memory/usage.ts';
@@ -667,6 +668,14 @@ export default function memoryExtension(pi: ExtensionAPI): void {
   pi.registerCommand('memory', {
     description:
       'List memories (`list`), preview the injected index (`preview`), print the memory dir (`dir`), rescan disk (`rescan`), or prune orphaned session memory (`gc`)',
+    getArgumentCompletions: (prefix) =>
+      completeSubverbs(prefix, {
+        list: { description: 'List loaded memories' },
+        preview: { description: 'Preview the injected memory index' },
+        dir: { description: 'Print the memory directory path' },
+        rescan: { description: 'Rescan the memory directory from disk' },
+        gc: { description: 'Prune orphaned session memory' },
+      }),
     handler: async (args, ctx) => {
       if (isHelpArg(args)) {
         ctx.ui.notify(MEMORY_USAGE, 'info');

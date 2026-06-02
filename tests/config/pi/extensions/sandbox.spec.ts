@@ -23,6 +23,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
 // Pure helpers live under lib/ so the spec doesn't have to import
 // the extension shell (which depends on `@earendil-works/*`).
+import { completePositional, completeSubverbs } from '../../../../lib/node/pi/commands/complete.ts';
 import { isHelpArg } from '../../../../lib/node/pi/commands/help.ts';
 import {
   alreadyWrapped,
@@ -332,5 +333,30 @@ describe('sandbox tool_call mutate-in-place', () => {
     // wrapped:false means the symbol stash is NOT installed - the
     // unmutated command IS the original.
     expect((event.input as Record<symbol, unknown>)[SANDBOX_ORIGINAL_SYMBOL]).toBeUndefined();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────
+// Argument completion (§4.1). The shell builds these specs over the
+// shared `completeSubverbs` / `completePositional` helpers; this block
+// mirrors the exact specs the shell passes so the two stay in lockstep
+// (the shell itself can't be imported under vitest).
+// ─────────────────────────────────────────────────────────────────
+
+describe('sandbox command completion', () => {
+  test('/sandbox-violations level-1 lists the --net / --fs filters', () => {
+    const out = completeSubverbs('', {
+      '--net': { description: 'Show only network violations' },
+      '--fs': { description: 'Show only filesystem violations' },
+    });
+    expect(out?.map((c) => c.value)).toEqual(['--net', '--fs']);
+  });
+
+  test('/sandbox-allow completes recently-blocked domains (positional, no verb prefix)', () => {
+    // Mirrors `recentBlockedDomains()` feeding completePositional: the
+    // host field is `host:port`, stripped to a bare domain.
+    const blocked = ['example.com', 'api.github.com'];
+    const out = completePositional('exa', () => blocked.map((label) => ({ label })));
+    expect(out).toEqual([{ value: 'example.com', label: 'example.com', description: undefined }]);
   });
 });

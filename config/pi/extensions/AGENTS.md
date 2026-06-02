@@ -60,7 +60,7 @@ but dropping them on a real end).
 
 ### Slash command conventions
 
-Two cross-cutting rules for every `pi.registerCommand` handler.
+Three cross-cutting rules for every `pi.registerCommand` handler.
 
 **Empty-arg behaviour.** Pick one of two conventions, in priority order:
 
@@ -89,6 +89,45 @@ handler: async (args, ctx) => {
 The USAGE string is a `const` exported from a sibling pure module (`lib/node/pi/<ext>/usage.ts`, pattern:
 [`BTW_USAGE`](../../../lib/node/pi/btw/user-message.ts)) so the handler, the `--help` path, and the empty-arg path that
 falls under convention 2 all share one source of truth -- never inline the same usage text twice.
+
+**Argument completion at every level.** Any command that takes a subverb or a positional argument MUST register
+`getArgumentCompletions` that completes at **every** token position -- the first subverb AND each subverb's argument
+(ids, names, scopes). A command that completes only the first verb (or not at all) is incomplete. Build the completion
+over the shared helpers in [`lib/node/pi/commands/complete.ts`](../../../lib/node/pi/commands/complete.ts) rather than
+hand-rolling the split-and-branch skeleton:
+
+- **Subverb commands** (`/<cmd> <verb> [arg]`) use `completeSubverbs(prefix, spec)`. The `spec` maps each verb to a
+  `description` plus an optional `args` -- either a static `string[]` or a `(tail) => candidates` resolver that reads
+  live state (registry job ids, persona names, run slugs on disk). Terminal verbs omit `args`.
+- **Positional commands** (`/<cmd> <value>`) use `completePositional(prefix, resolve)`, where `resolve` returns the
+  candidate values (e.g. recently-blocked domains, recently-denied bash commands).
+
+```ts
+import { completeSubverbs } from '../../../lib/node/pi/commands/complete.ts';
+
+getArgumentCompletions: (prefix) =>
+  completeSubverbs(prefix, {
+    list: { description: 'List jobs' },                       // terminal verb
+    logs: { description: 'Show a job log', args: () => registry.jobs.map((j) => ({ label: j.id })) },
+  }),
+```
+
+**Critical mechanic:** pi replaces the **entire** argument string with the chosen completion's `value`, so a
+deeper-level `value` must carry the full verb prefix (`logs <id>`, not `<id>`) or the verb is dropped from the submitted
+line. The shared helpers enforce this centrally -- a resolver returns only the bare candidate (`{ label }`) and the
+helper synthesizes `<verb> <candidate>` -- so always route through them instead of constructing the `value` yourself.
+Reference: [`scheduled-prompts.ts`](./scheduled-prompts.ts) (`/schedules`) is the canonical hand-written model the
+helpers were extracted from. Return `null` (not `[]`) when nothing matches. Completions that depend on `ctx.cwd`
+snapshot it on `session_start` (completions receive no `ctx`); see [`deep-research.ts`](./deep-research.ts)'s `lastCwd`
+for `--resume`.
+
+A pure spec like this is also testable without the pi runtime: mirror the exact spec object in the extension's
+command-surface spec under [`../../../tests/config/pi/extensions/`](../../../tests/config/pi/extensions) and assert
+level-1 completion plus at least one level-2 resolver (including that the returned `value` carries the verb prefix).
+
+> Editor note: pi-tui pops the argument menu when you type the first character of an argument, not from a bare Tab at an
+> empty argument slot (Tab there does file completion). That is an upstream editor behaviour, not a defect in the
+> command -- registering full-depth completions is still required so the menu is correct once it fires.
 
 ### Security gates auto-inject into subagent sessions
 

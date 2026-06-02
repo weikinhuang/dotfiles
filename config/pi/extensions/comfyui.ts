@@ -46,6 +46,7 @@ import { Text } from '@earendil-works/pi-tui';
 import { Type } from 'typebox';
 
 import { atomicWriteFile } from '../../../lib/node/pi/atomic-write.ts';
+import { completeSubverbs } from '../../../lib/node/pi/commands/complete.ts';
 import { isHelpArg } from '../../../lib/node/pi/commands/help.ts';
 import { COMFYUI_USAGE } from '../../../lib/node/pi/comfyui/usage.ts';
 import { envTruthy } from '../../../lib/node/pi/parse-env.ts';
@@ -911,6 +912,18 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
   pi.registerCommand('comfyui', {
     description:
       'Show ComfyUI status; `/comfyui workflows` to validate configured workflows; `/comfyui jobs` to list background generations.',
+    getArgumentCompletions: (prefix) =>
+      completeSubverbs(prefix, {
+        workflows: {
+          description: 'Validate configured workflows',
+          // Re-read config so a `/reload`-free config edit still completes.
+          args: () => Object.keys(loadConfig(cwd).workflows).map((label) => ({ label })),
+        },
+        jobs: {
+          description: 'List background generations',
+          args: () => registry.jobs.map((j) => ({ label: j.id, description: j.status })),
+        },
+      }),
     handler: async (args, ctx) => {
       if (isHelpArg(args)) {
         ctx.ui.notify(COMFYUI_USAGE, 'info');

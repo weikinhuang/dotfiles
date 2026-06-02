@@ -93,6 +93,7 @@ import {
   loadAgents,
   makeNodeReadLayer,
 } from '../../../lib/node/pi/subagent/loader.ts';
+import { completeSubverbs } from '../../../lib/node/pi/commands/complete.ts';
 import { isHelpArg } from '../../../lib/node/pi/commands/help.ts';
 import { createPersistedSubagentSessionManager } from '../../../lib/node/pi/subagent/session-dir.ts';
 import { WAVEFORM_USAGE } from '../../../lib/node/pi/waveform-indicator/usage.ts';
@@ -1090,6 +1091,14 @@ export default function extension(pi: ExtensionAPI): void {
   pi.registerCommand('waveform', {
     description:
       'Set the streaming working indicator: scroll, spectrum, tokenrate, off, or reset (restore pi default).',
+    getArgumentCompletions: (prefix) =>
+      completeSubverbs(prefix, {
+        scroll: { description: 'Scrolling waveform indicator' },
+        spectrum: { description: 'Spectrum waveform indicator' },
+        tokenrate: { description: 'Token-rate waveform indicator' },
+        off: { description: 'Hide the working indicator' },
+        reset: { description: 'Restore the pi default indicator' },
+      }),
     handler: async (args, ctx) => {
       if (isHelpArg(args)) {
         ctx.ui.notify(WAVEFORM_USAGE, 'info');

@@ -73,6 +73,7 @@ import { Type } from 'typebox';
 
 import { requestBashApproval } from '../../../lib/node/pi/bash/gate.ts';
 import { BG_BASH_USAGE } from '../../../lib/node/pi/bg-bash/usage.ts';
+import { completeSubverbs } from '../../../lib/node/pi/commands/complete.ts';
 import { isHelpArg } from '../../../lib/node/pi/commands/help.ts';
 import {
   clampBytes,
@@ -1447,9 +1448,14 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
   pi.registerCommand('bg-bash', {
     description: 'Inspect the background-job registry (overlay, plus list / logs / kill / clear sub-verbs).',
     getArgumentCompletions: (prefix) => {
-      const opts = ['list', 'logs', 'kill', 'clear'];
-      const items = opts.filter((o) => o.startsWith(prefix)).map((o) => ({ value: o, label: o }));
-      return items.length > 0 ? items : null;
+      const jobArgs = (): { label: string; description: string }[] =>
+        state.jobs.map((j) => ({ label: j.id, description: `${j.status}: ${j.command}` }));
+      return completeSubverbs(prefix, {
+        list: { description: 'List the background-job registry' },
+        logs: { description: 'Show a job log', args: jobArgs },
+        kill: { description: 'Signal a running job', args: jobArgs },
+        clear: { description: 'Remove finished jobs from the registry' },
+      });
     },
     handler: async (args, ctx) => {
       if (isHelpArg(args)) {

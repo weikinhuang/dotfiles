@@ -67,6 +67,7 @@ import { Text } from '@earendil-works/pi-tui';
 import { Type } from 'typebox';
 
 import { mergeAbortSignals } from '../../../lib/node/pi/abort-merge.ts';
+import { completeSubverbs } from '../../../lib/node/pi/commands/complete.ts';
 import { isHelpArg } from '../../../lib/node/pi/commands/help.ts';
 import {
   runResearchPipeline,
@@ -136,6 +137,7 @@ import {
   type CommandNotify,
   type CommandNotifyLevel,
   findExistingRun,
+  listRuns,
   runListCommand,
   runSelftestCommand,
 } from '../../../lib/node/pi/research/runs.ts';
@@ -334,6 +336,11 @@ export default function deepResearchExtension(pi: ExtensionAPI): void {
   const extDir = dirname(fileURLToPath(import.meta.url));
   let agentLoad: AgentLoadResult = { agents: new Map(), nameOrder: [], warnings: [] };
 
+  // Snapshot the cwd for `--resume` completion, which has no `ctx`.
+  // Seeded from `process.cwd()` (registration has no `ctx` yet) and
+  // refreshed to `ctx.cwd` on session_start.
+  let lastCwd = process.cwd();
+
   const readLayer = makeNodeReadLayer();
 
   const reloadAgents = (cwd: string): void => {
@@ -348,6 +355,7 @@ export default function deepResearchExtension(pi: ExtensionAPI): void {
   };
 
   pi.on('session_start', (_event, ctx) => {
+    lastCwd = ctx.cwd;
     try {
       reloadAgents(ctx.cwd);
     } catch {
@@ -397,6 +405,16 @@ export default function deepResearchExtension(pi: ExtensionAPI): void {
 
   pi.registerCommand('research', {
     description: 'Long-horizon web research: plan → fanout → synth → review. Writes ./research/<slug>/report.md.',
+    getArgumentCompletions: (prefix) =>
+      completeSubverbs(prefix, {
+        '--list': { description: 'List runs under ./research/' },
+        '--selftest': { description: 'Run the deep-research self-test' },
+        '--resume': {
+          description: 'Resume an existing run',
+          args: () => listRuns(lastCwd).map((r) => ({ label: r.slug, description: r.status ?? r.resumability ?? '' })),
+        },
+        '--help': { description: 'Show usage' },
+      }),
     handler: async (rawArgs, ctx) => {
       const notify: CommandNotify = (message: string, level: CommandNotifyLevel) => {
         ctx.ui.notify(message, level);

@@ -90,6 +90,7 @@ import { join } from 'node:path';
 import { type ExtensionAPI, type ExtensionContext, type ToolResultEvent } from '@earendil-works/pi-coding-agent';
 
 import { clearActiveUI, publishActiveUI } from '../../../lib/node/pi/active-ui.ts';
+import { completePositional, completeSubverbs } from '../../../lib/node/pi/commands/complete.ts';
 import { isHelpArg } from '../../../lib/node/pi/commands/help.ts';
 import { extractBashCommand } from '../../../lib/node/pi/bash/hook.ts';
 import {
@@ -1129,8 +1130,22 @@ export default function sandbox(pi: ExtensionAPI): void {
     },
   });
 
+  // Recently-blocked domains from the violation log, newest first, for
+  // `/sandbox-allow` / `/sandbox-deny` completion. The `host` field is
+  // `host:port`; strip the port so the candidate is a bare domain.
+  const recentBlockedDomains = (): string[] => {
+    const seen = new Set<string>();
+    for (const r of readViolations(USER_VIOLATIONS_LOG, { kind: 'net', limit: 50 })) {
+      const host = r.host?.split(':')[0]?.trim();
+      if (host) seen.add(host);
+    }
+    return [...seen];
+  };
+
   pi.registerCommand('sandbox-allow', {
     description: 'Add a domain to the sandbox network allowlist',
+    getArgumentCompletions: (prefix) =>
+      completePositional(prefix, () => recentBlockedDomains().map((label) => ({ label }))),
     handler: async (args, ctx) => {
       if (isHelpArg(args)) {
         ctx.ui.notify(SANDBOX_ALLOW_USAGE, 'info');
@@ -1150,6 +1165,8 @@ export default function sandbox(pi: ExtensionAPI): void {
 
   pi.registerCommand('sandbox-deny', {
     description: 'Add a domain to the sandbox network denylist',
+    getArgumentCompletions: (prefix) =>
+      completePositional(prefix, () => recentBlockedDomains().map((label) => ({ label }))),
     handler: async (args, ctx) => {
       if (isHelpArg(args)) {
         ctx.ui.notify(SANDBOX_DENY_USAGE, 'info');
@@ -1201,6 +1218,11 @@ export default function sandbox(pi: ExtensionAPI): void {
 
   pi.registerCommand('sandbox-violations', {
     description: 'Show recent sandbox violations (--net / --fs to filter)',
+    getArgumentCompletions: (prefix) =>
+      completeSubverbs(prefix, {
+        '--net': { description: 'Show only network violations' },
+        '--fs': { description: 'Show only filesystem violations' },
+      }),
     handler: async (args, ctx) => {
       if (isHelpArg(args)) {
         ctx.ui.notify(SANDBOX_VIOLATIONS_USAGE, 'info');

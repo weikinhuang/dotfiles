@@ -116,6 +116,7 @@ import {
   BASH_DENY_USAGE,
   BASH_PERMISSIONS_USAGE,
 } from '../../../lib/node/pi/bash-permissions/usage.ts';
+import { completePositional } from '../../../lib/node/pi/commands/complete.ts';
 import { isHelpArg } from '../../../lib/node/pi/commands/help.ts';
 import { askForPermission, askForPermissionBatch } from '../../../lib/node/pi/bash/permission-prompts.ts';
 import { writeJsonFile } from '../../../lib/node/pi/atomic-write.ts';
@@ -258,6 +259,22 @@ export default function bashPermissions(pi: ExtensionAPI): void {
    * which imports via its own module copy under jiti, doesn't need to
    * share a type symbol.
    */
+  // Session deny-tracker: the most-recently denied / blocked sub-commands,
+  // newest first, deduped, capped. Feeds `/bash-allow` and `/bash-deny`
+  // completion so the user can promote a just-blocked command to a rule
+  // without retyping it. In-memory only; reset on session end.
+  const recentDenied: string[] = [];
+  const recordDenied = (...subs: string[]): void => {
+    for (const sub of subs) {
+      const s = sub.trim();
+      if (!s) continue;
+      const at = recentDenied.indexOf(s);
+      if (at !== -1) recentDenied.splice(at, 1);
+      recentDenied.unshift(s);
+    }
+    recentDenied.length = Math.min(recentDenied.length, 50);
+  };
+
   const gateBashCommand = async (command: string, ctx: BashGateContext): Promise<BashGateDecision> => {
     const trimmed = command.trim();
     if (!trimmed) return { allowed: true };
@@ -292,6 +309,7 @@ export default function bashPermissions(pi: ExtensionAPI): void {
     for (const sub of subcommands) {
       const decision: BashDecision = decideSubcommand(sub, layers, { auto: sessionAuto });
       if (decision.kind === 'block') {
+        recordDenied(sub);
         return { allowed: false, reason: `Blocked by ${decision.reason} (matched "${sub}")` };
       }
       if (decision.kind === 'prompt') {
@@ -307,6 +325,7 @@ export default function bashPermissions(pi: ExtensionAPI): void {
 
     if (!ctx.hasUI) {
       if (defaultFallback === 'allow') return { allowed: true };
+      recordDenied(...unknown);
       return {
         allowed: false,
         reason:
@@ -323,6 +342,7 @@ export default function bashPermissions(pi: ExtensionAPI): void {
         alwaysPromptReasons,
       });
       if (batch.kind === 'deny') {
+        recordDenied(...unknown);
         return { allowed: false, reason: batch.feedback ?? 'Blocked by user' };
       }
       if (batch.kind === 'allow-all-session') {
@@ -339,6 +359,7 @@ export default function bashPermissions(pi: ExtensionAPI): void {
       alwaysPromptReason: alwaysPromptReasons.get(sub),
     });
     if (decision.kind === 'deny') {
+      recordDenied(sub);
       return { allowed: false, reason: decision.feedback ?? 'Blocked by user' };
     }
     switch (decision.kind) {
@@ -383,6 +404,7 @@ export default function bashPermissions(pi: ExtensionAPI): void {
 
   pi.registerCommand('bash-allow', {
     description: 'Add an allow rule for bash commands (pattern or exact)',
+    getArgumentCompletions: (prefix) => completePositional(prefix, () => recentDenied.map((label) => ({ label }))),
     handler: async (args, ctx) => {
       if (isHelpArg(args)) {
         ctx.ui.notify(BASH_ALLOW_USAGE, 'info');
@@ -401,6 +423,7 @@ export default function bashPermissions(pi: ExtensionAPI): void {
 
   pi.registerCommand('bash-deny', {
     description: 'Add a deny rule for bash commands (pattern or exact)',
+    getArgumentCompletions: (prefix) => completePositional(prefix, () => recentDenied.map((label) => ({ label }))),
     handler: async (args, ctx) => {
       if (isHelpArg(args)) {
         ctx.ui.notify(BASH_DENY_USAGE, 'info');

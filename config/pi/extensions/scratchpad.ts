@@ -54,6 +54,7 @@ import { type ExtensionAPI, type ExtensionContext, type Theme } from '@earendil-
 import { Text } from '@earendil-works/pi-tui';
 import { Type } from 'typebox';
 
+import { completeSubverbs } from '../../../lib/node/pi/commands/complete.ts';
 import { isHelpArg } from '../../../lib/node/pi/commands/help.ts';
 import { formatWorkingNotes } from '../../../lib/node/pi/scratchpad-prompt.ts';
 import { SCRATCHPAD_USAGE } from '../../../lib/node/pi/scratchpad/usage.ts';
@@ -244,6 +245,11 @@ export default function scratchpadExtension(pi: ExtensionAPI): void {
   // ── /scratchpad command ─────────────────────────────────────────────
   pi.registerCommand('scratchpad', {
     description: 'Show the scratchpad (no args or `list`) or `preview` the system-prompt injection',
+    getArgumentCompletions: (prefix) =>
+      completeSubverbs(prefix, {
+        list: { description: 'Show the scratchpad' },
+        preview: { description: 'Preview the system-prompt injection' },
+      }),
     handler: async (args, ctx) => {
       if (isHelpArg(args)) {
         ctx.ui.notify(SCRATCHPAD_USAGE, 'info');

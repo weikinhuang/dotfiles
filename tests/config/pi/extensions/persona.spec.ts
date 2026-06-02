@@ -179,6 +179,47 @@ test('help: `/persona --help` notifies PERSONA_USAGE', () => {
 });
 
 // ──────────────────────────────────────────────────────────────────────
+// Argument completion (§4.1). The shell completes persona names + the
+// `off` / `info` verbs at level 1, and persona names again at level 2 for
+// `/persona info <name>`. Each level-2 `value` must carry the `info`
+// prefix or pi drops the verb. We replicate the shell's branch here since
+// the shell can't be imported under vitest.
+// ──────────────────────────────────────────────────────────────────────
+
+function personaCompletions(prefix: string): { value: string; label: string }[] | null {
+  const parts = prefix.split(/\s+/);
+  if (parts.length > 1 && parts[0] === 'info') {
+    const tail = parts[parts.length - 1];
+    const matched = SHIPPED_NAME_ORDER.filter((n) => n.startsWith(tail)).map((n) => ({ value: `info ${n}`, label: n }));
+    return matched.length > 0 ? matched : null;
+  }
+  const items = [
+    ...SHIPPED_NAME_ORDER.map((n) => ({ value: n, label: n })),
+    { value: 'off', label: 'off' },
+    { value: 'info', label: 'info' },
+  ];
+  const filtered = items.filter((i) => i.value.startsWith(prefix));
+  return filtered.length > 0 ? filtered : null;
+}
+
+test('completion: level-1 lists persona names plus the off / info verbs', () => {
+  const out = personaCompletions('');
+  expect(out?.map((c) => c.value)).toEqual([...SHIPPED_NAME_ORDER, 'off', 'info']);
+});
+
+test('completion: `/persona info <Tab>` lists persona names, value carrying the info prefix', () => {
+  const out = personaCompletions('info pl');
+  expect(out).toEqual([{ value: 'info plan', label: 'plan' }]);
+});
+
+test('completion: `/persona info ` with no tail lists every persona name', () => {
+  const out = personaCompletions('info ');
+  expect(out?.map((c) => c.label)).toEqual(SHIPPED_NAME_ORDER);
+  // Every value carries the verb prefix so the verb survives submission.
+  for (const c of out ?? []) expect(c.value.startsWith('info ')).toBe(true);
+});
+
+// ──────────────────────────────────────────────────────────────────────
 // Plan assertions #2 / #3 - write inside roots is allowed; outside
 // triggers the prompt.
 // ──────────────────────────────────────────────────────────────────────

@@ -609,6 +609,17 @@ export default function personaExtension(pi: ExtensionAPI): void {
     description:
       'Switch persona: `/persona` lists, `/persona <name>` activates, `/persona off` clears, `/persona info <name>` debugs',
     getArgumentCompletions: (prefix: string) => {
+      const parts = prefix.split(/\s+/);
+      // Level 2+: `/persona info <name>` completes persona names. pi
+      // replaces the whole argument string, so each `value` carries the
+      // `info` verb or it would be dropped from the submitted line.
+      if (parts.length > 1 && parts[0] === 'info') {
+        const tail = parts[parts.length - 1];
+        const matched = nameOrder
+          .filter((n) => n.startsWith(tail))
+          .map((n) => ({ value: `info ${n}`, label: n, description: personas[n]?.description ?? '' }));
+        return matched.length > 0 ? matched : null;
+      }
       const items: { value: string; label: string; description: string }[] = nameOrder.map((n) => ({
         value: n,
         label: n,
