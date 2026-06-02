@@ -228,33 +228,29 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
   });
 
   const GenerateParams = Type.Object({
-    prompt: Type.String({ description: 'Positive text prompt describing the image to generate.' }),
-    negative: Type.Optional(Type.String({ description: 'Negative prompt: concepts to avoid.' })),
+    prompt: Type.String({ description: 'Positive prompt: what to depict.' }),
+    negative: Type.Optional(Type.String({ description: 'Negative prompt: what to avoid.' })),
     workflow: Type.Optional(
-      Type.String({
-        description: `Named workflow to run. Must be one of the configured names: ${workflowList}. Defaults to "${defaultWorkflow}". Each workflow has its own preconfigured checkpoint, sampler, scheduler, and dimensions - do not pass a checkpoint filename, model ID, or sampler name here, and do not invent a new workflow name.`,
-      }),
+      Type.String({ description: `One of: ${workflowList}. Default ${defaultWorkflow}. Do not invent names.` }),
     ),
-    width: Type.Optional(Type.Number({ description: 'Output width in pixels.' })),
-    height: Type.Optional(Type.Number({ description: 'Output height in pixels.' })),
+    width: Type.Optional(Type.Number({ description: 'Output width (px).' })),
+    height: Type.Optional(Type.Number({ description: 'Output height (px).' })),
     steps: Type.Optional(Type.Number({ description: 'Sampler steps.' })),
     cfg: Type.Optional(Type.Number({ description: 'CFG / guidance scale.' })),
-    seed: Type.Optional(Type.Number({ description: 'Seed for reproducibility. Omit for a fresh random seed.' })),
-    denoise: Type.Optional(Type.Number({ description: 'Denoise strength (img2img); 0-1.' })),
-    inputImage: Type.Optional(
-      Type.String({ description: 'Path to an input image for img2img workflows that accept one.' }),
-    ),
-    count: Type.Optional(Type.Number({ description: 'Batch size (number of images).' })),
+    seed: Type.Optional(Type.Number({ description: 'Omit for a random seed; reuse a prior seed to reproduce.' })),
+    denoise: Type.Optional(Type.Number({ description: 'Denoise strength 0-1 (img2img).' })),
+    inputImage: Type.Optional(Type.String({ description: 'Input image path (img2img workflows only).' })),
+    count: Type.Optional(Type.Number({ description: 'Batch size.' })),
     sendToModel: Type.Optional(
       Type.Boolean({
         description:
-          'Whether to return the image to you (the model) for analysis. Defaults to the configured value (true). Set false to only save it to disk and keep the image out of context - use this when the user just wants the picture, not for you to inspect it. The image is automatically held back when the active model has no vision (image) input regardless of this value.',
+          'Return the image to you for analysis (default true). false = save to disk only, out of context. Auto-suppressed for non-vision models.',
       }),
     ),
     background: Type.Optional(
       Type.Boolean({
         description:
-          'Submit the generation and return immediately without waiting for the image. Use for slow renders (many steps, large dimensions, batches) so you can keep working; the returned job id is collected later with the `image_jobs` tool (action `collect`). Default false (block until the image is ready).',
+          'Return immediately without waiting; collect later via `image_jobs` (collect). Use for slow renders. Default false.',
       }),
     ),
   });
@@ -263,19 +259,14 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
     name: 'generate_image',
     label: 'Generate image',
     description:
-      `Generate an image from a text prompt using a local or remote ComfyUI server, and return it inline. ` +
-      `Use this when the user asks to create, draw, render, or generate a picture/image/art. ` +
-      `Runs one of the preconfigured ComfyUI workflows: ${workflowList} (default: ${defaultWorkflow}). ` +
-      `Each workflow bakes in its own checkpoint, sampler, and scheduler; do NOT inspect ComfyUI's installed models, query /object_info, or call the ComfyUI HTTP API directly to discover models or samplers - this tool already encapsulates that. ` +
-      `Supports negative prompts, width/height, steps, cfg, seed, batch count, and img2img via inputImage. ` +
-      `The generated PNG is saved to disk and returned so you can see it.`,
-    promptSnippet: `To create or render an image, call \`generate_image\` (runs one of the configured ComfyUI workflows: ${workflowList}) instead of describing the picture in text. Do not call ComfyUI's HTTP API directly.`,
+      `Generate an image from a prompt via a ComfyUI server and return it inline. ` +
+      `Use when the user asks to create, draw, render, or generate a picture. ` +
+      `Workflows: ${workflowList} (default ${defaultWorkflow}); each bakes in its own checkpoint, sampler, and scheduler. ` +
+      `The PNG is saved to disk and returned so you can see it.`,
+    promptSnippet: `To create or render an image, call \`generate_image\` (workflows: ${workflowList}) instead of describing it in text.`,
     promptGuidelines: [
-      'Use `generate_image` whenever the user wants a picture generated, not a textual description.',
-      `The \`workflow\` arg must be one of the configured names: ${workflowList}. Do not pass a checkpoint filename, a sampler name, or invent a new workflow.`,
-      "Do not call ComfyUI's HTTP endpoints (`/object_info`, `/models`, `/prompt`, `/view`, etc.) via bash, curl, or any other tool - `generate_image` is the only supported entry point.",
-      'Omit `seed` to get a fresh random image; pass the `seed` echoed in a prior result to reproduce or vary one.',
-      'Only pass `inputImage` for img2img workflows; txt2img workflows do not accept one.',
+      "Never call ComfyUI's HTTP API (`/object_info`, `/prompt`, `/view`, …) via bash/curl/anything - `generate_image` is the only entry point; it encapsulates model and sampler choice.",
+      'Only pass `inputImage` for img2img workflows.',
     ],
     parameters: GenerateParams,
 
@@ -577,28 +568,19 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
   const ImageJobsParams = Type.Object({
     action: StringEnum(['list', 'collect', 'cancel'] as const, {
       description:
-        'list (show all background jobs), collect (poll a job and return its images if ready), cancel (drop a still-queued job).',
+        'list (all background jobs), collect (poll a job; returns images once ready, "still running" otherwise - safe to repeat), cancel (drop a still-queued job).',
     }),
-    id: Type.Optional(
-      Type.String({ description: 'Job id from a background generate_image call (required for collect / cancel).' }),
-    ),
+    id: Type.Optional(Type.String({ description: 'Job id (required for collect / cancel).' })),
   });
 
   pi.registerTool({
     name: 'image_jobs',
     label: 'Image jobs',
     description:
-      'Manage background image generations started by generate_image with background=true. ' +
-      'Actions: list (all background jobs and their status), collect (poll a job; when its render is done, fetch the image(s) and return them inline), ' +
-      'cancel (best-effort drop of a still-queued job). ' +
-      'collect is safe to call repeatedly - it reports "still running" until the image is ready.',
+      'Manage background image generations (those started by generate_image with background=true). ' +
+      'Actions: list, collect (poll, returning the image(s) once ready), cancel.',
     promptSnippet:
-      'After starting a background generation with generate_image (background=true), use image_jobs action collect with the returned id to retrieve the image once it is ready.',
-    promptGuidelines: [
-      'Only use `image_jobs` for jobs started by `generate_image` with `background: true`. Foreground generations return their image directly.',
-      'Poll with action `collect` and the job `id`; it returns "still running" until ComfyUI finishes, then returns the image(s).',
-      'Use action `list` to see every background job and its status; action `cancel` to drop one that is still queued.',
-    ],
+      'After a background generate_image (background=true), use image_jobs collect with the returned id to retrieve the image once ready.',
     parameters: ImageJobsParams,
 
     async execute(_toolCallId, rawParams, signal, _onUpdate, ctx) {
