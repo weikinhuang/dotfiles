@@ -91,7 +91,8 @@ Optional per-project override layer for `writeRoots`. Same JSONC parser presets 
 }
 ```
 
-User-global is `~/.pi/agent/persona-settings.json` with the same shape; the project layer wins per-persona-name.
+User-global is `~/.pi/agent/persona-settings.json` with the same shape; the project layer wins per-persona-name. See
+[`../persona-example.json`](../persona-example.json) for a copy-paste starter covering all three keys.
 
 ## Commands
 

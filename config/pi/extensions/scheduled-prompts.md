@@ -89,6 +89,11 @@ Unknown tokens pass through unchanged, so a prompt that legitimately contains `$
 Both the `/schedule` command and the `schedule` tool default to `session`, so a schedule is ephemeral unless you pass
 `--scope global` / `--scope project` (or `scope` on the tool) to persist it across sessions.
 
+The persisted files (`global` / `project`) are `{ "version": 1, "schedules": [...] }` JSON; reads are tolerant, so a
+malformed or shape-mismatched entry is dropped rather than crashing session start.
+[`../scheduled-prompts-example.json`](../scheduled-prompts-example.json) is a strict-JSON starter with one `cron`, one
+`interval`, and one `after` entry. You normally let `/schedule` write these for you rather than hand-editing.
+
 ## Commands
 
 - `/schedule <trigger> [options] -- <prompt>` - create a schedule. With no arguments, prints usage.

@@ -48,7 +48,9 @@ nudges when the model edits or claims without verifying. Companion to the
 Rooted at `<cwd>/.pi/checks/`:
 
 - `<task>.draft.json` - proposed spec, pending user acceptance.
-- `<task>.json` - accepted active `CheckSpec` (task, kind, artifact, spec, budget, `createdAt`, `acceptedAt`).
+- `<task>.json` - accepted active `CheckSpec` (task, kind, artifact, spec, budget, `createdAt`, `acceptedAt`). See
+  [`../iteration-loop-example.json`](../iteration-loop-example.json) for the shape (a `bash` check with a `regex:` pass
+  predicate and budget overrides). Normally written by `check declare` / `check accept`, not by hand.
 - `<task>.snapshots/iter-NNN.<ext>` - per-iteration artifact copy (input to sha256 fixpoint detection).
 - `<task>.snapshots/iter-NNN.verdict.json` - `Verdict` persisted alongside the snapshot.
 - `archive/<ts>-<task>/` - target of `check close`; draft is also discarded.

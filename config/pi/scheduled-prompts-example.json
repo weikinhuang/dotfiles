@@ -1,0 +1,48 @@
+{
+  "version": 1,
+  "schedules": [
+    {
+      "id": "sp-morning",
+      "name": "morning report",
+      "prompt": "Summarize what changed in this repo and my inbox since yesterday.",
+      "trigger": { "kind": "cron", "expr": "0 9 * * *" },
+      "jitterMs": 300000,
+      "scope": "global",
+      "enabled": true,
+      "createdAt": 1717200000000,
+      "runCount": 0
+    },
+    {
+      "id": "sp-ping",
+      "name": "progress ping",
+      "prompt": "Summarize what we changed in the last 30 minutes.",
+      "trigger": { "kind": "interval", "ms": 1800000 },
+      "scope": "global",
+      "enabled": true,
+      "maxRuns": 16,
+      "createdAt": 1717200000000,
+      "runCount": 3,
+      "lastRunAt": 1717205400000
+    },
+    {
+      "id": "sp-idle",
+      "name": "roleplay beat",
+      "prompt": "Continue the scene; it has been ${t} since the last beat.",
+      "prompts": [
+        "Glance out the window and react to what you see.",
+        "Hum a tune while you wait.",
+        "Ask what they are thinking about."
+      ],
+      "promptPick": "roundRobin",
+      "promptCursor": 1,
+      "trigger": { "kind": "after", "minMs": 30000, "maxMs": 300000 },
+      "scope": "global",
+      "enabled": false,
+      "chance": 0.8,
+      "resetOnActivity": true,
+      "whenIdle": true,
+      "createdAt": 1717200000000,
+      "runCount": 0
+    }
+  ]
+}

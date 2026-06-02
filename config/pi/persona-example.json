@@ -1,0 +1,45 @@
+// Per-project / per-user override layer for the `persona` extension.
+// This is the JSON settings file (NOT a persona body): personas
+// themselves are markdown files with frontmatter under
+// `config/pi/personas/`, `~/.pi/agent/personas/`, and
+// `<cwd>/.pi/personas/`. This file only overrides settings keyed by
+// persona name.
+//
+//   Loader:       lib/node/pi/persona/settings.ts (loadPersonaSettings)
+//   Extension:    config/pi/extensions/persona.ts
+//   Reference:    config/pi/extensions/persona.md
+//
+// Copy (or merge) into one of:
+//
+//   ~/.pi/agent/persona-settings.json   - user scope, every project
+//   <repo>/.pi/persona-settings.json    - project scope, this repo only
+//
+// Layering: shipped defaults -> user -> project, last-wins. `writeRoots`
+// merges per persona name (a project layer that sets `writeRoots.plan`
+// does NOT clobber a user layer that set `writeRoots.journal`);
+// `default` and `disabled` use whole-value replacement. Same JSONC
+// parser the `presets.json` / `filesystem.json` files use - `//` and
+// `/* */` comments are allowed, trailing commas are NOT.
+{
+  // Override the resolved `writeRoots` allowlist for specific personas
+  // in this scope. Each value is a list of path patterns resolved
+  // against the session cwd; `~/...` and `{projectSlug}` substitution
+  // both apply. An empty list means "this persona may not write".
+  "writeRoots": {
+    // Keep the planner confined to the docs tree in this project.
+    "plan": ["docs/plans/", "plans/"],
+    // Send journal entries to a per-project folder under the home dir.
+    "journal": ["~/journal/{projectSlug}/"]
+  },
+
+  // Auto-activate this persona at session start when neither the
+  // `--persona` flag nor a session-restored persona is set. Parsed in
+  // v1 but the env var `PI_PERSONA_DEFAULT` is the active mechanism;
+  // kept here so a project can declare its preferred default in-repo.
+  "default": "plan",
+
+  // Persona names to hide from `/persona` and cycling in this scope.
+  // Parsed in v1; useful for pruning a shipped persona a project never
+  // wants (e.g. the roleplay character in a work repo).
+  "disabled": ["roleplay"]
+}

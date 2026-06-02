@@ -1,0 +1,19 @@
+{
+  "task": "default",
+  "kind": "bash",
+  "artifact": "src/parser.ts",
+  "budget": {
+    "maxIter": 8,
+    "maxCostUsd": 0.25,
+    "wallClockSeconds": 900
+  },
+  "spec": {
+    "cmd": "npm test -- parser",
+    "passOn": "regex:\\b0 failed\\b",
+    "env": { "CI": "1" },
+    "workdir": ".",
+    "timeoutMs": 120000
+  },
+  "createdAt": "2026-06-02T09:00:00.000Z",
+  "acceptedAt": "2026-06-02T09:01:30.000Z"
+}
