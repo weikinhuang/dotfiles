@@ -60,10 +60,9 @@
  * can be unit-tested under vitest without the pi runtime.
  */
 
-import { execFileSync } from 'node:child_process';
-import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync, unlinkSync } from 'node:fs';
-import { homedir, tmpdir } from 'node:os';
-import { basename, dirname, join, resolve } from 'node:path';
+import { readdirSync, readFileSync, statSync, unlinkSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { basename, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import {
@@ -135,11 +134,16 @@ import {
 } from '../../../lib/node/pi/subagent/result.ts';
 import {
   childSessionDir,
-  listStaleWorktrees,
   subagentSessionRoot,
   sweepStaleSessions,
   type SweepFs,
 } from '../../../lib/node/pi/subagent/session-paths.ts';
+import {
+  createWorktree,
+  removeWorktree,
+  sweepStaleWorktrees,
+  type CreatedWorktree,
+} from '../../../lib/node/pi/subagent/worktree.ts';
 import { resolveChildModel } from '../../../lib/node/pi/subagent/spawn.ts';
 import { resolveMaxTurns } from '../../../lib/node/pi/subagent/budget.ts';
 import { type SubagentConfig, loadSubagentConfig } from '../../../lib/node/pi/subagent/config.ts';
@@ -271,95 +275,6 @@ function makeSweepFs(): SweepFs {
       }
     },
   };
-}
-
-// ──────────────────────────────────────────────────────────────────────
-// Worktree helpers (stale sweep + per-call create/cleanup)
-// ──────────────────────────────────────────────────────────────────────
-
-/**
- * Shell out to `git` safely. Uses `execFileSync` so arguments are
- * passed argv-style (no shell word splitting); path and branch names
- * never reach `/bin/sh`. Returns true on exit 0, false otherwise.
- */
-function runGit(cwd: string, args: string[]): boolean {
-  try {
-    execFileSync('git', args, { cwd, stdio: ['ignore', 'ignore', 'pipe'] });
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-interface CreatedWorktree {
-  /** Absolute path of the checkout inside the temp dir. */
-  path: string;
-  /** Outer temp dir - must be `rm -rf`d after `git worktree remove`. */
-  tmpDir: string;
-  /** Branch name created by `git worktree add -b`. */
-  branch: string;
-}
-
-function createWorktree(cwd: string): CreatedWorktree | { error: string } {
-  const id = `pi-subagent-${Date.now().toString(36)}-${Math.floor(Math.random() * 1e6).toString(36)}`;
-  const tmp = mkdtempSync(join(tmpdir(), 'pi-subagent-wt-'));
-  const path = join(tmp, 'checkout');
-  const branch = id;
-  if (runGit(cwd, ['worktree', 'add', '-b', branch, path])) {
-    return { path, tmpDir: tmp, branch };
-  }
-  try {
-    rmSync(tmp, { recursive: true, force: true });
-  } catch {
-    // tmp may not have been fully created - benign.
-  }
-  return { error: `git worktree add failed for ${path}` };
-}
-
-function removeWorktree(parentCwd: string, wt: Pick<CreatedWorktree, 'path' | 'tmpDir' | 'branch'>): void {
-  // `git worktree remove --force` tears down the checkout AND removes the
-  // .git/worktrees/<branch>/ bookkeeping. If that fails (repo renamed,
-  // moved, or corrupted), fall back to wiping the outer tmp dir so we
-  // at least don't leak disk - the bookkeeping pointer can be cleaned up
-  // by the next `git worktree prune` sweep.
-  const removedViaGit = runGit(parentCwd, ['worktree', 'remove', '--force', wt.path]);
-  if (!removedViaGit) {
-    try {
-      rmSync(wt.tmpDir, { recursive: true, force: true });
-    } catch {
-      // manual cleanup is the user's problem at this point
-    }
-  } else {
-    // `git worktree remove` drops the `checkout` subdir but leaves our
-    // `mkdtempSync` parent dir in place; clean it up so /tmp doesn't
-    // accumulate empty pi-subagent-wt-* shells.
-    try {
-      rmSync(wt.tmpDir, { recursive: true, force: true });
-    } catch {
-      // benign - empty dir only
-    }
-  }
-  // Branch deletion is best-effort; if the branch was checked out
-  // elsewhere the -D still works because the worktree is gone.
-  runGit(parentCwd, ['branch', '-D', wt.branch]);
-}
-
-function sweepStaleWorktrees(parentCwd: string, debugNotify: (msg: string) => void): void {
-  const stale = listStaleWorktrees(parentCwd, makeSweepFs());
-  if (stale.length === 0) return;
-  // Prune first so .git/worktrees/ bookkeeping matches disk; otherwise
-  // `worktree remove` on a dir git doesn't know about is a no-op.
-  runGit(parentCwd, ['worktree', 'prune']);
-  for (const path of stale) {
-    if (!runGit(parentCwd, ['worktree', 'remove', '--force', path])) {
-      try {
-        rmSync(path, { recursive: true, force: true });
-      } catch {
-        // manual cleanup required
-      }
-    }
-  }
-  debugNotify(`subagent: swept ${stale.length} stale worktree(s)`);
 }
 
 // ──────────────────────────────────────────────────────────────────────
@@ -929,10 +844,8 @@ export default function subagentExtension(pi: ExtensionAPI): void {
     getSessionSubagentAggregate().reset();
     // Sweep stale worktrees + old child session files from prior (possibly
     // crashed) runs. Both helpers are best-effort and silent on failure.
-    const debugNotify = (m: string): void => {
-      if (debug) ctx.ui.notify(m, 'info');
-    };
-    sweepStaleWorktrees(ctx.cwd, debugNotify);
+    const wtSwept = sweepStaleWorktrees(ctx.cwd, makeSweepFs());
+    if (debug && wtSwept.swept > 0) ctx.ui.notify(`subagent: swept ${wtSwept.swept} stale worktree(s)`, 'info');
     const retain = envPositiveInt('PI_SUBAGENT_RETAIN_DAYS', DEFAULT_RETAIN_DAYS);
     const swept = sweepStaleSessions(subagentSessionRoot(), retain, makeSweepFs());
     if (debug && swept.removed > 0) ctx.ui.notify(`subagent: swept ${swept.removed} stale session file(s)`, 'info');
@@ -967,9 +880,7 @@ export default function subagentExtension(pi: ExtensionAPI): void {
     // Happy-path sweep. Both sweeps are best-effort - shutdown must
     // not block or throw.
     try {
-      sweepStaleWorktrees(ctx.cwd, () => {
-        // silent - shutdown sweep is best-effort
-      });
+      sweepStaleWorktrees(ctx.cwd, makeSweepFs());
     } catch {
       // never block shutdown
     }
