@@ -141,4 +141,31 @@ describe('parsePersonaFile', () => {
     expect(result?.requestOptions).toBeUndefined();
     expect(warnings.some((w) => w.reason.includes('requestOptions'))).toBe(true);
   });
+
+  test('systemPromptOverride absent → undefined, no warnings', () => {
+    const { result, warnings } = run({ name: 'm' });
+
+    expect(warnings).toEqual([]);
+    expect(result?.systemPromptOverride).toBeUndefined();
+  });
+
+  test('systemPromptOverride string → trimmed and preserved', () => {
+    const { result, warnings } = run({ name: 'm', systemPromptOverride: '  You are a journal.  ' });
+
+    expect(warnings).toEqual([]);
+    expect(result?.systemPromptOverride).toBe('You are a journal.');
+  });
+
+  test('whitespace-only systemPromptOverride → undefined (treated as unset)', () => {
+    const { result } = run({ name: 'm', systemPromptOverride: '   \n  ' });
+
+    expect(result?.systemPromptOverride).toBeUndefined();
+  });
+
+  test('non-string systemPromptOverride → undefined (no throw)', () => {
+    const { result } = run({ name: 'm', systemPromptOverride: 42 });
+
+    expect(result).not.toBeNull();
+    expect(result?.systemPromptOverride).toBeUndefined();
+  });
 });

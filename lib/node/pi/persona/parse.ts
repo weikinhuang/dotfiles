@@ -9,8 +9,9 @@
  * Schema is a strict superset of the agent frontmatter (see
  * `plans/pi-mode-extension.md` → "Mode file schema (frontmatter)").
  * Mode-only fields: `agent`, `writeRoots`, `bashAllow`, `bashDeny`,
- * `appendSystemPrompt`. Validation collects warnings rather than
- * throwing - one bad mode file should never blind the whole catalog.
+ * `appendSystemPrompt`, `systemPromptOverride`. Validation collects
+ * warnings rather than throwing - one bad mode file should never blind
+ * the whole catalog.
  */
 
 import { basename } from 'node:path';
@@ -34,6 +35,7 @@ export interface PersonaFrontmatterRaw extends Record<string, unknown> {
   model?: unknown;
   thinkingLevel?: unknown;
   appendSystemPrompt?: unknown;
+  systemPromptOverride?: unknown;
   requestOptions?: unknown;
 }
 
@@ -53,6 +55,15 @@ export interface ParsedPersona {
   model?: string;
   thinkingLevel?: PersonaThinkingLevel;
   appendSystemPrompt?: string;
+  /**
+   * Escape hatch that REPLACES the base system prompt entirely (rather
+   * than appending like `body` / `appendSystemPrompt`). When set, the
+   * `before_agent_start` hook uses this as the base prompt; the body
+   * and `appendSystemPrompt` addendum are still appended after it.
+   * Drops pi's default coding-agent scaffolding - intended for
+   * non-coding personas (chat, journal, roleplay).
+   */
+  systemPromptOverride?: string;
   /** Free-form deep-merge into the outgoing provider payload. See `lib/node/pi/request-options.ts`. */
   requestOptions?: RequestOptionsConfig;
   body: string;
@@ -193,6 +204,7 @@ export function parsePersonaFile(opts: ParsePersonaOptions): ParsedPersona | nul
   }
 
   const appendSystemPrompt = toStringOrUndefined(fm.appendSystemPrompt);
+  const systemPromptOverride = toStringOrUndefined(fm.systemPromptOverride);
 
   const requestOptions = parseRequestOptions(fm.requestOptions, (reason) => warnings.push({ path, reason }));
 
@@ -207,6 +219,7 @@ export function parsePersonaFile(opts: ParsePersonaOptions): ParsedPersona | nul
     model,
     thinkingLevel,
     appendSystemPrompt,
+    systemPromptOverride,
     requestOptions,
     body: parsed.body,
     source: path,

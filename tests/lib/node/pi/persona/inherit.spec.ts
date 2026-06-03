@@ -99,12 +99,13 @@ describe('mergeAgentInheritance', () => {
     expect(out.writeRoots).toEqual(['docs/plans/']);
   });
 
-  test('bashAllow / bashDeny / appendSystemPrompt pass through unchanged', () => {
+  test('bashAllow / bashDeny / appendSystemPrompt / systemPromptOverride pass through unchanged', () => {
     const mode = baseMode({
       agent: 'planner',
       bashAllow: ['rg', 'fd'],
       bashDeny: ['rm'],
       appendSystemPrompt: 'plan in markdown',
+      systemPromptOverride: 'You are a journal.',
       body: 'm',
     });
     const agent = baseAgent();
@@ -114,5 +115,6 @@ describe('mergeAgentInheritance', () => {
     expect(out.bashAllow).toEqual(['rg', 'fd']);
     expect(out.bashDeny).toEqual(['rm']);
     expect(out.appendSystemPrompt).toBe('plan in markdown');
+    expect(out.systemPromptOverride).toBe('You are a journal.');
   });
 });

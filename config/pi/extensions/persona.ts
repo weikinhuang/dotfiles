@@ -5,7 +5,8 @@
  * chat, knowledge-base, journal, ...) for the main session and
  * the parent gets:
  *
- *   - The persona's body prepended to the system prompt.
+ *   - The persona's body appended to the system prompt (or, with
+ *     `systemPromptOverride`, replacing the base prompt entirely).
  *   - The persona's tool allowlist applied via `pi.setActiveTools`.
  *   - Optional model + thinkingLevel swap.
  *   - A positive `writeRoots` gate that asks-on-violation when
@@ -104,6 +105,7 @@ import {
   type SnapshotState,
 } from '../../../lib/node/pi/persona/snapshot.ts';
 import { decideWriteGate } from '../../../lib/node/pi/persona/write-gate.ts';
+import { composeSystemPrompt } from '../../../lib/node/pi/persona/system-prompt.ts';
 import { applyRequestOptions } from '../../../lib/node/pi/request-options.ts';
 import { piAgentDir, piProjectPath } from '../../../lib/node/pi/pi-paths.ts';
 import { loadAgents, defaultAgentLayers } from '../../../lib/node/pi/subagent/loader.ts';
@@ -121,6 +123,12 @@ interface ActivePersona {
   resolvedWriteRoots: string[];
   /** Combined system-prompt addendum (body + optional appendSystemPrompt). */
   systemPromptAddendum: string;
+  /**
+   * When set, replaces the base system prompt entirely instead of
+   * appending to it. The `systemPromptAddendum` is still appended after
+   * this override. `undefined` = keep pi's base prompt (default).
+   */
+  systemPromptOverride: string | undefined;
   /** Inheritance source for `/persona info` debug output. `null` = standalone. */
   inheritedFrom: string | null;
 }
@@ -322,7 +330,12 @@ export default function personaExtension(pi: ExtensionAPI): void {
     }
     const systemPromptAddendum = addendumParts.join('\n\n');
 
-    return { parsed: merged, resolvedWriteRoots, systemPromptAddendum, inheritedFrom };
+    const systemPromptOverride =
+      merged.systemPromptOverride && merged.systemPromptOverride.trim().length > 0
+        ? merged.systemPromptOverride.trim()
+        : undefined;
+
+    return { parsed: merged, resolvedWriteRoots, systemPromptAddendum, systemPromptOverride, inheritedFrom };
   };
 
   /**
@@ -345,6 +358,7 @@ export default function personaExtension(pi: ExtensionAPI): void {
     requestOptions: a.parsed.requestOptions,
     bodyLength: a.parsed.body.length,
     promptLength: a.systemPromptAddendum.length,
+    systemPromptOverrideLength: a.systemPromptOverride?.length,
   });
 
   // ────────────────────────────────────────────────────────────────────
@@ -537,9 +551,14 @@ export default function personaExtension(pi: ExtensionAPI): void {
   // ────────────────────────────────────────────────────────────────────
 
   pi.on('before_agent_start', (event) => {
-    if (!active || active.systemPromptAddendum.length === 0) return undefined;
-    const base = (event as { systemPrompt?: string }).systemPrompt ?? '';
-    return { systemPrompt: `${base.replace(/\s+$/, '')}\n\n${active.systemPromptAddendum}` };
+    if (!active) return undefined;
+    const composed = composeSystemPrompt({
+      incoming: (event as { systemPrompt?: string }).systemPrompt ?? '',
+      addendum: active.systemPromptAddendum,
+      override: active.systemPromptOverride,
+    });
+    if (composed === null) return undefined;
+    return { systemPrompt: composed };
   });
 
   // ────────────────────────────────────────────────────────────────────

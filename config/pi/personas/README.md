@@ -32,7 +32,7 @@ ignores `README.md` / `readme.md`, so this index can stay frontmatter-free.
   field is optional and only needed for overrides where the stem can't change.
 - **Frontmatter schema.** See [`../extensions/persona.md`](../extensions/persona.md) for the full table - `description`,
   `tools`, `writeRoots`, `bashAllow`, `bashDeny`, optional `agent:` inheritance, optional `model` / `thinkingLevel` /
-  `appendSystemPrompt`. Body markdown becomes the system-prompt addendum.
+  `appendSystemPrompt` / `systemPromptOverride`. Body markdown becomes the system-prompt addendum.
 - **Inherit when it fits.** A persona can declare `agent: <name>` to pull body and defaults from
   [`../agents/`](../agents/README.md). Persona-only fields (`tools`, `writeRoots`, bash policy) declared on the persona
   replace the agent's values rather than merging - see [`plan.md`](./plan.md) and [`review.md`](./review.md) for

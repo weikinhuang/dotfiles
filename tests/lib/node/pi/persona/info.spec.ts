@@ -33,7 +33,7 @@ describe('formatPersonaInfoLines', () => {
     ...overrides,
   });
 
-  test('renders all 12 lines in the expected order', () => {
+  test('renders all lines in the expected order', () => {
     const lines = formatPersonaInfoLines(baseInput());
 
     expect(lines).toEqual([
@@ -47,9 +47,22 @@ describe('formatPersonaInfoLines', () => {
       '  model:         (inherit)',
       '  thinkingLevel: (inherit)',
       '  requestOptions: (none)',
+      '  systemPrompt:  (base prompt)',
       '  body length:   1234 chars',
       '  prompt length: 1500 chars',
     ]);
+  });
+
+  test('systemPromptOverrideLength set → renders override + char count', () => {
+    const lines = formatPersonaInfoLines(baseInput({ systemPromptOverrideLength: 256 }));
+
+    expect(lines.find((l) => l.startsWith('  systemPrompt:'))).toBe('  systemPrompt:  override (256 chars)');
+  });
+
+  test('systemPromptOverrideLength 0 → still rendered as override (empty override is intentional)', () => {
+    const lines = formatPersonaInfoLines(baseInput({ systemPromptOverrideLength: 0 }));
+
+    expect(lines.find((l) => l.startsWith('  systemPrompt:'))).toBe('  systemPrompt:  override (0 chars)');
   });
 
   test('inheritedFrom non-null is rendered raw (no decoration)', () => {

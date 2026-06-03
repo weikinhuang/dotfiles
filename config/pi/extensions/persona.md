@@ -25,24 +25,38 @@ are dropped with a warning and the remaining valid tools are still applied.
 A persona is a markdown file: YAML frontmatter on top, body underneath. The frontmatter is a strict superset of the
 agent frontmatter [`subagent.ts`](./subagent.ts) parses, so a persona file can be referenced as an agent and vice versa.
 
-| Field                | Type                                   | Purpose                                                                                                                                              |
-| -------------------- | -------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `name`               | `string`                               | Persona name. Filename stem if omitted. Must be unique across layers.                                                                                |
-| `description`        | `string`                               | One-line shown by `/persona` listing and tab-completion.                                                                                             |
-| `agent`              | `string?`                              | **Persona-only.** Reference to an agent in the layered registry. Inherits `tools`, `model`, `thinkingLevel`, body.                                   |
-| `tools`              | `string[]?`                            | Tool allowlist for the **parent** session. Validated against `pi.getAllTools()`; unknowns warned-and-dropped.                                        |
-| `writeRoots`         | `string[]?`                            | **Persona-only.** Positive allowlist for `write` / `edit`. Tilde + `{projectSlug}` substitution. Empty ⇒ no writes.                                  |
-| `bashAllow`          | `string[]?`                            | **Persona-only.** Bash command-prefix allowlist layered on `bash-permissions.ts`.                                                                    |
-| `bashDeny`           | `string[]?`                            | **Persona-only.** Bash deny patterns layered on `bash-permissions.ts`. `["*"]` blocks all.                                                           |
-| `model`              | `string?` (`"provider/modelId"`)       | Model override. Parsed and resolved against `ctx.modelRegistry` with auth check.                                                                     |
-| `thinkingLevel`      | `"off" \| "low" \| "medium" \| "high"` | Thinking level override.                                                                                                                             |
-| `appendSystemPrompt` | `string?`                              | **Persona-only.** Extra text appended after the body - useful when layering project-specific text onto an `agent:`-ref persona.                      |
-| `requestOptions`     | `object?`                              | **Persona-only.** Free-form fields deep-merged into the outgoing provider payload via `before_provider_request`. See `requestOptions` section below. |
+| Field                  | Type                                   | Purpose                                                                                                                                                                                                                |
+| ---------------------- | -------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `name`                 | `string`                               | Persona name. Filename stem if omitted. Must be unique across layers.                                                                                                                                                  |
+| `description`          | `string`                               | One-line shown by `/persona` listing and tab-completion.                                                                                                                                                               |
+| `agent`                | `string?`                              | **Persona-only.** Reference to an agent in the layered registry. Inherits `tools`, `model`, `thinkingLevel`, body.                                                                                                     |
+| `tools`                | `string[]?`                            | Tool allowlist for the **parent** session. Validated against `pi.getAllTools()`; unknowns warned-and-dropped.                                                                                                          |
+| `writeRoots`           | `string[]?`                            | **Persona-only.** Positive allowlist for `write` / `edit`. Tilde + `{projectSlug}` substitution. Empty ⇒ no writes.                                                                                                    |
+| `bashAllow`            | `string[]?`                            | **Persona-only.** Bash command-prefix allowlist layered on `bash-permissions.ts`.                                                                                                                                      |
+| `bashDeny`             | `string[]?`                            | **Persona-only.** Bash deny patterns layered on `bash-permissions.ts`. `["*"]` blocks all.                                                                                                                             |
+| `model`                | `string?` (`"provider/modelId"`)       | Model override. Parsed and resolved against `ctx.modelRegistry` with auth check.                                                                                                                                       |
+| `thinkingLevel`        | `"off" \| "low" \| "medium" \| "high"` | Thinking level override.                                                                                                                                                                                               |
+| `appendSystemPrompt`   | `string?`                              | **Persona-only.** Extra text appended after the body - useful when layering project-specific text onto an `agent:`-ref persona.                                                                                        |
+| `systemPromptOverride` | `string?`                              | **Persona-only.** Escape hatch that _replaces_ pi's base prompt entirely (drops the default coding-agent scaffolding). Body + `appendSystemPrompt` are still appended after it. See "System-prompt composition" below. |
+| `requestOptions`       | `object?`                              | **Persona-only.** Free-form fields deep-merged into the outgoing provider payload via `before_provider_request`. See `requestOptions` section below.                                                                   |
 
-The body markdown becomes the persona system-prompt section, prepended via `before_agent_start` with a two-newline
+The body markdown becomes the persona system-prompt section, appended via `before_agent_start` with a two-newline
 separator (parity with preset's `appendSystemPrompt`). A standalone persona (no `agent:` ref) uses its body verbatim. An
 `agent:`-ref persona that supplies its own body uses the persona body, falling back to the inherited agent body
 otherwise; `appendSystemPrompt` always appends after whichever body wins.
+
+### System-prompt composition
+
+By default the persona's body + `appendSystemPrompt` are **appended** to pi's base system prompt. A persona that sets
+`systemPromptOverride` instead **replaces** that base entirely - pi's default coding-agent scaffolding (tool-use
+conventions, environment context, …) is dropped, and the override becomes the base. The body + `appendSystemPrompt`
+addendum are still appended after the override.
+
+This is an advanced escape hatch for personas that aren't coding agents (chat, journal, roleplay), where layering a
+persona on top of the full coding-agent prompt is the wrong behaviour. Composition is implemented by the pure
+[`composeSystemPrompt`](../../../lib/node/pi/persona/system-prompt.ts) helper; the order of precedence is
+`systemPromptOverride` (base) → body → `appendSystemPrompt` (addendum). Use it sparingly - dropping the base prompt
+removes everything pi's harness expects the model to know.
 
 See [`../../../lib/node/pi/persona/`](../../../lib/node/pi/persona/) for the parsed `ParsedPersona` type and the
 `parsePersonaFile` / `mergeAgentInheritance` / `resolveWriteRoots` / `isInsideWriteRoots` / `loadPersonaSettings` /
@@ -53,8 +67,9 @@ See [`../../../lib/node/pi/persona/`](../../../lib/node/pi/persona/) for the par
 A persona file with `agent: plan` resolves the name through the same layered agent registry the
 [`subagent.ts`](./subagent.ts) extension uses - `<cwd>/.pi/agents/` overrides `~/.pi/agent/agents/` overrides
 [`../agents/`](../agents/), first hit wins. The inherited record contributes `tools`, `model`, `thinkingLevel`, and
-body. Persona-only fields (`writeRoots`, `bashAllow`, `bashDeny`, `appendSystemPrompt`, `requestOptions`) layer on top.
-A user who forks an agent locally automatically gets the fork wherever a persona references it.
+body. Persona-only fields (`writeRoots`, `bashAllow`, `bashDeny`, `appendSystemPrompt`, `systemPromptOverride`,
+`requestOptions`) layer on top. A user who forks an agent locally automatically gets the fork wherever a persona
+references it.
 
 Standalone personas (no `agent:` ref) are also valid: supply `tools`, optionally `model` / `thinkingLevel`, and the body
 serves as the system-prompt addendum directly.

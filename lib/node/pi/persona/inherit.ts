@@ -26,8 +26,9 @@ export interface AgentRecord {
 /**
  * Return a new `ParsedPersona` with agent fields layered in where the mode
  * itself didn't specify them. `writeRoots`, `bashAllow`, `bashDeny`,
- * and `appendSystemPrompt` are passed through unchanged - they live
- * only on modes (no agent counterpart).
+ * `appendSystemPrompt`, and `systemPromptOverride` are passed through
+ * unchanged (via the `...mode` spread) - they live only on modes (no
+ * agent counterpart).
  *
  * Returns the input mode unchanged when there's no `agent:` ref or no
  * agent record was provided. The result is always a fresh object so

@@ -14,8 +14,9 @@
  *
  *  - `formatPersonaInfoLines(input)` - multi-line dump of one resolved
  *    persona (source, inheritedFrom, tools, writeRoots, bashAllow,
- *    bashDeny, model, thinkingLevel, requestOptions, body / prompt
- *    lengths). Mirrors what `/persona info <name>` already prints.
+ *    bashDeny, model, thinkingLevel, requestOptions, systemPrompt
+ *    override, body / prompt lengths). Mirrors what `/persona info
+ *    <name>` already prints.
  *
  *  - `formatPersonaListLines(items)` - one line per persona with the
  *    layered source tag (`[shipped]` / `[user]` / `[project]`) and a
@@ -56,6 +57,11 @@ export interface PersonaInfoInput {
   readonly requestOptions?: Readonly<Record<string, unknown>>;
   readonly bodyLength: number;
   readonly promptLength: number;
+  /**
+   * Length of the base-prompt override in chars, or `undefined` when
+   * the persona keeps pi's default base prompt (the common case).
+   */
+  readonly systemPromptOverrideLength?: number;
 }
 
 /**
@@ -83,6 +89,11 @@ export function formatPersonaInfoLines(input: PersonaInfoInput): string[] {
     `  model:         ${input.model ?? '(inherit)'}`,
     `  thinkingLevel: ${input.thinkingLevel ?? '(inherit)'}`,
     `  requestOptions:${requestOptionsStr}`,
+    `  systemPrompt:  ${
+      input.systemPromptOverrideLength !== undefined
+        ? `override (${input.systemPromptOverrideLength} chars)`
+        : '(base prompt)'
+    }`,
     `  body length:   ${input.bodyLength} chars`,
     `  prompt length: ${input.promptLength} chars`,
   ];
