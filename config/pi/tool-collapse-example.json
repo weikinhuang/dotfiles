@@ -1,0 +1,6 @@
+{
+  "minTextBytes": 2048,
+  "snippetChars": 80,
+  "autoAfterTurns": 0,
+  "autoMinBytes": 4096
+}
