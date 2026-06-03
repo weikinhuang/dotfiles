@@ -16,6 +16,7 @@
  *   thinkingLevel: low
  *   maxTurns: 12
  *   isolation: shared-cwd
+ *   context: fresh
  *   timeoutMs: 180000
  *   appendSystemPrompt: |
  *     extra prompt text
@@ -38,6 +39,7 @@
  *   - `thinkingLevel` is one of the canonical levels
  *   - `maxTurns`, `timeoutMs` are positive finite numbers
  *   - `isolation` is `shared-cwd` or `worktree`
+ *   - `context` is `fresh` or `inherit`
  *
  * Malformed entries produce a diagnostic warning keyed to the offending
  * path; the whole file is skipped so one bad frontmatter never blinds
@@ -54,6 +56,13 @@ import { type ThinkingLevel, THINKING_LEVELS } from '../preset.ts';
 
 export type AgentModel = 'inherit' | { provider: string; modelId: string };
 export type AgentIsolation = 'shared-cwd' | 'worktree';
+/**
+ * `fresh` (default): the child starts from an empty context seeded only
+ * with its own persona + the task. `inherit`: the child forks the
+ * parent's full conversation history (see `fork.ts`) so it sees what the
+ * parent saw and the model prompt-cache prefix can be reused.
+ */
+export type AgentContext = 'fresh' | 'inherit';
 export type AgentSourceLayer = 'global' | 'user' | 'project';
 
 export const DEFAULT_AGENT_TOOLS: readonly string[] = ['read', 'grep', 'find', 'ls'];
@@ -62,6 +71,7 @@ export const DEFAULT_AGENT_TIMEOUT_MS = 180_000;
 
 const NAME_PATTERN = /^[a-z][a-z0-9-]*$/;
 const ISOLATION_VALUES: readonly AgentIsolation[] = ['shared-cwd', 'worktree'];
+const CONTEXT_VALUES: readonly AgentContext[] = ['fresh', 'inherit'];
 
 import { parseRequestOptions, type RequestOptionsConfig } from '../request-options.ts';
 
@@ -86,6 +96,8 @@ export interface AgentDef {
   timeoutMs: number;
   /** `shared-cwd` reuses parent cwd; `worktree` spins up a git worktree. */
   isolation: AgentIsolation;
+  /** `fresh` starts empty; `inherit` forks the parent's conversation history. */
+  context: AgentContext;
   /** Optional extra text appended to the default system prompt. */
   appendSystemPrompt: string | undefined;
   /**
@@ -165,6 +177,7 @@ interface FrontmatterRaw extends Record<string, unknown> {
   maxTurns?: unknown;
   timeoutMs?: unknown;
   isolation?: unknown;
+  context?: unknown;
   appendSystemPrompt?: unknown;
   bashAllow?: unknown;
   bashDeny?: unknown;
@@ -312,6 +325,15 @@ export function validateAgent(args: {
     isolation = fm.isolation as AgentIsolation;
   }
 
+  let context: AgentContext = 'fresh';
+  if (fm.context !== undefined) {
+    if (typeof fm.context !== 'string' || !(CONTEXT_VALUES as readonly string[]).includes(fm.context)) {
+      warnings.push({ path, reason: `context must be one of: ${CONTEXT_VALUES.join(', ')}` });
+      return null;
+    }
+    context = fm.context as AgentContext;
+  }
+
   const appendSystemPrompt = toStringOrUndefined(fm.appendSystemPrompt);
 
   // bashAllow / bashDeny / writeRoots: per-agent gates enforced inside
@@ -335,6 +357,7 @@ export function validateAgent(args: {
     maxTurns,
     timeoutMs,
     isolation,
+    context,
     appendSystemPrompt,
     bashAllow,
     bashDeny,

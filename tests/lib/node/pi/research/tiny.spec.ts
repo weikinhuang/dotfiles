@@ -52,6 +52,7 @@ function fakeAgent(): AgentDef {
     maxTurns: 1,
     timeoutMs: 10_000,
     isolation: 'shared-cwd',
+    context: 'fresh',
     appendSystemPrompt: undefined,
     bashAllow: [],
     bashDeny: [],

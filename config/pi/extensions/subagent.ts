@@ -118,6 +118,7 @@ import {
 import { isHelpArg } from '../../../lib/node/pi/commands/help.ts';
 import { makeHandleCounter, resolveHandle } from '../../../lib/node/pi/subagent/handle.ts';
 import { AGENTS_USAGE } from '../../../lib/node/pi/subagent/usage.ts';
+import { buildForkPrompt, RECURSIVE_TOOL_NAMES, resolveForkMode } from '../../../lib/node/pi/subagent/fork.ts';
 import { createNotifyOnce } from '../../../lib/node/pi/notify-once.ts';
 import {
   type AgentDef,
@@ -191,6 +192,7 @@ interface SubagentParamsT {
   maxTurns?: number;
   returnFormat?: 'text' | 'json';
   run_in_background?: boolean;
+  fork?: boolean;
 }
 
 interface SubagentSendParamsT {
@@ -919,8 +921,8 @@ export default function subagentExtension(pi: ExtensionAPI): void {
     }),
     task: Type.String({
       description:
-        'What the sub-agent should do. Be specific - the sub-agent starts with NO context from this conversation. ' +
-        'Include paths, constraints, and the expected answer shape. One task per call.',
+        'What the sub-agent should do. Be specific - by default the sub-agent starts with NO context from this ' +
+        'conversation (unless `fork: true`). Include paths, constraints, and the expected answer shape. One task per call.',
     }),
     modelOverride: Type.Optional(
       Type.String({
@@ -940,6 +942,15 @@ export default function subagentExtension(pi: ExtensionAPI): void {
           'Launch the sub-agent in the background and return a handle immediately. ' +
           'Use `subagent_send` to poll, steer, or await completion. ' +
           'Defaults to false (synchronous - the parent turn blocks until the child finishes).',
+      }),
+    ),
+    fork: Type.Optional(
+      Type.Boolean({
+        description:
+          "Fork this conversation's full history into the sub-agent so it sees everything you've seen so far, " +
+          'instead of starting blank. Use when the task depends on context already in this conversation that would be ' +
+          "tedious to restate. Overrides the agent definition's `context` field. Note: fork mode runs on the parent " +
+          "model and ignores the agent's curated tool list to maximise prompt-cache reuse.",
       }),
     ),
     maxTurns: Type.Optional(
@@ -991,8 +1002,10 @@ export default function subagentExtension(pi: ExtensionAPI): void {
     parentSignal: AbortSignal | undefined;
     /** When true, the caller owns the semaphore release - drive() skips it. */
     background: boolean;
+    /** When true, fork the parent's conversation history into the child. */
+    fork: boolean;
   }): Promise<SpawnResult> {
-    const { agent, task, modelOverride, maxTurnsOverride, ctx, parentSignal, background } = args;
+    const { agent, task, modelOverride, maxTurnsOverride, ctx, parentSignal, background, fork } = args;
     const start = Date.now();
     const agg = makeAggregate();
 
@@ -1003,10 +1016,18 @@ export default function subagentExtension(pi: ExtensionAPI): void {
     // messages; keeping the resolver in one place prevents drift.
     // Per-call override wins, then the config layer
     // (project > user > PI_SUBAGENT_MODEL env), then inherit.
-    const modelSpecStr = modelOverride ?? subagentConfig.model;
+    //
+    // Fork mode pins the child to the PARENT model: the prompt-cache
+    // prefix only survives if model + system + tools match the parent
+    // byte-for-byte, so honouring an agent/override model here would
+    // defeat the point. We notify when that override is being ignored.
+    if (fork && (modelOverride || subagentConfig.model || agent.model !== 'inherit')) {
+      ctx.ui.notify('subagent: fork mode uses the parent model; ignoring the configured model override', 'info');
+    }
+    const modelSpecStr = fork ? undefined : (modelOverride ?? subagentConfig.model);
     const modelResolution = resolveChildModel({
       override: modelSpecStr,
-      agent,
+      agent: fork ? { ...agent, model: 'inherit' } : agent,
       parent: ctx.model,
       modelRegistry: ctx.modelRegistry,
     });
@@ -1049,9 +1070,19 @@ export default function subagentExtension(pi: ExtensionAPI): void {
       parentSessionId: ctx.sessionManager.getSessionId(),
     });
     // SessionManager.create will mkdir the sessionDir lazily on first write.
-    const childSessionManager = noPersist
-      ? SessionManager.inMemory(childCwd)
-      : SessionManager.create(childCwd, sessionDir);
+    //
+    // Fork mode copies the parent's transcript into the child session
+    // file (forkFrom seeds agent.state.messages via createAgentSession),
+    // so the child boots with the parent's full history. resolveForkMode
+    // already guaranteed a persisted parent session file exists before
+    // setting fork=true, so getSessionFile() is non-null here.
+    const parentSessionFile = ctx.sessionManager.getSessionFile();
+    const childSessionManager =
+      fork && parentSessionFile
+        ? SessionManager.forkFrom(parentSessionFile, childCwd, sessionDir)
+        : noPersist
+          ? SessionManager.inMemory(childCwd)
+          : SessionManager.create(childCwd, sessionDir);
 
     let child: AgentSession;
     // Resolve the agent's writeRoots (frontmatter strings) into absolute
@@ -1093,9 +1124,16 @@ export default function subagentExtension(pi: ExtensionAPI): void {
     });
     try {
       const agentDir = getAgentDir();
+      // Fork mode keeps the child's system prompt byte-identical to the
+      // parent's so the prompt-cache prefix can be reused: the persona
+      // (appendSystemPrompt + body) is injected as the first USER message
+      // by buildForkPrompt instead of appended to the system prompt.
+      // Fresh mode keeps the existing behaviour.
       const appendParts: string[] = [];
-      if (agent.appendSystemPrompt) appendParts.push(agent.appendSystemPrompt);
-      if (agent.body.trim().length > 0) appendParts.push(agent.body.trim());
+      if (!fork) {
+        if (agent.appendSystemPrompt) appendParts.push(agent.appendSystemPrompt);
+        if (agent.body.trim().length > 0) appendParts.push(agent.body.trim());
+      }
       const resourceLoader = new DefaultResourceLoader({
         cwd: childCwd,
         agentDir,
@@ -1121,7 +1159,13 @@ export default function subagentExtension(pi: ExtensionAPI): void {
         cwd: childCwd,
         model: childModel,
         thinkingLevel: agent.thinkingLevel,
-        tools: agent.tools,
+        // Fork mode leaves the tool allowlist unset so the child enables
+        // pi's default tool set, matching the parent's cached prefix.
+        // Fresh mode keeps the agent's curated allowlist. Either way the
+        // recursive subagent tools are excluded so a child can never fan
+        // out further (the runtime depth guard backs this up).
+        tools: fork ? undefined : agent.tools,
+        excludeTools: [...RECURSIVE_TOOL_NAMES],
         modelRegistry: ctx.modelRegistry,
         authStorage: ctx.modelRegistry.authStorage,
         resourceLoader,
@@ -1294,10 +1338,11 @@ export default function subagentExtension(pi: ExtensionAPI): void {
     };
     if (listenToParent) parentSignal?.addEventListener('abort', parentAbortHandler, { once: true });
 
+    const childPrompt = fork ? buildForkPrompt({ agent, task }) : task;
     const drive = async (): Promise<RunChildResult> => {
       let childError: Error | undefined;
       try {
-        await child.prompt(task);
+        await child.prompt(childPrompt);
       } catch (e) {
         childError = e instanceof Error ? e : new Error(String(e));
       } finally {
@@ -1468,6 +1513,16 @@ export default function subagentExtension(pi: ExtensionAPI): void {
 
       const background = params.run_in_background === true;
 
+      // Fork mode: per-call `fork` overrides the agent's `context` field.
+      // Downgrades to fresh (with a notify) when the parent session has
+      // no on-disk file to fork from.
+      const forkDecision = resolveForkMode({
+        perCall: params.fork,
+        agentDefault: agent.context,
+        parentSessionFile: ctx.sessionManager.getSessionFile(),
+      });
+      if (forkDecision.reason) ctx.ui.notify(`subagent: ${forkDecision.reason}`, 'info');
+
       await semaphore.acquire();
 
       let spawn: SpawnResult;
@@ -1480,6 +1535,7 @@ export default function subagentExtension(pi: ExtensionAPI): void {
           ctx,
           parentSignal: signal,
           background,
+          fork: forkDecision.fork,
         });
       } catch (e) {
         semaphore.release();

@@ -112,6 +112,7 @@ describe('validateAgent', () => {
     expect(out?.maxTurns).toBe(20);
     expect(out?.timeoutMs).toBe(180_000);
     expect(out?.isolation).toBe('shared-cwd');
+    expect(out?.context).toBe('fresh');
     expect(out?.body).toBe('You are an exploration sub-agent.');
     // New gate fields default to empty / undefined when omitted.
     expect(out?.bashAllow).toEqual([]);
@@ -328,6 +329,36 @@ describe('validateAgent', () => {
 
     expect(out).toBeNull();
     expect(warnings[0]?.reason).toMatch(/isolation/);
+  });
+
+  test('parses context: inherit', () => {
+    const warnings: AgentLoadWarning[] = [];
+    const out = validateAgent({
+      path: '/p/x.md',
+      source: 'user',
+      frontmatter: { name: 'x', description: 'd', context: 'inherit' },
+      body: '',
+      knownToolNames: KNOWN_TOOLS,
+      warnings,
+    });
+
+    expect(warnings).toEqual([]);
+    expect(out?.context).toBe('inherit');
+  });
+
+  test('rejects unknown context', () => {
+    const warnings: AgentLoadWarning[] = [];
+    const out = validateAgent({
+      path: '/p/x.md',
+      source: 'user',
+      frontmatter: { name: 'x', description: 'd', context: 'parent' },
+      body: '',
+      knownToolNames: KNOWN_TOOLS,
+      warnings,
+    });
+
+    expect(out).toBeNull();
+    expect(warnings[0]?.reason).toMatch(/context/);
   });
 
   test('tools as non-array is fatal', () => {
