@@ -108,9 +108,19 @@ None. The extension is invisible: it only adds a system-prompt section and rewri
 - `PI_COLOR_TAGS_DISABLED=1` - skip the extension entirely. No system-prompt section, no streaming rewrite.
 - `PI_COLOR_TAGS_NO_PROMPT=1` - keep the streaming rewriter active, drop the system-prompt addendum. Useful for A/B
   testing whether the addendum changes model behaviour for a given local model.
+- `PI_COLOR_TAGS_DISABLE_SCRUB=1` - debug: leave the raw `[c:NAME]...[/c]` tags in the visible reply and in history
+  instead of rewriting them to ANSI and scrubbing the ANSI back out of context. Same effect as the
+  `--color-tags-no-scrub` CLI flag.
 - `PI_COLOR_TAGS_TRACE=<path>` - append per-event diagnostics to `<path>`. Logs `parts=N`, `[c:openCount=N`,
   `[/c]closeCount=N`, `mutationChangedText=YES|no`, plus the last 200 chars of each text part before / after the
   rewrite. Default off. Set to `off` (or leave unset) to disable.
+
+## CLI flags
+
+- `--color-tags-no-scrub` - debug toggle: keep the raw `[c:NAME]...[/c]` tags in the visible reply and in conversation
+  history instead of rewriting them to ANSI on `message_update` and scrubbing the ANSI on `context`. OR-combined with
+  `PI_COLOR_TAGS_DISABLE_SCRUB`. Resolved lazily on the first hook invocation (`getFlag` is only callable after the
+  runtime parses argv).
 
 ## Known limits
 

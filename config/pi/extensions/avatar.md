@@ -178,11 +178,19 @@ that ships only PNG art still picks up a sibling `ascii.yaml` for the kaomoji fa
 
 ## Environment variables
 
-| Variable              | Effect                                                                                     |
-| --------------------- | ------------------------------------------------------------------------------------------ |
-| `PI_AVATAR_DISABLED`  | Skip the extension entirely.                                                               |
-| `PI_AVATAR_NO_PROMPT` | Keep the avatar but drop the `[emote:]` prompt addendum.                                   |
-| `PI_AVATAR_RENDER`    | Force a protocol (`kitty` / `iterm2` / `sixel` / `halfblock` / `ascii`); overrides config. |
+| Variable                  | Effect                                                                                                                                            |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `PI_AVATAR_DISABLED`      | Skip the extension entirely.                                                                                                                      |
+| `PI_AVATAR_NO_PROMPT`     | Keep the avatar but drop the `[emote:]` prompt addendum.                                                                                          |
+| `PI_AVATAR_RENDER`        | Force a protocol (`kitty` / `iterm2` / `sixel` / `halfblock` / `ascii`); overrides config.                                                        |
+| `PI_AVATAR_DISABLE_SCRUB` | Debug: leave `[emote:NAME]` markers in the visible reply and in history (no strip / scrub). The avatar still reacts. Same as `--avatar-no-scrub`. |
+
+## CLI flags
+
+- `--avatar-no-scrub` - debug toggle: keep the raw `[emote:NAME]` markers in the visible reply and in conversation
+  history instead of stripping them from the live render and scrubbing them from context. The avatar still parses the
+  markers and reacts to them; only the cleanup is skipped. Resolved at `session_start` and OR-combined with
+  `PI_AVATAR_DISABLE_SCRUB`.
 
 ## Hot reload
 

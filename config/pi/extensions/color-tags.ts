@@ -47,6 +47,11 @@
  *   PI_COLOR_TAGS_DISABLED=1   skip the extension entirely
  *   PI_COLOR_TAGS_NO_PROMPT=1  keep the rewriter, drop the system-prompt
  *                              addendum (A/B harness)
+ *   PI_COLOR_TAGS_DISABLE_SCRUB=1  debug: leave raw `[c:NAME]...[/c]` tags
+ *                              in the visible reply and in history instead
+ *                              of rewriting them to ANSI and scrubbing the
+ *                              ANSI back out. Same effect as the
+ *                              `--color-tags-no-scrub` CLI flag.
  *   PI_COLOR_TAGS_TRACE=<path> append per-event diagnostics to <path>
  *                              (default off; set to `off` to disable
  *                              explicitly)
@@ -278,6 +283,29 @@ export default function colorTags(pi: ExtensionAPI): void {
 
   const promptDisabled = envTruthy(process.env.PI_COLOR_TAGS_NO_PROMPT);
 
+  pi.registerFlag('color-tags-no-scrub', {
+    description: 'Debug: leave raw [c:NAME]...[/c] tags in the reply/history instead of rewriting to ANSI',
+    type: 'boolean',
+    default: false,
+  });
+
+  // When true, skip the live rewrite and the history scrub so the raw
+  // `[c:NAME]` tags stay visible for debugging. Env sets a baseline; the
+  // CLI flag is resolved lazily (getFlag is only callable once the runtime
+  // has parsed argv) and memoized on first hook invocation.
+  const keepRawEnv = envTruthy(process.env.PI_COLOR_TAGS_DISABLE_SCRUB);
+  let keepRawFlag: boolean | undefined;
+  const keepRaw = (): boolean => {
+    if (keepRawFlag === undefined) {
+      try {
+        keepRawFlag = pi.getFlag('color-tags-no-scrub') === true;
+      } catch {
+        keepRawFlag = false;
+      }
+    }
+    return keepRawEnv || keepRawFlag;
+  };
+
   if (!promptDisabled) {
     pi.on('before_agent_start', (event, ctx) => {
       const base = (event as { systemPrompt?: string }).systemPrompt ?? ctx.getSystemPrompt();
@@ -289,6 +317,10 @@ export default function colorTags(pi: ExtensionAPI): void {
   pi.on('message_update', (event, ctx) => {
     const message = (event as { message?: MutableMessage }).message;
     if (message?.role !== 'assistant') return undefined;
+    if (keepRaw()) {
+      traceMessageUpdate(message);
+      return undefined;
+    }
     const resolver = buildResolver(ctx.ui.theme);
     applyToMessage(message, resolver);
     traceMessageUpdate(message);
@@ -296,6 +328,7 @@ export default function colorTags(pi: ExtensionAPI): void {
   });
 
   pi.on('context', (event) => {
+    if (keepRaw()) return undefined;
     const messages = (event as { messages?: MutableContextMessage[] }).messages;
     if (!Array.isArray(messages)) return undefined;
     const result = scrubContextMessages(messages);

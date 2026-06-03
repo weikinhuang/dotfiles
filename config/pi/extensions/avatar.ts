@@ -33,9 +33,14 @@
  * <piAgentDir>/avatar.json -> <cwd>/.pi/avatar.json.
  *
  * Environment:
- *   PI_AVATAR_DISABLED=1    skip the extension entirely
- *   PI_AVATAR_NO_PROMPT=1   keep the avatar, drop the [emote:] prompt addendum
- *   PI_AVATAR_RENDER=...     force a protocol (kitty|iterm2|sixel|halfblock|ascii); overrides config
+ *   PI_AVATAR_DISABLED=1       skip the extension entirely
+ *   PI_AVATAR_NO_PROMPT=1      keep the avatar, drop the [emote:] prompt addendum
+ *   PI_AVATAR_RENDER=...       force a protocol (kitty|iterm2|sixel|halfblock|ascii); overrides config
+ *   PI_AVATAR_DISABLE_SCRUB=1  debug: leave `[emote:NAME]` markers in the
+ *                              visible reply and in history instead of
+ *                              stripping/scrubbing them. The avatar still
+ *                              reacts to the markers. Same effect as the
+ *                              `--avatar-no-scrub` CLI flag.
  */
 
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
@@ -533,8 +538,13 @@ class Animator {
 // Marker rewriting (live) + scrubbing (history)
 // ──────────────────────────────────────────────────────────────────────
 
-/** Strip `[emote:NAME]` markers from assistant text parts in place; return the names found. */
-function applyEmoteMarkers(message: MutableMessage): string[] {
+/**
+ * Parse `[emote:NAME]` markers from assistant text parts and return the
+ * names found. When `strip` is true the markers are removed from the
+ * visible text in place; when false (debug `--avatar-no-scrub`) the raw
+ * markers stay in the reply while the avatar still reacts to them.
+ */
+function applyEmoteMarkers(message: MutableMessage, strip: boolean): string[] {
   if (message.role !== 'assistant' || !Array.isArray(message.content)) return [];
   const names: string[] = [];
   for (const part of message.content) {
@@ -542,7 +552,7 @@ function applyEmoteMarkers(message: MutableMessage): string[] {
     if (typeof part.text === 'string' && part.text.length > 0) {
       const parsed = parseEmoteMarkers(part.text);
       if (parsed.emotes.length > 0) {
-        part.text = parsed.text;
+        if (strip) part.text = parsed.text;
         names.push(...parsed.emotes);
       }
     }
@@ -797,6 +807,12 @@ export default function avatar(pi: ExtensionAPI): void {
   if (envTruthy(process.env.PI_AVATAR_DISABLED)) return;
   const promptDisabled = envTruthy(process.env.PI_AVATAR_NO_PROMPT);
 
+  pi.registerFlag('avatar-no-scrub', {
+    description: 'Debug: leave [emote:NAME] markers in the reply/history instead of stripping them',
+    type: 'boolean',
+    default: false,
+  });
+
   const extDir = dirname(fileURLToPath(import.meta.url));
   // Shipped assets live alongside the extensions dir at config/pi/avatar/emotes.
   const extEmotesDir = join(extDir, '..', 'avatar', 'emotes');
@@ -810,6 +826,10 @@ export default function avatar(pi: ExtensionAPI): void {
   let protocol: Protocol = 'ascii';
   let emotions: string[] = [];
   let currentSet = 'default';
+  // When true, skip stripping/scrubbing `[emote:]` markers so they stay
+  // visible for debugging. Env sets a baseline; the CLI flag (resolved at
+  // session_start) can also turn it on.
+  let keepRaw = envTruthy(process.env.PI_AVATAR_DISABLE_SCRUB);
   let lastCwd = process.cwd();
   let lastCtx: ExtensionContext | null = null;
   const toolCounts = new Map<string, number>();
@@ -892,6 +912,7 @@ export default function avatar(pi: ExtensionAPI): void {
   pi.on('session_start', (_event, ctx) => {
     animator.clearTimers();
     toolCounts.clear();
+    keepRaw = envTruthy(process.env.PI_AVATAR_DISABLE_SCRUB) || pi.getFlag('avatar-no-scrub') === true;
     lastCtx = ctx;
     lastCwd = ctx.cwd;
     const modelId = (ctx.model as ModelInfo | undefined)?.id ?? '';
@@ -935,7 +956,7 @@ export default function avatar(pi: ExtensionAPI): void {
     if (!enabled) return;
     lastCtx = ctx;
     const message = event.message as MutableMessage;
-    const names = applyEmoteMarkers(message);
+    const names = applyEmoteMarkers(message, !keepRaw);
     if (!widgetActive) return;
     if (names.length > 0) {
       animator.enterEmotion(names[names.length - 1]);
@@ -962,7 +983,7 @@ export default function avatar(pi: ExtensionAPI): void {
   });
 
   pi.on('context', (event) => {
-    if (!enabled) return undefined;
+    if (!enabled || keepRaw) return undefined;
     const result = scrubContextMessages(event.messages as unknown as MutableMessage[]);
     return result ? { messages: result.messages as never } : undefined;
   });
