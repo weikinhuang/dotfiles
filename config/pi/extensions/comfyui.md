@@ -24,8 +24,14 @@ and is unit-tested by [`../../../tests/lib/node/pi/comfyui/`](../../../tests/lib
    the workflow file's baked-in values; an omitted `seed` becomes a fresh random seed only when the workflow maps one.
 5. Submit via `POST /prompt` with a generated `client_id`, capturing the `prompt_id`.
 6. Poll `GET /history/{prompt_id}` for completion; concurrently stream `GET /ws` progress into the tool's live update
-   line (best-effort - websocket failures, including auth, fall back silently to polling).
-7. Fetch each output via `GET /view`, write the PNG(s) to `saveDir`, and return them inline with a one-line summary.
+   line. The poll is the source of truth (best-effort - websocket failures, including auth, fall back silently to
+   polling), but when the websocket is healthy its completion / error event wakes the poll immediately, so there is no
+   up-to-one-second wait between "render finished" and "noticed".
+7. Fetch each output via `GET /view`, write the file(s) to `saveDir`, and return them inline with a one-line summary.
+   Outputs reported under `images`, `gifs` (animation / video workflows), and `audio` are all collected; the
+   server-supplied filename is reduced to its basename before writing, so a path-traversal name can never escape
+   `saveDir`. A `PreviewImage`+`SaveImage` pair that emits the same file twice is de-duplicated, keeping the saved
+   `output` copy, so one render is never saved or sent to the model twice.
 
 A non-2xx `POST /prompt` (e.g. unknown checkpoint, bad dimension) surfaces ComfyUI's validation body as an `isError`
 tool result so the model can self-correct.
@@ -71,7 +77,9 @@ is therefore just metadata - the registry holds no process or buffer - and the a
 
 `collect` is safe to call repeatedly: it reports `still running` until ComfyUI finishes, then returns the image(s) and
 marks the job `done`. Collection honors the same `sendToModel` / vision rules as a foreground generation, evaluated
-against the model active at collect time. The PNG is always written to `saveDir` regardless.
+against the model active at collect time. The PNG is always written to `saveDir` regardless. If the prompt is gone from
+both the server's `/history` and its `/queue` (e.g. ComfyUI was restarted mid-render), `collect` marks the job `error`
+with a resubmit hint instead of looping on `still running` forever.
 
 The registry lives only for the current pi session. Running jobs are surfaced two ways so the model does not forget
 them: a `▦ img:N` statusline indicator (via `statusline.ts`) and a `## Pending image jobs` block injected into the

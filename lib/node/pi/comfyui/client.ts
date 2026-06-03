@@ -32,6 +32,7 @@ import {
 } from './api.ts';
 import { mimeFromName } from './images.ts';
 import type { ComfyWorkflow, ImageRef, WorkflowConfig } from './types.ts';
+import { createWaker, type Waker } from './waker.ts';
 import { injectInputs, loadWorkflowGraph, randomSeed } from './workflow.ts';
 
 /** A live connection to a ComfyUI server: base URL, auth headers, timeout. */
@@ -113,6 +114,13 @@ export async function fetchHistory(conn: Conn, promptId: string, signal: AbortSi
   return res.json();
 }
 
+/** GET `/queue` (running + pending jobs); returns `null` on a non-OK response. */
+export async function fetchQueue(conn: Conn, signal: AbortSignal): Promise<unknown> {
+  const res = await fetch(buildQueueUrl(conn.base), { headers: conn.headers, signal });
+  if (!res.ok) return null;
+  return res.json();
+}
+
 /** GET `/view` for one output image; returns its raw bytes. */
 export async function fetchImageBytes(conn: Conn, ref: ImageRef, signal: AbortSignal): Promise<Buffer> {
   const res = await fetch(buildViewUrl(conn.base, ref), { headers: conn.headers, signal });
@@ -131,7 +139,10 @@ export async function fetchAndSave(
   return Promise.all(
     refs.map(async (ref, i) => {
       const bytes = await fetchImageBytes(conn, ref, signal);
-      const savedPath = join(saveDir, `comfyui-${stamp}-${i}-${ref.filename}`);
+      // `ref.filename` comes straight from the server's /history JSON; run
+      // it through basename so a hostile / buggy server returning
+      // "../escape.png" can't write outside saveDir.
+      const savedPath = join(saveDir, `comfyui-${stamp}-${i}-${basename(ref.filename)}`);
       atomicWriteFile(savedPath, bytes);
       return {
         savedPath,
@@ -200,15 +211,25 @@ export async function cancelPrompt(conn: Conn, promptId: string, signal: AbortSi
   }
 }
 
-/** Best-effort progress stream; failures (incl. ws auth) are swallowed. */
+/**
+ * Best-effort progress stream; failures (incl. ws auth) are swallowed.
+ *
+ * Two jobs: surface a live progress line via `report` (when given), and,
+ * when a `waker` is supplied, fire it the instant the socket sees this
+ * prompt finish or error so {@link waitForImages} can cut its poll sleep
+ * short instead of waiting out the full interval. The socket only ever
+ * *wakes* the poll - it never reports completion on its own, so a missed
+ * or never-connected socket just falls back to plain polling.
+ */
 export function openProgressSocket(
   conn: Conn,
   clientId: string,
   promptId: string,
   report: ((text: string) => void) | undefined,
   signal: AbortSignal,
+  waker?: Waker,
 ): WebSocket | null {
-  if (!report) return null;
+  if (!report && !waker) return null;
   try {
     const ws = new WebSocket(toWsUrl(conn.base, clientId));
     ws.addEventListener('message', (ev: MessageEvent) => {
@@ -216,9 +237,14 @@ export function openProgressSocket(
       const event = parseWsMessage(ev.data);
       if (!event) return;
       if (event.type === 'progress' && (event.promptId === undefined || event.promptId === promptId)) {
-        report(`generating ${event.value}/${event.max}`);
+        report?.(`generating ${event.value}/${event.max}`);
       } else if (isExecutionComplete(event, promptId)) {
-        report('rendering output…');
+        report?.('rendering output…');
+        waker?.wake();
+      } else if (event.type === 'execution_error' && (event.promptId === undefined || event.promptId === promptId)) {
+        // The error itself is confirmed by the next /history poll (which
+        // carries the reason); we just wake it so that happens at once.
+        waker?.wake();
       }
     });
     signal.addEventListener('abort', () => ws.close(), { once: true });
@@ -229,19 +255,35 @@ export function openProgressSocket(
 }
 
 /**
- * Poll `/history` until the prompt produces image outputs (or aborts).
+ * Poll `/history` until the prompt produces output refs (or aborts).
  * Written recursively rather than as a `while` so the sequential awaits
- * (one poll, then a delay) aren't flagged as parallelizable.
+ * (one poll, then a sleep) aren't flagged as parallelizable.
+ *
+ * The fixed-interval poll is the reliable floor. When a `waker` is passed
+ * (fed by {@link openProgressSocket}), a completion/error event cuts the
+ * sleep short, so a healthy websocket removes the up-to-`pollMs` latency
+ * tax between "render finished" and "we noticed" without giving up the
+ * poll as the source of truth.
  */
-export async function waitForImages(conn: Conn, promptId: string, signal: AbortSignal): Promise<ImageRef[]> {
+export async function waitForImages(
+  conn: Conn,
+  promptId: string,
+  signal: AbortSignal,
+  waker?: Waker,
+  pollMs = 1000,
+): Promise<ImageRef[]> {
   if (signal.aborted) throw new Error('aborted');
   const history = await fetchHistory(conn, promptId, signal);
   const images = extractOutputImages(history, promptId);
   if (images.length > 0) return images;
   if (historyHasError(history, promptId)) throw new Error('ComfyUI reported an execution error (see server log)');
-  await delay(1000, signal);
-  return waitForImages(conn, promptId, signal);
+  if (waker) await waker.sleep(pollMs, signal);
+  else await delay(pollMs, signal);
+  return waitForImages(conn, promptId, signal, waker, pollMs);
 }
+
+/** Re-export so the extension shell can build a waker without reaching into `./waker`. */
+export { createWaker, type Waker };
 
 /** True when `/system_stats` responds OK within 5s; false on any error. */
 export async function pingServer(conn: Conn): Promise<boolean> {

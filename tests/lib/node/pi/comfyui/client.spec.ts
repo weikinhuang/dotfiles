@@ -18,9 +18,11 @@ import {
   buildInjectedGraph,
   cancelPrompt,
   type Conn,
+  createWaker,
   fetchAndSave,
   fetchHistory,
   fetchImageBytes,
+  fetchQueue,
   pingServer,
   submitPrompt,
   waitForImages,
@@ -132,6 +134,31 @@ describe('fetchAndSave', () => {
     expect(readdirSync(dir)).toHaveLength(1);
     expect(saved[0].savedPath).toContain('out.png');
   });
+
+  test('basenames a traversal filename so writes stay inside saveDir', async () => {
+    stubFetch(() => fakeResponse({ bytes: new Uint8Array([1]) }));
+    const refs: ImageRef[] = [{ filename: '../../escape.png', subfolder: '', type: 'output' }];
+    const saved = await fetchAndSave(CONN, refs, dir, signal());
+    // The written path is inside dir and the traversal segments are gone.
+    expect(saved[0].savedPath.startsWith(dir)).toBe(true);
+    expect(saved[0].savedPath).not.toContain('..');
+    expect(saved[0].savedPath).toContain('escape.png');
+    expect(readdirSync(dir)).toHaveLength(1);
+  });
+});
+
+describe('fetchQueue', () => {
+  test('returns the parsed body on OK', async () => {
+    const body = { queue_running: [[0, 'p1', {}]], queue_pending: [] };
+    const { calls } = stubFetch(() => fakeResponse({ json: body }));
+    await expect(fetchQueue(CONN, signal())).resolves.toEqual(body);
+    expect(calls[0].url).toBe('http://comfy:8188/queue');
+  });
+
+  test('returns null on a non-OK response', async () => {
+    stubFetch(() => fakeResponse({ ok: false, status: 503 }));
+    await expect(fetchQueue(CONN, signal())).resolves.toBeNull();
+  });
 });
 
 describe('cancelPrompt', () => {
@@ -183,6 +210,19 @@ describe('waitForImages', () => {
     const ac = new AbortController();
     ac.abort();
     await expect(waitForImages(CONN, 'p1', ac.signal)).rejects.toThrow('aborted');
+  });
+
+  test('a woken sleep skips the poll interval between empty polls', async () => {
+    const ready = { p1: { outputs: { '9': { images: [{ filename: 'a.png', subfolder: '', type: 'output' }] } } } };
+    let poll = 0;
+    stubFetch(() => fakeResponse({ json: poll++ === 0 ? { p1: { outputs: {} } } : ready }));
+    const waker = createWaker();
+    // Pre-latch a wake so the post-first-poll sleep resolves at once
+    // without advancing any real timer (poll interval is 60s here).
+    waker.wake();
+    const refs = await waitForImages(CONN, 'p1', signal(), waker, 60000);
+    expect(refs).toEqual([{ filename: 'a.png', subfolder: '', type: 'output' }]);
+    expect(poll).toBe(2);
   });
 });
 

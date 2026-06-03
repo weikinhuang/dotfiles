@@ -56,13 +56,20 @@ import {
   resolveSendToModel,
   SHIPPED_WORKFLOW_INPUTS,
 } from '../../../lib/node/pi/comfyui/config.ts';
-import { extractOutputImages, historyHasError } from '../../../lib/node/pi/comfyui/api.ts';
+import {
+  extractOutputImages,
+  historyHasEntry,
+  historyHasError,
+  queueHasPrompt,
+} from '../../../lib/node/pi/comfyui/api.ts';
 import {
   buildInjectedGraph,
   cancelPrompt,
   type Conn,
+  createWaker,
   fetchAndSave,
   fetchHistory,
+  fetchQueue,
   openProgressSocket,
   pingServer,
   submitPrompt,
@@ -368,8 +375,12 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
           return { content: [{ type: 'text', text }], details };
         }
 
-        socket = openProgressSocket(conn, clientId, promptId, onUpdate ? report : undefined, runSignal);
-        const refs = await waitForImages(conn, promptId, runSignal);
+        // The socket wakes the poll the instant the render finishes, so a
+        // healthy websocket trims the up-to-1s poll-interval latency; the
+        // poll stays the source of truth when the socket never connects.
+        const waker = createWaker();
+        socket = openProgressSocket(conn, clientId, promptId, onUpdate ? report : undefined, runSignal, waker);
+        const refs = await waitForImages(conn, promptId, runSignal, waker);
 
         const saved = await fetchAndSave(conn, refs, saveDir, runSignal);
         for (const s of saved) details.savedPaths.push(s.savedPath);
@@ -511,6 +522,19 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
           registry = updateJob(registry, id, { status: 'error', error: reason, endedAt: Date.now() });
           updateStatusline();
           return jobsError('collect', `[${id}] failed: ${reason}`);
+        }
+        // No outputs and no error. Usually still rendering - but if the
+        // server has no history entry AND the prompt isn't queued, it is
+        // gone (ComfyUI restarted, queue + history wiped). Mark it errored
+        // so the model stops re-polling a prompt that will never finish.
+        if (!historyHasEntry(history, job.promptId)) {
+          const queue = await fetchQueue(conn, ac.signal);
+          if (!queueHasPrompt(queue, job.promptId)) {
+            const reason = 'prompt is no longer on the server (ComfyUI may have restarted); resubmit to retry';
+            registry = updateJob(registry, id, { status: 'error', error: reason, endedAt: Date.now() });
+            updateStatusline();
+            return jobsError('collect', `[${id}] failed: ${reason}`);
+          }
         }
         return {
           content: [{ type: 'text', text: `[${id}] still running (no output yet). Call collect again shortly.` }],
