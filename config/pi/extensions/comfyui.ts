@@ -250,14 +250,12 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
     count: Type.Optional(Type.Number({ description: 'Batch size.' })),
     sendToModel: Type.Optional(
       Type.Boolean({
-        description:
-          'Return the image to you for analysis (default true). false = save to disk only, out of context. Auto-suppressed for non-vision models.',
+        description: `Return the image to you for analysis; false = save to disk only. Auto-suppressed for non-vision models. Default ${registrationConfig.sendToModel}.`,
       }),
     ),
     background: Type.Optional(
       Type.Boolean({
-        description:
-          'Return immediately without waiting; collect later via `image_jobs` (collect). Use for slow renders. Default false.',
+        description: `Return immediately without waiting; collect later via \`image_jobs\` (collect). Use for slow renders. Default ${registrationConfig.background}.`,
       }),
     ),
   });
@@ -298,6 +296,7 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
       const conn: Conn = { base, headers, timeoutMs: config.timeoutMs };
       const saveDir = isAbsolute(config.saveDir) ? config.saveDir : join(ctx.cwd, config.saveDir);
       const requested = params.sendToModel ?? config.sendToModel;
+      const background = params.background ?? config.background;
 
       // Stream a progress line; pi's onUpdate wants a full tool result, so
       // carry the (partial) details alongside the text. Stash the line on
@@ -354,7 +353,7 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
         // Background: register the job and return without waiting. ComfyUI
         // keeps running it server-side; the model collects it later via
         // `image_jobs`.
-        if (params.background) {
+        if (background) {
           const added = addJob(registry, {
             promptId,
             workflow: name,

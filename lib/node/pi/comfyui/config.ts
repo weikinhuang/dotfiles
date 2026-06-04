@@ -50,6 +50,7 @@ export const DEFAULT_CONFIG: ComfyuiConfig = {
   saveDir: '.pi/comfyui-out',
   defaultWorkflow: 'txt2img',
   sendToModel: true,
+  background: false,
   workflows: {},
 };
 
@@ -168,6 +169,9 @@ export function coerceConfigLayer(raw: unknown): Partial<ComfyuiConfig> {
   const sendToModel = asBoolean(raw.sendToModel);
   if (sendToModel !== undefined) out.sendToModel = sendToModel;
 
+  const background = asBoolean(raw.background);
+  if (background !== undefined) out.background = background;
+
   const defaults = asGenerationDefaults(raw.defaults);
   if (defaults !== undefined) out.defaults = defaults;
 
@@ -198,6 +202,7 @@ export function mergeConfigLayers(...overrides: Partial<ComfyuiConfig>[]): Comfy
     if (layer.saveDir !== undefined) result.saveDir = layer.saveDir;
     if (layer.defaultWorkflow !== undefined) result.defaultWorkflow = layer.defaultWorkflow;
     if (layer.sendToModel !== undefined) result.sendToModel = layer.sendToModel;
+    if (layer.background !== undefined) result.background = layer.background;
     if (layer.defaults !== undefined) result.defaults = { ...result.defaults, ...layer.defaults };
     if (layer.authHeader !== undefined) result.authHeader = { ...layer.authHeader };
     if (layer.workflows !== undefined) result.workflows = { ...result.workflows, ...layer.workflows };

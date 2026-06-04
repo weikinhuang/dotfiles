@@ -72,6 +72,13 @@ export interface ComfyuiConfig {
    */
   sendToModel: boolean;
   /**
+   * Whether a generation is submitted as a background job by default
+   * (returning the job id immediately instead of waiting for the render).
+   * When `false`, the call blocks until the image is ready. A per-call
+   * `background` arg overrides it.
+   */
+  background: boolean;
+  /**
    * Optional generation-param defaults applied before the per-call
    * params and the workflow-baked graph values. See
    * {@link GenerationDefaults}.

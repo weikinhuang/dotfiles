@@ -38,21 +38,21 @@ tool result so the model can self-correct.
 
 ## Tool: `generate_image`
 
-| Parameter     | Type    | Notes                                                         |
-| ------------- | ------- | ------------------------------------------------------------- |
-| `prompt`      | string  | Required. Positive prompt.                                    |
-| `negative`    | string  | Negative prompt.                                              |
-| `workflow`    | string  | Named workflow; defaults to `defaultWorkflow`.                |
-| `width`       | number  | Output width in pixels.                                       |
-| `height`      | number  | Output height in pixels.                                      |
-| `steps`       | number  | Sampler steps.                                                |
-| `cfg`         | number  | CFG / guidance scale.                                         |
-| `seed`        | number  | Omit for a fresh random seed; pass a prior seed to reproduce. |
-| `denoise`     | number  | Denoise strength (img2img), `0`-`1`.                          |
-| `inputImage`  | string  | Path to an input image (img2img workflows only).              |
-| `count`       | number  | Batch size.                                                   |
-| `sendToModel` | boolean | Override the `sendToModel` config default for this call.      |
-| `background`  | boolean | Submit and return now; collect later via `image_jobs`.        |
+| Parameter     | Type    | Notes                                                                                             |
+| ------------- | ------- | ------------------------------------------------------------------------------------------------- |
+| `prompt`      | string  | Required. Positive prompt.                                                                        |
+| `negative`    | string  | Negative prompt.                                                                                  |
+| `workflow`    | string  | Named workflow; defaults to `defaultWorkflow`.                                                    |
+| `width`       | number  | Output width in pixels.                                                                           |
+| `height`      | number  | Output height in pixels.                                                                          |
+| `steps`       | number  | Sampler steps.                                                                                    |
+| `cfg`         | number  | CFG / guidance scale.                                                                             |
+| `seed`        | number  | Omit for a fresh random seed; pass a prior seed to reproduce.                                     |
+| `denoise`     | number  | Denoise strength (img2img), `0`-`1`.                                                              |
+| `inputImage`  | string  | Path to an input image (img2img workflows only).                                                  |
+| `count`       | number  | Batch size.                                                                                       |
+| `sendToModel` | boolean | Override the `sendToModel` config default for this call.                                          |
+| `background`  | boolean | Submit and return now; collect later via `image_jobs`. Overrides the `background` config default. |
 
 Each parameter is injected only if the active workflow's input map names a node for it. Passing an arg the workflow does
 not map (or pointing `inputImage` at a workflow with no `image` mapping) returns a clear error rather than a silent
@@ -66,6 +66,9 @@ id immediately. ComfyUI keeps executing it server-side, so nothing is lost when 
 
 This works because ComfyUI queues every `POST /prompt` and persists the result under its `prompt_id`. A background job
 is therefore just metadata - the registry holds no process or buffer - and the actual PNGs are fetched on collection.
+
+To make every generation background by default (e.g. a project of slow renders), set `"background": true` in a
+`comfyui.json` layer; the per-call `background` arg still overrides it, so an individual foreground render is `false`.
 
 ### Tool: `image_jobs`
 
@@ -95,16 +98,17 @@ shipped [`txt2img.api.json`](../comfyui/txt2img.api.json) is example scaffolding
 `v1-5-pruned-emaonly.safetensors` checkpoint most servers won't have), not a real default. Drop at least one workflow
 into one of the config files to opt in; see [`../comfyui-example.json`](../comfyui-example.json) for a starting point.
 
-| Key               | Default                  | Meaning                                                                                       |
-| ----------------- | ------------------------ | --------------------------------------------------------------------------------------------- |
-| `baseUrl`         | `http://127.0.0.1:8188`  | ComfyUI server origin. Supports `${ENV}`. `PI_COMFYUI_URL` overrides it.                      |
-| `authHeader`      | (none)                   | `{ "name", "value" }` sent on every request; `value` supports `${ENV}`.                       |
-| `timeoutMs`       | `180000`                 | Hard cap per generation before it is aborted.                                                 |
-| `saveDir`         | `.pi/comfyui-out`        | Where PNGs are written (relative to cwd, or an absolute path).                                |
-| `defaultWorkflow` | `txt2img`                | Workflow used when the tool call omits `workflow`.                                            |
-| `sendToModel`     | `true`                   | Return the image in the tool result (fed to the model next turn). `false` saves to disk only. |
-| `defaults`        | (none)                   | Generation-param defaults pre-filled when a call omits them; merge by field. See below.       |
-| `workflows`       | `{ txt2img: <shipped> }` | Named workflows; merge by name across layers.                                                 |
+| Key               | Default                  | Meaning                                                                                                                 |
+| ----------------- | ------------------------ | ----------------------------------------------------------------------------------------------------------------------- |
+| `baseUrl`         | `http://127.0.0.1:8188`  | ComfyUI server origin. Supports `${ENV}`. `PI_COMFYUI_URL` overrides it.                                                |
+| `authHeader`      | (none)                   | `{ "name", "value" }` sent on every request; `value` supports `${ENV}`.                                                 |
+| `timeoutMs`       | `180000`                 | Hard cap per generation before it is aborted.                                                                           |
+| `saveDir`         | `.pi/comfyui-out`        | Where PNGs are written (relative to cwd, or an absolute path).                                                          |
+| `defaultWorkflow` | `txt2img`                | Workflow used when the tool call omits `workflow`.                                                                      |
+| `sendToModel`     | `true`                   | Return the image in the tool result (fed to the model next turn). `false` saves to disk only.                           |
+| `background`      | `false`                  | Submit generations as background jobs by default (collect later via `image_jobs`). Per-call `background` arg overrides. |
+| `defaults`        | (none)                   | Generation-param defaults pre-filled when a call omits them; merge by field. See below.                                 |
+| `workflows`       | `{ txt2img: <shipped> }` | Named workflows; merge by name across layers.                                                                           |
 
 Every scalar above resolves
 `per-call arg > project config (<cwd>/.pi/comfyui.json) > user config (~/.pi/agent/comfyui.json) > built-in default`. So

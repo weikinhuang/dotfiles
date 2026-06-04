@@ -51,6 +51,11 @@ describe('coerceConfigLayer', () => {
     expect(coerceConfigLayer({ sendToModel: 'no' }).sendToModel).toBeUndefined();
   });
 
+  test('coerces the background boolean and drops a non-boolean', () => {
+    expect(coerceConfigLayer({ background: true }).background).toBe(true);
+    expect(coerceConfigLayer({ background: 'yes' }).background).toBeUndefined();
+  });
+
   test('parses a well-formed auth header and rejects a malformed one', () => {
     expect(coerceConfigLayer({ authHeader: { name: 'Authorization', value: 'Bearer x' } }).authHeader).toEqual({
       name: 'Authorization',
@@ -127,6 +132,11 @@ describe('mergeConfigLayers', () => {
   test('sendToModel defaults to true and is overridable', () => {
     expect(mergeConfigLayers().sendToModel).toBe(true);
     expect(mergeConfigLayers({ sendToModel: false }).sendToModel).toBe(false);
+  });
+
+  test('background defaults to false and is overridable', () => {
+    expect(mergeConfigLayers().background).toBe(false);
+    expect(mergeConfigLayers({ background: true }).background).toBe(true);
   });
 
   test('workflows merge by name across layers', () => {
