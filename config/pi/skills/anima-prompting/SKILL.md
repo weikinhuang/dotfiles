@@ -48,7 +48,9 @@ prompt every time. Do not pass `inputImage` (Anima here is text-to-image only).
    `Fern from Sousou no Frieren, with long purple hair and purple eyes, wearing a black coat...` - especially with
    multiple characters, describe each one's appearance or the model conflates them.
 6. **Artists need `@`:** write `@artist name` (the `@` is mandatory; without it the style barely registers). You may put
-   quality/artist tags at the start of a natural-language prompt too.
+   quality/artist tags at the start of a natural-language prompt too. An `@artist` tag also **locks a consistent style
+   across seeds** - pin one when you want the same house look from image to image (verified: same `@artist` holds the
+   style steady across different seeds).
 
 ### Tag order (tag-style prompts)
 
@@ -135,13 +137,13 @@ worst quality, low quality, score_1, score_2, score_3, artist name
 
 ## Generation settings
 
-| Setting    | Value                                                                                             |
-| ---------- | ------------------------------------------------------------------------------------------------- |
-| Resolution | 512x512 to 1536x1536; 1024x1024 default.                                                          |
-| Steps      | 30-50.                                                                                            |
-| CFG        | 4-5.                                                                                              |
-| Sampler    | `er_sde` is the neutral default; `euler_a` for softer lines; `dpmpp_2m_sde_gpu` for more variety. |
-| Scheduler  | Workflow default is fine; `beta57` gives a more painterly look with better textures.              |
+| Setting    | Value                                                                                                                                                                                                                                               |
+| ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Resolution | 512x512 to 1536x1536; 1024x1024 default.                                                                                                                                                                                                            |
+| Steps      | 30-50.                                                                                                                                                                                                                                              |
+| CFG        | 4-5.                                                                                                                                                                                                                                                |
+| Sampler    | `er_sde` is the neutral default; `euler_a` for softer lines; `dpmpp_2m_sde_gpu` for more variety.                                                                                                                                                   |
+| Scheduler  | Workflow default (`simple`) is a good neutral pick. Valid options vary by install (commonly `simple`, `normal`, `karras`, `beta`, `kl_optimal`). NOTE: `beta57` is a custom-node scheduler and is NOT on a stock ComfyUI - do not assume it exists. |
 
 Sampler/scheduler live in the workflow file, not the tool args - mention a sampler only if asking the user to retune the
 workflow.
@@ -171,6 +173,12 @@ The wrapped lines above are a single comma/space-joined string each - pass them 
 
 - **Asking for realism / photos.** Anima is anime/illustration only and will not do realism - redirect or set
   expectations instead of fighting it.
+- **Heavy environment prose on a single-character shot.** A long multi-sentence paragraph describing the _room/scene_
+  dilutes the character tags and visibly degrades character detail. Keep prose to a short clause (one sentence) for pose
+  / light / spatial framing and describe the character with tags. Character-focused prose is fine; a wall of scenery
+  prose is not. (Verified by A/B at a fixed seed.)
+- **Dropping the setting entirely.** If neither a tag nor the prose names the location, Anima defaults to a plain white
+  background. Name the setting somewhere if you want one.
 - **Three-word prompts.** `a cat girl` underuses the model and risks plain or unsafe output. Run it through the
   [expansion algorithm](#expanding-a-terse-user-request) - target ~12-25 substantive items. As a sketch, `a cat girl`
   becomes:
