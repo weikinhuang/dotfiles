@@ -153,6 +153,25 @@ export async function fetchAndSave(
 }
 
 /**
+ * Re-build inline image blocks from files already written to disk by a
+ * prior {@link fetchAndSave} (e.g. an auto-downloaded background job).
+ * Skips any path that no longer exists, so a manually-deleted output is
+ * silently dropped rather than throwing. Pure local IO - no server call.
+ */
+export function readSavedImages(paths: string[]): SavedImage[] {
+  const out: SavedImage[] = [];
+  for (const savedPath of paths) {
+    if (!existsSync(savedPath)) continue;
+    const bytes = readFileSync(savedPath);
+    out.push({
+      savedPath,
+      block: { type: 'image' as const, data: bytes.toString('base64'), mimeType: mimeFromName(savedPath) },
+    });
+  }
+  return out;
+}
+
+/**
  * Load the named workflow graph, upload any img2img input, compute the
  * seed, and inject every mapped param. Returns the ready-to-submit graph
  * plus the resolved seed, or a human-readable `error` for a bad workflow

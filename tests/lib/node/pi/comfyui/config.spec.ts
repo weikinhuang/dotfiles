@@ -56,6 +56,18 @@ describe('coerceConfigLayer', () => {
     expect(coerceConfigLayer({ background: 'yes' }).background).toBeUndefined();
   });
 
+  test('coerces the autoDownload boolean and drops a non-boolean', () => {
+    expect(coerceConfigLayer({ autoDownload: false }).autoDownload).toBe(false);
+    expect(coerceConfigLayer({ autoDownload: 'no' }).autoDownload).toBeUndefined();
+  });
+
+  test('coerces pollIntervalMs and clamps it to the floor', () => {
+    expect(coerceConfigLayer({ pollIntervalMs: 5000 }).pollIntervalMs).toBe(5000);
+    expect(coerceConfigLayer({ pollIntervalMs: 200 }).pollIntervalMs).toBe(1000);
+    expect(coerceConfigLayer({ pollIntervalMs: 0 }).pollIntervalMs).toBeUndefined();
+    expect(coerceConfigLayer({ pollIntervalMs: 'fast' }).pollIntervalMs).toBeUndefined();
+  });
+
   test('parses a well-formed auth header and rejects a malformed one', () => {
     expect(coerceConfigLayer({ authHeader: { name: 'Authorization', value: 'Bearer x' } }).authHeader).toEqual({
       name: 'Authorization',
@@ -137,6 +149,16 @@ describe('mergeConfigLayers', () => {
   test('background defaults to false and is overridable', () => {
     expect(mergeConfigLayers().background).toBe(false);
     expect(mergeConfigLayers({ background: true }).background).toBe(true);
+  });
+
+  test('autoDownload defaults to true and is overridable', () => {
+    expect(mergeConfigLayers().autoDownload).toBe(true);
+    expect(mergeConfigLayers({ autoDownload: false }).autoDownload).toBe(false);
+  });
+
+  test('pollIntervalMs defaults to 3000 and is overridable', () => {
+    expect(mergeConfigLayers().pollIntervalMs).toBe(3000);
+    expect(mergeConfigLayers({ pollIntervalMs: 5000 }).pollIntervalMs).toBe(5000);
   });
 
   test('workflows merge by name across layers', () => {

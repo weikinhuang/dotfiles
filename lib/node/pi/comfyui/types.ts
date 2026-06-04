@@ -79,6 +79,20 @@ export interface ComfyuiConfig {
    */
   background: boolean;
   /**
+   * Whether background jobs are polled off-turn and their PNGs fetched
+   * to {@link saveDir} automatically the moment the render finishes,
+   * without waiting for an `image_jobs` collect. The file lands on disk
+   * either way; auto-download cannot push the image into the model's
+   * context (only a model-invoked `collect` can do that). On by default.
+   */
+  autoDownload: boolean;
+  /**
+   * How often (ms) the background auto-download timer polls `/history`
+   * for each running job. Only meaningful when {@link autoDownload} is
+   * on. Clamped to a sane floor by the loader.
+   */
+  pollIntervalMs: number;
+  /**
    * Optional generation-param defaults applied before the per-call
    * params and the workflow-baked graph values. See
    * {@link GenerationDefaults}.

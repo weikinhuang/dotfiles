@@ -72,6 +72,8 @@ import {
   fetchQueue,
   openProgressSocket,
   pingServer,
+  readSavedImages,
+  type SavedImage,
   submitPrompt,
   waitForImages,
 } from '../../../lib/node/pi/comfyui/client.ts';
@@ -195,6 +197,128 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
     uiRef.setStatus('comfyui', running > 0 ? `▦ img:${running}` : undefined);
   };
 
+  // ── Background auto-download ──────────────────────────────────────
+  // When `autoDownload` is on, an off-turn timer polls `/history` for
+  // every running job and fetches its PNG(s) to disk the instant the
+  // render finishes - no `image_jobs collect` needed. The file lands on
+  // disk either way; auto-download cannot push the image into the model's
+  // context (only a model-invoked `collect` can), so a later `collect`
+  // re-serves the already-downloaded files from disk.
+  //
+  // `inFlight` guards a single job from being fetched twice at once - by
+  // the timer and a concurrent manual `collect` - which would double-write
+  // its output files.
+  const inFlight = new Set<string>();
+  let pollTimer: ReturnType<typeof setInterval> | undefined;
+
+  type CollectOutcome =
+    | { kind: 'running' }
+    | { kind: 'failed'; reason: string }
+    | { kind: 'done'; saved: SavedImage[] };
+
+  // One poll of a job's `/history`: returns `done` with fetched+saved
+  // images, `failed` (execution error or a prompt the server has dropped),
+  // or `running`. Pure of registry mutation - the caller applies the patch.
+  const pollJobOnce = async (job: ImageJob, conn: Conn, signal: AbortSignal): Promise<CollectOutcome> => {
+    const history = await fetchHistory(conn, job.promptId, signal);
+    const refs = extractOutputImages(history, job.promptId);
+    if (refs.length === 0) {
+      if (historyHasError(history, job.promptId)) {
+        return { kind: 'failed', reason: 'ComfyUI reported an execution error (see server log)' };
+      }
+      // No outputs and no error. Usually still rendering - but if the server
+      // has no history entry AND the prompt isn't queued, it is gone
+      // (ComfyUI restarted, queue + history wiped); stop polling it.
+      if (!historyHasEntry(history, job.promptId)) {
+        const queue = await fetchQueue(conn, signal);
+        if (!queueHasPrompt(queue, job.promptId)) {
+          return {
+            kind: 'failed',
+            reason: 'prompt is no longer on the server (ComfyUI may have restarted); resubmit to retry',
+          };
+        }
+      }
+      return { kind: 'running' };
+    }
+    const saved = await fetchAndSave(conn, refs, job.saveDir, signal);
+    return { kind: 'done', saved };
+  };
+
+  const stopPollTimer = (): void => {
+    if (pollTimer !== undefined) {
+      clearInterval(pollTimer);
+      pollTimer = undefined;
+    }
+  };
+
+  // Walk every running job once; auto-download the finished ones. Stops the
+  // timer when nothing is running or `autoDownload` got turned off, so a
+  // quiet session isn't polling forever.
+  const autoDownloadTick = async (): Promise<void> => {
+    const running = runningJobs(registry);
+    if (running.length === 0) {
+      stopPollTimer();
+      return;
+    }
+    const config = loadConfig(cwd);
+    if (!config.autoDownload) {
+      stopPollTimer();
+      return;
+    }
+    const conn: Conn = {
+      base: resolveBaseUrl(config),
+      headers: resolveAuthHeaders(config),
+      timeoutMs: config.timeoutMs,
+    };
+    // Poll every job in parallel, but apply the registry patches in a
+    // single synchronous pass afterwards: `registry = updateJob(...)`
+    // reads-then-reassigns, so concurrent reassignments would lose
+    // updates. The `inFlight` guard still serializes any one job against a
+    // manual collect.
+    const results = await Promise.all(
+      running.map(async (job): Promise<{ id: string; outcome: CollectOutcome } | null> => {
+        if (inFlight.has(job.id)) return null;
+        inFlight.add(job.id);
+        const ac = new AbortController();
+        const timer = setTimeout(() => ac.abort(), conn.timeoutMs);
+        try {
+          return { id: job.id, outcome: await pollJobOnce(job, conn, ac.signal) };
+        } catch {
+          // Best-effort: a transient poll/network failure just retries next tick.
+          return null;
+        } finally {
+          clearTimeout(timer);
+          inFlight.delete(job.id);
+        }
+      }),
+    );
+    let changed = false;
+    for (const r of results) {
+      if (!r) continue;
+      if (r.outcome.kind === 'done') {
+        registry = updateJob(registry, r.id, {
+          status: 'done',
+          savedPaths: r.outcome.saved.map((s) => s.savedPath),
+          endedAt: Date.now(),
+        });
+        changed = true;
+      } else if (r.outcome.kind === 'failed') {
+        registry = updateJob(registry, r.id, { status: 'error', error: r.outcome.reason, endedAt: Date.now() });
+        changed = true;
+      }
+    }
+    if (changed) updateStatusline();
+  };
+
+  const ensurePollTimer = (intervalMs: number): void => {
+    if (pollTimer !== undefined) return;
+    pollTimer = setInterval(() => {
+      void autoDownloadTick();
+    }, intervalMs);
+    // Never keep the process alive solely for the poll.
+    if (typeof pollTimer.unref === 'function') pollTimer.unref();
+  };
+
   pi.on('session_start', (_event, ctx) => {
     // Re-point cwd from the registration-time `process.cwd()` seed to the
     // real session cwd. The `/comfyui workflows` completion resolver
@@ -222,6 +346,10 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
     registry = emptyRegistry();
     uiRef = undefined;
     lastStatusRunning = -1;
+    // Stop the auto-download poll so a `/reload` doesn't leave an orphaned
+    // interval bound to a replaced session, and drop the in-flight guard.
+    stopPollTimer();
+    inFlight.clear();
   });
 
   // Remind the model about pending background jobs each turn so even a
@@ -368,9 +496,14 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
           updateStatusline();
           details.background = true;
           details.jobId = added.created.id;
-          const text =
-            `Started background generation [${added.created.id}] via "${name}"${seedNote}. ` +
-            `Collect it later with the image_jobs tool (action collect, id ${added.created.id}).`;
+          // Kick off the off-turn auto-download poll (idempotent if already
+          // running) so the PNG lands on disk the moment the render finishes.
+          const autoDownload = config.autoDownload;
+          if (autoDownload) ensurePollTimer(config.pollIntervalMs);
+          const collectHint = autoDownload
+            ? `It will auto-download to ${saveDir} when ready; collect it with the image_jobs tool (action collect, id ${added.created.id}) to view it inline.`
+            : `Collect it later with the image_jobs tool (action collect, id ${added.created.id}).`;
+          const text = `Started background generation [${added.created.id}] via "${name}"${seedNote}. ${collectHint}`;
           return { content: [{ type: 'text', text }], details };
         }
 
@@ -427,10 +560,19 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
       const n = details.savedPaths?.length ?? 0;
       const seedNote = details.seed !== undefined ? ` · seed ${details.seed}` : '';
 
-      // Background submission: no image yet, just the job handle.
+      // Background submission: no image yet, just the job handle. Expand
+      // (ctrl+o) shows the prompts and seed the same way the foreground
+      // path does, since the live result line is all the user gets until
+      // the job is collected / auto-downloaded.
       if (details.background) {
         const head = theme.fg('accent', `▶ background [${details.jobId ?? '?'}]`);
-        return new Text(`${head}${theme.fg('dim', seedNote)}`, 0, 0);
+        if (!options.expanded) return new Text(`${head}${theme.fg('dim', seedNote)}`, 0, 0);
+        const bgArgs = (context.args ?? {}) as { prompt?: string; negative?: string };
+        const bgLabel = (text: string): string => theme.fg('dim', text);
+        const bgLines = [`${head}${theme.fg('dim', seedNote)}`];
+        if (bgArgs.prompt) bgLines.push(`${bgLabel('prompt:   ')}${bgArgs.prompt}`);
+        bgLines.push(`${bgLabel('negative: ')}${bgArgs.negative ?? '(workflow default)'}`);
+        return new Text(bgLines.join('\n'), 0, 0);
       }
 
       // Still running: surface the live progress line (e.g. "generating 12/30")
@@ -493,16 +635,35 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
       return jobsError('collect', `[${id}] failed: ${job.error ?? 'unknown error'}`);
     }
     if (job.status === 'done') {
+      // Already finished (often auto-downloaded off-turn). Re-serve the
+      // saved files from disk so the model can still view them inline,
+      // since the auto-download path could not push them into context.
+      const details: JobsDetails = { action: 'collect', jobId: id, status: 'done', savedPaths: job.savedPaths };
+      const decision = resolveSendToModel(job.sendToModel, ctx.model?.input);
+      const n = job.savedPaths.length;
+      const countNote = `${n} image${n === 1 ? '' : 's'}`;
+      const baseText = `[${id}] already downloaded: ${countNote} in ${job.saveDir}.`;
+      if (decision.send) {
+        const blocks = readSavedImages(job.savedPaths);
+        if (blocks.length > 0) {
+          return { content: [{ type: 'text', text: baseText }, ...blocks.map((b) => b.block)], details };
+        }
+      }
+      return { content: [{ type: 'text', text: baseText }], details };
+    }
+
+    // Still running. Bail out if the auto-download timer (or a concurrent
+    // collect) is already fetching this job, so we don't double-write its
+    // output files; the model just re-polls a moment later.
+    if (inFlight.has(id)) {
       return {
-        content: [
-          { type: 'text', text: `[${id}] already collected: ${job.savedPaths.length} image(s) in ${job.saveDir}.` },
-        ],
-        details: { action: 'collect', jobId: id, status: 'done', savedPaths: job.savedPaths },
+        content: [{ type: 'text', text: `[${id}] is being downloaded right now. Call collect again shortly.` }],
+        details: { action: 'collect', jobId: id, status: 'running' },
       };
     }
 
-    // Still running: poll `/history` once. If outputs are ready, fetch +
-    // save and hand them back; otherwise report and let the model re-poll.
+    // Poll `/history` once. If outputs are ready, fetch + save and hand
+    // them back; otherwise report and let the model re-poll.
     const config = loadConfig(ctx.cwd);
     const conn: Conn = {
       base: resolveBaseUrl(config),
@@ -512,43 +673,29 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
     const ac = new AbortController();
     const timer = setTimeout(() => ac.abort(), conn.timeoutMs);
     if (signal) signal.addEventListener('abort', () => ac.abort(), { once: true });
+    inFlight.add(id);
     try {
-      const history = await fetchHistory(conn, job.promptId, ac.signal);
-      const refs = extractOutputImages(history, job.promptId);
-      if (refs.length === 0) {
-        if (historyHasError(history, job.promptId)) {
-          const reason = 'ComfyUI reported an execution error (see server log)';
-          registry = updateJob(registry, id, { status: 'error', error: reason, endedAt: Date.now() });
-          updateStatusline();
-          return jobsError('collect', `[${id}] failed: ${reason}`);
-        }
-        // No outputs and no error. Usually still rendering - but if the
-        // server has no history entry AND the prompt isn't queued, it is
-        // gone (ComfyUI restarted, queue + history wiped). Mark it errored
-        // so the model stops re-polling a prompt that will never finish.
-        if (!historyHasEntry(history, job.promptId)) {
-          const queue = await fetchQueue(conn, ac.signal);
-          if (!queueHasPrompt(queue, job.promptId)) {
-            const reason = 'prompt is no longer on the server (ComfyUI may have restarted); resubmit to retry';
-            registry = updateJob(registry, id, { status: 'error', error: reason, endedAt: Date.now() });
-            updateStatusline();
-            return jobsError('collect', `[${id}] failed: ${reason}`);
-          }
-        }
+      const outcome = await pollJobOnce(job, conn, ac.signal);
+      if (outcome.kind === 'failed') {
+        registry = updateJob(registry, id, { status: 'error', error: outcome.reason, endedAt: Date.now() });
+        updateStatusline();
+        return jobsError('collect', `[${id}] failed: ${outcome.reason}`);
+      }
+      if (outcome.kind === 'running') {
         return {
           content: [{ type: 'text', text: `[${id}] still running (no output yet). Call collect again shortly.` }],
           details: { action: 'collect', jobId: id, status: 'running' },
         };
       }
 
-      const saved = await fetchAndSave(conn, refs, job.saveDir, ac.signal);
+      const saved = outcome.saved;
       const savedPaths = saved.map((s) => s.savedPath);
       registry = updateJob(registry, id, { status: 'done', savedPaths, endedAt: Date.now() });
       updateStatusline();
 
       const decision = resolveSendToModel(job.sendToModel, ctx.model?.input);
       const seedNote = job.seed !== undefined ? ` (seed ${job.seed})` : '';
-      const countNote = `${refs.length} image${refs.length === 1 ? '' : 's'}`;
+      const countNote = `${savedPaths.length} image${savedPaths.length === 1 ? '' : 's'}`;
       const details: JobsDetails = { action: 'collect', jobId: id, status: 'done', savedPaths };
       if (!decision.send) {
         const why = decision.visionBlocked
@@ -565,6 +712,7 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
       return jobsError('collect', `collect failed for [${id}]: ${reason}`);
     } finally {
       clearTimeout(timer);
+      inFlight.delete(id);
     }
   };
 

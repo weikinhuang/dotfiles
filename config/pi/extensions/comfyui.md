@@ -70,6 +70,20 @@ is therefore just metadata - the registry holds no process or buffer - and the a
 To make every generation background by default (e.g. a project of slow renders), set `"background": true` in a
 `comfyui.json` layer; the per-call `background` arg still overrides it, so an individual foreground render is `false`.
 
+### Auto-download
+
+When `autoDownload` is on (the default), the extension runs an off-turn timer that polls `/history` for every running
+job every `pollIntervalMs` (default `3000`) and fetches the finished PNG(s) to `saveDir` the instant the render
+completes - no `image_jobs collect` call needed. The timer starts lazily the first time a background job is submitted,
+stops itself once no jobs are running (so a quiet session is not polling forever), and is torn down on
+`session_shutdown` / `/reload`. A per-job in-flight guard prevents the timer and a concurrent manual `collect` from
+fetching the same job at once (which would double-write its output files).
+
+Auto-download only gets the file **onto disk** - it cannot push the image into the model's context, because an image
+enters the conversation only through a tool result the model itself invoked. So if you want the model to _see_ an
+auto-downloaded render, it still calls `collect`; that path re-serves the already-saved files from disk inline (it does
+not re-fetch from the server). Set `"autoDownload": false` to go back to pull-only collection.
+
 ### Tool: `image_jobs`
 
 | Action    | Notes                                                                                            |
@@ -79,10 +93,11 @@ To make every generation background by default (e.g. a project of slow renders),
 | `cancel`  | Best-effort drop of a still-queued job (`id`); a job already executing on the server may finish. |
 
 `collect` is safe to call repeatedly: it reports `still running` until ComfyUI finishes, then returns the image(s) and
-marks the job `done`. Collection honors the same `sendToModel` / vision rules as a foreground generation, evaluated
-against the model active at collect time. The PNG is always written to `saveDir` regardless. If the prompt is gone from
-both the server's `/history` and its `/queue` (e.g. ComfyUI was restarted mid-render), `collect` marks the job `error`
-with a resubmit hint instead of looping on `still running` forever.
+marks the job `done`. When `autoDownload` already saved the job off-turn, `collect` finds it `done` and re-serves the
+files from disk inline instead of re-fetching. Collection honors the same `sendToModel` / vision rules as a foreground
+generation, evaluated against the model active at collect time. The PNG is always written to `saveDir` regardless. If
+the prompt is gone from both the server's `/history` and its `/queue` (e.g. ComfyUI was restarted mid-render), `collect`
+marks the job `error` with a resubmit hint instead of looping on `still running` forever.
 
 The registry lives only for the current pi session. Running jobs are surfaced two ways so the model does not forget
 them: a `▦ img:N` statusline indicator (via `statusline.ts`) and a `## Pending image jobs` block injected into the
@@ -107,6 +122,8 @@ into one of the config files to opt in; see [`../comfyui-example.json`](../comfy
 | `defaultWorkflow` | `txt2img`                | Workflow used when the tool call omits `workflow`.                                                                      |
 | `sendToModel`     | `true`                   | Return the image in the tool result (fed to the model next turn). `false` saves to disk only.                           |
 | `background`      | `false`                  | Submit generations as background jobs by default (collect later via `image_jobs`). Per-call `background` arg overrides. |
+| `autoDownload`    | `true`                   | Poll background jobs off-turn and fetch finished PNGs to `saveDir` automatically. `false` reverts to pull-only collect. |
+| `pollIntervalMs`  | `3000`                   | How often the auto-download timer polls `/history` per running job (floored at `1000`). Only used when `autoDownload`.  |
 | `defaults`        | (none)                   | Generation-param defaults pre-filled when a call omits them; merge by field. See below.                                 |
 | `workflows`       | `{ txt2img: <shipped> }` | Named workflows; merge by name across layers.                                                                           |
 

@@ -24,6 +24,7 @@ import {
   fetchImageBytes,
   fetchQueue,
   pingServer,
+  readSavedImages,
   submitPrompt,
   waitForImages,
 } from '../../../../../lib/node/pi/comfyui/client.ts';
@@ -144,6 +145,28 @@ describe('fetchAndSave', () => {
     expect(saved[0].savedPath).not.toContain('..');
     expect(saved[0].savedPath).toContain('escape.png');
     expect(readdirSync(dir)).toHaveLength(1);
+  });
+});
+
+describe('readSavedImages', () => {
+  let dir: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'comfyui-read-'));
+  });
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test('rebuilds inline blocks from on-disk files and skips missing paths', () => {
+    const a = join(dir, 'comfyui-a.png');
+    const b = join(dir, 'comfyui-b.png');
+    writeFileSync(a, Buffer.from([255, 0]));
+    const saved = readSavedImages([a, b, join(dir, 'gone.png')]);
+    expect(saved).toHaveLength(1);
+    expect(saved[0].savedPath).toBe(a);
+    expect(saved[0].block.mimeType).toBe('image/png');
+    expect(saved[0].block.data).toBe(Buffer.from([255, 0]).toString('base64'));
   });
 });
 

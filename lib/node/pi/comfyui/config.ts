@@ -51,8 +51,13 @@ export const DEFAULT_CONFIG: ComfyuiConfig = {
   defaultWorkflow: 'txt2img',
   sendToModel: true,
   background: false,
+  autoDownload: true,
+  pollIntervalMs: 3000,
   workflows: {},
 };
+
+/** Floor for the auto-download poll interval, so a tiny value can't hammer the server. */
+export const MIN_POLL_INTERVAL_MS = 1000;
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -172,6 +177,12 @@ export function coerceConfigLayer(raw: unknown): Partial<ComfyuiConfig> {
   const background = asBoolean(raw.background);
   if (background !== undefined) out.background = background;
 
+  const autoDownload = asBoolean(raw.autoDownload);
+  if (autoDownload !== undefined) out.autoDownload = autoDownload;
+
+  const pollIntervalMs = asPositiveNumber(raw.pollIntervalMs);
+  if (pollIntervalMs !== undefined) out.pollIntervalMs = Math.max(MIN_POLL_INTERVAL_MS, pollIntervalMs);
+
   const defaults = asGenerationDefaults(raw.defaults);
   if (defaults !== undefined) out.defaults = defaults;
 
@@ -203,6 +214,8 @@ export function mergeConfigLayers(...overrides: Partial<ComfyuiConfig>[]): Comfy
     if (layer.defaultWorkflow !== undefined) result.defaultWorkflow = layer.defaultWorkflow;
     if (layer.sendToModel !== undefined) result.sendToModel = layer.sendToModel;
     if (layer.background !== undefined) result.background = layer.background;
+    if (layer.autoDownload !== undefined) result.autoDownload = layer.autoDownload;
+    if (layer.pollIntervalMs !== undefined) result.pollIntervalMs = layer.pollIntervalMs;
     if (layer.defaults !== undefined) result.defaults = { ...result.defaults, ...layer.defaults };
     if (layer.authHeader !== undefined) result.authHeader = { ...layer.authHeader };
     if (layer.workflows !== undefined) result.workflows = { ...result.workflows, ...layer.workflows };
