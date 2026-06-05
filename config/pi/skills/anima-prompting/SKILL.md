@@ -77,7 +77,7 @@ Expand it before calling `generate_image`:
    `simple background, white background` for a clean character shot.
 7. **Lighting + palette:** 1-3 tags - `soft lighting`, `cinematic lighting`, `warm palette`, `muted colors`.
 8. **Era (optional):** add `year 2025` or `newest` for a modern look; skip for timeless.
-9. **Artist (optional):** only if the user named one - prepend `@` (e.g. `@nnn yryr`).
+9. **Artist (optional):** only if the user named one - prepend `@` (e.g. `@some artist`).
 10. **Negative:** always pass the recommended negative; add `extra fingers, text, watermark` for cleaner output.
 
 The goal is roughly 12-25 substantive items in the positive prompt. If the user wants to iterate, pass the prior `seed`
@@ -154,7 +154,7 @@ Tag-style:
 
 ```text
 prompt:   masterpiece, best quality, score_7, safe, 1girl, solo, long hair, brown eyes, santa costume,
-          fur-trimmed gloves, holding gift box, looking at viewer, simple background, white background, @nnn yryr
+          fur-trimmed gloves, holding gift box, looking at viewer, simple background, white background, @some artist
 negative: worst quality, low quality, score_1, score_2, score_3, artist name, jpeg artifacts, nsfw
 ```
 
@@ -190,7 +190,7 @@ The wrapped lines above are a single comma/space-joined string each - pass them 
 
 - **Underscores in tags.** `brown_hair` is wrong; write `brown hair`. Only `score_7` keeps the underscore.
 - **SDXL-level weights.** `(chibi:1.2)` barely moves Anima; use `(chibi:2)`.
-- **Forgetting `@` on an artist.** `nnn yryr` ~= no effect; `@nnn yryr` applies the style.
+- **Forgetting `@` on an artist.** `some artist` ~= no effect; `@some artist` applies the style.
 - **Expanding wildcards.** `{standing|sitting}` is dynamic-prompt syntax that resolves at generation time. Rewriting it
   as `"standing or sitting"`, picking one branch, or deleting it are all wrong - pass the literal `{...|...}` token
   through unchanged.
