@@ -89,6 +89,46 @@ describe('rewriteColorTags: closed pairs (always)', () => {
     const list = '- [ ] item one\n- [x] item two\nSee [^1] reference';
     expect(rewriteColorTags(list, fakeResolver)).toBe(list);
   });
+
+  test('dropped close on one row does not steal a later row close (no cross-line bleed)', () => {
+    // Regression: the model dropped row 2's `[/c]`. Content is
+    // line-bounded, so row 2's open stays a visible literal on its own
+    // line instead of scanning forward and pairing with row 3's close
+    // (which would paint rows 2-3 as one runaway colored span). Rows 1
+    // and 3 still color correctly.
+    const src = '| [c:red]a[/c] | R1 |\n| [c:red]b | R2 |\n| [c:red]c[/c] | R3 |';
+    expect(rewriteColorTags(src, fakeResolver)).toBe(
+      `| ${OPEN_RED}a${CLOSE} | R1 |\n| [c:red]b | R2 |\n| ${OPEN_RED}c${CLOSE} | R3 |`,
+    );
+  });
+
+  test('unclosed open on its own line stays literal; a later line colors normally', () => {
+    // The real cross-line bug: an open with no close used to scan
+    // across newlines and steal a later line's `[/c]`. Now the broken
+    // open stays a visible literal on its line, and the well-formed
+    // pair on the next line colors cleanly.
+    const src = 'Use [c:red]/l to drop context.\nThe [c:red]/r[/c] reloads.';
+    expect(rewriteColorTags(src, fakeResolver)).toBe(
+      `Use [c:red]/l to drop context.\nThe ${OPEN_RED}/r${CLOSE} reloads.`,
+    );
+  });
+
+  test('two opens + one close on a single line: first open wins (non-greedy nesting rule)', () => {
+    // On a single line the non-greedy match pairs the FIRST open with
+    // the close and absorbs the second open as literal content - the
+    // same "nesting is treated as content" rule as the closed-pair
+    // case above. Contained to one line, never bleeding across rows.
+    const src = 'Use [c:red]/l and [c:red]/r[/c] reloads.';
+    expect(rewriteColorTags(src, fakeResolver)).toBe(`Use ${OPEN_RED}/l and [c:red]/r${CLOSE} reloads.`);
+  });
+
+  test('a closed pair does not span a line break', () => {
+    // `[\s\S]*?` used to let content cross newlines; `[^\n]*?` does
+    // not. An open whose only `[/c]` is on a later line is now an
+    // unclosed open (left literal) rather than a multi-line span.
+    const src = '[c:red]line one\nline two[/c]';
+    expect(rewriteColorTags(src, fakeResolver)).toBe(src);
+  });
 });
 
 describe('rewriteColorTags: streaming-only behaviours', () => {
@@ -185,6 +225,44 @@ describe('rewriteColorTags: streaming-only behaviours', () => {
     expect(rewriteColorTags('see [click](url) and [^1] note', fakeResolver, { streaming: true })).toBe(
       'see [click](url) and [^1] note',
     );
+  });
+
+  test('pass 4: a dangling open from a prior chunk is closed at the line boundary', () => {
+    // Streaming reality: chunk 1 ended with `[c:red]charlie.md` as the
+    // trailing token, so pass 2 baked in `\x1b[31mcharlie.md` (open, no
+    // close). Chunk 2 appended the rest of the row and the next row. The
+    // model never sent `[/c]`, so without pass 4 the red would bleed
+    // down into every following line. Pass 4 closes it at the end of the
+    // completed line.
+    const chunk1 = rewriteColorTags('| [c:red]charlie.md', fakeResolver, { streaming: true });
+    expect(chunk1).toBe(`| ${OPEN_RED}charlie.md`);
+    const cumulative = `${chunk1} | missing-close |\n| [c:red]delta.md[/c] | ok |`;
+    expect(rewriteColorTags(cumulative, fakeResolver, { streaming: true })).toBe(
+      `| ${OPEN_RED}charlie.md | missing-close |${CLOSE}\n| ${OPEN_RED}delta.md${CLOSE} | ok |`,
+    );
+  });
+
+  test('pass 4: well-formed colored rows are left untouched (no double close)', () => {
+    const src = `| ${OPEN_RED}alpha.md${CLOSE} | ok |\n| ${OPEN_RED}bravo.md${CLOSE} | ok |`;
+    // Every line already ends with fg inactive, so pass 4 adds nothing.
+    expect(rewriteColorTags(src, fakeResolver, { streaming: true })).toBe(src);
+  });
+
+  test('pass 4: only completed lines are closed, the still-typing last line stays open', () => {
+    // The trailing line is where the model is currently typing - leaving
+    // it open is what makes live "color as you type" work. Only the
+    // completed line above it gets its dangling color closed.
+    const src = `first ${OPEN_RED}red line\nsecond ${OPEN_RED}still typing`;
+    expect(rewriteColorTags(src, fakeResolver, { streaming: true })).toBe(
+      `first ${OPEN_RED}red line${CLOSE}\nsecond ${OPEN_RED}still typing`,
+    );
+  });
+
+  test('pass 4: does not fire when streaming is off', () => {
+    // Non-streaming callers get finalised text; a dangling open there is
+    // a model bug we surface, not silently patch.
+    const src = `first ${OPEN_RED}red line\nsecond line`;
+    expect(rewriteColorTags(src, fakeResolver, { streaming: false })).toBe(src);
   });
 });
 
