@@ -88,6 +88,27 @@ chat-request the `content` is a one-line summary and `details.cancelled` / `deta
 - Footer - dynamic help line reflecting the current mode (editor vs options vs review, multi vs single, whether notes /
   chat are enabled).
 
+## Internal structure
+
+The `.ts` shell owns the pi/TUI event loop (`ctx.ui.custom`), the tab / notes / preview / chat flow, and the
+`Type something.` inline input. The reusable and pure pieces are split out:
+
+- [`../../../lib/node/pi/ext/multi-select-list.ts`](../../../lib/node/pi/ext/multi-select-list.ts) -- the reusable
+  `MultiSelectList` checkbox component (working-set + `minSelect`/`maxSelect` enforcement, cursor + `1`-`9` digit jump,
+  `[x]`/`[ ]` row rendering). It imports `@earendil-works/pi-tui`, so it lives under `lib/node/pi/ext/` rather than the
+  pure `lib/node/pi/` tree. It holds no cross-extension state -- each consumer constructs its own instance, so a second
+  extension can mount the same picker on its own jiti instance. The questionnaire builds one `MultiSelectList` per
+  multi-select question and delegates checkbox-row rendering (via `renderRow`) plus the working set to it, while keeping
+  its own cursor over the heterogeneous option list (checkbox rows + `Type something.` + `Next`).
+- [`../../../lib/node/pi/questionnaire/multi-select.ts`](../../../lib/node/pi/questionnaire/multi-select.ts) -- pi-free
+  selection math shared by the component and the extension: `clampCursor`, `digitToCursor`, `toggleSelection`,
+  `meetsMinSelect`, `sortedSelection`. Unit-tested directly.
+- [`../../../lib/node/pi/questionnaire/model.ts`](../../../lib/node/pi/questionnaire/model.ts) -- question/answer
+  shapes, `normalizeQuestions`, `questionRenderOptions`, and `multiAnswerFields` (builds a multi answer's
+  `values`/`labels`/1-based `indices`).
+- [`../../../lib/node/pi/questionnaire/layout.ts`](../../../lib/node/pi/questionnaire/layout.ts) -- preview-pane split /
+  stacked layout math.
+
 ## Environment variables
 
 - `PI_QUESTIONNAIRE_DISABLED=1` - skip the extension entirely; the `questionnaire` tool is not registered.

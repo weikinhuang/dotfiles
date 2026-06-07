@@ -42,6 +42,7 @@ import {
 } from '@earendil-works/pi-tui';
 import { Type } from 'typebox';
 
+import { MultiSelectList } from '../../../lib/node/pi/ext/multi-select-list.ts';
 import { envTruthy } from '../../../lib/node/pi/parse-env.ts';
 import {
   padVisibleText,
@@ -49,6 +50,7 @@ import {
   zipQuestionnaireColumns,
 } from '../../../lib/node/pi/questionnaire/layout.ts';
 import {
+  multiAnswerFields,
   normalizeQuestions,
   questionRenderOptions,
   type Answer,
@@ -56,6 +58,7 @@ import {
   type QuestionnaireResult,
   type RenderOption,
 } from '../../../lib/node/pi/questionnaire/model.ts';
+import { clampCursor, digitToCursor } from '../../../lib/node/pi/questionnaire/multi-select.ts';
 
 // ─── Schema ───────────────────────────────────────────────────────────────
 
@@ -182,8 +185,8 @@ export default function questionnaire(pi: ExtensionAPI): void {
         let inputQuestionId: string | null = null;
         let cachedLines: string[] | undefined;
         const answers = new Map<string, Answer>();
-        // multi-select working set per question
-        const multiSelections = new Map<string, Set<number>>();
+        // multi-select picker (checkbox working set + rendering) per question
+        const multiLists = new Map<string, MultiSelectList>();
         // per-question notes
         const notes = new Map<string, string>();
         // per-question "Type something." buffers, persisted across
@@ -234,13 +237,13 @@ export default function questionnaire(pi: ExtensionAPI): void {
           return q ? questionRenderOptions(q) : [];
         }
 
-        function multiSetFor(qid: string): Set<number> {
-          let s = multiSelections.get(qid);
-          if (!s) {
-            s = new Set<number>();
-            multiSelections.set(qid, s);
+        function multiListFor(q: Question): MultiSelectList {
+          let list = multiLists.get(q.id);
+          if (!list) {
+            list = new MultiSelectList(q.options, { minSelect: q.minSelect, maxSelect: q.maxSelect });
+            multiLists.set(q.id, list);
           }
-          return s;
+          return list;
         }
 
         function allAnswered(): boolean {
@@ -290,16 +293,14 @@ export default function questionnaire(pi: ExtensionAPI): void {
         }
 
         function saveMultiAnswer(q: Question): void {
-          const selSet = multiSetFor(q.id);
-          const selected = [...selSet].sort((a, b) => a - b);
-          const values = selected.map((i) => q.options[i]?.value ?? '');
-          const labels = selected.map((i) => q.options[i]?.label ?? '');
+          const selected = multiListFor(q).selectedIndices();
+          const { values, labels, indices } = multiAnswerFields(q.options, selected);
           const ans: Answer = {
             id: q.id,
             kind: 'multi',
             values,
             labels,
-            indices: selected.map((i) => i + 1),
+            indices,
           };
           const note = notes.get(q.id);
           if (note) ans.note = note;
@@ -307,9 +308,7 @@ export default function questionnaire(pi: ExtensionAPI): void {
         }
 
         function multiNextEnabled(q: Question): boolean {
-          const selSet = multiSetFor(q.id);
-          const min = q.minSelect ?? 0;
-          return selSet.size >= min;
+          return multiListFor(q).meetsMinSelect();
         }
 
         /**
@@ -523,13 +522,13 @@ export default function questionnaire(pi: ExtensionAPI): void {
 
           // ─── Option navigation ────────────────────────────────────
           if (matchesKey(data, Key.up)) {
-            optionIndex = Math.max(0, optionIndex - 1);
+            optionIndex = clampCursor(optionIndex - 1, opts.length);
             loadOtherIfOnRow();
             refresh();
             return;
           }
           if (matchesKey(data, Key.down)) {
-            optionIndex = Math.min(opts.length - 1, optionIndex + 1);
+            optionIndex = clampCursor(optionIndex + 1, opts.length);
             loadOtherIfOnRow();
             refresh();
             return;
@@ -538,7 +537,8 @@ export default function questionnaire(pi: ExtensionAPI): void {
           // ─── Digit jump-select ────────────────────────────────────
           const digit = digitFromKey(data);
           if (digit !== null && opts.length > 0) {
-            const target = Math.min(digit - 1, opts.length - 1);
+            const target = digitToCursor(digit, opts.length);
+            if (target === null) return;
             optionIndex = target;
             const newOpt = opts[optionIndex];
             if (q.kind === 'single' && newOpt && !newOpt.isOther && !newOpt.isNext) {
@@ -560,14 +560,8 @@ export default function questionnaire(pi: ExtensionAPI): void {
               // space on Next/Other falls through to no-op
               return;
             }
-            const set = multiSetFor(q.id);
-            if (set.has(optionIndex)) {
-              set.delete(optionIndex);
-            } else {
-              const max = q.maxSelect;
-              if (max !== undefined && set.size >= max) return;
-              set.add(optionIndex);
-            }
+            // 'blocked' (maxSelect reached) is a silent no-op, no re-render.
+            if (multiListFor(q).toggle(optionIndex) === 'blocked') return;
             refresh();
             return;
           }
@@ -593,15 +587,9 @@ export default function questionnaire(pi: ExtensionAPI): void {
             if (q.kind === 'multi') {
               // Enter on a checkbox = toggle (alias for Space, matches
               // Claude Code sample 2 where Enter "selects" options).
-              const set = multiSetFor(q.id);
-              if (set.has(optionIndex)) {
-                set.delete(optionIndex);
-              } else {
-                const max = q.maxSelect;
-                if (max === undefined || set.size < max) {
-                  set.add(optionIndex);
-                }
-              }
+              // A blocked add (maxSelect) is a no-op but still re-renders,
+              // matching the original inline behaviour.
+              multiListFor(q).toggle(optionIndex);
               refresh();
               return;
             }
@@ -643,7 +631,7 @@ export default function questionnaire(pi: ExtensionAPI): void {
           const q = currentQuestion();
           if (!q) return out;
 
-          const selSet = q.kind === 'multi' ? multiSetFor(q.id) : undefined;
+          const multiList = q.kind === 'multi' ? multiListFor(q) : undefined;
 
           for (let i = 0; i < opts.length; i++) {
             const opt = opts[i];
@@ -651,7 +639,6 @@ export default function questionnaire(pi: ExtensionAPI): void {
             const prefix = selected ? theme.fg('accent', '❯ ') : '  ';
             const color = selected ? 'accent' : 'text';
 
-            let labelText: string;
             if (opt.isNext) {
               // Render Next as a distinct row, no number.
               const enabled = multiNextEnabled(q);
@@ -679,13 +666,16 @@ export default function questionnaire(pi: ExtensionAPI): void {
               continue;
             }
 
-            if (q.kind === 'multi') {
-              const checked = selSet?.has(i) ? 'x' : ' ';
-              labelText = `${i + 1}. [${checked}] ${opt.label}`;
-            } else {
-              labelText = `${i + 1}. ${opt.label}`;
+            if (q.kind === 'multi' && multiList) {
+              // Delegate checkbox-row rendering (working-set + [x]/[ ]) to the
+              // reusable MultiSelectList; `i` indexes q.options 1:1 here.
+              for (const line of multiList.renderRow(i, { width, highlighted: selected, theme })) {
+                out.push(line);
+              }
+              continue;
             }
 
+            const labelText = `${i + 1}. ${opt.label}`;
             out.push(truncateToWidth(prefix + theme.fg(color, labelText), width));
             if (opt.description) {
               out.push(truncateToWidth(`     ${theme.fg('muted', opt.description)}`, width));

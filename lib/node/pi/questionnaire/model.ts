@@ -84,6 +84,24 @@ export function normalizeQuestions(input: readonly QuestionnaireQuestionInput[])
   }));
 }
 
+/**
+ * Build the `values` / `labels` / 1-based `indices` arrays for a multi-select
+ * answer from the question's options and a set of selected 0-based indices.
+ * `selectedIndices` is expected pre-sorted (see `sortedSelection`); missing
+ * options collapse to empty strings, matching the inline behaviour the
+ * questionnaire extension shipped before the MultiSelectList extraction.
+ */
+export function multiAnswerFields(
+  options: readonly QuestionOption[],
+  selectedIndices: readonly number[],
+): { values: string[]; labels: string[]; indices: number[] } {
+  return {
+    values: selectedIndices.map((i) => options[i]?.value ?? ''),
+    labels: selectedIndices.map((i) => options[i]?.label ?? ''),
+    indices: selectedIndices.map((i) => i + 1),
+  };
+}
+
 export function questionRenderOptions(q: Pick<Question, 'kind' | 'options' | 'allowOther'>): RenderOption[] {
   if (q.kind === 'free') return [];
   const opts: RenderOption[] = [...q.options];

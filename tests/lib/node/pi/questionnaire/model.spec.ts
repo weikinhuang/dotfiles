@@ -7,6 +7,7 @@
 import { expect, test } from 'vitest';
 
 import {
+  multiAnswerFields,
   normalizeQuestions,
   questionRenderOptions,
   type QuestionnaireQuestionInput,
@@ -88,4 +89,34 @@ test('questionRenderOptions: adds Next after multi-select options', () => {
 
 test('questionRenderOptions: free-text questions have no option rows', () => {
   expect(questionRenderOptions({ kind: 'free', options: [{ value: 'a', label: 'A' }], allowOther: true })).toEqual([]);
+});
+
+test('multiAnswerFields: maps sorted indices to values/labels/1-based indices', () => {
+  const options = [
+    { value: 'a', label: 'A' },
+    { value: 'b', label: 'B' },
+    { value: 'c', label: 'C' },
+  ];
+
+  expect(multiAnswerFields(options, [0, 2])).toEqual({
+    values: ['a', 'c'],
+    labels: ['A', 'C'],
+    indices: [1, 3],
+  });
+});
+
+test('multiAnswerFields: missing options collapse to empty strings', () => {
+  expect(multiAnswerFields([{ value: 'a', label: 'A' }], [0, 5])).toEqual({
+    values: ['a', ''],
+    labels: ['A', ''],
+    indices: [1, 6],
+  });
+});
+
+test('multiAnswerFields: empty selection yields empty arrays', () => {
+  expect(multiAnswerFields([{ value: 'a', label: 'A' }], [])).toEqual({
+    values: [],
+    labels: [],
+    indices: [],
+  });
 });
