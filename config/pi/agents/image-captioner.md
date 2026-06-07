@@ -8,7 +8,7 @@ description: >-
 tools: [read]
 model: inherit
 thinkingLevel: off
-maxTurns: 2
+maxTurns: 3
 isolation: shared-cwd
 timeoutMs: 60000
 ---

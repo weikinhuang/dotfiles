@@ -123,6 +123,16 @@ export interface AgentSessionEventLike {
     role?: string;
     errorMessage?: string;
     /**
+     * Assistant content parts. We only need each part's `type` to tell
+     * whether the turn ended with a `toolCall` (the agent intends another
+     * turn) versus a final text answer (it is done). Typed as the same
+     * `string | parts[]` union pi's `AgentMessage.content` uses (a
+     * `UserMessage` carries a bare string) so pi's real event stream
+     * stays assignable; we only inspect it when it is an array. Optional
+     * because non-assistant events omit it.
+     */
+    content?: string | readonly { type?: string }[];
+    /**
      * Per-assistant-turn token + USD cost payload populated by pi's
      * `AssistantMessage.usage` (see `@earendil-works/pi-ai`'s `Usage`
      * type). `usage.cost.total` is the USD number `research-cost-hook`
@@ -286,7 +296,9 @@ export interface RunOneShotAgentResult {
  *
  * Catches + classifies these termination modes:
  *   - normal completion
- *   - reached `maxTurns` (we abort after the N-th `turn_end`)
+ *   - reached `maxTurns` (we abort after the N-th `turn_end` *only* when
+ *     that turn still wanted to continue; a final answer that lands on
+ *     the N-th turn is a normal completion, not a truncation)
  *   - wall-clock timeout (we abort when `timeoutMs` elapses)
  *   - parent `AbortSignal` fired (we abort + classify as aborted)
  *   - child threw a non-abort Error (classified as error)
@@ -348,6 +360,13 @@ export async function runOneShotAgent<M, S>(options: RunOneShotAgentOptions<M, S
   let reachedMaxTurns = false;
   let abortedByUs = false;
   let errFromChild: string | undefined;
+  // Whether the most recent assistant turn ended wanting to continue (it
+  // emitted a tool call, so pi will run another turn). Lets us tell a
+  // *natural completion that lands on the maxTurns-th turn* (no pending
+  // tool call -> the agent is done) apart from a *runaway cut off at the
+  // cap* (pending tool call -> we truncated real work). Defaults to true
+  // so a turn we have no message detail for still trips the cap.
+  let lastTurnWantsMore = true;
 
   const doAbort = (): void => {
     abortedByUs = true;
@@ -355,15 +374,24 @@ export async function runOneShotAgent<M, S>(options: RunOneShotAgentOptions<M, S
   };
 
   const unsubscribe = child.subscribe((event: AgentSessionEventLike) => {
-    if (event.type === 'turn_end') {
+    if (event.type === 'message_end' && event.message?.role === 'assistant') {
+      const err = event.message.errorMessage;
+      if (err) errFromChild = err;
+      const content = event.message.content;
+      if (typeof content === 'object' && content !== null && content.length > 0) {
+        lastTurnWantsMore = content.some((part) => part?.type === 'toolCall');
+      }
+    } else if (event.type === 'turn_end') {
       turns++;
-      if (turns >= maxTurns) {
+      // Only treat hitting the cap as max_turns when the agent actually
+      // wanted another turn. A subagent whose final answer lands exactly
+      // on the maxTurns-th turn (e.g. image-captioner: turn 1 reads, turn
+      // 2 captions) has completed - flagging it max_turns would throw away
+      // a perfectly good finalText.
+      if (turns >= maxTurns && lastTurnWantsMore) {
         reachedMaxTurns = true;
         doAbort();
       }
-    } else if (event.type === 'message_end' && event.message?.role === 'assistant') {
-      const err = event.message.errorMessage;
-      if (err) errFromChild = err;
     }
     onEvent?.({ event, turn: turns, abort: doAbort });
   });

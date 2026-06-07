@@ -285,6 +285,61 @@ describe('runOneShotAgent', () => {
     expect(r.turns).toBe(2);
   });
 
+  test('natural completion that lands on the maxTurns-th turn is completed, not max_turns', async () => {
+    // Mirrors image-captioner: turn 1 calls a tool (read), turn 2 emits
+    // the final text answer with no tool call. maxTurns is 2, so the
+    // final turn lands exactly on the cap - but the agent is done, so
+    // the good finalText must survive.
+    const session = makeFakeSession({
+      events: [
+        { type: 'message_end', message: { role: 'assistant', content: [{ type: 'toolCall' }] } },
+        { type: 'turn_end' },
+        { type: 'message_end', message: { role: 'assistant', content: [{ type: 'text' }] } },
+        { type: 'turn_end' },
+      ],
+      finalText: 'a dense caption',
+    });
+
+    const r = await runOneShotAgent({
+      deps: mkDeps(session),
+      cwd: '/tmp',
+      agent: mkAgent({ maxTurns: 2 }),
+      model: { id: 'm' },
+      task: 't',
+      modelRegistry: mkRegistry(),
+    });
+
+    expect(r.stopReason).toBe('completed');
+    expect(r.finalText).toBe('a dense caption');
+    expect(r.turns).toBe(2);
+  });
+
+  test('max_turns when the cap turn still wants to continue (pending tool call)', async () => {
+    // Every turn ends with a tool call, so the agent intends to keep
+    // going; hitting the cap is a real truncation.
+    const session = makeFakeSession({
+      events: [
+        { type: 'message_end', message: { role: 'assistant', content: [{ type: 'toolCall' }] } },
+        { type: 'turn_end' },
+        { type: 'message_end', message: { role: 'assistant', content: [{ type: 'toolCall' }] } },
+        { type: 'turn_end' },
+      ],
+      finalText: '',
+    });
+
+    const r = await runOneShotAgent({
+      deps: mkDeps(session),
+      cwd: '/tmp',
+      agent: mkAgent({ maxTurns: 2 }),
+      model: { id: 'm' },
+      task: 't',
+      modelRegistry: mkRegistry(),
+    });
+
+    expect(r.stopReason).toBe('max_turns');
+    expect(r.turns).toBe(2);
+  });
+
   test('classifies error when child errorMessage is observed on assistant message_end', async () => {
     const session = makeFakeSession({
       events: [
