@@ -13,6 +13,7 @@ import {
   mergeConfigLayers,
   MAX_SCAN_DEPTH,
   MIN_CHAR_BUDGET,
+  MIN_SUMMARY_CHARS,
 } from '../../../../../lib/node/pi/roleplay/config.ts';
 
 test('coerceConfigLayer accepts a valid charBudget and floors it', () => {
@@ -53,6 +54,15 @@ test('coerceConfigLayer accepts relationship decay knobs and clamps them', () =>
   expect(coerceConfigLayer({ relationshipBaseline: -9 })).toEqual({ relationshipBaseline: 0 });
   expect(coerceConfigLayer({ relationshipBaseline: 33.9 })).toEqual({ relationshipBaseline: 33 });
   expect(coerceConfigLayer({ relationshipDecayPerDay: 'x', relationshipBaseline: Number.NaN })).toEqual({});
+});
+
+test('coerceConfigLayer accepts summarize knobs and clamps them', () => {
+  expect(coerceConfigLayer({ summarizeMinMessages: 8 })).toEqual({ summarizeMinMessages: 8 });
+  expect(coerceConfigLayer({ summarizeMinMessages: 0 })).toEqual({ summarizeMinMessages: 1 });
+  expect(coerceConfigLayer({ summarizeMinMessages: 6.7 })).toEqual({ summarizeMinMessages: 6 });
+  expect(coerceConfigLayer({ summarizeMaxChars: 3000 })).toEqual({ summarizeMaxChars: 3000 });
+  expect(coerceConfigLayer({ summarizeMaxChars: 10 })).toEqual({ summarizeMaxChars: MIN_SUMMARY_CHARS });
+  expect(coerceConfigLayer({ summarizeMinMessages: 'x', summarizeMaxChars: Number.NaN })).toEqual({});
 });
 
 test('mergeConfigLayers applies later layers on top of defaults', () => {

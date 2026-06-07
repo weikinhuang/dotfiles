@@ -38,10 +38,22 @@
  * <name>` overrides the cast within an active roleplay persona.
  */
 
-import { StringEnum } from '@earendil-works/pi-ai';
-import { type ExtensionAPI, type ExtensionContext } from '@earendil-works/pi-coding-agent';
+import { StringEnum, type Model } from '@earendil-works/pi-ai';
+import {
+  createAgentSession,
+  DefaultResourceLoader,
+  type ExtensionAPI,
+  type ExtensionContext,
+  getAgentDir,
+  type ModelRegistry,
+  parseFrontmatter,
+  type ResourceLoader,
+  SessionManager,
+} from '@earendil-works/pi-coding-agent';
 import { Text } from '@earendil-works/pi-tui';
 import { readFileSync } from 'node:fs';
+import { dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { Type } from 'typebox';
 
 import { cardToRecords, parseCardJson } from '../../../lib/node/pi/card-import/card-to-records.ts';
@@ -58,6 +70,22 @@ import { matchLore } from '../../../lib/node/pi/roleplay/match.ts';
 import { formatLoreBlock } from '../../../lib/node/pi/roleplay/prompt.ts';
 import { composeSceneBlock } from '../../../lib/node/pi/roleplay/scene.ts';
 import { expandRecursive } from '../../../lib/node/pi/roleplay/recursion.ts';
+import {
+  composeAutoSummaryRecord,
+  createSummarizer,
+  planSummarization,
+  resolveSummarizeSettings,
+  type SummarizableMessage,
+  type Summarizer,
+} from '../../../lib/node/pi/roleplay/summarize.ts';
+import {
+  type AgentDef,
+  defaultAgentLayers,
+  loadAgents,
+  makeNodeReadLayer,
+} from '../../../lib/node/pi/subagent/loader.ts';
+import { createPersistedSubagentSessionManager } from '../../../lib/node/pi/subagent/session-dir.ts';
+import { adaptCreateAgentSession, runOneShotAgent } from '../../../lib/node/pi/subagent/spawn.ts';
 import {
   atomicWriteFile,
   castDir,
@@ -92,6 +120,16 @@ import {
 } from '../../../lib/node/pi/roleplay/store.ts';
 import { ROLEPLAY_USAGE } from '../../../lib/node/pi/roleplay/usage.ts';
 import { truncate } from '../../../lib/node/pi/shared.ts';
+
+/**
+ * Bridge pi's concrete `createAgentSession` (typed with the concrete
+ * `ModelRegistry` class) to the pi-free structural `ModelRegistryLike`
+ * the `runOneShotAgent` helper consumes. Compatible at runtime; the
+ * adapter just casts the registry at the call. Mirrors deep-research.
+ */
+const piCreateAgentSession = adaptCreateAgentSession<Model<any>, SessionManager, ModelRegistry, ResourceLoader>(
+  createAgentSession,
+);
 
 // ──────────────────────────────────────────────────────────────────────
 // Tool params
@@ -217,6 +255,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
   const autoInjectEnabled = !envTruthy(process.env.PI_ROLEPLAY_DISABLE_AUTOINJECT);
   const lorebookEnabled = !envTruthy(process.env.PI_ROLEPLAY_DISABLE_LOREBOOK);
   const depthInjectEnabled = !envTruthy(process.env.PI_ROLEPLAY_DISABLE_DEPTH_INJECT);
+  const summarizeEnabled = !envTruthy(process.env.PI_ROLEPLAY_DISABLE_SUMMARIZE);
   const envCharBudget = parseClampedPositiveInt(process.env.PI_ROLEPLAY_MAX_INJECTED_CHARS, 0, 1) || undefined;
 
   let cwd: string = process.cwd();
@@ -441,6 +480,146 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
         timestamp: Date.now(),
       }));
       return { messages };
+    });
+  }
+
+  // ── Auto-summarization (Phase 7B) ───────────────────────────────────
+  //
+  // On `session_before_compact` pi hands us the span it is about to
+  // evict (`preparation.messagesToSummarize`). We fold it into a rolling
+  // `summary/auto` record so scene continuity survives compaction. This
+  // is a strict SIDE-write: we never return `{compaction}` / `{cancel}`,
+  // so any failure here leaves pi's own compaction untouched. The whole
+  // path is gated by `roleplay: true` + `PI_ROLEPLAY_DISABLE_SUMMARIZE`
+  // and degrades to a no-op when the model / agent / settings are
+  // unavailable (the adapter returns `null`).
+  const extDir = dirname(fileURLToPath(import.meta.url));
+  const readLayer = makeNodeReadLayer();
+  let summarizer: Summarizer<Model<any>> | null = null;
+  let summarizerInit = false;
+
+  /** Persisted child-session manager, falling back to in-memory when the parent is untracked (`--no-session`). */
+  const summarizerSessionManager = (ctx: ExtensionContext, childCwd: string): SessionManager => {
+    try {
+      return createPersistedSubagentSessionManager<SessionManager>({
+        parentSessionManager: ctx.sessionManager,
+        extensionLabel: 'roleplay-summarize',
+        cwd: childCwd,
+        SessionManager,
+      });
+    } catch {
+      // Non-load-bearing: an untracked parent session must not block the
+      // side-write. We lose the child transcript, not the summary.
+      return SessionManager.inMemory(childCwd);
+    }
+  };
+
+  /** Build the summarizer once (settings + agent resolution), then reuse it. */
+  const getSummarizer = (ctx: ExtensionContext): Summarizer<Model<any>> | null => {
+    if (summarizerInit) return summarizer;
+    summarizerInit = true;
+    try {
+      const settings = resolveSummarizeSettings({ cwd });
+      let agent: AgentDef | null = null;
+      try {
+        const layers = defaultAgentLayers({ extensionDir: extDir, cwd });
+        const load = loadAgents({
+          layers,
+          knownToolNames: new Set(pi.getAllTools().map((t) => t.name)),
+          fs: readLayer,
+          parseFrontmatter,
+        });
+        agent = load.agents.get('roleplay-summarizer') ?? null;
+      } catch {
+        agent = null;
+      }
+      summarizer = createSummarizer<Model<any>>({
+        settings,
+        summarizerAgent: agent,
+        maxOutputChars: loadRoleplayConfig(cwd, envCharBudget).summarizeMaxChars,
+        runOneShot: async (args) => {
+          const result = await runOneShotAgent({
+            deps: { createAgentSession: piCreateAgentSession, DefaultResourceLoader, SessionManager, getAgentDir },
+            cwd: args.cwd,
+            agent: args.agent,
+            model: args.model,
+            task: args.task,
+            modelRegistry: args.modelRegistry,
+            agentDir: getAgentDir(),
+            sessionManager: summarizerSessionManager(ctx, args.cwd),
+            ...(args.signal ? { signal: args.signal } : {}),
+            ...(args.timeoutMs !== undefined ? { timeoutMs: args.timeoutMs } : {}),
+          });
+          return {
+            finalText: result.finalText,
+            stopReason: result.stopReason,
+            ...(result.errorMessage !== undefined ? { errorMessage: result.errorMessage } : {}),
+          };
+        },
+        log: (level, message) => {
+          try {
+            ctx.ui.notify(`roleplay summarize: ${message}`, level === 'warn' ? 'warning' : 'info');
+          } catch {
+            /* notify is best-effort */
+          }
+        },
+      });
+    } catch {
+      summarizer = null;
+    }
+    return summarizer;
+  };
+
+  /** Flatten an `AgentMessage` into a `{role, text}` pair for the summarizer (drops non-text parts). */
+  const toSummarizable = (m: unknown): SummarizableMessage => {
+    const role = typeof (m as { role?: unknown }).role === 'string' ? (m as { role: string }).role : 'unknown';
+    const content = (m as { content?: unknown }).content;
+    const parts: string[] = [];
+    if (typeof content === 'string') {
+      parts.push(content);
+    } else if (Array.isArray(content)) {
+      for (const part of content) {
+        if (part && typeof part === 'object' && (part as { type?: unknown }).type === 'text') {
+          const text = (part as { text?: unknown }).text;
+          if (typeof text === 'string') parts.push(text);
+        }
+      }
+    }
+    return { role, text: parts.join('\n') };
+  };
+
+  if (summarizeEnabled) {
+    pi.on('session_before_compact', async (event, ctx) => {
+      try {
+        if (activeCast() === null) return undefined;
+        resyncIfChanged(ctx);
+        if (state.cast.length === 0) return undefined;
+        const cfg = loadRoleplayConfig(cwd, envCharBudget);
+        const messages = (event.preparation?.messagesToSummarize ?? []).map(toSummarizable);
+        const plan = planSummarization(messages, { minMessages: cfg.summarizeMinMessages });
+        if (!plan) return undefined;
+        const sum = getSummarizer(ctx);
+        if (!sum?.isEnabled()) return undefined;
+        const priorEntry = state.entries.find((e) => e.kind === 'summary' && e.id === 'auto');
+        const prior = priorEntry ? (readEntryBody(state.cast, priorEntry) ?? undefined) : undefined;
+        const recap = await sum.summarize(
+          { cwd, model: ctx.model, modelRegistry: ctx.modelRegistry as never, signal: event.signal },
+          plan.spanText,
+          prior,
+        );
+        if (recap === null) return undefined;
+        const rec = composeAutoSummaryRecord(recap);
+        atomicWriteFile(
+          fileFor(state.cast, 'summary', rec.id),
+          serializeEntry({ name: rec.name, description: rec.description, kind: 'summary', body: rec.body }),
+        );
+        // Re-scan so the index + in-memory state reflect the new record.
+        applyCast(state.cast, ctx);
+        ctx.ui.notify(`roleplay: folded ${plan.messageCount} evicted message(s) into the auto recap.`, 'info');
+      } catch {
+        // Side-write must never break compaction.
+      }
+      return undefined;
     });
   }
 

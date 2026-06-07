@@ -3,12 +3,12 @@
 A cast-keyed durable store for roleplay scenarios, deliberately **separate** from the coding-agent
 [`memory`](./memory.md) extension so it can be turned off wholesale without touching the coding surface. Where `memory`
 keys durable notes on cwd / session, `roleplay` keys on **cast** - a character or ensemble that travels with you across
-workspaces. This implements Phases 1-5 + 7A of
+workspaces. This implements Phases 1-5 + 7A-B of
 [`plans/pi-roleplay-sillytavern.md`](../../../plans/pi-roleplay-sillytavern.md): the store + `character` records (Phase
 1), the keyword-triggered **lorebook** (`lore` records, Phase 2), the **SillyTavern card importer** (Phase 3), **depth
 injection** (author's note + depth-tagged lore via the `context` event, Phase 4), persona **scene fold** (`characters` /
-`pov`, Phase 5), and the **relationship / summary / timeline** record kinds with affinity decay (Phase 7A). Remaining
-phases add avatar sprites (Phase 6) and auto-summarization (Phase 7B).
+`pov`, Phase 5), the **relationship / summary / timeline** record kinds with affinity decay (Phase 7A), and
+**auto-summarization** of evicted history at compaction (Phase 7B). The remaining phase adds avatar sprites (Phase 6).
 
 ## Activation gate
 
@@ -152,7 +152,34 @@ unparseable, or in the future, so the stored value is returned verbatim. The dec
 
 `summary` and `timeline` records are plain note records (no extra frontmatter): a `summary` body is a recap of a span; a
 `timeline` body is a dated list of beats. All three kinds surface in the cast index and are loaded on demand via
-`roleplay read <id>` like any other record. (Phase 7B will auto-write `summary` records as history is evicted.)
+`roleplay read <id>` like any other record. The `summary/auto` record is special: it is the rolling recap written by
+auto-summarization (below).
+
+## Auto-summarization (`summary/auto`)
+
+When a long scene grows past pi's context window, pi **compacts** - it summarizes and drops the oldest turns. On the
+`session_before_compact` event the extension is handed exactly the span pi is about to evict, and folds it into a single
+rolling `summary/auto` record so scene continuity survives the drop. This is opt-in, off by default, and a strict
+side-write: it **never** overrides or cancels pi's own compaction, so a failure here is invisible to the rest of pi.
+
+The path mirrors the research extensions' `tiny`-model adapter
+([`summarize.ts`](../../../lib/node/pi/roleplay/summarize.ts)):
+
+- **Disabled unless configured.** A `summarizeModel` (a `provider/model-id` string) must resolve from, in order,
+  `<cwd>/.pi/roleplay-summarize.json`, `~/.pi/agent/roleplay-summarize.json`, or `~/.pi/agent/settings.json` under
+  `roleplay.summarizeModel`. With none set the adapter is permanently disabled and nothing runs.
+- **Trigger.** The evicted span must hold at least `summarizeMinMessages` non-empty messages (default 4); below that the
+  span is left alone.
+- **One rolling record.** The [`roleplay-summarizer`](../../../config/pi/agents/roleplay-summarizer.md) agent is spawned
+  once via `runOneShotAgent` with the evicted span plus the existing `summary/auto` body (it consolidates, it does not
+  append), and the result overwrites `summary/auto`. The body is capped at `summarizeMaxChars` (default 1500); an
+  over-cap or empty response is dropped.
+- **Non-load-bearing fallback.** Any failure - model not resolvable, agent missing, spawn error, timeout, empty / `null`
+  response - results in no record write and pi's compaction proceeds untouched. Set `PI_ROLEPLAY_DISABLE_SUMMARIZE=1` to
+  turn the whole path off even when a model is configured.
+
+The rolling recap rides the cast-index injection like any other record, so the model keeps a one-line pointer to the
+running scene summary across sessions; the full recap is loaded on demand via `roleplay read auto`.
 
 ## The `roleplay` tool
 
@@ -217,8 +244,14 @@ built-in default.
   "scanDepth": 10, // recent messages scanned for depth-tagged lore (default 10, max 100)
   "relationshipDecayPerDay": 1, // affinity points drifted toward baseline per idle day (default 1, >=0)
   "relationshipBaseline": 50, // neutral resting affinity decay converges to (default 50, 0-100)
+  "summarizeMinMessages": 4, // min evicted messages before auto-summarization fires (default 4, >=1)
+  "summarizeMaxChars": 1500, // cap on the generated auto-summary body (default 1500, floor 200)
 }
 ```
+
+The auto-summarization **model** is resolved separately (it is a credential / model choice, not a budget): set
+`roleplay.summarizeModel` in `~/.pi/agent/settings.json`, or a `summarizeModel` key in `roleplay-summarize.json`
+(project or user). With no model resolved, auto-summarization stays disabled.
 
 ## Environment variables
 
@@ -226,6 +259,7 @@ built-in default.
 - `PI_ROLEPLAY_DISABLE_AUTOINJECT=1` - keep the tool but skip the `## Roleplay` block.
 - `PI_ROLEPLAY_DISABLE_LOREBOOK=1` - keep the cast-index injection but skip keyword-triggered lore.
 - `PI_ROLEPLAY_DISABLE_DEPTH_INJECT=1` - skip the `context`-event depth injection (author's note + depth-tagged lore).
+- `PI_ROLEPLAY_DISABLE_SUMMARIZE=1` - skip auto-summarization on compaction (no `summary/auto` side-write).
 - `PI_ROLEPLAY_MAX_INJECTED_CHARS=N` - soft cap on the injected cast-index block (default 3000, floor 500). Below the
   config files.
 - `PI_ROLEPLAY_ROOT=<path>` - override `~/.pi/agent/roleplay` (useful for testing / per-host profiles).
@@ -257,6 +291,8 @@ without the pi runtime; this file holds only the pi-coupled glue + disk I/O.
   into the `## Roleplay scene` block.
 - [`relationship.ts`](../../../lib/node/pi/roleplay/relationship.ts) - toward-baseline affinity decay (`decayAffinity`,
   `daysElapsed`, `formatRelationshipLine`).
+- [`summarize.ts`](../../../lib/node/pi/roleplay/summarize.ts) - auto-summarization: span rendering + trigger
+  (`planSummarization`), settings resolver, and the `createSummarizer` adapter (null = fall back).
 - [`config.ts`](../../../lib/node/pi/roleplay/config.ts) - the `roleplay.json` config layer.
 - [`active.ts`](../../../lib/node/pi/roleplay/active.ts) - the cross-extension active-cast singleton.
 - [`usage.ts`](../../../lib/node/pi/roleplay/usage.ts) - the `/roleplay` USAGE string.

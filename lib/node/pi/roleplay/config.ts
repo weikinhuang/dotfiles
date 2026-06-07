@@ -13,7 +13,9 @@
  * `maxRecursion` (bounded lorebook recursion). Phase 4 adds `scanDepth`
  * (recent messages scanned for depth-injected lore in the `context`
  * event). Phase 7 adds `relationshipDecayPerDay` + `relationshipBaseline`
- * (the toward-baseline affinity-decay convention; see `relationship.ts`).
+ * (the toward-baseline affinity-decay convention; see `relationship.ts`),
+ * plus `summarizeMinMessages` + `summarizeMaxChars` (the auto-summarization
+ * eviction trigger; see `summarize.ts`).
  *
  * No pi imports.
  */
@@ -35,6 +37,10 @@ export interface RoleplayConfig {
   relationshipDecayPerDay: number;
   /** Neutral resting affinity that decay converges to, 0-100 (Phase 7). */
   relationshipBaseline: number;
+  /** Minimum evicted messages before auto-summarization fires (Phase 7B). */
+  summarizeMinMessages: number;
+  /** Soft cap on a generated auto-summary record body, in characters (Phase 7B). */
+  summarizeMaxChars: number;
 }
 
 /** Shipped defaults - lowest config layer. Parity with memory's 3000-char cap. */
@@ -45,6 +51,8 @@ export const DEFAULT_CONFIG: RoleplayConfig = {
   scanDepth: 10,
   relationshipDecayPerDay: 1,
   relationshipBaseline: 50,
+  summarizeMinMessages: 4,
+  summarizeMaxChars: 1500,
 };
 
 /** Floor for the injected-block budgets so a tiny value can't blank them. */
@@ -52,6 +60,9 @@ export const MIN_CHAR_BUDGET = 500;
 
 /** Upper bound on `scanDepth` so a stray config can't scan an unbounded history. */
 export const MAX_SCAN_DEPTH = 100;
+
+/** Floor for the auto-summary output cap so a tiny value can't blank a recap. */
+export const MIN_SUMMARY_CHARS = 200;
 
 /** Validate an untrusted JSON layer into a `Partial<RoleplayConfig>`. */
 export function coerceConfigLayer(raw: unknown): Partial<RoleplayConfig> {
@@ -75,6 +86,12 @@ export function coerceConfigLayer(raw: unknown): Partial<RoleplayConfig> {
   }
   if (typeof v.relationshipBaseline === 'number' && Number.isFinite(v.relationshipBaseline)) {
     out.relationshipBaseline = Math.max(0, Math.min(100, Math.floor(v.relationshipBaseline)));
+  }
+  if (typeof v.summarizeMinMessages === 'number' && Number.isFinite(v.summarizeMinMessages)) {
+    out.summarizeMinMessages = Math.max(1, Math.floor(v.summarizeMinMessages));
+  }
+  if (typeof v.summarizeMaxChars === 'number' && Number.isFinite(v.summarizeMaxChars)) {
+    out.summarizeMaxChars = Math.max(MIN_SUMMARY_CHARS, Math.floor(v.summarizeMaxChars));
   }
   return out;
 }
