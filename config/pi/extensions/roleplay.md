@@ -130,6 +130,28 @@ Leave both unset and the extension keeps the index-only behaviour (backward comp
 `/persona opener [n]` prints the active persona's greeting lines (all numbered, or just entry `n`); see
 [`persona.md`](./persona.md).
 
+## Macros (`{{user}}` / `{{char}}` / ...)
+
+SillyTavern character cards and lorebooks routinely embed `{{user}}` / `{{char}}` placeholders, so injected text is run
+through [`macros.ts`](../../../lib/node/pi/roleplay/macros.ts) at the moment a body is read. Substitution happens before
+the budget math, so the char-count cap sees the resolved text. Macro names are case-insensitive; any argument after the
+first `:` keeps its case.
+
+| Macro                         | Resolves to                                                                                            |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `{{user}}`                    | the persona `pov` (player character) name                                                              |
+| `{{char}}`                    | the in-context character: a folded sheet uses **that** character, lore/note the primary face character |
+| `{{time}}` / `{{date}}`       | `HH:MM` (24h, local) / `YYYY-MM-DD`                                                                    |
+| `{{weekday}}`                 | e.g. `Sunday`                                                                                          |
+| `{{random:a,b,c}}`            | one comma-separated option, picked at random (options trimmed)                                         |
+| `{{roll:NdM}}` / `{{roll:M}}` | sum of `N` `M`-sided dice (`N` defaults to 1)                                                          |
+| `{{newline}}`                 | a literal newline                                                                                      |
+
+Resolution is forgiving: an unknown macro, or `{{user}}` / `{{char}}` with no value in context, is **left literal**
+rather than blanked - a misconfiguration stays visible instead of mangling grammar. Macros are applied to folded
+character sheets, fired lore bodies (system-prompt and depth-injected), and the author's note. They do not nest or
+recurse (a single left-to-right pass). Openers are surfaced by `persona` and are not macro-substituted.
+
 ## Relationship state (`relationship` kind)
 
 A `relationship` record tracks how a pair feels about each other so a scene can resume where it left off. Extra
@@ -292,6 +314,8 @@ without the pi runtime; this file holds only the pi-coupled glue + disk I/O.
   for the `context` event.
 - [`scene.ts`](../../../lib/node/pi/roleplay/scene.ts) - resolve + fold full character sheets (`characters` / `pov`)
   into the `## Roleplay scene` block.
+- [`macros.ts`](../../../lib/node/pi/roleplay/macros.ts) - `{{user}}` / `{{char}}` / `{{time}}` / `{{random}}` /
+  `{{roll}}` substitution over injected text (deterministic via injectable clock + rng).
 - [`relationship.ts`](../../../lib/node/pi/roleplay/relationship.ts) - toward-baseline affinity decay (`decayAffinity`,
   `daysElapsed`, `formatRelationshipLine`).
 - [`summarize.ts`](../../../lib/node/pi/roleplay/summarize.ts) - auto-summarization: span rendering + trigger

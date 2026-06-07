@@ -74,6 +74,7 @@ import { selectWithinBudget, type LoreChunk } from '../../../lib/node/pi/rolepla
 import { applyInsertions, buildInsertions, type LoreDepthChunk } from '../../../lib/node/pi/roleplay/inject.ts';
 import { matchLore } from '../../../lib/node/pi/roleplay/match.ts';
 import { formatLoreBlock } from '../../../lib/node/pi/roleplay/prompt.ts';
+import { type MacroContext, substituteMacros } from '../../../lib/node/pi/roleplay/macros.ts';
 import { composeSceneBlock } from '../../../lib/node/pi/roleplay/scene.ts';
 import { expandRecursive } from '../../../lib/node/pi/roleplay/recursion.ts';
 import {
@@ -311,6 +312,27 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
     return state.cast.length > 0 ? state.cast : null;
   };
 
+  /** Display name of the primary (face) character, for `{{char}}` substitution. */
+  const primaryCharName = (): string | undefined => {
+    const persona = getActivePersona();
+    if (!persona?.roleplay) return undefined;
+    const chars = persona.characters ?? [];
+    const povSlug = persona.pov ? slugifyName(persona.pov) : '';
+    const nonPov = chars.find((c) => slugifyName(c) !== povSlug);
+    return nonPov ?? chars[0];
+  };
+
+  /**
+   * Macro-substitution context for injected text. `{{user}}` resolves to
+   * the persona POV (player character); `{{char}}` to `charName` when
+   * given (a folded character sheet uses that character) else the primary
+   * face character.
+   */
+  const macroCtx = (charName?: string): MacroContext => ({
+    user: getActivePersona()?.pov,
+    char: charName ?? primaryCharName(),
+  });
+
   /** Re-scan disk for `cast` (or go dormant when null) and publish the active-cast singleton. */
   const applyCast = (cast: string | null, ctx?: ExtensionContext): void => {
     if (cast === null) {
@@ -405,7 +427,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
     const bodyOf = (entry: RoleplayEntry): string => {
       const cached = bodyCache.get(entry.id);
       if (cached !== undefined) return cached;
-      const body = readEntryBody(state.cast, entry) ?? '';
+      const body = substituteMacros(readEntryBody(state.cast, entry) ?? '', macroCtx(entry.name));
       bodyCache.set(entry.id, body);
       return body;
     };
@@ -439,7 +461,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
     const bodyOf = (entry: RoleplayEntry): string => {
       const cached = bodyCache.get(entry.id);
       if (cached !== undefined) return cached;
-      const body = readEntryBody(state.cast, entry) ?? '';
+      const body = substituteMacros(readEntryBody(state.cast, entry) ?? '', macroCtx());
       bodyCache.set(entry.id, body);
       return body;
     };
@@ -495,7 +517,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
     const fired = matchLore(depthLore, scanText);
     if (fired.length === 0) return [];
     const chunks: LoreChunk[] = fired
-      .map((entry) => ({ entry, body: readEntryBody(state.cast, entry)?.trim() ?? '' }))
+      .map((entry) => ({ entry, body: substituteMacros(readEntryBody(state.cast, entry) ?? '', macroCtx()).trim() }))
       .filter((c) => c.body.length > 0);
     const { kept } = selectWithinBudget(chunks, loadRoleplayConfig(cwd, envCharBudget).loreCharBudget);
     return kept.map((c) => ({ name: c.entry.name, body: c.body, depth: c.entry.lore?.depth ?? 0 }));
@@ -507,7 +529,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
       const persona = getActivePersona();
       const scanDepth = loadRoleplayConfig(cwd, envCharBudget).scanDepth;
       const insertions = buildInsertions({
-        authorNote: persona?.authorNote,
+        authorNote: persona?.authorNote ? substituteMacros(persona.authorNote, macroCtx()) : undefined,
         authorNoteDepth: persona?.authorNoteDepth,
         lore: buildDepthLore(recentText(event.messages, scanDepth)),
       });
