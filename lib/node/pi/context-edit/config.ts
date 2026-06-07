@@ -19,6 +19,13 @@ export interface TrimConfig {
   minTextBytes: number;
   /** Snippet character cap in listings + completions. */
   snippetChars: number;
+  /**
+   * Optional `provider/id` model used to auto-caption a trimmed image
+   * when the active model is NOT vision-capable. When unset, the active
+   * model is used if it can see images, else the description is skipped
+   * (size-only placeholder). See the image-descriptions plan, source 3.
+   */
+  captionModel?: string;
 }
 
 export interface ToolCollapseConfig {
@@ -57,6 +64,12 @@ function asNonNegativeInt(value: unknown): number | undefined {
   return Math.floor(value);
 }
 
+function asNonEmptyString(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const t = value.trim();
+  return t.length > 0 ? t : undefined;
+}
+
 /** Validate an untrusted JSON layer into a `Partial<TrimConfig>`. */
 export function coerceTrimLayer(raw: unknown): Partial<TrimConfig> {
   if (!isObject(raw)) return {};
@@ -65,6 +78,8 @@ export function coerceTrimLayer(raw: unknown): Partial<TrimConfig> {
   if (minTextBytes !== undefined) out.minTextBytes = minTextBytes;
   const snippetChars = asPositiveInt(raw.snippetChars);
   if (snippetChars !== undefined) out.snippetChars = snippetChars;
+  const captionModel = asNonEmptyString(raw.captionModel);
+  if (captionModel !== undefined) out.captionModel = captionModel;
   return out;
 }
 
@@ -91,6 +106,7 @@ export function loadTrimConfig(cwd: string, env: NodeJS.ProcessEnv = process.env
   const base: TrimConfig = {
     minTextBytes: parseClampedPositiveInt(env.PI_CONTEXT_TRIM_MIN_BYTES, DEFAULT_TRIM_CONFIG.minTextBytes, 256),
     snippetChars: parseClampedPositiveInt(env.PI_CONTEXT_TRIM_SNIPPET_CHARS, DEFAULT_TRIM_CONFIG.snippetChars, 20),
+    captionModel: asNonEmptyString(env.PI_CONTEXT_TRIM_CAPTION_MODEL),
   };
   const userLayer = coerceTrimLayer(readJsonOrUndefined(piAgentPath('context-trim.json')));
   const projectLayer = coerceTrimLayer(readJsonOrUndefined(piProjectPath(cwd, 'context-trim.json')));

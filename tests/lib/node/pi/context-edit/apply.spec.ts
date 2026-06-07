@@ -40,6 +40,31 @@ describe('applyDirectives - trim', () => {
     expect((part as { text: string }).text).toContain('IMAGE REMOVED');
   });
 
+  test('stamps a persisted image description (and dimensions) into the placeholder', () => {
+    const messages: LooseMessage[] = [
+      {
+        role: 'toolResult',
+        toolCallId: 'c1',
+        toolName: 'generate_image',
+        content: [{ type: 'image', data: 'AAAA', mimeType: 'image/png', width: 1024, height: 768 }],
+        timestamp: 1,
+      },
+    ];
+    const directives: Directive[] = [
+      {
+        kind: 'trim',
+        id: 1,
+        target: { by: 'toolCallId', toolCallId: 'c1' },
+        description: 'a red fox in snow',
+        createdAt: 1,
+      },
+    ];
+    const { messages: out } = applyDirectives(messages, directives);
+    const rendered = (out[0].content as LoosePart[])[0] as { text: string };
+    expect(rendered.text).toContain('1024\u00d7768');
+    expect(rendered.text).toContain('"a red fox in snow"');
+  });
+
   test('does not mutate the input messages', () => {
     const messages: LooseMessage[] = [{ role: 'user', content: 'original', timestamp: 1 }];
     applyDirectives(messages, [

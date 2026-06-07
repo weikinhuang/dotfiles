@@ -61,6 +61,12 @@ function approxImageBytes(part: LoosePart): number {
   return typeof data === 'string' ? Math.floor((data.length * 3) / 4) : 0;
 }
 
+/** Pull a positive numeric `width` / `height` off an image part, when pi attached one. */
+function imageDimension(part: LoosePart, key: 'width' | 'height'): number | undefined {
+  const v = (part as Record<string, unknown>)[key];
+  return typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : undefined;
+}
+
 function applyTrim(messages: LooseMessage[], d: TrimDirective): boolean {
   const hit = resolveTarget(messages, d.target);
   if (!hit) return false;
@@ -72,7 +78,14 @@ function applyTrim(messages: LooseMessage[], d: TrimDirective): boolean {
     if (!part) return false;
     const text =
       part.type === 'image'
-        ? imagePlaceholder(d.reason, approxImageBytes(part))
+        ? imagePlaceholder({
+            reason: d.reason,
+            approxBytes: approxImageBytes(part),
+            // Persisted once at creation time - never recomputed here.
+            description: d.description,
+            width: imageDimension(part, 'width'),
+            height: imageDimension(part, 'height'),
+          })
         : textPlaceholder(partText(part), d.reason);
     parts[idx] = { type: 'text', text };
     return true;

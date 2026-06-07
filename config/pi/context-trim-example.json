@@ -1,4 +1,5 @@
 {
   "minTextBytes": 2048,
-  "snippetChars": 80
+  "snippetChars": 80,
+  "captionModel": "anthropic/claude-haiku-4-5"
 }

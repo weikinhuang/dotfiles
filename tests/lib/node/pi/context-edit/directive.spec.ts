@@ -39,6 +39,21 @@ describe('addTrim', () => {
     assertOk(r2);
     expect(r2.state.directives).toHaveLength(1);
   });
+
+  test('persists an image description on the directive', () => {
+    const r = addTrim(emptyState(), msgTarget, 'big image', 1000, 'a red fox in snow');
+    assertOk(r);
+    const d = r.state.directives[0];
+    expect(d.kind === 'trim' && d.description).toBe('a red fox in snow');
+    // The description survives the shape guard (round-trips through persistence).
+    expect(isContextEditStateShape(r.state)).toBe(true);
+  });
+
+  test('description is optional (size-only trims omit it)', () => {
+    const r = addTrim(emptyState(), msgTarget, undefined, 1);
+    assertOk(r);
+    expect(r.state.directives[0].kind === 'trim' && r.state.directives[0].description).toBeUndefined();
+  });
 });
 
 describe('addEdit', () => {
@@ -100,6 +115,14 @@ describe('isContextEditStateShape', () => {
     expect(isContextEditStateShape(null)).toBe(false);
     expect(isContextEditStateShape({ directives: 'no', nextId: 1 })).toBe(false);
     expect(isContextEditStateShape({ directives: [{ kind: 'bogus', id: 1, createdAt: 1 }], nextId: 2 })).toBe(false);
+  });
+
+  test('rejects a non-string description', () => {
+    const bad = {
+      directives: [{ kind: 'trim', id: 1, target: msgTarget, description: 42, createdAt: 1 }],
+      nextId: 2,
+    };
+    expect(isContextEditStateShape(bad)).toBe(false);
   });
 });
 
