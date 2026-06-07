@@ -53,6 +53,7 @@ import { getCellDimensions, truncateToWidth, visibleWidth } from '@earendil-work
 
 import { coerceConfigLayer, mergeConfigLayers } from '../../../lib/node/pi/avatar/config.ts';
 import { AVATAR_USAGE } from '../../../lib/node/pi/avatar/usage.ts';
+import { getAvatarInput, getAvatarInputRev } from '../../../lib/node/pi/avatar/input.ts';
 import { completeSubverbs } from '../../../lib/node/pi/commands/complete.ts';
 import { isHelpArg } from '../../../lib/node/pi/commands/help.ts';
 import type { AsciiFrameMap } from '../../../lib/node/pi/avatar/ascii-yaml.ts';
@@ -831,16 +832,26 @@ export default function avatar(pi: ExtensionAPI): void {
   // session_start) can also turn it on.
   let keepRaw = envTruthy(process.env.PI_AVATAR_DISABLE_SCRUB);
   let lastCwd = process.cwd();
+  let lastModelId = '';
+  /** `getAvatarInputRev()` value the current sprite set was resolved at, to detect external slot changes. */
+  let loadedInputRev = -1;
   let lastCtx: ExtensionContext | null = null;
   const toolCounts = new Map<string, number>();
 
   function loadForModel(cwd: string, modelId: string): void {
+    lastModelId = modelId;
     config = loadConfig(cwd);
     animator.updateConfig(config);
     const envOverride = process.env.PI_AVATAR_RENDER ?? config.render;
     protocol = resolveProtocol(envOverride, process.env);
     const resolved = resolveEmoteSet(modelId, config.emotes);
-    currentSet = resolved.set;
+    // An external extension (roleplay) can pin a preferred set via the
+    // avatar-input slot; it wins over the model-glob resolution. Overlays
+    // still come from config. A non-existent set falls back gracefully
+    // below (empty store -> ASCII), exactly like a model-glob set with no art.
+    const slotSet = getAvatarInput().emoteSet;
+    currentSet = slotSet && slotSet.length > 0 ? slotSet : resolved.set;
+    loadedInputRev = getAvatarInputRev();
     const setDir = findSetDir(currentSet, extEmotesDir, cwd);
     const asciiSetNames = [currentSet, ...resolved.overlays];
     let built =
@@ -937,13 +948,18 @@ export default function avatar(pi: ExtensionAPI): void {
     if (widgetActive) animator.transitionTo('idle');
   });
 
-  if (!promptDisabled) {
-    pi.on('before_agent_start', (event, ctx) => {
-      if (!enabled) return undefined;
-      const base = event.systemPrompt.length > 0 ? event.systemPrompt : ctx.getSystemPrompt();
-      return { systemPrompt: appendEmotePrompt(base, buildEmotePromptAddendum({ emotions })) };
-    });
-  }
+  pi.on('before_agent_start', (event, ctx) => {
+    if (!enabled) return undefined;
+    // Re-resolve the sprite set when an external extension (roleplay) has
+    // changed the avatar-input slot since our last load - e.g. a persona /
+    // active-character switch repointing the avatar at a new face.
+    if (getAvatarInputRev() !== loadedInputRev) {
+      loadForModel(lastCwd, lastModelId);
+    }
+    if (promptDisabled) return undefined;
+    const base = event.systemPrompt.length > 0 ? event.systemPrompt : ctx.getSystemPrompt();
+    return { systemPrompt: appendEmotePrompt(base, buildEmotePromptAddendum({ emotions })) };
+  });
 
   pi.on('agent_start', () => {
     if (!widgetActive) return;

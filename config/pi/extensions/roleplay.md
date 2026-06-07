@@ -260,17 +260,18 @@ The auto-summarization **model** is resolved separately (it is a credential / mo
 - `PI_ROLEPLAY_DISABLE_LOREBOOK=1` - keep the cast-index injection but skip keyword-triggered lore.
 - `PI_ROLEPLAY_DISABLE_DEPTH_INJECT=1` - skip the `context`-event depth injection (author's note + depth-tagged lore).
 - `PI_ROLEPLAY_DISABLE_SUMMARIZE=1` - skip auto-summarization on compaction (no `summary/auto` side-write).
+- `PI_ROLEPLAY_DISABLE_AVATAR=1` - stop driving the [`avatar`](./avatar.md) face from the active cast (Phase 6).
 - `PI_ROLEPLAY_MAX_INJECTED_CHARS=N` - soft cap on the injected cast-index block (default 3000, floor 500). Below the
   config files.
 - `PI_ROLEPLAY_ROOT=<path>` - override `~/.pi/agent/roleplay` (useful for testing / per-host profiles).
 
 ## Composition with other extensions
 
-| Extension                    | Interaction                                                                                                                                                                                                                      |
-| ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [`persona.ts`](./persona.md) | The master gate. `roleplay: true` (+ optional `cast:`) in persona frontmatter activates this extension; `authorNote` / `authorNoteDepth` drive the depth-injected author's note; the resolved persona is read via the singleton. |
-| [`memory.ts`](./memory.md)   | Independent. Coding memory is untouched; roleplay has its own root, tool, and injected block. Both can be active at once.                                                                                                        |
-| [`avatar.ts`](./avatar.md)   | Future (Phase 6): per-character sprites / tone-driven emotes will read the active cast/POV from the roleplay singleton.                                                                                                          |
+| Extension                    | Interaction                                                                                                                                                                                                                                                                 |
+| ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`persona.ts`](./persona.md) | The master gate. `roleplay: true` (+ optional `cast:`) in persona frontmatter activates this extension; `authorNote` / `authorNoteDepth` drive the depth-injected author's note; the resolved persona is read via the singleton.                                            |
+| [`memory.ts`](./memory.md)   | Independent. Coding memory is untouched; roleplay has its own root, tool, and injected block. Both can be active at once.                                                                                                                                                   |
+| [`avatar.ts`](./avatar.md)   | Phase 6: roleplay publishes the active character's sprite-set (and, later, a portrait / generated scene) into the avatar-input slot ([`avatar/input.ts`](../../../lib/node/pi/avatar/input.ts)) so the avatar shows the _character_. Gated by `PI_ROLEPLAY_DISABLE_AVATAR`. |
 
 ## Pure helpers
 

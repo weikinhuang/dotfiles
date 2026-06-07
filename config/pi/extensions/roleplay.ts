@@ -63,6 +63,7 @@ import { isHelpArg } from '../../../lib/node/pi/commands/help.ts';
 import { envTruthy, parseClampedPositiveInt } from '../../../lib/node/pi/parse-env.ts';
 import { getActivePersona } from '../../../lib/node/pi/persona/active.ts';
 import { clearActiveRoleplay, setActiveRoleplay } from '../../../lib/node/pi/roleplay/active.ts';
+import { clearAvatarInput, setAvatarInput } from '../../../lib/node/pi/avatar/input.ts';
 import { loadRoleplayConfig } from '../../../lib/node/pi/roleplay/config.ts';
 import { selectWithinBudget, type LoreChunk } from '../../../lib/node/pi/roleplay/budget.ts';
 import { applyInsertions, buildInsertions, type LoreDepthChunk } from '../../../lib/node/pi/roleplay/inject.ts';
@@ -256,6 +257,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
   const lorebookEnabled = !envTruthy(process.env.PI_ROLEPLAY_DISABLE_LOREBOOK);
   const depthInjectEnabled = !envTruthy(process.env.PI_ROLEPLAY_DISABLE_DEPTH_INJECT);
   const summarizeEnabled = !envTruthy(process.env.PI_ROLEPLAY_DISABLE_SUMMARIZE);
+  const avatarDriveEnabled = !envTruthy(process.env.PI_ROLEPLAY_DISABLE_AVATAR);
   const envCharBudget = parseClampedPositiveInt(process.env.PI_ROLEPLAY_MAX_INJECTED_CHARS, 0, 1) || undefined;
 
   let cwd: string = process.cwd();
@@ -282,12 +284,31 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
     return castSlug(persona.name);
   };
 
+  /**
+   * Slug of the character whose face the avatar should show, or `null`
+   * when dormant. Prefers the first non-POV character (the one the user
+   * is talking to), then the first listed character, then the cast slug;
+   * the slug maps to an avatar sprite-set dir (`avatar/emotes/<slug>/`).
+   * A slug with no sprite art falls back gracefully on the avatar side.
+   */
+  const activeFaceSlug = (): string | null => {
+    const persona = getActivePersona();
+    if (!persona?.roleplay) return null;
+    const chars = persona.characters ?? [];
+    const povSlug = persona.pov ? slugifyName(persona.pov) : '';
+    const nonPov = chars.find((c) => slugifyName(c) !== povSlug);
+    const pick = nonPov ?? chars[0];
+    if (pick) return slugifyName(pick);
+    return state.cast.length > 0 ? state.cast : null;
+  };
+
   /** Re-scan disk for `cast` (or go dormant when null) and publish the active-cast singleton. */
   const applyCast = (cast: string | null, ctx?: ExtensionContext): void => {
     if (cast === null) {
       state = emptyState();
       syncedCast = null;
       clearActiveRoleplay();
+      if (avatarDriveEnabled) clearAvatarInput();
       return;
     }
     const { state: next, warnings } = rebuildCast(cast);
@@ -299,6 +320,10 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
       ctx?.ui.notify(`roleplay: ${w}`, 'warning');
     }
     setActiveRoleplay({ cast });
+    if (avatarDriveEnabled) {
+      const face = activeFaceSlug();
+      setAvatarInput({ emoteSet: face ?? '' });
+    }
   };
 
   /** Force a re-resolve + scan (session lifecycle hooks). */
@@ -626,6 +651,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
   pi.on('session_shutdown', () => {
     try {
       clearActiveRoleplay();
+      if (avatarDriveEnabled) clearAvatarInput();
     } catch {
       // teardown must never throw
     }

@@ -102,6 +102,22 @@ nothing in tmux beyond truecolor (`set -as terminal-features ",*:RGB"`).
 In kaomoji mode the widget collapses to the top border rule plus a single `face │ <tool tally>` line (the image modes
 keep the multi-line info panel). Set `compact` to `false` to keep the full panel in kaomoji mode too.
 
+## External input (other extensions)
+
+The avatar owns _rendering_; another extension can drive _what it shows_ through a neutral, globalThis-anchored slot
+([`../../../lib/node/pi/avatar/input.ts`](../../../lib/node/pi/avatar/input.ts)). Two inputs:
+
+- `emoteSet` - a preferred sprite-set name. The avatar prefers it over its model-glob resolution, so a roleplay cast can
+  put its character's face on the avatar. A name with no sprite art falls back gracefully (kaomoji / model-glob set),
+  exactly like any other missing set.
+- `image` - an arbitrary override image (path + optional width hint) shown in place of the sprite (Phase 6B/6C: a
+  character portrait or a generated scene).
+
+The slot is pure (no pi imports) and decoupled both ways: if no extension writes it the avatar behaves exactly as
+before; if the avatar is disabled a writer just updates a slot nobody reads. The avatar re-resolves its set on
+`before_agent_start` whenever the slot's revision changed, so a persona / active-character switch repoints the face on
+the next turn. Today [`roleplay.ts`](./roleplay.md) is the only writer (gated by `PI_ROLEPLAY_DISABLE_AVATAR`).
+
 ## Configuration
 
 Config layers lowest → highest: shipped defaults → `~/.pi/agent/avatar.json` → `<cwd>/.pi/avatar.json`. See
