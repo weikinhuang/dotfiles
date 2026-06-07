@@ -117,7 +117,9 @@ The avatar owns _rendering_; another extension can drive _what it shows_ through
 - `scene` - an _additive_ landscape illustration drawn as a separate full-width banner, **above** or **below** the
   avatar+info row (or **replacing** it) per the `scenePlacement` config. Unlike `image` it does not hide the reactive
   face, so the character's emotions stay visible alongside the scene. The image is scaled down (aspect preserved) to fit
-  within `sceneMaxRows`, so a tall shot never floods the widget. Image protocols only; cached like `image`.
+  within `sceneMaxRows`, so a tall shot never floods the widget. A full-width border rule divides the banner from the
+  avatar+info row (in addition to the widget's top rule), so the generated scene reads as a distinct region. Image
+  protocols only; cached like `image`.
 
 The slot is pure (no pi imports) and decoupled both ways: if no extension writes it the avatar behaves exactly as
 before; if the avatar is disabled a writer just updates a slot nobody reads. The avatar re-resolves its set on

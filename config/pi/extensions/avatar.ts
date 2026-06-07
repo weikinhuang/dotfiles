@@ -53,7 +53,7 @@ import { getCellDimensions, truncateToWidth, visibleWidth } from '@earendil-work
 
 import { coerceConfigLayer, mergeConfigLayers } from '../../../lib/node/pi/avatar/config.ts';
 import { AVATAR_USAGE } from '../../../lib/node/pi/avatar/usage.ts';
-import { getAvatarInput, getAvatarInputRev } from '../../../lib/node/pi/avatar/input.ts';
+import { getAvatarInput } from '../../../lib/node/pi/avatar/input.ts';
 import { completeSubverbs } from '../../../lib/node/pi/commands/complete.ts';
 import { isHelpArg } from '../../../lib/node/pi/commands/help.ts';
 import type { AsciiFrameMap } from '../../../lib/node/pi/avatar/ascii-yaml.ts';
@@ -869,8 +869,14 @@ export default function avatar(pi: ExtensionAPI): void {
   let keepRaw = envTruthy(process.env.PI_AVATAR_DISABLE_SCRUB);
   let lastCwd = process.cwd();
   let lastModelId = '';
-  /** `getAvatarInputRev()` value the current sprite set was resolved at, to detect external slot changes. */
-  let loadedInputRev = -1;
+  /**
+   * The avatar-input slot `emoteSet` the sprite store was last resolved
+   * against. Only a *set* change needs the expensive `loadForModel`
+   * re-discovery (sixel re-encodes every frame); `image` / `scene` slot
+   * updates are resolved lazily in `render()` and must NOT force a sprite
+   * reload, or every generated scene banner would stall the next turn.
+   */
+  let loadedSlotSet: string | undefined;
   let lastCtx: ExtensionContext | null = null;
   const toolCounts = new Map<string, number>();
 
@@ -954,7 +960,7 @@ export default function avatar(pi: ExtensionAPI): void {
     // below (empty store -> ASCII), exactly like a model-glob set with no art.
     const slotSet = getAvatarInput().emoteSet;
     currentSet = slotSet && slotSet.length > 0 ? slotSet : resolved.set;
-    loadedInputRev = getAvatarInputRev();
+    loadedSlotSet = slotSet;
     const setDir = findSetDir(currentSet, extEmotesDir, cwd);
     const asciiSetNames = [currentSet, ...resolved.overlays];
     let built =
@@ -1009,9 +1015,11 @@ export default function avatar(pi: ExtensionAPI): void {
             }
           }
           if (sceneLines.length === 0) return [rule, ...avatarLines];
+          // Divide the scene banner from the reactive face so the generated
+          // image reads as a distinct region from the avatar + info column.
           return config.scenePlacement === 'below'
-            ? [rule, ...avatarLines, ...sceneLines]
-            : [rule, ...sceneLines, ...avatarLines];
+            ? [rule, ...avatarLines, rule, ...sceneLines]
+            : [rule, ...sceneLines, rule, ...avatarLines];
         },
         invalidate(): void {
           /* nothing cached */
@@ -1069,7 +1077,7 @@ export default function avatar(pi: ExtensionAPI): void {
     // Re-resolve the sprite set when an external extension (roleplay) has
     // changed the avatar-input slot since our last load - e.g. a persona /
     // active-character switch repointing the avatar at a new face.
-    if (getAvatarInputRev() !== loadedInputRev) {
+    if (getAvatarInput().emoteSet !== loadedSlotSet) {
       loadForModel(lastCwd, lastModelId);
     }
     if (promptDisabled) return undefined;
