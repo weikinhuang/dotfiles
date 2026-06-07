@@ -7,7 +7,7 @@
 import { expect, test } from 'vitest';
 
 import { type LoreChunk, rankLore, selectWithinBudget } from '../../../../../lib/node/pi/roleplay/budget.ts';
-import { type RoleplayEntry } from '../../../../../lib/node/pi/roleplay/store.ts';
+import { emptyLoreMeta, type RoleplayEntry } from '../../../../../lib/node/pi/roleplay/store.ts';
 
 const chunk = (id: string, order: number, body: string): LoreChunk => ({
   entry: {
@@ -15,7 +15,7 @@ const chunk = (id: string, order: number, body: string): LoreChunk => ({
     kind: 'lore',
     name: id,
     description: `desc ${id}`,
-    lore: { triggers: [], secondaryKeys: [], secondaryMode: 'AND', constant: false, order, recurse: false },
+    lore: { ...emptyLoreMeta(), order },
   } satisfies RoleplayEntry,
   body,
 });

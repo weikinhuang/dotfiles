@@ -132,7 +132,51 @@ test('maps character_book entries to lore records with metadata', () => {
     constant: false,
     order: 100,
     recurse: false,
+    probability: 100,
+    sticky: 0,
+    cooldown: 0,
+    delay: 0,
+    group: '',
+    groupWeight: 100,
   });
+});
+
+test('maps timed-effect / group knobs from extensions and flat fields', () => {
+  const card = normalizeCard({
+    spec: 'chara_card_v3',
+    data: {
+      name: 'Amiya',
+      character_book: {
+        entries: [
+          {
+            keys: ['weather'],
+            content: 'it is raining',
+            // spec-compliant: timed effects under `extensions`
+            extensions: { probability: 40, sticky: 3, cooldown: 5, delay: 2, group: 'ambient', group_weight: 70 },
+          },
+          {
+            keys: ['sun'],
+            content: 'the sun is out',
+            // legacy flat placement + useProbability:false -> probability forced to 100
+            useProbability: false,
+            probability: 25,
+            group: 'ambient',
+          },
+        ],
+      },
+    },
+  });
+  if ('error' in card) throw new Error(card.error);
+  const lore = cardToRecords(card).records.filter((r) => r.kind === 'lore');
+  expect(lore[0].lore).toMatchObject({
+    probability: 40,
+    sticky: 3,
+    cooldown: 5,
+    delay: 2,
+    group: 'ambient',
+    groupWeight: 70,
+  });
+  expect(lore[1].lore).toMatchObject({ probability: 100, group: 'ambient', groupWeight: 100 });
 });
 
 test('selectiveLogic maps to the secondary mode (0=OR, 2=NOT, 3=AND)', () => {

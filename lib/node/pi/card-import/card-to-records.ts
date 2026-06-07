@@ -46,6 +46,12 @@ interface NormalizedLore {
   name: string;
   comment: string;
   content: string;
+  probability: number;
+  sticky: number;
+  cooldown: number;
+  delay: number;
+  group: string;
+  groupWeight: number;
 }
 
 export interface NormalizedCard {
@@ -97,6 +103,12 @@ function firstLine(s: string, max = 120): string {
 
 function normalizeLoreEntry(raw: unknown): NormalizedLore {
   const e = asRecord(raw);
+  // ST stores timed-effect / group knobs spec-compliantly under `extensions`,
+  // but older books put them flat - read the extension first, fall back flat.
+  const ext = asRecord(e.extensions);
+  const pick = (key: string): unknown => (ext[key] !== undefined ? ext[key] : e[key]);
+  // `useProbability: false` means "ignore probability" -> treat as always (100).
+  const useProbability = bool(pick('useProbability'), true);
   return {
     keys: strArray(e.keys),
     secondaryKeys: strArray(e.secondary_keys),
@@ -108,6 +120,12 @@ function normalizeLoreEntry(raw: unknown): NormalizedLore {
     name: str(e.name),
     comment: str(e.comment),
     content: str(e.content),
+    probability: useProbability ? num(pick('probability'), 100) : 100,
+    sticky: num(pick('sticky'), 0),
+    cooldown: num(pick('cooldown'), 0),
+    delay: num(pick('delay'), 0),
+    group: str(pick('group')),
+    groupWeight: num(pick('groupWeight') ?? pick('group_weight'), 100),
   };
 }
 
@@ -198,6 +216,12 @@ function loreFromEntry(entry: NormalizedLore, index: number): ImportRecord {
   meta.secondaryMode = secondaryMode(entry.selectiveLogic);
   meta.constant = entry.constant;
   meta.order = entry.insertionOrder;
+  meta.probability = Math.min(100, Math.max(0, Math.floor(entry.probability)));
+  meta.sticky = Math.max(0, Math.floor(entry.sticky));
+  meta.cooldown = Math.max(0, Math.floor(entry.cooldown));
+  meta.delay = Math.max(0, Math.floor(entry.delay));
+  meta.group = entry.group.trim();
+  meta.groupWeight = Math.max(0, Math.floor(entry.groupWeight));
   const name = entry.comment.trim() || entry.name.trim() || entry.keys[0] || `lore ${index + 1}`;
   const description =
     entry.comment.trim() || (entry.keys.length > 0 ? `triggers: ${entry.keys.join(', ')}` : 'imported lore');

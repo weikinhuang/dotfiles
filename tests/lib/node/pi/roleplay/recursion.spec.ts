@@ -7,7 +7,7 @@
 import { expect, test } from 'vitest';
 
 import { expandRecursive, MAX_RECURSION_CAP } from '../../../../../lib/node/pi/roleplay/recursion.ts';
-import { type LoreMeta, type RoleplayEntry } from '../../../../../lib/node/pi/roleplay/store.ts';
+import { emptyLoreMeta, type LoreMeta, type RoleplayEntry } from '../../../../../lib/node/pi/roleplay/store.ts';
 
 const lore = (id: string, meta: Partial<LoreMeta>, body = ''): { entry: RoleplayEntry; body: string } => ({
   entry: {
@@ -15,7 +15,7 @@ const lore = (id: string, meta: Partial<LoreMeta>, body = ''): { entry: Roleplay
     kind: 'lore',
     name: id,
     description: `desc ${id}`,
-    lore: { triggers: [], secondaryKeys: [], secondaryMode: 'AND', constant: false, order: 0, recurse: false, ...meta },
+    lore: { ...emptyLoreMeta(), ...meta },
   },
   body,
 });

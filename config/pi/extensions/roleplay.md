@@ -65,12 +65,31 @@ Lore frontmatter (all optional beyond the core three keys):
 | `order`         | integer          | Priority; higher wins when the char budget forces eviction. Default `0`.                              |
 | `depth`         | integer          | Inserted at this depth in the message array via the `context` event (Phase 4), not the system prompt. |
 | `recurse`       | `true`/`false`   | Opt in to having this entry's body re-scanned to trigger further lore. Default `false`.               |
+| `probability`   | `0`-`100`        | Chance the entry fires even when matched. Default `100` (always).                                     |
+| `sticky`        | integer          | Once fired, stay active this many further turns without a re-match. Default `0`.                      |
+| `cooldown`      | integer          | After its active window ends, cannot fire again for this many turns. Default `0`.                     |
+| `delay`         | integer          | Not eligible to fire until this many turns into the chat. Default `0`.                                |
+| `group`         | string           | Inclusion-group name; among fired members of a group only ONE survives per turn. Default `''`.        |
+| `groupWeight`   | integer          | Relative weight for the group's weighted-random pick. Default `100`.                                  |
 
 Keyword matching is **whole-word** (`RI` matches `RI` / `(RI)` but not `spring`) and case-insensitive; multi-word and
 punctuation-bearing keys (`Rhodes Island`, `Dr. Kal'tsit`) match literally between token boundaries. Fired entries are
 ranked by `order` (then name) and kept until `loreCharBudget` is reached - the single highest-priority entry is always
 kept even if it alone exceeds the budget. Recursion is **off by default**, opt-in per entry, and hard-capped at
 `maxRecursion` (ceiling 2) passes.
+
+### Timed effects + inclusion groups
+
+Keyword matching decides which entries _could_ fire; a timing pass
+([`timing.ts`](../../../lib/node/pi/roleplay/timing.ts)) then decides what actually does, so World Info feels organic
+instead of firing every time a keyword appears. The extension keeps a monotonic per-turn counter and a small in-memory
+state map (reset on a cast switch), and applies, in order: `delay` (ineligible until turn N), `cooldown` (blocked for N
+turns after the active window), `probability` (an rng gate on each fresh activation), `sticky` (force-active for N
+further turns once fired, no re-roll), and `group` (among fired members of a named group, keep one, weighted by
+`groupWeight`). A fresh fire arms the sticky+cooldown window in one shot; group losers do not arm any window. State is
+in-memory only - it resets when pi restarts or the cast switches (chat-metadata persistence is deferred). The timing
+pass applies to the system-prompt lorebook; depth-injected lore (entries with a `depth`) still uses plain matching in
+v1.
 
 > **Phase 2 scan window:** matching runs in `before_agent_start`, which only exposes the _latest user message_, so lore
 > fires on the current prompt. Scanning the recent N turns and inserting at `depth` happens in the `context` event
@@ -309,6 +328,8 @@ without the pi runtime; this file holds only the pi-coupled glue + disk I/O.
   AND/OR/NOT secondaries).
 - [`budget.ts`](../../../lib/node/pi/roleplay/budget.ts) - rank fired lore by `order` and evict to the char budget.
 - [`recursion.ts`](../../../lib/node/pi/roleplay/recursion.ts) - bounded, opt-in re-scan of fired lore bodies.
+- [`timing.ts`](../../../lib/node/pi/roleplay/timing.ts) - timed-effect + inclusion-group pass (delay / probability /
+  sticky / cooldown / group) over matched lore.
 - [`prompt.ts`](../../../lib/node/pi/roleplay/prompt.ts) - render the fired-lore system-prompt section.
 - [`inject.ts`](../../../lib/node/pi/roleplay/inject.ts) - plan + apply depth insertions (author's note + depth lore)
   for the `context` event.

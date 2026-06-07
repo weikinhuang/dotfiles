@@ -46,6 +46,18 @@ export type SecondaryMode = 'AND' | 'OR' | 'NOT';
  *     depth only once Phase 4 wires the `context` handler).
  *   - `recurse`: opt-in; this entry's body is re-scanned to fire further
  *     entries, bounded by `maxRecursion`.
+ *   - `probability`: 0-100 chance the entry fires even when matched
+ *     (default 100 = always).
+ *   - `sticky`: once fired, stay active for this many further turns even
+ *     without a re-match (default 0 = not sticky).
+ *   - `cooldown`: after deactivating, cannot fire again for this many
+ *     turns (default 0 = no cooldown).
+ *   - `delay`: not eligible to fire until this many turns into the chat
+ *     (default 0 = eligible immediately).
+ *   - `group`: inclusion-group name; among fired members sharing a group
+ *     only ONE is kept per turn (default '' = ungrouped).
+ *   - `groupWeight`: relative weight for the group's weighted-random pick
+ *     (default 100).
  */
 export interface LoreMeta {
   triggers: string[];
@@ -55,10 +67,29 @@ export interface LoreMeta {
   order: number;
   depth?: number;
   recurse: boolean;
+  probability: number;
+  sticky: number;
+  cooldown: number;
+  delay: number;
+  group: string;
+  groupWeight: number;
 }
 
 export function emptyLoreMeta(): LoreMeta {
-  return { triggers: [], secondaryKeys: [], secondaryMode: 'AND', constant: false, order: 0, recurse: false };
+  return {
+    triggers: [],
+    secondaryKeys: [],
+    secondaryMode: 'AND',
+    constant: false,
+    order: 0,
+    recurse: false,
+    probability: 100,
+    sticky: 0,
+    cooldown: 0,
+    delay: 0,
+    group: '',
+    groupWeight: 100,
+  };
 }
 
 function cloneLoreMeta(m: LoreMeta): LoreMeta {
@@ -237,6 +268,13 @@ function parseLoreMeta(fields: Readonly<Record<string, string>>): LoreMeta {
     const d = Number.parseInt(fields.depth.trim(), 10);
     if (Number.isFinite(d) && d >= 0) meta.depth = d;
   }
+  if (fields.probability !== undefined)
+    meta.probability = Math.min(100, Math.max(0, parseIntOr(fields.probability, 100)));
+  if (fields.sticky !== undefined) meta.sticky = Math.max(0, parseIntOr(fields.sticky, 0));
+  if (fields.cooldown !== undefined) meta.cooldown = Math.max(0, parseIntOr(fields.cooldown, 0));
+  if (fields.delay !== undefined) meta.delay = Math.max(0, parseIntOr(fields.delay, 0));
+  if (fields.group !== undefined) meta.group = stripQuotes(fields.group).trim();
+  if (fields.groupWeight !== undefined) meta.groupWeight = Math.max(0, parseIntOr(fields.groupWeight, 100));
   return meta;
 }
 
@@ -340,6 +378,12 @@ export function serializeEntry(input: {
     if (m.order !== 0) lines.push(`order: ${m.order}`);
     if (m.depth !== undefined) lines.push(`depth: ${m.depth}`);
     if (m.recurse) lines.push('recurse: true');
+    if (m.probability !== 100) lines.push(`probability: ${m.probability}`);
+    if (m.sticky > 0) lines.push(`sticky: ${m.sticky}`);
+    if (m.cooldown > 0) lines.push(`cooldown: ${m.cooldown}`);
+    if (m.delay > 0) lines.push(`delay: ${m.delay}`);
+    if (m.group.length > 0) lines.push(`group: ${yamlValue(m.group)}`);
+    if (m.groupWeight !== 100) lines.push(`groupWeight: ${m.groupWeight}`);
   }
   if (input.kind === 'relationship' && input.relationship) {
     const m = input.relationship;

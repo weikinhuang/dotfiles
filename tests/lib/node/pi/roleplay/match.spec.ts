@@ -7,14 +7,14 @@
 import { expect, test } from 'vitest';
 
 import { hasKeyword, loreFires, matchLore } from '../../../../../lib/node/pi/roleplay/match.ts';
-import { type LoreMeta, type RoleplayEntry } from '../../../../../lib/node/pi/roleplay/store.ts';
+import { emptyLoreMeta, type LoreMeta, type RoleplayEntry } from '../../../../../lib/node/pi/roleplay/store.ts';
 
 const lore = (id: string, meta: Partial<LoreMeta>): RoleplayEntry => ({
   id,
   kind: 'lore',
   name: id,
   description: `desc ${id}`,
-  lore: { triggers: [], secondaryKeys: [], secondaryMode: 'AND', constant: false, order: 0, recurse: false, ...meta },
+  lore: { ...emptyLoreMeta(), ...meta },
 });
 
 // ── hasKeyword (word boundaries) ─────────────────────────────────────────

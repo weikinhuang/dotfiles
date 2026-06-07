@@ -94,6 +94,12 @@ test('serialize -> parse round-trips a lore entry with all metadata', () => {
       order: 100,
       depth: 4,
       recurse: true,
+      probability: 50,
+      sticky: 2,
+      cooldown: 3,
+      delay: 1,
+      group: 'org',
+      groupWeight: 80,
     },
   });
   const parsed = parseFrontmatter(raw);
@@ -107,6 +113,12 @@ test('serialize -> parse round-trips a lore entry with all metadata', () => {
     order: 100,
     depth: 4,
     recurse: true,
+    probability: 50,
+    sticky: 2,
+    cooldown: 3,
+    delay: 1,
+    group: 'org',
+    groupWeight: 80,
   });
 });
 
@@ -120,6 +132,12 @@ test('lore frontmatter defaults to empty/false when fields are omitted', () => {
     constant: false,
     order: 0,
     recurse: false,
+    probability: 100,
+    sticky: 0,
+    cooldown: 0,
+    delay: 0,
+    group: '',
+    groupWeight: 100,
   });
 });
 

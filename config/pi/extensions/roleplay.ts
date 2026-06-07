@@ -77,6 +77,7 @@ import { formatLoreBlock } from '../../../lib/node/pi/roleplay/prompt.ts';
 import { type MacroContext, substituteMacros } from '../../../lib/node/pi/roleplay/macros.ts';
 import { composeSceneBlock } from '../../../lib/node/pi/roleplay/scene.ts';
 import { expandRecursive } from '../../../lib/node/pi/roleplay/recursion.ts';
+import { applyTiming, type TimingState } from '../../../lib/node/pi/roleplay/timing.ts';
 import {
   composeAutoSummaryRecord,
   createSummarizer,
@@ -276,6 +277,10 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
   let syncedCast: string | null = null;
   /** Signature of the last warn-dropped scene-character set, to dedupe the notice. */
   let lastSceneMissingSig = '';
+  /** Monotonic per-turn counter driving lorebook timing (`delay` / `sticky` / `cooldown`). */
+  let turnCount = 0;
+  /** Per-entry lorebook timing state, keyed by entry id. Reset on cast switch. */
+  let timingState: Record<string, TimingState> = {};
   /** Unsubscribe handle for the comfyui image-generated bus (cleared on shutdown). */
   let unsubscribeImageEvents: (() => void) | null = null;
   const surfacedWarnings = new Set<string>();
@@ -335,6 +340,9 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
 
   /** Re-scan disk for `cast` (or go dormant when null) and publish the active-cast singleton. */
   const applyCast = (cast: string | null, ctx?: ExtensionContext): void => {
+    // A cast switch resets lorebook timing (sticky windows / cooldowns / turn count).
+    turnCount = 0;
+    timingState = {};
     if (cast === null) {
       state = emptyState();
       syncedCast = null;
@@ -455,8 +463,19 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
     const lore = state.entries.filter((e) => e.kind === 'lore' && e.lore?.depth === undefined);
     if (lore.length === 0) return null;
     const cfg = loadRoleplayConfig(cwd, envCharBudget);
-    const initial = matchLore(lore, scanText);
-    if (initial.length === 0 && !lore.some((e) => e.lore?.constant)) return null;
+    // Keyword matching decides candidates; the timing pass (delay / probability /
+    // sticky / cooldown / inclusion-group) decides what actually fires this turn.
+    const matchedIds = new Set(matchLore(lore, scanText).map((e) => e.id));
+    const timed = applyTiming(
+      lore.map((e) => ({ id: e.id, meta: e.lore ?? emptyLoreMeta(), matched: matchedIds.has(e.id) })),
+      turnCount,
+      timingState,
+      Math.random,
+    );
+    timingState = timed.nextState;
+    const firedSet = new Set(timed.fired);
+    const initial = lore.filter((e) => firedSet.has(e.id));
+    if (initial.length === 0) return null;
     const bodyCache = new Map<string, string>();
     const bodyOf = (entry: RoleplayEntry): string => {
       const cached = bodyCache.get(entry.id);
@@ -481,6 +500,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
     pi.on('before_agent_start', (event, ctx) => {
       // A persona may have been activated since session_start; re-resolve.
       resyncIfChanged(ctx);
+      turnCount += 1;
       const scene = buildSceneBlock(ctx);
       const index = formatRoleplayBlock(state, { maxChars: charBudget() });
       const lore = buildLoreInjection(event.prompt ?? '');
