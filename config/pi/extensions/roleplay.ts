@@ -1,0 +1,838 @@
+/**
+ * Roleplay extension for pi - a cast-keyed durable store for roleplay
+ * scenarios, separate from the coding `memory` extension so it can be
+ * disabled wholesale (`PI_ROLEPLAY_DISABLED=1`) without touching the
+ * coding-agent surface.
+ *
+ * Where `memory` keys durable notes on cwd / session, `roleplay` keys on
+ * *cast* - a character or ensemble that travels with you across
+ * workspaces. Each turn the active cast's index is injected under a
+ * `## Roleplay` header so the model sees who's in the scene without a
+ * tool call; full character sheets are fetched on demand via
+ * `roleplay read <id>`.
+ *
+ * Phase 1 ships the `character` kind only. Phase 2+ adds `lore`
+ * (keyword-triggered World Info injection), depth injection via the
+ * `context` event, relationship state, and auto-summarization. See
+ * `plans/pi-roleplay-sillytavern.md`.
+ *
+ * Pure logic lives in `../../../lib/node/pi/roleplay/*.ts` (vitest-
+ * testable, no pi imports); this file holds only the pi-coupled glue +
+ * disk I/O.
+ *
+ * Environment:
+ *   PI_ROLEPLAY_DISABLED=1               skip the extension entirely.
+ *   PI_ROLEPLAY_DISABLE_AUTOINJECT=1     tool still works, skip the
+ *                                        before_agent_start block.
+ *   PI_ROLEPLAY_DISABLE_LOREBOOK=1       skip keyword-triggered lore
+ *                                        injection (cast index still injects).
+ *   PI_ROLEPLAY_DISABLE_DEPTH_INJECT=1   skip the context-event depth
+ *                                        injection (author's note + depth lore).
+ *   PI_ROLEPLAY_MAX_INJECTED_CHARS=N     soft cap on injected block (default 3000).
+ *   PI_ROLEPLAY_ROOT=<path>              override `~/.pi/agent/roleplay`.
+ *
+ * Activation gate: the tool, cast scan, and `## Roleplay` injection are
+ * DORMANT unless the active persona declares `roleplay: true` in its
+ * frontmatter (optionally with a `cast:` slug). This keeps roleplay off
+ * for coding personas and persona-as-subagent uses. `/roleplay cast
+ * <name>` overrides the cast within an active roleplay persona.
+ */
+
+import { StringEnum } from '@earendil-works/pi-ai';
+import { type ExtensionAPI, type ExtensionContext } from '@earendil-works/pi-coding-agent';
+import { Text } from '@earendil-works/pi-tui';
+import { readFileSync } from 'node:fs';
+import { Type } from 'typebox';
+
+import { cardToRecords, parseCardJson } from '../../../lib/node/pi/card-import/card-to-records.ts';
+import { extractCardJson } from '../../../lib/node/pi/card-import/parse-png-chara.ts';
+import { completeSubverbs } from '../../../lib/node/pi/commands/complete.ts';
+import { isHelpArg } from '../../../lib/node/pi/commands/help.ts';
+import { envTruthy, parseClampedPositiveInt } from '../../../lib/node/pi/parse-env.ts';
+import { getActivePersona } from '../../../lib/node/pi/persona/active.ts';
+import { clearActiveRoleplay, setActiveRoleplay } from '../../../lib/node/pi/roleplay/active.ts';
+import { loadRoleplayConfig } from '../../../lib/node/pi/roleplay/config.ts';
+import { selectWithinBudget, type LoreChunk } from '../../../lib/node/pi/roleplay/budget.ts';
+import { applyInsertions, buildInsertions, type LoreDepthChunk } from '../../../lib/node/pi/roleplay/inject.ts';
+import { matchLore } from '../../../lib/node/pi/roleplay/match.ts';
+import { formatLoreBlock } from '../../../lib/node/pi/roleplay/prompt.ts';
+import { composeSceneBlock } from '../../../lib/node/pi/roleplay/scene.ts';
+import { expandRecursive } from '../../../lib/node/pi/roleplay/recursion.ts';
+import {
+  atomicWriteFile,
+  castDir,
+  fileFor,
+  listCasts,
+  readEntryBody,
+  rebuildCast,
+  removeFileIfExists,
+  roleplayRoot,
+  writeIndex,
+} from '../../../lib/node/pi/roleplay/paths.ts';
+import {
+  castSlug,
+  chooseSlug,
+  cloneState,
+  emptyState,
+  emptyLoreMeta,
+  formatRoleplayBlock,
+  formatText,
+  type LoreMeta,
+  type RoleplayEntry,
+  type RoleplayKind,
+  type RoleplayState,
+  type SecondaryMode,
+  removeEntry,
+  resolveEntry,
+  serializeEntry,
+  slugifyName,
+  upsertEntry,
+} from '../../../lib/node/pi/roleplay/store.ts';
+import { ROLEPLAY_USAGE } from '../../../lib/node/pi/roleplay/usage.ts';
+import { truncate } from '../../../lib/node/pi/shared.ts';
+
+// ──────────────────────────────────────────────────────────────────────
+// Tool params
+// ──────────────────────────────────────────────────────────────────────
+
+const RoleplayParams = Type.Object({
+  action: StringEnum(['list', 'read', 'save', 'update', 'remove', 'search'] as const),
+  kind: Type.Optional(
+    StringEnum(['character', 'lore'] as const, {
+      description: 'Record kind. Defaults to `character`. Use `lore` for keyword-triggered World Info entries.',
+    }),
+  ),
+  id: Type.Optional(
+    Type.String({
+      description: 'Entry slug (for `read` / `update` / `remove`). See ids in `list` or the injected index.',
+    }),
+  ),
+  name: Type.Optional(
+    Type.String({ description: 'Human-readable title. Required for `save`; slugifies into the filename.' }),
+  ),
+  description: Type.Optional(
+    Type.String({
+      description: 'One-line hook shown in the cast index. Used to decide whether to `read` the full sheet.',
+    }),
+  ),
+  body: Type.Optional(
+    Type.String({
+      description:
+        'Full record content (markdown). For a character: voice, appearance, speech tics, hard constraints, first message, example dialogue. For lore: the world detail injected when triggered.',
+    }),
+  ),
+  query: Type.Optional(
+    Type.String({
+      description: 'Case-insensitive search term (for `search`). Matches name, description, id, and body.',
+    }),
+  ),
+  triggers: Type.Optional(
+    Type.Array(Type.String(), {
+      description: 'Lore only: primary keywords (OR). The entry fires when any appears in the latest message.',
+    }),
+  ),
+  secondaryKeys: Type.Optional(
+    Type.Array(Type.String(), { description: 'Lore only: optional secondary keywords gated by `secondaryMode`.' }),
+  ),
+  secondaryMode: Type.Optional(
+    StringEnum(['AND', 'OR', 'NOT'] as const, {
+      description: 'Lore only: how `secondaryKeys` combine after a primary hit. Default AND.',
+    }),
+  ),
+  constant: Type.Optional(
+    Type.Boolean({ description: 'Lore only: always inject (budget permitting), ignoring triggers. Default false.' }),
+  ),
+  order: Type.Optional(
+    Type.Number({ description: 'Lore only: priority; higher wins when the char budget evicts. Default 0.' }),
+  ),
+  depth: Type.Optional(
+    Type.Number({
+      description:
+        'Lore only: context-insertion depth (reserved for depth injection; system-prompt-appended until then).',
+    }),
+  ),
+  recurse: Type.Optional(
+    Type.Boolean({
+      description: 'Lore only: opt in to having this entry body re-scanned to trigger further lore. Default false.',
+    }),
+  ),
+});
+
+interface RoleplayParamsT {
+  action: 'list' | 'read' | 'save' | 'update' | 'remove' | 'search';
+  kind?: RoleplayKind;
+  id?: string;
+  name?: string;
+  description?: string;
+  body?: string;
+  query?: string;
+  triggers?: string[];
+  secondaryKeys?: string[];
+  secondaryMode?: SecondaryMode;
+  constant?: boolean;
+  order?: number;
+  depth?: number;
+  recurse?: boolean;
+}
+
+interface RoleplayDetails {
+  action: string;
+  state: RoleplayState;
+  entry?: RoleplayEntry;
+  matches?: RoleplayEntry[];
+  body?: string;
+  error?: string;
+}
+
+interface ActionOut {
+  content: string;
+  details: RoleplayDetails;
+  isError?: boolean;
+}
+
+// ──────────────────────────────────────────────────────────────────────
+// Extension
+// ──────────────────────────────────────────────────────────────────────
+
+export default function roleplayExtension(pi: ExtensionAPI): void {
+  if (envTruthy(process.env.PI_ROLEPLAY_DISABLED)) return;
+
+  const autoInjectEnabled = !envTruthy(process.env.PI_ROLEPLAY_DISABLE_AUTOINJECT);
+  const lorebookEnabled = !envTruthy(process.env.PI_ROLEPLAY_DISABLE_LOREBOOK);
+  const depthInjectEnabled = !envTruthy(process.env.PI_ROLEPLAY_DISABLE_DEPTH_INJECT);
+  const envCharBudget = parseClampedPositiveInt(process.env.PI_ROLEPLAY_MAX_INJECTED_CHARS, 0, 1) || undefined;
+
+  let cwd: string = process.cwd();
+  let state: RoleplayState = emptyState();
+  /** Explicit cast override set by `/roleplay cast <name>` (only honoured under a roleplay persona). */
+  let castOverride: string | null = null;
+  /** Last cast we scanned for, or null when dormant. Lets before_agent_start skip redundant disk scans. */
+  let syncedCast: string | null = null;
+  /** Signature of the last warn-dropped scene-character set, to dedupe the notice. */
+  let lastSceneMissingSig = '';
+  const surfacedWarnings = new Set<string>();
+
+  /**
+   * The active roleplay cast, or `null` when the feature is dormant.
+   * Dormant unless the active persona declared `roleplay: true` - this is
+   * the master gate so coding personas / persona-as-subagent never
+   * trigger the roleplay tool, cast scan, or `## Roleplay` injection.
+   */
+  const activeCast = (): string | null => {
+    const persona = getActivePersona();
+    if (!persona?.roleplay) return null;
+    if (castOverride) return castOverride;
+    if (persona.cast && persona.cast.trim().length > 0) return castSlug(persona.cast);
+    return castSlug(persona.name);
+  };
+
+  /** Re-scan disk for `cast` (or go dormant when null) and publish the active-cast singleton. */
+  const applyCast = (cast: string | null, ctx?: ExtensionContext): void => {
+    if (cast === null) {
+      state = emptyState();
+      syncedCast = null;
+      clearActiveRoleplay();
+      return;
+    }
+    const { state: next, warnings } = rebuildCast(cast);
+    state = next;
+    syncedCast = cast;
+    for (const w of warnings) {
+      if (surfacedWarnings.has(w)) continue;
+      surfacedWarnings.add(w);
+      ctx?.ui.notify(`roleplay: ${w}`, 'warning');
+    }
+    setActiveRoleplay({ cast });
+  };
+
+  /** Force a re-resolve + scan (session lifecycle hooks). */
+  const resync = (ctx: ExtensionContext): void => {
+    cwd = ctx.cwd;
+    applyCast(activeCast(), ctx);
+  };
+
+  /** Cheap re-resolve: only re-scan disk when the resolved cast actually changed. */
+  const resyncIfChanged = (ctx?: ExtensionContext): void => {
+    if (ctx?.cwd && ctx.cwd !== cwd) cwd = ctx.cwd;
+    const cast = activeCast();
+    if (cast === syncedCast) return;
+    applyCast(cast, ctx);
+  };
+
+  const charBudget = (): number => loadRoleplayConfig(cwd, envCharBudget).charBudget;
+
+  /** Build lore metadata from tool params, layered over an optional base (for updates). */
+  const buildLoreMeta = (params: RoleplayParamsT, base?: LoreMeta): LoreMeta => {
+    const meta: LoreMeta = base
+      ? { ...base, triggers: [...base.triggers], secondaryKeys: [...base.secondaryKeys] }
+      : emptyLoreMeta();
+    const clean = (xs: string[]): string[] => xs.map((x) => x.trim()).filter((x) => x.length > 0);
+    if (params.triggers !== undefined) meta.triggers = clean(params.triggers);
+    if (params.secondaryKeys !== undefined) meta.secondaryKeys = clean(params.secondaryKeys);
+    if (params.secondaryMode !== undefined) meta.secondaryMode = params.secondaryMode;
+    if (params.constant !== undefined) meta.constant = params.constant;
+    if (params.order !== undefined) meta.order = Math.floor(params.order);
+    if (params.recurse !== undefined) meta.recurse = params.recurse;
+    if (params.depth !== undefined) {
+      const d = Math.floor(params.depth);
+      if (d >= 0) meta.depth = d;
+      else delete meta.depth;
+    }
+    return meta;
+  };
+
+  /**
+   * Fold the active persona's scene characters (`characters: [...]`) + POV
+   * (`pov:`) full sheets into a `## Roleplay scene` block, above the
+   * lightweight cast index. Returns `null` when the persona declares
+   * neither. Missing character names are warn-dropped (deduped so the
+   * notice fires only when the unresolved set changes).
+   */
+  const buildSceneBlock = (ctx: ExtensionContext): string | null => {
+    const persona = getActivePersona();
+    if (!persona?.roleplay) return null;
+    if ((persona.characters?.length ?? 0) === 0 && !persona.pov) return null;
+    const bodyCache = new Map<string, string>();
+    const bodyOf = (entry: RoleplayEntry): string => {
+      const cached = bodyCache.get(entry.id);
+      if (cached !== undefined) return cached;
+      const body = readEntryBody(state.cast, entry) ?? '';
+      bodyCache.set(entry.id, body);
+      return body;
+    };
+    const { block, missing } = composeSceneBlock(state, bodyOf, {
+      characters: persona.characters,
+      pov: persona.pov,
+      maxChars: charBudget(),
+    });
+    const sig = missing.join('\u0000');
+    if (missing.length > 0 && sig !== lastSceneMissingSig) {
+      ctx.ui.notify(`roleplay: scene character(s) not in cast "${state.cast}": ${missing.join(', ')}`, 'warning');
+    }
+    lastSceneMissingSig = sig;
+    return block;
+  };
+
+  /**
+   * Build the fired-lore section for `scanText` (the latest user prompt in
+   * Phase 2). Returns `null` when the lorebook is disabled or nothing
+   * fires. Bodies are loaded from disk for fired entries only.
+   */
+  const buildLoreInjection = (scanText: string): string | null => {
+    if (!lorebookEnabled) return null;
+    // Depth-tagged lore is injected at depth via the `context` event, not here.
+    const lore = state.entries.filter((e) => e.kind === 'lore' && e.lore?.depth === undefined);
+    if (lore.length === 0) return null;
+    const cfg = loadRoleplayConfig(cwd, envCharBudget);
+    const initial = matchLore(lore, scanText);
+    if (initial.length === 0 && !lore.some((e) => e.lore?.constant)) return null;
+    const bodyCache = new Map<string, string>();
+    const bodyOf = (entry: RoleplayEntry): string => {
+      const cached = bodyCache.get(entry.id);
+      if (cached !== undefined) return cached;
+      const body = readEntryBody(state.cast, entry) ?? '';
+      bodyCache.set(entry.id, body);
+      return body;
+    };
+    const fired = expandRecursive(initial, lore, { bodyOf, maxRecursion: cfg.maxRecursion });
+    if (fired.length === 0) return null;
+    const chunks: LoreChunk[] = fired
+      .map((entry) => ({ entry, body: bodyOf(entry).trim() }))
+      .filter((c) => c.body.length > 0);
+    if (chunks.length === 0) return null;
+    return formatLoreBlock(selectWithinBudget(chunks, cfg.loreCharBudget));
+  };
+
+  pi.on('session_start', (_event, ctx) => resync(ctx));
+  pi.on('session_tree', (_event, ctx) => resync(ctx));
+
+  if (autoInjectEnabled) {
+    pi.on('before_agent_start', (event, ctx) => {
+      // A persona may have been activated since session_start; re-resolve.
+      resyncIfChanged(ctx);
+      const scene = buildSceneBlock(ctx);
+      const index = formatRoleplayBlock(state, { maxChars: charBudget() });
+      const lore = buildLoreInjection(event.prompt ?? '');
+      const additions = [scene, index, lore].filter((s): s is string => Boolean(s));
+      if (additions.length === 0) return undefined;
+      return { systemPrompt: [event.systemPrompt, ...additions].join('\n\n') };
+    });
+  }
+
+  /** Concatenate the text content of the last `n` messages for depth-lore scanning. */
+  const recentText = (messages: readonly unknown[], n: number): string => {
+    const parts: string[] = [];
+    for (const m of messages.slice(-Math.max(1, n))) {
+      const content = (m as { content?: unknown }).content;
+      if (typeof content === 'string') {
+        parts.push(content);
+      } else if (Array.isArray(content)) {
+        for (const part of content) {
+          if (part && typeof part === 'object' && (part as { type?: unknown }).type === 'text') {
+            const text = (part as { text?: unknown }).text;
+            if (typeof text === 'string') parts.push(text);
+          }
+        }
+      }
+    }
+    return parts.join('\n');
+  };
+
+  /** Depth-tagged fired lore for the current turn, budgeted, as inject chunks. */
+  const buildDepthLore = (scanText: string): LoreDepthChunk[] => {
+    if (!lorebookEnabled) return [];
+    const depthLore = state.entries.filter((e) => e.kind === 'lore' && e.lore?.depth !== undefined);
+    if (depthLore.length === 0) return [];
+    const fired = matchLore(depthLore, scanText);
+    if (fired.length === 0) return [];
+    const chunks: LoreChunk[] = fired
+      .map((entry) => ({ entry, body: readEntryBody(state.cast, entry)?.trim() ?? '' }))
+      .filter((c) => c.body.length > 0);
+    const { kept } = selectWithinBudget(chunks, loadRoleplayConfig(cwd, envCharBudget).loreCharBudget);
+    return kept.map((c) => ({ name: c.entry.name, body: c.body, depth: c.entry.lore?.depth ?? 0 }));
+  };
+
+  if (depthInjectEnabled) {
+    pi.on('context', (event) => {
+      if (activeCast() === null) return undefined;
+      const persona = getActivePersona();
+      const scanDepth = loadRoleplayConfig(cwd, envCharBudget).scanDepth;
+      const insertions = buildInsertions({
+        authorNote: persona?.authorNote,
+        authorNoteDepth: persona?.authorNoteDepth,
+        lore: buildDepthLore(recentText(event.messages, scanDepth)),
+      });
+      if (insertions.length === 0) return undefined;
+      const messages = applyInsertions(event.messages, insertions, (text) => ({
+        role: 'user' as const,
+        content: text,
+        timestamp: Date.now(),
+      }));
+      return { messages };
+    });
+  }
+
+  pi.on('session_shutdown', () => {
+    try {
+      clearActiveRoleplay();
+    } catch {
+      // teardown must never throw
+    }
+    state = emptyState();
+    castOverride = null;
+    syncedCast = null;
+  });
+
+  // ── Actions ─────────────────────────────────────────────────────────
+
+  const actList = (): ActionOut => ({
+    content: formatText(state),
+    details: { action: 'list', state: cloneState(state) },
+  });
+
+  const actRead = (params: RoleplayParamsT): ActionOut => {
+    const resolved = resolveEntry(state, params);
+    if ('error' in resolved) {
+      return {
+        content: `Error: ${resolved.error}`,
+        details: { action: 'read', state: cloneState(state), error: resolved.error },
+        isError: true,
+      };
+    }
+    const body = readEntryBody(state.cast, resolved);
+    if (body == null) {
+      const error = `entry "${resolved.id}" not readable on disk`;
+      return {
+        content: `Error: ${error}`,
+        details: { action: 'read', state: cloneState(state), error },
+        isError: true,
+      };
+    }
+    const header = `[${state.cast}/${resolved.kind}] ${resolved.id} - ${resolved.name}\n${resolved.description}\n`;
+    return {
+      content: `${header}\n${body.trim()}\n`,
+      details: { action: 'read', state: cloneState(state), entry: { ...resolved }, body },
+    };
+  };
+
+  const fail = (action: string, error: string): ActionOut => ({
+    content: `Error: ${error}`,
+    details: { action, state: cloneState(state), error },
+    isError: true,
+  });
+
+  const persist = (): void => {
+    writeIndex(state);
+  };
+
+  const actSave = (params: RoleplayParamsT): ActionOut => {
+    const kind: RoleplayKind = params.kind ?? 'character';
+    if (!params.name || params.name.trim().length === 0) return fail('save', '`name` is required for `save`');
+    const description = (params.description ?? '').trim();
+    if (description.length === 0) return fail('save', '`description` is required for `save` (one-line index hook)');
+    const body = (params.body ?? '').trim();
+    if (body.length === 0) return fail('save', '`body` is required for `save`');
+
+    const slug = chooseSlug(state.entries, params.name);
+    const lore = kind === 'lore' ? buildLoreMeta(params) : undefined;
+    atomicWriteFile(
+      fileFor(state.cast, kind, slug),
+      serializeEntry({ name: params.name.trim(), description, kind, body, lore }),
+    );
+    const entry: RoleplayEntry = { id: slug, kind, name: params.name.trim(), description, ...(lore ? { lore } : {}) };
+    state = { cast: state.cast, entries: upsertEntry(state.entries, entry) };
+    persist();
+    return {
+      content: `Saved [${state.cast}/${kind}] ${slug} - ${entry.name}\n\n${formatText(state)}`,
+      details: { action: 'save', state: cloneState(state), entry },
+    };
+  };
+
+  const actUpdate = (params: RoleplayParamsT): ActionOut => {
+    const resolved = resolveEntry(state, params);
+    if ('error' in resolved) return fail('update', resolved.error);
+    const loreParamGiven =
+      params.triggers !== undefined ||
+      params.secondaryKeys !== undefined ||
+      params.secondaryMode !== undefined ||
+      params.constant !== undefined ||
+      params.order !== undefined ||
+      params.depth !== undefined ||
+      params.recurse !== undefined;
+    const loreOnly = resolved.kind === 'lore' && loreParamGiven;
+    if (params.name === undefined && params.description === undefined && params.body === undefined && !loreOnly) {
+      return fail(
+        'update',
+        '`update` requires at least one of `name`, `description`, `body` (or lore fields for a lore entry)',
+      );
+    }
+    const nextName = params.name !== undefined ? params.name.trim() : resolved.name;
+    if (nextName.length === 0) return fail('update', '`name` may not be empty');
+    const nextDescription = params.description !== undefined ? params.description.trim() : resolved.description;
+
+    let nextBody: string;
+    if (params.body !== undefined) {
+      nextBody = params.body.trim();
+      if (nextBody.length === 0) return fail('update', '`body` may not be empty - use `remove` to delete the entry');
+    } else {
+      const existing = readEntryBody(state.cast, resolved);
+      if (existing === null)
+        return fail('update', `cannot preserve body: "${resolved.id}" not readable - pass \`body\` explicitly`);
+      nextBody = existing.trim();
+      if (nextBody.length === 0)
+        return fail('update', `existing body for "${resolved.id}" is empty - pass \`body\` explicitly`);
+    }
+
+    const renamed = params.name !== undefined && slugifyName(params.name) !== resolved.id;
+    let entries = state.entries;
+    let nextId = resolved.id;
+    if (renamed) {
+      entries = removeEntry(entries, resolved.id);
+      nextId = chooseSlug(entries, params.name!);
+      removeFileIfExists(fileFor(state.cast, resolved.kind, resolved.id));
+    }
+    const lore = resolved.kind === 'lore' ? buildLoreMeta(params, resolved.lore ?? emptyLoreMeta()) : undefined;
+    atomicWriteFile(
+      fileFor(state.cast, resolved.kind, nextId),
+      serializeEntry({ name: nextName, description: nextDescription, kind: resolved.kind, body: nextBody, lore }),
+    );
+    const entry: RoleplayEntry = {
+      id: nextId,
+      kind: resolved.kind,
+      name: nextName,
+      description: nextDescription,
+      ...(lore ? { lore } : {}),
+    };
+    state = { cast: state.cast, entries: upsertEntry(entries, entry) };
+    persist();
+    return {
+      content: `Updated [${state.cast}/${entry.kind}] ${entry.id} - ${entry.name}\n\n${formatText(state)}`,
+      details: { action: 'update', state: cloneState(state), entry },
+    };
+  };
+
+  const actRemove = (params: RoleplayParamsT): ActionOut => {
+    const resolved = resolveEntry(state, params);
+    if ('error' in resolved) return fail('remove', resolved.error);
+    removeFileIfExists(fileFor(state.cast, resolved.kind, resolved.id));
+    state = { cast: state.cast, entries: removeEntry(state.entries, resolved.id) };
+    persist();
+    return {
+      content: `Removed [${state.cast}/${resolved.kind}] ${resolved.id}\n\n${formatText(state)}`,
+      details: { action: 'remove', state: cloneState(state), entry: resolved },
+    };
+  };
+
+  const actSearch = (params: RoleplayParamsT): ActionOut => {
+    const q = (params.query ?? '').trim();
+    if (q.length === 0) return fail('search', '`query` is required for `search`');
+    const needle = q.toLowerCase();
+    const matches: RoleplayEntry[] = [];
+    for (const e of state.entries) {
+      const hay = [e.name, e.description, e.id].join(' ').toLowerCase();
+      if (hay.includes(needle)) {
+        matches.push(e);
+        continue;
+      }
+      const body = readEntryBody(state.cast, e);
+      if (body?.toLowerCase().includes(needle)) matches.push(e);
+    }
+    if (matches.length === 0) {
+      return {
+        content: `No entries in cast "${state.cast}" match "${q}".`,
+        details: { action: 'search', state: cloneState(state), matches: [] },
+      };
+    }
+    const lines = matches.map((e) => `  [${e.kind}] ${e.id} - ${e.name}: ${e.description}`);
+    return {
+      content: `Matches for "${q}" (${matches.length}):\n${lines.join('\n')}`,
+      details: { action: 'search', state: cloneState(state), matches },
+    };
+  };
+
+  // ── Card import (/roleplay import) ──────────────────────────────────
+  /**
+   * Import a SillyTavern character card (`.json` V1/V2/V3 or `.png` with a
+   * `chara`/`ccv3` chunk) into the active cast: writes one `character`
+   * record plus a `lore` record per enabled `character_book` entry, then
+   * rebuilds `INDEX.md`. Returns a human summary or an error string.
+   */
+  const importCardFile = (rawPath: string): { ok: true; summary: string } | { ok: false; error: string } => {
+    const path = rawPath.trim();
+    if (path.length === 0) return { ok: false, error: 'usage: /roleplay import <path.json|.png>' };
+
+    let json: string | null;
+    try {
+      if (/\.png$/i.test(path)) {
+        json = extractCardJson(readFileSync(path));
+        if (json === null) return { ok: false, error: `no character-card chunk (chara/ccv3) found in PNG: ${path}` };
+      } else {
+        json = readFileSync(path, 'utf8');
+      }
+    } catch (err) {
+      return { ok: false, error: `cannot read ${path}: ${err instanceof Error ? err.message : String(err)}` };
+    }
+
+    const card = parseCardJson(json);
+    if ('error' in card) return { ok: false, error: `card parse failed: ${card.error}` };
+    const plan = cardToRecords(card);
+
+    let entries = state.entries;
+    const written: string[] = [];
+    for (const rec of plan.records) {
+      const slug = chooseSlug(entries, rec.name);
+      atomicWriteFile(
+        fileFor(state.cast, rec.kind, slug),
+        serializeEntry({
+          name: rec.name,
+          description: rec.description,
+          kind: rec.kind,
+          body: rec.body,
+          lore: rec.lore,
+        }),
+      );
+      const entry: RoleplayEntry = {
+        id: slug,
+        kind: rec.kind,
+        name: rec.name,
+        description: rec.description,
+        ...(rec.lore ? { lore: rec.lore } : {}),
+      };
+      entries = upsertEntry(entries, entry);
+      written.push(`  [${rec.kind}] ${slug} - ${rec.name}`);
+    }
+    state = { cast: state.cast, entries };
+    writeIndex(state);
+
+    const lines = [
+      `Imported "${plan.characterName}" into cast "${state.cast}": ${plan.records.length} record(s).`,
+      ...written,
+    ];
+    if (plan.warnings.length > 0) lines.push('', 'Warnings:', ...plan.warnings.map((w) => `  - ${w}`));
+    return { ok: true, summary: lines.join('\n') };
+  };
+
+  // ── Tool registration ───────────────────────────────────────────────
+  pi.registerTool({
+    name: 'roleplay',
+    label: 'Roleplay',
+    description:
+      'Cast-keyed durable store for roleplay scenarios, separate from coding `memory`. Holds character sheets that survive across sessions and workspaces; the active cast is injected each turn under `## Roleplay`. Actions: list, read (id), save ({name, description, body, kind?}), update (id, {name?, description?, body?}), remove (id), search (query).',
+    promptSnippet:
+      'Durable cast-keyed roleplay store: character sheets for the active scenario, injected each turn and fetched in full on demand.',
+    promptGuidelines: [
+      'Save a `character` (roleplay action `save`) for a recurring character: voice, appearance, speech tics, hard constraints, first message, example dialogue.',
+      'The active cast is derived from the active persona (or `PI_ROLEPLAY_CAST`); switch it with `/roleplay cast <name>`.',
+      'Keep scene-level one-off detail in `scratchpad` / drafts; promote only durable cast facts here.',
+    ],
+    parameters: RoleplayParams,
+
+    async execute(_toolCallId, params: RoleplayParamsT, _signal, _onUpdate, ctx) {
+      resyncIfChanged(ctx);
+      if (activeCast() === null) {
+        const error =
+          'roleplay is inactive: activate a persona with `roleplay: true` in its frontmatter (e.g. /persona roleplay) to use this tool.';
+        return {
+          content: [{ type: 'text', text: `Error: ${error}` }],
+          details: { action: params.action, state: cloneState(state), error },
+          isError: true,
+        };
+      }
+      let out: ActionOut;
+      switch (params.action) {
+        case 'list':
+          out = actList();
+          break;
+        case 'read':
+          out = actRead(params);
+          break;
+        case 'save':
+          out = actSave(params);
+          break;
+        case 'update':
+          out = actUpdate(params);
+          break;
+        case 'remove':
+          out = actRemove(params);
+          break;
+        case 'search':
+          out = actSearch(params);
+          break;
+      }
+      return { content: [{ type: 'text', text: out.content }], details: out.details, isError: out.isError };
+    },
+
+    renderCall(args, theme, _context) {
+      const a = args as RoleplayParamsT;
+      let text = theme.fg('toolTitle', theme.bold('roleplay ')) + theme.fg('muted', a.action);
+      if (a.kind) text += ` ${theme.fg('dim', a.kind)}`;
+      if (a.id) text += ` ${theme.fg('accent', a.id)}`;
+      if (a.name) text += ` ${theme.fg('dim', `"${truncate(a.name, 40)}"`)}`;
+      if (a.query) text += ` ${theme.fg('dim', `?"${truncate(a.query, 30)}"`)}`;
+      return new Text(text, 0, 0);
+    },
+
+    renderResult(result, { expanded }, theme, _context) {
+      const details = (result.details ?? {}) as Partial<RoleplayDetails>;
+      if (details.error) return new Text(theme.fg('error', `✗ ${details.error}`), 0, 0);
+      if (details.action === 'read' && details.entry && details.body !== undefined) {
+        const e = details.entry;
+        const header = theme.fg('muted', `[${e.kind}] `) + theme.fg('accent', e.id);
+        const body = expanded ? details.body : truncate(details.body.trim(), 200);
+        return new Text(`${header}\n${theme.fg('text', body)}`, 0, 0);
+      }
+      if (details.action === 'search') {
+        const matches = details.matches ?? [];
+        if (matches.length === 0) return new Text(theme.fg('dim', '(no matches)'), 0, 0);
+        const display = expanded ? matches : matches.slice(0, 8);
+        const parts = [theme.fg('muted', `${matches.length} match(es)`)];
+        for (const e of display)
+          parts.push(`  ${theme.fg('accent', e.id)} ${theme.fg('dim', `[${e.kind}]`)} ${e.name}`);
+        if (!expanded && matches.length > display.length)
+          parts.push(theme.fg('dim', `  … ${matches.length - display.length} more`));
+        return new Text(parts.join('\n'), 0, 0);
+      }
+      const s = details.state ?? emptyState();
+      const entries = s.entries ?? [];
+      if (entries.length === 0) return new Text(theme.fg('dim', `(cast "${s.cast || '(none)'}" empty)`), 0, 0);
+      const show = expanded ? entries : entries.slice(0, 8);
+      const parts = [theme.fg('muted', `cast ${s.cast} · ${entries.length} entr(ies)`)];
+      for (const e of show)
+        parts.push(`  ${theme.fg('accent', e.id)} ${theme.fg('dim', `[${e.kind}]`)} ${truncate(e.name, 60)}`);
+      if (!expanded && entries.length > show.length)
+        parts.push(theme.fg('dim', `  … ${entries.length - show.length} more`));
+      return new Text(parts.join('\n'), 0, 0);
+    },
+  });
+
+  // ── /roleplay command ───────────────────────────────────────────────
+  pi.registerCommand('roleplay', {
+    description: 'Inspect or switch the active roleplay cast',
+    getArgumentCompletions: (prefix) =>
+      completeSubverbs(prefix, {
+        list: { description: 'List the active cast' },
+        cast: { description: 'Switch / set the active cast', args: () => listCasts().map((c) => ({ label: c })) },
+        import: { description: 'Import a SillyTavern card (.json/.png) into the active cast' },
+        dir: { description: 'Print the roleplay store dir' },
+        rescan: { description: 'Rescan the active cast from disk' },
+        casts: { description: 'List every cast on disk' },
+      }),
+    handler: async (args, ctx) => {
+      if (isHelpArg(args)) {
+        ctx.ui.notify(ROLEPLAY_USAGE, 'info');
+        return;
+      }
+      const raw = (args ?? '').trim();
+      const [sub, ...rest] = raw.split(/\s+/);
+      const verb = (sub ?? '').toLowerCase();
+
+      const dormant = activeCast() === null;
+      const dormantNote =
+        'Roleplay is dormant: no active persona declares `roleplay: true`. Run /persona <a roleplay persona> first.';
+
+      if (verb === '' || verb === 'list') {
+        resyncIfChanged(ctx);
+        ctx.ui.notify(dormant ? dormantNote : formatText(state), 'info');
+        return;
+      }
+      if (verb === 'cast') {
+        const name = rest.join(' ').trim();
+        if (name.length === 0) {
+          ctx.ui.notify(`Active cast: ${state.cast || '(none)'}\nUsage: /roleplay cast <name>`, 'info');
+          return;
+        }
+        castOverride = castSlug(name);
+        resync(ctx);
+        ctx.ui.notify(
+          dormant
+            ? `Cast override set to "${castOverride}" - takes effect once a \`roleplay: true\` persona is active.`
+            : `Active cast set to "${state.cast}".\n\n${formatText(state)}`,
+          'info',
+        );
+        return;
+      }
+      if (verb === 'import') {
+        if (dormant) {
+          ctx.ui.notify(dormantNote, 'warning');
+          return;
+        }
+        const target = rest.join(' ').trim();
+        if (target.length === 0) {
+          ctx.ui.notify('Usage: /roleplay import <path.json|.png>', 'info');
+          return;
+        }
+        const result = importCardFile(target);
+        if (!result.ok) {
+          ctx.ui.notify(`roleplay import: ${result.error}`, 'error');
+          return;
+        }
+        ctx.ui.notify(result.summary, 'info');
+        return;
+      }
+      if (verb === 'dir') {
+        const root = roleplayRoot();
+        ctx.ui.notify(
+          `Roleplay root: ${root}\nActive cast: ${state.cast || '(none)'}\nCast dir: ${castDir(state.cast, root)}`,
+          'info',
+        );
+        return;
+      }
+      if (verb === 'rescan') {
+        resync(ctx);
+        ctx.ui.notify(dormant ? dormantNote : `Rescanned cast "${state.cast}".\n\n${formatText(state)}`, 'info');
+        return;
+      }
+      if (verb === 'casts') {
+        const casts = listCasts();
+        ctx.ui.notify(
+          casts.length === 0
+            ? '(no casts on disk yet)'
+            : `Casts (${casts.length}):\n${casts.map((c) => `  ${c}${c === state.cast ? ' *' : ''}`).join('\n')}`,
+          'info',
+        );
+        return;
+      }
+      ctx.ui.notify(`Unknown subcommand: ${verb}. ${ROLEPLAY_USAGE}`, 'warning');
+    },
+  });
+}

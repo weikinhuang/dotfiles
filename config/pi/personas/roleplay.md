@@ -1,6 +1,7 @@
 ---
 description: Fiction / brainstorming with persistent character notes.
-tools: [read, scratchpad, memory, write, edit]
+tools: [read, scratchpad, memory, roleplay, write, edit]
+roleplay: true
 writeRoots: ['drafts/']
 bashDeny: ['*']
 systemPromptOverride: |
