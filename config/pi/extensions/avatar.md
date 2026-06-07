@@ -110,8 +110,10 @@ The avatar owns _rendering_; another extension can drive _what it shows_ through
 - `emoteSet` - a preferred sprite-set name. The avatar prefers it over its model-glob resolution, so a roleplay cast can
   put its character's face on the avatar. A name with no sprite art falls back gracefully (kaomoji / model-glob set),
   exactly like any other missing set.
-- `image` - an arbitrary override image (path + optional width hint) shown in place of the sprite (Phase 6B/6C: a
-  character portrait or a generated scene).
+- `image` - an arbitrary override image (path + optional width hint) rendered in place of the sprite via the same
+  `buildImageFrame` path the sprite frames use. A character portrait or a generated scene. Honoured on the image
+  protocols (kitty / iTerm2 / sixel / halfblock); in kaomoji (`ascii`) mode there is nothing to draw a PNG with, so the
+  sprite shows instead. The built frame is cached by path + width + protocol so it is not re-decoded every tick.
 
 The slot is pure (no pi imports) and decoupled both ways: if no extension writes it the avatar behaves exactly as
 before; if the avatar is disabled a writer just updates a slot nobody reads. The avatar re-resolves its set on

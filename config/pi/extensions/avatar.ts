@@ -838,6 +838,31 @@ export default function avatar(pi: ExtensionAPI): void {
   let lastCtx: ExtensionContext | null = null;
   const toolCounts = new Map<string, number>();
 
+  // Cached override-image frame (the avatar-input slot's `image`). Building a
+  // frame decodes + re-encodes the PNG, so cache by path+width+protocol and
+  // only rebuild when the slot points somewhere new.
+  let overrideFrame: RenderedFrame | null = null;
+  let overrideCols = 0;
+  let overrideKey = '';
+  function resolveOverrideFrame(): { frame: RenderedFrame; cols: number } | null {
+    if (!enabled) return null;
+    const img = getAvatarInput().image;
+    // ASCII mode can't render a PNG; fall through to the kaomoji sprite.
+    if (!img || protocol === 'ascii') {
+      overrideFrame = null;
+      overrideKey = '';
+      return null;
+    }
+    const cols = img.width && img.width > 0 ? Math.floor(img.width) : config.size;
+    const key = `${protocol}:${cols}:${img.path}`;
+    if (key !== overrideKey) {
+      overrideKey = key;
+      overrideCols = cols;
+      overrideFrame = buildImageFrame(img.path, protocol, cols, getCellDimensions());
+    }
+    return overrideFrame ? { frame: overrideFrame, cols: overrideCols } : null;
+  }
+
   function loadForModel(cwd: string, modelId: string): void {
     lastModelId = modelId;
     config = loadConfig(cwd);
@@ -873,8 +898,10 @@ export default function avatar(pi: ExtensionAPI): void {
       return {
         render(width: number): string[] {
           if (width < config.hideBelow) return [];
-          const frame = animator.getFrame();
+          const override = resolveOverrideFrame();
+          const frame = override?.frame ?? animator.getFrame();
           if (!frame || lastCtx === null) return [];
+          const drawSize = override ? override.cols : config.size;
           const sep = theme.fg('border', '\u2502');
           const rule = theme.fg('border', '\u2500'.repeat(Math.max(1, width)));
           if (frame.kind === 'text' && config.compact) {
@@ -884,16 +911,16 @@ export default function avatar(pi: ExtensionAPI): void {
           const lines = [rule];
           if (frame.kind === 'image') {
             if (frame.style === 'sixel') {
-              lines.push(...renderSixelFrame(frame, config.size, info, sep));
+              lines.push(...renderSixelFrame(frame, drawSize, info, sep));
             } else if (frame.style === 'iterm2') {
-              lines.push(...renderITermFrame(frame, config.size, info, sep));
+              lines.push(...renderITermFrame(frame, drawSize, info, sep));
             } else {
-              lines.push(...renderKittyFrame(frame, config.size, info, sep));
+              lines.push(...renderKittyFrame(frame, drawSize, info, sep));
             }
           } else if (frame.kind === 'halfblock') {
-            lines.push(...renderHalfblockFrame(frame, config.size, info, sep));
+            lines.push(...renderHalfblockFrame(frame, drawSize, info, sep));
           } else {
-            lines.push(...renderTextFrame(frame, config.size, info, sep));
+            lines.push(...renderTextFrame(frame, drawSize, info, sep));
           }
           return lines;
         },

@@ -51,7 +51,7 @@ import {
   SessionManager,
 } from '@earendil-works/pi-coding-agent';
 import { Text } from '@earendil-works/pi-tui';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Type } from 'typebox';
@@ -92,6 +92,7 @@ import {
   castDir,
   fileFor,
   listCasts,
+  portraitPath,
   readEntryBody,
   rebuildCast,
   removeFileIfExists,
@@ -322,7 +323,11 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
     setActiveRoleplay({ cast });
     if (avatarDriveEnabled) {
       const face = activeFaceSlug();
-      setAvatarInput({ emoteSet: face ?? '' });
+      const portrait = face ? portraitPath(state.cast, face) : '';
+      setAvatarInput({
+        emoteSet: face ?? '',
+        image: portrait && existsSync(portrait) ? { path: portrait } : undefined,
+      });
     }
   };
 

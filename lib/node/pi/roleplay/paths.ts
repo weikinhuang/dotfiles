@@ -60,6 +60,16 @@ export function indexFileFor(cast: string, root: string = roleplayRoot()): strin
   return join(castDir(cast, root), 'INDEX.md');
 }
 
+/**
+ * Path to a character's portrait PNG (`<cast>/portraits/<slug>.png`).
+ * Optional art the avatar shows in place of its animated sprite when the
+ * file exists (Phase 6B); the store never writes here - the user drops
+ * art in. Scene illustrations (Phase 6C) live under `<cast>/scenes/`.
+ */
+export function portraitPath(cast: string, slug: string, root: string = roleplayRoot()): string {
+  return join(castDir(cast, root), 'portraits', `${slug}.png`);
+}
+
 export function removeFileIfExists(path: string): boolean {
   if (!existsSync(path)) return false;
   unlinkSync(path);

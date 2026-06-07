@@ -19,6 +19,7 @@ import {
   readEntryBody,
   rebuildCast,
   removeFileIfExists,
+  portraitPath,
   scanCast,
   writeIndex,
 } from '../../../../../lib/node/pi/roleplay/paths.ts';
@@ -47,6 +48,10 @@ test('scanCast parses well-formed files and reports the cast empty otherwise', (
   const { entries, warnings } = scanCast('pl', root);
   expect(warnings).toEqual([]);
   expect(entries).toEqual([{ id: 'exusiai', kind: 'character', name: 'Exusiai', description: 'd exusiai' }]);
+});
+
+test('portraitPath builds <cast>/portraits/<slug>.png under the root', () => {
+  expect(portraitPath('pl', 'exusiai', root)).toBe(join(root, 'casts', 'pl', 'portraits', 'exusiai.png'));
 });
 
 test('scanCast carries relationship metadata onto the entry', () => {
