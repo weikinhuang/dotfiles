@@ -27,6 +27,14 @@ export type CandidateKind = 'image' | 'tool-result' | 'tool-call' | 'message';
 export interface Candidate {
   /** Short typeable handle for this enumeration (`img1`, `tool3`, `msg2`). */
   id: string;
+  /**
+   * Document-order position (0-based) in which this candidate was
+   * encountered while walking the message list, newest = highest. The
+   * output array is re-sorted heaviest-first, so `seq` is the only
+   * surviving record of recency; agent-drop recency-ordinal addressing
+   * (`lib/node/pi/context-edit/agent-drop.ts`) keys off it.
+   */
+  seq: number;
   kind: CandidateKind;
   /** Stable target for trim/edit candidates. */
   target?: Target;
@@ -81,6 +89,8 @@ export function enumerate(messages: readonly LooseMessage[], opts: EnumerateOpti
   let imgN = 0;
   let toolN = 0;
   let msgN = 0;
+  let seq = 0;
+  const nextSeq = (): number => seq++;
 
   // Track (role,timestamp) occurrences to build stable message targets.
   const occ = new Map<string, number>();
@@ -117,6 +127,7 @@ export function enumerate(messages: readonly LooseMessage[], opts: EnumerateOpti
       if (imageCount > 0 && toolCallId) {
         out.push({
           id: `img${++imgN}`,
+          seq: nextSeq(),
           kind: 'image',
           target: { by: 'toolCallId', toolCallId },
           toolCallId,
@@ -130,6 +141,7 @@ export function enumerate(messages: readonly LooseMessage[], opts: EnumerateOpti
       if (toolCallId && textBytes >= minTextBytes) {
         out.push({
           id: `tool${++toolN}`,
+          seq: nextSeq(),
           kind: 'tool-result',
           target: { by: 'toolCallId', toolCallId },
           toolCallId,
@@ -154,6 +166,7 @@ export function enumerate(messages: readonly LooseMessage[], opts: EnumerateOpti
           const argBytes = args ? byteLen(JSON.stringify(args)) : 0;
           out.push({
             id: `call${++toolN}`,
+            seq: nextSeq(),
             kind: 'tool-call',
             toolCallId: id,
             toolName: name,
@@ -178,6 +191,7 @@ export function enumerate(messages: readonly LooseMessage[], opts: EnumerateOpti
       if (text.trim().length === 0) continue;
       out.push({
         id: `msg${++msgN}`,
+        seq: nextSeq(),
         kind: 'message',
         target: { by: 'message', role: m.role, timestamp: ts, occurrence },
         role: m.role,

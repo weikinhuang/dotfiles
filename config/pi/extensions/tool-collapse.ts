@@ -46,7 +46,15 @@
  */
 
 import { buildSessionContext, type ExtensionAPI, type ExtensionContext } from '@earendil-works/pi-coding-agent';
+import { Type } from 'typebox';
 
+import {
+  type DropToolResult,
+  nonInteractiveDropDefault,
+  resolveRecencyTargets,
+  toTitleItem,
+} from '../../../lib/node/pi/context-edit/agent-drop.ts';
+import { confirmDrop, emptyDropFlags } from '../../../lib/node/pi/ext/drop-confirm.ts';
 import {
   DEFAULT_BACKGROUND_TOOLS,
   isBackgroundTool,
@@ -70,7 +78,7 @@ import { type Candidate, candidateLabel, enumerate } from '../../../lib/node/pi/
 import type { LooseMessage } from '../../../lib/node/pi/context-edit/target.ts';
 import { TOOL_COLLAPSE_USAGE } from '../../../lib/node/pi/context-edit/usage.ts';
 import { isHelpArg } from '../../../lib/node/pi/commands/help.ts';
-import { envTruthy } from '../../../lib/node/pi/parse-env.ts';
+import { envTruthy, parseNonNegativeInt } from '../../../lib/node/pi/parse-env.ts';
 
 const CUSTOM_TYPE = 'tool-collapse-state';
 
@@ -97,6 +105,13 @@ export default function toolCollapseExtension(pi: ExtensionAPI): void {
   // receives no ctx), refreshed from the context hook and after commands.
   let completionCandidates: CompletionCandidate[] = [];
 
+  // Per-session decision flags for the agent `collapse_output` tool,
+  // cleared on shutdown. ext/ shares CODE, not STATE - the flag object
+  // lives in this closure.
+  const dropFlags = emptyDropFlags();
+  const dropTailGuard = parseNonNegativeInt(process.env.PI_TOOL_COLLAPSE_DROP_TAIL_GUARD, 1);
+  const dropDefault = nonInteractiveDropDefault(process.env.PI_CONTEXT_TRIM_DROP_DEFAULT);
+
   const rebuildFromSession = (ctx: ExtensionContext): void => {
     state = reduceBranch(ctx.sessionManager.getBranch() as never, CUSTOM_TYPE);
     config = loadToolCollapseConfig(ctx.sessionManager.getCwd());
@@ -104,6 +119,13 @@ export default function toolCollapseExtension(pi: ExtensionAPI): void {
 
   pi.on('session_start', (_event, ctx) => rebuildFromSession(ctx));
   pi.on('session_tree', (_event, ctx) => rebuildFromSession(ctx));
+
+  // Clear the per-session collapse decisions on shutdown so /reload and a
+  // real session end both force re-confirmation. Idempotent + never throws.
+  pi.on('session_shutdown', () => {
+    dropFlags.autoAllow = false;
+    dropFlags.neverAllow = false;
+  });
 
   const hint = (c: Candidate): string => (isBackgroundTool(c.toolName, backgroundTools) ? ' [background]' : '');
 
@@ -271,6 +293,153 @@ export default function toolCollapseExtension(pi: ExtensionAPI): void {
       } else {
         ctx.ui.notify(r.error, 'warning');
       }
+    },
+  });
+
+  // ── Agent tool: collapse_output ───────────────────────────────────
+  // Front door #2 to the same `state` + `persist()` as `/context-collapse`,
+  // so anything the model collapses is reversible via `/context-collapse
+  // list` / `restore`. Tool call+result pairs only; addressed by recency
+  // ordinal among the collapsible pairs in context (most-recent = 1).
+  const CollapseOutputParams = Type.Object({
+    drop: Type.Optional(
+      Type.Array(Type.Number(), {
+        description:
+          'Pointed: recency ordinals among the tool call+result pairs currently in context (1 = most recent). e.g. [2] collapses the 2nd-most-recent.',
+      }),
+    ),
+    keepRecent: Type.Optional(
+      Type.Number({
+        description:
+          'Batch / lump-sum: collapse every pair BEYOND the most recent N. Prefer this when you are done with a batch; do not tidy one stale result per turn.',
+      }),
+    ),
+    toolName: Type.Optional(
+      Type.String({ description: 'Optional filter: only consider pairs from this tool (e.g. "bash", "read").' }),
+    ),
+    reason: Type.Optional(
+      Type.String({ description: 'Why you are done with the output. Shown in the dialog + stored for audit.' }),
+    ),
+  });
+  interface CollapseOutputDetails {
+    collapsed: number;
+    total: number;
+    ordinals: number[];
+    denied?: boolean;
+    reason?: string;
+  }
+
+  const collapsibleFor = (ctx: ExtensionContext, toolName?: string): Candidate[] => {
+    const cands = collapseCandidates(ctx);
+    const want = toolName?.trim().toLowerCase();
+    return want ? cands.filter((c) => (c.toolName ?? '').toLowerCase() === want) : cands;
+  };
+
+  pi.registerTool<typeof CollapseOutputParams, CollapseOutputDetails>({
+    name: 'collapse_output',
+    label: 'Collapse output',
+    description:
+      'Collapse a finished tool call+result pair down to a short marker to reclaim context. REVERSIBLE: the call arguments + result are replaced by a `[TOOL CALLED]` placeholder; the transcript .jsonl is untouched and a human can restore it via /context-collapse. Targets TOOL CALL+RESULT PAIRS ONLY (never user messages or assistant text). Address by recency ordinal among the collapsible pairs in context (most-recent = 1): `drop: [2]` collapses the 2nd-most-recent; `keepRecent: N` collapses everything beyond the most recent N; `toolName` filters to one tool. Lump-sum framing: collapse a batch when you are done, do not nibble one result per turn. The most-recent pair is tail-guarded.',
+    promptSnippet:
+      'When you are done with a tool result (a bash/read output you already extracted what you need from), call `collapse_output` (REVERSIBLE) to reclaim the window.',
+    promptGuidelines: [
+      'Use `collapse_output` only for tool output you are finished with; it is REVERSIBLE (placeholder overlay, transcript intact) but each call prompts the human.',
+      'Address by recency ordinal among current pairs (1 = most recent); `toolName` narrows to one tool. Use `keepRecent: N` to lump-sum a finished batch instead of collapsing one pair per turn (cache-hostile).',
+    ],
+    parameters: CollapseOutputParams,
+
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx): Promise<DropToolResult<CollapseOutputDetails>> {
+      const reply = (
+        text: string,
+        details: CollapseOutputDetails,
+        isError = false,
+      ): DropToolResult<CollapseOutputDetails> => ({
+        content: [{ type: 'text' as const, text }],
+        details,
+        isError,
+      });
+
+      if ((params.drop === undefined || params.drop.length === 0) && params.keepRecent === undefined) {
+        return reply(
+          'Specify `drop` (recency ordinals, e.g. [2]) and/or `keepRecent` (collapse beyond the most recent N).',
+          { collapsed: 0, total: 0, ordinals: [] },
+          true,
+        );
+      }
+
+      const cands = collapsibleFor(ctx, params.toolName);
+      if (cands.length === 0) {
+        const filt = params.toolName ? ` matching "${params.toolName}"` : '';
+        return reply(`No collapsible tool output${filt} in the current context.`, {
+          collapsed: 0,
+          total: 0,
+          ordinals: [],
+        });
+      }
+
+      const resolution = resolveRecencyTargets(
+        cands,
+        { drop: params.drop, keepRecent: params.keepRecent },
+        dropTailGuard,
+      );
+      if (resolution.selected.length === 0) {
+        const notes: string[] = [];
+        if (resolution.guarded.length > 0)
+          notes.push(`tail-guard protects the most-recent ${resolution.tailGuard} pair(s)`);
+        if (resolution.missing.length > 0)
+          notes.push(`no pair at ${resolution.missing.map((m) => `#${m}`).join(', ')}`);
+        return reply(
+          `Nothing to collapse (${cands.length} pair(s) in context${notes.length ? `; ${notes.join('; ')}` : ''}).`,
+          { collapsed: 0, total: cands.length, ordinals: [] },
+        );
+      }
+
+      const titleItems = resolution.selected.map((it) => toTitleItem(it));
+      const rows = resolution.selected.map((it) => ({ label: candidateLabel(it.candidate) }));
+      const guardedItems = resolution.guarded.map((it) => toTitleItem(it));
+
+      const outcome = await confirmDrop(ctx, {
+        toolName: 'collapse_output',
+        verb: 'collapse',
+        noun: 'tool output(s)',
+        reason: params.reason,
+        titleItems,
+        guardedItems,
+        missing: resolution.missing,
+        rows,
+        flags: dropFlags,
+        nonInteractiveDefault: dropDefault,
+      });
+
+      if (!outcome.allow) {
+        return reply(`Collapse denied${outcome.feedback ? `: ${outcome.feedback}` : '.'}`, {
+          collapsed: 0,
+          total: cands.length,
+          ordinals: [],
+          denied: true,
+          reason: outcome.feedback,
+        });
+      }
+
+      const collapsedOrdinals: number[] = [];
+      for (const idx of outcome.indices) {
+        const ranked = resolution.selected[idx];
+        if (!ranked?.candidate.toolCallId) continue;
+        const r = addCollapse(state, ranked.candidate.toolCallId, params.reason, Date.now());
+        if (r.ok) {
+          state = r.state;
+          collapsedOrdinals.push(ranked.ordinal);
+        }
+      }
+
+      if (collapsedOrdinals.length > 0) persist();
+      const ords = collapsedOrdinals.map((o) => `#${o}`).join(', ');
+      return reply(
+        collapsedOrdinals.length > 0
+          ? `Collapsed ${collapsedOrdinals.length} tool output(s) (${ords}). Reversible via /context-collapse list / restore.`
+          : 'No tool output was collapsed.',
+        { collapsed: collapsedOrdinals.length, total: cands.length, ordinals: collapsedOrdinals },
+      );
     },
   });
 }

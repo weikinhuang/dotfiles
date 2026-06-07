@@ -72,6 +72,20 @@ describe('enumerate', () => {
     expect(enumerate(messages).some((c) => c.kind === 'tool-result')).toBe(false);
   });
 
+  test('stamps a document-order seq that survives the heaviest-first sort', () => {
+    const messages: LooseMessage[] = [
+      { role: 'user', content: big, timestamp: 1 },
+      { role: 'user', content: 'tiny', timestamp: 2 },
+    ];
+    const cands = enumerate(messages);
+    // Output is heaviest-first (big msg leads), but seq records encounter
+    // order: the big (older) message has the lower seq.
+    const bigCand = cands.find((c) => c.snippet.startsWith('x'));
+    const tinyCand = cands.find((c) => c.snippet === 'tiny');
+    expect(bigCand?.seq).toBe(0);
+    expect(tinyCand?.seq).toBe(1);
+  });
+
   test('assigns occurrence to disambiguate same role+timestamp messages', () => {
     const messages: LooseMessage[] = [
       { role: 'user', content: 'a'.repeat(3000), timestamp: 5 },

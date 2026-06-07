@@ -37,11 +37,22 @@
  *
  * Environment:
  *   PI_CONTEXT_TRIM_DISABLED=1        skip the extension entirely
+ *   PI_CONTEXT_TRIM_DISABLE_STRIP=1   keep manual trim, disable the derived
+ *                                     non-vision image strip
  *   PI_CONTEXT_TRIM_MIN_BYTES=N       min text-part size to offer (default 2048)
  *   PI_CONTEXT_TRIM_SNIPPET_CHARS=N   snippet width in listings (default 80)
  *   PI_CONTEXT_TRIM_CAPTION_MODEL=p/id  vision model for auto-caption when the
  *                                     active model is text-only (also a
  *                                     `captionModel` key in context-trim.json)
+ *
+ * Non-vision image strip (derived policy): when the ACTIVE model is
+ * text-only (`isVisionCapable` false) every image part is blanked to the
+ * same `[IMAGE REMOVED · …]` placeholder TRANSIENTLY each turn - an image
+ * a text-only model cannot read is dead weight. Recomputed from the active
+ * model's vision capability (tracked on `model_select` / `session_start`),
+ * never persisted; switching back to a vision model restores the images.
+ * Generated images keep their generation prompt as the caption (free);
+ * un-described observed images strip to size-only.
  *
  * Image descriptions: when an image is trimmed the placeholder embeds a
  * short caption of what it depicted, computed ONCE at trim time (agent
@@ -69,8 +80,16 @@ import {
   type ResourceLoader,
   SessionManager,
 } from '@earendil-works/pi-coding-agent';
+import { Type } from 'typebox';
 
 import { isHelpArg } from '../../../lib/node/pi/commands/help.ts';
+import {
+  type DropToolResult,
+  nonInteractiveDropDefault,
+  resolveRecencyTargets,
+  toTitleItem,
+} from '../../../lib/node/pi/context-edit/agent-drop.ts';
+import { confirmDrop, emptyDropFlags } from '../../../lib/node/pi/ext/drop-confirm.ts';
 import { applyDirectives } from '../../../lib/node/pi/context-edit/apply.ts';
 import { loadTrimConfig, type TrimConfig } from '../../../lib/node/pi/context-edit/config.ts';
 import {
@@ -100,9 +119,11 @@ import {
   toParts,
 } from '../../../lib/node/pi/context-edit/target.ts';
 import { CONTEXT_TRIM_USAGE } from '../../../lib/node/pi/context-edit/usage.ts';
+import { selectNonVisionStrip } from '../../../lib/node/pi/context-edit/nonvision-strip.ts';
 import { isVisionCapable } from '../../../lib/node/pi/model-capability.ts';
 import { createNotifyOnce } from '../../../lib/node/pi/notify-once.ts';
-import { envTruthy } from '../../../lib/node/pi/parse-env.ts';
+import { envTruthy, parseNonNegativeInt } from '../../../lib/node/pi/parse-env.ts';
+import { trimOrUndefined } from '../../../lib/node/pi/shared/strings.ts';
 import {
   type AgentDef,
   type AgentLoadResult,
@@ -145,6 +166,28 @@ export default function contextTrimExtension(pi: ExtensionAPI): void {
   // (and after each command) and let completion read it.
   let completionCandidates: CompletionCandidate[] = [];
 
+  // Per-session decision flags for the agent `drop_image` tool (Allow for
+  // session / Never allow this session), cleared on shutdown. ext/ shares
+  // CODE, not STATE - the flag object lives in this closure.
+  const dropFlags = emptyDropFlags();
+  // Tail-guard: never let the agent drop the most-recent N images (it is
+  // likely still working with them, and large N forces cache-hostile
+  // long-suffix drops - see the umbrella's cache note).
+  const dropTailGuard = parseNonNegativeInt(process.env.PI_CONTEXT_TRIM_DROP_TAIL_GUARD, 1);
+  const dropDefault = nonInteractiveDropDefault(process.env.PI_CONTEXT_TRIM_DROP_DEFAULT);
+
+  // Derived non-vision image strip (aspect-level disable). When the active
+  // model is text-only, every image part is blanked transiently each turn.
+  const stripEnabled = !envTruthy(process.env.PI_CONTEXT_TRIM_DISABLE_STRIP);
+  // Whether the ACTIVE model can read images. Tracked from `ctx.model` on
+  // load and `event.model` on `model_select`; default true so we never
+  // strip before we know the model (the strip is purely a guard for
+  // text-only models). Recomputed, never persisted.
+  let visionCapable = true;
+  const updateVision = (model: { input?: string[] } | undefined): void => {
+    visionCapable = isVisionCapable((model ?? {}) as { input?: string[] });
+  };
+
   // Subagent definitions (for the image auto-caption fallback), rebuilt
   // from disk on load like iteration-loop's critic.
   const extDir = dirname(fileURLToPath(import.meta.url));
@@ -169,6 +212,7 @@ export default function contextTrimExtension(pi: ExtensionAPI): void {
   const rebuildFromSession = (ctx: ExtensionContext): void => {
     state = reduceBranch(ctx.sessionManager.getBranch() as never, CUSTOM_TYPE);
     config = loadTrimConfig(ctx.sessionManager.getCwd());
+    updateVision(ctx.model);
     try {
       reloadAgents(ctx.sessionManager.getCwd());
       if (ctx.hasUI) agentWarnings.surface(ctx.ui.notify.bind(ctx.ui), agentLoad.warnings);
@@ -179,6 +223,21 @@ export default function contextTrimExtension(pi: ExtensionAPI): void {
 
   pi.on('session_start', (_event, ctx) => rebuildFromSession(ctx));
   pi.on('session_tree', (_event, ctx) => rebuildFromSession(ctx));
+
+  // Recompute the derived strip's gate when the model changes. Switching
+  // to a text-only model strips images next turn; switching back to a
+  // vision model stops deriving the strip, so the images reappear.
+  pi.on('model_select', (event) => updateVision(event.model as { input?: string[] }));
+
+  // Clear the per-session drop decisions on shutdown so /reload and a real
+  // session end both force the agent to re-confirm. Idempotent + never
+  // throws (extensions/AGENTS.md lifecycle rule).
+  pi.on('session_shutdown', () => {
+    dropFlags.autoAllow = false;
+    dropFlags.neverAllow = false;
+    // Drop the stale capability so the next session_start re-reads it.
+    visionCapable = true;
+  });
 
   // Only candidates worth trimming: images, large tool results, and long
   // messages (drop the tool-call kind - that's tool-collapse's job).
@@ -205,6 +264,19 @@ export default function contextTrimExtension(pi: ExtensionAPI): void {
       lastContextMessages = result.messages;
       out = result.messages;
       applied = result.applied;
+    }
+    // Derived non-vision strip: blank every remaining image transiently
+    // when the active model is text-only. Runs on the ALREADY-overlaid
+    // list, so a human-trimmed image is already a placeholder and is
+    // skipped here; never persisted (recomputed each turn).
+    if (stripEnabled && !visionCapable) {
+      const strip = selectNonVisionStrip(out);
+      if (strip.length > 0) {
+        const stripped = applyDirectives(out, strip);
+        out = stripped.messages;
+        lastContextMessages = out;
+        applied += stripped.applied;
+      }
     }
     refreshCompletion(candidatesFrom(out));
     return applied > 0 ? { messages: out as never } : undefined;
@@ -329,10 +401,11 @@ export default function contextTrimExtension(pi: ExtensionAPI): void {
     ctx: ExtensionContext,
     cand: Candidate,
     messages: readonly LooseMessage[],
+    agentSummary?: string,
   ): Promise<string | undefined> => {
-    // Feature-1 seam: a `drop_image({ summary })` arg will populate this.
-    // Absent until feature 1 lands, so it stays undefined for now.
-    const agentSummary: string | undefined = undefined;
+    // Feature-1 seam: `drop_image({ summary })` hands the agent's own
+    // description over as source 1; the `/context-trim` slash command
+    // passes nothing, so it stays undefined there.
     const generationPrompt = cand.toolCallId ? extractGenerationPrompt(messages, cand.toolCallId) : undefined;
 
     let autoCaption: string | undefined;
@@ -435,6 +508,166 @@ export default function contextTrimExtension(pi: ExtensionAPI): void {
       } else {
         ctx.ui.notify(r.error, 'warning');
       }
+    },
+  });
+
+  // ── Agent tool: drop_image ───────────────────────────────────────────
+  // Front door #2 to the same `state` + `persist()` as `/context-trim`,
+  // so anything the model drops is reversible via `/context-trim list`
+  // / `restore`. Images only; addressed by recency ordinal among the
+  // images currently in context (most-recent = 1).
+  const DropImageParams = Type.Object({
+    drop: Type.Optional(
+      Type.Array(Type.Number(), {
+        description:
+          'Pointed: recency ordinals among the images currently in context (1 = most recent). e.g. [2] drops the 2nd-most-recent image.',
+      }),
+    ),
+    keepRecent: Type.Optional(
+      Type.Number({
+        description:
+          'Batch / lump-sum: drop every image BEYOND the most recent N. Prefer this when you are done with a batch; do not tidy one stale image per turn.',
+      }),
+    ),
+    summary: Type.Optional(
+      Type.String({
+        description:
+          'One-line description of what the image(s) depicted. Stamped into the reversible placeholder so you (and a human) still know what was there.',
+      }),
+    ),
+    reason: Type.Optional(
+      Type.String({ description: 'Why you are done with the image(s). Shown in the dialog + stored for audit.' }),
+    ),
+  });
+  interface DropImageResultDetails {
+    dropped: number;
+    total: number;
+    ordinals: number[];
+    denied?: boolean;
+    reason?: string;
+  }
+
+  const imageCandidates = (ctx: ExtensionContext): Candidate[] => trimCandidates(ctx).filter((c) => c.kind === 'image');
+
+  pi.registerTool<typeof DropImageParams, DropImageResultDetails>({
+    name: 'drop_image',
+    label: 'Drop image',
+    description:
+      'Drop image(s) you are finished with from the model context to reclaim the window. REVERSIBLE: the image is replaced by a short placeholder; the transcript .jsonl and the image file on disk are untouched, and a human can restore it via /context-trim. Targets IMAGES ONLY (never user messages or assistant text). Address by recency ordinal among the images currently in context (most-recent = 1): `drop: [2]` drops the 2nd-most-recent; `keepRecent: N` drops everything beyond the most recent N. Lump-sum framing: drop a batch when you are done, do not nibble one image per turn. The most-recent image is tail-guarded and cannot be dropped.',
+    promptSnippet:
+      'When you are done with image(s) in context, call `drop_image` (REVERSIBLE) to reclaim the window instead of carrying them forever.',
+    promptGuidelines: [
+      'Use `drop_image` only for images you are finished with; it is REVERSIBLE (placeholder overlay, transcript + file intact) but each call prompts the human.',
+      'Address by recency ordinal among current images (1 = most recent). Use `keepRecent: N` to lump-sum a finished batch; avoid dropping one image per turn (cache-hostile).',
+      'Pass `summary` describing what the image showed so the placeholder stays informative.',
+    ],
+    parameters: DropImageParams,
+
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx): Promise<DropToolResult<DropImageResultDetails>> {
+      const reply = (
+        text: string,
+        details: DropImageResultDetails,
+        isError = false,
+      ): DropToolResult<DropImageResultDetails> => ({
+        content: [{ type: 'text' as const, text }],
+        details,
+        isError,
+      });
+
+      if ((params.drop === undefined || params.drop.length === 0) && params.keepRecent === undefined) {
+        return reply(
+          'Specify `drop` (recency ordinals, e.g. [2]) and/or `keepRecent` (drop beyond the most recent N).',
+          { dropped: 0, total: 0, ordinals: [] },
+          true,
+        );
+      }
+
+      const cands = imageCandidates(ctx);
+      if (cands.length === 0) {
+        return reply('No images in the current context to drop.', { dropped: 0, total: 0, ordinals: [] });
+      }
+
+      const resolution = resolveRecencyTargets(
+        cands,
+        { drop: params.drop, keepRecent: params.keepRecent },
+        dropTailGuard,
+      );
+      if (resolution.selected.length === 0) {
+        const notes: string[] = [];
+        if (resolution.guarded.length > 0) {
+          notes.push(`tail-guard protects the most-recent ${resolution.tailGuard} image(s)`);
+        }
+        if (resolution.missing.length > 0)
+          notes.push(`no image at ${resolution.missing.map((m) => `#${m}`).join(', ')}`);
+        return reply(
+          `Nothing to drop (${cands.length} image(s) in context${notes.length ? `; ${notes.join('; ')}` : ''}).`,
+          { dropped: 0, total: cands.length, ordinals: [] },
+        );
+      }
+
+      const summary = trimOrUndefined(params.summary);
+      const titleItems = resolution.selected.map((it) => toTitleItem(it, summary));
+      const rows = resolution.selected.map((it) => ({ label: candidateLabel(it.candidate), description: summary }));
+      const guardedItems = resolution.guarded.map((it) => toTitleItem(it));
+
+      const outcome = await confirmDrop(ctx, {
+        toolName: 'drop_image',
+        verb: 'drop',
+        noun: 'image(s)',
+        reason: params.reason,
+        titleItems,
+        guardedItems,
+        missing: resolution.missing,
+        rows,
+        flags: dropFlags,
+        nonInteractiveDefault: dropDefault,
+      });
+
+      if (!outcome.allow) {
+        return reply(`Drop denied${outcome.feedback ? `: ${outcome.feedback}` : '.'}`, {
+          dropped: 0,
+          total: cands.length,
+          ordinals: [],
+          denied: true,
+          reason: outcome.feedback,
+        });
+      }
+
+      const messages = currentMessages(ctx);
+      // Compute placeholder captions in parallel (each may fire a vision
+      // pass); applying the trims stays sequential below since it mutates
+      // `state`.
+      const descriptions = await Promise.all(
+        outcome.indices.map(async (idx) => {
+          const ranked = resolution.selected[idx];
+          if (!ranked?.candidate.target) return undefined;
+          try {
+            return await computeImageDescription(ctx, ranked.candidate, messages, summary);
+          } catch {
+            // Captioning is best-effort; fall back to a size-only placeholder.
+            return undefined;
+          }
+        }),
+      );
+      const droppedOrdinals: number[] = [];
+      outcome.indices.forEach((idx, i) => {
+        const ranked = resolution.selected[idx];
+        if (!ranked?.candidate.target) return;
+        const r = addTrim(state, ranked.candidate.target, params.reason ?? summary, Date.now(), descriptions[i]);
+        if (r.ok) {
+          state = r.state;
+          droppedOrdinals.push(ranked.ordinal);
+        }
+      });
+
+      if (droppedOrdinals.length > 0) persist(ctx);
+      const ords = droppedOrdinals.map((o) => `#${o}`).join(', ');
+      return reply(
+        droppedOrdinals.length > 0
+          ? `Dropped ${droppedOrdinals.length} image(s) (${ords}). Reversible via /context-trim list / restore.`
+          : 'No images were dropped.',
+        { dropped: droppedOrdinals.length, total: cands.length, ordinals: droppedOrdinals },
+      );
     },
   });
 }
