@@ -47,6 +47,7 @@ import { Type } from 'typebox';
 import { completeSubverbs } from '../../../lib/node/pi/commands/complete.ts';
 import { isHelpArg } from '../../../lib/node/pi/commands/help.ts';
 import { COMFYUI_USAGE } from '../../../lib/node/pi/comfyui/usage.ts';
+import { emitImageGenerated } from '../../../lib/node/pi/comfyui/events.ts';
 import { envTruthy } from '../../../lib/node/pi/parse-env.ts';
 import {
   loadComfyuiConfig,
@@ -296,10 +297,19 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
     for (const r of results) {
       if (!r) continue;
       if (r.outcome.kind === 'done') {
+        const donePaths = r.outcome.saved.map((s) => s.savedPath);
         registry = updateJob(registry, r.id, {
           status: 'done',
-          savedPaths: r.outcome.saved.map((s) => s.savedPath),
+          savedPaths: donePaths,
           endedAt: Date.now(),
+        });
+        const doneJob = running.find((j) => j.id === r.id);
+        emitImageGenerated({
+          savedPaths: donePaths,
+          workflow: doneJob?.workflow ?? '',
+          prompt: doneJob?.prompt,
+          seed: doneJob?.seed,
+          background: true,
         });
         changed = true;
       } else if (r.outcome.kind === 'failed') {
@@ -516,6 +526,13 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
 
         const saved = await fetchAndSave(conn, refs, saveDir, runSignal);
         for (const s of saved) details.savedPaths.push(s.savedPath);
+        emitImageGenerated({
+          savedPaths: details.savedPaths,
+          workflow: name,
+          prompt: params.prompt,
+          seed: details.seed,
+          background: false,
+        });
 
         const decision = resolveSendToModel(requested, ctx.model?.input);
         const countNote = `${refs.length} image${refs.length === 1 ? '' : 's'}`;
@@ -692,6 +709,13 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
       const savedPaths = saved.map((s) => s.savedPath);
       registry = updateJob(registry, id, { status: 'done', savedPaths, endedAt: Date.now() });
       updateStatusline();
+      emitImageGenerated({
+        savedPaths,
+        workflow: job.workflow,
+        prompt: job.prompt,
+        seed: job.seed,
+        background: true,
+      });
 
       const decision = resolveSendToModel(job.sendToModel, ctx.model?.input);
       const seedNote = job.seed !== undefined ? ` (seed ${job.seed})` : '';

@@ -84,6 +84,17 @@ enters the conversation only through a tool result the model itself invoked. So 
 auto-downloaded render, it still calls `collect`; that path re-serves the already-saved files from disk inline (it does
 not re-fetch from the server). Set `"autoDownload": false` to go back to pull-only collection.
 
+## Image-generated event bus
+
+Whenever a render lands on disk - foreground call, auto-downloaded background job, or a manual `collect` - the extension
+emits an `ImageGeneratedEvent` (`{ savedPaths, workflow, prompt?, seed?, background }`) on a neutral,
+globalThis-anchored bus ([`../../../lib/node/pi/comfyui/events.ts`](../../../lib/node/pi/comfyui/events.ts)). comfyui
+only _emits_ - it has no knowledge of who, if anyone, listens; emitting to zero subscribers is a no-op. Another
+extension subscribes with `onImageGenerated(listener)` (which returns an unsubscribe to call on teardown). Today
+[`roleplay.ts`](./roleplay.md) consumes it to mirror the latest scene render into the avatar's `scene` banner while a
+roleplay scene is active; comfyui stays decoupled from both roleplay and the avatar. A throwing listener is swallowed so
+a broken consumer can never break generation.
+
 ### Tool: `image_jobs`
 
 | Action    | Notes                                                                                            |

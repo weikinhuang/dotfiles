@@ -28,6 +28,10 @@
  *                                        injection (cast index still injects).
  *   PI_ROLEPLAY_DISABLE_DEPTH_INJECT=1   skip the context-event depth
  *                                        injection (author's note + depth lore).
+ *   PI_ROLEPLAY_DISABLE_SUMMARIZE=1      skip auto-summarization on compaction.
+ *   PI_ROLEPLAY_DISABLE_AVATAR=1         stop driving the avatar face from the cast.
+ *   PI_ROLEPLAY_DISABLE_SCENEGEN=1       stop mirroring generated images to the
+ *                                        avatar scene banner.
  *   PI_ROLEPLAY_MAX_INJECTED_CHARS=N     soft cap on injected block (default 3000).
  *   PI_ROLEPLAY_ROOT=<path>              override `~/.pi/agent/roleplay`.
  *
@@ -64,6 +68,7 @@ import { envTruthy, parseClampedPositiveInt } from '../../../lib/node/pi/parse-e
 import { getActivePersona } from '../../../lib/node/pi/persona/active.ts';
 import { clearActiveRoleplay, setActiveRoleplay } from '../../../lib/node/pi/roleplay/active.ts';
 import { clearAvatarInput, setAvatarInput } from '../../../lib/node/pi/avatar/input.ts';
+import { onImageGenerated } from '../../../lib/node/pi/comfyui/events.ts';
 import { loadRoleplayConfig } from '../../../lib/node/pi/roleplay/config.ts';
 import { selectWithinBudget, type LoreChunk } from '../../../lib/node/pi/roleplay/budget.ts';
 import { applyInsertions, buildInsertions, type LoreDepthChunk } from '../../../lib/node/pi/roleplay/inject.ts';
@@ -259,6 +264,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
   const depthInjectEnabled = !envTruthy(process.env.PI_ROLEPLAY_DISABLE_DEPTH_INJECT);
   const summarizeEnabled = !envTruthy(process.env.PI_ROLEPLAY_DISABLE_SUMMARIZE);
   const avatarDriveEnabled = !envTruthy(process.env.PI_ROLEPLAY_DISABLE_AVATAR);
+  const sceneGenEnabled = !envTruthy(process.env.PI_ROLEPLAY_DISABLE_SCENEGEN);
   const envCharBudget = parseClampedPositiveInt(process.env.PI_ROLEPLAY_MAX_INJECTED_CHARS, 0, 1) || undefined;
 
   let cwd: string = process.cwd();
@@ -269,6 +275,8 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
   let syncedCast: string | null = null;
   /** Signature of the last warn-dropped scene-character set, to dedupe the notice. */
   let lastSceneMissingSig = '';
+  /** Unsubscribe handle for the comfyui image-generated bus (cleared on shutdown). */
+  let unsubscribeImageEvents: (() => void) | null = null;
   const surfacedWarnings = new Set<string>();
 
   /**
@@ -653,10 +661,32 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
     });
   }
 
+  // Mirror generated scene images into the avatar's `scene` banner. comfyui
+  // EMITS on the neutral image bus when any `generate_image` render lands on
+  // disk; we CONSUME it here (comfyui knows nothing about roleplay or the
+  // avatar). Only while a roleplay scene is active, and only when both avatar
+  // drive + scenegen are enabled, so a non-roleplay coding session that renders
+  // an image never hijacks the widget.
+  if (avatarDriveEnabled && sceneGenEnabled) {
+    unsubscribeImageEvents = onImageGenerated((event) => {
+      try {
+        if (activeCast() === null) return;
+        const path = event.savedPaths.at(-1);
+        if (path) setAvatarInput({ scene: { path } });
+      } catch {
+        // a consumer must never break image generation
+      }
+    });
+  }
+
   pi.on('session_shutdown', () => {
     try {
       clearActiveRoleplay();
       if (avatarDriveEnabled) clearAvatarInput();
+      if (unsubscribeImageEvents) {
+        unsubscribeImageEvents();
+        unsubscribeImageEvents = null;
+      }
     } catch {
       // teardown must never throw
     }
