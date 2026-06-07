@@ -129,4 +129,30 @@ describe('applyDirectives - collapse', () => {
     expect(result).toContain('TOOL CALLED');
     expect(result).toContain('background job');
   });
+
+  test('tolerates a sibling message whose content is null (tool-call-only assistant)', () => {
+    // pi can hand us content that is neither string nor array; copying such a
+    // message must not throw "parts is not iterable".
+    const messages: LooseMessage[] = [
+      { role: 'assistant', content: null as unknown as string, timestamp: 1 },
+      {
+        role: 'assistant',
+        content: [{ type: 'toolCall', id: 'c1', name: 'bash', arguments: { cmd: 'sleep 1' } }],
+        timestamp: 2,
+      },
+      {
+        role: 'toolResult',
+        toolCallId: 'c1',
+        toolName: 'bash',
+        content: [{ type: 'text', text: 'huge output' }],
+        timestamp: 3,
+      },
+    ];
+    const { messages: out, applied } = applyDirectives(messages, [
+      { kind: 'collapse', id: 1, toolCallId: 'c1', reason: 'background job', createdAt: 1 },
+    ]);
+    expect(applied).toBe(1);
+    expect(out[0].content).toEqual([]);
+    expect(isPlaceholder(text(out[2]))).toBe(true);
+  });
 });

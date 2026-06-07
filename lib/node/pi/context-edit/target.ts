@@ -80,7 +80,9 @@ export function targetsEqual(a: Target, b: Target): boolean {
 /** Normalize a message's content to an array of parts (string -> single text part). */
 export function toParts(content: string | LoosePart[]): LoosePart[] {
   if (typeof content === 'string') return [{ type: 'text', text: content }];
-  return content;
+  // pi can hand us a message whose `content` is neither string nor array
+  // (e.g. null on a tool-call-only assistant message). Treat as empty.
+  return Array.isArray(content) ? content : [];
 }
 
 /** A resolved hit: the message index in the list, plus the part index when the target was part-scoped. */

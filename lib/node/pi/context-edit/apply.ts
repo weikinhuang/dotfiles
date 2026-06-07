@@ -46,7 +46,7 @@ function copyParts(parts: readonly LoosePart[]): LoosePart[] {
 
 /** Shallow-copy a message so we can replace its `content` without aliasing the input. */
 function copyMessage(m: LooseMessage): LooseMessage {
-  return { ...m, content: typeof m.content === 'string' ? m.content : copyParts(m.content) };
+  return { ...m, content: typeof m.content === 'string' ? m.content : copyParts(toParts(m.content)) };
 }
 
 function partText(part: LoosePart): string {
