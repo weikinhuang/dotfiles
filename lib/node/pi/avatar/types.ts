@@ -75,5 +75,16 @@ export interface AvatarConfig {
   render: 'auto' | Protocol;
   /** Collapse the kaomoji (ASCII) widget to a single `face | tool tally` line. Ignored in image modes. */
   compact: boolean;
+  /**
+   * Where a scene image (the avatar-input slot's `scene`) renders relative to
+   * the avatar+info row: `above` / `below` it as a full-width banner, or
+   * `replace` to show only the scene (hiding the avatar) while one is active.
+   */
+  scenePlacement: 'above' | 'below' | 'replace';
+  /**
+   * Maximum terminal rows a scene banner may occupy. The image is scaled down
+   * (aspect preserved) to fit, so a tall portrait does not flood the widget.
+   */
+  sceneMaxRows: number;
   emotes: EmoteMapping[];
 }

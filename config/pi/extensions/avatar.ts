@@ -761,6 +761,42 @@ function renderTextFrameCompact(
   return [` ${cell} ${sep} ${trimmed}`];
 }
 
+/**
+ * Render a scene frame as a standalone full-width banner (no info panel
+ * beside it). Mirrors the avatar frame renderers minus the ` | info`
+ * suffix: half-block emits its cell rows directly; kitty / iTerm2 place the
+ * image escape on row 0 and reserve the remaining rows; sixel uses the same
+ * save / move-up / paint dance as {@link renderSixelFrame}.
+ */
+function renderSceneBanner(frame: RenderedFrame, cols: number): string[] {
+  if (frame.kind === 'halfblock') {
+    return frame.cells.map((cell) => ` ${cell}`);
+  }
+  if (frame.kind === 'text') {
+    return frame.lines.map((line) => ` ${line}`);
+  }
+  if (frame.style === 'sixel') {
+    const lines: string[] = [];
+    for (let i = 0; i < frame.rows - 1; i++) lines.push(' ');
+    const up = frame.rows > 1 ? `\x1b[${frame.rows - 1}A` : '';
+    let paint = `\x1b7\r${up}`;
+    for (let r = 0; r < frame.rows; r++) {
+      paint += `\x1b[${cols + 1}X`;
+      if (r < frame.rows - 1) paint += '\x1b[1B';
+    }
+    paint += `${up}\x1b[1C${frame.sequence}\x1b8`;
+    lines.push(paint);
+    return lines;
+  }
+  // kitty / iTerm2: the escape on row 0 draws over the next `rows` cell-rows.
+  const pad = ' '.repeat(cols);
+  const lines: string[] = [];
+  for (let i = 0; i < frame.rows; i++) {
+    lines.push(i === 0 ? ` ${frame.sequence}${pad}` : ` ${pad}`);
+  }
+  return lines;
+}
+
 function renderTextFrame(frame: RenderedFrame & { kind: 'text' }, size: number, info: string[], sep: string): string[] {
   const emoteRow = 1;
   const rowCount = Math.max(emoteRow + frame.lines.length, info.length, 3);
@@ -863,6 +899,48 @@ export default function avatar(pi: ExtensionAPI): void {
     return overrideFrame ? { frame: overrideFrame, cols: overrideCols } : null;
   }
 
+  // Cached scene-banner frame (the avatar-input slot's `scene`). An additive
+  // landscape illustration rendered beside/around the avatar, height-capped to
+  // `config.sceneMaxRows` with aspect preserved. Cached by path+cols+rows+protocol.
+  let sceneFrame: RenderedFrame | null = null;
+  let sceneCols = 0;
+  let sceneKey = '';
+  function buildSceneFrame(path: string, wantCols: number, maxRows: number): RenderedFrame | null {
+    let data: Buffer;
+    try {
+      data = readFileSync(path);
+    } catch {
+      return null;
+    }
+    const dims = readPngDimensions(data) ?? { width: 1, height: 1 };
+    const cell = getCellDimensions();
+    let cols = Math.max(1, wantCols);
+    const rowsAtWant = imageRows(dims, cols, cell);
+    // rows scale ~linearly with cols, so shrink cols to land within maxRows.
+    if (rowsAtWant > maxRows) cols = Math.max(1, Math.floor((cols * maxRows) / rowsAtWant));
+    sceneCols = cols;
+    return buildImageFrame(path, protocol, cols, cell);
+  }
+  function resolveSceneFrame(width: number): { frame: RenderedFrame; cols: number } | null {
+    if (!enabled) return null;
+    const scene = getAvatarInput().scene;
+    // ASCII mode can't render a PNG; no banner.
+    if (!scene || protocol === 'ascii') {
+      sceneFrame = null;
+      sceneKey = '';
+      return null;
+    }
+    const avail = Math.max(1, width - 2);
+    const want = scene.width && scene.width > 0 ? Math.min(Math.floor(scene.width), avail) : avail;
+    const maxRows = Math.max(1, Math.floor(config.sceneMaxRows));
+    const key = `${protocol}:${want}:${maxRows}:${scene.path}`;
+    if (key !== sceneKey) {
+      sceneKey = key;
+      sceneFrame = buildSceneFrame(scene.path, want, maxRows);
+    }
+    return sceneFrame ? { frame: sceneFrame, cols: sceneCols } : null;
+  }
+
   function loadForModel(cwd: string, modelId: string): void {
     lastModelId = modelId;
     config = loadConfig(cwd);
@@ -898,31 +976,42 @@ export default function avatar(pi: ExtensionAPI): void {
       return {
         render(width: number): string[] {
           if (width < config.hideBelow) return [];
+          const rule = theme.fg('border', '\u2500'.repeat(Math.max(1, width)));
+          const sceneRes = resolveSceneFrame(width);
+          const sceneLines = sceneRes ? renderSceneBanner(sceneRes.frame, sceneRes.cols) : [];
+          // `replace` only hides the avatar while a scene is actually present.
+          if (sceneRes && config.scenePlacement === 'replace') return [rule, ...sceneLines];
+
           const override = resolveOverrideFrame();
           const frame = override?.frame ?? animator.getFrame();
-          if (!frame || lastCtx === null) return [];
+          if (!frame || lastCtx === null) {
+            return sceneLines.length > 0 ? [rule, ...sceneLines] : [];
+          }
           const drawSize = override ? override.cols : config.size;
           const sep = theme.fg('border', '\u2502');
-          const rule = theme.fg('border', '\u2500'.repeat(Math.max(1, width)));
+          let avatarLines: string[];
           if (frame.kind === 'text' && config.compact) {
-            return [rule, ...renderTextFrameCompact(frame, config.size, formatToolTally(toolCounts), sep, width)];
-          }
-          const info = buildInfoLines(width, config, lastCtx, pi, toolCounts, animator.currentState);
-          const lines = [rule];
-          if (frame.kind === 'image') {
-            if (frame.style === 'sixel') {
-              lines.push(...renderSixelFrame(frame, drawSize, info, sep));
-            } else if (frame.style === 'iterm2') {
-              lines.push(...renderITermFrame(frame, drawSize, info, sep));
-            } else {
-              lines.push(...renderKittyFrame(frame, drawSize, info, sep));
-            }
-          } else if (frame.kind === 'halfblock') {
-            lines.push(...renderHalfblockFrame(frame, drawSize, info, sep));
+            avatarLines = renderTextFrameCompact(frame, config.size, formatToolTally(toolCounts), sep, width);
           } else {
-            lines.push(...renderTextFrame(frame, drawSize, info, sep));
+            const info = buildInfoLines(width, config, lastCtx, pi, toolCounts, animator.currentState);
+            if (frame.kind === 'image') {
+              if (frame.style === 'sixel') {
+                avatarLines = renderSixelFrame(frame, drawSize, info, sep);
+              } else if (frame.style === 'iterm2') {
+                avatarLines = renderITermFrame(frame, drawSize, info, sep);
+              } else {
+                avatarLines = renderKittyFrame(frame, drawSize, info, sep);
+              }
+            } else if (frame.kind === 'halfblock') {
+              avatarLines = renderHalfblockFrame(frame, drawSize, info, sep);
+            } else {
+              avatarLines = renderTextFrame(frame, drawSize, info, sep);
+            }
           }
-          return lines;
+          if (sceneLines.length === 0) return [rule, ...avatarLines];
+          return config.scenePlacement === 'below'
+            ? [rule, ...avatarLines, ...sceneLines]
+            : [rule, ...sceneLines, ...avatarLines];
         },
         invalidate(): void {
           /* nothing cached */

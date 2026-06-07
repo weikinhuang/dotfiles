@@ -25,6 +25,8 @@ export const DEFAULT_CONFIG: AvatarConfig = {
   cycleMs: 500,
   render: 'auto',
   compact: true,
+  scenePlacement: 'above',
+  sceneMaxRows: 12,
   emotes: [{ model: '*', 'emote-set': 'default' }],
 };
 
@@ -64,6 +66,10 @@ function asRender(value: unknown): AvatarConfig['render'] | undefined {
     return value;
   }
   return undefined;
+}
+
+function asScenePlacement(value: unknown): AvatarConfig['scenePlacement'] | undefined {
+  return value === 'above' || value === 'below' || value === 'replace' ? value : undefined;
 }
 
 function asHoldDuration(value: unknown): Partial<HoldDuration> | undefined {
@@ -136,6 +142,11 @@ export function coerceConfigLayer(raw: unknown): Partial<AvatarConfig> {
   const render = asRender(raw.render);
   if (render !== undefined) out.render = render;
 
+  const scenePlacement = asScenePlacement(raw.scenePlacement);
+  if (scenePlacement !== undefined) out.scenePlacement = scenePlacement;
+  const sceneMaxRows = asFiniteNumber(raw.sceneMaxRows);
+  if (sceneMaxRows !== undefined) out.sceneMaxRows = Math.max(1, Math.floor(sceneMaxRows));
+
   const holdDuration = asHoldDuration(raw.holdDuration);
   if (holdDuration !== undefined && Object.keys(holdDuration).length > 0) {
     out.holdDuration = { ...DEFAULT_CONFIG.holdDuration, ...holdDuration };
@@ -186,6 +197,8 @@ export function mergeConfigLayers(...overrides: Partial<AvatarConfig>[]): Avatar
     if (layer.talkTickMs !== undefined) result.talkTickMs = layer.talkTickMs;
     if (layer.cycleMs !== undefined) result.cycleMs = layer.cycleMs;
     if (layer.render !== undefined) result.render = layer.render;
+    if (layer.scenePlacement !== undefined) result.scenePlacement = layer.scenePlacement;
+    if (layer.sceneMaxRows !== undefined) result.sceneMaxRows = layer.sceneMaxRows;
     if (layer.blinkInterval !== undefined) result.blinkInterval = [...layer.blinkInterval];
     if (layer.holdDuration !== undefined) result.holdDuration = { ...result.holdDuration, ...layer.holdDuration };
   }

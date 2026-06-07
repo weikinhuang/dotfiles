@@ -13,6 +13,11 @@
  *     render-width hint in columns for images that want more room than
  *     the small reactive face (used by scene illustration). Cleared
  *     (undefined) -> the avatar shows its normal animated sprite.
+ *   - `scene` - an additive landscape illustration the avatar renders as a
+ *     separate full-width banner (above / below the avatar+info row, or
+ *     replacing it - see the `scenePlacement` config). Unlike `image` it
+ *     does NOT replace the reactive face, so the character's emotions stay
+ *     visible alongside the scene. Cleared (undefined) -> no banner.
  *
  * Anchored on `globalThis` behind a `Symbol.for()` key (the
  * `cross-extension-singleton-pattern`): pi gives each extension its own
@@ -42,6 +47,8 @@ export interface AvatarInput {
   readonly emoteSet?: string;
   /** Override image shown instead of the sprite; absent = normal animated sprite. */
   readonly image?: AvatarOverrideImage;
+  /** Additive landscape scene rendered as a separate banner; absent = no banner. */
+  readonly scene?: AvatarOverrideImage;
 }
 
 interface AvatarInputSlot {
@@ -59,7 +66,7 @@ const getSlot = createGlobalSlot<AvatarInputSlot>('@dotfiles/pi/avatar/input', (
  */
 export function setAvatarInput(patch: Partial<AvatarInput>): void {
   const slot = getSlot();
-  const next: { emoteSet?: string; image?: AvatarOverrideImage } = { ...slot.input };
+  const next: { emoteSet?: string; image?: AvatarOverrideImage; scene?: AvatarOverrideImage } = { ...slot.input };
   if ('emoteSet' in patch) {
     const v = patch.emoteSet?.trim();
     if (v) next.emoteSet = v;
@@ -68,6 +75,10 @@ export function setAvatarInput(patch: Partial<AvatarInput>): void {
   if ('image' in patch) {
     if (patch.image) next.image = patch.image;
     else delete next.image;
+  }
+  if ('scene' in patch) {
+    if (patch.scene) next.scene = patch.scene;
+    else delete next.scene;
   }
   slot.input = next;
   slot.rev += 1;

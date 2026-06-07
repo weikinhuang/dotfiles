@@ -48,6 +48,18 @@ test('setting a falsy image clears the override', () => {
   expect(getAvatarInput().image).toBeUndefined();
 });
 
+test('scene is an independent additive channel, untouched when image changes', () => {
+  setAvatarInput({ scene: { path: '/p/forest.png', width: 60 } });
+  setAvatarInput({ image: { path: '/p/portrait.png' } });
+  expect(getAvatarInput()).toEqual({
+    scene: { path: '/p/forest.png', width: 60 },
+    image: { path: '/p/portrait.png' },
+  });
+  setAvatarInput({ scene: undefined });
+  expect(getAvatarInput().scene).toBeUndefined();
+  expect(getAvatarInput().image).toEqual({ path: '/p/portrait.png' });
+});
+
 test('rev advances on every mutation including clear', () => {
   const r0 = getAvatarInputRev();
   setAvatarInput({ emoteSet: 'a' });

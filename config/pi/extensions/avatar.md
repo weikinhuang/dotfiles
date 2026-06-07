@@ -105,7 +105,7 @@ keep the multi-line info panel). Set `compact` to `false` to keep the full panel
 ## External input (other extensions)
 
 The avatar owns _rendering_; another extension can drive _what it shows_ through a neutral, globalThis-anchored slot
-([`../../../lib/node/pi/avatar/input.ts`](../../../lib/node/pi/avatar/input.ts)). Two inputs:
+([`../../../lib/node/pi/avatar/input.ts`](../../../lib/node/pi/avatar/input.ts)). Three inputs:
 
 - `emoteSet` - a preferred sprite-set name. The avatar prefers it over its model-glob resolution, so a roleplay cast can
   put its character's face on the avatar. A name with no sprite art falls back gracefully (kaomoji / model-glob set),
@@ -114,6 +114,10 @@ The avatar owns _rendering_; another extension can drive _what it shows_ through
   `buildImageFrame` path the sprite frames use. A character portrait or a generated scene. Honoured on the image
   protocols (kitty / iTerm2 / sixel / halfblock); in kaomoji (`ascii`) mode there is nothing to draw a PNG with, so the
   sprite shows instead. The built frame is cached by path + width + protocol so it is not re-decoded every tick.
+- `scene` - an _additive_ landscape illustration drawn as a separate full-width banner, **above** or **below** the
+  avatar+info row (or **replacing** it) per the `scenePlacement` config. Unlike `image` it does not hide the reactive
+  face, so the character's emotions stay visible alongside the scene. The image is scaled down (aspect preserved) to fit
+  within `sceneMaxRows`, so a tall shot never floods the widget. Image protocols only; cached like `image`.
 
 The slot is pure (no pi imports) and decoupled both ways: if no extension writes it the avatar behaves exactly as
 before; if the avatar is disabled a writer just updates a slot nobody reads. The avatar re-resolves its set on
@@ -125,20 +129,22 @@ the next turn. Today [`roleplay.ts`](./roleplay.md) is the only writer (gated by
 Config layers lowest → highest: shipped defaults → `~/.pi/agent/avatar.json` → `<cwd>/.pi/avatar.json`. See
 [`avatar/config.example.json`](../avatar/config.example.json) for the full default document.
 
-| Key             | Default                                      | Meaning                                                                          |
-| --------------- | -------------------------------------------- | -------------------------------------------------------------------------------- |
-| `enabled`       | `true`                                       | Master switch for the session.                                                   |
-| `size`          | `8`                                          | Avatar width in terminal columns.                                                |
-| `readingSpeed`  | `4`                                          | Words/sec used to pace talk (reserved).                                          |
-| `hideBelow`     | `40`                                         | Hide the widget when the terminal is narrower than this.                         |
-| `emoteHoldMs`   | `4000`                                       | Hold (ms) for an `[emote:]` overlay; `<= 0` holds until next turn.               |
-| `holdDuration`  | `{ hi: 2000, success/failure: 1200 }`        | Hold (ms) for the transient `hi` / `success` / `failure` states.                 |
-| `blinkInterval` | `[3000, 6000]`                               | Random `[min, max]` ms between idle blinks / think swaps.                        |
-| `talkTickMs`    | `120`                                        | Interval (ms) between talk mouth frames.                                         |
-| `cycleMs`       | `500`                                        | Frame cycle interval (ms) for read / write / tool / emotion.                     |
-| `render`        | `"auto"`                                     | Force a protocol: `auto` / `kitty` / `iterm2` / `sixel` / `halfblock` / `ascii`. |
-| `compact`       | `true`                                       | In kaomoji mode, collapse to one `face │ tool tally` line.                       |
-| `emotes`        | `[{ "model": "*", "emote-set": "default" }]` | Glob `model` → emote-set mappings; last match wins. Each may add `overlays`.     |
+| Key              | Default                                      | Meaning                                                                          |
+| ---------------- | -------------------------------------------- | -------------------------------------------------------------------------------- |
+| `enabled`        | `true`                                       | Master switch for the session.                                                   |
+| `size`           | `8`                                          | Avatar width in terminal columns.                                                |
+| `readingSpeed`   | `4`                                          | Words/sec used to pace talk (reserved).                                          |
+| `hideBelow`      | `40`                                         | Hide the widget when the terminal is narrower than this.                         |
+| `emoteHoldMs`    | `4000`                                       | Hold (ms) for an `[emote:]` overlay; `<= 0` holds until next turn.               |
+| `holdDuration`   | `{ hi: 2000, success/failure: 1200 }`        | Hold (ms) for the transient `hi` / `success` / `failure` states.                 |
+| `blinkInterval`  | `[3000, 6000]`                               | Random `[min, max]` ms between idle blinks / think swaps.                        |
+| `talkTickMs`     | `120`                                        | Interval (ms) between talk mouth frames.                                         |
+| `cycleMs`        | `500`                                        | Frame cycle interval (ms) for read / write / tool / emotion.                     |
+| `render`         | `"auto"`                                     | Force a protocol: `auto` / `kitty` / `iterm2` / `sixel` / `halfblock` / `ascii`. |
+| `compact`        | `true`                                       | In kaomoji mode, collapse to one `face │ tool tally` line.                       |
+| `scenePlacement` | `"above"`                                    | Where a `scene` banner draws: `above` / `below` the avatar row, or `replace` it. |
+| `sceneMaxRows`   | `12`                                         | Max rows a `scene` banner may occupy; the image is scaled down to fit.           |
+| `emotes`         | `[{ "model": "*", "emote-set": "default" }]` | Glob `model` → emote-set mappings; last match wins. Each may add `overlays`.     |
 
 ### Sprite sets
 

@@ -36,6 +36,18 @@ describe('coerceConfigLayer', () => {
     expect(coerceConfigLayer({ render: 'halfblock' }).render).toBe('halfblock');
   });
 
+  test('keeps a valid scenePlacement and drops an unknown one', () => {
+    expect(coerceConfigLayer({ scenePlacement: 'below' }).scenePlacement).toBe('below');
+    expect(coerceConfigLayer({ scenePlacement: 'replace' }).scenePlacement).toBe('replace');
+    expect(coerceConfigLayer({ scenePlacement: 'sideways' }).scenePlacement).toBeUndefined();
+  });
+
+  test('floors sceneMaxRows to an integer >= 1 and drops a non-number', () => {
+    expect(coerceConfigLayer({ sceneMaxRows: 8.7 }).sceneMaxRows).toBe(8);
+    expect(coerceConfigLayer({ sceneMaxRows: 0 }).sceneMaxRows).toBe(1);
+    expect(coerceConfigLayer({ sceneMaxRows: 'tall' }).sceneMaxRows).toBeUndefined();
+  });
+
   test('merges partial holdDuration over defaults', () => {
     const out = coerceConfigLayer({ holdDuration: { hi: 5000 } });
     expect(out.holdDuration).toEqual({ hi: 5000, success: 1200, failure: 1200 });
@@ -104,6 +116,14 @@ describe('mergeConfigLayers', () => {
     const out = mergeConfigLayers({ size: 10 }, { size: 16, render: 'ascii' });
     expect(out.size).toBe(16);
     expect(out.render).toBe('ascii');
+  });
+
+  test('scene placement + max rows override across layers (default above/12)', () => {
+    expect(mergeConfigLayers().scenePlacement).toBe('above');
+    expect(mergeConfigLayers().sceneMaxRows).toBe(12);
+    const out = mergeConfigLayers({ scenePlacement: 'below' }, { scenePlacement: 'replace', sceneMaxRows: 6 });
+    expect(out.scenePlacement).toBe('replace');
+    expect(out.sceneMaxRows).toBe(6);
   });
 
   test('holdDuration merges field-wise across layers', () => {
