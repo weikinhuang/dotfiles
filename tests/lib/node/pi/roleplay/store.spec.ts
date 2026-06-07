@@ -128,6 +128,54 @@ test('character frontmatter carries no lore metadata', () => {
   expect(parseFrontmatter(raw)!.frontmatter.lore).toBeUndefined();
 });
 
+test('serialize -> parse round-trips a relationship entry with all metadata', () => {
+  const raw = serializeEntry({
+    name: 'Exusiai and Doctor',
+    description: 'warm, bantering',
+    kind: 'relationship',
+    body: 'They share an easy rapport.',
+    relationship: {
+      affinity: 72,
+      trust: 'high',
+      lastInteraction: '2026-06-07',
+      openThreads: ['the unanswered dinner invite', "her curiosity about the Doctor's past"],
+    },
+  });
+  const parsed = parseFrontmatter(raw);
+  expect(parsed).not.toBeNull();
+  expect(parsed!.frontmatter.kind).toBe('relationship');
+  expect(parsed!.frontmatter.relationship).toStrictEqual({
+    affinity: 72,
+    trust: 'high',
+    lastInteraction: '2026-06-07',
+    openThreads: ['the unanswered dinner invite', "her curiosity about the Doctor's past"],
+  });
+});
+
+test('relationship frontmatter defaults + clamps affinity, omits empty optional fields', () => {
+  const empty = parseFrontmatter(serializeEntry({ name: 'Pair', description: 'd', kind: 'relationship', body: 'b' }))!
+    .frontmatter.relationship!;
+  expect(empty).toStrictEqual({ affinity: 50, trust: '', openThreads: [] });
+  // affinity out of range is clamped on parse
+  const hi = parseFrontmatter('---\nname: p\ndescription: d\nkind: relationship\naffinity: 250\n---\nb')!.frontmatter
+    .relationship!;
+  expect(hi.affinity).toBe(100);
+  const lo = parseFrontmatter('---\nname: p\ndescription: d\nkind: relationship\naffinity: -9\n---\nb')!.frontmatter
+    .relationship!;
+  expect(lo.affinity).toBe(0);
+});
+
+test('summary and timeline entries round-trip as plain records (no kind metadata)', () => {
+  for (const kind of ['summary', 'timeline'] as const) {
+    const raw = serializeEntry({ name: 'Day 1', description: 'recap', kind, body: 'What happened.' });
+    const parsed = parseFrontmatter(raw)!;
+    expect(parsed.frontmatter.kind).toBe(kind);
+    expect(parsed.frontmatter.lore).toBeUndefined();
+    expect(parsed.frontmatter.relationship).toBeUndefined();
+    expect(parsed.body.trim()).toBe('What happened.');
+  }
+});
+
 test('parseFrontmatter tolerates a body containing --- rules', () => {
   const parsed = parseFrontmatter('---\nname: x\ndescription: y\nkind: character\n---\nintro\n\n---\n\nmore');
   expect(parsed!.body).toBe('intro\n\n---\n\nmore');

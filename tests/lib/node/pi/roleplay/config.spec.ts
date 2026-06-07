@@ -45,6 +45,16 @@ test('coerceConfigLayer accepts scanDepth and clamps to [1, MAX_SCAN_DEPTH]', ()
   expect(coerceConfigLayer({ scanDepth: 7.8 })).toEqual({ scanDepth: 7 });
 });
 
+test('coerceConfigLayer accepts relationship decay knobs and clamps them', () => {
+  expect(coerceConfigLayer({ relationshipDecayPerDay: 2.5 })).toEqual({ relationshipDecayPerDay: 2.5 });
+  expect(coerceConfigLayer({ relationshipDecayPerDay: -3 })).toEqual({ relationshipDecayPerDay: 0 });
+  expect(coerceConfigLayer({ relationshipBaseline: 40 })).toEqual({ relationshipBaseline: 40 });
+  expect(coerceConfigLayer({ relationshipBaseline: 250 })).toEqual({ relationshipBaseline: 100 });
+  expect(coerceConfigLayer({ relationshipBaseline: -9 })).toEqual({ relationshipBaseline: 0 });
+  expect(coerceConfigLayer({ relationshipBaseline: 33.9 })).toEqual({ relationshipBaseline: 33 });
+  expect(coerceConfigLayer({ relationshipDecayPerDay: 'x', relationshipBaseline: Number.NaN })).toEqual({});
+});
+
 test('mergeConfigLayers applies later layers on top of defaults', () => {
   expect(mergeConfigLayers()).toEqual(DEFAULT_CONFIG);
   expect(mergeConfigLayers({ charBudget: 4000 })).toEqual({ ...DEFAULT_CONFIG, charBudget: 4000 });

@@ -28,7 +28,7 @@
 // Types
 // ──────────────────────────────────────────────────────────────────────
 
-export const ROLEPLAY_KINDS = ['character', 'lore'] as const;
+export const ROLEPLAY_KINDS = ['character', 'lore', 'relationship', 'summary', 'timeline'] as const;
 export type RoleplayKind = (typeof ROLEPLAY_KINDS)[number];
 
 /** Selective-key combination logic for a lore entry's secondary keys. */
@@ -65,6 +65,34 @@ function cloneLoreMeta(m: LoreMeta): LoreMeta {
   return { ...m, triggers: [...m.triggers], secondaryKeys: [...m.secondaryKeys] };
 }
 
+/**
+ * Relationship metadata, present only on `relationship` entries
+ * (`RoleplayEntry.relationship`). Tracks how a pair feels about each
+ * other so a scene can pick up where it left off:
+ *   - `affinity`: 0-100 warmth/closeness. Model-rewritten as scenes
+ *     evolve; decays toward a neutral baseline while neglected (see
+ *     `relationship.ts`).
+ *   - `trust`: free-form qualitative label (e.g. `high`, `wary`).
+ *   - `lastInteraction`: ISO date (`YYYY-MM-DD`) of the last scene the
+ *     pair shared; the anchor the decay math measures from. Absent = no
+ *     decay applied.
+ *   - `openThreads`: dangling plot/relational threads to resume.
+ */
+export interface RelationshipMeta {
+  affinity: number;
+  trust: string;
+  lastInteraction?: string;
+  openThreads: string[];
+}
+
+export function emptyRelationshipMeta(): RelationshipMeta {
+  return { affinity: 50, trust: '', openThreads: [] };
+}
+
+function cloneRelationshipMeta(m: RelationshipMeta): RelationshipMeta {
+  return { ...m, openThreads: [...m.openThreads] };
+}
+
 export interface RoleplayEntry {
   /** Filename slug (sans `.md`). Stable identifier used by read/update/remove. */
   id: string;
@@ -73,6 +101,8 @@ export interface RoleplayEntry {
   description: string;
   /** Lorebook metadata; present iff `kind === 'lore'`. */
   lore?: LoreMeta;
+  /** Relationship metadata; present iff `kind === 'relationship'`. */
+  relationship?: RelationshipMeta;
 }
 
 export interface RoleplayState {
@@ -86,7 +116,10 @@ export function emptyState(cast = ''): RoleplayState {
 }
 
 export function cloneEntry(e: RoleplayEntry): RoleplayEntry {
-  return e.lore ? { ...e, lore: cloneLoreMeta(e.lore) } : { ...e };
+  const copy: RoleplayEntry = { ...e };
+  if (e.lore) copy.lore = cloneLoreMeta(e.lore);
+  if (e.relationship) copy.relationship = cloneRelationshipMeta(e.relationship);
+  return copy;
 }
 
 export function cloneState(s: RoleplayState): RoleplayState {
@@ -151,6 +184,8 @@ export interface Frontmatter {
   kind: RoleplayKind;
   /** Present iff `kind === 'lore'`. */
   lore?: LoreMeta;
+  /** Present iff `kind === 'relationship'`. */
+  relationship?: RelationshipMeta;
 }
 
 function stripQuotes(raw: string): string {
@@ -205,6 +240,22 @@ function parseLoreMeta(fields: Readonly<Record<string, string>>): LoreMeta {
   return meta;
 }
 
+/** Build relationship metadata from the raw frontmatter key->value map. All fields optional. */
+function parseRelationshipMeta(fields: Readonly<Record<string, string>>): RelationshipMeta {
+  const meta = emptyRelationshipMeta();
+  if (fields.affinity !== undefined) {
+    const n = Number.parseInt(fields.affinity.trim(), 10);
+    if (Number.isFinite(n)) meta.affinity = Math.min(100, Math.max(0, n));
+  }
+  if (fields.trust !== undefined) meta.trust = stripQuotes(fields.trust);
+  if (fields.lastInteraction !== undefined) {
+    const v = stripQuotes(fields.lastInteraction);
+    if (v.length > 0) meta.lastInteraction = v;
+  }
+  if (fields.openThreads !== undefined) meta.openThreads = parseInlineList(fields.openThreads);
+  return meta;
+}
+
 export interface ParsedRoleplayFile {
   frontmatter: Frontmatter;
   body: string;
@@ -251,6 +302,7 @@ export function parseFrontmatter(raw: string): ParsedRoleplayFile | null {
 
   const frontmatter: Frontmatter = { name, description, kind };
   if (kind === 'lore') frontmatter.lore = parseLoreMeta(fields);
+  if (kind === 'relationship') frontmatter.relationship = parseRelationshipMeta(fields);
 
   return { frontmatter, body: body.replace(/^\n+/, '') };
 }
@@ -268,6 +320,7 @@ export function serializeEntry(input: {
   kind: RoleplayKind;
   body: string;
   lore?: LoreMeta;
+  relationship?: RelationshipMeta;
 }): string {
   const body = input.body.replace(/\r\n/g, '\n').replace(/\s+$/, '');
   const lines = [
@@ -287,6 +340,13 @@ export function serializeEntry(input: {
     if (m.order !== 0) lines.push(`order: ${m.order}`);
     if (m.depth !== undefined) lines.push(`depth: ${m.depth}`);
     if (m.recurse) lines.push('recurse: true');
+  }
+  if (input.kind === 'relationship' && input.relationship) {
+    const m = input.relationship;
+    lines.push(`affinity: ${m.affinity}`);
+    if (m.trust.length > 0) lines.push(`trust: ${yamlValue(m.trust)}`);
+    if (m.lastInteraction !== undefined) lines.push(`lastInteraction: ${m.lastInteraction}`);
+    if (m.openThreads.length > 0) lines.push(`openThreads: [${m.openThreads.join(', ')}]`);
   }
   lines.push(FENCE, '', body, '');
   return lines.join('\n');
@@ -357,6 +417,9 @@ function groupByKind(entries: readonly RoleplayEntry[]): Map<RoleplayKind, Rolep
 const KIND_HEADING: Record<RoleplayKind, string> = {
   character: 'Characters',
   lore: 'Lore',
+  relationship: 'Relationships',
+  summary: 'Summaries',
+  timeline: 'Timeline',
 };
 
 /** Render the on-disk `INDEX.md` for a cast. Always predictable to skim. */

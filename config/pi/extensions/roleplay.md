@@ -3,11 +3,12 @@
 A cast-keyed durable store for roleplay scenarios, deliberately **separate** from the coding-agent
 [`memory`](./memory.md) extension so it can be turned off wholesale without touching the coding surface. Where `memory`
 keys durable notes on cwd / session, `roleplay` keys on **cast** - a character or ensemble that travels with you across
-workspaces. This implements Phases 1-4 of
+workspaces. This implements Phases 1-5 + 7A of
 [`plans/pi-roleplay-sillytavern.md`](../../../plans/pi-roleplay-sillytavern.md): the store + `character` records (Phase
-1), the keyword-triggered **lorebook** (`lore` records, Phase 2), the **SillyTavern card importer** (Phase 3), and
-**depth injection** (author's note + depth-tagged lore via the `context` event, Phase 4). Later phases add persona cast
-/ POV, relationship state, and auto-summarization.
+1), the keyword-triggered **lorebook** (`lore` records, Phase 2), the **SillyTavern card importer** (Phase 3), **depth
+injection** (author's note + depth-tagged lore via the `context` event, Phase 4), persona **scene fold** (`characters` /
+`pov`, Phase 5), and the **relationship / summary / timeline** record kinds with affinity decay (Phase 7A). Remaining
+phases add avatar sprites (Phase 6) and auto-summarization (Phase 7B).
 
 ## Activation gate
 
@@ -30,16 +31,22 @@ ${PI_ROLEPLAY_ROOT:-~/.pi/agent/roleplay}/
 └── casts/<cast-slug>/
     ├── INDEX.md            ← one-line-per-record index, tool-rebuilt; don't hand-edit
     ├── character/<slug>.md
-    └── lore/<slug>.md
+    ├── lore/<slug>.md
+    ├── relationship/<slug>.md
+    ├── summary/<slug>.md
+    └── timeline/<slug>.md
 ```
 
 Each record is a markdown file with strict three-key frontmatter (`name`, `description`, `kind`) plus a markdown body;
-`lore` records carry extra keyword/injection fields (see below). The coding `memory` tree (`~/.pi/agent/memory`) is a
-sibling and is never touched. Disk is the source of truth: on `session_start` / `session_tree` the extension scans the
-active cast and rebuilds its in-memory index; tool writes go straight to disk, then re-emit `INDEX.md`.
+`lore` records carry extra keyword/injection fields and `relationship` records carry affinity/trust fields (see below).
+The coding `memory` tree (`~/.pi/agent/memory`) is a sibling and is never touched. Disk is the source of truth: on
+`session_start` / `session_tree` the extension scans the active cast and rebuilds its in-memory index; tool writes go
+straight to disk, then re-emit `INDEX.md`.
 
 A `character` body holds voice, appearance, speech tics, hard constraints, first message, and example dialogue - the
-SillyTavern character-card fields. A `lore` body holds the world detail injected when its keywords fire.
+SillyTavern character-card fields. A `lore` body holds the world detail injected when its keywords fire. `summary` and
+`timeline` records are plain note records (a recap, a dated list of beats) with no extra frontmatter; `relationship`
+records are described below.
 
 ## Lorebook (`lore` kind)
 
@@ -123,6 +130,30 @@ Leave both unset and the extension keeps the index-only behaviour (backward comp
 `/persona opener [n]` prints the active persona's greeting lines (all numbered, or just entry `n`); see
 [`persona.md`](./persona.md).
 
+## Relationship state (`relationship` kind)
+
+A `relationship` record tracks how a pair feels about each other so a scene can resume where it left off. Extra
+frontmatter:
+
+```yaml
+kind: relationship
+affinity: 72 # 0-100 warmth/closeness; model-rewritten as scenes evolve
+trust: high # free-form qualitative label
+lastInteraction: 2026-06-07 # ISO date of the last shared scene; the decay anchor
+openThreads: [the unanswered dinner invite, her curiosity about the Doctor's past]
+```
+
+Affinity is not static. Left untouched it **drifts toward a neutral baseline** (default 50): a neglected warm bond
+cools, an old grudge softens. The drift is computed deterministically from wall-clock dates by
+[`relationship.ts`](../../../lib/node/pi/roleplay/relationship.ts) - `decayPerDay * whole-days-since(lastInteraction)`,
+clamped to `[0, 100]` and never overshooting the baseline. No decay applies when `lastInteraction` is missing,
+unparseable, or in the future, so the stored value is returned verbatim. The decay is a read-time projection; the stored
+`affinity` on disk only changes when the model rewrites the record.
+
+`summary` and `timeline` records are plain note records (no extra frontmatter): a `summary` body is a recap of a span; a
+`timeline` body is a dated list of beats. All three kinds surface in the cast index and are loaded on demand via
+`roleplay read <id>` like any other record. (Phase 7B will auto-write `summary` records as history is evicted.)
+
 ## The `roleplay` tool
 
 | Action   | Required                                  | Optional | Purpose                                        |
@@ -184,6 +215,8 @@ built-in default.
   "loreCharBudget": 4000, // fired-lore section cap (default 3000, floor 500)
   "maxRecursion": 1, // lorebook recursion passes, 0 = off (default 0, ceiling 2)
   "scanDepth": 10, // recent messages scanned for depth-tagged lore (default 10, max 100)
+  "relationshipDecayPerDay": 1, // affinity points drifted toward baseline per idle day (default 1, >=0)
+  "relationshipBaseline": 50, // neutral resting affinity decay converges to (default 50, 0-100)
 }
 ```
 
@@ -210,8 +243,8 @@ built-in default.
 Pure logic lives under [`../../../lib/node/pi/roleplay/`](../../../lib/node/pi/roleplay/) so it is vitest-testable
 without the pi runtime; this file holds only the pi-coupled glue + disk I/O.
 
-- [`store.ts`](../../../lib/node/pi/roleplay/store.ts) - types, frontmatter parse/serialize (incl. `lore` metadata),
-  index CRUD, `INDEX.md` + injected-block renderers, slugs.
+- [`store.ts`](../../../lib/node/pi/roleplay/store.ts) - types, frontmatter parse/serialize (incl. `lore` +
+  `relationship` metadata), index CRUD, `INDEX.md` + injected-block renderers, slugs.
 - [`paths.ts`](../../../lib/node/pi/roleplay/paths.ts) - on-disk layout + scan/read/write (node:fs only).
 - [`match.ts`](../../../lib/node/pi/roleplay/match.ts) - whole-word keyword matching + lore firing (triggers +
   AND/OR/NOT secondaries).
@@ -222,6 +255,8 @@ without the pi runtime; this file holds only the pi-coupled glue + disk I/O.
   for the `context` event.
 - [`scene.ts`](../../../lib/node/pi/roleplay/scene.ts) - resolve + fold full character sheets (`characters` / `pov`)
   into the `## Roleplay scene` block.
+- [`relationship.ts`](../../../lib/node/pi/roleplay/relationship.ts) - toward-baseline affinity decay (`decayAffinity`,
+  `daysElapsed`, `formatRelationshipLine`).
 - [`config.ts`](../../../lib/node/pi/roleplay/config.ts) - the `roleplay.json` config layer.
 - [`active.ts`](../../../lib/node/pi/roleplay/active.ts) - the cross-extension active-cast singleton.
 - [`usage.ts`](../../../lib/node/pi/roleplay/usage.ts) - the `/roleplay` USAGE string.

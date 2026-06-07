@@ -12,7 +12,8 @@
  * cap). Phase 2 adds `loreCharBudget` (the fired-lore section cap) and
  * `maxRecursion` (bounded lorebook recursion). Phase 4 adds `scanDepth`
  * (recent messages scanned for depth-injected lore in the `context`
- * event).
+ * event). Phase 7 adds `relationshipDecayPerDay` + `relationshipBaseline`
+ * (the toward-baseline affinity-decay convention; see `relationship.ts`).
  *
  * No pi imports.
  */
@@ -30,6 +31,10 @@ export interface RoleplayConfig {
   maxRecursion: number;
   /** Recent messages scanned for depth-injected lore in the `context` event (Phase 4). */
   scanDepth: number;
+  /** Affinity points a relationship decays toward `relationshipBaseline` per idle day (Phase 7). */
+  relationshipDecayPerDay: number;
+  /** Neutral resting affinity that decay converges to, 0-100 (Phase 7). */
+  relationshipBaseline: number;
 }
 
 /** Shipped defaults - lowest config layer. Parity with memory's 3000-char cap. */
@@ -38,6 +43,8 @@ export const DEFAULT_CONFIG: RoleplayConfig = {
   loreCharBudget: 3000,
   maxRecursion: 0,
   scanDepth: 10,
+  relationshipDecayPerDay: 1,
+  relationshipBaseline: 50,
 };
 
 /** Floor for the injected-block budgets so a tiny value can't blank them. */
@@ -62,6 +69,12 @@ export function coerceConfigLayer(raw: unknown): Partial<RoleplayConfig> {
   }
   if (typeof v.scanDepth === 'number' && Number.isFinite(v.scanDepth)) {
     out.scanDepth = Math.max(1, Math.min(MAX_SCAN_DEPTH, Math.floor(v.scanDepth)));
+  }
+  if (typeof v.relationshipDecayPerDay === 'number' && Number.isFinite(v.relationshipDecayPerDay)) {
+    out.relationshipDecayPerDay = Math.max(0, v.relationshipDecayPerDay);
+  }
+  if (typeof v.relationshipBaseline === 'number' && Number.isFinite(v.relationshipBaseline)) {
+    out.relationshipBaseline = Math.max(0, Math.min(100, Math.floor(v.relationshipBaseline)));
   }
   return out;
 }

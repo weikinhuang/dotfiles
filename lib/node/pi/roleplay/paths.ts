@@ -140,6 +140,7 @@ export function scanCast(
         name: parsed.frontmatter.name,
         description: parsed.frontmatter.description,
         ...(parsed.frontmatter.lore ? { lore: parsed.frontmatter.lore } : {}),
+        ...(parsed.frontmatter.relationship ? { relationship: parsed.frontmatter.relationship } : {}),
       });
     }
   }

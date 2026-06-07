@@ -49,6 +49,29 @@ test('scanCast parses well-formed files and reports the cast empty otherwise', (
   expect(entries).toEqual([{ id: 'exusiai', kind: 'character', name: 'Exusiai', description: 'd exusiai' }]);
 });
 
+test('scanCast carries relationship metadata onto the entry', () => {
+  atomicWriteFile(
+    fileFor('pl', 'relationship', 'pair', root),
+    serializeEntry({
+      name: 'Pair',
+      description: 'warm',
+      kind: 'relationship',
+      body: 'rapport',
+      relationship: { affinity: 80, trust: 'high', lastInteraction: '2026-06-01', openThreads: ['the invite'] },
+    }),
+  );
+  const { entries, warnings } = scanCast('pl', root);
+  expect(warnings).toEqual([]);
+  expect(entries).toHaveLength(1);
+  expect(entries[0].kind).toBe('relationship');
+  expect(entries[0].relationship).toStrictEqual({
+    affinity: 80,
+    trust: 'high',
+    lastInteraction: '2026-06-01',
+    openThreads: ['the invite'],
+  });
+});
+
 test('scanCast warns on malformed frontmatter without blinding the rest', () => {
   writeChar('pl', 'good', 'Good', 'ok');
   atomicWriteFile(fileFor('pl', 'character', 'bad', root), 'no frontmatter at all');

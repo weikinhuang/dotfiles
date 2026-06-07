@@ -75,9 +75,11 @@ import {
   cloneState,
   emptyState,
   emptyLoreMeta,
+  emptyRelationshipMeta,
   formatRoleplayBlock,
   formatText,
   type LoreMeta,
+  type RelationshipMeta,
   type RoleplayEntry,
   type RoleplayKind,
   type RoleplayState,
@@ -98,8 +100,9 @@ import { truncate } from '../../../lib/node/pi/shared.ts';
 const RoleplayParams = Type.Object({
   action: StringEnum(['list', 'read', 'save', 'update', 'remove', 'search'] as const),
   kind: Type.Optional(
-    StringEnum(['character', 'lore'] as const, {
-      description: 'Record kind. Defaults to `character`. Use `lore` for keyword-triggered World Info entries.',
+    StringEnum(['character', 'lore', 'relationship', 'summary', 'timeline'] as const, {
+      description:
+        "Record kind. Defaults to `character`. `lore` = keyword-triggered World Info; `relationship` = a pair's affinity/trust state; `summary` / `timeline` = recap and dated-beats notes.",
     }),
   ),
   id: Type.Optional(
@@ -156,6 +159,16 @@ const RoleplayParams = Type.Object({
       description: 'Lore only: opt in to having this entry body re-scanned to trigger further lore. Default false.',
     }),
   ),
+  affinity: Type.Optional(
+    Type.Number({ description: 'Relationship only: 0-100 warmth/closeness. Decays toward neutral while idle.' }),
+  ),
+  trust: Type.Optional(Type.String({ description: 'Relationship only: free-form trust label (e.g. `high`, `wary`).' })),
+  lastInteraction: Type.Optional(
+    Type.String({ description: 'Relationship only: ISO date (YYYY-MM-DD) of the last shared scene; decay anchor.' }),
+  ),
+  openThreads: Type.Optional(
+    Type.Array(Type.String(), { description: 'Relationship only: dangling threads to resume next scene.' }),
+  ),
 });
 
 interface RoleplayParamsT {
@@ -173,6 +186,10 @@ interface RoleplayParamsT {
   order?: number;
   depth?: number;
   recurse?: boolean;
+  affinity?: number;
+  trust?: string;
+  lastInteraction?: string;
+  openThreads?: string[];
 }
 
 interface RoleplayDetails {
@@ -278,6 +295,21 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
       if (d >= 0) meta.depth = d;
       else delete meta.depth;
     }
+    return meta;
+  };
+
+  /** Build relationship metadata from tool params, layered over an optional base (for updates). */
+  const buildRelationshipMeta = (params: RoleplayParamsT, base?: RelationshipMeta): RelationshipMeta => {
+    const meta: RelationshipMeta = base ? { ...base, openThreads: [...base.openThreads] } : emptyRelationshipMeta();
+    const clean = (xs: string[]): string[] => xs.map((x) => x.trim()).filter((x) => x.length > 0);
+    if (params.affinity !== undefined) meta.affinity = Math.min(100, Math.max(0, Math.floor(params.affinity)));
+    if (params.trust !== undefined) meta.trust = params.trust.trim();
+    if (params.lastInteraction !== undefined) {
+      const v = params.lastInteraction.trim();
+      if (v.length > 0) meta.lastInteraction = v;
+      else delete meta.lastInteraction;
+    }
+    if (params.openThreads !== undefined) meta.openThreads = clean(params.openThreads);
     return meta;
   };
 
@@ -475,11 +507,19 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
 
     const slug = chooseSlug(state.entries, params.name);
     const lore = kind === 'lore' ? buildLoreMeta(params) : undefined;
+    const relationship = kind === 'relationship' ? buildRelationshipMeta(params) : undefined;
     atomicWriteFile(
       fileFor(state.cast, kind, slug),
-      serializeEntry({ name: params.name.trim(), description, kind, body, lore }),
+      serializeEntry({ name: params.name.trim(), description, kind, body, lore, relationship }),
     );
-    const entry: RoleplayEntry = { id: slug, kind, name: params.name.trim(), description, ...(lore ? { lore } : {}) };
+    const entry: RoleplayEntry = {
+      id: slug,
+      kind,
+      name: params.name.trim(),
+      description,
+      ...(lore ? { lore } : {}),
+      ...(relationship ? { relationship } : {}),
+    };
     state = { cast: state.cast, entries: upsertEntry(state.entries, entry) };
     persist();
     return {
@@ -500,10 +540,22 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
       params.depth !== undefined ||
       params.recurse !== undefined;
     const loreOnly = resolved.kind === 'lore' && loreParamGiven;
-    if (params.name === undefined && params.description === undefined && params.body === undefined && !loreOnly) {
+    const relationshipParamGiven =
+      params.affinity !== undefined ||
+      params.trust !== undefined ||
+      params.lastInteraction !== undefined ||
+      params.openThreads !== undefined;
+    const relationshipOnly = resolved.kind === 'relationship' && relationshipParamGiven;
+    if (
+      params.name === undefined &&
+      params.description === undefined &&
+      params.body === undefined &&
+      !loreOnly &&
+      !relationshipOnly
+    ) {
       return fail(
         'update',
-        '`update` requires at least one of `name`, `description`, `body` (or lore fields for a lore entry)',
+        '`update` requires at least one of `name`, `description`, `body` (or kind-specific fields for a lore/relationship entry)',
       );
     }
     const nextName = params.name !== undefined ? params.name.trim() : resolved.name;
@@ -532,9 +584,20 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
       removeFileIfExists(fileFor(state.cast, resolved.kind, resolved.id));
     }
     const lore = resolved.kind === 'lore' ? buildLoreMeta(params, resolved.lore ?? emptyLoreMeta()) : undefined;
+    const relationship =
+      resolved.kind === 'relationship'
+        ? buildRelationshipMeta(params, resolved.relationship ?? emptyRelationshipMeta())
+        : undefined;
     atomicWriteFile(
       fileFor(state.cast, resolved.kind, nextId),
-      serializeEntry({ name: nextName, description: nextDescription, kind: resolved.kind, body: nextBody, lore }),
+      serializeEntry({
+        name: nextName,
+        description: nextDescription,
+        kind: resolved.kind,
+        body: nextBody,
+        lore,
+        relationship,
+      }),
     );
     const entry: RoleplayEntry = {
       id: nextId,
@@ -542,6 +605,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
       name: nextName,
       description: nextDescription,
       ...(lore ? { lore } : {}),
+      ...(relationship ? { relationship } : {}),
     };
     state = { cast: state.cast, entries: upsertEntry(entries, entry) };
     persist();
