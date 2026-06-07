@@ -25,6 +25,20 @@ export interface ActivePersonaSnapshot {
   readonly resolvedWriteRoots: readonly string[];
   readonly bashAllow: readonly string[];
   readonly bashDeny: readonly string[];
+  /** True when this persona opted into the roleplay extension (`roleplay: true`). */
+  readonly roleplay: boolean;
+  /** Cast slug override for the roleplay store; defaults to the persona name. */
+  readonly cast?: string;
+  /** Character names / ids whose full sheets fold into the scene block. */
+  readonly characters?: readonly string[];
+  /** The character the human plays; announced + folded last in the scene block. */
+  readonly pov?: string;
+  /** Greeting lines surfaced via `/persona opener`. */
+  readonly openers?: readonly string[];
+  /** Standing author's note injected at conversational depth by the roleplay extension. */
+  readonly authorNote?: string;
+  /** Depth (messages from the end) for `authorNote`. Default applied by the consumer. */
+  readonly authorNoteDepth?: number;
 }
 
 import { createGlobalSlot } from '../global-slot.ts';
@@ -40,6 +54,13 @@ export interface ActivePersonaInput {
   resolvedWriteRoots: readonly string[];
   bashAllow?: readonly string[];
   bashDeny?: readonly string[];
+  roleplay?: boolean;
+  cast?: string;
+  characters?: readonly string[];
+  pov?: string;
+  openers?: readonly string[];
+  authorNote?: string;
+  authorNoteDepth?: number;
 }
 
 export function setActivePersona(snapshot: ActivePersonaInput | undefined): void {
@@ -53,6 +74,13 @@ export function setActivePersona(snapshot: ActivePersonaInput | undefined): void
     resolvedWriteRoots: Object.freeze([...snapshot.resolvedWriteRoots]),
     bashAllow: Object.freeze([...(snapshot.bashAllow ?? [])]),
     bashDeny: Object.freeze([...(snapshot.bashDeny ?? [])]),
+    roleplay: snapshot.roleplay ?? false,
+    cast: snapshot.cast,
+    characters: snapshot.characters,
+    pov: snapshot.pov,
+    openers: snapshot.openers,
+    authorNote: snapshot.authorNote,
+    authorNoteDepth: snapshot.authorNoteDepth,
   };
 }
 

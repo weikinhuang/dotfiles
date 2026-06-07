@@ -359,6 +359,12 @@ export default function personaExtension(pi: ExtensionAPI): void {
     bodyLength: a.parsed.body.length,
     promptLength: a.systemPromptAddendum.length,
     systemPromptOverrideLength: a.systemPromptOverride?.length,
+    roleplay: a.parsed.roleplay,
+    cast: a.parsed.cast,
+    characters: a.parsed.characters,
+    pov: a.parsed.pov,
+    openers: a.parsed.openers,
+    hasAuthorNote: Boolean(a.parsed.authorNote && a.parsed.authorNote.trim().length > 0),
   });
 
   // ────────────────────────────────────────────────────────────────────
@@ -441,6 +447,13 @@ export default function personaExtension(pi: ExtensionAPI): void {
       resolvedWriteRoots: resolved.resolvedWriteRoots,
       bashAllow: resolved.parsed.bashAllow,
       bashDeny: resolved.parsed.bashDeny,
+      roleplay: resolved.parsed.roleplay,
+      cast: resolved.parsed.cast,
+      characters: resolved.parsed.characters,
+      pov: resolved.parsed.pov,
+      openers: resolved.parsed.openers,
+      authorNote: resolved.parsed.authorNote,
+      authorNoteDepth: resolved.parsed.authorNoteDepth,
     });
     updateStatus(ctx);
     pi.appendEntry(CUSTOM_TYPE, { name });
@@ -645,6 +658,7 @@ export default function personaExtension(pi: ExtensionAPI): void {
       }));
       items.push({ value: 'off', label: 'off', description: 'Clear persona, restore prior state' });
       items.push({ value: 'info', label: 'info', description: 'Print resolved persona (info <name>)' });
+      items.push({ value: 'opener', label: 'opener', description: 'Show active persona openers (opener [n])' });
       const filtered = items.filter((i) => i.value.startsWith(prefix));
       return filtered.length > 0 ? filtered : null;
     },
@@ -684,6 +698,31 @@ export default function personaExtension(pi: ExtensionAPI): void {
         }
         const lines = formatPersonaInfoLines(toPersonaInfoInput(name, resolved));
         ctx.ui.notify(lines.join('\n'), 'info');
+        return;
+      }
+      if (arg === 'opener' || arg.startsWith('opener ')) {
+        if (!activeName) {
+          ctx.ui.notify('persona opener: no active persona', 'warning');
+          return;
+        }
+        const resolved = resolveActive(activeName, ctx);
+        const openers = resolved?.parsed.openers ?? [];
+        if (openers.length === 0) {
+          ctx.ui.notify(`persona opener: "${activeName}" declares no openers`, 'warning');
+          return;
+        }
+        const rest = arg.slice('opener'.length).trim();
+        if (rest.length === 0) {
+          const list = openers.map((o, i) => `${i + 1}. ${o}`);
+          ctx.ui.notify([`persona "${activeName}" openers:`, ...list].join('\n'), 'info');
+          return;
+        }
+        const n = Number.parseInt(rest, 10);
+        if (!Number.isInteger(n) || n < 1 || n > openers.length) {
+          ctx.ui.notify(`persona opener: pick 1-${openers.length}`, 'warning');
+          return;
+        }
+        ctx.ui.notify(openers[n - 1], 'info');
         return;
       }
       const target = personas[arg];

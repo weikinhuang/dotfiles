@@ -14,6 +14,7 @@ const snapshot = (overrides: Partial<ActivePersonaSnapshot> = {}): ActivePersona
   resolvedWriteRoots: overrides.resolvedWriteRoots ?? [],
   bashAllow: overrides.bashAllow ?? [],
   bashDeny: overrides.bashDeny ?? [],
+  roleplay: overrides.roleplay ?? false,
 });
 
 describe('personaVouchBash', () => {

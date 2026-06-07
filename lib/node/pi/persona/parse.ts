@@ -37,6 +37,13 @@ export interface PersonaFrontmatterRaw extends Record<string, unknown> {
   appendSystemPrompt?: unknown;
   systemPromptOverride?: unknown;
   requestOptions?: unknown;
+  roleplay?: unknown;
+  cast?: unknown;
+  characters?: unknown;
+  pov?: unknown;
+  openers?: unknown;
+  authorNote?: unknown;
+  authorNoteDepth?: unknown;
 }
 
 /**
@@ -66,6 +73,38 @@ export interface ParsedPersona {
   systemPromptOverride?: string;
   /** Free-form deep-merge into the outgoing provider payload. See `lib/node/pi/request-options.ts`. */
   requestOptions?: RequestOptionsConfig;
+  /**
+   * Opt-in master switch for the `roleplay` extension. The roleplay
+   * tool, cast resolution, and the `## Roleplay` system-prompt block are
+   * dormant unless the active persona sets `roleplay: true`. Keeps the
+   * feature off for coding personas and persona-as-subagent uses.
+   */
+  roleplay: boolean;
+  /**
+   * Optional cast slug for the roleplay store. Defaults to the persona
+   * name when `roleplay` is true and `cast` is omitted.
+   */
+  cast?: string;
+  /**
+   * Character names / ids (from the active cast) whose full body sheets
+   * fold into the system prompt for the scene. Order is preserved. Inert
+   * unless `roleplay` is true; missing names are warn-dropped by the
+   * roleplay extension.
+   */
+  characters?: string[];
+  /** The character the human plays; announced + folded last in the scene block. */
+  pov?: string;
+  /** Greeting lines surfaced via `/persona opener [n]`; not injected. */
+  openers?: string[];
+  /**
+   * Optional author's note - a short standing instruction the roleplay
+   * extension injects at conversational depth (not the system prompt) via
+   * the `context` event, recomputed each turn. Inert unless `roleplay` is
+   * true and the depth-injection aspect is enabled.
+   */
+  authorNote?: string;
+  /** Depth (messages from the end) at which `authorNote` is inserted. Default 4. */
+  authorNoteDepth?: number;
   body: string;
   /** Absolute path of the source file. */
   source: string;
@@ -206,6 +245,28 @@ export function parsePersonaFile(opts: ParsePersonaOptions): ParsedPersona | nul
   const appendSystemPrompt = toStringOrUndefined(fm.appendSystemPrompt);
   const systemPromptOverride = toStringOrUndefined(fm.systemPromptOverride);
 
+  // roleplay: opt-in boolean. A non-boolean value is a config error.
+  let roleplay = false;
+  if (fm.roleplay !== undefined) {
+    if (typeof fm.roleplay === 'boolean') roleplay = fm.roleplay;
+    else warnings.push({ path, reason: `\`roleplay\` must be a boolean (got ${typeof fm.roleplay})` });
+  }
+  const cast = toStringOrUndefined(fm.cast);
+  const characters =
+    fm.characters !== undefined ? toStringArray(fm.characters, 'characters', path, warnings) : undefined;
+  const pov = toStringOrUndefined(fm.pov);
+  const openers = fm.openers !== undefined ? toStringArray(fm.openers, 'openers', path, warnings) : undefined;
+
+  const authorNote = toStringOrUndefined(fm.authorNote);
+  let authorNoteDepth: number | undefined;
+  if (fm.authorNoteDepth !== undefined) {
+    if (typeof fm.authorNoteDepth === 'number' && Number.isFinite(fm.authorNoteDepth) && fm.authorNoteDepth >= 0) {
+      authorNoteDepth = Math.floor(fm.authorNoteDepth);
+    } else {
+      warnings.push({ path, reason: '`authorNoteDepth` must be a non-negative number' });
+    }
+  }
+
   const requestOptions = parseRequestOptions(fm.requestOptions, (reason) => warnings.push({ path, reason }));
 
   return {
@@ -221,6 +282,13 @@ export function parsePersonaFile(opts: ParsePersonaOptions): ParsedPersona | nul
     appendSystemPrompt,
     systemPromptOverride,
     requestOptions,
+    roleplay,
+    cast,
+    characters,
+    pov,
+    openers,
+    authorNote,
+    authorNoteDepth,
     body: parsed.body,
     source: path,
     sourceLayer: source,

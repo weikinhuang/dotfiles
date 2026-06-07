@@ -53,6 +53,29 @@ describe('formatPersonaInfoLines', () => {
     ]);
   });
 
+  test('roleplay on → appends the roleplay scene summary lines', () => {
+    const lines = formatPersonaInfoLines(
+      baseInput({
+        roleplay: true,
+        cast: 'penguin-logistics',
+        characters: ['Exusiai', 'Texas'],
+        pov: 'Doctor',
+        openers: ['Hi!', 'Yo.'],
+        hasAuthorNote: true,
+      }),
+    );
+    expect(lines).toContain('  roleplay:      on (cast: penguin-logistics)');
+    expect(lines).toContain('  characters:    Exusiai, Texas');
+    expect(lines).toContain('  pov:           Doctor');
+    expect(lines).toContain('  openers:       2');
+    expect(lines).toContain('  authorNote:    set');
+  });
+
+  test('roleplay off → no roleplay lines', () => {
+    const lines = formatPersonaInfoLines(baseInput());
+    expect(lines.some((l) => l.startsWith('  roleplay:'))).toBe(false);
+  });
+
   test('systemPromptOverrideLength set → renders override + char count', () => {
     const lines = formatPersonaInfoLines(baseInput({ systemPromptOverrideLength: 256 }));
 

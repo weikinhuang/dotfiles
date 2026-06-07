@@ -13,6 +13,7 @@ function baseMode(over: Partial<ParsedPersona> = {}): ParsedPersona {
     writeRoots: [],
     bashAllow: [],
     bashDeny: [],
+    roleplay: false,
     body: '',
     source: '/modes/plan.md',
     sourceLayer: 'shipped',

@@ -106,6 +106,29 @@ describe('active-persona singleton', () => {
       resolvedWriteRoots: ['/repo/reviews/'],
       bashAllow: [],
       bashDeny: [],
+      roleplay: false,
     });
+  });
+
+  test('copies the roleplay scene fields (cast / characters / pov / openers / authorNote)', () => {
+    setActivePersona({
+      name: 'exusiai',
+      resolvedWriteRoots: [],
+      roleplay: true,
+      cast: 'penguin-logistics',
+      characters: ['Exusiai', 'Texas'],
+      pov: 'Doctor',
+      openers: ['Hi!'],
+      authorNote: 'stay cheerful',
+      authorNoteDepth: 2,
+    });
+    const snap = getActivePersona();
+    expect(snap?.roleplay).toBe(true);
+    expect(snap?.cast).toBe('penguin-logistics');
+    expect(snap?.characters).toEqual(['Exusiai', 'Texas']);
+    expect(snap?.pov).toBe('Doctor');
+    expect(snap?.openers).toEqual(['Hi!']);
+    expect(snap?.authorNote).toBe('stay cheerful');
+    expect(snap?.authorNoteDepth).toBe(2);
   });
 });

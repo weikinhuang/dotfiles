@@ -62,6 +62,14 @@ export interface PersonaInfoInput {
    * the persona keeps pi's default base prompt (the common case).
    */
   readonly systemPromptOverrideLength?: number;
+  /** Roleplay activation flag; the fields below render only when true. */
+  readonly roleplay?: boolean;
+  readonly cast?: string;
+  readonly characters?: readonly string[];
+  readonly pov?: string;
+  readonly openers?: readonly string[];
+  /** Whether the persona declares an author's note (content elided). */
+  readonly hasAuthorNote?: boolean;
 }
 
 /**
@@ -96,6 +104,15 @@ export function formatPersonaInfoLines(input: PersonaInfoInput): string[] {
     }`,
     `  body length:   ${input.bodyLength} chars`,
     `  prompt length: ${input.promptLength} chars`,
+    ...(input.roleplay
+      ? [
+          `  roleplay:      on (cast: ${input.cast ?? '(persona name)'})`,
+          `  characters:    ${input.characters && input.characters.length > 0 ? input.characters.join(', ') : '(index only)'}`,
+          `  pov:           ${input.pov ?? '(none)'}`,
+          `  openers:       ${input.openers?.length ?? 0}`,
+          `  authorNote:    ${input.hasAuthorNote ? 'set' : '(none)'}`,
+        ]
+      : []),
   ];
 }
 

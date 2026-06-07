@@ -116,6 +116,75 @@ describe('parsePersonaFile', () => {
     expect(result?.requestOptions).toBeUndefined();
   });
 
+  test('roleplay absent → false, cast undefined, no warnings', () => {
+    const { result, warnings } = run({ name: 'm' });
+
+    expect(warnings).toEqual([]);
+    expect(result?.roleplay).toBe(false);
+    expect(result?.cast).toBeUndefined();
+  });
+
+  test('roleplay true + cast → parsed through', () => {
+    const { result, warnings } = run({ name: 'm', roleplay: true, cast: 'penguin-logistics' });
+
+    expect(warnings).toEqual([]);
+    expect(result?.roleplay).toBe(true);
+    expect(result?.cast).toBe('penguin-logistics');
+  });
+
+  test('non-boolean roleplay → warning, defaults to false', () => {
+    const { result, warnings } = run({ name: 'm', roleplay: 'yes' });
+
+    expect(result?.roleplay).toBe(false);
+    expect(warnings.some((w) => w.reason.includes('`roleplay` must be a boolean'))).toBe(true);
+  });
+
+  test('authorNote + authorNoteDepth parsed through', () => {
+    const { result, warnings } = run({ name: 'm', roleplay: true, authorNote: 'stay in voice', authorNoteDepth: 2 });
+
+    expect(warnings).toEqual([]);
+    expect(result?.authorNote).toBe('stay in voice');
+    expect(result?.authorNoteDepth).toBe(2);
+  });
+
+  test('authorNote absent → undefined; bad authorNoteDepth → warning', () => {
+    const absent = run({ name: 'm' });
+    expect(absent.result?.authorNote).toBeUndefined();
+    expect(absent.result?.authorNoteDepth).toBeUndefined();
+
+    const bad = run({ name: 'm', authorNoteDepth: -3 });
+    expect(bad.result?.authorNoteDepth).toBeUndefined();
+    expect(bad.warnings.some((w) => w.reason.includes('`authorNoteDepth` must be a non-negative number'))).toBe(true);
+  });
+
+  test('characters / pov / openers parsed through', () => {
+    const { result, warnings } = run({
+      name: 'm',
+      roleplay: true,
+      characters: ['Exusiai', 'Texas'],
+      pov: 'Doctor',
+      openers: ['Hello there.', 'Welcome back.'],
+    });
+    expect(warnings).toEqual([]);
+    expect(result?.characters).toEqual(['Exusiai', 'Texas']);
+    expect(result?.pov).toBe('Doctor');
+    expect(result?.openers).toEqual(['Hello there.', 'Welcome back.']);
+  });
+
+  test('characters absent → undefined; non-array → warning; non-string entries dropped', () => {
+    const absent = run({ name: 'm' });
+    expect(absent.result?.characters).toBeUndefined();
+    expect(absent.result?.openers).toBeUndefined();
+
+    const bad = run({ name: 'm', characters: 'Exusiai' });
+    expect(bad.result?.characters).toBeUndefined();
+    expect(bad.warnings.some((w) => w.reason.includes('`characters` must be an array of strings'))).toBe(true);
+
+    const mixed = run({ name: 'm', openers: ['ok', 42] });
+    expect(mixed.result?.openers).toEqual(['ok']);
+    expect(mixed.warnings.some((w) => w.reason.includes('`openers` entry'))).toBe(true);
+  });
+
   test('requestOptions object → forwarded verbatim', () => {
     const { result, warnings } = run({
       name: 'm',
