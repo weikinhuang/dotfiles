@@ -61,7 +61,7 @@ import { appendFileSync } from 'node:fs';
 
 import { type ExtensionAPI, type ExtensionContext } from '@earendil-works/pi-coding-agent';
 
-import { readJsonOrUndefined } from '../../../lib/node/pi/fs-safe.ts';
+import { readJsoncOrUndefined } from '../../../lib/node/pi/fs-safe.ts';
 import { envTruthy, parseOptionalPositiveInt } from '../../../lib/node/pi/parse-env.ts';
 import { piAgentPath, piProjectPath } from '../../../lib/node/pi/pi-paths.ts';
 
@@ -132,7 +132,7 @@ function loadSettingsBudgets(): Partial<Record<Level, number>> {
   // Project-local overrides global; parse global first, then overlay project.
   const merged: Partial<Record<Level, number>> = {};
   for (const path of [piAgentPath('settings.json'), piProjectPath(process.cwd(), 'settings.json')]) {
-    const parsed = readJsonOrUndefined(path);
+    const parsed = readJsoncOrUndefined(path);
     if (!parsed || typeof parsed !== 'object') continue;
     const tb = (parsed as { thinkingBudgets?: unknown }).thinkingBudgets;
     Object.assign(merged, parseBudgets(tb));
@@ -144,7 +144,7 @@ function loadProviderInjections(): Map<string, InjectionConfig> {
   const out = new Map<string, InjectionConfig>();
   // Global first, then project - project wins by being applied last.
   for (const path of [piAgentPath('models.json'), piProjectPath(process.cwd(), 'models.json')]) {
-    const parsed = readJsonOrUndefined(path);
+    const parsed = readJsoncOrUndefined(path);
     if (!parsed || typeof parsed !== 'object') continue;
     const providers = (parsed as { providers?: Record<string, unknown> }).providers;
     if (!providers || typeof providers !== 'object') continue;
