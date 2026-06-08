@@ -13,6 +13,18 @@ root [AGENTS.md](../../../AGENTS.md) for repo-wide rules; this file documents on
 - `npm run tsc` - type-checks every helper imported by these extensions. The `.ts` extension files themselves are
   excluded from the root `tsconfig.json` (they resolve `@earendil-works/*` via pi's globally-installed package, which
   the root TS project doesn't know about), so type errors for extension shells only surface at runtime.
+- `pi -p "<scenario>" --no-session` - smoke-test actual extension behaviour headless. Add `--model <provider/id>` to run
+  against a local small/weak model (the harder tool-call-precision case); omit it to use the current model. Headless
+  `-p` loads the latest code on launch; in a live session run `/reload` after editing a `.ts`. See the
+  `pi-extension-authoring` skill for the positive / negative / idempotency scenarios to exercise.
+- Multi-turn headless: drive one long-lived `pi --mode rpc` process (feed JSONL `prompt` commands via a `bg_bash`
+  `interactiveStdin` job; watch for the `agent_end` event per turn) - it keeps context in-process and uses pipes (no
+  socket, so the sandbox is a non-issue). For shell scripts, respawn `pi --session-dir <tmp> --session-id <id> -p "..."`
+  instead (resumes the persisted session each call; can't combine with `--no-session`). Full recipes in the skill.
+- TUI surfaces (statusline, widgets, avatar, keybindings) never render under `-p`: drive them in a detached tmux pane
+  via `tmux -S <sock> new-session -d "pi ..."` + `send-keys` / `capture-pane`. On Linux the `sandbox` extension blocks
+  tmux's socket, so ask the user to `/sandbox-disable` for the session first (do **not** set `unixSockets.allowAll`).
+  Full recipe in the `pi-extension-authoring` skill.
 
 ## Key patterns
 

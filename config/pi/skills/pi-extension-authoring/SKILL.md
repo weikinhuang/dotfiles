@@ -64,7 +64,7 @@ The robustness machinery in every extension carries the load across model tiers.
 
 ## Tiny-model usage is opt-in and non-load-bearing
 
-If the extension uses a local tiny model (e.g. `llama-cpp/qwen3-6-35b-a3b`) for a subtask:
+If the extension uses a local tiny model (e.g. a small quantized local model) for a subtask:
 
 - Route through `runOneShotAgent` (or a `tiny-helper` subagent) - never embed the model id directly.
 - Gate via a setting that defaults off. When the tiny model is disabled or unavailable, the extension falls back to
@@ -88,15 +88,16 @@ The `.md` file is the reference, not a tutorial. Mirror the shape of existing do
 
 Update `config/pi/extensions/README.md`'s index table in the same commit.
 
-## Smoke-testing against qwen3
+## Smoke-testing against a local small model
 
-After shipping a nudge / detection / guardrail, smoke-test against the local tiny model to confirm it behaves sensibly
-when tool-call precision is weak:
+After shipping a nudge / detection / guardrail, smoke-test against a local small / weak model to confirm it behaves
+sensibly when tool-call precision is weak:
 
 ```bash
-unset HTTP_PROXY HTTPS_PROXY   # undici rejects socks5h:// during pi startup
-pi -p "<scenario prompt>" --model llama-cpp/qwen3-6-35b-a3b --no-session
+pi -p "<scenario prompt>" --model <provider/local-small-model> --no-session
 ```
+
+Use whatever local small/weak model your setup runs; omit `--model` to smoke against the current model instead.
 
 Scenarios to exercise:
 
@@ -106,9 +107,68 @@ Scenarios to exercise:
   retry.
 
 For visual / critic extensions that call a critic subagent, confirm the critic can attach images (`read <png>`
-auto-attaches on recognized extensions - `png`, `jpg`, `gif`, `webp`).
+auto-attaches on recognized extensions - `png`, `jpg`, `gif`, `webp`). Render SVGs to PNG with whatever rasterizer your
+machine has (`rsvg-convert` or `magick`).
 
-See the memory `local-qwen3-6-35b-a3b-vision-model-for-pi-testing` for the full invocation including the proxy unset.
+Record your own setup's specifics - the exact local model id, any proxy caveat, the installed SVG rasterizer - in a
+personal note or memory rather than here, so this doc stays portable for anyone cloning the repo.
+
+### Multi-turn headless
+
+A single `pi -p` is one turn. To drive a real multi-turn conversation headless (e.g. a guardrail that should fire on
+turn 2, or summary / affinity state that accrues across turns) there are two ways:
+
+**RPC mode - preferred when an agent is driving the test.** One long-lived `pi --mode rpc` process takes JSONL `prompt`
+commands on stdin and streams events back as JSON lines on stdout. From inside pi, start it as a `bg_bash` job with
+`interactiveStdin: true`, write one command per turn, and watch for the `agent_end` event that marks each turn done:
+
+```text
+pi --mode rpc --model <provider/local-small-model> --no-session
+# write to stdin, one JSON object per line:
+{"id":"t1","type":"prompt","message":"turn 1"}
+{"id":"t2","type":"prompt","message":"turn 2"}   # same process, remembers turn 1
+```
+
+Context lives in the process for its lifetime, so `--no-session` is fine. It uses stdin / stdout pipes (no unix socket),
+so the sandbox caveat below does not apply. Wait for `agent_end` before sending the next prompt; to enqueue while the
+agent is still streaming, add `"streamingBehavior":"steer"` (delivered after the current tool calls) or `"followUp"`
+(delivered when the agent stops). Shut down with SIGTERM. Full protocol: `docs/rpc.md` in the pi clone.
+
+**Session reuse - good for shell scripts / CI.** Respawn `pi -p` against a persisted session:
+
+```bash
+DIR=$(mktemp -d)
+pi --session-dir "$DIR" --session-id smoke -p "turn 1" --model <provider/local-small-model>
+pi --session-dir "$DIR" --session-id smoke -p "turn 2"   # resumes the same session, sees turn 1
+rm -rf "$DIR"
+```
+
+`--session-id <id>` opens the session when one with that exact id already exists in the project, otherwise creates it;
+it cannot be combined with `--no-session`. A throwaway `--session-dir` keeps the test isolated and easy to clean up.
+(`-c` / `--continue` also continues a conversation, but it picks the most-recent session non-deterministically - prefer
+`--session-id` for scripted tests.)
+
+### Driving the TUI with tmux
+
+Interactive surfaces (statusline, header / footer widgets, avatar, keybindings) never render under `-p`. Script the TUI
+in a detached tmux pane and assert on the captured screen:
+
+```bash
+SOCK=./.pi-tui-sock                                       # socket path under cwd or /tmp
+tmux -S "$SOCK" new-session -d -x 120 -y 40 -s t "pi --model <provider/local-small-model>"
+sleep 8                                                   # let the TUI boot
+tmux -S "$SOCK" capture-pane -p -t t                      # read the rendered screen
+tmux -S "$SOCK" send-keys -t t "your prompt" Enter        # type + submit
+sleep <model-latency>
+tmux -S "$SOCK" capture-pane -p -t t                      # assert on the response / widget
+tmux -S "$SOCK" send-keys -t t C-p                        # exercise keybindings, slash commands, etc.
+tmux -S "$SOCK" kill-server                               # clean up
+```
+
+Sandbox caveat (Linux): the `sandbox` extension's seccomp filter blocks tmux's unix socket, and the `unixSockets.allow`
+path list is ignored on Linux (seccomp can't match by path). When you are about to run a tmux TUI test, ask the user to
+disable the sandbox for the session (`/sandbox-disable`, or relaunch with `PI_SANDBOX_DISABLED=1`) - do **not** enable
+`unixSockets.allowAll`, which would relax socket isolation for the whole session.
 
 ## Wiring into settings-baseline.json
 
@@ -148,7 +208,7 @@ Add an entry under `extensions`:
 4. Vitest spec under `tests/lib/node/pi/`. `npm test` passes.
 5. Entry added to `extensions` array in `settings-baseline.json`.
 6. Row added to `config/pi/extensions/README.md` index table.
-7. `PI_<NAME>_DISABLED` env var supported; smoke-tested with qwen3.
+7. `PI_<NAME>_DISABLED` env var supported; smoke-tested against a local small model.
 8. `./dev/lint-shell.sh` passes for any shell files touched.
 9. If a companion skill teaches WHEN to use this tool, add it under `config/pi/skills/<name>/SKILL.md` and cross-link
    from the `.md` and `README-skills.md`.
