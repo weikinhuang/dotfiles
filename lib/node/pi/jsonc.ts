@@ -1,7 +1,13 @@
 /**
- * Tiny JSONC parser: JSON plus `//` line comments and C-style block
- * comments. Trailing commas are NOT supported - keep your hand-edited
- * rule files strict so `git diff` stays clean.
+ * Tiny JSONC parser: JSON plus `//` line comments, C-style block
+ * comments, and trailing commas before `}` / `]`. Trailing-comma
+ * tolerance mirrors pi's own config parser (`dist/utils/json.js`) so
+ * this repo reads the exact `models.json` / `settings.json` files pi
+ * accepts - a stricter parser here would silently no-op on a file pi
+ * considers valid (see `llama-thinking-budget`). The standalone
+ * {@link stripJsonComments} still removes comments only; trailing-comma
+ * removal lives in {@link stripTrailingCommas} and is applied by
+ * {@link parseJsonc}.
  *
  * Designed to be zero-dep, small enough to audit, and to preserve line
  * numbers across stripped comments so that `JSON.parse` errors point at
@@ -89,11 +95,27 @@ export function stripJsonComments(text: string): string {
 }
 
 /**
- * Parse a JSONC string. Equivalent to `JSON.parse(stripJsonComments(text))`.
- * Throws the same `SyntaxError` shape as `JSON.parse` on malformed input.
+ * Remove trailing commas that sit immediately before a `}` or `]`
+ * (ignoring intervening whitespace). String literals are matched first
+ * by the alternation so a `,}` inside a string (`{"a":"x,}"}`) is left
+ * untouched. Mirrors pi's `stripJsonComments` trailing-comma pass.
+ *
+ * Run this AFTER {@link stripJsonComments} so a comment body containing
+ * `,}` has already been removed and can't be mistaken for a trailing
+ * comma.
+ */
+export function stripTrailingCommas(text: string): string {
+  return text.replace(/"(?:\\.|[^"\\])*"|,(\s*[}\]])/g, (m: string, tail: string | undefined) => tail ?? m);
+}
+
+/**
+ * Parse a JSONC string. Equivalent to
+ * `JSON.parse(stripTrailingCommas(stripJsonComments(text)))`: strips
+ * `//` + block comments, then removes trailing commas. Throws the same
+ * `SyntaxError` shape as `JSON.parse` on malformed input.
  */
 export function parseJsonc<T = unknown>(text: string): T {
-  return JSON.parse(stripJsonComments(text)) as T;
+  return JSON.parse(stripTrailingCommas(stripJsonComments(text))) as T;
 }
 
 /**

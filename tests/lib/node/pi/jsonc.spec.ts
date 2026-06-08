@@ -16,6 +16,7 @@ import {
   parseJsonc,
   readJsoncForMutation,
   stripJsonComments,
+  stripTrailingCommas,
   tryReadJsoncFile,
 } from '../../../../lib/node/pi/jsonc.ts';
 import { writeJsonFile } from '../../../../lib/node/pi/atomic-write.ts';
@@ -93,6 +94,29 @@ test('stripJsonComments: adjacent comments', () => {
 });
 
 // ──────────────────────────────────────────────────────────────────────
+// stripTrailingCommas
+// ──────────────────────────────────────────────────────────────────────
+
+test('stripTrailingCommas: removes a comma before } or ]', () => {
+  expect(stripTrailingCommas('{"a": 1,}')).toBe('{"a": 1}');
+  expect(stripTrailingCommas('[1, 2,]')).toBe('[1, 2]');
+});
+
+test('stripTrailingCommas: ignores intervening whitespace and newlines', () => {
+  expect(stripTrailingCommas('{"a": 1,\n  }')).toBe('{"a": 1\n  }');
+});
+
+test('stripTrailingCommas: leaves non-trailing commas alone', () => {
+  expect(stripTrailingCommas('{"a": 1, "b": 2}')).toBe('{"a": 1, "b": 2}');
+  expect(stripTrailingCommas('[1, 2, 3]')).toBe('[1, 2, 3]');
+});
+
+test('stripTrailingCommas: a `,}` inside a string literal is NOT touched', () => {
+  expect(stripTrailingCommas('{"a": "x,}"}')).toBe('{"a": "x,}"}');
+  expect(stripTrailingCommas('{"a": "y,]"}')).toBe('{"a": "y,]"}');
+});
+
+// ──────────────────────────────────────────────────────────────────────
 // parseJsonc (end-to-end)
 // ──────────────────────────────────────────────────────────────────────
 
@@ -123,11 +147,20 @@ test('parseJsonc: realistic rule file with commentary', () => {
 });
 
 test('parseJsonc: propagates SyntaxError from malformed JSON', () => {
-  // Trailing commas are NOT supported - verify they still throw, so a
-  // future decision to allow them is a deliberate opt-in.
-  expect(() => parseJsonc('{"a": 1,}')).toThrow(SyntaxError);
-  // Genuinely broken input also throws.
+  // Genuinely broken input throws.
   expect(() => parseJsonc('{"a": }')).toThrow(SyntaxError);
+  expect(() => parseJsonc('{"a" 1}')).toThrow(SyntaxError);
+});
+
+test('parseJsonc: tolerates trailing commas (mirrors pi config parser)', () => {
+  // pi's own stripJsonComments strips trailing commas, so this repo must
+  // too - otherwise extensions that re-read models.json / settings.json
+  // silently no-op on a file pi considers valid.
+  expect(parseJsonc('{"a": 1,}')).toEqual({ a: 1 });
+  expect(parseJsonc('[1, 2, 3,]')).toEqual([1, 2, 3]);
+  expect(parseJsonc('{"a": [1, 2,], "b": 2,}')).toEqual({ a: [1, 2], b: 2 });
+  // Trailing comma after a nested object, with a comment in between.
+  expect(parseJsonc('{\n  "a": { "x": 1 }, // last\n}')).toEqual({ a: { x: 1 } });
 });
 
 test('parseJsonc: parse-error line numbers line up with original source', () => {
