@@ -13,6 +13,13 @@
  *      avatar to that emotion sprite for `emoteHoldMs`, overriding the
  *      activity animation. This reuses the `color-tags` rewrite/scrub
  *      pattern (`before_agent_start` + `message_update` + `context`).
+ *      When an assistant message finalizes (`message_end`) the stripped
+ *      emotes are persisted as an `avatar-emote` custom session entry (so
+ *      a transcript still shows which emotion a reply carried) AND
+ *      published on a cross-extension bus (`lib/node/pi/avatar/
+ *      emote-events.ts`) so e.g. a TTS extension can colour speech with
+ *      the emotion when its message named none inline. Both are gated by
+ *      `PI_AVATAR_DISABLE_EMOTE_EVENTS`.
  *      The system-prompt addendum that teaches the `[emote:]` vocabulary
  *      is only injected under an active `roleplay: true` persona - it is
  *      pure roleplay flavor, so a coding / no-persona session pays no
@@ -45,6 +52,9 @@
  *                              stripping/scrubbing them. The avatar still
  *                              reacts to the markers. Same effect as the
  *                              `--avatar-no-scrub` CLI flag.
+ *   PI_AVATAR_DISABLE_EMOTE_EVENTS=1  skip persisting the `avatar-emote`
+ *                              session entry and emitting the emote bus
+ *                              event; the avatar still animates emotions.
  */
 
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
@@ -74,6 +84,7 @@ import {
   parseEmoteMarkers,
   stripEmoteMarkers,
 } from '../../../lib/node/pi/avatar/markers.ts';
+import { AVATAR_EMOTE_ENTRY_TYPE, collectLoggedEmotes, emitEmote } from '../../../lib/node/pi/avatar/emote-events.ts';
 import { readPngDimensions } from '../../../lib/node/pi/avatar/png.ts';
 import { isInTmux, wrapForTmux } from '../../../lib/node/pi/avatar/tmux.ts';
 import { resolveProtocol } from '../../../lib/node/pi/avatar/terminal.ts';
@@ -848,6 +859,10 @@ function resolveToolState(toolName: string, args: unknown): ActivityState {
 export default function avatar(pi: ExtensionAPI): void {
   if (envTruthy(process.env.PI_AVATAR_DISABLED)) return;
   const promptDisabled = envTruthy(process.env.PI_AVATAR_NO_PROMPT);
+  // Persisting the `avatar-emote` session entry + emitting the cross-extension
+  // bus event is an independently-toggleable aspect; the avatar still animates
+  // emotions when this is off.
+  const emoteEventsDisabled = envTruthy(process.env.PI_AVATAR_DISABLE_EMOTE_EVENTS);
 
   pi.registerFlag('avatar-no-scrub', {
     description: 'Debug: leave [emote:NAME] markers in the reply/history instead of stripping them',
@@ -884,6 +899,44 @@ export default function avatar(pi: ExtensionAPI): void {
   let loadedSlotSet: string | undefined;
   let lastCtx: ExtensionContext | null = null;
   const toolCounts = new Map<string, number>();
+
+  // Emote markers stripped from the assistant message currently streaming,
+  // accumulated in `message_update` (where the raw markers arrive) and flushed
+  // on `message_end`. `msgEmotes` keeps distinct names in first-seen order;
+  // `msgPrimary` tracks the most recently named one, matching the overlay the
+  // avatar actually shows (it follows the latest marker).
+  let msgEmotes: string[] = [];
+  let msgPrimary = '';
+  function resetMessageEmotes(): void {
+    msgEmotes = [];
+    msgPrimary = '';
+  }
+  // Persist this message's emotes as a session entry and publish them on the
+  // cross-extension bus, then reset the per-message buffer. No-op when the
+  // aspect is disabled or the message named no emotes.
+  function flushMessageEmotes(): void {
+    if (emoteEventsDisabled || msgEmotes.length === 0) {
+      resetMessageEmotes();
+      return;
+    }
+    const signal = {
+      emote: msgPrimary || msgEmotes[msgEmotes.length - 1],
+      emotes: msgEmotes.slice(),
+      at: Date.now(),
+    };
+    resetMessageEmotes();
+    try {
+      pi.appendEntry(AVATAR_EMOTE_ENTRY_TYPE, signal);
+    } catch {
+      // appendEntry can throw before the session is fully bound; never let
+      // bookkeeping break the turn.
+    }
+    try {
+      emitEmote(signal);
+    } catch {
+      /* a subscriber failure is already isolated in emitEmote */
+    }
+  }
 
   // Cached override-image frame (the avatar-input slot's `image`). Building a
   // frame decodes + re-encodes the PNG, so cache by path+width+protocol and
@@ -1052,6 +1105,7 @@ export default function avatar(pi: ExtensionAPI): void {
   pi.on('session_start', (_event, ctx) => {
     animator.clearTimers();
     toolCounts.clear();
+    resetMessageEmotes();
     keepRaw = envTruthy(process.env.PI_AVATAR_DISABLE_SCRUB) || pi.getFlag('avatar-no-scrub') === true;
     lastCtx = ctx;
     lastCwd = ctx.cwd;
@@ -1097,8 +1151,11 @@ export default function avatar(pi: ExtensionAPI): void {
   });
 
   pi.on('agent_start', () => {
+    // A new turn releases any emotion held from the previous response and
+    // clears any half-accumulated emote buffer (defensive - message_end
+    // normally flushes it).
+    resetMessageEmotes();
     if (!widgetActive) return;
-    // A new turn releases any emotion held from the previous response.
     animator.releaseEmotion();
     animator.transitionTo('wait');
   });
@@ -1108,6 +1165,12 @@ export default function avatar(pi: ExtensionAPI): void {
     lastCtx = ctx;
     const message = event.message as MutableMessage;
     const names = applyEmoteMarkers(message, !keepRaw);
+    if (names.length > 0 && !emoteEventsDisabled) {
+      for (const name of names) {
+        if (!msgEmotes.includes(name)) msgEmotes.push(name);
+      }
+      msgPrimary = names[names.length - 1];
+    }
     if (!widgetActive) return;
     if (names.length > 0) {
       animator.enterEmotion(names[names.length - 1]);
@@ -1131,6 +1194,13 @@ export default function avatar(pi: ExtensionAPI): void {
     if (stream.type === 'text_delta' && animator.currentState !== 'talk') {
       animator.transitionTo('talk');
     }
+  });
+
+  pi.on('message_end', (event) => {
+    if (!enabled) return;
+    // Only assistant messages carry emote markers; ignore user / tool-result
+    // ends. Persist + publish whatever this message named, then reset.
+    if ((event.message as MutableMessage)?.role === 'assistant') flushMessageEmotes();
   });
 
   pi.on('context', (event) => {
@@ -1198,8 +1268,14 @@ export default function avatar(pi: ExtensionAPI): void {
         return;
       }
       const emoteList = emotions.length > 0 ? emotions.join(', ') : '(none)';
+      let logged = 0;
+      try {
+        logged = collectLoggedEmotes(ctx.sessionManager.getEntries() as never).length;
+      } catch {
+        /* session entries unavailable - omit the count */
+      }
       ctx.ui.notify(
-        `avatar: ${widgetActive ? 'on' : 'off'} \u00b7 protocol ${protocol} \u00b7 set "${currentSet}" \u00b7 emotions: ${emoteList}`,
+        `avatar: ${widgetActive ? 'on' : 'off'} \u00b7 protocol ${protocol} \u00b7 set "${currentSet}" \u00b7 emotions: ${emoteList} \u00b7 logged: ${logged}`,
         'info',
       );
     },

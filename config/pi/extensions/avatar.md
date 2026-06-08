@@ -53,6 +53,30 @@ persona. Emotions are any frame name in the kaomoji set (or any sprite subdirect
 activity states above - the shipped kaomoji set defines a wide range (`happy`, `sad`, `angry`, `love`, `cry`, `cool`,
 `smug`, `excited`, `mischievous`, `victory`, `mindblown`, `starstruck`, and many more).
 
+### Emote signal (persistence + cross-extension event)
+
+When an assistant message finalizes (`message_end`), the emotes stripped from it are turned into a small signal -
+`{ emote, emotes, at }`, where `emote` is the primary (last-named) emotion, `emotes` is every distinct emotion the
+message named in first-seen order, and `at` is the finalize timestamp. The signal is consumed two ways:
+
+- **Persisted to session history.** It is written as an `avatar-emote` `custom` session entry via `pi.appendEntry`. The
+  entry does not participate in LLM context (the model never sees it), but it survives in the `.jsonl`, so looking back
+  at a transcript still shows which emotion each reply carried even though the `[emote:]` marker was stripped from the
+  visible text. `/avatar` reports the count logged this session. The pure reader
+  [`collectLoggedEmotes`](../../../lib/node/pi/avatar/emote-events.ts) turns a flat entry list back into signals.
+- **Published on a cross-extension bus.** It is emitted on a `globalThis`-anchored event bus
+  ([`../../../lib/node/pi/avatar/emote-events.ts`](../../../lib/node/pi/avatar/emote-events.ts), the same
+  `cross-extension-singleton-pattern` the [avatar-input slot](../../../lib/node/pi/avatar/input.ts) uses). Another
+  extension subscribes with `subscribeEmote(listener)` (and unsubscribes on its own `session_shutdown`) to hear each
+  message's emotion; `getLastEmote()` returns the most recent signal for a consumer that joins late. The motivating use
+  case is a TTS extension that colours its speech with the avatar emotion when its own message named none inline. The
+  bus is decoupled both ways: with no subscriber the avatar emits into the void; with the avatar disabled a subscriber
+  just never hears anything.
+
+Both the persisted entry and the bus event are gated by `PI_AVATAR_DISABLE_EMOTE_EVENTS` (the avatar still animates
+emotions when it is off). They fire whenever an emote is detected, regardless of the active persona - the persona gate
+only governs the `[emote:]` prompt addendum, not the avatar's reaction to markers the model emits.
+
 ## Rendering
 
 Minimal and scoped to the image protocols worth supporting directly:
@@ -207,12 +231,13 @@ that ships only PNG art still picks up a sibling `ascii.yaml` for the kaomoji fa
 
 ## Environment variables
 
-| Variable                  | Effect                                                                                                                                            |
-| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `PI_AVATAR_DISABLED`      | Skip the extension entirely.                                                                                                                      |
-| `PI_AVATAR_NO_PROMPT`     | Keep the avatar but drop the `[emote:]` prompt addendum (also auto-dropped outside a `roleplay: true` persona).                                   |
-| `PI_AVATAR_RENDER`        | Force a protocol (`kitty` / `iterm2` / `sixel` / `halfblock` / `ascii`); overrides config.                                                        |
-| `PI_AVATAR_DISABLE_SCRUB` | Debug: leave `[emote:NAME]` markers in the visible reply and in history (no strip / scrub). The avatar still reacts. Same as `--avatar-no-scrub`. |
+| Variable                         | Effect                                                                                                                                            |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `PI_AVATAR_DISABLED`             | Skip the extension entirely.                                                                                                                      |
+| `PI_AVATAR_NO_PROMPT`            | Keep the avatar but drop the `[emote:]` prompt addendum (also auto-dropped outside a `roleplay: true` persona).                                   |
+| `PI_AVATAR_RENDER`               | Force a protocol (`kitty` / `iterm2` / `sixel` / `halfblock` / `ascii`); overrides config.                                                        |
+| `PI_AVATAR_DISABLE_SCRUB`        | Debug: leave `[emote:NAME]` markers in the visible reply and in history (no strip / scrub). The avatar still reacts. Same as `--avatar-no-scrub`. |
+| `PI_AVATAR_DISABLE_EMOTE_EVENTS` | Skip persisting the `avatar-emote` session entry and emitting the cross-extension emote bus event. The avatar still animates emotions.            |
 
 ## CLI flags
 
@@ -236,5 +261,5 @@ run `/reload`. A `/reload` re-runs registration and fires `session_start`, so mo
 
 ## Command
 
-`/avatar` reports status (on/off, protocol, active set, emotion vocabulary). `/avatar off` hides the widget for the
-session; `/avatar on` re-mounts it.
+`/avatar` reports status (on/off, protocol, active set, emotion vocabulary, and the count of emotes logged this
+session). `/avatar off` hides the widget for the session; `/avatar on` re-mounts it.
