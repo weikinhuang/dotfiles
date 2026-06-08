@@ -45,10 +45,13 @@ The model emits a self-closing `[emote:happy]` marker inline in its reply. The m
   next turn instead - handy for roleplay.
 
 A system-prompt addendum (`before_agent_start`) teaches the model the syntax and the emotion vocabulary discovered in
-the active set. This reuses the exact three-hook pattern from [`color-tags`](./color-tags.md). Emotions are any frame
-name in the kaomoji set (or any sprite subdirectory in a PNG set) that is not one of the activity states above - the
-shipped kaomoji set defines a wide range (`happy`, `sad`, `angry`, `love`, `cry`, `cool`, `smug`, `excited`,
-`mischievous`, `victory`, `mindblown`, `starstruck`, and many more).
+the active set. This reuses the exact three-hook pattern from [`color-tags`](./color-tags.md). The addendum is injected
+**only under an active `roleplay: true` persona** (the same gate the [`roleplay`](./roleplay.md) extension uses):
+emotion overlays are pure roleplay flavor, so a coding or no-persona session pays no extra prompt tokens and the model
+is never nudged to emit `[emote:]` markers. The activity states above are event-driven and always animate regardless of
+persona. Emotions are any frame name in the kaomoji set (or any sprite subdirectory in a PNG set) that is not one of the
+activity states above - the shipped kaomoji set defines a wide range (`happy`, `sad`, `angry`, `love`, `cry`, `cool`,
+`smug`, `excited`, `mischievous`, `victory`, `mindblown`, `starstruck`, and many more).
 
 ## Rendering
 
@@ -207,7 +210,7 @@ that ships only PNG art still picks up a sibling `ascii.yaml` for the kaomoji fa
 | Variable                  | Effect                                                                                                                                            |
 | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `PI_AVATAR_DISABLED`      | Skip the extension entirely.                                                                                                                      |
-| `PI_AVATAR_NO_PROMPT`     | Keep the avatar but drop the `[emote:]` prompt addendum.                                                                                          |
+| `PI_AVATAR_NO_PROMPT`     | Keep the avatar but drop the `[emote:]` prompt addendum (also auto-dropped outside a `roleplay: true` persona).                                   |
 | `PI_AVATAR_RENDER`        | Force a protocol (`kitty` / `iterm2` / `sixel` / `halfblock` / `ascii`); overrides config.                                                        |
 | `PI_AVATAR_DISABLE_SCRUB` | Debug: leave `[emote:NAME]` markers in the visible reply and in history (no strip / scrub). The avatar still reacts. Same as `--avatar-no-scrub`. |
 

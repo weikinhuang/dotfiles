@@ -13,6 +13,10 @@
  *      avatar to that emotion sprite for `emoteHoldMs`, overriding the
  *      activity animation. This reuses the `color-tags` rewrite/scrub
  *      pattern (`before_agent_start` + `message_update` + `context`).
+ *      The system-prompt addendum that teaches the `[emote:]` vocabulary
+ *      is only injected under an active `roleplay: true` persona - it is
+ *      pure roleplay flavor, so a coding / no-persona session pays no
+ *      extra tokens. Activity animation (1) is event-driven and always on.
  *
  * Rendering is intentionally minimal: direct kitty graphics, direct iTerm2
  * inline images, and sixel (Windows Terminal >= 1.22), with a kaomoji
@@ -54,6 +58,7 @@ import { getCellDimensions, truncateToWidth, visibleWidth } from '@earendil-work
 import { coerceConfigLayer, mergeConfigLayers } from '../../../lib/node/pi/avatar/config.ts';
 import { AVATAR_USAGE } from '../../../lib/node/pi/avatar/usage.ts';
 import { getAvatarInput } from '../../../lib/node/pi/avatar/input.ts';
+import { getActivePersona } from '../../../lib/node/pi/persona/active.ts';
 import { completeSubverbs } from '../../../lib/node/pi/commands/complete.ts';
 import { isHelpArg } from '../../../lib/node/pi/commands/help.ts';
 import type { AsciiFrameMap } from '../../../lib/node/pi/avatar/ascii-yaml.ts';
@@ -1081,6 +1086,12 @@ export default function avatar(pi: ExtensionAPI): void {
       loadForModel(lastCwd, lastModelId);
     }
     if (promptDisabled) return undefined;
+    // Emotion overlays (the `[emote:NAME]` vocabulary) are only useful while
+    // roleplaying, and the addendum that teaches them is the sole system-prompt
+    // cost this extension adds. Gate it on the active `roleplay: true` persona
+    // so a coding / no-persona session pays zero extra tokens; activity
+    // animation is event-driven and stays on regardless.
+    if (!getActivePersona()?.roleplay) return undefined;
     const base = event.systemPrompt.length > 0 ? event.systemPrompt : ctx.getSystemPrompt();
     return { systemPrompt: appendEmotePrompt(base, buildEmotePromptAddendum({ emotions })) };
   });
