@@ -496,19 +496,33 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
   pi.on('session_start', (_event, ctx) => resync(ctx));
   pi.on('session_tree', (_event, ctx) => resync(ctx));
 
-  if (autoInjectEnabled) {
-    pi.on('before_agent_start', (event, ctx) => {
-      // A persona may have been activated since session_start; re-resolve.
-      resyncIfChanged(ctx);
-      turnCount += 1;
-      const scene = buildSceneBlock(ctx);
-      const index = formatRoleplayBlock(state, { maxChars: charBudget() });
-      const lore = buildLoreInjection(event.prompt ?? '');
-      const additions = [scene, index, lore].filter((s): s is string => Boolean(s));
-      if (additions.length === 0) return undefined;
-      return { systemPrompt: [event.systemPrompt, ...additions].join('\n\n') };
-    });
-  }
+  pi.on('before_agent_start', (event, ctx) => {
+    // A persona may have been activated since session_start; re-resolve.
+    resyncIfChanged(ctx);
+
+    // Tool-visibility gate. The `roleplay` tool must only be offered to the
+    // model under an active `roleplay: true` persona that allowlisted it -
+    // never in a coding session, a no-persona session, or a persona that left
+    // `roleplay` out of its `tools:`. persona.ts owns *adding* the tool (it
+    // calls setActiveTools with the persona's allowlist), so we only ever
+    // REMOVE it when dormant; we never add it back. This runs regardless of
+    // PI_ROLEPLAY_DISABLE_AUTOINJECT so the tool stays hidden even when the
+    // `## Roleplay` injection is turned off.
+    if (activeCast() === null) {
+      const tools = pi.getActiveTools();
+      if (tools.includes('roleplay')) pi.setActiveTools(tools.filter((t) => t !== 'roleplay'));
+      return undefined;
+    }
+
+    if (!autoInjectEnabled) return undefined;
+    turnCount += 1;
+    const scene = buildSceneBlock(ctx);
+    const index = formatRoleplayBlock(state, { maxChars: charBudget() });
+    const lore = buildLoreInjection(event.prompt ?? '');
+    const additions = [scene, index, lore].filter((s): s is string => Boolean(s));
+    if (additions.length === 0) return undefined;
+    return { systemPrompt: [event.systemPrompt, ...additions].join('\n\n') };
+  });
 
   /** Concatenate the text content of the last `n` messages for depth-lore scanning. */
   const recentText = (messages: readonly unknown[], n: number): string => {
