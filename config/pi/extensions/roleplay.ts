@@ -369,10 +369,38 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
     }
   };
 
+  /**
+   * Tool-visibility gate. The `roleplay` tool must only be offered to the
+   * model under an active `roleplay: true` persona that allowlisted it -
+   * never in a coding session, a no-persona session, or a persona that left
+   * `roleplay` out of its `tools:`. persona.ts owns *adding* the tool (it
+   * calls setActiveTools with the persona's allowlist), so we only ever
+   * REMOVE it when dormant; we never add it back.
+   *
+   * Crucially this runs at `session_start` / `session_tree` (via `resync`),
+   * not only at `before_agent_start`. setActiveTools rebuilds the base system
+   * prompt, but a removal done inside `before_agent_start` is clobbered: the
+   * runner seeds that turn's prompt from a snapshot taken *before* the
+   * handlers run, and other autoinject extensions (memory / scratchpad /
+   * todo) compose their additions off that pre-removal snapshot - so the
+   * roleplay `promptSnippet` (Available tools) + `promptGuidelines`
+   * (Guidelines) would leak into the FIRST turn's prompt and only clear from
+   * turn 2 on. Gating at session lifecycle time means the base prompt is
+   * already roleplay-free before turn 1's snapshot is taken. Runs regardless
+   * of PI_ROLEPLAY_DISABLE_AUTOINJECT so the tool stays hidden even when the
+   * `## Roleplay` injection is turned off.
+   */
+  const gateRoleplayTool = (): void => {
+    if (activeCast() !== null) return;
+    const tools = pi.getActiveTools();
+    if (tools.includes('roleplay')) pi.setActiveTools(tools.filter((t) => t !== 'roleplay'));
+  };
+
   /** Force a re-resolve + scan (session lifecycle hooks). */
   const resync = (ctx: ExtensionContext): void => {
     cwd = ctx.cwd;
     applyCast(activeCast(), ctx);
+    gateRoleplayTool();
   };
 
   /** Cheap re-resolve: only re-scan disk when the resolved cast actually changed. */
@@ -500,17 +528,14 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
     // A persona may have been activated since session_start; re-resolve.
     resyncIfChanged(ctx);
 
-    // Tool-visibility gate. The `roleplay` tool must only be offered to the
-    // model under an active `roleplay: true` persona that allowlisted it -
-    // never in a coding session, a no-persona session, or a persona that left
-    // `roleplay` out of its `tools:`. persona.ts owns *adding* the tool (it
-    // calls setActiveTools with the persona's allowlist), so we only ever
-    // REMOVE it when dormant; we never add it back. This runs regardless of
-    // PI_ROLEPLAY_DISABLE_AUTOINJECT so the tool stays hidden even when the
-    // `## Roleplay` injection is turned off.
+    // Backstop the session-lifecycle gate for a mid-session persona switch
+    // (a `/persona` change between turns). Per setActiveTools' "takes effect
+    // next turn" contract this clears the leak from the following turn; the
+    // turn the switch happens on is already covered because the base prompt
+    // was rebuilt when the previous gate ran. See gateRoleplayTool for why
+    // the primary gate lives in resync rather than here.
     if (activeCast() === null) {
-      const tools = pi.getActiveTools();
-      if (tools.includes('roleplay')) pi.setActiveTools(tools.filter((t) => t !== 'roleplay'));
+      gateRoleplayTool();
       return undefined;
     }
 

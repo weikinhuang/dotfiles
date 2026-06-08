@@ -17,6 +17,13 @@ The roleplay tool, cast scan, and `## Roleplay` system-prompt block are **dorman
 and for personas used as subagent implementations - you opt a persona in explicitly. With no qualifying persona active:
 
 - the `roleplay` tool returns an error (`roleplay is inactive: activate a persona with roleplay: true …`);
+- the `roleplay` tool is removed from the active-tools set, so its `promptSnippet` (the **Available tools** line) and
+  `promptGuidelines` (the **Guidelines** bullets) are kept out of the system prompt entirely - not just made
+  non-callable. This gate runs at `session_start` / `session_tree` (not only `before_agent_start`): `setActiveTools`
+  rebuilds the base prompt, and doing it at session-lifecycle time keeps even the **first** turn's prompt clean.
+  Removing the tool inside `before_agent_start` alone would leak the lines on turn 1, because other autoinject
+  extensions (memory / scratchpad / todo) compose their additions off the pre-removal prompt snapshot the runner takes
+  before handlers run;
 - nothing is injected into the system prompt;
 - `/roleplay` reports the dormant state.
 
