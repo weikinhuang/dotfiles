@@ -86,6 +86,20 @@ describe('enumerate', () => {
     expect(tinyCand?.seq).toBe(1);
   });
 
+  test('sort:"order" returns document order regardless of size', () => {
+    const messages: LooseMessage[] = [
+      { role: 'user', content: 'tiny', timestamp: 1 },
+      { role: 'user', content: big, timestamp: 2 },
+    ];
+    const cands = enumerate(messages, { sort: 'order' });
+    // Oldest-first: the tiny (earlier) message leads even though the big
+    // one would win the default heaviest-first ranking.
+    expect(cands[0].snippet).toBe('tiny');
+    expect(cands[1].snippet.startsWith('x')).toBe(true);
+    // seq still matches the emitted order here.
+    expect(cands.map((c) => c.seq)).toEqual([0, 1]);
+  });
+
   test('assigns occurrence to disambiguate same role+timestamp messages', () => {
     const messages: LooseMessage[] = [
       { role: 'user', content: 'a'.repeat(3000), timestamp: 5 },

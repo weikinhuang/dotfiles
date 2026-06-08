@@ -23,14 +23,21 @@ pretending the past was different. The transcript on disk still records what was
 
 ## Commands
 
-- `/context-edit` - list editable user/assistant messages with a snippet and a handle (`msg2`).
+- `/context-edit` - list editable user/assistant messages with a snippet and a handle (`msg2`), in **conversation
+  order** (oldest-first, including the latest assistant reply). Each handle also appears in the argument autocomplete
+  menu (annotated with a snippet), so you can pick the message to edit directly.
 - `/context-edit <handle>` - open an editor prefilled with that message's current text; submit to store the edit, which
-  applies from the next turn. Cancelling or submitting an unchanged buffer is a no-op. **The message handles also appear
-  in the argument autocomplete menu** (each annotated with a snippet), so you can pick the message to edit directly.
+  applies from the next turn. Cancelling or submitting an unchanged buffer is a no-op.
+- `/context-edit sort <order|size>` - change the listing / autocomplete order for this session. `order` (default) is
+  conversation order; `size` is heaviest-first (matching `/context-trim`). Bare `/context-edit sort` reports the current
+  order.
 - `/context-edit list` - show active edits by directive `#id`.
 - `/context-edit restore <#id>` - undo one edit (the original message is sent again).
 - `/context-edit clear` - undo all edits.
 - `/context-edit help` (or `--help` / `-h` / `?`) - print usage.
+
+The editable list is rebuilt fresh from the session on each invocation (not from the cached `context`-hook snapshot,
+which lags one assistant message behind), so the most recent assistant reply is always editable.
 
 Editing requires an interactive UI (the prefilled editor); in print / RPC modes the command reports that and does
 nothing.

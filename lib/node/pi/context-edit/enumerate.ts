@@ -55,6 +55,13 @@ export interface EnumerateOptions {
   minTextBytes?: number;
   /** Snippet character cap (default 80). */
   snippetChars?: number;
+  /**
+   * Listing order. `size` (default) ranks heaviest-first - right for
+   * trim/collapse where you target the bulkiest content. `order` keeps
+   * document order (oldest-first), which reads naturally when editing a
+   * message for steering.
+   */
+  sort?: 'size' | 'order';
 }
 
 const DEFAULT_MIN_TEXT_BYTES = 2048;
@@ -202,7 +209,10 @@ export function enumerate(messages: readonly LooseMessage[], opts: EnumerateOpti
     }
   }
 
-  // Heaviest first; stable for equal weights by keeping insertion order.
+  // `out` is already in document (encounter) order, so `order` returns it
+  // as-is. `size` (default) ranks heaviest-first, stable for equal weights
+  // by keeping insertion order.
+  if ((opts.sort ?? 'size') === 'order') return out;
   return out
     .map((c, i) => ({ c, i }))
     .sort((a, b) => b.c.bytes - a.c.bytes || a.i - b.i)

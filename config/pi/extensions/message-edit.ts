@@ -77,6 +77,10 @@ export default function messageEditExtension(pi: ExtensionAPI): void {
 
   let state: ContextEditState = emptyState();
   let lastContextMessages: LooseMessage[] | null = null;
+  // Listing / completion order for the editable-message picker. Editing
+  // for steering reads naturally in conversation order, so default to
+  // `order`; `/context-edit sort size` switches to heaviest-first.
+  let sortPref: 'order' | 'size' = 'order';
   // Candidate handles for the Tab-completion menu (getArgumentCompletions
   // receives no ctx), refreshed from the context hook and after commands.
   let completionCandidates: CompletionCandidate[] = [];
@@ -90,7 +94,7 @@ export default function messageEditExtension(pi: ExtensionAPI): void {
 
   // Only user/assistant message candidates are editable.
   const candidatesFrom = (messages: readonly LooseMessage[]): Candidate[] =>
-    enumerate(messages, { minTextBytes: 1 }).filter((c) => c.kind === 'message');
+    enumerate(messages, { minTextBytes: 1, sort: sortPref }).filter((c) => c.kind === 'message');
 
   const refreshCompletion = (cands: readonly Candidate[]): void => {
     completionCandidates = cands.map((c) => ({ id: c.id, description: candidateLabel(c) }));
@@ -113,12 +117,18 @@ export default function messageEditExtension(pi: ExtensionAPI): void {
   });
 
   const currentMessages = (ctx: ExtensionContext): LooseMessage[] => {
-    if (lastContextMessages) return lastContextMessages;
+    // Build fresh from the session every call so the newest assistant turn
+    // is editable. The `context`-hook snapshot (`lastContextMessages`) is
+    // built BEFORE the reply it produces, so it always lags one assistant
+    // message behind - relying on it here is what hid the latest reply from
+    // the edit list. Active edits are reapplied so the editor prefill shows
+    // the current (already-steered) text, not the original.
     try {
       const built = buildSessionContext(ctx.sessionManager.getEntries(), ctx.sessionManager.getLeafId());
-      return (built.messages as unknown as LooseMessage[]) ?? [];
+      const msgs = (built.messages as unknown as LooseMessage[]) ?? [];
+      return state.directives.length > 0 ? (applyDirectives(msgs, state.directives).messages) : msgs;
     } catch {
-      return [];
+      return lastContextMessages ?? [];
     }
   };
 
@@ -141,7 +151,12 @@ export default function messageEditExtension(pi: ExtensionAPI): void {
     const cands = editCandidates(ctx);
     if (cands.length === 0) return 'No editable messages in the current context.';
     const lines = cands.map((c) => `  ${c.id}  ${candidateLabel(c)}`);
-    return ['Editable messages:', ...lines, '', 'Edit with: /context-edit <id>'].join('\n');
+    return [
+      `Editable messages (${sortPref} order):`,
+      ...lines,
+      '',
+      'Edit with: /context-edit <id>   ·   reorder: /context-edit sort size|order',
+    ].join('\n');
   };
 
   const listActive = (): string => {
@@ -155,6 +170,10 @@ export default function messageEditExtension(pi: ExtensionAPI): void {
     getArgumentCompletions: (prefix) =>
       completeCandidatesOrVerbs(prefix, completionCandidates, {
         list: { description: 'Show active edits' },
+        sort: {
+          description: 'List by message order or size',
+          args: () => [{ label: 'order' }, { label: 'size' }],
+        },
         restore: {
           description: 'Undo an edit by #id',
           args: () => state.directives.filter((d) => d.kind === 'edit').map((d) => ({ label: String(d.id) })),
@@ -177,6 +196,20 @@ export default function messageEditExtension(pi: ExtensionAPI): void {
 
       if (verb === 'list') {
         ctx.ui.notify(listActive(), 'info');
+        return;
+      }
+      if (verb === 'sort') {
+        const choice = tail.trim().toLowerCase();
+        if (choice === '') {
+          ctx.ui.notify(`Listing order: ${sortPref} (change with /context-edit sort size|order)`, 'info');
+          return;
+        }
+        if (choice !== 'size' && choice !== 'order') {
+          ctx.ui.notify('sort takes "size" or "order" (e.g. /context-edit sort order)', 'warning');
+          return;
+        }
+        sortPref = choice;
+        ctx.ui.notify(listCandidates(ctx), 'info');
         return;
       }
       if (verb === 'clear') {
