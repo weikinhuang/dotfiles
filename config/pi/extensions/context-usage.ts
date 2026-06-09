@@ -38,6 +38,7 @@ import { buildBreakdown } from '../../../lib/node/pi/context-usage/estimate.ts';
 import { exportFilename, renderMarkdown } from '../../../lib/node/pi/context-usage/export.ts';
 import {
   childrenTotal,
+  clampScroll,
   formatAbsoluteShare,
   formatBreadcrumb,
   formatPercent,
@@ -45,7 +46,9 @@ import {
   GLYPH_FREE,
   GLYPH_PARTIAL,
   GLYPH_USED,
+  sanitizeDetail,
   scrollWindow,
+  wrapPlain,
 } from '../../../lib/node/pi/context-usage/format.ts';
 import { buildGrid, chunkRows, DEFAULT_GRID } from '../../../lib/node/pi/context-usage/grid.ts';
 import {
@@ -87,6 +90,8 @@ const COL_GAP = 3;
 const STACK_BELOW = 56;
 /** Max category rows shown at once before the legend scrolls. */
 const MAX_LEGEND_ROWS = 12;
+/** Lines of leaf content shown at once in the scrollable content viewer. */
+const CONTENT_VISIBLE_LINES = 24;
 
 type PaletteColor = (typeof PALETTE)[number];
 function colorForIndex(i: number): PaletteColor {
@@ -144,6 +149,8 @@ class ContextOverlay implements Component {
   private nav: NavState = initNav();
   private recon = false;
   private status?: string;
+  /** When set, the scrollable content viewer for a leaf node is open. */
+  private view: { node: CategoryNode; scroll: number } | undefined;
   private cachedWidth?: number;
   private cachedLines?: string[];
 
@@ -154,15 +161,26 @@ class ContextOverlay implements Component {
   }
 
   handleInput(data: string): void {
+    if (this.view) {
+      this.handleViewInput(data);
+      return;
+    }
     const children = currentChildren(this.breakdown.root, this.nav);
     if (matchesKey(data, Key.up) || matchesKey(data, 'k')) {
       this.nav = move(this.nav, -1, children.length);
     } else if (matchesKey(data, Key.down) || matchesKey(data, 'j')) {
       this.nav = move(this.nav, 1, children.length);
     } else if (matchesKey(data, Key.enter) || matchesKey(data, Key.right) || matchesKey(data, 'l')) {
-      const next = enter(this.breakdown.root, this.nav);
-      this.status = next === this.nav ? 'Nothing to drill into here' : undefined;
-      this.nav = next;
+      const child = children[this.nav.sel];
+      if (child?.children && child.children.length > 0) {
+        this.nav = enter(this.breakdown.root, this.nav);
+        this.status = undefined;
+      } else if (child?.content && child.content.length > 0) {
+        this.view = { node: child, scroll: 0 };
+        this.status = undefined;
+      } else {
+        this.status = 'Nothing to drill into here';
+      }
     } else if (
       matchesKey(data, Key.escape) ||
       matchesKey(data, Key.left) ||
@@ -205,12 +223,75 @@ class ContextOverlay implements Component {
     this.cachedLines = undefined;
   }
 
+  /** Scroll / exit keys while the content viewer is open. */
+  private handleViewInput(data: string): void {
+    if (!this.view) return;
+    const page = CONTENT_VISIBLE_LINES - 1;
+    if (matchesKey(data, Key.up) || matchesKey(data, 'k')) {
+      this.view.scroll -= 1;
+    } else if (matchesKey(data, Key.down) || matchesKey(data, 'j')) {
+      this.view.scroll += 1;
+    } else if (matchesKey(data, 'pageUp')) {
+      this.view.scroll -= page;
+    } else if (matchesKey(data, 'pageDown') || matchesKey(data, Key.space)) {
+      this.view.scroll += page;
+    } else if (matchesKey(data, 'home')) {
+      this.view.scroll = 0;
+    } else if (matchesKey(data, 'end')) {
+      this.view.scroll = Number.MAX_SAFE_INTEGER;
+    } else if (
+      matchesKey(data, Key.escape) ||
+      matchesKey(data, Key.left) ||
+      matchesKey(data, Key.backspace) ||
+      matchesKey(data, 'h')
+    ) {
+      this.view = undefined;
+    } else if (matchesKey(data, 'q')) {
+      this.deps.done();
+      return;
+    } else {
+      return;
+    }
+    this.invalidate();
+  }
+
   render(width: number): string[] {
     if (this.cachedLines && this.cachedWidth === width) return this.cachedLines;
-    const lines = this.recon ? this.renderRecon(width) : this.renderTree(width);
+    let lines: string[];
+    if (this.view) lines = this.renderContent(width);
+    else if (this.recon) lines = this.renderRecon(width);
+    else lines = this.renderTree(width);
     this.cachedLines = lines;
     this.cachedWidth = width;
     return lines;
+  }
+
+  // ── content viewer ───────────────────────────────────────────────────
+
+  private renderContent(width: number): string[] {
+    const th = this.theme;
+    const view = this.view;
+    if (!view) return [];
+    const node = view.node;
+    const crumb = formatBreadcrumb([...breadcrumbLabels(this.breakdown.root, this.nav.path), node.label]);
+    const bodyWidth = Math.max(10, width - 2);
+    const wrapped = wrapPlain(node.content ?? '', bodyWidth);
+    const scroll = clampScroll(view.scroll, wrapped.length, CONTENT_VISIBLE_LINES);
+    view.scroll = scroll;
+    const slice = wrapped.slice(scroll, scroll + CONTENT_VISIBLE_LINES);
+
+    const out: string[] = [truncateToWidth(formatHeaderRule(crumb, undefined, width, th), width), ''];
+    const detail = node.detail ? ` · ${sanitizeDetail(node.detail, 50)}` : '';
+    out.push(
+      truncateToWidth(`  ${th.fg('muted', `${node.label} · ${formatTokens(node.tokens)} tokens${detail}`)}`, width),
+    );
+    out.push('');
+    for (const line of slice) out.push(truncateToWidth(`  ${th.fg('toolOutput', line)}`, width));
+    out.push('');
+    const end = Math.min(wrapped.length, scroll + CONTENT_VISIBLE_LINES);
+    const pos = wrapped.length === 0 ? '0/0' : `${scroll + 1}-${end} / ${wrapped.length}`;
+    out.push(truncateToWidth(`  ${th.fg('dim', `↑/↓ scroll · PgUp/PgDn · ← back · q close   [${pos}]`)}`, width));
+    return out;
   }
 
   // ── grid ────────────────────────────────────────────────────────────────
@@ -286,7 +367,8 @@ class ContextOverlay implements Component {
     const cursor = selected ? th.fg('accent', '›') : ' ';
     const labelText = `${child.label}  ${formatTokens(child.tokens)}  ${formatPercent(child.tokens, total)}`;
     const label = selected ? th.fg('text', th.bold(labelText)) : th.fg('muted', labelText);
-    const drillable = child.children && child.children.length > 0 ? th.fg('dim', ' ›') : '';
+    const actionable = Boolean(child.children?.length) || Boolean(child.content?.length);
+    const drillable = actionable ? th.fg('dim', ' ›') : '';
     return `${cursor} ${marker} ${label}${drillable}`;
   }
 
@@ -399,8 +481,8 @@ class ContextOverlay implements Component {
       return truncateToWidth(`  ${status}`, width);
     }
     const hints = atRoot(this.nav)
-      ? '↑/↓ select · ⏎ drill · c compact · r refresh · t recon · e export · q close'
-      : '↑/↓ select · ⏎ drill · ← back · c compact · r refresh · t recon · e export · q close';
+      ? '↑/↓ select · ⏎ drill/view · c compact · r refresh · t recon · e export · q close'
+      : '↑/↓ select · ⏎ drill/view · ← back · c compact · r refresh · t recon · e export · q close';
     return truncateToWidth(`  ${th.fg('dim', hints)}`, width);
   }
 }

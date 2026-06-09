@@ -148,6 +148,19 @@ describe('buildBreakdown', () => {
     const files = find(b.root, 'sys.contextFiles');
     expect(files?.children?.map((c) => c.label)).toEqual(['AGENTS.md', 'sub/AGENTS.md']);
     expect(files?.children?.[0].tokens).toBe(charsToTokens(800));
+    // raw content attached for the scrollable viewer
+    expect(files?.children?.[0].content).toBe('a'.repeat(800));
+  });
+
+  test('leaf nodes carry raw content for the viewer', () => {
+    const b = buildBreakdown(baseInput());
+    expect(find(b.root, 'sys.skill.0')?.content).toBe('c'.repeat(200));
+    const params = b.root.children
+      ?.find((c) => c.id === 'tools')
+      ?.children?.[0]?.children?.find((c) => c.id.endsWith('.params'));
+    expect(params?.content).toContain('"type": "object"');
+    const bash = find(b.root, 'conv.tool.bash');
+    expect(bash?.children?.[0].content).toContain('out');
   });
 
   test('only active tools are sized; inactive noted in detail', () => {

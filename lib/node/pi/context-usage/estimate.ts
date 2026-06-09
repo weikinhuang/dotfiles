@@ -55,6 +55,14 @@ function safeJsonLen(value: unknown): number {
   }
 }
 
+function safeJsonPretty(value: unknown): string {
+  try {
+    return JSON.stringify(value ?? null, null, 2);
+  } catch {
+    return '';
+  }
+}
+
 /** Per-message token estimate (mirrors pi's `estimateTokens`). */
 export function estimateMessageTokens(message: MessageLike): number {
   switch (message.role) {
@@ -128,6 +136,7 @@ export function splitInjectedAddenda(effective: string, base: string): CategoryN
       id: `sys.injected.${i}`,
       label: firstLine || `section ${i + 1}`,
       tokens: charsToTokens(block.length),
+      content: block,
     };
   });
 }
@@ -146,6 +155,7 @@ function buildSystemPromptNode(input: BreakdownInput): CategoryNode {
       label: f.path,
       tokens: charsToTokens(f.content.length),
       detail: `${f.content.length.toLocaleString()} bytes`,
+      content: f.content,
     }));
     children.push({
       id: 'sys.contextFiles',
@@ -160,11 +170,13 @@ function buildSystemPromptNode(input: BreakdownInput): CategoryNode {
   if (skills.length > 0) {
     const skillNodes = skills.map((s, i) => {
       const chars = (s.name?.length ?? 0) + (s.description?.length ?? 0) + (s.body?.length ?? 0);
+      const body = s.body && s.body.length > 0 ? s.body : s.description;
       return {
         id: `sys.skill.${i}`,
         label: s.name ?? s.path ?? `skill ${i + 1}`,
         tokens: charsToTokens(chars),
         detail: s.description,
+        content: body,
       };
     });
     children.push({
@@ -255,8 +267,18 @@ function buildToolsNode(input: BreakdownInput): CategoryNode {
   const toolNodes = activeTools.map((t) => {
     const c = toolSchemaChars(t);
     const children: CategoryNode[] = [
-      { id: `tool.${t.name}.params`, label: 'parameters schema', tokens: charsToTokens(c.params) },
-      { id: `tool.${t.name}.desc`, label: 'description', tokens: charsToTokens(c.desc + c.name) },
+      {
+        id: `tool.${t.name}.params`,
+        label: 'parameters schema',
+        tokens: charsToTokens(c.params),
+        content: safeJsonPretty(t.parameters),
+      },
+      {
+        id: `tool.${t.name}.desc`,
+        label: 'description',
+        tokens: charsToTokens(c.desc + c.name),
+        content: t.description,
+      },
     ];
     return {
       id: `tool.${t.name}`,
@@ -283,6 +305,17 @@ function buildToolsNode(input: BreakdownInput): CategoryNode {
 // ──────────────────────────────────────────────────────────────────────────
 // Conversation
 // ──────────────────────────────────────────────────────────────────────────
+
+function fullContentText(content: string | ContentPartLike[] | undefined): string {
+  if (content == null) return '';
+  if (typeof content === 'string') return content;
+  let text = '';
+  for (const block of content) {
+    if (block.type === 'text') text += block.text;
+    else if (block.type === 'image') text += '[image]\n';
+  }
+  return text;
+}
 
 function previewContent(content: string | ContentPartLike[] | undefined): string | undefined {
   if (content == null) return undefined;
@@ -348,6 +381,7 @@ function buildConversationNode(input: BreakdownInput, topN = DEFAULT_TOP_N): Cat
           label: `#${idx + 1}${m.isError ? ' (error)' : ''}`,
           tokens: tok,
           detail: previewContent(m.content),
+          content: fullContentText(m.content),
         });
         toolGroups.set(name, g);
         break;

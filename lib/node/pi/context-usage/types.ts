@@ -167,6 +167,8 @@ export interface CategoryNode {
   children?: CategoryNode[];
   /** Optional secondary line shown in detail views (path, preview, note). */
   detail?: string;
+  /** Raw textual content of this leaf, shown in the scrollable content viewer. */
+  content?: string;
 }
 
 /** Result of building the whole breakdown. */

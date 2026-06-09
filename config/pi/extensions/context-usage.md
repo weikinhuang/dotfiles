@@ -68,13 +68,23 @@ assistant turn's provider `Usage` split (`input / cacheRead / cacheWrite / outpu
 post-compaction assistant turn exists yet, the real total is `unknown` and the panel notes that the estimate excludes
 the system prompt and tool schemas in that state.
 
+## Content viewer
+
+At the lowest level, leaf nodes that carry raw text open a scrollable content viewer when you press `⏎` on them (the
+legend marks an actionable row with a trailing `›`). Viewable leaves are: **context files** (the actual `AGENTS.md`
+body), **skills** (the skill body), **tool schemas** (pretty-printed JSON), **tool-result entries** (the actual
+output), and **injected addenda sections**. The viewer wraps text to the terminal width and scrolls with `↑`/`↓`,
+`PgUp`/`PgDn`, `Home`/`End`; `←` / `esc` returns to the tree. Aggregate buckets with no single source (core
+instructions, guidelines, per-role totals) are not viewable.
+
 ## Keys
 
 | Key | Action |
 | --- | --- |
-| `↑` / `↓` (`k` / `j`) | move selection |
-| `⏎` / `→` (`l`) | drill into the selected category |
-| `←` / `esc` / `⌫` (`h`) | back one level; close at the root |
+| `↑` / `↓` (`k` / `j`) | move selection (tree) / scroll (content viewer) |
+| `⏎` / `→` (`l`) | drill into a category, or open a leaf's content viewer |
+| `←` / `esc` / `⌫` (`h`) | back one level (or exit the viewer); close at the root |
+| `PgUp` / `PgDn` / `Home` / `End` | page / jump in the content viewer |
 | `c` | trigger `ctx.compact()` |
 | `r` | recompute / refresh the breakdown |
 | `t` | toggle the reconciliation panel |

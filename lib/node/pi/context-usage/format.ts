@@ -90,3 +90,34 @@ export function sanitizeDetail(detail: string, max = 100): string {
   const oneLine = detail.replace(/\s+/g, ' ').trim();
   return oneLine.length > max ? `${oneLine.slice(0, max - 1)}…` : oneLine;
 }
+
+/**
+ * Word-wrap plain text to `width` columns, preserving explicit newlines
+ * (blank lines are kept). Breaks at the last space before the limit, or
+ * hard-breaks a word longer than `width`. Tabs are expanded to two spaces.
+ */
+export function wrapPlain(text: string, width: number): string[] {
+  if (width <= 0) return text.split('\n');
+  const out: string[] = [];
+  for (const rawLine of text.replace(/\t/g, '  ').split('\n')) {
+    let line = rawLine;
+    if (line.length === 0) {
+      out.push('');
+      continue;
+    }
+    while (line.length > width) {
+      let brk = line.lastIndexOf(' ', width);
+      if (brk <= 0) brk = width;
+      out.push(line.slice(0, brk));
+      line = line.slice(brk).replace(/^ +/, '');
+    }
+    out.push(line);
+  }
+  return out;
+}
+
+/** Clamp a scroll offset so a `visible`-line window stays within `total`. */
+export function clampScroll(offset: number, total: number, visible: number): number {
+  const max = Math.max(0, total - Math.max(1, visible));
+  return Math.max(0, Math.min(offset, max));
+}

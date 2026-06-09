@@ -6,6 +6,7 @@ import { describe, expect, test } from 'vitest';
 
 import {
   childrenTotal,
+  clampScroll,
   formatAbsoluteShare,
   formatBar,
   formatBreadcrumb,
@@ -14,6 +15,7 @@ import {
   formatTokensPct,
   sanitizeDetail,
   scrollWindow,
+  wrapPlain,
 } from '../../../../../lib/node/pi/context-usage/format.ts';
 import type { CategoryNode } from '../../../../../lib/node/pi/context-usage/types.ts';
 
@@ -115,5 +117,38 @@ describe('sanitizeDetail', () => {
   });
   test('leaves short text intact', () => {
     expect(sanitizeDetail('short')).toBe('short');
+  });
+});
+
+describe('wrapPlain', () => {
+  test('keeps short lines and blank lines', () => {
+    expect(wrapPlain('a\n\nb', 80)).toEqual(['a', '', 'b']);
+  });
+  test('word-wraps at the last space before width', () => {
+    expect(wrapPlain('the quick brown fox', 10)).toEqual(['the quick', 'brown fox']);
+  });
+  test('hard-breaks a word longer than width', () => {
+    expect(wrapPlain('abcdefghij', 4)).toEqual(['abcd', 'efgh', 'ij']);
+  });
+  test('expands tabs', () => {
+    expect(wrapPlain('a\tb', 80)).toEqual(['a  b']);
+  });
+  test('non-positive width returns raw lines', () => {
+    expect(wrapPlain('a\nb', 0)).toEqual(['a', 'b']);
+  });
+});
+
+describe('clampScroll', () => {
+  test('clamps to zero when content fits', () => {
+    expect(clampScroll(5, 10, 24)).toBe(0);
+  });
+  test('clamps to the max top offset', () => {
+    expect(clampScroll(100, 30, 24)).toBe(6);
+  });
+  test('negative offset clamps to zero', () => {
+    expect(clampScroll(-3, 30, 24)).toBe(0);
+  });
+  test('mid-range offset preserved', () => {
+    expect(clampScroll(3, 30, 24)).toBe(3);
   });
 });
