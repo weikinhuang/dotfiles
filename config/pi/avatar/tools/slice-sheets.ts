@@ -7,8 +7,9 @@
  * Node 24 runs this directly (`node slice-sheets.ts`, type stripping is on).
  *
  * Input: a directory of sheets named `<group>.<sheet>.png`, where <sheet> is
- * `a`, `b`, `x1`, `x2`, ... (e.g. activities.a.png, activities.x1.png). Each is
- * a GRID.cols x GRID.rows arrangement of sprites on a flat CHROMA background.
+ * the sequential sheet number `1`, `2`, ... (e.g. activities.1.png,
+ * activities.2.png). Each is a GRID.cols x GRID.rows arrangement of sprites on a
+ * flat CHROMA background.
  *
  * Grid-line detection: rather than guessing an even split or re-detecting the
  * character (whose bounding box shifts when arms/props stick out), we find the
@@ -32,7 +33,7 @@
  *   ~/.pi/agent/avatar/emotes/<set>   (honors PI_CODING_AGENT_DIR)
  *
  * Usage:
- *   node slice-sheets.ts --set <name> --in <sheets-dir> [--out <dir>] [--sheet a|b|x1|...]
+ *   node slice-sheets.ts --set <name> --in <sheets-dir> [--out <dir>] [--sheet 1|2|...]
  *   node slice-sheets.ts --set <name> --check [--out <dir>]
  */
 
@@ -112,14 +113,14 @@ function printHelp(): void {
       'slice-sheets - turn sprite sheets into avatar per-state frame PNGs',
       '',
       'Usage:',
-      '  node slice-sheets.ts --set <name> --in <sheets-dir> [--out <dir>] [--sheet a|b|x1|...]',
+      '  node slice-sheets.ts --set <name> --in <sheets-dir> [--out <dir>] [--sheet 1|2|...]',
       '  node slice-sheets.ts --set <name> --check [--out <dir>]',
       '',
       'Flags:',
       '  --set <name>     Emote-set name (output subdir + the name you map in config).',
       '  --in <dir>       Directory of <group>.<sheet>.png sheets to slice.',
       '  --out <dir>      Output set dir. Default: <pi-agent>/avatar/emotes/<set>.',
-      '  --sheet <name>   Only process this sheet (a|b|x1|...; default: all found).',
+      '  --sheet <name>   Only process this sheet (1|2|...; default: all found).',
       '  --check          Report per-state frame coverage under --out and exit.',
       '  -h, --help       Show this help.',
       '',

@@ -7,21 +7,26 @@
  *
  * Node 24 runs this directly (`node print-prompts.ts`, type stripping is on).
  *
- * Each group produces sheets `a` (frame 0), `b` (frame 1), and `x1`/`x2`/...
- * for any extra animation frames. Generate one chat/session per group so the
+ * Each group produces sequentially named sheets `1`, `2`, ... that densely pack
+ * every (state, frame) cell. Generate one chat/session per group so the
  * character stays consistent across its sheets.
  *
+ * Workflow: first generate the canonical "hero" bust (`--hero`, attach your
+ * character art), approve one result as avatar-ref/canonical.png, then generate
+ * the expression sheets/cells with the hero attached so every sprite matches it.
+ *
  * Usage:
- *   node print-prompts.ts [--group <name>] [--sheet a|b|x1|...] [--identity-file <path>]
+ *   node print-prompts.ts --hero --identity-file avatar-ref/identity.txt        # the canonical hero bust
+ *   node print-prompts.ts [--group <name>] [--sheet 1|2|...] [--identity-file <path>]
  *   node print-prompts.ts --identity-file avatar-ref/identity.txt           # all groups, all sheets
- *   node print-prompts.ts --group activities --sheet a --identity "..."      # one sheet
+ *   node print-prompts.ts --group activities --sheet 1 --identity "..."      # one sheet
  *   node print-prompts.ts --cell --group activities --identity-file <path>     # per-cell prompts
  *   node print-prompts.ts --cell --format json --group activities ...          # per-cell JSON
  */
 
 import { readFileSync } from 'node:fs';
 
-import { buildPrompt, cellPrompt, type CellPromptEntry } from './prompt-lib.ts';
+import { buildPrompt, cellPrompt, heroPrompt, type CellPromptEntry } from './prompt-lib.ts';
 import { GROUPS, frameCount, sheetsFor } from './sprite-manifest.ts';
 
 const IDENTITY_PLACEHOLDER =
@@ -34,6 +39,7 @@ interface PromptOpts {
   sheet: string;
   identity: string;
   cell: boolean;
+  hero: boolean;
   format: CellFormat;
 }
 
@@ -43,6 +49,7 @@ function parseArgs(argv: string[]): PromptOpts {
     sheet: '',
     identity: IDENTITY_PLACEHOLDER,
     cell: false,
+    hero: false,
     format: 'text',
   };
   for (let i = 0; i < argv.length; i++) {
@@ -55,15 +62,19 @@ function parseArgs(argv: string[]): PromptOpts {
       case '-h':
       case '--help':
         process.stdout.write(
-          'Usage: node print-prompts.ts [--group <name>] [--sheet a|b|x1|...] [--identity-file <path>|--identity <text>]\n' +
+          'Usage: node print-prompts.ts --hero [--identity-file <path>|--identity <text>]\n' +
+            '       node print-prompts.ts [--group <name>] [--sheet 1|2|...] [--identity-file <path>|--identity <text>]\n' +
             '       node print-prompts.ts --cell [--format text|json] [--group <name>] [--identity-file <path>|--identity <text>]\n',
         );
         process.exit(0);
         break;
+      case '--hero':
+        opts.hero = true;
+        break;
       case '--group':
         opts.group = next().toLowerCase();
         break;
-      // --frame is kept as an alias for --sheet (A->a, B->b).
+      // --frame is kept as an alias for --sheet.
       case '--frame':
       case '--sheet':
         opts.sheet = next().toLowerCase();
@@ -117,7 +128,7 @@ function collectCellEntries(groupNames: string[], identity: string): CellPromptE
           group: groupName,
           state,
           frame,
-          prompt: cellPrompt(groupName, state, frame, identity),
+          prompt: cellPrompt(groupName, state, frame, identity, { reference: true }),
         });
       }
     }
@@ -158,7 +169,9 @@ function emitSheetPrompts(opts: PromptOpts): void {
 
 function main(): void {
   const opts = parseArgs(process.argv.slice(2));
-  if (opts.cell) {
+  if (opts.hero) {
+    process.stdout.write(`# hero (canonical bust)\n\n${heroPrompt(opts.identity)}\n`);
+  } else if (opts.cell) {
     emitCellPrompts(opts);
   } else {
     emitSheetPrompts(opts);

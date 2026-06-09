@@ -24,12 +24,52 @@ export const GROUP_GUARDS: Record<string, string> = {
   intimacy: SFW_GUARD,
 };
 
+/**
+ * Reference clause for prompts generated against an approved "hero" bust
+ * (the single canonical pixel-art reference, saved as avatar-ref/canonical.png,
+ * that every other expression and frame must match). Used by the hosted grid /
+ * cell prompts - where you upload the hero alongside the prompt - and by local
+ * edit-role workflows, where gen-comfyui injects the hero as the source image.
+ */
+export const HERO_CLAUSE =
+  'Match the attached hero reference image EXACTLY for the character design, pixel-art style, line weight, shading, and color palette, and keep the same head-and-shoulders bust crop, size, and framing; change ONLY the expression or pose noted.';
+
 /** One per-cell prompt entry for JSON export. */
 export interface CellPromptEntry {
   group: string;
   state: string;
   frame: number;
   prompt: string;
+}
+
+/** Options shared by the per-cell prompt builders. */
+export interface CellPromptOptions {
+  /**
+   * Append {@link HERO_CLAUSE}: the prompt is generated against the attached /
+   * injected hero reference (hosted prompts and local edit-role workflows).
+   */
+  reference?: boolean;
+}
+
+/**
+ * Prompt for the one canonical "hero" bust that every other sprite is matched
+ * against. This is the bootstrap step: render your character reference art into
+ * the target pixel-art style, then approve a single result as
+ * avatar-ref/canonical.png. (Unlike the expression prompts, you attach the
+ * original character art here, not the hero.)
+ */
+export function heroPrompt(identity: string): string {
+  return [
+    `Style: ${STYLE}.`,
+    '',
+    `Character: ${identity}.`,
+    '',
+    `A single head-and-shoulders bust: front-facing, neutral friendly expression, looking at the viewer, ` +
+      `centered on a flat ${CHROMA} (pure green) background. This is the canonical reference image that every ` +
+      `other expression and animation frame will be matched against, so keep it clean, well-lit, and on-model. ` +
+      `Match the attached character reference art for hair, eyes, halo, and outfit, rendered in the pixel-art style above. ` +
+      `No text, labels, borders, drop shadows, or extra panels.`,
+  ].join('\n');
 }
 
 export function sheetRules(groupName: string): string {
@@ -65,21 +105,23 @@ export function buildPrompt(groupName: string, sheet: Sheet): string {
       lines.push(`  ${i + 1}. ${cell.state} [frame ${cell.frame + 1}]: ${cell.desc}`);
     }
   });
-  if (sheet.name !== 'a') {
-    lines.push('');
-    lines.push(
-      'Keep the identical character, style, palette, framing, and grid layout as the base sheet (a); only apply the per-cell change noted.',
-    );
-  }
+  lines.push('');
+  lines.push(HERO_CLAUSE);
   return lines.join('\n');
 }
 
 /**
  * Build one prompt for a single (state, frame) cell: STYLE + identity + the
- * per-frame description from `frameDescriptions` + the group's SFW guard when
- * applicable.
+ * per-frame description from `frameDescriptions` + the hero-reference clause
+ * (when `reference`) + the group's SFW guard when applicable.
  */
-export function cellPrompt(groupName: string, state: string, frame: number, identity: string): string {
+export function cellPrompt(
+  groupName: string,
+  state: string,
+  frame: number,
+  identity: string,
+  options: CellPromptOptions = {},
+): string {
   const desc = frameDescriptions(groupName, state).at(frame);
   if (desc === undefined) {
     throw new Error(`Unknown frame ${frame} for state "${state}" in group "${groupName}"`);
@@ -94,6 +136,10 @@ export function cellPrompt(groupName: string, state: string, frame: number, iden
     lines.push(`Expression: ${state}: ${desc}`);
   } else {
     lines.push(`Expression: ${state} [frame ${frame + 1}]: ${desc}`);
+  }
+  if (options.reference === true) {
+    lines.push('');
+    lines.push(HERO_CLAUSE);
   }
   if (guard !== undefined) {
     lines.push('');

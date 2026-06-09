@@ -8,9 +8,17 @@
  *
  * Usage:
  *   node gen-comfyui.ts --ping
+ *   node gen-comfyui.ts --workflow anima --hero --canonical avatar-ref/char-art.png   # bootstrap the hero bust
  *   node gen-comfyui.ts --workflow anima --group activities --dry-run
  *   node gen-comfyui.ts --workflow anima --workflow kontext --canonical avatar-ref/canonical.png \
  *     --group activities --states hi,idle --limit 4
+ *
+ * Hero bootstrap (`--hero`): generates the one canonical bust each other sprite
+ * is matched against. For an edit-role workflow, --canonical points at your
+ * ORIGINAL character art (the source it edits into pixel art); for a
+ * generate-role workflow it is txt2img. Pick the best result and save it as
+ * avatar-ref/canonical.png, then run the normal per-cell generation with
+ * --canonical avatar-ref/canonical.png.
  */
 
 import { randomUUID } from 'node:crypto';
@@ -29,7 +37,7 @@ import {
   type Conn,
 } from '../../../../lib/node/pi/comfyui/client.ts';
 import { injectInputs, randomSeed } from '../../../../lib/node/pi/comfyui/workflow.ts';
-import { cellPrompt } from './prompt-lib.ts';
+import { cellPrompt, heroPrompt } from './prompt-lib.ts';
 import { GROUPS, frameCount, groupOf } from './sprite-manifest.ts';
 import { DEFAULT_REGISTRY_PATH, loadAndValidateRegistry, type ValidatedWorkflow } from './workflow-registry.ts';
 
@@ -61,6 +69,7 @@ export interface GenOpts {
   negative: string | undefined;
   ping: boolean;
   dryRun: boolean;
+  hero: boolean;
   registryPath: string;
 }
 
@@ -96,6 +105,7 @@ export function parseArgs(argv: string[], env: NodeJS.ProcessEnv = process.env):
     negative: undefined,
     ping: false,
     dryRun: false,
+    hero: false,
     registryPath: DEFAULT_REGISTRY_PATH,
   };
 
@@ -119,7 +129,7 @@ export function parseArgs(argv: string[], env: NodeJS.ProcessEnv = process.env):
           'Usage: node gen-comfyui.ts [--server <url>] [--workflow <name>]... [--group <name>]\n' +
             '       [--states a,b,c] [--limit N] [--identity-file <path>] [--canonical <img>]\n' +
             '       [--seed N] [--steps N] [--cfg N] [--denoise N] [--out <dir>] [--negative <text>]\n' +
-            '       [--registry <path>] [--ping] [--dry-run]\n',
+            '       [--registry <path>] [--hero] [--ping] [--dry-run]\n',
         );
         process.exit(0);
         break;
@@ -170,6 +180,9 @@ export function parseArgs(argv: string[], env: NodeJS.ProcessEnv = process.env):
         break;
       case '--dry-run':
         opts.dryRun = true;
+        break;
+      case '--hero':
+        opts.hero = true;
         break;
       default:
         throw new Error(`Unknown argument: ${arg}`);
@@ -306,24 +319,26 @@ function emitDryRun(cells: GenCell[], identity: string): void {
   }
 }
 
-async function generateCell(
+/**
+ * Inject params into a workflow, submit it, wait for the first output image, and
+ * write it to `dest`. For an edit-role workflow `sourcePath` is uploaded and
+ * injected as the `image` param; generate-role ignores it.
+ */
+async function renderImage(
   conn: Conn,
   wf: ValidatedWorkflow,
-  cell: GenCell,
-  identity: string,
+  prompt: string,
+  seed: number,
+  sourcePath: string | undefined,
+  dest: string,
   opts: GenOpts,
-  baseSeed: number,
   home: string,
   signal: AbortSignal,
 ): Promise<void> {
-  const prompt = cellPrompt(cell.group, cell.state, cell.frame, identity);
-  const seed = stateSeed(cell.state, baseSeed);
-  const sourcePath = sourceImagePath(wf.entry.role, cell.state, cell.frame, opts.canonical, opts.out, wf.name);
-
   let uploadedName: string | undefined;
   if (wf.entry.role === 'edit') {
     if (sourcePath === undefined || sourcePath.length === 0) {
-      throw new Error(`edit workflow "${wf.name}" requires --canonical for ${cell.state} frame ${cell.frame}`);
+      throw new Error(`edit workflow "${wf.name}" requires a source image`);
     }
     process.stderr.write(`uploading ${sourcePath}…\n`);
     uploadedName = await uploadImage(conn, sourcePath, home, signal);
@@ -342,19 +357,60 @@ async function generateCell(
     throw new Error(`workflow mapping error for "${wf.name}": ${injected.errors.join('; ')}`);
   }
 
-  process.stderr.write(`generating ${wf.name} / ${cell.state}.${cell.frame} (seed ${seed})…\n`);
   const clientId = randomUUID();
   const promptId = await submitPrompt(conn, injected.workflow, clientId, signal);
   const refs = await waitForImages(conn, promptId, signal);
   const first = refs[0];
   if (first === undefined) {
-    throw new Error(`ComfyUI returned no images for ${wf.name} / ${cell.state}.${cell.frame}`);
+    throw new Error(`ComfyUI returned no images for ${wf.name} -> ${dest}`);
   }
   const bytes = await fetchImageBytes(conn, first, signal);
-
-  const dest = outputPath(opts.out, wf.name, cell.state, cell.frame);
   atomicWriteFile(dest, bytes);
   process.stderr.write(`saved ${dest}\n`);
+}
+
+async function generateCell(
+  conn: Conn,
+  wf: ValidatedWorkflow,
+  cell: GenCell,
+  identity: string,
+  opts: GenOpts,
+  baseSeed: number,
+  home: string,
+  signal: AbortSignal,
+): Promise<void> {
+  const prompt = cellPrompt(cell.group, cell.state, cell.frame, identity, {
+    reference: wf.entry.role === 'edit',
+  });
+  const seed = stateSeed(cell.state, baseSeed);
+  const sourcePath = sourceImagePath(wf.entry.role, cell.state, cell.frame, opts.canonical, opts.out, wf.name);
+  const dest = outputPath(opts.out, wf.name, cell.state, cell.frame);
+  process.stderr.write(`generating ${wf.name} / ${cell.state}.${cell.frame} (seed ${seed})…\n`);
+  await renderImage(conn, wf, prompt, seed, sourcePath, dest, opts, home, signal);
+}
+
+/**
+ * Generate one candidate "hero" bust per run. Edit-role workflows bootstrap from
+ * the original character art (`--canonical`); generate-role workflows do txt2img.
+ * Candidates are written as hero.<seed>.png so re-runs accumulate options.
+ */
+async function generateHero(
+  conn: Conn,
+  wf: ValidatedWorkflow,
+  identity: string,
+  opts: GenOpts,
+  seed: number,
+  home: string,
+  signal: AbortSignal,
+): Promise<void> {
+  const prompt = heroPrompt(identity);
+  const sourcePath = wf.entry.role === 'edit' ? opts.canonical : undefined;
+  if (wf.entry.role === 'edit' && opts.canonical.length === 0) {
+    throw new Error(`hero edit workflow "${wf.name}" requires --canonical <reference-art>`);
+  }
+  const dest = join(opts.out, wf.name, `hero.${seed}.png`);
+  process.stderr.write(`generating hero ${wf.name} (seed ${seed})…\n`);
+  await renderImage(conn, wf, prompt, seed, sourcePath, dest, opts, home, signal);
 }
 
 async function runWorkflowCells(
@@ -389,6 +445,29 @@ async function runAllWorkflows(
   if (wf === undefined) return;
   await runWorkflowCells(conn, wf, cells, identity, opts, baseSeed, home, signal);
   await runAllWorkflows(conn, workflows.slice(1), cells, identity, opts, baseSeed, home, signal);
+}
+
+async function runHeroWorkflows(
+  conn: Conn,
+  workflows: ValidatedWorkflow[],
+  identity: string,
+  opts: GenOpts,
+  seed: number,
+  home: string,
+  signal: AbortSignal,
+): Promise<void> {
+  if (workflows.length === 0) return;
+  const wf = workflows[0];
+  if (wf === undefined) return;
+  await generateHero(conn, wf, identity, opts, seed, home, signal);
+  await runHeroWorkflows(conn, workflows.slice(1), identity, opts, seed, home, signal);
+}
+
+async function runHero(opts: GenOpts, workflows: ValidatedWorkflow[], identity: string, home: string): Promise<void> {
+  const conn: Conn = { base: opts.server, headers: {}, timeoutMs: TIMEOUT_MS };
+  const seed = opts.seed ?? randomSeed();
+  const signal = AbortSignal.timeout(TIMEOUT_MS);
+  await runHeroWorkflows(conn, workflows, identity, opts, seed, home, signal);
 }
 
 async function runGeneration(
@@ -435,6 +514,27 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
   } catch {
     process.stderr.write(`Failed to read identity file: ${opts.identityFile}\n`);
     process.exit(1);
+  }
+
+  if (opts.hero) {
+    if (opts.dryRun) {
+      process.stdout.write(`# hero (canonical bust)\n\n${heroPrompt(identity)}\n`);
+      return;
+    }
+    let heroWorkflows: ValidatedWorkflow[];
+    try {
+      heroWorkflows = resolveWorkflows(opts.workflows, opts.registryPath, cwd, home);
+    } catch (err) {
+      process.stderr.write(`${err instanceof Error ? err.message : String(err)}\n`);
+      process.exit(1);
+    }
+    try {
+      await runHero(opts, heroWorkflows, identity, home);
+    } catch (err) {
+      process.stderr.write(`${err instanceof Error ? err.message : String(err)}\n`);
+      process.exit(1);
+    }
+    return;
   }
 
   let cells: GenCell[];

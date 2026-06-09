@@ -67,6 +67,11 @@ describe('parseArgs', () => {
     expect(opts.ping).toBe(true);
   });
 
+  test('--hero is off by default and toggles on', () => {
+    expect(parseArgs([]).hero).toBe(false);
+    expect(parseArgs(['--hero']).hero).toBe(true);
+  });
+
   test('throws on unknown arguments', () => {
     expect(() => parseArgs(['--nope'])).toThrow('Unknown argument: --nope');
   });

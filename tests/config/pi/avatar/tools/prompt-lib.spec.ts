@@ -8,9 +8,11 @@ import { expect, test } from 'vitest';
 
 import {
   GROUP_GUARDS,
+  HERO_CLAUSE,
   SFW_GUARD,
   buildPrompt,
   cellPrompt,
+  heroPrompt,
   sheetRules,
 } from '../../../../../config/pi/avatar/tools/prompt-lib.ts';
 import { STYLE, sheetsFor } from '../../../../../config/pi/avatar/tools/sprite-manifest.ts';
@@ -23,6 +25,20 @@ test('cellPrompt: frame 0 includes style, identity, and base pose', () => {
   expect(prompt).toContain(`Character: ${IDENTITY}.`);
   expect(prompt).toContain('Expression: hi: waving hello, bright welcoming smile');
   expect(prompt).not.toContain(SFW_GUARD);
+  expect(prompt).not.toContain(HERO_CLAUSE);
+});
+
+test('cellPrompt: reference option appends the hero clause', () => {
+  const prompt = cellPrompt('activities', 'hi', 0, IDENTITY, { reference: true });
+  expect(prompt).toContain(HERO_CLAUSE);
+});
+
+test('heroPrompt: a single neutral bust against the attached character art', () => {
+  const prompt = heroPrompt(IDENTITY);
+  expect(prompt).toContain(`Style: ${STYLE}.`);
+  expect(prompt).toContain(`Character: ${IDENTITY}.`);
+  expect(prompt).toContain('head-and-shoulders bust');
+  expect(prompt).toContain('attached character reference art');
 });
 
 test('cellPrompt: frame 1 labels the animation beat', () => {
@@ -47,23 +63,19 @@ test('sheetRules: mature groups embed the SFW guard', () => {
   expect(sheetRules('activities')).not.toContain(SFW_GUARD);
 });
 
-test('buildPrompt: sheet a lists cells and leaves identity as placeholder', () => {
-  const sheet = sheetsFor('activities').find((s) => s.name === 'a');
+test('buildPrompt: sheet 1 lists cells and leaves identity as placeholder', () => {
+  const sheet = sheetsFor('activities').find((s) => s.name === '1');
   expect(sheet).toBeDefined();
   const prompt = buildPrompt('activities', sheet!);
-  expect(prompt).toContain('# activities - sheet a');
+  expect(prompt).toContain('# activities - sheet 1');
   expect(prompt).toContain('Character: {identity}.');
   expect(prompt).toContain('  1. hi: waving hello, bright welcoming smile');
-  expect(prompt).not.toContain(
-    'Keep the identical character, style, palette, framing, and grid layout as the base sheet (a)',
-  );
 });
 
-test('buildPrompt: non-a sheets include the consistency reminder', () => {
-  const sheet = sheetsFor('activities').find((s) => s.name === 'b');
-  expect(sheet).toBeDefined();
-  const prompt = buildPrompt('activities', sheet!);
-  expect(prompt).toContain(
-    'Keep the identical character, style, palette, framing, and grid layout as the base sheet (a)',
-  );
+test('buildPrompt: every sheet anchors to the hero reference', () => {
+  for (const name of ['1', '2']) {
+    const sheet = sheetsFor('activities').find((s) => s.name === name);
+    expect(sheet).toBeDefined();
+    expect(buildPrompt('activities', sheet!)).toContain(HERO_CLAUSE);
+  }
 });

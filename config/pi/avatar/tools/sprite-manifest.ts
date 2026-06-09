@@ -19,10 +19,11 @@
  * Sheets
  * ------
  * States are generated as grid "sheets" (GRID.cols x GRID.rows cells) on a flat
- * CHROMA background. Frame 0 of every state goes on sheet `a`, frame 1 on sheet
- * `b`; any frames beyond that are packed densely onto extra sheets `x1`, `x2`,
- * ... (see `sheetsFor`). The slicer maps each cell back to `<state>/<frame>.png`
- * using the same packing, so partial sets are fine - generate in batches.
+ * CHROMA background. Every (state, frame) cell is flattened in state-then-frame
+ * order and packed densely into sequentially named sheets `1`, `2`, ... of CELLS
+ * cells each (every sheet full except the last; see `sheetsFor`). The slicer maps
+ * each cell back to `<state>/<frame>.png` using the same packing, so partial sets
+ * are fine - generate in batches.
  *
  * State names MUST match the keys in config/pi/avatar/emotes/ascii/ascii.yaml.
  */
@@ -791,39 +792,29 @@ export function frameCountForState(state: string): number {
 }
 
 /**
- * The sheets to generate for a group: `a` (frame 0 of every state), `b`
- * (frame 1 of every state that has one), then `x1`, `x2`, ... packing every
- * remaining frame (index >= 2) densely, in state then frame order.
+ * The sheets to generate for a group: every (state, frame) cell flattened in
+ * state-then-frame order and packed densely into CELLS-cell sheets named
+ * sequentially (`1`, `2`, ...). Every sheet is full except the last per group.
+ * The slicer maps each cell back to `<state>/<frame>.png` using this same
+ * packing, so partial sets are fine - generate in batches.
  */
 export function sheetsFor(groupName: string): Sheet[] {
   const group: SpriteGroup | undefined = GROUPS[groupName];
   if (group === undefined) return [];
-  const states = group.states;
-  const sheets: Sheet[] = [];
 
-  for (let frame = 0; frame < 2; frame++) {
-    const cells: (SheetCell | null)[] = [];
-    for (let i = 0; i < CELLS; i++) {
-      const state = states.at(i);
-      const desc = state === undefined ? undefined : frameDescriptions(groupName, state).at(frame);
-      cells.push(state !== undefined && desc !== undefined ? { state, frame, desc } : null);
-    }
-    sheets.push({ name: frame === 0 ? 'a' : 'b', cells });
-  }
-
-  const extras: SheetCell[] = [];
-  for (const state of states) {
+  const flat: SheetCell[] = [];
+  for (const state of group.states) {
     const descs = frameDescriptions(groupName, state);
-    for (let frame = 2; frame < descs.length; frame++) {
-      extras.push({ state, frame, desc: descs[frame] });
+    for (let frame = 0; frame < descs.length; frame++) {
+      flat.push({ state, frame, desc: descs[frame] });
     }
   }
-  for (let sheet = 0; sheet * CELLS < extras.length; sheet++) {
+
+  const sheets: Sheet[] = [];
+  for (let start = 0; start < flat.length; start += CELLS) {
     const cells: (SheetCell | null)[] = [];
-    for (let i = 0; i < CELLS; i++) {
-      cells.push(extras.at(sheet * CELLS + i) ?? null);
-    }
-    sheets.push({ name: `x${sheet + 1}`, cells });
+    for (let i = 0; i < CELLS; i++) cells.push(flat.at(start + i) ?? null);
+    sheets.push({ name: String(sheets.length + 1), cells });
   }
   return sheets;
 }
