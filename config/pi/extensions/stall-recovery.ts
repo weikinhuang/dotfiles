@@ -101,7 +101,17 @@ export default function stallRecovery(pi: ExtensionAPI): void {
   let budgetExhaustedNotified = false;
 
   const clearStatus = (ctx: ExtensionContext): void => {
-    ctx.ui.setStatus(STATUS_KEY, undefined as unknown as string);
+    // Never-throw: this also runs from a deferred setImmediate callback
+    // that can fire after the session is torn down (e.g. print mode
+    // exits right after the turn), and every ExtensionContext getter
+    // throws on a stale ctx. A status slot we can no longer reach is
+    // already gone, so swallow the stale-ctx throw rather than letting
+    // it escape an event-loop callback and crash the process.
+    try {
+      ctx.ui.setStatus(STATUS_KEY, undefined as unknown as string);
+    } catch {
+      // ctx went stale between scheduling and now; nothing to clear.
+    }
   };
 
   pi.on('input', (event, ctx) => {
@@ -193,8 +203,17 @@ export default function stallRecovery(pi: ExtensionAPI): void {
             ctx.isIdle() ? { triggerTurn: true } : { deliverAs: 'followUp' },
           );
         } catch (e) {
+          // The session may have been torn down between agent_end and
+          // this deferred tick (print mode exits right after the turn),
+          // leaving ctx stale so ctx.isIdle() / ctx.ui both throw.
+          // clearStatus already swallows that; guard the notify too so a
+          // best-effort retry can never crash an event-loop callback.
           clearStatus(ctx);
-          ctx.ui.notify(`stall-recovery: failed to deliver retry message: ${String(e)}`, 'error');
+          try {
+            ctx.ui.notify(`stall-recovery: failed to deliver retry message: ${String(e)}`, 'error');
+          } catch {
+            // ctx stale; the retry simply didn't fire. Nothing to surface.
+          }
         }
       });
     } catch (e) {
