@@ -29,12 +29,19 @@
  * Config layers (lowest -> highest): shipped defaults ->
  * <piAgentDir>/image-ref.json -> <cwd>/.pi/image-ref.json.
  *
+ * A companion autocomplete provider closes the typing loop: typing the
+ * `&` marker pops a file-path menu scoped to image files (and
+ * directories to drill into), so `&./mock.png` can be tab-completed
+ * instead of typed out. It stacks on top of pi's built-in slash/path
+ * completion and delegates everything that isn't a `&`-marked token.
+ *
  * Environment:
- *   PI_IMAGE_REF_DISABLED=1   skip the extension entirely
- *   PI_IMAGE_REF_DEBUG=1      notify once per attach / skip decision
+ *   PI_IMAGE_REF_DISABLED=1            skip the extension entirely
+ *   PI_IMAGE_REF_DISABLE_COMPLETION=1  keep attachment, drop the `&` autocomplete
+ *   PI_IMAGE_REF_DEBUG=1               notify once per attach / skip decision
  */
 
-import { readFile, stat } from 'node:fs/promises';
+import { readdir, readFile, stat } from 'node:fs/promises';
 import { basename, isAbsolute, resolve } from 'node:path';
 
 import {
@@ -44,13 +51,66 @@ import {
   resizeImage,
 } from '@earendil-works/pi-coding-agent';
 import type { ImageContent } from '@earendil-works/pi-ai';
+import type { AutocompleteProvider, AutocompleteSuggestions } from '@earendil-works/pi-tui';
 
 import { envTruthy } from '../../../lib/node/pi/parse-env.ts';
 import { expandTilde } from '../../../lib/node/pi/path-expand.ts';
+import {
+  buildCompletionItems,
+  completionPrefix,
+  extractMarkerToken,
+  resolveReadDir,
+} from '../../../lib/node/pi/image-ref/complete.ts';
 import { loadImageRefConfig } from '../../../lib/node/pi/image-ref/config.ts';
 import { sniffImageMime, SNIFF_BYTES } from '../../../lib/node/pi/image-ref/detect.ts';
-import { type AttachedRef, extractPathTokens, rewriteWithRefs } from '../../../lib/node/pi/image-ref/extract.ts';
+import {
+  type AttachedRef,
+  extractPathTokens,
+  MARKER,
+  rewriteWithRefs,
+} from '../../../lib/node/pi/image-ref/extract.ts';
 import { modelAcceptsImages } from '../../../lib/node/pi/image-ref/vision.ts';
+
+/** Cap on completion items surfaced for a single `&` token. */
+const MAX_COMPLETIONS = 20;
+
+/**
+ * Build the `&`-marker autocomplete provider that stacks on `current`.
+ * Returns image-file + directory completions when the cursor sits in a
+ * marked token, otherwise delegates wholesale to the built-in provider.
+ * `applyCompletion` is delegated too: a `&`-prefixed value falls through
+ * pi's generic file-path branch, which splices it in verbatim.
+ */
+function createCompletionProvider(current: AutocompleteProvider, cwd: string, homedir: string): AutocompleteProvider {
+  return {
+    triggerCharacters: [MARKER],
+    async getSuggestions(lines, cursorLine, cursorCol, options): Promise<AutocompleteSuggestions | null> {
+      const line = lines[cursorLine] ?? '';
+      const token = extractMarkerToken(line.slice(0, cursorCol));
+      if (!token) return current.getSuggestions(lines, cursorLine, cursorCol, options);
+
+      try {
+        const entries = await readdir(resolveReadDir(token, cwd, homedir), { withFileTypes: true });
+        if (options.signal.aborted) return current.getSuggestions(lines, cursorLine, cursorCol, options);
+        const items = buildCompletionItems(
+          entries.map((entry) => ({ name: entry.name, isDirectory: entry.isDirectory() })),
+          token,
+          MAX_COMPLETIONS,
+        );
+        if (items.length === 0) return current.getSuggestions(lines, cursorLine, cursorCol, options);
+        return { items, prefix: completionPrefix(token) };
+      } catch {
+        return current.getSuggestions(lines, cursorLine, cursorCol, options);
+      }
+    },
+    applyCompletion(lines, cursorLine, cursorCol, item, prefix) {
+      return current.applyCompletion(lines, cursorLine, cursorCol, item, prefix);
+    },
+    shouldTriggerFileCompletion(lines, cursorLine, cursorCol) {
+      return current.shouldTriggerFileCompletion?.(lines, cursorLine, cursorCol) ?? true;
+    },
+  };
+}
 
 /** Result of trying to turn one path token into an attachment. */
 interface Resolved {
@@ -61,6 +121,7 @@ interface Resolved {
 export default function imageRefExtension(pi: ExtensionAPI): void {
   if (envTruthy(process.env.PI_IMAGE_REF_DISABLED)) return;
   const debug = envTruthy(process.env.PI_IMAGE_REF_DEBUG);
+  const completionEnabled = !envTruthy(process.env.PI_IMAGE_REF_DISABLE_COMPLETION);
 
   // Resolve a single cleaned token to an attachment, or null when it is
   // not a readable, in-budget, real image. Every failure mode degrades
@@ -151,5 +212,16 @@ export default function imageRefExtension(pi: ExtensionAPI): void {
     }
 
     return { action: 'transform', text, images };
+  });
+
+  // Stack the `&`-marker file-path completion on top of the built-in
+  // provider. pi clears extension autocomplete wrappers on `/reload`
+  // before re-firing `session_start`, so re-registering here can't stack
+  // duplicates - no `session_shutdown` teardown is needed.
+  if (!completionEnabled) return;
+  pi.on('session_start', (_event, ctx: ExtensionContext) => {
+    if (!ctx.hasUI) return;
+    const homedir = process.env.HOME ?? process.env.USERPROFILE ?? '';
+    ctx.ui.addAutocompleteProvider((current) => createCompletionProvider(current, ctx.cwd, homedir));
   });
 }

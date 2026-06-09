@@ -47,6 +47,31 @@ The pure logic - byte sniffing, marked-path extraction, text rewrite, config lay
 [`lib/node/pi/image-ref/`](../../../lib/node/pi/image-ref) and is unit-tested; the extension shell is just the `input`
 transform, the filesystem reads, and the `resizeImage` call.
 
+## Autocomplete
+
+The extension stacks a custom autocomplete provider
+([`ctx.ui.addAutocompleteProvider`](../../../config/pi/extensions/image-ref.ts)) on top of pi's built-in slash / path
+completion, registered once per `session_start`. Typing the `&` marker pops a file-path menu scoped to **image files**
+(`.jpg`, `.jpeg`, `.png`, `.gif`, `.webp`) plus directories to drill into, so a `&./assets/logo.png` reference can be
+tab-completed instead of typed out:
+
+- `&` is declared as a `triggerCharacters` entry, so the menu fires the moment you type the marker at a token boundary
+  (the same way `@` and `#` auto-trigger), then re-queries as you type the path.
+- The provider parses the `&`-marked token under the cursor
+  ([`extractMarkerToken`](../../../lib/node/pi/image-ref/complete.ts)), `readdir`s the directory it points at, and
+  shapes matching entries into completions ([`buildCompletionItems`](../../../lib/node/pi/image-ref/complete.ts)) -
+  directories first, then image files, matched case-insensitively on the basename fragment. Hidden entries surface only
+  once you type a leading `.`.
+- Anything that is not a `&`-token (a bare `@file`, a `/command`, a plain path) is delegated wholesale to the built-in
+  provider, and `applyCompletion` is delegated too: a `&`-prefixed completion value falls through pi's generic file-path
+  insertion branch and is spliced in verbatim.
+- The completion is a typing convenience only; the byte sniff at `input` time is still the sole authority on what gets
+  attached, so completing a mis-named file just leaves it as text when the message is sent.
+
+The completion list filters on extension (cheap, no bytes read), while attachment still sniffs the real bytes. pi clears
+extension autocomplete providers on `/reload` before re-firing `session_start`, so re-registering needs no
+`session_shutdown` teardown.
+
 ## Config
 
 User config lives at `~/.pi/agent/image-ref.json` or project `.pi/image-ref.json`; project wins over user wins over the
@@ -70,6 +95,8 @@ shipped defaults. See [`image-ref-example.json`](../image-ref-example.json).
 ## Environment variables
 
 - `PI_IMAGE_REF_DISABLED=1` - skip the extension entirely.
+- `PI_IMAGE_REF_DISABLE_COMPLETION=1` - keep attachment but drop the `&` autocomplete provider (the built-in completion
+  is untouched).
 - `PI_IMAGE_REF_DEBUG=1` - `ctx.ui.notify` once per decision (attached N image(s) with names, or skipped because the
   model has no image input).
 
@@ -79,7 +106,9 @@ Only the `&` marker opts a token in - there is no auto-detection, so discussing 
 marker accepts any path shape (`&./rel.png`, `&/abs/x.jpg`, `&~/pics/y.webp`, `&"name with spaces.png"`, even an
 extensionless `&screenshot`); the byte sniff, not the filename, decides whether it is really an image. A marked token
 that doesn't resolve to a supported image is silently left as text (with the marker intact), never an error. `&` was
-chosen because pi's editor already claims `@` (file completion), `#` (autocomplete), `!` (bash), and `/` (commands).
+chosen because pi's editor already claims `@` (file completion), `#` (autocomplete), `!` (bash), and `/` (commands) -
+and the extension registers `&` as its own `triggerCharacters` entry so the marker now drives image-scoped path
+completion too (see [Autocomplete](#autocomplete)).
 
 ## Hot reload
 
