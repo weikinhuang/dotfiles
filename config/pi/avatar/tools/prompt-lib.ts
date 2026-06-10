@@ -74,7 +74,8 @@ export function heroPrompt(identity: string): string {
     `Character: ${identity}.`,
     '',
     `A single head-and-shoulders bust: front-facing, neutral friendly expression, looking at the viewer, ` +
-      `centered on a flat ${CHROMA} (pure green) background. This is the canonical reference image that every ` +
+      `centered on a solid, flat chroma-key green-screen background (${CHROMA}, vivid fully-saturated pure green, ` +
+      `no gradient, no scenery, nothing but green behind the character). This is the canonical reference image that every ` +
       `other expression and animation frame will be matched against, so keep it clean, well-lit, and on-model. ` +
       `Match the attached character reference art for hair, eyes, halo, and outfit, rendered in the pixel-art style above. ` +
       `No text, labels, borders, drop shadows, or extra panels.`,
@@ -165,7 +166,7 @@ export function sheetRules(groupName: string): string {
   const guard = GROUP_GUARDS[groupName];
   return (
     `Arrange exactly ${cells} sprites in a strict, evenly spaced ${GRID.cols}x${GRID.rows} grid, read left-to-right then top-to-bottom, ` +
-    `on a single flat ${CHROMA} (pure green) background. ` +
+    `on a single solid, flat chroma-key green-screen background (${CHROMA}, vivid fully-saturated pure green, no gradient or scenery). ` +
     `Outline every cell with a thin 1px solid bright cyan (${BORDER}) rectangular border - flat and fully saturated, no gradient or glow. Make all borders the exact same size and evenly spaced, with green gutters between them. ` +
     `Draw one sprite inside each border box at the EXACT same size and position in every cell: head near the top inner edge, centered horizontally, the same bust crop. Leave a clear band of plain green between the character and the cyan border on all sides - nothing should touch or cross the border. ` +
     'The borders are alignment guides only (they get removed). No text, labels, numbers, drop shadows, or extra panel lines.' +

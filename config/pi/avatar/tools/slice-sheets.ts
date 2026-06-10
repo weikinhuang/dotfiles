@@ -41,6 +41,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 import {
   ALL_STATES,
@@ -79,6 +80,13 @@ const GUTTER_FRAC = Number(process.env.AVATAR_GUTTER_FRAC ?? '0.015');
 // Minimum gutter run length (mask px) so a few stray background rows between
 // limbs don't read as a grid line.
 const MIN_GUTTER = 2;
+// Background key color. By default the slicer samples each sheet's edges and keys
+// the actual flat background color it finds - robust when a model renders a
+// near-green instead of exact CHROMA. Force a color with AVATAR_BG_COLOR, or set
+// AVATAR_BG_AUTODETECT=0 to always key the manifest CHROMA.
+const rawBgColor = process.env.AVATAR_BG_COLOR?.trim();
+const BG_COLOR_OVERRIDE = rawBgColor !== undefined && rawBgColor.length > 0 ? rawBgColor : undefined;
+const BG_AUTODETECT = process.env.AVATAR_BG_AUTODETECT !== '0';
 
 interface SliceOpts {
   set: string;
@@ -125,7 +133,8 @@ function printHelp(): void {
       '  -h, --help       Show this help.',
       '',
       'Env: AVATAR_SLICE=grid (force even split), AVATAR_GUTTER_FRAC,',
-      '     AVATAR_CHROMA_FUZZ, AVATAR_BORDER_FUZZ, AVATAR_DEFRINGE=0.',
+      '     AVATAR_CHROMA_FUZZ, AVATAR_BORDER_FUZZ, AVATAR_DEFRINGE=0,',
+      '     AVATAR_BG_COLOR=<color> (force key color), AVATAR_BG_AUTODETECT=0.',
       '',
       `Sheets expected (groups): ${Object.keys(GROUPS).join(', ')}`,
     ].join('\n') + '\n',
@@ -204,9 +213,9 @@ function dimensions(file: string): { w: number; h: number } {
   return { w: Number.isFinite(w) ? w : 0, h: Number.isFinite(h) ? h : 0 };
 }
 
-function keyArgs(): string[] {
+function keyArgs(bg: string): string[] {
   const defringe = DEFRINGE ? ['-channel', 'A', '-morphology', 'Erode', 'Octagon:1', '+channel'] : [];
-  return ['-fuzz', FUZZ, '-transparent', CHROMA, '-fuzz', BORDER_FUZZ, '-transparent', BORDER, ...defringe];
+  return ['-fuzz', FUZZ, '-transparent', bg, '-fuzz', BORDER_FUZZ, '-transparent', BORDER, ...defringe];
 }
 
 // ── Grid-line detection via CHROMA gutters ─────────────────────────────
@@ -216,7 +225,7 @@ function keyArgs(): string[] {
  * "on" (>127). Only CHROMA is keyed here, so the BORDER lines read as content
  * and can't open a false gutter at a cell edge.
  */
-function chromaMask(sheetPath: string): Mask {
+function chromaMask(sheetPath: string, bg: string): Mask {
   const pct = Math.round(100 / MASK_SCALE);
   const pgm = execFileSync(
     'magick',
@@ -225,7 +234,7 @@ function chromaMask(sheetPath: string): Mask {
       '-fuzz',
       DETECT_FUZZ,
       '-transparent',
-      CHROMA,
+      bg,
       '-alpha',
       'extract',
       '-resize',
@@ -327,16 +336,119 @@ function median(values: number[]): number {
   return sorted[Math.floor(sorted.length / 2)];
 }
 
+// ── Background color detection ─────────────────────────────────────────
+
+function clamp255(n: number): number {
+  return Math.max(0, Math.min(255, Math.round(n)));
+}
+
+/**
+ * Parse an ImageMagick pixel string - `srgb(r,g,b)`, `srgba(r,g,b,a)`, `rgb(...)`,
+ * or `#rrggbb` / `#rgb` - into [r,g,b] (0-255), or undefined when unrecognized.
+ */
+export function parsePixel(value: string): [number, number, number] | undefined {
+  const text = value.trim();
+  const fn = /^s?rgba?\(\s*([0-9.]+)\s*,\s*([0-9.]+)\s*,\s*([0-9.]+)/i.exec(text);
+  if (fn !== null) {
+    const r = Number(fn[1]);
+    const g = Number(fn[2]);
+    const b = Number(fn[3]);
+    if (Number.isFinite(r) && Number.isFinite(g) && Number.isFinite(b)) {
+      return [clamp255(r), clamp255(g), clamp255(b)];
+    }
+  }
+  const hex6 = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(text);
+  if (hex6 !== null) {
+    return [Number.parseInt(hex6[1], 16), Number.parseInt(hex6[2], 16), Number.parseInt(hex6[3], 16)];
+  }
+  const hex3 = /^#([0-9a-f])([0-9a-f])([0-9a-f])$/i.exec(text);
+  if (hex3 !== null) {
+    return [
+      Number.parseInt(hex3[1] + hex3[1], 16),
+      Number.parseInt(hex3[2] + hex3[2], 16),
+      Number.parseInt(hex3[3] + hex3[3], 16),
+    ];
+  }
+  return undefined;
+}
+
+/** Quantize a channel so near-identical background pixels share a bucket. */
+function quantize(n: number): number {
+  return Math.round(n / 12) * 12;
+}
+
+/**
+ * Pick the flat background key color from sampled perimeter pixels: the most
+ * common color (after coarse quantization), returned as the median of that
+ * cluster's members as an IM `srgb(r,g,b)` string. The flat background dominates
+ * the perimeter even when a few samples clip the character, so the mode is far
+ * more robust than a raw median + spread guard. Falls back to `fallback` when
+ * fewer than 3 samples parse, or no color clusters into a majority (i.e. the
+ * image is not a flat-background sheet).
+ */
+export function pickBackgroundColor(samples: string[], fallback: string): string {
+  const rgb = samples.map(parsePixel).filter((c): c is [number, number, number] => c !== undefined);
+  if (rgb.length < 3) return fallback;
+  const keyOf = (c: [number, number, number]): string => `${quantize(c[0])},${quantize(c[1])},${quantize(c[2])}`;
+  const counts = new Map<string, number>();
+  for (const c of rgb) counts.set(keyOf(c), (counts.get(keyOf(c)) ?? 0) + 1);
+  let bestKey = '';
+  let bestN = 0;
+  for (const [key, n] of counts) {
+    if (n > bestN) {
+      bestKey = key;
+      bestN = n;
+    }
+  }
+  if (bestN * 2 < rgb.length) return fallback;
+  const members = rgb.filter((c) => keyOf(c) === bestKey);
+  const channel = (i: number): number[] => members.map((c) => c[i]);
+  return `srgb(${median(channel(0))},${median(channel(1))},${median(channel(2))})`;
+}
+
+/** 12 perimeter sample points (3 per edge, inset 2px) - background-heavy. */
+function perimeterPoints(w: number, h: number): [number, number][] {
+  const span = (n: number): number[] =>
+    [1 / 6, 3 / 6, 5 / 6].map((f) => Math.min(n - 3, Math.max(2, Math.round(n * f))));
+  const points: [number, number][] = [];
+  for (const x of span(w)) points.push([x, 2], [x, h - 3]);
+  for (const y of span(h)) points.push([2, y], [w - 3, y]);
+  return points;
+}
+
+/**
+ * Detect the flat background color of a sheet by sampling perimeter points.
+ * Honors AVATAR_BG_COLOR (force) and AVATAR_BG_AUTODETECT=0 (use CHROMA); falls
+ * back to CHROMA on any magick failure or a too-small image.
+ */
+function detectBackgroundColor(path: string, w: number, h: number): string {
+  if (BG_COLOR_OVERRIDE !== undefined) return BG_COLOR_OVERRIDE;
+  if (!BG_AUTODETECT || w <= 4 || h <= 4) return CHROMA;
+  const fmt = perimeterPoints(w, h)
+    .map(([x, y]) => `%[pixel:p{${x},${y}}]`)
+    .join(';');
+  try {
+    const out = execFileSync('magick', [path, '-depth', '8', '-format', fmt, 'info:'], { encoding: 'utf8' });
+    const samples = out
+      .split(';')
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0);
+    return pickBackgroundColor(samples, CHROMA);
+  } catch {
+    return CHROMA;
+  }
+}
+
 // ── Writing frames ─────────────────────────────────────────────────────
 
-/** Crop a box interior, key out CHROMA + BORDER, resize to fill the canvas. */
-function writeCell(sheetPath: string, box: Box, canvas: Canvas, dest: string): void {
+/** Crop a box interior, key out the background + BORDER, resize to fill the canvas. */
+function writeCell(sheetPath: string, box: Box, canvas: Canvas, dest: string, bg: string): void {
   execFileSync('magick', [
     sheetPath,
     '-crop',
     `${box.w}x${box.h}+${box.x}+${box.y}`,
     '+repage',
-    ...keyArgs(),
+    ...keyArgs(bg),
     '-filter',
     'point',
     '-resize',
@@ -357,12 +469,12 @@ function nonNullBoxes(sheet: Sheet, boxes: Box[]): { state: string; frame: numbe
   return out;
 }
 
-function sliceSheet(sheetPath: string, sheet: Sheet, boxes: Box[], canvas: Canvas, outDir: string): number {
+function sliceSheet(sheetPath: string, sheet: Sheet, boxes: Box[], canvas: Canvas, outDir: string, bg: string): number {
   let written = 0;
   for (const { state, frame, box } of nonNullBoxes(sheet, boxes)) {
     const stateDir = join(outDir, state);
     mkdirSync(stateDir, { recursive: true });
-    writeCell(sheetPath, box, canvas, join(stateDir, `${frame}.png`));
+    writeCell(sheetPath, box, canvas, join(stateDir, `${frame}.png`), bg);
     written++;
   }
   return written;
@@ -398,6 +510,8 @@ interface Job {
   raw: Box[] | null;
   boxes: Box[];
   source: Source;
+  /** Flat background color keyed out of this sheet (detected or forced). */
+  bg: string;
 }
 
 /** Scale a reference grid (measured on refW x refH) onto another sheet's dims. */
@@ -432,8 +546,9 @@ function collectJobs(inDir: string, sheetFilter: string): Job[] {
 
     const path = join(inDir, file);
     const { w, h } = dimensions(path);
-    const raw = GRID_MODE ? null : detectGrid(chromaMask(path));
-    jobs.push({ file: path, group, sheet, w, h, raw, boxes: [], source: 'even-grid' });
+    const bg = detectBackgroundColor(path, w, h);
+    const raw = GRID_MODE ? null : detectGrid(chromaMask(path, bg));
+    jobs.push({ file: path, group, sheet, w, h, raw, boxes: [], source: 'even-grid', bg });
   }
   return jobs;
 }
@@ -511,8 +626,8 @@ function main(): void {
   let totalFrames = 0;
   let sheetsDone = 0;
   for (const job of jobs) {
-    const written = sliceSheet(job.file, job.sheet, job.boxes, canvas, outDir);
-    process.stdout.write(`${job.file} -> ${written} frame(s) [${job.source}]\n`);
+    const written = sliceSheet(job.file, job.sheet, job.boxes, canvas, outDir, job.bg);
+    process.stdout.write(`${job.file} -> ${written} frame(s) [${job.source}, bg ${job.bg}]\n`);
     totalFrames += written;
     sheetsDone++;
   }
@@ -522,4 +637,6 @@ function main(): void {
   if (sheetsDone === 0) process.stdout.write('No matching <group>.<sheet>.png sheets found in --in.\n');
 }
 
-main();
+if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
+  main();
+}

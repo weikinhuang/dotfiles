@@ -44,6 +44,7 @@ test('heroPrompt: a single neutral bust against the attached character art', () 
   expect(prompt).toContain(`Character: ${IDENTITY}.`);
   expect(prompt).toContain('head-and-shoulders bust');
   expect(prompt).toContain('attached character reference art');
+  expect(prompt).toContain('chroma-key green-screen background');
 });
 
 test('turnaroundPrompt: bust from four angles on a neutral, non-chroma background', () => {
