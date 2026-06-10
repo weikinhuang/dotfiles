@@ -19,11 +19,21 @@
  * Sheets
  * ------
  * States are generated as grid "sheets" (GRID.cols x GRID.rows cells) on a flat
- * CHROMA background. Every (state, frame) cell is flattened in state-then-frame
- * order and packed densely into sequentially named sheets `1`, `2`, ... of CELLS
- * cells each (every sheet full except the last; see `sheetsFor`). The slicer maps
- * each cell back to `<state>/<frame>.png` using the same packing, so partial sets
- * are fine - generate in batches.
+ * CHROMA background. Sheets are partitioned by `tier` (standard / suggestive /
+ * mature) so the SFW guard and base-vs-mature-overlay routing stay clean. Within
+ * each tier every state's frames are packed as a WHOLE BLOCK that never splits
+ * across a sheet boundary - so a hosted UI that can't carry context between
+ * sheets (e.g. Firefly) still renders all of one emote's frames together. Blocks
+ * fill sheets densely via next-fit; only the last sheet of each tier is partial.
+ * Sheets are named `<tier>.<n>` (`standard.1`, `mature.1`, ...; also the sheet
+ * filename stem). The slicer maps each cell back to `<state>/<frame>.png` using
+ * this same packing (`allSheets`), so partial sets are fine - generate in
+ * batches.
+ *
+ * To add an emote with minimal re-generation, append it to the END of its tier:
+ * only that tier's tail sheet(s) change; other tiers and all earlier sheets are
+ * untouched. (A mid-tier insertion still ripples forward within that one tier -
+ * the cost of dense global packing.)
  *
  * State names MUST match the keys in config/pi/avatar/emotes/ascii/ascii.yaml.
  */
@@ -33,6 +43,17 @@ export const GRID = { cols: 4, rows: 3 } as const;
 
 /** Cells available on one sheet. */
 export const CELLS = GRID.cols * GRID.rows;
+
+/**
+ * Packing partition for a group. Sheets never mix tiers, so the SFW guard
+ * (suggestive + mature) and base-vs-mature-overlay slice routing stay clean.
+ * `standard` is the default; `suggestive` is tasteful adult flirtation that
+ * still ships in the base set; `mature` is the opt-in `mature` overlay.
+ */
+export type Tier = 'standard' | 'suggestive' | 'mature';
+
+/** Tiers in sheet-emission order. */
+export const TIERS: readonly Tier[] = ['standard', 'suggestive', 'mature'] as const;
 
 /**
  * Output sprite resolution: the median sprite is scaled to TARGET_PX * fill px
@@ -68,7 +89,9 @@ export const FRAME_B_DEFAULT =
   'second animation beat: a subtle variation of the same expression (a blink, a slightly bigger mouth or smile, or a tiny head bob) - identical framing, palette, and outline.';
 
 export interface SpriteGroup {
-  /** Ordered state names (grid reading order on sheet `a`). */
+  /** Packing/guard partition; defaults to `standard`. */
+  tier?: Tier;
+  /** Ordered state names (grid reading order). */
   states: string[];
   /** Frame-0 (base) expression/pose per state. */
   poses: Record<string, string>;
@@ -78,6 +101,8 @@ export interface SpriteGroup {
 
 /** One generated cell: which state/frame it holds and how to draw it. */
 export interface SheetCell {
+  /** Manifest group the state belongs to (for prompt context / debugging). */
+  group: string;
   state: string;
   frame: number;
   desc: string;
@@ -85,7 +110,10 @@ export interface SheetCell {
 
 /** One sheet to generate: an ordered list of CELLS cells (null = leave blank). */
 export interface Sheet {
+  /** Globally-unique tier-prefixed id, e.g. `standard.1` (also the filename stem). */
   name: string;
+  /** Packing partition this sheet belongs to. */
+  tier: Tier;
   cells: (SheetCell | null)[];
 }
 
@@ -415,6 +443,7 @@ export const GROUPS: Record<string, SpriteGroup> = {
   // nudity, suggestive posing, or explicit content. See `sheetRules` in
   // print-prompts.ts for the extra guard clause applied to this group.
   sultry: {
+    tier: 'suggestive',
     states: [
       'sultry',
       'smoulder',
@@ -654,6 +683,7 @@ export const GROUPS: Record<string, SpriteGroup> = {
   // only, fully clothed, no nudity or explicit content. The guard clause in
   // `sheetRules` (print-prompts.ts) enforces this for the whole group.
   desire: {
+    tier: 'mature',
     states: [
       'wanting',
       'craving',
@@ -692,6 +722,7 @@ export const GROUPS: Record<string, SpriteGroup> = {
   },
 
   intensity: {
+    tier: 'mature',
     states: [
       'weak',
       'overwhelmed-pleasure',
@@ -730,6 +761,7 @@ export const GROUPS: Record<string, SpriteGroup> = {
   },
 
   intimacy: {
+    tier: 'mature',
     states: [
       'worship',
       'exposed',
@@ -772,6 +804,11 @@ export function groupOf(state: string): string | undefined {
   return Object.keys(GROUPS).find((name) => GROUPS[name]?.states.includes(state) === true);
 }
 
+/** Packing/guard tier for a group (defaults to `standard`). */
+export function tierOf(groupName: string): Tier {
+  return GROUPS[groupName]?.tier ?? 'standard';
+}
+
 /** Ordered frame descriptions for a state: [base, ...frames] (>= 1 entry). */
 export function frameDescriptions(groupName: string, state: string): string[] {
   const group: SpriteGroup | undefined = GROUPS[groupName];
@@ -792,29 +829,44 @@ export function frameCountForState(state: string): number {
 }
 
 /**
- * The sheets to generate for a group: every (state, frame) cell flattened in
- * state-then-frame order and packed densely into CELLS-cell sheets named
- * sequentially (`1`, `2`, ...). Every sheet is full except the last per group.
+ * Every sheet to generate, partitioned by tier and packed densely. Within each
+ * tier (in `TIERS` order) the groups' states are walked in order and each
+ * state's frames are placed as a WHOLE BLOCK via next-fit: when the next block
+ * would overflow the current sheet, the sheet is flushed (trailing cells left
+ * null) and the block starts a fresh one, so a state's frames NEVER split across
+ * a sheet boundary. Sheets are named `<tier>.<n>` (`standard.1`, `mature.1`, ...).
  * The slicer maps each cell back to `<state>/<frame>.png` using this same
  * packing, so partial sets are fine - generate in batches.
  */
-export function sheetsFor(groupName: string): Sheet[] {
-  const group: SpriteGroup | undefined = GROUPS[groupName];
-  if (group === undefined) return [];
-
-  const flat: SheetCell[] = [];
-  for (const state of group.states) {
-    const descs = frameDescriptions(groupName, state);
-    for (let frame = 0; frame < descs.length; frame++) {
-      flat.push({ state, frame, desc: descs[frame] });
-    }
-  }
-
+export function allSheets(): Sheet[] {
   const sheets: Sheet[] = [];
-  for (let start = 0; start < flat.length; start += CELLS) {
-    const cells: (SheetCell | null)[] = [];
-    for (let i = 0; i < CELLS; i++) cells.push(flat.at(start + i) ?? null);
-    sheets.push({ name: String(sheets.length + 1), cells });
+  for (const tier of TIERS) {
+    const groupNames = Object.keys(GROUPS).filter((name) => tierOf(name) === tier);
+    let cells: (SheetCell | null)[] = [];
+    let count = 0;
+    const flush = (): void => {
+      if (cells.length === 0) return;
+      while (cells.length < CELLS) cells.push(null);
+      count += 1;
+      sheets.push({ name: `${tier}.${count}`, tier, cells });
+      cells = [];
+    };
+    for (const groupName of groupNames) {
+      const group = GROUPS[groupName];
+      if (group === undefined) continue;
+      for (const state of group.states) {
+        const descs = frameDescriptions(groupName, state);
+        const block: SheetCell[] = descs.map((desc, frame) => ({ group: groupName, state, frame, desc }));
+        if (cells.length + block.length > CELLS) flush();
+        cells.push(...block);
+      }
+    }
+    flush();
   }
   return sheets;
+}
+
+/** The sheets for a single tier (a filtered view of {@link allSheets}). */
+export function sheetsForTier(tier: Tier): Sheet[] {
+  return allSheets().filter((sheet) => sheet.tier === tier);
 }

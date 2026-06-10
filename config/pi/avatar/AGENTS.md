@@ -56,9 +56,9 @@ The tools are plain TypeScript; Node 24 runs them directly (`node <script>.ts`),
 ## Using the tooling (quickstart)
 
 ```bash
-# 1. print prompts for a group (identity blurb + reference images are device-local under avatar-ref/)
-node config/pi/avatar/tools/print-prompts.ts --group activities --identity-file avatar-ref/identity.txt
-# 2. generate the sheets in an image UI, save as avatar-ref/sheets/<group>.<sheet>.png
+# 1. print prompts for a tier (identity blurb + reference images are device-local under avatar-ref/)
+node config/pi/avatar/tools/print-prompts.ts --tier standard --identity-file avatar-ref/identity.txt
+# 2. generate the sheets in an image UI, save as avatar-ref/sheets/<tier>.<n>.png
 # 3. slice into the set the extension scans (~/.pi/agent/avatar/emotes/<set>)
 node config/pi/avatar/tools/slice-sheets.ts --set <set> --in avatar-ref/sheets
 node config/pi/avatar/tools/slice-sheets.ts --set <set> --check
@@ -69,11 +69,13 @@ node config/pi/avatar/tools/contact-sheet.ts --set <set> --out avatar-ref/contac
 ## Conventions / boundaries
 
 - **The manifest is the source of truth.** Add a state to a group's `states` + `poses` (+ `frames` for >2 frames) and a
-  kaomoji key; prompts, sheet packing, and slicing all follow automatically. Sheets are packed densely (every
-  `(state, frame)` cell in state-then-frame order, sequentially named `1`, `2`, …), so there is no 12-state-per-group
-  cap. Keep the manifest name, kaomoji key, sprite dir, and `[emote:NAME]` marker identical (hyphens allowed).
-- **Suggestive / mature groups** must carry the SFW guard: add the group to `GROUP_GUARDS` in
-  [`tools/prompt-lib.ts`](./tools/prompt-lib.ts) (head-and-shoulders, fully clothed, expression-driven only).
+  kaomoji key; prompts, sheet packing, and slicing all follow. Sheets are partitioned by **tier** (`standard` /
+  `suggestive` / `mature`) and packed whole-emote-block (named `<tier>.<n>`) so frames never split across a sheet - no
+  per-group cap; append new emotes to the END of a tier so only its tail sheet re-generates (see
+  [`tools/PROMPTS.md`](./tools/PROMPTS.md)). Keep the manifest name, kaomoji key, sprite dir, and `[emote:NAME]` marker
+  identical (hyphens allowed).
+- **Suggestive / mature groups** must carry the SFW guard: set the group's `tier` to `suggestive`/`mature` (guards sheet
+  prompts) AND add it to `GROUP_GUARDS` in [`tools/prompt-lib.ts`](./tools/prompt-lib.ts) (guards per-cell prompts).
 - **Committed vs device-local.** Only tooling + generic kaomoji (`ascii`, `mature`) are committed. Generated sheets,
   sliced sets (`~/.pi/agent/avatar/emotes/<set>`), reference images, identity blurb, and any character-specific overlay
   (e.g. an `exusiai` set) are device-local and never committed. Per the `.gitignore` here, `emotes/**/*.png`,

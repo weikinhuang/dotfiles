@@ -7,10 +7,10 @@
  * Node 24 runs this directly (`node assemble-sheets.ts`, type stripping is on).
  *
  * Input:  avatar-ref/gen/<model>/<state>.<frame>.png (gen-comfyui.ts output).
- * Output: avatar-ref/sheets/<group>.<sheet>.png, a flat CHROMA (#00FF00) grid
+ * Output: avatar-ref/sheets/<tier>.<n>.png, a flat CHROMA (#00FF00) grid
  *         with a cyan (#00FFFF) BORDER drawn around EVERY cell (a sprite is
  *         composited only where one exists; empty/trailing cells get the border
- *         on a bare CHROMA tile), packed in the dense sheetsFor() order. CHROMA
+ *         on a bare CHROMA tile), packed in the dense allSheets() tier order. CHROMA
  *         gutters separate the cells exactly as a generated sheet would, so
  *         slice-sheets.ts detects the grid and keys out CHROMA + BORDER
  *         unchanged -- `--check` and contact-sheet QA are identical to the
@@ -34,7 +34,7 @@ import { existsSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-import { BORDER, CELLS, CHROMA, GRID, GROUPS, type Sheet, sheetsFor } from './sprite-manifest.ts';
+import { BORDER, CELLS, CHROMA, GRID, type Sheet, TIERS, allSheets } from './sprite-manifest.ts';
 
 const DEFAULT_DIR = 'avatar-ref/gen';
 const DEFAULT_OUT = 'avatar-ref/sheets';
@@ -46,7 +46,7 @@ interface Opts {
   model: string;
   dir: string;
   out: string;
-  group: string;
+  tier: string;
   cell: number;
   gutter: number;
   border: number;
@@ -159,17 +159,17 @@ export function montageArgs(placements: Placement[], geom: Geom, out: string): s
 function printHelp(): void {
   process.stdout.write(
     [
-      'assemble-sheets - montage per-cell PNGs into <group>.<sheet>.png grid sheets',
+      'assemble-sheets - montage per-cell PNGs into <tier>.<n>.png grid sheets',
       '',
       'Usage:',
       '  node assemble-sheets.ts --model <name> [--dir <gen-root>] [--out <dir>]',
-      '                          [--group <name>] [--cell <px>] [--gutter <px>] [--border <px>]',
+      '                          [--tier <name>] [--cell <px>] [--gutter <px>] [--border <px>]',
       '',
       'Flags:',
       '  --model <name>   Per-cell PNG source: <dir>/<model>/<state>.<frame>.png (required).',
       `  --dir <dir>      Root holding per-model subdirs (default: ${DEFAULT_DIR}).`,
-      `  --out <dir>      Output dir for <group>.<sheet>.png (default: ${DEFAULT_OUT}).`,
-      '  --group <name>   Only assemble this manifest group (default: every group).',
+      `  --out <dir>      Output dir for <tier>.<n>.png (default: ${DEFAULT_OUT}).`,
+      '  --tier <name>    Only assemble this tier (standard|suggestive|mature; default: all).',
       `  --cell <px>      Per-cell tile size (default: ${DEFAULT_CELL}).`,
       `  --gutter <px>    CHROMA gutter between cells (default: ${DEFAULT_GUTTER}).`,
       `  --border <px>    Cyan BORDER thickness per cell (default: ${DEFAULT_BORDER}).`,
@@ -179,7 +179,7 @@ function printHelp(): void {
       '  node slice-sheets.ts --set <set> --in <out>',
       '  node slice-sheets.ts --set <set> --check',
       '',
-      `Groups: ${Object.keys(GROUPS).join(', ')}`,
+      `Tiers: ${TIERS.join(', ')}.`,
     ].join('\n') + '\n',
   );
 }
@@ -198,7 +198,7 @@ function parseArgs(argv: string[]): Opts {
     model: '',
     dir: DEFAULT_DIR,
     out: DEFAULT_OUT,
-    group: '',
+    tier: '',
     cell: DEFAULT_CELL,
     gutter: DEFAULT_GUTTER,
     border: DEFAULT_BORDER,
@@ -224,8 +224,8 @@ function parseArgs(argv: string[]): Opts {
       case '--out':
         opts.out = next();
         break;
-      case '--group':
-        opts.group = next().toLowerCase();
+      case '--tier':
+        opts.tier = next().toLowerCase();
         break;
       case '--cell':
         opts.cell = parsePositiveInt(next(), '--cell');
@@ -292,8 +292,8 @@ function main(): void {
     process.stderr.write(`Error: model dir not found: ${modelDir}\n`);
     process.exit(1);
   }
-  if (opts.group.length > 0 && !(opts.group in GROUPS)) {
-    process.stderr.write(`Error: unknown group "${opts.group}".\n`);
+  if (opts.tier.length > 0 && !(TIERS as readonly string[]).includes(opts.tier)) {
+    process.stderr.write(`Error: unknown tier "${opts.tier}". Known: ${TIERS.join(', ')}.\n`);
     process.exit(1);
   }
   ensureMagick();
@@ -307,21 +307,19 @@ function main(): void {
   };
   mkdirSync(opts.out, { recursive: true });
 
-  const groups = opts.group.length > 0 ? [opts.group] : Object.keys(GROUPS);
+  const sheets = allSheets().filter((sheet) => opts.tier.length === 0 || sheet.tier === opts.tier);
   let sheetsWritten = 0;
   let cellsPlaced = 0;
   const allMissing: string[] = [];
-  for (const group of groups) {
-    for (const sheet of sheetsFor(group)) {
-      const { placements, filled, missing } = resolveSheet(sheet, modelDir);
-      allMissing.push(...missing.map((cell) => `${group}/${cell}`));
-      if (filled === 0) continue;
-      const out = join(opts.out, `${group}.${sheet.name}.png`);
-      execFileSync('magick', montageArgs(placements, geom, out));
-      process.stdout.write(`${out} <- ${filled} cell(s)\n`);
-      sheetsWritten++;
-      cellsPlaced += filled;
-    }
+  for (const sheet of sheets) {
+    const { placements, filled, missing } = resolveSheet(sheet, modelDir);
+    allMissing.push(...missing.map((cell) => `${sheet.name}/${cell}`));
+    if (filled === 0) continue;
+    const out = join(opts.out, `${sheet.name}.png`);
+    execFileSync('magick', montageArgs(placements, geom, out));
+    process.stdout.write(`${out} <- ${filled} cell(s)\n`);
+    sheetsWritten++;
+    cellsPlaced += filled;
   }
 
   const { w, h } = sheetSize(geom);
@@ -330,7 +328,7 @@ function main(): void {
     process.stdout.write(`Missing per-cell PNGs (left blank): ${allMissing.join(', ')}\n`);
   }
   if (sheetsWritten === 0) {
-    process.stdout.write(`No per-cell PNGs found under ${modelDir} for the requested group(s).\n`);
+    process.stdout.write(`No per-cell PNGs found under ${modelDir} for the requested tier(s).\n`);
   }
 }
 

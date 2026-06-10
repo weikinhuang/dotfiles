@@ -32,21 +32,31 @@ base + a blink/beat), but states that animate more - `talk` (mouth shapes), `rea
 emotions like `laugh`, `cry`, `panic`, `celebrate` - declare 3-4. See `frames` in
 [`sprite-manifest.ts`](./sprite-manifest.ts).
 
-Frames are generated as themed grid "sheets" (4x3 = 12 cells) on a flat `#00FF00` background. Per group, every
-`(state, frame)` cell is flattened in state-then-frame order and packed densely into sequentially named sheets `1`, `2`,
-… of 12 cells each (every sheet full except the last). The slicer finds the real cell boundaries from the green gutters
+Frames are generated as grid "sheets" (4x3 = 12 cells) on a flat `#00FF00` background. Sheets are partitioned by
+**tier** - `standard`, `suggestive` (the SFW-guarded `sultry` group), and `mature` (the opt-in overlay) - so the SFW
+guard and base-vs-mature slice routing stay clean and a sheet never mixes tiers. Within each tier the groups' states are
+walked in order and **every emote is packed as a whole block that never splits across a sheet boundary** (next-fit: when
+the next state's frames won't fit, the sheet is flushed and the block starts a fresh one). This matters for hosted UIs
+that can't carry context between sheets (e.g. Firefly): all of one emote's frames are always generated together, so they
+stay consistent. Blocks fill sheets densely; only the last sheet of each tier is partial. Sheets are named `<tier>.<n>`
+(`standard.1`, `mature.1`, …; also the filename stem). The slicer finds the real cell boundaries from the green gutters
 between cells (a gutter is green across the full width/height; the character breaks that up), crops each cell's exact
 interior between those grid lines, keys out the green and the registration border, and writes it to
 `<state>/<frame>.png` in reading order. Cropping every cell to the same detected boundaries keeps a state's frames
 registered (head/halo locked, only arms/mouth/props move) and the same size across sheets. A sheet that can't
 self-detect (e.g. an entirely blank edge row that merges into the margin) reuses another sheet's grid from the same
-group, so slice a group's sheets together. Each frame is force-fit to one shared canvas with no inset or padding, so the
-box contents fill the frame exactly. Blank cells are skipped, partial sets are fine, so generate in batches.
+tier. Each frame is force-fit to one shared canvas with no inset or padding, so the box contents fill the frame exactly.
+Blank cells are skipped, partial sets are fine, so generate in batches.
+
+To add an emote with minimal re-generation, append it to the **end of its tier** (a group's `states`, or a trailing
+group): only that tier's tail sheet(s) change; other tiers and all earlier sheets are untouched. A mid-tier insertion
+still ripples forward within that one tier.
 
 Groups: `activities`, `positive`, `affection`, `negative`, `shock`, `lowenergy`, `reactions`, `social`, `devotion`,
 `workflow`, `sultry`, `insight`, `composure`, `bonding`, `closeness`, `antics`, `desire`, `intensity`, `intimacy`. State
 names match the kaomoji keys in [`../emotes/ascii/ascii.yaml`](../emotes/ascii/ascii.yaml) (the `desire` / `intensity` /
-`intimacy` groups match the opt-in [`mature`](../emotes/mature/ascii.yaml) overlay).
+`intimacy` groups are the `mature` tier and match the opt-in [`mature`](../emotes/mature/ascii.yaml) overlay; `sultry`
+is the `suggestive` tier).
 
 ## Steps
 
@@ -88,23 +98,25 @@ turnaround as a supplemental angle reference; drop the original art at that poin
 
 ### 3. Print and paste a prompt
 
-Each group is a run of densely packed sheets named `1`, `2`, … (every sheet full except the last). Generate them in the
-same chat/session so the character stays consistent, attaching the approved hero bust (and 1-3 images from
-`avatar-ref/web/`):
+Sheets are named `<tier>.<n>` and packed so every emote's frames stay together on one sheet (`standard.*`,
+`suggestive.*`, `mature.*`; every sheet full except the last per tier). Because each sheet is self-contained, a hosted
+UI that can't carry context between sheets still keeps every emote's frames consistent. Generate them with the approved
+hero bust attached (and 1-3 images from `avatar-ref/web/`):
 
 ```bash
-node config/pi/avatar/tools/print-prompts.ts --group activities --sheet 1 --identity-file avatar-ref/identity.txt
-node config/pi/avatar/tools/print-prompts.ts --group activities --sheet 2 --identity-file avatar-ref/identity.txt
-# or print every sheet for a group (or omit --group for everything):
-node config/pi/avatar/tools/print-prompts.ts --group activities --identity-file avatar-ref/identity.txt
+node config/pi/avatar/tools/print-prompts.ts --sheet standard.1 --identity-file avatar-ref/identity.txt
+node config/pi/avatar/tools/print-prompts.ts --sheet standard.2 --identity-file avatar-ref/identity.txt
+# every sheet in a tier, or omit --tier for all tiers:
+node config/pi/avatar/tools/print-prompts.ts --tier standard --identity-file avatar-ref/identity.txt
 # per-cell prompts instead of grid sheets (for single-image generators/APIs):
 node config/pi/avatar/tools/print-prompts.ts --cell --group activities --identity-file avatar-ref/identity.txt
 ```
 
 ### 4. Download the sheets
 
-Save each generated image as `<group>.<sheet>.png` into a sheets folder, e.g. `avatar-ref/sheets/activities.1.png`,
-`avatar-ref/sheets/activities.2.png` (and `.3.png` if the group needs a third sheet).
+Save each generated image as `<tier>.<n>.png` into a sheets folder, e.g. `avatar-ref/sheets/standard.1.png`,
+`avatar-ref/sheets/standard.2.png`. Route `mature.*.png` into its own set (the opt-in `mature` overlay) and `standard.*`
+/ `suggestive.*` into the base set.
 
 ### 5. Slice into the set
 
@@ -183,7 +195,7 @@ Sanity check: `node config/pi/avatar/tools/gen-comfyui.ts --ping`.
 
    ```bash
    node config/pi/avatar/tools/gen-comfyui.ts --workflow <winner> --canonical avatar-ref/canonical.png
-   node config/pi/avatar/tools/assemble-sheets.ts --model <winner>   # -> avatar-ref/sheets/<group>.<sheet>.png
+   node config/pi/avatar/tools/assemble-sheets.ts --model <winner>   # -> avatar-ref/sheets/<tier>.<n>.png
    node config/pi/avatar/tools/slice-sheets.ts --set <set> --in avatar-ref/sheets
    node config/pi/avatar/tools/slice-sheets.ts --set <set> --check
    ```

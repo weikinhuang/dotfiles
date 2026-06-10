@@ -6,7 +6,7 @@
  *
  * Node 24 runs this directly (`node slice-sheets.ts`, type stripping is on).
  *
- * Input: a directory of sheets named `<group>.<sheet>.png`, where <sheet> is
+ * Input: a directory of sheets named `<tier>.<n>.png`, where <tier> is one of
  * the sequential sheet number `1`, `2`, ... (e.g. activities.1.png,
  * activities.2.png). Each is a GRID.cols x GRID.rows arrangement of sprites on a
  * flat CHROMA background.
@@ -49,11 +49,11 @@ import {
   CELLS,
   CHROMA,
   GRID,
-  GROUPS,
   type Sheet,
   TARGET_PX,
+  TIERS,
+  allSheets,
   frameCountForState,
-  sheetsFor,
 } from './sprite-manifest.ts';
 
 const FUZZ = process.env.AVATAR_CHROMA_FUZZ ?? '20%';
@@ -121,14 +121,14 @@ function printHelp(): void {
       'slice-sheets - turn sprite sheets into avatar per-state frame PNGs',
       '',
       'Usage:',
-      '  node slice-sheets.ts --set <name> --in <sheets-dir> [--out <dir>] [--sheet 1|2|...]',
+      '  node slice-sheets.ts --set <name> --in <sheets-dir> [--out <dir>] [--sheet <tier.n>]',
       '  node slice-sheets.ts --set <name> --check [--out <dir>]',
       '',
       'Flags:',
       '  --set <name>     Emote-set name (output subdir + the name you map in config).',
-      '  --in <dir>       Directory of <group>.<sheet>.png sheets to slice.',
+      '  --in <dir>       Directory of <tier>.<n>.png sheets to slice.',
       '  --out <dir>      Output set dir. Default: <pi-agent>/avatar/emotes/<set>.',
-      '  --sheet <name>   Only process this sheet (1|2|...; default: all found).',
+      '  --sheet <name>   Only process this sheet (e.g. standard.1; default: all found).',
       '  --check          Report per-state frame coverage under --out and exit.',
       '  -h, --help       Show this help.',
       '',
@@ -136,7 +136,7 @@ function printHelp(): void {
       '     AVATAR_CHROMA_FUZZ, AVATAR_BORDER_FUZZ, AVATAR_DEFRINGE=0,',
       '     AVATAR_BG_COLOR=<color> (force key color), AVATAR_BG_AUTODETECT=0.',
       '',
-      `Sheets expected (groups): ${Object.keys(GROUPS).join(', ')}`,
+      `Sheets named <tier>.<n>; tiers: ${TIERS.join(', ')}.`,
     ].join('\n') + '\n',
   );
 }
@@ -503,7 +503,7 @@ type Source = 'detected' | 'reference' | 'even-grid';
 
 interface Job {
   file: string;
-  group: string;
+  tier: string;
   sheet: Sheet;
   w: number;
   h: number;
@@ -528,27 +528,24 @@ function scaleBoxes(boxes: Box[], refW: number, refH: number, w: number, h: numb
 
 function collectJobs(inDir: string, sheetFilter: string): Job[] {
   const jobs: Job[] = [];
+  const sheets = allSheets();
   for (const file of readdirSync(inDir).filter((f) => f.toLowerCase().endsWith('.png'))) {
     const match = /^([a-z]+)\.([a-z0-9]+)\.png$/i.exec(file);
     if (!match) continue;
-    const group = match[1].toLowerCase();
-    const sheetName = match[2].toLowerCase();
-    if (!(group in GROUPS)) {
-      process.stderr.write(`Skipping ${file}: unknown group "${group}".\n`);
-      continue;
-    }
-    const sheet = sheetsFor(group).find((s) => s.name === sheetName);
+    const tier = match[1].toLowerCase();
+    const name = `${tier}.${match[2].toLowerCase()}`;
+    const sheet = sheets.find((s) => s.name === name);
     if (sheet === undefined) {
-      process.stderr.write(`Skipping ${file}: unknown sheet "${sheetName}" for group "${group}".\n`);
+      process.stderr.write(`Skipping ${file}: unknown sheet "${name}".\n`);
       continue;
     }
-    if (sheetFilter.length > 0 && sheetName !== sheetFilter) continue;
+    if (sheetFilter.length > 0 && name !== sheetFilter) continue;
 
     const path = join(inDir, file);
     const { w, h } = dimensions(path);
     const bg = detectBackgroundColor(path, w, h);
     const raw = GRID_MODE ? null : detectGrid(chromaMask(path, bg));
-    jobs.push({ file: path, group, sheet, w, h, raw, boxes: [], source: 'even-grid', bg });
+    jobs.push({ file: path, tier, sheet, w, h, raw, boxes: [], source: 'even-grid', bg });
   }
   return jobs;
 }
@@ -556,9 +553,9 @@ function collectJobs(inDir: string, sheetFilter: string): Job[] {
 /**
  * Resolve each job's boxes. Sheets that self-detect use their own grid; those
  * that can't (e.g. a fully blank edge row that merges into the margin) reuse the
- * grid from another sheet of the same group, since every sheet in a group shares
- * the same layout -- this keeps a state's frames registered even when one sheet
- * couldn't be measured. Groups with no detectable sheet fall back to an even
+ * grid from another sheet of the same tier, since every sheet shares the same
+ * grid layout -- this keeps a state's frames registered even when one sheet
+ * couldn't be measured. Tiers with no detectable sheet fall back to an even
  * split.
  */
 function resolveBoxes(jobs: Job[]): void {
@@ -568,7 +565,7 @@ function resolveBoxes(jobs: Job[]): void {
       job.source = 'detected';
       continue;
     }
-    const ref = jobs.find((j) => j.group === job.group && j.raw !== null);
+    const ref = jobs.find((j) => j.tier === job.tier && j.raw !== null);
     if (ref !== undefined && ref.raw !== null) {
       job.boxes = scaleBoxes(ref.raw, ref.w, ref.h, job.w, job.h);
       job.source = 'reference';
@@ -634,7 +631,7 @@ function main(): void {
   process.stdout.write(
     `\nDone: ${sheetsDone} sheet(s), ${totalFrames} frame(s) at ${canvas.w}x${canvas.h} -> ${outDir}\n`,
   );
-  if (sheetsDone === 0) process.stdout.write('No matching <group>.<sheet>.png sheets found in --in.\n');
+  if (sheetsDone === 0) process.stdout.write('No matching <tier>.<n>.png sheets found in --in.\n');
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {

@@ -20,7 +20,7 @@ import {
   sheetRules,
   turnaroundPrompt,
 } from '../../../../../config/pi/avatar/tools/prompt-lib.ts';
-import { STYLE, sheetsFor } from '../../../../../config/pi/avatar/tools/sprite-manifest.ts';
+import { STYLE, allSheets } from '../../../../../config/pi/avatar/tools/sprite-manifest.ts';
 
 const IDENTITY = 'silver hair, red eyes, black tactical coat';
 
@@ -114,24 +114,29 @@ test('cellPrompt: throws for an out-of-range frame', () => {
   );
 });
 
-test('sheetRules: mature groups embed the SFW guard', () => {
-  expect(sheetRules('desire')).toContain(SFW_GUARD);
-  expect(sheetRules('activities')).not.toContain(SFW_GUARD);
+test('sheetRules: guarded tiers embed the SFW guard, standard does not', () => {
+  expect(sheetRules('suggestive')).toContain(SFW_GUARD);
+  expect(sheetRules('mature')).toContain(SFW_GUARD);
+  expect(sheetRules('standard')).not.toContain(SFW_GUARD);
 });
 
-test('buildPrompt: sheet 1 lists cells and leaves identity as placeholder', () => {
-  const sheet = sheetsFor('activities').find((s) => s.name === '1');
+test('buildPrompt: the first standard sheet lists cells and leaves identity as a placeholder', () => {
+  const sheet = allSheets().find((s) => s.name === 'standard.1');
   expect(sheet).toBeDefined();
-  const prompt = buildPrompt('activities', sheet!);
-  expect(prompt).toContain('# activities - sheet 1');
+  const prompt = buildPrompt(sheet!);
+  expect(prompt).toContain('# sheet standard.1');
   expect(prompt).toContain('Character: {identity}.');
   expect(prompt).toContain('  1. hi: waving hello, bright welcoming smile');
 });
 
 test('buildPrompt: every sheet anchors to the hero reference', () => {
-  for (const name of ['1', '2']) {
-    const sheet = sheetsFor('activities').find((s) => s.name === name);
-    expect(sheet).toBeDefined();
-    expect(buildPrompt('activities', sheet!)).toContain(HERO_CLAUSE);
+  for (const sheet of allSheets()) {
+    expect(buildPrompt(sheet)).toContain(HERO_CLAUSE);
   }
+});
+
+test('buildPrompt: mature-tier sheets carry the SFW guard', () => {
+  const sheet = allSheets().find((s) => s.tier === 'mature');
+  expect(sheet).toBeDefined();
+  expect(buildPrompt(sheet!)).toContain(SFW_GUARD);
 });

@@ -6,7 +6,7 @@
  * stay aligned.
  */
 
-import { BORDER, CHROMA, GRID, STYLE, frameDescriptions, type Sheet } from './sprite-manifest.ts';
+import { BORDER, CHROMA, GRID, STYLE, type Sheet, type Tier, frameDescriptions } from './sprite-manifest.ts';
 
 /**
  * Content guard appended to prompts for suggestive / mature groups.
@@ -181,9 +181,9 @@ export function referencePrompt(kind: ReferenceKind, identity: string): string {
   }
 }
 
-export function sheetRules(groupName: string): string {
+export function sheetRules(tier: Tier): string {
   const cells = GRID.cols * GRID.rows;
-  const guard = GROUP_GUARDS[groupName];
+  const guard = tier === 'standard' ? undefined : SFW_GUARD;
   return (
     `Arrange exactly ${cells} sprites in a strict, evenly spaced ${GRID.cols}x${GRID.rows} grid, read left-to-right then top-to-bottom, ` +
     `on a single solid, flat chroma-key green-screen background (${CHROMA}, vivid fully-saturated pure green, no gradient or scenery). ` +
@@ -194,15 +194,15 @@ export function sheetRules(groupName: string): string {
   );
 }
 
-export function buildPrompt(groupName: string, sheet: Sheet): string {
+export function buildPrompt(sheet: Sheet): string {
   const lines: string[] = [];
-  lines.push(`# ${groupName} - sheet ${sheet.name}`);
+  lines.push(`# sheet ${sheet.name}`);
   lines.push('');
   lines.push(`Style: ${STYLE}.`);
   lines.push('');
   lines.push('Character: {identity}.');
   lines.push('');
-  lines.push(sheetRules(groupName));
+  lines.push(sheetRules(sheet.tier));
   lines.push('');
   lines.push('Cells (one expression each):');
   sheet.cells.forEach((cell, i) => {

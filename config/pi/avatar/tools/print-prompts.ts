@@ -7,9 +7,9 @@
  *
  * Node 24 runs this directly (`node print-prompts.ts`, type stripping is on).
  *
- * Each group produces sequentially named sheets `1`, `2`, ... that densely pack
- * every (state, frame) cell. Generate one chat/session per group so the
- * character stays consistent across its sheets.
+ * Sheets are partitioned by tier (standard / suggestive / mature) and packed so
+ * every emote's frames stay together in one sheet; sheets are named `<tier>.<n>`
+ * (`standard.1`, ...). Filter sheet output with `--tier` and/or `--sheet <name>`.
  *
  * Workflow: first generate the canonical "hero" bust (`--hero`, attach your
  * character art), approve one result as avatar-ref/canonical.png, then generate
@@ -22,11 +22,11 @@
  *   node print-prompts.ts --turnaround --identity-file avatar-ref/identity.txt   # bust turnaround reference
  *   node print-prompts.ts --full-body --identity-file avatar-ref/identity.txt    # full-body figure reference
  *   node print-prompts.ts --full-body-turnaround --identity-file avatar-ref/identity.txt  # full-body turnaround
- *   node print-prompts.ts [--group <name>] [--sheet 1|2|...] [--identity-file <path>]
- *   node print-prompts.ts --identity-file avatar-ref/identity.txt           # all groups, all sheets
- *   node print-prompts.ts --group activities --sheet 1 --identity "..."      # one sheet
+ *   node print-prompts.ts [--tier <name>] [--sheet <tier.n>] [--identity-file <path>]
+ *   node print-prompts.ts --identity-file avatar-ref/identity.txt            # all tiers, all sheets
+ *   node print-prompts.ts --sheet standard.1 --identity "..."                # one sheet
  *   node print-prompts.ts --cell --group activities --identity-file <path>     # per-cell prompts
- *   node print-prompts.ts --cell --format json --group activities ...          # per-cell JSON
+ *   node print-prompts.ts --cell --tier mature --format json ...               # per-cell JSON
  */
 
 import { readFileSync } from 'node:fs';
@@ -39,7 +39,7 @@ import {
   type CellPromptEntry,
   type ReferenceKind,
 } from './prompt-lib.ts';
-import { GROUPS, frameCount, sheetsFor } from './sprite-manifest.ts';
+import { GROUPS, TIERS, type Tier, allSheets, frameCount, tierOf } from './sprite-manifest.ts';
 
 const IDENTITY_PLACEHOLDER =
   '<CHARACTER IDENTITY: describe hair, eyes, outfit, vibe; say "match the attached reference images">';
@@ -47,6 +47,7 @@ const IDENTITY_PLACEHOLDER =
 type CellFormat = 'text' | 'json';
 
 interface PromptOpts {
+  tier: string;
   group: string;
   sheet: string;
   identity: string;
@@ -65,6 +66,7 @@ const REFERENCE_LABELS: Record<ReferenceKind, string> = {
 
 function parseArgs(argv: string[]): PromptOpts {
   const opts: PromptOpts = {
+    tier: '',
     group: '',
     sheet: '',
     identity: IDENTITY_PLACEHOLDER,
@@ -83,8 +85,8 @@ function parseArgs(argv: string[]): PromptOpts {
       case '--help':
         process.stdout.write(
           'Usage: node print-prompts.ts --hero|--turnaround|--full-body|--full-body-turnaround [--identity-file <path>|--identity <text>]\n' +
-            '       node print-prompts.ts [--group <name>] [--sheet 1|2|...] [--identity-file <path>|--identity <text>]\n' +
-            '       node print-prompts.ts --cell [--format text|json] [--group <name>] [--identity-file <path>|--identity <text>]\n',
+            '       node print-prompts.ts [--tier <name>] [--sheet <tier.n>] [--identity-file <path>|--identity <text>]\n' +
+            '       node print-prompts.ts --cell [--format text|json] [--group <name>|--tier <name>] [--identity-file <path>|--identity <text>]\n',
         );
         process.exit(0);
         break;
@@ -99,6 +101,9 @@ function parseArgs(argv: string[]): PromptOpts {
         break;
       case '--full-body-turnaround':
         opts.reference = 'full-body-turnaround';
+        break;
+      case '--tier':
+        opts.tier = next().toLowerCase();
         break;
       case '--group':
         opts.group = next().toLowerCase();
@@ -135,15 +140,29 @@ function parseArgs(argv: string[]): PromptOpts {
   return opts;
 }
 
-function resolveGroups(groupName: string): string[] {
-  const groups = groupName.length > 0 ? [groupName] : Object.keys(GROUPS);
-  for (const name of groups) {
-    if (!(name in GROUPS)) {
-      process.stderr.write(`Unknown group "${name}". Known: ${Object.keys(GROUPS).join(', ')}\n`);
+function isTier(value: string): value is Tier {
+  return (TIERS as readonly string[]).includes(value);
+}
+
+function assertTier(value: string): void {
+  if (value.length > 0 && !isTier(value)) {
+    process.stderr.write(`Unknown tier "${value}". Known: ${TIERS.join(', ')}\n`);
+    process.exit(1);
+  }
+}
+
+/** Groups to emit per-cell prompts for: --group wins, else --tier, else all. */
+function resolveGroups(opts: PromptOpts): string[] {
+  if (opts.group.length > 0) {
+    if (!(opts.group in GROUPS)) {
+      process.stderr.write(`Unknown group "${opts.group}". Known: ${Object.keys(GROUPS).join(', ')}\n`);
       process.exit(1);
     }
+    return [opts.group];
   }
-  return groups;
+  assertTier(opts.tier);
+  const groups = Object.keys(GROUPS);
+  return opts.tier.length > 0 ? groups.filter((name) => tierOf(name) === opts.tier) : groups;
 }
 
 function collectCellEntries(groupNames: string[], identity: string): CellPromptEntry[] {
@@ -167,7 +186,7 @@ function collectCellEntries(groupNames: string[], identity: string): CellPromptE
 }
 
 function emitCellPrompts(opts: PromptOpts): void {
-  const groups = resolveGroups(opts.group);
+  const groups = resolveGroups(opts);
   const entries = collectCellEntries(groups, opts.identity);
   if (opts.format === 'json') {
     process.stdout.write(`${JSON.stringify(entries, null, 2)}\n`);
@@ -180,20 +199,23 @@ function emitCellPrompts(opts: PromptOpts): void {
 }
 
 function emitSheetPrompts(opts: PromptOpts): void {
-  const groups = resolveGroups(opts.group);
-  for (const groupName of groups) {
-    const sheets = sheetsFor(groupName).filter((sheet) => opts.sheet.length === 0 || sheet.name === opts.sheet);
-    if (sheets.length === 0) {
-      const names = sheetsFor(groupName)
-        .map((sheet) => sheet.name)
-        .join(', ');
-      process.stderr.write(`No sheet "${opts.sheet}" in group "${groupName}". Sheets: ${names}\n`);
-      process.exit(1);
-    }
-    for (const sheet of sheets) {
-      const prompt = buildPrompt(groupName, sheet).replace('{identity}', opts.identity);
-      process.stdout.write(`${prompt}\n\n${'-'.repeat(72)}\n\n`);
-    }
+  assertTier(opts.tier);
+  const sheets = allSheets().filter(
+    (sheet) =>
+      (opts.tier.length === 0 || sheet.tier === opts.tier) && (opts.sheet.length === 0 || sheet.name === opts.sheet),
+  );
+  if (sheets.length === 0) {
+    const names = allSheets()
+      .map((sheet) => sheet.name)
+      .join(', ');
+    process.stderr.write(
+      `No matching sheet (tier "${opts.tier}", sheet "${opts.sheet}"). Sheets: ${names}\n`,
+    );
+    process.exit(1);
+  }
+  for (const sheet of sheets) {
+    const prompt = buildPrompt(sheet).replace('{identity}', opts.identity);
+    process.stdout.write(`${prompt}\n\n${'-'.repeat(72)}\n\n`);
   }
 }
 
