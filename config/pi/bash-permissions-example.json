@@ -73,6 +73,7 @@
     "git diff*",
     "git blame*",
     "git reflog*",
+    "git check-ignore*",
     "git describe*",
     "git rev-parse*",
     "git rev-list*",
