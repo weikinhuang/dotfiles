@@ -201,6 +201,16 @@ workflow entry points at its JSON file and maps tunable names to a node id + inp
         "steps": { "node": "3", "key": "steps" },
       },
     },
+    "flux-kontext": {
+      "file": "~/.pi/agent/comfyui/flux-kontext.api.json",
+      "inputs": {
+        "prompt": { "node": "6", "key": "text" },
+        "image": { "node": "41", "key": "image" },
+        "cfg": { "node": "35", "key": "guidance" },
+        "seed": { "node": "3", "key": "seed" },
+        "steps": { "node": "3", "key": "steps" },
+      },
+    },
   },
 }
 ```
@@ -218,12 +228,19 @@ The shipped default [`../comfyui/txt2img.api.json`](../comfyui/txt2img.api.json)
 a `v1-5-pruned-emaonly.safetensors` checkpoint to be installed on the server. Repoint `defaultWorkflow` / `workflows` at
 your own graph + checkpoint as needed.
 
-Two image-to-image examples ship alongside it: [`../comfyui/img2img.api.json`](../comfyui/img2img.api.json) is the
+Three image-to-image examples ship alongside it: [`../comfyui/img2img.api.json`](../comfyui/img2img.api.json) is the
 classic SD1.5 VAE-encode graph (note the `image` key maps the uploaded `inputImage` into the `LoadImage` node), and
 [`../comfyui/qwen-image-edit.api.json`](../comfyui/qwen-image-edit.api.json) is a modern instruction-edit graph
 (Qwen-Image-Edit GGUF + a 4-step Lightning LoRA). For the Qwen graph the `prompt` is an **edit instruction** encoded by
 `TextEncodeQwenImageEdit`, so its map key is `prompt` (not the `text` that `CLIPTextEncode` uses), and `denoise` is
 baked at `0.6` so the edit keeps the source composition instead of regenerating it wholesale.
+
+The third, [`../comfyui/flux-kontext.api.json`](../comfyui/flux-kontext.api.json), is a **FLUX.1 Kontext**
+instruction-edit graph. Unlike Qwen's low-`denoise` img2img, Kontext anchors the source through a `ReferenceLatent`
+(node 43) and runs at `denoise 1`, so it follows the edit instruction strongly while keeping the subject - lowering
+`denoise` is the wrong knob for it, which is why its map exposes none. Flux is also cfg-1 with a `ConditioningZeroOut`
+(node 40) negative, so the real guidance knob is `FluxGuidance` (node 35): the example maps the tool's `cfg` param there
+rather than at the KSampler.
 
 ### Generation defaults
 

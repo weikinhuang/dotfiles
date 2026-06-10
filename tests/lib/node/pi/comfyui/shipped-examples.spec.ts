@@ -40,6 +40,13 @@ const SHIPPED: Record<string, Record<string, InputMapping>> = {
     seed: { node: '3', key: 'seed' },
     steps: { node: '3', key: 'steps' },
   },
+  'flux-kontext.api.json': {
+    prompt: { node: '6', key: 'text' },
+    image: { node: '41', key: 'image' },
+    cfg: { node: '35', key: 'guidance' },
+    seed: { node: '3', key: 'seed' },
+    steps: { node: '3', key: 'steps' },
+  },
 };
 
 describe('shipped comfyui example graphs', () => {

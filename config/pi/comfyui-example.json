@@ -42,6 +42,16 @@
         "seed": { "node": "3", "key": "seed" },
         "steps": { "node": "3", "key": "steps" }
       }
+    },
+    "flux-kontext": {
+      "file": "~/.dotfiles/config/pi/comfyui/flux-kontext.api.json",
+      "inputs": {
+        "prompt": { "node": "6", "key": "text" },
+        "image": { "node": "41", "key": "image" },
+        "cfg": { "node": "35", "key": "guidance" },
+        "seed": { "node": "3", "key": "seed" },
+        "steps": { "node": "3", "key": "steps" }
+      }
     }
   }
 }
