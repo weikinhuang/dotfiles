@@ -1,22 +1,29 @@
 # Avatar sprite-set generation
 
 A character-agnostic workflow for producing a pixel-art PNG sprite set for the
-[avatar extension](../../extensions/avatar.md) using any web image UI. You bring a character and reference images; the
-tooling here renders the prompts and slices the generated sheets into the per-state frame files the extension loads.
+[avatar extension](../../extensions/avatar.md) using either a hosted web image UI or a self-hosted ComfyUI backend. You
+bring a character and reference images; the tooling here renders the prompts and slices the generated sheets into the
+per-state frame files the extension loads. Both backends are anchored to one approved "hero" bust for cross-state and
+cross-group consistency (see [Local ComfyUI backend](#local-comfyui-backend-hero-anchored-abc) below).
 
 Everything character-specific (reference images, your identity blurb, the generated art) stays device-local and is
 gitignored; only the tooling is committed.
 
 ## Pieces
 
-| File                                         | Role                                                                  |
-| -------------------------------------------- | --------------------------------------------------------------------- |
-| [`sprite-manifest.ts`](./sprite-manifest.ts) | Source of truth: state groups, grid, target size, chroma, frame hints |
-| [`print-prompts.ts`](./print-prompts.ts)     | Renders ready-to-paste prompts from the manifest                      |
-| [`slice-sheets.ts`](./slice-sheets.ts)       | Slices generated sheets into `<state>/<frame>.png` (uses `magick`)    |
-| [`contact-sheet.ts`](./contact-sheet.ts)     | Builds a self-contained HTML preview of a sliced set to eyeball       |
+| File                                             | Role                                                                          |
+| ------------------------------------------------ | ----------------------------------------------------------------------------- |
+| [`sprite-manifest.ts`](./sprite-manifest.ts)     | Source of truth: state groups, grid, target size, chroma, frame hints         |
+| [`prompt-lib.ts`](./prompt-lib.ts)               | Shared prompt builders: `cellPrompt` / `buildPrompt`, guards, `HERO_CLAUSE`   |
+| [`print-prompts.ts`](./print-prompts.ts)         | Renders ready-to-paste sheet (`--sheet`), cell (`--cell`), or hero prompts    |
+| [`workflow-registry.ts`](./workflow-registry.ts) | Loads/validates `avatar-ref/workflows.json` (per-model ComfyUI graph mapping) |
+| [`gen-comfyui.ts`](./gen-comfyui.ts)             | Drives a self-hosted ComfyUI directly (hero bootstrap, edit-from-canonical)   |
+| [`compare-sheet.ts`](./compare-sheet.ts)         | A/B/C HTML page comparing per-model outputs under `avatar-ref/gen/<model>/`   |
+| [`assemble-sheets.ts`](./assemble-sheets.ts)     | Montages a winning model's per-cell PNGs back into sliceable grid sheets      |
+| [`slice-sheets.ts`](./slice-sheets.ts)           | Slices generated sheets into `<state>/<frame>.png` (uses `magick`)            |
+| [`contact-sheet.ts`](./contact-sheet.ts)         | Builds a self-contained HTML preview of a sliced set to eyeball               |
 
-All three are plain TypeScript; Node 24 runs them directly (`node <script>.ts`), no build step.
+All are plain TypeScript; Node 24 runs them directly (`node <script>.ts`), no build step.
 
 ## How it works
 
@@ -25,16 +32,16 @@ base + a blink/beat), but states that animate more - `talk` (mouth shapes), `rea
 emotions like `laugh`, `cry`, `panic`, `celebrate` - declare 3-4. See `frames` in
 [`sprite-manifest.ts`](./sprite-manifest.ts).
 
-Frames are generated as themed grid "sheets" (4x3 = 12 cells) on a flat `#00FF00` background. Per group, sheet `a` holds
-frame 0 of every state, sheet `b` holds frame 1, and any extra frames pack densely onto `x1` (and `x2`, ... if needed).
-The slicer finds the real cell boundaries from the green gutters between cells (a gutter is green across the full
-width/height; the character breaks that up), crops each cell's exact interior between those grid lines, keys out the
-green and the registration border, and writes it to `<state>/<frame>.png` in reading order. Cropping every cell to the
-same detected boundaries keeps a state's frames registered (head/halo locked, only arms/mouth/props move) and the same
-size across `a`/`b`/`x1`. A sheet that can't self-detect (e.g. an entirely blank edge row that merges into the margin)
-reuses another sheet's grid from the same group, so slice a group's sheets together. Each frame is force-fit to one
-shared canvas with no inset or padding, so the box contents fill the frame exactly. Blank cells are skipped, partial
-sets are fine, so generate in batches.
+Frames are generated as themed grid "sheets" (4x3 = 12 cells) on a flat `#00FF00` background. Per group, every
+`(state, frame)` cell is flattened in state-then-frame order and packed densely into sequentially named sheets `1`, `2`,
+… of 12 cells each (every sheet full except the last). The slicer finds the real cell boundaries from the green gutters
+between cells (a gutter is green across the full width/height; the character breaks that up), crops each cell's exact
+interior between those grid lines, keys out the green and the registration border, and writes it to
+`<state>/<frame>.png` in reading order. Cropping every cell to the same detected boundaries keeps a state's frames
+registered (head/halo locked, only arms/mouth/props move) and the same size across sheets. A sheet that can't
+self-detect (e.g. an entirely blank edge row that merges into the margin) reuses another sheet's grid from the same
+group, so slice a group's sheets together. Each frame is force-fit to one shared canvas with no inset or padding, so the
+box contents fill the frame exactly. Blank cells are skipped, partial sets are fine, so generate in batches.
 
 Groups: `activities`, `positive`, `affection`, `negative`, `shock`, `lowenergy`, `reactions`, `social`, `devotion`,
 `workflow`, `sultry`, `insight`, `composure`, `bonding`, `closeness`, `antics`, `desire`, `intensity`, `intimacy`. State
@@ -67,21 +74,23 @@ echo 'Exusiai: short dark-crimson hair, red eyes, white halo ring, white+black r
 
 ### 3. Print and paste a prompt
 
-Each group has sheets `a` (frame 0), `b` (frame 1), and `x1` (extra animation frames). Generate them in the same
-chat/session so the character stays consistent, attaching 1-3 images from `avatar-ref/web/`:
+Each group is a run of densely packed sheets named `1`, `2`, … (every sheet full except the last). Generate them in the
+same chat/session so the character stays consistent, attaching the approved hero bust (and 1-3 images from
+`avatar-ref/web/`):
 
 ```bash
-node config/pi/avatar/tools/print-prompts.ts --group activities --sheet a --identity-file avatar-ref/identity.txt
-node config/pi/avatar/tools/print-prompts.ts --group activities --sheet b --identity-file avatar-ref/identity.txt
-node config/pi/avatar/tools/print-prompts.ts --group activities --sheet x1 --identity-file avatar-ref/identity.txt
+node config/pi/avatar/tools/print-prompts.ts --group activities --sheet 1 --identity-file avatar-ref/identity.txt
+node config/pi/avatar/tools/print-prompts.ts --group activities --sheet 2 --identity-file avatar-ref/identity.txt
 # or print every sheet for a group (or omit --group for everything):
 node config/pi/avatar/tools/print-prompts.ts --group activities --identity-file avatar-ref/identity.txt
+# per-cell prompts instead of grid sheets (for single-image generators/APIs):
+node config/pi/avatar/tools/print-prompts.ts --cell --group activities --identity-file avatar-ref/identity.txt
 ```
 
 ### 4. Download the sheets
 
-Save each generated image as `<group>.<sheet>.png` into a sheets folder, e.g. `avatar-ref/sheets/activities.a.png`,
-`avatar-ref/sheets/activities.b.png`, and `avatar-ref/sheets/activities.x1.png`.
+Save each generated image as `<group>.<sheet>.png` into a sheets folder, e.g. `avatar-ref/sheets/activities.1.png`,
+`avatar-ref/sheets/activities.2.png` (and `.3.png` if the group needs a third sheet).
 
 ### 5. Slice into the set
 
@@ -113,6 +122,62 @@ terminal (`/avatar on`, drive activity, trigger `[emote:NAME]`):
 { "emotes": [{ "model": "*", "emote-set": "exusiai" }] }
 ```
 
+## Local ComfyUI backend (HERO-anchored, A/B/C)
+
+The hosted flow above pastes prompts into a web UI. The local flow drives a self-hosted ComfyUI directly and adds an
+_edit-from-canonical_ consistency strategy: one approved "hero" bust is the universal anchor every other sprite is
+matched against (no character LoRA needed). The same hero serves both backends via the shared `HERO_CLAUSE` in
+[`prompt-lib.ts`](./prompt-lib.ts).
+
+Prereqs (all device-local / gitignored under `avatar-ref/`):
+
+- A running ComfyUI reachable at `PI_COMFYUI_URL` (default `http://127.0.0.1:8188`).
+- Models downloaded with `avatar-ref/download-models.sh`, the `ComfyUI-GGUF` (city96) and `ComfyUI_IPAdapter_plus`
+  (cubiq) custom nodes installed, and the `PLACEHOLDER-*` names filled into each `avatar-ref/*.api.json` graph. The
+  download script lists the exact model files + their ComfyUI subdirs, and each graph file documents its own wiring.
+- A per-model registry at `avatar-ref/workflows.json` mapping each graph's `role` (`generate` | `edit`) and input nodes,
+  validated by [`workflow-registry.ts`](./workflow-registry.ts).
+
+Sanity check: `node config/pi/avatar/tools/gen-comfyui.ts --ping`.
+
+1. **Bootstrap the hero.** Render one neutral front-facing bust and approve it as the identity + style anchor:
+
+   ```bash
+   # edit-role models (kontext / qwen-edit): bootstrap from your original character art
+   node config/pi/avatar/tools/gen-comfyui.ts --workflow kontext --hero --canonical avatar-ref/char-art.png
+   # generate-role models (anima / chroma / sdxl): txt2img
+   node config/pi/avatar/tools/gen-comfyui.ts --workflow anima --hero
+   ```
+
+   Candidates land at `avatar-ref/gen/<model>/hero.<seed>.png`. Pick the best one and copy it to
+   `avatar-ref/canonical.png`.
+
+2. **A/B/C the models.** Generate a few states across candidate models, then eyeball identity/style/quality:
+
+   ```bash
+   node config/pi/avatar/tools/gen-comfyui.ts --workflow kontext --workflow qwen-edit \
+     --canonical avatar-ref/canonical.png --group activities --limit 4
+   node config/pi/avatar/tools/compare-sheet.ts --out avatar-ref/compare.html
+   ```
+
+   Each model writes per-cell PNGs to `avatar-ref/gen/<model>/<state>.<frame>.png`; `compare-sheet.ts` renders one row
+   per `(state, frame)` x one column per model. `gen-comfyui.ts --dry-run` prints the cell prompts without generating.
+
+3. **Full re-gen with the winner.** Generate every group against `canonical.png`, montage back into grid sheets, then
+   slice exactly like the hosted flow (`assemble-sheets.ts` writes standard CHROMA-gutter sheets so the slicer is
+   unchanged):
+
+   ```bash
+   node config/pi/avatar/tools/gen-comfyui.ts --workflow <winner> --canonical avatar-ref/canonical.png
+   node config/pi/avatar/tools/assemble-sheets.ts --model <winner>   # -> avatar-ref/sheets/<group>.<sheet>.png
+   node config/pi/avatar/tools/slice-sheets.ts --set <set> --in avatar-ref/sheets
+   node config/pi/avatar/tools/slice-sheets.ts --set <set> --check
+   ```
+
+Edit-role workflows chain frames: per-state frame 0 is an edit of the hero; frames 1..N are edits of that state's
+frame 0. Generate-role workflows fall back to per-cell txt2img with a stable per-state seed (weaker identity). Slicing
+writes under `~/.pi`, so run those steps outside the sandbox / with full permissions.
+
 ## Tips
 
 - A gpt-image-1-backed UI follows the reference images and grid instructions best. If a UI ignores the flat background,
@@ -129,11 +194,12 @@ terminal (`/avatar on`, drive activity, trigger `[emote:NAME]`):
   every edge pixel (e.g. for very thin sprite details).
 - Slicing finds the grid lines from the green gutters, crops each cell's exact interior, and force-fits it to one shared
   canvas, so a state's frames stay registered (head/halo locked, only arms/mouth/props move) and the same size across
-  `a`/`b`/`x1`. A sheet that can't self-detect (a fully blank edge row merges into the margin) reuses another sheet's
-  grid from the same group; if no sheet in a group detects, it falls back to an even split (and prints a note). Set
+  sheets. A sheet that can't self-detect (a fully blank edge row merges into the margin) reuses another sheet's grid
+  from the same group; if no sheet in a group detects, it falls back to an even split (and prints a note). Set
   `AVATAR_SLICE=grid` to force the even split everywhere, `AVATAR_GUTTER_FRAC` (default `0.015`) to tune how empty a
   band must be to count as a gutter, or `AVATAR_DETECT_FUZZ` (default `28%`) to widen the green key used for detection.
-- Sheets are independent: a state still renders with only its `a` frame (no blink/cycle), so you can skip `b`/`x1` for a
-  quick partial set and fill them in later. `--check` shows `have/expected` frames per state.
+- Sheets are independent and partial sets are fine: a state renders from whatever frames exist (frame 0 alone = no
+  blink/cycle), so you can generate a subset of sheets and fill the rest in later. `--check` shows `have/expected`
+  frames per state.
 - Adjust frame lists, `TARGET_PX`, `GRID`, `CHROMA`, `BORDER`, or pose hints in `sprite-manifest.ts`; the prompts, sheet
   packing, and slicing all follow automatically.
