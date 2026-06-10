@@ -36,6 +36,7 @@ import {
   waitForImages,
   type Conn,
 } from '../../../../lib/node/pi/comfyui/client.ts';
+import { loadComfyuiConfig, resolveAuthHeaders } from '../../../../lib/node/pi/comfyui/config.ts';
 import { injectInputs, randomSeed } from '../../../../lib/node/pi/comfyui/workflow.ts';
 import { cellPrompt, heroPrompt } from './prompt-lib.ts';
 import { GROUPS, frameCount, groupOf } from './sprite-manifest.ts';
@@ -71,6 +72,19 @@ export interface GenOpts {
   dryRun: boolean;
   hero: boolean;
   registryPath: string;
+  /** Auth (and any other) request headers, resolved from comfyui.json in main(). */
+  headers: Record<string, string>;
+}
+
+/**
+ * Resolve request headers (e.g. the `Authorization` token) from the shared
+ * comfyui config layers (`~/.pi/agent/comfyui.json` + `<cwd>/.pi/comfyui.json`),
+ * applying `${ENV}` interpolation. The standalone tool reuses the same auth
+ * wiring as the generic comfyui extension instead of going in bare.
+ */
+function resolveHeaders(cwd: string, env: NodeJS.ProcessEnv = process.env): Record<string, string> {
+  const config = loadComfyuiConfig(cwd, { file: '', inputs: {} });
+  return resolveAuthHeaders(config, env);
 }
 
 function parseNumber(raw: string, flag: string): number {
@@ -107,6 +121,7 @@ export function parseArgs(argv: string[], env: NodeJS.ProcessEnv = process.env):
     dryRun: false,
     hero: false,
     registryPath: DEFAULT_REGISTRY_PATH,
+    headers: {},
   };
 
   for (let i = 0; i < argv.length; i++) {
@@ -464,7 +479,7 @@ async function runHeroWorkflows(
 }
 
 async function runHero(opts: GenOpts, workflows: ValidatedWorkflow[], identity: string, home: string): Promise<void> {
-  const conn: Conn = { base: opts.server, headers: {}, timeoutMs: TIMEOUT_MS };
+  const conn: Conn = { base: opts.server, headers: opts.headers, timeoutMs: TIMEOUT_MS };
   const seed = opts.seed ?? randomSeed();
   const signal = AbortSignal.timeout(TIMEOUT_MS);
   await runHeroWorkflows(conn, workflows, identity, opts, seed, home, signal);
@@ -483,7 +498,7 @@ async function runGeneration(
     }
   }
 
-  const conn: Conn = { base: opts.server, headers: {}, timeoutMs: TIMEOUT_MS };
+  const conn: Conn = { base: opts.server, headers: opts.headers, timeoutMs: TIMEOUT_MS };
   const baseSeed = opts.seed ?? randomSeed();
   const signal = AbortSignal.timeout(TIMEOUT_MS);
 
@@ -501,8 +516,10 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
     process.exit(1);
   }
 
+  opts.headers = resolveHeaders(cwd);
+
   if (opts.ping) {
-    const conn: Conn = { base: opts.server, headers: {}, timeoutMs: TIMEOUT_MS };
+    const conn: Conn = { base: opts.server, headers: opts.headers, timeoutMs: TIMEOUT_MS };
     const ok = await pingServer(conn);
     process.stdout.write(ok ? `ComfyUI OK at ${opts.server}\n` : `ComfyUI unreachable at ${opts.server}\n`);
     process.exit(ok ? 0 : 1);
