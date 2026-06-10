@@ -316,3 +316,21 @@ export async function pingServer(conn: Conn): Promise<boolean> {
     return false;
   }
 }
+
+/**
+ * GET `/object_info` and return the parsed node catalog. ComfyUI describes every
+ * loadable node here, including the available model files as enum lists on loader
+ * inputs (e.g. `CheckpointLoaderSimple.input.required.ckpt_name[0]`). Returned as
+ * an opaque record; callers extract the lists they need.
+ */
+export async function fetchObjectInfo(conn: Conn, signal: AbortSignal): Promise<Record<string, unknown>> {
+  const res = await fetch(joinUrl(conn.base, '/object_info'), { headers: conn.headers, signal });
+  if (!res.ok) {
+    throw new Error(`object_info request failed: ${res.status} ${res.statusText}`);
+  }
+  const data: unknown = await res.json();
+  if (data === null || typeof data !== 'object') {
+    throw new Error('object_info response was not a JSON object');
+  }
+  return data as Record<string, unknown>;
+}
