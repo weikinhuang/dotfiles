@@ -191,6 +191,16 @@ workflow entry points at its JSON file and maps tunable names to a node id + inp
         "seed": { "node": "3", "key": "seed" },
       },
     },
+    "qwen-image-edit": {
+      "file": "~/.pi/agent/comfyui/qwen-image-edit.api.json",
+      "inputs": {
+        "prompt": { "node": "6", "key": "prompt" },
+        "image": { "node": "41", "key": "image" },
+        "denoise": { "node": "3", "key": "denoise" },
+        "seed": { "node": "3", "key": "seed" },
+        "steps": { "node": "3", "key": "steps" },
+      },
+    },
   },
 }
 ```
@@ -207,6 +217,13 @@ point at a graph checked into the project with `"file": "./comfyui/my.api.json"`
 The shipped default [`../comfyui/txt2img.api.json`](../comfyui/txt2img.api.json) is the classic SD1.5 graph; it expects
 a `v1-5-pruned-emaonly.safetensors` checkpoint to be installed on the server. Repoint `defaultWorkflow` / `workflows` at
 your own graph + checkpoint as needed.
+
+Two image-to-image examples ship alongside it: [`../comfyui/img2img.api.json`](../comfyui/img2img.api.json) is the
+classic SD1.5 VAE-encode graph (note the `image` key maps the uploaded `inputImage` into the `LoadImage` node), and
+[`../comfyui/qwen-image-edit.api.json`](../comfyui/qwen-image-edit.api.json) is a modern instruction-edit graph
+(Qwen-Image-Edit GGUF + a 4-step Lightning LoRA). For the Qwen graph the `prompt` is an **edit instruction** encoded by
+`TextEncodeQwenImageEdit`, so its map key is `prompt` (not the `text` that `CLIPTextEncode` uses), and `denoise` is
+baked at `0.6` so the edit keeps the source composition instead of regenerating it wholesale.
 
 ### Generation defaults
 

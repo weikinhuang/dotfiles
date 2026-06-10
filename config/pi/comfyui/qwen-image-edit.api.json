@@ -1,0 +1,91 @@
+{
+  "37": {
+    "class_type": "UnetLoaderGGUF",
+    "_meta": { "title": "Load Diffusion Model (Qwen-Image-Edit GGUF quant)" },
+    "inputs": { "unet_name": "qwen-image-edit-2511-Q4_K_M.gguf" }
+  },
+  "38": {
+    "class_type": "CLIPLoader",
+    "_meta": { "title": "Load CLIP (Qwen2.5-VL text/vision encoder)" },
+    "inputs": {
+      "clip_name": "qwen_2.5_vl_7b_fp8_scaled.safetensors",
+      "type": "qwen_image",
+      "device": "default"
+    }
+  },
+  "39": {
+    "class_type": "VAELoader",
+    "_meta": { "title": "Load VAE" },
+    "inputs": { "vae_name": "qwen_image_vae.safetensors" }
+  },
+  "49": {
+    "class_type": "LoraLoaderModelOnly",
+    "_meta": { "title": "Load 4-step Lightning LoRA (enables 4 steps at cfg 1)" },
+    "inputs": {
+      "lora_name": "Qwen-Image-Edit-2511-Lightning-4steps-V1.0-bf16.safetensors",
+      "strength_model": 1,
+      "model": ["37", 0]
+    }
+  },
+  "66": {
+    "class_type": "ModelSamplingAuraFlow",
+    "_meta": { "title": "Model Sampling (AuraFlow shift for Qwen-Image)" },
+    "inputs": { "shift": 3.1, "model": ["49", 0] }
+  },
+  "41": {
+    "class_type": "LoadImage",
+    "_meta": { "title": "Load Source Image" },
+    "inputs": { "image": "example.png" }
+  },
+  "44": {
+    "class_type": "VAEEncode",
+    "_meta": { "title": "VAE Encode (source image -> latent)" },
+    "inputs": { "pixels": ["41", 0], "vae": ["39", 0] }
+  },
+  "6": {
+    "class_type": "TextEncodeQwenImageEdit",
+    "_meta": { "title": "Qwen Image Edit Encode (Positive / Edit Instruction)" },
+    "inputs": {
+      "prompt": "change the background to a sunny beach",
+      "clip": ["38", 0],
+      "vae": ["39", 0],
+      "image": ["41", 0]
+    }
+  },
+  "7": {
+    "class_type": "TextEncodeQwenImageEdit",
+    "_meta": { "title": "Qwen Image Edit Encode (Negative)" },
+    "inputs": {
+      "prompt": "",
+      "clip": ["38", 0],
+      "vae": ["39", 0],
+      "image": ["41", 0]
+    }
+  },
+  "3": {
+    "class_type": "KSampler",
+    "_meta": { "title": "KSampler (4-step Lightning)" },
+    "inputs": {
+      "seed": 0,
+      "steps": 4,
+      "cfg": 1,
+      "sampler_name": "euler",
+      "scheduler": "simple",
+      "denoise": 0.6,
+      "model": ["66", 0],
+      "positive": ["6", 0],
+      "negative": ["7", 0],
+      "latent_image": ["44", 0]
+    }
+  },
+  "8": {
+    "class_type": "VAEDecode",
+    "_meta": { "title": "VAE Decode" },
+    "inputs": { "samples": ["3", 0], "vae": ["39", 0] }
+  },
+  "9": {
+    "class_type": "SaveImage",
+    "_meta": { "title": "Save Image" },
+    "inputs": { "filename_prefix": "pi", "images": ["8", 0] }
+  }
+}
