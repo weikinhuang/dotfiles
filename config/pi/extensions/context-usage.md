@@ -73,9 +73,11 @@ the system prompt and tool schemas in that state.
 At the lowest level, leaf nodes that carry raw text open a scrollable content viewer when you press `⏎` on them (the
 legend marks an actionable row with a trailing `›`). Viewable leaves are: **context files** (the actual `AGENTS.md`
 body), **skills** (the skill body), **tool schemas** (pretty-printed JSON), **tool-result entries** (the actual
-output), and **injected addenda sections**. The viewer wraps text to the terminal width and scrolls with `↑`/`↓`,
-`PgUp`/`PgDn`, `Home`/`End`; `←` / `esc` returns to the tree. Aggregate buckets with no single source (core
-instructions, guidelines, per-role totals) are not viewable.
+output), **guidelines**, **tool snippets**, and **injected addenda sections**. **Core instructions & framing** shows
+the full captured base system prompt (it is a size-only remainder that cannot be cleanly sliced out, so the viewer
+shows the whole base prompt, of which the other measured sections are subsets). The viewer wraps text to the terminal
+width and scrolls with `↑`/`↓`, `PgUp`/`PgDn`, `Home`/`End`; `←` / `esc` returns to the tree. Aggregate buckets
+with no single source (per-role conversation totals) are not viewable.
 
 ## Keys
 

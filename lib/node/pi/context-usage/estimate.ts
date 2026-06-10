@@ -193,7 +193,12 @@ function buildSystemPromptNode(input: BreakdownInput): CategoryNode {
   if (snippetNames.length > 0) {
     let chars = 0;
     for (const name of snippetNames) chars += name.length + snippets[name].length + 4;
-    children.push({ id: 'sys.toolSnippets', label: 'Tool snippets', tokens: charsToTokens(chars) });
+    children.push({
+      id: 'sys.toolSnippets',
+      label: 'Tool snippets',
+      tokens: charsToTokens(chars),
+      content: snippetNames.map((name) => `${name}\n  ${snippets[name]}`).join('\n\n'),
+    });
   }
 
   // Guidelines.
@@ -201,7 +206,12 @@ function buildSystemPromptNode(input: BreakdownInput): CategoryNode {
   if (guidelines.length > 0) {
     let chars = 0;
     for (const g of guidelines) chars += g.length + 3;
-    children.push({ id: 'sys.guidelines', label: 'Guidelines', tokens: charsToTokens(chars) });
+    children.push({
+      id: 'sys.guidelines',
+      label: 'Guidelines',
+      tokens: charsToTokens(chars),
+      content: guidelines.join('\n\n'),
+    });
   }
 
   // appendSystemPrompt.
@@ -228,15 +238,20 @@ function buildSystemPromptNode(input: BreakdownInput): CategoryNode {
 
   // Remainder = core instructions & framing (default prompt body + date/cwd
   // + structural wrapper): whatever the effective-prompt estimate has beyond
-  // the measured parts. Clamped at 0 - if our measured parts already meet or
-  // exceed the raw-length estimate (wrapper overhead, measurement drift), the
-  // node total simply becomes the children sum so the treemap invariant
-  // (parent.tokens === Σ children) always holds.
+  // the measured parts. We can't cleanly slice the remainder out of the base
+  // prompt, so the content viewer shows the full captured base prompt (the
+  // other measured sections are subsets of it).
   const remainder = Math.max(0, totalTokens - sumTokens(children));
+  const baseText = input.baseSystemPrompt;
+  const coreContent =
+    baseText.length > 0
+      ? `[ Full captured base system prompt – the measured sections (guidelines, tool snippets,\n  skills, context files) are subsets of the text below. ]\n\n${baseText}`
+      : undefined;
   children.unshift({
     id: 'sys.core',
     label: 'Core instructions & framing',
     tokens: remainder,
+    content: coreContent,
   });
 
   const kept = nonZero(children).sort((a, b) => b.tokens - a.tokens);

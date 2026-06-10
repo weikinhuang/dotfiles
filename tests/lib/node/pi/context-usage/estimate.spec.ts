@@ -163,6 +163,19 @@ describe('buildBreakdown', () => {
     expect(bash?.children?.[0].content).toContain('out');
   });
 
+  test('aggregate system-prompt leaves carry source content', () => {
+    // Large effective/base prompt so the core remainder is non-zero (and not
+    // filtered out as a zero-token node).
+    const b = buildBreakdown(
+      baseInput({ effectiveSystemPrompt: 'X'.repeat(4000), baseSystemPrompt: 'X'.repeat(4000) }),
+    );
+    expect(find(b.root, 'sys.toolSnippets')?.content).toContain('read a file');
+    expect(find(b.root, 'sys.guidelines')?.content).toBe('be concise\n\nshow paths');
+    const core = find(b.root, 'sys.core');
+    expect(core?.content).toContain('Full captured base system prompt');
+    expect(core?.content).toContain('X'.repeat(400));
+  });
+
   test('only active tools are sized; inactive noted in detail', () => {
     const b = buildBreakdown(baseInput());
     const tools = find(b.root, 'tools');
