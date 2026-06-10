@@ -91,6 +91,26 @@ const FULL_BODY_STYLE = STYLE.replace(
   'full-body framing (head to toe, the entire figure visible)',
 );
 
+/**
+ * Single-cell render style: {@link STYLE} without the "...in every cell" clause.
+ * That clause enforces cross-cell consistency in a full-sheet prompt, but in a
+ * single-cell prompt a literal text encoder (e.g. Chroma's T5) renders it as an
+ * actual contact-sheet grid of tiny busts. Per-cell consistency comes from the
+ * fixed identity (and the hero clause when referenced) instead.
+ */
+const CELL_STYLE = STYLE.replace(', the exact same character design, outfit, and color palette in every cell', '');
+
+/**
+ * Framing line for a single sprite cell: pins one centered bust on the green
+ * chroma key (cells are sliced, so they MUST be keyable) and explicitly forbids
+ * the grid/panel layout a literal model would otherwise produce.
+ */
+const CELL_FRAMING =
+  'One single character, solo, just this one figure: a front-facing bust centered and filling the frame on a ' +
+  `solid, flat chroma-key green-screen background (${CHROMA}, vivid fully-saturated pure green, no gradient, no ` +
+  'scenery, nothing but green behind the character). Not a sprite sheet: no grid, no panels, no multiple poses, ' +
+  'no repeated thumbnails, no text, labels, borders, or drop shadows.';
+
 /** Shared turnaround / model-sheet body for a given framing noun. */
 function turnaroundBody(framing: string): string {
   return (
@@ -217,9 +237,11 @@ export function cellPrompt(
   }
   const guard = GROUP_GUARDS[groupName];
   const lines: string[] = [];
-  lines.push(`Style: ${STYLE}.`);
+  lines.push(`Style: ${CELL_STYLE}.`);
   lines.push('');
   lines.push(`Character: ${identity}.`);
+  lines.push('');
+  lines.push(CELL_FRAMING);
   lines.push('');
   if (frame === 0) {
     lines.push(`Expression: ${state}: ${desc}`);

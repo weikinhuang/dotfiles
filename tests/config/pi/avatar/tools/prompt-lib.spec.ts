@@ -26,9 +26,14 @@ const IDENTITY = 'silver hair, red eyes, black tactical coat';
 
 test('cellPrompt: frame 0 includes style, identity, and base pose', () => {
   const prompt = cellPrompt('activities', 'hi', 0, IDENTITY);
-  expect(prompt).toContain(`Style: ${STYLE}.`);
+  expect(prompt).toContain('Style: crisp pixel-art sprite');
+  expect(prompt).toContain('bust framing (head and shoulders).');
+  expect(prompt).not.toContain('in every cell');
   expect(prompt).toContain(`Character: ${IDENTITY}.`);
   expect(prompt).toContain('Expression: hi: waving hello, bright welcoming smile');
+  // Single bust on the green key, never a contact-sheet grid.
+  expect(prompt).toContain('Not a sprite sheet: no grid, no panels');
+  expect(prompt).toContain('green-screen background');
   expect(prompt).not.toContain(SFW_GUARD);
   expect(prompt).not.toContain(HERO_CLAUSE);
 });
