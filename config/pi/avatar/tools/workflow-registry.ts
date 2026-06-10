@@ -35,7 +35,15 @@ export const WORKFLOW_PARAMS = [
 
 export type WorkflowParam = (typeof WORKFLOW_PARAMS)[number];
 
-export type WorkflowRole = 'generate' | 'edit';
+/**
+ * How a workflow consumes the canonical hero image:
+ * - `generate`: pure txt2img, no image input.
+ * - `edit`: img2img that edits the source - frame 0 edits the hero, later frames
+ *   edit that state's frame 0 (chained).
+ * - `reference`: fresh generation conditioned on the hero as a style/identity
+ *   reference (e.g. IPAdapter) - the same hero is fed into every cell, no chaining.
+ */
+export type WorkflowRole = 'generate' | 'edit' | 'reference';
 
 export interface AvatarWorkflowEntry {
   /** Path to the API-format workflow JSON (`~` expands against homedir). */
@@ -71,7 +79,7 @@ function asString(value: unknown): string | undefined {
 }
 
 function asRole(value: unknown): WorkflowRole | undefined {
-  return value === 'generate' || value === 'edit' ? value : undefined;
+  return value === 'generate' || value === 'edit' || value === 'reference' ? value : undefined;
 }
 
 function asInputMapping(value: unknown): InputMapping | undefined {
@@ -118,8 +126,8 @@ export function parseRegistry(raw: unknown): AvatarWorkflowRegistry {
 
 function validateRoleInputs(name: string, entry: AvatarWorkflowEntry): string[] {
   const hasImage = entry.inputs.image !== undefined;
-  if (entry.role === 'edit' && !hasImage) {
-    return [`"${name}": edit role requires an "image" input mapping`];
+  if ((entry.role === 'edit' || entry.role === 'reference') && !hasImage) {
+    return [`"${name}": ${entry.role} role requires an "image" input mapping`];
   }
   if (entry.role === 'generate' && hasImage) {
     return [`"${name}": generate role must not declare an "image" input mapping`];

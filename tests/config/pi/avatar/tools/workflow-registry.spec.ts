@@ -115,6 +115,40 @@ describe('validateRegistryEntry', () => {
     expect(result.workflow).toBeUndefined();
     expect(result.errors[0]).toContain('generate role must not declare an "image" input mapping');
   });
+
+  test('reference role requires an image input mapping', () => {
+    const wfFile = writeWorkflow(tmp, 'ref.api.json', sampleGraph());
+    const entry = {
+      file: wfFile,
+      role: 'reference' as const,
+      inputs: {
+        prompt: { node: '64', key: 'string_b' },
+      },
+    };
+
+    const result = validateRegistryEntry('sdxl-ipadapter', entry, tmp, tmp);
+    expect(result.workflow).toBeUndefined();
+    expect(result.errors[0]).toContain('reference role requires an "image" input mapping');
+  });
+
+  test('accepts a reference role with an image input mapping', () => {
+    const wfFile = writeWorkflow(tmp, 'ref-ok.api.json', {
+      ...sampleGraph(),
+      '21': { class_type: 'LoadImage', inputs: { image: 'ref.png' } },
+    });
+    const entry = {
+      file: wfFile,
+      role: 'reference' as const,
+      inputs: {
+        prompt: { node: '64', key: 'string_b' },
+        image: { node: '21', key: 'image' },
+      },
+    };
+
+    const result = validateRegistryEntry('sdxl-ipadapter', entry, tmp, tmp);
+    expect(result.errors).toEqual([]);
+    expect(result.workflow?.entry.role).toBe('reference');
+  });
 });
 
 describe('loadAndValidateRegistry', () => {

@@ -115,6 +115,15 @@ describe('sourceImagePath', () => {
       'avatar-ref/gen/kontext/idle.0.png',
     );
   });
+
+  test('reference role uses the canonical for every frame (no chaining)', () => {
+    expect(
+      sourceImagePath('reference', 'idle', 0, 'avatar-ref/canonical.png', 'avatar-ref/gen', 'sdxl-ipadapter'),
+    ).toBe('avatar-ref/canonical.png');
+    expect(
+      sourceImagePath('reference', 'idle', 2, 'avatar-ref/canonical.png', 'avatar-ref/gen', 'sdxl-ipadapter'),
+    ).toBe('avatar-ref/canonical.png');
+  });
 });
 
 describe('collectCells', () => {

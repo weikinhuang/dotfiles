@@ -44,7 +44,12 @@ import { loadComfyuiConfig, resolveAuthHeaders } from '../../../../lib/node/pi/c
 import { injectInputs, randomSeed } from '../../../../lib/node/pi/comfyui/workflow.ts';
 import { cellPrompt, normalizeIdentity, referencePrompt, type ReferenceKind } from './prompt-lib.ts';
 import { GROUPS, frameCount, groupOf } from './sprite-manifest.ts';
-import { DEFAULT_REGISTRY_PATH, loadAndValidateRegistry, type ValidatedWorkflow } from './workflow-registry.ts';
+import {
+  DEFAULT_REGISTRY_PATH,
+  loadAndValidateRegistry,
+  type ValidatedWorkflow,
+  type WorkflowRole,
+} from './workflow-registry.ts';
 
 const DEFAULT_SERVER = 'http://127.0.0.1:8188';
 const DEFAULT_IDENTITY_FILE = 'avatar-ref/identity.txt';
@@ -236,11 +241,13 @@ export function stateSeed(state: string, baseSeed: number): number {
 }
 
 /**
- * Local path for the img2img source image on an edit workflow.
- * Frame 0 uses the canonical bust; later frames edit that state's frame 0 output.
+ * Local path for the source image fed into a workflow.
+ * - `generate`: none.
+ * - `edit`: frame 0 uses the canonical bust; later frames edit that state's frame 0 output.
+ * - `reference`: always the canonical hero (IPAdapter conditions every cell on it).
  */
 export function sourceImagePath(
-  role: 'generate' | 'edit',
+  role: WorkflowRole,
   state: string,
   frame: number,
   canonical: string,
@@ -248,6 +255,7 @@ export function sourceImagePath(
   workflowName: string,
 ): string | undefined {
   if (role === 'generate') return undefined;
+  if (role === 'reference') return canonical;
   if (frame === 0) return canonical;
   return join(outDir, workflowName, `${state}.0.png`);
 }
@@ -349,8 +357,8 @@ function emitDryRun(cells: GenCell[], identity: string): void {
 
 /**
  * Inject params into a workflow, submit it, wait for the first output image, and
- * write it to `dest`. For an edit-role workflow `sourcePath` is uploaded and
- * injected as the `image` param; generate-role ignores it.
+ * write it to `dest`. For an edit- or reference-role workflow `sourcePath` is
+ * uploaded and injected as the `image` param; generate-role ignores it.
  */
 async function renderImage(
   conn: Conn,
@@ -364,9 +372,9 @@ async function renderImage(
   signal: AbortSignal,
 ): Promise<void> {
   let uploadedName: string | undefined;
-  if (wf.entry.role === 'edit') {
+  if (wf.entry.role === 'edit' || wf.entry.role === 'reference') {
     if (sourcePath === undefined || sourcePath.length === 0) {
-      throw new Error(`edit workflow "${wf.name}" requires a source image`);
+      throw new Error(`${wf.entry.role} workflow "${wf.name}" requires a source image`);
     }
     process.stderr.write(`uploading ${sourcePath}…\n`);
     uploadedName = await uploadImage(conn, sourcePath, home, signal);
@@ -408,7 +416,7 @@ async function generateCell(
   signal: AbortSignal,
 ): Promise<void> {
   const prompt = cellPrompt(cell.group, cell.state, cell.frame, identity, {
-    reference: wf.entry.role === 'edit',
+    reference: wf.entry.role !== 'generate',
   });
   const seed = stateSeed(cell.state, baseSeed);
   const sourcePath = sourceImagePath(wf.entry.role, cell.state, cell.frame, opts.canonical, opts.out, wf.name);
@@ -434,9 +442,10 @@ async function generateReference(
   signal: AbortSignal,
 ): Promise<void> {
   const prompt = referencePrompt(kind, identity);
-  const sourcePath = wf.entry.role === 'edit' ? opts.canonical : undefined;
-  if (wf.entry.role === 'edit' && opts.canonical.length === 0) {
-    throw new Error(`${kind} edit workflow "${wf.name}" requires --canonical <reference-art>`);
+  const needsCanonical = wf.entry.role === 'edit' || wf.entry.role === 'reference';
+  const sourcePath = needsCanonical ? opts.canonical : undefined;
+  if (needsCanonical && opts.canonical.length === 0) {
+    throw new Error(`${kind} ${wf.entry.role} workflow "${wf.name}" requires --canonical <reference-art>`);
   }
   const dest = join(opts.out, wf.name, `${kind}.${seed}.png`);
   process.stderr.write(`generating ${kind} ${wf.name} (seed ${seed})…\n`);
