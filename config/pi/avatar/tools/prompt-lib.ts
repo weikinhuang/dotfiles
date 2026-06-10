@@ -32,7 +32,7 @@ export const GROUP_GUARDS: Record<string, string> = {
  * edit-role workflows, where gen-comfyui injects the hero as the source image.
  */
 export const HERO_CLAUSE =
-  'Match the attached hero reference image EXACTLY for the character design, pixel-art style, line weight, shading, and color palette, and keep the same head-and-shoulders bust crop, size, and framing; change ONLY the expression or pose noted.';
+  'Match the attached reference images EXACTLY for the character design, pixel-art style, line weight, shading, and color palette - they all depict the same character, with the clean front-facing head-and-shoulders bust as the canonical reference - and keep that same bust crop, size, and framing; change ONLY the expression or pose noted.';
 
 /** One per-cell prompt entry for JSON export. */
 export interface CellPromptEntry {
