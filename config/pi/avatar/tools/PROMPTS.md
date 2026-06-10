@@ -11,17 +11,18 @@ gitignored; only the tooling is committed.
 
 ## Pieces
 
-| File                                             | Role                                                                                  |
-| ------------------------------------------------ | ------------------------------------------------------------------------------------- |
-| [`sprite-manifest.ts`](./sprite-manifest.ts)     | Source of truth: state groups, grid, target size, chroma, frame hints                 |
-| [`prompt-lib.ts`](./prompt-lib.ts)               | Shared prompt builders: `cellPrompt` / `buildPrompt`, guards, `HERO_CLAUSE`           |
-| [`print-prompts.ts`](./print-prompts.ts)         | Renders ready-to-paste sheet (`--sheet`), cell (`--cell`), hero, or reference prompts |
-| [`workflow-registry.ts`](./workflow-registry.ts) | Loads/validates `avatar-ref/workflows.json` (per-model ComfyUI graph mapping)         |
-| [`gen-comfyui.ts`](./gen-comfyui.ts)             | Drives a self-hosted ComfyUI directly (hero bootstrap, edit-from-canonical)           |
-| [`compare-sheet.ts`](./compare-sheet.ts)         | A/B/C HTML page comparing per-model outputs under `avatar-ref/gen/<model>/`           |
-| [`assemble-sheets.ts`](./assemble-sheets.ts)     | Montages a winning model's per-cell PNGs back into sliceable grid sheets              |
-| [`slice-sheets.ts`](./slice-sheets.ts)           | Slices generated sheets into `<state>/<frame>.png` (uses `magick`)                    |
-| [`contact-sheet.ts`](./contact-sheet.ts)         | Builds a self-contained HTML preview of a sliced set to eyeball                       |
+| File                                             | Role                                                                                    |
+| ------------------------------------------------ | --------------------------------------------------------------------------------------- |
+| [`sprite-manifest.ts`](./sprite-manifest.ts)     | Source of truth: state groups, grid, target size, chroma, frame hints                   |
+| [`prompt-lib.ts`](./prompt-lib.ts)               | Shared prompt builders: `cellPrompt` / `buildPrompt`, guards, `HERO_CLAUSE`             |
+| [`print-prompts.ts`](./print-prompts.ts)         | Renders ready-to-paste sheet (`--sheet`), cell (`--cell`), hero, or reference prompts   |
+| [`gen-sprite-doc.ts`](./gen-sprite-doc.ts)       | Renders the whole paste-into-a-web-UI prompt doc in one file (preamble + fenced sheets) |
+| [`workflow-registry.ts`](./workflow-registry.ts) | Loads/validates `avatar-ref/workflows.json` (per-model ComfyUI graph mapping)           |
+| [`gen-comfyui.ts`](./gen-comfyui.ts)             | Drives a self-hosted ComfyUI directly (hero bootstrap, edit-from-canonical)             |
+| [`compare-sheet.ts`](./compare-sheet.ts)         | A/B/C HTML page comparing per-model outputs under `avatar-ref/gen/<model>/`             |
+| [`assemble-sheets.ts`](./assemble-sheets.ts)     | Montages a winning model's per-cell PNGs back into sliceable grid sheets                |
+| [`slice-sheets.ts`](./slice-sheets.ts)           | Slices generated sheets into `<state>/<frame>.png` (uses `magick`)                      |
+| [`contact-sheet.ts`](./contact-sheet.ts)         | Builds a self-contained HTML preview of a sliced set to eyeball                         |
 
 All are plain TypeScript; Node 24 runs them directly (`node <script>.ts`), no build step.
 
@@ -104,12 +105,13 @@ UI that can't carry context between sheets still keeps every emote's frames cons
 hero bust attached (and 1-3 images from `avatar-ref/web/`):
 
 ```bash
+# print one sheet, a whole tier, or (no --tier) every sheet:
 node config/pi/avatar/tools/print-prompts.ts --sheet standard.1 --identity-file avatar-ref/identity.txt
-node config/pi/avatar/tools/print-prompts.ts --sheet standard.2 --identity-file avatar-ref/identity.txt
-# every sheet in a tier, or omit --tier for all tiers:
 node config/pi/avatar/tools/print-prompts.ts --tier standard --identity-file avatar-ref/identity.txt
 # per-cell prompts instead of grid sheets (for single-image generators/APIs):
 node config/pi/avatar/tools/print-prompts.ts --cell --group activities --identity-file avatar-ref/identity.txt
+# OR generate the entire paste-ready doc (this guide's preamble + every sheet prompt, each in a code block):
+node config/pi/avatar/tools/gen-sprite-doc.ts --identity-file avatar-ref/identity.txt --out avatar-ref/sprite-prompts.md
 ```
 
 ### 4. Download the sheets

@@ -16,21 +16,22 @@ device-local.
 
 ## Layout
 
-| Path                                                         | What it is                                                                    |
-| ------------------------------------------------------------ | ----------------------------------------------------------------------------- |
-| [`tools/sprite-manifest.ts`](./tools/sprite-manifest.ts)     | Single source of truth: state groups, grid, target size, chroma, frame hints  |
-| [`tools/prompt-lib.ts`](./tools/prompt-lib.ts)               | Shared prompt builders, SFW guards, `HERO_CLAUSE`, `heroPrompt`, `cellPrompt` |
-| [`tools/print-prompts.ts`](./tools/print-prompts.ts)         | Renders sheet / cell / hero generation prompts from the manifest              |
-| [`tools/workflow-registry.ts`](./tools/workflow-registry.ts) | Loads + validates the device-local `avatar-ref/workflows.json` graph map      |
-| [`tools/gen-comfyui.ts`](./tools/gen-comfyui.ts)             | Drives a self-hosted ComfyUI directly (hero bootstrap, edit-from-canonical)   |
-| [`tools/compare-sheet.ts`](./tools/compare-sheet.ts)         | A/B/C HTML page comparing per-model `avatar-ref/gen/<model>/` outputs         |
-| [`tools/assemble-sheets.ts`](./tools/assemble-sheets.ts)     | Montages a winning model's per-cell PNGs back into sliceable grid sheets      |
-| [`tools/slice-sheets.ts`](./tools/slice-sheets.ts)           | Slices generated sheets into `<state>/<frame>.png` (uses ImageMagick)         |
-| [`tools/contact-sheet.ts`](./tools/contact-sheet.ts)         | Builds a self-contained HTML preview of a sliced set                          |
-| [`tools/PROMPTS.md`](./tools/PROMPTS.md)                     | The end-to-end generation workflow (start here to actually generate art)      |
-| [`emotes/ascii/ascii.yaml`](./emotes/ascii/ascii.yaml)       | Shared default kaomoji set (committed; the always-present base layer)         |
-| [`emotes/mature/ascii.yaml`](./emotes/mature/ascii.yaml)     | Generic opt-in kaomoji overlay (committed)                                    |
-| [`config.example.json`](./config.example.json)               | Example avatar config                                                         |
+| Path                                                         | What it is                                                                        |
+| ------------------------------------------------------------ | --------------------------------------------------------------------------------- |
+| [`tools/sprite-manifest.ts`](./tools/sprite-manifest.ts)     | Single source of truth: state groups, grid, target size, chroma, frame hints      |
+| [`tools/prompt-lib.ts`](./tools/prompt-lib.ts)               | Shared prompt builders, SFW guards, `HERO_CLAUSE`, `heroPrompt`, `cellPrompt`     |
+| [`tools/print-prompts.ts`](./tools/print-prompts.ts)         | Renders sheet / cell / hero generation prompts from the manifest                  |
+| [`tools/gen-sprite-doc.ts`](./tools/gen-sprite-doc.ts)       | Renders the full paste-into-a-web-UI sprite-prompt doc (preamble + fenced sheets) |
+| [`tools/workflow-registry.ts`](./tools/workflow-registry.ts) | Loads + validates the device-local `avatar-ref/workflows.json` graph map          |
+| [`tools/gen-comfyui.ts`](./tools/gen-comfyui.ts)             | Drives a self-hosted ComfyUI directly (hero bootstrap, edit-from-canonical)       |
+| [`tools/compare-sheet.ts`](./tools/compare-sheet.ts)         | A/B/C HTML page comparing per-model `avatar-ref/gen/<model>/` outputs             |
+| [`tools/assemble-sheets.ts`](./tools/assemble-sheets.ts)     | Montages a winning model's per-cell PNGs back into sliceable grid sheets          |
+| [`tools/slice-sheets.ts`](./tools/slice-sheets.ts)           | Slices generated sheets into `<state>/<frame>.png` (uses ImageMagick)             |
+| [`tools/contact-sheet.ts`](./tools/contact-sheet.ts)         | Builds a self-contained HTML preview of a sliced set                              |
+| [`tools/PROMPTS.md`](./tools/PROMPTS.md)                     | The end-to-end generation workflow (start here to actually generate art)          |
+| [`emotes/ascii/ascii.yaml`](./emotes/ascii/ascii.yaml)       | Shared default kaomoji set (committed; the always-present base layer)             |
+| [`emotes/mature/ascii.yaml`](./emotes/mature/ascii.yaml)     | Generic opt-in kaomoji overlay (committed)                                        |
+| [`config.example.json`](./config.example.json)               | Example avatar config                                                             |
 
 The tools are plain TypeScript; Node 24 runs them directly (`node <script>.ts`), no build step.
 
