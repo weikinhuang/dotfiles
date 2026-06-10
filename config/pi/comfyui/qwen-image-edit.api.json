@@ -1,7 +1,7 @@
 {
   "37": {
     "class_type": "UnetLoaderGGUF",
-    "_meta": { "title": "Load Diffusion Model (Qwen-Image-Edit GGUF quant)" },
+    "_meta": { "title": "Load Diffusion Model (Qwen-Image-Edit 2511 GGUF quant)" },
     "inputs": { "unet_name": "qwen-image-edit-2511-Q4_K_M.gguf" }
   },
   "38": {
@@ -18,63 +18,76 @@
     "_meta": { "title": "Load VAE" },
     "inputs": { "vae_name": "qwen_image_vae.safetensors" }
   },
+  "66": {
+    "class_type": "ModelSamplingAuraFlow",
+    "_meta": { "title": "Model Sampling (AuraFlow shift for Qwen-Image)" },
+    "inputs": { "shift": 3.1, "model": ["37", 0] }
+  },
+  "75": {
+    "class_type": "CFGNorm",
+    "_meta": { "title": "CFG Norm (stabilise cfg 1)" },
+    "inputs": { "strength": 1, "model": ["66", 0] }
+  },
   "49": {
     "class_type": "LoraLoaderModelOnly",
     "_meta": { "title": "Load 4-step Lightning LoRA (enables 4 steps at cfg 1)" },
     "inputs": {
       "lora_name": "Qwen-Image-Edit-2511-Lightning-4steps-V1.0-bf16.safetensors",
       "strength_model": 1,
-      "model": ["37", 0]
+      "model": ["75", 0]
     }
-  },
-  "66": {
-    "class_type": "ModelSamplingAuraFlow",
-    "_meta": { "title": "Model Sampling (AuraFlow shift for Qwen-Image)" },
-    "inputs": { "shift": 3.1, "model": ["49", 0] }
   },
   "41": {
     "class_type": "LoadImage",
     "_meta": { "title": "Load Source Image" },
     "inputs": { "image": "example.png" }
   },
+  "60": {
+    "class_type": "FluxKontextImageScale",
+    "_meta": { "title": "Flux Kontext Image Scale (snap source to a supported edit resolution)" },
+    "inputs": { "image": ["41", 0] }
+  },
   "44": {
     "class_type": "VAEEncode",
-    "_meta": { "title": "VAE Encode (source image -> latent)" },
-    "inputs": { "pixels": ["41", 0], "vae": ["39", 0] }
+    "_meta": { "title": "VAE Encode (scaled source -> latent; sets output resolution at denoise 1)" },
+    "inputs": { "pixels": ["60", 0], "vae": ["39", 0] }
   },
   "6": {
-    "class_type": "TextEncodeQwenImageEdit",
-    "_meta": { "title": "Qwen Image Edit Encode (Positive / Edit Instruction)" },
+    "class_type": "TextEncodeQwenImageEditPlus",
+    "_meta": { "title": "Qwen Image Edit Plus Encode (Positive / Edit Instruction + reference image)" },
     "inputs": {
-      "prompt": "change the background to a sunny beach",
+      "prompt": "change the background to a sunny beach, keep the subject unchanged",
       "clip": ["38", 0],
       "vae": ["39", 0],
-      "image": ["41", 0]
+      "image1": ["60", 0]
     }
   },
-  "7": {
-    "class_type": "TextEncodeQwenImageEdit",
-    "_meta": { "title": "Qwen Image Edit Encode (Negative)" },
+  "43": {
+    "class_type": "FluxKontextMultiReferenceLatentMethod",
+    "_meta": { "title": "Edit Model Reference Method (needed for repackaged / GGUF models)" },
     "inputs": {
-      "prompt": "",
-      "clip": ["38", 0],
-      "vae": ["39", 0],
-      "image": ["41", 0]
+      "reference_latents_method": "index_timestep_zero",
+      "conditioning": ["6", 0]
     }
+  },
+  "40": {
+    "class_type": "ConditioningZeroOut",
+    "_meta": { "title": "Conditioning Zero Out (empty negative for cfg 1)" },
+    "inputs": { "conditioning": ["6", 0] }
   },
   "3": {
     "class_type": "KSampler",
-    "_meta": { "title": "KSampler (4-step Lightning)" },
+    "_meta": { "title": "KSampler (4-step Lightning, denoise 1)" },
     "inputs": {
       "seed": 0,
       "steps": 4,
       "cfg": 1,
       "sampler_name": "euler",
       "scheduler": "simple",
-      "denoise": 0.6,
-      "model": ["66", 0],
-      "positive": ["6", 0],
-      "negative": ["7", 0],
+      "denoise": 1,
+      "model": ["49", 0],
+      "positive": ["43", 0],
+      "negative": ["40", 0],
       "latent_image": ["44", 0]
     }
   },

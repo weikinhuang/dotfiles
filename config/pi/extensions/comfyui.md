@@ -196,7 +196,6 @@ workflow entry points at its JSON file and maps tunable names to a node id + inp
       "inputs": {
         "prompt": { "node": "6", "key": "prompt" },
         "image": { "node": "41", "key": "image" },
-        "denoise": { "node": "3", "key": "denoise" },
         "seed": { "node": "3", "key": "seed" },
         "steps": { "node": "3", "key": "steps" },
       },
@@ -231,16 +230,19 @@ your own graph + checkpoint as needed.
 Three image-to-image examples ship alongside it: [`../comfyui/img2img.api.json`](../comfyui/img2img.api.json) is the
 classic SD1.5 VAE-encode graph (note the `image` key maps the uploaded `inputImage` into the `LoadImage` node), and
 [`../comfyui/qwen-image-edit.api.json`](../comfyui/qwen-image-edit.api.json) is a modern instruction-edit graph
-(Qwen-Image-Edit GGUF + a 4-step Lightning LoRA). For the Qwen graph the `prompt` is an **edit instruction** encoded by
-`TextEncodeQwenImageEdit`, so its map key is `prompt` (not the `text` that `CLIPTextEncode` uses), and `denoise` is
-baked at `0.6` so the edit keeps the source composition instead of regenerating it wholesale.
+(Qwen-Image-Edit 2511 GGUF + a 4-step Lightning LoRA). Its `prompt` is an **edit instruction** encoded by
+`TextEncodeQwenImageEditPlus`, so the map key is `prompt` (not the `text` that `CLIPTextEncode` uses). The Plus encoder
+bakes the reference image into the conditioning, `FluxKontextImageScale` (node 60) snaps the source to a supported edit
+resolution, and `FluxKontextMultiReferenceLatentMethod` (node 43) anchors the edit - which lets the KSampler run at
+`denoise 1` (the source latent only sets the output resolution). As with Kontext below, lowering `denoise` is the wrong
+knob, so its map exposes none; `CFGNorm` (node 75) stabilises the cfg-1 Lightning setup.
 
 The third, [`../comfyui/flux-kontext.api.json`](../comfyui/flux-kontext.api.json), is a **FLUX.1 Kontext**
-instruction-edit graph. Unlike Qwen's low-`denoise` img2img, Kontext anchors the source through a `ReferenceLatent`
-(node 43) and runs at `denoise 1`, so it follows the edit instruction strongly while keeping the subject - lowering
-`denoise` is the wrong knob for it, which is why its map exposes none. Flux is also cfg-1 with a `ConditioningZeroOut`
-(node 40) negative, so the real guidance knob is `FluxGuidance` (node 35): the example maps the tool's `cfg` param there
-rather than at the KSampler.
+instruction-edit graph. Like the Qwen graph it anchors the source through a `ReferenceLatent` (node 43) and runs at
+`denoise 1` rather than img2img low-`denoise`, so it follows the edit instruction strongly while keeping the subject -
+lowering `denoise` is the wrong knob for it, which is why its map exposes none. Flux is also cfg-1 with a
+`ConditioningZeroOut` (node 40) negative, so the real guidance knob is `FluxGuidance` (node 35): the example maps the
+tool's `cfg` param there rather than at the KSampler.
 
 ### Generation defaults
 

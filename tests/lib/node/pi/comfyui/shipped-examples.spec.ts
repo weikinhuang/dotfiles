@@ -36,7 +36,6 @@ const SHIPPED: Record<string, Record<string, InputMapping>> = {
   'qwen-image-edit.api.json': {
     prompt: { node: '6', key: 'prompt' },
     image: { node: '41', key: 'image' },
-    denoise: { node: '3', key: 'denoise' },
     seed: { node: '3', key: 'seed' },
     steps: { node: '3', key: 'steps' },
   },

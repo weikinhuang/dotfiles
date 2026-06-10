@@ -4,7 +4,7 @@
     "_meta": { "title": "Load Diffusion Model (FLUX.1 Kontext dev, fp8)" },
     "inputs": {
       "unet_name": "flux1-dev-kontext_fp8_scaled.safetensors",
-      "weight_dtype": "fp8_e4m3fn"
+      "weight_dtype": "default"
     }
   },
   "38": {
@@ -48,12 +48,12 @@
   "35": {
     "class_type": "FluxGuidance",
     "_meta": { "title": "Flux Guidance (edit strength; this is Flux's real guidance knob, not KSampler cfg)" },
-    "inputs": { "guidance": 2.5, "conditioning": ["6", 0] }
+    "inputs": { "guidance": 2.5, "conditioning": ["43", 0] }
   },
   "43": {
     "class_type": "ReferenceLatent",
     "_meta": { "title": "Reference Latent (anchor the edit to the source image)" },
-    "inputs": { "conditioning": ["35", 0], "latent": ["44", 0] }
+    "inputs": { "conditioning": ["6", 0], "latent": ["44", 0] }
   },
   "40": {
     "class_type": "ConditioningZeroOut",
@@ -71,7 +71,7 @@
       "scheduler": "simple",
       "denoise": 1,
       "model": ["37", 0],
-      "positive": ["43", 0],
+      "positive": ["35", 0],
       "negative": ["40", 0],
       "latent_image": ["44", 0]
     }
