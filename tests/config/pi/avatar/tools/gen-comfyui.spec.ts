@@ -67,9 +67,12 @@ describe('parseArgs', () => {
     expect(opts.ping).toBe(true);
   });
 
-  test('--hero is off by default and toggles on', () => {
-    expect(parseArgs([]).hero).toBe(false);
-    expect(parseArgs(['--hero']).hero).toBe(true);
+  test('reference kind is unset by default and each flag selects it', () => {
+    expect(parseArgs([]).reference).toBeUndefined();
+    expect(parseArgs(['--hero']).reference).toBe('hero');
+    expect(parseArgs(['--turnaround']).reference).toBe('turnaround');
+    expect(parseArgs(['--full-body']).reference).toBe('full-body');
+    expect(parseArgs(['--full-body-turnaround']).reference).toBe('full-body-turnaround');
   });
 
   test('throws on unknown arguments', () => {

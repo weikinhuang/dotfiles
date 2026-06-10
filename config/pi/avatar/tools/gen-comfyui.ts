@@ -19,6 +19,10 @@
  * generate-role workflow it is txt2img. Pick the best result and save it as
  * avatar-ref/canonical.png, then run the normal per-cell generation with
  * --canonical avatar-ref/canonical.png.
+ *
+ * Reference bootstraps also include `--turnaround` (bust, 4 angles), `--full-body`,
+ * and `--full-body-turnaround`. These write <kind>.<seed>.png into the same output
+ * tree and are optional identity references (plain background, not sliced).
  */
 
 import { randomUUID } from 'node:crypto';
@@ -38,7 +42,7 @@ import {
 } from '../../../../lib/node/pi/comfyui/client.ts';
 import { loadComfyuiConfig, resolveAuthHeaders } from '../../../../lib/node/pi/comfyui/config.ts';
 import { injectInputs, randomSeed } from '../../../../lib/node/pi/comfyui/workflow.ts';
-import { cellPrompt, heroPrompt } from './prompt-lib.ts';
+import { cellPrompt, normalizeIdentity, referencePrompt, type ReferenceKind } from './prompt-lib.ts';
 import { GROUPS, frameCount, groupOf } from './sprite-manifest.ts';
 import { DEFAULT_REGISTRY_PATH, loadAndValidateRegistry, type ValidatedWorkflow } from './workflow-registry.ts';
 
@@ -70,7 +74,7 @@ export interface GenOpts {
   negative: string | undefined;
   ping: boolean;
   dryRun: boolean;
-  hero: boolean;
+  reference: ReferenceKind | undefined;
   registryPath: string;
   /** Auth (and any other) request headers, resolved from comfyui.json in main(). */
   headers: Record<string, string>;
@@ -119,7 +123,7 @@ export function parseArgs(argv: string[], env: NodeJS.ProcessEnv = process.env):
     negative: undefined,
     ping: false,
     dryRun: false,
-    hero: false,
+    reference: undefined,
     registryPath: DEFAULT_REGISTRY_PATH,
     headers: {},
   };
@@ -144,7 +148,7 @@ export function parseArgs(argv: string[], env: NodeJS.ProcessEnv = process.env):
           'Usage: node gen-comfyui.ts [--server <url>] [--workflow <name>]... [--group <name>]\n' +
             '       [--states a,b,c] [--limit N] [--identity-file <path>] [--canonical <img>]\n' +
             '       [--seed N] [--steps N] [--cfg N] [--denoise N] [--out <dir>] [--negative <text>]\n' +
-            '       [--registry <path>] [--hero] [--ping] [--dry-run]\n',
+            '       [--registry <path>] [--hero|--turnaround|--full-body|--full-body-turnaround] [--ping] [--dry-run]\n',
         );
         process.exit(0);
         break;
@@ -197,7 +201,16 @@ export function parseArgs(argv: string[], env: NodeJS.ProcessEnv = process.env):
         opts.dryRun = true;
         break;
       case '--hero':
-        opts.hero = true;
+        opts.reference = 'hero';
+        break;
+      case '--turnaround':
+        opts.reference = 'turnaround';
+        break;
+      case '--full-body':
+        opts.reference = 'full-body';
+        break;
+      case '--full-body-turnaround':
+        opts.reference = 'full-body-turnaround';
         break;
       default:
         throw new Error(`Unknown argument: ${arg}`);
@@ -297,7 +310,7 @@ export function collectCells(groupFilter: string, stateFilter: string[], limit: 
 }
 
 function loadIdentity(path: string): string {
-  return readFileSync(path, 'utf8').trim();
+  return normalizeIdentity(readFileSync(path, 'utf8'));
 }
 
 function resolveWorkflows(names: string[], registryPath: string, cwd: string, home: string): ValidatedWorkflow[] {
@@ -405,26 +418,28 @@ async function generateCell(
 }
 
 /**
- * Generate one candidate "hero" bust per run. Edit-role workflows bootstrap from
- * the original character art (`--canonical`); generate-role workflows do txt2img.
- * Candidates are written as hero.<seed>.png so re-runs accumulate options.
+ * Generate one candidate reference image per run for the given {@link ReferenceKind}
+ * (hero bust, turnaround, full body, or full-body turnaround). Edit-role workflows
+ * bootstrap from the original character art (`--canonical`); generate-role workflows
+ * do txt2img. Candidates are written as <kind>.<seed>.png so re-runs accumulate options.
  */
-async function generateHero(
+async function generateReference(
   conn: Conn,
   wf: ValidatedWorkflow,
+  kind: ReferenceKind,
   identity: string,
   opts: GenOpts,
   seed: number,
   home: string,
   signal: AbortSignal,
 ): Promise<void> {
-  const prompt = heroPrompt(identity);
+  const prompt = referencePrompt(kind, identity);
   const sourcePath = wf.entry.role === 'edit' ? opts.canonical : undefined;
   if (wf.entry.role === 'edit' && opts.canonical.length === 0) {
-    throw new Error(`hero edit workflow "${wf.name}" requires --canonical <reference-art>`);
+    throw new Error(`${kind} edit workflow "${wf.name}" requires --canonical <reference-art>`);
   }
-  const dest = join(opts.out, wf.name, `hero.${seed}.png`);
-  process.stderr.write(`generating hero ${wf.name} (seed ${seed})…\n`);
+  const dest = join(opts.out, wf.name, `${kind}.${seed}.png`);
+  process.stderr.write(`generating ${kind} ${wf.name} (seed ${seed})…\n`);
   await renderImage(conn, wf, prompt, seed, sourcePath, dest, opts, home, signal);
 }
 
@@ -462,9 +477,10 @@ async function runAllWorkflows(
   await runAllWorkflows(conn, workflows.slice(1), cells, identity, opts, baseSeed, home, signal);
 }
 
-async function runHeroWorkflows(
+async function runReferenceWorkflows(
   conn: Conn,
   workflows: ValidatedWorkflow[],
+  kind: ReferenceKind,
   identity: string,
   opts: GenOpts,
   seed: number,
@@ -474,15 +490,21 @@ async function runHeroWorkflows(
   if (workflows.length === 0) return;
   const wf = workflows[0];
   if (wf === undefined) return;
-  await generateHero(conn, wf, identity, opts, seed, home, signal);
-  await runHeroWorkflows(conn, workflows.slice(1), identity, opts, seed, home, signal);
+  await generateReference(conn, wf, kind, identity, opts, seed, home, signal);
+  await runReferenceWorkflows(conn, workflows.slice(1), kind, identity, opts, seed, home, signal);
 }
 
-async function runHero(opts: GenOpts, workflows: ValidatedWorkflow[], identity: string, home: string): Promise<void> {
+async function runReference(
+  opts: GenOpts,
+  workflows: ValidatedWorkflow[],
+  kind: ReferenceKind,
+  identity: string,
+  home: string,
+): Promise<void> {
   const conn: Conn = { base: opts.server, headers: opts.headers, timeoutMs: TIMEOUT_MS };
   const seed = opts.seed ?? randomSeed();
   const signal = AbortSignal.timeout(TIMEOUT_MS);
-  await runHeroWorkflows(conn, workflows, identity, opts, seed, home, signal);
+  await runReferenceWorkflows(conn, workflows, kind, identity, opts, seed, home, signal);
 }
 
 async function runGeneration(
@@ -533,20 +555,21 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
     process.exit(1);
   }
 
-  if (opts.hero) {
+  const refKind = opts.reference;
+  if (refKind !== undefined) {
     if (opts.dryRun) {
-      process.stdout.write(`# hero (canonical bust)\n\n${heroPrompt(identity)}\n`);
+      process.stdout.write(`# ${refKind}\n\n${referencePrompt(refKind, identity)}\n`);
       return;
     }
-    let heroWorkflows: ValidatedWorkflow[];
+    let refWorkflows: ValidatedWorkflow[];
     try {
-      heroWorkflows = resolveWorkflows(opts.workflows, opts.registryPath, cwd, home);
+      refWorkflows = resolveWorkflows(opts.workflows, opts.registryPath, cwd, home);
     } catch (err) {
       process.stderr.write(`${err instanceof Error ? err.message : String(err)}\n`);
       process.exit(1);
     }
     try {
-      await runHero(opts, heroWorkflows, identity, home);
+      await runReference(opts, refWorkflows, refKind, identity, home);
     } catch (err) {
       process.stderr.write(`${err instanceof Error ? err.message : String(err)}\n`);
       process.exit(1);

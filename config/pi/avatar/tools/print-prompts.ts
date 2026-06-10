@@ -14,9 +14,14 @@
  * Workflow: first generate the canonical "hero" bust (`--hero`, attach your
  * character art), approve one result as avatar-ref/canonical.png, then generate
  * the expression sheets/cells with the hero attached so every sprite matches it.
+ * Optional identity references (attach the original art, plain background, not
+ * sliced): `--turnaround` (bust, 4 angles), `--full-body`, `--full-body-turnaround`.
  *
  * Usage:
  *   node print-prompts.ts --hero --identity-file avatar-ref/identity.txt        # the canonical hero bust
+ *   node print-prompts.ts --turnaround --identity-file avatar-ref/identity.txt   # bust turnaround reference
+ *   node print-prompts.ts --full-body --identity-file avatar-ref/identity.txt    # full-body figure reference
+ *   node print-prompts.ts --full-body-turnaround --identity-file avatar-ref/identity.txt  # full-body turnaround
  *   node print-prompts.ts [--group <name>] [--sheet 1|2|...] [--identity-file <path>]
  *   node print-prompts.ts --identity-file avatar-ref/identity.txt           # all groups, all sheets
  *   node print-prompts.ts --group activities --sheet 1 --identity "..."      # one sheet
@@ -26,7 +31,14 @@
 
 import { readFileSync } from 'node:fs';
 
-import { buildPrompt, cellPrompt, heroPrompt, type CellPromptEntry } from './prompt-lib.ts';
+import {
+  buildPrompt,
+  cellPrompt,
+  normalizeIdentity,
+  referencePrompt,
+  type CellPromptEntry,
+  type ReferenceKind,
+} from './prompt-lib.ts';
 import { GROUPS, frameCount, sheetsFor } from './sprite-manifest.ts';
 
 const IDENTITY_PLACEHOLDER =
@@ -39,9 +51,17 @@ interface PromptOpts {
   sheet: string;
   identity: string;
   cell: boolean;
-  hero: boolean;
+  reference: ReferenceKind | undefined;
   format: CellFormat;
 }
+
+/** Header shown above each reference prompt. */
+const REFERENCE_LABELS: Record<ReferenceKind, string> = {
+  hero: 'hero (canonical bust)',
+  turnaround: 'turnaround (bust, 4 angles)',
+  'full-body': 'full-body figure',
+  'full-body-turnaround': 'full-body turnaround (4 angles)',
+};
 
 function parseArgs(argv: string[]): PromptOpts {
   const opts: PromptOpts = {
@@ -49,7 +69,7 @@ function parseArgs(argv: string[]): PromptOpts {
     sheet: '',
     identity: IDENTITY_PLACEHOLDER,
     cell: false,
-    hero: false,
+    reference: undefined,
     format: 'text',
   };
   for (let i = 0; i < argv.length; i++) {
@@ -62,14 +82,23 @@ function parseArgs(argv: string[]): PromptOpts {
       case '-h':
       case '--help':
         process.stdout.write(
-          'Usage: node print-prompts.ts --hero [--identity-file <path>|--identity <text>]\n' +
+          'Usage: node print-prompts.ts --hero|--turnaround|--full-body|--full-body-turnaround [--identity-file <path>|--identity <text>]\n' +
             '       node print-prompts.ts [--group <name>] [--sheet 1|2|...] [--identity-file <path>|--identity <text>]\n' +
             '       node print-prompts.ts --cell [--format text|json] [--group <name>] [--identity-file <path>|--identity <text>]\n',
         );
         process.exit(0);
         break;
       case '--hero':
-        opts.hero = true;
+        opts.reference = 'hero';
+        break;
+      case '--turnaround':
+        opts.reference = 'turnaround';
+        break;
+      case '--full-body':
+        opts.reference = 'full-body';
+        break;
+      case '--full-body-turnaround':
+        opts.reference = 'full-body-turnaround';
         break;
       case '--group':
         opts.group = next().toLowerCase();
@@ -102,6 +131,7 @@ function parseArgs(argv: string[]): PromptOpts {
         process.exit(1);
     }
   }
+  opts.identity = normalizeIdentity(opts.identity);
   return opts;
 }
 
@@ -169,8 +199,10 @@ function emitSheetPrompts(opts: PromptOpts): void {
 
 function main(): void {
   const opts = parseArgs(process.argv.slice(2));
-  if (opts.hero) {
-    process.stdout.write(`# hero (canonical bust)\n\n${heroPrompt(opts.identity)}\n`);
+  if (opts.reference !== undefined) {
+    process.stdout.write(
+      `# ${REFERENCE_LABELS[opts.reference]}\n\n${referencePrompt(opts.reference, opts.identity)}\n`,
+    );
   } else if (opts.cell) {
     emitCellPrompts(opts);
   } else {

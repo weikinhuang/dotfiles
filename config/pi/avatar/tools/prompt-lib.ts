@@ -52,6 +52,15 @@ export interface CellPromptOptions {
 }
 
 /**
+ * Normalize a raw identity blurb for the `Character: ${identity}.` line: trim
+ * whitespace and drop a single trailing period so the rendered sentence never
+ * doubles up (`...outfit..`). Applied by the CLI entrypoints before building.
+ */
+export function normalizeIdentity(identity: string): string {
+  return identity.trim().replace(/\.$/, '');
+}
+
+/**
  * Prompt for the one canonical "hero" bust that every other sprite is matched
  * against. This is the bootstrap step: render your character reference art into
  * the target pixel-art style, then approve a single result as
@@ -70,6 +79,85 @@ export function heroPrompt(identity: string): string {
       `Match the attached character reference art for hair, eyes, halo, and outfit, rendered in the pixel-art style above. ` +
       `No text, labels, borders, drop shadows, or extra panels.`,
   ].join('\n');
+}
+
+/**
+ * Full-body variant of {@link STYLE}: the identical render style, but framed head
+ * to toe instead of head-and-shoulders. Used by the full-body reference prompts.
+ */
+const FULL_BODY_STYLE = STYLE.replace(
+  'bust framing (head and shoulders)',
+  'full-body framing (head to toe, the entire figure visible)',
+);
+
+/** Shared turnaround / model-sheet body for a given framing noun. */
+function turnaroundBody(framing: string): string {
+  return (
+    `A character turnaround / model sheet: the SAME ${framing} shown from four angles in one row, evenly ` +
+    `spaced, all at the exact same size, eye-line, and scale: (1) front view, (2) three-quarter view facing ` +
+    `left, (3) three-quarter view facing right, (4) side profile. Neutral friendly expression and a relaxed, ` +
+    `natural stance in every view. Keep the character perfectly consistent across all four - identical hair, ` +
+    `halo position, outfit details, and color palette. Flat plain light-gray background, even lighting. ` +
+    `Match the attached character reference art for hair, eyes, halo, and outfit, rendered in the pixel-art ` +
+    `style above. No text, labels, numbers, arrows, borders, drop shadows, or extra panels.`
+  );
+}
+
+/**
+ * Bust turnaround / model sheet: the same head-and-shoulders bust from four angles
+ * on a plain neutral background. Optional pre-hero reference - generate it from the
+ * original character art, then attach it (alongside the hero) when generating
+ * sheets so head-turned expressions stay on-model. Reference material, never
+ * sliced, so it uses a neutral background, NOT the green chroma key.
+ */
+export function turnaroundPrompt(identity: string): string {
+  return [`Style: ${STYLE}.`, '', `Character: ${identity}.`, '', turnaroundBody('head-and-shoulders bust')].join('\n');
+}
+
+/**
+ * Single full-body figure on a plain neutral background: a head-to-toe reference
+ * for the character's complete outfit and proportions. Reference material, not
+ * sliced.
+ */
+export function fullBodyPrompt(identity: string): string {
+  return [
+    `Style: ${FULL_BODY_STYLE}.`,
+    '',
+    `Character: ${identity}.`,
+    '',
+    `A single full-body figure shown head to toe with the entire figure visible: front-facing, neutral friendly ` +
+      `expression, relaxed natural standing pose, looking at the viewer, centered on a flat plain light-gray ` +
+      `background. Keep it clean, well-lit, and on-model. Match the attached character reference art for hair, ` +
+      `eyes, halo, and outfit, rendered in the pixel-art style above. No text, labels, borders, drop shadows, or ` +
+      `extra panels.`,
+  ].join('\n');
+}
+
+/**
+ * Full-body turnaround / model sheet: the full head-to-toe figure from four angles
+ * on a plain neutral background. The most complete identity reference. Not sliced.
+ */
+export function fullBodyTurnaroundPrompt(identity: string): string {
+  return [`Style: ${FULL_BODY_STYLE}.`, '', `Character: ${identity}.`, '', turnaroundBody('full-body figure')].join(
+    '\n',
+  );
+}
+
+/** The reference artifacts the generator scripts can produce from character art. */
+export type ReferenceKind = 'hero' | 'turnaround' | 'full-body' | 'full-body-turnaround';
+
+/** Dispatch to the reference prompt for `kind`; shared by both generator scripts. */
+export function referencePrompt(kind: ReferenceKind, identity: string): string {
+  switch (kind) {
+    case 'hero':
+      return heroPrompt(identity);
+    case 'turnaround':
+      return turnaroundPrompt(identity);
+    case 'full-body':
+      return fullBodyPrompt(identity);
+    case 'full-body-turnaround':
+      return fullBodyTurnaroundPrompt(identity);
+  }
 }
 
 export function sheetRules(groupName: string): string {
