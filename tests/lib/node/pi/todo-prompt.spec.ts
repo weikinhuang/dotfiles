@@ -204,6 +204,79 @@ test('formatActivePlan: keeps completed items out of the rendered sections', () 
 });
 
 // ──────────────────────────────────────────────────────────────────────
+// formatActivePlan: lean options (includeCancelled / footer) for the tail arm
+// ──────────────────────────────────────────────────────────────────────
+
+test('formatActivePlan: footer:"none" omits the how-to footer but keeps items', () => {
+  const out = formatActivePlan(mkState([{ id: 1, text: 'do-the-thing', status: 'in_progress' }]), { footer: 'none' })!;
+  expect(out).toMatch(/do-the-thing/);
+  expect(out).not.toMatch(/Keep this plan accurate/);
+  expect(out).not.toMatch(/action `start`/);
+  // no dangling trailing whitespace once the footer is gone
+  expect(out).toBe(out.trimEnd());
+});
+
+test('formatActivePlan: includeCancelled:false drops the Cancelled bucket', () => {
+  const out = formatActivePlan(
+    mkState([
+      { id: 1, text: 'active', status: 'in_progress' },
+      { id: 2, text: 'scrapped', status: 'cancelled', note: 'superseded' },
+    ]),
+    { includeCancelled: false },
+  )!;
+  expect(out).toMatch(/active/);
+  expect(out).not.toMatch(/Cancelled/);
+  expect(out).not.toMatch(/scrapped/);
+});
+
+test('formatActivePlan: lean tail variant (includeCancelled:false, footer:"none") returns null when only cancelled', () => {
+  const out = formatActivePlan(mkState([{ id: 1, text: 'x', status: 'cancelled', note: 'pivoted' }]), {
+    includeCancelled: false,
+    footer: 'none',
+  });
+  expect(out).toBe(null);
+});
+
+test('formatActivePlan: lean tail variant returns null when all items are completed', () => {
+  const out = formatActivePlan(
+    mkState([
+      { id: 1, text: 'a', status: 'completed' },
+      { id: 2, text: 'b', status: 'completed' },
+    ]),
+    { includeCancelled: false, footer: 'none' },
+  );
+  expect(out).toBe(null);
+});
+
+test('formatActivePlan: lean tail variant returns null for a completed+cancelled mix (nothing active)', () => {
+  const out = formatActivePlan(
+    mkState([
+      { id: 1, text: 'a', status: 'completed' },
+      { id: 2, text: 'b', status: 'cancelled', note: 'dropped' },
+    ]),
+    { includeCancelled: false, footer: 'none' },
+  );
+  expect(out).toBe(null);
+});
+
+test('formatActivePlan: lean tail variant renders only active buckets, no footer/cancelled', () => {
+  const out = formatActivePlan(
+    mkState([
+      { id: 1, text: 'running', status: 'in_progress' },
+      { id: 2, text: 'queued', status: 'pending' },
+      { id: 3, text: 'gone', status: 'cancelled', note: 'dropped' },
+      { id: 4, text: 'finished', status: 'completed' },
+    ]),
+    { includeCancelled: false, footer: 'none' },
+  )!;
+  expect(out).toMatch(/running/);
+  expect(out).toMatch(/queued/);
+  expect(out).not.toMatch(/gone/);
+  expect(out).not.toMatch(/finished/);
+  expect(out).not.toMatch(/Keep this plan accurate/);
+});
+
+// ──────────────────────────────────────────────────────────────────────
 // looksLikeCompletionClaim: positive cases
 // ──────────────────────────────────────────────────────────────────────
 

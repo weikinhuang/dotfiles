@@ -10,12 +10,18 @@
  *      models need trained into them - silently allowing parallel work
  *      produces drift-prone plans.
  *
- *   2. System-prompt auto-injection (`before_agent_start`). The current
- *      in_progress + pending + blocked list is appended to the system
- *      prompt every turn. This is the single most valuable affordance
- *      for weaker models: the plan stays visible across compactions and
- *      long contexts without the model having to remember to call
- *      `list` on its own.
+ *   2. Active-plan auto-injection (`context` hook). A lean snapshot of the
+ *      active set (in_progress + review + pending + blocked) is spliced as
+ *      an ephemeral `<system-reminder id="todo-plan">` into the last
+ *      user/toolResult turn every request, via `applyContextReminder`
+ *      (lib/node/pi/context-reminder.ts). This is the single most valuable
+ *      affordance for weaker models: the plan stays visible across
+ *      compactions and long contexts without the model having to call
+ *      `list`. Injecting via the `context` hook (not the system prompt)
+ *      keeps the system-prompt prefix byte-stable, so the provider's
+ *      prompt cache survives plan mutations - and pi's `context` output is
+ *      never persisted, so nothing accumulates and completed/cancelled
+ *      items (and an empty plan) inject nothing at all.
  *
  *   3. Completion-claim guardrail (`agent_end`). If the assistant signs
  *      off as "done" while in_progress / pending items still exist, we
@@ -43,8 +49,8 @@
  *
  * Environment:
  *   PI_TODO_DISABLED=1            skip the extension entirely
- *   PI_TODO_DISABLE_AUTOINJECT=1  tool still works but skip the
- *                                 before_agent_start system-prompt block
+ *   PI_TODO_DISABLE_AUTOINJECT=1  tool still works but skip the active-plan
+ *                                 `context`-hook injection
  *   PI_TODO_DISABLE_GUARDRAIL=1   don't fire the agent_end "you claimed
  *                                 done but items are still open" steer
  *   PI_TODO_MAX_INJECTED=N        cap on pending items rendered in the
@@ -60,6 +66,7 @@ import { isHelpArg } from '../../../lib/node/pi/commands/help.ts';
 import { extractLastAssistantText } from '../../../lib/node/pi/message-extract.ts';
 import { TODOS_USAGE } from '../../../lib/node/pi/todo/usage.ts';
 import { truncate } from '../../../lib/node/pi/shared.ts';
+import { applyContextReminder, type ReminderMessage } from '../../../lib/node/pi/context-reminder.ts';
 import { formatActivePlan, looksLikeCompletionClaim } from '../../../lib/node/pi/todo-prompt.ts';
 import {
   type BranchEntry as VerifyBranchEntry,
@@ -319,13 +326,28 @@ export default function todoExtension(pi: ExtensionAPI): void {
     rebuildFromSession(ctx);
   });
 
-  // ── Auto-injection into every turn ──────────────────────────────────
+  // ── Active-plan auto-injection into every turn (via the `context` hook) ──
+  // Splice a lean snapshot of the active plan as an ephemeral
+  // <system-reminder> into the last user/toolResult turn. Pi's `context`
+  // output is used only to build the outgoing payload and is never persisted,
+  // so the SYSTEM PROMPT stays byte-stable (the provider's prompt-prefix cache
+  // survives plan mutations) and nothing accumulates across turns. See
+  // lib/node/pi/context-reminder.ts.
   if (autoInjectEnabled) {
-    pi.on('before_agent_start', (event) => {
-      const block = formatActivePlan(state, { maxItems: maxInjected });
+    pi.on('context', (event) => {
+      // Lean tail: active buckets only, no how-to footer and no cancelled
+      // bucket. The tail is billed at full rate every turn (never cached),
+      // so it carries only volatile state; the static how-to guidance lives
+      // in the tool's `promptGuidelines` (a cached prompt location).
+      const block = formatActivePlan(state, { maxItems: maxInjected, includeCancelled: false, footer: 'none' });
+      // Nothing active (empty, or only completed/cancelled items) -> leave
+      // the messages untouched so no reminder block rides the tail.
       if (!block) return undefined;
-      // Chain onto whatever earlier handlers (or pi's default) set up.
-      return { systemPrompt: `${event.systemPrompt}\n\n${block}` };
+      const messages = applyContextReminder(event.messages as unknown as ReminderMessage[], {
+        id: 'todo-plan',
+        body: block,
+      });
+      return { messages: messages as unknown as typeof event.messages };
     });
   }
 

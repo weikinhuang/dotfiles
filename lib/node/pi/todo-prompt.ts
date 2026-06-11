@@ -21,26 +21,48 @@ import { type Todo, type TodoState } from './todo-reducer.ts';
 export interface FormatOptions {
   /** Cap on the number of `pending` items rendered. Default 10. */
   maxItems?: number;
+  /**
+   * Render the `cancelled` bucket. Default `true`. The tail/`context` arm
+   * passes `false`: cancelled items are out-of-scope context, not a
+   * next-action, and are uncapped - re-sending them on the full-rate tail
+   * every turn is waste. They stay visible in the `/todos` overlay and
+   * `renderResult`.
+   */
+  includeCancelled?: boolean;
+  /**
+   * Trailing "how to use the todo tool" block. `'full'` (default) appends the
+   * six-bullet reminder; `'none'` omits it. The tail/`context` arm passes
+   * `'none'`: that guidance duplicates the tool's `promptGuidelines` (already
+   * in a cached prompt location), so repeating it on the full-rate tail every
+   * turn is redundant.
+   */
+  footer?: 'full' | 'none';
 }
 
 /**
- * Build the "# Active plan" block injected into the system prompt every
- * turn. Order is:
+ * Build the "# Active plan" block surfaced every turn (appended to the
+ * system prompt by the `before_agent_start` arm, or spliced into the tail
+ * as an ephemeral `<system-reminder>` by the `context` arm). Section order:
  *   1. in_progress (focus)
- *   2. pending (queue)
- *   3. blocked (surface unresolved obstacles)
+ *   2. review (awaiting verification)
+ *   3. pending (queue, capped at `maxItems`)
+ *   4. blocked (surface unresolved obstacles)
+ *   5. cancelled (out-of-scope context; omitted when `includeCancelled` is false)
+ * followed by the how-to footer (omitted when `footer` is `'none'`).
  *
- * Returns `null` when state contains nothing but `completed` items (or is
- * empty) so the caller can skip the injection - no point nagging the
- * model about a finished plan.
+ * Returns `null` when there is nothing worth showing (empty, or only
+ * `completed` items, or - in lean mode - only `cancelled` items) so the
+ * caller can skip the injection. `completed` items are never rendered.
  */
 export function formatActivePlan(state: TodoState, opts: FormatOptions = {}): string | null {
   const max = Math.max(1, opts.maxItems ?? 10);
+  const includeCancelled = opts.includeCancelled ?? true;
+  const withFooter = (opts.footer ?? 'full') === 'full';
   const inProgress = state.todos.filter((t) => t.status === 'in_progress');
   const review = state.todos.filter((t) => t.status === 'review');
   const pending = state.todos.filter((t) => t.status === 'pending');
   const blocked = state.todos.filter((t) => t.status === 'blocked');
-  const cancelled = state.todos.filter((t) => t.status === 'cancelled');
+  const cancelled = includeCancelled ? state.todos.filter((t) => t.status === 'cancelled') : [];
 
   if (
     inProgress.length === 0 &&
@@ -91,21 +113,23 @@ export function formatActivePlan(state: TodoState, opts: FormatOptions = {}): st
     lines.push('');
   }
 
-  lines.push('Keep this plan accurate with the `todo` tool:');
-  lines.push('- One item `in_progress` at a time (action `start`).');
-  lines.push('- When work on an item is done but not yet verified, move it to `review` (action `review`).');
-  lines.push(
-    '- Mark `complete` after verification. From `in_progress` directly, include a `note` describing what verified it. From `review`, the note is optional - the review step already parked it for verification.',
-  );
-  lines.push(
-    '- Use `block` when work is still needed but parked on an external dependency (waiting on review, broken upstream, missing data); the note explains what is being waited on.',
-  );
-  lines.push(
-    '- Use `cancel` when the item is no longer in scope (superseded, duplicate, pivoted, no longer relevant); the note explains why. Never silently abandon an item.',
-  );
-  lines.push('- `add` new items when additional work surfaces mid-task.');
+  if (withFooter) {
+    lines.push('Keep this plan accurate with the `todo` tool:');
+    lines.push('- One item `in_progress` at a time (action `start`).');
+    lines.push('- When work on an item is done but not yet verified, move it to `review` (action `review`).');
+    lines.push(
+      '- Mark `complete` after verification. From `in_progress` directly, include a `note` describing what verified it. From `review`, the note is optional - the review step already parked it for verification.',
+    );
+    lines.push(
+      '- Use `block` when work is still needed but parked on an external dependency (waiting on review, broken upstream, missing data); the note explains what is being waited on.',
+    );
+    lines.push(
+      '- Use `cancel` when the item is no longer in scope (superseded, duplicate, pivoted, no longer relevant); the note explains why. Never silently abandon an item.',
+    );
+    lines.push('- `add` new items when additional work surfaces mid-task.');
+  }
 
-  return lines.join('\n');
+  return lines.join('\n').trimEnd();
 }
 
 // ──────────────────────────────────────────────────────────────────────

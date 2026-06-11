@@ -11,10 +11,19 @@ Builds on pi's stock `examples/extensions/todo.ts` with three weak-model afforda
 1. **Richer state model.** Six statuses (`pending`, `in_progress`, `review`, `completed`, `blocked`, `cancelled`) with
    hard invariants: at most one item `in_progress` and at most one in `review` at a time. Serial focus is the behaviour
    weaker models need trained into them - silently allowing parallel work produces drift-prone plans.
-2. **System-prompt auto-injection** (`before_agent_start`). The current `in_progress` + `review` + `pending` + `blocked`
-   - `cancelled` list is appended to the system prompt every turn, rendered by
-     [`formatActivePlan`](../../../lib/node/pi/todo-prompt.ts). Survives `/compact` and long contexts without the model
-     having to remember to call `list` on its own.
+2. **Active-plan auto-injection** (via the `context` hook). A **lean** snapshot of the active set is spliced as an
+   ephemeral `<system-reminder id="todo-plan">` into the last user/toolResult turn every request by
+   [`applyContextReminder`](../../../lib/node/pi/context-reminder.ts), so the plan survives `/compact` and long contexts
+   without the model having to remember to call `list`. "Lean" =
+   `formatActivePlan(state, { includeCancelled: false, footer: 'none' })`: only `in_progress` + `review` + `pending`
+   (capped) + `blocked` - no `cancelled` bucket and no how-to footer (that guidance lives in the tool's
+   `promptGuidelines`, a cached prompt location; cancelled items stay visible in the `/todos` overlay). Why the
+   `context` hook and not the system prompt: pi's `context` output builds only the outgoing payload and is **never
+   persisted**, so the system prompt stays **byte-stable** (the provider's prompt-prefix cache survives plan mutations -
+   a 1-todo add/complete/add/complete cycle costs 0 system-prefix invalidations via this arm vs ~3 when the block lived
+   in the system prompt) and nothing accumulates. When the active set is empty (or only completed/cancelled items
+   remain), nothing is injected at all. Measured: ~125 B lean tail block. This is the generic, reusable mechanism
+   (`context-reminder.ts`) any extension with volatile, often-empty state can drive from its own `context` handler.
 3. **Completion-claim guardrail** (`agent_end`). If the assistant signs off as "done" (heuristic in
    [`looksLikeCompletionClaim`](../../../lib/node/pi/todo-prompt.ts)) while `in_progress` / `review` / `pending` items
    still exist, a follow-up user message is injected nudging it to finish, `block`, or `cancel` the open items.
@@ -133,7 +142,8 @@ v1 because the note carries the why-it-closed reason and that signal is worth se
 ## Environment variables
 
 - `PI_TODO_DISABLED=1` - skip the extension entirely (no tool, no overlay, no injection, no guardrail).
-- `PI_TODO_DISABLE_AUTOINJECT=1` - keep the tool but don't append the active plan to the system prompt each turn.
+- `PI_TODO_DISABLE_AUTOINJECT=1` - keep the tool but don't surface the active plan each turn (disables the
+  `context`-hook injection). The tool, overlay, and guardrail still work.
 - `PI_TODO_DISABLE_GUARDRAIL=1` - keep the tool and the injection but don't fire the `agent_end` "you claimed done but
   items are still open" steer.
 - `PI_TODO_MAX_INJECTED=N` - cap on `pending` items rendered in the injected block (default `10`, floor `1`).
@@ -144,11 +154,18 @@ v1 because the note carries the why-it-closed reason and that signal is worth se
   `TodoStatus`, `Todo`, the eight action handlers (`actAdd` / `actStart` / `actReview` / `actComplete` / `actBlock` /
   `actCancel` / `actReopen` / `actClear`), `reduceBranch`, `formatText`, `statusGlyph`, `transitionGlyphs`,
   `groupTodos`, `formatTodoProgress`, `TODO_CUSTOM_TYPE = 'todo-state'`, `TODO_TOOL_NAME = 'todo'`.
-- [`../../../lib/node/pi/todo-prompt.ts`](../../../lib/node/pi/todo-prompt.ts) - `formatActivePlan(state, { maxItems })`
-  renders the system-prompt block (including the block-vs-cancel rule); `looksLikeCompletionClaim(text)` is the
-  heuristic the guardrail uses to detect a "done" sign-off.
+- [`../../../lib/node/pi/todo-prompt.ts`](../../../lib/node/pi/todo-prompt.ts) -
+  `formatActivePlan(state, { maxItems, includeCancelled, footer })` renders the active-plan block;
+  `includeCancelled: false` drops the cancelled bucket and `footer: 'none'` drops the how-to footer (both used by the
+  lean `context`/tail arm). `looksLikeCompletionClaim(text)` is the heuristic the guardrail uses to detect a "done"
+  sign-off.
 - [`../../../lib/node/pi/branch-state.ts`](../../../lib/node/pi/branch-state.ts) - shared `BranchEntry` / `ActionResult`
   / `findLatestStateInBranch` scaffolding the reducer builds on.
+- [`../../../lib/node/pi/context-reminder.ts`](../../../lib/node/pi/context-reminder.ts) - generic, reusable helper for
+  cache-friendly ephemeral injection via the `context` hook: `applyContextReminder(messages, { id, body })` strips any
+  prior block of `id` and splices a fresh `<system-reminder id="...">` into the last user/toolResult turn. Pure and
+  extension-agnostic - any extension (memory, scratchpad, bg-bash) can drive it. This is todo's active-plan injection
+  mechanism.
 
 ## Companion skill
 
