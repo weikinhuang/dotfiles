@@ -17,12 +17,16 @@
  *   1. Tool exposing CRUD actions over the note set (`append`, `update`,
  *      `remove`, `clear`, `list`).
  *
- *   2. System-prompt auto-injection (`before_agent_start`). The current
- *      notebook is rendered under a `## Working Notes` header with a soft
- *      character cap so long-running sessions don't eat the whole prompt.
- *      This is the biggest weak-model affordance after the `todo`
- *      guardrail: the model doesn't have to remember to call `list` every
- *      turn - the state is always in front of it.
+ *   2. Active-notes auto-injection (`context` hook). The current notebook
+ *      is rendered under a `## Working Notes` header with a soft
+ *      character cap and spliced as an ephemeral `<system-reminder
+ *      id="scratchpad">` into the last user/toolResult turn (not the
+ *      system prompt). This is a big weak-model affordance: the model
+ *      doesn't have to remember to call `list` - the state is always in
+ *      front of it - while the system-prompt prefix stays byte-stable so
+ *      the provider's prompt cache survives note edits. Pi's `context`
+ *      output is never persisted, so nothing accumulates and an empty
+ *      notebook injects nothing.
  *
  *   3. Compaction resilience. Each successful tool call mirrors the
  *      post-action state to a `customType: 'scratchpad-state'` session
@@ -44,7 +48,7 @@
  * Environment:
  *   PI_SCRATCHPAD_DISABLED=1            skip the extension entirely
  *   PI_SCRATCHPAD_DISABLE_AUTOINJECT=1  tool still works but skip the
- *                                       before_agent_start block
+ *                                       active-notes `context`-hook block
  *   PI_SCRATCHPAD_MAX_INJECTED_CHARS=N  soft cap on the injected block
  *                                       (default 2000)
  */
@@ -56,6 +60,7 @@ import { Type } from 'typebox';
 
 import { completeSubverbs } from '../../../lib/node/pi/commands/complete.ts';
 import { isHelpArg } from '../../../lib/node/pi/commands/help.ts';
+import { applyContextReminder, type ReminderMessage } from '../../../lib/node/pi/context-reminder.ts';
 import { formatWorkingNotes } from '../../../lib/node/pi/scratchpad-prompt.ts';
 import { SCRATCHPAD_USAGE } from '../../../lib/node/pi/scratchpad/usage.ts';
 import {
@@ -148,12 +153,21 @@ export default function scratchpadExtension(pi: ExtensionAPI): void {
     rebuildFromSession(ctx);
   });
 
-  // ── Auto-injection into every turn ──────────────────────────────────
+  // ── Active-notes auto-injection into every turn (via the `context` hook) ──
+  // Splice the working notes as an ephemeral <system-reminder> into the
+  // last user/toolResult turn. Pi's `context` output builds only the
+  // outgoing payload and is never persisted, so the system prompt stays
+  // byte-stable (prompt cache survives note edits) and nothing accumulates.
+  // An empty notebook injects nothing. See lib/node/pi/context-reminder.ts.
   if (autoInjectEnabled) {
-    pi.on('before_agent_start', (event) => {
+    pi.on('context', (event) => {
       const block = formatWorkingNotes(state, { maxChars: maxInjectedChars });
       if (!block) return undefined;
-      return { systemPrompt: `${event.systemPrompt}\n\n${block}` };
+      const messages = applyContextReminder(event.messages as unknown as ReminderMessage[], {
+        id: 'scratchpad',
+        body: block,
+      });
+      return { messages: messages as unknown as typeof event.messages };
     });
   }
 
@@ -272,11 +286,11 @@ export default function scratchpadExtension(pi: ExtensionAPI): void {
         }
         const block = formatWorkingNotes(state, { maxChars: maxInjectedChars });
         if (!block) {
-          ctx.ui.notify("(scratchpad is empty - nothing would be injected into the next turn's system prompt)", 'info');
+          ctx.ui.notify('(scratchpad is empty - nothing would be injected into the next turn)', 'info');
           return;
         }
         ctx.ui.notify(
-          `Injected into the next turn's system prompt (cap ${maxInjectedChars} chars, rendered ${block.length}):\n\n${block}`,
+          `Injected into the next turn (cap ${maxInjectedChars} chars, rendered ${block.length}):\n\n${block}`,
           'info',
         );
         return;

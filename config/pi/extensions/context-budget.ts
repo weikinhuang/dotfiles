@@ -1,15 +1,14 @@
 /**
  * Context-budget extension for pi - surfaces the model's own context-window
- * usage inside its system prompt and optionally triggers auto-compaction.
+ * usage to the model each turn and optionally triggers auto-compaction.
  *
  * Pi's footer already shows `N% left` to the user via `ctx.getContextUsage()`,
- * but the model doesn't see the footer - only the system prompt. Weaker
- * models (and some confident larger ones) will happily run a dozen 10KB
- * `read`s back to back without noticing they've burned through the window.
- * This extension closes the loop: each turn's system prompt ends with a
- * one-line advisory - "Context: 72% used (13k tokens left of 200k). Prefer
- * targeted `rg` / `read --offset / --limit` …" - so the model sees the
- * number AND the remediation in the same place.
+ * but the model doesn't see the footer. Weaker models (and some confident
+ * larger ones) will happily run a dozen 10KB `read`s back to back without
+ * noticing they've burned through the window. This extension closes the
+ * loop: each turn a one-line advisory - "Context: 72% used (13k tokens left
+ * of 200k). Prefer targeted `rg` / `read --offset / --limit` …" - is
+ * surfaced to the model so it sees the number AND the remediation together.
  *
  * The tone escalates with usage. See `formatBudgetLine` in
  * `./lib/context-budget.ts`:
@@ -28,10 +27,16 @@
  * re-compact every turn while sitting above the line. Off by default -
  * auto-compaction is a big hammer.
  *
- * Composes naturally with the statusline and todo / scratchpad
- * auto-injection: this extension's line is appended to whatever the
- * prior `before_agent_start` handlers produced, so the system prompt
- * picks up all of them.
+ * Delivery: the advisory rides the `context` hook as an ephemeral
+ * `<system-reminder id="context-budget">` spliced into the last
+ * user/toolResult turn, NOT the system prompt. The budget line changes
+ * almost every turn once usage passes the min percent (the exact token
+ * count moves), so appending it to the system prompt would bust the
+ * provider's prompt-prefix cache on every turn through the whole back half
+ * of a long session - precisely when caching matters most. Riding the
+ * (already-uncached) tail keeps the system prompt byte-stable. Pi's
+ * `context` output is never persisted, so nothing accumulates and no line
+ * is injected below the min percent. See lib/node/pi/context-reminder.ts.
  *
  * Pure helpers (`formatBudgetLine`, `shouldAutoCompact`, `formatTokens`)
  * live in `./lib/context-budget.ts` so the thresholds and wording can
@@ -63,6 +68,7 @@ import {
   shouldAutoCompact,
 } from '../../../lib/node/pi/context-budget.ts';
 import { completeSubverbs } from '../../../lib/node/pi/commands/complete.ts';
+import { applyContextReminder, type ReminderMessage } from '../../../lib/node/pi/context-reminder.ts';
 import { isHelpArg } from '../../../lib/node/pi/commands/help.ts';
 import { CONTEXT_BUDGET_USAGE } from '../../../lib/node/pi/context-budget/usage.ts';
 import { envTruthy, parsePercent } from '../../../lib/node/pi/parse-env.ts';
@@ -111,11 +117,15 @@ export default function contextBudget(pi: ExtensionAPI): void {
     compactedThisSession = false;
   });
 
-  pi.on('before_agent_start', (event, ctx) => {
+  pi.on('context', (event, ctx) => {
     const usage = ctx.getContextUsage();
     const line = formatBudgetLine(usage ?? null, options);
     if (!line) return undefined;
-    return { systemPrompt: `${event.systemPrompt}\n\n${line}` };
+    const messages = applyContextReminder(event.messages as unknown as ReminderMessage[], {
+      id: 'context-budget',
+      body: line,
+    });
+    return { messages: messages as unknown as typeof event.messages };
   });
 
   pi.on('turn_end', (_event, ctx) => {

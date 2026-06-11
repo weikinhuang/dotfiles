@@ -1,9 +1,15 @@
 # `context-budget.ts`
 
-Surfaces the model’s own context-window usage **inside its system prompt** each turn. Pi’s statusline already shows
-`N% left` to the user, but the model doesn’t see the statusline - it only sees the system prompt. Without this
-extension, weaker models happily chain a dozen broad `read`s / `rg` calls until the window is nearly full. With it, each
-turn’s system prompt ends with a one-line advisory that both reports the number AND points at the remediation.
+Surfaces the model’s own context-window usage to the model each turn. Pi’s statusline already shows `N% left` to the
+user, but the model doesn’t see the statusline. Without this extension, weaker models happily chain a dozen broad
+`read`s / `rg` calls until the window is nearly full. With it, the model gets a one-line advisory each turn that both
+reports the number AND points at the remediation.
+
+Delivery is via the `context` hook: the advisory rides an ephemeral `<system-reminder id="context-budget">` spliced into
+the last user/toolResult turn, **not** the system prompt. The line embeds the live token count, so it changes almost
+every turn once usage passes the min percent - appending it to the system prompt would bust the provider's prompt-prefix
+cache on every turn through the back half of a long session. Riding the (already-uncached) tail keeps the system prompt
+byte-stable. Below the min percent nothing is injected.
 
 ## Tone bands
 
@@ -31,9 +37,9 @@ often enough on its own.
 ## Commands
 
 - `/context-budget` (or `/context-budget preview`) - shows the current usage, thresholds, auto-compact state, and the
-  **exact advisory line** that would be appended to the next turn's system prompt (or an explanatory "no advisory would
-  be injected (reason: usage X% is below min-percent Y%)" message when silent). Useful for answering "am I actually
-  below the threshold?" and "which tone band am I in right now?" without reading extension code.
+  **exact advisory line** that would be injected into the next turn (or an explanatory "no advisory would be injected
+  (reason: usage X% is below min-percent Y%)" message when silent). Useful for answering "am I actually below the
+  threshold?" and "which tone band am I in right now?" without reading extension code.
 
 ## Environment variables
 

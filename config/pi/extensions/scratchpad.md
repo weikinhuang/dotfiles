@@ -1,9 +1,9 @@
 # `scratchpad.ts`
 
-Unstructured working-notes tool + system-prompt auto-injection. Companion to [`todo.ts`](./todo.md): where `todo` holds
-the typed plan (pending / in_progress / review / completed / blocked), `scratchpad` holds free-form carry-over the model
-benefits from remembering turn to turn - decisions, file paths it keeps rediscovering, test / lint commands, user
-answers to clarifying questions.
+Unstructured working-notes tool + active-notes auto-injection (via the `context` hook). Companion to
+[`todo.ts`](./todo.md): where `todo` holds the typed plan (pending / in_progress / review / completed / blocked),
+`scratchpad` holds free-form carry-over the model benefits from remembering turn to turn - decisions, file paths it
+keeps rediscovering, test / lint commands, user answers to clarifying questions.
 
 ## What the tool does
 
@@ -21,10 +21,13 @@ Notes are trimmed on write; attempting to `update` a note with an empty body ret
 
 ## Weak-model affordances
 
-1. **System-prompt auto-injection** (`before_agent_start`). The notebook is rendered under a `## Working Notes` header
-   with a soft character cap (default 2000) so long sessions don’t eat the prompt. Notes are grouped by heading in
-   first-seen order; ungrouped notes render first under an implicit “Notes” header. When the cap is hit we emit a
-   trailer telling the model to call `scratchpad` with action `list` for the rest.
+1. **Active-notes auto-injection** (via the `context` hook). The notebook is rendered under a `## Working Notes` header
+   with a soft character cap (default 2000) and spliced as an ephemeral `<system-reminder id="scratchpad">` into the
+   last user/toolResult turn (not the system prompt), so the system-prompt prefix stays byte-stable and the provider's
+   prompt cache survives note edits. Pi's `context` output is never persisted, so nothing accumulates and an empty
+   notebook injects nothing. Notes are grouped by heading in first-seen order; ungrouped notes render first under an
+   implicit “Notes” header. When the cap is hit we emit a trailer telling the model to call `scratchpad` with action
+   `list` for the rest.
 
 2. **Compaction resilience.** Each successful tool call mirrors the post-action state to a
    `customType: 'scratchpad-state'` session entry in addition to `toolResult.details`. Pi’s `/compact` can summarize old
@@ -38,15 +41,16 @@ Notes are trimmed on write; attempting to `update` a note with an empty body ret
 ## Commands
 
 - `/scratchpad` (or `/scratchpad list`) - raw state dump of every note id / heading / body on the current branch.
-- `/scratchpad preview` - shows the exact `## Working Notes` block that would be appended to the next turn's system
-  prompt (respecting `PI_SCRATCHPAD_MAX_INJECTED_CHARS`). Surfaces a clear "nothing would be injected" message when the
-  notebook is empty or `PI_SCRATCHPAD_DISABLE_AUTOINJECT=1` is set, so you can quickly answer "is the extension doing
-  anything this turn?" without reading extension code.
+- `/scratchpad preview` - shows the exact `## Working Notes` block that would be injected into the next turn (respecting
+  `PI_SCRATCHPAD_MAX_INJECTED_CHARS`). Surfaces a clear "nothing would be injected" message when the notebook is empty
+  or `PI_SCRATCHPAD_DISABLE_AUTOINJECT=1` is set, so you can quickly answer "is the extension doing anything this turn?"
+  without reading extension code.
 
 ## Environment variables
 
 - `PI_SCRATCHPAD_DISABLED=1` - skip the extension entirely.
-- `PI_SCRATCHPAD_DISABLE_AUTOINJECT=1` - keep the tool but don’t append the notebook to the system prompt.
+- `PI_SCRATCHPAD_DISABLE_AUTOINJECT=1` - keep the tool but don’t inject the notebook each turn (disables the
+  `context`-hook injection).
 - `PI_SCRATCHPAD_MAX_INJECTED_CHARS=N` - soft cap on the injected block in characters (default `2000`, floor `200`).
 
 ## Hot reload
