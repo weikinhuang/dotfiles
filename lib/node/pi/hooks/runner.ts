@@ -230,6 +230,14 @@ export const nodeChildProcessSpawn: HookSpawnFn = async (opts) => {
     child.on('close', (code) => settle(code));
 
     try {
+      // A child that exits before consuming stdin makes the write fail
+      // asynchronously with EPIPE, emitted as an 'error' event on the
+      // stdin stream (not a synchronous throw, and not on `child`). Without
+      // a listener that becomes an unhandled error that crashes the run.
+      // The close handler still fires with the real exit information.
+      child.stdin?.on('error', () => {
+        // Swallow EPIPE; the close handler carries the real exit code.
+      });
       child.stdin?.end(opts.payload);
     } catch {
       // Child may have died between spawn and stdin write; the close

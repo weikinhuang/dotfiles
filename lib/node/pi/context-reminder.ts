@@ -133,12 +133,13 @@ function isReminderBlock(block: ReminderContentBlock, id: string): boolean {
 // ──────────────────────────────────────────────────────────────────────
 
 /** Normalize `content` to an array of blocks (string → single text block). */
-function toBlocks(content: string | ReminderContentBlock[]): ReminderContentBlock[] {
+function toBlocks(content: string | ReminderContentBlock[] | undefined): ReminderContentBlock[] {
   if (typeof content === 'string') {
     // Empty string → no blocks (avoids injecting a stray empty text part).
     return content.length > 0 ? [{ type: 'text', text: content }] : [];
   }
-  return content.slice();
+  // Non-array (e.g. undefined) → start fresh; the reminder is appended below.
+  return Array.isArray(content) ? content.slice() : [];
 }
 
 /**
@@ -150,7 +151,10 @@ function toBlocks(content: string | ReminderContentBlock[]): ReminderContentBloc
  */
 export function stripReminder<M extends ReminderMessage>(messages: readonly M[], id: string): M[] {
   return messages.map((msg) => {
-    if (typeof msg.content === 'string') return msg;
+    // Only array content can carry reminder blocks. String content, and
+    // any non-array content (some AgentMessage kinds arrive with
+    // `content` undefined), are passed through untouched.
+    if (!Array.isArray(msg.content)) return msg;
     if (!msg.content.some((b) => isReminderBlock(b, id))) return msg;
     const content = msg.content.filter((b) => !isReminderBlock(b, id));
     return { ...msg, content } as M;

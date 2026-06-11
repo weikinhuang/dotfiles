@@ -47,6 +47,7 @@ function reminderBlocks(messages: readonly ReminderMessage[], id: string): strin
   const out: string[] = [];
   for (const m of messages) {
     if (typeof m.content === 'string') continue;
+    if (!Array.isArray(m.content)) continue;
     for (const b of m.content) {
       if (b.type === 'text' && typeof (b as { text?: string }).text === 'string') {
         const t = (b as { text: string }).text;
@@ -217,4 +218,24 @@ test('stripReminder removes only the matching id and keeps message identity for 
   expect(reminderBlocks(stripped, 'b')).toHaveLength(1);
   // the assistant message was never touched → same reference
   expect(stripped[1]).toBe(withBoth[1]);
+});
+
+test('messages with non-array content (e.g. undefined) are passed through, not crashed on', () => {
+  // Some AgentMessage kinds arrive with `content` undefined; stripReminder
+  // must not call `.some` on them.
+  const weird = { role: 'assistant', content: undefined } as unknown as ReminderMessage;
+  const messages = [userText('hello'), weird, toolResult('out')];
+  const stripped = stripReminder(messages, 'a');
+  expect(stripped[1]).toBe(weird);
+
+  // And a full apply still injects into the trailing toolResult.
+  const out = applyContextReminder(messages, { id: 'x', body: 'PLAN' });
+  expect(out[1]).toBe(weird);
+  expect(reminderBlocks(out, 'x')).toEqual(['<system-reminder id="x">\nPLAN\n</system-reminder>']);
+});
+
+test('injecting into a trailing message with non-array content starts a fresh block array', () => {
+  const weird = { role: 'toolResult', content: undefined } as unknown as ReminderMessage;
+  const out = applyContextReminder([userText('hi'), weird], { id: 'x', body: 'PLAN' });
+  expect(out[1].content).toEqual([{ type: 'text', text: '<system-reminder id="x">\nPLAN\n</system-reminder>' }]);
 });
