@@ -576,10 +576,7 @@ export default function deepResearchExtension(pi: ExtensionAPI): void {
     promptGuidelines: [
       'Use `research` only when the user asked for a written research report, not for a single-fact lookup - it takes minutes and spends real model budget.',
       'Only one `research` tool call may be in flight per session; do not issue a second call before the first has returned.',
-      'Only set `model`, `fanoutMaxTurns`, or `criticMaxTurns` when the user explicitly asks for one; the defaults (parent session’s model, agent-declared maxTurns) are correct for typical runs. Bump `fanoutMaxTurns` when sub-questions keep hitting max_turns on the web-researcher.',
-      'Set `fanoutParallel` to 1 when fanout points at a single local model (llama.cpp / Ollama) that cannot handle concurrent requests; otherwise leave it unset so the planner’s `maxSubagents` applies.',
-      'Set `wallClockSec` only when the user asks for a longer budget than the planner defaults to - local-model runs regularly need 2h+ (`wallClockSec: 7200`), while hosted-model runs should stick with the planner default.',
-      'Bump `reviewMaxIter` (default 4) when the structural/subjective review loop has previously hit `budget-exhausted` on fixable issues - e.g. missing `[^n]` citations - and you want more refinement passes.',
+      'Leave the optional override knobs (`model`, `fanoutModel`, `fanoutParallel`, `fanoutMaxTurns`, `wallClockSec`, `reviewMaxIter`) at their defaults unless the user asks or a fanout keeps hitting max_turns; each param description says when to set it.',
     ],
     parameters: ResearchToolParams,
     async execute(_toolCallId, rawParams, signal, _onUpdate, ctx) {

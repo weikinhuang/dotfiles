@@ -1477,7 +1477,6 @@ export default function subagentExtension(pi: ExtensionAPI): void {
       'Delegate a subtask to a fresh sub-agent session so intermediate exploration stays out of your context.',
     promptGuidelines: [
       'Use `subagent` when the next step would read many files, run a broad `grep`, or otherwise produce intermediate noise you will not use yourself. Prefer the `explore` agent for read-only discovery and the `plan` agent for implementation planning.',
-      'The sub-agent starts with no context - describe the goal, constraints, and desired output shape inside `task`.',
       'To fan out work, call `subagent` multiple times in one turn. Runs execute concurrently; the tool aggregates per-call results.',
       'Do NOT call `subagent` from inside a sub-agent. Nesting is disabled by design.',
     ],
@@ -1749,12 +1748,7 @@ export default function subagentExtension(pi: ExtensionAPI): void {
     description: SUBAGENT_SEND_TOOL_DESCRIPTION,
     promptSnippet:
       'Poll, steer, or await a background sub-agent previously spawned with `subagent({ run_in_background: true })`.',
-    promptGuidelines: [
-      'Use `subagent_send({ to, action: "wait" })` to retrieve the final answer of a background child once it has had time to make progress.',
-      'Use `subagent_send({ to, action: "status" })` for a cheap progress check that does not block.',
-      'Use `subagent_send({ to, text: "…" })` to inject additional guidance into a still-running child.',
-      'Only the parent session can call this tool - it is not exposed to sub-agents.',
-    ],
+    promptGuidelines: ['Only the parent session can call `subagent_send` - it is not exposed to sub-agents.'],
     parameters: SubagentSendParams,
     executionMode: 'parallel',
 

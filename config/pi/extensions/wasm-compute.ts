@@ -78,8 +78,6 @@ export default function wasmComputeExtension(pi: ExtensionAPI): void {
       'For any pure calculation, data transform, or hashing, call `compute` (sandboxed JS, no approval) instead of shelling out to python/node/bc.',
     promptGuidelines: [
       'Reach for `compute` whenever you would otherwise run `python3 -c`, `node -e`, `bc`, `expr`, or a `jq` expression purely to calculate or reshape data.',
-      'The result is the value of the LAST expression. Use `console.log(...)` for extra output; pass large data via the `input` argument (exposed as the global `input`).',
-      'It is pure compute only: no filesystem, network, environment, subprocess, dynamic import, or async. If a task needs those, use bash instead.',
     ],
     parameters: ComputeParams,
 

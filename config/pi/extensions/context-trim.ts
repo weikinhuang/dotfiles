@@ -555,8 +555,6 @@ export default function contextTrimExtension(pi: ExtensionAPI): void {
       'When you are done with image(s) in context, call `drop_image` (REVERSIBLE) to reclaim the window instead of carrying them forever.',
     promptGuidelines: [
       'Use `drop_image` only for images you are finished with; it is REVERSIBLE (placeholder overlay, transcript + file intact) but each call prompts the human.',
-      'Address by recency ordinal among current images (1 = most recent). Use `keepRecent: N` to lump-sum a finished batch; avoid dropping one image per turn (cache-hostile).',
-      'Pass `summary` describing what the image showed so the placeholder stays informative.',
     ],
     parameters: DropImageParams,
 

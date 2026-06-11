@@ -1305,7 +1305,6 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
       'After `bg_bash start`, remember the returned `id`. Call `bg_bash` action `wait` with a short `timeoutMs` to poll for exit, or action `logs` with `sinceCursor` to stream new output incrementally.',
       'Use `bg_bash` action `signal` (SIGTERM by default, SIGKILL if stuck) to stop a job cleanly; the whole process group is targeted so children die too.',
       'Prefer `bg_bash` action `logs` with `tail` or `grep` over returning the full buffer - the ring buffer caps memory but log responses still eat context.',
-      'Leave `interactiveStdin` unset for normal commands - stdin is /dev/null by default so nothing hangs waiting for input. Only pass `interactiveStdin: true` when you specifically plan to drive a REPL / long-lived interactive process via action `stdin` (e.g. `sqlite3`, `python -i`, `psql`).',
     ],
     parameters: BgBashParams,
 

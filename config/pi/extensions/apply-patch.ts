@@ -271,8 +271,6 @@ export default function applyPatchExtension(pi: ExtensionAPI): void {
     promptSnippet:
       'Use `apply_patch` for multi-file changes or large diffs; reach for `edit` for single-line targeted edits.',
     promptGuidelines: [
-      'Wrap the body in `*** Begin Patch` / `*** End Patch`. Each op header is one of `*** Add File: <path>`, `*** Update File: <path>`, `*** Delete File: <path>`, or `*** Move File: <from> -> <to>`.',
-      'Inside an `Update` / `Move` op, every hunk starts with `@@` and uses ` ` for context, `-` for removed, `+` for added lines. Include 2-3 lines of unique context above and below each change so the locator finds the right region.',
       'On a hunk-locate failure, the tool returns a recovery block as a second text part showing the file content around the candidate region — copy a fresh hunk against that text rather than re-emitting the same patch.',
     ],
     parameters: ApplyPatchParams,

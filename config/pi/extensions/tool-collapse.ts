@@ -342,7 +342,6 @@ export default function toolCollapseExtension(pi: ExtensionAPI): void {
       'When you are done with a tool result (a bash/read output you already extracted what you need from), call `collapse_output` (REVERSIBLE) to reclaim the window.',
     promptGuidelines: [
       'Use `collapse_output` only for tool output you are finished with; it is REVERSIBLE (placeholder overlay, transcript intact) but each call prompts the human.',
-      'Address by recency ordinal among current pairs (1 = most recent); `toolName` narrows to one tool. Use `keepRecent: N` to lump-sum a finished batch instead of collapsing one pair per turn (cache-hostile).',
     ],
     parameters: CollapseOutputParams,
 
