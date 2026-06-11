@@ -63,7 +63,7 @@
   "10": {
     "class_type": "CFGGuider",
     "inputs": {
-      "model": ["1", 0],
+      "model": ["16", 0],
       "positive": ["4", 0],
       "negative": ["5", 0],
       "cfg": 5
@@ -103,6 +103,13 @@
     "inputs": {
       "filename_prefix": "Flux2-Klein",
       "images": ["14", 0]
+    }
+  },
+  "16": {
+    "class_type": "ModelPatchTorchSettings",
+    "inputs": {
+      "enable_fp16_accumulation": true,
+      "model": ["1", 0]
     }
   }
 }

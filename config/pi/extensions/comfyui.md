@@ -285,7 +285,9 @@ Each ships in two flavours: the base graph (`flux2-t2i` / `flux2-edit`, undistil
 distilled variants are the practical interactive default; the base edit in particular is heavy - the reference image
 inflates the token sequence the diffusion model processes every step - so a slow or VRAM-constrained server may need a
 larger `timeoutMs` or a `background: true` submission. A smaller GGUF text-encoder quant frees VRAM for the diffusion
-model and noticeably cuts the per-step time.
+model and noticeably cuts the per-step time. All four route the diffusion model through a `ModelPatchTorchSettings`
+(node 16, `enable_fp16_accumulation`) before the `CFGGuider`, which speeds up matmuls on Ampere/Ada GPUs (requires
+PyTorch >= 2.7; it is a no-op otherwise).
 
 ### Generation defaults
 
