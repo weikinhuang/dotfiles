@@ -154,6 +154,24 @@ describe('loadWorkflowGraph', () => {
     expect(loaded.graph).toBeUndefined();
     expect(loaded.error).toContain('not a valid API-format graph');
   });
+
+  test('accepts // and /* */ comments and trailing commas (JSONC)', () => {
+    const file = join(tmp, 'jsonc.api.json');
+    writeFileSync(
+      file,
+      [
+        '{',
+        '  // positive prompt node',
+        '  "6": { "class_type": "CLIPTextEncode", "inputs": { "text": "old positive" } },',
+        '  /* sampler */',
+        '  "3": { "class_type": "KSampler", "inputs": { "seed": 1 } },',
+        '}',
+      ].join('\n'),
+    );
+    const loaded = loadWorkflowGraph(file, tmp, tmp);
+    expect(loaded.error).toBeUndefined();
+    expect(loaded.graph?.['6'].inputs?.text).toBe('old positive');
+  });
 });
 
 describe('randomSeed', () => {

@@ -1,4 +1,5 @@
 {
+  // FLUX.2 klein 9B (distilled, fast) text-to-image - JSONC comments tolerated by the loader
   "1": {
     "class_type": "UnetLoaderGGUF",
     "inputs": {

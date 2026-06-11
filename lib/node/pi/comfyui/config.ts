@@ -13,13 +13,14 @@
  * do the disk wiring (read the user + project JSON files, coerce, merge)
  * so the extension shell only supplies the shipped-workflow file path -
  * the one piece that is genuinely shell-specific. They read through
- * {@link readJsonOrUndefined} so a missing / malformed file degrades to
- * an empty layer rather than throwing.
+ * {@link readJsoncOrUndefined} so a missing / malformed file degrades to
+ * an empty layer rather than throwing. Comments and trailing commas in
+ * the JSONC config are tolerated.
  *
  * No pi imports.
  */
 
-import { readJsonOrUndefined } from '../fs-safe.ts';
+import { readJsoncOrUndefined } from '../fs-safe.ts';
 import { piAgentPath, piProjectPath } from '../pi-paths.ts';
 
 import type { AuthHeader, ComfyuiConfig, GenerationDefaults, InputMapping, WorkflowConfig } from './types.ts';
@@ -299,8 +300,8 @@ export function resolveSendToModel(requested: boolean, modelInput: unknown): Sen
  */
 export function loadComfyuiConfig(cwd: string, shipped: WorkflowConfig): ComfyuiConfig {
   const base = { workflows: { txt2img: shipped } };
-  const userLayer = coerceConfigLayer(readJsonOrUndefined(piAgentPath('comfyui.json')));
-  const projectLayer = coerceConfigLayer(readJsonOrUndefined(piProjectPath(cwd, 'comfyui.json')));
+  const userLayer = coerceConfigLayer(readJsoncOrUndefined(piAgentPath('comfyui.json')));
+  const projectLayer = coerceConfigLayer(readJsoncOrUndefined(piProjectPath(cwd, 'comfyui.json')));
   return mergeConfigLayers(base, userLayer, projectLayer);
 }
 
@@ -314,7 +315,7 @@ export function loadComfyuiConfig(cwd: string, shipped: WorkflowConfig): Comfyui
  * than leaking a broken option into the model's tool list.
  */
 export function loadUserWorkflowNames(cwd: string): string[] {
-  const userWorkflows = coerceConfigLayer(readJsonOrUndefined(piAgentPath('comfyui.json'))).workflows ?? {};
-  const projectWorkflows = coerceConfigLayer(readJsonOrUndefined(piProjectPath(cwd, 'comfyui.json'))).workflows ?? {};
+  const userWorkflows = coerceConfigLayer(readJsoncOrUndefined(piAgentPath('comfyui.json'))).workflows ?? {};
+  const projectWorkflows = coerceConfigLayer(readJsoncOrUndefined(piProjectPath(cwd, 'comfyui.json'))).workflows ?? {};
   return [...Object.keys(userWorkflows), ...Object.keys(projectWorkflows)];
 }

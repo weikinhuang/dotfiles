@@ -15,7 +15,7 @@
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-import { readJsonOrUndefined } from '../fs-safe.ts';
+import { readJsoncOrUndefined } from '../fs-safe.ts';
 import { expandTilde } from '../path-expand.ts';
 
 import type { ComfyWorkflow, InputMapping } from './types.ts';
@@ -63,7 +63,7 @@ export function loadWorkflowGraph(
 ): { graph?: ComfyWorkflow; error?: string } {
   const resolved = resolve(cwd, expandTilde(file, homedir));
   if (!existsSync(resolved)) return { error: `workflow file not found: ${resolved}` };
-  const parsed = readJsonOrUndefined(resolved);
+  const parsed = readJsoncOrUndefined(resolved);
   if (!isComfyWorkflow(parsed)) return { error: `workflow file is not a valid API-format graph: ${resolved}` };
   return { graph: parsed };
 }

@@ -151,6 +151,10 @@ explicit per-call `sendToModel` arg wins over both.
 }
 ```
 
+Both `comfyui.json` config files **and** the workflow graph files under [`../comfyui/`](../comfyui/) are read as JSONC:
+`//` line comments, `/* */` block comments, and trailing commas are stripped before parsing, so the example above (and
+any annotation you add to a graph) parses cleanly. Comments are removed client-side; the ComfyUI server never sees them.
+
 With `sendToModel: false` (or the per-call `sendToModel` arg set false), the PNG is still written to `saveDir` but the
 tool result is a text-only summary with the saved path - the image is neither rendered inline nor sent to the model, so
 no image tokens enter context. Use it when the user just wants the picture, not for the model to analyze. The per-call

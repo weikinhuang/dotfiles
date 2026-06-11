@@ -318,4 +318,22 @@ describe('loadComfyuiConfig / loadUserWorkflowNames', () => {
     expect(loadUserWorkflowNames(cwd)).toEqual([]);
     expect(loadComfyuiConfig(cwd, shipped).workflows.txt2img).toEqual(shipped);
   });
+
+  test('config files accept // and /* */ comments and trailing commas (JSONC)', () => {
+    writeFileSync(
+      join(agentDir, 'comfyui.json'),
+      [
+        '{',
+        '  // device-local override',
+        '  "baseUrl": "http://user:8188",',
+        '  "workflows": {',
+        '    "userwf": { "file": "u.json", "inputs": {} }, /* trailing comma below */',
+        '  },',
+        '}',
+      ].join('\n'),
+    );
+    const config = loadComfyuiConfig(cwd, shipped);
+    expect(config.baseUrl).toBe('http://user:8188');
+    expect(loadUserWorkflowNames(cwd)).toEqual(['userwf']);
+  });
 });
