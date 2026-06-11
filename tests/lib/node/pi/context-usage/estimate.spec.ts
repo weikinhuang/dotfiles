@@ -163,6 +163,24 @@ describe('buildBreakdown', () => {
     expect(bash?.children?.[0].content).toContain('out');
   });
 
+  test('disable-model-invocation skills are excluded from the Skills index', () => {
+    const b = buildBreakdown(
+      baseInput({
+        systemPromptOptions: {
+          skills: [
+            { name: 'visible', description: 'd', body: 'c'.repeat(200) },
+            { name: 'gated', description: 'd', body: 'c'.repeat(999), disableModelInvocation: true },
+          ],
+        },
+      }),
+    );
+    const skills = find(b.root, 'sys.skills');
+    // Gated skills stay loaded for `/skill:<name>` but are not rendered into
+    // the prompt, so they cost zero prompt tokens and must not be counted.
+    expect(skills?.label).toBe('Skills index (1)');
+    expect(skills?.children?.map((c) => c.label)).toEqual(['visible']);
+  });
+
   test('aggregate system-prompt leaves carry source content', () => {
     // Large effective/base prompt so the core remainder is non-zero (and not
     // filtered out as a zero-token node).

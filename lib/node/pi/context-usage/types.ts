@@ -110,6 +110,13 @@ export interface SkillLike {
   /** Optional rendered body / instructions, when available. */
   body?: string;
   path?: string;
+  /**
+   * `disable-model-invocation: true` in the SKILL.md frontmatter. Such skills
+   * stay loaded (so `/skill:<name>` works) but are NOT rendered into the
+   * system prompt, so they cost zero prompt tokens and must be excluded from
+   * the Skills index sizing.
+   */
+  disableModelInvocation?: boolean;
 }
 
 /** Base system-prompt build options (subset of `BuildSystemPromptOptions`). */

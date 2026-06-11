@@ -165,8 +165,11 @@ function buildSystemPromptNode(input: BreakdownInput): CategoryNode {
     });
   }
 
-  // Skills - approximate per skill from name + description + body.
-  const skills = opts.skills ?? [];
+  // Skills - approximate per skill from name + description + body. Skills
+  // flagged `disable-model-invocation` stay loaded (so `/skill:<name>` works)
+  // but are NOT rendered into the system prompt, so they cost zero prompt
+  // tokens - exclude them from the index sizing.
+  const skills = (opts.skills ?? []).filter((s) => !s.disableModelInvocation);
   if (skills.length > 0) {
     const skillNodes = skills.map((s, i) => {
       const chars = (s.name?.length ?? 0) + (s.description?.length ?? 0) + (s.body?.length ?? 0);
