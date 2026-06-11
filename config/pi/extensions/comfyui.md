@@ -210,6 +210,29 @@ workflow entry points at its JSON file and maps tunable names to a node id + inp
         "steps": { "node": "3", "key": "steps" },
       },
     },
+    "flux2-t2i": {
+      "file": "~/.pi/agent/comfyui/flux2-t2i.api.json",
+      "inputs": {
+        "prompt": { "node": "4", "key": "text" },
+        "negative": { "node": "5", "key": "text" },
+        "seed": { "node": "12", "key": "noise_seed" },
+        "steps": { "node": "8", "key": "steps" },
+        "cfg": { "node": "10", "key": "cfg" },
+        "width": { "node": "6", "key": "value" },
+        "height": { "node": "7", "key": "value" },
+        "batch": { "node": "9", "key": "batch_size" },
+      },
+    },
+    "flux2-edit": {
+      "file": "~/.pi/agent/comfyui/flux2-edit.api.json",
+      "inputs": {
+        "prompt": { "node": "4", "key": "text" },
+        "image": { "node": "20", "key": "image" },
+        "seed": { "node": "12", "key": "noise_seed" },
+        "steps": { "node": "8", "key": "steps" },
+        "cfg": { "node": "10", "key": "cfg" },
+      },
+    },
   },
 }
 ```
@@ -243,6 +266,26 @@ instruction-edit graph. Like the Qwen graph it anchors the source through a `Ref
 lowering `denoise` is the wrong knob for it, which is why its map exposes none. Flux is also cfg-1 with a
 `ConditioningZeroOut` (node 40) negative, so the real guidance knob is `FluxGuidance` (node 35): the example maps the
 tool's `cfg` param there rather than at the KSampler.
+
+Two **FLUX.2 [klein] 9B** graphs round out the set, both loading GGUF weights via `UnetLoaderGGUF` and the Qwen3-8B text
+encoder via `CLIPLoaderGGUF` (`type: flux2`) alongside the `flux2-vae`.
+[`../comfyui/flux2-t2i.api.json`](../comfyui/flux2-t2i.api.json) is text-to-image: it samples with
+`SamplerCustomAdvanced` (a `RandomNoise` seed, `Flux2Scheduler` sigmas, and a `KSamplerSelect` euler), and because
+FLUX.2 is guided through a `CFGGuider` the example maps `cfg` there rather than at a KSampler. `width` / `height` map to
+two `PrimitiveInt` nodes (6 / 7) that feed both `Flux2Scheduler` and `EmptyFlux2LatentImage`, so a single injection
+keeps the resolution-dependent sigma shift and the latent size in lockstep.
+[`../comfyui/flux2-edit.api.json`](../comfyui/flux2-edit.api.json) is the instruction-edit variant: the uploaded `image`
+is scaled to ~1 MP, VAE-encoded, and anchored into both the positive and negative conditioning through `ReferenceLatent`
+(nodes 24 / 25), with `GetImageSize` driving the output dimensions. As with Kontext and Qwen above it runs at
+`denoise 1` (the empty latent only sets resolution), so its map exposes neither `denoise` nor `width` / `height` - the
+edit follows the source size.
+
+Each ships in two flavours: the base graph (`flux2-t2i` / `flux2-edit`, undistilled, ~20 steps at cfg 5) and a distilled
+`*-fast` graph (`flux2-t2i-fast` / `flux2-edit-fast`, 4 steps at cfg 1) that swaps in the distilled diffusion GGUF. The
+distilled variants are the practical interactive default; the base edit in particular is heavy - the reference image
+inflates the token sequence the diffusion model processes every step - so a slow or VRAM-constrained server may need a
+larger `timeoutMs` or a `background: true` submission. A smaller GGUF text-encoder quant frees VRAM for the diffusion
+model and noticeably cuts the per-step time.
 
 ### Generation defaults
 
