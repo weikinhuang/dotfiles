@@ -129,6 +129,25 @@ node config/pi/avatar/tools/slice-sheets.ts --set exusiai --in avatar-ref/sheets
 node config/pi/avatar/tools/slice-sheets.ts --set exusiai --check
 ```
 
+By default the slicer locates each cell from its thin cyan (`BORDER`) registration box: it isolates true cyan, finds the
+box strokes, and crops each cell's interior. This is robust to a top margin, to characters drawn slightly larger than
+their box, and to blank cells (the box is still drawn), so a state's frames stay registered and don't jump. A sheet
+whose boxes can't be read reuses another same-tier sheet's grid (`reference`); `--grid` forces a plain even 4x3 split
+and `--detect` forces CHROMA-gutter detection (for sheets drawn without cyan boxes). Framing is `--align center` (the
+default): it trims each frame to its content and centers it on the square canvas. This looks right for most states but
+is content-dependent, so an asymmetric pose (one arm out, a lean) slides the head left or right and a wide pose zooms;
+the head-anchored alignment that fixes this is tabled in `plans/avatar_head_anchored_centering.md`. `north` is the same
+but top-pinned; `box` trims nothing and holds a constant scale + position (no zoom/shift, but it keeps the source's own
+per-cell draw offsets); `none` / `--no-align` keeps the raw cell. Output is a square 320x320 frame; `--filter` picks the
+downscale filter (`lanczos` default, sharpest-clean for these anti-aliased sheets; `point` for hard pixels). A source
+cell that comes out blank is reported at the end so you know which sheet to regenerate. The usual call:
+
+```bash
+node config/pi/avatar/tools/slice-sheets.ts --set exusiai --in avatar-ref/sheets
+```
+
+If `magick` is a FUSE-less AppImage on your box, prefix the command with `APPIMAGE_EXTRACT_AND_RUN=1`.
+
 ### 6. Preview in a browser (optional)
 
 Build a self-contained HTML page (frames embedded as base64) that shows every state's animated ping-pong preview plus

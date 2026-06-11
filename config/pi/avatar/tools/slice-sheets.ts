@@ -11,29 +11,31 @@
  * activities.2.png). Each is a GRID.cols x GRID.rows arrangement of sprites on a
  * flat CHROMA background.
  *
- * Grid-line detection: rather than guessing an even split or re-detecting the
- * character (whose bounding box shifts when arms/props stick out), we find the
- * real cell boundaries from the CHROMA gutters. A true gutter row/column is
- * CHROMA across the entire width/height, while inside a cell the character
- * breaks that up -- so projecting a "non-CHROMA" mask and locating the all-green
- * bands gives us GRID.cols+1 vertical and GRID.rows+1 horizontal grid lines.
- * Each cell is cropped to the EXACT interior between its lines (no inset, no
- * padding), so the model's in-box placement is preserved verbatim and frames
- * stay registered. If the line count doesn't match the manifest (e.g. a fully
- * blank edge row that merges into the margin), that sheet falls back to an even
- * GRID.cols x GRID.rows split.
+ * Cell detection (default): each cell is wrapped in a thin cyan (BORDER)
+ * registration box by the image UI. Isolating true cyan (low-red, high-green,
+ * high-blue) drops the green background and the character entirely, leaving a
+ * clean grid of box outlines; projecting that mask onto each axis gives the
+ * stroke positions, and each cell's interior is the gap just inside its box.
+ * This is robust to a top margin, to characters drawn slightly larger than
+ * their box, and to blank cells (the box is still drawn). If the boxes can't be
+ * read, the sheet falls back to CHROMA-gutter detection (--detect) or, with
+ * --grid, an even GRID.cols x GRID.rows split.
  *
- * After cropping, CHROMA + BORDER (the optional per-cell registration rectangle
- * some UIs draw) are keyed to transparent and the box is resized to one shared
- * canvas (width = TARGET_PX, common cell aspect), so every state is the same
- * size. Empty cells (manifest nulls) are skipped.
+ * After cropping, CHROMA + BORDER are keyed to transparent, then the cell is fit
+ * (aspect-preserving, resampled with --filter) onto one shared SQUARE canvas
+ * (TARGET_PX) and anchored per --align. The default `center` mode trims each
+ * frame to its content and centers it; this can shift asymmetric poses left or
+ * right and zoom wide poses (see plans/avatar_head_anchored_centering.md). `box`
+ * trims nothing and holds a constant scale + position instead. Empty cells
+ * (manifest nulls) are skipped; a source cell that came out blank is reported at
+ * the end.
  *
  * Output: `<out>/<state>/<frame>.png` (frame 0 = base). <out> defaults to the
  * device-local set dir the extension scans:
  *   ~/.pi/agent/avatar/emotes/<set>   (honors PI_CODING_AGENT_DIR)
  *
  * Usage:
- *   node slice-sheets.ts --set <name> --in <sheets-dir> [--out <dir>] [--sheet 1|2|...]
+ *   node slice-sheets.ts --set <name> --in <sheets-dir> [--out <dir>] [--sheet 1|2|...] [--grid|--detect] [--align north|center|none] [--filter <name>]
  *   node slice-sheets.ts --set <name> --check [--out <dir>]
  */
 
@@ -88,12 +90,25 @@ const rawBgColor = process.env.AVATAR_BG_COLOR?.trim();
 const BG_COLOR_OVERRIDE = rawBgColor !== undefined && rawBgColor.length > 0 ? rawBgColor : undefined;
 const BG_AUTODETECT = process.env.AVATAR_BG_AUTODETECT !== '0';
 
+/** How each frame is re-anchored on its canvas (see alignArgs). */
+export type AlignMode = 'box' | 'north' | 'center' | 'none';
+
+/** Downscale filters accepted by --filter (passed straight to `magick -filter`). */
+const FILTERS = ['point', 'box', 'triangle', 'catrom', 'mitchell', 'lanczos', 'gaussian'];
+
+/** Which crop-boundary strategy a sheet uses. */
+export type CropMode = 'cyan' | 'detect' | 'grid';
+
 interface SliceOpts {
   set: string;
   in: string;
   out: string;
   sheet: string;
   check: boolean;
+  align: AlignMode;
+  grid: boolean;
+  detect: boolean;
+  filter: string;
 }
 
 /** A box interior to extract, in original-image pixels. */
@@ -129,6 +144,17 @@ function printHelp(): void {
       '  --in <dir>       Directory of <tier>.<n>.png sheets to slice.',
       '  --out <dir>      Output set dir. Default: <pi-agent>/avatar/emotes/<set>.',
       '  --sheet <name>   Only process this sheet (e.g. standard.1; default: all found).',
+      '  --grid           Force an even 4x3 split (the crop mode for uniform web-UI grid',
+      '                   exports: OpenAI image / Firefly). Also via AVATAR_SLICE=grid.',
+      '  --detect         Force gutter detection (for bordered / variable-gutter sheets).',
+      '                   Wins over --grid and AVATAR_SLICE=grid.',
+      '                   (Default crop reads the cyan registration boxes per cell.)',
+      '  --align <mode>   Frame anchoring: center (trim + centered, the default) | north',
+      '                   (trim + top-center) | box (no trim, constant scale + top-center;',
+      '                   poses do not zoom/shift but frames keep source draw offsets)',
+      '                   | none.',
+      '  --no-align       Alias for --align none (keep the cropped cell as-is).',
+      `  --filter <name>  Downscale filter: ${FILTERS.join('|')} (default lanczos).`,
       '  --check          Report per-state frame coverage under --out and exit.',
       '  -h, --help       Show this help.',
       '',
@@ -150,8 +176,30 @@ function defaultOut(set: string): string {
   return join(piAgentDir(), 'avatar', 'emotes', set);
 }
 
+function asAlign(value: string): AlignMode {
+  if (value === 'box' || value === 'north' || value === 'center' || value === 'none') return value;
+  process.stderr.write(`Invalid --align mode: ${value} (expected box|north|center|none)\n`);
+  process.exit(1);
+}
+
+function asFilter(value: string): string {
+  if (FILTERS.includes(value)) return value;
+  process.stderr.write(`Invalid --filter: ${value} (expected ${FILTERS.join('|')})\n`);
+  process.exit(1);
+}
+
 function parseArgs(argv: string[]): SliceOpts {
-  const opts: SliceOpts = { set: '', in: '', out: '', sheet: '', check: false };
+  const opts: SliceOpts = {
+    set: '',
+    in: '',
+    out: '',
+    sheet: '',
+    check: false,
+    align: 'center',
+    grid: false,
+    detect: false,
+    filter: 'lanczos',
+  };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     const eq = arg.indexOf('=');
@@ -177,6 +225,21 @@ function parseArgs(argv: string[]): SliceOpts {
       case '--frame':
       case '--sheet':
         opts.sheet = next().toLowerCase();
+        break;
+      case '--align':
+        opts.align = asAlign(next().toLowerCase());
+        break;
+      case '--filter':
+        opts.filter = asFilter(next().toLowerCase());
+        break;
+      case '--no-align':
+        opts.align = 'none';
+        break;
+      case '--grid':
+        opts.grid = true;
+        break;
+      case '--detect':
+        opts.detect = true;
         break;
       case '--check':
         opts.check = true;
@@ -216,6 +279,40 @@ function dimensions(file: string): { w: number; h: number } {
 function keyArgs(bg: string): string[] {
   const defringe = DEFRINGE ? ['-channel', 'A', '-morphology', 'Erode', 'Octagon:1', '+channel'] : [];
   return ['-fuzz', FUZZ, '-transparent', bg, '-fuzz', BORDER_FUZZ, '-transparent', BORDER, ...defringe];
+}
+
+/**
+ * Magick args that turn a keyed cell into the final frame. 'center' (default)
+ * and 'north' trim away the transparent background and re-fit the character per
+ * frame (centered / top-center); they look right for most states but are
+ * content-dependent, so asymmetric poses shift sideways and wide poses zoom.
+ * 'box' does NOT trim: it fits the whole keyed cell onto the square canvas and
+ * pins it top-center, holding a constant scale + position across a state's
+ * frames (no zoom/shift) at the cost of inheriting any source draw offset.
+ * 'none' stretches the raw cell to fill (legacy; distorts aspect). All but
+ * 'none' preserve aspect and resample with `filter`.
+ */
+export function alignArgs(mode: AlignMode, canvas: Canvas, filter: string): string[] {
+  const box = `${canvas.w}x${canvas.h}`;
+  if (mode === 'none') return ['-filter', filter, '-resize', `${box}!`];
+  if (mode === 'box') {
+    return ['-filter', filter, '-resize', box, '-background', 'none', '-gravity', 'North', '-extent', box];
+  }
+  const gravity = mode === 'center' ? 'Center' : 'North';
+  return [
+    '-trim',
+    '+repage',
+    '-filter',
+    filter,
+    '-resize',
+    box,
+    '-background',
+    'none',
+    '-gravity',
+    gravity,
+    '-extent',
+    box,
+  ];
 }
 
 // ── Grid-line detection via CHROMA gutters ─────────────────────────────
@@ -330,10 +427,200 @@ function evenGrid(imgW: number, imgH: number): Box[] {
   return boxes;
 }
 
+// ── Cell detection via cyan registration boxes ─────────────────────
+
+/**
+ * Magick ops that reduce a sheet to a binary mask of only the cyan (BORDER)
+ * registration rectangles: white where a pixel is low-red AND high-green AND
+ * high-blue (true cyan), black elsewhere. Green background, white hoodie, red
+ * hair etc. all drop out, leaving just the per-cell box outlines.
+ */
+function cyanMaskOps(): string[] {
+  return [
+    '(',
+    '-clone',
+    '0',
+    '-channel',
+    'R',
+    '-separate',
+    '+channel',
+    '-threshold',
+    '35%',
+    '-negate',
+    ')',
+    '(',
+    '-clone',
+    '0',
+    '-channel',
+    'G',
+    '-separate',
+    '+channel',
+    '-threshold',
+    '63%',
+    ')',
+    '(',
+    '-clone',
+    '0',
+    '-channel',
+    'B',
+    '-separate',
+    '+channel',
+    '-threshold',
+    '63%',
+    ')',
+    '-delete',
+    '0',
+    '-evaluate-sequence',
+    'multiply',
+  ];
+}
+
+/**
+ * Project the cyan mask onto one axis: per-column (axis 'x') or per-row (axis
+ * 'y') cyan coverage, 0..255. A border stroke spans most of the grid in its
+ * perpendicular direction so it reads high; cell interiors read ~0.
+ */
+function cyanProfile(sheetPath: string, axis: 'x' | 'y', w: number, h: number): number[] {
+  const size = axis === 'x' ? `${w}x1!` : `1x${h}!`;
+  const out = execFileSync(
+    'magick',
+    [sheetPath, ...cyanMaskOps(), '-filter', 'box', '-resize', size, '-depth', '8', 'txt:-'],
+    { encoding: 'utf8' },
+  );
+  const vals: number[] = [];
+  for (const line of out.split('\n').slice(1)) {
+    const m = /:\s*\((\d+)/.exec(line);
+    if (m !== null) vals.push(Number(m[1]));
+  }
+  return vals;
+}
+
+/**
+ * Contiguous runs of `profile` above `threshold`, merging runs separated by a
+ * gap of at most `mergeGap` (bridges sub-pixel dropouts within one stroke) and
+ * dropping runs shorter than `minLen`. Each run is a registration-border stroke.
+ */
+export function findBands(
+  profile: number[],
+  opts: { threshold: number; minLen: number; mergeGap: number },
+): [number, number][] {
+  const runs: [number, number][] = [];
+  let start = -1;
+  for (let i = 0; i < profile.length; i++) {
+    const on = profile[i] > opts.threshold;
+    if (on && start < 0) start = i;
+    else if (!on && start >= 0) {
+      runs.push([start, i - 1]);
+      start = -1;
+    }
+  }
+  if (start >= 0) runs.push([start, profile.length - 1]);
+
+  const merged: [number, number][] = [];
+  for (const run of runs) {
+    const last = merged.at(-1);
+    if (last !== undefined && run[0] - last[1] - 1 <= opts.mergeGap) last[1] = run[1];
+    else merged.push([run[0], run[1]]);
+  }
+  return merged.filter(([s, e]) => e - s + 1 >= opts.minLen);
+}
+
+/**
+ * Each cell is its own rectangle, so border strokes come in pairs along an axis
+ * (cell c's left+right, or top+bottom). Given the strokes in order, return each
+ * cell's interior span [start, end] -- the gap just inside a stroke pair, which
+ * excludes both the stroke and the few px a character may overflow past its box.
+ */
+export function bandsToCells(bands: [number, number][]): [number, number][] {
+  const cells: [number, number][] = [];
+  for (let i = 0; i + 1 < bands.length; i += 2) {
+    cells.push([bands[i][1] + 1, bands[i + 1][0] - 1]);
+  }
+  return cells;
+}
+
+/**
+ * Reading-order cell interior boxes from the per-axis cyan border strokes.
+ * Returns null unless exactly 2*cols vertical and 2*rows horizontal strokes are
+ * found, so a sheet without clean registration boxes falls back to detection.
+ */
+export function bordersToBoxes(colBands: [number, number][], rowBands: [number, number][]): Box[] | null {
+  if (colBands.length !== 2 * GRID.cols || rowBands.length !== 2 * GRID.rows) return null;
+  const cols = bandsToCells(colBands);
+  const rows = bandsToCells(rowBands);
+  const boxes: Box[] = [];
+  for (const [y0, y1] of rows) {
+    for (const [x0, x1] of cols) {
+      boxes.push({ x: x0, y: y0, w: Math.max(1, x1 - x0 + 1), h: Math.max(1, y1 - y0 + 1) });
+    }
+  }
+  return boxes;
+}
+
+/**
+ * Median of a list (lower-middle for even counts); 0 for an empty list.
+ */
 function median(values: number[]): number {
   if (values.length === 0) return 0;
   const sorted = [...values].sort((a, b) => a - b);
   return sorted[Math.floor(sorted.length / 2)];
+}
+
+/**
+ * Snap detected per-cell boxes to one uniform, evenly-aligned grid: every cell
+ * takes the median interior width/height, each column the median left-x of its
+ * cells, each row the median top-y. This removes the per-cell detection jitter
+ * that made a state's frames - which live in different columns/rows - shift or
+ * differ in size. Each cell's bottom is then extended by the median inter-row
+ * gap so a character that overflows below its box (common in the lower rows)
+ * keeps its chest instead of being cut; the extension stops at the next row's
+ * box top, so it never grabs the neighbour below.
+ */
+export function regularizeBoxes(boxes: Box[]): Box[] {
+  const { cols, rows } = GRID;
+  if (boxes.length !== cols * rows) return boxes;
+  const at = (r: number, c: number): Box => boxes[r * cols + c];
+  const cellW = median(boxes.map((b) => b.w));
+  const cellH = median(boxes.map((b) => b.h));
+  const colX: number[] = [];
+  for (let c = 0; c < cols; c++) {
+    const xs: number[] = [];
+    for (let r = 0; r < rows; r++) xs.push(at(r, c).x);
+    colX.push(median(xs));
+  }
+  const rowY: number[] = [];
+  for (let r = 0; r < rows; r++) {
+    const ys: number[] = [];
+    for (let c = 0; c < cols; c++) ys.push(at(r, c).y);
+    rowY.push(median(ys));
+  }
+  const gaps: number[] = [];
+  for (let r = 0; r + 1 < rows; r++) gaps.push(rowY[r + 1] - (rowY[r] + cellH));
+  const gap = gaps.length > 0 ? Math.max(0, median(gaps)) : 0;
+  const out: Box[] = [];
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      out.push({ x: colX[c], y: rowY[r], w: cellW, h: cellH + gap });
+    }
+  }
+  return out;
+}
+
+/**
+ * Locate every cell by its cyan registration box. Robust to blank cells (the
+ * box is still drawn) and to a top margin / overflow that even-thirds and green
+ * gutter detection both miss. Returns null when the boxes can't be read cleanly.
+ */
+function detectCyanBoxes(sheetPath: string, w: number, h: number): Box[] | null {
+  // Strokes are thin (often 1px wide) but near-saturated (~248) where the cyan
+  // border runs uninterrupted; interior columns/rows stay <= ~31. So minLen 1
+  // keeps thin strokes and the threshold still clears interior noise by a wide
+  // margin. mergeGap bridges a stroke an AA dropout split in two.
+  const bandOpts = { threshold: 40, minLen: 1, mergeGap: 3 };
+  const colBands = findBands(cyanProfile(sheetPath, 'x', w, h), bandOpts);
+  const rowBands = findBands(cyanProfile(sheetPath, 'y', w, h), bandOpts);
+  const boxes = bordersToBoxes(colBands, rowBands);
+  return boxes ? regularizeBoxes(boxes) : null;
 }
 
 // ── Background color detection ─────────────────────────────────────────
@@ -441,18 +728,23 @@ function detectBackgroundColor(path: string, w: number, h: number): string {
 
 // ── Writing frames ─────────────────────────────────────────────────────
 
-/** Crop a box interior, key out the background + BORDER, resize to fill the canvas. */
-function writeCell(sheetPath: string, box: Box, canvas: Canvas, dest: string, bg: string): void {
+/** Crop a box interior, key out the background + BORDER, then fit/anchor onto the canvas. */
+function writeCell(
+  sheetPath: string,
+  box: Box,
+  canvas: Canvas,
+  dest: string,
+  bg: string,
+  align: AlignMode,
+  filter: string,
+): void {
   execFileSync('magick', [
     sheetPath,
     '-crop',
     `${box.w}x${box.h}+${box.x}+${box.y}`,
     '+repage',
     ...keyArgs(bg),
-    '-filter',
-    'point',
-    '-resize',
-    `${canvas.w}x${canvas.h}!`,
+    ...alignArgs(align, canvas, filter),
     dest,
   ]);
 }
@@ -469,12 +761,21 @@ function nonNullBoxes(sheet: Sheet, boxes: Box[]): { state: string; frame: numbe
   return out;
 }
 
-function sliceSheet(sheetPath: string, sheet: Sheet, boxes: Box[], canvas: Canvas, outDir: string, bg: string): number {
+function sliceSheet(
+  sheetPath: string,
+  sheet: Sheet,
+  boxes: Box[],
+  canvas: Canvas,
+  outDir: string,
+  bg: string,
+  align: AlignMode,
+  filter: string,
+): number {
   let written = 0;
   for (const { state, frame, box } of nonNullBoxes(sheet, boxes)) {
     const stateDir = join(outDir, state);
     mkdirSync(stateDir, { recursive: true });
-    writeCell(sheetPath, box, canvas, join(stateDir, `${frame}.png`), bg);
+    writeCell(sheetPath, box, canvas, join(stateDir, `${frame}.png`), bg, align, filter);
     written++;
   }
   return written;
@@ -499,7 +800,7 @@ function runCheck(outDir: string): void {
   if (missing.length > 0) process.stdout.write(`No frames yet: ${missing.join(', ')}\n`);
 }
 
-type Source = 'detected' | 'reference' | 'even-grid';
+type Source = 'cyan' | 'detected' | 'reference' | 'even-grid';
 
 interface Job {
   file: string;
@@ -507,6 +808,7 @@ interface Job {
   sheet: Sheet;
   w: number;
   h: number;
+  mode: CropMode;
   raw: Box[] | null;
   boxes: Box[];
   source: Source;
@@ -526,7 +828,12 @@ function scaleBoxes(boxes: Box[], refW: number, refH: number, w: number, h: numb
   }));
 }
 
-function collectJobs(inDir: string, sheetFilter: string): Job[] {
+/**
+ * Build the per-sheet slice jobs. `mode` picks the crop strategy: 'cyan' reads
+ * the cyan registration boxes (default), 'detect' uses CHROMA gutter detection,
+ * 'grid' forces an even split (raw stays null so resolveBoxes uses evenGrid).
+ */
+function collectJobs(inDir: string, sheetFilter: string, mode: CropMode): Job[] {
   const jobs: Job[] = [];
   const sheets = allSheets();
   for (const file of readdirSync(inDir).filter((f) => f.toLowerCase().endsWith('.png'))) {
@@ -544,8 +851,10 @@ function collectJobs(inDir: string, sheetFilter: string): Job[] {
     const path = join(inDir, file);
     const { w, h } = dimensions(path);
     const bg = detectBackgroundColor(path, w, h);
-    const raw = GRID_MODE ? null : detectGrid(chromaMask(path, bg));
-    jobs.push({ file: path, tier, sheet, w, h, raw, boxes: [], source: 'even-grid', bg });
+    let raw: Box[] | null = null;
+    if (mode === 'cyan') raw = detectCyanBoxes(path, w, h);
+    else if (mode === 'detect') raw = detectGrid(chromaMask(path, bg));
+    jobs.push({ file: path, tier, sheet, w, h, mode, raw, boxes: [], source: 'even-grid', bg });
   }
   return jobs;
 }
@@ -562,7 +871,7 @@ function resolveBoxes(jobs: Job[]): void {
   for (const job of jobs) {
     if (job.raw !== null) {
       job.boxes = job.raw;
-      job.source = 'detected';
+      job.source = job.mode === 'cyan' ? 'cyan' : 'detected';
       continue;
     }
     const ref = jobs.find((j) => j.tier === job.tier && j.raw !== null);
@@ -576,21 +885,31 @@ function resolveBoxes(jobs: Job[]): void {
   }
 }
 
-/**
- * Shared output canvas for every frame: width TARGET_PX, height from the median
- * cell aspect across all detected boxes (so one off sheet can't skew it). The
- * renderer scales each state to the same cell width, so a common canvas keeps
- * heads the same size; cells are uniform, so filling it introduces no padding.
- */
-function computeCanvas(jobs: Job[]): Canvas {
-  const aspects: number[] = [];
+/** Every frame shares one square canvas (TARGET_PX); the cell is fit + anchored into it. */
+function squareCanvas(): Canvas {
+  return { w: TARGET_PX, h: TARGET_PX };
+}
+
+/** True when a written frame is (essentially) fully transparent - an empty source cell. */
+function frameIsBlank(path: string): boolean {
+  try {
+    const mean = Number(
+      execFileSync('magick', [path, '-format', '%[fx:mean.a]', 'info:'], { encoding: 'utf8' }).trim(),
+    );
+    return Number.isFinite(mean) && mean < 0.01;
+  } catch {
+    return false;
+  }
+}
+
+/** Collect state.frame ids whose output PNG came out blank (source cell was empty). */
+function reportBlankFrames(jobs: Job[], outDir: string, blanks: string[]): void {
   for (const job of jobs) {
-    for (const box of job.boxes) {
-      if (box.w > 0) aspects.push(box.h / box.w);
+    for (const { state, frame } of nonNullBoxes(job.sheet, job.boxes)) {
+      const f = join(outDir, state, `${frame}.png`);
+      if (existsSync(f) && frameIsBlank(f)) blanks.push(`${state}.${frame}`);
     }
   }
-  const aspect = median(aspects);
-  return { w: TARGET_PX, h: aspect > 0 ? Math.round(TARGET_PX * aspect) : TARGET_PX };
 }
 
 function main(): void {
@@ -616,21 +935,28 @@ function main(): void {
   }
   ensureMagick();
 
-  const jobs = collectJobs(opts.in, opts.sheet);
+  // --detect (CHROMA gutters) wins over --grid / AVATAR_SLICE=grid; default reads cyan boxes.
+  const mode: CropMode = opts.detect ? 'detect' : opts.grid || GRID_MODE ? 'grid' : 'cyan';
+  const jobs = collectJobs(opts.in, opts.sheet, mode);
   resolveBoxes(jobs);
-  const canvas = computeCanvas(jobs);
+  const canvas = squareCanvas();
 
   let totalFrames = 0;
   let sheetsDone = 0;
+  const blanks: string[] = [];
   for (const job of jobs) {
-    const written = sliceSheet(job.file, job.sheet, job.boxes, canvas, outDir, job.bg);
-    process.stdout.write(`${job.file} -> ${written} frame(s) [${job.source}, bg ${job.bg}]\n`);
+    const written = sliceSheet(job.file, job.sheet, job.boxes, canvas, outDir, job.bg, opts.align, opts.filter);
+    process.stdout.write(`${job.file} -> ${written} frame(s) [${job.source}, bg ${job.bg}, align ${opts.align}]\n`);
     totalFrames += written;
     sheetsDone++;
   }
+  reportBlankFrames(jobs, outDir, blanks);
   process.stdout.write(
     `\nDone: ${sheetsDone} sheet(s), ${totalFrames} frame(s) at ${canvas.w}x${canvas.h} -> ${outDir}\n`,
   );
+  if (blanks.length > 0) {
+    process.stdout.write(`Blank frames (source cell empty - regenerate that sheet): ${blanks.join(', ')}\n`);
+  }
   if (sheetsDone === 0) process.stdout.write('No matching <tier>.<n>.png sheets found in --in.\n');
 }
 
