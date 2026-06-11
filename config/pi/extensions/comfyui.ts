@@ -129,6 +129,11 @@ interface JobsDetails {
 
 const extDir = dirname(fileURLToPath(import.meta.url));
 
+// Hard cap on the best-effort `image_jobs cancel` round-trip (interrupt /
+// dequeue). Cancellation should be near-instant, so it gets a tighter
+// bound than a full generation's `config.timeoutMs`.
+const CANCEL_TIMEOUT_MS = 10_000;
+
 // Only the on-disk path of the shipped example workflow is shell-specific;
 // its input map is pure data (SHIPPED_WORKFLOW_INPUTS in lib).
 function shippedWorkflow(): WorkflowConfig {
@@ -328,6 +333,10 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
     // Never keep the process alive solely for the poll.
     if (typeof pollTimer.unref === 'function') pollTimer.unref();
   };
+  // Note: the interval is fixed when the timer is first created and is not
+  // re-read while it runs. The timer stops itself once no jobs are running
+  // (autoDownloadTick), so a `pollIntervalMs` config edit takes effect the
+  // next time a background job spins the timer back up - not mid-run.
 
   pi.on('session_start', (_event, ctx) => {
     // Re-point cwd from the registration-time `process.cwd()` seed to the
@@ -757,7 +766,7 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
       timeoutMs: config.timeoutMs,
     };
     const ac = new AbortController();
-    const timer = setTimeout(() => ac.abort(), 10000);
+    const timer = setTimeout(() => ac.abort(), CANCEL_TIMEOUT_MS);
     if (signal) signal.addEventListener('abort', () => ac.abort(), { once: true });
     try {
       await cancelPrompt(conn, job.promptId, ac.signal);
@@ -770,7 +779,7 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
       content: [
         {
           type: 'text',
-          text: `Cancelled [${id}] (best-effort: a job already executing on the server may still finish).`,
+          text: `Cancelled [${id}] (best-effort: interrupts a running render or dequeues a pending one; a render that finished first still lands on disk).`,
         },
       ],
       details: { action: 'cancel', jobId: id, status: 'cancelled' },

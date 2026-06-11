@@ -185,10 +185,33 @@ describe('fetchQueue', () => {
 });
 
 describe('cancelPrompt', () => {
-  test('POSTs a delete to /queue', async () => {
-    const { calls } = stubFetch(() => fakeResponse({}));
+  test('dequeues a still-pending prompt via POST /queue', async () => {
+    // The queue read shows the prompt only in the pending list, so cancel
+    // takes the delete path (read /queue, then POST the delete to /queue).
+    const { calls } = stubFetch((url) =>
+      url.endsWith('/queue')
+        ? fakeResponse({ json: { queue_running: [], queue_pending: [[0, 'p1', {}]] } })
+        : fakeResponse({}),
+    );
     await cancelPrompt(CONN, 'p1', signal());
-    expect(calls[0].url).toBe('http://comfy:8188/queue');
+    const urls = calls.map((c) => c.url);
+    expect(urls).toEqual(['http://comfy:8188/queue', 'http://comfy:8188/queue']);
+    expect(urls).not.toContain('http://comfy:8188/interrupt');
+  });
+
+  test('interrupts a currently-executing prompt via POST /interrupt', async () => {
+    // The queue read shows the prompt running, so cancel interrupts it
+    // instead of attempting a (useless) dequeue of the running job.
+    const { calls } = stubFetch((url) =>
+      url.endsWith('/queue')
+        ? fakeResponse({ json: { queue_running: [[0, 'p1', {}]], queue_pending: [] } })
+        : fakeResponse({}),
+    );
+    await cancelPrompt(CONN, 'p1', signal());
+    const urls = calls.map((c) => c.url);
+    expect(urls).toContain('http://comfy:8188/interrupt');
+    // Only the queue read hits /queue - no dequeue attempt for a running job.
+    expect(urls.filter((u) => u.endsWith('/queue'))).toHaveLength(1);
   });
 
   test('swallows a fetch failure (best-effort)', async () => {

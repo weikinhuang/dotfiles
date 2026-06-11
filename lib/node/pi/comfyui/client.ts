@@ -14,6 +14,7 @@
 
 import { existsSync, readFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
+import { randomUUID } from 'node:crypto';
 
 import { delay } from '../abortable-delay.ts';
 import { atomicWriteFile } from '../atomic-write.ts';
@@ -21,6 +22,7 @@ import { expandTilde } from '../path-expand.ts';
 
 import {
   buildHistoryUrl,
+  buildInterruptUrl,
   buildQueueUrl,
   buildViewUrl,
   extractOutputImages,
@@ -28,6 +30,7 @@ import {
   isExecutionComplete,
   joinUrl,
   parseWsMessage,
+  queueRunningHasPrompt,
   toWsUrl,
 } from './api.ts';
 import { mimeFromName } from './images.ts';
@@ -135,7 +138,7 @@ export async function fetchAndSave(
   saveDir: string,
   signal: AbortSignal,
 ): Promise<SavedImage[]> {
-  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const stamp = `${new Date().toISOString().replace(/[:.]/g, '-')}-${randomUUID().slice(0, 8)}`;
   return Promise.all(
     refs.map(async (ref, i) => {
       const bytes = await fetchImageBytes(conn, ref, signal);
@@ -216,8 +219,36 @@ export async function buildInjectedGraph(
   return { graph: injected.workflow, seed };
 }
 
-/** Best-effort removal of a still-queued prompt from ComfyUI's queue. */
+/**
+ * Best-effort cancellation of a background generation.
+ *
+ * ComfyUI splits cancellation across two endpoints: `POST /queue
+ * {delete:[id]}` removes a still-*pending* prompt from the queue, while
+ * `POST /interrupt` stops whatever prompt is *currently executing* (it
+ * takes no id of its own). So we read `/queue` first: if our prompt is the
+ * running one, interrupt it; otherwise drop it from the pending queue.
+ * Every call is wrapped so a prompt that is already gone (finished, or the
+ * server restarted) is a silent no-op.
+ */
 export async function cancelPrompt(conn: Conn, promptId: string, signal: AbortSignal): Promise<void> {
+  let queue: unknown = null;
+  try {
+    queue = await fetchQueue(conn, signal);
+  } catch {
+    // best-effort: a queue read failure just falls through to a plain delete
+  }
+
+  if (queueRunningHasPrompt(queue, promptId)) {
+    // The prompt is executing now; `/interrupt` is the only way to stop it.
+    try {
+      await fetch(buildInterruptUrl(conn.base), { method: 'POST', headers: conn.headers, signal });
+    } catch {
+      // best-effort: a job that just finished can't be interrupted
+    }
+    return;
+  }
+
+  // Pending (or unknown): drop it from the queue. A no-op if already gone.
   try {
     await fetch(buildQueueUrl(conn.base), {
       method: 'POST',

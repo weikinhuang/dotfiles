@@ -97,11 +97,11 @@ a broken consumer can never break generation.
 
 ### Tool: `image_jobs`
 
-| Action    | Notes                                                                                            |
-| --------- | ------------------------------------------------------------------------------------------------ |
-| `list`    | Show every background job and its status (`running` / `done` / `error` / `cancelled`).           |
-| `collect` | Poll the job (`id`); when its render is done, fetch the image(s) and return them inline.         |
-| `cancel`  | Best-effort drop of a still-queued job (`id`); a job already executing on the server may finish. |
+| Action    | Notes                                                                                                                                                                                |
+| --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `list`    | Show every background job and its status (`running` / `done` / `error` / `cancelled`).                                                                                               |
+| `collect` | Poll the job (`id`); when its render is done, fetch the image(s) and return them inline.                                                                                             |
+| `cancel`  | Best-effort cancel of a job (`id`): interrupts it if it is the render currently executing, else drops it from the pending queue. A render that already finished still lands on disk. |
 
 `collect` is safe to call repeatedly: it reports `still running` until ComfyUI finishes, then returns the image(s) and
 marks the job `done`. When `autoDownload` already saved the job off-turn, `collect` finds it `done` and re-serves the

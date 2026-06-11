@@ -147,15 +147,14 @@ export function historyHasEntry(history: unknown, promptId: string): boolean {
 }
 
 /**
- * True when `promptId` appears in a `GET /queue` response (either the
- * running or the pending list). ComfyUI shapes each entry as a tuple
- * whose second element is the prompt id: `[number, "<prompt_id>", …]`.
- * Tolerant of partial shapes - an unparseable body reads as "not found"
- * (false), so the caller decides what an absent prompt means.
+ * True when `promptId` appears in any of `listKeys` of a `GET /queue`
+ * response. ComfyUI shapes each entry as a tuple whose second element is
+ * the prompt id: `[number, "<prompt_id>", …]`. Tolerant of partial
+ * shapes - an unparseable body reads as "not found" (false).
  */
-export function queueHasPrompt(queue: unknown, promptId: string): boolean {
+function queueListHasPrompt(queue: unknown, listKeys: readonly string[], promptId: string): boolean {
   if (!isObject(queue)) return false;
-  for (const listKey of ['queue_running', 'queue_pending']) {
+  for (const listKey of listKeys) {
     const list = queue[listKey];
     if (!Array.isArray(list)) continue;
     for (const item of list as unknown[]) {
@@ -163,6 +162,25 @@ export function queueHasPrompt(queue: unknown, promptId: string): boolean {
     }
   }
   return false;
+}
+
+/**
+ * True when `promptId` appears in a `GET /queue` response (either the
+ * running or the pending list). The caller decides what an absent prompt
+ * means.
+ */
+export function queueHasPrompt(queue: unknown, promptId: string): boolean {
+  return queueListHasPrompt(queue, ['queue_running', 'queue_pending'], promptId);
+}
+
+/**
+ * True when `promptId` is the prompt ComfyUI is *currently executing*
+ * (the `queue_running` list), as opposed to merely queued. Cancellation
+ * uses this to choose `/interrupt` (stops the running render) over
+ * `/queue {delete}` (drops a still-pending one).
+ */
+export function queueRunningHasPrompt(queue: unknown, promptId: string): boolean {
+  return queueListHasPrompt(queue, ['queue_running'], promptId);
 }
 
 /** A parsed websocket event, narrowed to the fields the extension uses. */

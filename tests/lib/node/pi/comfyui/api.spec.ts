@@ -17,6 +17,7 @@ import {
   normalizeBaseUrl,
   parseWsMessage,
   queueHasPrompt,
+  queueRunningHasPrompt,
   toWsUrl,
 } from '../../../../../lib/node/pi/comfyui/api.ts';
 
@@ -149,6 +150,24 @@ describe('queueHasPrompt', () => {
     expect(queueHasPrompt({}, 'p1')).toBe(false);
     expect(queueHasPrompt({ queue_running: 'nope' }, 'p1')).toBe(false);
     expect(queueHasPrompt({ queue_running: [['no-id-here']] }, 'p1')).toBe(false);
+  });
+});
+
+describe('queueRunningHasPrompt', () => {
+  test('matches only the currently-executing prompt, not a pending one', () => {
+    const queue = {
+      queue_running: [[0, 'p1', {}]],
+      queue_pending: [[1, 'p2', {}]],
+    };
+    expect(queueRunningHasPrompt(queue, 'p1')).toBe(true);
+    expect(queueRunningHasPrompt(queue, 'p2')).toBe(false);
+    expect(queueRunningHasPrompt(queue, 'p3')).toBe(false);
+  });
+
+  test('false for malformed or empty bodies', () => {
+    expect(queueRunningHasPrompt(null, 'p1')).toBe(false);
+    expect(queueRunningHasPrompt({}, 'p1')).toBe(false);
+    expect(queueRunningHasPrompt({ queue_running: 'nope' }, 'p1')).toBe(false);
   });
 });
 
