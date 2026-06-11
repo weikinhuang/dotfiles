@@ -1,5 +1,6 @@
 ---
 name: ai-skill-eval
+disable-model-invocation: true
 description:
   'WHAT: Use the `ai-skill-eval` CLI to validate that an AI model (especially a small local one) actually follows a
   SKILL.md - run per-skill evals through a driver, grade TRIGGER detection + expectation match, and read the report.

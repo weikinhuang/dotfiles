@@ -1,5 +1,6 @@
 ---
 name: hooks-author
+disable-model-invocation: true
 description:
   When to reach for a user hook (`~/.pi/agent/hooks.json` / `<repo>/.pi/hooks.json`) over an ad-hoc bash command or a
   full pi extension. Use when the user asks things like "can I run X every time pi does Y", "from now on when Z happens,

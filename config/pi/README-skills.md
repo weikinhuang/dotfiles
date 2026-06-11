@@ -10,10 +10,13 @@ pi decides whether to load the body based on WHAT + WHEN + DO-NOT shape. See
 [`../../node_modules/@public-projects/agents-tooling/guides/skill-authoring-guide.md`](../../node_modules/@public-projects/agents-tooling/guides/skill-authoring-guide.md)
 for the authoring rules these skills follow.
 
-The four image-model prompting skills (`anima-prompting`, `chenkin-noob-xl-prompting`, `illustrious-prompting`,
-`noobai-vpred-prompting`) carry `disable-model-invocation: true`, so they are kept out of the always-on system-prompt
-index to save tokens. They stay loadable on demand via `/skill:<name>` (e.g. `/skill:anima-prompting`); the model no
-longer auto-discovers them, so invoke the matching one explicitly when prompting an image workflow.
+The following skills carry `disable-model-invocation: true`, so they are kept out of the always-on system-prompt index
+to save tokens. They stay loadable on demand via `/skill:<name>`; the model no longer auto-discovers them, so invoke
+them explicitly when needed:
+
+- The four image-model prompting skills (`anima-prompting`, `chenkin-noob-xl-prompting`, `illustrious-prompting`,
+  `noobai-vpred-prompting`) - invoke the matching one (e.g. `/skill:anima-prompting`) when prompting an image workflow.
+- `hooks-author` - invoke (`/skill:hooks-author`) when wiring a pi user hook.
 
 ## Index
 
