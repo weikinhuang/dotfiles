@@ -1,0 +1,138 @@
+{
+  "1": {
+    "class_type": "UnetLoaderGGUF",
+    "inputs": {
+      "unet_name": "flux-2-klein-9b-Q6_K.gguf"
+    }
+  },
+  "2": {
+    "class_type": "CLIPLoaderGGUF",
+    "inputs": {
+      "clip_name": "Qwen3-8B-Q4_K_M.gguf",
+      "type": "flux2"
+    }
+  },
+  "3": {
+    "class_type": "VAELoader",
+    "inputs": {
+      "vae_name": "flux2-vae.safetensors"
+    }
+  },
+  "4": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "text": "change the background to a sunny beach",
+      "clip": ["2", 0]
+    }
+  },
+  "5": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "text": "",
+      "clip": ["2", 0]
+    }
+  },
+  "8": {
+    "class_type": "Flux2Scheduler",
+    "inputs": {
+      "steps": 4,
+      "width": ["22", 0],
+      "height": ["22", 1]
+    }
+  },
+  "9": {
+    "class_type": "EmptyFlux2LatentImage",
+    "inputs": {
+      "width": ["22", 0],
+      "height": ["22", 1],
+      "batch_size": 1
+    }
+  },
+  "10": {
+    "class_type": "CFGGuider",
+    "inputs": {
+      "model": ["1", 0],
+      "positive": ["24", 0],
+      "negative": ["25", 0],
+      "cfg": 1
+    }
+  },
+  "11": {
+    "class_type": "KSamplerSelect",
+    "inputs": {
+      "sampler_name": "euler"
+    }
+  },
+  "12": {
+    "class_type": "RandomNoise",
+    "inputs": {
+      "noise_seed": 0
+    }
+  },
+  "13": {
+    "class_type": "SamplerCustomAdvanced",
+    "inputs": {
+      "noise": ["12", 0],
+      "guider": ["10", 0],
+      "sampler": ["11", 0],
+      "sigmas": ["8", 0],
+      "latent_image": ["9", 0]
+    }
+  },
+  "14": {
+    "class_type": "VAEDecode",
+    "inputs": {
+      "samples": ["13", 0],
+      "vae": ["3", 0]
+    }
+  },
+  "15": {
+    "class_type": "SaveImage",
+    "inputs": {
+      "filename_prefix": "Flux2-Klein-Edit",
+      "images": ["14", 0]
+    }
+  },
+  "20": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "example.png"
+    }
+  },
+  "21": {
+    "class_type": "ImageScaleToTotalPixels",
+    "inputs": {
+      "image": ["20", 0],
+      "upscale_method": "lanczos",
+      "megapixels": 1,
+      "resolution_steps": 1
+    }
+  },
+  "22": {
+    "class_type": "GetImageSize",
+    "inputs": {
+      "image": ["21", 0]
+    }
+  },
+  "23": {
+    "class_type": "VAEEncode",
+    "inputs": {
+      "pixels": ["21", 0],
+      "vae": ["3", 0]
+    }
+  },
+  "24": {
+    "class_type": "ReferenceLatent",
+    "inputs": {
+      "conditioning": ["4", 0],
+      "latent": ["23", 0]
+    }
+  },
+  "25": {
+    "class_type": "ReferenceLatent",
+    "inputs": {
+      "conditioning": ["5", 0],
+      "latent": ["23", 0]
+    }
+  }
+}
