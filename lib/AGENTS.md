@@ -16,12 +16,11 @@ See root [AGENTS.md](../AGENTS.md) for repo-wide conventions; this file only doc
 
 ## Directory map
 
-| Path                                                                           | Purpose                                                                                                 |
-| ------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------- |
-| [`node/pi/`](./node/pi/)                                                       | Pure helpers consumed by pi extensions under [`../config/pi/extensions/`](../config/pi/extensions/).    |
-| [`node/ai-tooling/`](./node/ai-tooling/)                                       | Shared CLI harness (arg parsing, output rendering, JSONL loaders) used by every `session-usage.ts`.     |
-| [`node/clipboard-server.ts`](./node/clipboard-server.ts)                       | Node implementation of the `clipboard-server` bin script.                                               |
-| [`node/pi/research-selftest/fixtures/`](./node/pi/research-selftest/fixtures/) | Deterministic fixtures for the deep-research / autoresearch selftest suite; excluded from markdownlint. |
+| Path                                                     | Purpose                                                                                              |
+| -------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| [`node/pi/`](./node/pi/)                                 | Pure helpers consumed by pi extensions under [`../config/pi/extensions/`](../config/pi/extensions/). |
+| [`node/ai-tooling/`](./node/ai-tooling/)                 | Shared CLI harness (arg parsing, output rendering, JSONL loaders) used by every `session-usage.ts`.  |
+| [`node/clipboard-server.ts`](./node/clipboard-server.ts) | Node implementation of the `clipboard-server` bin script.                                            |
 
 ## Key patterns
 
