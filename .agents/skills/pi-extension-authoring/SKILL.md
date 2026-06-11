@@ -1,10 +1,10 @@
 ---
 name: pi-extension-authoring
-description:
-  Conventions for adding or modifying a pi extension under `config/pi/extensions/` - the .ts + .md pair and where pure
-  helpers / unit tests live. Use when the user asks to add a new pi extension, extract extension logic into a shared
-  helper, or modify an existing extension's behavior. Do not put business logic in the .ts file (extract to
-  `lib/node/pi/`), skip the companion .md doc, forget the `extensions/README.md` row, or make behavior tier-specific
+description: >
+  WHAT: Conventions for adding or modifying a pi extension under `config/pi/extensions/` - the .ts + .md pair and where
+  pure helpers / unit tests live. WHEN: the user asks to add a new pi extension, extract extension logic into a shared
+  helper, or modify an existing extension's behavior. DO-NOT: put business logic in the .ts file (extract to
+  `lib/node/pi/`); skip the companion .md doc; forget the `extensions/README.md` row; or make behavior tier-specific
   (small-model vs big-model branches).
 ---
 
