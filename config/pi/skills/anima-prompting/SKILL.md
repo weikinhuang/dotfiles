@@ -1,5 +1,6 @@
 ---
 name: anima-prompting
+disable-model-invocation: true
 description:
   Prompting rules for the CircleStone Labs **Anima** anime / illustration model. Use when the user asks to generate /
   draw / render an anime / illustration / non-photoreal image on an Anima workflow. Anima is distinguished from the

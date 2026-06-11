@@ -1,5 +1,6 @@
 ---
 name: noobai-vpred-prompting
+disable-model-invocation: true
 description:
   Prompting rules for the Laxhar Labs **NoobAI-XL v-prediction** anime / illustration model. Use when the user asks to
   generate / draw / render an anime image on a NoobAI v-pred workflow. NoobAI uses `artist:name` syntax and is

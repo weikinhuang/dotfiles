@@ -1,5 +1,6 @@
 ---
 name: chenkin-noob-xl-prompting
+disable-model-invocation: true
 description:
   Prompting rules for **Chenkin Noob XL (CKXL)**, a NoobAI-XL-1.1 *eps* fine-tune. Use when the user asks to generate /
   draw / render an anime image on a CKXL workflow (v0.2, v0.5, or near-vanilla finetune). CKXL is eps (not v-pred) and

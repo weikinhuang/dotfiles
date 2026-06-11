@@ -1,5 +1,6 @@
 ---
 name: illustrious-prompting
+disable-model-invocation: true
 description:
   Prompting rules for the OnomaAI **Illustrious-XL** SDXL anime / illustration model. Use when the user asks to generate
   / draw / render an anime / illustration image on an Illustrious-XL workflow (v0.1, v1.0, or a near-vanilla finetune).
