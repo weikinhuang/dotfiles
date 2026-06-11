@@ -32,9 +32,12 @@
  *     `customType: 'bg-bash-state'` custom entry. This survives
  *     `/compact` and travels with `/fork`, `/tree`.
  *
- *   - Every turn the current "## Background Jobs" block is injected
- *     into the system prompt via `before_agent_start` so even weak
- *     models remember what's running.
+ *   - Every turn the current "## Background Jobs" block is injected as
+ *     an ephemeral `<system-reminder>` spliced into the last
+ *     user/toolResult turn via the `context` hook (not the system
+ *     prompt), so even weak models remember what's running while the
+ *     system-prompt prefix stays byte-stable for the provider's prompt
+ *     cache. See lib/node/pi/context-reminder.ts.
  *
  *   - `start` routes through the shared `bash-gate` contract, so the
  *     user's bash-permissions allow/deny rules apply to background
@@ -52,7 +55,7 @@
  * Environment:
  *   PI_BG_BASH_DISABLED=1             skip the extension entirely
  *   PI_BG_BASH_DISABLE_AUTOINJECT=1   tool still works but skip the
- *                                     before_agent_start block
+ *                                     active-jobs `context`-hook block
  *   PI_BG_BASH_MAX_INJECTED_CHARS=N   soft cap on the injected block
  *                                     (default 1500)
  *   PI_BG_BASH_MAX_BUFFER_BYTES=N     per-stream ring buffer cap
@@ -88,6 +91,7 @@ import {
   tailN,
 } from '../../../lib/node/pi/bg-bash-format.ts';
 import { formatBackgroundJobs } from '../../../lib/node/pi/bg-bash-prompt.ts';
+import { applyContextReminder, type ReminderMessage } from '../../../lib/node/pi/context-reminder.ts';
 import { requestSandboxWrap } from '../../../lib/node/pi/sandbox/wrapper-slot.ts';
 import {
   bgBashStreamCursor,
@@ -1257,24 +1261,32 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
     updateStatusline();
   });
 
+  // Refresh the captured UI reference + statusline at every turn start.
+  // Some pi actions (/fork, /resume) rebind `ctx.ui` under the hood;
+  // re-grabbing it on turn start keeps the statusline pointing at the
+  // current surface. This runs regardless of auto-injection.
+  pi.on('before_agent_start', (_event, ctx) => {
+    uiRef = ctx.ui;
+    updateStatusline();
+    return undefined;
+  });
+
   if (autoInjectEnabled) {
-    pi.on('before_agent_start', (event, ctx) => {
-      // Keep the captured UI reference fresh across session-replacement
-      // flows. Some pi actions (/fork, /resume) rebind `ctx.ui` under
-      // the hood; re-grabbing it on every turn start keeps the
-      // statusline pointing at the current surface.
-      uiRef = ctx.ui;
-      updateStatusline();
+    // Inject the running-jobs registry as an ephemeral <system-reminder>
+    // spliced into the last user/toolResult turn via the `context` hook
+    // (not the system prompt). Pi's `context` output builds only the
+    // outgoing payload and is never persisted, so the system prompt stays
+    // byte-stable - the provider's prompt-prefix cache survives job
+    // start/exit churn - and nothing accumulates. When there are no jobs
+    // to report, formatBackgroundJobs returns null and we inject nothing.
+    pi.on('context', (event) => {
       const block = formatBackgroundJobs(state, { maxChars: config.maxInjectedChars, now: Date.now() });
       if (!block) return undefined;
-      return { systemPrompt: `${event.systemPrompt}\n\n${block}` };
-    });
-  } else {
-    // Auto-inject disabled but we still want the statusline refreshed.
-    pi.on('before_agent_start', (_event, ctx) => {
-      uiRef = ctx.ui;
-      updateStatusline();
-      return undefined;
+      const messages = applyContextReminder(event.messages as unknown as ReminderMessage[], {
+        id: 'bg-jobs',
+        body: block,
+      });
+      return { messages: messages as unknown as typeof event.messages };
     });
   }
 

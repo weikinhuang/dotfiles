@@ -26,9 +26,14 @@ serialized through a promise-chain mutex so concurrent `start` calls don't stack
   instances are never persisted.
 - **Statusline.** `⊙ bg:N` slot via `ui.setStatus('bg-bash', …)`, cleared when no jobs are running. `uiRef` is refreshed
   on every `before_agent_start` to survive session-replacement flows.
-- **System-prompt injection.** `before_agent_start` appends a `## Background Jobs` block rendered by
-  [`formatBackgroundJobs`](../../../lib/node/pi/bg-bash-prompt.ts) (soft cap `PI_BG_BASH_MAX_INJECTED_CHARS`, default
-  1500).
+- **Active-jobs injection (via the `context` hook).** A `## Background Jobs` block rendered by
+  [`formatBackgroundJobs`](../../../lib/node/pi/bg-bash-prompt.ts) (soft cap `PI_BG_BASH_MAX_INJECTED_CHARS`,
+  default 1500) is spliced as an ephemeral `<system-reminder id="bg-jobs">` into the last user/toolResult turn via
+  [`applyContextReminder`](../../../lib/node/pi/context-reminder.ts), not appended to the system prompt. Pi's `context`
+  output builds only the outgoing payload and is never persisted, so the system-prompt prefix stays byte-stable - the
+  provider's prompt cache survives job start/exit churn - and nothing accumulates. When there are no running or recent
+  jobs, `formatBackgroundJobs` returns null and nothing is injected. (`uiRef` / statusline are still refreshed on
+  `before_agent_start`, which now does only that.)
 
 ## Tool: `bg_bash`
 
@@ -92,8 +97,8 @@ via `markLiveJobsTerminated` so the next runtime sees them as historical rather 
 ## Environment variables
 
 - `PI_BG_BASH_DISABLED=1` - skip the extension entirely.
-- `PI_BG_BASH_DISABLE_AUTOINJECT=1` - keep the tool but don't append `## Background Jobs` to the system prompt
-  (statusline still updates).
+- `PI_BG_BASH_DISABLE_AUTOINJECT=1` - keep the tool but don't inject `## Background Jobs` (disables the `context`-hook
+  injection; the tool, statusline, and overlay still work).
 - `PI_BG_BASH_MAX_INJECTED_CHARS=N` - soft cap on the injected block (default `1500`, floor `200`).
 - `PI_BG_BASH_MAX_BUFFER_BYTES=N` - per-stream ring-buffer cap (default `1048576`, floor `0`).
 - `PI_BG_BASH_KILL_GRACE_MS=N` - SIGTERM→SIGKILL grace window on shutdown (default `3000`, floor `0`).
@@ -140,7 +145,7 @@ per-call param > project config > user config > env knob > built-in default
 - [`../../../lib/node/pi/bg-bash-ring.ts`](../../../lib/node/pi/bg-bash-ring.ts) - `RingBuffer` with byte-cursor
   resumable `read({ sinceCursor, maxBytes })`, `tailPreview(n)`, `byteLengthTotal` / `byteLengthDropped`.
 - [`../../../lib/node/pi/bg-bash-prompt.ts`](../../../lib/node/pi/bg-bash-prompt.ts) -
-  `formatBackgroundJobs(state, { maxChars, now })` renders the system-prompt block.
+  `formatBackgroundJobs(state, { maxChars, now })` renders the active-jobs block (injected via the `context` hook).
 - [`../../../lib/node/pi/bash/gate.ts`](../../../lib/node/pi/bash/gate.ts) - `requestBashApproval`, shared with the
   built-in `bash` tool.
 - [`../../../lib/node/pi/sandbox/wrapper-slot.ts`](../../../lib/node/pi/sandbox/wrapper-slot.ts) - `requestSandboxWrap`,
