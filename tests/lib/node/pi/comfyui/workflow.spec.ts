@@ -10,10 +10,12 @@ import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
 import type { ComfyWorkflow } from '../../../../../lib/node/pi/comfyui/types.ts';
 import {
+  injectImageList,
   injectInputs,
   isComfyWorkflow,
   loadWorkflowGraph,
   randomSeed,
+  validateImageMappings,
   validateMapping,
 } from '../../../../../lib/node/pi/comfyui/workflow.ts';
 
@@ -95,6 +97,55 @@ describe('validateMapping', () => {
     const errors = validateMapping(sampleWorkflow(), map);
     expect(errors).toHaveLength(1);
     expect(errors[0]).toContain('ghost');
+  });
+});
+
+describe('injectImageList', () => {
+  const refTargets = [
+    { node: '6', key: 'image' },
+    { node: '7', key: 'image' },
+  ];
+
+  test('writes each name into its ordered slot and leaves the original untouched', () => {
+    const wf = sampleWorkflow();
+    const result = injectImageList(wf, refTargets, ['ref-a', 'ref-b']);
+    expect(result.errors).toEqual([]);
+    expect(result.workflow['6'].inputs?.image).toBe('ref-a');
+    expect(result.workflow['7'].inputs?.image).toBe('ref-b');
+    expect(wf['6'].inputs?.image).toBeUndefined();
+  });
+
+  test('fills only the supplied slots, leaving trailing slots untouched', () => {
+    const result = injectImageList(sampleWorkflow(), refTargets, ['ref-a']);
+    expect(result.errors).toEqual([]);
+    expect(result.workflow['6'].inputs?.image).toBe('ref-a');
+    expect(result.workflow['7'].inputs?.image).toBeUndefined();
+  });
+
+  test('records an error when a target node is missing from the graph', () => {
+    const result = injectImageList(sampleWorkflow(), [{ node: '404', key: 'image' }], ['ref-a']);
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0]).toContain('reference image 1');
+  });
+});
+
+describe('validateImageMappings', () => {
+  test('returns no errors when every image slot exists', () => {
+    const targets = [
+      { node: '6', key: 'image' },
+      { node: '7', key: 'image' },
+    ];
+    expect(validateImageMappings(sampleWorkflow(), targets)).toEqual([]);
+  });
+
+  test('flags each dangling image slot by index', () => {
+    const targets = [
+      { node: '6', key: 'image' },
+      { node: '404', key: 'image' },
+    ];
+    const errors = validateImageMappings(sampleWorkflow(), targets);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toContain('image 2');
   });
 });
 

@@ -393,7 +393,12 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
     cfg: Type.Optional(Type.Number({ description: 'CFG / guidance scale.' })),
     seed: Type.Optional(Type.Number({ description: 'Omit for a random seed; reuse a prior seed to reproduce.' })),
     denoise: Type.Optional(Type.Number({ description: 'Denoise strength 0-1 (img2img).' })),
-    inputImage: Type.Optional(Type.String({ description: 'Input image path (img2img workflows only).' })),
+    inputImages: Type.Optional(
+      Type.Array(Type.String(), {
+        description:
+          'Ordered reference image paths for img2img / edit workflows, e.g. ["~/in.png"]. Multi-reference edit workflows fill their slots in order; extra slots beyond the supplied images keep the graph default.',
+      }),
+    ),
     count: Type.Optional(Type.Number({ description: 'Batch size.' })),
     sendToModel: Type.Optional(
       Type.Boolean({
@@ -418,7 +423,7 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
     promptSnippet: `To create or render an image, call \`generate_image\` (workflows: ${workflowList}) instead of describing it in text.`,
     promptGuidelines: [
       "Never call ComfyUI's HTTP API (`/object_info`, `/prompt`, `/view`, …) via bash/curl/anything - `generate_image` is the only entry point; it encapsulates model and sampler choice.",
-      'Only pass `inputImage` for img2img workflows.',
+      'Only pass `inputImages` for img2img / edit workflows.',
     ],
     parameters: GenerateParams,
 

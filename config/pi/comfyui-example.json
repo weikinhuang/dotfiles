@@ -26,31 +26,31 @@
       "inputs": {
         "prompt": { "node": "6", "key": "text" },
         "negative": { "node": "7", "key": "text" },
-        "image": { "node": "10", "key": "image" },
         "denoise": { "node": "3", "key": "denoise" },
         "seed": { "node": "3", "key": "seed" },
         "steps": { "node": "3", "key": "steps" },
         "cfg": { "node": "3", "key": "cfg" }
-      }
+      },
+      "images": [{ "node": "10", "key": "image" }]
     },
     "qwen-image-edit": {
       "file": "~/.dotfiles/config/pi/comfyui/qwen-image-edit.api.json",
       "inputs": {
         "prompt": { "node": "6", "key": "prompt" },
-        "image": { "node": "41", "key": "image" },
         "seed": { "node": "3", "key": "seed" },
         "steps": { "node": "3", "key": "steps" }
-      }
+      },
+      "images": [{ "node": "41", "key": "image" }]
     },
     "flux-kontext": {
       "file": "~/.dotfiles/config/pi/comfyui/flux-kontext.api.json",
       "inputs": {
         "prompt": { "node": "6", "key": "text" },
-        "image": { "node": "41", "key": "image" },
         "cfg": { "node": "35", "key": "guidance" },
         "seed": { "node": "3", "key": "seed" },
         "steps": { "node": "3", "key": "steps" }
-      }
+      },
+      "images": [{ "node": "41", "key": "image" }]
     }
   }
 }

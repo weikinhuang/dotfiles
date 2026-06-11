@@ -18,8 +18,8 @@ and is unit-tested by [`../../../tests/lib/node/pi/comfyui/`](../../../tests/lib
 
 1. Resolve config and the named workflow (`workflow` arg, else `defaultWorkflow`).
 2. Load and validate the API-format workflow JSON for that name.
-3. For img2img, upload `inputImage` via `POST /upload/image` and reference the stored name in the workflow's mapped
-   image node.
+3. For edit / img2img, upload each `inputImages` entry via `POST /upload/image` and reference the stored names in the
+   workflow's ordered image slots.
 4. Inject the prompt / seed / dimensions / etc. into the node ids named by the workflow's input map. Omitted args keep
    the workflow file's baked-in values; an omitted `seed` becomes a fresh random seed only when the workflow maps one.
 5. Submit via `POST /prompt` with a generated `client_id`, capturing the `prompt_id`.
@@ -49,14 +49,16 @@ tool result so the model can self-correct.
 | `cfg`         | number  | CFG / guidance scale.                                                                             |
 | `seed`        | number  | Omit for a fresh random seed; pass a prior seed to reproduce.                                     |
 | `denoise`     | number  | Denoise strength (img2img), `0`-`1`.                                                              |
-| `inputImage`  | string  | Path to an input image (img2img workflows only).                                                  |
+| `inputImages` | array   | Ordered reference image paths for img2img / edit workflows, e.g. `["~/in.png"]`.                  |
 | `count`       | number  | Batch size.                                                                                       |
 | `sendToModel` | boolean | Override the `sendToModel` config default for this call.                                          |
 | `background`  | boolean | Submit and return now; collect later via `image_jobs`. Overrides the `background` config default. |
 
 Each parameter is injected only if the active workflow's input map names a node for it. Passing an arg the workflow does
-not map (or pointing `inputImage` at a workflow with no `image` mapping) returns a clear error rather than a silent
-no-op.
+not map (or passing `inputImages` to a workflow with no image slots) returns a clear error rather than a silent no-op.
+Workflows that declare more than one image slot (see `images` below) accept several ordered reference images; supplying
+more images than the workflow has slots is an error, while supplying fewer fills the slots in order and leaves the
+remaining slots at their graph-baked image.
 
 ## Background generation
 
@@ -190,29 +192,29 @@ workflow entry points at its JSON file and maps tunable names to a node id + inp
       "file": "~/.pi/agent/comfyui/img2img.api.json",
       "inputs": {
         "prompt": { "node": "6", "key": "text" },
-        "image": { "node": "10", "key": "image" },
         "denoise": { "node": "3", "key": "denoise" },
         "seed": { "node": "3", "key": "seed" },
       },
+      "images": [{ "node": "10", "key": "image" }],
     },
     "qwen-image-edit": {
       "file": "~/.pi/agent/comfyui/qwen-image-edit.api.json",
       "inputs": {
         "prompt": { "node": "6", "key": "prompt" },
-        "image": { "node": "41", "key": "image" },
         "seed": { "node": "3", "key": "seed" },
         "steps": { "node": "3", "key": "steps" },
       },
+      "images": [{ "node": "41", "key": "image" }],
     },
     "flux-kontext": {
       "file": "~/.pi/agent/comfyui/flux-kontext.api.json",
       "inputs": {
         "prompt": { "node": "6", "key": "text" },
-        "image": { "node": "41", "key": "image" },
         "cfg": { "node": "35", "key": "guidance" },
         "seed": { "node": "3", "key": "seed" },
         "steps": { "node": "3", "key": "steps" },
       },
+      "images": [{ "node": "41", "key": "image" }],
     },
     "flux2-t2i": {
       "file": "~/.pi/agent/comfyui/flux2-t2i.api.json",
@@ -231,19 +233,38 @@ workflow entry points at its JSON file and maps tunable names to a node id + inp
       "file": "~/.pi/agent/comfyui/flux2-edit.api.json",
       "inputs": {
         "prompt": { "node": "4", "key": "text" },
-        "image": { "node": "20", "key": "image" },
         "seed": { "node": "12", "key": "noise_seed" },
         "steps": { "node": "8", "key": "steps" },
         "cfg": { "node": "10", "key": "cfg" },
       },
+      "images": [{ "node": "20", "key": "image" }],
+    },
+    "flux2-edit-multi": {
+      "file": "~/.pi/agent/comfyui/flux2-edit-multi.api.json",
+      "inputs": {
+        "prompt": { "node": "4", "key": "text" },
+        "seed": { "node": "12", "key": "noise_seed" },
+        "steps": { "node": "8", "key": "steps" },
+        "cfg": { "node": "10", "key": "cfg" },
+      },
+      "images": [
+        { "node": "20", "key": "image" },
+        { "node": "30", "key": "image" },
+      ],
     },
   },
 }
 ```
 
 Export a workflow from ComfyUI with "Save (API Format)", drop it somewhere readable, and point `file` at it. The `batch`
-map key receives the tool's `count` arg; the `image` map key receives the uploaded `inputImage` name. To get the node
-ids, open the API-format JSON (its top-level keys are the node ids) or enable node-id badges in the ComfyUI canvas.
+map key receives the tool's `count` arg. To get the node ids, open the API-format JSON (its top-level keys are the node
+ids) or enable node-id badges in the ComfyUI canvas.
+
+Reference images for edit / img2img workflows are declared in a separate top-level `images` array on the workflow entry
+(a sibling of `inputs`, not a key inside it). Each element is a `{ "node", "key" }` pair naming a `LoadImage`-style
+slot. The ordered `inputImages` tool arg fills them in order: `inputImages[0]` into `images[0]`, and so on. Supplying
+more images than the workflow has slots is an error; supplying fewer fills the leading slots and leaves the trailing
+slots at the image baked into the graph file. A workflow with no `images` array rejects any `inputImages` arg.
 
 `file` resolves like every other config path: a leading `~` expands to your home dir, an absolute path is used as-is,
 and a relative path (`./local/wf.api.json`, `wf/foo.api.json`) resolves against the session cwd. Relative resolution is
@@ -255,7 +276,7 @@ a `v1-5-pruned-emaonly.safetensors` checkpoint to be installed on the server. Re
 your own graph + checkpoint as needed.
 
 Three image-to-image examples ship alongside it: [`../comfyui/img2img.api.json`](../comfyui/img2img.api.json) is the
-classic SD1.5 VAE-encode graph (note the `image` key maps the uploaded `inputImage` into the `LoadImage` node), and
+classic SD1.5 VAE-encode graph (its single `images` slot maps the uploaded image into the `LoadImage` node), and
 [`../comfyui/qwen-image-edit.api.json`](../comfyui/qwen-image-edit.api.json) is a modern instruction-edit graph
 (Qwen-Image-Edit 2511 GGUF + a 4-step Lightning LoRA). Its `prompt` is an **edit instruction** encoded by
 `TextEncodeQwenImageEditPlus`, so the map key is `prompt` (not the `text` that `CLIPTextEncode` uses). The Plus encoder
@@ -278,11 +299,19 @@ encoder via `CLIPLoaderGGUF` (`type: flux2`) alongside the `flux2-vae`.
 FLUX.2 is guided through a `CFGGuider` the example maps `cfg` there rather than at a KSampler. `width` / `height` map to
 two `PrimitiveInt` nodes (6 / 7) that feed both `Flux2Scheduler` and `EmptyFlux2LatentImage`, so a single injection
 keeps the resolution-dependent sigma shift and the latent size in lockstep.
-[`../comfyui/flux2-edit.api.json`](../comfyui/flux2-edit.api.json) is the instruction-edit variant: the uploaded `image`
+[`../comfyui/flux2-edit.api.json`](../comfyui/flux2-edit.api.json) is the instruction-edit variant: the uploaded image
 is scaled to ~1 MP, VAE-encoded, and anchored into both the positive and negative conditioning through `ReferenceLatent`
 (nodes 24 / 25), with `GetImageSize` driving the output dimensions. As with Kontext and Qwen above it runs at
 `denoise 1` (the empty latent only sets resolution), so its map exposes neither `denoise` nor `width` / `height` - the
 edit follows the source size.
+
+[`../comfyui/flux2-edit-multi.api.json`](../comfyui/flux2-edit-multi.api.json) extends that edit graph to **two**
+ordered reference images. Each reference is scaled to ~1 MP and VAE-encoded independently (nodes 20/21/23 for ref1,
+30/31/33 for ref2), then both reference latents are **stacked** through `ReferenceLatent` onto each conditioning chain -
+ref1 then ref2 on the positive chain (nodes 24 -> 26) and the same on the negative chain (nodes 25 -> 27) - so
+`CFGGuider` sees a conditioning carrying both references. Output size still follows ref1 via `GetImageSize` (node 22).
+Its `images` array has two slots (`[{node: 20}, {node: 30}]`); call it with `inputImages: ["ref1.png", "ref2.png"]`, or
+pass a single image to combine ref1 with the graph's baked ref2.
 
 Each ships in two flavours: the base graph (`flux2-t2i` / `flux2-edit`, undistilled, ~20 steps at cfg 5) and a distilled
 `*-fast` graph (`flux2-t2i-fast` / `flux2-edit-fast`, 4 steps at cfg 1) that swaps in the distilled diffusion GGUF. The

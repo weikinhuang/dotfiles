@@ -29,6 +29,14 @@ export interface WorkflowConfig {
   file: string;
   /** Maps tunable names (`prompt`, `seed`, …) to their node id + input key. */
   inputs: Record<string, InputMapping>;
+  /**
+   * Ordered reference-image slots for edit / img2img workflows. Each entry
+   * is the node id + input key of a `LoadImage` (or equivalent) node. The
+   * `inputImages` tool arg fills these in order; supplying fewer images
+   * than slots leaves the trailing slots at their graph-baked default.
+   * Absent for pure text-to-image workflows.
+   */
+  images?: InputMapping[];
 }
 
 /**

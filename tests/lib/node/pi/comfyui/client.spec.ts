@@ -315,12 +315,108 @@ describe('buildInjectedGraph', () => {
       CONN,
       wf,
       'txt2img',
-      { prompt: 'x', inputImage: '~/in.png' },
+      { prompt: 'x', inputImages: ['~/in.png'] },
       dir,
       HOME,
       noop,
       signal(),
     );
     expect(out.error).toContain('does not accept an input image');
+  });
+
+  test('uploads each reference image and injects them into ordered slots', async () => {
+    writeFileSync(join(dir, 'a.png'), 'A');
+    writeFileSync(join(dir, 'b.png'), 'B');
+    const editFile = join(dir, 'edit.json');
+    writeFileSync(
+      editFile,
+      JSON.stringify({
+        '6': { class_type: 'CLIPTextEncode', inputs: { text: 'old' } },
+        '10': { class_type: 'LoadImage', inputs: { image: 'baked1.png' } },
+        '11': { class_type: 'LoadImage', inputs: { image: 'baked2.png' } },
+      }),
+    );
+    let n = 0;
+    stubFetch((url) =>
+      url.includes('/upload/image') ? fakeResponse({ json: { name: `up-${n++}` } }) : fakeResponse({}),
+    );
+    const wf: WorkflowConfig = {
+      file: editFile,
+      inputs: { prompt: { node: '6', key: 'text' } },
+      images: [
+        { node: '10', key: 'image' },
+        { node: '11', key: 'image' },
+      ],
+    };
+    const out = await buildInjectedGraph(
+      CONN,
+      wf,
+      'edit',
+      { prompt: 'combine', inputImages: [join(dir, 'a.png'), join(dir, 'b.png')] },
+      dir,
+      HOME,
+      noop,
+      signal(),
+    );
+    expect(out.error).toBeUndefined();
+    expect(out.graph?.['10'].inputs?.image).toBe('up-0');
+    expect(out.graph?.['11'].inputs?.image).toBe('up-1');
+  });
+
+  test('rejects more reference images than the workflow has slots', async () => {
+    writeFileSync(join(dir, 'a.png'), 'A');
+    const { calls } = stubFetch(() => fakeResponse({ json: { name: 'up' } }));
+    const wf: WorkflowConfig = {
+      file: wfFile,
+      inputs: { prompt: { node: '6', key: 'text' } },
+      images: [{ node: '6', key: 'image' }],
+    };
+    const out = await buildInjectedGraph(
+      CONN,
+      wf,
+      'edit',
+      { prompt: 'x', inputImages: [join(dir, 'a.png'), join(dir, 'a.png')] },
+      dir,
+      HOME,
+      noop,
+      signal(),
+    );
+    expect(out.error).toContain('accepts at most 1 reference image');
+    expect(calls).toHaveLength(0);
+  });
+
+  test('under-supply leaves trailing slots at their baked default', async () => {
+    writeFileSync(join(dir, 'a.png'), 'A');
+    const editFile = join(dir, 'edit.json');
+    writeFileSync(
+      editFile,
+      JSON.stringify({
+        '4': { class_type: 'CLIPTextEncode', inputs: { text: 'old' } },
+        '10': { class_type: 'LoadImage', inputs: { image: 'baked1.png' } },
+        '11': { class_type: 'LoadImage', inputs: { image: 'baked2.png' } },
+      }),
+    );
+    stubFetch((url) => (url.includes('/upload/image') ? fakeResponse({ json: { name: 'up-0' } }) : fakeResponse({})));
+    const wf: WorkflowConfig = {
+      file: editFile,
+      inputs: { prompt: { node: '4', key: 'text' } },
+      images: [
+        { node: '10', key: 'image' },
+        { node: '11', key: 'image' },
+      ],
+    };
+    const out = await buildInjectedGraph(
+      CONN,
+      wf,
+      'edit',
+      { prompt: 'x', inputImages: [join(dir, 'a.png')] },
+      dir,
+      HOME,
+      noop,
+      signal(),
+    );
+    expect(out.error).toBeUndefined();
+    expect(out.graph?.['10'].inputs?.image).toBe('up-0');
+    expect(out.graph?.['11'].inputs?.image).toBe('baked2.png');
   });
 });

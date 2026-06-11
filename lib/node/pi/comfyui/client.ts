@@ -36,7 +36,7 @@ import {
 import { mimeFromName } from './images.ts';
 import type { ComfyWorkflow, ImageRef, WorkflowConfig } from './types.ts';
 import { createWaker, type Waker } from './waker.ts';
-import { injectInputs, loadWorkflowGraph, randomSeed } from './workflow.ts';
+import { injectImageList, injectInputs, loadWorkflowGraph, randomSeed } from './workflow.ts';
 
 /** A live connection to a ComfyUI server: base URL, auth headers, timeout. */
 export interface Conn {
@@ -62,7 +62,7 @@ export interface GenParams {
   cfg?: number;
   seed?: number;
   denoise?: number;
-  inputImage?: string;
+  inputImages?: string[];
   count?: number;
   sendToModel?: boolean;
   background?: boolean;
@@ -193,12 +193,18 @@ export async function buildInjectedGraph(
   const loaded = loadWorkflowGraph(wf.file, cwd, homedir);
   if (loaded.error || !loaded.graph) return { error: loaded.error ?? 'failed to load workflow' };
 
-  let uploadedName: string | undefined;
-  if (params.inputImage !== undefined) {
-    if (wf.inputs.image === undefined) return { error: `workflow "${name}" does not accept an input image` };
-    report('uploading input image…');
-    uploadedName = await uploadImage(conn, params.inputImage, homedir, signal);
+  const targets = wf.images ?? [];
+  const images = params.inputImages ?? [];
+  if (images.length > 0 && targets.length === 0) {
+    return { error: `workflow "${name}" does not accept an input image` };
   }
+  if (images.length > targets.length) {
+    return { error: `workflow "${name}" accepts at most ${targets.length} reference image(s)` };
+  }
+  if (images.length > 0) {
+    report(images.length === 1 ? 'uploading input image…' : `uploading ${images.length} reference images…`);
+  }
+  const uploadedNames = await Promise.all(images.map((path) => uploadImage(conn, path, homedir, signal)));
 
   const autoSeed = params.seed === undefined && wf.inputs.seed !== undefined ? randomSeed() : undefined;
   const seed = params.seed ?? autoSeed;
@@ -213,10 +219,11 @@ export async function buildInjectedGraph(
     width: params.width,
     height: params.height,
     batch: params.count,
-    image: uploadedName,
   });
-  if (injected.errors.length > 0) return { error: `workflow mapping error: ${injected.errors.join('; ')}` };
-  return { graph: injected.workflow, seed };
+  const withImages = injectImageList(injected.workflow, targets, uploadedNames);
+  const errors = [...injected.errors, ...withImages.errors];
+  if (errors.length > 0) return { error: `workflow mapping error: ${errors.join('; ')}` };
+  return { graph: withImages.workflow, seed };
 }
 
 /**

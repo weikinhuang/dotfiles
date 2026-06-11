@@ -122,6 +122,49 @@ export function validateMapping(workflow: ComfyWorkflow, mapping: Record<string,
 }
 
 /**
+ * Write each uploaded image name into its ordered slot: `names[i]` goes
+ * into `targets[i].node`/`.key`. The caller guarantees `names.length <=
+ * targets.length` (over-supply is rejected upstream); trailing slots with
+ * no corresponding name keep their graph-baked default. Returns the same
+ * `{ workflow, errors }` shape as {@link injectInputs} - one error per
+ * missing / invalid target node.
+ */
+export function injectImageList(workflow: ComfyWorkflow, targets: InputMapping[], names: string[]): InjectResult {
+  const clone = structuredClone(workflow);
+  const errors: string[] = [];
+
+  for (let i = 0; i < names.length; i++) {
+    const target = targets[i];
+    if (target === undefined) continue;
+    const node = clone[target.node];
+    if (node === undefined || !isObject(node.inputs)) {
+      errors.push(`workflow has no node "${target.node}" with inputs (needed for reference image ${i + 1})`);
+      continue;
+    }
+    node.inputs[target.key] = names[i];
+  }
+
+  return { workflow: clone, errors };
+}
+
+/**
+ * Check that every image slot referenced by `images` exists in
+ * `workflow`. Sibling of {@link validateMapping} for the ordered
+ * `WorkflowConfig.images` list; one error per dangling target.
+ */
+export function validateImageMappings(workflow: ComfyWorkflow, images: InputMapping[]): string[] {
+  const errors: string[] = [];
+  for (let i = 0; i < images.length; i++) {
+    const target = images[i];
+    const node = workflow[target.node];
+    if (node === undefined || !isObject(node.inputs)) {
+      errors.push(`image ${i + 1} -> node "${target.node}" not found in workflow`);
+    }
+  }
+  return errors;
+}
+
+/**
  * A fresh pseudo-random seed in `[0, 1e15)`. ComfyUI accepts 64-bit
  * seeds, but staying inside JS's safe-integer range keeps the value
  * round-trippable through JSON. `rand` is injectable for deterministic

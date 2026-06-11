@@ -133,12 +133,23 @@ function asInputMap(value: unknown): Record<string, InputMapping> | undefined {
   return out;
 }
 
+function asImageList(value: unknown): InputMapping[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const out: InputMapping[] = [];
+  for (const raw of value) {
+    const mapping = asInputMapping(raw);
+    if (mapping !== undefined) out.push(mapping);
+  }
+  return out.length > 0 ? out : undefined;
+}
+
 function asWorkflowConfig(value: unknown): WorkflowConfig | undefined {
   if (!isObject(value)) return undefined;
   const file = asString(value.file);
   if (file === undefined || file.length === 0) return undefined;
   const inputs = asInputMap(value.inputs) ?? {};
-  return { file, inputs };
+  const images = asImageList(value.images);
+  return images === undefined ? { file, inputs } : { file, inputs, images };
 }
 
 function asWorkflows(value: unknown): Record<string, WorkflowConfig> | undefined {

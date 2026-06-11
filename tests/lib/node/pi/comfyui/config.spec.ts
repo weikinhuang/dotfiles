@@ -96,6 +96,42 @@ describe('coerceConfigLayer', () => {
     });
   });
 
+  test('parses an images[] list and drops malformed entries', () => {
+    const out = coerceConfigLayer({
+      workflows: {
+        edit: {
+          file: '~/edit.json',
+          inputs: { prompt: { node: '4', key: 'text' } },
+          images: [
+            { node: '20', key: 'image' },
+            { node: '21', key: 'image' },
+            { node: '', key: 'image' },
+            { key: 'image' },
+          ],
+        },
+      },
+    });
+    expect(out.workflows).toEqual({
+      edit: {
+        file: '~/edit.json',
+        inputs: { prompt: { node: '4', key: 'text' } },
+        images: [
+          { node: '20', key: 'image' },
+          { node: '21', key: 'image' },
+        ],
+      },
+    });
+  });
+
+  test('omits images when absent or not a non-empty array', () => {
+    const noImages = coerceConfigLayer({ workflows: { t2i: { file: '~/t2i.json', inputs: {} } } });
+    expect(noImages.workflows?.t2i).toEqual({ file: '~/t2i.json', inputs: {} });
+    const emptyImages = coerceConfigLayer({
+      workflows: { t2i: { file: '~/t2i.json', inputs: {}, images: [{ node: '' }] } },
+    });
+    expect(emptyImages.workflows?.t2i).toEqual({ file: '~/t2i.json', inputs: {} });
+  });
+
   test('coerces a generation defaults block, dropping wrong-typed fields', () => {
     const out = coerceConfigLayer({
       defaults: { width: 1024, height: 1024, steps: 30, cfg: 5, denoise: 0.7, count: 2, negative: 'blurry' },
