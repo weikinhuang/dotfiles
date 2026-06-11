@@ -42,6 +42,50 @@ Every extension ships with a deep doc next to it (`bg-bash.ts` ↔ `bg-bash.md`,
 The `.md` is the long-form reference for behaviour, env vars, and rule shapes; the `.ts` is the source of truth for
 runtime behaviour. New extensions add both files **and** a row in [README.md](./README.md)'s index table in lockstep.
 
+### Auto-injecting state every turn: `context` hook vs system prompt
+
+Many extensions surface live state to the model every turn so it survives `/compact` and long contexts without the model
+having to call `list`. **Pick the delivery mechanism by the block's volatility - this is a cache-correctness decision,
+not a style choice.**
+
+- **Volatile / often-empty / per-turn-changing state** (a plan, a job registry, a budget line) → inject via the
+  **`context` hook** using [`applyContextReminder`](../../../lib/node/pi/context-reminder.ts). It splices an ephemeral
+  `<system-reminder id="...">` into the last user/toolResult turn. Pi's `context` output builds only the outgoing
+  provider payload and is **never persisted** (it operates on a `structuredClone`; the assistant reply is pushed to the
+  real, untouched message array), so the **system prompt stays byte-stable** and the provider's prompt-prefix cache
+  survives every state mutation. Nothing accumulates across turns. Return `undefined` (inject nothing) when the block is
+  empty. The shape:
+
+  ```ts
+  pi.on('context', (event) => {
+    const block = render(state); // null/undefined when there's nothing active
+    if (!block) return undefined;
+    const messages = applyContextReminder(event.messages as unknown as ReminderMessage[], {
+      id: 'my-ext',
+      body: block,
+    });
+    return { messages: messages as unknown as typeof event.messages };
+  });
+  ```
+
+  Use a **unique `id`** per extension - the helper strips only blocks carrying that id, so injectors coexist. If the old
+  `before_agent_start` handler also did per-turn side effects (refresh a captured `ctx.ui`, update a statusline), keep a
+  side-effect-only `before_agent_start` and move **only** the injection to `context` (see `bg-bash.ts`, `comfyui.ts`).
+  The `context`-hook `ctx` is the full `ExtensionContext` (e.g. `getContextUsage()` is available - see
+  `context-budget.ts`). Anchors: `todo`, `bg-bash`, `comfyui`, `scratchpad`, `context-budget`.
+
+- **Large + stable / always-present state** (e.g. saved memories) and **static prompt addenda** (persona, preset,
+  color-tags, small-model addendum, avatar emote prompt) → keep appending to the **system prompt** via
+  `before_agent_start` (return a `{ systemPrompt }` that concatenates the block onto `event.systemPrompt`). These sit in
+  the cached prefix and are billed at the cache-read rate every unchanged turn; the bust-on-change downside rarely
+  fires. **Do NOT move `memory` to the `context` hook** - an always-present block on the (uncached) tail is re-billed at
+  full rate every turn, the opposite of the win.
+
+The trap the `context` hook avoids: a volatile block in the system prompt rebuilds the prompt prefix on every mutation,
+busting the cache for the whole request. `context-budget` was the worst case (its line embeds a live token count, so it
+changed ~every turn past 50% usage). Rule of thumb: **if the block changes more often than the system prompt otherwise
+would, it belongs on the tail.**
+
 ### Lifecycle
 
 Any extension that **mounts a UI surface** (`ctx.ui.setHeader` / `setFooter` / `setWidget` / `setStatus` /
