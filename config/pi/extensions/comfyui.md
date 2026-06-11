@@ -113,8 +113,10 @@ the prompt is gone from both the server's `/history` and its `/queue` (e.g. Comf
 marks the job `error` with a resubmit hint instead of looping on `still running` forever.
 
 The registry lives only for the current pi session. Running jobs are surfaced two ways so the model does not forget
-them: a `▦ img:N` statusline indicator (via `statusline.ts`) and a `## Pending image jobs` block injected into the
-system prompt each turn. Use `/comfyui jobs` to list them yourself.
+them: a `▦ img:N` statusline indicator (via `statusline.ts`) and a `## Pending image jobs` block injected each turn as
+an ephemeral `<system-reminder id="comfyui-jobs">` spliced into the last user/toolResult turn via the `context` hook
+(not the system prompt, so the prompt-prefix cache survives job churn; nothing is injected when no jobs are running).
+Use `/comfyui jobs` to list them yourself.
 
 ## Configuration
 

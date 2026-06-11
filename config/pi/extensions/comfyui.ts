@@ -92,6 +92,7 @@ import {
   updateJob,
 } from '../../../lib/node/pi/comfyui/jobs.ts';
 import type { ComfyuiConfig, WorkflowConfig } from '../../../lib/node/pi/comfyui/types.ts';
+import { applyContextReminder, type ReminderMessage } from '../../../lib/node/pi/context-reminder.ts';
 
 // ──────────────────────────────────────────────────────────────────────
 // Types
@@ -371,14 +372,29 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
     inFlight.clear();
   });
 
-  // Remind the model about pending background jobs each turn so even a
-  // weak model remembers to collect them.
-  pi.on('before_agent_start', (event, ctx) => {
+  // Refresh the captured UI reference + statusline at every turn start
+  // (must run regardless of injection).
+  pi.on('before_agent_start', (_event, ctx) => {
     uiRef = ctx.ui;
     updateStatusline();
+    return undefined;
+  });
+
+  // Remind the model about pending image jobs each turn so even a weak
+  // model remembers to collect them. Injected as an ephemeral
+  // `<system-reminder id="comfyui-jobs">` spliced into the last
+  // user/toolResult turn via the `context` hook (not the system prompt):
+  // pi's `context` output is never persisted, so the system-prompt prefix
+  // stays byte-stable (the provider's prompt cache survives job churn) and
+  // nothing accumulates. No running jobs -> nothing injected.
+  pi.on('context', (event) => {
     const block = formatRunningBlock(registry);
     if (!block) return undefined;
-    return { systemPrompt: `${event.systemPrompt}\n\n${block}` };
+    const messages = applyContextReminder(event.messages as unknown as ReminderMessage[], {
+      id: 'comfyui-jobs',
+      body: block,
+    });
+    return { messages: messages as unknown as typeof event.messages };
   });
 
   const GenerateParams = Type.Object({
