@@ -97,6 +97,12 @@
     "class_type": "ModelPatchTorchSettings",
     "inputs": {
       "enable_fp16_accumulation": true,
+      "model": ["17", 0]
+    }
+  },
+  "17": {
+    "class_type": "Power Lora Loader (rgthree)",
+    "inputs": {
       "model": ["1", 0]
     }
   },

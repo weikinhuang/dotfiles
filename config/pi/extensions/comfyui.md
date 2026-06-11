@@ -287,7 +287,9 @@ inflates the token sequence the diffusion model processes every step - so a slow
 larger `timeoutMs` or a `background: true` submission. A smaller GGUF text-encoder quant frees VRAM for the diffusion
 model and noticeably cuts the per-step time. All four route the diffusion model through a `ModelPatchTorchSettings`
 (node 16, `enable_fp16_accumulation`) before the `CFGGuider`, which speeds up matmuls on Ampere/Ada GPUs (requires
-PyTorch >= 2.7; it is a no-op otherwise).
+PyTorch >= 2.7; it is a no-op otherwise). They also route the diffusion model through an empty
+`Power Lora Loader (rgthree)` (node 17) - a passthrough until you toggle LoRAs into its list, so model-only FLUX.2 LoRAs
+can be stacked without re-wiring the graph.
 
 ### Generation defaults
 
