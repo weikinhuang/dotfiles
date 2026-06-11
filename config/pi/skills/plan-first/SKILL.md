@@ -1,11 +1,11 @@
 ---
 name: plan-first
 description:
-  Plan multi-step work up front with the `todo` tool so the plan survives context compaction and stays visible every
-  turn. Use whenever the user's request has two or more distinct steps, touches multiple files, mixes change + verify
-  phases (e.g. "fix the bug and add a test", "refactor X and update docs"), or is exploratory work where the steps
-  aren't fully known at the start. Do NOT use for single-tool-call asks, trivial one-shot questions you can answer
-  inline, or work that's already scoped by an active `check` iteration-loop task.
+  Plan multi-step work up front with the `todo` tool so it survives context compaction and stays visible every turn. Use
+  when the user's request has two or more distinct steps, touches multiple files, mixes change + verify phases (e.g.
+  "fix the bug and add a test", "refactor X and update docs"), or is exploratory work whose steps aren't fully known at
+  the start. Do NOT use for single-tool-call asks, trivial one-shot questions you can answer inline, or work already
+  scoped by an active `check` iteration-loop task.
 ---
 
 # Plan First

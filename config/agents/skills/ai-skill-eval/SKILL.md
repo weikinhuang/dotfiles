@@ -3,10 +3,10 @@ name: ai-skill-eval
 description:
   'WHAT: Use the `ai-skill-eval` CLI to validate that an AI model (especially a small local one) actually follows a
   SKILL.md - run per-skill evals through a driver, grade TRIGGER detection + expectation match, and read the report.
-  WHEN: You have drafted or edited a SKILL.md, or a teammate wants proof a skill still works after a rewrite, or you
-  want to regression-test a whole skill set against a new model. DO-NOT: Skip writing positive + negative evals; claim a
-  skill is validated without quoting the report; rely on the deterministic keyword-match grade as the final judgment
-  when a subjective rubric is at stake - plug in `--critic-cmd` instead.'
+  WHEN: you drafted or edited a SKILL.md, want proof a skill still works after a rewrite, or want to regression-test a
+  whole skill set against a new model. DO-NOT: skip positive + negative evals; claim a skill is validated without
+  quoting the report; rely on the deterministic keyword-match grade when a subjective rubric is at stake - use
+  `--critic-cmd` instead.'
 ---
 
 # ai-skill-eval

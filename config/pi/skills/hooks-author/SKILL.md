@@ -3,9 +3,9 @@ name: hooks-author
 description:
   When to reach for a user hook (`~/.pi/agent/hooks.json` / `<repo>/.pi/hooks.json`) over an ad-hoc bash command or a
   full pi extension. Use when the user asks things like "can I run X every time pi does Y", "from now on when Z happens,
-  do W", "log every bash command", "format files after edit", "inject context into every prompt", or asks to wire a
-  Claude Code hook into pi. Do not suggest a hook for one-shot tasks, to replace a built-in gate, or for behavior that
-  needs new pi events or tool registration.
+  do W", "log every bash command", "format files after edit", "inject context into every prompt", or to wire a Claude
+  Code hook into pi. Do not suggest a hook for one-shot tasks, to replace a built-in gate, or for behavior that needs
+  new pi events or tool registration.
 ---
 
 # Hooks Author

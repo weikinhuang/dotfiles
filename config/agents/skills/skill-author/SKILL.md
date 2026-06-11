@@ -2,14 +2,12 @@
 name: skill-author
 description: >
   WHAT: Author a new skill folder (SKILL.md plus optional references/scripts/assets) when a recurring pattern in your
-  own work should carry into future sessions, and pick project-local or global scope. WHEN: Use this skill when you have
-  hit the same friction at least twice in the current session and corrected it the same way both times; when the user
-  told you to remember a procedure ("from now on do X", "always do Y before Z", "please remember", "don't do that
-  again"); or when you fixed a mistake you would predictably make again without writing the convention down. Reach for
-  this even if the user does not explicitly say "make a skill" -- the pattern would otherwise be lost at session end.
-  DO-NOT: Create a skill on a single observation; duplicate an existing skill (~70 percent description overlap means
-  edit the existing one instead); write a skill that just restates a project convention already in AGENTS.md or
-  CLAUDE.md; edit or delete skills you did not just author in this turn.
+  work should carry into future sessions; pick project-local or global scope. WHEN: you hit the same friction twice in a
+  session and corrected it the same way both times; the user tells you to remember a procedure ("from now on do X",
+  "always do Y before Z", "please remember", "don't do that again"); or you fixed a mistake you would predictably
+  repeat. Reach for this even if the user doesn't say "make a skill". DO-NOT: create a skill on a single observation;
+  duplicate an existing skill (~70% description overlap means edit it instead); restate a convention already in
+  AGENTS.md or CLAUDE.md; edit or delete skills you did not author this turn.
 ---
 
 # Skill author
