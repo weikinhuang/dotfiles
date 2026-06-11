@@ -927,7 +927,7 @@ export default function subagentExtension(pi: ExtensionAPI): void {
     modelOverride: Type.Optional(
       Type.String({
         description:
-          'Override the agent definition\'s model with `provider/modelId`. Useful for "run this explore subagent against a cheaper local model" style fan-outs.',
+          "Override the agent's model with `provider/modelId` (e.g. run an explore subagent on a cheaper local model).",
       }),
     ),
     returnFormat: Type.Optional(
@@ -947,10 +947,9 @@ export default function subagentExtension(pi: ExtensionAPI): void {
     fork: Type.Optional(
       Type.Boolean({
         description:
-          "Fork this conversation's full history into the sub-agent so it sees everything you've seen so far, " +
-          'instead of starting blank. Use when the task depends on context already in this conversation that would be ' +
-          "tedious to restate. Overrides the agent definition's `context` field. Note: fork mode runs on the parent " +
-          "model and ignores the agent's curated tool list to maximise prompt-cache reuse.",
+          "Fork this conversation's full history into the sub-agent instead of starting blank. Use when the task " +
+          "depends on context here that is tedious to restate. Runs on the parent model and ignores the agent's " +
+          'curated tool list (for prompt-cache reuse).',
       }),
     ),
     maxTurns: Type.Optional(
@@ -958,7 +957,7 @@ export default function subagentExtension(pi: ExtensionAPI): void {
         minimum: 1,
         maximum: 1000,
         description:
-          "Optional `maxTurns` cap for this dispatch. Default is whatever the agent's `.md` declares (20 for `general-purpose` as of today). Raise when delegating a known multi-file implementation that exceeds the default. Bounded by `PI_SUBAGENT_MAX_TURNS` if set.",
+          "Optional `maxTurns` cap (default: the agent's `.md`, 20 for general-purpose). Raise for large multi-file work. Bounded by `PI_SUBAGENT_MAX_TURNS`.",
       }),
     ),
   });
@@ -970,7 +969,7 @@ export default function subagentExtension(pi: ExtensionAPI): void {
     action: Type.Optional(
       Type.Union([Type.Literal('status'), Type.Literal('wait'), Type.Literal('abort')], {
         description:
-          'What to do with the referenced subagent. `status` (default when `text` is omitted) returns the latest snapshot. `wait` blocks until the child completes and returns the final answer. `abort` cancels a running child. Providing `text` without `action` steers the running child.',
+          'What to do with the subagent. `status` (default when `text` is omitted) returns the latest snapshot. `wait` blocks until the child completes. `abort` cancels a running child. Providing `text` without `action` steers it.',
       }),
     ),
     text: Type.Optional(

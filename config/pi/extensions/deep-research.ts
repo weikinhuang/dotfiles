@@ -266,7 +266,7 @@ const ResearchToolParams = Type.Object({
   model: Type.Optional(
     Type.String({
       description:
-        'Optional parent-model override in "provider/id" form (e.g. "openai/gpt-5"). Replaces the parent research session’s model; inherit-mode subagents inherit it unless they also have their own per-agent override below. Agents that pin a specific model in their .md stay pinned.',
+        'Optional parent-model override ("provider/id", e.g. "openai/gpt-5"). Inherited by subagents unless they set their own override; agents that pin a model in their .md stay pinned.',
     }),
   ),
   planCritModel: Type.Optional(
@@ -278,7 +278,7 @@ const ResearchToolParams = Type.Object({
   fanoutModel: Type.Optional(
     Type.String({
       description:
-        'Optional model override ("provider/id") for every web-researcher fanout spawn only. Takes precedence over `model`. Useful for running fanout on a cheap model while keeping a stronger parent model.',
+        'Optional model override ("provider/id") for web-researcher fanout spawns only. Takes precedence over `model`.',
     }),
   ),
   criticModel: Type.Optional(
@@ -307,7 +307,7 @@ const ResearchToolParams = Type.Object({
       minimum: 1,
       maximum: 1000,
       description:
-        "Optional cap on cross-stage review iterations (default 4). Raise when the review loop previously hit `budget-exhausted` on fixable issues (e.g. missing citations). On budget exhaustion the returned tool summary carries a closeness verdict (`Near-pass:` / `Stuck:`) and a ready-to-invoke `/research --resume --from=review --review-max-iter <N+2>` command - read the summary before deciding to call the tool again so a `Stuck:` outcome doesn't silently retry against an unsolvable report.",
+        'Optional cap on cross-stage review iterations (default 4). Raise when a prior run hit `budget-exhausted` on fixable issues (e.g. missing citations); the returned summary carries a `Near-pass:`/`Stuck:` verdict and a ready `/research --resume` command - read it before retrying.',
     }),
   ),
   fanoutParallel: Type.Optional(
@@ -315,7 +315,7 @@ const ResearchToolParams = Type.Object({
       minimum: 1,
       maximum: 64,
       description:
-        'Optional cap on simultaneous web-researcher fanout workers. Overrides the planner’s `maxSubagents` for this run only. Set to `1` when pointing fanout at a single local model (llama.cpp / Ollama) that can’t handle concurrent requests.',
+        'Optional cap on simultaneous fanout workers (overrides the planner). Set to `1` for a single local model (llama.cpp / Ollama) that can’t handle concurrent requests.',
     }),
   ),
   wallClockSec: Type.Optional(
@@ -323,7 +323,7 @@ const ResearchToolParams = Type.Object({
       minimum: 1,
       maximum: 86_400,
       description:
-        'Optional wall-clock override for the fanout, in seconds. Replaces the planner’s `wallClockSec` for this run only. Use when a local-model run legitimately needs 2h+ and the planner’s default is too tight. Clamp is 86_400 (24h).',
+        'Optional fanout wall-clock override in seconds (overrides the planner). Use for local-model runs needing 2h+. Max 86_400 (24h).',
     }),
   ),
 });

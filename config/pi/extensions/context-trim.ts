@@ -519,20 +519,17 @@ export default function contextTrimExtension(pi: ExtensionAPI): void {
   const DropImageParams = Type.Object({
     drop: Type.Optional(
       Type.Array(Type.Number(), {
-        description:
-          'Pointed: recency ordinals among the images currently in context (1 = most recent). e.g. [2] drops the 2nd-most-recent image.',
+        description: 'Recency ordinals (1 = most recent) of images to drop, e.g. [2] = 2nd-most-recent.',
       }),
     ),
     keepRecent: Type.Optional(
       Type.Number({
-        description:
-          'Batch / lump-sum: drop every image BEYOND the most recent N. Prefer this when you are done with a batch; do not tidy one stale image per turn.',
+        description: 'Drop every image beyond the most recent N.',
       }),
     ),
     summary: Type.Optional(
       Type.String({
-        description:
-          'One-line description of what the image(s) depicted. Stamped into the reversible placeholder so you (and a human) still know what was there.',
+        description: 'One-line description of what the image(s) depicted; stamped into the placeholder.',
       }),
     ),
     reason: Type.Optional(

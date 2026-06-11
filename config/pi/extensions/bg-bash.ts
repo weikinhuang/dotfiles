@@ -149,12 +149,12 @@ const BgBashParams = Type.Object({
   }),
   command: Type.Optional(
     Type.String({
-      description: 'Shell command to run in the background (required for `start`). Interpreted by /bin/sh -c.',
+      description: 'Shell command for `start`. Run via /bin/sh -c.',
     }),
   ),
   cwd: Type.Optional(
     Type.String({
-      description: 'Working directory for `start`. Absolute, or relative to the agent cwd. Defaults to the agent cwd.',
+      description: '`start` working dir (absolute or relative to agent cwd). Defaults to agent cwd.',
     }),
   ),
   label: Type.Optional(
@@ -164,8 +164,7 @@ const BgBashParams = Type.Object({
   ),
   env: Type.Optional(
     Type.Record(Type.String(), Type.String(), {
-      description:
-        'Extra environment variables for `start`. Merged on top of the agent process env; values replace existing keys.',
+      description: '`start` extra env vars, merged over the agent env (values override).',
     }),
   ),
   id: Type.Optional(
@@ -185,8 +184,7 @@ const BgBashParams = Type.Object({
   ),
   sinceCursor: Type.Optional(
     Type.Integer({
-      description:
-        '`logs` only. Opaque byte cursor returned from a prior `logs` call. Use to get only newer output since last check.',
+      description: '`logs` only. Byte cursor from a prior `logs` call; returns only newer output.',
     }),
   ),
   grep: Type.Optional(
@@ -222,11 +220,8 @@ const BgBashParams = Type.Object({
   interactiveStdin: Type.Optional(
     Type.Boolean({
       description:
-        '`start` only. When true, spawn the child with an open stdin pipe so you can drive it with action `stdin` ' +
-        '(REPLs, `sqlite3`, `python -i`, interactive installers, nested `pi -p`, etc.). ' +
-        'Default false: stdin is redirected from /dev/null so non-interactive commands that read from stdin ' +
-        '(e.g. `pi -p`, `cat`, `grep` with no args, `ssh` without `-n`) get an immediate EOF instead of hanging ' +
-        "forever waiting for input that will never come. Only set true if you're going to use action `stdin`.",
+        '`start` only. Open a stdin pipe so action `stdin` can drive the child (REPLs, `sqlite3`, `python -i`). ' +
+        'Default false: stdin is /dev/null, so commands that read stdin get EOF instead of hanging.',
     }),
   ),
 });
@@ -1301,9 +1296,7 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
       'wait (block up to timeoutMs for exit), signal (send SIGINT/SIGTERM/SIGKILL/... to the job process group), ' +
       'stdin (write to a running job - only works when the job was started with interactiveStdin=true), ' +
       'remove (drop a terminal job from the registry). ' +
-      'By default jobs run with stdin redirected from /dev/null so non-interactive commands that happen to read ' +
-      "stdin (pi's own CLI, cat, ssh, grep) don't hang waiting for EOF. Pass interactiveStdin=true on start if " +
-      'you need to feed the job input via action stdin. ' +
+      'Stdin defaults to /dev/null; pass interactiveStdin=true on start to feed input via action stdin. ' +
       'Jobs live only for the current pi session; on shutdown every live job is terminated.',
     promptSnippet:
       'Run long-lived or latency-hiding commands (test suites, dev servers, watchers, builds) in the background and check on them later.',

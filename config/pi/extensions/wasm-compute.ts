@@ -33,7 +33,7 @@ import { type ComputeBounds, DEFAULT_BOUNDS, runCompute } from '../../../lib/nod
 const ComputeParams = Type.Object({
   code: Type.String({
     description:
-      'JavaScript to evaluate. The value of the final expression is returned; use console.log(...) for intermediate output. Synchronous only - no await, no imports, no require, no fs/net. Available: Math, Date, JSON, BigInt, typed arrays, RegExp, Map/Set, plus btoa/atob, TextEncoder/TextDecoder, and sha256(input). Example: "const n = 2 ** 16; n * n".',
+      'JavaScript to evaluate; the value of the final expression is returned (use console.log for intermediate output). Available: Math, Date, JSON, BigInt, typed arrays, RegExp, Map/Set, btoa/atob, TextEncoder/TextDecoder, sha256(input). Example: "const n = 2 ** 16; n * n".',
   }),
   input: Type.Optional(
     Type.Any({

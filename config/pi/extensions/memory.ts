@@ -102,13 +102,13 @@ const MemoryParams = Type.Object({
   type: Type.Optional(
     StringEnum(['user', 'feedback', 'project', 'reference', 'note'] as const, {
       description:
-        'Memory type. Required for `save` (except session scope, which defaults to `note`). For `read`/`update`/`remove` it disambiguates when the same id exists in multiple types. `note` is exclusive to the session scope.',
+        'Memory type. Required for `save` (session scope defaults to `note`). For `read`/`update`/`remove`, disambiguates when an id exists in multiple types. `note` is session-only.',
     }),
   ),
   scope: Type.Optional(
     StringEnum(['global', 'project', 'session'] as const, {
       description:
-        'Scope. Defaults: user/feedback → global, project/reference → project, note → session. `session` is keyed to the current session and not loaded by other sessions. Required for `remove` to avoid deleting the wrong one.',
+        'Scope. Defaults: user/feedback → global, project/reference → project, note → session. `session` is not loaded by other sessions. Required for `remove`.',
     }),
   ),
   id: Type.Optional(

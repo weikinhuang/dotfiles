@@ -304,14 +304,12 @@ export default function toolCollapseExtension(pi: ExtensionAPI): void {
   const CollapseOutputParams = Type.Object({
     drop: Type.Optional(
       Type.Array(Type.Number(), {
-        description:
-          'Pointed: recency ordinals among the tool call+result pairs currently in context (1 = most recent). e.g. [2] collapses the 2nd-most-recent.',
+        description: 'Recency ordinals (1 = most recent) of pairs to collapse, e.g. [2] = 2nd-most-recent.',
       }),
     ),
     keepRecent: Type.Optional(
       Type.Number({
-        description:
-          'Batch / lump-sum: collapse every pair BEYOND the most recent N. Prefer this when you are done with a batch; do not tidy one stale result per turn.',
+        description: 'Collapse every pair beyond the most recent N.',
       }),
     ),
     toolName: Type.Optional(
