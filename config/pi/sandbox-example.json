@@ -63,10 +63,21 @@
     //
     //   "/var/run/docker.sock"  -- effectively root-equivalent;
     //                              do not allow casually.
+    //
+    // PLATFORM NOTE: the `allow` path-list is honored ONLY on macOS
+    // (sandbox-exec can match socket paths). On Linux, unix-socket
+    // access is all-or-nothing: a seccomp-bpf filter blocks every
+    // AF_UNIX socket and cannot inspect paths, so entries here are
+    // SILENTLY IGNORED (you'll see a note in `/sandbox`). To reach
+    // e.g. the docker socket on Linux you must set `allowAll` below,
+    // which opens ALL unix sockets for that bash invocation.
     "allow": []
 
-    // Bypass for users who explicitly opt out of socket sandboxing.
-    // Surfaces a startup warning when set. Off by default.
+    // Opt out of socket sandboxing entirely (skips the seccomp
+    // filter). REQUIRED on Linux to use any unix socket, including
+    // docker.sock. Coarse - allows every unix socket, not just the
+    // ones in `allow`. Surfaces a startup warning when set. Off by
+    // default.
     // "allowAll": false
   },
 

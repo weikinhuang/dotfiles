@@ -345,6 +345,19 @@ export function translateToASRT(options: TranslateToASRTOptions): TranslateToASR
   // ── network ──────────────────────────────────────────────────────
   const allowUnixSockets = sandbox.unixSockets.allow.length > 0 ? [...sandbox.unixSockets.allow] : undefined;
 
+  // ASRT honors a per-path `allowUnixSockets` list only on macOS
+  // (sandbox-exec can match socket paths). On Linux, unix-socket
+  // access is all-or-nothing, gated by a seccomp-bpf filter that
+  // cannot inspect socket paths; the path list is silently dropped
+  // and only `allowAllUnixSockets` has any effect. Surface that here
+  // so a user who allow-listed e.g. `/var/run/docker.sock` on Linux
+  // sees in `/sandbox` why their socket is still blocked.
+  if (mode === 'linux' && allowUnixSockets && allowUnixSockets.length > 0 && !sandbox.unixSockets.allowAll) {
+    lossyNotes.push(
+      `Linux: unixSockets.allow is ignored (seccomp cannot match socket paths); these entries have no effect: ${allowUnixSockets.join(', ')}. Set unixSockets.allowAll to permit unix sockets (coarse - opens all of them).`,
+    );
+  }
+
   const networkConfig: SandboxRuntimeConfig['network'] = {
     allowedDomains: [...sandbox.network.allow],
     deniedDomains: [...sandbox.network.deny],

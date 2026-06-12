@@ -177,7 +177,7 @@ describe('translateToASRT - macOS mode', () => {
         linuxRuleDepth: 3,
       },
     };
-    const { config } = translateToASRT({
+    const { config, lossyNotes } = translateToASRT({
       policy: basePolicy(),
       sandbox,
       cwd,
@@ -187,6 +187,8 @@ describe('translateToASRT - macOS mode', () => {
     expect(config.network.allowedDomains).toEqual(['github.com']);
     expect(config.network.deniedDomains).toEqual(['evil.example.com']);
     expect(config.network.allowUnixSockets).toEqual(['/var/run/foo.sock']);
+    // macOS honors the path list - no inert-socket note.
+    expect(lossyNotes.find((n) => n.includes('unixSockets.allow is ignored'))).toBeUndefined();
     expect(config.network.allowLocalBinding).toBe(true);
     expect(config.enableWeakerNestedSandbox).toBe(true);
     expect(config.enableWeakerNetworkIsolation).toBe(true);
@@ -320,6 +322,41 @@ describe('translateToASRT - Linux mode', () => {
       compiled: compiled(),
     });
     expect(lossyNotes.find((n) => n.includes('read.allow'))).toBeDefined();
+  });
+
+  test('non-empty unixSockets.allow without allowAll surfaces a lossy note', () => {
+    const sandbox: SandboxConfig = {
+      ...baseSandbox(),
+      unixSockets: { allow: ['/var/run/docker.sock'], allowAll: false },
+    };
+    const { config, lossyNotes } = translateToASRT({
+      policy: basePolicy(),
+      sandbox,
+      cwd,
+      homeDir: HOME,
+      mode: 'linux',
+      compiled: compiled(),
+    });
+    // Still propagated to the runtime config (macOS may honor it), but
+    // flagged as inert on this platform.
+    expect(config.network.allowUnixSockets).toEqual(['/var/run/docker.sock']);
+    expect(lossyNotes.find((n) => /unixSockets\.allow is ignored.*docker\.sock/.test(n))).toBeDefined();
+  });
+
+  test('unixSockets.allow with allowAll → no lossy note', () => {
+    const sandbox: SandboxConfig = {
+      ...baseSandbox(),
+      unixSockets: { allow: ['/var/run/docker.sock'], allowAll: true },
+    };
+    const { lossyNotes } = translateToASRT({
+      policy: basePolicy(),
+      sandbox,
+      cwd,
+      homeDir: HOME,
+      mode: 'linux',
+      compiled: compiled(),
+    });
+    expect(lossyNotes.find((n) => n.includes('unixSockets.allow is ignored'))).toBeUndefined();
   });
 
   test('inert basename / segment lists from the compile pass become lossy notes', () => {

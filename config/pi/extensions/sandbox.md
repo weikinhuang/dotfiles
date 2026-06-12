@@ -69,6 +69,13 @@ the unified policy:
   `/sandbox-rescan`. Default depth `3`, override via `flags.linuxRuleDepth` (clamped 1..10).
 - `~/.pi` is auto-added to `filesystem.write.allow.paths` so any extension that ever writes through a wrapped shell
   doesn't EPERM. This is cheap insurance - paths under it are pi-internal session/scratch files anyway.
+- **Unix sockets are platform-split.** `unixSockets.allow` (the path list) is honored **only on macOS**, where
+  sandbox-exec can match a socket path. On **Linux** unix-socket access is all-or-nothing: ASRT installs a seccomp-bpf
+  filter that blocks every `socket(AF_UNIX, ...)` call, and seccomp cannot inspect the path, so `unixSockets.allow`
+  entries are **silently ignored**. `config-translate.ts` still forwards the list to the runtime config (macOS may use
+  it) but emits a lossy note on Linux so `/sandbox` shows the entries had no effect. To reach a unix socket on Linux
+  (e.g. `/var/run/docker.sock`) set `unixSockets.allowAll: true`, which skips the seccomp filter for the wrapped shell -
+  coarse, since it opens **every** unix socket, not just the allow-listed ones.
 - **Carve-back relaxation.** When `filesystem.write.allow.{basenames,segments}` shadows a
   `write.deny.{basenames, segments}` entry (`filesystem.ts` honors this as allow-back inside the deny set), the matching
   kernel deny is STRIPPED before reaching ASRT - bwrap and sandbox-exec have no allow-back hook for writes, so
