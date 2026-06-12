@@ -83,7 +83,8 @@ JSONC config, layered lowest to highest:
 2. `<piAgentDir>/tts.json` (global layer)
 3. `<cwd>/.pi/tts.json` (project layer; applied **only when the project is trusted**)
 
-`PI_TTS_URL` overrides the resolved top-level `baseUrl`.
+`PI_TTS_URL` overrides the resolved top-level `baseUrl`. See [`../tts-example.json`](../tts-example.json) for a complete
+starting config (dual-instance clone + preset, emotes, auth header).
 
 ### Top-level keys
 

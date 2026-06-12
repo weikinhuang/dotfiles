@@ -1,0 +1,71 @@
+{
+  // Example tts config. Copy to ~/.pi/agent/tts.json (global) or
+  // <project>/.pi/tts.json (project layer; applied only when the project is
+  // trusted). PI_TTS_URL overrides the top-level baseUrl below.
+  //
+  // The extension is dormant until a mode is enabled: PI_RP_TTS=1 (or
+  // `/tts on`) for RP dialogue, PI_TTS_NARRATE=1 (or `/tts narrate on`) for
+  // agent-output narration. Any failure (server down, no player, synth error)
+  // degrades to a silent no-op.
+
+  // Fallback server URL (include the /v1 suffix). A voice without its own
+  // baseUrl inherits this. For the dual-instance qwen3-tts setup below, point
+  // this at the CustomVoice (preset) instance.
+  "baseUrl": "http://127.0.0.1:8881/v1",
+
+  "api": "openai", // "openai" (qwen3-tts) or legacy "gpt-sovits"
+  "model": "qwen3-tts",
+  "format": "wav",
+  "player": "paplay", // local playback command: paplay | afplay | ffplay | ...
+  "requestTimeoutMs": 180000, // generous: survives a scale-from-zero cold start
+  "maxChunkChars": 240, // narration chunk size (sentence/paragraph-bounded)
+  "maxNarrationChunks": 40, // cap on chunks (or dual-voice cues) spoken per turn
+
+  // Optional auth header; `value` supports ${ENV} interpolation.
+  // "authHeader": { "name": "Authorization", "value": "Bearer ${PI_TTS_TOKEN}" },
+
+  "voices": {
+    // A clone voice driven via /v1/audio/voice-clone. refAudio is read
+    // client-side and base64-encoded, so it must be a path on THIS machine
+    // (not the server's filesystem). refText enables higher-quality ICL.
+    // Cloning needs the Base instance, so this voice pins its own baseUrl.
+    "my-character": {
+      "kind": "clone",
+      "baseUrl": "http://127.0.0.1:8880/v1",
+      "promptLang": "en",
+      "refAudio": "~/voices/my-character/neutral.wav",
+      "refText": "A transcript of the neutral reference clip, word for word.",
+      // Optional emote-keyed reference clips. The turn's avatar emote selects
+      // the first entry whose `match` list contains it, else the default
+      // refAudio above is used.
+      "emotes": [
+        {
+          "match": ["excited", "cheer", "victory", "happy"],
+          "refAudio": "~/voices/my-character/excited.wav",
+          "refText": "An upbeat, excited reference line."
+        },
+        {
+          "match": ["sad", "tender", "calm", "gentle"],
+          "refAudio": "~/voices/my-character/soft.wav",
+          "refText": "A soft, gentle reference line."
+        }
+      ]
+    },
+
+    // A preset voice on the CustomVoice instance (inherits the top-level
+    // baseUrl). Swap `preset` to any voice the server lists, e.g. serena,
+    // vivian, ryan, aiden, alloy, echo, fable, nova, onyx, shimmer.
+    "narrator": {
+      "kind": "preset",
+      "preset": "ryan",
+      "promptLang": "en"
+    }
+  },
+
+  // Which roster voice each mode uses. They resolve endpoints independently,
+  // so RP dialogue hits the Base clone and narration hits the CustomVoice
+  // preset. Set both to the same name for a single-voice "audiobook" read
+  // (consecutive same-voice segments are coalesced into continuous prose).
+  "rpVoice": "my-character",
+  "narrationVoice": "narrator"
+}
