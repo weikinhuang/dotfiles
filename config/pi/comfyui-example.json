@@ -33,6 +33,20 @@
       },
       "images": [{ "node": "10", "key": "image" }]
     },
+    "anima": {
+      "file": "~/.dotfiles/config/pi/comfyui/anima.api.json",
+      "inputs": {
+        "prompt": { "node": "65", "key": "string" },
+        "negative": { "node": "12", "key": "text" },
+        "seed": { "node": "19", "key": "seed" },
+        "steps": { "node": "19", "key": "steps" },
+        "cfg": { "node": "19", "key": "cfg" },
+        "denoise": { "node": "19", "key": "denoise" },
+        "width": { "node": "28", "key": "width" },
+        "height": { "node": "28", "key": "height" },
+        "batch": { "node": "28", "key": "batch_size" }
+      }
+    },
     "qwen-image-edit": {
       "file": "~/.dotfiles/config/pi/comfyui/qwen-image-edit.api.json",
       "inputs": {
