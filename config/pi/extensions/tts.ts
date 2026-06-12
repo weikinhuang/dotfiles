@@ -22,13 +22,15 @@
  * -> <cwd>/.pi/tts.json (project layer only when the project is trusted).
  *
  * Environment:
- *   PI_RP_TTS=1       enable RP dialogue narration (also `/tts on`)
- *   PI_TTS_NARRATE=1  enable agent-output narration (also `/tts narrate on`)
- *   PI_TTS_URL=...    override the configured baseUrl
+ *   PI_RP_TTS=1        enable RP dialogue narration (also `/tts on`)
+ *   PI_TTS_NARRATE=1   enable agent-output narration (also `/tts narrate on`)
+ *   PI_TTS_URL=...     override the configured baseUrl
+ *   PI_TTS_DISABLED=1  skip the whole extension (no event wiring, no `/tts`)
+ *   PI_TTS_TRACE=<path> append one line per event to <path> for diagnostics
  */
 
 import { spawn, type ChildProcess } from 'node:child_process';
-import { appendFileSync, unlinkSync } from 'node:fs';
+import { unlinkSync } from 'node:fs';
 
 import type { ExtensionAPI, ExtensionContext } from '@earendil-works/pi-coding-agent';
 
@@ -50,33 +52,28 @@ import {
   planSegmentRuns,
 } from '../../../lib/node/pi/tts/text.ts';
 import type { ResolvedVoice, TtsConfig } from '../../../lib/node/pi/tts/types.ts';
+import { TTS_USAGE } from '../../../lib/node/pi/tts/usage.ts';
 
 import { completeSubverbs } from '../../../lib/node/pi/commands/complete.ts';
+import { isHelpArg } from '../../../lib/node/pi/commands/help.ts';
+import { envTruthy } from '../../../lib/node/pi/parse-env.ts';
+import { makeDiagnostics } from '../../../lib/node/pi/recovery-diagnostics.ts';
 
 // ──────────────────────────────────────────────────────────────────────
 // Env + cross-extension bus reads (live runtime state, not pure logic)
 // ──────────────────────────────────────────────────────────────────────
 
-function envTruthy(v: string | undefined): boolean {
-  if (!v) return false;
-  const s = v.trim().toLowerCase();
-  return s !== '' && s !== '0' && s !== 'false' && s !== 'no' && s !== 'off';
-}
-
 /**
- * Diagnostic log gated on `PI_TTS_DEBUG`. Appends one line per event to
- * /tmp/tts-debug.log so a silent-TTS session can be traced without a UI.
- * No-op (and never throws) when the env is unset.
+ * Per-event diagnostic trace, written one line at a time to the file named by
+ * `PI_TTS_TRACE` (the standard `_TRACE=<path>` convention). No-op - and never
+ * throws - when the env is unset, so a silent-TTS session stays diagnosable
+ * without a UI while tracing costs nothing by default.
  */
-const TTS_DEBUG = envTruthy(process.env.PI_TTS_DEBUG);
-function dlog(msg: string): void {
-  if (!TTS_DEBUG) return;
-  try {
-    appendFileSync('/tmp/tts-debug.log', `${new Date().toISOString()} ${msg}\n`);
-  } catch {
-    /* best-effort */
-  }
-}
+const { trace: dlog } = makeDiagnostics({
+  label: 'tts',
+  tracePath: process.env.PI_TTS_TRACE,
+  debug: false,
+});
 
 /**
  * Persona gate: true only when an active persona declares `roleplay: true`.
@@ -350,6 +347,8 @@ async function playSequence(st: TtsState, cfg: TtsConfig, cues: Cue[], genId: nu
 // ──────────────────────────────────────────────────────────────────────
 
 export default function ttsExtension(pi: ExtensionAPI): void {
+  if (envTruthy(process.env.PI_TTS_DISABLED)) return;
+
   const st = state();
 
   // Registration-time seed; re-pointed to the real session cwd on
@@ -475,6 +474,10 @@ export default function ttsExtension(pi: ExtensionAPI): void {
         status: { description: 'Show modes, engine, resolved voices, reachability', args: () => voiceCandidates() },
       }),
     handler: async (args, ctx) => {
+      if (isHelpArg(args)) {
+        ctx.ui.notify(TTS_USAGE, 'info');
+        return;
+      }
       const cfg = loadConfig(ctx);
       const argStr = (args ?? '').trim();
       const tokens = argStr ? argStr.split(/\s+/) : [];

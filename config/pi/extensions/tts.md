@@ -44,12 +44,13 @@ blocks are also stripped from spoken text so meta-asides are never read aloud.
 
 ## Environment variables
 
-| Var                | Effect                                                                                                          |
-| ------------------ | --------------------------------------------------------------------------------------------------------------- |
-| `PI_RP_TTS=1`      | enable RP dialogue narration (same as `/tts on`)                                                                |
-| `PI_TTS_NARRATE=1` | enable agent-output narration (same as `/tts narrate on`)                                                       |
-| `PI_TTS_URL=...`   | override the configured top-level `baseUrl` (only swaps the shared fallback URL, not a voice that pins its own) |
-| `PI_TTS_DEBUG=1`   | append a per-turn diagnostic trace to `/tmp/tts-debug.log` (see Debugging)                                      |
+| Var                   | Effect                                                                                                          |
+| --------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `PI_TTS_DISABLED=1`   | skip the whole extension (no event wiring, no `/tts` command)                                                   |
+| `PI_RP_TTS=1`         | enable RP dialogue narration (same as `/tts on`)                                                                |
+| `PI_TTS_NARRATE=1`    | enable agent-output narration (same as `/tts narrate on`)                                                       |
+| `PI_TTS_URL=...`      | override the configured top-level `baseUrl` (only swaps the shared fallback URL, not a voice that pins its own) |
+| `PI_TTS_TRACE=<path>` | append one diagnostic line per relevant event to the file at `<path>` (see Debugging)                           |
 
 ## `/tts` command
 
@@ -129,7 +130,9 @@ starting config (dual-instance clone + preset, emotes, auth header).
 - Voice names resolve case-insensitively (exact match first, then lowercase).
 - `clone:Name` as an `rpVoice` / `narrationVoice` value forces clone treatment.
 - `refAudio` is read on the client and base64-encoded, so it must be a path on **this** machine, not the server's
-  filesystem.
+  filesystem. A relative path resolves against the directory of the `tts.json` that declares it (`<piAgentDir>/` for the
+  global file, `<cwd>/.pi/` for a project file), and a leading `~` / `~/` expands to your home directory. (Resolution
+  applies to the `openai` clone path; `gpt-sovits` ref paths are sent to the server as-is.)
 - Emotes: the avatar bus emote for the turn selects a matching reference clip; the first `match` array containing the
   emote wins, else the voice's default `refAudio` is used.
 
@@ -165,11 +168,12 @@ Because `rpVoice` and `narrationVoice` resolve their endpoints independently, th
   -> 1 s backoff. A non-retryable status (`4xx` / `500`, e.g. preset-on-Base) fails fast. The request's own timeout is
   not retried.
 - **Visible failures:** a failed synth carries the HTTP status plus a truncated response-body snippet, surfaced in the
-  `PI_TTS_DEBUG` trace.
+  `PI_TTS_TRACE` trace.
 
 ## Debugging
 
-Set `PI_TTS_DEBUG=1` and the extension appends one line per relevant event to `/tmp/tts-debug.log`:
+Set `PI_TTS_TRACE=<path>` (e.g. `PI_TTS_TRACE=/tmp/tts-trace.log`) and the extension appends one `[tts] ...` line per
+relevant event to that file:
 
 - `message_end role=... rpEnabled=... narrate=... roleplay=... paused=...` - the gate state for the turn.
 - `RP branch: dialogueLen=... sample="..."` - whether `extractDialogue` found quoted text.

@@ -20,6 +20,9 @@
  * dotfiles these flip to relative (`../fs-safe.ts`, `../pi-paths.ts`).
  */
 
+import { homedir } from 'node:os';
+import { dirname, isAbsolute, resolve } from 'node:path';
+
 import { readJsoncOrUndefined } from '../fs-safe.ts';
 import { piAgentPath, piProjectPath } from '../pi-paths.ts';
 
@@ -360,6 +363,54 @@ export function pickReference(voice: VoiceConfig, emote: string | undefined): Re
 }
 
 // ──────────────────────────────────────────────────────────────────────
+// Reference-audio path resolution
+// ──────────────────────────────────────────────────────────────────────
+
+/**
+ * Resolve a configured filesystem path against the directory of the config
+ * file that declared it. A leading `~` / `~/` expands to the home directory,
+ * an already-absolute path is returned untouched, and a relative path resolves
+ * against `baseDir`. Pure: `home` is injectable so tests need no real homedir.
+ */
+export function resolveConfigPath(path: string, baseDir: string, home: string = homedir()): string {
+  if (path === '~') return home;
+  if (path.startsWith('~/')) return resolve(home, path.slice(2));
+  if (isAbsolute(path)) return path;
+  return resolve(baseDir, path);
+}
+
+/** Return a copy of `voice` with `refAudio` (and each emote clip) resolved. */
+function resolveVoicePaths(voice: VoiceConfig, baseDir: string, home: string): VoiceConfig {
+  const out: VoiceConfig = { ...voice };
+  if (out.refAudio !== undefined) out.refAudio = resolveConfigPath(out.refAudio, baseDir, home);
+  if (out.emotes !== undefined) {
+    out.emotes = out.emotes.map((e) => ({ ...e, refAudio: resolveConfigPath(e.refAudio, baseDir, home) }));
+  }
+  return out;
+}
+
+/**
+ * Return a copy of a coerced layer with every voice's reference-audio path
+ * resolved against `baseDir` (the directory of the config file the layer was
+ * read from), via {@link resolveConfigPath}. A layer with no `voices` passes
+ * through unchanged. Does not mutate the input. Only the `openai` clone path
+ * reads `refAudio` client-side, so the caller applies this for that engine
+ * only - `gpt-sovits` ref paths are server-side and left as-is.
+ */
+export function resolveLayerVoicePaths(
+  layer: Partial<TtsConfig>,
+  baseDir: string,
+  home: string = homedir(),
+): Partial<TtsConfig> {
+  if (layer.voices === undefined) return layer;
+  const voices: Record<string, VoiceConfig> = {};
+  for (const [name, voice] of Object.entries(layer.voices)) {
+    voices[name] = resolveVoicePaths(voice, baseDir, home);
+  }
+  return { ...layer, voices };
+}
+
+// ──────────────────────────────────────────────────────────────────────
 // Disk wiring
 // ──────────────────────────────────────────────────────────────────────
 
@@ -373,7 +424,18 @@ export function pickReference(voice: VoiceConfig, emote: string | undefined): Re
  * `ctx.isProjectTrusted()`: pass `includeProject: false` to skip it.
  */
 export function loadTtsConfig(cwd: string, includeProject = true): TtsConfig {
-  const userLayer = coerceConfigLayer(readJsoncOrUndefined(piAgentPath('tts.json')));
-  const projectLayer = includeProject ? coerceConfigLayer(readJsoncOrUndefined(piProjectPath(cwd, 'tts.json'))) : {};
-  return mergeConfigLayers(userLayer, projectLayer);
+  const userPath = piAgentPath('tts.json');
+  const projectPath = piProjectPath(cwd, 'tts.json');
+  const userLayer = coerceConfigLayer(readJsoncOrUndefined(userPath));
+  const projectLayer = includeProject ? coerceConfigLayer(readJsoncOrUndefined(projectPath)) : {};
+  const merged = mergeConfigLayers(userLayer, projectLayer);
+
+  // Only the openai clone path reads `refAudio` client-side: resolve each
+  // layer's relative clip paths against the directory of the file that
+  // declared them. gpt-sovits ref paths are server-side, so leave them alone.
+  if (merged.api !== 'openai') return merged;
+  return mergeConfigLayers(
+    resolveLayerVoicePaths(userLayer, dirname(userPath)),
+    resolveLayerVoicePaths(projectLayer, dirname(projectPath)),
+  );
 }
