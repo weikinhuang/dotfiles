@@ -320,11 +320,57 @@ Each ships in two flavours: the base graph (`flux2-t2i` / `flux2-edit`, undistil
 distilled variants are the practical interactive default; the base edit in particular is heavy - the reference image
 inflates the token sequence the diffusion model processes every step - so a slow or VRAM-constrained server may need a
 larger `timeoutMs` or a `background: true` submission. A smaller GGUF text-encoder quant frees VRAM for the diffusion
-model and noticeably cuts the per-step time. All four route the diffusion model through a `ModelPatchTorchSettings`
+model and noticeably cuts the per-step time. All five route the diffusion model through a `ModelPatchTorchSettings`
 (node 16, `enable_fp16_accumulation`) before the `CFGGuider`, which speeds up matmuls on Ampere/Ada GPUs (requires
 PyTorch >= 2.7; it is a no-op otherwise). They also route the diffusion model through an empty
 `Power Lora Loader (rgthree)` (node 17) - a passthrough until you toggle LoRAs into its list, so model-only FLUX.2 LoRAs
 can be stacked without re-wiring the graph.
+
+### torch.compile on the FLUX.2 graphs
+
+All five FLUX.2 graphs additionally route the diffusion model through a `TorchCompileModelAdvanced` (node 18, from
+[ComfyUI-KJNodes](https://github.com/kijai/ComfyUI-KJNodes)) between `ModelPatchTorchSettings` (node 16) and the
+`CFGGuider` (node 10). On a warm compile this is a large, **lossless** speedup (`torch.compile` is numerically
+equivalent): text-to-image at 1024x1024 / 4 steps drops from ~32s to ~10s (about 3x), and the edit graphs from ~25s to
+~14-20s. It carries real prerequisites, so the node is the first thing to remove (repoint node 10's `model` back to
+`["16", 0]`) if you run these graphs on a different server:
+
+- **ComfyUI-KJNodes must be installed** - `TorchCompileModelAdvanced` is a KJNodes node; without it the graph fails to
+  load.
+- **The server must use a compile-traceable attention backend.** Launch ComfyUI **without** `--use-flash-attention` so
+  it falls back to native PyTorch SDPA. The custom flash-attention op ships an incorrect meta (fake) kernel, so
+  `torch.compile` raises a stride error at the sampler the moment it traces attention; SDPA traces cleanly (and here
+  benchmarked slightly faster than flash-attention even uncompiled).
+- **`disable_dynamic_vram: true` is required when the server runs a dynamic weight offloader** such as
+  [`comfy-aimdo`](https://github.com/Comfy-Org/comfy-aimdo), which virtualizes VRAM by paging weights between GPU and
+  host RAM. The pager rewrites weight pointers every step, which busts `torch.compile`'s guards and forces a recompile
+  on every render (`recompile_limit` churn). The flag clones the model down to a plain `ModelPatcher` (no paging) before
+  compiling - see the maintainer note in [comfy-aimdo#13](https://github.com/Comfy-Org/comfy-aimdo/issues/13). The
+  compiled model must then fit in physical VRAM: the GGUF Q6_K klein peaks ~9.5 GB (incl. the Qwen3 encoder +
+  activations), comfortable on a 16 GB card. Pair it with a low `--reserve-vram` (e.g. `0.25`) so the loader keeps the
+  model resident instead of streaming it.
+- `compile_transformer_blocks_only: true` compiles just the diffusion transformer blocks (faster, more robust compile);
+  `dynamic: "false"` and `dynamo_cache_size_limit: 64` are the validated defaults.
+
+**Cold vs warm, and restarts.** The first render at each distinct resolution (and the first after any server restart)
+pays a one-time compile of ~30-200s (heavier for the edit graphs, heaviest for the two-reference `flux2-edit-multi`);
+every later render at that resolution is warm. The compiled artifacts do **not** reliably survive a process restart:
+torch's on-disk `FxGraphCache` key is unstable across processes for this lazy per-block compile, and even the portable
+Mega-Cache (`torch.compiler.save_cache_artifacts` / `load_cache_artifacts`) only partially reattaches - so budget one
+cold compile per resolution after each pod restart. Pointing `TORCHINDUCTOR_CACHE_DIR` at a persistent volume is still
+worthwhile (it keeps the Triton kernel cache warm and survives restarts) but does not by itself produce a warm first
+render.
+
+**fp8 instead of GGUF (optional, needs VRAM).** Swapping `UnetLoaderGGUF` (node 1) for a `UNETLoader` pointed at an fp8
+`safetensors` klein (`weight_dtype: default`) compiles even cleaner: GGUF's `GGMLTensor` wrapper carries a custom
+`tensor_shape` attribute that triggers extra recompiles on the edit graphs' variable-length reference sequence, which
+fp8's plain tensors avoid (edit warms to ~14s vs ~20s on GGUF). The cost is VRAM - the fp8 model is ~8.8 GB on disk and
+the edit working set peaks ~12 GB, so it is tight on a 16 GB card (it fits resident with `--reserve-vram 0.25` but
+leaves little margin for larger reference images or batches). The shipped graphs use GGUF for that headroom; switch to
+fp8 if you have the VRAM to spare.
+
+`anima` is deliberately left uncompiled: it is a small, sampling-dominated model where `torch.compile` measured
+break-even, so the compile node would only add a cold-start cost for no throughput gain.
 
 ### Generation defaults
 

@@ -51,7 +51,7 @@
   "10": {
     "class_type": "CFGGuider",
     "inputs": {
-      "model": ["16", 0],
+      "model": ["18", 0],
       "positive": ["26", 0],
       "negative": ["27", 0],
       "cfg": 5
@@ -182,6 +182,23 @@
     "inputs": {
       "pixels": ["31", 0],
       "vae": ["3", 0]
+    }
+  },
+  "18": {
+    "class_type": "TorchCompileModelAdvanced",
+    "inputs": {
+      "backend": "inductor",
+      "fullgraph": false,
+      "mode": "default",
+      "dynamic": "false",
+      "compile_transformer_blocks_only": true,
+      "dynamo_cache_size_limit": 64,
+      "debug_compile_keys": false,
+      "disable_dynamic_vram": true,
+      "model": ["16", 0]
+    },
+    "_meta": {
+      "title": "torch.compile via KJNodes TorchCompileModelAdvanced; requires SDPA backend (not --use-flash-attention) and ComfyUI-KJNodes installed"
     }
   }
 }
