@@ -1,0 +1,50 @@
+{
+  // Example config for the `checkpoint` extension. Copy to one of:
+  //   <project>/.pi/checkpoint.json   (project-scoped, wins)
+  //   ~/.pi/agent/checkpoint.json     (user-global)
+  // The file is OPTIONAL - every key below is a built-in default, so an
+  // absent file behaves exactly like this one. Per-key precedence:
+  //   project .pi/checkpoint.json > user <agentDir>/checkpoint.json > env > default
+  // (the nested `full` block deep-merges across layers).
+
+  // Snapshot strategy.
+  //   "tool" (default): snapshot before/after bytes of files the write tools
+  //                     touch. No git; never reasons about gitignore.
+  //   "full":           also snapshot the whole work-tree per message via a
+  //                     side git-dir, so bash-made changes (sed -i, mv,
+  //                     redirects) are reversible too.
+  "mode": "tool",
+
+  // What happens when tree navigation / fork lands on a point whose code differs.
+  //   "review" (default): auto-open the interactive review when the plan is
+  //                       non-empty; an empty plan is a silent no-op.
+  //   "auto":             apply the default-checked files without prompting.
+  //   "off":              only surface the out-of-sync widget; never auto-open.
+  "autoReviewOnNavigate": "review",
+
+  // Run the same review after a fork lands (false = fork is conversation-only).
+  "reviewOnFork": true,
+
+  // Review-list row defaults.
+  "hideNoOpRows": true, // hide files already at the target state
+  "conflictRowsDefaultChecked": false, // out-of-band-changed files are opt-in (unchecked)
+
+  // Per-file capture cap (tool mode): files larger than this are skipped and
+  // left non-restorable. 5 MB.
+  "maxFileBytes": 5242880,
+
+  // Prune blobs + manifests older than this many days on session_start.
+  // 0 = keep forever.
+  "retentionDays": 30,
+
+  // Surface "code ahead of conversation - /rewind" when a partial/cancelled
+  // restore leaves disk out of sync with the conversation leaf.
+  "showOutOfSyncWidget": true,
+
+  // full-mode only (ignored unless mode == "full").
+  "full": {
+    "maxStagedFiles": 5000, // skip the per-message tree snapshot if `git add -A` would stage more files
+    "maxStagedBytes": 268435456, // 256 MB backstop behind the .gitignore exclusion
+    "confirmClean": true // require confirmation before the `git clean -fd` step on restore
+  }
+}
