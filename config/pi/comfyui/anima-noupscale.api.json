@@ -10,7 +10,7 @@
   },
   "8": {
     "inputs": {
-      "samples": ["51", 0],
+      "samples": ["19", 0],
       "vae": ["15", 0]
     },
     "class_type": "VAEDecode",
@@ -95,35 +95,6 @@
     "class_type": "CLIPLoader",
     "_meta": {
       "title": "Load CLIP"
-    }
-  },
-  "50": {
-    "inputs": {
-      "upscale_method": "bislerp",
-      "scale_by": 1.5,
-      "samples": ["19", 0]
-    },
-    "class_type": "LatentUpscaleBy",
-    "_meta": {
-      "title": "Hires Latent Upscale"
-    }
-  },
-  "51": {
-    "inputs": {
-      "seed": 770011,
-      "steps": 12,
-      "cfg": 1,
-      "sampler_name": "euler",
-      "scheduler": "beta",
-      "denoise": 0.5,
-      "model": ["90", 0],
-      "positive": ["11", 0],
-      "negative": ["12", 0],
-      "latent_image": ["50", 0]
-    },
-    "class_type": "KSampler",
-    "_meta": {
-      "title": "Hires KSampler (pass 2)"
     }
   },
   "64": {

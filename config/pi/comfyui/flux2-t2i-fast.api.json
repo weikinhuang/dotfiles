@@ -125,9 +125,9 @@
       "backend": "inductor",
       "fullgraph": false,
       "mode": "default",
-      "dynamic": "false",
+      "dynamic": "true",
       "compile_transformer_blocks_only": true,
-      "dynamo_cache_size_limit": 64,
+      "dynamo_cache_size_limit": 128,
       "debug_compile_keys": false,
       "disable_dynamic_vram": true,
       "model": ["16", 0]

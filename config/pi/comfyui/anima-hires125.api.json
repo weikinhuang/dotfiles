@@ -100,7 +100,7 @@
   "50": {
     "inputs": {
       "upscale_method": "bislerp",
-      "scale_by": 1.5,
+      "scale_by": 1.25,
       "samples": ["19", 0]
     },
     "class_type": "LatentUpscaleBy",
