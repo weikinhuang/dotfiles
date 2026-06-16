@@ -494,6 +494,30 @@ export default function checkpoint(pi: ExtensionAPI): void {
     return applied;
   }
 
+  /**
+   * Full mode only: after restoring the selected files, offer to remove files
+   * created since the target snapshot that were never checkpointed (untracked
+   * in the side repo, so the `git diff` review can't see them). Scoped to the
+   * parent dirs of the applied files, `git clean -fd` (never `-x`, so ignored
+   * files are safe), confirmation-gated with a preview of exactly what would
+   * be removed. Skipped headless when a confirm is required (can't prompt).
+   */
+  async function fullModeClean(ctx: ExtensionContext, appliedPaths: string[]): Promise<void> {
+    if (cfg.mode !== 'full' || appliedPaths.length === 0) return;
+    const gd = sideGitDir();
+    const dirs = [...new Set(appliedPaths.map((p) => dirname(p) || '.'))];
+    const preview = git.parseCleanDryRun(gitText(git.cleanDryRunArgs(gd, ctx.cwd, dirs), ctx.cwd).stdout);
+    if (preview.length === 0) return;
+    if (cfg.full.confirmClean) {
+      if (!ctx.hasUI) return; // can't confirm headless → leave created-since files alone
+      const head = preview.slice(0, 20).join('\n');
+      const more = preview.length > 20 ? `\n…and ${preview.length - 20} more` : '';
+      const ok = await ctx.ui.confirm(`Remove ${preview.length} file(s) created since the snapshot?`, `${head}${more}`);
+      if (!ok) return;
+    }
+    gitText(git.cleanArgs(gd, ctx.cwd, dirs), ctx.cwd);
+  }
+
   /** Set or clear the "code ahead of conversation" widget based on residual drift. */
   function updateWidget(ctx: ExtensionContext, leftover: number): void {
     if (!ctx.hasUI || !cfg.showOutOfSyncWidget) return;
@@ -536,6 +560,10 @@ export default function checkpoint(pi: ExtensionAPI): void {
     if (cfg.autoReviewOnNavigate === 'auto' || !ctx.hasUI) {
       const sel = rows.filter((r) => r.checked).map((r) => r.target);
       applySelected(ctx, sel);
+      await fullModeClean(
+        ctx,
+        sel.map((t) => t.path),
+      );
       const leftover = buildReview(ctx, oldLeafId, newLeafId).filter((r) => r.status !== 'no-op').length;
       updateWidget(ctx, leftover);
       return;
@@ -546,7 +574,13 @@ export default function checkpoint(pi: ExtensionAPI): void {
     }
 
     const selected = await openOverlay(ctx, rows);
-    if (selected && selected.length > 0) applySelected(ctx, selected);
+    if (selected && selected.length > 0) {
+      applySelected(ctx, selected);
+      await fullModeClean(
+        ctx,
+        selected.map((t) => t.path),
+      );
+    }
     // Recompute residual drift against the destination to drive the widget.
     const leftover = buildReview(ctx, oldLeafId, newLeafId).filter((r) => r.status !== 'no-op').length;
     updateWidget(ctx, leftover);
