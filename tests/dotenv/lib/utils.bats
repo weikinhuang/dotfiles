@@ -296,6 +296,18 @@ EOF
   [ "$(find "${DOTFILES__CONFIG_DIR}/cache" -maxdepth 1 -name 'ok.init.bash.*' | wc -l)" -eq 0 ]
 }
 
+@test "utils: cache-write-atomic writes through set -o noclobber" {
+  local cache_file="${DOTFILES__CONFIG_DIR}/cache/noclobber.init.bash"
+
+  set -o noclobber
+  run internal::cache-write-atomic "${cache_file}" "printf '%s' hello-world"
+  set +o noclobber
+  assert_success
+
+  [ "$(cat "${cache_file}")" = "hello-world" ]
+  [ "$(find "${DOTFILES__CONFIG_DIR}/cache" -maxdepth 1 -name 'noclobber.init.bash.*' | wc -l)" -eq 0 ]
+}
+
 @test "utils: cache-write-atomic fails quietly when the cache directory cannot be created" {
   local blocked_root="${BATS_TEST_TMPDIR}/blocked"
   local cache_file="${blocked_root}/cache/demo-tool.init.bash"

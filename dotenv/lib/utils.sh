@@ -178,7 +178,9 @@ function internal::cache-write-atomic() {
 
   internal::cache-dir-prepare "${cache_file}" || return 1
   tmp_file="$(mktemp "${cache_file}.XXXXXX" 2>/dev/null)" || return 1
-  if eval "$gen_cmd" 2>/dev/null >"${tmp_file}"; then
+  # `>|` forces the write past `set -o noclobber`; mktemp already created the
+  # file, so a plain `>` would fail under noclobber and never populate the cache.
+  if eval "$gen_cmd" 2>/dev/null >|"${tmp_file}"; then
     if mv -f "${tmp_file}" "${cache_file}" 2>/dev/null; then
       return 0
     fi
