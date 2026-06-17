@@ -27,9 +27,10 @@
  *   PI_CHECKPOINT_DISABLE_FULL=1   force `mode: "tool"` regardless of config
  */
 
-import { execFileSync } from 'node:child_process';
+import { execFile, execFileSync } from 'node:child_process';
 import { mkdirSync, readFileSync, realpathSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { dirname, isAbsolute, resolve } from 'node:path';
+import { promisify } from 'node:util';
 
 import {
   type ExtensionAPI,
@@ -44,7 +45,7 @@ import { type Component, Key, matchesKey, truncateToWidth } from '@earendil-work
 import { isHelpArg } from '../../../lib/node/pi/commands/help.ts';
 import { capturePaths } from '../../../lib/node/pi/checkpoint/capture.ts';
 import { rewindCompletions } from '../../../lib/node/pi/checkpoint/complete.ts';
-import { type CheckpointConfig, loadCheckpointConfig } from '../../../lib/node/pi/checkpoint/config.ts';
+import { type CheckpointConfig, DEFAULT_CONFIG, loadCheckpointConfig } from '../../../lib/node/pi/checkpoint/config.ts';
 import { classifyFile } from '../../../lib/node/pi/checkpoint/conflict.ts';
 import { countDiff, formatDiffForRender, unifiedDiffLines } from '../../../lib/node/pi/checkpoint/diff.ts';
 import * as git from '../../../lib/node/pi/checkpoint/gitsnap.ts';
@@ -110,6 +111,19 @@ function gitText(args: string[], cwd: string): { ok: boolean; stdout: string } {
 function gitBytes(args: string[], cwd: string): Buffer | undefined {
   try {
     return execFileSync('git', args, { cwd, maxBuffer: 256 * 1024 * 1024, stdio: ['ignore', 'pipe', 'ignore'] });
+  } catch {
+    return undefined;
+  }
+}
+
+const execFileAsync = promisify(execFile);
+
+// Async git for the boot-path-deferred rebuild. execFile buffers stderr (never
+// inherits), so a non-git cwd's "fatal: not a git repository" can't leak.
+async function gitTextAsync(args: string[], cwd: string): Promise<string | undefined> {
+  try {
+    const { stdout } = await execFileAsync('git', args, { cwd, maxBuffer: 8 * 1024 * 1024 });
+    return stdout;
   } catch {
     return undefined;
   }
@@ -309,9 +323,15 @@ export default function checkpoint(pi: ExtensionAPI): void {
   const disableFull = envTruthy(process.env.PI_CHECKPOINT_DISABLE_FULL);
 
   // ── session-scoped state (rebuilt on session_start, dropped on shutdown) ──
-  let cfg: CheckpointConfig = loadCheckpointConfig(process.cwd(), disableFull);
+  // cfg starts at the built-in defaults with NO disk I/O - the real config +
+  // store + manifest index load on session_start, deferred off the boot path
+  // (see scheduleRebuild). `configLoaded` guards the lazy sync fallback.
+  let cfg: CheckpointConfig = { ...DEFAULT_CONFIG, full: { ...DEFAULT_CONFIG.full } };
+  let configLoaded = false;
   let storeDir = '';
   let projectRoot = '';
+  /** Resolves when the background rebuild (config + store + index) has finished. */
+  let ready: Promise<void> = Promise.resolve();
   /** Manifest index, keyed by anchor entry id. */
   const manifests = new Map<string, CheckpointManifest>();
   /** The open manifest for the in-flight user message. */
@@ -331,11 +351,9 @@ export default function checkpoint(pi: ExtensionAPI): void {
     anchorIds = [...manifests.values()].sort((a, b) => b.timestamp - a.timestamp).map((m) => m.leafEntryId);
   }
 
-  // ── project key + store resolution ──────────────────────────────────────
+  // ── project key + store resolution (deferred off the boot path) ──────────
 
-  function resolveProjectRoot(cwd: string): string {
-    const r = gitText(['rev-parse', '--show-toplevel'], cwd);
-    if (r.ok && r.stdout.trim()) return r.stdout.trim();
+  function projectRootFallback(cwd: string): string {
     try {
       return realpathSync(cwd);
     } catch {
@@ -343,17 +361,67 @@ export default function checkpoint(pi: ExtensionAPI): void {
     }
   }
 
-  function rebuild(cwd: string): void {
-    cfg = loadCheckpointConfig(cwd, disableFull);
-    projectRoot = resolveProjectRoot(cwd);
-    storeDir = checkpointStoreDir(deriveProjectKey(projectRoot));
-    manifests.clear();
-    for (const m of listManifests(storeDir)) manifests.set(m.leafEntryId, m);
-    pruneOldManifests(storeDir, cfg.retentionDays);
-    // pruning may have removed manifests; re-read the survivors.
+  /** Re-read the on-disk manifests into the in-memory index. */
+  function reloadIndex(): void {
     manifests.clear();
     for (const m of listManifests(storeDir)) manifests.set(m.leafEntryId, m);
     refreshAnchorIds();
+  }
+
+  /**
+   * Synchronous fallback that loads only the essentials (config + storeDir) a
+   * capture needs. Normally a no-op because {@link scheduleRebuild} already set
+   * them; it only does real work in the rare race where a tool runs before the
+   * background rebuild finished. Spawns git synchronously then - at message
+   * time, never at boot.
+   */
+  function ensureEssentialsSync(cwd: string): void {
+    if (!configLoaded) {
+      cfg = loadCheckpointConfig(cwd, disableFull);
+      configLoaded = true;
+    }
+    if (!storeDir) {
+      const r = gitText(['rev-parse', '--show-toplevel'], cwd);
+      const root = r.ok && r.stdout.trim() ? r.stdout.trim() : projectRootFallback(cwd);
+      projectRoot = root;
+      storeDir = checkpointStoreDir(deriveProjectKey(root));
+    }
+  }
+
+  /**
+   * Kick off the config + store + manifest-index load in the background and
+   * return immediately, so `session_start` never blocks pi's boot on a git
+   * spawn, a manifest-dir scan, or a retention sweep. Retention pruning is
+   * detached one level deeper (lowest priority - nothing awaits it).
+   */
+  function scheduleRebuild(cwd: string): void {
+    ready = (async () => {
+      cfg = loadCheckpointConfig(cwd, disableFull);
+      configLoaded = true;
+      const stdout = await gitTextAsync(['rev-parse', '--show-toplevel'], cwd);
+      projectRoot = stdout?.trim() ? stdout.trim() : projectRootFallback(cwd);
+      storeDir = checkpointStoreDir(deriveProjectKey(projectRoot));
+      reloadIndex();
+    })().catch(() => {
+      /* best-effort: a navigation/rewind will lazily ensure essentials */
+    });
+    void ready.then(() => {
+      try {
+        pruneOldManifests(storeDir, cfg.retentionDays);
+        reloadIndex();
+      } catch {
+        /* prune is maintenance; ignore failures */
+      }
+    });
+  }
+
+  /** Await the background rebuild; lazily backfill essentials + index if it failed. */
+  async function ensureReady(cwd: string): Promise<void> {
+    await ready;
+    if (!storeDir) {
+      ensureEssentialsSync(cwd);
+      reloadIndex();
+    }
   }
 
   // ── full-mode snapshot ────────────────────────────────────────────────────
@@ -591,11 +659,17 @@ export default function checkpoint(pi: ExtensionAPI): void {
   // ──────────────────────────────────────────────────────────────────────────
 
   pi.on('session_start', (event, ctx) => {
-    rebuild(ctx.cwd);
+    // Boot path: kick off the config + store + index load in the background and
+    // return immediately. Nothing heavy (git spawn, manifest scan, retention
+    // sweep) runs synchronously here.
+    scheduleRebuild(ctx.cwd);
     // After a fork lands, treat it like navigation: restore code to match the
-    // fork point so the new branch starts in sync (honors reviewOnFork).
-    if (event.reason === 'fork' && cfg.reviewOnFork) {
-      void runReview(ctx, null, ctx.sessionManager.getLeafId());
+    // fork point so the new branch starts in sync (honors reviewOnFork). Wait
+    // for the index first, off the boot path.
+    if (event.reason === 'fork') {
+      void ensureReady(ctx.cwd).then(() => {
+        if (cfg.reviewOnFork) return runReview(ctx, null, ctx.sessionManager.getLeafId());
+      });
     }
   });
 
@@ -605,6 +679,10 @@ export default function checkpoint(pi: ExtensionAPI): void {
       pending = undefined;
       return;
     }
+    // Ensure config + storeDir are resolved before we capture. Normally a no-op
+    // (the background rebuild already finished); the sync fallback only fires in
+    // the rare race where a turn starts before it did - at message time, not boot.
+    ensureEssentialsSync(ctx.cwd);
     pending = { leafEntryId, timestamp: Date.now(), entries: [], treeRef: fullSnapshot(ctx.cwd) };
     provisional.clear();
   });
@@ -678,6 +756,7 @@ export default function checkpoint(pi: ExtensionAPI): void {
   });
 
   pi.on('session_tree', async (event, ctx) => {
+    await ensureReady(ctx.cwd); // index may still be loading right after boot
     await runReview(ctx, event.oldLeafId, event.newLeafId);
   });
 
@@ -696,6 +775,10 @@ export default function checkpoint(pi: ExtensionAPI): void {
     manifests.clear();
     provisional.clear();
     pending = undefined;
+    // Reset the boot-path state so the next session_start rebuilds from scratch.
+    ready = Promise.resolve();
+    configLoaded = false;
+    storeDir = '';
   });
 
   // ──────────────────────────────────────────────────────────────────────────
@@ -710,6 +793,7 @@ export default function checkpoint(pi: ExtensionAPI): void {
         ctx.ui.notify(REWIND_USAGE, 'info');
         return;
       }
+      await ensureReady(ctx.cwd); // the index may still be loading right after boot
       const arg = args.trim();
 
       if (arg === 'list') {
