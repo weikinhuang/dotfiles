@@ -102,6 +102,11 @@ export interface JobSummary {
   stderrTail: string;
   /** Absolute path of the on-disk log file (stdout + stderr interleaved). */
   logFile?: string;
+  /**
+   * Whether to send an unsolicited completion nudge when this job
+   * finishes on its own (set at start-time). See `bg-bash/nudge.ts`.
+   */
+  nudge?: boolean;
 }
 
 export interface BgBashState {

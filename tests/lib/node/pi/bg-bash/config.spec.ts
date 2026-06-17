@@ -26,6 +26,7 @@ describe('coerceBgBashConfigLayer', () => {
       maxBufferBytes: 2048,
       killGraceMs: 5000,
       maxInjectedChars: 2000,
+      nudge: true,
       bogus: true,
     });
     expect(out).toEqual({
@@ -36,7 +37,13 @@ describe('coerceBgBashConfigLayer', () => {
       maxBufferBytes: 2048,
       killGraceMs: 5000,
       maxInjectedChars: 2000,
+      nudge: true,
     });
+  });
+
+  test('drops a non-boolean nudge', () => {
+    expect(coerceBgBashConfigLayer({ nudge: 'yes' }).nudge).toBeUndefined();
+    expect(coerceBgBashConfigLayer({ nudge: false }).nudge).toBe(false);
   });
 
   test('rejects an unknown stream and out-of-range numbers', () => {

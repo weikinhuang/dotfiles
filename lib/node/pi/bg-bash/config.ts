@@ -52,6 +52,12 @@ export interface BgBashConfig {
   killGraceMs: number;
   /** Soft cap on the injected `## Background Jobs` block (env: `PI_BG_BASH_MAX_INJECTED_CHARS`). */
   maxInjectedChars: number;
+  /**
+   * Default `start` nudge flag when the call omits `nudge`. When true, a
+   * job that finishes on its own sends an unsolicited completion message
+   * (waking the agent when idle). Off by default - opt-in per call.
+   */
+  nudge: boolean;
 }
 
 /** Built-in defaults, used as the lowest config layer. */
@@ -62,6 +68,7 @@ export const DEFAULT_BG_BASH_CONFIG: BgBashConfig = {
   maxBufferBytes: 1024 * 1024,
   killGraceMs: 3000,
   maxInjectedChars: 1500,
+  nudge: false,
 };
 
 /** Floors matching the prior `parseClampedPositiveInt` calls in the shell. */
@@ -88,6 +95,10 @@ function asIntAtLeast(value: unknown, min: number): number | undefined {
 
 function asStream(value: unknown): BgBashStream | undefined {
   return typeof value === 'string' && STREAMS.has(value as BgBashStream) ? (value as BgBashStream) : undefined;
+}
+
+function asBoolean(value: unknown): boolean | undefined {
+  return typeof value === 'boolean' ? value : undefined;
 }
 
 /**
@@ -119,6 +130,9 @@ export function coerceBgBashConfigLayer(raw: unknown): Partial<BgBashConfig> {
 
   const maxInjectedChars = asIntAtLeast(raw.maxInjectedChars, MAX_INJECTED_CHARS_FLOOR);
   if (maxInjectedChars !== undefined) out.maxInjectedChars = maxInjectedChars;
+
+  const nudge = asBoolean(raw.nudge);
+  if (nudge !== undefined) out.nudge = nudge;
 
   return out;
 }
@@ -163,6 +177,7 @@ export function mergeBgBashConfigLayers(...overrides: Partial<BgBashConfig>[]): 
     if (layer.maxBufferBytes !== undefined) result.maxBufferBytes = layer.maxBufferBytes;
     if (layer.killGraceMs !== undefined) result.killGraceMs = layer.killGraceMs;
     if (layer.maxInjectedChars !== undefined) result.maxInjectedChars = layer.maxInjectedChars;
+    if (layer.nudge !== undefined) result.nudge = layer.nudge;
   }
   return result;
 }

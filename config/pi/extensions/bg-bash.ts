@@ -76,6 +76,12 @@ import { Type } from 'typebox';
 
 import { requestBashApproval } from '../../../lib/node/pi/bash/gate.ts';
 import { type BgBashConfig, DEFAULT_BG_BASH_CONFIG, loadBgBashConfig } from '../../../lib/node/pi/bg-bash/config.ts';
+import {
+  BG_BASH_NUDGE_CUSTOM_TYPE,
+  type BgBashNudgeDetails,
+  formatBgBashNudge,
+  isNudgeWorthy,
+} from '../../../lib/node/pi/bg-bash/nudge.ts';
 import { BG_BASH_USAGE } from '../../../lib/node/pi/bg-bash/usage.ts';
 import { completeSubverbs } from '../../../lib/node/pi/commands/complete.ts';
 import { isHelpArg } from '../../../lib/node/pi/commands/help.ts';
@@ -222,6 +228,12 @@ const BgBashParams = Type.Object({
       description:
         '`start` only. Open a stdin pipe so action `stdin` can drive the child (REPLs, `sqlite3`, `python -i`). ' +
         'Default false: stdin is /dev/null, so commands that read stdin get EOF instead of hanging.',
+    }),
+  ),
+  nudge: Type.Optional(
+    Type.Boolean({
+      description:
+        '`start` only. Auto-message you on exit (wakes you when idle) so fire-and-forget jobs need no polling.',
     }),
   ),
 });
@@ -584,6 +596,11 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
   // env read rather than a config-file field.
   const autoInjectEnabled = process.env.PI_BG_BASH_DISABLE_AUTOINJECT !== '1';
 
+  // Aspect-level disable for the completion nudge. When off, the `nudge`
+  // param / config is simply ignored - jobs still run, the active-jobs
+  // block still surfaces them on the next turn. Registration-time env read.
+  const nudgeEnabled = process.env.PI_BG_BASH_DISABLE_NUDGE !== '1';
+
   // Resolved config (built-in -> env knob -> user -> project). Seeded at
   // registration from `process.cwd()` (no ctx yet) and re-loaded on
   // session_start once the real `ctx.cwd` is known, so a project-local
@@ -615,6 +632,48 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
   // flows rebind `ctx.ui`.
   let uiRef: ExtensionContext['ui'] | undefined;
   let lastStatusRunning = -1; // sentinel: forces the first paint
+
+  // ── Completion nudge ───────────────────────────────────────────────
+  //
+  // When a job started with `nudge: true` finishes on its own we send an
+  // unsolicited `custom` message so the agent reacts to the completion
+  // even if it has gone idle at the prompt (Claude Code's background bash
+  // does the same - it re-invokes the agent on exit). `currentCtx` is
+  // captured every turn so the nudge can ask `ctx.isIdle()`: idle ->
+  // `triggerTurn` (start a fresh turn), busy -> `followUp` (queue after the
+  // current turn, no interruption). `shuttingDown` suppresses nudges from
+  // shutdown-induced exits. Bursts of completions are coalesced into one
+  // message via a short timer so N jobs finishing together cost one turn.
+  let currentCtx: ExtensionContext | undefined;
+  let shuttingDown = false;
+  const NUDGE_COALESCE_MS = 250;
+  const pendingNudge: JobSummary[] = [];
+  let nudgeTimer: ReturnType<typeof setTimeout> | undefined;
+
+  const isIdle = (): boolean => currentCtx?.isIdle() ?? true;
+
+  const flushNudge = (): void => {
+    nudgeTimer = undefined;
+    const jobs = pendingNudge.splice(0);
+    if (jobs.length === 0) return;
+    const content = formatBgBashNudge(jobs, Date.now());
+    const details: BgBashNudgeDetails = { jobs };
+    try {
+      pi.sendMessage(
+        { customType: BG_BASH_NUDGE_CUSTOM_TYPE, content, display: true, details },
+        isIdle() ? { triggerTurn: true } : { deliverAs: 'followUp' },
+      );
+    } catch {
+      // Never let a delivery failure break the exit handler.
+    }
+  };
+
+  const enqueueNudge = (summary: JobSummary): void => {
+    if (!nudgeEnabled || shuttingDown) return;
+    if (summary.nudge !== true || !isNudgeWorthy(summary.status)) return;
+    pendingNudge.push(cloneSummary(summary));
+    nudgeTimer ??= setTimeout(flushNudge, NUDGE_COALESCE_MS);
+  };
 
   const liveCount = (): number => state.jobs.filter((j) => j.status === 'running' || j.status === 'signaled').length;
 
@@ -714,6 +773,7 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
     if (pruned.jobs.length !== replayed.jobs.length) persist();
     // `live` is not populated - the child processes are gone.
     uiRef = ctx.ui;
+    currentCtx = ctx;
     lastStatusRunning = -1;
     updateStatusline();
   };
@@ -736,6 +796,7 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
     label?: string;
     env?: Record<string, string>;
     interactiveStdin?: boolean;
+    nudge?: boolean;
   }): JobSummary => {
     const id = allocateJobId(state);
     const startedAt = Date.now();
@@ -802,6 +863,7 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
       stdoutTail: '',
       stderrTail: '',
       logFile,
+      nudge: args.nudge === true ? true : undefined,
     };
 
     state = upsertJob(state, summary);
@@ -879,6 +941,7 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
       setExited();
       persist();
       updateStatusline();
+      enqueueNudge(cur.summary);
     });
 
     child.on('exit', (code, sig) => {
@@ -921,6 +984,7 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
       setExited();
       persist();
       updateStatusline();
+      if (cur) enqueueNudge(cur.summary);
     });
 
     return summary;
@@ -938,6 +1002,7 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
       label?: string;
       env?: Record<string, string>;
       interactiveStdin?: boolean;
+      nudge?: boolean;
     },
     ctx: ExtensionContext,
   ): Promise<ToolReturn> => {
@@ -970,6 +1035,7 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
       label: params.label,
       env: params.env,
       interactiveStdin: params.interactiveStdin === true,
+      nudge: (params.nudge ?? config.nudge) === true,
     });
     persist();
     updateStatusline();
@@ -1230,6 +1296,14 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
   });
 
   pi.on('session_shutdown', async () => {
+    // Suppress completion nudges: the exits we're about to force are
+    // shutdown-induced, not the job finishing on its own.
+    shuttingDown = true;
+    if (nudgeTimer) {
+      clearTimeout(nudgeTimer);
+      nudgeTimer = undefined;
+    }
+    pendingNudge.length = 0;
     // Best-effort reap of every live job. We can't await forever - pi
     // is already on its way out. SIGTERM everything, wait up to
     // `killGraceMs`, then SIGKILL the stragglers.
@@ -1262,6 +1336,7 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
   // current surface. This runs regardless of auto-injection.
   pi.on('before_agent_start', (_event, ctx) => {
     uiRef = ctx.ui;
+    currentCtx = ctx;
     updateStatusline();
     return undefined;
   });
@@ -1285,6 +1360,27 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
     });
   }
 
+  // ── Nudge message renderer ─────────────────────────────────────────
+  //
+  // The nudge's `content` is the LLM-facing notice (a synthetic user
+  // turn). Render a compact card for the user instead of echoing that
+  // text back; expand shows a line per finished job. Registered
+  // unconditionally so replayed sessions still render past nudges.
+  pi.registerMessageRenderer<BgBashNudgeDetails>(BG_BASH_NUDGE_CUSTOM_TYPE, (message, { expanded }, theme) => {
+    const jobs = message.details?.jobs ?? [];
+    const now = Date.now();
+    const prefix = theme.fg('accent', '⊙ bg');
+    if (jobs.length === 0) {
+      return new Text(`${prefix} ${theme.fg('muted', 'job finished')}`, 0, 0);
+    }
+    if (jobs.length === 1 && !expanded) {
+      return new Text(`${prefix} ${theme.fg('muted', formatJobLine(jobs[0], now))}`, 0, 0);
+    }
+    const head = `${prefix} ${theme.fg('muted', `${jobs.length} job(s) finished`)}`;
+    const lines = jobs.map((j) => `  ${theme.fg('dim', formatJobLine(j, now))}`);
+    return new Text([head, ...lines].join('\n'), 0, 0);
+  });
+
   // ── Tool registration ──────────────────────────────────────────────
 
   pi.registerTool({
@@ -1297,6 +1393,7 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
       'stdin (write to a running job - only works when the job was started with interactiveStdin=true), ' +
       'remove (drop a terminal job from the registry). ' +
       'Stdin defaults to /dev/null; pass interactiveStdin=true on start to feed input via action stdin. ' +
+      'Pass nudge=true on start to be auto-messaged on exit (wakes you when idle). ' +
       'Jobs live only for the current pi session; on shutdown every live job is terminated.',
     promptSnippet:
       'Run long-lived or latency-hiding commands (test suites, dev servers, watchers, builds) in the background and check on them later.',
@@ -1305,6 +1402,7 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
       'After `bg_bash start`, remember the returned `id`. Call `bg_bash` action `wait` with a short `timeoutMs` to poll for exit, or action `logs` with `sinceCursor` to stream new output incrementally.',
       'Use `bg_bash` action `signal` (SIGTERM by default, SIGKILL if stuck) to stop a job cleanly; the whole process group is targeted so children die too.',
       'Prefer `bg_bash` action `logs` with `tail` or `grep` over returning the full buffer - the ring buffer caps memory but log responses still eat context.',
+      'Pass `nudge: true` on `start` for fire-and-forget jobs (builds, deploys) to be auto-messaged on exit instead of polling; skip it when you will `wait` on the job anyway.',
     ],
     parameters: BgBashParams,
 
@@ -1326,6 +1424,7 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
         text?: string;
         eof?: boolean;
         interactiveStdin?: boolean;
+        nudge?: boolean;
       };
 
       switch (params.action) {
@@ -1353,6 +1452,7 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
       if (args.id) text += ` ${theme.fg('accent', `[${args.id}]`)}`;
       if (args.action === 'start' && args.command) {
         text += ` ${theme.fg('dim', `"${truncate(String(args.command).replace(/\s+/g, ' '), 80)}"`)}`;
+        if (args.nudge === true) text += ` ${theme.fg('accent', '⊙nudge')}`;
       }
       if (args.action === 'signal' && args.signal) {
         text += ` ${theme.fg('warning', String(args.signal))}`;

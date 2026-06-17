@@ -37,16 +37,42 @@ serialized through a promise-chain mutex so concurrent `start` calls don't stack
 
 ## Tool: `bg_bash`
 
-| Action   | Required  | Optional                                                                                                            | Notes                                                                                                                                  |
-| -------- | --------- | ------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| `start`  | `command` | `cwd`, `label`, `env` (merged on top of `process.env`), `interactiveStdin` (false)                                  | Routes through `bash/gate`. `cwd` accepts absolute / `~`-relative / agent-cwd-relative.                                                |
-| `list`   | -         | -                                                                                                                   | Dumps the full registry via `formatState`.                                                                                             |
-| `status` | `id`      | -                                                                                                                   | Single-job line.                                                                                                                       |
-| `logs`   | `id`      | `stream` (`stdout`/`stderr`/`merged`, default `merged`), `tail`, `sinceCursor`, `grep`, `maxBytes` (default 32 KiB) | `grep` is a JS `RegExp` with no flags. Response is tail-preserving-truncated to `maxBytes` with a `… truncated; see logFile …` marker. |
-| `wait`   | `id`      | `timeoutMs` (default 15000)                                                                                         | Awaits `job.exited` race'd with timeout + `AbortSignal`. Returns `timedOut=true` if still running; otherwise a 20-line tail excerpt.   |
-| `signal` | `id`      | `signal` (default `SIGTERM`; one of `SIGINT`/`SIGTERM`/`SIGKILL`/`SIGHUP`/`SIGQUIT`/`SIGUSR1`/`SIGUSR2`)            | `process.kill(-pid, sig)` targets the whole process group; falls back to `child.kill(sig)`. Status flips to `signaled` immediately.    |
-| `stdin`  | `id`      | `text`, `eof`                                                                                                       | Errors if job was started with `interactiveStdin=false` (no writable stdin). `eof` closes stdin after writing.                         |
-| `remove` | `id`      | -                                                                                                                   | Drops a terminal job from the registry (refuses live jobs via [`removeJob`](../../../lib/node/pi/bg-bash-reducer.ts)).                 |
+| Action   | Required  | Optional                                                                                                            | Notes                                                                                                                                     |
+| -------- | --------- | ------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `start`  | `command` | `cwd`, `label`, `env` (merged on top of `process.env`), `interactiveStdin` (false), `nudge` (false)                 | Routes through `bash/gate`. `cwd` accepts absolute / `~`-relative / agent-cwd-relative. `nudge` -> [Completion nudge](#completion-nudge). |
+| `list`   | -         | -                                                                                                                   | Dumps the full registry via `formatState`.                                                                                                |
+| `status` | `id`      | -                                                                                                                   | Single-job line.                                                                                                                          |
+| `logs`   | `id`      | `stream` (`stdout`/`stderr`/`merged`, default `merged`), `tail`, `sinceCursor`, `grep`, `maxBytes` (default 32 KiB) | `grep` is a JS `RegExp` with no flags. Response is tail-preserving-truncated to `maxBytes` with a `… truncated; see logFile …` marker.    |
+| `wait`   | `id`      | `timeoutMs` (default 15000)                                                                                         | Awaits `job.exited` race'd with timeout + `AbortSignal`. Returns `timedOut=true` if still running; otherwise a 20-line tail excerpt.      |
+| `signal` | `id`      | `signal` (default `SIGTERM`; one of `SIGINT`/`SIGTERM`/`SIGKILL`/`SIGHUP`/`SIGQUIT`/`SIGUSR1`/`SIGUSR2`)            | `process.kill(-pid, sig)` targets the whole process group; falls back to `child.kill(sig)`. Status flips to `signaled` immediately.       |
+| `stdin`  | `id`      | `text`, `eof`                                                                                                       | Errors if job was started with `interactiveStdin=false` (no writable stdin). `eof` closes stdin after writing.                            |
+| `remove` | `id`      | -                                                                                                                   | Drops a terminal job from the registry (refuses live jobs via [`removeJob`](../../../lib/node/pi/bg-bash-reducer.ts)).                    |
+
+## Completion nudge
+
+By default `bg_bash` is pull-based: a finished job only surfaces on the next turn (the model polls `wait` / `logs`, or
+the injected `## Background Jobs` block shows it). If the agent has gone idle at the prompt, nothing wakes it. Pass
+`nudge: true` on `start` to close that gap - the same proactive-wake behaviour Claude Code's background bash has (it
+re-invokes the agent when a background command exits).
+
+- **Trigger.** Only when the job finishes **on its own**: [`isNudgeWorthy`](../../../lib/node/pi/bg-bash/nudge.ts)
+  returns true for `exited` (any code) and runtime `error`. A `signaled` job was stopped deliberately (the agent's own
+  `signal` action, or session shutdown) so whoever sent the signal already knows; `running` / `terminated` never nudge.
+- **Delivery.** A `custom` message (`customType: 'bg-bash-nudge'`, distinct from the non-LLM `bg-bash-state` persistence
+  entry) sent via `pi.sendMessage`. pi's `convertToLlm` serializes it to a synthetic `user` turn, so the model reads it
+  as actionable content but it never pollutes the editor's up-arrow input history. When the agent is idle the nudge
+  starts a fresh turn (`triggerTurn`); when it is mid-turn the nudge is queued after the current turn
+  (`deliverAs: 'followUp'`) without interrupting. Idle is read from `ctx.isIdle()` off the per-turn `currentCtx`.
+- **Coalescing.** A burst of completions inside a `NUDGE_COALESCE_MS` (250 ms) window folds into one message via
+  [`formatBgBashNudge`](../../../lib/node/pi/bg-bash/nudge.ts) so N jobs finishing together cost one turn, not N.
+- **Shutdown.** `session_shutdown` sets a `shuttingDown` flag and drops any pending nudge, so the SIGTERM-induced exits
+  it forces don't fire spurious nudges.
+- **Rendering.** A `registerMessageRenderer('bg-bash-nudge', …)` paints a compact `⊙ bg …` card (one line per finished
+  job when expanded) instead of echoing the notice text back to the user.
+
+The flag defaults off (opt-in per call); set `nudge: true` in `bg-bash.json` to default it on for a project, or
+`PI_BG_BASH_DISABLE_NUDGE=1` to turn the feature off entirely (the param/config are then ignored; jobs still run and
+still surface via the active-jobs block).
 
 ## Log buffering
 
@@ -99,6 +125,8 @@ via `markLiveJobsTerminated` so the next runtime sees them as historical rather 
 - `PI_BG_BASH_DISABLED=1` - skip the extension entirely.
 - `PI_BG_BASH_DISABLE_AUTOINJECT=1` - keep the tool but don't inject `## Background Jobs` (disables the `context`-hook
   injection; the tool, statusline, and overlay still work).
+- `PI_BG_BASH_DISABLE_NUDGE=1` - disable the [completion nudge](#completion-nudge) feature entirely; the `nudge` param /
+  config are ignored.
 - `PI_BG_BASH_MAX_INJECTED_CHARS=N` - soft cap on the injected block (default `1500`, floor `200`).
 - `PI_BG_BASH_MAX_BUFFER_BYTES=N` - per-stream ring-buffer cap (default `1048576`, floor `0`).
 - `PI_BG_BASH_KILL_GRACE_MS=N` - SIGTERM→SIGKILL grace window on shutdown (default `3000`, floor `0`).
@@ -127,6 +155,7 @@ per-call param > project config > user config > env knob > built-in default
 | `maxBufferBytes`   | integer ≥ 0                      | `1048576` | Per-stream ring-buffer cap (env: `PI_BG_BASH_MAX_BUFFER_BYTES`).        |
 | `killGraceMs`      | integer ≥ 0                      | `3000`    | SIGTERM→SIGKILL grace on shutdown (env: `PI_BG_BASH_KILL_GRACE_MS`).    |
 | `maxInjectedChars` | integer ≥ 200                    | `1500`    | Injected-block soft cap (env: `PI_BG_BASH_MAX_INJECTED_CHARS`).         |
+| `nudge`            | boolean                          | `false`   | Default `start` [completion-nudge](#completion-nudge) flag.             |
 
 ```jsonc
 // <cwd>/.pi/bg-bash.json - this project's builds are slow; wait longer and tail logs by default
@@ -146,6 +175,8 @@ per-call param > project config > user config > env knob > built-in default
   resumable `read({ sinceCursor, maxBytes })`, `tailPreview(n)`, `byteLengthTotal` / `byteLengthDropped`.
 - [`../../../lib/node/pi/bg-bash-prompt.ts`](../../../lib/node/pi/bg-bash-prompt.ts) -
   `formatBackgroundJobs(state, { maxChars, now })` renders the active-jobs block (injected via the `context` hook).
+- [`../../../lib/node/pi/bg-bash/nudge.ts`](../../../lib/node/pi/bg-bash/nudge.ts) - `isNudgeWorthy(status)`,
+  `formatBgBashNudge(jobs, now)`, and `BG_BASH_NUDGE_CUSTOM_TYPE` for the [completion nudge](#completion-nudge).
 - [`../../../lib/node/pi/bash/gate.ts`](../../../lib/node/pi/bash/gate.ts) - `requestBashApproval`, shared with the
   built-in `bash` tool.
 - [`../../../lib/node/pi/sandbox/wrapper-slot.ts`](../../../lib/node/pi/sandbox/wrapper-slot.ts) - `requestSandboxWrap`,
@@ -158,6 +189,7 @@ per-call param > project config > user config > env knob > built-in default
 ## Hot reload
 
 Edit [`extensions/bg-bash.ts`](./bg-bash.ts) or any of the helpers under `../../../lib/node/pi/bg-bash-*.ts` /
-[`bash/gate.ts`](../../../lib/node/pi/bash/gate.ts) and run `/reload` in an interactive pi session to pick up changes
-without restarting. Live jobs from the previous runtime survive the module reload (the `ChildProcess` handles are held
-by closures that get replaced) - prefer restarting pi if you need to re-attach cleanly.
+`../../../lib/node/pi/bg-bash/*.ts` / [`bash/gate.ts`](../../../lib/node/pi/bash/gate.ts) and run `/reload` in an
+interactive pi session to pick up changes without restarting. Live jobs from the previous runtime survive the module
+reload (the `ChildProcess` handles are held by closures that get replaced) - prefer restarting pi if you need to
+re-attach cleanly.
