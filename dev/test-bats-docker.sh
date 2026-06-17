@@ -25,7 +25,7 @@ while [[ $# -gt 0 ]]; do
 Usage: dev/test-bats-docker.sh [--no-cache] [--pull] [TEST_ARGS...]
 
 Runs the Bats suite in the dotfiles-test container. Any unrecognized
-arguments are forwarded to dev/test.sh inside the container.
+arguments are forwarded to dev/test-bats.sh inside the container.
 
 Options:
   --no-cache    build the image with --no-cache
@@ -53,4 +53,4 @@ docker build "${BUILD_FLAGS[@]}" - <"${DOCKERFILE}"
 exec docker run --rm \
   -v "${REPO_ROOT}:/dotfiles:ro" \
   "${IMAGE_NAME}" \
-  bash /dotfiles/dev/test.sh "${TEST_ARGS[@]}"
+  bash /dotfiles/dev/test-bats.sh "${TEST_ARGS[@]}"
