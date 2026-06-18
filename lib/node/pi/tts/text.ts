@@ -205,23 +205,33 @@ export interface SegmentRun {
  * when they differ, the alternating voices stay separate runs so the two voices
  * interleave. Adjacent same-kind segments (e.g. two quotes split by dropped
  * punctuation) also merge.
+ *
+ * When `splitByKind` is `true`, runs additionally break on a
+ * dialogue<->narration change even within one voice, so each run is
+ * single-kind. This keeps the speaker/narrator distinction (and its
+ * reference-clip choice) when the same voice is used for both - at the cost of
+ * the same-voice prosody merge.
  */
 export function planSegmentRuns(
   segments: Segment[],
   dialogueVoice: string,
   narrationVoice: string | null,
+  splitByKind = false,
 ): SegmentRun[] {
   const runs: SegmentRun[] = [];
+  let prevKind: Segment['kind'] | undefined;
   for (const seg of segments) {
     const voice = seg.kind === 'dialogue' ? dialogueVoice : narrationVoice;
     if (!voice) continue; // narration dropped when no narrator voice
     const prev = runs[runs.length - 1];
-    if (prev?.voice === voice) {
+    const mergeable = prev?.voice === voice && (!splitByKind || prevKind === seg.kind);
+    if (mergeable && prev) {
       prev.text += ` ${seg.text}`;
       prev.hasDialogue ||= seg.kind === 'dialogue';
     } else {
       runs.push({ voice, hasDialogue: seg.kind === 'dialogue', text: seg.text });
     }
+    prevKind = seg.kind;
   }
   return runs;
 }
@@ -233,12 +243,37 @@ export function planSegmentRuns(
  * is split on clause punctuation, then on word boundaries as a last resort, so
  * a chunk is never silently over the cap. At most `maxChunks` chunks are
  * returned (the tail is dropped) so a runaway reply can't narrate forever.
+ *
+ * `maxChars` carries two sentinels for endpoints that chunk server-side:
+ *   - `0`  -> split by paragraph only (one chunk per blank-line block, no
+ *            sentence-level packing or hard-splitting).
+ *   - `<0` -> no split: the whole text returns as a single chunk.
+ * Either way the result is still capped at `maxChunks`. Callers chunk each
+ * speaker/narrator run separately, so the speaker/narrator split is preserved
+ * regardless of `maxChars`.
  */
 export function chunkProse(text: string, maxChars: number, maxChunks: number): string[] {
   const clean = text.replace(/\r\n?/g, '\n').trim();
   if (!clean) return [];
-  const cap = Math.max(1, Math.floor(maxChars));
   const limit = Math.max(1, Math.floor(maxChunks));
+
+  // Sentinel: no split - hand the whole (newline-preserving) text back as one
+  // chunk for an endpoint that does its own long-form chunking.
+  if (maxChars < 0) return [clean];
+
+  // Sentinel: paragraph-only - each blank-line block is its own chunk, with no
+  // sentence-level packing or hard-splitting.
+  if (maxChars === 0) {
+    const paras: string[] = [];
+    for (const para of clean.split(/\n{2,}/)) {
+      const p = para.replace(/\s+/g, ' ').trim();
+      if (p) paras.push(p);
+      if (paras.length >= limit) break;
+    }
+    return paras.slice(0, limit);
+  }
+
+  const cap = Math.max(1, Math.floor(maxChars));
 
   // Split into paragraphs (blank-line boundaries are hard chunk boundaries),
   // then each paragraph into sentence-ish units.

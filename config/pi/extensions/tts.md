@@ -89,20 +89,21 @@ starting config (dual-instance clone + preset, emotes, auth header).
 
 ### Top-level keys
 
-| Key                  | Meaning                                                                                          |
-| -------------------- | ------------------------------------------------------------------------------------------------ |
-| `baseUrl`            | fallback server URL (include the `/v1` suffix). A voice without its own `baseUrl` inherits this. |
-| `api`                | engine preset: `openai` (qwen3-tts) or the legacy `gpt-sovits` GET path.                         |
-| `model`              | model name sent in the speech body (e.g. `qwen3-tts`).                                           |
-| `format`             | response audio format (`wav`, `mp3`, ...).                                                       |
-| `player`             | local playback command (e.g. `paplay`, `afplay`, `ffplay`).                                      |
-| `requestTimeoutMs`   | synth request timeout. Keep generous (e.g. `180000`) to survive a scale-from-zero cold start.    |
-| `maxChunkChars`      | narration chunk size (sentence/paragraph-bounded).                                               |
-| `maxNarrationChunks` | cap on chunks spoken per narration turn.                                                         |
-| `authHeader`         | optional `{ "name": ..., "value": ... }`; `value` supports `${ENV}` interpolation.               |
-| `voices`             | the voice roster (below).                                                                        |
-| `rpVoice`            | roster name used in RP mode.                                                                     |
-| `narrationVoice`     | roster name used in narration mode.                                                              |
+| Key                     | Meaning                                                                                                 |
+| ----------------------- | ------------------------------------------------------------------------------------------------------- |
+| `baseUrl`               | fallback server URL (include the `/v1` suffix). A voice without its own `baseUrl` inherits this.        |
+| `api`                   | engine preset: `openai` (qwen3-tts) or the legacy `gpt-sovits` GET path.                                |
+| `model`                 | model name sent in the speech body (e.g. `qwen3-tts`).                                                  |
+| `format`                | response audio format (`wav`, `mp3`, ...).                                                              |
+| `player`                | local playback command (e.g. `paplay`, `afplay`, `ffplay`).                                             |
+| `requestTimeoutMs`      | synth request timeout. Keep generous (e.g. `180000`) to survive a scale-from-zero cold start.           |
+| `maxChunkChars`         | chunk size per speaker/narrator run: `>0` = max chars/chunk, `0` = split by paragraph, `<0` = no split. |
+| `maxNarrationChunks`    | cap on chunks spoken per turn (the overall audio-segment ceiling).                                      |
+| `splitSpeakerNarration` | keep dialogue and narration in separate cues even when `rpVoice` == `narrationVoice` (default `false`). |
+| `authHeader`            | optional `{ "name": ..., "value": ... }`; `value` supports `${ENV}` interpolation.                      |
+| `voices`                | the voice roster (below).                                                                               |
+| `rpVoice`               | roster name used in RP mode.                                                                            |
+| `narrationVoice`        | roster name used in narration mode.                                                                     |
 
 ### Voice entries
 
@@ -130,9 +131,9 @@ starting config (dual-instance clone + preset, emotes, auth header).
 - Voice names resolve case-insensitively (exact match first, then lowercase).
 - `clone:Name` as an `rpVoice` / `narrationVoice` value forces clone treatment.
 - `refAudio` is read on the client and base64-encoded, so it must be a path on **this** machine, not the server's
-  filesystem. A relative path resolves against the directory of the `tts.json` that declares it (`<piAgentDir>/` for the
-  global file, `<cwd>/.pi/` for a project file), and a leading `~` / `~/` expands to your home directory. (Resolution
-  applies to the `openai` clone path; `gpt-sovits` ref paths are sent to the server as-is.)
+  filesystem. A relative path resolves against the project root for a project file (`<cwd>/`) and against the global
+  config's directory for the global file (`<piAgentDir>/`); a leading `~` / `~/` expands to your home directory.
+  (Resolution applies to the `openai` clone path; `gpt-sovits` ref paths are sent to the server as-is.)
 - Emotes: the avatar bus emote for the turn selects a matching reference clip; the first `match` array containing the
   emote wins, else the voice's default `refAudio` is used.
 

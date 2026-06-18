@@ -272,8 +272,9 @@ function buildSegmentCues(
   emote: string | undefined,
   maxChunkChars: number,
   maxCues: number,
+  splitByKind: boolean,
 ): Cue[] {
-  const runs = planSegmentRuns(extractSegments(raw), rpResolved.name, narrResolved?.name ?? null);
+  const runs = planSegmentRuns(extractSegments(raw), rpResolved.name, narrResolved?.name ?? null, splitByKind);
   const cues: Cue[] = [];
   for (const run of runs) {
     const resolved = run.voice === rpResolved.name ? rpResolved : (narrResolved ?? rpResolved);
@@ -407,7 +408,15 @@ export default function ttsExtension(pi: ExtensionAPI): void {
       let cues: Cue[];
       if (st.narrateEnabled) {
         const narrResolved = resolveVoice(cfg, st.narrationVoiceOverride ?? cfg.narrationVoice);
-        cues = buildSegmentCues(text, rpResolved, narrResolved, emote, cfg.maxChunkChars, cfg.maxNarrationChunks);
+        cues = buildSegmentCues(
+          text,
+          rpResolved,
+          narrResolved,
+          emote,
+          cfg.maxChunkChars,
+          cfg.maxNarrationChunks,
+          cfg.splitSpeakerNarration,
+        );
         dlog(`RP+narrate branch: narrVoice=${narrResolved?.name ?? 'NONE'} cues=${cues.length}`);
       } else {
         const dialogue = extractDialogue(text);

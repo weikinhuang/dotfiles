@@ -8,7 +8,11 @@
  * repo's vitest convention (one `test.each` row per assertion).
  */
 
-import { expect, test } from 'vitest';
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+import { afterEach, beforeEach, expect, test } from 'vitest';
 
 import {
   coerceConfigLayer,
@@ -21,6 +25,7 @@ import {
   resolveVoiceAuthHeaders,
   resolveConfigPath,
   resolveLayerVoicePaths,
+  loadTtsConfig,
   pickReference,
   DEFAULT_CONFIG,
 } from '../../../../../lib/node/pi/tts/config.ts';
@@ -77,7 +82,29 @@ const cases: Case[] = [
   ['coerce: bad api dropped', () => coerceConfigLayer({ api: 'xtts' }), {}],
   ['coerce: api gpt-sovits kept', () => coerceConfigLayer({ api: 'gpt-sovits' }), { api: 'gpt-sovits' }],
   ['coerce: non-positive timeout dropped', () => coerceConfigLayer({ requestTimeoutMs: 0 }), {}],
-  ['coerce: negative chunk chars dropped', () => coerceConfigLayer({ maxChunkChars: -5 }), {}],
+  [
+    'coerce: negative chunk chars -> -1 (no-split sentinel)',
+    () => coerceConfigLayer({ maxChunkChars: -5 }),
+    { maxChunkChars: -1 },
+  ],
+  [
+    'coerce: zero chunk chars kept (paragraph-only sentinel)',
+    () => coerceConfigLayer({ maxChunkChars: 0 }),
+    { maxChunkChars: 0 },
+  ],
+  ['coerce: fractional chunk chars floored', () => coerceConfigLayer({ maxChunkChars: 200.9 }), { maxChunkChars: 200 }],
+  ['coerce: non-finite chunk chars dropped', () => coerceConfigLayer({ maxChunkChars: Number.NaN }), {}],
+  [
+    'coerce: splitSpeakerNarration true kept',
+    () => coerceConfigLayer({ splitSpeakerNarration: true }),
+    { splitSpeakerNarration: true },
+  ],
+  [
+    'coerce: splitSpeakerNarration false kept',
+    () => coerceConfigLayer({ splitSpeakerNarration: false }),
+    { splitSpeakerNarration: false },
+  ],
+  ['coerce: splitSpeakerNarration non-boolean dropped', () => coerceConfigLayer({ splitSpeakerNarration: 'yes' }), {}],
   [
     'coerce: chunk + narration caps kept',
     () => coerceConfigLayer({ maxChunkChars: 200, maxNarrationChunks: 10 }),
@@ -394,4 +421,68 @@ test('resolveLayerVoicePaths: does not mutate the input layer', () => {
   const layer: Partial<TtsConfig> = { voices: { v: { kind: 'clone', refAudio: 'a.wav' } } };
   resolveLayerVoicePaths(layer, BASE, HOME);
   expect(layer.voices?.v.refAudio).toBe('a.wav');
+});
+
+// ──────────────────────────────────────────────────────────────────────
+// loadTtsConfig: disk layering + per-layer refAudio base directory.
+// The project layer resolves relative paths against the project root (`cwd`),
+// NOT `<cwd>/.pi/`, so a clip written relative to where the user works lands
+// as expected; the user (global) layer resolves against its own directory.
+// ──────────────────────────────────────────────────────────────────────
+let tmp: string;
+let prevAgentDir: string | undefined;
+beforeEach(() => {
+  tmp = mkdtempSync(join(tmpdir(), 'tts-load-'));
+  prevAgentDir = process.env.PI_CODING_AGENT_DIR;
+  process.env.PI_CODING_AGENT_DIR = join(tmp, 'agent');
+  mkdirSync(join(tmp, 'agent'), { recursive: true });
+});
+afterEach(() => {
+  if (prevAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
+  else process.env.PI_CODING_AGENT_DIR = prevAgentDir;
+  rmSync(tmp, { recursive: true, force: true });
+});
+
+test('loadTtsConfig: project-layer relative refAudio resolves against the project root', () => {
+  const cwd = join(tmp, 'proj');
+  mkdirSync(join(cwd, '.pi'), { recursive: true });
+  writeFileSync(
+    join(cwd, '.pi', 'tts.json'),
+    JSON.stringify({
+      api: 'openai',
+      voices: { v: { kind: 'clone', refAudio: 'dev/tts/clip.wav', refText: 'x' } },
+      rpVoice: 'v',
+    }),
+  );
+  const cfg = loadTtsConfig(cwd, true);
+  expect(cfg.voices?.v.refAudio).toBe(join(cwd, 'dev/tts/clip.wav'));
+});
+
+test('loadTtsConfig: user-layer relative refAudio resolves against the agent dir', () => {
+  const agentDir = join(tmp, 'agent');
+  writeFileSync(
+    join(agentDir, 'tts.json'),
+    JSON.stringify({
+      api: 'openai',
+      voices: { g: { kind: 'clone', refAudio: 'voices/clip.wav', refText: 'x' } },
+      rpVoice: 'g',
+    }),
+  );
+  const cfg = loadTtsConfig(join(tmp, 'proj'), false);
+  expect(cfg.voices?.g.refAudio).toBe(join(agentDir, 'voices/clip.wav'));
+});
+
+test('loadTtsConfig: gpt-sovits leaves relative refAudio unresolved (server-side)', () => {
+  const cwd = join(tmp, 'proj');
+  mkdirSync(join(cwd, '.pi'), { recursive: true });
+  writeFileSync(
+    join(cwd, '.pi', 'tts.json'),
+    JSON.stringify({
+      api: 'gpt-sovits',
+      voices: { v: { kind: 'clone', refAudio: 'dev/tts/clip.wav', refText: 'x' } },
+      rpVoice: 'v',
+    }),
+  );
+  const cfg = loadTtsConfig(cwd, true);
+  expect(cfg.voices?.v.refAudio).toBe('dev/tts/clip.wav');
 });

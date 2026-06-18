@@ -40,6 +40,7 @@ export const DEFAULT_CONFIG: TtsConfig = {
   player: 'paplay',
   maxChunkChars: 240,
   maxNarrationChunks: 40,
+  splitSpeakerNarration: false,
   model: 'qwen3-tts',
   voices: {},
   rpVoice: '',
@@ -65,6 +66,23 @@ function asNonEmptyString(value: unknown): string | undefined {
 
 function asPositiveNumber(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : undefined;
+}
+
+function asBoolean(value: unknown): boolean | undefined {
+  return typeof value === 'boolean' ? value : undefined;
+}
+
+/**
+ * Coerce a `maxChunkChars` value. Accepts any finite number: `> 0` is the
+ * per-chunk character cap, `0` means "split by paragraph only", and any
+ * negative means "no split" (one chunk per speaker/narrator run). Negatives
+ * normalize to `-1` and positives floor to an integer. Non-finite / non-number
+ * input is rejected (falls back to the default).
+ */
+function asChunkChars(value: unknown): number | undefined {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return undefined;
+  if (value < 0) return -1;
+  return Math.floor(value);
 }
 
 function asStringArray(value: unknown): string[] | undefined {
@@ -189,11 +207,14 @@ export function coerceConfigLayer(raw: unknown): Partial<TtsConfig> {
   const player = asNonEmptyString(raw.player);
   if (player !== undefined) out.player = player;
 
-  const maxChunkChars = asPositiveNumber(raw.maxChunkChars);
+  const maxChunkChars = asChunkChars(raw.maxChunkChars);
   if (maxChunkChars !== undefined) out.maxChunkChars = maxChunkChars;
 
   const maxNarrationChunks = asPositiveNumber(raw.maxNarrationChunks);
   if (maxNarrationChunks !== undefined) out.maxNarrationChunks = maxNarrationChunks;
+
+  const splitSpeakerNarration = asBoolean(raw.splitSpeakerNarration);
+  if (splitSpeakerNarration !== undefined) out.splitSpeakerNarration = splitSpeakerNarration;
 
   const model = asNonEmptyString(raw.model);
   if (model !== undefined) out.model = model;
@@ -230,6 +251,7 @@ export function mergeConfigLayers(...overrides: Partial<TtsConfig>[]): TtsConfig
     if (layer.player !== undefined) result.player = layer.player;
     if (layer.maxChunkChars !== undefined) result.maxChunkChars = layer.maxChunkChars;
     if (layer.maxNarrationChunks !== undefined) result.maxNarrationChunks = layer.maxNarrationChunks;
+    if (layer.splitSpeakerNarration !== undefined) result.splitSpeakerNarration = layer.splitSpeakerNarration;
     if (layer.model !== undefined) result.model = layer.model;
     if (layer.authHeader !== undefined) result.authHeader = { ...layer.authHeader };
     if (layer.voices !== undefined) result.voices = { ...result.voices, ...layer.voices };
@@ -431,11 +453,15 @@ export function loadTtsConfig(cwd: string, includeProject = true): TtsConfig {
   const merged = mergeConfigLayers(userLayer, projectLayer);
 
   // Only the openai clone path reads `refAudio` client-side: resolve each
-  // layer's relative clip paths against the directory of the file that
-  // declared them. gpt-sovits ref paths are server-side, so leave them alone.
+  // layer's relative clip paths so they Just Work. The user layer resolves
+  // against its own directory (`<piAgentDir>/`); the project layer resolves
+  // against the project root (`cwd`), NOT `<cwd>/.pi/`, so a path written
+  // relative to where the user works (`dev/tts/clip.wav`) lands as expected
+  // instead of needing a `../` to climb out of `.pi/`. gpt-sovits ref paths
+  // are server-side, so leave them alone.
   if (merged.api !== 'openai') return merged;
   return mergeConfigLayers(
     resolveLayerVoicePaths(userLayer, dirname(userPath)),
-    resolveLayerVoicePaths(projectLayer, dirname(projectPath)),
+    resolveLayerVoicePaths(projectLayer, cwd),
   );
 }

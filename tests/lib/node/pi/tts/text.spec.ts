@@ -167,6 +167,24 @@ const cases: Case[] = [
     () => chunkProse('A one. B two. C three. D four. E five.', 8, 2),
     ['A one.', 'B two.'],
   ],
+  // ── chunkProse sentinels (server-side chunking) ──────────────────────
+  [
+    'chunk: maxChars<0 -> whole text as one chunk (newlines preserved)',
+    () => chunkProse('First para.\n\nSecond para. Third sentence.', -1, 10),
+    ['First para.\n\nSecond para. Third sentence.'],
+  ],
+  ['chunk: any negative is the no-split sentinel', () => chunkProse('One. Two. Three.', -42, 10), ['One. Two. Three.']],
+  [
+    'chunk: maxChars===0 -> split by paragraph only (no sentence packing)',
+    () => chunkProse('One. Two. Three.\n\nFour. Five.', 0, 10),
+    ['One. Two. Three.', 'Four. Five.'],
+  ],
+  [
+    'chunk: maxChars===0 collapses intra-paragraph whitespace',
+    () => chunkProse('Line one\nstill para one.\n\nPara two.', 0, 10),
+    ['Line one still para one.', 'Para two.'],
+  ],
+  ['chunk: maxChars===0 still honors maxChunks cap', () => chunkProse('A.\n\nB.\n\nC.\n\nD.', 0, 2), ['A.', 'B.']],
   ['chunk: over-long sentence hard-split, all within cap', () => longSentence.every((c) => c.length <= 24), true],
   ['chunk: hard-split produced multiple pieces', () => longSentence.length > 1, true],
 
@@ -256,6 +274,34 @@ const cases: Case[] = [
     'runs: same voice collapses to one run, hasDialogue true',
     () => planSegmentRuns(sampleSegs, 'exusiai', 'exusiai'),
     [{ voice: 'exusiai', hasDialogue: true, text: 'She grins. Hello! She waves. Bye!' }],
+  ],
+  [
+    'runs: splitByKind keeps dialogue/narration separate even with one voice',
+    () => planSegmentRuns(sampleSegs, 'exusiai', 'exusiai', true),
+    [
+      { voice: 'exusiai', hasDialogue: false, text: 'She grins.' },
+      { voice: 'exusiai', hasDialogue: true, text: 'Hello!' },
+      { voice: 'exusiai', hasDialogue: false, text: 'She waves.' },
+      { voice: 'exusiai', hasDialogue: true, text: 'Bye!' },
+    ],
+  ],
+  [
+    'runs: splitByKind still merges adjacent same-kind same-voice segments',
+    () =>
+      planSegmentRuns(
+        [
+          { kind: 'dialogue' as const, text: 'One.' },
+          { kind: 'dialogue' as const, text: 'Two.' },
+          { kind: 'narration' as const, text: 'She paused.' },
+        ],
+        'exusiai',
+        'exusiai',
+        true,
+      ),
+    [
+      { voice: 'exusiai', hasDialogue: true, text: 'One. Two.' },
+      { voice: 'exusiai', hasDialogue: false, text: 'She paused.' },
+    ],
   ],
   [
     'runs: null narration voice drops narration (dialogue only)',

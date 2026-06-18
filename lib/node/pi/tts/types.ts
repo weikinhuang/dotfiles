@@ -82,10 +82,22 @@ export interface TtsConfig {
   requestTimeoutMs: number;
   /** Audio player binary, spawned detached on the resulting file (e.g. `paplay`). */
   player: string;
-  /** Narration chunking threshold: split prose into chunks no longer than this (chars). */
+  /**
+   * Chunking threshold for prose, applied per speaker/narrator run. `> 0` =
+   * max characters per chunk; `0` = split by paragraph only; `< 0` = no split
+   * (one chunk per run). The speaker/narrator split is independent of this.
+   */
   maxChunkChars: number;
   /** Safety cap on how many narration chunks a single reply may produce. */
   maxNarrationChunks: number;
+  /**
+   * When `true`, dialogue and narration are kept in separate cues even when
+   * `rpVoice` === `narrationVoice`, so each gets its own reference clip
+   * (emote-selected for dialogue, neutral for narration). When `false`
+   * (default) consecutive same-voice segments merge into one run for natural
+   * prosody. Useful when the synth endpoint can't tell speaker from narrator.
+   */
+  splitSpeakerNarration: boolean;
   /** Model id sent to the server (openai engine `model` field). */
   model: string;
   /** A roster of named voices (preset or clone). */
