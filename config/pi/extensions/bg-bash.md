@@ -58,6 +58,12 @@ re-invokes the agent when a background command exits).
 - **Trigger.** Only when the job finishes **on its own**: [`isNudgeWorthy`](../../../lib/node/pi/bg-bash/nudge.ts)
   returns true for `exited` (any code) and runtime `error`. A `signaled` job was stopped deliberately (the agent's own
   `signal` action, or session shutdown) so whoever sent the signal already knows; `running` / `terminated` never nudge.
+- **Active `wait` suppression.** A job that exits while a `wait` action is in flight on it is skipped: that `wait`
+  returns the exit (status + log tail) inline, so the agent already learns of the completion this turn and a separate
+  nudge would just duplicate it. The extension reference-counts in-flight waits per job id (`waitingOn`); the exit
+  handler runs `enqueueNudge` synchronously before the racing `wait` resumes, so the count is still positive at enqueue
+  time and the nudge is dropped. A `wait` that **times out** (job still running) decrements the count on return, so a
+  later unattended exit nudges as normal.
 - **Delivery.** A `custom` message (`customType: 'bg-bash-nudge'`, distinct from the non-LLM `bg-bash-state` persistence
   entry) sent via `pi.sendMessage`. pi's `convertToLlm` serializes it to a synthetic `user` turn, so the model reads it
   as actionable content but it never pollutes the editor's up-arrow input history. When the agent is idle the nudge

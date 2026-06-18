@@ -650,6 +650,12 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
   const pendingNudge: JobSummary[] = [];
   let nudgeTimer: ReturnType<typeof setTimeout> | undefined;
 
+  // Job ids with an in-flight `wait` action, keyed to a reference count
+  // (multiple `wait` calls can await the same job). A job that exits while
+  // a `wait` is active has its completion delivered inline by that wait's
+  // return value, so the unsolicited nudge would be redundant - skip it.
+  const waitingOn = new Map<string, number>();
+
   const isIdle = (): boolean => currentCtx?.isIdle() ?? true;
 
   const flushNudge = (): void => {
@@ -671,6 +677,9 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
   const enqueueNudge = (summary: JobSummary): void => {
     if (!nudgeEnabled || shuttingDown) return;
     if (summary.nudge !== true || !isNudgeWorthy(summary.status)) return;
+    // The agent is actively `wait`ing on this job; its return delivers the
+    // exit inline, so a separate nudge would just duplicate it.
+    if ((waitingOn.get(summary.id) ?? 0) > 0) return;
     pendingNudge.push(cloneSummary(summary));
     nudgeTimer ??= setTimeout(flushNudge, NUDGE_COALESCE_MS);
   };
@@ -1170,24 +1179,35 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
 
     const timeoutMs = Math.max(0, params.timeoutMs ?? config.timeoutMs);
     let timedOut = false;
-    await Promise.race([
-      job.exited,
-      new Promise<void>((resolve) => {
-        const timer = setTimeout(() => {
-          timedOut = true;
-          resolve();
-        }, timeoutMs);
-        abort?.addEventListener(
-          'abort',
-          () => {
-            clearTimeout(timer);
+    // Mark this job as actively waited so its completion nudge is suppressed
+    // (this wait's return delivers the exit inline). The exit handler runs
+    // `enqueueNudge` synchronously before this `await` resumes, so the
+    // increment must happen before we race on `job.exited`.
+    waitingOn.set(id, (waitingOn.get(id) ?? 0) + 1);
+    try {
+      await Promise.race([
+        job.exited,
+        new Promise<void>((resolve) => {
+          const timer = setTimeout(() => {
             timedOut = true;
             resolve();
-          },
-          { once: true },
-        );
-      }),
-    ]);
+          }, timeoutMs);
+          abort?.addEventListener(
+            'abort',
+            () => {
+              clearTimeout(timer);
+              timedOut = true;
+              resolve();
+            },
+            { once: true },
+          );
+        }),
+      ]);
+    } finally {
+      const remaining = (waitingOn.get(id) ?? 1) - 1;
+      if (remaining > 0) waitingOn.set(id, remaining);
+      else waitingOn.delete(id);
+    }
 
     const fresh = findJob(state, id) ?? summary;
     const details: BgBashDetails = {
