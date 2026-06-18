@@ -115,9 +115,11 @@ prior op is rejected as a plan conflict — splice the changes into one `Update 
 - **[`filesystem.ts`](./filesystem.md) — applies per-write.** Each path in the staged plan runs through the same
   `classifyWrite` + `askForPermission` library helpers the `filesystem` extension uses. A path inside `~/.ssh/`,
   `~/.aws/`, `.git/hooks/`, or outside `write.allow.paths` hits the same dialog (or the same non-UI
-  `PI_FILESYSTEM_DEFAULT=deny` fallback) that a `write` / `edit` to that path would. `apply_patch` carries its OWN
-  session allowlist (not shared with `filesystem`'s) — approving the same path under one tool does not auto-vouch it for
-  the other. This is a deliberate v1 limitation; if it bites in practice we'll hoist the allowlist into a shared bus.
+  `PI_FILESYSTEM_DEFAULT=deny` fallback) that a `write` / `edit` to that path would. The dialog offers the same
+  session-allow scopes as `filesystem` (the file, its parent directory, and the git root when inside a repo); picking a
+  directory remembers it as a prefix for the rest of the session. `apply_patch` carries its OWN session allowlist (not
+  shared with `filesystem`'s) — approving the same path under one tool does not auto-vouch it for the other. This is a
+  deliberate v1 limitation; if it bites in practice we'll hoist the allowlist into a shared bus.
 - **[`edit-recovery.ts`](./edit-recovery.md) — does NOT engage.** `edit-recovery` hooks `tool_result` on the `edit` tool
   specifically; it sees nothing on `apply_patch`. Hunk-locate failures are formatted by
   [`format-recovery.ts`](../../../lib/node/pi/apply-patch/format-recovery.ts) and returned as a second text part on the

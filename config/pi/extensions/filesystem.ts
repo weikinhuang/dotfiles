@@ -80,8 +80,11 @@ import {
   isToolCallEventType,
   type ToolCallEvent,
 } from '@earendil-works/pi-coding-agent';
+import { existsSync } from 'node:fs';
+import { dirname } from 'node:path';
 
 import { askForPermission } from '../../../lib/node/pi/approval-prompt.ts';
+import { findGitRoot } from '../../../lib/node/pi/filesystem/git-root.ts';
 import { isHelpArg } from '../../../lib/node/pi/commands/help.ts';
 import { FILESYSTEM_USAGE } from '../../../lib/node/pi/filesystem/usage.ts';
 import { classifyFilesystemAccess } from '../../../lib/node/pi/filesystem-policy/classify.ts';
@@ -199,6 +202,16 @@ function makeFilesystemToolCallHandler(
     });
     if (accessDecision.kind === 'allow') return undefined;
 
+    // Session-allow scopes offered in the dialog: the file itself, its
+    // parent directory, and (when inside a repo) the git root. Picking
+    // a directory remembers it as a prefix for the rest of the session.
+    const parentDir = dirname(accessDecision.absolutePath);
+    const sessionTargets = {
+      file: accessDecision.absolutePath,
+      parentDir,
+      gitRoot: findGitRoot(parentDir, existsSync),
+    };
+
     // When the calling session has no UI of its own (a spawned
     // subagent child), try to route the approval to the parent's UI -
     // labelled with which subagent is asking, and serialized so
@@ -216,6 +229,7 @@ function makeFilesystemToolCallHandler(
               path: inputPath,
               detail: accessDecision.match.detail,
               requester: routed.requester,
+              sessionTargets,
             },
           ),
         );
@@ -226,7 +240,7 @@ function makeFilesystemToolCallHandler(
           };
         }
         if (decision.kind === 'allow-session') {
-          sessionAllow.add(accessDecision.absolutePath);
+          sessionAllow.add(decision.path ?? accessDecision.absolutePath);
         }
         return undefined;
       }
@@ -244,6 +258,7 @@ function makeFilesystemToolCallHandler(
       tool: event.toolName,
       path: inputPath,
       detail: accessDecision.match.detail,
+      sessionTargets,
     });
     if (promptDecision.kind === 'deny') {
       return {
@@ -252,7 +267,7 @@ function makeFilesystemToolCallHandler(
       };
     }
     if (promptDecision.kind === 'allow-session') {
-      sessionAllow.add(accessDecision.absolutePath);
+      sessionAllow.add(promptDecision.path ?? accessDecision.absolutePath);
     }
     return undefined;
   };

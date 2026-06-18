@@ -68,6 +68,42 @@ describe('askForPermission', () => {
     expect(prompt.title).toContain('[subagent explore (sub_explore_1)] write wants to touch');
   });
 
+  test('sessionTargets adds parent-dir + git-root scopes, each remembering its own path', () => {
+    const prompt = buildApprovalPrompt({
+      ...baseArgs,
+      sessionTargets: {
+        file: '/repo/pkg/src/secret.txt',
+        parentDir: '/repo/pkg/src',
+        gitRoot: '/repo',
+      },
+    });
+    const find = (frag: string): (typeof prompt.entries)[number] | undefined =>
+      prompt.entries.find((e) => e.label.includes(frag));
+
+    expect(find('Allow "/repo/pkg/src/secret.txt" for this session')?.decision).toEqual({
+      kind: 'allow-session',
+      path: '/repo/pkg/src/secret.txt',
+    });
+    expect(find('Allow directory "/repo/pkg/src/" for this session')?.decision).toEqual({
+      kind: 'allow-session',
+      path: '/repo/pkg/src',
+    });
+    expect(find('Allow git root "/repo/" for this session')?.decision).toEqual({
+      kind: 'allow-session',
+      path: '/repo',
+    });
+  });
+
+  test('git-root scope is omitted when it equals the parent dir', () => {
+    const prompt = buildApprovalPrompt({
+      ...baseArgs,
+      sessionTargets: { file: '/repo/secret.txt', parentDir: '/repo', gitRoot: '/repo' },
+    });
+    const labels = prompt.entries.map((e) => e.label);
+    expect(labels.some((l) => l.startsWith('Allow git root'))).toBe(false);
+    expect(labels.some((l) => l.startsWith('Allow directory'))).toBe(true);
+  });
+
   test('returns allow-once when user picks "Allow once"', async () => {
     const { ctx, select, input } = fakeContext({ selectReturn: 'Allow once' });
 
@@ -84,7 +120,7 @@ describe('askForPermission', () => {
 
     const decision = await askForPermission(ctx, baseArgs);
 
-    expect(decision).toEqual({ kind: 'allow-session' });
+    expect(decision).toEqual({ kind: 'allow-session', path: baseArgs.path });
 
     // Session label is path-templated - confirm the prompt offered it.
     const offered = select.mock.calls[0]?.[1] as string[];

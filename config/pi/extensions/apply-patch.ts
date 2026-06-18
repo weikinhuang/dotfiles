@@ -45,8 +45,8 @@
  *   PI_APPLY_PATCH_TRACE=<path>       append one line per decision
  */
 
-import { readFileSync, statSync, unlinkSync } from 'node:fs';
-import { isAbsolute, resolve } from 'node:path';
+import { existsSync, readFileSync, statSync, unlinkSync } from 'node:fs';
+import { dirname, isAbsolute, resolve } from 'node:path';
 
 import { type ExtensionAPI, type ExtensionContext } from '@earendil-works/pi-coding-agent';
 import { Text } from '@earendil-works/pi-tui';
@@ -57,6 +57,7 @@ import { parsePatch } from '../../../lib/node/pi/apply-patch/parse.ts';
 import { askForPermission } from '../../../lib/node/pi/approval-prompt.ts';
 import { atomicWriteFile } from '../../../lib/node/pi/atomic-write.ts';
 import { classifyFilesystemAccess } from '../../../lib/node/pi/filesystem-policy/classify.ts';
+import { findGitRoot } from '../../../lib/node/pi/filesystem/git-root.ts';
 import {
   filesystemProjectPolicyPath,
   filesystemUserPolicyPath,
@@ -177,13 +178,18 @@ async function gatePaths(
       tool: 'apply_patch',
       path: inputPath,
       detail: accessDecision.match.detail,
+      sessionTargets: {
+        file: accessDecision.absolutePath,
+        parentDir: dirname(accessDecision.absolutePath),
+        gitRoot: findGitRoot(dirname(accessDecision.absolutePath), existsSync),
+      },
     });
     if (decision.kind === 'deny') {
       return {
         block: { path: inputPath, reason: decision.feedback ?? `Blocked by user (${accessDecision.match.detail})` },
       };
     }
-    if (decision.kind === 'allow-session') sessionAllow.add(accessDecision.absolutePath);
+    if (decision.kind === 'allow-session') sessionAllow.add(decision.path ?? accessDecision.absolutePath);
   }
 
   return {};

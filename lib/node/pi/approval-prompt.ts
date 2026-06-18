@@ -24,15 +24,22 @@ export interface ApprovalPromptContext {
  * Discriminated union returned by `askForPermission`.
  *
  *   - `allow-once`     - proceed with the current call only.
- *   - `allow-session`  - proceed AND remember; subsequent calls to the
- *                        same path/key skip the prompt for the rest of
- *                        the session.
+ *   - `allow-session`  - proceed AND remember; subsequent calls under
+ *                        the same path/prefix skip the prompt for the
+ *                        rest of the session. `path` carries WHICH path
+ *                        to remember - the file, its parent directory,
+ *                        or the git root - chosen from the dialog.
+ *                        Omitted by callers that don't offer the
+ *                        broader scopes (they remember their own path).
  *   - `deny`           - block the call. Optional `feedback` carries
  *                        the user's free-text reason back to the model.
  *                        Empty/whitespace-only feedback is normalised
  *                        to `undefined` so callers can render a default.
  */
-export type ApprovalDecision = { kind: 'allow-once' } | { kind: 'allow-session' } | { kind: 'deny'; feedback?: string };
+export type ApprovalDecision =
+  | { kind: 'allow-once' }
+  | { kind: 'allow-session'; path?: string }
+  | { kind: 'deny'; feedback?: string };
 
 /**
  * Sentinel decision value that tells {@link promptSelectWithFeedback}
@@ -110,6 +117,21 @@ export interface ApprovalPromptArgs {
    * ordinary same-session prompt.
    */
   requester?: string;
+  /**
+   * Absolute paths offered as session-allow scopes. When present, the
+   * dialog adds "allow the parent directory" and "allow the git root"
+   * options alongside the single-file option, each remembering the
+   * chosen path (prefix) for the rest of the session. When omitted, the
+   * dialog offers only the single-file scope keyed off `path`.
+   */
+  sessionTargets?: {
+    /** The file the tool wants to touch (resolved, absolute). */
+    file: string;
+    /** The file's parent directory (resolved, absolute). */
+    parentDir?: string;
+    /** The enclosing git root, when the file is inside a repo. */
+    gitRoot?: string;
+  };
 }
 
 export function buildApprovalPrompt(args: ApprovalPromptArgs): {
@@ -117,18 +139,34 @@ export function buildApprovalPrompt(args: ApprovalPromptArgs): {
   entries: PromptEntry<ApprovalDecision>[];
   feedback: FeedbackPromptCopy;
 } {
-  const { tool, path, detail, requester } = args;
+  const { tool, path, detail, requester, sessionTargets } = args;
   const header = requester
     ? `⚠️  [${requester}] ${tool} wants to touch a protected path:`
     : `⚠️  ${tool} wants to touch a protected path:`;
+  const file = sessionTargets?.file ?? path;
+  const parentDir = sessionTargets?.parentDir;
+  const gitRoot = sessionTargets?.gitRoot;
+  const entries: PromptEntry<ApprovalDecision>[] = [
+    { label: 'Allow once', decision: { kind: 'allow-once' } },
+    { label: `Allow "${file}" for this session`, decision: { kind: 'allow-session', path: file } },
+  ];
+  if (parentDir && parentDir !== file) {
+    entries.push({
+      label: `Allow directory "${parentDir}/" for this session`,
+      decision: { kind: 'allow-session', path: parentDir },
+    });
+  }
+  if (gitRoot && gitRoot !== parentDir && gitRoot !== file) {
+    entries.push({
+      label: `Allow git root "${gitRoot}/" for this session`,
+      decision: { kind: 'allow-session', path: gitRoot },
+    });
+  }
+  entries.push({ label: 'Deny', decision: { kind: 'deny' } });
+  entries.push({ label: 'Deny with feedback…', decision: DENY_WITH_FEEDBACK });
   return {
     title: `${header}\n\n  ${path}\n  (${detail})\n\nHow should pi proceed?`,
-    entries: [
-      { label: 'Allow once', decision: { kind: 'allow-once' } },
-      { label: `Allow "${path}" for this session`, decision: { kind: 'allow-session' } },
-      { label: 'Deny', decision: { kind: 'deny' } },
-      { label: 'Deny with feedback…', decision: DENY_WITH_FEEDBACK },
-    ],
+    entries,
     feedback: { title: 'Tell the assistant why:', placeholder: 'e.g. read docs/foo.md instead' },
   };
 }

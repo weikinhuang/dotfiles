@@ -297,6 +297,31 @@ describe('classifyFilesystemAccess', () => {
     expect(decision).toEqual({ kind: 'allow', absolutePath: absolute });
   });
 
+  test('a session-allowed directory covers its descendants (prefix match)', () => {
+    const dir = `${CWD}/src`;
+    const decision = classifyFilesystemAccess({
+      operation: 'read',
+      inputPath: 'src/.env',
+      cwd: CWD,
+      policy: defaults(),
+      sessionAllowPaths: new Set([dir]),
+    });
+
+    expect(decision).toEqual({ kind: 'allow', absolutePath: `${CWD}/src/.env` });
+  });
+
+  test('a session-allowed file does not leak to a sibling sharing its prefix', () => {
+    const decision = classifyFilesystemAccess({
+      operation: 'read',
+      inputPath: 'src/.env.local',
+      cwd: CWD,
+      policy: defaults(),
+      sessionAllowPaths: new Set([`${CWD}/src/.env`]),
+    });
+
+    expect(decision.kind).toBe('prompt');
+  });
+
   test('persona writeRoots vouch writes but not reads', () => {
     const write = classifyFilesystemAccess({
       operation: 'write',

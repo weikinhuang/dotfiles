@@ -46,12 +46,20 @@ kernel sandbox already covers the read channel for any of them invoked via bash.
 Session-scoped only - no persistent allowlist for paths, because they're almost always incidental.
 
 1. Allow once
-2. Allow `<path>` for this session
-3. Deny
-4. Deny with feedback…
+2. Allow `<file>` for this session
+3. Allow directory `<parentDir>/` for this session
+4. Allow git root `<gitRoot>/` for this session (only when the file is inside a git repo)
+5. Deny
+6. Deny with feedback…
 
-The session allowlist is **shared** across `read` / `write` / `edit`: approving a path satisfies subsequent calls of
-either kind for the same absolute path until `session_shutdown`.
+Options 3-4 widen the scope of the "for this session" grant: picking the parent directory or the git root remembers that
+path as a **prefix**, so any later `read` / `write` / `edit` under it is allowed without re-prompting. The git-root
+option is omitted when the repo root coincides with the parent directory (or the file itself), and the whole option is
+absent for paths outside any git repo. The git root is found by walking up from the file's directory for a `.git` entry
+(directory or worktree file) via [`lib/node/pi/filesystem/git-root.ts`](../../../lib/node/pi/filesystem/git-root.ts).
+
+The session allowlist is **shared** across `read` / `write` / `edit` and is **prefix-matched**: approving a path (file
+or directory) satisfies subsequent calls of either kind for that path and anything beneath it until `session_shutdown`.
 
 In non-interactive mode (`pi -p`, JSON, RPC without UI) the gate blocks by default; set `PI_FILESYSTEM_DEFAULT=allow` to
 override.

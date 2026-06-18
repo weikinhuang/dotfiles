@@ -251,7 +251,15 @@ export function classifyFilesystemAccess(options: ClassifyFilesystemAccessOption
   const { operation, inputPath, cwd, policy, sessionAllowPaths, personaWriteRoots = [] } = options;
   const absolutePath = resolve(cwd, expandTilde(inputPath));
 
-  if (sessionAllowPaths?.has(absolutePath)) return { kind: 'allow', absolutePath };
+  // Session allowlist is prefix-aware: an entry may be the exact file
+  // the user OK'd, or a directory they chose to trust for the session
+  // (its parent dir, the git root, ...). `isUnderPath` covers both the
+  // exact-equality and descendant cases.
+  if (sessionAllowPaths) {
+    for (const allowed of sessionAllowPaths) {
+      if (isUnderPath(absolutePath, allowed)) return { kind: 'allow', absolutePath };
+    }
+  }
   if (operation === 'write' && personaWriteRoots.some((root) => isUnderPath(absolutePath, root))) {
     return { kind: 'allow', absolutePath };
   }
