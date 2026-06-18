@@ -18,7 +18,7 @@
     "tsc": "tsc --noEmit"
   },
   "devDependencies": {
-    "@anthropic-ai/sandbox-runtime": "^0.0.54",
+    "@anthropic-ai/sandbox-runtime": "^0.0.55",
     "@eslint/json": "^2.0.0",
     "@types/node": "^25.9.2",
     "@vitest/coverage-v8": "^4.1.8",
