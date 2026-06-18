@@ -39,6 +39,7 @@
  *
  * Environment:
  *   PI_SUBAGENT_DISABLED=1              skip the extension entirely
+ *   PI_SUBAGENT_DISABLE_PARENT_PROMPT=1 don't route child gate prompts to the parent UI (fall back to fail-closed)
  *   PI_SUBAGENT_DEBUG=1                 surface every child lifecycle event via ctx.ui.notify
  *   PI_SUBAGENT_CONCURRENCY=N           max concurrent children (default 4, floor 1, ceiling 8)
  *   PI_SUBAGENT_NO_PERSIST=1            use SessionManager.inMemory() instead of disk-backed sessions
@@ -153,6 +154,12 @@ import { envTruthy, parsePositiveInt } from '../../../lib/node/pi/parse-env.ts';
 import { resolveWriteRoots } from '../../../lib/node/pi/persona/resolve.ts';
 import { Semaphore } from '../../../lib/node/pi/semaphore.ts';
 import { setActiveAgent, clearActiveAgent } from '../../../lib/node/pi/subagent/active-agent.ts';
+import {
+  setParentPromptUI,
+  registerChildPromptIdentity,
+  unregisterChildPromptIdentity,
+  clearChildPromptIdentities,
+} from '../../../lib/node/pi/subagent/parent-prompt.ts';
 import { createAgentGateFactory } from '../../../lib/node/pi/subagent/agent-gate.ts';
 import { collapseWhitespace } from '../../../lib/node/pi/shared.ts';
 import { formatHeaderRule } from '../../../lib/node/pi/tui-rule.ts';
@@ -833,6 +840,17 @@ export default function subagentExtension(pi: ExtensionAPI): void {
 
   pi.on('session_start', (_event, ctx) => {
     reload(ctx.cwd);
+    // Publish the parent's interactive UI so a spawned subagent's
+    // security gates (bash-permissions / filesystem) can route their
+    // approval prompt here instead of falling through to the
+    // non-interactive default. Only when the parent actually has a UI
+    // (skipped in headless `pi -p`, preserving PI_*_DEFAULT semantics)
+    // and the feature isn't disabled.
+    if (ctx.hasUI && !envTruthy(process.env.PI_SUBAGENT_DISABLE_PARENT_PROMPT)) {
+      setParentPromptUI(ctx.ui);
+    } else {
+      setParentPromptUI(undefined);
+    }
     // Re-resolve config from the real session cwd so a project-local
     // <cwd>/.pi/subagent.json takes effect. `concurrency` is intentionally
     // not re-applied to the already-constructed semaphore (needs /reload),
@@ -895,6 +913,8 @@ export default function subagentExtension(pi: ExtensionAPI): void {
     loadResult = { agents: new Map(), nameOrder: [], warnings: [] };
     warnings.reset();
     runningChildren.clear();
+    setParentPromptUI(undefined);
+    clearChildPromptIdentities();
     for (const t of lingerTimers) clearTimeout(t);
     lingerTimers.clear();
     backgroundChildren.clear();
@@ -1261,6 +1281,15 @@ export default function subagentExtension(pi: ExtensionAPI): void {
 
     pushStatus('running');
 
+    // Register this child so its (UI-less) gate calls can be routed to
+    // the parent UI, labelled with the agent + handle. Unregistered in
+    // drive()'s finally once the child's prompt settles.
+    registerChildPromptIdentity(childSessionId, {
+      agent: agent.name,
+      handle,
+      source: agent.source,
+    });
+
     // Per-handle activity ring + cursor state. The overlay reads the
     // ring via `getSessionActivityRings()` so it survives jiti
     // re-evaluation of this extension module. State + ring are dropped
@@ -1348,6 +1377,7 @@ export default function subagentExtension(pi: ExtensionAPI): void {
         clearTimeout(timeoutHandle);
         if (listenToParent) parentSignal?.removeEventListener('abort', parentAbortHandler);
         unsubscribe();
+        unregisterChildPromptIdentity(childSessionId);
       }
 
       // AbortError may arrive as a thrown DOMException, an Error whose

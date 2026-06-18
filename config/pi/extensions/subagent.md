@@ -90,6 +90,34 @@ Default agents shipped with the dotfiles:
 All three deliberately exclude `memory` from their tool lists - sub-agents should not be writing durable notes on behalf
 of the user at the parent scope. Opt in per-agent by adding `memory` to its `tools` list.
 
+## Parent-UI approval bridge
+
+Subagent children are created with `createAgentSession` and never get a UI context wired in, so `ctx.hasUI` is `false`
+inside the child. Without help, the parent's injected security gates (`bash-permissions`, `filesystem`) can only block
+or allow a gated child tool call - they can't show a dialog, because the child has no UI of its own.
+
+This extension closes that gap by bridging the child's approval to the **parent's** interactive UI:
+
+- On `session_start` (when the parent has a UI and the feature isn't disabled) it publishes `ctx.ui` via
+  [`lib/node/pi/subagent/parent-prompt.ts`](../../../lib/node/pi/subagent/parent-prompt.ts) (`setParentPromptUI`), a
+  `globalThis`-anchored singleton the gate extensions read.
+- Around each child run it registers the child's identity (`agent`, `handle`, `source`) keyed by the child session id
+  (`registerChildPromptIdentity`), and unregisters it once the child's prompt settles.
+- When a gate fires inside a UI-less child, it calls `resolveParentPrompt(sessionId)`. If a parent UI is published and
+  the session is a registered child, the gate prompts the parent's dialog - prefixed `subagent <agent> (<handle>)` - and
+  applies the decision (`Allow once` / `Allow for this session` / `Deny` / `Deny with feedback…`).
+- Concurrent children share one parent UI, so prompts are **serialized** through `runSerialPrompt` (a promise-chain
+  mutex): parallel subagents queue and prompt one at a time rather than racing the dialog.
+
+This is layered on top of the per-agent gate enforcement above - a `bashDeny` / out-of-`writeRoots` denial still blocks
+with a tool-result error and never reaches the prompt. The bridge only changes what happens to an _unknown_ (would-have
+prompted) command or protected path: instead of failing closed, it asks the user at the parent.
+
+Disable with `PI_SUBAGENT_DISABLE_PARENT_PROMPT=1` (children then fall back to `PI_BASH_PERMISSIONS_DEFAULT` /
+`PI_FILESYSTEM_DEFAULT`, default deny). The bridge is also inert in headless `pi -p` (no parent UI is published), so
+non-interactive runs keep their existing fail-closed semantics. Children spawned by other paths (`deep-research` fanout,
+the `iteration-loop` critic) are not registered here, so they keep the non-interactive fallback too.
+
 ## Session persistence
 
 Each child invocation writes to its own on-disk session file:
@@ -215,6 +243,9 @@ needs the parent's project-scoped memories, keep `isolation: "shared-cwd"`.
 ## Environment variables
 
 - `PI_SUBAGENT_DISABLED=1` - skip the extension entirely.
+- `PI_SUBAGENT_DISABLE_PARENT_PROMPT=1` - disable the [parent-UI approval bridge](#parent-ui-approval-bridge). Children
+  then fall back to `PI_BASH_PERMISSIONS_DEFAULT` / `PI_FILESYSTEM_DEFAULT` (default deny) for gated tool calls instead
+  of prompting the parent. Read on `session_start`, so a change needs `/reload`.
 - `PI_SUBAGENT_DEBUG=1` - surface every child lifecycle event via `ctx.ui.notify`.
 - `PI_SUBAGENT_CONCURRENCY=N` - max concurrent children (default `4`, floor `1`, ceiling `8`). Also settable via the
   [config file](#config-file)'s `concurrency`, which wins over this env var.

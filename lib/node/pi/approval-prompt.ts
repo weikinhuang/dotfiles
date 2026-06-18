@@ -103,6 +103,13 @@ export interface ApprovalPromptArgs {
   path: string;
   /** One-line reason the path is gated (e.g. `'inside ~/.ssh'`). */
   detail: string;
+  /**
+   * Optional label identifying who is asking when the prompt is routed
+   * to a different session's UI (e.g. a subagent prompting the parent).
+   * Rendered as a header line above the dialog body. Omit for the
+   * ordinary same-session prompt.
+   */
+  requester?: string;
 }
 
 export function buildApprovalPrompt(args: ApprovalPromptArgs): {
@@ -110,9 +117,12 @@ export function buildApprovalPrompt(args: ApprovalPromptArgs): {
   entries: PromptEntry<ApprovalDecision>[];
   feedback: FeedbackPromptCopy;
 } {
-  const { tool, path, detail } = args;
+  const { tool, path, detail, requester } = args;
+  const header = requester
+    ? `⚠️  [${requester}] ${tool} wants to touch a protected path:`
+    : `⚠️  ${tool} wants to touch a protected path:`;
   return {
-    title: `⚠️  ${tool} wants to touch a protected path:\n\n  ${path}\n  (${detail})\n\nHow should pi proceed?`,
+    title: `${header}\n\n  ${path}\n  (${detail})\n\nHow should pi proceed?`,
     entries: [
       { label: 'Allow once', decision: { kind: 'allow-once' } },
       { label: `Allow "${path}" for this session`, decision: { kind: 'allow-session' } },

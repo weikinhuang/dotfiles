@@ -53,6 +53,9 @@ export interface AskForPermissionExtras {
   auto?: boolean;
   /** Reason the always-prompt list forced this prompt (e.g. "sudo"). */
   alwaysPromptReason?: string;
+  /** Label identifying who is asking when routed to another session's
+   *  UI (e.g. a subagent prompting the parent). Omit for same-session. */
+  requester?: string;
 }
 
 export interface AskForPermissionBatchExtras {
@@ -64,6 +67,9 @@ export interface AskForPermissionBatchExtras {
    * reason.
    */
   alwaysPromptReasons?: Map<string, string>;
+  /** Label identifying who is asking when routed to another session's
+   *  UI (e.g. a subagent prompting the parent). Omit for same-session. */
+  requester?: string;
 }
 
 /**
@@ -119,7 +125,8 @@ export function buildBashPermissionPrompt(
   entries.push({ label: 'Deny with feedback…', decision: DENY_WITH_FEEDBACK });
 
   const displayCommand = compactForDialog(command);
-  const titleLines: string[] = ['⚠️  Bash tool request:', '', `  ${displayCommand}`];
+  const header = extras.requester ? `⚠️  [${extras.requester}] Bash tool request:` : '⚠️  Bash tool request:';
+  const titleLines: string[] = [header, '', `  ${displayCommand}`];
   if (extras.auto && extras.alwaysPromptReason) {
     titleLines.push('', `⚡ auto mode cannot skip this (${extras.alwaysPromptReason}).`);
   }
@@ -162,8 +169,9 @@ export function buildBashBatchPermissionPrompt(
     extras.auto && extras.alwaysPromptReasons && extras.alwaysPromptReasons.size > 0
       ? '\n\n⚡ auto mode cannot skip the ⚡-marked sub-commands.'
       : '';
+  const reqPrefix = extras.requester ? `[${extras.requester}] ` : '';
   const title =
-    `⚠️  Bash tool request with ${unknown.length} unknown sub-commands:\n\n${summary}${autoHint}\n\n` +
+    `⚠️  ${reqPrefix}Bash tool request with ${unknown.length} unknown sub-commands:\n\n${summary}${autoHint}\n\n` +
     `Full command:\n  ${compactForDialog(fullCommand, 180)}\n\nHow should pi proceed?`;
 
   return {

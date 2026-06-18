@@ -40,6 +40,11 @@ export interface BashGateContext {
     input(title: string, placeholder?: string): Promise<string | undefined>;
     notify(message: string, level?: 'info' | 'warning' | 'error' | 'success'): void;
   };
+  /** Calling session's id. Lets the gate detect when the caller is a
+   *  registered subagent child (UI-less) and route prompts to the
+   *  parent UI instead of failing closed. Unset for the built-in bash
+   *  tool path and bg-bash (they run in the parent, `hasUI` is true). */
+  sessionId?: string;
 }
 
 export type BashGateDecision = { allowed: true } | { allowed: false; reason: string };

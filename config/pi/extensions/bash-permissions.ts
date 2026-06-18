@@ -128,6 +128,7 @@ import { getActivePersona } from '../../../lib/node/pi/persona/active.ts';
 import { personaVouchBash } from '../../../lib/node/pi/persona/bash-vouch.ts';
 import { setBashAutoEnabled } from '../../../lib/node/pi/session-flags.ts';
 import { registerSubagentInjection } from '../../../lib/node/pi/subagent/extension-injection.ts';
+import { resolveParentPrompt, runSerialPrompt } from '../../../lib/node/pi/subagent/parent-prompt.ts';
 
 // ──────────────────────────────────────────────────────────────────────
 // Rule storage
@@ -193,7 +194,16 @@ export function bashPermissionsFactoryHookOnly(pi: ExtensionAPI): void {
   pi.on('tool_call', async (event, ctx) => {
     const command = extractBashCommand(event)?.trim();
     if (!command) return undefined;
-    const decision = await requestBashApproval(command, ctx);
+    // Thread the child session id through so the gate can route the
+    // approval to the parent UI (see `gateBashCommand`). The child's
+    // own `ctx.hasUI` is false, so without this the gate fails closed.
+    let sessionId: string | undefined;
+    try {
+      sessionId = ctx.sessionManager?.getSessionId();
+    } catch {
+      sessionId = undefined;
+    }
+    const decision = await requestBashApproval(command, { ...ctx, sessionId });
     if (decision.allowed) return undefined;
     return { block: true, reason: decision.reason };
   });
@@ -323,24 +333,43 @@ export default function bashPermissions(pi: ExtensionAPI): void {
     }
     if (unknown.length === 0) return { allowed: true };
 
+    // Determine the prompt target. When the calling session has no UI
+    // of its own (a spawned subagent child), route the approval to the
+    // parent's UI - labelled with which subagent is asking, serialized
+    // so concurrent children prompt one at a time. Falls back to the
+    // non-interactive default when no parent UI is published or the
+    // session isn't a registered subagent child.
+    let promptCtx = ctx;
+    let requester: string | undefined;
+    let serialize = <T>(fn: () => Promise<T>): Promise<T> => fn();
     if (!ctx.hasUI) {
-      if (defaultFallback === 'allow') return { allowed: true };
-      recordDenied(...unknown);
-      return {
-        allowed: false,
-        reason:
-          `No UI available for approval. Unknown command(s):\n  ${unknown.join('\n  ')}\n` +
-          `Add a rule via /bash-allow or by editing ${USER_RULES_PATH}, ` +
-          'or set PI_BASH_PERMISSIONS_DEFAULT=allow.',
-      };
+      const routed = resolveParentPrompt(ctx.sessionId);
+      if (routed) {
+        promptCtx = { ...ctx, ui: routed.ui, hasUI: true };
+        requester = routed.requester;
+        serialize = runSerialPrompt;
+      } else {
+        if (defaultFallback === 'allow') return { allowed: true };
+        recordDenied(...unknown);
+        return {
+          allowed: false,
+          reason:
+            `No UI available for approval. Unknown command(s):\n  ${unknown.join('\n  ')}\n` +
+            `Add a rule via /bash-allow or by editing ${USER_RULES_PATH}, ` +
+            'or set PI_BASH_PERMISSIONS_DEFAULT=allow.',
+        };
+      }
     }
 
     // ≥2 unknowns → one coalesced prompt for the whole batch.
     if (unknown.length >= 2) {
-      const batch = await askForPermissionBatch(ctx, trimmed, unknown, {
-        auto: sessionAuto,
-        alwaysPromptReasons,
-      });
+      const batch = await serialize(() =>
+        askForPermissionBatch(promptCtx, trimmed, unknown, {
+          auto: sessionAuto,
+          alwaysPromptReasons,
+          requester,
+        }),
+      );
       if (batch.kind === 'deny') {
         recordDenied(...unknown);
         return { allowed: false, reason: batch.feedback ?? 'Blocked by user' };
@@ -354,10 +383,13 @@ export default function bashPermissions(pi: ExtensionAPI): void {
 
     // Exactly one unknown → rich dialog with save-rule options.
     const sub = unknown[0];
-    const decision = await askForPermission(ctx, sub, {
-      auto: sessionAuto,
-      alwaysPromptReason: alwaysPromptReasons.get(sub),
-    });
+    const decision = await serialize(() =>
+      askForPermission(promptCtx, sub, {
+        auto: sessionAuto,
+        alwaysPromptReason: alwaysPromptReasons.get(sub),
+        requester,
+      }),
+    );
     if (decision.kind === 'deny') {
       recordDenied(sub);
       return { allowed: false, reason: decision.feedback ?? 'Blocked by user' };
@@ -370,15 +402,15 @@ export default function bashPermissions(pi: ExtensionAPI): void {
         break;
       case 'allow-project-exact':
         addRule(projectRulesPath(ctx.cwd), 'allow', sub);
-        ctx.ui.notify(`Saved allow rule "${sub}" → ${projectRulesPath(ctx.cwd)}`, 'info');
+        promptCtx.ui.notify(`Saved allow rule "${sub}" → ${projectRulesPath(ctx.cwd)}`, 'info');
         break;
       case 'allow-project-two-token':
         addRule(projectRulesPath(ctx.cwd), 'allow', decision.pattern);
-        ctx.ui.notify(`Saved allow rule "${decision.pattern}" → ${projectRulesPath(ctx.cwd)}`, 'info');
+        promptCtx.ui.notify(`Saved allow rule "${decision.pattern}" → ${projectRulesPath(ctx.cwd)}`, 'info');
         break;
       case 'allow-user-prefix':
         addRule(USER_RULES_PATH, 'allow', decision.pattern);
-        ctx.ui.notify(`Saved allow rule "${decision.pattern}" → ${USER_RULES_PATH}`, 'info');
+        promptCtx.ui.notify(`Saved allow rule "${decision.pattern}" → ${USER_RULES_PATH}`, 'info');
         break;
     }
     return { allowed: true };

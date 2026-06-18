@@ -86,6 +86,11 @@ describe('askForPermission', () => {
     expect(prompt.feedback.placeholder).toContain('test script');
   });
 
+  test('prepends a [requester] header when a requester is supplied', () => {
+    const single = buildBashPermissionPrompt('ls -la', { requester: 'subagent explore (sub_explore_1)' });
+    expect(single.title).toContain('[subagent explore (sub_explore_1)] Bash tool request:');
+  });
+
   test('returns allow-once when "Allow once" picked', async () => {
     const { ctx } = fakeContext({ selectReturn: 'Allow once' });
 
@@ -168,6 +173,11 @@ describe('askForPermissionBatch', () => {
 
     expect(prompt.title).toContain('… and 4 more');
     expect(prompt.entries.map((e) => e.label)).toContain('Allow all 10 once');
+  });
+
+  test('prepends a [requester] header when a requester is supplied', () => {
+    const prompt = buildBashBatchPermissionPrompt('compound', ['a', 'b'], { requester: 'subagent plan (sub_plan_2)' });
+    expect(prompt.title).toContain('[subagent plan (sub_plan_2)] Bash tool request with 2 unknown sub-commands:');
   });
 
   test('returns allow-all-once on the corresponding label', async () => {

@@ -82,6 +82,17 @@ When an unknown command is about to run, pi shows a select dialog with:
 In non-interactive mode (`-p`, JSON, RPC without UI) unknown commands are blocked by default so the model can retry
 differently.
 
+### Subagent bash calls prompt the parent UI
+
+Spawned subagent children run with `hasUI: false`, so their bash calls can't show a dialog of their own. The hook-only
+factory threads the child's session id into the gate; when the `subagent` extension has published the parent's UI (its
+[`parent-prompt` bridge](./subagent.md#parent-ui-approval-bridge)) and the caller is a registered subagent child, an
+unknown command routes to the **parent's** approval dialog, titled `[subagent <agent> (<handle>)] Bash tool request`,
+and serialized so parallel children prompt one at a time. `Allow for this session` adds to the session allowlist (shared
+with the parent, so it applies session-wide). When no parent UI is available (headless `pi -p`, or the bridge is
+disabled via `PI_SUBAGENT_DISABLE_PARENT_PROMPT=1`) the child falls through to `PI_BASH_PERMISSIONS_DEFAULT` (default
+deny). The hardcoded denylist and explicit deny rules apply to children regardless of the prompt path.
+
 ## Commands
 
 - `/bash-allow <pattern>` - add an allow rule. Writes to project scope if `.pi/bash-permissions.json` or `.pi/` already

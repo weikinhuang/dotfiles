@@ -147,9 +147,20 @@ This extension registers `filesystemFactoryHookOnly` via
 [`registerSubagentInjection`](../../../lib/node/pi/subagent/extension-injection.ts) on load, so spawned subagent
 sessions (`runOneShotAgent`, the `subagent` extension's inline `DefaultResourceLoader`) automatically apply the gate to
 child `read` / `write` / `edit` calls. The factory mounts ONLY the `tool_call` handler - no slash command, no statusline
-glue. Children run with `hasUI: false`, so the approval dialog never fires; unknown protected paths fall through to
-`PI_FILESYSTEM_DEFAULT` (default deny). Defaults / user / project / persona overlay are re-read from disk per call
-inside the child, so a matching policy entry still blocks the tool call.
+glue. Children run with `hasUI: false`, so the child's own approval dialog can never fire. There are two outcomes for an
+unknown protected path inside a child:
+
+- **Parent-UI approval (default in an interactive parent).** When the `subagent` extension has published the parent's UI
+  (see its [`parent-prompt` bridge](./subagent.md#parent-ui-approval-bridge)) and the calling session is a registered
+  subagent child, the gate routes the approval to the **parent's** dialog, labelled `subagent <agent> (<handle>)`, and
+  serialized so parallel children prompt one at a time. `Allow once` / `Allow for this session` / `Deny` /
+  `Deny with feedback…` behave as in the parent; `Allow for this session` is remembered for the rest of that child run.
+- **Non-interactive fallback.** When no parent UI is available (headless `pi -p`, or the bridge is disabled via
+  `PI_SUBAGENT_DISABLE_PARENT_PROMPT=1`), unknown protected paths fall through to `PI_FILESYSTEM_DEFAULT` (default deny)
+  just like a `pi -p` run.
+
+Defaults / user / project / persona overlay are re-read from disk per call inside the child, so a matching policy entry
+still blocks (or allows-back) the tool call before either prompt path is reached.
 
 ## Commands
 

@@ -96,6 +96,7 @@ import { createNotifyOnce } from '../../../lib/node/pi/notify-once.ts';
 import { envTruthy } from '../../../lib/node/pi/parse-env.ts';
 import { getActivePersona } from '../../../lib/node/pi/persona/active.ts';
 import { registerSubagentInjection } from '../../../lib/node/pi/subagent/extension-injection.ts';
+import { resolveParentPrompt, runSerialPrompt } from '../../../lib/node/pi/subagent/parent-prompt.ts';
 
 // ─────────────────────────────────────────────────────────────────
 // Layer loading
@@ -130,6 +131,16 @@ function resolveActivePolicy(cwd: string): ReturnType<typeof loadFilesystemPolic
 // ─────────────────────────────────────────────────────────────────
 // Tool-call gate
 // ─────────────────────────────────────────────────────────────────
+
+/** Read the calling session's id, tolerating a missing session
+ *  manager (returns undefined so parent-prompt routing is skipped). */
+function safeSessionId(ctx: ExtensionContext): string | undefined {
+  try {
+    return ctx.sessionManager?.getSessionId();
+  } catch {
+    return undefined;
+  }
+}
 
 /** Pull the `path` argument out of a `read` / `write` / `edit` event.
  *  Returns the empty string when the event isn't one of those, or when
@@ -188,7 +199,37 @@ function makeFilesystemToolCallHandler(
     });
     if (accessDecision.kind === 'allow') return undefined;
 
+    // When the calling session has no UI of its own (a spawned
+    // subagent child), try to route the approval to the parent's UI -
+    // labelled with which subagent is asking, and serialized so
+    // concurrent children prompt one at a time. Falls back to the
+    // non-interactive default when no parent UI is published or the
+    // session isn't a registered subagent child.
     if (!ctx.hasUI) {
+      const routed = resolveParentPrompt(safeSessionId(ctx));
+      if (routed) {
+        const decision = await runSerialPrompt(() =>
+          askForPermission(
+            { ui: routed.ui },
+            {
+              tool: event.toolName,
+              path: inputPath,
+              detail: accessDecision.match.detail,
+              requester: routed.requester,
+            },
+          ),
+        );
+        if (decision.kind === 'deny') {
+          return {
+            block: true,
+            reason: decision.feedback ?? `Blocked by user (${accessDecision.match.detail})`,
+          };
+        }
+        if (decision.kind === 'allow-session') {
+          sessionAllow.add(accessDecision.absolutePath);
+        }
+        return undefined;
+      }
       if (defaultFallback === 'allow') return undefined;
       return {
         block: true,

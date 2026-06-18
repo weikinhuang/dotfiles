@@ -63,6 +63,11 @@ describe('askForPermission', () => {
     expect(prompt.feedback.placeholder).toContain('docs/foo.md');
   });
 
+  test('prepends a [requester] header when a requester is supplied', () => {
+    const prompt = buildApprovalPrompt({ ...baseArgs, requester: 'subagent explore (sub_explore_1)' });
+    expect(prompt.title).toContain('[subagent explore (sub_explore_1)] write wants to touch');
+  });
+
   test('returns allow-once when user picks "Allow once"', async () => {
     const { ctx, select, input } = fakeContext({ selectReturn: 'Allow once' });
 
