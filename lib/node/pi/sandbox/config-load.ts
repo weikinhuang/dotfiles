@@ -37,6 +37,7 @@ export interface SandboxConfigEnv {
   PI_SANDBOX_WEAKER_NET?: string;
   PI_SANDBOX_EXTRA_ALLOW_DOMAIN?: string;
   PI_SANDBOX_NETWORK_UNRESTRICTED?: string;
+  PI_SANDBOX_ALLOW_LOCALHOST?: string;
 }
 
 export interface LoadSandboxConfigResult {
@@ -119,6 +120,10 @@ function envOverlay(env: SandboxConfigEnv): PartialSandboxConfig {
 
   if (envTruthy(env.PI_SANDBOX_NETWORK_UNRESTRICTED)) {
     partial.network = { ...partial.network, unrestricted: true };
+  }
+
+  if (envTruthy(env.PI_SANDBOX_ALLOW_LOCALHOST)) {
+    partial.network = { ...partial.network, allowLocalhost: true };
   }
 
   return partial;

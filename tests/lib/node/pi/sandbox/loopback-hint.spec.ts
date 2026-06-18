@@ -58,7 +58,8 @@ describe('detectLoopbackFailure', () => {
     expect(detectLoopbackFailure('')).toBeUndefined();
   });
 
-  test('hint text names the three escape routes', () => {
+  test('hint text names the escape routes', () => {
+    expect(LOOPBACK_FAILURE_HINT).toContain('network.allowLocalhost');
     expect(LOOPBACK_FAILURE_HINT).toContain('docker exec');
     expect(LOOPBACK_FAILURE_HINT).toContain('SAME bash command');
     expect(LOOPBACK_FAILURE_HINT).toContain('/sandbox-disable');

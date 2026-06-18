@@ -115,6 +115,25 @@ describe('mergeSandboxConfigs', () => {
     expect(config.network.unrestricted).toBe(false);
   });
 
+  test('network.allowLocalhost defaults to false and is last-wins', () => {
+    expect(mergeSandboxConfigs([]).config.network.allowLocalhost).toBe(false);
+    const { config } = mergeSandboxConfigs([
+      { source: 'user', partial: { network: { allowLocalhost: true } } },
+      { source: 'project', partial: { network: { allowLocalhost: false } } },
+    ]);
+    expect(config.network.allowLocalhost).toBe(false);
+    expect(
+      mergeSandboxConfigs([{ source: 'user', partial: { network: { allowLocalhost: true } } }]).config.network
+        .allowLocalhost,
+    ).toBe(true);
+  });
+
+  test('non-boolean network.allowLocalhost warns and keeps previous value', () => {
+    const { config, warnings } = mergeSandboxConfigs([{ source: 'user', partial: { network: { allowLocalhost: 1 } } }]);
+    expect(warnings.find((w) => w.reason.includes('network.allowLocalhost'))).toBeDefined();
+    expect(config.network.allowLocalhost).toBe(false);
+  });
+
   test('linuxRuleDepth is clamped after merge', () => {
     const { config } = mergeSandboxConfigs([{ source: 'user', partial: { flags: { linuxRuleDepth: 99 } } }]);
     expect(config.flags.linuxRuleDepth).toBe(LINUX_RULE_DEPTH_MAX);

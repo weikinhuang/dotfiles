@@ -38,6 +38,7 @@ import { expandTilde } from '../path-expand.ts';
 import type { FilesystemPolicy, FilesystemRules } from '../filesystem-policy/schema.ts';
 
 import type { SandboxConfig } from './config-schema.ts';
+import { LOOPBACK_PROXY_ALLOW } from './localhost-proxy.ts';
 import type { CompiledPolicyReport } from './linux-rules-compile.ts';
 
 export interface TranslateToASRTOptions {
@@ -392,7 +393,16 @@ export function translateToASRT(options: TranslateToASRTOptions): TranslateToASR
         ...(sandbox.flags.allowLocalBinding ? { allowLocalBinding: true } : {}),
       } as SandboxRuntimeConfig['network'])
     : {
-        allowedDomains: [...sandbox.network.allow],
+        allowedDomains: [
+          ...sandbox.network.allow,
+          // Reaching host loopback services requires the proxy to admit
+          // loopback hosts (the wrapped command's NO_PROXY is rewritten
+          // separately so loopback HTTP/SOCKS traffic actually routes
+          // through the proxy). De-duped against user entries.
+          ...(sandbox.network.allowLocalhost
+            ? LOOPBACK_PROXY_ALLOW.filter((h) => sandbox.network.allow.includes(h) === false)
+            : []),
+        ],
         deniedDomains: [...sandbox.network.deny],
         ...(allowUnixSockets ? { allowUnixSockets } : {}),
         ...(sandbox.unixSockets.allowAll ? { allowAllUnixSockets: true } : {}),
@@ -402,6 +412,10 @@ export function translateToASRT(options: TranslateToASRTOptions): TranslateToASR
   if (sandbox.network.unrestricted) {
     lossyNotes.push(
       'network.unrestricted=true: kernel network isolation is OFF. Sandboxed bash shares the host network (localhost / Docker published ports reachable), and the network allow/deny lists are NOT enforced - every outbound destination is permitted.',
+    );
+  } else if (sandbox.network.allowLocalhost) {
+    lossyNotes.push(
+      'network.allowLocalhost=true: localhost / 127.0.0.1 / ::1 are allow-listed and loopback traffic is routed through the sandbox proxy, so host loopback services (Docker published ports, dev servers) are reachable WHILE remote domain filtering stays on. HTTP(S)/SOCKS-aware clients only (curl, wget, pip, npm); raw-TCP clients (psql, redis-cli, mysql, bare nc) still need network.unrestricted.',
     );
   }
 

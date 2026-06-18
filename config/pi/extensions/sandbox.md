@@ -210,6 +210,7 @@ State is published via [`session-flags.ts`](../../../lib/node/pi/session-flags.t
 | `PI_SANDBOX_NESTED`               | unset   | enable `flags.weakerNestedSandbox` for users running pi inside Docker / nested containers.                                                            |
 | `PI_SANDBOX_WEAKER_NET`           | unset   | enable `flags.weakerNetworkIsolation` (macOS Go-TLS escape hatch for `gh` / `gcloud` / `terraform` / `kubectl`).                                      |
 | `PI_SANDBOX_EXTRA_ALLOW_DOMAIN`   | unset   | additive comma-separated list of domains merged into `network.allow`.                                                                                 |
+| `PI_SANDBOX_ALLOW_LOCALHOST`      | unset   | set `network.allowLocalhost: true` for the session: route loopback through the proxy so host localhost services are reachable, filtering stays on.    |
 | `PI_SANDBOX_NETWORK_UNRESTRICTED` | unset   | set `network.unrestricted: true` for the session: drop network isolation entirely (host network + localhost reachable, NO domain filtering).          |
 | `PI_SANDBOX_ALLOW_ROOT`           | unset   | allow the extension to load when pi runs as root. Off by default per plan section 6.                                                                  |
 | `PI_INSIDE_DOCKER`                | unset   | hint platform.ts that pi is inside a container; surfaces a recommendation to enable `flags.weakerNestedSandbox`.                                      |

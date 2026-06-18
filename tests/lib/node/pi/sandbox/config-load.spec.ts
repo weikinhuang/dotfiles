@@ -84,6 +84,11 @@ describe('loadSandboxConfig', () => {
     expect(loadSandboxConfig([], {}).config.network.unrestricted).toBe(false);
   });
 
+  test('env overlay: PI_SANDBOX_ALLOW_LOCALHOST=1 sets network.allowLocalhost', () => {
+    expect(loadSandboxConfig([], { PI_SANDBOX_ALLOW_LOCALHOST: '1' }).config.network.allowLocalhost).toBe(true);
+    expect(loadSandboxConfig([], {}).config.network.allowLocalhost).toBe(false);
+  });
+
   test('truthiness of env vars: only specific values count', () => {
     expect(loadSandboxConfig([], { PI_SANDBOX_NESTED: '0' }).config.flags.weakerNestedSandbox).toBe(false);
     expect(loadSandboxConfig([], { PI_SANDBOX_NESTED: 'no' }).config.flags.weakerNestedSandbox).toBe(false);

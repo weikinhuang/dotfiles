@@ -37,6 +37,22 @@ export interface SandboxNetworkConfig {
    *  filtering proxy and the isolated namespace's loopback can't see
    *  host services. There is no per-port host-loopback bridge. */
   unrestricted?: boolean;
+  /** Narrower escape hatch that KEEPS domain filtering. When true,
+   *  `localhost` / `127.0.0.1` / `::1` are added to the ASRT allow-list
+   *  and the wrapped command's `NO_PROXY` is rewritten to drop the
+   *  loopback entries, so loopback HTTP(S)/SOCKS traffic routes through
+   *  ASRT's existing proxy (which dials the host loopback - no SSRF
+   *  guard) instead of the isolated namespace's dead loopback. The
+   *  allow/deny lists still gate every other destination.
+   *
+   *  Reaches host loopback services (Docker published ports, dev
+   *  servers, a local LLM/API) for any tool that honors `HTTP_PROXY` /
+   *  `ALL_PROXY` (curl, wget, pip, npm, most HTTP clients). Raw-TCP
+   *  clients that ignore proxy env (`psql`, `redis-cli`, `mysql`, bare
+   *  `nc`) are NOT covered - those still need `unrestricted`. No-op
+   *  when `unrestricted` is set (host network already shared). Off by
+   *  default. */
+  allowLocalhost?: boolean;
 }
 
 export interface SandboxUnixSocketsConfig {
@@ -110,6 +126,7 @@ export const DEFAULT_SANDBOX_CONFIG: Readonly<SandboxConfig> = Object.freeze({
     allow: [] as string[],
     deny: [] as string[],
     unrestricted: false,
+    allowLocalhost: false,
   },
   unixSockets: {
     allow: [] as string[],
@@ -129,7 +146,7 @@ export const DEFAULT_SANDBOX_CONFIG: Readonly<SandboxConfig> = Object.freeze({
 
 export function emptySandboxConfig(): SandboxConfig {
   return {
-    network: { allow: [], deny: [], unrestricted: false },
+    network: { allow: [], deny: [], unrestricted: false, allowLocalhost: false },
     unixSockets: { allow: [], allowAll: false },
     flags: {
       weakerNestedSandbox: false,
@@ -147,6 +164,7 @@ export interface PartialSandboxConfig {
     allow?: unknown;
     deny?: unknown;
     unrestricted?: unknown;
+    allowLocalhost?: unknown;
   };
   unixSockets?: {
     allow?: unknown;
@@ -211,6 +229,7 @@ export function mergeSandboxConfigs(layers: { source: string; partial: PartialSa
   out.network.allow.push(...DEFAULT_SANDBOX_CONFIG.network.allow);
   out.network.deny.push(...DEFAULT_SANDBOX_CONFIG.network.deny);
   out.network.unrestricted = DEFAULT_SANDBOX_CONFIG.network.unrestricted === true;
+  out.network.allowLocalhost = DEFAULT_SANDBOX_CONFIG.network.allowLocalhost === true;
   out.unixSockets.allow.push(...DEFAULT_SANDBOX_CONFIG.unixSockets.allow);
   out.unixSockets.allowAll = DEFAULT_SANDBOX_CONFIG.unixSockets.allowAll;
   out.flags = { ...DEFAULT_SANDBOX_CONFIG.flags };
@@ -226,6 +245,13 @@ export function mergeSandboxConfigs(layers: { source: string; partial: PartialSa
         out.network.unrestricted === true,
         source,
         'network.unrestricted',
+        warnings,
+      );
+      out.network.allowLocalhost = setBoolean(
+        partial.network.allowLocalhost,
+        out.network.allowLocalhost === true,
+        source,
+        'network.allowLocalhost',
         warnings,
       );
     }

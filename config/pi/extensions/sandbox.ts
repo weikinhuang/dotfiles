@@ -115,6 +115,7 @@ import { gitTrackedSubset } from '../../../lib/node/pi/sandbox/git-tracked.ts';
 import { buildNetworkAskCallback } from '../../../lib/node/pi/sandbox/network-ask.ts';
 import { annotateBashResult, prependBashHint } from '../../../lib/node/pi/sandbox/result-annotate.ts';
 import { detectLoopbackFailure } from '../../../lib/node/pi/sandbox/loopback-hint.ts';
+import { prependLocalhostProxyEnv } from '../../../lib/node/pi/sandbox/localhost-proxy.ts';
 import { type FilesystemPolicyLayer, loadFilesystemPolicy } from '../../../lib/node/pi/filesystem-policy/load.ts';
 import { type FilesystemPolicyWarning } from '../../../lib/node/pi/filesystem-policy/schema.ts';
 import { readTextOrEmpty } from '../../../lib/node/pi/fs-safe.ts';
@@ -640,7 +641,14 @@ async function performWrap(
       isProtected: (p) => state.dangerousProtected.has(p),
     });
     incStubRefs(state.stubRefcount, created);
-    const wrapped = await state.manager.wrapWithSandbox(command);
+    // Under network.allowLocalhost, rewrite the command's NO_PROXY so
+    // loopback HTTP(S)/SOCKS routes through ASRT's proxy (which dials
+    // the host loopback). No-op when unrestricted (host net already
+    // shared) or when the flag is off. The original command is stashed
+    // by the caller; only the executed string carries the prefix.
+    const net = state.lastResolved?.sandboxResult.config.network;
+    const toWrap = net?.allowLocalhost && net.unrestricted !== true ? prependLocalhostProxyEnv(command) : command;
+    const wrapped = await state.manager.wrapWithSandbox(toWrap);
     logE2bigWrap(
       { wrapsAttempted: state.wrapsAttempted, lastResolvedAsrtConfig: state.lastResolved?.asrtConfig },
       command,
@@ -1126,6 +1134,8 @@ export default function sandbox(pi: ExtensionAPI): void {
       lines.push('Network:');
       if (resolved.sandboxResult.config.network.unrestricted) {
         lines.push('  unrestricted: true (network isolation OFF - host network shared, allow/deny NOT enforced)');
+      } else if (resolved.sandboxResult.config.network.allowLocalhost) {
+        lines.push('  allowLocalhost: true (loopback routed through the proxy; HTTP/SOCKS only, filtering stays on)');
       }
       lines.push(`  allow: ${resolved.sandboxResult.config.network.allow.join(', ') || '(empty - deny all)'}`);
       lines.push(`  deny:  ${resolved.sandboxResult.config.network.deny.join(', ') || '(empty)'}`);

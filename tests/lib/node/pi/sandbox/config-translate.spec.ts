@@ -222,6 +222,53 @@ describe('translateToASRT - macOS mode', () => {
     expect(lossyNotes.find((n) => n.includes('network.unrestricted=true'))).toBeDefined();
   });
 
+  test('network.allowLocalhost adds loopback hosts to allowedDomains and keeps filtering', () => {
+    const sandbox: SandboxConfig = {
+      network: { allow: ['github.com'], deny: [], allowLocalhost: true },
+      unixSockets: { allow: [], allowAll: false },
+      flags: { weakerNestedSandbox: false, weakerNetworkIsolation: false, allowLocalBinding: false, linuxRuleDepth: 3 },
+    };
+    const { config, lossyNotes } = translateToASRT({
+      policy: basePolicy(),
+      sandbox,
+      cwd,
+      homeDir: HOME,
+      mode: 'darwin',
+    });
+    // Loopback hosts appended; remote allow-list (github.com) retained =>
+    // filtering still on (allowedDomains is a finite list, not absent).
+    expect(config.network.allowedDomains).toEqual(['github.com', 'localhost', '127.0.0.1', '::1']);
+    expect(lossyNotes.find((n) => n.includes('network.allowLocalhost=true'))).toBeDefined();
+  });
+
+  test('network.allowLocalhost does not duplicate a loopback host already in allow', () => {
+    const sandbox: SandboxConfig = {
+      network: { allow: ['127.0.0.1'], deny: [], allowLocalhost: true },
+      unixSockets: { allow: [], allowAll: false },
+      flags: { weakerNestedSandbox: false, weakerNetworkIsolation: false, allowLocalBinding: false, linuxRuleDepth: 3 },
+    };
+    const { config } = translateToASRT({ policy: basePolicy(), sandbox, cwd, homeDir: HOME, mode: 'darwin' });
+    expect(config.network.allowedDomains).toEqual(['127.0.0.1', 'localhost', '::1']);
+  });
+
+  test('network.allowLocalhost is a no-op under unrestricted (no allowedDomains at all)', () => {
+    const sandbox: SandboxConfig = {
+      network: { allow: [], deny: [], unrestricted: true, allowLocalhost: true },
+      unixSockets: { allow: [], allowAll: false },
+      flags: { weakerNestedSandbox: false, weakerNetworkIsolation: false, allowLocalBinding: false, linuxRuleDepth: 3 },
+    };
+    const { config, lossyNotes } = translateToASRT({
+      policy: basePolicy(),
+      sandbox,
+      cwd,
+      homeDir: HOME,
+      mode: 'darwin',
+    });
+    expect(config.network.allowedDomains).toBeUndefined();
+    expect(lossyNotes.find((n) => n.includes('network.allowLocalhost=true'))).toBeUndefined();
+    expect(lossyNotes.find((n) => n.includes('network.unrestricted=true'))).toBeDefined();
+  });
+
   test('flags off → omit optional ASRT fields entirely', () => {
     const { config } = translateToASRT({
       policy: basePolicy(),

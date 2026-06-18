@@ -82,11 +82,14 @@ export const LOOPBACK_FAILURE_HINT =
   'dev server, a local database) are NOT reachable from inside the sandbox, and the ' +
   'network allow-list cannot fix it (localhost bypasses the filtering proxy). To reach a ' +
   'local service:\n' +
-  '  1. `docker exec <container> <cmd>` - hit the service from inside its own container.\n' +
-  '  2. Start the service AND curl it within the SAME bash command (they share the ' +
+  '  1. For HTTP(S) tools (curl, wget, pip, npm): ask the user to set ' +
+  '`network.allowLocalhost: true` in sandbox.json - it routes loopback through the proxy ' +
+  'and KEEPS domain filtering on.\n' +
+  '  2. `docker exec <container> <cmd>` - hit the service from inside its own container.\n' +
+  '  3. Start the service AND curl it within the SAME bash command (they share the ' +
   "sandbox's network namespace), e.g. `server & sleep 1; curl localhost:PORT`.\n" +
-  '  3. Ask the user to run `/sandbox-disable` for the session, or set ' +
-  '`network.unrestricted: true` in sandbox.json (coarse - drops ALL network filtering).';
+  '  4. For raw-TCP clients (psql, redis-cli, mysql, nc) or a blanket fix: ask the user to ' +
+  'run `/sandbox-disable`, or set `network.unrestricted: true` (coarse - drops ALL network filtering).';
 
 /**
  * Return {@link LOOPBACK_FAILURE_HINT} when `text` (a bash result's

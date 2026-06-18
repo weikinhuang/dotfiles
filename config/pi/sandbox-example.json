@@ -56,6 +56,21 @@
     // pinning a known-bad host even when its parent is allowed.
     "deny": []
 
+    // KEEP-FILTERING way to reach host localhost services. When true,
+    // `localhost` / `127.0.0.1` / `::1` are allow-listed and the wrapped
+    // command's NO_PROXY is rewritten so loopback HTTP(S)/SOCKS traffic
+    // routes through the sandbox proxy (which dials the host loopback).
+    // Result: Docker published ports, a dev server, or a local LLM/API
+    // on 127.0.0.1 become reachable WHILE every other domain is still
+    // gated by `allow` / `deny` above. Prefer this over `unrestricted`.
+    //
+    // Covers tools that honor HTTP_PROXY / ALL_PROXY (curl, wget, pip,
+    // npm, most HTTP clients). Does NOT cover raw-TCP clients that
+    // ignore proxy env (psql, redis-cli, mysql, bare nc) - those need
+    // `unrestricted`. No-op when `unrestricted` is set. Surface via
+    // PI_SANDBOX_ALLOW_LOCALHOST=1. Off by default.
+    // "allowLocalhost": false,
+
     // COARSE network escape hatch. When true, the kernel sandbox does
     // NOT isolate the network namespace, so sandboxed bash shares the
     // host network - including `localhost` / `127.0.0.1` host services
