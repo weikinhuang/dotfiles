@@ -91,6 +91,30 @@ describe('mergeSandboxConfigs', () => {
     expect(config.flags.weakerNestedSandbox).toBe(true);
   });
 
+  test('network.unrestricted defaults to false', () => {
+    const { config } = mergeSandboxConfigs([]);
+    expect(config.network.unrestricted).toBe(false);
+  });
+
+  test('network.unrestricted is last-wins and overridable', () => {
+    const { config } = mergeSandboxConfigs([
+      { source: 'user', partial: { network: { unrestricted: true } } },
+      { source: 'project', partial: { network: { unrestricted: false } } },
+    ]);
+    expect(config.network.unrestricted).toBe(false);
+
+    const { config: c2 } = mergeSandboxConfigs([{ source: 'user', partial: { network: { unrestricted: true } } }]);
+    expect(c2.network.unrestricted).toBe(true);
+  });
+
+  test('non-boolean network.unrestricted warns and keeps previous value', () => {
+    const { config, warnings } = mergeSandboxConfigs([
+      { source: 'user', partial: { network: { unrestricted: 'yes' } } },
+    ]);
+    expect(warnings.find((w) => w.reason.includes('network.unrestricted'))).toBeDefined();
+    expect(config.network.unrestricted).toBe(false);
+  });
+
   test('linuxRuleDepth is clamped after merge', () => {
     const { config } = mergeSandboxConfigs([{ source: 'user', partial: { flags: { linuxRuleDepth: 99 } } }]);
     expect(config.flags.linuxRuleDepth).toBe(LINUX_RULE_DEPTH_MAX);

@@ -358,13 +358,52 @@ export function translateToASRT(options: TranslateToASRTOptions): TranslateToASR
     );
   }
 
-  const networkConfig: SandboxRuntimeConfig['network'] = {
-    allowedDomains: [...sandbox.network.allow],
-    deniedDomains: [...sandbox.network.deny],
-    ...(allowUnixSockets ? { allowUnixSockets } : {}),
-    ...(sandbox.unixSockets.allowAll ? { allowAllUnixSockets: true } : {}),
-    ...(sandbox.flags.allowLocalBinding ? { allowLocalBinding: true } : {}),
-  };
+  // `flags.allowLocalBinding` is a macOS-only knob: sandbox-exec can add
+  // `(allow network-* (local ip "*:*"))` rules that permit loopback while
+  // still denying remote domains. On Linux there is no such surgical
+  // rule - network isolation is `bwrap --unshare-net` (an empty network
+  // namespace), and ASRT never even forwards `allowLocalBinding` to the
+  // Linux wrapper. So a Linux user who sets it (per ASRT issue #43, whose
+  // accepted answer is macOS-specific) gets a silent no-op. Surface that,
+  // and point at the only Linux lever that works. Skip when already
+  // unrestricted (localhost reachable anyway, so the note would mislead).
+  if (mode === 'linux' && sandbox.flags.allowLocalBinding && !sandbox.network.unrestricted) {
+    lossyNotes.push(
+      'Linux: flags.allowLocalBinding has NO effect (ASRT honors it only on macOS; the bwrap path never receives it). To reach host localhost services on Linux, set network.unrestricted: true - bwrap --unshare-net is all-or-nothing, so this drops ALL domain filtering.',
+    );
+  }
+
+  const networkConfig: SandboxRuntimeConfig['network'] = sandbox.network.unrestricted
+    ? // Unrestricted mode: OMIT `allowedDomains`/`deniedDomains` so ASRT's
+      // `needsNetworkRestriction` is false (sandbox-manager.ts checks
+      // `network?.allowedDomains !== undefined`). With them absent, bwrap
+      // does NOT `--unshare-net`, so sandboxed bash shares the host network
+      // and `localhost` host services (Docker published ports, dev servers)
+      // are reachable. The unix-socket / local-binding sub-keys still flow
+      // through (ASRT reads them off `config.network` regardless). The cast
+      // is deliberate: the runtime contract reads these fields with optional
+      // chaining, but the published type marks them required, so we assert
+      // the intentionally-partial shape rather than fabricate empty arrays
+      // (an empty `allowedDomains` would re-enable network isolation = deny
+      // all, the exact opposite of the intent).
+      ({
+        ...(allowUnixSockets ? { allowUnixSockets } : {}),
+        ...(sandbox.unixSockets.allowAll ? { allowAllUnixSockets: true } : {}),
+        ...(sandbox.flags.allowLocalBinding ? { allowLocalBinding: true } : {}),
+      } as SandboxRuntimeConfig['network'])
+    : {
+        allowedDomains: [...sandbox.network.allow],
+        deniedDomains: [...sandbox.network.deny],
+        ...(allowUnixSockets ? { allowUnixSockets } : {}),
+        ...(sandbox.unixSockets.allowAll ? { allowAllUnixSockets: true } : {}),
+        ...(sandbox.flags.allowLocalBinding ? { allowLocalBinding: true } : {}),
+      };
+
+  if (sandbox.network.unrestricted) {
+    lossyNotes.push(
+      'network.unrestricted=true: kernel network isolation is OFF. Sandboxed bash shares the host network (localhost / Docker published ports reachable), and the network allow/deny lists are NOT enforced - every outbound destination is permitted.',
+    );
+  }
 
   // ── assemble ─────────────────────────────────────────────────────
   const config: SandboxRuntimeConfig = {

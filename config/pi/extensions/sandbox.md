@@ -46,7 +46,8 @@ File resolution order, additive within categories:
 1. Built-in defaults (deny-all network, no socket bypass, all flags off, depth 3).
 2. User: `~/.pi/agent/{filesystem,sandbox}.json`.
 3. Project: `<repo>/.pi/{filesystem,sandbox}.json`.
-4. Env-var overlay: `PI_SANDBOX_NESTED`, `PI_SANDBOX_WEAKER_NET`, `PI_SANDBOX_EXTRA_ALLOW_DOMAIN`.
+4. Env-var overlay: `PI_SANDBOX_NESTED`, `PI_SANDBOX_WEAKER_NET`, `PI_SANDBOX_EXTRA_ALLOW_DOMAIN`,
+   `PI_SANDBOX_NETWORK_UNRESTRICTED`.
 5. Persona overlay: the active persona's resolved `writeRoots` are merged into `filesystem.write.allow.paths` so the
    kernel sandbox sees the same write surface the in-process gate sees.
 
@@ -76,6 +77,24 @@ the unified policy:
   it) but emits a lossy note on Linux so `/sandbox` shows the entries had no effect. To reach a unix socket on Linux
   (e.g. `/var/run/docker.sock`) set `unixSockets.allowAll: true`, which skips the seccomp filter for the wrapped shell -
   coarse, since it opens **every** unix socket, not just the allow-listed ones.
+- **`allowLocalBinding` is macOS-only.** `flags.allowLocalBinding` maps to ASRT's `network.allowLocalBinding`, which on
+  macOS adds a seatbelt allow-loopback rule (`(allow network-* (local ip "*:*"))`) so sandboxed bash can reach
+  `localhost` / `127.0.0.1` while remote domains stay filtered - the surgical "allow loopback, block the rest" answer
+  from [ASRT issue #43](https://github.com/anthropic-experimental/sandbox-runtime/issues/43). On **Linux it is a silent
+  no-op**: network isolation is `bwrap --unshare-net` (an empty network namespace), and ASRT never forwards the flag to
+  the Linux wrapper. `config-translate.ts` emits a lossy note on Linux so `/sandbox` shows it had no effect, and points
+  at `network.unrestricted` (the only Linux lever, coarse since `--unshare-net` is all-or-nothing).
+- **`network.unrestricted` (coarse network escape hatch).** When `network.unrestricted: true`, the translator OMITS
+  `allowedDomains` / `deniedDomains` from the ASRT config so ASRT's `needsNetworkRestriction` is false and bwrap does
+  **not** `--unshare-net`. The wrapped shell then shares the host network, so `localhost` / `127.0.0.1` host services
+  (Docker published ports, a dev server, a local DB) are reachable. The cost: **all** domain filtering is off - the
+  `allow` / `deny` lists are inert and every outbound destination is permitted. Filesystem + unix-socket isolation are
+  unaffected. Use it per-project (`<repo>/.pi/sandbox.json`) when a task needs to hit a local service, or per-session
+  via `PI_SANDBOX_NETWORK_UNRESTRICTED=1`. `/sandbox` shows `unrestricted: true` and a lossy note. This exists because
+  Linux's `--unshare-net` is all-or-nothing: ASRT isolates the whole network namespace whenever any allow-list is
+  present and hardcodes `NO_PROXY=localhost,127.0.0.1,…`, so there is no per-port host-loopback bridge - reaching a host
+  service requires turning network isolation off entirely (or using `docker exec` / starting + curling the service
+  inside one bash command).
 - **Carve-back relaxation.** When `filesystem.write.allow.{basenames,segments}` shadows a
   `write.deny.{basenames, segments}` entry (`filesystem.ts` honors this as allow-back inside the deny set), the matching
   kernel deny is STRIPPED before reaching ASRT - bwrap and sandbox-exec have no allow-back hook for writes, so
@@ -182,17 +201,18 @@ State is published via [`session-flags.ts`](../../../lib/node/pi/session-flags.t
 
 ## Environment variables
 
-| Variable                        | Default | Effect                                                                                                                                                |
-| ------------------------------- | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `PI_SANDBOX_DISABLED`           | unset   | bypass entirely; identity-wrap. Statusline `🛡️ ·off`.                                                                                                 |
-| `PI_SANDBOX_DRY_RUN`            | unset   | log the wrapped command but pass the original through (for debugging the wrap pipeline).                                                              |
-| `PI_SANDBOX_DEFAULT`            | `warn`  | fallback when `wrapWithSandbox` itself errors: `warn` (run unwrapped + log per-call), `allow` (run unwrapped silently), `block` (refuse to run bash). |
-| `PI_SANDBOX_NETWORK_DEFAULT`    | `deny`  | non-UI default for the network ask-callback (`pi -p` mode): `deny` (silent block) or `allow` (silent admit).                                          |
-| `PI_SANDBOX_NESTED`             | unset   | enable `flags.weakerNestedSandbox` for users running pi inside Docker / nested containers.                                                            |
-| `PI_SANDBOX_WEAKER_NET`         | unset   | enable `flags.weakerNetworkIsolation` (macOS Go-TLS escape hatch for `gh` / `gcloud` / `terraform` / `kubectl`).                                      |
-| `PI_SANDBOX_EXTRA_ALLOW_DOMAIN` | unset   | additive comma-separated list of domains merged into `network.allow`.                                                                                 |
-| `PI_SANDBOX_ALLOW_ROOT`         | unset   | allow the extension to load when pi runs as root. Off by default per plan section 6.                                                                  |
-| `PI_INSIDE_DOCKER`              | unset   | hint platform.ts that pi is inside a container; surfaces a recommendation to enable `flags.weakerNestedSandbox`.                                      |
+| Variable                          | Default | Effect                                                                                                                                                |
+| --------------------------------- | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `PI_SANDBOX_DISABLED`             | unset   | bypass entirely; identity-wrap. Statusline `🛡️ ·off`.                                                                                                 |
+| `PI_SANDBOX_DRY_RUN`              | unset   | log the wrapped command but pass the original through (for debugging the wrap pipeline).                                                              |
+| `PI_SANDBOX_DEFAULT`              | `warn`  | fallback when `wrapWithSandbox` itself errors: `warn` (run unwrapped + log per-call), `allow` (run unwrapped silently), `block` (refuse to run bash). |
+| `PI_SANDBOX_NETWORK_DEFAULT`      | `deny`  | non-UI default for the network ask-callback (`pi -p` mode): `deny` (silent block) or `allow` (silent admit).                                          |
+| `PI_SANDBOX_NESTED`               | unset   | enable `flags.weakerNestedSandbox` for users running pi inside Docker / nested containers.                                                            |
+| `PI_SANDBOX_WEAKER_NET`           | unset   | enable `flags.weakerNetworkIsolation` (macOS Go-TLS escape hatch for `gh` / `gcloud` / `terraform` / `kubectl`).                                      |
+| `PI_SANDBOX_EXTRA_ALLOW_DOMAIN`   | unset   | additive comma-separated list of domains merged into `network.allow`.                                                                                 |
+| `PI_SANDBOX_NETWORK_UNRESTRICTED` | unset   | set `network.unrestricted: true` for the session: drop network isolation entirely (host network + localhost reachable, NO domain filtering).          |
+| `PI_SANDBOX_ALLOW_ROOT`           | unset   | allow the extension to load when pi runs as root. Off by default per plan section 6.                                                                  |
+| `PI_INSIDE_DOCKER`                | unset   | hint platform.ts that pi is inside a container; surfaces a recommendation to enable `flags.weakerNestedSandbox`.                                      |
 
 ## Running `pi -p` in CI
 
@@ -319,6 +339,15 @@ actual syscall denial (still requires the model-turn smoke above) but proves the
 
 ## Known limitations (v1)
 
+- **Host `localhost` services are unreachable under network isolation (Linux).** ASRT runs bash in an isolated network
+  namespace (`bwrap --unshare-net`) whenever any domain allow-list is present, and hardcodes
+  `NO_PROXY=localhost,127.0.0.1,…`. So a `curl localhost:PORT` against a Docker published port or a host-bound dev
+  server fails (curl `000` / `Connection refused`), and adding `127.0.0.1` to `network.allow` does **not** help (the
+  allow-list is enforced at the host proxy, which localhost never reaches). The `tool_result` hook detects this
+  signature ([`loopback-hint.ts`](../../../lib/node/pi/sandbox/loopback-hint.ts)) and tells the model to: `docker exec`
+  into the container, start + curl the service within the **same** bash command (shared namespace), or set
+  `network.unrestricted` / `/sandbox-disable`. macOS (`sandbox-exec` + `allowLocalBinding`) does not have this
+  limitation.
 - DNS-over-UDP exfil is not blocked (`dig @8.8.8.8 ...`). ASRT proxies HTTP/HTTPS/SOCKS5 but not raw UDP - documented as
   future work in
 - A long-running `bg_bash` job started under sandbox-config-A keeps that policy until it exits, even if the user later

@@ -194,6 +194,34 @@ describe('translateToASRT - macOS mode', () => {
     expect(config.enableWeakerNetworkIsolation).toBe(true);
   });
 
+  test('network.unrestricted drops allowedDomains/deniedDomains and adds a lossy note', () => {
+    const sandbox: SandboxConfig = {
+      network: { allow: ['github.com'], deny: ['evil.example.com'], unrestricted: true },
+      unixSockets: { allow: [], allowAll: true },
+      flags: {
+        weakerNestedSandbox: false,
+        weakerNetworkIsolation: false,
+        allowLocalBinding: true,
+        linuxRuleDepth: 3,
+      },
+    };
+    const { config, lossyNotes } = translateToASRT({
+      policy: basePolicy(),
+      sandbox,
+      cwd,
+      homeDir: HOME,
+      mode: 'darwin',
+    });
+    // allowedDomains MUST be absent so ASRT's needsNetworkRestriction is
+    // false (any value, including []  , re-enables network isolation).
+    expect(config.network.allowedDomains).toBeUndefined();
+    expect(config.network.deniedDomains).toBeUndefined();
+    // unix-socket / local-binding sub-keys still flow through.
+    expect(config.network.allowAllUnixSockets).toBe(true);
+    expect(config.network.allowLocalBinding).toBe(true);
+    expect(lossyNotes.find((n) => n.includes('network.unrestricted=true'))).toBeDefined();
+  });
+
   test('flags off → omit optional ASRT fields entirely', () => {
     const { config } = translateToASRT({
       policy: basePolicy(),
@@ -341,6 +369,40 @@ describe('translateToASRT - Linux mode', () => {
     // flagged as inert on this platform.
     expect(config.network.allowUnixSockets).toEqual(['/var/run/docker.sock']);
     expect(lossyNotes.find((n) => /unixSockets\.allow is ignored.*docker\.sock/.test(n))).toBeDefined();
+  });
+
+  test('flags.allowLocalBinding on Linux surfaces a no-op lossy note', () => {
+    const sandbox: SandboxConfig = {
+      ...baseSandbox(),
+      flags: { ...baseSandbox().flags, allowLocalBinding: true },
+    };
+    const { lossyNotes } = translateToASRT({
+      policy: basePolicy(),
+      sandbox,
+      cwd,
+      homeDir: HOME,
+      mode: 'linux',
+      compiled: compiled(),
+    });
+    expect(lossyNotes.find((n) => n.includes('allowLocalBinding has NO effect'))).toBeDefined();
+    expect(lossyNotes.find((n) => n.includes('network.unrestricted'))).toBeDefined();
+  });
+
+  test('flags.allowLocalBinding on Linux is silent when network.unrestricted is set', () => {
+    const sandbox: SandboxConfig = {
+      ...baseSandbox(),
+      network: { allow: [], deny: [], unrestricted: true },
+      flags: { ...baseSandbox().flags, allowLocalBinding: true },
+    };
+    const { lossyNotes } = translateToASRT({
+      policy: basePolicy(),
+      sandbox,
+      cwd,
+      homeDir: HOME,
+      mode: 'linux',
+      compiled: compiled(),
+    });
+    expect(lossyNotes.find((n) => n.includes('allowLocalBinding has NO effect'))).toBeUndefined();
   });
 
   test('unixSockets.allow with allowAll → no lossy note', () => {

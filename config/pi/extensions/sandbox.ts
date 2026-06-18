@@ -114,6 +114,7 @@ import { parseFsFailures } from '../../../lib/node/pi/sandbox/fs-failures.ts';
 import { gitTrackedSubset } from '../../../lib/node/pi/sandbox/git-tracked.ts';
 import { buildNetworkAskCallback } from '../../../lib/node/pi/sandbox/network-ask.ts';
 import { annotateBashResult, prependBashHint } from '../../../lib/node/pi/sandbox/result-annotate.ts';
+import { detectLoopbackFailure } from '../../../lib/node/pi/sandbox/loopback-hint.ts';
 import { type FilesystemPolicyLayer, loadFilesystemPolicy } from '../../../lib/node/pi/filesystem-policy/load.ts';
 import { type FilesystemPolicyWarning } from '../../../lib/node/pi/filesystem-policy/schema.ts';
 import { readTextOrEmpty } from '../../../lib/node/pi/fs-safe.ts';
@@ -1009,6 +1010,43 @@ export default function sandbox(pi: ExtensionAPI): void {
       // through to the existing ASRT-annotation path below.
     }
 
+    // Reactive localhost hint: ASRT's annotator says nothing about a
+    // failed connection to a host loopback service, because network
+    // isolation (`bwrap --unshare-net`) silently cuts the sandboxed
+    // process off from the host's 127.0.0.1 - and ASRT's hardcoded
+    // `NO_PROXY=localhost,…` means the request never reaches the
+    // filtering proxy that would otherwise log a violation. So a
+    // `curl localhost:PORT` against a Docker published port just
+    // returns an opaque `000` / `Connection refused`. Detect that
+    // signature and tell the model how to reach the service. Skip
+    // when network isolation isn't actually in effect: it only
+    // unshares the net namespace on Linux, and `network.unrestricted`
+    // / a session bypass turn it off. See `loopback-hint.ts`.
+    const netUnrestricted = state.lastResolved?.sandboxResult.config.network.unrestricted === true;
+    if (state.platform.kind === 'linux' && !state.bypassed && !netUnrestricted) {
+      const loopbackHint = detectLoopbackFailure(stderr);
+      if (loopbackHint) {
+        const tag = '⚠️  sandbox network isolation likely blocked this localhost connection:';
+        const newContent = prependBashHint(evt.content, loopbackHint, tag);
+        if (newContent) {
+          const record: SandboxViolationRecord = {
+            ts: new Date().toISOString(),
+            kind: 'net',
+            action: 'deny',
+            command,
+            cwd: ctx.cwd,
+            note: 'localhost unreachable under --unshare-net (host loopback hint)',
+          };
+          try {
+            appendViolation(USER_VIOLATIONS_LOG, record);
+          } catch {
+            // Best-effort logging; never let the audit log break the hook.
+          }
+          return { content: newContent as ToolResultEvent['content'] };
+        }
+      }
+    }
+
     let annotated: string;
     try {
       annotated = state.manager.annotateStderrWithSandboxFailures(command, stderr);
@@ -1086,6 +1124,9 @@ export default function sandbox(pi: ExtensionAPI): void {
       }
       lines.push('');
       lines.push('Network:');
+      if (resolved.sandboxResult.config.network.unrestricted) {
+        lines.push('  unrestricted: true (network isolation OFF - host network shared, allow/deny NOT enforced)');
+      }
       lines.push(`  allow: ${resolved.sandboxResult.config.network.allow.join(', ') || '(empty - deny all)'}`);
       lines.push(`  deny:  ${resolved.sandboxResult.config.network.deny.join(', ') || '(empty)'}`);
       lines.push(`  default-on-no-UI: ${envNetworkDefault()}`);

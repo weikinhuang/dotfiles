@@ -22,6 +22,21 @@ export interface SandboxNetworkConfig {
   allow: string[];
   /** Explicit deny-list checked before the allow-list. */
   deny: string[];
+  /** Coarse escape hatch: when true, the kernel sandbox does NOT
+   *  unshare the network namespace, so sandboxed bash shares the
+   *  host's network - including `localhost` / `127.0.0.1` host
+   *  services (Docker published ports, a dev server, a local DB).
+   *  This disables ALL domain filtering (`allow` / `deny` become
+   *  inert); the translator drops `allowedDomains` so ASRT's
+   *  `needsNetworkRestriction` is false. Off by default.
+   *
+   *  Why this is the only way to reach host loopback on Linux: ASRT
+   *  isolates the network with `bwrap --unshare-net` whenever any
+   *  domain allow-list is present, and hardcodes
+   *  `NO_PROXY=localhost,127.0.0.1,…`, so localhost never reaches the
+   *  filtering proxy and the isolated namespace's loopback can't see
+   *  host services. There is no per-port host-loopback bridge. */
+  unrestricted?: boolean;
 }
 
 export interface SandboxUnixSocketsConfig {
@@ -39,8 +54,12 @@ export interface SandboxFlags {
   /** ASRT `enableWeakerNetworkIsolation` (macOS only Go-TLS escape).
    *  Surfaces via PI_SANDBOX_WEAKER_NET=1. */
   weakerNetworkIsolation: boolean;
-  /** ASRT `network.allowLocalBinding` - lets sandboxed children bind
-   *  127.0.0.1 sockets (e.g. dev-server tests). */
+  /** ASRT `network.allowLocalBinding` - lets sandboxed children reach
+   *  127.0.0.1 / localhost while remote domains stay filtered.
+   *  macOS ONLY: sandbox-exec adds an allow-loopback rule. On Linux
+   *  this is a silent no-op (network isolation is `bwrap --unshare-net`
+   *  and ASRT never forwards the flag to the Linux path); use
+   *  `network.unrestricted` to reach host loopback there. */
   allowLocalBinding: boolean;
   /** Default 3 (per plan section 6). Tuneable for deep monorepos.
    *  Bounded between 1 and 10 by {@link clampLinuxRuleDepth}. */
@@ -90,6 +109,7 @@ export const DEFAULT_SANDBOX_CONFIG: Readonly<SandboxConfig> = Object.freeze({
   network: {
     allow: [] as string[],
     deny: [] as string[],
+    unrestricted: false,
   },
   unixSockets: {
     allow: [] as string[],
@@ -109,7 +129,7 @@ export const DEFAULT_SANDBOX_CONFIG: Readonly<SandboxConfig> = Object.freeze({
 
 export function emptySandboxConfig(): SandboxConfig {
   return {
-    network: { allow: [], deny: [] },
+    network: { allow: [], deny: [], unrestricted: false },
     unixSockets: { allow: [], allowAll: false },
     flags: {
       weakerNestedSandbox: false,
@@ -126,6 +146,7 @@ export interface PartialSandboxConfig {
   network?: {
     allow?: unknown;
     deny?: unknown;
+    unrestricted?: unknown;
   };
   unixSockets?: {
     allow?: unknown;
@@ -189,6 +210,7 @@ export function mergeSandboxConfigs(layers: { source: string; partial: PartialSa
   const out = emptySandboxConfig();
   out.network.allow.push(...DEFAULT_SANDBOX_CONFIG.network.allow);
   out.network.deny.push(...DEFAULT_SANDBOX_CONFIG.network.deny);
+  out.network.unrestricted = DEFAULT_SANDBOX_CONFIG.network.unrestricted === true;
   out.unixSockets.allow.push(...DEFAULT_SANDBOX_CONFIG.unixSockets.allow);
   out.unixSockets.allowAll = DEFAULT_SANDBOX_CONFIG.unixSockets.allowAll;
   out.flags = { ...DEFAULT_SANDBOX_CONFIG.flags };
@@ -199,6 +221,13 @@ export function mergeSandboxConfigs(layers: { source: string; partial: PartialSa
     if (partial.network) {
       pushStrings(out.network.allow, partial.network.allow, source, 'network.allow', warnings);
       pushStrings(out.network.deny, partial.network.deny, source, 'network.deny', warnings);
+      out.network.unrestricted = setBoolean(
+        partial.network.unrestricted,
+        out.network.unrestricted === true,
+        source,
+        'network.unrestricted',
+        warnings,
+      );
     }
     if (partial.unixSockets) {
       pushStrings(out.unixSockets.allow, partial.unixSockets.allow, source, 'unixSockets.allow', warnings);

@@ -65,6 +65,25 @@ describe('loadSandboxConfig', () => {
     expect(config.network.allow).toEqual(['github.com', 'localhost']);
   });
 
+  test('env overlay: PI_SANDBOX_NETWORK_UNRESTRICTED=1 sets network.unrestricted', () => {
+    const { config } = loadSandboxConfig([], { PI_SANDBOX_NETWORK_UNRESTRICTED: '1' });
+    expect(config.network.unrestricted).toBe(true);
+  });
+
+  test('env overlay: PI_SANDBOX_NETWORK_UNRESTRICTED coexists with EXTRA_ALLOW_DOMAIN', () => {
+    const { config } = loadSandboxConfig([], {
+      PI_SANDBOX_EXTRA_ALLOW_DOMAIN: 'a.com',
+      PI_SANDBOX_NETWORK_UNRESTRICTED: '1',
+    });
+    expect(config.network.allow).toEqual(['a.com']);
+    expect(config.network.unrestricted).toBe(true);
+  });
+
+  test('env overlay: falsy PI_SANDBOX_NETWORK_UNRESTRICTED leaves it off', () => {
+    expect(loadSandboxConfig([], { PI_SANDBOX_NETWORK_UNRESTRICTED: '0' }).config.network.unrestricted).toBe(false);
+    expect(loadSandboxConfig([], {}).config.network.unrestricted).toBe(false);
+  });
+
   test('truthiness of env vars: only specific values count', () => {
     expect(loadSandboxConfig([], { PI_SANDBOX_NESTED: '0' }).config.flags.weakerNestedSandbox).toBe(false);
     expect(loadSandboxConfig([], { PI_SANDBOX_NESTED: 'no' }).config.flags.weakerNestedSandbox).toBe(false);

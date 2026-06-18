@@ -36,6 +36,7 @@ export interface SandboxConfigEnv {
   PI_SANDBOX_NESTED?: string;
   PI_SANDBOX_WEAKER_NET?: string;
   PI_SANDBOX_EXTRA_ALLOW_DOMAIN?: string;
+  PI_SANDBOX_NETWORK_UNRESTRICTED?: string;
 }
 
 export interface LoadSandboxConfigResult {
@@ -112,8 +113,12 @@ function envOverlay(env: SandboxConfigEnv): PartialSandboxConfig {
       .map((s) => s.trim())
       .filter((s) => s.length > 0);
     if (domains.length > 0) {
-      partial.network = { allow: domains };
+      partial.network = { ...partial.network, allow: domains };
     }
+  }
+
+  if (envTruthy(env.PI_SANDBOX_NETWORK_UNRESTRICTED)) {
+    partial.network = { ...partial.network, unrestricted: true };
   }
 
   return partial;

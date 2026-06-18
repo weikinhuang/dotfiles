@@ -55,6 +55,25 @@
     // Explicit deny-list checked BEFORE the allow-list. Useful for
     // pinning a known-bad host even when its parent is allowed.
     "deny": []
+
+    // COARSE network escape hatch. When true, the kernel sandbox does
+    // NOT isolate the network namespace, so sandboxed bash shares the
+    // host network - including `localhost` / `127.0.0.1` host services
+    // (Docker published ports, a dev server, a local DB). The tradeoff:
+    // ALL domain filtering is OFF (the `allow` / `deny` lists above
+    // become inert and every outbound destination is permitted).
+    // Filesystem + unix-socket isolation are unaffected.
+    //
+    // Needed because on Linux ASRT uses `bwrap --unshare-net` (all-or-
+    // nothing) whenever any allow-list is present, and hardcodes
+    // `NO_PROXY=localhost,127.0.0.1,...` - so adding 127.0.0.1 to
+    // `allow` does NOT make host loopback reachable; only turning
+    // isolation off does. Prefer the narrower workarounds first:
+    // `docker exec <container> ...`, or start + curl the service in ONE
+    // bash command (shared namespace). Surface via
+    // PI_SANDBOX_NETWORK_UNRESTRICTED=1 instead of editing the file for
+    // a one-off session. Off by default.
+    // "unrestricted": false
   },
 
   "unixSockets": {
@@ -91,8 +110,19 @@
     // PI_SANDBOX_WEAKER_NET=1.
     "weakerNetworkIsolation": false,
 
-    // Allow sandboxed bash to bind 127.0.0.1 sockets (dev-server
-    // tests, integration suites that spin up local HTTP).
+    // macOS ONLY: allow sandboxed bash to reach 127.0.0.1 / localhost
+    // (dev-server tests, a local DB, an LLM on 127.0.0.1) while still
+    // filtering remote domains. sandbox-exec adds an allow-loopback rule
+    // on top of `(deny default)`.
+    //
+    // HAS NO EFFECT ON LINUX. ASRT isolates the network with
+    // `bwrap --unshare-net` (an empty network namespace) and never
+    // forwards this flag to the Linux path, so it is a silent no-op
+    // (you'll see a note in `/sandbox`). Per ASRT issue #43 the accepted
+    // "set allowLocalBinding" answer is macOS-specific. To reach host
+    // localhost services on Linux use `network.unrestricted` above
+    // (coarse - drops all domain filtering) or the per-command
+    // workarounds (`docker exec`, start + curl in ONE bash command).
     "allowLocalBinding": false,
 
     // Linux-only: bwrap accepts only literal paths, so basename /
