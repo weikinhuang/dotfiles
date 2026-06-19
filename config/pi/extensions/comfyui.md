@@ -208,16 +208,6 @@ workflow entry points at its JSON file and maps tunable names to a node id + inp
       },
       "images": [{ "node": "41", "key": "image" }],
     },
-    "flux-kontext": {
-      "file": "~/.pi/agent/comfyui/flux-kontext.api.json",
-      "inputs": {
-        "prompt": { "node": "6", "key": "text" },
-        "cfg": { "node": "35", "key": "guidance" },
-        "seed": { "node": "3", "key": "seed" },
-        "steps": { "node": "3", "key": "steps" },
-      },
-      "images": [{ "node": "41", "key": "image" }],
-    },
     "flux2-t2i": {
       "file": "~/.pi/agent/comfyui/flux2-t2i.api.json",
       "inputs": {
@@ -277,22 +267,15 @@ The shipped default [`../comfyui/txt2img.api.json`](../comfyui/txt2img.api.json)
 a `v1-5-pruned-emaonly.safetensors` checkpoint to be installed on the server. Repoint `defaultWorkflow` / `workflows` at
 your own graph + checkpoint as needed.
 
-Three image-to-image examples ship alongside it: [`../comfyui/img2img.api.json`](../comfyui/img2img.api.json) is the
+Two image-to-image examples ship alongside it: [`../comfyui/img2img.api.json`](../comfyui/img2img.api.json) is the
 classic SD1.5 VAE-encode graph (its single `images` slot maps the uploaded image into the `LoadImage` node), and
 [`../comfyui/qwen-image-edit.api.json`](../comfyui/qwen-image-edit.api.json) is a modern instruction-edit graph
 (Qwen-Image-Edit 2511 GGUF + a 4-step Lightning LoRA). Its `prompt` is an **edit instruction** encoded by
 `TextEncodeQwenImageEditPlus`, so the map key is `prompt` (not the `text` that `CLIPTextEncode` uses). The Plus encoder
 bakes the reference image into the conditioning, `FluxKontextImageScale` (node 60) snaps the source to a supported edit
 resolution, and `FluxKontextMultiReferenceLatentMethod` (node 43) anchors the edit - which lets the KSampler run at
-`denoise 1` (the source latent only sets the output resolution). As with Kontext below, lowering `denoise` is the wrong
-knob, so its map exposes none; `CFGNorm` (node 75) stabilises the cfg-1 Lightning setup.
-
-The third, [`../comfyui/flux-kontext.api.json`](../comfyui/flux-kontext.api.json), is a **FLUX.1 Kontext**
-instruction-edit graph. Like the Qwen graph it anchors the source through a `ReferenceLatent` (node 43) and runs at
-`denoise 1` rather than img2img low-`denoise`, so it follows the edit instruction strongly while keeping the subject -
-lowering `denoise` is the wrong knob for it, which is why its map exposes none. Flux is also cfg-1 with a
-`ConditioningZeroOut` (node 40) negative, so the real guidance knob is `FluxGuidance` (node 35): the example maps the
-tool's `cfg` param there rather than at the KSampler.
+`denoise 1` (the source latent only sets the output resolution). Lowering `denoise` is the wrong knob, so its map
+exposes none; `CFGNorm` (node 75) stabilises the cfg-1 Lightning setup.
 
 Two **FLUX.2 [klein] 9B** graphs round out the set, both loading GGUF weights via `UnetLoaderGGUF` and the Qwen3-8B text
 encoder via `CLIPLoaderGGUF` (`type: flux2`) alongside the `flux2-vae`.
@@ -303,9 +286,9 @@ two `PrimitiveInt` nodes (6 / 7) that feed both `Flux2Scheduler` and `EmptyFlux2
 keeps the resolution-dependent sigma shift and the latent size in lockstep.
 [`../comfyui/flux2-edit.api.json`](../comfyui/flux2-edit.api.json) is the instruction-edit variant: the uploaded image
 is scaled to ~1 MP, VAE-encoded, and anchored into both the positive and negative conditioning through `ReferenceLatent`
-(nodes 24 / 25), with `GetImageSize` driving the output dimensions. As with Kontext and Qwen above it runs at
-`denoise 1` (the empty latent only sets resolution), so its map exposes neither `denoise` nor `width` / `height` - the
-edit follows the source size.
+(nodes 24 / 25), with `GetImageSize` driving the output dimensions. As with Qwen above it runs at `denoise 1` (the empty
+latent only sets resolution), so its map exposes neither `denoise` nor `width` / `height` - the edit follows the source
+size.
 
 [`../comfyui/flux2-edit-multi.api.json`](../comfyui/flux2-edit-multi.api.json) extends that edit graph to **two**
 ordered reference images. Each reference is scaled to ~1 MP and VAE-encoded independently (nodes 20/21/23 for ref1,

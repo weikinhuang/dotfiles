@@ -1,12 +1,14 @@
 {
   "1": {
     "class_type": "UnetLoaderGGUF",
+    "_meta": { "title": "Load Diffusion Model (FLUX.2 klein base 9B, GGUF Q6_K)" },
     "inputs": {
       "unet_name": "flux-2-klein-base-9b-Q6_K.gguf"
     }
   },
   "2": {
     "class_type": "CLIPLoaderGGUF",
+    "_meta": { "title": "Load CLIP (Qwen3-8B text encoder, GGUF)" },
     "inputs": {
       "clip_name": "Qwen3-8B-Q4_K_M.gguf",
       "type": "flux2"
@@ -14,12 +16,14 @@
   },
   "3": {
     "class_type": "VAELoader",
+    "_meta": { "title": "Load VAE (FLUX.2 autoencoder)" },
     "inputs": {
       "vae_name": "flux2-vae.safetensors"
     }
   },
   "4": {
     "class_type": "CLIPTextEncode",
+    "_meta": { "title": "CLIP Text Encode (Positive Prompt)" },
     "inputs": {
       "text": "a cinematic photo of a red fox in a snowy forest",
       "clip": ["2", 0]
@@ -27,6 +31,7 @@
   },
   "5": {
     "class_type": "CLIPTextEncode",
+    "_meta": { "title": "CLIP Text Encode (Negative Prompt)" },
     "inputs": {
       "text": "",
       "clip": ["2", 0]
@@ -34,18 +39,21 @@
   },
   "6": {
     "class_type": "PrimitiveInt",
+    "_meta": { "title": "Width" },
     "inputs": {
       "value": 1024
     }
   },
   "7": {
     "class_type": "PrimitiveInt",
+    "_meta": { "title": "Height" },
     "inputs": {
       "value": 1024
     }
   },
   "8": {
     "class_type": "Flux2Scheduler",
+    "_meta": { "title": "FLUX.2 Scheduler (sigmas + steps)" },
     "inputs": {
       "steps": 20,
       "width": ["6", 0],
@@ -54,6 +62,7 @@
   },
   "9": {
     "class_type": "EmptyFlux2LatentImage",
+    "_meta": { "title": "Empty FLUX.2 Latent Image (batch size)" },
     "inputs": {
       "width": ["6", 0],
       "height": ["7", 0],
@@ -62,6 +71,7 @@
   },
   "10": {
     "class_type": "CFGGuider",
+    "_meta": { "title": "CFG Guider (positive/negative + cfg)" },
     "inputs": {
       "model": ["18", 0],
       "positive": ["4", 0],
@@ -71,18 +81,21 @@
   },
   "11": {
     "class_type": "KSamplerSelect",
+    "_meta": { "title": "Sampler Select (euler)" },
     "inputs": {
       "sampler_name": "euler"
     }
   },
   "12": {
     "class_type": "RandomNoise",
+    "_meta": { "title": "Random Noise (seed)" },
     "inputs": {
       "noise_seed": 0
     }
   },
   "13": {
     "class_type": "SamplerCustomAdvanced",
+    "_meta": { "title": "Sampler Custom Advanced" },
     "inputs": {
       "noise": ["12", 0],
       "guider": ["10", 0],
@@ -93,6 +106,7 @@
   },
   "14": {
     "class_type": "VAEDecode",
+    "_meta": { "title": "VAE Decode" },
     "inputs": {
       "samples": ["13", 0],
       "vae": ["3", 0]
@@ -100,6 +114,7 @@
   },
   "15": {
     "class_type": "SaveImage",
+    "_meta": { "title": "Save Image" },
     "inputs": {
       "filename_prefix": "Flux2-Klein",
       "images": ["14", 0]
@@ -107,6 +122,7 @@
   },
   "16": {
     "class_type": "ModelPatchTorchSettings",
+    "_meta": { "title": "fp16 accumulation (PyTorch >= 2.7)" },
     "inputs": {
       "enable_fp16_accumulation": true,
       "model": ["17", 0]
@@ -114,6 +130,7 @@
   },
   "17": {
     "class_type": "Power Lora Loader (rgthree)",
+    "_meta": { "title": "Power LoRA Loader (rgthree; add LoRAs here)" },
     "inputs": {
       "model": ["1", 0]
     }

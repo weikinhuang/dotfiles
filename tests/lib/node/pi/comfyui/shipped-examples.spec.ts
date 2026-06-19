@@ -72,15 +72,6 @@ const SHIPPED: Record<string, ShippedMap> = {
     },
     images: [{ node: '41', key: 'image' }],
   },
-  'flux-kontext.api.json': {
-    inputs: {
-      prompt: { node: '6', key: 'text' },
-      cfg: { node: '35', key: 'guidance' },
-      seed: { node: '3', key: 'seed' },
-      steps: { node: '3', key: 'steps' },
-    },
-    images: [{ node: '41', key: 'image' }],
-  },
   'flux2-t2i.api.json': { inputs: FLUX2_T2I_INPUTS },
   'flux2-t2i-fast.api.json': { inputs: FLUX2_T2I_INPUTS },
   'flux2-edit.api.json': { inputs: FLUX2_EDIT_INPUTS, images: [{ node: '20', key: 'image' }] },

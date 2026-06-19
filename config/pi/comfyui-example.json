@@ -47,6 +47,34 @@
         "batch": { "node": "28", "key": "batch_size" }
       }
     },
+    "anima-hires125": {
+      "file": "~/.dotfiles/config/pi/comfyui/anima-hires125.api.json",
+      "inputs": {
+        "prompt": { "node": "65", "key": "string" },
+        "negative": { "node": "12", "key": "text" },
+        "seed": { "node": "19", "key": "seed" },
+        "steps": { "node": "19", "key": "steps" },
+        "cfg": { "node": "19", "key": "cfg" },
+        "denoise": { "node": "19", "key": "denoise" },
+        "width": { "node": "28", "key": "width" },
+        "height": { "node": "28", "key": "height" },
+        "batch": { "node": "28", "key": "batch_size" }
+      }
+    },
+    "anima-noupscale": {
+      "file": "~/.dotfiles/config/pi/comfyui/anima-noupscale.api.json",
+      "inputs": {
+        "prompt": { "node": "65", "key": "string" },
+        "negative": { "node": "12", "key": "text" },
+        "seed": { "node": "19", "key": "seed" },
+        "steps": { "node": "19", "key": "steps" },
+        "cfg": { "node": "19", "key": "cfg" },
+        "denoise": { "node": "19", "key": "denoise" },
+        "width": { "node": "28", "key": "width" },
+        "height": { "node": "28", "key": "height" },
+        "batch": { "node": "28", "key": "batch_size" }
+      }
+    },
     "qwen-image-edit": {
       "file": "~/.dotfiles/config/pi/comfyui/qwen-image-edit.api.json",
       "inputs": {
@@ -56,15 +84,70 @@
       },
       "images": [{ "node": "41", "key": "image" }]
     },
-    "flux-kontext": {
-      "file": "~/.dotfiles/config/pi/comfyui/flux-kontext.api.json",
+    "flux2-t2i": {
+      "file": "~/.dotfiles/config/pi/comfyui/flux2-t2i.api.json",
       "inputs": {
-        "prompt": { "node": "6", "key": "text" },
-        "cfg": { "node": "35", "key": "guidance" },
-        "seed": { "node": "3", "key": "seed" },
-        "steps": { "node": "3", "key": "steps" }
+        "prompt": { "node": "4", "key": "text" },
+        "negative": { "node": "5", "key": "text" },
+        "seed": { "node": "12", "key": "noise_seed" },
+        "steps": { "node": "8", "key": "steps" },
+        "cfg": { "node": "10", "key": "cfg" },
+        "width": { "node": "6", "key": "value" },
+        "height": { "node": "7", "key": "value" },
+        "batch": { "node": "9", "key": "batch_size" }
+      }
+    },
+    "flux2-t2i-fast": {
+      "file": "~/.dotfiles/config/pi/comfyui/flux2-t2i-fast.api.json",
+      "inputs": {
+        "prompt": { "node": "4", "key": "text" },
+        "negative": { "node": "5", "key": "text" },
+        "seed": { "node": "12", "key": "noise_seed" },
+        "steps": { "node": "8", "key": "steps" },
+        "cfg": { "node": "10", "key": "cfg" },
+        "width": { "node": "6", "key": "value" },
+        "height": { "node": "7", "key": "value" },
+        "batch": { "node": "9", "key": "batch_size" }
+      }
+    },
+    "flux2-edit": {
+      "file": "~/.dotfiles/config/pi/comfyui/flux2-edit.api.json",
+      "inputs": {
+        "prompt": { "node": "4", "key": "text" },
+        "negative": { "node": "5", "key": "text" },
+        "seed": { "node": "12", "key": "noise_seed" },
+        "steps": { "node": "8", "key": "steps" },
+        "cfg": { "node": "10", "key": "cfg" },
+        "batch": { "node": "9", "key": "batch_size" }
       },
-      "images": [{ "node": "41", "key": "image" }]
+      "images": [{ "node": "20", "key": "image" }]
+    },
+    "flux2-edit-fast": {
+      "file": "~/.dotfiles/config/pi/comfyui/flux2-edit-fast.api.json",
+      "inputs": {
+        "prompt": { "node": "4", "key": "text" },
+        "negative": { "node": "5", "key": "text" },
+        "seed": { "node": "12", "key": "noise_seed" },
+        "steps": { "node": "8", "key": "steps" },
+        "cfg": { "node": "10", "key": "cfg" },
+        "batch": { "node": "9", "key": "batch_size" }
+      },
+      "images": [{ "node": "20", "key": "image" }]
+    },
+    "flux2-edit-multi": {
+      "file": "~/.dotfiles/config/pi/comfyui/flux2-edit-multi.api.json",
+      "inputs": {
+        "prompt": { "node": "4", "key": "text" },
+        "negative": { "node": "5", "key": "text" },
+        "seed": { "node": "12", "key": "noise_seed" },
+        "steps": { "node": "8", "key": "steps" },
+        "cfg": { "node": "10", "key": "cfg" },
+        "batch": { "node": "9", "key": "batch_size" }
+      },
+      "images": [
+        { "node": "20", "key": "image" },
+        { "node": "30", "key": "image" }
+      ]
     }
   }
 }

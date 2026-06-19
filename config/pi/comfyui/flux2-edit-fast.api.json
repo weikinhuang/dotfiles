@@ -1,12 +1,14 @@
 {
   "1": {
     "class_type": "UnetLoaderGGUF",
+    "_meta": { "title": "Load Diffusion Model (FLUX.2 klein 9B distilled/fast, GGUF Q6_K)" },
     "inputs": {
       "unet_name": "flux-2-klein-9b-Q6_K.gguf"
     }
   },
   "2": {
     "class_type": "CLIPLoaderGGUF",
+    "_meta": { "title": "Load CLIP (Qwen3-8B text encoder, GGUF)" },
     "inputs": {
       "clip_name": "Qwen3-8B-Q4_K_M.gguf",
       "type": "flux2"
@@ -14,12 +16,14 @@
   },
   "3": {
     "class_type": "VAELoader",
+    "_meta": { "title": "Load VAE (FLUX.2 autoencoder)" },
     "inputs": {
       "vae_name": "flux2-vae.safetensors"
     }
   },
   "4": {
     "class_type": "CLIPTextEncode",
+    "_meta": { "title": "CLIP Text Encode (Edit Instruction / Positive)" },
     "inputs": {
       "text": "change the background to a sunny beach",
       "clip": ["2", 0]
@@ -27,6 +31,7 @@
   },
   "5": {
     "class_type": "CLIPTextEncode",
+    "_meta": { "title": "CLIP Text Encode (Negative Prompt)" },
     "inputs": {
       "text": "",
       "clip": ["2", 0]
@@ -34,6 +39,7 @@
   },
   "8": {
     "class_type": "Flux2Scheduler",
+    "_meta": { "title": "FLUX.2 Scheduler (sigmas + steps)" },
     "inputs": {
       "steps": 4,
       "width": ["22", 0],
@@ -42,6 +48,7 @@
   },
   "9": {
     "class_type": "EmptyFlux2LatentImage",
+    "_meta": { "title": "Empty FLUX.2 Latent Image (batch size; size from source)" },
     "inputs": {
       "width": ["22", 0],
       "height": ["22", 1],
@@ -50,6 +57,7 @@
   },
   "10": {
     "class_type": "CFGGuider",
+    "_meta": { "title": "CFG Guider (positive/negative + cfg)" },
     "inputs": {
       "model": ["18", 0],
       "positive": ["24", 0],
@@ -59,18 +67,21 @@
   },
   "11": {
     "class_type": "KSamplerSelect",
+    "_meta": { "title": "Sampler Select (euler)" },
     "inputs": {
       "sampler_name": "euler"
     }
   },
   "12": {
     "class_type": "RandomNoise",
+    "_meta": { "title": "Random Noise (seed)" },
     "inputs": {
       "noise_seed": 0
     }
   },
   "13": {
     "class_type": "SamplerCustomAdvanced",
+    "_meta": { "title": "Sampler Custom Advanced" },
     "inputs": {
       "noise": ["12", 0],
       "guider": ["10", 0],
@@ -81,6 +92,7 @@
   },
   "14": {
     "class_type": "VAEDecode",
+    "_meta": { "title": "VAE Decode" },
     "inputs": {
       "samples": ["13", 0],
       "vae": ["3", 0]
@@ -88,6 +100,7 @@
   },
   "15": {
     "class_type": "SaveImage",
+    "_meta": { "title": "Save Image" },
     "inputs": {
       "filename_prefix": "Flux2-Klein-Edit",
       "images": ["14", 0]
@@ -95,6 +108,7 @@
   },
   "16": {
     "class_type": "ModelPatchTorchSettings",
+    "_meta": { "title": "fp16 accumulation (PyTorch >= 2.7)" },
     "inputs": {
       "enable_fp16_accumulation": true,
       "model": ["17", 0]
@@ -102,18 +116,21 @@
   },
   "17": {
     "class_type": "Power Lora Loader (rgthree)",
+    "_meta": { "title": "Power LoRA Loader (rgthree; add LoRAs here)" },
     "inputs": {
       "model": ["1", 0]
     }
   },
   "20": {
     "class_type": "LoadImage",
+    "_meta": { "title": "Load Source Image" },
     "inputs": {
       "image": "example.png"
     }
   },
   "21": {
     "class_type": "ImageScaleToTotalPixels",
+    "_meta": { "title": "Scale Source to ~1 MP" },
     "inputs": {
       "image": ["20", 0],
       "upscale_method": "lanczos",
@@ -123,12 +140,14 @@
   },
   "22": {
     "class_type": "GetImageSize",
+    "_meta": { "title": "Get Image Size (drives output resolution)" },
     "inputs": {
       "image": ["21", 0]
     }
   },
   "23": {
     "class_type": "VAEEncode",
+    "_meta": { "title": "VAE Encode (source -> reference latent)" },
     "inputs": {
       "pixels": ["21", 0],
       "vae": ["3", 0]
@@ -136,6 +155,7 @@
   },
   "24": {
     "class_type": "ReferenceLatent",
+    "_meta": { "title": "Reference Latent (positive; anchor edit to source)" },
     "inputs": {
       "conditioning": ["4", 0],
       "latent": ["23", 0]
@@ -143,6 +163,7 @@
   },
   "25": {
     "class_type": "ReferenceLatent",
+    "_meta": { "title": "Reference Latent (negative; anchor edit to source)" },
     "inputs": {
       "conditioning": ["5", 0],
       "latent": ["23", 0]
