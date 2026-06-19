@@ -355,7 +355,7 @@ export interface ProbeResult {
  */
 export async function probeReachable(
   config: TtsConfig,
-  voice?: VoiceConfig | undefined,
+  voice?: VoiceConfig,
   env: NodeJS.ProcessEnv = process.env,
   timeoutMs = 3000,
 ): Promise<ProbeResult> {
@@ -390,7 +390,7 @@ export interface CloneCapabilities {
  */
 export async function probeCapabilities(
   config: TtsConfig,
-  voice?: VoiceConfig | undefined,
+  voice?: VoiceConfig,
   env: NodeJS.ProcessEnv = process.env,
   timeoutMs = 3000,
 ): Promise<CloneCapabilities | undefined> {
