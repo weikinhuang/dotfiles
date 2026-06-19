@@ -186,3 +186,26 @@ relevant event to that file:
 
 This makes a silent session diagnosable without a UI: a quick `/tts say hello` (which bypasses gating) isolates
 engine/player from gating, and the trace shows exactly which branch a real turn took and why.
+
+## Troubleshooting: choppy / stuttering playback on WSL2 (WSLg)
+
+If speech plays back **choppy / stuttering with periodic pauses** under WSL2, the cause is almost certainly NOT the TTS
+server or this extension - the synthesized audio file is fine. It is a WSLg audio-pipeline bug: with `systemd=true` in
+`/etc/wsl.conf`, `systemd-timesyncd` runs alongside WSL's own host time sync and the two fight, stepping the clock every
+~30s. Each step resets PulseAudio's timer-based scheduler and drops audio (microsoft/wslg#1257).
+
+Confirm it: a _pure tone_ stutters too
+(`ffmpeg -f lavfi -i sine=frequency=440:duration=5:sample_rate=44100 -ac 2 t.wav && paplay t.wav`), and
+`journalctl -u systemd-resolved -b | grep -c "Clock change"` returns hundreds (one per ~33s). Neither a bigger buffer
+(`PULSE_LATENCY_MSEC=2000`), a native-rate file (44.1kHz/stereo), nor switching player (`mpv`) helps - they all still
+stutter, which is the tell that it is the clock, not the audio path.
+
+Fix (WSL already syncs time from the Windows host, so timesyncd is redundant here):
+
+```bash
+sudo systemctl disable --now systemd-timesyncd
+sudo systemctl mask systemd-timesyncd   # keep it from coming back
+```
+
+After this, `Clock change detected` events stop and playback is smooth. Resampling (24kHz mono -> the sink's 44.1kHz
+stereo) and `paplay` itself are NOT the problem despite looking suspicious.
