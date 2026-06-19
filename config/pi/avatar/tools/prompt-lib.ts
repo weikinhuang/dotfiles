@@ -6,7 +6,15 @@
  * stay aligned.
  */
 
-import { BORDER, CHROMA, GRID, STYLE, type Sheet, type Tier, frameDescriptions } from './sprite-manifest.ts';
+import {
+  BORDER,
+  CHROMA,
+  GRID,
+  STYLE,
+  type ContentManifest,
+  type Sheet,
+  manifest as defaultManifest,
+} from './sprite-manifest.ts';
 
 /**
  * Content guard appended to prompts for suggestive / mature groups.
@@ -181,9 +189,9 @@ export function referencePrompt(kind: ReferenceKind, identity: string): string {
   }
 }
 
-export function sheetRules(tier: Tier): string {
+export function sheetRules(guarded: boolean): string {
   const cells = GRID.cols * GRID.rows;
-  const guard = tier === 'standard' ? undefined : SFW_GUARD;
+  const guard = guarded ? SFW_GUARD : undefined;
   return (
     `Arrange exactly ${cells} sprites in a strict, evenly spaced ${GRID.cols}x${GRID.rows} grid, read left-to-right then top-to-bottom, ` +
     `on a single solid, flat chroma-key green-screen background (${CHROMA}, vivid fully-saturated pure green, no gradient or scenery). ` +
@@ -194,7 +202,7 @@ export function sheetRules(tier: Tier): string {
   );
 }
 
-export function buildPrompt(sheet: Sheet): string {
+export function buildPrompt(sheet: Sheet, manifest: ContentManifest = defaultManifest): string {
   const lines: string[] = [];
   lines.push(`# sheet ${sheet.name}`);
   lines.push('');
@@ -202,7 +210,7 @@ export function buildPrompt(sheet: Sheet): string {
   lines.push('');
   lines.push('Character: {identity}.');
   lines.push('');
-  lines.push(sheetRules(sheet.tier));
+  lines.push(sheetRules(manifest.isGuardedTier(sheet.tier)));
   lines.push('');
   lines.push('Cells (one expression each):');
   sheet.cells.forEach((cell, i) => {
@@ -230,8 +238,9 @@ export function cellPrompt(
   frame: number,
   identity: string,
   options: CellPromptOptions = {},
+  manifest: ContentManifest = defaultManifest,
 ): string {
-  const desc = frameDescriptions(groupName, state).at(frame);
+  const desc = manifest.frameDescriptions(groupName, state).at(frame);
   if (desc === undefined) {
     throw new Error(`Unknown frame ${frame} for state "${state}" in group "${groupName}"`);
   }

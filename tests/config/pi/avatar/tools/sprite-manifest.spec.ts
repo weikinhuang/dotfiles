@@ -53,7 +53,12 @@ test('allSheets: a state is never split across sheets and its frames are contigu
   }
   for (const [state, frames] of stateFrames) {
     const expected = [...Array(frames.length).keys()];
-    expect.soft(frames.slice().sort((a, b) => a - b), `state ${state} frames`).toEqual(expected);
+    expect
+      .soft(
+        frames.slice().sort((a, b) => a - b),
+        `state ${state} frames`,
+      )
+      .toEqual(expected);
   }
 });
 
@@ -80,7 +85,7 @@ test('allSheets: sheets are emitted in TIERS order with sequential <tier>.<n> na
   const perTier = new Map<string, number>();
   let lastTierIdx = -1;
   for (const sheet of SHEETS) {
-    const tierIdx = TIERS.indexOf(sheet.tier);
+    const tierIdx = (TIERS as readonly string[]).indexOf(sheet.tier);
     expect(tierIdx).toBeGreaterThanOrEqual(lastTierIdx);
     lastTierIdx = tierIdx;
     const n = (perTier.get(sheet.tier) ?? 0) + 1;

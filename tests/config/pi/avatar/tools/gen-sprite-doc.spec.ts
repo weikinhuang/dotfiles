@@ -7,6 +7,7 @@ import { describe, expect, test } from 'vitest';
 import { buildSpriteDoc } from '../../../../../config/pi/avatar/tools/gen-sprite-doc.ts';
 import { SFW_GUARD } from '../../../../../config/pi/avatar/tools/prompt-lib.ts';
 import { allSheets, sheetsForTier } from '../../../../../config/pi/avatar/tools/sprite-manifest.ts';
+import { manifest as miniManifest } from './fixtures/mini-manifest.ts';
 
 const IDENTITY = 'a cheerful red-haired sniper with a halo';
 const DOC = buildSpriteDoc(IDENTITY);
@@ -53,5 +54,18 @@ describe('buildSpriteDoc', () => {
 
   test('strips the internal "# sheet" header from each fenced prompt body', () => {
     expect(DOC).not.toContain('# sheet standard.1');
+  });
+
+  test('renders a non-standard external manifest with its own tier and fallback blurb', () => {
+    const doc = buildSpriteDoc(IDENTITY, miniManifest);
+    // Dynamic tier count + bullet for the fixture's single `demo` tier.
+    expect(doc).toContain('packed into 1 tier /');
+    expect(doc).toContain('- **demo** -- 1 sheets:');
+    expect(doc).toContain("character-specific emotes (slice into this character's OWN set).");
+    expect(doc).toContain('### demo.1');
+    expect(doc).toContain('Download as `demo.1.png`.');
+    // No SFW guard (the fixture tier is unguarded) and no leftover standard-tier text.
+    expect(doc).not.toContain(SFW_GUARD);
+    expect(doc).not.toContain('**standard**');
   });
 });

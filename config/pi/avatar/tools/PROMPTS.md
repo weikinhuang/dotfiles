@@ -14,6 +14,7 @@ gitignored; only the tooling is committed.
 | File                                             | Role                                                                                    |
 | ------------------------------------------------ | --------------------------------------------------------------------------------------- |
 | [`sprite-manifest.ts`](./sprite-manifest.ts)     | Source of truth: state groups, grid, target size, chroma, frame hints                   |
+| [`manifest-loader.ts`](./manifest-loader.ts)     | Resolves `--manifest <path>` to a `ContentManifest` (default: the committed set)        |
 | [`prompt-lib.ts`](./prompt-lib.ts)               | Shared prompt builders: `cellPrompt` / `buildPrompt`, guards, `HERO_CLAUSE`             |
 | [`print-prompts.ts`](./print-prompts.ts)         | Renders ready-to-paste sheet (`--sheet`), cell (`--cell`), hero, or reference prompts   |
 | [`gen-sprite-doc.ts`](./gen-sprite-doc.ts)       | Renders the whole paste-into-a-web-UI prompt doc in one file (preamble + fenced sheets) |
@@ -52,6 +53,55 @@ Blank cells are skipped, partial sets are fine, so generate in batches.
 To add an emote with minimal re-generation, append it to the **end of its tier** (a group's `states`, or a trailing
 group): only that tier's tail sheet(s) change; other tiers and all earlier sheets are untouched. A mid-tier insertion
 still ripples forward within that one tier.
+
+### Character-specific emotes (a separate manifest)
+
+The committed [`sprite-manifest.ts`](./sprite-manifest.ts) is deliberately **character-agnostic** - its state names
+mirror the generic [`../emotes/ascii/ascii.yaml`](../emotes/ascii/ascii.yaml). Emotes that exist only in one character's
+kaomoji overlay (e.g. Exusiai's `donut-craving`, `aiming`, `halo-tilt`) do **not** belong in it. Instead, build a
+**device-local manifest** with the same shape and pass it with `--manifest <path>`; the prompt generator and slicer run
+the exact same engine against it, and nothing character-specific is committed.
+
+A device-local manifest is a tiny module that defines its groups and exports a `manifest` built with `makeManifest`:
+
+```ts
+// avatar-ref/<character>/emotes-manifest.ts  (device-local / gitignored)
+import { makeManifest, type SpriteGroup } from '../../config/pi/avatar/tools/sprite-manifest.ts';
+
+const GROUPS: Record<string, SpriteGroup> = {
+  food: {
+    tier: 'char',
+    states: ['donut-craving', 'munching'],
+    poses: { 'donut-craving': 'reaching for a floating donut, hungry eyes', munching: 'happily munching, cheeks full' },
+    frames: { 'donut-craving': ['leaning in, both hands out, drooling'] },
+  },
+  // ...more groups; every state name matches a key in the character's ascii.yaml...
+};
+
+// makeManifest(groups, tiers, guardedTiers?) - render constants are shared with the committed set.
+export const manifest = makeManifest(GROUPS, ['char']);
+```
+
+Then drive the same three tools with `--manifest`:
+
+```bash
+# render the paste-into-a-web-UI doc for the character's emotes
+node config/pi/avatar/tools/gen-sprite-doc.ts \
+  --manifest avatar-ref/<character>/emotes-manifest.ts \
+  --identity-file avatar-ref/identity.txt \
+  --out avatar-ref/<character>/char-emote-prompts.md
+
+# (or stream sheet / per-cell prompts ad hoc)
+node config/pi/avatar/tools/print-prompts.ts --manifest avatar-ref/<character>/emotes-manifest.ts --identity-file avatar-ref/identity.txt
+
+# slice the generated <tier>.<n>.png sheets into the character's set
+node config/pi/avatar/tools/slice-sheets.ts \
+  --manifest avatar-ref/<character>/emotes-manifest.ts \
+  --set <character> --in avatar-ref/<character>/sheets \
+  --out <path-to>/.pi/avatar/emotes/<character>
+```
+
+Without `--manifest`, all three tools use the committed manifest, so the generic flow below is unchanged.
 
 Groups: `activities`, `positive`, `affection`, `negative`, `shock`, `lowenergy`, `reactions`, `social`, `devotion`,
 `workflow`, `sultry`, `insight`, `composure`, `bonding`, `closeness`, `antics`, `desire`, `intensity`, `intimacy`. State

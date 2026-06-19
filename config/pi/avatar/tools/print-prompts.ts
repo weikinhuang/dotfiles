@@ -39,7 +39,8 @@ import {
   type CellPromptEntry,
   type ReferenceKind,
 } from './prompt-lib.ts';
-import { GROUPS, TIERS, type Tier, allSheets, frameCount, tierOf } from './sprite-manifest.ts';
+import { loadManifest } from './manifest-loader.ts';
+import { type ContentManifest } from './sprite-manifest.ts';
 
 const IDENTITY_PLACEHOLDER =
   '<CHARACTER IDENTITY: describe hair, eyes, outfit, vibe; say "match the attached reference images">';
@@ -54,6 +55,7 @@ interface PromptOpts {
   cell: boolean;
   reference: ReferenceKind | undefined;
   format: CellFormat;
+  manifest: string;
 }
 
 /** Header shown above each reference prompt. */
@@ -73,6 +75,7 @@ function parseArgs(argv: string[]): PromptOpts {
     cell: false,
     reference: undefined,
     format: 'text',
+    manifest: '',
   };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -119,6 +122,9 @@ function parseArgs(argv: string[]): PromptOpts {
       case '--identity-file':
         opts.identity = readFileSync(next(), 'utf8').trim();
         break;
+      case '--manifest':
+        opts.manifest = next();
+        break;
       case '--cell':
         opts.cell = true;
         break;
@@ -140,44 +146,40 @@ function parseArgs(argv: string[]): PromptOpts {
   return opts;
 }
 
-function isTier(value: string): value is Tier {
-  return (TIERS as readonly string[]).includes(value);
-}
-
-function assertTier(value: string): void {
-  if (value.length > 0 && !isTier(value)) {
-    process.stderr.write(`Unknown tier "${value}". Known: ${TIERS.join(', ')}\n`);
+function assertTier(value: string, manifest: ContentManifest): void {
+  if (value.length > 0 && !manifest.TIERS.includes(value)) {
+    process.stderr.write(`Unknown tier "${value}". Known: ${manifest.TIERS.join(', ')}\n`);
     process.exit(1);
   }
 }
 
 /** Groups to emit per-cell prompts for: --group wins, else --tier, else all. */
-function resolveGroups(opts: PromptOpts): string[] {
+function resolveGroups(opts: PromptOpts, manifest: ContentManifest): string[] {
   if (opts.group.length > 0) {
-    if (!(opts.group in GROUPS)) {
-      process.stderr.write(`Unknown group "${opts.group}". Known: ${Object.keys(GROUPS).join(', ')}\n`);
+    if (!(opts.group in manifest.GROUPS)) {
+      process.stderr.write(`Unknown group "${opts.group}". Known: ${Object.keys(manifest.GROUPS).join(', ')}\n`);
       process.exit(1);
     }
     return [opts.group];
   }
-  assertTier(opts.tier);
-  const groups = Object.keys(GROUPS);
-  return opts.tier.length > 0 ? groups.filter((name) => tierOf(name) === opts.tier) : groups;
+  assertTier(opts.tier, manifest);
+  const groups = Object.keys(manifest.GROUPS);
+  return opts.tier.length > 0 ? groups.filter((name) => manifest.tierOf(name) === opts.tier) : groups;
 }
 
-function collectCellEntries(groupNames: string[], identity: string): CellPromptEntry[] {
+function collectCellEntries(groupNames: string[], identity: string, manifest: ContentManifest): CellPromptEntry[] {
   const entries: CellPromptEntry[] = [];
   for (const groupName of groupNames) {
-    const group = GROUPS[groupName];
+    const group = manifest.GROUPS[groupName];
     if (group === undefined) continue;
     for (const state of group.states) {
-      const frames = frameCount(groupName, state);
+      const frames = manifest.frameCount(groupName, state);
       for (let frame = 0; frame < frames; frame++) {
         entries.push({
           group: groupName,
           state,
           frame,
-          prompt: cellPrompt(groupName, state, frame, identity, { reference: true }),
+          prompt: cellPrompt(groupName, state, frame, identity, { reference: true }, manifest),
         });
       }
     }
@@ -185,9 +187,9 @@ function collectCellEntries(groupNames: string[], identity: string): CellPromptE
   return entries;
 }
 
-function emitCellPrompts(opts: PromptOpts): void {
-  const groups = resolveGroups(opts);
-  const entries = collectCellEntries(groups, opts.identity);
+function emitCellPrompts(opts: PromptOpts, manifest: ContentManifest): void {
+  const groups = resolveGroups(opts, manifest);
+  const entries = collectCellEntries(groups, opts.identity, manifest);
   if (opts.format === 'json') {
     process.stdout.write(`${JSON.stringify(entries, null, 2)}\n`);
     return;
@@ -198,38 +200,45 @@ function emitCellPrompts(opts: PromptOpts): void {
   }
 }
 
-function emitSheetPrompts(opts: PromptOpts): void {
-  assertTier(opts.tier);
-  const sheets = allSheets().filter(
-    (sheet) =>
-      (opts.tier.length === 0 || sheet.tier === opts.tier) && (opts.sheet.length === 0 || sheet.name === opts.sheet),
-  );
+function emitSheetPrompts(opts: PromptOpts, manifest: ContentManifest): void {
+  assertTier(opts.tier, manifest);
+  const sheets = manifest
+    .allSheets()
+    .filter(
+      (sheet) =>
+        (opts.tier.length === 0 || sheet.tier === opts.tier) && (opts.sheet.length === 0 || sheet.name === opts.sheet),
+    );
   if (sheets.length === 0) {
-    const names = allSheets()
+    const names = manifest
+      .allSheets()
       .map((sheet) => sheet.name)
       .join(', ');
-    process.stderr.write(
-      `No matching sheet (tier "${opts.tier}", sheet "${opts.sheet}"). Sheets: ${names}\n`,
-    );
+    process.stderr.write(`No matching sheet (tier "${opts.tier}", sheet "${opts.sheet}"). Sheets: ${names}\n`);
     process.exit(1);
   }
   for (const sheet of sheets) {
-    const prompt = buildPrompt(sheet).replace('{identity}', opts.identity);
+    const prompt = buildPrompt(sheet, manifest).replace('{identity}', opts.identity);
     process.stdout.write(`${prompt}\n\n${'-'.repeat(72)}\n\n`);
   }
 }
 
-function main(): void {
+async function main(): Promise<void> {
   const opts = parseArgs(process.argv.slice(2));
   if (opts.reference !== undefined) {
     process.stdout.write(
       `# ${REFERENCE_LABELS[opts.reference]}\n\n${referencePrompt(opts.reference, opts.identity)}\n`,
     );
-  } else if (opts.cell) {
-    emitCellPrompts(opts);
+    return;
+  }
+  const manifest = await loadManifest(opts.manifest);
+  if (opts.cell) {
+    emitCellPrompts(opts, manifest);
   } else {
-    emitSheetPrompts(opts);
+    emitSheetPrompts(opts, manifest);
   }
 }
 
-main();
+main().catch((err: unknown) => {
+  process.stderr.write(`${err instanceof Error ? err.message : String(err)}\n`);
+  process.exit(1);
+});

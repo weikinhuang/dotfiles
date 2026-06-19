@@ -23,21 +23,21 @@ node config/pi/avatar/tools/contact-sheet.ts --set <set> --out avatar-ref/contac
 
 ## Directory map
 
-| Path                                                         | Purpose                                                                                 |
-| ------------------------------------------------------------ | --------------------------------------------------------------------------------------- |
-| [`tools/sprite-manifest.ts`](./tools/sprite-manifest.ts)     | Single source of truth: state groups, grid, target size, chroma, frame hints            |
-| [`tools/prompt-lib.ts`](./tools/prompt-lib.ts)               | Shared prompt builders, SFW guards, `HERO_CLAUSE`, `heroPrompt`, `cellPrompt`           |
-| [`tools/print-prompts.ts`](./tools/print-prompts.ts)         | Renders sheet / cell / hero generation prompts from the manifest                        |
-| [`tools/gen-sprite-doc.ts`](./tools/gen-sprite-doc.ts)       | Renders the full paste-into-a-web-UI sprite-prompt doc (preamble + fenced sheets)       |
-| [`tools/workflow-registry.ts`](./tools/workflow-registry.ts) | Loads + validates the device-local `avatar-ref/workflows.json` graph map                |
-| [`tools/gen-comfyui.ts`](./tools/gen-comfyui.ts)             | Drives a self-hosted ComfyUI directly (hero bootstrap, edit-from-canonical)             |
-| [`tools/compare-sheet.ts`](./tools/compare-sheet.ts)         | A/B/C HTML page comparing per-model `avatar-ref/gen/<model>/` outputs                   |
-| [`tools/assemble-sheets.ts`](./tools/assemble-sheets.ts)     | Montages a winning model's per-cell PNGs back into sliceable grid sheets                |
-| [`tools/slice-sheets.ts`](./tools/slice-sheets.ts)           | Slices generated sheets into `<state>/<frame>.png` (uses ImageMagick)                   |
-| [`tools/contact-sheet.ts`](./tools/contact-sheet.ts)         | Builds a self-contained HTML preview of a sliced set                                    |
-| [`tools/PROMPTS.md`](./tools/PROMPTS.md)                     | The end-to-end generation workflow (start here to actually generate art)                |
-| [`emotes/`](./emotes/)                                       | Committed generic kaomoji: `ascii/` shared default base layer, `mature/` opt-in overlay |
-| [`config.example.json`](./config.example.json)               | Example avatar config                                                                   |
+| Path                                                         | Purpose                                                                                                            |
+| ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------ |
+| [`tools/sprite-manifest.ts`](./tools/sprite-manifest.ts)     | Single source of truth: state groups, grid, target size, chroma, frame hints; `makeManifest` + `--manifest` loader |
+| [`tools/prompt-lib.ts`](./tools/prompt-lib.ts)               | Shared prompt builders, SFW guards, `HERO_CLAUSE`, `heroPrompt`, `cellPrompt`                                      |
+| [`tools/print-prompts.ts`](./tools/print-prompts.ts)         | Renders sheet / cell / hero generation prompts from the manifest                                                   |
+| [`tools/gen-sprite-doc.ts`](./tools/gen-sprite-doc.ts)       | Renders the full paste-into-a-web-UI sprite-prompt doc (preamble + fenced sheets)                                  |
+| [`tools/workflow-registry.ts`](./tools/workflow-registry.ts) | Loads + validates the device-local `avatar-ref/workflows.json` graph map                                           |
+| [`tools/gen-comfyui.ts`](./tools/gen-comfyui.ts)             | Drives a self-hosted ComfyUI directly (hero bootstrap, edit-from-canonical)                                        |
+| [`tools/compare-sheet.ts`](./tools/compare-sheet.ts)         | A/B/C HTML page comparing per-model `avatar-ref/gen/<model>/` outputs                                              |
+| [`tools/assemble-sheets.ts`](./tools/assemble-sheets.ts)     | Montages a winning model's per-cell PNGs back into sliceable grid sheets                                           |
+| [`tools/slice-sheets.ts`](./tools/slice-sheets.ts)           | Slices generated sheets into `<state>/<frame>.png` (uses ImageMagick)                                              |
+| [`tools/contact-sheet.ts`](./tools/contact-sheet.ts)         | Builds a self-contained HTML preview of a sliced set                                                               |
+| [`tools/PROMPTS.md`](./tools/PROMPTS.md)                     | The end-to-end generation workflow (start here to actually generate art)                                           |
+| [`emotes/`](./emotes/)                                       | Committed generic kaomoji: `ascii/` shared default base layer, `mature/` opt-in overlay                            |
+| [`config.example.json`](./config.example.json)               | Example avatar config                                                                                              |
 
 ## Key patterns
 
@@ -70,8 +70,8 @@ node config/pi/avatar/tools/contact-sheet.ts --set <set> --out avatar-ref/contac
 **Ask first**: changing what counts as committed vs device-local; adding a new generation backend.
 
 **Never**: commit generated sheets, sliced sets (`~/.pi/agent/avatar/emotes/<set>`), reference images, identity blurbs,
-or character-specific overlays - only tooling + generic kaomoji (`ascii`, `mature`) are committed (see the `.gitignore`
-here).
+or character-specific overlays - only tooling + generic kaomoji (`ascii`, `mature`) are committed; a character's emotes
+use a device-local `--manifest` (see [`tools/PROMPTS.md`](./tools/PROMPTS.md)), never `tools/sprite-manifest.ts`.
 
 ## References
 

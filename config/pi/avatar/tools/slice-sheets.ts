@@ -45,18 +45,8 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-import {
-  ALL_STATES,
-  BORDER,
-  CELLS,
-  CHROMA,
-  GRID,
-  type Sheet,
-  TARGET_PX,
-  TIERS,
-  allSheets,
-  frameCountForState,
-} from './sprite-manifest.ts';
+import { BORDER, CELLS, CHROMA, type ContentManifest, GRID, type Sheet, TARGET_PX, TIERS } from './sprite-manifest.ts';
+import { loadManifest } from './manifest-loader.ts';
 
 const FUZZ = process.env.AVATAR_CHROMA_FUZZ ?? '20%';
 // Fuzz for keying out the per-cell registration border some UIs draw. They
@@ -109,6 +99,7 @@ interface SliceOpts {
   grid: boolean;
   detect: boolean;
   filter: string;
+  manifest: string;
 }
 
 /** A box interior to extract, in original-image pixels. */
@@ -155,6 +146,7 @@ function printHelp(): void {
       '                   | none.',
       '  --no-align       Alias for --align none (keep the cropped cell as-is).',
       `  --filter <name>  Downscale filter: ${FILTERS.join('|')} (default lanczos).`,
+      '  --manifest <path> Device-local manifest module (exports `manifest`); default: the committed set.',
       '  --check          Report per-state frame coverage under --out and exit.',
       '  -h, --help       Show this help.',
       '',
@@ -199,6 +191,7 @@ function parseArgs(argv: string[]): SliceOpts {
     grid: false,
     detect: false,
     filter: 'lanczos',
+    manifest: '',
   };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -240,6 +233,9 @@ function parseArgs(argv: string[]): SliceOpts {
         break;
       case '--detect':
         opts.detect = true;
+        break;
+      case '--manifest':
+        opts.manifest = next();
         break;
       case '--check':
         opts.check = true;
@@ -781,12 +777,12 @@ function sliceSheet(
   return written;
 }
 
-function runCheck(outDir: string): void {
+function runCheck(outDir: string, manifest: ContentManifest): void {
   process.stdout.write(`Checking ${outDir}\n`);
   let complete = 0;
   const missing: string[] = [];
-  for (const state of ALL_STATES) {
-    const expected = frameCountForState(state);
+  for (const state of manifest.ALL_STATES) {
+    const expected = manifest.frameCountForState(state);
     let have = 0;
     for (let n = 0; n < expected; n++) {
       if (existsSync(join(outDir, state, `${n}.png`))) have++;
@@ -796,7 +792,7 @@ function runCheck(outDir: string): void {
     const dims = have > 0 ? identify(join(outDir, state, '0.png')) : '-';
     process.stdout.write(`  ${state.padEnd(14)} ${have}/${expected}  ${dims}\n`);
   }
-  process.stdout.write(`\n${complete}/${ALL_STATES.length} states fully covered.\n`);
+  process.stdout.write(`\n${complete}/${manifest.ALL_STATES.length} states fully covered.\n`);
   if (missing.length > 0) process.stdout.write(`No frames yet: ${missing.join(', ')}\n`);
 }
 
@@ -833,9 +829,9 @@ function scaleBoxes(boxes: Box[], refW: number, refH: number, w: number, h: numb
  * the cyan registration boxes (default), 'detect' uses CHROMA gutter detection,
  * 'grid' forces an even split (raw stays null so resolveBoxes uses evenGrid).
  */
-function collectJobs(inDir: string, sheetFilter: string, mode: CropMode): Job[] {
+function collectJobs(inDir: string, sheetFilter: string, mode: CropMode, manifest: ContentManifest): Job[] {
   const jobs: Job[] = [];
-  const sheets = allSheets();
+  const sheets = manifest.allSheets();
   for (const file of readdirSync(inDir).filter((f) => f.toLowerCase().endsWith('.png'))) {
     const match = /^([a-z]+)\.([a-z0-9]+)\.png$/i.exec(file);
     if (!match) continue;
@@ -912,16 +908,17 @@ function reportBlankFrames(jobs: Job[], outDir: string, blanks: string[]): void 
   }
 }
 
-function main(): void {
+async function main(): Promise<void> {
   const opts = parseArgs(process.argv.slice(2));
   if (opts.set.length === 0) {
     process.stderr.write('Error: --set <name> is required.\n');
     process.exit(1);
   }
   const outDir = opts.out.length > 0 ? opts.out : defaultOut(opts.set);
+  const manifest = await loadManifest(opts.manifest);
 
   if (opts.check) {
-    runCheck(outDir);
+    runCheck(outDir, manifest);
     return;
   }
 
@@ -937,7 +934,7 @@ function main(): void {
 
   // --detect (CHROMA gutters) wins over --grid / AVATAR_SLICE=grid; default reads cyan boxes.
   const mode: CropMode = opts.detect ? 'detect' : opts.grid || GRID_MODE ? 'grid' : 'cyan';
-  const jobs = collectJobs(opts.in, opts.sheet, mode);
+  const jobs = collectJobs(opts.in, opts.sheet, mode, manifest);
   resolveBoxes(jobs);
   const canvas = squareCanvas();
 
@@ -961,5 +958,8 @@ function main(): void {
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
-  main();
+  main().catch((err: unknown) => {
+    process.stderr.write(`${err instanceof Error ? err.message : String(err)}\n`);
+    process.exit(1);
+  });
 }

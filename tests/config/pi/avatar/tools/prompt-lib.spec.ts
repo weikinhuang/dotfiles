@@ -114,10 +114,9 @@ test('cellPrompt: throws for an out-of-range frame', () => {
   );
 });
 
-test('sheetRules: guarded tiers embed the SFW guard, standard does not', () => {
-  expect(sheetRules('suggestive')).toContain(SFW_GUARD);
-  expect(sheetRules('mature')).toContain(SFW_GUARD);
-  expect(sheetRules('standard')).not.toContain(SFW_GUARD);
+test('sheetRules: guarded sheets embed the SFW guard, unguarded ones do not', () => {
+  expect(sheetRules(true)).toContain(SFW_GUARD);
+  expect(sheetRules(false)).not.toContain(SFW_GUARD);
 });
 
 test('buildPrompt: the first standard sheet lists cells and leaves identity as a placeholder', () => {

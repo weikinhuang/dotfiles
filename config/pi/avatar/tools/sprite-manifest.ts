@@ -89,8 +89,8 @@ export const FRAME_B_DEFAULT =
   'second animation beat: a subtle variation of the same expression (a blink, a slightly bigger mouth or smile, or a tiny head bob) - identical framing, palette, and outline.';
 
 export interface SpriteGroup {
-  /** Packing/guard partition; defaults to `standard`. */
-  tier?: Tier;
+  /** Packing/guard partition; a tier name. Defaults to `standard`. `string` so external/character manifests can name their own tiers. */
+  tier?: string;
   /** Ordered state names (grid reading order). */
   states: string[];
   /** Frame-0 (base) expression/pose per state. */
@@ -112,9 +112,120 @@ export interface SheetCell {
 export interface Sheet {
   /** Globally-unique tier-prefixed id, e.g. `standard.1` (also the filename stem). */
   name: string;
-  /** Packing partition this sheet belongs to. */
-  tier: Tier;
+  /** Packing partition this sheet belongs to (a tier name; `string` so external manifests can name their own). */
+  tier: string;
   cells: (SheetCell | null)[];
+}
+
+/**
+ * The content surface of a sprite manifest: the per-character data (groups,
+ * states, poses, frames) plus the derived lookups and sheet packing the prompt
+ * generator and slicer consume. The committed manifest is one instance; a
+ * device-local character set is another (built with {@link makeManifest} and
+ * loaded via `--manifest`). Render constants (GRID/CHROMA/BORDER/STYLE/...) are
+ * shared across all characters and re-exposed here so a loaded manifest is
+ * self-describing. Function members use method syntax so a narrower committed
+ * signature (e.g. `tierOf(): Tier`) still satisfies the `string`-typed surface.
+ */
+export interface ContentManifest {
+  GRID: { cols: number; rows: number };
+  CELLS: number;
+  CHROMA: string;
+  BORDER: string;
+  STYLE: string;
+  TARGET_PX: number;
+  FRAME_B_DEFAULT: string;
+  TIERS: readonly string[];
+  GROUPS: Record<string, SpriteGroup>;
+  ALL_STATES: string[];
+  groupOf: (state: string) => string | undefined;
+  tierOf: (groupName: string) => string;
+  /** Whether a tier's sheets/cells get the SFW guard appended. */
+  isGuardedTier: (tier: string) => boolean;
+  frameDescriptions: (groupName: string, state: string) => string[];
+  frameCount: (groupName: string, state: string) => number;
+  frameCountForState: (state: string) => number;
+  allSheets: () => Sheet[];
+  sheetsForTier: (tier: string) => Sheet[];
+}
+
+/**
+ * Build a {@link ContentManifest} from a character's `groups` + `tiers`. All the
+ * derived lookups and the next-fit sheet packing live here (closing over the
+ * passed data + the shared render constants), so both the committed manifest and
+ * any device-local character manifest share one implementation. `guardedTiers`
+ * lists the tiers whose prompts carry the SFW guard (the committed set guards
+ * `suggestive` + `mature`; a character set may guard none).
+ */
+export function makeManifest(
+  groups: Record<string, SpriteGroup>,
+  tiers: readonly string[],
+  guardedTiers: readonly string[] = [],
+): ContentManifest {
+  const allStates: string[] = Object.values(groups).flatMap((group) => group.states);
+  const groupOf = (state: string): string | undefined =>
+    Object.keys(groups).find((name) => groups[name]?.states.includes(state) === true);
+  const tierOf = (groupName: string): string => groups[groupName]?.tier ?? 'standard';
+  const isGuardedTier = (tier: string): boolean => guardedTiers.includes(tier);
+  const frameDescriptions = (groupName: string, state: string): string[] => {
+    const group: SpriteGroup | undefined = groups[groupName];
+    const base = group?.poses[state] ?? '';
+    const extra = group?.frames?.[state] ?? [FRAME_B_DEFAULT];
+    return [base, ...extra];
+  };
+  const frameCount = (groupName: string, state: string): number => frameDescriptions(groupName, state).length;
+  const frameCountForState = (state: string): number => {
+    const group = groupOf(state);
+    return group === undefined ? 0 : frameCount(group, state);
+  };
+  const allSheets = (): Sheet[] => {
+    const sheets: Sheet[] = [];
+    for (const tier of tiers) {
+      const groupNames = Object.keys(groups).filter((name) => tierOf(name) === tier);
+      let cells: (SheetCell | null)[] = [];
+      let count = 0;
+      const flush = (): void => {
+        if (cells.length === 0) return;
+        while (cells.length < CELLS) cells.push(null);
+        count += 1;
+        sheets.push({ name: `${tier}.${count}`, tier, cells });
+        cells = [];
+      };
+      for (const groupName of groupNames) {
+        const group = groups[groupName];
+        if (group === undefined) continue;
+        for (const state of group.states) {
+          const descs = frameDescriptions(groupName, state);
+          const block: SheetCell[] = descs.map((desc, frame) => ({ group: groupName, state, frame, desc }));
+          if (cells.length + block.length > CELLS) flush();
+          cells.push(...block);
+        }
+      }
+      flush();
+    }
+    return sheets;
+  };
+  const sheetsForTier = (tier: string): Sheet[] => allSheets().filter((sheet) => sheet.tier === tier);
+  return {
+    GRID,
+    CELLS,
+    CHROMA,
+    BORDER,
+    STYLE,
+    TARGET_PX,
+    FRAME_B_DEFAULT,
+    TIERS: tiers,
+    GROUPS: groups,
+    ALL_STATES: allStates,
+    groupOf,
+    tierOf,
+    isGuardedTier,
+    frameDescriptions,
+    frameCount,
+    frameCountForState,
+    allSheets,
+    sheetsForTier,
+  };
 }
 
 export const GROUPS: Record<string, SpriteGroup> = {
@@ -796,77 +907,30 @@ export const GROUPS: Record<string, SpriteGroup> = {
   },
 };
 
-/** Every state across all groups, in group order. */
-export const ALL_STATES: string[] = Object.values(GROUPS).flatMap((group) => group.states);
-
-/** Look up the group a state belongs to, or undefined. */
-export function groupOf(state: string): string | undefined {
-  return Object.keys(GROUPS).find((name) => GROUPS[name]?.states.includes(state) === true);
-}
-
-/** Packing/guard tier for a group (defaults to `standard`). */
-export function tierOf(groupName: string): Tier {
-  return GROUPS[groupName]?.tier ?? 'standard';
-}
-
-/** Ordered frame descriptions for a state: [base, ...frames] (>= 1 entry). */
-export function frameDescriptions(groupName: string, state: string): string[] {
-  const group: SpriteGroup | undefined = GROUPS[groupName];
-  const base = group?.poses[state] ?? '';
-  const extra = group?.frames?.[state] ?? [FRAME_B_DEFAULT];
-  return [base, ...extra];
-}
-
-/** Number of frames a state has (1 + extras). */
-export function frameCount(groupName: string, state: string): number {
-  return frameDescriptions(groupName, state).length;
-}
-
-/** Frame count for a state looked up by name across all groups (0 if unknown). */
-export function frameCountForState(state: string): number {
-  const group = groupOf(state);
-  return group === undefined ? 0 : frameCount(group, state);
-}
-
 /**
- * Every sheet to generate, partitioned by tier and packed densely. Within each
- * tier (in `TIERS` order) the groups' states are walked in order and each
- * state's frames are placed as a WHOLE BLOCK via next-fit: when the next block
- * would overflow the current sheet, the sheet is flushed (trailing cells left
- * null) and the block starts a fresh one, so a state's frames NEVER split across
- * a sheet boundary. Sheets are named `<tier>.<n>` (`standard.1`, `mature.1`, ...).
- * The slicer maps each cell back to `<state>/<frame>.png` using this same
- * packing, so partial sets are fine - generate in batches.
+ * The committed, character-agnostic manifest instance. Guards `suggestive` +
+ * `mature` (the SFW-guarded tiers). Built through {@link makeManifest} so it
+ * shares its packing/lookup logic with any device-local character manifest.
  */
-export function allSheets(): Sheet[] {
-  const sheets: Sheet[] = [];
-  for (const tier of TIERS) {
-    const groupNames = Object.keys(GROUPS).filter((name) => tierOf(name) === tier);
-    let cells: (SheetCell | null)[] = [];
-    let count = 0;
-    const flush = (): void => {
-      if (cells.length === 0) return;
-      while (cells.length < CELLS) cells.push(null);
-      count += 1;
-      sheets.push({ name: `${tier}.${count}`, tier, cells });
-      cells = [];
-    };
-    for (const groupName of groupNames) {
-      const group = GROUPS[groupName];
-      if (group === undefined) continue;
-      for (const state of group.states) {
-        const descs = frameDescriptions(groupName, state);
-        const block: SheetCell[] = descs.map((desc, frame) => ({ group: groupName, state, frame, desc }));
-        if (cells.length + block.length > CELLS) flush();
-        cells.push(...block);
-      }
-    }
-    flush();
-  }
-  return sheets;
-}
+export const manifest: ContentManifest = makeManifest(GROUPS, TIERS, ['suggestive', 'mature']);
 
+// Back-compat flat re-exports: the tools historically import these names
+// directly. They are the committed `manifest`'s members; the `--manifest` path
+// uses a loaded ContentManifest object instead.
+
+/** Every state across all groups, in group order. */
+export const ALL_STATES = manifest.ALL_STATES;
+/** Look up the group a state belongs to, or undefined. */
+export const groupOf = manifest.groupOf;
+/** Packing/guard tier for a group (defaults to `standard`). */
+export const tierOf = manifest.tierOf;
+/** Ordered frame descriptions for a state: [base, ...frames] (>= 1 entry). */
+export const frameDescriptions = manifest.frameDescriptions;
+/** Number of frames a state has (1 + extras). */
+export const frameCount = manifest.frameCount;
+/** Frame count for a state looked up by name across all groups (0 if unknown). */
+export const frameCountForState = manifest.frameCountForState;
+/** Every sheet to generate, partitioned by tier and packed densely (next-fit, whole-emote blocks). */
+export const allSheets = manifest.allSheets;
 /** The sheets for a single tier (a filtered view of {@link allSheets}). */
-export function sheetsForTier(tier: Tier): Sheet[] {
-  return allSheets().filter((sheet) => sheet.tier === tier);
-}
+export const sheetsForTier = manifest.sheetsForTier;

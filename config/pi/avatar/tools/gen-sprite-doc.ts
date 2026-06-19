@@ -15,17 +15,25 @@
  * Usage:
  *   node gen-sprite-doc.ts --identity-file avatar-ref/identity.txt > avatar-ref/sprite-prompts.md
  *   node gen-sprite-doc.ts --identity-file avatar-ref/identity.txt --out avatar-ref/sprite-prompts.md
- *   node gen-sprite-doc.ts --identity "a cheerful red-haired sniper ..." 
+ *   node gen-sprite-doc.ts --identity "a cheerful red-haired sniper ..."
  */
 
 import { readFileSync, writeFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 
 import { buildPrompt, normalizeIdentity, referencePrompt } from './prompt-lib.ts';
-import { type Tier, allSheets, sheetsForTier } from './sprite-manifest.ts';
+import { loadManifest } from './manifest-loader.ts';
+import { type ContentManifest, manifest as defaultManifest } from './sprite-manifest.ts';
 
 const IDENTITY_PLACEHOLDER =
   '<CHARACTER IDENTITY: describe hair, eyes, outfit, vibe; say "match the attached reference images">';
+
+/** Per-tier one-line blurb for the preamble bullets; unknown tiers (character sets) fall back. */
+const TIER_BLURBS: Record<string, string> = {
+  standard: 'the everyday SFW emotes (base set).',
+  suggestive: 'tasteful adult flirtation, still SFW (base set).',
+  mature: 'the opt-in `mature` overlay (slice into its OWN set).',
+};
 
 /** Wrap a prompt body in a fenced code block (prompts never contain ``` so this is safe). */
 function fence(text: string): string {
@@ -33,10 +41,10 @@ function fence(text: string): string {
 }
 
 /** A sheet prompt with the internal `# sheet <name>` header stripped (the doc adds its own heading). */
-function sheetBody(sheetName: string, identity: string): string {
-  const sheet = allSheets().find((s) => s.name === sheetName);
+function sheetBody(sheetName: string, identity: string, manifest: ContentManifest): string {
+  const sheet = manifest.allSheets().find((s) => s.name === sheetName);
   if (sheet === undefined) throw new Error(`Unknown sheet "${sheetName}"`);
-  return buildPrompt(sheet)
+  return buildPrompt(sheet, manifest)
     .replace(/\{identity\}/g, identity)
     .replace(/^# sheet \S+\n\n/, '');
 }
@@ -44,16 +52,14 @@ function sheetBody(sheetName: string, identity: string): string {
 /**
  * Render the complete sprite-prompt markdown document for `identity`. Pure: no
  * filesystem or network, so it is unit-testable. `identity` is normalized here,
- * so callers can pass a raw blurb.
+ * so callers can pass a raw blurb. Tiers, sheet counts, and bullets are derived
+ * from `manifest`, so a device-local character manifest renders its own doc.
  */
-export function buildSpriteDoc(rawIdentity: string): string {
+export function buildSpriteDoc(rawIdentity: string, manifest: ContentManifest = defaultManifest): string {
   const identity = normalizeIdentity(rawIdentity);
-  const sheets = allSheets();
-  const tierCount: Record<Tier, number> = {
-    standard: sheetsForTier('standard').length,
-    suggestive: sheetsForTier('suggestive').length,
-    mature: sheetsForTier('mature').length,
-  };
+  const sheets = manifest.allSheets();
+  const tiers = manifest.TIERS;
+  const hasMature = tiers.includes('mature');
   const groups = new Set<string>();
   for (const sheet of sheets) {
     for (const cell of sheet.cells) {
@@ -73,11 +79,15 @@ export function buildSpriteDoc(rawIdentity: string): string {
   P(`generate the sheets here; the cyan borders + green background are intentional **registration`);
   P(`guides** that get removed when the sheet is sliced into individual sprites locally.`);
   P();
-  P(`The set is **${groupCount} emote groups packed into 3 tiers / ${sheets.length} sheets / ${cellCount} sprite cells**:`);
+  P(
+    `The set is **${groupCount} emote groups packed into ${tiers.length} ${tiers.length === 1 ? 'tier' : 'tiers'} / ${sheets.length} sheets / ${cellCount} sprite cells**:`,
+  );
   P();
-  P(`- **standard** -- ${tierCount.standard} sheets: the everyday SFW emotes (base set).`);
-  P(`- **suggestive** -- ${tierCount.suggestive} sheets: tasteful adult flirtation, still SFW (base set).`);
-  P(`- **mature** -- ${tierCount.mature} sheets: the opt-in \`mature\` overlay (slice into its OWN set).`);
+  for (const tier of tiers) {
+    const count = manifest.sheetsForTier(tier).length;
+    const blurb = TIER_BLURBS[tier] ?? `character-specific emotes (slice into this character's OWN set).`;
+    P(`- **${tier}** -- ${count} sheets: ${blurb}`);
+  }
   P();
   P(`Every emote's frames are kept **together on one sheet** -- an emote never spills across a sheet`);
   P(`boundary -- so even though this web UI can't carry context between separate generations, all of`);
@@ -106,16 +116,20 @@ export function buildSpriteDoc(rawIdentity: string): string {
   P();
   P(`## How to use this document`);
   P();
-  P(`1. **One conversation per tier** (\`standard\`, \`suggestive\`, \`mature\`). Each sheet is`);
+  P(`1. **One conversation per tier** (${tiers.map((t) => `\`${t}\``).join(', ')}). Each sheet is`);
   P(`   self-contained, but keeping a tier in one chat with the references attached holds the character`);
   P(`   steady across its sheets.`);
   P(`2. In that chat's first message, **attach the reference images** (hero + turnaround).`);
   P(`3. **Each sheet prompt is in a code block** -- use its copy button and paste one prompt per`);
   P(`   generation. Request a **wide / landscape** output (e.g. 1536x1024) so the 4x3 grid gets the`);
   P(`   most pixels per cell.`);
-  P(`4. **Download each result** named \`<tier>.<n>.png\` exactly as the heading says (e.g.`);
-  P(`   \`standard.1.png\`, \`mature.2.png\`). Keep \`mature.*\` aside for its own set; \`standard.*\` +`);
-  P(`   \`suggestive.*\` are the base set.`);
+  if (hasMature) {
+    P(`4. **Download each result** named \`<tier>.<n>.png\` exactly as the heading says (e.g.`);
+    P(`   \`standard.1.png\`, \`mature.2.png\`). Keep \`mature.*\` aside for its own set; the rest are the base set.`);
+  } else {
+    P(`4. **Download each result** named \`<tier>.<n>.png\` exactly as the heading says (e.g.`);
+    P(`   \`${tiers[0] ?? 'standard'}.1.png\`). Slice every sheet into this character's set.`);
+  }
   P(`5. Bring the PNGs back to the repo; \`slice-sheets.ts\` cuts each sheet into cells (it auto-detects`);
   P(`   the 4x3 grid and keys out the green + cyan).`);
   P();
@@ -160,7 +174,7 @@ export function buildSpriteDoc(rawIdentity: string): string {
     P();
     P(`Download as \`${sheet.name}.png\`.`);
     P();
-    P(fence(sheetBody(sheet.name, identity)));
+    P(fence(sheetBody(sheet.name, identity, manifest)));
   }
   P();
   return out.join('\n');
@@ -169,10 +183,11 @@ export function buildSpriteDoc(rawIdentity: string): string {
 interface DocOpts {
   identity: string;
   out: string;
+  manifest: string;
 }
 
 function parseArgs(argv: string[]): DocOpts {
-  const opts: DocOpts = { identity: IDENTITY_PLACEHOLDER, out: '' };
+  const opts: DocOpts = { identity: IDENTITY_PLACEHOLDER, out: '', manifest: '' };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     const eq = arg.indexOf('=');
@@ -183,8 +198,9 @@ function parseArgs(argv: string[]): DocOpts {
       case '-h':
       case '--help':
         process.stdout.write(
-          'Usage: node gen-sprite-doc.ts [--identity-file <path>|--identity <text>] [--out <path>]\n' +
-            '  Writes the full image-web-UI sprite-prompt doc to --out (or stdout).\n',
+          'Usage: node gen-sprite-doc.ts [--identity-file <path>|--identity <text>] [--manifest <path>] [--out <path>]\n' +
+            '  Writes the full image-web-UI sprite-prompt doc to --out (or stdout).\n' +
+            '  --manifest <path>  Device-local manifest module (exports `manifest`); default: the committed set.\n',
         );
         process.exit(0);
         break;
@@ -193,6 +209,9 @@ function parseArgs(argv: string[]): DocOpts {
         break;
       case '--identity-file':
         opts.identity = readFileSync(next(), 'utf8');
+        break;
+      case '--manifest':
+        opts.manifest = next();
         break;
       case '--out':
         opts.out = next();
@@ -205,9 +224,10 @@ function parseArgs(argv: string[]): DocOpts {
   return opts;
 }
 
-function main(): void {
+async function main(): Promise<void> {
   const opts = parseArgs(process.argv.slice(2));
-  const doc = buildSpriteDoc(opts.identity);
+  const manifest = await loadManifest(opts.manifest);
+  const doc = buildSpriteDoc(opts.identity, manifest);
   if (opts.out.length > 0) {
     writeFileSync(opts.out, `${doc}\n`);
     process.stderr.write(`Wrote ${opts.out}\n`);
@@ -217,5 +237,8 @@ function main(): void {
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
-  main();
+  main().catch((err: unknown) => {
+    process.stderr.write(`${err instanceof Error ? err.message : String(err)}\n`);
+    process.exit(1);
+  });
 }
