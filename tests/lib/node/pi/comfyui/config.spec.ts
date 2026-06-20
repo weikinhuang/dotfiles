@@ -56,6 +56,11 @@ describe('coerceConfigLayer', () => {
     expect(coerceConfigLayer({ background: 'yes' }).background).toBeUndefined();
   });
 
+  test('coerces the ephemeral boolean and drops a non-boolean', () => {
+    expect(coerceConfigLayer({ ephemeral: true }).ephemeral).toBe(true);
+    expect(coerceConfigLayer({ ephemeral: 'yes' }).ephemeral).toBeUndefined();
+  });
+
   test('coerces the autoDownload boolean and drops a non-boolean', () => {
     expect(coerceConfigLayer({ autoDownload: false }).autoDownload).toBe(false);
     expect(coerceConfigLayer({ autoDownload: 'no' }).autoDownload).toBeUndefined();
@@ -185,6 +190,11 @@ describe('mergeConfigLayers', () => {
   test('background defaults to false and is overridable', () => {
     expect(mergeConfigLayers().background).toBe(false);
     expect(mergeConfigLayers({ background: true }).background).toBe(true);
+  });
+
+  test('ephemeral defaults to false and is overridable', () => {
+    expect(mergeConfigLayers().ephemeral).toBe(false);
+    expect(mergeConfigLayers({ ephemeral: true }).ephemeral).toBe(true);
   });
 
   test('autoDownload defaults to true and is overridable', () => {

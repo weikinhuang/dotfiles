@@ -5,6 +5,7 @@
   "defaultWorkflow": "txt2img",
   "sendToModel": true,
   "background": false,
+  "ephemeral": false,
   "defaults": { "width": 1024, "height": 1024, "steps": 30, "cfg": 5, "count": 1, "negative": "blurry, lowres" },
   "authHeader": { "name": "Authorization", "value": "Bearer ${PI_COMFYUI_TOKEN}" },
   "workflows": {

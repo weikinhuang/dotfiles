@@ -80,6 +80,20 @@ export interface ComfyuiConfig {
    */
   sendToModel: boolean;
   /**
+   * Whether a generation is rendered as an *ephemeral* scene by default:
+   * the image is shown inline in the terminal for the turn it is
+   * generated, but the whole `generate_image` call + image is collapsed
+   * out of the model's context (this turn's continuation and every later
+   * turn) so it never costs persistent context tokens and the model never
+   * re-reads it. The image block still rides in the tool result (the TUI
+   * renders from it); a `context`-hook overlay strips it from the provider
+   * payload, so the `sendToModel` / vision gate is moot for an ephemeral
+   * render. Off by default. A per-call `ephemeral` arg overrides it.
+   * Applies to foreground renders only (a `background` job returns no
+   * image to collapse).
+   */
+  ephemeral: boolean;
+  /**
    * Whether a generation is submitted as a background job by default
    * (returning the job id immediately instead of waiting for the render).
    * When `false`, the call blocks until the image is ready. A per-call

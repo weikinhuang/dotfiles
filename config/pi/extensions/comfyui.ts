@@ -93,6 +93,15 @@ import {
 } from '../../../lib/node/pi/comfyui/jobs.ts';
 import type { ComfyuiConfig, WorkflowConfig } from '../../../lib/node/pi/comfyui/types.ts';
 import { applyContextReminder, type ReminderMessage } from '../../../lib/node/pi/context-reminder.ts';
+import { applyDirectives } from '../../../lib/node/pi/context-edit/apply.ts';
+import {
+  addCollapse,
+  cloneState,
+  type ContextEditState,
+  emptyState as emptyEditState,
+  reduceBranch,
+} from '../../../lib/node/pi/context-edit/directive.ts';
+import type { LooseMessage } from '../../../lib/node/pi/context-edit/target.ts';
 
 // ──────────────────────────────────────────────────────────────────────
 // Types
@@ -110,6 +119,8 @@ interface GenerateDetails {
   background?: boolean;
   /** Registry id of the background job this call started (when `background`). */
   jobId?: string;
+  /** True when the render was ephemeral (shown inline, collapsed out of model context). */
+  ephemeral?: boolean;
 }
 
 /** Action verbs accepted by the `image_jobs` tool. */
@@ -134,6 +145,15 @@ const extDir = dirname(fileURLToPath(import.meta.url));
 // dequeue). Cancellation should be near-instant, so it gets a tighter
 // bound than a full generation's `config.timeoutMs`.
 const CANCEL_TIMEOUT_MS = 10_000;
+
+// Custom session-entry type under which the ephemeral-render collapse set
+// is persisted. Distinct from tool-collapse's own store so the two
+// overlays stay independent. The state is a `ContextEditState` of
+// `collapse` directives keyed by the generate_image call's toolCallId;
+// it is reduced from the branch on session_start/session_tree (so it
+// survives `/reload` + exit->resume) and reapplied each turn in the
+// `context` hook.
+const EPHEMERAL_CUSTOM_TYPE = 'comfyui-ephemeral-state';
 
 // Only the on-disk path of the shipped example workflow is shell-specific;
 // its input map is pure data (SHIPPED_WORKFLOW_INPUTS in lib).
@@ -191,6 +211,21 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
   // bg-bash) - reattaching to a prior runtime's promptId is best handled
   // by re-submitting, and the server's own history outlives us anyway.
   let registry: JobRegistry = emptyRegistry();
+
+  // Ephemeral-render collapse overlay. Holds a `collapse` directive per
+  // ephemeral `generate_image` call (keyed by toolCallId); the `context`
+  // hook applies it to the OUTGOING provider payload every turn so the
+  // image + call never reach the model, while the real session entry
+  // keeps the image block for the TUI. Reduced from the branch on
+  // session_start/session_tree so it survives `/reload` + resume.
+  let ephemeralState: ContextEditState = emptyEditState();
+  const persistEphemeral = (): void => {
+    try {
+      pi.appendEntry(EPHEMERAL_CUSTOM_TYPE, cloneState(ephemeralState));
+    } catch {
+      // Bookkeeping must never break a generation.
+    }
+  };
 
   // Statusline slot (see statusline.ts): show a count of pending jobs and
   // clear the slot when none are running so quiet sessions stay clean.
@@ -348,6 +383,16 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
     uiRef = ctx.ui;
     lastStatusRunning = -1;
     updateStatusline();
+    // Rebuild the ephemeral-render collapse overlay from the persisted
+    // branch so `/reload` and exit->resume keep prior ephemeral renders
+    // collapsed out of the model's context.
+    ephemeralState = reduceBranch(ctx.sessionManager.getBranch() as never, EPHEMERAL_CUSTOM_TYPE);
+  });
+
+  // A branch switch (edit/rewind) replays a different history, so re-derive
+  // the ephemeral overlay from the new branch's persisted snapshot.
+  pi.on('session_tree', (_event, ctx) => {
+    ephemeralState = reduceBranch(ctx.sessionManager.getBranch() as never, EPHEMERAL_CUSTOM_TYPE);
   });
 
   pi.on('session_shutdown', (_event, ctx) => {
@@ -366,6 +411,9 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
     registry = emptyRegistry();
     uiRef = undefined;
     lastStatusRunning = -1;
+    // Drop the ephemeral overlay; session_start rebuilds it from the
+    // branch on the next (re)start.
+    ephemeralState = emptyEditState();
     // Stop the auto-download poll so a `/reload` doesn't leave an orphaned
     // interval bound to a replaced session, and drop the in-flight guard.
     stopPollTimer();
@@ -388,13 +436,34 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
   // stays byte-stable (the provider's prompt cache survives job churn) and
   // nothing accumulates. No running jobs -> nothing injected.
   pi.on('context', (event) => {
+    let messages = event.messages as unknown as LooseMessage[];
+    let changed = false;
+
+    // 1. Collapse ephemeral generate_image call+result pairs out of the
+    //    outgoing payload. The real session entry keeps the image block
+    //    (the TUI renders from it); only this provider copy is stripped,
+    //    so the image + call cost no persistent context and the model
+    //    never re-reads the scene.
+    if (ephemeralState.directives.length > 0) {
+      const applied = applyDirectives(messages, ephemeralState.directives);
+      if (applied.applied > 0) {
+        messages = applied.messages;
+        changed = true;
+      }
+    }
+
+    // 2. Remind the model about pending background jobs so even a weak
+    //    model remembers to collect them.
     const block = formatRunningBlock(registry);
-    if (!block) return undefined;
-    const messages = applyContextReminder(event.messages as unknown as ReminderMessage[], {
-      id: 'comfyui-jobs',
-      body: block,
-    });
-    return { messages: messages as unknown as typeof event.messages };
+    if (block) {
+      messages = applyContextReminder(messages as unknown as ReminderMessage[], {
+        id: 'comfyui-jobs',
+        body: block,
+      }) as unknown as LooseMessage[];
+      changed = true;
+    }
+
+    return changed ? { messages: messages as unknown as typeof event.messages } : undefined;
   });
 
   const GenerateParams = Type.Object({
@@ -421,6 +490,11 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
         description: `Return the image to you for analysis; false = save to disk only. Auto-suppressed for non-vision models. Default ${registrationConfig.sendToModel}.`,
       }),
     ),
+    ephemeral: Type.Optional(
+      Type.Boolean({
+        description: `Show the image in the terminal once, then drop this tool call and image from the conversation so they do NOT stay in context on later turns (you will not re-read the image). Use for visual-novel / roleplay scene renders where the picture is for the user, not for you. Foreground renders only. Default ${registrationConfig.ephemeral}.`,
+      }),
+    ),
     background: Type.Optional(
       Type.Boolean({
         description: `Return immediately without waiting; collect later via \`image_jobs\` (collect). Use for slow renders. Default ${registrationConfig.background}.`,
@@ -443,7 +517,7 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
     ],
     parameters: GenerateParams,
 
-    async execute(_toolCallId, params, signal, onUpdate, ctx) {
+    async execute(toolCallId, params, signal, onUpdate, ctx) {
       const config = loadConfig(ctx.cwd);
       const name = params.workflow ?? config.defaultWorkflow;
       const details: GenerateDetails = { workflow: name, savedPaths: [] };
@@ -465,6 +539,9 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
       const saveDir = isAbsolute(config.saveDir) ? config.saveDir : join(ctx.cwd, config.saveDir);
       const requested = params.sendToModel ?? config.sendToModel;
       const background = params.background ?? config.background;
+      // Ephemeral is meaningful only for a foreground render (a background
+      // job returns no image to collapse); ignore it when backgrounding.
+      const ephemeral = !background && (params.ephemeral ?? config.ephemeral);
 
       // Stream a progress line; pi's onUpdate wants a full tool result, so
       // carry the (partial) details alongside the text. Stash the line on
@@ -564,8 +641,26 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
           background: false,
         });
 
-        const decision = resolveSendToModel(requested, ctx.model?.input);
         const countNote = `${refs.length} image${refs.length === 1 ? '' : 's'}`;
+
+        // Ephemeral render: keep the image block in the result so the TUI
+        // shows it this turn, but record a collapse directive so the
+        // `context` hook strips the whole call+image from every outgoing
+        // provider payload (this turn's continuation included). The image
+        // never reaches the model, so the sendToModel / vision gate is
+        // moot here - always attach the block for the terminal.
+        if (ephemeral && toolCallId) {
+          const r = addCollapse(ephemeralState, toolCallId, 'ephemeral image render', Date.now());
+          if (r.ok) {
+            ephemeralState = r.state;
+            persistEphemeral();
+          }
+          details.ephemeral = true;
+          const summary = `Generated ${countNote} via "${name}"${seedNote}. Saved to ${saveDir}. (ephemeral: shown once, not kept in context)`;
+          return { content: [{ type: 'text', text: summary }, ...saved.map((s) => s.block)], details };
+        }
+
+        const decision = resolveSendToModel(requested, ctx.model?.input);
         if (!decision.send) {
           const why = decision.visionBlocked
             ? ' (active model has no image input; not sent to model)'
@@ -629,7 +724,8 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
         return new Text(theme.fg('dim', `⟳ ${prog}${seedNote}`), 0, 0);
       }
 
-      const summary = theme.fg('success', `✓ ${n} image${n === 1 ? '' : 's'}${seedNote}`);
+      const ephemeralNote = details.ephemeral ? theme.fg('dim', ' · ephemeral') : '';
+      const summary = theme.fg('success', `✓ ${n} image${n === 1 ? '' : 's'}${seedNote}`) + ephemeralNote;
       if (!options.expanded) return new Text(summary, 0, 0);
 
       // Expanded (ctrl+o): show the full positive / negative prompt and paths.

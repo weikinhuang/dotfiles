@@ -52,6 +52,7 @@ tool result so the model can self-correct.
 | `inputImages` | array   | Ordered reference image paths for img2img / edit workflows, e.g. `["~/in.png"]`.                  |
 | `count`       | number  | Batch size.                                                                                       |
 | `sendToModel` | boolean | Override the `sendToModel` config default for this call.                                          |
+| `ephemeral`   | boolean | Show the image inline this turn, then collapse the call + image out of context. See below.        |
 | `background`  | boolean | Submit and return now; collect later via `image_jobs`. Overrides the `background` config default. |
 
 Each parameter is injected only if the active workflow's input map names a node for it. Passing an arg the workflow does
@@ -116,7 +117,9 @@ The registry lives only for the current pi session. Running jobs are surfaced tw
 them: a `▦ img:N` statusline indicator (via `statusline.ts`) and a `## Pending image jobs` block injected each turn as
 an ephemeral `<system-reminder id="comfyui-jobs">` spliced into the last user/toolResult turn via the `context` hook
 (not the system prompt, so the prompt-prefix cache survives job churn; nothing is injected when no jobs are running).
-Use `/comfyui jobs` to list them yourself.
+Use `/comfyui jobs` to list them yourself. The same `context` hook also applies the ephemeral-render collapse overlay
+(see [Ephemeral renders](#ephemeral-renders-ephemeral)) before the reminder, so both edits ride one rewrite of the
+outgoing payload.
 
 ## Configuration
 
@@ -136,6 +139,7 @@ into one of the config files to opt in; see [`../comfyui-example.json`](../comfy
 | `saveDir`         | `.pi/comfyui-out`        | Where PNGs are written (relative to cwd, or an absolute path).                                                          |
 | `defaultWorkflow` | `txt2img`                | Workflow used when the tool call omits `workflow`.                                                                      |
 | `sendToModel`     | `true`                   | Return the image in the tool result (fed to the model next turn). `false` saves to disk only.                           |
+| `ephemeral`       | `false`                  | Render images inline this turn, then collapse the call + image out of context afterward. Per-call arg overrides.        |
 | `background`      | `false`                  | Submit generations as background jobs by default (collect later via `image_jobs`). Per-call `background` arg overrides. |
 | `autoDownload`    | `true`                   | Poll background jobs off-turn and fetch finished PNGs to `saveDir` automatically. `false` reverts to pull-only collect. |
 | `pollIntervalMs`  | `3000`                   | How often the auto-download timer polls `/history` per running job (floored at `1000`). Only used when `autoDownload`.  |
@@ -168,6 +172,38 @@ Regardless of `sendToModel`, the image is held back automatically when the activ
 extension inspects `ctx.model.input` and, if it is a list lacking `"image"`, falls back to save-only and notes
 `(active model has no image input; not sent to model)` in the summary. When the model's capabilities are unknown (no
 `input` list), the `sendToModel` preference is honored as-is.
+
+### Ephemeral renders (`ephemeral`)
+
+`sendToModel` is all-or-nothing across two concerns: it gates both whether the image renders inline **and** whether it
+reaches the model. `ephemeral` splits them for the visual-novel / roleplay case where the picture is for the **user**,
+not the model:
+
+| Mode                 | Inline in terminal | In model context |
+| -------------------- | ------------------ | ---------------- |
+| `sendToModel: true`  | yes                | yes (every turn) |
+| `sendToModel: false` | no                 | no               |
+| `ephemeral: true`    | yes (this turn)    | no               |
+
+When `ephemeral` is set, the rendered image still rides in the tool result so the TUI shows it for the turn it is
+generated, but the extension records a **collapse directive** keyed by the call's `toolCallId`. The `context` hook then
+blanks that `generate_image` call's arguments and replaces its result (image included) with a `[TOOL CALLED]` marker on
+every outgoing provider payload - this turn's continuation included - so the model never reads the scene and it costs no
+persistent context. Because the image never reaches the model, the `sendToModel` / vision gate is moot for an ephemeral
+render; the block is always attached for the terminal.
+
+The collapse is non-destructive (the real session `.jsonl` keeps the full call + image) and reuses the same
+`context-edit` overlay machinery as the `tool-collapse` extension. It is persisted as a `comfyui-ephemeral-state` custom
+entry and rebuilt from the branch on `session_start` / `session_tree`, so a `/reload`, a branch switch, or an exit ->
+resume all keep prior ephemeral renders collapsed. `ephemeral` applies to foreground renders only - a `background: true`
+job returns no image to collapse, so the flag is ignored when backgrounding.
+
+```jsonc
+// <cwd>/.pi/comfyui.json - a roleplay project whose scene renders are for the reader, not the model
+{
+  "ephemeral": true,
+}
+```
 
 ### Workflows and the input map
 
@@ -401,9 +437,11 @@ Edit [`comfyui.ts`](./comfyui.ts) or any companion under [`../../../lib/node/pi/
 and run `/reload` in an interactive pi session. The tool registration, workflow list, and tool description are computed
 at load time, so a `/reload` re-runs registration and picks up changes to `comfyui.json` / the workflow graphs. The
 `session_shutdown` handler clears the `comfyui` statusline badge (`▦ img:N`) and drops the in-memory background-job
-registry on reload, so a stale job count never bleeds into the next session. The jobs themselves run server-side and are
-not re-attached after reload - ComfyUI keeps each prompt under its id, so re-collect via the server's own history if a
-generation was in flight.
+registry on reload, so a stale job count never bleeds into the next session. The ephemeral-render collapse overlay is
+**not** dropped across a reload: it is persisted as a `comfyui-ephemeral-state` custom entry and rebuilt from the branch
+on `session_start` / `session_tree`, so prior ephemeral renders stay collapsed out of context after a `/reload`, a
+branch switch, or an exit -> resume. The jobs themselves run server-side and are not re-attached after reload - ComfyUI
+keeps each prompt under its id, so re-collect via the server's own history if a generation was in flight.
 
 ## Related docs
 

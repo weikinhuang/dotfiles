@@ -51,6 +51,7 @@ export const DEFAULT_CONFIG: ComfyuiConfig = {
   saveDir: '.pi/comfyui-out',
   defaultWorkflow: 'txt2img',
   sendToModel: true,
+  ephemeral: false,
   background: false,
   autoDownload: true,
   pollIntervalMs: 3000,
@@ -186,6 +187,9 @@ export function coerceConfigLayer(raw: unknown): Partial<ComfyuiConfig> {
   const sendToModel = asBoolean(raw.sendToModel);
   if (sendToModel !== undefined) out.sendToModel = sendToModel;
 
+  const ephemeral = asBoolean(raw.ephemeral);
+  if (ephemeral !== undefined) out.ephemeral = ephemeral;
+
   const background = asBoolean(raw.background);
   if (background !== undefined) out.background = background;
 
@@ -225,6 +229,7 @@ export function mergeConfigLayers(...overrides: Partial<ComfyuiConfig>[]): Comfy
     if (layer.saveDir !== undefined) result.saveDir = layer.saveDir;
     if (layer.defaultWorkflow !== undefined) result.defaultWorkflow = layer.defaultWorkflow;
     if (layer.sendToModel !== undefined) result.sendToModel = layer.sendToModel;
+    if (layer.ephemeral !== undefined) result.ephemeral = layer.ephemeral;
     if (layer.background !== undefined) result.background = layer.background;
     if (layer.autoDownload !== undefined) result.autoDownload = layer.autoDownload;
     if (layer.pollIntervalMs !== undefined) result.pollIntervalMs = layer.pollIntervalMs;
