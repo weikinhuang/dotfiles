@@ -52,11 +52,12 @@ Two hooks for the colored render path, plus one to keep history clean:
 Pure logic lives under [`lib/node/pi/color-tags/`](../../../lib/node/pi/color-tags/) and is unit-tested by
 [`tests/lib/node/pi/color-tags/`](../../../tests/lib/node/pi/color-tags/):
 
-| Helper                                                                       | Job                                                                                                           |
-| ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| [`resolve-color.ts`](../../../lib/node/pi/color-tags/resolve-color.ts)       | Map a name to an `{ open, close }` SGR pair. Named-16, `x256-N`, `#RRGGBB` / `#RGB`. Unknown ⇒ `undefined`.   |
-| [`parse-color-tags.ts`](../../../lib/node/pi/color-tags/parse-color-tags.ts) | Three-pass rewriter: closed pairs → trailing open-without-close (streaming) → trailing partial-open suppress. |
-| [`color-prompt.ts`](../../../lib/node/pi/color-tags/color-prompt.ts)         | Build the `## Inline color tags` addendum + idempotent append helper.                                         |
+| Helper                                                                       | Job                                                                                                                                                                        |
+| ---------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`resolve-color.ts`](../../../lib/node/pi/color-tags/resolve-color.ts)       | Map a name to an `{ open, close }` SGR pair. Named-16, `x256-N`, `#RRGGBB` / `#RGB`. Unknown ⇒ `undefined` (a recovery signal, see below).                                 |
+| [`parse-color-tags.ts`](../../../lib/node/pi/color-tags/parse-color-tags.ts) | Multi-pass rewriter: slice off code regions → closed pairs → unknown-color unwrap recovery → trailing open-without-close (streaming) → orphan-close + dangling-fg cleanup. |
+| [`code-mask.ts`](../../../lib/node/pi/code-mask.ts)                          | Shared: slice text into Markdown code / prose runs so the rewriter skips fenced blocks and inline code spans (tags there are literals).                                    |
+| [`color-prompt.ts`](../../../lib/node/pi/color-tags/color-prompt.ts)         | Build the `## Inline color tags` addendum + idempotent append helper.                                                                                                      |
 
 The extension layer wraps the pure resolver with a theme-aware lookup so semantic names like `accent`, `success`,
 `mdHeading`, `bashMode` route through `theme.getFgAnsi(token)` first and fall through to the named-16 / 256 / hex
@@ -83,6 +84,40 @@ because there's no `[c:NAME]→\x1b[…m` mapping in the model's training data.
 The marked link-reference concern that originally pushed us off the bracket form turned out to be a false alarm:
 `marked.lexer('[c:red]ERROR[/c]: status')` tokenises as a single `text` token, because link references require either
 `[text](url)` or `[text][label]` - the `[c:red]ERROR[/c]:` shape matches neither. Verified directly.
+
+## Unknown-color recovery
+
+Smaller models often misuse the syntax: they wrap text in an invented color name (`[c:special]important[/c]`), emit an
+empty pair (`[c:special][/c]`), or drop a lone open with no close (`[c:special]`) where the word they meant to color
+ends up in the NAME slot. Leaving that bracket text literal on screen is worse than no color at all, so the rewriter
+recovers instead of resolving:
+
+| Model emits                  | NAME resolves? | Rendered as           | Rule                                                                           |
+| ---------------------------- | -------------- | --------------------- | ------------------------------------------------------------------------------ |
+| `[c:special]important[/c]`   | no             | `important`           | Closed pair, unknown name → unwrap to content.                                 |
+| `[c:special][/c]`            | no             | `special`             | Empty closed pair → surface the NAME (the word was in that slot).              |
+| `[c:special]still here`      | no             | `still here`          | Orphan open with content → drop the marker, keep the content.                  |
+| `[c:special]` (line end)     | no             | `special`             | Lone open → surface the NAME (skipped on the still-typing line).               |
+| `[c:red]still typing` (open) | yes            | `[c:red]still typing` | Real color, dropped close → left literal (a recoverable slip we keep visible). |
+
+The recovery is uniform across model tiers - there is no small-model-only branch. A real color name with a missing
+`[/c]` is the one case still left literal: that is a recoverable slip the model can correct on the next attempt, not a
+syntax misuse. On the still-being-typed last streaming line an empty lone open is left literal too, because unwrapping
+it to the NAME would bake the name into the accumulated text (`content.text += delta`) and glue it to whatever streams
+next; once the line completes (or the message ends elsewhere) it recovers.
+
+### Code regions are literals
+
+Tags inside a fenced code block (` ``` `/`~~~`) or an inline code span (`` `...` ``) are left exactly as typed - no
+coloring, no unwrap. Documentation and examples that show the `[c:NAME]content[/c]` syntax (this doc, the system-prompt
+addendum, snippets) must render verbatim. The rewriter slices the text into code / prose runs
+([`code-mask.ts`](../../../lib/node/pi/code-mask.ts)) and only rewrites prose runs; code runs pass through untouched.
+Slicing rather than masking offsets matters: it stops a regex pass from pairing an open inside code with a close outside
+it. Run boundaries key off the OPENING delimiter (the fence line, the left backtick), which has already streamed by the
+time any tag inside the region arrives, so the split is stable under the streaming `content.text += delta` accumulation.
+An unterminated opener (stray backtick, unclosed fence) puts the rest into a trailing code run - matching a user who
+typed a delimiter and meant "code from here on". Inline spans use backtick-run parity rather than full CommonMark
+matched-length rules, which covers single- and multi-backtick delimiters and degrades gracefully on pathological input.
 
 ## Why no `message_end` rewrite
 

@@ -44,6 +44,12 @@ The model emits a self-closing `[emote:happy]` marker inline in its reply. The m
   avatar returns to reflecting activity. Set `emoteHoldMs` to `0` (or negative) to hold the response emotion until the
   next turn instead - handy for roleplay.
 
+A marker that falls inside a Markdown code fence (` ``` `/`~~~`) or an inline code span (`` `...` ``) is treated as a
+**literal** - it is neither stripped nor fired - so documentation and examples that show the `[emote:NAME]` syntax (this
+doc, the system-prompt addendum) render verbatim. The parser slices the text into code / prose runs with the shared
+[`code-mask.ts`](../../../lib/node/pi/code-mask.ts) helper (the same one the [`color-tags`](./color-tags.md) rewriter
+uses) and acts on prose runs only.
+
 A system-prompt addendum (`before_agent_start`) teaches the model the syntax and the emotion vocabulary discovered in
 the active set. This reuses the exact three-hook pattern from [`color-tags`](./color-tags.md). The addendum is injected
 **only under an active `roleplay: true` persona** (the same gate the [`roleplay`](./roleplay.md) extension uses):

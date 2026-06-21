@@ -22,7 +22,13 @@
  *   1. Fully-closed pair `[c:red]hello[/c]` → `<open>hello<close>`.
  *      Always handled, both streaming and non-streaming. Content is
  *      line-bounded so a dropped `[/c]` can't steal a later line's
- *      close (see `CLOSED_TAG`).
+ *      close (see `CLOSED_TAG`). An UNKNOWN name here is unwrapped
+ *      (`recoverUnknownPair`), not left literal.
+ *   1b. Orphan-open recovery `recoverOrphanOpens`. Both modes. Any
+ *      `[c:NAME]` pass 1 left behind (dropped close, lone open) is
+ *      unwrapped when NAME is unknown - to its trailing content, or to
+ *      the NAME itself when the open sits at a line end. Resolved opens
+ *      are left literal (dropped-close stays a visible slip).
  *   2. Open without close `[c:red]still typing` (mid-stream) →
  *      `<open>still typing`. Only handled when `streaming: true`,
  *      because non-streaming callers shouldn't see partial spans.
@@ -55,9 +61,26 @@
  * than the disease, so we accept a one-frame literal `[c:re` flash
  * instead.
  *
- * Unknown color names leave the literal tag in place. Silent-drop is
- * harder to debug than visible failure; the user / model can correct
- * the name on the next attempt.
+ * Unknown color names are RECOVERED, not left literal. Small models
+ * routinely emit a bogus name (`[c:special]...[/c]`), an empty pair
+ * (`[c:special][/c]`), or a lone open (`[c:special]`) where the word
+ * they meant to colour sits in the NAME slot. Rather than leave the
+ * broken bracket text on screen, the rewriter unwraps it: a closed
+ * pair / content-bearing open collapses to its content, and an empty
+ * open collapses to the NAME itself. A RESOLVED colour with a dropped
+ * close is the one case still left literal - a real name with a missing
+ * `[/c]` is a recoverable slip we keep visible. See `recoverUnknownPair`
+ * / `recoverOrphanOpens`.
+ *
+ * **Code regions are skipped entirely.** Before any pass runs, `input`
+ * is sliced into Markdown code / prose runs (`splitCodeSegments` in
+ * `../code-mask.ts`): fenced blocks (```` ``` ````/`~~~`) and inline code
+ * spans (`` `...` ``) are reproduced verbatim - their `[c:NAME]` are
+ * literals the user wants shown (docs / examples of this very syntax) -
+ * and only prose runs are rewritten. Slicing (rather than masking
+ * offsets inside each pass) is what stops a regex match from pairing an
+ * open inside code with a close outside it. The slicing is keyed off
+ * OPENING delimiters so it stays stable under streaming accumulation.
  *
  * Nested `[c:...]` inside another span is treated as part of the
  * outer span's content (the regex is non-greedy and takes the first
@@ -65,6 +88,8 @@
  *
  * Pure module - no pi runtime, no `@earendil-works/*` imports.
  */
+
+import { splitCodeSegments } from '../code-mask.ts';
 
 export interface ResolvedColor {
   open: string;
@@ -230,23 +255,100 @@ function closeDanglingColorsAtLineEnds(text: string): string {
 }
 
 /**
- * Rewrite color tags in `input`. The result is a new string; `input`
- * is not mutated.
+ * Match a single color OPEN marker `[c:NAME]` (no close). Group 1 is
+ * the name. Used by `recoverOrphanOpens` to LOCATE bare opens left in
+ * the text after pass 1 consumed every well-formed `[c:NAME]...[/c]`
+ * pair on a line - not for pairing.
  */
-export function rewriteColorTags(input: string, resolver: ColorResolver, options: RewriteOptions = {}): string {
-  if (input.length === 0) return input;
+const OPEN_MARKER = /\[c:([^\]\s][^\]]*)\]/g;
 
+/**
+ * Recovery for an unknown-color CLOSED pair `[c:NAME]content[/c]`
+ * (pass 1, resolver miss). Small models routinely emit a bogus color
+ * name, so rather than leave the broken tag literally on screen we
+ * unwrap it:
+ *   - non-empty content -> the content (`[c:special]hi[/c]` -> `hi`).
+ *   - empty content -> the NAME itself, because the model put the
+ *     word it meant to colour in the NAME slot (`[c:special][/c]` ->
+ *     `special`). This matches the observed small-model failure where
+ *     `[c:special]` *is* the content, not a colour directive.
+ */
+function recoverUnknownPair(rawName: string, content: string): string {
+  return content.length > 0 ? content : rawName.trim();
+}
+
+/**
+ * Recovery for unknown-color OPEN markers that pass 1 could not pair
+ * with a `[/c]` (open with a dropped close, or `[c:special]` standing
+ * alone). After pass 1 every well-formed pair on a line is gone, so any
+ * surviving `[c:NAME]` is an orphan open. We unwrap it ONLY when NAME
+ * does not resolve to a real colour:
+ *   - content follows the marker on its line  -> drop just the marker,
+ *     keep the content (`[c:special]hi` -> `hi`). Stable under the
+ *     streaming `text += delta` accumulation: dropping a prefix leaves
+ *     the content for later deltas to append to.
+ *   - marker sits at its line end (no content) -> surface the NAME
+ *     (`[c:special]` -> `special`), same reasoning as the empty pair.
+ *
+ * A RESOLVED open with a dropped close is deliberately left literal: a
+ * real colour name with a missing `[/c]` is a recoverable model slip we
+ * keep VISIBLE (the existing dropped-close contract), not a syntax
+ * misuse to paper over.
+ *
+ * Streaming guard: on the still-being-typed LAST line we leave an
+ * empty-at-line-end orphan literal, because the model may yet type the
+ * span's content or its close. Unwrapping to the NAME there would bake
+ * it into the accumulated text (`text += delta`) and glue it to
+ * whatever streams next. Completed lines carry no such risk, and a
+ * content-bearing orphan is safe to unwrap anywhere.
+ */
+function recoverOrphanOpens(text: string, resolver: ColorResolver, streaming: boolean): string {
+  if (!text.includes('[c:')) return text;
+  const lines = text.split('\n');
+  const lastIdx = lines.length - 1;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (!line.includes('[c:')) continue;
+    const guardLineEnd = streaming && i === lastIdx;
+    lines[i] = line.replace(OPEN_MARKER, (match: string, rawName: string, offset: number) => {
+      // Valid colour: leave literal (dropped-close stays a visible slip).
+      if (resolver(rawName)) return match;
+      const atLineEnd = offset + match.length === line.length;
+      if (atLineEnd) {
+        if (guardLineEnd) return match; // still typing - don't bake the name in
+        return rawName.trim();
+      }
+      return ''; // content follows: drop the marker, keep the content
+    });
+  }
+  return lines.join('\n');
+}
+
+/**
+ * Run every rewrite pass on a CODE-FREE fragment. Callers must hand
+ * `rewritePlain` only prose runs (see `rewriteColorTags`'s segmentation)
+ * so a regex match can never straddle a code boundary. `streaming`
+ * carries the same meaning as `RewriteOptions.streaming`, but applies
+ * only to the run that holds the live tail of the message.
+ */
+function rewritePlain(input: string, resolver: ColorResolver, streaming: boolean): string {
   // Pass 1: fully-closed pairs. Non-greedy, so we only consume as far
-  // as the first `[/c]`. Run-of-the-mill `String.replace` with a
-  // function callback - resolver returning undefined leaves the
-  // literal text in place.
+  // as the first `[/c]`. When the name resolves we wrap with ANSI; when
+  // it does NOT we UNWRAP rather than leave the broken tag visible -
+  // see `recoverUnknownPair` for why and how.
   let out = input.replace(CLOSED_TAG, (match, rawName: string, content: string) => {
     const resolved = resolver(rawName);
-    if (!resolved) return match;
+    if (!resolved) return recoverUnknownPair(rawName, content);
     return `${resolved.open}${content}${resolved.close}`;
   });
 
-  if (!options.streaming) return out;
+  // Recovery pass: unwrap any unknown-color OPEN that pass 1 could not
+  // pair with a close (`[c:special]still here`, `[c:special]` at a line
+  // end). Runs in both modes so finalised text is cleaned too; the
+  // streaming flag only gates the still-typing-last-line guard inside.
+  out = recoverOrphanOpens(out, resolver, streaming);
+
+  if (!streaming) return out;
 
   // Pass 2 (streaming only): a trailing open-without-close. The
   // OPEN_TAIL regex's `(?!.*\[\/c\])` lookahead ensures we don't
@@ -282,4 +384,42 @@ export function rewriteColorTags(input: string, resolver: ColorResolver, options
   out = closeDanglingColorsAtLineEnds(out);
 
   return out;
+}
+
+/**
+ * Rewrite color tags in `input`. The result is a new string; `input`
+ * is not mutated.
+ *
+ * `input` is first sliced into Markdown code / prose runs
+ * (`splitCodeSegments`): code runs (fenced blocks, inline spans) are
+ * reproduced verbatim - their `[c:NAME]` are literals the user wants
+ * shown - and only prose runs go through `rewritePlain`. Slicing keeps
+ * a regex match from pairing an open inside code with a close outside
+ * it. The streaming tail applies only to the final run; earlier prose
+ * runs are bounded by a following code run and so are already complete.
+ */
+export function rewriteColorTags(input: string, resolver: ColorResolver, options: RewriteOptions = {}): string {
+  if (input.length === 0) return input;
+
+  const segments = splitCodeSegments(input);
+  const streaming = options.streaming === true;
+
+  // Fast path: no code regions -> one prose run, behaves exactly as the
+  // pre-segmentation rewriter did.
+  if (segments.length === 1 && !segments[0].code) {
+    return rewritePlain(input, resolver, streaming);
+  }
+
+  const lastIdx = segments.length - 1;
+  let result = '';
+  for (let i = 0; i < segments.length; i++) {
+    const seg = segments[i];
+    if (seg.code) {
+      result += seg.text; // verbatim: code is a literal
+      continue;
+    }
+    // Only the final prose run can hold the live, still-typing tail.
+    result += rewritePlain(seg.text, resolver, streaming && i === lastIdx);
+  }
+  return result;
 }

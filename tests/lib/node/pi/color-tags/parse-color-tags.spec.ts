@@ -37,8 +37,17 @@ describe('rewriteColorTags: closed pairs (always)', () => {
     expect(out).toBe(`${OPEN_RED}inner [c:green]x${CLOSE} tail`);
   });
 
-  test('unknown color name leaves the literal tag in place', () => {
-    expect(rewriteColorTags('[c:nope]x[/c]', fakeResolver)).toBe('[c:nope]x[/c]');
+  test('unknown color name is unwrapped to its content (recovery)', () => {
+    // Small models routinely emit a bogus color name. Rather than leave
+    // the broken bracket text visible, unwrap the closed pair to its
+    // content so the prose still reads cleanly.
+    expect(rewriteColorTags('[c:nope]x[/c]', fakeResolver)).toBe('x');
+  });
+
+  test('unknown color name with empty content surfaces the NAME (recovery)', () => {
+    // `[c:special][/c]` - the word the model meant to color sits in the
+    // NAME slot, so surface the name itself.
+    expect(rewriteColorTags('[c:special][/c]', fakeResolver)).toBe('special');
   });
 
   test('runs even without streaming flag', () => {
@@ -181,9 +190,11 @@ describe('rewriteColorTags: streaming-only behaviours', () => {
     expect(rewriteColorTags('hello [/c] world', fakeResolver, { streaming: false })).toBe('hello [/c] world');
   });
 
-  test('open-without-close + unknown name leaves literal tag', () => {
+  test('open-without-close + unknown name is unwrapped to its content (recovery)', () => {
+    // Orphan open with a bogus name and trailing content: drop the
+    // marker, keep the content. Stable under streaming accumulation.
     expect(rewriteColorTags('hello [c:nope]still typing', fakeResolver, { streaming: true })).toBe(
-      'hello [c:nope]still typing',
+      'hello still typing',
     );
   });
 
@@ -263,6 +274,101 @@ describe('rewriteColorTags: streaming-only behaviours', () => {
     // a model bug we surface, not silently patch.
     const src = `first ${OPEN_RED}red line\nsecond line`;
     expect(rewriteColorTags(src, fakeResolver, { streaming: false })).toBe(src);
+  });
+});
+
+describe('rewriteColorTags: unknown-color recovery', () => {
+  test('unknown name wrapping content unwraps to the content', () => {
+    expect(rewriteColorTags('the [c:special]thing[/c] here', fakeResolver, { streaming: true })).toBe('the thing here');
+  });
+
+  test('empty unknown pair surfaces the name', () => {
+    expect(rewriteColorTags('a [c:special][/c] b', fakeResolver, { streaming: true })).toBe('a special b');
+  });
+
+  test('lone open with no close on a completed line surfaces the name', () => {
+    // `[c:special]` at a line end with the line completed (a later line
+    // follows): the model put its word in the NAME slot, so surface it.
+    const src = 'first [c:special]\nsecond line';
+    expect(rewriteColorTags(src, fakeResolver, { streaming: true })).toBe('first special\nsecond line');
+  });
+
+  test('lone open at end of a STILL-TYPING line is left literal (no premature bake)', () => {
+    // On the last (still-typing) line the model may yet type the span
+    // content or its close, so unwrapping to the name would bake it in
+    // and glue it to whatever streams next. Leave it literal for now.
+    expect(rewriteColorTags('still [c:special]', fakeResolver, { streaming: true })).toBe('still [c:special]');
+  });
+
+  test('orphan open with content on a completed line drops the marker, keeps content', () => {
+    const src = 'use [c:special]this word\nnext line';
+    expect(rewriteColorTags(src, fakeResolver, { streaming: true })).toBe('use this word\nnext line');
+  });
+
+  test('a real color with a dropped close is still left literal (recoverable slip, not misuse)', () => {
+    // The unknown-color recovery must NOT swallow a valid color name
+    // that merely lost its `[/c]` - that stays a visible slip the model
+    // can fix, preserving the existing dropped-close contract.
+    const src = 'use [c:red]/l to drop\nThe [c:red]/r[/c] reloads.';
+    expect(rewriteColorTags(src, fakeResolver, { streaming: true })).toBe(
+      `use [c:red]/l to drop\nThe ${OPEN_RED}/r${CLOSE} reloads.`,
+    );
+  });
+
+  test('recovery applies in non-streaming mode too', () => {
+    expect(rewriteColorTags('done [c:special]', fakeResolver, { streaming: false })).toBe('done special');
+    expect(rewriteColorTags('[c:nope]x[/c]', fakeResolver, { streaming: false })).toBe('x');
+  });
+
+  test('partial open mid-name is not recovered (needs a complete [c:NAME])', () => {
+    // A partial open lacks the closing `]`, so the recovery regex never
+    // matches it - the one-frame `[c:re` flash is preserved unchanged.
+    expect(rewriteColorTags('hello [c:spec', fakeResolver, { streaming: true })).toBe('hello [c:spec');
+  });
+
+  test('two unknown opens on one line both unwrap', () => {
+    expect(rewriteColorTags('[c:a]x and [c:b]y\ntail', fakeResolver, { streaming: true })).toBe('x and y\ntail');
+  });
+});
+
+describe('rewriteColorTags: code regions are left literal', () => {
+  test('a closed pair inside inline code is not rewritten', () => {
+    const src = 'use `[c:red]text[/c]` to color';
+    expect(rewriteColorTags(src, fakeResolver, { streaming: true })).toBe(src);
+  });
+
+  test('an unknown-name pair inside inline code is not unwrapped', () => {
+    const src = 'syntax: `[c:special]word[/c]`';
+    expect(rewriteColorTags(src, fakeResolver, { streaming: true })).toBe(src);
+  });
+
+  test('a lone open inside inline code is not surfaced as its name', () => {
+    const src = 'literally `[c:special]` shown';
+    expect(rewriteColorTags(src, fakeResolver, { streaming: true })).toBe(src);
+  });
+
+  test('a literal [/c] inside inline code is not converted to close ANSI', () => {
+    const src = 'the closer is `[/c]` exactly';
+    expect(rewriteColorTags(src, fakeResolver, { streaming: true })).toBe(src);
+  });
+
+  test('tags inside a fenced block are left literal; prose outside still colors', () => {
+    const src = 'intro [c:red]hi[/c]\n```\n[c:red]code[/c] and [c:special]x[/c]\n```\ntail';
+    expect(rewriteColorTags(src, fakeResolver, { streaming: true })).toBe(
+      `intro ${OPEN_RED}hi${CLOSE}\n\`\`\`\n[c:red]code[/c] and [c:special]x[/c]\n\`\`\`\ntail`,
+    );
+  });
+
+  test('a real color outside code still colors when an inline-code literal precedes it', () => {
+    const src = 'show `[c:red]` then [c:red]actual[/c]';
+    expect(rewriteColorTags(src, fakeResolver, { streaming: true })).toBe(
+      `show \`[c:red]\` then ${OPEN_RED}actual${CLOSE}`,
+    );
+  });
+
+  test('trailing open inside an unterminated inline-code span is not colored (streaming)', () => {
+    const src = 'still typing `[c:red]important';
+    expect(rewriteColorTags(src, fakeResolver, { streaming: true })).toBe(src);
   });
 });
 

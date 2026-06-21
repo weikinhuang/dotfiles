@@ -45,6 +45,29 @@ describe('parseEmoteMarkers', () => {
     const md = '[click](https://x.example) and [^1]';
     expect(parseEmoteMarkers(md)).toEqual({ text: md, emotes: [] });
   });
+
+  test('a marker inside an inline code span is left literal and not collected', () => {
+    const src = 'set it with `[emote:happy]` inline';
+    expect(parseEmoteMarkers(src)).toEqual({ text: src, emotes: [] });
+  });
+
+  test('a marker inside a fenced block is left literal; a prose marker still fires', () => {
+    const src = '[emote:happy] see\n```\n[emote:sad] in code\n```\ndone';
+    const out = parseEmoteMarkers(src);
+    expect(out.emotes).toEqual(['happy']);
+    expect(out.text).toBe(' see\n```\n[emote:sad] in code\n```\ndone');
+  });
+
+  test('a prose marker after an inline-code literal still fires', () => {
+    const out = parseEmoteMarkers('show `[emote:sad]` then [emote:happy] now');
+    expect(out.emotes).toEqual(['happy']);
+    expect(out.text).toBe('show `[emote:sad]` then  now');
+  });
+
+  test('a marker in an unterminated inline-code span (mid-stream) stays literal', () => {
+    const src = 'still typing `[emote:happy]';
+    expect(parseEmoteMarkers(src)).toEqual({ text: src, emotes: [] });
+  });
 });
 
 describe('stripEmoteMarkers', () => {
@@ -55,6 +78,11 @@ describe('stripEmoteMarkers', () => {
   test('leaves partial markers and empty input untouched', () => {
     expect(stripEmoteMarkers('a[emote:ha')).toBe('a[emote:ha');
     expect(stripEmoteMarkers('')).toBe('');
+  });
+
+  test('leaves markers inside code regions literal, strips prose markers', () => {
+    expect(stripEmoteMarkers('use `[emote:happy]` here')).toBe('use `[emote:happy]` here');
+    expect(stripEmoteMarkers('```\n[emote:sad]\n```\n[emote:happy] hi')).toBe('```\n[emote:sad]\n```\n hi');
   });
 });
 

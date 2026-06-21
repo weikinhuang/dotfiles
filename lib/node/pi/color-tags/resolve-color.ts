@@ -20,9 +20,10 @@
  * pi's Markdown renderer applied to the surrounding text - we only want
  * to undo the foreground change.
  *
- * Unknown names return `undefined`. The rewriter leaves the literal tag
- * in place on undefined so the failure is visible to the user instead of
- * silently dropped.
+ * Unknown names return `undefined`. The rewriter treats that as a
+ * recovery signal: it unwraps the broken tag (collapsing it to its
+ * content, or to the name itself for an empty/lone open) rather than
+ * leaving the literal bracket text on screen.
  */
 
 /**
@@ -116,8 +117,10 @@ function tryHex(name: string): ResolvedColor | undefined {
 /**
  * Resolve a color name to an SGR `{ open, close }` pair, or `undefined`
  * if the name doesn't match any of the supported shapes. The caller
- * decides what to do with `undefined` - the rewriter leaves the literal
- * tag in place so unknown names are visible instead of silently dropped.
+ * decides what to do with `undefined` - the rewriter unwraps the broken
+ * tag (see `recoverUnknownPair` / `recoverOrphanOpens` in
+ * `parse-color-tags.ts`) so unknown names degrade to plain text instead
+ * of showing literal brackets.
  */
 export function resolveColor(rawName: string): ResolvedColor | undefined {
   const name = rawName.trim();

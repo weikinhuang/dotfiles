@@ -19,12 +19,20 @@
  * Pure module - no pi runtime imports.
  */
 
+import { splitCodeSegments } from '../code-mask.ts';
+
 /**
  * Match a complete `[emote:NAME]` marker. NAME starts with an
  * alphanumeric and may then contain `-`/`_`. Case-insensitive; partial
  * markers (`[emote:ha` mid-stream) deliberately do NOT match, so they
  * stay visible for one frame and get stripped once the stream completes
  * them - same trade-off the color-tags rewriter makes.
+ *
+ * Markers inside a Markdown code fence / inline code span are LITERALS
+ * the user wants shown (docs / examples of this very syntax), so both
+ * {@link parseEmoteMarkers} and {@link stripEmoteMarkers} slice the text
+ * with `splitCodeSegments` and act on prose runs only - mirroring the
+ * `color-tags` rewriter.
  */
 const EMOTE_MARKER = /\[emote:\s*([a-z0-9][a-z0-9_-]*)\]/gi;
 
@@ -44,19 +52,29 @@ export interface ParsedEmotes {
  * `input` is not mutated.
  */
 export function parseEmoteMarkers(input: string): ParsedEmotes {
-  if (input.length === 0) return { text: input, emotes: [] };
+  if (input.length === 0 || !input.includes('[emote:')) return { text: input, emotes: [] };
   const emotes: string[] = [];
-  const text = input.replace(EMOTE_MARKER, (_match, name: string) => {
-    emotes.push(name.toLowerCase());
-    return '';
-  });
+  // Code runs (fenced blocks / inline spans) are reproduced verbatim;
+  // only prose runs have their markers stripped + collected.
+  const text = splitCodeSegments(input)
+    .map((seg) =>
+      seg.code
+        ? seg.text
+        : seg.text.replace(EMOTE_MARKER, (_match, name: string) => {
+            emotes.push(name.toLowerCase());
+            return '';
+          }),
+    )
+    .join('');
   return { text, emotes };
 }
 
 /** Remove every complete `[emote:NAME]` marker from `input`. */
 export function stripEmoteMarkers(input: string): string {
-  if (input.length === 0) return input;
-  return input.replace(EMOTE_MARKER, '');
+  if (input.length === 0 || !input.includes('[emote:')) return input;
+  return splitCodeSegments(input)
+    .map((seg) => (seg.code ? seg.text : seg.text.replace(EMOTE_MARKER, '')))
+    .join('');
 }
 
 /**
