@@ -29,6 +29,8 @@
  *   PI_ROLEPLAY_DISABLE_DEPTH_INJECT=1   skip the context-event depth
  *                                        injection (author's note + depth lore).
  *   PI_ROLEPLAY_DISABLE_SUMMARIZE=1      skip auto-summarization on compaction.
+ *   PI_ROLEPLAY_DISABLE_REPETITION=1     skip the multi-turn repetition / anti-slop nudge.
+ *   PI_ROLEPLAY_DISABLE_EVENTS=1         disable `/roleplay event` scene complications.
  *   PI_ROLEPLAY_DISABLE_AVATAR=1         stop driving the avatar face from the cast.
  *   PI_ROLEPLAY_DISABLE_SCENEGEN=1       stop mirroring generated images to the
  *                                        avatar scene banner.
@@ -86,6 +88,16 @@ import {
   type SummarizableMessage,
   type Summarizer,
 } from '../../../lib/node/pi/roleplay/summarize.ts';
+import {
+  buildEventTask,
+  createEventGenerator,
+  type EventGenerator,
+  formatEventDirector,
+  pickDeckEvent,
+  resolveEventSettings,
+} from '../../../lib/node/pi/roleplay/event.ts';
+import { buildExcludeSet, detectRepetition, formatRepetitionNudge } from '../../../lib/node/pi/roleplay/repetition.ts';
+import { applyContextReminder, type ReminderMessage } from '../../../lib/node/pi/context-reminder.ts';
 import {
   type AgentDef,
   defaultAgentLayers,
@@ -265,6 +277,8 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
   const lorebookEnabled = !envTruthy(process.env.PI_ROLEPLAY_DISABLE_LOREBOOK);
   const depthInjectEnabled = !envTruthy(process.env.PI_ROLEPLAY_DISABLE_DEPTH_INJECT);
   const summarizeEnabled = !envTruthy(process.env.PI_ROLEPLAY_DISABLE_SUMMARIZE);
+  const repetitionEnabled = !envTruthy(process.env.PI_ROLEPLAY_DISABLE_REPETITION);
+  const eventsEnabled = !envTruthy(process.env.PI_ROLEPLAY_DISABLE_EVENTS);
   const avatarDriveEnabled = !envTruthy(process.env.PI_ROLEPLAY_DISABLE_AVATAR);
   const sceneGenEnabled = !envTruthy(process.env.PI_ROLEPLAY_DISABLE_SCENEGEN);
   const envCharBudget = parseClampedPositiveInt(process.env.PI_ROLEPLAY_MAX_INJECTED_CHARS, 0, 1) || undefined;
@@ -284,6 +298,14 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
   /** Unsubscribe handle for the comfyui image-generated bus (cleared on shutdown). */
   let unsubscribeImageEvents: (() => void) | null = null;
   const surfacedWarnings = new Set<string>();
+  /** Queued one-shot scene complication from `/roleplay event`; injected for the next reply only. */
+  let pendingEvent: string | null = null;
+  /** Set once `pendingEvent` has been injected; the next turn boundary clears the event. */
+  let eventConsumed = false;
+  /** Most-recent `context` message array, captured so `/roleplay event` can read the scene. */
+  let lastMessages: readonly unknown[] = [];
+  /** Memoized character-sheet n-gram exclusion set for repetition detection; rebuilt on state change. */
+  let excludeCache: { cast: string; ngram: number; set: Set<string> } | null = null;
 
   /**
    * The active roleplay cast, or `null` when the feature is dormant.
@@ -343,6 +365,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
     // A cast switch resets lorebook timing (sticky windows / cooldowns / turn count).
     turnCount = 0;
     timingState = {};
+    excludeCache = null;
     if (cast === null) {
       state = emptyState();
       syncedCast = null;
@@ -539,6 +562,13 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
       return undefined;
     }
 
+    // Consume-once boundary: an event injected during the previous turn's
+    // `context` calls is cleared here so it colors exactly one reply.
+    if (eventsEnabled && eventConsumed) {
+      pendingEvent = null;
+      eventConsumed = false;
+    }
+
     if (!autoInjectEnabled) return undefined;
     turnCount += 1;
     const scene = buildSceneBlock(ctx);
@@ -582,23 +612,118 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
     return kept.map((c) => ({ name: c.entry.name, body: c.body, depth: c.entry.lore?.depth ?? 0 }));
   };
 
-  if (depthInjectEnabled) {
+  /** The most-recent assistant replies (text only), last `window` of them, for repetition scanning. */
+  const collectAssistantTexts = (messages: readonly unknown[], window: number): string[] => {
+    const texts: string[] = [];
+    for (const m of messages) {
+      if ((m as { role?: unknown }).role !== 'assistant') continue;
+      const content = (m as { content?: unknown }).content;
+      if (typeof content === 'string') {
+        if (content.trim().length > 0) texts.push(content);
+      } else if (Array.isArray(content)) {
+        const parts: string[] = [];
+        for (const part of content) {
+          if (part && typeof part === 'object' && (part as { type?: unknown }).type === 'text') {
+            const text = (part as { text?: unknown }).text;
+            if (typeof text === 'string') parts.push(text);
+          }
+        }
+        if (parts.length > 0) texts.push(parts.join('\n'));
+      }
+    }
+    return texts.slice(-Math.max(1, window));
+  };
+
+  /** N-gram exclusion set built from the cast's character bodies (signature phrases are never flagged). */
+  const sheetExcludeSet = (ngram: number): Set<string> => {
+    if (excludeCache && excludeCache.cast === state.cast && excludeCache.ngram === ngram) return excludeCache.set;
+    const bodies: string[] = [];
+    for (const e of state.entries) {
+      if (e.kind !== 'character') continue;
+      const body = readEntryBody(state.cast, e);
+      if (body) bodies.push(body);
+    }
+    const set = buildExcludeSet(bodies, ngram);
+    excludeCache = { cast: state.cast, ngram, set };
+    return set;
+  };
+
+  /** Repetition / anti-slop nudge body for the current scene, or `null` when nothing repeats. */
+  const buildRepetitionNudge = (messages: readonly unknown[]): string | null => {
+    const cfg = loadRoleplayConfig(cwd, envCharBudget);
+    if (!cfg.repetitionEnabled) return null;
+    const texts = collectAssistantTexts(messages, cfg.repetitionWindow);
+    if (texts.length === 0) return null;
+    const phrases = detectRepetition(texts, sheetExcludeSet(cfg.repetitionNgram), {
+      ngram: cfg.repetitionNgram,
+      window: cfg.repetitionWindow,
+      minCount: cfg.repetitionMinCount,
+    });
+    return formatRepetitionNudge(phrases);
+  };
+
+  /** One-line cast descriptors for the event generator. */
+  const characterSummaries = (): string[] =>
+    state.entries.filter((e) => e.kind === 'character').map((e) => `${e.name}: ${e.description}`);
+
+  /** All dangling relationship threads across the cast, for event seeding. */
+  const openThreadsForCast = (): string[] => {
+    const threads: string[] = [];
+    for (const e of state.entries) {
+      if (e.kind === 'relationship' && e.relationship) threads.push(...e.relationship.openThreads);
+    }
+    return threads;
+  };
+
+  if (depthInjectEnabled || repetitionEnabled || eventsEnabled) {
     pi.on('context', (event) => {
       if (activeCast() === null) return undefined;
-      const persona = getActivePersona();
-      const scanDepth = loadRoleplayConfig(cwd, envCharBudget).scanDepth;
-      const insertions = buildInsertions({
-        authorNote: persona?.authorNote ? substituteMacros(persona.authorNote, macroCtx()) : undefined,
-        authorNoteDepth: persona?.authorNoteDepth,
-        lore: buildDepthLore(recentText(event.messages, scanDepth)),
-      });
-      if (insertions.length === 0) return undefined;
-      const messages = applyInsertions(event.messages, insertions, (text) => ({
-        role: 'user' as const,
-        content: text,
-        timestamp: Date.now(),
-      }));
-      return { messages };
+      // Capture the live scene so the `/roleplay event` command (which runs
+      // between turns, without message access) can read recent context.
+      lastMessages = event.messages;
+
+      let messages = event.messages;
+      let changed = false;
+
+      // Depth injection (author's note + depth-tagged lore) splices content
+      // at depth; reminders below append ephemerally to the trailing message.
+      if (depthInjectEnabled) {
+        const persona = getActivePersona();
+        const scanDepth = loadRoleplayConfig(cwd, envCharBudget).scanDepth;
+        const insertions = buildInsertions({
+          authorNote: persona?.authorNote ? substituteMacros(persona.authorNote, macroCtx()) : undefined,
+          authorNoteDepth: persona?.authorNoteDepth,
+          lore: buildDepthLore(recentText(event.messages, scanDepth)),
+        });
+        if (insertions.length > 0) {
+          messages = applyInsertions(messages, insertions, (text) => ({
+            role: 'user' as const,
+            content: text,
+            timestamp: Date.now(),
+          }));
+          changed = true;
+        }
+      }
+
+      // Ephemeral, cache-friendly reminders: the repetition nudge and the
+      // queued scene event, each under a stable id so re-applying is a
+      // fixpoint and stale blocks are stripped when they no longer fire.
+      const reminders: { id: string; body: string | null }[] = [];
+      if (repetitionEnabled) reminders.push({ id: 'roleplay-repetition', body: buildRepetitionNudge(messages) });
+      if (eventsEnabled) {
+        reminders.push({ id: 'roleplay-event', body: pendingEvent ? formatEventDirector(pendingEvent) : null });
+        if (pendingEvent) eventConsumed = true;
+      }
+      if (reminders.length > 0) {
+        let rm = messages as unknown as ReminderMessage[];
+        for (const spec of reminders) rm = applyContextReminder(rm, spec);
+        if (reminders.some((r) => r.body)) {
+          messages = rm as unknown as typeof event.messages;
+          changed = true;
+        }
+      }
+
+      return changed ? { messages } : undefined;
     });
   }
 
@@ -742,6 +867,85 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
     });
   }
 
+  // ── Scene events (/roleplay event) ──────────────────────────────────
+  //
+  // `/roleplay event [hint]` queues a one-shot complication, generated by
+  // the `roleplay-event` agent (default; always when a hint is given) and
+  // falling back to the user's `events` deck. The generator mirrors the
+  // summarizer wiring but, unlike it, stays enabled without an explicit
+  // model (it inherits the parent session model) - only a missing agent
+  // disables it.
+  let eventGen: EventGenerator<Model<any>> | null = null;
+  let eventGenInit = false;
+
+  const eventSessionManager = (ctx: ExtensionContext, childCwd: string): SessionManager => {
+    try {
+      return createPersistedSubagentSessionManager<SessionManager>({
+        parentSessionManager: ctx.sessionManager,
+        extensionLabel: 'roleplay-event',
+        cwd: childCwd,
+        SessionManager,
+      });
+    } catch {
+      return SessionManager.inMemory(childCwd);
+    }
+  };
+
+  const getEventGenerator = (ctx: ExtensionContext): EventGenerator<Model<any>> | null => {
+    if (eventGenInit) return eventGen;
+    eventGenInit = true;
+    try {
+      const settings = resolveEventSettings({ cwd });
+      let agent: AgentDef | null = null;
+      try {
+        const layers = defaultAgentLayers({ extensionDir: extDir, cwd });
+        const load = loadAgents({
+          layers,
+          knownToolNames: new Set(pi.getAllTools().map((t) => t.name)),
+          fs: readLayer,
+          parseFrontmatter,
+        });
+        agent = load.agents.get('roleplay-event') ?? null;
+      } catch {
+        agent = null;
+      }
+      eventGen = createEventGenerator<Model<any>>({
+        settings,
+        eventAgent: agent,
+        maxOutputChars: loadRoleplayConfig(cwd, envCharBudget).eventMaxChars,
+        runOneShot: async (args) => {
+          const result = await runOneShotAgent({
+            deps: { createAgentSession: piCreateAgentSession, DefaultResourceLoader, SessionManager, getAgentDir },
+            cwd: args.cwd,
+            agent: args.agent,
+            model: args.model,
+            task: args.task,
+            modelRegistry: args.modelRegistry,
+            agentDir: getAgentDir(),
+            sessionManager: eventSessionManager(ctx, args.cwd),
+            ...(args.signal ? { signal: args.signal } : {}),
+            ...(args.timeoutMs !== undefined ? { timeoutMs: args.timeoutMs } : {}),
+          });
+          return {
+            finalText: result.finalText,
+            stopReason: result.stopReason,
+            ...(result.errorMessage !== undefined ? { errorMessage: result.errorMessage } : {}),
+          };
+        },
+        log: (level, message) => {
+          try {
+            ctx.ui.notify(`roleplay event: ${message}`, level === 'warn' ? 'warning' : 'info');
+          } catch {
+            /* notify is best-effort */
+          }
+        },
+      });
+    } catch {
+      eventGen = null;
+    }
+    return eventGen;
+  };
+
   // Mirror generated scene images into the avatar's `scene` banner. comfyui
   // EMITS on the neutral image bus when any `generate_image` render lands on
   // disk; we CONSUME it here (comfyui knows nothing about roleplay or the
@@ -774,6 +978,9 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
     state = emptyState();
     castOverride = null;
     syncedCast = null;
+    pendingEvent = null;
+    eventConsumed = false;
+    excludeCache = null;
   });
 
   // ── Actions ─────────────────────────────────────────────────────────
@@ -816,6 +1023,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
 
   const persist = (): void => {
     writeIndex(state);
+    excludeCache = null;
   };
 
   const actSave = (params: RoleplayParamsT): ActionOut => {
@@ -1028,6 +1236,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
     }
     state = { cast: state.cast, entries };
     writeIndex(state);
+    excludeCache = null;
 
     const lines = [
       `Imported "${plan.characterName}" into cast "${state.cast}": ${plan.records.length} record(s).`,
@@ -1138,6 +1347,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
         list: { description: 'List the active cast' },
         cast: { description: 'Switch / set the active cast', args: () => listCasts().map((c) => ({ label: c })) },
         import: { description: 'Import a SillyTavern card (.json/.png) into the active cast' },
+        event: { description: 'Queue a one-shot scene complication (LLM-generated, or from the deck)' },
         dir: { description: 'Print the roleplay store dir' },
         rescan: { description: 'Rescan the active cast from disk' },
         casts: { description: 'List every cast on disk' },
@@ -1192,6 +1402,46 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
           return;
         }
         ctx.ui.notify(result.summary, 'info');
+        return;
+      }
+      if (verb === 'event') {
+        if (dormant) {
+          ctx.ui.notify(dormantNote, 'warning');
+          return;
+        }
+        if (!eventsEnabled) {
+          ctx.ui.notify('Roleplay events are disabled (PI_ROLEPLAY_DISABLE_EVENTS).', 'warning');
+          return;
+        }
+        resyncIfChanged(ctx);
+        const cfg = loadRoleplayConfig(cwd, envCharBudget);
+        const hint = rest.join(' ').trim();
+        let queued: string | null = null;
+        const gen = getEventGenerator(ctx);
+        if (gen?.isEnabled()) {
+          const task = buildEventTask({
+            recentScene: recentText(lastMessages, cfg.scanDepth),
+            sheets: characterSummaries(),
+            openThreads: openThreadsForCast(),
+            ...(hint ? { hint } : {}),
+            seedThreads: cfg.eventSeedThreads,
+          });
+          queued = await gen.generate({ cwd, model: ctx.model, modelRegistry: ctx.modelRegistry as never }, task);
+        }
+        if (queued === null) {
+          const deckPick = pickDeckEvent(cfg.events);
+          if (deckPick !== undefined) queued = deckPick;
+        }
+        if (queued === null) {
+          ctx.ui.notify(
+            'roleplay event: no event available (no event model/agent resolved and the `events` deck is empty).',
+            'warning',
+          );
+          return;
+        }
+        pendingEvent = queued;
+        eventConsumed = false;
+        ctx.ui.notify(`Queued scene event for your next reply:\n${queued}`, 'info');
         return;
       }
       if (verb === 'dir') {

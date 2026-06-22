@@ -11,8 +11,13 @@ import {
   DEFAULT_CONFIG,
   loadRoleplayConfig,
   mergeConfigLayers,
+  MAX_REPETITION_NGRAM,
+  MAX_REPETITION_WINDOW,
   MAX_SCAN_DEPTH,
   MIN_CHAR_BUDGET,
+  MIN_EVENT_CHARS,
+  MIN_REPETITION_COUNT,
+  MIN_REPETITION_NGRAM,
   MIN_SUMMARY_CHARS,
 } from '../../../../../lib/node/pi/roleplay/config.ts';
 
@@ -63,6 +68,30 @@ test('coerceConfigLayer accepts summarize knobs and clamps them', () => {
   expect(coerceConfigLayer({ summarizeMaxChars: 3000 })).toEqual({ summarizeMaxChars: 3000 });
   expect(coerceConfigLayer({ summarizeMaxChars: 10 })).toEqual({ summarizeMaxChars: MIN_SUMMARY_CHARS });
   expect(coerceConfigLayer({ summarizeMinMessages: 'x', summarizeMaxChars: Number.NaN })).toEqual({});
+});
+
+test('coerceConfigLayer accepts repetition knobs and clamps them', () => {
+  expect(coerceConfigLayer({ repetitionEnabled: false })).toEqual({ repetitionEnabled: false });
+  expect(coerceConfigLayer({ repetitionNgram: 4 })).toEqual({ repetitionNgram: 4 });
+  expect(coerceConfigLayer({ repetitionNgram: 1 })).toEqual({ repetitionNgram: MIN_REPETITION_NGRAM });
+  expect(coerceConfigLayer({ repetitionNgram: 999 })).toEqual({ repetitionNgram: MAX_REPETITION_NGRAM });
+  expect(coerceConfigLayer({ repetitionWindow: 8 })).toEqual({ repetitionWindow: 8 });
+  expect(coerceConfigLayer({ repetitionWindow: 0 })).toEqual({ repetitionWindow: 1 });
+  expect(coerceConfigLayer({ repetitionWindow: 9999 })).toEqual({ repetitionWindow: MAX_REPETITION_WINDOW });
+  expect(coerceConfigLayer({ repetitionMinCount: 3 })).toEqual({ repetitionMinCount: 3 });
+  expect(coerceConfigLayer({ repetitionMinCount: 1 })).toEqual({ repetitionMinCount: MIN_REPETITION_COUNT });
+  expect(coerceConfigLayer({ repetitionEnabled: 'x', repetitionNgram: Number.NaN })).toEqual({});
+});
+
+test('coerceConfigLayer accepts event knobs and clamps them', () => {
+  expect(coerceConfigLayer({ events: ['a storm', '  ', 'a courier', 7] })).toEqual({
+    events: ['a storm', 'a courier'],
+  });
+  expect(coerceConfigLayer({ events: 'nope' })).toEqual({});
+  expect(coerceConfigLayer({ eventMaxChars: 300 })).toEqual({ eventMaxChars: 300 });
+  expect(coerceConfigLayer({ eventMaxChars: 5 })).toEqual({ eventMaxChars: MIN_EVENT_CHARS });
+  expect(coerceConfigLayer({ eventSeedThreads: false })).toEqual({ eventSeedThreads: false });
+  expect(coerceConfigLayer({ eventSeedThreads: 'x', eventMaxChars: Number.NaN })).toEqual({});
 });
 
 test('mergeConfigLayers applies later layers on top of defaults', () => {
