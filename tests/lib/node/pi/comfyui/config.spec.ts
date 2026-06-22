@@ -183,6 +183,14 @@ describe('coerceConfigLayer', () => {
     expect(out.enhanceGuidanceFile).toBeUndefined();
   });
 
+  test('parses and rounds previewMaxDimension; drops non-positive', () => {
+    expect(coerceConfigLayer({ previewMaxDimension: 1024 }).previewMaxDimension).toBe(1024);
+    expect(coerceConfigLayer({ previewMaxDimension: 1023.6 }).previewMaxDimension).toBe(1024);
+    expect(coerceConfigLayer({ previewMaxDimension: 0 }).previewMaxDimension).toBeUndefined();
+    expect(coerceConfigLayer({ previewMaxDimension: -512 }).previewMaxDimension).toBeUndefined();
+    expect(coerceConfigLayer({ previewMaxDimension: 'big' }).previewMaxDimension).toBeUndefined();
+  });
+
   test('drops empty / wrong-typed metadata fields', () => {
     const out = coerceConfigLayer({
       workflows: {

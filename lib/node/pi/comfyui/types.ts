@@ -165,6 +165,15 @@ export interface ComfyuiConfig {
    * like a workflow `file` (`~` / absolute / relative-to-cwd).
    */
   enhanceGuidanceFile?: string;
+  /**
+   * Optional cap (px) on the longer side of the image COPY fed back to the
+   * model. The file written to {@link saveDir} is always full resolution;
+   * only the inline tool-result block is downscaled, since image token
+   * cost scales with pixel dimensions. Absent / `0` = send full-res. A
+   * per-call `previewMaxDimension` arg overrides it; only still raster
+   * images are resized (animated / non-image outputs pass through).
+   */
+  previewMaxDimension?: number;
   /** Named workflows keyed by the name the model passes to the tool. */
   workflows: Record<string, WorkflowConfig>;
 }

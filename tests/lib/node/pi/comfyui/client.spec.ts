@@ -8,7 +8,7 @@
  * branches, and the disk write.
  */
 
-import { mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -158,15 +158,24 @@ describe('readSavedImages', () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  test('rebuilds inline blocks from on-disk files and skips missing paths', () => {
+  test('rebuilds inline blocks from on-disk files and skips missing paths', async () => {
     const a = join(dir, 'comfyui-a.png');
     const b = join(dir, 'comfyui-b.png');
     writeFileSync(a, Buffer.from([255, 0]));
-    const saved = readSavedImages([a, b, join(dir, 'gone.png')]);
+    const saved = await readSavedImages([a, b, join(dir, 'gone.png')]);
     expect(saved).toHaveLength(1);
     expect(saved[0].savedPath).toBe(a);
     expect(saved[0].block.mimeType).toBe('image/png');
     expect(saved[0].block.data).toBe(Buffer.from([255, 0]).toString('base64'));
+  });
+
+  test('applies the block transform to the re-served copy, leaving the file untouched', async () => {
+    const a = join(dir, 'comfyui-a.png');
+    writeFileSync(a, Buffer.from([1, 2, 3, 4]));
+    const saved = await readSavedImages([a], (bytes) => bytes.subarray(0, 2));
+    expect(saved).toHaveLength(1);
+    expect(saved[0].block.data).toBe(Buffer.from([1, 2]).toString('base64'));
+    expect(readFileSync(a)).toEqual(Buffer.from([1, 2, 3, 4]));
   });
 });
 

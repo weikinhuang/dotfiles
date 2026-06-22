@@ -87,6 +87,7 @@ import {
   fetchHistory,
   fetchObjectInfo,
   fetchQueue,
+  type ImageBlockTransform,
   openProgressSocket,
   pingServer,
   readSavedImages,
@@ -94,6 +95,8 @@ import {
   submitPrompt,
   waitForImages,
 } from '../../../lib/node/pi/comfyui/client.ts';
+import { isResizableMime, planDownscale } from '../../../lib/node/pi/comfyui/preview.ts';
+import type SharpFactory from 'sharp';
 import { loadWorkflowGraph, validateMapping } from '../../../lib/node/pi/comfyui/workflow.ts';
 import {
   addJob,
@@ -195,6 +198,47 @@ const extDir = dirname(fileURLToPath(import.meta.url));
 const piCreateAgentSession = adaptCreateAgentSession<Model<any>, SessionManager, ModelRegistry, ResourceLoader>(
   createAgentSession,
 );
+
+// Lazy, cached `sharp` import. Native, so it loads from the extension
+// shell (never pure `lib/`) and only when a downscale is actually
+// requested. A load failure (unsupported arch / missing install) is
+// swallowed by the transform below so a render never breaks over a
+// preview resize.
+interface SharpModule {
+  default: typeof SharpFactory;
+}
+let sharpModule: Promise<SharpModule> | null = null;
+function loadSharp(): Promise<SharpModule> {
+  return (sharpModule ??= import('sharp'));
+}
+
+/**
+ * Build an {@link ImageBlockTransform} that downscales the model-facing
+ * image copy so its longer side is at most `maxDim` px (token economy).
+ * Only still raster images are resized; the decode/encode is `sharp` and
+ * every failure path returns the original bytes, so the on-disk full-res
+ * file and the render itself are never at risk.
+ */
+function makeDownscaler(maxDim: number): ImageBlockTransform {
+  return async (bytes, mimeType) => {
+    if (!isResizableMime(mimeType)) return bytes;
+    try {
+      const sharp = (await loadSharp()).default;
+      const img = sharp(bytes, { failOn: 'none' });
+      const meta = await img.metadata();
+      const plan = planDownscale(meta.width ?? 0, meta.height ?? 0, maxDim);
+      if (!plan) return bytes;
+      return await img.resize(plan.width, plan.height, { fit: 'inside' }).toBuffer();
+    } catch {
+      return bytes;
+    }
+  };
+}
+
+/** Transform for the configured/per-call preview cap, or undefined when off. */
+function previewTransformFor(maxDim: number | undefined): ImageBlockTransform | undefined {
+  return maxDim !== undefined && maxDim > 0 ? makeDownscaler(maxDim) : undefined;
+}
 
 // Hard cap on the best-effort `image_jobs cancel` round-trip (interrupt /
 // dequeue). Cancellation should be near-instant, so it gets a tighter
@@ -467,7 +511,12 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
   // One poll of a job's `/history`: returns `done` with fetched+saved
   // images, `failed` (execution error or a prompt the server has dropped),
   // or `running`. Pure of registry mutation - the caller applies the patch.
-  const pollJobOnce = async (job: ImageJob, conn: Conn, signal: AbortSignal): Promise<CollectOutcome> => {
+  const pollJobOnce = async (
+    job: ImageJob,
+    conn: Conn,
+    signal: AbortSignal,
+    transform?: ImageBlockTransform,
+  ): Promise<CollectOutcome> => {
     const history = await fetchHistory(conn, job.promptId, signal);
     const refs = extractOutputImages(history, job.promptId);
     if (refs.length === 0) {
@@ -488,7 +537,7 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
       }
       return { kind: 'running' };
     }
-    const saved = await fetchAndSave(conn, refs, job.saveDir, signal);
+    const saved = await fetchAndSave(conn, refs, job.saveDir, signal, transform);
     return { kind: 'done', saved };
   };
 
@@ -755,6 +804,11 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
           'Background to honor during enhancement (scene, continuity, character facts) without depicting it literally. Only used when enhance is on; ignored otherwise.',
       }),
     ),
+    previewMaxDimension: Type.Optional(
+      Type.Number({
+        description: `Downscale the copy returned to you so its longer side is at most this many px (the saved file stays full-res), to save image tokens. Overrides the config default${registrationConfig.previewMaxDimension ? ` (${registrationConfig.previewMaxDimension})` : ''}.`,
+      }),
+    ),
   });
 
   pi.registerTool({
@@ -1007,7 +1061,13 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
         socket = openProgressSocket(conn, clientId, promptId, onUpdate ? report : undefined, runSignal, waker);
         const refs = await waitForImages(conn, promptId, runSignal, waker);
 
-        const saved = await fetchAndSave(conn, refs, saveDir, runSignal);
+        // Downscale the model-facing copy (token economy), but never an
+        // ephemeral render: its block is collapsed out of model context,
+        // so shrinking it only degrades the one-time TUI view for no gain.
+        const previewTransform = ephemeral
+          ? undefined
+          : previewTransformFor(params.previewMaxDimension ?? config.previewMaxDimension);
+        const saved = await fetchAndSave(conn, refs, saveDir, runSignal, previewTransform);
         for (const s of saved) details.savedPaths.push(s.savedPath);
         emitImageGenerated({
           savedPaths: details.savedPaths,
@@ -1163,6 +1223,12 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
     const job = findJob(registry, id);
     if (!job) return jobsError('collect', `job [${id}] not found`);
 
+    // A collected background job is re-served to the model, so it gets the
+    // same token-economy downscale as a foreground render (config-only -
+    // collect takes no per-call preview arg, and is never ephemeral).
+    const config = loadConfig(ctx.cwd);
+    const previewTransform = previewTransformFor(config.previewMaxDimension);
+
     if (job.status === 'cancelled') {
       return {
         content: [{ type: 'text', text: `[${id}] was cancelled.` }],
@@ -1190,7 +1256,7 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
       const idNote = existing ? ` (${existing.id})` : '';
       const baseText = `[${id}]${idNote} already downloaded: ${countNote} in ${job.saveDir}.`;
       if (decision.send) {
-        const blocks = readSavedImages(job.savedPaths);
+        const blocks = await readSavedImages(job.savedPaths, previewTransform);
         if (blocks.length > 0) {
           return { content: [{ type: 'text', text: baseText }, ...blocks.map((b) => b.block)], details };
         }
@@ -1210,7 +1276,6 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
 
     // Poll `/history` once. If outputs are ready, fetch + save and hand
     // them back; otherwise report and let the model re-poll.
-    const config = loadConfig(ctx.cwd);
     const conn: Conn = {
       base: resolveBaseUrl(config),
       headers: resolveAuthHeaders(config),
@@ -1221,7 +1286,7 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
     if (signal) signal.addEventListener('abort', () => ac.abort(), { once: true });
     inFlight.add(id);
     try {
-      const outcome = await pollJobOnce(job, conn, ac.signal);
+      const outcome = await pollJobOnce(job, conn, ac.signal, previewTransform);
       if (outcome.kind === 'failed') {
         registry = updateJob(registry, id, { status: 'error', error: outcome.reason, endedAt: Date.now() });
         updateStatusline();

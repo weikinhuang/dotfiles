@@ -230,6 +230,9 @@ export function coerceConfigLayer(raw: unknown): Partial<ComfyuiConfig> {
   if (enhanceGuidanceFile !== undefined && enhanceGuidanceFile.length > 0)
     out.enhanceGuidanceFile = enhanceGuidanceFile;
 
+  const previewMaxDimension = asPositiveNumber(raw.previewMaxDimension);
+  if (previewMaxDimension !== undefined) out.previewMaxDimension = Math.round(previewMaxDimension);
+
   const defaults = asGenerationDefaults(raw.defaults);
   if (defaults !== undefined) out.defaults = defaults;
 
@@ -267,6 +270,7 @@ export function mergeConfigLayers(...overrides: Partial<ComfyuiConfig>[]): Comfy
     if (layer.enhance !== undefined) result.enhance = layer.enhance;
     if (layer.enhanceModel !== undefined) result.enhanceModel = layer.enhanceModel;
     if (layer.enhanceGuidanceFile !== undefined) result.enhanceGuidanceFile = layer.enhanceGuidanceFile;
+    if (layer.previewMaxDimension !== undefined) result.previewMaxDimension = layer.previewMaxDimension;
     if (layer.defaults !== undefined) result.defaults = { ...result.defaults, ...layer.defaults };
     if (layer.authHeader !== undefined) result.authHeader = { ...layer.authHeader };
     if (layer.workflows !== undefined) result.workflows = { ...result.workflows, ...layer.workflows };

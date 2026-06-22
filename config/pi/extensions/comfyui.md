@@ -38,27 +38,28 @@ tool result so the model can self-correct.
 
 ## Tool: `generate_image`
 
-| Parameter     | Type    | Notes                                                                                              |
-| ------------- | ------- | -------------------------------------------------------------------------------------------------- |
-| `prompt`      | string  | Positive prompt. Required unless `variationOf` supplies one to reuse.                              |
-| `negative`    | string  | Negative prompt.                                                                                   |
-| `variationOf` | string  | Reuse a prior generation id (`g3`) as a baseline (workflow / prompt / seed / dims), then override. |
-| `refine`      | string  | Refine a prior generation id (`g3`): feed its image into an edit `workflow`; omit `inputImages`.   |
-| `workflow`    | string  | Named workflow; defaults to `defaultWorkflow`.                                                     |
-| `width`       | number  | Output width in pixels.                                                                            |
-| `height`      | number  | Output height in pixels.                                                                           |
-| `aspect`      | string  | Aspect preset (`16:9`, `portrait`, `square`, …) expanded to width/height. Explicit dims win.       |
-| `steps`       | number  | Sampler steps.                                                                                     |
-| `cfg`         | number  | CFG / guidance scale.                                                                              |
-| `seed`        | number  | Omit for a fresh random seed; pass a prior seed to reproduce.                                      |
-| `denoise`     | number  | Denoise strength (img2img), `0`-`1`.                                                               |
-| `inputImages` | array   | Ordered reference image paths for img2img / edit workflows, e.g. `["~/in.png"]`.                   |
-| `count`       | number  | Batch size.                                                                                        |
-| `sendToModel` | boolean | Override the `sendToModel` config default for this call.                                           |
-| `ephemeral`   | boolean | Show the image inline this turn, then collapse the call + image out of context. See below.         |
-| `background`  | boolean | Submit and return now; collect later via `image_jobs`. Overrides the `background` config default.  |
-| `enhance`     | boolean | Refine prompt + negative into the workflow's protocol via a subagent first. See below.             |
-| `context`     | string  | Background to honor during enhancement (not depicted literally). Only used when `enhance` is on.   |
+| Parameter             | Type    | Notes                                                                                              |
+| --------------------- | ------- | -------------------------------------------------------------------------------------------------- |
+| `prompt`              | string  | Positive prompt. Required unless `variationOf` supplies one to reuse.                              |
+| `negative`            | string  | Negative prompt.                                                                                   |
+| `variationOf`         | string  | Reuse a prior generation id (`g3`) as a baseline (workflow / prompt / seed / dims), then override. |
+| `refine`              | string  | Refine a prior generation id (`g3`): feed its image into an edit `workflow`; omit `inputImages`.   |
+| `workflow`            | string  | Named workflow; defaults to `defaultWorkflow`.                                                     |
+| `width`               | number  | Output width in pixels.                                                                            |
+| `height`              | number  | Output height in pixels.                                                                           |
+| `aspect`              | string  | Aspect preset (`16:9`, `portrait`, `square`, …) expanded to width/height. Explicit dims win.       |
+| `steps`               | number  | Sampler steps.                                                                                     |
+| `cfg`                 | number  | CFG / guidance scale.                                                                              |
+| `seed`                | number  | Omit for a fresh random seed; pass a prior seed to reproduce.                                      |
+| `denoise`             | number  | Denoise strength (img2img), `0`-`1`.                                                               |
+| `inputImages`         | array   | Ordered reference image paths for img2img / edit workflows, e.g. `["~/in.png"]`.                   |
+| `count`               | number  | Batch size.                                                                                        |
+| `sendToModel`         | boolean | Override the `sendToModel` config default for this call.                                           |
+| `ephemeral`           | boolean | Show the image inline this turn, then collapse the call + image out of context. See below.         |
+| `background`          | boolean | Submit and return now; collect later via `image_jobs`. Overrides the `background` config default.  |
+| `enhance`             | boolean | Refine prompt + negative into the workflow's protocol via a subagent first. See below.             |
+| `context`             | string  | Background to honor during enhancement (not depicted literally). Only used when `enhance` is on.   |
+| `previewMaxDimension` | number  | Downscale the copy returned to you to this longer-side px cap (file stays full-res). See below.    |
 
 Each parameter is injected only if the active workflow's input map names a node for it. Passing an arg the workflow does
 not map (or passing `inputImages` to a workflow with no image slots) returns a clear error rather than a silent no-op.
@@ -96,6 +97,22 @@ graph.
   unparseable output silently falls back to the original prompt + baseline negative. Set `PI_COMFYUI_DISABLE_ENHANCE` to
   hard-disable it. When the prompt was enhanced, the result echoes the enhanced positive so the model can reuse it via
   `variationOf`; the registry records the enhanced prompt (what was actually rendered).
+
+### Image token economy (`previewMaxDimension`)
+
+Image token cost scales with pixel dimensions, so a large render can dominate a turn's context. When
+`previewMaxDimension` is set (per-call arg or config), the copy returned to the model is downscaled so its longer side
+is at most that many pixels, preserving aspect ratio; the file written to `saveDir` is always full resolution. Setting
+it re-encodes the same pixels at a smaller size (re-encoding format alone would not change the token cost).
+
+- Only still raster images (PNG / JPEG / WebP) are resized; animated GIFs and non-image outputs (audio, video) pass
+  through untouched.
+- The resize uses `sharp`. If `sharp` fails to load or errors, the full-resolution copy is sent instead - it never
+  blocks a render.
+- Ephemeral renders are never downscaled: their block is collapsed out of the model's context anyway, so shrinking it
+  would only degrade the one-time terminal preview.
+- Collected background jobs are downscaled on the way back to the model too, using the config value (collect takes no
+  per-call preview arg).
 
 ## Background generation
 
@@ -206,6 +223,7 @@ into one of the config files to opt in; see [`../comfyui-example.json`](../comfy
 | `enhance`             | `false`                  | Run the prompt-enhancer subagent by default. Per-call `enhance` arg overrides; `PI_COMFYUI_DISABLE_ENHANCE` kills it.   |
 | `enhanceModel`        | (inherit)                | `provider/model-id` for the enhancer subagent. Absent = inherit the active session model.                               |
 | `enhanceGuidanceFile` | (none)                   | Path to a global prompt-enhancer guidance doc, prepended before any per-workflow `guidanceFile`. `~` / abs / rel-cwd.   |
+| `previewMaxDimension` | (none)                   | Cap (px) on the longer side of the model-facing image copy; the saved file stays full-res. Absent / `0` = full-res.     |
 | `defaults`            | (none)                   | Generation-param defaults pre-filled when a call omits them; merge by field. See below.                                 |
 | `workflows`           | `{ txt2img: <shipped> }` | Named workflows; merge by name across layers.                                                                           |
 

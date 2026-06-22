@@ -51,6 +51,26 @@ export interface SavedImage {
   block: { type: 'image'; data: string; mimeType: string };
 }
 
+/**
+ * Optional post-processing of an output image's bytes before they become
+ * the inline model block (used by the token-economy downscale). Receives
+ * the full-resolution bytes + the block's MIME type and returns the bytes
+ * to base64-encode; the on-disk file is written from the ORIGINAL bytes
+ * regardless. The decode/resize is native (`sharp`), so the concrete
+ * transform is supplied by the extension shell; the default is identity.
+ */
+export type ImageBlockTransform = (bytes: Buffer, mimeType: string) => Promise<Buffer> | Buffer;
+
+async function buildImageBlock(
+  bytes: Buffer,
+  name: string,
+  transform?: ImageBlockTransform,
+): Promise<SavedImage['block']> {
+  const mimeType = mimeFromName(name);
+  const encoded = transform ? await transform(bytes, mimeType) : bytes;
+  return { type: 'image', data: encoded.toString('base64'), mimeType };
+}
+
 /** Subset of `generate_image` params the prepare/submit helpers read. */
 export interface GenParams {
   prompt: string;
@@ -131,12 +151,18 @@ export async function fetchImageBytes(conn: Conn, ref: ImageRef, signal: AbortSi
   return Buffer.from(await res.arrayBuffer());
 }
 
-/** Fetch every output image, write each to `saveDir`, and return path + inline block. */
+/**
+ * Fetch every output image, write each to `saveDir` at full resolution,
+ * and return path + inline block. When `transform` is supplied it
+ * post-processes only the inline block's bytes (e.g. a downscale for the
+ * model); the on-disk file is always the original bytes.
+ */
 export async function fetchAndSave(
   conn: Conn,
   refs: ImageRef[],
   saveDir: string,
   signal: AbortSignal,
+  transform?: ImageBlockTransform,
 ): Promise<SavedImage[]> {
   const stamp = `${new Date().toISOString().replace(/[:.]/g, '-')}-${randomUUID().slice(0, 8)}`;
   return Promise.all(
@@ -147,10 +173,7 @@ export async function fetchAndSave(
       // "../escape.png" can't write outside saveDir.
       const savedPath = join(saveDir, `comfyui-${stamp}-${i}-${basename(ref.filename)}`);
       atomicWriteFile(savedPath, bytes);
-      return {
-        savedPath,
-        block: { type: 'image' as const, data: bytes.toString('base64'), mimeType: mimeFromName(ref.filename) },
-      };
+      return { savedPath, block: await buildImageBlock(bytes, ref.filename, transform) };
     }),
   );
 }
@@ -159,19 +182,19 @@ export async function fetchAndSave(
  * Re-build inline image blocks from files already written to disk by a
  * prior {@link fetchAndSave} (e.g. an auto-downloaded background job).
  * Skips any path that no longer exists, so a manually-deleted output is
- * silently dropped rather than throwing. Pure local IO - no server call.
+ * silently dropped rather than throwing. Local IO - no server call. The
+ * optional `transform` downscales only the re-served block (the disk file
+ * is left untouched), so a collected background job shrinks like a fresh
+ * foreground render.
  */
-export function readSavedImages(paths: string[]): SavedImage[] {
-  const out: SavedImage[] = [];
-  for (const savedPath of paths) {
-    if (!existsSync(savedPath)) continue;
-    const bytes = readFileSync(savedPath);
-    out.push({
+export async function readSavedImages(paths: string[], transform?: ImageBlockTransform): Promise<SavedImage[]> {
+  const existing = paths.filter((p) => existsSync(p));
+  return Promise.all(
+    existing.map(async (savedPath) => ({
       savedPath,
-      block: { type: 'image' as const, data: bytes.toString('base64'), mimeType: mimeFromName(savedPath) },
-    });
-  }
-  return out;
+      block: await buildImageBlock(readFileSync(savedPath), savedPath, transform),
+    })),
+  );
 }
 
 /**
