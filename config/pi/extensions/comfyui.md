@@ -52,7 +52,8 @@ tool result so the model can self-correct.
 | `cfg`                 | number  | CFG / guidance scale.                                                                              |
 | `seed`                | number  | Omit for a fresh random seed; pass a prior seed to reproduce.                                      |
 | `denoise`             | number  | Denoise strength (img2img), `0`-`1`.                                                               |
-| `inputImages`         | array   | Ordered reference image paths for img2img / edit workflows, e.g. `["~/in.png"]`.                   |
+| `inputImages`         | array   | Ordered reference image paths for positional img2img / edit workflows, e.g. `["~/in.png"]`.        |
+| `images`              | object  | Named image inputs keyed by role (`init`, `mask`, …) for role-based workflows. See below.          |
 | `count`               | number  | Batch size.                                                                                        |
 | `sendToModel`         | boolean | Override the `sendToModel` config default for this call.                                           |
 | `ephemeral`           | boolean | Show the image inline this turn, then collapse the call + image out of context. See below.         |
@@ -402,15 +403,32 @@ the right workflow and sends the right prompt shape:
 ```
 
 These render as a one-line capability matrix per workflow (description, tags, the `generate_image` params the workflow
-actually maps, reference-image slot count, the prompt protocol, and a `recommends enhance` hint where relevant), so the
-model stops guessing workflow names and passing params a workflow does not support. All fields are optional; a workflow
-without them just shows its name and mapped params.
+actually maps, reference-image slot count or named roles, the prompt protocol, and a `recommends enhance` hint where
+relevant), so the model stops guessing workflow names and passing params a workflow does not support. All fields are
+optional; a workflow without them just shows its name and mapped params.
 
-Reference images for edit / img2img workflows are declared in a separate top-level `images` array on the workflow entry
-(a sibling of `inputs`, not a key inside it). Each element is a `{ "node", "key" }` pair naming a `LoadImage`-style
-slot. The ordered `inputImages` tool arg fills them in order: `inputImages[0]` into `images[0]`, and so on. Supplying
-more images than the workflow has slots is an error; supplying fewer fills the leading slots and leaves the trailing
-slots at the image baked into the graph file. A workflow with no `images` array rejects any `inputImages` arg.
+#### Image inputs: positional or named roles
+
+Image inputs for edit / img2img / inpaint workflows are declared in a top-level `images` field on the workflow entry (a
+sibling of `inputs`, not a key inside it), in one of two mutually exclusive shapes:
+
+- **Positional** - an array of `{ "node", "key" }` pairs naming `LoadImage`-style slots. The ordered `inputImages` tool
+  arg fills them in order (`inputImages[0]` into `images[0]`, …). Supplying more images than slots is an error; fewer
+  fills the leading slots and leaves the trailing slots at the image baked into the graph file.
+- **Named roles** - an object keyed by role (`init`, `mask`, `control`, …) whose values are `{ "node", "key" }` pairs
+  with two optional extras: `"kind": "mask"` marks a slot a bbox mask may target, and `"invert": true` flips that mask's
+  polarity. The `images` tool arg supplies each slot by role: `images: { "init": "~/in.png", "mask": "~/m.png" }`.
+
+A call uses `inputImages` xor `images`, matching the workflow's declared shape; passing the wrong one (or an unknown
+role, or any image arg to a text-to-image workflow) is a clear error rather than a silent no-op. A `refine` id feeds the
+prior render into the `init` role on a role-based workflow (and `inputImages[0]` on a positional one).
+
+A `mask` role accepts either a path to a mask image or a bbox synth spec
+`{ "bbox": [[x, y, w, h], …], "feather"?, "invert"? }` with **normalized** (`0`-`1`, top-left-origin) rectangles,
+unioned for multi-region edits; out-of-range or zero-area rectangles error. The extension rasterizes the mask (white =
+the region to change, black = keep) sized to the `init` image's dimensions, else the resolved `width` / `height`, else
+errors; optional `feather` (px) softens the edge. The mask is uploaded as its own slot, so the graph's mask node should
+be a `LoadImageMask`-style input.
 
 `file` resolves like every other config path: a leading `~` expands to your home dir, an absolute path is used as-is,
 and a relative path (`./local/wf.api.json`, `wf/foo.api.json`) resolves against the session cwd. Relative resolution is

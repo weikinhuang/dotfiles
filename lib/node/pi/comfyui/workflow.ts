@@ -18,7 +18,7 @@ import { resolve } from 'node:path';
 import { readJsoncOrUndefined } from '../fs-safe.ts';
 import { expandTilde } from '../path-expand.ts';
 
-import type { ComfyWorkflow, InputMapping } from './types.ts';
+import type { ComfyWorkflow, ImageSlots, InputMapping, RoleMapping } from './types.ts';
 
 /** A value injectable into a workflow node input. */
 export type InjectValue = string | number;
@@ -159,6 +159,64 @@ export function validateImageMappings(workflow: ComfyWorkflow, images: InputMapp
     const node = workflow[target.node];
     if (node === undefined || !isObject(node.inputs)) {
       errors.push(`image ${i + 1} -> node "${target.node}" not found in workflow`);
+    }
+  }
+  return errors;
+}
+
+/**
+ * Whether a workflow's `images` declaration is the role-keyed form (vs the
+ * positional `InputMapping[]`). `undefined` (no image slots) is not a role
+ * map. Used to branch the upload + inject paths.
+ */
+export function isRoleMap(images: ImageSlots | undefined): images is Record<string, RoleMapping> {
+  return images !== undefined && !Array.isArray(images);
+}
+
+/**
+ * Write each pre-uploaded image name into its named role's node/key.
+ * `uploadedByRole` is keyed by the same role names as `roleMap` (the
+ * shell resolves paths / synthesizes masks and uploads them first). A role
+ * present in `uploadedByRole` but absent from `roleMap`, or a mapped node
+ * missing from the graph, is recorded in `errors` and skipped. Sibling of
+ * {@link injectImageList} for the role-keyed form.
+ */
+export function injectImageRoles(
+  workflow: ComfyWorkflow,
+  roleMap: Record<string, RoleMapping>,
+  uploadedByRole: Record<string, string>,
+): InjectResult {
+  const clone = structuredClone(workflow);
+  const errors: string[] = [];
+
+  for (const [role, name] of Object.entries(uploadedByRole)) {
+    const target = roleMap[role];
+    if (target === undefined) {
+      errors.push(`no image role "${role}" in this workflow`);
+      continue;
+    }
+    const node = clone[target.node];
+    if (node === undefined || !isObject(node.inputs)) {
+      errors.push(`workflow has no node "${target.node}" with inputs (needed for image role "${role}")`);
+      continue;
+    }
+    node.inputs[target.key] = name;
+  }
+
+  return { workflow: clone, errors };
+}
+
+/**
+ * Check that every node referenced by a role map exists in `workflow`.
+ * Sibling of {@link validateImageMappings} for the role-keyed form; one
+ * error per dangling role target.
+ */
+export function validateImageRoleMap(workflow: ComfyWorkflow, roleMap: Record<string, RoleMapping>): string[] {
+  const errors: string[] = [];
+  for (const [role, target] of Object.entries(roleMap)) {
+    const node = workflow[target.node];
+    if (node === undefined || !isObject(node.inputs)) {
+      errors.push(`role "${role}" -> node "${target.node}" not found in workflow`);
     }
   }
   return errors;

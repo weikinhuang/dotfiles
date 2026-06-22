@@ -31,6 +31,7 @@
     "oxlint": "^1.69.0",
     "oxlint-tsgolint": "^0.23.0",
     "quickjs-emscripten": "^0.32.0",
+    "sharp": "^0.35.2",
     "typescript": "^6.0.3",
     "vitest": "^4.1.8"
   },

@@ -23,7 +23,15 @@
 import { readJsoncOrUndefined } from '../fs-safe.ts';
 import { piAgentPath, piProjectPath } from '../pi-paths.ts';
 
-import type { AuthHeader, ComfyuiConfig, GenerationDefaults, InputMapping, WorkflowConfig } from './types.ts';
+import type {
+  AuthHeader,
+  ComfyuiConfig,
+  GenerationDefaults,
+  ImageSlots,
+  InputMapping,
+  RoleMapping,
+  WorkflowConfig,
+} from './types.ts';
 
 /**
  * Input map for the shipped `txt2img` example workflow
@@ -145,6 +153,32 @@ function asImageList(value: unknown): InputMapping[] | undefined {
   return out.length > 0 ? out : undefined;
 }
 
+function asRoleMapping(value: unknown): RoleMapping | undefined {
+  const base = asInputMapping(value);
+  if (base === undefined || !isObject(value)) return undefined;
+  const out: RoleMapping = { ...base };
+  const kind = asString(value.kind);
+  if (kind === 'image' || kind === 'mask') out.kind = kind;
+  const invert = asBoolean(value.invert);
+  if (invert !== undefined) out.invert = invert;
+  return out;
+}
+
+function asRoleMap(value: unknown): Record<string, RoleMapping> | undefined {
+  if (!isObject(value)) return undefined;
+  const out: Record<string, RoleMapping> = {};
+  for (const [role, raw] of Object.entries(value)) {
+    const mapping = asRoleMapping(raw);
+    if (mapping !== undefined) out[role] = mapping;
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
+/** Coerce the `images` field: an array is positional, an object is role-keyed. */
+function asImageSlots(value: unknown): ImageSlots | undefined {
+  return Array.isArray(value) ? asImageList(value) : asRoleMap(value);
+}
+
 function asStringList(value: unknown): string[] | undefined {
   if (!Array.isArray(value)) return undefined;
   const out: string[] = [];
@@ -160,7 +194,7 @@ function asWorkflowConfig(value: unknown): WorkflowConfig | undefined {
   const file = asString(value.file);
   if (file === undefined || file.length === 0) return undefined;
   const inputs = asInputMap(value.inputs) ?? {};
-  const images = asImageList(value.images);
+  const images = asImageSlots(value.images);
   const wf: WorkflowConfig = { file, inputs };
   if (images !== undefined) wf.images = images;
   const description = asString(value.description);

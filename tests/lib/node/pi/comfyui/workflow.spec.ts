@@ -11,11 +11,14 @@ import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 import type { ComfyWorkflow } from '../../../../../lib/node/pi/comfyui/types.ts';
 import {
   injectImageList,
+  injectImageRoles,
   injectInputs,
   isComfyWorkflow,
+  isRoleMap,
   loadWorkflowGraph,
   randomSeed,
   validateImageMappings,
+  validateImageRoleMap,
   validateMapping,
 } from '../../../../../lib/node/pi/comfyui/workflow.ts';
 
@@ -146,6 +149,56 @@ describe('validateImageMappings', () => {
     const errors = validateImageMappings(sampleWorkflow(), targets);
     expect(errors).toHaveLength(1);
     expect(errors[0]).toContain('image 2');
+  });
+});
+
+describe('isRoleMap', () => {
+  test('treats an array as positional and an object as a role map', () => {
+    expect(isRoleMap(undefined)).toBe(false);
+    expect(isRoleMap([{ node: '6', key: 'image' }])).toBe(false);
+    expect(isRoleMap({ init: { node: '6', key: 'image' } })).toBe(true);
+  });
+});
+
+describe('injectImageRoles', () => {
+  const roleMap = {
+    init: { node: '6', key: 'image' },
+    mask: { node: '7', key: 'image', kind: 'mask' as const },
+  };
+
+  test('writes each uploaded name into its role node and clones the input', () => {
+    const original = sampleWorkflow();
+    const { workflow, errors } = injectImageRoles(original, roleMap, { init: 'in.png', mask: 'm.png' });
+    expect(errors).toEqual([]);
+    expect(workflow['6'].inputs?.image).toBe('in.png');
+    expect(workflow['7'].inputs?.image).toBe('m.png');
+    expect(original['6'].inputs?.image).toBeUndefined();
+  });
+
+  test('ignores roles absent from the upload set', () => {
+    const { workflow, errors } = injectImageRoles(sampleWorkflow(), roleMap, { init: 'in.png' });
+    expect(errors).toEqual([]);
+    expect(workflow['6'].inputs?.image).toBe('in.png');
+    expect(workflow['7'].inputs?.image).toBeUndefined();
+  });
+
+  test('flags an upload for an unknown role or a missing node', () => {
+    const r1 = injectImageRoles(sampleWorkflow(), roleMap, { control: 'c.png' });
+    expect(r1.errors[0]).toContain('no image role "control"');
+    const bad = { init: { node: '404', key: 'image' } };
+    const r2 = injectImageRoles(sampleWorkflow(), bad, { init: 'in.png' });
+    expect(r2.errors[0]).toContain('404');
+  });
+});
+
+describe('validateImageRoleMap', () => {
+  test('flags each role whose node is missing', () => {
+    const errors = validateImageRoleMap(sampleWorkflow(), {
+      init: { node: '6', key: 'image' },
+      mask: { node: '404', key: 'image', kind: 'mask' },
+    });
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toContain('role "mask"');
   });
 });
 

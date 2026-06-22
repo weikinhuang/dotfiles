@@ -7,6 +7,7 @@ import { describe, expect, test } from 'vitest';
 import {
   describeWorkflow,
   describeWorkflows,
+  imageRoleNames,
   recommendsEnhance,
   supportedParams,
 } from '../../../../../lib/node/pi/comfyui/describe.ts';
@@ -25,13 +26,42 @@ describe('supportedParams', () => {
     expect(supportedParams(wf)).toEqual(['prompt', 'seed', 'count']);
   });
 
-  test('appends inputImages when image slots exist', () => {
+  test('appends inputImages when positional image slots exist', () => {
     const wf: WorkflowConfig = {
       file: 'e.json',
       inputs: { prompt: { node: '4', key: 'text' } },
       images: [{ node: '20', key: 'image' }],
     };
     expect(supportedParams(wf)).toEqual(['prompt', 'inputImages']);
+  });
+
+  test('appends images (not inputImages) for a role map', () => {
+    const wf: WorkflowConfig = {
+      file: 'r.json',
+      inputs: { prompt: { node: '4', key: 'text' } },
+      images: { init: { node: '20', key: 'image' }, mask: { node: '21', key: 'image', kind: 'mask' } },
+    };
+    expect(supportedParams(wf)).toEqual(['prompt', 'images']);
+  });
+});
+
+describe('imageRoleNames', () => {
+  test('is empty for positional / text-to-image workflows', () => {
+    expect(imageRoleNames({ file: 'x.json', inputs: {} })).toEqual([]);
+    expect(imageRoleNames({ file: 'x.json', inputs: {}, images: [{ node: '1', key: 'image' }] })).toEqual([]);
+  });
+
+  test('lists roles and tags mask slots', () => {
+    const wf: WorkflowConfig = {
+      file: 'r.json',
+      inputs: {},
+      images: {
+        init: { node: '20', key: 'image' },
+        mask: { node: '21', key: 'image', kind: 'mask' },
+        control: { node: '22', key: 'image' },
+      },
+    };
+    expect(imageRoleNames(wf)).toEqual(['init', 'mask (mask)', 'control']);
   });
 });
 
@@ -89,6 +119,21 @@ describe('describeWorkflow', () => {
       ],
     };
     expect(describeWorkflow('multi', wf)).toContain('2 reference images');
+  });
+
+  test('lists named roles instead of a reference-image count', () => {
+    const wf: WorkflowConfig = {
+      file: 'inpaint.json',
+      inputs: { prompt: { node: '6', key: 'text' } },
+      images: {
+        init: { node: '20', key: 'image' },
+        mask: { node: '21', key: 'image', kind: 'mask' },
+      },
+      description: 'inpaint',
+    };
+    expect(describeWorkflow('inpaint', wf)).toBe(
+      'inpaint: inpaint | params: prompt, images | roles: init, mask (mask)',
+    );
   });
 });
 

@@ -13,6 +13,8 @@
  * No pi imports - testable under vitest.
  */
 
+import { isRoleMap } from './workflow.ts';
+
 import type { WorkflowConfig } from './types.ts';
 
 /**
@@ -26,14 +28,26 @@ function toolParamName(inputKey: string): string {
 
 /**
  * The `generate_image` params a workflow actually supports, in the order
- * its input map declares them, plus `inputImages` when it has reference
- * image slots. Used both in the capability line and (potentially) to
- * validate calls up front.
+ * its input map declares them, plus the image arg it accepts: `inputImages`
+ * for positional slots, `images` for named roles. Used both in the
+ * capability line and (potentially) to validate calls up front.
  */
 export function supportedParams(wf: WorkflowConfig): string[] {
   const params = Object.keys(wf.inputs).map(toolParamName);
-  if (wf.images !== undefined && wf.images.length > 0) params.push('inputImages');
+  if (isRoleMap(wf.images)) params.push('images');
+  else if (wf.images !== undefined && wf.images.length > 0) params.push('inputImages');
   return params;
+}
+
+/**
+ * The image roles a workflow accepts, rendered for the capability line,
+ * e.g. `init, mask (mask), control`. A `mask`-kind slot is tagged so the
+ * model knows it can pass a bbox there. Empty for positional / text-to-image
+ * workflows.
+ */
+export function imageRoleNames(wf: WorkflowConfig): string[] {
+  if (!isRoleMap(wf.images)) return [];
+  return Object.entries(wf.images).map(([role, slot]) => (slot.kind === 'mask' ? `${role} (mask)` : role));
 }
 
 /**
@@ -78,8 +92,13 @@ export function describeWorkflow(name: string, wf: WorkflowConfig, opts: Describ
   const sections: string[] = [head];
   const params = supportedParams(wf);
   if (params.length > 0) sections.push(`params: ${params.join(', ')}`);
-  const slots = wf.images?.length ?? 0;
-  if (slots > 0) sections.push(`${slots} reference image${slots === 1 ? '' : 's'}`);
+  const roles = imageRoleNames(wf);
+  if (roles.length > 0) {
+    sections.push(`roles: ${roles.join(', ')}`);
+  } else {
+    const slots = Array.isArray(wf.images) ? wf.images.length : 0;
+    if (slots > 0) sections.push(`${slots} reference image${slots === 1 ? '' : 's'}`);
+  }
   if (wf.promptProtocol !== undefined && wf.promptProtocol.length > 0) {
     sections.push(`protocol: ${wf.promptProtocol}`);
   }

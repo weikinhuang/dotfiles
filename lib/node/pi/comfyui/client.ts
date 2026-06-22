@@ -36,7 +36,14 @@ import {
 import { mimeFromName } from './images.ts';
 import type { ComfyWorkflow, ImageRef, WorkflowConfig } from './types.ts';
 import { createWaker, type Waker } from './waker.ts';
-import { injectImageList, injectInputs, loadWorkflowGraph, randomSeed } from './workflow.ts';
+import {
+  injectImageList,
+  injectImageRoles,
+  injectInputs,
+  isRoleMap,
+  loadWorkflowGraph,
+  randomSeed,
+} from './workflow.ts';
 
 /** A live connection to a ComfyUI server: base URL, auth headers, timeout. */
 export interface Conn {
@@ -110,13 +117,17 @@ export async function submitPrompt(
   return json.prompt_id;
 }
 
-/** Upload a local image for img2img; returns its server-side name. */
-export async function uploadImage(conn: Conn, filePath: string, homedir: string, signal: AbortSignal): Promise<string> {
-  const resolved = expandTilde(filePath, homedir);
-  if (!existsSync(resolved)) throw new Error(`input image not found: ${resolved}`);
-  const bytes = readFileSync(resolved);
+/** Upload raw image bytes under `filename`; returns the server-side name. */
+export async function uploadImageBuffer(
+  conn: Conn,
+  bytes: Buffer,
+  filename: string,
+  signal: AbortSignal,
+): Promise<string> {
   const form = new FormData();
-  form.append('image', new Blob([bytes]), basename(resolved));
+  // Copy into a fresh ArrayBuffer-backed view so the Blob part type is
+  // satisfied regardless of the source Buffer's backing store.
+  form.append('image', new Blob([new Uint8Array(bytes)]), filename);
   form.append('overwrite', 'true');
   const res = await fetch(joinUrl(conn.base, '/upload/image'), {
     method: 'POST',
@@ -128,6 +139,13 @@ export async function uploadImage(conn: Conn, filePath: string, homedir: string,
   const json = (await res.json()) as { name?: string; subfolder?: string };
   if (typeof json.name !== 'string') throw new Error('ComfyUI did not return an uploaded image name');
   return json.subfolder ? `${json.subfolder}/${json.name}` : json.name;
+}
+
+/** Upload a local image file for img2img; returns its server-side name. */
+export async function uploadImage(conn: Conn, filePath: string, homedir: string, signal: AbortSignal): Promise<string> {
+  const resolved = expandTilde(filePath, homedir);
+  if (!existsSync(resolved)) throw new Error(`input image not found: ${resolved}`);
+  return uploadImageBuffer(conn, readFileSync(resolved), basename(resolved), signal);
 }
 
 /** GET `/history/{id}`; returns `null` on a non-OK response. */
@@ -212,27 +230,43 @@ export async function buildInjectedGraph(
   homedir: string,
   report: (text: string) => void,
   signal: AbortSignal,
+  roleImages?: Record<string, string>,
 ): Promise<{ graph?: ComfyWorkflow; seed?: number; error?: string }> {
   const loaded = loadWorkflowGraph(wf.file, cwd, homedir);
   if (loaded.error || !loaded.graph) return { error: loaded.error ?? 'failed to load workflow' };
 
-  const targets = wf.images ?? [];
-  const images = params.inputImages ?? [];
-  if (images.length > 0 && targets.length === 0) {
-    return { error: `workflow "${name}" does not accept an input image` };
+  const slots = wf.images;
+  const roleMode = isRoleMap(slots);
+
+  // Image inputs: positional uploads happen here; role uploads (incl.
+  // synthesized masks, which need `sharp`) are resolved by the shell and
+  // passed in via `roleImages`.
+  let withImages: { workflow: ComfyWorkflow; errors: string[] };
+  if (roleMode) {
+    if ((params.inputImages?.length ?? 0) > 0) {
+      return { error: `workflow "${name}" uses named image roles; pass "images", not "inputImages"` };
+    }
+    withImages = injectImageRoles(loaded.graph, slots, roleImages ?? {});
+  } else {
+    const targets = slots ?? [];
+    const images = params.inputImages ?? [];
+    if (images.length > 0 && targets.length === 0) {
+      return { error: `workflow "${name}" does not accept an input image` };
+    }
+    if (images.length > targets.length) {
+      return { error: `workflow "${name}" accepts at most ${targets.length} reference image(s)` };
+    }
+    if (images.length > 0) {
+      report(images.length === 1 ? 'uploading input image…' : `uploading ${images.length} reference images…`);
+    }
+    const uploadedNames = await Promise.all(images.map((path) => uploadImage(conn, path, homedir, signal)));
+    withImages = injectImageList(loaded.graph, targets, uploadedNames);
   }
-  if (images.length > targets.length) {
-    return { error: `workflow "${name}" accepts at most ${targets.length} reference image(s)` };
-  }
-  if (images.length > 0) {
-    report(images.length === 1 ? 'uploading input image…' : `uploading ${images.length} reference images…`);
-  }
-  const uploadedNames = await Promise.all(images.map((path) => uploadImage(conn, path, homedir, signal)));
 
   const autoSeed = params.seed === undefined && wf.inputs.seed !== undefined ? randomSeed() : undefined;
   const seed = params.seed ?? autoSeed;
 
-  const injected = injectInputs(loaded.graph, wf.inputs, {
+  const injected = injectInputs(withImages.workflow, wf.inputs, {
     prompt: params.prompt,
     negative: params.negative,
     seed,
@@ -243,10 +277,9 @@ export async function buildInjectedGraph(
     height: params.height,
     batch: params.count,
   });
-  const withImages = injectImageList(injected.workflow, targets, uploadedNames);
-  const errors = [...injected.errors, ...withImages.errors];
+  const errors = [...withImages.errors, ...injected.errors];
   if (errors.length > 0) return { error: `workflow mapping error: ${errors.join('; ')}` };
-  return { graph: withImages.workflow, seed };
+  return { graph: injected.workflow, seed };
 }
 
 /**

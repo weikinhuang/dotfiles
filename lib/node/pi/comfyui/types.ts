@@ -23,6 +23,35 @@ export interface InputMapping {
   key: string;
 }
 
+/**
+ * A named image slot ({@link InputMapping}) plus its role metadata. Used
+ * when a workflow declares image inputs by role (`init`, `mask`,
+ * `control`, …) instead of by position. A `mask` slot additionally
+ * accepts a bbox synth spec (the extension rasterizes the mask) and may
+ * flip its polarity.
+ */
+export interface RoleMapping extends InputMapping {
+  /**
+   * `mask` marks a slot that a `{ bbox }` synth spec may target; `image`
+   * (the default) takes only a path. Drives both validation and the
+   * capability matrix.
+   */
+  kind?: 'image' | 'mask';
+  /**
+   * Mask polarity for a `mask` slot: by default white = the region to
+   * change, black = keep. `true` flips it for graphs whose mask node
+   * expects the opposite. Ignored for non-mask slots.
+   */
+  invert?: boolean;
+}
+
+/**
+ * A workflow's image inputs: EITHER an ordered positional list (filled by
+ * the `inputImages` tool arg) OR a role-keyed map (filled by the `images`
+ * tool arg). The two are mutually exclusive per workflow.
+ */
+export type ImageSlots = InputMapping[] | Record<string, RoleMapping>;
+
 /** A named workflow: the API-format JSON file plus its parameter map. */
 export interface WorkflowConfig {
   /** Path to the API-format workflow JSON. `~` is expanded by the caller. */
@@ -30,13 +59,19 @@ export interface WorkflowConfig {
   /** Maps tunable names (`prompt`, `seed`, …) to their node id + input key. */
   inputs: Record<string, InputMapping>;
   /**
-   * Ordered reference-image slots for edit / img2img workflows. Each entry
-   * is the node id + input key of a `LoadImage` (or equivalent) node. The
-   * `inputImages` tool arg fills these in order; supplying fewer images
-   * than slots leaves the trailing slots at their graph-baked default.
-   * Absent for pure text-to-image workflows.
+   * Image input slots for edit / img2img / inpaint workflows. Either:
+   *
+   * - an ordered `InputMapping[]` (positional): each entry is a
+   *   `LoadImage`-style node id + key; the `inputImages` tool arg fills
+   *   them in order, leaving unfilled trailing slots at their graph
+   *   default; or
+   * - a role-keyed `Record<string, RoleMapping>` (named): the `images`
+   *   tool arg supplies each slot by role, and a `mask` slot can be
+   *   synthesized from a bbox.
+   *
+   * Absent for pure text-to-image workflows. See {@link ImageSlots}.
    */
-  images?: InputMapping[];
+  images?: ImageSlots;
   /**
    * One-line human description of what this workflow is for (e.g. "anime /
    * illustration (booru-tag prompting)"). Surfaced in the tool + `workflow`

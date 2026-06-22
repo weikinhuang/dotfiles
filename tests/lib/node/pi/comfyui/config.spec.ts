@@ -137,6 +137,39 @@ describe('coerceConfigLayer', () => {
     expect(emptyImages.workflows?.t2i).toEqual({ file: '~/t2i.json', inputs: {} });
   });
 
+  test('parses a role-keyed images map with kind / invert', () => {
+    const out = coerceConfigLayer({
+      workflows: {
+        inpaint: {
+          file: '~/inpaint.json',
+          inputs: { prompt: { node: '4', key: 'text' } },
+          images: {
+            init: { node: '20', key: 'image' },
+            mask: { node: '21', key: 'image', kind: 'mask', invert: true },
+            bogusKind: { node: '22', key: 'image', kind: 'nope' },
+            dropped: { key: 'image' },
+          },
+        },
+      },
+    });
+    expect(out.workflows?.inpaint).toEqual({
+      file: '~/inpaint.json',
+      inputs: { prompt: { node: '4', key: 'text' } },
+      images: {
+        init: { node: '20', key: 'image' },
+        mask: { node: '21', key: 'image', kind: 'mask', invert: true },
+        bogusKind: { node: '22', key: 'image' },
+      },
+    });
+  });
+
+  test('omits a role-keyed images map with no valid slots', () => {
+    const out = coerceConfigLayer({
+      workflows: { r: { file: '~/r.json', inputs: {}, images: { init: { key: 'image' } } } },
+    });
+    expect(out.workflows?.r).toEqual({ file: '~/r.json', inputs: {} });
+  });
+
   test('parses description, tags, and promptProtocol metadata', () => {
     const out = coerceConfigLayer({
       workflows: {

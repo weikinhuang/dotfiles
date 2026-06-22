@@ -149,6 +149,23 @@
         { "node": "20", "key": "image" },
         { "node": "30", "key": "image" }
       ]
+    },
+    "inpaint": {
+      "file": "~/.dotfiles/config/pi/comfyui/inpaint.api.json",
+      "description": "masked inpaint / region edit",
+      "tags": ["inpaint", "edit"],
+      "promptProtocol": "natural language",
+      "inputs": {
+        "prompt": { "node": "6", "key": "text" },
+        "negative": { "node": "7", "key": "text" },
+        "denoise": { "node": "3", "key": "denoise" },
+        "seed": { "node": "3", "key": "seed" },
+        "steps": { "node": "3", "key": "steps" }
+      },
+      "images": {
+        "init": { "node": "10", "key": "image" },
+        "mask": { "node": "11", "key": "image", "kind": "mask" }
+      }
     }
   }
 }
