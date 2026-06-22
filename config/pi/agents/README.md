@@ -13,19 +13,20 @@ For WHEN to delegate and HOW to write a zero-context `task` prompt, see
 
 ## Index
 
-| Agent                                                          | Tools                                | Purpose                                                                                                                               |
-| -------------------------------------------------------------- | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------- |
-| [`critic.md`](./critic.md)                                     | `read` only                          | Rubric-graded judge used by [`iteration-loop`](../extensions/iteration-loop.ts) `check run` with `kind: critic`.                      |
-| [`explore.md`](./explore.md)                                   | `read`, `grep`, `find`, `ls`         | Read-only code exploration - "find X across the codebase", "summarize this module".                                                   |
-| [`general-purpose.md`](./general-purpose.md)                   | default set (bash + read/write/edit) | Catch-all delegate for subtasks that need to read, modify, and run commands while keeping the parent clean.                           |
-| [`image-captioner.md`](./image-captioner.md)                   | `read` only                          | One dense caption of an image being dropped from context - auto-caption fallback for [`context-trim`](../extensions/context-trim.ts). |
-| [`plan.md`](./plan.md)                                         | `read`, `grep`, `find`, `ls`         | Turn a vague problem statement into a concrete file-level implementation plan.                                                        |
-| [`research-planning-critic.md`](./research-planning-critic.md) | `read` only                          | Rubric judge for research plans / experiment hypotheses BEFORE expensive downstream fanout runs.                                      |
-| [`roleplay-event.md`](./roleplay-event.md)                     | none                                 | Proposes one short in-world complication for the [`roleplay`](../extensions/roleplay.ts) `/roleplay event` system.                    |
-| [`roleplay-summarizer.md`](./roleplay-summarizer.md)           | none                                 | Folds the span pi evicts at compaction into one rolling scene recap for the [`roleplay`](../extensions/roleplay.ts) `summary` record. |
-| [`tiny-helper.md`](./tiny-helper.md)                           | minimal                              | Narrow non-research plumbing (slug gen, title normalization, URL classification). Never touches research content.                     |
-| [`waveform-phraser.md`](./waveform-phraser.md)                 | none                                 | One present-participle phrase (<=25 chars) for the waveform-indicator's dynamic head. No tools, no reasoning.                         |
-| [`web-researcher.md`](./web-researcher.md)                     | `ai-fetch-web` CLI + filesystem      | Per-sub-question researcher used by the `/research` fanout; writes a strict-schema `findings/<subq-id>.md`.                           |
+| Agent                                                          | Tools                                | Purpose                                                                                                                                    |
+| -------------------------------------------------------------- | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| [`critic.md`](./critic.md)                                     | `read` only                          | Rubric-graded judge used by [`iteration-loop`](../extensions/iteration-loop.ts) `check run` with `kind: critic`.                           |
+| [`explore.md`](./explore.md)                                   | `read`, `grep`, `find`, `ls`         | Read-only code exploration - "find X across the codebase", "summarize this module".                                                        |
+| [`general-purpose.md`](./general-purpose.md)                   | default set (bash + read/write/edit) | Catch-all delegate for subtasks that need to read, modify, and run commands while keeping the parent clean.                                |
+| [`comfyui-enhance.md`](./comfyui-enhance.md)                   | none                                 | Refines a prompt + negative into an image model's native protocol for the [`comfyui`](../extensions/comfyui.ts) `generate_image` enhancer. |
+| [`image-captioner.md`](./image-captioner.md)                   | `read` only                          | One dense caption of an image being dropped from context - auto-caption fallback for [`context-trim`](../extensions/context-trim.ts).      |
+| [`plan.md`](./plan.md)                                         | `read`, `grep`, `find`, `ls`         | Turn a vague problem statement into a concrete file-level implementation plan.                                                             |
+| [`research-planning-critic.md`](./research-planning-critic.md) | `read` only                          | Rubric judge for research plans / experiment hypotheses BEFORE expensive downstream fanout runs.                                           |
+| [`roleplay-event.md`](./roleplay-event.md)                     | none                                 | Proposes one short in-world complication for the [`roleplay`](../extensions/roleplay.ts) `/roleplay event` system.                         |
+| [`roleplay-summarizer.md`](./roleplay-summarizer.md)           | none                                 | Folds the span pi evicts at compaction into one rolling scene recap for the [`roleplay`](../extensions/roleplay.ts) `summary` record.      |
+| [`tiny-helper.md`](./tiny-helper.md)                           | minimal                              | Narrow non-research plumbing (slug gen, title normalization, URL classification). Never touches research content.                          |
+| [`waveform-phraser.md`](./waveform-phraser.md)                 | none                                 | One present-participle phrase (<=25 chars) for the waveform-indicator's dynamic head. No tools, no reasoning.                              |
+| [`web-researcher.md`](./web-researcher.md)                     | `ai-fetch-web` CLI + filesystem      | Per-sub-question researcher used by the `/research` fanout; writes a strict-schema `findings/<subq-id>.md`.                                |
 
 ## Related docs
 

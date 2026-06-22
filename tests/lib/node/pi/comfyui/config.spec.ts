@@ -137,6 +137,67 @@ describe('coerceConfigLayer', () => {
     expect(emptyImages.workflows?.t2i).toEqual({ file: '~/t2i.json', inputs: {} });
   });
 
+  test('parses description, tags, and promptProtocol metadata', () => {
+    const out = coerceConfigLayer({
+      workflows: {
+        anima: {
+          file: '~/anima.json',
+          inputs: { prompt: { node: '6', key: 'text' } },
+          description: 'anime / illustration',
+          tags: ['anime', 'sdxl', '', 42],
+          promptProtocol: 'Danbooru tags, comma-separated',
+        },
+      },
+    });
+    expect(out.workflows?.anima).toEqual({
+      file: '~/anima.json',
+      inputs: { prompt: { node: '6', key: 'text' } },
+      description: 'anime / illustration',
+      tags: ['anime', 'sdxl'],
+      promptProtocol: 'Danbooru tags, comma-separated',
+    });
+  });
+
+  test('parses a workflow guidanceFile', () => {
+    const out = coerceConfigLayer({
+      workflows: { anima: { file: '~/a.json', inputs: {}, guidanceFile: '~/guide.md' } },
+    });
+    expect(out.workflows?.anima).toEqual({ file: '~/a.json', inputs: {}, guidanceFile: '~/guide.md' });
+  });
+
+  test('parses enhancer knobs (enhance, enhanceModel, enhanceGuidanceFile)', () => {
+    const out = coerceConfigLayer({
+      enhance: true,
+      enhanceModel: 'openai/gpt-4o-mini',
+      enhanceGuidanceFile: '~/global-guide.md',
+    });
+    expect(out.enhance).toBe(true);
+    expect(out.enhanceModel).toBe('openai/gpt-4o-mini');
+    expect(out.enhanceGuidanceFile).toBe('~/global-guide.md');
+  });
+
+  test('drops empty / wrong-typed enhancer knobs', () => {
+    const out = coerceConfigLayer({ enhance: 'yes', enhanceModel: '', enhanceGuidanceFile: 5 });
+    expect(out.enhance).toBeUndefined();
+    expect(out.enhanceModel).toBeUndefined();
+    expect(out.enhanceGuidanceFile).toBeUndefined();
+  });
+
+  test('drops empty / wrong-typed metadata fields', () => {
+    const out = coerceConfigLayer({
+      workflows: {
+        t2i: {
+          file: '~/t2i.json',
+          inputs: {},
+          description: '',
+          tags: 'not-an-array',
+          promptProtocol: 123,
+        },
+      },
+    });
+    expect(out.workflows?.t2i).toEqual({ file: '~/t2i.json', inputs: {} });
+  });
+
   test('coerces a generation defaults block, dropping wrong-typed fields', () => {
     const out = coerceConfigLayer({
       defaults: { width: 1024, height: 1024, steps: 30, cfg: 5, denoise: 0.7, count: 2, negative: 'blurry' },

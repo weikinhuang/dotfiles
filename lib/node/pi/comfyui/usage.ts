@@ -3,8 +3,9 @@
  * extension shell and the `--help` path share one source of truth.
  */
 export const COMFYUI_USAGE = [
-  'Usage: /comfyui [workflows|jobs]',
+  'Usage: /comfyui [workflows|jobs|gallery|models]',
   '',
   'Show ComfyUI status (no args), validate configured workflows (`workflows`),',
-  'or list background generations (`jobs`).',
+  'list background generations (`jobs`), list recorded generations (`gallery`),',
+  "or list the server's installed models (`models`).",
 ].join('\n');

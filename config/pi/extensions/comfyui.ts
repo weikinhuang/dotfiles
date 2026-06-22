@@ -34,21 +34,36 @@
  *   PI_COMFYUI_TOKEN=...    referenced by a config authHeader as ${PI_COMFYUI_TOKEN}
  */
 
+import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { dirname, isAbsolute, join } from 'node:path';
+import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 
-import { type ExtensionAPI, type ExtensionContext } from '@earendil-works/pi-coding-agent';
-import { StringEnum } from '@earendil-works/pi-ai';
+import {
+  createAgentSession,
+  DefaultResourceLoader,
+  type ExtensionAPI,
+  type ExtensionContext,
+  getAgentDir,
+  type ModelRegistry,
+  parseFrontmatter,
+  type ResourceLoader,
+  SessionManager,
+} from '@earendil-works/pi-coding-agent';
+import { StringEnum, type Model } from '@earendil-works/pi-ai';
 import { Text } from '@earendil-works/pi-tui';
 import { Type } from 'typebox';
 
 import { completeSubverbs } from '../../../lib/node/pi/commands/complete.ts';
 import { isHelpArg } from '../../../lib/node/pi/commands/help.ts';
 import { COMFYUI_USAGE } from '../../../lib/node/pi/comfyui/usage.ts';
+import { DEFAULT_TARGET_PIXELS, resolveAspect } from '../../../lib/node/pi/comfyui/aspect.ts';
+import { describeWorkflows } from '../../../lib/node/pi/comfyui/describe.ts';
+import { extractModelCatalog, formatModelCatalog } from '../../../lib/node/pi/comfyui/models.ts';
 import { emitImageGenerated } from '../../../lib/node/pi/comfyui/events.ts';
 import { envTruthy } from '../../../lib/node/pi/parse-env.ts';
+import { truncate } from '../../../lib/node/pi/shared.ts';
 import {
   loadComfyuiConfig,
   loadUserWorkflowNames,
@@ -70,6 +85,7 @@ import {
   createWaker,
   fetchAndSave,
   fetchHistory,
+  fetchObjectInfo,
   fetchQueue,
   openProgressSocket,
   pingServer,
@@ -91,7 +107,34 @@ import {
   runningJobs,
   updateJob,
 } from '../../../lib/node/pi/comfyui/jobs.ts';
+import {
+  addGeneration,
+  cloneGenerations,
+  emptyGenerations,
+  findGeneration,
+  findGenerationByPrompt,
+  formatGallery,
+  type GenerationRecord,
+  type GenerationRegistry,
+  type NewGeneration,
+  reduceGenerations,
+} from '../../../lib/node/pi/comfyui/generations.ts';
+import {
+  buildEnhanceTask,
+  createEnhancer,
+  type Enhancer,
+  resolveEnhanceModel,
+} from '../../../lib/node/pi/comfyui/enhance.ts';
 import type { ComfyuiConfig, WorkflowConfig } from '../../../lib/node/pi/comfyui/types.ts';
+import { expandTilde } from '../../../lib/node/pi/path-expand.ts';
+import {
+  type AgentDef,
+  defaultAgentLayers,
+  loadAgents,
+  makeNodeReadLayer,
+} from '../../../lib/node/pi/subagent/loader.ts';
+import { createPersistedSubagentSessionManager } from '../../../lib/node/pi/subagent/session-dir.ts';
+import { adaptCreateAgentSession, runOneShotAgent } from '../../../lib/node/pi/subagent/spawn.ts';
 import { applyContextReminder, type ReminderMessage } from '../../../lib/node/pi/context-reminder.ts';
 import { applyDirectives } from '../../../lib/node/pi/context-edit/apply.ts';
 import {
@@ -119,6 +162,8 @@ interface GenerateDetails {
   background?: boolean;
   /** Registry id of the background job this call started (when `background`). */
   jobId?: string;
+  /** Generation-registry id (`g<n>`) recorded for this render, when it landed on disk. */
+  generationId?: string;
   /** True when the render was ephemeral (shown inline, collapsed out of model context). */
   ephemeral?: boolean;
 }
@@ -133,6 +178,8 @@ interface JobsDetails {
   savedPaths?: string[];
   error?: string;
   jobs?: ImageJob[];
+  /** Generation-registry id (`g<n>`) recorded when this collect landed the render. */
+  generationId?: string;
 }
 
 // ──────────────────────────────────────────────────────────────────────
@@ -140,6 +187,14 @@ interface JobsDetails {
 // ──────────────────────────────────────────────────────────────────────
 
 const extDir = dirname(fileURLToPath(import.meta.url));
+
+// Bridge pi's concrete `createAgentSession` (typed with the concrete
+// `ModelRegistry` class) to the pi-free structural registry the
+// `runOneShotAgent` helper consumes. Compatible at runtime; the adapter
+// just casts the registry at the call. Mirrors roleplay / deep-research.
+const piCreateAgentSession = adaptCreateAgentSession<Model<any>, SessionManager, ModelRegistry, ResourceLoader>(
+  createAgentSession,
+);
 
 // Hard cap on the best-effort `image_jobs cancel` round-trip (interrupt /
 // dequeue). Cancellation should be near-instant, so it gets a tighter
@@ -154,6 +209,13 @@ const CANCEL_TIMEOUT_MS = 10_000;
 // survives `/reload` + exit->resume) and reapplied each turn in the
 // `context` hook.
 const EPHEMERAL_CUSTOM_TYPE = 'comfyui-ephemeral-state';
+
+// Custom session-entry type under which the generation registry (every
+// render that landed on disk, with a short `g<n>` id) is persisted. Like
+// the ephemeral overlay it is rebuilt from the branch on
+// session_start/session_tree, so the gallery + `variationOf` / `refine`
+// reuse survive `/reload`, a branch switch, and exit->resume.
+const GENERATIONS_CUSTOM_TYPE = 'comfyui-generations';
 
 // Only the on-disk path of the shipped example workflow is shell-specific;
 // its input map is pure data (SHIPPED_WORKFLOW_INPUTS in lib).
@@ -205,6 +267,37 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
   const defaultWorkflow = registrationConfig.defaultWorkflow;
   const workflowList = workflowNames.join(', ') || '(none)';
 
+  // Filesystem read layer for loading the `comfyui-enhance` subagent def
+  // (shared between the registration-time matrix hint and the lazy
+  // per-session enhancer build below).
+  const readLayer = makeNodeReadLayer();
+  const loadEnhanceAgent = (forCwd: string): AgentDef | null => {
+    try {
+      const layers = defaultAgentLayers({ extensionDir: extDir, cwd: forCwd });
+      const load = loadAgents({
+        layers,
+        knownToolNames: new Set(pi.getAllTools().map((t) => t.name)),
+        fs: readLayer,
+        parseFrontmatter,
+      });
+      return load.agents.get('comfyui-enhance') ?? null;
+    } catch {
+      return null;
+    }
+  };
+
+  // Multi-line capability matrix (description / tags / mapped params /
+  // image slots / prompt protocol per workflow) baked into the immutable
+  // tool description so the model picks the right workflow and stops
+  // passing args a workflow does not map. The "recommends enhance" hint is
+  // surfaced only when the enhancer agent is actually installed and the
+  // env kill-switch is not set, so the model never sees a hint it cannot
+  // act on.
+  const enhanceAvailableAtReg = !envTruthy(process.env.PI_COMFYUI_DISABLE_ENHANCE) && loadEnhanceAgent(cwd) !== null;
+  const workflowMatrix = describeWorkflows(registrationConfig.workflows, defaultWorkflow, {
+    enhanceHint: enhanceAvailableAtReg,
+  });
+
   // Background-job registry. In-memory and per-session: ComfyUI owns the
   // actual execution and persists each prompt under its id, so a job is
   // just metadata here. Not persisted to the session branch (unlike
@@ -225,6 +318,119 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
     } catch {
       // Bookkeeping must never break a generation.
     }
+  };
+
+  // Generation registry: every render that landed on disk, addressable by
+  // a `g<n>` id for the gallery + `variationOf` / `refine` reuse. Persisted
+  // as a full snapshot per mutation (mirrors the ephemeral overlay) and
+  // rebuilt from the branch on session_start/session_tree.
+  let generationsState: GenerationRegistry = emptyGenerations();
+  const persistGenerations = (): void => {
+    try {
+      pi.appendEntry(GENERATIONS_CUSTOM_TYPE, cloneGenerations(generationsState));
+    } catch {
+      // Bookkeeping must never break a generation.
+    }
+  };
+
+  // Record a freshly-landed render, de-duplicating background jobs that a
+  // manual `collect` and the auto-download tick could both report by
+  // keying on the ComfyUI prompt id. Returns the existing or created
+  // record so callers can echo its id. Never throws.
+  const recordGeneration = (gen: NewGeneration): GenerationRecord | undefined => {
+    if (gen.promptId !== undefined) {
+      const existing = findGenerationByPrompt(generationsState, gen.promptId);
+      if (existing !== undefined) return existing;
+    }
+    const added = addGeneration(generationsState, gen);
+    generationsState = added.registry;
+    persistGenerations();
+    return added.created;
+  };
+
+  // ── Prompt enhancer (agent-driven, opt-in) ───────────────────────
+  // Lazily built on first use and reused for the process. A missing
+  // `comfyui-enhance` agent (or the env kill-switch) leaves it null, in
+  // which case enhancement silently no-ops and the raw prompt is used.
+  let enhancer: Enhancer<Model<any>> | null = null;
+  let enhancerInit = false;
+
+  const enhanceSessionManager = (ctx: ExtensionContext, childCwd: string): SessionManager => {
+    try {
+      return createPersistedSubagentSessionManager<SessionManager>({
+        parentSessionManager: ctx.sessionManager,
+        extensionLabel: 'comfyui-enhance',
+        cwd: childCwd,
+        SessionManager,
+      });
+    } catch {
+      return SessionManager.inMemory(childCwd);
+    }
+  };
+
+  const getEnhancer = (ctx: ExtensionContext): Enhancer<Model<any>> | null => {
+    if (enhancerInit) return enhancer;
+    enhancerInit = true;
+    if (envTruthy(process.env.PI_COMFYUI_DISABLE_ENHANCE)) {
+      enhancer = null;
+      return enhancer;
+    }
+    try {
+      const config = loadConfig(ctx.cwd);
+      const agent = loadEnhanceAgent(ctx.cwd);
+      enhancer = createEnhancer<Model<any>>({
+        settings: resolveEnhanceModel(config.enhanceModel),
+        enhanceAgent: agent,
+        runOneShot: async (args) => {
+          const result = await runOneShotAgent({
+            deps: { createAgentSession: piCreateAgentSession, DefaultResourceLoader, SessionManager, getAgentDir },
+            cwd: args.cwd,
+            agent: args.agent,
+            model: args.model,
+            task: args.task,
+            modelRegistry: args.modelRegistry,
+            agentDir: getAgentDir(),
+            sessionManager: enhanceSessionManager(ctx, args.cwd),
+            ...(args.signal ? { signal: args.signal } : {}),
+            ...(args.timeoutMs !== undefined ? { timeoutMs: args.timeoutMs } : {}),
+          });
+          return {
+            finalText: result.finalText,
+            stopReason: result.stopReason,
+            ...(result.errorMessage !== undefined ? { errorMessage: result.errorMessage } : {}),
+          };
+        },
+        log: (level, message) => {
+          try {
+            ctx.ui.notify(`comfyui enhance: ${message}`, level === 'warn' ? 'warning' : 'info');
+          } catch {
+            /* notify is best-effort */
+          }
+        },
+      });
+    } catch {
+      enhancer = null;
+    }
+    return enhancer;
+  };
+
+  // Read + concatenate prompt-enhancer guidance: the global
+  // `enhanceGuidanceFile` first, then the workflow's own `guidanceFile`.
+  // Each path resolves like a workflow `file` (`~` / absolute /
+  // relative-to-cwd). A missing or unreadable file is skipped silently -
+  // guidance is advisory and must never block a render.
+  const readGuidanceText = (config: ComfyuiConfig, wf: WorkflowConfig, fromCwd: string): string => {
+    const readOne = (file: string | undefined): string => {
+      if (file === undefined || file.trim().length === 0) return '';
+      try {
+        const resolved = resolve(fromCwd, expandTilde(file, homedir()));
+        if (!existsSync(resolved)) return '';
+        return readFileSync(resolved, 'utf8').trim();
+      } catch {
+        return '';
+      }
+    };
+    return [readOne(config.enhanceGuidanceFile), readOne(wf.guidanceFile)].filter((s) => s.length > 0).join('\n\n');
   };
 
   // Statusline slot (see statusline.ts): show a count of pending jobs and
@@ -352,6 +558,18 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
           seed: doneJob?.seed,
           background: true,
         });
+        if (doneJob) {
+          recordGeneration({
+            workflow: doneJob.workflow,
+            promptId: doneJob.promptId,
+            prompt: doneJob.prompt,
+            negative: doneJob.negative,
+            seed: doneJob.seed,
+            savedPaths: donePaths,
+            source: 'background',
+            createdAt: Date.now(),
+          });
+        }
         changed = true;
       } else if (r.outcome.kind === 'failed') {
         registry = updateJob(registry, r.id, { status: 'error', error: r.outcome.reason, endedAt: Date.now() });
@@ -387,12 +605,15 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
     // branch so `/reload` and exit->resume keep prior ephemeral renders
     // collapsed out of the model's context.
     ephemeralState = reduceBranch(ctx.sessionManager.getBranch() as never, EPHEMERAL_CUSTOM_TYPE);
+    generationsState = reduceGenerations(ctx.sessionManager.getBranch() as never, GENERATIONS_CUSTOM_TYPE);
   });
 
   // A branch switch (edit/rewind) replays a different history, so re-derive
-  // the ephemeral overlay from the new branch's persisted snapshot.
+  // the ephemeral overlay + generation registry from the new branch's
+  // persisted snapshots.
   pi.on('session_tree', (_event, ctx) => {
     ephemeralState = reduceBranch(ctx.sessionManager.getBranch() as never, EPHEMERAL_CUSTOM_TYPE);
+    generationsState = reduceGenerations(ctx.sessionManager.getBranch() as never, GENERATIONS_CUSTOM_TYPE);
   });
 
   pi.on('session_shutdown', (_event, ctx) => {
@@ -411,9 +632,10 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
     registry = emptyRegistry();
     uiRef = undefined;
     lastStatusRunning = -1;
-    // Drop the ephemeral overlay; session_start rebuilds it from the
-    // branch on the next (re)start.
+    // Drop the ephemeral overlay + generation registry; session_start
+    // rebuilds both from the branch on the next (re)start.
     ephemeralState = emptyEditState();
+    generationsState = emptyGenerations();
     // Stop the auto-download poll so a `/reload` doesn't leave an orphaned
     // interval bound to a replaced session, and drop the in-flight guard.
     stopPollTimer();
@@ -467,13 +689,35 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
   });
 
   const GenerateParams = Type.Object({
-    prompt: Type.String({ description: 'Positive prompt: what to depict.' }),
+    prompt: Type.Optional(
+      Type.String({
+        description: 'Positive prompt: what to depict. Required unless `variationOf` supplies one to reuse.',
+      }),
+    ),
     negative: Type.Optional(Type.String({ description: 'Negative prompt: what to avoid.' })),
+    variationOf: Type.Optional(
+      Type.String({
+        description:
+          'Reuse a prior generation id (e.g. "g3", from a result line or /comfyui gallery): inherits its workflow, prompt, negative, seed, and dimensions as the baseline, then any param you pass here overrides. Use to iterate on a render.',
+      }),
+    ),
+    refine: Type.Optional(
+      Type.String({
+        description:
+          'Refine a prior generation id (e.g. "g3"): feeds that render\'s saved image as the input of an edit workflow. Set `workflow` to an edit workflow and `prompt` to the edit instruction. Do not also pass `inputImages`.',
+      }),
+    ),
     workflow: Type.Optional(
       Type.String({ description: `One of: ${workflowList}. Default ${defaultWorkflow}. Do not invent names.` }),
     ),
     width: Type.Optional(Type.Number({ description: 'Output width (px).' })),
     height: Type.Optional(Type.Number({ description: 'Output height (px).' })),
+    aspect: Type.Optional(
+      Type.String({
+        description:
+          'Aspect preset that sets width/height, e.g. "16:9", "portrait", "square". Explicit width/height override it. Only for workflows that map width and height.',
+      }),
+    ),
     steps: Type.Optional(Type.Number({ description: 'Sampler steps.' })),
     cfg: Type.Optional(Type.Number({ description: 'CFG / guidance scale.' })),
     seed: Type.Optional(Type.Number({ description: 'Omit for a random seed; reuse a prior seed to reproduce.' })),
@@ -500,6 +744,17 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
         description: `Return immediately without waiting; collect later via \`image_jobs\` (collect). Use for slow renders. Default ${registrationConfig.background}.`,
       }),
     ),
+    enhance: Type.Optional(
+      Type.Boolean({
+        description: `Refine prompt + negative into the workflow's native protocol via a helper agent before rendering. Use when a workflow lists "recommends enhance" or you are unsure of its protocol. Default ${registrationConfig.enhance}.`,
+      }),
+    ),
+    context: Type.Optional(
+      Type.String({
+        description:
+          'Background to honor during enhancement (scene, continuity, character facts) without depicting it literally. Only used when enhance is on; ignored otherwise.',
+      }),
+    ),
   });
 
   pi.registerTool({
@@ -508,7 +763,9 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
     description:
       `Generate an image from a prompt via a ComfyUI server and return it inline. ` +
       `Use when the user asks to create, draw, render, or generate a picture. ` +
-      `Workflows: ${workflowList} (default ${defaultWorkflow}); each bakes in its own checkpoint, sampler, and scheduler. ` +
+      `Each workflow bakes in its own checkpoint, sampler, and scheduler; pick one by capability and send the prompt ` +
+      `in the protocol it lists. Pass only the params a workflow maps (others error). Available workflows ` +
+      `(default ${defaultWorkflow}):\n${workflowMatrix}\n` +
       `The PNG is saved to disk and returned so you can see it.`,
     promptSnippet: `To create or render an image, call \`generate_image\` (workflows: ${workflowList}) instead of describing it in text.`,
     promptGuidelines: [
@@ -519,7 +776,42 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
 
     async execute(toolCallId, params, signal, onUpdate, ctx) {
       const config = loadConfig(ctx.cwd);
-      const name = params.workflow ?? config.defaultWorkflow;
+
+      const fail = (
+        message: string,
+      ): { content: { type: 'text'; text: string }[]; details: GenerateDetails; isError: true } => ({
+        content: [{ type: 'text', text: message }],
+        details: { workflow: params.workflow ?? config.defaultWorkflow, savedPaths: [], error: message },
+        isError: true,
+      });
+
+      // Resolve generation reuse before picking the workflow. `variationOf`
+      // inherits a prior render's workflow + prompt + negative + seed + dims
+      // as the baseline (per-call params still override); `refine` feeds a
+      // prior render's saved image into an edit workflow as its input.
+      if (params.variationOf !== undefined && params.refine !== undefined) {
+        return fail('pass either variationOf or refine, not both');
+      }
+      let reuse: GenerationRecord | undefined;
+      if (params.variationOf !== undefined) {
+        reuse = findGeneration(generationsState, params.variationOf);
+        if (reuse === undefined) return fail(`unknown generation "${params.variationOf}" (see /comfyui gallery)`);
+      }
+      let refineImage: string | undefined;
+      if (params.refine !== undefined) {
+        const rec = findGeneration(generationsState, params.refine);
+        if (rec === undefined) return fail(`unknown generation "${params.refine}" (see /comfyui gallery)`);
+        const src = rec.savedPaths[0];
+        if (src === undefined || !existsSync(src)) {
+          return fail(`generation "${params.refine}" has no saved image on disk to refine`);
+        }
+        if (params.inputImages !== undefined && params.inputImages.length > 0) {
+          return fail('refine supplies the input image; do not also pass inputImages');
+        }
+        refineImage = src;
+      }
+
+      const name = params.workflow ?? reuse?.workflow ?? config.defaultWorkflow;
       const details: GenerateDetails = { workflow: name, savedPaths: [] };
 
       const wf = config.workflows[name];
@@ -533,6 +825,13 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
         };
       }
 
+      // Positive prompt comes from the call, else inherited from variationOf.
+      const effectivePrompt = params.prompt ?? reuse?.prompt;
+      if (effectivePrompt === undefined || effectivePrompt.trim().length === 0) {
+        details.error = 'prompt is required (or pass variationOf to reuse a prior prompt)';
+        return { content: [{ type: 'text', text: details.error }], details, isError: true };
+      }
+
       const base = resolveBaseUrl(config);
       const headers = resolveAuthHeaders(config);
       const conn: Conn = { base, headers, timeoutMs: config.timeoutMs };
@@ -542,6 +841,27 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
       // Ephemeral is meaningful only for a foreground render (a background
       // job returns no image to collapse); ignore it when backgrounding.
       const ephemeral = !background && (params.ephemeral ?? config.ephemeral);
+
+      const d = config.defaults;
+
+      // Aspect preset -> width/height. Only meaningful for a workflow that
+      // maps both dimensions; erroring on the rest matches the
+      // unmapped-arg contract (a clear failure beats a silent no-op). The
+      // pixel budget follows the configured default area when set.
+      let aspectDims: { width: number; height: number } | undefined;
+      if (params.aspect) {
+        if (wf.inputs.width === undefined || wf.inputs.height === undefined) {
+          details.error = `workflow "${name}" does not support aspect (it maps no width/height)`;
+          return { content: [{ type: 'text', text: details.error }], details, isError: true };
+        }
+        const targetPixels =
+          d?.width !== undefined && d?.height !== undefined ? d.width * d.height : DEFAULT_TARGET_PIXELS;
+        aspectDims = resolveAspect(params.aspect, targetPixels);
+        if (!aspectDims) {
+          details.error = `invalid aspect "${params.aspect}" (use e.g. "16:9", "portrait", "square")`;
+          return { content: [{ type: 'text', text: details.error }], details, isError: true };
+        }
+      }
 
       // Stream a progress line; pi's onUpdate wants a full tool result, so
       // carry the (partial) details alongside the text. Stash the line on
@@ -558,22 +878,78 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
       if (signal) signal.addEventListener('abort', () => ac.abort(), { once: true });
       const runSignal = ac.signal;
 
-      // Layer the config `defaults` block under the per-call params:
-      // `param ?? config.defaults?.X`. The graph builder only injects
-      // params that are present, so a default simply pre-fills the param
-      // before injection; the workflow-baked graph value stays the final
-      // fallback for anything neither the call nor the defaults set.
-      const d = config.defaults;
+      // Opt-in prompt enhancement: refine the positive + baseline negative
+      // into the workflow's native protocol via the `comfyui-enhance`
+      // subagent before building the graph. Best-effort - a missing agent,
+      // model-resolution failure, spawn error, or unparseable output keeps
+      // the original prompt + baseline negative (the enhancer returns null).
+      // The enhanced negative REPLACES the baseline (the agent is told to
+      // build on it), matching the configured refine-replace merge.
+      let promptForRender = effectivePrompt;
+      const baselineNegative = params.negative ?? reuse?.negative ?? d?.negative;
+      let enhancedNegative: string | undefined;
+      const wantEnhance = params.enhance ?? config.enhance;
+      if (wantEnhance) {
+        const enh = getEnhancer(ctx);
+        if (enh?.isEnabled()) {
+          report('enhancing prompt…');
+          const task = buildEnhanceTask({
+            prompt: effectivePrompt,
+            ...(baselineNegative !== undefined ? { negative: baselineNegative } : {}),
+            guidance: readGuidanceText(config, wf, ctx.cwd),
+            ...(wf.description !== undefined ? { description: wf.description } : {}),
+            ...(wf.tags !== undefined ? { tags: wf.tags } : {}),
+            ...(wf.promptProtocol !== undefined ? { promptProtocol: wf.promptProtocol } : {}),
+            ...(params.context !== undefined ? { context: params.context } : {}),
+          });
+          const enhanceResult = await enh.enhance(
+            {
+              cwd: ctx.cwd,
+              model: ctx.model,
+              modelRegistry: ctx.modelRegistry as never,
+              signal: runSignal,
+            },
+            task,
+          );
+          if (enhanceResult) {
+            promptForRender = enhanceResult.prompt;
+            if (enhanceResult.negative !== undefined) enhancedNegative = enhanceResult.negative;
+          }
+        }
+      }
+      const enhancedPrompt = promptForRender !== effectivePrompt;
+
+      // Layer the config `defaults` block (and any aspect-derived
+      // dimensions) under the per-call params: `param ?? aspect ?? defaults`.
+      // The graph builder only injects params that are present, so a default
+      // simply pre-fills the param before injection; the workflow-baked graph
+      // value stays the final fallback for anything neither the call nor the
+      // defaults set. Explicit per-call width/height still win over `aspect`.
       const resolvedParams = {
         ...params,
-        negative: params.negative ?? d?.negative,
-        width: params.width ?? d?.width,
-        height: params.height ?? d?.height,
+        prompt: promptForRender,
+        negative: enhancedNegative ?? baselineNegative,
+        seed: params.seed ?? reuse?.seed,
+        width: params.width ?? aspectDims?.width ?? reuse?.width ?? d?.width,
+        height: params.height ?? aspectDims?.height ?? reuse?.height ?? d?.height,
         steps: params.steps ?? d?.steps,
         cfg: params.cfg ?? d?.cfg,
         denoise: params.denoise ?? d?.denoise,
         count: params.count ?? d?.count,
+        inputImages: refineImage !== undefined ? [refineImage] : params.inputImages,
       };
+
+      // Echo the enhanced prompt so the model knows what was actually
+      // rendered (and can reuse it via variationOf). Capped to keep the
+      // result line readable. Empty when enhancement was off or no-op'd.
+      // Also flag a `context` arg that was supplied with enhancement off
+      // (it is only consumed by the enhancer), so the model learns the
+      // arg did nothing rather than silently dropping it.
+      const enhanceNote =
+        (enhancedPrompt ? `\nEnhanced prompt: ${truncate(resolvedParams.prompt, 240)}` : '') +
+        (params.context !== undefined && !wantEnhance
+          ? '\nNote: `context` was ignored (only used when enhance is on).'
+          : '');
 
       let socket: WebSocket | null = null;
       try {
@@ -603,7 +979,7 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
             promptId,
             workflow: name,
             seed,
-            prompt: params.prompt,
+            prompt: resolvedParams.prompt,
             negative: resolvedParams.negative,
             saveDir,
             sendToModel: requested,
@@ -620,7 +996,7 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
           const collectHint = autoDownload
             ? `It will auto-download to ${saveDir} when ready; collect it with the image_jobs tool (action collect, id ${added.created.id}) to view it inline.`
             : `Collect it later with the image_jobs tool (action collect, id ${added.created.id}).`;
-          const text = `Started background generation [${added.created.id}] via "${name}"${seedNote}. ${collectHint}`;
+          const text = `Started background generation [${added.created.id}] via "${name}"${seedNote}. ${collectHint}${enhanceNote}`;
           return { content: [{ type: 'text', text }], details };
         }
 
@@ -636,10 +1012,29 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
         emitImageGenerated({
           savedPaths: details.savedPaths,
           workflow: name,
-          prompt: params.prompt,
+          prompt: resolvedParams.prompt,
           seed: details.seed,
           background: false,
         });
+
+        // Record the landed render in the generation registry so it gets a
+        // reusable `g<n>` id (gallery + variationOf / refine). Only store
+        // dims the workflow actually maps, so the record reflects what was
+        // rendered rather than an ignored default.
+        const generation = recordGeneration({
+          workflow: name,
+          promptId,
+          prompt: resolvedParams.prompt,
+          negative: resolvedParams.negative,
+          seed: details.seed,
+          width: wf.inputs.width !== undefined ? resolvedParams.width : undefined,
+          height: wf.inputs.height !== undefined ? resolvedParams.height : undefined,
+          savedPaths: details.savedPaths,
+          source: ephemeral ? 'ephemeral' : 'foreground',
+          createdAt: Date.now(),
+        });
+        if (generation) details.generationId = generation.id;
+        const idNote = generation ? ` [${generation.id}]` : '';
 
         const countNote = `${refs.length} image${refs.length === 1 ? '' : 's'}`;
 
@@ -656,7 +1051,7 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
             persistEphemeral();
           }
           details.ephemeral = true;
-          const summary = `Generated ${countNote} via "${name}"${seedNote}. Saved to ${saveDir}. (ephemeral: shown once, not kept in context)`;
+          const summary = `Generated ${countNote}${idNote} via "${name}"${seedNote}. Saved to ${saveDir}. (ephemeral: shown once, not kept in context)`;
           return { content: [{ type: 'text', text: summary }, ...saved.map((s) => s.block)], details };
         }
 
@@ -665,10 +1060,10 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
           const why = decision.visionBlocked
             ? ' (active model has no image input; not sent to model)'
             : ' (image not sent to model)';
-          const summary = `Generated ${countNote} via "${name}"${seedNote}. Saved to ${saveDir}.${why}`;
+          const summary = `Generated ${countNote}${idNote} via "${name}"${seedNote}. Saved to ${saveDir}.${why}${enhanceNote}`;
           return { content: [{ type: 'text', text: summary }], details };
         }
-        const summary = `Generated ${countNote} via "${name}"${seedNote}. Saved to ${saveDir}.`;
+        const summary = `Generated ${countNote}${idNote} via "${name}"${seedNote}. Saved to ${saveDir}.${enhanceNote}`;
         return { content: [{ type: 'text', text: summary }, ...saved.map((s) => s.block)], details };
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
@@ -781,11 +1176,19 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
       // Already finished (often auto-downloaded off-turn). Re-serve the
       // saved files from disk so the model can still view them inline,
       // since the auto-download path could not push them into context.
-      const details: JobsDetails = { action: 'collect', jobId: id, status: 'done', savedPaths: job.savedPaths };
+      const existing = findGenerationByPrompt(generationsState, job.promptId);
+      const details: JobsDetails = {
+        action: 'collect',
+        jobId: id,
+        status: 'done',
+        savedPaths: job.savedPaths,
+        generationId: existing?.id,
+      };
       const decision = resolveSendToModel(job.sendToModel, ctx.model?.input);
       const n = job.savedPaths.length;
       const countNote = `${n} image${n === 1 ? '' : 's'}`;
-      const baseText = `[${id}] already downloaded: ${countNote} in ${job.saveDir}.`;
+      const idNote = existing ? ` (${existing.id})` : '';
+      const baseText = `[${id}]${idNote} already downloaded: ${countNote} in ${job.saveDir}.`;
       if (decision.send) {
         const blocks = readSavedImages(job.savedPaths);
         if (blocks.length > 0) {
@@ -842,19 +1245,36 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
         seed: job.seed,
         background: true,
       });
+      const collected = recordGeneration({
+        workflow: job.workflow,
+        promptId: job.promptId,
+        prompt: job.prompt,
+        negative: job.negative,
+        seed: job.seed,
+        savedPaths,
+        source: 'background',
+        createdAt: Date.now(),
+      });
+      const idNote = collected ? ` (${collected.id})` : '';
 
       const decision = resolveSendToModel(job.sendToModel, ctx.model?.input);
       const seedNote = job.seed !== undefined ? ` (seed ${job.seed})` : '';
       const countNote = `${savedPaths.length} image${savedPaths.length === 1 ? '' : 's'}`;
-      const details: JobsDetails = { action: 'collect', jobId: id, status: 'done', savedPaths };
+      const details: JobsDetails = {
+        action: 'collect',
+        jobId: id,
+        status: 'done',
+        savedPaths,
+        generationId: collected?.id,
+      };
       if (!decision.send) {
         const why = decision.visionBlocked
           ? ' (active model has no image input; not sent to model)'
           : ' (image not sent to model)';
-        const text = `Collected ${countNote} from [${id}] via "${job.workflow}"${seedNote}. Saved to ${job.saveDir}.${why}`;
+        const text = `Collected ${countNote} from [${id}]${idNote} via "${job.workflow}"${seedNote}. Saved to ${job.saveDir}.${why}`;
         return { content: [{ type: 'text', text }], details };
       }
-      const text = `Collected ${countNote} from [${id}] via "${job.workflow}"${seedNote}. Saved to ${job.saveDir}.`;
+      const text = `Collected ${countNote} from [${id}]${idNote} via "${job.workflow}"${seedNote}. Saved to ${job.saveDir}.`;
       return { content: [{ type: 'text', text }, ...saved.map((s) => s.block)], details };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -981,6 +1401,13 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
           description: 'List background generations',
           args: () => registry.jobs.map((j) => ({ label: j.id, description: j.status })),
         },
+        gallery: {
+          description: 'List recorded generations (reuse with variationOf / refine)',
+          args: () => generationsState.generations.map((g) => ({ label: g.id, description: g.workflow })),
+        },
+        models: {
+          description: 'List installed models from the server (/object_info)',
+        },
       }),
     handler: async (args, ctx) => {
       if (isHelpArg(args)) {
@@ -995,6 +1422,25 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
 
       if (sub === 'jobs') {
         ctx.ui.notify(formatRegistry(registry, Date.now()), 'info');
+        return;
+      }
+
+      if (sub === 'gallery') {
+        ctx.ui.notify(formatGallery(generationsState), 'info');
+        return;
+      }
+
+      // Read-only operator aid: dump the installed model files the server
+      // advertises so a human can fill `ckpt_name` / `lora_name` values
+      // when configuring a workflow. Never surfaced to the model.
+      if (sub === 'models') {
+        try {
+          const objectInfo = await fetchObjectInfo(conn, AbortSignal.timeout(conn.timeoutMs));
+          ctx.ui.notify(formatModelCatalog(extractModelCatalog(objectInfo)), 'info');
+        } catch (err) {
+          const reason = err instanceof Error ? err.message : String(err);
+          ctx.ui.notify(`could not fetch models from ${base}: ${reason}`, 'error');
+        }
         return;
       }
 

@@ -37,6 +37,31 @@ export interface WorkflowConfig {
    * Absent for pure text-to-image workflows.
    */
   images?: InputMapping[];
+  /**
+   * One-line human description of what this workflow is for (e.g. "anime /
+   * illustration (booru-tag prompting)"). Surfaced in the tool + `workflow`
+   * param descriptions so the model picks the right workflow. Optional.
+   */
+  description?: string;
+  /** Short discoverability tags (e.g. `["anime", "sdxl"]`), surfaced alongside `description`. Optional. */
+  tags?: string[];
+  /**
+   * Free-text hint describing the prompting protocol the model should send
+   * for this workflow's `prompt` / `negative` (e.g. "Danbooru tags,
+   * comma-separated" vs "natural language"). The main model sends prompts
+   * in the workflow's native protocol; this surfaces the dialect in the
+   * capability matrix. A non-trivial value also drives the
+   * "recommends enhance" hint. Optional.
+   */
+  promptProtocol?: string;
+  /**
+   * Path to a per-workflow prompt-enhancer guidance doc, concatenated
+   * after the global {@link ComfyuiConfig.enhanceGuidanceFile} when the
+   * enhancer runs. Resolves like {@link WorkflowConfig.file} (`~` /
+   * absolute / relative-to-cwd). Optional - the enhancer degrades to
+   * `description` / `tags` when absent. Never blocks a render.
+   */
+  guidanceFile?: string;
 }
 
 /**
@@ -120,6 +145,26 @@ export interface ComfyuiConfig {
    * {@link GenerationDefaults}.
    */
   defaults?: GenerationDefaults;
+  /**
+   * Whether the agent-driven prompt enhancer runs by default. When on,
+   * `generate_image` refines the positive + negative into the workflow's
+   * native protocol via a one-shot subagent before submitting. Off by
+   * default; a per-call `enhance` arg overrides it, and
+   * `PI_COMFYUI_DISABLE_ENHANCE` hard-disables it.
+   */
+  enhance: boolean;
+  /**
+   * Optional model spec (`provider/model-id`) for the enhancer subagent.
+   * Absent → the enhancer inherits the active session model. Lets a user
+   * point enhancement at a cheaper model than the main agent.
+   */
+  enhanceModel?: string;
+  /**
+   * Optional path to a global prompt-enhancer guidance doc, concatenated
+   * before any per-workflow {@link WorkflowConfig.guidanceFile}. Resolves
+   * like a workflow `file` (`~` / absolute / relative-to-cwd).
+   */
+  enhanceGuidanceFile?: string;
   /** Named workflows keyed by the name the model passes to the tool. */
   workflows: Record<string, WorkflowConfig>;
 }

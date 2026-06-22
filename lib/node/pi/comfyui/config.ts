@@ -55,6 +55,7 @@ export const DEFAULT_CONFIG: ComfyuiConfig = {
   background: false,
   autoDownload: true,
   pollIntervalMs: 3000,
+  enhance: false,
   workflows: {},
 };
 
@@ -144,13 +145,33 @@ function asImageList(value: unknown): InputMapping[] | undefined {
   return out.length > 0 ? out : undefined;
 }
 
+function asStringList(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const out: string[] = [];
+  for (const raw of value) {
+    const s = asString(raw);
+    if (s !== undefined && s.length > 0) out.push(s);
+  }
+  return out.length > 0 ? out : undefined;
+}
+
 function asWorkflowConfig(value: unknown): WorkflowConfig | undefined {
   if (!isObject(value)) return undefined;
   const file = asString(value.file);
   if (file === undefined || file.length === 0) return undefined;
   const inputs = asInputMap(value.inputs) ?? {};
   const images = asImageList(value.images);
-  return images === undefined ? { file, inputs } : { file, inputs, images };
+  const wf: WorkflowConfig = { file, inputs };
+  if (images !== undefined) wf.images = images;
+  const description = asString(value.description);
+  if (description !== undefined && description.length > 0) wf.description = description;
+  const tags = asStringList(value.tags);
+  if (tags !== undefined) wf.tags = tags;
+  const promptProtocol = asString(value.promptProtocol);
+  if (promptProtocol !== undefined && promptProtocol.length > 0) wf.promptProtocol = promptProtocol;
+  const guidanceFile = asString(value.guidanceFile);
+  if (guidanceFile !== undefined && guidanceFile.length > 0) wf.guidanceFile = guidanceFile;
+  return wf;
 }
 
 function asWorkflows(value: unknown): Record<string, WorkflowConfig> | undefined {
@@ -199,6 +220,16 @@ export function coerceConfigLayer(raw: unknown): Partial<ComfyuiConfig> {
   const pollIntervalMs = asPositiveNumber(raw.pollIntervalMs);
   if (pollIntervalMs !== undefined) out.pollIntervalMs = Math.max(MIN_POLL_INTERVAL_MS, pollIntervalMs);
 
+  const enhance = asBoolean(raw.enhance);
+  if (enhance !== undefined) out.enhance = enhance;
+
+  const enhanceModel = asString(raw.enhanceModel);
+  if (enhanceModel !== undefined && enhanceModel.length > 0) out.enhanceModel = enhanceModel;
+
+  const enhanceGuidanceFile = asString(raw.enhanceGuidanceFile);
+  if (enhanceGuidanceFile !== undefined && enhanceGuidanceFile.length > 0)
+    out.enhanceGuidanceFile = enhanceGuidanceFile;
+
   const defaults = asGenerationDefaults(raw.defaults);
   if (defaults !== undefined) out.defaults = defaults;
 
@@ -233,6 +264,9 @@ export function mergeConfigLayers(...overrides: Partial<ComfyuiConfig>[]): Comfy
     if (layer.background !== undefined) result.background = layer.background;
     if (layer.autoDownload !== undefined) result.autoDownload = layer.autoDownload;
     if (layer.pollIntervalMs !== undefined) result.pollIntervalMs = layer.pollIntervalMs;
+    if (layer.enhance !== undefined) result.enhance = layer.enhance;
+    if (layer.enhanceModel !== undefined) result.enhanceModel = layer.enhanceModel;
+    if (layer.enhanceGuidanceFile !== undefined) result.enhanceGuidanceFile = layer.enhanceGuidanceFile;
     if (layer.defaults !== undefined) result.defaults = { ...result.defaults, ...layer.defaults };
     if (layer.authHeader !== undefined) result.authHeader = { ...layer.authHeader };
     if (layer.workflows !== undefined) result.workflows = { ...result.workflows, ...layer.workflows };

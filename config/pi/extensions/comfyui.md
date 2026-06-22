@@ -38,28 +38,64 @@ tool result so the model can self-correct.
 
 ## Tool: `generate_image`
 
-| Parameter     | Type    | Notes                                                                                             |
-| ------------- | ------- | ------------------------------------------------------------------------------------------------- |
-| `prompt`      | string  | Required. Positive prompt.                                                                        |
-| `negative`    | string  | Negative prompt.                                                                                  |
-| `workflow`    | string  | Named workflow; defaults to `defaultWorkflow`.                                                    |
-| `width`       | number  | Output width in pixels.                                                                           |
-| `height`      | number  | Output height in pixels.                                                                          |
-| `steps`       | number  | Sampler steps.                                                                                    |
-| `cfg`         | number  | CFG / guidance scale.                                                                             |
-| `seed`        | number  | Omit for a fresh random seed; pass a prior seed to reproduce.                                     |
-| `denoise`     | number  | Denoise strength (img2img), `0`-`1`.                                                              |
-| `inputImages` | array   | Ordered reference image paths for img2img / edit workflows, e.g. `["~/in.png"]`.                  |
-| `count`       | number  | Batch size.                                                                                       |
-| `sendToModel` | boolean | Override the `sendToModel` config default for this call.                                          |
-| `ephemeral`   | boolean | Show the image inline this turn, then collapse the call + image out of context. See below.        |
-| `background`  | boolean | Submit and return now; collect later via `image_jobs`. Overrides the `background` config default. |
+| Parameter     | Type    | Notes                                                                                              |
+| ------------- | ------- | -------------------------------------------------------------------------------------------------- |
+| `prompt`      | string  | Positive prompt. Required unless `variationOf` supplies one to reuse.                              |
+| `negative`    | string  | Negative prompt.                                                                                   |
+| `variationOf` | string  | Reuse a prior generation id (`g3`) as a baseline (workflow / prompt / seed / dims), then override. |
+| `refine`      | string  | Refine a prior generation id (`g3`): feed its image into an edit `workflow`; omit `inputImages`.   |
+| `workflow`    | string  | Named workflow; defaults to `defaultWorkflow`.                                                     |
+| `width`       | number  | Output width in pixels.                                                                            |
+| `height`      | number  | Output height in pixels.                                                                           |
+| `aspect`      | string  | Aspect preset (`16:9`, `portrait`, `square`, …) expanded to width/height. Explicit dims win.       |
+| `steps`       | number  | Sampler steps.                                                                                     |
+| `cfg`         | number  | CFG / guidance scale.                                                                              |
+| `seed`        | number  | Omit for a fresh random seed; pass a prior seed to reproduce.                                      |
+| `denoise`     | number  | Denoise strength (img2img), `0`-`1`.                                                               |
+| `inputImages` | array   | Ordered reference image paths for img2img / edit workflows, e.g. `["~/in.png"]`.                   |
+| `count`       | number  | Batch size.                                                                                        |
+| `sendToModel` | boolean | Override the `sendToModel` config default for this call.                                           |
+| `ephemeral`   | boolean | Show the image inline this turn, then collapse the call + image out of context. See below.         |
+| `background`  | boolean | Submit and return now; collect later via `image_jobs`. Overrides the `background` config default.  |
+| `enhance`     | boolean | Refine prompt + negative into the workflow's protocol via a subagent first. See below.             |
+| `context`     | string  | Background to honor during enhancement (not depicted literally). Only used when `enhance` is on.   |
 
 Each parameter is injected only if the active workflow's input map names a node for it. Passing an arg the workflow does
 not map (or passing `inputImages` to a workflow with no image slots) returns a clear error rather than a silent no-op.
 Workflows that declare more than one image slot (see `images` below) accept several ordered reference images; supplying
 more images than the workflow has slots is an error, while supplying fewer fills the slots in order and leaves the
 remaining slots at their graph-baked image.
+
+`aspect` is a convenience that expands to `width` / `height` at a target pixel budget (the `defaults` area when both are
+configured, else ~1 MP), snapped to a multiple of 8. It accepts a named preset (`square`, `portrait`, `landscape`,
+`tall`, `wide` / `widescreen`, `cinema`) or a `W:H` / `W x H` ratio. An explicit per-call `width` / `height` overrides
+the aspect-derived value, and a workflow that maps neither dimension rejects `aspect` with a clear error (edit graphs
+take their size from the reference image).
+
+### Prompt enhancement (`enhance`)
+
+When `enhance` is on, `generate_image` rewrites the positive and negative prompts into the target workflow's native
+protocol before submitting, using a one-shot [`comfyui-enhance`](../agents/comfyui-enhance.md) subagent. This lets the
+calling model send a loose, natural-language prompt and let the enhancer translate it into, say, comma-separated
+Danbooru tags for an anime checkpoint, or expand a terse phrase with composition / lighting / style detail for a FLUX
+graph.
+
+- **Opt-in.** Off unless the per-call `enhance` arg or the `enhance` config knob turns it on. Workflows whose
+  `promptProtocol` is not plain natural language carry a `recommends enhance` hint in the tool's capability matrix, but
+  only while the enhancer is actually installed.
+- **Guidance.** The enhancer is handed the workflow's `description`, `tags`, and `promptProtocol`, plus the concatenated
+  contents of the global `enhanceGuidanceFile` and the workflow's own `guidanceFile` (global first). Those docs tell it
+  how to phrase for this specific image model.
+- **Context.** The per-call `context` arg is passed as background to honor (scene, continuity, character facts) without
+  being depicted literally. Ignored when `enhance` is off.
+- **Negative.** The enhancer builds on the baseline negative (per-call `negative` ?? `variationOf` ?? `defaults`); its
+  returned negative replaces the baseline for the render.
+- **Model.** The enhancer inherits the active session model unless `enhanceModel` (`provider/model-id`) points it at a
+  cheaper one.
+- **Best-effort, never blocks.** A missing agent, model-resolution failure, spawn error, non-`completed` stop, or
+  unparseable output silently falls back to the original prompt + baseline negative. Set `PI_COMFYUI_DISABLE_ENHANCE` to
+  hard-disable it. When the prompt was enhanced, the result echoes the enhanced positive so the model can reuse it via
+  `variationOf`; the registry records the enhanced prompt (what was actually rendered).
 
 ## Background generation
 
@@ -86,6 +122,30 @@ Auto-download only gets the file **onto disk** - it cannot push the image into t
 enters the conversation only through a tool result the model itself invoked. So if you want the model to _see_ an
 auto-downloaded render, it still calls `collect`; that path re-serves the already-saved files from disk inline (it does
 not re-fetch from the server). Set `"autoDownload": false` to go back to pull-only collection.
+
+## Generation registry
+
+Every render that lands on disk - foreground, collected background, or ephemeral - is recorded in a per-session
+**generation registry** and given a short id (`g1`, `g2`, …). The id is echoed in the result line
+(`Generated 1 image [g3] via "anima"…`) so the model can refer back to it. The registry stores the resolved values that
+were submitted: workflow, prompt, negative, seed, dimensions, and saved paths.
+
+The registry is persisted to the session branch as a `comfyui-generations` custom entry (a full snapshot per mutation,
+the same machinery the ephemeral overlay uses) and rebuilt on `session_start` / `session_tree`, so the gallery and the
+reuse params survive `/reload`, a branch switch, and exit -> resume. Background jobs are de-duplicated by ComfyUI prompt
+id, so a job recorded by the off-turn auto-download and then `collect`ed appears once.
+
+Two `generate_image` params turn a recorded render into a starting point:
+
+- `variationOf: "g3"` inherits g3's workflow, prompt, negative, seed, and dimensions as the baseline, then applies any
+  param passed in the same call on top. Because the seed is reused, an unmodified `variationOf` reproduces the original;
+  pass a new `seed` (or tweak the prompt / dims) to vary it. `prompt` is optional in this mode (it falls back to g3's).
+- `refine: "g3"` feeds g3's saved image into an edit workflow as its input image. Set `workflow` to an edit workflow and
+  `prompt` to the edit instruction; do not also pass `inputImages` (refine supplies it). The saved file must still exist
+  on disk. Pass `variationOf` or `refine`, not both.
+
+`/comfyui gallery` lists the recorded generations for the current session. Unknown ids return a clear error pointing at
+the gallery.
 
 ## Image-generated event bus
 
@@ -131,20 +191,23 @@ shipped [`txt2img.api.json`](../comfyui/txt2img.api.json) is example scaffolding
 `v1-5-pruned-emaonly.safetensors` checkpoint most servers won't have), not a real default. Drop at least one workflow
 into one of the config files to opt in; see [`../comfyui-example.json`](../comfyui-example.json) for a starting point.
 
-| Key               | Default                  | Meaning                                                                                                                 |
-| ----------------- | ------------------------ | ----------------------------------------------------------------------------------------------------------------------- |
-| `baseUrl`         | `http://127.0.0.1:8188`  | ComfyUI server origin. Supports `${ENV}`. `PI_COMFYUI_URL` overrides it.                                                |
-| `authHeader`      | (none)                   | `{ "name", "value" }` sent on every request; `value` supports `${ENV}`.                                                 |
-| `timeoutMs`       | `180000`                 | Hard cap per generation before it is aborted.                                                                           |
-| `saveDir`         | `.pi/comfyui-out`        | Where PNGs are written (relative to cwd, or an absolute path).                                                          |
-| `defaultWorkflow` | `txt2img`                | Workflow used when the tool call omits `workflow`.                                                                      |
-| `sendToModel`     | `true`                   | Return the image in the tool result (fed to the model next turn). `false` saves to disk only.                           |
-| `ephemeral`       | `false`                  | Render images inline this turn, then collapse the call + image out of context afterward. Per-call arg overrides.        |
-| `background`      | `false`                  | Submit generations as background jobs by default (collect later via `image_jobs`). Per-call `background` arg overrides. |
-| `autoDownload`    | `true`                   | Poll background jobs off-turn and fetch finished PNGs to `saveDir` automatically. `false` reverts to pull-only collect. |
-| `pollIntervalMs`  | `3000`                   | How often the auto-download timer polls `/history` per running job (floored at `1000`). Only used when `autoDownload`.  |
-| `defaults`        | (none)                   | Generation-param defaults pre-filled when a call omits them; merge by field. See below.                                 |
-| `workflows`       | `{ txt2img: <shipped> }` | Named workflows; merge by name across layers.                                                                           |
+| Key                   | Default                  | Meaning                                                                                                                 |
+| --------------------- | ------------------------ | ----------------------------------------------------------------------------------------------------------------------- |
+| `baseUrl`             | `http://127.0.0.1:8188`  | ComfyUI server origin. Supports `${ENV}`. `PI_COMFYUI_URL` overrides it.                                                |
+| `authHeader`          | (none)                   | `{ "name", "value" }` sent on every request; `value` supports `${ENV}`.                                                 |
+| `timeoutMs`           | `180000`                 | Hard cap per generation before it is aborted.                                                                           |
+| `saveDir`             | `.pi/comfyui-out`        | Where PNGs are written (relative to cwd, or an absolute path).                                                          |
+| `defaultWorkflow`     | `txt2img`                | Workflow used when the tool call omits `workflow`.                                                                      |
+| `sendToModel`         | `true`                   | Return the image in the tool result (fed to the model next turn). `false` saves to disk only.                           |
+| `ephemeral`           | `false`                  | Render images inline this turn, then collapse the call + image out of context afterward. Per-call arg overrides.        |
+| `background`          | `false`                  | Submit generations as background jobs by default (collect later via `image_jobs`). Per-call `background` arg overrides. |
+| `autoDownload`        | `true`                   | Poll background jobs off-turn and fetch finished PNGs to `saveDir` automatically. `false` reverts to pull-only collect. |
+| `pollIntervalMs`      | `3000`                   | How often the auto-download timer polls `/history` per running job (floored at `1000`). Only used when `autoDownload`.  |
+| `enhance`             | `false`                  | Run the prompt-enhancer subagent by default. Per-call `enhance` arg overrides; `PI_COMFYUI_DISABLE_ENHANCE` kills it.   |
+| `enhanceModel`        | (inherit)                | `provider/model-id` for the enhancer subagent. Absent = inherit the active session model.                               |
+| `enhanceGuidanceFile` | (none)                   | Path to a global prompt-enhancer guidance doc, prepended before any per-workflow `guidanceFile`. `~` / abs / rel-cwd.   |
+| `defaults`            | (none)                   | Generation-param defaults pre-filled when a call omits them; merge by field. See below.                                 |
+| `workflows`           | `{ txt2img: <shipped> }` | Named workflows; merge by name across layers.                                                                           |
 
 Every scalar above resolves
 `per-call arg > project config (<cwd>/.pi/comfyui.json) > user config (~/.pi/agent/comfyui.json) > built-in default`. So
@@ -288,6 +351,43 @@ Export a workflow from ComfyUI with "Save (API Format)", drop it somewhere reada
 map key receives the tool's `count` arg. To get the node ids, open the API-format JSON (its top-level keys are the node
 ids) or enable node-id badges in the ComfyUI canvas.
 
+#### Workflow discoverability (optional)
+
+A workflow entry may carry optional metadata, surfaced to the model in the `generate_image` tool description so it picks
+the right workflow and sends the right prompt shape:
+
+- `description` - one line on what the workflow is for (e.g. `"anime / illustration"`).
+- `tags` - short string tags (e.g. `["anime", "sdxl"]`).
+- `promptProtocol` - the prompting dialect the model should send for `prompt` / `negative` (e.g.
+  `"Danbooru tags, comma-separated"` vs `"natural language"`). The model sends prompts in each workflow's native
+  protocol; this names the dialect rather than forcing one shape. A non-natural-language protocol also drives the
+  `recommends enhance` hint in the matrix (when the enhancer is installed).
+- `guidanceFile` - path to a per-workflow prompt-enhancer guidance doc, concatenated after the global
+  `enhanceGuidanceFile` when `enhance` runs (see [Prompt enhancement](#prompt-enhancement-enhance)). Resolves like
+  `file` (`~` / absolute / relative-to-cwd). Optional; the enhancer degrades to `description` / `tags` when absent.
+
+```jsonc
+{
+  "workflows": {
+    "anima": {
+      "file": "~/.pi/agent/comfyui/anima.api.json",
+      "inputs": {
+        /* ... */
+      },
+      "description": "anime / illustration",
+      "tags": ["anime", "sdxl"],
+      "promptProtocol": "Danbooru tags, comma-separated",
+      "guidanceFile": "~/.pi/agent/comfyui/anima-guidance.md",
+    },
+  },
+}
+```
+
+These render as a one-line capability matrix per workflow (description, tags, the `generate_image` params the workflow
+actually maps, reference-image slot count, the prompt protocol, and a `recommends enhance` hint where relevant), so the
+model stops guessing workflow names and passing params a workflow does not support. All fields are optional; a workflow
+without them just shows its name and mapped params.
+
 Reference images for edit / img2img workflows are declared in a separate top-level `images` array on the workflow entry
 (a sibling of `inputs`, not a key inside it). Each element is a `{ "node", "key" }` pair naming a `LoadImage`-style
 slot. The ordered `inputImages` tool arg fills them in order: `inputImages[0]` into `images[0]`, and so on. Supplying
@@ -415,11 +515,12 @@ default (e.g. `steps`) on top of a global one without redeclaring the rest.
 
 ## Environment variables
 
-| Variable              | Effect                                                                            |
-| --------------------- | --------------------------------------------------------------------------------- |
-| `PI_COMFYUI_DISABLED` | Skip the extension entirely.                                                      |
-| `PI_COMFYUI_URL`      | Override the configured `baseUrl`.                                                |
-| `PI_COMFYUI_TOKEN`    | Convention for a token referenced by `authHeader.value` as `${PI_COMFYUI_TOKEN}`. |
+| Variable                     | Effect                                                                            |
+| ---------------------------- | --------------------------------------------------------------------------------- |
+| `PI_COMFYUI_DISABLED`        | Skip the extension entirely.                                                      |
+| `PI_COMFYUI_URL`             | Override the configured `baseUrl`.                                                |
+| `PI_COMFYUI_TOKEN`           | Convention for a token referenced by `authHeader.value` as `${PI_COMFYUI_TOKEN}`. |
+| `PI_COMFYUI_DISABLE_ENHANCE` | Hard-disable the prompt enhancer regardless of config / per-call `enhance`.       |
 
 Auth headers are sent on every HTTP request. ComfyUI's websocket does not carry custom headers, so on an authenticated
 server the progress stream may not connect; polling still drives completion regardless.
@@ -430,6 +531,11 @@ server the progress stream may not connect; polling still drives completion rega
 configured, the default workflow, the configured workflow names, and `saveDir`. `/comfyui workflows` loads each
 configured workflow file and validates that every mapped node id exists in the graph, so a bad input map is caught
 without a generation round-trip. `/comfyui jobs` lists the current session's background generations and their status.
+`/comfyui gallery` lists the recorded generation registry (every render that landed on disk, with its `g<n>` id) for
+reuse via `variationOf` / `refine`. `/comfyui models` queries the server's `/object_info` and lists the installed model
+files it advertises (checkpoints, VAEs, LoRAs, CLIP / UNet weights, ControlNets, upscalers) so you can fill in
+`ckpt_name` / `lora_name` values when configuring a workflow. It is a read-only operator aid and is never exposed to the
+model.
 
 ## Hot reload
 
@@ -440,8 +546,10 @@ at load time, so a `/reload` re-runs registration and picks up changes to `comfy
 registry on reload, so a stale job count never bleeds into the next session. The ephemeral-render collapse overlay is
 **not** dropped across a reload: it is persisted as a `comfyui-ephemeral-state` custom entry and rebuilt from the branch
 on `session_start` / `session_tree`, so prior ephemeral renders stay collapsed out of context after a `/reload`, a
-branch switch, or an exit -> resume. The jobs themselves run server-side and are not re-attached after reload - ComfyUI
-keeps each prompt under its id, so re-collect via the server's own history if a generation was in flight.
+branch switch, or an exit -> resume. The generation registry (the `g<n>` gallery) is likewise persisted as a
+`comfyui-generations` custom entry and rebuilt from the branch, so prior renders stay addressable by `variationOf` /
+`refine` across a `/reload`. The jobs themselves run server-side and are not re-attached after reload - ComfyUI keeps
+each prompt under its id, so re-collect via the server's own history if a generation was in flight.
 
 ## Related docs
 
