@@ -4,20 +4,25 @@ disable-model-invocation: true
 description:
   Prompting rules for the Laxhar Labs **NoobAI-XL v-prediction** anime / illustration model. Use when the user asks to
   generate / draw / render an anime image on a NoobAI v-pred workflow. NoobAI uses `artist:name` syntax and is
-  e621-trained (requires anti-furry negatives); the v-prediction variant has stricter sampler and CFG constraints than
-  the eps variant - do not conflate them.
+  e621-trained (requires anti-furry negatives); the v-prediction variant has strict Euler-only, low-CFG, and zsnr
+  constraints.
 ---
 
 # NoobAI-XL V-Pred Prompting
 
 [NoobAI-XL V-Pred](https://huggingface.co/Laxhar/noobai-XL-Vpred-1.0) is Laxhar Labs' Illustrious-XL fine-tune on
-Danbooru + e621 (NebulaeWis's `e621-2024-webp-4Mpixel`), running in **v-prediction** mode. This skill teaches how to
-drive it from `generate_image`. The v-pred constraints are non-negotiable - the model card opens with "THIS MODEL WORKS
-DIFFERENT FROM EPS MODELS!" Rules below do not apply to the eps variant, plain Illustrious (see
-[[illustrious-prompting]]), Pony, or Anima (see [[anima-prompting]]).
+Danbooru + e621 (NebulaeWis's `e621-2024-webp-4Mpixel`), running in **v-prediction** mode. Write the `prompt` and
+`negative` you pass to the `generate_image` tool per the rules below to drive it well on the first call. The v-pred
+constraints are non-negotiable - the model card opens with "THIS MODEL WORKS DIFFERENT FROM EPS MODELS!" The rules here
+are specific to the v-prediction variant; an eps-prediction model wants different sampler / CFG settings.
 
 NoobAI supports Danbooru and e621 tag namespaces plus natural-language captions. Because of the e621 training, you
 **must** add anti-furry tags to the negative when you want pure anime output.
+
+**Safe default when unsure:** use the NoobAI v-pred workflow; lead the `prompt` with
+`masterpiece, best quality, newest, absurdres, highres, safe,`, add roughly 8-15 caption-order tags for the subject, and
+always pass the recommended `negative` below **including its anti-furry block**. Keep the workflow at Euler +
+v-prediction + zsnr and CFG 4-5. Everything below is how to do better than this default when the request calls for it.
 
 ## The `generate_image` call
 
@@ -41,7 +46,7 @@ Do not pass `inputImage` unless the workflow is a NoobAI img2img variant.
 2. **Caption order:**
    `<1girl/1boy/1other/...>, <character>, <series>, <artists>, <special tags>, <general tags>, <other tags>`.
 3. **Artists use `artist:name` syntax**, comma-joined: `artist:john_kafka, artist:nixeu, artist:quasarcake`. Multi-word
-   artist names keep the underscore (`john_kafka`). Do **not** use Anima's `@` prefix here.
+   artist names keep the underscore (`john_kafka`). Do **not** use an `@` prefix on artists.
 4. **Lowercase tags, spaces over underscores** in general tags; multi-word Danbooru proper nouns may keep underscores.
 5. **Escape literal parentheses** with backslash: `arlecchino \(genshin impact\)`, `horror \(theme\)`.
 6. **Name then describe characters.** Multiple characters -> describe each separately to avoid conflation.
@@ -123,7 +128,48 @@ Tell the user to verify the workflow file has Euler + v_prediction + zsnr before
 If outputs are oversaturated, the Civitai page recommends a **CFG-Rescale** node at `0.2` to tame v-pred contrast. That
 is a workflow-level addition - mention it when the user reports burned-looking renders.
 
+## Prompt enhancement (`enhance`)
+
+The `generate_image` tool has an opt-in **`enhance`** option that routes your prompt through a separate model before the
+render to rewrite it into NoobAI's native protocol - the prefixed, caption-ordered Danbooru / e621 tag list this guide
+describes.
+
+- **It is opt-in.** Pass `enhance: true` on the call (or a workflow/config default turns it on). When off, your `prompt`
+  is sent as-is.
+- **Use it when** the incoming prompt is thin (a few words) and you want a one-shot upgrade to a full tagged prompt.
+  When you have already built a careful tagged prompt, leave `enhance` off - it only adds latency and risks drifting
+  from your intent.
+- **Scene continuity.** Pass the `context` arg alongside `enhance` to hand the enhancer background to honour (character
+  facts, ongoing scene, wardrobe) without depicting it literally. It is ignored when `enhance` is off.
+- **Negative.** The enhancer builds on whatever baseline `negative` you pass and returns a refined one - it must keep
+  the anti-furry block (see the [negative recipe](#negative-prompt-recipe)).
+
+## If you are enhancing a prompt rather than rendering
+
+You may be reading this not to call `generate_image` yourself, but as guidance handed to the prompt-enhancement step:
+you were given a rough positive prompt, a baseline negative, and the target workflow's protocol, and you must return a
+single JSON object `{"prompt", "negative"}` and nothing else. In that role:
+
+- **Act only on the prompt-writing rules above** - the required prefix and caption order in the
+  [positive recipe](#positive-prompt-recipe) and the [negative recipe](#negative-prompt-recipe). The generation-settings
+  and tool-arg tables do not apply - you do not pick a workflow or call any tool.
+- **Translate and enrich, do not reinvent.** Keep the incoming subject and intent; lead with
+  `masterpiece, best quality, newest, absurdres, highres, safe,`, write artists as comma-joined `artist:name` (no `@`),
+  use lowercase tags, and escape literal parentheses (`\(` `\)`).
+- **Always add detail - even to an already-tagged prompt.** NoobAI has no aggressive aesthetic baked in, so push toward
+  roughly 8-15 caption-order items: subject count (`1girl` / `1boy` / `1other`), character / series, appearance, pose,
+  scene, and lighting that the prompt leaves unstated, staying faithful to the stated subject.
+- **Mine any background context you were given** (a scene/continuity note, recent conversation) for that extra detail
+  and fold it in as depictable tags. Treat it as source material to pick from, not a checklist to dump and not a subject
+  that overrides the explicit prompt; ignore chatter with no visual bearing.
+- **Build on the baseline negative** and **always keep the anti-furry block**
+  (`mammal, anthro, furry, ambiguous form, feral, semi-anthro`) unless the user actually wants furry / anthro art. If
+  the positive opts into `sensitive` / `nsfw`, drop `safe` from the positive and `nsfw` from the negative together.
+
 ## Worked examples
+
+These illustrate the _shape_ of a finished prompt - adapt them to the actual request, do not reuse them verbatim. Pass
+the `prompt` (and `negative`) value as a single string.
 
 Standard portrait:
 
@@ -158,9 +204,9 @@ The wrapped lines above are a single comma/space-joined string each - pass them 
 - **Wrong sampler.** Per the README, only Euler works properly. DPM++, UniPC, Heun all degrade output.
 - **Skipping the anti-furry block.** Without `mammal, anthro, furry, ambiguous form, feral, semi-anthro` in the
   negative, e621 features leak into anime prompts (snouts, fur textures, paw pads).
-- **Anima `@artist` syntax.** Wrong here - use `artist:name` instead.
-- **Three-word prompts.** Same as Illustrious - NoobAI has no aggressive aesthetic tuning, so terse prompts come out
-  bland. Always include quality prefix + caption-order tags.
+- **`@`-prefixed artists.** Wrong here - use `artist:name` instead.
+- **Three-word prompts.** NoobAI has no aggressive aesthetic tuning, so terse prompts come out bland. Always include the
+  quality prefix + caption-order tags.
 - **Dropping `safe` without `nsfw` in the positive.** Output drifts toward suggestive by default; either keep the
   `safe`/`nsfw negative` pairing, or explicitly opt in with `sensitive` / `nsfw` / `explicit` in the positive.
 - **Year + period both pointing different eras.** Don't write `year 2023, old` - pick one.
