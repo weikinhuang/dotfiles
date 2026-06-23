@@ -68,12 +68,17 @@ export function buildEnhanceTask(opts: EnhanceTaskOpts): string {
 
   const guidance = opts.guidance?.trim();
   if (guidance !== undefined && guidance.length > 0) {
-    parts.push(`Guidance for prompting this image model:\n${guidance}`);
+    parts.push(
+      'Guidance for prompting this image model (authoritative - follow it, and let it override any default):\n' +
+        guidance,
+    );
   } else {
     const description = opts.description?.trim();
-    if (description !== undefined && description.length > 0) {
-      parts.push(`Target workflow: ${description}`);
-    }
+    const descSuffix = description !== undefined && description.length > 0 ? ` Target workflow: ${description}.` : '';
+    parts.push(
+      'No model-specific guidance was provided - rely on the target protocol and your general knowledge of how to ' +
+        `prompt this kind of model.${descSuffix}`,
+    );
   }
 
   const tags = cleanList(opts.tags);
@@ -99,8 +104,8 @@ export function buildEnhanceTask(opts: EnhanceTaskOpts): string {
 
   parts.push(
     'Return ONLY a JSON object of the form {"prompt": "<enhanced positive>", "negative": "<enhanced negative>"}. ' +
-      "Refine and translate the positive into the protocol above; keep the user's intent. For the negative, build on " +
-      'the baseline. Output nothing but the JSON object - no prose, no code fence.',
+      "Refine, translate, and enrich the positive into the protocol above; keep the user's intent. For the negative, " +
+      'build on the baseline. Output nothing but the JSON object - no prose, no code fence.',
   );
 
   return parts.join('\n\n');

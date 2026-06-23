@@ -27,6 +27,7 @@ test('buildEnhanceTask includes guidance, protocol, context, prompt, negative, J
     context: 'It is night; the knight lost an arm last scene.',
   });
   expect(task).toContain('Use booru tags.');
+  expect(task).toContain('authoritative');
   expect(task).toContain('Danbooru tags, comma-separated');
   expect(task).toContain('Background to honor');
   expect(task).toContain('lost an arm');
@@ -35,12 +36,13 @@ test('buildEnhanceTask includes guidance, protocol, context, prompt, negative, J
   expect(task).toContain('"prompt"');
 });
 
-test('buildEnhanceTask falls back to description/tags when no guidance doc', () => {
+test('buildEnhanceTask falls back to description/tags with an explicit no-guidance cue', () => {
   const task = buildEnhanceTask({
     prompt: 'a cat',
     description: 'anime / illustration',
     tags: ['anime', 'sdxl', '  '],
   });
+  expect(task).toContain('No model-specific guidance was provided');
   expect(task).toContain('Target workflow: anime / illustration');
   expect(task).toContain('Workflow tags: anime, sdxl');
   expect(task).not.toContain('Guidance for prompting');
