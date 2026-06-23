@@ -17,8 +17,10 @@ Anima.
 
 Anima is trained on **Danbooru-style tags of the Gelbooru flavor, natural-language captions, and mixes of the two**
 (anime training data cuts off September 2025). All three work; pick whichever fits the request and always lead with
-quality + safety tags. The LLM adapter is what makes detailed prompts pay off here far more than on a plain SDXL model -
-terse prompts waste the model's strongest feature.
+quality + safety tags. Because of the qwen LLM text-encoder adapter, **natural language is a first-class input mode**,
+not a fallback - prose (or a quality-tag prefix followed by prose) often captures a scene's composition, spatial layout,
+and mood better than tags alone. The adapter is what makes detailed prompts pay off here far more than on a plain SDXL
+model - terse prompts waste the model's strongest feature.
 
 **Safe default when unsure:** use the `anima` workflow, begin the `prompt` with
 `masterpiece, best quality, score_7, safe,`, describe the subject in roughly 12-25 lowercase tags (or 2+ sentences of
@@ -66,6 +68,28 @@ prompt every time. Do not pass `inputImage` (Anima here is text-to-image only).
 
 Order only matters between sections; within a section tags are free-order. You do not need every relevant tag - the
 model was trained with tag dropout.
+
+## Natural-language and mixed prompts
+
+Anima's qwen text-encoder adapter reads full sentences, not just tags, so natural language is a first-class way to
+prompt it - often the better one for scenes, spatial relationships, mood, and multi-element compositions where a tag
+list gets ambiguous. The model card ships a dedicated natural-language tips section; the rules that matter:
+
+- **Keep the quality / safety prefix.** Lead with `masterpiece, best quality, score_7, safe,` (or `.`) even in a prose
+  prompt - the rating tag still carries safety - then write the description as prose. Quality and `@artist` tags are
+  fine at the start of a natural-language prompt.
+- **Be descriptive: aim for >=2 sentences.** Pure natural language rewards detail; extremely short prose gives
+  unexpected (sometimes unsafe) results. Spend the same detail budget as the tag recipe (~12-25 depictable items), just
+  expressed as prose - appearance, wardrobe, setting, lighting, palette.
+- **Mix tags and prose freely, in any order.** A hybrid is common and effective: open with quality + character / series
+  tags, then a sentence or two of prose for pose, framing, and scene. The tool takes one string; comma- or period-join
+  the two halves.
+- **Name a character, then describe their appearance**
+  (`Fern from Sousou no Frieren, with long purple hair and purple eyes, wearing a black coat...`). With multiple
+  characters this is essential or the model conflates them.
+
+The one caution: do not bury a single character under a wall of scenery prose - keep scene description to a short clause
+and spend the detail on the character (see [Anti-patterns](#anti-patterns)).
 
 ## Expanding a terse user request
 
@@ -136,14 +160,20 @@ worst quality, low quality, score_1, score_2, score_3, artist name
 
 ## Tag reference
 
-| Group           | Values                                                                                          |
-| --------------- | ----------------------------------------------------------------------------------------------- |
-| Quality (human) | `masterpiece`, `best quality`, `good quality`, `normal quality`, `low quality`, `worst quality` |
-| Quality (Pony)  | `score_9` ... `score_1` (use human, Pony, both, or neither - all work)                          |
-| Safety          | `safe`, `sensitive`, `nsfw`, `explicit`                                                         |
-| Meta            | `highres`, `absurdres`, `anime screenshot`, `official art`, `jpeg artifacts`                    |
-| Time            | `year 2025` (specific) or period: `newest`, `recent`, `mid`, `early`, `old`                     |
-| Weighting       | Works, but heavier than SDXL: `(chibi:2)`, not `(chibi:1.2)`                                    |
+| Group           | Values                                                                                            |
+| --------------- | ------------------------------------------------------------------------------------------------- |
+| Quality (human) | `masterpiece`, `best quality`, `good quality`, `normal quality`, `low quality`, `worst quality`   |
+| Quality (Pony)  | `score_9` ... `score_1` (use human, Pony, both, or neither - all work)                            |
+| Safety          | `safe`, `sensitive`, `nsfw`, `explicit`                                                           |
+| Meta            | `highres`, `absurdres`, `anime screenshot`, `official art`, `jpeg artifacts`                      |
+| Time            | `year 2025` (specific) or period: `newest`, `recent`, `mid`, `early`, `old`                       |
+| Weighting       | Parenthesis weighting; needs bigger numbers than SDXL: `(chibi:2)`, not `(chibi:1.2)`. See below. |
+
+**Weighting syntax.** Anima runs on ComfyUI, which weights with **parentheses only**: `(tag:1.4)` to strengthen,
+`(tag:0.6)` to weaken, bare `(tag)` for ~1.1x, and nesting (`((tag))` ~= 1.21x). Anima responds more weakly to a given
+weight than SDXL, so reach for bigger moves - `(chibi:2)`, not `(chibi:1.2)`. **Square brackets are not weighting on
+ComfyUI**: `[tag]` is parsed as `([tag]:1)`, i.e. the brackets become literal tokens at weight 1, not an A1111-style
+de-emphasis. To push something down, use a fractional parenthesis weight like `(background:0.6)`, never `[background]`.
 
 ## Generation settings
 
@@ -239,7 +269,8 @@ The wrapped lines above are a single comma/space-joined string each - pass them 
   ```
 
 - **Underscores in tags.** `brown_hair` is wrong; write `brown hair`. Only `score_7` keeps the underscore.
-- **SDXL-level weights.** `(chibi:1.2)` barely moves Anima; use `(chibi:2)`.
+- **SDXL-level weights.** `(chibi:1.2)` barely moves Anima; use `(chibi:2)`. And weight only with parentheses -
+  `[chibi]` does not de-emphasize on ComfyUI (it is read as `([chibi]:1)`); use `(chibi:0.6)` to weaken instead.
 - **Forgetting `@` on an artist.** `some artist` ~= no effect; `@some artist` applies the style.
 - **Expanding wildcards.** `{standing|sitting}` is dynamic-prompt syntax that resolves at generation time. Rewriting it
   as `"standing or sitting"`, picking one branch, or deleting it are all wrong - pass the literal `{...|...}` token
