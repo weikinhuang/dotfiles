@@ -198,6 +198,15 @@ describe('coerceConfigLayer', () => {
     expect(out.workflows?.anima).toEqual({ file: '~/a.json', inputs: {}, guidanceFile: '~/guide.md' });
   });
 
+  test('parses a per-workflow enhance override (true/false), dropping non-booleans', () => {
+    const on = coerceConfigLayer({ workflows: { a: { file: '~/a.json', inputs: {}, enhance: true } } });
+    expect(on.workflows?.a).toEqual({ file: '~/a.json', inputs: {}, enhance: true });
+    const off = coerceConfigLayer({ workflows: { a: { file: '~/a.json', inputs: {}, enhance: false } } });
+    expect(off.workflows?.a.enhance).toBe(false);
+    const bad = coerceConfigLayer({ workflows: { a: { file: '~/a.json', inputs: {}, enhance: 'yes' } } });
+    expect(bad.workflows?.a.enhance).toBeUndefined();
+  });
+
   test('parses enhancer knobs (enhance, enhanceModel, enhanceGuidanceFile)', () => {
     const out = coerceConfigLayer({
       enhance: true,
@@ -207,6 +216,19 @@ describe('coerceConfigLayer', () => {
     expect(out.enhance).toBe(true);
     expect(out.enhanceModel).toBe('openai/gpt-4o-mini');
     expect(out.enhanceGuidanceFile).toBe('~/global-guide.md');
+  });
+
+  test('parses enhanceTimeoutMs; drops non-positive', () => {
+    expect(coerceConfigLayer({ enhanceTimeoutMs: 60000 }).enhanceTimeoutMs).toBe(60000);
+    expect(coerceConfigLayer({ enhanceTimeoutMs: 0 }).enhanceTimeoutMs).toBeUndefined();
+    expect(coerceConfigLayer({ enhanceTimeoutMs: 'slow' }).enhanceTimeoutMs).toBeUndefined();
+  });
+
+  test('parses and rounds enhanceContextChars; drops non-positive (0 = off)', () => {
+    expect(coerceConfigLayer({ enhanceContextChars: 1500 }).enhanceContextChars).toBe(1500);
+    expect(coerceConfigLayer({ enhanceContextChars: 1499.6 }).enhanceContextChars).toBe(1500);
+    expect(coerceConfigLayer({ enhanceContextChars: 0 }).enhanceContextChars).toBeUndefined();
+    expect(coerceConfigLayer({ enhanceContextChars: 'lots' }).enhanceContextChars).toBeUndefined();
   });
 
   test('drops empty / wrong-typed enhancer knobs', () => {

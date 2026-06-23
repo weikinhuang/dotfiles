@@ -88,12 +88,24 @@ graph.
 - **Guidance.** The enhancer is handed the workflow's `description`, `tags`, and `promptProtocol`, plus the concatenated
   contents of the global `enhanceGuidanceFile` and the workflow's own `guidanceFile` (global first). Those docs tell it
   how to phrase for this specific image model.
+- **Scene context.** The enhancer runs in a fresh subagent and sees no conversation history. The per-call `context` arg
+  is the explicit way to hand it scene/continuity to honor (not depict literally). When `enhanceContextChars > 0`, the
+  extension also auto-captures up to that many chars of the most recent user/assistant turns and feeds them as a
+  `Recent conversation` background block - so the enhancer can enrich even an already-protocol-formatted prompt with
+  scene detail without the calling model hand-feeding `context` each call. The explicit `context` arg leads; the
+  captured scene follows. It costs extra input tokens per enhance call on the inherited model, so it is off by default.
 - **Context.** The per-call `context` arg is passed as background to honor (scene, continuity, character facts) without
   being depicted literally. Ignored when `enhance` is off.
 - **Negative.** The enhancer builds on the baseline negative (per-call `negative` ?? `variationOf` ?? `defaults`); its
   returned negative replaces the baseline for the render.
 - **Model.** The enhancer inherits the active session model unless `enhanceModel` (`provider/model-id`) points it at a
-  cheaper one.
+  cheaper one. It runs synchronously before the render submits, so a slow model both adds latency and is more likely to
+  be aborted: in a fast back-and-forth (e.g. roleplay) the parent turn can end before the enhancer finishes, and the run
+  has its own `enhanceTimeoutMs` (default 30s) wall-clock cap. Point `enhanceModel` at a fast model to shrink that
+  window.
+- **Diagnostics.** Failures (`aborted`, `timed out after …ms`, parse failures) always notify, with the abort cause
+  disambiguated (a parent-turn cancellation vs the enhancer's own timeout). A successful enhance is silent unless
+  `PI_COMFYUI_ENHANCE_DEBUG` is set, which adds a one-line `enhanced → …` notify per render so you can confirm it fired.
 - **Best-effort, never blocks.** A missing agent, model-resolution failure, spawn error, non-`completed` stop, or
   unparseable output silently falls back to the original prompt + baseline negative. Set `PI_COMFYUI_DISABLE_ENHANCE` to
   hard-disable it. When the prompt was enhanced, the result echoes the enhanced positive so the model can reuse it via
@@ -162,8 +174,10 @@ Two `generate_image` params turn a recorded render into a starting point:
   `prompt` to the edit instruction; do not also pass `inputImages` (refine supplies it). The saved file must still exist
   on disk. Pass `variationOf` or `refine`, not both.
 
-`/comfyui gallery` lists the recorded generations for the current session. Unknown ids return a clear error pointing at
-the gallery.
+`/comfyui gallery` lists the recorded generations for the current session, one truncated line each.
+`/comfyui gallery <id>` prints that generation's full, untruncated `prompt` and `negative` exactly as submitted - the
+enhanced text when the prompt enhancer ran - so it is the way to read the whole enhanced prompt the line view clips to
+60 chars. Unknown ids return a clear error pointing at the gallery.
 
 ## Image-generated event bus
 
@@ -223,6 +237,8 @@ into one of the config files to opt in; see [`../comfyui-example.json`](../comfy
 | `pollIntervalMs`      | `3000`                   | How often the auto-download timer polls `/history` per running job (floored at `1000`). Only used when `autoDownload`.  |
 | `enhance`             | `false`                  | Run the prompt-enhancer subagent by default. Per-call `enhance` arg overrides; `PI_COMFYUI_DISABLE_ENHANCE` kills it.   |
 | `enhanceModel`        | (inherit)                | `provider/model-id` for the enhancer subagent. Absent = inherit the active session model.                               |
+| `enhanceTimeoutMs`    | `30000`                  | Wall-clock cap (ms) per enhancer run. Raise it when an inherited slow model aborts with `timed out after …ms`.          |
+| `enhanceContextChars` | `0` (off)                | Max chars of recent conversation auto-fed to the enhancer as scene context. `0` = off. Costs extra input tokens.        |
 | `enhanceGuidanceFile` | (none)                   | Path to a global prompt-enhancer guidance doc, prepended before any per-workflow `guidanceFile`. `~` / abs / rel-cwd.   |
 | `previewMaxDimension` | (none)                   | Cap (px) on the longer side of the model-facing image copy; the saved file stays full-res. Absent / `0` = full-res.     |
 | `defaults`            | (none)                   | Generation-param defaults pre-filled when a call omits them; merge by field. See below.                                 |
@@ -384,6 +400,9 @@ the right workflow and sends the right prompt shape:
 - `guidanceFile` - path to a per-workflow prompt-enhancer guidance doc, concatenated after the global
   `enhanceGuidanceFile` when `enhance` runs (see [Prompt enhancement](#prompt-enhancement-enhance)). Resolves like
   `file` (`~` / absolute / relative-to-cwd). Optional; the enhancer degrades to `description` / `tags` when absent.
+- `enhance` - per-workflow override of the global `enhance` flag. `true` enhances by default for this workflow even when
+  the global default is off (and vice versa). Resolution is
+  `per-call enhance arg ?? workflow.enhance ?? config.enhance`. Optional.
 
 ```jsonc
 {
@@ -570,6 +589,7 @@ default (e.g. `steps`) on top of a global one without redeclaring the rest.
 | `PI_COMFYUI_URL`             | Override the configured `baseUrl`.                                                |
 | `PI_COMFYUI_TOKEN`           | Convention for a token referenced by `authHeader.value` as `${PI_COMFYUI_TOKEN}`. |
 | `PI_COMFYUI_DISABLE_ENHANCE` | Hard-disable the prompt enhancer regardless of config / per-call `enhance`.       |
+| `PI_COMFYUI_ENHANCE_DEBUG`   | Notify on each successful enhance (`enhanced → …`); failures notify regardless.   |
 
 Auth headers are sent on every HTTP request. ComfyUI's websocket does not carry custom headers, so on an authenticated
 server the progress stream may not connect; polling still drives completion regardless.

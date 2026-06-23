@@ -10,6 +10,7 @@ import {
   emptyRegistry,
   findJob,
   formatDuration,
+  formatJobHint,
   formatJobLine,
   formatRegistry,
   formatRunningBlock,
@@ -136,6 +137,22 @@ describe('formatJobLine', () => {
   test('running job uses now for elapsed', () => {
     const reg = addJob(emptyRegistry(), sampleJob()).registry;
     expect(formatJobLine(findJob(reg, '1')!, 6000)).toBe('[1] ⟳ running · anima · seed 123 · 5s');
+  });
+});
+
+describe('formatJobHint', () => {
+  test('shows status + clipped prompt snippet', () => {
+    const reg = addJob(emptyRegistry(), sampleJob()).registry;
+    expect(formatJobHint(findJob(reg, '1')!)).toBe('running · a cat');
+    const long = addJob(emptyRegistry(), sampleJob({ prompt: 'y'.repeat(80) })).registry;
+    const hint = formatJobHint(findJob(long, '1')!);
+    expect(hint.startsWith('running · ')).toBe(true);
+    expect(hint.endsWith('…')).toBe(true);
+  });
+
+  test('falls back to status alone when the prompt is empty', () => {
+    const reg = addJob(emptyRegistry(), sampleJob({ prompt: '   ' })).registry;
+    expect(formatJobHint(findJob(reg, '1')!)).toBe('running');
   });
 });
 

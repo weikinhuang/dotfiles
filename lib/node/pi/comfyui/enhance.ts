@@ -229,6 +229,30 @@ export interface EnhanceRunResult {
 }
 
 /**
+ * Diagnostic verbosity levels. `debug` is the success / fired-OK channel
+ * (low value, gated behind a debug env at the call site); `info` / `warn`
+ * are always-surfaced problems the user should see.
+ */
+export type EnhanceLogLevel = 'debug' | 'info' | 'warn';
+
+/**
+ * Turn a non-`completed` run into an actionable diagnostic. `spawn.ts`
+ * collapses an internal-timeout abort and a parent-turn cancellation into
+ * the same `aborted: aborted` string, so we disambiguate here using the
+ * parent signal: when it is aborted the enhancer was cut off by the turn
+ * ending (the caller sent the next message); otherwise the enhancer's own
+ * wall-clock timeout fired.
+ */
+function describeNonCompletion(result: EnhanceRunResult, parentAborted: boolean, timeoutMs: number): string {
+  if (result.stopReason === 'aborted') {
+    return parentAborted
+      ? 'aborted: parent turn ended before the enhancer finished (a faster enhanceModel shrinks this window)'
+      : `timed out after ${timeoutMs}ms (set a faster enhanceModel or raise enhanceTimeoutMs)`;
+  }
+  return `stop=${result.stopReason}: ${result.errorMessage ?? '(no message)'}`;
+}
+
+/**
  * Shim over `runOneShotAgent` - tests replace this with a mock returning
  * scripted `EnhanceRunResult` values without spawning anything.
  */
@@ -261,7 +285,7 @@ export interface EnhancerWiring<M> {
   /** One-shot spawner. Usually `runOneShotAgent` wrapped. */
   runOneShot: EnhanceRunOneShot<M>;
   /** Optional diagnostic sink - non-fatal errors are reported here. */
-  log?: (level: 'info' | 'warn', message: string) => void;
+  log?: (level: EnhanceLogLevel, message: string) => void;
   /** Soft cap per field, in characters. Default 2000. */
   maxOutputChars?: number;
   /** Per-call agent timeout, in ms. Default 30000. */
@@ -283,8 +307,8 @@ const DEFAULT_MAX_OUTPUT_CHARS = 2000;
 const DEFAULT_TIMEOUT_MS = 30000;
 
 function report(
-  wiring: { log?: (level: 'info' | 'warn', message: string) => void },
-  level: 'info' | 'warn',
+  wiring: { log?: (level: EnhanceLogLevel, message: string) => void },
+  level: EnhanceLogLevel,
   message: string,
 ): void {
   if (!wiring.log) return;
@@ -341,11 +365,17 @@ export function createEnhancer<M>(wiring: EnhancerWiring<M>): Enhancer<M> {
       }
 
       if (result.stopReason !== 'completed') {
-        report(wiring, 'info', `enhance stop=${result.stopReason}: ${result.errorMessage ?? '(no message)'}`);
+        report(wiring, 'info', describeNonCompletion(result, ctx.signal?.aborted === true, timeoutMs));
         return null;
       }
 
-      return parseEnhanceResult(result.finalText, maxOutput);
+      const parsed = parseEnhanceResult(result.finalText, maxOutput);
+      if (parsed === null) {
+        report(wiring, 'info', 'produced no usable JSON; keeping the original prompt');
+        return null;
+      }
+      report(wiring, 'debug', `enhanced → ${truncate(parsed.prompt, 160)}`);
+      return parsed;
     },
   };
 }

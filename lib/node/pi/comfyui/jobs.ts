@@ -174,6 +174,17 @@ export function formatJobLine(job: ImageJob, now: number): string {
   return `[${job.id}] ${parts.join(' · ')}`;
 }
 
+/**
+ * Short autocomplete-description hint for one job: its status plus a clipped
+ * prompt snippet, e.g. `running · 1girl, solo, …`. Lets `/comfyui jobs <id>`
+ * completions be told apart by content, not just by status.
+ */
+export function formatJobHint(job: ImageJob): string {
+  const oneLine = job.prompt.replace(/\s+/g, ' ').trim();
+  const snippet = oneLine.length <= 50 ? oneLine : `${oneLine.slice(0, 49)}…`;
+  return snippet.length > 0 ? `${job.status} · ${snippet}` : job.status;
+}
+
 /** Multi-line listing of the whole registry, or an empty-state note. */
 export function formatRegistry(reg: JobRegistry, now: number): string {
   if (reg.jobs.length === 0) return '(no background image jobs)';

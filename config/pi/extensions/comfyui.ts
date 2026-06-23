@@ -106,6 +106,7 @@ import {
   findJob,
   formatJobLine,
   formatRegistry,
+  formatJobHint,
   formatRunningBlock,
   type ImageJob,
   type JobRegistry,
@@ -120,6 +121,8 @@ import {
   findGeneration,
   findGenerationByPrompt,
   formatGallery,
+  formatGenerationDetail,
+  formatGenerationHint,
   type GenerationRecord,
   type GenerationRegistry,
   type NewGeneration,
@@ -131,6 +134,11 @@ import {
   type Enhancer,
   resolveEnhanceModel,
 } from '../../../lib/node/pi/comfyui/enhance.ts';
+import {
+  extractSceneContext,
+  mergeSceneContext,
+  type SceneMessage,
+} from '../../../lib/node/pi/comfyui/scene-context.ts';
 import type { ComfyuiConfig, RoleMapping, WorkflowConfig } from '../../../lib/node/pi/comfyui/types.ts';
 import { expandTilde } from '../../../lib/node/pi/path-expand.ts';
 import {
@@ -523,6 +531,14 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
   let enhancer: Enhancer<Model<any>> | null = null;
   let enhancerInit = false;
 
+  // Auto-captured scene context for the enhancer (see scene-context.ts).
+  // `sceneBudget` (chars) is refreshed from config each turn in
+  // before_agent_start; `recentScene` is snapshotted from the outgoing
+  // payload in the context hook when the budget is > 0. Both are
+  // session-scoped and reset on shutdown.
+  let sceneBudget = 0;
+  let recentScene = '';
+
   const enhanceSessionManager = (ctx: ExtensionContext, childCwd: string): SessionManager => {
     try {
       return createPersistedSubagentSessionManager<SessionManager>({
@@ -549,6 +565,7 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
       enhancer = createEnhancer<Model<any>>({
         settings: resolveEnhanceModel(config.enhanceModel),
         enhanceAgent: agent,
+        ...(config.enhanceTimeoutMs !== undefined ? { timeoutMs: config.enhanceTimeoutMs } : {}),
         runOneShot: async (args) => {
           const result = await runOneShotAgent({
             deps: { createAgentSession: piCreateAgentSession, DefaultResourceLoader, SessionManager, getAgentDir },
@@ -569,6 +586,11 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
           };
         },
         log: (level, message) => {
+          // `debug` is the success / fired-OK channel - only surface it when
+          // the user opts in, so normal renders stay quiet. `info` / `warn`
+          // are real problems (aborts, timeouts, parse failures) and always
+          // notify.
+          if (level === 'debug' && !envTruthy(process.env.PI_COMFYUI_ENHANCE_DEBUG)) return;
           try {
             ctx.ui.notify(`comfyui enhance: ${message}`, level === 'warn' ? 'warning' : 'info');
           } catch {
@@ -809,6 +831,9 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
     // rebuilds both from the branch on the next (re)start.
     ephemeralState = emptyEditState();
     generationsState = emptyGenerations();
+    // Drop the enhancer scene-capture state.
+    sceneBudget = 0;
+    recentScene = '';
     // Stop the auto-download poll so a `/reload` doesn't leave an orphaned
     // interval bound to a replaced session, and drop the in-flight guard.
     stopPollTimer();
@@ -820,6 +845,14 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
   pi.on('before_agent_start', (_event, ctx) => {
     uiRef = ctx.ui;
     updateStatusline();
+    // Refresh the enhancer's scene-capture budget from config so a
+    // config edit takes effect without a /reload. Cheap JSON read; the
+    // executor reads config per call anyway.
+    try {
+      sceneBudget = loadConfig(ctx.cwd).enhanceContextChars ?? 0;
+    } catch {
+      sceneBudget = 0;
+    }
     return undefined;
   });
 
@@ -857,6 +890,10 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
       }) as unknown as LooseMessage[];
       changed = true;
     }
+
+    // 3. Snapshot recent conversation as enhancer scene context (read-only -
+    //    does not alter the outgoing payload). Off when the budget is 0.
+    recentScene = sceneBudget > 0 ? extractSceneContext(messages as unknown as SceneMessage[], sceneBudget) : '';
 
     return changed ? { messages: messages as unknown as typeof event.messages } : undefined;
   });
@@ -1127,7 +1164,7 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
       let promptForRender = effectivePrompt;
       const baselineNegative = params.negative ?? reuse?.negative ?? d?.negative;
       let enhancedNegative: string | undefined;
-      const wantEnhance = params.enhance ?? config.enhance;
+      const wantEnhance = params.enhance ?? wf.enhance ?? config.enhance;
       if (wantEnhance) {
         const enh = getEnhancer(ctx);
         if (enh?.isEnabled()) {
@@ -1139,7 +1176,10 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
             ...(wf.description !== undefined ? { description: wf.description } : {}),
             ...(wf.tags !== undefined ? { tags: wf.tags } : {}),
             ...(wf.promptProtocol !== undefined ? { promptProtocol: wf.promptProtocol } : {}),
-            ...(params.context !== undefined ? { context: params.context } : {}),
+            ...((): { context?: string } => {
+              const merged = mergeSceneContext(params.context, sceneBudget > 0 ? recentScene : '');
+              return merged !== undefined ? { context: merged } : {};
+            })(),
           });
           const enhanceResult = await enh.enhance(
             {
@@ -1400,7 +1440,8 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
       }
 
       const ephemeralNote = details.ephemeral ? theme.fg('dim', ' · ephemeral') : '';
-      const summary = theme.fg('success', `✓ ${n} image${n === 1 ? '' : 's'}${seedNote}`) + ephemeralNote;
+      const idNote = details.generationId ? ` [${details.generationId}]` : '';
+      const summary = theme.fg('success', `✓${idNote} ${n} image${n === 1 ? '' : 's'}${seedNote}`) + ephemeralNote;
       if (!options.expanded) return new Text(summary, 0, 0);
 
       // Expanded (ctrl+o): show the full positive / negative prompt and paths.
@@ -1684,11 +1725,11 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
         },
         jobs: {
           description: 'List background generations',
-          args: () => registry.jobs.map((j) => ({ label: j.id, description: j.status })),
+          args: () => registry.jobs.map((j) => ({ label: j.id, description: formatJobHint(j) })),
         },
         gallery: {
           description: 'List recorded generations (reuse with variationOf / refine)',
-          args: () => generationsState.generations.map((g) => ({ label: g.id, description: g.workflow })),
+          args: () => generationsState.generations.map((g) => ({ label: g.id, description: formatGenerationHint(g) })),
         },
         models: {
           description: 'List installed models from the server (/object_info)',
@@ -1710,8 +1751,17 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
         return;
       }
 
-      if (sub === 'gallery') {
-        ctx.ui.notify(formatGallery(generationsState), 'info');
+      if (sub === 'gallery' || sub.startsWith('gallery ')) {
+        const id = sub.slice('gallery'.length).trim();
+        if (id.length === 0) {
+          ctx.ui.notify(formatGallery(generationsState), 'info');
+          return;
+        }
+        const rec = findGeneration(generationsState, id);
+        ctx.ui.notify(
+          rec ? formatGenerationDetail(rec) : `unknown generation "${id}" (see /comfyui gallery)`,
+          rec ? 'info' : 'warning',
+        );
         return;
       }
 

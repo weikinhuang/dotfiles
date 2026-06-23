@@ -97,6 +97,13 @@ export interface WorkflowConfig {
    * `description` / `tags` when absent. Never blocks a render.
    */
   guidanceFile?: string;
+  /**
+   * Per-workflow override of the global {@link ComfyuiConfig.enhance} flag.
+   * `true` enhances by default for this workflow even when the global
+   * default is off (and vice versa); a per-call `enhance` arg still wins.
+   * Resolution is `param ?? workflow.enhance ?? config.enhance`. Optional.
+   */
+  enhance?: boolean;
 }
 
 /**
@@ -194,6 +201,21 @@ export interface ComfyuiConfig {
    * point enhancement at a cheaper model than the main agent.
    */
   enhanceModel?: string;
+  /**
+   * Max characters of recent conversation auto-captured and handed to the
+   * enhancer as background scene context (continuity the calling model did
+   * not pass in the `context` arg). `0` / absent → off (the enhancer sees
+   * only the prompt + any manual `context`). Lets the enhancer enrich an
+   * already-formatted prompt with scene detail. Costs extra input tokens
+   * per enhance call on the inherited model, so it is opt-in.
+   */
+  enhanceContextChars?: number;
+  /**
+   * Optional wall-clock cap (ms) for a single enhancer run. Absent →
+   * 30000. Raise it when the enhancer inherits a slow model and aborts
+   * with `timed out after …ms` before producing JSON.
+   */
+  enhanceTimeoutMs?: number;
   /**
    * Optional path to a global prompt-enhancer guidance doc, concatenated
    * before any per-workflow {@link WorkflowConfig.guidanceFile}. Resolves

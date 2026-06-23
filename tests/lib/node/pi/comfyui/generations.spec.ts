@@ -13,6 +13,8 @@ import {
   findGeneration,
   findGenerationByPrompt,
   formatGallery,
+  formatGenerationDetail,
+  formatGenerationHint,
   formatGenerationLine,
   type GenerationRegistry,
   isGenerationRegistryShape,
@@ -82,6 +84,51 @@ describe('formatting', () => {
     expect(formatGallery(emptyGenerations())).toBe('(no generations yet)');
     expect(formatGallery(seedReg())).toContain('[g1]');
     expect(formatGallery(seedReg())).toContain('[g2]');
+  });
+
+  test('formatGenerationDetail shows the untruncated prompt, metadata, and files', () => {
+    const rec = addGeneration(emptyGenerations(), {
+      workflow: 'anima',
+      prompt: '1girl, solo, '.repeat(20).trim(),
+      negative: 'lowres, bad anatomy',
+      seed: 7,
+      width: 832,
+      height: 1216,
+      savedPaths: ['/out/x.png'],
+      source: 'background',
+      createdAt: 1,
+    }).created;
+    const out = formatGenerationDetail(rec);
+    expect(out).toContain('[g1] anima (background)');
+    expect(out).toContain('seed 7 · 832x1216');
+    expect(out).toContain(`prompt:   ${rec.prompt}`); // full, untruncated
+    expect(out).toContain('negative: lowres, bad anatomy');
+    expect(out).toContain('file:     /out/x.png');
+  });
+
+  test('formatGenerationDetail omits an absent negative and missing dims', () => {
+    const out = formatGenerationDetail(seedReg().generations[1]); // g2: no seed, no dims, no negative
+    expect(out).toContain('[g2] flux2-t2i (background)');
+    expect(out).not.toContain('negative:');
+    expect(out).not.toContain('seed');
+    expect(out).toContain('file:     /out/b.png');
+    expect(out).toContain('file:     /out/c.png');
+  });
+
+  test('formatGenerationHint shows workflow + clipped prompt snippet', () => {
+    const reg = seedReg();
+    expect(formatGenerationHint(reg.generations[0])).toBe('anima · a cat');
+    const long = addGeneration(emptyGenerations(), {
+      workflow: 'anima',
+      prompt: 'x'.repeat(80),
+      savedPaths: [],
+      source: 'background',
+      createdAt: 1,
+    }).created;
+    const hint = formatGenerationHint(long);
+    expect(hint.startsWith('anima · ')).toBe(true);
+    expect(hint.endsWith('…')).toBe(true);
+    expect(hint.length).toBeLessThanOrEqual('anima · '.length + 50);
   });
 });
 

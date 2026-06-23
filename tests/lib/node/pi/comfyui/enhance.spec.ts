@@ -196,3 +196,57 @@ test('enhance returns null when model resolution fails', async () => {
   };
   expect(await enh.enhance(badCtx, 'task')).toBeNull();
 });
+
+test('enhance emits a debug log on success and an info log on parse failure', async () => {
+  const logs: { level: string; message: string }[] = [];
+  const log = (level: 'debug' | 'info' | 'warn', message: string): void => {
+    logs.push({ level, message });
+  };
+
+  const ok = createEnhancer<FakeModel>({
+    settings: null,
+    enhanceAgent: fakeAgent(),
+    log,
+    runOneShot: () => Promise.resolve({ finalText: '{"prompt":"1girl"}', stopReason: 'completed' }),
+  });
+  await ok.enhance(ctx, 'task');
+  expect(logs).toEqual([{ level: 'debug', message: 'enhanced \u2192 1girl' }]);
+
+  logs.length = 0;
+  const bad = createEnhancer<FakeModel>({
+    settings: null,
+    enhanceAgent: fakeAgent(),
+    log,
+    runOneShot: () => Promise.resolve({ finalText: 'not json', stopReason: 'completed' }),
+  });
+  await bad.enhance(ctx, 'task');
+  expect(logs).toEqual([{ level: 'info', message: 'produced no usable JSON; keeping the original prompt' }]);
+});
+
+test('enhance distinguishes an internal timeout from a parent-turn cancellation', async () => {
+  const aborted = { finalText: '', stopReason: 'aborted' as const };
+
+  // Parent signal still live → the enhancer's own wall-clock timeout fired.
+  const timeoutLogs: string[] = [];
+  const onTimeout = createEnhancer<FakeModel>({
+    settings: null,
+    enhanceAgent: fakeAgent(),
+    timeoutMs: 12345,
+    log: (_level, message) => timeoutLogs.push(message),
+    runOneShot: () => Promise.resolve(aborted),
+  });
+  expect(await onTimeout.enhance(ctx, 'task')).toBeNull();
+  expect(timeoutLogs[0]).toContain('timed out after 12345ms');
+
+  // Parent signal aborted → the turn ended before the enhancer finished.
+  const cancelLogs: string[] = [];
+  const onCancel = createEnhancer<FakeModel>({
+    settings: null,
+    enhanceAgent: fakeAgent(),
+    log: (_level, message) => cancelLogs.push(message),
+    runOneShot: () => Promise.resolve(aborted),
+  });
+  const cancelledCtx = { ...ctx, signal: AbortSignal.abort() };
+  expect(await onCancel.enhance(cancelledCtx, 'task')).toBeNull();
+  expect(cancelLogs[0]).toContain('parent turn ended');
+});

@@ -152,6 +152,35 @@ export function formatGallery(reg: GenerationRegistry): string {
   return reg.generations.map(formatGenerationLine).join('\n');
 }
 
+/**
+ * Short autocomplete-description hint for one generation: the workflow plus
+ * a clipped prompt snippet, e.g. `anima-noupscale · "1girl, solo, …"`. Lets
+ * `/comfyui gallery <id>` completions be told apart by content, not just by
+ * workflow name.
+ */
+export function formatGenerationHint(rec: GenerationRecord): string {
+  const snippet = truncate(rec.prompt, 50);
+  return snippet.length > 0 ? `${rec.workflow} · ${snippet}` : rec.workflow;
+}
+
+/**
+ * Full, untruncated detail for one generation: the prompt and negative
+ * exactly as submitted (the enhanced text when enhancement ran), plus
+ * metadata and the files on disk. Used by `/comfyui gallery <id>` so a
+ * human can read the whole enhanced prompt the line view clips to 60 chars.
+ */
+export function formatGenerationDetail(rec: GenerationRecord): string {
+  const lines = [`[${rec.id}] ${rec.workflow} (${rec.source})`];
+  const meta: string[] = [];
+  if (rec.seed !== undefined) meta.push(`seed ${rec.seed}`);
+  if (rec.width !== undefined && rec.height !== undefined) meta.push(`${rec.width}x${rec.height}`);
+  if (meta.length > 0) lines.push(meta.join(' · '));
+  lines.push(`prompt:   ${rec.prompt}`);
+  if (rec.negative !== undefined && rec.negative.length > 0) lines.push(`negative: ${rec.negative}`);
+  for (const p of rec.savedPaths) lines.push(`file:     ${p}`);
+  return lines.join('\n');
+}
+
 function isGenerationRecord(value: unknown): value is GenerationRecord {
   if (value === null || typeof value !== 'object') return false;
   const v = value as Record<string, unknown>;

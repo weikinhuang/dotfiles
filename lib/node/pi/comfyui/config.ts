@@ -205,6 +205,8 @@ function asWorkflowConfig(value: unknown): WorkflowConfig | undefined {
   if (promptProtocol !== undefined && promptProtocol.length > 0) wf.promptProtocol = promptProtocol;
   const guidanceFile = asString(value.guidanceFile);
   if (guidanceFile !== undefined && guidanceFile.length > 0) wf.guidanceFile = guidanceFile;
+  const enhance = asBoolean(value.enhance);
+  if (enhance !== undefined) wf.enhance = enhance;
   return wf;
 }
 
@@ -260,6 +262,12 @@ export function coerceConfigLayer(raw: unknown): Partial<ComfyuiConfig> {
   const enhanceModel = asString(raw.enhanceModel);
   if (enhanceModel !== undefined && enhanceModel.length > 0) out.enhanceModel = enhanceModel;
 
+  const enhanceContextChars = asPositiveNumber(raw.enhanceContextChars);
+  if (enhanceContextChars !== undefined) out.enhanceContextChars = Math.round(enhanceContextChars);
+
+  const enhanceTimeoutMs = asPositiveNumber(raw.enhanceTimeoutMs);
+  if (enhanceTimeoutMs !== undefined) out.enhanceTimeoutMs = enhanceTimeoutMs;
+
   const enhanceGuidanceFile = asString(raw.enhanceGuidanceFile);
   if (enhanceGuidanceFile !== undefined && enhanceGuidanceFile.length > 0)
     out.enhanceGuidanceFile = enhanceGuidanceFile;
@@ -303,6 +311,8 @@ export function mergeConfigLayers(...overrides: Partial<ComfyuiConfig>[]): Comfy
     if (layer.pollIntervalMs !== undefined) result.pollIntervalMs = layer.pollIntervalMs;
     if (layer.enhance !== undefined) result.enhance = layer.enhance;
     if (layer.enhanceModel !== undefined) result.enhanceModel = layer.enhanceModel;
+    if (layer.enhanceContextChars !== undefined) result.enhanceContextChars = layer.enhanceContextChars;
+    if (layer.enhanceTimeoutMs !== undefined) result.enhanceTimeoutMs = layer.enhanceTimeoutMs;
     if (layer.enhanceGuidanceFile !== undefined) result.enhanceGuidanceFile = layer.enhanceGuidanceFile;
     if (layer.previewMaxDimension !== undefined) result.previewMaxDimension = layer.previewMaxDimension;
     if (layer.defaults !== undefined) result.defaults = { ...result.defaults, ...layer.defaults };
