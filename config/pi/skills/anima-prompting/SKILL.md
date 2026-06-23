@@ -107,7 +107,7 @@ If the user hands you a tag list (or a tag list mixed with wildcards) instead of
 prompt:   masterpiece, best quality, score_7, safe, 1girl, {standing|sitting}, classroom, desk, {morning|evening},
           a young female student positioned in the center of the classroom in front of the desk, with the
           {morning|evening} lighting implied by the scene
-negative: worst quality, low quality, score_1, score_2, score_3, artist name, nsfw
+negative: worst quality, low quality, score_1, score_2, score_3, artist name
 ```
 
 Concatenate the tag list and the natural-language clause into one `prompt` string (comma- or period-joined) - the tool
@@ -122,8 +122,12 @@ worst quality, low quality, score_1, score_2, score_3, artist name
 ```
 
 - Add `jpeg artifacts, blurry, lowres` to clean up artifacts.
-- Add `nsfw, explicit, sensitive` to hold the image safe (pair with `safe` in the positive).
 - Add the specific thing you don't want (e.g. `multiple views, text, watermark, extra fingers`).
+- **Do not put a rating word (`safe`, `sensitive`, `nsfw`, `explicit`) in the negative.** Safety is carried by the
+  rating tag in the _positive_ prefix, not by negating it here, and putting `nsfw` in the negative actively fights the
+  positive the moment the scene is `sensitive` or higher. Keep the negative rating-free; every example below does. (On a
+  `safe` shot, on a workflow that does **not** auto-scrub the negative, you _may_ reinforce with `nsfw` here - but never
+  above `safe`. When in doubt, leave it out and let the positive rating tag do the work.)
 
 ## Tag reference
 
@@ -156,7 +160,7 @@ Tag-style:
 ```text
 prompt:   masterpiece, best quality, score_7, safe, 1girl, solo, long hair, brown eyes, santa costume,
           fur-trimmed gloves, holding gift box, looking at viewer, simple background, white background, @some artist
-negative: worst quality, low quality, score_1, score_2, score_3, artist name, jpeg artifacts, nsfw
+negative: worst quality, low quality, score_1, score_2, score_3, artist name, jpeg artifacts
 ```
 
 Natural-language:
@@ -165,7 +169,7 @@ Natural-language:
 prompt:   masterpiece, best quality, score_7, safe. A young anime witch with short silver hair and green eyes
           stands in a sunlit library, wearing a wide-brimmed black hat and a deep blue robe. She holds an open
           spellbook that glows faintly, and dust motes drift in the light from a tall window behind her.
-negative: worst quality, low quality, score_1, score_2, score_3, artist name, blurry, nsfw, explicit
+negative: worst quality, low quality, score_1, score_2, score_3, artist name, blurry
 ```
 
 The wrapped lines above are a single comma/space-joined string each - pass them as one line in the tool args.
