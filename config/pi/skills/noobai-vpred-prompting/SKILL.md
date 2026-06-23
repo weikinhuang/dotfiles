@@ -210,3 +210,6 @@ The wrapped lines above are a single comma/space-joined string each - pass them 
 - **Dropping `safe` without `nsfw` in the positive.** Output drifts toward suggestive by default; either keep the
   `safe`/`nsfw negative` pairing, or explicitly opt in with `sensitive` / `nsfw` / `explicit` in the positive.
 - **Year + period both pointing different eras.** Don't write `year 2023, old` - pick one.
+- **Square-bracket weighting.** ComfyUI weights with parentheses - `(tag:1.3)` to strengthen, `(tag:0.8)` to weaken.
+  A1111-style square brackets do not de-emphasize here: `[tag]` parses as `([tag]:1)` (literal brackets at weight 1).
+  Use `(tag:0.8)` to weaken instead.

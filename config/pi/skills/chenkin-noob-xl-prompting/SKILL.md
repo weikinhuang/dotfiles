@@ -191,3 +191,6 @@ The wrapped lines above are a single comma/space-joined string each - pass them 
   prefix + caption-order tags.
 - **Wrong year tag.** `year 2027` is out of CKXL's training range (training data cutoff is Jan 2026); the tag will be
   treated as unknown.
+- **Square-bracket weighting.** ComfyUI weights with parentheses - `(tag:1.3)` to strengthen, `(tag:0.8)` to weaken.
+  A1111-style square brackets do not de-emphasize here: `[tag]` parses as `([tag]:1)` (literal brackets at weight 1).
+  Use `(tag:0.8)` to weaken instead.

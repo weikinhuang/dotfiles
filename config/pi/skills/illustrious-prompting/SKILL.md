@@ -183,3 +183,6 @@ The wrapped lines above are a single comma/space-joined string each - pass them 
 - **Multiple framing tags.** `cowboy shot, close-up, full body` confuses composition - pick ONE per the model card.
 - **Dropping the negative.** Always pass one; it is the primary cleanup lever for hands, artifacts, and unwanted styles.
 - **Pushing CFG past 8.** Burns colors and crisps edges into noise. Stay 5-7.5.
+- **Square-bracket weighting.** ComfyUI weights with parentheses - `(tag:1.3)` to strengthen, `(tag:0.8)` to weaken.
+  A1111-style square brackets do not de-emphasize here: `[tag]` parses as `([tag]:1)` (literal brackets at weight 1).
+  Use `(tag:0.8)` to weaken instead.
