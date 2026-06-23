@@ -1,8 +1,9 @@
 # Lib
 
 Pure TypeScript helpers shared across pi extensions, the Claude / Codex / opencode / pi session-usage CLIs, and the
-clipboard-server. Nothing here imports from the pi runtime (`@earendil-works/pi-coding-agent`) or any other
-agent-harness SDK - so every module is unit-testable with vitest and type-checked by the repo's root `tsconfig.json`.
+clipboard-server. Nothing here imports the pi runtime or any agent-harness SDK - so every module is unit-testable with
+vitest and type-checked by the root `tsconfig.json`. The one exception is [`node/pi/ext/`](./node/pi/ext/) (shared
+pi-importing extension helpers); that pi-import policy lives in [`node/pi/AGENTS.md`](./node/pi/AGENTS.md).
 
 See root [AGENTS.md](../AGENTS.md) for repo-wide conventions; this file only documents what is different here.
 
@@ -16,21 +17,14 @@ See root [AGENTS.md](../AGENTS.md) for repo-wide conventions; this file only doc
 
 ## Directory map
 
-| Path                                                     | Purpose                                                                                              |
-| -------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| [`node/pi/`](./node/pi/)                                 | Pure helpers consumed by pi extensions under [`../config/pi/extensions/`](../config/pi/extensions/). |
-| [`node/ai-tooling/`](./node/ai-tooling/)                 | Shared CLI harness (arg parsing, output rendering, JSONL loaders) used by every `session-usage.ts`.  |
-| [`node/clipboard-server.ts`](./node/clipboard-server.ts) | Node implementation of the `clipboard-server` bin script.                                            |
+| Path                                                     | Purpose                                                                                                 |
+| -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| [`node/pi/`](./node/pi/)                                 | Pure helpers backing pi extensions; import policy in [`node/pi/AGENTS.md`](./node/pi/AGENTS.md).        |
+| [`node/pi/ext/`](./node/pi/ext/)                         | The carve-out: shared extension helpers that import `@earendil-works/*` (pi-tui widgets, dialog flows). |
+| [`node/ai-tooling/`](./node/ai-tooling/)                 | Shared CLI harness (arg parsing, output rendering, JSONL loaders) used by every `session-usage.ts`.     |
+| [`node/clipboard-server.ts`](./node/clipboard-server.ts) | Node implementation of the `clipboard-server` bin script.                                               |
 
 ## Key patterns
-
-### Pure modules only
-
-- `lib/node/**/*.ts` must import from `node:*` and peer `lib/node/**` only - never from
-  `@earendil-works/pi-coding-agent` or any pi runtime. That's what lets the code live under the root `tsconfig.json` and
-  get unit-tested without mocks.
-- Pi-coupled glue (dialog flows, `pi.on('tool_call', …)` handlers, command registration) belongs in
-  [`../config/pi/extensions/<name>.ts`](../config/pi/extensions/) - not here. If a helper grows a pi import, split it.
 
 ### Test mirror
 
@@ -59,14 +53,15 @@ See root [AGENTS.md](../AGENTS.md) for repo-wide conventions; this file only doc
 ## Boundaries
 
 **Always**: add a spec under [`../tests/lib/node/pi/`](../tests/lib/node/pi) for every new module or behavioral change;
-keep modules pure (no pi imports); run `npm test` and `npm run tsc` before landing.
+keep modules pure (pi-import policy in [`node/pi/AGENTS.md`](./node/pi/AGENTS.md)); run `npm test` and `npm run tsc`
+before landing.
 
 **Ask first**: adding a new top-level directory under `lib/` (e.g. a sibling to `node/`); pulling in a new runtime
 dependency that ships to end-user shells; changing a module's public export shape when multiple extensions consume it.
 
-**Never**: import from `@earendil-works/pi-coding-agent` or any other agent-runtime SDK from under this tree - that
-moves the module into extension territory; commit generated artifacts or `.d.ts` bundles; suppress type errors with
-`any` or `@ts-ignore` instead of fixing the type.
+**Never**: import `@earendil-works/*` or any agent-runtime SDK from a module outside `node/pi/ext/` (the lone carve-out,
+see [`node/pi/AGENTS.md`](./node/pi/AGENTS.md)); commit generated artifacts or `.d.ts` bundles; suppress type errors
+with `any` or `@ts-ignore` instead of fixing the type.
 
 ## References
 

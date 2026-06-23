@@ -14,10 +14,11 @@ This repo runs `oxlint --type-aware` with `correctness: error` and `perf: error`
 against every staged `.ts` and rejects the commit on any error. The rules are non-trivially strict; new code that passes
 `tsc` will routinely fail oxlint unless it is written with these patterns from the start.
 
-The `config/pi/extensions/**` tree has a relaxed override (most `no-unsafe-*` and `require-await` rules turned off)
-because those files import from `@earendil-works/*` which the root `tsconfig.json` does not type-check. **This skill
-applies to everything else** — `lib/node/**`, `tests/**`, `config/pi/*.ts` (e.g. `session-usage.ts`), and any future
-top-level `*.ts`.
+The `config/pi/extensions/**` tree - plus the shared pi-importing helpers under `lib/node/pi/ext/**` and their specs
+under `tests/lib/node/pi/ext/**` - has a relaxed override (most `no-unsafe-*` and `require-await` rules turned off)
+because those files import from `@earendil-works/*` (pi runtime / TUI / AI APIs). **This skill applies to everything
+else** — `lib/node/**` (except `lib/node/pi/ext/`), `tests/**` (except `tests/lib/node/pi/ext/`), `config/pi/*.ts` (e.g.
+`session-usage.ts`), and any future top-level `*.ts`.
 
 ## When to use this skill
 

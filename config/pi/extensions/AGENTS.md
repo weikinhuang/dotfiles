@@ -10,9 +10,9 @@ root [AGENTS.md](../../../AGENTS.md) for repo-wide rules; this file documents on
 
 - `npm test` - vitest covers the pure helpers under [`../../../lib/node/pi/`](../../../lib/node/pi) plus the extension
   command-surface specs under [`../../../tests/config/pi/extensions/`](../../../tests/config/pi/extensions).
-- `npm run tsc` - type-checks every helper imported by these extensions. The `.ts` extension files themselves are
-  excluded from the root `tsconfig.json` (they resolve `@earendil-works/*` via pi's globally-installed package, which
-  the root TS project doesn't know about), so type errors for extension shells only surface at runtime.
+- `npm run tsc` - type-checks the whole lib surface **and** the extension `.ts` shells (`tsconfig.json` includes
+  `config/pi/extensions/**` and `lib/node/pi/ext/**`; `@earendil-works/*` resolves from `node_modules`), so extension
+  type errors surface at `tsc` time, not only at runtime.
 - `pi -p "<scenario>" --no-session` - smoke-test actual extension behaviour headless. Add `--model <provider/id>` to run
   against a local small/weak model (the harder tool-call-precision case); omit it to use the current model. Headless
   `-p` loads the latest code on launch; in a live session run `/reload` after editing a `.ts`. See the
@@ -28,13 +28,22 @@ root [AGENTS.md](../../../AGENTS.md) for repo-wide rules; this file documents on
 
 ## Key patterns
 
-### Pi-coupled glue lives here, pure helpers live in lib
+### Pi-coupled glue lives here; pure helpers in `lib/node/pi/`; shared pi-importing helpers in `lib/node/pi/ext/`
 
-Anything that imports from `@earendil-works/pi-coding-agent` / `@earendil-works/pi-ai` / `@earendil-works/pi-tui`
-belongs here. Pure logic (reducers, parsers, path resolvers, formatters) belongs in
+An extension's own pi-coupled glue - its `pi.on(…)` handlers, command registration, tool `execute` bodies, UI/state
+wiring - lives in `<name>.ts` here. Pure logic (reducers, parsers, path resolvers, formatters) belongs in
 [`../../../lib/node/pi/`](../../../lib/node/pi) so it can be unit-tested with vitest and type-checked under the root
 `tsconfig.json`. When an extension grows a chunk of pure logic, **extract it** rather than testing it indirectly through
 the runtime.
+
+Code that imports `@earendil-works/*` (pi-tui widgets, `pi-coding-agent` dialog flows) but is **shared across
+extensions** - or extracted purely to shrink an oversized `.ts` so smaller models can work on it - goes in
+[`../../../lib/node/pi/ext/`](../../../lib/node/pi/ext) instead, with its spec under
+[`../../../tests/lib/node/pi/ext/`](../../../tests/lib/node/pi/ext). `ext/` is type-checked by the root `tsconfig.json`
+and runs under the same relaxed oxlint override as this tree. Reach for it only when the helper genuinely needs a pi
+import; anything that can stay pure belongs in `lib/node/pi/`. Anchors:
+[`multi-select-list.ts`](../../../lib/node/pi/ext/multi-select-list.ts),
+[`drop-confirm.ts`](../../../lib/node/pi/ext/drop-confirm.ts).
 
 ### `<name>.ts` + `<name>.md` pair
 
@@ -300,8 +309,8 @@ Extensions stay model-agnostic. Don't call OpenAI / Anthropic / etc. embedding e
 adding/removing an extension; add or update the matching deep doc (`<name>.md`) when behaviour changes.
 
 **Ask first**: introducing a new spawn helper that bypasses `subagent/spawn.ts` / `subagent/session-dir.ts`; adding a
-new on-disk path layout for subagent transcripts; moving extension logic into `lib/node/pi/` (pure helpers only -
-nothing that imports `@earendil-works/*`).
+new on-disk path layout for subagent transcripts; moving extension logic into `lib/node/pi/` (pure helpers only; shared
+helpers that import `@earendil-works/*` go in `lib/node/pi/ext/`).
 
 **Never**: pass `SessionManager.inMemory(...)` to a spawn site (use the `PI_SUBAGENT_NO_PERSIST=1` opt-out in
 `subagent.ts` if you genuinely need ephemeral runs); call provider embedding endpoints directly; let an extension grow a
