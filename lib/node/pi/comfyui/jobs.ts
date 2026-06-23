@@ -21,7 +21,12 @@ export type ImageJobStatus = 'running' | 'done' | 'error' | 'cancelled';
 export interface ImageJob {
   /** Registry-local id the model passes back to `image_jobs` (e.g. "1"). */
   id: string;
-  /** ComfyUI prompt id; the key used to poll `/history`. */
+  /**
+   * ComfyUI prompt id; the key used to poll `/history`. Empty string while a
+   * background job is still being submitted off-turn (enhancement + graph
+   * build + queue round-trip); the detached submit patches in the real id.
+   * Pollers treat an empty id as "still submitting", not a lost prompt.
+   */
   promptId: string;
   /** Named workflow that produced this job. */
   workflow: string;
@@ -64,8 +69,17 @@ export interface NewJob {
   startedAt: number;
 }
 
-/** Mutable fields a `collect` / `cancel` may patch onto an existing job. */
+/**
+ * Mutable fields a `collect` / `cancel` may patch onto an existing job, plus
+ * the fields a deferred background submit fills in once ComfyUI has queued the
+ * graph (`promptId`) and the enhancer/graph builder have finalized the
+ * rendered prompt, negative, and seed.
+ */
 export interface JobPatch {
+  promptId?: string;
+  prompt?: string;
+  negative?: string;
+  seed?: number;
   status?: ImageJobStatus;
   savedPaths?: string[];
   error?: string;

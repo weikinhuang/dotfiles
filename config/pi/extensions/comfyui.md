@@ -130,11 +130,19 @@ it re-encodes the same pixels at a smaller size (re-encoding format alone would 
 ## Background generation
 
 A slow render (many steps, large dimensions, a big batch) can be fired off without blocking the turn by calling
-`generate_image` with `background: true`. The tool submits the workflow, records a lightweight job, and returns the job
-id immediately. ComfyUI keeps executing it server-side, so nothing is lost when the turn ends.
+`generate_image` with `background: true`. The tool records a lightweight job and returns the job id immediately, then
+runs the whole enhancement → graph-build → submit pipeline **off-turn** so the turn is never blocked on the enhancer LLM
+call, image uploads, or the `POST /prompt` round-trip. The detached submit owns its own abort controller + timeout (not
+the turn's signal, which is gone the moment the tool returns) and patches the real `prompt_id`, seed, and rendered
+prompt onto the job once ComfyUI has queued it; a prep/submit failure marks the job `error` (surfaced on the next
+`collect`). Until that patch lands the job sits in `running` with an empty prompt id, which the auto-download poll and
+`collect` both treat as "still submitting" rather than a lost prompt. ComfyUI keeps executing it server-side, so nothing
+is lost when the turn ends.
 
 This works because ComfyUI queues every `POST /prompt` and persists the result under its `prompt_id`. A background job
 is therefore just metadata - the registry holds no process or buffer - and the actual PNGs are fetched on collection.
+Because the submit is deferred, a `background: true` call returns before its seed is known, so the start message omits
+the seed (the seed is recorded on the job once the submit lands).
 
 To make every generation background by default (e.g. a project of slow renders), set `"background": true` in a
 `comfyui.json` layer; the per-call `background` arg still overrides it, so an individual foreground render is `false`.

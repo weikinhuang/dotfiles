@@ -75,6 +75,19 @@ describe('findJob / updateJob / removeJob', () => {
     expect(findJob(reg, '1')?.status).toBe('running');
   });
 
+  test('updateJob can fill in a deferred background submit (promptId/prompt/negative/seed)', () => {
+    let reg = addJob(emptyRegistry(), sampleJob({ promptId: '', prompt: 'pending' })).registry;
+    expect(findJob(reg, '1')?.promptId).toBe('');
+    reg = updateJob(reg, '1', { promptId: 'p-late', prompt: 'enhanced', negative: 'blurry', seed: 42 });
+    const job = findJob(reg, '1');
+    expect(job?.promptId).toBe('p-late');
+    expect(job?.prompt).toBe('enhanced');
+    expect(job?.negative).toBe('blurry');
+    expect(job?.seed).toBe(42);
+    // Status untouched by a submit patch.
+    expect(job?.status).toBe('running');
+  });
+
   test('updateJob is a no-op for an unknown id', () => {
     const reg = addJob(emptyRegistry(), sampleJob()).registry;
     expect(updateJob(reg, '9', { status: 'done' })).toBe(reg);
