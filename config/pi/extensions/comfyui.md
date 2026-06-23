@@ -402,10 +402,23 @@ the right workflow and sends the right prompt shape:
 }
 ```
 
-These render as a one-line capability matrix per workflow (description, tags, the `generate_image` params the workflow
-actually maps, reference-image slot count or named roles, the prompt protocol, and a `recommends enhance` hint where
-relevant), so the model stops guessing workflow names and passing params a workflow does not support. All fields are
-optional; a workflow without them just shows its name and mapped params.
+These render as a compact capability matrix in the `generate_image` tool description. The params shared by every
+configured workflow are stated once in a leading `All workflows accept: …` line, and each workflow's own line then
+carries only its extras (`+denoise, width, height`), its reference-image slot count or named roles, the prompt protocol,
+and a `recommends enhance` hint where relevant - so the model stops guessing workflow names and passing params a
+workflow does not support without the matrix repeating the common set on every line. All fields are optional; a workflow
+without them just shows its name (and any extras beyond the common set).
+
+#### The tool schema only advertises params your workflows can use
+
+The `generate_image` parameter schema is built at registration time from the aggregate capabilities of the configured
+workflows, so the model-facing tool definition never carries params nothing can consume. A pure text-to-image setup
+omits `inputImages` / `images` (and the bbox-mask `feather` / `invert` sub-fields), and `width` / `height` / `aspect`,
+`denoise`, `steps`, `cfg`, `seed`, `count`, and `negative` each appear only when some workflow maps them; `refine`
+appears only when some workflow accepts an image input; `enhance` / `context` only when the prompt enhancer is installed
+(see [Prompt enhancement](#prompt-enhancement-enhance)). Every param is optional and the executor reads
+`params.X ?? config.X`, so omitting a param simply keeps it out of the schema - it never changes how a present param
+behaves.
 
 #### Image inputs: positional or named roles
 

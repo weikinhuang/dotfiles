@@ -59,7 +59,7 @@ import { completeSubverbs } from '../../../lib/node/pi/commands/complete.ts';
 import { isHelpArg } from '../../../lib/node/pi/commands/help.ts';
 import { COMFYUI_USAGE } from '../../../lib/node/pi/comfyui/usage.ts';
 import { DEFAULT_TARGET_PIXELS, resolveAspect } from '../../../lib/node/pi/comfyui/aspect.ts';
-import { describeWorkflows } from '../../../lib/node/pi/comfyui/describe.ts';
+import { describeWorkflows, workflowCapabilities } from '../../../lib/node/pi/comfyui/describe.ts';
 import { extractModelCatalog, formatModelCatalog } from '../../../lib/node/pi/comfyui/models.ts';
 import { emitImageGenerated } from '../../../lib/node/pi/comfyui/events.ts';
 import { envTruthy } from '../../../lib/node/pi/parse-env.ts';
@@ -459,6 +459,12 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
   const workflowMatrix = describeWorkflows(registrationConfig.workflows, defaultWorkflow, {
     enhanceHint: enhanceAvailableAtReg,
   });
+  // Aggregate image-input / param capabilities across the configured
+  // workflows so the `generate_image` schema only advertises params some
+  // workflow can actually consume. A pure text-to-image setup never carries
+  // `inputImages` / `images` / mask params (keeps the tool definition small).
+  const caps = workflowCapabilities(registrationConfig.workflows);
+  const mapsParam = (p: string): boolean => caps.params.has(p);
 
   // Background-job registry. In-memory and per-session: ComfyUI owns the
   // actual execution and persists each prompt under its id, so a job is
@@ -855,98 +861,124 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
     return changed ? { messages: messages as unknown as typeof event.messages } : undefined;
   });
 
-  const GenerateParams = Type.Object({
-    prompt: Type.Optional(
-      Type.String({
-        description: 'Positive prompt: what to depict. Required unless `variationOf` supplies one to reuse.',
-      }),
-    ),
-    negative: Type.Optional(Type.String({ description: 'Negative prompt: what to avoid.' })),
+  // Build the parameter schema from the configured workflows' capabilities.
+  // The full literal below keeps the precise TypeBox `Static` types the
+  // executor relies on; we then drop (at runtime) the params no configured
+  // workflow can consume, so the model-facing tool definition only
+  // advertises what is usable. Every param is optional and the executor
+  // reads `params.X ?? config.X`, so dropping one is purely a schema change.
+  const maskValue = Type.Object({
+    bbox: Type.Array(Type.Array(Type.Number()), {
+      description: 'Normalized [x, y, w, h] rects (0-1, top-left origin), unioned for multi-region edits.',
+    }),
+    feather: Type.Optional(Type.Number({ description: 'Mask edge softening in px (default 0).' })),
+    invert: Type.Optional(Type.Boolean({ description: 'Flip polarity (default white = region to change).' })),
+  });
+  const generateProps = {
+    prompt: Type.Optional(Type.String({ description: 'What to depict. Required unless `variationOf` reuses one.' })),
+    negative: Type.Optional(Type.String({ description: 'What to avoid.' })),
     variationOf: Type.Optional(
       Type.String({
         description:
-          'Reuse a prior generation id (e.g. "g3", from a result line or /comfyui gallery): inherits its workflow, prompt, negative, seed, and dimensions as the baseline, then any param you pass here overrides. Use to iterate on a render.',
+          'Reuse a prior generation id (e.g. "g3"): inherits its workflow/prompt/negative/seed/dims; any param here overrides.',
       }),
     ),
     refine: Type.Optional(
       Type.String({
         description:
-          'Refine a prior generation id (e.g. "g3"): feeds that render\'s saved image as the input of an edit workflow. Set `workflow` to an edit workflow and `prompt` to the edit instruction. Do not also pass `inputImages`.',
+          'Reuse a prior generation id as the input image for an edit workflow; set `workflow` + `prompt` to the edit. Not with `inputImages`.',
       }),
     ),
-    workflow: Type.Optional(
-      Type.String({ description: `One of: ${workflowList}. Default ${defaultWorkflow}. Do not invent names.` }),
-    ),
+    workflow: Type.Optional(Type.String({ description: `One of: ${workflowList}. Default ${defaultWorkflow}.` })),
     width: Type.Optional(Type.Number({ description: 'Output width (px).' })),
     height: Type.Optional(Type.Number({ description: 'Output height (px).' })),
     aspect: Type.Optional(
       Type.String({
-        description:
-          'Aspect preset that sets width/height, e.g. "16:9", "portrait", "square". Explicit width/height override it. Only for workflows that map width and height.',
+        description: 'Aspect preset (e.g. "16:9", "portrait", "square") setting width/height; explicit dims win.',
       }),
     ),
     steps: Type.Optional(Type.Number({ description: 'Sampler steps.' })),
     cfg: Type.Optional(Type.Number({ description: 'CFG / guidance scale.' })),
-    seed: Type.Optional(Type.Number({ description: 'Omit for a random seed; reuse a prior seed to reproduce.' })),
+    seed: Type.Optional(Type.Number({ description: 'Omit for random; reuse to reproduce.' })),
     denoise: Type.Optional(Type.Number({ description: 'Denoise strength 0-1 (img2img).' })),
     inputImages: Type.Optional(
       Type.Array(Type.String(), {
-        description:
-          'Ordered reference image paths for img2img / edit workflows, e.g. ["~/in.png"]. Multi-reference edit workflows fill their slots in order; extra slots beyond the supplied images keep the graph default.',
+        description: 'Reference image paths for img2img/edit workflows, e.g. ["~/in.png"]; filled into slots in order.',
       }),
     ),
     images: Type.Optional(
-      Type.Record(
-        Type.String(),
-        Type.Union([
-          Type.String(),
-          Type.Object({
-            bbox: Type.Array(Type.Array(Type.Number()), {
-              description: 'Normalized [x, y, w, h] rectangles (0-1, top-left origin), unioned for multi-region edits.',
-            }),
-            feather: Type.Optional(Type.Number({ description: 'Gaussian edge softening in px (default 0).' })),
-            invert: Type.Optional(Type.Boolean({ description: 'Flip polarity (default white = region to change).' })),
-          }),
-        ]),
-        {
-          description:
-            'Named image inputs keyed by role (e.g. init, mask, control) for workflows that declare image roles. Each value is a file path, or for a mask role a { bbox } synth spec the extension rasterizes. Use instead of inputImages for role-based workflows; the workflow capability line lists accepted roles. Mutually exclusive with inputImages.',
-        },
-      ),
+      Type.Record(Type.String(), Type.Union([Type.String(), maskValue]), {
+        description:
+          'Image inputs keyed by role (init, mask, control); value is a path, or a { bbox } mask spec. Not with inputImages.',
+      }),
     ),
     count: Type.Optional(Type.Number({ description: 'Batch size.' })),
     sendToModel: Type.Optional(
       Type.Boolean({
-        description: `Return the image to you for analysis; false = save to disk only. Auto-suppressed for non-vision models. Default ${registrationConfig.sendToModel}.`,
+        default: registrationConfig.sendToModel,
+        description: 'Return the image to you for analysis; false = save to disk only.',
       }),
     ),
     ephemeral: Type.Optional(
       Type.Boolean({
-        description: `Show the image in the terminal once, then drop this tool call and image from the conversation so they do NOT stay in context on later turns (you will not re-read the image). Use for visual-novel / roleplay scene renders where the picture is for the user, not for you. Foreground renders only. Default ${registrationConfig.ephemeral}.`,
+        default: registrationConfig.ephemeral,
+        description:
+          'Show once, then drop the call+image from context (not seen on later turns); for VN/roleplay scene renders. Foreground only.',
       }),
     ),
     background: Type.Optional(
       Type.Boolean({
-        description: `Return immediately without waiting; collect later via \`image_jobs\` (collect). Use for slow renders. Default ${registrationConfig.background}.`,
+        default: registrationConfig.background,
+        description: 'Return immediately; collect later via `image_jobs`. For slow renders.',
       }),
     ),
     enhance: Type.Optional(
       Type.Boolean({
-        description: `Refine prompt + negative into the workflow's native protocol via a helper agent before rendering. Use when a workflow lists "recommends enhance" or you are unsure of its protocol. Default ${registrationConfig.enhance}.`,
+        default: registrationConfig.enhance,
+        description: "Refine prompt+negative into the workflow's protocol via a helper agent first.",
       }),
     ),
     context: Type.Optional(
       Type.String({
-        description:
-          'Background to honor during enhancement (scene, continuity, character facts) without depicting it literally. Only used when enhance is on; ignored otherwise.',
+        description: 'Background for enhancement (scene/continuity) to honor without depicting. Only with enhance.',
       }),
     ),
     previewMaxDimension: Type.Optional(
       Type.Number({
-        description: `Downscale the copy returned to you so its longer side is at most this many px (the saved file stays full-res), to save image tokens. Overrides the config default${registrationConfig.previewMaxDimension ? ` (${registrationConfig.previewMaxDimension})` : ''}.`,
+        description:
+          "Downscale the returned copy's longer side to this many px (saved file stays full-res) to save tokens.",
       }),
     ),
-  });
+  };
+  // Drop params no configured workflow can consume. Casting to a loose record
+  // keeps the precise `typeof generateProps` (and thus the executor's param
+  // types) while letting us delete keys at runtime; the schema TypeBox builds
+  // reflects only the surviving keys.
+  const dropProp = (key: string): void => {
+    delete (generateProps as Record<string, unknown>)[key];
+  };
+  for (const p of ['negative', 'width', 'height', 'steps', 'cfg', 'seed', 'denoise', 'count']) {
+    if (!mapsParam(p)) dropProp(p);
+  }
+  if (!caps.dimensions) dropProp('aspect');
+  if (!caps.imageInput) dropProp('refine');
+  if (!caps.positionalImages) dropProp('inputImages');
+  if (!caps.roleImages) {
+    dropProp('images');
+  } else if (!caps.maskRole) {
+    // Role workflows without a mask slot take only file paths, so drop the
+    // bbox-mask object from the `images` value union.
+    (generateProps as Record<string, unknown>).images = Type.Optional(
+      Type.Record(Type.String(), Type.String(), {
+        description: 'Image inputs keyed by role (init, control); value is a file path. Not with inputImages.',
+      }),
+    );
+  }
+  if (!enhanceAvailableAtReg) {
+    dropProp('enhance');
+    dropProp('context');
+  }
+  const GenerateParams = Type.Object(generateProps);
 
   pi.registerTool({
     name: 'generate_image',
@@ -954,14 +986,13 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
     description:
       `Generate an image from a prompt via a ComfyUI server and return it inline. ` +
       `Use when the user asks to create, draw, render, or generate a picture. ` +
-      `Each workflow bakes in its own checkpoint, sampler, and scheduler; pick one by capability and send the prompt ` +
-      `in the protocol it lists. Pass only the params a workflow maps (others error). Available workflows ` +
-      `(default ${defaultWorkflow}):\n${workflowMatrix}\n` +
-      `The PNG is saved to disk and returned so you can see it.`,
+      `Each workflow bakes in its own checkpoint/sampler/scheduler; pick one by capability and prompt in its protocol. ` +
+      `Available workflows (default ${defaultWorkflow}):\n${workflowMatrix}\n` +
+      `Saved to disk and returned so you can see it.`,
     promptSnippet: `To create or render an image, call \`generate_image\` (workflows: ${workflowList}) instead of describing it in text.`,
     promptGuidelines: [
       "Never call ComfyUI's HTTP API (`/object_info`, `/prompt`, `/view`, …) via bash/curl/anything - `generate_image` is the only entry point; it encapsulates model and sampler choice.",
-      'Only pass `inputImages` for img2img / edit workflows.',
+      ...(caps.positionalImages ? ['Only pass `inputImages` for img2img / edit workflows.'] : []),
     ],
     parameters: GenerateParams,
 

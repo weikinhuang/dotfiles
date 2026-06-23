@@ -27,16 +27,40 @@ function toolParamName(inputKey: string): string {
 }
 
 /**
+ * The tunable scalar/text `generate_image` params a workflow maps, in the
+ * order its input map declares them (no image arg). This is the set the
+ * base/delta matrix compares against; image inputs are reported separately
+ * as role names / reference-slot counts.
+ */
+export function tunableParams(wf: WorkflowConfig): string[] {
+  return Object.keys(wf.inputs).map(toolParamName);
+}
+
+/**
  * The `generate_image` params a workflow actually supports, in the order
  * its input map declares them, plus the image arg it accepts: `inputImages`
  * for positional slots, `images` for named roles. Used both in the
  * capability line and (potentially) to validate calls up front.
  */
 export function supportedParams(wf: WorkflowConfig): string[] {
-  const params = Object.keys(wf.inputs).map(toolParamName);
+  const params = tunableParams(wf);
   if (isRoleMap(wf.images)) params.push('images');
   else if (wf.images !== undefined && wf.images.length > 0) params.push('inputImages');
   return params;
+}
+
+/**
+ * The tunable params common to EVERY configured workflow, in the order the
+ * first workflow declares them. The base/delta matrix lists these once in a
+ * header line so each per-workflow line only carries its extras. Empty when
+ * there are no workflows or the workflows share no tunable param.
+ */
+export function commonParams(workflows: Record<string, WorkflowConfig>): string[] {
+  const names = Object.keys(workflows);
+  if (names.length === 0) return [];
+  const lists = names.map((n) => tunableParams(workflows[n]));
+  const [first, ...rest] = lists;
+  return first.filter((p) => rest.every((list) => list.includes(p)));
 }
 
 /**
@@ -72,6 +96,12 @@ export interface DescribeOptions {
    * hint is only surfaced once the prompt enhancer is actually wired in.
    */
   enhanceHint?: boolean;
+  /**
+   * Params already stated in a shared header line (see {@link commonParams}).
+   * When set, the per-workflow line drops these and shows only its extras as
+   * `+a, b`, so the matrix doesn't repeat the common set on every line.
+   */
+  baseParams?: string[];
 }
 
 /**
@@ -90,8 +120,14 @@ export function describeWorkflow(name: string, wf: WorkflowConfig, opts: Describ
   const head = parts.length > 0 ? `${name}: ${parts.join(' ')}` : name;
 
   const sections: string[] = [head];
-  const params = supportedParams(wf);
-  if (params.length > 0) sections.push(`params: ${params.join(', ')}`);
+  const base = opts.baseParams;
+  if (base !== undefined) {
+    const extras = tunableParams(wf).filter((p) => !base.includes(p));
+    if (extras.length > 0) sections.push(`+${extras.join(', ')}`);
+  } else {
+    const params = supportedParams(wf);
+    if (params.length > 0) sections.push(`params: ${params.join(', ')}`);
+  }
   const roles = imageRoleNames(wf);
   if (roles.length > 0) {
     sections.push(`roles: ${roles.join(', ')}`);
@@ -120,10 +156,60 @@ export function describeWorkflows(
 ): string {
   const names = Object.keys(workflows);
   if (names.length === 0) return '(no workflows configured)';
-  return names
-    .map((name) => {
-      const line = describeWorkflow(name, workflows[name], opts);
-      return name === defaultWorkflow ? `${line} (default)` : line;
-    })
-    .join('\n');
+  // Factor the params shared by every workflow into one header line so each
+  // per-workflow line only carries its extras (`+denoise, width, height`).
+  // Only worth it with more than one workflow and a non-empty common set.
+  const base = names.length > 1 ? commonParams(workflows) : [];
+  const lineOpts: DescribeOptions = base.length > 0 ? { ...opts, baseParams: base } : opts;
+  const lines = names.map((name) => {
+    const line = describeWorkflow(name, workflows[name], lineOpts);
+    return name === defaultWorkflow ? `${line} (default)` : line;
+  });
+  if (base.length > 0) lines.unshift(`All workflows accept: ${base.join(', ')}.`);
+  return lines.join('\n');
+}
+
+/**
+ * Image-input + param capabilities aggregated across every configured
+ * workflow, used by the extension to register only the `generate_image`
+ * params some workflow can actually consume (a pure-text-to-image setup
+ * never carries `inputImages` / `images` / mask params, etc.).
+ */
+export interface WorkflowCapabilities {
+  /** Union of tunable params mapped by at least one workflow. */
+  params: Set<string>;
+  /** Some workflow maps BOTH width and height (so `aspect` is meaningful). */
+  dimensions: boolean;
+  /** Some workflow declares positional image slots (`inputImages`). */
+  positionalImages: boolean;
+  /** Some workflow declares a role-keyed image map (`images`). */
+  roleImages: boolean;
+  /** Some role map has a `mask`-kind slot (so bbox/feather/invert apply). */
+  maskRole: boolean;
+  /** Some workflow accepts any image input (so `refine` can feed one). */
+  imageInput: boolean;
+}
+
+export function workflowCapabilities(workflows: Record<string, WorkflowConfig>): WorkflowCapabilities {
+  const caps: WorkflowCapabilities = {
+    params: new Set<string>(),
+    dimensions: false,
+    positionalImages: false,
+    roleImages: false,
+    maskRole: false,
+    imageInput: false,
+  };
+  for (const wf of Object.values(workflows)) {
+    for (const p of tunableParams(wf)) caps.params.add(p);
+    if (wf.inputs.width !== undefined && wf.inputs.height !== undefined) caps.dimensions = true;
+    if (isRoleMap(wf.images)) {
+      caps.roleImages = true;
+      caps.imageInput = true;
+      if (Object.values(wf.images).some((slot) => slot.kind === 'mask')) caps.maskRole = true;
+    } else if (wf.images !== undefined && wf.images.length > 0) {
+      caps.positionalImages = true;
+      caps.imageInput = true;
+    }
+  }
+  return caps;
 }

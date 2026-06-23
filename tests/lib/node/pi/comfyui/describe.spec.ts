@@ -5,11 +5,13 @@
 import { describe, expect, test } from 'vitest';
 
 import {
+  commonParams,
   describeWorkflow,
   describeWorkflows,
   imageRoleNames,
   recommendsEnhance,
   supportedParams,
+  workflowCapabilities,
 } from '../../../../../lib/node/pi/comfyui/describe.ts';
 import type { WorkflowConfig } from '../../../../../lib/node/pi/comfyui/types.ts';
 
@@ -138,16 +140,99 @@ describe('describeWorkflow', () => {
 });
 
 describe('describeWorkflows', () => {
-  test('marks the default workflow and lists one line each', () => {
+  test('factors common params into a header and shows per-workflow extras', () => {
     const workflows: Record<string, WorkflowConfig> = {
       txt2img: { file: 't.json', inputs: { prompt: { node: '6', key: 'text' } } },
       anima: { file: 'a.json', inputs: { prompt: { node: '6', key: 'text' } }, description: 'anime' },
     };
     const out = describeWorkflows(workflows, 'txt2img');
-    expect(out).toBe('txt2img | params: prompt (default)\nanima: anime | params: prompt');
+    expect(out).toBe('All workflows accept: prompt.\ntxt2img (default)\nanima: anime');
+  });
+
+  test('lists only the extras each workflow adds beyond the common set', () => {
+    const workflows: Record<string, WorkflowConfig> = {
+      base: {
+        file: 'b.json',
+        inputs: { prompt: { node: '6', key: 'text' }, seed: { node: '3', key: 'seed' } },
+      },
+      wide: {
+        file: 'w.json',
+        inputs: {
+          prompt: { node: '6', key: 'text' },
+          seed: { node: '3', key: 'seed' },
+          width: { node: '5', key: 'w' },
+          height: { node: '5', key: 'h' },
+        },
+      },
+    };
+    const out = describeWorkflows(workflows, 'base');
+    expect(out).toBe('All workflows accept: prompt, seed.\nbase (default)\nwide | +width, height');
+  });
+
+  test('skips the header for a single workflow', () => {
+    const workflows: Record<string, WorkflowConfig> = {
+      only: { file: 'o.json', inputs: { prompt: { node: '6', key: 'text' } } },
+    };
+    expect(describeWorkflows(workflows, 'only')).toBe('only | params: prompt (default)');
   });
 
   test('neutral note when no workflows', () => {
     expect(describeWorkflows({}, 'txt2img')).toBe('(no workflows configured)');
+  });
+});
+
+describe('commonParams', () => {
+  test('intersects tunable params across workflows in first-workflow order', () => {
+    const workflows: Record<string, WorkflowConfig> = {
+      a: {
+        file: 'a.json',
+        inputs: { prompt: { node: '1', key: 't' }, seed: { node: '2', key: 's' }, batch: { node: '3', key: 'b' } },
+      },
+      b: { file: 'b.json', inputs: { seed: { node: '2', key: 's' }, prompt: { node: '1', key: 't' } } },
+    };
+    expect(commonParams(workflows)).toEqual(['prompt', 'seed']);
+  });
+
+  test('empty when no workflows', () => {
+    expect(commonParams({})).toEqual([]);
+  });
+});
+
+describe('workflowCapabilities', () => {
+  test('aggregates params, dimensions, and image-input shapes', () => {
+    const caps = workflowCapabilities({
+      t2i: {
+        file: 't.json',
+        inputs: {
+          prompt: { node: '1', key: 't' },
+          width: { node: '2', key: 'w' },
+          height: { node: '2', key: 'h' },
+          batch: { node: '3', key: 'b' },
+        },
+      },
+      edit: { file: 'e.json', inputs: { prompt: { node: '1', key: 't' } }, images: [{ node: '9', key: 'image' }] },
+      inpaint: {
+        file: 'i.json',
+        inputs: { prompt: { node: '1', key: 't' } },
+        images: { init: { node: '9', key: 'image' }, mask: { node: '8', key: 'image', kind: 'mask' } },
+      },
+    });
+    expect([...caps.params].sort()).toEqual(['count', 'height', 'prompt', 'width']);
+    expect(caps.dimensions).toBe(true);
+    expect(caps.positionalImages).toBe(true);
+    expect(caps.roleImages).toBe(true);
+    expect(caps.maskRole).toBe(true);
+    expect(caps.imageInput).toBe(true);
+  });
+
+  test('pure text-to-image setup reports no image / dimension capability', () => {
+    const caps = workflowCapabilities({
+      t2i: { file: 't.json', inputs: { prompt: { node: '1', key: 't' } } },
+    });
+    expect(caps.dimensions).toBe(false);
+    expect(caps.positionalImages).toBe(false);
+    expect(caps.roleImages).toBe(false);
+    expect(caps.maskRole).toBe(false);
+    expect(caps.imageInput).toBe(false);
   });
 });
