@@ -3,23 +3,28 @@ name: anima-prompting
 disable-model-invocation: true
 description:
   Prompting rules for the CircleStone Labs **Anima** anime / illustration model. Use when the user asks to generate /
-  draw / render an anime / illustration / non-photoreal image on an Anima workflow. Anima is distinguished from the
-  Illustrious / NoobAI family by its score tags and `@artist` prefix syntax; do not use for photorealism.
+  draw / render an anime / illustration / non-photoreal image on an Anima workflow. Anima uses score tags and an
+  `@artist` prefix syntax; it is for anime / illustration, not photorealism.
 ---
 
 # Anima Prompting
 
 [Anima](https://huggingface.co/circlestone-labs/Anima) is a 2B anime / illustration text-to-image model (CircleStone
 Labs + Comfy Org), built on NVIDIA Cosmos with a qwen-text-encoder LLM adapter that has outsized influence on the
-generated image. This skill teaches how to write the `prompt` and `negative` you pass to the
-[`generate_image`](../../extensions/comfyui.md) tool so a small chat model drives it well on the first call. It is
-specific to Anima - the score tags, `@artist` rule, and qwen-text-encoder behavior below do not apply to a plain SD /
-SDXL workflow, nor to [[illustrious-prompting]] or [[noobai-vpred-prompting]].
+generated image. Write the `prompt` and `negative` you pass to the `generate_image` tool per the rules below to drive
+Anima well on the first call. The score tags, `@artist` rule, and qwen-text-encoder behavior below are specific to
+Anima.
 
 Anima is trained on **Danbooru-style tags of the Gelbooru flavor, natural-language captions, and mixes of the two**
 (anime training data cuts off September 2025). All three work; pick whichever fits the request and always lead with
 quality + safety tags. The LLM adapter is what makes detailed prompts pay off here far more than on a plain SDXL model -
 terse prompts waste the model's strongest feature.
+
+**Safe default when unsure:** use the `anima` workflow, begin the `prompt` with
+`masterpiece, best quality, score_7, safe,`, describe the subject in roughly 12-25 lowercase tags (or 2+ sentences of
+prose), and always pass the recommended `negative` from the [negative recipe](#negative-prompt-recipe). Short prompts
+make Anima bland or unsafe, so spend the detail. Everything below is how to do better than this default when the request
+calls for it.
 
 ## The `generate_image` call
 
@@ -153,7 +158,47 @@ worst quality, low quality, score_1, score_2, score_3, artist name
 Sampler/scheduler live in the workflow file, not the tool args - mention a sampler only if asking the user to retune the
 workflow.
 
+## Prompt enhancement (`enhance`)
+
+The `generate_image` tool has an opt-in **`enhance`** option that routes your prompt through a separate model before the
+render to rewrite it into Anima's native protocol - the score/safety-prefixed tag list this guide describes.
+
+- **It is opt-in.** Pass `enhance: true` on the call (or a workflow/config default turns it on). When off, your `prompt`
+  is sent as-is.
+- **Use it when** the incoming prompt is thin (a few words) and you want a one-shot upgrade to a full tagged prompt.
+  When you have already built a careful tagged prompt, leave `enhance` off - it only adds latency and risks drifting
+  from your intent.
+- **Scene continuity.** Pass the `context` arg alongside `enhance` to hand the enhancer background to honour (character
+  facts, ongoing scene, wardrobe) without depicting it literally. It is ignored when `enhance` is off.
+- **Negative.** The enhancer builds on whatever baseline `negative` you pass and returns a refined one - it should keep
+  rating words out of the negative (see the [negative recipe](#negative-prompt-recipe)).
+
+## If you are enhancing a prompt rather than rendering
+
+You may be reading this not to call `generate_image` yourself, but as guidance handed to the prompt-enhancement step:
+you were given a rough positive prompt, a baseline negative, and the target workflow's protocol, and you must return a
+single JSON object `{"prompt", "negative"}` and nothing else. In that role:
+
+- **Act only on the prompt-writing rules above** - the score/safety prefix, the
+  [positive recipe](#positive-prompt-recipe) and [tag order](#tag-order-tag-style-prompts), the
+  [terse-request expansion](#expanding-a-terse-user-request), and the [negative recipe](#negative-prompt-recipe). The
+  generation-settings and tool-arg tables do not apply - you do not pick a workflow or call any tool.
+- **Translate and enrich, do not reinvent.** Keep the incoming subject and intent; lead with
+  `masterpiece, best quality, score_7, safe,` and turn loose phrasing into lowercase Gelbooru-style tags (or a
+  tags-plus-prose mix). Preserve any dynamic-prompt wildcards (`{A|B}`) unchanged.
+- **Always add detail - even to an already-tagged prompt.** Anima produces bland or unsafe output from short prompts, so
+  push toward roughly 12-25 substantive items: infer subject count (`1girl` / `1boy` / `1other`, `solo`), then layer in
+  appearance, one framing tag, setting, and lighting / palette that the prompt leaves unstated, staying faithful to the
+  stated subject.
+- **Mine any background context you were given** (a scene/continuity note, recent conversation) for that extra detail
+  and fold it in as depictable tags. Treat it as source material to pick from, not a checklist to dump and not a subject
+  that overrides the explicit prompt; ignore chatter with no visual bearing.
+- **Build on the baseline negative** (start from `worst quality, low quality, score_1, score_2, score_3, artist name`),
+  and keep rating words (`safe` / `sensitive` / `nsfw` / `explicit`) out of it.
+
 ## Worked examples
+
+These illustrate the _shape_ of a finished prompt - adapt them to the actual request, do not reuse them verbatim.
 
 Tag-style:
 

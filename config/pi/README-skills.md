@@ -14,8 +14,9 @@ The following skills carry `disable-model-invocation: true`, so they are kept ou
 to save tokens. They stay loadable on demand via `/skill:<name>`; the model no longer auto-discovers them, so invoke
 them explicitly when needed:
 
-- The four image-model prompting skills (`anima-prompting`, `chenkin-noob-xl-prompting`, `illustrious-prompting`,
-  `noobai-vpred-prompting`) - invoke the matching one (e.g. `/skill:anima-prompting`) when prompting an image workflow.
+- The five image-model prompting skills (`anima-prompting`, `chenkin-noob-xl-prompting`, `flux2-klein-prompting`,
+  `illustrious-prompting`, `noobai-vpred-prompting`) - invoke the matching one (e.g. `/skill:anima-prompting`) when
+  prompting an image workflow.
 - `hooks-author` - invoke (`/skill:hooks-author`) when wiring a pi user hook.
 
 ## Index
@@ -30,6 +31,7 @@ them explicitly when needed:
 | [`skills/clarify-with-questionnaire/SKILL.md`](./skills/clarify-with-questionnaire/SKILL.md) | [`questionnaire`](./extensions/questionnaire.md)                                                                                       | WHEN to ask the user a structured question vs infer, and how to shape `single` / `multi` / `free` options.                          |
 | [`skills/compute-over-bash/SKILL.md`](./skills/compute-over-bash/SKILL.md)                   | [`wasm-compute`](./extensions/wasm-compute.md)                                                                                         | WHEN to reach for the `compute` tool over `python -c` / `node -e` / `bc` for pure computation.                                      |
 | [`skills/deep-research-when/SKILL.md`](./skills/deep-research-when/SKILL.md)                 | [`deep-research`](./extensions/deep-research.md)                                                                                       | WHEN the heavy `research` pipeline pays for itself vs a single fetch or scoped subagent.                                            |
+| [`skills/flux2-klein-prompting/SKILL.md`](./skills/flux2-klein-prompting/SKILL.md)           | [`comfyui`](./extensions/comfyui.md)                                                                                                   | HOW to write FLUX.2 [klein] prompts (natural-language prose, the CFG-vs-negative caveat, text rendering, multi-ref edits).          |
 | [`skills/grep-before-read/SKILL.md`](./skills/grep-before-read/SKILL.md)                     | [`read-without-limit-nudge`](./extensions/read-without-limit-nudge.md), [`read-reread-detector`](./extensions/read-reread-detector.md) | Default to `rg -n` for discovery; use `read` only after you know the target lines.                                                  |
 | [`skills/hooks-author/SKILL.md`](./skills/hooks-author/SKILL.md)                             | [`hooks`](./extensions/hooks.md)                                                                                                       | WHEN to wire a user hook (`~/.pi/agent/hooks.json`) vs an ad-hoc command vs a full extension.                                       |
 | [`skills/illustrious-prompting/SKILL.md`](./skills/illustrious-prompting/SKILL.md)           | [`comfyui`](./extensions/comfyui.md)                                                                                                   | HOW to write Illustrious-XL positive/negative prompts (Danbooru + natural language; no Pony score tags, no `@artist`).              |
