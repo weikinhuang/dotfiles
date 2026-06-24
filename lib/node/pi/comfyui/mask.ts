@@ -103,3 +103,22 @@ export function buildMaskPlan(
 
   return { plan: { width: w, height: h, rects, invert: opts.invert ?? false, feather } };
 }
+
+/**
+ * Build the black/white SVG document for a {@link MaskPlan}: a background
+ * fill plus one `<rect>` per filled region. White marks the region to
+ * change; `invert` flips that polarity. Pure string assembly - the
+ * extension shell rasterizes this to PNG via `sharp` (applying any
+ * feather blur there, since feather is a raster operation).
+ */
+export function maskSvg(plan: MaskPlan): string {
+  const bg = plan.invert ? '#fff' : '#000';
+  const fg = plan.invert ? '#000' : '#fff';
+  const rects = plan.rects
+    .map((r) => `<rect x="${r.x}" y="${r.y}" width="${r.width}" height="${r.height}" fill="${fg}"/>`)
+    .join('');
+  return (
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${plan.width}" height="${plan.height}">` +
+    `<rect width="100%" height="100%" fill="${bg}"/>${rects}</svg>`
+  );
+}

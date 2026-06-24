@@ -16,6 +16,7 @@ import { emitImageGenerated } from '../../comfyui/events.ts';
 import { findGenerationByPrompt } from '../../comfyui/generations.ts';
 import { findJob, formatRegistry, updateJob } from '../../comfyui/jobs.ts';
 import { pollJobOnce } from '../../comfyui/poll.ts';
+import { imageCountNote, summarizeRenderedImages } from '../../comfyui/summary.ts';
 import type { JobsAction, JobsDetails } from './details.ts';
 import { previewTransformFor } from './images.ts';
 import type { ComfyuiRuntime } from './runtime.ts';
@@ -85,9 +86,8 @@ export async function actCollect(
     };
     const decision = resolveSendToModel(job.sendToModel, ctx.model?.input);
     const n = job.savedPaths.length;
-    const countNote = `${n} image${n === 1 ? '' : 's'}`;
     const idNote = existing ? ` (${existing.id})` : '';
-    const baseText = `[${id}]${idNote} already downloaded: ${countNote} in ${job.saveDir}.`;
+    const baseText = `[${id}]${idNote} already downloaded: ${imageCountNote(n)} in ${job.saveDir}.`;
     if (decision.send) {
       const blocks = await readSavedImages(job.savedPaths, previewTransform);
       if (blocks.length > 0) {
@@ -156,8 +156,6 @@ export async function actCollect(
     const idNote = collected ? ` (${collected.id})` : '';
 
     const decision = resolveSendToModel(job.sendToModel, ctx.model?.input);
-    const seedNote = job.seed !== undefined ? ` (seed ${job.seed})` : '';
-    const countNote = `${savedPaths.length} image${savedPaths.length === 1 ? '' : 's'}`;
     const details: JobsDetails = {
       action: 'collect',
       jobId: id,
@@ -165,15 +163,19 @@ export async function actCollect(
       savedPaths,
       generationId: collected?.id,
     };
-    if (!decision.send) {
-      const why = decision.visionBlocked
-        ? ' (active model has no image input; not sent to model)'
-        : ' (image not sent to model)';
-      const text = `Collected ${countNote} from [${id}]${idNote} via "${job.workflow}"${seedNote}. Saved to ${job.saveDir}.${why}`;
-      return { content: [{ type: 'text', text }], details };
-    }
-    const text = `Collected ${countNote} from [${id}]${idNote} via "${job.workflow}"${seedNote}. Saved to ${job.saveDir}.`;
-    return { content: [{ type: 'text', text }, ...saved.map((s) => s.block)], details };
+    const text = summarizeRenderedImages({
+      verb: 'Collected',
+      count: savedPaths.length,
+      fromJob: ` from [${id}]`,
+      idNote,
+      workflow: job.workflow,
+      seed: job.seed,
+      saveDir: job.saveDir,
+      decision,
+    });
+    return decision.send
+      ? { content: [{ type: 'text', text }, ...saved.map((s) => s.block)], details }
+      : { content: [{ type: 'text', text }], details };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     const reason = ac.signal.aborted && !(signal?.aborted ?? false) ? `timed out after ${conn.timeoutMs}ms` : message;

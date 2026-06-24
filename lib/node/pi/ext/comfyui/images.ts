@@ -9,7 +9,7 @@
 import type SharpFactory from 'sharp';
 
 import { type Conn, type ImageBlockTransform, uploadImage, uploadImageBuffer } from '../../comfyui/client.ts';
-import { buildMaskPlan, type MaskPlan, type NormalizedBox } from '../../comfyui/mask.ts';
+import { buildMaskPlan, type MaskPlan, maskSvg, type NormalizedBox } from '../../comfyui/mask.ts';
 import { isResizableMime, planDownscale } from '../../comfyui/preview.ts';
 import type { RoleMapping } from '../../comfyui/types.ts';
 import { expandTilde } from '../../path-expand.ts';
@@ -67,21 +67,8 @@ interface BboxMaskSpec {
 /** A role slot's value as the model passes it: a file path or a bbox synth spec. */
 export type RoleImageInput = string | BboxMaskSpec;
 
-function isBboxSpec(value: RoleImageInput): value is BboxMaskSpec {
+export function isBboxSpec(value: RoleImageInput): value is BboxMaskSpec {
   return typeof value === 'object' && value !== null && Array.isArray(value.bbox);
-}
-
-/** Build the black/white SVG for a {@link MaskPlan} (white = region to change). */
-function maskSvg(plan: MaskPlan): string {
-  const bg = plan.invert ? '#fff' : '#000';
-  const fg = plan.invert ? '#000' : '#fff';
-  const rects = plan.rects
-    .map((r) => `<rect x="${r.x}" y="${r.y}" width="${r.width}" height="${r.height}" fill="${fg}"/>`)
-    .join('');
-  return (
-    `<svg xmlns="http://www.w3.org/2000/svg" width="${plan.width}" height="${plan.height}">` +
-    `<rect width="100%" height="100%" fill="${bg}"/>${rects}</svg>`
-  );
 }
 
 /** Rasterize a {@link MaskPlan} to PNG bytes via `sharp` (optional gaussian feather). */

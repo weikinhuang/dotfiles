@@ -10,6 +10,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
 import type { ComfyWorkflow } from '../../../../../lib/node/pi/comfyui/types.ts';
 import {
+  formatWorkflowValidation,
   injectImageList,
   injectImageRoles,
   injectInputs,
@@ -286,5 +287,59 @@ describe('randomSeed', () => {
     expect(Number.isInteger(seed)).toBe(true);
     expect(seed).toBeGreaterThanOrEqual(0);
     expect(seed).toBeLessThanOrEqual(Number.MAX_SAFE_INTEGER);
+  });
+});
+
+describe('formatWorkflowValidation', () => {
+  let tmp: string;
+
+  beforeEach(() => {
+    tmp = mkdtempSync(join(tmpdir(), 'comfyui-wfval-spec-'));
+  });
+
+  afterEach(() => {
+    rmSync(tmp, { recursive: true, force: true });
+  });
+
+  test('placeholder when no workflows are configured', () => {
+    expect(formatWorkflowValidation({}, tmp, tmp)).toBe('no workflows configured');
+  });
+
+  test('checkmark line listing the mapped inputs for a valid workflow', () => {
+    const file = join(tmp, 'ok.json');
+    writeFileSync(file, JSON.stringify(sampleWorkflow()));
+    const out = formatWorkflowValidation({ ok: { file, inputs: MAP } }, tmp, tmp);
+    expect(out).toBe('\u2713 ok: prompt, negative, seed, width');
+  });
+
+  test('cross line with the loader error when the file is missing', () => {
+    const out = formatWorkflowValidation({ gone: { file: join(tmp, 'nope.json'), inputs: MAP } }, tmp, tmp);
+    expect(out).toMatch(/^\u2717 gone: /);
+    expect(out).toContain('not found');
+  });
+
+  test('cross line with mapping errors when a mapped node is absent', () => {
+    const file = join(tmp, 'badmap.json');
+    writeFileSync(file, JSON.stringify(sampleWorkflow()));
+    const out = formatWorkflowValidation({ bad: { file, inputs: { prompt: { node: '999', key: 'text' } } } }, tmp, tmp);
+    expect(out).toMatch(/^\u2717 bad: /);
+    expect(out).toContain('node "999"');
+  });
+
+  test('one line per workflow, in insertion order', () => {
+    const file = join(tmp, 'ok.json');
+    writeFileSync(file, JSON.stringify(sampleWorkflow()));
+    const out = formatWorkflowValidation(
+      {
+        ok: { file, inputs: { prompt: { node: '6', key: 'text' } } },
+        gone: { file: join(tmp, 'x.json'), inputs: MAP },
+      },
+      tmp,
+      tmp,
+    );
+    const lines = out.split('\n');
+    expect(lines).toHaveLength(2);
+    expect(lines[0]).toBe('\u2713 ok: prompt');
+    expect(lines[1]).toMatch(/^\u2717 gone: /);
   });
 });

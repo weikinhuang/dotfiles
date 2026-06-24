@@ -32,6 +32,7 @@ import { buildEnhanceTask } from '../../comfyui/enhance.ts';
 import { emitImageGenerated } from '../../comfyui/events.ts';
 import { findGeneration, type GenerationRecord } from '../../comfyui/generations.ts';
 import { addJob, findJob, updateJob } from '../../comfyui/jobs.ts';
+import { summarizeRenderedImages } from '../../comfyui/summary.ts';
 import { isRoleMap } from '../../comfyui/workflow.ts';
 import { addCollapse } from '../../context-edit/directive.ts';
 import { truncate } from '../../shared.ts';
@@ -39,6 +40,7 @@ import type { GenerateDetails } from './details.ts';
 import { type EnhancerAccess, readGuidanceText } from './enhancer.ts';
 import { previewTransformFor, resolveRoleImages, type RoleImageInput } from './images.ts';
 import { CANCEL_TIMEOUT_MS } from './jobs.ts';
+import { layerGenerationParams } from './layer-params.ts';
 import type { GenerateParams } from './params.ts';
 import type { ComfyuiRuntime } from './runtime.ts';
 
@@ -240,27 +242,22 @@ export async function executeGenerate(
     const enhancedPrompt = promptForRender !== effectivePrompt;
 
     // Layer the config `defaults` block (and any aspect-derived
-    // dimensions) under the per-call params: `param ?? aspect ?? defaults`.
-    // The graph builder only injects params that are present, so a default
-    // simply pre-fills the param before injection; the workflow-baked graph
-    // value stays the final fallback for anything neither the call nor the
-    // defaults set. Explicit per-call width/height still win over `aspect`.
-    const resolvedParams = {
-      ...params,
+    // dimensions) under the per-call params: `param ?? aspect ?? reuse ??
+    // defaults`. The graph builder only injects params that are present,
+    // so a default simply pre-fills the param before injection; the
+    // workflow-baked graph value stays the final fallback. See
+    // layer-params.ts for the precedence rules.
+    const resolvedParams = layerGenerationParams({
+      params,
       prompt: promptForRender,
-      negative: enhancedNegative ?? baselineNegative,
-      seed: params.seed ?? reuse?.seed,
-      width: params.width ?? aspectDims?.width ?? reuse?.width ?? d?.width,
-      height: params.height ?? aspectDims?.height ?? reuse?.height ?? d?.height,
-      steps: params.steps ?? d?.steps,
-      cfg: params.cfg ?? d?.cfg,
-      denoise: params.denoise ?? d?.denoise,
-      count: params.count ?? d?.count,
-      // Positional refine feeds inputImages[0]; in role mode the prior
-      // render goes into the `init` role instead (handled below), so
-      // inputImages stays empty.
-      inputImages: roleMap !== undefined ? undefined : refineImage !== undefined ? [refineImage] : params.inputImages,
-    };
+      ...(enhancedNegative !== undefined ? { enhancedNegative } : {}),
+      ...(baselineNegative !== undefined ? { baselineNegative } : {}),
+      ...(reuse !== undefined ? { reuse } : {}),
+      ...(aspectDims !== undefined ? { aspectDims } : {}),
+      ...(d !== undefined ? { defaults: d } : {}),
+      roleMode: roleMap !== undefined,
+      ...(refineImage !== undefined ? { refineImage } : {}),
+    });
 
     // Echo the enhanced prompt so the model knows what was actually
     // rendered (and can reuse it via variationOf). Capped to keep the
@@ -423,7 +420,6 @@ export async function executeGenerate(
     const { promptId, seed, enhanceNote } = result;
     details.promptId = promptId;
     details.seed = seed;
-    const seedNote = seed !== undefined ? ` (seed ${seed})` : '';
 
     // The socket wakes the poll the instant the render finishes, so a
     // healthy websocket trims the up-to-1s poll-interval latency; the
@@ -467,8 +463,6 @@ export async function executeGenerate(
     if (generation) details.generationId = generation.id;
     const idNote = generation ? ` [${generation.id}]` : '';
 
-    const countNote = `${refs.length} image${refs.length === 1 ? '' : 's'}`;
-
     // Ephemeral render: keep the image block in the result so the TUI
     // shows it this turn, but record a collapse directive so the
     // `context` hook strips the whole call+image from every outgoing
@@ -482,20 +476,33 @@ export async function executeGenerate(
         rt.persistEphemeral();
       }
       details.ephemeral = true;
-      const summary = `Generated ${countNote}${idNote} via "${name}"${seedNote}. Saved to ${saveDir}. (ephemeral: shown once, not kept in context)`;
+      const summary = summarizeRenderedImages({
+        verb: 'Generated',
+        count: refs.length,
+        idNote,
+        workflow: name,
+        seed,
+        saveDir,
+        decision: { send: true, visionBlocked: false },
+        extra: ' (ephemeral: shown once, not kept in context)',
+      });
       return { content: [{ type: 'text', text: summary }, ...saved.map((s) => s.block)], details };
     }
 
     const decision = resolveSendToModel(requested, ctx.model?.input);
-    if (!decision.send) {
-      const why = decision.visionBlocked
-        ? ' (active model has no image input; not sent to model)'
-        : ' (image not sent to model)';
-      const summary = `Generated ${countNote}${idNote} via "${name}"${seedNote}. Saved to ${saveDir}.${why}${enhanceNote}`;
-      return { content: [{ type: 'text', text: summary }], details };
-    }
-    const summary = `Generated ${countNote}${idNote} via "${name}"${seedNote}. Saved to ${saveDir}.${enhanceNote}`;
-    return { content: [{ type: 'text', text: summary }, ...saved.map((s) => s.block)], details };
+    const summary = summarizeRenderedImages({
+      verb: 'Generated',
+      count: refs.length,
+      idNote,
+      workflow: name,
+      seed,
+      saveDir,
+      decision,
+      extra: enhanceNote,
+    });
+    return decision.send
+      ? { content: [{ type: 'text', text: summary }, ...saved.map((s) => s.block)], details }
+      : { content: [{ type: 'text', text: summary }], details };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     const reason = runSignal.aborted && !(signal?.aborted ?? false) ? `timed out after ${conn.timeoutMs}ms` : message;

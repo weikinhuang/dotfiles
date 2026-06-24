@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 
-import { buildMaskPlan } from '../../../../../lib/node/pi/comfyui/mask.ts';
+import { buildMaskPlan, maskSvg } from '../../../../../lib/node/pi/comfyui/mask.ts';
 
 describe('buildMaskPlan', () => {
   test('scales a single normalized box to pixels', () => {
@@ -65,5 +65,48 @@ describe('buildMaskPlan', () => {
   test('rejects a bad canvas or feather', () => {
     expect(buildMaskPlan([[0, 0, 1, 1]], 0, 100).error).toMatch(/positive width and height/);
     expect(buildMaskPlan([[0, 0, 1, 1]], 100, 100, { feather: -1 }).error).toMatch(/feather/);
+  });
+});
+
+describe('maskSvg', () => {
+  test('white rects on a black background by default (white = region to change)', () => {
+    const svg = maskSvg({
+      width: 64,
+      height: 32,
+      rects: [{ x: 8, y: 4, width: 16, height: 8 }],
+      invert: false,
+      feather: 0,
+    });
+    expect(svg).toBe(
+      '<svg xmlns="http://www.w3.org/2000/svg" width="64" height="32">' +
+        '<rect width="100%" height="100%" fill="#000"/>' +
+        '<rect x="8" y="4" width="16" height="8" fill="#fff"/></svg>',
+    );
+  });
+
+  test('invert flips both the background and rect fills', () => {
+    const svg = maskSvg({
+      width: 10,
+      height: 10,
+      rects: [{ x: 0, y: 0, width: 5, height: 5 }],
+      invert: true,
+      feather: 0,
+    });
+    expect(svg).toContain('<rect width="100%" height="100%" fill="#fff"/>');
+    expect(svg).toContain('fill="#000"/></svg>');
+  });
+
+  test('emits one rect per filled region', () => {
+    const svg = maskSvg({
+      width: 100,
+      height: 100,
+      rects: [
+        { x: 0, y: 0, width: 10, height: 10 },
+        { x: 50, y: 50, width: 20, height: 20 },
+      ],
+      invert: false,
+      feather: 0,
+    });
+    expect(svg.match(/<rect /g)).toHaveLength(3); // 1 background + 2 regions
   });
 });

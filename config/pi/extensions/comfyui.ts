@@ -58,7 +58,7 @@ import {
   SHIPPED_WORKFLOW_INPUTS,
 } from '../../../lib/node/pi/comfyui/config.ts';
 import { type Conn, fetchObjectInfo, pingServer } from '../../../lib/node/pi/comfyui/client.ts';
-import { loadWorkflowGraph, validateMapping } from '../../../lib/node/pi/comfyui/workflow.ts';
+import { formatWorkflowValidation } from '../../../lib/node/pi/comfyui/workflow.ts';
 import { formatJobHint, formatRegistry } from '../../../lib/node/pi/comfyui/jobs.ts';
 import {
   findGeneration,
@@ -301,18 +301,7 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
       }
 
       if (sub === 'workflows') {
-        const lines: string[] = [];
-        for (const [name, wf] of Object.entries(config.workflows)) {
-          const loaded = loadWorkflowGraph(wf.file, ctx.cwd, homedir());
-          if (loaded.error || !loaded.graph) {
-            lines.push(`✗ ${name}: ${loaded.error ?? 'load failed'}`);
-            continue;
-          }
-          const errors = validateMapping(loaded.graph, wf.inputs);
-          const inputs = Object.keys(wf.inputs).join(', ') || '(none)';
-          lines.push(errors.length > 0 ? `✗ ${name}: ${errors.join('; ')}` : `✓ ${name}: ${inputs}`);
-        }
-        ctx.ui.notify(lines.join('\n') || 'no workflows configured', 'info');
+        ctx.ui.notify(formatWorkflowValidation(config.workflows, ctx.cwd, homedir()), 'info');
         return;
       }
 

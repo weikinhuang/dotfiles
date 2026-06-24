@@ -18,7 +18,7 @@ import { resolve } from 'node:path';
 import { readJsoncOrUndefined } from '../fs-safe.ts';
 import { expandTilde } from '../path-expand.ts';
 
-import type { ComfyWorkflow, ImageSlots, InputMapping, RoleMapping } from './types.ts';
+import type { ComfyWorkflow, ImageSlots, InputMapping, RoleMapping, WorkflowConfig } from './types.ts';
 
 /** A value injectable into a workflow node input. */
 export type InjectValue = string | number;
@@ -230,4 +230,30 @@ export function validateImageRoleMap(workflow: ComfyWorkflow, roleMap: Record<st
  */
 export function randomSeed(rand: () => number = Math.random): number {
   return Math.floor(rand() * 1e15);
+}
+
+/**
+ * Validate every configured workflow for the `/comfyui workflows`
+ * operator command: load each graph from disk and check its input mapping
+ * against the actual nodes, returning one `✓`/`✗` line per workflow.
+ * Pure of the pi runtime (fs reads only) so it is unit-testable; the shell
+ * just hands the result to `ctx.ui.notify`.
+ *
+ * A failed load reports the loader error; a mapping that references a
+ * missing node reports the validation errors; otherwise the line lists the
+ * mapped input names. Returns a placeholder when no workflows exist.
+ */
+export function formatWorkflowValidation(workflows: Record<string, WorkflowConfig>, cwd: string, home: string): string {
+  const lines: string[] = [];
+  for (const [name, wf] of Object.entries(workflows)) {
+    const loaded = loadWorkflowGraph(wf.file, cwd, home);
+    if (loaded.error || !loaded.graph) {
+      lines.push(`✗ ${name}: ${loaded.error ?? 'load failed'}`);
+      continue;
+    }
+    const errors = validateMapping(loaded.graph, wf.inputs);
+    const inputs = Object.keys(wf.inputs).join(', ') || '(none)';
+    lines.push(errors.length > 0 ? `✗ ${name}: ${errors.join('; ')}` : `✓ ${name}: ${inputs}`);
+  }
+  return lines.join('\n') || 'no workflows configured';
 }
