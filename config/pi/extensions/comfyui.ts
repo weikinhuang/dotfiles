@@ -62,36 +62,26 @@ import {
   SHIPPED_WORKFLOW_INPUTS,
 } from '../../../lib/node/pi/comfyui/config.ts';
 import {
-  extractOutputImages,
-  historyHasEntry,
-  historyHasError,
-  queueHasPrompt,
-} from '../../../lib/node/pi/comfyui/api.ts';
-import {
   buildInjectedGraph,
   cancelPrompt,
   type Conn,
   createWaker,
   fetchAndSave,
-  fetchHistory,
   fetchObjectInfo,
-  fetchQueue,
-  type ImageBlockTransform,
   openProgressSocket,
   pingServer,
   readSavedImages,
-  type SavedImage,
   submitPrompt,
   waitForImages,
 } from '../../../lib/node/pi/comfyui/client.ts';
 import { isRoleMap, loadWorkflowGraph, validateMapping } from '../../../lib/node/pi/comfyui/workflow.ts';
+import { type CollectOutcome, pollJobOnce } from '../../../lib/node/pi/comfyui/poll.ts';
 import {
   addJob,
   findJob,
   formatRegistry,
   formatJobHint,
   formatRunningBlock,
-  type ImageJob,
   type JobRegistry,
   emptyRegistry,
   runningJobs,
@@ -325,48 +315,6 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
   // its output files.
   const inFlight = new Set<string>();
   let pollTimer: ReturnType<typeof setInterval> | undefined;
-
-  type CollectOutcome =
-    | { kind: 'running' }
-    | { kind: 'failed'; reason: string }
-    | { kind: 'done'; saved: SavedImage[] };
-
-  // One poll of a job's `/history`: returns `done` with fetched+saved
-  // images, `failed` (execution error or a prompt the server has dropped),
-  // or `running`. Pure of registry mutation - the caller applies the patch.
-  const pollJobOnce = async (
-    job: ImageJob,
-    conn: Conn,
-    signal: AbortSignal,
-    transform?: ImageBlockTransform,
-  ): Promise<CollectOutcome> => {
-    // A background job whose deferred submit hasn't landed a prompt id yet is
-    // still "running" (preparing) - never hit `/history` with an empty id, or
-    // the absent entry reads as a lost prompt and falsely fails the job.
-    if (!job.promptId) return { kind: 'running' };
-    const history = await fetchHistory(conn, job.promptId, signal);
-    const refs = extractOutputImages(history, job.promptId);
-    if (refs.length === 0) {
-      if (historyHasError(history, job.promptId)) {
-        return { kind: 'failed', reason: 'ComfyUI reported an execution error (see server log)' };
-      }
-      // No outputs and no error. Usually still rendering - but if the server
-      // has no history entry AND the prompt isn't queued, it is gone
-      // (ComfyUI restarted, queue + history wiped); stop polling it.
-      if (!historyHasEntry(history, job.promptId)) {
-        const queue = await fetchQueue(conn, signal);
-        if (!queueHasPrompt(queue, job.promptId)) {
-          return {
-            kind: 'failed',
-            reason: 'prompt is no longer on the server (ComfyUI may have restarted); resubmit to retry',
-          };
-        }
-      }
-      return { kind: 'running' };
-    }
-    const saved = await fetchAndSave(conn, refs, job.saveDir, signal, transform);
-    return { kind: 'done', saved };
-  };
 
   const stopPollTimer = (): void => {
     if (pollTimer !== undefined) {
