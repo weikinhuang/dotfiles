@@ -34,24 +34,14 @@
  *   PI_COMFYUI_TOKEN=...    referenced by a config authHeader as ${PI_COMFYUI_TOKEN}
  */
 
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { dirname, isAbsolute, join, resolve } from 'node:path';
+import { dirname, isAbsolute, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 
-import {
-  createAgentSession,
-  DefaultResourceLoader,
-  type ExtensionAPI,
-  type ExtensionContext,
-  getAgentDir,
-  type ModelRegistry,
-  parseFrontmatter,
-  type ResourceLoader,
-  SessionManager,
-} from '@earendil-works/pi-coding-agent';
-import { StringEnum, type Model } from '@earendil-works/pi-ai';
+import { type ExtensionAPI, type ExtensionContext } from '@earendil-works/pi-coding-agent';
+import { StringEnum } from '@earendil-works/pi-ai';
 import { Type } from 'typebox';
 
 import { completeSubverbs } from '../../../lib/node/pi/commands/complete.ts';
@@ -121,19 +111,13 @@ import {
   type NewGeneration,
   reduceGenerations,
 } from '../../../lib/node/pi/comfyui/generations.ts';
-import {
-  buildEnhanceTask,
-  createEnhancer,
-  type Enhancer,
-  resolveEnhanceModel,
-} from '../../../lib/node/pi/comfyui/enhance.ts';
+import { buildEnhanceTask } from '../../../lib/node/pi/comfyui/enhance.ts';
 import {
   extractSceneContext,
   mergeSceneContext,
   type SceneMessage,
 } from '../../../lib/node/pi/comfyui/scene-context.ts';
 import type { ComfyuiConfig, WorkflowConfig } from '../../../lib/node/pi/comfyui/types.ts';
-import { expandTilde } from '../../../lib/node/pi/path-expand.ts';
 import {
   previewTransformFor,
   resolveRoleImages,
@@ -146,14 +130,7 @@ import {
   renderJobsCall,
   renderJobsResult,
 } from '../../../lib/node/pi/ext/comfyui/render.ts';
-import {
-  type AgentDef,
-  defaultAgentLayers,
-  loadAgents,
-  makeNodeReadLayer,
-} from '../../../lib/node/pi/subagent/loader.ts';
-import { createPersistedSubagentSessionManager } from '../../../lib/node/pi/subagent/session-dir.ts';
-import { adaptCreateAgentSession, runOneShotAgent } from '../../../lib/node/pi/subagent/spawn.ts';
+import { createEnhancerAccess, readGuidanceText } from '../../../lib/node/pi/ext/comfyui/enhancer.ts';
 import { applyContextReminder, type ReminderMessage } from '../../../lib/node/pi/context-reminder.ts';
 import { applyDirectives } from '../../../lib/node/pi/context-edit/apply.ts';
 import {
@@ -170,14 +147,6 @@ import type { LooseMessage } from '../../../lib/node/pi/context-edit/target.ts';
 // ──────────────────────────────────────────────────────────────────────
 
 const extDir = dirname(fileURLToPath(import.meta.url));
-
-// Bridge pi's concrete `createAgentSession` (typed with the concrete
-// `ModelRegistry` class) to the pi-free structural registry the
-// `runOneShotAgent` helper consumes. Compatible at runtime; the adapter
-// just casts the registry at the call. Mirrors roleplay / deep-research.
-const piCreateAgentSession = adaptCreateAgentSession<Model<any>, SessionManager, ModelRegistry, ResourceLoader>(
-  createAgentSession,
-);
 
 // Hard cap on the best-effort `image_jobs cancel` round-trip (interrupt /
 // dequeue). Cancellation should be near-instant, so it gets a tighter
@@ -250,24 +219,9 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
   const defaultWorkflow = registrationConfig.defaultWorkflow;
   const workflowList = workflowNames.join(', ') || '(none)';
 
-  // Filesystem read layer for loading the `comfyui-enhance` subagent def
-  // (shared between the registration-time matrix hint and the lazy
-  // per-session enhancer build below).
-  const readLayer = makeNodeReadLayer();
-  const loadEnhanceAgent = (forCwd: string): AgentDef | null => {
-    try {
-      const layers = defaultAgentLayers({ extensionDir: extDir, cwd: forCwd });
-      const load = loadAgents({
-        layers,
-        knownToolNames: new Set(pi.getAllTools().map((t) => t.name)),
-        fs: readLayer,
-        parseFrontmatter,
-      });
-      return load.agents.get('comfyui-enhance') ?? null;
-    } catch {
-      return null;
-    }
-  };
+  // Agent-driven, opt-in prompt enhancer; all wiring lives in
+  // ext/comfyui/enhancer.ts (subagent spawn, session manager, caching).
+  const enhancerAccess = createEnhancerAccess({ pi, extDir, loadConfig });
 
   // Multi-line capability matrix (description / tags / mapped params /
   // image slots / prompt protocol per workflow) baked into the immutable
@@ -276,7 +230,8 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
   // surfaced only when the enhancer agent is actually installed and the
   // env kill-switch is not set, so the model never sees a hint it cannot
   // act on.
-  const enhanceAvailableAtReg = !envTruthy(process.env.PI_COMFYUI_DISABLE_ENHANCE) && loadEnhanceAgent(cwd) !== null;
+  const enhanceAvailableAtReg =
+    !envTruthy(process.env.PI_COMFYUI_DISABLE_ENHANCE) && enhancerAccess.isAgentInstalled(cwd);
   const workflowMatrix = describeWorkflows(registrationConfig.workflows, defaultWorkflow, {
     enhanceHint: enhanceAvailableAtReg,
   });
@@ -337,13 +292,6 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
     return added.created;
   };
 
-  // ── Prompt enhancer (agent-driven, opt-in) ───────────────────────
-  // Lazily built on first use and reused for the process. A missing
-  // `comfyui-enhance` agent (or the env kill-switch) leaves it null, in
-  // which case enhancement silently no-ops and the raw prompt is used.
-  let enhancer: Enhancer<Model<any>> | null = null;
-  let enhancerInit = false;
-
   // Auto-captured scene context for the enhancer (see scene-context.ts).
   // `sceneBudget` (chars) is refreshed from config each turn in
   // before_agent_start; `recentScene` is snapshotted from the outgoing
@@ -351,90 +299,6 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
   // session-scoped and reset on shutdown.
   let sceneBudget = 0;
   let recentScene = '';
-
-  const enhanceSessionManager = (ctx: ExtensionContext, childCwd: string): SessionManager => {
-    try {
-      return createPersistedSubagentSessionManager<SessionManager>({
-        parentSessionManager: ctx.sessionManager,
-        extensionLabel: 'comfyui-enhance',
-        cwd: childCwd,
-        SessionManager,
-      });
-    } catch {
-      return SessionManager.inMemory(childCwd);
-    }
-  };
-
-  const getEnhancer = (ctx: ExtensionContext): Enhancer<Model<any>> | null => {
-    if (enhancerInit) return enhancer;
-    enhancerInit = true;
-    if (envTruthy(process.env.PI_COMFYUI_DISABLE_ENHANCE)) {
-      enhancer = null;
-      return enhancer;
-    }
-    try {
-      const config = loadConfig(ctx.cwd);
-      const agent = loadEnhanceAgent(ctx.cwd);
-      enhancer = createEnhancer<Model<any>>({
-        settings: resolveEnhanceModel(config.enhanceModel),
-        enhanceAgent: agent,
-        ...(config.enhanceTimeoutMs !== undefined ? { timeoutMs: config.enhanceTimeoutMs } : {}),
-        runOneShot: async (args) => {
-          const result = await runOneShotAgent({
-            deps: { createAgentSession: piCreateAgentSession, DefaultResourceLoader, SessionManager, getAgentDir },
-            cwd: args.cwd,
-            agent: args.agent,
-            model: args.model,
-            task: args.task,
-            modelRegistry: args.modelRegistry,
-            agentDir: getAgentDir(),
-            sessionManager: enhanceSessionManager(ctx, args.cwd),
-            ...(args.signal ? { signal: args.signal } : {}),
-            ...(args.timeoutMs !== undefined ? { timeoutMs: args.timeoutMs } : {}),
-          });
-          return {
-            finalText: result.finalText,
-            stopReason: result.stopReason,
-            ...(result.errorMessage !== undefined ? { errorMessage: result.errorMessage } : {}),
-          };
-        },
-        log: (level, message) => {
-          // `debug` is the success / fired-OK channel - only surface it when
-          // the user opts in, so normal renders stay quiet. `info` / `warn`
-          // are real problems (aborts, timeouts, parse failures) and always
-          // notify.
-          if (level === 'debug' && !envTruthy(process.env.PI_COMFYUI_ENHANCE_DEBUG)) return;
-          try {
-            ctx.ui.notify(`comfyui enhance: ${message}`, level === 'warn' ? 'warning' : 'info');
-          } catch {
-            /* notify is best-effort */
-          }
-        },
-      });
-    } catch {
-      enhancer = null;
-    }
-    return enhancer;
-  };
-
-  // Read + concatenate prompt-enhancer guidance: the global
-  // `enhanceGuidanceFile` first, then the workflow's own `guidanceFile`.
-  // Each path resolves like a workflow `file` (`~` / absolute /
-  // relative-to-cwd). A missing or unreadable file is skipped silently -
-  // guidance is advisory and must never block a render.
-  const readGuidanceText = (config: ComfyuiConfig, wf: WorkflowConfig, fromCwd: string): string => {
-    const readOne = (file: string | undefined): string => {
-      if (file === undefined || file.trim().length === 0) return '';
-      try {
-        const resolved = resolve(fromCwd, expandTilde(file, homedir()));
-        if (!existsSync(resolved)) return '';
-        return readFileSync(resolved, 'utf8').trim();
-      } catch {
-        return '';
-      }
-    };
-    return [readOne(config.enhanceGuidanceFile), readOne(wf.guidanceFile)].filter((s) => s.length > 0).join('\n\n');
-  };
 
   // Statusline slot (see statusline.ts): show a count of pending jobs and
   // clear the slot when none are running so quiet sessions stay clean.
@@ -1002,7 +866,7 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
         let enhancedNegative: string | undefined;
         const wantEnhance = params.enhance ?? wf.enhance ?? config.enhance;
         if (wantEnhance) {
-          const enh = getEnhancer(ctx);
+          const enh = enhancerAccess.getEnhancer(ctx);
           if (enh?.isEnabled()) {
             pipeReport('enhancing prompt…');
             const task = buildEnhanceTask({
