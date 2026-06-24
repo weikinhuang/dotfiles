@@ -83,6 +83,18 @@ const PROPS = {
   enhance: Type.Optional(
     Type.Boolean({ description: "Refine prompt+negative into the workflow's protocol via a helper agent first." }),
   ),
+  autoRefine: Type.Optional(
+    Type.Boolean({
+      description:
+        'After rendering, run a vision critic and loop corrective re-renders until the image passes or a budget is hit. Forces count=1.',
+    }),
+  ),
+  refineCriteria: Type.Optional(
+    Type.String({
+      description:
+        'Explicit acceptance criteria for auto-refine (e.g. "full body, facing left"); absent = derived from the prompt. Only with autoRefine.',
+    }),
+  ),
   context: Type.Optional(
     Type.String({
       description: 'Background for enhancement (scene/continuity) to honor without depicting. Only with enhance.',
@@ -114,6 +126,7 @@ export function buildGenerateParams(
   registrationConfig: ComfyuiConfig,
   caps: WorkflowCapabilities,
   enhanceAvailableAtReg: boolean,
+  refineAvailableAtReg: boolean,
 ): TObject<GenerateProps> {
   const workflowList = Object.keys(registrationConfig.workflows).join(', ') || '(none)';
   const props: GenerateProps = { ...PROPS };
@@ -146,6 +159,13 @@ export function buildGenerateParams(
       description: "Refine prompt+negative into the workflow's protocol via a helper agent first.",
     }),
   );
+  props.autoRefine = Type.Optional(
+    Type.Boolean({
+      default: registrationConfig.autoRefine,
+      description:
+        'After rendering, run a vision critic and loop corrective re-renders until the image passes or a budget is hit. Forces count=1.',
+    }),
+  );
 
   const mapsParam = (p: string): boolean => caps.params.has(p);
   // Casting to a loose record keeps the precise `GenerateProps` (and thus
@@ -174,6 +194,13 @@ export function buildGenerateParams(
   if (!enhanceAvailableAtReg) {
     dropProp('enhance');
     dropProp('context');
+  }
+  // autoRefine + refineCriteria surface only when the comfyui-critic agent is
+  // installed and not env-disabled (mirrors the enhance gating); at runtime
+  // the loop still no-ops gracefully when no vision model resolves.
+  if (!refineAvailableAtReg) {
+    dropProp('autoRefine');
+    dropProp('refineCriteria');
   }
   return Type.Object(props);
 }

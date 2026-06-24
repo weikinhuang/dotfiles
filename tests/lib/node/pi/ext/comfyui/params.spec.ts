@@ -33,8 +33,13 @@ function mkConfig(workflows: Record<string, WorkflowConfig>, overrides: Partial<
 }
 
 /** Sorted property keys of a built schema. */
-function keys(config: ComfyuiConfig, caps: ReturnType<typeof workflowCapabilities>, enhance: boolean): string[] {
-  const schema = buildGenerateParams(config, caps, enhance);
+function keys(
+  config: ComfyuiConfig,
+  caps: ReturnType<typeof workflowCapabilities>,
+  enhance: boolean,
+  refine = false,
+): string[] {
+  const schema = buildGenerateParams(config, caps, enhance, refine);
   return Object.keys(schema.properties).sort();
 }
 
@@ -93,7 +98,7 @@ describe('buildGenerateParams', () => {
       ].sort(),
     );
     // The mask role keeps the bbox synth spec in the `images` value union.
-    const schema = buildGenerateParams(config, caps, true);
+    const schema = buildGenerateParams(config, caps, true, false);
     expect(JSON.stringify(schema.properties.images)).toContain('bbox');
   });
 
@@ -137,8 +142,25 @@ describe('buildGenerateParams', () => {
     expect(built).toContain('images');
     expect(built).toContain('refine'); // role map implies imageInput
     expect(built).not.toContain('inputImages'); // role map, not positional
-    const schema = buildGenerateParams(config, caps, false);
+    const schema = buildGenerateParams(config, caps, false, false);
     expect(JSON.stringify(schema.properties.images)).not.toContain('bbox');
+  });
+
+  test('autoRefine + refineCriteria appear only when the critic is available at registration', () => {
+    const workflows: Record<string, WorkflowConfig> = {
+      t2i: { file: 't.json', inputs: { prompt: { node: '1', key: 'text' } } },
+    };
+    const config = mkConfig(workflows, { autoRefine: true });
+    const caps = workflowCapabilities(workflows);
+    // Refiner unavailable: both params are pruned regardless of config default.
+    expect(keys(config, caps, false, false)).not.toContain('autoRefine');
+    expect(keys(config, caps, false, false)).not.toContain('refineCriteria');
+    // Refiner available: both surface, and the config default is layered on.
+    const withRefine = keys(config, caps, false, true);
+    expect(withRefine).toContain('autoRefine');
+    expect(withRefine).toContain('refineCriteria');
+    const schema = buildGenerateParams(config, caps, false, true);
+    expect((schema.properties.autoRefine as { default?: boolean }).default).toBe(true);
   });
 
   test('config defaults + workflow list are layered onto the schema', () => {
@@ -153,7 +175,7 @@ describe('buildGenerateParams', () => {
       background: true,
     });
     const caps = workflowCapabilities(workflows);
-    const schema = buildGenerateParams(config, caps, false);
+    const schema = buildGenerateParams(config, caps, false, false);
     expect((schema.properties.sendToModel as { default?: boolean }).default).toBe(false);
     expect((schema.properties.ephemeral as { default?: boolean }).default).toBe(true);
     expect((schema.properties.background as { default?: boolean }).default).toBe(true);

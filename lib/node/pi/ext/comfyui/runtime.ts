@@ -210,7 +210,10 @@ export class ComfyuiRuntime {
     // manual collect.
     const results = await Promise.all(
       running.map(async (job): Promise<{ id: string; outcome: CollectOutcome } | null> => {
-        if (this.inFlight.has(job.id)) return null;
+        // Managed jobs are owned by a detached auto-refine loop that waits,
+        // critiques, re-renders, and records the final itself - skip them so
+        // we never double-fetch or record an un-refined intermediate.
+        if (this.inFlight.has(job.id) || job.managed === true) return null;
         this.inFlight.add(job.id);
         const ac = new AbortController();
         const timer = setTimeout(() => ac.abort(), conn.timeoutMs);

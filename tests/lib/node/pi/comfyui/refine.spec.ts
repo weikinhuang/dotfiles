@@ -22,6 +22,9 @@ import {
   type RefineLoopResult,
   resolveRefineModel,
   runRefineLoop,
+  type RefineJourney,
+  summarizeRefineJourney,
+  toRefineJourney,
   validateAction,
 } from '../../../../../lib/node/pi/comfyui/refine.ts';
 import { type AgentDef } from '../../../../../lib/node/pi/subagent/loader.ts';
@@ -503,4 +506,76 @@ test('createRefiner: critique distinguishes an internal timeout from a parent-tu
   });
   expect(await onCancel.critique({ ...refineCtx, signal: AbortSignal.abort() }, sampleInput)).toBeNull();
   expect(cancelLogs[0]).toContain('parent turn ended');
+});
+
+// ── Journey block + summary note (the output side) ────────────────────
+
+function loopResult(
+  journey: { action: string; score: number; savedPath?: string }[],
+  accepted: boolean,
+  finalScore: number,
+): RefineLoopResult<string> {
+  return { image: 'best', accepted, finalScore, journey };
+}
+
+test('toRefineJourney: rounds = corrective renders (journey length - 1)', () => {
+  const result = loopResult(
+    [
+      { action: 'initial', score: 4, savedPath: '/out/r0.png' },
+      { action: 'reroll', score: 6, savedPath: '/out/r1.png' },
+      { action: 'revise_prompt', score: 8, savedPath: '/out/r2.png' },
+    ],
+    true,
+    8,
+  );
+  const journey: RefineJourney = toRefineJourney(result);
+  expect(journey).toEqual({
+    rounds: 2,
+    accepted: true,
+    finalScore: 8,
+    journey: result.journey,
+  });
+});
+
+test('toRefineJourney: a critique-only run has zero rounds', () => {
+  const journey = toRefineJourney(loopResult([{ action: 'initial', score: 9 }], true, 9));
+  expect(journey.rounds).toBe(0);
+});
+
+test('summarizeRefineJourney: accepted with corrective renders chains the actions', () => {
+  const note = summarizeRefineJourney(
+    loopResult(
+      [
+        { action: 'initial', score: 4 },
+        { action: 'reroll', score: 6 },
+        { action: 'revise_prompt', score: 8 },
+      ],
+      true,
+      8,
+    ),
+  );
+  expect(note).toBe('auto-refined 2 rounds: reroll \u2192 revise_prompt; accepted, score 8');
+});
+
+test('summarizeRefineJourney: budget hit without accept is candid', () => {
+  const note = summarizeRefineJourney(
+    loopResult(
+      [
+        { action: 'initial', score: 4 },
+        { action: 'reroll', score: 6 },
+      ],
+      false,
+      6,
+    ),
+  );
+  expect(note).toBe('auto-refined 1 round: reroll; best effort, score 6 - not fully satisfied');
+});
+
+test('summarizeRefineJourney: no corrective render reports the initial outcome', () => {
+  expect(summarizeRefineJourney(loopResult([{ action: 'initial', score: 9 }], true, 9))).toBe(
+    'auto-refine: accepted as-is, score 9',
+  );
+  expect(summarizeRefineJourney(loopResult([{ action: 'initial', score: 3 }], false, 3))).toBe(
+    'auto-refine: kept initial render, score 3',
+  );
 });

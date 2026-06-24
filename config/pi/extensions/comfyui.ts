@@ -75,6 +75,8 @@ import {
   renderJobsResult,
 } from '../../../lib/node/pi/ext/comfyui/render.ts';
 import { createEnhancerAccess } from '../../../lib/node/pi/ext/comfyui/enhancer.ts';
+import { createRefinerAccess } from '../../../lib/node/pi/ext/comfyui/refiner.ts';
+import { runRefineCommand } from '../../../lib/node/pi/ext/comfyui/refine-command.ts';
 import { ComfyuiRuntime } from '../../../lib/node/pi/ext/comfyui/runtime.ts';
 import { buildGenerateParams } from '../../../lib/node/pi/ext/comfyui/params.ts';
 import { executeGenerate } from '../../../lib/node/pi/ext/comfyui/generate.ts';
@@ -131,6 +133,11 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
   // ext/comfyui/enhancer.ts (subagent spawn, session manager, caching).
   const enhancerAccess = createEnhancerAccess({ pi, extDir, loadConfig });
 
+  // Agent-driven, opt-in auto-refine vision critic; mirror of the enhancer
+  // on the OUTPUT side. Wiring (subagent spawn, session manager, caching)
+  // lives in ext/comfyui/refiner.ts.
+  const refinerAccess = createRefinerAccess({ pi, extDir, loadConfig });
+
   // Session-scoped mutable state + lifecycle / context-hook logic. One
   // runtime per extension load; the hooks + tool bodies below delegate to
   // it (see ext/comfyui/runtime.ts).
@@ -145,6 +152,11 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
   // act on.
   const enhanceAvailableAtReg =
     !envTruthy(process.env.PI_COMFYUI_DISABLE_ENHANCE) && enhancerAccess.isAgentInstalled(cwd);
+  // The autoRefine + refineCriteria params + the critic's available-action
+  // hint surface only when the comfyui-critic agent is installed and not
+  // env-disabled (mirrors the enhance gating); the loop still no-ops
+  // gracefully at runtime when no vision-capable model resolves.
+  const refineAvailableAtReg = !envTruthy(process.env.PI_COMFYUI_DISABLE_REFINE) && refinerAccess.isAgentInstalled(cwd);
   const workflowMatrix = describeWorkflows(registrationConfig.workflows, defaultWorkflow, {
     enhanceHint: enhanceAvailableAtReg,
   });
@@ -174,7 +186,7 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
   // Build the parameter schema from the configured workflows' capabilities
   // (drops params no workflow can consume). The executor reads
   // `params.X ?? config.X`, so a dropped param is purely a schema change.
-  const GenerateParams = buildGenerateParams(registrationConfig, caps, enhanceAvailableAtReg);
+  const GenerateParams = buildGenerateParams(registrationConfig, caps, enhanceAvailableAtReg, refineAvailableAtReg);
 
   pi.registerTool({
     name: 'generate_image',
@@ -193,7 +205,7 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
     parameters: GenerateParams,
 
     execute: (toolCallId, params, signal, onUpdate, ctx) =>
-      executeGenerate(rt, enhancerAccess, toolCallId, params, signal, onUpdate, ctx),
+      executeGenerate(rt, enhancerAccess, refinerAccess, toolCallId, params, signal, onUpdate, ctx),
 
     renderCall: (args, theme) => renderGenerateCall(args, theme),
     renderResult: (result, options, theme, context) => renderGenerateResult(result, options, theme, context),
@@ -252,6 +264,10 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
           description: 'List recorded generations (reuse with variationOf / refine)',
           args: () => rt.generations.generations.map((g) => ({ label: g.id, description: formatGenerationHint(g) })),
         },
+        refine: {
+          description: 'Auto-refine a recorded generation through the vision critic loop',
+          args: () => rt.generations.generations.map((g) => ({ label: g.id, description: formatGenerationHint(g) })),
+        },
         models: {
           description: 'List installed models from the server (/object_info)',
         },
@@ -283,6 +299,19 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
           rec ? formatGenerationDetail(rec) : `unknown generation "${id}" (see /comfyui gallery)`,
           rec ? 'info' : 'warning',
         );
+        return;
+      }
+
+      // Standalone auto-refine of a recorded generation (gallery id only):
+      // runs the same critic loop, writes a NEW gallery entry with lineage,
+      // saves to disk, and notifies the user (nothing reaches model context).
+      if (sub === 'refine' || sub.startsWith('refine ')) {
+        const id = args.trim().slice('refine'.length).trim();
+        if (id.length === 0) {
+          ctx.ui.notify('Usage: /comfyui refine <gX>  (refine a recorded generation; see /comfyui gallery)', 'info');
+          return;
+        }
+        await runRefineCommand(rt, refinerAccess, id, ctx);
         return;
       }
 

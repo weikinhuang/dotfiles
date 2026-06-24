@@ -32,6 +32,14 @@ import { buildEnhanceTask } from '../../comfyui/enhance.ts';
 import { emitImageGenerated } from '../../comfyui/events.ts';
 import { findGeneration, type GenerationRecord } from '../../comfyui/generations.ts';
 import { addJob, findJob, updateJob } from '../../comfyui/jobs.ts';
+import {
+  type CritiqueRequest,
+  type RefineAction,
+  type RefineChannel,
+  type RefineJourney,
+  summarizeRefineJourney,
+  toRefineJourney,
+} from '../../comfyui/refine.ts';
 import { summarizeRenderedImages } from '../../comfyui/summary.ts';
 import { isRoleMap } from '../../comfyui/workflow.ts';
 import { addCollapse } from '../../context-edit/directive.ts';
@@ -41,7 +49,10 @@ import { type EnhancerAccess, readGuidanceText } from './enhancer.ts';
 import { previewTransformFor, resolveRoleImages, type RoleImageInput } from './images.ts';
 import { CANCEL_TIMEOUT_MS } from './jobs.ts';
 import { layerGenerationParams } from './layer-params.ts';
+import type { ResolvedGenerateParams } from './layer-params.ts';
 import type { GenerateParams } from './params.ts';
+import { applyRefineAction, type RenderedImage, renderViaWorkflow, runRefinePass } from './refine-loop.ts';
+import { readRefineGuidanceText, type RefinerAccess } from './refiner.ts';
 import type { ComfyuiRuntime } from './runtime.ts';
 
 // The canonical `AgentToolResult` has no `isError`; pi's runtime reads it
@@ -53,6 +64,7 @@ export type GenerateToolResult = AgentToolResult<GenerateDetails> & { isError?: 
 export async function executeGenerate(
   rt: ComfyuiRuntime,
   enhancerAccess: EnhancerAccess,
+  refinerAccess: RefinerAccess,
   toolCallId: string,
   params: GenerateParams,
   signal: AbortSignal | undefined,
@@ -145,6 +157,38 @@ export async function executeGenerate(
 
   const d = config.defaults;
 
+  // Auto-refine resolution: per-call `autoRefine` arg ?? per-workflow
+  // `refine` ?? config `autoRefine`. Active only when a refiner is installed
+  // (the `comfyui-critic` agent is present + not env-disabled); the loop
+  // still no-ops gracefully if no vision-capable model resolves at runtime.
+  const wantRefine = params.autoRefine ?? wf.refine ?? config.autoRefine;
+  const refiner = wantRefine ? refinerAccess.getRefiner(ctx) : null;
+  const refineActive = wantRefine && refiner?.isEnabled() === true;
+  // Build step 1 ships only the always-available channels (reroll /
+  // revise_prompt); the companion channels (img2img / inpaint / detailer /
+  // ground) are later build steps, so none are offered yet and the engine
+  // downgrades any companion proposal to a t2i channel.
+  const refineChannels: RefineChannel[] = [];
+  const refineCriteria = params.refineCriteria ?? wf.refineCriteria;
+  // autoRefine converges a single image, so pin count to 1 (noting it when
+  // the caller asked for a batch).
+  const refineCountNote =
+    refineActive && (params.count ?? d?.count ?? 0) > 1 ? '\nNote: count pinned to 1 for auto-refine.' : '';
+
+  // Build the critique request once the render's actual prompt / negative is
+  // known. Guidance + scene context are advisory; a missing file is skipped.
+  const buildCritiqueRequest = (renderedPrompt: string, renderedNegative: string | undefined): CritiqueRequest => {
+    const guidance = readRefineGuidanceText(config, wf, ctx.cwd);
+    const mergedContext = rt.mergedSceneContext(params.context);
+    return {
+      prompt: renderedPrompt,
+      ...(renderedNegative !== undefined ? { negative: renderedNegative } : {}),
+      ...(mergedContext !== undefined ? { context: mergedContext } : {}),
+      ...(wf.promptProtocol !== undefined ? { promptProtocol: wf.promptProtocol } : {}),
+      ...(guidance.length > 0 ? { guidance } : {}),
+    };
+  };
+
   // Aspect preset -> width/height. Only meaningful for a workflow that
   // maps both dimensions; erroring on the rest matches the
   // unmapped-arg contract (a clear failure beats a silent no-op). The
@@ -189,6 +233,10 @@ export async function executeGenerate(
         width?: number;
         height?: number;
         enhanceNote: string;
+        /** Fully-resolved params, so a refine round can clone + modify them. */
+        resolvedParams: ResolvedGenerateParams;
+        /** Resolved role-image uploads, reused by every refine re-render. */
+        roleImages?: Record<string, string>;
       }
     | { ok: false; error: string };
 
@@ -248,7 +296,8 @@ export async function executeGenerate(
     // workflow-baked graph value stays the final fallback. See
     // layer-params.ts for the precedence rules.
     const resolvedParams = layerGenerationParams({
-      params,
+      // autoRefine converges a single image, so the loop renders count=1.
+      params: refineActive ? { ...params, count: 1 } : params,
       prompt: promptForRender,
       ...(enhancedNegative !== undefined ? { enhancedNegative } : {}),
       ...(baselineNegative !== undefined ? { baselineNegative } : {}),
@@ -319,6 +368,8 @@ export async function executeGenerate(
       width: resolvedParams.width,
       height: resolvedParams.height,
       enhanceNote,
+      resolvedParams,
+      ...(roleImages !== undefined ? { roleImages } : {}),
     };
   };
 
@@ -339,6 +390,7 @@ export async function executeGenerate(
       saveDir,
       sendToModel: requested,
       startedAt: Date.now(),
+      ...(refineActive ? { managed: true } : {}),
     });
     rt.registry = added.registry;
     const jobId = added.created.id;
@@ -347,9 +399,11 @@ export async function executeGenerate(
     details.jobId = jobId;
     // Spin the poll timer up now (idempotent); it skips jobs whose
     // deferred submit hasn't filled in a prompt id yet, so it simply
-    // starts watching the moment the submit lands.
+    // starts watching the moment the submit lands. A managed (auto-refine)
+    // job is skipped by the poll - its detached task owns the full
+    // lifecycle - so the timer is only needed for plain background jobs.
     const autoDownload = config.autoDownload;
-    if (autoDownload) rt.ensurePollTimer(config.pollIntervalMs);
+    if (autoDownload && !refineActive) rt.ensurePollTimer(config.pollIntervalMs);
 
     void (async () => {
       const bgAc = new AbortController();
@@ -384,7 +438,100 @@ export async function executeGenerate(
           prompt: result.prompt,
           negative: result.negative,
         });
-        if (autoDownload) rt.ensurePollTimer(config.pollIntervalMs);
+        if (!refineActive || refiner === null) {
+          if (autoDownload) rt.ensurePollTimer(config.pollIntervalMs);
+          return;
+        }
+
+        // Managed auto-refine: this detached task owns the whole lifecycle
+        // off-turn. Wait for render #0, then run the critic loop, surfacing
+        // per-round progress on the job status text + statusline. The
+        // converged best-so-far is what a later `image_jobs collect`
+        // returns; the poll timer skips this job (it is `managed`).
+        rt.registry = updateJob(rt.registry, jobId, { progress: 'rendering' });
+        rt.updateStatusline();
+        const waker = createWaker();
+        const refs = await waitForImages(conn, result.promptId, bgAc.signal, waker);
+        const bgPreview = previewTransformFor(params.previewMaxDimension ?? config.previewMaxDimension);
+        const saved = await fetchAndSave(conn, refs, saveDir, bgAc.signal, bgPreview);
+        const first = saved[0];
+        if (first === undefined) {
+          rt.registry = updateJob(rt.registry, jobId, {
+            status: 'error',
+            error: 'render produced no image',
+            endedAt: Date.now(),
+          });
+          rt.updateStatusline();
+          return;
+        }
+        const initialImage: RenderedImage = {
+          block: first.block,
+          savedPath: first.savedPath,
+          ...(result.seed !== undefined ? { seed: result.seed } : {}),
+          prompt: result.prompt,
+          ...(result.negative !== undefined ? { negative: result.negative } : {}),
+          ...(result.width !== undefined ? { width: result.width } : {}),
+          ...(result.height !== undefined ? { height: result.height } : {}),
+        };
+        const loop = await runRefinePass({
+          refiner,
+          agentCtx: { cwd: ctx.cwd, model: ctx.model, modelRegistry: ctx.modelRegistry as never, signal: bgAc.signal },
+          initialImage,
+          renderAction: (action: RefineAction) =>
+            renderViaWorkflow({
+              conn,
+              wf,
+              name,
+              cwd: ctx.cwd,
+              params: applyRefineAction(result.resolvedParams, action),
+              ...(result.roleImages !== undefined ? { roleImages: result.roleImages } : {}),
+              signal: bgAc.signal,
+              report: () => {
+                /* off-turn: progress lines have nowhere to stream */
+              },
+              saveDir,
+              previewTransform: bgPreview,
+            }),
+          request: buildCritiqueRequest(result.prompt, result.negative),
+          availableChannels: refineChannels,
+          ...(refineCriteria !== undefined ? { criteria: refineCriteria } : {}),
+          maxRefineIterations: config.maxRefineIterations,
+          refineAcceptThreshold: config.refineAcceptThreshold,
+          onProgress: (text) => {
+            rt.registry = updateJob(rt.registry, jobId, { progress: text });
+            rt.updateStatusline();
+          },
+        });
+        const best = loop.image;
+        const bestPath = best.savedPath;
+        rt.recordGeneration({
+          workflow: name,
+          promptId: result.promptId,
+          prompt: best.prompt,
+          negative: best.negative,
+          seed: best.seed,
+          width: wf.inputs.width !== undefined ? best.width : undefined,
+          height: wf.inputs.height !== undefined ? best.height : undefined,
+          savedPaths: [bestPath],
+          source: 'background',
+          createdAt: Date.now(),
+          refine: toRefineJourney(loop),
+        });
+        emitImageGenerated({
+          savedPaths: [bestPath],
+          workflow: name,
+          prompt: best.prompt,
+          seed: best.seed,
+          background: true,
+        });
+        rt.registry = updateJob(rt.registry, jobId, {
+          status: 'done',
+          seed: best.seed,
+          savedPaths: [bestPath],
+          endedAt: Date.now(),
+          progress: summarizeRefineJourney(loop),
+        });
+        rt.updateStatusline();
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         const reason = bgAc.signal.aborted ? `timed out after ${conn.timeoutMs}ms` : message;
@@ -419,7 +566,6 @@ export async function executeGenerate(
     }
     const { promptId, seed, enhanceNote } = result;
     details.promptId = promptId;
-    details.seed = seed;
 
     // The socket wakes the poll the instant the render finishes, so a
     // healthy websocket trims the up-to-1s poll-interval latency; the
@@ -435,30 +581,101 @@ export async function executeGenerate(
       ? undefined
       : previewTransformFor(params.previewMaxDimension ?? config.previewMaxDimension);
     const saved = await fetchAndSave(conn, refs, saveDir, runSignal, previewTransform);
-    for (const s of saved) details.savedPaths.push(s.savedPath);
+
+    // Auto-refine: judge render #0 and loop corrective re-renders inside
+    // this one execute() call. The intermediates are written to disk but
+    // never become separate tool results, so they cost no model context;
+    // only the best-so-far is returned + recorded. Best-so-far is
+    // verdict-driven (score a coarse tiebreak); a budget hit without an
+    // accept still returns the best image as a NORMAL result with a candid
+    // note (never an isError).
+    let finalImages = saved;
+    let finalPrompt = result.prompt;
+    let finalNegative = result.negative;
+    let finalSeed = seed;
+    let finalWidth = result.width;
+    let finalHeight = result.height;
+    let refineJourney: RefineJourney | undefined;
+    let refineNote = refineCountNote;
+    const refineInitial = saved[0];
+    if (refineActive && refiner !== null && refineInitial !== undefined) {
+      const initialImage: RenderedImage = {
+        block: refineInitial.block,
+        savedPath: refineInitial.savedPath,
+        ...(seed !== undefined ? { seed } : {}),
+        prompt: result.prompt,
+        ...(result.negative !== undefined ? { negative: result.negative } : {}),
+        ...(result.width !== undefined ? { width: result.width } : {}),
+        ...(result.height !== undefined ? { height: result.height } : {}),
+      };
+      const loop = await runRefinePass({
+        refiner,
+        agentCtx: {
+          cwd: ctx.cwd,
+          model: ctx.model,
+          modelRegistry: ctx.modelRegistry as never,
+          signal: runSignal,
+        },
+        initialImage,
+        renderAction: (action: RefineAction) =>
+          renderViaWorkflow({
+            conn,
+            wf,
+            name,
+            cwd: ctx.cwd,
+            params: applyRefineAction(result.resolvedParams, action),
+            ...(result.roleImages !== undefined ? { roleImages: result.roleImages } : {}),
+            signal: runSignal,
+            report,
+            saveDir,
+            streamProgress: onUpdate !== undefined,
+            ...(previewTransform !== undefined ? { previewTransform } : {}),
+          }),
+        request: buildCritiqueRequest(result.prompt, result.negative),
+        availableChannels: refineChannels,
+        ...(refineCriteria !== undefined ? { criteria: refineCriteria } : {}),
+        maxRefineIterations: config.maxRefineIterations,
+        refineAcceptThreshold: config.refineAcceptThreshold,
+        onProgress: (text) => report(text),
+      });
+      const best = loop.image;
+      finalImages = [{ savedPath: best.savedPath, block: best.block }];
+      finalPrompt = best.prompt;
+      finalNegative = best.negative;
+      finalSeed = best.seed;
+      finalWidth = best.width;
+      finalHeight = best.height;
+      refineJourney = toRefineJourney(loop);
+      refineNote = `${refineCountNote} (${summarizeRefineJourney(loop)})`;
+    }
+
+    details.seed = finalSeed;
+    for (const s of finalImages) details.savedPaths.push(s.savedPath);
     emitImageGenerated({
       savedPaths: details.savedPaths,
       workflow: name,
-      prompt: result.prompt,
-      seed: details.seed,
+      prompt: finalPrompt,
+      seed: finalSeed,
       background: false,
     });
 
     // Record the landed render in the generation registry so it gets a
     // reusable `g<n>` id (gallery + variationOf / refine). Only store
     // dims the workflow actually maps, so the record reflects what was
-    // rendered rather than an ignored default.
+    // rendered rather than an ignored default. Under auto-refine this is
+    // the ONE record for the final best-so-far, carrying the journey block.
     const generation = rt.recordGeneration({
       workflow: name,
       promptId,
-      prompt: result.prompt,
-      negative: result.negative,
-      seed: details.seed,
-      width: wf.inputs.width !== undefined ? result.width : undefined,
-      height: wf.inputs.height !== undefined ? result.height : undefined,
+      prompt: finalPrompt,
+      negative: finalNegative,
+      seed: finalSeed,
+      width: wf.inputs.width !== undefined ? finalWidth : undefined,
+      height: wf.inputs.height !== undefined ? finalHeight : undefined,
       savedPaths: details.savedPaths,
       source: ephemeral ? 'ephemeral' : 'foreground',
       createdAt: Date.now(),
+      ...(refineJourney !== undefined ? { refine: refineJourney } : {}),
     });
     if (generation) details.generationId = generation.id;
     const idNote = generation ? ` [${generation.id}]` : '';
@@ -478,30 +695,30 @@ export async function executeGenerate(
       details.ephemeral = true;
       const summary = summarizeRenderedImages({
         verb: 'Generated',
-        count: refs.length,
+        count: finalImages.length,
         idNote,
         workflow: name,
-        seed,
+        seed: finalSeed,
         saveDir,
         decision: { send: true, visionBlocked: false },
-        extra: ' (ephemeral: shown once, not kept in context)',
+        extra: `${refineNote} (ephemeral: shown once, not kept in context)`,
       });
-      return { content: [{ type: 'text', text: summary }, ...saved.map((s) => s.block)], details };
+      return { content: [{ type: 'text', text: summary }, ...finalImages.map((s) => s.block)], details };
     }
 
     const decision = resolveSendToModel(requested, ctx.model?.input);
     const summary = summarizeRenderedImages({
       verb: 'Generated',
-      count: refs.length,
+      count: finalImages.length,
       idNote,
       workflow: name,
-      seed,
+      seed: finalSeed,
       saveDir,
       decision,
-      extra: enhanceNote,
+      extra: enhanceNote + refineNote,
     });
     return decision.send
-      ? { content: [{ type: 'text', text: summary }, ...saved.map((s) => s.block)], details }
+      ? { content: [{ type: 'text', text: summary }, ...finalImages.map((s) => s.block)], details }
       : { content: [{ type: 'text', text: summary }], details };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

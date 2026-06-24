@@ -393,6 +393,57 @@ export async function runRefineLoop<Img>(deps: RefineLoopDeps<Img>): Promise<Ref
   return { image: best.image, accepted: best.accepted, finalScore: best.score, journey };
 }
 
+// ──────────────────────────────────────────────────────────────────────
+// Journey block + summary note (the OUTPUT side of the loop)
+// ──────────────────────────────────────────────────────────────────────
+
+/**
+ * The compact refine-journey block recorded on the final generation (and
+ * shown in `/comfyui gallery <id>` detail). `rounds` is the number of
+ * corrective renders after the initial (so `journey.length - 1`); `journey`
+ * keeps every render oldest-first, the index-0 entry being the initial.
+ */
+export interface RefineJourney {
+  rounds: number;
+  accepted: boolean;
+  finalScore: number;
+  journey: RefineJourneyEntry[];
+}
+
+/** Project a {@link RefineLoopResult} into the persisted {@link RefineJourney}. */
+export function toRefineJourney(result: RefineLoopResult<unknown>): RefineJourney {
+  return {
+    rounds: Math.max(0, result.journey.length - 1),
+    accepted: result.accepted,
+    finalScore: result.finalScore,
+    journey: result.journey,
+  };
+}
+
+/**
+ * One-line note appended to the model-facing summary describing the refine
+ * journey, e.g. `auto-refined 2 rounds: reroll \u2192 revise_prompt; accepted,
+ * score 8`, or - when the budget ran out without an accept -
+ * `auto-refined 2 rounds: reroll \u2192 reroll; best effort, score 6 - not
+ * fully satisfied`. When no corrective render ran, reports whether the initial
+ * was accepted as-is. Returned without surrounding parentheses so the caller
+ * composes the final placement. Never throws.
+ */
+export function summarizeRefineJourney(result: RefineLoopResult<unknown>): string {
+  const corrective = result.journey.slice(1).map((j) => j.action);
+  const rounds = corrective.length;
+  if (rounds === 0) {
+    return result.accepted
+      ? `auto-refine: accepted as-is, score ${result.finalScore}`
+      : `auto-refine: kept initial render, score ${result.finalScore}`;
+  }
+  const chain = corrective.join(' \u2192 ');
+  const roundsWord = `${rounds} round${rounds === 1 ? '' : 's'}`;
+  return result.accepted
+    ? `auto-refined ${roundsWord}: ${chain}; accepted, score ${result.finalScore}`
+    : `auto-refined ${roundsWord}: ${chain}; best effort, score ${result.finalScore} - not fully satisfied`;
+}
+
 // ─────────────────────────────────────────────────────────
 // Critic task builder (the input side - mirrors enhance.ts' buildEnhanceTask)
 // ─────────────────────────────────────────────────────────

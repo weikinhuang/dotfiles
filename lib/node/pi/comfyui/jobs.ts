@@ -49,6 +49,19 @@ export interface ImageJob {
   startedAt: number;
   /** Epoch ms when it reached a terminal status. */
   endedAt?: number;
+  /**
+   * Live progress note for a managed (auto-refine) job, e.g.
+   * `refining 2/3, score 6`. Shown in the `list` line and the pending-jobs
+   * reminder while the job is running. Absent for a plain background job.
+   */
+  progress?: string;
+  /**
+   * True when a detached task owns this job's full lifecycle (the off-turn
+   * auto-refine loop): it waits, critiques, re-renders, then marks the job
+   * done itself. The auto-download poll timer SKIPS managed jobs so it does
+   * not double-fetch / double-record the render mid-loop.
+   */
+  managed?: boolean;
 }
 
 /** The whole registry: ordered jobs plus the next id to hand out. */
@@ -67,6 +80,8 @@ export interface NewJob {
   saveDir: string;
   sendToModel: boolean;
   startedAt: number;
+  /** Mark the job as owned by a detached auto-refine loop (poll timer skips it). */
+  managed?: boolean;
 }
 
 /**
@@ -84,6 +99,8 @@ export interface JobPatch {
   savedPaths?: string[];
   error?: string;
   endedAt?: number;
+  /** Live progress note for a managed (auto-refine) job. */
+  progress?: string;
 }
 
 export function emptyRegistry(): JobRegistry {
@@ -113,6 +130,7 @@ export function addJob(reg: JobRegistry, job: NewJob): { registry: JobRegistry; 
     status: 'running',
     savedPaths: [],
     startedAt: job.startedAt,
+    ...(job.managed === true ? { managed: true } : {}),
   };
   return {
     registry: { jobs: [...reg.jobs, created], nextId: reg.nextId + 1 },
@@ -184,6 +202,7 @@ export function formatJobLine(job: ImageJob, now: number): string {
     parts.push(`${n} image${n === 1 ? '' : 's'}`);
   }
   if (job.status === 'error' && job.error) parts.push(job.error);
+  if (job.status === 'running' && job.progress !== undefined && job.progress.length > 0) parts.push(job.progress);
   parts.push(formatDuration(job.startedAt, job.endedAt ?? now));
   return `[${job.id}] ${parts.join(' · ')}`;
 }
@@ -215,7 +234,8 @@ export function formatRunningBlock(reg: JobRegistry): string | undefined {
   if (running.length === 0) return undefined;
   const lines = running.map((j) => {
     const seed = j.seed !== undefined ? `, seed ${j.seed}` : '';
-    return `- [${j.id}] ${j.workflow}${seed} — collect with \`image_jobs\` action collect, id ${j.id}`;
+    const progress = j.progress !== undefined && j.progress.length > 0 ? ` (${j.progress})` : '';
+    return `- [${j.id}] ${j.workflow}${seed}${progress} - collect with \`image_jobs\` action collect, id ${j.id}`;
   });
   return ['## Pending image jobs', ...lines].join('\n');
 }

@@ -20,6 +20,7 @@
 
 import { findLatestStateInBranch } from '../branch-state.ts';
 import type { BranchEntry } from '../branch-state.ts';
+import type { RefineJourney } from './refine.ts';
 
 /** Where a recorded generation came from. */
 export type GenerationSource = 'foreground' | 'background' | 'ephemeral';
@@ -47,6 +48,19 @@ export interface GenerationRecord {
   source: GenerationSource;
   /** Epoch ms when the render landed on disk. */
   createdAt: number;
+  /**
+   * Auto-refine journey when this render went through the critic loop: the
+   * round count, whether the returned image was accepted, its final score,
+   * and every render performed (the intermediates are on disk but are NOT
+   * separate gallery entries). Absent for an un-refined render.
+   */
+  refine?: RefineJourney;
+  /**
+   * Lineage for a standalone `/comfyui refine <gX>`: the source generation id
+   * this render was refined FROM. Absent for a fresh `generate_image` render
+   * (its journey starts from its own initial render, with no prior source).
+   */
+  refineOf?: string;
 }
 
 /** The whole registry: ordered records plus the next id to hand out. */
@@ -67,6 +81,8 @@ export interface NewGeneration {
   savedPaths: string[];
   source: GenerationSource;
   createdAt: number;
+  refine?: RefineJourney;
+  refineOf?: string;
 }
 
 export function emptyGenerations(): GenerationRegistry {
@@ -106,6 +122,8 @@ export function addGeneration(
     savedPaths: [...gen.savedPaths],
     source: gen.source,
     createdAt: gen.createdAt,
+    ...(gen.refine !== undefined ? { refine: gen.refine } : {}),
+    ...(gen.refineOf !== undefined ? { refineOf: gen.refineOf } : {}),
   };
   return {
     registry: { generations: [...reg.generations, created], nextId: reg.nextId + 1 },
@@ -175,9 +193,21 @@ export function formatGenerationDetail(rec: GenerationRecord): string {
   if (rec.seed !== undefined) meta.push(`seed ${rec.seed}`);
   if (rec.width !== undefined && rec.height !== undefined) meta.push(`${rec.width}x${rec.height}`);
   if (meta.length > 0) lines.push(meta.join(' · '));
+  if (rec.refineOf !== undefined) lines.push(`refined from: ${rec.refineOf}`);
   lines.push(`prompt:   ${rec.prompt}`);
   if (rec.negative !== undefined && rec.negative.length > 0) lines.push(`negative: ${rec.negative}`);
   for (const p of rec.savedPaths) lines.push(`file:     ${p}`);
+  const refine = rec.refine;
+  if (refine !== undefined) {
+    const status = refine.accepted ? 'accepted' : 'best effort';
+    lines.push(
+      `auto-refine: ${refine.rounds} round${refine.rounds === 1 ? '' : 's'} · ${status} · score ${refine.finalScore}`,
+    );
+    for (const step of refine.journey) {
+      const where = step.savedPath !== undefined ? ` -> ${step.savedPath}` : '';
+      lines.push(`  - ${step.action} (score ${step.score})${where}`);
+    }
+  }
   return lines.join('\n');
 }
 

@@ -115,6 +115,47 @@ describe('formatting', () => {
     expect(out).toContain('file:     /out/c.png');
   });
 
+  test('formatGenerationDetail prints the auto-refine journey + lineage when present', () => {
+    const rec = addGeneration(emptyGenerations(), {
+      workflow: 'anima',
+      prompt: 'a cat',
+      seed: 9,
+      savedPaths: ['/out/r2.png'],
+      source: 'foreground',
+      createdAt: 1,
+      refineOf: 'g1',
+      refine: {
+        rounds: 2,
+        accepted: true,
+        finalScore: 8,
+        journey: [
+          { action: 'initial', score: 4, savedPath: '/out/r0.png' },
+          { action: 'reroll', score: 6, savedPath: '/out/r1.png' },
+          { action: 'revise_prompt', score: 8, savedPath: '/out/r2.png' },
+        ],
+      },
+    }).created;
+    const out = formatGenerationDetail(rec);
+    expect(out).toContain('refined from: g1');
+    expect(out).toContain('auto-refine: 2 rounds · accepted · score 8');
+    expect(out).toContain('- initial (score 4) -> /out/r0.png');
+    expect(out).toContain('- revise_prompt (score 8) -> /out/r2.png');
+  });
+
+  test('addGeneration threads the refine journey + refineOf onto the record', () => {
+    const created = addGeneration(emptyGenerations(), {
+      workflow: 'anima',
+      prompt: 'a cat',
+      savedPaths: ['/out/r1.png'],
+      source: 'foreground',
+      createdAt: 1,
+      refineOf: 'g3',
+      refine: { rounds: 1, accepted: false, finalScore: 6, journey: [{ action: 'initial', score: 6 }] },
+    }).created;
+    expect(created.refineOf).toBe('g3');
+    expect(created.refine?.accepted).toBe(false);
+  });
+
   test('formatGenerationHint shows workflow + clipped prompt snippet', () => {
     const reg = seedReg();
     expect(formatGenerationHint(reg.generations[0])).toBe('anima · a cat');

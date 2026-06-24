@@ -13,6 +13,10 @@
  * no-op contract.
  */
 
+import { existsSync, readFileSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { resolve } from 'node:path';
+
 import type { Model } from '@earendil-works/pi-ai';
 import {
   createAgentSession,
@@ -27,8 +31,9 @@ import {
 } from '@earendil-works/pi-coding-agent';
 
 import { createRefiner, type Refiner, resolveRefineModel } from '../../comfyui/refine.ts';
-import type { ComfyuiConfig } from '../../comfyui/types.ts';
+import type { ComfyuiConfig, WorkflowConfig } from '../../comfyui/types.ts';
 import { envTruthy } from '../../parse-env.ts';
+import { expandTilde } from '../../path-expand.ts';
 import { type AgentDef, defaultAgentLayers, loadAgents, makeNodeReadLayer } from '../../subagent/loader.ts';
 import { createPersistedSubagentSessionManager } from '../../subagent/session-dir.ts';
 import { adaptCreateAgentSession, runOneShotAgent } from '../../subagent/spawn.ts';
@@ -167,4 +172,27 @@ export function createRefinerAccess(deps: {
     isAgentInstalled: (cwd: string) => loadCriticAgent(cwd) !== null,
     getRefiner,
   };
+}
+
+/**
+ * Read + concatenate refine-critic guidance: the global
+ * {@link ComfyuiConfig.refineGuidanceFile} first, then the workflow's own
+ * {@link WorkflowConfig.refineGuidanceFile}. Each path resolves like a
+ * workflow `file` (`~` / absolute / relative-to-cwd). A missing or
+ * unreadable file is skipped silently - guidance is advisory and must never
+ * block a render. Mirrors {@link ../enhancer.readGuidanceText} on the output
+ * side.
+ */
+export function readRefineGuidanceText(config: ComfyuiConfig, wf: WorkflowConfig, fromCwd: string): string {
+  const readOne = (file: string | undefined): string => {
+    if (file === undefined || file.trim().length === 0) return '';
+    try {
+      const resolved = resolve(fromCwd, expandTilde(file, homedir()));
+      if (!existsSync(resolved)) return '';
+      return readFileSync(resolved, 'utf8').trim();
+    } catch {
+      return '';
+    }
+  };
+  return [readOne(config.refineGuidanceFile), readOne(wf.refineGuidanceFile)].filter((s) => s.length > 0).join('\n\n');
 }
