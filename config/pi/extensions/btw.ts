@@ -43,7 +43,7 @@
  * unit-tested under `vitest` without the pi runtime.
  */
 
-import { complete, type Context, type Message, type Model } from '@earendil-works/pi-ai';
+import { complete, type Context, type Message, type Model } from '@earendil-works/pi-ai/compat';
 import {
   type ExtensionAPI,
   buildSessionContext,
