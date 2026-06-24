@@ -9,10 +9,24 @@ This is a custom tool, not a replacement for pi's built-in (provider-routed) ima
 extension-pluggable image-provider hook, so a tool is the integration point, the same shape pi's own
 `antigravity-image-gen.ts` example uses.
 
-The pi-coupled glue (tool + command registration, the HTTP / websocket calls, result formatting) lives in
-[`comfyui.ts`](./comfyui.ts). All pure logic - config layering + `${ENV}` interpolation, workflow parameter injection,
-URL building, history / websocket parsing - lives under [`../../../lib/node/pi/comfyui/`](../../../lib/node/pi/comfyui)
-and is unit-tested by [`../../../tests/lib/node/pi/comfyui/`](../../../tests/lib/node/pi/comfyui).
+[`comfyui.ts`](./comfyui.ts) is a thin factory: the registration gate, the workflow capability matrix, and the tool /
+command / hook registration. The session-scoped state and the two tool bodies live next door in
+[`../../../lib/node/pi/ext/comfyui/`](../../../lib/node/pi/ext/comfyui) - the `ext/` carve-out for helpers that must
+import the pi runtime or `sharp`:
+
+- `runtime.ts` - the `ComfyuiRuntime` class that owns the mutable session state (job registry, generation registry,
+  ephemeral-collapse overlay, scene-capture budget, statusline slot, auto-download poll timer) and the logic for the
+  five lifecycle hooks (`session_start` / `session_tree` / `session_shutdown` / `before_agent_start`) plus the `context`
+  hook. The shell's `pi.on(…)` handlers and tool bodies all delegate to it.
+- `generate.ts` / `jobs.ts` - the `generate_image` and `image_jobs` tool bodies (each takes the runtime).
+- `params.ts` - the `generate_image` TypeBox schema (capability-pruned).
+- `render.ts` + `details.ts` - tool-result rendering and the shared `details` shapes.
+- `images.ts` - the `sharp` model-facing downscale + bbox-mask synthesis.
+- `enhancer.ts` - the opt-in prompt-enhancer subagent wiring.
+
+All pure logic - config layering + `${ENV}` interpolation, workflow parameter injection, URL building, history /
+websocket parsing - lives under [`../../../lib/node/pi/comfyui/`](../../../lib/node/pi/comfyui) and is unit-tested by
+[`../../../tests/lib/node/pi/comfyui/`](../../../tests/lib/node/pi/comfyui).
 
 ## How a generation runs
 
@@ -617,19 +631,22 @@ model.
 ## Hot reload
 
 Edit [`comfyui.ts`](./comfyui.ts) or any companion under [`../../../lib/node/pi/comfyui/`](../../../lib/node/pi/comfyui)
-and run `/reload` in an interactive pi session. The tool registration, workflow list, and tool description are computed
-at load time, so a `/reload` re-runs registration and picks up changes to `comfyui.json` / the workflow graphs. The
-`session_shutdown` handler clears the `comfyui` statusline badge (`▦ img:N`) and drops the in-memory background-job
-registry on reload, so a stale job count never bleeds into the next session. The ephemeral-render collapse overlay is
-**not** dropped across a reload: it is persisted as a `comfyui-ephemeral-state` custom entry and rebuilt from the branch
-on `session_start` / `session_tree`, so prior ephemeral renders stay collapsed out of context after a `/reload`, a
-branch switch, or an exit -> resume. The generation registry (the `g<n>` gallery) is likewise persisted as a
-`comfyui-generations` custom entry and rebuilt from the branch, so prior renders stay addressable by `variationOf` /
-`refine` across a `/reload`. The jobs themselves run server-side and are not re-attached after reload - ComfyUI keeps
-each prompt under its id, so re-collect via the server's own history if a generation was in flight.
+or [`../../../lib/node/pi/ext/comfyui/`](../../../lib/node/pi/ext/comfyui) and run `/reload` in an interactive pi
+session. The tool registration, workflow list, and tool description are computed at load time, so a `/reload` re-runs
+registration and picks up changes to `comfyui.json` / the workflow graphs. The `session_shutdown` handler clears the
+`comfyui` statusline badge (`▦ img:N`) and drops the in-memory background-job registry on reload, so a stale job count
+never bleeds into the next session. The ephemeral-render collapse overlay is **not** dropped across a reload: it is
+persisted as a `comfyui-ephemeral-state` custom entry and rebuilt from the branch on `session_start` / `session_tree`,
+so prior ephemeral renders stay collapsed out of context after a `/reload`, a branch switch, or an exit -> resume. The
+generation registry (the `g<n>` gallery) is likewise persisted as a `comfyui-generations` custom entry and rebuilt from
+the branch, so prior renders stay addressable by `variationOf` / `refine` across a `/reload`. The jobs themselves run
+server-side and are not re-attached after reload - ComfyUI keeps each prompt under its id, so re-collect via the
+server's own history if a generation was in flight.
 
 ## Related docs
 
 - [README.md](./README.md) - extension index.
 - [`../../../lib/node/pi/comfyui/`](../../../lib/node/pi/comfyui) - the pure helpers this shell composes.
+- [`../../../lib/node/pi/ext/comfyui/`](../../../lib/node/pi/ext/comfyui) - the runtime-coupled helpers (the
+  `ComfyuiRuntime`, the two tool bodies, params / render / images / enhancer).
 - [ComfyUI OpenAPI spec](https://github.com/Comfy-Org/ComfyUI/blob/main/openapi.yaml) - endpoint reference.
