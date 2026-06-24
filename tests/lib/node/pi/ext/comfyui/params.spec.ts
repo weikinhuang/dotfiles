@@ -23,6 +23,10 @@ function mkConfig(workflows: Record<string, WorkflowConfig>, overrides: Partial<
     autoDownload: true,
     pollIntervalMs: 1000,
     enhance: false,
+    autoRefine: false,
+    refineTimeoutMs: 120000,
+    maxRefineIterations: 2,
+    refineAcceptThreshold: 7,
     workflows,
     ...overrides,
   };

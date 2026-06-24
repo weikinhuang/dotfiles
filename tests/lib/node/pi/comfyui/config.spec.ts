@@ -207,6 +207,77 @@ describe('coerceConfigLayer', () => {
     expect(bad.workflows?.a.enhance).toBeUndefined();
   });
 
+  test('parses a per-workflow refine override (true/false), dropping non-booleans', () => {
+    const on = coerceConfigLayer({ workflows: { a: { file: '~/a.json', inputs: {}, refine: true } } });
+    expect(on.workflows?.a).toEqual({ file: '~/a.json', inputs: {}, refine: true });
+    const off = coerceConfigLayer({ workflows: { a: { file: '~/a.json', inputs: {}, refine: false } } });
+    expect(off.workflows?.a.refine).toBe(false);
+    const bad = coerceConfigLayer({ workflows: { a: { file: '~/a.json', inputs: {}, refine: 'yes' } } });
+    expect(bad.workflows?.a.refine).toBeUndefined();
+  });
+
+  test('parses per-workflow refineGuidanceFile / refineCriteria, dropping empty / wrong-typed', () => {
+    const ok = coerceConfigLayer({
+      workflows: {
+        a: {
+          file: '~/a.json',
+          inputs: {},
+          refineGuidanceFile: '~/refine.md',
+          refineCriteria: 'full body, facing left',
+        },
+      },
+    });
+    expect(ok.workflows?.a).toEqual({
+      file: '~/a.json',
+      inputs: {},
+      refineGuidanceFile: '~/refine.md',
+      refineCriteria: 'full body, facing left',
+    });
+    const bad = coerceConfigLayer({
+      workflows: { a: { file: '~/a.json', inputs: {}, refineGuidanceFile: '', refineCriteria: 7 } },
+    });
+    expect(bad.workflows?.a).toEqual({ file: '~/a.json', inputs: {} });
+  });
+
+  test('parses a per-workflow refineWith companion map, dropping wrong-typed / empty channels', () => {
+    const out = coerceConfigLayer({
+      workflows: {
+        anima: {
+          file: '~/anima.json',
+          inputs: {},
+          refineWith: {
+            img2img: 'anima-img2img',
+            inpaint: 'anima-inpaint',
+            detailer: 'anima-detailer',
+            ground: 'anima-ground',
+            bogus: 'ignored',
+            empty: '',
+            wrongType: 42,
+          },
+        },
+      },
+    });
+    expect(out.workflows?.anima).toEqual({
+      file: '~/anima.json',
+      inputs: {},
+      refineWith: {
+        img2img: 'anima-img2img',
+        inpaint: 'anima-inpaint',
+        detailer: 'anima-detailer',
+        ground: 'anima-ground',
+      },
+    });
+  });
+
+  test('omits a refineWith map with no valid channels', () => {
+    const out = coerceConfigLayer({
+      workflows: { a: { file: '~/a.json', inputs: {}, refineWith: { img2img: '', detailer: 5 } } },
+    });
+    expect(out.workflows?.a).toEqual({ file: '~/a.json', inputs: {} });
+    const notObj = coerceConfigLayer({ workflows: { a: { file: '~/a.json', inputs: {}, refineWith: 'nope' } } });
+    expect(notObj.workflows?.a).toEqual({ file: '~/a.json', inputs: {} });
+  });
+
   test('parses enhancer knobs (enhance, enhanceModel, enhanceGuidanceFile)', () => {
     const out = coerceConfigLayer({
       enhance: true,
@@ -216,6 +287,49 @@ describe('coerceConfigLayer', () => {
     expect(out.enhance).toBe(true);
     expect(out.enhanceModel).toBe('openai/gpt-4o-mini');
     expect(out.enhanceGuidanceFile).toBe('~/global-guide.md');
+  });
+
+  test('parses refine knobs (autoRefine, refineModel, refineGuidanceFile)', () => {
+    const out = coerceConfigLayer({
+      autoRefine: true,
+      refineModel: 'local/gemma-12b-vision',
+      refineGuidanceFile: '~/global-refine.md',
+    });
+    expect(out.autoRefine).toBe(true);
+    expect(out.refineModel).toBe('local/gemma-12b-vision');
+    expect(out.refineGuidanceFile).toBe('~/global-refine.md');
+  });
+
+  test('parses refineTimeoutMs; drops non-positive', () => {
+    expect(coerceConfigLayer({ refineTimeoutMs: 90000 }).refineTimeoutMs).toBe(90000);
+    expect(coerceConfigLayer({ refineTimeoutMs: 0 }).refineTimeoutMs).toBeUndefined();
+    expect(coerceConfigLayer({ refineTimeoutMs: 'slow' }).refineTimeoutMs).toBeUndefined();
+  });
+
+  test('coerces refineAcceptThreshold into [0, 10], falling back to 7 on an invalid value', () => {
+    expect(coerceConfigLayer({ refineAcceptThreshold: 0 }).refineAcceptThreshold).toBe(0);
+    expect(coerceConfigLayer({ refineAcceptThreshold: 8 }).refineAcceptThreshold).toBe(8);
+    expect(coerceConfigLayer({ refineAcceptThreshold: 10 }).refineAcceptThreshold).toBe(10);
+    expect(coerceConfigLayer({ refineAcceptThreshold: 11 }).refineAcceptThreshold).toBe(7);
+    expect(coerceConfigLayer({ refineAcceptThreshold: 50 }).refineAcceptThreshold).toBe(7);
+    expect(coerceConfigLayer({ refineAcceptThreshold: -1 }).refineAcceptThreshold).toBe(7);
+    expect(coerceConfigLayer({ refineAcceptThreshold: '8' }).refineAcceptThreshold).toBe(7);
+    expect(coerceConfigLayer({}).refineAcceptThreshold).toBeUndefined();
+  });
+
+  test('parses and rounds maxRefineIterations; drops non-positive', () => {
+    expect(coerceConfigLayer({ maxRefineIterations: 3 }).maxRefineIterations).toBe(3);
+    expect(coerceConfigLayer({ maxRefineIterations: 2.6 }).maxRefineIterations).toBe(3);
+    expect(coerceConfigLayer({ maxRefineIterations: 0 }).maxRefineIterations).toBeUndefined();
+    expect(coerceConfigLayer({ maxRefineIterations: -1 }).maxRefineIterations).toBeUndefined();
+    expect(coerceConfigLayer({ maxRefineIterations: 'lots' }).maxRefineIterations).toBeUndefined();
+  });
+
+  test('drops empty / wrong-typed refine knobs', () => {
+    const out = coerceConfigLayer({ autoRefine: 'yes', refineModel: '', refineGuidanceFile: 5 });
+    expect(out.autoRefine).toBeUndefined();
+    expect(out.refineModel).toBeUndefined();
+    expect(out.refineGuidanceFile).toBeUndefined();
   });
 
   test('parses enhanceTimeoutMs; drops non-positive', () => {
@@ -331,6 +445,27 @@ describe('mergeConfigLayers', () => {
     expect(mergeConfigLayers({ pollIntervalMs: 5000 }).pollIntervalMs).toBe(5000);
   });
 
+  test('refine knobs default and are overridable', () => {
+    const defaults = mergeConfigLayers();
+    expect(defaults.autoRefine).toBe(false);
+    expect(defaults.refineTimeoutMs).toBe(120000);
+    expect(defaults.maxRefineIterations).toBe(2);
+    expect(defaults.refineAcceptThreshold).toBe(7);
+    expect(defaults.refineModel).toBeUndefined();
+    expect(defaults.refineGuidanceFile).toBeUndefined();
+
+    const over = mergeConfigLayers(
+      { autoRefine: true, maxRefineIterations: 1, refineTimeoutMs: 90000 },
+      { refineAcceptThreshold: 8, refineModel: 'local/qwen-vl', refineGuidanceFile: '~/g.md' },
+    );
+    expect(over.autoRefine).toBe(true);
+    expect(over.maxRefineIterations).toBe(1);
+    expect(over.refineTimeoutMs).toBe(90000);
+    expect(over.refineAcceptThreshold).toBe(8);
+    expect(over.refineModel).toBe('local/qwen-vl');
+    expect(over.refineGuidanceFile).toBe('~/g.md');
+  });
+
   test('workflows merge by name across layers', () => {
     const base = { workflows: { txt2img: { file: 'a.json', inputs: {} } } };
     const over = {
@@ -344,6 +479,29 @@ describe('mergeConfigLayers', () => {
       txt2img: { file: 'b.json', inputs: {} },
       img2img: { file: 'c.json', inputs: {} },
     });
+  });
+
+  test('per-workflow refineWith merges by name: replaced wholesale, others added', () => {
+    const base = {
+      workflows: {
+        anima: { file: 'a.json', inputs: {}, refine: true, refineWith: { img2img: 'anima-img2img' } },
+      },
+    };
+    const over = {
+      workflows: {
+        anima: { file: 'a.json', inputs: {}, refineWith: { inpaint: 'anima-inpaint', detailer: 'anima-detailer' } },
+        flux: { file: 'f.json', inputs: {}, refineWith: { ground: 'flux-edit' } },
+      },
+    };
+    const out = mergeConfigLayers(base, over);
+    // The higher layer replaces the `anima` workflow wholesale, so its earlier
+    // refineWith / refine fields are dropped, not field-merged.
+    expect(out.workflows.anima).toEqual({
+      file: 'a.json',
+      inputs: {},
+      refineWith: { inpaint: 'anima-inpaint', detailer: 'anima-detailer' },
+    });
+    expect(out.workflows.flux).toEqual({ file: 'f.json', inputs: {}, refineWith: { ground: 'flux-edit' } });
   });
 
   test('authHeader is replaced wholesale by a setting layer', () => {

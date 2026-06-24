@@ -52,6 +52,25 @@ export interface RoleMapping extends InputMapping {
  */
 export type ImageSlots = InputMapping[] | Record<string, RoleMapping>;
 
+/**
+ * Per-workflow map from auto-refine repair channel to the *name of another
+ * configured workflow* that runs that channel. The refiner offers a channel
+ * only when its companion resolves to a configured workflow; an unconfigured
+ * channel is off the table and the loop falls back. All fields optional - a
+ * workflow with no companions can still use the t2i-only channels (reroll /
+ * revise_prompt).
+ */
+export interface RefineWith {
+  /** Whole-image low-denoise polish companion (the no-localization fallback). */
+  img2img?: string;
+  /** Masked-region inpaint companion (extension-supplied coarse-region mask). */
+  inpaint?: string;
+  /** Hand / face / eyes detailer companion (in-graph detector + DetailerForEach). */
+  detailer?: string;
+  /** Grounded-inpaint companion (in-graph phrase -> mask localizer). */
+  ground?: string;
+}
+
 /** A named workflow: the API-format JSON file plus its parameter map. */
 export interface WorkflowConfig {
   /** Path to the API-format workflow JSON. `~` is expanded by the caller. */
@@ -104,6 +123,34 @@ export interface WorkflowConfig {
    * Resolution is `param ?? workflow.enhance ?? config.enhance`. Optional.
    */
   enhance?: boolean;
+  /**
+   * Per-workflow override of the global {@link ComfyuiConfig.autoRefine} flag.
+   * `true` auto-refines by default for this workflow even when the global
+   * default is off (and vice versa); a per-call `autoRefine` arg still wins.
+   * Resolution is `param ?? workflow.refine ?? config.autoRefine`. Optional.
+   */
+  refine?: boolean;
+  /**
+   * Path to a per-workflow refine-critic guidance doc, concatenated after the
+   * global {@link ComfyuiConfig.refineGuidanceFile} when the critic runs.
+   * Resolves like {@link WorkflowConfig.file} (`~` / absolute /
+   * relative-to-cwd). Optional - the critic degrades to `description` / `tags`
+   * when absent. Never blocks a render.
+   */
+  refineGuidanceFile?: string;
+  /**
+   * Map from auto-refine repair channel to the configured companion workflow
+   * that runs it. See {@link RefineWith}. Optional - a workflow with no
+   * companions still uses the t2i-only channels (reroll / revise_prompt).
+   */
+  refineWith?: RefineWith;
+  /**
+   * Default explicit acceptance criteria handed to the refine critic for this
+   * workflow (e.g. "full body, facing left"). A per-call `refineCriteria` arg
+   * overrides it; absent -> the critic derives criteria from the prompt /
+   * context. Optional.
+   */
+  refineCriteria?: string;
 }
 
 /**
@@ -222,6 +269,42 @@ export interface ComfyuiConfig {
    * like a workflow `file` (`~` / absolute / relative-to-cwd).
    */
   enhanceGuidanceFile?: string;
+  /**
+   * Whether the agent-driven auto-refine loop runs by default. When on,
+   * `generate_image` runs a vision critic over each render and loops
+   * corrective renders until the image passes or a budget is hit. Off by
+   * default; a per-call `autoRefine` arg or per-workflow `refine` override
+   * wins, and `PI_COMFYUI_DISABLE_REFINE` hard-disables it.
+   */
+  autoRefine: boolean;
+  /**
+   * Optional vision-capable model spec (`provider/model-id`) for the refine
+   * critic subagent. Absent -> the critic inherits the active session model
+   * when it has vision, else the loop no-ops. Lets a user point refinement at
+   * a local vision model (Gemma-class / Qwen-VL).
+   */
+  refineModel?: string;
+  /**
+   * Wall-clock cap (ms) for a single refine-critic run. Default 120000.
+   */
+  refineTimeoutMs: number;
+  /**
+   * Max corrective renders after the initial render (total renders <= 1 + N).
+   * Default 2 => up to 3 renders. The loop also stops on an `accept` verdict,
+   * a score plateau, or the time cap.
+   */
+  maxRefineIterations: number;
+  /**
+   * Score (0-10) at or above which the critic's verdict is forced to accept,
+   * so the loop cannot burn to the cap on cosmetic nits. Default 7.
+   */
+  refineAcceptThreshold: number;
+  /**
+   * Optional path to a global refine-critic guidance doc, concatenated before
+   * any per-workflow {@link WorkflowConfig.refineGuidanceFile}. Resolves like
+   * a workflow `file` (`~` / absolute / relative-to-cwd).
+   */
+  refineGuidanceFile?: string;
   /**
    * Optional cap (px) on the longer side of the image COPY fed back to the
    * model. The file written to {@link saveDir} is always full resolution;

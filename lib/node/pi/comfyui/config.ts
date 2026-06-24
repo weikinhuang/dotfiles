@@ -29,6 +29,7 @@ import type {
   GenerationDefaults,
   ImageSlots,
   InputMapping,
+  RefineWith,
   RoleMapping,
   WorkflowConfig,
 } from './types.ts';
@@ -52,6 +53,9 @@ export const SHIPPED_WORKFLOW_INPUTS: Record<string, InputMapping> = {
   batch: { node: '5', key: 'batch_size' },
 };
 
+/** Default refine accept-score threshold; also the fallback for an out-of-range value. */
+export const DEFAULT_REFINE_ACCEPT_THRESHOLD = 7;
+
 /** Shipped defaults used as the lowest config layer. */
 export const DEFAULT_CONFIG: ComfyuiConfig = {
   baseUrl: 'http://127.0.0.1:8188',
@@ -64,6 +68,10 @@ export const DEFAULT_CONFIG: ComfyuiConfig = {
   autoDownload: true,
   pollIntervalMs: 3000,
   enhance: false,
+  autoRefine: false,
+  refineTimeoutMs: 120000,
+  maxRefineIterations: 2,
+  refineAcceptThreshold: DEFAULT_REFINE_ACCEPT_THRESHOLD,
   workflows: {},
 };
 
@@ -84,6 +92,20 @@ function asString(value: unknown): string | undefined {
 
 function asPositiveNumber(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : undefined;
+}
+
+/**
+ * Coerce an accept-score threshold: a finite number in the inclusive range
+ * `[0, 10]` is kept as-is (0 = "accept anything", 10 = "only a perfect
+ * render"). A present-but-invalid value (out of range, non-finite, or the
+ * wrong type) falls back to `fallback` rather than being dropped, so the
+ * score backstop is never silently disabled. An absent value yields
+ * undefined so the merged default applies.
+ */
+function asScoreThreshold(value: unknown, fallback: number): number | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 10) return value;
+  return fallback;
 }
 
 function asAuthHeader(value: unknown): AuthHeader | undefined {
@@ -189,6 +211,26 @@ function asStringList(value: unknown): string[] | undefined {
   return out.length > 0 ? out : undefined;
 }
 
+/**
+ * Validate the optional per-workflow `refineWith` companion map: each field
+ * names another configured workflow that runs that repair channel. Drops any
+ * field with the wrong type or an empty name. Returns undefined when no valid
+ * channel survives so an all-garbage block doesn't pin an empty object.
+ */
+function asRefineWith(value: unknown): RefineWith | undefined {
+  if (!isObject(value)) return undefined;
+  const out: RefineWith = {};
+  const img2img = asString(value.img2img);
+  if (img2img !== undefined && img2img.length > 0) out.img2img = img2img;
+  const inpaint = asString(value.inpaint);
+  if (inpaint !== undefined && inpaint.length > 0) out.inpaint = inpaint;
+  const detailer = asString(value.detailer);
+  if (detailer !== undefined && detailer.length > 0) out.detailer = detailer;
+  const ground = asString(value.ground);
+  if (ground !== undefined && ground.length > 0) out.ground = ground;
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
 function asWorkflowConfig(value: unknown): WorkflowConfig | undefined {
   if (!isObject(value)) return undefined;
   const file = asString(value.file);
@@ -207,6 +249,14 @@ function asWorkflowConfig(value: unknown): WorkflowConfig | undefined {
   if (guidanceFile !== undefined && guidanceFile.length > 0) wf.guidanceFile = guidanceFile;
   const enhance = asBoolean(value.enhance);
   if (enhance !== undefined) wf.enhance = enhance;
+  const refine = asBoolean(value.refine);
+  if (refine !== undefined) wf.refine = refine;
+  const refineGuidanceFile = asString(value.refineGuidanceFile);
+  if (refineGuidanceFile !== undefined && refineGuidanceFile.length > 0) wf.refineGuidanceFile = refineGuidanceFile;
+  const refineWith = asRefineWith(value.refineWith);
+  if (refineWith !== undefined) wf.refineWith = refineWith;
+  const refineCriteria = asString(value.refineCriteria);
+  if (refineCriteria !== undefined && refineCriteria.length > 0) wf.refineCriteria = refineCriteria;
   return wf;
 }
 
@@ -272,6 +322,24 @@ export function coerceConfigLayer(raw: unknown): Partial<ComfyuiConfig> {
   if (enhanceGuidanceFile !== undefined && enhanceGuidanceFile.length > 0)
     out.enhanceGuidanceFile = enhanceGuidanceFile;
 
+  const autoRefine = asBoolean(raw.autoRefine);
+  if (autoRefine !== undefined) out.autoRefine = autoRefine;
+
+  const refineModel = asString(raw.refineModel);
+  if (refineModel !== undefined && refineModel.length > 0) out.refineModel = refineModel;
+
+  const refineTimeoutMs = asPositiveNumber(raw.refineTimeoutMs);
+  if (refineTimeoutMs !== undefined) out.refineTimeoutMs = refineTimeoutMs;
+
+  const maxRefineIterations = asPositiveNumber(raw.maxRefineIterations);
+  if (maxRefineIterations !== undefined) out.maxRefineIterations = Math.round(maxRefineIterations);
+
+  const refineAcceptThreshold = asScoreThreshold(raw.refineAcceptThreshold, DEFAULT_REFINE_ACCEPT_THRESHOLD);
+  if (refineAcceptThreshold !== undefined) out.refineAcceptThreshold = refineAcceptThreshold;
+
+  const refineGuidanceFile = asString(raw.refineGuidanceFile);
+  if (refineGuidanceFile !== undefined && refineGuidanceFile.length > 0) out.refineGuidanceFile = refineGuidanceFile;
+
   const previewMaxDimension = asPositiveNumber(raw.previewMaxDimension);
   if (previewMaxDimension !== undefined) out.previewMaxDimension = Math.round(previewMaxDimension);
 
@@ -314,6 +382,12 @@ export function mergeConfigLayers(...overrides: Partial<ComfyuiConfig>[]): Comfy
     if (layer.enhanceContextChars !== undefined) result.enhanceContextChars = layer.enhanceContextChars;
     if (layer.enhanceTimeoutMs !== undefined) result.enhanceTimeoutMs = layer.enhanceTimeoutMs;
     if (layer.enhanceGuidanceFile !== undefined) result.enhanceGuidanceFile = layer.enhanceGuidanceFile;
+    if (layer.autoRefine !== undefined) result.autoRefine = layer.autoRefine;
+    if (layer.refineModel !== undefined) result.refineModel = layer.refineModel;
+    if (layer.refineTimeoutMs !== undefined) result.refineTimeoutMs = layer.refineTimeoutMs;
+    if (layer.maxRefineIterations !== undefined) result.maxRefineIterations = layer.maxRefineIterations;
+    if (layer.refineAcceptThreshold !== undefined) result.refineAcceptThreshold = layer.refineAcceptThreshold;
+    if (layer.refineGuidanceFile !== undefined) result.refineGuidanceFile = layer.refineGuidanceFile;
     if (layer.previewMaxDimension !== undefined) result.previewMaxDimension = layer.previewMaxDimension;
     if (layer.defaults !== undefined) result.defaults = { ...result.defaults, ...layer.defaults };
     if (layer.authHeader !== undefined) result.authHeader = { ...layer.authHeader };
