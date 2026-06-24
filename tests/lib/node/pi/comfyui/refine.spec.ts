@@ -2,21 +2,29 @@
  * Tests for lib/node/pi/comfyui/refine.ts: the forgiving critic-decision
  * parse, the class-aware validate + downgrade, and the locked engine
  * reducer (accept via verdict / threshold, best-so-far selection, the
- * 1+N iteration cap, plateau-exit, and unparseable -> stop).
+ * 1+N iteration cap, plateau-exit, and unparseable -> stop), plus the
+ * critic task builder, the model-spec resolver, and the createRefiner
+ * adapter's null-on-any-failure / vision-required contract.
  */
 
 import { expect, test } from 'vitest';
 
 import {
+  buildCritiqueTask,
+  createRefiner,
   type CriticDecision,
+  type CritiqueRunResult,
   fallbackFor,
   parseCriticDecision,
   type RefineAction,
   type RefineChannel,
+  type Refiner,
   type RefineLoopResult,
+  resolveRefineModel,
   runRefineLoop,
   validateAction,
 } from '../../../../../lib/node/pi/comfyui/refine.ts';
+import { type AgentDef } from '../../../../../lib/node/pi/subagent/loader.ts';
 
 // ── Forgiving parse ───────────────────────────────────────────────────
 
@@ -298,4 +306,201 @@ test('reducer: an invalid proposed action downgrades via the issue classes', asy
   expect(actions).toEqual(['reroll']);
   expect(result.accepted).toBe(true);
   expect(result.finalScore).toBe(8);
+});
+
+// ── Critic task builder ───────────────────────────────────────────────
+
+test('buildCritiqueTask includes the image path, prompt, protocol, context, criteria, and action hint', () => {
+  const task = buildCritiqueTask({
+    imagePath: '/out/r0.png',
+    request: {
+      prompt: 'a knight in the rain',
+      negative: 'blurry',
+      promptProtocol: 'Danbooru tags, comma-separated',
+      context: 'It is night; the knight lost an arm last scene.',
+      guidance: 'Hands and faces must be clean.',
+    },
+    availableActions: ['reroll', 'revise_prompt', 'detailer'],
+    criteria: 'full body, facing left',
+  });
+  expect(task).toContain('/out/r0.png');
+  expect(task).toContain('a knight in the rain');
+  expect(task).toContain('blurry');
+  expect(task).toContain('Danbooru tags, comma-separated');
+  expect(task).toContain('Background the render was meant to honor');
+  expect(task).toContain('lost an arm');
+  expect(task).toContain('Hands and faces must be clean.');
+  expect(task).toContain('authoritative');
+  expect(task).toContain('full body, facing left');
+  expect(task).toContain('reroll, revise_prompt, detailer');
+  expect(task).toContain('verdict');
+});
+
+test('buildCritiqueTask notes derive-from-prompt when no criteria, and prompt-only channels when none available', () => {
+  const task = buildCritiqueTask({
+    imagePath: '/out/r0.png',
+    request: { prompt: 'a cat' },
+    availableActions: [],
+  });
+  expect(task).toContain('No explicit acceptance criteria were given');
+  expect(task).toContain('Only the prompt-level channels (reroll, revise_prompt)');
+  expect(task).not.toContain('Guidance on what counts as good');
+});
+
+// ── Model resolution ──────────────────────────────────────────────────
+
+test('resolveRefineModel normalizes a valid spec and returns null for absent / malformed', () => {
+  expect(resolveRefineModel('local/gemma-12b-vision')).toEqual({ refineModel: 'local/gemma-12b-vision' });
+  expect(resolveRefineModel(undefined)).toBeNull();
+  expect(resolveRefineModel('no-slash')).toBeNull();
+});
+
+// ── createRefiner adapter ─────────────────────────────────────────────
+
+interface FakeModel {
+  id: string;
+}
+
+function fakeCriticAgent(): AgentDef {
+  return {
+    name: 'comfyui-critic',
+    description: 'test',
+    tools: ['read'],
+    model: 'inherit',
+    thinkingLevel: 'low',
+    maxTurns: 2,
+    timeoutMs: 120000,
+    isolation: 'shared-cwd',
+    appendSystemPrompt: undefined,
+    body: '',
+  } as unknown as AgentDef;
+}
+
+const refineRegistry = {
+  find: (_provider: string, modelId: string): FakeModel | undefined => ({ id: modelId }),
+  authStorage: {},
+};
+
+const refineCtx = { cwd: '/tmp/x', model: { id: 'parent' } as FakeModel, modelRegistry: refineRegistry };
+const visionAll = (): boolean => true;
+
+const sampleInput = {
+  imagePath: '/out/r0.png',
+  request: { prompt: 'a knight' },
+  availableActions: ['reroll', 'revise_prompt'] as RefineChannel[],
+};
+
+test('createRefiner: isEnabled is false only when the critic agent is missing', () => {
+  const noAgent = createRefiner<FakeModel>({
+    settings: null,
+    criticAgent: null,
+    isVisionModel: visionAll,
+    runOneShot: () => Promise.resolve({ finalText: '', stopReason: 'completed' }),
+  });
+  expect(noAgent.isEnabled()).toBe(false);
+  const withAgent = createRefiner<FakeModel>({
+    settings: null,
+    criticAgent: fakeCriticAgent(),
+    isVisionModel: visionAll,
+    runOneShot: () => Promise.resolve({ finalText: '', stopReason: 'completed' }),
+  });
+  expect(withAgent.isEnabled()).toBe(true);
+});
+
+test('createRefiner: critique returns the parsed decision on a completed run and passes the image path in the task', async () => {
+  const calls: { task: string }[] = [];
+  const refiner = createRefiner<FakeModel>({
+    settings: null,
+    criticAgent: fakeCriticAgent(),
+    isVisionModel: visionAll,
+    runOneShot: (args) => {
+      calls.push({ task: args.task });
+      return Promise.resolve({ finalText: '{"verdict":"accept","score":8}', stopReason: 'completed' });
+    },
+  });
+  const decision = await refiner.critique(refineCtx, sampleInput);
+  expect(decision).toEqual({ verdict: 'accept', score: 8, assessment: '', issues: [] });
+  expect(calls[0].task).toContain('/out/r0.png');
+});
+
+test('createRefiner: critique no-ops (null) when the resolved model has no vision capability', async () => {
+  const logs: string[] = [];
+  const refiner = createRefiner<FakeModel>({
+    settings: null,
+    criticAgent: fakeCriticAgent(),
+    isVisionModel: () => false,
+    log: (_level, message) => logs.push(message),
+    runOneShot: () => Promise.resolve({ finalText: '{"verdict":"accept","score":8}', stopReason: 'completed' }),
+  });
+  expect(await refiner.critique(refineCtx, sampleInput)).toBeNull();
+  expect(logs[0]).toContain('no vision capability');
+});
+
+test('createRefiner: critique returns null for empty path, throw, non-completed, and unparseable output', async () => {
+  const base = (result: Promise<CritiqueRunResult>): Refiner<FakeModel> =>
+    createRefiner<FakeModel>({
+      settings: null,
+      criticAgent: fakeCriticAgent(),
+      isVisionModel: visionAll,
+      runOneShot: () => result,
+    });
+
+  expect(
+    await base(Promise.resolve({ finalText: '{"verdict":"accept","score":8}', stopReason: 'completed' })).critique(
+      refineCtx,
+      { ...sampleInput, imagePath: '   ' },
+    ),
+  ).toBeNull();
+  expect(await base(Promise.reject(new Error('boom'))).critique(refineCtx, sampleInput)).toBeNull();
+  expect(
+    await base(Promise.resolve({ finalText: '{"verdict":"accept"}', stopReason: 'max_turns' })).critique(
+      refineCtx,
+      sampleInput,
+    ),
+  ).toBeNull();
+  expect(
+    await base(Promise.resolve({ finalText: 'not json', stopReason: 'completed' })).critique(refineCtx, sampleInput),
+  ).toBeNull();
+});
+
+test('createRefiner: critique returns null when model resolution fails', async () => {
+  const refiner = createRefiner<FakeModel>({
+    settings: { refineModel: 'prov/missing' },
+    criticAgent: fakeCriticAgent(),
+    isVisionModel: visionAll,
+    runOneShot: () => Promise.resolve({ finalText: '{"verdict":"accept","score":8}', stopReason: 'completed' }),
+  });
+  const badCtx = {
+    cwd: '/tmp/x',
+    model: { id: 'parent' } as FakeModel,
+    modelRegistry: { find: () => undefined, authStorage: {} },
+  };
+  expect(await refiner.critique(badCtx, sampleInput)).toBeNull();
+});
+
+test('createRefiner: critique distinguishes an internal timeout from a parent-turn cancellation', async () => {
+  const aborted = { finalText: '', stopReason: 'aborted' as const };
+
+  const timeoutLogs: string[] = [];
+  const onTimeout = createRefiner<FakeModel>({
+    settings: null,
+    criticAgent: fakeCriticAgent(),
+    isVisionModel: visionAll,
+    timeoutMs: 12345,
+    log: (_level, message) => timeoutLogs.push(message),
+    runOneShot: () => Promise.resolve(aborted),
+  });
+  expect(await onTimeout.critique(refineCtx, sampleInput)).toBeNull();
+  expect(timeoutLogs[0]).toContain('timed out after 12345ms');
+
+  const cancelLogs: string[] = [];
+  const onCancel = createRefiner<FakeModel>({
+    settings: null,
+    criticAgent: fakeCriticAgent(),
+    isVisionModel: visionAll,
+    log: (_level, message) => cancelLogs.push(message),
+    runOneShot: () => Promise.resolve(aborted),
+  });
+  expect(await onCancel.critique({ ...refineCtx, signal: AbortSignal.abort() }, sampleInput)).toBeNull();
+  expect(cancelLogs[0]).toContain('parent turn ended');
 });

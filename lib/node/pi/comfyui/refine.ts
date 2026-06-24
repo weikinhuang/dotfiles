@@ -33,7 +33,10 @@
  */
 
 import { parseJsonLoose, stripCodeFence } from '../json-loose.ts';
+import { parseModelSpec } from '../model-spec.ts';
 import { isFiniteNumber, isNonEmptyString, isRecord } from '../shared.ts';
+import { type AgentDef } from '../subagent/loader.ts';
+import { type ModelRegistryLike, resolveChildModel } from '../subagent/spawn.ts';
 
 // ──────────────────────────────────────────────────────────────────────
 // The locked critic contract
@@ -388,4 +391,329 @@ export async function runRefineLoop<Img>(deps: RefineLoopDeps<Img>): Promise<Ref
   }
 
   return { image: best.image, accepted: best.accepted, finalScore: best.score, journey };
+}
+
+// ─────────────────────────────────────────────────────────
+// Critic task builder (the input side - mirrors enhance.ts' buildEnhanceTask)
+// ─────────────────────────────────────────────────────────
+
+/** What the render was asked to depict - the critic judges against this. */
+export interface CritiqueRequest {
+  /** The positive prompt the image was rendered from. */
+  prompt: string;
+  /** Negative prompt, for context on what should be absent. Optional. */
+  negative?: string;
+  /**
+   * Per-call background to honor but not necessarily depict literally
+   * (scene / continuity facts). Distinct from the literal `prompt`.
+   */
+  context?: string;
+  /**
+   * Target prompting protocol (e.g. "Danbooru tags, comma-separated"), so a
+   * proposed `revise_prompt` stays in this model's dialect. Optional.
+   */
+  promptProtocol?: string;
+  /**
+   * Concatenated critic guidance (global-first, then per-workflow) telling
+   * the critic what "good" means for this image model. Optional.
+   */
+  guidance?: string;
+}
+
+export interface CritiqueTaskOpts {
+  /** Filesystem path to the saved PNG for this render; the critic reads it. */
+  imagePath: string;
+  /** What the render was asked to depict. */
+  request: CritiqueRequest;
+  /**
+   * Repair channels runnable for this source workflow (the available-action
+   * hint). `reroll` / `revise_prompt` are always present; companion channels
+   * appear only when configured. The engine still validates + downgrades, so
+   * this is advice to the critic, not a contract.
+   */
+  availableActions: readonly RefineChannel[];
+  /**
+   * Optional explicit acceptance criteria ("full body, facing left"). Absent
+   * -> the critic derives criteria from the prompt + context.
+   */
+  criteria?: string;
+}
+
+/**
+ * Build the task prompt for the `comfyui-critic` agent: point it at the
+ * saved PNG, hand it the request (prompt / negative / protocol / context),
+ * any guidance, the explicit criteria, and the available-action hint, then
+ * ask for the locked decision JSON back. Domain-neutral - it judges against
+ * the request, not against any particular feature's notion of "good".
+ */
+export function buildCritiqueTask(opts: CritiqueTaskOpts): string {
+  const parts: string[] = [];
+
+  parts.push(`Read and inspect the rendered image at this path, then judge it:\n${opts.imagePath.trim()}`);
+
+  const guidance = opts.request.guidance?.trim();
+  if (guidance !== undefined && guidance.length > 0) {
+    parts.push(
+      'Guidance on what counts as good for this image model (authoritative - follow it, and let it override any ' +
+        `default):\n${guidance}`,
+    );
+  }
+
+  parts.push(`The image was rendered from this prompt:\n${opts.request.prompt.trim()}`);
+
+  const negative = opts.request.negative?.trim();
+  if (negative !== undefined && negative.length > 0) {
+    parts.push(`Negative prompt (these should be ABSENT from the image):\n${negative}`);
+  }
+
+  const protocol = opts.request.promptProtocol?.trim();
+  if (protocol !== undefined && protocol.length > 0) {
+    parts.push(`If you propose a revise_prompt action, write its prompt / negative in this protocol: ${protocol}`);
+  }
+
+  const context = opts.request.context?.trim();
+  if (context !== undefined && context.length > 0) {
+    parts.push(
+      'Background the render was meant to honor (used to disambiguate / keep continuity; not necessarily depicted ' +
+        `literally):\n${context}`,
+    );
+  }
+
+  const criteria = opts.criteria?.trim();
+  if (criteria !== undefined && criteria.length > 0) {
+    parts.push(`Explicit acceptance criteria (these must be met to accept):\n${criteria}`);
+  } else {
+    parts.push('No explicit acceptance criteria were given - derive them from the prompt and any background above.');
+  }
+
+  const actions = opts.availableActions.filter((a) => a.length > 0);
+  parts.push(
+    actions.length > 0
+      ? `Repair channels available for this workflow (prefer one of these as your action.type): ${actions.join(', ')}.`
+      : 'Only the prompt-level channels (reroll, revise_prompt) are available for this workflow; propose one of those ' +
+          'when you revise.',
+  );
+
+  parts.push(
+    'Return ONLY the decision JSON object described in your instructions (verdict, score, assessment, issues, and an ' +
+      'action when you revise). Output nothing but the JSON object - no prose, no preamble, no code fence.',
+  );
+
+  return parts.join('\n\n');
+}
+
+// ─────────────────────────────────────────────────────────
+// Model resolution (mirrors enhance.ts' resolveEnhanceModel)
+// ─────────────────────────────────────────────────────────
+
+export interface RefineSettings {
+  /** Resolved model spec of the form `provider/model-id`. */
+  refineModel: string;
+}
+
+/**
+ * Validate a configured `refineModel` spec into a `provider/model-id`
+ * string, or `null` when absent / malformed. A `null` result means the
+ * critic inherits the parent session model (it is NOT disabled), exactly
+ * like {@link resolveEnhanceModel}. The vision-capability gate is applied
+ * later, against the resolved runtime model, by {@link createRefiner}'s
+ * injected `isVisionModel`.
+ */
+export function resolveRefineModel(raw: string | undefined): RefineSettings | null {
+  if (typeof raw !== 'string') return null;
+  const parsed = parseModelSpec(raw);
+  if (!parsed) return null;
+  return { refineModel: `${parsed.provider}/${parsed.modelId}` };
+}
+
+// ─────────────────────────────────────────────────────────
+// Adapter factory (mirrors enhance.ts' createEnhancer)
+// ─────────────────────────────────────────────────────────
+
+/** Result of a one-shot critic run, as returned by `runOneShotAgent`. */
+export interface CritiqueRunResult {
+  finalText: string;
+  /** One of `completed | max_turns | aborted | error`. */
+  stopReason: string;
+  errorMessage?: string;
+}
+
+/**
+ * Diagnostic verbosity levels. `debug` is the success / fired-OK channel
+ * (gated behind a debug env at the call site); `info` / `warn` are
+ * always-surfaced problems the user should see.
+ */
+export type RefineLogLevel = 'debug' | 'info' | 'warn';
+
+/**
+ * Shim over `runOneShotAgent` - tests replace this with a mock returning
+ * scripted {@link CritiqueRunResult} values without spawning anything.
+ */
+export type RefineRunOneShot<M> = (args: {
+  cwd: string;
+  agent: AgentDef;
+  model: M;
+  modelRegistry: ModelRegistryLike<M> & { authStorage: unknown };
+  task: string;
+  signal?: AbortSignal;
+  timeoutMs?: number;
+}) => Promise<CritiqueRunResult>;
+
+/** Structural parent-context the adapter needs to spawn a child. */
+export interface RefineContext<M> {
+  cwd: string;
+  /** Parent's current model - inherited when settings don't override. */
+  model: M | undefined;
+  modelRegistry: ModelRegistryLike<M> & { authStorage: unknown };
+  /** Parent signal. */
+  signal?: AbortSignal;
+}
+
+/** Per-call critique input bundled for {@link Refiner.critique}. */
+export interface CritiqueInput {
+  /** Filesystem path to the saved PNG the critic should read. */
+  imagePath: string;
+  /** What the render was asked to depict. */
+  request: CritiqueRequest;
+  /** Repair channels runnable for this source workflow (the action hint). */
+  availableActions: readonly RefineChannel[];
+  /** Optional explicit acceptance criteria. */
+  criteria?: string;
+}
+
+/** Everything the adapter needs from the pi runtime + environment. */
+export interface RefinerWiring<M> {
+  /** Resolved model override. `null` -> inherit the parent model (NOT disabled). */
+  settings: RefineSettings | null;
+  /** Loaded `comfyui-critic` agent. `null` -> refiner disabled (agent not installed). */
+  criticAgent: AgentDef | null;
+  /** One-shot spawner. Usually `runOneShotAgent` wrapped. */
+  runOneShot: RefineRunOneShot<M>;
+  /**
+   * Vision-capability predicate for the resolved runtime model. The critic
+   * MUST `read` a PNG, so a non-vision model is a no-op. Injected because
+   * the capability flag lives on the pi `Model` type, which this pure module
+   * does not import; the `ext/comfyui/refiner.ts` wiring supplies
+   * `(m) => m.input.includes('image')`.
+   */
+  isVisionModel: (model: M) => boolean;
+  /** Optional diagnostic sink - non-fatal errors are reported here. */
+  log?: (level: RefineLogLevel, message: string) => void;
+  /** Per-call agent timeout, in ms. Default 120000. */
+  timeoutMs?: number;
+}
+
+export interface Refiner<M = unknown> {
+  isEnabled(): boolean;
+  /**
+   * Critique one rendered image. Returns the {@link CriticDecision}, or
+   * `null` on ANY failure (disabled, model-resolution failure, no vision
+   * model, spawn error, non-`completed` stop, unparseable output) so the
+   * loop degrades gracefully and never errors a render.
+   */
+  critique(ctx: RefineContext<M>, input: CritiqueInput): Promise<CriticDecision | null>;
+}
+
+const DEFAULT_REFINE_TIMEOUT_MS = 120000;
+
+function report(
+  wiring: { log?: (level: RefineLogLevel, message: string) => void },
+  level: RefineLogLevel,
+  message: string,
+): void {
+  if (!wiring.log) return;
+  try {
+    wiring.log(level, message);
+  } catch {
+    /* swallow - diagnostics never break the adapter */
+  }
+}
+
+/**
+ * Turn a non-`completed` run into an actionable diagnostic. `spawn.ts`
+ * collapses an internal-timeout abort and a parent-turn cancellation into
+ * the same `aborted` string, so we disambiguate using the parent signal:
+ * aborted -> the turn ended before the critic finished; otherwise the
+ * critic's own wall-clock timeout fired. Mirrors enhance.ts.
+ */
+function describeNonCompletion(result: CritiqueRunResult, parentAborted: boolean, timeoutMs: number): string {
+  if (result.stopReason === 'aborted') {
+    return parentAborted
+      ? 'aborted: parent turn ended before the critic finished (a faster refineModel shrinks this window)'
+      : `timed out after ${timeoutMs}ms (set a faster refineModel or raise refineTimeoutMs)`;
+  }
+  return `stop=${result.stopReason}: ${result.errorMessage ?? '(no message)'}`;
+}
+
+/**
+ * Build a {@link Refiner} from a fully-resolved wiring. Call once (lazily
+ * on first use); reuse the returned object for the process. Mirrors
+ * {@link createEnhancer} but on the OUTPUT side: resolve the (vision-capable)
+ * model, build the critic task, spawn one-shot, parse the decision.
+ */
+export function createRefiner<M>(wiring: RefinerWiring<M>): Refiner<M> {
+  const timeoutMs = wiring.timeoutMs ?? DEFAULT_REFINE_TIMEOUT_MS;
+
+  const isEnabled = (): boolean => wiring.criticAgent !== null;
+
+  return {
+    isEnabled,
+
+    async critique(ctx, input) {
+      const agent = wiring.criticAgent;
+      if (!agent) return null;
+      if (input.imagePath.trim().length === 0) return null;
+
+      const resolution = resolveChildModel({
+        override: wiring.settings?.refineModel,
+        agent,
+        parent: ctx.model,
+        modelRegistry: ctx.modelRegistry,
+      });
+      if (!resolution.ok) {
+        report(wiring, 'info', `refine model resolution failed: ${resolution.error}`);
+        return null;
+      }
+      if (!wiring.isVisionModel(resolution.model)) {
+        report(wiring, 'info', 'resolved refine model has no vision capability; skipping refine');
+        return null;
+      }
+
+      const task = buildCritiqueTask({
+        imagePath: input.imagePath,
+        request: input.request,
+        availableActions: input.availableActions,
+        ...(input.criteria !== undefined ? { criteria: input.criteria } : {}),
+      });
+
+      let result: CritiqueRunResult;
+      try {
+        result = await wiring.runOneShot({
+          cwd: ctx.cwd,
+          agent,
+          model: resolution.model,
+          modelRegistry: ctx.modelRegistry,
+          task,
+          signal: ctx.signal,
+          timeoutMs,
+        });
+      } catch (e) {
+        report(wiring, 'info', `refine spawn error: ${e instanceof Error ? e.message : String(e)}`);
+        return null;
+      }
+
+      if (result.stopReason !== 'completed') {
+        report(wiring, 'info', describeNonCompletion(result, ctx.signal?.aborted === true, timeoutMs));
+        return null;
+      }
+
+      const decision = parseCriticDecision(result.finalText);
+      if (decision === null) {
+        report(wiring, 'info', 'critic produced no usable JSON; skipping refine this round');
+        return null;
+      }
+      report(wiring, 'debug', `critique \u2192 ${decision.verdict} (score ${decision.score})`);
+      return decision;
+    },
+  };
 }
