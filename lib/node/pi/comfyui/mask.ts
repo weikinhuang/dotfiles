@@ -14,6 +14,61 @@
 /** A normalized rectangle: `[x, y, w, h]` in `0..1`, top-left origin. */
 export type NormalizedBox = readonly number[];
 
+/**
+ * A coarse named region the critic may attach to an `inpaint` action when it
+ * cannot (and should not) emit pixel coordinates. The extension turns it into
+ * a single normalized {@link NormalizedBox} so the existing bbox-mask path can
+ * synthesize the inpaint mask. Anything unrecognized (or absent) falls back to
+ * the whole image.
+ */
+export type CoarseRegion =
+  | 'center'
+  | 'top'
+  | 'bottom'
+  | 'left'
+  | 'right'
+  | 'top-left'
+  | 'top-right'
+  | 'bottom-left'
+  | 'bottom-right'
+  | 'whole';
+
+/** The whole-canvas box - the safe fallback when no usable region is named. */
+const WHOLE_IMAGE: NormalizedBox = [0, 0, 1, 1];
+
+/**
+ * Map a coarse named region (the critic's `action.region`, e.g. `"center"` /
+ * `"bottom-left"`) to one normalized `[x, y, w, h]` rectangle for the
+ * inpaint mask. The thirds-based grid gives the masked sampler enough room to
+ * blend; an unknown / empty / `"whole"` region returns the whole image so the
+ * inpaint pass degrades to a full low-denoise repaint rather than failing.
+ * Pure - no rasterization here (that is {@link buildMaskPlan} + the shell).
+ */
+export function regionToBbox(region: string | undefined): NormalizedBox {
+  switch ((region ?? '').trim().toLowerCase()) {
+    case 'center':
+      return [0.25, 0.25, 0.5, 0.5];
+    case 'top':
+      return [0, 0, 1, 0.5];
+    case 'bottom':
+      return [0, 0.5, 1, 0.5];
+    case 'left':
+      return [0, 0, 0.5, 1];
+    case 'right':
+      return [0.5, 0, 0.5, 1];
+    case 'top-left':
+      return [0, 0, 0.5, 0.5];
+    case 'top-right':
+      return [0.5, 0, 0.5, 0.5];
+    case 'bottom-left':
+      return [0, 0.5, 0.5, 0.5];
+    case 'bottom-right':
+      return [0.5, 0.5, 0.5, 0.5];
+    default:
+      return WHOLE_IMAGE;
+  }
+}
+
 /** One filled rectangle in pixel space (top-left origin). */
 export interface MaskRect {
   x: number;

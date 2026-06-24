@@ -342,4 +342,23 @@ describe('formatWorkflowValidation', () => {
     expect(lines[0]).toBe('\u2713 ok: prompt');
     expect(lines[1]).toMatch(/^\u2717 gone: /);
   });
+
+  test('warns when a refineWith companion is not a configured workflow', () => {
+    const file = join(tmp, 'ok.json');
+    writeFileSync(file, JSON.stringify(sampleWorkflow()));
+    const out = formatWorkflowValidation(
+      {
+        ok: {
+          file,
+          inputs: { prompt: { node: '6', key: 'text' } },
+          refineWith: { inpaint: 'ok-inpaint', img2img: 'ok' },
+        },
+      },
+      tmp,
+      tmp,
+    );
+    expect(out).toContain('\u26a0 ok: refineWith.inpaint -> "ok-inpaint" is not a configured workflow');
+    // img2img -> 'ok' resolves (it is itself configured), so it is not warned.
+    expect(out).not.toContain('refineWith.img2img');
+  });
 });

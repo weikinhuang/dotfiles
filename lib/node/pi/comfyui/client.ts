@@ -93,6 +93,15 @@ export interface GenParams {
   count?: number;
   sendToModel?: boolean;
   background?: boolean;
+  /**
+   * Auto-refine companion extras injected only by the refine loop: a
+   * grounder target phrase (`ground` channel) and a detector class
+   * (`detailer` channel). A normal render leaves both undefined; a companion
+   * workflow that uses them MUST map `target` / `detect` in its input map
+   * (an unmapped-but-supplied value is a mapping error, surfaced before submit).
+   */
+  target?: string;
+  detect?: string;
 }
 
 /** POST a graph to `/prompt`; returns the assigned `prompt_id`. */
@@ -276,6 +285,8 @@ export async function buildInjectedGraph(
     width: params.width,
     height: params.height,
     batch: params.count,
+    target: params.target,
+    detect: params.detect,
   });
   const errors = [...withImages.errors, ...injected.errors];
   if (errors.length > 0) return { error: `workflow mapping error: ${errors.join('; ')}` };

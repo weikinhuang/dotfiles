@@ -37,6 +37,7 @@ import { parseModelSpec } from '../model-spec.ts';
 import { isFiniteNumber, isNonEmptyString, isRecord } from '../shared.ts';
 import { type AgentDef } from '../subagent/loader.ts';
 import { type ModelRegistryLike, resolveChildModel } from '../subagent/spawn.ts';
+import type { RefineWith } from './types.ts';
 
 // ──────────────────────────────────────────────────────────────────────
 // The locked critic contract
@@ -205,6 +206,36 @@ export function parseCriticDecision(raw: string): CriticDecision | null {
 /** A channel is offered when always-available or among the configured set. */
 function channelAvailable(channel: RefineChannel, available: readonly RefineChannel[]): boolean {
   return ALWAYS_AVAILABLE.has(channel) || available.includes(channel);
+}
+
+/**
+ * The companion-backed channels, in the order they are surfaced. Each maps to
+ * a {@link RefineWith} field naming another configured workflow; the t2i
+ * channels (`reroll` / `revise_prompt`) are not here because they need no
+ * companion.
+ */
+const COMPANION_CHANNELS: readonly (keyof RefineWith & RefineChannel)[] = ['img2img', 'inpaint', 'detailer', 'ground'];
+
+/**
+ * Intersect a source workflow's {@link RefineWith} companion map with the
+ * configured workflow set: a companion channel is available only when its
+ * `refineWith` entry names a workflow that actually exists (`isConfigured`).
+ * Returns the runnable companion channels (the t2i channels are always
+ * available and are added by the loop's available-action hint, so they are
+ * NOT included here). Pure - `isConfigured` is injected so callers in tests
+ * pass a plain set membership.
+ */
+export function resolveAvailableChannels(
+  refineWith: RefineWith | undefined,
+  isConfigured: (workflowName: string) => boolean,
+): RefineChannel[] {
+  if (refineWith === undefined) return [];
+  const out: RefineChannel[] = [];
+  for (const channel of COMPANION_CHANNELS) {
+    const target = refineWith[channel];
+    if (typeof target === 'string' && target.length > 0 && isConfigured(target)) out.push(channel);
+  }
+  return out;
 }
 
 /**

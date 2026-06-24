@@ -72,6 +72,20 @@ const SHIPPED: Record<string, ShippedMap> = {
     },
     images: [{ node: '41', key: 'image' }],
   },
+  'anima-inpaint.api.json': {
+    inputs: {
+      prompt: { node: '65', key: 'string' },
+      negative: { node: '12', key: 'text' },
+      seed: { node: '20', key: 'seed' },
+      steps: { node: '20', key: 'steps' },
+      cfg: { node: '20', key: 'cfg' },
+      denoise: { node: '20', key: 'denoise' },
+    },
+    images: [
+      { node: '16', key: 'image' },
+      { node: '17', key: 'image' },
+    ],
+  },
   'flux2-t2i.api.json': { inputs: FLUX2_T2I_INPUTS },
   'flux2-t2i-fast.api.json': { inputs: FLUX2_T2I_INPUTS },
   'flux2-edit.api.json': { inputs: FLUX2_EDIT_INPUTS, images: [{ node: '20', key: 'image' }] },

@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 
-import { buildMaskPlan, maskSvg } from '../../../../../lib/node/pi/comfyui/mask.ts';
+import { buildMaskPlan, maskSvg, regionToBbox } from '../../../../../lib/node/pi/comfyui/mask.ts';
 
 describe('buildMaskPlan', () => {
   test('scales a single normalized box to pixels', () => {
@@ -108,5 +108,31 @@ describe('maskSvg', () => {
       feather: 0,
     });
     expect(svg.match(/<rect /g)).toHaveLength(3); // 1 background + 2 regions
+  });
+});
+
+describe('regionToBbox', () => {
+  test('maps named regions to a thirds/halves grid', () => {
+    expect(regionToBbox('center')).toEqual([0.25, 0.25, 0.5, 0.5]);
+    expect(regionToBbox('top')).toEqual([0, 0, 1, 0.5]);
+    expect(regionToBbox('bottom-right')).toEqual([0.5, 0.5, 0.5, 0.5]);
+    expect(regionToBbox('left')).toEqual([0, 0, 0.5, 1]);
+  });
+
+  test('is case- and whitespace-insensitive', () => {
+    expect(regionToBbox('  Top-Left ')).toEqual([0, 0, 0.5, 0.5]);
+  });
+
+  test('falls back to the whole image for unknown / empty / undefined regions', () => {
+    expect(regionToBbox(undefined)).toEqual([0, 0, 1, 1]);
+    expect(regionToBbox('')).toEqual([0, 0, 1, 1]);
+    expect(regionToBbox('whole')).toEqual([0, 0, 1, 1]);
+    expect(regionToBbox('somewhere')).toEqual([0, 0, 1, 1]);
+  });
+
+  test('produces a box that survives buildMaskPlan validation', () => {
+    const { plan, error } = buildMaskPlan([Array.from(regionToBbox('center'))], 1024, 1024);
+    expect(error).toBeUndefined();
+    expect(plan?.rects).toEqual([{ x: 256, y: 256, width: 512, height: 512 }]);
   });
 });

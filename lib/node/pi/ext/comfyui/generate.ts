@@ -37,6 +37,7 @@ import {
   type RefineAction,
   type RefineChannel,
   type RefineJourney,
+  resolveAvailableChannels,
   summarizeRefineJourney,
   toRefineJourney,
 } from '../../comfyui/refine.ts';
@@ -51,7 +52,7 @@ import { CANCEL_TIMEOUT_MS } from './jobs.ts';
 import { layerGenerationParams } from './layer-params.ts';
 import type { ResolvedGenerateParams } from './layer-params.ts';
 import type { GenerateParams } from './params.ts';
-import { applyRefineAction, type RenderedImage, renderViaWorkflow, runRefinePass } from './refine-loop.ts';
+import { renderRefineAction, type RenderedImage, runRefinePass } from './refine-loop.ts';
 import { readRefineGuidanceText, type RefinerAccess } from './refiner.ts';
 import type { ComfyuiRuntime } from './runtime.ts';
 
@@ -164,11 +165,15 @@ export async function executeGenerate(
   const wantRefine = params.autoRefine ?? wf.refine ?? config.autoRefine;
   const refiner = wantRefine ? refinerAccess.getRefiner(ctx) : null;
   const refineActive = wantRefine && refiner?.isEnabled() === true;
-  // Build step 1 ships only the always-available channels (reroll /
-  // revise_prompt); the companion channels (img2img / inpaint / detailer /
-  // ground) are later build steps, so none are offered yet and the engine
-  // downgrades any companion proposal to a t2i channel.
-  const refineChannels: RefineChannel[] = [];
+  // Companion repair channels (img2img / inpaint / detailer / ground) are
+  // offered only when the source workflow's `refineWith` map names a channel's
+  // companion AND that companion is itself a configured workflow; otherwise the
+  // engine's class-aware downgrade falls back to the always-available t2i
+  // channels (reroll / revise_prompt). The critic gets these as a hint and the
+  // engine validates + downgrades, so an unconfigured channel can never wedge.
+  const refineChannels: RefineChannel[] = refineActive
+    ? resolveAvailableChannels(wf.refineWith, (n) => n in config.workflows)
+    : [];
   const refineCriteria = params.refineCriteria ?? wf.refineCriteria;
   // autoRefine converges a single image, so pin count to 1 (noting it when
   // the caller asked for a batch).
@@ -477,21 +482,27 @@ export async function executeGenerate(
           refiner,
           agentCtx: { cwd: ctx.cwd, model: ctx.model, modelRegistry: ctx.modelRegistry as never, signal: bgAc.signal },
           initialImage,
-          renderAction: (action: RefineAction) =>
-            renderViaWorkflow({
-              conn,
-              wf,
-              name,
-              cwd: ctx.cwd,
-              params: applyRefineAction(result.resolvedParams, action),
-              ...(result.roleImages !== undefined ? { roleImages: result.roleImages } : {}),
-              signal: bgAc.signal,
-              report: () => {
-                /* off-turn: progress lines have nowhere to stream */
+          renderAction: (action: RefineAction, currentImage: RenderedImage) =>
+            renderRefineAction(
+              {
+                conn,
+                cwd: ctx.cwd,
+                saveDir,
+                signal: bgAc.signal,
+                report: () => {
+                  /* off-turn: progress lines have nowhere to stream */
+                },
+                ...(bgPreview !== undefined ? { previewTransform: bgPreview } : {}),
+                sourceWf: wf,
+                sourceName: name,
+                baseParams: result.resolvedParams,
+                ...(result.roleImages !== undefined ? { sourceRoleImages: result.roleImages } : {}),
+                workflows: config.workflows,
+                ...(wf.refineWith !== undefined ? { refineWith: wf.refineWith } : {}),
               },
-              saveDir,
-              previewTransform: bgPreview,
-            }),
+              action,
+              currentImage,
+            ),
           request: buildCritiqueRequest(result.prompt, result.negative),
           availableChannels: refineChannels,
           ...(refineCriteria !== undefined ? { criteria: refineCriteria } : {}),
@@ -617,20 +628,26 @@ export async function executeGenerate(
           signal: runSignal,
         },
         initialImage,
-        renderAction: (action: RefineAction) =>
-          renderViaWorkflow({
-            conn,
-            wf,
-            name,
-            cwd: ctx.cwd,
-            params: applyRefineAction(result.resolvedParams, action),
-            ...(result.roleImages !== undefined ? { roleImages: result.roleImages } : {}),
-            signal: runSignal,
-            report,
-            saveDir,
-            streamProgress: onUpdate !== undefined,
-            ...(previewTransform !== undefined ? { previewTransform } : {}),
-          }),
+        renderAction: (action: RefineAction, currentImage: RenderedImage) =>
+          renderRefineAction(
+            {
+              conn,
+              cwd: ctx.cwd,
+              saveDir,
+              signal: runSignal,
+              report,
+              streamProgress: onUpdate !== undefined,
+              ...(previewTransform !== undefined ? { previewTransform } : {}),
+              sourceWf: wf,
+              sourceName: name,
+              baseParams: result.resolvedParams,
+              ...(result.roleImages !== undefined ? { sourceRoleImages: result.roleImages } : {}),
+              workflows: config.workflows,
+              ...(wf.refineWith !== undefined ? { refineWith: wf.refineWith } : {}),
+            },
+            action,
+            currentImage,
+          ),
         request: buildCritiqueRequest(result.prompt, result.negative),
         availableChannels: refineChannels,
         ...(refineCriteria !== undefined ? { criteria: refineCriteria } : {}),

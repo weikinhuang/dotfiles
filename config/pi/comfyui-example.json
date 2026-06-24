@@ -46,6 +46,25 @@
         "width": { "node": "28", "key": "width" },
         "height": { "node": "28", "key": "height" },
         "batch": { "node": "28", "key": "batch_size" }
+      },
+      "refineWith": { "inpaint": "anima-inpaint" }
+    },
+    "anima-inpaint": {
+      "file": "~/.dotfiles/config/pi/comfyui/anima-inpaint.api.json",
+      "description": "anima inpaint companion (same Cosmos Predict2 checkpoint, masked region)",
+      "tags": ["anime", "inpaint"],
+      "promptProtocol": "Danbooru tags, comma-separated",
+      "inputs": {
+        "prompt": { "node": "65", "key": "string" },
+        "negative": { "node": "12", "key": "text" },
+        "seed": { "node": "20", "key": "seed" },
+        "steps": { "node": "20", "key": "steps" },
+        "cfg": { "node": "20", "key": "cfg" },
+        "denoise": { "node": "20", "key": "denoise" }
+      },
+      "images": {
+        "init": { "node": "16", "key": "image" },
+        "mask": { "node": "17", "key": "image", "kind": "mask" }
       }
     },
     "anima-hires125": {

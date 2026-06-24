@@ -7,7 +7,7 @@
  * adapter's null-on-any-failure / vision-required contract.
  */
 
-import { expect, test } from 'vitest';
+import { describe, expect, test } from 'vitest';
 
 import {
   buildCritiqueTask,
@@ -20,6 +20,7 @@ import {
   type RefineChannel,
   type Refiner,
   type RefineLoopResult,
+  resolveAvailableChannels,
   resolveRefineModel,
   runRefineLoop,
   type RefineJourney,
@@ -578,4 +579,34 @@ test('summarizeRefineJourney: no corrective render reports the initial outcome',
   expect(summarizeRefineJourney(loopResult([{ action: 'initial', score: 3 }], false, 3))).toBe(
     'auto-refine: kept initial render, score 3',
   );
+});
+
+describe('resolveAvailableChannels', () => {
+  const configured = new Set(['anima', 'anima-inpaint', 'anima-img2img']);
+  const isConfigured = (n: string): boolean => configured.has(n);
+
+  test('returns [] when no refineWith map is set', () => {
+    expect(resolveAvailableChannels(undefined, isConfigured)).toEqual([]);
+  });
+
+  test('offers a companion channel only when its target is a configured workflow', () => {
+    expect(resolveAvailableChannels({ img2img: 'anima-img2img', inpaint: 'anima-inpaint' }, isConfigured)).toEqual([
+      'img2img',
+      'inpaint',
+    ]);
+  });
+
+  test('drops a channel whose companion is not configured (typo / missing)', () => {
+    expect(resolveAvailableChannels({ inpaint: 'anima-inpaint', detailer: 'nope' }, isConfigured)).toEqual(['inpaint']);
+  });
+
+  test('never includes the always-available t2i channels', () => {
+    const channels = resolveAvailableChannels(
+      { img2img: 'anima-img2img', inpaint: 'anima-inpaint', detailer: 'anima-inpaint', ground: 'anima-inpaint' },
+      isConfigured,
+    );
+    expect(channels).not.toContain('reroll');
+    expect(channels).not.toContain('revise_prompt');
+    expect(channels).toEqual(['img2img', 'inpaint', 'detailer', 'ground']);
+  });
 });

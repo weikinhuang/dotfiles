@@ -8,10 +8,12 @@
 import { expect, test } from 'vitest';
 
 import type { CriticDecision, Refiner } from '../../../../../../lib/node/pi/comfyui/refine.ts';
+import type { WorkflowConfig } from '../../../../../../lib/node/pi/comfyui/types.ts';
 import type { ResolvedGenerateParams } from '../../../../../../lib/node/pi/ext/comfyui/layer-params.ts';
 import {
   applyRefineAction,
   availableActionsFor,
+  planRefineRender,
   type RenderedImage,
   runRefinePass,
 } from '../../../../../../lib/node/pi/ext/comfyui/refine-loop.ts';
@@ -105,4 +107,129 @@ test('runRefinePass: accepts the initial render with no corrective round', async
   expect(rendered).toBe(0);
   expect(loop.image.savedPath).toBe('/out/r0.png');
   expect(loop.journey).toHaveLength(1);
+});
+
+test('runRefinePass: threads the just-critiqued image into renderAction as currentImage', async () => {
+  const seenInit: string[] = [];
+  let n = 0;
+  const loop = await runRefinePass<unknown>({
+    refiner: fakeRefiner([
+      {
+        verdict: 'revise',
+        score: 4,
+        assessment: '',
+        issues: [{ kind: 'bad_hands', scope: 'local' }],
+        action: { type: 'reroll' },
+      },
+      {
+        verdict: 'revise',
+        score: 5,
+        assessment: '',
+        issues: [{ kind: 'bad_hands', scope: 'local' }],
+        action: { type: 'reroll' },
+      },
+      { verdict: 'accept', score: 8, assessment: '', issues: [] },
+    ]),
+    agentCtx,
+    initialImage: img('/out/r0.png'),
+    renderAction: (_action, currentImage) => {
+      seenInit.push(currentImage.savedPath);
+      n += 1;
+      return Promise.resolve(img(`/out/r${n}.png`));
+    },
+    request: { prompt: 'a cat' },
+    availableChannels: [],
+    maxRefineIterations: 2,
+    refineAcceptThreshold: 7,
+  });
+  // Each corrective render is fed the render it is meant to repair: round 1
+  // repairs r0, round 2 repairs r1 (the result of round 1).
+  expect(seenInit).toEqual(['/out/r0.png', '/out/r1.png']);
+  expect(loop.image.savedPath).toBe('/out/r2.png');
+});
+
+const animaInpaint: WorkflowConfig = {
+  file: 'anima-inpaint.api.json',
+  inputs: { prompt: { node: '65', key: 'string' }, denoise: { node: '20', key: 'denoise' } },
+  images: {
+    init: { node: '16', key: 'image' },
+    mask: { node: '17', key: 'image', kind: 'mask' },
+  },
+};
+const animaImg2img: WorkflowConfig = {
+  file: 'anima-img2img.api.json',
+  inputs: { prompt: { node: '65', key: 'string' }, denoise: { node: '20', key: 'denoise' } },
+  images: { init: { node: '16', key: 'image' } },
+};
+const planCtx = {
+  baseParams,
+  workflows: { 'anima-inpaint': animaInpaint, 'anima-img2img': animaImg2img },
+  refineWith: { inpaint: 'anima-inpaint', img2img: 'anima-img2img', ground: 'missing' },
+};
+
+test('planRefineRender: t2i channels render the source workflow', () => {
+  for (const type of ['reroll', 'revise_prompt'] as const) {
+    const plan = planRefineRender({ type }, img('/out/r0.png'), planCtx);
+    expect(plan).toMatchObject({ kind: 'source', action: { type } });
+    expect((plan as { downgradedFrom?: string }).downgradedFrom).toBeUndefined();
+  }
+});
+
+test('planRefineRender: img2img routes to the companion, feeds init, layers denoise', () => {
+  const plan = planRefineRender({ type: 'img2img', denoise: 0.35 }, img('/out/r1.png'), planCtx);
+  expect(plan.kind).toBe('companion');
+  if (plan.kind !== 'companion') throw new Error('expected companion');
+  expect(plan.name).toBe('anima-img2img');
+  expect(plan.roleSources).toEqual({ init: '/out/r1.png' });
+  expect(plan.params.denoise).toBe(0.35);
+  expect(plan.params.count).toBe(1);
+  expect(plan.params.inputImages).toBeUndefined();
+});
+
+test('planRefineRender: inpaint synthesizes a coarse-region mask via the bbox path', () => {
+  const plan = planRefineRender({ type: 'inpaint', region: 'center', denoise: 0.6 }, img('/out/r1.png'), planCtx);
+  expect(plan.kind).toBe('companion');
+  if (plan.kind !== 'companion') throw new Error('expected companion');
+  expect(plan.name).toBe('anima-inpaint');
+  expect(plan.roleSources).toEqual({ init: '/out/r1.png', mask: { bbox: [[0.25, 0.25, 0.5, 0.5]] } });
+});
+
+test('planRefineRender: inpaint with no/unknown region masks the whole image', () => {
+  const plan = planRefineRender({ type: 'inpaint' }, img('/out/r1.png'), planCtx);
+  if (plan.kind !== 'companion') throw new Error('expected companion');
+  expect(plan.roleSources.mask).toEqual({ bbox: [[0, 0, 1, 1]] });
+});
+
+test('planRefineRender: ground/detailer carry target + detect onto the companion params', () => {
+  const grounded = planRefineRender({ type: 'ground', target: 'the left pauldron' }, img('/out/r1.png'), {
+    ...planCtx,
+    workflows: { ...planCtx.workflows, 'anima-ground': animaImg2img },
+    refineWith: { ...planCtx.refineWith, ground: 'anima-ground' },
+  });
+  if (grounded.kind !== 'companion') throw new Error('expected companion');
+  expect(grounded.params.target).toBe('the left pauldron');
+});
+
+test('planRefineRender: an unconfigured companion downgrades to a source reroll', () => {
+  const plan = planRefineRender({ type: 'ground', target: 'x' }, img('/out/r1.png'), planCtx);
+  expect(plan.kind).toBe('source');
+  if (plan.kind !== 'source') throw new Error('expected source');
+  expect(plan.action.type).toBe('reroll');
+  expect(plan.downgradedFrom).toBe('ground');
+});
+
+test('planRefineRender: a companion missing its init role downgrades to a source reroll', () => {
+  const noInit: WorkflowConfig = {
+    file: 'x.json',
+    inputs: {},
+    images: { mask: { node: '1', key: 'image', kind: 'mask' } },
+  };
+  const plan = planRefineRender({ type: 'img2img' }, img('/out/r1.png'), {
+    baseParams,
+    workflows: { bad: noInit },
+    refineWith: { img2img: 'bad' },
+  });
+  expect(plan.kind).toBe('source');
+  if (plan.kind !== 'source') throw new Error('expected source');
+  expect(plan.downgradedFrom).toBe('img2img');
 });

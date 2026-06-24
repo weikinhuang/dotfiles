@@ -243,6 +243,28 @@ export function randomSeed(rand: () => number = Math.random): number {
  * missing node reports the validation errors; otherwise the line lists the
  * mapped input names. Returns a placeholder when no workflows exist.
  */
+/**
+ * One `⚠` line per {@link WorkflowConfig.refineWith} entry whose companion is
+ * not a configured workflow. Pure string assembly used by
+ * {@link formatWorkflowValidation}; returns an empty array when the map is
+ * absent or every companion resolves.
+ */
+export function refineWithWarnings(
+  name: string,
+  refineWith: WorkflowConfig['refineWith'],
+  workflows: Record<string, WorkflowConfig>,
+): string[] {
+  if (refineWith === undefined) return [];
+  const warnings: string[] = [];
+  for (const [channel, target] of Object.entries(refineWith)) {
+    if (typeof target !== 'string' || target.length === 0) continue;
+    if (!(target in workflows)) {
+      warnings.push(`⚠ ${name}: refineWith.${channel} -> "${target}" is not a configured workflow`);
+    }
+  }
+  return warnings;
+}
+
 export function formatWorkflowValidation(workflows: Record<string, WorkflowConfig>, cwd: string, home: string): string {
   const lines: string[] = [];
   for (const [name, wf] of Object.entries(workflows)) {
@@ -254,6 +276,10 @@ export function formatWorkflowValidation(workflows: Record<string, WorkflowConfi
     const errors = validateMapping(loaded.graph, wf.inputs);
     const inputs = Object.keys(wf.inputs).join(', ') || '(none)';
     lines.push(errors.length > 0 ? `✗ ${name}: ${errors.join('; ')}` : `✓ ${name}: ${inputs}`);
+    // Warn (don't fail) when an auto-refine companion names a workflow that is
+    // not configured: the channel is silently off the table at runtime, so a
+    // typo'd `refineWith` target would otherwise be invisible.
+    for (const warning of refineWithWarnings(name, wf.refineWith, workflows)) lines.push(warning);
   }
   return lines.join('\n') || 'no workflows configured';
 }

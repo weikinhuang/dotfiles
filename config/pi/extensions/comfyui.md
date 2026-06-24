@@ -147,10 +147,14 @@ flag shape, same best-effort / never-block / graceful-no-op contract, same pure-
   `issues`, and a single proposed repair `action` - never a trusted bounding box. The engine validates the proposed
   action against the channels available for this workflow and downgrades it when it is not runnable, so a weak model
   proposing an impossible action can never wedge the loop.
-- **Channels (build step 1).** Only the always-available text-to-image channels ship today: `reroll` (resubmit the same
-  graph with a fresh seed) and `revise_prompt` (re-inject a revised positive / negative, rerolling the seed only when
-  the critic asks). The companion channels (`img2img`, `inpaint`, `detailer`, `ground`) are later build steps; until
-  they ship the engine downgrades any companion proposal to `reroll` / `revise_prompt`.
+- **Channels.** The always-available text-to-image channels are `reroll` (resubmit the same graph with a fresh seed) and
+  `revise_prompt` (re-inject a revised positive / negative, rerolling the seed only when the critic asks); both work on
+  any workflow with no extra config. The **companion channels** route a repair to another configured workflow named in
+  the source workflow's [`refineWith`](#refinewith-companion-channels) map - `img2img` (whole-image low-denoise polish),
+  `inpaint` (a coarse-region masked repaint), `detailer` (auto-detected hands / face / eyes), and `ground` (a named
+  target phrase localized in-graph). A companion channel is offered only when its `refineWith` entry resolves to a
+  configured workflow; otherwise the engine's class-aware downgrade falls back to a t2i channel (a `bad_hands` defect
+  with no detailer rerolls rather than blindly img2img-ing).
 - **`count` is pinned to 1.** Auto-refine converges a single image, so a batch request is rendered as one image (noted
   on the result line when the caller asked for more).
 - **Best-so-far, never an error.** The loop returns the highest-ranked render (verdict-driven, the `score` only a coarse
@@ -489,8 +493,9 @@ the right workflow and sends the right prompt shape:
 - `refineGuidanceFile` - path to a per-workflow refine-critic guidance doc, concatenated after the global
   `refineGuidanceFile` when `autoRefine` runs. Resolves like `file`. Optional.
 - `refineWith` - map from a repair channel (`img2img` / `inpaint` / `detailer` / `ground`) to the name of another
-  configured workflow that runs it. A channel is offered only when its companion resolves; the t2i channels (`reroll` /
-  `revise_prompt`) always work. The companion channels are later build steps. Optional.
+  configured workflow that runs it. A channel is offered only when its companion resolves to a configured workflow; the
+  t2i channels (`reroll` / `revise_prompt`) always work. See
+  [refineWith companion channels](#refinewith-companion-channels) for the per-channel companion patterns. Optional.
 - `refineCriteria` - default acceptance criteria handed to the refine critic for this workflow (e.g.
   `"full body, facing left"`). A per-call `refineCriteria` arg overrides it. Optional.
 
@@ -517,6 +522,65 @@ carries only its extras (`+denoise, width, height`), its reference-image slot co
 and a `recommends enhance` hint where relevant - so the model stops guessing workflow names and passing params a
 workflow does not support without the matrix repeating the common set on every line. All fields are optional; a workflow
 without them just shows its name (and any extras beyond the common set).
+
+#### refineWith companion channels
+
+`refineWith` declares, per source workflow, which other configured workflow runs each
+[`autoRefine`](#prompt-refinement-autorefine) repair channel. The refiner picks one channel per round, validates it
+against this map, and downgrades when the named companion is not configured. Every companion shares the same back-half
+(model loaders + masked / encoded latent -> sampler -> VAE decode); only the front-end (how the repair region is
+produced) differs, so per model it is ~2-3 authored graphs.
+
+```jsonc
+{
+  "workflows": {
+    "anima": {
+      "file": "~/.pi/agent/comfyui/anima.api.json",
+      "inputs": {
+        /* ... t2i ... */
+      },
+      "refine": true,
+      "refineWith": {
+        "img2img": "anima-img2img",
+        "inpaint": "anima-inpaint",
+        "detailer": "anima-detailer",
+        "ground": "anima-ground",
+      },
+    },
+  },
+}
+```
+
+The image being repaired is uploaded into each companion's `init` role; the action's params (`denoise`, and the
+localizer inputs below) are layered onto the source prompt / negative, which carry over so the companion repaints
+in-style. The four channels:
+
+- **`img2img`** - a whole-image low-denoise polish, the no-localization fallback. The companion is a plain img2img graph
+  with an `init` role and a mapped `denoise`. No mask, no detector; the critic only sets the denoise strength.
+- **`inpaint`** - a coarse-region masked repaint. The critic names a region (`center`, `top-left`, `bottom`, …, or none
+  for the whole image), the extension turns it into a normalized bbox and synthesizes the mask through the existing
+  [bbox-mask path](#image-inputs-positional-or-named-roles), and the companion reads it via a `mask` role
+  (`kind: "mask"`). The critic never emits pixel coordinates - it names _what_ and _whether it is local_; the bbox
+  geometry is the extension's job. The shipped [`anima-inpaint.api.json`](../comfyui/anima-inpaint.api.json) adapts the
+  Cosmos Predict 2 `anima` checkpoint to inpaint in-place: `LoadImage` (init) -> `VAEEncodeForInpaint` (`grow_mask_by`
+  softens the masked edge) -> `SetLatentNoiseMask` -> the standard `KSampler` at `denoise < 1` -> `VAEDecode`. Cosmos is
+  a world model, not inpaint-tuned, so the companion runs more steps (24) and a higher denoise (0.6) than the base t2i
+  pass to fill cleanly without seams; tune `grow_mask_by` / `denoise` / `steps` per checkpoint.
+- **`detailer`** - automatic hand / face / eyes repair with no named region. The companion is an Ultralytics-style
+  graph: an `UltralyticsDetectorProvider` + `BboxDetector` (or `SAMDetector`) finds the region, and `DetailerForEach`
+  crops it, re-renders at higher resolution, and pastes it back. Parameterize the detector class as a `detect` input
+  (`hand` / `face` / `eyes` / `person`) so one graph covers every detector target; the critic sets `action.detect`.
+- **`ground`** - a named target phrase localized in-graph. The companion runs an open-vocabulary grounder (Florence-2 or
+  GroundingDINO) over the critic's `target` phrase ("the left pauldron") to produce a mask, then runs the same masked
+  inpaint back-half as the `inpaint` channel. Map the phrase to a `target` input so the critic's `action.target` drives
+  it; the localization stays inside the graph (the critic supplies the phrase, never a box).
+
+A `detailer` / `ground` companion that consumes `detect` / `target` MUST map them in its `inputs` (an unmapped-but-
+supplied value is a graph-mapping error surfaced before submit). The 24 GB-VRAM + 64 GB-RAM target server co-loads the
+detector / grounder / SAM models alongside the diffuser and keeps them warm between rounds, so the multi-model channels
+cost a few PCIe seconds per swap rather than a reload - run the heavier ones under `background`. `/comfyui workflows`
+warns (`⚠`) when a `refineWith` target is not a configured workflow, so a typo'd companion name is caught before a
+generation.
 
 #### The tool schema only advertises params your workflows can use
 
