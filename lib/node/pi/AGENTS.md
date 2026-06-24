@@ -24,13 +24,14 @@ file covers only the **pi-import policy** specific to this subtree.
 ### Pure by default; `ext/` is the carve-out
 
 - **Pure modules (everything directly under `lib/node/pi/`).** Import from `node:*` and peer `lib/node/**` only - never
-  from `@earendil-works/pi-coding-agent` or any pi runtime. That keeps the code under the root `tsconfig.json` and
-  unit-testable without mocks. This is the default; only reach for `ext/` when a pure module genuinely can't express the
-  helper.
-- **`ext/` is the exception.** Shared extension code that needs a pi import (`@earendil-works/pi-tui` widgets,
-  `pi-coding-agent` dialog flows) - or logic extracted to shrink an oversized extension `.ts` so a smaller model can
-  work on it - lives under [`ext/`](./ext). It is still type-checked by the root `tsconfig.json` (`@earendil-works/*`
-  resolves from `node_modules`) and still gets a mirrored spec under
+  from `@earendil-works/pi-coding-agent`, any pi runtime, or any other third-party runtime dependency. That keeps the
+  code under the root `tsconfig.json` and unit-testable without mocks. This is the default; only reach for `ext/` when a
+  pure module genuinely can't express the helper.
+- **`ext/` is the exception (extension-runtime-coupled helpers).** Shared extension code that needs a runtime import a
+  pure module can't take - the pi runtime (`@earendil-works/pi-tui` widgets, `pi-coding-agent` dialog flows) or another
+  runtime-only dependency (e.g. `sharp` for image work) - or logic extracted to shrink an oversized extension `.ts` so a
+  smaller model can work on it - lives under [`ext/`](./ext). It is still type-checked by the root `tsconfig.json`
+  (`@earendil-works/*` resolves from `node_modules`) and still gets a mirrored spec under
   [`../../../tests/lib/node/pi/ext/`](../../../tests/lib/node/pi/ext), but it runs under the **relaxed oxlint override**
   shared with the extensions tree (`no-unsafe-*` / `require-await` off). Anchors:
   [`ext/multi-select-list.ts`](./ext/multi-select-list.ts), [`ext/drop-confirm.ts`](./ext/drop-confirm.ts).

@@ -52,7 +52,6 @@ import {
   SessionManager,
 } from '@earendil-works/pi-coding-agent';
 import { StringEnum, type Model } from '@earendil-works/pi-ai';
-import { Text } from '@earendil-works/pi-tui';
 import { Type } from 'typebox';
 
 import { completeSubverbs } from '../../../lib/node/pi/commands/complete.ts';
@@ -93,18 +92,12 @@ import {
   readSavedImages,
   type SavedImage,
   submitPrompt,
-  uploadImage,
-  uploadImageBuffer,
   waitForImages,
 } from '../../../lib/node/pi/comfyui/client.ts';
-import { isResizableMime, planDownscale } from '../../../lib/node/pi/comfyui/preview.ts';
-import { buildMaskPlan, type MaskPlan, type NormalizedBox } from '../../../lib/node/pi/comfyui/mask.ts';
-import type SharpFactory from 'sharp';
 import { isRoleMap, loadWorkflowGraph, validateMapping } from '../../../lib/node/pi/comfyui/workflow.ts';
 import {
   addJob,
   findJob,
-  formatJobLine,
   formatRegistry,
   formatJobHint,
   formatRunningBlock,
@@ -139,8 +132,20 @@ import {
   mergeSceneContext,
   type SceneMessage,
 } from '../../../lib/node/pi/comfyui/scene-context.ts';
-import type { ComfyuiConfig, RoleMapping, WorkflowConfig } from '../../../lib/node/pi/comfyui/types.ts';
+import type { ComfyuiConfig, WorkflowConfig } from '../../../lib/node/pi/comfyui/types.ts';
 import { expandTilde } from '../../../lib/node/pi/path-expand.ts';
+import {
+  previewTransformFor,
+  resolveRoleImages,
+  type RoleImageInput,
+} from '../../../lib/node/pi/ext/comfyui/images.ts';
+import type { GenerateDetails, JobsAction, JobsDetails } from '../../../lib/node/pi/ext/comfyui/details.ts';
+import {
+  renderGenerateCall,
+  renderGenerateResult,
+  renderJobsCall,
+  renderJobsResult,
+} from '../../../lib/node/pi/ext/comfyui/render.ts';
 import {
   type AgentDef,
   defaultAgentLayers,
@@ -161,42 +166,6 @@ import {
 import type { LooseMessage } from '../../../lib/node/pi/context-edit/target.ts';
 
 // ──────────────────────────────────────────────────────────────────────
-// Types
-// ──────────────────────────────────────────────────────────────────────
-
-interface GenerateDetails {
-  workflow: string;
-  seed?: number;
-  promptId?: string;
-  savedPaths: string[];
-  error?: string;
-  /** Latest streamed progress line (e.g. "generating 12/30"), shown while the result is partial. */
-  progress?: string;
-  /** True when the call only submitted the job and returned without waiting. */
-  background?: boolean;
-  /** Registry id of the background job this call started (when `background`). */
-  jobId?: string;
-  /** Generation-registry id (`g<n>`) recorded for this render, when it landed on disk. */
-  generationId?: string;
-  /** True when the render was ephemeral (shown inline, collapsed out of model context). */
-  ephemeral?: boolean;
-}
-
-/** Action verbs accepted by the `image_jobs` tool. */
-type JobsAction = 'list' | 'collect' | 'cancel';
-
-interface JobsDetails {
-  action: JobsAction;
-  jobId?: string;
-  status?: ImageJob['status'];
-  savedPaths?: string[];
-  error?: string;
-  jobs?: ImageJob[];
-  /** Generation-registry id (`g<n>`) recorded when this collect landed the render. */
-  generationId?: string;
-}
-
-// ──────────────────────────────────────────────────────────────────────
 // Shipped default workflow (committed at config/pi/comfyui/txt2img.api.json)
 // ──────────────────────────────────────────────────────────────────────
 
@@ -209,162 +178,6 @@ const extDir = dirname(fileURLToPath(import.meta.url));
 const piCreateAgentSession = adaptCreateAgentSession<Model<any>, SessionManager, ModelRegistry, ResourceLoader>(
   createAgentSession,
 );
-
-// Lazy, cached `sharp` import. Native, so it loads from the extension
-// shell (never pure `lib/`) and only when a downscale is actually
-// requested. A load failure (unsupported arch / missing install) is
-// swallowed by the transform below so a render never breaks over a
-// preview resize.
-interface SharpModule {
-  default: typeof SharpFactory;
-}
-let sharpModule: Promise<SharpModule> | null = null;
-function loadSharp(): Promise<SharpModule> {
-  return (sharpModule ??= import('sharp'));
-}
-
-/**
- * Build an {@link ImageBlockTransform} that downscales the model-facing
- * image copy so its longer side is at most `maxDim` px (token economy).
- * Only still raster images are resized; the decode/encode is `sharp` and
- * every failure path returns the original bytes, so the on-disk full-res
- * file and the render itself are never at risk.
- */
-function makeDownscaler(maxDim: number): ImageBlockTransform {
-  return async (bytes, mimeType) => {
-    if (!isResizableMime(mimeType)) return bytes;
-    try {
-      const sharp = (await loadSharp()).default;
-      const img = sharp(bytes, { failOn: 'none' });
-      const meta = await img.metadata();
-      const plan = planDownscale(meta.width ?? 0, meta.height ?? 0, maxDim);
-      if (!plan) return bytes;
-      return await img.resize(plan.width, plan.height, { fit: 'inside' }).toBuffer();
-    } catch {
-      return bytes;
-    }
-  };
-}
-
-/** Transform for the configured/per-call preview cap, or undefined when off. */
-function previewTransformFor(maxDim: number | undefined): ImageBlockTransform | undefined {
-  return maxDim !== undefined && maxDim > 0 ? makeDownscaler(maxDim) : undefined;
-}
-
-// ── Named image roles + bbox-mask synthesis (T5) ───────────────────────
-
-/** A bbox synth spec for a `mask` role; the extension rasterizes it. */
-interface BboxMaskSpec {
-  bbox: number[][];
-  feather?: number;
-  invert?: boolean;
-}
-
-/** A role slot's value as the model passes it: a file path or a bbox synth spec. */
-type RoleImageInput = string | BboxMaskSpec;
-
-function isBboxSpec(value: RoleImageInput): value is BboxMaskSpec {
-  return typeof value === 'object' && value !== null && Array.isArray(value.bbox);
-}
-
-/** Build the black/white SVG for a {@link MaskPlan} (white = region to change). */
-function maskSvg(plan: MaskPlan): string {
-  const bg = plan.invert ? '#fff' : '#000';
-  const fg = plan.invert ? '#000' : '#fff';
-  const rects = plan.rects
-    .map((r) => `<rect x="${r.x}" y="${r.y}" width="${r.width}" height="${r.height}" fill="${fg}"/>`)
-    .join('');
-  return (
-    `<svg xmlns="http://www.w3.org/2000/svg" width="${plan.width}" height="${plan.height}">` +
-    `<rect width="100%" height="100%" fill="${bg}"/>${rects}</svg>`
-  );
-}
-
-/** Rasterize a {@link MaskPlan} to PNG bytes via `sharp` (optional gaussian feather). */
-async function rasterizeMask(plan: MaskPlan): Promise<Buffer> {
-  const sharp = (await loadSharp()).default;
-  let img = sharp(Buffer.from(maskSvg(plan)));
-  if (plan.feather > 0) img = img.blur(plan.feather);
-  return img.png().toBuffer();
-}
-
-/**
- * Resolve a role-keyed `images` map into a `role -> uploaded-server-name`
- * record: a path is uploaded as-is; a `{ bbox }` on a `mask` slot is
- * rasterized (sized off the `init` image's metadata, else the resolved
- * `width`/`height`) and uploaded. Validation problems (unknown role, bbox
- * on a non-mask slot, missing size, bad geometry) return `{ error }`; an
- * upload/abort still throws so the caller's handler sees it.
- */
-async function resolveRoleImages(
-  conn: Conn,
-  roleMap: Record<string, RoleMapping>,
-  sources: Record<string, RoleImageInput>,
-  sizeFallback: { width?: number; height?: number },
-  home: string,
-  report: (text: string) => void,
-  signal: AbortSignal,
-): Promise<{ uploadedByRole?: Record<string, string>; error?: string }> {
-  const entries = Object.entries(sources);
-
-  // A bbox mask needs a canvas size: prefer the init image's real
-  // dimensions, else the resolved width/height. Read once, up front.
-  let dims: { width: number; height: number } | undefined;
-  if (entries.some(([, src]) => isBboxSpec(src))) {
-    const initSrc = sources.init;
-    if (typeof initSrc === 'string') {
-      try {
-        const sharp = (await loadSharp()).default;
-        const meta = await sharp(expandTilde(initSrc, home)).metadata();
-        if (meta.width !== undefined && meta.height !== undefined) {
-          dims = { width: meta.width, height: meta.height };
-        }
-      } catch {
-        // fall back to the resolved width/height below
-      }
-    }
-    if (dims === undefined && sizeFallback.width !== undefined && sizeFallback.height !== undefined) {
-      dims = { width: sizeFallback.width, height: sizeFallback.height };
-    }
-  }
-
-  try {
-    const resolved = await Promise.all(
-      entries.map(async ([role, src]): Promise<[string, string]> => {
-        const slot = roleMap[role];
-        if (slot === undefined) {
-          throw new Error(
-            `unknown image role "${role}" (workflow accepts: ${Object.keys(roleMap).join(', ') || 'none'})`,
-          );
-        }
-        if (isBboxSpec(src)) {
-          if (slot.kind !== 'mask') {
-            throw new Error(`image role "${role}" is not a mask slot; a bbox can only target a mask role`);
-          }
-          if (dims === undefined) {
-            throw new Error(`bbox mask for role "${role}" needs an init image or explicit width/height`);
-          }
-          const built = buildMaskPlan(src.bbox as NormalizedBox[], dims.width, dims.height, {
-            invert: src.invert ?? slot.invert,
-            ...(src.feather !== undefined ? { feather: src.feather } : {}),
-          });
-          if (built.error !== undefined || built.plan === undefined) {
-            throw new Error(built.error ?? `failed to build mask for role "${role}"`);
-          }
-          report(`rendering ${role} mask…`);
-          const png = await rasterizeMask(built.plan);
-          return [role, await uploadImageBuffer(conn, png, `comfyui-mask-${role}.png`, signal)];
-        }
-        report(`uploading ${role} image…`);
-        return [role, await uploadImage(conn, src, home, signal)];
-      }),
-    );
-    return { uploadedByRole: Object.fromEntries(resolved) };
-  } catch (err) {
-    if (signal.aborted) throw err;
-    return { error: err instanceof Error ? err.message : String(err) };
-  }
-}
 
 // Hard cap on the best-effort `image_jobs cancel` round-trip (interrupt /
 // dequeue). Cancellation should be near-instant, so it gets a tighter
@@ -1497,56 +1310,8 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
       }
     },
 
-    renderCall(args, theme, _context) {
-      const prompt = ((args as { prompt?: string }).prompt ?? '').replace(/\s+/g, ' ').trim();
-      const preview = prompt.length > 60 ? `${prompt.slice(0, 60)}…` : prompt;
-      const head = theme.fg('toolTitle', theme.bold('generate_image '));
-      return new Text(`${head}${theme.fg('dim', preview)}`, 0, 0);
-    },
-
-    renderResult(result, options, theme, context) {
-      const details = (result.details ?? {}) as Partial<GenerateDetails>;
-      if (details.error) return new Text(theme.fg('error', `✗ ${details.error}`), 0, 0);
-
-      const n = details.savedPaths?.length ?? 0;
-      const seedNote = details.seed !== undefined ? ` · seed ${details.seed}` : '';
-
-      // Background submission: no image yet, just the job handle. Expand
-      // (ctrl+o) shows the prompts and seed the same way the foreground
-      // path does, since the live result line is all the user gets until
-      // the job is collected / auto-downloaded.
-      if (details.background) {
-        const head = theme.fg('accent', `▶ background [${details.jobId ?? '?'}]`);
-        if (!options.expanded) return new Text(`${head}${theme.fg('dim', seedNote)}`, 0, 0);
-        const bgArgs = (context.args ?? {}) as { prompt?: string; negative?: string };
-        const bgLabel = (text: string): string => theme.fg('dim', text);
-        const bgLines = [`${head}${theme.fg('dim', seedNote)}`];
-        if (bgArgs.prompt) bgLines.push(`${bgLabel('prompt:   ')}${bgArgs.prompt}`);
-        bgLines.push(`${bgLabel('negative: ')}${bgArgs.negative ?? '(workflow default)'}`);
-        return new Text(bgLines.join('\n'), 0, 0);
-      }
-
-      // Still running: surface the live progress line (e.g. "generating 12/30")
-      // streamed over the websocket, or a neutral "working…" if none yet.
-      if ((options.isPartial || context.isPartial) && n === 0) {
-        const prog = details.progress ?? 'working…';
-        return new Text(theme.fg('dim', `⟳ ${prog}${seedNote}`), 0, 0);
-      }
-
-      const ephemeralNote = details.ephemeral ? theme.fg('dim', ' · ephemeral') : '';
-      const idNote = details.generationId ? ` [${details.generationId}]` : '';
-      const summary = theme.fg('success', `✓${idNote} ${n} image${n === 1 ? '' : 's'}${seedNote}`) + ephemeralNote;
-      if (!options.expanded) return new Text(summary, 0, 0);
-
-      // Expanded (ctrl+o): show the full positive / negative prompt and paths.
-      const args = (context.args ?? {}) as { prompt?: string; negative?: string };
-      const label = (text: string): string => theme.fg('dim', text);
-      const lines = [summary];
-      if (args.prompt) lines.push(`${label('prompt:   ')}${args.prompt}`);
-      lines.push(`${label('negative: ')}${args.negative ?? '(workflow default)'}`);
-      for (const p of details.savedPaths ?? []) lines.push(`${label('saved:    ')}${p}`);
-      return new Text(lines.join('\n'), 0, 0);
-    },
+    renderCall: (args, theme) => renderGenerateCall(args, theme),
+    renderResult: (result, options, theme, context) => renderGenerateResult(result, options, theme, context),
   });
 
   // ── image_jobs: manage background generations ──────────────────────
@@ -1777,39 +1542,8 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
       }
     },
 
-    renderCall(args, theme, _context) {
-      const action = (args as { action?: string }).action ?? '';
-      const id = (args as { id?: string }).id;
-      let text = theme.fg('toolTitle', theme.bold('image_jobs ')) + theme.fg('muted', action);
-      if (id) text += ` ${theme.fg('accent', `[${id}]`)}`;
-      return new Text(text, 0, 0);
-    },
-
-    renderResult(result, _options, theme, _context) {
-      const details = (result.details ?? {}) as Partial<JobsDetails>;
-      if (details.error) return new Text(theme.fg('error', `✗ ${details.error}`), 0, 0);
-
-      if (details.action === 'list') {
-        const jobs = details.jobs ?? [];
-        if (jobs.length === 0) return new Text(theme.fg('dim', '(no background image jobs)'), 0, 0);
-        const now = Date.now();
-        return new Text(jobs.map((j) => theme.fg('text', formatJobLine(j, now))).join('\n'), 0, 0);
-      }
-
-      const id = details.jobId ?? '?';
-      switch (details.status) {
-        case 'running':
-          return new Text(theme.fg('dim', `⟳ [${id}] still running`), 0, 0);
-        case 'cancelled':
-          return new Text(theme.fg('muted', `◌ [${id}] cancelled`), 0, 0);
-        case 'done': {
-          const n = details.savedPaths?.length ?? 0;
-          return new Text(theme.fg('success', `✓ [${id}] ${n} image${n === 1 ? '' : 's'}`), 0, 0);
-        }
-        default:
-          return new Text(theme.fg('dim', `[${id}]`), 0, 0);
-      }
-    },
+    renderCall: (args, theme) => renderJobsCall(args, theme),
+    renderResult: (result, _options, theme) => renderJobsResult(result, theme),
   });
 
   pi.registerCommand('comfyui', {
