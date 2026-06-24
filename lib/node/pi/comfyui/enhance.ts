@@ -21,6 +21,7 @@
  */
 
 import { parseModelSpec } from '../model-spec.ts';
+import { parseJsonLoose, stripCodeFence } from '../json-loose.ts';
 import { truncate } from '../shared.ts';
 import { type AgentDef } from '../subagent/loader.ts';
 import { resolveChildModel, type ModelRegistryLike } from '../subagent/spawn.ts';
@@ -114,55 +115,6 @@ export function buildEnhanceTask(opts: EnhanceTaskOpts): string {
 export interface EnhanceResult {
   prompt: string;
   negative?: string;
-}
-
-/** Strip a single wrapping ``` / ```json code fence, if present. */
-function stripCodeFence(text: string): string {
-  const trimmed = text.trim();
-  if (!trimmed.startsWith('```')) return trimmed;
-  // Drop the opening fence line (``` optionally followed by a tag) and a
-  // trailing fence line.
-  const withoutOpen = trimmed.replace(/^```[^\n]*\n?/, '');
-  return withoutOpen.replace(/\n?```\s*$/, '').trim();
-}
-
-/** Extract the first balanced `{ … }` substring, or null when none. */
-function extractBalancedObject(text: string): string | null {
-  const start = text.indexOf('{');
-  if (start === -1) return null;
-  let depth = 0;
-  let inString = false;
-  let escaped = false;
-  for (let i = start; i < text.length; i++) {
-    const ch = text[i];
-    if (inString) {
-      if (escaped) escaped = false;
-      else if (ch === '\\') escaped = true;
-      else if (ch === '"') inString = false;
-      continue;
-    }
-    if (ch === '"') inString = true;
-    else if (ch === '{') depth++;
-    else if (ch === '}') {
-      depth--;
-      if (depth === 0) return text.slice(start, i + 1);
-    }
-  }
-  return null;
-}
-
-function parseJsonLoose(text: string): unknown {
-  try {
-    return JSON.parse(text);
-  } catch {
-    const balanced = extractBalancedObject(text);
-    if (balanced === null) return undefined;
-    try {
-      return JSON.parse(balanced);
-    } catch {
-      return undefined;
-    }
-  }
 }
 
 /**
