@@ -22,4 +22,10 @@ case "${1:-}" in
     ;;
 esac
 
-powershell.exe -NoProfile -NonInteractive -Command Get-Clipboard </dev/null | sed 's/\r$//'
+# Get-Clipboard writes to stdout using [Console]::OutputEncoding, which
+# defaults to the legacy OEM code page and garbles non-ASCII content (e.g. the
+# dot or pi characters). Force no-BOM UTF-8 first so multibyte text survives;
+# a BOM-emitting encoding would prepend a stray U+FEFF to the paste.
+# shellcheck disable=SC2016 # $false is a PowerShell literal, not a shell var
+powershell.exe -NoProfile -NonInteractive -Command \
+  '[Console]::OutputEncoding = [Text.UTF8Encoding]::new($false); Get-Clipboard' </dev/null | sed 's/\r$//'

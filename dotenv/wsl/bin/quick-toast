@@ -24,13 +24,20 @@ case "${1:-}" in
     ;;
 esac
 
-# shellcheck disable=SC2016
-cat <<EOF | powershell.exe -Command -
+# shellcheck disable=SC2016 # literal backticks for PowerShell escaping in sed
+TITLE=$(printf '%s' "${1:-ALERT FROM TERMINAL}" | sed -e 's#`#``#g' -e 's#"#`"#g')
+BODY=""
+if [[ -n "${2:-}" ]]; then
+  # shellcheck disable=SC2016 # literal backticks for PowerShell escaping in sed
+  BODY=$(printf '%s' "${2}" | sed -e 's#`#``#g' -e 's#"#`"#g')
+fi
+
+read -r -d '' SCRIPT <<EOF || true
 [Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] > \$null
 \$Template = [Windows.UI.Notifications.ToastNotificationManager]::GetTemplateContent([Windows.UI.Notifications.ToastTemplateType]::ToastText02)
 
-\$TITLE = "$(echo "${1:-ALERT FROM TERMINAL}" | sed -e 's#`#``#g' -e 's#"#`"#g')"
-\$BODY = "$([[ -n "${2:-}" ]] && (echo "${2}" | sed -e 's#`#``#g' -e 's#"#`"#g'))"
+\$TITLE = "${TITLE}"
+\$BODY = "${BODY}"
 
 \$RawXml = [xml] \$Template.GetXml()
 (\$RawXml.toast.visual.binding.text|where {\$_.id -eq "1"}).AppendChild(\$RawXml.CreateTextNode(\$TITLE)) > \$null
@@ -47,3 +54,9 @@ cat <<EOF | powershell.exe -Command -
 \$Notifier = [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier("PowerShell")
 \$Notifier.Show(\$Toast);
 EOF
+
+# Pass the script as a UTF-16LE Base64 blob via -EncodedCommand so Unicode
+# (e.g. the dot or pi characters) survives. Piping UTF-8 to stdin would be
+# reinterpreted under the Windows console input code page and come out garbled.
+ENCODED=$(printf '%s' "${SCRIPT}" | iconv -f UTF-8 -t UTF-16LE | base64 -w0)
+powershell.exe -NoProfile -EncodedCommand "${ENCODED}"

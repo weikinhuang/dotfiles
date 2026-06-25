@@ -24,3 +24,18 @@ setup() {
   assert_success
   assert_output $'line one\nline two'
 }
+
+@test "pbpaste: requests UTF-8 console output encoding from powershell" {
+  stub_passthrough_command powershell.exe
+  run bash "${SCRIPT}"
+  assert_success
+  assert_output --partial '[Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)'
+  assert_output --partial 'Get-Clipboard'
+}
+
+@test "pbpaste: preserves UTF-8 clipboard content" {
+  stub_fixed_output_command powershell.exe $'π· café\r\n'
+  run bash "${SCRIPT}"
+  assert_success
+  assert_output $'π· café'
+}
