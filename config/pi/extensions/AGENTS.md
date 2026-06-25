@@ -95,6 +95,31 @@ busting the cache for the whole request. `context-budget` was the worst case (it
 changed ~every turn past 50% usage). Rule of thumb: **if the block changes more often than the system prompt otherwise
 would, it belongs on the tail.**
 
+### Large/persistent tool results (images) are a conversation-body cost trap
+
+The section above is about small state blocks. A separate hazard hits extensions whose tool results carry **large
+payloads that persist in the conversation** - above all inline images (`generate_image` results, a `read` on a PNG). pi
+caches the system prompt and each on its own `cache_control` breakpoint, but caches **conversation history with a single
+breakpoint on the last message** (`packages/ai/src/api/anthropic-messages.ts`). So whenever that body cache is
+invalidated - the 5-min TTL lapsing across a long session (`cacheRead=0`, full re-write), or per-turn `context`-hook
+churn collapsing the read back to the static system+tools prefix - the **entire body re-writes at the 1.25x cache-write
+rate**, re-billing every image in it. On an expensive model a body that is mostly images turns a few turns into tens of
+dollars (two real comfyui dev sessions hit $50 and $88; the body was 79-95% inline images).
+
+If your extension emits large/persistent results, give the model (and yourself) escape hatches so the body stays small:
+
+- An **ephemeral / collapse** path that strips the heavy block from every outgoing provider payload (it never reaches
+  the model; the TUI still shows it once). Anchor: comfyui `ephemeral` -> `addCollapse` +
+  [`context-edit/apply.ts`](../../../lib/node/pi/context-edit/apply.ts).
+- Route "does this look right?" inspection through a **cheap isolated subagent** (`tools: [read]`, `model: inherit`
+  resolving to a small vision model) so the image cost lands off the expensive parent. Anchor: `comfyui-critic`.
+- **Downscale the model-facing copy** (comfyui `previewMaxDimension`); a plain `read` already caps at 2000x2000 / 4.5MB
+  but then **persists with no auto-evict** (only `drop_image` / `/context-collapse` removes it).
+
+See the project memory `image-context-cost-discipline-for-comfyui-opus-sessions` for the operational usage rules. Note
+the dynamic `generate_image` schema is **not** a cache problem: tool defs are built once at load and cached on their own
+breakpoint.
+
 ### Lifecycle
 
 Any extension that **mounts a UI surface** (`ctx.ui.setHeader` / `setFooter` / `setWidget` / `setStatus` /
