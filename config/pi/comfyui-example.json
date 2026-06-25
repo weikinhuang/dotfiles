@@ -48,7 +48,7 @@
         "batch": { "node": "28", "key": "batch_size" }
       },
       "promptProtocol": "Anima (anime/illustration): lead with score/quality tags (e.g. score_9, masterpiece), use an @artist prefix for style; Danbooru tags or natural language both work. Read the anima-prompting skill for the full ruleset.",
-      "refineWith": { "inpaint": "anima-inpaint", "detailer": "anima-detailer", "ground": "anima-ground" }
+      "refineWith": { "inpaint": "anima-inpaint", "detailer": "anima-detailer", "ground": "anima-ground-sam3" }
     },
     "anima-inpaint": {
       "file": "~/.dotfiles/config/pi/comfyui/anima-inpaint.api.json",
