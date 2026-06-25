@@ -104,6 +104,24 @@
         "init": { "node": "16", "key": "image" }
       }
     },
+    "anima-ground-sam3": {
+      "file": "~/.dotfiles/config/pi/comfyui/anima-ground-sam3.api.json",
+      "description": "anima ground companion (SAM 3.1 text-concept->mask localizer + masked inpaint)",
+      "tags": ["anime", "ground"],
+      "promptProtocol": "Danbooru tags, comma-separated",
+      "inputs": {
+        "prompt": { "node": "65", "key": "string" },
+        "negative": { "node": "12", "key": "text" },
+        "seed": { "node": "20", "key": "seed" },
+        "steps": { "node": "20", "key": "steps" },
+        "cfg": { "node": "20", "key": "cfg" },
+        "denoise": { "node": "20", "key": "denoise" },
+        "target": { "node": "42", "key": "text" }
+      },
+      "images": {
+        "init": { "node": "16", "key": "image" }
+      }
+    },
     "anima-hires125": {
       "file": "~/.dotfiles/config/pi/comfyui/anima-hires125.api.json",
       "inputs": {

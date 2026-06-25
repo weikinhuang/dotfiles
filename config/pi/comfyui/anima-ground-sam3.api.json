@@ -1,0 +1,212 @@
+{
+  "1": {
+    "inputs": {
+      "images": ["8", 0]
+    },
+    "class_type": "PreviewImage",
+    "_meta": {
+      "title": "Preview Image"
+    }
+  },
+  "8": {
+    "inputs": {
+      "samples": ["20", 0],
+      "vae": ["15", 0]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "VAE Decode"
+    }
+  },
+  "11": {
+    "inputs": {
+      "text": ["64", 0],
+      "clip": ["45", 0]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "CLIP Text Encode (Positive Prompt)"
+    }
+  },
+  "12": {
+    "inputs": {
+      "text": "worst quality, low quality, score_1, score_2, score_3, artist name, blurry, jpeg artifacts, seams, halo",
+      "clip": ["45", 0]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "CLIP Text Encode (Negative Prompt)"
+    }
+  },
+  "15": {
+    "inputs": {
+      "vae_name": "qwen_image_vae.safetensors"
+    },
+    "class_type": "VAELoader",
+    "_meta": {
+      "title": "Load VAE"
+    }
+  },
+  "16": {
+    "inputs": {
+      "image": "init.png"
+    },
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "Load Init Image (role: init)"
+    }
+  },
+  "19": {
+    "inputs": {
+      "pixels": ["16", 0],
+      "vae": ["15", 0]
+    },
+    "class_type": "VAEEncode",
+    "_meta": {
+      "title": "VAE Encode (original pixels; masked region resampled by SetLatentNoiseMask at denoise < 1)"
+    }
+  },
+  "20": {
+    "inputs": {
+      "seed": 494980394101485,
+      "steps": 24,
+      "cfg": 1,
+      "sampler_name": "euler",
+      "scheduler": "beta",
+      "denoise": 0.5,
+      "model": ["90", 0],
+      "positive": ["11", 0],
+      "negative": ["12", 0],
+      "latent_image": ["21", 0]
+    },
+    "class_type": "KSampler",
+    "_meta": {
+      "title": "Ground KSampler (denoise < 1 over the grounded-mask latent)"
+    }
+  },
+  "21": {
+    "inputs": {
+      "samples": ["19", 0],
+      "mask": ["41", 0]
+    },
+    "class_type": "SetLatentNoiseMask",
+    "_meta": {
+      "title": "Set Latent Noise Mask (SAM3 grounded region only)"
+    }
+  },
+  "40": {
+    "inputs": {
+      "ckpt_name": "sam3.1_multiplex_fp16.safetensors"
+    },
+    "class_type": "CheckpointLoaderSimple",
+    "_meta": {
+      "title": "Load SAM3.1 (provides MODEL + CLIP for text-prompted concept segmentation)"
+    }
+  },
+  "42": {
+    "inputs": {
+      "text": "",
+      "clip": ["40", 1]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "SAM3 concept prompt: target phrase (role text input, max ~32 tokens)"
+    }
+  },
+  "41": {
+    "inputs": {
+      "model": ["40", 0],
+      "image": ["16", 0],
+      "conditioning": ["42", 0],
+      "threshold": 0.5,
+      "refine_iterations": 2,
+      "individual_masks": false
+    },
+    "class_type": "SAM3_Detect",
+    "_meta": {
+      "title": "SAM3 grounding: text concept -> union mask (white = matched region)"
+    }
+  },
+  "44": {
+    "inputs": {
+      "unet_name": "anima-base-v1.0.safetensors",
+      "weight_dtype": "default"
+    },
+    "class_type": "UNETLoader",
+    "_meta": {
+      "title": "Load Diffusion Model"
+    }
+  },
+  "45": {
+    "inputs": {
+      "clip_name": "qwen_3_06b_base.safetensors",
+      "type": "stable_diffusion",
+      "device": "default"
+    },
+    "class_type": "CLIPLoader",
+    "_meta": {
+      "title": "Load CLIP"
+    }
+  },
+  "64": {
+    "inputs": {
+      "string_a": "",
+      "string_b": ["65", 0]
+    },
+    "class_type": "ConcatStringSingle",
+    "_meta": {
+      "title": "Fixed Artist Prefix (edit string_a to change artist)"
+    }
+  },
+  "65": {
+    "inputs": {
+      "string": "",
+      "regex_pattern": "(?:masterpiece|best quality|high quality|amazing quality|ultra[- ]detailed|score_\\d+(?:_up)?|absurdres|highres)\\s*,\\s*",
+      "replace": "",
+      "case_insensitive": true,
+      "count": 0
+    },
+    "class_type": "RegexReplace",
+    "_meta": {
+      "title": "Strip quality/score tags (turbo dislikes them)"
+    }
+  },
+  "70": {
+    "inputs": {
+      "lora_name": "anima-turbo-lora-v0.2.safetensors",
+      "strength_model": 0.8,
+      "model": ["44", 0]
+    },
+    "class_type": "LoraLoaderModelOnly",
+    "_meta": {
+      "title": "Turbo LoRA (speed)"
+    }
+  },
+  "80": {
+    "inputs": {
+      "enable_fp16_accumulation": true,
+      "model": ["70", 0]
+    },
+    "class_type": "ModelPatchTorchSettings",
+    "_meta": {
+      "title": "fp16 accumulation (PyTorch >= 2.7)"
+    }
+  },
+  "90": {
+    "inputs": {
+      "backend": "inductor",
+      "fullgraph": false,
+      "mode": "default",
+      "dynamic": "true",
+      "compile_transformer_blocks_only": true,
+      "dynamo_cache_size_limit": 128,
+      "debug_compile_keys": false,
+      "disable_dynamic_vram": true,
+      "model": ["80", 0]
+    },
+    "class_type": "TorchCompileModelAdvanced",
+    "_meta": {
+      "title": "torch.compile Cosmos Predict2 DiT blocks (after LoRA; dynamic+blocks-only)"
+    }
+  }
+}
