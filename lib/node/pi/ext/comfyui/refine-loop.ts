@@ -56,6 +56,42 @@ const ALWAYS_AVAILABLE_CHANNELS: readonly RefineChannel[] = ['reroll', 'revise_p
 const COMPANION_CHANNELS: ReadonlySet<RefineChannel> = new Set(['img2img', 'inpaint', 'detailer', 'ground']);
 
 /**
+ * Gaussian feather (sigma, px) applied to the auto-refine inpaint mask. The
+ * critic names only a COARSE region, so a hard-edged rectangle can leave a
+ * tonal seam where the masked boundary crosses a high-contrast edge (a
+ * hairline, an outline). A modest feather ramps the `SetLatentNoiseMask`
+ * denoise strength at the boundary so the repaint blends. Applied only on the
+ * synthesized refine mask - an explicit user `images:{mask:{bbox}}` call keeps
+ * its hard edge (default `feather` 0) for predictable, deliberate masking.
+ */
+const REFINE_MASK_FEATHER_PX = 12;
+
+/**
+ * Built-in fallback mapping from the critic's semantic `detect` keyword to the
+ * Ultralytics detector model filename a `detailer` companion's
+ * `UltralyticsDetectorProvider` loads. The critic emits only these four
+ * keywords (see `comfyui-critic.md`); the adetailer repo has no dedicated eyes
+ * model, so `eyes` reuses the face detector (it re-renders the whole face
+ * crop). A companion workflow's optional `detectModels` overrides any entry.
+ */
+const DEFAULT_DETECT_MODELS: Readonly<Record<string, string>> = {
+  hand: 'bbox/hand_yolov8s.pt',
+  face: 'bbox/face_yolov8m.pt',
+  eyes: 'bbox/face_yolov8m.pt',
+  person: 'segm/person_yolov8m-seg.pt',
+};
+
+/**
+ * Translate a critic `detect` keyword into the detector model filename to
+ * inject into the companion's `UltralyticsDetectorProvider`. Falls back to the
+ * keyword itself when neither the workflow's `detectModels` nor the built-in
+ * defaults know it, so a graph author can wire a custom detector by filename.
+ */
+function resolveDetectModel(detect: string, wf: WorkflowConfig): string {
+  return wf.detectModels?.[detect] ?? DEFAULT_DETECT_MODELS[detect] ?? detect;
+}
+
+/**
  * Companion-only inputs the refine loop injects into a repair workflow that a
  * normal render never carries: a grounder target phrase (`ground`) and a
  * detector class (`detailer`). A companion graph that uses them maps `target`
@@ -233,19 +269,22 @@ export function planRefineRender(
 
   const roleSources: Record<string, RoleImageInput> = { init: currentImage.savedPath };
   if (action.type === 'inpaint' && 'mask' in roleMap) {
-    roleSources.mask = { bbox: [Array.from(regionToBbox(action.region))] };
+    roleSources.mask = { bbox: [Array.from(regionToBbox(action.region))], feather: REFINE_MASK_FEATHER_PX };
   }
 
   // The source prompt / negative carry over (the companion repaints in-style);
   // `count` is pinned to 1, positional inputs are dropped (role mode), and the
-  // action's denoise / target / detect are layered on.
+  // action's denoise / target / detect are layered on. A `detailer` detect
+  // keyword is translated to its detector model filename before injection.
+  const detect =
+    action.type === 'detailer' && action.detect !== undefined ? resolveDetectModel(action.detect, wf) : action.detect;
   const params: ResolvedGenerateParams & RefineExtraInputs = {
     ...ctx.baseParams,
     count: 1,
     inputImages: undefined,
     ...(action.denoise !== undefined ? { denoise: action.denoise } : {}),
     ...(action.target !== undefined ? { target: action.target } : {}),
-    ...(action.detect !== undefined ? { detect: action.detect } : {}),
+    ...(detect !== undefined ? { detect } : {}),
   };
   return { kind: 'companion', name, wf, roleMap, params, roleSources };
 }

@@ -47,7 +47,7 @@
         "height": { "node": "28", "key": "height" },
         "batch": { "node": "28", "key": "batch_size" }
       },
-      "refineWith": { "inpaint": "anima-inpaint" }
+      "refineWith": { "inpaint": "anima-inpaint", "detailer": "anima-detailer", "ground": "anima-ground" }
     },
     "anima-inpaint": {
       "file": "~/.dotfiles/config/pi/comfyui/anima-inpaint.api.json",
@@ -65,6 +65,42 @@
       "images": {
         "init": { "node": "16", "key": "image" },
         "mask": { "node": "17", "key": "image", "kind": "mask" }
+      }
+    },
+    "anima-detailer": {
+      "file": "~/.dotfiles/config/pi/comfyui/anima-detailer.api.json",
+      "description": "anima detailer companion (Ultralytics detector + FaceDetailer hi-res region re-render)",
+      "tags": ["anime", "detailer"],
+      "promptProtocol": "Danbooru tags, comma-separated",
+      "inputs": {
+        "prompt": { "node": "65", "key": "string" },
+        "negative": { "node": "12", "key": "text" },
+        "seed": { "node": "32", "key": "seed" },
+        "steps": { "node": "32", "key": "steps" },
+        "cfg": { "node": "32", "key": "cfg" },
+        "denoise": { "node": "32", "key": "denoise" },
+        "detect": { "node": "30", "key": "model_name" }
+      },
+      "images": {
+        "init": { "node": "16", "key": "image" }
+      }
+    },
+    "anima-ground": {
+      "file": "~/.dotfiles/config/pi/comfyui/anima-ground.api.json",
+      "description": "anima ground companion (Florence-2 phrase->mask localizer + masked inpaint)",
+      "tags": ["anime", "ground"],
+      "promptProtocol": "Danbooru tags, comma-separated",
+      "inputs": {
+        "prompt": { "node": "65", "key": "string" },
+        "negative": { "node": "12", "key": "text" },
+        "seed": { "node": "20", "key": "seed" },
+        "steps": { "node": "20", "key": "steps" },
+        "cfg": { "node": "20", "key": "cfg" },
+        "denoise": { "node": "20", "key": "denoise" },
+        "target": { "node": "41", "key": "text_input" }
+      },
+      "images": {
+        "init": { "node": "16", "key": "image" }
       }
     },
     "anima-hires125": {

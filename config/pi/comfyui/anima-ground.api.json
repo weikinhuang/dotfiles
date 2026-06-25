@@ -56,25 +56,6 @@
       "title": "Load Init Image (role: init)"
     }
   },
-  "17": {
-    "inputs": {
-      "image": "mask.png"
-    },
-    "class_type": "LoadImage",
-    "_meta": {
-      "title": "Load Mask Image (role: mask)"
-    }
-  },
-  "18": {
-    "inputs": {
-      "channel": "red",
-      "image": ["17", 0]
-    },
-    "class_type": "ImageToMask",
-    "_meta": {
-      "title": "Convert mask PNG to a mask channel"
-    }
-  },
   "19": {
     "inputs": {
       "pixels": ["16", 0],
@@ -92,7 +73,7 @@
       "cfg": 1,
       "sampler_name": "euler",
       "scheduler": "beta",
-      "denoise": 0.6,
+      "denoise": 0.5,
       "model": ["90", 0],
       "positive": ["11", 0],
       "negative": ["12", 0],
@@ -100,17 +81,40 @@
     },
     "class_type": "KSampler",
     "_meta": {
-      "title": "Inpaint KSampler (denoise < 1 over the masked latent)"
+      "title": "Ground KSampler (denoise < 1 over the grounded-mask latent)"
     }
   },
   "21": {
     "inputs": {
       "samples": ["19", 0],
-      "mask": ["18", 0]
+      "mask": ["41", 1]
     },
     "class_type": "SetLatentNoiseMask",
     "_meta": {
-      "title": "Set Latent Noise Mask (only the masked region is resampled)"
+      "title": "Set Latent Noise Mask (Florence-2 grounded region only)"
+    }
+  },
+  "40": {
+    "inputs": {
+      "model": "microsoft/Florence-2-large",
+      "precision": "fp16"
+    },
+    "class_type": "DownloadAndLoadFlorence2Model",
+    "_meta": {
+      "title": "Load Florence-2 (auto-downloads to models/LLM on first run)"
+    }
+  },
+  "41": {
+    "inputs": {
+      "image": ["16", 0],
+      "florence2_model": ["40", 0],
+      "text_input": "",
+      "task": "referring_expression_segmentation",
+      "fill_mask": true
+    },
+    "class_type": "Florence2Run",
+    "_meta": {
+      "title": "Florence-2 grounding: target phrase (role text input) -> mask"
     }
   },
   "44": {

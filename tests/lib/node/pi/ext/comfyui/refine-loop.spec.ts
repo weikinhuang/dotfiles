@@ -191,13 +191,15 @@ test('planRefineRender: inpaint synthesizes a coarse-region mask via the bbox pa
   expect(plan.kind).toBe('companion');
   if (plan.kind !== 'companion') throw new Error('expected companion');
   expect(plan.name).toBe('anima-inpaint');
-  expect(plan.roleSources).toEqual({ init: '/out/r1.png', mask: { bbox: [[0.25, 0.25, 0.5, 0.5]] } });
+  // The coarse-region mask carries a modest default feather so the repaint
+  // blends at the boundary (the critic names only a coarse region).
+  expect(plan.roleSources).toEqual({ init: '/out/r1.png', mask: { bbox: [[0.25, 0.25, 0.5, 0.5]], feather: 12 } });
 });
 
 test('planRefineRender: inpaint with no/unknown region masks the whole image', () => {
   const plan = planRefineRender({ type: 'inpaint' }, img('/out/r1.png'), planCtx);
   if (plan.kind !== 'companion') throw new Error('expected companion');
-  expect(plan.roleSources.mask).toEqual({ bbox: [[0, 0, 1, 1]] });
+  expect(plan.roleSources.mask).toEqual({ bbox: [[0, 0, 1, 1]], feather: 12 });
 });
 
 test('planRefineRender: ground/detailer carry target + detect onto the companion params', () => {
@@ -208,6 +210,34 @@ test('planRefineRender: ground/detailer carry target + detect onto the companion
   });
   if (grounded.kind !== 'companion') throw new Error('expected companion');
   expect(grounded.params.target).toBe('the left pauldron');
+});
+
+const animaDetailer: WorkflowConfig = {
+  file: 'anima-detailer.api.json',
+  inputs: { prompt: { node: '65', key: 'string' }, detect: { node: '30', key: 'model_name' } },
+  images: { init: { node: '16', key: 'image' } },
+};
+
+test('planRefineRender: detailer translates the detect keyword to a detector model filename', () => {
+  const plan = planRefineRender({ type: 'detailer', detect: 'hand' }, img('/out/r1.png'), {
+    ...planCtx,
+    workflows: { ...planCtx.workflows, 'anima-detailer': animaDetailer },
+    refineWith: { ...planCtx.refineWith, detailer: 'anima-detailer' },
+  });
+  if (plan.kind !== 'companion') throw new Error('expected companion');
+  // The critic emits a semantic keyword; the loop maps it to the YOLO filename.
+  expect(plan.params.detect).toBe('bbox/hand_yolov8s.pt');
+});
+
+test('planRefineRender: detailer detect translation honors a workflow detectModels override', () => {
+  const custom: WorkflowConfig = { ...animaDetailer, detectModels: { hand: 'bbox/custom_hand.pt' } };
+  const plan = planRefineRender({ type: 'detailer', detect: 'hand' }, img('/out/r1.png'), {
+    ...planCtx,
+    workflows: { ...planCtx.workflows, 'anima-detailer': custom },
+    refineWith: { ...planCtx.refineWith, detailer: 'anima-detailer' },
+  });
+  if (plan.kind !== 'companion') throw new Error('expected companion');
+  expect(plan.params.detect).toBe('bbox/custom_hand.pt');
 });
 
 test('planRefineRender: an unconfigured companion downgrades to a source reroll', () => {

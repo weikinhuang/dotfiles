@@ -1,21 +1,11 @@
 {
   "1": {
     "inputs": {
-      "images": ["8", 0]
+      "images": ["32", 0]
     },
     "class_type": "PreviewImage",
     "_meta": {
       "title": "Preview Image"
-    }
-  },
-  "8": {
-    "inputs": {
-      "samples": ["20", 0],
-      "vae": ["15", 0]
-    },
-    "class_type": "VAEDecode",
-    "_meta": {
-      "title": "VAE Decode"
     }
   },
   "11": {
@@ -56,61 +46,63 @@
       "title": "Load Init Image (role: init)"
     }
   },
-  "17": {
+  "30": {
     "inputs": {
-      "image": "mask.png"
+      "model_name": "bbox/face_yolov8m.pt"
     },
-    "class_type": "LoadImage",
+    "class_type": "UltralyticsDetectorProvider",
     "_meta": {
-      "title": "Load Mask Image (role: mask)"
+      "title": "Detector (model_name set from the critic's detect class)"
     }
   },
-  "18": {
+  "31": {
     "inputs": {
-      "channel": "red",
-      "image": ["17", 0]
+      "model_name": "sam_vit_b_01ec64.pth",
+      "device_mode": "AUTO"
     },
-    "class_type": "ImageToMask",
+    "class_type": "SAMLoader",
     "_meta": {
-      "title": "Convert mask PNG to a mask channel"
+      "title": "Load SAM (sharpens the detector mask)"
     }
   },
-  "19": {
+  "32": {
     "inputs": {
-      "pixels": ["16", 0],
-      "vae": ["15", 0]
-    },
-    "class_type": "VAEEncode",
-    "_meta": {
-      "title": "VAE Encode (original pixels; masked region resampled by SetLatentNoiseMask at denoise < 1)"
-    }
-  },
-  "20": {
-    "inputs": {
+      "image": ["16", 0],
+      "model": ["90", 0],
+      "clip": ["45", 0],
+      "vae": ["15", 0],
+      "guide_size": 512,
+      "guide_size_for": true,
+      "max_size": 1024,
       "seed": 494980394101485,
       "steps": 24,
       "cfg": 1,
       "sampler_name": "euler",
       "scheduler": "beta",
-      "denoise": 0.6,
-      "model": ["90", 0],
       "positive": ["11", 0],
       "negative": ["12", 0],
-      "latent_image": ["21", 0]
+      "denoise": 0.5,
+      "feather": 5,
+      "noise_mask": true,
+      "force_inpaint": true,
+      "bbox_threshold": 0.5,
+      "bbox_dilation": 10,
+      "bbox_crop_factor": 3.0,
+      "sam_detection_hint": "center-1",
+      "sam_dilation": 0,
+      "sam_threshold": 0.93,
+      "sam_bbox_expansion": 0,
+      "sam_mask_hint_threshold": 0.7,
+      "sam_mask_hint_use_negative": "False",
+      "drop_size": 10,
+      "bbox_detector": ["30", 0],
+      "wildcard": "",
+      "cycle": 1,
+      "sam_model_opt": ["31", 0]
     },
-    "class_type": "KSampler",
+    "class_type": "FaceDetailer",
     "_meta": {
-      "title": "Inpaint KSampler (denoise < 1 over the masked latent)"
-    }
-  },
-  "21": {
-    "inputs": {
-      "samples": ["19", 0],
-      "mask": ["18", 0]
-    },
-    "class_type": "SetLatentNoiseMask",
-    "_meta": {
-      "title": "Set Latent Noise Mask (only the masked region is resampled)"
+      "title": "FaceDetailer (crops the detected region, re-renders hi-res through anima, pastes back)"
     }
   },
   "44": {

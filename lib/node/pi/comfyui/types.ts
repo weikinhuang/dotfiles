@@ -145,6 +145,15 @@ export interface WorkflowConfig {
    */
   refineWith?: RefineWith;
   /**
+   * For a `detailer` companion: maps the critic's semantic `detect` keyword
+   * (`hand` / `face` / `eyes` / `person`) to the Ultralytics detector model
+   * filename its `UltralyticsDetectorProvider` should load (e.g. `face` ->
+   * `bbox/face_yolov8m.pt`). The refine loop translates `detect` through this
+   * map before injecting it, so the critic stays model-agnostic. Optional -
+   * entries not listed here fall back to the loop's built-in defaults.
+   */
+  detectModels?: Record<string, string>;
+  /**
    * Default explicit acceptance criteria handed to the refine critic for this
    * workflow (e.g. "full body, facing left"). A per-call `refineCriteria` arg
    * overrides it; absent -> the critic derives criteria from the prompt /
