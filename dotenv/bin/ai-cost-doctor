@@ -1,0 +1,74 @@
+#!/usr/bin/env bash
+# Diagnose cost explosions & prompt-caching pathologies in an AI session log.
+# SPDX-License-Identifier: MIT
+
+set -euo pipefail
+IFS=$'\n\t'
+
+function print_help() {
+  cat <<'HELPDOC'
+Usage: ai-cost-doctor <harness> [session-id|prefix|path] [options]
+       ai-cost-doctor <session-file> [options]
+
+Cross-harness session cost / caching doctor. Ingests a session log from any
+supported harness, reconstructs the per-turn token/cost series, and flags cost
+explosions and prompt-caching pathologies (cache-poisoning, cache-write-dominant,
+ttl-expiry, large-context-carry) with the offending turn range, dollars
+attributed, and a remediation hint.
+
+The detection counterpart to the pi-only cache-breakpoint fix.
+
+Harnesses:
+  pi        pi sessions (~/.pi/agent/sessions)
+  claude    Claude Code sessions (~/.claude/projects)
+  codex     Codex CLI sessions (~/.codex/sessions)
+  opencode  opencode sessions (~/.local/share/opencode, SQLite)
+
+Session selector (second argument, optional):
+  <id|prefix>          A session id or unique prefix, resolved within the
+                       harness's session store (like
+                       `ai-tool-usage <tool> session <id>`). Omit to analyze
+                       your latest session.
+  <path>               An explicit path to a .jsonl session log.
+
+Without a harness word, a bare <session-file> path is accepted and the harness
+is auto-detected from the file signature.
+
+Options:
+  --harness <name>     Force harness (alternative to the positional).
+  --user-dir <dir>     Override the harness data dir.
+  --json               Machine-readable JSON output.
+  --turns, -t          Append a per-turn table (cacheRead/cacheWrite/cost).
+  --no-color           Disable ANSI colors.
+  --no-cost            Skip cost backfill for logs without precomputed cost.
+  --refresh-prices     Force-refresh the cached LiteLLM pricing table.
+  -h, --help           Show this help.
+
+Examples:
+  ai-cost-doctor pi                      # your latest pi session
+  ai-cost-doctor pi 019f0109             # by id prefix
+  ai-cost-doctor claude                  # latest claude session in this project
+  ai-cost-doctor opencode ses_2ee7 --json
+  ai-cost-doctor ~/.pi/agent/sessions/<proj>/<ts>_<uuid>.jsonl
+HELPDOC
+}
+
+case "${1:-}" in
+  -h | --help)
+    print_help
+    exit 0
+    ;;
+esac
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+DOTFILES_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd -P)"
+readonly DOTFILES_ROOT
+
+readonly TARGET="${DOTFILES_ROOT}/lib/node/ai-tooling/session-doctor.ts"
+
+if [[ ! -x "${TARGET}" ]]; then
+  printf 'ai-cost-doctor: analyzer not found at %q\n' "${TARGET}" >&2
+  exit 1
+fi
+
+exec "${TARGET}" "$@"
