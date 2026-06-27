@@ -8,7 +8,13 @@
 // low cached ratio, not a write spike. Cost is not stored -> backfill.
 // SPDX-License-Identifier: MIT
 
-import { annotateGaps, emptyTurnTokens, type NormalizedSession, type NormalizedTurn } from '../analyze/turn-model.ts';
+import {
+  annotateGaps,
+  emptyTurnTokens,
+  type NormalizedSession,
+  type NormalizedTurn,
+  refineLocalCachingModel,
+} from '../analyze/turn-model.ts';
 
 interface CodexTokenUsage {
   input_tokens?: number;
@@ -85,6 +91,7 @@ export function codexToNormalized(entries: CodexEntry[], fallbackSessionId: stri
   }
 
   annotateGaps(turns);
+  refineLocalCachingModel(turns);
 
   return {
     harness: 'codex',

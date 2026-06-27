@@ -51,8 +51,14 @@ Adapters absorb every per-harness format difference so detectors see only normal
 - **opencode** (SQLite) records a scalar cost but not the read/write split, so the breakdown is re-derived from tokens;
   caching model comes from `providerID` (local `llama.cpp` → `none`).
 
-`cachingModel` is `anthropic` | `openai` | `none`. Detectors key off it, so the same logic works for a Claude model
-served via Bedrock (pi) or via the Anthropic API (claude) without any harness branching.
+`cachingModel` is `anthropic` | `openai` | `none`, set by name first (provider/model substring) and then refined from
+the data: model names are user-chosen, so any model first classed `none` that is ever observed reporting a cache read
+(`cacheRead > 0`) is upgraded to `openai` for its whole run. That is how a local OpenAI-compatible backend
+(llama.cpp/ollama/vllm/lmstudio, which report `cached_tokens` with no cache-write metric) gets read-side detection,
+while a genuinely cache-blind backend stays `none`. The decision is per-model, not per-turn, so the cold eviction turn
+(where `cacheRead` drops back to 0) stays `openai` and the read-side detectors still see it. Detectors key off
+`cachingModel`, so the same logic works for a Claude model served via Bedrock (pi) or via the Anthropic API (claude)
+without any harness branching.
 
 ## v1 detectors
 

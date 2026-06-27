@@ -16,6 +16,7 @@ import {
   emptyTurnTokens,
   type NormalizedSession,
   type NormalizedTurn,
+  refineLocalCachingModel,
 } from '../analyze/turn-model.ts';
 
 export interface OpencodeMessage {
@@ -71,6 +72,7 @@ export function opencodeToNormalized(messages: OpencodeMessage[], meta: Opencode
   }
 
   annotateGaps(turns);
+  refineLocalCachingModel(turns);
 
   return {
     harness: 'opencode',

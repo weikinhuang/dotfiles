@@ -173,6 +173,30 @@ export interface ModelChange {
   timestamp?: string;
 }
 
+// Local / unknown backends (anything whose provider+model names match neither
+// the anthropic nor openai patterns) classify as `none` by name. But many of
+// them - llama.cpp, ollama, vllm, lmstudio, any OpenAI-compatible server -
+// report the OpenAI usage shape: a `cached_tokens` read with no cache-write
+// metric. Model names are user-chosen and unreliable, so we decide from the
+// billing shape instead: if a model's turns EVER report a cache read, treat
+// the whole model run as `openai`. Doing it per-model (not per-turn) is what
+// lets the cold turn - the eviction itself, where cacheRead drops back to 0 -
+// stay `openai` so the read-side detectors (ttl-expiry, cache-bust) can see it.
+// Only `none` turns are touched; name-classified anthropic/openai turns are
+// left alone, so this never splits an anthropic run.
+export function refineLocalCachingModel(turns: NormalizedTurn[]): void {
+  const modelReads = new Map<string, boolean>();
+  for (const t of turns) {
+    if (t.cachingModel !== 'none') continue;
+    const key = t.model ?? '';
+    if (t.tokens.cacheReadInput > 0) modelReads.set(key, true);
+    else if (!modelReads.has(key)) modelReads.set(key, false);
+  }
+  for (const t of turns) {
+    if (t.cachingModel === 'none' && modelReads.get(t.model ?? '')) t.cachingModel = 'openai';
+  }
+}
+
 // Points in the assistant-turn series where the active model changed (e.g. a
 // /model switch). A model switch busts the prompt cache, so these are worth
 // annotating next to the cache series. Turns with no model are skipped (they

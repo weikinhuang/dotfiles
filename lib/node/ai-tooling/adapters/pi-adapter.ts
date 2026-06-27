@@ -12,6 +12,7 @@ import {
   emptyTurnTokens,
   type NormalizedSession,
   type NormalizedTurn,
+  refineLocalCachingModel,
   type TurnCost,
 } from '../analyze/turn-model.ts';
 import { makeSessionPreview } from '../preview.ts';
@@ -171,6 +172,7 @@ export function piToNormalized(entries: PiEntry[], fallbackSessionId: string): N
   }
 
   annotateGaps(turns);
+  refineLocalCachingModel(turns);
 
   return {
     harness: 'pi',

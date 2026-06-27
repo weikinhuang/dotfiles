@@ -7,7 +7,13 @@
 // the pricing table. All Claude traffic is anthropic-style caching.
 // SPDX-License-Identifier: MIT
 
-import { annotateGaps, emptyTurnTokens, type NormalizedSession, type NormalizedTurn } from '../analyze/turn-model.ts';
+import {
+  annotateGaps,
+  emptyTurnTokens,
+  type NormalizedSession,
+  type NormalizedTurn,
+  refineLocalCachingModel,
+} from '../analyze/turn-model.ts';
 import { makeSessionPreview } from '../preview.ts';
 
 interface ClaudeUsage {
@@ -114,6 +120,7 @@ export function claudeToNormalized(entries: ClaudeEntry[], fallbackSessionId: st
   }
 
   annotateGaps(turns);
+  refineLocalCachingModel(turns);
 
   return {
     harness: 'claude',
