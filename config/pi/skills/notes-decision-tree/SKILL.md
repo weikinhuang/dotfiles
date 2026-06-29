@@ -41,9 +41,9 @@ When two seem to fit, prefer the _less durable_ tool. A misplaced `memory` pollu
 
 ### `scratchpad` - turn-to-turn, free-form, branch-local
 
-Unstructured working notes auto-injected into the system prompt every turn under `## Working Notes`. Survives `/compact`
-and is branch-aware (`/fork`, `/tree` show the right notes), but does NOT persist past the session or leak across
-branches. Actions: `append` (with optional `heading`), `update`, `remove`, `list`, `clear`.
+Unstructured working notes auto-injected every turn (as an ephemeral `<system-reminder>`) under `## Working Notes`.
+Survives `/compact` and is branch-aware (`/fork`, `/tree` show the right notes), but does NOT persist past the session
+or leak across branches. Actions: `append` (with optional `heading`), `update`, `remove`, `list`, `clear`.
 
 Reach for it when:
 

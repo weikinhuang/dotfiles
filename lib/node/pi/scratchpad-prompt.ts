@@ -1,20 +1,22 @@
 /**
- * Pure helpers for rendering the scratchpad as a system-prompt block.
+ * Pure helpers for rendering the scratchpad as an injected `## Working
+ * Notes` block.
  *
  * No pi imports so this module can be unit-tested under `vitest`
  * without the pi runtime.
  *
- * The extension injects the rendered block into every turn's system prompt
- * via `before_agent_start`, under a `## Working Notes` header. When there
- * are no notes we return `null` so the extension can skip injection entirely
- * and keep casual single-turn chats uncluttered.
+ * The extension splices the rendered block into every turn as an ephemeral
+ * `<system-reminder>` on the last user/toolResult turn (via the `context`
+ * hook, not the system prompt), under a `## Working Notes` header. When
+ * there are no notes we return `null` so the extension can skip injection
+ * entirely and keep casual single-turn chats uncluttered.
  *
  * Notes are grouped by heading (in first-seen order) and rendered as
  * bulleted lists. Notes without a heading are rendered first, under an
  * implicit "Notes" header, so the model always sees them even in a mixed
  * notebook.
  *
- * A soft character cap protects the system prompt from runaway notebooks:
+ * A soft character cap protects the injected block from runaway notebooks:
  * once the cap is reached we emit a trailer pointing the model at the
  * `scratchpad` tool with action `list` to see the rest. The cap is a
  * budget, not a hard limit - each rendered note fits whole; we stop
@@ -35,9 +37,10 @@ export interface FormatOptions {
 /**
  * Group notes by their heading in the order the heading first appears.
  * Notes without a heading are lumped under a synthetic `''` key that
- * renders as the default "Notes" section.
+ * renders as the default "Notes" section. Exported so the `/scratchpad`
+ * overlay groups identically to the injected block.
  */
-function groupByHeading(notes: readonly ScratchNote[]): [string, ScratchNote[]][] {
+export function groupByHeading(notes: readonly ScratchNote[]): [string, ScratchNote[]][] {
   const seen = new Map<string, ScratchNote[]>();
   for (const n of notes) {
     const key = n.heading ?? '';
@@ -52,8 +55,9 @@ function groupByHeading(notes: readonly ScratchNote[]): [string, ScratchNote[]][
 }
 
 /**
- * Build the "## Working Notes" block injected into the system prompt
- * every turn. Returns `null` when the scratchpad is empty so the caller
+ * Build the "## Working Notes" block injected into every turn (as an
+ * ephemeral `<system-reminder>` via the `context` hook). Returns `null`
+ * when the scratchpad is empty so the caller
  * can skip injection - no point reserving tokens for nothing.
  */
 export function formatWorkingNotes(state: ScratchpadState, opts: FormatOptions = {}): string | null {

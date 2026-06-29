@@ -1,8 +1,8 @@
 # `todo.ts`
 
 Plan-driven tracking tool tuned for weak-model support. Ships a single `todo` tool with eight actions, the `/todos`
-overlay, system-prompt auto-injection of the active plan every turn, and a completion-claim guardrail that nudges the
-agent off premature "all done" sign-offs while items are still open.
+overlay, every-turn auto-injection of the active plan (via the `context` hook), and a completion-claim guardrail that
+nudges the agent off premature "all done" sign-offs while items are still open.
 
 ## What it does
 
@@ -73,7 +73,7 @@ The six statuses and their glyphs:
 | `blocked`     | `⛔`  | Work still needed, parked on an external dependency. Note explains what is being waited on.                 |
 | `cancelled`   | `⊘`   | Out of scope. No work will be done. Note explains why (superseded, duplicate, pivoted, no longer relevant). |
 
-**Block-vs-cancel rule.** This is the distinction the system-prompt injection hammers on:
+**Block-vs-cancel rule.** This is the distinction the injected active-plan block hammers on:
 
 - Use `block` when work is still needed but parked on an external dependency. The note carries what is being waited on.
 - Use `cancel` when the item is no longer in scope. No work will be done. The note carries why.

@@ -55,13 +55,15 @@
 
 import { StringEnum } from '@earendil-works/pi-ai';
 import { type ExtensionAPI, type ExtensionContext, type Theme } from '@earendil-works/pi-coding-agent';
-import { Text } from '@earendil-works/pi-tui';
+import { matchesKey, Text, truncateToWidth } from '@earendil-works/pi-tui';
 import { Type } from 'typebox';
 
 import { completeSubverbs } from '../../../lib/node/pi/commands/complete.ts';
 import { isHelpArg } from '../../../lib/node/pi/commands/help.ts';
 import { applyContextReminder, type ReminderMessage } from '../../../lib/node/pi/context-reminder.ts';
-import { formatWorkingNotes } from '../../../lib/node/pi/scratchpad-prompt.ts';
+import { wrapPlain } from '../../../lib/node/pi/context-usage/format.ts';
+import { formatWorkingNotes, groupByHeading } from '../../../lib/node/pi/scratchpad-prompt.ts';
+import { formatHeaderRule } from '../../../lib/node/pi/tui-rule.ts';
 import { SCRATCHPAD_USAGE } from '../../../lib/node/pi/scratchpad/usage.ts';
 import {
   actAppend,
@@ -119,6 +121,91 @@ function renderNoteLine(n: ScratchNote, theme: Theme): string {
   const heading = n.heading ? theme.fg('muted', ` [${n.heading}]`) : '';
   const body = theme.fg('text', truncate(n.body, 160));
   return `  • ${id}${heading} ${body}`;
+}
+
+/** Item render used inside the `/scratchpad` overlay. The heading is the
+ * section label, so each line carries only `• #id body`; long / multi-line
+ * bodies word-wrap with continuation lines aligned under the body. */
+function renderOverlayNoteLines(n: ScratchNote, theme: Theme, idPad: number, width: number): string[] {
+  const idStr = `#${n.id}`.padEnd(idPad);
+  const prefix = `    • ${theme.fg('accent', idStr)} `;
+  // Visible indent of `prefix`: 4 (item indent) + 2 ('• ') + idPad + 1 (space).
+  const indentWidth = 7 + idPad;
+  const bodyWidth = Math.max(8, width - indentWidth);
+  const wrapped = wrapPlain(n.body, bodyWidth);
+  if (wrapped.length === 0) return [prefix];
+  const cont = ' '.repeat(indentWidth);
+  return wrapped.map((line, i) =>
+    i === 0 ? `${prefix}${theme.fg('text', line)}` : `${cont}${theme.fg('text', line)}`,
+  );
+}
+
+// ──────────────────────────────────────────────────────────────────────
+// /scratchpad overlay
+// ──────────────────────────────────────────────────────────────────────
+
+class ScratchpadOverlay {
+  private readonly state: ScratchpadState;
+  private readonly theme: Theme;
+  private readonly onClose: () => void;
+  private cachedWidth?: number;
+  private cachedLines?: string[];
+
+  constructor(state: ScratchpadState, theme: Theme, onClose: () => void) {
+    this.state = state;
+    this.theme = theme;
+    this.onClose = onClose;
+  }
+
+  handleInput(data: string): void {
+    if (matchesKey(data, 'escape') || matchesKey(data, 'ctrl+c')) this.onClose();
+  }
+
+  render(width: number): string[] {
+    if (this.cachedLines && this.cachedWidth === width) return this.cachedLines;
+    const th = this.theme;
+    const lines: string[] = [''];
+
+    const total = this.state.notes.length;
+    const chip = total > 0 ? `${total} note${total === 1 ? '' : 's'}` : undefined;
+    lines.push(truncateToWidth(formatHeaderRule('Scratchpad', chip, width, th), width));
+    lines.push('');
+
+    if (total === 0) {
+      lines.push(
+        truncateToWidth(
+          `  ${th.fg('dim', 'Scratchpad is empty. The agent records decisions, paths, and commands here.')}`,
+          width,
+        ),
+      );
+    } else {
+      const idPad = Math.max(...this.state.notes.map((n) => String(n.id).length)) + 1; // include '#'
+      let firstSection = true;
+      for (const [heading, notes] of groupByHeading(this.state.notes)) {
+        if (!firstSection) lines.push('');
+        firstSection = false;
+        lines.push(truncateToWidth(`  ${th.fg('muted', heading || 'Notes')}`, width));
+        for (const n of notes) {
+          for (const row of renderOverlayNoteLines(n, th, idPad, width)) {
+            lines.push(truncateToWidth(row, width));
+          }
+        }
+      }
+    }
+
+    lines.push('');
+    lines.push(truncateToWidth(`  ${th.fg('dim', 'Press Escape to close')}`, width));
+    lines.push('');
+
+    this.cachedWidth = width;
+    this.cachedLines = lines;
+    return lines;
+  }
+
+  invalidate(): void {
+    this.cachedWidth = undefined;
+    this.cachedLines = undefined;
+  }
 }
 
 // ──────────────────────────────────────────────────────────────────────
@@ -258,11 +345,11 @@ export default function scratchpadExtension(pi: ExtensionAPI): void {
 
   // ── /scratchpad command ─────────────────────────────────────────────
   pi.registerCommand('scratchpad', {
-    description: 'Show the scratchpad (no args or `list`) or `preview` the system-prompt injection',
+    description: 'Show the scratchpad (no args or `list`) or `preview` the working-notes block injected next turn',
     getArgumentCompletions: (prefix) =>
       completeSubverbs(prefix, {
         list: { description: 'Show the scratchpad' },
-        preview: { description: 'Preview the system-prompt injection' },
+        preview: { description: 'Preview the working-notes block injected next turn' },
       }),
     handler: async (args, ctx) => {
       if (isHelpArg(args)) {
@@ -271,14 +358,18 @@ export default function scratchpadExtension(pi: ExtensionAPI): void {
       }
       const sub = (args ?? '').trim().toLowerCase();
       if (sub === '' || sub === 'list') {
-        ctx.ui.notify(formatText(state), 'info');
+        if (!ctx.hasUI) {
+          ctx.ui.notify(formatText(state), 'info');
+          return;
+        }
+        await ctx.ui.custom<void>((_tui, theme, _kb, done) => new ScratchpadOverlay(state, theme, () => done()));
         return;
       }
       if (sub === 'preview') {
         if (!autoInjectEnabled) {
           ctx.ui.notify(
             'Scratchpad auto-injection is disabled (PI_SCRATCHPAD_DISABLE_AUTOINJECT=1). ' +
-              'Nothing would be added to the system prompt next turn.\n\n' +
+              'Nothing would be injected next turn.\n\n' +
               `Current notebook (${state.notes.length} note(s)):\n${formatText(state)}`,
             'info',
           );

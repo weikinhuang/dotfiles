@@ -6,7 +6,7 @@
 
 import { expect, test } from 'vitest';
 
-import { formatWorkingNotes } from '../../../../lib/node/pi/scratchpad-prompt.ts';
+import { formatWorkingNotes, groupByHeading } from '../../../../lib/node/pi/scratchpad-prompt.ts';
 import { type ScratchpadState } from '../../../../lib/node/pi/scratchpad-reducer.ts';
 
 const state = (notes: ScratchpadState['notes'], nextId?: number): ScratchpadState => ({
@@ -109,4 +109,25 @@ test('formatWorkingNotes: emits the guidance trailer when nothing is truncated',
   const out = formatWorkingNotes(state([{ id: 1, body: 'x' }]))!;
 
   expect(out).toMatch(/Keep these notes accurate/);
+});
+
+test('groupByHeading: preserves first-seen heading order and lumps headless notes under ""', () => {
+  const groups = groupByHeading([
+    { id: 1, body: 'a', heading: 'decisions' },
+    { id: 2, body: 'b' },
+    { id: 3, body: 'c', heading: 'paths' },
+    { id: 4, body: 'd', heading: 'decisions' },
+    { id: 5, body: 'e' },
+  ]);
+
+  // First-seen order of keys: decisions, '' (headless), paths.
+  expect(groups.map(([key]) => key)).toEqual(['decisions', '', 'paths']);
+  // Notes land in the right bucket, in order.
+  expect(groups[0][1].map((n) => n.id)).toEqual([1, 4]);
+  expect(groups[1][1].map((n) => n.id)).toEqual([2, 5]);
+  expect(groups[2][1].map((n) => n.id)).toEqual([3]);
+});
+
+test('groupByHeading: empty input yields no groups', () => {
+  expect(groupByHeading([])).toEqual([]);
 });

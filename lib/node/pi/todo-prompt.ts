@@ -2,10 +2,11 @@
  * Pure helpers used by the todo extension's weak-model guardrails.
  *
  *   - `formatActivePlan`: renders the currently-active + pending + blocked
- *     todos as a compact Markdown block for injection into the system
- *     prompt via `before_agent_start`. Returns `null` when there's nothing
- *     worth saying so the extension can skip injection entirely and keep
- *     casual single-turn chats uncluttered.
+ *     todos as a compact Markdown block spliced into every turn as an
+ *     ephemeral `<system-reminder>` (via the `context` hook, not the system
+ *     prompt). Returns `null` when there's nothing worth saying so the
+ *     extension can skip injection entirely and keep casual single-turn
+ *     chats uncluttered.
  *
  *   - `looksLikeCompletionClaim`: best-effort heuristic for "the assistant
  *     just signed off as done". Used by `agent_end` to decide whether to
@@ -40,9 +41,9 @@ export interface FormatOptions {
 }
 
 /**
- * Build the "# Active plan" block surfaced every turn (appended to the
- * system prompt by the `before_agent_start` arm, or spliced into the tail
- * as an ephemeral `<system-reminder>` by the `context` arm). Section order:
+ * Build the "# Active plan" block surfaced every turn (spliced into the
+ * tail as an ephemeral `<system-reminder>` by the `context` arm, not the
+ * system prompt). Section order:
  *   1. in_progress (focus)
  *   2. review (awaiting verification)
  *   3. pending (queue, capped at `maxItems`)
