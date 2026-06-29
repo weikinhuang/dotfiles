@@ -55,7 +55,17 @@
 
 import { StringEnum } from '@earendil-works/pi-ai';
 import { type ExtensionAPI, type ExtensionContext, type Theme } from '@earendil-works/pi-coding-agent';
-import { matchesKey, Text, truncateToWidth } from '@earendil-works/pi-tui';
+import {
+  type Component,
+  Editor,
+  type EditorTheme,
+  Input,
+  Key,
+  matchesKey,
+  Text,
+  truncateToWidth,
+  type TUI,
+} from '@earendil-works/pi-tui';
 import { Type } from 'typebox';
 
 import { completeSubverbs } from '../../../lib/node/pi/commands/complete.ts';
@@ -124,13 +134,22 @@ function renderNoteLine(n: ScratchNote, theme: Theme): string {
 }
 
 /** Item render used inside the `/scratchpad` overlay. The heading is the
- * section label, so each line carries only `• #id body`; long / multi-line
- * bodies word-wrap with continuation lines aligned under the body. */
-function renderOverlayNoteLines(n: ScratchNote, theme: Theme, idPad: number, width: number): string[] {
+ * section label, so each line carries only `> #id body` (the `>` marker is
+ * shown on the selected note, a space otherwise); long / multi-line bodies
+ * word-wrap with continuation lines aligned under the body. */
+function renderOverlayNoteLines(
+  n: ScratchNote,
+  theme: Theme,
+  idPad: number,
+  width: number,
+  selected: boolean,
+): string[] {
+  const marker = selected ? theme.fg('accent', '>') : ' ';
   const idStr = `#${n.id}`.padEnd(idPad);
-  const prefix = `    • ${theme.fg('accent', idStr)} `;
-  // Visible indent of `prefix`: 4 (item indent) + 2 ('• ') + idPad + 1 (space).
-  const indentWidth = 7 + idPad;
+  const id = selected ? theme.fg('accent', theme.bold(idStr)) : theme.fg('accent', idStr);
+  const prefix = `  ${marker} ${id} `;
+  // Visible indent of `prefix`: 2 (item indent) + 1 (marker) + 1 (space) + idPad + 1 (space).
+  const indentWidth = 5 + idPad;
   const bodyWidth = Math.max(8, width - indentWidth);
   const wrapped = wrapPlain(n.body, bodyWidth);
   if (wrapped.length === 0) return [prefix];
@@ -144,49 +163,234 @@ function renderOverlayNoteLines(n: ScratchNote, theme: Theme, idPad: number, wid
 // /scratchpad overlay
 // ──────────────────────────────────────────────────────────────────────
 
-class ScratchpadOverlay {
-  private readonly state: ScratchpadState;
+/**
+ * State mutations the overlay drives back into the extension. Each runs the
+ * matching reducer action, updates the in-memory `state`, and mirrors it via
+ * `pi.appendEntry` - the same persistence path the `scratchpad` tool uses, so
+ * overlay edits survive `/compact` and travel with the branch.
+ */
+interface ScratchpadOverlayDeps {
+  getState: () => ScratchpadState;
+  remove: (id: number) => void;
+  updateBody: (id: number, body: string) => void;
+  /** Empty string clears the heading. */
+  updateHeading: (id: number, heading: string) => void;
+  /** Returns the new note's id, or undefined if the append was rejected. */
+  append: (body: string) => number | undefined;
+}
+
+type OverlayMode = 'list' | 'body' | 'heading' | 'add';
+
+class ScratchpadOverlay implements Component {
+  private readonly deps: ScratchpadOverlayDeps;
   private readonly theme: Theme;
+  private readonly tui: TUI;
   private readonly onClose: () => void;
+  /** Multi-line editor for note bodies (`e`) and new notes (`a`). */
+  private readonly editor: Editor;
+  /** Single-line input for the heading (`h`). */
+  private readonly input: Input;
+
+  private mode: OverlayMode = 'list';
+  /** Selection index into the flattened (grouped) display order. */
+  private sel = 0;
+  /** Note being edited in `body` / `heading` mode (null in `add`). */
+  private editingId: number | null = null;
   private cachedWidth?: number;
   private cachedLines?: string[];
 
-  constructor(state: ScratchpadState, theme: Theme, onClose: () => void) {
-    this.state = state;
+  constructor(deps: ScratchpadOverlayDeps, theme: Theme, tui: TUI, onClose: () => void) {
+    this.deps = deps;
     this.theme = theme;
+    this.tui = tui;
     this.onClose = onClose;
+
+    const editorTheme: EditorTheme = {
+      borderColor: (s) => theme.fg('accent', s),
+      selectList: {
+        selectedPrefix: (t) => theme.fg('accent', t),
+        selectedText: (t) => theme.fg('accent', t),
+        description: (t) => theme.fg('muted', t),
+        scrollInfo: (t) => theme.fg('dim', t),
+        noMatch: (t) => theme.fg('warning', t),
+      },
+    };
+    this.editor = new Editor(tui, editorTheme);
+    this.editor.onSubmit = (value) => this.onEditorSubmit(value);
+    this.input = new Input();
+    this.input.onSubmit = (value) => this.onHeadingSubmit(value);
   }
 
+  // ── Input ───────────────────────────────────────────────────────────
   handleInput(data: string): void {
-    if (matchesKey(data, 'escape') || matchesKey(data, 'ctrl+c')) this.onClose();
+    if (this.mode !== 'list') {
+      // Editing: Escape cancels without persisting; everything else flows
+      // into the active widget, which fires onSubmit on Enter.
+      if (matchesKey(data, Key.escape)) {
+        this.exitToList();
+        return;
+      }
+      if (this.mode === 'heading') this.input.handleInput(data);
+      else this.editor.handleInput(data);
+      this.refresh();
+      return;
+    }
+
+    // List mode: navigation + edit commands.
+    if (matchesKey(data, Key.escape) || matchesKey(data, 'ctrl+c') || data === 'q') {
+      this.onClose();
+      return;
+    }
+    if (matchesKey(data, Key.up) || matchesKey(data, 'ctrl+p') || data === 'k') this.move(-1);
+    else if (matchesKey(data, Key.down) || matchesKey(data, 'ctrl+n') || data === 'j') this.move(1);
+    else if (data === 'a') this.openAdd();
+    else if (data === 'e') this.openBody();
+    else if (data === 'h') this.openHeading();
+    else if (data === 'd') this.deleteSelected();
+    else return;
+    this.refresh();
   }
 
+  invalidate(): void {
+    this.cachedWidth = undefined;
+    this.cachedLines = undefined;
+  }
+
+  private refresh(): void {
+    this.invalidate();
+    this.tui.requestRender();
+  }
+
+  // ── Submit handlers ───────────────────────────────────────────────────
+  private onEditorSubmit(value: string): void {
+    const v = value.trim();
+    if (this.mode === 'add') {
+      if (v) {
+        const id = this.deps.append(v);
+        if (id !== undefined) this.selectId(id);
+      }
+    } else if (this.mode === 'body' && this.editingId !== null && v) {
+      // Empty body is rejected by the reducer; ignore it here so a stray
+      // submit doesn't blow away the note (use `d` to delete instead).
+      this.deps.updateBody(this.editingId, v);
+    }
+    this.exitToList();
+  }
+
+  private onHeadingSubmit(value: string): void {
+    // Trimmed-empty clears the heading; the reducer handles both.
+    if (this.editingId !== null) this.deps.updateHeading(this.editingId, value.trim());
+    this.exitToList();
+  }
+
+  // ── Mode transitions ──────────────────────────────────────────────────
+  private openAdd(): void {
+    this.mode = 'add';
+    this.editingId = null;
+    this.editor.setText('');
+    this.editor.focused = true;
+  }
+
+  private openBody(): void {
+    const note = this.currentNote();
+    if (!note) return;
+    this.mode = 'body';
+    this.editingId = note.id;
+    this.editor.setText(note.body);
+    this.editor.focused = true;
+  }
+
+  private openHeading(): void {
+    const note = this.currentNote();
+    if (!note) return;
+    this.mode = 'heading';
+    this.editingId = note.id;
+    this.input.setValue(note.heading ?? '');
+    this.input.focused = true;
+  }
+
+  private exitToList(): void {
+    this.mode = 'list';
+    this.editingId = null;
+    this.editor.setText('');
+    this.editor.focused = false;
+    this.input.setValue('');
+    this.input.focused = false;
+    this.clampSel();
+    this.refresh();
+  }
+
+  private deleteSelected(): void {
+    const note = this.currentNote();
+    if (!note) return;
+    this.deps.remove(note.id);
+    this.clampSel();
+  }
+
+  // ── Selection helpers ─────────────────────────────────────────────────
+  /** Notes in grouped display order (matches the rendered list). */
+  private orderedNotes(): ScratchNote[] {
+    return groupByHeading(this.deps.getState().notes).flatMap(([, notes]) => notes);
+  }
+
+  private currentNote(): ScratchNote | undefined {
+    const ordered = this.orderedNotes();
+    if (ordered.length === 0) return undefined;
+    return ordered[Math.min(this.sel, ordered.length - 1)];
+  }
+
+  private move(delta: number): void {
+    const n = this.orderedNotes().length;
+    if (n === 0) return;
+    this.sel = Math.max(0, Math.min(n - 1, this.sel + delta));
+  }
+
+  private clampSel(): void {
+    const n = this.orderedNotes().length;
+    this.sel = n === 0 ? 0 : Math.min(this.sel, n - 1);
+  }
+
+  private selectId(id: number): void {
+    const idx = this.orderedNotes().findIndex((n) => n.id === id);
+    if (idx >= 0) this.sel = idx;
+  }
+
+  // ── Render ────────────────────────────────────────────────────────────
   render(width: number): string[] {
-    if (this.cachedLines && this.cachedWidth === width) return this.cachedLines;
+    // Only the static list view is cacheable; the editor/input view changes
+    // on every keystroke, so it rebuilds each render.
+    if (this.mode === 'list' && this.cachedLines && this.cachedWidth === width) return this.cachedLines;
+    const lines = this.mode === 'list' ? this.renderList(width) : this.renderEditor(width);
+    if (this.mode === 'list') {
+      this.cachedWidth = width;
+      this.cachedLines = lines;
+    }
+    return lines;
+  }
+
+  private renderList(width: number): string[] {
     const th = this.theme;
+    const state = this.deps.getState();
     const lines: string[] = [''];
 
-    const total = this.state.notes.length;
+    const total = state.notes.length;
     const chip = total > 0 ? `${total} note${total === 1 ? '' : 's'}` : undefined;
     lines.push(truncateToWidth(formatHeaderRule('Scratchpad', chip, width, th), width));
     lines.push('');
 
     if (total === 0) {
-      lines.push(
-        truncateToWidth(
-          `  ${th.fg('dim', 'Scratchpad is empty. The agent records decisions, paths, and commands here.')}`,
-          width,
-        ),
-      );
+      lines.push(truncateToWidth(`  ${th.fg('dim', 'Scratchpad is empty. Press a to add a note.')}`, width));
     } else {
-      const idPad = Math.max(...this.state.notes.map((n) => String(n.id).length)) + 1; // include '#'
+      const idPad = Math.max(...state.notes.map((n) => String(n.id).length)) + 1; // include '#'
+      const ordered = this.orderedNotes();
+      const selId = ordered[Math.min(this.sel, ordered.length - 1)]?.id;
       let firstSection = true;
-      for (const [heading, notes] of groupByHeading(this.state.notes)) {
+      for (const [heading, notes] of groupByHeading(state.notes)) {
         if (!firstSection) lines.push('');
         firstSection = false;
         lines.push(truncateToWidth(`  ${th.fg('muted', heading || 'Notes')}`, width));
         for (const n of notes) {
-          for (const row of renderOverlayNoteLines(n, th, idPad, width)) {
+          for (const row of renderOverlayNoteLines(n, th, idPad, width, n.id === selId)) {
             lines.push(truncateToWidth(row, width));
           }
         }
@@ -194,17 +398,44 @@ class ScratchpadOverlay {
     }
 
     lines.push('');
-    lines.push(truncateToWidth(`  ${th.fg('dim', 'Press Escape to close')}`, width));
+    const hint = total === 0 ? 'a add · Esc close' : '↑/↓ move · e body · h heading · a add · d delete · Esc close';
+    lines.push(truncateToWidth(`  ${th.fg('dim', hint)}`, width));
     lines.push('');
-
-    this.cachedWidth = width;
-    this.cachedLines = lines;
     return lines;
   }
 
-  invalidate(): void {
-    this.cachedWidth = undefined;
-    this.cachedLines = undefined;
+  private renderEditor(width: number): string[] {
+    const th = this.theme;
+    const lines: string[] = [''];
+
+    let chip: string;
+    let label: string;
+    if (this.mode === 'add') {
+      chip = 'new note';
+      label = 'New note body:';
+    } else if (this.mode === 'body') {
+      chip = `editing #${this.editingId}`;
+      label = 'Body:';
+    } else {
+      chip = `heading for #${this.editingId}`;
+      label = 'Heading (leave empty to clear):';
+    }
+    lines.push(truncateToWidth(formatHeaderRule('Scratchpad', chip, width, th), width));
+    lines.push('');
+    lines.push(truncateToWidth(`  ${th.fg('muted', label)}`, width));
+    lines.push('');
+
+    const widget = this.mode === 'heading' ? this.input : this.editor;
+    for (const line of widget.render(width - 2)) lines.push(line);
+
+    lines.push('');
+    const hint =
+      this.mode === 'heading'
+        ? 'Enter to save · Esc to cancel'
+        : 'Enter to save · Shift+Enter for newline · Esc to cancel';
+    lines.push(truncateToWidth(`  ${th.fg('dim', hint)}`, width));
+    lines.push('');
+    return lines;
   }
 }
 
@@ -362,7 +593,31 @@ export default function scratchpadExtension(pi: ExtensionAPI): void {
           ctx.ui.notify(formatText(state), 'info');
           return;
         }
-        await ctx.ui.custom<void>((_tui, theme, _kb, done) => new ScratchpadOverlay(state, theme, () => done()));
+        // Persist an overlay edit the same way the tool's execute() does:
+        // adopt the post-action state and mirror it to a session entry.
+        const persist = (result: ActionResult): void => {
+          if (!result.ok) return;
+          state = result.state;
+          try {
+            pi.appendEntry(SCRATCHPAD_CUSTOM_TYPE, cloneState(state));
+          } catch {
+            // Never let bookkeeping break an overlay edit.
+          }
+        };
+        const deps: ScratchpadOverlayDeps = {
+          getState: () => state,
+          remove: (id) => persist(actRemove(state, id)),
+          updateBody: (id, body) => persist(actUpdate(state, id, body, undefined)),
+          updateHeading: (id, heading) => persist(actUpdate(state, id, undefined, heading)),
+          append: (body) => {
+            const result = actAppend(state, body, undefined);
+            if (!result.ok) return undefined;
+            const newId = state.nextId; // id assigned == nextId before the append increments it
+            persist(result);
+            return newId;
+          },
+        };
+        await ctx.ui.custom<void>((tui, theme, _kb, done) => new ScratchpadOverlay(deps, theme, tui, () => done()));
         return;
       }
       if (sub === 'preview') {

@@ -40,10 +40,21 @@ Notes are trimmed on write; attempting to `update` a note with an empty body ret
 
 ## Commands
 
-- `/scratchpad` (or `/scratchpad list`) - opens the read-only `ScratchpadOverlay` (same header-rule style as `/todos`):
-  a `─── Scratchpad ───…─── N notes ───` rule, then notes grouped by heading in first-seen order (ungrouped notes under
-  an implicit `Notes` section), with long / multi-line bodies word-wrapped under the `• #id` prefix. `Escape` (or
-  `Ctrl-C`) closes it. Without a UI (e.g. `pi -p`) it falls back to a plain text dump of every note id / heading / body.
+- `/scratchpad` (or `/scratchpad list`) - opens the interactive `ScratchpadOverlay` (same header-rule style as
+  `/todos`): a `─── Scratchpad ───…─── N notes ───` rule, then notes grouped by heading in first-seen order (ungrouped
+  notes under an implicit `Notes` section), with long / multi-line bodies word-wrapped under the `> #id` prefix. The
+  notebook is editable in place:
+  - `↑`/`↓` (or `j`/`k`, `Ctrl-P`/`Ctrl-N`) move the selection (`>` marker), in grouped display order.
+  - `e` edits the selected note's body in a multi-line editor (`Enter` saves, `Shift+Enter` newline, `Esc` cancels).
+  - `h` edits the selected note's heading in a single-line input (empty saves as "clear heading").
+  - `a` adds a new note (body editor; the heading can then be set with `h`).
+  - `d` deletes the selected note.
+  - `Esc` / `Ctrl-C` / `q` close the overlay.
+
+  Every edit runs the same reducer action and `pi.appendEntry('scratchpad-state', …)` persistence the tool uses, so
+  overlay edits are branch-aware and survive `/compact`. Without a UI (e.g. `pi -p`) the command falls back to a plain
+  text dump of every note id / heading / body.
+
 - `/scratchpad preview` - shows the exact `## Working Notes` block that would be injected into the next turn (respecting
   `PI_SCRATCHPAD_MAX_INJECTED_CHARS`). Surfaces a clear "nothing would be injected" message when the notebook is empty
   or `PI_SCRATCHPAD_DISABLE_AUTOINJECT=1` is set, so you can quickly answer "is the extension doing anything this turn?"
