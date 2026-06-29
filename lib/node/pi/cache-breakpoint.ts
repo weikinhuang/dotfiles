@@ -77,12 +77,10 @@
  * what it did, for tracing and tests.
  */
 
-// The wire marker every <system-reminder> block carries (see
-// context-reminder.ts `frameReminder`, which emits
-// `<system-reminder id="…">`). Matched as a literal rather than imported
-// to keep this helper decoupled; it is a stable wire convention shared
-// with Claude Code, not an internal implementation detail.
-const REMINDER_MARKER = '<system-reminder';
+// The wire marker every <system-reminder> block carries. Sourced from
+// `context-reminder.ts` (the emitter) so the detector here, the emitter,
+// and the reminder-primer addendum share one literal and can't drift.
+import { REMINDER_TAG_MARKER as REMINDER_MARKER } from './context-reminder.ts';
 
 /** A single content block. Duck-typed: we only read marker fields. */
 export interface PayloadBlock {

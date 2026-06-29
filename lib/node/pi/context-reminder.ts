@@ -105,7 +105,15 @@ export interface ReminderSpec {
 // Framing
 // ──────────────────────────────────────────────────────────────────────
 
-const TAG_OPEN_PREFIX = '<system-reminder id="';
+/**
+ * The wire marker every `<system-reminder>` block opens with. Exported as
+ * the single source of truth for this convention so the cache-breakpoint
+ * detector (`cache-breakpoint.ts`) and the system-prompt primer
+ * (`reminder-primer.ts`) reference one literal instead of drifting copies.
+ */
+export const REMINDER_TAG_MARKER = '<system-reminder';
+
+const TAG_OPEN_PREFIX = `${REMINDER_TAG_MARKER} id="`;
 const TAG_CLOSE = '</system-reminder>';
 
 /** Roles a reminder may be spliced into (what the assistant responds to). */
