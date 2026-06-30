@@ -1,0 +1,4 @@
+{
+  "models": ["llama-cpp/gemma4-31b", "gemma4-31b"],
+  "keepLast": 1
+}
