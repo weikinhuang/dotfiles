@@ -131,15 +131,24 @@ An empty prompt, no memories, or no matches injects nothing. Disable the whole f
 ## Capture-assist
 
 Compaction is the moment context - and any durable fact that surfaced mid-session but was never `memory save`d - is
-summarized away. On `session_before_compact` the extension arms a one-shot flag; the next `context` hook splices a short
-`<system-reminder>` into the turn nudging the model to persist anything worth keeping. This is purely a _timing_ prompt:
-the model already carries the [`memory-first`](../skills/memory-first/SKILL.md) skill describing _what_ to save, so the
-nudge just reminds it _when_. It does not analyze the transcript or propose candidates.
+summarized away. On `session_before_compact` the extension arms a one-shot flag; then on `session_compact` it mines the
+just-generated summary's `## Constraints & Preferences` and `## Key Decisions` sections for concrete save-worthy
+candidates (free - the summarizer already extracted them), drops any already saved, and the next `context` hook splices
+a `<system-reminder>` listing those candidates into the turn (falling back to a generic timing reminder when no
+candidates are found). The model carries the [`memory-first`](../skills/memory-first/SKILL.md) skill describing _what_
+to save; this adds _when_ + _which_.
 
 Pi's `session_before_compact` handler can only cancel or replace the compaction - it cannot inject conversation context
 
 - so the reminder rides the following turn via the `context` hook (the same cache-safe seam as recall) to reach the
   model itself, rather than only the UI.
+
+**Delivery mode (`PI_MEMORY_CAPTURE_TURN`).** By default the nudge rides the next user turn as a `<system-reminder>` -
+invisible, cache-cheap, and effective on frontier models. Small/weak self-hosted models, however, attend to the primary
+user turn and tune out a secondary injected reminder (measured: 0 saves across many trials). Setting
+`PI_MEMORY_CAPTURE_TURN=1` instead delivers the candidate directive as its _own_ follow-up turn (`sendUserMessage`), so
+the save becomes the model's primary task - which converts reliably on small models, at the cost of one extra visible
+model turn. Opt-in; only fires when concrete candidates were found.
 
 **Nag-fatigue gating.** A reminder on every compaction would be noise, so the nudge is suppressed unless there is
 plausibly something unsaved to capture: there must have been at least one user turn since the last successful save this
@@ -148,8 +157,8 @@ compactions with no intervening user activity stay quiet. The nudge is also supp
 written (`PI_MEMORY_READONLY=1` - no point nudging a save you can't make) or when it is turned off
 (`PI_MEMORY_DISABLE_CAPTURE=1`).
 
-This is "Depth A" (timing nudge only). Transcript analysis that proposes specific save candidates is a deliberately
-deferred follow-up.
+Candidate extraction reuses the compaction summary (no extra model call); a heavier transcript-analysis pass with its
+own model call remains a deferred option.
 
 ## Commands
 
