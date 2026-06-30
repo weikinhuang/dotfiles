@@ -38,7 +38,13 @@ import { join } from 'node:path';
 
 import { atomicWriteFile, ensureDirSync } from './atomic-write.ts';
 import { parseFrontmatter, takenSlugs, validTypesForScope } from './memory-reducer.ts';
-import { type MemoryEntry, type MemoryScope, type MemoryState, type MemoryType } from './memory-reducer.ts';
+import {
+  type Frontmatter,
+  type MemoryEntry,
+  type MemoryScope,
+  type MemoryState,
+  type MemoryType,
+} from './memory-reducer.ts';
 
 // `ensureDirSync` + `atomicWriteFile` are re-exported so memory-paths
 // consumers continue to import from this module; the canonical
@@ -196,6 +202,24 @@ export function readMemoryBody(entry: MemoryEntry, cwd: string, sessionId: strin
   return parsed ? parsed.body : raw;
 }
 
+/**
+ * Read the parsed frontmatter for an entry's on-disk file, or `null` when
+ * the file is missing / unreadable / lacks valid frontmatter. Used by
+ * `update` to carry the original `created` timestamp forward.
+ */
+export function readMemoryFrontmatter(
+  entry: MemoryEntry,
+  cwd: string,
+  sessionId: string | null = null,
+): Frontmatter | null {
+  const path = fileFor(entry.scope, entry.type, entry.id, cwd, sessionId);
+  if (!existsSync(path)) return null;
+  const raw = readTextFile(path);
+  if (raw == null) return null;
+  const parsed = parseFrontmatter(raw);
+  return parsed ? parsed.frontmatter : null;
+}
+
 export interface ScanWarning {
   path: string;
   reason: string;
@@ -252,6 +276,10 @@ export function scanScope(
         type,
         name: parsed.frontmatter.name,
         description: parsed.frontmatter.description,
+        // Absent / unparseable timestamps were normalised to `undefined`
+        // by `parseFrontmatter`; carry them straight through.
+        created: parsed.frontmatter.created,
+        updated: parsed.frontmatter.updated,
       });
     }
   }

@@ -3,9 +3,10 @@
  * extension shell and the `--help` path share one source of truth.
  */
 export const MEMORY_USAGE = [
-  'Usage: /memory [list|preview|dir|rescan|gc]',
+  'Usage: /memory [list|preview|dir|rescan|stale|gc]',
   '',
   'List memories (no args or `list`), preview the injected index (`preview`),',
-  'print the memory dir (`dir`), rescan disk (`rescan`), or prune orphaned',
-  'session memory (`gc`).',
+  'print the memory dir (`dir`), rescan disk (`rescan`), list project memories',
+  'older than PI_MEMORY_STALE_DAYS (`stale`), or prune orphaned session memory',
+  '(`gc`).',
 ].join('\n');

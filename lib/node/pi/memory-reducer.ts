@@ -40,6 +40,14 @@ export interface MemoryEntry {
   type: MemoryType;
   name: string;
   description: string;
+  /**
+   * ISO-8601 UTC datetime the memory was first written (e.g.
+   * `2026-06-30T14:22:01Z`). `undefined` for legacy files saved before
+   * timestamps existed.
+   */
+  created?: string;
+  /** ISO-8601 UTC datetime of the most recent write. `undefined` for legacy files. */
+  updated?: string;
 }
 
 export interface MemoryIndex {
@@ -142,6 +150,9 @@ function isMemoryEntryShape(value: unknown): value is MemoryEntry {
   if (!MEMORY_TYPES.includes(v.type as MemoryType)) return false;
   if (typeof v.name !== 'string') return false;
   if (typeof v.description !== 'string') return false;
+  // Timestamps are optional; when present they must be strings.
+  if (v.created !== undefined && typeof v.created !== 'string') return false;
+  if (v.updated !== undefined && typeof v.updated !== 'string') return false;
   return true;
 }
 
@@ -171,13 +182,21 @@ export function reduceBranch(branch: readonly BranchEntry[]): MemoryState | null
 }
 
 // ──────────────────────────────────────────────────────────────────────
-// Frontmatter (strict three-key YAML subset)
+// Frontmatter (strict five-key YAML subset)
 // ──────────────────────────────────────────────────────────────────────
 
 export interface Frontmatter {
   name: string;
   description: string;
   type: MemoryType;
+  /**
+   * ISO-8601 UTC datetime of first write. Optional so files written
+   * before timestamps existed (the original three-key form) still parse;
+   * an absent or unparseable value lands here as `undefined`.
+   */
+  created?: string;
+  /** ISO-8601 UTC datetime of the most recent write. Optional, same as `created`. */
+  updated?: string;
 }
 
 export interface ParsedMemoryFile {
@@ -208,6 +227,21 @@ function stripQuotes(raw: string): string {
 }
 
 /**
+ * Coerce a raw frontmatter timestamp into a normalised ISO-8601 UTC
+ * string, or `undefined` when the value is missing or unparseable.
+ * Parsing is deliberately loose: a bad timestamp is treated as absent,
+ * never a reason to reject the whole file.
+ */
+function parseTimestamp(raw: string | undefined): string | undefined {
+  if (raw === undefined) return undefined;
+  const t = raw.trim();
+  if (t.length === 0) return undefined;
+  const ms = Date.parse(t);
+  if (!Number.isFinite(ms)) return undefined;
+  return new Date(ms).toISOString();
+}
+
+/**
  * Parse a memory markdown file. Returns `null` if the frontmatter fence
  * is missing, incomplete, or the three required keys aren't all present.
  *
@@ -234,6 +268,8 @@ export function parseFrontmatter(raw: string): ParsedMemoryFile | null {
   const body = bodyStart <= src.length ? src.slice(bodyStart) : '';
 
   const partial: Partial<Frontmatter> = {};
+  let createdRaw: string | undefined;
+  let updatedRaw: string | undefined;
   for (const rawLine of header.split('\n')) {
     const line = rawLine.replace(/\s+$/, '');
     if (line.length === 0) continue;
@@ -246,7 +282,8 @@ export function parseFrontmatter(raw: string): ParsedMemoryFile | null {
     else if (key === 'type') {
       if (!(MEMORY_TYPES as readonly string[]).includes(value)) return null;
       partial.type = value as MemoryType;
-    }
+    } else if (key === 'created') createdRaw = value;
+    else if (key === 'updated') updatedRaw = value;
     // Unknown keys are ignored - allows for forward compatibility.
   }
 
@@ -254,11 +291,18 @@ export function parseFrontmatter(raw: string): ParsedMemoryFile | null {
   if (typeof partial.description !== 'string') return null;
   if (partial.type === undefined) return null;
 
+  // Timestamps are loose: an absent or unparseable value is `undefined`,
+  // never a reason to reject the file (old three-key files have neither).
+  const created = parseTimestamp(createdRaw);
+  const updated = parseTimestamp(updatedRaw);
+
   return {
     frontmatter: {
       name: partial.name,
       description: partial.description,
       type: partial.type,
+      ...(created !== undefined ? { created } : {}),
+      ...(updated !== undefined ? { updated } : {}),
     },
     body: body.replace(/^\n+/, ''),
   };
@@ -279,18 +323,28 @@ function yamlValue(raw: string): string {
   return `"${s.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
 }
 
-export function serializeMemory(input: { name: string; description: string; type: MemoryType; body: string }): string {
+export function serializeMemory(input: {
+  name: string;
+  description: string;
+  type: MemoryType;
+  body: string;
+  /** ISO-8601 UTC datetime; the extension passes `now.toISOString()`. Omitted when absent. */
+  created?: string;
+  updated?: string;
+}): string {
   const body = input.body.replace(/\r\n/g, '\n').replace(/\s+$/, '');
   const lines = [
     FENCE,
     `name: ${yamlValue(input.name)}`,
     `description: ${yamlValue(input.description)}`,
     `type: ${input.type}`,
-    FENCE,
-    '',
-    body,
-    '',
   ];
+  // Timestamps come after `type`; an ISO string carries a `:` so it goes
+  // through `yamlValue`'s quoted path. Omitted entirely when absent so a
+  // re-serialised legacy file stays in its original three-key form.
+  if (input.created !== undefined) lines.push(`created: ${yamlValue(input.created)}`);
+  if (input.updated !== undefined) lines.push(`updated: ${yamlValue(input.updated)}`);
+  lines.push(FENCE, '', body, '');
   return lines.join('\n');
 }
 
@@ -412,6 +466,42 @@ export function formatText(state: MemoryState): string {
     for (const e of session) parts.push(`  [${e.type}] ${e.id} - ${e.name}: ${e.description}`);
   }
   return parts.join('\n');
+}
+
+// ──────────────────────────────────────────────────────────────────────
+// Staleness (project-memory age surfacing)
+// ──────────────────────────────────────────────────────────────────────
+
+/** Default age (days) past which a `project` memory is flagged stale. */
+export const DEFAULT_STALE_DAYS = 30;
+
+const MS_PER_DAY = 86_400_000;
+
+/**
+ * Whole-day age of an entry against `now`, derived from its `updated`
+ * timestamp (falling back to `created`). Returns `undefined` when the
+ * entry carries no usable timestamp or the timestamp is in the future
+ * (so a clock skew never reports a negative age). Truncates to days.
+ */
+export function entryAgeDays(entry: MemoryEntry, now: Date): number | undefined {
+  const stamp = entry.updated ?? entry.created;
+  if (stamp === undefined) return undefined;
+  const ms = Date.parse(stamp);
+  if (!Number.isFinite(ms)) return undefined;
+  const diff = now.getTime() - ms;
+  if (diff < 0) return undefined;
+  return Math.floor(diff / MS_PER_DAY);
+}
+
+/**
+ * Whether an entry should be surfaced as stale: `project`-type only (the
+ * fast-decaying type), with a known age at or past `staleDays`. Never
+ * marks `user` / `feedback` / `reference` / `note`.
+ */
+export function isStaleEntry(entry: MemoryEntry, now: Date, staleDays: number): boolean {
+  if (entry.type !== 'project') return false;
+  const age = entryAgeDays(entry, now);
+  return age !== undefined && age >= staleDays;
 }
 
 // ──────────────────────────────────────────────────────────────────────

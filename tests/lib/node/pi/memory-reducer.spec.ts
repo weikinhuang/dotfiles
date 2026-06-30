@@ -13,10 +13,12 @@ import {
   defaultMemoryTypeForScope,
   emptyIndex,
   emptyState,
+  entryAgeDays,
   findEntry,
   formatText,
   isMemoryTypeAllowedInScope,
   isMemoryStateShape,
+  isStaleEntry,
   type MemoryEntry,
   parseFrontmatter,
   removeEntry,
@@ -260,6 +262,166 @@ test('serializeMemory: multi-line body is normalised but preserved', () => {
 
   expect(out).toContain('\nline1\nline2\n');
   expect(out).not.toContain('\r');
+});
+
+// ──────────────────────────────────────────────────────────────────────
+// Timestamps (created / updated)
+// ──────────────────────────────────────────────────────────────────────
+
+test('serializeMemory + parseFrontmatter: roundtrips created/updated timestamps', () => {
+  // The extension emits `toISOString()` (with `.000Z` millis), so a true
+  // roundtrip uses the normalised form. parseFrontmatter re-normalises any
+  // parseable timestamp to ISO-8601 UTC with millis.
+  const created = '2026-06-30T14:22:01.000Z';
+  const updated = '2026-07-01T09:00:00.000Z';
+  const out = serializeMemory({ name: 'n', description: 'd', type: 'project', body: 'b', created, updated });
+
+  // Emitted after `type` and before the closing fence.
+  expect(out).toContain('created: ');
+  expect(out).toContain('updated: ');
+
+  const parsed = parseFrontmatter(out);
+
+  expect(parsed).not.toBeNull();
+  expect(parsed!.frontmatter.created).toBe(created);
+  expect(parsed!.frontmatter.updated).toBe(updated);
+});
+
+test('serializeMemory: omits timestamp keys entirely when absent (legacy three-key form)', () => {
+  const out = serializeMemory({ name: 'n', description: 'd', type: 'user', body: 'b' });
+
+  expect(out).not.toContain('created:');
+  expect(out).not.toContain('updated:');
+});
+
+test('parseFrontmatter: old three-key file parses with undefined timestamps', () => {
+  const raw = '---\nname: n\ndescription: d\ntype: project\n---\n\nbody\n';
+  const parsed = parseFrontmatter(raw);
+
+  expect(parsed).not.toBeNull();
+  expect(parsed!.frontmatter.created).toBeUndefined();
+  expect(parsed!.frontmatter.updated).toBeUndefined();
+});
+
+test('parseFrontmatter: unparseable timestamp is tolerated (treated as absent)', () => {
+  const raw =
+    '---\nname: n\ndescription: d\ntype: project\ncreated: not-a-date\nupdated: "also nonsense"\n---\n\nbody\n';
+  const parsed = parseFrontmatter(raw);
+
+  // The file must still parse - a bad timestamp is never a reason to reject it.
+  expect(parsed).not.toBeNull();
+  expect(parsed!.frontmatter.created).toBeUndefined();
+  expect(parsed!.frontmatter.updated).toBeUndefined();
+});
+
+test('parseFrontmatter: normalises a parseable non-ISO timestamp to ISO-8601 UTC', () => {
+  const raw = '---\nname: n\ndescription: d\ntype: project\ncreated: 2026-06-30T14:22:01Z\n---\n\nbody\n';
+  const parsed = parseFrontmatter(raw);
+
+  expect(parsed).not.toBeNull();
+  expect(parsed!.frontmatter.created).toBe('2026-06-30T14:22:01.000Z');
+});
+
+test('update flow: created is preserved while updated is bumped (injected clock)', () => {
+  // Simulate the extension's actUpdate: read the on-disk frontmatter,
+  // carry `created` forward, stamp `updated` with the injected clock.
+  const created = new Date('2026-06-01T08:00:00Z').toISOString();
+  const original = serializeMemory({
+    name: 'n',
+    description: 'd',
+    type: 'project',
+    body: 'original',
+    created,
+    updated: created,
+  });
+  const onDisk = parseFrontmatter(original);
+
+  expect(onDisk).not.toBeNull();
+
+  const injectedNow = new Date('2026-06-30T12:34:56Z');
+  const rewritten = serializeMemory({
+    name: 'n',
+    description: 'd2',
+    type: 'project',
+    body: 'edited',
+    created: onDisk!.frontmatter.created,
+    updated: injectedNow.toISOString(),
+  });
+  const after = parseFrontmatter(rewritten);
+
+  expect(after).not.toBeNull();
+  expect(after!.frontmatter.created).toBe(created);
+  expect(after!.frontmatter.updated).toBe('2026-06-30T12:34:56.000Z');
+});
+
+test('isMemoryStateShape: accepts entries carrying timestamp strings', () => {
+  const s = {
+    index: {
+      global: [
+        { id: 'a', scope: 'global', type: 'user', name: 'n', description: 'd', created: '2026-01-01T00:00:00Z' },
+      ],
+      project: [],
+      session: [],
+    },
+    projectSlug: null,
+    sessionId: null,
+  };
+
+  expect(isMemoryStateShape(s)).toBe(true);
+});
+
+test('isMemoryStateShape: rejects a non-string timestamp', () => {
+  const bad = { id: 'a', scope: 'global', type: 'user', name: 'n', description: 'd', created: 123 };
+
+  expect(
+    isMemoryStateShape({ index: { global: [bad], project: [], session: [] }, projectSlug: null, sessionId: null }),
+  ).toBe(false);
+});
+
+// ──────────────────────────────────────────────────────────────────────
+// Staleness math
+// ──────────────────────────────────────────────────────────────────────
+
+const NOW = new Date('2026-06-30T00:00:00Z');
+
+test('entryAgeDays: truncates to whole days from updated, falling back to created', () => {
+  const fromUpdated: MemoryEntry = {
+    ...pProject('a'),
+    created: '2026-01-01T00:00:00Z',
+    updated: '2026-06-15T12:00:00Z',
+  };
+
+  // 15 days (truncated) between 2026-06-15T12:00 and 2026-06-30T00:00.
+  expect(entryAgeDays(fromUpdated, NOW)).toBe(14);
+
+  const fromCreated: MemoryEntry = { ...pProject('b'), created: '2026-06-20T00:00:00Z' };
+
+  expect(entryAgeDays(fromCreated, NOW)).toBe(10);
+});
+
+test('entryAgeDays: undefined when no timestamp, or when the stamp is in the future', () => {
+  expect(entryAgeDays(pProject('a'), NOW)).toBeUndefined();
+  expect(entryAgeDays({ ...pProject('b'), updated: '2027-01-01T00:00:00Z' }, NOW)).toBeUndefined();
+});
+
+test('isStaleEntry: project entry past threshold is stale, fresh one is not', () => {
+  const old: MemoryEntry = { ...pProject('old'), updated: '2026-05-01T00:00:00Z' };
+  const fresh: MemoryEntry = { ...pProject('fresh'), updated: '2026-06-25T00:00:00Z' };
+
+  expect(isStaleEntry(old, NOW, 30)).toBe(true);
+  expect(isStaleEntry(fresh, NOW, 30)).toBe(false);
+});
+
+test('isStaleEntry: never marks non-project types regardless of age', () => {
+  const oldUser: MemoryEntry = { ...gUser('u'), updated: '2025-01-01T00:00:00Z' };
+  const oldNote: MemoryEntry = { ...sNote('n'), updated: '2025-01-01T00:00:00Z' };
+
+  expect(isStaleEntry(oldUser, NOW, 30)).toBe(false);
+  expect(isStaleEntry(oldNote, NOW, 30)).toBe(false);
+});
+
+test('isStaleEntry: undated project entry is not stale', () => {
+  expect(isStaleEntry(pProject('a'), NOW, 30)).toBe(false);
 });
 
 // ──────────────────────────────────────────────────────────────────────

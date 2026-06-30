@@ -23,6 +23,7 @@ import {
   projectDir,
   pruneOrphanSessionDirs,
   readMemoryBody,
+  readMemoryFrontmatter,
   rebuildMemoryIndex,
   scanScope,
   sessionDir,
@@ -30,7 +31,7 @@ import {
   slugifyName,
   uniqueSlug,
 } from '../../../../lib/node/pi/memory-paths.ts';
-import { emptyState, type MemoryEntry, upsertEntry } from '../../../../lib/node/pi/memory-reducer.ts';
+import { emptyState, type MemoryEntry, serializeMemory, upsertEntry } from '../../../../lib/node/pi/memory-reducer.ts';
 
 let sandbox: string;
 const originalRoot = process.env.PI_MEMORY_ROOT;
@@ -263,6 +264,50 @@ test('scanScope: mismatched directory/type yields a warning', () => {
   expect(entries).toEqual([]);
   expect(warnings).toHaveLength(1);
   expect(warnings[0].reason).toContain('type');
+});
+
+test('scanScope: populates created/updated from frontmatter; absent yields undefined', () => {
+  const scopeDir = join(sandbox, 'projects', '--tmp--');
+  writeMemory(
+    join(scopeDir, 'project'),
+    'stamped.md',
+    {
+      name: 'Stamped',
+      description: 'd',
+      type: 'project',
+      created: '2026-06-01T08:00:00Z',
+      updated: '2026-06-10T09:30:00Z',
+    },
+    'body',
+  );
+  writeMemory(join(scopeDir, 'project'), 'bare.md', { name: 'Bare', description: 'd', type: 'project' }, 'body');
+  const { entries } = scanScope(scopeDir, 'project');
+  const stamped = entries.find((e) => e.id === 'stamped');
+  const bare = entries.find((e) => e.id === 'bare');
+
+  expect(stamped?.created).toBe('2026-06-01T08:00:00.000Z');
+  expect(stamped?.updated).toBe('2026-06-10T09:30:00.000Z');
+  expect(bare?.created).toBeUndefined();
+  expect(bare?.updated).toBeUndefined();
+});
+
+test('readMemoryFrontmatter: returns parsed frontmatter incl. timestamps, or null when absent', () => {
+  const cwd = '/tmp/pi-test';
+  const entry: MemoryEntry = { id: 'p', scope: 'project', type: 'project', name: 'P', description: 'd' };
+  atomicWriteFile(
+    fileFor('project', 'project', 'p', cwd),
+    serializeMemory({
+      name: 'P',
+      description: 'd',
+      type: 'project',
+      body: 'b',
+      created: '2026-06-01T00:00:00Z',
+      updated: '2026-06-02T00:00:00Z',
+    }),
+  );
+
+  expect(readMemoryFrontmatter(entry, cwd)?.created).toBe('2026-06-01T00:00:00.000Z');
+  expect(readMemoryFrontmatter({ ...entry, id: 'missing' }, cwd)).toBeNull();
 });
 
 test('readMemoryBody: returns parsed body or raw markdown when frontmatter is absent', () => {
