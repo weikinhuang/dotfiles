@@ -46,7 +46,11 @@ Notes are trimmed on write; attempting to `update` a note with an empty body ret
   notebook is editable in place:
   - `↑`/`↓` (or `j`/`k`, `Ctrl-P`/`Ctrl-N`) move the selection (`>` marker), in grouped display order.
   - `e` edits the selected note's body in a multi-line editor (`Enter` saves, `Shift+Enter` newline, `Esc` cancels).
-  - `h` edits the selected note's heading in a single-line input (empty saves as "clear heading").
+    `Ctrl+G` (the `app.editor.external` binding) opens the body in `$VISUAL` / `$EDITOR` (falling back to `nano` /
+    `notepad`) and reads it back on a clean exit, matching pi's built-in `ctx.ui.editor`. Shared with `questionnaire`
+    via [`lib/node/pi/ext/external-editor.ts`](../../../lib/node/pi/ext/external-editor.ts).
+  - `h` edits the selected note's heading in a single-line input (empty saves as "clear heading"). The external editor
+    is offered for the multi-line body, not the heading.
   - `a` adds a new note (body editor; the heading can then be set with `h`).
   - `d` deletes the selected note.
   - `Esc` / `Ctrl-C` / `q` close the overlay.

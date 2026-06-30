@@ -42,6 +42,12 @@ import {
 } from '@earendil-works/pi-tui';
 import { Type } from 'typebox';
 
+import {
+  EXTERNAL_EDITOR_BINDING,
+  formatKeyChord,
+  isExternalEditorKey,
+  openInExternalEditor,
+} from '../../../lib/node/pi/ext/external-editor.ts';
 import { MultiSelectList } from '../../../lib/node/pi/ext/multi-select-list.ts';
 import { envTruthy } from '../../../lib/node/pi/parse-env.ts';
 import {
@@ -176,7 +182,7 @@ export default function questionnaire(pi: ExtensionAPI): void {
       const isMulti = questions.length > 1;
       const totalTabs = questions.length + 1; // questions + Submit
 
-      const result = await ctx.ui.custom<QuestionnaireResult>((tui, theme, _kb, done) => {
+      const result = await ctx.ui.custom<QuestionnaireResult>((tui, theme, kb, done) => {
         // ─── State ────────────────────────────────────────────────────
         let currentTab = 0;
         let optionIndex = 0;
@@ -379,6 +385,16 @@ export default function questionnaire(pi: ExtensionAPI): void {
               inputQuestionId = null;
               editor.setText('');
               refresh();
+              return;
+            }
+            // Hand the multi-line answer off to $VISUAL/$EDITOR. Fire-and-forget
+            // (the round-trip awaits a real process); text is replaced in place.
+            if (isExternalEditorKey(data, kb)) {
+              void openInExternalEditor({
+                tui,
+                getText: () => editor.getText(),
+                setText: (text) => editor.setText(text),
+              }).then(() => refresh());
               return;
             }
             editor.handleInput(data);
@@ -843,7 +859,11 @@ export default function questionnaire(pi: ExtensionAPI): void {
 
           const helpParts: string[] = [];
           if (inputMode) {
-            helpParts.push('Enter submit', 'Esc cancel');
+            helpParts.push(
+              'Enter submit',
+              `${formatKeyChord(kb?.getKeys(EXTERNAL_EDITOR_BINDING)[0])} external editor`,
+              'Esc cancel',
+            );
           } else if (currentTab === questions.length) {
             helpParts.push('↑↓ navigate', 'Enter confirm');
             if (isMulti) helpParts.push('Tab switch');

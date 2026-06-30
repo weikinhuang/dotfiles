@@ -54,7 +54,12 @@
  */
 
 import { StringEnum } from '@earendil-works/pi-ai';
-import { type ExtensionAPI, type ExtensionContext, type Theme } from '@earendil-works/pi-coding-agent';
+import {
+  type ExtensionAPI,
+  type ExtensionContext,
+  type KeybindingsManager,
+  type Theme,
+} from '@earendil-works/pi-coding-agent';
 import {
   type Component,
   Editor,
@@ -72,6 +77,12 @@ import { completeSubverbs } from '../../../lib/node/pi/commands/complete.ts';
 import { isHelpArg } from '../../../lib/node/pi/commands/help.ts';
 import { applyContextReminder, type ReminderMessage } from '../../../lib/node/pi/context-reminder.ts';
 import { wrapPlain } from '../../../lib/node/pi/context-usage/format.ts';
+import {
+  EXTERNAL_EDITOR_BINDING,
+  formatKeyChord,
+  isExternalEditorKey,
+  openInExternalEditor,
+} from '../../../lib/node/pi/ext/external-editor.ts';
 import { formatWorkingNotes, groupByHeading } from '../../../lib/node/pi/scratchpad-prompt.ts';
 import { formatHeaderRule } from '../../../lib/node/pi/tui-rule.ts';
 import { SCRATCHPAD_USAGE } from '../../../lib/node/pi/scratchpad/usage.ts';
@@ -185,6 +196,7 @@ class ScratchpadOverlay implements Component {
   private readonly deps: ScratchpadOverlayDeps;
   private readonly theme: Theme;
   private readonly tui: TUI;
+  private readonly kb: KeybindingsManager | undefined;
   private readonly onClose: () => void;
   /** Multi-line editor for note bodies (`e`) and new notes (`a`). */
   private readonly editor: Editor;
@@ -199,10 +211,17 @@ class ScratchpadOverlay implements Component {
   private cachedWidth?: number;
   private cachedLines?: string[];
 
-  constructor(deps: ScratchpadOverlayDeps, theme: Theme, tui: TUI, onClose: () => void) {
+  constructor(
+    deps: ScratchpadOverlayDeps,
+    theme: Theme,
+    tui: TUI,
+    kb: KeybindingsManager | undefined,
+    onClose: () => void,
+  ) {
     this.deps = deps;
     this.theme = theme;
     this.tui = tui;
+    this.kb = kb;
     this.onClose = onClose;
 
     const editorTheme: EditorTheme = {
@@ -228,6 +247,17 @@ class ScratchpadOverlay implements Component {
       // into the active widget, which fires onSubmit on Enter.
       if (matchesKey(data, Key.escape)) {
         this.exitToList();
+        return;
+      }
+      // Multi-line body/add editor: hand off to $VISUAL/$EDITOR on the
+      // external-editor key. Fire-and-forget (the round-trip awaits a real
+      // process); the editor's text is replaced in place and we refresh.
+      if (this.mode !== 'heading' && isExternalEditorKey(data, this.kb)) {
+        void openInExternalEditor({
+          tui: this.tui,
+          getText: () => this.editor.getText(),
+          setText: (text) => this.editor.setText(text),
+        }).then(() => this.refresh());
         return;
       }
       if (this.mode === 'heading') this.input.handleInput(data);
@@ -432,7 +462,7 @@ class ScratchpadOverlay implements Component {
     const hint =
       this.mode === 'heading'
         ? 'Enter to save · Esc to cancel'
-        : 'Enter to save · Shift+Enter for newline · Esc to cancel';
+        : `Enter to save · Shift+Enter for newline · ${formatKeyChord(this.kb?.getKeys(EXTERNAL_EDITOR_BINDING)[0])} external editor · Esc to cancel`;
     lines.push(truncateToWidth(`  ${th.fg('dim', hint)}`, width));
     lines.push('');
     return lines;
@@ -617,7 +647,7 @@ export default function scratchpadExtension(pi: ExtensionAPI): void {
             return newId;
           },
         };
-        await ctx.ui.custom<void>((tui, theme, _kb, done) => new ScratchpadOverlay(deps, theme, tui, () => done()));
+        await ctx.ui.custom<void>((tui, theme, kb, done) => new ScratchpadOverlay(deps, theme, tui, kb, () => done()));
         return;
       }
       if (sub === 'preview') {

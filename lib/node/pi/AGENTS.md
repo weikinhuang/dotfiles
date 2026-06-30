@@ -34,7 +34,8 @@ file covers only the **pi-import policy** specific to this subtree.
   (`@earendil-works/*` resolves from `node_modules`) and still gets a mirrored spec under
   [`../../../tests/lib/node/pi/ext/`](../../../tests/lib/node/pi/ext), but it runs under the **relaxed oxlint override**
   shared with the extensions tree (`no-unsafe-*` / `require-await` off). Anchors:
-  [`ext/multi-select-list.ts`](./ext/multi-select-list.ts), [`ext/drop-confirm.ts`](./ext/drop-confirm.ts).
+  [`ext/multi-select-list.ts`](./ext/multi-select-list.ts), [`ext/drop-confirm.ts`](./ext/drop-confirm.ts),
+  [`ext/external-editor.ts`](./ext/external-editor.ts).
 - **A single extension's own glue stays in its `.ts`.** Per-extension `pi.on('tool_call', …)` handlers, command
   registration, and tool/UI wiring belong in [`../../../config/pi/extensions/<name>.ts`](../../../config/pi/extensions)
   - `ext/` is for logic shared across extensions or extracted to shrink a file, not a second home for one shell. If a

@@ -74,6 +74,11 @@ chat-request the `content` is a one-line summary and `details.cancelled` / `deta
 - `Space` - toggle checkbox on `multi`. No-op on `Next` / `Type something.` rows.
 - `Enter` - select (single) / toggle (multi, alias for Space) / commit `Next` / commit `Type something.` / submit the
   editor in `free` + `note` modes.
+- `Ctrl+G` (the `app.editor.external` binding) - in `free` / `note` input mode, open the multi-line answer in `$VISUAL`
+  / `$EDITOR` (falling back to `nano` / `notepad`) and read it back on a clean exit, matching pi's built-in
+  `ctx.ui.editor`. Shared with `scratchpad` via
+  [`lib/node/pi/ext/external-editor.ts`](../../../lib/node/pi/ext/external-editor.ts). Not offered for the single-line
+  `Type something.` row.
 - `Tab` / `Shift+Tab` / `←` / `→` - switch question tabs (only when there is more than one question); wraps through the
   trailing `✓ Submit` review tab.
 - `n` - open the notes editor for the current question (when `allowNotes`). Submitting stores the note; submitting empty
