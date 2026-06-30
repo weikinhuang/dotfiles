@@ -5,13 +5,14 @@
  *
  * ## What the extension does (Depth A - timing nudge only)
  *
- * Pi fires `session_before_compact` right before it summarizes the
- * conversation away. That is exactly the moment any durable fact that
- * surfaced mid-session (a preference, a correction, a project decision,
- * an external pointer) is about to be lost if it was never `memory
- * save`d. The extension surfaces a SHORT one-shot reminder at that seam
- * via `ctx.ui.notify`, nudging the model/user to persist anything
- * worth keeping before it's gone.
+ * Pi fires `session_before_compact` when it is about to summarize the
+ * conversation away - the moment any durable fact that surfaced
+ * mid-session (a preference, a correction, a project decision, an
+ * external pointer) is at risk of being lost if it was never `memory
+ * save`d. That event can only cancel/replace the compaction, not inject
+ * context, so the extension ARMS a one-shot flag there and the next
+ * `context` hook splices this SHORT reminder into the turn as a
+ * `<system-reminder>` - reaching the model itself, not just the UI.
  *
  * This is purely a TIMING prompt - the model already carries the
  * `memory-first` skill describing *what* to save. It does NOT analyze
@@ -48,15 +49,16 @@ export interface CaptureNudgeState {
 }
 
 /**
- * The one-shot reminder surfaced at compaction time. Deliberately short
- * (a timing nudge, not policy) and stable so tests can pin it. Mentions
- * the concrete durable categories so the model knows what "worth
- * keeping" means without re-reading the whole skill.
+ * The one-shot reminder spliced into the turn after a compaction.
+ * Deliberately short (a timing nudge, not policy) and stable so tests can
+ * pin it. Mentions the concrete durable categories so the model knows what
+ * "worth keeping" means without re-reading the whole skill.
  */
 export const CAPTURE_NUDGE =
-  'About to compact - context is about to be summarized away. ' +
+  'The conversation was just compacted, which can drop earlier detail. ' +
   'If anything durable surfaced this session (a user preference, a correction, ' +
-  'a project decision, an external pointer) that you have not `memory save`d yet, save it now.';
+  'a project decision, an external pointer) that you have not `memory save`d yet, ' +
+  'recall and save it now so it survives.';
 
 /**
  * Decide whether to surface the capture-assist nudge before compaction.

@@ -131,14 +131,15 @@ An empty prompt, no memories, or no matches injects nothing. Disable the whole f
 ## Capture-assist
 
 Compaction is the moment context - and any durable fact that surfaced mid-session but was never `memory save`d - is
-about to be summarized away. On `session_before_compact` the extension surfaces a short one-shot reminder via
-`ctx.ui.notify` nudging the model/user to persist anything worth keeping first. This is purely a _timing_ prompt: the
-model already carries the [`memory-first`](../skills/memory-first/SKILL.md) skill describing _what_ to save, so the
+summarized away. On `session_before_compact` the extension arms a one-shot flag; the next `context` hook splices a short
+`<system-reminder>` into the turn nudging the model to persist anything worth keeping. This is purely a _timing_ prompt:
+the model already carries the [`memory-first`](../skills/memory-first/SKILL.md) skill describing _what_ to save, so the
 nudge just reminds it _when_. It does not analyze the transcript or propose candidates.
 
 Pi's `session_before_compact` handler can only cancel or replace the compaction - it cannot inject conversation context
 
-- so the reminder is surfaced as a UI notification rather than a `<system-reminder>`.
+- so the reminder rides the following turn via the `context` hook (the same cache-safe seam as recall) to reach the
+  model itself, rather than only the UI.
 
 **Nag-fatigue gating.** A reminder on every compaction would be noise, so the nudge is suppressed unless there is
 plausibly something unsaved to capture: there must have been at least one user turn since the last successful save this
@@ -181,7 +182,7 @@ deferred follow-up.
 - `PI_MEMORY_RECALL_BODIES=1` - inject the matched bodies into the turn instead of marking their ids (default off, i.e.
   marking).
 - `PI_MEMORY_RECALL_BODY_BUDGET=N` - per-body char cap when `PI_MEMORY_RECALL_BODIES=1` (default `1500`, floor `100`).
-- `PI_MEMORY_DISABLE_CAPTURE=1` - turn off the capture-assist nudge fired before compaction (see
+- `PI_MEMORY_DISABLE_CAPTURE=1` - turn off the capture-assist nudge spliced into the turn after a compaction (see
   [Capture-assist](#capture-assist)). The nudge is independently suppressed under `PI_MEMORY_READONLY=1`.
 
 ## Hot reload

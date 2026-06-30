@@ -511,7 +511,7 @@ user-facing knobs in one place.
 | `PI_MEMORY_RECALL_TOPK`           | `3`     | number of prompt-relevant memories the recall reminder surfaces each turn (floor `1`)                                                                                                                    |
 | `PI_MEMORY_RECALL_BODIES`         | unset   | inject the matched memory bodies into the turn (under `## Relevant memory`) instead of only marking their ids                                                                                            |
 | `PI_MEMORY_RECALL_BODY_BUDGET`    | `1500`  | per-body char cap when `PI_MEMORY_RECALL_BODIES=1` (floor `100`)                                                                                                                                         |
-| `PI_MEMORY_DISABLE_CAPTURE`       | unset   | turn off the capture-assist nudge fired before compaction (a timing reminder to `memory save` un-saved durable facts); also suppressed under `PI_MEMORY_READONLY`                                        |
+| `PI_MEMORY_DISABLE_CAPTURE`       | unset   | turn off the capture-assist nudge spliced into the turn after a compaction (a timing reminder to `memory save` un-saved durable facts); also suppressed under `PI_MEMORY_READONLY`                       |
 
 ### Prompt configuration variables
 
