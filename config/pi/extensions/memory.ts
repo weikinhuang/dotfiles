@@ -52,10 +52,17 @@
  *                                    instead of just marking their ids.
  *   PI_MEMORY_RECALL_BODY_BUDGET=N   char cap per injected body under
  *                                    PI_MEMORY_RECALL_BODIES (default 1500).
- *   PI_MEMORY_DISABLE_CAPTURE=1      skip the capture-assist nudge (a Depth A
- *                                    timing reminder, spliced into the turn
- *                                    after a compaction, to save un-saved
- *                                    durable facts).
+ *   PI_MEMORY_DISABLE_CAPTURE=1      skip the capture-assist nudge (fired into
+ *                                    the turn after a compaction to save
+ *                                    un-saved durable facts; lists concrete
+ *                                    candidates mined from the compaction
+ *                                    summary when available).
+ *   PI_MEMORY_CAPTURE_TURN=1         deliver the post-compaction capture
+ *                                    directive as its OWN follow-up turn
+ *                                    instead of a <system-reminder> riding the
+ *                                    next turn. Small/weak models ignore the
+ *                                    reminder but act on a dedicated turn;
+ *                                    costs one extra (visible) model turn.
  */
 
 import { readdirSync } from 'node:fs';
@@ -86,7 +93,12 @@ import {
 import { completeSubverbs } from '../../../lib/node/pi/commands/complete.ts';
 import { isHelpArg } from '../../../lib/node/pi/commands/help.ts';
 import { applyContextReminder, type ReminderMessage } from '../../../lib/node/pi/context-reminder.ts';
-import { CAPTURE_NUDGE, shouldNudgeCapture } from '../../../lib/node/pi/memory-capture.ts';
+import {
+  buildCandidateNudge,
+  CAPTURE_NUDGE,
+  selectCaptureCandidates,
+  shouldNudgeCapture,
+} from '../../../lib/node/pi/memory-capture.ts';
 import { formatMemoryIndex } from '../../../lib/node/pi/memory-prompt.ts';
 import { selectRecall } from '../../../lib/node/pi/memory-recall.ts';
 import { MEMORY_USAGE } from '../../../lib/node/pi/memory/usage.ts';
@@ -273,9 +285,17 @@ export default function memoryExtension(pi: ExtensionAPI): void {
     RECALL_BODY_BUDGET_DEFAULT,
     100,
   );
-  // Capture-assist (Depth A): a one-shot timing nudge fired after compaction.
+  // Capture-assist: a one-shot nudge fired after compaction.
   const captureDisabled = envTruthy(process.env.PI_MEMORY_DISABLE_CAPTURE);
   const captureEnabled = !captureDisabled && !readOnly;
+  // Delivery mode: by default the nudge rides the next turn as a
+  // <system-reminder> (invisible, cache-cheap, works on frontier models).
+  // Eval on a small self-hosted model showed it ignores reminders riding a
+  // user turn (0/26) but reliably acts when the same directive is its OWN
+  // turn (8/8). PI_MEMORY_CAPTURE_TURN=1 escalates to delivering the
+  // candidate directive as a synthetic follow-up turn (visible + one extra
+  // model call) - opt-in for small/weak models.
+  const captureAsTurn = captureEnabled && envTruthy(process.env.PI_MEMORY_CAPTURE_TURN);
   // Real clock for write-time timestamps + staleness math. Pure helpers
   // take an injected `Date`; this extension supplies the live one.
   const now = (): Date => new Date();
@@ -311,6 +331,10 @@ export default function memoryExtension(pi: ExtensionAPI): void {
   // cancel/replace the compaction - it cannot inject context - so the nudge
   // has to ride the following turn to actually reach the model.
   let capturePending = false;
+  // Concrete candidate-listing nudge body built from the compaction summary
+  // in `session_compact` (Depth B). `null` => fall back to the generic
+  // CAPTURE_NUDGE. Consumed + cleared with `capturePending`.
+  let pendingCaptureBody: string | null = null;
   const surfacedWarnings = new Set<string>();
 
   const readOnlyError = (action: string): { content: string; details: MemoryDetails; isError: boolean } => {
@@ -405,9 +429,12 @@ export default function memoryExtension(pi: ExtensionAPI): void {
       }
       if (capturePending) {
         // One-shot: consume the flag whether or not we inject, so a stale
-        // nudge never lingers across turns.
+        // nudge never lingers across turns. Prefer the concrete
+        // candidate-listing body (Depth B); fall back to the generic nudge.
         capturePending = false;
-        messages = applyContextReminder(messages, { id: 'memory-capture', body: CAPTURE_NUDGE });
+        const body = pendingCaptureBody ?? CAPTURE_NUDGE;
+        pendingCaptureBody = null;
+        messages = applyContextReminder(messages, { id: 'memory-capture', body });
         changed = true;
       }
       if (!changed) return undefined;
@@ -427,6 +454,43 @@ export default function memoryExtension(pi: ExtensionAPI): void {
     pi.on('session_before_compact', () => {
       if (shouldNudgeCapture({ userTurnsSinceLastSave, readOnly, disabled: captureDisabled })) {
         capturePending = true;
+      }
+      return undefined;
+    });
+
+    // After compaction, mine the just-generated summary for concrete
+    // save-worthy candidates (free - the summarizer already extracted them
+    // into its Constraints & Preferences / Key Decisions sections) and drop
+    // any already saved. The summary work is wrapped so a parse error never
+    // breaks compaction.
+    pi.on('session_compact', (event) => {
+      if (!capturePending) return undefined;
+      let body: string | null = null;
+      try {
+        const summary = event.compactionEntry.summary;
+        const allEntries = [...state.index.global, ...state.index.project, ...state.index.session];
+        const isAlreadySaved = (text: string): boolean =>
+          findSimilarMemories({ name: text, description: text, body: text }, allEntries, (e) =>
+            readMemoryBody(e, cwd, sessionId),
+          ).length > 0;
+        body = buildCandidateNudge(selectCaptureCandidates(summary, isAlreadySaved));
+      } catch {
+        body = null;
+      }
+      // PI_MEMORY_CAPTURE_TURN: deliver the concrete directive as its OWN
+      // follow-up turn (the model treats the save as its primary task -
+      // 8/8 on a small model vs 0/26 for a reminder riding a user turn).
+      // Only when we actually have candidates; otherwise leave the generic
+      // reminder path armed. A vague "save something" turn is not worth a
+      // synthetic turn + model call.
+      if (captureAsTurn && body) {
+        capturePending = false;
+        pendingCaptureBody = null;
+        pi.sendUserMessage(body, { deliverAs: 'followUp' });
+      } else {
+        // Reminder path (default): stash the concrete body for the context
+        // hook; `null` falls back to the generic CAPTURE_NUDGE.
+        pendingCaptureBody = body;
       }
       return undefined;
     });
