@@ -30,6 +30,7 @@ function imageCands(n: number): Candidate[] {
     bytes: 1000 + i,
     lines: 0,
     snippet: `image ${i}`,
+    search: `image ${i}`,
   }));
 }
 

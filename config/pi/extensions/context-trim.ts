@@ -248,7 +248,7 @@ export default function contextTrimExtension(pi: ExtensionAPI): void {
 
   // Keep the Tab-completion snapshot in sync with the latest candidates.
   const refreshCompletion = (cands: readonly Candidate[]): void => {
-    completionCandidates = cands.map((c) => ({ id: c.id, description: candidateLabel(c) }));
+    completionCandidates = cands.map((c) => ({ id: c.id, description: candidateLabel(c), search: c.search }));
   };
 
   // Apply the overlay every turn, snapshot what the model sees, and refresh

@@ -97,7 +97,7 @@ export default function messageEditExtension(pi: ExtensionAPI): void {
     enumerate(messages, { minTextBytes: 1, sort: sortPref }).filter((c) => c.kind === 'message');
 
   const refreshCompletion = (cands: readonly Candidate[]): void => {
-    completionCandidates = cands.map((c) => ({ id: c.id, description: candidateLabel(c) }));
+    completionCandidates = cands.map((c) => ({ id: c.id, description: candidateLabel(c), search: c.search }));
   };
 
   pi.on('context', (event) => {
@@ -126,7 +126,7 @@ export default function messageEditExtension(pi: ExtensionAPI): void {
     try {
       const built = buildSessionContext(ctx.sessionManager.getEntries(), ctx.sessionManager.getLeafId());
       const msgs = (built.messages as unknown as LooseMessage[]) ?? [];
-      return state.directives.length > 0 ? (applyDirectives(msgs, state.directives).messages) : msgs;
+      return state.directives.length > 0 ? applyDirectives(msgs, state.directives).messages : msgs;
     } catch {
       return lastContextMessages ?? [];
     }

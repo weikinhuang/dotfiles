@@ -145,7 +145,11 @@ export default function toolCollapseExtension(pi: ExtensionAPI): void {
   };
 
   const refreshCompletion = (cands: readonly Candidate[]): void => {
-    completionCandidates = cands.map((c) => ({ id: c.id, description: `${candidateLabel(c)}${hint(c)}` }));
+    completionCandidates = cands.map((c) => ({
+      id: c.id,
+      description: `${candidateLabel(c)}${hint(c)}`,
+      search: c.search,
+    }));
   };
 
   pi.on('context', (event) => {

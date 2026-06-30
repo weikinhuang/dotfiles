@@ -46,8 +46,14 @@ export interface Candidate {
   bytes: number;
   /** Line count for text parts (0 for images). */
   lines: number;
-  /** One-line preview. */
+  /** One-line preview (display). */
   snippet: string;
+  /**
+   * Longer normalized content excerpt used for fuzzy autocomplete
+   * matching (not display). Capped at {@link SEARCH_CHARS} so matching a
+   * 500-entry session stays cheap; for images it mirrors {@link snippet}.
+   */
+  search: string;
 }
 
 export interface EnumerateOptions {
@@ -66,6 +72,10 @@ export interface EnumerateOptions {
 
 const DEFAULT_MIN_TEXT_BYTES = 2048;
 const DEFAULT_SNIPPET_CHARS = 80;
+/** Cap for the fuzzy-search excerpt - longer than the display snippet so
+ * content matches reach past the first line, bounded so a large session
+ * stays cheap to filter. */
+const SEARCH_CHARS = 512;
 
 function partText(part: LoosePart): string {
   return part.type === 'text' && typeof (part as { text?: unknown }).text === 'string'
@@ -143,6 +153,7 @@ export function enumerate(messages: readonly LooseMessage[], opts: EnumerateOpti
           bytes: imageBytes,
           lines: 0,
           snippet: `${imageCount} image${imageCount === 1 ? '' : 's'} from ${m.toolName ?? 'tool'}`,
+          search: `${imageCount} image${imageCount === 1 ? '' : 's'} from ${m.toolName ?? 'tool'}`,
         });
       }
       if (toolCallId && textBytes >= minTextBytes) {
@@ -157,6 +168,7 @@ export function enumerate(messages: readonly LooseMessage[], opts: EnumerateOpti
           bytes: textBytes,
           lines: textLines,
           snippet: snippetOf(firstText, snippetChars),
+          search: snippetOf(firstText, SEARCH_CHARS),
         });
       }
       continue;
@@ -181,6 +193,7 @@ export function enumerate(messages: readonly LooseMessage[], opts: EnumerateOpti
             bytes: argBytes,
             lines: 0,
             snippet: snippetOf(`${name ?? 'tool'} ${args ? JSON.stringify(args) : ''}`, snippetChars),
+            search: snippetOf(`${name ?? 'tool'} ${args ? JSON.stringify(args) : ''}`, SEARCH_CHARS),
           });
         }
       }
@@ -205,6 +218,7 @@ export function enumerate(messages: readonly LooseMessage[], opts: EnumerateOpti
         bytes: byteLen(text),
         lines: countLines(text),
         snippet: snippetOf(text, snippetChars),
+        search: snippetOf(text, SEARCH_CHARS),
       });
     }
   }

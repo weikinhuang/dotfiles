@@ -25,7 +25,11 @@ pretending the past was different. The transcript on disk still records what was
 
 - `/context-edit` - list editable user/assistant messages with a snippet and a handle (`msg2`), in **conversation
   order** (oldest-first, including the latest assistant reply). Each handle also appears in the argument autocomplete
-  menu (annotated with a snippet), so you can pick the message to edit directly.
+  menu (annotated with a snippet), so you can pick the message to edit directly. The menu matches by handle prefix
+  (`msg4`) **or**, for queries of 3+ characters, a fuzzy subsequence over the message body (`/context-edit auth` finds
+  the message that mentions authentication), so a long session is searchable by what a message says, not just its
+  ordinal. The autocomplete window itself shows up to `autocompleteMaxVisible` rows (a global pi setting, default 5,
+  capped at 20) and scrolls; fuzzy narrowing is what makes a 500-entry session usable.
 - `/context-edit <handle>` - open an editor prefilled with that message's current text; submit to store the edit, which
   applies from the next turn. Cancelling or submitting an unchanged buffer is a no-op.
 - `/context-edit sort <order|size>` - change the listing / autocomplete order for this session. `order` (default) is

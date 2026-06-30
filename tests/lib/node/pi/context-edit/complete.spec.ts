@@ -52,6 +52,38 @@ describe('completeCandidatesOrVerbs - level 1', () => {
   });
 });
 
+describe('completeCandidatesOrVerbs - fuzzy content match', () => {
+  const corpus: CompletionCandidate[] = [
+    { id: 'msg1', description: 'user msg: hello', search: 'please set up oauth authentication for the api' },
+    { id: 'msg2', description: 'assistant msg: sure', search: 'I added a login form and a logout button' },
+    { id: 'msg3', description: 'user msg: thanks', search: 'the deploy pipeline is green now' },
+  ];
+
+  test('matches message content, not just the id handle', () => {
+    // "auth" is no id prefix, but msg1's body mentions authentication.
+    expect(completeCandidatesOrVerbs('auth', corpus, verbs)?.map((i) => i.value)).toEqual(['msg1']);
+  });
+
+  test('id-prefix hits come before fuzzy-content hits', () => {
+    // "msg" prefixes every id, so all three surface in caller order, and
+    // no fuzzy duplicates are appended.
+    expect(completeCandidatesOrVerbs('msg', corpus, verbs)?.map((i) => i.value)).toEqual(['msg1', 'msg2', 'msg3']);
+  });
+
+  test('fuzzy hits are ranked by score across multiple matches', () => {
+    // "log" subsequence hits msg2 ("login"/"logout") strongly; ensure it
+    // surfaces and unrelated entries do not.
+    const hits = completeCandidatesOrVerbs('log', corpus, verbs)?.map((i) => i.value) ?? [];
+    expect(hits).toContain('msg2');
+    expect(hits).not.toContain('msg1');
+  });
+
+  test('falls back to description when no search field is present', () => {
+    const noSearch: CompletionCandidate[] = [{ id: 'msg9', description: 'user msg: kubernetes rollout' }];
+    expect(completeCandidatesOrVerbs('kube', noSearch, verbs)?.map((i) => i.value)).toEqual(['msg9']);
+  });
+});
+
 describe('completeCandidatesOrVerbs - level 2 delegates to subverbs', () => {
   test('restore <id> value carries the verb prefix', () => {
     const items = completeCandidatesOrVerbs('restore ', candidates, verbs);
