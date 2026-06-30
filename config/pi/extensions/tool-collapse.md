@@ -54,8 +54,7 @@ collapse_output({
 - **Tail-guard.** The most-recent `N` pairs (default `1`, `PI_TOOL_COLLAPSE_DROP_TAIL_GUARD`) can never be collapsed; a
   `drop` ordinal inside the guard is refused and reported back, and `keepRecent` is clamped up to the guard.
 - **Lump-sum framing.** The description tells the model to collapse a finished batch, not to nibble one stale result per
-  turn (nibbling re-pays the prefix-cache premium every turn - see
-  [`pi-agentic-context-edit.md`](../../../plans/pi-agentic-context-edit.md)).
+  turn (nibbling re-pays the prefix-cache premium every turn).
 
 ### Confirmation prompt
 

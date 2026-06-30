@@ -115,8 +115,7 @@ drop_image({
   would force cache-hostile long-suffix drops. A `drop` ordinal inside the guard is refused and reported back to the
   model; `keepRecent` is clamped up to the guard.
 - **Lump-sum framing.** The description tells the model to drop a batch when it is done, not to tidy one stale image per
-  turn (nibbling re-pays the prefix-cache premium every turn - see
-  [`pi-agentic-context-edit.md`](../../../plans/pi-agentic-context-edit.md)).
+  turn (nibbling re-pays the prefix-cache premium every turn).
 
 ### Confirmation prompt
 

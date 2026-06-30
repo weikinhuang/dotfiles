@@ -3,9 +3,8 @@
 A cast-keyed durable store for roleplay scenarios, deliberately **separate** from the coding-agent
 [`memory`](./memory.md) extension so it can be turned off wholesale without touching the coding surface. Where `memory`
 keys durable notes on cwd / session, `roleplay` keys on **cast** - a character or ensemble that travels with you across
-workspaces. This implements Phases 1-5 + 7A-B of
-[`plans/pi-roleplay-sillytavern.md`](../../../plans/pi-roleplay-sillytavern.md): the store + `character` records (Phase
-1), the keyword-triggered **lorebook** (`lore` records, Phase 2), the **SillyTavern card importer** (Phase 3), **depth
+workspaces. This implements Phases 1-5 + 7A-B of the roleplay design: the store + `character` records (Phase 1), the
+keyword-triggered **lorebook** (`lore` records, Phase 2), the **SillyTavern card importer** (Phase 3), **depth
 injection** (author's note + depth-tagged lore via the `context` event, Phase 4), persona **scene fold** (`characters` /
 `pov`, Phase 5), the **relationship / summary / timeline** record kinds with affinity decay (Phase 7A), and
 **auto-summarization** of evicted history at compaction (Phase 7B). The remaining phase adds avatar sprites (Phase 6).
