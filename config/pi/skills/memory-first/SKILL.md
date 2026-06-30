@@ -20,8 +20,9 @@ provides the policy.
 
 ## The four memory types
 
-Each memory is a single markdown file with `name` + `description` + `type` frontmatter. Pick the type that describes the
-content, not the trigger:
+Each memory is a single markdown file with `name` + `description` + `type` frontmatter (plus `created` / `updated`
+timestamps the tool stamps automatically - you never set those). Pick the type that describes the content, not the
+trigger:
 
 ### `user` - who the user is, how they work
 
@@ -63,8 +64,10 @@ Save when:
 ### `project` - what's happening in this workspace
 
 Initiatives, decisions, incidents, deadlines, stakeholder asks. **Project-scoped by default** (only present when pi is
-running in this repo's cwd). These decay fast - convert relative dates to absolute when saving so the memory stays
-interpretable later.
+running in this repo's cwd). These decay fast. The tool now timestamps every memory automatically (and marks project
+memories older than `PI_MEMORY_STALE_DAYS` with a `(Nd)` age nudge in the index), so file age is tracked for you - but
+that is the age of the _note_, not of the facts inside it. Still convert relative _domain_ dates to absolute when saving
+(deadlines, freeze windows, incident dates) so the body stays interpretable later regardless of when it was written.
 
 Save when:
 
@@ -122,16 +125,33 @@ These live elsewhere and memory-copies rot the moment the original changes.
 - **Anything already in `CLAUDE.md` / `AGENTS.md` at the repo root.** Pi loads these automatically.
 - **Ephemeral task state.** Use the `todo` and `scratchpad` tools - they're branch-aware and don't persist.
 - **One-shot summaries of "what I just did".** The diff already says that.
+- **Secrets, credentials, or tokens as values.** Memory bodies persist to disk across sessions, so a captured secret is
+  a durable leak. Store a _reference_ to where the value lives (env var name, vault path) - never the value itself.
+  (Secret-shaped content is gated upstream by the `secret-redactor` extension before it reaches the tool.)
 
 When asked to save ephemeral-looking material, push back: _"what was surprising or non-obvious about this that future
 sessions would need? That's what I should keep."_
 
+## Save before compaction
+
+When the harness is about to compact the conversation it surfaces a short reminder ("About to compact … save it now").
+That is your cue to sweep this session for durable facts that surfaced but were never saved - a preference, a
+correction, a project decision, an external pointer - and `save` them before compaction summarizes them away. It is a
+_timing_ nudge, not a new rule: apply the same when-to-save / when-NOT-to-save judgment above. If nothing durable is
+outstanding, ignore it - do not manufacture a memory just because compaction is near.
+
 ## Recall
 
-Indices are injected every turn so you always see what's available. Actually reading a body is cheap - fetch when a
-description looks relevant to the current task.
+Indices are injected every turn so you always see what's available. On top of that, the harness now surfaces the
+memories most relevant to the current prompt: by default a one-line reminder names the best-matching ids ("Most relevant
+saved memories for this request: `…`"); when body injection is enabled it drops their full bodies under a
+`## Relevant memory` heading. Treat those as a ranked shortlist, not an instruction - **reading is still your call.** If
+a surfaced description looks relevant, `read` it (cheap); if it clearly isn't, skip it. And the harness only ranks
+lexically, so it can miss a relevant memory or over-rank a coincidental keyword match - scan the full index too when the
+shortlist looks off.
 
-Before acting on memory content, **verify it**:
+Before acting on memory content, **verify it** (this applies just as much to a recall-surfaced or body-injected memory
+as to one you fetched yourself):
 
 - Memory names a file or function? Grep or stat before recommending it - it may have been renamed or removed.
 - Memory claims "X exists"? That was true when the memory was written, not necessarily now.
@@ -139,12 +159,15 @@ Before acting on memory content, **verify it**:
   over the snapshot when the user asks about _current_ or _recent_ state.
 
 If a memory conflicts with what you observe, trust the observation and `update` (or `remove`) the memory rather than
-acting on stale info.
+acting on stale info. A project entry tagged with a `(Nd)` age marker in the index is overdue for exactly this check -
+treat the marker as a prompt to re-verify before relying on it.
 
 ## Keep memories accurate
 
 - **Duplicate first, write second.** Before `save`, call `list` (or check the injected index) for an existing memory you
-  should `update` instead.
+  should `update` instead. `save` also runs an automatic similarity check (same scope+type) and prefixes the result with
+  a note when the new memory looks like a duplicate - treat that as a prompt to `update` the named entry rather than
+  saving a second copy.
 - **`update` when facts change.** A memory about a deadline that passed, or a preference that reversed, is worse than no
   memory.
 - **`remove` when a memory is flat-out wrong or no longer applies.** Stale memories poison future sessions.
@@ -161,11 +184,11 @@ acting on stale info.
 
 ## Quick reference
 
-| Action   | Required                                    | Optional        | Purpose                                            |
-| -------- | ------------------------------------------- | --------------- | -------------------------------------------------- |
-| `list`   | -                                           | -               | Print all indices (global + project + session).    |
-| `read`   | `id`                                        | `type`, `scope` | Load a memory's full body.                         |
-| `save`   | `type`, `name`, `description`, `body`       | `scope`         | Create a new memory.                               |
-| `update` | `id` + at least one of `name`/`desc`/`body` | `type`, `scope` | Rewrite fields on an existing memory.              |
-| `remove` | `id`, `scope`                               | `type`          | Delete a memory + drop it from MEMORY.md.          |
-| `search` | `query`                                     | -               | Case-insensitive match over name/description/body. |
+| Action   | Required                                    | Optional        | Purpose                                                                |
+| -------- | ------------------------------------------- | --------------- | ---------------------------------------------------------------------- |
+| `list`   | -                                           | -               | Print all indices (global + project + session).                        |
+| `read`   | `id`                                        | `type`, `scope` | Load a memory's full body.                                             |
+| `save`   | `type`, `name`, `description`, `body`       | `scope`         | Create a new memory.                                                   |
+| `update` | `id` + at least one of `name`/`desc`/`body` | `type`, `scope` | Rewrite fields on an existing memory.                                  |
+| `remove` | `id`, `scope`                               | `type`          | Delete a memory + drop it from MEMORY.md.                              |
+| `search` | `query`                                     | -               | Fuzzy + substring match over name/description/body, ranked best-first. |

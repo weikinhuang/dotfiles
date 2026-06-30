@@ -505,6 +505,13 @@ user-facing knobs in one place.
 | `PI_INSIDE_DOCKER`                | unset   | hint that pi is running inside a Docker / container; consumed by `lib/node/pi/sandbox/platform.ts` to recommend `flags.weakerNestedSandbox`                                                              |
 | `PI_FILESYSTEM_DISABLED`          | unset   | bypass the in-process filesystem gate (`config/pi/extensions/filesystem.ts`) entirely                                                                                                                    |
 | `PI_FILESYSTEM_DEFAULT`           | `deny`  | non-UI fallback for the in-process filesystem gate: `deny` (block unknown protected paths) or `allow` (let them through)                                                                                 |
+| `PI_MEMORY_READONLY`              | unset   | block `memory` `save` / `update` / `remove` (return a clear error); `list` / `read` / `search` and auto-injection still work                                                                             |
+| `PI_MEMORY_STALE_DAYS`            | `30`    | age (days) past which a `project` memory gets a tiny `(Nd)` age marker in the injected index and is listed by `/memory stale`; never auto-deletes                                                        |
+| `PI_MEMORY_DISABLE_RECALL`        | unset   | turn off per-turn relevance recall (marking + body injection); the static `## Memory` index is unaffected                                                                                                |
+| `PI_MEMORY_RECALL_TOPK`           | `3`     | number of prompt-relevant memories the recall reminder surfaces each turn (floor `1`)                                                                                                                    |
+| `PI_MEMORY_RECALL_BODIES`         | unset   | inject the matched memory bodies into the turn (under `## Relevant memory`) instead of only marking their ids                                                                                            |
+| `PI_MEMORY_RECALL_BODY_BUDGET`    | `1500`  | per-body char cap when `PI_MEMORY_RECALL_BODIES=1` (floor `100`)                                                                                                                                         |
+| `PI_MEMORY_DISABLE_CAPTURE`       | unset   | turn off the capture-assist nudge fired before compaction (a timing reminder to `memory save` un-saved durable facts); also suppressed under `PI_MEMORY_READONLY`                                        |
 
 ### Prompt configuration variables
 

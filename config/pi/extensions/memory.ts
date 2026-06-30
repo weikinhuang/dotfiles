@@ -38,7 +38,23 @@
  *   PI_MEMORY_DISABLE_AUTOINJECT=1   tool still works but skip the
  *                                    before_agent_start block.
  *   PI_MEMORY_MAX_INJECTED_CHARS=N   soft cap on injected index (default 3000).
+ *   PI_MEMORY_STALE_DAYS=N           age (days) past which a project memory
+ *                                    gets a `(Nd)` marker + shows in
+ *                                    `/memory stale` (default 30).
  *   PI_MEMORY_ROOT=<path>            override `~/.pi/agent/memory`.
+ *   PI_MEMORY_READONLY=1             block save/update/remove; list/read/
+ *                                    search + auto-inject still work.
+ *   PI_MEMORY_DISABLE_RECALL=1       skip the per-turn relevance recall
+ *                                    (marking + body injection) entirely.
+ *   PI_MEMORY_RECALL_TOPK=N          number of relevant memories to surface
+ *                                    each turn (default 3).
+ *   PI_MEMORY_RECALL_BODIES=1        inject the matched bodies into the turn
+ *                                    instead of just marking their ids.
+ *   PI_MEMORY_RECALL_BODY_BUDGET=N   char cap per injected body under
+ *                                    PI_MEMORY_RECALL_BODIES (default 1500).
+ *   PI_MEMORY_DISABLE_CAPTURE=1      skip the capture-assist nudge fired
+ *                                    before compaction (Depth A timing
+ *                                    reminder to save un-saved durable facts).
  */
 
 import { readdirSync } from 'node:fs';
@@ -60,6 +76,7 @@ import {
   projectDir,
   pruneOrphanSessionDirs,
   readMemoryBody,
+  readMemoryFrontmatter,
   rebuildMemoryIndex,
   removeFileIfExists,
   sessionDir,
@@ -67,15 +84,21 @@ import {
 } from '../../../lib/node/pi/memory-paths.ts';
 import { completeSubverbs } from '../../../lib/node/pi/commands/complete.ts';
 import { isHelpArg } from '../../../lib/node/pi/commands/help.ts';
+import { applyContextReminder, type ReminderMessage } from '../../../lib/node/pi/context-reminder.ts';
+import { CAPTURE_NUDGE, shouldNudgeCapture } from '../../../lib/node/pi/memory-capture.ts';
 import { formatMemoryIndex } from '../../../lib/node/pi/memory-prompt.ts';
+import { selectRecall } from '../../../lib/node/pi/memory-recall.ts';
 import { MEMORY_USAGE } from '../../../lib/node/pi/memory/usage.ts';
 import {
   cloneState,
+  DEFAULT_STALE_DAYS,
   defaultMemoryScope,
   defaultMemoryTypeForScope,
   emptyState,
+  entryAgeDays,
   formatText,
   isMemoryTypeAllowedInScope,
+  isStaleEntry,
   MEMORY_CUSTOM_TYPE,
   type MemoryEntry,
   type MemoryIndex,
@@ -88,10 +111,13 @@ import {
   serializeMemory,
   upsertEntry,
 } from '../../../lib/node/pi/memory-reducer.ts';
+import { findSimilarMemories, searchMemories } from '../../../lib/node/pi/memory-search.ts';
 import { truncate } from '../../../lib/node/pi/shared.ts';
-import { envTruthy, parseClampedPositiveInt } from '../../../lib/node/pi/parse-env.ts';
+import { envTruthy, parseClampedPositiveInt, parsePositiveInt } from '../../../lib/node/pi/parse-env.ts';
 
 const MAX_INJECTED_CHARS_DEFAULT = 3000;
+const RECALL_TOPK_DEFAULT = 3;
+const RECALL_BODY_BUDGET_DEFAULT = 1500;
 
 // ──────────────────────────────────────────────────────────────────────
 // Tool params
@@ -230,16 +256,56 @@ export default function memoryExtension(pi: ExtensionAPI): void {
   if (envTruthy(process.env.PI_MEMORY_DISABLED)) return;
 
   const autoInjectEnabled = process.env.PI_MEMORY_DISABLE_AUTOINJECT !== '1';
+  const readOnly = envTruthy(process.env.PI_MEMORY_READONLY);
   const maxInjectedChars = parseClampedPositiveInt(
     process.env.PI_MEMORY_MAX_INJECTED_CHARS,
     MAX_INJECTED_CHARS_DEFAULT,
     500,
   );
+  const staleDays = parsePositiveInt(process.env.PI_MEMORY_STALE_DAYS, DEFAULT_STALE_DAYS);
+  // Per-turn relevance recall (separate from the static index injection).
+  const recallEnabled = !envTruthy(process.env.PI_MEMORY_DISABLE_RECALL);
+  const recallTopK = parseClampedPositiveInt(process.env.PI_MEMORY_RECALL_TOPK, RECALL_TOPK_DEFAULT);
+  const recallBodies = envTruthy(process.env.PI_MEMORY_RECALL_BODIES);
+  const recallBodyBudget = parseClampedPositiveInt(
+    process.env.PI_MEMORY_RECALL_BODY_BUDGET,
+    RECALL_BODY_BUDGET_DEFAULT,
+    100,
+  );
+  // Capture-assist (Depth A): a one-shot timing nudge at compaction time.
+  const captureDisabled = envTruthy(process.env.PI_MEMORY_DISABLE_CAPTURE);
+  // Real clock for write-time timestamps + staleness math. Pure helpers
+  // take an injected `Date`; this extension supplies the live one.
+  const now = (): Date => new Date();
 
   let state: MemoryState = emptyState();
   let cwd: string = process.cwd();
   let sessionId: string | null = null;
+  // Latest user prompt, captured in `before_agent_start` (which carries
+  // the raw prompt) and consumed by the `context` handler (which only
+  // sees `messages`). `before_agent_start` fires once per submit, before
+  // the agent loop that emits the turn's first `context`, so the value is
+  // fresh when recall runs. Reset to null after each turn's recall would
+  // be over-eager (a turn can emit several `context` events across tool
+  // round-trips, all answering the same prompt), so we leave it set and
+  // overwrite on the next submit.
+  let latestPrompt = '';
+  // Capture-assist gating: user submits observed since the last
+  // successful `memory save` this session. Incremented in
+  // `before_agent_start` (one per submit), reset to 0 after a save.
+  // `> 0` at compaction time means there is plausibly an unsaved
+  // durable fact worth nudging about; `0` keeps the nudge quiet.
+  let userTurnsSinceLastSave = 0;
   const surfacedWarnings = new Set<string>();
+
+  const readOnlyError = (action: string): { content: string; details: MemoryDetails; isError: boolean } => {
+    const error = `memory is read-only: PI_MEMORY_READONLY=1`;
+    return {
+      content: `Error: ${error}`,
+      details: { action, state: cloneState(state), error },
+      isError: true,
+    };
+  };
 
   const rebuildFromDisk = (ctx: ExtensionContext): void => {
     cwd = ctx.cwd;
@@ -266,11 +332,66 @@ export default function memoryExtension(pi: ExtensionAPI): void {
     rebuildFromDisk(ctx);
   });
 
-  if (autoInjectEnabled) {
-    pi.on('before_agent_start', (event) => {
-      const block = formatMemoryIndex(state, { maxChars: maxInjectedChars });
-      if (!block) return undefined;
-      return { systemPrompt: `${event.systemPrompt}\n\n${block}` };
+  // Capture the raw user prompt for the `context`-hook recall below, and
+  // (when enabled) inject the STATIC index into the cached system prompt.
+  // The static index only changes on save/update/remove, so it does not
+  // bust the prompt-prefix cache turn-to-turn; the per-prompt recall is
+  // kept off the system prompt and rides the turn instead (see below).
+  pi.on('before_agent_start', (event) => {
+    latestPrompt = event.prompt ?? '';
+    // Count this submit as user activity for the capture-assist gate.
+    userTurnsSinceLastSave += 1;
+    if (!autoInjectEnabled) return undefined;
+    const block = formatMemoryIndex(state, { maxChars: maxInjectedChars, now: now(), staleDays });
+    if (!block) return undefined;
+    return { systemPrompt: `${event.systemPrompt}\n\n${block}` };
+  });
+
+  // ── Per-turn relevance recall (via the `context` hook) ────────────────
+  // Score the index against the latest prompt and surface the best
+  // matches as an ephemeral <system-reminder id="memory-recall"> spliced
+  // into the turn (never the system prompt, so the KV cache stays warm).
+  // Default mode MARKS the relevant ids (cheap nudge to `memory read`);
+  // PI_MEMORY_RECALL_BODIES=1 injects the matched bodies instead. We emit
+  // one or the other, never both. Empty prompt / no memories / no matches
+  // inject nothing.
+  if (recallEnabled) {
+    pi.on('context', (event) => {
+      const { markedIds, block } = selectRecall(state, latestPrompt, (e) => readMemoryBody(e, cwd, sessionId), {
+        topK: recallTopK,
+        injectBodies: recallBodies,
+        bodyBudget: recallBodyBudget,
+      });
+      if (markedIds.length === 0) return undefined;
+      const body = recallBodies
+        ? block
+        : `Most relevant saved memories for this request: ${markedIds
+            .map((id) => `\`${id}\``)
+            .join(', ')} - use \`memory read\` to load them.`;
+      if (!body) return undefined;
+      const messages = applyContextReminder(event.messages as unknown as ReminderMessage[], {
+        id: 'memory-recall',
+        body,
+      });
+      return { messages: messages as unknown as typeof event.messages };
+    });
+  }
+
+  // ── Capture-assist: timing nudge before compaction ───────────────────
+  // Compaction is about to summarize the conversation away, taking any
+  // un-saved durable fact with it. Surface a SHORT one-shot reminder so
+  // the model/user can `memory save` first. This is a timing prompt, not
+  // new policy (the model already has the `memory-first` skill). The
+  // `session_before_compact` result can only cancel/replace the
+  // compaction - it can't inject context - so we surface via
+  // `ctx.ui.notify`. Gated to avoid nag fatigue: only when there has been
+  // a user turn since the last save, and never when read-only or disabled.
+  if (!captureDisabled && !readOnly) {
+    pi.on('session_before_compact', (_event, ctx) => {
+      if (shouldNudgeCapture({ userTurnsSinceLastSave, readOnly, disabled: captureDisabled })) {
+        ctx.ui.notify(`memory: ${CAPTURE_NUDGE}`, 'info');
+      }
+      return undefined;
     });
   }
 
@@ -309,6 +430,7 @@ export default function memoryExtension(pi: ExtensionAPI): void {
   };
 
   const actSave = (params: MemoryParamsT): { content: string; details: MemoryDetails; isError?: boolean } => {
+    if (readOnly) return readOnlyError('save');
     // Resolve scope+type together so an explicit `scope: session` can
     // default `type` to `note` (the only type valid there).
     const type = params.type ?? (params.scope ? defaultMemoryTypeForScope(params.scope) : undefined);
@@ -360,10 +482,42 @@ export default function memoryExtension(pi: ExtensionAPI): void {
         isError: true,
       };
     }
+    // Non-blocking duplicate check, scoped to the same scope+type.
+    // (Secret-shaped content is gated upstream by the secret-redactor
+    // extension's tool-arg guard, so memory never needs its own check.)
+    const similar = findSimilarMemories(
+      { name: params.name.trim(), description, body },
+      bucketFor(state.index, scope).filter((e) => e.type === type),
+      (e) => readMemoryBody(e, cwd, sessionId),
+    );
+    const warnings: string[] = [];
+    if (similar.length > 0) {
+      const ids = similar.map((s) => `\`${s.entry.id}\` ([${s.entry.type}])`).join(', ');
+      warnings.push(
+        `Note: this looks similar to existing memory ${ids}. Consider \`update\`-ing instead of saving a duplicate.`,
+      );
+    }
     const slug = chooseMemorySlug(state, scope, params.name);
-    const serialized = serializeMemory({ name: params.name.trim(), description, type, body });
+    // New memory: stamp both timestamps with the same instant.
+    const stamp = now().toISOString();
+    const serialized = serializeMemory({
+      name: params.name.trim(),
+      description,
+      type,
+      body,
+      created: stamp,
+      updated: stamp,
+    });
     atomicWriteFile(fileFor(scope, type, slug, cwd, sessionId), serialized);
-    const entry: MemoryEntry = { id: slug, scope, type, name: params.name.trim(), description };
+    const entry: MemoryEntry = {
+      id: slug,
+      scope,
+      type,
+      name: params.name.trim(),
+      description,
+      created: stamp,
+      updated: stamp,
+    };
     const nextIndex = upsertEntry(state.index, entry);
     state = { index: nextIndex, projectSlug: state.projectSlug, sessionId: state.sessionId };
     writeIndex(scope, cwd, sessionId, bucketFor(nextIndex, scope));
@@ -372,13 +526,18 @@ export default function memoryExtension(pi: ExtensionAPI): void {
     } catch {
       // keep going
     }
+    // A successful save clears the capture-assist gate: nothing fresh is
+    // unsaved until the next user turn.
+    userTurnsSinceLastSave = 0;
+    const prefix = warnings.length > 0 ? `${warnings.join('\n')}\n\n` : '';
     return {
-      content: `Saved memory [${scope}/${type}] ${slug} - ${entry.name}\n\n${formatText(state)}`,
+      content: `${prefix}Saved memory [${scope}/${type}] ${slug} - ${entry.name}\n\n${formatText(state)}`,
       details: { action: 'save', state: cloneState(state), entry },
     };
   };
 
   const actUpdate = (params: MemoryParamsT): { content: string; details: MemoryDetails; isError?: boolean } => {
+    if (readOnly) return readOnlyError('update');
     const resolved = resolveMemoryEntry(state, params);
     if ('error' in resolved) {
       return {
@@ -454,11 +613,20 @@ export default function memoryExtension(pi: ExtensionAPI): void {
       );
       removeFileIfExists(fileFor(resolved.scope, resolved.type, resolved.id, cwd, sessionId));
     }
+    // Preserve `created`, bumping `updated` to now. Prefer the resolved
+    // entry's own `created` (populated by the disk scan and captured before
+    // any rename removed the old file); fall back to re-reading the
+    // on-disk frontmatter for entries indexed before timestamps existed.
+    // The rename path carries `created` across automatically via this value.
+    const priorCreated = resolved.created ?? readMemoryFrontmatter(resolved, cwd, sessionId)?.created;
+    const updatedStamp = now().toISOString();
     const serialized = serializeMemory({
       name: nextName,
       description: nextDescription,
       type: resolved.type,
       body: nextBody,
+      created: priorCreated,
+      updated: updatedStamp,
     });
     atomicWriteFile(fileFor(resolved.scope, resolved.type, nextId, cwd, sessionId), serialized);
     const entry: MemoryEntry = {
@@ -467,6 +635,8 @@ export default function memoryExtension(pi: ExtensionAPI): void {
       type: resolved.type,
       name: nextName,
       description: nextDescription,
+      created: priorCreated,
+      updated: updatedStamp,
     };
     nextIndex = upsertEntry(nextIndex, entry);
     state = { index: nextIndex, projectSlug: state.projectSlug, sessionId: state.sessionId };
@@ -483,6 +653,7 @@ export default function memoryExtension(pi: ExtensionAPI): void {
   };
 
   const actRemove = (params: MemoryParamsT): { content: string; details: MemoryDetails; isError?: boolean } => {
+    if (readOnly) return readOnlyError('remove');
     if (!params.scope) {
       const error = '`scope` is required for `remove` (global, project, or session)';
       return {
@@ -524,18 +695,8 @@ export default function memoryExtension(pi: ExtensionAPI): void {
         isError: true,
       };
     }
-    const needle = q.toLowerCase();
-    const matches: MemoryEntry[] = [];
     const allEntries = [...state.index.global, ...state.index.project, ...state.index.session];
-    for (const e of allEntries) {
-      const hay = [e.name, e.description, e.id].join(' ').toLowerCase();
-      if (hay.includes(needle)) {
-        matches.push(e);
-        continue;
-      }
-      const body = readMemoryBody(e, cwd, sessionId);
-      if (body?.toLowerCase().includes(needle)) matches.push(e);
-    }
+    const matches = searchMemories(allEntries, (e) => readMemoryBody(e, cwd, sessionId), q).map((s) => s.entry);
     if (matches.length === 0) {
       return {
         content: `No memories match "${q}".`,
@@ -673,6 +834,7 @@ export default function memoryExtension(pi: ExtensionAPI): void {
         preview: { description: 'Preview the injected memory index' },
         dir: { description: 'Print the memory directory path' },
         rescan: { description: 'Rescan the memory directory from disk' },
+        stale: { description: 'List project memories older than the stale threshold' },
         gc: { description: 'Prune orphaned session memory' },
       }),
     handler: async (args, ctx) => {
@@ -695,7 +857,7 @@ export default function memoryExtension(pi: ExtensionAPI): void {
           );
           return;
         }
-        const block = formatMemoryIndex(state, { maxChars: maxInjectedChars });
+        const block = formatMemoryIndex(state, { maxChars: maxInjectedChars, now: now(), staleDays });
         if (!block) {
           ctx.ui.notify("(no memories - nothing would be injected into the next turn's system prompt)", 'info');
           return;
@@ -723,6 +885,27 @@ export default function memoryExtension(pi: ExtensionAPI): void {
         ctx.ui.notify(`Rescanned memory dirs.\n\n${formatText(state)}`, 'info');
         return;
       }
+      if (sub === 'stale') {
+        const at = now();
+        const stale = state.index.project
+          .filter((e) => isStaleEntry(e, at, staleDays))
+          .map((e) => ({ entry: e, age: entryAgeDays(e, at) ?? 0 }))
+          .sort((a, b) => b.age - a.age); // oldest first
+        if (stale.length === 0) {
+          ctx.ui.notify(
+            `No project memories older than ${staleDays}d (PI_MEMORY_STALE_DAYS). Project memories decay fast - review periodically.`,
+            'info',
+          );
+          return;
+        }
+        const lines = stale.map(({ entry, age }) => `  ${entry.id} (${age}d) - ${entry.name}: ${entry.description}`);
+        ctx.ui.notify(
+          `${stale.length} stale project memory(ies) older than ${staleDays}d (oldest first). ` +
+            `Review and \`update\` or \`remove\` as needed:\n${lines.join('\n')}`,
+          'info',
+        );
+        return;
+      }
       if (sub === 'gc') {
         const live = liveSessionIds(ctx);
         if (live === null) {
@@ -744,7 +927,7 @@ export default function memoryExtension(pi: ExtensionAPI): void {
         );
         return;
       }
-      ctx.ui.notify(`Unknown subcommand: ${sub}. Usage: /memory [list|preview|dir|rescan|gc]`, 'warning');
+      ctx.ui.notify(`Unknown subcommand: ${sub}. Usage: /memory [list|preview|dir|rescan|stale|gc]`, 'warning');
     },
   });
 }
