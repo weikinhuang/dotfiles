@@ -294,5 +294,25 @@ export default defineConfig({
         // 'typescript/use-unknown-in-catch-callback-variable': 'off',
       },
     },
+    {
+      // Bundled skill harness scripts: runnable .mjs that drive the pi SDK,
+      // whose dist ships no types - so every SDK value is `any` and the
+      // type-aware unsafe-* rules fire on otherwise-correct code. Keep all
+      // other rules (correctness, perf, style) active; relax only the ones
+      // that are unavoidable against an untyped dependency. `||` fallbacks on
+      // possibly-empty strings are intentional here (we want the fallback for
+      // '' too, which `??` would skip), and the empty unhandledRejection
+      // handler is a deliberate swallow.
+      files: ['config/pi/skills/**/scripts/**/*.{mjs,cjs,js}'],
+      rules: {
+        'no-empty-function': 'off',
+        'typescript/no-unsafe-argument': 'off',
+        'typescript/no-unsafe-assignment': 'off',
+        'typescript/no-unsafe-call': 'off',
+        'typescript/no-unsafe-member-access': 'off',
+        'typescript/no-unsafe-return': 'off',
+        'typescript/prefer-nullish-coalescing': 'off',
+      },
+    },
   ],
 });
