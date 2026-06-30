@@ -15,7 +15,15 @@
  * entries once the next one would blow the budget.
  */
 
-import { type MemoryEntry, type MemoryState, MEMORY_TYPES, type MemoryType } from './memory-reducer.ts';
+import {
+  DEFAULT_STALE_DAYS,
+  entryAgeDays,
+  isStaleEntry,
+  type MemoryEntry,
+  type MemoryState,
+  MEMORY_TYPES,
+  type MemoryType,
+} from './memory-reducer.ts';
 
 export interface FormatOptions {
   /**
@@ -24,6 +32,27 @@ export interface FormatOptions {
    * final block can exceed it slightly. Default 3000.
    */
   maxChars?: number;
+  /**
+   * Clock used to compute entry age for the stale marker. Injected so
+   * tests are deterministic; the extension passes the real `new Date()`.
+   * Defaults to now.
+   */
+  now?: Date;
+  /**
+   * Age (days) past which a `project` entry gets a tiny `(Nd)` age
+   * marker. Defaults to {@link DEFAULT_STALE_DAYS}.
+   */
+  staleDays?: number;
+}
+
+/**
+ * Tiny age suffix for a stale `project` entry, e.g. ` (45d)`. Empty
+ * string for fresh / non-project / undated entries so it costs nothing.
+ */
+function staleSuffix(entry: MemoryEntry, now: Date, staleDays: number): string {
+  if (!isStaleEntry(entry, now, staleDays)) return '';
+  const age = entryAgeDays(entry, now);
+  return age === undefined ? '' : ` (${age}d)`;
 }
 
 function groupByType(entries: readonly MemoryEntry[]): Map<MemoryType, MemoryEntry[]> {
@@ -38,6 +67,8 @@ function renderScope(
   entries: readonly MemoryEntry[],
   validTypes: readonly MemoryType[],
   budget: number,
+  now: Date,
+  staleDays: number,
 ): { lines: string[]; used: number; skipped: number; truncated: boolean } {
   const lines: string[] = [`### ${label}`];
   let used = lines[0].length + 1;
@@ -58,7 +89,7 @@ function renderScope(
     lines.push(heading);
     used += heading.length + 1;
     for (const e of group) {
-      const line = `- ${e.name} (\`${e.id}\`) - ${e.description}`;
+      const line = `- ${e.name} (\`${e.id}\`) - ${e.description}${staleSuffix(e, now, staleDays)}`;
       if (used + line.length + 1 > budget && lines.length > 2) {
         truncated = true;
         skipped++;
@@ -80,6 +111,13 @@ function renderScope(
  * Build the `## Memory` block injected into the system prompt each turn.
  * Returns `null` when both scopes are empty so the caller can skip
  * injection - no point reserving tokens for nothing.
+ *
+ * Budget vs display order are decoupled. The `maxChars` budget is
+ * consumed in *priority* order - session -> project -> global - so when
+ * the cap is tight the scopes most relevant to the current turn survive
+ * and stable cross-project global entries are the first to be truncated.
+ * The rendered sections are then re-assembled into reader-friendly
+ * *display* order (global -> project -> session) for the final block.
  */
 export function formatMemoryIndex(state: MemoryState, opts: FormatOptions = {}): string | null {
   const globalEntries = state.index.global;
@@ -87,43 +125,42 @@ export function formatMemoryIndex(state: MemoryState, opts: FormatOptions = {}):
   const sessionEntries = state.index.session;
   if (globalEntries.length === 0 && projectEntries.length === 0 && sessionEntries.length === 0) return null;
   const cap = Math.max(500, opts.maxChars ?? 3000);
+  const now = opts.now ?? new Date();
+  const staleDays = opts.staleDays ?? DEFAULT_STALE_DAYS;
 
-  const lines: string[] = ['## Memory', ''];
-  let used = lines.join('\n').length;
+  const header: string[] = ['## Memory', ''];
+  let used = header.join('\n').length;
   let totalSkipped = 0;
   let truncated = false;
 
-  if (globalEntries.length > 0) {
-    const r = renderScope('Global', globalEntries, ['user', 'feedback'], cap - used);
-    if (r.lines.length > 0) {
-      lines.push(...r.lines);
-      used += r.used;
-    }
+  // Hold each scope's rendered lines so we can render in priority order
+  // (for budget consumption) but emit in display order below.
+  let globalLines: string[] = [];
+  let projectLines: string[] = [];
+  let sessionLines: string[] = [];
+
+  const renderInto = (entries: readonly MemoryEntry[], label: string, validTypes: readonly MemoryType[]): string[] => {
+    if (entries.length === 0) return [];
+    const r = renderScope(label, entries, validTypes, cap - used, now, staleDays);
+    if (r.lines.length > 0) used += r.used;
     totalSkipped += r.skipped;
     truncated = truncated || r.truncated;
-  }
+    return r.lines;
+  };
 
-  if (projectEntries.length > 0) {
-    const label = state.projectSlug ? `Project (${state.projectSlug})` : 'Project';
-    const r = renderScope(label, projectEntries, ['user', 'feedback', 'project', 'reference'], cap - used);
-    if (r.lines.length > 0) {
-      lines.push(...r.lines);
-      used += r.used;
-    }
-    totalSkipped += r.skipped;
-    truncated = truncated || r.truncated;
-  }
-
+  // Budget-consumption order: session -> project -> global.
   if (sessionEntries.length > 0) {
     const label = state.sessionId ? `Session (${state.sessionId})` : 'Session';
-    const r = renderScope(label, sessionEntries, ['note'], cap - used);
-    if (r.lines.length > 0) {
-      lines.push(...r.lines);
-      used += r.used;
-    }
-    totalSkipped += r.skipped;
-    truncated = truncated || r.truncated;
+    sessionLines = renderInto(sessionEntries, label, ['note']);
   }
+  if (projectEntries.length > 0) {
+    const label = state.projectSlug ? `Project (${state.projectSlug})` : 'Project';
+    projectLines = renderInto(projectEntries, label, ['user', 'feedback', 'project', 'reference']);
+  }
+  globalLines = renderInto(globalEntries, 'Global', ['user', 'feedback']);
+
+  // Display order: global -> project -> session.
+  const lines: string[] = [...header, ...globalLines, ...projectLines, ...sessionLines];
 
   if (truncated) {
     lines.push(`(${totalSkipped} more memory entry(ies) not shown - call \`memory\` with action \`list\` to see all.)`);
