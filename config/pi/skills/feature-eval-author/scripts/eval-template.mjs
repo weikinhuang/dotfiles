@@ -1,11 +1,19 @@
-// Template: one behavioral-eval TRIAL of a pi extension against the
-// self-hosted small model, driven headless through the SDK.
+// Template: one behavioral-eval TRIAL of a pi extension against a small model,
+// driven headless through the SDK.
+//
+// Configure via env:
+//   PI_EVAL_MODEL    provider/model under test (e.g. anthropic/claude-haiku-4-5,
+//                    llama-cpp/qwen3-6-35b-a3b). Prefer a SMALL model - that is
+//                    where the interesting READ/ACT failures live.
+//   PI_EVAL_EXT_DIR  path to your checkout's config/pi/extensions directory.
 //
 // Run ONE trial per process (a bash loop spawns fresh `node` per trial) -
 // `session.dispose()` + a new session in the same process trips the
 // titlebar-spinner extension on a stale ctx and crashes the run after trial 1.
+// Load your provider's credentials into the shell first, then loop:
 //
-//   source ~/.pi/agent/env        # MUST: provides PI_PROVIDER_AUTH for the server
+//   source ~/.pi/agent/env 2>/dev/null || true   # if your setup keeps creds there
+//   export PI_EVAL_MODEL=provider/model           # e.g. anthropic/claude-haiku-4-5
 //   for i in $(seq 1 5); do node eval-template.mjs "$i"; done
 //
 // This template demonstrates a READ probe (does the model use injected state?).
@@ -17,9 +25,9 @@ import { instrumentedAsk, fmtRec, loadPiSdk } from './instrument.mjs';
 process.on('unhandledRejection', () => {}); // a dangling aborted prompt() after a stall must not crash
 
 const label = process.argv[2] || '?';
-const REPO = '/Users/wehuang/source/dotfiles';
-const EXT = `${REPO}/config/pi/extensions`;
-const CWD = '/tmp/pi-eval/empty'; // empty cwd: a real repo makes Qwen bash-search instead of using injected context
+// Point PI_EVAL_EXT_DIR at your checkout's config/pi/extensions (default assumes ~/.dotfiles).
+const EXT = process.env.PI_EVAL_EXT_DIR || `${process.env.HOME}/.dotfiles/config/pi/extensions`;
+const CWD = '/tmp/pi-eval/empty'; // empty cwd: a real repo makes a small model bash-search instead of using injected context
 
 const { createAgentSession, AuthStorage, ModelRegistry, DefaultResourceLoader, getAgentDir, SessionManager } =
   await loadPiSdk();
@@ -44,7 +52,10 @@ sm.appendCustomEntry('todo-state', {
 process.env.PI_MEMORY_DISABLE_CAPTURE = '1'; // silence unrelated extensions' turn injection
 const authStorage = AuthStorage.create();
 const modelRegistry = ModelRegistry.create(authStorage);
-const model = modelRegistry.find('llama-cpp', 'qwen3-6-35b-a3b'); // the small model under test
+// provider/model under test - set PI_EVAL_MODEL (falls back to a small local model)
+const spec = process.env.PI_EVAL_MODEL || 'llama-cpp/qwen3-6-35b-a3b';
+const slash = spec.indexOf('/');
+const model = modelRegistry.find(spec.slice(0, slash), spec.slice(slash + 1));
 const rl = new DefaultResourceLoader({
   cwd: CWD,
   agentDir: getAgentDir(),

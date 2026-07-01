@@ -5,12 +5,13 @@ description: >-
   WHAT: Drive the real `pi` TUI headlessly inside a tmux pane - boot it, send turns and slash commands with `send-keys`,
   read the rendered screen back with `capture-pane` - to smoke-test or observe behavior that only exists in an
   interactive session. WHEN: You need a real `/compact`, a slash command, an overlay (`/todos`, `/scratchpad`), a
-  keybinding, or any extension behavior that the headless SDK can't reproduce, especially against the self-hosted small
-  model. DO-NOT: Use for anything scriptable through the SDK or `pi --print` (those are faster and assert on structured
-  events, not screen scraping) - reach here only for genuinely interactive surfaces.
+  keybinding, or any extension behavior that the headless SDK can't reproduce, especially against a small model. DO-NOT:
+  Use for anything scriptable through the SDK or `pi --print` (those are faster and assert on structured events, not
+  screen scraping) - reach here only for genuinely interactive surfaces.
 compatibility: >-
-  Requires: tmux, the self-hosted llama-cpp server reachable (https://llm.example.com/v1), and auth from ~/.pi/agent/env.
-  The model is self-hosted (~free), so re-run flaky trials rather than trusting a single pane capture.
+  Requires: tmux, a pi model to drive (select it with `pi --model provider/model`) with its provider credentials
+  loadable in the pane. If the model is cheap or self-hosted, re-run flaky trials freely rather than trusting a single
+  pane capture.
 ---
 
 # pi tmux smoke test
@@ -40,17 +41,17 @@ Stay on the SDK / `--print` for: save / recall / dedup / secret-gating (success 
 
 ### 1. Source the env, in the pane
 
-`source ~/.pi/agent/env` is mandatory: the `llama-cpp` provider sends `Authorization: ${PI_PROVIDER_AUTH}`, and that
-var is **not** inherited by a fresh tmux shell - not even a login shell. Source it in the **pane's** command line, not
-just the outer shell that calls `tmux`.
+Loading your provider's credentials in the pane is mandatory: a fresh tmux shell does **not** inherit them - not even a
+login shell. Load them in the **pane's** command line, not just the outer shell that calls `tmux`.
 
 ### 2. Boot, send, capture
 
 ```bash
-source ~/.pi/agent/env                       # outer shell, for any wrapper logic
+source ~/.pi/agent/env 2>/dev/null || true   # outer shell: load creds if your setup keeps them there
 S=pi-smoke-$$
+MODEL=provider/model                         # e.g. anthropic/claude-haiku-4-5
 tmux new-session -d -s "$S" -x 200 -y 50     # detached; give it a wide pane so output isn't truncated
-tmux send-keys -t "$S" 'source ~/.pi/agent/env && pi --model llama-cpp/qwen3-6-35b-a3b' Enter
+tmux send-keys -t "$S" "{ source ~/.pi/agent/env 2>/dev/null || true; } && pi --model $MODEL" Enter
 sleep 8                                       # let the TUI boot before typing the first turn
 tmux send-keys -t "$S" 'first turn that establishes the fact' Enter
 # Poll instead of guessing the turn length (see step 4):

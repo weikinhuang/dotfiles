@@ -2,17 +2,18 @@
 name: feature-eval-author
 disable-model-invocation: true
 description: >-
-  WHAT: Build a behavioral eval that drives the self-hosted small model (Qwen via the llama-cpp provider) headless
-  through the pi SDK to measure whether a pi extension / feature actually changes model behavior - does the model READ
-  injected state, ACT on an injected directive, or pick the right memory. WHEN: You added or changed a pi extension that
-  injects context, nudges, recalls, or steers (memory, todo, scratchpad, capture, recall, guardrails) and want evidence
-  it works on a small model, not just on a frontier one. DO-NOT: Use for unit logic that vitest already covers (pure
-  reducers, formatters, scorers - test those offline), for frontier-model-only behavior, or for anything that does not
-  need a live model in the loop.
+  WHAT: Build a behavioral eval that drives a small model of your choice (any pi provider) headless through the pi SDK
+  to measure whether a pi extension / feature actually changes model behavior - does the model READ injected state, ACT
+  on an injected directive, or pick the right memory. WHEN: You added or changed a pi extension that injects context,
+  nudges, recalls, or steers (memory, todo, scratchpad, capture, recall, guardrails) and want evidence it works on a
+  small model, not just on a frontier one. DO-NOT: Use for unit logic that vitest already covers (pure reducers,
+  formatters, scorers - test those offline), for frontier-model-only behavior, or for anything that does not need a live
+  model in the loop.
 compatibility: >-
-  Requires: the self-hosted llama-cpp server reachable (https://llm.example.com/v1, auth from ~/.pi/agent/env), the pi
-  SDK installed globally (@earendil-works/pi-coding-agent), and node 24+ (runs .ts via type-stripping). The model is
-  ~free to run (self-hosted), so prefer many small trials over one big one.
+  Requires: a pi model to drive (set `PI_EVAL_MODEL=provider/model`) with its provider credentials loaded, the pi SDK
+  installed globally (@earendil-works/pi-coding-agent), and node 24+ (runs .ts via type-stripping). Pick a SMALL model -
+  that is where the interesting failures live - and if it is cheap or self-hosted, prefer many small trials over one big
+  one.
 ---
 
 # Feature Eval Author
@@ -32,7 +33,7 @@ the seed + question + scorer, and drive it with a bash loop.
 Small models behave very differently on the two things a pi extension can do. Decide which you are testing first - it
 changes both the success signal and whether the feature can even work on a small model.
 
-| Mode     | The feature…                                                                                                                          | Success signal                                    | Small-model verdict (Qwen, measured)                                                                                       |
+| Mode     | The feature…                                                                                                                          | Success signal                                    | Small-model verdict (measured on Qwen)                                                                                     |
 | -------- | ------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
 | **READ** | injects STATE into the turn (a `<system-reminder>` via the `context` hook: todo plan, scratchpad notes, recalled memory body, budget) | the model's answer reflects the injected fact     | **Reliable.** The model reads injected state and answers from it (todo 5/5, scratchpad 5/5, recall "tabs" 6/6).            |
 | **ACT**  | injects a DIRECTIVE the model must execute (a capture nudge, a "save this" reminder, a steer) riding the next user turn               | a side effect happens (file written, tool called) | **Fails.** A small model ignores secondary injected directives (capture nudge 0/26) - it attends only to the primary turn. |
@@ -49,7 +50,7 @@ Reach for a behavioral eval when **all** hold:
 
 - The feature's value depends on a model _doing_ something with what the extension injects/fires (reading state, acting,
   selecting), not just on the data structure being correct.
-- You want to know whether it holds on the **small** self-hosted model, where the interesting failures live.
+- You want to know whether it holds on the **small** model, where the interesting failures live.
 - The behavior is observable: a token in the answer, a file on disk, a tool call, a ranking.
 
 Stay offline (plain vitest, no model) for: reducer transitions, block formatting, search/scorer ranking quality
@@ -129,8 +130,8 @@ Start from [`scripts/eval-template.mjs`](./scripts/eval-template.mjs). The load-
   without it the extension never runs its `session_start` handler (index/state stays empty, recall injects nothing). The
   `context` / `before_agent_start` handlers still fire (registered at module load), so a broken-looking recall is
   usually a missing `bindExtensions`.
-- `thinkingLevel: 'off'` for QA-style probes - at low/high, Qwen goes agentic (10-67 tool calls, repo-diving) and often
-  never emits a final answer.
+- `thinkingLevel: 'off'` for QA-style probes - at low/high, a small model goes agentic (Qwen: 10-67 tool calls,
+  repo-diving) and often never emits a final answer.
 - `tools: []` to isolate "answer from injected context only".
 - Empty `cwd` (e.g. `/tmp/pi-eval/empty`) - from a real repo the model bash-searches instead of using the injected
   block.
@@ -141,15 +142,17 @@ Start from [`scripts/eval-template.mjs`](./scripts/eval-template.mjs). The load-
 
 `session.dispose()` + a new session in the **same** process trips `titlebar-spinner` on a stale ctx and crashes the run
 after trial 1. Spawn a fresh `node` per trial; add `process.on('unhandledRejection', () => {})` so a dangling aborted
-`prompt()` after a stall doesn't crash. **Source the env first** so the server gets its auth header:
+`prompt()` after a stall doesn't crash. **Load your provider's credentials first** and select the model, then loop. Load
+your provider's credentials into the shell first:
 
 ```bash
-source ~/.pi/agent/env
+source ~/.pi/agent/env 2>/dev/null || true       # if your setup keeps creds there
+export PI_EVAL_MODEL=provider/model              # e.g. anthropic/claude-haiku-4-5
 for i in $(seq 1 5); do node eval-template.mjs "$i"; done
 ```
 
-If you drive it from a tmux pane, `source ~/.pi/agent/env` **inside that pane** too - the auth header
-(`PI_PROVIDER_AUTH`) is not inherited.
+If you drive it from a tmux pane, load those credentials **inside that pane** too - a fresh tmux shell does not inherit
+them.
 
 ### 5. Classify every trial, don't just pass/fail
 
@@ -178,7 +181,8 @@ was isolated.
 
 ## Interpreting results
 
-- The model is ~free (self-hosted) - prefer n≥5 per arm; a clean 0/N or N/N is a strong signal at small N, a 3/5 is not.
+- If your model is cheap or self-hosted, prefer n≥5 per arm (a clean 0/N or N/N is a strong signal at small N, a 3/5 is
+  not); against a metered API, budget the N accordingly.
 - READ working + ACT failing on the same feature is the expected small-model profile, not a bug - it tells you the
   feature should lean on state injection, and any directive needs its own turn.
 - An offline selection metric (search MRR, recall P@1) answers "did it pick the right memory"; a live eval answers "did

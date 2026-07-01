@@ -10,7 +10,7 @@
 //   - thinking  : reasoning tokens         (assistantMessageEvent thinking_delta)
 //                 <- the channel that makes trials look blank while the model
 //                    is actually working; capture it or you will chase ghosts
-//   - tools     : tool_execution_start names (Qwen goes agentic at thinking>off)
+//   - tools     : tool_execution_start names (a small model goes agentic at thinking>off)
 //   - timing    : ttFirst / ttThinking / ttContent / ttDone (ms from prompt)
 //   - status    : ok | length | error | timeout | stall | throw
 //                 stall = no stream activity for stallMs => server hang
