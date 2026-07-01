@@ -44,14 +44,6 @@
  *   PI_MEMORY_ROOT=<path>            override `~/.pi/agent/memory`.
  *   PI_MEMORY_READONLY=1             block save/update/remove; list/read/
  *                                    search + auto-inject still work.
- *   PI_MEMORY_DISABLE_RECALL=1       skip the per-turn relevance recall
- *                                    (marking + body injection) entirely.
- *   PI_MEMORY_RECALL_TOPK=N          number of relevant memories to surface
- *                                    each turn (default 3).
- *   PI_MEMORY_RECALL_BODIES=1        inject the matched bodies into the turn
- *                                    instead of just marking their ids.
- *   PI_MEMORY_RECALL_BODY_BUDGET=N   char cap per injected body under
- *                                    PI_MEMORY_RECALL_BODIES (default 1500).
  *   PI_MEMORY_DISABLE_CAPTURE=1      skip the capture-assist nudge (fired into
  *                                    the turn after a compaction to save
  *                                    un-saved durable facts; lists concrete
@@ -100,7 +92,6 @@ import {
   shouldNudgeCapture,
 } from '../../../lib/node/pi/memory-capture.ts';
 import { formatMemoryIndex } from '../../../lib/node/pi/memory-prompt.ts';
-import { selectRecall } from '../../../lib/node/pi/memory-recall.ts';
 import { MEMORY_USAGE } from '../../../lib/node/pi/memory/usage.ts';
 import {
   cloneState,
@@ -129,8 +120,6 @@ import { truncate } from '../../../lib/node/pi/shared.ts';
 import { envTruthy, parseClampedPositiveInt, parsePositiveInt } from '../../../lib/node/pi/parse-env.ts';
 
 const MAX_INJECTED_CHARS_DEFAULT = 3000;
-const RECALL_TOPK_DEFAULT = 3;
-const RECALL_BODY_BUDGET_DEFAULT = 1500;
 
 // ──────────────────────────────────────────────────────────────────────
 // Tool params
@@ -276,15 +265,6 @@ export default function memoryExtension(pi: ExtensionAPI): void {
     500,
   );
   const staleDays = parsePositiveInt(process.env.PI_MEMORY_STALE_DAYS, DEFAULT_STALE_DAYS);
-  // Per-turn relevance recall (separate from the static index injection).
-  const recallEnabled = !envTruthy(process.env.PI_MEMORY_DISABLE_RECALL);
-  const recallTopK = parseClampedPositiveInt(process.env.PI_MEMORY_RECALL_TOPK, RECALL_TOPK_DEFAULT);
-  const recallBodies = envTruthy(process.env.PI_MEMORY_RECALL_BODIES);
-  const recallBodyBudget = parseClampedPositiveInt(
-    process.env.PI_MEMORY_RECALL_BODY_BUDGET,
-    RECALL_BODY_BUDGET_DEFAULT,
-    100,
-  );
   // Capture-assist: a one-shot nudge fired after compaction.
   const captureDisabled = envTruthy(process.env.PI_MEMORY_DISABLE_CAPTURE);
   const captureEnabled = !captureDisabled && !readOnly;
@@ -303,28 +283,12 @@ export default function memoryExtension(pi: ExtensionAPI): void {
   let state: MemoryState = emptyState();
   let cwd: string = process.cwd();
   let sessionId: string | null = null;
-  // Latest user prompt, captured in `before_agent_start` (which carries
-  // the raw prompt) and consumed by the `context` handler (which only
-  // sees `messages`). `before_agent_start` fires once per submit, before
-  // the agent loop that emits the turn's first `context`, so the value is
-  // fresh when recall runs. Reset to null after each turn's recall would
-  // be over-eager (a turn can emit several `context` events across tool
-  // round-trips, all answering the same prompt), so we leave it set and
-  // overwrite on the next submit.
-  let latestPrompt = '';
   // Capture-assist gating: user submits observed since the last
   // successful `memory save` this session. Incremented in
   // `before_agent_start` (one per submit), reset to 0 after a save.
   // `> 0` at compaction time means there is plausibly an unsaved
   // durable fact worth nudging about; `0` keeps the nudge quiet.
   let userTurnsSinceLastSave = 0;
-  // Per-turn recall memo: recall depends only on `latestPrompt` + the index,
-  // but the `context` hook fires on every LLM call (incl. each tool
-  // round-trip within one user turn). Cache the rendered reminder body keyed
-  // on the prompt so we score + read bodies once per turn, not once per call.
-  // Invalidated when the prompt changes (cache miss) or the index mutates
-  // (set to null in the write actions + rebuildFromDisk).
-  let recallCache: { prompt: string; body: string | null } | null = null;
   // Capture-assist: set true when compaction fires (and the nag-gate allows),
   // consumed once by the next `context` hook which splices a model-facing
   // <system-reminder> into the turn. `session_before_compact` can only
@@ -351,7 +315,6 @@ export default function memoryExtension(pi: ExtensionAPI): void {
     sessionId = readSessionId(ctx);
     const { state: next, warnings } = rebuildMemoryIndex(cwd, sessionId);
     state = next;
-    recallCache = null;
     for (const w of warnings) {
       if (surfacedWarnings.has(w)) continue;
       surfacedWarnings.add(w);
@@ -372,13 +335,11 @@ export default function memoryExtension(pi: ExtensionAPI): void {
     rebuildFromDisk(ctx);
   });
 
-  // Capture the raw user prompt for the `context`-hook recall below, and
-  // (when enabled) inject the STATIC index into the cached system prompt.
-  // The static index only changes on save/update/remove, so it does not
-  // bust the prompt-prefix cache turn-to-turn; the per-prompt recall is
-  // kept off the system prompt and rides the turn instead (see below).
+  // Count the submit for the capture-assist gate and, when enabled, inject
+  // the STATIC memory index into the cached system prompt. The static index
+  // only changes on save/update/remove, so it does not bust the prompt-prefix
+  // cache turn-to-turn.
   pi.on('before_agent_start', (event) => {
-    latestPrompt = event.prompt ?? '';
     // Count this submit as user activity for the capture-assist gate.
     userTurnsSinceLastSave += 1;
     if (!autoInjectEnabled) return undefined;
@@ -387,46 +348,14 @@ export default function memoryExtension(pi: ExtensionAPI): void {
     return { systemPrompt: `${event.systemPrompt}\n\n${block}` };
   });
 
-  // Rendered recall reminder for the current prompt, memoized so the
-  // scoring + body reads happen once per user turn rather than on every
-  // `context` event. Returns null when nothing relevant is found.
-  const recallBodyForTurn = (): string | null => {
-    if (!recallEnabled) return null;
-    const cached = recallCache;
-    if (cached?.prompt === latestPrompt) return cached.body;
-    const { markedIds, block } = selectRecall(state, latestPrompt, (e) => readMemoryBody(e, cwd, sessionId), {
-      topK: recallTopK,
-      injectBodies: recallBodies,
-      bodyBudget: recallBodyBudget,
-    });
-    let body: string | null = null;
-    if (markedIds.length > 0) {
-      body = recallBodies
-        ? block
-        : `Most relevant saved memories for this request: ${markedIds
-            .map((id) => `\`${id}\``)
-            .join(', ')} - use \`memory read\` to load them.`;
-    }
-    recallCache = { prompt: latestPrompt, body };
-    return body;
-  };
-
-  // ── Per-turn context-hook injection (recall + capture nudge) ──────────
-  // Both ride the turn as ephemeral <system-reminder> blocks (never the
-  // system prompt, so the KV cache prefix stays byte-stable):
-  //   - recall MARKS the prompt-relevant ids (or, under
-  //     PI_MEMORY_RECALL_BODIES, injects the matched bodies);
-  //   - the capture nudge fires once after a compaction (see below).
-  // Empty prompt / no matches / nothing pending injects nothing.
-  if (recallEnabled || captureEnabled) {
+  // ── Capture-assist context-hook injection ────────────────────────────
+  // The capture nudge rides the turn as an ephemeral <system-reminder>
+  // (never the system prompt, so the KV cache prefix stays byte-stable) and
+  // fires once after a compaction (see below). Nothing pending injects nothing.
+  if (captureEnabled) {
     pi.on('context', (event) => {
       let messages = event.messages as unknown as ReminderMessage[];
       let changed = false;
-      const recallBody = recallBodyForTurn();
-      if (recallBody) {
-        messages = applyContextReminder(messages, { id: 'memory-recall', body: recallBody });
-        changed = true;
-      }
       if (capturePending) {
         // One-shot: consume the flag whether or not we inject, so a stale
         // nudge never lingers across turns. Prefer the concrete
@@ -621,7 +550,6 @@ export default function memoryExtension(pi: ExtensionAPI): void {
     };
     const nextIndex = upsertEntry(state.index, entry);
     state = { index: nextIndex, projectSlug: state.projectSlug, sessionId: state.sessionId };
-    recallCache = null;
     writeIndex(scope, cwd, sessionId, bucketFor(nextIndex, scope));
     try {
       pi.appendEntry(MEMORY_CUSTOM_TYPE, cloneState(state));
@@ -742,7 +670,6 @@ export default function memoryExtension(pi: ExtensionAPI): void {
     };
     nextIndex = upsertEntry(nextIndex, entry);
     state = { index: nextIndex, projectSlug: state.projectSlug, sessionId: state.sessionId };
-    recallCache = null;
     writeIndex(entry.scope, cwd, sessionId, bucketFor(nextIndex, entry.scope));
     try {
       pi.appendEntry(MEMORY_CUSTOM_TYPE, cloneState(state));
@@ -776,7 +703,6 @@ export default function memoryExtension(pi: ExtensionAPI): void {
     removeFileIfExists(fileFor(resolved.scope, resolved.type, resolved.id, cwd, sessionId));
     const nextIndex = removeEntry(state.index, resolved.scope, resolved.id);
     state = { index: nextIndex, projectSlug: state.projectSlug, sessionId: state.sessionId };
-    recallCache = null;
     writeIndex(resolved.scope, cwd, sessionId, bucketFor(nextIndex, resolved.scope));
     try {
       pi.appendEntry(MEMORY_CUSTOM_TYPE, cloneState(state));

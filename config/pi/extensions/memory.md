@@ -100,33 +100,16 @@ nudge to verify or refresh before relying on a fast-decaying project fact. Only 
 `feedback` / `reference` / `note` are never marked, and an undated entry is never marked. The marker is deliberately
 tiny so it barely costs budget.
 
-## Recall
+## Recall (removed)
 
-The static `## Memory` index above tells the model _what_ exists; **recall** adds _what is relevant to this prompt_. On
-every turn (via the `context` hook, not the system prompt) the extension scores the whole index - global + project +
-session - against the latest user prompt with the same multi-signal scorer `search` uses, takes the top matches, and
-surfaces them as an ephemeral `<system-reminder id="memory-recall">`. This closes the keyword-only gap: a prompt about
-_port conflicts_ can still surface a memory whose description says _docker-compose mapping_, because the scorer is fuzzy
-and substring-based, not exact-keyword.
+Per-turn relevance recall - scoring the saved index against the current prompt and injecting a "most relevant memories"
+`<system-reminder>` - **was removed**. Below the useful index size the always-present static `## Memory` index already
+gives the model full awareness, and above it lexical word-overlap scoring collides on generic words; the regime where it
+earns its keep needs semantic (embedding) matching, not lexical. The extension now matches the Claude Code posture:
+always-present curated index + capture-assist, no relevance layer.
 
-Crucially this rides the **turn**, never the cached system prompt. The static index stays byte-stable so the provider's
-prompt-prefix (KV) cache survives turn-to-turn; only the small recall reminder varies per prompt. The latest prompt is
-captured in `before_agent_start` (which carries the raw prompt) and consumed in the `context` handler (which only sees
-messages) - `before_agent_start` fires once per submit, before the agent loop emits the turn's first `context`, so the
-value is fresh.
-
-Two modes:
-
-- **Marking (default, ≈free).** Emits a one-line reminder naming the most-relevant ids, e.g. _"Most relevant saved
-  memories for this request: `auth-mock-policy`, `release-freeze` - use `memory read` to load them."_ The model still
-  decides whether to `read` them, and verification-before-trust still applies.
-- **Body injection (`PI_MEMORY_RECALL_BODIES=1`).** Injects the matched bodies (each capped at
-  `PI_MEMORY_RECALL_BODY_BUDGET`) under a `## Relevant memory` heading so the model skips the `read` round-trip. Costs
-  tokens every turn, so it is off by default. Marking and body injection are mutually exclusive - exactly one is
-  emitted.
-
-An empty prompt, no memories, or no matches injects nothing. Disable the whole feature with
-`PI_MEMORY_DISABLE_RECALL=1`.
+When an embedding backend is available, recall returns as a semantic layer. The design + implementation steps live in
+[`plans/memory-smarter-recall.md`](../../../plans/memory-smarter-recall.md).
 
 ## Capture-assist
 
@@ -140,8 +123,8 @@ to save; this adds _when_ + _which_.
 
 Pi's `session_before_compact` handler can only cancel or replace the compaction - it cannot inject conversation context
 
-- so the reminder rides the following turn via the `context` hook (the same cache-safe seam as recall) to reach the
-  model itself, rather than only the UI.
+- so the reminder rides the following turn via the `context` hook (a cache-safe seam: ephemeral, never persisted) to
+  reach the model itself, rather than only the UI.
 
 **Delivery mode (`PI_MEMORY_CAPTURE_TURN`).** By default the nudge rides the next user turn as a `<system-reminder>` -
 invisible, cache-cheap, and effective on frontier models. Small/weak self-hosted models, however, attend to the primary
@@ -185,12 +168,6 @@ own model call remains a deferred option.
 - `PI_MEMORY_ROOT=<path>` - override `~/.pi/agent/memory` (useful for testing / per-host profiles).
 - `PI_MEMORY_READONLY=1` - block `save` / `update` / `remove` (they return a clear error); `list` / `read` / `search`
   and auto-injection still work. Useful in CI, shared/managed config, or "don't let this session mutate my memory" runs.
-- `PI_MEMORY_DISABLE_RECALL=1` - turn off per-turn relevance recall (both marking and body injection). The static
-  `## Memory` index is unaffected.
-- `PI_MEMORY_RECALL_TOPK=N` - number of relevant memories to surface each turn (default `3`, floor `1`).
-- `PI_MEMORY_RECALL_BODIES=1` - inject the matched bodies into the turn instead of marking their ids (default off, i.e.
-  marking).
-- `PI_MEMORY_RECALL_BODY_BUDGET=N` - per-body char cap when `PI_MEMORY_RECALL_BODIES=1` (default `1500`, floor `100`).
 - `PI_MEMORY_DISABLE_CAPTURE=1` - turn off the capture-assist nudge spliced into the turn after a compaction (see
   [Capture-assist](#capture-assist)). The nudge is independently suppressed under `PI_MEMORY_READONLY=1`.
 
@@ -200,7 +177,6 @@ Edit [`extensions/memory.ts`](./memory.ts) or the helpers under
 [`lib/node/pi/memory-reducer.ts`](../../../lib/node/pi/memory-reducer.ts) /
 [`lib/node/pi/memory-paths.ts`](../../../lib/node/pi/memory-paths.ts) /
 [`lib/node/pi/memory-prompt.ts`](../../../lib/node/pi/memory-prompt.ts) /
-[`lib/node/pi/memory-recall.ts`](../../../lib/node/pi/memory-recall.ts) /
 [`lib/node/pi/memory-capture.ts`](../../../lib/node/pi/memory-capture.ts) and run `/reload`.
 
 Companion skill: [`skills/memory-first/SKILL.md`](../skills/memory-first/SKILL.md) - when to save, when NOT to save, and

@@ -143,14 +143,28 @@ const STOPWORDS: ReadonlySet<string> = new Set([
   'under',
   'there',
   'here',
+  // Contraction fragments left behind after splitting on the apostrophe
+  // (you're -> re, i've -> ve, i'll -> ll): pure noise that fuzzy/prefix
+  // matches broadly. The 1-char tails (s, d, m, t) already fall to MIN_TOKEN_LEN.
+  're',
+  've',
+  'll',
+  // Generic connectives kept below MIN_TOKEN_LEN's reach but semantically empty.
+  'also',
+  'like',
+  'use',
+  'using',
+  'ones',
+  'them',
+  'they',
 ]);
 
 /**
  * Split a query into lowercased significant tokens: break on any
  * non-alphanumeric run (so `auth-mock` and `grafana.internal/d/api` split
  * into words too), then drop stopwords and tokens shorter than
- * `MIN_TOKEN_LEN`. Falls back to the whole trimmed query as a single
- * token when filtering would leave nothing (e.g. a 1-char id query, or an
+ * `MIN_TOKEN_LEN`. Falls back to the whole trimmed query as a single token
+ * when filtering would leave nothing (e.g. a 1-char id query, or an
  * all-stopword string) so a short deliberate query never silently matches
  * nothing.
  */
