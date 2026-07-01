@@ -47,14 +47,14 @@
         "height": { "node": "28", "key": "height" },
         "batch": { "node": "28", "key": "batch_size" }
       },
-      "promptProtocol": "Anima (anime/illustration): lead with score/quality tags (e.g. score_9, masterpiece), use an @artist prefix for style; Danbooru tags or natural language both work. Read the anima-prompting skill for the full ruleset.",
+      "promptProtocol": "Anima (anime/illustration): lead with score/quality tags (e.g. score_9, masterpiece), use an @artist prefix for style; Gelbooru & Danbooru tags or natural language both work. Read the anima-prompting skill for the full ruleset.",
       "refineWith": { "inpaint": "anima-inpaint", "detailer": "anima-detailer", "ground": "anima-ground-sam3" }
     },
     "anima-inpaint": {
       "file": "~/.dotfiles/config/pi/comfyui/anima-inpaint.api.json",
       "description": "anima inpaint companion (same Cosmos Predict2 checkpoint, masked region)",
       "tags": ["anime", "inpaint"],
-      "promptProtocol": "Danbooru tags, comma-separated",
+      "promptProtocol": "Gelbooru & Danbooru tags, comma-separated",
       "inputs": {
         "prompt": { "node": "65", "key": "string" },
         "negative": { "node": "12", "key": "text" },
@@ -72,7 +72,7 @@
       "file": "~/.dotfiles/config/pi/comfyui/anima-detailer.api.json",
       "description": "anima detailer companion (Ultralytics detector + FaceDetailer hi-res region re-render)",
       "tags": ["anime", "detailer"],
-      "promptProtocol": "Danbooru tags, comma-separated",
+      "promptProtocol": "Gelbooru & Danbooru tags, comma-separated",
       "inputs": {
         "prompt": { "node": "65", "key": "string" },
         "negative": { "node": "12", "key": "text" },
@@ -90,7 +90,7 @@
       "file": "~/.dotfiles/config/pi/comfyui/anima-ground.api.json",
       "description": "anima ground companion (Florence-2 phrase->mask localizer + masked inpaint)",
       "tags": ["anime", "ground"],
-      "promptProtocol": "Danbooru tags, comma-separated",
+      "promptProtocol": "Gelbooru & Danbooru tags, comma-separated",
       "inputs": {
         "prompt": { "node": "65", "key": "string" },
         "negative": { "node": "12", "key": "text" },
@@ -108,7 +108,7 @@
       "file": "~/.dotfiles/config/pi/comfyui/anima-ground-sam3.api.json",
       "description": "anima ground companion (SAM 3.1 text-concept->mask localizer + masked inpaint)",
       "tags": ["anime", "ground"],
-      "promptProtocol": "Danbooru tags, comma-separated",
+      "promptProtocol": "Gelbooru & Danbooru tags, comma-separated",
       "inputs": {
         "prompt": { "node": "65", "key": "string" },
         "negative": { "node": "12", "key": "text" },
