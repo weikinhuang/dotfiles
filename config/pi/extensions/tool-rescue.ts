@@ -20,7 +20,11 @@
  * runtime.
  *
  * Environment:
- *   PI_TOOL_RESCUE_DISABLED=1   skip the extension entirely.
+ *   PI_TOOL_RESCUE_ENABLED=1   opt in (OFF by default). Unlike the read-side,
+ *     non-destructive `strip-reasoning` overlay (active-by-default kill-switch),
+ *     tool-rescue AUTO-EXECUTES a tool the model only named in prose, so it must
+ *     be an explicit per-launch opt-in (RP / eval launchers export it) rather
+ *     than fire in a plain dev session sharing the same project `.pi/`.
  *
  * Config (`tool-rescue.json`):
  *   { "tools": ["generate_image"] }
@@ -42,7 +46,8 @@ import {
 } from '../../../lib/node/pi/tool-rescue.ts';
 
 export default function toolRescueExtension(pi: ExtensionAPI): void {
-  if (envTruthy(process.env.PI_TOOL_RESCUE_DISABLED)) return;
+  // OFF by default; opt in per-launch (RP / eval launchers export PI_TOOL_RESCUE_ENABLED=1).
+  if (!envTruthy(process.env.PI_TOOL_RESCUE_ENABLED)) return;
 
   let warnedDenied = false;
 

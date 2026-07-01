@@ -62,7 +62,15 @@ See [`../tool-rescue-example.json`](../tool-rescue-example.json).
 
 ## Environment variables
 
-- `PI_TOOL_RESCUE_DISABLED=1` - skip the extension entirely.
+- `PI_TOOL_RESCUE_ENABLED=1` - opt in (the extension is **off by default**).
+
+Rescue therefore requires three gates in order: the opt-in env, then a non-empty `tools` allowlist, then the always-on
+HARD-DENY subtraction (`bash` / `edit` / `write` / `apply_patch` / `bg_bash` are never auto-run even if listed).
+
+This is deliberately asymmetric with the sibling `strip-reasoning` extension, which stays active-by-default behind a
+`PI_STRIP_REASONING_DISABLED` kill-switch: `strip-reasoning` is a read-side, config-gated, non-destructive overlay, so
+it is safe on by default. `tool-rescue` **auto-executes** a tool the model only named in prose, so it must be an
+explicit opt-in - config presence alone cannot tell an RP launch from a dev session sharing the same project `.pi/`.
 
 ## Hot reload
 
