@@ -51,7 +51,7 @@ import { join } from 'node:path';
 
 import { parseModelSpec } from '../model-spec.ts';
 import { readTextOrNull } from '../fs-safe.ts';
-import { piAgentPath } from '../pi-paths.ts';
+import { piAgentPath, piProjectPath } from '../pi-paths.ts';
 import { type ThinkingLevel, THINKING_LEVELS } from '../preset.ts';
 
 export type AgentModel = 'inherit' | { provider: string; modelId: string };
@@ -433,6 +433,6 @@ export function defaultAgentLayers(args: {
   return [
     { source: 'global', dir: join(args.extensionDir, '..', 'agents') },
     { source: 'user', dir: piAgentPath('agents') },
-    { source: 'project', dir: join(args.cwd, '.pi', 'agents') },
+    { source: 'project', dir: piProjectPath(args.cwd, 'agents') },
   ];
 }

@@ -23,10 +23,10 @@
  * coverage of the validation logic.
  */
 
-import { join, resolve } from 'node:path';
+import { join } from 'node:path';
 
 import { loadJsoncConfigOrFallback, parseJsonc } from '../jsonc.ts';
-import { piAgentDir } from '../pi-paths.ts';
+import { piAgentDir, piProjectPath } from '../pi-paths.ts';
 import { isRecord } from '../shared.ts';
 
 // ──────────────────────────────────────────────────────────────────────
@@ -58,14 +58,13 @@ interface HookFile {
 }
 
 const TAG = 'hooks';
-const PROJECT_RULES_RELATIVE = join('.pi', 'hooks.json');
 
 function userRulesPath(agentDir: string): string {
   return join(agentDir, 'hooks.json');
 }
 
 function projectRulesPath(cwd: string): string {
-  return resolve(cwd, PROJECT_RULES_RELATIVE);
+  return piProjectPath(cwd, 'hooks.json');
 }
 
 /** Empty per-event map, used as the fallback for missing/malformed files. */

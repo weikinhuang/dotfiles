@@ -41,7 +41,7 @@
 import { join } from 'node:path';
 
 import { type ConfigWarning, tryReadJsoncFile } from './jsonc.ts';
-import { piAgentDir } from './pi-paths.ts';
+import { piAgentDir, piProjectPath } from './pi-paths.ts';
 
 /**
  * When to inject the primer:
@@ -112,7 +112,7 @@ export function loadConfig(
   agentDir: string = piAgentDir(),
 ): { config: PrimerConfig; warnings: ConfigWarning[] } {
   const warnings: ConfigWarning[] = [];
-  const paths = [join(agentDir, 'reminder-primer.json'), join(cwd, '.pi', 'reminder-primer.json')];
+  const paths = [join(agentDir, 'reminder-primer.json'), piProjectPath(cwd, 'reminder-primer.json')];
 
   const mergeInto = (base: PrimerConfig, patch: Record<string, unknown>): PrimerConfig => {
     const out: PrimerConfig = { mode: base.mode, text: base.text };

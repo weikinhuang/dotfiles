@@ -138,6 +138,7 @@ import {
   childSessionDir,
   subagentSessionRoot,
   sweepStaleSessions,
+  sweepStaleSessionsFlat,
   type SweepFs,
 } from '../../../lib/node/pi/subagent/session-paths.ts';
 import {
@@ -868,7 +869,13 @@ export default function subagentExtension(pi: ExtensionAPI): void {
     if (debug && wtSwept.swept > 0) ctx.ui.notify(`subagent: swept ${wtSwept.swept} stale worktree(s)`, 'info');
     const retain = envPositiveInt('PI_SUBAGENT_RETAIN_DAYS', DEFAULT_RETAIN_DAYS);
     const swept = sweepStaleSessions(subagentSessionRoot(), retain, makeSweepFs());
-    if (debug && swept.removed > 0) ctx.ui.notify(`subagent: swept ${swept.removed} stale session file(s)`, 'info');
+    // Also sweep the current workspace's own session dir directly: when
+    // `--session-dir` relocated it out from under the shared root, the
+    // global sweep above can't see it (base moved, layout stayed).
+    const flatBase = ctx.sessionManager?.getSessionDir();
+    const sweptFlat = flatBase ? sweepStaleSessionsFlat(flatBase, retain, makeSweepFs()) : null;
+    const removed = swept.removed + (sweptFlat?.removed ?? 0);
+    if (debug && removed > 0) ctx.ui.notify(`subagent: swept ${removed} stale session file(s)`, 'info');
   });
 
   pi.on('session_shutdown', (_event, ctx) => {
@@ -907,6 +914,8 @@ export default function subagentExtension(pi: ExtensionAPI): void {
     try {
       const retain = envPositiveInt('PI_SUBAGENT_RETAIN_DAYS', DEFAULT_RETAIN_DAYS);
       sweepStaleSessions(subagentSessionRoot(), retain, makeSweepFs());
+      const flatBase = ctx.sessionManager?.getSessionDir();
+      if (flatBase) sweepStaleSessionsFlat(flatBase, retain, makeSweepFs());
     } catch {
       // never block shutdown
     }
@@ -1085,6 +1094,7 @@ export default function subagentExtension(pi: ExtensionAPI): void {
     // `resourceLoader.reload()` throw bypass the cleanup path.
     const noPersist = envTruthy(process.env.PI_SUBAGENT_NO_PERSIST);
     const sessionDir = childSessionDir({
+      parentSessionDir: ctx.sessionManager.getSessionDir(),
       parentCwd: ctx.cwd,
       parentSessionId: ctx.sessionManager.getSessionId(),
     });

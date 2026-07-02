@@ -120,11 +120,18 @@ the `iteration-loop` critic) are not registered here, so they keep the non-inter
 
 ## Session persistence
 
-Each child invocation writes to its own on-disk session file:
+Each child invocation writes to its own on-disk session file, nested under the parent's **effective session dir**:
 
 ```text
-~/.pi/agent/sessions/<parent-cwd-slug>/<parent-session-id>/subagents/<iso-timestamp>\_<child-session-id>.jsonl
+<parent-session-dir>/<parent-session-id>/subagents/<iso-timestamp>\_<child-session-id>.jsonl
 ```
+
+`<parent-session-dir>` is `sessionManager.getSessionDir()` - by default `~/.pi/agent/sessions/<parent-cwd-slug>/`, so
+the on-disk path is identical to the historical layout. Because it is the _effective_ session dir, child transcripts
+**follow `--session-dir` / `PI_CODING_AGENT_SESSION_DIR` automatically**: the base moves, the `<parentSid>/subagents/`
+layout beneath stays the same. Setting [`PI_SUBAGENT_SESSION_ROOT`](#environment-variables) instead points the base at
+an explicit root bucketed by the workspace slug (ramdisk / shared store), and
+[`PI_SUBAGENT_SESSION_SLUG`](#environment-variables) pins that slug so the tree survives a workspace rename/move.
 
 Mirrors Claude Code's per-`Task` session files so the user can audit, resume, or fork a delegated run. The parent
 session also records a `subagent-run` custom entry carrying stop reason, token counts, cost, and the child session file
@@ -250,7 +257,11 @@ needs the parent's project-scoped memories, keep `isolation: "shared-cwd"`.
 - `PI_SUBAGENT_CONCURRENCY=N` - max concurrent children (default `4`, floor `1`, ceiling `8`). Also settable via the
   [config file](#config-file)'s `concurrency`, which wins over this env var.
 - `PI_SUBAGENT_NO_PERSIST=1` - use `SessionManager.inMemory()` instead of disk-backed child sessions.
-- `PI_SUBAGENT_SESSION_ROOT=<path>` - override `~/.pi/agent/sessions` as the child session root (ramdisk, etc.).
+- `PI_SUBAGENT_SESSION_ROOT=<path>` - override the default base (the parent's effective session dir) with an explicit
+  child-session root, bucketed by the workspace slug (ramdisk, etc.). Unset = child transcripts nest under
+  `sessionManager.getSessionDir()`, so they follow `--session-dir` automatically.
+- `PI_SUBAGENT_SESSION_SLUG=<slug>` - pin the workspace-slug bucket segment (only used with `PI_SUBAGENT_SESSION_ROOT`)
+  to a fixed, cwd-independent value so the child-session tree survives a workspace rename/move.
 - `PI_SUBAGENT_RETAIN_DAYS=N` - retain child session files for N days before the startup sweep deletes them (default
   `30`).
 - `PI_SUBAGENT_STATUS_LINGER_MS=N` - keep completed status visible for N ms (default `5000`).

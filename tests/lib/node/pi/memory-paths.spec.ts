@@ -14,13 +14,13 @@ import { afterEach, beforeEach, expect, test } from 'vitest';
 import {
   atomicWriteFile,
   chooseMemorySlug,
-  cwdSlug,
   fileFor,
   globalDir,
   indexFileFor,
   listSessionMemoryDirs,
   memoryRoot,
   projectDir,
+  projectSlug,
   pruneOrphanSessionDirs,
   readMemoryBody,
   readMemoryFrontmatter,
@@ -50,29 +50,6 @@ afterEach(() => {
 // ──────────────────────────────────────────────────────────────────────
 // cwdSlug - must match pi's session-dir naming convention.
 // ──────────────────────────────────────────────────────────────────────
-
-test('cwdSlug: nested posix path', () => {
-  expect(cwdSlug('/mnt/d/whuang/Documents/Projects/github.com/weikinhuang/dotfiles')).toBe(
-    '--mnt-d-whuang-Documents-Projects-github.com-weikinhuang-dotfiles--',
-  );
-});
-
-test('cwdSlug: /tmp', () => {
-  expect(cwdSlug('/tmp')).toBe('--tmp--');
-});
-
-test('cwdSlug: trailing slash is stripped', () => {
-  expect(cwdSlug('/tmp/')).toBe('--tmp--');
-  expect(cwdSlug('/tmp/pi-test/')).toBe('--tmp-pi-test--');
-});
-
-test('cwdSlug: root slash', () => {
-  expect(cwdSlug('/')).toBe('----');
-});
-
-test('cwdSlug: home-style path', () => {
-  expect(cwdSlug('/home/whuang/.pi')).toBe('--home-whuang-.pi--');
-});
 
 // ──────────────────────────────────────────────────────────────────────
 // slugifyName / uniqueSlug
@@ -138,6 +115,44 @@ test('globalDir / projectDir / fileFor / indexFileFor line up', () => {
   );
   expect(indexFileFor('global', cwd)).toBe(join(sandbox, 'global', 'MEMORY.md'));
   expect(indexFileFor('project', cwd)).toBe(join(sandbox, 'projects', '--tmp-pi-test--', 'MEMORY.md'));
+});
+
+test('projectSlug: defaults to cwdSlug when PI_MEMORY_PROJECT_SLUG unset', () => {
+  delete process.env.PI_MEMORY_PROJECT_SLUG;
+  expect(projectSlug('/tmp/pi-test')).toBe('--tmp-pi-test--');
+});
+
+test('projectSlug: honours PI_MEMORY_PROJECT_SLUG regardless of cwd', () => {
+  process.env.PI_MEMORY_PROJECT_SLUG = 'rp';
+  try {
+    expect(projectSlug('/tmp/pi-test')).toBe('rp');
+    expect(projectSlug('/somewhere/else/entirely')).toBe('rp');
+  } finally {
+    delete process.env.PI_MEMORY_PROJECT_SLUG;
+  }
+});
+
+test('projectSlug: blank/whitespace override falls back to cwdSlug', () => {
+  process.env.PI_MEMORY_PROJECT_SLUG = '   ';
+  try {
+    expect(projectSlug('/tmp/pi-test')).toBe('--tmp-pi-test--');
+  } finally {
+    delete process.env.PI_MEMORY_PROJECT_SLUG;
+  }
+});
+
+test('projectDir: uses the fixed slug when PI_MEMORY_PROJECT_SLUG is set', () => {
+  process.env.PI_MEMORY_PROJECT_SLUG = 'rp';
+  try {
+    // Two different cwds resolve to the same project dir under the override.
+    expect(projectDir('/tmp/pi-test')).toBe(join(sandbox, 'projects', 'rp'));
+    expect(projectDir('/renamed/workspace')).toBe(join(sandbox, 'projects', 'rp'));
+    // Session paths derive from projectDir, so they follow the override too.
+    expect(sessionsParentDir('/renamed/workspace')).toBe(join(sandbox, 'projects', 'rp', 'sessions'));
+    expect(sessionDir('/renamed/workspace', 's1')).toBe(join(sandbox, 'projects', 'rp', 'sessions', 's1'));
+  } finally {
+    delete process.env.PI_MEMORY_PROJECT_SLUG;
+  }
 });
 
 test('sessionDir / session fileFor / indexFileFor are keyed under the project dir', () => {
@@ -342,6 +357,26 @@ test('rebuildMemoryIndex: scans global and project scopes with project slug', ()
   expect(rebuilt.state.index.project.map((e) => e.id)).toEqual(['launch']);
   expect(rebuilt.state.index.session).toEqual([]);
   expect(rebuilt.state.sessionId).toBeNull();
+});
+
+test('rebuildMemoryIndex: projectSlug snapshot reflects PI_MEMORY_PROJECT_SLUG override', () => {
+  process.env.PI_MEMORY_PROJECT_SLUG = 'rp';
+  try {
+    const cwd = '/renamed/workspace';
+    writeMemory(
+      join(projectDir(cwd), 'project'),
+      'launch.md',
+      { name: 'Launch', description: 'd', type: 'project' },
+      '',
+    );
+
+    const rebuilt = rebuildMemoryIndex(cwd);
+
+    expect(rebuilt.state.projectSlug).toBe('rp');
+    expect(rebuilt.state.index.project.map((e) => e.id)).toEqual(['launch']);
+  } finally {
+    delete process.env.PI_MEMORY_PROJECT_SLUG;
+  }
 });
 
 test('scanScope: session sees only the note type', () => {

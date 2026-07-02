@@ -6,7 +6,14 @@ import { join } from 'node:path';
 
 import { describe, expect, test } from 'vitest';
 
-import { piAgentDir, piAgentPath, piProjectDir, piProjectPath } from '../../../../lib/node/pi/pi-paths.ts';
+import {
+  cwdSlug,
+  piAgentDir,
+  piAgentPath,
+  piProjectDir,
+  piProjectPath,
+  slugFromEnv,
+} from '../../../../lib/node/pi/pi-paths.ts';
 
 describe('piAgentDir', () => {
   test('defaults to <home>/.pi/agent', () => {
@@ -65,5 +72,43 @@ describe('piProjectPath', () => {
     expect(piProjectPath('/repo', 'foo.json')).toBe(join('/repo', '.pi', 'foo.json'));
     expect(piProjectPath('/repo', 'agents', 'plan.md')).toBe(join('/repo', '.pi', 'agents', 'plan.md'));
     expect(piProjectPath('/repo')).toBe('/repo/.pi');
+  });
+});
+
+describe('cwdSlug', () => {
+  test('nested posix path', () => {
+    expect(cwdSlug('/mnt/d/whuang/Documents/Projects/github.com/weikinhuang/dotfiles')).toBe(
+      '--mnt-d-whuang-Documents-Projects-github.com-weikinhuang-dotfiles--',
+    );
+  });
+
+  test('/tmp', () => {
+    expect(cwdSlug('/tmp')).toBe('--tmp--');
+  });
+
+  test('trailing slash is stripped', () => {
+    expect(cwdSlug('/tmp/')).toBe('--tmp--');
+    expect(cwdSlug('/tmp/pi-test/')).toBe('--tmp-pi-test--');
+  });
+
+  test('root slash', () => {
+    expect(cwdSlug('/')).toBe('----');
+  });
+
+  test('home-style path', () => {
+    expect(cwdSlug('/home/whuang/.pi')).toBe('--home-whuang-.pi--');
+  });
+});
+
+describe('slugFromEnv', () => {
+  test('falls back to cwdSlug when the override is undefined/blank', () => {
+    expect(slugFromEnv(undefined, '/tmp/pi-test')).toBe('--tmp-pi-test--');
+    expect(slugFromEnv('', '/tmp/pi-test')).toBe('--tmp-pi-test--');
+    expect(slugFromEnv('   ', '/tmp/pi-test')).toBe('--tmp-pi-test--');
+  });
+
+  test('uses a non-empty override verbatim (trimmed), regardless of cwd', () => {
+    expect(slugFromEnv('rp', '/tmp/pi-test')).toBe('rp');
+    expect(slugFromEnv('  rp  ', '/renamed/elsewhere')).toBe('rp');
   });
 });

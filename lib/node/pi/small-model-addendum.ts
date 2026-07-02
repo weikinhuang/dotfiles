@@ -44,7 +44,7 @@
 import { join } from 'node:path';
 
 import { type ConfigWarning, tryReadJsoncFile } from './jsonc.ts';
-import { piAgentDir } from './pi-paths.ts';
+import { piAgentDir, piProjectPath } from './pi-paths.ts';
 
 export interface AddendumConfig {
   providers: string[];
@@ -99,7 +99,7 @@ export function loadConfig(
   agentDir: string = piAgentDir(),
 ): { config: AddendumConfig; warnings: ConfigWarning[] } {
   const warnings: ConfigWarning[] = [];
-  const paths = [join(agentDir, 'small-model-addendum.json'), join(cwd, '.pi', 'small-model-addendum.json')];
+  const paths = [join(agentDir, 'small-model-addendum.json'), piProjectPath(cwd, 'small-model-addendum.json')];
 
   const mergeInto = (base: AddendumConfig, patch: Record<string, unknown>): AddendumConfig => {
     const out: AddendumConfig = {

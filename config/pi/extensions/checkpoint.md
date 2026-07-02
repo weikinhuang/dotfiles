@@ -83,6 +83,14 @@ Project-scoped under the agent dir, so it survives a fork's new session file:
 The project key is the git toplevel when in a repo, else the realpath'd cwd. Manifests + blobs older than
 `retentionDays` are pruned (mark-sweep) on `session_start`; `0` keeps them forever.
 
+Because the key hashes the git-toplevel/cwd path, a folder rename orphans the old store. Two env overrides make the
+store repo-local and rename-safe (both default to today's behaviour when unset):
+
+- `PI_CHECKPOINT_STORE_ROOT=<path>` - override the `<agentDir>/checkpoints` root (e.g. point it at
+  `$root/.pi/checkpoints`).
+- `PI_CHECKPOINT_PROJECT_KEY=<key>` - pin the `<basename>-<shorthash>` key to a fixed, cwd-independent value
+  (path-sanitized).
+
 ## Configuration
 
 All tunables live in `checkpoint.json` (project `.pi/checkpoint.json` wins over user `<agentDir>/checkpoint.json` over

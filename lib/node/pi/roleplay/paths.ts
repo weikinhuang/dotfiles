@@ -18,10 +18,10 @@
  */
 
 import { existsSync, readdirSync, readFileSync, statSync, unlinkSync } from 'node:fs';
-import { homedir } from 'node:os';
 import { join } from 'node:path';
 
 import { atomicWriteFile, ensureDirSync } from '../atomic-write.ts';
+import { piAgentPath } from '../pi-paths.ts';
 import {
   parseFrontmatter,
   renderIndexMd,
@@ -33,11 +33,12 @@ import {
 
 export { atomicWriteFile, ensureDirSync };
 
-/** Absolute path to the roleplay store root, honouring `PI_ROLEPLAY_ROOT`. */
+/** Absolute path to the roleplay store root, honouring `PI_ROLEPLAY_ROOT`
+ * (and `PI_CODING_AGENT_DIR` for the default via `piAgentPath`). */
 export function roleplayRoot(): string {
   const env = process.env.PI_ROLEPLAY_ROOT;
   if (env && env.trim().length > 0) return env.trim();
-  return join(homedir(), '.pi', 'agent', 'roleplay');
+  return piAgentPath('roleplay');
 }
 
 export function castsParentDir(root: string = roleplayRoot()): string {

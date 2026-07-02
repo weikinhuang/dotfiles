@@ -58,3 +58,39 @@ export function piProjectDir(cwd: string): string {
 export function piProjectPath(cwd: string, ...segments: string[]): string {
   return join(piProjectDir(cwd), ...segments);
 }
+
+/**
+ * Transform a cwd into the directory name pi uses for its session store:
+ * replace `/` with `-` and wrap in `--…--`. So `/mnt/d/foo` becomes
+ * `--mnt-d-foo--`. Pure - no subprocess, no git lookup.
+ *
+ * The leading/trailing double-dash is pi's own visual marker that this is
+ * a full-path-encoded directory rather than a normal name. This is a
+ * generic pi-layout helper (used by the memory tree, the subagent child
+ * session tree, and anything else that mirrors pi's `sessions/<slug>/`
+ * bucketing) - it lives here, not in any one extension's `*-paths` module.
+ *
+ * Note: pi's own encoder additionally maps `\` and `:` (Windows drive
+ * paths) and strips only a single leading separator after resolving the
+ * path. This helper matches pi for ordinary POSIX cwds; for the exact
+ * dir pi is writing to, prefer `sessionManager.getSessionDir()` at
+ * runtime rather than recomputing.
+ */
+export function cwdSlug(cwd: string): string {
+  const stripped = cwd.replace(/^\/+|\/+$/g, '');
+  return `--${stripped.split('/').join('-')}--`;
+}
+
+/**
+ * Resolve a per-workspace slug from an env override, falling back to the
+ * cwd-derived slug. When `envValue` is a non-empty (trimmed) string it is
+ * used verbatim - pinning the slug to a fixed, cwd-independent value so the
+ * store survives a workspace folder rename/move; otherwise the cwd slug is
+ * used (unchanged default behaviour). Shared by every extension that keys
+ * on the session/cwd slug so the override contract stays consistent.
+ */
+export function slugFromEnv(envValue: string | undefined, cwd: string): string {
+  const trimmed = envValue?.trim();
+  if (trimmed && trimmed.length > 0) return trimmed;
+  return cwdSlug(cwd);
+}

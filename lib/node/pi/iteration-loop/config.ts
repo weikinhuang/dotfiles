@@ -38,6 +38,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 
 import { type ConfigWarning, tryReadJsoncFile } from '../jsonc.ts';
+import { piAgentDir, piProjectPath } from '../pi-paths.ts';
 
 /**
  * Built-in claim regexes - artifact-correctness sign-offs the
@@ -145,7 +146,7 @@ function compileRegexArray(source: unknown[], path: string, warnings: ConfigWarn
  */
 export function loadIterationLoopConfig(cwd: string, home: string = homedir()): ConfigLoadResult {
   const warnings: ConfigWarning[] = [];
-  const paths = [join(home, '.pi', 'agent', 'iteration-loop.json'), join(cwd, '.pi', 'iteration-loop.json')];
+  const paths = [join(piAgentDir(process.env, home), 'iteration-loop.json'), piProjectPath(cwd, 'iteration-loop.json')];
 
   // Mutable working copy seeded with defaults; claim regexes start
   // empty and are populated after we know whether a file replaced

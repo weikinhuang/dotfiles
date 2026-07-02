@@ -29,7 +29,7 @@
 import { join } from 'node:path';
 
 import { type ConfigWarning, tryReadJsoncFile } from '../jsonc.ts';
-import { piAgentDir } from '../pi-paths.ts';
+import { piAgentDir, piProjectPath } from '../pi-paths.ts';
 import { collapseWhitespace, truncate } from '../shared.ts';
 
 export interface SuppressRule {
@@ -123,7 +123,7 @@ export function loadConfig(
   agentDir: string = piAgentDir(),
 ): { config: WatchdogConfig; warnings: ConfigWarning[] } {
   const warnings: ConfigWarning[] = [];
-  const paths = [join(agentDir, 'exit-watchdog.json'), join(cwd, '.pi', 'exit-watchdog.json')];
+  const paths = [join(agentDir, 'exit-watchdog.json'), piProjectPath(cwd, 'exit-watchdog.json')];
 
   const extraRules: SuppressRule[] = [];
 

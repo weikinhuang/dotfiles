@@ -6,6 +6,12 @@
  *     blobs/<sha256>      # deduped before- AND after-content blobs
  *     <entryId>.json      # one manifest per user message
  *
+ * The `<agentDir>/checkpoints` root is overridable via
+ * `PI_CHECKPOINT_STORE_ROOT`, and `<projectKey>` (normally a hash of the
+ * git-toplevel / cwd, so a rename orphans it) is overridable via
+ * `PI_CHECKPOINT_PROJECT_KEY` to pin it to a fixed, cwd-independent value.
+ * Both default to today's behaviour when unset.
+ *
  * Blobs are written once (the path IS the hash, so a re-put is a cheap
  * stat) which makes the `after` snapshots nearly free - `after[N]` is
  * usually byte-identical to `before[N+1]`. Manifests are keyed by the
@@ -35,9 +41,13 @@ export function hashBytes(bytes: Buffer | string): string {
  * when in a repo, else the realpath'd cwd). `<basename>-<sha1[:12]>` keeps
  * the directory human-recognizable while the hash of the FULL path
  * disambiguates two projects that share a basename. The shell resolves
- * `absPath`; this stays pure so it's testable.
+ * `absPath`; this stays pure so it's testable. `PI_CHECKPOINT_PROJECT_KEY`
+ * pins the key to a fixed, cwd-independent value (path-sanitized) so the
+ * store survives a workspace rename/move; unset = the hashed default.
  */
 export function deriveProjectKey(absPath: string): string {
+  const override = process.env.PI_CHECKPOINT_PROJECT_KEY?.trim();
+  if (override) return override.replace(/[^A-Za-z0-9._-]/g, '_');
   const hash = createHash('sha1').update(absPath).digest('hex').slice(0, 12);
   const name = basename(absPath) || 'root';
   // Strip anything that isn't path-safe so the dir name can't surprise us.
@@ -45,9 +55,19 @@ export function deriveProjectKey(absPath: string): string {
   return `${safe}-${hash}`;
 }
 
-/** Absolute path to the store dir for `projectKey` under the agent dir. */
+/**
+ * Absolute path to the checkpoint store root. Honours
+ * `PI_CHECKPOINT_STORE_ROOT`; falls back to `<agentDir>/checkpoints`.
+ */
+export function checkpointStoreRoot(): string {
+  const env = process.env.PI_CHECKPOINT_STORE_ROOT;
+  if (env && env.trim().length > 0) return env.trim();
+  return piAgentPath('checkpoints');
+}
+
+/** Absolute path to the store dir for `projectKey` under the store root. */
 export function checkpointStoreDir(projectKey: string): string {
-  return piAgentPath('checkpoints', projectKey);
+  return join(checkpointStoreRoot(), projectKey);
 }
 
 function blobPath(storeDir: string, sha: string): string {

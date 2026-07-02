@@ -15,7 +15,8 @@
  */
 
 import { statSync } from 'node:fs';
-import { join } from 'node:path';
+
+import { piProjectDir } from './pi-paths.ts';
 
 export interface ScopePickOptions {
   cwd: string;
@@ -40,7 +41,7 @@ export function pickScopeFile(opts: ScopePickOptions): string {
     // fall through
   }
   try {
-    if (statSync(join(cwd, '.pi')).isDirectory()) return projectFile;
+    if (statSync(piProjectDir(cwd)).isDirectory()) return projectFile;
   } catch {
     // fall through
   }

@@ -13,6 +13,8 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
 import {
+  checkpointStoreDir,
+  checkpointStoreRoot,
   deriveProjectKey,
   fileSize,
   getBlobText,
@@ -102,6 +104,54 @@ describe('deriveProjectKey', () => {
 
   test('same basename, different path → different key', () => {
     expect(deriveProjectKey('/a/proj')).not.toBe(deriveProjectKey('/b/proj'));
+  });
+
+  test('PI_CHECKPOINT_PROJECT_KEY pins the key regardless of path', () => {
+    const original = process.env.PI_CHECKPOINT_PROJECT_KEY;
+    process.env.PI_CHECKPOINT_PROJECT_KEY = 'rp';
+    try {
+      expect(deriveProjectKey('/a/proj')).toBe('rp');
+      expect(deriveProjectKey('/renamed/elsewhere')).toBe('rp');
+    } finally {
+      if (original === undefined) delete process.env.PI_CHECKPOINT_PROJECT_KEY;
+      else process.env.PI_CHECKPOINT_PROJECT_KEY = original;
+    }
+  });
+
+  test('PI_CHECKPOINT_PROJECT_KEY is path-sanitized', () => {
+    const original = process.env.PI_CHECKPOINT_PROJECT_KEY;
+    process.env.PI_CHECKPOINT_PROJECT_KEY = 'rp/../weird key';
+    try {
+      expect(deriveProjectKey('/a/proj')).toBe('rp_.._weird_key');
+    } finally {
+      if (original === undefined) delete process.env.PI_CHECKPOINT_PROJECT_KEY;
+      else process.env.PI_CHECKPOINT_PROJECT_KEY = original;
+    }
+  });
+});
+
+describe('checkpointStoreRoot / checkpointStoreDir', () => {
+  test('honours PI_CHECKPOINT_STORE_ROOT and joins the project key', () => {
+    const original = process.env.PI_CHECKPOINT_STORE_ROOT;
+    process.env.PI_CHECKPOINT_STORE_ROOT = '/tmp/rp/.pi/checkpoints';
+    try {
+      expect(checkpointStoreRoot()).toBe('/tmp/rp/.pi/checkpoints');
+      expect(checkpointStoreDir('rp')).toBe(join('/tmp/rp/.pi/checkpoints', 'rp'));
+    } finally {
+      if (original === undefined) delete process.env.PI_CHECKPOINT_STORE_ROOT;
+      else process.env.PI_CHECKPOINT_STORE_ROOT = original;
+    }
+  });
+
+  test('defaults to <agentDir>/checkpoints when unset', () => {
+    const original = process.env.PI_CHECKPOINT_STORE_ROOT;
+    delete process.env.PI_CHECKPOINT_STORE_ROOT;
+    try {
+      expect(checkpointStoreRoot()).toMatch(/checkpoints$/);
+      expect(checkpointStoreDir('k')).toMatch(/checkpoints[/\\]k$/);
+    } finally {
+      if (original !== undefined) process.env.PI_CHECKPOINT_STORE_ROOT = original;
+    }
   });
 });
 

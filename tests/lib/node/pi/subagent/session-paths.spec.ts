@@ -11,8 +11,11 @@ import {
   listStaleWorktrees,
   retainMs,
   STALE_WORKTREE_PREFIX,
+  subagentSessionBase,
   subagentSessionRoot,
+  subagentSessionSlug,
   sweepStaleSessions,
+  sweepStaleSessionsFlat,
   type SweepFs,
 } from '../../../../../lib/node/pi/subagent/session-paths.ts';
 
@@ -32,25 +35,80 @@ describe('subagentSessionRoot', () => {
   });
 });
 
-describe('childSessionDir', () => {
-  test('mirrors Claude Code layout: <root>/<cwd-slug>/<parentSid>/subagents', () => {
-    const dir = childSessionDir({
-      parentCwd: '/mnt/d/proj',
-      parentSessionId: 'parent-abc',
-      root: '/root',
-    });
-
-    expect(dir).toBe('/root/--mnt-d-proj--/parent-abc/subagents');
+describe('childSessionDir / subagentSessionBase', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
   });
 
-  test('does NOT use the legacy <cwd-slug>/subagents/<parentSid> ordering', () => {
+  test('defaults to the parent session dir: <parentSessionDir>/<parentSid>/subagents', () => {
     const dir = childSessionDir({
+      parentSessionDir: '/agent/sessions/--mnt-d-proj--',
       parentCwd: '/mnt/d/proj',
       parentSessionId: 'parent-abc',
-      root: '/root',
     });
 
-    expect(dir).not.toBe('/root/--mnt-d-proj--/subagents/parent-abc');
+    expect(dir).toBe('/agent/sessions/--mnt-d-proj--/parent-abc/subagents');
+  });
+
+  test('follows a relocated session dir (--session-dir): base moves, layout stays', () => {
+    // getSessionDir() returns the verbatim --session-dir path; the child
+    // tree nests directly under it regardless of the (renamed) cwd.
+    const dir = childSessionDir({
+      parentSessionDir: '/repo/.pi/sessions',
+      parentCwd: '/renamed/elsewhere',
+      parentSessionId: 'parent-abc',
+    });
+
+    expect(dir).toBe('/repo/.pi/sessions/parent-abc/subagents');
+  });
+
+  test('subagentSessionBase is the parent session dir when no env root is set', () => {
+    expect(subagentSessionBase('/agent/sessions/--slug--', '/mnt/d/proj')).toBe('/agent/sessions/--slug--');
+  });
+
+  test('PI_SUBAGENT_SESSION_ROOT overrides the base, bucketed by the workspace slug', () => {
+    vi.stubEnv('PI_SUBAGENT_SESSION_ROOT', '/ram/subs');
+    expect(subagentSessionBase('/agent/sessions/--slug--', '/mnt/d/proj')).toBe('/ram/subs/--mnt-d-proj--');
+    expect(
+      childSessionDir({
+        parentSessionDir: '/agent/sessions/--slug--',
+        parentCwd: '/mnt/d/proj',
+        parentSessionId: 'parent-abc',
+      }),
+    ).toBe('/ram/subs/--mnt-d-proj--/parent-abc/subagents');
+  });
+});
+
+describe('subagentSessionSlug / PI_SUBAGENT_SESSION_SLUG override', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  test('defaults to the parent cwd slug when unset', () => {
+    expect(subagentSessionSlug('/mnt/d/proj')).toBe('--mnt-d-proj--');
+  });
+
+  test('honours PI_SUBAGENT_SESSION_SLUG regardless of parent cwd', () => {
+    vi.stubEnv('PI_SUBAGENT_SESSION_SLUG', 'rp');
+    expect(subagentSessionSlug('/mnt/d/proj')).toBe('rp');
+    expect(subagentSessionSlug('/renamed/elsewhere')).toBe('rp');
+  });
+
+  test('blank override falls back to the cwd slug', () => {
+    vi.stubEnv('PI_SUBAGENT_SESSION_SLUG', '   ');
+    expect(subagentSessionSlug('/mnt/d/proj')).toBe('--mnt-d-proj--');
+  });
+
+  test('childSessionDir uses the pinned slug (env-root branch) so the tree survives a rename', () => {
+    vi.stubEnv('PI_SUBAGENT_SESSION_ROOT', '/ram/subs');
+    vi.stubEnv('PI_SUBAGENT_SESSION_SLUG', 'rp');
+    const dir = childSessionDir({
+      parentSessionDir: '/agent/sessions/--renamed--',
+      parentCwd: '/renamed/elsewhere',
+      parentSessionId: 'parent-abc',
+    });
+
+    expect(dir).toBe('/ram/subs/rp/parent-abc/subagents');
   });
 });
 
@@ -130,6 +188,41 @@ describe('sweepStaleSessions', () => {
 
     expect(result.scanned).toBe(0);
     expect(result.removed).toBe(0);
+  });
+});
+
+describe('sweepStaleSessionsFlat', () => {
+  test('removes stale .jsonl under <base>/<sid>/subagents (depth-1)', () => {
+    const now = Date.now();
+    const stale = now - 40 * 24 * 60 * 60 * 1000;
+    const fresh = now - 1 * 24 * 60 * 60 * 1000;
+    const tree: Record<string, { name: string; mtimeMs: number; kind: 'file' | 'dir' }[]> = {
+      // base contains pi's own main transcript (a file) + a <sid> dir.
+      '/repo/.pi/sessions': [
+        { name: '2026-01-01_main.jsonl', mtimeMs: stale, kind: 'file' },
+        { name: 'parent-abc', mtimeMs: now, kind: 'dir' },
+      ],
+      '/repo/.pi/sessions/parent-abc': [{ name: 'subagents', mtimeMs: now, kind: 'dir' }],
+      '/repo/.pi/sessions/parent-abc/subagents': [
+        { name: 'old.jsonl', mtimeMs: stale, kind: 'file' },
+        { name: 'new.jsonl', mtimeMs: fresh, kind: 'file' },
+      ],
+    };
+    const result = sweepStaleSessionsFlat('/repo/.pi/sessions', 30, makeSweepFs(tree));
+
+    // Only the stale child transcript is counted/removed; the main
+    // transcript sitting directly in base is a file, never descended into.
+    expect(result.scanned).toBe(2);
+    expect(result.removed).toBe(1);
+    expect(result.errors).toEqual([]);
+  });
+
+  test('zero retainDays is a no-op', () => {
+    expect(sweepStaleSessionsFlat('/repo/.pi/sessions', 0, makeSweepFs({})).removed).toBe(0);
+  });
+
+  test('missing base is silent', () => {
+    expect(sweepStaleSessionsFlat('/nope', 30, makeSweepFs({})).scanned).toBe(0);
   });
 });
 

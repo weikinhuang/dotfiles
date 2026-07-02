@@ -46,6 +46,7 @@ import { join } from 'node:path';
 import { atomicWriteFile } from '../atomic-write.ts';
 import { parseModelSpec } from '../model-spec.ts';
 import { readJsoncOrUndefined } from '../fs-safe.ts';
+import { piAgentDir, piProjectPath } from '../pi-paths.ts';
 import { appendJournal, type JournalLevel } from './journal.ts';
 import { isRecord } from '../shared.ts';
 import { type AgentDef } from '../subagent/loader.ts';
@@ -88,25 +89,26 @@ function parseTinyModel(raw: unknown): string | null {
  *
  *   1. `<cwd>/.pi/research-tiny.json` - `{tinyModel: "…"}` or a
  *      bare string.
- *   2. `<home>/.pi/agent/research-tiny.json` - same shape.
- *   3. `<home>/.pi/agent/settings.json` - under `research.tinyModel`.
+ *   2. `<piAgentDir>/research-tiny.json` - same shape.
+ *   3. `<piAgentDir>/settings.json` - under `research.tinyModel`.
  *
  * First hit wins. Returns `null` when none of the locations have a
  * non-empty `provider/model` string.
  */
 export function resolveTinySettings(opts: ResolveTinySettingsOpts): TinySettings | null {
   const home = opts.home ?? homedir();
+  const agentDir = piAgentDir(process.env, home);
   const candidates: { path: string; extract: (v: unknown) => unknown }[] = [
     {
-      path: join(opts.cwd, '.pi', 'research-tiny.json'),
+      path: piProjectPath(opts.cwd, 'research-tiny.json'),
       extract: (v) => (isRecord(v) ? v.tinyModel : v),
     },
     {
-      path: join(home, '.pi', 'agent', 'research-tiny.json'),
+      path: join(agentDir, 'research-tiny.json'),
       extract: (v) => (isRecord(v) ? v.tinyModel : v),
     },
     {
-      path: join(home, '.pi', 'agent', 'settings.json'),
+      path: join(agentDir, 'settings.json'),
       extract: (v) => {
         if (!isRecord(v)) return undefined;
         const research = v.research;

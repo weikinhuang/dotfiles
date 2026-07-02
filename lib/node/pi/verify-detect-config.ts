@@ -11,7 +11,7 @@
 import { join } from 'node:path';
 
 import { type ConfigWarning, tryReadJsoncFile } from './jsonc.ts';
-import { piAgentDir } from './pi-paths.ts';
+import { piAgentDir, piProjectPath } from './pi-paths.ts';
 import type { ClaimKind } from './verify-detect.ts';
 
 const VALID_KINDS: ReadonlySet<ClaimKind> = new Set<ClaimKind>([
@@ -51,7 +51,7 @@ export function loadSatisfyRules(
 ): { rules: CompiledSatisfyRule[]; warnings: ConfigWarning[] } {
   const warnings: ConfigWarning[] = [];
   const rules: CompiledSatisfyRule[] = [];
-  const paths = [join(agentDir, 'verify-before-claim.json'), join(cwd, '.pi', 'verify-before-claim.json')];
+  const paths = [join(agentDir, 'verify-before-claim.json'), piProjectPath(cwd, 'verify-before-claim.json')];
 
   for (const path of paths) {
     const parsed = tryReadJsoncFile(path, warnings, { requireObject: true });

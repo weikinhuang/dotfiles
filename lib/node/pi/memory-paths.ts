@@ -30,14 +30,20 @@
  *
  * `<root>` defaults to `~/.pi/agent/memory`, overridable via
  * `PI_MEMORY_ROOT`.
+ *
+ * The `projects/<cwd-slug>` segment is normally derived from the cwd, but
+ * `PI_MEMORY_PROJECT_SLUG` pins it to a fixed, cwd-independent slug. That
+ * makes the project subtree survive a workspace folder rename/move (the
+ * cwd slug would otherwise be recomputed from the new absolute path and
+ * orphan the old files). When unset, behaviour is unchanged.
  */
 
 import { existsSync, readdirSync, readFileSync, rmSync, statSync, unlinkSync } from 'node:fs';
-import { homedir } from 'node:os';
 import { join } from 'node:path';
 
 import { atomicWriteFile, ensureDirSync } from './atomic-write.ts';
 import { parseFrontmatter, takenSlugs, validTypesForScope } from './memory-reducer.ts';
+import { cwdSlug, piAgentPath, slugFromEnv } from './pi-paths.ts';
 import {
   type Frontmatter,
   type MemoryEntry,
@@ -52,18 +58,10 @@ import {
 // + any future consumer share a single policy.
 export { atomicWriteFile, ensureDirSync };
 
-/**
- * Transform a cwd into the directory name pi uses for its session store:
- * replace `/` with `-` and wrap in `--…--`. So `/mnt/d/foo` becomes
- * `--mnt-d-foo--`. Pure - no subprocess, no git lookup.
- *
- * The leading/trailing double-dash is pi's own visual marker that this is
- * a full-path-encoded directory rather than a normal name.
- */
-export function cwdSlug(cwd: string): string {
-  const stripped = cwd.replace(/^\/+|\/+$/g, '');
-  return `--${stripped.split('/').join('-')}--`;
-}
+// `cwdSlug` is a generic pi-layout helper - its canonical home is
+// `pi-paths.ts`. Re-exported here only for the memory module's own
+// consumers; new callers should import it from `pi-paths.ts` directly.
+export { cwdSlug };
 
 /**
  * Filesystem-safe slug for a memory *name*. Lowercases, replaces
@@ -104,19 +102,31 @@ export function chooseMemorySlug(state: MemoryState, scope: MemoryScope, name: s
   return uniqueSlug(base, taken);
 }
 
-/** Absolute path to the memory root, honouring `PI_MEMORY_ROOT`. */
+/** Absolute path to the memory root, honouring `PI_MEMORY_ROOT` (and
+ * `PI_CODING_AGENT_DIR` for the default via `piAgentPath`). */
 export function memoryRoot(): string {
   const env = process.env.PI_MEMORY_ROOT;
   if (env && env.trim().length > 0) return env.trim();
-  return join(homedir(), '.pi', 'agent', 'memory');
+  return piAgentPath('memory');
 }
 
 export function globalDir(root: string = memoryRoot()): string {
   return join(root, 'global');
 }
 
+/**
+ * The slug used for the `projects/<slug>` memory subtree. Honours
+ * `PI_MEMORY_PROJECT_SLUG` (trimmed, when non-empty) as a fixed,
+ * cwd-independent override so the project subtree survives a workspace
+ * rename/move; otherwise falls back to the cwd-derived slug. Pure - reads
+ * only `process.env` and the given cwd.
+ */
+export function projectSlug(cwd: string): string {
+  return slugFromEnv(process.env.PI_MEMORY_PROJECT_SLUG, cwd);
+}
+
 export function projectDir(cwd: string, root: string = memoryRoot()): string {
-  return join(root, 'projects', cwdSlug(cwd));
+  return join(root, 'projects', projectSlug(cwd));
 }
 
 /** Parent dir holding every session's memory subtree for a workspace. */
@@ -306,7 +316,7 @@ export function rebuildMemoryIndex(
   return {
     state: {
       index: { global: g.entries, project: p.entries, session: s.entries },
-      projectSlug: cwdSlug(cwd),
+      projectSlug: projectSlug(cwd),
       sessionId,
     },
     warnings,

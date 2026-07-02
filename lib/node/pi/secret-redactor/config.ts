@@ -9,7 +9,7 @@
 import { join } from 'node:path';
 
 import { type ConfigWarning, tryReadJsoncFile } from '../jsonc.ts';
-import { piAgentDir } from '../pi-paths.ts';
+import { piAgentDir, piProjectPath } from '../pi-paths.ts';
 import type { CompiledRule } from './patterns.ts';
 import { DEFAULT_CONFIG, type RedactorConfig } from './redact.ts';
 
@@ -78,7 +78,7 @@ export function loadRedactorConfig(cwd: string, agentDir: string = piAgentDir())
     keywordMinLength: DEFAULT_CONFIG.keywordMinLength,
   };
 
-  const paths = [join(agentDir, 'secret-redactor.json'), join(cwd, '.pi', 'secret-redactor.json')];
+  const paths = [join(agentDir, 'secret-redactor.json'), piProjectPath(cwd, 'secret-redactor.json')];
   for (const path of paths) {
     const parsed = tryReadJsoncFile(path, warnings, { requireObject: true });
     if (parsed === undefined) continue;

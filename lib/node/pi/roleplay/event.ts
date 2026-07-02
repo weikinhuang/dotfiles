@@ -28,6 +28,7 @@ import { join } from 'node:path';
 
 import { readJsoncOrUndefined } from '../fs-safe.ts';
 import { parseModelSpec } from '../model-spec.ts';
+import { piAgentDir, piProjectPath } from '../pi-paths.ts';
 import { isRecord, truncate } from '../shared.ts';
 import { type AgentDef } from '../subagent/loader.ts';
 import { resolveChildModel, type ModelRegistryLike } from '../subagent/spawn.ts';
@@ -144,25 +145,26 @@ function parseEventModel(raw: unknown): string | null {
  * Resolve the optional `eventModel` from, in order:
  *
  *   1. `<cwd>/.pi/roleplay-event.json` - `{eventModel: "…"}` or a bare string.
- *   2. `<home>/.pi/agent/roleplay-event.json` - same shape.
- *   3. `<home>/.pi/agent/settings.json` - under `roleplay.eventModel`.
+ *   2. `<piAgentDir>/roleplay-event.json` - same shape.
+ *   3. `<piAgentDir>/settings.json` - under `roleplay.eventModel`.
  *
  * First hit wins. Returns `null` when none resolve - the generator then
  * inherits the parent session model (it is NOT disabled).
  */
 export function resolveEventSettings(opts: ResolveEventSettingsOpts): EventSettings | null {
   const home = opts.home ?? homedir();
+  const agentDir = piAgentDir(process.env, home);
   const candidates: { path: string; extract: (v: unknown) => unknown }[] = [
     {
-      path: join(opts.cwd, '.pi', 'roleplay-event.json'),
+      path: piProjectPath(opts.cwd, 'roleplay-event.json'),
       extract: (v) => (isRecord(v) ? v.eventModel : v),
     },
     {
-      path: join(home, '.pi', 'agent', 'roleplay-event.json'),
+      path: join(agentDir, 'roleplay-event.json'),
       extract: (v) => (isRecord(v) ? v.eventModel : v),
     },
     {
-      path: join(home, '.pi', 'agent', 'settings.json'),
+      path: join(agentDir, 'settings.json'),
       extract: (v) => {
         if (!isRecord(v)) return undefined;
         const roleplay = v.roleplay;

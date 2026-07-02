@@ -12,7 +12,7 @@ ${PI_MEMORY_ROOT:-~/.pi/agent/memory}/
 │   ├── MEMORY.md
 │   ├── user/<slug>.md
 │   └── feedback/<slug>.md
-└── projects/<cwd-slug>/       ← same slug as ~/.pi/agent/sessions/<cwd-slug>/
+└── projects/<cwd-slug>/       ← same slug as ~/.pi/agent/sessions/<cwd-slug>/ (override: PI_MEMORY_PROJECT_SLUG)
     ├── MEMORY.md
     ├── user/<slug>.md
     ├── feedback/<slug>.md
@@ -24,8 +24,11 @@ ${PI_MEMORY_ROOT:-~/.pi/agent/memory}/
 ```
 
 `<cwd-slug>` is pi's own convention: `/mnt/d/foo` → `--mnt-d-foo--`. So the memory dir for a given workspace sits right
-next to its session log under the same slug. The `sessions/<session-id>/` subtree is keyed on pi's session id (the same
-id as the `<session-id>.jsonl` transcript) and is only ever scanned for the session that owns it.
+next to its session log under the same slug. Setting `PI_MEMORY_PROJECT_SLUG=<slug>` pins the `projects/<slug>` segment
+to a fixed, cwd-independent value instead of deriving it from the cwd - so the project subtree survives a workspace
+folder rename/move (the cwd slug would otherwise be recomputed from the new path and orphan the old files). The
+`sessions/<session-id>/` subtree is keyed on pi's session id (the same id as the `<session-id>.jsonl` transcript) and is
+only ever scanned for the session that owns it.
 
 Each memory file has a strict five-key frontmatter (`name`, `description`, `type`, plus optional `created` / `updated`)
 plus a markdown body. `created` / `updated` are full ISO-8601 UTC datetimes (e.g. `2026-06-30T14:22:01Z`) written
@@ -148,8 +151,8 @@ own model call remains a deferred option.
 - `/memory` (or `/memory list`) - raw state dump of all indices (global + project + session).
 - `/memory preview` - shows the exact `## Memory` block that would be appended to the next turn's system prompt,
   honouring `PI_MEMORY_MAX_INJECTED_CHARS` and `PI_MEMORY_DISABLE_AUTOINJECT`.
-- `/memory dir` - prints the memory root, global dir, project dir, session dir, and the cwd-slug + session id pi
-  resolved.
+- `/memory dir` - prints the memory root, global dir, project dir, session dir, and the project slug (tagged
+  `(PI_MEMORY_PROJECT_SLUG)` when overridden) + session id pi resolved.
 - `/memory rescan` - re-read disk. Useful if another process edited a memory file underneath pi.
 - `/memory stale` - list project-scope memories older than `PI_MEMORY_STALE_DAYS`, oldest first, with their age in days.
   Read-only; never auto-deletes - review and `update` or `remove` as needed.
@@ -165,7 +168,11 @@ own model call remains a deferred option.
   tight cap; the rendered block still displays global → project → session.
 - `PI_MEMORY_STALE_DAYS=N` - age in days past which a `project` memory gets the `(Nd)` marker in the injected index and
   shows up in `/memory stale` (default `30`). Never auto-deletes; surfaces age and lets the model / user decide.
-- `PI_MEMORY_ROOT=<path>` - override `~/.pi/agent/memory` (useful for testing / per-host profiles).
+- `PI_MEMORY_ROOT=<path>` - override the memory root (useful for testing / per-host profiles). Unset, it defaults to
+  `<piAgentDir>/memory`, i.e. `~/.pi/agent/memory` or `<PI_CODING_AGENT_DIR>/memory` when that is set.
+- `PI_MEMORY_PROJECT_SLUG=<slug>` - pin the `projects/<slug>` subtree to a fixed, cwd-independent slug instead of
+  deriving it from the cwd. Set it so a workspace's project + session memory survives a folder rename/move. Unset =
+  cwd-derived slug (unchanged behaviour). Reflected in `/memory dir`.
 - `PI_MEMORY_READONLY=1` - block `save` / `update` / `remove` (they return a clear error); `list` / `read` / `search`
   and auto-injection still work. Useful in CI, shared/managed config, or "don't let this session mutate my memory" runs.
 - `PI_MEMORY_DISABLE_CAPTURE=1` - turn off the capture-assist nudge spliced into the turn after a compaction (see

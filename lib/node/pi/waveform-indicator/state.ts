@@ -64,7 +64,7 @@ import { join } from 'node:path';
 
 import { atomicWriteFile } from '../atomic-write.ts';
 import { parseModelSpec } from '../model-spec.ts';
-import { piAgentPath } from '../pi-paths.ts';
+import { piAgentPath, piProjectPath } from '../pi-paths.ts';
 import { isRecord } from '../shared.ts';
 
 /**
@@ -80,7 +80,7 @@ export interface WaveformStatePathOpts {
 }
 
 export function resolveWaveformStatePath(opts: WaveformStatePathOpts): string {
-  const projectPath = join(opts.cwd, '.pi', 'waveform-indicator.json');
+  const projectPath = piProjectPath(opts.cwd, 'waveform-indicator.json');
   if (existsSync(projectPath)) return projectPath;
   return opts.agentDir !== undefined
     ? join(opts.agentDir, 'waveform-indicator.json')

@@ -193,6 +193,24 @@ layering today: `comfyui`, `iteration-loop` (cap defaults), `bg_bash`, `subagent
 per-call _data_ (text, ids, actions, prompts -- `apply-patch`, `scratchpad`, `todo`, `memory`, `questionnaire`,
 `scheduled-prompts`, `wasm-compute`) get NO config layer.
 
+### Filesystem paths: resolve through `pi-paths.ts`, never hand-roll
+
+Never build a pi state/config path with a raw `join(homedir(), '.pi', 'agent', …)` or `join(cwd, '.pi', …)`. Those two
+literals silently ignore `PI_CODING_AGENT_DIR` and drift from every other store. Use the pure helpers in
+[`pi-paths.ts`](../../../lib/node/pi/pi-paths.ts) so path resolution stays consistent and honors the agent-dir override:
+
+- **User-scope (agent dir).** `piAgentPath(...segments)` for a file/dir under the agent dir; `piAgentDir(env?, home?)`
+  when you need the dir itself (both honor `PI_CODING_AGENT_DIR`, falling back to `~/.pi/agent`). For a config reader
+  that injects `home` for tests, use `piAgentDir(process.env, home)` - test injection still works when the env is unset.
+- **Project-scope.** `piProjectPath(cwd, ...segments)` for `<cwd>/.pi/<...>`; `piProjectDir(cwd)` for the `<cwd>/.pi`
+  dir. These move with the repo folder (no slug), so they are already rename-safe.
+- **Session/cwd-slug bucketing.** `cwdSlug(cwd)` is the canonical pi session-dir slug; `slugFromEnv(envValue, cwd)` is
+  the shared "env override, else cwd slug" resolver every slug-keyed store uses (`PI_MEMORY_PROJECT_SLUG`,
+  `PI_SUBAGENT_SESSION_SLUG`, …) so the rename-safety override contract stays uniform.
+- **The effective session dir.** Prefer `ctx.sessionManager.getSessionDir()` at runtime over recomputing it - it already
+  encodes the slug (or the verbatim `--session-dir`), so anything anchored on it follows `--session-dir` for free (base
+  moves, layout stays). Anchor: `subagent`'s child-transcript tree.
+
 ### Slash command conventions
 
 Three cross-cutting rules for every `pi.registerCommand` handler.

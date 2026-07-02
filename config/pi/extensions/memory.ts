@@ -67,13 +67,13 @@ import { Type } from 'typebox';
 import {
   atomicWriteFile,
   chooseMemorySlug,
-  cwdSlug,
   fileFor,
   globalDir,
   indexFileFor,
   listSessionMemoryDirs,
   memoryRoot,
   projectDir,
+  projectSlug,
   pruneOrphanSessionDirs,
   readMemoryBody,
   readMemoryFrontmatter,
@@ -904,8 +904,10 @@ export default function memoryExtension(pi: ExtensionAPI): void {
         const p = projectDir(ctx.cwd, root);
         const sid = readSessionId(ctx);
         const sessionLine = sid ? sessionDir(ctx.cwd, sid, root) : '(no active session)';
+        const slug = projectSlug(ctx.cwd);
+        const slugSource = process.env.PI_MEMORY_PROJECT_SLUG?.trim() ? ' (PI_MEMORY_PROJECT_SLUG)' : '';
         ctx.ui.notify(
-          `Memory root: ${root}\nGlobal:  ${g}\nProject: ${p}\nSession: ${sessionLine}\nProject slug: ${cwdSlug(ctx.cwd)}\nSession id: ${sid ?? '(none)'}`,
+          `Memory root: ${root}\nGlobal:  ${g}\nProject: ${p}\nSession: ${sessionLine}\nProject slug: ${slug}${slugSource}\nSession id: ${sid ?? '(none)'}`,
           'info',
         );
         return;
