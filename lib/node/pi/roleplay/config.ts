@@ -21,6 +21,7 @@
  */
 
 import { readJsonOrUndefined } from '../fs-safe.ts';
+import { envTruthy, parseClampedPositiveInt } from '../parse-env.ts';
 import { piAgentPath, piProjectPath } from '../pi-paths.ts';
 import { MAX_RECURSION_CAP } from './recursion.ts';
 
@@ -55,6 +56,20 @@ export interface RoleplayConfig {
   eventMaxChars: number;
   /** Offer the cast's relationship `openThreads` to the event generator as escalation seeds. */
   eventSeedThreads: boolean;
+  /** Recent user-turns kept verbatim in the rolling context window (`context` hook). */
+  keepTurns: number;
+  /** Aged messages between rolls: re-recap + advance the drop boundary once this many age out. */
+  recapChunk: number;
+  /** Char budget for the text of older assistant messages in the condensed boundary zone. */
+  windowAssistantChars: number;
+  /** Char budget for the text of older user messages in the condensed boundary zone. */
+  windowUserChars: number;
+  /** Roll cadence in aged messages (re-recap + advance the drop boundary). 0 = follow `recapChunk`. */
+  recapStride: number;
+  /** Force async (`true`) / sync (`false`) recap; `null` = auto (async only on a distinct recap endpoint). */
+  recapAsync: boolean | null;
+  /** Deterministic fact capture on the roll -> session-scope `memory` notes (requires recap mode). */
+  capture: boolean;
 }
 
 /** Shipped defaults - lowest config layer. Parity with memory's 3000-char cap. */
@@ -74,6 +89,13 @@ export const DEFAULT_CONFIG: RoleplayConfig = {
   events: [],
   eventMaxChars: 280,
   eventSeedThreads: true,
+  keepTurns: 8,
+  recapChunk: 8,
+  windowAssistantChars: 200,
+  windowUserChars: 400,
+  recapStride: 0,
+  recapAsync: null,
+  capture: false,
 };
 
 /** Floor for the injected-block budgets so a tiny value can't blank them. */
@@ -97,6 +119,14 @@ export const MIN_REPETITION_COUNT = 2;
 
 /** Floor for the event output cap so a tiny value can't blank an event. */
 export const MIN_EVENT_CHARS = 40;
+
+/** Bounds on the rolling-window dials so a stray config can't blank or explode them. */
+export const MIN_KEEP_TURNS = 1;
+export const MAX_KEEP_TURNS = 200;
+export const MIN_RECAP_CHUNK = 1;
+export const MAX_RECAP_CHUNK = 500;
+/** Floor on the per-message condense budget so condensing can't produce a stub. */
+export const MIN_WINDOW_CHARS = 40;
 
 /** Validate an untrusted JSON layer into a `Partial<RoleplayConfig>`. */
 export function coerceConfigLayer(raw: unknown): Partial<RoleplayConfig> {
@@ -151,6 +181,27 @@ export function coerceConfigLayer(raw: unknown): Partial<RoleplayConfig> {
   if (typeof v.eventSeedThreads === 'boolean') {
     out.eventSeedThreads = v.eventSeedThreads;
   }
+  if (typeof v.keepTurns === 'number' && Number.isFinite(v.keepTurns)) {
+    out.keepTurns = Math.max(MIN_KEEP_TURNS, Math.min(MAX_KEEP_TURNS, Math.floor(v.keepTurns)));
+  }
+  if (typeof v.recapChunk === 'number' && Number.isFinite(v.recapChunk)) {
+    out.recapChunk = Math.max(MIN_RECAP_CHUNK, Math.min(MAX_RECAP_CHUNK, Math.floor(v.recapChunk)));
+  }
+  if (typeof v.windowAssistantChars === 'number' && Number.isFinite(v.windowAssistantChars)) {
+    out.windowAssistantChars = Math.max(MIN_WINDOW_CHARS, Math.floor(v.windowAssistantChars));
+  }
+  if (typeof v.windowUserChars === 'number' && Number.isFinite(v.windowUserChars)) {
+    out.windowUserChars = Math.max(MIN_WINDOW_CHARS, Math.floor(v.windowUserChars));
+  }
+  if (typeof v.recapStride === 'number' && Number.isFinite(v.recapStride)) {
+    out.recapStride = Math.max(0, Math.min(MAX_RECAP_CHUNK, Math.floor(v.recapStride)));
+  }
+  if (typeof v.recapAsync === 'boolean') {
+    out.recapAsync = v.recapAsync;
+  }
+  if (typeof v.capture === 'boolean') {
+    out.capture = v.capture;
+  }
   return out;
 }
 
@@ -168,6 +219,48 @@ export function mergeConfigLayers(...layers: Partial<RoleplayConfig>[]): Rolepla
 export function loadRoleplayConfig(cwd: string, envCharBudget?: number): RoleplayConfig {
   const envLayer: Partial<RoleplayConfig> =
     typeof envCharBudget === 'number' ? { charBudget: Math.max(MIN_CHAR_BUDGET, envCharBudget) } : {};
+  // Rolling-window dials: env sits below the config files (a committed
+  // project config still wins over a stray shell export). Only fold a knob
+  // in when its env var is actually set, so an unset environment leaves the
+  // shipped defaults untouched.
+  const env = process.env;
+  if (env.PI_ROLEPLAY_CONTEXT_TURNS !== undefined) {
+    envLayer.keepTurns = parseClampedPositiveInt(
+      env.PI_ROLEPLAY_CONTEXT_TURNS,
+      DEFAULT_CONFIG.keepTurns,
+      MIN_KEEP_TURNS,
+    );
+  }
+  if (env.PI_ROLEPLAY_RECAP_CHUNK !== undefined) {
+    envLayer.recapChunk = parseClampedPositiveInt(
+      env.PI_ROLEPLAY_RECAP_CHUNK,
+      DEFAULT_CONFIG.recapChunk,
+      MIN_RECAP_CHUNK,
+    );
+  }
+  if (env.PI_ROLEPLAY_CONTEXT_ASSISTANT_CHARS !== undefined) {
+    envLayer.windowAssistantChars = parseClampedPositiveInt(
+      env.PI_ROLEPLAY_CONTEXT_ASSISTANT_CHARS,
+      DEFAULT_CONFIG.windowAssistantChars,
+      MIN_WINDOW_CHARS,
+    );
+  }
+  if (env.PI_ROLEPLAY_CONTEXT_USER_CHARS !== undefined) {
+    envLayer.windowUserChars = parseClampedPositiveInt(
+      env.PI_ROLEPLAY_CONTEXT_USER_CHARS,
+      DEFAULT_CONFIG.windowUserChars,
+      MIN_WINDOW_CHARS,
+    );
+  }
+  if (env.PI_ROLEPLAY_RECAP_STRIDE !== undefined) {
+    envLayer.recapStride = parseClampedPositiveInt(env.PI_ROLEPLAY_RECAP_STRIDE, DEFAULT_CONFIG.recapStride, 1);
+  }
+  if (env.PI_ROLEPLAY_RECAP_ASYNC !== undefined) {
+    envLayer.recapAsync = envTruthy(env.PI_ROLEPLAY_RECAP_ASYNC);
+  }
+  if (env.PI_ROLEPLAY_CAPTURE !== undefined) {
+    envLayer.capture = envTruthy(env.PI_ROLEPLAY_CAPTURE);
+  }
   const userLayer = coerceConfigLayer(readJsonOrUndefined(piAgentPath('roleplay.json')));
   const projectLayer = coerceConfigLayer(readJsonOrUndefined(piProjectPath(cwd, 'roleplay.json')));
   return mergeConfigLayers(envLayer, userLayer, projectLayer);

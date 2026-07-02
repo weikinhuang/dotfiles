@@ -7,7 +7,8 @@ workspaces. This implements Phases 1-5 + 7A-B of the roleplay design: the store 
 keyword-triggered **lorebook** (`lore` records, Phase 2), the **SillyTavern card importer** (Phase 3), **depth
 injection** (author's note + depth-tagged lore via the `context` event, Phase 4), persona **scene fold** (`characters` /
 `pov`, Phase 5), the **relationship / summary / timeline** record kinds with affinity decay (Phase 7A), and
-**auto-summarization** of evicted history at compaction (Phase 7B). The remaining phase adds avatar sprites (Phase 6).
+**auto-summarization** of evicted history at compaction (Phase 7B), now generalized into a **rolling bounded context
+window** that owns threshold compaction on a small model (see below). The remaining phase adds avatar sprites (Phase 6).
 Two additive, non-destructive features sit alongside the phase plan: a multi-turn **repetition / anti-slop nudge** and a
 **scene-event system** (`/roleplay event`), both described below.
 
@@ -81,7 +82,7 @@ Lore frontmatter (all optional beyond the core three keys):
 | `groupWeight`   | integer          | Relative weight for the group's weighted-random pick. Default `100`.                                  |
 
 Keyword matching is **whole-word** (`RI` matches `RI` / `(RI)` but not `spring`) and case-insensitive; multi-word and
-punctuation-bearing keys (`Rhodes Island`, `Dr. Kal'tsit`) match literally between token boundaries. Fired entries are
+punctuation-bearing keys (`Northern Outpost`, `Dr. Vance`) match literally between token boundaries. Fired entries are
 ranked by `order` (then name) and kept until `loreCharBudget` is reached - the single highest-priority entry is always
 kept even if it alone exceeds the budget. Recursion is **off by default**, opt-in per entry, and hard-capped at
 `maxRecursion` (ceiling 2) passes.
@@ -204,31 +205,109 @@ unparseable, or in the future, so the stored value is returned verbatim. The dec
 `roleplay read <id>` like any other record. The `summary/auto` record is special: it is the rolling recap written by
 auto-summarization (below).
 
-## Auto-summarization (`summary/auto`)
+## Rolling context window + recap (`summary/auto`)
 
-When a long scene grows past pi's context window, pi **compacts** - it summarizes and drops the oldest turns. On the
-`session_before_compact` event the extension is handed exactly the span pi is about to evict, and folds it into a single
-rolling `summary/auto` record so scene continuity survives the drop. This is opt-in, off by default, and a strict
-side-write: it **never** overrides or cancels pi's own compaction, so a failure here is invisible to the rest of pi.
+On a small window (the target regime: a model whose context window is largely consumed by a big fixed system prompt,
+leaving only a few thousand tokens of usable conversation space) pi's built-in threshold compaction **see-saws** - most
+of the window is a non-compactible system prompt, so compaction fires on the small slice of conversation it can touch,
+reclaims little, and each shrink resets any positional window. To stop that, the extension does its own **rolling
+in-context reduction** in the `context` hook every turn and owns threshold compaction. Pure logic:
+[`context-window.ts`](../../../lib/node/pi/roleplay/context-window.ts).
 
-The path mirrors the research extensions' `tiny`-model adapter
-([`summarize.ts`](../../../lib/node/pi/roleplay/summarize.ts)):
+The reduction is a **non-destructive ephemeral overlay** - the `context` hook output is never persisted, so the full
+prose stays in the session `.jsonl` and the user scrolls back through everything; the model is just sent less. Three
+zones, oldest -> newest:
 
-- **Disabled unless configured.** A `summarizeModel` (a `provider/model-id` string) must resolve from, in order,
-  `<cwd>/.pi/roleplay-summarize.json`, `~/.pi/agent/roleplay-summarize.json`, or `~/.pi/agent/settings.json` under
-  `roleplay.summarizeModel`. With none set the adapter is permanently disabled and nothing runs.
-- **Trigger.** The evicted span must hold at least `summarizeMinMessages` non-empty messages (default 4); below that the
-  span is left alone.
-- **One rolling record.** The [`roleplay-summarizer`](../../../config/pi/agents/roleplay-summarizer.md) agent is spawned
-  once via `runOneShotAgent` with the evicted span plus the existing `summary/auto` body (it consolidates, it does not
-  append), and the result overwrites `summary/auto`. The body is capped at `summarizeMaxChars` (default 1500); an
-  over-cap or empty response is dropped.
-- **Non-load-bearing fallback.** Any failure - model not resolvable, agent missing, spawn error, timeout, empty / `null`
-  response - results in no record write and pi's compaction proceeds untouched. Set `PI_ROLEPLAY_DISABLE_SUMMARIZE=1` to
-  turn the whole path off even when a model is configured.
+```text
+[ dropped prefix ] [ condensed boundary (head+tail) ] [ verbatim tail: keepTurns turns ]
+ (lives only in the recap)   (recap does not yet cover)      (the recent scene)
+```
 
-The rolling recap rides the cast-index injection like any other record, so the model keeps a one-line pointer to the
-running scene summary across sessions; the full recap is loaded on demand via `roleplay read auto`.
+- **Verbatim tail.** The last `keepTurns` user-turns (default 8) and everything after them are sent untouched.
+- **Condensed boundary.** Older messages the recap does not yet cover are condensed HEAD+TAIL (`truncateText`,
+  `HEAD_FRACTION=0.6`) - RP "before I forget ..." facts cluster at the tail, so head-only truncation drops them.
+- **Dropped prefix.** In recap mode the recap-covered prefix is **removed entirely**, so total prompt size is O(1) in
+  scene length (bounded), not O(n). Both cutoffs land on user-message boundaries (`computeCutoff`) so a tool result is
+  never orphaned from its call.
+
+### Modes (one coherent switch)
+
+- **`summarize on` (default) + context window on => bounded recap mode.** The recap is the primary mode because it is
+  the only _size-bounded_ one (drops the covered prefix). The extension also **cancels pi's THRESHOLD auto-compaction**
+  (`session_before_compact`, `reason === 'threshold'`) so it is the sole context manager - manual `/compact` and genuine
+  overflow recovery still run as the safety net.
+- **`summarize off` (`PI_ROLEPLAY_DISABLE_SUMMARIZE=1`) or context window off => condense-only floor.** The head+tail
+  floor still trims attention-diluting old prose but **keeps every message** (not size-bounded), so it does **not** own
+  compaction; pi's compaction stays the backstop. A legitimately lighter mode for a big-window model.
+- **`PI_ROLEPLAY_DISABLE_CONTEXT_WINDOW=1` => no rolling reduction at all.** Defers fully to pi and keeps the legacy
+  compaction-time side-write below.
+
+### The recap (`summary/auto`)
+
+The recap is a thin **narrative** layer (recent events, mood, open threads), NOT a fact store - durable facts are pinned
+separately (see [fact taxonomy](#fact-taxonomy-durable-facts-vs-narrative) below). It is generated by the
+[`roleplay-summarizer`](../../../config/pi/agents/roleplay-summarizer.md) agent + the
+[`summarize.ts`](../../../lib/node/pi/roleplay/summarize.ts) adapter (RP-native prose, NOT pi's `generateSummary`),
+folded cumulatively into one rolling `summary/auto` record.
+
+- **Roll cadence.** The frozen boundary advances only every `stride` aged messages (`stride` defaults to `recapChunk`,
+  default 8). Between rolls the condensed prefix + recap are byte-identical, so the runtime reuses the prompt-prefix
+  cache and only the new turn is prefilled - one reprocess spike per roll. Raise `recapChunk` to cut churn and
+  re-emissions (less telephone drift); lower it for a fresher recap.
+- **Span cap derived, not hardcoded.** The span fed to the summarizer is capped from the **recap model's context
+  window** (`deriveMaxSpanChars`), not the historic hardcoded 8000 chars - so a large `recapChunk` is summarized
+  losslessly instead of silently dropping its oldest half. The chars/token estimate is calibrated against the last
+  turn's reported `usage`.
+- **Collapse guard.** A degenerate recap (measured in the field: 3456 -> 95 chars) is rejected (`acceptRecap`, keep the
+  candidate only when it retains >= 50% of the prior length or there is no prior), so a bad generation can't erase scene
+  memory now that the recap is the only in-context record of dropped turns.
+- **Neutral sampler pinned.** The summarizer runs at `temperature: 0.3` / `presence_penalty: 0`
+  ([frontmatter `requestOptions`](../../../config/pi/agents/roleplay-summarizer.md), applied via an inline agent-gate
+  factory since the child loads with `noExtensions`). Note: the active persona's `temperature: 1.5` /
+  `presence_penalty: 1.5` does **not** leak into this subagent - the child session never registers persona's
+  `before_provider_request` - so this is the correct default, not a fight against the persona merge.
+- **Sync vs async.** The recap runs **sync** (blocking) when it inherits the session model (a single endpoint can't
+  serve the recap and the main turn at once), and **async** (off the critical path) when a _distinct_ recap model is
+  configured (`roleplay.summarizeModel` pointing at a separate small/fast endpoint => real concurrency). Force either
+  with `PI_ROLEPLAY_RECAP_ASYNC=1|0`. **Caveat:** async only buys anything if the recap model is a genuinely separate
+  endpoint; async on the same single-instance server is pointless or errors. During async lag the not-yet-dropped span
+  stays condensed-but-present (the floor), so nothing is lost; the drop boundary just advances a roll or two later. An
+  in-flight async recap is generation-guarded (`recapGen`) + aborted on reset / branch switch so a stale result can't
+  clobber the current branch's recap.
+- **Persistence + hydrate.** The recap is a durable `summary/auto` file, rescanned on load; on resume the extension
+  hydrates the in-memory recap from it (continues the memory instead of rebuilding it). Every recap call writes an
+  auditable `roleplay-context-recap` log entry (custom entry, never sent to the LLM), on both the sync and async paths.
+
+### Legacy compaction-time side-write
+
+When pi _does_ compact (manual `/compact` or genuine overflow - never cancelled), the `session_before_compact` handler
+still folds the evicted span into `summary/auto` (same summarizer, `acceptRecap`-guarded) so continuity survives the
+safety-net paths. Set `PI_ROLEPLAY_DISABLE_SUMMARIZE=1` to turn the whole recap path off even when a model is
+configured; then only the condense-only floor (if the window is on) applies.
+
+### Fact taxonomy: durable facts vs narrative
+
+Because the recap is thin and lossy by construction, durable facts must NOT live in it. They are routed to three tiers:
+
+| Store                                       | Lifetime                                          | Holds                                           |
+| ------------------------------------------- | ------------------------------------------------- | ----------------------------------------------- |
+| `memory` project / `roleplay` typed records | cross-scene, permanent                            | character + relationship **canon**              |
+| `memory` **session (`note`)** tier          | this scene (survives resume, dies on fresh scene) | facts **established this scene**                |
+| recap (`summary/auto`)                      | rolling, lossy                                    | recent **narrative / mood / open threads** only |
+
+**Deterministic capture (default OFF, `PI_ROLEPLAY_CAPTURE=1`).** Because owning threshold compaction means `memory`'s
+capture-assist no longer fires on the common path, the extension can capture facts itself on the roll: the
+[`roleplay-fact-extractor`](../../../config/pi/agents/roleplay-fact-extractor.md) subagent reads the aged **span** (not
+the prose recap) and returns a JSON array of self-contained `{name, description}` facts
+([`capture.ts`](../../../lib/node/pi/roleplay/capture.ts) parses tolerantly), which are written **deterministically**
+(no reliance on the model firing a `memory save` tool) to `memory`'s session (`note`) tier. Header-carried: a small
+model won't `memory read` a body and the session tier injects only name + description, so the fact must be
+self-contained in the name (e.g. `"<character> is allergic to shellfish"`). De-dups against session notes on disk
+(fuzzy) + those written this process; degrades to a silent no-op under `--no-session` (no session id). **Known gap
+(validate before relying):** `memory.ts` injects from its cached index within a live session, so a fact captured
+mid-scene surfaces in the injected index only after `memory` rebuilds (next session / a `memory` tool call), not
+necessarily the same turn; cross-session resume picks it up on `memory`'s `session_start` rescan. Default-OFF pending a
+small-window smoke that validates extraction quality and this coherence question.
 
 ## Repetition / anti-slop nudge
 
@@ -343,6 +422,13 @@ built-in default.
   "events": [], // fallback complication deck for `/roleplay event` (default [])
   "eventMaxChars": 280, // cap on a generated / picked scene event (default 280, floor 40)
   "eventSeedThreads": true, // offer relationship openThreads to the event generator (default true)
+  "keepTurns": 8, // recent user-turns kept verbatim in the rolling window (default 8, 1-200)
+  "recapChunk": 8, // aged messages per roll = re-recap + drop-boundary cadence (default 8, 1-500)
+  "windowAssistantChars": 200, // condense budget for older assistant text (default 200, floor 40)
+  "windowUserChars": 400, // condense budget for older user text (default 400, floor 40)
+  "recapStride": 0, // roll cadence in aged messages; 0 = follow recapChunk (default 0, 0-500)
+  "recapAsync": null, // force async (true) / sync (false) recap; null = auto by endpoint (default null)
+  "capture": false, // deterministic fact capture on the roll -> memory notes (default false)
 }
 ```
 
@@ -358,7 +444,23 @@ is optional - with none set the event generator inherits the parent session mode
 - `PI_ROLEPLAY_DISABLE_AUTOINJECT=1` - keep the tool but skip the `## Roleplay` block.
 - `PI_ROLEPLAY_DISABLE_LOREBOOK=1` - keep the cast-index injection but skip keyword-triggered lore.
 - `PI_ROLEPLAY_DISABLE_DEPTH_INJECT=1` - skip the `context`-event depth injection (author's note + depth-tagged lore).
-- `PI_ROLEPLAY_DISABLE_SUMMARIZE=1` - skip auto-summarization on compaction (no `summary/auto` side-write).
+- `PI_ROLEPLAY_DISABLE_SUMMARIZE=1` - drop recap mode (no `summary/auto` recap, no threshold ownership); the rolling
+  window degrades to the condense-only floor.
+- `PI_ROLEPLAY_DISABLE_CONTEXT_WINDOW=1` - skip the rolling in-context reduction entirely and defer to pi (keeps only
+  the legacy compaction-time side-write).
+- `PI_ROLEPLAY_CONTEXT_TURNS=N` - recent user-turns kept verbatim (overrides config `keepTurns`; sits below the config
+  files).
+- `PI_ROLEPLAY_RECAP_CHUNK=N` - aged messages per roll (overrides config `recapChunk`).
+- `PI_ROLEPLAY_RECAP_STRIDE=N` - roll cadence in aged messages (overrides config `recapStride`; 0/unset = follow
+  `recapChunk`); raise to cut cache churn.
+- `PI_ROLEPLAY_CONTEXT_ASSISTANT_CHARS=N` / `PI_ROLEPLAY_CONTEXT_USER_CHARS=N` - per-role condense budgets for the
+  boundary zone.
+- `PI_ROLEPLAY_RECAP_ASYNC=1|0` - force the recap off / on the critical path (overrides config `recapAsync`; default:
+  async only when a distinct recap endpoint is configured).
+- `PI_ROLEPLAY_CONTEXT_DEBUG=1` - append a per-turn `roleplay-context-window-debug` log entry (system / recap / sent vs
+  full token estimates + the sawtooth); off by default, never sent to the LLM.
+- `PI_ROLEPLAY_CAPTURE=1` - enable deterministic fact capture on the roll into `memory`'s session (`note`) tier (default
+  OFF; requires recap mode + a session id; validate extraction quality in a smoke run before relying).
 - `PI_ROLEPLAY_DISABLE_REPETITION=1` - skip the multi-turn repetition / anti-slop nudge.
 - `PI_ROLEPLAY_DISABLE_EVENTS=1` - disable `/roleplay event` scene complications.
 - `PI_ROLEPLAY_DISABLE_AVATAR=1` - stop driving the [`avatar`](./avatar.md) face from the active cast (Phase 6).
@@ -401,6 +503,12 @@ without the pi runtime; this file holds only the pi-coupled glue + disk I/O.
   `daysElapsed`, `formatRelationshipLine`).
 - [`summarize.ts`](../../../lib/node/pi/roleplay/summarize.ts) - auto-summarization: span rendering + trigger
   (`planSummarization`), settings resolver, and the `createSummarizer` adapter (null = fall back).
+- [`context-window.ts`](../../../lib/node/pi/roleplay/context-window.ts) - rolling reduction: head+tail truncation,
+  `computeCutoff` / `applyLayeredWindow` (drop + condense on user boundaries), `injectRecap`, `acceptRecap` collapse
+  guard, `planRecap` roll cadence, and the sizing helpers (`deriveMaxSpanChars`, `updateCharsPerToken`,
+  `deriveKeepTurns`, `estimateChars`).
+- [`capture.ts`](../../../lib/node/pi/roleplay/capture.ts) - deterministic fact capture: fact-extraction task builder +
+  tolerant `parseFactCandidates` (fenced / bare JSON array -> validated, clamped, de-duped `{name, description}`).
 - [`repetition.ts`](../../../lib/node/pi/roleplay/repetition.ts) - multi-turn n-gram repetition detection +
   character-sheet exclusion + nudge framing (`detectRepetition`, `buildExcludeSet`, `formatRepetitionNudge`).
 - [`event.ts`](../../../lib/node/pi/roleplay/event.ts) - scene-event task builder, director framing, deck pick, settings
@@ -419,4 +527,9 @@ Card import lives under [`../../../lib/node/pi/card-import/`](../../../lib/node/
 ## Hot reload
 
 Edit [`extensions/roleplay.ts`](./roleplay.ts) or any helper under
-[`../../../lib/node/pi/roleplay/`](../../../lib/node/pi/roleplay/) and run `/reload`.
+[`../../../lib/node/pi/roleplay/`](../../../lib/node/pi/roleplay/) and run `/reload`. Editing the
+[`roleplay-summarizer`](../../../config/pi/agents/roleplay-summarizer.md) or
+[`roleplay-fact-extractor`](../../../config/pi/agents/roleplay-fact-extractor.md) agent (incl. its sampler
+`requestOptions`) is picked up on the next summarizer / extractor spawn without a reload. The rolling-window state
+(frozen cutoffs, in-memory recap) is per-process and reset on `session_start` / `session_tree` / `session_shutdown`, so
+`/reload` starts the window fresh and re-hydrates the recap from the durable `summary/auto` record.

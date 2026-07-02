@@ -89,6 +89,20 @@ import {
   type Summarizer,
 } from '../../../lib/node/pi/roleplay/summarize.ts';
 import {
+  acceptRecap,
+  applyContextWindowAt,
+  applyLayeredWindow,
+  computeCutoff,
+  DEFAULT_CHARS_PER_TOKEN,
+  deriveMaxSpanChars,
+  estimateChars,
+  injectRecap,
+  planRecap,
+  updateCharsPerToken,
+  type WindowOptions,
+} from '../../../lib/node/pi/roleplay/context-window.ts';
+import { parseModelSpec } from '../../../lib/node/pi/model-spec.ts';
+import {
   buildEventTask,
   createEventGenerator,
   type EventGenerator,
@@ -105,7 +119,18 @@ import {
   makeNodeReadLayer,
 } from '../../../lib/node/pi/subagent/loader.ts';
 import { createPersistedSubagentSessionManager } from '../../../lib/node/pi/subagent/session-dir.ts';
-import { adaptCreateAgentSession, runOneShotAgent } from '../../../lib/node/pi/subagent/spawn.ts';
+import { createAgentGateFactory } from '../../../lib/node/pi/subagent/agent-gate.ts';
+import { buildFactExtractionTask, parseFactCandidates } from '../../../lib/node/pi/roleplay/capture.ts';
+import { findSimilarMemories } from '../../../lib/node/pi/memory-search.ts';
+import { type MemoryEntry, renderMemoryMd, serializeMemory } from '../../../lib/node/pi/memory-reducer.ts';
+import {
+  fileFor as memoryFileFor,
+  indexFileFor as memoryIndexFileFor,
+  rebuildMemoryIndex,
+  slugifyName as memorySlugifyName,
+  uniqueSlug as memoryUniqueSlug,
+} from '../../../lib/node/pi/memory-paths.ts';
+import { adaptCreateAgentSession, resolveChildModel, runOneShotAgent } from '../../../lib/node/pi/subagent/spawn.ts';
 import {
   atomicWriteFile,
   castDir,
@@ -283,6 +308,24 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
   const sceneGenEnabled = !envTruthy(process.env.PI_ROLEPLAY_DISABLE_SCENEGEN);
   const envCharBudget = parseClampedPositiveInt(process.env.PI_ROLEPLAY_MAX_INJECTED_CHARS, 0, 1) || undefined;
 
+  // Rolling context-window management. `contextWindowEnabled` runs the
+  // per-turn in-context reduction (drop/condense) in the `context` hook.
+  // `recapMode` = bounded mode: the summarizer folds the aged prefix into
+  // the `summary/auto` recap and the recap-covered prefix is DROPPED
+  // (O(1)). Recap requires the window; when either is off we degrade to the
+  // condense-only floor. Owning pi's threshold auto-compaction is only safe
+  // in recap (size-bounded) mode - the floor keeps every message.
+  const contextWindowEnabled = !envTruthy(process.env.PI_ROLEPLAY_DISABLE_CONTEXT_WINDOW);
+  const recapMode = summarizeEnabled && contextWindowEnabled;
+  const ownCompaction = recapMode;
+  const contextWindowDebug = envTruthy(process.env.PI_ROLEPLAY_CONTEXT_DEBUG);
+  // Deterministic fact capture on the roll -> session-scope `memory` notes.
+  // Default OFF (config `capture` / `PI_ROLEPLAY_CAPTURE`): a novel model-call
+  // path whose extraction quality is validated in the rp-test small-window
+  // smoke before it goes on by default. Requires recap mode (it runs on the
+  // roll) + a session id. Gate is read lazily below (near `strideValue`) so a
+  // project `roleplay.json` picked up after cwd settles still applies.
+
   let cwd: string = process.cwd();
   let state: RoleplayState = emptyState();
   /** Explicit cast override set by `/roleplay cast <name>` (only honoured under a roleplay persona). */
@@ -306,6 +349,46 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
   let lastMessages: readonly unknown[] = [];
   /** Memoized character-sheet n-gram exclusion set for repetition detection; rebuilt on state change. */
   let excludeCache: { cast: string; ngram: number; set: Set<string> } | null = null;
+  // ── Rolling context-window state (per process; reset on lifecycle) ──
+  /** Cumulative scene memory injected as a prefix (mirrors the `summary/auto` record). */
+  let recapText = '';
+  /** FROZEN condense boundary; messages[0..committedCutoff) are the aged prefix. Advances only on a roll. */
+  let committedCutoff = 0;
+  /** How much of the aged prefix the recap covers; messages[0..recapCutoff) are DROPPED in recap mode. */
+  let recapCutoff = 0;
+  /** One-shot hydrate of `recapText` from the durable record per (re)load. */
+  let recapHydrated = false;
+  /** Generation counter; invalidates an in-flight async recap after a reset / branch change. */
+  let recapGen = 0;
+  let recapInFlight = false;
+  let recapAbort: AbortController | null = null;
+  /** Calibrated chars-per-token (blended toward the last turn's reported usage). */
+  let charsPerToken = DEFAULT_CHARS_PER_TOKEN;
+  /** Estimated chars of the prompt we sent last turn, for usage calibration next turn. */
+  let lastSentEstChars = 0;
+  /** Lowercased fact names captured this process, to skip re-writing the same fact. */
+  const capturedFacts = new Set<string>();
+  /** Lazy `roleplay-fact-extractor` runner + one-shot init guard. */
+  let factExtractor: ((ctx: ExtensionContext, task: string) => Promise<string | null>) | null = null;
+  let factExtractorInit = false;
+  const resetWindowState = (): void => {
+    recapText = '';
+    committedCutoff = 0;
+    recapCutoff = 0;
+    recapHydrated = false;
+    recapGen += 1;
+    recapInFlight = false;
+    lastSentEstChars = 0;
+    capturedFacts.clear();
+    if (recapAbort) {
+      try {
+        recapAbort.abort();
+      } catch {
+        /* ignore */
+      }
+      recapAbort = null;
+    }
+  };
 
   /**
    * The active roleplay cast, or `null` when the feature is dormant.
@@ -422,6 +505,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
   /** Force a re-resolve + scan (session lifecycle hooks). */
   const resync = (ctx: ExtensionContext): void => {
     cwd = ctx.cwd;
+    resetWindowState();
     applyCast(activeCast(), ctx);
     gateRoleplayTool();
   };
@@ -675,68 +759,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
     return threads;
   };
 
-  if (depthInjectEnabled || repetitionEnabled || eventsEnabled) {
-    pi.on('context', (event) => {
-      if (activeCast() === null) return undefined;
-      // Capture the live scene so the `/roleplay event` command (which runs
-      // between turns, without message access) can read recent context.
-      lastMessages = event.messages;
-
-      let messages = event.messages;
-      let changed = false;
-
-      // Depth injection (author's note + depth-tagged lore) splices content
-      // at depth; reminders below append ephemerally to the trailing message.
-      if (depthInjectEnabled) {
-        const persona = getActivePersona();
-        const scanDepth = loadRoleplayConfig(cwd, envCharBudget).scanDepth;
-        const insertions = buildInsertions({
-          authorNote: persona?.authorNote ? substituteMacros(persona.authorNote, macroCtx()) : undefined,
-          authorNoteDepth: persona?.authorNoteDepth,
-          lore: buildDepthLore(recentText(event.messages, scanDepth)),
-        });
-        if (insertions.length > 0) {
-          messages = applyInsertions(messages, insertions, (text) => ({
-            role: 'user' as const,
-            content: text,
-            timestamp: Date.now(),
-          }));
-          changed = true;
-        }
-      }
-
-      // Ephemeral, cache-friendly reminders: the repetition nudge and the
-      // queued scene event, each under a stable id so re-applying is a
-      // fixpoint and stale blocks are stripped when they no longer fire.
-      const reminders: { id: string; body: string | null }[] = [];
-      if (repetitionEnabled) reminders.push({ id: 'roleplay-repetition', body: buildRepetitionNudge(messages) });
-      if (eventsEnabled) {
-        reminders.push({ id: 'roleplay-event', body: pendingEvent ? formatEventDirector(pendingEvent) : null });
-        if (pendingEvent) eventConsumed = true;
-      }
-      if (reminders.length > 0) {
-        let rm = messages as unknown as ReminderMessage[];
-        for (const spec of reminders) rm = applyContextReminder(rm, spec);
-        if (reminders.some((r) => r.body)) {
-          messages = rm as unknown as typeof event.messages;
-          changed = true;
-        }
-      }
-
-      return changed ? { messages } : undefined;
-    });
-  }
-
-  // ── Auto-summarization (Phase 7B) ───────────────────────────────────
-  //
-  // On `session_before_compact` pi hands us the span it is about to
-  // evict (`preparation.messagesToSummarize`). We fold it into a rolling
-  // `summary/auto` record so scene continuity survives compaction. This
-  // is a strict SIDE-write: we never return `{compaction}` / `{cancel}`,
-  // so any failure here leaves pi's own compaction untouched. The whole
-  // path is gated by `roleplay: true` + `PI_ROLEPLAY_DISABLE_SUMMARIZE`
-  // and degrades to a no-op when the model / agent / settings are
-  // unavailable (the adapter returns `null`).
+  // ── Summarizer infrastructure (shared by the roll + the compaction side-write) ─
   const extDir = dirname(fileURLToPath(import.meta.url));
   const readLayer = makeNodeReadLayer();
   let summarizer: Summarizer<Model<any>> | null = null;
@@ -782,6 +805,25 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
         summarizerAgent: agent,
         maxOutputChars: loadRoleplayConfig(cwd, envCharBudget).summarizeMaxChars,
         runOneShot: async (args) => {
+          // Pin the summarizer's neutral sampler (frontmatter `requestOptions`)
+          // onto the child's provider request. runOneShotAgent loads the child
+          // with noExtensions, so the only way the recap sampler is applied is
+          // an inline gate factory here - the persona's before_provider_request
+          // never fires in the child (no leak), so this is the pin, not a fight
+          // against the persona merge.
+          const gateFactory = args.agent.requestOptions
+            ? createAgentGateFactory({
+                config: {
+                  name: args.agent.name,
+                  bashAllow: [],
+                  bashDeny: [],
+                  resolvedWriteRoots: [],
+                  requestOptions: args.agent.requestOptions,
+                },
+                enforceWriteRoots: false,
+                resolveAbsolute: (_cwd, p) => p,
+              })
+            : null;
           const result = await runOneShotAgent({
             deps: { createAgentSession: piCreateAgentSession, DefaultResourceLoader, SessionManager, getAgentDir },
             cwd: args.cwd,
@@ -791,6 +833,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
             modelRegistry: args.modelRegistry,
             agentDir: getAgentDir(),
             sessionManager: summarizerSessionManager(ctx, args.cwd),
+            ...(gateFactory ? { extensionFactories: [gateFactory as never] } : {}),
             ...(args.signal ? { signal: args.signal } : {}),
             ...(args.timeoutMs !== undefined ? { timeoutMs: args.timeoutMs } : {}),
           });
@@ -832,32 +875,576 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
     return { role, text: parts.join('\n') };
   };
 
+  // ── Rolling context-window helpers (bounded recap mode + condense floor) ─
+  const windowOptions = (): WindowOptions => {
+    const cfg = loadRoleplayConfig(cwd, envCharBudget);
+    return { keepTurns: cfg.keepTurns, assistantChars: cfg.windowAssistantChars, userChars: cfg.windowUserChars };
+  };
+  /** Roll cadence: config `recapStride` when >0 (env-foldable), else `recapChunk` (aged messages per roll). */
+  const strideValue = (): number => {
+    const cfg = loadRoleplayConfig(cwd, envCharBudget);
+    return cfg.recapStride > 0 ? cfg.recapStride : cfg.recapChunk;
+  };
+  /** Async recap tri-state (config `recapAsync` / env): `null` = auto by endpoint distinctness. */
+  const recapAsyncForced = (): boolean | null => loadRoleplayConfig(cwd, envCharBudget).recapAsync;
+  /** Fact-capture gate: recap mode + config `capture` (env-foldable). Read lazily so project config applies. */
+  const captureEnabled = (): boolean => recapMode && loadRoleplayConfig(cwd, envCharBudget).capture;
+
+  interface RecapModelInfo {
+    model: { id?: string; provider?: string; contextWindow?: number } | undefined;
+    /** True when the recap runs on a DISTINCT endpoint from the session model (=> async-safe). */
+    distinct: boolean;
+  }
+  /**
+   * Resolve the model the summarizer will run on (its window sizes
+   * `maxSpanChars`) and whether it is a distinct endpoint from the session
+   * model (a separate endpoint can run the recap concurrently => async).
+   */
+  const resolveRecapModelInfo = (ctx: ExtensionContext): RecapModelInfo => {
+    const sm = ctx.model as { id?: string; provider?: string; contextWindow?: number } | undefined;
+    let spec: string | undefined;
+    try {
+      spec = resolveSummarizeSettings({ cwd })?.summarizeModel;
+    } catch {
+      spec = undefined;
+    }
+    if (!spec) return { model: sm, distinct: false };
+    const parsed = parseModelSpec(spec);
+    const reg = ctx.modelRegistry as unknown as { find?: (p: string, id: string) => unknown };
+    let m: unknown;
+    try {
+      m = parsed && reg.find ? reg.find(parsed.provider, parsed.modelId) : undefined;
+    } catch {
+      m = undefined;
+    }
+    const mm = m as { id?: string; provider?: string; contextWindow?: number } | undefined;
+    const distinct = !!mm && (mm.id !== sm?.id || mm.provider !== sm?.provider);
+    return { model: mm ?? sm, distinct };
+  };
+
+  interface RecapResult {
+    next: string | null;
+    applied: boolean;
+    spanLen: number;
+    priorLen: number;
+    startedAt: number;
+  }
+  /**
+   * One recap pass over the aged span: derive the span cap from the recap
+   * model's window (fixes the historic 8000-char silent-loss bug), render +
+   * summarize via the roleplay-summarizer subagent, and apply the
+   * `acceptRecap` collapse guard. Pure w.r.t. extension state - the caller
+   * commits `recapText` / `recapCutoff` (gen-guarded on the async path).
+   */
+  const doRecap = async (
+    ctx: ExtensionContext,
+    span: SummarizableMessage[],
+    prior: string,
+    info: RecapModelInfo,
+    signal: AbortSignal | undefined,
+  ): Promise<RecapResult> => {
+    const startedAt = Date.now();
+    const priorLen = prior.length;
+    const sum = getSummarizer(ctx);
+    if (!sum?.isEnabled()) return { next: null, applied: false, spanLen: 0, priorLen, startedAt };
+    const cfg = loadRoleplayConfig(cwd, envCharBudget);
+    const maxSpanChars = deriveMaxSpanChars({
+      contextWindowTokens: info.model?.contextWindow,
+      priorRecapChars: priorLen,
+      charsPerToken,
+    });
+    const plan = planSummarization(span, { minMessages: cfg.summarizeMinMessages, maxSpanChars });
+    if (!plan) return { next: null, applied: false, spanLen: 0, priorLen, startedAt };
+    let next: string | null = null;
+    try {
+      next = await sum.summarize(
+        { cwd, model: ctx.model, modelRegistry: ctx.modelRegistry as never, signal },
+        plan.spanText,
+        prior.trim() ? prior : undefined,
+      );
+    } catch {
+      next = null;
+    }
+    return { next, applied: acceptRecap(prior, next), spanLen: plan.messageCount, priorLen, startedAt };
+  };
+
+  /** Persist the accepted recap into the durable `summary/auto` record (rescanned on load). */
+  const writeRecapRecord = (recap: string): void => {
+    try {
+      const rec = composeAutoSummaryRecord(recap);
+      atomicWriteFile(
+        fileFor(state.cast, 'summary', rec.id),
+        serializeEntry({ name: rec.name, description: rec.description, kind: 'summary', body: rec.body }),
+      );
+    } catch {
+      /* durable write is best-effort; the in-memory recap still carries the turn */
+    }
+  };
+
+  /** Auditable per-recap log entry (custom entry, never sent to the LLM). Runs on both sync + async paths. */
+  const writeRecapAudit = (o: {
+    result: RecapResult;
+    model: RecapModelInfo['model'];
+    spanFrom: number;
+    spanTo: number;
+    mode: 'sync' | 'async';
+  }): void => {
+    try {
+      pi.appendEntry('roleplay-context-recap', {
+        ts: o.result.startedAt,
+        durationMs: Date.now() - o.result.startedAt,
+        model: o.model?.id ?? null,
+        coveredFrom: o.spanFrom,
+        coveredTo: o.spanTo,
+        spanMessages: o.result.spanLen,
+        priorChars: o.result.priorLen,
+        mode: o.mode,
+        ok: o.result.next !== null,
+        applied: o.result.applied,
+        candidateChars: o.result.next?.length ?? 0,
+        recapChars: recapText.length,
+      });
+    } catch {
+      /* audit write is best-effort */
+    }
+  };
+
+  /**
+   * Lazily load + wire the `roleplay-fact-extractor` subagent. Returns a
+   * runner that takes a task and returns the raw response text, or `null`
+   * when the agent is not installed. Mirrors the summarizer wiring; the
+   * frontmatter `requestOptions` (low temp) is pinned via the same inline
+   * agent-gate factory (the child loads with noExtensions).
+   */
+  const getFactExtractor = (
+    _ctx: ExtensionContext,
+  ): ((ctx: ExtensionContext, task: string) => Promise<string | null>) | null => {
+    if (factExtractorInit) return factExtractor;
+    factExtractorInit = true;
+    let agent: AgentDef | null = null;
+    try {
+      const layers = defaultAgentLayers({ extensionDir: extDir, cwd });
+      const load = loadAgents({
+        layers,
+        knownToolNames: new Set(pi.getAllTools().map((t) => t.name)),
+        fs: readLayer,
+        parseFrontmatter,
+      });
+      agent = load.agents.get('roleplay-fact-extractor') ?? null;
+    } catch {
+      agent = null;
+    }
+    if (!agent) {
+      factExtractor = null;
+      return null;
+    }
+    const settings = (() => {
+      try {
+        return resolveSummarizeSettings({ cwd });
+      } catch {
+        return null;
+      }
+    })();
+    const factAgent = agent;
+    factExtractor = async (rctx, task) => {
+      const resolution = resolveChildModel({
+        override: settings?.summarizeModel,
+        agent: factAgent,
+        parent: rctx.model,
+        modelRegistry: rctx.modelRegistry as never,
+      });
+      if (!resolution.ok) return null;
+      const gateFactory = factAgent.requestOptions
+        ? createAgentGateFactory({
+            config: {
+              name: factAgent.name,
+              bashAllow: [],
+              bashDeny: [],
+              resolvedWriteRoots: [],
+              requestOptions: factAgent.requestOptions,
+            },
+            enforceWriteRoots: false,
+            resolveAbsolute: (_cwd, p) => p,
+          })
+        : null;
+      try {
+        const result = await runOneShotAgent({
+          deps: { createAgentSession: piCreateAgentSession, DefaultResourceLoader, SessionManager, getAgentDir },
+          cwd,
+          agent: factAgent,
+          model: resolution.model,
+          task,
+          modelRegistry: rctx.modelRegistry as never,
+          agentDir: getAgentDir(),
+          sessionManager: summarizerSessionManager(rctx, cwd),
+          ...(gateFactory ? { extensionFactories: [gateFactory as never] } : {}),
+          ...(rctx.signal ? { signal: rctx.signal } : {}),
+          timeoutMs: 60000,
+        });
+        return result.stopReason === 'completed' ? result.finalText : null;
+      } catch {
+        return null;
+      }
+    };
+    return factExtractor;
+  };
+
+  /**
+   * Deterministic fact capture on the roll: extract durable facts from the
+   * aged span with the `roleplay-fact-extractor` subagent and pin them to
+   * `memory`'s SESSION (`note`) tier (header-carried name + description).
+   * Default-OFF (`PI_ROLEPLAY_CAPTURE`) - a novel model-call path whose
+   * extraction quality is validated in the rp-test small-window smoke; it
+   * degrades to a no-op with no session id (`--no-session`) or when disabled.
+   * De-dups against session notes already on disk + those written this
+   * process. Best-effort; never throws.
+   */
+  const captureFacts = async (ctx: ExtensionContext, span: SummarizableMessage[]): Promise<void> => {
+    if (!captureEnabled()) return;
+    let sessionId: string | null = null;
+    try {
+      sessionId = ctx.sessionManager?.getSessionId() ?? null;
+    } catch {
+      sessionId = null;
+    }
+    if (!sessionId) return; // --no-session: capture is a silent no-op
+    try {
+      const extractor = getFactExtractor(ctx);
+      if (!extractor) return;
+      const cfg = loadRoleplayConfig(cwd, envCharBudget);
+      const info = resolveRecapModelInfo(ctx);
+      const maxSpanChars = deriveMaxSpanChars({
+        contextWindowTokens: info.model?.contextWindow,
+        charsPerToken,
+      });
+      const plan = planSummarization(span, { minMessages: cfg.summarizeMinMessages, maxSpanChars });
+      if (!plan) return;
+      const raw = await extractor(ctx, buildFactExtractionTask(plan.spanText));
+      if (raw === null) return;
+      const candidates = parseFactCandidates(raw);
+      if (candidates.length === 0) return;
+
+      // De-dup against session notes already on disk (fuzzy name match) and
+      // those written earlier this process.
+      const { state: memState } = rebuildMemoryIndex(cwd, sessionId);
+      const sessionEntries = [...memState.index.session];
+      const taken = new Set(sessionEntries.map((e) => e.id));
+      const isDup = (name: string, description: string): boolean => {
+        if (capturedFacts.has(name.toLowerCase())) return true;
+        return findSimilarMemories({ name, description, body: description }, sessionEntries, () => null).length > 0;
+      };
+      let wrote = 0;
+      const now = new Date().toISOString();
+      for (const fact of candidates) {
+        if (isDup(fact.name, fact.description)) {
+          capturedFacts.add(fact.name.toLowerCase());
+          continue;
+        }
+        const slug = memoryUniqueSlug(memorySlugifyName(fact.name), taken);
+        taken.add(slug);
+        const entry: MemoryEntry = {
+          id: slug,
+          scope: 'session',
+          type: 'note',
+          name: fact.name,
+          description: fact.description,
+          created: now,
+          updated: now,
+        };
+        atomicWriteFile(
+          memoryFileFor('session', 'note', slug, cwd, sessionId),
+          serializeMemory({
+            name: fact.name,
+            description: fact.description,
+            type: 'note',
+            body: fact.description,
+            created: now,
+            updated: now,
+          }),
+        );
+        sessionEntries.push(entry);
+        capturedFacts.add(fact.name.toLowerCase());
+        wrote += 1;
+      }
+      if (wrote > 0) {
+        // Rebuild the session MEMORY.md so a resume (memory rescans on
+        // session_start) picks the facts up. NOTE: memory.ts injects from
+        // its cached index within a live session, so newly-captured notes
+        // surface in the injected index only after memory rebuilds (next
+        // session / a memory tool call), not necessarily the same turn.
+        try {
+          atomicWriteFile(memoryIndexFileFor('session', cwd, sessionId), renderMemoryMd(sessionEntries, 'session'));
+        } catch {
+          /* index rebuild is best-effort */
+        }
+        try {
+          ctx.ui.notify(`roleplay: captured ${wrote} durable fact(s) to session memory.`, 'info');
+        } catch {
+          /* notify is best-effort */
+        }
+      }
+    } catch {
+      // Capture must never break a turn.
+    }
+  };
+
+  if (contextWindowEnabled || depthInjectEnabled || repetitionEnabled || eventsEnabled) {
+    pi.on('context', async (event, ctx) => {
+      if (activeCast() === null) return undefined;
+      // Capture the live scene so the `/roleplay event` command (which runs
+      // between turns, without message access) can read recent context.
+      lastMessages = event.messages;
+
+      let messages = event.messages as unknown as readonly Record<string, unknown>[];
+      let changed = false;
+
+      // Rolling window: bounded recap drop (recap mode) or condense-only
+      // floor. Runs first so depth-inject / reminders below operate on the
+      // already-reduced list (they are tail-oriented, unaffected by the drop).
+      if (contextWindowEnabled) {
+        const opts = windowOptions();
+        const natural = computeCutoff(messages, opts.keepTurns);
+        // Fresh / shorter conversation (new run, branch switch, resume): drop stale state.
+        if (natural < committedCutoff) resetWindowState();
+
+        // Calibrate chars/token against the PREVIOUS turn's reported usage
+        // (ground truth) so the span-budget math is measured, not guessed.
+        try {
+          const usage = ctx.getContextUsage?.();
+          if (usage && typeof usage.tokens === 'number' && usage.tokens > 0 && lastSentEstChars > 0) {
+            charsPerToken = updateCharsPerToken(charsPerToken, lastSentEstChars, usage.tokens);
+          }
+        } catch {
+          /* usage is best-effort */
+        }
+
+        // Lazily hydrate the recap from the durable summary/auto record once
+        // per (re)load, so a resume continues the memory instead of rebuilding
+        // it. Assume the record covers everything currently aged (the record
+        // does not store its cutoff index); new turns roll forward normally.
+        if (!recapHydrated) {
+          recapHydrated = true;
+          if (recapMode) {
+            const priorEntry = state.entries.find((e) => e.kind === 'summary' && e.id === 'auto');
+            const prior = priorEntry ? (readEntryBody(state.cast, priorEntry) ?? '') : '';
+            if (prior.trim()) {
+              recapText = prior.trim();
+              recapCutoff = natural;
+              committedCutoff = natural;
+            }
+          }
+        }
+
+        // Roll only when the frozen boundary has advanced by at least `stride`
+        // aged messages. Between rolls the condensed prefix + recap are frozen
+        // (byte-identical), so the prompt-prefix cache is reused.
+        if (planRecap(natural, committedCutoff, strideValue())) {
+          if (recapMode) {
+            const info = resolveRecapModelInfo(ctx);
+            const wantAsync = recapAsyncForced() ?? info.distinct;
+            const spanFrom = recapCutoff;
+            const spanTo = natural;
+            const span = messages.slice(spanFrom, spanTo).map(toSummarizable);
+            if (wantAsync) {
+              // Non-blocking: at most one background recap; return on the PRIOR
+              // recap. The floor keeps the not-yet-covered span present until
+              // the result lands, so nothing is lost; the drop boundary just
+              // advances a turn or two later. gen-guarded against a
+              // reset / branch change clobbering the current recap after the fact.
+              if (!recapInFlight) {
+                recapInFlight = true;
+                const gen = recapGen;
+                const prior = recapText;
+                recapAbort = new AbortController();
+                void doRecap(ctx, span, prior, info, recapAbort.signal)
+                  .then((result) => {
+                    if (gen !== recapGen) return; // stale (reset / branch change): discard
+                    if (result.applied && result.next) {
+                      recapText = result.next;
+                      recapCutoff = spanTo;
+                      writeRecapRecord(result.next);
+                      void captureFacts(ctx, span);
+                    }
+                    writeRecapAudit({ result, model: info.model, spanFrom, spanTo, mode: 'async' });
+                  })
+                  .catch(() => {
+                    /* keep prior recap + floor; retried on the next roll */
+                  })
+                  .finally(() => {
+                    if (gen === recapGen) {
+                      recapInFlight = false;
+                      recapAbort = null;
+                    }
+                  });
+              }
+            } else {
+              // Blocking (inherited / same endpoint): one llama.cpp instance
+              // cannot serve the recap and the main turn concurrently.
+              const result = await doRecap(ctx, span, recapText, info, ctx.signal);
+              if (result.applied && result.next) {
+                recapText = result.next;
+                recapCutoff = spanTo;
+                writeRecapRecord(result.next);
+                await captureFacts(ctx, span);
+              }
+              writeRecapAudit({ result, model: info.model, spanFrom, spanTo, mode: 'sync' });
+            }
+          }
+          committedCutoff = natural;
+        }
+
+        // Apply the window: layered drop+condense+inject (recap mode) or the
+        // condense-only floor (recap off / summarize disabled).
+        if (recapMode) {
+          const layered = applyLayeredWindow(messages, recapCutoff, committedCutoff, opts);
+          if (layered.dropped > 0 || layered.condensed > 0) {
+            messages = layered.messages;
+            changed = true;
+          }
+          if (recapText) {
+            messages = injectRecap(messages, recapText);
+            changed = true;
+          }
+        } else {
+          const floor = applyContextWindowAt(messages, committedCutoff, opts);
+          if (floor.condensed > 0) {
+            messages = floor.messages;
+            changed = true;
+          }
+        }
+
+        // Opt-in per-turn composition audit (custom log entry, never sent to
+        // the LLM) so the savings + token sawtooth are measurable.
+        if (contextWindowDebug) {
+          try {
+            const sysChars = (typeof ctx.getSystemPrompt === 'function' ? ctx.getSystemPrompt() : '')?.length ?? 0;
+            const fullChars = estimateChars(event.messages as unknown as readonly Record<string, unknown>[]);
+            const sentChars = estimateChars(messages);
+            const cpt = charsPerToken > 0 ? charsPerToken : DEFAULT_CHARS_PER_TOKEN;
+            pi.appendEntry('roleplay-context-window-debug', {
+              ts: Date.now(),
+              messagesIn: event.messages.length,
+              messagesOut: messages.length,
+              natural,
+              committedCutoff,
+              recapCutoff,
+              recapMode,
+              recapChars: recapText.length,
+              charsPerToken: Math.round(cpt * 100) / 100,
+              estSystemTokens: Math.round(sysChars / cpt),
+              estFullPromptTokens: Math.round((sysChars + fullChars) / cpt),
+              estSentPromptTokens: Math.round((sysChars + sentChars) / cpt),
+              estSavedTokens: Math.round((fullChars - sentChars) / cpt),
+            });
+          } catch {
+            /* best-effort */
+          }
+        }
+
+        // Track what we sent so next turn can calibrate against its usage.
+        try {
+          const sysChars = (typeof ctx.getSystemPrompt === 'function' ? ctx.getSystemPrompt() : '')?.length ?? 0;
+          lastSentEstChars = sysChars + estimateChars(messages);
+        } catch {
+          lastSentEstChars = 0;
+        }
+      }
+
+      // Depth injection (author's note + depth-tagged lore) splices content
+      // at depth; reminders below append ephemerally to the trailing message.
+      if (depthInjectEnabled) {
+        const persona = getActivePersona();
+        const scanDepth = loadRoleplayConfig(cwd, envCharBudget).scanDepth;
+        const insertions = buildInsertions({
+          authorNote: persona?.authorNote ? substituteMacros(persona.authorNote, macroCtx()) : undefined,
+          authorNoteDepth: persona?.authorNoteDepth,
+          lore: buildDepthLore(recentText(messages as unknown as readonly unknown[], scanDepth)),
+        });
+        if (insertions.length > 0) {
+          messages = applyInsertions(messages, insertions, (text) => ({
+            role: 'user' as const,
+            content: text,
+            timestamp: Date.now(),
+          }));
+          changed = true;
+        }
+      }
+
+      // Ephemeral, cache-friendly reminders: the repetition nudge and the
+      // queued scene event, each under a stable id so re-applying is a
+      // fixpoint and stale blocks are stripped when they no longer fire.
+      const reminders: { id: string; body: string | null }[] = [];
+      if (repetitionEnabled)
+        reminders.push({
+          id: 'roleplay-repetition',
+          body: buildRepetitionNudge(messages as unknown as readonly unknown[]),
+        });
+      if (eventsEnabled) {
+        reminders.push({ id: 'roleplay-event', body: pendingEvent ? formatEventDirector(pendingEvent) : null });
+        if (pendingEvent) eventConsumed = true;
+      }
+      if (reminders.length > 0) {
+        let rm = messages as unknown as ReminderMessage[];
+        for (const spec of reminders) rm = applyContextReminder(rm, spec);
+        if (reminders.some((r) => r.body)) {
+          messages = rm as unknown as readonly Record<string, unknown>[];
+          changed = true;
+        }
+      }
+
+      return changed ? { messages: messages as unknown as typeof event.messages } : undefined;
+    });
+  }
+
+  // ── Compaction side-write (manual / overflow) ───────────────────────
+  //
+  // The rolling window (context hook) owns the common path; this handler
+  // only cancels pi's THRESHOLD auto-compaction and, on the manual /
+  // overflow safety-net paths, folds the evicted span into `summary/auto`
+  // (a strict side-write that never breaks compaction). Summarizer infra
+  // (extDir / getSummarizer / toSummarizable) is defined above.
   if (summarizeEnabled) {
     pi.on('session_before_compact', async (event, ctx) => {
+      const reason = (event as unknown as { reason?: string }).reason;
+      // Own context management: cancel pi's THRESHOLD auto-compaction so the
+      // rolling window is the sole manager and the see-saw stops. Only in
+      // recap (size-bounded) mode; manual `/compact` and genuine overflow
+      // recovery always run (belt-and-suspenders safety net).
+      if (ownCompaction && reason === 'threshold') return { cancel: true };
+      // Manual / overflow (or threshold when not owning): fold the evicted
+      // span into the durable recap so continuity survives the compaction.
       try {
         if (activeCast() === null) return undefined;
         resyncIfChanged(ctx);
         if (state.cast.length === 0) return undefined;
         const cfg = loadRoleplayConfig(cwd, envCharBudget);
+        const priorEntry = state.entries.find((e) => e.kind === 'summary' && e.id === 'auto');
+        const prior = priorEntry ? (readEntryBody(state.cast, priorEntry) ?? undefined) : undefined;
+        const info = resolveRecapModelInfo(ctx);
+        const maxSpanChars = deriveMaxSpanChars({
+          contextWindowTokens: info.model?.contextWindow,
+          priorRecapChars: prior?.length ?? 0,
+          charsPerToken,
+        });
         const messages = (event.preparation?.messagesToSummarize ?? []).map(toSummarizable);
-        const plan = planSummarization(messages, { minMessages: cfg.summarizeMinMessages });
+        const plan = planSummarization(messages, { minMessages: cfg.summarizeMinMessages, maxSpanChars });
         if (!plan) return undefined;
         const sum = getSummarizer(ctx);
         if (!sum?.isEnabled()) return undefined;
-        const priorEntry = state.entries.find((e) => e.kind === 'summary' && e.id === 'auto');
-        const prior = priorEntry ? (readEntryBody(state.cast, priorEntry) ?? undefined) : undefined;
         const recap = await sum.summarize(
           { cwd, model: ctx.model, modelRegistry: ctx.modelRegistry as never, signal: event.signal },
           plan.spanText,
           prior,
         );
-        if (recap === null) return undefined;
+        // Collapse guard: never let a degenerate recap clobber a longer prior.
+        if (recap === null || !acceptRecap(prior ?? '', recap)) return undefined;
         const rec = composeAutoSummaryRecord(recap);
         atomicWriteFile(
           fileFor(state.cast, 'summary', rec.id),
           serializeEntry({ name: rec.name, description: rec.description, kind: 'summary', body: rec.body }),
         );
-        // Re-scan so the index + in-memory state reflect the new record.
+        // Re-scan so the index + in-memory state reflect the new record; a
+        // subsequent context turn re-hydrates recapText from it.
         applyCast(state.cast, ctx);
         ctx.ui.notify(`roleplay: folded ${plan.messageCount} evicted message(s) into the auto recap.`, 'info');
       } catch {
@@ -981,6 +1568,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
     pendingEvent = null;
     eventConsumed = false;
     excludeCache = null;
+    resetWindowState();
   });
 
   // ── Actions ─────────────────────────────────────────────────────────

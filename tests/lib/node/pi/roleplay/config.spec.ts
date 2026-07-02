@@ -94,6 +94,25 @@ test('coerceConfigLayer accepts event knobs and clamps them', () => {
   expect(coerceConfigLayer({ eventSeedThreads: 'x', eventMaxChars: Number.NaN })).toEqual({});
 });
 
+test('coerceConfigLayer accepts rolling-window dials and clamps them', () => {
+  expect(coerceConfigLayer({ keepTurns: 12 })).toEqual({ keepTurns: 12 });
+  expect(coerceConfigLayer({ keepTurns: 0 })).toEqual({ keepTurns: 1 });
+  expect(coerceConfigLayer({ keepTurns: 9999 })).toEqual({ keepTurns: 200 });
+  expect(coerceConfigLayer({ recapChunk: 36 })).toEqual({ recapChunk: 36 });
+  expect(coerceConfigLayer({ recapChunk: 0 })).toEqual({ recapChunk: 1 });
+  expect(coerceConfigLayer({ windowAssistantChars: 150 })).toEqual({ windowAssistantChars: 150 });
+  expect(coerceConfigLayer({ windowAssistantChars: 5 })).toEqual({ windowAssistantChars: 40 });
+  expect(coerceConfigLayer({ windowUserChars: 500 })).toEqual({ windowUserChars: 500 });
+  expect(coerceConfigLayer({ recapStride: 12 })).toEqual({ recapStride: 12 });
+  expect(coerceConfigLayer({ recapStride: 0 })).toEqual({ recapStride: 0 });
+  expect(coerceConfigLayer({ recapStride: 9999 })).toEqual({ recapStride: 500 });
+  expect(coerceConfigLayer({ recapAsync: true })).toEqual({ recapAsync: true });
+  expect(coerceConfigLayer({ recapAsync: false })).toEqual({ recapAsync: false });
+  expect(coerceConfigLayer({ capture: true })).toEqual({ capture: true });
+  expect(coerceConfigLayer({ recapStride: 'x', recapAsync: 1, capture: 'yes' })).toEqual({});
+  expect(coerceConfigLayer({ keepTurns: 'x', recapChunk: Number.NaN })).toEqual({});
+});
+
 test('mergeConfigLayers applies later layers on top of defaults', () => {
   expect(mergeConfigLayers()).toEqual(DEFAULT_CONFIG);
   expect(mergeConfigLayers({ charBudget: 4000 })).toEqual({ ...DEFAULT_CONFIG, charBudget: 4000 });

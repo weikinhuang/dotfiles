@@ -11,6 +11,17 @@ thinkingLevel: low
 maxTurns: 1
 isolation: shared-cwd
 timeoutMs: 60000
+requestOptions:
+  # Neutral, faithful-summary sampler pinned onto the recap's provider
+  # request. Low temperature curbs confabulation / paraphrase drift, and
+  # presence_penalty 0 stops the model from being pushed off the exact
+  # proper nouns the recap must carry forward. (The active persona's
+  # temp 1.5 / presence_penalty 1.5 does NOT reach this subagent - the
+  # child session loads with noExtensions so persona's
+  # before_provider_request never fires here - but pinning is the correct
+  # default for a summarizer and removes any future-leak risk.)
+  temperature: 0.3
+  presence_penalty: 0
 ---
 
 # roleplay-summarizer
