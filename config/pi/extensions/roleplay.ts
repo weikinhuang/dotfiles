@@ -918,7 +918,12 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
       m = undefined;
     }
     const mm = m as { id?: string; provider?: string; contextWindow?: number } | undefined;
-    const distinct = !!mm && (mm.id !== sm?.id || mm.provider !== sm?.provider);
+    // Distinct = a genuinely separate endpoint that can serve the recap and
+    // the main turn concurrently. Key on PROVIDER only: the endpoint boundary
+    // is the provider prefix (e.g. `llama-cpp/` vs `local/`), not the model
+    // id. Two different ids under one provider share a single instance, so an
+    // id-based check would wrongly pick async and collide on that instance.
+    const distinct = !!mm && mm.provider !== sm?.provider;
     return { model: mm ?? sm, distinct };
   };
 
@@ -1003,6 +1008,12 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
         applied: o.result.applied,
         candidateChars: o.result.next?.length ?? 0,
         recapChars: recapText.length,
+        // The actual recap text, so drift is inspectable from the audit log
+        // itself (its stated purpose) without opening `summary/auto.md`.
+        // `candidate` is this roll's raw generation; `recap` is the effective
+        // recap now in force (prior one held when a generation is rejected).
+        candidate: o.result.next ?? null,
+        recap: recapText,
       });
     } catch {
       /* audit write is best-effort */
@@ -1101,16 +1112,44 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
    */
   const captureFacts = async (ctx: ExtensionContext, span: SummarizableMessage[]): Promise<void> => {
     if (!captureEnabled()) return;
+    // Auditable outcome (custom entry, never sent to the LLM). Emitted on
+    // every return path so a zero-write run is debuggable: which gate hit.
+    const audit = {
+      sessionId: false,
+      extractor: false,
+      planned: false,
+      rawChars: 0,
+      parsed: 0,
+      wrote: 0,
+      skip: '' as string,
+    };
+    const emit = (): void => {
+      try {
+        pi.appendEntry('roleplay-capture', { ts: Date.now(), ...audit });
+      } catch {
+        /* audit write is best-effort */
+      }
+    };
     let sessionId: string | null = null;
     try {
       sessionId = ctx.sessionManager?.getSessionId() ?? null;
     } catch {
       sessionId = null;
     }
-    if (!sessionId) return; // --no-session: capture is a silent no-op
+    if (!sessionId) {
+      audit.skip = 'no-session'; // --no-session: capture is a silent no-op
+      emit();
+      return;
+    }
+    audit.sessionId = true;
     try {
       const extractor = getFactExtractor(ctx);
-      if (!extractor) return;
+      if (!extractor) {
+        audit.skip = 'no-extractor';
+        emit();
+        return;
+      }
+      audit.extractor = true;
       const cfg = loadRoleplayConfig(cwd, envCharBudget);
       const info = resolveRecapModelInfo(ctx);
       const maxSpanChars = deriveMaxSpanChars({
@@ -1118,11 +1157,26 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
         charsPerToken,
       });
       const plan = planSummarization(span, { minMessages: cfg.summarizeMinMessages, maxSpanChars });
-      if (!plan) return;
+      if (!plan) {
+        audit.skip = 'no-plan';
+        emit();
+        return;
+      }
+      audit.planned = true;
       const raw = await extractor(ctx, buildFactExtractionTask(plan.spanText));
-      if (raw === null) return;
+      if (raw === null) {
+        audit.skip = 'extractor-null';
+        emit();
+        return;
+      }
+      audit.rawChars = raw.length;
       const candidates = parseFactCandidates(raw);
-      if (candidates.length === 0) return;
+      audit.parsed = candidates.length;
+      if (candidates.length === 0) {
+        audit.skip = 'no-candidates';
+        emit();
+        return;
+      }
 
       // De-dup against session notes already on disk (fuzzy name match) and
       // those written earlier this process.
@@ -1166,6 +1220,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
         capturedFacts.add(fact.name.toLowerCase());
         wrote += 1;
       }
+      audit.wrote = wrote;
       if (wrote > 0) {
         // Rebuild the session MEMORY.md so a resume (memory rescans on
         // session_start) picks the facts up. NOTE: memory.ts injects from
@@ -1182,9 +1237,14 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
         } catch {
           /* notify is best-effort */
         }
+      } else {
+        audit.skip = 'all-duplicates';
       }
+      emit();
     } catch {
       // Capture must never break a turn.
+      audit.skip = 'error';
+      emit();
     }
   };
 
@@ -1257,15 +1317,24 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
                 const prior = recapText;
                 recapAbort = new AbortController();
                 void doRecap(ctx, span, prior, info, recapAbort.signal)
-                  .then((result) => {
+                  .then(async (result) => {
                     if (gen !== recapGen) return; // stale (reset / branch change): discard
                     if (result.applied && result.next) {
                       recapText = result.next;
                       recapCutoff = spanTo;
                       writeRecapRecord(result.next);
-                      void captureFacts(ctx, span);
                     }
                     writeRecapAudit({ result, model: info.model, spanFrom, spanTo, mode: 'async' });
+                    if (result.applied && result.next) {
+                      // Capture runs SEQUENTIALLY after the recap, and is
+                      // AWAITED inside the chain so `recapInFlight` stays set
+                      // until it finishes. Both matter: the fact-extractor
+                      // shares the recap endpoint, so awaiting stops the next
+                      // roll from starting a concurrent recap on that single
+                      // instance, and keeps capture from being orphaned as a
+                      // fire-and-forget promise when the turn returns.
+                      await captureFacts(ctx, span);
+                    }
                   })
                   .catch(() => {
                     /* keep prior recap + floor; retried on the next roll */
