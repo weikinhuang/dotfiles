@@ -1537,6 +1537,12 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
       for (let i = entries.length - 1; i >= 0; i--) {
         const e = entries[i];
         if (e?.type !== 'custom') continue;
+        // `/roleplay newscene` stamps a marker on the branch. Scanning
+        // newest-first, hitting it before any recap means there is no recap
+        // since the last newscene -> cold start. It shadows all older recap
+        // entries, which we cannot delete from the branch. Branch-consistent
+        // (the marker forks with its path) and survives a reload.
+        if (e.customType === 'roleplay-newscene') return null;
         const ct = e.customType;
         if (ct !== 'roleplay-context-recap' && ct !== 'rp-context-recap') continue;
         const data = e.data as { recap?: unknown; coveredTo?: unknown; applied?: unknown } | undefined;
@@ -1567,6 +1573,10 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
       for (let i = entries.length - 1; i >= 0; i--) {
         const e = entries[i];
         if (e?.type !== 'custom') continue;
+        // Newscene marker shadows all older timeline snapshots (see
+        // hydrateRecapFromBranch): a fresh scene must not resurrect the
+        // archived timeline off the still-present branch entries.
+        if (e.customType === 'roleplay-newscene') return null;
         if (e.customType !== 'roleplay-timeline') continue;
         const data = e.data as { timeline?: unknown } | undefined;
         const text = typeof data?.timeline === 'string' ? data.timeline.trim() : '';
@@ -2532,10 +2542,19 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
         const archivedSummary = archiveCarryOver(state.cast, 'summary', ts);
         const archivedTimeline = archiveCarryOver(state.cast, 'timeline', ts);
         const archivedFacts = archiveFacts(state.cast, ts);
-        // No per-session live records to drop anymore: the within-session
-        // store is the branch, and the NEW scene runs on a fresh tree whose
-        // `getBranch()` carries no recap - so branch hydration finds nothing
-        // and the cleared carry-over below decides continuity (cold start).
+        // Stamp a marker on the SESSION BRANCH so branch hydration cold-starts
+        // the next turn. The within-session store is the branch, and we cannot
+        // delete the pre-newscene recap/timeline entries from it; without this
+        // marker, continuing in the same session (or reloading it) would
+        // re-hydrate and resurrect the scene we just archived. Both
+        // `hydrateRecapFromBranch` and `hydrateTimelineFromBranch` scan
+        // newest-first and treat this marker as "no memory beyond here", so it
+        // shadows every older entry until the new scene rolls its own recap.
+        try {
+          pi.appendEntry('roleplay-newscene', { ts });
+        } catch {
+          /* marker is best-effort; resetWindowState below still clears memory */
+        }
         // Clear in-memory scene state; the next context turn cold-starts.
         resetWindowState();
         ctx.ui.notify(
