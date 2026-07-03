@@ -140,9 +140,9 @@ test('archiveCarryOver moves <kind>/auto.md into archive/<ts>.md', () => {
 test('fact sidecars: list, then archive clears them', () => {
   expect(listFactSidecars('pl', root)).toEqual([]);
   atomicWriteFile(
-    factFile('pl', 'wei-allergic', root),
+    factFile('pl', 'user-allergic', root),
     serializeEntry({
-      name: 'Wei is allergic to shellfish',
+      name: 'User is allergic to shellfish',
       description: 'stated over dinner',
       kind: 'summary',
       body: '',
@@ -153,12 +153,12 @@ test('fact sidecars: list, then archive clears them', () => {
     serializeEntry({ name: 'Mira visits Thursday 6pm', description: 'planned', kind: 'summary', body: '' }),
   );
   const facts = listFactSidecars('pl', root);
-  expect(facts.map((f) => f.slug)).toEqual(['mira-thursday', 'wei-allergic']);
-  expect(facts[1].name).toBe('Wei is allergic to shellfish');
+  expect(facts.map((f) => f.slug)).toEqual(['mira-thursday', 'user-allergic']);
+  expect(facts[1].name).toBe('User is allergic to shellfish');
 
   expect(archiveFacts('pl', '20260101T000000', root)).toBe(2);
   expect(listFactSidecars('pl', root)).toEqual([]);
-  expect(existsSync(join(factsArchiveDir('pl', '20260101T000000', root), 'wei-allergic.md'))).toBe(true);
+  expect(existsSync(join(factsArchiveDir('pl', '20260101T000000', root), 'user-allergic.md'))).toBe(true);
 });
 
 test('listCasts returns sorted cast dir names', () => {

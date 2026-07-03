@@ -50,7 +50,7 @@ describe('truncateText', () => {
   });
 
   it('preserves a buried-tail fact that head-only truncation would drop', () => {
-    const text = 'The scene opens in a tavern. ' + 'filler '.repeat(60) + 'REMEMBER: Wei is allergic to shellfish.';
+    const text = 'The scene opens in a tavern. ' + 'filler '.repeat(60) + 'REMEMBER: User is allergic to shellfish.';
     const out = truncateText(text, 60);
     expect(out).not.toBeNull();
     expect(out).toContain('shellfish');

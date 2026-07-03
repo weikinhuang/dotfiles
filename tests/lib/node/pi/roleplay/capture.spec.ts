@@ -27,8 +27,8 @@ describe('parseFactCandidates', () => {
   });
 
   it('parses a bare JSON array', () => {
-    const out = parseFactCandidates('[{"name":"Wei allergic to shellfish","description":"stated at dinner"}]');
-    expect(out).toEqual([{ name: 'Wei allergic to shellfish', description: 'stated at dinner' }]);
+    const out = parseFactCandidates('[{"name":"User allergic to shellfish","description":"stated at dinner"}]');
+    expect(out).toEqual([{ name: 'User allergic to shellfish', description: 'stated at dinner' }]);
   });
 
   it('parses a fenced ```json block embedded in prose', () => {

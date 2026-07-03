@@ -14,7 +14,7 @@
  * SESSION (`note`) tier so they survive resume, die on a fresh scene, and
  * show in `/memory`. gemma will not `memory read` a body and the session
  * tier injects only name + description, so each fact must be
- * SELF-CONTAINED in `name` + `description` (`name: "Wei allergic to
+ * SELF-CONTAINED in `name` + `description` (`name: "User allergic to
  * shellfish"`), never buried in a body.
  *
  * This module holds only the pure task-builder + tolerant response parser;
@@ -53,7 +53,7 @@ export function buildFactExtractionTask(spanText: string): string {
     'description, or anything already obvious - those belong in the running recap, not here.\n\n' +
     'Return a JSON array (and nothing else) of at most ' +
     `${MAX_FACTS_PER_ROLL} objects, each {"name": "...", "description": "..."}. The "name" MUST be a ` +
-    'complete, self-contained statement of the fact on its own (e.g. "Wei is allergic to shellfish"), ' +
+    'complete, self-contained statement of the fact on its own (e.g. "User is allergic to shellfish"), ' +
     'because only the name and description are ever shown - a reader never opens a body. Keep "name" ' +
     `under ${MAX_FACT_NAME_CHARS} characters and "description" under ${MAX_FACT_DESC_CHARS}. ` +
     'If the span contains no durable facts, return exactly [].\n\n' +
