@@ -8,7 +8,7 @@
  * No pi imports.
  */
 
-import { readJsonOrUndefined } from '../fs-safe.ts';
+import { readJsoncOrUndefined } from '../fs-safe.ts';
 import { piAgentPath, piProjectPath } from '../pi-paths.ts';
 
 export interface ImageRefConfig {
@@ -81,7 +81,7 @@ export function mergeConfigLayers(...layers: Partial<ImageRefConfig>[]): ImageRe
  * A missing / malformed file degrades to an empty layer.
  */
 export function loadImageRefConfig(cwd: string): ImageRefConfig {
-  const userLayer = coerceConfigLayer(readJsonOrUndefined(piAgentPath('image-ref.json')));
-  const projectLayer = coerceConfigLayer(readJsonOrUndefined(piProjectPath(cwd, 'image-ref.json')));
+  const userLayer = coerceConfigLayer(readJsoncOrUndefined(piAgentPath('image-ref.json')));
+  const projectLayer = coerceConfigLayer(readJsoncOrUndefined(piProjectPath(cwd, 'image-ref.json')));
   return mergeConfigLayers(userLayer, projectLayer);
 }

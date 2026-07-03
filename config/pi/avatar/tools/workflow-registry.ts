@@ -13,7 +13,7 @@
 
 import { resolve } from 'node:path';
 
-import { readJsonOrUndefined } from '../../../../lib/node/pi/fs-safe.ts';
+import { readJsoncOrUndefined } from '../../../../lib/node/pi/fs-safe.ts';
 import { expandTilde } from '../../../../lib/node/pi/path-expand.ts';
 import { loadWorkflowGraph, validateMapping } from '../../../../lib/node/pi/comfyui/workflow.ts';
 
@@ -181,7 +181,7 @@ export function validateRegistryEntry(
  */
 export function loadAndValidateRegistry(file: string, cwd: string, homedir: string): RegistryValidationResult {
   const resolved = resolve(cwd, expandTilde(file, homedir));
-  const parsed = readJsonOrUndefined(resolved);
+  const parsed = readJsoncOrUndefined(resolved);
   const registry = parseRegistry(parsed);
   const workflows: ValidatedWorkflow[] = [];
   const errors: string[] = [];

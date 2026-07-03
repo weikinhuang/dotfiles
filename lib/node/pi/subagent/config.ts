@@ -21,11 +21,11 @@
  * `maxTurns`) still wins over all of these in the extension handler.
  *
  * {@link loadSubagentConfig} does the disk wiring; reads go through
- * {@link readJsonOrUndefined} so a missing / malformed file degrades to
+ * {@link readJsoncOrUndefined} so a missing / malformed file degrades to
  * an empty layer. No pi imports - unit-tested under vitest.
  */
 
-import { readJsonOrUndefined } from '../fs-safe.ts';
+import { readJsoncOrUndefined } from '../fs-safe.ts';
 import { piAgentPath, piProjectPath } from '../pi-paths.ts';
 
 /** Concurrency clamp, matching the prior `envConcurrency()` bounds. */
@@ -134,7 +134,7 @@ export function mergeSubagentConfigLayers(...overrides: Partial<SubagentConfig>[
  */
 export function loadSubagentConfig(cwd: string, env: NodeJS.ProcessEnv = process.env): SubagentConfig {
   const envLayer = subagentEnvLayer(env);
-  const userLayer = coerceSubagentConfigLayer(readJsonOrUndefined(piAgentPath('subagent.json')));
-  const projectLayer = coerceSubagentConfigLayer(readJsonOrUndefined(piProjectPath(cwd, 'subagent.json')));
+  const userLayer = coerceSubagentConfigLayer(readJsoncOrUndefined(piAgentPath('subagent.json')));
+  const projectLayer = coerceSubagentConfigLayer(readJsoncOrUndefined(piProjectPath(cwd, 'subagent.json')));
   return mergeSubagentConfigLayers(envLayer, userLayer, projectLayer);
 }

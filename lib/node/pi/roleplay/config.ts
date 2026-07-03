@@ -20,7 +20,7 @@
  * No pi imports.
  */
 
-import { readJsonOrUndefined } from '../fs-safe.ts';
+import { readJsoncOrUndefined } from '../fs-safe.ts';
 import { envTruthy, parseClampedPositiveInt } from '../parse-env.ts';
 import { piAgentPath, piProjectPath } from '../pi-paths.ts';
 import { MAX_RECURSION_CAP } from './recursion.ts';
@@ -279,7 +279,7 @@ export function loadRoleplayConfig(cwd: string, envCharBudget?: number): Rolepla
   if (env.PI_ROLEPLAY_TIMELINE !== undefined) {
     envLayer.timeline = envTruthy(env.PI_ROLEPLAY_TIMELINE);
   }
-  const userLayer = coerceConfigLayer(readJsonOrUndefined(piAgentPath('roleplay.json')));
-  const projectLayer = coerceConfigLayer(readJsonOrUndefined(piProjectPath(cwd, 'roleplay.json')));
+  const userLayer = coerceConfigLayer(readJsoncOrUndefined(piAgentPath('roleplay.json')));
+  const projectLayer = coerceConfigLayer(readJsoncOrUndefined(piProjectPath(cwd, 'roleplay.json')));
   return mergeConfigLayers(envLayer, userLayer, projectLayer);
 }

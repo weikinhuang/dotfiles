@@ -21,10 +21,10 @@
  * degrades to "field absent" with a warning rather than poisoning a run.
  *
  * {@link loadDeepResearchConfig} does the disk wiring; reads go through
- * {@link readJsonOrUndefined}. No pi imports - unit-tested under vitest.
+ * {@link readJsoncOrUndefined}. No pi imports - unit-tested under vitest.
  */
 
-import { readJsonOrUndefined } from '../fs-safe.ts';
+import { readJsoncOrUndefined } from '../fs-safe.ts';
 import { piAgentPath, piProjectPath } from '../pi-paths.ts';
 import { type ResearchOverrides } from '../research/command-args.ts';
 import { validateToolOverrides } from '../research/tool-overrides.ts';
@@ -110,7 +110,7 @@ export function loadDeepResearchConfig(cwd: string): DeepResearchConfigResult {
   const warnings: DeepResearchConfigWarning[] = [];
   const userPath = piAgentPath('deep-research.json');
   const projectPath = piProjectPath(cwd, 'deep-research.json');
-  const userLayer = coerceDeepResearchConfigLayer(readJsonOrUndefined(userPath), userPath, warnings);
-  const projectLayer = coerceDeepResearchConfigLayer(readJsonOrUndefined(projectPath), projectPath, warnings);
+  const userLayer = coerceDeepResearchConfigLayer(readJsoncOrUndefined(userPath), userPath, warnings);
+  const projectLayer = coerceDeepResearchConfigLayer(readJsoncOrUndefined(projectPath), projectPath, warnings);
   return { defaults: mergeDeepResearchConfigLayers(userLayer, projectLayer), warnings };
 }

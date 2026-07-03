@@ -16,7 +16,7 @@
  * No pi imports - directly unit-testable under vitest.
  */
 
-import { readJsonOrUndefined } from './fs-safe.ts';
+import { readJsoncOrUndefined } from './fs-safe.ts';
 import { piAgentPath, piProjectPath } from './pi-paths.ts';
 
 /**
@@ -143,7 +143,7 @@ export function mergeStripReasoningLayers(
  * contributes an empty layer, so the default is an empty allowlist (no-op).
  */
 export function loadStripReasoningConfig(cwd: string): StripReasoningConfig {
-  const user = coerceStripReasoningLayer(readJsonOrUndefined(piAgentPath('strip-reasoning.json')));
-  const project = coerceStripReasoningLayer(readJsonOrUndefined(piProjectPath(cwd, 'strip-reasoning.json')));
+  const user = coerceStripReasoningLayer(readJsoncOrUndefined(piAgentPath('strip-reasoning.json')));
+  const project = coerceStripReasoningLayer(readJsoncOrUndefined(piProjectPath(cwd, 'strip-reasoning.json')));
   return mergeStripReasoningLayers(user, project);
 }

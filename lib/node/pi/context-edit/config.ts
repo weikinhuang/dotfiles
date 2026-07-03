@@ -10,7 +10,7 @@
  * No pi imports - testable under `vitest` without the runtime.
  */
 
-import { readJsonOrUndefined } from '../fs-safe.ts';
+import { readJsoncOrUndefined } from '../fs-safe.ts';
 import { parseClampedPositiveInt, parseNonNegativeInt } from '../parse-env.ts';
 import { piAgentPath, piProjectPath } from '../pi-paths.ts';
 
@@ -108,8 +108,8 @@ export function loadTrimConfig(cwd: string, env: NodeJS.ProcessEnv = process.env
     snippetChars: parseClampedPositiveInt(env.PI_CONTEXT_TRIM_SNIPPET_CHARS, DEFAULT_TRIM_CONFIG.snippetChars, 20),
     captionModel: asNonEmptyString(env.PI_CONTEXT_TRIM_CAPTION_MODEL),
   };
-  const userLayer = coerceTrimLayer(readJsonOrUndefined(piAgentPath('context-trim.json')));
-  const projectLayer = coerceTrimLayer(readJsonOrUndefined(piProjectPath(cwd, 'context-trim.json')));
+  const userLayer = coerceTrimLayer(readJsoncOrUndefined(piAgentPath('context-trim.json')));
+  const projectLayer = coerceTrimLayer(readJsoncOrUndefined(piProjectPath(cwd, 'context-trim.json')));
   return { ...base, ...userLayer, ...projectLayer };
 }
 
@@ -136,7 +136,7 @@ export function loadToolCollapseConfig(cwd: string, env: NodeJS.ProcessEnv = pro
       256,
     ),
   };
-  const userLayer = coerceToolCollapseLayer(readJsonOrUndefined(piAgentPath('tool-collapse.json')));
-  const projectLayer = coerceToolCollapseLayer(readJsonOrUndefined(piProjectPath(cwd, 'tool-collapse.json')));
+  const userLayer = coerceToolCollapseLayer(readJsoncOrUndefined(piAgentPath('tool-collapse.json')));
+  const projectLayer = coerceToolCollapseLayer(readJsoncOrUndefined(piProjectPath(cwd, 'tool-collapse.json')));
   return { ...base, ...userLayer, ...projectLayer };
 }

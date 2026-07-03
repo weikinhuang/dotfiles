@@ -25,7 +25,7 @@
  * allowlist mistakenly lists it.
  */
 
-import { readJsonOrUndefined } from './fs-safe.ts';
+import { readJsoncOrUndefined } from './fs-safe.ts';
 import { piAgentPath, piProjectPath } from './pi-paths.ts';
 
 /**
@@ -262,7 +262,7 @@ export function coerceToolRescueLayer(raw: unknown): { tools?: string[] } {
  * {@link resolveRescueTools}.
  */
 export function loadToolRescueConfig(cwd: string): { tools: string[] } {
-  const user = coerceToolRescueLayer(readJsonOrUndefined(piAgentPath('tool-rescue.json')));
-  const project = coerceToolRescueLayer(readJsonOrUndefined(piProjectPath(cwd, 'tool-rescue.json')));
+  const user = coerceToolRescueLayer(readJsoncOrUndefined(piAgentPath('tool-rescue.json')));
+  const project = coerceToolRescueLayer(readJsoncOrUndefined(piProjectPath(cwd, 'tool-rescue.json')));
   return { tools: Array.from(new Set([...(user.tools ?? []), ...(project.tools ?? [])])) };
 }

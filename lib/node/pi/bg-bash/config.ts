@@ -21,13 +21,13 @@
  * {@link loadBgBashConfig} does the disk wiring (read the user + project
  * JSON, coerce each, layer over the env + built-in base) so the
  * extension shell only does the `params.X ?? config.X` resolution. Reads
- * go through {@link readJsonOrUndefined} so a missing / malformed file
+ * go through {@link readJsoncOrUndefined} so a missing / malformed file
  * degrades to an empty layer rather than throwing.
  *
  * No pi imports - unit-tested under vitest.
  */
 
-import { readJsonOrUndefined } from '../fs-safe.ts';
+import { readJsoncOrUndefined } from '../fs-safe.ts';
 import { piAgentPath, piProjectPath } from '../pi-paths.ts';
 
 /** Which stream `logs` returns by default. */
@@ -190,7 +190,7 @@ export function mergeBgBashConfigLayers(...overrides: Partial<BgBashConfig>[]): 
  */
 export function loadBgBashConfig(cwd: string, env: NodeJS.ProcessEnv = process.env): BgBashConfig {
   const envLayer = bgBashEnvLayer(env);
-  const userLayer = coerceBgBashConfigLayer(readJsonOrUndefined(piAgentPath('bg-bash.json')));
-  const projectLayer = coerceBgBashConfigLayer(readJsonOrUndefined(piProjectPath(cwd, 'bg-bash.json')));
+  const userLayer = coerceBgBashConfigLayer(readJsoncOrUndefined(piAgentPath('bg-bash.json')));
+  const projectLayer = coerceBgBashConfigLayer(readJsoncOrUndefined(piProjectPath(cwd, 'bg-bash.json')));
   return mergeBgBashConfigLayers(envLayer, userLayer, projectLayer);
 }
