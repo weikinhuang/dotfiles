@@ -10,7 +10,7 @@ import { join } from 'node:path';
 
 import { afterEach, beforeEach, expect, test } from 'vitest';
 
-import { existsSync, utimesSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 
 import {
   archiveCarryOver,
@@ -24,14 +24,11 @@ import {
   indexFileFor,
   listCasts,
   listFactSidecars,
-  pruneSessionFiles,
   readEntryBody,
-  readSessionBody,
   rebuildCast,
   removeFileIfExists,
   portraitPath,
   scanCast,
-  sessionFile,
   writeIndex,
 } from '../../../../../lib/node/pi/roleplay/paths.ts';
 import { serializeEntry } from '../../../../../lib/node/pi/roleplay/store.ts';
@@ -119,34 +116,14 @@ test('removeFileIfExists reports whether it deleted', () => {
   expect(removeFileIfExists(fileFor('pl', 'character', 'exusiai', root))).toBe(false);
 });
 
-test('session records live under <kind>/sessions and are skipped by scanCast', () => {
+test('scanCast reads only top-level carry-over auto.md, skipping archive/', () => {
   atomicWriteFile(
     fileFor('pl', 'summary', 'auto', root),
     serializeEntry({ name: 'Auto recap', description: 'carry-over', kind: 'summary', body: 'carry body' }),
   );
-  atomicWriteFile(
-    sessionFile('pl', 'summary', 'sid-1', root),
-    serializeEntry({ name: 'Auto recap', description: 'live', kind: 'summary', body: 'live body' }),
-  );
-  // Only the top-level carry-over auto.md is scanned; the sessions/ file is skipped.
+  // Only the top-level carry-over auto.md is scanned.
   const { entries } = scanCast('pl', root);
   expect(entries.map((e) => e.id)).toEqual(['auto']);
-  expect(readSessionBody('pl', 'summary', 'sid-1', root)!.trim()).toBe('live body');
-  expect(readSessionBody('pl', 'summary', 'missing', root)).toBeNull();
-});
-
-test('pruneSessionFiles keeps the newest N session records', () => {
-  ['a', 'b', 'c'].forEach((sid, i) => {
-    const path = sessionFile('pl', 'timeline', sid, root);
-    atomicWriteFile(path, serializeEntry({ name: 'T', description: 'd', kind: 'timeline', body: sid }));
-    // Deterministic increasing mtimes so the newest is 'c'.
-    const t = new Date(2026, 0, 1, 0, 0, i);
-    utimesSync(path, t, t);
-  });
-  expect(pruneSessionFiles('pl', 'timeline', 2, root)).toBe(1);
-  expect(existsSync(sessionFile('pl', 'timeline', 'a', root))).toBe(false);
-  expect(existsSync(sessionFile('pl', 'timeline', 'c', root))).toBe(true);
-  expect(pruneSessionFiles('pl', 'timeline', 10, root)).toBe(0);
 });
 
 test('archiveCarryOver moves <kind>/auto.md into archive/<ts>.md', () => {

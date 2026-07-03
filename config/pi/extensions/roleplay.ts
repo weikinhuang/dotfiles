@@ -94,6 +94,7 @@ import {
   applyLayeredWindow,
   computeCutoff,
   DEFAULT_CHARS_PER_TOKEN,
+  deriveKeepTurns,
   deriveMaxSpanChars,
   estimateChars,
   injectRecap,
@@ -148,13 +149,10 @@ import {
   listCasts,
   listFactSidecars,
   portraitPath,
-  pruneSessionFiles,
   readEntryBody,
-  readSessionBody,
   rebuildCast,
   removeFileIfExists,
   roleplayRoot,
-  sessionFile,
   writeIndex,
 } from '../../../lib/node/pi/roleplay/paths.ts';
 import {
@@ -1004,14 +1002,15 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
   };
 
   /**
-   * Persist an accepted recap under the two-tier layout: the session-
-   * isolated LIVE record (`summary/sessions/<sid>.md`, authoritative while
-   * this session runs) plus a best-effort refresh of the per-cast carry-over
-   * (`summary/auto.md`, the seed for future sessions - see decision 1). A
-   * carry-over write failure never fails the live write. With no session id
-   * (`--no-session`) only the carry-over is written (degraded legacy behavior).
+   * Persist an accepted recap. The within-session / resume / fork store is now
+   * the SESSION BRANCH (the `roleplay-context-recap` audit entry written on
+   * every roll - see {@link writeRecapAudit}), so this only refreshes the
+   * per-cast CARRY-OVER (`summary/auto.md`), the cross-session seed a genuinely
+   * new tree inherits (decision 1). Last-writer-wins / lossy by design. The
+   * `sid` is unused now that the redundant `sessions/<sid>.md` live tier is
+   * retired; it is kept in the signature for call-site symmetry.
    */
-  const writeRecapRecord = (recap: string, sid: string | null): void => {
+  const writeRecapRecord = (recap: string, _sid: string | null): void => {
     const rec = composeAutoSummaryRecord(recap);
     const serialized = serializeEntry({
       name: rec.name,
@@ -1019,13 +1018,6 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
       kind: 'summary',
       body: rec.body,
     });
-    if (sid) {
-      try {
-        atomicWriteFile(sessionFile(state.cast, 'summary', sid), serialized);
-      } catch {
-        /* live write best-effort; the carry-over below still seeds resumes */
-      }
-    }
     try {
       atomicWriteFile(fileFor(state.cast, 'summary', rec.id), serialized);
     } catch {
@@ -1322,7 +1314,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
    * with no clobber. Also folds the new lines into the in-memory
    * `timelineText` used for injection. Best-effort; never throws.
    */
-  const appendTimelineBeats = (sid: string | null, lines: string): void => {
+  const appendTimelineBeats = (lines: string): void => {
     if (lines.trim().length === 0) return;
     const date = new Date().toISOString().slice(0, 10);
     const compose = (body: string): string =>
@@ -1333,16 +1325,11 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
         body,
       });
     const appended = (existing: string): string => (existing.trim() ? `${existing.trimEnd()}\n${lines}` : lines);
-    // Live per-session append-log (authoritative for this session).
-    if (sid) {
-      try {
-        const existing = readSessionBody(state.cast, 'timeline', sid) ?? '';
-        atomicWriteFile(sessionFile(state.cast, 'timeline', sid), compose(appended(existing)));
-      } catch {
-        /* live append best-effort */
-      }
-    }
-    // Carry-over append-log (seed for future sessions).
+    // Carry-over append-log (cross-session seed for future sessions). The
+    // within-session / resume / fork store is the SESSION BRANCH (the
+    // `roleplay-timeline` audit entry stamps the cumulative timeline every
+    // roll - see captureTimeline), so the redundant `sessions/<sid>.md` live
+    // tier is retired; this only refreshes the per-cast carry-over.
     try {
       const existing = readEntryBody(state.cast, { id: 'auto', kind: 'timeline', name: '', description: '' }) ?? '';
       atomicWriteFile(fileFor(state.cast, 'timeline', 'auto'), compose(appended(existing)));
@@ -1375,6 +1362,10 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
       parsed: 0,
       wrote: 0,
       skip: '' as string,
+      // Cumulative active-branch timeline text, so a resume/fork can
+      // rehydrate the timeline from the session log (branch-primary store)
+      // instead of the branch-blind carry-over. Empty on skip paths.
+      timeline: '' as string,
     };
     const emit = (): void => {
       try {
@@ -1418,8 +1409,12 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
         emit();
         return;
       }
-      appendTimelineBeats(sid, formatBeatLines(beats));
+      appendTimelineBeats(formatBeatLines(beats));
       audit.wrote = beats.length;
+      // Snapshot the now-current cumulative timeline into the audit entry so
+      // it doubles as the branch-primary timeline store (see
+      // hydrateTimelineFromBranch).
+      audit.timeline = timelineText;
       emit();
     } catch {
       audit.skip = 'error';
@@ -1519,6 +1514,67 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
   };
 
   if (contextWindowEnabled || depthInjectEnabled || repetitionEnabled || eventsEnabled) {
+    // Recover a running recap from the SESSION BRANCH (custom recap-audit
+    // entries), which travels with pi's session tree and carries the exact
+    // coverage boundary. This is the authoritative resume source when the
+    // file store has no record for this session - e.g. a session first managed
+    // by the retired `rp-context-window` experiment (entries named
+    // `rp-context-recap`), or one whose `summary/` files were lost. Without it,
+    // resuming a long pre-file-store session cold-starts at recapCutoff 0 and
+    // the drop boundary never engages (observed: a 1674-message scene overflowed
+    // the model window). Scans newest-first for the last applied recap.
+    const hydrateRecapFromBranch = (
+      c: { sessionManager?: unknown },
+      natural: number,
+    ): { recap: string; coveredTo: number } | null => {
+      let entries: Record<string, unknown>[] | undefined;
+      try {
+        entries = (c.sessionManager as { getBranch?: () => Record<string, unknown>[] } | undefined)?.getBranch?.();
+      } catch {
+        entries = undefined;
+      }
+      if (!Array.isArray(entries)) return null;
+      for (let i = entries.length - 1; i >= 0; i--) {
+        const e = entries[i];
+        if (e?.type !== 'custom') continue;
+        const ct = e.customType;
+        if (ct !== 'roleplay-context-recap' && ct !== 'rp-context-recap') continue;
+        const data = e.data as { recap?: unknown; coveredTo?: unknown; applied?: unknown } | undefined;
+        if (data?.applied === false) continue;
+        const text = typeof data?.recap === 'string' ? data.recap.trim() : '';
+        if (!text) continue;
+        const coveredTo = typeof data?.coveredTo === 'number' ? data.coveredTo : 0;
+        return { recap: text, coveredTo: Math.max(0, Math.min(coveredTo, natural)) };
+      }
+      return null;
+    };
+
+    // Recover this branch's cumulative timeline from the SESSION BRANCH.
+    // `captureTimeline` stamps the full cumulative timeline text into each
+    // `roleplay-timeline` audit entry, and `getBranch()` only returns entries
+    // on the active root-to-leaf path, so a resume/fork rehydrates the
+    // timeline that belongs to ITS path - not a sibling branch's or the
+    // branch-blind carry-over. Scans newest-first for the latest non-empty
+    // timeline snapshot. Mirrors `hydrateRecapFromBranch`.
+    const hydrateTimelineFromBranch = (c: { sessionManager?: unknown }): string | null => {
+      let entries: Record<string, unknown>[] | undefined;
+      try {
+        entries = (c.sessionManager as { getBranch?: () => Record<string, unknown>[] } | undefined)?.getBranch?.();
+      } catch {
+        entries = undefined;
+      }
+      if (!Array.isArray(entries)) return null;
+      for (let i = entries.length - 1; i >= 0; i--) {
+        const e = entries[i];
+        if (e?.type !== 'custom') continue;
+        if (e.customType !== 'roleplay-timeline') continue;
+        const data = e.data as { timeline?: unknown } | undefined;
+        const text = typeof data?.timeline === 'string' ? data.timeline.trim() : '';
+        if (text) return text;
+      }
+      return null;
+    };
+
     pi.on('context', async (event, ctx) => {
       if (activeCast() === null) return undefined;
       // Capture the live scene so the `/roleplay event` command (which runs
@@ -1556,21 +1612,37 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
           recapHydrated = true;
           if (recapMode) {
             const sid = currentSessionId(ctx);
-            // 1. Resume: this session already has a LIVE record -> hydrate from
-            //    it (authoritative), no reseed.
-            const live = sid ? readSessionBody(state.cast, 'summary', sid) : null;
-            if (live?.trim()) {
-              recapText = live.trim();
-              recapCutoff = natural;
-              committedCutoff = natural;
-              // Resume the timeline from this session's live log too.
-              const liveTimeline = sid ? readSessionBody(state.cast, 'timeline', sid) : null;
-              if (liveTimeline?.trim()) timelineText = liveTimeline.trim();
+            // 1. PRIMARY: recover this branch's recap from the SESSION LOG.
+            //    Every roll appends a `roleplay-context-recap` custom entry
+            //    carrying the recap + exact coverage boundary, and
+            //    `getBranch()` only returns entries on the active root-to-leaf
+            //    path. So this is fork-correct by construction: an edited /
+            //    regenerated / forked branch continues ITS own recap, never a
+            //    stale sibling's, and it carries the exact `coveredTo` instead
+            //    of guessing. A resume (branch continuity) -> NO fact reseed.
+            const branchRecap = hydrateRecapFromBranch(ctx, natural);
+            if (branchRecap) {
+              recapText = branchRecap.recap;
+              recapCutoff = branchRecap.coveredTo;
+              committedCutoff = branchRecap.coveredTo;
+              // Timeline: prefer this branch's cumulative timeline (same
+              // active-path guarantee); fall back to the per-cast carry-over
+              // log when the branch carries no timeline entry.
+              const branchTimeline = hydrateTimelineFromBranch(ctx);
+              const priorTimeline =
+                branchTimeline ??
+                readEntryBody(state.cast, { id: 'auto', kind: 'timeline', name: '', description: '' }) ??
+                '';
+              if (priorTimeline.trim()) timelineText = priorTimeline.trim();
             } else {
-              // 2. New session: silently seed from the per-cast carry-over so a
-              //    fresh session inherits continuity. 3. Cold start: no
-              //    carry-over -> recapText stays ''. Either way this load is a
-              //    non-resume, so the one-shot facts seed (B2) may run.
+              // 2. New tree (genuinely fresh session, or a fork with no recap
+              //    on its path yet): `getBranch()` has nothing to hydrate, so
+              //    seed continuity from the per-cast carry-over. `recapCutoff =
+              //    natural` is an accepted approximation here (the seed is
+              //    narrative continuity; the floor + first roll re-anchor the
+              //    coverage boundary). 3. Cold start: no carry-over -> recapText
+              //    stays ''. Either way this load is a non-resume, so the
+              //    one-shot facts seed (B2) may run.
               const priorEntry = state.entries.find((e) => e.kind === 'summary' && e.id === 'auto');
               const prior = priorEntry ? (readEntryBody(state.cast, priorEntry) ?? '') : '';
               if (prior.trim()) {
@@ -1587,11 +1659,6 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
               // pinned specifics alongside the recap seed - not just the
               // narrative. Gated by capture (the whole facts machinery is).
               if (sid && captureEnabled()) seedCarryOverFacts(sid);
-            }
-            // A6: keep the per-kind sessions/ dirs bounded.
-            if (sid) {
-              pruneSessionFiles(state.cast, 'summary', 10);
-              pruneSessionFiles(state.cast, 'timeline', 10);
             }
           }
         }
@@ -1670,10 +1737,36 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
           committedCutoff = natural;
         }
 
+        // Hard safety floor: guarantee the reduced prompt fits the session
+        // model's context window even when the recap drop boundary cannot
+        // advance - an empty/stale recap after a cold resume, or a dead recap
+        // endpoint. Without it, recapCutoff can sit at 0 and condense-only
+        // cannot bound a thousand-message scene, so the request overflows the
+        // server window (observed: a 1674-message session resumed with an empty
+        // recap hit 130k > 57k and the model rejected it). We drop oldest whole
+        // user-turns beyond the token budget; when the floor outruns the recap
+        // coverage this drops uncovered scene memory, but a bounded prompt that
+        // still runs beats a hard 400. In healthy operation floorCutoff is 0
+        // (everything fits) or <= recapCutoff (the recap already dropped enough),
+        // so dropCutoff == recapCutoff and there is no behavior change.
+        let floorCutoff = 0;
+        const windowTokens = (ctx.model as { contextWindow?: number } | undefined)?.contextWindow;
+        if (typeof windowTokens === 'number' && windowTokens > 0) {
+          const cpt = charsPerToken > 0 ? charsPerToken : DEFAULT_CHARS_PER_TOKEN;
+          const sysChars = (typeof ctx.getSystemPrompt === 'function' ? ctx.getSystemPrompt() : '')?.length ?? 0;
+          const injectChars = recapText.length + timelineText.length;
+          // Reserve for the model's own output plus injection/formatting slack.
+          const RESERVE_TOKENS = 3072;
+          const convBudget = windowTokens - Math.round((sysChars + injectChars) / cpt) - RESERVE_TOKENS;
+          const fitTurns = convBudget > 0 ? deriveKeepTurns(messages, convBudget, cpt, 1, 100000) : 1;
+          floorCutoff = computeCutoff(messages, fitTurns);
+        }
+        const dropCutoff = Math.max(recapCutoff, floorCutoff);
+
         // Apply the window: layered drop+condense+inject (recap mode) or the
         // condense-only floor (recap off / summarize disabled).
         if (recapMode) {
-          const layered = applyLayeredWindow(messages, recapCutoff, committedCutoff, opts);
+          const layered = applyLayeredWindow(messages, dropCutoff, Math.max(dropCutoff, committedCutoff), opts);
           if (layered.dropped > 0 || layered.condensed > 0) {
             messages = layered.messages;
             changed = true;
@@ -1690,6 +1783,13 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
               messages = injectTimeline(messages, block);
               changed = true;
             }
+          }
+        } else if (floorCutoff > 0) {
+          // Non-recap mode but over the window budget: hard-drop oldest turns.
+          const layered = applyLayeredWindow(messages, floorCutoff, committedCutoff, opts);
+          if (layered.dropped > 0 || layered.condensed > 0) {
+            messages = layered.messages;
+            changed = true;
           }
         } else {
           const floor = applyContextWindowAt(messages, committedCutoff, opts);
@@ -1714,6 +1814,8 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
               natural,
               committedCutoff,
               recapCutoff,
+              floorCutoff,
+              dropCutoff,
               recapMode,
               recapChars: recapText.length,
               charsPerToken: Math.round(cpt * 100) / 100,
@@ -2426,18 +2528,14 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
           .toISOString()
           .replace(/[-:]/g, '')
           .replace(/\.\d+Z$/, 'Z');
-        const sid = currentSessionId(ctx);
         // Archive the per-cast carry-overs (recap + timeline + captured facts).
         const archivedSummary = archiveCarryOver(state.cast, 'summary', ts);
         const archivedTimeline = archiveCarryOver(state.cast, 'timeline', ts);
         const archivedFacts = archiveFacts(state.cast, ts);
-        // Drop THIS session's live records too, so the next hydrate can't
-        // resume the scene we just archived (it would otherwise take the
-        // resume branch off the still-present sessions/<sid>.md).
-        if (sid) {
-          removeFileIfExists(sessionFile(state.cast, 'summary', sid));
-          removeFileIfExists(sessionFile(state.cast, 'timeline', sid));
-        }
+        // No per-session live records to drop anymore: the within-session
+        // store is the branch, and the NEW scene runs on a fresh tree whose
+        // `getBranch()` carries no recap - so branch hydration finds nothing
+        // and the cleared carry-over below decides continuity (cold start).
         // Clear in-memory scene state; the next context turn cold-starts.
         resetWindowState();
         ctx.ui.notify(

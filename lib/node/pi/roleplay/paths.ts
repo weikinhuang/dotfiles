@@ -58,18 +58,18 @@ export function fileFor(cast: string, kind: RoleplayKind, slug: string, root: st
 }
 
 // ──────────────────────────────────────────────────────────────────────
-// Two-tier session / carry-over layout (recap + timeline)
+// Per-cast carry-over + newscene archive layout (recap + timeline)
 //
-// A kind dir gains two subdirectories used by the session-isolated live
-// layer and the newscene archive:
+// The within-session / resume / fork store is pi's SESSION BRANCH (custom
+// recap + timeline audit entries travel with the tree and carry the exact
+// coverage boundary), so the redundant `sessions/<sid>.md` live tier is
+// retired. A kind dir keeps two file locations:
 //
-//   <cast>/<kind>/auto.md            carry-over (scanned entry; seed for new sessions)
-//   <cast>/<kind>/sessions/<sid>.md  LIVE per-session record (authoritative while running)
+//   <cast>/<kind>/auto.md            carry-over (scanned entry; cross-session seed for new trees)
 //   <cast>/<kind>/archive/<ts>.md    newscene-archived prior carry-overs
 //
 // `scanCast` only reads top-level `*.md` in each kind dir, so the
-// `sessions/` and `archive/` subdir files are already skipped - no
-// scanCast change is needed for them.
+// `archive/` subdir files are already skipped - no scanCast change needed.
 // ──────────────────────────────────────────────────────────────────────
 
 export function removeFileIfExists(path: string): boolean {
@@ -86,21 +86,6 @@ export function readTextFile(path: string): string | null {
   }
 }
 
-/** Directory holding a kind's session-isolated live records. */
-export function sessionsDir(cast: string, kind: RoleplayKind, root: string = roleplayRoot()): string {
-  return join(kindDir(cast, kind, root), 'sessions');
-}
-
-/** Path to the LIVE per-session record for one kind (`<kind>/sessions/<sessionId>.md`). */
-export function sessionFile(
-  cast: string,
-  kind: RoleplayKind,
-  sessionId: string,
-  root: string = roleplayRoot(),
-): string {
-  return join(sessionsDir(cast, kind, root), `${sessionId}.md`);
-}
-
 /** Directory holding a kind's newscene-archived carry-overs. */
 export function archiveDir(cast: string, kind: RoleplayKind, root: string = roleplayRoot()): string {
   return join(kindDir(cast, kind, root), 'archive');
@@ -109,63 +94,6 @@ export function archiveDir(cast: string, kind: RoleplayKind, root: string = role
 /** Path to a newscene-archived carry-over for one kind (`<kind>/archive/<ts>.md`). */
 export function archiveFile(cast: string, kind: RoleplayKind, ts: string, root: string = roleplayRoot()): string {
   return join(archiveDir(cast, kind, root), `${ts}.md`);
-}
-
-/**
- * Read the body of a kind's LIVE per-session record, or `null` when it is
- * absent / unreadable / malformed. Strips frontmatter like
- * {@link readEntryBody}, so a resume hydrates the same shape the
- * carry-over produces.
- */
-export function readSessionBody(
-  cast: string,
-  kind: RoleplayKind,
-  sessionId: string,
-  root: string = roleplayRoot(),
-): string | null {
-  const path = sessionFile(cast, kind, sessionId, root);
-  if (!existsSync(path)) return null;
-  const raw = readTextFile(path);
-  if (raw == null) return null;
-  const parsed = parseFrontmatter(raw);
-  return parsed ? parsed.body : raw;
-}
-
-/**
- * Keep only the newest `keep` `sessions/*.md` files for one kind, deleting
- * the rest (oldest first, by mtime). Best-effort: any per-file failure is
- * swallowed so pruning never blocks a roll. Returns the number deleted.
- */
-export function pruneSessionFiles(cast: string, kind: RoleplayKind, keep = 10, root: string = roleplayRoot()): number {
-  const dir = sessionsDir(cast, kind, root);
-  let names: string[];
-  try {
-    names = readdirSync(dir);
-  } catch {
-    return 0;
-  }
-  const files = names
-    .filter((n) => n.endsWith('.md'))
-    .map((n) => {
-      const full = join(dir, n);
-      try {
-        return { full, mtime: statSync(full).mtimeMs };
-      } catch {
-        return null;
-      }
-    })
-    .filter((f): f is { full: string; mtime: number } => f !== null)
-    .sort((a, b) => b.mtime - a.mtime);
-  let removed = 0;
-  for (const f of files.slice(Math.max(0, keep))) {
-    try {
-      unlinkSync(f.full);
-      removed += 1;
-    } catch {
-      /* best-effort */
-    }
-  }
-  return removed;
 }
 
 /**
