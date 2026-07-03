@@ -17,7 +17,7 @@
  * a sibling and is never touched by this extension.
  */
 
-import { existsSync, readdirSync, readFileSync, statSync, unlinkSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, renameSync, statSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { atomicWriteFile, ensureDirSync } from '../atomic-write.ts';
@@ -57,6 +57,135 @@ export function fileFor(cast: string, kind: RoleplayKind, slug: string, root: st
   return join(kindDir(cast, kind, root), `${slug}.md`);
 }
 
+// ──────────────────────────────────────────────────────────────────────
+// Two-tier session / carry-over layout (recap + timeline)
+//
+// A kind dir gains two subdirectories used by the session-isolated live
+// layer and the newscene archive:
+//
+//   <cast>/<kind>/auto.md            carry-over (scanned entry; seed for new sessions)
+//   <cast>/<kind>/sessions/<sid>.md  LIVE per-session record (authoritative while running)
+//   <cast>/<kind>/archive/<ts>.md    newscene-archived prior carry-overs
+//
+// `scanCast` only reads top-level `*.md` in each kind dir, so the
+// `sessions/` and `archive/` subdir files are already skipped - no
+// scanCast change is needed for them.
+// ──────────────────────────────────────────────────────────────────────
+
+export function removeFileIfExists(path: string): boolean {
+  if (!existsSync(path)) return false;
+  unlinkSync(path);
+  return true;
+}
+
+export function readTextFile(path: string): string | null {
+  try {
+    return readFileSync(path, 'utf8');
+  } catch {
+    return null;
+  }
+}
+
+/** Directory holding a kind's session-isolated live records. */
+export function sessionsDir(cast: string, kind: RoleplayKind, root: string = roleplayRoot()): string {
+  return join(kindDir(cast, kind, root), 'sessions');
+}
+
+/** Path to the LIVE per-session record for one kind (`<kind>/sessions/<sessionId>.md`). */
+export function sessionFile(
+  cast: string,
+  kind: RoleplayKind,
+  sessionId: string,
+  root: string = roleplayRoot(),
+): string {
+  return join(sessionsDir(cast, kind, root), `${sessionId}.md`);
+}
+
+/** Directory holding a kind's newscene-archived carry-overs. */
+export function archiveDir(cast: string, kind: RoleplayKind, root: string = roleplayRoot()): string {
+  return join(kindDir(cast, kind, root), 'archive');
+}
+
+/** Path to a newscene-archived carry-over for one kind (`<kind>/archive/<ts>.md`). */
+export function archiveFile(cast: string, kind: RoleplayKind, ts: string, root: string = roleplayRoot()): string {
+  return join(archiveDir(cast, kind, root), `${ts}.md`);
+}
+
+/**
+ * Read the body of a kind's LIVE per-session record, or `null` when it is
+ * absent / unreadable / malformed. Strips frontmatter like
+ * {@link readEntryBody}, so a resume hydrates the same shape the
+ * carry-over produces.
+ */
+export function readSessionBody(
+  cast: string,
+  kind: RoleplayKind,
+  sessionId: string,
+  root: string = roleplayRoot(),
+): string | null {
+  const path = sessionFile(cast, kind, sessionId, root);
+  if (!existsSync(path)) return null;
+  const raw = readTextFile(path);
+  if (raw == null) return null;
+  const parsed = parseFrontmatter(raw);
+  return parsed ? parsed.body : raw;
+}
+
+/**
+ * Keep only the newest `keep` `sessions/*.md` files for one kind, deleting
+ * the rest (oldest first, by mtime). Best-effort: any per-file failure is
+ * swallowed so pruning never blocks a roll. Returns the number deleted.
+ */
+export function pruneSessionFiles(cast: string, kind: RoleplayKind, keep = 10, root: string = roleplayRoot()): number {
+  const dir = sessionsDir(cast, kind, root);
+  let names: string[];
+  try {
+    names = readdirSync(dir);
+  } catch {
+    return 0;
+  }
+  const files = names
+    .filter((n) => n.endsWith('.md'))
+    .map((n) => {
+      const full = join(dir, n);
+      try {
+        return { full, mtime: statSync(full).mtimeMs };
+      } catch {
+        return null;
+      }
+    })
+    .filter((f): f is { full: string; mtime: number } => f !== null)
+    .sort((a, b) => b.mtime - a.mtime);
+  let removed = 0;
+  for (const f of files.slice(Math.max(0, keep))) {
+    try {
+      unlinkSync(f.full);
+      removed += 1;
+    } catch {
+      /* best-effort */
+    }
+  }
+  return removed;
+}
+
+/**
+ * Move a kind's carry-over `auto.md` to `<kind>/archive/<ts>.md` (newscene
+ * boundary). Returns `true` when a carry-over existed and was moved.
+ * Best-effort: a failure returns `false` without throwing.
+ */
+export function archiveCarryOver(cast: string, kind: RoleplayKind, ts: string, root: string = roleplayRoot()): boolean {
+  const src = fileFor(cast, kind, 'auto', root);
+  if (!existsSync(src)) return false;
+  try {
+    const dest = archiveFile(cast, kind, ts, root);
+    ensureDirSync(archiveDir(cast, kind, root));
+    renameSync(src, dest);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function indexFileFor(cast: string, root: string = roleplayRoot()): string {
   return join(castDir(cast, root), 'INDEX.md');
 }
@@ -71,18 +200,97 @@ export function portraitPath(cast: string, slug: string, root: string = roleplay
   return join(castDir(cast, root), 'portraits', `${slug}.png`);
 }
 
-export function removeFileIfExists(path: string): boolean {
-  if (!existsSync(path)) return false;
-  unlinkSync(path);
-  return true;
+// ──────────────────────────────────────────────────────────────────────
+// Captured-facts carry-over sidecar (`<cast>/facts/<slug>.md`)
+//
+// NOT a `RoleplayKind`: `scanCast` never touches `facts/`, and it is never
+// injected via `formatRoleplayBlock`. The loader reads this dir directly on
+// a new session and seeds the facts into the coding-`memory` note tier (the
+// single existing injection path). Files reuse `serializeEntry` framing with
+// a `kind: summary` marker purely so the shared frontmatter parser round-
+// trips them; the marker is inert because the dir is unscanned.
+// ──────────────────────────────────────────────────────────────────────
+
+/** Directory holding a cast's carry-over fact sidecars. */
+export function factsDir(cast: string, root: string = roleplayRoot()): string {
+  return join(castDir(cast, root), 'facts');
 }
 
-export function readTextFile(path: string): string | null {
+/** Path to one carry-over fact sidecar (`facts/<slug>.md`). */
+export function factFile(cast: string, slug: string, root: string = roleplayRoot()): string {
+  return join(factsDir(cast, root), `${slug}.md`);
+}
+
+/** Directory a newscene run archives the current fact sidecars into. */
+export function factsArchiveDir(cast: string, ts: string, root: string = roleplayRoot()): string {
+  return join(factsDir(cast, root), 'archive', ts);
+}
+
+/** One carry-over fact: header-carried name + description (no body needed). */
+export interface FactSidecar {
+  slug: string;
+  name: string;
+  description: string;
+}
+
+/**
+ * Read every carry-over fact sidecar for a cast (`facts/*.md`, top-level
+ * only - the `archive/` subdir is skipped). Malformed files are dropped
+ * silently. Sorted by slug for determinism.
+ */
+export function listFactSidecars(cast: string, root: string = roleplayRoot()): FactSidecar[] {
+  const dir = factsDir(cast, root);
+  let names: string[];
   try {
-    return readFileSync(path, 'utf8');
+    names = readdirSync(dir);
   } catch {
-    return null;
+    return [];
   }
+  const out: FactSidecar[] = [];
+  for (const name of names) {
+    if (!name.endsWith('.md')) continue;
+    const full = join(dir, name);
+    try {
+      if (!statSync(full).isFile()) continue;
+    } catch {
+      continue;
+    }
+    const raw = readTextFile(full);
+    if (raw == null) continue;
+    const parsed = parseFrontmatter(raw);
+    if (!parsed) continue;
+    out.push({ slug: name.slice(0, -3), name: parsed.frontmatter.name, description: parsed.frontmatter.description });
+  }
+  out.sort((a, b) => a.slug.localeCompare(b.slug));
+  return out;
+}
+
+/**
+ * Archive all carry-over fact sidecars into `facts/archive/<ts>/` and clear
+ * the live sidecar set (newscene boundary). Best-effort per file; returns
+ * the number moved.
+ */
+export function archiveFacts(cast: string, ts: string, root: string = roleplayRoot()): number {
+  const dir = factsDir(cast, root);
+  let names: string[];
+  try {
+    names = readdirSync(dir).filter((n) => n.endsWith('.md'));
+  } catch {
+    return 0;
+  }
+  if (names.length === 0) return 0;
+  const dest = factsArchiveDir(cast, ts, root);
+  ensureDirSync(dest);
+  let moved = 0;
+  for (const name of names) {
+    try {
+      renameSync(join(dir, name), join(dest, name));
+      moved += 1;
+    } catch {
+      /* best-effort */
+    }
+  }
+  return moved;
 }
 
 export function readEntryBody(cast: string, entry: RoleplayEntry, root: string = roleplayRoot()): string | null {

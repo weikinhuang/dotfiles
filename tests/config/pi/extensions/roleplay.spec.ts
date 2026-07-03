@@ -24,6 +24,7 @@ const ROLEPLAY_SUBVERBS: SubverbSpec = {
   cast: { description: 'Switch / set the active cast', args: () => [{ label: 'exusiai' }, { label: 'texas' }] },
   import: { description: 'Import a SillyTavern card (.json/.png) into the active cast' },
   event: { description: 'Queue a one-shot scene complication (LLM-generated, or from the deck)' },
+  newscene: { description: 'Start a fresh scene: archive + clear the recap / timeline / fact carry-overs' },
   dir: { description: 'Print the roleplay store dir' },
   rescan: { description: 'Rescan the active cast from disk' },
   casts: { description: 'List every cast on disk' },
@@ -32,7 +33,7 @@ const ROLEPLAY_SUBVERBS: SubverbSpec = {
 test('roleplay command lists every subverb (including event) at level 1', () => {
   const all = completeSubverbs('', ROLEPLAY_SUBVERBS);
   const labels = (all ?? []).map((c) => c.label);
-  expect(labels).toEqual(['list', 'cast', 'import', 'event', 'dir', 'rescan', 'casts']);
+  expect(labels).toEqual(['list', 'cast', 'import', 'event', 'newscene', 'dir', 'rescan', 'casts']);
 });
 
 test('roleplay command completes the event subverb from a prefix', () => {
@@ -53,4 +54,17 @@ test('event is a terminal subverb - the freeform hint takes no completions', () 
 
 test('ROLEPLAY_USAGE documents the event subverb', () => {
   expect(ROLEPLAY_USAGE).toContain('event [hint]');
+});
+
+test('newscene is a terminal subverb documented in USAGE', () => {
+  const matched = completeSubverbs('newsc', ROLEPLAY_SUBVERBS);
+  expect(matched).toEqual([
+    {
+      value: 'newscene',
+      label: 'newscene',
+      description: 'Start a fresh scene: archive + clear the recap / timeline / fact carry-overs',
+    },
+  ]);
+  expect(completeSubverbs('newscene ', ROLEPLAY_SUBVERBS)).toBeNull();
+  expect(ROLEPLAY_USAGE).toContain('newscene');
 });

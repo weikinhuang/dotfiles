@@ -11,8 +11,10 @@ import {
   deriveMaxSpanChars,
   estimateChars,
   injectRecap,
+  injectTimeline,
   planRecap,
   RECAP_PREFIX,
+  TIMELINE_PREFIX,
   truncateText,
   updateCharsPerToken,
   type WindowOptions,
@@ -114,7 +116,7 @@ describe('applyContextWindowAt', () => {
     // verbatim tail unchanged
     expect(out.messages[cutoff]).toBe(msgs[cutoff]);
     // condensed head shortened
-    expect(String((out.messages[0] as Msg).content).length).toBeLessThan(String((msgs[0]).content).length);
+    expect(String((out.messages[0] as Msg).content).length).toBeLessThan(String(msgs[0].content).length);
   });
 });
 
@@ -181,6 +183,29 @@ describe('injectRecap', () => {
   it('returns the same array when recap is empty', () => {
     const msgs: Msg[] = [{ role: 'user', content: 'hi' }];
     expect(injectRecap(msgs, '   ')).toBe(msgs);
+  });
+});
+
+describe('injectTimeline', () => {
+  it('prefixes the first user message with the timeline block', () => {
+    const msgs: Msg[] = [{ role: 'user', content: 'hello' }];
+    const out = injectTimeline(msgs, '- [Thursday 6pm] Mira visits');
+    expect(String((out[0] as Msg).content)).toContain(TIMELINE_PREFIX);
+    expect(String((out[0] as Msg).content)).toContain('Mira visits');
+    expect(String((out[0] as Msg).content)).toContain('hello');
+  });
+
+  it('stacks separately from the recap prefix', () => {
+    const msgs: Msg[] = [{ role: 'user', content: 'x' }];
+    const out = injectTimeline(injectRecap(msgs, 'recap here'), '- a beat');
+    const content = String((out[0] as Msg).content);
+    expect(content).toContain(TIMELINE_PREFIX);
+    expect(content).toContain(RECAP_PREFIX);
+  });
+
+  it('returns the same array when the block is empty', () => {
+    const msgs: Msg[] = [{ role: 'user', content: 'hi' }];
+    expect(injectTimeline(msgs, '   ')).toBe(msgs);
   });
 });
 

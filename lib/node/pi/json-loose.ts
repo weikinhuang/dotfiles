@@ -57,6 +57,39 @@ export function extractBalancedObject(text: string): string | null {
 }
 
 /**
+ * Extract the first balanced `[ … ]` substring, or `null` when none. The
+ * array sibling of {@link extractBalancedObject}: bracket-depth aware and
+ * string-aware (brackets and escapes inside `"…"` string literals do not
+ * affect depth), so nested arrays and brackets embedded in string values
+ * stay balanced. Model "return a JSON array" responses routinely arrive
+ * fenced or wrapped in prose, so callers that expect a top-level array
+ * (valid JSON) recover it with this.
+ */
+export function extractBalancedArray(text: string): string | null {
+  const start = text.indexOf('[');
+  if (start === -1) return null;
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let i = start; i < text.length; i++) {
+    const ch = text[i];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (ch === '\\') escaped = true;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') inString = true;
+    else if (ch === '[') depth++;
+    else if (ch === ']') {
+      depth--;
+      if (depth === 0) return text.slice(start, i + 1);
+    }
+  }
+  return null;
+}
+
+/**
  * Parse `text` as JSON, falling back to the first balanced object
  * embedded in surrounding prose. Returns `undefined` (never throws) when
  * nothing parses - distinct from a literal `null` JSON value, which

@@ -228,18 +228,13 @@ export function acceptRecap(prior: string, candidate: string | null, floorFracti
 
 export const RECAP_PREFIX = '[Scene memory \u2014 established facts from earlier in this conversation, for continuity:';
 
-/**
- * Inject the cached recap as a prefix on the first user message (keeps role
- * alternation intact). Pure: returns a new array, or the same array if there
- * is no recap text or no user message to anchor on.
- */
-export function injectRecap(messages: readonly Msg[], recapText: string): readonly Msg[] {
-  const recap = recapText.trim();
-  if (!recap) return messages;
+export const TIMELINE_PREFIX = '[Recent timeline \u2014 dated story beats in chronological order, for continuity:';
+
+/** Prepend a synthetic block to the first user message (keeps role alternation intact). */
+function prependToFirstUser(messages: readonly Msg[], block: string): readonly Msg[] {
   let anchor = messages.findIndex((m) => m.role === 'user');
   if (anchor < 0) anchor = 0;
   if (anchor >= messages.length) return messages;
-  const block = `${RECAP_PREFIX}\n${recap}\n]\n\n`;
   const target = messages[anchor];
   const content = target.content;
   let newContent: unknown;
@@ -261,6 +256,29 @@ export function injectRecap(messages: readonly Msg[], recapText: string): readon
     newContent = block;
   }
   return messages.map((m, i) => (i === anchor ? { ...m, content: newContent } : m));
+}
+
+/**
+ * Inject the cached recap as a prefix on the first user message (keeps role
+ * alternation intact). Pure: returns a new array, or the same array if there
+ * is no recap text or no user message to anchor on.
+ */
+export function injectRecap(messages: readonly Msg[], recapText: string): readonly Msg[] {
+  const recap = recapText.trim();
+  if (!recap) return messages;
+  return prependToFirstUser(messages, `${RECAP_PREFIX}\n${recap}\n]\n\n`);
+}
+
+/**
+ * Inject a pre-rendered timeline block (already trimmed / capped by the
+ * caller via `renderTimelineBlock`) as a SEPARATE prefix on the first user
+ * message, so it never competes with the recap or the hand-authored
+ * `formatRoleplayBlock` for their char budgets. Pure; no-op on empty input.
+ */
+export function injectTimeline(messages: readonly Msg[], block: string): readonly Msg[] {
+  const t = block.trim();
+  if (!t) return messages;
+  return prependToFirstUser(messages, `${TIMELINE_PREFIX}\n${t}\n]\n\n`);
 }
 
 /**

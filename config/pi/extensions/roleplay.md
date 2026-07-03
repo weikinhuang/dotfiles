@@ -42,9 +42,24 @@ ${PI_ROLEPLAY_ROOT:-~/.pi/agent/roleplay}/
     ├── character/<slug>.md
     ├── lore/<slug>.md
     ├── relationship/<slug>.md
-    ├── summary/<slug>.md
-    └── timeline/<slug>.md
+    ├── summary/
+    │   ├── auto.md              ← carry-over recap (scanned entry; seed for new sessions)
+    │   ├── sessions/<sid>.md    ← LIVE recap for one session (authoritative while it runs)
+    │   └── archive/<ts>.md      ← `/roleplay newscene`-archived prior carry-overs
+    ├── timeline/
+    │   ├── auto.md              ← carry-over timeline (append-log of dated beats)
+    │   ├── sessions/<sid>.md    ← LIVE per-session append-log of beats
+    │   └── archive/<ts>.md
+    └── facts/                   ← captured-facts carry-over sidecar (NOT a record kind; unscanned)
+        ├── <slug>.md            ← one carry-over fact each (frontmatter name + description)
+        └── archive/<ts>/        ← newscene-archived facts
 ```
+
+The `summary` and `timeline` kinds are **two-tier** (see [Two-tier scene memory](#two-tier-scene-memory) below): the
+top-level `auto.md` is the scanned per-cast **carry-over** (the seed a new session inherits), while the `sessions/` and
+`archive/` subdirectories hold the session-isolated live layer and newscene archives. `scanCast` reads only top-level
+`*.md` per kind, so those subdirs - and the whole `facts/` sidecar - are skipped by the scan and never appear in
+`formatRoleplayBlock`.
 
 Each record is a markdown file with strict three-key frontmatter (`name`, `description`, `kind`) plus a markdown body;
 `lore` records carry extra keyword/injection fields and `relationship` records carry affinity/trust fields (see below).
@@ -274,9 +289,11 @@ folded cumulatively into one rolling `summary/auto` record.
   stays condensed-but-present (the floor), so nothing is lost; the drop boundary just advances a roll or two later. An
   in-flight async recap is generation-guarded (`recapGen`) + aborted on reset / branch switch so a stale result can't
   clobber the current branch's recap.
-- **Persistence + hydrate.** The recap is a durable `summary/auto` file, rescanned on load; on resume the extension
-  hydrates the in-memory recap from it (continues the memory instead of rebuilding it). Every recap call writes an
-  auditable `roleplay-context-recap` log entry (custom entry, never sent to the LLM), on both the sync and async paths.
+- **Persistence + hydrate (two-tier).** See [Two-tier scene memory](#two-tier-scene-memory) below: each roll writes the
+  session-isolated live record (`summary/sessions/<sid>.md`) **and** refreshes the per-cast carry-over
+  (`summary/auto.md`). On (re)load a **resume** hydrates from the live record; a fresh session **seeds** from the
+  carry-over; a cold start begins empty. Every recap call writes an auditable `roleplay-context-recap` log entry (custom
+  entry, never sent to the LLM), on both the sync and async paths.
 
 ### Legacy compaction-time side-write
 
@@ -284,6 +301,33 @@ When pi _does_ compact (manual `/compact` or genuine overflow - never cancelled)
 still folds the evicted span into `summary/auto` (same summarizer, `acceptRecap`-guarded) so continuity survives the
 safety-net paths. Set `PI_ROLEPLAY_DISABLE_SUMMARIZE=1` to turn the whole recap path off even when a model is
 configured; then only the condense-only floor (if the window is on) applies.
+
+### Two-tier scene memory
+
+The recap, the captured facts, and the timeline all use the same **two-tier** model so concurrent same-cast sessions and
+unrelated scenes don't corrupt each other, while cross-session continuity is preserved:
+
+- **Live layer (session-isolated, authoritative).** Each roll writes `summary/sessions/<sid>.md` and
+  `timeline/sessions/<sid>.md`, keyed by pi's session id (`ctx.sessionManager.getSessionId()`, snapshotted at roll-plan
+  time - never read inside the async `.then`). Captured facts' live layer is the coding-`memory` session (`note`) tier
+  (already session-keyed). Concurrent sessions never share a live file.
+- **Carry-over layer (per-cast seed).** Every roll also refreshes `summary/auto.md` (best-effort, last-writer-wins),
+  appends to `timeline/auto.md`, and mirrors each written fact to a `facts/<slug>.md` sidecar. These are the durable
+  per-cast seed a **future** session inherits.
+- **Hydrate precedence (once per load).** 1) if the session's live record exists -> **resume** from it, no reseed; 2)
+  else if the carry-over is non-empty -> **new session**, silently seed from it (recap + timeline + fact sidecars seeded
+  into this session's `memory` note tier); 3) else **cold start**. `sessions/` dirs are pruned to the newest 10 per kind
+  on hydrate.
+- **`/roleplay newscene`** is the opt-out: it archives the recap / timeline carry-overs to `<kind>/archive/<ts>.md` and
+  the fact sidecars to `facts/archive/<ts>/`, drops this session's live records, and clears in-memory scene state so the
+  next turn cold-starts.
+- **With no session id (`--no-session`)** the live layer is skipped and only the carry-over is written (degraded legacy
+  behavior).
+
+The carry-over `auto.md` write races between concurrent same-cast sessions (last roll wins the _seed_); this is accepted
+as cosmetic because the live recaps stay isolated. Helpers: [`paths.ts`](../../../lib/node/pi/roleplay/paths.ts)
+(`sessionFile` / `readSessionBody` / `pruneSessionFiles` / `archiveCarryOver` / `factFile` / `listFactSidecars` /
+`archiveFacts`).
 
 ### Fact taxonomy: durable facts vs narrative
 
@@ -293,6 +337,7 @@ Because the recap is thin and lossy by construction, durable facts must NOT live
 | ------------------------------------------- | ------------------------------------------------- | ----------------------------------------------- |
 | `memory` project / `roleplay` typed records | cross-scene, permanent                            | character + relationship **canon**              |
 | `memory` **session (`note`)** tier          | this scene (survives resume, dies on fresh scene) | facts **established this scene**                |
+| `facts/<slug>.md` carry-over sidecar        | per-cast, seeds new sessions (newscene-archived)  | pinned specifics carried across session bounds  |
 | recap (`summary/auto`)                      | rolling, lossy                                    | recent **narrative / mood / open threads** only |
 
 **Deterministic capture (default OFF, `PI_ROLEPLAY_CAPTURE=1`).** Because owning threshold compaction means `memory`'s
@@ -303,11 +348,31 @@ the prose recap) and returns a JSON array of self-contained `{name, description}
 (no reliance on the model firing a `memory save` tool) to `memory`'s session (`note`) tier. Header-carried: a small
 model won't `memory read` a body and the session tier injects only name + description, so the fact must be
 self-contained in the name (e.g. `"<character> is allergic to shellfish"`). De-dups against session notes on disk
-(fuzzy) + those written this process; degrades to a silent no-op under `--no-session` (no session id). **Known gap
-(validate before relying):** `memory.ts` injects from its cached index within a live session, so a fact captured
-mid-scene surfaces in the injected index only after `memory` rebuilds (next session / a `memory` tool call), not
-necessarily the same turn; cross-session resume picks it up on `memory`'s `session_start` rescan. Default-OFF pending a
-small-window smoke that validates extraction quality and this coherence question.
+(fuzzy) + those written this process; degrades to a silent no-op under `--no-session` (no session id). Each written fact
+is also mirrored to the per-cast `facts/<slug>.md` carry-over sidecar (deduped against existing sidecars); a fresh
+session seeds those sidecars back into its `memory` note tier on hydrate (see
+[Two-tier scene memory](#two-tier-scene-memory)), so a new session inherits the pinned specifics, not just the narrative
+recap. **Known gap (validate before relying):** `memory.ts` injects from its cached index within a live session, so a
+fact captured mid-scene surfaces in the injected index only after `memory` rebuilds (next session / a `memory` tool
+call), not necessarily the same turn; cross-session resume picks it up on `memory`'s `session_start` rescan. Default-OFF
+pending a small-window smoke that validates extraction quality and this coherence question.
+
+### Timeline: additive anti-drift beats (default OFF, `PI_ROLEPLAY_TIMELINE=1`)
+
+The timeline is the **anti-drift complement** to the recap. The recap is CONSOLIDATIVE
+(`recap_n = summarize(span_n, recap_{n-1})`) and therefore drifts and sheds specifics; the timeline is ADDITIVE
+(`timeline += extract(span_n)`) - dated beats are appended once and **never re-fed to a model**, so a beat's text is
+byte-stable for the life of the scene. The recap answers "where are we now"; the timeline answers "what happened, in
+order". On each roll (same span as the recap + capture, run **after** the recap resolves and **awaited** - it shares the
+recap endpoint, so it must not run concurrently) the
+[`roleplay-timeline-extractor`](../../../config/pi/agents/roleplay-timeline-extractor.md) subagent returns a JSON array
+of `{when?, summary}` beats ([`timeline.ts`](../../../lib/node/pi/roleplay/timeline.ts) parses tolerantly), which are
+**appended** (never rewritten) to the two-tier timeline logs (`timeline/sessions/<sid>.md` live + `timeline/auto.md`
+carry-over). A compact `## Recent timeline`-style block (most-recent beats, capped by `timelineMaxInjectChars`,
+default 1200) is injected as a **separate** prefix from the recap (via `injectTimeline`) so a long timeline can't evict
+the recap or the hand-authored `formatRoleplayBlock`. Each roll writes an auditable `roleplay-timeline` log entry
+(custom entry, never sent to the LLM). Append-only means concurrent same-cast sessions just interleave distinct lines
+with no clobber.
 
 ## Repetition / anti-slop nudge
 
@@ -371,6 +436,8 @@ may change only those fields). All actions operate on the **active cast**.
 - `/roleplay import <path.json|.png>` - import a SillyTavern character card into the active cast (see below).
 - `/roleplay event [hint]` - queue a one-shot scene complication for your next reply (LLM-generated, or drawn from the
   `events` deck).
+- `/roleplay newscene` - start a fresh scene: archive + clear the recap / timeline / captured-fact carry-overs so the
+  next turn cold-starts (opt-out of the silent carry-over seed).
 - `/roleplay dir` - print the store root + active cast dir.
 - `/roleplay rescan` - re-read the active cast from disk.
 - `/roleplay casts` - list every cast directory on disk.
@@ -429,6 +496,8 @@ built-in default.
   "recapStride": 0, // roll cadence in aged messages; 0 = follow recapChunk (default 0, 0-500)
   "recapAsync": null, // force async (true) / sync (false) recap; null = auto by endpoint (default null)
   "capture": false, // deterministic fact capture on the roll -> memory notes (default false)
+  "timeline": false, // additive anti-drift timeline of dated beats on the roll (default false)
+  "timelineMaxInjectChars": 1200, // cap on the injected `## Recent timeline` block (default 1200, floor 200)
 }
 ```
 
@@ -461,6 +530,8 @@ is optional - with none set the event generator inherits the parent session mode
   full token estimates + the sawtooth); off by default, never sent to the LLM.
 - `PI_ROLEPLAY_CAPTURE=1` - enable deterministic fact capture on the roll into `memory`'s session (`note`) tier (default
   OFF; requires recap mode + a session id; validate extraction quality in a smoke run before relying).
+- `PI_ROLEPLAY_TIMELINE=1` - enable the additive anti-drift timeline on the roll (default OFF; requires recap mode;
+  appends dated beats to `timeline/{sessions/<sid>,auto}.md` and injects a compact `## Recent timeline` block).
 - `PI_ROLEPLAY_DISABLE_REPETITION=1` - skip the multi-turn repetition / anti-slop nudge.
 - `PI_ROLEPLAY_DISABLE_EVENTS=1` - disable `/roleplay event` scene complications.
 - `PI_ROLEPLAY_DISABLE_AVATAR=1` - stop driving the [`avatar`](./avatar.md) face from the active cast (Phase 6).
@@ -509,6 +580,11 @@ without the pi runtime; this file holds only the pi-coupled glue + disk I/O.
   `deriveKeepTurns`, `estimateChars`).
 - [`capture.ts`](../../../lib/node/pi/roleplay/capture.ts) - deterministic fact capture: fact-extraction task builder +
   tolerant `parseFactCandidates` (fenced / bare JSON array -> validated, clamped, de-duped `{name, description}`).
+- [`timeline.ts`](../../../lib/node/pi/roleplay/timeline.ts) - additive anti-drift timeline: beat-extraction task
+  builder + tolerant `parseTimelineBeats` (`{when?, summary}`), append-log formatters (`formatBeatLines`), and the
+  injected-block renderer (`renderTimelineBlock`, most-recent + char-capped). Recovers the model's array via
+  `extractBalancedArray` from the shared [`json-loose.ts`](../../../lib/node/pi/json-loose.ts) (the array sibling of
+  `extractBalancedObject`), which `capture.ts` uses too.
 - [`repetition.ts`](../../../lib/node/pi/roleplay/repetition.ts) - multi-turn n-gram repetition detection +
   character-sheet exclusion + nudge framing (`detectRepetition`, `buildExcludeSet`, `formatRepetitionNudge`).
 - [`event.ts`](../../../lib/node/pi/roleplay/event.ts) - scene-event task builder, director framing, deck pick, settings

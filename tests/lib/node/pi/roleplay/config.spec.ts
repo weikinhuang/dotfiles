@@ -19,6 +19,7 @@ import {
   MIN_REPETITION_COUNT,
   MIN_REPETITION_NGRAM,
   MIN_SUMMARY_CHARS,
+  MIN_TIMELINE_INJECT_CHARS,
 } from '../../../../../lib/node/pi/roleplay/config.ts';
 
 test('coerceConfigLayer accepts a valid charBudget and floors it', () => {
@@ -109,7 +110,12 @@ test('coerceConfigLayer accepts rolling-window dials and clamps them', () => {
   expect(coerceConfigLayer({ recapAsync: true })).toEqual({ recapAsync: true });
   expect(coerceConfigLayer({ recapAsync: false })).toEqual({ recapAsync: false });
   expect(coerceConfigLayer({ capture: true })).toEqual({ capture: true });
-  expect(coerceConfigLayer({ recapStride: 'x', recapAsync: 1, capture: 'yes' })).toEqual({});
+  expect(coerceConfigLayer({ timeline: true })).toEqual({ timeline: true });
+  expect(coerceConfigLayer({ timelineMaxInjectChars: 800 })).toEqual({ timelineMaxInjectChars: 800 });
+  expect(coerceConfigLayer({ timelineMaxInjectChars: 10 })).toEqual({
+    timelineMaxInjectChars: MIN_TIMELINE_INJECT_CHARS,
+  });
+  expect(coerceConfigLayer({ recapStride: 'x', recapAsync: 1, capture: 'yes', timeline: 'no' })).toEqual({});
   expect(coerceConfigLayer({ keepTurns: 'x', recapChunk: Number.NaN })).toEqual({});
 });
 

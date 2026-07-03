@@ -24,6 +24,8 @@
  * No pi imports.
  */
 
+import { extractBalancedArray } from '../json-loose.ts';
+
 /** A single extracted durable fact, header-carried (payload in name + description). */
 export interface FactCandidate {
   name: string;
@@ -60,30 +62,6 @@ export function buildFactExtractionTask(spanText: string): string {
 }
 
 /** Extract the first top-level JSON array substring from a model response (tolerates fences / prose). */
-function extractJsonArray(raw: string): string | null {
-  const start = raw.indexOf('[');
-  if (start < 0) return null;
-  let depth = 0;
-  let inStr = false;
-  let esc = false;
-  for (let i = start; i < raw.length; i++) {
-    const ch = raw[i];
-    if (inStr) {
-      if (esc) esc = false;
-      else if (ch === '\\') esc = true;
-      else if (ch === '"') inStr = false;
-      continue;
-    }
-    if (ch === '"') inStr = true;
-    else if (ch === '[') depth += 1;
-    else if (ch === ']') {
-      depth -= 1;
-      if (depth === 0) return raw.slice(start, i + 1);
-    }
-  }
-  return null;
-}
-
 function clamp(s: string, max: number): string {
   const t = s.trim().replace(/\s+/g, ' ');
   return t.length > max ? t.slice(0, max).trimEnd() : t;
@@ -99,7 +77,7 @@ function clamp(s: string, max: number): string {
 export function parseFactCandidates(raw: string): FactCandidate[] {
   const trimmed = raw.trim();
   if (trimmed.length === 0 || trimmed === 'null' || trimmed === '[]') return [];
-  const jsonText = extractJsonArray(trimmed);
+  const jsonText = extractBalancedArray(trimmed);
   if (jsonText === null) return [];
   let parsed: unknown;
   try {

@@ -97,6 +97,7 @@ import {
   deriveMaxSpanChars,
   estimateChars,
   injectRecap,
+  injectTimeline,
   planRecap,
   updateCharsPerToken,
   type WindowOptions,
@@ -121,6 +122,12 @@ import {
 import { createPersistedSubagentSessionManager } from '../../../lib/node/pi/subagent/session-dir.ts';
 import { createAgentGateFactory } from '../../../lib/node/pi/subagent/agent-gate.ts';
 import { buildFactExtractionTask, parseFactCandidates } from '../../../lib/node/pi/roleplay/capture.ts';
+import {
+  buildTimelineExtractionTask,
+  formatBeatLines,
+  parseTimelineBeats,
+  renderTimelineBlock,
+} from '../../../lib/node/pi/roleplay/timeline.ts';
 import { findSimilarMemories } from '../../../lib/node/pi/memory-search.ts';
 import { type MemoryEntry, renderMemoryMd, serializeMemory } from '../../../lib/node/pi/memory-reducer.ts';
 import {
@@ -132,15 +139,22 @@ import {
 } from '../../../lib/node/pi/memory-paths.ts';
 import { adaptCreateAgentSession, resolveChildModel, runOneShotAgent } from '../../../lib/node/pi/subagent/spawn.ts';
 import {
+  archiveCarryOver,
+  archiveFacts,
   atomicWriteFile,
   castDir,
+  factFile,
   fileFor,
   listCasts,
+  listFactSidecars,
   portraitPath,
+  pruneSessionFiles,
   readEntryBody,
+  readSessionBody,
   rebuildCast,
   removeFileIfExists,
   roleplayRoot,
+  sessionFile,
   writeIndex,
 } from '../../../lib/node/pi/roleplay/paths.ts';
 import {
@@ -352,6 +366,8 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
   // ── Rolling context-window state (per process; reset on lifecycle) ──
   /** Cumulative scene memory injected as a prefix (mirrors the `summary/auto` record). */
   let recapText = '';
+  /** Cumulative append-log of dated story beats injected as a prefix (mirrors the `timeline/auto` record). */
+  let timelineText = '';
   /** FROZEN condense boundary; messages[0..committedCutoff) are the aged prefix. Advances only on a roll. */
   let committedCutoff = 0;
   /** How much of the aged prefix the recap covers; messages[0..recapCutoff) are DROPPED in recap mode. */
@@ -371,8 +387,12 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
   /** Lazy `roleplay-fact-extractor` runner + one-shot init guard. */
   let factExtractor: ((ctx: ExtensionContext, task: string) => Promise<string | null>) | null = null;
   let factExtractorInit = false;
+  /** Lazy `roleplay-timeline-extractor` runner + one-shot init guard. */
+  let timelineExtractor: ((ctx: ExtensionContext, task: string) => Promise<string | null>) | null = null;
+  let timelineExtractorInit = false;
   const resetWindowState = (): void => {
     recapText = '';
+    timelineText = '';
     committedCutoff = 0;
     recapCutoff = 0;
     recapHydrated = false;
@@ -889,6 +909,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
   const recapAsyncForced = (): boolean | null => loadRoleplayConfig(cwd, envCharBudget).recapAsync;
   /** Fact-capture gate: recap mode + config `capture` (env-foldable). Read lazily so project config applies. */
   const captureEnabled = (): boolean => recapMode && loadRoleplayConfig(cwd, envCharBudget).capture;
+  const timelineEnabled = (): boolean => recapMode && loadRoleplayConfig(cwd, envCharBudget).timeline;
 
   interface RecapModelInfo {
     model: { id?: string; provider?: string; contextWindow?: number } | undefined;
@@ -973,14 +994,40 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
     return { next, applied: acceptRecap(prior, next), spanLen: plan.messageCount, priorLen, startedAt };
   };
 
-  /** Persist the accepted recap into the durable `summary/auto` record (rescanned on load). */
-  const writeRecapRecord = (recap: string): void => {
+  /** Snapshot the current session id (`null` under `--no-session`). Read at call sites, never inside an async `.then`. */
+  const currentSessionId = (ctx: ExtensionContext): string | null => {
     try {
-      const rec = composeAutoSummaryRecord(recap);
-      atomicWriteFile(
-        fileFor(state.cast, 'summary', rec.id),
-        serializeEntry({ name: rec.name, description: rec.description, kind: 'summary', body: rec.body }),
-      );
+      return ctx.sessionManager?.getSessionId() ?? null;
+    } catch {
+      return null;
+    }
+  };
+
+  /**
+   * Persist an accepted recap under the two-tier layout: the session-
+   * isolated LIVE record (`summary/sessions/<sid>.md`, authoritative while
+   * this session runs) plus a best-effort refresh of the per-cast carry-over
+   * (`summary/auto.md`, the seed for future sessions - see decision 1). A
+   * carry-over write failure never fails the live write. With no session id
+   * (`--no-session`) only the carry-over is written (degraded legacy behavior).
+   */
+  const writeRecapRecord = (recap: string, sid: string | null): void => {
+    const rec = composeAutoSummaryRecord(recap);
+    const serialized = serializeEntry({
+      name: rec.name,
+      description: rec.description,
+      kind: 'summary',
+      body: rec.body,
+    });
+    if (sid) {
+      try {
+        atomicWriteFile(sessionFile(state.cast, 'summary', sid), serialized);
+      } catch {
+        /* live write best-effort; the carry-over below still seeds resumes */
+      }
+    }
+    try {
+      atomicWriteFile(fileFor(state.cast, 'summary', rec.id), serialized);
     } catch {
       /* durable write is best-effort; the in-memory recap still carries the turn */
     }
@@ -1021,17 +1068,16 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
   };
 
   /**
-   * Lazily load + wire the `roleplay-fact-extractor` subagent. Returns a
+   * Build a lazy extractor runner for one of the roleplay extractor agents
+   * (`roleplay-fact-extractor` / `roleplay-timeline-extractor`). Returns a
    * runner that takes a task and returns the raw response text, or `null`
    * when the agent is not installed. Mirrors the summarizer wiring; the
    * frontmatter `requestOptions` (low temp) is pinned via the same inline
    * agent-gate factory (the child loads with noExtensions).
    */
-  const getFactExtractor = (
-    _ctx: ExtensionContext,
+  const buildExtractorRunner = (
+    agentName: string,
   ): ((ctx: ExtensionContext, task: string) => Promise<string | null>) | null => {
-    if (factExtractorInit) return factExtractor;
-    factExtractorInit = true;
     let agent: AgentDef | null = null;
     try {
       const layers = defaultAgentLayers({ extensionDir: extDir, cwd });
@@ -1041,14 +1087,11 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
         fs: readLayer,
         parseFrontmatter,
       });
-      agent = load.agents.get('roleplay-fact-extractor') ?? null;
+      agent = load.agents.get(agentName) ?? null;
     } catch {
       agent = null;
     }
-    if (!agent) {
-      factExtractor = null;
-      return null;
-    }
+    if (!agent) return null;
     const settings = (() => {
       try {
         return resolveSummarizeSettings({ cwd });
@@ -1056,23 +1099,23 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
         return null;
       }
     })();
-    const factAgent = agent;
-    factExtractor = async (rctx, task) => {
+    const theAgent = agent;
+    return async (rctx, task) => {
       const resolution = resolveChildModel({
         override: settings?.summarizeModel,
-        agent: factAgent,
+        agent: theAgent,
         parent: rctx.model,
         modelRegistry: rctx.modelRegistry as never,
       });
       if (!resolution.ok) return null;
-      const gateFactory = factAgent.requestOptions
+      const gateFactory = theAgent.requestOptions
         ? createAgentGateFactory({
             config: {
-              name: factAgent.name,
+              name: theAgent.name,
               bashAllow: [],
               bashDeny: [],
               resolvedWriteRoots: [],
-              requestOptions: factAgent.requestOptions,
+              requestOptions: theAgent.requestOptions,
             },
             enforceWriteRoots: false,
             resolveAbsolute: (_cwd, p) => p,
@@ -1082,7 +1125,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
         const result = await runOneShotAgent({
           deps: { createAgentSession: piCreateAgentSession, DefaultResourceLoader, SessionManager, getAgentDir },
           cwd,
-          agent: factAgent,
+          agent: theAgent,
           model: resolution.model,
           task,
           modelRegistry: rctx.modelRegistry as never,
@@ -1097,7 +1140,37 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
         return null;
       }
     };
+  };
+
+  /**
+   * Lazily load + wire the `roleplay-fact-extractor` subagent. Returns a
+   * runner that takes a task and returns the raw response text, or `null`
+   * when the agent is not installed. Mirrors the summarizer wiring; the
+   * frontmatter `requestOptions` (low temp) is pinned via the same inline
+   * agent-gate factory (the child loads with noExtensions).
+   */
+  const getFactExtractor = (
+    _ctx: ExtensionContext,
+  ): ((ctx: ExtensionContext, task: string) => Promise<string | null>) | null => {
+    if (factExtractorInit) return factExtractor;
+    factExtractorInit = true;
+    factExtractor = buildExtractorRunner('roleplay-fact-extractor');
     return factExtractor;
+  };
+
+  /**
+   * Lazily load + wire the `roleplay-timeline-extractor` subagent (C3). Same
+   * wiring as {@link getFactExtractor} - a distinct agent name, the same
+   * low-temp gate + recap-endpoint model resolution - so both extractors run
+   * on the summarize endpoint.
+   */
+  const getTimelineExtractor = (
+    _ctx: ExtensionContext,
+  ): ((ctx: ExtensionContext, task: string) => Promise<string | null>) | null => {
+    if (timelineExtractorInit) return timelineExtractor;
+    timelineExtractorInit = true;
+    timelineExtractor = buildExtractorRunner('roleplay-timeline-extractor');
+    return timelineExtractor;
   };
 
   /**
@@ -1110,6 +1183,250 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
    * De-dups against session notes already on disk + those written this
    * process. Best-effort; never throws.
    */
+  /**
+   * Write facts to memory's SESSION note tier, de-duping against notes
+   * already on disk (fuzzy name match) + those captured this process.
+   * Rebuilds the session `MEMORY.md` when anything landed. Returns the facts
+   * ACTUALLY written, so the caller can mirror just those to the per-cast
+   * carry-over sidecar. `sid` must be non-null. Best-effort; never throws.
+   */
+  const writeFactsToSessionMemory = (
+    sid: string,
+    facts: readonly { name: string; description: string }[],
+  ): { name: string; description: string }[] => {
+    const written: { name: string; description: string }[] = [];
+    try {
+      const { state: memState } = rebuildMemoryIndex(cwd, sid);
+      const sessionEntries = [...memState.index.session];
+      const taken = new Set(sessionEntries.map((e) => e.id));
+      const isDup = (name: string, description: string): boolean => {
+        if (capturedFacts.has(name.toLowerCase())) return true;
+        return findSimilarMemories({ name, description, body: description }, sessionEntries, () => null).length > 0;
+      };
+      const now = new Date().toISOString();
+      for (const fact of facts) {
+        if (isDup(fact.name, fact.description)) {
+          capturedFacts.add(fact.name.toLowerCase());
+          continue;
+        }
+        const slug = memoryUniqueSlug(memorySlugifyName(fact.name), taken);
+        taken.add(slug);
+        const entry: MemoryEntry = {
+          id: slug,
+          scope: 'session',
+          type: 'note',
+          name: fact.name,
+          description: fact.description,
+          created: now,
+          updated: now,
+        };
+        atomicWriteFile(
+          memoryFileFor('session', 'note', slug, cwd, sid),
+          serializeMemory({
+            name: fact.name,
+            description: fact.description,
+            type: 'note',
+            body: fact.description,
+            created: now,
+            updated: now,
+          }),
+        );
+        sessionEntries.push(entry);
+        capturedFacts.add(fact.name.toLowerCase());
+        written.push({ name: fact.name, description: fact.description });
+      }
+      if (written.length > 0) {
+        // Rebuild the session MEMORY.md so a resume (memory rescans on
+        // session_start) picks the facts up. NOTE: memory.ts injects from its
+        // cached index within a live session, so newly-captured notes surface
+        // in the injected index only after memory rebuilds (next session / a
+        // memory tool call), not necessarily the same turn.
+        try {
+          atomicWriteFile(memoryIndexFileFor('session', cwd, sid), renderMemoryMd(sessionEntries, 'session'));
+        } catch {
+          /* index rebuild is best-effort */
+        }
+      }
+    } catch {
+      /* memory write must never break a turn */
+    }
+    return written;
+  };
+
+  /**
+   * Mirror captured facts to the per-cast carry-over sidecar
+   * (`facts/<slug>.md`), de-duping against sidecars already on disk (B1).
+   * The sidecar is the durable per-cast seed a future session hydrates from;
+   * the session note tier stays the session-isolated live layer.
+   */
+  const mirrorFactsToCarryOver = (facts: readonly { name: string; description: string }[]): void => {
+    if (facts.length === 0) return;
+    try {
+      const sidecars = listFactSidecars(state.cast);
+      const takenSidecar = new Set(sidecars.map((f) => f.slug));
+      const sidecarEntries: MemoryEntry[] = sidecars.map((f) => ({
+        id: f.slug,
+        scope: 'session',
+        type: 'note',
+        name: f.name,
+        description: f.description,
+        created: '',
+        updated: '',
+      }));
+      for (const fact of facts) {
+        const dup =
+          findSimilarMemories(
+            { name: fact.name, description: fact.description, body: fact.description },
+            sidecarEntries,
+            () => null,
+          ).length > 0;
+        if (dup) continue;
+        const slug = memoryUniqueSlug(memorySlugifyName(fact.name), takenSidecar);
+        takenSidecar.add(slug);
+        sidecarEntries.push({
+          id: slug,
+          scope: 'session',
+          type: 'note',
+          name: fact.name,
+          description: fact.description,
+          created: '',
+          updated: '',
+        });
+        atomicWriteFile(
+          factFile(state.cast, slug),
+          serializeEntry({ name: fact.name, description: fact.description, kind: 'summary', body: '' }),
+        );
+      }
+    } catch {
+      /* carry-over sidecar is best-effort */
+    }
+  };
+
+  /**
+   * One-shot seed of the per-cast carry-over facts (`facts/*.md`) into this
+   * session's memory note tier, so a fresh session inherits the pinned
+   * specifics alongside the recap seed (B2). Runs only on a NON-resume load
+   * (`sceneSeeded`) with a real session id, and only once per load.
+   */
+  const seedCarryOverFacts = (sid: string): void => {
+    const facts = listFactSidecars(state.cast).map((f) => ({ name: f.name, description: f.description }));
+    if (facts.length === 0) return;
+    writeFactsToSessionMemory(sid, facts);
+  };
+
+  /**
+   * Append new beats to the two-tier timeline append-logs: the live
+   * `timeline/sessions/<sid>.md` (this session's beats) and the carry-over
+   * `timeline/auto.md` (per-cast seed, interleaves all sessions). APPEND-ONLY
+   * (never rewrite), so concurrent same-cast sessions just add distinct lines
+   * with no clobber. Also folds the new lines into the in-memory
+   * `timelineText` used for injection. Best-effort; never throws.
+   */
+  const appendTimelineBeats = (sid: string | null, lines: string): void => {
+    if (lines.trim().length === 0) return;
+    const date = new Date().toISOString().slice(0, 10);
+    const compose = (body: string): string =>
+      serializeEntry({
+        name: 'Auto timeline',
+        description: `Chronological scene beats, auto-updated ${date}`,
+        kind: 'timeline',
+        body,
+      });
+    const appended = (existing: string): string => (existing.trim() ? `${existing.trimEnd()}\n${lines}` : lines);
+    // Live per-session append-log (authoritative for this session).
+    if (sid) {
+      try {
+        const existing = readSessionBody(state.cast, 'timeline', sid) ?? '';
+        atomicWriteFile(sessionFile(state.cast, 'timeline', sid), compose(appended(existing)));
+      } catch {
+        /* live append best-effort */
+      }
+    }
+    // Carry-over append-log (seed for future sessions).
+    try {
+      const existing = readEntryBody(state.cast, { id: 'auto', kind: 'timeline', name: '', description: '' }) ?? '';
+      atomicWriteFile(fileFor(state.cast, 'timeline', 'auto'), compose(appended(existing)));
+    } catch {
+      /* carry-over append best-effort */
+    }
+    // Keep the injected timeline current in-memory too.
+    timelineText = timelineText.trim() ? `${timelineText.trimEnd()}\n${lines}` : lines;
+  };
+
+  /**
+   * Additive, anti-drift timeline capture on the roll: extract dated story
+   * beats from the aged span with the `roleplay-timeline-extractor` subagent
+   * and APPEND them to the two-tier timeline logs. Runs on the SAME span as
+   * the recap + capture, AFTER the recap resolves (shares the recap endpoint,
+   * so it must not run concurrently) and is AWAITED (never fire-and-forget).
+   * Default-OFF (`PI_ROLEPLAY_TIMELINE`); best-effort, never throws.
+   */
+  const captureTimeline = async (
+    ctx: ExtensionContext,
+    span: SummarizableMessage[],
+    sid: string | null,
+  ): Promise<void> => {
+    if (!timelineEnabled()) return;
+    const audit = {
+      sessionId: sid !== null,
+      extractor: false,
+      planned: false,
+      rawChars: 0,
+      parsed: 0,
+      wrote: 0,
+      skip: '' as string,
+    };
+    const emit = (): void => {
+      try {
+        pi.appendEntry('roleplay-timeline', { ts: Date.now(), ...audit });
+      } catch {
+        /* audit write is best-effort */
+      }
+    };
+    try {
+      const extractor = getTimelineExtractor(ctx);
+      if (!extractor) {
+        audit.skip = 'no-extractor';
+        emit();
+        return;
+      }
+      audit.extractor = true;
+      const cfg = loadRoleplayConfig(cwd, envCharBudget);
+      const info = resolveRecapModelInfo(ctx);
+      const maxSpanChars = deriveMaxSpanChars({
+        contextWindowTokens: info.model?.contextWindow,
+        charsPerToken,
+      });
+      const plan = planSummarization(span, { minMessages: cfg.summarizeMinMessages, maxSpanChars });
+      if (!plan) {
+        audit.skip = 'no-plan';
+        emit();
+        return;
+      }
+      audit.planned = true;
+      const raw = await extractor(ctx, buildTimelineExtractionTask(plan.spanText));
+      if (raw === null) {
+        audit.skip = 'extractor-null';
+        emit();
+        return;
+      }
+      audit.rawChars = raw.length;
+      const beats = parseTimelineBeats(raw);
+      audit.parsed = beats.length;
+      if (beats.length === 0) {
+        audit.skip = 'no-beats';
+        emit();
+        return;
+      }
+      appendTimelineBeats(sid, formatBeatLines(beats));
+      audit.wrote = beats.length;
+      emit();
+    } catch {
+      audit.skip = 'error';
+      emit();
+    }
+  };
+
   const captureFacts = async (ctx: ExtensionContext, span: SummarizableMessage[]): Promise<void> => {
     if (!captureEnabled()) return;
     // Auditable outcome (custom entry, never sent to the LLM). Emitted on
@@ -1178,60 +1495,13 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
         return;
       }
 
-      // De-dup against session notes already on disk (fuzzy name match) and
-      // those written earlier this process.
-      const { state: memState } = rebuildMemoryIndex(cwd, sessionId);
-      const sessionEntries = [...memState.index.session];
-      const taken = new Set(sessionEntries.map((e) => e.id));
-      const isDup = (name: string, description: string): boolean => {
-        if (capturedFacts.has(name.toLowerCase())) return true;
-        return findSimilarMemories({ name, description, body: description }, sessionEntries, () => null).length > 0;
-      };
-      let wrote = 0;
-      const now = new Date().toISOString();
-      for (const fact of candidates) {
-        if (isDup(fact.name, fact.description)) {
-          capturedFacts.add(fact.name.toLowerCase());
-          continue;
-        }
-        const slug = memoryUniqueSlug(memorySlugifyName(fact.name), taken);
-        taken.add(slug);
-        const entry: MemoryEntry = {
-          id: slug,
-          scope: 'session',
-          type: 'note',
-          name: fact.name,
-          description: fact.description,
-          created: now,
-          updated: now,
-        };
-        atomicWriteFile(
-          memoryFileFor('session', 'note', slug, cwd, sessionId),
-          serializeMemory({
-            name: fact.name,
-            description: fact.description,
-            type: 'note',
-            body: fact.description,
-            created: now,
-            updated: now,
-          }),
-        );
-        sessionEntries.push(entry);
-        capturedFacts.add(fact.name.toLowerCase());
-        wrote += 1;
-      }
+      // Write to the session note tier (live layer) + mirror to the per-cast
+      // carry-over sidecar (durable seed for future sessions).
+      const written = writeFactsToSessionMemory(sessionId, candidates);
+      mirrorFactsToCarryOver(written);
+      const wrote = written.length;
       audit.wrote = wrote;
       if (wrote > 0) {
-        // Rebuild the session MEMORY.md so a resume (memory rescans on
-        // session_start) picks the facts up. NOTE: memory.ts injects from
-        // its cached index within a live session, so newly-captured notes
-        // surface in the injected index only after memory rebuilds (next
-        // session / a memory tool call), not necessarily the same turn.
-        try {
-          atomicWriteFile(memoryIndexFileFor('session', cwd, sessionId), renderMemoryMd(sessionEntries, 'session'));
-        } catch {
-          /* index rebuild is best-effort */
-        }
         try {
           ctx.ui.notify(`roleplay: captured ${wrote} durable fact(s) to session memory.`, 'info');
         } catch {
@@ -1285,12 +1555,43 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
         if (!recapHydrated) {
           recapHydrated = true;
           if (recapMode) {
-            const priorEntry = state.entries.find((e) => e.kind === 'summary' && e.id === 'auto');
-            const prior = priorEntry ? (readEntryBody(state.cast, priorEntry) ?? '') : '';
-            if (prior.trim()) {
-              recapText = prior.trim();
+            const sid = currentSessionId(ctx);
+            // 1. Resume: this session already has a LIVE record -> hydrate from
+            //    it (authoritative), no reseed.
+            const live = sid ? readSessionBody(state.cast, 'summary', sid) : null;
+            if (live?.trim()) {
+              recapText = live.trim();
               recapCutoff = natural;
               committedCutoff = natural;
+              // Resume the timeline from this session's live log too.
+              const liveTimeline = sid ? readSessionBody(state.cast, 'timeline', sid) : null;
+              if (liveTimeline?.trim()) timelineText = liveTimeline.trim();
+            } else {
+              // 2. New session: silently seed from the per-cast carry-over so a
+              //    fresh session inherits continuity. 3. Cold start: no
+              //    carry-over -> recapText stays ''. Either way this load is a
+              //    non-resume, so the one-shot facts seed (B2) may run.
+              const priorEntry = state.entries.find((e) => e.kind === 'summary' && e.id === 'auto');
+              const prior = priorEntry ? (readEntryBody(state.cast, priorEntry) ?? '') : '';
+              if (prior.trim()) {
+                recapText = prior.trim();
+                recapCutoff = natural;
+                committedCutoff = natural;
+              }
+              // Seed the timeline from the per-cast carry-over log (C5).
+              const priorTimeline =
+                readEntryBody(state.cast, { id: 'auto', kind: 'timeline', name: '', description: '' }) ?? '';
+              if (priorTimeline.trim()) timelineText = priorTimeline.trim();
+              // B2: seed the per-cast carry-over facts (facts/*.md) into this
+              // session's memory note tier so a fresh session inherits the
+              // pinned specifics alongside the recap seed - not just the
+              // narrative. Gated by capture (the whole facts machinery is).
+              if (sid && captureEnabled()) seedCarryOverFacts(sid);
+            }
+            // A6: keep the per-kind sessions/ dirs bounded.
+            if (sid) {
+              pruneSessionFiles(state.cast, 'summary', 10);
+              pruneSessionFiles(state.cast, 'timeline', 10);
             }
           }
         }
@@ -1302,6 +1603,9 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
           if (recapMode) {
             const info = resolveRecapModelInfo(ctx);
             const wantAsync = recapAsyncForced() ?? info.distinct;
+            // Snapshot the session id at roll-plan time (decision a): the async
+            // path must not read it inside its `.then` (the manager may be gone).
+            const sid = currentSessionId(ctx);
             const spanFrom = recapCutoff;
             const spanTo = natural;
             const span = messages.slice(spanFrom, spanTo).map(toSummarizable);
@@ -1322,7 +1626,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
                     if (result.applied && result.next) {
                       recapText = result.next;
                       recapCutoff = spanTo;
-                      writeRecapRecord(result.next);
+                      writeRecapRecord(result.next, sid);
                     }
                     writeRecapAudit({ result, model: info.model, spanFrom, spanTo, mode: 'async' });
                     if (result.applied && result.next) {
@@ -1334,6 +1638,9 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
                       // instance, and keeps capture from being orphaned as a
                       // fire-and-forget promise when the turn returns.
                       await captureFacts(ctx, span);
+                      // Timeline runs AFTER capture, sequential + awaited, for
+                      // the same single-endpoint reason (C4).
+                      await captureTimeline(ctx, span, sid);
                     }
                   })
                   .catch(() => {
@@ -1353,8 +1660,9 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
               if (result.applied && result.next) {
                 recapText = result.next;
                 recapCutoff = spanTo;
-                writeRecapRecord(result.next);
+                writeRecapRecord(result.next, sid);
                 await captureFacts(ctx, span);
+                await captureTimeline(ctx, span, sid);
               }
               writeRecapAudit({ result, model: info.model, spanFrom, spanTo, mode: 'sync' });
             }
@@ -1373,6 +1681,15 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
           if (recapText) {
             messages = injectRecap(messages, recapText);
             changed = true;
+          }
+          if (timelineText) {
+            const block = renderTimelineBlock(timelineText, {
+              maxChars: loadRoleplayConfig(cwd, envCharBudget).timelineMaxInjectChars,
+            });
+            if (block) {
+              messages = injectTimeline(messages, block);
+              changed = true;
+            }
           }
         } else {
           const floor = applyContextWindowAt(messages, committedCutoff, opts);
@@ -1507,11 +1824,8 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
         );
         // Collapse guard: never let a degenerate recap clobber a longer prior.
         if (recap === null || !acceptRecap(prior ?? '', recap)) return undefined;
-        const rec = composeAutoSummaryRecord(recap);
-        atomicWriteFile(
-          fileFor(state.cast, 'summary', rec.id),
-          serializeEntry({ name: rec.name, description: rec.description, kind: 'summary', body: rec.body }),
-        );
+        // Two-tier: live per-session record + carry-over auto.md (A4).
+        writeRecapRecord(recap, currentSessionId(ctx));
         // Re-scan so the index + in-memory state reflect the new record; a
         // subsequent context turn re-hydrates recapText from it.
         applyCast(state.cast, ctx);
@@ -2005,6 +2319,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
         cast: { description: 'Switch / set the active cast', args: () => listCasts().map((c) => ({ label: c })) },
         import: { description: 'Import a SillyTavern card (.json/.png) into the active cast' },
         event: { description: 'Queue a one-shot scene complication (LLM-generated, or from the deck)' },
+        newscene: { description: 'Start a fresh scene: archive + clear the recap / timeline / fact carry-overs' },
         dir: { description: 'Print the roleplay store dir' },
         rescan: { description: 'Rescan the active cast from disk' },
         casts: { description: 'List every cast on disk' },
@@ -2099,6 +2414,41 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
         pendingEvent = queued;
         eventConsumed = false;
         ctx.ui.notify(`Queued scene event for your next reply:\n${queued}`, 'info');
+        return;
+      }
+      if (verb === 'newscene') {
+        if (dormant) {
+          ctx.ui.notify(dormantNote, 'warning');
+          return;
+        }
+        resyncIfChanged(ctx);
+        const ts = new Date()
+          .toISOString()
+          .replace(/[-:]/g, '')
+          .replace(/\.\d+Z$/, 'Z');
+        const sid = currentSessionId(ctx);
+        // Archive the per-cast carry-overs (recap + timeline + captured facts).
+        const archivedSummary = archiveCarryOver(state.cast, 'summary', ts);
+        const archivedTimeline = archiveCarryOver(state.cast, 'timeline', ts);
+        const archivedFacts = archiveFacts(state.cast, ts);
+        // Drop THIS session's live records too, so the next hydrate can't
+        // resume the scene we just archived (it would otherwise take the
+        // resume branch off the still-present sessions/<sid>.md).
+        if (sid) {
+          removeFileIfExists(sessionFile(state.cast, 'summary', sid));
+          removeFileIfExists(sessionFile(state.cast, 'timeline', sid));
+        }
+        // Clear in-memory scene state; the next context turn cold-starts.
+        resetWindowState();
+        ctx.ui.notify(
+          [
+            `New scene started for cast "${state.cast}".`,
+            `Archived carry-overs -> recap: ${archivedSummary ? 'yes' : 'none'}, ` +
+              `timeline: ${archivedTimeline ? 'yes' : 'none'}, facts: ${archivedFacts}.`,
+            'The recap, timeline, and captured-fact carry-overs are cleared; the scene starts fresh on your next turn.',
+          ].join('\n'),
+          'info',
+        );
         return;
       }
       if (verb === 'dir') {

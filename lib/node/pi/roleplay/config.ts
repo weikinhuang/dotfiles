@@ -70,6 +70,10 @@ export interface RoleplayConfig {
   recapAsync: boolean | null;
   /** Deterministic fact capture on the roll -> session-scope `memory` notes (requires recap mode). */
   capture: boolean;
+  /** Additive, anti-drift timeline of dated story beats on the roll (requires recap mode). */
+  timeline: boolean;
+  /** Soft cap on the injected `## Recent timeline` block, in characters. */
+  timelineMaxInjectChars: number;
 }
 
 /** Shipped defaults - lowest config layer. Parity with memory's 3000-char cap. */
@@ -96,6 +100,8 @@ export const DEFAULT_CONFIG: RoleplayConfig = {
   recapStride: 0,
   recapAsync: null,
   capture: false,
+  timeline: false,
+  timelineMaxInjectChars: 1200,
 };
 
 /** Floor for the injected-block budgets so a tiny value can't blank them. */
@@ -127,6 +133,9 @@ export const MIN_RECAP_CHUNK = 1;
 export const MAX_RECAP_CHUNK = 500;
 /** Floor on the per-message condense budget so condensing can't produce a stub. */
 export const MIN_WINDOW_CHARS = 40;
+
+/** Floor for the injected timeline block so a tiny value can't blank it. */
+export const MIN_TIMELINE_INJECT_CHARS = 200;
 
 /** Validate an untrusted JSON layer into a `Partial<RoleplayConfig>`. */
 export function coerceConfigLayer(raw: unknown): Partial<RoleplayConfig> {
@@ -202,6 +211,12 @@ export function coerceConfigLayer(raw: unknown): Partial<RoleplayConfig> {
   if (typeof v.capture === 'boolean') {
     out.capture = v.capture;
   }
+  if (typeof v.timeline === 'boolean') {
+    out.timeline = v.timeline;
+  }
+  if (typeof v.timelineMaxInjectChars === 'number' && Number.isFinite(v.timelineMaxInjectChars)) {
+    out.timelineMaxInjectChars = Math.max(MIN_TIMELINE_INJECT_CHARS, Math.floor(v.timelineMaxInjectChars));
+  }
   return out;
 }
 
@@ -260,6 +275,9 @@ export function loadRoleplayConfig(cwd: string, envCharBudget?: number): Rolepla
   }
   if (env.PI_ROLEPLAY_CAPTURE !== undefined) {
     envLayer.capture = envTruthy(env.PI_ROLEPLAY_CAPTURE);
+  }
+  if (env.PI_ROLEPLAY_TIMELINE !== undefined) {
+    envLayer.timeline = envTruthy(env.PI_ROLEPLAY_TIMELINE);
   }
   const userLayer = coerceConfigLayer(readJsonOrUndefined(piAgentPath('roleplay.json')));
   const projectLayer = coerceConfigLayer(readJsonOrUndefined(piProjectPath(cwd, 'roleplay.json')));

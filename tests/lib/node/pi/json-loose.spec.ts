@@ -8,7 +8,12 @@
 
 import { expect, test } from 'vitest';
 
-import { extractBalancedObject, parseJsonLoose, stripCodeFence } from '../../../../lib/node/pi/json-loose.ts';
+import {
+  extractBalancedArray,
+  extractBalancedObject,
+  parseJsonLoose,
+  stripCodeFence,
+} from '../../../../lib/node/pi/json-loose.ts';
 
 // ── stripCodeFence ────────────────────────────────────────────────────
 
@@ -54,6 +59,33 @@ test('extractBalancedObject: escaped quote inside a string is handled', () => {
 test('extractBalancedObject: no object / unterminated returns null', () => {
   expect(extractBalancedObject('no braces here')).toBeNull();
   expect(extractBalancedObject('{"a":1')).toBeNull();
+});
+
+// ── extractBalancedArray ─────────────────────────────────────────
+
+test('extractBalancedArray: a plain array', () => {
+  expect(extractBalancedArray('[1, 2, 3]')).toBe('[1, 2, 3]');
+});
+
+test('extractBalancedArray: tolerates a ```json fence + surrounding prose', () => {
+  expect(extractBalancedArray('Here you go:\n```json\n[{"a": 1}]\n```\ndone')).toBe('[{"a": 1}]');
+});
+
+test('extractBalancedArray: brackets inside string values do not unbalance', () => {
+  expect(extractBalancedArray('[{"s": "a [nested] value"}]')).toBe('[{"s": "a [nested] value"}]');
+});
+
+test('extractBalancedArray: nested arrays stay balanced', () => {
+  expect(extractBalancedArray('[[1,2],[3]]')).toBe('[[1,2],[3]]');
+});
+
+test('extractBalancedArray: escaped quote inside a string is handled', () => {
+  expect(extractBalancedArray('["he said \\"hi\\" [x]"]')).toBe('["he said \\"hi\\" [x]"]');
+});
+
+test('extractBalancedArray: no array / unterminated returns null', () => {
+  expect(extractBalancedArray('no array here')).toBeNull();
+  expect(extractBalancedArray('[unterminated')).toBeNull();
 });
 
 // ── parseJsonLoose ────────────────────────────────────────────────────
