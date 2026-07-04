@@ -16,6 +16,13 @@
  *   - project  `<cwd>/.pi/scheduled-prompts.json`    (this workspace)
  *   - session  in-process only, dies when this session ends
  *
+ * Both on-disk scope paths can be redirected with the
+ * `PI_SCHEDULED_PROMPTS_DIR` env var (a test/eval harness points it at a
+ * disposable sandbox dir so schedule writes never touch the live files).
+ * When set, global -> `<dir>/global.scheduled-prompts.json` and
+ * project -> `<dir>/project.scheduled-prompts.json` (distinct files so
+ * the two scopes never collide).
+ *
  * Trigger kinds (each with optional `--jitter`):
  *   - cron      5-field expression in local time
  *   - interval  `--every 30m`

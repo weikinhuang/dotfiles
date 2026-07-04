@@ -152,6 +152,12 @@ schedule can fire in each. v1 documents this rather than solving it; a future ow
 
 - `PI_SCHEDULED_PROMPTS_DISABLED=1` - skip the extension entirely (no commands or tool registered).
 - `PI_SCHEDULED_PROMPTS_DEBUG=1` - log scheduler decisions (arm / fire) to stderr.
+- `PI_SCHEDULED_PROMPTS_DIR=<dir>` - redirect both on-disk scopes into `<dir>` instead of the live global
+  (`~/.pi/agent/scheduled-prompts.json`) and project (`<cwd>/.pi/scheduled-prompts.json`) files. When set to a non-empty
+  value, global resolves to `<dir>/global.scheduled-prompts.json` and project to `<dir>/project.scheduled-prompts.json`
+  (distinct files so the two scopes never collide). A test/eval harness that shares cwd + `PI_CODING_AGENT_DIR` with
+  real sessions sets this to a disposable sandbox dir so schedule writes stay isolated. Resolved on each call, so a
+  subprocess can set it mid-run. Unset/empty leaves path resolution unchanged.
 
 ## Hot reload
 

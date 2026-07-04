@@ -8,6 +8,7 @@ import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
+import { piAgentPath, piProjectPath } from '../../../../../lib/node/pi/pi-paths.ts';
 import { type Schedule, type Trigger } from '../../../../../lib/node/pi/scheduled-prompts/schedule.ts';
 import {
   addToList,
@@ -142,6 +143,47 @@ describe('disk round-trip', () => {
     writeScopeFile(path, []);
     writeFileSync(path, '{ broken', 'utf8');
     expect(readScopeFile(path)).toEqual([]);
+  });
+});
+
+describe('PI_SCHEDULED_PROMPTS_DIR override', () => {
+  const savedDir = process.env.PI_SCHEDULED_PROMPTS_DIR;
+
+  afterEach(() => {
+    if (savedDir === undefined) delete process.env.PI_SCHEDULED_PROMPTS_DIR;
+    else process.env.PI_SCHEDULED_PROMPTS_DIR = savedDir;
+  });
+
+  test('override set: both paths are inside the dir and distinct', () => {
+    const sandbox = '/tmp/sp-sandbox';
+    const env = { ...process.env, PI_SCHEDULED_PROMPTS_DIR: sandbox };
+    const g = globalSchedulesPath(env);
+    const p = projectSchedulesPath('/some/cwd', env);
+    expect(g).toBe(join(sandbox, 'global.scheduled-prompts.json'));
+    expect(p).toBe(join(sandbox, 'project.scheduled-prompts.json'));
+    expect(g).not.toBe(p);
+  });
+
+  test('override read from process.env when env param omitted', () => {
+    const sandbox = '/tmp/sp-sandbox-env';
+    process.env.PI_SCHEDULED_PROMPTS_DIR = sandbox;
+    expect(globalSchedulesPath()).toBe(join(sandbox, 'global.scheduled-prompts.json'));
+    expect(projectSchedulesPath('/some/cwd')).toBe(join(sandbox, 'project.scheduled-prompts.json'));
+  });
+
+  test('blank/whitespace override is ignored (falls back to defaults)', () => {
+    const cwd = '/some/cwd';
+    const env = { ...process.env, PI_SCHEDULED_PROMPTS_DIR: '   ' };
+    expect(globalSchedulesPath(env)).toBe(piAgentPath('scheduled-prompts.json'));
+    expect(projectSchedulesPath(cwd, env)).toBe(piProjectPath(cwd, 'scheduled-prompts.json'));
+  });
+
+  test('override unset: paths equal piAgentPath / piProjectPath', () => {
+    const cwd = '/some/cwd';
+    const env = { ...process.env };
+    delete env.PI_SCHEDULED_PROMPTS_DIR;
+    expect(globalSchedulesPath(env)).toBe(piAgentPath('scheduled-prompts.json'));
+    expect(projectSchedulesPath(cwd, env)).toBe(piProjectPath(cwd, 'scheduled-prompts.json'));
   });
 });
 

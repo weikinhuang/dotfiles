@@ -6,6 +6,13 @@
  *   - global  -> `~/.pi/agent/scheduled-prompts.json` (cross-session)
  *   - project -> `<cwd>/.pi/scheduled-prompts.json`  (this workspace)
  *
+ * Both scope paths can be redirected with the `PI_SCHEDULED_PROMPTS_DIR`
+ * env var (a test/eval harness sets it to a disposable sandbox dir so
+ * schedule writes never touch the live files). When it is set, global
+ * resolves to `<dir>/global.scheduled-prompts.json` and project to
+ * `<dir>/project.scheduled-prompts.json` - distinct files so the two
+ * scopes never collide, since `collectAll()` reads them separately.
+ *
  * The third scope (`session`) is ephemeral and never written here - the
  * extension holds it in a process-global slot that dies on quit. Each
  * schedule carries its own `scope`, so a loaded file is expected to
@@ -23,12 +30,23 @@
  */
 
 import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 import { atomicWriteFile } from '../atomic-write.ts';
 import { piAgentPath, piProjectPath } from '../pi-paths.ts';
 import { type Schedule, SCHEDULE_SCOPES, type ScheduleScope, type Trigger } from './schedule.ts';
 
 export const SCHEDULES_FILENAME = 'scheduled-prompts.json';
+
+/**
+ * When `PI_SCHEDULED_PROMPTS_DIR` is set to a non-empty (trimmed) value,
+ * return that directory; otherwise `undefined`. Resolved on each call so
+ * a subprocess that sets it mid-run picks it up.
+ */
+function overrideDir(env: NodeJS.ProcessEnv): string | undefined {
+  const dir = env.PI_SCHEDULED_PROMPTS_DIR?.trim();
+  return dir && dir.length > 0 ? dir : undefined;
+}
 
 export interface ScheduleFile {
   version: 1;
@@ -37,15 +55,22 @@ export interface ScheduleFile {
 
 /** Absolute path to the global schedules file. */
 export function globalSchedulesPath(env: NodeJS.ProcessEnv = process.env): string {
-  // piAgentPath honors PI_CODING_AGENT_DIR via process.env; the explicit
-  // `env` param is accepted for symmetry with projectSchedulesPath and
-  // future-proofing, even though piAgentPath reads process.env directly.
-  void env;
+  // With the override active both scopes live in the same dir, so they
+  // must use distinct filenames or collectAll() would double-count.
+  const dir = overrideDir(env);
+  if (dir) return join(dir, `global.${SCHEDULES_FILENAME}`);
+  // piAgentPath honors PI_CODING_AGENT_DIR via process.env.
   return piAgentPath(SCHEDULES_FILENAME);
 }
 
-/** Absolute path to the project-scope schedules file for `cwd`. */
-export function projectSchedulesPath(cwd: string): string {
+/**
+ * Absolute path to the project-scope schedules file for `cwd`. When
+ * `PI_SCHEDULED_PROMPTS_DIR` is active, `cwd` is ignored and the path
+ * resolves inside the override dir instead.
+ */
+export function projectSchedulesPath(cwd: string, env: NodeJS.ProcessEnv = process.env): string {
+  const dir = overrideDir(env);
+  if (dir) return join(dir, `project.${SCHEDULES_FILENAME}`);
   return piProjectPath(cwd, SCHEDULES_FILENAME);
 }
 
@@ -153,7 +178,7 @@ export function loadPersisted(
 } {
   return {
     global: readScopeFile(globalSchedulesPath(env)),
-    project: readScopeFile(projectSchedulesPath(cwd)),
+    project: readScopeFile(projectSchedulesPath(cwd, env)),
   };
 }
 
