@@ -97,6 +97,7 @@ import {
   deriveKeepTurns,
   deriveMaxSpanChars,
   estimateChars,
+  freezeFloorCutoff,
   injectRecap,
   injectTimeline,
   planRecap,
@@ -370,6 +371,8 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
   let committedCutoff = 0;
   /** How much of the aged prefix the recap covers; messages[0..recapCutoff) are DROPPED in recap mode. */
   let recapCutoff = 0;
+  /** FROZEN hard-safety floor drop boundary. Advances only on a roll (or a real overflow), never per-turn, so the drop / recap-injection anchor stays byte-stable between rolls and the prompt-prefix cache survives. */
+  let frozenFloorCutoff = 0;
   /** One-shot hydrate of `recapText` from the durable record per (re)load. */
   let recapHydrated = false;
   /** Generation counter; invalidates an in-flight async recap after a reset / branch change. */
@@ -393,6 +396,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
     timelineText = '';
     committedCutoff = 0;
     recapCutoff = 0;
+    frozenFloorCutoff = 0;
     recapHydrated = false;
     recapGen += 1;
     recapInFlight = false;
@@ -1676,7 +1680,8 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
         // Roll only when the frozen boundary has advanced by at least `stride`
         // aged messages. Between rolls the condensed prefix + recap are frozen
         // (byte-identical), so the prompt-prefix cache is reused.
-        if (planRecap(natural, committedCutoff, strideValue())) {
+        const rollFired = planRecap(natural, committedCutoff, strideValue());
+        if (rollFired) {
           if (recapMode) {
             const info = resolveRecapModelInfo(ctx);
             const wantAsync = recapAsyncForced() ?? info.distinct;
@@ -1769,7 +1774,30 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
           const RESERVE_TOKENS = 3072;
           const convBudget = windowTokens - Math.round((sysChars + injectChars) / cpt) - RESERVE_TOKENS;
           const fitTurns = convBudget > 0 ? deriveKeepTurns(messages, convBudget, cpt, 1, 100000) : 1;
-          floorCutoff = computeCutoff(messages, fitTurns);
+          const rawFloor = computeCutoff(messages, fitTurns);
+          // The raw fit floor creeps forward a message or two EVERY turn (the fit
+          // turn-count is ~constant but its mapped index grows with the
+          // transcript), which would move the drop / recap-injection anchor every
+          // turn and reprocess the kept-window suffix. Freeze it between rolls
+          // (same invariant recapCutoff/committedCutoff obey); only re-cut on a
+          // roll, or when HOLDING the frozen floor would actually overflow.
+          //
+          // The overflow valve uses a LOOSER limit than the fit target on
+          // purpose: `deriveKeepTurns` packs turns right up to `convBudget`, so a
+          // valve keyed on `convBudget` would trip after a single turn's growth
+          // and re-cut every turn - defeating the freeze exactly when the floor
+          // is active. Let the held prompt grow into the output reserve between
+          // rolls; only force a re-cut when it would eat past a minimum output
+          // margin (the true window-overflow danger). The gap RESERVE_TOKENS -
+          // MIN_OUTPUT_TOKENS is the between-roll headroom, sized to absorb a
+          // roll stride's worth of growth.
+          const MIN_OUTPUT_TOKENS = 1024;
+          const overflowLimit = windowTokens - Math.round((sysChars + injectChars) / cpt) - MIN_OUTPUT_TOKENS;
+          const heldConvTokens =
+            frozenFloorCutoff > 0 ? estimateChars(messages.slice(frozenFloorCutoff)) / cpt : Infinity;
+          const overflow = overflowLimit > 0 && heldConvTokens > overflowLimit;
+          frozenFloorCutoff = freezeFloorCutoff({ frozen: frozenFloorCutoff, rawFloor, rollFired, overflow });
+          floorCutoff = frozenFloorCutoff;
         }
         const dropCutoff = Math.max(recapCutoff, floorCutoff);
 

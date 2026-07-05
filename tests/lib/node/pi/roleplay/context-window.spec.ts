@@ -10,6 +10,7 @@ import {
   deriveKeepTurns,
   deriveMaxSpanChars,
   estimateChars,
+  freezeFloorCutoff,
   injectRecap,
   injectTimeline,
   planRecap,
@@ -216,6 +217,48 @@ describe('planRecap', () => {
     expect(planRecap(8, 0, 8)).toBe(true);
     expect(planRecap(16, 8, 8)).toBe(true);
     expect(planRecap(15, 8, 8)).toBe(false);
+  });
+});
+
+describe('freezeFloorCutoff', () => {
+  it('re-cuts to the fresh raw floor on a roll', () => {
+    expect(freezeFloorCutoff({ frozen: 100, rawFloor: 140, rollFired: true, overflow: false })).toBe(140);
+    // Even when the fresh cut is smaller (e.g. a longer recap freed budget), a
+    // roll adopts it - the prefix is being re-cut anyway.
+    expect(freezeFloorCutoff({ frozen: 140, rawFloor: 120, rollFired: true, overflow: false })).toBe(120);
+  });
+
+  it('holds the frozen index between rolls even as the raw floor creeps up', () => {
+    // The raw fit floor advances a message or two every turn; freezing pins the
+    // drop boundary so the prompt prefix stays byte-stable and cache survives.
+    let frozen = 100;
+    for (const rawFloor of [102, 104, 106, 108]) {
+      frozen = freezeFloorCutoff({ frozen, rawFloor, rollFired: false, overflow: false });
+      expect(frozen).toBe(100);
+    }
+  });
+
+  it('advances mid-cycle only when holding would overflow (hard-safety valve)', () => {
+    expect(freezeFloorCutoff({ frozen: 100, rawFloor: 130, rollFired: false, overflow: true })).toBe(130);
+    // Never regresses below the frozen index on an overflow valve.
+    expect(freezeFloorCutoff({ frozen: 140, rawFloor: 120, rollFired: false, overflow: true })).toBe(140);
+  });
+
+  it('sawtooth vs frozen: a per-turn recompute steps every turn, freezing steps only on rolls', () => {
+    // Simulate the raw floor creeping +2/turn with a roll every 4th turn.
+    let frozen = 0;
+    const frozenSteps: number[] = [];
+    let raw = 100;
+    for (let turn = 0; turn < 12; turn++) {
+      const rollFired = turn % 4 === 0;
+      frozen = freezeFloorCutoff({ frozen: frozen || raw, rawFloor: raw, rollFired, overflow: false });
+      frozenSteps.push(frozen);
+      raw += 2;
+    }
+    // The raw floor changed all 12 turns; the frozen floor changes only on the
+    // 3 roll turns (indices 0, 4, 8), so 9 of 12 turns keep a byte-stable prefix.
+    const distinctFrozen = new Set(frozenSteps).size;
+    expect(distinctFrozen).toBe(3);
   });
 });
 

@@ -291,6 +291,42 @@ export function planRecap(oldCount: number, covered: number, chunk: number): boo
   return oldCount > 0 && oldCount - covered >= chunk;
 }
 
+/**
+ * Freeze the hard-safety floor between rolls so the drop boundary - and thus
+ * the whole prompt prefix - stays byte-stable turn to turn and the provider's
+ * prompt-prefix cache survives.
+ *
+ * The floor ({@link computeCutoff} over a window-fit turn count) creeps forward
+ * a message or two EVERY turn as new turns arrive: the fit turn-count is
+ * roughly constant, but its mapped user-boundary index grows with the
+ * transcript. Recomputed raw every turn, it shifts the drop / recap-injection
+ * anchor every turn, so the ~kept-window suffix falls out of cache and is
+ * reprocessed (observed: ~12-13k tokens re-evaluated per turn). This makes the
+ * floor obey the same freeze-between-rolls invariant `committedCutoff` /
+ * `recapCutoff` already follow.
+ *
+ * - On a roll (`rollFired`) the whole prefix is re-cut anyway, so adopt the
+ *   fresh `rawFloor`.
+ * - `overflow` is the hard-safety valve: when HOLDING the frozen floor would
+ *   actually exceed the window budget (the caller estimates this from the held
+ *   suffix), advance to `rawFloor` even mid-cycle rather than send an
+ *   over-window prompt. Rare, because the per-turn reserve absorbs a roll's
+ *   worth of growth.
+ * - Otherwise hold the frozen index. Never regress (a smaller cut would only
+ *   re-admit already-dropped messages and bust cache for no benefit).
+ */
+export function freezeFloorCutoff(opts: {
+  frozen: number;
+  rawFloor: number;
+  rollFired: boolean;
+  overflow: boolean;
+}): number {
+  const { frozen, rawFloor, rollFired, overflow } = opts;
+  if (rollFired) return rawFloor;
+  if (overflow) return Math.max(frozen, rawFloor);
+  return frozen;
+}
+
 // ──────────────────────────────────────────────────────────────────────
 // Token estimation + budget derivation (measure-first sizing)
 // ──────────────────────────────────────────────────────────────────────
