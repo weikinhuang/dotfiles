@@ -1553,8 +1553,15 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
         if (e.customType === 'roleplay-newscene') return null;
         const ct = e.customType;
         if (ct !== 'roleplay-context-recap' && ct !== 'rp-context-recap') continue;
-        const data = e.data as { recap?: unknown; coveredTo?: unknown; applied?: unknown } | undefined;
-        if (data?.applied === false) continue;
+        const data = e.data as
+          | { recap?: unknown; coveredTo?: unknown; applied?: unknown; forced?: unknown }
+          | undefined;
+        // A force-accepted roll (circuit-breaker) commits its recap + coverage in
+        // memory but is logged `applied=false` (that is the raw acceptRecap
+        // verdict) with `forced=true`. Treat it as committed on reload, else the
+        // drain progress it made is discarded and coverage resets to the last
+        // organically-accepted entry every reload.
+        if (data?.applied === false && data?.forced !== true) continue;
         const text = typeof data?.recap === 'string' ? data.recap.trim() : '';
         if (!text) continue;
         const coveredTo = typeof data?.coveredTo === 'number' ? data.coveredTo : 0;
@@ -1768,12 +1775,15 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
               writeRecapAudit({ result, model: info.model, spanFrom, spanTo, mode: 'sync', forced });
             }
           }
-          // Advance the condense boundary only to the covered point, not all the
-          // way to `natural`. When coverage is bounded (recapMaxAdvance) and
-          // lagging, this keeps the existing planRecap gate firing every turn so
-          // the backlog drains roll by roll; the not-yet-covered recent messages
-          // stay verbatim (the safety floor bounds their token cost).
-          committedCutoff = Math.min(recapCutoff, natural);
+          // Advance the condense boundary to `natural`, so the planRecap gate
+          // fires at the stride (every ~stride aged messages), NOT every turn.
+          // A bounded recap backlog still drains: each stride-roll summarizes a
+          // digestible `recapMaxAdvance` chunk (boundRollSpanTo), advancing
+          // recapCutoff faster than `natural` grows. Draining every turn instead
+          // (committedCutoff = min(recapCutoff, natural)) churns the
+          // front-injected recap and re-cuts the floor every turn, busting the
+          // prompt-prefix cache on a session catching up a large backlog.
+          committedCutoff = natural;
         }
 
         // Hard safety floor: guarantee the reduced prompt fits the session
@@ -1820,7 +1830,12 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
           const heldConvTokens =
             frozenFloorCutoff > 0 ? estimateChars(messages.slice(frozenFloorCutoff)) / cpt : Infinity;
           const overflow = overflowLimit > 0 && heldConvTokens > overflowLimit;
-          frozenFloorCutoff = freezeFloorCutoff({ frozen: frozenFloorCutoff, rawFloor, rollFired, overflow });
+          // Freeze the floor: recompute only on the overflow valve, never per
+          // turn. NB do NOT key this on `rollFired` - a session draining a recap
+          // backlog rolls every turn, which would recompute (and wiggle) the
+          // floor every turn and defeat the freeze. The valve alone advances it
+          // when holding would overflow; otherwise the drop boundary is stable.
+          frozenFloorCutoff = freezeFloorCutoff({ frozen: frozenFloorCutoff, rawFloor, rollFired: false, overflow });
           floorCutoff = frozenFloorCutoff;
         }
         const dropCutoff = Math.max(recapCutoff, floorCutoff);
