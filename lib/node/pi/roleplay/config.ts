@@ -66,6 +66,10 @@ export interface RoleplayConfig {
   windowUserChars: number;
   /** Roll cadence in aged messages (re-recap + advance the drop boundary). 0 = follow `recapChunk`. */
   recapStride: number;
+  /** Max messages a single roll advances recap coverage; keeps the merge span digestible so it can't collapse+wedge. 0 = unbounded (spanTo=natural). */
+  recapMaxAdvance: number;
+  /** Force-accept the best recap candidate once uncovered lag (natural-recapCutoff) exceeds this, so coverage can never wedge permanently. 0 = disabled. */
+  recapLagCeiling: number;
   /** Force async (`true`) / sync (`false`) recap; `null` = auto (async only on a distinct recap endpoint). */
   recapAsync: boolean | null;
   /** Deterministic fact capture on the roll -> session-scope `memory` notes (requires recap mode). */
@@ -98,6 +102,8 @@ export const DEFAULT_CONFIG: RoleplayConfig = {
   windowAssistantChars: 200,
   windowUserChars: 400,
   recapStride: 0,
+  recapMaxAdvance: 24,
+  recapLagCeiling: 96,
   recapAsync: null,
   capture: false,
   timeline: false,
@@ -131,6 +137,8 @@ export const MIN_KEEP_TURNS = 1;
 export const MAX_KEEP_TURNS = 200;
 export const MIN_RECAP_CHUNK = 1;
 export const MAX_RECAP_CHUNK = 500;
+/** Upper bound on the per-roll coverage advance / lag ceiling so a stray config can't run away. */
+export const MAX_RECAP_ADVANCE = 5000;
 /** Floor on the per-message condense budget so condensing can't produce a stub. */
 export const MIN_WINDOW_CHARS = 40;
 
@@ -205,6 +213,12 @@ export function coerceConfigLayer(raw: unknown): Partial<RoleplayConfig> {
   if (typeof v.recapStride === 'number' && Number.isFinite(v.recapStride)) {
     out.recapStride = Math.max(0, Math.min(MAX_RECAP_CHUNK, Math.floor(v.recapStride)));
   }
+  if (typeof v.recapMaxAdvance === 'number' && Number.isFinite(v.recapMaxAdvance)) {
+    out.recapMaxAdvance = Math.max(0, Math.min(MAX_RECAP_ADVANCE, Math.floor(v.recapMaxAdvance)));
+  }
+  if (typeof v.recapLagCeiling === 'number' && Number.isFinite(v.recapLagCeiling)) {
+    out.recapLagCeiling = Math.max(0, Math.min(MAX_RECAP_ADVANCE, Math.floor(v.recapLagCeiling)));
+  }
   if (typeof v.recapAsync === 'boolean') {
     out.recapAsync = v.recapAsync;
   }
@@ -269,6 +283,20 @@ export function loadRoleplayConfig(cwd: string, envCharBudget?: number): Rolepla
   }
   if (env.PI_ROLEPLAY_RECAP_STRIDE !== undefined) {
     envLayer.recapStride = parseClampedPositiveInt(env.PI_ROLEPLAY_RECAP_STRIDE, DEFAULT_CONFIG.recapStride, 1);
+  }
+  if (env.PI_ROLEPLAY_RECAP_MAX_ADVANCE !== undefined) {
+    envLayer.recapMaxAdvance = parseClampedPositiveInt(
+      env.PI_ROLEPLAY_RECAP_MAX_ADVANCE,
+      DEFAULT_CONFIG.recapMaxAdvance,
+      0,
+    );
+  }
+  if (env.PI_ROLEPLAY_RECAP_LAG_CEILING !== undefined) {
+    envLayer.recapLagCeiling = parseClampedPositiveInt(
+      env.PI_ROLEPLAY_RECAP_LAG_CEILING,
+      DEFAULT_CONFIG.recapLagCeiling,
+      0,
+    );
   }
   if (env.PI_ROLEPLAY_RECAP_ASYNC !== undefined) {
     envLayer.recapAsync = envTruthy(env.PI_ROLEPLAY_RECAP_ASYNC);

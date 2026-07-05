@@ -92,6 +92,7 @@ import {
   acceptRecap,
   applyContextWindowAt,
   applyLayeredWindow,
+  boundRollSpanTo,
   computeCutoff,
   DEFAULT_CHARS_PER_TOKEN,
   deriveKeepTurns,
@@ -101,6 +102,7 @@ import {
   injectRecap,
   injectTimeline,
   planRecap,
+  shouldForceRecap,
   updateCharsPerToken,
   type WindowOptions,
 } from '../../../lib/node/pi/roleplay/context-window.ts';
@@ -1036,6 +1038,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
     spanFrom: number;
     spanTo: number;
     mode: 'sync' | 'async';
+    forced?: boolean;
   }): void => {
     try {
       pi.appendEntry('roleplay-context-recap', {
@@ -1049,6 +1052,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
         mode: o.mode,
         ok: o.result.next !== null,
         applied: o.result.applied,
+        forced: o.forced ?? false,
         candidateChars: o.result.next?.length ?? 0,
         recapChars: recapText.length,
         // The actual recap text, so drift is inspectable from the audit log
@@ -1683,13 +1687,23 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
         const rollFired = planRecap(natural, committedCutoff, strideValue());
         if (rollFired) {
           if (recapMode) {
+            const rollCfg = loadRoleplayConfig(cwd, envCharBudget);
             const info = resolveRecapModelInfo(ctx);
             const wantAsync = recapAsyncForced() ?? info.distinct;
             // Snapshot the session id at roll-plan time (decision a): the async
             // path must not read it inside its `.then` (the manager may be gone).
             const sid = currentSessionId(ctx);
             const spanFrom = recapCutoff;
-            const spanTo = natural;
+            // Cap how far one roll advances coverage so the summarizer only ever
+            // merges a digestible increment onto the prior recap (an unbounded
+            // spanTo=natural made a stalled recap re-summarize a growing span,
+            // collapse below acceptRecap's floor, and wedge - recapCutoff pinned
+            // 190 turns in the field). The lag circuit-breaker below guarantees
+            // coverage can never wedge permanently even if an increment is still
+            // rejected.
+            const spanTo = boundRollSpanTo(recapCutoff, natural, rollCfg.recapMaxAdvance);
+            const lag = natural - recapCutoff;
+            const lagCeiling = rollCfg.recapLagCeiling;
             const span = messages.slice(spanFrom, spanTo).map(toSummarizable);
             if (wantAsync) {
               // Non-blocking: at most one background recap; return on the PRIOR
@@ -1705,13 +1719,17 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
                 void doRecap(ctx, span, prior, info, recapAbort.signal)
                   .then(async (result) => {
                     if (gen !== recapGen) return; // stale (reset / branch change): discard
-                    if (result.applied && result.next) {
+                    // Force-accept a rejected-but-usable candidate once coverage
+                    // has lagged past the ceiling, so a persistently collapsing
+                    // summarizer can't wedge coverage forever.
+                    const forced = !result.applied && shouldForceRecap({ candidate: result.next, lag, lagCeiling });
+                    if ((result.applied || forced) && result.next) {
                       recapText = result.next;
                       recapCutoff = spanTo;
                       writeRecapRecord(result.next, sid);
                     }
-                    writeRecapAudit({ result, model: info.model, spanFrom, spanTo, mode: 'async' });
-                    if (result.applied && result.next) {
+                    writeRecapAudit({ result, model: info.model, spanFrom, spanTo, mode: 'async', forced });
+                    if ((result.applied || forced) && result.next) {
                       // Capture runs SEQUENTIALLY after the recap, and is
                       // AWAITED inside the chain so `recapInFlight` stays set
                       // until it finishes. Both matter: the fact-extractor
@@ -1739,17 +1757,23 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
               // Blocking (inherited / same endpoint): one llama.cpp instance
               // cannot serve the recap and the main turn concurrently.
               const result = await doRecap(ctx, span, recapText, info, ctx.signal);
-              if (result.applied && result.next) {
+              const forced = !result.applied && shouldForceRecap({ candidate: result.next, lag, lagCeiling });
+              if ((result.applied || forced) && result.next) {
                 recapText = result.next;
                 recapCutoff = spanTo;
                 writeRecapRecord(result.next, sid);
                 await captureFacts(ctx, span);
                 await captureTimeline(ctx, span, sid);
               }
-              writeRecapAudit({ result, model: info.model, spanFrom, spanTo, mode: 'sync' });
+              writeRecapAudit({ result, model: info.model, spanFrom, spanTo, mode: 'sync', forced });
             }
           }
-          committedCutoff = natural;
+          // Advance the condense boundary only to the covered point, not all the
+          // way to `natural`. When coverage is bounded (recapMaxAdvance) and
+          // lagging, this keeps the existing planRecap gate firing every turn so
+          // the backlog drains roll by roll; the not-yet-covered recent messages
+          // stay verbatim (the safety floor bounds their token cost).
+          committedCutoff = Math.min(recapCutoff, natural);
         }
 
         // Hard safety floor: guarantee the reduced prompt fits the session

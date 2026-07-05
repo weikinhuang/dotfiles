@@ -327,6 +327,47 @@ export function freezeFloorCutoff(opts: {
   return frozen;
 }
 
+/**
+ * Bound how far a single roll advances recap coverage. The roll summarizes
+ * `messages[recapCutoff, spanTo)` and, on success, moves `recapCutoff` to
+ * `spanTo`. Left unbounded (`spanTo = natural`) a stalled recap re-attempts an
+ * ever-growing span: the summarizer is asked to re-merge hundreds of messages
+ * into the running recap, collapses to a fraction of the prior, {@link
+ * acceptRecap} rejects it, coverage never advances, the span grows further -
+ * a self-reinforcing wedge (observed: recapCutoff pinned 190 turns). It also
+ * silently loses content, because {@link planSummarization} truncates the span
+ * TEXT to a char cap while coverage still advances over the whole span.
+ *
+ * Capping the advance keeps every roll an incremental append of a digestible
+ * chunk onto the prior recap - which the summarizer handles without collapsing
+ * and which never exceeds the summarizer's span-text cap - so coverage drains
+ * a bounded step per roll and `acceptRecap` passes naturally. `maxAdvance <= 0`
+ * disables the cap (legacy `spanTo = natural`).
+ */
+export function boundRollSpanTo(recapCutoff: number, natural: number, maxAdvance: number): number {
+  if (maxAdvance <= 0) return natural;
+  return Math.min(natural, recapCutoff + maxAdvance);
+}
+
+/**
+ * Circuit-breaker guaranteeing recap coverage can never wedge permanently.
+ * {@link acceptRecap} rejects a candidate that collapses below the prior; that
+ * guard protects against a one-off bad generation, but with {@link
+ * boundRollSpanTo} disabled or a persistently degrading summarizer it can still
+ * stall coverage indefinitely. When the uncovered lag `natural - recapCutoff`
+ * grows past `lagCeiling`, accept the best non-empty candidate anyway: a
+ * one-time recap shrink that restores forward progress beats permanent
+ * staleness plus the safety floor silently dropping the uncovered span. Returns
+ * false when there is nothing usable to accept or the lag is still tolerable.
+ * `lagCeiling <= 0` disables the breaker.
+ */
+export function shouldForceRecap(opts: { candidate: string | null; lag: number; lagCeiling: number }): boolean {
+  const { candidate, lag, lagCeiling } = opts;
+  if (lagCeiling <= 0) return false;
+  if (!candidate?.trim()) return false;
+  return lag >= lagCeiling;
+}
+
 // ──────────────────────────────────────────────────────────────────────
 // Token estimation + budget derivation (measure-first sizing)
 // ──────────────────────────────────────────────────────────────────────

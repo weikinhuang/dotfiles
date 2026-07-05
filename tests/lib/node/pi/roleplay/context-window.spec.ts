@@ -4,6 +4,7 @@ import {
   acceptRecap,
   applyContextWindowAt,
   applyLayeredWindow,
+  boundRollSpanTo,
   computeCutoff,
   condenseMessage,
   DEFAULT_CHARS_PER_TOKEN,
@@ -15,6 +16,7 @@ import {
   injectTimeline,
   planRecap,
   RECAP_PREFIX,
+  shouldForceRecap,
   TIMELINE_PREFIX,
   truncateText,
   updateCharsPerToken,
@@ -259,6 +261,56 @@ describe('freezeFloorCutoff', () => {
     // 3 roll turns (indices 0, 4, 8), so 9 of 12 turns keep a byte-stable prefix.
     const distinctFrozen = new Set(frozenSteps).size;
     expect(distinctFrozen).toBe(3);
+  });
+});
+
+describe('boundRollSpanTo', () => {
+  it('caps the advance to recapCutoff + maxAdvance', () => {
+    expect(boundRollSpanTo(1643, 1947, 24)).toBe(1667);
+  });
+
+  it('never overshoots natural when the remaining span is small', () => {
+    expect(boundRollSpanTo(1940, 1947, 24)).toBe(1947);
+  });
+
+  it('maxAdvance <= 0 disables the cap (legacy spanTo = natural)', () => {
+    expect(boundRollSpanTo(1643, 1947, 0)).toBe(1947);
+    expect(boundRollSpanTo(1643, 1947, -5)).toBe(1947);
+  });
+
+  it('drains a stalled backlog in bounded steps instead of re-attempting it whole', () => {
+    // A wedged recap 300 messages behind advances 24/roll rather than retrying
+    // the entire 300-message span (which is what collapsed + wedged it).
+    let recapCutoff = 1643;
+    const natural = 1943; // 300 behind; fixed for this check
+    const steps: number[] = [];
+    for (let i = 0; i < 5; i++) {
+      const spanTo = boundRollSpanTo(recapCutoff, natural, 24);
+      steps.push(spanTo - recapCutoff);
+      recapCutoff = spanTo; // simulate an accepted incremental roll
+    }
+    expect(steps).toEqual([24, 24, 24, 24, 24]);
+    expect(recapCutoff).toBe(1763); // 1643 + 5*24, still draining toward natural
+  });
+});
+
+describe('shouldForceRecap', () => {
+  it('does not force while the lag is tolerable', () => {
+    expect(shouldForceRecap({ candidate: 'short recap', lag: 40, lagCeiling: 96 })).toBe(false);
+  });
+
+  it('forces once the uncovered lag reaches the ceiling', () => {
+    expect(shouldForceRecap({ candidate: 'short recap', lag: 96, lagCeiling: 96 })).toBe(true);
+    expect(shouldForceRecap({ candidate: 'short recap', lag: 300, lagCeiling: 96 })).toBe(true);
+  });
+
+  it('never forces an empty / null candidate (nothing usable to accept)', () => {
+    expect(shouldForceRecap({ candidate: null, lag: 300, lagCeiling: 96 })).toBe(false);
+    expect(shouldForceRecap({ candidate: '   ', lag: 300, lagCeiling: 96 })).toBe(false);
+  });
+
+  it('lagCeiling <= 0 disables the breaker', () => {
+    expect(shouldForceRecap({ candidate: 'short recap', lag: 9999, lagCeiling: 0 })).toBe(false);
   });
 });
 
