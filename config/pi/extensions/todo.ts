@@ -59,13 +59,14 @@
 
 import { StringEnum } from '@earendil-works/pi-ai';
 import { type ExtensionAPI, type ExtensionContext, type Theme } from '@earendil-works/pi-coding-agent';
-import { matchesKey, Text, truncateToWidth } from '@earendil-works/pi-tui';
+import { Key, matchesKey, Text, truncateToWidth, type TUI } from '@earendil-works/pi-tui';
 import { Type } from 'typebox';
 
 import { isHelpArg } from '../../../lib/node/pi/commands/help.ts';
 import { extractLastAssistantText } from '../../../lib/node/pi/message-extract.ts';
 import { TODOS_USAGE } from '../../../lib/node/pi/todo/usage.ts';
 import { showModal } from '../../../lib/node/pi/ext/show-modal.ts';
+import { assembleWindowedBody, overlayViewportRows } from '../../../lib/node/pi/ext/overlay-window.ts';
 import { truncate } from '../../../lib/node/pi/shared.ts';
 import { applyContextReminder, type ReminderMessage } from '../../../lib/node/pi/context-reminder.ts';
 import { formatActivePlan, looksLikeCompletionClaim } from '../../../lib/node/pi/todo-prompt.ts';
@@ -225,36 +226,66 @@ function lastUserMessageHasMarker(ctx: ExtensionContext, marker: string, customT
 // /todos overlay
 // ──────────────────────────────────────────────────────────────────────
 
-class TodoOverlay {
+export class TodoOverlay {
   private readonly state: TodoState;
   private readonly theme: Theme;
+  private readonly tui: TUI;
   private readonly onClose: () => void;
+  /** Viewport scroll offset (first visible body line); key-driven, no selection. */
+  private scrollTop = 0;
+  private maxScrollTop = 0;
+  /** Visible body rows from the last render (a page for PageUp/PageDown). */
+  private contentRows = 1;
   private cachedWidth?: number;
+  private cachedRows?: number;
   private cachedLines?: string[];
 
-  constructor(state: TodoState, theme: Theme, onClose: () => void) {
+  constructor(state: TodoState, theme: Theme, tui: TUI, onClose: () => void) {
     this.state = state;
     this.theme = theme;
+    this.tui = tui;
     this.onClose = onClose;
   }
 
   handleInput(data: string): void {
-    if (matchesKey(data, 'escape') || matchesKey(data, 'ctrl+c')) this.onClose();
+    if (matchesKey(data, Key.escape) || matchesKey(data, 'ctrl+c') || data === 'q') {
+      this.onClose();
+      return;
+    }
+    if (matchesKey(data, Key.up) || matchesKey(data, 'ctrl+p') || data === 'k') this.scrollTo(this.scrollTop - 1);
+    else if (matchesKey(data, Key.down) || matchesKey(data, 'ctrl+n') || data === 'j')
+      this.scrollTo(this.scrollTop + 1);
+    else if (matchesKey(data, Key.pageUp) || matchesKey(data, 'ctrl+b'))
+      this.scrollTo(this.scrollTop - this.contentRows);
+    else if (matchesKey(data, Key.pageDown) || matchesKey(data, 'ctrl+f'))
+      this.scrollTo(this.scrollTop + this.contentRows);
+    else if (matchesKey(data, Key.home) || data === 'g') this.scrollTo(0);
+    else if (matchesKey(data, Key.end) || data === 'G') this.scrollTo(this.maxScrollTop);
+  }
+
+  private scrollTo(target: number): void {
+    const next = Math.max(0, Math.min(this.maxScrollTop, target));
+    if (next === this.scrollTop) return;
+    this.scrollTop = next;
+    this.invalidate();
+    this.tui.requestRender();
   }
 
   render(width: number): string[] {
-    if (this.cachedLines && this.cachedWidth === width) return this.cachedLines;
+    const rows = this.tui.terminal.rows;
+    if (this.cachedLines && this.cachedWidth === width && this.cachedRows === rows) return this.cachedLines;
     const th = this.theme;
-    const lines: string[] = [''];
 
     const total = this.state.todos.length;
     const completed = this.state.todos.filter((t) => t.status === 'completed').length;
     const chip = total > 0 ? `${completed}/${total}` : undefined;
-    lines.push(truncateToWidth(formatHeaderRule('Todos', chip, width, th), width));
-    lines.push('');
+    // Pinned frame: title above, help below; the grouped list scrolls between.
+    const header = ['', truncateToWidth(formatHeaderRule('Todos', chip, width, th), width), ''];
+    const footer = ['', truncateToWidth(`  ${th.fg('dim', 'Press Escape to close')}`, width), ''];
 
+    const body: string[] = [];
     if (total === 0) {
-      lines.push(truncateToWidth(`  ${th.fg('dim', 'No todos yet. Ask the agent to plan a multi-step task.')}`, width));
+      body.push(truncateToWidth(`  ${th.fg('dim', 'No todos yet. Ask the agent to plan a multi-step task.')}`, width));
     } else {
       // Progress bar adapts to terminal width: 8 cells at 80 cols,
       // wider when there's room (capped at 20 so it never dominates).
@@ -262,8 +293,8 @@ class TodoOverlay {
       const progress = formatTodoProgress(this.state, { width: barWidth });
       const pctText = `${progress.pct}%`;
       const progressLine = `  ${th.fg('success', progress.bar)}  ${th.fg('muted', pctText)}${progress.summary ? `   ${th.fg('muted', progress.summary)}` : ''}`;
-      lines.push(truncateToWidth(progressLine, width));
-      lines.push('');
+      body.push(truncateToWidth(progressLine, width));
+      body.push('');
 
       const groups = groupTodos(this.state);
       const idPad = Math.max(...this.state.todos.map((t) => String(t.id).length)) + 1; // include '#'
@@ -271,29 +302,40 @@ class TodoOverlay {
       for (const section of OVERLAY_SECTIONS) {
         const items = groups[section.key];
         if (items.length === 0) continue;
-        if (!firstSection) lines.push('');
+        if (!firstSection) body.push('');
         firstSection = false;
         const headerLabel = section.withCount ? `${section.label} (${items.length})` : section.label;
-        lines.push(truncateToWidth(`  ${th.fg('muted', headerLabel)}`, width));
+        body.push(truncateToWidth(`  ${th.fg('muted', headerLabel)}`, width));
         for (const t of items) {
           for (const row of renderOverlayTodoLines(t, th, idPad)) {
-            lines.push(truncateToWidth(row, width));
+            body.push(truncateToWidth(row, width));
           }
         }
       }
     }
 
-    lines.push('');
-    lines.push(truncateToWidth(`  ${th.fg('dim', 'Press Escape to close')}`, width));
-    lines.push('');
+    const win = assembleWindowedBody({
+      header,
+      body,
+      footer,
+      width,
+      viewportRows: overlayViewportRows(rows),
+      scrollTop: this.scrollTop,
+      theme: th,
+    });
+    this.scrollTop = win.scrollTop;
+    this.maxScrollTop = win.maxScrollTop;
+    this.contentRows = win.contentRows;
 
     this.cachedWidth = width;
-    this.cachedLines = lines;
-    return lines;
+    this.cachedRows = rows;
+    this.cachedLines = win.lines;
+    return win.lines;
   }
 
   invalidate(): void {
     this.cachedWidth = undefined;
+    this.cachedRows = undefined;
     this.cachedLines = undefined;
   }
 }
@@ -533,7 +575,7 @@ export default function todoExtension(pi: ExtensionAPI): void {
         ctx.ui.notify(formatText(state), 'info');
         return;
       }
-      await showModal<void>(ctx.ui, (_tui, theme, _kb, done) => new TodoOverlay(state, theme, () => done()));
+      await showModal<void>(ctx.ui, (tui, theme, _kb, done) => new TodoOverlay(state, theme, tui, () => done()));
     },
   });
 }

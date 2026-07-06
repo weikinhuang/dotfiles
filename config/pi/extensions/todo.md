@@ -114,7 +114,10 @@ Bottom-anchored read-only overlay rendered by `TodoOverlay`. Same header-rule st
 2. Grouped sections in fixed order: `In progress`, `Review`, `Pending`, `Blocked`, `Cancelled (N)`, `Completed (N)`.
    Empty sections are skipped. Notes render on a continuation line prefixed `• ` so long notes stay readable.
 
-Press `Escape` (or `Ctrl-C`) to close. No in-overlay state mutation; navigation comes later if it's useful.
+Press `Escape` (or `Ctrl-C` / `q`) to close. When the list is taller than the terminal the body is windowed to the
+visible height (pinned title above, help line below) with `↑ N more` / `↓ N more` indicators; scroll it with the arrow
+keys / `j`,`k` (line), `PageUp`,`PageDown` / `Ctrl-b`,`Ctrl-f` (page), and `g`,`G` / `Home`,`End` (top/bottom). No
+in-overlay state mutation.
 
 ## Inline `renderCall` / `renderResult`
 
