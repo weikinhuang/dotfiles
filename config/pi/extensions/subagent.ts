@@ -79,7 +79,7 @@ import {
   type ExtensionFactory,
   type Theme,
 } from '@earendil-works/pi-coding-agent';
-import { matchesKey, Text, truncateToWidth, type Component } from '@earendil-works/pi-tui';
+import { matchesKey, Text, truncateToWidth, type Component, type TUI } from '@earendil-works/pi-tui';
 import { Type } from 'typebox';
 
 import {
@@ -90,6 +90,7 @@ import {
   type ChildToolAggregate,
 } from '../../../lib/node/pi/subagent/aggregate.ts';
 import { showModal } from '../../../lib/node/pi/ext/show-modal.ts';
+import { assembleWindowedBody, overlayViewportRows } from '../../../lib/node/pi/ext/overlay-window.ts';
 import {
   ActivityRing,
   activityPushModeFor,
@@ -395,15 +396,19 @@ function renderScorecard(args: {
  * separate a row list (top) from a preview block (bottom); selection
  * is driven by the arrow keys, escape closes.
  */
-class AgentsLoadedOverlay implements Component {
+export class AgentsLoadedOverlay implements Component {
   private agents: AgentPreviewSource[];
   private selected = 0;
+  /** Agent-list scroll offset (rows are one line each); selection-driven. */
+  private scrollTop = 0;
   private cachedWidth?: number;
+  private cachedRows?: number;
   private cachedLines?: string[];
 
   constructor(
     agents: AgentPreviewSource[],
     private readonly theme: Theme,
+    private readonly tui: TUI,
     private readonly onClose: () => void,
   ) {
     this.agents = agents;
@@ -426,6 +431,7 @@ class AgentsLoadedOverlay implements Component {
 
   invalidate(): void {
     this.cachedWidth = undefined;
+    this.cachedRows = undefined;
     this.cachedLines = undefined;
   }
 
@@ -436,32 +442,37 @@ class AgentsLoadedOverlay implements Component {
   }
 
   render(width: number): string[] {
-    if (this.cachedLines && this.cachedWidth === width) return this.cachedLines;
+    const rows = this.tui.terminal.rows;
+    if (this.cachedLines && this.cachedWidth === width && this.cachedRows === rows) return this.cachedLines;
     const th = this.theme;
-    const lines: string[] = [''];
 
     const count = this.agents.length;
     const chip = count > 0 ? `${count} agent${count === 1 ? '' : 's'}` : undefined;
-    lines.push(truncateToWidth(formatHeaderRule('Loaded sub-agents', chip, width, th), width));
-    lines.push('');
+    const header = ['', truncateToWidth(formatHeaderRule('Loaded sub-agents', chip, width, th), width), ''];
 
     if (count === 0) {
-      lines.push(
+      const lines = [
+        ...header,
         truncateToWidth(
           `  ${th.fg('dim', 'No agents loaded. Drop Markdown definitions into <piAgentDir>/agents/.')}`,
           width,
         ),
-      );
-      lines.push('');
-      lines.push(truncateToWidth(`  ${th.fg('dim', 'Press Escape to close')}`, width));
-      lines.push('');
+        '',
+        truncateToWidth(`  ${th.fg('dim', 'Press Escape to close')}`, width),
+        '',
+      ];
       this.cachedWidth = width;
+      this.cachedRows = rows;
       this.cachedLines = lines;
       return lines;
     }
 
+    if (this.selected >= count) this.selected = count - 1;
+
+    // Body (scrollable): one row per agent.
     const maxName = this.agents.reduce((m, a) => Math.max(m, a.name.length), 0);
     const sourcePad = '[global] '.length; // widest tag with trailing space
+    const body: string[] = [];
     for (let i = 0; i < this.agents.length; i++) {
       const a = this.agents[i];
       const marker = i === this.selected ? th.fg('accent', '>') : ' ';
@@ -470,28 +481,42 @@ class AgentsLoadedOverlay implements Component {
       const sourceSeg = th.fg('muted', sourceTag + ' '.repeat(Math.max(1, sourcePad - sourceTag.length)));
       const desc = formatAgentListRowDescription(a.description);
       const styled = i === this.selected ? th.fg('text', a.name) : th.fg('dim', a.name);
-      const row = `  ${marker} ${styled}${namePad}${sourceSeg} ${th.fg('dim', desc)}`;
-      lines.push(truncateToWidth(row, width));
+      body.push(truncateToWidth(`  ${marker} ${styled}${namePad}${sourceSeg} ${th.fg('dim', desc)}`, width));
     }
 
+    // Footer (pinned): preview of the highlighted agent + key hints.
     const selected = this.agents[this.selected];
-    lines.push('');
-    lines.push(
+    const footer: string[] = [
+      '',
       truncateToWidth(formatHeaderRule(`${selected.name}  [${selected.source}]`, undefined, width, th), width),
-    );
-    lines.push('');
+      '',
+    ];
     for (const previewLine of formatAgentPreview(selected)) {
       // First line is the path (dim); the rest of the body is text-tone.
       const styled = previewLine.startsWith('/') ? th.fg('dim', previewLine) : th.fg('text', previewLine);
-      lines.push(truncateToWidth(`  ${styled}`, width));
+      footer.push(truncateToWidth(`  ${styled}`, width));
     }
-    lines.push('');
-    lines.push(truncateToWidth(`  ${th.fg('dim', '↑/↓ move · Press Escape to close')}`, width));
-    lines.push('');
+    footer.push('');
+    footer.push(truncateToWidth(`  ${th.fg('dim', '↑/↓ move · Press Escape to close')}`, width));
+    footer.push('');
+
+    const win = assembleWindowedBody({
+      header,
+      body,
+      footer,
+      width,
+      viewportRows: overlayViewportRows(rows),
+      scrollTop: this.scrollTop,
+      theme: th,
+      keepStart: this.selected,
+      keepEnd: this.selected + 1,
+    });
+    this.scrollTop = win.scrollTop;
 
     this.cachedWidth = width;
-    this.cachedLines = lines;
-    return lines;
+    this.cachedRows = rows;
+    this.cachedLines = win.lines;
+    return win.lines;
   }
 }
 
@@ -532,8 +557,10 @@ function capLine(s: string, cap: number): string {
   return `${collapsed.slice(0, cap - 1).trimEnd()}…`;
 }
 
-class AgentsRunningOverlay implements Component {
+export class AgentsRunningOverlay implements Component {
   private selected = 0;
+  /** Child-list scroll offset (entries are multi-line blocks); selection-driven. */
+  private scrollTop = 0;
   /** `f` toggles freeze for the highlighted child's activity tail. */
   private frozenHandles = new Set<string>();
   /** Cached width / lines so static frames don't redraw on every tick. */
@@ -544,6 +571,7 @@ class AgentsRunningOverlay implements Component {
     private readonly getEntries: () => RunningOverlayEntry[],
     private readonly rings: Map<string, ActivityRing>,
     private readonly theme: Theme,
+    private readonly tui: TUI,
     private readonly onClose: () => void,
   ) {}
 
@@ -604,73 +632,99 @@ class AgentsRunningOverlay implements Component {
     const th = this.theme;
     const entries = this.getEntries();
     const now = Date.now();
-    const lines: string[] = [''];
 
     const chip = entries.length === 0 ? '0 active' : `${entries.length} active · ${RUNNING_TICK_MS}ms`;
-    lines.push(truncateToWidth(formatHeaderRule('Running sub-agents', chip, width, th), width));
-    lines.push('');
+    const header = ['', truncateToWidth(formatHeaderRule('Running sub-agents', chip, width, th), width), ''];
 
     if (entries.length === 0) {
-      lines.push(truncateToWidth(`  ${th.fg('dim', 'No background sub-agents running.')}`, width));
-      lines.push('');
-      lines.push(truncateToWidth(`  ${th.fg('dim', 'Press Escape to close')}`, width));
-      lines.push('');
-      return lines;
+      return [
+        ...header,
+        truncateToWidth(`  ${th.fg('dim', 'No background sub-agents running.')}`, width),
+        '',
+        truncateToWidth(`  ${th.fg('dim', 'Press Escape to close')}`, width),
+        '',
+      ];
     }
 
     if (this.selected >= entries.length) this.selected = entries.length - 1;
 
+    // Body (scrollable): each entry is a multi-line block. Track the selected
+    // block's line range so windowing keeps it in view.
+    const body: string[] = [];
+    let selStart = 0;
+    let selEnd = 0;
     for (let i = 0; i < entries.length; i++) {
       const e = entries[i];
       const marker = i === this.selected ? th.fg('accent', '>') : ' ';
       const rowLines = formatRunningChildRow({ handle: e.handle, snapshot: e.snapshot, startedAt: e.startedAt }, now, {
         width,
       });
-      lines.push(truncateToWidth(`  ${marker} ${th.fg('text', rowLines[0])}`, width));
+      if (i === this.selected) selStart = body.length;
+      body.push(truncateToWidth(`  ${marker} ${th.fg('text', rowLines[0])}`, width));
       for (let j = 1; j < rowLines.length; j++) {
-        lines.push(truncateToWidth(`    ${th.fg('dim', rowLines[j])}`, width));
+        body.push(truncateToWidth(`    ${th.fg('dim', rowLines[j])}`, width));
       }
+      if (i === this.selected) selEnd = body.length;
     }
 
+    // Footer (pinned): detail + activity tail for the highlighted child.
     const sel = entries[this.selected];
-    lines.push('');
-    lines.push(truncateToWidth(formatHeaderRule(`${sel.handle}  ${sel.agent}`, undefined, width, th), width));
-    lines.push('');
+    const footer: string[] = [
+      '',
+      truncateToWidth(formatHeaderRule(`${sel.handle}  ${sel.agent}`, undefined, width, th), width),
+      '',
+    ];
     if (sel.task) {
       const taskWrap = capLine(sel.task, Math.max(40, width - 14));
-      lines.push(truncateToWidth(`  ${th.fg('muted', 'task    ')}${th.fg('text', taskWrap)}`, width));
+      footer.push(truncateToWidth(`  ${th.fg('muted', 'task    ')}${th.fg('text', taskWrap)}`, width));
     }
     const spawnedAgo = fmtDurationShort(Math.max(0, now - sel.startedAt));
     const updateAgo = fmtDurationShort(Math.max(0, now - sel.lastUpdateMs));
-    lines.push(
+    footer.push(
       truncateToWidth(
         `  ${th.fg('muted', 'spawned ')}${spawnedAgo} ago${' '.repeat(4)}${th.fg('muted', 'last update ')}${updateAgo} ago`,
         width,
       ),
     );
 
-    // Activity tail
+    // Activity tail (bounded): shrinks on short terminals so the child list
+    // keeps a few rows on screen.
     const ring = this.rings.get(sel.handle);
     const frozen = this.frozenHandles.has(sel.handle);
     const live = sel.running && !frozen;
     const tailChip = frozen ? 'tail · frozen' : sel.running ? `tail · ${RUNNING_TICK_MS}ms · live` : 'tail · final';
-    lines.push('');
-    lines.push(truncateToWidth(formatHeaderRule('activity', tailChip, width, th), width));
-    lines.push('');
+    footer.push('');
+    footer.push(truncateToWidth(formatHeaderRule('activity', tailChip, width, th), width));
+    footer.push('');
+    const viewportRows = overlayViewportRows(this.tui.terminal.rows);
+    const tailBudget = Math.max(3, Math.min(12, viewportRows - 16));
     const tailLines = ring ? ring.snapshot() : sel.sessionFile ? tailJsonl(sel.sessionFile, { maxLines: 32 }) : [];
     if (tailLines.length === 0) {
-      lines.push(truncateToWidth(`  ${th.fg('dim', '(no activity yet)')}`, width));
+      footer.push(truncateToWidth(`  ${th.fg('dim', '(no activity yet)')}`, width));
     } else {
-      for (const tl of tailLines.slice(-12)) {
-        lines.push(truncateToWidth(`  ${th.fg('dim', tl)}`, width));
+      for (const tl of tailLines.slice(-tailBudget)) {
+        footer.push(truncateToWidth(`  ${th.fg('dim', tl)}`, width));
       }
     }
 
-    lines.push('');
-    lines.push(truncateToWidth(`  ${th.fg('dim', '↑/↓ move · f freeze tail · Press Escape to close')}`, width));
-    lines.push('');
+    footer.push('');
+    footer.push(truncateToWidth(`  ${th.fg('dim', '↑/↓ move · f freeze tail · Press Escape to close')}`, width));
+    footer.push('');
     void live;
-    return lines;
+
+    const win = assembleWindowedBody({
+      header,
+      body,
+      footer,
+      width,
+      viewportRows,
+      scrollTop: this.scrollTop,
+      theme: th,
+      keepStart: selStart,
+      keepEnd: selEnd,
+    });
+    this.scrollTop = win.scrollTop;
+    return win.lines;
   }
 }
 
@@ -2097,7 +2151,7 @@ export default function subagentExtension(pi: ExtensionAPI): void {
         let ticker: ReturnType<typeof setInterval> | undefined;
         let overlay: AgentsRunningOverlay | undefined;
         await showModal<void>(ctx.ui, (tui, theme, _kb, done) => {
-          overlay = new AgentsRunningOverlay(buildEntries, rings, theme, () => {
+          overlay = new AgentsRunningOverlay(buildEntries, rings, theme, tui, () => {
             if (ticker) clearInterval(ticker);
             ticker = undefined;
             done();
@@ -2172,7 +2226,10 @@ export default function subagentExtension(pi: ExtensionAPI): void {
         return;
       }
 
-      await showModal<void>(ctx.ui, (_tui, theme, _kb, done) => new AgentsLoadedOverlay(agents, theme, () => done()));
+      await showModal<void>(
+        ctx.ui,
+        (tui, theme, _kb, done) => new AgentsLoadedOverlay(agents, theme, tui, () => done()),
+      );
     },
   });
 }

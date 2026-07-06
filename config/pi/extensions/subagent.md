@@ -161,7 +161,8 @@ lockstep.
 
 - `/agents` (or `/agents list`) - open the **Loaded sub-agents** overlay: a navigable row list (↑/↓) with a
   selection-driven preview block below the rule (path, tools / model / maxTurns / timeout / isolation, then the full
-  description). Escape closes.
+  description). The row list is windowed to the terminal height (keeping the highlighted agent in view, with `↑ N more`
+  / `↓ N more` indicators) above the pinned preview. Escape closes.
 - `/agents show <name>` - print the full frontmatter + body of a single agent (useful for confirming an override took
   effect).
 - `/agents running` - open the **Running sub-agents** live overlay (auto-refresh every 1s). Each row block shows
@@ -170,7 +171,8 @@ lockstep.
   bounded ring (default 64 entries) of structured-event activity: `→ <tool>  <args>` / `← <result>` for tool calls,
   `▌ <…>` while an assistant message is streaming, plus retry / compaction one-liners. Follow-mode is on by default for
   live children; press `f` to freeze. Terminal children fall back to reading the child's on-disk JSONL transcript via
-  `tailJsonl(...)`. Escape closes.
+  `tailJsonl(...)`. The child list is windowed to the terminal height (keeping the highlighted child in view) above the
+  pinned detail block, whose activity-tail budget shrinks on short terminals. Escape closes.
 
 Both overlays follow the same `─── Title ───…─── chip ───` rule style as `/todos` and share the pure helpers in
 [`lib/node/pi/subagent/format.ts`](../../../lib/node/pi/subagent/format.ts) +
