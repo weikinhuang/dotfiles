@@ -30,10 +30,11 @@ import {
   type ExtensionCommandContext,
   type Theme,
 } from '@earendil-works/pi-coding-agent';
-import { type Component, Key, matchesKey, truncateToWidth, visibleWidth } from '@earendil-works/pi-tui';
+import { type Component, Key, matchesKey, truncateToWidth, type TUI, visibleWidth } from '@earendil-works/pi-tui';
 
 import { isHelpArg } from '../../../lib/node/pi/commands/help.ts';
 import { showModal } from '../../../lib/node/pi/ext/show-modal.ts';
+import { overlayViewportRows } from '../../../lib/node/pi/ext/overlay-window.ts';
 import { CONTEXT_USAGE_USAGE } from '../../../lib/node/pi/context-usage/usage.ts';
 import { buildBreakdown } from '../../../lib/node/pi/context-usage/estimate.ts';
 import { exportFilename, renderMarkdown } from '../../../lib/node/pi/context-usage/export.ts';
@@ -89,10 +90,6 @@ const GRID_WIDTH = GRID_COLS * 2 - 1;
 const COL_GAP = 3;
 /** Below this terminal width the layout stacks vertically. */
 const STACK_BELOW = 56;
-/** Max category rows shown at once before the legend scrolls. */
-const MAX_LEGEND_ROWS = 12;
-/** Lines of leaf content shown at once in the scrollable content viewer. */
-const CONTENT_VISIBLE_LINES = 24;
 
 type PaletteColor = (typeof PALETTE)[number];
 function colorForIndex(i: number): PaletteColor {
@@ -137,14 +134,16 @@ function gatherBreakdown(pi: ExtensionAPI, ctx: ExtensionCommandContext, capture
 
 interface OverlayDeps {
   theme: Theme;
+  tui: TUI;
   rebuild: () => Breakdown;
   compact: () => void;
   exportReport: (breakdown: Breakdown) => string;
   done: () => void;
 }
 
-class ContextOverlay implements Component {
+export class ContextOverlay implements Component {
   private readonly theme: Theme;
+  private readonly tui: TUI;
   private readonly deps: OverlayDeps;
   private breakdown: Breakdown;
   private nav: NavState = initNav();
@@ -152,13 +151,22 @@ class ContextOverlay implements Component {
   private status?: string;
   /** When set, the scrollable content viewer for a leaf node is open. */
   private view: { node: CategoryNode; scroll: number } | undefined;
+  /** Content-viewer visible lines from the last render (a page for PageUp/Dn). */
+  private contentPage = 12;
   private cachedWidth?: number;
+  private cachedRows?: number;
   private cachedLines?: string[];
 
   constructor(deps: OverlayDeps) {
     this.deps = deps;
     this.theme = deps.theme;
+    this.tui = deps.tui;
     this.breakdown = deps.rebuild();
+  }
+
+  /** Row budget the overlay renders into for the current terminal height. */
+  private viewportRows(): number {
+    return overlayViewportRows(this.tui.terminal.rows);
   }
 
   handleInput(data: string): void {
@@ -221,13 +229,14 @@ class ContextOverlay implements Component {
 
   invalidate(): void {
     this.cachedWidth = undefined;
+    this.cachedRows = undefined;
     this.cachedLines = undefined;
   }
 
   /** Scroll / exit keys while the content viewer is open. */
   private handleViewInput(data: string): void {
     if (!this.view) return;
-    const page = CONTENT_VISIBLE_LINES - 1;
+    const page = Math.max(1, this.contentPage - 1);
     if (matchesKey(data, Key.up) || matchesKey(data, 'k')) {
       this.view.scroll -= 1;
     } else if (matchesKey(data, Key.down) || matchesKey(data, 'j')) {
@@ -257,13 +266,15 @@ class ContextOverlay implements Component {
   }
 
   render(width: number): string[] {
-    if (this.cachedLines && this.cachedWidth === width) return this.cachedLines;
+    const rows = this.tui.terminal.rows;
+    if (this.cachedLines && this.cachedWidth === width && this.cachedRows === rows) return this.cachedLines;
     let lines: string[];
     if (this.view) lines = this.renderContent(width);
     else if (this.recon) lines = this.renderRecon(width);
     else lines = this.renderTree(width);
     this.cachedLines = lines;
     this.cachedWidth = width;
+    this.cachedRows = rows;
     return lines;
   }
 
@@ -277,9 +288,13 @@ class ContextOverlay implements Component {
     const crumb = formatBreadcrumb([...breadcrumbLabels(this.breakdown.root, this.nav.path), node.label]);
     const bodyWidth = Math.max(10, width - 2);
     const wrapped = wrapPlain(node.content ?? '', bodyWidth);
-    const scroll = clampScroll(view.scroll, wrapped.length, CONTENT_VISIBLE_LINES);
+    // Content chrome around the slice: header + blank + label + blank + blank
+    // + position footer = 6 rows. Adapt the visible slice to the terminal.
+    const visibleLines = Math.max(3, this.viewportRows() - 6);
+    this.contentPage = visibleLines;
+    const scroll = clampScroll(view.scroll, wrapped.length, visibleLines);
     view.scroll = scroll;
-    const slice = wrapped.slice(scroll, scroll + CONTENT_VISIBLE_LINES);
+    const slice = wrapped.slice(scroll, scroll + visibleLines);
 
     const out: string[] = [truncateToWidth(formatHeaderRule(crumb, undefined, width, th), width), ''];
     const detail = node.detail ? ` · ${sanitizeDetail(node.detail, 50)}` : '';
@@ -289,7 +304,7 @@ class ContextOverlay implements Component {
     out.push('');
     for (const line of slice) out.push(truncateToWidth(`  ${th.fg('toolOutput', line)}`, width));
     out.push('');
-    const end = Math.min(wrapped.length, scroll + CONTENT_VISIBLE_LINES);
+    const end = Math.min(wrapped.length, scroll + visibleLines);
     const pos = wrapped.length === 0 ? '0/0' : `${scroll + 1}-${end} / ${wrapped.length}`;
     out.push(truncateToWidth(`  ${th.fg('dim', `↑/↓ scroll · PgUp/PgDn · ← back · q close   [${pos}]`)}`, width));
     return out;
@@ -373,16 +388,23 @@ class ContextOverlay implements Component {
     return `${cursor} ${marker} ${label}${drillable}`;
   }
 
-  /** Full info column: header + scrolled legend slice + (root) free-space row. */
-  private infoColumn(): string[] {
+  /** Full info column: header + scrolled legend slice + (root) free-space row.
+   * `maxRows` bounds the whole column to the terminal so the tree never
+   * overflows the viewport (the legend scrolls within its share). */
+  private infoColumn(maxRows: number): string[] {
     const th = this.theme;
     const b = this.breakdown;
     const node = currentNode(b.root, this.nav);
     const children = node.children ?? [];
     const total = atRoot(this.nav) ? b.contextWindow : node.tokens;
 
+    const header = this.infoHeader();
+    const freeRows = atRoot(this.nav) ? 1 : 0;
+    // Reserve two rows for the up/down "more" indicators so the column height
+    // is stable regardless of the scroll offset.
+    const legendBudget = Math.max(3, maxRows - header.length - freeRows - 2);
     const legend: string[] = [];
-    const win = scrollWindow(children.length, this.nav.sel, MAX_LEGEND_ROWS);
+    const win = scrollWindow(children.length, this.nav.sel, legendBudget);
     if (win.start > 0) legend.push(th.fg('dim', `  ↑ ${win.start} more`));
     for (let i = win.start; i < win.end; i++) legend.push(this.legendRow(children[i], i, total));
     if (win.end < children.length) legend.push(th.fg('dim', `  ↓ ${children.length - win.end} more`));
@@ -392,7 +414,7 @@ class ContextOverlay implements Component {
       const freeText = `Free space  ${formatTokens(free)}  ${formatPercent(free, b.contextWindow)}`;
       legend.push(`  ${th.fg(FREE_COLOR, GLYPH_FREE)} ${th.fg('dim', freeText)}`);
     }
-    return [...this.infoHeader(), ...legend];
+    return [...header, ...legend];
   }
 
   // ── reconciliation panel ───────────────────────────────────────────────────
@@ -448,7 +470,13 @@ class ContextOverlay implements Component {
     const header = truncateToWidth(formatHeaderRule(crumb, undefined, width, th), width);
 
     const grid = this.gridLines();
-    const info = this.infoColumn();
+    const viewportRows = this.viewportRows();
+    // Tree chrome: header + blank (after header) + blank (before footer) +
+    // footer = 4 rows. In stacked mode the grid + its trailing blank sit above
+    // the info column too, so subtract those from the info column's budget.
+    const maxInfoRows =
+      width < STACK_BELOW ? Math.max(3, viewportRows - 4 - grid.length - 1) : Math.max(3, viewportRows - 4);
+    const info = this.infoColumn(maxInfoRows);
 
     const out: string[] = [header, ''];
 
@@ -529,9 +557,10 @@ export default function contextUsage(pi: ExtensionAPI): void {
         return path;
       };
 
-      await showModal<void>(ctx.ui, (_tui, theme, _kb, done) => {
+      await showModal<void>(ctx.ui, (tui, theme, _kb, done) => {
         const overlay = new ContextOverlay({
           theme,
+          tui,
           rebuild,
           compact: () => ctx.compact(),
           exportReport,

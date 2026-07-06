@@ -5,9 +5,9 @@ and the [`context-budget`](./context-budget.md) advisory only report an aggregat
 eating the window. `/context` answers that - which `AGENTS.md`, which tool schema, which bash dump, how much retained
 reasoning - as a Claude-Code-`/context`-style visual map you can walk into.
 
-Read-only and non-destructive: it never mutates context. To actually shed content use [`context-trim`](./context-trim.md)
-(`/context-trim`), [`tool-collapse`](./tool-collapse.md) (`/context-collapse`), or `/compact` (reachable with `c` from
-inside the overlay).
+Read-only and non-destructive: it never mutates context. To actually shed content use
+[`context-trim`](./context-trim.md) (`/context-trim`), [`tool-collapse`](./tool-collapse.md) (`/context-collapse`), or
+`/compact` (reachable with `c` from inside the overlay).
 
 ## The treemap model
 
@@ -24,12 +24,12 @@ bold and brightens its grid cells.
 
 ## Category tree
 
-| Top level | Source | Drill-in |
-| --- | --- | --- |
-| **System prompt** | `getSystemPrompt()` length / 4 | Core instructions & framing · Guidelines · Tool snippets · Appended prompt · **Context files** (each `AGENTS.md` / `CLAUDE.md`, path + bytes) · **Skills index** (each skill) · **Injected addenda** (per-turn todo / scratchpad / memory; see caveat below) |
-| **System tools** | `pi.getAllTools()` schemas, serialized | each **active** tool, sorted by size → `parameters schema` vs `description` split; count of configured-but-inactive tools noted |
-| **Conversation** | `buildSessionContext(getBranch()).messages` | User · **Assistant** → `Response text` / `Retained reasoning` / `Tool-call args` · **Tool results** → grouped by tool name → top-N largest individual results (with preview) · Bash executions · Injected messages (custom) · Branch / compaction summaries · Images |
-| **Free space** | `window − Σ` used categories | (legend row only, at root) |
+| Top level         | Source                                      | Drill-in                                                                                                                                                                                                                                                             |
+| ----------------- | ------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **System prompt** | `getSystemPrompt()` length / 4              | Core instructions & framing · Guidelines · Tool snippets · Appended prompt · **Context files** (each `AGENTS.md` / `CLAUDE.md`, path + bytes) · **Skills index** (each skill) · **Injected addenda** (per-turn todo / scratchpad / memory; see caveat below)         |
+| **System tools**  | `pi.getAllTools()` schemas, serialized      | each **active** tool, sorted by size → `parameters schema` vs `description` split; count of configured-but-inactive tools noted                                                                                                                                      |
+| **Conversation**  | `buildSessionContext(getBranch()).messages` | User · **Assistant** → `Response text` / `Retained reasoning` / `Tool-call args` · **Tool results** → grouped by tool name → top-N largest individual results (with preview) · Bash executions · Injected messages (custom) · Branch / compaction summaries · Images |
+| **Free space**    | `window − Σ` used categories                | (legend row only, at root)                                                                                                                                                                                                                                           |
 
 ### Token accounting
 
@@ -47,10 +47,10 @@ The **Injected addenda** bucket is the per-turn content extensions append to the
 (todo / scratchpad / memory / context-budget). The installed pi (0.79.0) does not export `buildSystemPrompt`, so the
 base prompt can't be reconstructed directly. Instead the extension captures the prompt as seen by its own
 `before_agent_start` handler and diffs the effective prompt against it. Because handlers run in extension load order,
-that captured base already includes injections from extensions loaded **before** `context-usage`, so the bucket
-reflects injections from extensions loaded **after** it (in practice the big ones - todo / scratchpad / memory). The
-diff is never wrong-signed; when no turn has run yet there is no bucket. When pi exports `buildSystemPrompt` (newer
-versions) this becomes an exact split, and the addenda are further broken down into labeled blank-line sections via
+that captured base already includes injections from extensions loaded **before** `context-usage`, so the bucket reflects
+injections from extensions loaded **after** it (in practice the big ones - todo / scratchpad / memory). The diff is
+never wrong-signed; when no turn has run yet there is no bucket. When pi exports `buildSystemPrompt` (newer versions)
+this becomes an exact split, and the addenda are further broken down into labeled blank-line sections via
 `splitInjectedAddenda`.
 
 ### Retained reasoning
@@ -72,26 +72,28 @@ the system prompt and tool schemas in that state.
 
 At the lowest level, leaf nodes that carry raw text open a scrollable content viewer when you press `⏎` on them (the
 legend marks an actionable row with a trailing `›`). Viewable leaves are: **context files** (the actual `AGENTS.md`
-body), **skills** (the skill body), **tool schemas** (pretty-printed JSON), **tool-result entries** (the actual
-output), **guidelines**, **tool snippets**, and **injected addenda sections**. **Core instructions & framing** shows
-the full captured base system prompt (it is a size-only remainder that cannot be cleanly sliced out, so the viewer
-shows the whole base prompt, of which the other measured sections are subsets). The viewer wraps text to the terminal
-width and scrolls with `↑`/`↓`, `PgUp`/`PgDn`, `Home`/`End`; `←` / `esc` returns to the tree. Aggregate buckets
-with no single source (per-role conversation totals) are not viewable.
+body), **skills** (the skill body), **tool schemas** (pretty-printed JSON), **tool-result entries** (the actual output),
+**guidelines**, **tool snippets**, and **injected addenda sections**. **Core instructions & framing** shows the full
+captured base system prompt (it is a size-only remainder that cannot be cleanly sliced out, so the viewer shows the
+whole base prompt, of which the other measured sections are subsets). The viewer wraps text to the terminal width and
+scrolls with `↑`/`↓`, `PgUp`/`PgDn`, `Home`/`End`; `←` / `esc` returns to the tree. Both the content viewer and the
+category legend size their visible rows to the terminal height, so the overlay never renders taller than the viewport
+(each scrolls within its share, with `↑ N more` / `↓ N more` indicators). Aggregate buckets with no single source
+(per-role conversation totals) are not viewable.
 
 ## Keys
 
-| Key | Action |
-| --- | --- |
-| `↑` / `↓` (`k` / `j`) | move selection (tree) / scroll (content viewer) |
-| `⏎` / `→` (`l`) | drill into a category, or open a leaf's content viewer |
-| `←` / `esc` / `⌫` (`h`) | back one level (or exit the viewer); close at the root |
-| `PgUp` / `PgDn` / `Home` / `End` | page / jump in the content viewer |
-| `c` | trigger `ctx.compact()` |
-| `r` | recompute / refresh the breakdown |
-| `t` | toggle the reconciliation panel |
-| `e` | export the full breakdown to `./context-usage-<timestamp>.md` |
-| `q` | close |
+| Key                              | Action                                                        |
+| -------------------------------- | ------------------------------------------------------------- |
+| `↑` / `↓` (`k` / `j`)            | move selection (tree) / scroll (content viewer)               |
+| `⏎` / `→` (`l`)                  | drill into a category, or open a leaf's content viewer        |
+| `←` / `esc` / `⌫` (`h`)          | back one level (or exit the viewer); close at the root        |
+| `PgUp` / `PgDn` / `Home` / `End` | page / jump in the content viewer                             |
+| `c`                              | trigger `ctx.compact()`                                       |
+| `r`                              | recompute / refresh the breakdown                             |
+| `t`                              | toggle the reconciliation panel                               |
+| `e`                              | export the full breakdown to `./context-usage-<timestamp>.md` |
+| `q`                              | close                                                         |
 
 ## Non-TUI fallback
 
