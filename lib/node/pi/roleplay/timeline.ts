@@ -42,12 +42,16 @@ export const MAX_WHEN_CHARS = 40;
  */
 export function buildTimelineExtractionTask(spanText: string): string {
   return (
-    'This is a span of a roleplay conversation. Extract the notable STORY BEATS - concrete events, ' +
-    'decisions, plans, arrivals / departures, promises made - in the order they occur. Skip mood, ' +
-    'narration, scene description, and filler; those are not beats.\n\n' +
+    'This is a span of a roleplay conversation. Extract the NOTABLE story beats - the events that move the ' +
+    'scene forward and would belong on a timeline someone skims later: arrivals and departures, decisions, ' +
+    'plans agreed, promises made, state or mode changes, objects changing hands, plot turns. Record only ' +
+    'what the span explicitly states; never invent.\n\n' +
+    'Keep it a skeleton, not a play-by-play. Collapse a stretch of minor back-and-forth into ONE beat, and ' +
+    'SKIP fleeting detail: individual food or drink orders, single lines of banter, small physical actions ' +
+    '(a bite, a sip, pouring, wiping), mood, and pure narration or scene description.\n\n' +
     'Return a JSON array (and nothing else) of at most ' +
     `${MAX_BEATS_PER_ROLL} objects, each {"when": "...", "summary": "..."}, in chronological order. ` +
-    '"summary" is a single terse line describing the beat (under ' +
+    '"summary" is a single terse line naming the beat (under ' +
     `${MAX_BEAT_CHARS} characters). "when" is the in-world date/time if the span states one ` +
     '(e.g. "Thursday 6pm", "the next morning"); OMIT the "when" key entirely when no time is stated. ' +
     'Do NOT invent times. If the span contains no notable beats, return exactly [].\n\n' +
@@ -57,7 +61,15 @@ export function buildTimelineExtractionTask(spanText: string): string {
 
 function clamp(s: string, max: number): string {
   const t = s.trim().replace(/\s+/g, ' ');
-  return t.length > max ? t.slice(0, max).trimEnd() : t;
+  if (t.length <= max) return t;
+  let cut = t.slice(0, max);
+  // Avoid truncating mid-word: back up to the last whole word when the cap
+  // fell inside one, then strip any trailing separator.
+  if (/\S/.test(t.charAt(max))) {
+    const lastSpace = cut.lastIndexOf(' ');
+    if (lastSpace > 0) cut = cut.slice(0, lastSpace);
+  }
+  return cut.replace(/[\s,;:.-]+$/, '').trimEnd();
 }
 
 /**

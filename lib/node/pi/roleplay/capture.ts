@@ -33,7 +33,7 @@ export interface FactCandidate {
 }
 
 /** Header-carried caps: the tier injects only name + description, so keep them tight. */
-export const MAX_FACT_NAME_CHARS = 80;
+export const MAX_FACT_NAME_CHARS = 90;
 export const MAX_FACT_DESC_CHARS = 200;
 /** Hard cap on facts written per roll so a runaway extraction can't flood the tier. */
 export const MAX_FACTS_PER_ROLL = 6;
@@ -46,25 +46,49 @@ export const MAX_FACTS_PER_ROLL = 6;
  */
 export function buildFactExtractionTask(spanText: string): string {
   return (
-    'This is a span of a roleplay conversation. Extract ONLY durable, factual details a participant ' +
-    'would still need to remember many turns later: established names and relationships, where someone ' +
-    'lives or is, commitments and plans (with any stated time), objects and their specific locations, ' +
-    'allergies or health constraints, promises. Do NOT extract fleeting mood, narration, scene ' +
-    'description, or anything already obvious - those belong in the running recap, not here.\n\n' +
-    'Return a JSON array (and nothing else) of at most ' +
-    `${MAX_FACTS_PER_ROLL} objects, each {"name": "...", "description": "..."}. The "name" MUST be a ` +
-    'complete, self-contained statement of the fact on its own (e.g. "User is allergic to shellfish"), ' +
-    'because only the name and description are ever shown - a reader never opens a body. Keep "name" ' +
-    `under ${MAX_FACT_NAME_CHARS} characters and "description" under ${MAX_FACT_DESC_CHARS}. ` +
-    'If the span contains no durable facts, return exactly [].\n\n' +
+    'You are reading a span of a roleplay conversation that is scrolling out of view. Extract only ' +
+    'DURABLE facts worth pinning so they survive after this span is gone. Extract only what the span ' +
+    'explicitly states - never infer, guess, or invent; if a detail is ambiguous, leave it out.\n\n' +
+    'A fact is durable ONLY if it would still be true and worth knowing in a LATER, SEPARATE scene. ' +
+    'Test every candidate: "Would a participant still need this next week?" If it is just what is ' +
+    'happening right now, drop it.\n\n' +
+    'INCLUDE (durable): established names and the recurring title or name characters consistently use for each ' +
+    'other; relationships; where someone lives or is based; lasting traits, roles, or possessions and their ' +
+    'locations; allergies or health constraints; a scheduled future commitment or standing promise (with any ' +
+    'stated time).\n' +
+    'EXCLUDE (fleeting - these live in the running recap, never here): what someone ate, ordered, or drank; what a ' +
+    'character is doing, wearing, or feeling right now; momentary positions or mood; a one-off tease or pet name ' +
+    'used in the moment; the weather; travel or actions in progress; and anything the current scene is simply ' +
+    'narrating.\n\n' +
+    'For each fact return an object {"name": "...", "description": "..."}:\n' +
+    '- "name": ONE short, self-contained claim (subject + what is true), e.g. "User is allergic to ' +
+    `shellfish". Keep it brief (under ${MAX_FACT_NAME_CHARS} characters); do NOT cram a list of ` +
+    'specifics into it.\n' +
+    '- "description": the concrete specifics or qualifiers that complete the fact, plus any stated time, ' +
+    `under ${MAX_FACT_DESC_CHARS} characters. State the fact itself - do NOT describe where or how it ` +
+    'was mentioned in the text.\n\n' +
+    `Return ONLY a JSON array of at most ${MAX_FACTS_PER_ROLL} such objects, and nothing else. If the ` +
+    'span has no durable facts, return exactly [].\n\n' +
     `Span:\n${spanText}`
   );
 }
 
-/** Extract the first top-level JSON array substring from a model response (tolerates fences / prose). */
+/**
+ * Trim `s` to at most `max` chars WITHOUT cutting a word in half. Collapses
+ * internal whitespace first; when the cap lands mid-word, backs up to the last
+ * whole word and strips any trailing separator so a clamped name reads clean
+ * (`"...berries, whipp"` -> `"...berries"`) instead of showing a fragment.
+ */
 function clamp(s: string, max: number): string {
   const t = s.trim().replace(/\s+/g, ' ');
-  return t.length > max ? t.slice(0, max).trimEnd() : t;
+  if (t.length <= max) return t;
+  let cut = t.slice(0, max);
+  // Only back up when the cap fell inside a word (the next char is non-space).
+  if (/\S/.test(t.charAt(max))) {
+    const lastSpace = cut.lastIndexOf(' ');
+    if (lastSpace > 0) cut = cut.slice(0, lastSpace);
+  }
+  return cut.replace(/[\s,;:.-]+$/, '').trimEnd();
 }
 
 /**

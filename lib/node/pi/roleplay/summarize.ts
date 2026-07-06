@@ -129,9 +129,11 @@ export function buildSummarizeTask(spanText: string, priorSummary?: string): str
       : '';
   return (
     `${prior}New conversation span to fold into the recap:\n${spanText}\n\n` +
-    'Write a tight third-person recap of the roleplay so far: who is present, what happened, ' +
-    'unresolved threads, and the current emotional tone. Prose only, no headings or lists, ' +
-    'no meta commentary. If there is nothing substantive to record, reply with the literal string null.'
+    'Update the running recap into ONE consolidated third-person recap of the roleplay so far: integrate the new ' +
+    'span, do not staple it on, and keep the whole thing bounded. Cover who is present, what happened, unresolved ' +
+    'threads, and the current emotional tone. Summarize only what is in the span and the prior recap - never invent ' +
+    'events, characters, motivations, or outcomes; if a detail is ambiguous, leave it out. Prose only: no headings, ' +
+    'lists, or meta commentary. If there is nothing substantive to record, reply with the literal string null.'
   );
 }
 

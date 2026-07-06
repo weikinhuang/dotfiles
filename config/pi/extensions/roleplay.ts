@@ -129,6 +129,7 @@ import { buildFactExtractionTask, parseFactCandidates } from '../../../lib/node/
 import {
   buildTimelineExtractionTask,
   formatBeatLines,
+  parseBeatLog,
   parseTimelineBeats,
   renderTimelineBlock,
 } from '../../../lib/node/pi/roleplay/timeline.ts';
@@ -1353,7 +1354,26 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
         kind: 'timeline',
         body,
       });
-    const appended = (existing: string): string => (existing.trim() ? `${existing.trimEnd()}\n${lines}` : lines);
+    // De-dup on append: overlapping span coverage across rolls (or a
+    // resume/fork replay) re-extracts identical beats, which the append-only
+    // log would otherwise stack verbatim. Drop any candidate line already
+    // present in the target store (exact match on normalized text), and
+    // collapse repeats within this batch. Distinct wording of a genuine
+    // recurrence still survives - only byte-identical beats are folded.
+    const norm = (l: string): string => l.trim().replace(/\s+/g, ' ').toLowerCase();
+    const candidate = parseBeatLog(lines);
+    const newAgainst = (existingBody: string): string => {
+      const seen = new Set(parseBeatLog(existingBody).map(norm));
+      const kept: string[] = [];
+      for (const l of candidate) {
+        const k = norm(l);
+        if (k.length === 0 || seen.has(k)) continue;
+        seen.add(k);
+        kept.push(l);
+      }
+      return kept.join('\n');
+    };
+    const append = (existing: string, add: string): string => (existing.trim() ? `${existing.trimEnd()}\n${add}` : add);
     // Carry-over append-log (cross-session seed for future sessions). The
     // within-session / resume / fork store is the SESSION BRANCH (the
     // `roleplay-timeline` audit entry stamps the cumulative timeline every
@@ -1361,12 +1381,14 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
     // tier is retired; this only refreshes the per-cast carry-over.
     try {
       const existing = readEntryBody(state.cast, { id: 'auto', kind: 'timeline', name: '', description: '' }) ?? '';
-      atomicWriteFile(fileFor(state.cast, 'timeline', 'auto'), compose(appended(existing)));
+      const fresh = newAgainst(existing);
+      if (fresh.length > 0) atomicWriteFile(fileFor(state.cast, 'timeline', 'auto'), compose(append(existing, fresh)));
     } catch {
       /* carry-over append best-effort */
     }
-    // Keep the injected timeline current in-memory too.
-    timelineText = timelineText.trim() ? `${timelineText.trimEnd()}\n${lines}` : lines;
+    // Keep the injected timeline current in-memory too (de-duped against it).
+    const freshMem = newAgainst(timelineText);
+    if (freshMem.length > 0) timelineText = append(timelineText, freshMem);
   };
 
   /**
