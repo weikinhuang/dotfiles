@@ -89,6 +89,7 @@ import {
   snapshotByTool,
   type ChildToolAggregate,
 } from '../../../lib/node/pi/subagent/aggregate.ts';
+import { showModal } from '../../../lib/node/pi/ext/show-modal.ts';
 import {
   ActivityRing,
   activityPushModeFor,
@@ -2095,7 +2096,7 @@ export default function subagentExtension(pi: ExtensionAPI): void {
         const rings = getSessionActivityRings();
         let ticker: ReturnType<typeof setInterval> | undefined;
         let overlay: AgentsRunningOverlay | undefined;
-        await ctx.ui.custom<void>((tui, theme, _kb, done) => {
+        await showModal<void>(ctx.ui, (tui, theme, _kb, done) => {
           overlay = new AgentsRunningOverlay(buildEntries, rings, theme, () => {
             if (ticker) clearInterval(ticker);
             ticker = undefined;
@@ -2171,7 +2172,7 @@ export default function subagentExtension(pi: ExtensionAPI): void {
         return;
       }
 
-      await ctx.ui.custom<void>((_tui, theme, _kb, done) => new AgentsLoadedOverlay(agents, theme, () => done()));
+      await showModal<void>(ctx.ui, (_tui, theme, _kb, done) => new AgentsLoadedOverlay(agents, theme, () => done()));
     },
   });
 }

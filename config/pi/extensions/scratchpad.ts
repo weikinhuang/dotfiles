@@ -85,7 +85,8 @@ import {
 } from '../../../lib/node/pi/ext/external-editor.ts';
 import { formatWorkingNotes, groupByHeading } from '../../../lib/node/pi/scratchpad-prompt.ts';
 import { computeScrollWindow } from '../../../lib/node/pi/scroll-window.ts';
-import { enterModalUi, exitModalUi, resetModalUi } from '../../../lib/node/pi/ui-activity.ts';
+import { resetModalUi } from '../../../lib/node/pi/ui-activity.ts';
+import { showModal } from '../../../lib/node/pi/ext/show-modal.ts';
 import { formatHeaderRule } from '../../../lib/node/pi/tui-rule.ts';
 import { SCRATCHPAD_USAGE } from '../../../lib/node/pi/scratchpad/usage.ts';
 import {
@@ -847,32 +848,28 @@ export default function scratchpadExtension(pi: ExtensionAPI): void {
         // Capture the overlay's TUI so the maxHeight backstop can track the
         // live terminal height (the factory runs before the first layout).
         let overlayTui: TUI | undefined;
-        // Signal that a modal custom-UI component is on screen so animator
-        // extensions (the avatar) pause. This component is mounted inline in
-        // the editor container (not `overlay: true`), so `TUI.hasOverlay()`
-        // stays false for it - the shared flag is how the avatar learns the
-        // notebook is up. See lib/node/pi/ui-activity.ts.
-        enterModalUi();
-        try {
-          await ctx.ui.custom<void>(
-            (tui, theme, kb, done) => {
-              overlayTui = tui;
-              return new ScratchpadOverlay(deps, theme, tui, kb, () => done());
-            },
-            {
-              // maxHeight only takes effect if this is mounted as a real
-              // overlay (`overlay: true` -> showOverlay); today it's an inline
-              // editor component, so this is inert but harmless - the actual
-              // height bounding is the internal windowing in windowBody(). Kept
-              // as a correct backstop in case this becomes a true overlay.
-              overlayOptions: () => ({
-                maxHeight: overlayTui ? overlayViewportRows(overlayTui) : MIN_OVERLAY_ROWS,
-              }),
-            },
-          );
-        } finally {
-          exitModalUi();
-        }
+        // showModal raises the shared modal-UI flag while the notebook is open
+        // so animator extensions (the avatar) pause. This component is mounted
+        // inline in the editor container (not `overlay: true`), so
+        // `TUI.hasOverlay()` stays false for it - the flag is how the avatar
+        // learns the notebook is up. See lib/node/pi/ui-activity.ts.
+        await showModal<void>(
+          ctx.ui,
+          (tui, theme, kb, done) => {
+            overlayTui = tui;
+            return new ScratchpadOverlay(deps, theme, tui, kb, () => done());
+          },
+          {
+            // maxHeight only takes effect if this is mounted as a real
+            // overlay (`overlay: true` -> showOverlay); today it's an inline
+            // editor component, so this is inert but harmless - the actual
+            // height bounding is the internal windowing in windowBody(). Kept
+            // as a correct backstop in case this becomes a true overlay.
+            overlayOptions: () => ({
+              maxHeight: overlayTui ? overlayViewportRows(overlayTui) : MIN_OVERLAY_ROWS,
+            }),
+          },
+        );
         return;
       }
       if (sub === 'preview') {

@@ -75,6 +75,7 @@ import { type Component, matchesKey, Text, truncateToWidth } from '@earendil-wor
 import { Type } from 'typebox';
 
 import { requestBashApproval } from '../../../lib/node/pi/bash/gate.ts';
+import { showModal } from '../../../lib/node/pi/ext/show-modal.ts';
 import { type BgBashConfig, DEFAULT_BG_BASH_CONFIG, loadBgBashConfig } from '../../../lib/node/pi/bg-bash/config.ts';
 import {
   BG_BASH_NUDGE_CUSTOM_TYPE,
@@ -1606,7 +1607,7 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
         }
         let ticker: ReturnType<typeof setInterval> | undefined;
         let overlay: BgBashOverlay | undefined;
-        await ctx.ui.custom<void>((tui, theme, _kb, done) => {
+        await showModal<void>(ctx.ui, (tui, theme, _kb, done) => {
           overlay = new BgBashOverlay(
             {
               getState: () => state,

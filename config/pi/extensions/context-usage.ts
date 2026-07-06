@@ -33,6 +33,7 @@ import {
 import { type Component, Key, matchesKey, truncateToWidth, visibleWidth } from '@earendil-works/pi-tui';
 
 import { isHelpArg } from '../../../lib/node/pi/commands/help.ts';
+import { showModal } from '../../../lib/node/pi/ext/show-modal.ts';
 import { CONTEXT_USAGE_USAGE } from '../../../lib/node/pi/context-usage/usage.ts';
 import { buildBreakdown } from '../../../lib/node/pi/context-usage/estimate.ts';
 import { exportFilename, renderMarkdown } from '../../../lib/node/pi/context-usage/export.ts';
@@ -528,7 +529,7 @@ export default function contextUsage(pi: ExtensionAPI): void {
         return path;
       };
 
-      await ctx.ui.custom<void>((_tui, theme, _kb, done) => {
+      await showModal<void>(ctx.ui, (_tui, theme, _kb, done) => {
         const overlay = new ContextOverlay({
           theme,
           rebuild,

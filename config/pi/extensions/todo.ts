@@ -65,6 +65,7 @@ import { Type } from 'typebox';
 import { isHelpArg } from '../../../lib/node/pi/commands/help.ts';
 import { extractLastAssistantText } from '../../../lib/node/pi/message-extract.ts';
 import { TODOS_USAGE } from '../../../lib/node/pi/todo/usage.ts';
+import { showModal } from '../../../lib/node/pi/ext/show-modal.ts';
 import { truncate } from '../../../lib/node/pi/shared.ts';
 import { applyContextReminder, type ReminderMessage } from '../../../lib/node/pi/context-reminder.ts';
 import { formatActivePlan, looksLikeCompletionClaim } from '../../../lib/node/pi/todo-prompt.ts';
@@ -532,7 +533,7 @@ export default function todoExtension(pi: ExtensionAPI): void {
         ctx.ui.notify(formatText(state), 'info');
         return;
       }
-      await ctx.ui.custom<void>((_tui, theme, _kb, done) => new TodoOverlay(state, theme, () => done()));
+      await showModal<void>(ctx.ui, (_tui, theme, _kb, done) => new TodoOverlay(state, theme, () => done()));
     },
   });
 }

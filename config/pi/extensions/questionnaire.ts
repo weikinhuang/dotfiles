@@ -48,6 +48,7 @@ import {
   isExternalEditorKey,
   openInExternalEditor,
 } from '../../../lib/node/pi/ext/external-editor.ts';
+import { showModal } from '../../../lib/node/pi/ext/show-modal.ts';
 import { MultiSelectList } from '../../../lib/node/pi/ext/multi-select-list.ts';
 import { envTruthy } from '../../../lib/node/pi/parse-env.ts';
 import {
@@ -182,7 +183,7 @@ export default function questionnaire(pi: ExtensionAPI): void {
       const isMulti = questions.length > 1;
       const totalTabs = questions.length + 1; // questions + Submit
 
-      const result = await ctx.ui.custom<QuestionnaireResult>((tui, theme, kb, done) => {
+      const result = await showModal<QuestionnaireResult>(ctx.ui, (tui, theme, kb, done) => {
         // ─── State ────────────────────────────────────────────────────
         let currentTab = 0;
         let optionIndex = 0;

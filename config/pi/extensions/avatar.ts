@@ -93,7 +93,7 @@ import type { ActivityState, AvatarConfig, Protocol } from '../../../lib/node/pi
 import { piAgentPath, piProjectPath } from '../../../lib/node/pi/pi-paths.ts';
 import { fmtSi } from '../../../lib/node/pi/token-format.ts';
 import { envTruthy } from '../../../lib/node/pi/parse-env.ts';
-import { isModalUiActive } from '../../../lib/node/pi/ui-activity.ts';
+import { isModalUiActive, resetModalUi } from '../../../lib/node/pi/ui-activity.ts';
 
 // ──────────────────────────────────────────────────────────────────────
 // Types
@@ -1118,6 +1118,10 @@ export default function avatar(pi: ExtensionAPI): void {
 
   pi.on('session_start', (_event, ctx) => {
     animator.clearTimers();
+    // A fresh session (including /reload) has no modal on screen; clear any
+    // stuck modal-UI flag so the avatar can't be frozen forever if a producer
+    // was torn down mid-modal. See lib/node/pi/ui-activity.ts.
+    resetModalUi();
     toolCounts.clear();
     resetMessageEmotes();
     keepRaw = envTruthy(process.env.PI_AVATAR_DISABLE_SCRUB) || pi.getFlag('avatar-no-scrub') === true;

@@ -43,6 +43,7 @@ import {
 import { type Component, Key, matchesKey, truncateToWidth } from '@earendil-works/pi-tui';
 
 import { isHelpArg } from '../../../lib/node/pi/commands/help.ts';
+import { showModal } from '../../../lib/node/pi/ext/show-modal.ts';
 import { capturePaths } from '../../../lib/node/pi/checkpoint/capture.ts';
 import { rewindCompletions } from '../../../lib/node/pi/checkpoint/complete.ts';
 import { type CheckpointConfig, DEFAULT_CONFIG, loadCheckpointConfig } from '../../../lib/node/pi/checkpoint/config.ts';
@@ -605,16 +606,14 @@ export default function checkpoint(pi: ExtensionAPI): void {
   // ── the review flow (dry-run → overlay → apply) ────────────────────────────
 
   function openOverlay(ctx: ExtensionContext, rows: ReviewRow[]): Promise<FileTarget[] | null> {
-    return ctx.ui
-      .custom<FileTarget[] | null>((_tui, theme, _kb, done) => {
-        const overlay = new ReviewOverlay(theme, rows, done);
-        activeDone = done;
-        return overlay;
-      })
-      .then((result) => {
-        activeDone = undefined;
-        return result;
-      });
+    return showModal<FileTarget[] | null>(ctx.ui, (_tui, theme, _kb, done) => {
+      const overlay = new ReviewOverlay(theme, rows, done);
+      activeDone = done;
+      return overlay;
+    }).then((result) => {
+      activeDone = undefined;
+      return result;
+    });
   }
 
   async function runReview(ctx: ExtensionContext, oldLeafId: string | null, newLeafId: string | null): Promise<void> {
