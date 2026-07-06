@@ -40,10 +40,11 @@ import {
   isToolCallEventType,
   renderDiff,
 } from '@earendil-works/pi-coding-agent';
-import { type Component, Key, matchesKey, truncateToWidth } from '@earendil-works/pi-tui';
+import { type Component, Key, matchesKey, truncateToWidth, type TUI } from '@earendil-works/pi-tui';
 
 import { isHelpArg } from '../../../lib/node/pi/commands/help.ts';
 import { showModal } from '../../../lib/node/pi/ext/show-modal.ts';
+import { overlayViewportRows } from '../../../lib/node/pi/ext/overlay-window.ts';
 import { capturePaths } from '../../../lib/node/pi/checkpoint/capture.ts';
 import { rewindCompletions } from '../../../lib/node/pi/checkpoint/complete.ts';
 import { type CheckpointConfig, DEFAULT_CONFIG, loadCheckpointConfig } from '../../../lib/node/pi/checkpoint/config.ts';
@@ -159,26 +160,34 @@ function statusMark(status: FileStatus): string {
   return status === 'conflict' ? '⚠ conflict' : status === 'clean-restore' ? '' : 'no-op';
 }
 
-class ReviewOverlay implements Component {
+export class ReviewOverlay implements Component {
   private readonly theme: Theme;
+  private readonly tui: TUI;
   private readonly rows: ReviewRow[];
   private readonly done: (value: FileTarget[] | null) => void;
   private sel = 0;
   private scroll = 0;
+  /** Visible list rows / detail lines from the last render, derived from the
+   * terminal height so neither mode overflows the viewport. */
+  private visibleRows = VISIBLE_ROWS;
+  private detailRows = DETAIL_LINES;
   /** When set, the drill-down diff viewer is open for this row. */
   private detail: { row: ReviewRow; lines: string[]; scroll: number } | undefined;
   private status?: string;
   private cachedWidth?: number;
+  private cachedRows?: number;
   private cachedLines?: string[];
 
-  constructor(theme: Theme, rows: ReviewRow[], done: (value: FileTarget[] | null) => void) {
+  constructor(theme: Theme, rows: ReviewRow[], tui: TUI, done: (value: FileTarget[] | null) => void) {
     this.theme = theme;
+    this.tui = tui;
     this.rows = rows;
     this.done = done;
   }
 
   invalidate(): void {
     this.cachedWidth = undefined;
+    this.cachedRows = undefined;
     this.cachedLines = undefined;
   }
 
@@ -217,7 +226,7 @@ class ReviewOverlay implements Component {
 
   private handleDetailInput(data: string): void {
     if (!this.detail) return;
-    const page = DETAIL_LINES - 1;
+    const page = Math.max(1, this.detailRows - 1);
     if (matchesKey(data, Key.up) || matchesKey(data, 'k')) this.detail.scroll -= 1;
     else if (matchesKey(data, Key.down) || matchesKey(data, 'j')) this.detail.scroll += 1;
     else if (matchesKey(data, 'pageUp')) this.detail.scroll -= page;
@@ -248,14 +257,23 @@ class ReviewOverlay implements Component {
 
   private clampScroll(): void {
     if (this.sel < this.scroll) this.scroll = this.sel;
-    else if (this.sel >= this.scroll + VISIBLE_ROWS) this.scroll = this.sel - VISIBLE_ROWS + 1;
+    else if (this.sel >= this.scroll + this.visibleRows) this.scroll = this.sel - this.visibleRows + 1;
   }
 
   render(width: number): string[] {
-    if (this.cachedLines && this.cachedWidth === width) return this.cachedLines;
+    const rows = this.tui.terminal.rows;
+    if (this.cachedLines && this.cachedWidth === width && this.cachedRows === rows) return this.cachedLines;
+    // List chrome: title + blank + (up to 2 indicators) + blank + help. Detail
+    // chrome: title + subtitle + blank + position footer. Derive both budgets
+    // from the terminal so neither mode renders taller than the viewport.
+    const viewportRows = overlayViewportRows(rows);
+    this.visibleRows = Math.max(3, viewportRows - 6);
+    this.detailRows = Math.max(3, viewportRows - 5);
+    if (this.detail) this.clampScroll();
     const lines = this.detail ? this.renderDetail(width) : this.renderList(width);
     this.cachedLines = lines;
     this.cachedWidth = width;
+    this.cachedRows = rows;
     return lines;
   }
 
@@ -269,7 +287,7 @@ class ReviewOverlay implements Component {
       ),
       '',
     ];
-    const end = Math.min(this.rows.length, this.scroll + VISIBLE_ROWS);
+    const end = Math.min(this.rows.length, this.scroll + this.visibleRows);
     if (this.scroll > 0) out.push(truncateToWidth(`  ${th.fg('dim', `↑ ${this.scroll} more`)}`, width));
     for (let i = this.scroll; i < end; i++) {
       const r = this.rows[i];
@@ -299,10 +317,10 @@ class ReviewOverlay implements Component {
     if (!d) return [];
     const total = d.lines.length;
     let scroll = d.scroll;
-    if (scroll > Math.max(0, total - DETAIL_LINES)) scroll = Math.max(0, total - DETAIL_LINES);
+    if (scroll > Math.max(0, total - this.detailRows)) scroll = Math.max(0, total - this.detailRows);
     if (scroll < 0) scroll = 0;
     d.scroll = scroll;
-    const slice = d.lines.slice(scroll, scroll + DETAIL_LINES);
+    const slice = d.lines.slice(scroll, scroll + this.detailRows);
     const out: string[] = [
       truncateToWidth(th.fg('toolTitle', th.bold(d.row.target.path)), width),
       truncateToWidth(
@@ -606,8 +624,8 @@ export default function checkpoint(pi: ExtensionAPI): void {
   // ── the review flow (dry-run → overlay → apply) ────────────────────────────
 
   function openOverlay(ctx: ExtensionContext, rows: ReviewRow[]): Promise<FileTarget[] | null> {
-    return showModal<FileTarget[] | null>(ctx.ui, (_tui, theme, _kb, done) => {
-      const overlay = new ReviewOverlay(theme, rows, done);
+    return showModal<FileTarget[] | null>(ctx.ui, (tui, theme, _kb, done) => {
+      const overlay = new ReviewOverlay(theme, rows, tui, done);
       activeDone = done;
       return overlay;
     }).then((result) => {

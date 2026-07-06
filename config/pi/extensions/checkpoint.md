@@ -33,7 +33,8 @@ Triggered by tree navigation (`session_tree`), a fork landing (`session_start { 
    only. `no-op` rows are hidden; `conflict` rows default unchecked (opt-in); clean rows default checked. `space`
    toggles, `a` toggles all, `⏎`/`→` drills into the file.
 3. **Detail.** The full colorized diff (current → target) via pi's `renderDiff`, scrollable (`↑/↓`, `PgUp/PgDn`,
-   `Home/End`); `←`/`esc` returns to the list.
+   `Home/End`); `←`/`esc` returns to the list. Both the list and the diff viewer size their visible rows to the terminal
+   height (windowed with `↑ N more` / `↓ N more` indicators), so neither renders taller than the viewport.
 4. **Apply / cancel.** `y` restores the **checked** files only; `esc`/`q` cancels. If a restore leaves any file out of
    sync (cancelled or partial), the out-of-sync widget appears (`⚠ code ahead of conversation - /rewind to review`),
    cleared once disk matches the leaf.
