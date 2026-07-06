@@ -84,6 +84,8 @@ import {
   openInExternalEditor,
 } from '../../../lib/node/pi/ext/external-editor.ts';
 import { formatWorkingNotes, groupByHeading } from '../../../lib/node/pi/scratchpad-prompt.ts';
+import { computeScrollWindow } from '../../../lib/node/pi/scroll-window.ts';
+import { enterModalUi, exitModalUi, resetModalUi } from '../../../lib/node/pi/ui-activity.ts';
 import { formatHeaderRule } from '../../../lib/node/pi/tui-rule.ts';
 import { SCRATCHPAD_USAGE } from '../../../lib/node/pi/scratchpad/usage.ts';
 import {
@@ -192,6 +194,20 @@ interface ScratchpadOverlayDeps {
 
 type OverlayMode = 'list' | 'body' | 'heading' | 'add';
 
+/**
+ * Rows kept clear above + below the overlay so it never touches the terminal
+ * edges, and the smallest height we'll ever render into. Both feed the
+ * `maxHeight` backstop passed to `ctx.ui.custom` and the internal windowing,
+ * so the two agree on the row budget.
+ */
+const OVERLAY_VERTICAL_MARGIN = 2;
+const MIN_OVERLAY_ROWS = 6;
+
+/** Row budget the overlay renders into for the current terminal height. */
+function overlayViewportRows(tui: TUI): number {
+  return Math.max(MIN_OVERLAY_ROWS, tui.terminal.rows - OVERLAY_VERTICAL_MARGIN);
+}
+
 class ScratchpadOverlay implements Component {
   private readonly deps: ScratchpadOverlayDeps;
   private readonly theme: Theme;
@@ -208,7 +224,26 @@ class ScratchpadOverlay implements Component {
   private sel = 0;
   /** Note being edited in `body` / `heading` mode (null in `add`). */
   private editingId: number | null = null;
+  /** First visible body-line index in list mode (viewport scroll offset). */
+  private scrollTop = 0;
+  /** When true, the next render re-anchors the window on the selected note
+   * (set on selection change); when false the window is free-scrolled and
+   * `scrollTop` is preserved as-is (scrolling within a tall note). */
+  private pendingSnap = true;
+  /** Selected note's `[start, end)` body-line range from the last render. */
+  private selRange: { start: number; end: number } | undefined;
+  /** Visible body-line window `[winStart, winEnd)` from the last render. */
+  private winStart = 0;
+  private winEnd = 0;
+  /** Largest valid `scrollTop` from the last render. */
+  private maxScrollTop = 0;
+  /** Per-note `[start, end)` body-line ranges from the last list render, in
+   * ordered-note order; drives page-sized selection jumps. */
+  private noteLineRanges: { start: number; end: number }[] = [];
+  /** Visible content rows in the scroll region from the last list render. */
+  private lastContentRows = 1;
   private cachedWidth?: number;
+  private cachedRows?: number;
   private cachedLines?: string[];
 
   constructor(
@@ -271,8 +306,14 @@ class ScratchpadOverlay implements Component {
       this.onClose();
       return;
     }
-    if (matchesKey(data, Key.up) || matchesKey(data, 'ctrl+p') || data === 'k') this.move(-1);
-    else if (matchesKey(data, Key.down) || matchesKey(data, 'ctrl+n') || data === 'j') this.move(1);
+    if (matchesKey(data, Key.up) || matchesKey(data, 'ctrl+p') || data === 'k') this.navigateUp(1, 1);
+    else if (matchesKey(data, Key.down) || matchesKey(data, 'ctrl+n') || data === 'j') this.navigateDown(1, 1);
+    else if (matchesKey(data, Key.pageUp) || matchesKey(data, 'ctrl+b'))
+      this.navigateUp(this.lastContentRows, this.notesPerPage());
+    else if (matchesKey(data, Key.pageDown) || matchesKey(data, 'ctrl+f'))
+      this.navigateDown(this.lastContentRows, this.notesPerPage());
+    else if (matchesKey(data, Key.home) || data === 'g') this.moveTo(0);
+    else if (matchesKey(data, Key.end) || data === 'G') this.moveTo(Number.MAX_SAFE_INTEGER);
     else if (data === 'a') this.openAdd();
     else if (data === 'e') this.openBody();
     else if (data === 'h') this.openHeading();
@@ -283,6 +324,7 @@ class ScratchpadOverlay implements Component {
 
   invalidate(): void {
     this.cachedWidth = undefined;
+    this.cachedRows = undefined;
     this.cachedLines = undefined;
   }
 
@@ -372,12 +414,77 @@ class ScratchpadOverlay implements Component {
   private move(delta: number): void {
     const n = this.orderedNotes().length;
     if (n === 0) return;
-    this.sel = Math.max(0, Math.min(n - 1, this.sel + delta));
+    const next = Math.max(0, Math.min(n - 1, this.sel + delta));
+    if (next !== this.sel) {
+      this.sel = next;
+      this.pendingSnap = true;
+    }
+  }
+
+  /** Jump the selection to an absolute index (clamped); used by g/G/Home/End. */
+  private moveTo(index: number): void {
+    const n = this.orderedNotes().length;
+    if (n === 0) return;
+    const next = Math.max(0, Math.min(n - 1, index));
+    if (next !== this.sel) {
+      this.sel = next;
+      this.pendingSnap = true;
+    }
+  }
+
+  /**
+   * Down/PageDown: when the selected note is taller than the visible region
+   * and part of it is still below the fold, scroll the viewport down by
+   * `scrollStep` lines (staying on the same note); otherwise advance the
+   * selection by `moveDelta` notes. This lets a single tall note be scrolled
+   * through instead of being truncated with an unreachable `↓ N more`.
+   */
+  private navigateDown(scrollStep: number, moveDelta: number): void {
+    const r = this.selRange;
+    if (r && r.end - r.start > this.lastContentRows && this.winEnd < r.end) {
+      this.scrollTop = Math.min(this.maxScrollTop, this.scrollTop + Math.max(1, scrollStep));
+    } else {
+      this.move(moveDelta);
+    }
+  }
+
+  /** Up/PageUp: mirror of navigateDown - scroll within a tall note before
+   * moving to the previous note. */
+  private navigateUp(scrollStep: number, moveDelta: number): void {
+    const r = this.selRange;
+    if (r && r.end - r.start > this.lastContentRows && this.winStart > r.start) {
+      this.scrollTop = Math.max(0, this.scrollTop - Math.max(1, scrollStep));
+    } else {
+      this.move(-moveDelta);
+    }
+  }
+
+  /**
+   * How many notes to advance on PageUp/PageDown: the count of notes whose
+   * line spans fill the visible content region starting at the current
+   * selection, so a page scroll lands the current bottom note near the top.
+   */
+  private notesPerPage(): number {
+    const ranges = this.noteLineRanges;
+    if (ranges.length === 0) return 1;
+    const rows = Math.max(1, this.lastContentRows);
+    let used = 0;
+    let count = 0;
+    for (let i = Math.min(this.sel, ranges.length - 1); i < ranges.length; i++) {
+      const height = ranges[i].end - ranges[i].start;
+      if (count > 0 && used + height > rows) break;
+      used += height;
+      count++;
+    }
+    return Math.max(1, count);
   }
 
   private clampSel(): void {
     const n = this.orderedNotes().length;
     this.sel = n === 0 ? 0 : Math.min(this.sel, n - 1);
+    // Re-anchor the window on the (possibly moved) selection after an edit,
+    // add, or delete.
+    this.pendingSnap = true;
   }
 
   private selectId(id: number): void {
@@ -388,11 +495,17 @@ class ScratchpadOverlay implements Component {
   // ── Render ────────────────────────────────────────────────────────────
   render(width: number): string[] {
     // Only the static list view is cacheable; the editor/input view changes
-    // on every keystroke, so it rebuilds each render.
-    if (this.mode === 'list' && this.cachedLines && this.cachedWidth === width) return this.cachedLines;
+    // on every keystroke, so it rebuilds each render. List output also
+    // depends on terminal height (the scroll window), so the cache keys on
+    // both width and rows.
+    const rows = this.tui.terminal.rows;
+    if (this.mode === 'list' && this.cachedLines && this.cachedWidth === width && this.cachedRows === rows) {
+      return this.cachedLines;
+    }
     const lines = this.mode === 'list' ? this.renderList(width) : this.renderEditor(width);
     if (this.mode === 'list') {
       this.cachedWidth = width;
+      this.cachedRows = rows;
       this.cachedLines = lines;
     }
     return lines;
@@ -401,37 +514,114 @@ class ScratchpadOverlay implements Component {
   private renderList(width: number): string[] {
     const th = this.theme;
     const state = this.deps.getState();
-    const lines: string[] = [''];
 
+    // Pinned header: blank, rule, blank.
     const total = state.notes.length;
     const chip = total > 0 ? `${total} note${total === 1 ? '' : 's'}` : undefined;
-    lines.push(truncateToWidth(formatHeaderRule('Scratchpad', chip, width, th), width));
-    lines.push('');
+    const header: string[] = ['', truncateToWidth(formatHeaderRule('Scratchpad', chip, width, th), width), ''];
+
+    // Pinned footer: blank, hint, blank.
+    const hint = total === 0 ? 'a add · Esc close' : '↑/↓ move · e body · h heading · a add · d delete · Esc close';
+    const footer: string[] = ['', truncateToWidth(`  ${th.fg('dim', hint)}`, width), ''];
+
+    // Scrollable body. Track the selected note's line range (for scroll
+    // follow) and every note's range (for page-sized jumps).
+    const body: string[] = [];
+    this.noteLineRanges = [];
+    let selStart: number | undefined;
+    let selEnd: number | undefined;
 
     if (total === 0) {
-      lines.push(truncateToWidth(`  ${th.fg('dim', 'Scratchpad is empty. Press a to add a note.')}`, width));
+      body.push(truncateToWidth(`  ${th.fg('dim', 'Scratchpad is empty. Press a to add a note.')}`, width));
     } else {
       const idPad = Math.max(...state.notes.map((n) => String(n.id).length)) + 1; // include '#'
       const ordered = this.orderedNotes();
       const selId = ordered[Math.min(this.sel, ordered.length - 1)]?.id;
       let firstSection = true;
       for (const [heading, notes] of groupByHeading(state.notes)) {
-        if (!firstSection) lines.push('');
+        if (!firstSection) body.push('');
         firstSection = false;
-        lines.push(truncateToWidth(`  ${th.fg('muted', heading || 'Notes')}`, width));
+        const headingLine = body.length;
+        body.push(truncateToWidth(`  ${th.fg('muted', heading || 'Notes')}`, width));
+        let firstInSection = true;
         for (const n of notes) {
+          const start = body.length;
           for (const row of renderOverlayNoteLines(n, th, idPad, width, n.id === selId)) {
-            lines.push(truncateToWidth(row, width));
+            body.push(truncateToWidth(row, width));
           }
+          this.noteLineRanges.push({ start, end: body.length });
+          if (n.id === selId) {
+            // Anchor the first note of a section on its heading line so
+            // jumping to it keeps the section label in view (no spurious
+            // "↑ more" above the top note).
+            selStart = firstInSection ? headingLine : start;
+            selEnd = body.length;
+          }
+          firstInSection = false;
         }
       }
     }
 
-    lines.push('');
-    const hint = total === 0 ? 'a add · Esc close' : '↑/↓ move · e body · h heading · a add · d delete · Esc close';
-    lines.push(truncateToWidth(`  ${th.fg('dim', hint)}`, width));
-    lines.push('');
-    return lines;
+    return this.windowBody(header, body, footer, width, selStart, selEnd);
+  }
+
+  /**
+   * Compose the pinned header/footer around a scrolled slice of `body` so the
+   * overlay never exceeds the terminal height (which would make pi's overlay
+   * compositor inflate the screen buffer and scroll/flicker). When the body
+   * fits, it's rendered whole; otherwise one row top + bottom is reserved for
+   * `↑/↓ N more` indicators so total height stays constant across scrolling.
+   */
+  private windowBody(
+    header: string[],
+    body: string[],
+    footer: string[],
+    width: number,
+    selStart: number | undefined,
+    selEnd: number | undefined,
+  ): string[] {
+    const th = this.theme;
+    const viewportRows = overlayViewportRows(this.tui);
+    const regionRows = viewportRows - header.length - footer.length;
+
+    this.selRange = selStart !== undefined && selEnd !== undefined ? { start: selStart, end: selEnd } : undefined;
+
+    // Everything fits (or no room to scroll): render the whole body.
+    if (regionRows <= 0 || body.length <= regionRows) {
+      this.scrollTop = 0;
+      this.lastContentRows = Math.max(1, regionRows);
+      this.maxScrollTop = 0;
+      this.winStart = 0;
+      this.winEnd = body.length;
+      this.pendingSnap = false;
+      return [...header, ...body, ...footer];
+    }
+
+    // Reserve indicator rows so the height is stable regardless of offset.
+    const contentRows = Math.max(1, regionRows - 2);
+    this.lastContentRows = contentRows;
+    this.maxScrollTop = Math.max(0, body.length - contentRows);
+    // Re-anchor on the selected note only when the selection just changed;
+    // otherwise leave `scrollTop` where the user free-scrolled it (so a note
+    // taller than the region can be scrolled through without snapping back).
+    const win = computeScrollWindow({
+      total: body.length,
+      rows: contentRows,
+      scrollTop: this.scrollTop,
+      keepStart: this.pendingSnap ? selStart : undefined,
+      keepEnd: this.pendingSnap ? selEnd : undefined,
+    });
+    this.scrollTop = win.scrollTop;
+    this.winStart = win.start;
+    this.winEnd = win.end;
+    this.pendingSnap = false;
+
+    const topIndicator =
+      win.hiddenAbove > 0 ? truncateToWidth(`  ${th.fg('dim', `↑ ${win.hiddenAbove} more`)}`, width) : '';
+    const bottomIndicator =
+      win.hiddenBelow > 0 ? truncateToWidth(`  ${th.fg('dim', `↓ ${win.hiddenBelow} more`)}`, width) : '';
+
+    return [...header, topIndicator, ...body.slice(win.start, win.end), bottomIndicator, ...footer];
   }
 
   private renderEditor(width: number): string[] {
@@ -499,6 +689,13 @@ export default function scratchpadExtension(pi: ExtensionAPI): void {
 
   pi.on('session_tree', (_event, ctx) => {
     rebuildFromSession(ctx);
+  });
+
+  // Clear the modal-UI signal on shutdown / reload so a notebook that was open
+  // when the session ended (or was `/reload`ed) doesn't leave the flag stuck,
+  // which would freeze the avatar animation forever. Idempotent, never throws.
+  pi.on('session_shutdown', () => {
+    resetModalUi();
   });
 
   // ── Active-notes auto-injection into every turn (via the `context` hook) ──
@@ -647,7 +844,35 @@ export default function scratchpadExtension(pi: ExtensionAPI): void {
             return newId;
           },
         };
-        await ctx.ui.custom<void>((tui, theme, kb, done) => new ScratchpadOverlay(deps, theme, tui, kb, () => done()));
+        // Capture the overlay's TUI so the maxHeight backstop can track the
+        // live terminal height (the factory runs before the first layout).
+        let overlayTui: TUI | undefined;
+        // Signal that a modal custom-UI component is on screen so animator
+        // extensions (the avatar) pause. This component is mounted inline in
+        // the editor container (not `overlay: true`), so `TUI.hasOverlay()`
+        // stays false for it - the shared flag is how the avatar learns the
+        // notebook is up. See lib/node/pi/ui-activity.ts.
+        enterModalUi();
+        try {
+          await ctx.ui.custom<void>(
+            (tui, theme, kb, done) => {
+              overlayTui = tui;
+              return new ScratchpadOverlay(deps, theme, tui, kb, () => done());
+            },
+            {
+              // maxHeight only takes effect if this is mounted as a real
+              // overlay (`overlay: true` -> showOverlay); today it's an inline
+              // editor component, so this is inert but harmless - the actual
+              // height bounding is the internal windowing in windowBody(). Kept
+              // as a correct backstop in case this becomes a true overlay.
+              overlayOptions: () => ({
+                maxHeight: overlayTui ? overlayViewportRows(overlayTui) : MIN_OVERLAY_ROWS,
+              }),
+            },
+          );
+        } finally {
+          exitModalUi();
+        }
         return;
       }
       if (sub === 'preview') {

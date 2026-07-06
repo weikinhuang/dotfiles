@@ -43,8 +43,20 @@ Notes are trimmed on write; attempting to `update` a note with an empty body ret
 - `/scratchpad` (or `/scratchpad list`) - opens the interactive `ScratchpadOverlay` (same header-rule style as
   `/todos`): a `─── Scratchpad ───…─── N notes ───` rule, then notes grouped by heading in first-seen order (ungrouped
   notes under an implicit `Notes` section), with long / multi-line bodies word-wrapped under the `> #id` prefix. The
-  notebook is editable in place:
-  - `↑`/`↓` (or `j`/`k`, `Ctrl-P`/`Ctrl-N`) move the selection (`>` marker), in grouped display order.
+  overlay is height-bounded to the terminal by internal windowing in
+  [`lib/node/pi/scroll-window.ts`](../../../lib/node/pi/scroll-window.ts) so it never overflows the viewport - the
+  header rule and hint stay pinned while the note list scrolls between them, with `↑ N more` / `↓ N more` indicators.
+  This avoids the screen-scroll/flicker pi's renderer produces when a component renders more lines than the terminal has
+  rows. (The component is mounted inline in the editor container, not as a real `overlay: true` overlay, so the
+  `maxHeight` passed to `ctx.ui.custom` is an inert backstop; the internal windowing does the bounding.) While the
+  notebook is open it raises the shared [`isModalUiActive()`](../../../lib/node/pi/ui-activity.ts) flag (via
+  `enterModalUi` / `exitModalUi`, reset on `session_shutdown`) so the `avatar` widget freezes its animation and doesn't
+  re-emit its sprite image underneath - see [avatar.md](./avatar.md) § "Modal UI (animation freeze)". The notebook is
+  editable in place:
+  - `↑`/`↓` (or `j`/`k`, `Ctrl-P`/`Ctrl-N`) move the selection (`>` marker), in grouped display order. When the selected
+    note is taller than the visible region, they scroll _within_ that note before advancing to the neighbour, so a note
+    taller than the viewport is fully reachable rather than truncated.
+  - `PageUp`/`PageDown` (or `Ctrl-B`/`Ctrl-F`) jump a page; `g`/`Home` and `G`/`End` jump to the first / last note.
   - `e` edits the selected note's body in a multi-line editor (`Enter` saves, `Shift+Enter` newline, `Esc` cancels).
     `Ctrl+G` (the `app.editor.external` binding) opens the body in `$VISUAL` / `$EDITOR` (falling back to `nano` /
     `notepad`) and reads it back on a clean exit, matching pi's built-in `ctx.ui.editor`. Shared with `questionnaire`

@@ -93,6 +93,7 @@ import type { ActivityState, AvatarConfig, Protocol } from '../../../lib/node/pi
 import { piAgentPath, piProjectPath } from '../../../lib/node/pi/pi-paths.ts';
 import { fmtSi } from '../../../lib/node/pi/token-format.ts';
 import { envTruthy } from '../../../lib/node/pi/parse-env.ts';
+import { isModalUiActive } from '../../../lib/node/pi/ui-activity.ts';
 
 // ──────────────────────────────────────────────────────────────────────
 // Types
@@ -342,6 +343,15 @@ class AvatarRenderer {
   }
 
   showIndex(state: string, index: number): boolean {
+    // Freeze the frame while a modal is up (a real overlay, or an inline
+    // custom-UI component like the /scratchpad notebook - see
+    // lib/node/pi/ui-activity.ts). Advancing the frame would re-emit the
+    // sprite image (sixel/kitty/iterm2) on every animation tick and scroll the
+    // screen under the modal. The animation timers keep ticking as no-ops and
+    // resume once the modal closes.
+    if (this.tui?.hasOverlay() || isModalUiActive()) {
+      return this.current !== null;
+    }
     const loaded = this.store.get(state);
     if (!loaded || loaded.frames.length === 0) return false;
     const length = loaded.frames.length;
@@ -352,6 +362,10 @@ class AvatarRenderer {
   }
 
   showRandom(state: string): boolean {
+    // See showIndex: freeze the frame while a modal is up.
+    if (this.tui?.hasOverlay() || isModalUiActive()) {
+      return this.current !== null;
+    }
     const loaded = this.store.get(state);
     if (!loaded || loaded.frames.length === 0) return false;
     const frame = pickRandom(loaded.frames);

@@ -113,6 +113,24 @@ when you know what the outer terminal is (see "tmux / screen" below). The kaomoj
 terminal whenever the resolved sprite set ships no PNG frames (or a PNG can't be decoded for the sixel path), so the
 avatar always renders. Override detection with the `render` config key or `PI_AVATAR_RENDER`.
 
+### Modal UI (animation freeze)
+
+While a modal custom-UI component is on screen (the `/scratchpad` notebook, `/todos`, and any other `ctx.ui.custom`
+component), the renderer **freezes** the current frame: `AvatarRenderer.showIndex` / `showRandom` early-return on
+`tui.hasOverlay() || isModalUiActive()`, leaving `current` byte-identical and skipping the `requestRender`. The
+animation timers keep ticking (they no-op) and resume once the modal closes.
+
+This is a flicker fix. Advancing the frame changes the sprite's image lines, and pi-tui's differential renderer re-emits
+the image (sixel / kitty / iterm2) on every animation tick; when the modal fills the screen, that re-emit scrolls the
+viewport. Freezing keeps the widget's lines byte-stable so the diff renderer never re-emits.
+
+`tui.hasOverlay()` only covers **real** overlays (`ctx.ui.custom(..., { overlay: true })` -> `showOverlay`). Our custom
+components are mounted **inline in the editor container** (no `overlay: true`), so `hasOverlay()` is false for them. The
+[`isModalUiActive()`](../../../lib/node/pi/ui-activity.ts) signal (a globalThis-anchored counter set by the hosting
+extension via `enterModalUi` / `exitModalUi`) is how the avatar learns an inline modal is up across the extension
+boundary. Producer today: `scratchpad.ts`. If you add another full-screen `ctx.ui.custom` component, wrap it in
+`enterModalUi()` / `exitModalUi()` (with a `resetModalUi()` on `session_shutdown`) so the avatar pauses under it too.
+
 ### tmux / screen
 
 Image protocols work through tmux when the user explicitly forces one (`render: "kitty"` / `"iterm2"` / `"sixel"`, or
