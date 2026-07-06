@@ -71,11 +71,12 @@ import { join } from 'node:path';
 
 import { StringEnum } from '@earendil-works/pi-ai';
 import { type ExtensionAPI, type ExtensionContext, type Theme, type ThemeColor } from '@earendil-works/pi-coding-agent';
-import { type Component, matchesKey, Text, truncateToWidth } from '@earendil-works/pi-tui';
+import { type Component, matchesKey, Text, truncateToWidth, type TUI } from '@earendil-works/pi-tui';
 import { Type } from 'typebox';
 
 import { requestBashApproval } from '../../../lib/node/pi/bash/gate.ts';
 import { showModal } from '../../../lib/node/pi/ext/show-modal.ts';
+import { assembleWindowedBody, overlayViewportRows } from '../../../lib/node/pi/ext/overlay-window.ts';
 import { type BgBashConfig, DEFAULT_BG_BASH_CONFIG, loadBgBashConfig } from '../../../lib/node/pi/bg-bash/config.ts';
 import {
   BG_BASH_NUDGE_CUSTOM_TYPE,
@@ -396,14 +397,17 @@ interface OverlayDeps {
   onClearTerminal: () => void;
 }
 
-class BgBashOverlay implements Component {
+export class BgBashOverlay implements Component {
   private selected = 0;
+  /** Job-list scroll offset (job rows are one line each); selection-driven. */
+  private scrollTop = 0;
   /** Per-job freeze state; toggled by `f`. */
   private readonly frozenHandles = new Set<string>();
 
   constructor(
     private readonly deps: OverlayDeps,
     private readonly theme: Theme,
+    private readonly tui: TUI,
     private readonly onClose: () => void,
   ) {}
 
@@ -486,33 +490,34 @@ class BgBashOverlay implements Component {
     const th = this.theme;
     const jobs = this.jobs();
     const now = Date.now();
-    const lines: string[] = [''];
 
     const runningCount = jobs.filter((j) => j.status === 'running' || j.status === 'signaled').length;
     let chip: string | undefined;
     if (jobs.length === 0) chip = '0 jobs';
     else if (runningCount > 0) chip = `${jobs.length} jobs · ${runningCount} running`;
     else chip = `${jobs.length} jobs`;
-    lines.push(truncateToWidth(formatHeaderRule('Background jobs', chip, width, th), width));
-    lines.push('');
+    const header = ['', truncateToWidth(formatHeaderRule('Background jobs', chip, width, th), width), ''];
 
     if (jobs.length === 0) {
-      lines.push(truncateToWidth(`  ${th.fg('dim', '(no background jobs)')}`, width));
-      lines.push('');
-      lines.push(truncateToWidth(`  ${th.fg('dim', 'Press Escape to close')}`, width));
-      lines.push('');
-      return lines;
+      return [
+        ...header,
+        truncateToWidth(`  ${th.fg('dim', '(no background jobs)')}`, width),
+        '',
+        truncateToWidth(`  ${th.fg('dim', 'Press Escape to close')}`, width),
+        '',
+      ];
     }
 
     if (this.selected >= jobs.length) this.selected = jobs.length - 1;
 
-    // Top section: structured job rows with right-padded phrase / dur /
-    // bytes columns so the cmd column lines up across rows.
+    // Top section (scrollable body): structured job rows with right-padded
+    // phrase / dur / bytes columns so the cmd column lines up across rows.
     const rows = jobs.map((j) => formatJobRow(j, now, { width: Math.max(40, width - 4) }));
     const phraseWidth = Math.max(...rows.map((r) => r.statusPhrase.length));
     const durWidth = Math.max(...rows.map((r) => r.duration.length));
     const bytesWidth = Math.max(...rows.map((r) => r.bytes.length));
     const idWidth = Math.max(...rows.map((r) => r.id.length));
+    const jobLines: string[] = [];
     for (let i = 0; i < jobs.length; i++) {
       const j = jobs[i];
       const r = rows[i];
@@ -524,10 +529,12 @@ class BgBashOverlay implements Component {
         `${th.fg('dim', r.duration.padEnd(durWidth))}   ` +
         `${th.fg('dim', r.bytes.padEnd(bytesWidth))}   ` +
         `${th.fg('text', r.cmd)}`;
-      lines.push(truncateToWidth(line, width));
+      jobLines.push(truncateToWidth(line, width));
     }
 
-    // Mid-rule + log tail for the highlighted job.
+    // Lower block (pinned footer): mid-rule + log tail for the highlighted job
+    // + key hints. The tail budget shrinks on short terminals so the job list
+    // always keeps a few visible rows.
     const sel = jobs[this.selected];
     const live = this.deps.getLive(sel.id);
     const followDefault = sel.status === 'running' || sel.status === 'signaled';
@@ -538,32 +545,35 @@ class BgBashOverlay implements Component {
       ? formatLogTailHeader(sel, { stdoutBytes: sel.stdoutBytes, stderrBytes: sel.stderrBytes, following })
       : formatLogTailExitHeader(sel);
 
-    lines.push('');
-    lines.push(truncateToWidth(formatHeaderRule(midTitle, midChip, width, th), width));
-    lines.push('');
+    const viewportRows = overlayViewportRows(this.tui.terminal.rows);
+    // Reserve room for the job list: header(3) + mid-rule block(3) + help(2) +
+    // a few job rows. What's left (capped at OVERLAY_TAIL_LINES) is the tail.
+    const tailBudget = Math.max(1, Math.min(OVERLAY_TAIL_LINES, viewportRows - 14));
 
-    // Tail: last OVERLAY_TAIL_LINES lines from the merged in-memory ring.
+    const footer: string[] = ['', truncateToWidth(formatHeaderRule(midTitle, midChip, width, th), width), ''];
     if (live) {
       const merged = mergeBgBashStreams(live, 'merged');
-      const tail = tailLines(merged, OVERLAY_TAIL_LINES).trimEnd();
+      const tail = tailLines(merged, tailBudget).trimEnd();
       if (!tail) {
-        lines.push(truncateToWidth(`  ${th.fg('dim', '(no output yet)')}`, width));
+        footer.push(truncateToWidth(`  ${th.fg('dim', '(no output yet)')}`, width));
       } else {
         const tailRows = tail.split('\n');
         for (const row of tailRows) {
-          lines.push(truncateToWidth(`  ${th.fg('toolOutput', row)}`, width));
+          footer.push(truncateToWidth(`  ${th.fg('toolOutput', row)}`, width));
         }
         // Hint to expand if there's clearly more than the visible tail.
         const totalLines = merged ? merged.split('\n').length : 0;
         if (totalLines > tailRows.length) {
           const moreCount = totalLines - tailRows.length;
-          lines.push(truncateToWidth(`  ${th.fg('dim', `… ${moreCount} more lines (bg_bash logs ${sel.id})`)}`, width));
+          footer.push(
+            truncateToWidth(`  ${th.fg('dim', `… ${moreCount} more lines (bg_bash logs ${sel.id})`)}`, width),
+          );
         }
       }
     } else if (sel.logFile) {
-      lines.push(truncateToWidth(`  ${th.fg('dim', `(no in-memory buffer; see ${sel.logFile})`)}`, width));
+      footer.push(truncateToWidth(`  ${th.fg('dim', `(no in-memory buffer; see ${sel.logFile})`)}`, width));
     } else {
-      lines.push(truncateToWidth(`  ${th.fg('dim', '(no logs available)')}`, width));
+      footer.push(truncateToWidth(`  ${th.fg('dim', '(no logs available)')}`, width));
     }
 
     // Footer hint: keys vary based on whether the highlighted job is
@@ -577,11 +587,25 @@ class BgBashOverlay implements Component {
     }
     helpParts.push('c clear terminal');
     helpParts.push('Press Escape to close');
-    lines.push('');
-    lines.push(truncateToWidth(`  ${th.fg('dim', helpParts.join(' · '))}`, width));
-    lines.push('');
+    footer.push('');
+    footer.push(truncateToWidth(`  ${th.fg('dim', helpParts.join(' · '))}`, width));
+    footer.push('');
 
-    return lines;
+    // Window the job list to whatever height is left, keeping the selected
+    // job in view; the lower block stays pinned.
+    const win = assembleWindowedBody({
+      header,
+      body: jobLines,
+      footer,
+      width,
+      viewportRows,
+      scrollTop: this.scrollTop,
+      theme: th,
+      keepStart: this.selected,
+      keepEnd: this.selected + 1,
+    });
+    this.scrollTop = win.scrollTop;
+    return win.lines;
   }
 }
 
@@ -1625,6 +1649,7 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
               },
             },
             theme,
+            tui,
             () => {
               if (ticker) clearInterval(ticker);
               ticker = undefined;

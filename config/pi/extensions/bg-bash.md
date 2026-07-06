@@ -106,10 +106,12 @@ via `markLiveJobsTerminated` so the next runtime sees them as historical rather 
 ## Commands
 
 - `/bg-bash` or `/bg-bash list` - open the bottom-anchored overlay. Top section is a structured job list (id · status
-  glyph · phrase · duration · bytes · cmd); bottom section is the merged log tail (last 8 lines) for the highlighted
-  job. Follow mode is default-on for running jobs; a 500 ms tick re-reads the in-memory ring buffer. Without a UI
-  surface (`ctx.hasUI === false`) the command falls back to a `formatState` notify so headless calls still print
-  something useful.
+  glyph · phrase · duration · bytes · cmd); bottom section is the merged log tail for the highlighted job. Both sections
+  are bounded to the terminal height: the job list is windowed (with `↑ N more` / `↓ N more` indicators, keeping the
+  highlighted job in view) above the pinned log-tail block, and the tail's visible-line budget (default 8) shrinks on
+  short terminals so the job list always keeps a few rows. Follow mode is default-on for running jobs; a 500 ms tick
+  re-reads the in-memory ring buffer. Without a UI surface (`ctx.hasUI === false`) the command falls back to a
+  `formatState` notify so headless calls still print something useful.
 - `/bg-bash logs <id>` - dump in-memory stdout + stderr for a live job.
 - `/bg-bash kill <id> [signal]` - signal a live job (default `SIGTERM`).
 - `/bg-bash clear` - drop terminal jobs from the registry; live jobs untouched.
