@@ -30,13 +30,15 @@ project prompts (default cap 5000; one entry per unique prompt -- the most recen
 - Type to fuzzy-match. The matcher in [`lib/node/pi/fuzzy-match.ts`](../../../lib/node/pi/fuzzy-match.ts) is a
   subsequence ranker (fzf-style), case-insensitive with a small bonus for case-exact matches, with bonuses for
   consecutive runs and word-start positions. Matched characters are highlighted in the accent color.
-- `↑` / `↓` (or `Ctrl+P` / `Ctrl+N`) move the selection. `PageUp` / `PageDown` jump by ten.
+- `↑` / `↓` (or `Ctrl+P` / `Ctrl+N`) move the selection. `PageUp` / `PageDown` jump by a page (the visible-row count).
 - `Ctrl+R` cycles to the next match -- bash-style "press again to find next older."
 - `enter` accepts the highlighted prompt and replaces the editor's current text with it.
 - `escape` or `Ctrl+C` cancels.
 
 The overlay is intentionally simple: it shows the first line of each prompt truncated to terminal width, with no preview
-pane. Multi-line prompts are matched against their first line only, so what you can see is what you can match.
+pane. Multi-line prompts are matched against their first line only, so what you can see is what you can match. The
+visible-result count is capped at ten but shrinks to the terminal height (a short pane shows fewer rows and scrolls the
+selection) so the overlay never renders taller than the viewport.
 
 Ctrl+R is intercepted **inside the editor** (`HistoryEditor extends CustomEditor`), so it doesn't conflict with the
 global `app.session.rename` binding -- that binding only fires inside the session-selector overlay.

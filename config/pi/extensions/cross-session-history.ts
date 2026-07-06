@@ -53,6 +53,7 @@ import {
   truncateToWidth,
   type EditorTheme,
 } from '@earendil-works/pi-tui';
+import { overlayViewportRows } from '../../../lib/node/pi/ext/overlay-window.ts';
 
 // `EditorFactory` is declared in pi-coding-agent's extension types but isn't
 // re-exported from the package entry point, so we mirror the signature here.
@@ -86,11 +87,16 @@ interface ScoredItem {
  * and key dispatch; the host extension just wires `onAccept` /
  * `onCancel` to the `done` callback returned by `ctx.ui.custom`.
  */
-class ReverseSearchOverlay implements Component, Focusable {
+export class ReverseSearchOverlay implements Component, Focusable {
   private readonly input = new Input();
   private readonly theme: Theme;
+  private readonly tui: TUI | undefined;
   private readonly prompts: readonly string[];
+  /** Upper cap on visible result rows; the live budget also shrinks to the
+   * terminal height so the overlay never renders taller than the viewport. */
   private readonly maxVisible: number;
+  /** Visible result rows from the last render (a page for PageUp/PageDown). */
+  private visibleRows: number;
 
   private items: ScoredItem[] = [];
   private selectedIdx = 0;
@@ -98,6 +104,7 @@ class ReverseSearchOverlay implements Component, Focusable {
   private scrollOffset = 0;
 
   private cachedWidth?: number;
+  private cachedRows?: number;
   private cachedLines?: string[];
 
   /** Internal focused state - mirrored onto Input for IME cursor positioning. */
@@ -106,11 +113,21 @@ class ReverseSearchOverlay implements Component, Focusable {
   onAccept?: (prompt: string) => void;
   onCancel?: () => void;
 
-  constructor(theme: Theme, prompts: readonly string[], maxVisible = 10) {
+  constructor(theme: Theme, prompts: readonly string[], tui?: TUI, maxVisible = 10) {
     this.theme = theme;
+    this.tui = tui;
     this.prompts = prompts;
     this.maxVisible = maxVisible;
+    this.visibleRows = maxVisible;
     this.recompute();
+  }
+
+  /** Visible result rows for the current terminal height (capped at
+   * `maxVisible`). Chrome around the list is 4 rows: top border, query line,
+   * help line, bottom border. */
+  private computeVisibleRows(): number {
+    if (!this.tui) return this.maxVisible;
+    return Math.max(1, Math.min(this.maxVisible, overlayViewportRows(this.tui.terminal.rows) - 4));
   }
 
   // Focusable - propagate to embedded Input.
@@ -133,11 +150,11 @@ class ReverseSearchOverlay implements Component, Focusable {
       return;
     }
     if (matchesKey(data, 'pageUp')) {
-      this.moveSelection(-this.maxVisible);
+      this.moveSelection(-this.visibleRows);
       return;
     }
     if (matchesKey(data, 'pageDown')) {
-      this.moveSelection(this.maxVisible);
+      this.moveSelection(this.visibleRows);
       return;
     }
     if (matchesKey(data, Key.enter)) {
@@ -166,8 +183,8 @@ class ReverseSearchOverlay implements Component, Focusable {
     this.selectedIdx = next;
     if (this.selectedIdx < this.scrollOffset) {
       this.scrollOffset = this.selectedIdx;
-    } else if (this.selectedIdx >= this.scrollOffset + this.maxVisible) {
-      this.scrollOffset = this.selectedIdx - this.maxVisible + 1;
+    } else if (this.selectedIdx >= this.scrollOffset + this.visibleRows) {
+      this.scrollOffset = this.selectedIdx - this.visibleRows + 1;
     }
     this.invalidate();
   }
@@ -200,13 +217,25 @@ class ReverseSearchOverlay implements Component, Focusable {
 
   invalidate(): void {
     this.cachedWidth = undefined;
+    this.cachedRows = undefined;
     this.cachedLines = undefined;
   }
 
   render(width: number): string[] {
-    if (this.cachedLines !== undefined && this.cachedWidth === width) {
+    const rows = this.tui?.terminal.rows ?? 0;
+    if (this.cachedLines !== undefined && this.cachedWidth === width && this.cachedRows === rows) {
       return this.cachedLines;
     }
+
+    // Clamp the visible-row budget to the terminal, then re-anchor the scroll
+    // window on the selection so the overlay never exceeds the viewport.
+    const visibleRows = this.computeVisibleRows();
+    this.visibleRows = visibleRows;
+    if (this.selectedIdx < this.scrollOffset) this.scrollOffset = this.selectedIdx;
+    else if (this.selectedIdx >= this.scrollOffset + visibleRows) {
+      this.scrollOffset = this.selectedIdx - visibleRows + 1;
+    }
+    if (this.scrollOffset < 0) this.scrollOffset = 0;
 
     const lines: string[] = [];
     const total = this.prompts.length;
@@ -223,10 +252,10 @@ class ReverseSearchOverlay implements Component, Focusable {
 
     if (this.items.length === 0 && this.input.getValue().length > 0) {
       lines.push(truncateToWidth(this.theme.fg('muted', '  no matches'), width));
-      for (let i = 1; i < this.maxVisible; i++) lines.push('');
+      for (let i = 1; i < visibleRows; i++) lines.push('');
     } else {
-      const visible = this.items.slice(this.scrollOffset, this.scrollOffset + this.maxVisible);
-      for (let i = 0; i < this.maxVisible; i++) {
+      const visible = this.items.slice(this.scrollOffset, this.scrollOffset + visibleRows);
+      for (let i = 0; i < visibleRows; i++) {
         const item = visible[i];
         if (item === undefined) {
           lines.push('');
@@ -242,6 +271,7 @@ class ReverseSearchOverlay implements Component, Focusable {
 
     this.cachedLines = lines;
     this.cachedWidth = width;
+    this.cachedRows = rows;
     return lines;
   }
 
@@ -356,7 +386,7 @@ export default function crossSessionHistory(pi: ExtensionAPI): void {
     void ui
       .custom<string | null>(
         (_tui, theme, _kb, done) => {
-          const overlay = new ReverseSearchOverlay(theme, searchHistory);
+          const overlay = new ReverseSearchOverlay(theme, searchHistory, _tui);
           overlay.onAccept = (prompt) => done(prompt);
           overlay.onCancel = () => done(null);
           return overlay;
