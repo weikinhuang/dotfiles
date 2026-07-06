@@ -381,6 +381,27 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
   let recapGen = 0;
   let recapInFlight = false;
   let recapAbort: AbortController | null = null;
+  /** Snapshot of the last context-window pass, for `/roleplay context`. Null until the first turn is processed. */
+  let lastWindowSnapshot: {
+    ts: number;
+    messagesIn: number;
+    messagesOut: number;
+    natural: number;
+    committedCutoff: number;
+    recapCutoff: number;
+    floorCutoff: number;
+    dropCutoff: number;
+    frozenFloorCutoff: number;
+    recapChars: number;
+    recapInFlight: boolean;
+    estSystemTokens: number;
+    estFullPromptTokens: number;
+    estSentPromptTokens: number;
+    estSavedTokens: number;
+    charsPerToken: number;
+    dropMoved: boolean;
+    recapChanged: boolean;
+  } | null = null;
   /** Calibrated chars-per-token (blended toward the last turn's reported usage). */
   let charsPerToken = DEFAULT_CHARS_PER_TOKEN;
   /** Estimated chars of the prompt we sent last turn, for usage calibration next turn. */
@@ -1906,10 +1927,35 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
           }
         }
 
-        // Track what we sent so next turn can calibrate against its usage.
+        // Track what we sent so next turn can calibrate against its usage, and
+        // snapshot the window state for the `/roleplay context` readout.
         try {
+          const cpt = charsPerToken > 0 ? charsPerToken : DEFAULT_CHARS_PER_TOKEN;
           const sysChars = (typeof ctx.getSystemPrompt === 'function' ? ctx.getSystemPrompt() : '')?.length ?? 0;
-          lastSentEstChars = sysChars + estimateChars(messages);
+          const sentChars = estimateChars(messages);
+          const fullChars = estimateChars(event.messages as unknown as readonly Record<string, unknown>[]);
+          lastSentEstChars = sysChars + sentChars;
+          const prev = lastWindowSnapshot;
+          lastWindowSnapshot = {
+            ts: Date.now(),
+            messagesIn: event.messages.length,
+            messagesOut: messages.length,
+            natural,
+            committedCutoff,
+            recapCutoff,
+            floorCutoff,
+            dropCutoff,
+            frozenFloorCutoff,
+            recapChars: recapText.length,
+            recapInFlight,
+            estSystemTokens: Math.round(sysChars / cpt),
+            estFullPromptTokens: Math.round((sysChars + fullChars) / cpt),
+            estSentPromptTokens: Math.round((sysChars + sentChars) / cpt),
+            estSavedTokens: Math.round((fullChars - sentChars) / cpt),
+            charsPerToken: Math.round(cpt * 100) / 100,
+            dropMoved: prev ? dropCutoff !== prev.dropCutoff : false,
+            recapChanged: prev ? recapText.length !== prev.recapChars : false,
+          };
         } catch {
           lastSentEstChars = 0;
         }
@@ -2490,11 +2536,62 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
   });
 
   // ── /roleplay command ───────────────────────────────────────────────
+  // Human-readable readout of the last context-window pass for `/roleplay
+  // context`. Reads the per-turn snapshot captured by the context hook.
+  const formatContextWindow = (windowTokens: number | undefined): string => {
+    if (!recapMode) {
+      return 'Roleplay context windowing is OFF (needs both summarize and context-window enabled). Full history is sent every turn; no recap or drop is applied.';
+    }
+    const snap = lastWindowSnapshot;
+    if (!snap) {
+      return 'Roleplay context: window management has not engaged yet this session. The conversation still fits the model window, so nothing is dropped or recapped and pi does not run the context transform. This readout populates once the session grows large enough to window.';
+    }
+    const cfg = loadRoleplayConfig(cwd, envCharBudget);
+    const stride = strideValue();
+    const maxAdvance = cfg.recapMaxAdvance > 0 ? cfg.recapMaxAdvance : cfg.recapChunk;
+    const lag = Math.max(0, snap.natural - snap.recapCutoff);
+    const dropped = snap.messagesIn - snap.messagesOut;
+    const floorBinds = snap.floorCutoff >= snap.recapCutoff;
+    const busted = snap.dropMoved || snap.recapChanged;
+    const winStr = windowTokens ? `${windowTokens}` : '(unknown)';
+    const pct = windowTokens ? ` (${Math.round((snap.estSentPromptTokens / windowTokens) * 100)}% of window)` : '';
+
+    // Rough drain estimate: recap advances ~maxAdvance per roll while natural
+    // grows ~stride between rolls, so net catch-up is ~(maxAdvance - stride) per
+    // roll; a roll fires roughly every stride aged messages (~stride/2 turns).
+    let drainLine = 'caught up to the kept window (rolls fire at the stride cadence).';
+    if (lag > 0) {
+      const net = Math.max(1, maxAdvance - stride);
+      const rolls = Math.ceil(lag / net);
+      const turns = Math.ceil(rolls * Math.max(1, stride / 2));
+      drainLine = `${lag} msgs behind; ~${rolls} rolls (~${turns} turns) to drain  [maxAdvance=${maxAdvance}, stride=${stride}]`;
+    }
+
+    const bustWhy =
+      snap.dropMoved && snap.recapChanged
+        ? 'drop boundary moved + recap changed'
+        : snap.dropMoved
+          ? 'drop boundary moved'
+          : 'recap text changed';
+
+    return [
+      'Roleplay context window (snapshot of last turn)',
+      `  messages : ${snap.messagesIn} in -> ${snap.messagesOut} sent  (${dropped} dropped)`,
+      `  cutoffs  : natural=${snap.natural}  drop=${snap.dropCutoff}  recap=${snap.recapCutoff}  floor=${snap.frozenFloorCutoff}(frozen)  committed=${snap.committedCutoff}`,
+      `  binding  : ${floorBinds ? 'safety floor' : 'recap coverage'} sets the drop boundary`,
+      `  recap    : ${snap.recapChars} chars${snap.recapInFlight ? '  [async roll in flight]' : ''}`,
+      `  tokens   : sent=${snap.estSentPromptTokens}${pct}  system=${snap.estSystemTokens}  full=${snap.estFullPromptTokens}  saved=${snap.estSavedTokens}  window=${winStr}  (~${snap.charsPerToken} ch/tok)`,
+      `  cache    : ${busted ? `prefix REPROCESSED last turn (${bustWhy})` : 'prefix reused (drop boundary + recap held) -> cache hit'}`,
+      `  drain    : ${drainLine}`,
+    ].join('\n');
+  };
+
   pi.registerCommand('roleplay', {
     description: 'Inspect or switch the active roleplay cast',
     getArgumentCompletions: (prefix) =>
       completeSubverbs(prefix, {
         list: { description: 'List the active cast' },
+        context: { description: 'Show the context-window state (cutoffs, tokens, cache, drain)' },
         cast: { description: 'Switch / set the active cast', args: () => listCasts().map((c) => ({ label: c })) },
         import: { description: 'Import a SillyTavern card (.json/.png) into the active cast' },
         event: { description: 'Queue a one-shot scene complication (LLM-generated, or from the deck)' },
@@ -2519,6 +2616,11 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
       if (verb === '' || verb === 'list') {
         resyncIfChanged(ctx);
         ctx.ui.notify(dormant ? dormantNote : formatText(state), 'info');
+        return;
+      }
+      if (verb === 'context' || verb === 'ctx' || verb === 'window') {
+        const win = (ctx.model as { contextWindow?: number } | undefined)?.contextWindow;
+        ctx.ui.notify(formatContextWindow(win), 'info');
         return;
       }
       if (verb === 'cast') {
