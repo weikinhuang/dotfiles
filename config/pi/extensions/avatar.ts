@@ -57,8 +57,8 @@
  *                              event; the avatar still animates emotions.
  */
 
-import { existsSync, readFileSync, readdirSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { existsSync, readFileSync, readdirSync, renameSync, statSync, writeFileSync } from 'node:fs';
+import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import type { ExtensionAPI, ExtensionContext, Theme } from '@earendil-works/pi-coding-agent';
@@ -73,7 +73,7 @@ import { completeSubverbs } from '../../../lib/node/pi/commands/complete.ts';
 import { isHelpArg } from '../../../lib/node/pi/commands/help.ts';
 import type { AsciiFrameMap } from '../../../lib/node/pi/avatar/ascii-yaml.ts';
 import { mergeAsciiFrameMaps, parseSimpleYaml } from '../../../lib/node/pi/avatar/ascii-yaml.ts';
-import { classifyStateDirs, isActivityState, pickRandom, resolveEmoteSet } from '../../../lib/node/pi/avatar/emotes.ts';
+import { classifyStateDirs, isActivityState, resolveEmoteSet } from '../../../lib/node/pi/avatar/emotes.ts';
 import { encodeITermImage, encodeKittyImage } from '../../../lib/node/pi/avatar/encode.ts';
 import { encodeHalfblock } from '../../../lib/node/pi/avatar/halfblock.ts';
 import { decodePng } from '../../../lib/node/pi/avatar/png-decode.ts';
@@ -105,7 +105,10 @@ type RenderedFrame =
   | { kind: 'text'; lines: string[] };
 
 interface LoadedState {
-  frames: RenderedFrame[];
+  /** Number of frames in this state (known without materialising them). */
+  readonly length: number;
+  /** Materialise (and memoise) the frame at `index`, or null if absent. */
+  frameAt(index: number): RenderedFrame | null;
 }
 type FrameStore = Map<string, LoadedState>;
 
@@ -252,17 +255,160 @@ function buildImageFrame(
   return { kind: 'image', sequence: inTmux ? wrapForTmux(raw) : raw, rows, style: 'kitty' };
 }
 
+// ── Lazy frame materialisation + per-width sixel cache ───────────────────
+// Frames are built (PNG decode + sixel encode, the expensive part) on first
+// display, not eagerly for the whole set. Sixel sequences are additionally
+// memoised to a per-set, per-width JSON file so /reload and future sessions
+// skip encoding entirely. One file per width (dstW) keeps any single file
+// bounded and lets a font/DPI change land in a fresh file instead of bloating
+// one forever.
+
+interface SixelCacheEntry {
+  seq: string;
+  rows: number;
+}
+interface SixelCacheFile {
+  v: number;
+  cols: number;
+  dstW: number;
+  entries: Record<string, SixelCacheEntry>;
+}
+
+class SixelCache {
+  private readonly file: string;
+  private readonly entries = new Map<string, SixelCacheEntry>();
+  private dirty = false;
+  constructor(
+    private readonly setDir: string,
+    private readonly cols: number,
+    private readonly dstW: number,
+    variant: string,
+  ) {
+    this.file = join(setDir, `.sixel-cache-${dstW}${variant}.json`);
+    const data = readJson(this.file) as SixelCacheFile | null;
+    if (data?.dstW === dstW && data.entries) {
+      for (const [k, v] of Object.entries(data.entries)) {
+        if (v && typeof v.seq === 'string' && typeof v.rows === 'number') this.entries.set(k, v);
+      }
+    }
+  }
+  get size(): number {
+    return this.entries.size;
+  }
+  /** Cache key for a PNG: path relative to the set dir + mtime + size. */
+  private key(pngPath: string): string | null {
+    try {
+      const st = statSync(pngPath);
+      return `${relative(this.setDir, pngPath)}:${Math.round(st.mtimeMs)}:${st.size}`;
+    } catch {
+      return null;
+    }
+  }
+  lookup(pngPath: string): { key: string; entry: SixelCacheEntry | undefined } | null {
+    const key = this.key(pngPath);
+    if (key === null) return null;
+    return { key, entry: this.entries.get(key) };
+  }
+  put(key: string, entry: SixelCacheEntry): void {
+    this.entries.set(key, entry);
+    this.dirty = true;
+  }
+  /** Merge our additions over whatever is on disk now, then write atomically. */
+  flush(): void {
+    if (!this.dirty) return;
+    try {
+      const onDisk = readJson(this.file) as SixelCacheFile | null;
+      const merged: Record<string, SixelCacheEntry> =
+        onDisk && onDisk.dstW === this.dstW && onDisk.entries ? { ...onDisk.entries } : {};
+      for (const [k, v] of this.entries) merged[k] = v;
+      const out: SixelCacheFile = { v: 1, cols: this.cols, dstW: this.dstW, entries: merged };
+      const tmp = `${this.file}.tmp${process.pid}`;
+      writeFileSync(tmp, JSON.stringify(out));
+      renameSync(tmp, this.file);
+      this.dirty = false;
+    } catch {
+      /* cache is best-effort; never break the session */
+    }
+  }
+}
+
+// Sixel cache for the currently-loaded set/width. Created in discoverImageStore,
+// flushed on session_shutdown (and before any same-process rebuild).
+let activeSixelCache: SixelCache | null = null;
+
+// Build a frame for `pngPath`, serving the sixel sequence from `cache` on a hit
+// (skips read + decode + encode entirely). Misses fall through to buildImageFrame
+// and populate the cache.
+function buildFrameCached(
+  pngPath: string,
+  protocol: Protocol,
+  cols: number,
+  cell: { widthPx: number; heightPx: number },
+  cache: SixelCache | null,
+): RenderedFrame | null {
+  if (protocol === 'sixel' && cache) {
+    const looked = cache.lookup(pngPath);
+    if (looked) {
+      if (looked.entry) {
+        return { kind: 'image', sequence: looked.entry.seq, rows: looked.entry.rows, style: 'sixel' };
+      }
+      const frame = buildImageFrame(pngPath, protocol, cols, cell);
+      if (frame?.kind === 'image' && frame.style === 'sixel') {
+        cache.put(looked.key, { seq: frame.sequence, rows: frame.rows });
+      }
+      return frame;
+    }
+  }
+  return buildImageFrame(pngPath, protocol, cols, cell);
+}
+
+// A state whose frames are already materialised (ASCII/text - cheap to build).
+function readyState(frames: RenderedFrame[]): LoadedState {
+  return {
+    length: frames.length,
+    frameAt: (i) => (i >= 0 && i < frames.length ? frames[i] : null),
+  };
+}
+
+// A state whose image frames are built on first display and memoised for the
+// rest of the session (animation ticks re-hit the memo, never re-encode).
+function lazyImageState(paths: string[], build: (pngPath: string) => RenderedFrame | null): LoadedState {
+  const memo: (RenderedFrame | null | undefined)[] = Array.from<RenderedFrame | null | undefined>({
+    length: paths.length,
+  });
+  return {
+    length: paths.length,
+    frameAt(i) {
+      if (i < 0 || i >= paths.length) return null;
+      const cached = memo[i];
+      if (cached !== undefined) return cached;
+      const built = build(paths[i]);
+      memo[i] = built;
+      return built;
+    },
+  };
+}
+
 function discoverImageStore(setDir: string, protocol: Protocol, cols: number): BuiltStore {
   const cell = getCellDimensions();
+  const dstW = Math.max(1, Math.round(cols * cell.widthPx));
+  // Flush any previous set's cache (guards same-process reloads), then open the
+  // cache for this set/width. Sixel only - it's the sole expensive encoder.
+  activeSixelCache?.flush();
+  activeSixelCache =
+    protocol === 'sixel' ? new SixelCache(setDir, cols, dstW, isInTmux(process.env) ? '-tmux' : '') : null;
+  const cache = activeSixelCache;
   const { activities, emotions } = classifyStateDirs(listSubdirs(setDir));
   const store: FrameStore = new Map();
   for (const state of [...activities, ...emotions]) {
-    const frames: RenderedFrame[] = [];
-    for (const file of listPngs(join(setDir, state))) {
-      const frame = buildImageFrame(join(setDir, state, file), protocol, cols, cell);
-      if (frame) frames.push(frame);
+    const paths = listPngs(join(setDir, state)).map((file) => join(setDir, state, file));
+    // Lazy: nothing is read/decoded/encoded here; frames build on first display.
+    if (paths.length > 0) {
+      store.set(
+        state,
+        lazyImageState(paths, (pngPath) => buildFrameCached(pngPath, protocol, cols, cell, cache)),
+      );
     }
-    if (frames.length > 0) store.set(state, { frames });
   }
   return { store, emotions: emotions.filter((name) => store.has(name)) };
 }
@@ -305,7 +451,7 @@ function discoverAsciiStore(setNames: readonly string[], extEmotesDir: string, c
     const texts = asciiFramesToLines(value);
     if (texts.length === 0) continue;
     const frames: RenderedFrame[] = texts.map((frameText) => ({ kind: 'text', lines: frameText.split('\n') }));
-    store.set(state, { frames });
+    store.set(state, readyState(frames));
     if (!isActivityState(state)) emotions.push(state);
   }
   emotions.sort();
@@ -339,7 +485,7 @@ class AvatarRenderer {
   }
 
   count(state: string): number {
-    return this.store.get(state)?.frames.length ?? 0;
+    return this.store.get(state)?.length ?? 0;
   }
 
   showIndex(state: string, index: number): boolean {
@@ -353,10 +499,12 @@ class AvatarRenderer {
       return this.current !== null;
     }
     const loaded = this.store.get(state);
-    if (!loaded || loaded.frames.length === 0) return false;
-    const length = loaded.frames.length;
+    if (!loaded || loaded.length === 0) return false;
+    const length = loaded.length;
     const wrapped = ((index % length) + length) % length;
-    this.current = loaded.frames[wrapped];
+    const frame = loaded.frameAt(wrapped);
+    if (!frame) return false;
+    this.current = frame;
     this.tui?.requestRender();
     return true;
   }
@@ -367,8 +515,8 @@ class AvatarRenderer {
       return this.current !== null;
     }
     const loaded = this.store.get(state);
-    if (!loaded || loaded.frames.length === 0) return false;
-    const frame = pickRandom(loaded.frames);
+    if (!loaded || loaded.length === 0) return false;
+    const frame = loaded.frameAt(Math.floor(Math.random() * loaded.length));
     if (!frame) return false;
     this.current = frame;
     this.tui?.requestRender();
@@ -1137,6 +1285,7 @@ export default function avatar(pi: ExtensionAPI): void {
   });
 
   pi.on('session_shutdown', (_event, ctx) => {
+    activeSixelCache?.flush();
     if (ctx.hasUI) unmountWidget(ctx);
     else animator.clearTimers();
     lastCtx = null;
