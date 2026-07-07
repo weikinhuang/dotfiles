@@ -8,6 +8,7 @@ import { describe, expect, test } from 'vitest';
 
 import {
   isEnvRef,
+  isNetworkLocator,
   isPlaceholderValue,
   KEYWORD_RULES,
   PREFIXED_RULES,
@@ -56,5 +57,25 @@ describe('isPlaceholderValue', () => {
 
   test('does not flag a real-looking value', () => {
     expect(isPlaceholderValue('hunter2password')).toBe(false);
+  });
+});
+
+describe('isNetworkLocator', () => {
+  test('flags urls, ip addresses, and host:port endpoints', () => {
+    expect(isNetworkLocator('http://gpu.lan:19999/v1')).toBe(true);
+    expect(isNetworkLocator('https://llm.s.huang.io/v1')).toBe(true);
+    expect(isNetworkLocator('10.0.0.5:19999')).toBe(true);
+    expect(isNetworkLocator('127.0.0.1')).toBe(true);
+    expect(isNetworkLocator('gpu.lan:19999')).toBe(true);
+    expect(isNetworkLocator('localhost:8080')).toBe(true);
+    expect(isNetworkLocator('n:19999')).toBe(true);
+    expect(isNetworkLocator('[::1]:8080')).toBe(true);
+  });
+
+  test('does not flag real secrets that merely contain dots or colons', () => {
+    expect(isNetworkLocator('hunter2password')).toBe(false);
+    expect(isNetworkLocator('sk_live_abcdef123456')).toBe(false);
+    expect(isNetworkLocator('aGVsbG8.d29ybGQ.c2ln')).toBe(false); // dotted base64
+    expect(isNetworkLocator('pass:word123')).toBe(false); // colon but not host:port
   });
 });

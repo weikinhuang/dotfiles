@@ -40,7 +40,9 @@ is wiring only. Two layers ship enabled, one is reserved.
    `api_key`, `client_secret`, …) plus `Authorization:` headers and `scheme://user:PASSWORD@host` connection strings.
    Only the **value** capture group is redacted, so the key stays readable. Paired with value guards to hold the
    precision bias: env-var references (`$X`, `${X}`, `process.env.X`, `os.environ[...]`), placeholders (`<your-key>`,
-   `xxxx`, `changeme`, `REDACTED`, `...`, all-one-char), and a length floor (`keywordMinLength`, default 8) are skipped.
+   `xxxx`, `changeme`, `REDACTED`, `...`, all-one-char), network locators (`isNetworkLocator`: URLs, IP addresses, and
+   `host:port` endpoints like `token=http://gpu.lan:19999/v1` or `access-key: 10.0.0.5:19999`), and a length floor
+   (`keywordMinLength`, default 8) are skipped.
 
 3. **Layer C - entropy.** Reserved. Ships disabled and is not implemented in this version; the `entropy` config key is
    accepted (so a config that sets it is not rejected) but has no effect.

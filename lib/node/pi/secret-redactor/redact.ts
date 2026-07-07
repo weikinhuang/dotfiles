@@ -14,6 +14,7 @@ import {
   BUILTIN_ALLOWLIST,
   type CompiledRule,
   isEnvRef,
+  isNetworkLocator,
   isPlaceholderValue,
   KEYWORD_RULES,
   PREFIXED_RULES,
@@ -90,7 +91,7 @@ function collectSpans(text: string, rules: CompiledRule[], cfg: RedactorConfig):
       // to a sensitive key); prefixed rules trust their own anchor.
       if (rule.kind === 'keyword') {
         if (value.length < cfg.keywordMinLength) continue;
-        if (isEnvRef(value) || isPlaceholderValue(value)) continue;
+        if (isEnvRef(value) || isPlaceholderValue(value) || isNetworkLocator(value)) continue;
       }
       if (isAllowlisted(value, cfg)) continue;
       spans.push({ start, end, value, label: rule.id, ruleIndex });

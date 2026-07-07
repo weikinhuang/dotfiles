@@ -79,6 +79,16 @@ describe('redactText - keyword (Layer B)', () => {
     expect(redactText('password=changeme', store, cfg()).hits).toHaveLength(0);
     expect(redactText('token=short', store, cfg()).hits).toHaveLength(0); // < 8
   });
+
+  test('skips network locators (url / ip / host:port) assigned to a sensitive key', () => {
+    const store = new SecretStore();
+    expect(redactText('token=http://gpu.lan:19999/v1', store, cfg()).hits).toHaveLength(0);
+    expect(redactText('secret: https://llm.s.huang.io/v1', store, cfg()).hits).toHaveLength(0);
+    expect(redactText('access-key: 10.0.0.5:19999', store, cfg()).hits).toHaveLength(0);
+    expect(redactText('api_key = gpu-box.lan:19999', store, cfg()).hits).toHaveLength(0);
+    // a real secret next to the same key is still redacted.
+    expect(redactText('token=hunter2password', store, cfg()).hits).toHaveLength(1);
+  });
 });
 
 describe('redactText - allowlist', () => {

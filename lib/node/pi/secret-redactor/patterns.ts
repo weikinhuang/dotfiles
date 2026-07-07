@@ -107,6 +107,27 @@ export function isEnvRef(value: string): boolean {
 }
 
 /**
+ * Value is a network locator (URL, IP address, or `host:port` endpoint),
+ * not a credential. Keyword rules capture any 8+ char value next to a
+ * sensitive-looking key, so an endpoint like `access-key: 10.0.0.5:19999`
+ * or `token=http://gpu.lan:19999/v1` would otherwise be redacted wholesale.
+ * A real secret is never a full URL / IP / `host:port`, so exempting these
+ * is pure precision with no recall cost. Note the sibling keyword rules
+ * cannot reach here with a locator anyway: `authorization-header` forbids
+ * `:` in its value and `connection-string` forbids both `:` and `/`, so
+ * this guard only ever fires for `assigned-secret`.
+ */
+export function isNetworkLocator(value: string): boolean {
+  const v = value.trim();
+  if (/^[a-z][a-z0-9+.-]*:\/\/\S+$/i.test(v)) return true; // scheme://host[...]
+  if (/^(?:\d{1,3}\.){3}\d{1,3}(?::\d+)?(?:\/\S*)?$/.test(v)) return true; // ipv4 [:port][/path]
+  if (/^\[[0-9a-f:]+\](?::\d+)?$/i.test(v)) return true; // [ipv6][:port]
+  // hostname:port[/path] - host must be dns labels, port must be digits.
+  if (/^(?=.*[a-z])[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9-]+)*:\d{1,5}(?:\/\S*)?$/i.test(v)) return true;
+  return false;
+}
+
+/**
  * Value is an obvious placeholder / example, not a real secret -
  * `<your-key>`, `xxxx`, `changeme`, `REDACTED`, all-one-char, `...`.
  */
