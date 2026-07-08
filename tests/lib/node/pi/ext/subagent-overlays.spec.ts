@@ -1,6 +1,6 @@
 /**
  * Deterministic render tests for the /agents overlays' viewport windowing
- * (config/pi/extensions/subagent.ts). Model-independent: build synthetic
+ * (lib/node/pi/ext/subagent-overlays.ts). Model-independent: build synthetic
  * agent lists / running-child lists longer than a short terminal can show and
  * assert the list is windowed within the viewport (preview/detail pinned).
  */
@@ -10,8 +10,8 @@ import { expect, test } from 'vitest';
 import type { Theme } from '@earendil-works/pi-coding-agent';
 import type { TUI } from '@earendil-works/pi-tui';
 
-import { AgentsLoadedOverlay, AgentsRunningOverlay } from '../../../../config/pi/extensions/subagent.ts';
-import type { AgentPreviewSource } from '../../../../lib/node/pi/subagent/format.ts';
+import { AgentsLoadedOverlay, AgentsRunningOverlay } from '../../../../../lib/node/pi/ext/subagent-overlays.ts';
+import type { AgentPreviewSource } from '../../../../../lib/node/pi/subagent/format.ts';
 
 const theme = { fg: (_t: string, s: string): string => s, bold: (s: string): string => s } as unknown as Theme;
 
