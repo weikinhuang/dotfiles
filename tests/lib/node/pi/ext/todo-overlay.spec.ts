@@ -1,6 +1,6 @@
 /**
  * Deterministic render tests for the TodoOverlay viewport windowing
- * (config/pi/extensions/todo.ts). Model-independent: constructs the overlay
+ * (lib/node/pi/ext/todo-overlay.ts). Model-independent: constructs the overlay
  * with a synthetic state + fake theme/tui and asserts the rendered line list
  * is bounded to the terminal budget with the right scroll indicators.
  */
@@ -10,8 +10,8 @@ import { expect, test } from 'vitest';
 import type { Theme } from '@earendil-works/pi-coding-agent';
 import type { TUI } from '@earendil-works/pi-tui';
 
-import { TodoOverlay } from '../../../../config/pi/extensions/todo.ts';
-import { type Todo, type TodoState } from '../../../../lib/node/pi/todo-reducer.ts';
+import { TodoOverlay } from '../../../../../lib/node/pi/ext/todo-overlay.ts';
+import { type Todo, type TodoState } from '../../../../../lib/node/pi/todo-reducer.ts';
 
 // Fake theme: every color/bold helper just returns the text, so rendered lines
 // are plain and length assertions are exact.
