@@ -49,8 +49,10 @@ import { fileURLToPath } from 'node:url';
 import { type ExtensionAPI, type ExtensionContext } from '@earendil-works/pi-coding-agent';
 import { Key } from '@earendil-works/pi-tui';
 
+import { completeSubverbs, type SubverbSpec } from '../../../lib/node/pi/commands/complete.ts';
 import { isHelpArg } from '../../../lib/node/pi/commands/help.ts';
 import { parseModelSpec } from '../../../lib/node/pi/model-spec.ts';
+import { formatPresetListing } from '../../../lib/node/pi/preset/list.ts';
 import { PRESET_USAGE } from '../../../lib/node/pi/preset/usage.ts';
 import { createNotifyOnce } from '../../../lib/node/pi/notify-once.ts';
 import { piAgentPath, piProjectPath } from '../../../lib/node/pi/pi-paths.ts';
@@ -207,10 +209,10 @@ export default function presetExtension(pi: ExtensionAPI): void {
   pi.registerCommand('preset', {
     description: 'Switch preset: `/preset` lists, `/preset <name>` activates, `/preset off` clears',
     getArgumentCompletions: (prefix: string) => {
-      const items = nameOrder.map((n) => ({ value: n, label: n, description: describePreset(presets[n]) }));
-      items.push({ value: 'off', label: 'off', description: 'Clear preset, restore prior state' });
-      const filtered = items.filter((i) => i.value.startsWith(prefix));
-      return filtered.length > 0 ? filtered : null;
+      const spec: SubverbSpec = {};
+      for (const n of nameOrder) spec[n] = { description: describePreset(presets[n]) };
+      spec.off = { description: 'Clear preset, restore prior state' };
+      return completeSubverbs(prefix, spec);
     },
     handler: async (args, ctx) => {
       if (isHelpArg(args)) {
@@ -224,12 +226,8 @@ export default function presetExtension(pi: ExtensionAPI): void {
           ctx.ui.notify('preset: no presets defined', 'warning');
           return;
         }
-        const lines = nameOrder.map((n) => {
-          const prefix = n === activePresetName ? '* ' : '  ';
-          return `${prefix}${n} - ${describePreset(presets[n])}`;
-        });
-        const activeLine = activePresetName ? `(active: ${activePresetName})` : '(no preset active)';
-        ctx.ui.notify([activeLine, ...lines].join('\n'), 'info');
+        const lines = formatPresetListing({ nameOrder, presets, activeName: activePresetName });
+        ctx.ui.notify(lines.join('\n'), 'info');
         return;
       }
       if (arg === 'off' || arg === '(none)') {
