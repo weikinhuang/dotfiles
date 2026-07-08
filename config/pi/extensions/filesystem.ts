@@ -89,12 +89,8 @@ import { findGitRoot } from '../../../lib/node/pi/filesystem/git-root.ts';
 import { isHelpArg } from '../../../lib/node/pi/commands/help.ts';
 import { FILESYSTEM_USAGE } from '../../../lib/node/pi/filesystem/usage.ts';
 import { classifyFilesystemAccess } from '../../../lib/node/pi/filesystem-policy/classify.ts';
-import {
-  filesystemProjectPolicyPath,
-  filesystemUserPolicyPath,
-  type FilesystemPolicyLayer,
-  loadFilesystemPolicy,
-} from '../../../lib/node/pi/filesystem-policy/load.ts';
+import { filesystemProjectPolicyPath, filesystemUserPolicyPath } from '../../../lib/node/pi/filesystem-policy/load.ts';
+import { resolveActiveFilesystemPolicy } from '../../../lib/node/pi/filesystem-policy/resolve-active.ts';
 import { readTextOrEmpty } from '../../../lib/node/pi/fs-safe.ts';
 import { createNotifyOnce } from '../../../lib/node/pi/notify-once.ts';
 import { envTruthy } from '../../../lib/node/pi/parse-env.ts';
@@ -112,24 +108,12 @@ function projectRulesPath(cwd: string): string {
   return filesystemProjectPolicyPath(cwd);
 }
 
-function buildLayers(cwd: string): FilesystemPolicyLayer[] {
-  return [
-    { source: USER_RULES_PATH, raw: readTextOrEmpty(USER_RULES_PATH) },
-    { source: projectRulesPath(cwd), raw: readTextOrEmpty(projectRulesPath(cwd)) },
-  ];
-}
-
 /** Resolve the active filesystem policy for `cwd`, folding in the
  *  active persona's `writeRoots` (positive vouch into
- *  `write.allow.paths`). */
-function resolveActivePolicy(cwd: string): ReturnType<typeof loadFilesystemPolicy> {
-  const active = getActivePersona();
-  return loadFilesystemPolicy(buildLayers(cwd), {
-    personaOverlay:
-      active && active.resolvedWriteRoots.length > 0
-        ? { source: `persona:${active.name}`, paths: active.resolvedWriteRoots }
-        : undefined,
-  });
+ *  `write.allow.paths`). Thin binding of the shared pure resolver to
+ *  this extension's disk reader and persona getter. */
+function resolveActivePolicy(cwd: string): ReturnType<typeof resolveActiveFilesystemPolicy> {
+  return resolveActiveFilesystemPolicy(cwd, { readLayer: readTextOrEmpty, getActivePersona });
 }
 
 // ─────────────────────────────────────────────────────────────────

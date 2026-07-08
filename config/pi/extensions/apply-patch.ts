@@ -58,11 +58,7 @@ import { askForPermission } from '../../../lib/node/pi/approval-prompt.ts';
 import { atomicWriteFile } from '../../../lib/node/pi/atomic-write.ts';
 import { classifyFilesystemAccess } from '../../../lib/node/pi/filesystem-policy/classify.ts';
 import { findGitRoot } from '../../../lib/node/pi/filesystem/git-root.ts';
-import {
-  filesystemProjectPolicyPath,
-  filesystemUserPolicyPath,
-  loadFilesystemPolicy,
-} from '../../../lib/node/pi/filesystem-policy/load.ts';
+import { resolveActiveFilesystemPolicy } from '../../../lib/node/pi/filesystem-policy/resolve-active.ts';
 import { type FilesystemPolicyWarning } from '../../../lib/node/pi/filesystem-policy/schema.ts';
 import { readTextOrEmpty } from '../../../lib/node/pi/fs-safe.ts';
 import { getActivePersona } from '../../../lib/node/pi/persona/active.ts';
@@ -71,7 +67,6 @@ import { makeDiagnostics } from '../../../lib/node/pi/recovery-diagnostics.ts';
 import { truncate } from '../../../lib/node/pi/shared.ts';
 
 const DEFAULT_MAX_BYTES = 1_048_576;
-const USER_RULES_PATH = filesystemUserPolicyPath();
 
 const ApplyPatchParams = Type.Object({
   patch: Type.String({
@@ -89,14 +84,6 @@ interface ApplyPatchDetails {
 // ──────────────────────────────────────────────────────────────────────
 // Filesystem helpers
 // ──────────────────────────────────────────────────────────────────────
-
-function readLayer(path: string): string {
-  return readTextOrEmpty(path);
-}
-
-function projectRulesPath(cwd: string): string {
-  return filesystemProjectPolicyPath(cwd);
-}
 
 function buildReadFile(cwd: string, maxBytes: number): ReadFile {
   return (path) => {
@@ -136,16 +123,10 @@ async function gatePaths(
 ): Promise<GateResult> {
   if (paths.length === 0) return {};
 
-  const layers = [
-    { source: USER_RULES_PATH, raw: readLayer(USER_RULES_PATH) },
-    { source: projectRulesPath(ctx.cwd), raw: readLayer(projectRulesPath(ctx.cwd)) },
-  ];
   const active = getActivePersona();
-  const { policy, warnings } = loadFilesystemPolicy(layers, {
-    personaOverlay:
-      active && active.resolvedWriteRoots.length > 0
-        ? { source: `persona:${active.name}`, paths: active.resolvedWriteRoots }
-        : undefined,
+  const { policy, warnings } = resolveActiveFilesystemPolicy(ctx.cwd, {
+    readLayer: readTextOrEmpty,
+    getActivePersona: () => active,
   });
   surfaceWarnings(warnings);
 
