@@ -46,14 +46,11 @@
 
 import { StringEnum, type Model } from '@earendil-works/pi-ai';
 import {
-  createAgentSession,
   DefaultResourceLoader,
   type ExtensionAPI,
   type ExtensionContext,
   getAgentDir,
-  type ModelRegistry,
   parseFrontmatter,
-  type ResourceLoader,
   SessionManager,
 } from '@earendil-works/pi-coding-agent';
 import { Text } from '@earendil-works/pi-tui';
@@ -142,7 +139,8 @@ import {
   slugifyName as memorySlugifyName,
   uniqueSlug as memoryUniqueSlug,
 } from '../../../lib/node/pi/memory-paths.ts';
-import { adaptCreateAgentSession, resolveChildModel, runOneShotAgent } from '../../../lib/node/pi/subagent/spawn.ts';
+import { piCreateAgentSession } from '../../../lib/node/pi/ext/pi-session.ts';
+import { resolveChildModel, runOneShotAgent } from '../../../lib/node/pi/subagent/spawn.ts';
 import {
   archiveCarryOver,
   archiveFacts,
@@ -182,16 +180,6 @@ import {
 } from '../../../lib/node/pi/roleplay/store.ts';
 import { ROLEPLAY_USAGE } from '../../../lib/node/pi/roleplay/usage.ts';
 import { truncate } from '../../../lib/node/pi/shared.ts';
-
-/**
- * Bridge pi's concrete `createAgentSession` (typed with the concrete
- * `ModelRegistry` class) to the pi-free structural `ModelRegistryLike`
- * the `runOneShotAgent` helper consumes. Compatible at runtime; the
- * adapter just casts the registry at the call. Mirrors deep-research.
- */
-const piCreateAgentSession = adaptCreateAgentSession<Model<any>, SessionManager, ModelRegistry, ResourceLoader>(
-  createAgentSession,
-);
 
 // ──────────────────────────────────────────────────────────────────────
 // Tool params
