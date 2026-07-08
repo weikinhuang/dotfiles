@@ -110,16 +110,13 @@ import { readFileSync } from 'node:fs';
 import { dirname, isAbsolute, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { type Model, StringEnum } from '@earendil-works/pi-ai';
+import { StringEnum } from '@earendil-works/pi-ai';
 import {
-  createAgentSession,
   DefaultResourceLoader,
   type ExtensionAPI,
   type ExtensionContext,
   getAgentDir,
-  type ModelRegistry,
   parseFrontmatter,
-  type ResourceLoader,
   SessionManager,
 } from '@earendil-works/pi-coding-agent';
 import { Text } from '@earendil-works/pi-tui';
@@ -174,7 +171,6 @@ import {
   readSpec,
   snapshotArtifact,
   snapshotPath,
-  type TaskListing,
   writeDraft,
   writeSnapshotVerdict,
 } from '../../../lib/node/pi/iteration-loop/storage.ts';
@@ -188,20 +184,12 @@ import {
   makeNodeReadLayer,
 } from '../../../lib/node/pi/subagent/loader.ts';
 import { createPersistedSubagentSessionManager } from '../../../lib/node/pi/subagent/session-dir.ts';
-import { adaptCreateAgentSession, resolveChildModel, runOneShotAgent } from '../../../lib/node/pi/subagent/spawn.ts';
+import { piCreateAgentSession } from '../../../lib/node/pi/ext/pi-session.ts';
+import { resolveChildModel, runOneShotAgent } from '../../../lib/node/pi/subagent/spawn.ts';
 import { envTruthy } from '../../../lib/node/pi/parse-env.ts';
 import { createNotifyOnce } from '../../../lib/node/pi/notify-once.ts';
-
-/**
- * Pi's `createAgentSession` types `modelRegistry` as the concrete
- * `ModelRegistry` class, while `lib/node/pi/subagent/spawn.ts` uses a
- * pi-free structural `ModelRegistryLike` so the helper can stay
- * unit-testable without pi imports. See the matching wrapper in
- * `deep-research.ts` for the full rationale.
- */
-const piCreateAgentSession = adaptCreateAgentSession<Model<any>, SessionManager, ModelRegistry, ResourceLoader>(
-  createAgentSession,
-);
+import { formatListing, formatRunResultText } from '../../../lib/node/pi/iteration-loop/format.ts';
+import { buildClaimNudge, buildStrictEditNudge } from '../../../lib/node/pi/iteration-loop/nudge.ts';
 import {
   type BranchEntry as VerifyBranchEntry,
   collectBashCommandsSinceLastUser,
@@ -342,27 +330,6 @@ function errorReturn(action: CheckAction, task: string | undefined, message: str
 
 function nowIso(): string {
   return new Date().toISOString();
-}
-
-function formatListing(tasks: TaskListing[], archive: ReturnType<typeof listArchive>): string {
-  const lines: string[] = [];
-  if (tasks.length === 0) {
-    lines.push('No active or draft tasks under .pi/checks/.');
-  } else {
-    lines.push(`Tasks (${tasks.length}):`);
-    for (const t of tasks) {
-      lines.push(`  [${t.state}] ${t.task}  - ${t.path}`);
-    }
-  }
-  if (archive.length > 0) {
-    lines.push('');
-    lines.push(`Archive (${archive.length} entr${archive.length === 1 ? 'y' : 'ies'}):`);
-    for (const a of archive.slice(0, 10)) {
-      lines.push(`  ${a.timestamp || '(no-ts)'}  ${a.task}  - ${a.dir}`);
-    }
-    if (archive.length > 10) lines.push(`  … ${archive.length - 10} more`);
-  }
-  return lines.join('\n');
 }
 
 /**
@@ -608,13 +575,12 @@ export default function iterationLoopExtension(pi: ExtensionAPI): void {
     const strictFired = lastUserMessageHasMarker(branch, STRICT_NUDGE_MARKER, STRICT_NUDGE_CUSTOM_TYPE);
     let strictSent = false;
     if (state.editsSinceLastCheck >= threshold && !strictFired) {
-      const msg =
-        `${STRICT_NUDGE_MARKER} You've edited the declared artifact ` +
-        `\`${readArtifactPath(ctx.cwd, state.task) ?? '(artifact)'}\` ` +
-        `${state.editsSinceLastCheck} time(s) without running the check. ` +
-        `Call \`check run task=${state.task}\` now to verify the changes ` +
-        `against the rubric before claiming anything about the artifact. ` +
-        `If you're mid-edit and the next edit is atomic, make it, then run the check.`;
+      const msg = buildStrictEditNudge({
+        marker: STRICT_NUDGE_MARKER,
+        artifact: readArtifactPath(ctx.cwd, state.task) ?? '(artifact)',
+        edits: state.editsSinceLastCheck,
+        task: state.task,
+      });
       try {
         // Delivery uses a `custom` message type so the nudge does
         // NOT pollute the editor's up-arrow history. Pi's
@@ -670,11 +636,11 @@ export default function iterationLoopExtension(pi: ExtensionAPI): void {
       debug(debugEnabled, 'claim nudge suppressed: marker already on last user message');
       return;
     }
-    const msg =
-      `${CLAIM_NUDGE_MARKER} You claimed the artifact is correct (matched: \`${matched.source}\`), ` +
-      `but you haven't run \`check run task=${state.task}\` this turn. ` +
-      `Either run the check to confirm, or retract the claim. The iteration-loop contract is: ` +
-      `no "looks right / done / matches spec" without a passing verdict in the same turn.`;
+    const msg = buildClaimNudge({
+      marker: CLAIM_NUDGE_MARKER,
+      matchedSource: matched.source,
+      task: state.task,
+    });
     try {
       // Delivery uses a `custom` message type so the nudge does
       // NOT pollute the editor's up-arrow history. Pi's
@@ -1030,41 +996,16 @@ export default function iterationLoopExtension(pi: ExtensionAPI): void {
     }
 
     // ── Response text ─────────────────────────────────────────────────
-    const lines: string[] = [actResult.summary];
-    if (verdict.issues.length > 0) {
-      lines.push('Issues:');
-      const preview = verdict.issues.slice(0, 3);
-      for (const issue of preview) {
-        const loc = issue.location ? ` (${issue.location})` : '';
-        lines.push(`  [${issue.severity}] ${issue.description}${loc}`);
-      }
-      if (verdict.issues.length > preview.length) {
-        lines.push(`  … ${verdict.issues.length - preview.length} more`);
-      }
-    }
-    if (snapshot) {
-      lines.push(`Snapshot: ${snapshot.path}`);
-    } else {
-      lines.push(`Snapshot: (artifact "${spec.artifact}" not found on disk - fixpoint detection disabled)`);
-    }
-    if (state.bestSoFar) {
-      lines.push(
-        `Best so far: iter ${state.bestSoFar.iteration} (score ${state.bestSoFar.score.toFixed(2)}) → ${state.bestSoFar.snapshotPath}`,
-      );
-    }
-    lines.push(`Cost so far: $${state.costUsd.toFixed(4)}`);
-    if (stopReason) {
-      lines.push(`Stop reason: ${stopReason}`);
-      if (stopReason === 'passed') {
-        lines.push(`Loop passed - call \`check close task=${task} reason=passed\` to archive it.`);
-      } else {
-        lines.push(
-          `Loop terminated without passing. Either \`check close task=${task} reason=${stopReason}\` to archive the best-so-far, or edit the artifact / spec and re-declare.`,
-        );
-      }
-    } else {
-      lines.push(`Next step: edit ${spec.artifact}, then call \`check run task=${task}\` again.`);
-    }
+    const text = formatRunResultText({
+      summary: actResult.summary,
+      verdict,
+      snapshot,
+      artifact: spec.artifact,
+      bestSoFar: state.bestSoFar,
+      costUsd: state.costUsd,
+      stopReason,
+      task,
+    });
 
     debug(
       debugEnabled,
@@ -1072,7 +1013,7 @@ export default function iterationLoopExtension(pi: ExtensionAPI): void {
     );
 
     return {
-      content: [{ type: 'text', text: lines.join('\n') }],
+      content: [{ type: 'text', text }],
       details: {
         action: 'run',
         task,
