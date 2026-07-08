@@ -12,7 +12,6 @@ import type { ExtensionContext } from '@earendil-works/pi-coding-agent';
 
 import { cancelPrompt, type Conn, readSavedImages } from '../../comfyui/client.ts';
 import { resolveAuthHeaders, resolveBaseUrl, resolveSendToModel } from '../../comfyui/config.ts';
-import { emitImageGenerated } from '../../comfyui/events.ts';
 import { findGenerationByPrompt } from '../../comfyui/generations.ts';
 import { findJob, formatRegistry, updateJob } from '../../comfyui/jobs.ts';
 import { pollJobOnce } from '../../comfyui/poll.ts';
@@ -136,7 +135,7 @@ export async function actCollect(
     const savedPaths = saved.map((s) => s.savedPath);
     rt.registry = updateJob(rt.registry, id, { status: 'done', savedPaths, endedAt: Date.now() });
     rt.updateStatusline();
-    emitImageGenerated({
+    rt.emitImageGenerated({
       savedPaths,
       workflow: job.workflow,
       prompt: job.prompt,

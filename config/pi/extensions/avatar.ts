@@ -84,7 +84,11 @@ import {
   parseEmoteMarkers,
   stripEmoteMarkers,
 } from '../../../lib/node/pi/avatar/markers.ts';
-import { AVATAR_EMOTE_ENTRY_TYPE, collectLoggedEmotes, emitEmote } from '../../../lib/node/pi/avatar/emote-events.ts';
+import {
+  AVATAR_EMOTE_CHANNEL,
+  AVATAR_EMOTE_ENTRY_TYPE,
+  collectLoggedEmotes,
+} from '../../../lib/node/pi/avatar/emote-events.ts';
 import { readPngDimensions } from '../../../lib/node/pi/avatar/png.ts';
 import { isInTmux, wrapForTmux } from '../../../lib/node/pi/avatar/tmux.ts';
 import { resolveProtocol } from '../../../lib/node/pi/avatar/terminal.ts';
@@ -1093,11 +1097,9 @@ export default function avatar(pi: ExtensionAPI): void {
       // appendEntry can throw before the session is fully bound; never let
       // bookkeeping break the turn.
     }
-    try {
-      emitEmote(signal);
-    } catch {
-      /* a subscriber failure is already isolated in emitEmote */
-    }
+    // pi's shared bus wraps each subscriber in its own try/catch, so a broken
+    // listener can't break the emit - no guard needed here.
+    pi.events.emit(AVATAR_EMOTE_CHANNEL, signal);
   }
 
   // Cached override-image frame (the avatar-input slot's `image`). Building a

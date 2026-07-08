@@ -70,7 +70,7 @@ import { envTruthy, parseClampedPositiveInt } from '../../../lib/node/pi/parse-e
 import { getActivePersona } from '../../../lib/node/pi/persona/active.ts';
 import { clearActiveRoleplay, setActiveRoleplay } from '../../../lib/node/pi/roleplay/active.ts';
 import { clearAvatarInput, setAvatarInput } from '../../../lib/node/pi/avatar/input.ts';
-import { onImageGenerated } from '../../../lib/node/pi/comfyui/events.ts';
+import { COMFYUI_IMAGE_CHANNEL, isImageGeneratedEvent } from '../../../lib/node/pi/comfyui/events.ts';
 import { loadRoleplayConfig } from '../../../lib/node/pi/roleplay/config.ts';
 import { selectWithinBudget, type LoreChunk } from '../../../lib/node/pi/roleplay/budget.ts';
 import { applyInsertions, buildInsertions, type LoreDepthChunk } from '../../../lib/node/pi/roleplay/inject.ts';
@@ -2170,14 +2170,13 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
   // drive + scenegen are enabled, so a non-roleplay coding session that renders
   // an image never hijacks the widget.
   if (avatarDriveEnabled && sceneGenEnabled) {
-    unsubscribeImageEvents = onImageGenerated((event) => {
-      try {
-        if (activeCast() === null) return;
-        const path = event.savedPaths.at(-1);
-        if (path) setAvatarInput({ scene: { path } });
-      } catch {
-        // a consumer must never break image generation
-      }
+    // pi's bus already isolates this handler in its own try/catch, so a throw
+    // here can't reach the emitting comfyui render - no extra guard needed.
+    unsubscribeImageEvents = pi.events.on(COMFYUI_IMAGE_CHANNEL, (data) => {
+      if (!isImageGeneratedEvent(data)) return;
+      if (activeCast() === null) return;
+      const path = data.savedPaths.at(-1);
+      if (path) setAvatarInput({ scene: { path } });
     });
   }
 

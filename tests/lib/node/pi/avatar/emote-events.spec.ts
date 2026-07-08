@@ -1,21 +1,21 @@
 /**
- * Tests for the cross-extension avatar emote signal (`emote-events.ts`):
- * the globalThis-anchored event bus and the pure persisted-entry reader.
+ * Tests for the cross-extension avatar emote contract (`emote-events.ts`):
+ * the bus-channel constant, the `isEmoteSignal` payload validator (used to
+ * narrow the untyped `pi.events` payload), and the pure persisted-entry
+ * reader `collectLoggedEmotes`.
  *
- * The bus is globalThis-anchored, so each test resets it via
- * `resetEmoteBus()` to stay independent.
+ * Transport itself is pi's shared `EventBus` (emit in `avatar.ts`, subscribe
+ * in `tts.ts`), so there is nothing stateful to reset here.
  */
 
-import { beforeEach, expect, test, vi } from 'vitest';
+import { expect, test } from 'vitest';
 
 import {
+  AVATAR_EMOTE_CHANNEL,
   AVATAR_EMOTE_ENTRY_TYPE,
   collectLoggedEmotes,
   type EmoteSignal,
-  emitEmote,
-  getLastEmote,
-  resetEmoteBus,
-  subscribeEmote,
+  isEmoteSignal,
 } from '../../../../../lib/node/pi/avatar/emote-events.ts';
 
 const signal = (over: Partial<EmoteSignal> = {}): EmoteSignal => ({
@@ -25,52 +25,22 @@ const signal = (over: Partial<EmoteSignal> = {}): EmoteSignal => ({
   ...over,
 });
 
-beforeEach(() => {
-  resetEmoteBus();
+test('AVATAR_EMOTE_CHANNEL is the namespaced bus channel', () => {
+  expect(AVATAR_EMOTE_CHANNEL).toBe('avatar:emote');
 });
 
-test('starts with no last emote', () => {
-  expect(getLastEmote()).toBeUndefined();
+test('isEmoteSignal accepts a well-formed signal', () => {
+  expect(isEmoteSignal(signal({ emote: 'sad', emotes: ['happy', 'sad'], at: 42 }))).toBe(true);
 });
 
-test('emitEmote notifies subscribers and records the last signal', () => {
-  const seen: EmoteSignal[] = [];
-  subscribeEmote((s) => seen.push(s));
-  const s = signal({ emote: 'sad', emotes: ['happy', 'sad'], at: 42 });
-  emitEmote(s);
-  expect(seen).toEqual([s]);
-  expect(getLastEmote()).toEqual(s);
-});
-
-test('multiple subscribers all fire', () => {
-  const a = vi.fn();
-  const b = vi.fn();
-  subscribeEmote(a);
-  subscribeEmote(b);
-  emitEmote(signal());
-  expect(a).toHaveBeenCalledTimes(1);
-  expect(b).toHaveBeenCalledTimes(1);
-});
-
-test('unsubscribe stops further delivery', () => {
-  const fn = vi.fn();
-  const off = subscribeEmote(fn);
-  emitEmote(signal());
-  off();
-  emitEmote(signal({ emote: 'angry', emotes: ['angry'] }));
-  expect(fn).toHaveBeenCalledTimes(1);
-});
-
-test('a throwing subscriber does not break the emitter or other listeners', () => {
-  const good = vi.fn();
-  subscribeEmote(() => {
-    throw new Error('boom');
-  });
-  subscribeEmote(good);
-  expect(() => emitEmote(signal())).not.toThrow();
-  expect(good).toHaveBeenCalledTimes(1);
-  // last is still recorded despite the throwing listener.
-  expect(getLastEmote()).toEqual(signal());
+test('isEmoteSignal rejects malformed / foreign payloads', () => {
+  expect(isEmoteSignal(null)).toBe(false);
+  expect(isEmoteSignal(undefined)).toBe(false);
+  expect(isEmoteSignal('happy')).toBe(false);
+  expect(isEmoteSignal({ emote: 'sad' })).toBe(false); // no emotes / at
+  expect(isEmoteSignal({ emote: 'sad', emotes: 'happy', at: 1 })).toBe(false); // emotes not array
+  expect(isEmoteSignal({ emote: 'sad', emotes: [1, 2], at: 1 })).toBe(false); // non-string entries
+  expect(isEmoteSignal({ emote: 'sad', emotes: ['sad'], at: '1' })).toBe(false); // at not number
 });
 
 test('collectLoggedEmotes returns well-formed records in order, skipping noise', () => {

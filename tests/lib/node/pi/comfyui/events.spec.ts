@@ -1,18 +1,18 @@
 /**
- * Tests for the neutral comfyui image-generated event bus (`events.ts`).
+ * Tests for the neutral comfyui image-generated event contract (`events.ts`):
+ * the bus-channel constant and the `isImageGeneratedEvent` payload validator
+ * used to narrow the untyped `pi.events` payload.
  *
- * The bus is globalThis-anchored, so each test resets it via
- * `resetImageGeneratedBus()` to stay independent.
+ * Transport itself is pi's shared `EventBus` (emit via `ComfyuiRuntime`,
+ * subscribe in `roleplay.ts`), so there is nothing stateful to reset here.
  */
 
-import { beforeEach, expect, test, vi } from 'vitest';
+import { expect, test } from 'vitest';
 
 import {
-  emitImageGenerated,
-  getLastImageGenerated,
+  COMFYUI_IMAGE_CHANNEL,
   type ImageGeneratedEvent,
-  onImageGenerated,
-  resetImageGeneratedBus,
+  isImageGeneratedEvent,
 } from '../../../../../lib/node/pi/comfyui/events.ts';
 
 const sample: ImageGeneratedEvent = {
@@ -23,66 +23,26 @@ const sample: ImageGeneratedEvent = {
   background: true,
 };
 
-beforeEach(() => {
-  resetImageGeneratedBus();
+test('COMFYUI_IMAGE_CHANNEL is the namespaced bus channel', () => {
+  expect(COMFYUI_IMAGE_CHANNEL).toBe('comfyui:image-generated');
 });
 
-test('a subscriber receives emitted events', () => {
-  const seen: ImageGeneratedEvent[] = [];
-  onImageGenerated((e) => seen.push(e));
-  emitImageGenerated(sample);
-  expect(seen).toEqual([sample]);
+test('isImageGeneratedEvent accepts a full event', () => {
+  expect(isImageGeneratedEvent(sample)).toBe(true);
 });
 
-test('emitting with no subscribers is a no-op and still records last', () => {
-  expect(() => emitImageGenerated(sample)).not.toThrow();
-  expect(getLastImageGenerated()).toEqual(sample);
+test('isImageGeneratedEvent accepts optional prompt/seed omitted', () => {
+  expect(isImageGeneratedEvent({ savedPaths: ['/tmp/a.png'], workflow: 'txt2img', background: false })).toBe(true);
 });
 
-test('unsubscribe stops further delivery', () => {
-  const fn = vi.fn();
-  const off = onImageGenerated(fn);
-  emitImageGenerated(sample);
-  off();
-  emitImageGenerated({ ...sample, workflow: 'txt2img' });
-  expect(fn).toHaveBeenCalledTimes(1);
-  expect(fn).toHaveBeenCalledWith(sample);
-});
-
-test('a throwing listener does not break the producer or other listeners', () => {
-  const good = vi.fn();
-  onImageGenerated(() => {
-    throw new Error('boom');
-  });
-  onImageGenerated(good);
-  expect(() => emitImageGenerated(sample)).not.toThrow();
-  expect(good).toHaveBeenCalledWith(sample);
-});
-
-test('multiple subscribers all receive the event', () => {
-  const a = vi.fn();
-  const b = vi.fn();
-  onImageGenerated(a);
-  onImageGenerated(b);
-  emitImageGenerated(sample);
-  expect(a).toHaveBeenCalledTimes(1);
-  expect(b).toHaveBeenCalledTimes(1);
-});
-
-test('getLastImageGenerated tracks the most recent event', () => {
-  expect(getLastImageGenerated()).toBeNull();
-  emitImageGenerated(sample);
-  const second = { ...sample, workflow: 'txt2img', seed: 9 };
-  emitImageGenerated(second);
-  expect(getLastImageGenerated()).toEqual(second);
-});
-
-test('reset clears listeners and the last event', () => {
-  const fn = vi.fn();
-  onImageGenerated(fn);
-  emitImageGenerated(sample);
-  resetImageGeneratedBus();
-  expect(getLastImageGenerated()).toBeNull();
-  emitImageGenerated(sample);
-  expect(fn).toHaveBeenCalledTimes(1);
+test('isImageGeneratedEvent rejects malformed / foreign payloads', () => {
+  expect(isImageGeneratedEvent(null)).toBe(false);
+  expect(isImageGeneratedEvent(undefined)).toBe(false);
+  expect(isImageGeneratedEvent('anima')).toBe(false);
+  expect(isImageGeneratedEvent({ workflow: 'anima', background: true })).toBe(false); // no savedPaths
+  expect(isImageGeneratedEvent({ savedPaths: [1], workflow: 'anima', background: true })).toBe(false); // non-string path
+  expect(isImageGeneratedEvent({ savedPaths: ['/tmp/a.png'], background: true })).toBe(false); // no workflow
+  expect(isImageGeneratedEvent({ savedPaths: ['/tmp/a.png'], workflow: 'anima' })).toBe(false); // no background
+  expect(isImageGeneratedEvent({ ...sample, seed: '7' })).toBe(false); // seed not number
+  expect(isImageGeneratedEvent({ ...sample, prompt: 5 })).toBe(false); // prompt not string
 });

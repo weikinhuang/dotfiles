@@ -261,13 +261,15 @@ enhanced text when the prompt enhancer ran - so it is the way to read the whole 
 ## Image-generated event bus
 
 Whenever a render lands on disk - foreground call, auto-downloaded background job, or a manual `collect` - the extension
-emits an `ImageGeneratedEvent` (`{ savedPaths, workflow, prompt?, seed?, background }`) on a neutral,
-globalThis-anchored bus ([`../../../lib/node/pi/comfyui/events.ts`](../../../lib/node/pi/comfyui/events.ts)). comfyui
-only _emits_ - it has no knowledge of who, if anyone, listens; emitting to zero subscribers is a no-op. Another
-extension subscribes with `onImageGenerated(listener)` (which returns an unsubscribe to call on teardown). Today
-[`roleplay.ts`](./roleplay.md) consumes it to mirror the latest scene render into the avatar's `scene` banner while a
-roleplay scene is active; comfyui stays decoupled from both roleplay and the avatar. A throwing listener is swallowed so
-a broken consumer can never break generation.
+emits an `ImageGeneratedEvent` (`{ savedPaths, workflow, prompt?, seed?, background }`) on pi's shared event bus under
+the channel `comfyui:image-generated`. The channel constant and the payload type + `isImageGeneratedEvent` validator
+live in [`../../../lib/node/pi/comfyui/events.ts`](../../../lib/node/pi/comfyui/events.ts); the emit itself goes through
+`ComfyuiRuntime.emitImageGenerated`, which wraps `pi.events.emit`. comfyui only _emits_ - it has no knowledge of who, if
+anyone, listens; emitting to zero subscribers is a no-op. Another extension subscribes with
+`pi.events.on(COMFYUI_IMAGE_CHANNEL, handler)` (validating the untyped payload with `isImageGeneratedEvent`, and
+unsubscribing on teardown). Today [`roleplay.ts`](./roleplay.md) consumes it to mirror the latest scene render into the
+avatar's `scene` banner while a roleplay scene is active; comfyui stays decoupled from both roleplay and the avatar.
+pi's bus wraps every subscriber in its own try/catch, so a broken consumer can never break generation.
 
 ### Tool: `image_jobs`
 

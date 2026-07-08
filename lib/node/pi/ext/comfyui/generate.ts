@@ -29,7 +29,6 @@ import {
 } from '../../comfyui/client.ts';
 import { resolveAuthHeaders, resolveBaseUrl, resolveSendToModel } from '../../comfyui/config.ts';
 import { buildEnhanceTask } from '../../comfyui/enhance.ts';
-import { emitImageGenerated } from '../../comfyui/events.ts';
 import { findGeneration, type GenerationRecord } from '../../comfyui/generations.ts';
 import { addJob, findJob, updateJob } from '../../comfyui/jobs.ts';
 import {
@@ -528,7 +527,7 @@ export async function executeGenerate(
           createdAt: Date.now(),
           refine: toRefineJourney(loop),
         });
-        emitImageGenerated({
+        rt.emitImageGenerated({
           savedPaths: [bestPath],
           workflow: name,
           prompt: best.prompt,
@@ -668,7 +667,7 @@ export async function executeGenerate(
 
     details.seed = finalSeed;
     for (const s of finalImages) details.savedPaths.push(s.savedPath);
-    emitImageGenerated({
+    rt.emitImageGenerated({
       savedPaths: details.savedPaths,
       workflow: name,
       prompt: finalPrompt,

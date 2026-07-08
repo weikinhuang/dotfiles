@@ -70,14 +70,15 @@ message named in first-seen order, and `at` is the finalize timestamp. The signa
   at a transcript still shows which emotion each reply carried even though the `[emote:]` marker was stripped from the
   visible text. `/avatar` reports the count logged this session. The pure reader
   [`collectLoggedEmotes`](../../../lib/node/pi/avatar/emote-events.ts) turns a flat entry list back into signals.
-- **Published on a cross-extension bus.** It is emitted on a `globalThis`-anchored event bus
-  ([`../../../lib/node/pi/avatar/emote-events.ts`](../../../lib/node/pi/avatar/emote-events.ts), the same
-  `cross-extension-singleton-pattern` the [avatar-input slot](../../../lib/node/pi/avatar/input.ts) uses). Another
-  extension subscribes with `subscribeEmote(listener)` (and unsubscribes on its own `session_shutdown`) to hear each
-  message's emotion; `getLastEmote()` returns the most recent signal for a consumer that joins late. The motivating use
-  case is a TTS extension that colours its speech with the avatar emotion when its own message named none inline. The
-  bus is decoupled both ways: with no subscriber the avatar emits into the void; with the avatar disabled a subscriber
-  just never hears anything.
+- **Published on pi's shared event bus.** It is emitted with `pi.events.emit(AVATAR_EMOTE_CHANNEL, signal)` on the
+  channel `avatar:emote`; the channel constant and the `EmoteSignal` payload type + `isEmoteSignal` validator live in
+  [`../../../lib/node/pi/avatar/emote-events.ts`](../../../lib/node/pi/avatar/emote-events.ts). pi hands every extension
+  the same `EventBus` instance, so no `globalThis` singleton is needed. Another extension subscribes with
+  `pi.events.on(AVATAR_EMOTE_CHANNEL, handler)` (validating the untyped payload with `isEmoteSignal`, and unsubscribing
+  on its own `session_shutdown`). Because the bus is fire-and-forget, a consumer that wants "the last emote" caches it
+  itself from the subscription - the motivating use case is a TTS extension that colours its speech with the avatar
+  emotion when its own message named none inline. The bus is decoupled both ways: with no subscriber the avatar emits
+  into the void; with the avatar disabled a subscriber just never hears anything.
 
 Both the persisted entry and the bus event are gated by `PI_AVATAR_DISABLE_EMOTE_EVENTS` (the avatar still animates
 emotions when it is off). They fire whenever an emote is detected, regardless of the active persona - the persona gate

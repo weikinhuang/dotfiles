@@ -54,6 +54,7 @@ import {
 import type { ResolvedVoice, TtsConfig } from '../../../lib/node/pi/tts/types.ts';
 import { TTS_USAGE } from '../../../lib/node/pi/tts/usage.ts';
 
+import { AVATAR_EMOTE_CHANNEL, isEmoteSignal } from '../../../lib/node/pi/avatar/emote-events.ts';
 import { completeSubverbs } from '../../../lib/node/pi/commands/complete.ts';
 import { isHelpArg } from '../../../lib/node/pi/commands/help.ts';
 import { envTruthy } from '../../../lib/node/pi/parse-env.ts';
@@ -90,22 +91,6 @@ export function isRoleplayActive(): boolean {
   } catch {
     return false;
   }
-}
-
-/** Read the avatar's most recent emote signal off the shared globalThis bus. */
-export function getLastEmote(): { emote: string; at: number } | undefined {
-  try {
-    const bus = (globalThis as Record<symbol, unknown>)[Symbol.for('@dotfiles/pi/avatar/emote-events')] as
-      | { last?: { emote?: unknown; at?: unknown } }
-      | undefined;
-    const last = bus?.last;
-    if (last && typeof last.emote === 'string' && typeof last.at === 'number') {
-      return { emote: last.emote, at: last.at };
-    }
-  } catch {
-    /* avatar not loaded -> no emote */
-  }
-  return undefined;
 }
 
 function joinText(content: unknown): string {
@@ -156,6 +141,12 @@ interface TtsState {
   narrationVoiceOverride: string | undefined;
   /** gpt-sovits: roster name whose weights are loaded on the server (legacy). */
   weightsSetFor: string | null;
+  /**
+   * The avatar's most recent emote signal, cached from its bus channel.
+   * pi's event bus is fire-and-forget, so we hold the last value ourselves
+   * (survives `/reload` since this state lives on globalThis).
+   */
+  lastEmote: { emote: string; at: number } | undefined;
   /** `at` of the last emote signal we consumed (de-dupe). */
   lastEmoteAt: number;
   /** Monotonic generation id; bumped on every barge-in to drop stale synths. */
@@ -174,6 +165,7 @@ function state(): TtsState {
     rpVoiceOverride: undefined,
     narrationVoiceOverride: undefined,
     weightsSetFor: null,
+    lastEmote: undefined,
     lastEmoteAt: 0,
     genId: 0,
   };
@@ -352,6 +344,15 @@ export default function ttsExtension(pi: ExtensionAPI): void {
 
   const st = state();
 
+  // Cache the avatar's most recent emote off pi's shared bus so RP synth can
+  // colour the voice with it (the message itself often carries none inline).
+  // The avatar runs first (it is a global extension), so by `message_end` the
+  // turn's emote is already cached. Unsubscribed on shutdown so a `/reload`
+  // does not leave a doubled listener behind.
+  const unsubscribeEmote = pi.events.on(AVATAR_EMOTE_CHANNEL, (data) => {
+    if (isEmoteSignal(data)) st.lastEmote = { emote: data.emote, at: data.at };
+  });
+
   // Registration-time seed; re-pointed to the real session cwd on
   // `session_start`. The `/tts` completion resolver closes over this (pi
   // gives completions no `ctx`), so it must track the session's project dir.
@@ -395,7 +396,7 @@ export default function ttsExtension(pi: ExtensionAPI): void {
       // Emotion: consume this turn's avatar emote (avatar runs first, being a
       // global extension). De-dupe by signal `at` so a stale emote never bleeds.
       let emote: string | undefined;
-      const sig = getLastEmote();
+      const sig = st.lastEmote;
       if (sig && sig.at > st.lastEmoteAt) {
         emote = sig.emote;
         st.lastEmoteAt = sig.at;
@@ -467,6 +468,11 @@ export default function ttsExtension(pi: ExtensionAPI): void {
 
   pi.on('session_shutdown', () => {
     killPlayer(st);
+    try {
+      unsubscribeEmote();
+    } catch {
+      /* teardown must never throw */
+    }
   });
 
   // ── /tts command ──────────────────────────────────────────────────

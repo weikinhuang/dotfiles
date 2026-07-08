@@ -26,7 +26,7 @@ import type { LooseMessage } from '../../context-edit/target.ts';
 import { applyContextReminder, type ReminderMessage } from '../../context-reminder.ts';
 import { type Conn } from '../../comfyui/client.ts';
 import { resolveAuthHeaders, resolveBaseUrl } from '../../comfyui/config.ts';
-import { emitImageGenerated } from '../../comfyui/events.ts';
+import { COMFYUI_IMAGE_CHANNEL, type ImageGeneratedEvent } from '../../comfyui/events.ts';
 import {
   addGeneration,
   cloneGenerations,
@@ -111,6 +111,18 @@ export class ComfyuiRuntime {
   constructor(deps: { pi: ExtensionAPI; loadConfig: (cwd: string) => ComfyuiConfig }) {
     this.pi = deps.pi;
     this.loadConfig = deps.loadConfig;
+  }
+
+  // ── Cross-extension image bus ───────────────────────────────────────
+
+  /**
+   * Publish an image-generated event on pi's shared event bus. Wraps the
+   * private `pi` handle so the render paths (generate.ts, jobs.ts) emit
+   * without reaching into it directly. pi's bus isolates each subscriber in
+   * its own try/catch, so a broken consumer can never break generation.
+   */
+  emitImageGenerated(event: ImageGeneratedEvent): void {
+    this.pi.events.emit(COMFYUI_IMAGE_CHANNEL, event);
   }
 
   // ── Persistence ─────────────────────────────────────────────────────
@@ -239,7 +251,7 @@ export class ComfyuiRuntime {
           endedAt: Date.now(),
         });
         const doneJob = running.find((j) => j.id === r.id);
-        emitImageGenerated({
+        this.emitImageGenerated({
           savedPaths: donePaths,
           workflow: doneJob?.workflow ?? '',
           prompt: doneJob?.prompt,

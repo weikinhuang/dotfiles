@@ -1,27 +1,33 @@
 /**
- * Neutral image-generation event bus for the `comfyui` extension.
+ * Neutral image-generation event contract for the `comfyui` extension: the
+ * payload type, the pi event-bus channel it travels on, and a validator for
+ * the untyped bus payload.
  *
- * The `comfyui` extension EMITS an {@link ImageGeneratedEvent} every time a
- * `generate_image` render finishes and its PNG(s) land on disk - whether the
- * call ran in the foreground, was auto-downloaded by the poll timer, or was
- * collected via `image_jobs`. It does NOT know or care who listens: emitting to
- * zero subscribers is a no-op.
+ * The `comfyui` extension EMITS an {@link ImageGeneratedEvent} on pi's shared
+ * event bus under {@link COMFYUI_IMAGE_CHANNEL} every time a `generate_image`
+ * render finishes and its PNG(s) land on disk - whether the call ran in the
+ * foreground, was auto-downloaded by the poll timer, or was collected via
+ * `image_jobs`. It does NOT know or care who listens: emitting to zero
+ * subscribers is a no-op.
  *
- * OTHER extensions (today `roleplay`, which mirrors the latest scene render into
- * the avatar's `scene` banner) SUBSCRIBE via {@link onImageGenerated}. This
- * keeps comfyui decoupled from roleplay and from the avatar: comfyui depends on
- * nothing, the consumer depends on this small stable event contract rather than
- * on comfyui's internal tool-result detail shape.
+ * OTHER extensions (today `roleplay`, which mirrors the latest scene render
+ * into the avatar's `scene` banner) SUBSCRIBE via
+ * `pi.events.on(COMFYUI_IMAGE_CHANNEL, …)`. This keeps comfyui decoupled from
+ * roleplay and from the avatar: comfyui depends on nothing, the consumer
+ * depends on this small stable event contract rather than on comfyui's
+ * internal tool-result detail shape. Payloads arrive untyped (`unknown`), so
+ * validate with {@link isImageGeneratedEvent} before use.
  *
- * Anchored on `globalThis` behind a `Symbol.for()` key (the
- * `cross-extension-singleton-pattern`): pi gives each extension its own jiti
- * instance with `moduleCache: false`, so a plain module-level emitter would not
- * be shared across the comfyui + roleplay extensions.
+ * pi hands every extension the SAME `EventBus` instance (created once in its
+ * extension loader), so the channel is shared across extensions without the
+ * `globalThis`/`Symbol.for` singleton dance a hand-rolled bus would need under
+ * pi's per-extension jiti isolation.
  *
  * Pure module - no pi imports.
  */
 
-import { createGlobalSlot } from '../global-slot.ts';
+/** pi event-bus channel comfyui emits {@link ImageGeneratedEvent}s on. */
+export const COMFYUI_IMAGE_CHANNEL = 'comfyui:image-generated';
 
 /** Payload published when a `generate_image` render completes and is saved. */
 export interface ImageGeneratedEvent {
@@ -37,56 +43,26 @@ export interface ImageGeneratedEvent {
   readonly background: boolean;
 }
 
-type Listener = (event: ImageGeneratedEvent) => void;
-
-interface ImageEventBus {
-  listeners: Set<Listener>;
-  /** The most recent event, so a late subscriber can catch up on the last render. */
-  last: ImageGeneratedEvent | null;
-}
-
-const getBus = createGlobalSlot<ImageEventBus>('@dotfiles/pi/comfyui/image-events', () => ({
-  listeners: new Set(),
-  last: null,
-}));
-
 /**
- * Subscribe to image-generated events. Returns an unsubscribe function the
- * caller MUST invoke on teardown (`session_shutdown`) so a reloaded extension
- * instance does not leak stale listeners onto the shared bus.
+ * Narrow an untyped bus payload to an {@link ImageGeneratedEvent}.
+ * Subscribers receive `unknown` from `pi.events.on`, so guard with this
+ * before use; it tolerates foreign / malformed payloads by returning `false`.
  */
-export function onImageGenerated(listener: Listener): () => void {
-  const bus = getBus();
-  bus.listeners.add(listener);
-  return () => {
-    bus.listeners.delete(listener);
+export function isImageGeneratedEvent(value: unknown): value is ImageGeneratedEvent {
+  if (value === null || typeof value !== 'object') return false;
+  const candidate = value as {
+    savedPaths?: unknown;
+    workflow?: unknown;
+    prompt?: unknown;
+    seed?: unknown;
+    background?: unknown;
   };
-}
-
-/**
- * Emit an image-generated event to every subscriber. A throwing listener is
- * swallowed: a broken consumer must never break image generation itself.
- */
-export function emitImageGenerated(event: ImageGeneratedEvent): void {
-  const bus = getBus();
-  bus.last = event;
-  for (const listener of bus.listeners) {
-    try {
-      listener(event);
-    } catch {
-      /* a stale / broken consumer must not break the producer */
-    }
-  }
-}
-
-/** The most recent emitted event, or `null` if none yet this process. */
-export function getLastImageGenerated(): ImageGeneratedEvent | null {
-  return getBus().last;
-}
-
-/** Drop all listeners and the cached last event. Test/teardown helper. */
-export function resetImageGeneratedBus(): void {
-  const bus = getBus();
-  bus.listeners.clear();
-  bus.last = null;
+  return (
+    Array.isArray(candidate.savedPaths) &&
+    candidate.savedPaths.every((p) => typeof p === 'string') &&
+    typeof candidate.workflow === 'string' &&
+    (candidate.prompt === undefined || typeof candidate.prompt === 'string') &&
+    (candidate.seed === undefined || typeof candidate.seed === 'number') &&
+    typeof candidate.background === 'boolean'
+  );
 }

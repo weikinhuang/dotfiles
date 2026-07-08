@@ -1,7 +1,7 @@
 /**
- * Cross-extension emote signal for the avatar widget: a persisted record
- * of the `[emote:NAME]` markers the model emitted, plus a live event bus
- * other extensions can subscribe to.
+ * Cross-extension emote contract for the avatar widget: the payload type,
+ * the pi event-bus channel it travels on, a validator for the untyped
+ * bus payload, and a reader that reconstructs the persisted records.
  *
  * The `avatar` extension strips `[emote:NAME]` markers from the visible
  * reply (see `markers.ts`). Two consumers want those stripped names:
@@ -13,28 +13,32 @@
  *      is pi-coupled (`pi.appendEntry`) and lives in the extension; the
  *      pure {@link collectLoggedEmotes} reader here turns a flat entry
  *      list back into {@link EmoteSignal}s for tests / status readouts.
- *   2. **Other extensions (e.g. a TTS extension).** When the avatar
- *      finalizes an assistant message it calls {@link emitEmote}; any
- *      extension that called {@link subscribeEmote} is notified with the
- *      message's emotes. A TTS extension can then colour its speech with
- *      the emotion when the message itself defined none inline, reading
- *      {@link getLastEmote} as a fallback.
+ *   2. **Other extensions (e.g. the TTS extension).** When the avatar
+ *      finalizes an assistant message it emits an {@link EmoteSignal} on
+ *      pi's shared event bus under {@link AVATAR_EMOTE_CHANNEL}; any
+ *      extension that subscribes (`pi.events.on(AVATAR_EMOTE_CHANNEL, …)`)
+ *      is notified with the message's emotes. A TTS extension can then
+ *      colour its speech with the emotion when the message itself defined
+ *      none inline. Because the bus is fire-and-forget, a late-joining
+ *      consumer that wants "the last emote" caches it itself from the
+ *      subscription. Payloads arrive untyped (`unknown`), so validate with
+ *      {@link isEmoteSignal} before use.
  *
- * The bus is anchored on `globalThis` behind a `Symbol.for()` key (the
- * `cross-extension-singleton-pattern`, the same one `input.ts` uses): pi
- * gives each extension its own jiti instance with `moduleCache: false`,
- * so a plain module-level registry would NOT be shared across the avatar
- * and a subscriber extension.
+ * pi hands every extension the SAME `EventBus` instance (created once in
+ * its extension loader), so the channel is shared across extensions
+ * without the `globalThis`/`Symbol.for` singleton dance a hand-rolled bus
+ * would need under pi's per-extension jiti isolation.
  *
  * Pure module - no pi imports. Decoupled both ways: if no extension
  * subscribes the avatar just emits into the void; if the avatar is
  * disabled a subscriber simply never hears anything.
  */
 
-import { createGlobalSlot } from '../global-slot.ts';
-
 /** Session `custom` entry type under which emote records are persisted. */
 export const AVATAR_EMOTE_ENTRY_TYPE = 'avatar-emote';
+
+/** pi event-bus channel the avatar emits finalized {@link EmoteSignal}s on. */
+export const AVATAR_EMOTE_CHANNEL = 'avatar:emote';
 
 /** A finalized emote record for one assistant message. */
 export interface EmoteSignal {
@@ -50,72 +54,12 @@ export interface EmoteSignal {
   readonly at: number;
 }
 
-type EmoteListener = (signal: EmoteSignal) => void;
-
-interface EmoteBus {
-  readonly listeners: Set<EmoteListener>;
-  last: EmoteSignal | undefined;
-}
-
-const getBus = createGlobalSlot<EmoteBus>('@dotfiles/pi/avatar/emote-events', () => ({
-  listeners: new Set(),
-  last: undefined,
-}));
-
 /**
- * Subscribe to finalized emote signals. Returns an unsubscribe function;
- * call it from the subscriber's `session_shutdown` handler so a `/reload`
- * does not leave a stale listener (and a doubled callback) behind.
+ * Narrow an untyped bus payload to an {@link EmoteSignal}. Subscribers
+ * receive `unknown` from `pi.events.on`, so guard with this before use;
+ * it tolerates foreign / malformed payloads by returning `false`.
  */
-export function subscribeEmote(listener: EmoteListener): () => void {
-  const bus = getBus();
-  bus.listeners.add(listener);
-  return () => {
-    bus.listeners.delete(listener);
-  };
-}
-
-/**
- * Publish a finalized emote signal: record it as {@link getLastEmote} and
- * notify every subscriber. Each listener is isolated in its own try/catch
- * so one throwing subscriber cannot break the avatar or the others.
- */
-export function emitEmote(signal: EmoteSignal): void {
-  const bus = getBus();
-  bus.last = signal;
-  for (const listener of bus.listeners) {
-    try {
-      listener(signal);
-    } catch {
-      /* a subscriber's failure must not break the emitter */
-    }
-  }
-}
-
-/**
- * The most recently emitted signal this process, or `undefined` if none.
- * A fallback for a consumer that joins late (e.g. a TTS extension reading
- * "what emotion was the last message?" when its own message carried none).
- */
-export function getLastEmote(): EmoteSignal | undefined {
-  return getBus().last;
-}
-
-/** Drop all listeners and the last-emote cache. Test isolation only. */
-export function resetEmoteBus(): void {
-  const bus = getBus();
-  bus.listeners.clear();
-  bus.last = undefined;
-}
-
-/** Minimal shape of a session entry the reader inspects. */
-interface LooseEntry {
-  readonly type?: string;
-  readonly customType?: string;
-  readonly data?: unknown;
-}
-
-function isEmoteSignal(value: unknown): value is EmoteSignal {
+export function isEmoteSignal(value: unknown): value is EmoteSignal {
   if (value === null || typeof value !== 'object') return false;
   const candidate = value as { emote?: unknown; emotes?: unknown; at?: unknown };
   return (
@@ -124,6 +68,13 @@ function isEmoteSignal(value: unknown): value is EmoteSignal {
     candidate.emotes.every((name) => typeof name === 'string') &&
     typeof candidate.at === 'number'
   );
+}
+
+/** Minimal shape of a session entry the reader inspects. */
+interface LooseEntry {
+  readonly type?: string;
+  readonly customType?: string;
+  readonly data?: unknown;
 }
 
 /**
