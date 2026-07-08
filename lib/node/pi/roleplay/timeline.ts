@@ -128,6 +128,40 @@ export function parseBeatLog(body: string): string[] {
     .filter((l) => l.trim().length > 0);
 }
 
+/**
+ * Normalize a beat line for append-time dedup comparison: trim, collapse
+ * internal whitespace, lowercase. Two beats that normalize equal are
+ * byte-identical modulo whitespace/case and are folded on append; distinct
+ * wording of a genuine recurrence still survives.
+ */
+export function normalizeBeatLine(line: string): string {
+  return line.trim().replace(/\s+/g, ' ').toLowerCase();
+}
+
+/**
+ * Return the beats parsed from `candidateBody` that are NOT already present
+ * in `existingBody`, de-duped within the batch too, joined by newline.
+ * Comparison is on the {@link normalizeBeatLine} form. This is the pure
+ * de-dup used when appending a fresh roll's beats onto an append-log (the
+ * disk carry-over or the in-memory injected timeline).
+ */
+export function dedupeNewBeats(candidateBody: string, existingBody: string): string {
+  const seen = new Set(parseBeatLog(existingBody).map(normalizeBeatLine));
+  const kept: string[] = [];
+  for (const l of parseBeatLog(candidateBody)) {
+    const k = normalizeBeatLine(l);
+    if (k.length === 0 || seen.has(k)) continue;
+    seen.add(k);
+    kept.push(l);
+  }
+  return kept.join('\n');
+}
+
+/** Append `add` onto an `existing` beat-log body, inserting a separating newline only when `existing` is non-blank. */
+export function appendBeatBody(existing: string, add: string): string {
+  return existing.trim() ? `${existing.trimEnd()}\n${add}` : add;
+}
+
 export interface RenderTimelineOpts {
   /** Keep only the most-recent K lines (chronological order preserved). Default: all. */
   maxLines?: number;

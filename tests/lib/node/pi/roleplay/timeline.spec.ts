@@ -5,11 +5,14 @@
 import { expect, test } from 'vitest';
 
 import {
+  appendBeatBody,
   buildTimelineExtractionTask,
+  dedupeNewBeats,
   formatBeatLine,
   formatBeatLines,
   MAX_BEATS_PER_ROLL,
   MAX_BEAT_CHARS,
+  normalizeBeatLine,
   parseBeatLog,
   parseTimelineBeats,
   renderTimelineBlock,
@@ -68,4 +71,30 @@ test('renderTimelineBlock trims oldest lines to fit the char cap', () => {
   // Cap that only fits the last line or two.
   const out = renderTimelineBlock(body, { maxChars: 10 });
   expect(out).toBe('- charlie');
+});
+
+test('normalizeBeatLine trims, collapses whitespace, and lowercases', () => {
+  expect(normalizeBeatLine('  - [T]   Mira  VISITS  ')).toBe('- [t] mira visits');
+});
+
+test('dedupeNewBeats drops candidates already present in the existing body', () => {
+  const existing = '- a\n- [t] b';
+  // "- A" normalizes to the existing "- a" (case/whitespace-insensitive).
+  const candidate = '-   A\n- c\n- [t] b\n- c';
+  expect(dedupeNewBeats(candidate, existing)).toBe('- c');
+});
+
+test('dedupeNewBeats keeps all candidates when the existing body is empty', () => {
+  expect(dedupeNewBeats('- a\n- b', '')).toBe('- a\n- b');
+});
+
+test('dedupeNewBeats collapses byte-identical repeats within one batch', () => {
+  expect(dedupeNewBeats('- a\n- a\n- b', '')).toBe('- a\n- b');
+});
+
+test('appendBeatBody separates with a newline only when existing is non-blank', () => {
+  expect(appendBeatBody('', '- a')).toBe('- a');
+  expect(appendBeatBody('   ', '- a')).toBe('- a');
+  expect(appendBeatBody('- a', '- b')).toBe('- a\n- b');
+  expect(appendBeatBody('- a\n', '- b')).toBe('- a\n- b');
 });
