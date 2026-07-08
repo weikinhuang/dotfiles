@@ -58,6 +58,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 
 import { atomicWriteFile } from '../atomic-write.ts';
+import { type PhaseEvent } from '../deep-research/statusline.ts';
 import { appendJournal } from './journal.ts';
 import { paths } from './paths.ts';
 import { watch, type WatchdogHandleLike } from './watchdog.ts';
@@ -596,4 +597,52 @@ export async function fanout(spec: FanoutSpec, runRoot: string, deps: FanoutDeps
     }
   }
   return result;
+}
+
+// ──────────────────────────────────────────────────────────────────────
+// Progress-decorating wrapper
+// ──────────────────────────────────────────────────────────────────────
+
+/**
+ * Wrap a fanout spawner so each task's `wait()` resolution
+ * advances a cumulative `fanout-progress` event on `onPhase`.
+ * The pipeline emits `fanout-start { total }` right before
+ * invoking the fanout, so the statusline reducer can inherit
+ * `total` from its own state when we omit it here.
+ *
+ * Returns the inner spawner unchanged when `onPhase` is undefined.
+ * Pure decorator - the only side effect is through the injected
+ * `onPhase` callback.
+ */
+export function wrapFanoutForProgress(
+  inner: FanoutSpawner,
+  onPhase: ((event: PhaseEvent) => void) | undefined,
+): FanoutSpawner {
+  if (!onPhase) return inner;
+  let done = 0;
+  return async (args: FanoutSpawnArgs): Promise<FanoutHandleLike> => {
+    const handle = await inner(args);
+    const originalWait = handle.wait.bind(handle);
+    handle.wait = async (): Promise<FanoutHandleResult> => {
+      try {
+        const res = await originalWait();
+        done += 1;
+        try {
+          onPhase({ kind: 'fanout-progress', done });
+        } catch {
+          /* swallow - observability must never break fanout */
+        }
+        return res;
+      } catch (e) {
+        done += 1;
+        try {
+          onPhase({ kind: 'fanout-progress', done });
+        } catch {
+          /* swallow */
+        }
+        throw e;
+      }
+    };
+    return handle;
+  };
 }

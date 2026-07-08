@@ -29,7 +29,11 @@ import { fileURLToPath } from 'node:url';
 
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
-import { checkReportStructure, formatFailures } from '../../../../../lib/node/pi/deep-research/structural-check.ts';
+import {
+  buildStructuralBashCmd,
+  checkReportStructure,
+  formatFailures,
+} from '../../../../../lib/node/pi/deep-research/structural-check.ts';
 import { type DeepResearchPlan, writePlan } from '../../../../../lib/node/pi/research/plan.ts';
 import { type SourceRef } from '../../../../../lib/node/pi/research/sources.ts';
 
@@ -832,5 +836,30 @@ describe('deep-research-structural-check CLI', () => {
 
     expect(result.status).toBe(2);
     expect(result.stdout).toContain('Usage:');
+  });
+});
+
+// ──────────────────────────────────────────────────────────────────────
+// buildStructuralBashCmd - informational `/check list` command string
+// ──────────────────────────────────────────────────────────────────────
+
+describe('buildStructuralBashCmd', () => {
+  const selfPath = fileURLToPath(
+    new URL('../../../../../lib/node/pi/deep-research/structural-check.ts', import.meta.url),
+  );
+
+  test('renders `node <this-module> <runRoot>` with both paths single-quoted', () => {
+    const cmd = buildStructuralBashCmd('/tmp/research/demo');
+    expect(cmd).toBe(`node '${selfPath}' '/tmp/research/demo'`);
+  });
+
+  test('keeps a runRoot containing spaces copy-pasteable inside single quotes', () => {
+    const cmd = buildStructuralBashCmd('/mnt/c/Users/First Last/research/demo');
+    expect(cmd).toContain(`'/mnt/c/Users/First Last/research/demo'`);
+  });
+
+  test("escapes an embedded single quote via the '\\'' idiom", () => {
+    const cmd = buildStructuralBashCmd("/tmp/it's/research");
+    expect(cmd).toContain(`'/tmp/it'\\''s/research'`);
   });
 });

@@ -47,6 +47,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
 import {
+  describeModel,
   runResearchPipeline,
   type ResearchSessionLikeWithLifecycle,
 } from '../../../../../lib/node/pi/deep-research/pipeline.ts';
@@ -1057,5 +1058,32 @@ describe('runResearchPipeline - resumeFrom', () => {
         resumeRunRoot: runRoot,
       }),
     ).rejects.toThrow(/requires plan\.json at/);
+  });
+});
+
+// ──────────────────────────────────────────────────────────────────────
+// describeModel - provenance string derivation
+// ──────────────────────────────────────────────────────────────────────
+
+describe('describeModel', () => {
+  test('renders a well-formed model as provider/id', () => {
+    expect(describeModel({ provider: 'openai', id: 'gpt-5' })).toBe('openai/gpt-5');
+  });
+
+  test('ignores extra fields and only reads provider + id', () => {
+    expect(describeModel({ provider: 'anthropic', id: 'claude', extra: 1, nested: { a: 1 } })).toBe('anthropic/claude');
+  });
+
+  test.each([
+    ['null', null],
+    ['undefined', undefined],
+    ['a string', 'openai/gpt-5'],
+    ['a number', 42],
+    ['missing id', { provider: 'openai' }],
+    ['missing provider', { id: 'gpt-5' }],
+    ['non-string id', { provider: 'openai', id: 5 }],
+    ['non-string provider', { provider: 5, id: 'gpt-5' }],
+  ])('returns "unknown" for %s', (_label, input) => {
+    expect(describeModel(input)).toBe('unknown');
   });
 });

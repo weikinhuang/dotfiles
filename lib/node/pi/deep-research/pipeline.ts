@@ -325,6 +325,20 @@ export type PipelineOutcome =
   /** Runner failed to produce a usable verdict - infrastructure trouble. */
   | { kind: 'error'; runRoot: string; plan: DeepResearchPlan | null; error: string };
 
+/**
+ * Render a model object as its `provider/id` provenance string, or
+ * `'unknown'` when the value is not a recognizable `{ provider, id }`
+ * shape. The extension threads pi's concrete `Model` through as an
+ * opaque `unknown` (the pipeline stays pi-free), so this pure guard
+ * is how the provenance label is derived. Pure - no pi imports.
+ */
+export function describeModel(m: unknown): string {
+  if (!m || typeof m !== 'object') return 'unknown';
+  const obj = m as { provider?: unknown; id?: unknown };
+  if (typeof obj.provider === 'string' && typeof obj.id === 'string') return `${obj.provider}/${obj.id}`;
+  return 'unknown';
+}
+
 // ──────────────────────────────────────────────────────────────────────
 // Public entry point.
 // ──────────────────────────────────────────────────────────────────────

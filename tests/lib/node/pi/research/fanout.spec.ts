@@ -16,11 +16,14 @@ import { join } from 'node:path';
 
 import { describe, expect, test } from 'vitest';
 
+import { type PhaseEvent } from '../../../../../lib/node/pi/deep-research/statusline.ts';
 import {
   fanout,
   type FanoutHandleLike,
   type FanoutHandleResult,
+  type FanoutSpawnArgs,
   type FanoutSpawner,
+  wrapFanoutForProgress,
 } from '../../../../../lib/node/pi/research/fanout.ts';
 import { paths } from '../../../../../lib/node/pi/research/paths.ts';
 import { type WatchdogStatus } from '../../../../../lib/node/pi/research/watchdog.ts';
@@ -487,5 +490,73 @@ describe('fanout', () => {
 
     expect(journal).toContain('fanout resume');
     expect(journal).toContain('1/2 tasks already terminal');
+  });
+});
+
+// ──────────────────────────────────────────────────────────────────────
+// wrapFanoutForProgress - progress-decorating wrapper
+// ──────────────────────────────────────────────────────────────────────
+
+describe('wrapFanoutForProgress', () => {
+  const spawnArgs: FanoutSpawnArgs = { agentName: 'a', mode: 'sync', task: { id: 't1', prompt: 'p' } };
+
+  function stubHandle(waitResult: FanoutHandleResult | Error): FanoutHandleLike {
+    return {
+      id: 't1',
+      status: () => Promise.resolve({ done: true, lastProgressAt: 0 }),
+      abort: () => Promise.resolve(),
+      wait: () => (waitResult instanceof Error ? Promise.reject(waitResult) : Promise.resolve(waitResult)),
+    };
+  }
+
+  test('returns the inner spawner unchanged when onPhase is undefined', () => {
+    const inner: FanoutSpawner = () => Promise.resolve(stubHandle({ ok: true, output: 'x' }));
+    expect(wrapFanoutForProgress(inner, undefined)).toBe(inner);
+  });
+
+  test('emits a cumulative fanout-progress event as each wait() resolves', async () => {
+    const events: PhaseEvent[] = [];
+    let n = 0;
+    const inner: FanoutSpawner = () => {
+      n += 1;
+      return Promise.resolve(stubHandle({ ok: true, output: `out-${n}` }));
+    };
+    const wrapped = wrapFanoutForProgress(inner, (e) => events.push(e));
+
+    const h1 = await wrapped(spawnArgs);
+    const h2 = await wrapped(spawnArgs);
+    // No progress fires until wait() resolves.
+    expect(events).toEqual([]);
+
+    const r1 = await h1.wait();
+    const r2 = await h2.wait();
+
+    expect(r1).toEqual({ ok: true, output: 'out-1' });
+    expect(r2).toEqual({ ok: true, output: 'out-2' });
+    expect(events).toEqual([
+      { kind: 'fanout-progress', done: 1 },
+      { kind: 'fanout-progress', done: 2 },
+    ]);
+  });
+
+  test('advances progress and re-throws when the inner wait() rejects', async () => {
+    const events: PhaseEvent[] = [];
+    const boom = new Error('wait blew up');
+    const inner: FanoutSpawner = () => Promise.resolve(stubHandle(boom));
+    const wrapped = wrapFanoutForProgress(inner, (e) => events.push(e));
+
+    const handle = await wrapped(spawnArgs);
+    await expect(handle.wait()).rejects.toThrow('wait blew up');
+    expect(events).toEqual([{ kind: 'fanout-progress', done: 1 }]);
+  });
+
+  test('a throwing onPhase never breaks the fanout result', async () => {
+    const inner: FanoutSpawner = () => Promise.resolve(stubHandle({ ok: true, output: 'x' }));
+    const wrapped = wrapFanoutForProgress(inner, () => {
+      throw new Error('observer down');
+    });
+
+    const handle = await wrapped(spawnArgs);
+    await expect(handle.wait()).resolves.toEqual({ ok: true, output: 'x' });
   });
 });

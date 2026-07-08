@@ -67,7 +67,9 @@ import { Type } from 'typebox';
 import { mergeAbortSignals } from '../../../lib/node/pi/abort-merge.ts';
 import { completeSubverbs } from '../../../lib/node/pi/commands/complete.ts';
 import { isHelpArg } from '../../../lib/node/pi/commands/help.ts';
+import { surfaceOutcome } from '../../../lib/node/pi/deep-research/outcome-format.ts';
 import {
+  describeModel,
   runResearchPipeline,
   type PipelineDeps,
   type PipelineOutcome,
@@ -88,7 +90,7 @@ import {
   renderStatuslineWidget,
   type StatuslineState,
 } from '../../../lib/node/pi/deep-research/statusline.ts';
-import { checkReportStructure } from '../../../lib/node/pi/deep-research/structural-check.ts';
+import { buildStructuralBashCmd, checkReportStructure } from '../../../lib/node/pi/deep-research/structural-check.ts';
 import {
   createResearchSessionFlag,
   createResearchToolExecutor,
@@ -118,6 +120,7 @@ import {
   type FanoutHandleResult,
   type FanoutSpawner,
   type FanoutSpawnArgs,
+  wrapFanoutForProgress,
 } from '../../../lib/node/pi/research/fanout.ts';
 import { appendJournal, sumJournalCostUsd } from '../../../lib/node/pi/research/journal.ts';
 import { paths } from '../../../lib/node/pi/research/paths.ts';
@@ -154,7 +157,6 @@ import { piCreateAgentSession } from '../../../lib/node/pi/ext/pi-session.ts';
 import { createPersistedSubagentSessionManager } from '../../../lib/node/pi/subagent/session-dir.ts';
 import { resolveChildModel, runOneShotAgent, type AgentSessionLike } from '../../../lib/node/pi/subagent/spawn.ts';
 import { truncate } from '../../../lib/node/pi/shared.ts';
-import { shQuote } from '../../../lib/node/pi/util.ts';
 import { envTruthy } from '../../../lib/node/pi/parse-env.ts';
 
 /**
@@ -1774,55 +1776,6 @@ function buildPipelineDeps(
   return { ok: true, deps, parentModel };
 }
 
-function describeModel(m: unknown): string {
-  if (!m || typeof m !== 'object') return 'unknown';
-  const obj = m as { provider?: unknown; id?: unknown };
-  if (typeof obj.provider === 'string' && typeof obj.id === 'string') return `${obj.provider}/${obj.id}`;
-  return 'unknown';
-}
-
-/**
- * Wrap a fanout spawner so each task's `wait()` resolution
- * advances a cumulative `fanout-progress` event on `onPhase`.
- * The pipeline emits `fanout-start { total }` right before
- * invoking the fanout, so the statusline reducer can inherit
- * `total` from its own state when we omit it here.
- *
- * Returns the inner spawner unchanged when `onPhase` is undefined.
- */
-function wrapFanoutForProgress(
-  inner: FanoutSpawner,
-  onPhase: ((event: PhaseEvent) => void) | undefined,
-): FanoutSpawner {
-  if (!onPhase) return inner;
-  let done = 0;
-  return async (args: FanoutSpawnArgs): Promise<FanoutHandleLike> => {
-    const handle = await inner(args);
-    const originalWait = handle.wait.bind(handle);
-    handle.wait = async (): Promise<FanoutHandleResult> => {
-      try {
-        const res = await originalWait();
-        done += 1;
-        try {
-          onPhase({ kind: 'fanout-progress', done });
-        } catch {
-          /* swallow - observability must never break fanout */
-        }
-        return res;
-      } catch (e) {
-        done += 1;
-        try {
-          onPhase({ kind: 'fanout-progress', done });
-        } catch {
-          /* swallow */
-        }
-        throw e;
-      }
-    };
-    return handle;
-  };
-}
-
 /**
  * Wrap an `AgentSessionLike` as a `ResearchSessionLike` usable by
  * `research-structured.callTyped`. Forwards `prompt`/`state.messages`
@@ -1951,58 +1904,6 @@ function buildSyncFanoutSpawner<M extends Model<any>>(
       wait: () => Promise.resolve(result),
     };
   };
-}
-
-// ──────────────────────────────────────────────────────────────────────
-// Outcome surfacing.
-// ──────────────────────────────────────────────────────────────────────
-
-function surfaceOutcome(outcome: PipelineOutcome, notify: CommandNotify): void {
-  switch (outcome.kind) {
-    case 'report-complete': {
-      const lines: string[] = [];
-      lines.push(`/research: report written at ${outcome.merge.reportPath}`);
-      lines.push(
-        `  fanout: completed=${outcome.fanout.completed.length} failed=${outcome.fanout.failed.length} aborted=${outcome.fanout.aborted.length}`,
-      );
-      lines.push(
-        `  synth: footnotes=${outcome.merge.footnoteCount} stubbed=${outcome.merge.stubbedSubQuestions.length} fallback-wrapper=${outcome.merge.usedFallback ? 'yes' : 'no'}`,
-      );
-      lines.push(`  two-stage review (structural + subjective critic) runs next.`);
-      const level =
-        outcome.merge.stubbedSubQuestions.length === 0 && outcome.quarantined.length === 0 ? 'info' : 'warning';
-      notify(lines.join('\n'), level);
-      return;
-    }
-    case 'fanout-complete': {
-      const lines: string[] = [];
-      lines.push(`/research: fanout complete under ${outcome.runRoot}`);
-      lines.push(
-        `  completed=${outcome.fanout.completed.length} failed=${outcome.fanout.failed.length} aborted=${outcome.fanout.aborted.length} quarantined=${outcome.quarantined.length}`,
-      );
-      lines.push(`  synth was not requested (runSynth=false); findings are on disk at ${outcome.runRoot}/findings/.`);
-      notify(lines.join('\n'), outcome.quarantined.length === 0 ? 'info' : 'warning');
-      return;
-    }
-    case 'planner-stuck':
-      notify(
-        `/research: planner emitted stuck - ${outcome.reason}\nPlan NOT written. Refine the question and retry.`,
-        'warning',
-      );
-      return;
-    case 'checkpoint':
-      notify(
-        `/research: planning-critic did not approve the plan (${outcome.outcome.kind}). Plan is at ${outcome.runRoot}/plan.json - edit it and rerun \`/research\`.`,
-        'warning',
-      );
-      return;
-    case 'error':
-      notify(
-        `/research: pipeline hit an error (${outcome.error}). ${outcome.runRoot}/journal.md has the details.`,
-        'error',
-      );
-      return;
-  }
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -2304,23 +2205,6 @@ async function runReviewPhase(args: RunReviewPhaseArgs): Promise<ReviewWireResul
     notify(`/research: review phase threw: ${(e as Error).message}`, 'error');
     return null;
   }
-}
-
-/**
- * Build the bash command string we record in the structural check
- * spec. The production review path calls `checkReportStructure`
- * directly; this string is purely informational - it shows up in
- * `/check list` output so a user can see what a manual structural
- * re-run would look like.
- *
- * Each path is wrapped in POSIX single quotes and has any embedded
- * single quote escaped via `'\''` so paths containing spaces
- * (common on macOS under `~/Library/...` or WSL mounts like
- * `/mnt/c/Users/First Last/`) remain copy-pasteable.
- */
-function buildStructuralBashCmd(runRoot: string): string {
-  const scriptPath = fileURLToPath(new URL('../../../lib/node/pi/deep-research/structural-check.ts', import.meta.url));
-  return `node ${shQuote(scriptPath)} ${shQuote(runRoot)}`;
 }
 
 /**

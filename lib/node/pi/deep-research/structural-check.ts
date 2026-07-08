@@ -65,12 +65,13 @@
  */
 
 import { existsSync, readFileSync } from 'node:fs';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { SRC_PLACEHOLDER_RE } from '../research/citations.ts';
 import { paths } from '../research/paths.ts';
 import { readPlan } from '../research/plan.ts';
 import { listRun, normalizeUrl, type SourceRef } from '../research/sources.ts';
+import { shQuote } from '../util.ts';
 
 // ──────────────────────────────────────────────────────────────────────
 // Public types.
@@ -720,6 +721,24 @@ export function formatFailures(result: StructuralCheckResult): string {
     lines.push(`[${f.id}] ${f.message}${loc}`);
   }
   return lines.join('\n');
+}
+
+/**
+ * Build the bash command string recorded in the structural-check
+ * spec. The production review path calls {@link checkReportStructure}
+ * directly; this string is purely informational - it shows up in
+ * `/check list` output so a user can see what a manual structural
+ * re-run would look like.
+ *
+ * Anchors on this module's own file URL (`import.meta.url`) so the
+ * emitted `node <script> <runRoot>` points at this exact file. Each
+ * path is wrapped in POSIX single quotes via {@link shQuote} so
+ * paths containing spaces (common on macOS under `~/Library/...` or
+ * WSL mounts like `/mnt/c/Users/First Last/`) remain copy-pasteable.
+ */
+export function buildStructuralBashCmd(runRoot: string): string {
+  const scriptPath = fileURLToPath(import.meta.url);
+  return `node ${shQuote(scriptPath)} ${shQuote(runRoot)}`;
 }
 
 // ──────────────────────────────────────────────────────────────────────
