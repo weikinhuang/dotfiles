@@ -21,7 +21,7 @@ import { type CompletionCandidate, completeCandidatesOrVerbs } from '../../../..
 import { addCollapse, addEdit, addTrim, emptyState } from '../../../../lib/node/pi/context-edit/directive.ts';
 import { enumerate } from '../../../../lib/node/pi/context-edit/enumerate.ts';
 import type { LooseMessage } from '../../../../lib/node/pi/context-edit/target.ts';
-import { type SubverbSpec } from '../../../../lib/node/pi/commands/complete.ts';
+import { completeSubverbs, type SubverbSpec } from '../../../../lib/node/pi/commands/complete.ts';
 import { isHelpArg } from '../../../../lib/node/pi/commands/help.ts';
 import { assertOk } from '../../../lib/node/pi/helpers.ts';
 
@@ -81,6 +81,28 @@ describe('completion - level 2 restore resolver carries the verb prefix', () => 
     expect(completeCandidatesOrVerbs('restore 7', candidates, verbsFor('trim', [3, 7]))?.map((i) => i.value)).toEqual([
       'restore 7',
     ]);
+  });
+});
+
+// message-edit adds a `sort` verb (order|size) on top of the shared
+// list/restore/clear. Its level-2 completion goes through the same
+// `completeSubverbs` helper `completeCandidatesOrVerbs` delegates to, so
+// the `sort <choice>` value carries the verb prefix just like `restore`.
+describe('completion - message-edit sort verb carries the verb prefix', () => {
+  const sortSpec: SubverbSpec = {
+    sort: { description: 'List by message order or size', args: () => [{ label: 'order' }, { label: 'size' }] },
+  };
+
+  test('level 1 offers the sort verb', () => {
+    expect(completeSubverbs('so', sortSpec)?.map((i) => i.value)).toEqual(['sort']);
+  });
+
+  test('level 2 completes both choices as "sort <choice>"', () => {
+    expect(completeSubverbs('sort ', sortSpec)?.map((i) => i.value)).toEqual(['sort order', 'sort size']);
+  });
+
+  test('level 2 filters by the partial choice', () => {
+    expect(completeSubverbs('sort s', sortSpec)?.map((i) => i.value)).toEqual(['sort size']);
   });
 });
 
