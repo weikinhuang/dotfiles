@@ -81,7 +81,11 @@ import {
   type RefinementRunner,
   type StructuralRunner,
 } from '../../../lib/node/pi/deep-research/review-loop.ts';
-import { runDeepResearchReview, type ReviewWireResult } from '../../../lib/node/pi/deep-research/review-wire.ts';
+import {
+  reviewDoneMessage,
+  runDeepResearchReview,
+  type ReviewWireResult,
+} from '../../../lib/node/pi/deep-research/review-wire.ts';
 import { DEEP_RESEARCH_USAGE } from '../../../lib/node/pi/deep-research/usage.ts';
 import {
   initialStatuslineState,
@@ -803,6 +807,61 @@ function buildStatuslineController(ctx: {
 }
 
 /**
+ * Per-run observers shared by every driver (fresh run, resume-
+ * review, resume-pipeline). Seeds a live-updating RunBudget from
+ * the default phase table (`accumulates per-phase cost + wall-clock
+ * by watching the same PhaseEvent stream the statusline consumes`,
+ * exposing PhaseTrackers the cost hooks route USD deltas into) and
+ * returns an `onPhase` emitter that fans each event into the
+ * statusline controller AND the budget. Budget observation is
+ * wrapped so it can never break the run.
+ */
+function buildRunObservers(statusline: StatuslineController): {
+  liveBudget: LiveBudget;
+  onPhase: (event: PhaseEvent) => void;
+} {
+  const liveBudget = createLiveBudget({
+    budget: createRunBudget(DEFAULT_BUDGET_PHASES.map((phase) => Object.assign({}, phase))),
+  });
+  const onPhase = (event: PhaseEvent): void => {
+    statusline.emit(event);
+    try {
+      liveBudget.observePhaseEvent(event);
+    } catch {
+      /* swallow - budget observation must never break the run */
+    }
+  };
+  return { liveBudget, onPhase };
+}
+
+/**
+ * Terminal review tail shared by all three drivers on a
+ * `report-complete` outcome: emit the `done` phase with the shared
+ * {@link reviewDoneMessage} label, flush the budget summary, and
+ * surface the stubbed-report resume hint via `formatStubHint` -
+ * unless the review short-circuited on a stubbed report (the wire
+ * already notified an equivalent "review skipped" message, so
+ * skipping here avoids a double-emit). Returns the pieces
+ * `runResearchFlow` folds into its tool result; the void resume
+ * drivers ignore the return.
+ */
+function finalizeReviewTail(args: {
+  review: ReviewWireResult | null;
+  onPhase: (event: PhaseEvent) => void;
+  liveBudget: LiveBudget;
+  notify: CommandNotify;
+  runRoot: string;
+}): { approved: boolean; stubHint: string | null } {
+  const { review, onPhase, liveBudget, notify, runRoot } = args;
+  const approved = review?.outcome.kind === 'passed';
+  onPhase({ kind: 'done', message: reviewDoneMessage(review) });
+  liveBudget.appendSummary();
+  const stubHint = review?.outcome.kind === 'stubbed' ? null : formatStubHint(runRoot);
+  if (stubHint) notify(stubHint, 'warning');
+  return { approved, stubHint };
+}
+
+/**
  * End-to-end pipeline + review driver. Shared by the `/research
  * <question>` command and the `research` tool. Owns:
  *
@@ -847,22 +906,7 @@ async function runResearchFlow(args: {
   const statusline = args.statusline ?? buildStatuslineController(ctx);
   statusline.emit({ kind: 'start' });
 
-  // Live-updating RunBudget: accumulates per-phase cost +
-  // wall-clock by watching the same PhaseEvent stream the
-  // statusline consumes, and exposes PhaseTrackers the cost
-  // hooks route assistant-turn USD deltas into. A single
-  // `cost report` entry lands in the run's journal.md on exit.
-  const liveBudget = createLiveBudget({
-    budget: createRunBudget(DEFAULT_BUDGET_PHASES.map((p) => ({ ...p }))),
-  });
-  const onPhase = (event: PhaseEvent): void => {
-    statusline.emit(event);
-    try {
-      liveBudget.observePhaseEvent(event);
-    } catch {
-      /* swallow - budget observation must never break the run */
-    }
-  };
+  const { liveBudget, onPhase } = buildRunObservers(statusline);
 
   const built = buildPipelineDeps(ctx, agentLoad, {
     onPhase,
@@ -960,29 +1004,13 @@ async function runResearchFlow(args: {
     };
   }
 
-  const reviewApproved = review?.outcome.kind === 'passed';
-  const doneMessage = reviewApproved
-    ? 'review passed'
-    : review?.level === 'error'
-      ? 'review failed'
-      : 'review complete';
-  onPhase({ kind: 'done', message: doneMessage });
-  liveBudget.appendSummary();
-
-  // Phase-4 guardrail: if the final report still has
-  // `[section unavailable: …]` stubs the review loop exempts from
-  // the citation rule, the user needs to re-fetch those sub-
-  // questions - refinement cannot fix them. Surface a targeted
-  // resume hint and fold it into the tool summary so the LLM sees
-  // it too.
-  //
-  // The review-wire now short-circuits on stubbed reports and
-  // emits an equivalent "review skipped" notify before returning
-  // `kind: 'stubbed'`. Skip the post-loop hint on that path to
-  // avoid a double-emit - `review.summary` already carries the
-  // recovery command for the tool-summary fold below.
-  const stubHint = review?.outcome.kind === 'stubbed' ? null : formatStubHint(outcome.runRoot);
-  if (stubHint) notify(stubHint, 'warning');
+  const { approved: reviewApproved, stubHint } = finalizeReviewTail({
+    review,
+    onPhase,
+    liveBudget,
+    notify,
+    runRoot: outcome.runRoot,
+  });
 
   return {
     kind: 'report-complete',
@@ -1319,17 +1347,7 @@ async function runResumeReviewStage(args: {
 
   const statusline = buildStatuslineController(ctx);
   statusline.emit({ kind: 'start' });
-  const liveBudget = createLiveBudget({
-    budget: createRunBudget(DEFAULT_BUDGET_PHASES.map((p2) => ({ ...p2 }))),
-  });
-  const onPhase = (event: PhaseEvent): void => {
-    statusline.emit(event);
-    try {
-      liveBudget.observePhaseEvent(event);
-    } catch {
-      /* swallow */
-    }
-  };
+  const { liveBudget, onPhase } = buildRunObservers(statusline);
   try {
     liveBudget.setJournalPath(p.journal);
   } catch {
@@ -1374,20 +1392,7 @@ async function runResumeReviewStage(args: {
     return;
   }
 
-  const reviewApproved = review?.outcome.kind === 'passed';
-  const doneMessage = reviewApproved
-    ? 'review passed'
-    : review?.level === 'error'
-      ? 'review failed'
-      : 'review complete';
-  onPhase({ kind: 'done', message: doneMessage });
-  liveBudget.appendSummary();
-
-  // Stubbed-report short-circuit already notified via
-  // `runDeepResearchReview`; skip the post-loop hint to avoid a
-  // duplicate "review skipped" message.
-  const stubHint = review?.outcome.kind === 'stubbed' ? null : formatStubHint(runRoot);
-  if (stubHint) notify(stubHint, 'warning');
+  finalizeReviewTail({ review, onPhase, liveBudget, notify, runRoot });
 }
 
 /**
@@ -1467,17 +1472,7 @@ async function runResumePipelineStage(args: {
 
   const statusline = buildStatuslineController(ctx);
   statusline.emit({ kind: 'start' });
-  const liveBudget = createLiveBudget({
-    budget: createRunBudget(DEFAULT_BUDGET_PHASES.map((phase) => Object.assign({}, phase))),
-  });
-  const onPhase = (event: PhaseEvent): void => {
-    statusline.emit(event);
-    try {
-      liveBudget.observePhaseEvent(event);
-    } catch {
-      /* swallow - budget observation must never break the run */
-    }
-  };
+  const { liveBudget, onPhase } = buildRunObservers(statusline);
   try {
     liveBudget.setJournalPath(p.journal);
   } catch {
@@ -1568,21 +1563,7 @@ async function runResumePipelineStage(args: {
     return;
   }
 
-  const reviewApproved = review?.outcome.kind === 'passed';
-  const doneMessage = reviewApproved
-    ? 'review passed'
-    : review?.level === 'error'
-      ? 'review failed'
-      : 'review complete';
-  onPhase({ kind: 'done', message: doneMessage });
-  liveBudget.appendSummary();
-
-  // Stubbed-report short-circuit already notified via
-  // `runDeepResearchReview`; skip the post-loop hint on the
-  // resume pipeline path too so fresh-run and resume paths stay
-  // symmetric.
-  const stubHint = review?.outcome.kind === 'stubbed' ? null : formatStubHint(outcome.runRoot);
-  if (stubHint) notify(stubHint, 'warning');
+  finalizeReviewTail({ review, onPhase, liveBudget, notify, runRoot: outcome.runRoot });
 }
 
 /**

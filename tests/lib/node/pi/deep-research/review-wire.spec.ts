@@ -40,6 +40,8 @@ import {
   buildStructuralSpec,
   buildSubjectiveSpec,
   formatOutcome,
+  type ReviewWireResult,
+  reviewDoneMessage,
   runDeepResearchReview,
   STRUCTURAL_TASK,
   SUBJECTIVE_TASK,
@@ -822,5 +824,49 @@ describe('formatOutcome', () => {
     expect(out.level).toBe('warning');
     expect(out.summary).toContain('review skipped');
     expect(out.summary).toContain('2 sub-question section(s)');
+  });
+});
+
+// ──────────────────────────────────────────────────────────────────────
+// reviewDoneMessage - shared terminal `done` label.
+// ──────────────────────────────────────────────────────────────────────
+
+describe('reviewDoneMessage', () => {
+  function wireResult(outcome: ReviewWireResult['outcome'], level: ReviewWireResult['level']): ReviewWireResult {
+    return { outcome, consented: true, firstTimeConsent: false, summary: 'summary', level };
+  }
+
+  test('passed outcome → "review passed" regardless of level', () => {
+    const review = wireResult(
+      {
+        kind: 'passed',
+        iterations: 1,
+        reportPath: '/r/report.md',
+        critic: approvedCritic(),
+        structural: passingStructural(),
+      },
+      'info',
+    );
+
+    expect(reviewDoneMessage(review)).toBe('review passed');
+  });
+
+  test('non-passed outcome at error level → "review failed"', () => {
+    const review = wireResult({ kind: 'error', error: 'boom', iterations: 0, bestSoFar: null }, 'error');
+
+    expect(reviewDoneMessage(review)).toBe('review failed');
+  });
+
+  test('non-passed outcome at warning level → "review complete"', () => {
+    const review = wireResult(
+      { kind: 'structural-override', iterations: 1, structural: failingStructural(), critic: approvedCritic() },
+      'warning',
+    );
+
+    expect(reviewDoneMessage(review)).toBe('review complete');
+  });
+
+  test('null review → "review complete"', () => {
+    expect(reviewDoneMessage(null)).toBe('review complete');
   });
 });

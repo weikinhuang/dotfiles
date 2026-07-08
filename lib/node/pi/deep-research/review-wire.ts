@@ -114,6 +114,26 @@ export interface ReviewWireResult {
   level: 'info' | 'warning' | 'error';
 }
 
+/**
+ * Terminal statusline `done` label for a review outcome. Shared by
+ * every extension driver that emits `{ kind: 'done', message }`
+ * after the review phase (fresh run, resume-review, resume-
+ * pipeline) so the three stay byte-identical:
+ *
+ *   - `'review passed'`   - the loop reached a `passed` outcome.
+ *   - `'review failed'`   - the summary was notified at `error`.
+ *   - `'review complete'` - any other terminal (budget exhausted,
+ *                            stubbed short-circuit, review skipped).
+ *
+ * A `null` review (the runner threw before returning) folds into
+ * `'review complete'`. Pure - no pi imports.
+ */
+export function reviewDoneMessage(review: ReviewWireResult | null): string {
+  if (review?.outcome.kind === 'passed') return 'review passed';
+  if (review?.level === 'error') return 'review failed';
+  return 'review complete';
+}
+
 // ──────────────────────────────────────────────────────────────────────
 // Public entry point.
 // ──────────────────────────────────────────────────────────────────────
