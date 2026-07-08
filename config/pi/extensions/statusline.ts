@@ -45,7 +45,6 @@ import { hostname, userInfo } from 'node:os';
 import { basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { type AssistantMessage, type ToolResultMessage } from '@earendil-works/pi-ai';
 import { type ExtensionAPI, type ExtensionContext } from '@earendil-works/pi-coding-agent';
 import { truncateToWidth, visibleWidth } from '@earendil-works/pi-tui';
 
@@ -56,7 +55,17 @@ import {
   resolveGitPromptScript,
 } from '../../../lib/node/pi/git-prompt.ts';
 import { resolveWorktreeInfo, type WorktreeInfo } from '../../../lib/node/pi/git-worktree.ts';
-import { getSandboxState, isBashAutoEnabled, type SandboxMode } from '../../../lib/node/pi/session-flags.ts';
+import { getSandboxState, isBashAutoEnabled } from '../../../lib/node/pi/session-flags.ts';
+import { aggregate } from '../../../lib/node/pi/statusline/aggregate.ts';
+import {
+  BOLD,
+  cwdFileUrl,
+  osc8,
+  paint,
+  PALETTE,
+  RESET,
+  renderSandboxBadge,
+} from '../../../lib/node/pi/statusline/segments.ts';
 import { getSessionSubagentAggregate } from '../../../lib/node/pi/subagent/aggregate.ts';
 import { fmtCost, fmtSi, formatUsageLine } from '../../../lib/node/pi/token-format.ts';
 import { envTruthy } from '../../../lib/node/pi/parse-env.ts';
@@ -72,184 +81,6 @@ const GIT_PROMPT_SCRIPT_PATH: string | null = (() => {
     return null;
   }
 })();
-
-/**
- * 256-color ANSI palette matching `config/claude/statusline-command.sh`, which
- * itself mirrors the dotfiles PS1 colors. Kept as raw SGR codes rather than
- * theme lookups so the statusline looks identical across pi themes and stays
- * visually consistent with the shell prompt.
- */
-const RESET = '\x1b[0m';
-const BOLD = '\x1b[1m';
-const PALETTE = {
-  grey: '\x1b[38;5;244m',
-  user: '\x1b[38;5;197m',
-  host: '\x1b[38;5;208m',
-  dir: '\x1b[38;5;142m',
-  git: '\x1b[38;5;135m',
-  worktree: '\x1b[38;5;173m',
-  context: '\x1b[38;5;35m',
-  token: '\x1b[38;5;245m',
-  sessionToken: '\x1b[38;5;179m',
-  subagent: '\x1b[38;5;73m',
-  tool: '\x1b[38;5;214m',
-  cost: '\x1b[38;5;108m',
-  sessionId: '\x1b[38;5;244m',
-  model: '\x1b[38;5;33m',
-  persona: '\x1b[38;5;141m',
-  sandbox: '\x1b[38;5;72m',
-  sandboxWarn: '\x1b[38;5;172m',
-  sandboxOff: '\x1b[38;5;160m',
-} as const;
-
-const paint = (code: string, text: string): string => `${code}${text}${RESET}`;
-
-/**
- * Render the sandbox badge for line 1 of the statusline. Returns
- * `null` when the sandbox is effectively off (extension not loaded,
- * pre-init, or session bypass) so we don't add a leading space for
- * a nothing-segment.
- *
- * The trailing space after the shield emoji is intentional: some
- * terminals render the VS16-presented \ud83d\udee1\ufe0f glyph wide enough that
- * the next column collides with whatever follows.
- *
- *   wrapped       \ud83d\udee1\ufe0f<sp>             (deps OK + initialized)
- *   identity      \ud83d\udee1\ufe0f<sp>?            (degraded - missing deps / unsupported)
- *   bypassed      (hidden)              (/sandbox-disable session bypass)
- *   env-disabled  \ud83d\udee1\ufe0f<sp>\u00b7off         (PI_SANDBOX_DISABLED=1)
- *
- * `bypassed` previously rendered \ud83d\udee1\u0336 with a combining strikethrough,
- * but that produces broken glyphs on terminals that can't combine
- * U+0336 onto an emoji. Since `bypassed` means "sandbox is off for
- * this session", we just hide the badge - same as the `off` case.
- *
- * Color palette:
- *   wrapped       PALETTE.sandbox     (calm green)
- *   identity      PALETTE.sandboxWarn (amber - degraded; note that most
- *                                      terminals don't apply foreground
- *                                      colors to emoji, so only the `?`
- *                                      suffix actually picks up the tint)
- *   env-disabled  PALETTE.sandboxOff  (red)
- */
-function renderSandboxBadge(mode: SandboxMode): string | null {
-  switch (mode) {
-    case 'wrapped':
-      return paint(PALETTE.sandbox, '\u{1F6E1}\uFE0F ');
-    case 'identity':
-      return paint(PALETTE.sandboxWarn, '\u{1F6E1}\uFE0F ?');
-    case 'env-disabled':
-      return paint(PALETTE.sandboxOff, '\u{1F6E1}\uFE0F \u00b7off');
-    case 'bypassed':
-    case 'off':
-    default:
-      return null;
-  }
-}
-
-/**
- * Wrap text in an OSC 8 hyperlink escape sequence.
- * Mirrors print_osc8_link() in statusline-command.sh.
- */
-const osc8 = (url: string, text: string): string => `\x1b]8;;${url}\x1b\\${text}\x1b]8;;\x1b\\`;
-
-/**
- * Build a file:// URL for the cwd. Returns null when hyperlinks are disabled,
- * when we're on a remote SSH session (where file:// won't resolve on the
- * viewer's machine), or when cwd is empty. WSL paths are translated to the
- * host's filesystem view so clicks open in the Windows shell.
- */
-function cwdFileUrl(cwd: string, hyperlinksEnabled: boolean): string | null {
-  if (!hyperlinksEnabled || !cwd) return null;
-
-  const wslDistro = process.env.WSL_DISTRO_NAME;
-  if (wslDistro) {
-    const mntMatch = /^\/mnt\/([a-z])(\/.*)?$/.exec(cwd);
-    if (mntMatch) {
-      const drive = mntMatch[1].toUpperCase();
-      const rest = mntMatch[2] ?? '';
-      return `file:///${drive}:${rest}`;
-    }
-    return `file://wsl.localhost/${wslDistro}${cwd}`;
-  }
-
-  // Skip hyperlinks when the terminal is attached to a remote session - the
-  // local viewer can't resolve file:// paths on the remote host.
-  if (process.env.SSH_CLIENT || process.env.SSH_TTY || process.env.SSH_CONNECTION) return null;
-
-  return `file://${cwd}`;
-}
-
-interface Aggregates {
-  sessionIn: number;
-  sessionCacheRead: number;
-  sessionCacheWrite: number;
-  sessionOut: number;
-  sessionCostTotal: number;
-  turns: number;
-  lastIn: number;
-  lastCacheRead: number;
-  lastCacheWrite: number;
-  lastOut: number;
-  toolCalls: number;
-  toolResultBytes: number;
-}
-
-function aggregate(branch: unknown): Aggregates {
-  const out: Aggregates = {
-    sessionIn: 0,
-    sessionCacheRead: 0,
-    sessionCacheWrite: 0,
-    sessionOut: 0,
-    sessionCostTotal: 0,
-    turns: 0,
-    lastIn: 0,
-    lastCacheRead: 0,
-    lastCacheWrite: 0,
-    lastOut: 0,
-    toolCalls: 0,
-    toolResultBytes: 0,
-  };
-
-  // Defensive guard: if pi's session manager ever returns a non-iterable,
-  // a silent `for...of` no-op would mask the problem. Bail explicitly.
-  if (!Array.isArray(branch)) return out;
-
-  for (const rawEntry of branch) {
-    const entry = rawEntry as { type?: string; message?: { role?: string } };
-    if (entry?.type !== 'message' || !entry.message) continue;
-
-    if (entry.message.role === 'assistant') {
-      const m = entry.message as AssistantMessage;
-      const u = m.usage;
-      if (u) {
-        out.sessionIn += u.input ?? 0;
-        out.sessionCacheRead += u.cacheRead ?? 0;
-        out.sessionCacheWrite += u.cacheWrite ?? 0;
-        out.sessionOut += u.output ?? 0;
-        out.sessionCostTotal += u.cost?.total ?? 0;
-        out.lastIn = u.input ?? 0;
-        out.lastCacheRead = u.cacheRead ?? 0;
-        out.lastCacheWrite = u.cacheWrite ?? 0;
-        out.lastOut = u.output ?? 0;
-      }
-      for (const c of m.content) if (c.type === 'toolCall') out.toolCalls++;
-    } else if (entry.message.role === 'user') {
-      // Turns = user prompts submitted (matches M(N) semantics in the bash script,
-      // which counts user-authored turns).
-      out.turns++;
-    } else if (entry.message.role === 'toolResult') {
-      const m = entry.message as ToolResultMessage;
-      if (Array.isArray(m.content)) {
-        for (const c of m.content) {
-          if (c.type === 'text') out.toolResultBytes += c.text?.length ?? 0;
-        }
-      }
-    }
-  }
-
-  return out;
-}
 
 export default function extension(pi: ExtensionAPI): void {
   const user = (() => {
