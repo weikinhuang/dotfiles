@@ -19,6 +19,7 @@
 import { type ExtensionAPI, type ExtensionContext } from '@earendil-works/pi-coding-agent';
 import { truncateToWidth } from '@earendil-works/pi-tui';
 
+import { completeSubverbs } from '../../../lib/node/pi/commands/complete.ts';
 import { isHelpArg } from '../../../lib/node/pi/commands/help.ts';
 import { HEADER_USAGE } from '../../../lib/node/pi/custom-header/usage.ts';
 import { envTruthy } from '../../../lib/node/pi/parse-env.ts';
@@ -83,21 +84,11 @@ export default function extension(pi: ExtensionAPI): void {
 
   pi.registerCommand('header', {
     description: 'Switch the session header source (builtin or custom)',
-    getArgumentCompletions: (prefix) => {
-      const arg = prefix.trim();
-      const out: { value: string; label: string; description: string }[] = [];
-      if (arg === '' || 'builtin'.startsWith(arg)) {
-        out.push({
-          value: 'builtin',
-          label: 'builtin',
-          description: "Restore pi's default mascot + keybinding-hints header",
-        });
-      }
-      if (arg === '' || 'custom'.startsWith(arg)) {
-        out.push({ value: 'custom', label: 'custom', description: 'Install the compact single-line header strip' });
-      }
-      return out.length > 0 ? out : null;
-    },
+    getArgumentCompletions: (prefix) =>
+      completeSubverbs(prefix, {
+        builtin: { description: "Restore pi's default mascot + keybinding-hints header" },
+        custom: { description: 'Install the compact single-line header strip' },
+      }),
     handler: async (args, ctx) => {
       if (isHelpArg(args)) {
         ctx.ui.notify(HEADER_USAGE, 'info');
