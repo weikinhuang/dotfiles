@@ -1,6 +1,6 @@
 /**
  * Deterministic render tests for the BgBashOverlay viewport windowing
- * (config/pi/extensions/bg-bash.ts). Model-independent: builds a synthetic
+ * (lib/node/pi/ext/bg-bash-overlay.ts). Model-independent: builds a synthetic
  * state with more jobs than a short terminal can show and asserts the job list
  * is windowed within the viewport (with the log-tail block pinned below).
  */
@@ -10,8 +10,8 @@ import { expect, test } from 'vitest';
 import type { Theme } from '@earendil-works/pi-coding-agent';
 import type { TUI } from '@earendil-works/pi-tui';
 
-import { BgBashOverlay } from '../../../../config/pi/extensions/bg-bash.ts';
-import type { BgBashState, JobSummary } from '../../../../lib/node/pi/bg-bash-reducer.ts';
+import { BgBashOverlay } from '../../../../../lib/node/pi/ext/bg-bash-overlay.ts';
+import type { BgBashState, JobSummary } from '../../../../../lib/node/pi/bg-bash-reducer.ts';
 
 const theme = { fg: (_t: string, s: string): string => s, bold: (s: string): string => s } as unknown as Theme;
 
@@ -82,7 +82,7 @@ test('BgBashOverlay: at top there is no up-indicator, but a down-indicator', () 
 test('BgBashOverlay: moving selection to the last job scrolls the list down', () => {
   const overlay = makeOverlay(24, 20);
   overlay.render(120); // establish window
-  for (let i = 0; i < 19; i++) overlay.handleInput('[B'); // down arrow
+  for (let i = 0; i < 19; i++) overlay.handleInput('\x1b[B'); // down arrow
   const lines = overlay.render(120);
   expect(lines.length).toBeLessThanOrEqual(VIEWPORT(24));
   expect(lines.some((l) => l.includes('↑') && l.includes('more'))).toBe(true);
