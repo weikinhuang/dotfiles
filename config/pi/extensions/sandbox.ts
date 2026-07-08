@@ -114,6 +114,7 @@ import { parseFsFailures } from '../../../lib/node/pi/sandbox/fs-failures.ts';
 import { gitTrackedSubset } from '../../../lib/node/pi/sandbox/git-tracked.ts';
 import { buildNetworkAskCallback } from '../../../lib/node/pi/sandbox/network-ask.ts';
 import { annotateBashResult, prependBashHint } from '../../../lib/node/pi/sandbox/result-annotate.ts';
+import { buildSandboxStatusReport } from '../../../lib/node/pi/sandbox/status-report.ts';
 import { detectLoopbackFailure } from '../../../lib/node/pi/sandbox/loopback-hint.ts';
 import { prependLocalhostProxyEnv } from '../../../lib/node/pi/sandbox/localhost-proxy.ts';
 import { type FilesystemPolicyLayer, loadFilesystemPolicy } from '../../../lib/node/pi/filesystem-policy/load.ts';
@@ -1096,88 +1097,50 @@ export default function sandbox(pi: ExtensionAPI): void {
         return;
       }
       const resolved = await reconfigure(state, ctx.cwd, ctx);
-      const lines: string[] = [];
       const { mode, reason } = effectiveMode(state);
-      lines.push(`Mode: ${mode}${reason ? ` (${reason})` : ''}`);
-      lines.push(`Platform: ${state.platform.description} (${state.platform.kind})`);
-      if (state.platform.missingDeps.length > 0) {
-        lines.push(`Missing deps: ${state.platform.missingDeps.join(', ')}`);
-        for (const h of state.platform.hints) lines.push(`  ${h}`);
-      }
-      if (state.platform.apparmorBlocksUserNs) {
-        lines.push('AppArmor restricts unprivileged user namespaces (Ubuntu 24.04+).');
-      }
-      if (state.platform.isInsideDocker) {
-        lines.push('Running inside a container; consider PI_SANDBOX_NESTED=1.');
-      }
-      lines.push('');
-      lines.push(`Wraps attempted: ${state.wrapsAttempted}`);
-      lines.push(
-        `Wraps errored:   ${state.wrapsErrored}${state.lastWrapError ? ` (last: ${state.lastWrapError})` : ''}`,
-      );
+      let proxyPorts: { http?: number; socks?: number } | undefined;
       if (state.manager?.getProxyPort) {
         const httpPort = state.manager.getProxyPort();
         const socksPort = state.manager.getSocksProxyPort?.();
-        if (httpPort) lines.push(`Proxy ports: http=${httpPort}${socksPort ? ` socks=${socksPort}` : ''}`);
+        proxyPorts = { http: httpPort, socks: socksPort };
       }
-      lines.push('');
-      lines.push('Configuration sources:');
-      lines.push(`  user fs:      ${USER_FS_PATH}`);
-      lines.push(`  user sandbox: ${USER_SANDBOX_PATH}`);
-      lines.push(`  project fs:   ${projectFsPath(ctx.cwd)}`);
-      lines.push(`  project sandbox: ${projectSandboxPath(ctx.cwd)}`);
       const persona = getActivePersona();
-      if (persona && persona.resolvedWriteRoots.length > 0) {
-        lines.push(`  persona overlay: ${persona.name} (writeRoots: ${persona.resolvedWriteRoots.join(', ')})`);
-      }
-      lines.push('');
-      lines.push('Network:');
-      if (resolved.sandboxResult.config.network.unrestricted) {
-        lines.push('  unrestricted: true (network isolation OFF - host network shared, allow/deny NOT enforced)');
-      } else if (resolved.sandboxResult.config.network.allowLocalhost) {
-        lines.push('  allowLocalhost: true (loopback routed through the proxy; HTTP/SOCKS only, filtering stays on)');
-      }
-      lines.push(`  allow: ${resolved.sandboxResult.config.network.allow.join(', ') || '(empty - deny all)'}`);
-      lines.push(`  deny:  ${resolved.sandboxResult.config.network.deny.join(', ') || '(empty)'}`);
-      lines.push(`  default-on-no-UI: ${envNetworkDefault()}`);
-      lines.push('');
-      lines.push('Filesystem (write.allow.paths):');
-      for (const p of resolved.fsPolicy.write.allow.paths) lines.push(`  ${p}`);
-      lines.push('Filesystem (read.deny.paths):');
-      for (const p of resolved.fsPolicy.read.deny.paths) lines.push(`  ${p}`);
-      if (resolved.compiled) {
-        lines.push('');
-        lines.push('Compiled Linux deny paths:');
-        lines.push(`  read:  ${resolved.compiled.read.paths.length} paths`);
-        lines.push(`  write: ${resolved.compiled.write.paths.length} paths`);
-        if (
-          resolved.compiled.read.inertBasenames.length +
-            resolved.compiled.read.inertSegments.length +
-            resolved.compiled.write.inertBasenames.length +
-            resolved.compiled.write.inertSegments.length >
-          0
-        ) {
-          lines.push('  inert (no on-disk match):');
-          for (const b of resolved.compiled.read.inertBasenames) lines.push(`    read.deny.basenames ${b}`);
-          for (const s of resolved.compiled.read.inertSegments) lines.push(`    read.deny.segments  ${s}`);
-          for (const b of resolved.compiled.write.inertBasenames) lines.push(`    write.deny.basenames ${b}`);
-          for (const s of resolved.compiled.write.inertSegments) lines.push(`    write.deny.segments  ${s}`);
-        }
-      }
-      if (resolved.lossyNotes.length > 0) {
-        lines.push('');
-        lines.push('Lossy translation notes:');
-        for (const n of resolved.lossyNotes) lines.push(`  ${n}`);
-      }
-      const recent = readViolations(USER_VIOLATIONS_LOG, { limit: 10 });
-      if (recent.length > 0) {
-        lines.push('');
-        lines.push('Recent violations (10 most recent; /sandbox-violations for full):');
-        for (const r of recent) {
-          lines.push(`  ${r.ts} ${r.kind} ${r.action}${r.path ? ` ${r.path}` : ''}${r.host ? ` ${r.host}` : ''}`);
-        }
-      }
-      ctx.ui.notify(lines.join('\n'), 'info');
+      const report = buildSandboxStatusReport({
+        mode,
+        reason,
+        platform: {
+          description: state.platform.description,
+          kind: state.platform.kind,
+          missingDeps: state.platform.missingDeps,
+          hints: state.platform.hints,
+          apparmorBlocksUserNs: state.platform.apparmorBlocksUserNs,
+          isInsideDocker: state.platform.isInsideDocker,
+        },
+        wrapsAttempted: state.wrapsAttempted,
+        wrapsErrored: state.wrapsErrored,
+        lastWrapError: state.lastWrapError,
+        proxyPorts,
+        sources: {
+          userFs: USER_FS_PATH,
+          userSandbox: USER_SANDBOX_PATH,
+          projectFs: projectFsPath(ctx.cwd),
+          projectSandbox: projectSandboxPath(ctx.cwd),
+        },
+        persona:
+          persona && persona.resolvedWriteRoots.length > 0
+            ? { name: persona.name, resolvedWriteRoots: persona.resolvedWriteRoots }
+            : undefined,
+        network: resolved.sandboxResult.config.network,
+        networkDefault: envNetworkDefault(),
+        filesystem: {
+          writeAllowPaths: resolved.fsPolicy.write.allow.paths,
+          readDenyPaths: resolved.fsPolicy.read.deny.paths,
+        },
+        compiled: resolved.compiled,
+        lossyNotes: resolved.lossyNotes,
+        recentViolations: readViolations(USER_VIOLATIONS_LOG, { limit: 10 }),
+      });
+      ctx.ui.notify(report, 'info');
     },
   });
 
