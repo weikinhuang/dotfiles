@@ -49,14 +49,13 @@
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-import { type ExtensionAPI, isToolCallEventType, type ToolCallEvent } from '@earendil-works/pi-coding-agent';
+import { type ExtensionAPI, isToolCallEventType } from '@earendil-works/pi-coding-agent';
 import { Box, Text } from '@earendil-works/pi-tui';
 
 import {
   candidateContextPaths,
   capContent,
   DEFAULT_CONTEXT_FILE_BYTE_CAP,
-  DEFAULT_CONTEXT_FILE_NAMES,
   displayPath,
   formatBytes,
   formatContextInjection,
@@ -65,22 +64,13 @@ import {
 } from '../../../lib/node/pi/subdir-agents.ts';
 import { isHelpArg } from '../../../lib/node/pi/commands/help.ts';
 import { envTruthy } from '../../../lib/node/pi/parse-env.ts';
+import { getToolCallPathInput } from '../../../lib/node/pi/ext/tool-path.ts';
+import { parseFileNames } from '../../../lib/node/pi/subdir-agents/file-names.ts';
 import { SUBDIR_AGENTS_USAGE } from '../../../lib/node/pi/subdir-agents/usage.ts';
 
 // ──────────────────────────────────────────────────────────────────────
 // Helpers
 // ──────────────────────────────────────────────────────────────────────
-
-/**
- * Extract the `path` input from a read/write/edit tool call. Returns an
- * empty string for other tools or missing inputs.
- */
-function getPathInput(event: ToolCallEvent): string {
-  if (isToolCallEventType('read', event) || isToolCallEventType('write', event) || isToolCallEventType('edit', event)) {
-    return String(event.input?.path ?? '').trim();
-  }
-  return '';
-}
 
 /**
  * Try to resolve the real path of `abs`. Returns `abs` itself on any I/O
@@ -96,16 +86,6 @@ function safeRealpath(abs: string): string {
   }
 }
 
-function parseFileNames(): readonly string[] {
-  const raw = process.env.PI_SUBDIR_AGENTS_NAMES;
-  if (!raw) return DEFAULT_CONTEXT_FILE_NAMES;
-  const names = raw
-    .split(',')
-    .map((s) => s.trim())
-    .filter(Boolean);
-  return names.length > 0 ? names : DEFAULT_CONTEXT_FILE_NAMES;
-}
-
 // ──────────────────────────────────────────────────────────────────────
 // Extension
 // ──────────────────────────────────────────────────────────────────────
@@ -113,7 +93,7 @@ function parseFileNames(): readonly string[] {
 export default function subdirAgents(pi: ExtensionAPI): void {
   if (envTruthy(process.env.PI_SUBDIR_AGENTS_DISABLED)) return;
 
-  const fileNames = parseFileNames();
+  const fileNames = parseFileNames(process.env.PI_SUBDIR_AGENTS_NAMES);
 
   // ────────────────────────────────────────────────────────────────────
   // TUI rendering
@@ -202,7 +182,7 @@ export default function subdirAgents(pi: ExtensionAPI): void {
     const isWrite = isToolCallEventType('write', event) || isToolCallEventType('edit', event);
     if (!isRead && !isWrite) return undefined;
 
-    const raw = getPathInput(event);
+    const raw = getToolCallPathInput(event);
     if (!raw) return undefined;
 
     const absFile = resolve(ctx.cwd, raw);
