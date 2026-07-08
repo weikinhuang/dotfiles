@@ -154,11 +154,11 @@ import {
 import {
   hasOriginalStash,
   readCreatedStubs,
-  SANDBOX_ORIGINAL_SYMBOL,
   stashCreatedStubs,
   stashOriginalCommand,
   stripMarkerFromUserInput,
 } from '../../../lib/node/pi/sandbox/markers.ts';
+import { extractBashStderr, resolveSandboxedCommand } from '../../../lib/node/pi/sandbox/tool-result.ts';
 import { decStubRefs, incStubRefs } from '../../../lib/node/pi/sandbox/stub-refcount.ts';
 import {
   installSandboxWrapper,
@@ -928,13 +928,7 @@ export default function sandbox(pi: ExtensionAPI): void {
       const toRemove = decStubRefs(state.stubRefcount, wrapStubs);
       if (toRemove.length > 0) cleanupDangerousFileStubs(toRemove);
     }
-    const original = (event.input as Record<symbol, unknown> | undefined)?.[SANDBOX_ORIGINAL_SYMBOL];
-    const command =
-      typeof original === 'string'
-        ? original
-        : typeof (event.input as { command?: unknown } | undefined)?.command === 'string'
-          ? (event.input as { command: string }).command
-          : '';
+    const command = resolveSandboxedCommand(event.input);
 
     // pi's bash tool returns content as `[{ type: 'text', text: ... }]`
     // with stdout + stderr + a trailing tail marker. We feed that to
@@ -946,13 +940,7 @@ export default function sandbox(pi: ExtensionAPI): void {
       result?: { stderr?: unknown; output?: unknown };
       isError?: boolean;
     };
-    const firstText = evt.content?.find((c) => c.type === 'text');
-    const stderr =
-      typeof evt.result?.stderr === 'string'
-        ? evt.result.stderr
-        : typeof firstText?.text === 'string'
-          ? firstText.text
-          : '';
+    const stderr = extractBashStderr(evt);
     if (!stderr) return undefined;
 
     // Reactive filesystem-ask: parse the bash stderr ourselves so we
