@@ -71,7 +71,6 @@
  */
 
 import { homedir } from 'node:os';
-import { isAbsolute, resolve } from 'node:path';
 
 import { type ExtensionAPI, type ExtensionContext } from '@earendil-works/pi-coding-agent';
 
@@ -84,32 +83,16 @@ import {
   userHooksPath,
 } from '../../../lib/node/pi/hooks/config.ts';
 import { isHelpArg } from '../../../lib/node/pi/commands/help.ts';
+import { resolveCommand } from '../../../lib/node/pi/hooks/command.ts';
+import { formatHooksList } from '../../../lib/node/pi/hooks/list.ts';
 import { matchesMatcher } from '../../../lib/node/pi/hooks/matcher.ts';
+import { appendSystemPromptContext, appendToolResultContext } from '../../../lib/node/pi/hooks/reduce.ts';
 import { HOOKS_USAGE } from '../../../lib/node/pi/hooks/usage.ts';
 import { type HookResult, nodeChildProcessSpawn, runHook } from '../../../lib/node/pi/hooks/runner.ts';
 import { envTruthy, parsePositiveInt } from '../../../lib/node/pi/parse-env.ts';
 import { makeDiagnostics } from '../../../lib/node/pi/recovery-diagnostics.ts';
 
 const DEFAULT_TIMEOUT_MS = 60000;
-
-function expandTilde(path: string): string {
-  if (path === '~') return homedir();
-  if (path.startsWith('~/')) return resolve(homedir(), path.slice(2));
-  return path;
-}
-
-/** Resolve a hook's `command` against `ctx.cwd`. Absolute and
- *  `~`-prefixed paths are honoured; bare commands are passed through
- *  for the shell to look up on PATH. */
-function resolveCommand(command: string, cwd: string): string {
-  const expanded = expandTilde(command);
-  if (isAbsolute(expanded)) return expanded;
-  // Heuristic: if the entry has a path separator, resolve it relative
-  // to cwd so `./scripts/my-hook.sh` works. Bare commands (no `/`)
-  // are passed through unchanged - the shell finds them on PATH.
-  if (expanded.includes('/')) return resolve(cwd, expanded);
-  return expanded;
-}
 
 interface BasePayload {
   event: HookEvent;
@@ -159,7 +142,7 @@ export default function hooks(pi: ExtensionAPI): void {
    *  resolved command, and shared spawn implementation. */
   const fire = async (hook: Hook, payload: HookPayload, ctx: ExtensionContext): Promise<HookResult> => {
     const controller = new AbortController();
-    const resolved: Hook = { ...hook, command: resolveCommand(hook.command, ctx.cwd) };
+    const resolved: Hook = { ...hook, command: resolveCommand(hook.command, ctx.cwd, homedir()) };
     try {
       return await runHook({
         hook: resolved,
@@ -246,11 +229,7 @@ export default function hooks(pi: ExtensionAPI): void {
 
     if (appended.length === 0) return undefined;
 
-    const next = Array.isArray(content) ? content.slice() : [];
-    for (const text of appended) {
-      next.push({ type: 'text', text: `\n${text}` });
-    }
-    return { content: next };
+    return { content: appendToolResultContext(content, appended) as never };
   });
 
   // ──────────────────────────────────────────────────────────────────
@@ -295,8 +274,7 @@ export default function hooks(pi: ExtensionAPI): void {
     }
 
     if (appended.length === 0) return undefined;
-    const tail = appended.join('\n\n');
-    return { systemPrompt: systemPrompt.length > 0 ? `${systemPrompt}\n\n${tail}` : tail };
+    return { systemPrompt: appendSystemPromptContext(systemPrompt, appended) };
   });
 
   // ──────────────────────────────────────────────────────────────────
@@ -345,30 +323,12 @@ export default function hooks(pi: ExtensionAPI): void {
         return;
       }
       const merged = loadHooks({ cwd: ctx.cwd, sessionHooks });
-      const lines: string[] = [];
       const sources: { scope: 'session' | 'project' | 'user'; where: string }[] = [
         { scope: 'session', where: '(in-memory)' },
         { scope: 'project', where: projectHooksPath(ctx.cwd) },
         { scope: 'user', where: userHooksPath() },
       ];
-      for (const src of sources) {
-        lines.push(`[${src.scope}] ${src.where}`);
-        let any = false;
-        for (const event of HOOK_EVENTS) {
-          const inScope = merged[event].filter((h) => h.scope === src.scope);
-          if (inScope.length === 0) continue;
-          any = true;
-          lines.push(`  ${event}:`);
-          for (const h of inScope) {
-            const match = h.matcher ? ` matcher=${JSON.stringify(h.matcher)}` : '';
-            const timeout = h.timeout ? ` timeout=${h.timeout}ms` : '';
-            const sandboxed = h.sandboxed ? ' sandboxed' : '';
-            lines.push(`    ${h.command}${match}${timeout}${sandboxed}`);
-          }
-        }
-        if (!any) lines.push('  (empty)');
-      }
-      ctx.ui.notify(lines.join('\n'), 'info');
+      ctx.ui.notify(formatHooksList(merged, sources, HOOK_EVENTS), 'info');
     },
   });
 }
