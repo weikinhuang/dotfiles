@@ -61,7 +61,7 @@
  * can be unit-tested under vitest without the pi runtime.
  */
 
-import { readdirSync, readFileSync, statSync, unlinkSync } from 'node:fs';
+import { readFileSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -122,7 +122,7 @@ import {
 } from '../../../lib/node/pi/subagent/format.ts';
 import { isHelpArg } from '../../../lib/node/pi/commands/help.ts';
 import { completeSubverbs } from '../../../lib/node/pi/commands/complete.ts';
-import { makeHandleCounter, resolveHandle } from '../../../lib/node/pi/subagent/handle.ts';
+import { makeHandleCounter, pruneBackgroundRegistry, resolveHandle } from '../../../lib/node/pi/subagent/handle.ts';
 import { AGENTS_USAGE } from '../../../lib/node/pi/subagent/usage.ts';
 import { buildForkPrompt, RECURSIVE_TOOL_NAMES, resolveForkMode } from '../../../lib/node/pi/subagent/fork.ts';
 import { createNotifyOnce } from '../../../lib/node/pi/notify-once.ts';
@@ -144,8 +144,8 @@ import {
   subagentSessionRoot,
   sweepStaleSessions,
   sweepStaleSessionsFlat,
-  type SweepFs,
 } from '../../../lib/node/pi/subagent/session-paths.ts';
+import { makeSweepFs } from '../../../lib/node/pi/subagent/sweep-fs.ts';
 import {
   createWorktree,
   removeWorktree,
@@ -260,34 +260,6 @@ export interface SubagentDetails {
 function envPositiveInt(name: string, def: number, max?: number): number {
   const n = parsePositiveInt(process.env[name], def);
   return max !== undefined ? Math.min(n, max) : n;
-}
-
-function makeSweepFs(): SweepFs {
-  return {
-    readdir: (path) => {
-      try {
-        return readdirSync(path);
-      } catch {
-        return null;
-      }
-    },
-    stat: (path) => {
-      try {
-        const s = statSync(path);
-        return { mtimeMs: s.mtimeMs, isFile: s.isFile(), isDirectory: s.isDirectory() };
-      } catch {
-        return null;
-      }
-    },
-    remove: (path) => {
-      try {
-        unlinkSync(path);
-        return true;
-      } catch {
-        return false;
-      }
-    },
-  };
 }
 
 // ──────────────────────────────────────────────────────────────────────
@@ -499,22 +471,8 @@ export default function subagentExtension(pi: ExtensionAPI): void {
     };
   };
 
-  const pruneBackgroundRegistry = (): void => {
-    const cap = envPositiveInt('PI_SUBAGENT_BG_MAX', DEFAULT_BG_REGISTRY_CAP);
-    if (backgroundChildren.size <= cap) return;
-    // Evict completed entries in insertion order first; leave running
-    // entries alone. Map iteration order is insertion order.
-    const toDrop: string[] = [];
-    let overflow = backgroundChildren.size - cap;
-    for (const [handle, entry] of backgroundChildren) {
-      if (overflow <= 0) break;
-      if (!entry.running) {
-        toDrop.push(handle);
-        overflow--;
-      }
-    }
-    for (const h of toDrop) backgroundChildren.delete(h);
-  };
+  const pruneBackground = (): void =>
+    pruneBackgroundRegistry(backgroundChildren, envPositiveInt('PI_SUBAGENT_BG_MAX', DEFAULT_BG_REGISTRY_CAP));
 
   const updateStatus = (ctx: ExtensionContext): void => {
     const entries = [...runningChildren.values()];
@@ -1383,7 +1341,7 @@ export default function subagentExtension(pi: ExtensionAPI): void {
         })();
 
         backgroundChildren.set(entry.handle, entry);
-        pruneBackgroundRegistry();
+        pruneBackground();
 
         return {
           content: [
@@ -1426,7 +1384,7 @@ export default function subagentExtension(pi: ExtensionAPI): void {
         // appendEntry can throw before the session is fully bound.
       }
 
-      pruneBackgroundRegistry();
+      pruneBackground();
 
       // `returnFormat: 'json'` asks us to validate that the child
       // produced parseable JSON. On failure we flag isError so the

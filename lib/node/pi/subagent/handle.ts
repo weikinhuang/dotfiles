@@ -58,3 +58,27 @@ export function resolveHandle<T extends { childSessionId: string }>(
   }
   return undefined;
 }
+
+/**
+ * Eviction policy for the background-children registry (keyed by handle).
+ * When the registry exceeds `cap`, drop the oldest *completed* entries
+ * (`running === false`) until it fits or no more completed entries remain -
+ * running children are never evicted. `Map` iteration order is insertion
+ * order, so the walk visits oldest-first. Mutates `registry` in place.
+ *
+ * Pure aside from the `Map` mutation the caller owns - no env / clock reads,
+ * so the `cap` is resolved by the caller (from `PI_SUBAGENT_BG_MAX`).
+ */
+export function pruneBackgroundRegistry<T extends { running: boolean }>(registry: Map<string, T>, cap: number): void {
+  if (registry.size <= cap) return;
+  const toDrop: string[] = [];
+  let overflow = registry.size - cap;
+  for (const [handle, entry] of registry) {
+    if (overflow <= 0) break;
+    if (!entry.running) {
+      toDrop.push(handle);
+      overflow--;
+    }
+  }
+  for (const h of toDrop) registry.delete(h);
+}

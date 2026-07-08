@@ -6,7 +6,11 @@
 
 import { describe, expect, test } from 'vitest';
 
-import { makeHandleCounter, resolveHandle } from '../../../../../lib/node/pi/subagent/handle.ts';
+import {
+  makeHandleCounter,
+  pruneBackgroundRegistry,
+  resolveHandle,
+} from '../../../../../lib/node/pi/subagent/handle.ts';
 
 describe('makeHandleCounter', () => {
   test('produces sub_<agent>_<n> with a monotonic counter', () => {
@@ -61,5 +65,56 @@ describe('resolveHandle', () => {
     ]);
 
     expect(resolveHandle('sub_explore_1', map)?.marker).toBe('A');
+  });
+});
+
+describe('pruneBackgroundRegistry', () => {
+  const reg = (spec: [string, boolean][]): Map<string, { running: boolean }> =>
+    new Map(spec.map(([h, running]) => [h, { running }]));
+
+  test('is a no-op while at or below the cap', () => {
+    const map = reg([
+      ['a', false],
+      ['b', false],
+    ]);
+    pruneBackgroundRegistry(map, 2);
+
+    expect([...map.keys()]).toEqual(['a', 'b']);
+  });
+
+  test('evicts oldest completed entries first (insertion order) until it fits', () => {
+    const map = reg([
+      ['a', false],
+      ['b', false],
+      ['c', false],
+      ['d', false],
+    ]);
+    pruneBackgroundRegistry(map, 2);
+
+    expect([...map.keys()]).toEqual(['c', 'd']);
+  });
+
+  test('never evicts running entries even when that leaves the registry over cap', () => {
+    const map = reg([
+      ['a', true],
+      ['b', false],
+      ['c', true],
+      ['d', false],
+    ]);
+    pruneBackgroundRegistry(map, 1);
+
+    // Only the two completed entries are evictable; running ones stay.
+    expect([...map.keys()]).toEqual(['a', 'c']);
+  });
+
+  test('stops once the overflow is covered, keeping newer completed entries', () => {
+    const map = reg([
+      ['a', false],
+      ['b', false],
+      ['c', false],
+    ]);
+    pruneBackgroundRegistry(map, 2);
+
+    expect([...map.keys()]).toEqual(['b', 'c']);
   });
 });
