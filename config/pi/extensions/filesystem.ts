@@ -84,6 +84,7 @@ import { existsSync } from 'node:fs';
 import { dirname } from 'node:path';
 
 import { askForPermission } from '../../../lib/node/pi/approval-prompt.ts';
+import { getToolCallPathInput } from '../../../lib/node/pi/ext/tool-path.ts';
 import { findGitRoot } from '../../../lib/node/pi/filesystem/git-root.ts';
 import { isHelpArg } from '../../../lib/node/pi/commands/help.ts';
 import { FILESYSTEM_USAGE } from '../../../lib/node/pi/filesystem/usage.ts';
@@ -145,17 +146,6 @@ function safeSessionId(ctx: ExtensionContext): string | undefined {
   }
 }
 
-/** Pull the `path` argument out of a `read` / `write` / `edit` event.
- *  Returns the empty string when the event isn't one of those, or when
- *  the input is missing/malformed (caller skips the event in that
- *  case). */
-function getPathInput(event: ToolCallEvent): string {
-  if (isToolCallEventType('read', event) || isToolCallEventType('write', event) || isToolCallEventType('edit', event)) {
-    return String(event.input?.path ?? '').trim();
-  }
-  return '';
-}
-
 interface BuildHandlerOpts {
   /** Shared session allowlist of OK'd absolute paths. */
   sessionAllow: Set<string>;
@@ -185,7 +175,7 @@ function makeFilesystemToolCallHandler(
     const isWrite = isToolCallEventType('write', event) || isToolCallEventType('edit', event);
     if (!isRead && !isWrite) return undefined;
 
-    const inputPath = getPathInput(event);
+    const inputPath = getToolCallPathInput(event);
     if (!inputPath) return undefined;
 
     const { policy, warnings: layerWarnings } = resolveActivePolicy(ctx.cwd);
