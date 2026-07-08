@@ -78,6 +78,7 @@ import {
 import { Key } from '@earendil-works/pi-tui';
 
 import { askForPermission } from '../../../lib/node/pi/approval-prompt.ts';
+import { completeSubverbs, type SubverbSpec } from '../../../lib/node/pi/commands/complete.ts';
 import { isHelpArg } from '../../../lib/node/pi/commands/help.ts';
 import { evaluateBashPolicy } from '../../../lib/node/pi/persona/bash-policy.ts';
 import { mergeAgentInheritance, type AgentRecord } from '../../../lib/node/pi/persona/inherit.ts';
@@ -91,6 +92,8 @@ import {
 } from '../../../lib/node/pi/persona/info.ts';
 import { type PersonaWarning, parsePersonaFile, type ParsedPersona } from '../../../lib/node/pi/persona/parse.ts';
 import { resolveWriteRoots } from '../../../lib/node/pi/persona/resolve.ts';
+import { parseModelSpec } from '../../../lib/node/pi/persona/model-spec.ts';
+import { findRestoredPersonaName, selectStartupPersona } from '../../../lib/node/pi/persona/startup.ts';
 import { PERSONA_USAGE } from '../../../lib/node/pi/persona/usage.ts';
 import { clearActivePersona, setActivePersona } from '../../../lib/node/pi/persona/active.ts';
 import {
@@ -381,25 +384,22 @@ export default function personaExtension(pi: ExtensionAPI): void {
 
   const applyModelAndThinking = async (persona: ActivePersona, ctx: ExtensionContext): Promise<boolean> => {
     if (persona.parsed.model && persona.parsed.model !== 'inherit') {
-      const slash = persona.parsed.model.indexOf('/');
-      if (slash > 0) {
-        const provider = persona.parsed.model.slice(0, slash);
-        const modelId = persona.parsed.model.slice(slash + 1);
-        const model = ctx.modelRegistry.find(provider, modelId);
-        if (!model) {
-          ctx.ui.notify(`persona "${activeName}": model ${provider}/${modelId} not found`, 'warning');
-          return false;
-        }
-        const ok = await pi.setModel(model);
-        if (!ok) {
-          ctx.ui.notify(`persona "${activeName}": no auth for ${provider}/${modelId}`, 'warning');
-          return false;
-        }
-      } else {
+      const spec = parseModelSpec(persona.parsed.model);
+      if (!spec) {
         ctx.ui.notify(
           `persona "${activeName}": invalid model "${persona.parsed.model}" (expected provider/id)`,
           'warning',
         );
+        return false;
+      }
+      const model = ctx.modelRegistry.find(spec.provider, spec.modelId);
+      if (!model) {
+        ctx.ui.notify(`persona "${activeName}": model ${spec.provider}/${spec.modelId} not found`, 'warning');
+        return false;
+      }
+      const ok = await pi.setModel(model);
+      if (!ok) {
+        ctx.ui.notify(`persona "${activeName}": no auth for ${spec.provider}/${spec.modelId}`, 'warning');
         return false;
       }
     }
@@ -468,11 +468,9 @@ export default function personaExtension(pi: ExtensionAPI): void {
       // - the SnapshotApi adapter doesn't roundtrip model setters).
       restoreSession(snapshotApi(ctx), originalSnapshot);
       if (originalSnapshot.model) {
-        const slash = originalSnapshot.model.indexOf('/');
-        if (slash > 0) {
-          const provider = originalSnapshot.model.slice(0, slash);
-          const modelId = originalSnapshot.model.slice(slash + 1);
-          const model = ctx.modelRegistry.find(provider, modelId);
+        const spec = parseModelSpec(originalSnapshot.model);
+        if (spec) {
+          const model = ctx.modelRegistry.find(spec.provider, spec.modelId);
           if (model) await pi.setModel(model);
         }
       }
@@ -639,28 +637,20 @@ export default function personaExtension(pi: ExtensionAPI): void {
 
   pi.registerCommand('persona', {
     description: 'Switch persona overlay (system prompt + tool/model swap)',
+    // Level 1: persona names + the off / info / opener verbs. Level 2:
+    // `/persona info <name>` completes persona names, with each `value`
+    // carrying the `info` verb (via completeSubverbs) so pi doesn't drop
+    // the verb when it replaces the whole argument string.
     getArgumentCompletions: (prefix: string) => {
-      const parts = prefix.split(/\s+/);
-      // Level 2+: `/persona info <name>` completes persona names. pi
-      // replaces the whole argument string, so each `value` carries the
-      // `info` verb or it would be dropped from the submitted line.
-      if (parts.length > 1 && parts[0] === 'info') {
-        const tail = parts[parts.length - 1];
-        const matched = nameOrder
-          .filter((n) => n.startsWith(tail))
-          .map((n) => ({ value: `info ${n}`, label: n, description: personas[n]?.description ?? '' }));
-        return matched.length > 0 ? matched : null;
-      }
-      const items: { value: string; label: string; description: string }[] = nameOrder.map((n) => ({
-        value: n,
-        label: n,
-        description: personas[n]?.description ?? '',
-      }));
-      items.push({ value: 'off', label: 'off', description: 'Clear persona, restore prior state' });
-      items.push({ value: 'info', label: 'info', description: 'Print resolved persona (info <name>)' });
-      items.push({ value: 'opener', label: 'opener', description: 'Show active persona openers (opener [n])' });
-      const filtered = items.filter((i) => i.value.startsWith(prefix));
-      return filtered.length > 0 ? filtered : null;
+      const spec: SubverbSpec = {};
+      for (const n of nameOrder) spec[n] = { description: personas[n]?.description ?? '' };
+      spec.off = { description: 'Clear persona, restore prior state' };
+      spec.info = {
+        description: 'Print resolved persona (info <name>)',
+        args: () => nameOrder.map((n) => ({ label: n, description: personas[n]?.description ?? '' })),
+      };
+      spec.opener = { description: 'Show active persona openers (opener [n])' };
+      return completeSubverbs(prefix, spec);
     },
     handler: async (args, ctx) => {
       if (isHelpArg(args)) {
@@ -807,15 +797,7 @@ export default function personaExtension(pi: ExtensionAPI): void {
 
     // Restore from session entries (on /resume): last `persona-state`
     // entry's `name`, or null if it was explicitly cleared.
-    const entries = ctx.sessionManager.getEntries();
-    const restored = [...entries]
-      .reverse()
-      .find(
-        (e) =>
-          (e as { type?: string; customType?: string }).type === 'custom' &&
-          (e as { customType?: string }).customType === CUSTOM_TYPE,
-      ) as { data?: { name?: string | null } } | undefined;
-    const restoredName = restored?.data?.name ?? null;
+    const restoredName = findRestoredPersonaName(ctx.sessionManager.getEntries(), CUSTOM_TYPE);
 
     const flag = pi.getFlag('persona');
     const flagName = typeof flag === 'string' && flag ? flag : undefined;
@@ -825,7 +807,7 @@ export default function personaExtension(pi: ExtensionAPI): void {
         : undefined;
 
     // Precedence: --persona flag > session-restored > env default.
-    const targetName = flagName ?? (typeof restoredName === 'string' ? restoredName : undefined) ?? envDefault;
+    const targetName = selectStartupPersona({ flagName, restoredName, envDefault });
 
     if (!targetName) {
       updateStatus(ctx);

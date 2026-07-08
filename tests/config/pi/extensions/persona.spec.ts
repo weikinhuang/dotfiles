@@ -20,6 +20,7 @@
 
 import { expect, test, vi } from 'vitest';
 
+import { completeSubverbs, type SubverbSpec } from '../../../../lib/node/pi/commands/complete.ts';
 import { isHelpArg } from '../../../../lib/node/pi/commands/help.ts';
 import { evaluateBashPolicy } from '../../../../lib/node/pi/persona/bash-policy.ts';
 import { formatPersonaListing } from '../../../../lib/node/pi/persona/list.ts';
@@ -179,32 +180,42 @@ test('help: `/persona --help` notifies PERSONA_USAGE', () => {
 });
 
 // ──────────────────────────────────────────────────────────────────────
-// Argument completion (§4.1). The shell completes persona names + the
-// `off` / `info` verbs at level 1, and persona names again at level 2 for
-// `/persona info <name>`. Each level-2 `value` must carry the `info`
-// prefix or pi drops the verb. We replicate the shell's branch here since
-// the shell can't be imported under vitest.
+// Argument completion (§4.1). The shell builds a `completeSubverbs` spec
+// of the persona names + the `off` / `info` / `opener` verbs at level 1,
+// and persona names again at level 2 for `/persona info <name>`. Each
+// level-2 `value` must carry the `info` prefix or pi drops the verb. We
+// mirror the exact spec the shell constructs (the shell itself can't be
+// imported under vitest since it pulls in `@earendil-works/*`).
 // ──────────────────────────────────────────────────────────────────────
 
-function personaCompletions(prefix: string): { value: string; label: string }[] | null {
-  const parts = prefix.split(/\s+/);
-  if (parts.length > 1 && parts[0] === 'info') {
-    const tail = parts[parts.length - 1];
-    const matched = SHIPPED_NAME_ORDER.filter((n) => n.startsWith(tail)).map((n) => ({ value: `info ${n}`, label: n }));
-    return matched.length > 0 ? matched : null;
-  }
-  const items = [
-    ...SHIPPED_NAME_ORDER.map((n) => ({ value: n, label: n })),
-    { value: 'off', label: 'off' },
-    { value: 'info', label: 'info' },
-  ];
-  const filtered = items.filter((i) => i.value.startsWith(prefix));
-  return filtered.length > 0 ? filtered : null;
+const catalog = SHIPPED_CATALOG as Record<string, { description?: string }>;
+
+/** Mirror of `config/pi/extensions/persona.ts`'s getArgumentCompletions spec. */
+function buildPersonaSpec(): SubverbSpec {
+  const spec: SubverbSpec = {};
+  for (const n of SHIPPED_NAME_ORDER) spec[n] = { description: catalog[n]?.description ?? '' };
+  spec.off = { description: 'Clear persona, restore prior state' };
+  spec.info = {
+    description: 'Print resolved persona (info <name>)',
+    args: () => SHIPPED_NAME_ORDER.map((n) => ({ label: n, description: catalog[n]?.description ?? '' })),
+  };
+  spec.opener = { description: 'Show active persona openers (opener [n])' };
+  return spec;
 }
 
-test('completion: level-1 lists persona names plus the off / info verbs', () => {
+const personaCompletions = (prefix: string): { value: string; label: string }[] | null => {
+  const out = completeSubverbs(prefix, buildPersonaSpec());
+  return out?.map((c) => ({ value: c.value, label: c.label })) ?? null;
+};
+
+test('completion: level-1 lists persona names plus the off / info / opener verbs', () => {
   const out = personaCompletions('');
-  expect(out?.map((c) => c.value)).toEqual([...SHIPPED_NAME_ORDER, 'off', 'info']);
+  expect(out?.map((c) => c.value)).toEqual([...SHIPPED_NAME_ORDER, 'off', 'info', 'opener']);
+});
+
+test('completion: level-1 filters by the typed prefix', () => {
+  expect(personaCompletions('of')).toEqual([{ value: 'off', label: 'off' }]);
+  expect(personaCompletions('pl')).toEqual([{ value: 'plan', label: 'plan' }]);
 });
 
 test('completion: `/persona info <Tab>` lists persona names, value carrying the info prefix', () => {
