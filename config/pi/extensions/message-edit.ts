@@ -30,8 +30,10 @@
  *   3. `/context-edit list` shows active edits; `restore <#id>` / `clear`
  *      undo them.
  *
- * Pure logic lives under `lib/node/pi/context-edit/`. This file holds
- * only the pi-coupled glue.
+ * The pi-coupled plumbing (state, snapshot, completion, persist) is the
+ * shared `createContextEditRuntime` (`lib/node/pi/ext/`); the pure logic
+ * lives under `lib/node/pi/context-edit/`. This file holds only the glue
+ * that is unique to message-edit.
  *
  * Environment:
  *   PI_MESSAGE_EDIT_DISABLED=1   skip the extension entirely
@@ -41,19 +43,12 @@ import { buildSessionContext, type ExtensionAPI, type ExtensionContext } from '@
 
 import { isHelpArg } from '../../../lib/node/pi/commands/help.ts';
 import { applyDirectives } from '../../../lib/node/pi/context-edit/apply.ts';
-import { completeCandidatesOrVerbs, type CompletionCandidate } from '../../../lib/node/pi/context-edit/complete.ts';
-import {
-  addEdit,
-  clearDirectives,
-  type ContextEditState,
-  cloneState,
-  emptyState,
-  reduceBranch,
-  removeDirective,
-} from '../../../lib/node/pi/context-edit/directive.ts';
+import { completeCandidatesOrVerbs } from '../../../lib/node/pi/context-edit/complete.ts';
+import { addEdit, clearDirectives, removeDirective } from '../../../lib/node/pi/context-edit/directive.ts';
 import { type Candidate, candidateLabel, enumerate } from '../../../lib/node/pi/context-edit/enumerate.ts';
 import { type LooseMessage, resolveTarget, type Target, toParts } from '../../../lib/node/pi/context-edit/target.ts';
 import { CONTEXT_EDIT_USAGE } from '../../../lib/node/pi/context-edit/usage.ts';
+import { createContextEditRuntime } from '../../../lib/node/pi/ext/context-edit-runtime.ts';
 import { envTruthy } from '../../../lib/node/pi/parse-env.ts';
 
 const CUSTOM_TYPE = 'message-edit-state';
@@ -75,50 +70,37 @@ function messageText(messages: readonly LooseMessage[], target: Target): string 
 export default function messageEditExtension(pi: ExtensionAPI): void {
   if (envTruthy(process.env.PI_MESSAGE_EDIT_DISABLED)) return;
 
-  let state: ContextEditState = emptyState();
-  let lastContextMessages: LooseMessage[] | null = null;
   // Listing / completion order for the editable-message picker. Editing
   // for steering reads naturally in conversation order, so default to
   // `order`; `/context-edit sort size` switches to heaviest-first.
   let sortPref: 'order' | 'size' = 'order';
-  // Candidate handles for the Tab-completion menu (getArgumentCompletions
-  // receives no ctx), refreshed from the context hook and after commands.
-  let completionCandidates: CompletionCandidate[] = [];
-
-  const rebuildFromSession = (ctx: ExtensionContext): void => {
-    state = reduceBranch(ctx.sessionManager.getBranch() as never, CUSTOM_TYPE);
-  };
-
-  pi.on('session_start', (_event, ctx) => rebuildFromSession(ctx));
-  pi.on('session_tree', (_event, ctx) => rebuildFromSession(ctx));
 
   // Only user/assistant message candidates are editable.
   const candidatesFrom = (messages: readonly LooseMessage[]): Candidate[] =>
     enumerate(messages, { minTextBytes: 1, sort: sortPref }).filter((c) => c.kind === 'message');
 
-  const refreshCompletion = (cands: readonly Candidate[]): void => {
-    completionCandidates = cands.map((c) => ({ id: c.id, description: candidateLabel(c), search: c.search }));
-  };
+  const rt = createContextEditRuntime({ pi, customType: CUSTOM_TYPE, candidatesFrom });
+
+  pi.on('session_start', (_event, ctx) => rt.rebuildFromSession(ctx));
+  pi.on('session_tree', (_event, ctx) => rt.rebuildFromSession(ctx));
 
   pi.on('context', (event) => {
-    const messages = (event as unknown as { messages?: LooseMessage[] }).messages;
-    if (!Array.isArray(messages)) return undefined;
-    lastContextMessages = messages;
+    const messages = rt.readContextMessages(event);
+    if (!messages) return undefined;
+    const state = rt.getState();
     let out = messages;
     let applied = 0;
     if (state.directives.length > 0) {
       const result = applyDirectives(messages, state.directives);
-      lastContextMessages = result.messages;
       out = result.messages;
       applied = result.applied;
     }
-    refreshCompletion(candidatesFrom(out));
-    return applied > 0 ? { messages: out as never } : undefined;
+    return rt.finishContext(out, applied);
   });
 
   const currentMessages = (ctx: ExtensionContext): LooseMessage[] => {
     // Build fresh from the session every call so the newest assistant turn
-    // is editable. The `context`-hook snapshot (`lastContextMessages`) is
+    // is editable. The `context`-hook snapshot (`rt.getSnapshot()`) is
     // built BEFORE the reply it produces, so it always lags one assistant
     // message behind - relying on it here is what hid the latest reply from
     // the edit list. Active edits are reapplied so the editor prefill shows
@@ -126,26 +108,14 @@ export default function messageEditExtension(pi: ExtensionAPI): void {
     try {
       const built = buildSessionContext(ctx.sessionManager.getEntries(), ctx.sessionManager.getLeafId());
       const msgs = (built.messages as unknown as LooseMessage[]) ?? [];
+      const state = rt.getState();
       return state.directives.length > 0 ? applyDirectives(msgs, state.directives).messages : msgs;
     } catch {
-      return lastContextMessages ?? [];
+      return rt.getSnapshot() ?? [];
     }
   };
 
-  const editCandidates = (ctx: ExtensionContext): Candidate[] => {
-    const cands = candidatesFrom(currentMessages(ctx));
-    refreshCompletion(cands);
-    return cands;
-  };
-
-  const persist = (): void => {
-    try {
-      pi.appendEntry(CUSTOM_TYPE, cloneState(state));
-    } catch {
-      // Never let bookkeeping break the command.
-    }
-    lastContextMessages = null;
-  };
+  const editCandidates = (ctx: ExtensionContext): Candidate[] => rt.refreshFromMessages(currentMessages(ctx));
 
   const listCandidates = (ctx: ExtensionContext): string => {
     const cands = editCandidates(ctx);
@@ -160,7 +130,7 @@ export default function messageEditExtension(pi: ExtensionAPI): void {
   };
 
   const listActive = (): string => {
-    const edits = state.directives.filter((d) => d.kind === 'edit');
+    const edits = rt.getState().directives.filter((d) => d.kind === 'edit');
     if (edits.length === 0) return 'No active edits.';
     return ['Active edits:', ...edits.map((d) => `  #${d.id}  ${d.reason ?? '(steering)'}`)].join('\n');
   };
@@ -168,7 +138,7 @@ export default function messageEditExtension(pi: ExtensionAPI): void {
   pi.registerCommand('context-edit', {
     description: 'Edit a user/assistant message in place (overlay, reversible) for steering',
     getArgumentCompletions: (prefix) =>
-      completeCandidatesOrVerbs(prefix, completionCandidates, {
+      completeCandidatesOrVerbs(prefix, rt.getCompletionCandidates(), {
         list: { description: 'Show active edits' },
         sort: {
           description: 'List by message order or size',
@@ -176,7 +146,11 @@ export default function messageEditExtension(pi: ExtensionAPI): void {
         },
         restore: {
           description: 'Undo an edit by #id',
-          args: () => state.directives.filter((d) => d.kind === 'edit').map((d) => ({ label: String(d.id) })),
+          args: () =>
+            rt
+              .getState()
+              .directives.filter((d) => d.kind === 'edit')
+              .map((d) => ({ label: String(d.id) })),
         },
         clear: { description: 'Undo all edits' },
       }),
@@ -213,10 +187,10 @@ export default function messageEditExtension(pi: ExtensionAPI): void {
         return;
       }
       if (verb === 'clear') {
-        const r = clearDirectives(state, 'edit');
+        const r = clearDirectives(rt.getState(), 'edit');
         if (r.ok) {
-          state = r.state;
-          persist();
+          rt.setState(r.state);
+          rt.persist();
         }
         ctx.ui.notify(r.ok ? r.summary : r.error, r.ok ? 'info' : 'warning');
         return;
@@ -227,10 +201,10 @@ export default function messageEditExtension(pi: ExtensionAPI): void {
           ctx.ui.notify('restore needs a numeric #id (see /context-edit list)', 'warning');
           return;
         }
-        const r = removeDirective(state, id);
+        const r = removeDirective(rt.getState(), id);
         if (r.ok) {
-          state = r.state;
-          persist();
+          rt.setState(r.state);
+          rt.persist();
         }
         ctx.ui.notify(r.ok ? r.summary : r.error, r.ok ? 'info' : 'warning');
         return;
@@ -257,10 +231,10 @@ export default function messageEditExtension(pi: ExtensionAPI): void {
         ctx.ui.notify('No change.', 'info');
         return;
       }
-      const r = addEdit(state, cand.target, edited, 'steering', Date.now());
+      const r = addEdit(rt.getState(), cand.target, edited, 'steering', Date.now());
       if (r.ok) {
-        state = r.state;
-        persist();
+        rt.setState(r.state);
+        rt.persist();
         ctx.ui.notify(`${r.summary} (${cand.role} message overlaid; original kept in session)`, 'info');
       } else {
         ctx.ui.notify(r.error, 'warning');

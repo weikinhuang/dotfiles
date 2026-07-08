@@ -32,8 +32,10 @@
  * policy, not a user decision, so it is derived fresh each turn and never
  * persisted - there is nothing to undo; lower the knob to stop it.
  *
- * Pure logic lives under `lib/node/pi/context-edit/`. This file holds
- * only the pi-coupled glue.
+ * The pi-coupled plumbing (state, snapshot, completion, persist) is the
+ * shared `createContextEditRuntime` (`lib/node/pi/ext/`); the pure logic
+ * lives under `lib/node/pi/context-edit/`. This file holds only the glue
+ * that is unique to tool-collapse.
  *
  * Environment:
  *   PI_TOOL_COLLAPSE_DISABLED=1            skip the extension entirely
@@ -45,7 +47,7 @@
  *   PI_TOOL_COLLAPSE_BACKGROUND_TOOLS=a,b  override the background-tool name list
  */
 
-import { buildSessionContext, type ExtensionAPI, type ExtensionContext } from '@earendil-works/pi-coding-agent';
+import { type ExtensionAPI, type ExtensionContext } from '@earendil-works/pi-coding-agent';
 import { Type } from 'typebox';
 
 import {
@@ -66,17 +68,14 @@ import {
   addCollapse,
   clearDirectives,
   type CollapseDirective,
-  type ContextEditState,
-  cloneState,
   type Directive,
-  emptyState,
-  reduceBranch,
   removeDirective,
 } from '../../../lib/node/pi/context-edit/directive.ts';
-import { completeCandidatesOrVerbs, type CompletionCandidate } from '../../../lib/node/pi/context-edit/complete.ts';
+import { completeCandidatesOrVerbs } from '../../../lib/node/pi/context-edit/complete.ts';
 import { type Candidate, candidateLabel, enumerate } from '../../../lib/node/pi/context-edit/enumerate.ts';
 import type { LooseMessage } from '../../../lib/node/pi/context-edit/target.ts';
 import { TOOL_COLLAPSE_USAGE } from '../../../lib/node/pi/context-edit/usage.ts';
+import { createContextEditRuntime } from '../../../lib/node/pi/ext/context-edit-runtime.ts';
 import { isHelpArg } from '../../../lib/node/pi/commands/help.ts';
 import { envTruthy, parseNonNegativeInt } from '../../../lib/node/pi/parse-env.ts';
 
@@ -98,12 +97,7 @@ export default function toolCollapseExtension(pi: ExtensionAPI): void {
   const autoEnabled = !envTruthy(process.env.PI_TOOL_COLLAPSE_DISABLE_AUTO);
   const backgroundTools = parseBackgroundTools(process.env.PI_TOOL_COLLAPSE_BACKGROUND_TOOLS);
 
-  let state: ContextEditState = emptyState();
-  let lastContextMessages: LooseMessage[] | null = null;
   let config: ToolCollapseConfig = loadToolCollapseConfig(process.cwd());
-  // Candidate handles for the Tab-completion menu (getArgumentCompletions
-  // receives no ctx), refreshed from the context hook and after commands.
-  let completionCandidates: CompletionCandidate[] = [];
 
   // Per-session decision flags for the agent `collapse_output` tool,
   // cleared on shutdown. ext/ shares CODE, not STATE - the flag object
@@ -111,21 +105,6 @@ export default function toolCollapseExtension(pi: ExtensionAPI): void {
   const dropFlags = emptyDropFlags();
   const dropTailGuard = parseNonNegativeInt(process.env.PI_TOOL_COLLAPSE_DROP_TAIL_GUARD, 1);
   const dropDefault = nonInteractiveDropDefault(process.env.PI_CONTEXT_TRIM_DROP_DEFAULT);
-
-  const rebuildFromSession = (ctx: ExtensionContext): void => {
-    state = reduceBranch(ctx.sessionManager.getBranch() as never, CUSTOM_TYPE);
-    config = loadToolCollapseConfig(ctx.sessionManager.getCwd());
-  };
-
-  pi.on('session_start', (_event, ctx) => rebuildFromSession(ctx));
-  pi.on('session_tree', (_event, ctx) => rebuildFromSession(ctx));
-
-  // Clear the per-session collapse decisions on shutdown so /reload and a
-  // real session end both force re-confirmation. Idempotent + never throws.
-  pi.on('session_shutdown', () => {
-    dropFlags.autoAllow = false;
-    dropFlags.neverAllow = false;
-  });
 
   const hint = (c: Candidate): string => (isBackgroundTool(c.toolName, backgroundTools) ? ' [background]' : '');
 
@@ -144,21 +123,34 @@ export default function toolCollapseExtension(pi: ExtensionAPI): void {
     return [...byId.values()].sort((a, b) => b.bytes - a.bytes);
   };
 
-  const refreshCompletion = (cands: readonly Candidate[]): void => {
-    completionCandidates = cands.map((c) => ({
-      id: c.id,
-      description: `${candidateLabel(c)}${hint(c)}`,
-      search: c.search,
-    }));
+  const rt = createContextEditRuntime({
+    pi,
+    customType: CUSTOM_TYPE,
+    candidatesFrom,
+    describe: (c) => `${candidateLabel(c)}${hint(c)}`,
+  });
+
+  const rebuildFromSession = (ctx: ExtensionContext): void => {
+    rt.rebuildFromSession(ctx);
+    config = loadToolCollapseConfig(ctx.sessionManager.getCwd());
   };
 
+  pi.on('session_start', (_event, ctx) => rebuildFromSession(ctx));
+  pi.on('session_tree', (_event, ctx) => rebuildFromSession(ctx));
+
+  // Clear the per-session collapse decisions on shutdown so /reload and a
+  // real session end both force re-confirmation. Idempotent + never throws.
+  pi.on('session_shutdown', () => {
+    dropFlags.autoAllow = false;
+    dropFlags.neverAllow = false;
+  });
+
   pi.on('context', (event) => {
-    const messages = (event as unknown as { messages?: LooseMessage[] }).messages;
-    if (!Array.isArray(messages)) return undefined;
-    lastContextMessages = messages;
+    const messages = rt.readContextMessages(event);
+    if (!messages) return undefined;
 
     // Manual (persisted) collapses + transient auto-collapse selections.
-    const directives: Directive[] = [...state.directives];
+    const directives: Directive[] = [...rt.getState().directives];
     if (autoEnabled && config.autoAfterTurns > 0) {
       const autoIds = selectAutoCollapse(messages, {
         afterTurns: config.autoAfterTurns,
@@ -178,38 +170,13 @@ export default function toolCollapseExtension(pi: ExtensionAPI): void {
     let applied = 0;
     if (directives.length > 0) {
       const result = applyDirectives(messages, directives);
-      lastContextMessages = result.messages;
       out = result.messages;
       applied = result.applied;
     }
-    refreshCompletion(candidatesFrom(out));
-    return applied > 0 ? { messages: out as never } : undefined;
+    return rt.finishContext(out, applied);
   });
 
-  const currentMessages = (ctx: ExtensionContext): LooseMessage[] => {
-    if (lastContextMessages) return lastContextMessages;
-    try {
-      const built = buildSessionContext(ctx.sessionManager.getEntries(), ctx.sessionManager.getLeafId());
-      return (built.messages as unknown as LooseMessage[]) ?? [];
-    } catch {
-      return [];
-    }
-  };
-
-  const collapseCandidates = (ctx: ExtensionContext): Candidate[] => {
-    const cands = candidatesFrom(currentMessages(ctx));
-    refreshCompletion(cands);
-    return cands;
-  };
-
-  const persist = (): void => {
-    try {
-      pi.appendEntry(CUSTOM_TYPE, cloneState(state));
-    } catch {
-      // Never let bookkeeping break the command.
-    }
-    lastContextMessages = null;
-  };
+  const collapseCandidates = (ctx: ExtensionContext): Candidate[] => rt.refreshFromMessages(rt.currentMessages(ctx));
 
   const listCandidates = (ctx: ExtensionContext): string => {
     const cands = collapseCandidates(ctx);
@@ -224,7 +191,7 @@ export default function toolCollapseExtension(pi: ExtensionAPI): void {
   };
 
   const listActive = (): string => {
-    const cols = state.directives.filter((d): d is CollapseDirective => d.kind === 'collapse');
+    const cols = rt.getState().directives.filter((d): d is CollapseDirective => d.kind === 'collapse');
     if (cols.length === 0) return 'No active manual collapses.';
     return ['Active collapses:', ...cols.map((d) => `  #${d.id}  ${d.toolCallId} ${d.reason ?? ''}`.trimEnd())].join(
       '\n',
@@ -234,11 +201,15 @@ export default function toolCollapseExtension(pi: ExtensionAPI): void {
   pi.registerCommand('context-collapse', {
     description: 'Collapse a tool call + result to a marker to reclaim context',
     getArgumentCompletions: (prefix) =>
-      completeCandidatesOrVerbs(prefix, completionCandidates, {
+      completeCandidatesOrVerbs(prefix, rt.getCompletionCandidates(), {
         list: { description: 'Show active collapses' },
         restore: {
           description: 'Undo a collapse by #id',
-          args: () => state.directives.filter((d) => d.kind === 'collapse').map((d) => ({ label: String(d.id) })),
+          args: () =>
+            rt
+              .getState()
+              .directives.filter((d) => d.kind === 'collapse')
+              .map((d) => ({ label: String(d.id) })),
         },
         clear: { description: 'Undo all manual collapses' },
       }),
@@ -261,10 +232,10 @@ export default function toolCollapseExtension(pi: ExtensionAPI): void {
         return;
       }
       if (verb === 'clear') {
-        const r = clearDirectives(state, 'collapse');
+        const r = clearDirectives(rt.getState(), 'collapse');
         if (r.ok) {
-          state = r.state;
-          persist();
+          rt.setState(r.state);
+          rt.persist();
         }
         ctx.ui.notify(r.ok ? r.summary : r.error, r.ok ? 'info' : 'warning');
         return;
@@ -275,10 +246,10 @@ export default function toolCollapseExtension(pi: ExtensionAPI): void {
           ctx.ui.notify('restore needs a numeric #id (see /context-collapse list)', 'warning');
           return;
         }
-        const r = removeDirective(state, id);
+        const r = removeDirective(rt.getState(), id);
         if (r.ok) {
-          state = r.state;
-          persist();
+          rt.setState(r.state);
+          rt.persist();
         }
         ctx.ui.notify(r.ok ? r.summary : r.error, r.ok ? 'info' : 'warning');
         return;
@@ -289,10 +260,10 @@ export default function toolCollapseExtension(pi: ExtensionAPI): void {
         ctx.ui.notify(`Unknown candidate "${verb}". Run /context-collapse to list handles.`, 'warning');
         return;
       }
-      const r = addCollapse(state, cand.toolCallId, tail || undefined, Date.now());
+      const r = addCollapse(rt.getState(), cand.toolCallId, tail || undefined, Date.now());
       if (r.ok) {
-        state = r.state;
-        persist();
+        rt.setState(r.state);
+        rt.persist();
         ctx.ui.notify(`${r.summary}: ${candidateLabel(cand)}`, 'info');
       } else {
         ctx.ui.notify(r.error, 'warning');
@@ -426,14 +397,14 @@ export default function toolCollapseExtension(pi: ExtensionAPI): void {
       for (const idx of outcome.indices) {
         const ranked = resolution.selected[idx];
         if (!ranked?.candidate.toolCallId) continue;
-        const r = addCollapse(state, ranked.candidate.toolCallId, params.reason, Date.now());
+        const r = addCollapse(rt.getState(), ranked.candidate.toolCallId, params.reason, Date.now());
         if (r.ok) {
-          state = r.state;
+          rt.setState(r.state);
           collapsedOrdinals.push(ranked.ordinal);
         }
       }
 
-      if (collapsedOrdinals.length > 0) persist();
+      if (collapsedOrdinals.length > 0) rt.persist();
       const ords = collapsedOrdinals.map((o) => `#${o}`).join(', ');
       return reply(
         collapsedOrdinals.length > 0

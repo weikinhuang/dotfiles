@@ -30,10 +30,12 @@
  *   3. `/context-trim list` shows active trims; `restore <#id>` / `clear`
  *      undo them.
  *
- * Pure logic (directive set, target resolution, the overlay pass,
- * candidate enumeration, config) lives under
- * `lib/node/pi/context-edit/` so it is unit-tested under vitest. This
- * file holds only the pi-coupled glue.
+ * The pi-coupled plumbing (state, snapshot, completion, persist) is the
+ * shared `createContextEditRuntime` (`lib/node/pi/ext/`); the pure logic
+ * (directive set, target resolution, the overlay pass, candidate
+ * enumeration, config) lives under `lib/node/pi/context-edit/` so it is
+ * unit-tested under vitest. This file holds only the glue that is unique
+ * to context-trim.
  *
  * Environment:
  *   PI_CONTEXT_TRIM_DISABLED=1        skip the extension entirely
@@ -69,7 +71,6 @@ import { fileURLToPath } from 'node:url';
 
 import { type Model } from '@earendil-works/pi-ai';
 import {
-  buildSessionContext,
   createAgentSession,
   DefaultResourceLoader,
   type ExtensionAPI,
@@ -92,16 +93,8 @@ import {
 import { confirmDrop, emptyDropFlags } from '../../../lib/node/pi/ext/drop-confirm.ts';
 import { applyDirectives } from '../../../lib/node/pi/context-edit/apply.ts';
 import { loadTrimConfig, type TrimConfig } from '../../../lib/node/pi/context-edit/config.ts';
-import {
-  addTrim,
-  clearDirectives,
-  type ContextEditState,
-  cloneState,
-  emptyState,
-  reduceBranch,
-  removeDirective,
-} from '../../../lib/node/pi/context-edit/directive.ts';
-import { completeCandidatesOrVerbs, type CompletionCandidate } from '../../../lib/node/pi/context-edit/complete.ts';
+import { addTrim, clearDirectives, removeDirective } from '../../../lib/node/pi/context-edit/directive.ts';
+import { completeCandidatesOrVerbs } from '../../../lib/node/pi/context-edit/complete.ts';
 import { type Candidate, candidateLabel, enumerate } from '../../../lib/node/pi/context-edit/enumerate.ts';
 import {
   buildCaptionTask,
@@ -119,6 +112,7 @@ import {
   toParts,
 } from '../../../lib/node/pi/context-edit/target.ts';
 import { CONTEXT_TRIM_USAGE } from '../../../lib/node/pi/context-edit/usage.ts';
+import { createContextEditRuntime } from '../../../lib/node/pi/ext/context-edit-runtime.ts';
 import { selectNonVisionStrip } from '../../../lib/node/pi/context-edit/nonvision-strip.ts';
 import { isVisionCapable } from '../../../lib/node/pi/model-capability.ts';
 import { createNotifyOnce } from '../../../lib/node/pi/notify-once.ts';
@@ -153,18 +147,7 @@ const CUSTOM_TYPE = 'context-trim-state';
 export default function contextTrimExtension(pi: ExtensionAPI): void {
   if (envTruthy(process.env.PI_CONTEXT_TRIM_DISABLED)) return;
 
-  // Per-session directive set, rebuilt from the branch on load.
-  let state: ContextEditState = emptyState();
-  // Snapshot of the resolved messages from the most recent `context`
-  // hook - the exact list the model saw - so `/context-trim` enumerates
-  // candidates that resolve back cleanly. Before the first LLM call we
-  // fall back to building the context from session entries on demand.
-  let lastContextMessages: LooseMessage[] | null = null;
   let config: TrimConfig = loadTrimConfig(process.cwd());
-  // Candidate handles for the Tab-completion menu. `getArgumentCompletions`
-  // receives no ctx, so we keep this snapshot fresh from the context hook
-  // (and after each command) and let completion read it.
-  let completionCandidates: CompletionCandidate[] = [];
 
   // Per-session decision flags for the agent `drop_image` tool (Allow for
   // session / Never allow this session), cleared on shutdown. ext/ shares
@@ -209,8 +192,17 @@ export default function contextTrimExtension(pi: ExtensionAPI): void {
     });
   };
 
+  // Only candidates worth trimming: images, large tool results, and long
+  // messages (drop the tool-call kind - that's tool-collapse's job).
+  const candidatesFrom = (messages: readonly LooseMessage[]): Candidate[] =>
+    enumerate(messages, { minTextBytes: config.minTextBytes, snippetChars: config.snippetChars }).filter(
+      (c) => c.kind !== 'tool-call',
+    );
+
+  const rt = createContextEditRuntime({ pi, customType: CUSTOM_TYPE, candidatesFrom });
+
   const rebuildFromSession = (ctx: ExtensionContext): void => {
-    state = reduceBranch(ctx.sessionManager.getBranch() as never, CUSTOM_TYPE);
+    rt.rebuildFromSession(ctx);
     config = loadTrimConfig(ctx.sessionManager.getCwd());
     updateVision(ctx.model);
     try {
@@ -239,29 +231,16 @@ export default function contextTrimExtension(pi: ExtensionAPI): void {
     visionCapable = true;
   });
 
-  // Only candidates worth trimming: images, large tool results, and long
-  // messages (drop the tool-call kind - that's tool-collapse's job).
-  const candidatesFrom = (messages: readonly LooseMessage[]): Candidate[] =>
-    enumerate(messages, { minTextBytes: config.minTextBytes, snippetChars: config.snippetChars }).filter(
-      (c) => c.kind !== 'tool-call',
-    );
-
-  // Keep the Tab-completion snapshot in sync with the latest candidates.
-  const refreshCompletion = (cands: readonly Candidate[]): void => {
-    completionCandidates = cands.map((c) => ({ id: c.id, description: candidateLabel(c), search: c.search }));
-  };
-
   // Apply the overlay every turn, snapshot what the model sees, and refresh
   // the completion candidates so the menu reflects the live context.
   pi.on('context', (event) => {
-    const messages = (event as unknown as { messages?: LooseMessage[] }).messages;
-    if (!Array.isArray(messages)) return undefined;
-    lastContextMessages = messages;
+    const messages = rt.readContextMessages(event);
+    if (!messages) return undefined;
+    const state = rt.getState();
     let out = messages;
     let applied = 0;
     if (state.directives.length > 0) {
       const result = applyDirectives(messages, state.directives);
-      lastContextMessages = result.messages;
       out = result.messages;
       applied = result.applied;
     }
@@ -274,42 +253,13 @@ export default function contextTrimExtension(pi: ExtensionAPI): void {
       if (strip.length > 0) {
         const stripped = applyDirectives(out, strip);
         out = stripped.messages;
-        lastContextMessages = out;
         applied += stripped.applied;
       }
     }
-    refreshCompletion(candidatesFrom(out));
-    return applied > 0 ? { messages: out as never } : undefined;
+    return rt.finishContext(out, applied);
   });
 
-  // Resolve the message list to enumerate against: prefer the live
-  // snapshot, else build it from the current branch.
-  const currentMessages = (ctx: ExtensionContext): LooseMessage[] => {
-    if (lastContextMessages) return lastContextMessages;
-    try {
-      const built = buildSessionContext(ctx.sessionManager.getEntries(), ctx.sessionManager.getLeafId());
-      return (built.messages as unknown as LooseMessage[]) ?? [];
-    } catch {
-      return [];
-    }
-  };
-
-  const trimCandidates = (ctx: ExtensionContext): Candidate[] => {
-    const cands = candidatesFrom(currentMessages(ctx));
-    refreshCompletion(cands);
-    return cands;
-  };
-
-  const persist = (ctx: ExtensionContext): void => {
-    try {
-      pi.appendEntry(CUSTOM_TYPE, cloneState(state));
-    } catch {
-      // Never let bookkeeping break the command.
-    }
-    // Re-snapshot so a follow-up listing reflects the new overlay.
-    lastContextMessages = null;
-    void ctx;
-  };
+  const trimCandidates = (ctx: ExtensionContext): Candidate[] => rt.refreshFromMessages(rt.currentMessages(ctx));
 
   // ── Image description (image-descriptions plan, source-priority) ──────
   // Locate the first image part backing an image candidate so we can both
@@ -424,7 +374,7 @@ export default function contextTrimExtension(pi: ExtensionAPI): void {
   };
 
   const listActive = (): string => {
-    const trims = state.directives.filter((d) => d.kind === 'trim');
+    const trims = rt.getState().directives.filter((d) => d.kind === 'trim');
     if (trims.length === 0) return 'No active trims.';
     return ['Active trims:', ...trims.map((d) => `  #${d.id}  ${d.reason ?? '(no reason)'}`)].join('\n');
   };
@@ -432,11 +382,15 @@ export default function contextTrimExtension(pi: ExtensionAPI): void {
   pi.registerCommand('context-trim', {
     description: 'Trim large content (images, big tool results, long messages) out of the context',
     getArgumentCompletions: (prefix) =>
-      completeCandidatesOrVerbs(prefix, completionCandidates, {
+      completeCandidatesOrVerbs(prefix, rt.getCompletionCandidates(), {
         list: { description: 'Show active trims' },
         restore: {
           description: 'Undo a trim by #id',
-          args: () => state.directives.filter((d) => d.kind === 'trim').map((d) => ({ label: String(d.id) })),
+          args: () =>
+            rt
+              .getState()
+              .directives.filter((d) => d.kind === 'trim')
+              .map((d) => ({ label: String(d.id) })),
         },
         clear: { description: 'Undo all trims' },
       }),
@@ -459,10 +413,10 @@ export default function contextTrimExtension(pi: ExtensionAPI): void {
         return;
       }
       if (verb === 'clear') {
-        const r = clearDirectives(state, 'trim');
+        const r = clearDirectives(rt.getState(), 'trim');
         if (r.ok) {
-          state = r.state;
-          persist(ctx);
+          rt.setState(r.state);
+          rt.persist();
         }
         ctx.ui.notify(r.ok ? r.summary : r.error, r.ok ? 'info' : 'warning');
         return;
@@ -473,10 +427,10 @@ export default function contextTrimExtension(pi: ExtensionAPI): void {
           ctx.ui.notify('restore needs a numeric #id (see /context-trim list)', 'warning');
           return;
         }
-        const r = removeDirective(state, id);
+        const r = removeDirective(rt.getState(), id);
         if (r.ok) {
-          state = r.state;
-          persist(ctx);
+          rt.setState(r.state);
+          rt.persist();
         }
         ctx.ui.notify(r.ok ? r.summary : r.error, r.ok ? 'info' : 'warning');
         return;
@@ -495,15 +449,15 @@ export default function contextTrimExtension(pi: ExtensionAPI): void {
       let description: string | undefined;
       if (cand.kind === 'image') {
         try {
-          description = await computeImageDescription(ctx, cand, currentMessages(ctx));
+          description = await computeImageDescription(ctx, cand, rt.currentMessages(ctx));
         } catch {
           // Captioning is best-effort; fall back to a size-only placeholder.
         }
       }
-      const r = addTrim(state, cand.target, reason, Date.now(), description);
+      const r = addTrim(rt.getState(), cand.target, reason, Date.now(), description);
       if (r.ok) {
-        state = r.state;
-        persist(ctx);
+        rt.setState(r.state);
+        rt.persist();
         ctx.ui.notify(`${r.summary}: ${candidateLabel(cand)}`, 'info');
       } else {
         ctx.ui.notify(r.error, 'warning');
@@ -628,7 +582,7 @@ export default function contextTrimExtension(pi: ExtensionAPI): void {
         });
       }
 
-      const messages = currentMessages(ctx);
+      const messages = rt.currentMessages(ctx);
       // Compute placeholder captions in parallel (each may fire a vision
       // pass); applying the trims stays sequential below since it mutates
       // `state`.
@@ -648,14 +602,20 @@ export default function contextTrimExtension(pi: ExtensionAPI): void {
       outcome.indices.forEach((idx, i) => {
         const ranked = resolution.selected[idx];
         if (!ranked?.candidate.target) return;
-        const r = addTrim(state, ranked.candidate.target, params.reason ?? summary, Date.now(), descriptions[i]);
+        const r = addTrim(
+          rt.getState(),
+          ranked.candidate.target,
+          params.reason ?? summary,
+          Date.now(),
+          descriptions[i],
+        );
         if (r.ok) {
-          state = r.state;
+          rt.setState(r.state);
           droppedOrdinals.push(ranked.ordinal);
         }
       });
 
-      if (droppedOrdinals.length > 0) persist(ctx);
+      if (droppedOrdinals.length > 0) rt.persist();
       const ords = droppedOrdinals.map((o) => `#${o}`).join(', ');
       return reply(
         droppedOrdinals.length > 0

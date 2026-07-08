@@ -23,6 +23,7 @@
  */
 
 import { type CompletionItem, completeSubverbs, type SubverbSpec } from '../commands/complete.ts';
+import { type Candidate, candidateLabel } from './enumerate.ts';
 import { fuzzyMatch } from '../fuzzy-match.ts';
 
 /**
@@ -44,6 +45,20 @@ export interface CompletionCandidate {
    * message by its body, not just its `msgN` handle.
    */
   search?: string;
+}
+
+/**
+ * Map enumerated {@link Candidate}s to the {@link CompletionCandidate}
+ * snapshot the commands keep fresh for Tab-completion. `describe` renders
+ * the human-readable menu line (defaults to {@link candidateLabel};
+ * `tool-collapse` appends a `[background]` hint). Pure so the mapping the
+ * shared context-edit runtime performs each turn stays unit-testable.
+ */
+export function toCompletionCandidates(
+  cands: readonly Candidate[],
+  describe: (c: Candidate) => string = candidateLabel,
+): CompletionCandidate[] {
+  return cands.map((c) => ({ id: c.id, description: describe(c), search: c.search }));
 }
 
 /**
