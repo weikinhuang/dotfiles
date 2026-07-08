@@ -474,6 +474,30 @@ export default function subagentExtension(pi: ExtensionAPI): void {
   const pruneBackground = (): void =>
     pruneBackgroundRegistry(backgroundChildren, envPositiveInt('PI_SUBAGENT_BG_MAX', DEFAULT_BG_REGISTRY_CAP));
 
+  // Idempotent release of the child's concurrency slot. The
+  // `semaphoreReleased` guard makes a second call a no-op, so both the
+  // sync path's `finally` (which must release even if drive() rejects)
+  // and `finalizeChildRun` can call it without double-releasing.
+  const releaseSlot = (entry: RunningChild): void => {
+    if (!entry.semaphoreReleased) {
+      semaphore.release();
+      entry.semaphoreReleased = true;
+    }
+  };
+
+  // Shared settle step for a finished child run: release the concurrency
+  // slot, then write the parent-side audit entry. appendEntry can throw
+  // before the session is fully bound, so it is best-effort. Used by both
+  // the background IIFE and the synchronous await path.
+  const finalizeChildRun = (entry: RunningChild, result: RunChildResult): void => {
+    releaseSlot(entry);
+    try {
+      pi.appendEntry(SUBAGENT_CUSTOM_TYPE, result.details);
+    } catch {
+      // appendEntry can throw before the session is fully bound.
+    }
+  };
+
   const updateStatus = (ctx: ExtensionContext): void => {
     const entries = [...runningChildren.values()];
     if (entries.length === 0) {
@@ -1328,15 +1352,7 @@ export default function subagentExtension(pi: ExtensionAPI): void {
             entry.running = false;
             entry.outcome = result;
           }
-          if (!entry.semaphoreReleased) {
-            semaphore.release();
-            entry.semaphoreReleased = true;
-          }
-          try {
-            pi.appendEntry(SUBAGENT_CUSTOM_TYPE, result.details);
-          } catch {
-            // appendEntry can throw before the session is fully bound.
-          }
+          finalizeChildRun(entry, result);
           return result;
         })();
 
@@ -1366,10 +1382,9 @@ export default function subagentExtension(pi: ExtensionAPI): void {
       try {
         out = await entry.completion;
       } finally {
-        if (!entry.semaphoreReleased) {
-          semaphore.release();
-          entry.semaphoreReleased = true;
-        }
+        // Release even if drive() rejected; the audit append below only
+        // runs on success (finalizeChildRun's release is then a no-op).
+        releaseSlot(entry);
       }
 
       // Parent-side audit entry so /fork, /tree, and session-usage can
@@ -1378,11 +1393,7 @@ export default function subagentExtension(pi: ExtensionAPI): void {
       // serializes `custom` messages as synthetic `user` turns, which
       // would double the prompt tokens the parent bills for the same
       // content that's already in the tool_result.
-      try {
-        pi.appendEntry(SUBAGENT_CUSTOM_TYPE, out.details);
-      } catch {
-        // appendEntry can throw before the session is fully bound.
-      }
+      finalizeChildRun(entry, out);
 
       pruneBackground();
 
