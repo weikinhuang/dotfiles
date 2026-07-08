@@ -93,6 +93,13 @@ export const AFTER_BACKOFF_FACTOR = 2;
 /** ...up to this cap, so the character backs off but never goes silent forever. */
 export const AFTER_BACKOFF_MAX_SCALE = 8;
 
+/**
+ * Fire schedules whose cached target lands within this window of the
+ * wake-up, to absorb timer slop (the timer always wakes a hair after the
+ * target, so the cached instant is slightly in the past at wake time).
+ */
+export const FIRE_SLOP_MS = 1_000;
+
 /** Random number source, injectable for deterministic tests. */
 export type Rng = () => number;
 
@@ -212,6 +219,75 @@ export function pickPrompt(schedule: Schedule, rng: Rng = Math.random): { text: 
     return { text: candidates[at], cursor: (at + 1) % candidates.length };
   }
   return { text: candidates[Math.floor(rng() * candidates.length)], cursor };
+}
+
+/**
+ * Whether a schedule should only fire while the agent is idle. `after`
+ * (idle nudge) defaults to idle-only; everything else fires regardless
+ * unless explicitly set via `whenIdle`.
+ */
+export function wantsIdle(schedule: Schedule): boolean {
+  return schedule.whenIdle ?? schedule.trigger.kind === 'after';
+}
+
+/**
+ * Whether `schedule` is due to fire at `now` (epoch ms): enabled, armed,
+ * and its cached `nextFireAt` at or before `now + slopMs`. Fires on the
+ * cached target without reconciling forward, so a timer that wakes a hair
+ * late still fires the occurrence it woke for.
+ */
+export function isDue(schedule: Schedule, now: number, slopMs: number = FIRE_SLOP_MS): boolean {
+  if (!schedule.enabled || schedule.nextFireAt === undefined) return false;
+  return schedule.nextFireAt <= now + slopMs;
+}
+
+/**
+ * The fields a freshly-created schedule is shaped from - everything but
+ * the derived lifecycle bookkeeping (`enabled`, `createdAt`, `runCount`,
+ * `nextFireAt`), which {@link buildSchedule} fills in.
+ */
+export interface ScheduleInit {
+  id: string;
+  name?: string;
+  prompt: string;
+  prompts?: string[];
+  promptPick?: PromptPick;
+  trigger: Trigger;
+  jitterMs?: number;
+  scope: ScheduleScope;
+  resetOnActivity?: boolean;
+  whenIdle?: boolean;
+  maxRuns?: number;
+  chance?: number;
+}
+
+/**
+ * Shape a new enabled `Schedule` from {@link ScheduleInit} at creation
+ * time `now` (epoch ms) and compute its first `nextFireAt`. An `after`
+ * trigger defaults `resetOnActivity`/`whenIdle` on (an idle nudge resets
+ * on activity and never interrupts) unless the caller set them explicitly.
+ */
+export function buildSchedule(init: ScheduleInit, now: number, rng: Rng = Math.random): Schedule {
+  const isAfter = init.trigger.kind === 'after';
+  const schedule: Schedule = {
+    id: init.id,
+    name: init.name,
+    prompt: init.prompt,
+    prompts: init.prompts,
+    promptPick: init.promptPick,
+    trigger: init.trigger,
+    jitterMs: init.jitterMs,
+    scope: init.scope,
+    enabled: true,
+    resetOnActivity: init.resetOnActivity ?? (isAfter || undefined),
+    whenIdle: init.whenIdle ?? (isAfter || undefined),
+    maxRuns: init.maxRuns,
+    chance: init.chance,
+    createdAt: now,
+    runCount: 0,
+  };
+  schedule.nextFireAt = computeNextFire(schedule, new Date(now), rng) ?? undefined;
+  return schedule;
 }
 
 /** A short, URL-safe schedule id like `sp-k3x9a2`. */

@@ -7,14 +7,18 @@ import { describe, expect, test } from 'vitest';
 import {
   AFTER_BACKOFF_MAX_SCALE,
   applyActivity,
+  buildSchedule,
   computeNextFire,
   describeTrigger,
+  FIRE_SLOP_MS,
+  isDue,
   makeScheduleId,
   pickPrompt,
   recordRun,
   reconcileSchedule,
   type Schedule,
   type Trigger,
+  wantsIdle,
 } from '../../../../../lib/node/pi/scheduled-prompts/schedule.ts';
 
 const CREATED = new Date(2026, 0, 1, 0, 0, 0).getTime();
@@ -224,5 +228,82 @@ describe('describeTrigger', () => {
     expect(describeTrigger({ kind: 'interval', ms: 2 * 3_600_000 })).toBe('every 2h');
     expect(describeTrigger({ kind: 'once', at: CREATED })).toContain('once at');
     expect(describeTrigger({ kind: 'after', minMs: 30_000, maxMs: 300_000 })).toBe('after 30s-5m idle');
+  });
+});
+
+describe('buildSchedule', () => {
+  test('shapes an enabled schedule and computes the first fire', () => {
+    const s = buildSchedule(
+      { id: 'sp-b', prompt: 'ping', trigger: { kind: 'interval', ms: 30 * 60_000 }, scope: 'global' },
+      CREATED,
+    );
+    expect(s.enabled).toBe(true);
+    expect(s.createdAt).toBe(CREATED);
+    expect(s.runCount).toBe(0);
+    expect(s.nextFireAt).toBe(CREATED + 30 * 60_000);
+    // Non-`after` triggers don't default the idle knobs on.
+    expect(s.resetOnActivity).toBeUndefined();
+    expect(s.whenIdle).toBeUndefined();
+  });
+
+  test('an after trigger defaults resetOnActivity/whenIdle on', () => {
+    const s = buildSchedule(
+      {
+        id: 'sp-a',
+        prompt: 'still there?',
+        trigger: { kind: 'after', minMs: 30_000, maxMs: 60_000 },
+        scope: 'session',
+      },
+      CREATED,
+      fixedRng(0),
+    );
+    expect(s.resetOnActivity).toBe(true);
+    expect(s.whenIdle).toBe(true);
+  });
+
+  test('explicit idle knobs override the after defaults', () => {
+    const s = buildSchedule(
+      {
+        id: 'sp-a2',
+        prompt: 'x',
+        trigger: { kind: 'after', minMs: 30_000, maxMs: 60_000 },
+        scope: 'session',
+        resetOnActivity: false,
+        whenIdle: false,
+      },
+      CREATED,
+      fixedRng(0),
+    );
+    expect(s.resetOnActivity).toBe(false);
+    expect(s.whenIdle).toBe(false);
+  });
+});
+
+describe('wantsIdle', () => {
+  test('after defaults to idle-only; others do not', () => {
+    expect(wantsIdle(makeSchedule({ kind: 'after', minMs: 1, maxMs: 2 }))).toBe(true);
+    expect(wantsIdle(makeSchedule({ kind: 'interval', ms: 1000 }))).toBe(false);
+  });
+
+  test('an explicit whenIdle wins over the kind default', () => {
+    expect(wantsIdle(makeSchedule({ kind: 'after', minMs: 1, maxMs: 2 }, { whenIdle: false }))).toBe(false);
+    expect(wantsIdle(makeSchedule({ kind: 'interval', ms: 1000 }, { whenIdle: true }))).toBe(true);
+  });
+});
+
+describe('isDue', () => {
+  const s = makeSchedule({ kind: 'interval', ms: 1000 }, { nextFireAt: CREATED });
+
+  test('due at or within the slop window of the cached target', () => {
+    expect(isDue(s, CREATED)).toBe(true);
+    expect(isDue(s, CREATED - FIRE_SLOP_MS)).toBe(true);
+    expect(isDue(s, CREATED - FIRE_SLOP_MS - 1)).toBe(false);
+  });
+
+  test('never due when disabled or unarmed', () => {
+    expect(isDue(makeSchedule({ kind: 'interval', ms: 1000 }, { nextFireAt: CREATED, enabled: false }), CREATED)).toBe(
+      false,
+    );
+    expect(isDue(makeSchedule({ kind: 'interval', ms: 1000 }), CREATED)).toBe(false);
   });
 });

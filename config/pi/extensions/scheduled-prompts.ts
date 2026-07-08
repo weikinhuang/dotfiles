@@ -68,24 +68,28 @@ import { type ExtensionAPI, type ExtensionContext } from '@earendil-works/pi-cod
 import { Text } from '@earendil-works/pi-tui';
 import { Type } from 'typebox';
 
+import { completeSubverbs } from '../../../lib/node/pi/commands/complete.ts';
 import { isHelpArg } from '../../../lib/node/pi/commands/help.ts';
 import { createGlobalSlot } from '../../../lib/node/pi/global-slot.ts';
 import { envTruthy } from '../../../lib/node/pi/parse-env.ts';
-import { formatDuration, parseDuration, parseDurationRange } from '../../../lib/node/pi/scheduled-prompts/duration.ts';
+import { formatDuration, parseDuration } from '../../../lib/node/pi/scheduled-prompts/duration.ts';
 import { renderPrompt } from '../../../lib/node/pi/scheduled-prompts/template.ts';
 import {
   applyActivity,
+  buildSchedule,
   computeNextFire,
   describeTrigger,
+  isDue,
   makeScheduleId,
   pickPrompt,
   recordRun,
   reconcileSchedule,
   type Schedule,
   type ScheduleScope,
-  type Trigger,
+  wantsIdle,
 } from '../../../lib/node/pi/scheduled-prompts/schedule.ts';
-import { parseCron } from '../../../lib/node/pi/scheduled-prompts/cron.ts';
+import { buildSchedulesCompletionSpec } from '../../../lib/node/pi/scheduled-prompts/complete.ts';
+import { buildTriggerFromParams } from '../../../lib/node/pi/scheduled-prompts/tool.ts';
 import {
   formatScheduleList,
   parseScheduleCommand,
@@ -107,9 +111,6 @@ import {
 // would fire a long-range schedule immediately. We cap the timer at the
 // max and rely on `onTimer` finding nothing due, then re-arming.
 const MAX_TIMEOUT = 2_147_483_647;
-// Fire schedules whose target is within this window of the wake-up, to
-// absorb timer slop.
-const FIRE_SLOP_MS = 1_000;
 // When an idle-only nudge comes due mid-turn, push it out by this much
 // rather than interrupting; a turn_end re-anchor usually fires it sooner.
 const DEFER_MS = 10_000;
@@ -186,11 +187,6 @@ export default function scheduledPromptsExtension(pi: ExtensionAPI): void {
     }
   };
 
-  // Whether a schedule should only fire while the agent is idle. `after`
-  // (idle nudge) defaults to idle-only; everything else fires regardless
-  // unless explicitly set.
-  const wantsIdle = (s: Schedule): boolean => s.whenIdle ?? s.trigger.kind === 'after';
-
   // Fire any due schedules in `scope`, persisting run bookkeeping (and
   // removing spent/retired ones). Returns nothing; re-arm happens after.
   //
@@ -205,8 +201,7 @@ export default function scheduledPromptsExtension(pi: ExtensionAPI): void {
     let next = list;
     let changed = false;
     for (const s of list) {
-      if (!s.enabled || s.nextFireAt === undefined) continue;
-      if (s.nextFireAt > now + FIRE_SLOP_MS) continue;
+      if (!isDue(s, now)) continue;
 
       // Don't interrupt an active turn with an idle-only nudge; defer it.
       if (wantsIdle(s) && !isIdle()) {
@@ -437,27 +432,7 @@ export default function scheduledPromptsExtension(pi: ExtensionAPI): void {
       }
       const { draft } = result;
       const now = Date.now();
-      const isAfter = draft.trigger.kind === 'after';
-      const schedule: Schedule = {
-        id: makeScheduleId(),
-        name: draft.name,
-        prompt: draft.prompt,
-        prompts: draft.prompts,
-        promptPick: draft.promptPick,
-        trigger: draft.trigger,
-        jitterMs: draft.jitterMs,
-        scope: draft.scope,
-        enabled: true,
-        // `after` is an idle nudge: reset on activity and don't interrupt
-        // unless the user overrode those explicitly.
-        resetOnActivity: draft.resetOnActivity ?? (isAfter || undefined),
-        whenIdle: draft.whenIdle ?? (isAfter || undefined),
-        maxRuns: draft.maxRuns,
-        chance: draft.chance,
-        createdAt: now,
-        runCount: 0,
-      };
-      schedule.nextFireAt = computeNextFire(schedule, new Date(now)) ?? undefined;
+      const schedule = buildSchedule({ id: makeScheduleId(), ...draft }, now);
       addSchedule(schedule);
       rearm();
       ctx.ui.notify(
@@ -469,34 +444,12 @@ export default function scheduledPromptsExtension(pi: ExtensionAPI): void {
 
   // ── /schedules command ─────────────────────────────────────────────────
 
-  const SUBVERBS = ['cancel', 'clear', 'on', 'off'];
-
   pi.registerCommand('schedules', {
     description: 'List schedules; subverbs: cancel <id>, clear [scope], on <id>, off <id>',
-    getArgumentCompletions: (prefix: string) => {
-      const parts = prefix.split(/\s+/);
-      if (parts.length <= 1) {
-        const verbs = SUBVERBS.filter((v) => v.startsWith(parts[0] ?? ''));
-        return verbs.map((v) => ({ value: v, label: v }));
-      }
-      const verb = parts[0];
-      const tail = parts[parts.length - 1];
-      // pi replaces the whole argument string (everything after the
-      // command name) with the chosen completion's `value`, so each
-      // value must include the verb - not just the id/scope - or the
-      // verb is dropped from the submitted line.
-      if (verb === 'clear') {
-        return ['global', 'project', 'session', 'all']
-          .filter((s) => s.startsWith(tail))
-          .map((s) => ({ value: `clear ${s}`, label: s }));
-      }
-      if (verb === 'cancel' || verb === 'on' || verb === 'off') {
-        return collectAll()
-          .filter((s) => s.id.startsWith(tail))
-          .map((s) => ({ value: `${verb} ${s.id}`, label: s.id, description: describeTrigger(s.trigger) }));
-      }
-      return null;
-    },
+    // pi replaces the whole argument string with the chosen completion's
+    // `value`, so `completeSubverbs` synthesizes each deeper value with its
+    // verb prefix (`cancel <id>`) - see commands/complete.ts.
+    getArgumentCompletions: (prefix: string) => completeSubverbs(prefix, buildSchedulesCompletionSpec(collectAll())),
     handler: async (args, ctx) => {
       if (isHelpArg(args)) {
         ctx.ui.notify(SCHEDULES_USAGE, 'info');
@@ -622,40 +575,6 @@ export default function scheduledPromptsExtension(pi: ExtensionAPI): void {
     enabled?: boolean;
   }
 
-  const buildTrigger = (params: ScheduleToolParamsT, now: number): { trigger: Trigger } | { error: string } => {
-    const provided = [params.cron, params.every, params.in, params.at, params.after].filter((v) => v !== undefined);
-    if (provided.length === 0) return { error: 'a trigger is required (cron, every, in, at, or after)' };
-    if (provided.length > 1) return { error: 'only one trigger may be set (cron, every, in, at, or after)' };
-    if (params.cron !== undefined) {
-      if (parseCron(params.cron) === null) return { error: `invalid cron expression: "${params.cron}"` };
-      return { trigger: { kind: 'cron', expr: params.cron.trim() } };
-    }
-    if (params.every !== undefined) {
-      const ms = parseDuration(params.every);
-      if (ms === null) return { error: `invalid every duration: "${params.every}"` };
-      return { trigger: { kind: 'interval', ms } };
-    }
-    if (params.after !== undefined) {
-      const range = parseDurationRange(params.after);
-      if (range === null) return { error: `invalid after range (expected min-max): "${params.after}"` };
-      return { trigger: { kind: 'after', minMs: range.minMs, maxMs: range.maxMs } };
-    }
-    if (params.in !== undefined) {
-      const ms = parseDuration(params.in);
-      if (ms === null) return { error: `invalid in duration: "${params.in}"` };
-      return { trigger: { kind: 'once', at: now + ms } };
-    }
-    const match = /^(\d{1,2}):(\d{2})$/.exec((params.at ?? '').trim());
-    if (!match) return { error: `invalid at time (expected HH:MM): "${params.at}"` };
-    const hour = Number(match[1]);
-    const minute = Number(match[2]);
-    if (hour > 23 || minute > 59) return { error: `invalid at time (expected HH:MM): "${params.at}"` };
-    const d = new Date(now);
-    const target = new Date(d.getFullYear(), d.getMonth(), d.getDate(), hour, minute, 0, 0);
-    if (target.getTime() <= now) target.setDate(target.getDate() + 1);
-    return { trigger: { kind: 'once', at: target.getTime() } };
-  };
-
   const toolCreate = (params: ScheduleToolParamsT): { content: string; isError?: boolean } => {
     const pool = (params.prompts ?? []).map((p) => p.trim()).filter((p) => p.length > 0);
     const primary = pool[0] ?? params.prompt?.trim() ?? '';
@@ -663,7 +582,7 @@ export default function scheduledPromptsExtension(pi: ExtensionAPI): void {
       return { content: 'Error: `prompt` (or non-empty `prompts`) is required for create.', isError: true };
     }
     const now = Date.now();
-    const built = buildTrigger(params, now);
+    const built = buildTriggerFromParams(params, now);
     if ('error' in built) return { content: `Error: ${built.error}`, isError: true };
     let jitterMs: number | undefined;
     if (params.jitter !== undefined) {
@@ -674,25 +593,23 @@ export default function scheduledPromptsExtension(pi: ExtensionAPI): void {
     if (params.chance !== undefined && (params.chance <= 0 || params.chance > 1)) {
       return { content: `Error: chance must be in (0, 1]: ${params.chance}`, isError: true };
     }
-    const isAfter = built.trigger.kind === 'after';
-    const schedule: Schedule = {
-      id: makeScheduleId(),
-      name: params.name,
-      prompt: primary,
-      prompts: pool.length > 1 ? pool : undefined,
-      promptPick: params.roundRobin ? 'roundRobin' : undefined,
-      trigger: built.trigger,
-      jitterMs,
-      scope: params.scope ?? 'session',
-      enabled: true,
-      resetOnActivity: params.resetOnActivity ?? (isAfter || undefined),
-      whenIdle: params.whenIdle ?? (isAfter || undefined),
-      maxRuns: params.maxRuns,
-      chance: params.chance,
-      createdAt: now,
-      runCount: 0,
-    };
-    schedule.nextFireAt = computeNextFire(schedule, new Date(now)) ?? undefined;
+    const schedule = buildSchedule(
+      {
+        id: makeScheduleId(),
+        name: params.name,
+        prompt: primary,
+        prompts: pool.length > 1 ? pool : undefined,
+        promptPick: params.roundRobin ? 'roundRobin' : undefined,
+        trigger: built.trigger,
+        jitterMs,
+        scope: params.scope ?? 'session',
+        resetOnActivity: params.resetOnActivity,
+        whenIdle: params.whenIdle,
+        maxRuns: params.maxRuns,
+        chance: params.chance,
+      },
+      now,
+    );
     addSchedule(schedule);
     rearm();
     return {
@@ -735,7 +652,7 @@ export default function scheduledPromptsExtension(pi: ExtensionAPI): void {
       params.at !== undefined ||
       params.after !== undefined
     ) {
-      const built = buildTrigger(params, Date.now());
+      const built = buildTriggerFromParams(params, Date.now());
       if ('error' in built) return { content: `Error: ${built.error}`, isError: true };
       patch.trigger = built.trigger;
     }

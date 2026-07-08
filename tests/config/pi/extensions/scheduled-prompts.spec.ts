@@ -21,7 +21,9 @@ import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
+import { type CompletionItem, completeSubverbs } from '../../../../lib/node/pi/commands/complete.ts';
 import { isHelpArg } from '../../../../lib/node/pi/commands/help.ts';
+import { buildSchedulesCompletionSpec } from '../../../../lib/node/pi/scheduled-prompts/complete.ts';
 import {
   formatScheduleList,
   parseScheduleCommand,
@@ -30,6 +32,7 @@ import {
 } from '../../../../lib/node/pi/scheduled-prompts/parse-command.ts';
 import {
   applyActivity,
+  buildSchedule,
   computeNextFire,
   makeScheduleId,
   recordRun,
@@ -101,30 +104,12 @@ class ScopeStore {
   }
 }
 
-// Build a schedule the way the /schedule handler does.
+// Build a schedule the way the /schedule handler does (parse -> shape via
+// the shared buildSchedule helper -> persist).
 function createFromCommand(store: ScopeStore, input: string, now: number, id: string): Schedule {
   const result = parseScheduleCommand(input, new Date(now));
   if (!result.ok) throw new Error(`unexpected parse failure: ${result.error}`);
-  const { draft } = result;
-  const isAfter = draft.trigger.kind === 'after';
-  const schedule: Schedule = {
-    id,
-    name: draft.name,
-    prompt: draft.prompt,
-    prompts: draft.prompts,
-    promptPick: draft.promptPick,
-    trigger: draft.trigger,
-    jitterMs: draft.jitterMs,
-    scope: draft.scope,
-    enabled: true,
-    resetOnActivity: draft.resetOnActivity ?? (isAfter || undefined),
-    whenIdle: draft.whenIdle ?? (isAfter || undefined),
-    maxRuns: draft.maxRuns,
-    chance: draft.chance,
-    createdAt: now,
-    runCount: 0,
-  };
-  schedule.nextFireAt = computeNextFire(schedule, new Date(now)) ?? undefined;
+  const schedule = buildSchedule({ id, ...result.draft }, now);
   store.write(schedule.scope, addToList(store.read(schedule.scope), schedule));
   return schedule;
 }
@@ -334,5 +319,40 @@ describe('scheduled-prompts command surface', () => {
 
   test('makeScheduleId yields distinct-looking ids', () => {
     expect(makeScheduleId()).toMatch(/^sp-/);
+  });
+});
+
+// The /schedules handler wires `completeSubverbs(prefix,
+// buildSchedulesCompletionSpec(collectAll()))`; assert the level-1 verbs
+// and at least one level-2 resolver (including that the value carries the
+// verb prefix so pi doesn't drop it on submit).
+describe('scheduled-prompts /schedules completion (§4.4)', () => {
+  const s1 = new Date(2026, 0, 1, 8, 0, 0).getTime();
+  const store = new ScopeStore(join(tmpdir(), 'sp-completion'));
+  store.session = [
+    buildSchedule({ id: 'sp-one', prompt: 'a', trigger: { kind: 'interval', ms: 30 * 60_000 }, scope: 'session' }, s1),
+    buildSchedule({ id: 'sp-two', prompt: 'b', trigger: { kind: 'cron', expr: '0 9 * * *' }, scope: 'session' }, s1),
+  ];
+  const complete = (prefix: string): CompletionItem[] | null =>
+    completeSubverbs(prefix, buildSchedulesCompletionSpec(store.all()));
+
+  test('level 1 offers the four subverbs', () => {
+    expect(complete('')?.map((c) => c.value)).toEqual(['cancel', 'clear', 'on', 'off']);
+  });
+
+  test('cancel completes live ids with the verb prefix carried', () => {
+    expect(complete('cancel sp-')).toEqual([
+      { value: 'cancel sp-one', label: 'sp-one', description: 'every 30m' },
+      { value: 'cancel sp-two', label: 'sp-two', description: 'cron "0 9 * * *"' },
+    ]);
+  });
+
+  test('clear completes the scope set plus all', () => {
+    expect(complete('clear ')?.map((c) => c.value)).toEqual([
+      'clear global',
+      'clear project',
+      'clear session',
+      'clear all',
+    ]);
   });
 });
