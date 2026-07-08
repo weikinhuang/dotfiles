@@ -1,9 +1,9 @@
 /**
  * Deterministic render tests for the checkpoint ReviewOverlay viewport
- * windowing (config/pi/extensions/checkpoint.ts). Model-independent: builds a
- * synthetic review with more files (and a longer diff) than a short terminal
- * can show and asserts both the file list and the drill-down diff viewer stay
- * within the viewport budget.
+ * windowing (lib/node/pi/ext/checkpoint-review-overlay.ts). Model-independent:
+ * builds a synthetic review with more files (and a longer diff) than a short
+ * terminal can show and asserts both the file list and the drill-down diff
+ * viewer stay within the viewport budget.
  */
 
 import { beforeAll, expect, test } from 'vitest';
@@ -12,8 +12,8 @@ import type { Theme } from '@earendil-works/pi-coding-agent';
 import { initTheme } from '@earendil-works/pi-coding-agent';
 import type { TUI } from '@earendil-works/pi-tui';
 
-import { ReviewOverlay } from '../../../../config/pi/extensions/checkpoint.ts';
-import type { FileTarget } from '../../../../lib/node/pi/checkpoint/types.ts';
+import { ReviewOverlay } from '../../../../../lib/node/pi/ext/checkpoint-review-overlay.ts';
+import type { FileTarget } from '../../../../../lib/node/pi/checkpoint/types.ts';
 
 // The diff drill-down calls pi's renderDiff, which reads the global theme.
 beforeAll(() => {
