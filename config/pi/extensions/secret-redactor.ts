@@ -46,9 +46,13 @@
 import { type ExtensionAPI, type ExtensionContext } from '@earendil-works/pi-coding-agent';
 import { Type } from 'typebox';
 
+import { completePositional } from '../../../lib/node/pi/commands/complete.ts';
+import { isHelpArg } from '../../../lib/node/pi/commands/help.ts';
 import { createNotifyOnce } from '../../../lib/node/pi/notify-once.ts';
 import { envTruthy } from '../../../lib/node/pi/parse-env.ts';
 import { loadRedactorConfig } from '../../../lib/node/pi/secret-redactor/config.ts';
+import { redactMessages } from '../../../lib/node/pi/secret-redactor/context-walk.ts';
+import { createLruMemo } from '../../../lib/node/pi/secret-redactor/memo.ts';
 import {
   DEFAULT_CONFIG,
   redactText,
@@ -56,6 +60,7 @@ import {
   rehydrateText,
 } from '../../../lib/node/pi/secret-redactor/redact.ts';
 import { SecretStore } from '../../../lib/node/pi/secret-redactor/store.ts';
+import { SECRET_REDACTOR_USAGE, UNREDACT_USAGE } from '../../../lib/node/pi/secret-redactor/usage.ts';
 import { makeDiagnostics } from '../../../lib/node/pi/recovery-diagnostics.ts';
 
 const STATUS_KEY = 'secret-redactor';
@@ -82,22 +87,9 @@ export default function secretRedactor(pi: ExtensionAPI): void {
   // LRU memo on raw-text -> redacted-text. `context` fires every request
   // over the whole transcript; deterministic redaction lets unchanged
   // history re-scan for free. Cleared whenever config or approvals change.
-  const memo = new Map<string, string>();
-  const memoGet = (text: string): string => {
-    const hit = memo.get(text);
-    if (hit !== undefined) {
-      memo.delete(text);
-      memo.set(text, hit);
-      return hit;
-    }
-    const { text: red } = redactText(text, store, config);
-    memo.set(text, red);
-    if (memo.size > MEMO_CAP) {
-      const oldest = memo.keys().next().value;
-      if (oldest !== undefined) memo.delete(oldest);
-    }
-    return red;
-  };
+  // `config` is read live inside `compute`, so a `memo.clear()` on config
+  // change is enough to keep results fresh.
+  const memo = createLruMemo(MEMO_CAP, (text) => redactText(text, store, config).text);
 
   const configWarnings = createNotifyOnce<{ path: string; error: string }>({
     tag: 'secret-redactor',
@@ -141,54 +133,8 @@ export default function secretRedactor(pi: ExtensionAPI): void {
   // context hook: redact the model-bound copy
   // ────────────────────────────────────────────────────────────────────
 
-  const redactParts = (parts: unknown[]): boolean => {
-    let changed = false;
-    for (const part of parts) {
-      if (!part || typeof part !== 'object') continue;
-      const p = part as { type?: string; text?: string; thinking?: string };
-      if (p.type === 'text' && typeof p.text === 'string') {
-        const red = memoGet(p.text);
-        if (red !== p.text) {
-          p.text = red;
-          changed = true;
-        }
-      } else if (p.type === 'thinking' && typeof p.thinking === 'string') {
-        const red = memoGet(p.thinking);
-        if (red !== p.thinking) {
-          p.thinking = red;
-          changed = true;
-        }
-      }
-    }
-    return changed;
-  };
-
-  const redactMessage = (msg: unknown): boolean => {
-    if (!msg || typeof msg !== 'object') return false;
-    const m = msg as { role?: string; content?: unknown };
-    if (m.role === 'user') {
-      if (typeof m.content === 'string') {
-        const red = memoGet(m.content);
-        if (red !== m.content) {
-          m.content = red;
-          return true;
-        }
-        return false;
-      }
-      if (Array.isArray(m.content)) return redactParts(m.content);
-      return false;
-    }
-    if ((m.role === 'assistant' || m.role === 'toolResult') && Array.isArray(m.content)) {
-      return redactParts(m.content);
-    }
-    return false;
-  };
-
   pi.on('context', (event, ctx) => {
-    let changed = false;
-    for (const msg of event.messages) {
-      if (redactMessage(msg)) changed = true;
-    }
+    const changed = redactMessages(event.messages, (text) => memo.get(text));
     updateStatus(ctx);
     if (!changed) return undefined;
     trace(`context: redacted provider copy, ${store.redactedCount()} active / ${store.size()} tracked this session`);
@@ -281,14 +227,17 @@ export default function secretRedactor(pi: ExtensionAPI): void {
   pi.registerCommand('unredact', {
     description: 'Reveal a redacted secret to the model by its #handle',
     getArgumentCompletions: (prefix) =>
-      store
-        .entries()
-        .map((e) => ({ value: e.handle, label: `${e.handle}  (${e.label})` }))
-        .filter((o) => o.value.startsWith(prefix.replace(/^#/, ''))),
+      completePositional(prefix.replace(/^#/, ''), () =>
+        store.entries().map((e) => ({ value: e.handle, label: `${e.handle}  (${e.label})` })),
+      ),
     handler: async (args, ctx) => {
+      if (isHelpArg(args)) {
+        ctx.ui.notify(UNREDACT_USAGE, 'info');
+        return;
+      }
       const handle = args.trim().replace(/^#/, '');
       if (!handle) {
-        ctx.ui.notify('Usage: /unredact <handle>  (see /secret-redactor for the list)', 'warning');
+        ctx.ui.notify(UNREDACT_USAGE, 'warning');
         return;
       }
       const entry = store.lookup(handle);
@@ -309,6 +258,10 @@ export default function secretRedactor(pi: ExtensionAPI): void {
   pi.registerCommand('secret-redactor', {
     description: 'List secrets redacted this session and approve specific ones',
     handler: async (args, ctx) => {
+      if (isHelpArg(args)) {
+        ctx.ui.notify(SECRET_REDACTOR_USAGE, 'info');
+        return;
+      }
       const entries = store.entries();
       const lines: string[] = [
         `secret-redactor: layers prefixed=${config.layers.prefixed} keyword=${config.layers.keyword}, ` +
