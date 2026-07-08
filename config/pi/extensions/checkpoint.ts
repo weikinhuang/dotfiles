@@ -41,15 +41,15 @@ import {
 
 import { isHelpArg } from '../../../lib/node/pi/commands/help.ts';
 import { showModal } from '../../../lib/node/pi/ext/show-modal.ts';
-import { ReviewOverlay, type ReviewRow } from '../../../lib/node/pi/ext/checkpoint-review-overlay.ts';
+import { ReviewOverlay } from '../../../lib/node/pi/ext/checkpoint-review-overlay.ts';
 import { capturePaths } from '../../../lib/node/pi/checkpoint/capture.ts';
 import { rewindCompletions } from '../../../lib/node/pi/checkpoint/complete.ts';
 import { type CheckpointConfig, DEFAULT_CONFIG, loadCheckpointConfig } from '../../../lib/node/pi/checkpoint/config.ts';
-import { classifyFile } from '../../../lib/node/pi/checkpoint/conflict.ts';
-import { countDiff } from '../../../lib/node/pi/checkpoint/diff.ts';
+import { formatCheckpointList, outOfSyncWidgetText } from '../../../lib/node/pi/checkpoint/format.ts';
 import * as git from '../../../lib/node/pi/checkpoint/gitsnap.ts';
 import { resolveFileTargets } from '../../../lib/node/pi/checkpoint/resolve.ts';
 import { buildRestorePlan } from '../../../lib/node/pi/checkpoint/restore.ts';
+import { buildReviewRow, sortReviewRows } from '../../../lib/node/pi/checkpoint/review.ts';
 import {
   checkpointStoreDir,
   deriveProjectKey,
@@ -65,6 +65,7 @@ import type {
   CheckpointEntry,
   CheckpointManifest,
   FileTarget,
+  ReviewRow,
 } from '../../../lib/node/pi/checkpoint/types.ts';
 import { REWIND_USAGE } from '../../../lib/node/pi/checkpoint/usage.ts';
 import { envTruthy } from '../../../lib/node/pi/parse-env.ts';
@@ -306,14 +307,15 @@ export default function checkpoint(pi: ExtensionAPI): void {
 
   /** Build one review row for a resolved target, or undefined to hide it. */
   function rowFor(ctx: ExtensionContext, target: FileTarget): ReviewRow | undefined {
-    const abs = absPath(ctx.cwd, target.path);
-    const disk = readDisk(abs);
-    const status = classifyFile(target, disk.hash);
-    if (status === 'no-op' && cfg.hideNoOpRows) return undefined;
-    const targetText = target.target === null ? null : (getBlob(storeDir, target.target)?.toString('utf8') ?? '');
-    const { adds, dels } = countDiff(disk.text, targetText);
-    const checked = status === 'clean-restore' ? true : status === 'conflict' ? cfg.conflictRowsDefaultChecked : false;
-    return { target, status, adds, dels, currentText: disk.text, targetText, checked };
+    const disk = readDisk(absPath(ctx.cwd, target.path));
+    // Read the target blob lazily so a hidden no-op row never pays for it.
+    return buildReviewRow(
+      target,
+      disk.text,
+      disk.hash,
+      () => (target.target === null ? null : (getBlob(storeDir, target.target)?.toString('utf8') ?? '')),
+      { hideNoOpRows: cfg.hideNoOpRows, conflictRowsDefaultChecked: cfg.conflictRowsDefaultChecked },
+    );
   }
 
   /** Tool-mode review: resolve targets from before/after blobs, classify vs disk. */
@@ -350,7 +352,7 @@ export default function checkpoint(pi: ExtensionAPI): void {
   function buildReview(ctx: ExtensionContext, oldLeafId: string | null, newLeafId: string | null): ReviewRow[] {
     const rows =
       cfg.mode === 'full' ? buildReviewFull(ctx, oldLeafId, newLeafId) : buildReviewTool(ctx, oldLeafId, newLeafId);
-    return rows.sort((a, b) => (a.target.path < b.target.path ? -1 : a.target.path > b.target.path ? 1 : 0));
+    return sortReviewRows(rows);
   }
 
   // ── apply + widget ─────────────────────────────────────────────────────────
@@ -404,13 +406,9 @@ export default function checkpoint(pi: ExtensionAPI): void {
   function updateWidget(ctx: ExtensionContext, leftover: number): void {
     if (!ctx.hasUI || !cfg.showOutOfSyncWidget) return;
     if (leftover > 0) {
-      ctx.ui.setWidget(
-        WIDGET_KEY,
-        [`⚠ code ahead of conversation - /rewind to review (${leftover} file${leftover === 1 ? '' : 's'})`],
-        {
-          placement: 'aboveEditor',
-        },
-      );
+      ctx.ui.setWidget(WIDGET_KEY, [outOfSyncWidgetText(leftover)], {
+        placement: 'aboveEditor',
+      });
     } else {
       ctx.ui.setWidget(WIDGET_KEY, undefined);
     }
@@ -613,14 +611,7 @@ export default function checkpoint(pi: ExtensionAPI): void {
           ctx.ui.notify('No checkpoints recorded yet.', 'info');
           return;
         }
-        const lines = [...manifests.values()]
-          .sort((a, b) => b.timestamp - a.timestamp)
-          .map((m) => {
-            const when = new Date(m.timestamp).toLocaleString();
-            const files = new Set(m.entries.map((e) => e.path)).size;
-            return `${m.leafEntryId}  ${when}  ${files} file${files === 1 ? '' : 's'}`;
-          });
-        ctx.ui.notify(['Checkpoints (anchor · time · files):', ...lines].join('\n'), 'info');
+        ctx.ui.notify(formatCheckpointList([...manifests.values()]), 'info');
         return;
       }
 

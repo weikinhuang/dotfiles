@@ -16,20 +16,13 @@ import { type Component, Key, matchesKey, truncateToWidth, type TUI } from '@ear
 
 import { overlayViewportRows } from './overlay-window.ts';
 import { formatDiffForRender, unifiedDiffLines } from '../checkpoint/diff.ts';
-import type { FileStatus, FileTarget } from '../checkpoint/types.ts';
+import type { FileStatus, FileTarget, ReviewRow } from '../checkpoint/types.ts';
 
-/** A row in the review overlay: a resolved target + how it differs from disk. */
-export interface ReviewRow {
-  target: FileTarget;
-  status: FileStatus;
-  adds: number;
-  dels: number;
-  /** Current bytes on disk as text, or null if absent. */
-  currentText: string | null;
-  /** Restore-target bytes as text, or null if the target state is "absent". */
-  targetText: string | null;
-  checked: boolean;
-}
+// `ReviewRow` now lives in the pure `checkpoint/types.ts` so the pure row
+// builder can produce it without importing this pi-tui overlay. Re-exported
+// here so existing `import { ReviewRow } from '.../checkpoint-review-overlay.ts'`
+// call sites keep working.
+export type { ReviewRow } from '../checkpoint/types.ts';
 
 const VISIBLE_ROWS = 18;
 const DETAIL_LINES = 24;

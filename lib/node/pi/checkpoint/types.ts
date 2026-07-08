@@ -68,3 +68,23 @@ export interface FileTarget {
   /** Recorded content as of the old leaf (where navigation is coming from). */
   expectedCurrent: string | null;
 }
+
+/**
+ * A row in the restore review: a resolved {@link FileTarget} plus how it
+ * differs from the file's current bytes on disk. Built by the pure
+ * {@link import('./review.ts').buildReviewRow} from disk + blob content and
+ * consumed by the pi-coupled `ReviewOverlay` (which re-exports this type).
+ * Lives here (not in `ext/`) so the pure row builder can produce it without
+ * pulling in the pi-tui overlay.
+ */
+export interface ReviewRow {
+  target: FileTarget;
+  status: FileStatus;
+  adds: number;
+  dels: number;
+  /** Current bytes on disk as text, or null if absent. */
+  currentText: string | null;
+  /** Restore-target bytes as text, or null if the target state is "absent". */
+  targetText: string | null;
+  checked: boolean;
+}
