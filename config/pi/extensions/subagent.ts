@@ -121,6 +121,7 @@ import {
   type SubagentRunSnapshot,
 } from '../../../lib/node/pi/subagent/format.ts';
 import { isHelpArg } from '../../../lib/node/pi/commands/help.ts';
+import { completeSubverbs } from '../../../lib/node/pi/commands/complete.ts';
 import { makeHandleCounter, resolveHandle } from '../../../lib/node/pi/subagent/handle.ts';
 import { AGENTS_USAGE } from '../../../lib/node/pi/subagent/usage.ts';
 import { buildForkPrompt, RECURSIVE_TOOL_NAMES, resolveForkMode } from '../../../lib/node/pi/subagent/fork.ts';
@@ -1745,27 +1746,17 @@ export default function subagentExtension(pi: ExtensionAPI): void {
 
   pi.registerCommand('agents', {
     description: 'Inspect loaded sub-agents and active background children',
-    getArgumentCompletions: (prefix) => {
-      const arg = prefix.trim();
-      if (arg === '' || 'show'.startsWith(arg) || 'running'.startsWith(arg)) {
-        const out: { value: string; label: string; description: string }[] = [];
-        if (arg === '' || 'show'.startsWith(arg)) {
-          out.push({ value: 'show', label: 'show', description: 'Show full frontmatter + body for an agent' });
-        }
-        if (arg === '' || 'running'.startsWith(arg)) {
-          out.push({ value: 'running', label: 'running', description: 'List active background sub-agents' });
-        }
-        return out;
-      }
-      const tokens = prefix.split(/\s+/);
-      if (tokens[0] === 'show') {
-        const needle = tokens[1] ?? '';
-        return loadResult.nameOrder
-          .filter((n) => n.startsWith(needle))
-          .map((n) => ({ value: `show ${n}`, label: n, description: loadResult.agents.get(n)?.description ?? '' }));
-      }
-      return null;
-    },
+    getArgumentCompletions: (prefix) =>
+      completeSubverbs(prefix, {
+        show: {
+          description: 'Show full frontmatter + body for an agent',
+          args: (tail) =>
+            loadResult.nameOrder
+              .filter((n) => n.startsWith(tail))
+              .map((n) => ({ label: n, description: loadResult.agents.get(n)?.description ?? '' })),
+        },
+        running: { description: 'List active background sub-agents' },
+      }),
 
     handler: async (args, ctx) => {
       if (isHelpArg(args)) {
