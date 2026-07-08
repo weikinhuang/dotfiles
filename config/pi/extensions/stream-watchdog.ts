@@ -80,6 +80,7 @@
 import { type ExtensionAPI, type ExtensionContext } from '@earendil-works/pi-coding-agent';
 
 import { isFreshUserPrompt } from '../../../lib/node/pi/input-event.ts';
+import { deliverDeferredNudge } from '../../../lib/node/pi/ext/deferred-nudge.ts';
 import { findLastAssistantMessage } from '../../../lib/node/pi/message-extract.ts';
 import { envTruthy, parseNonNegativeInt, parsePositiveInt } from '../../../lib/node/pi/parse-env.ts';
 import {
@@ -358,16 +359,15 @@ export default function streamWatchdog(pi: ExtensionAPI): void {
       }
       ctx.ui.setStatus(STATUS_KEY, `⟳ stream-watchdog: retrying stalled turn (${attempt}/${maxRetries})…`);
 
-      setImmediate(() => {
-        try {
-          pi.sendMessage(
-            { customType: 'stream-watchdog-nudge', content: nudge, display: true },
-            ctx.isIdle() ? { triggerTurn: true } : { deliverAs: 'followUp' },
-          );
-        } catch (e) {
+      deliverDeferredNudge({
+        pi,
+        ctx,
+        customType: 'stream-watchdog-nudge',
+        content: nudge,
+        onDeliverError: (e) => {
           clearStatus(ctx);
           ctx.ui.notify(`stream-watchdog: failed to deliver follow-up: ${String(e)}`, 'error');
-        }
+        },
       });
       return;
     }

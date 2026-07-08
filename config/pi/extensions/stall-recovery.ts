@@ -82,6 +82,7 @@ import {
   type StallReason,
 } from '../../../lib/node/pi/stall-detect.ts';
 import { isFreshUserPrompt } from '../../../lib/node/pi/input-event.ts';
+import { deliverDeferredNudge } from '../../../lib/node/pi/ext/deferred-nudge.ts';
 import { envTruthy, parseNonNegativeInt } from '../../../lib/node/pi/parse-env.ts';
 
 const STATUS_KEY = 'stall-recovery';
@@ -179,50 +180,48 @@ export default function stallRecovery(pi: ExtensionAPI): void {
 
     const nudge = buildRetryMessage(reason, attempt, maxRetries);
 
-    try {
-      // Defer to the next event-loop tick so we land after the agent
-      // loop has fully unwound and `ctx.isIdle()` is true. Pi 0.75.4
-      // moved `agent_end` into the awaited agent lifecycle, so the
-      // handler runs while the runtime still sees `isStreaming ===
-      // true`. Calling `pi.sendMessage(..., { deliverAs: 'followUp' })`
-      // synchronously here routes the nudge through the follow-up
-      // queue, which the exiting agent loop never pulls - the message
-      // ends up surfaced as a `Follow-up: ⟳ [pi-stall-recovery]`
-      // indicator with no LLM call.
-      //
-      // Delivery uses `pi.sendMessage` with a `custom` type (rather
-      // than `sendUserMessage`) so the nudge does NOT pollute the
-      // editor's up-arrow history. Pi's convertToLlm serializes
-      // `custom` -> a synthetic `user` turn whose content still
-      // carries `STALL_MARKER`, which is what `countTrailingStalls`
-      // and `stripThinkingFromStalledTurns` key off of.
-      setImmediate(() => {
+    // Defer to the next event-loop tick so we land after the agent
+    // loop has fully unwound and `ctx.isIdle()` is true. Pi 0.75.4
+    // moved `agent_end` into the awaited agent lifecycle, so the
+    // handler runs while the runtime still sees `isStreaming ===
+    // true`. Calling `pi.sendMessage(..., { deliverAs: 'followUp' })`
+    // synchronously here routes the nudge through the follow-up
+    // queue, which the exiting agent loop never pulls - the message
+    // ends up surfaced as a `Follow-up: ⟳ [pi-stall-recovery]`
+    // indicator with no LLM call.
+    //
+    // Delivery uses `pi.sendMessage` with a `custom` type (rather
+    // than `sendUserMessage`) so the nudge does NOT pollute the
+    // editor's up-arrow history. Pi's convertToLlm serializes
+    // `custom` -> a synthetic `user` turn whose content still
+    // carries `STALL_MARKER`, which is what `countTrailingStalls`
+    // and `stripThinkingFromStalledTurns` key off of.
+    deliverDeferredNudge({
+      pi,
+      ctx,
+      customType: 'stall-recovery-nudge',
+      content: nudge,
+      onDeliverError: (e) => {
+        // The session may have been torn down between agent_end and
+        // this deferred tick (print mode exits right after the turn),
+        // leaving ctx stale so ctx.isIdle() / ctx.ui both throw.
+        // clearStatus already swallows that; guard the notify too so a
+        // best-effort retry can never crash an event-loop callback.
+        clearStatus(ctx);
         try {
-          pi.sendMessage(
-            { customType: 'stall-recovery-nudge', content: nudge, display: true },
-            ctx.isIdle() ? { triggerTurn: true } : { deliverAs: 'followUp' },
-          );
-        } catch (e) {
-          // The session may have been torn down between agent_end and
-          // this deferred tick (print mode exits right after the turn),
-          // leaving ctx stale so ctx.isIdle() / ctx.ui both throw.
-          // clearStatus already swallows that; guard the notify too so a
-          // best-effort retry can never crash an event-loop callback.
-          clearStatus(ctx);
-          try {
-            ctx.ui.notify(`stall-recovery: failed to deliver retry message: ${String(e)}`, 'error');
-          } catch {
-            // ctx stale; the retry simply didn't fire. Nothing to surface.
-          }
+          ctx.ui.notify(`stall-recovery: failed to deliver retry message: ${String(e)}`, 'error');
+        } catch {
+          // ctx stale; the retry simply didn't fire. Nothing to surface.
         }
-      });
-    } catch (e) {
-      // setImmediate scheduling shouldn't throw, but if it does we
-      // clear the status so the user isn't left staring at a stuck
-      // "retrying…" footer. Surface the failure so it's visible.
-      clearStatus(ctx);
-      ctx.ui.notify(`stall-recovery: failed to schedule retry message: ${String(e)}`, 'error');
-    }
+      },
+      onScheduleError: (e) => {
+        // setImmediate scheduling shouldn't throw, but if it does we
+        // clear the status so the user isn't left staring at a stuck
+        // "retrying…" footer. Surface the failure so it's visible.
+        clearStatus(ctx);
+        ctx.ui.notify(`stall-recovery: failed to schedule retry message: ${String(e)}`, 'error');
+      },
+    });
   });
 
   // Break the extended-thinking feedback loop: when the next LLM call

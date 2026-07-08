@@ -105,6 +105,7 @@ import {
   partitionClaims,
 } from '../../../lib/node/pi/verify-detect.ts';
 import { detectHookRules } from '../../../lib/node/pi/verify-hook-detect.ts';
+import { deliverDeferredNudge } from '../../../lib/node/pi/ext/deferred-nudge.ts';
 import { createNotifyOnce } from '../../../lib/node/pi/notify-once.ts';
 import { envTruthy } from '../../../lib/node/pi/parse-env.ts';
 
@@ -213,37 +214,37 @@ export default function verifyBeforeClaim(pi: ExtensionAPI): void {
     const steer = buildSteer(unverified, VERIFY_MARKER);
     if (!steer) return;
 
-    try {
-      // Defer one event-loop tick so we land after the agent loop
-      // unwinds and `ctx.isIdle()` is true. Pi 0.75.4 moved
-      // `agent_end` into the awaited agent lifecycle, so the
-      // synchronous handler still sees `isStreaming === true`. A
-      // direct `pi.sendMessage(..., { deliverAs: 'followUp' })`
-      // would route through the follow-up queue, which the exiting
-      // agent loop does not pull - the steer would surface as a
-      // queued `Follow-up: ⟳ [pi-verify-before-claim]` indicator
-      // instead of triggering a fresh turn.
-      //
-      // Delivery uses a `custom` message type so the nudge does NOT
-      // pollute the editor's up-arrow history. Pi's convertToLlm
-      // serializes `custom` -> a synthetic `user` turn whose content
-      // still carries `VERIFY_MARKER`.
-      setImmediate(() => {
-        try {
-          pi.sendMessage(
-            { customType: VERIFY_CUSTOM_TYPE, content: steer, display: true },
-            ctx.isIdle() ? { triggerTurn: true } : { deliverAs: 'followUp' },
-          );
-          trace(`steered kinds=[${unverified.map((c) => c.kind).join(',')}]`);
-        } catch (e) {
-          ctx.ui.notify(`verify-before-claim: failed to deliver steer: ${String(e)}`, 'error');
-          trace(`deliver-failed: ${String(e)}`);
-        }
-      });
-    } catch (e) {
-      ctx.ui.notify(`verify-before-claim: failed to schedule steer: ${String(e)}`, 'error');
-      trace(`schedule-failed: ${String(e)}`);
-    }
+    // Defer one event-loop tick so we land after the agent loop
+    // unwinds and `ctx.isIdle()` is true. Pi 0.75.4 moved
+    // `agent_end` into the awaited agent lifecycle, so the
+    // synchronous handler still sees `isStreaming === true`. A
+    // direct `pi.sendMessage(..., { deliverAs: 'followUp' })`
+    // would route through the follow-up queue, which the exiting
+    // agent loop does not pull - the steer would surface as a
+    // queued `Follow-up: ⟳ [pi-verify-before-claim]` indicator
+    // instead of triggering a fresh turn.
+    //
+    // Delivery uses a `custom` message type so the nudge does NOT
+    // pollute the editor's up-arrow history. Pi's convertToLlm
+    // serializes `custom` -> a synthetic `user` turn whose content
+    // still carries `VERIFY_MARKER`.
+    deliverDeferredNudge({
+      pi,
+      ctx,
+      customType: VERIFY_CUSTOM_TYPE,
+      content: steer,
+      onDelivered: () => {
+        trace(`steered kinds=[${unverified.map((c) => c.kind).join(',')}]`);
+      },
+      onDeliverError: (e) => {
+        ctx.ui.notify(`verify-before-claim: failed to deliver steer: ${String(e)}`, 'error');
+        trace(`deliver-failed: ${String(e)}`);
+      },
+      onScheduleError: (e) => {
+        ctx.ui.notify(`verify-before-claim: failed to schedule steer: ${String(e)}`, 'error');
+        trace(`schedule-failed: ${String(e)}`);
+      },
+    });
   });
 }
 
