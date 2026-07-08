@@ -57,8 +57,8 @@
  *                              event; the avatar still animates emotions.
  */
 
-import { existsSync, readFileSync, readdirSync, renameSync, statSync, writeFileSync } from 'node:fs';
-import { dirname, join, relative } from 'node:path';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import type { ExtensionAPI, ExtensionContext, Theme } from '@earendil-works/pi-coding-agent';
@@ -74,6 +74,7 @@ import { isHelpArg } from '../../../lib/node/pi/commands/help.ts';
 import type { AsciiFrameMap } from '../../../lib/node/pi/avatar/ascii-yaml.ts';
 import { mergeAsciiFrameMaps, parseSimpleYaml } from '../../../lib/node/pi/avatar/ascii-yaml.ts';
 import { classifyStateDirs, isActivityState, resolveEmoteSet } from '../../../lib/node/pi/avatar/emotes.ts';
+import { SixelCache, buildFrameCached } from '../../../lib/node/pi/avatar/cache.ts';
 import {
   type TextMeasure,
   buildImageFrame,
@@ -210,104 +211,9 @@ function listPngs(dir: string): string[] {
 // bounded and lets a font/DPI change land in a fresh file instead of bloating
 // one forever.
 
-interface SixelCacheEntry {
-  seq: string;
-  rows: number;
-}
-interface SixelCacheFile {
-  v: number;
-  cols: number;
-  dstW: number;
-  entries: Record<string, SixelCacheEntry>;
-}
-
-class SixelCache {
-  private readonly file: string;
-  private readonly entries = new Map<string, SixelCacheEntry>();
-  private dirty = false;
-  constructor(
-    private readonly setDir: string,
-    private readonly cols: number,
-    private readonly dstW: number,
-    variant: string,
-  ) {
-    this.file = join(setDir, `.sixel-cache-${dstW}${variant}.json`);
-    const data = readJson(this.file) as SixelCacheFile | null;
-    if (data?.dstW === dstW && data.entries) {
-      for (const [k, v] of Object.entries(data.entries)) {
-        if (v && typeof v.seq === 'string' && typeof v.rows === 'number') this.entries.set(k, v);
-      }
-    }
-  }
-  get size(): number {
-    return this.entries.size;
-  }
-  /** Cache key for a PNG: path relative to the set dir + mtime + size. */
-  private key(pngPath: string): string | null {
-    try {
-      const st = statSync(pngPath);
-      return `${relative(this.setDir, pngPath)}:${Math.round(st.mtimeMs)}:${st.size}`;
-    } catch {
-      return null;
-    }
-  }
-  lookup(pngPath: string): { key: string; entry: SixelCacheEntry | undefined } | null {
-    const key = this.key(pngPath);
-    if (key === null) return null;
-    return { key, entry: this.entries.get(key) };
-  }
-  put(key: string, entry: SixelCacheEntry): void {
-    this.entries.set(key, entry);
-    this.dirty = true;
-  }
-  /** Merge our additions over whatever is on disk now, then write atomically. */
-  flush(): void {
-    if (!this.dirty) return;
-    try {
-      const onDisk = readJson(this.file) as SixelCacheFile | null;
-      const merged: Record<string, SixelCacheEntry> =
-        onDisk && onDisk.dstW === this.dstW && onDisk.entries ? { ...onDisk.entries } : {};
-      for (const [k, v] of this.entries) merged[k] = v;
-      const out: SixelCacheFile = { v: 1, cols: this.cols, dstW: this.dstW, entries: merged };
-      const tmp = `${this.file}.tmp${process.pid}`;
-      writeFileSync(tmp, JSON.stringify(out));
-      renameSync(tmp, this.file);
-      this.dirty = false;
-    } catch {
-      /* cache is best-effort; never break the session */
-    }
-  }
-}
-
 // Sixel cache for the currently-loaded set/width. Created in discoverImageStore,
 // flushed on session_shutdown (and before any same-process rebuild).
 let activeSixelCache: SixelCache | null = null;
-
-// Build a frame for `pngPath`, serving the sixel sequence from `cache` on a hit
-// (skips read + decode + encode entirely). Misses fall through to buildImageFrame
-// and populate the cache.
-function buildFrameCached(
-  pngPath: string,
-  protocol: Protocol,
-  cols: number,
-  cell: { widthPx: number; heightPx: number },
-  cache: SixelCache | null,
-): RenderedFrame | null {
-  if (protocol === 'sixel' && cache) {
-    const looked = cache.lookup(pngPath);
-    if (looked) {
-      if (looked.entry) {
-        return { kind: 'image', sequence: looked.entry.seq, rows: looked.entry.rows, style: 'sixel' };
-      }
-      const frame = buildImageFrame(pngPath, protocol, cols, cell);
-      if (frame?.kind === 'image' && frame.style === 'sixel') {
-        cache.put(looked.key, { seq: frame.sequence, rows: frame.rows });
-      }
-      return frame;
-    }
-  }
-  return buildImageFrame(pngPath, protocol, cols, cell);
-}
 
 function discoverImageStore(setDir: string, protocol: Protocol, cols: number): BuiltStore {
   const cell = getCellDimensions();
