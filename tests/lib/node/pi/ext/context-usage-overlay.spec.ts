@@ -1,6 +1,6 @@
 /**
  * Deterministic render tests for the ContextOverlay viewport windowing
- * (config/pi/extensions/context-usage.ts). Model-independent: builds a
+ * (lib/node/pi/ext/context-usage-overlay.ts). Model-independent: builds a
  * synthetic breakdown with more categories + longer leaf content than a short
  * terminal can show and asserts the tree view and the content viewer both stay
  * within the viewport budget with scroll indicators.
@@ -11,8 +11,8 @@ import { expect, test } from 'vitest';
 import type { Theme } from '@earendil-works/pi-coding-agent';
 import type { TUI } from '@earendil-works/pi-tui';
 
-import { ContextOverlay } from '../../../../config/pi/extensions/context-usage.ts';
-import type { Breakdown, CategoryNode } from '../../../../lib/node/pi/context-usage/types.ts';
+import { ContextOverlay } from '../../../../../lib/node/pi/ext/context-usage-overlay.ts';
+import type { Breakdown, CategoryNode } from '../../../../../lib/node/pi/context-usage/types.ts';
 
 const theme = { fg: (_t: string, s: string): string => s, bold: (s: string): string => s } as unknown as Theme;
 
