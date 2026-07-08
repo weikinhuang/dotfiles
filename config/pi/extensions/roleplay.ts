@@ -179,6 +179,11 @@ import {
   upsertEntry,
 } from '../../../lib/node/pi/roleplay/store.ts';
 import { ROLEPLAY_USAGE } from '../../../lib/node/pi/roleplay/usage.ts';
+import {
+  collectRoleMessageTexts,
+  concatRecentMessageText,
+  messageContentToText,
+} from '../../../lib/node/pi/message-text.ts';
 import { truncate } from '../../../lib/node/pi/shared.ts';
 
 // ──────────────────────────────────────────────────────────────────────
@@ -697,25 +702,6 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
     return { systemPrompt: [event.systemPrompt, ...additions].join('\n\n') };
   });
 
-  /** Concatenate the text content of the last `n` messages for depth-lore scanning. */
-  const recentText = (messages: readonly unknown[], n: number): string => {
-    const parts: string[] = [];
-    for (const m of messages.slice(-Math.max(1, n))) {
-      const content = (m as { content?: unknown }).content;
-      if (typeof content === 'string') {
-        parts.push(content);
-      } else if (Array.isArray(content)) {
-        for (const part of content) {
-          if (part && typeof part === 'object' && (part as { type?: unknown }).type === 'text') {
-            const text = (part as { text?: unknown }).text;
-            if (typeof text === 'string') parts.push(text);
-          }
-        }
-      }
-    }
-    return parts.join('\n');
-  };
-
   /** Depth-tagged fired lore for the current turn, budgeted, as inject chunks. */
   const buildDepthLore = (scanText: string): LoreDepthChunk[] => {
     if (!lorebookEnabled) return [];
@@ -728,28 +714,6 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
       .filter((c) => c.body.length > 0);
     const { kept } = selectWithinBudget(chunks, loadRoleplayConfig(cwd, envCharBudget).loreCharBudget);
     return kept.map((c) => ({ name: c.entry.name, body: c.body, depth: c.entry.lore?.depth ?? 0 }));
-  };
-
-  /** The most-recent assistant replies (text only), last `window` of them, for repetition scanning. */
-  const collectAssistantTexts = (messages: readonly unknown[], window: number): string[] => {
-    const texts: string[] = [];
-    for (const m of messages) {
-      if ((m as { role?: unknown }).role !== 'assistant') continue;
-      const content = (m as { content?: unknown }).content;
-      if (typeof content === 'string') {
-        if (content.trim().length > 0) texts.push(content);
-      } else if (Array.isArray(content)) {
-        const parts: string[] = [];
-        for (const part of content) {
-          if (part && typeof part === 'object' && (part as { type?: unknown }).type === 'text') {
-            const text = (part as { text?: unknown }).text;
-            if (typeof text === 'string') parts.push(text);
-          }
-        }
-        if (parts.length > 0) texts.push(parts.join('\n'));
-      }
-    }
-    return texts.slice(-Math.max(1, window));
   };
 
   /** N-gram exclusion set built from the cast's character bodies (signature phrases are never flagged). */
@@ -770,7 +734,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
   const buildRepetitionNudge = (messages: readonly unknown[]): string | null => {
     const cfg = loadRoleplayConfig(cwd, envCharBudget);
     if (!cfg.repetitionEnabled) return null;
-    const texts = collectAssistantTexts(messages, cfg.repetitionWindow);
+    const texts = collectRoleMessageTexts(messages, { role: 'assistant', window: cfg.repetitionWindow });
     if (texts.length === 0) return null;
     const phrases = detectRepetition(texts, sheetExcludeSet(cfg.repetitionNgram), {
       ngram: cfg.repetitionNgram,
@@ -894,19 +858,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
   /** Flatten an `AgentMessage` into a `{role, text}` pair for the summarizer (drops non-text parts). */
   const toSummarizable = (m: unknown): SummarizableMessage => {
     const role = typeof (m as { role?: unknown }).role === 'string' ? (m as { role: string }).role : 'unknown';
-    const content = (m as { content?: unknown }).content;
-    const parts: string[] = [];
-    if (typeof content === 'string') {
-      parts.push(content);
-    } else if (Array.isArray(content)) {
-      for (const part of content) {
-        if (part && typeof part === 'object' && (part as { type?: unknown }).type === 'text') {
-          const text = (part as { text?: unknown }).text;
-          if (typeof text === 'string') parts.push(text);
-        }
-      }
-    }
-    return { role, text: parts.join('\n') };
+    return { role, text: messageContentToText((m as { content?: unknown }).content, '\n') };
   };
 
   // ── Rolling context-window helpers (bounded recap mode + condense floor) ─
@@ -1979,7 +1931,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
         const insertions = buildInsertions({
           authorNote: persona?.authorNote ? substituteMacros(persona.authorNote, macroCtx()) : undefined,
           authorNoteDepth: persona?.authorNoteDepth,
-          lore: buildDepthLore(recentText(messages as unknown as readonly unknown[], scanDepth)),
+          lore: buildDepthLore(concatRecentMessageText(messages as unknown as readonly unknown[], scanDepth)),
         });
         if (insertions.length > 0) {
           messages = applyInsertions(messages, insertions, (text) => ({
@@ -2682,7 +2634,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
         const gen = getEventGenerator(ctx);
         if (gen?.isEnabled()) {
           const task = buildEventTask({
-            recentScene: recentText(lastMessages, cfg.scanDepth),
+            recentScene: concatRecentMessageText(lastMessages, cfg.scanDepth),
             sheets: characterSummaries(),
             openThreads: openThreadsForCast(),
             ...(hint ? { hint } : {}),
