@@ -58,9 +58,7 @@ import {
   type ExtensionAPI,
   type ExtensionContext,
   getAgentDir,
-  type ModelRegistry,
   parseFrontmatter,
-  type ResourceLoader,
   SessionManager,
 } from '@earendil-works/pi-coding-agent';
 import { Text } from '@earendil-works/pi-tui';
@@ -151,29 +149,12 @@ import {
   loadAgents,
   makeNodeReadLayer,
 } from '../../../lib/node/pi/subagent/loader.ts';
+import { piCreateAgentSession } from '../../../lib/node/pi/ext/pi-session.ts';
 import { createPersistedSubagentSessionManager } from '../../../lib/node/pi/subagent/session-dir.ts';
-import {
-  adaptCreateAgentSession,
-  resolveChildModel,
-  runOneShotAgent,
-  type AgentSessionLike,
-} from '../../../lib/node/pi/subagent/spawn.ts';
+import { resolveChildModel, runOneShotAgent, type AgentSessionLike } from '../../../lib/node/pi/subagent/spawn.ts';
 import { truncate } from '../../../lib/node/pi/shared.ts';
 import { shQuote } from '../../../lib/node/pi/util.ts';
 import { envTruthy } from '../../../lib/node/pi/parse-env.ts';
-
-/**
- * Pi's `createAgentSession` types `modelRegistry` as the concrete
- * `ModelRegistry` class, while `lib/node/pi/subagent/spawn.ts` uses a
- * pi-free structural `ModelRegistryLike` so the helper can stay
- * unit-testable without pi imports (see `lib/AGENTS.md`). The two
- * shapes are compatible at runtime - pi's `ModelRegistry` satisfies
- * `ModelRegistryLike` - but not structurally assignable, so we bridge
- * them with a thin wrapper that casts `modelRegistry` at the call.
- */
-const piCreateAgentSession = adaptCreateAgentSession<Model<any>, SessionManager, ModelRegistry, ResourceLoader>(
-  createAgentSession,
-);
 
 /** Usage string shown on a bare `/research` invocation. */
 const USAGE =
