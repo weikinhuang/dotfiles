@@ -94,6 +94,15 @@ import { isInTmux, wrapForTmux } from '../../../lib/node/pi/avatar/tmux.ts';
 import { resolveProtocol } from '../../../lib/node/pi/avatar/terminal.ts';
 import { bashCommandToState, formatToolTally, toolNameToState } from '../../../lib/node/pi/avatar/state.ts';
 import type { ActivityState, AvatarConfig, Protocol } from '../../../lib/node/pi/avatar/types.ts';
+import {
+  type BuiltStore,
+  type FrameStore,
+  type RenderedFrame,
+  asciiFramesToLines,
+  lazyImageState,
+  readyState,
+  wrapIndex,
+} from '../../../lib/node/pi/avatar/store.ts';
 import { piAgentPath, piProjectPath } from '../../../lib/node/pi/pi-paths.ts';
 import { fmtSi } from '../../../lib/node/pi/token-format.ts';
 import { envTruthy } from '../../../lib/node/pi/parse-env.ts';
@@ -102,24 +111,6 @@ import { isModalUiActive, resetModalUi } from '../../../lib/node/pi/ui-activity.
 // ──────────────────────────────────────────────────────────────────────
 // Types
 // ──────────────────────────────────────────────────────────────────────
-
-type RenderedFrame =
-  | { kind: 'image'; sequence: string; rows: number; style: 'kitty' | 'iterm2' | 'sixel' }
-  | { kind: 'halfblock'; cells: string[]; rows: number }
-  | { kind: 'text'; lines: string[] };
-
-interface LoadedState {
-  /** Number of frames in this state (known without materialising them). */
-  readonly length: number;
-  /** Materialise (and memoise) the frame at `index`, or null if absent. */
-  frameAt(index: number): RenderedFrame | null;
-}
-type FrameStore = Map<string, LoadedState>;
-
-interface BuiltStore {
-  store: FrameStore;
-  emotions: string[];
-}
 
 /** Minimal shape of a mutable assistant content part we rewrite/scrub. */
 interface MutablePart {
@@ -366,33 +357,6 @@ function buildFrameCached(
   return buildImageFrame(pngPath, protocol, cols, cell);
 }
 
-// A state whose frames are already materialised (ASCII/text - cheap to build).
-function readyState(frames: RenderedFrame[]): LoadedState {
-  return {
-    length: frames.length,
-    frameAt: (i) => (i >= 0 && i < frames.length ? frames[i] : null),
-  };
-}
-
-// A state whose image frames are built on first display and memoised for the
-// rest of the session (animation ticks re-hit the memo, never re-encode).
-function lazyImageState(paths: string[], build: (pngPath: string) => RenderedFrame | null): LoadedState {
-  const memo: (RenderedFrame | null | undefined)[] = Array.from<RenderedFrame | null | undefined>({
-    length: paths.length,
-  });
-  return {
-    length: paths.length,
-    frameAt(i) {
-      if (i < 0 || i >= paths.length) return null;
-      const cached = memo[i];
-      if (cached !== undefined) return cached;
-      const built = build(paths[i]);
-      memo[i] = built;
-      return built;
-    },
-  };
-}
-
 function discoverImageStore(setDir: string, protocol: Protocol, cols: number): BuiltStore {
   const cell = getCellDimensions();
   const dstW = Math.max(1, Math.round(cols * cell.widthPx));
@@ -415,12 +379,6 @@ function discoverImageStore(setDir: string, protocol: Protocol, cols: number): B
     }
   }
   return { store, emotions: emotions.filter((name) => store.has(name)) };
-}
-
-function asciiFramesToLines(value: string | string[] | Record<string, string>): string[] {
-  if (typeof value === 'string') return [value];
-  if (Array.isArray(value)) return value;
-  return Object.values(value);
 }
 
 function discoverAsciiStore(setNames: readonly string[], extEmotesDir: string, cwd: string): BuiltStore {
@@ -504,8 +462,7 @@ class AvatarRenderer {
     }
     const loaded = this.store.get(state);
     if (!loaded || loaded.length === 0) return false;
-    const length = loaded.length;
-    const wrapped = ((index % length) + length) % length;
+    const wrapped = wrapIndex(index, loaded.length);
     const frame = loaded.frameAt(wrapped);
     if (!frame) return false;
     this.current = frame;
