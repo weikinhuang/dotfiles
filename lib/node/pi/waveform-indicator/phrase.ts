@@ -291,6 +291,35 @@ export function digestToolCall(toolName: string, args: unknown, maxArgsChars: nu
   return `${name} ${cleanedBody}`;
 }
 
+/** Tool name + {@link digestToolCall} digest for the latest pending tool call. */
+export interface ToolCallDigest {
+  name: string;
+  digest: string;
+}
+
+/**
+ * Extract the most recent `toolCall` part from a streaming partial
+ * AssistantMessage and build a {@link digestToolCall} digest for it.
+ * The `toolcall_start` event fires before pi has finished streaming the
+ * args, so the input map may still be empty - the tool name is surfaced
+ * unconditionally and whatever partial-input string is present feeds the
+ * digest. Returns empty `name` + `digest` when `partial` isn't an object
+ * with a `content` array or carries no tool call.
+ */
+export function digestLatestToolCall(partial: unknown): ToolCallDigest {
+  if (!partial || typeof partial !== 'object') return { name: '', digest: '' };
+  const content = (partial as { content?: unknown }).content;
+  if (!Array.isArray(content)) return { name: '', digest: '' };
+  for (let i = content.length - 1; i >= 0; i--) {
+    const part = content[i] as { type?: string; toolName?: unknown; input?: unknown } | undefined;
+    if (part?.type !== 'toolCall') continue;
+    const name = typeof part.toolName === 'string' ? part.toolName : '';
+    const input = part.input;
+    return { name, digest: digestToolCall(name, input) };
+  }
+  return { name: '', digest: '' };
+}
+
 // ──────────────────────────────────────────────────────────────────────
 // Validator
 // ──────────────────────────────────────────────────────────────────────

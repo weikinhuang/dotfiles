@@ -72,14 +72,10 @@ import { appendFileSync, existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { type Model } from '@earendil-works/pi-ai';
 import {
-  createAgentSession,
   DefaultResourceLoader,
   type ExtensionAPI,
   type ExtensionContext,
-  type ModelRegistry,
-  type ResourceLoader,
   SessionManager,
   getAgentDir,
   parseFrontmatter,
@@ -96,8 +92,9 @@ import {
 import { completeSubverbs } from '../../../lib/node/pi/commands/complete.ts';
 import { isHelpArg } from '../../../lib/node/pi/commands/help.ts';
 import { createPersistedSubagentSessionManager } from '../../../lib/node/pi/subagent/session-dir.ts';
+import { piCreateAgentSession } from '../../../lib/node/pi/ext/pi-session.ts';
 import { WAVEFORM_USAGE } from '../../../lib/node/pi/waveform-indicator/usage.ts';
-import { adaptCreateAgentSession, resolveChildModel, runOneShotAgent } from '../../../lib/node/pi/subagent/spawn.ts';
+import { resolveChildModel, runOneShotAgent } from '../../../lib/node/pi/subagent/spawn.ts';
 import { piAgentDir, piProjectPath } from '../../../lib/node/pi/pi-paths.ts';
 import { buildIndicatorFrames } from '../../../lib/node/pi/waveform-indicator/wave.ts';
 import { shimmerLabel } from '../../../lib/node/pi/waveform-indicator/shimmer.ts';
@@ -114,8 +111,8 @@ import {
   abortInFlight,
   acceptPhrase,
   buildPhrasePrompt,
+  digestLatestToolCall,
   digestPrompt,
-  digestToolCall,
   issueRequest,
   markFiredThisTurn,
   newWaveformPhraseState,
@@ -151,18 +148,10 @@ import {
   newLabelSuffixState,
   resetTurnState,
 } from '../../../lib/node/pi/waveform-indicator/suffix.ts';
+import { resolveThinkingPulseConfig } from '../../../lib/node/pi/waveform-indicator/thinking-pulse.ts';
+import { latestMessageTextFromEntries } from '../../../lib/node/pi/message-text.ts';
 import { envTruthy } from '../../../lib/node/pi/parse-env.ts';
 import { readTextOrNull } from '../../../lib/node/pi/fs-safe.ts';
-
-/**
- * Pi's `createAgentSession` types `modelRegistry` as the concrete
- * `ModelRegistry` class, while `lib/node/pi/subagent/spawn.ts` uses a
- * structural `ModelRegistryLike` so the helper can stay testable
- * without pi imports. Wrap pi's constructor so the types line up.
- */
-const piCreateAgentSession = adaptCreateAgentSession<Model<any>, SessionManager, ModelRegistry, ResourceLoader>(
-  createAgentSession,
-);
 
 type Mode = WaveformMode;
 
@@ -171,34 +160,6 @@ type Mode = WaveformMode;
 // `resolveWaveformStatePath` and pick up a project-local file if the
 // session was started inside a repo that ships one.
 const INITIAL_STATE_PATH = resolveWaveformStatePath({ cwd: process.cwd() });
-
-/**
- * Read `PI_WAVEFORM_THINKING_PULSE` + `PI_WAVEFORM_THINKING_PULSE_HZ`
- * and resolve them into the `{enabled, hz}` shape `formatSuffix`
- * consumes. `PI_WAVEFORM_THINKING_PULSE=off` is the only opt-out; any
- * other value (including unset) leaves the pulse on. A non-finite or
- * `<= 0` Hz value flips `enabled` to false here so we never call
- * `formatSuffix` with `tick` set in a way that would land on the
- * static-peak `cos(0) = 1` frame.
- */
-function resolveThinkingPulseConfig(env: NodeJS.ProcessEnv = process.env): {
-  enabled: boolean;
-  hz: number | undefined;
-} {
-  const rawDisable = env.PI_WAVEFORM_THINKING_PULSE;
-  if (typeof rawDisable === 'string' && rawDisable.toLowerCase() === 'off') {
-    return { enabled: false, hz: undefined };
-  }
-  const rawHz = env.PI_WAVEFORM_THINKING_PULSE_HZ;
-  if (rawHz === undefined || rawHz === '') {
-    return { enabled: true, hz: undefined };
-  }
-  const parsed = Number(rawHz);
-  if (!Number.isFinite(parsed) || parsed <= 0) {
-    return { enabled: false, hz: undefined };
-  }
-  return { enabled: true, hz: parsed };
-}
 
 const FRAME_INTERVAL_MS = 50;
 // Per-mode frame intervals. The label ticker stays at FRAME_INTERVAL_MS
@@ -509,25 +470,7 @@ export default function extension(pi: ExtensionAPI): void {
     } catch {
       return '';
     }
-    for (let i = entries.length - 1; i >= 0; i--) {
-      const e = entries[i];
-      if (e.type !== 'message') continue;
-      const msg = e.message as { role?: string; content?: unknown } | undefined;
-      if (msg?.role !== 'user') continue;
-      const content = msg.content;
-      if (typeof content === 'string') return content;
-      if (Array.isArray(content)) {
-        const parts: string[] = [];
-        for (const part of content) {
-          if (part && typeof part === 'object' && (part as { type?: string }).type === 'text') {
-            const text = (part as { text?: unknown }).text;
-            if (typeof text === 'string') parts.push(text);
-          }
-        }
-        return parts.join(' ');
-      }
-    }
-    return '';
+    return latestMessageTextFromEntries(entries, { role: 'user', sep: ' ' });
   }
 
   /**
@@ -703,27 +646,6 @@ export default function extension(pi: ExtensionAPI): void {
           error: e instanceof Error ? `${e.name}: ${e.message}` : String(e),
         });
       });
-  }
-
-  /**
-   * Extract the most recent ToolCall part from a streaming partial
-   * AssistantMessage. The `toolcall_start` event fires before pi has
-   * finished streaming the args, so the input map may still be empty
-   * - we surface the tool name unconditionally and use whatever
-   * partial-input string is there for the digest.
-   */
-  function digestLatestToolCall(partial: unknown): { name: string; digest: string } {
-    if (!partial || typeof partial !== 'object') return { name: '', digest: '' };
-    const content = (partial as { content?: unknown }).content;
-    if (!Array.isArray(content)) return { name: '', digest: '' };
-    for (let i = content.length - 1; i >= 0; i--) {
-      const part = content[i] as { type?: string; toolName?: unknown; input?: unknown } | undefined;
-      if (part?.type !== 'toolCall') continue;
-      const name = typeof part.toolName === 'string' ? part.toolName : '';
-      const input = part.input;
-      return { name, digest: digestToolCall(name, input) };
-    }
-    return { name: '', digest: '' };
   }
 
   function liveOutputTokens(state: LabelSuffixState): number {

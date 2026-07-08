@@ -14,6 +14,7 @@ import {
   abortInFlight,
   acceptPhrase,
   buildPhrasePrompt,
+  digestLatestToolCall,
   digestPrompt,
   digestToolCall,
   issueRequest,
@@ -168,6 +169,47 @@ describe('digestToolCall', () => {
     const cyclic: Record<string, unknown> = {};
     cyclic.self = cyclic;
     expect(digestToolCall('bash', cyclic)).toBe('bash');
+  });
+});
+
+// ──────────────────────────────────────────────────────────────────────
+// digestLatestToolCall - streaming partial extraction
+// ──────────────────────────────────────────────────────────────────────
+
+describe('digestLatestToolCall', () => {
+  test('surfaces the last toolCall part name + digest', () => {
+    const partial = {
+      content: [
+        { type: 'text', text: 'thinking' },
+        { type: 'toolCall', toolName: 'bash', input: { command: 'ls' } },
+      ],
+    };
+    expect(digestLatestToolCall(partial)).toEqual({ name: 'bash', digest: 'bash {"command":"ls"}' });
+  });
+
+  test('walks backward to the most recent toolCall', () => {
+    const partial = {
+      content: [
+        { type: 'toolCall', toolName: 'read', input: { path: 'a' } },
+        { type: 'toolCall', toolName: 'grep', input: { pattern: 'x' } },
+      ],
+    };
+    expect(digestLatestToolCall(partial).name).toBe('grep');
+  });
+
+  test('missing toolName yields an empty name but still digests input', () => {
+    const partial = { content: [{ type: 'toolCall', input: 'partial-args' }] };
+    expect(digestLatestToolCall(partial)).toEqual({ name: '', digest: 'partial-args' });
+  });
+
+  test('returns empty name + digest when there is no tool call', () => {
+    expect(digestLatestToolCall({ content: [{ type: 'text', text: 'hi' }] })).toEqual({ name: '', digest: '' });
+  });
+
+  test('returns empty name + digest for non-object / non-array-content inputs', () => {
+    expect(digestLatestToolCall(undefined)).toEqual({ name: '', digest: '' });
+    expect(digestLatestToolCall('nope')).toEqual({ name: '', digest: '' });
+    expect(digestLatestToolCall({ content: 'nope' })).toEqual({ name: '', digest: '' });
   });
 });
 
