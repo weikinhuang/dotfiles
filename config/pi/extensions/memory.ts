@@ -92,16 +92,14 @@ import {
   shouldNudgeCapture,
 } from '../../../lib/node/pi/memory-capture.ts';
 import { formatMemoryIndex } from '../../../lib/node/pi/memory-prompt.ts';
+import { validateSaveParams } from '../../../lib/node/pi/memory/save.ts';
 import { MEMORY_USAGE } from '../../../lib/node/pi/memory/usage.ts';
 import {
   cloneState,
   DEFAULT_STALE_DAYS,
-  defaultMemoryScope,
-  defaultMemoryTypeForScope,
   emptyState,
   entryAgeDays,
   formatText,
-  isMemoryTypeAllowedInScope,
   isStaleEntry,
   MEMORY_CUSTOM_TYPE,
   type MemoryEntry,
@@ -461,62 +459,20 @@ export default function memoryExtension(pi: ExtensionAPI): void {
 
   const actSave = (params: MemoryParamsT): { content: string; details: MemoryDetails; isError?: boolean } => {
     if (readOnly) return readOnlyError('save');
-    // Resolve scope+type together so an explicit `scope: session` can
-    // default `type` to `note` (the only type valid there).
-    const type = params.type ?? (params.scope ? defaultMemoryTypeForScope(params.scope) : undefined);
-    if (!type) {
+    const validated = validateSaveParams(params, sessionId);
+    if (!validated.ok) {
       return {
-        content: 'Error: `type` is required for `save`',
-        details: { action: 'save', state: cloneState(state), error: '`type` is required' },
+        content: validated.content,
+        details: { action: 'save', state: cloneState(state), error: validated.error },
         isError: true,
       };
     }
-    if (!params.name || params.name.trim().length === 0) {
-      return {
-        content: 'Error: `name` is required for `save`',
-        details: { action: 'save', state: cloneState(state), error: '`name` is required' },
-        isError: true,
-      };
-    }
-    const description = (params.description ?? '').trim();
-    if (description.length === 0) {
-      return {
-        content: 'Error: `description` is required for `save` (used as the one-line hook in MEMORY.md)',
-        details: { action: 'save', state: cloneState(state), error: '`description` is required' },
-        isError: true,
-      };
-    }
-    const body = (params.body ?? '').trim();
-    if (body.length === 0) {
-      return {
-        content: 'Error: `body` is required for `save`',
-        details: { action: 'save', state: cloneState(state), error: '`body` is required' },
-        isError: true,
-      };
-    }
-    const scope = params.scope ?? defaultMemoryScope(type);
-    if (!isMemoryTypeAllowedInScope(type, scope)) {
-      const error = `type "${type}" cannot be saved in scope "${scope}"`;
-      return {
-        content: `Error: ${error}`,
-        details: { action: 'save', state: cloneState(state), error },
-        isError: true,
-      };
-    }
-    if (scope === 'session' && !sessionId) {
-      const error =
-        'session memory is disabled: no active session id (running pi with --no-session?). Use scope `project` for durable notes instead.';
-      return {
-        content: `Error: ${error}`,
-        details: { action: 'save', state: cloneState(state), error },
-        isError: true,
-      };
-    }
+    const { type, scope, name, description, body } = validated;
     // Non-blocking duplicate check, scoped to the same scope+type.
     // (Secret-shaped content is gated upstream by the secret-redactor
     // extension's tool-arg guard, so memory never needs its own check.)
     const similar = findSimilarMemories(
-      { name: params.name.trim(), description, body },
+      { name, description, body },
       bucketFor(state.index, scope).filter((e) => e.type === type),
       (e) => readMemoryBody(e, cwd, sessionId),
     );
@@ -527,11 +483,11 @@ export default function memoryExtension(pi: ExtensionAPI): void {
         `Note: this looks similar to existing memory ${ids}. Consider \`update\`-ing instead of saving a duplicate.`,
       );
     }
-    const slug = chooseMemorySlug(state, scope, params.name);
+    const slug = chooseMemorySlug(state, scope, name);
     // New memory: stamp both timestamps with the same instant.
     const stamp = now().toISOString();
     const serialized = serializeMemory({
-      name: params.name.trim(),
+      name,
       description,
       type,
       body,
@@ -543,7 +499,7 @@ export default function memoryExtension(pi: ExtensionAPI): void {
       id: slug,
       scope,
       type,
-      name: params.name.trim(),
+      name,
       description,
       created: stamp,
       updated: stamp,
