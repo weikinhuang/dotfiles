@@ -124,8 +124,9 @@ import {
 } from '../../../lib/node/pi/bg-bash-reducer.ts';
 import { RingBuffer } from '../../../lib/node/pi/bg-bash-ring.ts';
 import { SIGNALS, type SignalName } from '../../../lib/node/pi/bg-bash/signals.ts';
+import { resolveCwd } from '../../../lib/node/pi/bg-bash/resolve-cwd.ts';
+import { formatLogsText, formatStartResult, formatWaitResult } from '../../../lib/node/pi/bg-bash/results.ts';
 import { envTruthy } from '../../../lib/node/pi/parse-env.ts';
-import { expandTilde } from '../../../lib/node/pi/path-expand.ts';
 import { piAgentPath } from '../../../lib/node/pi/pi-paths.ts';
 import { truncate } from '../../../lib/node/pi/shared.ts';
 
@@ -291,17 +292,6 @@ function errorReturn(action: BgBashAction, message: string): ToolReturn {
     details: { jobs: [], nextId: 1, action, error: message },
     isError: true,
   };
-}
-
-function resolveCwd(agentCwd: string, supplied: string | undefined): string {
-  if (!supplied) return agentCwd;
-  if (supplied.startsWith('/')) return supplied;
-  // Leading `~` / `~/` expands against the real home via the shared
-  // path-expand helper; `join` normalizes so the resolved path matches
-  // the previous hand-rolled `join(homedir(), …)` byte for byte.
-  const expanded = expandTilde(supplied, homedir());
-  if (expanded !== supplied) return join(expanded);
-  return join(agentCwd, supplied);
 }
 
 /**
@@ -823,7 +813,7 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
       return errorReturn('start', wrap.reason ?? 'Blocked by sandbox');
     }
 
-    const cwd = resolveCwd(ctx.cwd, params.cwd);
+    const cwd = resolveCwd(ctx.cwd, params.cwd, homedir());
     const summary = startJob({
       command,
       spawnCommand: wrap.wrapped ? wrap.command : undefined,
@@ -841,10 +831,7 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
       action: 'start',
       job: cloneSummary(summary),
     };
-    const text =
-      summary.status === 'error'
-        ? `Failed to start: ${summary.error ?? 'unknown error'}`
-        : `Started [${summary.id}] pid ${summary.pid ?? '?'}: ${truncate(summary.command, 120)}`;
+    const text = formatStartResult(summary);
     return { content: [{ type: 'text', text }], details, isError: summary.status === 'error' };
   };
 
@@ -939,12 +926,21 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
       droppedBefore,
       logExcerpt: content,
     };
-    const header = `--- [${id}] ${stream}: ${totalBytes} bytes total, ${droppedBytes} dropped from memory${
-      droppedBefore ? ' (your cursor was evicted - fall back to logFile)' : ''
-    } ---`;
-    const tailNote = summary.logFile ? `\n--- full log: ${summary.logFile} ---` : '';
     return {
-      content: [{ type: 'text', text: `${header}\n${content}${tailNote}` }],
+      content: [
+        {
+          type: 'text',
+          text: formatLogsText({
+            id,
+            stream,
+            totalBytes,
+            droppedBytes,
+            droppedBefore,
+            content,
+            logFile: summary.logFile,
+          }),
+        },
+      ],
       details,
     };
   };
@@ -1004,9 +1000,7 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
       timedOut,
       logExcerpt: timedOut ? undefined : tailN(mergeBgBashStreams(job, 'merged'), 20),
     };
-    const text = timedOut
-      ? `Still running after ${timeoutMs}ms: ${formatJobLine(fresh, Date.now())}`
-      : `Exited: ${formatJobLine(fresh, Date.now())}`;
+    const text = formatWaitResult(fresh, { timedOut, timeoutMs }, Date.now());
     return { content: [{ type: 'text', text }], details };
   };
 
