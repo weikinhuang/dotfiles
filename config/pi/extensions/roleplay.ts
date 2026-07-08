@@ -66,6 +66,11 @@ import { isHelpArg } from '../../../lib/node/pi/commands/help.ts';
 import { envTruthy, parseClampedPositiveInt } from '../../../lib/node/pi/parse-env.ts';
 import { getActivePersona } from '../../../lib/node/pi/persona/active.ts';
 import { clearActiveRoleplay, setActiveRoleplay } from '../../../lib/node/pi/roleplay/active.ts';
+import {
+  type BranchRecap,
+  scanBranchForRecap,
+  scanBranchForTimeline,
+} from '../../../lib/node/pi/roleplay/branch-hydration.ts';
 import { clearAvatarInput, setAvatarInput } from '../../../lib/node/pi/avatar/input.ts';
 import { COMFYUI_IMAGE_CHANNEL, isImageGeneratedEvent } from '../../../lib/node/pi/comfyui/events.ts';
 import { loadRoleplayConfig } from '../../../lib/node/pi/roleplay/config.ts';
@@ -1514,73 +1519,27 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
     // resuming a long pre-file-store session cold-starts at recapCutoff 0 and
     // the drop boundary never engages (observed: a 1674-message scene overflowed
     // the model window). Scans newest-first for the last applied recap.
-    const hydrateRecapFromBranch = (
-      c: { sessionManager?: unknown },
-      natural: number,
-    ): { recap: string; coveredTo: number } | null => {
+    // Materialise the active branch entries (`getBranch()` returns only the
+    // active root-to-leaf path). The pure newest-first scans live in
+    // `roleplay/branch-hydration.ts`; this glue owns just the pi call + guard.
+    const getBranchEntries = (c: { sessionManager?: unknown }): Record<string, unknown>[] | null => {
       let entries: Record<string, unknown>[] | undefined;
       try {
         entries = (c.sessionManager as { getBranch?: () => Record<string, unknown>[] } | undefined)?.getBranch?.();
       } catch {
         entries = undefined;
       }
-      if (!Array.isArray(entries)) return null;
-      for (let i = entries.length - 1; i >= 0; i--) {
-        const e = entries[i];
-        if (e?.type !== 'custom') continue;
-        // `/roleplay newscene` stamps a marker on the branch. Scanning
-        // newest-first, hitting it before any recap means there is no recap
-        // since the last newscene -> cold start. It shadows all older recap
-        // entries, which we cannot delete from the branch. Branch-consistent
-        // (the marker forks with its path) and survives a reload.
-        if (e.customType === 'roleplay-newscene') return null;
-        const ct = e.customType;
-        if (ct !== 'roleplay-context-recap' && ct !== 'rp-context-recap') continue;
-        const data = e.data as
-          | { recap?: unknown; coveredTo?: unknown; applied?: unknown; forced?: unknown }
-          | undefined;
-        // A force-accepted roll (circuit-breaker) commits its recap + coverage in
-        // memory but is logged `applied=false` (that is the raw acceptRecap
-        // verdict) with `forced=true`. Treat it as committed on reload, else the
-        // drain progress it made is discarded and coverage resets to the last
-        // organically-accepted entry every reload.
-        if (data?.applied === false && data?.forced !== true) continue;
-        const text = typeof data?.recap === 'string' ? data.recap.trim() : '';
-        if (!text) continue;
-        const coveredTo = typeof data?.coveredTo === 'number' ? data.coveredTo : 0;
-        return { recap: text, coveredTo: Math.max(0, Math.min(coveredTo, natural)) };
-      }
-      return null;
+      return Array.isArray(entries) ? entries : null;
     };
 
-    // Recover this branch's cumulative timeline from the SESSION BRANCH.
-    // `captureTimeline` stamps the full cumulative timeline text into each
-    // `roleplay-timeline` audit entry, and `getBranch()` only returns entries
-    // on the active root-to-leaf path, so a resume/fork rehydrates the
-    // timeline that belongs to ITS path - not a sibling branch's or the
-    // branch-blind carry-over. Scans newest-first for the latest non-empty
-    // timeline snapshot. Mirrors `hydrateRecapFromBranch`.
+    const hydrateRecapFromBranch = (c: { sessionManager?: unknown }, natural: number): BranchRecap | null => {
+      const entries = getBranchEntries(c);
+      return entries ? scanBranchForRecap(entries, natural) : null;
+    };
+
     const hydrateTimelineFromBranch = (c: { sessionManager?: unknown }): string | null => {
-      let entries: Record<string, unknown>[] | undefined;
-      try {
-        entries = (c.sessionManager as { getBranch?: () => Record<string, unknown>[] } | undefined)?.getBranch?.();
-      } catch {
-        entries = undefined;
-      }
-      if (!Array.isArray(entries)) return null;
-      for (let i = entries.length - 1; i >= 0; i--) {
-        const e = entries[i];
-        if (e?.type !== 'custom') continue;
-        // Newscene marker shadows all older timeline snapshots (see
-        // hydrateRecapFromBranch): a fresh scene must not resurrect the
-        // archived timeline off the still-present branch entries.
-        if (e.customType === 'roleplay-newscene') return null;
-        if (e.customType !== 'roleplay-timeline') continue;
-        const data = e.data as { timeline?: unknown } | undefined;
-        const text = typeof data?.timeline === 'string' ? data.timeline.trim() : '';
-        if (text) return text;
-      }
-      return null;
+      const entries = getBranchEntries(c);
+      return entries ? scanBranchForTimeline(entries) : null;
     };
 
     pi.on('context', async (event, ctx) => {
