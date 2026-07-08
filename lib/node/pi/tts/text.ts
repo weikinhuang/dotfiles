@@ -48,6 +48,21 @@ export function extractDialogue(raw: string): string {
   return spans.join(' ').trim();
 }
 
+/**
+ * Flatten a pi message `content` value to the plain text the tts
+ * pipeline speaks. Only array content is handled: each `{ type: 'text' }`
+ * part contributes its `text` (missing text coerces to `''`), joined with
+ * newlines. Non-array content (a bare string, undefined, ...) yields `''`
+ * so tts only ever narrates structured assistant parts.
+ */
+export function joinText(content: unknown): string {
+  if (!Array.isArray(content)) return '';
+  return content
+    .filter((p) => (p as { type?: string }).type === 'text')
+    .map((p) => (p as { text?: string }).text ?? '')
+    .join('\n');
+}
+
 /** Detect an OOC pause/resume marker in a message; `null` if neither. Resume wins. */
 export function detectOoc(text: string): 'pause' | 'resume' | null {
   if (!text) return null;

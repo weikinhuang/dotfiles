@@ -15,8 +15,28 @@ import {
   extractProse,
   chunkProse,
   extractSegments,
+  joinText,
   planSegmentRuns,
 } from '../../../../../lib/node/pi/tts/text.ts';
+
+test('joinText: concatenates text parts with newlines', () => {
+  expect(
+    joinText([
+      { type: 'text', text: 'a' },
+      { type: 'text', text: 'b' },
+    ]),
+  ).toBe('a\nb');
+});
+
+test('joinText: keeps only text parts and coerces missing text to empty', () => {
+  expect(joinText([{ type: 'text', text: 'a' }, { type: 'image', url: 'x' }, { type: 'text' }])).toBe('a\n');
+});
+
+test('joinText: non-array content (including a bare string) yields empty', () => {
+  expect(joinText('hello')).toBe('');
+  expect(joinText(undefined)).toBe('');
+  expect(joinText(null)).toBe('');
+});
 
 /** A single deep-equality case: name, lazily-evaluated actual, expected. */
 type Case = [name: string, got: () => unknown, want: unknown];

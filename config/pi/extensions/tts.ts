@@ -49,13 +49,16 @@ import {
   extractProse,
   chunkProse,
   extractSegments,
+  joinText,
   planSegmentRuns,
 } from '../../../lib/node/pi/tts/text.ts';
+import { capHint, reachText } from '../../../lib/node/pi/tts/status.ts';
 import type { ResolvedVoice, TtsConfig } from '../../../lib/node/pi/tts/types.ts';
 import { TTS_USAGE } from '../../../lib/node/pi/tts/usage.ts';
 
 import { AVATAR_EMOTE_CHANNEL, isEmoteSignal } from '../../../lib/node/pi/avatar/emote-events.ts';
 import { completeSubverbs } from '../../../lib/node/pi/commands/complete.ts';
+import { createGlobalSlot } from '../../../lib/node/pi/global-slot.ts';
 import { isHelpArg } from '../../../lib/node/pi/commands/help.ts';
 import { envTruthy } from '../../../lib/node/pi/parse-env.ts';
 import { makeDiagnostics } from '../../../lib/node/pi/recovery-diagnostics.ts';
@@ -93,41 +96,6 @@ export function isRoleplayActive(): boolean {
   }
 }
 
-function joinText(content: unknown): string {
-  if (!Array.isArray(content)) return '';
-  return content
-    .filter((p) => (p as { type?: string }).type === 'text')
-    .map((p) => (p as { text?: string }).text ?? '')
-    .join('\n');
-}
-
-/**
- * Render a reachability probe for `/tts status`: the HTTP status when the
- * server answered, a "starting / cold?" hint when the probe timed out (a
- * scale-to-zero or model-loading instance that synth's long timeout would
- * still ride out), or UNREACHABLE on outright connection refusal.
- */
-function reachText(probe: ProbeResult): string {
-  if (probe.status !== undefined) return `reachable (${probe.status})`;
-  return probe.timedOut ? 'no response yet (starting / cold?)' : 'UNREACHABLE';
-}
-
-/**
- * Warn when a voice's kind does not match the instance it is pointed at, which
- * would otherwise 500 silently at synth time: a `preset` voice on a Base model,
- * or a `clone` voice on a CustomVoice model. Empty string = no mismatch / unknown.
- */
-function capHint(resolved: ResolvedVoice, cap: CloneCapabilities | undefined): string {
-  if (!cap) return '';
-  if (resolved.kind === 'preset' && cap.modelType === 'base') {
-    return '  ! preset voice on a Base model -> synth will 500; point it at a CustomVoice instance';
-  }
-  if (resolved.kind === 'clone' && cap.cloneSupported === false) {
-    return '  ! clone voice on a CustomVoice model -> cloning unsupported; point it at a Base instance';
-  }
-  return '';
-}
-
 // ──────────────────────────────────────────────────────────────────────
 // Cross-reload shared state
 // ──────────────────────────────────────────────────────────────────────
@@ -153,23 +121,24 @@ interface TtsState {
   genId: number;
 }
 
-const SLOT = '__ttsState';
+// Anchored on `globalThis` via the shared slot helper so the player
+// handle, pause flag, and emote cache survive a `/reload` (pi's loader
+// gives each extension its own jiti copy with module-level state reset).
+const getTtsState = createGlobalSlot<TtsState>('@dotfiles/pi/tts/state', () => ({
+  player: null,
+  paused: false,
+  rpEnabled: envTruthy(process.env.PI_RP_TTS),
+  narrateEnabled: envTruthy(process.env.PI_TTS_NARRATE),
+  rpVoiceOverride: undefined,
+  narrationVoiceOverride: undefined,
+  weightsSetFor: null,
+  lastEmote: undefined,
+  lastEmoteAt: 0,
+  genId: 0,
+}));
 
 function state(): TtsState {
-  const g = globalThis as unknown as Record<string, TtsState | undefined>;
-  g[SLOT] ??= {
-    player: null,
-    paused: false,
-    rpEnabled: envTruthy(process.env.PI_RP_TTS),
-    narrateEnabled: envTruthy(process.env.PI_TTS_NARRATE),
-    rpVoiceOverride: undefined,
-    narrationVoiceOverride: undefined,
-    weightsSetFor: null,
-    lastEmote: undefined,
-    lastEmoteAt: 0,
-    genId: 0,
-  };
-  return g[SLOT];
+  return getTtsState();
 }
 
 function killPlayer(st: TtsState): void {
