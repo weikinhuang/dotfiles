@@ -76,3 +76,40 @@ export function classifyStopReason(input: ClassifyStopReasonInput): StopReason {
   if (input.error) return 'error';
   return 'completed';
 }
+
+export interface ResolveFinalTextInput {
+  stopReason: StopReason;
+  /** The extracted final assistant text (may be empty). */
+  finalText: string;
+  /** Agent name, for the synthesized fallback messages. */
+  agent: string;
+  /** Turn cap, surfaced in the `max_turns` fallback line. */
+  maxTurns: number;
+  /** Error aggregated from the child's `message_end` errorMessage events. */
+  errorFromChild?: string;
+  /** Message from a thrown child error (drive()'s catch), if any. */
+  childErrorMessage?: string;
+}
+
+/**
+ * Resolve the parent-visible answer text for a finished child run. When
+ * the child produced a non-empty final assistant answer we return it
+ * verbatim; otherwise we synthesize a terminal-state fallback so the
+ * parent always gets a readable line for an `error` / `max_turns` /
+ * `aborted` run that never emitted a final answer. A `completed` run with
+ * empty text stays empty - the caller decides what to show.
+ */
+export function resolveFinalText(input: ResolveFinalTextInput): string {
+  const { stopReason, finalText, agent, maxTurns, errorFromChild, childErrorMessage } = input;
+  if (finalText.length > 0) return finalText;
+  if (stopReason === 'error') {
+    return `subagent ${agent}: ${errorFromChild ?? childErrorMessage ?? 'child session errored'}`;
+  }
+  if (stopReason === 'max_turns') {
+    return `subagent ${agent} exhausted its ${maxTurns}-turn budget without producing a final answer.`;
+  }
+  if (stopReason === 'aborted') {
+    return `subagent ${agent} was aborted.`;
+  }
+  return finalText;
+}

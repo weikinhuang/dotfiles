@@ -137,6 +137,7 @@ import {
 import {
   classifyStopReason,
   extractFinalAssistantText,
+  resolveFinalText,
   type AgentMessageLike,
 } from '../../../lib/node/pi/subagent/result.ts';
 import {
@@ -1106,14 +1107,14 @@ export default function subagentExtension(pi: ExtensionAPI): void {
 
       // ── Extract final answer text + terminate child ─────────────────
       const messages = child.state.messages as unknown as AgentMessageLike[];
-      let finalText = extractFinalAssistantText(messages);
-      if (stopReason === 'error' && finalText.length === 0) {
-        finalText = `subagent ${agent.name}: ${agg.errorFromChild ?? childError?.message ?? 'child session errored'}`;
-      } else if (stopReason === 'max_turns' && finalText.length === 0) {
-        finalText = `subagent ${agent.name} exhausted its ${maxTurns}-turn budget without producing a final answer.`;
-      } else if (stopReason === 'aborted' && finalText.length === 0) {
-        finalText = `subagent ${agent.name} was aborted.`;
-      }
+      const finalText = resolveFinalText({
+        stopReason,
+        finalText: extractFinalAssistantText(messages),
+        agent: agent.name,
+        maxTurns,
+        errorFromChild: agg.errorFromChild,
+        childErrorMessage: childError?.message,
+      });
 
       child.dispose();
       clearActiveAgent();

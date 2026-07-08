@@ -10,6 +10,7 @@ import {
   type AgentMessageLike,
   classifyStopReason,
   extractFinalAssistantText,
+  resolveFinalText,
 } from '../../../../../lib/node/pi/subagent/result.ts';
 
 describe('extractFinalAssistantText', () => {
@@ -88,5 +89,41 @@ describe('classifyStopReason', () => {
 
   test('error lands last before completed', () => {
     expect(classifyStopReason({ error: true })).toBe('error');
+  });
+});
+
+describe('resolveFinalText', () => {
+  const base = { agent: 'explore', maxTurns: 20 };
+
+  test('returns a non-empty final answer verbatim regardless of stopReason', () => {
+    for (const stopReason of ['completed', 'error', 'max_turns', 'aborted'] as const) {
+      expect(resolveFinalText({ ...base, stopReason, finalText: 'the answer' })).toBe('the answer');
+    }
+  });
+
+  test('completed with empty text stays empty', () => {
+    expect(resolveFinalText({ ...base, stopReason: 'completed', finalText: '' })).toBe('');
+  });
+
+  test('error fallback prefers errorFromChild, then childErrorMessage, then a default', () => {
+    expect(resolveFinalText({ ...base, stopReason: 'error', finalText: '', errorFromChild: 'boom' })).toBe(
+      'subagent explore: boom',
+    );
+    expect(resolveFinalText({ ...base, stopReason: 'error', finalText: '', childErrorMessage: 'threw' })).toBe(
+      'subagent explore: threw',
+    );
+    expect(resolveFinalText({ ...base, stopReason: 'error', finalText: '' })).toBe(
+      'subagent explore: child session errored',
+    );
+  });
+
+  test('max_turns fallback names the turn budget', () => {
+    expect(resolveFinalText({ ...base, stopReason: 'max_turns', finalText: '', maxTurns: 7 })).toBe(
+      'subagent explore exhausted its 7-turn budget without producing a final answer.',
+    );
+  });
+
+  test('aborted fallback', () => {
+    expect(resolveFinalText({ ...base, stopReason: 'aborted', finalText: '' })).toBe('subagent explore was aborted.');
   });
 });
