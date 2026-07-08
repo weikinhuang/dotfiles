@@ -74,6 +74,7 @@ import { isHelpArg } from '../../../lib/node/pi/commands/help.ts';
 import type { AsciiFrameMap } from '../../../lib/node/pi/avatar/ascii-yaml.ts';
 import { mergeAsciiFrameMaps, parseSimpleYaml } from '../../../lib/node/pi/avatar/ascii-yaml.ts';
 import { classifyStateDirs, isActivityState, resolveEmoteSet } from '../../../lib/node/pi/avatar/emotes.ts';
+import { randomInRange, stepPingPong } from '../../../lib/node/pi/avatar/animator.ts';
 import { SixelCache, buildFrameCached } from '../../../lib/node/pi/avatar/cache.ts';
 import {
   type TextMeasure,
@@ -151,10 +152,6 @@ interface UsageEntry {
 // ──────────────────────────────────────────────────────────────────────
 // Pure-ish helpers (fs + sprite loading)
 // ──────────────────────────────────────────────────────────────────────
-
-function randomInRange(min: number, max: number): number {
-  return min + Math.random() * (max - min);
-}
 
 function readJson(path: string): unknown {
   try {
@@ -478,9 +475,9 @@ class Animator {
     if (count <= 1) return;
     this.cycleTimer = setInterval(() => {
       if (this.currentState !== state) return;
-      this.cycleIndex += this.cycleDir;
-      if (this.cycleIndex >= count - 1) this.cycleDir = -1;
-      if (this.cycleIndex <= 0) this.cycleDir = 1;
+      const next = stepPingPong(this.cycleIndex, this.cycleDir, count);
+      this.cycleIndex = next.index;
+      this.cycleDir = next.dir;
       this.renderer.showIndex(state, this.cycleIndex);
     }, intervalMs);
   }
@@ -516,9 +513,9 @@ class Animator {
     if (count > 1) {
       this.cycleTimer = setInterval(() => {
         if (this.currentState !== name) return;
-        this.cycleIndex += this.cycleDir;
-        if (this.cycleIndex >= count - 1) this.cycleDir = -1;
-        if (this.cycleIndex <= 0) this.cycleDir = 1;
+        const next = stepPingPong(this.cycleIndex, this.cycleDir, count);
+        this.cycleIndex = next.index;
+        this.cycleDir = next.dir;
         this.renderer.showIndex(name, this.cycleIndex);
       }, this.config.cycleMs);
     }
