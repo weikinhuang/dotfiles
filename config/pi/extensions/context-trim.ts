@@ -69,16 +69,12 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { type Model } from '@earendil-works/pi-ai';
 import {
-  createAgentSession,
   DefaultResourceLoader,
   type ExtensionAPI,
   type ExtensionContext,
   getAgentDir,
-  type ModelRegistry,
   parseFrontmatter,
-  type ResourceLoader,
   SessionManager,
 } from '@earendil-works/pi-coding-agent';
 import { Type } from 'typebox';
@@ -126,18 +122,9 @@ import {
   loadAgents,
   makeNodeReadLayer,
 } from '../../../lib/node/pi/subagent/loader.ts';
+import { piCreateAgentSession } from '../../../lib/node/pi/ext/pi-session.ts';
 import { createPersistedSubagentSessionManager } from '../../../lib/node/pi/subagent/session-dir.ts';
-import { adaptCreateAgentSession, resolveChildModel, runOneShotAgent } from '../../../lib/node/pi/subagent/spawn.ts';
-
-/**
- * Pi's `createAgentSession` types `modelRegistry` as the concrete
- * `ModelRegistry` class, while `lib/node/pi/subagent/spawn.ts` uses a
- * pi-free structural `ModelRegistryLike`. Adapt once here (mirrors
- * `iteration-loop.ts`).
- */
-const piCreateAgentSession = adaptCreateAgentSession<Model<any>, SessionManager, ModelRegistry, ResourceLoader>(
-  createAgentSession,
-);
+import { resolveChildModel, runOneShotAgent } from '../../../lib/node/pi/subagent/spawn.ts';
 
 /** Agent that turns a staged image file into one dense caption (source 3). */
 const CAPTION_AGENT = 'image-captioner';
