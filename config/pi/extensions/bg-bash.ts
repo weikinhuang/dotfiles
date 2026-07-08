@@ -125,6 +125,7 @@ import {
 import { RingBuffer } from '../../../lib/node/pi/bg-bash-ring.ts';
 import { SIGNALS, type SignalName } from '../../../lib/node/pi/bg-bash/signals.ts';
 import { envTruthy } from '../../../lib/node/pi/parse-env.ts';
+import { expandTilde } from '../../../lib/node/pi/path-expand.ts';
 import { piAgentPath } from '../../../lib/node/pi/pi-paths.ts';
 import { truncate } from '../../../lib/node/pi/shared.ts';
 
@@ -295,9 +296,11 @@ function errorReturn(action: BgBashAction, message: string): ToolReturn {
 function resolveCwd(agentCwd: string, supplied: string | undefined): string {
   if (!supplied) return agentCwd;
   if (supplied.startsWith('/')) return supplied;
-  if (supplied === '~' || supplied.startsWith('~/')) {
-    return join(homedir(), supplied.slice(1).replace(/^\//, ''));
-  }
+  // Leading `~` / `~/` expands against the real home via the shared
+  // path-expand helper; `join` normalizes so the resolved path matches
+  // the previous hand-rolled `join(homedir(), …)` byte for byte.
+  const expanded = expandTilde(supplied, homedir());
+  if (expanded !== supplied) return join(expanded);
   return join(agentCwd, supplied);
 }
 
