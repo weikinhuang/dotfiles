@@ -138,6 +138,7 @@ import { loadSandboxConfig } from '../../../lib/node/pi/sandbox/config-load.ts';
 import { translateToASRT } from '../../../lib/node/pi/sandbox/config-translate.ts';
 import { addNetworkRule, addWriteAllowPath } from '../../../lib/node/pi/sandbox/config-write.ts';
 import { logE2bigWrap } from '../../../lib/node/pi/sandbox/e2big-debug.ts';
+import { resolveNetworkDefault, resolveSandboxFallback } from '../../../lib/node/pi/sandbox/env-defaults.ts';
 import { compileLinuxPolicy, type CompiledPolicyReport } from '../../../lib/node/pi/sandbox/linux-rules-compile.ts';
 import { resolveSandboxMode, resolveWrapPlan, type WrapPlan } from '../../../lib/node/pi/sandbox/plan.ts';
 import {
@@ -186,14 +187,11 @@ function projectSandboxPath(cwd: string): string {
 }
 
 function envFallback(): 'warn' | 'allow' | 'block' {
-  const raw = (process.env.PI_SANDBOX_DEFAULT ?? 'warn').trim().toLowerCase();
-  if (raw === 'allow' || raw === 'block' || raw === 'warn') return raw;
-  return 'warn';
+  return resolveSandboxFallback();
 }
 
 function envNetworkDefault(): 'allow' | 'deny' {
-  const raw = (process.env.PI_SANDBOX_NETWORK_DEFAULT ?? 'deny').trim().toLowerCase();
-  return raw === 'allow' ? 'allow' : 'deny';
+  return resolveNetworkDefault();
 }
 
 // ─────────────────────────────────────────────────────────────────
