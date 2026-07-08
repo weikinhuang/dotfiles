@@ -1,7 +1,7 @@
 /**
  * Deterministic render tests for the ReverseSearchOverlay viewport windowing
- * (config/pi/extensions/cross-session-history.ts). Model-independent: builds a
- * search overlay with more prompts than a short terminal can show and asserts
+ * (lib/node/pi/ext/cross-session-history-overlay.ts). Model-independent: builds
+ * a search overlay with more prompts than a short terminal can show and asserts
  * the rendered box stays within the viewport, shrinking the visible-row budget.
  */
 
@@ -10,7 +10,7 @@ import { expect, test } from 'vitest';
 import type { Theme } from '@earendil-works/pi-coding-agent';
 import type { TUI } from '@earendil-works/pi-tui';
 
-import { ReverseSearchOverlay } from '../../../../config/pi/extensions/cross-session-history.ts';
+import { ReverseSearchOverlay } from '../../../../../lib/node/pi/ext/cross-session-history-overlay.ts';
 
 const theme = { fg: (_t: string, s: string): string => s, bold: (s: string): string => s } as unknown as Theme;
 
