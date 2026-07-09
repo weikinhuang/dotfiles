@@ -21,21 +21,13 @@
  * avatar.ts` (freezes animation while active). Pure module - no pi imports.
  */
 
-const SLOT_KEY = Symbol.for('@dotfiles/pi/ui-modal-active');
+import { createGlobalSlot } from './global-slot.ts';
 
 interface Slot {
   count: number;
 }
 
-function getSlot(): Slot {
-  const g = globalThis as { [SLOT_KEY]?: Slot };
-  let slot = g[SLOT_KEY];
-  if (!slot) {
-    slot = { count: 0 };
-    g[SLOT_KEY] = slot;
-  }
-  return slot;
-}
+const getSlot = createGlobalSlot<Slot>('@dotfiles/pi/ui-modal-active', () => ({ count: 0 }));
 
 /** Mark that a modal custom-UI component has opened. Pair with `exitModalUi`. */
 export function enterModalUi(): void {

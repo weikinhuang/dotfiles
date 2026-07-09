@@ -31,6 +31,7 @@
  * authoritative gate.
  */
 
+import { createGlobalSlot } from '../global-slot.ts';
 import { type RequestOptionsConfig } from '../request-options.ts';
 
 export interface ActiveAgentSnapshot {
@@ -45,17 +46,7 @@ interface ActiveAgentSlot {
   active?: ActiveAgentSnapshot;
 }
 
-const SLOT_KEY = Symbol.for('@dotfiles/pi/subagent/active-agent');
-
-function getSlot(): ActiveAgentSlot {
-  const g = globalThis as { [SLOT_KEY]?: ActiveAgentSlot };
-  let slot = g[SLOT_KEY];
-  if (!slot) {
-    slot = {};
-    g[SLOT_KEY] = slot;
-  }
-  return slot;
-}
+const getSlot = createGlobalSlot<ActiveAgentSlot>('@dotfiles/pi/subagent/active-agent', () => ({}));
 
 export interface ActiveAgentInput {
   name: string;

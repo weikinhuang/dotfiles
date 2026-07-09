@@ -23,6 +23,8 @@
  * session switch. The statusline reads snapshots but never mutates.
  */
 
+import { createGlobalSlot } from '../global-slot.ts';
+
 export interface SubagentRunRecord {
   /** Total turns the child used. */
   turns: number;
@@ -115,17 +117,7 @@ interface AggregateSlot {
   instance?: SubagentAggregate;
 }
 
-const SLOT_KEY = Symbol.for('@dotfiles/pi/subagent-aggregate');
-
-function getSlot(): AggregateSlot {
-  const g = globalThis as { [SLOT_KEY]?: AggregateSlot };
-  let slot = g[SLOT_KEY];
-  if (!slot) {
-    slot = {};
-    g[SLOT_KEY] = slot;
-  }
-  return slot;
-}
+const getSlot = createGlobalSlot<AggregateSlot>('@dotfiles/pi/subagent-aggregate', () => ({}));
 
 /**
  * Returns the pi-process singleton aggregator. Both the subagent and

@@ -18,6 +18,7 @@
 
 import { readFileSync } from 'node:fs';
 
+import { createGlobalSlot } from '../global-slot.ts';
 import { collapseWhitespace } from '../shared.ts';
 
 // ──────────────────────────────────────────────────────────────────────
@@ -405,17 +406,7 @@ interface RegistrySlot {
   rings?: Map<string, ActivityRing>;
 }
 
-const REGISTRY_KEY = Symbol.for('@dotfiles/pi/subagent-activity-rings');
-
-function getRegistrySlot(): RegistrySlot {
-  const g = globalThis as { [REGISTRY_KEY]?: RegistrySlot };
-  let slot = g[REGISTRY_KEY];
-  if (!slot) {
-    slot = {};
-    g[REGISTRY_KEY] = slot;
-  }
-  return slot;
-}
+const getRegistrySlot = createGlobalSlot<RegistrySlot>('@dotfiles/pi/subagent-activity-rings', () => ({}));
 
 /**
  * Returns the process-wide map of `handle → ActivityRing`. The subagent
