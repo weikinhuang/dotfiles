@@ -19,6 +19,7 @@
 import { readFileSync } from 'node:fs';
 
 import { createGlobalSlot } from '../global-slot.ts';
+import { messageContentToText } from '../message-text.ts';
 import { collapseWhitespace } from '../shared.ts';
 
 // ──────────────────────────────────────────────────────────────────────
@@ -126,19 +127,9 @@ function summariseResult(result: unknown, isError: boolean | undefined): string 
 }
 
 function extractAssistantText(message: ActivityEvent['message']): string {
-  if (!message?.content) return '';
-  if (typeof message.content === 'string') return message.content;
-  if (Array.isArray(message.content)) {
-    const parts: string[] = [];
-    for (const part of message.content) {
-      if (part && typeof part === 'object') {
-        const p = part as { type?: string; text?: unknown };
-        if (p.type === 'text' && typeof p.text === 'string') parts.push(p.text);
-      }
-    }
-    return parts.join('');
-  }
-  return '';
+  // Assistant activity lines join text parts with no separator (the stream
+  // is rendered as one continuous line), so pass an empty separator.
+  return messageContentToText(message?.content, '');
 }
 
 // ──────────────────────────────────────────────────────────────────────

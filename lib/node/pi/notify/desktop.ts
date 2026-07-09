@@ -10,6 +10,7 @@
 
 import { basename } from 'node:path';
 
+import { messageContentToText } from '../message-text.ts';
 import { envTruthy, parseNonNegativeInt } from '../parse-env.ts';
 
 /** Default minimum successful-turn duration (seconds) before notifying. */
@@ -71,18 +72,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }
 
-function extractText(content: unknown): string {
-  if (typeof content === 'string') return content;
-  if (!Array.isArray(content)) return '';
-  const parts: string[] = [];
-  for (const block of content) {
-    if (isRecord(block) && block.type === 'text' && typeof block.text === 'string') {
-      parts.push(block.text);
-    }
-  }
-  return parts.join('\n');
-}
-
 /**
  * Walk `messages` from the end and summarize the last assistant message.
  * Structurally typed (pi-free) so the helper needs no pi imports.
@@ -94,7 +83,7 @@ export function summarizeTurn(messages: readonly unknown[]): TurnSummary {
     const stopReason = typeof message.stopReason === 'string' ? message.stopReason : undefined;
     const errorMessage = typeof message.errorMessage === 'string' ? message.errorMessage : undefined;
     return {
-      text: extractText(message.content),
+      text: messageContentToText(message.content),
       errored: stopReason === 'error' || stopReason === 'aborted',
       stopReason,
       errorMessage,

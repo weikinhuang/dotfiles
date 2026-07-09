@@ -24,6 +24,8 @@
  * The extensions are orthogonal and compose naturally.
  */
 
+import { messageContentToText } from './message-text.ts';
+
 // ──────────────────────────────────────────────────────────────────────
 // Types
 // ──────────────────────────────────────────────────────────────────────
@@ -86,15 +88,7 @@ function userMessageText(message: unknown): string {
   if (!message || typeof message !== 'object') return '';
   const m = message as { role?: string; content?: unknown };
   if (m.role !== 'user') return '';
-  if (typeof m.content === 'string') return m.content;
-  if (!Array.isArray(m.content)) return '';
-  const parts: string[] = [];
-  for (const raw of m.content) {
-    if (!raw || typeof raw !== 'object') continue;
-    const c = raw as { type?: string; text?: unknown };
-    if (c.type === 'text' && typeof c.text === 'string') parts.push(c.text);
-  }
-  return parts.join('\n');
+  return messageContentToText(m.content);
 }
 
 /** Sentinel prefix identifying messages this extension synthesized. */
