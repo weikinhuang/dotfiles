@@ -88,8 +88,6 @@
  *                            ctx.ui.notify is silent.
  */
 
-import { appendFileSync } from 'node:fs';
-
 import { type ExtensionAPI, type ExtensionContext } from '@earendil-works/pi-coding-agent';
 
 import {
@@ -108,6 +106,7 @@ import { detectHookRules } from '../../../lib/node/pi/verify-hook-detect.ts';
 import { deliverDeferredNudge } from '../../../lib/node/pi/ext/deferred-nudge.ts';
 import { createNotifyOnce } from '../../../lib/node/pi/notify-once.ts';
 import { envTruthy } from '../../../lib/node/pi/parse-env.ts';
+import { makeDiagnostics } from '../../../lib/node/pi/recovery-diagnostics.ts';
 
 /** Sentinel prepended to every steer - used for idempotency + discovery. */
 const VERIFY_MARKER = '⚠ [pi-verify-before-claim]';
@@ -116,16 +115,16 @@ const VERIFY_CUSTOM_TYPE = 'verify-before-claim-steer';
 export default function verifyBeforeClaim(pi: ExtensionAPI): void {
   if (envTruthy(process.env.PI_VERIFY_DISABLED)) return;
   const verbose = envTruthy(process.env.PI_VERIFY_DEBUG);
-  const tracePath = process.env.PI_VERIFY_TRACE;
 
-  const trace = (msg: string): void => {
-    if (!tracePath) return;
-    try {
-      appendFileSync(tracePath, `[verify-before-claim] ${msg}\n`, 'utf8');
-    } catch {
-      /* diagnostics must never break a turn */
-    }
-  };
+  // Shared trace helper: appends `[verify-before-claim] <msg>\n` to the
+  // PI_VERIFY_TRACE file when set, no-op otherwise. The `notify` half of
+  // the factory is intentionally unused - this extension's debug notify
+  // (below) does not gate on `ctx.hasUI`, so keep it inline.
+  const { trace } = makeDiagnostics({
+    label: 'verify-before-claim',
+    tracePath: process.env.PI_VERIFY_TRACE,
+    debug: false,
+  });
 
   let cachedRules: CompiledSatisfyRule[] = [];
   let cachedWarnings: ConfigWarning[] = [];
