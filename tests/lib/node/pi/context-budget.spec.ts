@@ -145,9 +145,18 @@ test('shouldAutoCompact: unknown current → false', () => {
   expect(shouldAutoCompact(undefined, 70, 80)).toBe(false);
 });
 
-test('shouldAutoCompact: unknown previous → false (no edge info)', () => {
-  expect(shouldAutoCompact(85, null, 80)).toBe(false);
-  expect(shouldAutoCompact(85, undefined, 80)).toBe(false);
+test('shouldAutoCompact: unknown previous treated as below-threshold (first reading triggers)', () => {
+  // A null/undefined previous is the session-start reading OR the null usage
+  // gap right after compaction; a first known reading at/above threshold must
+  // still edge-trigger instead of being swallowed.
+  expect(shouldAutoCompact(85, null, 80)).toBe(true);
+  expect(shouldAutoCompact(85, undefined, 80)).toBe(true);
+});
+
+test('shouldAutoCompact: unknown previous still below threshold does NOT fire', () => {
+  // e.g. the post-compaction reading dips back under the threshold.
+  expect(shouldAutoCompact(40, null, 80)).toBe(false);
+  expect(shouldAutoCompact(40, undefined, 80)).toBe(false);
 });
 
 test('shouldAutoCompact: invalid threshold → false', () => {

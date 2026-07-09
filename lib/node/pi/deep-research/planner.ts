@@ -48,17 +48,16 @@
  * turn over it.
  */
 
-import { existsSync } from 'node:fs';
-
+import { seedSubjectiveRubric } from './rubric.ts';
 import { ensureDirSync } from '../atomic-write.ts';
-import { appendJournal } from '../research/journal.ts';
+import { safeAppendJournal } from '../research/journal.ts';
 import { paths, runRoot, slugify } from '../research/paths.ts';
 import { type DeepResearchPlan, type PlanBudget, type SubQuestion, writePlan } from '../research/plan.ts';
 import { hashPrompt, type Provenance, writeSidecar } from '../research/provenance.ts';
 import { callTyped, type ResearchSessionLike, type SchemaLike } from '../research/structured.ts';
-import { type Stuck } from '../research/stuck.ts';
-import { type TinyAdapter, type TinyCallContext } from '../research/tiny.ts';
-import { isRecord } from '../shared.ts';
+import { isStuckShape, type Stuck } from '../research/stuck.ts';
+import { buildTinyHumanizeOnRetry, type TinyAdapter, type TinyCallContext } from '../research/tiny.ts';
+import { isNonEmptyString, isRecord, isStringArray } from '../shared.ts';
 
 // ──────────────────────────────────────────────────────────────────────
 // Planner-output schema + validator.
@@ -103,8 +102,13 @@ export interface PlannerOutput {
   rubricDraft?: string;
 }
 
-function isStringArray(v: unknown): v is string[] {
-  return Array.isArray(v) && v.every((e) => typeof e === 'string' && e.length > 0);
+/**
+ * Array of non-empty strings. Composes the shared `isStringArray`
+ * (array-of-strings) with `isNonEmptyString` so callers get the
+ * stricter "no empty entries" form without a bespoke loop.
+ */
+function isNonEmptyStringArray(v: unknown): v is string[] {
+  return isStringArray(v) && v.every(isNonEmptyString);
 }
 
 function validateSubQuestion(
@@ -122,13 +126,13 @@ function validateSubQuestion(
   }
   const out: PlannerSubQuestion = { id: id.trim(), question: q.trim() };
   if (raw.searchHints !== undefined) {
-    if (!isStringArray(raw.searchHints)) {
+    if (!isNonEmptyStringArray(raw.searchHints)) {
       return { ok: false, error: `subQuestions[${idx}].searchHints must be a string[]` };
     }
     out.searchHints = raw.searchHints.slice();
   }
   if (raw.successCriteria !== undefined) {
-    if (!isStringArray(raw.successCriteria)) {
+    if (!isNonEmptyStringArray(raw.successCriteria)) {
       return { ok: false, error: `subQuestions[${idx}].successCriteria must be a string[]` };
     }
     out.successCriteria = raw.successCriteria.slice();
@@ -173,7 +177,7 @@ export const plannerOutputSchema: SchemaLike<PlannerOutput> = {
     const out: PlannerOutput = { subQuestions: validated };
     if (typeof v.slug === 'string' && v.slug.trim().length > 0) out.slug = v.slug.trim();
     if (v.successCriteria !== undefined) {
-      if (!isStringArray(v.successCriteria)) {
+      if (!isNonEmptyStringArray(v.successCriteria)) {
         return { ok: false, error: 'successCriteria must be a string[]' };
       }
       out.successCriteria = v.successCriteria.slice();
@@ -277,11 +281,16 @@ export function promoteToPlan(
   slug: string,
   budget: PlanBudget,
 ): DeepResearchPlan {
-  const subQuestions: SubQuestion[] = output.subQuestions.map((sq) => ({
-    id: sq.id,
-    question: sq.question,
-    status: 'pending',
-  }));
+  const subQuestions: SubQuestion[] = output.subQuestions.map((sq) => {
+    const out: SubQuestion = {
+      id: sq.id,
+      question: sq.question,
+      status: 'pending',
+    };
+    if (sq.searchHints && sq.searchHints.length > 0) out.searchHints = sq.searchHints.slice();
+    if (sq.successCriteria && sq.successCriteria.length > 0) out.successCriteria = sq.successCriteria.slice();
+    return out;
+  });
   return {
     kind: 'deep-research',
     slug,
@@ -301,24 +310,13 @@ export function promoteToPlan(
 // below the public entry point; TypeScript hoists function
 // declarations, but lint wants the names visible first.
 
-function isStuckResult(v: unknown): v is Stuck {
-  if (!isRecord(v)) return false;
-  return v.status === 'stuck' && typeof v.reason === 'string' && v.reason.length > 0;
-}
-
 function journalIf<M>(
   opts: PlannerOpts<M>,
   level: 'info' | 'step' | 'warn' | 'error',
   heading: string,
   body?: string,
 ): void {
-  if (!opts.journalPath) return;
-  if (!existsSync(opts.cwd)) return;
-  try {
-    appendJournal(opts.journalPath, body !== undefined ? { level, heading, body } : { level, heading });
-  } catch {
-    /* swallow - journal failures never break the planner */
-  }
+  safeAppendJournal(opts.journalPath, opts.cwd, body !== undefined ? { level, heading, body } : { level, heading });
 }
 
 /** Resolve a slug via tiny adapter (if enabled) or deterministic fallback. */
@@ -361,30 +359,17 @@ async function resolveSlug<M>(question: string, opts: PlannerOpts<M>): Promise<s
  * (e.g. to the journal) now reads in plain English.
  */
 function buildOnRetry<M>(opts: PlannerOpts<M>): ((error: string, attempt: number) => void) | undefined {
-  const adapter = opts.tinyAdapter;
-  const ctx = opts.tinyCtx;
-
-  if (!adapter || !ctx || !adapter.isEnabled()) {
-    // Adapter disabled - raw error flows through unchanged.
-    return opts.onRetry;
-  }
-  return (error, attempt) => {
-    // Dispatch the caller's hook with the raw error immediately;
-    // the humanization is best-effort and not awaited by
-    // `callTyped`.
-    opts.onRetry?.(error, attempt);
-    void adapter
-      .callTinyRewrite(ctx, 'humanize-error', error)
-      .then((humanized) => {
-        if (typeof humanized === 'string' && humanized.trim().length > 0) {
-          opts.onRetry?.(`humanized: ${humanized}`, attempt);
-          journalIf(opts, 'info', `planner validation nudge humanized (attempt ${attempt})`, humanized);
-        }
-      })
-      .catch(() => {
-        /* swallow - humanization is advisory */
-      });
-  };
+  return buildTinyHumanizeOnRetry(
+    opts.tinyAdapter,
+    opts.tinyCtx,
+    (humanized, attempt) => {
+      // Echo the friendlier string back through the caller's hook
+      // (so the journal/model see it) and record it ourselves.
+      opts.onRetry?.(`humanized: ${humanized}`, attempt);
+      journalIf(opts, 'info', `planner validation nudge humanized (attempt ${attempt})`, humanized);
+    },
+    opts.onRetry,
+  );
 }
 
 /**
@@ -580,7 +565,7 @@ export async function runPlanner<M>(opts: PlannerOpts<M>): Promise<PlannerResult
   });
 
   // 4. Stuck? Escalate without writing any plan.
-  if (isStuckResult(typed)) {
+  if (isStuckShape(typed)) {
     journalIf(opts, 'warn', 'planner emitted stuck', typed.reason);
     return {
       plan: fallbackPlan(question, slug, budget),
@@ -623,6 +608,23 @@ export async function runPlanner<M>(opts: PlannerOpts<M>): Promise<PlannerResult
     'step',
     `planner produced ${plan.subQuestions.length} sub-question${plan.subQuestions.length === 1 ? '' : 's'}`,
   );
+
+  // Seed the subjective rubric from the planner's draft (if any) so
+  // the later `writeRubricFiles({ preserveExisting: true })` call
+  // keeps it instead of rendering the generic default. A user edit
+  // or resume already on disk is preserved.
+  if (plannerOutput?.rubricDraft && plannerOutput.rubricDraft.trim().length > 0) {
+    try {
+      const wrote = seedSubjectiveRubric({
+        runRoot: runRootPath,
+        slug,
+        rubricDraft: plannerOutput.rubricDraft,
+      });
+      if (wrote) journalIf(opts, 'info', 'seeded rubric-subjective.md from planner draft');
+    } catch {
+      /* swallow - rubric seeding is advisory, never breaks the planner */
+    }
+  }
 
   const result: PlannerResult = { plan, runRoot: runRootPath, usedFallback };
   if (plannerOutput) result.plannerOutput = plannerOutput;

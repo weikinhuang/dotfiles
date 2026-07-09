@@ -29,6 +29,12 @@ describe('wrapIndex', () => {
     expect(wrapIndex(-1, 3)).toBe(2);
     expect(wrapIndex(-4, 3)).toBe(2);
   });
+
+  test('returns 0 for a non-positive length instead of NaN', () => {
+    expect(wrapIndex(2, 0)).toBe(0);
+    expect(wrapIndex(-1, 0)).toBe(0);
+    expect(wrapIndex(2, -3)).toBe(0);
+  });
 });
 
 describe('readyState', () => {

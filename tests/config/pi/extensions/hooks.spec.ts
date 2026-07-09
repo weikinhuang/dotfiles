@@ -118,7 +118,7 @@ function buildSession(
 
 function makeSpawn(perCommand: Record<string, Partial<HookSpawnResult>>): HookSpawnFn {
   const fn = (opts: HookSpawnOptions): Promise<HookSpawnResult> => {
-    const base: HookSpawnResult = { stdout: '', stderr: '', exitCode: 0, timedOut: false };
+    const base: HookSpawnResult = { stdout: '', stderr: '', exitCode: 0, timedOut: false, truncated: false };
     const override = perCommand[opts.command] ?? {};
     return Promise.resolve({ ...base, ...override });
   };

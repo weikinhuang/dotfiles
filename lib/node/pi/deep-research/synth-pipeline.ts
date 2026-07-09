@@ -51,6 +51,13 @@ interface PopulateArgs<M> {
  * finding that cites more than the budget allows gets its extra URLs
  * dropped (with a journal warning) rather than busting the budget.
  *
+ * Only *network* fetches (`method === 'fetch'`) count toward
+ * `maxFetches`; cache hits are free and never consume budget. Without
+ * this, a `--resume` run - where every citation is already cached -
+ * would count cache hits toward the cap and drop the never-fetched
+ * URLs past the limit, silently losing citations the first run had
+ * fully populated.
+ *
  * Degrades gracefully when `deps.mcpClient` is unset - journal a
  * one-shot warning and return. The downstream synth stage will still
  * run but produce zero-citation sections; structural check will fail
@@ -95,7 +102,10 @@ export async function populateSourceStore<M>(args: PopulateArgs<M>): Promise<voi
     for (const url of urls) {
       if (seen.has(url)) continue;
       seen.add(url);
-      if (fetched + cacheHits >= maxFetches) {
+      // Only real network fetches consume the budget; a cache hit is
+      // free, so gate on `fetched` alone. This keeps a `--resume` run
+      // (all-cached) from dropping citations once it passes the cap.
+      if (fetched >= maxFetches) {
         dropped += 1;
         continue;
       }

@@ -25,6 +25,8 @@
 
 import { join } from 'node:path';
 
+import { slugifyAscii } from '../slugify.ts';
+
 // ──────────────────────────────────────────────────────────────────────
 // Slug generation.
 // ──────────────────────────────────────────────────────────────────────
@@ -86,25 +88,11 @@ function timestampSlug(d: Date): string {
  *     surrounding dashes).
  */
 export function slugify(input: string, opts: SlugifyOpts = {}): string {
-  const max = opts.maxLength ?? SLUG_MAX_LENGTH;
-  const normalized = input
-    .normalize('NFKD')
-    // Strip combining diacritical marks after NFKD decomposition.
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '');
-
-  if (normalized.length === 0) {
-    return timestampSlug(opts.fallbackTimestamp ?? new Date());
-  }
-
-  if (normalized.length <= max) return normalized;
-
-  // Truncate, then re-trim the trailing dash that truncation may have
-  // stranded - `"foo-bar-baz"` cut at 7 chars would otherwise read
-  // `"foo-bar"` fine but `"foo--bar"` cut at 5 yields `"foo--"`.
-  return normalized.slice(0, max).replace(/-+$/g, '');
+  return slugifyAscii(input, {
+    stripDiacritics: true,
+    maxLength: opts.maxLength ?? SLUG_MAX_LENGTH,
+    fallback: () => timestampSlug(opts.fallbackTimestamp ?? new Date()),
+  });
 }
 
 // ──────────────────────────────────────────────────────────────────────

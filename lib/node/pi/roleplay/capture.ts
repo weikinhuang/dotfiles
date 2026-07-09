@@ -25,6 +25,7 @@
  */
 
 import { extractBalancedArray } from '../json-loose.ts';
+import { clampWords } from './text.ts';
 
 /** A single extracted durable fact, header-carried (payload in name + description). */
 export interface FactCandidate {
@@ -74,24 +75,6 @@ export function buildFactExtractionTask(spanText: string): string {
 }
 
 /**
- * Trim `s` to at most `max` chars WITHOUT cutting a word in half. Collapses
- * internal whitespace first; when the cap lands mid-word, backs up to the last
- * whole word and strips any trailing separator so a clamped name reads clean
- * (`"...berries, whipp"` -> `"...berries"`) instead of showing a fragment.
- */
-function clamp(s: string, max: number): string {
-  const t = s.trim().replace(/\s+/g, ' ');
-  if (t.length <= max) return t;
-  let cut = t.slice(0, max);
-  // Only back up when the cap fell inside a word (the next char is non-space).
-  if (/\S/.test(t.charAt(max))) {
-    const lastSpace = cut.lastIndexOf(' ');
-    if (lastSpace > 0) cut = cut.slice(0, lastSpace);
-  }
-  return cut.replace(/[\s,;:.-]+$/, '').trimEnd();
-}
-
-/**
  * Parse the extractor's response into validated fact candidates. Tolerant:
  * accepts a bare JSON array, a ```json fenced block, or an array embedded in
  * prose. Drops non-object / empty entries, clamps lengths, de-dups by
@@ -115,12 +98,12 @@ export function parseFactCandidates(raw: string): FactCandidate[] {
   for (const item of parsed) {
     if (!item || typeof item !== 'object') continue;
     const rec = item as Record<string, unknown>;
-    const name = typeof rec.name === 'string' ? clamp(rec.name, MAX_FACT_NAME_CHARS) : '';
+    const name = typeof rec.name === 'string' ? clampWords(rec.name, MAX_FACT_NAME_CHARS) : '';
     if (name.length === 0) continue;
     const key = name.toLowerCase();
     if (seen.has(key)) continue;
     const rawDesc = typeof rec.description === 'string' ? rec.description : '';
-    const description = clamp(rawDesc.length > 0 ? rawDesc : name, MAX_FACT_DESC_CHARS);
+    const description = clampWords(rawDesc.length > 0 ? rawDesc : name, MAX_FACT_DESC_CHARS);
     seen.add(key);
     out.push({ name, description });
     if (out.length >= MAX_FACTS_PER_ROLL) break;

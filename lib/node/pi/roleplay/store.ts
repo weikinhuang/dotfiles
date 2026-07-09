@@ -24,6 +24,7 @@
  * further with `relationship` / `timeline` / `summary`.
  */
 
+import { slugifyAscii } from '../slugify.ts';
 import { parseFencedFrontmatter, stripQuotes } from '../shared/strict-frontmatter.ts';
 
 // ──────────────────────────────────────────────────────────────────────
@@ -169,11 +170,7 @@ export function cloneState(s: RoleplayState): RoleplayState {
  * characters so callers always get a non-empty slug.
  */
 function slugify(input: string, fallback: string): string {
-  const s = input
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '');
-  return s.length > 0 ? s : fallback;
+  return slugifyAscii(input, { fallback });
 }
 
 /** Slug for a cast / persona name (e.g. "Exusiai & Texas" -> "exusiai-texas"). */
@@ -221,12 +218,49 @@ export interface Frontmatter {
   relationship?: RelationshipMeta;
 }
 
+/**
+ * Split an inline list body on top-level commas, leaving commas that sit
+ * inside a `"..."` / `'...'` quoted item intact. Backslash escapes inside a
+ * double-quoted span are carried through verbatim so {@link stripQuotes} can
+ * later reverse them.
+ */
+function splitTopLevelCommas(inner: string): string[] {
+  const items: string[] = [];
+  let current = '';
+  let quote: '"' | "'" | null = null;
+  for (let i = 0; i < inner.length; i++) {
+    const ch = inner[i];
+    if (quote !== null) {
+      current += ch;
+      if (ch === '\\' && quote === '"' && i + 1 < inner.length) {
+        current += inner[i + 1];
+        i++;
+        continue;
+      }
+      if (ch === quote) quote = null;
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      quote = ch;
+      current += ch;
+      continue;
+    }
+    if (ch === ',') {
+      items.push(current);
+      current = '';
+      continue;
+    }
+    current += ch;
+  }
+  items.push(current);
+  return items;
+}
+
 /** Split an inline `[a, b, c]` (or bare `a, b, c`) list value into trimmed items. */
 function parseInlineList(raw: string): string[] {
   const t = raw.trim();
   const inner = t.startsWith('[') && t.endsWith(']') ? t.slice(1, -1) : t;
-  return inner
-    .split(',')
+  return splitTopLevelCommas(inner)
     .map((s) => stripQuotes(s))
     .filter((s) => s.length > 0);
 }
@@ -331,6 +365,19 @@ function yamlValue(raw: string): string {
   return `"${s.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
 }
 
+/**
+ * Serialize one inline-list item. Same bare-scalar rule as {@link yamlValue}
+ * but also quotes the inline-list metacharacters (comma and brackets) so an
+ * item that contains a comma round-trips through {@link parseInlineList}
+ * instead of being split into two.
+ */
+function yamlListItem(raw: string): string {
+  const s = raw.replace(/\r?\n/g, ' ').trim();
+  if (s.length === 0) return '""';
+  if (/^[^"':#\\,[\]][^:#\n\\,[\]]*$/.test(s) && !s.endsWith(' ')) return s;
+  return `"${s.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+}
+
 export function serializeEntry(input: {
   name: string;
   description: string;
@@ -348,9 +395,9 @@ export function serializeEntry(input: {
   ];
   if (input.kind === 'lore' && input.lore) {
     const m = input.lore;
-    if (m.triggers.length > 0) lines.push(`triggers: [${m.triggers.join(', ')}]`);
+    if (m.triggers.length > 0) lines.push(`triggers: [${m.triggers.map(yamlListItem).join(', ')}]`);
     if (m.secondaryKeys.length > 0) {
-      lines.push(`secondaryKeys: [${m.secondaryKeys.join(', ')}]`);
+      lines.push(`secondaryKeys: [${m.secondaryKeys.map(yamlListItem).join(', ')}]`);
       lines.push(`secondaryMode: ${m.secondaryMode}`);
     }
     if (m.constant) lines.push('constant: true');
@@ -369,7 +416,7 @@ export function serializeEntry(input: {
     lines.push(`affinity: ${m.affinity}`);
     if (m.trust.length > 0) lines.push(`trust: ${yamlValue(m.trust)}`);
     if (m.lastInteraction !== undefined) lines.push(`lastInteraction: ${m.lastInteraction}`);
-    if (m.openThreads.length > 0) lines.push(`openThreads: [${m.openThreads.join(', ')}]`);
+    if (m.openThreads.length > 0) lines.push(`openThreads: [${m.openThreads.map(yamlListItem).join(', ')}]`);
   }
   lines.push(FENCE, '', body, '');
   return lines.join('\n');

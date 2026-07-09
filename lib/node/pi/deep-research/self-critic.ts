@@ -33,17 +33,14 @@
  * session + tiny adapter through.
  */
 
-import { existsSync } from 'node:fs';
-
 import { promoteToPlan, plannerOutputSchema, type PlannerOutput } from './planner.ts';
-import { appendJournal } from '../research/journal.ts';
+import { safeAppendJournal } from '../research/journal.ts';
 import { paths } from '../research/paths.ts';
 import { type DeepResearchPlan, writePlan } from '../research/plan.ts';
 import { hashPrompt, type Provenance, writeSidecar } from '../research/provenance.ts';
 import { callTyped, type ResearchSessionLike } from '../research/structured.ts';
-import { type Stuck } from '../research/stuck.ts';
-import { type TinyAdapter, type TinyCallContext } from '../research/tiny.ts';
-import { isRecord } from '../shared.ts';
+import { isStuckShape, type Stuck } from '../research/stuck.ts';
+import { buildTinyHumanizeOnRetry, type TinyAdapter, type TinyCallContext } from '../research/tiny.ts';
 
 // ──────────────────────────────────────────────────────────────────────
 // Prompt.
@@ -74,7 +71,15 @@ export function renderSelfCriticPrompt(plan: DeepResearchPlan): string {
       {
         slug: plan.slug,
         question: plan.question,
-        subQuestions: plan.subQuestions.map((sq) => ({ id: sq.id, question: sq.question })),
+        subQuestions: plan.subQuestions.map((sq) => {
+          const o: { id: string; question: string; searchHints?: string[]; successCriteria?: string[] } = {
+            id: sq.id,
+            question: sq.question,
+          };
+          if (sq.searchHints && sq.searchHints.length > 0) o.searchHints = sq.searchHints;
+          if (sq.successCriteria && sq.successCriteria.length > 0) o.successCriteria = sq.successCriteria;
+          return o;
+        }),
       },
       null,
       2,
@@ -89,13 +94,25 @@ export function renderSelfCriticPrompt(plan: DeepResearchPlan): string {
 // Diff detection.
 // ──────────────────────────────────────────────────────────────────────
 
+/** Order-sensitive equality for two optional string arrays (treating `undefined` as empty). */
+function sameStringArray(a: string[] | undefined, b: string[] | undefined): boolean {
+  const aa = a ?? [];
+  const bb = b ?? [];
+  if (aa.length !== bb.length) return false;
+  for (let i = 0; i < aa.length; i++) {
+    if (aa[i] !== bb[i]) return false;
+  }
+  return true;
+}
+
 /**
  * True when the rewritten planner output is meaningfully different
- * from the original plan. "Meaningfully" = the set of
- * (id, question) pairs has changed. Other differences (search
- * hints, success criteria order, rubric draft wording) are treated
- * as refinements of the same plan and still trigger a rewrite so
- * the self-critic's ordering decisions survive.
+ * from the original plan. "Meaningfully" = any (id, question,
+ * searchHints, successCriteria) tuple changed relative to the
+ * persisted baseline. Comparing against the baseline (rather than
+ * the previous "any hints present" heuristic) means a faithful
+ * re-emit of a plan that already carries hints is NOT counted as a
+ * rewrite - only a genuine refinement is.
  */
 export function rewriteDiffers(before: DeepResearchPlan, after: PlannerOutput): boolean {
   if (after.subQuestions.length !== before.subQuestions.length) return true;
@@ -104,14 +121,8 @@ export function rewriteDiffers(before: DeepResearchPlan, after: PlannerOutput): 
     const b = before.subQuestions[i];
     if (a.id !== b.id) return true;
     if (a.question !== b.question) return true;
-  }
-  // Identical ids+questions in the same order - count search-hint
-  // / success-criteria changes as a rewrite worth persisting so
-  // the model's triage ordering survives.
-  for (const sq of after.subQuestions) {
-    if ((sq.searchHints && sq.searchHints.length > 0) || (sq.successCriteria && sq.successCriteria.length > 0)) {
-      return true;
-    }
+    if (!sameStringArray(a.searchHints, b.searchHints)) return true;
+    if (!sameStringArray(a.successCriteria, b.successCriteria)) return true;
   }
   return false;
 }
@@ -121,43 +132,19 @@ export function rewriteDiffers(before: DeepResearchPlan, after: PlannerOutput): 
 // doesn't complain about forward references.
 // ──────────────────────────────────────────────────────────────────────
 
-function isStuckResult(v: unknown): v is Stuck {
-  if (!isRecord(v)) return false;
-  return v.status === 'stuck' && typeof v.reason === 'string' && v.reason.length > 0;
-}
-
 function journalIf<M>(
   opts: SelfCriticOpts<M>,
   level: 'info' | 'step' | 'warn' | 'error',
   heading: string,
   body?: string,
 ): void {
-  if (!opts.journalPath) return;
-  if (!existsSync(opts.runRoot)) return;
-  try {
-    appendJournal(opts.journalPath, body !== undefined ? { level, heading, body } : { level, heading });
-  } catch {
-    /* swallow */
-  }
+  safeAppendJournal(opts.journalPath, opts.runRoot, body !== undefined ? { level, heading, body } : { level, heading });
 }
 
 function buildOnRetry<M>(opts: SelfCriticOpts<M>): ((error: string, attempt: number) => void) | undefined {
-  const adapter = opts.tinyAdapter;
-  const ctx = opts.tinyCtx;
-
-  if (!adapter || !ctx || !adapter.isEnabled()) return undefined;
-  return (error, attempt) => {
-    void adapter
-      .callTinyRewrite(ctx, 'humanize-error', error)
-      .then((humanized) => {
-        if (typeof humanized === 'string' && humanized.trim().length > 0) {
-          journalIf(opts, 'info', `self-critic validation nudge humanized (attempt ${attempt})`, humanized);
-        }
-      })
-      .catch(() => {
-        /* swallow */
-      });
-  };
+  return buildTinyHumanizeOnRetry(opts.tinyAdapter, opts.tinyCtx, (humanized, attempt) => {
+    journalIf(opts, 'info', `self-critic validation nudge humanized (attempt ${attempt})`, humanized);
+  });
 }
 
 // ──────────────────────────────────────────────────────────────────────
@@ -227,7 +214,7 @@ export async function runSelfCritic<M>(opts: SelfCriticOpts<M>): Promise<SelfCri
     ...(buildOnRetry(opts) ? { onRetry: buildOnRetry(opts)! } : {}),
   });
 
-  if (isStuckResult(typed)) {
+  if (isStuckShape(typed)) {
     journalIf(opts, 'info', 'self-critic stuck (original plan kept)', typed.reason);
     return { plan: opts.plan, rewritten: false, stuck: typed, exhaustedRetries: false };
   }

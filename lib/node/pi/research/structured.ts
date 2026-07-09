@@ -43,17 +43,16 @@
  * matches their data shape. The `Stuck` escape-hatch check is
  * structural, independent of the caller's schema.
  *
- * Note on duplication: the fence-stripping + balanced-`{}` slicing
- * logic here overlaps with `iteration-loop-check-critic.parseVerdict`.
- * They were kept separate on purpose - the critic tracks a
- * `recoveries: string[]` trail and synthesizes a failure Verdict,
- * while this module returns `unknown | null` and lets the retry
- * loop decide what "malformed" means. If a third consumer appears,
- * extract the two primitives (`stripAllFences`, `sliceFirstJsonObject`)
- * into a shared helper; with only two consumers the inlining is
- * cheaper than a cross-module abstraction.
+ * JSON recovery: {@link parseTolerant} delegates verbatim-parse,
+ * fence stripping, and balanced-object/array extraction (including
+ * qwen3-style double-wrapped fences) to the shared
+ * {@link parseJsonLoose} helper. It keeps one thin domain layer on
+ * top - {@link stripAllFences} - for the single-line
+ * ```json { ... } ``` shape that json-loose's single-fence strip
+ * would otherwise mangle.
  */
 
+import { parseJsonLoose } from '../json-loose.ts';
 import { isStuckShape, type Stuck } from './stuck.ts';
 import { extractFinalAssistantText, type AgentMessageLike } from '../subagent/result.ts';
 
@@ -161,45 +160,6 @@ function stripAllFences(raw: string): string {
 }
 
 /**
- * Slice out the first balanced `{...}` JSON object starting at the
- * first `{` in `text`. Tracks string literals (with escape support)
- * and nested braces. Returns `null` when no balanced object exists
- * (unbalanced, empty, or no `{` at all).
- */
-function sliceFirstJsonObject(text: string): string | null {
-  const firstBrace = text.indexOf('{');
-  if (firstBrace < 0) return null;
-  let depth = 0;
-  let inString = false;
-  let escaped = false;
-  for (let i = firstBrace; i < text.length; i++) {
-    const ch = text[i];
-    if (inString) {
-      if (escaped) {
-        escaped = false;
-        continue;
-      }
-      if (ch === '\\') {
-        escaped = true;
-        continue;
-      }
-      if (ch === '"') inString = false;
-      continue;
-    }
-    if (ch === '"') {
-      inString = true;
-      continue;
-    }
-    if (ch === '{') depth++;
-    else if (ch === '}') {
-      depth--;
-      if (depth === 0) return text.slice(firstBrace, i + 1);
-    }
-  }
-  return null;
-}
-
-/**
  * Public-facing tolerant parser. Accepts an LLM's raw text output
  * and returns either a parsed JSON-ish value or `null` when no
  * recognizable JSON object could be extracted. `null` signals
@@ -208,32 +168,34 @@ function sliceFirstJsonObject(text: string): string | null {
  * leniency without the retry loop (e.g. one-shot readers).
  *
  * Policy:
- *   - Trim, strip fences (including qwen3 double-wrap), then try
- *     `JSON.parse` on the full stripped text.
- *   - On failure, slice the first balanced `{...}` and `JSON.parse`
- *     that.
- *   - On failure, return `null`. We deliberately do not try to
- *     repair (e.g. add missing commas) - a parser that repairs
- *     silently ends up returning shapes the caller's validator
- *     cannot catch.
+ *   - Delegate to the shared {@link parseJsonLoose}: verbatim
+ *     `JSON.parse`, then a single-fence strip, then first-balanced
+ *     `{...}`/`[...]` extraction. This already recovers the common
+ *     fenced + prose-wrapped shapes and qwen3 double-wrap (the
+ *     balanced extraction ignores the extra fence noise).
+ *   - If json-loose recovers nothing (`undefined`), fall back to the
+ *     domain {@link stripAllFences} - which handles the single-line
+ *     ```json { ... } ``` shape json-loose's single-fence strip
+ *     mangles - and re-run json-loose on the stripped text.
+ *   - Otherwise return `null`. We deliberately do not try to repair
+ *     (e.g. add missing commas) - a parser that repairs silently
+ *     ends up returning shapes the caller's validator cannot catch.
+ *
+ * `parseJsonLoose` returns `undefined` on failure (distinct from a
+ * literal JSON `null`); we normalize that to `null` so callers keep
+ * their "null ⇒ malformed" contract.
  */
 export function parseTolerant(raw: string): unknown {
   const trimmed = (raw ?? '').trim();
   if (trimmed.length === 0) return null;
+  const loose = parseJsonLoose(trimmed);
+  if (loose !== undefined) return loose;
+  // Domain fallback: strip all leading/trailing fences ourselves
+  // (covers the single-line fence json-loose can't) and retry.
   const stripped = stripAllFences(trimmed);
-  if (stripped.length === 0) return null;
-  try {
-    return JSON.parse(stripped);
-  } catch {
-    // fall through to the slicing strategy
-  }
-  const sliced = sliceFirstJsonObject(stripped);
-  if (sliced === null) return null;
-  try {
-    return JSON.parse(sliced);
-  } catch {
-    return null;
-  }
+  if (stripped.length === 0 || stripped === trimmed) return null;
+  const looseStripped = parseJsonLoose(stripped);
+  return looseStripped === undefined ? null : looseStripped;
 }
 
 // ──────────────────────────────────────────────────────────────────────

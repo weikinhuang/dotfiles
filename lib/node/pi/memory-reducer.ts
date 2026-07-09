@@ -373,7 +373,13 @@ export function removeEntry(index: MemoryIndex, scope: MemoryScope, id: string):
 // Renderers
 // ──────────────────────────────────────────────────────────────────────
 
-function groupByType(entries: readonly MemoryEntry[]): Map<MemoryType, MemoryEntry[]> {
+/**
+ * Bucket `entries` by their `type`, seeding every {@link MEMORY_TYPES}
+ * key so callers can iterate a fixed type order with empty buckets
+ * present. Shared with the system-prompt renderer (`memory-prompt.ts`),
+ * which needs the identical grouping.
+ */
+export function groupByType(entries: readonly MemoryEntry[]): Map<MemoryType, MemoryEntry[]> {
   const out = new Map<MemoryType, MemoryEntry[]>();
   for (const t of MEMORY_TYPES) out.set(t, []);
   for (const e of entries) out.get(e.type)?.push(e);

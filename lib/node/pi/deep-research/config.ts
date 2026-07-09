@@ -28,6 +28,7 @@ import { readJsoncOrUndefined } from '../fs-safe.ts';
 import { piAgentPath, piProjectPath } from '../pi-paths.ts';
 import { type ResearchOverrides } from '../research/command-args.ts';
 import { validateToolOverrides } from '../research/tool-overrides.ts';
+import { isRecord } from '../shared/guards.ts';
 
 /** A single rejected config field, surfaced via `ctx.ui.notify`. */
 export interface DeepResearchConfigWarning {
@@ -39,10 +40,6 @@ export interface DeepResearchConfigResult {
   /** Validated default overrides (empty when no file pins any). */
   defaults: ResearchOverrides;
   warnings: DeepResearchConfigWarning[];
-}
-
-function isObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 /**
@@ -57,7 +54,7 @@ export function coerceDeepResearchConfigLayer(
   warnings: DeepResearchConfigWarning[],
 ): ResearchOverrides {
   if (raw === undefined) return {};
-  if (!isObject(raw)) {
+  if (!isRecord(raw)) {
     warnings.push({ path, error: 'config must be a JSON object' });
     return {};
   }

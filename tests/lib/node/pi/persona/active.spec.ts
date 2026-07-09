@@ -110,6 +110,28 @@ describe('active-persona singleton', () => {
     });
   });
 
+  test('characters / openers are defensively copied and frozen', () => {
+    const characters = ['Exusiai', 'Texas'];
+    const openers = ['Hi!'];
+    setActivePersona({ name: 'exusiai', resolvedWriteRoots: [], roleplay: true, characters, openers });
+    // Mutating the caller arrays must not bleed into the stored snapshot.
+    characters.push('Lappland');
+    openers.push('Yo');
+    expect(getActivePersona()?.characters).toEqual(['Exusiai', 'Texas']);
+    expect(getActivePersona()?.openers).toEqual(['Hi!']);
+    // Stored arrays are frozen - callers cannot mutate them back in.
+    expect(() => {
+      const s = getActivePersona();
+      if (!s?.characters) throw new Error('expected characters');
+      (s.characters as string[]).push('evil');
+    }).toThrow(/read.?only|frozen|not extensible|cannot (add|delete|assign)/i);
+    expect(() => {
+      const s = getActivePersona();
+      if (!s?.openers) throw new Error('expected openers');
+      (s.openers as string[]).push('evil');
+    }).toThrow(/read.?only|frozen|not extensible|cannot (add|delete|assign)/i);
+  });
+
   test('copies the roleplay scene fields (cast / characters / pov / openers / authorNote)', () => {
     setActivePersona({
       name: 'exusiai',

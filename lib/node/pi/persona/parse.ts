@@ -16,7 +16,9 @@
 
 import { basename } from 'node:path';
 
+import { parseModelSpec } from '../model-spec.ts';
 import { parseRequestOptions, type RequestOptionsConfig } from '../request-options.ts';
+import { trimOrUndefined } from '../shared/strings.ts';
 
 const THINKING_LEVELS = ['off', 'low', 'medium', 'high'] as const;
 export type PersonaThinkingLevel = (typeof THINKING_LEVELS)[number];
@@ -128,10 +130,7 @@ export interface ParsePersonaOptions {
 }
 
 function toStringOrUndefined(v: unknown): string | undefined {
-  if (typeof v !== 'string') return undefined;
-  const t = v.trim();
-  if (t.length > 0) return t;
-  return undefined;
+  return typeof v === 'string' ? trimOrUndefined(v) : undefined;
 }
 
 /** Validate a string array; drop non-string entries with a per-entry warning. */
@@ -222,7 +221,7 @@ export function parsePersonaFile(opts: ParsePersonaOptions): ParsedPersona | nul
       warnings.push({ path, reason: `\`model\` must be a string (got ${typeof fm.model})` });
     } else if (fm.model === 'inherit') {
       model = 'inherit';
-    } else if (fm.model.includes('/')) {
+    } else if (parseModelSpec(fm.model)) {
       model = fm.model;
     } else {
       warnings.push({ path, reason: `invalid model "${fm.model}" (expected "inherit" or "provider/id")` });

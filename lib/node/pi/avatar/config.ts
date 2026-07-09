@@ -9,6 +9,7 @@
  * filesystem.
  */
 
+import { isFiniteNumber, isRecord } from '../shared.ts';
 import type { AvatarConfig, EmoteMapping, HoldDuration } from './types.ts';
 
 /** Shipped defaults used as the lowest config layer. */
@@ -30,28 +31,30 @@ export const DEFAULT_CONFIG: AvatarConfig = {
   emotes: [{ model: '*', 'emote-set': 'default' }],
 };
 
-function isObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
 function asBoolean(value: unknown): boolean | undefined {
   return typeof value === 'boolean' ? value : undefined;
 }
 
 function asFiniteNumber(value: unknown): number | undefined {
-  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+  return isFiniteNumber(value) ? value : undefined;
 }
 
 function asString(value: unknown): string | undefined {
   return typeof value === 'string' ? value : undefined;
 }
 
+/**
+ * Coerce a `[min, max]` pair (e.g. `blinkInterval`). Requires two finite
+ * numbers; a reversed pair (`a > b`) is swapped so downstream
+ * {@link randomInRange} sampling never runs backwards into a degenerate /
+ * negative-delay range.
+ */
 function asNumberPair(value: unknown): [number, number] | undefined {
   if (!Array.isArray(value) || value.length !== 2) return undefined;
   const a = asFiniteNumber(value[0]);
   const b = asFiniteNumber(value[1]);
   if (a === undefined || b === undefined) return undefined;
-  return [a, b];
+  return a <= b ? [a, b] : [b, a];
 }
 
 function asRender(value: unknown): AvatarConfig['render'] | undefined {
@@ -73,7 +76,7 @@ function asScenePlacement(value: unknown): AvatarConfig['scenePlacement'] | unde
 }
 
 function asHoldDuration(value: unknown): Partial<HoldDuration> | undefined {
-  if (!isObject(value)) return undefined;
+  if (!isRecord(value)) return undefined;
   const out: Partial<HoldDuration> = {};
   const hi = asFiniteNumber(value.hi);
   const success = asFiniteNumber(value.success);
@@ -94,7 +97,7 @@ function asEmoteMappings(value: unknown): EmoteMapping[] | undefined {
   if (!Array.isArray(value)) return undefined;
   const out: EmoteMapping[] = [];
   for (const entry of value) {
-    if (!isObject(entry)) continue;
+    if (!isRecord(entry)) continue;
     const model = asString(entry.model);
     const set = asString(entry['emote-set']);
     if (model !== undefined && set !== undefined) {
@@ -113,7 +116,7 @@ function asEmoteMappings(value: unknown): EmoteMapping[] | undefined {
  * non-object input.
  */
 export function coerceConfigLayer(raw: unknown): Partial<AvatarConfig> {
-  if (!isObject(raw)) return {};
+  if (!isRecord(raw)) return {};
   const out: Partial<AvatarConfig> = {};
 
   const enabled = asBoolean(raw.enabled);

@@ -26,6 +26,25 @@ export interface TriggerParams {
 export type TriggerResult = { trigger: Trigger } | { error: string };
 
 /**
+ * Resolve an `HH:MM` local time to the next matching epoch-ms instant at
+ * or after `now` (rolling to tomorrow when the time already passed
+ * today). Returns `null` for a malformed / out-of-range time. Shared by
+ * {@link buildTriggerFromParams} and (via delegation) the `/schedule`
+ * command parser so both resolve `--at` / `at` identically.
+ */
+export function resolveAtTime(hhmm: string, now: number): number | null {
+  const match = /^(\d{1,2}):(\d{2})$/.exec(hhmm.trim());
+  if (!match) return null;
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+  if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return null;
+  const d = new Date(now);
+  const target = new Date(d.getFullYear(), d.getMonth(), d.getDate(), hour, minute, 0, 0);
+  if (target.getTime() <= now) target.setDate(target.getDate() + 1);
+  return target.getTime();
+}
+
+/**
  * Build a {@link Trigger} from the tool's structured trigger params,
  * resolving `in` / `at` against `now` (epoch ms). Requires exactly one
  * of `cron` / `every` / `in` / `at` / `after`; returns an `error` for
@@ -54,13 +73,7 @@ export function buildTriggerFromParams(params: TriggerParams, now: number): Trig
     if (ms === null) return { error: `invalid in duration: "${params.in}"` };
     return { trigger: { kind: 'once', at: now + ms } };
   }
-  const match = /^(\d{1,2}):(\d{2})$/.exec((params.at ?? '').trim());
-  if (!match) return { error: `invalid at time (expected HH:MM): "${params.at}"` };
-  const hour = Number(match[1]);
-  const minute = Number(match[2]);
-  if (hour > 23 || minute > 59) return { error: `invalid at time (expected HH:MM): "${params.at}"` };
-  const d = new Date(now);
-  const target = new Date(d.getFullYear(), d.getMonth(), d.getDate(), hour, minute, 0, 0);
-  if (target.getTime() <= now) target.setDate(target.getDate() + 1);
-  return { trigger: { kind: 'once', at: target.getTime() } };
+  const at = resolveAtTime(params.at ?? '', now);
+  if (at === null) return { error: `invalid at time (expected HH:MM): "${params.at}"` };
+  return { trigger: { kind: 'once', at } };
 }

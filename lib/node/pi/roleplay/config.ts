@@ -21,7 +21,7 @@
  */
 
 import { readJsoncOrUndefined } from '../fs-safe.ts';
-import { envTruthy, parseClampedPositiveInt } from '../parse-env.ts';
+import { envTruthy, parseClampedPositiveInt, parseNonNegativeInt } from '../parse-env.ts';
 import { piAgentPath, piProjectPath } from '../pi-paths.ts';
 import { MAX_RECURSION_CAP } from './recursion.ts';
 
@@ -282,7 +282,9 @@ export function loadRoleplayConfig(cwd: string, envCharBudget?: number): Rolepla
     );
   }
   if (env.PI_ROLEPLAY_RECAP_STRIDE !== undefined) {
-    envLayer.recapStride = parseClampedPositiveInt(env.PI_ROLEPLAY_RECAP_STRIDE, DEFAULT_CONFIG.recapStride, 1);
+    // 0 is meaningful here ("follow recapChunk"), so accept an explicit 0
+    // rather than treating it as invalid and snapping back to the default.
+    envLayer.recapStride = parseNonNegativeInt(env.PI_ROLEPLAY_RECAP_STRIDE, DEFAULT_CONFIG.recapStride);
   }
   if (env.PI_ROLEPLAY_RECAP_MAX_ADVANCE !== undefined) {
     envLayer.recapMaxAdvance = parseClampedPositiveInt(

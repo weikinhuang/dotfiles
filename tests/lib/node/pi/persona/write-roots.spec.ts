@@ -8,7 +8,7 @@ import { join } from 'node:path';
 
 import { afterEach, beforeEach, expect, test } from 'vitest';
 
-import { isInsideWriteRoots } from '../../../../../lib/node/pi/persona/match.ts';
+import { isInsideWriteRoots } from '../../../../../lib/node/pi/persona/write-roots.ts';
 
 test('isInsideWriteRoots: empty roots → false', () => {
   expect(isInsideWriteRoots('/repo/plans/foo.md', [])).toBe(false);

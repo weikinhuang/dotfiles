@@ -10,8 +10,9 @@
  * swapped per-persona without each carrying its own colorizer copy.
  */
 
-import { encodeBrailleColumns, MAX_HEIGHT } from './braille.ts';
-import { colorize, hslToRgb } from './color.ts';
+import { MAX_HEIGHT } from './braille.ts';
+import { buildBrailleAnimationFrames } from './braille-frames.ts';
+import { hslToRgb } from './color.ts';
 
 /** Period of {@link spectrumBar}, in frame units. */
 export const SPECTRUM_BAR_PERIOD = 120;
@@ -90,20 +91,14 @@ const DEFAULT_SPECTRUM_OPTIONS: Required<SpectrumFrameOptions> = {
  */
 export function buildSpectrumFrames(opts: SpectrumFrameOptions = {}): string[] {
   const o = { ...DEFAULT_SPECTRUM_OPTIONS, ...opts };
-  const frames: string[] = [];
-  for (let t = 0; t < o.totalFrames; t++) {
-    let frame = '';
-    for (let k = 0; k < o.glyphWidth; k++) {
-      const leftH = spectrumBar(2 * k, t);
-      const rightH = spectrumBar(2 * k + 1, t);
-      const glyph = encodeBrailleColumns(leftH, rightH);
+  return buildBrailleAnimationFrames(
+    { glyphWidth: o.glyphWidth, totalFrames: o.totalFrames },
+    (k, t) => ({ left: spectrumBar(2 * k, t), right: spectrumBar(2 * k + 1, t) }),
+    (_k, t, left, right) => {
       // Heat-map: tall=red (0°), mid=yellow (60°), short=green (120°).
-      const peak = Math.max(leftH, rightH);
+      const peak = Math.max(left, right);
       const baseHue = 120 - (peak / MAX_HEIGHT) * 120;
-      const hue = o.startHue + baseHue + t * o.hueSpeed;
-      frame += colorize(glyph, hslToRgb(hue, o.saturation, o.lightness));
-    }
-    frames.push(frame);
-  }
-  return frames;
+      return hslToRgb(o.startHue + baseHue + t * o.hueSpeed, o.saturation, o.lightness);
+    },
+  );
 }

@@ -72,10 +72,11 @@ export function concatRecentMessageText(messages: readonly unknown[], n: number,
   const parts: string[] = [];
   for (const m of messages.slice(-Math.max(1, n))) {
     const content = (m as { content?: unknown }).content;
-    if (typeof content === 'string') {
-      parts.push(content);
-    } else if (Array.isArray(content)) {
-      collectTextParts(content, parts);
+    // Route each message's content through the canonical extractor; skip
+    // messages whose content is neither a string nor a parts array so a
+    // non-text message doesn't contribute a spurious empty separator.
+    if (typeof content === 'string' || Array.isArray(content)) {
+      parts.push(extractContentText(content, { sep }));
     }
   }
   return parts.join(sep);

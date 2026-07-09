@@ -130,6 +130,27 @@ test('findSimilarMemories: empty candidate name returns no hits', () => {
   expect(findSimilarMemories({ name: '   ', description: 'x', body: 'y' }, [entry('a')], noBody)).toEqual([]);
 });
 
+test('findSimilarMemories: honors an explicit threshold (overrides the self-score default)', () => {
+  const existing = [entry('widget-a', 'widget config notes')];
+  // A very high explicit threshold filters out even an exact-name match,
+  // proving the threshold is applied rather than defaulted to ~0.
+  const out = findSimilarMemories({ name: 'widget config notes', description: 'x', body: 'y' }, existing, noBody, {
+    threshold: 1e6,
+  });
+  expect(out).toEqual([]);
+});
+
+test('findSimilarMemories: a weak partial-name overlap stays below the 60% floor', () => {
+  // The candidate has four name tokens; an entry sharing only one is far
+  // below 0.6 of the candidate's self name-score, so it is not flagged.
+  // (Regression guard for the degenerate zero-threshold "match everything"
+  // path: the default threshold must remain a real fraction of a positive
+  // self-score, never collapse to zero.)
+  const existing = [entry('config-only', 'config')];
+  const out = findSimilarMemories({ name: 'auth mock policy config', description: 'x', body: 'y' }, existing, noBody);
+  expect(out).toEqual([]);
+});
+
 test('findSimilarMemories: caps results at opts.max', () => {
   const existing = [
     entry('widget-a', 'widget config notes'),

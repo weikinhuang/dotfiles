@@ -18,10 +18,10 @@
  */
 
 import { byteLen, formatCompactBytes } from '../shared/bytes.ts';
-import { isTextPart } from '../shared/guards.ts';
 import { collapseWhitespace, truncate } from '../shared/strings.ts';
+import { approxImageBytes, partText } from './part-bytes.ts';
 import { countLines, isPlaceholder } from './placeholder.ts';
-import { type LooseMessage, type LoosePart, type Target, toParts } from './target.ts';
+import { type LooseMessage, type Target, toParts } from './target.ts';
 
 export type CandidateKind = 'image' | 'tool-result' | 'tool-call' | 'message';
 
@@ -78,15 +78,6 @@ const DEFAULT_SNIPPET_CHARS = 80;
  * stays cheap to filter. */
 const SEARCH_CHARS = 512;
 
-function partText(part: LoosePart): string {
-  return isTextPart(part) ? part.text : '';
-}
-
-function approxImageBytes(part: LoosePart): number {
-  const data = (part as { data?: unknown }).data;
-  return typeof data === 'string' ? Math.floor((data.length * 3) / 4) : 0;
-}
-
 function snippetOf(text: string, chars: number): string {
   return truncate(collapseWhitespace(text), chars);
 }
@@ -122,38 +113,37 @@ export function enumerate(messages: readonly LooseMessage[], opts: EnumerateOpti
 
     if (m.role === 'toolResult') {
       const toolCallId = typeof m.toolCallId === 'string' ? m.toolCallId : undefined;
-      // Images inside a tool result (e.g. comfyui output) are their own candidates.
+      const toolName = typeof m.toolName === 'string' ? m.toolName : undefined;
+      // Images inside a tool result (e.g. comfyui output) are their own
+      // candidates - one per part, each pinned to its `partIndex` so trimming
+      // an image replaces ONLY that part, not the whole (text + image) message.
       let textBytes = 0;
       let textLines = 0;
       let firstText = '';
-      let imageCount = 0;
-      let imageBytes = 0;
-      for (const p of parts) {
-        if (p.type === 'image') {
-          imageCount++;
-          imageBytes += approxImageBytes(p);
+      for (let p = 0; p < parts.length; p++) {
+        const part = parts[p];
+        if (part.type === 'image') {
+          if (!toolCallId) continue; // can't address a result part without its id
+          out.push({
+            id: `img${++imgN}`,
+            seq: nextSeq(),
+            kind: 'image',
+            target: { by: 'toolCallId', toolCallId, partIndex: p },
+            toolCallId,
+            toolName,
+            role: m.role,
+            bytes: approxImageBytes(part),
+            lines: 0,
+            snippet: `image from ${toolName ?? 'tool'}`,
+            search: `image from ${toolName ?? 'tool'}`,
+          });
         } else {
-          const t = partText(p);
+          const t = partText(part);
           if (isPlaceholder(t)) continue;
           textBytes += byteLen(t);
           textLines += countLines(t);
           if (!firstText) firstText = t;
         }
-      }
-      if (imageCount > 0 && toolCallId) {
-        out.push({
-          id: `img${++imgN}`,
-          seq: nextSeq(),
-          kind: 'image',
-          target: { by: 'toolCallId', toolCallId },
-          toolCallId,
-          toolName: typeof m.toolName === 'string' ? m.toolName : undefined,
-          role: m.role,
-          bytes: imageBytes,
-          lines: 0,
-          snippet: `${imageCount} image${imageCount === 1 ? '' : 's'} from ${m.toolName ?? 'tool'}`,
-          search: `${imageCount} image${imageCount === 1 ? '' : 's'} from ${m.toolName ?? 'tool'}`,
-        });
       }
       if (toolCallId && textBytes >= minTextBytes) {
         out.push({
@@ -162,7 +152,7 @@ export function enumerate(messages: readonly LooseMessage[], opts: EnumerateOpti
           kind: 'tool-result',
           target: { by: 'toolCallId', toolCallId },
           toolCallId,
-          toolName: typeof m.toolName === 'string' ? m.toolName : undefined,
+          toolName,
           role: m.role,
           bytes: textBytes,
           lines: textLines,

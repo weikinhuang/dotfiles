@@ -18,10 +18,10 @@
 import {
   DEFAULT_STALE_DAYS,
   entryAgeDays,
+  groupByType,
   isStaleEntry,
   type MemoryEntry,
   type MemoryState,
-  MEMORY_TYPES,
   type MemoryType,
 } from './memory-reducer.ts';
 
@@ -53,13 +53,6 @@ function staleSuffix(entry: MemoryEntry, now: Date, staleDays: number): string {
   if (!isStaleEntry(entry, now, staleDays)) return '';
   const age = entryAgeDays(entry, now);
   return age === undefined ? '' : ` (${age}d)`;
-}
-
-function groupByType(entries: readonly MemoryEntry[]): Map<MemoryType, MemoryEntry[]> {
-  const out = new Map<MemoryType, MemoryEntry[]>();
-  for (const t of MEMORY_TYPES) out.set(t, []);
-  for (const e of entries) out.get(e.type)?.push(e);
-  return out;
 }
 
 function renderScope(

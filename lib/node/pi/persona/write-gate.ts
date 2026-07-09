@@ -15,7 +15,7 @@
  * D8 (no realpath - symlink-escapes inherit the link path).
  */
 
-import { isInsideWriteRoots } from './match.ts';
+import { isInsideWriteRoots } from './write-roots.ts';
 
 export type WriteGateDecision =
   /** Inside `writeRoots`, or the path is in `sessionAllow`. Caller proceeds. */

@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'vitest';
+import { afterEach, describe, expect, test, vi } from 'vitest';
 
 import {
   createPersistedSubagentSessionManager,
@@ -90,6 +90,49 @@ describe('resolveSubagentSessionDir', () => {
         extensionLabel: 'deep-research',
       }),
     ).toThrow(/no id\/dir/);
+  });
+
+  describe('honours PI_SUBAGENT_SESSION_ROOT / _SLUG (delegates to childSessionDir)', () => {
+    afterEach(() => {
+      vi.unstubAllEnvs();
+    });
+
+    test('PI_SUBAGENT_SESSION_ROOT redirects the base, bucketed by workspace slug', () => {
+      // Regression: session-dir previously hardcoded join(parentDir, id,
+      // 'subagents') and ignored the env root that session-paths honours,
+      // so one-shot children (critic, deep-research) wrote to a DIFFERENT
+      // tree than the subagent extension.
+      vi.stubEnv('PI_SUBAGENT_SESSION_ROOT', '/ram/subs');
+      const dir = resolveSubagentSessionDir({
+        parentSessionManager: fakeParent({ id: 'sid', dir: '/agent/sessions/--slug--' }),
+        extensionLabel: 'deep-research',
+        parentCwd: '/mnt/d/proj',
+      });
+
+      expect(dir).toBe('/ram/subs/--mnt-d-proj--/sid/subagents');
+    });
+
+    test('PI_SUBAGENT_SESSION_SLUG pins the slug regardless of cwd', () => {
+      vi.stubEnv('PI_SUBAGENT_SESSION_ROOT', '/ram/subs');
+      vi.stubEnv('PI_SUBAGENT_SESSION_SLUG', 'rp');
+      const dir = resolveSubagentSessionDir({
+        parentSessionManager: fakeParent({ id: 'sid', dir: '/agent/sessions/--renamed--' }),
+        extensionLabel: 'deep-research',
+        parentCwd: '/renamed/elsewhere',
+      });
+
+      expect(dir).toBe('/ram/subs/rp/sid/subagents');
+    });
+
+    test('no env root: base stays the parent session dir (default layout unchanged)', () => {
+      const dir = resolveSubagentSessionDir({
+        parentSessionManager: fakeParent({ id: 'sid', dir: '/p' }),
+        extensionLabel: 'deep-research',
+        parentCwd: '/mnt/d/proj',
+      });
+
+      expect(dir).toBe('/p/sid/subagents');
+    });
   });
 
   test('error message instructs the user to restart pi without --no-session', () => {

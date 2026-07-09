@@ -81,6 +81,7 @@
 // `context-reminder.ts` (the emitter) so the detector here, the emitter,
 // and the reminder-primer addendum share one literal and can't drift.
 import { REMINDER_TAG_MARKER as REMINDER_MARKER } from './context-reminder.ts';
+import { isRecord } from './shared/guards.ts';
 
 /** A single content block. Duck-typed: we only read marker fields. */
 export interface PayloadBlock {
@@ -121,10 +122,6 @@ export interface RelocateResult {
   reason: string;
 }
 
-function isObject(v: unknown): v is Record<string, unknown> {
-  return typeof v === 'object' && v !== null;
-}
-
 function isBlockArray(v: unknown): v is PayloadBlock[] {
   return Array.isArray(v);
 }
@@ -139,7 +136,7 @@ const CACHEABLE_ANTHROPIC_TYPES: ReadonlySet<unknown> = new Set(['text', 'image'
  * block whose text doesn't open with the marker, returns null.
  */
 function reminderTextOf(b: unknown): string | null {
-  if (!isObject(b)) return null;
+  if (!isRecord(b)) return null;
   if ('type' in b && b.type !== 'text') return null;
   const t = b.text;
   if (typeof t !== 'string') return null;
@@ -195,7 +192,7 @@ function aggregateBedrockTail(tail: PayloadMessage): boolean {
   const realBlocks: PayloadBlock[] = [];
 
   for (const b of tail.content) {
-    if (isObject(b) && isObject(b.cachePoint)) {
+    if (isRecord(b) && isRecord(b.cachePoint)) {
       cpTemplate ??= b.cachePoint;
       continue;
     }
@@ -204,7 +201,7 @@ function aggregateBedrockTail(tail: PayloadMessage): boolean {
       reminders.push({ text: top });
       continue;
     }
-    if (isObject(b) && isObject(b.toolResult)) {
+    if (isRecord(b) && isRecord(b.toolResult)) {
       const tr = b.toolResult as { content?: unknown };
       if (isBlockArray(tr.content)) {
         const kept: PayloadBlock[] = [];
@@ -248,7 +245,7 @@ function aggregateAnthropicTail(tail: PayloadMessage): boolean {
 
   let template: unknown;
   for (const b of blocks) {
-    if (isObject(b) && isObject(b.cache_control)) {
+    if (isRecord(b) && isRecord(b.cache_control)) {
       template ??= b.cache_control;
       delete b.cache_control;
     }
@@ -272,10 +269,10 @@ function relocateToPrev(messages: PayloadMessage[], lastIdx: number, style: Cach
   const lastBlocks = last.content;
 
   if (style === 'bedrock') {
-    const cpBlock = lastBlocks.find((b) => isObject(b) && isObject(b.cachePoint));
+    const cpBlock = lastBlocks.find((b) => isRecord(b) && isRecord(b.cachePoint));
     if (!isBlockArray(prev.content)) return { changed: false, style, reason: 'prev-content-not-array' };
-    last.content = lastBlocks.filter((b) => !(isObject(b) && isObject(b.cachePoint)));
-    if (!prev.content.some((b) => isObject(b) && isObject(b.cachePoint))) {
+    last.content = lastBlocks.filter((b) => !(isRecord(b) && isRecord(b.cachePoint)));
+    if (!prev.content.some((b) => isRecord(b) && isRecord(b.cachePoint))) {
       prev.content.push({ cachePoint: cpBlock?.cachePoint ?? { type: 'default' } });
     }
     return { changed: true, style, reason: 'relocated' };
@@ -289,12 +286,12 @@ function relocateToPrev(messages: PayloadMessage[], lastIdx: number, style: Cach
   }
   let template: unknown;
   for (const b of lastBlocks) {
-    if (isObject(b) && isObject(b.cache_control)) {
+    if (isRecord(b) && isRecord(b.cache_control)) {
       template ??= b.cache_control;
       delete b.cache_control;
     }
   }
-  if (!isObject(target.cache_control)) {
+  if (!isRecord(target.cache_control)) {
     target.cache_control = template ?? { type: 'ephemeral' };
   }
   prev.content = prevContent;
@@ -307,7 +304,7 @@ function relocateToPrev(messages: PayloadMessage[], lastIdx: number, style: Cach
  * the aggregate-then-relocate strategy.
  */
 export function relocateTailCacheBreakpoint(payload: unknown): RelocateResult {
-  if (!isObject(payload)) return { changed: false, reason: 'no-payload' };
+  if (!isRecord(payload)) return { changed: false, reason: 'no-payload' };
   const messages = (payload as CachePayload).messages;
   if (!Array.isArray(messages) || messages.length < 2) {
     return { changed: false, reason: 'too-few-messages' };
@@ -322,8 +319,8 @@ export function relocateTailCacheBreakpoint(payload: unknown): RelocateResult {
   const lastBlocks = last.content;
 
   // Detect style from the markers actually on the tail message.
-  const hasCachePoint = lastBlocks.some((b) => isObject(b) && isObject(b.cachePoint));
-  const hasCacheControl = lastBlocks.some((b) => isObject(b) && isObject(b.cache_control));
+  const hasCachePoint = lastBlocks.some((b) => isRecord(b) && isRecord(b.cachePoint));
+  const hasCacheControl = lastBlocks.some((b) => isRecord(b) && isRecord(b.cache_control));
   const style: CacheStyle | undefined = hasCachePoint ? 'bedrock' : hasCacheControl ? 'anthropic' : undefined;
   if (!style) return { changed: false, reason: 'no-cache-marker-on-tail' };
 

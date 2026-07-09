@@ -29,6 +29,8 @@
  * No pi imports.
  */
 
+import { isTextPart } from '../shared.ts';
+
 /** A message is an opaque record; only `role` and `content` are read here. */
 type Msg = Record<string, unknown>;
 
@@ -104,12 +106,11 @@ export function condenseMessage(msg: Msg, budget: number): Msg | null {
     let changed = false;
     const out: unknown[] = [];
     for (const part of content) {
-      const p = part as Msg;
-      if (p.type === 'text' && typeof p.text === 'string') {
-        const t = truncateText(p.text, budget);
+      if (isTextPart(part)) {
+        const t = truncateText(part.text, budget);
         if (t !== null) {
           changed = true;
-          out.push({ ...p, text: t });
+          out.push({ ...part, text: t });
           continue;
         }
       }
@@ -388,7 +389,7 @@ export function estimateChars(messages: readonly Msg[]): number {
     if (!Array.isArray(c)) continue;
     for (const part of c) {
       const p = part as Msg;
-      if (typeof p.text === 'string') n += p.text.length;
+      if (isTextPart(part)) n += part.text.length;
       else if (typeof p.thinking === 'string') n += p.thinking.length;
       else if (p.type === 'toolCall') n += JSON.stringify(p.arguments ?? {}).length + 24;
       else if (p.type === 'toolResult') n += JSON.stringify(p.content ?? '').length;

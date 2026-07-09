@@ -45,6 +45,14 @@ function isNonNegativeInteger(v: unknown): v is number {
   return typeof v === 'number' && Number.isInteger(v) && v >= 0;
 }
 
+function isPositiveInteger(v: unknown): v is number {
+  return typeof v === 'number' && Number.isInteger(v) && v > 0;
+}
+
+function isPositiveFiniteNumber(v: unknown): v is number {
+  return typeof v === 'number' && Number.isFinite(v) && v > 0;
+}
+
 function isScore(v: unknown): v is number {
   return typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= 1;
 }
@@ -81,9 +89,14 @@ export function isBashPassOn(v: unknown): v is BashPassOn {
 export function isBudgetSpecShape(v: unknown): v is BudgetSpec {
   if (v === undefined) return true; // budget is optional on CheckSpec
   if (!isRecord(v)) return false;
-  if (v.maxIter !== undefined && !isNonNegativeFiniteNumber(v.maxIter)) return false;
-  if (v.maxCostUsd !== undefined && !isNonNegativeFiniteNumber(v.maxCostUsd)) return false;
-  if (v.wallClockSeconds !== undefined && !isNonNegativeFiniteNumber(v.wallClockSeconds)) return false;
+  // Budgets must be POSITIVE, not merely non-negative: a `maxIter` of 0
+  // (or a 0 cost / wall-clock cap) makes `computeStopReason` terminate
+  // the loop on the very first tick, so a persisted 0/negative budget is
+  // rejected rather than loaded as an insta-stop spec. `maxIter` is
+  // additionally an integer.
+  if (v.maxIter !== undefined && !isPositiveInteger(v.maxIter)) return false;
+  if (v.maxCostUsd !== undefined && !isPositiveFiniteNumber(v.maxCostUsd)) return false;
+  if (v.wallClockSeconds !== undefined && !isPositiveFiniteNumber(v.wallClockSeconds)) return false;
   return true;
 }
 

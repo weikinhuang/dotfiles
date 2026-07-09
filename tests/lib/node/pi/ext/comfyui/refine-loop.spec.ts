@@ -240,6 +240,28 @@ test('planRefineRender: detailer detect translation honors a workflow detectMode
   expect(plan.params.detect).toBe('bbox/custom_hand.pt');
 });
 
+test('planRefineRender: passes the critic instruction only when the companion maps an instruction input', () => {
+  // The img2img companion in planCtx maps prompt + denoise but NOT
+  // `instruction`, so a supplied instruction is dropped (passing it would trip
+  // the graph builder's unmapped-but-supplied mapping-error guard).
+  const dropped = planRefineRender({ type: 'img2img', instruction: 'add rain' }, img('/out/r1.png'), planCtx);
+  if (dropped.kind !== 'companion') throw new Error('expected companion');
+  expect(dropped.params.instruction).toBeUndefined();
+
+  // A companion that DOES map `instruction` receives the critic's text.
+  const withInstr: WorkflowConfig = {
+    file: 'anima-img2img.api.json',
+    inputs: { prompt: { node: '65', key: 'string' }, instruction: { node: '70', key: 'text' } },
+    images: { init: { node: '16', key: 'image' } },
+  };
+  const kept = planRefineRender({ type: 'img2img', instruction: 'add rain' }, img('/out/r1.png'), {
+    ...planCtx,
+    workflows: { ...planCtx.workflows, 'anima-img2img': withInstr },
+  });
+  if (kept.kind !== 'companion') throw new Error('expected companion');
+  expect(kept.params.instruction).toBe('add rain');
+});
+
 test('planRefineRender: an unconfigured companion downgrades to a source reroll', () => {
   const plan = planRefineRender({ type: 'ground', target: 'x' }, img('/out/r1.png'), planCtx);
   expect(plan.kind).toBe('source');

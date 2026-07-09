@@ -15,22 +15,11 @@
  * `zTXt` / `iTXt` chunks are not supported and are ignored.
  */
 
-const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a] as const;
+import { PNG_SIGNATURE, hasPngSignature, readUint32BE } from '../png/binary.ts';
 
 /** True when `bytes` starts with the 8-byte PNG signature. */
 export function isPng(bytes: Uint8Array): boolean {
-  if (bytes.length < PNG_SIGNATURE.length) return false;
-  return PNG_SIGNATURE.every((b, i) => bytes[i] === b);
-}
-
-function readUInt32BE(bytes: Uint8Array, offset: number): number {
-  return (
-    ((bytes[offset] ?? 0) * 0x1000000 +
-      ((bytes[offset + 1] ?? 0) << 16) +
-      ((bytes[offset + 2] ?? 0) << 8) +
-      (bytes[offset + 3] ?? 0)) >>>
-    0
-  );
+  return hasPngSignature(bytes);
 }
 
 function latin1(bytes: Uint8Array, start: number, end: number): string {
@@ -51,7 +40,7 @@ export function parsePngTextChunks(bytes: Uint8Array): Map<string, string> {
 
   let pos = PNG_SIGNATURE.length;
   while (pos + 8 <= bytes.length) {
-    const length = readUInt32BE(bytes, pos);
+    const length = readUint32BE(bytes, pos);
     const type = latin1(bytes, pos + 4, pos + 8);
     const dataStart = pos + 8;
     const dataEnd = dataStart + length;

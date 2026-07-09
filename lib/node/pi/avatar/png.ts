@@ -6,17 +6,11 @@
  * decode library and keeps the helper unit-testable.
  */
 
+import { hasPngSignature, readUint32BE } from '../png/binary.ts';
+
 export interface PngDimensions {
   width: number;
   height: number;
-}
-
-/** First 8 bytes of every PNG file. */
-const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
-
-/** Read a big-endian uint32 at `offset`. */
-function readUint32BE(data: Uint8Array, offset: number): number {
-  return data[offset] * 0x1000000 + data[offset + 1] * 0x10000 + data[offset + 2] * 0x100 + data[offset + 3];
 }
 
 /**
@@ -27,9 +21,7 @@ function readUint32BE(data: Uint8Array, offset: number): number {
  */
 export function readPngDimensions(data: Uint8Array): PngDimensions | null {
   if (data.length < 24) return null;
-  for (let i = 0; i < PNG_SIGNATURE.length; i++) {
-    if (data[i] !== PNG_SIGNATURE[i]) return null;
-  }
+  if (!hasPngSignature(data)) return null;
   const width = readUint32BE(data, 16);
   const height = readUint32BE(data, 20);
   if (width <= 0 || height <= 0) return null;

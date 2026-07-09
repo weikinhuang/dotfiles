@@ -51,7 +51,13 @@ export async function pollJobOnce(
     // (ComfyUI restarted, queue + history wiped); stop polling it.
     if (!historyHasEntry(history, job.promptId)) {
       const queue = await fetchQueue(conn, signal);
-      if (!queueHasPrompt(queue, job.promptId)) {
+      // `fetchHistory` / `fetchQueue` return null on an HTTP error (a
+      // transient 502 / timeout / a server bounce mid-request), which is NOT
+      // the same as "the server has no such prompt". Only conclude the prompt
+      // was dropped when the queue was actually reached (non-null) and does
+      // not list it; a null queue means we could not verify absence, so keep
+      // the job running rather than failing a live background job on a blip.
+      if (queue !== null && !queueHasPrompt(queue, job.promptId)) {
         return {
           kind: 'failed',
           reason: 'prompt is no longer on the server (ComfyUI may have restarted); resubmit to retry',

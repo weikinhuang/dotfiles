@@ -13,12 +13,12 @@
  * files, so it runs under vitest without touching the filesystem.
  */
 
+import { PNG_SIGNATURE, hasPngSignature, readUint32BE } from '../png/binary.ts';
+
 /** MIME types pi (and every vision provider here) accepts inline. */
 export type SupportedImageMime = 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp';
 
-const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
-
-function startsWith(buffer: Uint8Array, bytes: number[]): boolean {
+function startsWith(buffer: Uint8Array, bytes: readonly number[]): boolean {
   if (buffer.length < bytes.length) return false;
   for (let i = 0; i < bytes.length; i++) {
     if (buffer[i] !== bytes[i]) return false;
@@ -32,10 +32,6 @@ function startsWithAscii(buffer: Uint8Array, offset: number, ascii: string): boo
     if (buffer[offset + i] !== ascii.charCodeAt(i)) return false;
   }
   return true;
-}
-
-function readUint32BE(buffer: Uint8Array, offset: number): number {
-  return ((buffer[offset] << 24) | (buffer[offset + 1] << 16) | (buffer[offset + 2] << 8) | buffer[offset + 3]) >>> 0;
 }
 
 function isPng(buffer: Uint8Array): boolean {
@@ -72,7 +68,7 @@ export function sniffImageMime(buffer: Uint8Array): SupportedImageMime | null {
     // 0xFFD8FFF7 is a CMYK / lossless JPEG variant providers choke on.
     return buffer[3] === 0xf7 ? null : 'image/jpeg';
   }
-  if (startsWith(buffer, PNG_SIGNATURE)) {
+  if (hasPngSignature(buffer)) {
     return isPng(buffer) && !isAnimatedPng(buffer) ? 'image/png' : null;
   }
   if (startsWithAscii(buffer, 0, 'GIF')) {

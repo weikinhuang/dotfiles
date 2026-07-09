@@ -24,7 +24,18 @@ describe('rule corpus integrity', () => {
 
   test('prefixed rules redact the whole match, keyword rules a capture group', () => {
     for (const rule of PREFIXED_RULES) expect(rule.group).toBe(0);
-    for (const rule of KEYWORD_RULES) expect(rule.group).toBe(1);
+    // Keyword rules redact a positive capture group (the value). Most use
+    // group 1; the quoted-value arm captures the quote into group 1 and
+    // the value into group 2 via a backreference.
+    for (const rule of KEYWORD_RULES) expect(rule.group).toBeGreaterThan(0);
+  });
+
+  test('the jwt rule caps each segment length (bounded scan window)', () => {
+    const jwt = PREFIXED_RULES.find((r) => r.id === 'jwt');
+    expect(jwt).toBeDefined();
+    // Bounded quantifiers ({min,max}) rather than unbounded `+`.
+    expect(jwt!.re.source).toMatch(/\{1,\d+\}/);
+    expect(jwt!.re.source).not.toContain('+');
   });
 
   test('rule ids are unique', () => {

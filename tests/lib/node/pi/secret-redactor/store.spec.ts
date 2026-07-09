@@ -4,6 +4,8 @@
  * Pure module - no pi runtime needed.
  */
 
+import { createHash } from 'node:crypto';
+
 import { describe, expect, test } from 'vitest';
 
 import { HANDLE_REF_RE, makePlaceholder, SecretStore } from '../../../../../lib/node/pi/secret-redactor/store.ts';
@@ -34,6 +36,16 @@ describe('SecretStore.register', () => {
 
     expect(entry.handle).toMatch(/^[0-9a-f]{4,}$/);
     expect('ghp_supersecrettoken').not.toContain(entry.handle); // not a slice of the secret
+  });
+
+  test('handle is a prefix of the value sha256 (shared hash helper)', () => {
+    const store = new SecretStore();
+    const value = 'sk_live_deadbeefdeadbeef';
+    const { handle } = store.register(value, 'stripe-key');
+    const full = createHash('sha256').update(value).digest('hex');
+
+    expect(full.startsWith(handle)).toBe(true);
+    expect(handle.length).toBe(4); // HANDLE_BASE_LEN, no collision
   });
 });
 

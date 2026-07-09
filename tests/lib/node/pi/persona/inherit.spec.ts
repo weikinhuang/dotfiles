@@ -40,6 +40,15 @@ describe('mergeAgentInheritance', () => {
     expect(out.name).toBe('plan');
   });
 
+  test('no-agent path returns a fresh object, not the input reference', () => {
+    // A standalone mode (no `agent:` ref) must still yield a distinct object
+    // so callers can mutate the result without aliasing their input.
+    const mode = baseMode({ tools: ['read'], body: 'm' });
+    const out = mergeAgentInheritance(mode, undefined);
+    expect(out).not.toBe(mode);
+    expect(out).toEqual(mode);
+  });
+
   test('mode tools override agent tools when both present', () => {
     const mode = baseMode({ agent: 'planner', tools: ['read', 'write'], body: 'm' });
     const agent = baseAgent({ tools: ['read'] });

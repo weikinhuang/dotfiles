@@ -12,6 +12,7 @@
  */
 
 import { byteLen } from '../shared/bytes.ts';
+import { approxImageBytes, partText } from './part-bytes.ts';
 import { isPlaceholder } from './placeholder.ts';
 import { type LooseMessage, toParts } from './target.ts';
 
@@ -26,11 +27,10 @@ function resultTextBytes(m: LooseMessage): number {
   let bytes = 0;
   for (const p of toParts(m.content)) {
     if (p.type === 'image') {
-      const data = (p as { data?: unknown }).data;
-      if (typeof data === 'string') bytes += Math.floor((data.length * 3) / 4);
-    } else if (p.type === 'text' && typeof (p as { text?: unknown }).text === 'string') {
-      const t = (p as { text: string }).text;
-      if (!isPlaceholder(t)) bytes += byteLen(t);
+      bytes += approxImageBytes(p);
+    } else {
+      const t = partText(p);
+      if (t && !isPlaceholder(t)) bytes += byteLen(t);
     }
   }
   return bytes;

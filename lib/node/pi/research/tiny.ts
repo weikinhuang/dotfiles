@@ -39,7 +39,7 @@
  * tolerated - we do not fail the call, just under-count.
  */
 
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
@@ -47,6 +47,7 @@ import { atomicWriteFile } from '../atomic-write.ts';
 import { parseModelSpec } from '../model-spec.ts';
 import { readJsoncOrUndefined } from '../fs-safe.ts';
 import { piAgentDir, piProjectPath } from '../pi-paths.ts';
+import { type CostEventLike } from './cost-hook.ts';
 import { appendJournal, type JournalLevel } from './journal.ts';
 import { isRecord } from '../shared.ts';
 import { type AgentDef } from '../subagent/loader.ts';
@@ -156,23 +157,73 @@ export function getCallCount(runRoot: string): number {
   }
 }
 
+function counterLockPath(runRoot: string): string {
+  return join(runRoot, '.tiny-count.lock');
+}
+
+/** Busy-wait `ms` milliseconds. Only used to back off on lock contention. */
+function spinWait(ms: number): void {
+  const until = Date.now() + ms;
+  while (Date.now() < until) {
+    /* deliberate short busy-wait - increments are infrequent and brief */
+  }
+}
+
+/**
+ * Run `fn` while holding a coarse cross-process lock on the counter.
+ *
+ * `mkdirSync` is atomic on POSIX and Windows: a second caller
+ * (e.g. a parallel fanout process incrementing the SAME counter)
+ * gets `EEXIST` and spins briefly before retrying. On persistent
+ * contention - typically a stale lock left by a crashed process -
+ * we give up after a bounded wait and run `fn` unlocked: the
+ * counter is advisory, so a rare double-count is far better than a
+ * deadlock that wedges the whole run.
+ */
+function withCounterLock<T>(runRoot: string, fn: () => T): T {
+  const lock = counterLockPath(runRoot);
+  const deadline = Date.now() + 250;
+  for (;;) {
+    try {
+      mkdirSync(lock);
+      break;
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== 'EEXIST') {
+        // Unexpected error (e.g. runRoot missing) - don't wedge; run unlocked.
+        return fn();
+      }
+      if (Date.now() >= deadline) return fn();
+      spinWait(2);
+    }
+  }
+  try {
+    return fn();
+  } finally {
+    try {
+      rmdirSync(lock);
+    } catch {
+      /* best-effort release */
+    }
+  }
+}
+
 /**
  * Atomically bump the counter and return the new value. Called
  * immediately before spawning the tiny-helper agent, so a failed
  * counter write shows up as a journal error rather than silent
  * budget overrun.
  *
- * Not concurrency-safe across simultaneous adapter calls against
- * the SAME runRoot - read-modify-write on the counter file races.
- * Fine in practice because a single adapter call is sequential per
- * spawn; consumers issuing concurrent tiny calls should serialize
- * them at the call site.
+ * The read-modify-write runs under {@link withCounterLock} so
+ * concurrent adapter calls against the SAME runRoot (parallel
+ * fanout) cannot both read the same value and each write `n+1`,
+ * which previously let a run quietly exceed its tiny-call cap.
  */
 export function incrementCallCount(runRoot: string): number {
-  const current = getCallCount(runRoot);
-  const next = current + 1;
-  atomicWriteFile(counterPath(runRoot), `${next}\n`);
-  return next;
+  return withCounterLock(runRoot, () => {
+    const next = getCallCount(runRoot) + 1;
+    atomicWriteFile(counterPath(runRoot), `${next}\n`);
+    return next;
+  });
 }
 
 /**
@@ -215,25 +266,6 @@ export interface TinyCallContext<M> {
   maxCalls?: number;
 }
 
-/**
- * Minimal shape of the event passed to `onEvent` hooks by
- * `runOneShotAgent`. Exported so production wiring code that
- * implements `TinyRunOneShot` has the full picture of the one
- * field the adapter inspects (`message.usage.cost.total` on
- * `message_end` assistant events). The real pi event shape is a
- * superset of this; the wiring's glue code can forward events
- * verbatim.
- */
-export interface CostEventLike {
-  event: {
-    type: string;
-    message?: {
-      role?: string;
-      usage?: { cost?: { total?: number } };
-    };
-  };
-}
-
 /** Result of a one-shot tiny run, as returned by `runOneShotAgent`. */
 export interface TinyRunResult {
   finalText: string;
@@ -254,7 +286,7 @@ export type TinyRunOneShot<M> = (args: {
   modelRegistry: ModelRegistryLike<M> & { authStorage: unknown };
   task: string;
   signal?: AbortSignal;
-  onEvent?: (event: CostEventLike) => void;
+  onEvent?: (wrapped: { event: CostEventLike }) => void;
   timeoutMs?: number;
 }) => Promise<TinyRunResult>;
 
@@ -515,4 +547,46 @@ export async function tinyProvenanceSummary<M>(
     /* swallow - summary is advisory */
   }
   return null;
+}
+
+/**
+ * Build the `onRetry` callback that the planner / self-critic /
+ * synth stages hand to `callTyped` so a validation error gets
+ * rewritten into plain English by the tiny model before it is
+ * journaled.
+ *
+ * Every one of those stages had the identical wrapper: bail to the
+ * `passthrough` when the adapter is disabled, otherwise fire the
+ * caller's `passthrough` immediately, kick off a best-effort
+ * `humanize-error` rewrite, and route a non-empty result into
+ * `onHumanized`. Both hooks are best-effort - `callTyped` does not
+ * await them and a tiny failure never breaks the retry loop.
+ *
+ *   - `onHumanized(humanized, attempt)` - called with the friendlier
+ *     string (already trimmed, guaranteed non-empty). Stages use it
+ *     to journal the nudge.
+ *   - `passthrough(error, attempt)` - the caller's own hook. Returned
+ *     verbatim when the adapter is disabled so the raw error still
+ *     flows through, and invoked before humanization when enabled.
+ */
+export function buildTinyHumanizeOnRetry<M>(
+  adapter: TinyAdapter<M> | undefined,
+  ctx: TinyCallContext<M> | undefined,
+  onHumanized: (humanized: string, attempt: number) => void,
+  passthrough?: (error: string, attempt: number) => void,
+): ((error: string, attempt: number) => void) | undefined {
+  if (!adapter || !ctx || !adapter.isEnabled()) return passthrough;
+  return (error, attempt) => {
+    passthrough?.(error, attempt);
+    void adapter
+      .callTinyRewrite(ctx, 'humanize-error', error)
+      .then((humanized) => {
+        if (typeof humanized === 'string' && humanized.trim().length > 0) {
+          onHumanized(humanized.trim(), attempt);
+        }
+      })
+      .catch(() => {
+        /* swallow - humanization is advisory */
+      });
+  };
 }

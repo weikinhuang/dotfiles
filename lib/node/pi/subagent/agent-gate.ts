@@ -33,7 +33,7 @@
  */
 
 import { evaluateBashPolicy } from '../persona/bash-policy.ts';
-import { isInsideWriteRoots } from '../persona/match.ts';
+import { isInsideWriteRoots } from '../persona/write-roots.ts';
 import { applyRequestOptions, type RequestOptionsConfig } from '../request-options.ts';
 
 // ──────────────────────────────────────────────────────────────────────

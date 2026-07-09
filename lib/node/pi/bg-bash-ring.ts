@@ -26,30 +26,13 @@
  * No pi imports - testable under `vitest`.
  */
 
-import { BYTE_ENCODER, byteLen } from './shared.ts';
+import { byteLen, sliceUtf8Suffix } from './shared.ts';
 
 // ──────────────────────────────────────────────────────────────────────
 // UTF-8 byte-window helpers. Module-private, but declared above the
-// class so oxlint's `no-use-before-define` is satisfied.
+// class so oxlint's `no-use-before-define` is satisfied. The codepoint-safe
+// suffix slice lives in `shared/bytes.ts` so the log-tail clamp reuses it.
 // ──────────────────────────────────────────────────────────────────────
-
-/**
- * Return the suffix of `text` whose UTF-8 encoding is at most `maxBytes`
- * bytes. If the cut would land mid-multi-byte-codepoint, we advance
- * forward to the next codepoint boundary so the returned string is
- * always valid UTF-8 (at the cost of returning slightly fewer bytes).
- */
-function sliceUtf8Suffix(text: string, maxBytes: number): string {
-  if (maxBytes <= 0) return '';
-  const bytes = BYTE_ENCODER.encode(text);
-  if (bytes.length <= maxBytes) return text;
-  const startByte = bytes.length - maxBytes;
-  // UTF-8 continuation bytes are 10xxxxxx (0x80..0xBF). Advance until
-  // we're on a start byte.
-  let i = startByte;
-  while (i < bytes.length && (bytes[i] & 0xc0) === 0x80) i++;
-  return new TextDecoder('utf-8', { fatal: false }).decode(bytes.subarray(i));
-}
 
 function countNewlines(s: string): number {
   let n = 0;
@@ -354,22 +337,19 @@ export class RingBuffer {
       if (cutBefore >= 0) content = content.slice(cutBefore + 1);
     }
 
-    // Compute the starting cursor for this slice. If we consumed the
-    // buffer from the very beginning, droppedBefore may be true for
-    // downstream callers - but `tailLines` doesn't take a cursor, so
-    // report the current retained start.
+    // A non-zero retained start means some prefix of the logical stream was
+    // already evicted, so the tail is lossy - flag `droppedBefore` so callers
+    // know to fall back to the on-disk log for anything earlier. (Line-level
+    // trimming above is separate: it never sets this, only real eviction does.)
     const retainedStart = this.chunks.length > 0 ? this.chunks[0].startCursor : this.total;
-    // Rough approximation: when we trimmed within a chunk the cursor
-    // moves, but we don't expose it - callers use this purely for
-    // display. `cursor` still advances to the end of the stream so
-    // later `read({ sinceCursor: r.cursor })` picks up new data.
+    // `cursor` still advances to the end of the stream so later
+    // `read({ sinceCursor: r.cursor })` picks up new data.
     void firstIncludedChunkIndex;
-    void retainedStart;
 
     return {
       content,
       cursor: this.total,
-      droppedBefore: false,
+      droppedBefore: retainedStart > 0,
       totalBytes: this.total,
       droppedBytes: this.dropped,
     };

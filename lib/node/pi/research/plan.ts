@@ -83,6 +83,17 @@ export interface SubQuestion {
   status: SubQuestionStatus;
   assignedAgent?: string;
   findingsPath?: string;
+  /**
+   * Ordered search hints (URLs or query strings) the planner emitted
+   * for this sub-question. Persisted so the web-researcher prompt can
+   * surface them and so resume does not lose the planner's triage.
+   */
+  searchHints?: string[];
+  /**
+   * "What counts as answered" bullets the planner emitted. Threaded
+   * into the web-researcher prompt as a definition of done.
+   */
+  successCriteria?: string[];
 }
 
 /** Per-experiment state carried in an autoresearch plan. */
@@ -149,6 +160,11 @@ function isNonEmptyString(v: unknown): v is string {
   return typeof v === 'string' && v.length > 0;
 }
 
+/** Array of non-empty strings - composes {@link isNonEmptyString}. */
+function isNonEmptyStringArray(v: unknown): v is string[] {
+  return Array.isArray(v) && v.every(isNonEmptyString);
+}
+
 function isFiniteNonNegativeNumber(v: unknown): v is number {
   return typeof v === 'number' && Number.isFinite(v) && v >= 0;
 }
@@ -178,6 +194,8 @@ function isSubQuestion(v: unknown): v is SubQuestion {
   if (!isSubQuestionStatus(v.status)) return false;
   if (v.assignedAgent !== undefined && typeof v.assignedAgent !== 'string') return false;
   if (v.findingsPath !== undefined && typeof v.findingsPath !== 'string') return false;
+  if (v.searchHints !== undefined && !isNonEmptyStringArray(v.searchHints)) return false;
+  if (v.successCriteria !== undefined && !isNonEmptyStringArray(v.successCriteria)) return false;
   return true;
 }
 
@@ -270,9 +288,17 @@ function upgradeSubQuestion(raw: unknown, path: string): SubQuestion {
   if (raw.findingsPath !== undefined && typeof raw.findingsPath !== 'string') {
     throw new PlanValidationError(`${path}.findingsPath`, 'must be a string when set');
   }
+  if (raw.searchHints !== undefined && !isNonEmptyStringArray(raw.searchHints)) {
+    throw new PlanValidationError(`${path}.searchHints`, 'must be an array of non-empty strings when set');
+  }
+  if (raw.successCriteria !== undefined && !isNonEmptyStringArray(raw.successCriteria)) {
+    throw new PlanValidationError(`${path}.successCriteria`, 'must be an array of non-empty strings when set');
+  }
   const out: SubQuestion = { id: raw.id, question: raw.question, status: raw.status };
   if (typeof raw.assignedAgent === 'string') out.assignedAgent = raw.assignedAgent;
   if (typeof raw.findingsPath === 'string') out.findingsPath = raw.findingsPath;
+  if (isNonEmptyStringArray(raw.searchHints)) out.searchHints = raw.searchHints.slice();
+  if (isNonEmptyStringArray(raw.successCriteria)) out.successCriteria = raw.successCriteria.slice();
 
   return out;
 }

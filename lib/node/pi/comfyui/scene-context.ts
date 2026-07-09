@@ -15,6 +15,7 @@
  */
 
 import { messageContentToText } from '../message-text.ts';
+import { collapseWhitespace } from '../shared.ts';
 
 /** Minimal duck-typed content part - only `text` parts carry scene text. */
 export interface SceneContentPart {
@@ -37,10 +38,7 @@ const ROLE_LABEL: Record<string, string> = { user: 'User', assistant: 'Assistant
  * never leak into the captured scene. Collapse whitespace to one line.
  */
 function clean(text: string): string {
-  return text
-    .replace(/<system-reminder\b[^>]*>[\s\S]*?<\/system-reminder>/g, '')
-    .replace(/\s+/g, ' ')
-    .trim();
+  return collapseWhitespace(text.replace(/<system-reminder\b[^>]*>[\s\S]*?<\/system-reminder>/g, ''));
 }
 
 /**

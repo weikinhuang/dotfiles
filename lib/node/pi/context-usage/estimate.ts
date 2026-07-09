@@ -12,6 +12,8 @@
  * paints and the legend lists as "Free space".
  */
 
+import { extractContentText } from '../message-text.ts';
+import { collapseWhitespace, truncate } from '../shared/strings.ts';
 import type {
   Breakdown,
   BreakdownInput,
@@ -36,6 +38,22 @@ function contentChars(content: string | ContentPartLike[] | undefined): number {
   for (const block of content) {
     if (block.type === 'text' && typeof block.text === 'string') chars += block.text.length;
     else if (block.type === 'image') chars += IMAGE_CHARS;
+  }
+  return chars;
+}
+
+/**
+ * Text-only char count: like {@link contentChars} but excludes image parts.
+ * Used by the conversation breakdown so images are counted ONCE in the
+ * dedicated `Images` category and never double-counted inside the per-role
+ * text buckets.
+ */
+function textOnlyChars(content: string | ContentPartLike[] | undefined): number {
+  if (content == null) return 0;
+  if (typeof content === 'string') return content.length;
+  let chars = 0;
+  for (const block of content) {
+    if (block.type === 'text' && typeof block.text === 'string') chars += block.text.length;
   }
   return chars;
 }
@@ -325,30 +343,13 @@ function buildToolsNode(input: BreakdownInput): CategoryNode {
 // ──────────────────────────────────────────────────────────────────────────
 
 function fullContentText(content: string | ContentPartLike[] | undefined): string {
-  if (content == null) return '';
-  if (typeof content === 'string') return content;
-  let text = '';
-  for (const block of content) {
-    if (block.type === 'text') text += block.text;
-    else if (block.type === 'image') text += '[image]\n';
-  }
-  return text;
+  return extractContentText(content);
 }
 
 function previewContent(content: string | ContentPartLike[] | undefined): string | undefined {
-  if (content == null) return undefined;
-  let text = '';
-  if (typeof content === 'string') text = content;
-  else {
-    for (const block of content) {
-      if (block.type === 'text') text += block.text;
-      else if (block.type === 'image') text += '[image]';
-      if (text.length > 120) break;
-    }
-  }
-  text = text.replace(/\s+/g, ' ').trim();
+  const text = collapseWhitespace(extractContentText(content));
   if (text.length === 0) return undefined;
-  return text.length > 100 ? `${text.slice(0, 100)}…` : text;
+  return truncate(text, 100);
 }
 
 const DEFAULT_TOP_N = 8;
@@ -371,7 +372,9 @@ function buildConversationNode(input: BreakdownInput, topN = DEFAULT_TOP_N): Cat
   messages.forEach((m, idx) => {
     switch (m.role) {
       case 'user': {
-        userTok += estimateMessageTokens(m);
+        // Text-only here; the message's images are counted once below (and in
+        // the dedicated `conv.images` node) to avoid double-counting.
+        userTok += charsToTokens(textOnlyChars(m.content));
         const imgs = countImages(m.content);
         imageCount += imgs;
         imageTok += charsToTokens(imgs * IMAGE_CHARS);
@@ -383,12 +386,17 @@ function buildConversationNode(input: BreakdownInput, topN = DEFAULT_TOP_N): Cat
           else if (block.type === 'thinking') assistantThinking += charsToTokens(block.thinking.length);
           else if (block.type === 'toolCall')
             assistantToolArgs += charsToTokens(block.name.length + safeJsonLen(block.arguments));
+          else if (block.type === 'image') {
+            imageCount++;
+            imageTok += charsToTokens(IMAGE_CHARS);
+          }
         }
         break;
       }
       case 'toolResult': {
         const name = m.toolName && m.toolName.length > 0 ? m.toolName : 'unknown';
-        const tok = estimateMessageTokens(m);
+        // Text-only bucket + shared images node (counted once, below).
+        const tok = charsToTokens(textOnlyChars(m.content));
         const imgs = countImages(m.content);
         imageCount += imgs;
         imageTok += charsToTokens(imgs * IMAGE_CHARS);

@@ -32,8 +32,25 @@ test('stripQuotes: leaves a lone / mismatched quote as-is (trimmed)', () => {
 
 test('returns null when there is no opening fence', () => {
   expect(parseFencedFrontmatter('just a body\n')).toBeNull();
-  // Leading whitespace before the fence is not tolerated.
-  expect(parseFencedFrontmatter('  ---\nname: n\n---\n')).toBeNull();
+  // Non-whitespace content before the fence is still not tolerated.
+  expect(parseFencedFrontmatter('nope\n---\nname: n\n---\n')).toBeNull();
+});
+
+test('tolerates a leading UTF-8 BOM before the opening fence', () => {
+  const parsed = parseFencedFrontmatter('\uFEFF---\nname: n\n---\nbody\n');
+  expect(parsed).not.toBeNull();
+  expect(parsed!.fields.name).toBe(' n');
+  expect(parsed!.body).toBe('body\n');
+});
+
+test('tolerates leading whitespace / blank lines before the opening fence', () => {
+  const spaced = parseFencedFrontmatter('  ---\nname: n\n---\nbody\n');
+  expect(spaced).not.toBeNull();
+  expect(spaced!.fields.name).toBe(' n');
+
+  const blankLines = parseFencedFrontmatter('\n\n---\nname: n\n---\nbody\n');
+  expect(blankLines).not.toBeNull();
+  expect(blankLines!.fields.name).toBe(' n');
 });
 
 test('returns null on an unterminated fence', () => {

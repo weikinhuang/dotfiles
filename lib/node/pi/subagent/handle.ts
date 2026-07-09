@@ -70,9 +70,14 @@ export function resolveHandle<T extends { childSessionId: string }>(
  * so the `cap` is resolved by the caller (from `PI_SUBAGENT_BG_MAX`).
  */
 export function pruneBackgroundRegistry<T extends { running: boolean }>(registry: Map<string, T>, cap: number): void {
-  if (registry.size <= cap) return;
+  // Clamp to a floor of 1: a misconfigured `PI_SUBAGENT_BG_MAX` of 0 /
+  // negative / non-integer would otherwise try to evict every completed
+  // entry (or, worse, compute a negative/NaN overflow). At least one
+  // slot always survives.
+  const effectiveCap = Number.isFinite(cap) ? Math.max(1, Math.floor(cap)) : 1;
+  if (registry.size <= effectiveCap) return;
   const toDrop: string[] = [];
-  let overflow = registry.size - cap;
+  let overflow = registry.size - effectiveCap;
   for (const [handle, entry] of registry) {
     if (overflow <= 0) break;
     if (!entry.running) {

@@ -563,7 +563,7 @@ export default function subagentExtension(pi: ExtensionAPI): void {
     getSessionSubagentAggregate().reset();
     // Sweep stale worktrees + old child session files from prior (possibly
     // crashed) runs. Both helpers are best-effort and silent on failure.
-    const wtSwept = sweepStaleWorktrees(ctx.cwd, makeSweepFs());
+    const wtSwept = sweepStaleWorktrees(ctx.cwd);
     if (debug && wtSwept.swept > 0) ctx.ui.notify(`subagent: swept ${wtSwept.swept} stale worktree(s)`, 'info');
     const retain = envPositiveInt('PI_SUBAGENT_RETAIN_DAYS', DEFAULT_RETAIN_DAYS);
     const swept = sweepStaleSessions(subagentSessionRoot(), retain, makeSweepFs());
@@ -605,7 +605,7 @@ export default function subagentExtension(pi: ExtensionAPI): void {
     // Happy-path sweep. Both sweeps are best-effort - shutdown must
     // not block or throw.
     try {
-      sweepStaleWorktrees(ctx.cwd, makeSweepFs());
+      sweepStaleWorktrees(ctx.cwd);
     } catch {
       // never block shutdown
     }

@@ -14,6 +14,13 @@ import {
 
 const textPart = (text: string): unknown => ({ type: 'text', text });
 
+test('concatRecentMessageText: routes each message through the extractor without spurious separators', () => {
+  // A message whose content is neither a string nor a parts array must be
+  // skipped entirely, not contribute an empty entry (extra separator).
+  const messages = [{ content: 'a' }, { content: 42 }, { content: [textPart('b'), textPart('c')] }];
+  expect(concatRecentMessageText(messages, 3)).toBe('a\nb\nc');
+});
+
 test('extractContentText: string content returned as-is (no trim by default)', () => {
   expect(extractContentText('  hi ')).toBe('  hi ');
 });

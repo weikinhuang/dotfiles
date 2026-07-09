@@ -57,7 +57,7 @@
  */
 
 import { type PhaseEvent } from '../deep-research/statusline.ts';
-import { type PhaseBudget, type PhaseTracker, type RunBudget } from './budget.ts';
+import { logPhaseOverruns, type PhaseBudget, type PhaseTracker, type RunBudget } from './budget.ts';
 import { appendJournal } from './journal.ts';
 
 // ──────────────────────────────────────────────────────────────────────
@@ -209,48 +209,11 @@ export function createLiveBudget(opts: CreateLiveBudgetOpts): LiveBudget {
     budget.totalWallClockSec += elapsedSec;
   };
 
-  const logOverruns = (phase: PhaseBudget): void => {
-    const phaseCost = budget.perPhaseCostUsd[phase.name] ?? 0;
-    const phaseWall = budget.perPhaseWallClockSec[phase.name] ?? 0;
-
-    const costKey = `${phase.name}:cost`;
-    if (phaseCost > phase.maxCostUsd && !budget.overrunLogged.has(costKey)) {
-      budget.overrunLogged.add(costKey);
-      if (budget.journalPath) {
-        try {
-          appendJournal(budget.journalPath, {
-            level: 'warn',
-            heading: `Phase "${phase.name}" exceeded cost cap`,
-            body: `spent ${phaseCost.toFixed(6)} USD / cap ${phase.maxCostUsd.toFixed(6)} USD`,
-          });
-        } catch {
-          /* swallow - journaling is best-effort */
-        }
-      }
-    }
-
-    const wallKey = `${phase.name}:wall`;
-    if (phaseWall > phase.maxWallClockSec && !budget.overrunLogged.has(wallKey)) {
-      budget.overrunLogged.add(wallKey);
-      if (budget.journalPath) {
-        try {
-          appendJournal(budget.journalPath, {
-            level: 'warn',
-            heading: `Phase "${phase.name}" exceeded wall-clock cap`,
-            body: `spent ${phaseWall.toFixed(3)}s / cap ${phase.maxWallClockSec.toFixed(3)}s`,
-          });
-        } catch {
-          /* swallow */
-        }
-      }
-    }
-  };
-
   const closeCurrent = (): void => {
     if (!currentPhase || currentPhaseStartMs === null) return;
     recordWallClock(currentPhase, currentPhaseStartMs);
     const declared = budget.phases.find((p) => p.name === currentPhase);
-    if (declared) logOverruns(declared);
+    if (declared) logPhaseOverruns(budget, declared);
     currentPhase = null;
     currentPhaseStartMs = null;
   };

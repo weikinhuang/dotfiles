@@ -9,6 +9,7 @@
 import { expect, test } from 'vitest';
 
 import {
+  extractBalanced,
   extractBalancedArray,
   extractBalancedObject,
   parseJsonLoose,
@@ -28,6 +29,14 @@ test('stripCodeFence: drops a ```json fence', () => {
 
 test('stripCodeFence: drops a bare ``` fence', () => {
   expect(stripCodeFence('```\n{"a":1}\n```')).toBe('{"a":1}');
+});
+
+// ── extractBalanced (generic) ─────────────────────────────────────────
+
+test('extractBalanced: works for both object and array delimiters', () => {
+  expect(extractBalanced('x {a:1} y', '{', '}')).toBe('{a:1}');
+  expect(extractBalanced('x [1,2] y', '[', ']')).toBe('[1,2]');
+  expect(extractBalanced('no delims', '{', '}')).toBeNull();
 });
 
 // ── extractBalancedObject ─────────────────────────────────────────────
@@ -112,4 +121,28 @@ test('parseJsonLoose: unparseable input returns undefined (never throws)', () =>
   expect(parseJsonLoose('no json at all')).toBeUndefined();
   expect(parseJsonLoose('{"a":1')).toBeUndefined();
   expect(parseJsonLoose('')).toBeUndefined();
+});
+
+test('parseJsonLoose: recovers a fenced object', () => {
+  expect(parseJsonLoose('```json\n{"a":1,"b":2}\n```')).toEqual({ a: 1, b: 2 });
+  expect(parseJsonLoose('```\n{"a":1}\n```')).toEqual({ a: 1 });
+});
+
+test('parseJsonLoose: recovers a fenced array', () => {
+  expect(parseJsonLoose('```json\n[1, 2, 3]\n```')).toEqual([1, 2, 3]);
+  expect(parseJsonLoose('```\n[{"a":1}]\n```')).toEqual([{ a: 1 }]);
+});
+
+test('parseJsonLoose: recovers a prose-wrapped array', () => {
+  expect(parseJsonLoose('Here is the list: [1, 2, 3]. Done.')).toEqual([1, 2, 3]);
+});
+
+test('parseJsonLoose: prose-wrapped array of objects recovers the array, not its first element', () => {
+  // Object and array both present; the array opens first, so the whole
+  // array is recovered rather than its leading `{…}`.
+  expect(parseJsonLoose('Result: [{"a":1},{"b":2}] done')).toEqual([{ a: 1 }, { b: 2 }]);
+});
+
+test('parseJsonLoose: prefers an object when it opens before any array', () => {
+  expect(parseJsonLoose('note {"a":[1,2]} tail')).toEqual({ a: [1, 2] });
 });

@@ -40,6 +40,7 @@ import {
 import { basename, extname, isAbsolute, join } from 'node:path';
 
 import { atomicWriteFile, ensureDirSync } from '../atomic-write.ts';
+import { readTextOrNull } from '../fs-safe.ts';
 import { type CheckSpec, type Verdict } from './schema.ts';
 import { isCheckSpecShape } from './guards.ts';
 import { sha256Hex } from '../shared.ts';
@@ -89,14 +90,6 @@ export function snapshotVerdictPath(cwd: string, task: string, iteration: number
   return join(snapshotsDir(cwd, task), `iter-${padded}.verdict.json`);
 }
 
-function safeReadText(path: string): string | null {
-  try {
-    return readFileSync(path, 'utf8');
-  } catch {
-    return null;
-  }
-}
-
 function safeParseJson(raw: string): unknown {
   try {
     return JSON.parse(raw);
@@ -120,7 +113,7 @@ export interface ReadSpecResult {
 }
 
 function parseSpecFile(path: string, state: 'draft' | 'active'): ReadSpecResult {
-  const raw = safeReadText(path);
+  const raw = readTextOrNull(path);
   if (raw === null) return { state, spec: null, error: `failed to read ${path}` };
   const parsed = safeParseJson(raw);
   if (parsed === null) return { state, spec: null, error: `${path} is not valid JSON` };

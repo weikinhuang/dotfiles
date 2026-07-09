@@ -61,6 +61,14 @@ test('buildBudgetPreview: neutral band with auto-compact armed', () => {
   );
 });
 
+test('buildBudgetPreview: unspecified thresholds fall back to 50/80/90 defaults', () => {
+  // An options object with no thresholds must not render `min=undefined%`; it
+  // uses the same defaults formatBudgetLine applies.
+  const out = buildBudgetPreview(usage(140_000, 200_000, 70), {}, null, false);
+  expect(out).toContain('Thresholds: min=50%, warn=80%, critical=90%');
+  expect(out).not.toContain('undefined');
+});
+
 test('buildBudgetPreview: auto-compact already fired this session', () => {
   expect(buildBudgetPreview(usage(184_000, 200_000, 92), options, 90, true)).toBe(
     [

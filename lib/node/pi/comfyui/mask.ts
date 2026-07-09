@@ -11,6 +11,8 @@
  * No pi imports.
  */
 
+import { isFiniteNumber } from '../shared.ts';
+
 /** A normalized rectangle: `[x, y, w, h]` in `0..1`, top-left origin. */
 export type NormalizedBox = readonly number[];
 
@@ -96,10 +98,6 @@ export interface MaskOptions {
 }
 
 const EPS = 1e-6;
-
-function isFiniteNumber(n: unknown): n is number {
-  return typeof n === 'number' && Number.isFinite(n);
-}
 
 /**
  * Validate normalized `bboxes` against a `width`x`height` canvas and turn

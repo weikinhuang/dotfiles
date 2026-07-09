@@ -229,6 +229,49 @@ describe('buildBreakdown', () => {
     expect(injected?.children?.length).toBe(2);
   });
 
+  test('images counted once in conv.images, not double-counted in role buckets', () => {
+    const b = buildBreakdown(
+      baseInput({
+        messages: [
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: 'a'.repeat(40) },
+              { type: 'image', data: 'x' },
+            ],
+          },
+          {
+            role: 'assistant',
+            content: [
+              { type: 'text', text: 'b'.repeat(40) },
+              { type: 'image', data: 'y' },
+            ],
+          },
+          {
+            role: 'toolResult',
+            toolName: 'read',
+            content: [
+              { type: 'text', text: 'c'.repeat(40) },
+              { type: 'image', data: 'z' },
+            ],
+          },
+        ],
+      }),
+    );
+    // 3 images across user + assistant + toolResult, counted exactly once.
+    const images = find(b.root, 'conv.images');
+    expect(images?.label).toBe('Images (3)');
+    expect(images?.tokens).toBe(charsToTokens(3 * 4800));
+    // User bucket is text-only (40 chars → 10 tokens), NOT 10 + 1200.
+    expect(find(b.root, 'conv.user')?.tokens).toBe(charsToTokens(40));
+    // The assistant text bucket is likewise text-only.
+    expect(find(b.root, 'conv.asst.text')?.tokens).toBe(charsToTokens(40));
+    // Conversation total is exactly the sum of its children (no double count).
+    const conv = find(b.root, 'conv');
+    const sum = (conv?.children ?? []).reduce((s, c) => s + c.tokens, 0);
+    expect(conv?.tokens).toBe(sum);
+  });
+
   test('lastUsage taken from most recent assistant message', () => {
     const b = buildBreakdown(baseInput());
     expect(b.lastUsage?.input).toBe(1000);

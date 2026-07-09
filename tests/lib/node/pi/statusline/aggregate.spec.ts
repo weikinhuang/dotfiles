@@ -71,6 +71,13 @@ test('sums session usage, keeps last-turn usage, counts turns/toolCalls/bytes', 
   expect(out.lastOut).toBe(40);
 });
 
+test('counts tool-result text as UTF-8 bytes, not UTF-16 code units', () => {
+  // "é" is 2 UTF-8 bytes; "😀" is 4. `.length` would report 1 and 2 (surrogate
+  // pair) respectively, undercounting - toolResultBytes must reflect bytes.
+  const out = aggregate([toolResult('é😀')]);
+  expect(out.toolResultBytes).toBe(6);
+});
+
 test('ignores non-message entries and assistant messages without usage', () => {
   const out = aggregate([{ type: 'custom' }, assistant(undefined, 1)]);
   expect(out.sessionIn).toBe(0);

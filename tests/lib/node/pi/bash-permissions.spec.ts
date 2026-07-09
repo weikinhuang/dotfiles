@@ -14,10 +14,13 @@ import {
   checkHardcodedDeny,
   commandTokens,
   decideSubcommand,
+  expandForSafetyCheck,
   extractCommandSubstitutions,
   maskQuotedRegions,
   matchesPattern,
+  peelCommandWrapper,
   splitCompound,
+  splitPipeline,
   stripControlFlowKeyword,
   twoTokenPattern,
 } from '../../../../lib/node/pi/bash/match.ts';
@@ -32,6 +35,33 @@ test('splitCompound: simple commands and operators', () => {
   expect(splitCompound('echo hi; pwd')).toEqual(['echo hi', 'pwd']);
   expect(splitCompound('git status || echo no')).toEqual(['git status', 'echo no']);
   expect(splitCompound('cat foo | grep bar')).toEqual(['cat foo | grep bar']);
+});
+
+test('splitPipeline: splits top-level pipes but respects quotes/heredocs', () => {
+  expect(splitPipeline('cat foo | grep bar')).toEqual(['cat foo', 'grep bar']);
+  expect(splitPipeline('true | rm -rf /')).toEqual(['true', 'rm -rf /']);
+  expect(splitPipeline('a |& b')).toEqual(['a', 'b']);
+  expect(splitPipeline('ls -la')).toEqual(['ls -la']);
+  // A pipe inside quotes is not a stage boundary.
+  expect(splitPipeline('echo "a | b"')).toEqual(['echo "a | b"']);
+});
+
+test('peelCommandWrapper: extracts the inner command from launchers', () => {
+  expect(peelCommandWrapper("bash -c 'rm -rf /'")).toBe('rm -rf /');
+  expect(peelCommandWrapper('sh -lc "echo hi"')).toBe('echo hi');
+  expect(peelCommandWrapper('env FOO=1 rm -rf /')).toBe('rm -rf /');
+  expect(peelCommandWrapper('nohup make build')).toBe('make build');
+  expect(peelCommandWrapper('timeout 5 rm -rf /')).toBe('rm -rf /');
+  // No wrapper -> null.
+  expect(peelCommandWrapper('rm -rf /')).toBe(null);
+  expect(peelCommandWrapper('bash deploy.sh')).toBe(null);
+});
+
+test('expandForSafetyCheck: includes command, stages, and peeled inners', () => {
+  const variants = expandForSafetyCheck("true | bash -c 'rm -rf /'");
+  expect(variants).toContain("true | bash -c 'rm -rf /'");
+  expect(variants).toContain("bash -c 'rm -rf /'");
+  expect(variants).toContain('rm -rf /');
 });
 
 test('splitCompound: quoting protects operators and newlines', () => {
@@ -336,6 +366,37 @@ test('checkHardcodedDeny: documented quoted-target trade-off', () => {
   expect(checkHardcodedDeny("rm -rf '/'")).toBe(null);
   // And the unquoted form still blocks.
   expect(checkHardcodedDeny('rm -rf /')).toBeTruthy();
+});
+
+test('checkHardcodedDeny: destructive right-hand pipeline stage still blocks', () => {
+  // Regression: `foo | rm -rf /` used to sail past because the whole
+  // command was checked as one string anchored on the leading token.
+  expect(checkHardcodedDeny('true | rm -rf /')).toBeTruthy();
+  expect(checkHardcodedDeny('echo hi | rm -rf ~')).toBeTruthy();
+  expect(checkHardcodedDeny('yes |& rm -rf /')).toBeTruthy();
+  // An innocuous pipeline stays allowed.
+  expect(checkHardcodedDeny('cat foo | grep bar')).toBe(null);
+});
+
+test('checkHardcodedDeny: wrapper-hidden footguns still block', () => {
+  // Regression: `bash -c '…'` and `env …` used to hide the payload.
+  expect(checkHardcodedDeny("bash -c 'rm -rf /'")).toBeTruthy();
+  expect(checkHardcodedDeny('sh -c "rm -rf ~"')).toBeTruthy();
+  expect(checkHardcodedDeny('/bin/sh -c "rm -rf /"')).toBeTruthy();
+  expect(checkHardcodedDeny('env rm -rf /')).toBeTruthy();
+  expect(checkHardcodedDeny('env FOO=1 BAR=2 rm -rf /')).toBeTruthy();
+  expect(checkHardcodedDeny('nohup rm -rf /')).toBeTruthy();
+  expect(checkHardcodedDeny('timeout 5 rm -rf /')).toBeTruthy();
+  // The wrapper on a benign inner command is not blocked.
+  expect(checkHardcodedDeny("bash -c 'echo hello'")).toBe(null);
+  expect(checkHardcodedDeny('env FOO=1 ls -la')).toBe(null);
+  // `bash script.sh` is not a `-c` payload - nothing to peel, no block.
+  expect(checkHardcodedDeny('bash deploy.sh')).toBe(null);
+});
+
+test('checkAlwaysPrompt: privilege escalation hidden behind a wrapper/pipe still prompts', () => {
+  expect(checkAlwaysPrompt("bash -c 'sudo rm foo'")).toBeTruthy();
+  expect(checkAlwaysPrompt('echo hi | sudo tee /etc/hosts')).toBeTruthy();
 });
 
 test('checkHardcodedDeny: disabled by PI_BASH_PERMISSIONS_NO_HARDCODED_DENY', () => {

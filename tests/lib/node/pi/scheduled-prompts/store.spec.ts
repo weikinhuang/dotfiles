@@ -97,6 +97,32 @@ describe('parseScheduleFile', () => {
     ];
     expect(parseScheduleFile(JSON.stringify({ version: 1, schedules: bad }))).toEqual([]);
   });
+
+  test('rejects triggers that computeNextFire would silently disarm', () => {
+    // Regression: these all parse structurally but never fire, so they
+    // are dropped on read instead of loading as permanently-dead entries.
+    const dead = [
+      makeSchedule('sp-int0', { kind: 'interval', ms: 0 }),
+      makeSchedule('sp-intneg', { kind: 'interval', ms: -5 }),
+      makeSchedule('sp-aftmax0', { kind: 'after', minMs: 0, maxMs: 0 }),
+      makeSchedule('sp-aftinv', { kind: 'after', minMs: 500, maxMs: 100 }),
+      makeSchedule('sp-aftnegmin', { kind: 'after', minMs: -1, maxMs: 100 }),
+      makeSchedule('sp-cronblank', { kind: 'cron', expr: '   ' }),
+    ];
+    expect(parseScheduleFile(JSON.stringify({ version: 1, schedules: dead }))).toEqual([]);
+  });
+
+  test('rejects out-of-range chance (0, negative, or > 1)', () => {
+    const bad = [
+      makeSchedule('sp-c0', { kind: 'interval', ms: 1000 }, { chance: 0 }),
+      makeSchedule('sp-cneg', { kind: 'interval', ms: 1000 }, { chance: -0.2 }),
+      makeSchedule('sp-chi', { kind: 'interval', ms: 1000 }, { chance: 1.5 }),
+    ];
+    expect(parseScheduleFile(JSON.stringify({ version: 1, schedules: bad }))).toEqual([]);
+    // A valid boundary (chance === 1) still loads.
+    const ok = makeSchedule('sp-c1', { kind: 'interval', ms: 1000 }, { chance: 1 });
+    expect(parseScheduleFile(JSON.stringify({ version: 1, schedules: [ok] }))).toEqual([ok]);
+  });
 });
 
 describe('disk round-trip', () => {

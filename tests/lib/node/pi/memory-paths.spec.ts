@@ -6,7 +6,7 @@
  */
 
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { afterEach, beforeEach, expect, test } from 'vitest';
@@ -102,6 +102,11 @@ test('memoryRoot: defaults to ~/.pi/agent/memory when unset', () => {
   const r = memoryRoot();
 
   expect(r).toMatch(/\.pi[/\\]agent[/\\]memory$/);
+});
+
+test('memoryRoot: expands a leading ~ in PI_MEMORY_ROOT', () => {
+  process.env.PI_MEMORY_ROOT = '~/custom-memory';
+  expect(memoryRoot()).toBe(join(homedir(), 'custom-memory'));
 });
 
 test('globalDir / projectDir / fileFor / indexFileFor line up', () => {

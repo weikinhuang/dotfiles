@@ -213,4 +213,23 @@ describe('withTransientRetry', () => {
     expect(fn).toHaveBeenCalledTimes(1);
     expect(sleepSpy).not.toHaveBeenCalled();
   });
+
+  test('with a real signal (no custom sleep), aborting during backoff cuts the wait and surfaces the last error', async () => {
+    const controller = new AbortController();
+    const fn = vi.fn().mockRejectedValue(new Error('ECONNRESET'));
+    // No `sleep` override: the helper uses the abortable `delay` because a
+    // signal is present. A large initial delay would block for seconds if
+    // the abort did NOT cut it short.
+    const promise = withTransientRetry(fn, {
+      signal: controller.signal,
+      initialDelayMs: 5000,
+      random: () => 0.5,
+    });
+    // Let the first attempt fail and park in the backoff delay, then abort.
+    await new Promise((resolve) => setImmediate(resolve));
+    controller.abort();
+
+    await expect(promise).rejects.toThrow(/ECONNRESET/);
+    expect(fn).toHaveBeenCalledTimes(1);
+  });
 });

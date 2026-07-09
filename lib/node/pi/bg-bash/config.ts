@@ -29,6 +29,7 @@
 
 import { readJsoncOrUndefined } from '../fs-safe.ts';
 import { piAgentPath, piProjectPath } from '../pi-paths.ts';
+import { isRecord } from '../shared/guards.ts';
 
 /** Which stream `logs` returns by default. */
 export type BgBashStream = 'stdout' | 'stderr' | 'merged';
@@ -76,10 +77,6 @@ const MAX_INJECTED_CHARS_FLOOR = 200;
 
 const STREAMS = new Set<BgBashStream>(['stdout', 'stderr', 'merged']);
 
-function isObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
 /** Parse an env string to an integer, or undefined when missing / blank / non-numeric. */
 function numFromEnv(raw: string | undefined): number | undefined {
   if (raw === undefined || raw.trim().length === 0) return undefined;
@@ -107,7 +104,7 @@ function asBoolean(value: unknown): boolean | undefined {
  * object for a non-object input.
  */
 export function coerceBgBashConfigLayer(raw: unknown): Partial<BgBashConfig> {
-  if (!isObject(raw)) return {};
+  if (!isRecord(raw)) return {};
   const out: Partial<BgBashConfig> = {};
 
   const timeoutMs = asIntAtLeast(raw.timeoutMs, 0);

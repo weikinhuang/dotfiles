@@ -490,7 +490,7 @@ export function checkReportStructure(opts: CheckReportStructureOpts): Structural
   // structural on "zero markers → zero resolution failures,"
   // which lets the subjective critic loop burn budget arguing
   // over uncited prose.
-  const sectionSlices = sliceBodyByH2(body);
+  const sectionSlices = sliceByH2(body);
   for (const slice of sectionSlices) {
     if (NON_SECTION_HEADINGS.has(slice.heading)) continue;
     if (isUnavailableStub(slice.contents)) continue;
@@ -654,7 +654,7 @@ function splitTitleUrl(raw: string): { title: string; url: string } {
   return { title: raw, url: '' };
 }
 
-interface BodySlice {
+export interface BodySlice {
   /** H2 heading text, trimmed, no leading `## ` prefix. */
   heading: string;
   /** The body between this heading and the next H2 (or EOF). */
@@ -665,8 +665,15 @@ interface BodySlice {
  * Split a report body into per-`## ` slices. Content before the
  * first H2 (title + abstract + intro) is dropped - those parts
  * carry no per-sub-question citation contract. Pure string op.
+ *
+ * Shared canonical slicer: the structural check uses it to scope
+ * per-section citation rules, and {@link
+ * ../research-resume.findStubbedSections} uses it to locate
+ * `[section unavailable: …]` sections. Keeping one implementation
+ * means both surfaces agree on exactly where a section starts and
+ * ends.
  */
-function sliceBodyByH2(body: string): BodySlice[] {
+export function sliceByH2(body: string): BodySlice[] {
   const lines = body.split(/\r?\n/);
   const slices: BodySlice[] = [];
   let current: BodySlice | null = null;
@@ -686,11 +693,17 @@ function sliceBodyByH2(body: string): BodySlice[] {
 }
 
 /**
+ * Canonical `[section unavailable: <reason>]` matcher. The whole
+ * trimmed section body must be the stub - a section that merely
+ * mentions the phrase in passing still owes the reader a citation.
+ * Capture group 1 is the reason (leading whitespace stripped).
+ */
+const UNAVAILABLE_STUB_RE = /^\[section unavailable:\s*([^\]]*)\]\s*$/;
+
+/**
  * True when a section's body is a whole-section
  * `[section unavailable: …]` stub emitted by
- * `deep-research-synth-sections`. Sections that merely mention
- * the phrase in passing still owe the reader a citation, so the
- * regex requires the stub to be the entire trimmed body.
+ * `deep-research-synth-sections`.
  *
  * Exported for {@link ../research-resume.findStubbedSections},
  * which uses it to surface an "N sub-question sections are
@@ -700,7 +713,18 @@ function sliceBodyByH2(body: string): BodySlice[] {
 export function isUnavailableStub(contents: string): boolean {
   const trimmed = contents.trim();
   if (trimmed.length === 0) return false;
-  return /^\[section unavailable:[^\]]*\]\s*$/.test(trimmed);
+  return UNAVAILABLE_STUB_RE.test(trimmed);
+}
+
+/**
+ * Extract the reason from a whole-section `[section unavailable:
+ * <reason>]` stub, or `null` when `contents` is not such a stub.
+ * Shared by {@link ../research-resume.findStubbedSections}.
+ */
+export function unavailableStubReason(contents: string): string | null {
+  const m = UNAVAILABLE_STUB_RE.exec(contents.trim());
+  if (!m) return null;
+  return (m[1] ?? '').trim();
 }
 
 // ──────────────────────────────────────────────────────────────────────

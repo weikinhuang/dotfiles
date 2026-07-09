@@ -23,15 +23,10 @@
  * `ModelRegistryLike` types from `../subagent/spawn.ts`).
  */
 
-import { homedir } from 'node:os';
-import { join } from 'node:path';
-
-import { readJsoncOrUndefined } from '../fs-safe.ts';
-import { parseModelSpec } from '../model-spec.ts';
-import { piAgentDir, piProjectPath } from '../pi-paths.ts';
-import { isRecord, truncate } from '../shared.ts';
+import { truncate } from '../shared.ts';
 import { type AgentDef } from '../subagent/loader.ts';
-import { resolveChildModel, type ModelRegistryLike } from '../subagent/spawn.ts';
+import { type ModelRegistryLike } from '../subagent/spawn.ts';
+import { createOneShotSubagentAdapter, resolveRoleplayChildModelSettings } from './one-shot.ts';
 
 // ──────────────────────────────────────────────────────────────────────
 // Pure helpers: task builder + director framing + deck pick + validation
@@ -134,53 +129,20 @@ export interface ResolveEventSettingsOpts {
   home?: string;
 }
 
-function parseEventModel(raw: unknown): string | null {
-  if (typeof raw !== 'string') return null;
-  const parsed = parseModelSpec(raw);
-  if (!parsed) return null;
-  return `${parsed.provider}/${parsed.modelId}`;
-}
-
 /**
- * Resolve the optional `eventModel` from, in order:
- *
- *   1. `<cwd>/.pi/roleplay-event.json` - `{eventModel: "…"}` or a bare string.
- *   2. `<piAgentDir>/roleplay-event.json` - same shape.
- *   3. `<piAgentDir>/settings.json` - under `roleplay.eventModel`.
- *
- * First hit wins. Returns `null` when none resolve - the generator then
- * inherits the parent session model (it is NOT disabled).
+ * Resolve the optional `eventModel` via the shared roleplay child-model
+ * cascade (`roleplay-event.json` -> settings.json `roleplay.eventModel`).
+ * Returns `null` when nothing resolves - the generator then inherits the
+ * parent session model (it is NOT disabled).
  */
 export function resolveEventSettings(opts: ResolveEventSettingsOpts): EventSettings | null {
-  const home = opts.home ?? homedir();
-  const agentDir = piAgentDir(process.env, home);
-  const candidates: { path: string; extract: (v: unknown) => unknown }[] = [
-    {
-      path: piProjectPath(opts.cwd, 'roleplay-event.json'),
-      extract: (v) => (isRecord(v) ? v.eventModel : v),
-    },
-    {
-      path: join(agentDir, 'roleplay-event.json'),
-      extract: (v) => (isRecord(v) ? v.eventModel : v),
-    },
-    {
-      path: join(agentDir, 'settings.json'),
-      extract: (v) => {
-        if (!isRecord(v)) return undefined;
-        const roleplay = v.roleplay;
-        if (!isRecord(roleplay)) return undefined;
-        return roleplay.eventModel;
-      },
-    },
-  ];
-
-  for (const candidate of candidates) {
-    const body = readJsoncOrUndefined(candidate.path);
-    if (body === undefined) continue;
-    const value = parseEventModel(candidate.extract(body));
-    if (value !== null) return { eventModel: value, source: candidate.path };
-  }
-  return null;
+  const resolved = resolveRoleplayChildModelSettings({
+    cwd: opts.cwd,
+    home: opts.home,
+    key: 'eventModel',
+    filename: 'roleplay-event.json',
+  });
+  return resolved ? { eventModel: resolved.model, source: resolved.source } : null;
 }
 
 // ──────────────────────────────────────────────────────────────────────
@@ -248,19 +210,6 @@ export interface EventGenerator<M = unknown> {
 const DEFAULT_MAX_OUTPUT_CHARS = 280;
 const DEFAULT_TIMEOUT_MS = 60000;
 
-function report(
-  wiring: { log?: (level: 'info' | 'warn', message: string) => void },
-  level: 'info' | 'warn',
-  message: string,
-): void {
-  if (!wiring.log) return;
-  try {
-    wiring.log(level, message);
-  } catch {
-    /* swallow - diagnostics never break the adapter */
-  }
-}
-
 /**
  * Build an {@link EventGenerator} from a fully-resolved wiring. Call once
  * (lazily on first use); reuse the returned object for the process.
@@ -279,39 +228,15 @@ export function createEventGenerator<M>(wiring: EventGeneratorWiring<M>): EventG
       if (!agent) return null;
       if (task.trim().length === 0) return null;
 
-      const resolution = resolveChildModel({
-        override: wiring.settings?.eventModel,
+      const adapter = createOneShotSubagentAdapter<M>({
         agent,
-        parent: ctx.model,
-        modelRegistry: ctx.modelRegistry,
+        runOneShot: wiring.runOneShot,
+        timeoutMs,
+        label: 'event',
+        log: wiring.log,
       });
-      if (!resolution.ok) {
-        report(wiring, 'info', `event model resolution failed: ${resolution.error}`);
-        return null;
-      }
-
-      let result: EventRunResult;
-      try {
-        result = await wiring.runOneShot({
-          cwd: ctx.cwd,
-          agent,
-          model: resolution.model,
-          modelRegistry: ctx.modelRegistry,
-          task,
-          signal: ctx.signal,
-          timeoutMs,
-        });
-      } catch (e) {
-        report(wiring, 'info', `event spawn error: ${e instanceof Error ? e.message : String(e)}`);
-        return null;
-      }
-
-      if (result.stopReason !== 'completed') {
-        report(wiring, 'info', `event stop=${result.stopReason}: ${result.errorMessage ?? '(no message)'}`);
-        return null;
-      }
-
-      return validateEvent(result.finalText, maxOutput);
+      const finalText = await adapter.run(ctx, task, wiring.settings?.eventModel);
+      return finalText === null ? null : validateEvent(finalText, maxOutput);
     },
   };
 }

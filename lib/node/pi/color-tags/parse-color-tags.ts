@@ -90,6 +90,7 @@
  */
 
 import { splitCodeSegments } from '../code-mask.ts';
+import { CLOSE_FG, ESC } from './resolve-color.ts';
 
 export interface ResolvedColor {
   open: string;
@@ -160,17 +161,12 @@ const OPEN_TAIL = /\[c:([^\]\s][^\]]*)\](?!.*\[\/c\])([^\n]*)$/;
 const LITERAL_CLOSE = /\[\/c\]/g;
 
 /**
- * Control-sequence introducer byte. Defined as a constant (not a literal
- * `\x1b` in a regex) so oxlint's `no-control-regex` stays happy when we
- * build `SGR_SEQ` via `new RegExp`. Mirrors the same constant in
- * `resolve-color.ts`; kept local so this module stays import-free.
- */
-const ESC = '\u001B';
-
-/** ANSI SGR for "reset foreground only" - keeps bold / italic / theme styling alive. */
-const CLOSE_FG = `${ESC}[39m`;
-
-/**
+ * `ESC` (control-sequence introducer byte) and `CLOSE_FG` (foreground-only
+ * reset) are shared with `resolve-color.ts` so the open/close pairs this
+ * rewriter emits match the resolver's exactly. Defined as constants (not a
+ * literal `\x1b` in a regex) so oxlint's `no-control-regex` stays happy when
+ * we build `SGR_SEQ` via `new RegExp`.
+ *
  * Match a single ANSI SGR sequence (`\x1b[…m`), capturing the numeric
  * parameter string. Used by `closeDanglingColorsAtLineEnds` to track
  * whether a foreground color is active at each line boundary.

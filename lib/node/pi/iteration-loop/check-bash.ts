@@ -28,6 +28,7 @@
 import { type ChildProcess, spawn as spawnDefault } from 'node:child_process';
 import { isAbsolute, resolve } from 'node:path';
 
+import { delay } from '../abortable-delay.ts';
 import { type BashCheckSpec, type Issue, type Verdict } from './schema.ts';
 
 const DEFAULT_TIMEOUT_MS = 60_000; // deliberately tighter than DEFAULT_BUDGET.wallClockSeconds (600s); a bash check is one iteration step, not the whole loop.
@@ -162,15 +163,24 @@ function runProcess(
       stderr = appendCapped(stderr, d);
     });
 
-    const killer = setTimeout(() => {
-      timedOut = true;
-      child.kill('SIGTERM');
-      // Escalate if it didn't die within a grace period.
-      setTimeout(() => {
-        if (!child.killed) child.kill('SIGKILL');
-      }, 2_000).unref();
-    }, timeoutMs);
-    killer.unref();
+    // The timeout timer half runs through the shared `abortable-delay`
+    // helper; the SIGTERM->SIGKILL escalation (process-kill semantics)
+    // stays here. `settledController` cancels the timer once the child
+    // settles so it can't fire after close.
+    const settledController = new AbortController();
+    void delay(timeoutMs, settledController.signal).then(
+      () => {
+        timedOut = true;
+        child.kill('SIGTERM');
+        // Escalate if it didn't die within a grace period.
+        setTimeout(() => {
+          if (!child.killed) child.kill('SIGKILL');
+        }, 2_000).unref();
+      },
+      () => {
+        // Aborted because the child already settled - nothing to do.
+      },
+    );
 
     const onAbort = (): void => {
       aborted = true;
@@ -188,7 +198,7 @@ function runProcess(
     }
 
     const finalize = (result: ExecResult): void => {
-      clearTimeout(killer);
+      settledController.abort();
       signal?.removeEventListener('abort', onAbort);
       done(result);
     };

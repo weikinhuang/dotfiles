@@ -73,6 +73,15 @@ test('renderTimelineBlock trims oldest lines to fit the char cap', () => {
   expect(out).toBe('- charlie');
 });
 
+test('renderTimelineBlock clamps a lone over-long line on a word boundary (no mid-word cut)', () => {
+  const body = '- the courier delivers an urgent sealed letter to the outpost commander';
+  const out = renderTimelineBlock(body, { maxChars: 20 });
+  expect(out).not.toBeNull();
+  expect(out!.length).toBeLessThanOrEqual(20);
+  // No trailing partial word: the cap must fall on a space, not inside a word.
+  expect(out).toBe('- the courier');
+});
+
 test('normalizeBeatLine trims, collapses whitespace, and lowercases', () => {
   expect(normalizeBeatLine('  - [T]   Mira  VISITS  ')).toBe('- [t] mira visits');
 });

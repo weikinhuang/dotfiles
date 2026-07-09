@@ -9,6 +9,8 @@
  * only the fields the aggregation reads are described.
  */
 
+import { byteLen } from '../shared.ts';
+
 /** Usage block on an assistant message (all fields optional per provider). */
 interface UsageLike {
   input?: number;
@@ -48,6 +50,7 @@ export interface Aggregates {
   lastCacheWrite: number;
   lastOut: number;
   toolCalls: number;
+  /** Total UTF-8 byte length of tool-result text parts across the branch. */
   toolResultBytes: number;
 }
 
@@ -104,7 +107,9 @@ export function aggregate(branch: unknown): Aggregates {
       const m = entry.message as ToolResultMessageLike;
       if (Array.isArray(m.content)) {
         for (const c of m.content) {
-          if (c.type === 'text') out.toolResultBytes += c.text?.length ?? 0;
+          // Real UTF-8 byte length, not UTF-16 code-unit count, so a
+          // multibyte tool result is sized honestly for the footer estimate.
+          if (c.type === 'text' && c.text !== undefined) out.toolResultBytes += byteLen(c.text);
         }
       }
     }

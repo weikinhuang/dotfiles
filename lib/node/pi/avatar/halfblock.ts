@@ -17,11 +17,9 @@
  * fallback is out of scope).
  */
 
-import { type RgbaImage } from './sixel.ts';
+import { ALPHA_THRESHOLD, type RgbaImage } from './sixel.ts';
 
 const ESC = '\x1b';
-/** Alpha at or above this counts as opaque; below it is left transparent. */
-const ALPHA_THRESHOLD = 128;
 
 /** SGR reset terminator written at the end of every cell-row line. */
 const RESET = `${ESC}[0m`;

@@ -12,21 +12,14 @@
  * cache-hit behaviour are unit-testable against a temp directory.
  */
 
-import { existsSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
+import { statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 
+import { atomicWriteFile } from '../atomic-write.ts';
+import { readJsonOrUndefined } from '../fs-safe.ts';
 import { type CellDimensions, buildImageFrame } from './render.ts';
 import type { RenderedFrame } from './store.ts';
 import type { Protocol } from './types.ts';
-
-function readJson(path: string): unknown {
-  try {
-    if (!existsSync(path)) return null;
-    return JSON.parse(readFileSync(path, 'utf8')) as unknown;
-  } catch {
-    return null;
-  }
-}
 
 export interface SixelCacheEntry {
   seq: string;
@@ -51,7 +44,7 @@ export class SixelCache {
     variant: string,
   ) {
     this.file = join(setDir, `.sixel-cache-${dstW}${variant}.json`);
-    const data = readJson(this.file) as SixelCacheFile | null;
+    const data = readJsonOrUndefined<SixelCacheFile>(this.file);
     if (data?.dstW === dstW && data.entries) {
       for (const [k, v] of Object.entries(data.entries)) {
         if (v && typeof v.seq === 'string' && typeof v.rows === 'number') this.entries.set(k, v);
@@ -83,14 +76,12 @@ export class SixelCache {
   flush(): void {
     if (!this.dirty) return;
     try {
-      const onDisk = readJson(this.file) as SixelCacheFile | null;
+      const onDisk = readJsonOrUndefined<SixelCacheFile>(this.file);
       const merged: Record<string, SixelCacheEntry> =
         onDisk && onDisk.dstW === this.dstW && onDisk.entries ? { ...onDisk.entries } : {};
       for (const [k, v] of this.entries) merged[k] = v;
       const out: SixelCacheFile = { v: 1, cols: this.cols, dstW: this.dstW, entries: merged };
-      const tmp = `${this.file}.tmp${process.pid}`;
-      writeFileSync(tmp, JSON.stringify(out));
-      renameSync(tmp, this.file);
+      atomicWriteFile(this.file, JSON.stringify(out));
       this.dirty = false;
     } catch {
       /* cache is best-effort; never break the session */

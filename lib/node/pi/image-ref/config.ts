@@ -10,6 +10,7 @@
 
 import { readJsoncOrUndefined } from '../fs-safe.ts';
 import { piAgentPath, piProjectPath } from '../pi-paths.ts';
+import { isRecord } from '../shared.ts';
 
 export interface ImageRefConfig {
   /**
@@ -39,10 +40,6 @@ export const DEFAULT_CONFIG: ImageRefConfig = {
   maxFileBytes: 64 * 1024 * 1024,
 };
 
-function isObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
 function asBoolean(value: unknown): boolean | undefined {
   return typeof value === 'boolean' ? value : undefined;
 }
@@ -53,7 +50,7 @@ function asPositiveInt(value: unknown): number | undefined {
 
 /** Validate one untrusted JSON layer into a partial config. */
 export function coerceConfigLayer(raw: unknown): Partial<ImageRefConfig> {
-  if (!isObject(raw)) return {};
+  if (!isRecord(raw)) return {};
   const out: Partial<ImageRefConfig> = {};
   const maxImages = asPositiveInt(raw.maxImages);
   if (maxImages !== undefined) out.maxImages = maxImages;

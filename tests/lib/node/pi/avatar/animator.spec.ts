@@ -20,6 +20,12 @@ describe('randomInRange', () => {
       expect(value).toBeLessThan(7);
     }
   });
+
+  test('collapses a reversed or degenerate range to min (never samples backwards)', () => {
+    // A reversed pair would otherwise map rng=0.5 to 15 (below min) - clamp to min.
+    expect(randomInRange(20, 10, () => 0.5)).toBe(20);
+    expect(randomInRange(5, 5, () => 0.9)).toBe(5);
+  });
 });
 
 describe('stepPingPong', () => {
@@ -43,6 +49,16 @@ describe('stepPingPong', () => {
 
   test('flips direction to +1 upon reaching the first frame', () => {
     expect(stepPingPong(1, -1, 3)).toEqual({ index: 0, dir: 1 });
+  });
+
+  test('clamps a step past the last frame back to the last index (never count)', () => {
+    // From the last frame stepping forward would land on `count` (3) - a
+    // missing frame. Clamp to count-1 and flip direction.
+    expect(stepPingPong(2, 1, 3)).toEqual({ index: 2, dir: -1 });
+  });
+
+  test('clamps a step below the first frame back to 0 (never -1)', () => {
+    expect(stepPingPong(0, -1, 3)).toEqual({ index: 0, dir: 1 });
   });
 
   test('a 2-frame state alternates between 0 and 1', () => {

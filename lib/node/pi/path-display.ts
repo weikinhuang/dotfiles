@@ -19,7 +19,9 @@ import { isAbsolute, relative, resolve, sep } from 'node:path';
  * pass absolute paths to stay hermetic.
  */
 export function normalizeAbs(p: string): string {
-  const abs = isAbsolute(p) ? resolve(p) : resolve(p);
+  // `resolve` already absolutizes relative inputs against `process.cwd()`,
+  // so the branch is unconditional.
+  const abs = resolve(p);
   if (abs.length > 1 && abs.endsWith(sep)) return abs.slice(0, -sep.length);
   return abs;
 }

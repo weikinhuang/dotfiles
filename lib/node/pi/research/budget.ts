@@ -215,8 +215,13 @@ export interface TrackPhaseOpts {
  * Emit at most one warning per (phase, dimension) to avoid flooding
  * the journal when a long-running phase keeps ticking past its cap.
  * The caller who wants a louder signal watches `overrunLogged`.
+ *
+ * Shared by {@link trackPhase} and `research-budget-live`'s
+ * `LiveBudget` so both surfaces produce byte-identical overrun
+ * journal entries. Journaling is best-effort - a write failure
+ * never propagates out of budget accounting.
  */
-function logOverrunsOnce(budget: RunBudget, phase: PhaseBudget): void {
+export function logPhaseOverruns(budget: RunBudget, phase: PhaseBudget): void {
   const phaseCost = budget.perPhaseCostUsd[phase.name] ?? 0;
   const phaseWall = budget.perPhaseWallClockSec[phase.name] ?? 0;
 
@@ -224,11 +229,15 @@ function logOverrunsOnce(budget: RunBudget, phase: PhaseBudget): void {
   if (phaseCost > phase.maxCostUsd && !budget.overrunLogged.has(costKey)) {
     budget.overrunLogged.add(costKey);
     if (budget.journalPath) {
-      appendJournal(budget.journalPath, {
-        level: 'warn',
-        heading: `Phase "${phase.name}" exceeded cost cap`,
-        body: `spent ${phaseCost.toFixed(6)} USD / cap ${phase.maxCostUsd.toFixed(6)} USD`,
-      });
+      try {
+        appendJournal(budget.journalPath, {
+          level: 'warn',
+          heading: `Phase "${phase.name}" exceeded cost cap`,
+          body: `spent ${phaseCost.toFixed(6)} USD / cap ${phase.maxCostUsd.toFixed(6)} USD`,
+        });
+      } catch {
+        /* best-effort - journaling never breaks budget accounting */
+      }
     }
   }
 
@@ -236,11 +245,15 @@ function logOverrunsOnce(budget: RunBudget, phase: PhaseBudget): void {
   if (phaseWall > phase.maxWallClockSec && !budget.overrunLogged.has(wallKey)) {
     budget.overrunLogged.add(wallKey);
     if (budget.journalPath) {
-      appendJournal(budget.journalPath, {
-        level: 'warn',
-        heading: `Phase "${phase.name}" exceeded wall-clock cap`,
-        body: `spent ${phaseWall.toFixed(3)}s / cap ${phase.maxWallClockSec.toFixed(3)}s`,
-      });
+      try {
+        appendJournal(budget.journalPath, {
+          level: 'warn',
+          heading: `Phase "${phase.name}" exceeded wall-clock cap`,
+          body: `spent ${phaseWall.toFixed(3)}s / cap ${phase.maxWallClockSec.toFixed(3)}s`,
+        });
+      } catch {
+        /* best-effort */
+      }
     }
   }
 }
@@ -299,7 +312,7 @@ export async function trackPhase<T>(
     budget.totalCostUsd += cost;
     budget.totalWallClockSec += elapsedSec;
 
-    logOverrunsOnce(budget, phase);
+    logPhaseOverruns(budget, phase);
   };
 
   try {

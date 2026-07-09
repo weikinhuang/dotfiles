@@ -18,6 +18,7 @@
  */
 
 import { extractBalancedArray } from '../json-loose.ts';
+import { clampWords } from './text.ts';
 
 /** A single extracted story beat. `when` is an optional in-world time. */
 export interface TimelineBeat {
@@ -59,19 +60,6 @@ export function buildTimelineExtractionTask(spanText: string): string {
   );
 }
 
-function clamp(s: string, max: number): string {
-  const t = s.trim().replace(/\s+/g, ' ');
-  if (t.length <= max) return t;
-  let cut = t.slice(0, max);
-  // Avoid truncating mid-word: back up to the last whole word when the cap
-  // fell inside one, then strip any trailing separator.
-  if (/\S/.test(t.charAt(max))) {
-    const lastSpace = cut.lastIndexOf(' ');
-    if (lastSpace > 0) cut = cut.slice(0, lastSpace);
-  }
-  return cut.replace(/[\s,;:.-]+$/, '').trimEnd();
-}
-
 /**
  * Parse the extractor's response into validated beats. Tolerant: accepts a
  * bare JSON array, a fenced block, or an array embedded in prose. Drops
@@ -97,9 +85,9 @@ export function parseTimelineBeats(raw: string): TimelineBeat[] {
   for (const item of parsed) {
     if (!item || typeof item !== 'object') continue;
     const rec = item as Record<string, unknown>;
-    const summary = typeof rec.summary === 'string' ? clamp(rec.summary, MAX_BEAT_CHARS) : '';
+    const summary = typeof rec.summary === 'string' ? clampWords(rec.summary, MAX_BEAT_CHARS) : '';
     if (summary.length === 0) continue;
-    const whenRaw = typeof rec.when === 'string' ? clamp(rec.when, MAX_WHEN_CHARS) : '';
+    const whenRaw = typeof rec.when === 'string' ? clampWords(rec.when, MAX_WHEN_CHARS) : '';
     out.push(whenRaw.length > 0 ? { when: whenRaw, summary } : { summary });
     if (out.length >= MAX_BEATS_PER_ROLL) break;
   }
@@ -190,5 +178,8 @@ export function renderTimelineBlock(body: string, opts: RenderTimelineOpts = {})
   }
   const joined = lines.join('\n');
   if (joined.trim().length === 0) return null;
-  return joined.length > maxChars ? joined.slice(0, maxChars).trimEnd() : joined;
+  // At this point the block either fits or has collapsed to a single line
+  // that still overflows; clamp that lone line on a word boundary rather
+  // than slicing mid-word.
+  return joined.length > maxChars ? clampWords(joined, maxChars) : joined;
 }

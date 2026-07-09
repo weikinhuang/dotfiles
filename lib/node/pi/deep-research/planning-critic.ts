@@ -19,10 +19,15 @@
  *     fanout on a rejected plan; burning subagent budget on a bad
  *     plan is the failure mode the planning-critic gate exists to
  *     prevent.
- *   - Parser / spawn failure → treated as "critic couldn't judge,
- *     keep the plan and warn". We prefer shipping a human-authored
- *     plan past a broken critic to halting the whole pipeline on
- *     infrastructure trouble.
+ *   - Unparseable verdict (the runner returned text, but it is not a
+ *     valid verdict) → "critic couldn't judge, keep the plan and
+ *     warn". We prefer shipping a human-authored plan past a critic
+ *     that emitted garbage to halting the whole pipeline on a parse
+ *     hiccup, so this proceeds to fanout with a journaled warn.
+ *   - Spawn / infrastructure failure (the runner threw, or reported
+ *     an `error`) → `error` outcome. This is genuine infra trouble,
+ *     not a critic opinion, so the extension escalates rather than
+ *     spending fanout budget blind.
  *
  * Pure module. The subagent spawn is behind an injected
  * `PlanningCriticRunner` - the extension wires this to
@@ -30,18 +35,15 @@
  * Tests pass a mock runner that scripts critic responses.
  */
 
-import { existsSync } from 'node:fs';
-
 import { promoteToPlan, plannerOutputSchema, type PlannerOutput } from './planner.ts';
 import { parseVerdict } from '../iteration-loop/check-critic.ts';
 import { type Verdict } from '../iteration-loop/schema.ts';
-import { appendJournal } from '../research/journal.ts';
+import { safeAppendJournal } from '../research/journal.ts';
 import { paths } from '../research/paths.ts';
 import { type DeepResearchPlan, writePlan } from '../research/plan.ts';
 import { hashPrompt, type Provenance, writeSidecar } from '../research/provenance.ts';
 import { callTyped, type ResearchSessionLike } from '../research/structured.ts';
-import { type Stuck } from '../research/stuck.ts';
-import { isRecord } from '../shared.ts';
+import { isStuckShape, type Stuck } from '../research/stuck.ts';
 
 // ──────────────────────────────────────────────────────────────────────
 // Runner injection.
@@ -166,11 +168,11 @@ export function renderRewritePrompt(plan: DeepResearchPlan, verdict: Verdict): s
  *   - `checkpoint`: critic rejected a plan twice in a row. The
  *     extension must pause and surface the verdict to the user.
  *     `rewrites` is 1 (the auto-rewrite that also got rejected).
- *   - `error`: infrastructure failure reading the critic output. The
- *     extension logs a warn and falls back to "no planning-critic
- *     review" - this matches `structure-wins-over-subjective`: if
- *     the deterministic check (later in the pipeline) rejects, it
- *     overrides any critic silence here.
+ *     `error`: spawn / infrastructure failure (the runner threw or
+ *     reported an `error`). The pipeline halts and surfaces the
+ *     error rather than spending fanout budget blind. An unparseable
+ *     verdict does NOT land here - that path keeps the plan and
+ *     proceeds (see the module header).
  *   - `rewrite-stuck`: the rewrite turn emitted `stuck`. Same
  *     escalation shape as `checkpoint` but with a cleaner reason.
  */
@@ -187,24 +189,13 @@ export type PlanningCriticOutcome =
 
 type InvokeResult = { kind: 'verdict'; verdict: Verdict } | { kind: 'error'; error: string; plan: DeepResearchPlan };
 
-function isStuckResult(v: unknown): v is Stuck {
-  if (!isRecord(v)) return false;
-  return v.status === 'stuck' && typeof v.reason === 'string' && v.reason.length > 0;
-}
-
 function journalIf(
   opts: PlanningCriticOpts,
   level: 'info' | 'step' | 'warn' | 'error',
   heading: string,
   body?: string,
 ): void {
-  if (!opts.journalPath) return;
-  if (!existsSync(opts.runRoot)) return;
-  try {
-    appendJournal(opts.journalPath, body !== undefined ? { level, heading, body } : { level, heading });
-  } catch {
-    /* swallow */
-  }
+  safeAppendJournal(opts.journalPath, opts.runRoot, body !== undefined ? { level, heading, body } : { level, heading });
 }
 
 function summarizeRejection(v: Verdict): string {
@@ -241,12 +232,23 @@ async function invokeCritic(
   const parsed = parseVerdict(raw.rawText);
 
   if (parsed.failed) {
-    journalIf(opts, 'warn', 'planning-critic verdict parse failed', raw.rawText.slice(0, 200));
-    // `parsed.verdict` still carries a synthetic "failure" verdict -
-    // we prefer to treat an unparseable response as an infra error so
-    // the extension escalates to user checkpoint rather than
-    // silently fanning out.
-    return { kind: 'error', error: 'planning-critic verdict unparseable', plan };
+    journalIf(opts, 'warn', 'planning-critic verdict unparseable (plan kept, proceeding)', raw.rawText.slice(0, 200));
+    // Documented policy: an unparseable verdict means "the critic
+    // couldn't judge" - keep the human-authored plan and warn rather
+    // than halting the pipeline on a parse hiccup. We synthesize an
+    // approving verdict (score 0, no issues) so the dispatch loop
+    // proceeds to fanout; the summary records why it was unreviewed.
+    // Genuine infra failures (runner threw / returned `error`) are
+    // handled above and still surface as a hard `error`.
+    return {
+      kind: 'verdict',
+      verdict: {
+        approved: true,
+        score: 0,
+        issues: [],
+        summary: 'planning-critic verdict unparseable; plan kept unreviewed',
+      },
+    };
   }
   return { kind: 'verdict', verdict: parsed.verdict };
 }
@@ -314,7 +316,7 @@ export async function runPlanningCritic(opts: PlanningCriticOpts): Promise<Plann
     ...(opts.maxRetries !== undefined ? { maxRetries: opts.maxRetries } : {}),
   });
 
-  if (isStuckResult(rewrote)) {
+  if (isStuckShape(rewrote)) {
     journalIf(opts, 'warn', 'planning-critic rewrite emitted stuck', rewrote.reason);
     return { kind: 'rewrite-stuck', stuck: rewrote, verdict: first.verdict, plan };
   }

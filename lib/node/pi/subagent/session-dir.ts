@@ -33,7 +33,7 @@
  * default.
  */
 
-import { join } from 'node:path';
+import { childSessionDir } from './session-paths.ts';
 
 /**
  * Subset of pi's `SessionManager` we need to derive the child
@@ -56,6 +56,15 @@ export interface ResolveSubagentSessionDirArgs {
    * knows which extension refused to start.
    */
   extensionLabel: string;
+  /**
+   * The parent session's cwd. Used only to bucket child transcripts by
+   * workspace slug when `PI_SUBAGENT_SESSION_ROOT` redirects the base to
+   * an explicit root (see {@link childSessionDir} / `subagentSessionBase`).
+   * Defaults to `process.cwd()` when omitted, matching the caller's cwd
+   * for every current spawn site. Ignored on the default branch (no env
+   * root), where the base is simply the parent session dir.
+   */
+  parentCwd?: string;
 }
 
 export interface SessionManagerCreateLike<S> {
@@ -68,7 +77,13 @@ export interface CreatePersistedSubagentSessionManagerArgs<S> extends ResolveSub
 }
 
 /**
- * Returns the directory `<parentSessionDir>/<parentSessionId>/subagents`.
+ * Returns the directory `<base>/<parentSessionId>/subagents`, where
+ * `<base>` is the parent session dir by default and an explicit,
+ * slug-bucketed root when `PI_SUBAGENT_SESSION_ROOT` is set. Delegates
+ * to {@link childSessionDir} so every spawn site (the `subagent`
+ * extension's worktree-anchored variant and the one-shot children here)
+ * writes to the same tree and honours `PI_SUBAGENT_SESSION_ROOT` /
+ * `PI_SUBAGENT_SESSION_SLUG` uniformly.
  *
  * Throws when the parent session has no id or no dir - see the
  * module docstring for the rationale (we refuse to silently fall
@@ -99,7 +114,11 @@ export function resolveSubagentSessionDir(args: ResolveSubagentSessionDirArgs): 
     );
   }
 
-  return join(parentDir, parentId, 'subagents');
+  return childSessionDir({
+    parentSessionDir: parentDir,
+    parentCwd: args.parentCwd ?? process.cwd(),
+    parentSessionId: parentId,
+  });
 }
 
 export function createPersistedSubagentSessionManager<S>(args: CreatePersistedSubagentSessionManagerArgs<S>): S {
@@ -108,6 +127,7 @@ export function createPersistedSubagentSessionManager<S>(args: CreatePersistedSu
     resolveSubagentSessionDir({
       parentSessionManager: args.parentSessionManager,
       extensionLabel: args.extensionLabel,
+      parentCwd: args.cwd,
     }),
   );
 }

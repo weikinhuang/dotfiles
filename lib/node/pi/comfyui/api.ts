@@ -13,11 +13,9 @@
  * No pi imports.
  */
 
-import type { ImageRef } from './types.ts';
+import { isRecord } from '../shared.ts';
 
-function isObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
+import type { ImageRef } from './types.ts';
 
 /** Drop any trailing slash so path joining stays predictable. */
 export function normalizeBaseUrl(baseUrl: string): string {
@@ -92,20 +90,20 @@ function refKey(ref: ImageRef): string {
  * isn't saved and sent to the model twice.
  */
 export function extractOutputImages(history: unknown, promptId: string): ImageRef[] {
-  if (!isObject(history)) return [];
+  if (!isRecord(history)) return [];
   const entry = history[promptId];
-  if (!isObject(entry) || !isObject(entry.outputs)) return [];
+  if (!isRecord(entry) || !isRecord(entry.outputs)) return [];
 
   // Preserve first-seen order while collapsing duplicates; an `output`
   // ref upgrades a previously-seen `temp` one for the same file.
   const byKey = new Map<string, ImageRef>();
   for (const node of Object.values(entry.outputs)) {
-    if (!isObject(node)) continue;
+    if (!isRecord(node)) continue;
     for (const mediaKey of OUTPUT_MEDIA_KEYS) {
       const list = node[mediaKey];
       if (!Array.isArray(list)) continue;
       for (const item of list as unknown[]) {
-        if (!isObject(item)) continue;
+        if (!isRecord(item)) continue;
         const filename = item.filename;
         if (typeof filename !== 'string' || filename.length === 0) continue;
         const ref: ImageRef = {
@@ -129,9 +127,9 @@ export function extractOutputImages(history: unknown, promptId: string): ImageRe
  * still-running or absent prompt is never mistaken for a failure.
  */
 export function historyHasError(history: unknown, promptId: string): boolean {
-  if (!isObject(history)) return false;
+  if (!isRecord(history)) return false;
   const entry = history[promptId];
-  if (!isObject(entry)) return false;
+  if (!isRecord(entry)) return false;
   const status = (entry as { status?: { status_str?: string } }).status;
   return status?.status_str === 'error';
 }
@@ -143,7 +141,7 @@ export function historyHasError(history: unknown, promptId: string): boolean {
  * (e.g. ComfyUI was restarted and its queue + history were wiped).
  */
 export function historyHasEntry(history: unknown, promptId: string): boolean {
-  return isObject(history) && isObject(history[promptId]);
+  return isRecord(history) && isRecord(history[promptId]);
 }
 
 /**
@@ -153,7 +151,7 @@ export function historyHasEntry(history: unknown, promptId: string): boolean {
  * shapes - an unparseable body reads as "not found" (false).
  */
 function queueListHasPrompt(queue: unknown, listKeys: readonly string[], promptId: string): boolean {
-  if (!isObject(queue)) return false;
+  if (!isRecord(queue)) return false;
   for (const listKey of listKeys) {
     const list = queue[listKey];
     if (!Array.isArray(list)) continue;
@@ -209,8 +207,8 @@ export function parseWsMessage(raw: string): WsEvent | null {
   } catch {
     return null;
   }
-  if (!isObject(parsed) || typeof parsed.type !== 'string') return null;
-  const data = isObject(parsed.data) ? parsed.data : {};
+  if (!isRecord(parsed) || typeof parsed.type !== 'string') return null;
+  const data = isRecord(parsed.data) ? parsed.data : {};
 
   switch (parsed.type) {
     case 'progress': {

@@ -39,15 +39,21 @@ const PULSE_FRAMES_PER_SECOND = 20;
 
 /**
  * Return true when SGR styling should be skipped (NO_COLOR set to any
- * non-empty value, or stdout is not a TTY). Both `dimText` and
+ * non-empty value, or stdout is explicitly not a TTY). Both `dimText` and
  * `pulseDimText` consult this so the suffix renders consistently when
  * piped or under NO_COLOR.
+ *
+ * `env` and `isTty` are injectable so the gate is unit-testable without
+ * mutating `process.env` / faking `process.stdout`; production callers
+ * (`dimText` / `pulseDimText`) rely on the `process.*` defaults.
  */
-function shouldSkipStyling(): boolean {
-  const noColor = process.env.NO_COLOR;
+export function shouldSkipStyling(
+  env: NodeJS.ProcessEnv = process.env,
+  isTty: boolean | undefined = (process.stdout as { isTTY?: boolean } | undefined)?.isTTY,
+): boolean {
+  const noColor = env.NO_COLOR;
   if (typeof noColor === 'string' && noColor !== '') return true;
-  const stdout = process.stdout as { isTTY?: boolean } | undefined;
-  if (stdout?.isTTY === false) return true;
+  if (isTty === false) return true;
   return false;
 }
 

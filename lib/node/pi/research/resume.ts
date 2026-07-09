@@ -26,7 +26,7 @@ import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { basename, isAbsolute, join, resolve } from 'node:path';
 
 import { atomicWriteFile } from '../atomic-write.ts';
-import { isUnavailableStub } from '../deep-research/structural-check.ts';
+import { sliceByH2, unavailableStubReason } from '../deep-research/structural-check.ts';
 import { type ResumeStage } from './command-args.ts';
 import { paths } from './paths.ts';
 import { readPlan } from './plan.ts';
@@ -480,32 +480,11 @@ export function findStubbedSections(reportPath: string): StubbedSection[] {
   }
 
   const stubbed: StubbedSection[] = [];
-  const lines = text.split(/\r?\n/);
-  let currentHeading: string | null = null;
-  let currentBody: string[] = [];
-
-  const flush = (): void => {
-    if (currentHeading === null) return;
-    const body = currentBody.join('\n');
-    if (isUnavailableStub(body)) {
-      const match = /^\[section unavailable:\s*([^\]]*)\]\s*$/.exec(body.trim());
-      stubbed.push({
-        heading: currentHeading,
-        reason: (match?.[1] ?? '').trim(),
-      });
-    }
-  };
-
-  for (const line of lines) {
-    if (line.startsWith('## ')) {
-      flush();
-      currentHeading = line.slice(3).trim();
-      currentBody = [];
-      continue;
-    }
-    if (currentHeading !== null) currentBody.push(line);
+  for (const slice of sliceByH2(text)) {
+    const reason = unavailableStubReason(slice.contents);
+    if (reason === null) continue;
+    stubbed.push({ heading: slice.heading, reason });
   }
-  flush();
   return stubbed;
 }
 

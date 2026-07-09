@@ -43,6 +43,31 @@ describe('enumerate', () => {
     expect(kinds.has('message')).toBe(true);
   });
 
+  test('tool-result image candidates pin their partIndex (one per image part)', () => {
+    const messages: LooseMessage[] = [
+      {
+        role: 'toolResult',
+        toolCallId: 'c1',
+        toolName: 'comfyui',
+        content: [
+          { type: 'text', text: 'preamble' },
+          { type: 'image', data: 'A'.repeat(4000), mimeType: 'image/png' },
+          { type: 'image', data: 'B'.repeat(2000), mimeType: 'image/png' },
+        ],
+        timestamp: 1,
+      },
+    ];
+    const images = enumerate(messages).filter((c) => c.kind === 'image');
+    // One candidate per image part, each addressing its own partIndex so a
+    // trim replaces only that image (not the whole text + image message).
+    expect(images).toHaveLength(2);
+    const partIndexes = images
+      .map((c) => (c.target?.by === 'toolCallId' ? c.target.partIndex : undefined))
+      .sort((a, b) => Number(a) - Number(b));
+    expect(partIndexes).toEqual([1, 2]);
+    expect(images.every((c) => c.target?.by === 'toolCallId')).toBe(true);
+  });
+
   test('omits tool results below the size threshold', () => {
     const messages: LooseMessage[] = [
       { role: 'toolResult', toolCallId: 'c1', toolName: 'bash', content: [{ type: 'text', text: 'ok' }], timestamp: 1 },

@@ -122,6 +122,33 @@ test('serialize -> parse round-trips a lore entry with all metadata', () => {
   });
 });
 
+test('serialize -> parse round-trips lore trigger values that contain commas', () => {
+  const raw = serializeEntry({
+    name: 'Treaty',
+    description: 'the accord',
+    kind: 'lore',
+    body: 'b',
+    lore: {
+      triggers: ['Ursus, the empire', 'Kazimierz'],
+      secondaryKeys: ['a, b, c'],
+      secondaryMode: 'OR',
+      constant: false,
+      order: 0,
+      recurse: false,
+      probability: 100,
+      sticky: 0,
+      cooldown: 0,
+      delay: 0,
+      group: '',
+      groupWeight: 100,
+    },
+  });
+  const lore = parseFrontmatter(raw)!.frontmatter.lore!;
+  // A comma inside a trigger must not split it into two entries.
+  expect(lore.triggers).toStrictEqual(['Ursus, the empire', 'Kazimierz']);
+  expect(lore.secondaryKeys).toStrictEqual(['a, b, c']);
+});
+
 test('lore frontmatter defaults to empty/false when fields are omitted', () => {
   const raw = serializeEntry({ name: 'World', description: 'facts', kind: 'lore', body: 'b' });
   const lore = parseFrontmatter(raw)!.frontmatter.lore!;

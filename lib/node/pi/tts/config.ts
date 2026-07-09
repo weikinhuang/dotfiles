@@ -25,6 +25,7 @@ import { dirname, isAbsolute, resolve } from 'node:path';
 
 import { readJsoncOrUndefined } from '../fs-safe.ts';
 import { piAgentPath, piProjectPath } from '../pi-paths.ts';
+import { isFiniteNumber, isNonEmptyString, isRecord } from '../shared.ts';
 
 import type { AuthHeader, EmoteRef, Reference, ResolvedVoice, TtsConfig, VoiceConfig } from './types.ts';
 
@@ -51,21 +52,16 @@ export const DEFAULT_CONFIG: TtsConfig = {
 // Scalar coercion primitives (mirror comfyui/config.ts)
 // ──────────────────────────────────────────────────────────────────────
 
-function isObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
 function asString(value: unknown): string | undefined {
   return typeof value === 'string' ? value : undefined;
 }
 
 function asNonEmptyString(value: unknown): string | undefined {
-  const s = asString(value);
-  return s !== undefined && s.length > 0 ? s : undefined;
+  return isNonEmptyString(value) ? value : undefined;
 }
 
 function asPositiveNumber(value: unknown): number | undefined {
-  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : undefined;
+  return isFiniteNumber(value) && value > 0 ? value : undefined;
 }
 
 function asBoolean(value: unknown): boolean | undefined {
@@ -80,7 +76,7 @@ function asBoolean(value: unknown): boolean | undefined {
  * input is rejected (falls back to the default).
  */
 function asChunkChars(value: unknown): number | undefined {
-  if (typeof value !== 'number' || !Number.isFinite(value)) return undefined;
+  if (!isFiniteNumber(value)) return undefined;
   if (value < 0) return -1;
   return Math.floor(value);
 }
@@ -96,7 +92,7 @@ function asStringArray(value: unknown): string[] | undefined {
 }
 
 function asAuthHeader(value: unknown): AuthHeader | undefined {
-  if (!isObject(value)) return undefined;
+  if (!isRecord(value)) return undefined;
   const name = asString(value.name);
   const headerValue = asString(value.value);
   if (name === undefined || headerValue === undefined || name.length === 0) return undefined;
@@ -113,7 +109,7 @@ function asAuthHeader(value: unknown): AuthHeader | undefined {
  * entry can never be selected.
  */
 function asEmoteRef(value: unknown): EmoteRef | undefined {
-  if (!isObject(value)) return undefined;
+  if (!isRecord(value)) return undefined;
   const match = asStringArray(value.match);
   const refAudio = asNonEmptyString(value.refAudio);
   const refText = asString(value.refText);
@@ -137,7 +133,7 @@ function asEmoteRefs(value: unknown): EmoteRef[] | undefined {
  * fields are carried through only when well-typed; everything else is dropped.
  */
 function asVoiceConfig(value: unknown): VoiceConfig | undefined {
-  if (!isObject(value)) return undefined;
+  if (!isRecord(value)) return undefined;
 
   const refAudio = asNonEmptyString(value.refAudio);
   const declared = asString(value.kind);
@@ -170,7 +166,7 @@ function asVoiceConfig(value: unknown): VoiceConfig | undefined {
 }
 
 function asVoices(value: unknown): Record<string, VoiceConfig> | undefined {
-  if (!isObject(value)) return undefined;
+  if (!isRecord(value)) return undefined;
   const out: Record<string, VoiceConfig> = {};
   for (const [name, raw] of Object.entries(value)) {
     const voice = asVoiceConfig(raw);
@@ -189,7 +185,7 @@ function asVoices(value: unknown): Record<string, VoiceConfig> | undefined {
  * non-object input.
  */
 export function coerceConfigLayer(raw: unknown): Partial<TtsConfig> {
-  if (!isObject(raw)) return {};
+  if (!isRecord(raw)) return {};
   const out: Partial<TtsConfig> = {};
 
   const baseUrl = asNonEmptyString(raw.baseUrl);

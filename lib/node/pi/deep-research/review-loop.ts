@@ -82,6 +82,20 @@ import { type StructuralCheckResult, type StructuralFailure } from './structural
 import { type Issue, type Verdict } from '../iteration-loop/schema.ts';
 import { paths } from '../research/paths.ts';
 import { type StubbedSection } from '../research/resume.ts';
+import { truncate } from '../shared/strings.ts';
+
+// ──────────────────────────────────────────────────────────────────────
+// Shared defaults.
+// ──────────────────────────────────────────────────────────────────────
+
+/**
+ * Default cap on total review iterations across both stages. `4`
+ * iterations admit up to three refinements (the last iteration has
+ * no refinement slot left), matching the plan's "≤ 3 refinements
+ * total across both stages". Shared by {@link runReviewLoop} and the
+ * review-wire spec builders so the two never drift.
+ */
+export const DEFAULT_REVIEW_MAX_ITER = 4;
 
 // ──────────────────────────────────────────────────────────────────────
 // Public types.
@@ -271,26 +285,34 @@ export function buildStructuralNudge(result: StructuralCheckResult): string {
 }
 
 /**
- * Build a subjective refinement nudge from a critic's verdict. The
- * structural items are excluded (the critic doesn't judge them -
- * they're already deterministic), so every issue here is a
+ * Build a subjective refinement nudge from a critic's verdict.
+ *
+ * Shared by both the review loop (which threads this into the
+ * `RefinementRequest.nudge` field) and the merge-only refinement
+ * path in `refine.ts` (which threads it straight into the merge
+ * prompt). Structural items are excluded - the critic doesn't judge
+ * them, they're already deterministic - so every issue here is a
  * subjective-rubric gap.
+ *
+ * An approved verdict with no itemized issues yields the empty
+ * string so callers can compose without a guard. Issue descriptions
+ * are truncated so a chatty critic can't blow the merge prompt's
+ * context budget.
  */
 export function buildSubjectiveNudge(verdict: Verdict): string {
-  // An approved verdict never needs a refinement nudge; return
-  // the empty string so callers can compose without a guard.
-  if (verdict.approved) return '';
-  if (verdict.issues.length === 0 && !verdict.summary) return '';
+  if (verdict.approved && verdict.issues.length === 0) return '';
   const lines: string[] = [];
   const scoreLabel = verdict.score.toFixed(2);
   lines.push(`The subjective critic rejected the report (score ${scoreLabel}).`);
-  if (verdict.summary) lines.push(`Critic summary: ${verdict.summary}`);
+  lines.push(`Critic summary: ${verdict.summary && verdict.summary.length > 0 ? verdict.summary : '(no summary)'}`);
   if (verdict.issues.length > 0) {
     lines.push('Fix every issue below while preserving the structural contract:');
     for (const issue of verdict.issues) {
       const loc = issue.location ? ` - at ${issue.location}` : '';
-      lines.push(`  - [${issue.severity}] ${issue.description}${loc}`);
+      lines.push(`  - [${issue.severity}] ${truncate(issue.description, 240)}${loc}`);
     }
+  } else {
+    lines.push('No itemized issues were provided.');
   }
   lines.push('Preserve every footnote marker and source citation; the structural check will re-verify.');
   return lines.join('\n');
@@ -362,7 +384,7 @@ function selectBest(prev: ReviewSnapshot | null, next: ReviewSnapshot): ReviewSn
  * for snapshots.
  */
 export async function runReviewLoop(deps: ReviewLoopDeps): Promise<ReviewLoopOutcome> {
-  const maxIter = Math.max(1, Math.floor(deps.maxIter ?? 4));
+  const maxIter = Math.max(1, Math.floor(deps.maxIter ?? DEFAULT_REVIEW_MAX_ITER));
   const startIteration = Math.max(1, Math.floor(deps.startIteration ?? 1));
   const endIteration = startIteration + maxIter - 1;
   let bestSoFar: ReviewSnapshot | null = null;

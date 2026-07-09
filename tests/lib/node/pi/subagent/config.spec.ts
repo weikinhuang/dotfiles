@@ -35,6 +35,23 @@ describe('coerceSubagentConfigLayer', () => {
     expect(coerceSubagentConfigLayer({ concurrency: 99 }).concurrency).toBe(99);
   });
 
+  test('drops a model that is not a valid provider/id spec', () => {
+    // Regression: previously ANY non-empty string was accepted, so a
+    // bare "gpt-4" (no provider slash) flowed through to the model
+    // registry as an un-resolvable override. Now validated + dropped.
+    expect(coerceSubagentConfigLayer({ model: 'gpt-4' }).model).toBeUndefined();
+    expect(coerceSubagentConfigLayer({ model: 'openai/' }).model).toBeUndefined();
+    expect(coerceSubagentConfigLayer({ model: '/gpt' }).model).toBeUndefined();
+    expect(coerceSubagentConfigLayer({ model: 42 as unknown as string }).model).toBeUndefined();
+  });
+
+  test('normalizes a valid model spec (trims components, keeps modelId slashes)', () => {
+    expect(coerceSubagentConfigLayer({ model: ' openai / gpt-4o ' }).model).toBe('openai/gpt-4o');
+    expect(coerceSubagentConfigLayer({ model: 'amazon-bedrock/us.anthropic.model:0' }).model).toBe(
+      'amazon-bedrock/us.anthropic.model:0',
+    );
+  });
+
   test('non-object input yields an empty layer', () => {
     expect(coerceSubagentConfigLayer(null)).toEqual({});
     expect(coerceSubagentConfigLayer('x')).toEqual({});
@@ -51,6 +68,11 @@ describe('subagentEnvLayer', () => {
   test('drops invalid env values', () => {
     expect(subagentEnvLayer({ PI_SUBAGENT_MAX_TURNS: 'lots' })).toEqual({});
     expect(subagentEnvLayer({})).toEqual({});
+  });
+
+  test('drops a PI_SUBAGENT_MODEL that is not provider/id', () => {
+    expect(subagentEnvLayer({ PI_SUBAGENT_MODEL: 'gpt-4' })).toEqual({});
+    expect(subagentEnvLayer({ PI_SUBAGENT_MODEL: '' })).toEqual({});
   });
 });
 

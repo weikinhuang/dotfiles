@@ -34,8 +34,10 @@ export interface ImagePartLike {
   mimeType?: string;
 }
 
-/** Blocks that appear in an assistant message. */
-export type AssistantPartLike = TextPartLike | ThinkingPartLike | ToolCallPartLike;
+/** Blocks that appear in an assistant message. Images are rare on assistant
+ * turns but pi can attach them, so they're included here to be sized (once)
+ * in the conversation breakdown's shared image bucket. */
+export type AssistantPartLike = TextPartLike | ThinkingPartLike | ToolCallPartLike | ImagePartLike;
 /** Blocks that appear in user / toolResult / custom message content arrays. */
 export type ContentPartLike = TextPartLike | ImagePartLike;
 

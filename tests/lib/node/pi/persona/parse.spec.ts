@@ -211,6 +211,22 @@ describe('parsePersonaFile', () => {
     expect(warnings.some((w) => w.reason.includes('requestOptions'))).toBe(true);
   });
 
+  test('model: valid provider/id and `inherit` pass through', () => {
+    expect(run({ name: 'm', model: 'anthropic/claude-opus' }).result?.model).toBe('anthropic/claude-opus');
+    expect(run({ name: 'm', model: 'inherit' }).result?.model).toBe('inherit');
+  });
+
+  test('model: validated via the shared parser - a bare `/` is no longer enough', () => {
+    // The old `includes("/")` check accepted these; the shared spec parser
+    // rejects a missing provider or model id.
+    for (const bad of ['provider/', '/model', 'noslash']) {
+      const { result, warnings } = run({ name: 'm', model: bad });
+      expect(result).not.toBeNull();
+      expect(result?.model).toBeUndefined();
+      expect(warnings.some((w) => w.reason.includes('invalid model'))).toBe(true);
+    }
+  });
+
   test('systemPromptOverride absent → undefined, no warnings', () => {
     const { result, warnings } = run({ name: 'm' });
 

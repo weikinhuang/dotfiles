@@ -10,7 +10,9 @@
 import { describe, expect, test } from 'vitest';
 
 import {
+  ALWAYS_AVAILABLE_CHANNELS,
   buildCritiqueTask,
+  COMPANION_CHANNELS,
   createRefiner,
   type CriticDecision,
   type CritiqueRunResult,
@@ -29,6 +31,13 @@ import {
   validateAction,
 } from '../../../../../lib/node/pi/comfyui/refine.ts';
 import { type AgentDef } from '../../../../../lib/node/pi/subagent/loader.ts';
+
+// ── Shared channel constants (single source for the ext loop) ─────────
+
+test('channel constants are the single shared definition', () => {
+  expect(ALWAYS_AVAILABLE_CHANNELS).toEqual(['reroll', 'revise_prompt']);
+  expect(COMPANION_CHANNELS).toEqual(['img2img', 'inpaint', 'detailer', 'ground']);
+});
 
 // ── Forgiving parse ───────────────────────────────────────────────────
 
@@ -296,6 +305,46 @@ test('reducer: a later render with an unparseable critique stops and keeps the p
     { action: 'initial', score: 6, savedPath: '/out/r0.png' },
     { action: 'reroll', score: 0, savedPath: '/out/r1.png' },
   ]);
+});
+
+test('reducer: a corrective render that throws breaks the loop and returns the incumbent best', async () => {
+  // The initial render scores 6 (below the 9 threshold), so the loop attempts
+  // one corrective render - which throws. Per the "always return best-so-far /
+  // never error a render" contract the loop must NOT propagate: it journals
+  // via onRenderError, stops, and returns the incumbent r0.
+  const errors: unknown[] = [];
+  const result = await runRefineLoop<string>({
+    initialImage: 'r0',
+    critique: () => decision({ score: 6, action: { type: 'reroll' } }),
+    render: () => {
+      throw new Error('render exploded');
+    },
+    availableChannels: [],
+    maxRefineIterations: 3,
+    refineAcceptThreshold: 9,
+    savedPathOf: (image) => `/out/${image}.png`,
+    onRenderError: (e) => errors.push(e),
+  });
+  expect(result.image).toBe('r0');
+  expect(result.finalScore).toBe(6);
+  expect(result.accepted).toBe(false);
+  // Only the initial render made it into the journey; the failed render did not.
+  expect(result.journey).toEqual([{ action: 'initial', score: 6, savedPath: '/out/r0.png' }]);
+  expect(errors).toHaveLength(1);
+  expect((errors[0] as Error).message).toBe('render exploded');
+});
+
+test('reducer: a render that rejects (async) is caught and returns the incumbent best', async () => {
+  const result = await runRefineLoop<string>({
+    initialImage: 'r0',
+    critique: () => decision({ score: 5, action: { type: 'reroll' } }),
+    render: () => Promise.reject(new Error('network down')),
+    availableChannels: [],
+    maxRefineIterations: 2,
+    refineAcceptThreshold: 9,
+  });
+  expect(result.image).toBe('r0');
+  expect(result.finalScore).toBe(5);
 });
 
 test('reducer: an invalid proposed action downgrades via the issue classes', async () => {

@@ -28,7 +28,14 @@ const LCS_LINE_CAP = 2000;
 function splitLines(text: string): string[] {
   // An empty string is zero lines (not one empty line) so an empty file
   // doesn't report a spurious +1/-1.
-  return text.length === 0 ? [] : text.split('\n');
+  if (text.length === 0) return [];
+  const lines = text.split('\n');
+  // A single trailing newline terminates the last line rather than starting a
+  // new empty one, so "a\nb\n" is two lines, not three. Drop the spurious
+  // final '' the split produces or counts are off by one for any file that
+  // ends in a newline (the common case).
+  if (lines[lines.length - 1] === '') lines.pop();
+  return lines;
 }
 
 /** Length of the longest common subsequence of two line arrays. */

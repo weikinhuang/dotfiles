@@ -102,15 +102,6 @@ export function childSessionDir(args: ChildSessionDirArgs): string {
   );
 }
 
-/**
- * Directory pattern where stale `pi-subagent-*` worktrees accumulate on
- * crash. Rendered relative to the parent cwd's `.git/worktrees/` so the
- * caller can invoke `git worktree remove` or plain `rm -rf` on each.
- */
-export function staleWorktreeDir(cwd: string): string {
-  return join(cwd, '.git', 'worktrees');
-}
-
 export const STALE_WORKTREE_PREFIX = 'pi-subagent-';
 
 /** Days → ms, with a hard floor of 0 (never negative). */
@@ -202,22 +193,52 @@ export function sweepStaleSessions(root: string, retainDays: number, fs: SweepFs
 }
 
 /**
- * Identify stale worktrees the parent crashed out of. Returns the
- * absolute path of every directory under `.git/worktrees/` whose name
- * starts with {@link STALE_WORKTREE_PREFIX}. The caller shells out to
- * `git worktree remove --force <path>` for each.
+ * Parse `git worktree list --porcelain` output and return the checkout
+ * path of every linked worktree whose branch name starts with
+ * {@link STALE_WORKTREE_PREFIX} - i.e. the throwaway checkouts a crashed
+ * parent leaked (see `worktree.ts::createWorktree`, which names each
+ * branch `pi-subagent-*`).
+ *
+ * Why porcelain instead of scanning `.git/worktrees/`: `git worktree add`
+ * names the *admin* dir under `.git/worktrees/` after the checkout's last
+ * path segment (`checkout`), NOT after the `pi-subagent-*` branch, so the
+ * old admin-dir scan matched nothing. And `git worktree remove` needs the
+ * *checkout* path (under `$TMPDIR`), which only the porcelain listing (or
+ * the admin `gitdir` file) exposes. This parser returns exactly those
+ * checkout paths so the caller can `git worktree remove --force <path>`.
+ *
+ * Porcelain blocks are separated by blank lines; each opens with a
+ * `worktree <abs-path>` line and (for a non-detached checkout) carries a
+ * `branch refs/heads/<name>` line. Detached / bare entries (no branch)
+ * are skipped. Pure - no fs, no subprocess.
  */
-export function listStaleWorktrees(cwd: string, fs: Pick<SweepFs, 'readdir' | 'stat'>): string[] {
-  const dir = staleWorktreeDir(cwd);
-  const entries = fs.readdir(dir);
-  if (!entries) return [];
+export function parseStaleWorktreePaths(porcelain: string): string[] {
   const out: string[] = [];
-  for (const name of entries) {
-    if (!name.startsWith(STALE_WORKTREE_PREFIX)) continue;
-    const full = join(dir, name);
-    const st = fs.stat(full);
-    if (!st?.isDirectory) continue;
-    out.push(full);
+  let path: string | null = null;
+  let branch: string | null = null;
+
+  const flush = (): void => {
+    if (path !== null && branch !== null) {
+      const name = branch.startsWith('refs/heads/') ? branch.slice('refs/heads/'.length) : branch;
+      if (name.startsWith(STALE_WORKTREE_PREFIX)) out.push(path);
+    }
+    path = null;
+    branch = null;
+  };
+
+  for (const line of porcelain.split('\n')) {
+    if (line.length === 0) {
+      flush();
+      continue;
+    }
+    if (line.startsWith('worktree ')) {
+      // A new block started without a blank separator - flush the prior.
+      flush();
+      path = line.slice('worktree '.length).trim();
+    } else if (line.startsWith('branch ')) {
+      branch = line.slice('branch '.length).trim();
+    }
   }
+  flush();
   return out;
 }

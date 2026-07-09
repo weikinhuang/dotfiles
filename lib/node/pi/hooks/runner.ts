@@ -23,9 +23,19 @@
 
 import { spawn, type ChildProcess } from 'node:child_process';
 
+import { delay } from '../abortable-delay.ts';
 import { type Hook } from './config.ts';
 
 export const DEFAULT_TIMEOUT_MS = 60000;
+
+/**
+ * Per-stream byte cap (stdout & stderr each). A misbehaving hook that
+ * floods its output would otherwise accumulate unbounded in memory;
+ * matches the `STREAM_BUFFER_MAX` ceiling used by
+ * `iteration-loop/check-bash.ts`. Output past the cap is dropped and
+ * flagged via {@link HookSpawnResult.truncated}.
+ */
+export const STREAM_BUFFER_MAX = 8 * 1024;
 
 export type HookDecision = 'allow' | 'block' | 'continue';
 
@@ -35,6 +45,8 @@ export interface HookResult {
   additionalContext?: string;
   /** True when the process was killed for exceeding `hook.timeout`. */
   timedOut?: boolean;
+  /** True when stdout or stderr exceeded {@link STREAM_BUFFER_MAX} and was capped. */
+  truncated?: boolean;
 }
 
 export interface HookSpawnResult {
@@ -43,6 +55,8 @@ export interface HookSpawnResult {
   exitCode: number | null;
   /** True when the runner aborted the process for exceeding `timeoutMs`. */
   timedOut: boolean;
+  /** True when stdout or stderr hit the per-stream byte cap and was truncated. */
+  truncated: boolean;
 }
 
 export interface HookSpawnOptions {
@@ -154,10 +168,13 @@ export async function runHook(opts: RunHookOptions): Promise<HookResult> {
     return {
       decision: 'block',
       reason: stderr.length > 0 ? stderr : `hook exited with code ${res.exitCode}`,
+      ...(res.truncated ? { truncated: true } : {}),
     };
   }
 
-  return parseHookStdout(res.stdout);
+  const result = parseHookStdout(res.stdout);
+  if (res.truncated) result.truncated = true;
+  return result;
 }
 
 // ──────────────────────────────────────────────────────────────────────
@@ -187,6 +204,7 @@ export const nodeChildProcessSpawn: HookSpawnFn = async (opts) => {
         stderr: e instanceof Error ? e.message : String(e),
         exitCode: 1,
         timedOut: false,
+        truncated: false,
       });
       return;
     }
@@ -194,12 +212,37 @@ export const nodeChildProcessSpawn: HookSpawnFn = async (opts) => {
     let stdout = '';
     let stderr = '';
     let timedOut = false;
+    let truncated = false;
     let settled = false;
 
-    const timer = setTimeout(() => {
-      timedOut = true;
-      child.kill('SIGKILL');
-    }, opts.timeoutMs);
+    // Append `chunk` onto `current`, capping the combined length at
+    // STREAM_BUFFER_MAX. Flags `truncated` once the ceiling is reached.
+    const appendCapped = (current: string, chunk: string): string => {
+      if (current.length >= STREAM_BUFFER_MAX) {
+        truncated = true;
+        return current;
+      }
+      const room = STREAM_BUFFER_MAX - current.length;
+      if (chunk.length > room) {
+        truncated = true;
+        return current + chunk.slice(0, room);
+      }
+      return current + chunk;
+    };
+
+    // Cancel the timeout `delay` once the child settles. The timer half
+    // is expressed via the shared `abortable-delay` helper; the
+    // process-kill semantics (SIGKILL + timedOut flag) stay here.
+    const settledController = new AbortController();
+    void delay(opts.timeoutMs, settledController.signal).then(
+      () => {
+        timedOut = true;
+        child.kill('SIGKILL');
+      },
+      () => {
+        // Aborted because the child already settled - nothing to do.
+      },
+    );
 
     const onAbort = (): void => {
       timedOut = true;
@@ -209,22 +252,22 @@ export const nodeChildProcessSpawn: HookSpawnFn = async (opts) => {
     else opts.signal.addEventListener('abort', onAbort, { once: true });
 
     child.stdout?.on('data', (chunk: Buffer | string) => {
-      stdout += chunk.toString();
+      stdout = appendCapped(stdout, chunk.toString());
     });
     child.stderr?.on('data', (chunk: Buffer | string) => {
-      stderr += chunk.toString();
+      stderr = appendCapped(stderr, chunk.toString());
     });
 
     const settle = (exitCode: number | null): void => {
       if (settled) return;
       settled = true;
-      clearTimeout(timer);
+      settledController.abort();
       opts.signal.removeEventListener('abort', onAbort);
-      resolvePromise({ stdout, stderr, exitCode, timedOut });
+      resolvePromise({ stdout, stderr, exitCode, timedOut, truncated });
     };
 
     child.on('error', (err) => {
-      stderr += stderr.length === 0 ? err.message : `\n${err.message}`;
+      stderr = appendCapped(stderr, stderr.length === 0 ? err.message : `\n${err.message}`);
       settle(1);
     });
     child.on('close', (code) => settle(code));

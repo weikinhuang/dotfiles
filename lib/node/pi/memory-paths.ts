@@ -39,11 +39,14 @@
  */
 
 import { existsSync, readdirSync, readFileSync, rmSync, statSync, unlinkSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { join } from 'node:path';
 
 import { atomicWriteFile, ensureDirSync } from './atomic-write.ts';
 import { parseFrontmatter, takenSlugs, validTypesForScope } from './memory-reducer.ts';
+import { expandTilde } from './path-expand.ts';
 import { cwdSlug, piAgentPath, slugFromEnv } from './pi-paths.ts';
+import { slugifyAscii } from './slugify.ts';
 import {
   type Frontmatter,
   type MemoryEntry,
@@ -70,11 +73,7 @@ export { cwdSlug };
  * or punctuation), so callers always get a non-empty slug.
  */
 export function slugifyName(name: string): string {
-  const s = name
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '');
-  return s.length > 0 ? s : 'memory';
+  return slugifyAscii(name, { fallback: 'memory' });
 }
 
 /**
@@ -106,7 +105,9 @@ export function chooseMemorySlug(state: MemoryState, scope: MemoryScope, name: s
  * `PI_CODING_AGENT_DIR` for the default via `piAgentPath`). */
 export function memoryRoot(): string {
   const env = process.env.PI_MEMORY_ROOT;
-  if (env && env.trim().length > 0) return env.trim();
+  // Expand a leading `~` so a config value like `~/.pi/memory` resolves to
+  // an absolute path rather than a literal `~` directory under the cwd.
+  if (env && env.trim().length > 0) return expandTilde(env.trim(), homedir());
   return piAgentPath('memory');
 }
 

@@ -530,14 +530,17 @@ describe('runResearchPipeline - partial failures', () => {
     expect(outcome.fanout.aborted.map((a) => a.id)).toEqual(['sq-2']);
   });
 
-  test('(7) malformed finding → flagged for synth quarantine on first attempt; second attempt → disk quarantine', async () => {
-    // Phase 6: with no in-pipeline re-prompt, malformed output on
-    // the first attempt is immediately added to `quarantined` so
-    // synth emits a `[section unavailable: ...]` stub instead of
-    // being fed confident zero-citation prose. The raw body still
-    // lands on disk for `--resume` / human inspection, and the
-    // failure counter is bumped; a second malformed pass promotes
-    // the finding to the on-disk `_quarantined/` tree.
+  test('(7) malformed finding → automatic second-chance re-dispatch on first attempt; second attempt → disk quarantine', async () => {
+    // Malformed output on the first attempt is added to
+    // `quarantined` so synth emits a `[section unavailable: ...]`
+    // stub instead of being fed confident zero-citation prose. The
+    // reprompt path also arms an *automatic* second chance for the
+    // next resume: it drops the rejected body to a `<id>.md.rejected`
+    // sidecar, removes the canonical finding so the sub-question
+    // reads as incomplete, and re-pends the fanout task so resume
+    // re-dispatches it. The failure counter is bumped; a second
+    // malformed pass promotes the finding to the on-disk
+    // `_quarantined/` tree.
     const { factory: factory1 } = makeSessionFactory([plannerReply(), selfCriticNoChange()]);
     const runner1 = scriptedPlanningCritic([{ rawText: approvedVerdict() }]);
     const bad1 = '## no headings here, just prose';
@@ -567,34 +570,25 @@ describe('runResearchPipeline - partial failures', () => {
     // reply text never leaks into synth.
     expect(first.quarantined).toEqual(['sq-2']);
 
-    // Second run: fanout resume sees sq-2 still pending in the
-    // spawner map, spawner returns malformed content again.
-    // Counter is now 1 (we bumped it post-classify), so this
-    // round → quarantine.
-    //
-    // BUT: the first run ALSO persisted sq-2 state as completed in
-    // fanout.json, so a resume won't re-spawn. Instead, directly
-    // invoke the classifier path a second time by rewriting
-    // fanout.json to re-pend sq-2 with fresh bad output. In a real
-    // pipeline the user edits the plan and the extension wipes the
-    // pending finding; we simulate that here.
     const runRoot = first.runRoot;
-    const fanoutPath = paths(runRoot).fanout;
-    // Reset sq-2 to pending + clear any on-disk finding.
-    const fanout = JSON.parse(readFileSync(fanoutPath, 'utf8')) as {
-      tasks: { id: string; state: string; output?: string; finishedAt?: string }[];
+
+    // Regression (#5): the second chance is armed automatically -
+    // no manual fanout.json surgery. The canonical finding is gone,
+    // the rejected body is preserved in a sidecar, and the fanout
+    // task is re-pended so the next resume re-dispatches it.
+    expect(existsSync(join(runRoot, 'findings', 'sq-2.md'))).toBe(false);
+    expect(existsSync(join(runRoot, 'findings', 'sq-2.md.rejected'))).toBe(true);
+    const fanoutAfterFirst = JSON.parse(readFileSync(paths(runRoot).fanout, 'utf8')) as {
+      tasks: { id: string; state: string }[];
     };
+    expect(fanoutAfterFirst.tasks.find((t) => t.id === 'sq-2')?.state).toBe('pending');
+    // The completed siblings are untouched (only sq-2 was re-pended).
+    expect(fanoutAfterFirst.tasks.find((t) => t.id === 'sq-1')?.state).toBe('completed');
+    expect(fanoutAfterFirst.tasks.find((t) => t.id === 'sq-3')?.state).toBe('completed');
 
-    for (const task of fanout.tasks) {
-      if (task.id === 'sq-2') {
-        task.state = 'pending';
-        delete task.output;
-        delete task.finishedAt;
-      }
-    }
-    (await import('node:fs')).writeFileSync(fanoutPath, JSON.stringify(fanout, null, 2));
-    rmSync(join(runRoot, 'findings', 'sq-2.md'), { force: true });
-
+    // Second run resumes: fanout re-dispatches only the re-pended
+    // sq-2 (siblings stay completed). Counter is now 1, so a second
+    // malformed pass quarantines to the on-disk `_quarantined/` tree.
     const { factory: factory2 } = makeSessionFactory([plannerReply(), selfCriticNoChange()]);
     const runner2 = scriptedPlanningCritic([{ rawText: approvedVerdict() }]);
     const spawner2 = scriptedSpawner(
@@ -1018,6 +1012,37 @@ describe('runResearchPipeline - resumeFrom', () => {
       // sq-2 has no finding on disk despite state=pending
       fanoutStates: { 'sq-1': 'completed', 'sq-2': 'pending' },
     });
+
+    const factory = (): Promise<ResearchSessionLikeWithLifecycle> =>
+      Promise.resolve({ prompt: () => Promise.reject(new Error('unused')), state: { messages: [] } });
+
+    await expect(
+      runResearchPipeline('unused', {
+        cwd: sandbox,
+        createSession: factory,
+        runPlanningCritic: () => Promise.resolve({ rawText: approvedVerdict() }),
+        fanoutSpawn: () => Promise.reject(new Error('unused')),
+        fanoutMode: 'sync',
+        model: 'm/x',
+        thinkingLevel: null,
+        maxConcurrent: 1,
+        resumeFrom: 'synth',
+        resumeRunRoot: runRoot,
+      }),
+    ).rejects.toThrow(/findings incomplete for: sq-2.*resume from fanout/);
+  });
+
+  test("resumeFrom='synth' rejects a 'spawned' task even when a partial finding exists on disk (#7)", async () => {
+    // A hung fanout worker often leaves a partial finding behind but
+    // never flips its state to 'completed'. Treating 'spawned' as
+    // completed just because a file exists would mask the stall and
+    // feed synth a truncated section. seedResumeRunRoot only writes
+    // findings for 'completed' states, so hand-write a finding for the
+    // still-'spawned' sq-2.
+    const runRoot = seedResumeRunRoot(sandbox, 'synth-spawned', ['sq-1', 'sq-2'], {
+      fanoutStates: { 'sq-1': 'completed', 'sq-2': 'spawned' },
+    });
+    writeFileSync(join(runRoot, 'findings', 'sq-2.md'), validFinding('sq-2'));
 
     const factory = (): Promise<ResearchSessionLikeWithLifecycle> =>
       Promise.resolve({ prompt: () => Promise.reject(new Error('unused')), state: { messages: [] } });

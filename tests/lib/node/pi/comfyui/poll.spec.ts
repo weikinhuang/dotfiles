@@ -31,6 +31,22 @@ function stubFetch(bodies: { history?: unknown; queue?: unknown }): void {
   });
 }
 
+/**
+ * Route a stubbed `fetch` where either endpoint can respond non-OK (a
+ * transient HTTP error). `fetchHistory` / `fetchQueue` map a non-OK response
+ * to `null`, which the poller must NOT read as "prompt gone".
+ */
+function stubFetchStatus(opts: { historyOk?: boolean; queueOk?: boolean; history?: unknown; queue?: unknown }): void {
+  vi.stubGlobal('fetch', (input: string | URL) => {
+    const url = String(input);
+    const isQueue = url.includes('/queue');
+    const ok = isQueue ? (opts.queueOk ?? true) : (opts.historyOk ?? true);
+    const body: unknown = isQueue ? opts.queue : opts.history;
+    const res = { ok, status: ok ? 200 : 502, json: () => Promise.resolve(body ?? {}) } as unknown as Response;
+    return Promise.resolve(res);
+  });
+}
+
 afterEach(() => {
   vi.unstubAllGlobals();
 });
@@ -67,5 +83,27 @@ describe('pollJobOnce', () => {
   test('an absent history entry that is still queued reads as running', async () => {
     stubFetch({ history: {}, queue: { queue_running: [[0, 'p1']], queue_pending: [] } });
     expect(await pollJobOnce(job(), conn, AbortSignal.timeout(1000))).toEqual({ kind: 'running' });
+  });
+
+  test('a transient HTTP failure on BOTH history and queue keeps the job running (not failed)', async () => {
+    // A 502 / timeout on both endpoints must not be read as "prompt gone" -
+    // failing a live background job on a blip is the bug this guards against.
+    stubFetchStatus({ historyOk: false, queueOk: false });
+    expect(await pollJobOnce(job(), conn, AbortSignal.timeout(1000))).toEqual({ kind: 'running' });
+  });
+
+  test('history reached (no entry) but the queue fetch fails keeps the job running', async () => {
+    // The prompt is absent from a reachable history, but the queue could not
+    // be read, so absence cannot be confirmed - stay running rather than fail.
+    stubFetchStatus({ historyOk: true, history: {}, queueOk: false });
+    expect(await pollJobOnce(job(), conn, AbortSignal.timeout(1000))).toEqual({ kind: 'running' });
+  });
+
+  test('history fetch fails but a reachable queue lacks the prompt reads as failed', async () => {
+    // The server was reached (queue is non-null) and does not list the prompt,
+    // so it is genuinely gone.
+    stubFetchStatus({ historyOk: false, queueOk: true, queue: { queue_running: [], queue_pending: [] } });
+    const outcome = await pollJobOnce(job(), conn, AbortSignal.timeout(1000));
+    expect(outcome.kind).toBe('failed');
   });
 });

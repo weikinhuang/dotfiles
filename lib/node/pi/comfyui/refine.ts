@@ -61,8 +61,12 @@ export type RefineScope = 'local' | 'global' | 'structural';
  */
 export type RefineChannel = 'reroll' | 'revise_prompt' | 'img2img' | 'inpaint' | 'detailer' | 'ground';
 
-/** Repair channels that need no companion workflow - always runnable. */
-const ALWAYS_AVAILABLE: ReadonlySet<RefineChannel> = new Set(['reroll', 'revise_prompt']);
+/**
+ * Repair channels that need no companion workflow - always runnable. Exported
+ * so the `ext/comfyui` loop wiring shares this single definition instead of
+ * re-declaring the channel set.
+ */
+export const ALWAYS_AVAILABLE_CHANNELS: readonly RefineChannel[] = ['reroll', 'revise_prompt'];
 
 const ALL_CHANNELS: readonly RefineChannel[] = ['reroll', 'revise_prompt', 'img2img', 'inpaint', 'detailer', 'ground'];
 
@@ -205,7 +209,7 @@ export function parseCriticDecision(raw: string): CriticDecision | null {
 
 /** A channel is offered when always-available or among the configured set. */
 function channelAvailable(channel: RefineChannel, available: readonly RefineChannel[]): boolean {
-  return ALWAYS_AVAILABLE.has(channel) || available.includes(channel);
+  return ALWAYS_AVAILABLE_CHANNELS.includes(channel) || available.includes(channel);
 }
 
 /**
@@ -214,7 +218,12 @@ function channelAvailable(channel: RefineChannel, available: readonly RefineChan
  * channels (`reroll` / `revise_prompt`) are not here because they need no
  * companion.
  */
-const COMPANION_CHANNELS: readonly (keyof RefineWith & RefineChannel)[] = ['img2img', 'inpaint', 'detailer', 'ground'];
+export const COMPANION_CHANNELS: readonly (keyof RefineWith & RefineChannel)[] = [
+  'img2img',
+  'inpaint',
+  'detailer',
+  'ground',
+];
 
 /**
  * Intersect a source workflow's {@link RefineWith} companion map with the
@@ -348,6 +357,13 @@ export interface RefineLoopDeps<Img> {
   refineAcceptThreshold: number;
   /** Optional saved-path extractor for journey bookkeeping. */
   savedPathOf?: (image: Img) => string | undefined;
+  /**
+   * Optional sink for a corrective render that threw. The loop honors the
+   * "always return best-so-far / never error a render" contract: a failed
+   * render breaks the loop rather than propagating, and this hook lets the
+   * caller journal / log the failure. Never throws past the loop.
+   */
+  onRenderError?: (error: unknown) => void;
 }
 
 interface Candidate<Img> {
@@ -409,8 +425,16 @@ export async function runRefineLoop<Img>(deps: RefineLoopDeps<Img>): Promise<Ref
     if (action === null) break;
 
     const previousScore = current.score;
-    // oxlint-disable-next-line no-await-in-loop -- each round renders from the prior round's action, so the loop is inherently sequential
-    const rendered = await render(action);
+    let rendered: Img;
+    try {
+      // oxlint-disable-next-line no-await-in-loop -- each round renders from the prior round's action, so the loop is inherently sequential
+      rendered = await render(action);
+    } catch (error) {
+      // A failed corrective render must never error the whole generation:
+      // journal it and stop, returning the incumbent best-so-far.
+      deps.onRenderError?.(error);
+      break;
+    }
     // oxlint-disable-next-line no-await-in-loop -- the critic must judge this render before the next action can be chosen
     const nextDecision = await critique(rendered);
     current = evaluate(rendered, action.type, nextDecision);

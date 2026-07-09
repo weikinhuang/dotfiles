@@ -45,6 +45,7 @@ import { join } from 'node:path';
 
 import { type ConfigWarning, tryReadJsoncFile } from './jsonc.ts';
 import { piAgentDir, piProjectPath } from './pi-paths.ts';
+import { appendSectionOnce } from './prompt-section.ts';
 
 export interface AddendumConfig {
   providers: string[];
@@ -166,10 +167,5 @@ export function matchesModel(model: ModelRef | undefined, config: AddendumConfig
  * is cheap to defend against), returns it unchanged.
  */
 export function appendAddendum(basePrompt: string, addendum: string): string {
-  const base = basePrompt ?? '';
-  const add = (addendum ?? '').trim();
-  if (!add) return base;
-  if (!base.trim()) return add;
-  if (base.trimEnd().endsWith(add)) return base;
-  return `${base.replace(/\s+$/, '')}\n\n${add}`;
+  return appendSectionOnce(basePrompt, addendum);
 }

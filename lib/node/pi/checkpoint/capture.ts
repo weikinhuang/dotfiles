@@ -15,6 +15,7 @@
  * throwing out of the hook. No pi imports.
  */
 
+import { isNonEmptyString } from '../shared/guards.ts';
 import { patchAffectedPaths } from './patch-paths.ts';
 import type { CaptureTool } from './types.ts';
 
@@ -23,10 +24,6 @@ export interface CapturePath {
   path: string;
   /** True when the op deletes the file (Delete / Move source) ⇒ `after: null`. */
   removed: boolean;
-}
-
-function asString(value: unknown): string | undefined {
-  return typeof value === 'string' && value.length > 0 ? value : undefined;
 }
 
 /**
@@ -39,12 +36,10 @@ export function capturePaths(tool: CaptureTool, input: unknown): CapturePath[] {
   const obj = input as Record<string, unknown>;
 
   if (tool === 'write' || tool === 'edit') {
-    const path = asString(obj.path);
-    return path === undefined ? [] : [{ path, removed: false }];
+    return isNonEmptyString(obj.path) ? [{ path: obj.path, removed: false }] : [];
   }
 
   // apply_patch
-  const patch = asString(obj.patch);
-  if (patch === undefined) return [];
-  return patchAffectedPaths(patch).map((p) => ({ path: p.path, removed: p.removed }));
+  if (!isNonEmptyString(obj.patch)) return [];
+  return patchAffectedPaths(obj.patch).map((p) => ({ path: p.path, removed: p.removed }));
 }

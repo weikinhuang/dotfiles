@@ -37,6 +37,7 @@ import { dirname } from 'node:path';
 import { readConsent, recordConsent, type ReviewConsentOpts } from './review-config.ts';
 import {
   classifyReviewCloseness,
+  DEFAULT_REVIEW_MAX_ITER,
   REVIEW_RESUME_BUMP,
   runReviewLoop,
   type CriticRunner,
@@ -81,7 +82,7 @@ export interface ReviewWireDeps {
   runStructural: StructuralRunner;
   runCritic: CriticRunner;
   refineReport: RefinementRunner;
-  /** Max cross-stage iterations. Default 3 per the plan. */
+  /** Max cross-stage iterations. Defaults to {@link DEFAULT_REVIEW_MAX_ITER}. */
   maxIter?: number;
   /**
    * Iteration label for the first iteration. Forwarded to
@@ -219,14 +220,14 @@ export async function runDeepResearchReview(deps: ReviewWireDeps): Promise<Revie
     task: taskNames.structural,
     reportPath: paths(deps.runRoot).report,
     bashCmd: deps.structuralBashCmd,
-    maxIter: deps.maxIter ?? 3,
+    maxIter: deps.maxIter ?? DEFAULT_REVIEW_MAX_ITER,
     createdAt: now().toISOString(),
   });
   const subjectiveSpec = buildSubjectiveSpec({
     task: taskNames.subjective,
     reportPath: paths(deps.runRoot).report,
     rubric: deps.rubricSubjective,
-    maxIter: deps.maxIter ?? 3,
+    maxIter: deps.maxIter ?? DEFAULT_REVIEW_MAX_ITER,
     createdAt: now().toISOString(),
   });
 
@@ -282,7 +283,10 @@ export async function runDeepResearchReview(deps: ReviewWireDeps): Promise<Revie
   }
 
   // ── 5. Format + notify ────────────────────────────────────
-  const { summary, level } = formatOutcome(outcome, { runRoot: deps.runRoot, maxIter: deps.maxIter ?? 4 });
+  const { summary, level } = formatOutcome(outcome, {
+    runRoot: deps.runRoot,
+    maxIter: deps.maxIter ?? DEFAULT_REVIEW_MAX_ITER,
+  });
   notify(summary, level);
   safeJournal(journalPath, `review loop terminal (${outcome.kind})`, summary);
 

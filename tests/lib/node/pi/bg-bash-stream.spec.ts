@@ -15,7 +15,7 @@ import {
   type BgBashReadableStream,
   type BgBashStreamSet,
 } from '../../../../lib/node/pi/bg-bash-stream.ts';
-import { type ReadOptions, type ReadResult } from '../../../../lib/node/pi/bg-bash-ring.ts';
+import { type ReadOptions, type ReadResult, RingBuffer } from '../../../../lib/node/pi/bg-bash-ring.ts';
 
 class FakeStream implements BgBashReadableStream {
   readonly byteLengthTotal: number;
@@ -84,18 +84,40 @@ test('readBgBashStream: delegates direct stream reads with options', () => {
   expect(stdout.lastReadOptions).toEqual({ sinceCursor: 7, maxBytes: 20 });
 });
 
-test('readBgBashStream: aggregates merged cursor and dropped accounting', () => {
+test('readBgBashStream: merged aggregates totals but is non-resumable (cursor 0)', () => {
   const streams = makeStreams(
     new FakeStream('stdout content', { cursor: 12, totalBytes: 20, droppedBytes: 3, droppedBefore: true }),
     new FakeStream('stderr content', { cursor: 7, totalBytes: 11, droppedBytes: 2 }),
   );
   const result = readBgBashStream(streams, 'merged', { maxBytes: 15 });
 
-  expect(result.cursor).toBe(19);
+  // Merged interleaves two independent cursor spaces, so its scalar cursor is
+  // reported as 0 (non-resumable) rather than a meaningless stdout+stderr sum.
+  expect(result.cursor).toBe(0);
   expect(result.totalBytes).toBe(31);
   expect(result.droppedBytes).toBe(5);
   expect(result.droppedBefore).toBe(true);
   expect(result.content).toContain('[29B truncated; see logFile]');
+});
+
+test('readBgBashStream: merged content honors sinceCursor per stream (no full re-read)', () => {
+  // Real ring buffers so `read({ sinceCursor })` filters each stream in its
+  // own cursor space instead of re-reading the whole buffer.
+  const stdout = new RingBuffer();
+  const stderr = new RingBuffer();
+  stdout.append('OUT1'); // stdout cursor 0..4
+  stderr.append('ERR1'); // stderr cursor 0..4
+  const streams: BgBashStreamSet = { stdout, stderr };
+
+  const first = readBgBashStream(streams, 'merged', {});
+  expect(first.content).toBe('OUT1\n--- stderr ---\nERR1');
+  expect(first.cursor).toBe(0); // non-resumable
+
+  stdout.append('OUT2'); // stdout cursor 4..8
+  stderr.append('ERR2'); // stderr cursor 4..8
+  // sinceCursor 4 applied to each stream yields only the newly-appended tail.
+  const next = readBgBashStream(streams, 'merged', { sinceCursor: 4 });
+  expect(next.content).toBe('OUT2\n--- stderr ---\nERR2');
 });
 
 test('stream counters: return selected or synthetic merged counts', () => {

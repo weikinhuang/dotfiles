@@ -36,7 +36,7 @@ export interface AgentRecord {
  */
 export function mergeAgentInheritance(mode: ParsedPersona, agent: AgentRecord | undefined): ParsedPersona {
   if (mode.agent === undefined || agent === undefined) {
-    return mode;
+    return { ...mode };
   }
 
   const tools = mode.tools ?? [...agent.tools];

@@ -64,6 +64,11 @@ export interface SubagentAggregate {
   reset(): void;
 }
 
+/** Coerce a non-finite delta (NaN / ±Infinity / undefined) to 0. */
+function finiteOrZero(n: number): number {
+  return Number.isFinite(n) ? n : 0;
+}
+
 function emptySnapshot(): SubagentAggregateSnapshot {
   return {
     count: 0,
@@ -91,16 +96,20 @@ export function makeSubagentAggregate(): SubagentAggregate {
       return { ...state };
     },
     record(run: SubagentRunRecord): void {
+      // A child that errored mid-usage can report NaN / Infinity deltas
+      // (e.g. a divide-by-zero cost estimate). Coerce each to 0 so one
+      // bad run can't poison the running totals with NaN for the rest of
+      // the session.
       state = {
         count: state.count + 1,
         failures: state.failures + (run.failed ? 1 : 0),
-        turns: state.turns + run.turns,
-        input: state.input + run.input,
-        cacheRead: state.cacheRead + run.cacheRead,
-        cacheWrite: state.cacheWrite + run.cacheWrite,
-        output: state.output + run.output,
-        cost: state.cost + run.cost,
-        totalDurationMs: state.totalDurationMs + run.durationMs,
+        turns: state.turns + finiteOrZero(run.turns),
+        input: state.input + finiteOrZero(run.input),
+        cacheRead: state.cacheRead + finiteOrZero(run.cacheRead),
+        cacheWrite: state.cacheWrite + finiteOrZero(run.cacheWrite),
+        output: state.output + finiteOrZero(run.output),
+        cost: state.cost + finiteOrZero(run.cost),
+        totalDurationMs: state.totalDurationMs + finiteOrZero(run.durationMs),
       };
     },
     reset(): void {

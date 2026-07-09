@@ -78,11 +78,12 @@ describe('parseScheduleCommand', () => {
     expect(r.draft.trigger).toEqual({ kind: 'once', at: new Date(2026, 0, 2, 7, 0, 0).getTime() });
   });
 
-  test('rejects when no trigger is given', () => {
+  test('rejects when no trigger is given, and lists --after among the options', () => {
     const r = parseScheduleCommand('-- just a prompt', NOW);
     expect(r.ok).toBe(false);
     if (r.ok) return;
     expect(r.error).toContain('trigger is required');
+    expect(r.error).toContain('after');
   });
 
   test('rejects multiple triggers', () => {

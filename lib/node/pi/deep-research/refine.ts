@@ -55,17 +55,17 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+import { buildSubjectiveNudge } from './review-loop.ts';
 import { type StructuralFailure } from './structural-check.ts';
 import { runSynthMerge, type SynthMergeResult } from './synth-merge.ts';
 import { type SectionOutcome, runSectionSynth } from './synth-sections.ts';
-import { type Issue, type Verdict } from '../iteration-loop/schema.ts';
+import { type Verdict } from '../iteration-loop/schema.ts';
 import { appendJournal } from '../research/journal.ts';
 import { paths } from '../research/paths.ts';
 import { type DeepResearchPlan } from '../research/plan.ts';
 import { listRun, type SourceRef } from '../research/sources.ts';
 import { type ResearchSessionLike } from '../research/structured.ts';
 import { type TinyAdapter, type TinyCallContext } from '../research/tiny.ts';
-import { truncate } from '../shared/strings.ts';
 
 // ──────────────────────────────────────────────────────────────────────
 // Public types.
@@ -211,28 +211,11 @@ export function buildStructuralMergeNudge(failures: readonly StructuralFailure[]
   ].join('\n');
 }
 
-/**
- * Compose a merge-stage nudge from a subjective critic verdict.
- * Uses the verdict's `summary` + per-issue descriptions, trimmed
- * so the merge prompt stays under the model's context cap.
- */
-export function buildSubjectiveNudge(verdict: Verdict): string {
-  const issues: readonly Issue[] = verdict.issues ?? [];
-  const bullets = issues.map((i) => {
-    const sev = i.severity ? `[${i.severity}] ` : '';
-    return `- ${sev}${truncate(i.description, 240)}`;
-  });
-  const summaryLine = verdict.summary ? truncate(verdict.summary, 240) : '(no summary)';
-  return [
-    'The previous draft of the report failed the subjective critic. Summary:',
-    summaryLine,
-    '',
-    bullets.length > 0 ? 'Issues to address:' : 'No itemized issues were provided.',
-    ...bullets,
-    '',
-    'Keep all citations and sub-question section bodies intact; refine the title, intro, conclusion, and ordering so the report reads as a cohesive whole and addresses the issues above.',
-  ].join('\n');
-}
+// The subjective-critic merge nudge is shared with the review loop -
+// see {@link buildSubjectiveNudge} in `review-loop.ts`. Re-exported
+// here so existing importers (and the refine spec) keep resolving it
+// from this module.
+export { buildSubjectiveNudge } from './review-loop.ts';
 
 // ──────────────────────────────────────────────────────────────────────
 // Refinement driver.

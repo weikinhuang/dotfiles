@@ -48,6 +48,20 @@ test('renderSpan head-truncates the oldest lines when over the char cap', () => 
   expect(out).not.toContain('A'.repeat(100));
 });
 
+test('renderSpan always keeps the newest line (truncated) when every line overflows', () => {
+  const msgs: SummarizableMessage[] = [
+    { role: 'user', text: 'A'.repeat(500) },
+    { role: 'assistant', text: 'B'.repeat(500) },
+  ];
+  // Budget smaller than any single line: must not degrade to just the marker.
+  const out = renderSpan(msgs, 80);
+  expect(out.startsWith('[...earlier turns omitted...]')).toBe(true);
+  expect(out.length).toBeGreaterThan('[...earlier turns omitted...]'.length + 2);
+  // The retained content comes from the newest (assistant) line.
+  expect(out).toContain('assistant: ');
+  expect(out).toContain('B');
+});
+
 test('planSummarization returns null below the minimum non-empty count', () => {
   const msgs: SummarizableMessage[] = [
     { role: 'user', text: 'one' },

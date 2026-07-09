@@ -135,6 +135,30 @@ export function appendJournal(journalPath: string, input: AppendJournalInput): v
   atomicWriteFile(journalPath, next);
 }
 
+/**
+ * Best-effort journal append shared by the deep-research pipeline
+ * stages (planner, self-critic, planning-critic, synth-sections,
+ * synth-merge). Every one of those callers wrapped `appendJournal`
+ * in the identical guard: skip when no journal path is configured,
+ * skip when the guard directory (run root / cwd) doesn't exist yet,
+ * and swallow any write error so logging never breaks the pipeline.
+ *
+ *   - `journalPath` - the journal file; `undefined` is a silent no-op.
+ *   - `guardDir` - a directory that must already exist for the append
+ *     to proceed (typically the run root). Prevents writing a stray
+ *     journal into a not-yet-created run dir.
+ *   - `input` - the entry to append.
+ */
+export function safeAppendJournal(journalPath: string | undefined, guardDir: string, input: AppendJournalInput): void {
+  if (!journalPath) return;
+  if (!existsSync(guardDir)) return;
+  try {
+    appendJournal(journalPath, input);
+  } catch {
+    /* swallow - journal failures never break the caller */
+  }
+}
+
 // ──────────────────────────────────────────────────────────────────────
 // Parse + read.
 // ──────────────────────────────────────────────────────────────────────

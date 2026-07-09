@@ -52,7 +52,7 @@
  * None of the above is tier-specific.
  */
 
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { ensureDirSync } from '../atomic-write.ts';
@@ -80,11 +80,11 @@ import {
   fanout,
 } from '../research/fanout.ts';
 import { appendJournal } from '../research/journal.ts';
-import { paths } from '../research/paths.ts';
+import { paths, runRoot, slugify } from '../research/paths.ts';
 import { type DeepResearchPlan, type PlanBudget, readPlan } from '../research/plan.ts';
 import { hashPrompt, type Provenance, stripProvenanceFrontmatter, writeSidecar } from '../research/provenance.ts';
 import { failureCounter, quarantine } from '../research/quarantine.ts';
-import { sumFanoutDeficit } from '../research/resume.ts';
+import { invalidateIncompleteFanoutTasks, sumFanoutDeficit } from '../research/resume.ts';
 import { type McpClient } from '../research/sources.ts';
 import { type ResearchSessionLike } from '../research/structured.ts';
 import { type TinyAdapter, type TinyCallContext } from '../research/tiny.ts';
@@ -704,11 +704,23 @@ export function renderWebResearcherPrompt(plan: DeepResearchPlan, subQuestionId:
   if (!sq) throw new Error(`renderWebResearcherPrompt: sub-question ${subQuestionId} not found`);
   const relPath = `findings/${sq.id}.md`;
   const absPath = runRoot !== undefined ? join(runRoot, relPath) : relPath;
+  const hintLines: string[] = [];
+  if (sq.searchHints && sq.searchHints.length > 0) {
+    hintLines.push('');
+    hintLines.push('Search hints from the planner (starting points; verify and go beyond them):');
+    for (const hint of sq.searchHints) hintLines.push(`  - ${hint}`);
+  }
+  if (sq.successCriteria && sq.successCriteria.length > 0) {
+    hintLines.push('');
+    hintLines.push('This sub-question is answered when:');
+    for (const crit of sq.successCriteria) hintLines.push(`  - ${crit}`);
+  }
   return [
     `You are the web-researcher for /research sub-question ${sq.id}.`,
     '',
     `Root question (context only): ${plan.question}`,
     `Your sub-question: ${sq.question}`,
+    ...hintLines,
     `Write your findings to this ABSOLUTE path (your cwd is the workspace root, not the run directory): ${absPath}`,
     `The file will land at "${relPath}" under the run root - pass the absolute path above to your \`write\` tool.`,
     '',
@@ -867,32 +879,49 @@ async function absorbFindings<M>(args: AbsorbArgs<M>): Promise<string[]> {
     }
 
     if (action.kind === 'reprompt') {
-      // Phase 2 does NOT attempt an in-pipeline re-prompt - the
-      // single-attempt semantics of `research-fanout` mean a
-      // re-prompt is a new fanout task, which the extension owns
-      // after the user intervenes. Bump the counter and emit the
-      // re-prompt payload into the journal so a later resume
-      // run sees it.
+      // Re-prompt budget remains, but `research-fanout` is
+      // single-attempt by contract, so we do NOT fire an in-pipeline
+      // network retry here. Instead we arm an *automatic* second
+      // chance for the next `--resume`:
+      //
+      //   1. Persist the rejected body to a `<id>.md.rejected`
+      //      sidecar for human / resume inspection.
+      //   2. Remove the canonical `<id>.md` so `sumFanoutDeficit`
+      //      sees the sub-question as incomplete (a leftover raw body
+      //      at the canonical path would mask the deficit and the
+      //      retry would never fire).
+      //   3. Re-pend the fanout task so the next resume re-dispatches
+      //      the web-researcher for a fresh attempt.
+      //   4. Bump the persisted failure counter so the *next*
+      //      malformed attempt (priorFailures >= FINDING_MAX_REPROMPTS)
+      //      quarantines instead of looping forever.
+      //
+      // The current run still keeps the id out of synth (a stub in
+      // the merged report) because we have no valid finding for it
+      // yet - the retry lands on the following resume.
       counter.bump(subQuestionId);
+      try {
+        writeFindingFile(`${target}.rejected`, body);
+      } catch {
+        /* swallow - the inspection copy is best-effort */
+      }
+      try {
+        rmSync(target, { force: true });
+      } catch {
+        /* swallow */
+      }
+      const reset = invalidateIncompleteFanoutTasks(runRoot, [subQuestionId]);
       try {
         appendJournal(p.journal, {
           level: 'warn',
-          heading: `findings ${subQuestionId} malformed (re-prompt queued)`,
-          body: action.reprompt,
+          heading: `findings ${subQuestionId} malformed (attempt ${priorFailures + 1}) - re-dispatch on resume`,
+          body: reset.ok
+            ? `${action.reprompt}\n\n(fanout task re-pended; run \`/research --resume --from=fanout\` to retry)`
+            : `${action.reprompt}\n\n(warning: could not re-pend fanout task: ${reset.error ?? 'unknown'})`,
         });
       } catch {
         /* swallow */
       }
-      // Persist the raw body so the user (and the resume path)
-      // can inspect what was rejected.
-      writeFindingFile(target, body);
-      // Crucially: do NOT hand this malformed body to synth. With
-      // no in-pipeline re-prompt firing, synth would read the raw
-      // reply text, find no `## Sources` section, and emit a
-      // confident zero-citation section. Mark the sub-question
-      // quarantined for synth purposes so it gets a visible
-      // `[section unavailable: ...]` stub in the merged report
-      // - the on-disk file stays put for `--resume` inspection.
       quarantined.push(subQuestionId);
       continue;
     }
@@ -1035,7 +1064,21 @@ function loadResumeFanoutSnapshot(runRoot: string, plan: DeepResearchPlan): Fano
       result.failed.push({ id: sq.id, reason: reason || 'failed' });
       continue;
     }
-    // No recorded state: fall back to finding-file presence.
+    // Non-terminal states ('spawned' = dispatched but never marked
+    // completed, 'pending' = never dispatched) must NOT be promoted to
+    // 'completed' just because a finding file happens to exist on disk:
+    // a hung fanout worker often leaves a partial finding behind, and
+    // treating it as done would mask the stall and feed synth a
+    // truncated section. Force these back through fanout on resume.
+    if (state === 'spawned' || state === 'pending') {
+      result.failed.push({
+        id: sq.id,
+        reason: reason || `fanout task left in non-terminal state "${String(state)}" - re-dispatching`,
+      });
+      continue;
+    }
+    // No recorded state (legacy fanout.json predating the `state`
+    // field): fall back to finding-file presence.
     if (existsSync(join(p.findings, `${sq.id}.md`))) {
       result.completed.push({ id: sq.id, output });
     } else {
@@ -1066,16 +1109,10 @@ function loadResumeFanoutSnapshot(runRoot: string, plan: DeepResearchPlan): Fano
  */
 function resolveRunRootFromCwd(cwd: string, question: string): string {
   // Minimal slug - deterministic, no tiny involvement. The planner
-  // picks the real slug afterwards.
-  const slug =
-    question
-      .normalize('NFKD')
-      .replace(/[\u0300-\u036f]/g, '')
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-+|-+$/g, '')
-      .slice(0, 40) || 'research';
-  return join(cwd, 'research', slug);
+  // picks the real slug afterwards; this only seeds the pre-planner
+  // journal path. Reuses the canonical `slugify` so the pre-planner
+  // guess matches the slug rules the rest of the pipeline uses.
+  return runRoot(cwd, slugify(question));
 }
 
 /**

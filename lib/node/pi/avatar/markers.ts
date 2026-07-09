@@ -20,6 +20,7 @@
  */
 
 import { splitCodeSegments } from '../code-mask.ts';
+import { appendSectionByHeading } from '../prompt-section.ts';
 
 /**
  * Match a complete `[emote:NAME]` marker. NAME starts with an
@@ -116,8 +117,5 @@ export function buildEmotePromptAddendum(options: { emotions: readonly string[] 
  * so `/reload` and other re-entry paths don't double-inject.
  */
 export function appendEmotePrompt(base: string, addendum: string): string {
-  if (base.includes(EMOTE_PROMPT_HEADING)) return base;
-  const trimmed = base.replace(/\s+$/, '');
-  if (trimmed.length === 0) return addendum;
-  return `${trimmed}\n\n${addendum}`;
+  return appendSectionByHeading(base, addendum, EMOTE_PROMPT_HEADING);
 }

@@ -12,7 +12,7 @@
  * it. It is in-memory only and cleared on `session_shutdown`.
  */
 
-import { createHash } from 'node:crypto';
+import { sha256Hex } from '../shared/hash.ts';
 
 /** Minimum handle length (hex chars taken from the value's sha256). */
 const HANDLE_BASE_LEN = 4;
@@ -123,7 +123,7 @@ export class SecretStore {
    * for the life of the store.
    */
   private allocHandle(value: string): string {
-    const hex = createHash('sha256').update(value).digest('hex');
+    const hex = sha256Hex(value);
     for (let len = HANDLE_BASE_LEN; len < hex.length; len++) {
       const cand = hex.slice(0, len);
       const taken = this.byHandle.get(cand);

@@ -59,10 +59,11 @@
  *     off when the file's value is fine.
  */
 
-import { existsSync, readFileSync, unlinkSync } from 'node:fs';
+import { existsSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { atomicWriteFile } from '../atomic-write.ts';
+import { readJsonOrUndefined } from '../fs-safe.ts';
 import { parseModelSpec } from '../model-spec.ts';
 import { piAgentPath, piProjectPath } from '../pi-paths.ts';
 import { isRecord } from '../shared.ts';
@@ -159,19 +160,8 @@ function parseTinyModelSpec(raw: unknown): string | null {
  * and {@link readDynamicLabelRaw} to share the same forgiving parser.
  */
 function readRawState(path: string): { mode?: unknown; dynamicLabel?: unknown } | null {
-  let raw: string;
-  try {
-    raw = readFileSync(path, 'utf8');
-  } catch {
-    return null;
-  }
-  try {
-    const parsed: unknown = JSON.parse(raw);
-    if (parsed && typeof parsed === 'object') return parsed as { mode?: unknown; dynamicLabel?: unknown };
-    return null;
-  } catch {
-    return null;
-  }
+  const parsed = readJsonOrUndefined(path);
+  return isRecord(parsed) ? parsed : null;
 }
 
 /**

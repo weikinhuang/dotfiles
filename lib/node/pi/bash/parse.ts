@@ -135,22 +135,20 @@ function findMatchingClose(s: string, openIdx: number, endIdx: number, open: str
 // ──────────────────────────────────────────────────────────────────────
 
 /**
- * Split a compound command on top-level `&&`, `||`, `;`, and unquoted
- * newlines.
+ * Split `command` at every top-level position where `separatorLen`
+ * reports a separator, sharing one quote / escape / heredoc-aware
+ * scanner. `separatorLen(command, i)` returns the length of the
+ * separator starting at unquoted index `i`, or 0 when `i` is not a
+ * split point. Quoted regions, backslash escapes, and heredoc bodies
+ * are never consulted for separators.
  *
  * Heredoc bodies (`<<EOF ... EOF`, `<<'END' ... END`, `<<-EOF ... EOF`)
- * are treated as opaque - no splitting occurs between the `<<` marker
- * and the line matching the closing delimiter. This prevents splitting
- * what is actually script content for another language (Python, Node,
- * SQL, …) on newlines.
- *
- * Pipes (`|`) are intentionally left intact. Quoting/escaping is
- * handled simplistically (single/double quotes, backslash escapes) -
- * good enough to stop trivial evasion without reimplementing a shell
- * parser. Here-strings (`<<<`) and unresolvable heredoc delimiters
- * (`<<$VAR`) fall through to normal scanning.
+ * are treated as opaque so script content for another language
+ * (Python, Node, SQL, …) is not split on its own operators.
+ * Here-strings (`<<<`) and unresolvable heredoc delimiters (`<<$VAR`)
+ * fall through to normal scanning.
  */
-export function splitCompound(command: string): string[] {
+function splitTopLevel(command: string, separatorLen: (command: string, i: number) => number): string[] {
   const parts: string[] = [];
   let buf = '';
   let quote: '"' | "'" | null = null;
@@ -210,17 +208,11 @@ export function splitCompound(command: string): string[] {
       // normal scanning.
     }
 
-    const rest2 = command.slice(i, i + 2);
-    if (rest2 === '&&' || rest2 === '||') {
+    const sepLen = separatorLen(command, i);
+    if (sepLen > 0) {
       parts.push(buf.trim());
       buf = '';
-      i += 2;
-      continue;
-    }
-    if (ch === ';' || ch === '\n') {
-      parts.push(buf.trim());
-      buf = '';
-      i++;
+      i += sepLen;
       continue;
     }
     buf += ch;
@@ -228,6 +220,224 @@ export function splitCompound(command: string): string[] {
   }
   if (buf.trim()) parts.push(buf.trim());
   return parts.filter(Boolean);
+}
+
+/**
+ * Split a compound command on top-level `&&`, `||`, `;`, and unquoted
+ * newlines. Pipes (`|`) are deliberately left intact here - the
+ * approval gate splits those separately via {@link splitPipeline} so
+ * pipe-crossing hardcoded-deny patterns (`curl … | sh`) can still match
+ * the whole command. Quoting/escaping is handled simplistically
+ * (single/double quotes, backslash escapes) - good enough to stop
+ * trivial evasion without reimplementing a shell parser.
+ */
+export function splitCompound(command: string): string[] {
+  return splitTopLevel(command, (cmd, i) => {
+    const two = cmd.slice(i, i + 2);
+    if (two === '&&' || two === '||') return 2;
+    const ch = cmd[i];
+    if (ch === ';' || ch === '\n') return 1;
+    return 0;
+  });
+}
+
+/**
+ * Split a command on top-level pipe operators (`|`, `||`, `|&`) into
+ * its pipeline stages, so a destructive right-hand stage like
+ * `true | rm -rf /` is checked on its own rather than hidden behind an
+ * innocuous leading stage. Same quote / heredoc awareness as
+ * {@link splitCompound}. Returns `[command]` (trimmed) when there is no
+ * pipe. `||` is treated as a boundary too - harmless for the
+ * deny-expansion use case and avoids a stray empty stage.
+ */
+export function splitPipeline(command: string): string[] {
+  const stages = splitTopLevel(command, (cmd, i) => {
+    if (cmd[i] !== '|') return 0;
+    // `||` (logical or) and `|&` (pipe both streams) are two chars;
+    // a bare `|` is one. All act as a stage boundary here.
+    if (cmd[i + 1] === '|' || cmd[i + 1] === '&') return 2;
+    return 1;
+  });
+  return stages.length > 0 ? stages : [command.trim()].filter(Boolean);
+}
+
+// ──────────────────────────────────────────────────────────────────────
+// Command-wrapper peeling (bash -c, env, sudo, nohup, …)
+// ──────────────────────────────────────────────────────────────────────
+
+// Shell interpreters whose `-c <payload>` argument is the command that
+// actually runs. Matches bare names and absolute paths: `sh`, `bash`,
+// `/bin/sh`, `/usr/bin/zsh`, `dash`, `ksh`, `ash`.
+const SHELL_INTERPRETER_RE = /^(?:.*\/)?(?:ba|da|k|a|z)?sh$/;
+
+// Launcher wrappers whose trailing arguments are themselves a command:
+// `env FOO=1 rm …`, `sudo rm …`, `nohup rm …`, `xargs rm …`, etc. Each
+// runs the rest of the argv as a program, so the payload must still face
+// the hardcoded denylist.
+const COMMAND_WRAPPERS = new Set([
+  'env',
+  'command',
+  'exec',
+  'nohup',
+  'setsid',
+  'nice',
+  'ionice',
+  'stdbuf',
+  'time',
+  'timeout',
+  'xargs',
+  'sudo',
+  'doas',
+  'run0',
+  'pkexec',
+  'gosu',
+  'su',
+]);
+
+/**
+ * Whitespace-tokenize `command` with the same quote / escape rules as
+ * the rest of this module, returning UNQUOTED token values. Used only
+ * for wrapper peeling, where we need `bash -c 'rm -rf /'` to yield the
+ * token `rm -rf /` (quotes stripped) so the inner command is visible to
+ * the denylist. Not a full shell tokenizer - operators are kept as part
+ * of adjacent tokens, which is fine because callers re-split on pipes /
+ * compounds separately.
+ */
+function shellTokenize(command: string): string[] {
+  const tokens: string[] = [];
+  let cur = '';
+  let has = false;
+  let quote: '"' | "'" | null = null;
+  let escape = false;
+  for (const ch of command) {
+    if (escape) {
+      cur += ch;
+      has = true;
+      escape = false;
+      continue;
+    }
+    if (ch === '\\' && quote !== "'") {
+      escape = true;
+      has = true;
+      continue;
+    }
+    if (quote) {
+      if (ch === quote) quote = null;
+      else cur += ch;
+      has = true;
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      quote = ch;
+      has = true;
+      continue;
+    }
+    if (ch === ' ' || ch === '\t' || ch === '\n') {
+      if (has) {
+        tokens.push(cur);
+        cur = '';
+        has = false;
+      }
+      continue;
+    }
+    cur += ch;
+    has = true;
+  }
+  if (has) tokens.push(cur);
+  return tokens;
+}
+
+/**
+ * If `command` starts with a launcher/interpreter wrapper, return the
+ * inner command it would run (so `bash -c 'rm -rf /'` -> `rm -rf /`,
+ * `env FOO=1 rm -rf /` -> `rm -rf /`). Returns `null` when there is no
+ * recognised wrapper. Best-effort and deliberately liberal: an
+ * over-eager peel only ever produces an EXTRA hardcoded-deny check on a
+ * command that is almost never a real footgun, so false positives are
+ * negligible while the bypass is closed.
+ */
+export function peelCommandWrapper(command: string): string | null {
+  const tokens = shellTokenize(command);
+  if (tokens.length === 0) return null;
+
+  let i = 0;
+  let consumed = false;
+  while (i < tokens.length) {
+    const tok = tokens[i];
+
+    // Interpreter `-c <payload>`: the payload token is the command.
+    if (SHELL_INTERPRETER_RE.test(tok)) {
+      for (let j = i + 1; j < tokens.length; j++) {
+        const flag = tokens[j];
+        if (/^-[a-z]*c$/.test(flag)) return tokens[j + 1] ?? null;
+        if (flag.startsWith('-')) continue;
+        break; // e.g. `bash script.sh` - not a `-c` payload.
+      }
+      return null;
+    }
+
+    if (tok === 'env') {
+      i++;
+      // Skip env's own flags and `VAR=value` assignments.
+      while (i < tokens.length && (tokens[i].startsWith('-') || /^[A-Za-z_][A-Za-z0-9_]*=/.test(tokens[i]))) i++;
+      consumed = true;
+      continue;
+    }
+
+    if (COMMAND_WRAPPERS.has(tok)) {
+      i++;
+      // Skip the wrapper's own flags (`nice -n`, `stdbuf -oL`, …).
+      while (i < tokens.length && tokens[i].startsWith('-')) i++;
+      // A few take a leading numeric/duration operand.
+      if ((tok === 'timeout' || tok === 'nice' || tok === 'ionice') && i < tokens.length && /^[0-9]/.test(tokens[i])) {
+        i++;
+      }
+      consumed = true;
+      continue;
+    }
+
+    break;
+  }
+
+  if (consumed && i < tokens.length) return tokens.slice(i).join(' ');
+  return null;
+}
+
+/**
+ * Every command string the hardcoded-deny / always-prompt checks should
+ * be run against for `command`: the command itself (so pipe-crossing
+ * patterns like `curl … | sh` still match), each pipeline stage (so
+ * `true | rm -rf /` is inspected), and any wrapper-peeled inner command
+ * (so `bash -c 'rm -rf /'` / `env rm -rf /` are inspected), recursively
+ * up to a bounded depth. Deduped, order-stable.
+ */
+export function expandForSafetyCheck(command: string): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  const add = (candidate: string): void => {
+    const trimmed = candidate.trim();
+    if (trimmed && !seen.has(trimmed)) {
+      seen.add(trimmed);
+      out.push(trimmed);
+    }
+  };
+
+  add(command);
+  const queue = [...splitPipeline(command)];
+  let depth = 0;
+  while (queue.length > 0 && depth < 64) {
+    depth++;
+    const stage = queue.shift();
+    if (stage === undefined) break;
+    add(stage);
+    const inner = peelCommandWrapper(stage);
+    if (inner) {
+      for (const s of splitPipeline(inner)) {
+        if (!seen.has(s.trim())) queue.push(s);
+      }
+    }
+  }
+  return out;
 }
 
 // ──────────────────────────────────────────────────────────────────────

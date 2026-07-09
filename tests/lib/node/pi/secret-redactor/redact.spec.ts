@@ -57,6 +57,26 @@ describe('redactText - keyword (Layer B)', () => {
     expect(text).toMatch(/^password = "\[REDACTED:assigned-secret#[0-9a-f]{4,}\]"$/);
   });
 
+  test('redacts a quoted value containing spaces in full (quoted arm)', () => {
+    const store = new SecretStore();
+    const { text, hits } = redactText('password: "foo bar baz qux"', store, cfg());
+
+    expect(hits).toHaveLength(1);
+    expect(hits[0].label).toBe('assigned-secret-quoted');
+    expect(text).toMatch(/^password: "\[REDACTED:assigned-secret-quoted#[0-9a-f]{4,}\]"$/);
+    expect(text).not.toContain('foo bar baz');
+  });
+
+  test('redacts a JWT (bounded segments)', () => {
+    const store = new SecretStore();
+    const jwt = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5NxbhezQ8u';
+    const { text, hits } = redactText(`bearer ${jwt} end`, store, cfg());
+
+    expect(hits[0].label).toBe('jwt');
+    expect(text).not.toContain(jwt);
+    expect(text).toContain('[REDACTED:jwt#');
+  });
+
   test('redacts only the password segment of a connection string', () => {
     const store = new SecretStore();
     const { text, hits } = redactText('postgres://admin:hunter2password@db.example.com:5432/app', store, cfg());

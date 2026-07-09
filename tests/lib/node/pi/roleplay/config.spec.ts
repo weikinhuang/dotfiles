@@ -142,3 +142,18 @@ test('loadRoleplayConfig falls back to defaults with no files and applies env', 
     charBudget: MIN_CHAR_BUDGET,
   });
 });
+
+test('loadRoleplayConfig accepts an explicit PI_ROLEPLAY_RECAP_STRIDE of 0 (means follow recapChunk)', () => {
+  const prev = process.env.PI_ROLEPLAY_RECAP_STRIDE;
+  process.env.PI_ROLEPLAY_RECAP_STRIDE = '0';
+  try {
+    expect(loadRoleplayConfig('/nonexistent/cwd/for/test').recapStride).toBe(0);
+    process.env.PI_ROLEPLAY_RECAP_STRIDE = '3';
+    expect(loadRoleplayConfig('/nonexistent/cwd/for/test').recapStride).toBe(3);
+    process.env.PI_ROLEPLAY_RECAP_STRIDE = '-2';
+    expect(loadRoleplayConfig('/nonexistent/cwd/for/test').recapStride).toBe(DEFAULT_CONFIG.recapStride);
+  } finally {
+    if (prev === undefined) delete process.env.PI_ROLEPLAY_RECAP_STRIDE;
+    else process.env.PI_ROLEPLAY_RECAP_STRIDE = prev;
+  }
+});

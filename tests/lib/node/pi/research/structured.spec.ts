@@ -97,6 +97,15 @@ describe('parseTolerant', () => {
   test('returns null on truncated / unbalanced JSON', () => {
     expect(parseTolerant('{"color":"red","count":')).toBeNull();
   });
+
+  // Regression (#8): parseTolerant delegates to the shared
+  // parseJsonLoose, which also recovers a top-level array embedded in
+  // prose - the old brace-only slicer could not.
+  test('recovers a prose-wrapped top-level JSON array', () => {
+    const raw = 'Here you go:\n```json\n[{"id":"a"},{"id":"b"}]\n```\nthanks!';
+
+    expect(parseTolerant(raw)).toEqual([{ id: 'a' }, { id: 'b' }]);
+  });
 });
 
 describe('renderValidationNudge', () => {

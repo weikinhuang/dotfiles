@@ -265,9 +265,19 @@ describe('runOneShotAgent', () => {
     expect(r.turns).toBe(1);
   });
 
-  test('classifies max_turns when agent.maxTurns is hit', async () => {
+  test('classifies max_turns when agent.maxTurns is hit and each turn wants more', async () => {
     const session = makeFakeSession({
-      events: [{ type: 'turn_end' }, { type: 'turn_end' }, { type: 'turn_end' }],
+      events: [
+        { type: 'turn_start' },
+        { type: 'message_end', message: { role: 'assistant', content: [{ type: 'toolCall' }] } },
+        { type: 'turn_end' },
+        { type: 'turn_start' },
+        { type: 'message_end', message: { role: 'assistant', content: [{ type: 'toolCall' }] } },
+        { type: 'turn_end' },
+        { type: 'turn_start' },
+        { type: 'message_end', message: { role: 'assistant', content: [{ type: 'toolCall' }] } },
+        { type: 'turn_end' },
+      ],
       finalText: 'partial',
     });
 
@@ -282,6 +292,57 @@ describe('runOneShotAgent', () => {
 
     expect(r.stopReason).toBe('max_turns');
     expect(r.errorMessage).toMatch(/max turns/);
+    expect(r.turns).toBe(2);
+  });
+
+  test('bare turn_ends with no wants-more signal classify as completed (default false)', async () => {
+    // Regression: lastTurnWantsMore now defaults to false, so a subagent
+    // that never signalled a pending tool call is treated as completed at
+    // the cap rather than mis-flagged max_turns (which would discard its
+    // finalText).
+    const session = makeFakeSession({
+      events: [{ type: 'turn_end' }, { type: 'turn_end' }],
+      finalText: 'the answer',
+    });
+
+    const r = await runOneShotAgent({
+      deps: mkDeps(session),
+      cwd: '/tmp',
+      agent: mkAgent({ maxTurns: 2 }),
+      model: { id: 'm' },
+      task: 't',
+      modelRegistry: mkRegistry(),
+    });
+
+    expect(r.stopReason).toBe('completed');
+    expect(r.finalText).toBe('the answer');
+  });
+
+  test('turn_start resets a stale wants-more flag from the prior turn', async () => {
+    // turn 1 emits a tool call (wants more); turn 2 emits no message
+    // detail. Without the turn_start reset the stale `true` would trip
+    // the cap as max_turns; with it, turn 2 is a clean completion.
+    const session = makeFakeSession({
+      events: [
+        { type: 'turn_start' },
+        { type: 'message_end', message: { role: 'assistant', content: [{ type: 'toolCall' }] } },
+        { type: 'turn_end' },
+        { type: 'turn_start' },
+        { type: 'turn_end' },
+      ],
+      finalText: 'done after tool',
+    });
+
+    const r = await runOneShotAgent({
+      deps: mkDeps(session),
+      cwd: '/tmp',
+      agent: mkAgent({ maxTurns: 2 }),
+      model: { id: 'm' },
+      task: 't',
+      modelRegistry: mkRegistry(),
+    });
+
+    expect(r.stopReason).toBe('completed');
     expect(r.turns).toBe(2);
   });
 
@@ -380,6 +441,47 @@ describe('runOneShotAgent', () => {
 
     expect(r.stopReason).toBe('error');
     expect(r.errorMessage).toBe('network down');
+  });
+
+  test('wall-clock timeout classifies aborted with a timed-out errorMessage', async () => {
+    // A prompt that only settles once aborted, so the timeoutMs timer is
+    // the thing that ends the run - distinct errorMessage from a plain
+    // user/parent abort.
+    let resolvePrompt: (() => void) | undefined;
+    const subscribers: ((e: AgentSessionEventLike) => void)[] = [];
+    const session: AgentSessionLike = {
+      subscribe(handler) {
+        subscribers.push(handler);
+        return () => {
+          const i = subscribers.indexOf(handler);
+          if (i >= 0) subscribers.splice(i, 1);
+        };
+      },
+      prompt: () => new Promise<void>((resolve) => (resolvePrompt = resolve)),
+      abort: () => {
+        resolvePrompt?.();
+        return Promise.resolve();
+      },
+      dispose() {
+        /* noop */
+      },
+      get state() {
+        return { messages: [] as unknown };
+      },
+    };
+
+    const r = await runOneShotAgent({
+      deps: mkDeps(session),
+      cwd: '/tmp',
+      agent: mkAgent(),
+      model: { id: 'm' },
+      task: 't',
+      modelRegistry: mkRegistry(),
+      timeoutMs: 5,
+    });
+
+    expect(r.stopReason).toBe('aborted');
+    expect(r.errorMessage).toMatch(/timed out after 5ms/);
   });
 
   test('classifies aborted when parent signal fires', async () => {

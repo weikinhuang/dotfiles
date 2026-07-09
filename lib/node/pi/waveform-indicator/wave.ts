@@ -17,8 +17,9 @@
  * the rainbow returns to its starting hue (`hueSpeed=3 * 120 = 360°`).
  */
 
-import { encodeBrailleColumns, MAX_HEIGHT } from './braille.ts';
-import { colorize, hslToRgb } from './color.ts';
+import { MAX_HEIGHT } from './braille.ts';
+import { buildBrailleAnimationFrames } from './braille-frames.ts';
+import { hslToRgb } from './color.ts';
 
 /**
  * Periodic shape sampled at sample-index `x`. Period = 60 samples.
@@ -108,19 +109,13 @@ const DEFAULT_INDICATOR_OPTIONS: Required<IndicatorFrameOptions> = {
  */
 export function buildIndicatorFrames(opts: IndicatorFrameOptions = {}): string[] {
   const o = { ...DEFAULT_INDICATOR_OPTIONS, ...opts };
-  const frames: string[] = [];
-  for (let t = 0; t < o.totalFrames; t++) {
-    let frame = '';
-    const offset = t * o.scrollSpeed;
-    for (let k = 0; k < o.glyphWidth; k++) {
+  return buildBrailleAnimationFrames(
+    { glyphWidth: o.glyphWidth, totalFrames: o.totalFrames },
+    (k, t) => {
       // Right-to-left scroll: as offset grows, the shape's peaks shift left.
-      const xLeft = k * 2 + offset;
-      const xRight = k * 2 + 1 + offset;
-      const glyph = encodeBrailleColumns(waveShape(xLeft), waveShape(xRight));
-      const hue = o.startHue + k * o.hueSpread + t * o.hueSpeed;
-      frame += colorize(glyph, hslToRgb(hue, o.saturation, o.lightness));
-    }
-    frames.push(frame);
-  }
-  return frames;
+      const offset = t * o.scrollSpeed;
+      return { left: waveShape(k * 2 + offset), right: waveShape(k * 2 + 1 + offset) };
+    },
+    (k, t) => hslToRgb(o.startHue + k * o.hueSpread + t * o.hueSpeed, o.saturation, o.lightness),
+  );
 }

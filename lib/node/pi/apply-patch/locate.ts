@@ -134,10 +134,17 @@ export function locateHunk(fileLines: readonly string[], hunk: Hunk, opts: Locat
   // ── Whitespace-insensitive fallback ───────────────────────────────
   // Reuse the same normalize + slide pair `edit-recovery.locateAndFormat`
   // uses, so behavior stays in sync between the two tools.
+  //
+  // Unlike edit-recovery (which only RENDERS a snippet), this result
+  // drives a real splice in apply.ts: `span` must equal the number of
+  // RAW file lines the hunk replaces. `normalizeAggressiveLines` is
+  // line-preserving, so keeping `normalizedOld` line-for-line with
+  // `oldLines` guarantees `span === oldLines.length`. Dropping leading /
+  // trailing blank lines here (as edit-recovery does for display) would
+  // shorten `span` while `hunkNewLines` still carries the blank context
+  // lines, duplicating them into the file - silent corruption.
   const normalizedFile = normalizeAggressiveLines(fileLines.join('\n'));
-  const normalizedOld = normalizeAggressiveLines(oldLines.join('\n')).filter(
-    (line, idx, arr) => !(line === '' && (idx === 0 || idx === arr.length - 1)),
-  );
+  const normalizedOld = normalizeAggressiveLines(oldLines.join('\n'));
 
   // Confine the fuzzy search to the same `searchFrom` window so a
   // later hunk can't jump backward into already-applied territory.

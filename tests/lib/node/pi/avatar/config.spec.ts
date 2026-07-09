@@ -28,6 +28,12 @@ describe('coerceConfigLayer', () => {
     expect(coerceConfigLayer({ compact: 'yes' }).compact).toBeUndefined();
   });
 
+  test('swaps a reversed blinkInterval so the min comes first', () => {
+    // A reversed pair would make randomInRange sample backwards; normalize it.
+    expect(coerceConfigLayer({ blinkInterval: [6000, 3000] }).blinkInterval).toEqual([3000, 6000]);
+    expect(coerceConfigLayer({ blinkInterval: [3000, 6000] }).blinkInterval).toEqual([3000, 6000]);
+  });
+
   test('rejects malformed blinkInterval and bad render values', () => {
     expect(coerceConfigLayer({ blinkInterval: [1000] }).blinkInterval).toBeUndefined();
     expect(coerceConfigLayer({ blinkInterval: ['a', 'b'] }).blinkInterval).toBeUndefined();

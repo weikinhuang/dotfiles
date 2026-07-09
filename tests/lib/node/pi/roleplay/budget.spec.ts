@@ -6,7 +6,7 @@
 
 import { expect, test } from 'vitest';
 
-import { type LoreChunk, rankLore, selectWithinBudget } from '../../../../../lib/node/pi/roleplay/budget.ts';
+import { chunkCost, type LoreChunk, rankLore, selectWithinBudget } from '../../../../../lib/node/pi/roleplay/budget.ts';
 import { emptyLoreMeta, type RoleplayEntry } from '../../../../../lib/node/pi/roleplay/store.ts';
 
 const chunk = (id: string, order: number, body: string): LoreChunk => ({
@@ -18,6 +18,35 @@ const chunk = (id: string, order: number, body: string): LoreChunk => ({
     lore: { ...emptyLoreMeta(), order },
   } satisfies RoleplayEntry,
   body,
+});
+
+// ── chunkCost ────────────────────────────────────────────────────────────
+
+test('chunkCost counts the rendered heading + newline + separator framing', () => {
+  // Renders as "### Name\nbody" then a "\n\n" separator to the prior block.
+  const c = chunk('Name', 0, 'body');
+  expect(chunkCost(c)).toBe('### '.length + 'Name'.length + 1 + 'body'.length + 2);
+});
+
+test('chunkCost adds the always-on suffix for constant lore', () => {
+  const c: LoreChunk = {
+    entry: {
+      id: 'x',
+      kind: 'lore',
+      name: 'X',
+      description: '',
+      lore: { ...emptyLoreMeta(), constant: true },
+    } satisfies RoleplayEntry,
+    body: 'b',
+  };
+  expect(chunkCost(c)).toBe('### '.length + 'X'.length + ' (always-on)'.length + 1 + 'b'.length + 2);
+});
+
+test('chunkCost measures the trimmed body (framing not undercounted)', () => {
+  // The old cost was name.length + body.length + 8; a body needing trimming
+  // plus the real framing must be reflected so kept lore cannot overflow.
+  const c = chunk('n', 0, '  spaced body  ');
+  expect(chunkCost(c)).toBe('### '.length + 'n'.length + 1 + 'spaced body'.length + 2);
 });
 
 // ── rankLore ─────────────────────────────────────────────────────────────

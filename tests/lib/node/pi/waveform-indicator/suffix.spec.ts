@@ -20,7 +20,26 @@ import {
   newLabelSuffixState,
   pulseDimText,
   resetTurnState,
+  shouldSkipStyling,
 } from '../../../../../lib/node/pi/waveform-indicator/suffix.ts';
+
+describe('shouldSkipStyling (injected env / isTty)', () => {
+  test('skips when NO_COLOR is set to a non-empty value', () => {
+    expect(shouldSkipStyling({ NO_COLOR: '1' }, true)).toBe(true);
+    expect(shouldSkipStyling({ NO_COLOR: 'anything' }, undefined)).toBe(true);
+  });
+
+  test('does not skip when NO_COLOR is empty or unset', () => {
+    expect(shouldSkipStyling({ NO_COLOR: '' }, true)).toBe(false);
+    expect(shouldSkipStyling({}, true)).toBe(false);
+    expect(shouldSkipStyling({}, undefined)).toBe(false);
+  });
+
+  test('skips only when isTty is explicitly false', () => {
+    expect(shouldSkipStyling({}, false)).toBe(true);
+    expect(shouldSkipStyling({}, undefined)).toBe(false);
+  });
+});
 
 // ──────────────────────────────────────────────────────────────────────
 // helpers

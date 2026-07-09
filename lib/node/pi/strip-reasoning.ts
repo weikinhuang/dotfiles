@@ -18,6 +18,7 @@
 
 import { readJsoncOrUndefined } from './fs-safe.ts';
 import { piAgentPath, piProjectPath } from './pi-paths.ts';
+import { isRecord } from './shared/guards.ts';
 
 /**
  * Signatures llama.cpp / OpenAI-completions use as a field-name sentinel (not a
@@ -106,13 +107,9 @@ export function shouldStripForModel(
   return provider !== undefined && set.has(`${provider}/${id}`);
 }
 
-function isObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
 /** Validate one untrusted JSON layer into a partial config. */
 export function coerceStripReasoningLayer(raw: unknown): { models?: string[]; keepLast?: number } {
-  if (!isObject(raw)) return {};
+  if (!isRecord(raw)) return {};
   const out: { models?: string[]; keepLast?: number } = {};
   if (Array.isArray(raw.models)) {
     out.models = raw.models.filter((m): m is string => typeof m === 'string' && m.trim() !== '').map((m) => m.trim());

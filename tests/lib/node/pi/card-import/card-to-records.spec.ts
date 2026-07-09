@@ -58,6 +58,14 @@ test('normalizeCard rejects empty / nameless input', () => {
   expect(normalizeCard(null)).toHaveProperty('error');
 });
 
+test('normalizeCard rejects an array input (arrays are not records)', () => {
+  // Regression: a JSON array must not be read as a card object (its numeric
+  // indices are not fields), so it degrades to the not-an-object error rather
+  // than being partially parsed as a record.
+  expect(normalizeCard([{ name: 'X', description: 'y' }])).toEqual({ error: 'card is empty or not an object' });
+  expect(normalizeCard(['a', 'b'])).toEqual({ error: 'card is empty or not an object' });
+});
+
 test('parseCardJson surfaces invalid JSON', () => {
   expect(parseCardJson('{not json')).toEqual({ error: 'card is not valid JSON' });
 });

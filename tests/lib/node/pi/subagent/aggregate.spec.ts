@@ -74,6 +74,36 @@ describe('makeSubagentAggregate', () => {
     });
   });
 
+  test('coerces non-finite deltas to 0 so one bad run cannot poison totals', () => {
+    // Regression: a child that errored mid-usage could report NaN /
+    // Infinity, turning every subsequent snapshot into NaN.
+    const agg = makeSubagentAggregate();
+
+    agg.record(run({ turns: 2, input: 100, cost: 0.02, durationMs: 1_000 }));
+    agg.record(
+      run({
+        turns: Number.NaN,
+        input: Number.POSITIVE_INFINITY,
+        cacheRead: Number.NEGATIVE_INFINITY,
+        cost: Number.NaN,
+        durationMs: Number.NaN,
+        failed: true,
+      }),
+    );
+
+    expect(agg.snapshot()).toEqual({
+      count: 2,
+      failures: 1,
+      turns: 2,
+      input: 100,
+      cacheRead: 0,
+      cacheWrite: 0,
+      output: 0,
+      cost: 0.02,
+      totalDurationMs: 1_000,
+    });
+  });
+
   test('failures count independently of total count', () => {
     const agg = makeSubagentAggregate();
 

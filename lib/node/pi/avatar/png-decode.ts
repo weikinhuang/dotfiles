@@ -14,17 +14,13 @@
 
 import { inflateSync } from 'node:zlib';
 
+import { hasPngSignature, readUint32BE } from '../png/binary.ts';
+
 export interface DecodedImage {
   width: number;
   height: number;
   /** Row-major RGBA, 4 bytes per pixel, length `width * height * 4`. */
   rgba: Uint8Array;
-}
-
-const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
-
-function readUint32BE(data: Uint8Array, offset: number): number {
-  return data[offset] * 0x1000000 + data[offset + 1] * 0x10000 + data[offset + 2] * 0x100 + data[offset + 3];
 }
 
 interface Header {
@@ -57,9 +53,7 @@ function concat(parts: Uint8Array[]): Uint8Array {
 /** Walk the PNG chunk stream, collecting IHDR / PLTE / tRNS / IDAT. */
 function readChunks(data: Uint8Array): Chunks | null {
   if (data.length < 8 + 12 + 13) return null;
-  for (let i = 0; i < PNG_SIGNATURE.length; i++) {
-    if (data[i] !== PNG_SIGNATURE[i]) return null;
-  }
+  if (!hasPngSignature(data)) return null;
 
   let header: Header | null = null;
   let palette: Uint8Array | null = null;
@@ -179,7 +173,13 @@ function toRgba(packed: Uint8Array, chunks: Chunks): Uint8Array {
     const o = i * 4;
     if (colorType === 0) {
       const v = packed[i];
-      const transparent = transparency !== null && transparency.length >= 2 && transparency[1] === v;
+      // tRNS for grayscale is a single 16-bit big-endian sample (2 bytes),
+      // regardless of bit depth (PNG spec 11.3.2.1). For our 8-bit images the
+      // high byte is 0 and the transparent gray is the low byte (index 1); a
+      // non-zero high byte means an out-of-range key that no 8-bit pixel can
+      // match, so require it to be 0.
+      const transparent =
+        transparency !== null && transparency.length >= 2 && transparency[0] === 0 && transparency[1] === v;
       rgba[o] = v;
       rgba[o + 1] = v;
       rgba[o + 2] = v;
@@ -189,11 +189,17 @@ function toRgba(packed: Uint8Array, chunks: Chunks): Uint8Array {
       const r = packed[p];
       const g = packed[p + 1];
       const b = packed[p + 2];
+      // tRNS for truecolour is three 16-bit big-endian samples (6 bytes): R at
+      // [0,1], G at [2,3], B at [4,5]. For 8-bit images the meaningful byte of
+      // each sample is the low byte (odd index) and the high byte must be 0.
       const transparent =
         transparency !== null &&
         transparency.length >= 6 &&
+        transparency[0] === 0 &&
         transparency[1] === r &&
+        transparency[2] === 0 &&
         transparency[3] === g &&
+        transparency[4] === 0 &&
         transparency[5] === b;
       rgba[o] = r;
       rgba[o + 1] = g;

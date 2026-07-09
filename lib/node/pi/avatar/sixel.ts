@@ -13,8 +13,12 @@
  */
 
 const ESC = '\x1b';
-/** Alpha at or above this counts as opaque; below it is left transparent. */
-const ALPHA_THRESHOLD = 128;
+/**
+ * Alpha at or above this counts as opaque; below it is left transparent.
+ * Shared with the half-block renderer ({@link ./halfblock.ts}) so both pixel
+ * paths key transparency off the same cutoff.
+ */
+export const ALPHA_THRESHOLD = 128;
 
 /**
  * Prefix prepended to the rendered sixel line so pi-tui treats it as an inline

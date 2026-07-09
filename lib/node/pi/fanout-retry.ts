@@ -34,6 +34,8 @@
  * by the existing `/research --resume` recovery path.
  */
 
+import { delay } from './abortable-delay.ts';
+
 /**
  * Error-message substrings / patterns we treat as transient.
  * Matched case-insensitively where appropriate. Kept conservative:
@@ -144,7 +146,13 @@ export function computeBackoffMs(
  */
 export async function withTransientRetry<T>(fn: (attempt: number) => Promise<T>, opts: RetryOptions = {}): Promise<T> {
   const maxAttempts = Math.max(1, Math.floor(opts.maxAttempts ?? 3));
-  const sleep = opts.sleep ?? ((ms) => new Promise<void>((res) => setTimeout(res, ms)));
+  // Default backoff sleep: when the caller supplied a signal, use the
+  // shared abortable `delay` so an abort mid-wait cuts the backoff short
+  // instead of blocking the full delay. A caller-supplied `sleep` wins.
+  const signal = opts.signal;
+  const sleep =
+    opts.sleep ??
+    (signal ? (ms: number) => delay(ms, signal) : (ms: number) => new Promise<void>((res) => setTimeout(res, ms)));
 
   let lastErr: unknown;
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
@@ -172,8 +180,20 @@ export async function withTransientRetry<T>(fn: (attempt: number) => Promise<T>,
 
       const delayMs = computeBackoffMs(attempt, opts);
       opts.onRetry?.(attempt, err, delayMs);
-      // oxlint-disable-next-line no-await-in-loop -- backoff sleep is the whole point of the retry loop
-      await sleep(delayMs);
+      try {
+        // oxlint-disable-next-line no-await-in-loop -- backoff sleep is the whole point of the retry loop
+        await sleep(delayMs);
+      } catch (waitErr) {
+        // The abortable `delay` rejects with Error('aborted') when the
+        // signal fires during backoff. Honor the documented contract:
+        // surface the last real error, not a bare abort.
+        if (signal?.aborted) {
+          if (lastErr instanceof Error) throw lastErr;
+          // oxlint-disable-next-line no-use-before-define -- stringifyUnknown is a hoisted declaration below.
+          if (lastErr !== undefined) throw new Error(stringifyUnknown(lastErr));
+        }
+        throw waitErr;
+      }
     }
   }
   // Unreachable - the loop always either returns or throws. Kept

@@ -81,6 +81,35 @@ describe('decodePng', () => {
     expect(Array.from(out!.rgba)).toEqual([255, 0, 0, 128, 0, 255, 0, 255]);
   });
 
+  test('keys transparency on the tRNS gray sample for 8-bit grayscale', () => {
+    // color type 0, 2x1. tRNS is a 16-bit big-endian sample [0, 100] (PNG
+    // spec): the matching gray (100) goes transparent, the other stays opaque.
+    const out = decodePng(buildPng({ ihdr: ihdr(2, 1, 0), raw: [0, 100, 50], trns: [0, 100] }));
+    expect(out).not.toBeNull();
+    expect(Array.from(out!.rgba)).toEqual([100, 100, 100, 0, 50, 50, 50, 255]);
+  });
+
+  test('a grayscale image without tRNS is fully opaque', () => {
+    const out = decodePng(buildPng({ ihdr: ihdr(2, 1, 0), raw: [0, 100, 50] }));
+    expect(Array.from(out!.rgba)).toEqual([100, 100, 100, 255, 50, 50, 50, 255]);
+  });
+
+  test('a non-zero tRNS high byte never matches an 8-bit gray pixel', () => {
+    // [1, 100] is the 16-bit value 356, out of the 8-bit range: no pixel matches.
+    const out = decodePng(buildPng({ ihdr: ihdr(2, 1, 0), raw: [0, 100, 50], trns: [1, 100] }));
+    expect(Array.from(out!.rgba)).toEqual([100, 100, 100, 255, 50, 50, 50, 255]);
+  });
+
+  test('keys transparency on the tRNS RGB sample for 8-bit truecolour', () => {
+    // color type 2, 2x1. tRNS is three 16-bit samples [0,10, 0,20, 0,30]: the
+    // matching (10,20,30) pixel goes transparent, (40,50,60) stays opaque.
+    const out = decodePng(
+      buildPng({ ihdr: ihdr(2, 1, 2), raw: [0, 10, 20, 30, 40, 50, 60], trns: [0, 10, 0, 20, 0, 30] }),
+    );
+    expect(out).not.toBeNull();
+    expect(Array.from(out!.rgba)).toEqual([10, 20, 30, 0, 40, 50, 60, 255]);
+  });
+
   test('returns null for unsupported bit depth and interlacing', () => {
     expect(decodePng(buildPng({ ihdr: ihdr(1, 1, 6, 16), raw: [0, 0, 0, 0, 0, 0, 0, 0] }))).toBeNull();
     expect(decodePng(buildPng({ ihdr: ihdr(1, 1, 6, 8, 1), raw: [0, 0, 0, 0, 0] }))).toBeNull();

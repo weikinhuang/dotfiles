@@ -48,7 +48,16 @@ export const PREFIXED_RULES: readonly CompiledRule[] = [
   { id: 'npm-token', re: /\bnpm_[A-Za-z0-9]{36}\b/dg, group: 0, kind: 'prefixed' },
   { id: 'pypi-token', re: /\bpypi-[A-Za-z0-9_-]{16,}\b/dg, group: 0, kind: 'prefixed' },
   { id: 'huggingface-token', re: /\bhf_[A-Za-z0-9]{34}\b/dg, group: 0, kind: 'prefixed' },
-  { id: 'jwt', re: /\beyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/dg, group: 0, kind: 'prefixed' },
+  // Segments are length-capped rather than unbounded `+`: a JWT's three
+  // base64url parts are bounded in practice (a few KB even for RS512),
+  // and the cap bounds the scan window so a very long base64url blob
+  // can't drive pathological backtracking.
+  {
+    id: 'jwt',
+    re: /\beyJ[A-Za-z0-9_-]{1,4096}\.eyJ[A-Za-z0-9_-]{1,8192}\.[A-Za-z0-9_-]{1,8192}\b/dg,
+    group: 0,
+    kind: 'prefixed',
+  },
   {
     id: 'private-key',
     re: /-----BEGIN (?:RSA |EC |OPENSSH |DSA |PGP )?PRIVATE KEY-----[\s\S]*?-----END (?:RSA |EC |OPENSSH |DSA |PGP )?PRIVATE KEY-----/dg,
@@ -63,6 +72,21 @@ export const KEYWORD_RULES: readonly CompiledRule[] = [
     id: 'assigned-secret',
     re: /\b(?:password|passwd|pwd|secret|token|api[_-]?key|access[_-]?key|secret[_-]?key|private[_-]?key|client[_-]?secret|auth[_-]?token|credentials?)\b\s*[:=]\s*["']?([^\s"']{8,})["']?/dgi,
     group: 1,
+    kind: 'keyword',
+  },
+  {
+    // Quoted-value arm: a QUOTED secret can contain spaces, which the
+    // unquoted `assigned-secret` rule truncates at the first token (its
+    // value class excludes whitespace). Capture the full inner string
+    // between a matched pair of quotes (group 2, via the `\1`
+    // backreference to the opening quote) so `password: "foo bar baz"`
+    // redacts the whole value. Listed after `assigned-secret` so a
+    // space-free quoted value keeps that rule's label on the identical
+    // span (earliest-rule tie-break); only when this rule's span is
+    // strictly longer (spaces inside the quotes) does it win.
+    id: 'assigned-secret-quoted',
+    re: /\b(?:password|passwd|pwd|secret|token|api[_-]?key|access[_-]?key|secret[_-]?key|private[_-]?key|client[_-]?secret|auth[_-]?token|credentials?)\b\s*[:=]\s*(["'])([^\n]{4,}?)\1/dgi,
+    group: 2,
     kind: 'keyword',
   },
   {

@@ -13,6 +13,8 @@
  * No pi imports - testable under vitest.
  */
 
+import { isRecord, isStringArray } from '../shared.ts';
+
 interface ModelSource {
   /** Catalog category the extracted names land under. */
   category: string;
@@ -39,19 +41,11 @@ const MODEL_SOURCES: readonly ModelSource[] = [
 ];
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : undefined;
+  return isRecord(value) ? value : undefined;
 }
 
 function asStringArray(value: unknown): string[] | undefined {
-  if (!Array.isArray(value)) return undefined;
-  const arr = value as unknown[];
-  const out: string[] = [];
-  for (const item of arr) {
-    if (typeof item === 'string') out.push(item);
-  }
-  return out.length > 0 ? out : undefined;
+  return isStringArray(value) && value.length > 0 ? value : undefined;
 }
 
 /**

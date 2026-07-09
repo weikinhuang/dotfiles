@@ -122,6 +122,40 @@ describe('compileLinuxRules', () => {
     expect(r.inertPaths).toEqual([join(cwd, 'absent')]);
   });
 
+  test('leading `~` in a `paths` rule is expanded against the injected homedir', () => {
+    const home = join(cwd, 'home');
+    mkdirSync(join(home, '.ssh'), { recursive: true });
+    const r = compileLinuxRules(rules({ paths: ['~/.ssh'] }), {
+      cwd,
+      homedir: home,
+      runRipgrep: stubRg({}).runner,
+    });
+    // Must resolve to the real home path, NOT `<cwd>/~/.ssh`.
+    expect(r.paths).toEqual([join(home, '.ssh')]);
+    expect(r.inertPaths).toEqual([]);
+  });
+
+  test('a ripgrep failure is recorded in `errors` (not silently treated as no matches)', () => {
+    const failingRunner: RipgrepRunner = () => {
+      throw new Error('ripgrep failed (ENOENT)');
+    };
+    const r = compileLinuxRules(rules({ basenames: ['.env'] }), {
+      cwd,
+      runRipgrep: failingRunner,
+    });
+    expect(r.paths).toEqual([]);
+    expect(r.errors?.length ?? 0).toBeGreaterThan(0);
+    // A failed search still reports the rule as inert locally, but the
+    // error is what tells the caller the deny list may be incomplete.
+    expect(r.inertBasenames).toEqual(['.env']);
+  });
+
+  test('successful compilation reports an empty `errors` array', () => {
+    const { runner } = stubRg({ '.env': ['src/.env'] });
+    const r = compileLinuxRules(rules({ basenames: ['.env'] }), { cwd, runRipgrep: runner });
+    expect(r.errors).toEqual([]);
+  });
+
   test('extra roots from persona writeRoots are searched too', () => {
     const { runner, calls } = stubRg({
       '.env': [],

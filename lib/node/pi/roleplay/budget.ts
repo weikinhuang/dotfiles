@@ -23,9 +23,26 @@ export interface BudgetResult {
   dropped: RoleplayEntry[];
 }
 
-/** Approximate rendered cost of a chunk: heading + body + framing newlines. */
+/**
+ * Rendered cost of a chunk, mirroring `renderChunk` / `formatLoreBlock` in
+ * `prompt.ts`. Each kept chunk renders as `### {name}{constant}\n{body}`
+ * and is joined to the preceding block with a blank line (`\n\n`), so the
+ * framing has to be counted or kept lore can overflow `loreCharBudget`.
+ */
+const LORE_HEADING_PREFIX = '### ';
+const LORE_CONSTANT_SUFFIX = ' (always-on)';
+const LORE_CHUNK_SEPARATOR = '\n\n';
+
 export function chunkCost(chunk: LoreChunk): number {
-  return chunk.entry.name.length + chunk.body.length + 8;
+  const constant = chunk.entry.lore?.constant ? LORE_CONSTANT_SUFFIX.length : 0;
+  return (
+    LORE_HEADING_PREFIX.length +
+    chunk.entry.name.length +
+    constant +
+    1 + // newline between heading and body
+    chunk.body.trim().length +
+    LORE_CHUNK_SEPARATOR.length
+  );
 }
 
 /** Rank fired lore: higher `order` first, then name A->Z, then id for stability. */

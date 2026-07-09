@@ -9,7 +9,7 @@
  */
 
 import { type BgBashState, type JobStatus, type JobSummary } from './bg-bash-reducer.ts';
-import { truncate } from './shared.ts';
+import { byteLen, formatCompactBytes, sliceUtf8Suffix, truncate } from './shared.ts';
 
 const STATUS_ICON: Record<JobStatus, string> = {
   running: '●',
@@ -24,11 +24,10 @@ export function statusIcon(status: JobStatus): string {
 }
 
 export function formatBytes(n: number): string {
+  // Guard non-finite / non-positive (the reducer can hand us 0) then defer to
+  // the canonical `formatCompactBytes` so byte formatting lives in one place.
   if (!Number.isFinite(n) || n <= 0) return '0B';
-  if (n < 1024) return `${n}B`;
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)}KB`;
-  if (n < 1024 * 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)}MB`;
-  return `${(n / 1024 / 1024 / 1024).toFixed(1)}GB`;
+  return formatCompactBytes(n);
 }
 
 export function formatDuration(ms: number): string {
@@ -58,11 +57,14 @@ export function tailN(s: string, n: number): string {
 
 export function clampBytes(s: string, maxBytes: number): string {
   if (!Number.isFinite(maxBytes) || maxBytes < 0) return s;
-  const encoded = Buffer.byteLength(s, 'utf8');
+  const encoded = byteLen(s);
   if (encoded <= maxBytes) return s;
-  const buf = Buffer.from(s, 'utf8');
-  const kept = buf.subarray(buf.length - maxBytes);
-  return `… [${encoded - maxBytes}B truncated; see logFile] …\n${kept.toString('utf8')}`;
+  // Codepoint-safe suffix so we never split a multi-byte char into a
+  // `U+FFFD` (the raw `Buffer.subarray` tail did). The kept slice may be a
+  // few bytes shorter than `maxBytes`, so report the real truncated count.
+  const kept = sliceUtf8Suffix(s, maxBytes);
+  const truncated = encoded - byteLen(kept);
+  return `… [${truncated}B truncated; see logFile] …\n${kept}`;
 }
 
 /**

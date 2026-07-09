@@ -102,6 +102,14 @@ export interface GenParams {
    */
   target?: string;
   detect?: string;
+  /**
+   * The critic's free-form corrective `instruction` (`img2img` / `inpaint`
+   * channels), injected only when the companion workflow maps an `instruction`
+   * input. Left undefined by a normal render and by companions that do not map
+   * it, so it stays backward-compatible (an unmapped-but-supplied value would
+   * be a mapping error).
+   */
+  instruction?: string;
 }
 
 /** POST a graph to `/prompt`; returns the assigned `prompt_id`. */
@@ -287,6 +295,7 @@ export async function buildInjectedGraph(
     batch: params.count,
     target: params.target,
     detect: params.detect,
+    instruction: params.instruction,
   });
   const errors = [...withImages.errors, ...injected.errors];
   if (errors.length > 0) return { error: `workflow mapping error: ${errors.join('; ')}` };
@@ -306,10 +315,15 @@ export async function buildInjectedGraph(
  */
 export async function cancelPrompt(conn: Conn, promptId: string, signal: AbortSignal): Promise<void> {
   let queue: unknown = null;
+  // `fetchQueue` returns null on a non-OK response and throws on a network
+  // error; either way we could not read the queue and so cannot tell whether
+  // the prompt is running or merely pending.
+  let queueFetchFailed = false;
   try {
     queue = await fetchQueue(conn, signal);
+    if (queue === null) queueFetchFailed = true;
   } catch {
-    // best-effort: a queue read failure just falls through to a plain delete
+    queueFetchFailed = true;
   }
 
   if (queueRunningHasPrompt(queue, promptId)) {
@@ -320,6 +334,18 @@ export async function cancelPrompt(conn: Conn, promptId: string, signal: AbortSi
       // best-effort: a job that just finished can't be interrupted
     }
     return;
+  }
+
+  // Queue read failed: we don't know if the prompt is running or pending, and
+  // a dequeue alone would never stop a *running* render. Try `/interrupt`
+  // first as a fallback (a no-op for a finished / pending prompt), then still
+  // attempt the dequeue below in case it was only queued.
+  if (queueFetchFailed) {
+    try {
+      await fetch(buildInterruptUrl(conn.base), { method: 'POST', headers: conn.headers, signal });
+    } catch {
+      // best-effort: interrupt may fail if nothing is executing
+    }
   }
 
   // Pending (or unknown): drop it from the queue. A no-op if already gone.
@@ -360,7 +386,10 @@ export function openProgressSocket(
       if (typeof ev.data !== 'string') return;
       const event = parseWsMessage(ev.data);
       if (!event) return;
-      if (event.type === 'progress' && (event.promptId === undefined || event.promptId === promptId)) {
+      if (event.type === 'progress' && event.promptId === promptId) {
+        // Require an exact prompt-id match: a `progress` frame with a missing
+        // or mismatched id belongs to another job (or is unattributed) and
+        // must not be reported as this render's progress.
         report?.(`generating ${event.value}/${event.max}`);
       } else if (isExecutionComplete(event, promptId)) {
         report?.('rendering output…');

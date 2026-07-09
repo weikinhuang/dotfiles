@@ -97,12 +97,13 @@ test('statusIcon: returns a stable glyph per status', () => {
   expect(statusIcon('terminated')).toBe('◌');
 });
 
-test('formatBytes: binary scaling', () => {
+test('formatBytes: binary scaling (delegates to shared formatCompactBytes)', () => {
   expect(formatBytes(0)).toBe('0B');
   expect(formatBytes(512)).toBe('512B');
   expect(formatBytes(1024)).toBe('1.0KB');
-  expect(formatBytes(1024 * 1024)).toBe('1.0MB');
-  expect(formatBytes(1024 * 1024 * 1024)).toBe('1.0GB');
+  // MB uses the canonical 2-decimal form; there is no GB tier (it rolls into MB).
+  expect(formatBytes(1024 * 1024)).toBe('1.00MB');
+  expect(formatBytes(1024 * 1024 * 1024)).toBe('1024.00MB');
 });
 
 test('formatDuration: seconds → m+s → h+m', () => {
@@ -132,6 +133,16 @@ test('clampBytes: preserves short logs and tail-clamps long logs', () => {
   const out = clampBytes('abcdef', 3);
 
   expect(out).toBe('… [3B truncated; see logFile] …\ndef');
+});
+
+test('clampBytes: truncates on a codepoint boundary (no U+FFFD)', () => {
+  // Each "é" is 2 UTF-8 bytes; a raw byte-window cut at 3 bytes would split
+  // the leading "é" and emit a replacement char. The codepoint-safe slice
+  // drops the partial codepoint instead.
+  const out = clampBytes('ééé', 3); // 6 bytes total, cap 3
+  expect(out.includes('\uFFFD')).toBe(false);
+  // Keeps the last whole "é" (2 bytes) and reports the 4 dropped bytes.
+  expect(out).toBe('… [4B truncated; see logFile] …\né');
 });
 
 test('formatJobLine: running - duration + bytes', () => {

@@ -174,6 +174,19 @@ test('tailLines(0): returns empty', () => {
   expect(r.tailLines(0).content).toBe('');
 });
 
+test('tailLines: droppedBefore reflects prior eviction', () => {
+  const nothingDropped = new RingBuffer({ maxBytes: 1024 });
+  nothingDropped.append('one\ntwo\n');
+  expect(nothingDropped.tailLines(1).droppedBefore).toBe(false);
+
+  const evicted = new RingBuffer({ maxBytes: 4 });
+  evicted.append('abcd'); // fills
+  evicted.append('efgh'); // evicts 'abcd' → retained start > 0
+  const r = evicted.tailLines(1);
+  expect(r.content).toBe('efgh');
+  expect(r.droppedBefore).toBe(true);
+});
+
 // ──────────────────────────────────────────────────────────────────────
 // grep
 // ──────────────────────────────────────────────────────────────────────

@@ -38,9 +38,11 @@ export interface BuiltStore {
 
 /**
  * Wrap `index` into `[0, length)` with Python-style modulo so negative
- * indices count from the end. Callers must ensure `length > 0`.
+ * indices count from the end. A non-positive `length` yields `0` rather
+ * than a `NaN` from the modulo by zero.
  */
 export function wrapIndex(index: number, length: number): number {
+  if (length <= 0) return 0;
   return ((index % length) + length) % length;
 }
 

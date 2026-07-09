@@ -290,14 +290,14 @@ describe('runPlanningCritic', () => {
     expect(result.stuck.reason).toBe('cannot rewrite');
   });
 
-  test('(f) unparseable verdict → error (not silent pass)', async () => {
+  test('(f) unparseable verdict → keep plan and proceed (warn, not halt)', async () => {
     const plan = makePlan([
       { id: 'sq-1', question: 'q1' },
       { id: 'sq-2', question: 'q2' },
       { id: 'sq-3', question: 'q3' },
     ]);
     writePlan(paths(runRoot).plan, plan);
-    const runner = scriptedRunner([{ rawText: 'This is free-form prose, not JSON.' }]);
+    const { runner, spy } = spyRunner([{ rawText: 'This is free-form prose, not JSON.' }]);
     const session = makeSession([]);
     const result = await runPlanningCritic({
       runRoot,
@@ -308,7 +308,17 @@ describe('runPlanningCritic', () => {
       thinkingLevel: null,
     });
 
-    expect(result.kind).toBe('error');
+    // Documented warn+proceed policy: an unparseable verdict keeps
+    // the human-authored plan and proceeds to fanout with rewrites=0,
+    // rather than halting the pipeline. No auto-rewrite turn is spent.
+    expect(result.kind).toBe('approved');
+
+    assertKind(result, 'approved');
+
+    expect(result.rewrites).toBe(0);
+    expect(result.plan).toEqual(plan);
+    expect(session.prompts).toHaveLength(0);
+    expect(spy).toHaveBeenCalledTimes(1);
   });
 });
 

@@ -13,8 +13,13 @@
  *     activity-cycle and emotion-overlay loops.
  */
 
-/** A uniform sample in `[min, max)`. Inject `rng` for deterministic tests. */
+/**
+ * A uniform sample in `[min, max)`. Inject `rng` for deterministic tests.
+ * A reversed or degenerate range (`min >= max`) collapses to `min` rather
+ * than sampling backwards into negative delays.
+ */
 export function randomInRange(min: number, max: number, rng: () => number = Math.random): number {
+  if (min >= max) return min;
   return min + rng() * (max - min);
 }
 
@@ -31,7 +36,9 @@ export interface PingPongStep {
  * cycle and emotion overlay run; callers guard with `count > 1` before ticking.
  */
 export function stepPingPong(index: number, dir: number, count: number): PingPongStep {
-  const nextIndex = index + dir;
+  // Clamp to a valid frame index so a step from the last frame (or a stale
+  // `index`/`dir`) can never return `count` or `-1` and paint a missing frame.
+  const nextIndex = Math.max(0, Math.min(count - 1, index + dir));
   let nextDir = dir;
   if (nextIndex >= count - 1) nextDir = -1;
   if (nextIndex <= 0) nextDir = 1;

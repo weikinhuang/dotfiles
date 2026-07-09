@@ -17,6 +17,7 @@ import {
   nodeChildProcessSpawn,
   parseHookStdout,
   runHook,
+  STREAM_BUFFER_MAX,
 } from '../../../../../lib/node/pi/hooks/runner.ts';
 
 function makeHook(over: Partial<Hook> = {}): Hook {
@@ -29,6 +30,7 @@ function stubSpawn(result: Partial<HookSpawnResult>): HookSpawnFn {
     stderr: '',
     exitCode: 0,
     timedOut: false,
+    truncated: false,
     ...result,
   };
   return (): Promise<HookSpawnResult> => Promise.resolve(full);
@@ -115,7 +117,7 @@ describe('runHook', () => {
       const opts: HookSpawnOptions[] = [];
       const spawnFn: HookSpawnFn = (o) => {
         opts.push(o);
-        return Promise.resolve({ stdout: '', stderr: '', exitCode: null, timedOut: true });
+        return Promise.resolve({ stdout: '', stderr: '', exitCode: null, timedOut: true, truncated: false });
       };
       const result = await runHook({
         hook,
@@ -145,6 +147,28 @@ describe('runHook', () => {
       spawnFn: stubSpawn({ exitCode: 2, stderr: 'oh no\n' }),
     });
     expect(result).toEqual({ decision: 'block', reason: 'oh no' });
+  });
+
+  test('flags truncation from the spawn result onto the HookResult (success path)', async () => {
+    const result = await runHook({
+      hook: makeHook(),
+      payload: {},
+      signal: new AbortController().signal,
+      cwd: '/cwd',
+      spawnFn: stubSpawn({ stdout: 'note', truncated: true }),
+    });
+    expect(result).toEqual({ decision: 'continue', additionalContext: 'note', truncated: true });
+  });
+
+  test('flags truncation on a non-zero-exit block result', async () => {
+    const result = await runHook({
+      hook: makeHook(),
+      payload: {},
+      signal: new AbortController().signal,
+      cwd: '/cwd',
+      spawnFn: stubSpawn({ exitCode: 1, stderr: 'boom', truncated: true }),
+    });
+    expect(result).toEqual({ decision: 'block', reason: 'boom', truncated: true });
   });
 
   test('non-zero exit with empty stderr falls back to a generic reason', async () => {
@@ -181,7 +205,7 @@ describe('runHook', () => {
     const observed: string[] = [];
     const spawnFn: HookSpawnFn = (o) => {
       observed.push(o.payload);
-      return Promise.resolve({ stdout: '', stderr: '', exitCode: 0, timedOut: false });
+      return Promise.resolve({ stdout: '', stderr: '', exitCode: 0, timedOut: false, truncated: false });
     };
     await runHook({
       hook: makeHook(),
@@ -197,7 +221,7 @@ describe('runHook', () => {
     const observed: HookSpawnOptions[] = [];
     const spawnFn: HookSpawnFn = (o) => {
       observed.push(o);
-      return Promise.resolve({ stdout: '', stderr: '', exitCode: 0, timedOut: false });
+      return Promise.resolve({ stdout: '', stderr: '', exitCode: 0, timedOut: false, truncated: false });
     };
     await runHook({
       hook: makeHook(),
@@ -249,5 +273,23 @@ describe('nodeChildProcessSpawn (smoke)', () => {
     });
     expect(res.exitCode).toBe(3);
     expect(res.timedOut).toBe(false);
+  });
+
+  test('caps stdout at STREAM_BUFFER_MAX and flags truncation', async () => {
+    // Regression: a flooding hook previously accumulated its whole
+    // output in memory. Emit well over the cap and assert it is bounded.
+    const ac = new AbortController();
+    const bytes = STREAM_BUFFER_MAX * 4;
+    const res = await nodeChildProcessSpawn({
+      command: `head -c ${bytes} /dev/zero | tr '\\0' 'a'`,
+      payload: '',
+      timeoutMs: 5000,
+      signal: ac.signal,
+      cwd: process.cwd(),
+      sandboxed: false,
+    });
+    expect(res.exitCode).toBe(0);
+    expect(res.truncated).toBe(true);
+    expect(res.stdout.length).toBe(STREAM_BUFFER_MAX);
   });
 });

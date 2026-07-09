@@ -27,7 +27,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { listStaleWorktrees, type SweepFs } from './session-paths.ts';
+import { parseStaleWorktreePaths } from './session-paths.ts';
 
 /**
  * Shell out to `git` safely. Uses `execFileSync` so arguments are
@@ -41,6 +41,36 @@ export function runGit(cwd: string, args: string[]): boolean {
   } catch {
     return false;
   }
+}
+
+/**
+ * Shell out to `git` and capture stdout, or `null` on any failure
+ * (non-repo cwd, missing `git`, non-zero exit). Same argv-style
+ * safety as {@link runGit}; used for read-only queries like
+ * `git worktree list --porcelain`.
+ */
+export function runGitCapture(cwd: string, args: string[]): string | null {
+  try {
+    return execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Discover the checkout paths of `pi-subagent-*` worktrees a prior
+ * (crashed) parent leaked, via `git worktree list --porcelain`. Split
+ * out (with an injectable lister) so the pure parser
+ * ({@link parseStaleWorktreePaths}) and the git invocation can each be
+ * tested in isolation.
+ */
+export function listStaleWorktrees(
+  cwd: string,
+  listPorcelain: (cwd: string) => string | null = (c) => runGitCapture(c, ['worktree', 'list', '--porcelain']),
+): string[] {
+  const porcelain = listPorcelain(cwd);
+  if (porcelain === null) return [];
+  return parseStaleWorktreePaths(porcelain);
 }
 
 export interface CreatedWorktree {
@@ -118,18 +148,23 @@ export interface WorktreeSweepResult {
 }
 
 /**
- * Remove worktrees a prior parent leaked under `.git/worktrees/`.
- * Discovery is delegated to {@link listStaleWorktrees} with the
- * injected `fs`; removal shells out to `git`. Returns the count found
- * so the caller can surface it (matching `sweepStaleSessions`, which
- * returns a result rather than taking a notify callback).
+ * Remove worktrees a prior parent leaked. Discovery is delegated to
+ * {@link listStaleWorktrees} (`git worktree list --porcelain`, matched
+ * on the `pi-subagent-*` branch); removal shells out to
+ * `git worktree remove --force <checkout>`, falling back to `rm -rf`
+ * when git can't. Returns the count found so the caller can surface it
+ * (matching `sweepStaleSessions`, which returns a result rather than
+ * taking a notify callback).
+ *
+ * `listPorcelain` is injectable so tests can drive the sweep with a
+ * fixed porcelain string; production uses the real `git` invocation.
  */
-export function sweepStaleWorktrees(cwd: string, fs: Pick<SweepFs, 'readdir' | 'stat'>): WorktreeSweepResult {
-  const stale = listStaleWorktrees(cwd, fs);
+export function sweepStaleWorktrees(
+  cwd: string,
+  listPorcelain: (cwd: string) => string | null = (c) => runGitCapture(c, ['worktree', 'list', '--porcelain']),
+): WorktreeSweepResult {
+  const stale = listStaleWorktrees(cwd, listPorcelain);
   if (stale.length === 0) return { swept: 0 };
-  // Prune first so .git/worktrees/ bookkeeping matches disk; otherwise
-  // `worktree remove` on a dir git doesn't know about is a no-op.
-  runGit(cwd, ['worktree', 'prune']);
   for (const path of stale) {
     if (!runGit(cwd, ['worktree', 'remove', '--force', path])) {
       try {
@@ -139,5 +174,8 @@ export function sweepStaleWorktrees(cwd: string, fs: Pick<SweepFs, 'readdir' | '
       }
     }
   }
+  // Prune afterward so any admin bookkeeping left by a checkout we could
+  // only `rm -rf` (git couldn't remove it) is reconciled with disk.
+  runGit(cwd, ['worktree', 'prune']);
   return { swept: stale.length };
 }

@@ -14,6 +14,8 @@
  * No pi imports.
  */
 
+import { truncate } from '../shared.ts';
+
 /** Lifecycle of a background job from the extension's point of view. */
 export type ImageJobStatus = 'running' | 'done' | 'error' | 'cancelled';
 
@@ -213,8 +215,7 @@ export function formatJobLine(job: ImageJob, now: number): string {
  * completions be told apart by content, not just by status.
  */
 export function formatJobHint(job: ImageJob): string {
-  const oneLine = job.prompt.replace(/\s+/g, ' ').trim();
-  const snippet = oneLine.length <= 50 ? oneLine : `${oneLine.slice(0, 49)}…`;
+  const snippet = truncate(job.prompt, 50, { collapseWhitespace: true });
   return snippet.length > 0 ? `${job.status} · ${snippet}` : job.status;
 }
 

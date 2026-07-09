@@ -22,6 +22,7 @@
 
 import { readJsoncOrUndefined } from '../fs-safe.ts';
 import { piAgentPath, piProjectPath } from '../pi-paths.ts';
+import { isRecord } from '../shared/guards.ts';
 
 /** What happens when navigation / fork lands on a point whose code differs. */
 export type AutoReview = 'review' | 'auto' | 'off';
@@ -65,10 +66,6 @@ export const DEFAULT_CONFIG: CheckpointConfig = {
   },
 };
 
-function isObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
 function asBoolean(value: unknown): boolean | undefined {
   return typeof value === 'boolean' ? value : undefined;
 }
@@ -93,7 +90,7 @@ function asAutoReview(value: unknown): AutoReview | undefined {
 
 /** Validate the optional nested `full` block, dropping wrong-typed fields. */
 function asFullLayer(value: unknown): Partial<FullModeConfig> | undefined {
-  if (!isObject(value)) return undefined;
+  if (!isRecord(value)) return undefined;
   const out: Partial<FullModeConfig> = {};
   const maxStagedFiles = asPositiveNumber(value.maxStagedFiles);
   if (maxStagedFiles !== undefined) out.maxStagedFiles = maxStagedFiles;
@@ -123,7 +120,7 @@ export interface CheckpointConfigLayer {
  * non-object input. Unknown keys are ignored (the shell may `console.warn`).
  */
 export function coerceConfigLayer(raw: unknown): CheckpointConfigLayer {
-  if (!isObject(raw)) return {};
+  if (!isRecord(raw)) return {};
   const out: CheckpointConfigLayer = {};
 
   const mode = asMode(raw.mode);

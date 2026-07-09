@@ -15,6 +15,26 @@ export function byteLen(s: string): number {
   return BYTE_ENCODER.encode(s).length;
 }
 
+/**
+ * Return the suffix of `text` whose UTF-8 encoding is at most `maxBytes`
+ * bytes. If the cut would land mid-multi-byte-codepoint, we advance forward
+ * to the next codepoint boundary so the returned string is always valid
+ * UTF-8 (at the cost of returning slightly fewer bytes). Shared by the
+ * bg-bash ring buffer's eviction / reads and the log-tail clamp so a
+ * truncated tail never emits a `U+FFFD` replacement char.
+ */
+export function sliceUtf8Suffix(text: string, maxBytes: number): string {
+  if (maxBytes <= 0) return '';
+  const bytes = BYTE_ENCODER.encode(text);
+  if (bytes.length <= maxBytes) return text;
+  const startByte = bytes.length - maxBytes;
+  // UTF-8 continuation bytes are 10xxxxxx (0x80..0xBF). Advance until we're
+  // on a start byte.
+  let i = startByte;
+  while (i < bytes.length && (bytes[i] & 0xc0) === 0x80) i++;
+  return new TextDecoder('utf-8', { fatal: false }).decode(bytes.subarray(i));
+}
+
 /** Compact byte count used in condensed-output banners (for example, `1.0KB`). */
 export function formatCompactBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes}B`;

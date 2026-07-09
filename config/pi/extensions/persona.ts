@@ -92,7 +92,7 @@ import {
 } from '../../../lib/node/pi/persona/info.ts';
 import { type PersonaWarning, parsePersonaFile, type ParsedPersona } from '../../../lib/node/pi/persona/parse.ts';
 import { resolveWriteRoots } from '../../../lib/node/pi/persona/resolve.ts';
-import { parseModelSpec } from '../../../lib/node/pi/persona/model-spec.ts';
+import { parseModelSpec } from '../../../lib/node/pi/model-spec.ts';
 import { findRestoredPersonaName, selectStartupPersona } from '../../../lib/node/pi/persona/startup.ts';
 import { PERSONA_USAGE } from '../../../lib/node/pi/persona/usage.ts';
 import { clearActivePersona, setActivePersona } from '../../../lib/node/pi/persona/active.ts';

@@ -22,6 +22,14 @@ test('daysElapsed counts whole days, rejecting missing/unparseable/future dates'
   expect(daysElapsed('2026-06-20', NOW)).toBeNull(); // future
 });
 
+test('daysElapsed counts whole UTC calendar days, not raw elapsed time', () => {
+  // Under 24h of real elapsed time, but one UTC calendar day apart: the
+  // whole-day gap is 1, not 0 (guards against the local-instant-vs-UTC skew).
+  expect(daysElapsed('2026-06-09T20:00:00Z', new Date('2026-06-10T05:00:00Z'))).toBe(1);
+  // Same UTC day regardless of now's time-of-day -> 0.
+  expect(daysElapsed('2026-06-10', new Date('2026-06-10T23:59:59Z'))).toBe(0);
+});
+
 test('decayAffinity erodes a high affinity toward the baseline', () => {
   // 80, 3 days idle, 1/day -> 77
   expect(decayAffinity({ affinity: 80, lastInteraction: '2026-06-07' }, NOW, OPTS)).toBe(77);

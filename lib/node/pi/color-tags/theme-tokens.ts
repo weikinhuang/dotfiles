@@ -2,18 +2,25 @@
  * Theme-token vocabulary + theme-aware color resolver for the
  * `color-tags` extension.
  *
- * {@link THEME_COLOR_TOKENS} is a hardcoded mirror of the `ThemeColor`
- * union exported by `@earendil-works/pi-coding-agent`. That type is
- * type-only at runtime so it can't be iterated - keep this list in
- * lockstep with the upstream `.d.ts` manually. Kept here as a plain
- * `string[]` so the module stays pure (no pi import); the extension
- * shell casts entries to `ThemeColor` at its `theme.getFgAnsi(...)`
- * call.
+ * {@link THEME_COLOR_TOKENS} is a deliberately curated *subset* of the
+ * `ThemeColor` union exported by `@earendil-works/pi-coding-agent` - the
+ * semantic tokens we want the model to reach for (`accent`, `success`,
+ * `error`, …). The remaining union members are kept commented-out below
+ * as a manually-maintained record of the full upstream vocabulary; they
+ * are intentionally NOT exposed, so uncomment an entry only when we also
+ * want the model prompted to use it. That type is type-only at runtime so
+ * it can't be iterated - keep the list in lockstep with the upstream
+ * `.d.ts` manually. Kept here as a plain `string[]` so the module stays
+ * pure (no pi import); the extension shell casts entries to `ThemeColor`
+ * at its `theme.getFgAnsi(...)` call.
  *
- * The list is used both to advertise theme-token names in the
- * system-prompt addendum and to route bracket-tag names to the theme's
- * foreground resolver instead of the pure named-16 / 256 / hex
- * resolver.
+ * This one list is the single source of truth for BOTH surfaces, so they
+ * can never drift: `buildColorPromptAddendum` (color-prompt.ts) advertises
+ * exactly these names in the system-prompt addendum, and
+ * {@link buildColorResolver} routes exactly these names (via
+ * {@link THEME_COLOR_SET}) to the theme's foreground resolver instead of
+ * the pure named-16 / 256 / hex resolver. A name the prompt never
+ * advertises is a name the resolver never routes.
  */
 
 import { type ColorResolver } from './parse-color-tags.ts';

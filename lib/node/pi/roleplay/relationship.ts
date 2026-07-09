@@ -48,7 +48,14 @@ export function daysElapsed(lastInteraction: string | undefined, now: Date): num
   if (lastInteraction === undefined || lastInteraction.trim().length === 0) return null;
   const then = Date.parse(lastInteraction);
   if (!Number.isFinite(then)) return null;
-  const diffMs = now.getTime() - then;
+  // `Date.parse('YYYY-MM-DD')` yields UTC midnight, so compare against
+  // `now`'s UTC calendar date too (not its raw local wall-clock instant).
+  // Mixing the two skews the whole-day gap by one near a timezone
+  // boundary - e.g. just after local midnight can read as "future".
+  const thenDate = new Date(then);
+  const thenUtc = Date.UTC(thenDate.getUTCFullYear(), thenDate.getUTCMonth(), thenDate.getUTCDate());
+  const nowUtc = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  const diffMs = nowUtc - thenUtc;
   if (diffMs < 0) return null;
   return Math.floor(diffMs / MS_PER_DAY);
 }

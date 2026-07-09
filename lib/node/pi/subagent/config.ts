@@ -26,7 +26,10 @@
  */
 
 import { readJsoncOrUndefined } from '../fs-safe.ts';
+import { parseModelSpec } from '../model-spec.ts';
 import { piAgentPath, piProjectPath } from '../pi-paths.ts';
+import { isFiniteNumber, isRecord } from '../shared/guards.ts';
+import { trimOrUndefined } from '../shared/strings.ts';
 
 /** Concurrency clamp, matching the prior `envConcurrency()` bounds. */
 export const MIN_CONCURRENCY = 1;
@@ -47,18 +50,36 @@ export const DEFAULT_SUBAGENT_CONFIG: SubagentConfig = {
   concurrency: 4,
 };
 
-function isObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
 function asPositiveInt(value: unknown): number | undefined {
-  if (typeof value !== 'number' || !Number.isFinite(value)) return undefined;
+  if (!isFiniteNumber(value)) return undefined;
   const n = Math.floor(value);
   return n > 0 ? n : undefined;
 }
 
-function asNonEmptyString(value: unknown): string | undefined {
-  return typeof value === 'string' && value.trim().length > 0 ? value : undefined;
+/**
+ * Validate an untrusted `model` field against the `provider/id` grammar
+ * via the shared {@link parseModelSpec}. Returns the normalized
+ * `provider/modelId` string, or `undefined` (dropping + warning) when the
+ * value is absent, non-string, or not a well-formed spec - a garbage
+ * override is worse than inheriting the parent model, so we refuse it
+ * loudly instead of feeding an un-resolvable string to the model
+ * registry later.
+ */
+function coerceModelSpec(value: unknown): string | undefined {
+  // Absent / empty / whitespace-only is "not set" (inherit) - silent.
+  const raw = typeof value === 'string' ? trimOrUndefined(value) : undefined;
+  if (value !== undefined && raw === undefined && typeof value !== 'string') {
+    // A non-string, non-absent value (number, object) is a real mistake.
+    console.warn(`[subagent] ignoring invalid model ${JSON.stringify(value)} (expected "provider/id")`);
+    return undefined;
+  }
+  if (raw === undefined) return undefined;
+  const parsed = parseModelSpec(raw);
+  if (!parsed) {
+    console.warn(`[subagent] ignoring invalid model "${raw}" (expected "provider/id")`);
+    return undefined;
+  }
+  return `${parsed.provider}/${parsed.modelId}`;
 }
 
 /**
@@ -68,10 +89,10 @@ function asNonEmptyString(value: unknown): string | undefined {
  * the final resolved value in {@link mergeSubagentConfigLayers}.
  */
 export function coerceSubagentConfigLayer(raw: unknown): Partial<SubagentConfig> {
-  if (!isObject(raw)) return {};
+  if (!isRecord(raw)) return {};
   const out: Partial<SubagentConfig> = {};
 
-  const model = asNonEmptyString(raw.model);
+  const model = coerceModelSpec(raw.model);
   if (model !== undefined) out.model = model;
 
   const maxTurns = asPositiveInt(raw.maxTurns);
@@ -97,7 +118,9 @@ function envPositiveInt(raw: string | undefined): number | undefined {
 export function subagentEnvLayer(env: NodeJS.ProcessEnv = process.env): Partial<SubagentConfig> {
   const out: Partial<SubagentConfig> = {};
 
-  const model = asNonEmptyString(env.PI_SUBAGENT_MODEL);
+  // Validate the env override too so a malformed PI_SUBAGENT_MODEL is
+  // dropped (and warned) rather than propagated to the model registry.
+  const model = coerceModelSpec(env.PI_SUBAGENT_MODEL);
   if (model !== undefined) out.model = model;
 
   const maxTurns = envPositiveInt(env.PI_SUBAGENT_MAX_TURNS);

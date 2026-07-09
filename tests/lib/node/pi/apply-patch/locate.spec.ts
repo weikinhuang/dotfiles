@@ -73,6 +73,22 @@ describe('locateHunk: whitespace-insensitive fallback', () => {
     expect(out.span).toBe(3);
   });
 
+  test('leading blank context line keeps span line-for-line with oldLines', () => {
+    // Regression: the fuzzy pass used to drop leading/trailing blank
+    // lines from the old-side (copied from edit-recovery's snippet
+    // renderer). That shortened `span` while `hunkNewLines` still
+    // carried the blank context line, so apply.ts duplicated the blank
+    // into the file. Here the leading ' ' (blank context) + tab-vs-space
+    // mismatch forces the fuzzy pass; the region is FILE lines 4-7.
+    const h = hunk(' ', ' export function shout() {', '-\tconsole.log("HEY");', '+\tconsole.log("hey");', ' }');
+    const out = locateHunk(FILE, h);
+    if (out.kind !== 'found') throw new Error(`expected found, got ${out.kind}`);
+    // Must anchor on the blank line (line 4), not the function line (5),
+    // and span all 4 old-side lines so the splice stays balanced.
+    expect(out.line).toBe(4);
+    expect(out.span).toBe(4);
+  });
+
   test('collapsed-whitespace hunk still locates', () => {
     const h = hunk(' export function greet() {', '- console.log("hi");', '+ console.log("HI");', ' }');
     const out = locateHunk(FILE, h);

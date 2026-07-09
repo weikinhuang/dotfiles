@@ -317,6 +317,16 @@ export function translateToASRT(options: TranslateToASRTOptions): TranslateToASR
         `Linux: write.deny.paths entries do not currently exist: ${compiled.write.inertPaths.join(', ')}`,
       );
     }
+    // Ripgrep failures during compilation mean the kernel deny list may
+    // be INCOMPLETE (secrets not masked at the bwrap layer). This is more
+    // serious than an inert rule, so surface it prominently.
+    const compileErrors = [...(compiled.read.errors ?? []), ...(compiled.write.errors ?? [])];
+    if (compileErrors.length > 0) {
+      lossyNotes.push(
+        `Linux: WARNING - deny-rule compilation had ${String(compileErrors.length)} ripgrep failure(s); ` +
+          `the kernel deny list may be incomplete. First: ${compileErrors[0]}`,
+      );
+    }
   } else {
     denyRead = macosRuleStrings(policy.read.deny, cwd, home);
     denyWrite = macosRuleStrings(writeDenyForKernel, cwd, home);

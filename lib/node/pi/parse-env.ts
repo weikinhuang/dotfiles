@@ -14,9 +14,15 @@
 
 /**
  * Parse `raw` as a positive integer, returning `fallback` when `raw`
- * is missing, blank, non-numeric, non-finite, or `<= 0`. Non-integer
- * strings (`"1.5"`, `"1e3"`) are accepted by `parseInt` per the same
- * semantic the per-extension copies used.
+ * is missing, blank, non-numeric, non-finite, or `<= 0`.
+ *
+ * Uses `Number.parseInt(raw, 10)`, which reads a leading run of digits
+ * and STOPS at the first non-digit rather than validating the whole
+ * string. Concretely: `"1.5" -> 1`, `"1e3" -> 1` (NOT 1000 - `parseInt`
+ * stops at the `e`), `"12abc" -> 12`. This loose, prefix-tolerant
+ * behaviour is preserved deliberately - it matches the per-extension
+ * copies this helper consolidated, and every caller feeds it a plain
+ * integer string, so no caller relies on `"1e3"` meaning 1000.
  */
 export function parsePositiveInt(raw: string | undefined, fallback: number): number {
   if (!raw) return fallback;

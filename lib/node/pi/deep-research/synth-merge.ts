@@ -62,14 +62,19 @@ import { existsSync, readFileSync } from 'node:fs';
 import { atomicWriteFile, ensureDirSync } from '../atomic-write.ts';
 import { type SectionOutcome } from './synth-sections.ts';
 import { renumber, type CitationSource, validatePlaceholders } from '../research/citations.ts';
-import { appendJournal } from '../research/journal.ts';
+import { safeAppendJournal } from '../research/journal.ts';
 import { paths } from '../research/paths.ts';
 import { type DeepResearchPlan, type SubQuestion } from '../research/plan.ts';
 import { hashPrompt, type Provenance, stripProvenanceFrontmatter, writeSidecar } from '../research/provenance.ts';
 import { listRun, type SourceRef } from '../research/sources.ts';
 import { callTyped, type ResearchSessionLike, type SchemaLike } from '../research/structured.ts';
 import { isStuckShape } from '../research/stuck.ts';
-import { type TinyAdapter, tinyProvenanceSummary, type TinyCallContext } from '../research/tiny.ts';
+import {
+  buildTinyHumanizeOnRetry,
+  type TinyAdapter,
+  tinyProvenanceSummary,
+  type TinyCallContext,
+} from '../research/tiny.ts';
 import { isRecord } from '../shared.ts';
 
 // ──────────────────────────────────────────────────────────────────────
@@ -404,31 +409,13 @@ function journalIf<M>(
   heading: string,
   body?: string,
 ): void {
-  if (!opts.journalPath) return;
-  if (!existsSync(opts.runRoot)) return;
-  try {
-    appendJournal(opts.journalPath, body !== undefined ? { level, heading, body } : { level, heading });
-  } catch {
-    /* swallow */
-  }
+  safeAppendJournal(opts.journalPath, opts.runRoot, body !== undefined ? { level, heading, body } : { level, heading });
 }
 
 function buildOnRetry<M>(opts: SynthMergeOpts<M>): ((err: string, n: number) => void) | undefined {
-  const adapter = opts.tinyAdapter;
-  const ctx = opts.tinyCtx;
-  if (!adapter || !ctx || !adapter.isEnabled()) return undefined;
-  return (error, attempt) => {
-    void adapter
-      .callTinyRewrite(ctx, 'humanize-error', error)
-      .then((humanized) => {
-        if (typeof humanized === 'string' && humanized.trim().length > 0) {
-          journalIf(opts, 'info', `merge validation nudge humanized (attempt ${attempt})`, humanized);
-        }
-      })
-      .catch(() => {
-        /* swallow */
-      });
-  };
+  return buildTinyHumanizeOnRetry(opts.tinyAdapter, opts.tinyCtx, (humanized, attempt) => {
+    journalIf(opts, 'info', `merge validation nudge humanized (attempt ${attempt})`, humanized);
+  });
 }
 
 /**

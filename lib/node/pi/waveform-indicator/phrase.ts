@@ -37,6 +37,8 @@
  */
 
 import { mergeAbortSignals } from '../abort-merge.ts';
+import { stripAnsi } from '../color-tags/strip-ansi.ts';
+import { collapseWhitespace } from '../shared.ts';
 
 /** Fallback head rendered before any phrase lands and on every failure path. */
 export const FALLBACK_PHRASE = 'Thinking...';
@@ -242,10 +244,6 @@ export function acceptPhrase(
 const CONTROL_CHARS_PATTERN = new RegExp('[\\u0000-\\u001f\\u007f]', 'g');
 // oxlint-disable-next-line no-control-regex -- intentional: validator rejects control bytes.
 const CONTROL_CHARS_TESTER = new RegExp('[\\u0000-\\u001f\\u007f]');
-// SGR escape introducer: ESC followed by left bracket. A model that
-// smuggled a colour code trips this and the response gets dropped.
-// oxlint-disable-next-line no-control-regex -- intentional: ANSI escape detection.
-const ANSI_SGR_PATTERN = new RegExp('\\u001b\\[');
 
 function stripTrailingPunctuation(s: string): string {
   return s.replace(/[\s.,;:!?-]+$/, '');
@@ -261,7 +259,7 @@ function stripTrailingPunctuation(s: string): string {
  */
 export function digestPrompt(text: string, maxChars: number = PROMPT_DIGEST_CHARS): string {
   if (typeof text !== 'string') return '';
-  const cleaned = text.replace(CONTROL_CHARS_PATTERN, ' ').replace(/\s+/g, ' ').trim();
+  const cleaned = collapseWhitespace(text.replace(CONTROL_CHARS_PATTERN, ' '));
   if (cleaned.length <= maxChars) return stripTrailingPunctuation(cleaned);
   return stripTrailingPunctuation(cleaned.slice(0, maxChars));
 }
@@ -284,7 +282,7 @@ export function digestToolCall(toolName: string, args: unknown, maxArgsChars: nu
       body = '';
     }
   }
-  const cleanedBody = body.replace(CONTROL_CHARS_PATTERN, ' ').replace(/\s+/g, ' ').trim().slice(0, maxArgsChars);
+  const cleanedBody = collapseWhitespace(body.replace(CONTROL_CHARS_PATTERN, ' ')).slice(0, maxArgsChars);
   if (!name && !cleanedBody) return '';
   if (!cleanedBody) return name;
   if (!name) return cleanedBody;
@@ -361,7 +359,10 @@ export function validatePhrase(raw: string, opts: ValidatePhraseOptions = {}): s
   if (trimmed.length === 0) return null;
   if (trimmed === 'null') return null;
   if (/\r|\n/.test(trimmed)) return null;
-  if (ANSI_SGR_PATTERN.test(trimmed)) return null;
+  // Reject a smuggled ANSI SGR sequence (`\x1b[…m`); the bare ESC byte is also
+  // caught by the control-char tester below, but this rejects a full colour
+  // escape up front. Reuses the color-tags stripper so the two stay in sync.
+  if (stripAnsi(trimmed) !== trimmed) return null;
   // Build a fresh non-global tester so `lastIndex` state on the shared
   // module-level regex doesn't leak across calls.
   if (CONTROL_CHARS_TESTER.test(trimmed)) return null;

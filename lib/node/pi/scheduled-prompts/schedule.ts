@@ -140,7 +140,15 @@ export function computeNextFire(schedule: Schedule, after: Date, rng: Rng = Math
   }
   const fields = parseCron(trigger.expr);
   if (fields === null) return null;
-  return cronNext(fields, after).getTime() + jitterFor(schedule, rng);
+  // `cronNext` throws when no match falls inside its ~8-year search
+  // horizon (an impossible spec like `0 0 30 2 *` - Feb 30). Treat that
+  // exactly like an unparseable expression: return null so the caller
+  // disarms the schedule instead of crashing the tick loop.
+  try {
+    return cronNext(fields, after).getTime() + jitterFor(schedule, rng);
+  } catch {
+    return null;
+  }
 }
 
 /**

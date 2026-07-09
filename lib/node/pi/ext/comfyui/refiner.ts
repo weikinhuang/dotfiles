@@ -13,10 +13,6 @@
  * no-op contract.
  */
 
-import { existsSync, readFileSync } from 'node:fs';
-import { homedir } from 'node:os';
-import { resolve } from 'node:path';
-
 import type { Model } from '@earendil-works/pi-ai';
 import {
   createAgentSession,
@@ -33,10 +29,10 @@ import {
 import { createRefiner, type Refiner, resolveRefineModel } from '../../comfyui/refine.ts';
 import type { ComfyuiConfig, WorkflowConfig } from '../../comfyui/types.ts';
 import { envTruthy } from '../../parse-env.ts';
-import { expandTilde } from '../../path-expand.ts';
 import { type AgentDef, defaultAgentLayers, loadAgents, makeNodeReadLayer } from '../../subagent/loader.ts';
 import { createPersistedSubagentSessionManager } from '../../subagent/session-dir.ts';
 import { adaptCreateAgentSession, runOneShotAgent } from '../../subagent/spawn.ts';
+import { readGuidanceFiles } from './guidance.ts';
 
 // Bridge pi's concrete `createAgentSession` (typed with the concrete
 // `ModelRegistry` class) to the pi-free structural registry the
@@ -184,15 +180,5 @@ export function createRefinerAccess(deps: {
  * side.
  */
 export function readRefineGuidanceText(config: ComfyuiConfig, wf: WorkflowConfig, fromCwd: string): string {
-  const readOne = (file: string | undefined): string => {
-    if (file === undefined || file.trim().length === 0) return '';
-    try {
-      const resolved = resolve(fromCwd, expandTilde(file, homedir()));
-      if (!existsSync(resolved)) return '';
-      return readFileSync(resolved, 'utf8').trim();
-    } catch {
-      return '';
-    }
-  };
-  return [readOne(config.refineGuidanceFile), readOne(wf.refineGuidanceFile)].filter((s) => s.length > 0).join('\n\n');
+  return readGuidanceFiles([config.refineGuidanceFile, wf.refineGuidanceFile], fromCwd);
 }

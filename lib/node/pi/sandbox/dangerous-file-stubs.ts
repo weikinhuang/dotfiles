@@ -27,8 +27,13 @@
  * branch (`linux-sandbox-utils.js:651`) which emits `--ro-bind <path>
  * <path>` - no `O_CREAT|O_WRONLY` on a 0444 file, no race.
  *
- * The mandatory file / directory lists are imported directly from
- * ASRT so this stays in sync with the runtime we're actually wrapping.
+ * The mandatory file / directory lists are VENDORED from ASRT below
+ * rather than imported, so this stays a pure module (no third-party
+ * runtime import outside `ext/`, per lib/node/pi/AGENTS.md). Drift is
+ * guarded by `dangerous-file-stubs-asrt-sync.spec.ts`, which imports
+ * ASRT directly (tests may import anything) and fails if the runtime's
+ * lists diverge from the vendored copies here.
+ *
  * The additional "best-effort" file list mirrors the broader stub set
  * Claude Code creates in its `assertScrubSandboxAvailable` path - it
  * covers files that aren't in ASRT's mandatory deny today but are
@@ -40,6 +45,29 @@
 import { closeSync, constants, mkdirSync, openSync, readdirSync, rmdirSync, statSync, unlinkSync } from 'node:fs';
 import { resolve, sep } from 'node:path';
 
+/**
+ * Vendored copy of ASRT's `DANGEROUS_FILES`
+ * (`@anthropic-ai/sandbox-runtime/dist/sandbox/sandbox-utils.js`). Kept
+ * in sync by `dangerous-file-stubs-asrt-sync.spec.ts`. */
+const ASRT_DANGEROUS_FILES: readonly string[] = [
+  '.gitconfig',
+  '.gitmodules',
+  '.bashrc',
+  '.bash_profile',
+  '.zshrc',
+  '.zprofile',
+  '.profile',
+  '.ripgreprc',
+  '.mcp.json',
+];
+
+/**
+ * Vendored copy of ASRT's `getDangerousDirectories()` return value
+ * (`.git` is intentionally excluded by ASRT - it stays writable and
+ * specific paths inside it are denied instead). Kept in sync by
+ * `dangerous-file-stubs-asrt-sync.spec.ts`. */
+const ASRT_DANGEROUS_DIRECTORIES: readonly string[] = ['.vscode', '.idea', '.claude/commands', '.claude/agents'];
+
 /** Per-call hook used to protect user-authored files / directories
  *  from adoption + cleanup. Return `true` to skip a path. The default
  *  (`undefined`) protects nothing - safe at the lib level because the
@@ -49,11 +77,6 @@ import { resolve, sep } from 'node:path';
 export interface DangerousStubOptions {
   isProtected?: (abs: string) => boolean;
 }
-
-import {
-  DANGEROUS_FILES as ASRT_DANGEROUS_FILES,
-  getDangerousDirectories as asrtGetDangerousDirectories,
-} from '@anthropic-ai/sandbox-runtime/dist/sandbox/sandbox-utils.js';
 
 /** Basenames ASRT always adds to its Linux mandatory write-deny list at
  *  `<cwd>/<name>`, plus the defensive extras from Claude Code's
@@ -80,7 +103,7 @@ export const DANGEROUS_FILE_STUBS: readonly string[] = Object.freeze([
  *  recursive write-denies. Sourced from ASRT directly so a runtime
  *  bump that extends the list (e.g. a new editor config dir) auto-
  *  applies without a code change here. */
-export const DANGEROUS_DIR_STUBS: readonly string[] = Object.freeze(asrtGetDangerousDirectories());
+export const DANGEROUS_DIR_STUBS: readonly string[] = Object.freeze([...ASRT_DANGEROUS_DIRECTORIES]);
 
 /**
  * Best-effort touch each dangerous-file basename at `cwd` with

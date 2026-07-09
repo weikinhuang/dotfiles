@@ -12,34 +12,31 @@ file covers only the **pi-import policy** specific to this subtree.
 
 ## Directory map
 
-| Path                                   | Purpose                                                                                            |
-| -------------------------------------- | -------------------------------------------------------------------------------------------------- |
-| [`ext/`](./ext)                        | The carve-out: shared extension helpers that import `@earendil-works/*` (pi-tui widgets, dialogs). |
-| [`shared.ts`](./shared.ts)             | Cross-helper utilities (`truncate`, `trimOrUndefined`, `byteLen`, `BYTE_ENCODER`).                 |
-| [`atomic-write.ts`](./atomic-write.ts) | Race-safe filesystem writes; use instead of a raw `fs.writeFile` + rename.                         |
-| [`comfyui/`](./comfyui)                | Example per-extension pure-helper package (one dir per extension: `deep-research/`, `todo/`, …).   |
+| Path                                   | Purpose                                                                                                |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| [`ext/`](./ext)                        | The carve-out: shared extension helpers that import `@earendil-works/*` (pi-tui widgets, dialogs).     |
+| [`shared.ts`](./shared.ts)             | Cross-helper utilities (`truncate`, `trimOrUndefined`, `byteLen`, `BYTE_ENCODER`).                     |
+| [`atomic-write.ts`](./atomic-write.ts) | Race-safe filesystem writes; use instead of a raw `fs.writeFile` + rename.                             |
+| [`comfyui/`](./comfyui)                | Example per-extension pure-helper package (one dir per extension: `deep-research/`, `todo/`, …).       |
+| [`bg-bash/`](./bg-bash)                | Leaf adapters for `bg_bash`; engine lives in top-level `bg-bash-*.ts` ([README](./bg-bash/README.md)). |
 
 ## Key patterns
 
 ### Pure by default; `ext/` is the carve-out
 
 - **Pure modules (everything directly under `lib/node/pi/`).** Import from `node:*` and peer `lib/node/**` only - never
-  from `@earendil-works/pi-coding-agent`, any pi runtime, or any other third-party runtime dependency. That keeps the
-  code under the root `tsconfig.json` and unit-testable without mocks. This is the default; only reach for `ext/` when a
-  pure module genuinely can't express the helper.
-- **`ext/` is the exception (extension-runtime-coupled helpers).** Shared extension code that needs a runtime import a
-  pure module can't take - the pi runtime (`@earendil-works/pi-tui` widgets, `pi-coding-agent` dialog flows) or another
-  runtime-only dependency (e.g. `sharp` for image work) - or logic extracted to shrink an oversized extension `.ts` so a
-  smaller model can work on it - lives under [`ext/`](./ext). It is still type-checked by the root `tsconfig.json`
-  (`@earendil-works/*` resolves from `node_modules`) and still gets a mirrored spec under
-  [`../../../tests/lib/node/pi/ext/`](../../../tests/lib/node/pi/ext), but it runs under the **relaxed oxlint override**
-  shared with the extensions tree (`no-unsafe-*` / `require-await` off). Anchors:
-  [`ext/multi-select-list.ts`](./ext/multi-select-list.ts), [`ext/drop-confirm.ts`](./ext/drop-confirm.ts),
-  [`ext/external-editor.ts`](./ext/external-editor.ts).
-- **A single extension's own glue stays in its `.ts`.** Per-extension `pi.on('tool_call', …)` handlers, command
-  registration, and tool/UI wiring belong in [`../../../config/pi/extensions/<name>.ts`](../../../config/pi/extensions)
-  - `ext/` is for logic shared across extensions or extracted to shrink a file, not a second home for one shell. If a
-    pure helper grows a pi import, keep it pure if you can, otherwise move it to `ext/`.
+  from `@earendil-works/pi-coding-agent`, any pi runtime, or other third-party runtime deps. Keeps them under the root
+  `tsconfig.json` and unit-testable without mocks; reach for `ext/` only when a pure module genuinely can't express it.
+- **`ext/` is the exception (extension-runtime-coupled helpers).** Shared code needing a runtime import a pure module
+  can't take - the pi runtime (`@earendil-works/pi-tui` widgets, `pi-coding-agent` dialogs), another runtime-only dep
+  (e.g. `sharp`), or logic extracted to shrink an oversized extension `.ts` for a smaller model - lives under
+  [`ext/`](./ext). Still type-checked by the root `tsconfig.json` and mirror-spec'd under
+  [`tests/lib/node/pi/ext/`](../../../tests/lib/node/pi/ext), but under the **relaxed oxlint override** (`no-unsafe-*` /
+  `require-await` off). Anchors: [`ext/multi-select-list.ts`](./ext/multi-select-list.ts),
+  [`ext/drop-confirm.ts`](./ext/drop-confirm.ts), [`ext/external-editor.ts`](./ext/external-editor.ts).
+- **A single extension's own glue stays in its `.ts`.** Per-extension `pi.on('tool_call', …)` handlers and tool/UI
+  wiring belong in [`../../../config/pi/extensions/<name>.ts`](../../../config/pi/extensions) - `ext/` is for
+  cross-extension logic or shrinking a file, not a second home for one shell.
 
 ### Reuse the shared helpers - don't re-roll
 
@@ -49,12 +46,15 @@ shared helper with an optional parameter (default preserving behaviour)** and ke
 site - don't fork a copy. Alongside the atomics in the directory map (and `pi-paths` / `parse-env` / completion helpers
 documented in the extensions guide), reuse:
 
-- **Pure:** [`message-text.ts`](./message-text.ts) `extractContentText` (content → text; `message-extract.ts`
-  re-exports), [`shared.ts`](./shared.ts) `truncate`, [`shared/strict-frontmatter.ts`](./shared/strict-frontmatter.ts)
-  `parseFencedFrontmatter` (domain validation layered on top), [`shared/guards.ts`](./shared/guards.ts) `isTextPart`,
-  [`global-slot.ts`](./global-slot.ts) `createGlobalSlot` (never hand-build a `globalThis[Symbol.for(…)]` slot),
-  [`fuzzy-match.ts`](./fuzzy-match.ts) `fuzzyMatch` (higher = better; not pi-tui's inverted score),
-  [`scroll-window.ts`](./scroll-window.ts) scroll math.
+- **Pure:** [`message-text.ts`](./message-text.ts) `extractContentText` (content → text), [`shared.ts`](./shared.ts)
+  `truncate`, [`shared/bytes.ts`](./shared/bytes.ts) `byteLen` / `sliceUtf8Suffix` (codepoint-safe byte trim),
+  [`shared/strict-frontmatter.ts`](./shared/strict-frontmatter.ts) `parseFencedFrontmatter`,
+  [`shared/guards.ts`](./shared/guards.ts) `isTextPart`, [`global-slot.ts`](./global-slot.ts) `createGlobalSlot` (never
+  hand-build a `globalThis` slot), [`fuzzy-match.ts`](./fuzzy-match.ts) `fuzzyMatch` (higher = better),
+  [`scroll-window.ts`](./scroll-window.ts) scroll math, [`slugify.ts`](./slugify.ts) `slugifyAscii` (fs-safe slug;
+  opt-in fold / cap / fallback), [`prompt-section.ts`](./prompt-section.ts) `appendSectionByHeading` /
+  `appendSectionOnce` (idempotent prompt-section append), [`png/binary.ts`](./png/binary.ts) `hasPngSignature` /
+  `readUint32BE` (raw PNG byte primitives).
 - **`ext/` glue:** [`ext/pi-session.ts`](./ext/pi-session.ts) `piCreateAgentSession`,
   [`ext/tool-path.ts`](./ext/tool-path.ts) `getToolCallPathInput`, [`ext/deferred-nudge.ts`](./ext/deferred-nudge.ts)
   `deliverDeferredNudge`, [`ext/overlay-window.ts`](./ext/overlay-window.ts) `assembleWindowedBody`,

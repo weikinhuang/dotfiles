@@ -22,31 +22,46 @@ export interface BgBashStreamSet {
   stderr: BgBashReadableStream;
 }
 
-export function mergeBgBashStreams(streams: BgBashStreamSet, stream: BgBashStreamName): string {
-  if (stream === 'stdout') return streams.stdout.read().content;
-  if (stream === 'stderr') return streams.stderr.read().content;
-  // "merged": bg-bash does not track interleaving timestamps in memory.
-  // The on-disk log is interleaved in wall-clock order; this in-memory
-  // view keeps stdout then stderr with a labeled separator.
-  const out = streams.stdout.read().content;
-  const err = streams.stderr.read().content;
+/**
+ * Join a stdout slice and a stderr slice into the in-memory "merged" view:
+ * stdout first, then stderr behind a labeled separator, omitting the
+ * separator (and empty side) when either stream is empty.
+ */
+function joinMerged(out: string, err: string): string {
   if (!out && !err) return '';
   if (!err) return out;
   if (!out) return err;
   return `${out}\n--- stderr ---\n${err}`;
 }
 
+export function mergeBgBashStreams(streams: BgBashStreamSet, stream: BgBashStreamName): string {
+  if (stream === 'stdout') return streams.stdout.read().content;
+  if (stream === 'stderr') return streams.stderr.read().content;
+  // "merged": bg-bash does not track interleaving timestamps in memory.
+  // The on-disk log is interleaved in wall-clock order; this in-memory
+  // view keeps stdout then stderr with a labeled separator. This full-buffer
+  // overview is used by the overlay and log-tail; `readBgBashStream` builds
+  // the cursor-filtered merged view from the per-stream reads instead.
+  return joinMerged(streams.stdout.read().content, streams.stderr.read().content);
+}
+
 export function readBgBashStream(streams: BgBashStreamSet, stream: BgBashStreamName, opts: ReadOptions): ReadResult {
   if (stream === 'stdout') return streams.stdout.read(opts);
   if (stream === 'stderr') return streams.stderr.read(opts);
-  // For merged streams we pick a synthetic cursor and totals by summing
-  // both streams. Exact resumable reads require choosing one stream.
+  // Merged: build content from the ALREADY cursor-filtered per-stream reads
+  // (each honors `opts.sinceCursor` / `opts.maxBytes` in its own cursor
+  // space) rather than re-reading the full buffers.
   const outR = streams.stdout.read(opts);
   const errR = streams.stderr.read(opts);
-  const content = mergeBgBashStreams(streams, 'merged');
+  const merged = joinMerged(outR.content, errR.content);
+  const content = opts.maxBytes !== undefined ? clampBytes(merged, opts.maxBytes) : merged;
   return {
-    content: opts.maxBytes !== undefined ? clampBytes(content, opts.maxBytes) : content,
-    cursor: outR.cursor + errR.cursor,
+    content,
+    // Merged output interleaves two independent cursor spaces, so there is no
+    // single scalar cursor that resumes it (summing stdout+stderr cursors is
+    // meaningless). Report 0 to mark the merged read NON-RESUMABLE: a caller
+    // that needs incremental reads must pick a single stream (stdout/stderr).
+    cursor: 0,
     droppedBefore: outR.droppedBefore || errR.droppedBefore,
     totalBytes: outR.totalBytes + errR.totalBytes,
     droppedBytes: outR.droppedBytes + errR.droppedBytes,

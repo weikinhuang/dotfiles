@@ -11,8 +11,8 @@
  *   /schedule --in 10m -- remind me to stretch
  *   /schedule --at 09:00 -- stand-up notes
  *
- * Exactly one trigger flag (`--cron` / `--every` / `--in` / `--at`) is
- * required. Multi-token values (a cron expression) must be quoted so a
+ * Exactly one trigger flag (`--cron` / `--every` / `--in` / `--at` /
+ * `--after`) is required. Multi-token values (a cron expression) must be quoted so a
  * single token carries the whole expression. The tokenizer honors
  * single and double quotes.
  *
@@ -22,8 +22,7 @@
  * Pure module - no pi imports - so it is directly unit-testable.
  */
 
-import { formatDuration, parseDuration, parseDurationRange } from './duration.ts';
-import { parseCron } from './cron.ts';
+import { formatDuration, parseDuration } from './duration.ts';
 import { truncate } from '../shared/strings.ts';
 import {
   computeNextFire,
@@ -33,6 +32,7 @@ import {
   type ScheduleScope,
   type Trigger,
 } from './schedule.ts';
+import { buildTriggerFromParams, type TriggerParams } from './tool.ts';
 
 export interface ScheduleDraft {
   trigger: Trigger;
@@ -127,19 +127,6 @@ export function tokenize(input: string): string[] {
   return tokens;
 }
 
-function resolveAtTime(hhmm: string, now: Date): number | null {
-  const match = /^(\d{1,2}):(\d{2})$/.exec(hhmm.trim());
-  if (!match) return null;
-  const hour = Number(match[1]);
-  const minute = Number(match[2]);
-  if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return null;
-  const target = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hour, minute, 0, 0);
-  if (target.getTime() <= now.getTime()) {
-    target.setDate(target.getDate() + 1);
-  }
-  return target.getTime();
-}
-
 function takeValue(tokens: string[], index: number, flag: string): { value: string; next: number } | string {
   const next = tokens[index + 1];
   if (next === undefined || next === '--') return `${flag} requires a value`;
@@ -155,8 +142,11 @@ export function parseScheduleCommand(input: string, now: Date = new Date()): Par
   const tokens = tokenize(input);
   if (tokens.length === 0) return { ok: false, error: 'no arguments' };
 
-  let trigger: Trigger | null = null;
-  let triggerFlag: string | null = null;
+  // Trigger flags are collected into a `TriggerParams` and resolved once,
+  // after the loop, through the shared `buildTriggerFromParams` (the same
+  // builder the `schedule` LLM tool uses) so the two entry points can't
+  // drift on validation, `--after` range handling, or HH:MM resolution.
+  const triggerParams: TriggerParams = {};
   let jitterMs: number | undefined;
   let scope: ScheduleScope = DEFAULT_COMMAND_SCOPE;
   let name: string | undefined;
@@ -167,13 +157,6 @@ export function parseScheduleCommand(input: string, now: Date = new Date()): Par
   let whenIdle: boolean | undefined;
   let maxRuns: number | undefined;
   let chance: number | undefined;
-
-  const setTrigger = (flag: string, next: Trigger): string | null => {
-    if (trigger !== null) return `only one trigger allowed (already set ${triggerFlag})`;
-    trigger = next;
-    triggerFlag = flag;
-    return null;
-  };
 
   let i = 0;
   while (i < tokens.length) {
@@ -192,49 +175,35 @@ export function parseScheduleCommand(input: string, now: Date = new Date()): Par
       case '--cron': {
         const v = takeValue(tokens, i, '--cron');
         if (typeof v === 'string') return { ok: false, error: v };
-        if (parseCron(v.value) === null) return { ok: false, error: `invalid cron expression: "${v.value}"` };
-        const err = setTrigger('--cron', { kind: 'cron', expr: v.value.trim() });
-        if (err) return { ok: false, error: err };
+        triggerParams.cron = v.value;
         i = v.next;
         break;
       }
       case '--every': {
         const v = takeValue(tokens, i, '--every');
         if (typeof v === 'string') return { ok: false, error: v };
-        const ms = parseDuration(v.value);
-        if (ms === null) return { ok: false, error: `invalid --every duration: "${v.value}"` };
-        const err = setTrigger('--every', { kind: 'interval', ms });
-        if (err) return { ok: false, error: err };
+        triggerParams.every = v.value;
         i = v.next;
         break;
       }
       case '--in': {
         const v = takeValue(tokens, i, '--in');
         if (typeof v === 'string') return { ok: false, error: v };
-        const ms = parseDuration(v.value);
-        if (ms === null) return { ok: false, error: `invalid --in duration: "${v.value}"` };
-        const err = setTrigger('--in', { kind: 'once', at: now.getTime() + ms });
-        if (err) return { ok: false, error: err };
+        triggerParams.in = v.value;
         i = v.next;
         break;
       }
       case '--at': {
         const v = takeValue(tokens, i, '--at');
         if (typeof v === 'string') return { ok: false, error: v };
-        const at = resolveAtTime(v.value, now);
-        if (at === null) return { ok: false, error: `invalid --at time (expected HH:MM): "${v.value}"` };
-        const err = setTrigger('--at', { kind: 'once', at });
-        if (err) return { ok: false, error: err };
+        triggerParams.at = v.value;
         i = v.next;
         break;
       }
       case '--after': {
         const v = takeValue(tokens, i, '--after');
         if (typeof v === 'string') return { ok: false, error: v };
-        const range = parseDurationRange(v.value);
-        if (range === null) return { ok: false, error: `invalid --after range (expected min-max): "${v.value}"` };
-        const err = setTrigger('--after', { kind: 'after', minMs: range.minMs, maxMs: range.maxMs });
-        if (err) return { ok: false, error: err };
+        triggerParams.after = v.value;
         i = v.next;
         break;
       }
@@ -302,8 +271,9 @@ export function parseScheduleCommand(input: string, now: Date = new Date()): Par
     i++;
   }
 
-  if (trigger === null) {
-    return { ok: false, error: 'a trigger is required (--cron, --every, --in, or --at)' };
+  const built = buildTriggerFromParams(triggerParams, now.getTime());
+  if ('error' in built) {
+    return { ok: false, error: built.error };
   }
   if (prompt.trim().length === 0) {
     return { ok: false, error: 'a prompt is required after `--`' };
@@ -311,7 +281,7 @@ export function parseScheduleCommand(input: string, now: Date = new Date()): Par
   return {
     ok: true,
     draft: {
-      trigger,
+      trigger: built.trigger,
       jitterMs,
       scope,
       name,

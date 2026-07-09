@@ -32,6 +32,15 @@ describe('countDiff', () => {
     expect(countDiff('', 'x')).toEqual({ adds: 1, dels: 0 });
   });
 
+  test('a trailing newline does not count as an extra line', () => {
+    // "a\nb\n" is two lines, not three - the terminating newline closes the
+    // last line rather than starting a new empty one.
+    expect(countDiff(null, 'a\nb\n')).toEqual({ adds: 2, dels: 0 });
+    expect(countDiff('a\nb\n', null)).toEqual({ adds: 0, dels: 2 });
+    // Adding a final newline to an otherwise-identical file is a no-op count.
+    expect(countDiff('a\nb', 'a\nb\n')).toEqual({ adds: 0, dels: 0 });
+  });
+
   test('single line change counts one add + one del', () => {
     expect(countDiff('a\nb\nc', 'a\nB\nc')).toEqual({ adds: 1, dels: 1 });
   });

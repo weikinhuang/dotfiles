@@ -96,6 +96,20 @@ test('runCompute: stdout is truncated at the output cap', async () => {
   expect(Buffer.byteLength(r.stdout, 'utf8')).toBeLessThanOrEqual(256);
 });
 
+test('runCompute: stdout truncation stays within the byte cap for multibyte output', async () => {
+  // Each euro sign is 3 UTF-8 bytes; a char-based slice would overshoot the
+  // byte cap and could split a codepoint into a U+FFFD replacement char.
+  const r = await runCompute({
+    code: 'for (let i = 0; i < 1000; i++) { console.log("€".repeat(100)); } 0',
+    bounds: { maxOutputBytes: 256 },
+  });
+
+  expect(r.ok).toBe(true);
+  expect(r.truncated).toBe(true);
+  expect(Buffer.byteLength(r.stdout, 'utf8')).toBeLessThanOrEqual(256);
+  expect(r.stdout).not.toContain('\uFFFD');
+});
+
 // ──────────────────────────────────────────────────────────────────────
 // No host capabilities
 // ──────────────────────────────────────────────────────────────────────

@@ -27,6 +27,7 @@
 
 import { isTextPart } from '../shared/guards.ts';
 import { type CollapseDirective, type Directive, type EditDirective, type TrimDirective } from './directive.ts';
+import { approxImageBytes, partText } from './part-bytes.ts';
 import { collapsePlaceholder, imagePlaceholder, textPlaceholder } from './placeholder.ts';
 import { findToolCall, type LooseMessage, type LoosePart, resolveTarget, type Target, toParts } from './target.ts';
 
@@ -50,16 +51,6 @@ function copyMessage(m: LooseMessage): LooseMessage {
   return { ...m, content: typeof m.content === 'string' ? m.content : copyParts(toParts(m.content)) };
 }
 
-function partText(part: LoosePart): string {
-  return isTextPart(part) ? part.text : '';
-}
-
-function approxImageBytes(part: LoosePart): number {
-  const data = (part as { data?: unknown }).data;
-  // base64 expands ~4/3; estimate the decoded size for the annotation.
-  return typeof data === 'string' ? Math.floor((data.length * 3) / 4) : 0;
-}
-
 /** Pull a positive numeric `width` / `height` off an image part, when pi attached one. */
 function imageDimension(part: LoosePart, key: 'width' | 'height'): number | undefined {
   const v = (part as Record<string, unknown>)[key];
@@ -75,6 +66,11 @@ function applyTrim(messages: LooseMessage[], d: TrimDirective): boolean {
   const replacePart = (idx: number): boolean => {
     const part = parts[idx];
     if (!part) return false;
+    // Only text / image parts trim to a text placeholder. A whole-message
+    // trim iterates every part, so skip anything else (e.g. an assistant
+    // `toolCall` part) - replacing it with text would corrupt the call/result
+    // pairing the provider requires.
+    if (part.type !== 'image' && !isTextPart(part)) return false;
     const text =
       part.type === 'image'
         ? imagePlaceholder({

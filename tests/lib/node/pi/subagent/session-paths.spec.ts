@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
 import {
   childSessionDir,
-  listStaleWorktrees,
+  parseStaleWorktreePaths,
   retainMs,
   STALE_WORKTREE_PREFIX,
   subagentSessionBase,
@@ -226,21 +226,54 @@ describe('sweepStaleSessionsFlat', () => {
   });
 });
 
-describe('listStaleWorktrees', () => {
-  test('returns only directories matching the pi-subagent-* prefix', () => {
-    const tree: Record<string, { name: string; mtimeMs: number; kind: 'file' | 'dir' }[]> = {
-      '/repo/.git/worktrees': [
-        { name: `${STALE_WORKTREE_PREFIX}abc`, mtimeMs: 0, kind: 'dir' },
-        { name: 'feature-x', mtimeMs: 0, kind: 'dir' },
-        { name: `${STALE_WORKTREE_PREFIX}file`, mtimeMs: 0, kind: 'file' },
-      ],
-    };
-    const out = listStaleWorktrees('/repo', makeSweepFs(tree));
+describe('parseStaleWorktreePaths', () => {
+  test('returns checkout paths of pi-subagent-* branch worktrees, skipping the main + unrelated', () => {
+    // Regression: git names the .git/worktrees/ admin dir after the
+    // checkout basename ("checkout"), NOT the pi-subagent-* branch, and
+    // `git worktree remove` needs the checkout path - so discovery must
+    // read the porcelain listing, keyed on the branch name.
+    const porcelain = [
+      'worktree /repo',
+      'HEAD deadbeef',
+      'branch refs/heads/main',
+      '',
+      `worktree /tmp/pi-subagent-wt-aaa/checkout`,
+      'HEAD cafef00d',
+      `branch refs/heads/${STALE_WORKTREE_PREFIX}aaa`,
+      '',
+      'worktree /tmp/some-other/checkout',
+      'HEAD 12345678',
+      'branch refs/heads/feature-x',
+      '',
+      `worktree /tmp/pi-subagent-wt-bbb/checkout`,
+      'HEAD 87654321',
+      `branch refs/heads/${STALE_WORKTREE_PREFIX}bbb`,
+      '',
+    ].join('\n');
 
-    expect(out).toEqual(['/repo/.git/worktrees/pi-subagent-abc']);
+    expect(parseStaleWorktreePaths(porcelain)).toEqual([
+      '/tmp/pi-subagent-wt-aaa/checkout',
+      '/tmp/pi-subagent-wt-bbb/checkout',
+    ]);
   });
 
-  test('missing worktrees dir returns empty list', () => {
-    expect(listStaleWorktrees('/nothing', makeSweepFs({}))).toEqual([]);
+  test('skips detached / bare worktrees (no branch line)', () => {
+    const porcelain = ['worktree /repo', 'HEAD deadbeef', 'detached', '', 'worktree /repo/bare', 'bare', ''].join('\n');
+    expect(parseStaleWorktreePaths(porcelain)).toEqual([]);
+  });
+
+  test('empty output returns empty list', () => {
+    expect(parseStaleWorktreePaths('')).toEqual([]);
+  });
+
+  test('tolerates a trailing block with no blank separator', () => {
+    const porcelain = [
+      'worktree /repo',
+      'branch refs/heads/main',
+      '',
+      `worktree /tmp/pi-subagent-wt-ccc/checkout`,
+      `branch refs/heads/${STALE_WORKTREE_PREFIX}ccc`,
+    ].join('\n');
+    expect(parseStaleWorktreePaths(porcelain)).toEqual(['/tmp/pi-subagent-wt-ccc/checkout']);
   });
 });

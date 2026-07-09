@@ -28,15 +28,10 @@
  * `ModelRegistryLike` types from `../subagent/spawn.ts`).
  */
 
-import { homedir } from 'node:os';
-import { join } from 'node:path';
-
-import { readJsoncOrUndefined } from '../fs-safe.ts';
-import { parseModelSpec } from '../model-spec.ts';
-import { piAgentDir, piProjectPath } from '../pi-paths.ts';
-import { isRecord } from '../shared.ts';
+import { truncate } from '../shared.ts';
 import { type AgentDef } from '../subagent/loader.ts';
-import { resolveChildModel, type ModelRegistryLike } from '../subagent/spawn.ts';
+import { type ModelRegistryLike } from '../subagent/spawn.ts';
+import { createOneShotSubagentAdapter, resolveRoleplayChildModelSettings } from './one-shot.ts';
 
 // ──────────────────────────────────────────────────────────────────────
 // Pure helpers: span rendering + trigger + validation + record shaping
@@ -90,7 +85,13 @@ export function renderSpan(
   let budget = maxChars - TRUNCATION_MARKER.length - 2;
   for (let i = lines.length - 1; i >= 0; i--) {
     const line = lines[i];
-    if (line.length + 2 > budget) break;
+    if (line.length + 2 > budget) {
+      // Never starve the summarizer down to just the marker: always keep
+      // the newest line, truncated to whatever budget is left, when even
+      // it alone would overflow.
+      if (kept.length === 0 && budget > 0) kept.unshift(truncate(line, budget));
+      break;
+    }
     kept.unshift(line);
     budget -= line.length + 2;
   }
@@ -194,56 +195,19 @@ export interface ResolveSummarizeSettingsOpts {
   home?: string;
 }
 
-function parseSummarizeModel(raw: unknown): string | null {
-  if (typeof raw !== 'string') return null;
-  const parsed = parseModelSpec(raw);
-  if (!parsed) return null;
-  return `${parsed.provider}/${parsed.modelId}`;
-}
-
 /**
- * Resolve the `summarizeModel` setting from, in order:
- *
- *   1. `<cwd>/.pi/roleplay-summarize.json` - `{summarizeModel: "…"}` or a
- *      bare string.
- *   2. `<piAgentDir>/roleplay-summarize.json` - same shape.
- *   3. `<piAgentDir>/settings.json` - under `roleplay.summarizeModel`.
- *
- * First hit wins. Returns `null` when none resolve a non-empty
- * `provider/model` string (adapter then stays disabled).
+ * Resolve the `summarizeModel` setting via the shared roleplay child-model
+ * cascade (`roleplay-summarize.json` -> settings.json `roleplay.summarizeModel`).
+ * Returns `null` when nothing resolves (adapter then stays disabled).
  */
 export function resolveSummarizeSettings(opts: ResolveSummarizeSettingsOpts): SummarizeSettings | null {
-  const home = opts.home ?? homedir();
-  const agentDir = piAgentDir(process.env, home);
-  const candidates: { path: string; extract: (v: unknown) => unknown }[] = [
-    {
-      path: piProjectPath(opts.cwd, 'roleplay-summarize.json'),
-      extract: (v) => (isRecord(v) ? v.summarizeModel : v),
-    },
-    {
-      path: join(agentDir, 'roleplay-summarize.json'),
-      extract: (v) => (isRecord(v) ? v.summarizeModel : v),
-    },
-    {
-      path: join(agentDir, 'settings.json'),
-      extract: (v) => {
-        if (!isRecord(v)) return undefined;
-        const roleplay = v.roleplay;
-        if (!isRecord(roleplay)) return undefined;
-        return roleplay.summarizeModel;
-      },
-    },
-  ];
-
-  for (const candidate of candidates) {
-    const body = readJsoncOrUndefined(candidate.path);
-    if (body === undefined) continue;
-    const value = parseSummarizeModel(candidate.extract(body));
-    if (value !== null) {
-      return { summarizeModel: value, source: candidate.path };
-    }
-  }
-  return null;
+  const resolved = resolveRoleplayChildModelSettings({
+    cwd: opts.cwd,
+    home: opts.home,
+    key: 'summarizeModel',
+    filename: 'roleplay-summarize.json',
+  });
+  return resolved ? { summarizeModel: resolved.model, source: resolved.source } : null;
 }
 
 // ──────────────────────────────────────────────────────────────────────
@@ -316,19 +280,6 @@ export interface Summarizer<M = unknown> {
 const DEFAULT_MAX_OUTPUT_CHARS = 1500;
 const DEFAULT_TIMEOUT_MS = 60000;
 
-function report(
-  wiring: { log?: (level: 'info' | 'warn', message: string) => void },
-  level: 'info' | 'warn',
-  message: string,
-): void {
-  if (!wiring.log) return;
-  try {
-    wiring.log(level, message);
-  } catch {
-    /* swallow - diagnostics never break the adapter */
-  }
-}
-
 /**
  * Build a {@link Summarizer} from a fully-resolved wiring. Call once at
  * extension startup (or lazily on first compaction); reuse the returned
@@ -349,39 +300,15 @@ export function createSummarizer<M>(wiring: SummarizerWiring<M>): Summarizer<M> 
       if (!agent || !settings) return null;
       if (spanText.trim().length === 0) return null;
 
-      const resolution = resolveChildModel({
-        override: settings.summarizeModel,
+      const adapter = createOneShotSubagentAdapter<M>({
         agent,
-        parent: ctx.model,
-        modelRegistry: ctx.modelRegistry,
+        runOneShot: wiring.runOneShot,
+        timeoutMs,
+        label: 'summarizer',
+        log: wiring.log,
       });
-      if (!resolution.ok) {
-        report(wiring, 'info', `summarizer model resolution failed: ${resolution.error}`);
-        return null;
-      }
-
-      let result: SummarizeRunResult;
-      try {
-        result = await wiring.runOneShot({
-          cwd: ctx.cwd,
-          agent,
-          model: resolution.model,
-          modelRegistry: ctx.modelRegistry,
-          task: buildSummarizeTask(spanText, priorSummary),
-          signal: ctx.signal,
-          timeoutMs,
-        });
-      } catch (e) {
-        report(wiring, 'info', `summarizer spawn error: ${e instanceof Error ? e.message : String(e)}`);
-        return null;
-      }
-
-      if (result.stopReason !== 'completed') {
-        report(wiring, 'info', `summarizer stop=${result.stopReason}: ${result.errorMessage ?? '(no message)'}`);
-        return null;
-      }
-
-      return validateSummary(result.finalText, maxOutput);
+      const finalText = await adapter.run(ctx, buildSummarizeTask(spanText, priorSummary), settings.summarizeModel);
+      return finalText === null ? null : validateSummary(finalText, maxOutput);
     },
   };
 }

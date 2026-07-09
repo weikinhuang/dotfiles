@@ -20,6 +20,7 @@
  */
 
 import { emptyLoreMeta, type LoreMeta, type RoleplayKind } from '../roleplay/store.ts';
+import { isRecord } from '../shared.ts';
 
 export interface ImportRecord {
   kind: RoleplayKind;
@@ -71,7 +72,9 @@ export interface NormalizedCard {
 // ── Coercion helpers ──────────────────────────────────────────────────────
 
 function asRecord(v: unknown): Record<string, unknown> {
-  return v && typeof v === 'object' ? (v as Record<string, unknown>) : {};
+  // Reject arrays (and scalars / null): a JSON array is not a card / lore
+  // object, so it degrades to an empty record rather than being read as one.
+  return isRecord(v) ? v : {};
 }
 
 function str(v: unknown): string {

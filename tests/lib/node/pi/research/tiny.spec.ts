@@ -14,7 +14,7 @@
  * downstream path, and we bypass that path entirely).
  */
 
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -274,6 +274,31 @@ describe('call counter', () => {
     writeFileSync(join(run, '.tiny-count'), 'not-a-number\n');
 
     expect(getCallCount(run)).toBe(0);
+  });
+
+  // Regression (#9): the read-modify-write runs under a mkdir-based
+  // cross-process lock so parallel fanout can't both read the same
+  // value and each write n+1. The lock must be released after each
+  // increment, and a stale lock (crashed peer) must not wedge the run.
+  test('incrementCallCount releases its lock and never double-counts sequentially', () => {
+    const run = mkTmp('counter-lock');
+    for (let i = 1; i <= 5; i++) {
+      expect(incrementCallCount(run)).toBe(i);
+      // Lock is released synchronously before the call returns.
+      expect(existsSync(join(run, '.tiny-count.lock'))).toBe(false);
+    }
+    expect(getCallCount(run)).toBe(5);
+  });
+
+  test('incrementCallCount falls back (does not deadlock) on a stale lock', () => {
+    const run = mkTmp('counter-stale');
+    // Simulate a crashed peer that left its lock directory behind.
+    mkdirSync(join(run, '.tiny-count.lock'));
+
+    // The bounded wait expires and the increment proceeds unlocked
+    // rather than hanging forever.
+    expect(incrementCallCount(run)).toBe(1);
+    expect(getCallCount(run)).toBe(1);
   });
 });
 

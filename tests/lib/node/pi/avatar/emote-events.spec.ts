@@ -41,6 +41,9 @@ test('isEmoteSignal rejects malformed / foreign payloads', () => {
   expect(isEmoteSignal({ emote: 'sad', emotes: 'happy', at: 1 })).toBe(false); // emotes not array
   expect(isEmoteSignal({ emote: 'sad', emotes: [1, 2], at: 1 })).toBe(false); // non-string entries
   expect(isEmoteSignal({ emote: 'sad', emotes: ['sad'], at: '1' })).toBe(false); // at not number
+  expect(isEmoteSignal({ emote: 'sad', emotes: ['sad'], at: Number.NaN })).toBe(false); // at NaN
+  expect(isEmoteSignal({ emote: 'sad', emotes: ['sad'], at: Number.POSITIVE_INFINITY })).toBe(false); // at Infinity
+  expect(isEmoteSignal({ emote: 'sad', emotes: ['happy'], at: 1 })).toBe(false); // emote not in emotes
 });
 
 test('collectLoggedEmotes returns well-formed records in order, skipping noise', () => {

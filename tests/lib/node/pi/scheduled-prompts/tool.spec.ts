@@ -6,7 +6,7 @@
 import { describe, expect, test } from 'vitest';
 
 import { type Trigger } from '../../../../../lib/node/pi/scheduled-prompts/schedule.ts';
-import { buildTriggerFromParams } from '../../../../../lib/node/pi/scheduled-prompts/tool.ts';
+import { buildTriggerFromParams, resolveAtTime } from '../../../../../lib/node/pi/scheduled-prompts/tool.ts';
 
 const NOW = new Date(2026, 0, 1, 8, 0, 0).getTime();
 
@@ -66,5 +66,27 @@ describe('buildTriggerFromParams', () => {
       error: 'invalid at time (expected HH:MM): "99:99"',
     });
     expect(buildTriggerFromParams({ at: 'noon' }, NOW)).toEqual({ error: 'invalid at time (expected HH:MM): "noon"' });
+  });
+});
+
+describe('resolveAtTime', () => {
+  test('resolves a later-today time to today', () => {
+    expect(resolveAtTime('09:00', NOW)).toBe(new Date(2026, 0, 1, 9, 0, 0).getTime());
+  });
+
+  test('rolls a passed time to tomorrow', () => {
+    expect(resolveAtTime('07:00', NOW)).toBe(new Date(2026, 0, 2, 7, 0, 0).getTime());
+  });
+
+  test('tolerates surrounding whitespace', () => {
+    expect(resolveAtTime('  09:00 ', NOW)).toBe(new Date(2026, 0, 1, 9, 0, 0).getTime());
+  });
+
+  test('returns null for malformed or out-of-range times', () => {
+    expect(resolveAtTime('99:99', NOW)).toBeNull();
+    expect(resolveAtTime('24:00', NOW)).toBeNull();
+    expect(resolveAtTime('09:60', NOW)).toBeNull();
+    expect(resolveAtTime('noon', NOW)).toBeNull();
+    expect(resolveAtTime('', NOW)).toBeNull();
   });
 });

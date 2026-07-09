@@ -77,10 +77,23 @@ describe('isBudgetSpecShape', () => {
     expect(isBudgetSpecShape({})).toBe(true);
   });
 
-  test('numeric fields must be non-negative finite', () => {
+  test('numeric fields must be positive finite', () => {
     expect(isBudgetSpecShape({ maxIter: 5 })).toBe(true);
     expect(isBudgetSpecShape({ maxIter: -1 })).toBe(false);
     expect(isBudgetSpecShape({ maxCostUsd: Number.NaN })).toBe(false);
+  });
+
+  test('rejects zero / negative / non-integer budgets that would insta-stop the loop', () => {
+    // Regression: a persisted maxIter:0 made computeStopReason return
+    // budget-iter on the first tick. Zero / negative caps are dropped.
+    expect(isBudgetSpecShape({ maxIter: 0 })).toBe(false);
+    expect(isBudgetSpecShape({ maxIter: 2.5 })).toBe(false);
+    expect(isBudgetSpecShape({ maxCostUsd: 0 })).toBe(false);
+    expect(isBudgetSpecShape({ maxCostUsd: -1 })).toBe(false);
+    expect(isBudgetSpecShape({ wallClockSeconds: 0 })).toBe(false);
+    expect(isBudgetSpecShape({ wallClockSeconds: -30 })).toBe(false);
+    // Positive boundaries still pass.
+    expect(isBudgetSpecShape({ maxIter: 1, maxCostUsd: 0.01, wallClockSeconds: 1 })).toBe(true);
   });
 });
 
@@ -228,6 +241,26 @@ describe('buildCheckSpecFromParams', () => {
     expect(buildCheckSpecFromParams('default', { kind: 'diff', artifact: 'out.svg' }, startedAt)).toMatchObject({
       ok: false,
       error: 'unknown kind "diff"',
+    });
+  });
+
+  test('rejects non-positive / non-integer budgets that would insta-stop the loop', () => {
+    const base = { kind: 'bash', artifact: 'out.svg', cmd: 'true' } as const;
+    expect(buildCheckSpecFromParams('default', { ...base, maxIter: 0 }, startedAt)).toMatchObject({
+      ok: false,
+      error: /maxIter must be a positive integer/,
+    });
+    expect(buildCheckSpecFromParams('default', { ...base, maxIter: 2.5 }, startedAt)).toMatchObject({
+      ok: false,
+      error: /maxIter must be a positive integer/,
+    });
+    expect(buildCheckSpecFromParams('default', { ...base, maxCostUsd: 0 }, startedAt)).toMatchObject({
+      ok: false,
+      error: /maxCostUsd must be a positive number/,
+    });
+    expect(buildCheckSpecFromParams('default', { ...base, wallClockSeconds: -1 }, startedAt)).toMatchObject({
+      ok: false,
+      error: /wallClockSeconds must be a positive number/,
     });
   });
 });

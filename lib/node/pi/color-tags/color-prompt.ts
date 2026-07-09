@@ -21,6 +21,8 @@
  * Pure module - no pi runtime imports.
  */
 
+import { appendSectionByHeading } from '../prompt-section.ts';
+
 import { NAMED_COLOR_NAMES } from './resolve-color.ts';
 
 /** The heading the addendum injects under. Idempotency in `appendColorPrompt` keys off this string. */
@@ -91,8 +93,5 @@ export function buildColorPromptAddendum(options: BuildColorPromptOptions): stri
  * other re-entry paths don't double-inject.
  */
 export function appendColorPrompt(base: string, addendum: string): string {
-  if (base.includes(COLOR_PROMPT_HEADING)) return base;
-  const trimmed = base.replace(/\s+$/, '');
-  if (trimmed.length === 0) return addendum;
-  return `${trimmed}\n\n${addendum}`;
+  return appendSectionByHeading(base, addendum, COLOR_PROMPT_HEADING);
 }

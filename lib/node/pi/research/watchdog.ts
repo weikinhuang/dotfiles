@@ -47,6 +47,7 @@
  * the module - the reason is a plain string).
  */
 
+import { delay } from '../abortable-delay.ts';
 import { appendJournal } from './journal.ts';
 
 // ──────────────────────────────────────────────────────────────────────
@@ -140,10 +141,6 @@ export type WatchdogResult =
 const DEFAULT_STALE_MS = 300_000;
 const DEFAULT_POLL_MS = 10_000;
 
-function defaultSleep(ms: number): Promise<void> {
-  return new Promise<void>((resolve) => setTimeout(resolve, ms));
-}
-
 interface BuildStallReasonArgs {
   id: string;
   elapsedMs: number;
@@ -181,7 +178,14 @@ export async function watch(opts: WatchdogOpts): Promise<WatchdogResult> {
   const pollIntervalMs = opts.pollIntervalMs ?? DEFAULT_POLL_MS;
   const abortOnStall = opts.abortOnStall ?? true;
   const now = opts.now ?? ((): number => Date.now());
-  const sleep = opts.sleep ?? defaultSleep;
+  // Default sleep reuses the shared abortable `delay`: a parent abort
+  // during a poll wait wakes the loop immediately (the loop re-checks
+  // `signal.aborted` right after and returns `aborted-by-parent`), so
+  // swallow `delay`'s abort rejection. Absent a parent signal, a
+  // never-aborting controller keeps the plain "resolve after ms"
+  // behavior.
+  const sleepSignal = opts.signal ?? new AbortController().signal;
+  const sleep = opts.sleep ?? ((ms: number): Promise<void> => delay(ms, sleepSignal).catch(() => undefined));
 
   let lastStatus: WatchdogStatus | null = null;
 

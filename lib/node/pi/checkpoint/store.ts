@@ -27,13 +27,15 @@ import { existsSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs
 import { basename, join } from 'node:path';
 
 import { atomicWriteFile } from '../atomic-write.ts';
+import { readJsonOrUndefined } from '../fs-safe.ts';
 import { piAgentPath } from '../pi-paths.ts';
+import { sha256Hex } from '../shared/hash.ts';
 
 import type { CheckpointManifest } from './types.ts';
 
 /** sha256 hex of `bytes`. The content-address used for every blob. */
 export function hashBytes(bytes: Buffer | string): string {
-  return createHash('sha256').update(bytes).digest('hex');
+  return sha256Hex(bytes);
 }
 
 /**
@@ -122,12 +124,8 @@ function isManifest(value: unknown): value is CheckpointManifest {
 
 /** Read the manifest anchored to `entryId`, or `undefined` if absent / malformed. */
 export function readManifest(storeDir: string, entryId: string): CheckpointManifest | undefined {
-  try {
-    const parsed = JSON.parse(readFileSync(manifestPath(storeDir, entryId), 'utf8')) as unknown;
-    return isManifest(parsed) ? parsed : undefined;
-  } catch {
-    return undefined;
-  }
+  const parsed = readJsonOrUndefined(manifestPath(storeDir, entryId));
+  return isManifest(parsed) ? parsed : undefined;
 }
 
 /**

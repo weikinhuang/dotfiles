@@ -35,7 +35,7 @@
 import { parseModelSpec } from '../model-spec.ts';
 import { collectSubagentInjections, type SubagentExtensionFactory } from './extension-injection.ts';
 import { type AgentDef } from './loader.ts';
-import { extractFinalAssistantText, type AgentMessageLike } from './result.ts';
+import { classifyStopReason, extractFinalAssistantText, type AgentMessageLike } from './result.ts';
 
 // ──────────────────────────────────────────────────────────────────────
 // Model resolution
@@ -359,14 +359,17 @@ export async function runOneShotAgent<M, S>(options: RunOneShotAgentOptions<M, S
   let turns = 0;
   let reachedMaxTurns = false;
   let abortedByUs = false;
+  let timedOut = false;
   let errFromChild: string | undefined;
-  // Whether the most recent assistant turn ended wanting to continue (it
+  // Whether the current assistant turn ended wanting to continue (it
   // emitted a tool call, so pi will run another turn). Lets us tell a
   // *natural completion that lands on the maxTurns-th turn* (no pending
   // tool call -> the agent is done) apart from a *runaway cut off at the
-  // cap* (pending tool call -> we truncated real work). Defaults to true
-  // so a turn we have no message detail for still trips the cap.
-  let lastTurnWantsMore = true;
+  // cap* (pending tool call -> we truncated real work). Defaults to
+  // false and is reset at each `turn_start`, so a stale value from a
+  // prior turn can never mis-flag a cap-hit as max_turns; we only trip
+  // the cap when THIS turn actually signalled a pending tool call.
+  let lastTurnWantsMore = false;
 
   const doAbort = (): void => {
     abortedByUs = true;
@@ -374,7 +377,9 @@ export async function runOneShotAgent<M, S>(options: RunOneShotAgentOptions<M, S
   };
 
   const unsubscribe = child.subscribe((event: AgentSessionEventLike) => {
-    if (event.type === 'message_end' && event.message?.role === 'assistant') {
+    if (event.type === 'turn_start') {
+      lastTurnWantsMore = false;
+    } else if (event.type === 'message_end' && event.message?.role === 'assistant') {
       const err = event.message.errorMessage;
       if (err) errFromChild = err;
       const content = event.message.content;
@@ -396,7 +401,10 @@ export async function runOneShotAgent<M, S>(options: RunOneShotAgentOptions<M, S
     onEvent?.({ event, turn: turns, abort: doAbort });
   });
 
-  const timer = setTimeout(doAbort, timeoutMs);
+  const timer = setTimeout(() => {
+    timedOut = true;
+    doAbort();
+  }, timeoutMs);
   const onParentAbort = (): void => doAbort();
   signal?.addEventListener('abort', onParentAbort, { once: true });
 
@@ -416,22 +424,24 @@ export async function runOneShotAgent<M, S>(options: RunOneShotAgentOptions<M, S
   const messages = child.state.messages as AgentMessageLike[];
   const finalText = extractFinalAssistantText(messages);
 
-  let stopReason: OneShotStopReason;
+  // Share the one stop-reason precedence (max_turns > aborted > error >
+  // completed) with `result.ts::classifyStopReason` instead of inlining a
+  // second copy. A thrown abort / a fired parent signal / our own abort
+  // all count as "aborted"; a non-abort throw or a child-reported
+  // errorMessage counts as "error".
+  const aborted = abortedByUs || errorIsAbort || signal?.aborted === true;
+  const hadError = (thrownError !== undefined && !errorIsAbort) || errFromChild !== undefined;
+  const stopReason: OneShotStopReason = classifyStopReason({ reachedMaxTurns, aborted, error: hadError });
+
   let errorMessage: string | undefined;
-  if (reachedMaxTurns) {
-    stopReason = 'max_turns';
+  if (stopReason === 'max_turns') {
     errorMessage = `hit max turns (${maxTurns})`;
-  } else if (abortedByUs || errorIsAbort || signal?.aborted === true) {
-    stopReason = 'aborted';
-    errorMessage = 'aborted';
-  } else if (thrownError && !errorIsAbort) {
-    stopReason = 'error';
-    errorMessage = thrownError.message;
-  } else if (errFromChild) {
-    stopReason = 'error';
-    errorMessage = errFromChild;
-  } else {
-    stopReason = 'completed';
+  } else if (stopReason === 'aborted') {
+    // Distinguish the wall-clock timeout from a user / parent abort so
+    // the tool result explains WHY the child stopped.
+    errorMessage = timedOut ? `timed out after ${timeoutMs}ms` : 'aborted';
+  } else if (stopReason === 'error') {
+    errorMessage = thrownError && !errorIsAbort ? thrownError.message : errFromChild;
   }
 
   if (!keepSession) {

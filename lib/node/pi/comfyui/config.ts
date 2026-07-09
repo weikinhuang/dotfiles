@@ -21,7 +21,9 @@
  */
 
 import { readJsoncOrUndefined } from '../fs-safe.ts';
+import { modelAcceptsImages } from '../image-ref/vision.ts';
 import { piAgentPath, piProjectPath } from '../pi-paths.ts';
+import { isRecord } from '../shared.ts';
 
 import type {
   AuthHeader,
@@ -78,10 +80,6 @@ export const DEFAULT_CONFIG: ComfyuiConfig = {
 /** Floor for the auto-download poll interval, so a tiny value can't hammer the server. */
 export const MIN_POLL_INTERVAL_MS = 1000;
 
-function isObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
 function asBoolean(value: unknown): boolean | undefined {
   return typeof value === 'boolean' ? value : undefined;
 }
@@ -109,7 +107,7 @@ function asScoreThreshold(value: unknown, fallback: number): number | undefined 
 }
 
 function asAuthHeader(value: unknown): AuthHeader | undefined {
-  if (!isObject(value)) return undefined;
+  if (!isRecord(value)) return undefined;
   const name = asString(value.name);
   const headerValue = asString(value.value);
   if (name === undefined || headerValue === undefined || name.length === 0) return undefined;
@@ -125,7 +123,7 @@ function asAuthHeader(value: unknown): AuthHeader | undefined {
  * doesn't pin an empty `defaults` object onto the merged config.
  */
 function asGenerationDefaults(value: unknown): GenerationDefaults | undefined {
-  if (!isObject(value)) return undefined;
+  if (!isRecord(value)) return undefined;
   const out: GenerationDefaults = {};
 
   const width = asPositiveNumber(value.width);
@@ -148,7 +146,7 @@ function asGenerationDefaults(value: unknown): GenerationDefaults | undefined {
 }
 
 function asInputMapping(value: unknown): InputMapping | undefined {
-  if (!isObject(value)) return undefined;
+  if (!isRecord(value)) return undefined;
   const node = asString(value.node);
   const key = asString(value.key);
   if (node === undefined || key === undefined || node.length === 0 || key.length === 0) return undefined;
@@ -156,7 +154,7 @@ function asInputMapping(value: unknown): InputMapping | undefined {
 }
 
 function asInputMap(value: unknown): Record<string, InputMapping> | undefined {
-  if (!isObject(value)) return undefined;
+  if (!isRecord(value)) return undefined;
   const out: Record<string, InputMapping> = {};
   for (const [name, raw] of Object.entries(value)) {
     const mapping = asInputMapping(raw);
@@ -177,7 +175,7 @@ function asImageList(value: unknown): InputMapping[] | undefined {
 
 function asRoleMapping(value: unknown): RoleMapping | undefined {
   const base = asInputMapping(value);
-  if (base === undefined || !isObject(value)) return undefined;
+  if (base === undefined || !isRecord(value)) return undefined;
   const out: RoleMapping = { ...base };
   const kind = asString(value.kind);
   if (kind === 'image' || kind === 'mask') out.kind = kind;
@@ -187,7 +185,7 @@ function asRoleMapping(value: unknown): RoleMapping | undefined {
 }
 
 function asRoleMap(value: unknown): Record<string, RoleMapping> | undefined {
-  if (!isObject(value)) return undefined;
+  if (!isRecord(value)) return undefined;
   const out: Record<string, RoleMapping> = {};
   for (const [role, raw] of Object.entries(value)) {
     const mapping = asRoleMapping(raw);
@@ -218,7 +216,7 @@ function asStringList(value: unknown): string[] | undefined {
  * channel survives so an all-garbage block doesn't pin an empty object.
  */
 function asRefineWith(value: unknown): RefineWith | undefined {
-  if (!isObject(value)) return undefined;
+  if (!isRecord(value)) return undefined;
   const out: RefineWith = {};
   const img2img = asString(value.img2img);
   if (img2img !== undefined && img2img.length > 0) out.img2img = img2img;
@@ -232,7 +230,7 @@ function asRefineWith(value: unknown): RefineWith | undefined {
 }
 
 function asWorkflowConfig(value: unknown): WorkflowConfig | undefined {
-  if (!isObject(value)) return undefined;
+  if (!isRecord(value)) return undefined;
   const file = asString(value.file);
   if (file === undefined || file.length === 0) return undefined;
   const inputs = asInputMap(value.inputs) ?? {};
@@ -261,7 +259,7 @@ function asWorkflowConfig(value: unknown): WorkflowConfig | undefined {
 }
 
 function asWorkflows(value: unknown): Record<string, WorkflowConfig> | undefined {
-  if (!isObject(value)) return undefined;
+  if (!isRecord(value)) return undefined;
   const out: Record<string, WorkflowConfig> = {};
   for (const [name, raw] of Object.entries(value)) {
     const workflow = asWorkflowConfig(raw);
@@ -276,7 +274,7 @@ function asWorkflows(value: unknown): Record<string, WorkflowConfig> | undefined
  * non-object input.
  */
 export function coerceConfigLayer(raw: unknown): Partial<ComfyuiConfig> {
-  if (!isObject(raw)) return {};
+  if (!isRecord(raw)) return {};
   const out: Partial<ComfyuiConfig> = {};
 
   const baseUrl = asString(raw.baseUrl);
@@ -454,10 +452,10 @@ export interface SendDecision {
  */
 export function resolveSendToModel(requested: boolean, modelInput: unknown): SendDecision {
   if (!requested) return { send: false, visionBlocked: false };
-  if (Array.isArray(modelInput)) {
-    const inputs = modelInput as unknown[];
-    if (!inputs.includes('image')) return { send: false, visionBlocked: true };
-  }
+  // Same gate as the image-ref extension: attach unless the model positively
+  // cannot accept image input. An unknown capability (non-array) is honored
+  // optimistically so a detection gap never silently drops a supported image.
+  if (!modelAcceptsImages(modelInput)) return { send: false, visionBlocked: true };
   return { send: true, visionBlocked: false };
 }
 
@@ -489,5 +487,7 @@ export function loadComfyuiConfig(cwd: string, shipped: WorkflowConfig): Comfyui
 export function loadUserWorkflowNames(cwd: string): string[] {
   const userWorkflows = coerceConfigLayer(readJsoncOrUndefined(piAgentPath('comfyui.json'))).workflows ?? {};
   const projectWorkflows = coerceConfigLayer(readJsoncOrUndefined(piProjectPath(cwd, 'comfyui.json'))).workflows ?? {};
-  return [...Object.keys(userWorkflows), ...Object.keys(projectWorkflows)];
+  // A workflow named in both the user-global and project layers is one
+  // workflow (the project layer overrides), so de-dup the merged name list.
+  return [...new Set([...Object.keys(userWorkflows), ...Object.keys(projectWorkflows)])];
 }

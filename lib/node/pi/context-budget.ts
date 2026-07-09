@@ -106,7 +106,10 @@ export function shouldAutoCompact(
   if (!Number.isFinite(thresholdPercent) || thresholdPercent <= 0 || thresholdPercent >= 100) return false;
   if (currentPercent === null || currentPercent === undefined) return false;
   if (currentPercent < thresholdPercent) return false;
-  // Edge trigger: previous must be known AND below threshold.
-  if (previousPercent === null || previousPercent === undefined) return false;
+  // Edge trigger: fire only when crossing UP into the threshold band. An
+  // unknown previous (session start, or the null usage gap right after
+  // compaction) is treated as below-threshold so a first known reading at or
+  // above the threshold still edge-triggers instead of being swallowed.
+  if (previousPercent === null || previousPercent === undefined) return true;
   return previousPercent < thresholdPercent;
 }

@@ -28,6 +28,8 @@ import {
   shouldInterruptAfterDeadline,
 } from 'quickjs-emscripten';
 
+import { BYTE_ENCODER } from './shared/bytes.ts';
+
 /** Resource limits enforced on every {@link runCompute} call. */
 export interface ComputeBounds {
   /** Hard heap cap for the QuickJS runtime, in bytes. */
@@ -276,7 +278,6 @@ function loadModule(): Promise<QuickJSWASMModule> {
 }
 
 function createStdoutSink(maxBytes: number): StdoutSink {
-  const encoder = new TextEncoder();
   const chunks: string[] = [];
   let bytes = 0;
   let didTruncate = false;
@@ -285,12 +286,18 @@ function createStdoutSink(maxBytes: number): StdoutSink {
       if (didTruncate) {
         return;
       }
-      const size = encoder.encode(chunk).length;
+      const encoded = BYTE_ENCODER.encode(chunk);
+      const size = encoded.length;
       if (bytes + size > maxBytes) {
         didTruncate = true;
         const remaining = maxBytes - bytes;
         if (remaining > 0) {
-          chunks.push(chunk.slice(0, remaining));
+          // Slice on a UTF-8 byte boundary, not a UTF-16 char boundary:
+          // `chunk.slice(0, remaining)` would over/under-shoot the byte
+          // budget for multibyte text. `stream: true` drops a trailing
+          // partial multibyte sequence instead of emitting a U+FFFD.
+          chunks.push(new TextDecoder().decode(encoded.subarray(0, remaining), { stream: true }));
+          bytes = maxBytes;
         }
         return;
       }

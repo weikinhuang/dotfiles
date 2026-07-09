@@ -53,6 +53,7 @@ import { parseModelSpec } from '../model-spec.ts';
 import { readTextOrNull } from '../fs-safe.ts';
 import { piAgentPath, piProjectPath } from '../pi-paths.ts';
 import { type ThinkingLevel, THINKING_LEVELS } from '../preset.ts';
+import { trimOrUndefined } from '../shared/strings.ts';
 
 export type AgentModel = 'inherit' | { provider: string; modelId: string };
 export type AgentIsolation = 'shared-cwd' | 'worktree';
@@ -186,9 +187,7 @@ interface FrontmatterRaw extends Record<string, unknown> {
 }
 
 function toStringOrUndefined(v: unknown): string | undefined {
-  if (typeof v !== 'string') return undefined;
-  const t = v.trim();
-  return t.length > 0 ? t : undefined;
+  return trimOrUndefined(typeof v === 'string' ? v : undefined);
 }
 
 function toPositiveNumber(v: unknown): number | undefined {

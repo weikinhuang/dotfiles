@@ -28,13 +28,31 @@
 
 import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { resolve, sep } from 'node:path';
 
 import { type FilesystemRules, type FilesystemPolicy } from '../filesystem-policy/schema.ts';
+import { expandTilde } from '../path-expand.ts';
 
 import { LINUX_RULE_DEPTH_DEFAULT, clampLinuxRuleDepth } from './config-schema.ts';
 
 export type RipgrepRunner = (args: string[], cwd: string) => string;
+
+/**
+ * Thrown by {@link defaultRipgrep} when `rg` could not be run at all
+ * (binary missing, permission denied, or a non-"no matches" exit). This
+ * is distinct from rg's exit-1 "no matches", which is a normal outcome
+ * that returns empty output. Compilation catches this and records it in
+ * {@link CompiledRulesReport.errors} so the sandbox layer can warn that
+ * the kernel deny list may be incomplete instead of silently treating a
+ * failed search as "nothing to deny".
+ */
+export class RipgrepUnavailableError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'RipgrepUnavailableError';
+  }
+}
 
 export interface CompileLinuxRulesOptions {
   /** Resolved cwd to root the search at. */
@@ -45,6 +63,9 @@ export interface CompileLinuxRulesOptions {
   /** Bounded depth, default 3, clamped 1..10 by
    *  {@link clampLinuxRuleDepth}. */
   depth?: number;
+  /** Home directory for expanding a leading `~` in `paths` rules.
+   *  Defaults to `os.homedir()`; injected for deterministic tests. */
+  homedir?: string;
   /** Optional injection seam for tests. Defaults to a real `rg` spawn. */
   runRipgrep?: RipgrepRunner;
 }
@@ -61,6 +82,14 @@ export interface CompiledRulesReport {
    *  overlay even for not-yet-created paths), but on macOS the rule is
    *  silently dropped - so we surface them in both reports.  */
   inertPaths: string[];
+  /** Ripgrep invocations that FAILED to run (binary missing, permission
+   *  denied, non-"no matches" exit). Non-empty means the compiled deny
+   *  list is potentially INCOMPLETE - a failed search is not the same as
+   *  "no paths to deny". The sandbox layer surfaces these so the kernel
+   *  deny list isn't silently trusted when it may be missing entries.
+   *  Optional so hand-built report literals (tests, fixtures) stay valid;
+   *  {@link compileLinuxRules} always populates it. */
+  errors?: string[];
 }
 
 // ──────────────────────────────────────────────────────────────────────
@@ -83,12 +112,18 @@ function defaultRipgrep(args: string[], cwd: string): string {
       stdio: ['ignore', 'pipe', 'ignore'],
       maxBuffer: 16 * 1024 * 1024,
     });
-  } catch {
-    // Exit 1 from rg means "no matches" - a normal outcome. Anything
-    // else (binary missing, permission denied) is also swallowed: the
-    // lossy-translation report flags rules that produced zero literal
-    // paths, which subsumes both cases from the user's perspective.
-    return '';
+  } catch (err) {
+    // Exit 1 from rg means "no matches" - a normal outcome; return the
+    // (empty) stdout. Anything else - binary missing (ENOENT), permission
+    // denied, or exit >= 2 (a real rg error) - must NOT masquerade as
+    // "no paths to deny": that would silently empty the kernel deny list.
+    // Throw so compilation records it and the sandbox layer can warn.
+    const e = err as { status?: number | null; code?: string; stdout?: string | Buffer };
+    if (e.status === 1) {
+      return typeof e.stdout === 'string' ? e.stdout : (e.stdout?.toString('utf8') ?? '');
+    }
+    const detail = e.code ? `${e.code}` : `exit ${String(e.status)}`;
+    throw new RipgrepUnavailableError(`ripgrep failed (${detail}) in ${cwd}`);
   }
 }
 
@@ -177,17 +212,32 @@ export function collapseToSegmentDir(absolutePath: string, segParts: string[]): 
 export function compileLinuxRules(rules: FilesystemRules, options: CompileLinuxRulesOptions): CompiledRulesReport {
   const depth = clampLinuxRuleDepth(options.depth ?? LINUX_RULE_DEPTH_DEFAULT);
   const runRg = options.runRipgrep ?? defaultRipgrep;
+  const home = options.homedir ?? homedir();
   const roots = uniqueSorted([options.cwd, ...(options.extraRoots ?? [])]);
 
   const paths = new Set<string>();
   const inertBasenames: string[] = [];
   const inertSegments: string[] = [];
   const inertPaths: string[] = [];
+  const errors: string[] = [];
+
+  // Run a ripgrep query, recording (rather than swallowing) a hard
+  // failure so the deny list is never silently trusted as complete when
+  // the search could not run. A failed query yields no matches for that
+  // rule locally, but `errors` flags the degraded state to the caller.
+  const safeRunRg = (args: string[], root: string): string => {
+    try {
+      return runRg(args, root);
+    } catch (err) {
+      errors.push(err instanceof Error ? err.message : String(err));
+      return '';
+    }
+  };
 
   for (const basename of rules.basenames) {
     let matched = false;
     for (const root of roots) {
-      const out = runRg(rgArgsForBasename(basename, depth), root);
+      const out = safeRunRg(rgArgsForBasename(basename, depth), root);
       const found = parseRgOutput(out, root);
       if (found.length > 0) matched = true;
       for (const p of found) paths.add(p);
@@ -199,7 +249,7 @@ export function compileLinuxRules(rules: FilesystemRules, options: CompileLinuxR
     let matched = false;
     const segParts = segment.split(/[\\/]+/).filter((s) => s.length > 0);
     for (const root of roots) {
-      const out = runRg(rgArgsForSegment(segment, depth), root);
+      const out = safeRunRg(rgArgsForSegment(segment, depth), root);
       const found = parseRgOutput(out, root);
       if (found.length === 0) continue;
       matched = true;
@@ -220,7 +270,10 @@ export function compileLinuxRules(rules: FilesystemRules, options: CompileLinuxR
   }
 
   for (const raw of rules.paths) {
-    const resolved = resolve(options.cwd, raw);
+    // Expand a leading `~` before resolving so shipped defaults like
+    // `~/.ssh` compile to the real home path instead of `<cwd>/~/.ssh`.
+    // Mirrors filesystem-policy/classify.ts and config-translate.ts.
+    const resolved = resolve(options.cwd, expandTilde(raw, home));
     if (!existsSync(resolved)) inertPaths.push(raw);
     paths.add(resolved);
   }
@@ -230,6 +283,7 @@ export function compileLinuxRules(rules: FilesystemRules, options: CompileLinuxR
     inertBasenames,
     inertSegments,
     inertPaths,
+    errors,
   };
 }
 

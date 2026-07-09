@@ -80,6 +80,14 @@ describe('computeNextFire', () => {
     expect(computeNextFire(s, new Date(CREATED))).toBeNull();
   });
 
+  test('impossible-but-parseable cron (no match in horizon) yields null, does not throw', () => {
+    // Regression: `0 0 30 2 *` (Feb 30) parses fine but has no matching
+    // instant, so cronNext throws. computeNextFire must catch and disarm.
+    const s = makeSchedule({ kind: 'cron', expr: '0 0 30 2 *' });
+    expect(() => computeNextFire(s, new Date(CREATED))).not.toThrow();
+    expect(computeNextFire(s, new Date(CREATED))).toBeNull();
+  });
+
   test('after fires a random delay within the window past the anchor', () => {
     const s = makeSchedule({ kind: 'after', minMs: 30_000, maxMs: 300_000 });
     const anchor = new Date(CREATED);

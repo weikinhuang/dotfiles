@@ -13,6 +13,7 @@
 import { readJsoncOrUndefined } from '../fs-safe.ts';
 import { parseClampedPositiveInt, parseNonNegativeInt } from '../parse-env.ts';
 import { piAgentPath, piProjectPath } from '../pi-paths.ts';
+import { isRecord } from '../shared/guards.ts';
 
 export interface TrimConfig {
   /** Minimum byte size for a text part / tool result to be offered for trimming. */
@@ -50,10 +51,6 @@ export const DEFAULT_TOOL_COLLAPSE_CONFIG: ToolCollapseConfig = {
   autoMinBytes: 4096,
 };
 
-function isObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
 function asPositiveInt(value: unknown): number | undefined {
   if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) return undefined;
   return Math.floor(value);
@@ -72,7 +69,7 @@ function asNonEmptyString(value: unknown): string | undefined {
 
 /** Validate an untrusted JSON layer into a `Partial<TrimConfig>`. */
 export function coerceTrimLayer(raw: unknown): Partial<TrimConfig> {
-  if (!isObject(raw)) return {};
+  if (!isRecord(raw)) return {};
   const out: Partial<TrimConfig> = {};
   const minTextBytes = asPositiveInt(raw.minTextBytes);
   if (minTextBytes !== undefined) out.minTextBytes = minTextBytes;
@@ -85,7 +82,7 @@ export function coerceTrimLayer(raw: unknown): Partial<TrimConfig> {
 
 /** Validate an untrusted JSON layer into a `Partial<ToolCollapseConfig>`. */
 export function coerceToolCollapseLayer(raw: unknown): Partial<ToolCollapseConfig> {
-  if (!isObject(raw)) return {};
+  if (!isRecord(raw)) return {};
   const out: Partial<ToolCollapseConfig> = {};
   const minTextBytes = asPositiveInt(raw.minTextBytes);
   if (minTextBytes !== undefined) out.minTextBytes = minTextBytes;

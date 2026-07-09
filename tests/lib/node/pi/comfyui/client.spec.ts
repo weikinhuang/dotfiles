@@ -23,6 +23,7 @@ import {
   fetchHistory,
   fetchImageBytes,
   fetchQueue,
+  openProgressSocket,
   pingServer,
   readSavedImages,
   submitPrompt,
@@ -227,6 +228,78 @@ describe('cancelPrompt', () => {
     vi.stubGlobal('fetch', () => Promise.reject(new Error('network down')));
     await expect(cancelPrompt(CONN, 'p1', signal())).resolves.toBeUndefined();
   });
+
+  test('falls back to POST /interrupt when the queue read fails (non-OK), then still dequeues', async () => {
+    // A non-OK /queue read leaves us unable to tell running from pending; a
+    // dequeue alone would never stop a running render, so cancel tries
+    // /interrupt as a fallback before the dequeue.
+    const { calls } = stubFetch((url) =>
+      url.endsWith('/queue') && !url.includes('interrupt')
+        ? // GET /queue (the read) is non-OK; POST /queue (the delete) is OK.
+          fakeResponse({ ok: false, status: 503 })
+        : fakeResponse({}),
+    );
+    await cancelPrompt(CONN, 'p1', signal());
+    const urls = calls.map((c) => c.url);
+    expect(urls).toContain('http://comfy:8188/interrupt');
+    // The interrupt fallback fires before the dequeue attempt.
+    expect(urls.indexOf('http://comfy:8188/interrupt')).toBeLessThan(urls.lastIndexOf('http://comfy:8188/queue'));
+  });
+
+  test('falls back to POST /interrupt when the queue read rejects (network error)', async () => {
+    // A throwing /queue read (network error) is also treated as "could not
+    // verify", so the interrupt fallback fires.
+    const calls: string[] = [];
+    vi.stubGlobal('fetch', (url: string | URL, init?: RequestInit) => {
+      const u = String(url);
+      calls.push(u);
+      if (u.endsWith('/queue') && init?.method !== 'POST') return Promise.reject(new Error('boom'));
+      return Promise.resolve(fakeResponse({}));
+    });
+    await cancelPrompt(CONN, 'p1', signal());
+    expect(calls).toContain('http://comfy:8188/interrupt');
+  });
+});
+
+describe('openProgressSocket', () => {
+  interface MsgEvent {
+    data: unknown;
+  }
+  class FakeWebSocket {
+    static instances: FakeWebSocket[] = [];
+    listeners: Record<string, ((ev: MsgEvent) => void)[]> = {};
+    constructor(_url: string) {
+      FakeWebSocket.instances.push(this);
+    }
+    addEventListener(type: string, fn: (ev: MsgEvent) => void): void {
+      (this.listeners[type] ??= []).push(fn);
+    }
+    close(): void {
+      /* no-op */
+    }
+    emit(type: string, ev: MsgEvent): void {
+      for (const fn of this.listeners[type] ?? []) fn(ev);
+    }
+  }
+
+  test('reports a progress frame only when its promptId matches the job', () => {
+    FakeWebSocket.instances = [];
+    vi.stubGlobal('WebSocket', FakeWebSocket);
+    const reports: string[] = [];
+    const ws = openProgressSocket(CONN, 'cid', 'p1', (t) => reports.push(t), signal());
+    expect(ws).not.toBeNull();
+    const inst = FakeWebSocket.instances[0];
+    const progress = (over: Record<string, unknown>): MsgEvent => ({
+      data: JSON.stringify({ type: 'progress', data: { value: over.value, max: 10, ...over } }),
+    });
+    // Matching prompt id -> reported.
+    inst.emit('message', progress({ value: 1, prompt_id: 'p1' }));
+    // Missing prompt id -> ignored (must not be attributed to this job).
+    inst.emit('message', progress({ value: 5 }));
+    // Mismatched prompt id -> ignored.
+    inst.emit('message', progress({ value: 7, prompt_id: 'other' }));
+    expect(reports).toEqual(['generating 1/10']);
+  });
 });
 
 describe('pingServer', () => {
@@ -309,6 +382,33 @@ describe('buildInjectedGraph', () => {
     const out = await buildInjectedGraph(CONN, wf, 'txt2img', { prompt: 'a cat' }, dir, HOME, noop, signal());
     expect(out.error).toBeUndefined();
     expect(out.graph?.['6'].inputs?.text).toBe('a cat');
+  });
+
+  test('injects a companion instruction when the workflow maps an instruction input', async () => {
+    const instFile = join(dir, 'inst.json');
+    writeFileSync(
+      instFile,
+      JSON.stringify({
+        '6': { class_type: 'CLIPTextEncode', inputs: { text: 'old' } },
+        '20': { class_type: 'InstructNode', inputs: { instruction: 'baked' } },
+      }),
+    );
+    const wf: WorkflowConfig = {
+      file: instFile,
+      inputs: { prompt: { node: '6', key: 'text' }, instruction: { node: '20', key: 'instruction' } },
+    };
+    const out = await buildInjectedGraph(
+      CONN,
+      wf,
+      'edit',
+      { prompt: 'x', instruction: 'add rain' },
+      dir,
+      HOME,
+      noop,
+      signal(),
+    );
+    expect(out.error).toBeUndefined();
+    expect(out.graph?.['20'].inputs?.instruction).toBe('add rain');
   });
 
   test('resolves a relative workflow file against cwd', async () => {

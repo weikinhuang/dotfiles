@@ -24,9 +24,12 @@
 import {
   allSubcommands,
   commandTokens,
+  expandForSafetyCheck,
   extractCommandSubstitutions,
   maskQuotedRegions,
+  peelCommandWrapper,
   splitCompound,
+  splitPipeline,
   stripControlFlowKeyword,
   twoTokenPattern,
 } from './parse.ts';
@@ -207,9 +210,15 @@ export const HARDCODED_DENY: { pattern: RegExp; reason: string }[] = [
 
 export function checkHardcodedDeny(command: string): string | null {
   if (process.env.PI_BASH_PERMISSIONS_NO_HARDCODED_DENY === '1') return null;
-  const masked = maskQuotedRegions(command);
-  for (const { pattern, reason } of HARDCODED_DENY) {
-    if (pattern.test(masked)) return reason;
+  // Check the command itself plus every pipeline stage and wrapper-peeled
+  // inner command, so `true | rm -rf /`, `bash -c 'rm -rf /'`, and
+  // `env rm -rf /` can't slip a footgun past a leading token that isn't
+  // the anchored program name.
+  for (const variant of expandForSafetyCheck(command)) {
+    const masked = maskQuotedRegions(variant);
+    for (const { pattern, reason } of HARDCODED_DENY) {
+      if (pattern.test(masked)) return reason;
+    }
   }
   return null;
 }
@@ -253,9 +262,13 @@ export const ALWAYS_PROMPT: { pattern: RegExp; reason: string }[] = [
  */
 export function checkAlwaysPrompt(command: string): string | null {
   if (process.env.PI_BASH_PERMISSIONS_NO_ALWAYS_PROMPT === '1') return null;
-  const masked = maskQuotedRegions(command);
-  for (const { pattern, reason } of ALWAYS_PROMPT) {
-    if (pattern.test(masked)) return reason;
+  // Same expansion as the hardcoded denylist so a privilege-escalation
+  // wrapper hidden behind `bash -c '…'` or a pipe still forces a prompt.
+  for (const variant of expandForSafetyCheck(command)) {
+    const masked = maskQuotedRegions(variant);
+    for (const { pattern, reason } of ALWAYS_PROMPT) {
+      if (pattern.test(masked)) return reason;
+    }
   }
   return null;
 }
@@ -361,9 +374,12 @@ export function decideSubcommand(
 export {
   allSubcommands,
   commandTokens,
+  expandForSafetyCheck,
   extractCommandSubstitutions,
   maskQuotedRegions,
+  peelCommandWrapper,
   splitCompound,
+  splitPipeline,
   stripControlFlowKeyword,
   twoTokenPattern,
 };

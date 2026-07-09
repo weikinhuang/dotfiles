@@ -76,9 +76,9 @@ export function setActivePersona(snapshot: ActivePersonaInput | undefined): void
     bashDeny: Object.freeze([...(snapshot.bashDeny ?? [])]),
     roleplay: snapshot.roleplay ?? false,
     cast: snapshot.cast,
-    characters: snapshot.characters,
+    characters: snapshot.characters ? Object.freeze([...snapshot.characters]) : undefined,
     pov: snapshot.pov,
-    openers: snapshot.openers,
+    openers: snapshot.openers ? Object.freeze([...snapshot.openers]) : undefined,
     authorNote: snapshot.authorNote,
     authorNoteDepth: snapshot.authorNoteDepth,
   };

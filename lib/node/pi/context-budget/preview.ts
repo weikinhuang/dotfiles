@@ -27,6 +27,12 @@ export function buildBudgetPreview(
 ): string {
   const lines: string[] = [];
 
+  // Apply the same defaults `formatBudgetLine` uses so a partially-specified
+  // options object never renders `min=undefined%` / mis-reports the band.
+  const minP = options.minPercent ?? 50;
+  const warnP = options.warnPercent ?? 80;
+  const critP = options.criticalPercent ?? 90;
+
   // Header: usage + thresholds
   if (!usage || usage.percent === null || usage.tokens === null) {
     lines.push('Context usage: (unknown - typically right after compaction, before the next LLM response)');
@@ -36,9 +42,7 @@ export function buildBudgetPreview(
       `Context usage: ${Math.round(usage.percent)}% - ${formatTokens(usage.tokens)} used, ${formatTokens(tokensLeft)} left of ${formatTokens(usage.contextWindow)} window`,
     );
   }
-  lines.push(
-    `Thresholds: min=${options.minPercent}%, warn=${options.warnPercent}%, critical=${options.criticalPercent}%`,
-  );
+  lines.push(`Thresholds: min=${minP}%, warn=${warnP}%, critical=${critP}%`);
   if (autoCompactThreshold !== null) {
     lines.push(
       `Auto-compact: edge-triggers at ${autoCompactThreshold}% (previous turn below, current at or above)` +
@@ -55,7 +59,7 @@ export function buildBudgetPreview(
     const reason =
       !usage || usage.percent === null
         ? 'usage is unknown'
-        : `usage ${Math.round(usage.percent)}% is below min-percent ${options.minPercent}%`;
+        : `usage ${Math.round(usage.percent)}% is below min-percent ${minP}%`;
     lines.push(`No advisory would be injected next turn (${reason}).`);
   } else {
     lines.push("Injected into the next turn's system prompt:");

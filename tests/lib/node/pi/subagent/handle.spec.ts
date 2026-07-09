@@ -117,4 +117,20 @@ describe('pruneBackgroundRegistry', () => {
 
     expect([...map.keys()]).toEqual(['b', 'c']);
   });
+
+  test('clamps a cap of 0 / negative / non-integer to a floor of 1', () => {
+    // Regression: a misconfigured PI_SUBAGENT_BG_MAX of 0 (or negative /
+    // NaN) must still leave at least one completed slot rather than
+    // trying to evict everything or computing a bad overflow.
+    for (const badCap of [0, -3, Number.NaN, 0.4]) {
+      const map = reg([
+        ['a', false],
+        ['b', false],
+        ['c', false],
+      ]);
+      pruneBackgroundRegistry(map, badCap);
+      // floor of 1 → keep the single newest completed entry.
+      expect([...map.keys()]).toEqual(['c']);
+    }
+  });
 });

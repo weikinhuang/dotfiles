@@ -42,6 +42,7 @@ import { join } from 'node:path';
 
 import { type ConfigWarning, tryReadJsoncFile } from './jsonc.ts';
 import { piAgentDir, piProjectPath } from './pi-paths.ts';
+import { appendSectionOnce } from './prompt-section.ts';
 
 /**
  * When to inject the primer:
@@ -170,10 +171,5 @@ export function shouldInjectPrimer(model: ModelRef | undefined, config: PrimerCo
  * unchanged so the prompt stays byte-stable across turns.
  */
 export function appendPrimer(basePrompt: string, primer: string): string {
-  const base = basePrompt ?? '';
-  const add = (primer ?? '').trim();
-  if (!add) return base;
-  if (!base.trim()) return add;
-  if (base.trimEnd().endsWith(add)) return base;
-  return `${base.replace(/\s+$/, '')}\n\n${add}`;
+  return appendSectionOnce(basePrompt, primer);
 }

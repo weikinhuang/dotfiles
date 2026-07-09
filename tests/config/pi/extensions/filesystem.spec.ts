@@ -193,7 +193,7 @@ describe('filesystem layered loader', () => {
 
 import { resolve } from 'node:path';
 import { getActivePersona } from '../../../../lib/node/pi/persona/active.ts';
-import { isInsideWriteRoots } from '../../../../lib/node/pi/persona/match.ts';
+import { isInsideWriteRoots } from '../../../../lib/node/pi/persona/write-roots.ts';
 
 interface FakeFsEvent {
   toolName: string;

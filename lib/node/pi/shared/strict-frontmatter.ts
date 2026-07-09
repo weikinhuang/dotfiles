@@ -66,12 +66,15 @@ export interface FencedFrontmatter {
 /**
  * Parse the shared `---`-fenced frontmatter envelope.
  *
- * Returns `null` when the opening fence is absent (the source must begin
- * with `---\n`; no leading whitespace or BOM is tolerated), when there is
- * no closing fence, or when any non-blank header line lacks a `:`.
+ * Returns `null` when the opening fence is absent (after a leading UTF-8
+ * BOM and any leading whitespace are stripped), when there is no closing
+ * fence, or when any non-blank header line lacks a `:`.
  *
  * Mechanics (identical to the two stores' original hand-rolled parsers):
  *   - CRLF is normalised to LF up-front.
+ *   - A leading UTF-8 BOM and any leading whitespace are stripped before
+ *     the opening-fence check, so a file saved with a BOM or an
+ *     accidental blank first line still parses.
  *   - The body starts immediately after the closing fence's newline, so
  *     a `---` rule inside the body is never mistaken for the close.
  *   - A file ending exactly with `\n---` (no trailing newline) closes the
@@ -81,8 +84,12 @@ export interface FencedFrontmatter {
  *     the value is everything after it (verbatim).
  */
 export function parseFencedFrontmatter(raw: string): FencedFrontmatter | null {
-  // Normalise CRLF so the matching stays simple.
-  const src = raw.replace(/\r\n/g, '\n');
+  // Normalise CRLF, then strip a leading UTF-8 BOM and any leading
+  // whitespace so a BOM-prefixed or blank-line-prefixed file still parses.
+  const src = raw
+    .replace(/\r\n/g, '\n')
+    .replace(/^\uFEFF/, '')
+    .replace(/^\s+/, '');
   if (!src.startsWith(`${FENCE}\n`) && !src.startsWith(`${FENCE}\r\n`)) return null;
 
   const afterOpen = FENCE.length + 1; // skip the opening `---\n`

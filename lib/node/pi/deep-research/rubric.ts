@@ -262,7 +262,61 @@ export function writeRubricFiles(opts: WriteRubricOpts): WriteRubricResult {
 }
 
 // ──────────────────────────────────────────────────────────────────────
-// Internals.
+// Subjective-rubric seeding from a planner draft.
 // ──────────────────────────────────────────────────────────────────────
 
-// (no internals beyond the imports at the top of the file.)
+/**
+ * Wrap a planner-emitted rubric draft in a small header so the
+ * seeded `rubric-subjective.md` reads like the auto-generated one
+ * and the user knows it is editable before the review runs.
+ */
+function renderSeededSubjectiveRubric(slug: string, draft: string): string {
+  const lines: string[] = [];
+  lines.push(`# Subjective Rubric - ${slug}`);
+  lines.push('');
+  lines.push(
+    `Seeded from the planner's initial rubric draft. Edit this file before running \`/research\`; the Phase 4 ${'`kind=critic`'} stage judges the report against these criteria. Structural items are enforced separately by the bash check - do NOT re-list them here.`,
+  );
+  lines.push('');
+  lines.push(draft.trim());
+  lines.push('');
+  return lines.join('\n');
+}
+
+export interface SeedSubjectiveRubricOpts {
+  /** Run root (`<cwd>/research/<slug>/`). */
+  runRoot: string;
+  /** Plan slug, used in the rubric header. */
+  slug: string;
+  /** The planner's rubric draft (one bullet per line). */
+  rubricDraft: string;
+  /**
+   * When true (the default), a `rubric-subjective.md` already on
+   * disk is left untouched - matching the resume / user-edit case.
+   * Only pass `false` to force a reseed.
+   */
+  preserveExisting?: boolean;
+  /** Hook used by the `preserveExisting` path to test for disk presence. */
+  existsSync?: (path: string) => boolean;
+}
+
+/**
+ * Seed `rubric-subjective.md` from the planner's `rubricDraft`.
+ *
+ * Returns true when a file was actually written. A blank draft is a
+ * no-op (returns false) so the default `writeRubricFiles` renderer
+ * still fills in the standard subjective rubric. With
+ * `preserveExisting` (default true) an existing rubric is never
+ * overwritten, so a user edit or a resume survives.
+ */
+export function seedSubjectiveRubric(opts: SeedSubjectiveRubricOpts): boolean {
+  const draft = opts.rubricDraft.trim();
+  if (draft.length === 0) return false;
+  ensureDirSync(opts.runRoot);
+  const rp = rubricPaths(opts.runRoot);
+  const preserve = opts.preserveExisting !== false;
+  const check = preserve ? (opts.existsSync ?? existsSync) : () => false;
+  if (check(rp.subjective)) return false;
+  atomicWriteFile(rp.subjective, renderSeededSubjectiveRubric(opts.slug, draft));
+  return true;
+}

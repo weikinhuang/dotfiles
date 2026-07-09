@@ -66,7 +66,11 @@ export function isEmoteSignal(value: unknown): value is EmoteSignal {
     typeof candidate.emote === 'string' &&
     Array.isArray(candidate.emotes) &&
     candidate.emotes.every((name) => typeof name === 'string') &&
-    typeof candidate.at === 'number'
+    // The primary emote must be one of the named emotes (documented contract).
+    candidate.emotes.includes(candidate.emote) &&
+    // Reject NaN / Infinity: `at` is an epoch-ms timestamp callers order by.
+    typeof candidate.at === 'number' &&
+    Number.isFinite(candidate.at)
   );
 }
 

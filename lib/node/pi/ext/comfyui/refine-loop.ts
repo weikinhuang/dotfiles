@@ -36,6 +36,8 @@ import {
 } from '../../comfyui/client.ts';
 import { regionToBbox } from '../../comfyui/mask.ts';
 import {
+  ALWAYS_AVAILABLE_CHANNELS,
+  COMPANION_CHANNELS,
   type CritiqueRequest,
   type RefineAction,
   type RefineChannel,
@@ -49,11 +51,11 @@ import { isRoleMap } from '../../comfyui/workflow.ts';
 import { resolveRoleImages, type RoleImageInput } from './images.ts';
 import type { ResolvedGenerateParams } from './layer-params.ts';
 
-/** Channels that need no companion workflow - always runnable. */
-const ALWAYS_AVAILABLE_CHANNELS: readonly RefineChannel[] = ['reroll', 'revise_prompt'];
-
-/** The companion-backed channels (each routes to a `refineWith` workflow). */
-const COMPANION_CHANNELS: ReadonlySet<RefineChannel> = new Set(['img2img', 'inpaint', 'detailer', 'ground']);
+/**
+ * The companion-backed channels as a membership set, derived from the pure
+ * module's single {@link COMPANION_CHANNELS} definition so the two never drift.
+ */
+const COMPANION_CHANNEL_SET = new Set<RefineChannel>(COMPANION_CHANNELS);
 
 /**
  * Gaussian feather (sigma, px) applied to the auto-refine inpaint mask. The
@@ -100,6 +102,8 @@ function resolveDetectModel(detect: string, wf: WorkflowConfig): string {
 export interface RefineExtraInputs {
   target?: string;
   detect?: string;
+  /** The critic's free-form corrective instruction (`img2img` / `inpaint`). */
+  instruction?: string;
 }
 
 /** One landed render the loop carries around: its block, path, and render params. */
@@ -258,7 +262,7 @@ export function planRefineRender(
     refineWith?: RefineWith;
   },
 ): RefineRenderPlan {
-  if (!COMPANION_CHANNELS.has(action.type)) return { kind: 'source', action };
+  if (!COMPANION_CHANNEL_SET.has(action.type)) return { kind: 'source', action };
 
   const name = ctx.refineWith?.[action.type as keyof RefineWith];
   const wf = name !== undefined ? ctx.workflows[name] : undefined;
@@ -278,6 +282,10 @@ export function planRefineRender(
   // keyword is translated to its detector model filename before injection.
   const detect =
     action.type === 'detailer' && action.detect !== undefined ? resolveDetectModel(action.detect, wf) : action.detect;
+  // The critic's free-form `instruction` rides along only when the companion
+  // workflow actually maps an `instruction` input; otherwise it would trip the
+  // graph builder's unmapped-but-supplied mapping-error guard.
+  const instruction = wf.inputs.instruction !== undefined ? action.instruction : undefined;
   const params: ResolvedGenerateParams & RefineExtraInputs = {
     ...ctx.baseParams,
     count: 1,
@@ -285,6 +293,7 @@ export function planRefineRender(
     ...(action.denoise !== undefined ? { denoise: action.denoise } : {}),
     ...(action.target !== undefined ? { target: action.target } : {}),
     ...(detect !== undefined ? { detect } : {}),
+    ...(instruction !== undefined ? { instruction } : {}),
   };
   return { kind: 'companion', name, wf, roleMap, params, roleSources };
 }

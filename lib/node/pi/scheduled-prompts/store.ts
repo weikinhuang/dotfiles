@@ -29,10 +29,10 @@
  * temp `PI_CODING_AGENT_DIR` / cwd.
  */
 
-import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { atomicWriteFile } from '../atomic-write.ts';
+import { readTextOrNull } from '../fs-safe.ts';
 import { piAgentPath, piProjectPath } from '../pi-paths.ts';
 import { type Schedule, SCHEDULE_SCOPES, type ScheduleScope, type Trigger } from './schedule.ts';
 
@@ -74,26 +74,38 @@ export function projectSchedulesPath(cwd: string, env: NodeJS.ProcessEnv = proce
   return piProjectPath(cwd, SCHEDULES_FILENAME);
 }
 
+function isFiniteNum(v: unknown): v is number {
+  return typeof v === 'number' && Number.isFinite(v);
+}
+
+/**
+ * Validate a persisted trigger, mirroring the preconditions
+ * `computeNextFire` enforces (see `schedule.ts`). A trigger that the
+ * scheduler would silently disarm (`interval.ms <= 0`, an `after` window
+ * with `maxMs <= 0` or `maxMs < minMs`) is dropped on read instead of
+ * loading as a permanently-dead entry.
+ */
 function isTrigger(value: unknown): value is Trigger {
   if (typeof value !== 'object' || value === null) return false;
   const t = value as Record<string, unknown>;
   switch (t.kind) {
     case 'cron':
-      return typeof t.expr === 'string';
+      return typeof t.expr === 'string' && t.expr.trim().length > 0;
     case 'interval':
-      return typeof t.ms === 'number' && Number.isFinite(t.ms);
+      return isFiniteNum(t.ms) && t.ms > 0;
     case 'once':
-      return typeof t.at === 'number' && Number.isFinite(t.at);
+      return isFiniteNum(t.at);
     case 'after':
-      return (
-        typeof t.minMs === 'number' &&
-        Number.isFinite(t.minMs) &&
-        typeof t.maxMs === 'number' &&
-        Number.isFinite(t.maxMs)
-      );
+      return isFiniteNum(t.minMs) && t.minMs >= 0 && isFiniteNum(t.maxMs) && t.maxMs > 0 && t.maxMs >= t.minMs;
     default:
       return false;
   }
+}
+
+/** `chance` is a probability in `(0, 1]`; 0 / negative / >1 are rejected. */
+function isValidChance(value: unknown): boolean {
+  if (value === undefined) return true;
+  return isFiniteNum(value) && value > 0 && value <= 1;
 }
 
 function isOptionalNumber(value: unknown): boolean {
@@ -120,7 +132,7 @@ function isScheduleShape(value: unknown): value is Schedule {
   if (s.promptPick !== undefined && s.promptPick !== 'random' && s.promptPick !== 'roundRobin') return false;
   if (!isOptionalNumber(s.promptCursor)) return false;
   if (!isOptionalNumber(s.maxRuns)) return false;
-  if (!isOptionalNumber(s.chance)) return false;
+  if (!isValidChance(s.chance)) return false;
   if (!isOptionalNumber(s.unansweredRuns)) return false;
   if (s.resetOnActivity !== undefined && typeof s.resetOnActivity !== 'boolean') return false;
   if (s.whenIdle !== undefined && typeof s.whenIdle !== 'boolean') return false;
@@ -150,15 +162,10 @@ export function parseScheduleFile(raw: string): Schedule[] {
   return out;
 }
 
-/** Read + validate a scope file. Missing file -> empty list. */
+/** Read + validate a scope file. Missing / unreadable file -> empty list. */
 export function readScopeFile(path: string): Schedule[] {
-  if (!existsSync(path)) return [];
-  let raw: string;
-  try {
-    raw = readFileSync(path, 'utf8');
-  } catch {
-    return [];
-  }
+  const raw = readTextOrNull(path);
+  if (raw === null) return [];
   return parseScheduleFile(raw);
 }
 

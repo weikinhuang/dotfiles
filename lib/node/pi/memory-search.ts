@@ -262,6 +262,11 @@ export function findSimilarMemories(
   // The maximum name-component score an identical-named entry would reach;
   // a near-duplicate must clear a fraction of it.
   const selfNameScore = NAME_WEIGHT * tokens.reduce((s, t) => s + fuzzyScore(t, candidate.name), 0);
+  // Guard against a degenerate self-score: a default threshold of
+  // `0.6 * 0` collapses to 0, which every scored entry clears, turning
+  // the near-duplicate check into "match everything". Bail unless the
+  // caller pinned an explicit threshold.
+  if (opts.threshold === undefined && selfNameScore <= 0) return [];
   const threshold = opts.threshold ?? DEFAULT_SIMILARITY_FRACTION * selfNameScore;
   const max = opts.max ?? 3;
 

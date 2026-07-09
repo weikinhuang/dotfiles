@@ -191,6 +191,22 @@ export function buildCheckSpecFromParams(
     createdAt,
   };
   if (params.maxIter !== undefined || params.maxCostUsd !== undefined || params.wallClockSeconds !== undefined) {
+    // Budgets must be positive (maxIter a positive integer): a 0 or
+    // negative cap makes the loop stop on its first tick, which is never
+    // what a `check declare` caller intends. Reject up front instead of
+    // writing an insta-stop draft.
+    if (params.maxIter !== undefined && !(Number.isInteger(params.maxIter) && params.maxIter > 0)) {
+      return { ok: false, error: `maxIter must be a positive integer, got ${params.maxIter}` };
+    }
+    if (params.maxCostUsd !== undefined && !(Number.isFinite(params.maxCostUsd) && params.maxCostUsd > 0)) {
+      return { ok: false, error: `maxCostUsd must be a positive number, got ${params.maxCostUsd}` };
+    }
+    if (
+      params.wallClockSeconds !== undefined &&
+      !(Number.isFinite(params.wallClockSeconds) && params.wallClockSeconds > 0)
+    ) {
+      return { ok: false, error: `wallClockSeconds must be a positive number, got ${params.wallClockSeconds}` };
+    }
     spec.budget = {};
     if (params.maxIter !== undefined) spec.budget.maxIter = params.maxIter;
     if (params.maxCostUsd !== undefined) spec.budget.maxCostUsd = params.maxCostUsd;

@@ -16,6 +16,8 @@
  * No pi imports.
  */
 
+import { collapseWhitespace } from '../shared.ts';
+
 /**
  * Extract speakable dialogue from a raw assistant reply: the concatenation of
  * its double-quoted spans (straight `"..."` and smart curly quotes), with
@@ -149,7 +151,7 @@ export function extractProse(raw: string): string {
   t = t.replace(new RegExp('[\\u0000-\\u0008\\u000b\\u000c\\u000e-\\u001f\\u007f-\\u009f]', 'g'), ' ');
 
   // --- collapse whitespace (newlines included) into single spaces ---
-  return t.replace(/\s+/g, ' ').trim();
+  return collapseWhitespace(t);
 }
 
 /** One ordered span of a reply, tagged by how it should be voiced. */

@@ -73,6 +73,31 @@ describe('applyDirectives - trim', () => {
     expect(messages[0].content).toBe('original');
   });
 
+  test('whole-message trim skips non-text/non-image parts (preserves tool calls)', () => {
+    const messages: LooseMessage[] = [
+      {
+        role: 'assistant',
+        content: [
+          { type: 'text', text: 'thinking about it' },
+          { type: 'toolCall', id: 'c1', name: 'bash', arguments: { cmd: 'ls' } },
+        ],
+        timestamp: 7,
+      },
+    ];
+    const { messages: out, applied } = applyDirectives(messages, [
+      { kind: 'trim', id: 1, target: { by: 'message', role: 'assistant', timestamp: 7 }, createdAt: 1 },
+    ]);
+    expect(applied).toBe(1);
+    const parts = out[0].content as LoosePart[];
+    // Text part collapses to a placeholder…
+    expect(parts[0].type).toBe('text');
+    expect(isPlaceholder((parts[0] as { text: string }).text)).toBe(true);
+    // …but the toolCall part is left intact so the call/result pairing survives.
+    expect(parts[1].type).toBe('toolCall');
+    expect((parts[1] as { name: string }).name).toBe('bash');
+    expect((parts[1] as { arguments: Record<string, unknown> }).arguments).toEqual({ cmd: 'ls' });
+  });
+
   test('reports a stale directive whose target no longer resolves', () => {
     const messages: LooseMessage[] = [{ role: 'user', content: 'hi', timestamp: 1 }];
     const { applied, stale } = applyDirectives(messages, [

@@ -641,6 +641,16 @@ describe('loadComfyuiConfig / loadUserWorkflowNames', () => {
     expect(loadUserWorkflowNames(cwd).sort()).toEqual(['projwf', 'userwf']);
   });
 
+  test('loadUserWorkflowNames de-duplicates a name present in both layers', () => {
+    // The same workflow id in the user and project layers is one workflow (the
+    // project layer overrides), so the returned name list must not repeat it.
+    writeUser({ workflows: { shared: { file: 'u.json', inputs: {} }, userwf: { file: 'u2.json', inputs: {} } } });
+    writeProject({ workflows: { shared: { file: 'p.json', inputs: {} }, projwf: { file: 'p2.json', inputs: {} } } });
+    const names = loadUserWorkflowNames(cwd);
+    expect(names.filter((n) => n === 'shared')).toHaveLength(1);
+    expect([...names].sort()).toEqual(['projwf', 'shared', 'userwf']);
+  });
+
   test('malformed config files degrade to no user workflows', () => {
     writeFileSync(join(agentDir, 'comfyui.json'), '{ not json');
     expect(loadUserWorkflowNames(cwd)).toEqual([]);

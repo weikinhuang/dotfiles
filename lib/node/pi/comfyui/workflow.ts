@@ -17,6 +17,7 @@ import { resolve } from 'node:path';
 
 import { readJsoncOrUndefined } from '../fs-safe.ts';
 import { expandTilde } from '../path-expand.ts';
+import { isRecord } from '../shared.ts';
 
 import type { ComfyWorkflow, ImageSlots, InputMapping, RoleMapping, WorkflowConfig } from './types.ts';
 
@@ -30,19 +31,15 @@ export interface InjectResult {
   errors: string[];
 }
 
-function isObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
 /**
  * Narrow untrusted parsed JSON to a workflow graph: a non-empty object
  * whose every value is itself an object carrying an `inputs` object.
  */
 export function isComfyWorkflow(value: unknown): value is ComfyWorkflow {
-  if (!isObject(value)) return false;
+  if (!isRecord(value)) return false;
   const entries = Object.values(value);
   if (entries.length === 0) return false;
-  return entries.every((node) => isObject(node) && isObject((node as { inputs?: unknown }).inputs));
+  return entries.every((node) => isRecord(node) && isRecord((node as { inputs?: unknown }).inputs));
 }
 
 /**
@@ -94,7 +91,7 @@ export function injectInputs(
       continue;
     }
     const node = clone[target.node];
-    if (node === undefined || !isObject(node.inputs)) {
+    if (node === undefined || !isRecord(node.inputs)) {
       errors.push(`workflow has no node "${target.node}" with inputs (needed for "${name}")`);
       continue;
     }
@@ -114,7 +111,7 @@ export function validateMapping(workflow: ComfyWorkflow, mapping: Record<string,
   const errors: string[] = [];
   for (const [name, target] of Object.entries(mapping)) {
     const node = workflow[target.node];
-    if (node === undefined || !isObject(node.inputs)) {
+    if (node === undefined || !isRecord(node.inputs)) {
       errors.push(`"${name}" -> node "${target.node}" not found in workflow`);
     }
   }
@@ -137,7 +134,7 @@ export function injectImageList(workflow: ComfyWorkflow, targets: InputMapping[]
     const target = targets[i];
     if (target === undefined) continue;
     const node = clone[target.node];
-    if (node === undefined || !isObject(node.inputs)) {
+    if (node === undefined || !isRecord(node.inputs)) {
       errors.push(`workflow has no node "${target.node}" with inputs (needed for reference image ${i + 1})`);
       continue;
     }
@@ -157,7 +154,7 @@ export function validateImageMappings(workflow: ComfyWorkflow, images: InputMapp
   for (let i = 0; i < images.length; i++) {
     const target = images[i];
     const node = workflow[target.node];
-    if (node === undefined || !isObject(node.inputs)) {
+    if (node === undefined || !isRecord(node.inputs)) {
       errors.push(`image ${i + 1} -> node "${target.node}" not found in workflow`);
     }
   }
@@ -196,7 +193,7 @@ export function injectImageRoles(
       continue;
     }
     const node = clone[target.node];
-    if (node === undefined || !isObject(node.inputs)) {
+    if (node === undefined || !isRecord(node.inputs)) {
       errors.push(`workflow has no node "${target.node}" with inputs (needed for image role "${role}")`);
       continue;
     }
@@ -215,7 +212,7 @@ export function validateImageRoleMap(workflow: ComfyWorkflow, roleMap: Record<st
   const errors: string[] = [];
   for (const [role, target] of Object.entries(roleMap)) {
     const node = workflow[target.node];
-    if (node === undefined || !isObject(node.inputs)) {
+    if (node === undefined || !isRecord(node.inputs)) {
       errors.push(`role "${role}" -> node "${target.node}" not found in workflow`);
     }
   }
