@@ -61,15 +61,11 @@
 
 import { type ExtensionAPI, type ExtensionContext } from '@earendil-works/pi-coding-agent';
 
-import {
-  type BudgetOptions,
-  formatBudgetLine,
-  formatTokens,
-  shouldAutoCompact,
-} from '../../../lib/node/pi/context-budget.ts';
+import { type BudgetOptions, formatBudgetLine, shouldAutoCompact } from '../../../lib/node/pi/context-budget.ts';
 import { completeSubverbs } from '../../../lib/node/pi/commands/complete.ts';
 import { applyContextReminder, type ReminderMessage } from '../../../lib/node/pi/context-reminder.ts';
 import { isHelpArg } from '../../../lib/node/pi/commands/help.ts';
+import { buildBudgetPreview } from '../../../lib/node/pi/context-budget/preview.ts';
 import { CONTEXT_BUDGET_USAGE } from '../../../lib/node/pi/context-budget/usage.ts';
 import { envTruthy, parsePercent } from '../../../lib/node/pi/parse-env.ts';
 
@@ -176,47 +172,8 @@ export default function contextBudget(pi: ExtensionAPI): void {
       }
 
       const usage = ctx.getContextUsage();
-      const lines: string[] = [];
-
-      // Header: usage + thresholds
-      if (!usage || usage.percent === null || usage.tokens === null) {
-        lines.push('Context usage: (unknown - typically right after compaction, before the next LLM response)');
-      } else {
-        const tokensLeft = Math.max(0, usage.contextWindow - usage.tokens);
-        lines.push(
-          `Context usage: ${Math.round(usage.percent)}% - ${formatTokens(usage.tokens)} used, ${formatTokens(tokensLeft)} left of ${formatTokens(usage.contextWindow)} window`,
-        );
-      }
-      lines.push(
-        `Thresholds: min=${options.minPercent}%, warn=${options.warnPercent}%, critical=${options.criticalPercent}%`,
-      );
-      if (autoCompactThreshold !== null) {
-        lines.push(
-          `Auto-compact: edge-triggers at ${autoCompactThreshold}% (previous turn below, current at or above)` +
-            (compactedThisSession
-              ? ' - already fired this session, waiting for usage to dip back under threshold'
-              : ''),
-        );
-      } else {
-        lines.push('Auto-compact: disabled (set PI_CONTEXT_BUDGET_AUTO_COMPACT_PERCENT=N to enable)');
-      }
-      lines.push('');
-
-      // Preview block or "would be silent" message
-      const line = formatBudgetLine(usage ?? null, options);
-      if (!line) {
-        const reason =
-          !usage || usage.percent === null
-            ? 'usage is unknown'
-            : `usage ${Math.round(usage.percent)}% is below min-percent ${options.minPercent}%`;
-        lines.push(`No advisory would be injected next turn (${reason}).`);
-      } else {
-        lines.push("Injected into the next turn's system prompt:");
-        lines.push('');
-        lines.push(line);
-      }
-
-      ctx.ui.notify(lines.join('\n'), 'info');
+      const preview = buildBudgetPreview(usage, options, autoCompactThreshold, compactedThisSession);
+      ctx.ui.notify(preview, 'info');
     },
   });
 }
