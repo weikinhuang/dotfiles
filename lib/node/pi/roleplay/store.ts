@@ -24,6 +24,8 @@
  * further with `relationship` / `timeline` / `summary`.
  */
 
+import { parseFencedFrontmatter, stripQuotes } from '../shared/strict-frontmatter.ts';
+
 // ──────────────────────────────────────────────────────────────────────
 // Types
 // ──────────────────────────────────────────────────────────────────────
@@ -219,17 +221,6 @@ export interface Frontmatter {
   relationship?: RelationshipMeta;
 }
 
-function stripQuotes(raw: string): string {
-  const t = raw.trim();
-  if (t.startsWith('"') && t.endsWith('"') && t.length >= 2) {
-    return t.slice(1, -1).replace(/\\([\\"])/g, '$1');
-  }
-  if (t.startsWith("'") && t.endsWith("'") && t.length >= 2) {
-    return t.slice(1, -1);
-  }
-  return t;
-}
-
 /** Split an inline `[a, b, c]` (or bare `a, b, c`) list value into trimmed items. */
 function parseInlineList(raw: string): string[] {
   const t = raw.trim();
@@ -305,29 +296,17 @@ const FENCE = '---';
  * Parse a roleplay markdown file. Returns `null` if the frontmatter fence
  * is missing/incomplete or the three required keys aren't all present and
  * valid. Unknown keys are ignored (forward-compat for Phase 2 fields).
+ *
+ * Fence detection, header splitting, and body slicing are delegated to
+ * the shared {@link parseFencedFrontmatter} (which returns raw, un-quoted
+ * values); this function layers roleplay's domain rules (required
+ * `name` / `description` / `kind`, per-kind lore/relationship metadata)
+ * on top.
  */
 export function parseFrontmatter(raw: string): ParsedRoleplayFile | null {
-  const src = raw.replace(/\r\n/g, '\n');
-  if (!src.startsWith(`${FENCE}\n`) && !src.startsWith(`${FENCE}\r\n`)) return null;
-
-  const afterOpen = FENCE.length + 1;
-  const closeIdx = src.indexOf(`\n${FENCE}\n`, afterOpen - 1);
-  const closeIdxEof = src.endsWith(`\n${FENCE}`) ? src.length - FENCE.length - 1 : -1;
-  const end = closeIdx !== -1 ? closeIdx : closeIdxEof;
-  if (end === -1) return null;
-
-  const header = src.slice(afterOpen, end);
-  const bodyStart = end + FENCE.length + 2;
-  const body = bodyStart <= src.length ? src.slice(bodyStart) : '';
-
-  const fields: Record<string, string> = {};
-  for (const rawLine of header.split('\n')) {
-    const line = rawLine.replace(/\s+$/, '');
-    if (line.length === 0) continue;
-    const sep = line.indexOf(':');
-    if (sep === -1) return null;
-    fields[line.slice(0, sep).trim()] = line.slice(sep + 1);
-  }
+  const parsed = parseFencedFrontmatter(raw);
+  if (parsed === null) return null;
+  const { fields, body } = parsed;
 
   const name = fields.name !== undefined ? stripQuotes(fields.name) : undefined;
   const description = fields.description !== undefined ? stripQuotes(fields.description) : undefined;
@@ -342,7 +321,7 @@ export function parseFrontmatter(raw: string): ParsedRoleplayFile | null {
   if (kind === 'lore') frontmatter.lore = parseLoreMeta(fields);
   if (kind === 'relationship') frontmatter.relationship = parseRelationshipMeta(fields);
 
-  return { frontmatter, body: body.replace(/^\n+/, '') };
+  return { frontmatter, body };
 }
 
 function yamlValue(raw: string): string {
