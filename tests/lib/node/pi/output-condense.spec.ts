@@ -6,7 +6,14 @@
 
 import { expect, test } from 'vitest';
 
-import { condense, parseToolList, splitLines } from '../../../../lib/node/pi/output-condense.ts';
+import {
+  buildCondenseBanner,
+  CONDENSE_MARKER_HEADER,
+  condense,
+  extractFullOutputPath,
+  parseToolList,
+  splitLines,
+} from '../../../../lib/node/pi/output-condense.ts';
 
 // ──────────────────────────────────────────────────────────────────────
 // splitLines
@@ -221,4 +228,43 @@ test('parseToolList: filters out empty entries from trailing commas', () => {
   const s = parseToolList('bash,,rg,', ['bash']);
 
   expect([...s].sort()).toEqual(['bash', 'rg']);
+});
+
+// ──────────────────────────────────────────────────────────────────────
+// extractFullOutputPath
+// ──────────────────────────────────────────────────────────────────────
+
+test('extractFullOutputPath: pulls a non-empty string path from details', () => {
+  expect(extractFullOutputPath({ fullOutputPath: '/tmp/out.txt' })).toBe('/tmp/out.txt');
+});
+
+test('extractFullOutputPath: undefined for missing / empty / non-string / non-object', () => {
+  expect(extractFullOutputPath(undefined)).toBeUndefined();
+  expect(extractFullOutputPath(null)).toBeUndefined();
+  expect(extractFullOutputPath('nope')).toBeUndefined();
+  expect(extractFullOutputPath({})).toBeUndefined();
+  expect(extractFullOutputPath({ fullOutputPath: '' })).toBeUndefined();
+  expect(extractFullOutputPath({ fullOutputPath: 42 })).toBeUndefined();
+});
+
+// ──────────────────────────────────────────────────────────────────────
+// buildCondenseBanner
+// ──────────────────────────────────────────────────────────────────────
+
+const bannerResult = { originalBytes: 20_480, originalLines: 500, outputBytes: 4096, outputLines: 160 };
+
+test('buildCondenseBanner: with a tempfile path points at it', () => {
+  expect(buildCondenseBanner(bannerResult, '/tmp/x/output.txt', 'bash')).toBe(
+    `${CONDENSE_MARKER_HEADER} bash output was condensed: kept 160 of 500 lines ` +
+      '(4.0KB of 20.0KB); omitted 340 lines (16.0KB). ' +
+      'Full output saved to: /tmp/x/output.txt - re-read with the `read` tool (`offset` / `limit`) if you need specific lines.',
+  );
+});
+
+test('buildCondenseBanner: without a tempfile path suggests re-running', () => {
+  expect(buildCondenseBanner(bannerResult, undefined, 'rg')).toBe(
+    `${CONDENSE_MARKER_HEADER} rg output was condensed: kept 160 of 500 lines ` +
+      '(4.0KB of 20.0KB); omitted 340 lines (16.0KB). ' +
+      'Full output was not written to a tempfile (I/O error). Re-run the command if you need the complete text.',
+  );
 });

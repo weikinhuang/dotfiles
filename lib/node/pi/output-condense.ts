@@ -189,6 +189,52 @@ export function condense(text: string, opts: CondenseOptions = {}): CondenseResu
   };
 }
 
+/** Header line prefixed to the condensed-output breadcrumb banner. */
+export const CONDENSE_MARKER_HEADER = '⟨ [pi-tool-output-condenser] ⟩';
+
+/**
+ * Pull a pre-existing `fullOutputPath` breadcrumb out of a tool result's
+ * `details`. Pi's built-in bash tool sets this when it has already
+ * truncated + spilled the full output to a tempfile; the condenser reuses
+ * it rather than writing a second tempfile. Returns `undefined` when the
+ * field is absent or not a non-empty string.
+ */
+export function extractFullOutputPath(details: unknown): string | undefined {
+  if (!details || typeof details !== 'object') return undefined;
+  const path = (details as { fullOutputPath?: unknown }).fullOutputPath;
+  return typeof path === 'string' && path.length > 0 ? path : undefined;
+}
+
+/**
+ * Build the breadcrumb banner appended below the condensed body. It
+ * reports what was kept vs omitted and, when a tempfile was written,
+ * points the model at it for a targeted re-`read`. When no tempfile is
+ * available (an I/O error) it says so and suggests re-running.
+ */
+export function buildCondenseBanner(
+  result: Pick<CondenseResult, 'originalBytes' | 'originalLines' | 'outputBytes' | 'outputLines'>,
+  fullOutputPath: string | undefined,
+  toolName: string,
+): string {
+  const savedLines = result.originalLines - result.outputLines;
+  const savedBytes = result.originalBytes - result.outputBytes;
+  const parts = [
+    CONDENSE_MARKER_HEADER,
+    `${toolName} output was condensed: kept ${result.outputLines} of ${result.originalLines} lines`,
+    `(${formatCompactBytes(result.outputBytes)} of ${formatCompactBytes(result.originalBytes)}); omitted ${savedLines} lines (${formatCompactBytes(savedBytes)}).`,
+  ];
+  if (fullOutputPath) {
+    parts.push(
+      `Full output saved to: ${fullOutputPath} - re-read with the \`read\` tool (\`offset\` / \`limit\`) if you need specific lines.`,
+    );
+  } else {
+    parts.push(
+      'Full output was not written to a tempfile (I/O error). Re-run the command if you need the complete text.',
+    );
+  }
+  return parts.join(' ');
+}
+
 /**
  * Parse a comma-separated list of tool names out of an env var.
  * Lowercases and trims each entry; returns a Set for O(1) membership

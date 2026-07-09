@@ -66,18 +66,16 @@ import { join } from 'node:path';
 
 import { type ExtensionAPI, type ExtensionContext } from '@earendil-works/pi-coding-agent';
 
-import { condense, type CondenseOptions, parseToolList } from '../../../lib/node/pi/output-condense.ts';
+import {
+  buildCondenseBanner,
+  condense,
+  type CondenseOptions,
+  extractFullOutputPath,
+  parseToolList,
+} from '../../../lib/node/pi/output-condense.ts';
 import { envTruthy, parseClampedPositiveInt } from '../../../lib/node/pi/parse-env.ts';
-import { formatCompactBytes } from '../../../lib/node/pi/shared.ts';
 
 const DEFAULT_TOOLS = ['bash'] as const;
-const MARKER_HEADER = '⟨ [pi-tool-output-condenser] ⟩';
-
-function extractFullOutputPath(details: unknown): string | undefined {
-  if (!details || typeof details !== 'object') return undefined;
-  const path = (details as { fullOutputPath?: unknown }).fullOutputPath;
-  return typeof path === 'string' && path.length > 0 ? path : undefined;
-}
 
 async function writeFullOutputFile(text: string, toolName: string, _ctx: ExtensionContext): Promise<string> {
   const prefix = join(tmpdir(), `pi-${toolName}-condensed-`);
@@ -91,30 +89,6 @@ async function writeFullOutputFile(text: string, toolName: string, _ctx: Extensi
     throw err;
   }
   return file;
-}
-
-function buildBanner(
-  result: { originalBytes: number; originalLines: number; outputBytes: number; outputLines: number },
-  fullOutputPath: string | undefined,
-  toolName: string,
-): string {
-  const savedLines = result.originalLines - result.outputLines;
-  const savedBytes = result.originalBytes - result.outputBytes;
-  const parts = [
-    MARKER_HEADER,
-    `${toolName} output was condensed: kept ${result.outputLines} of ${result.originalLines} lines`,
-    `(${formatCompactBytes(result.outputBytes)} of ${formatCompactBytes(result.originalBytes)}); omitted ${savedLines} lines (${formatCompactBytes(savedBytes)}).`,
-  ];
-  if (fullOutputPath) {
-    parts.push(
-      `Full output saved to: ${fullOutputPath} - re-read with the \`read\` tool (\`offset\` / \`limit\`) if you need specific lines.`,
-    );
-  } else {
-    parts.push(
-      'Full output was not written to a tempfile (I/O error). Re-run the command if you need the complete text.',
-    );
-  }
-  return parts.join(' ');
 }
 
 export default function toolOutputCondenser(pi: ExtensionAPI): void {
@@ -163,7 +137,7 @@ export default function toolOutputCondenser(pi: ExtensionAPI): void {
 
     // Build the breadcrumb the model sees: condensed text + footer
     // explaining what happened and where to find the rest.
-    const banner = buildBanner(result, fullOutputPath, toolName);
+    const banner = buildCondenseBanner(result, fullOutputPath, toolName);
     const replacementText = `${result.text}\n\n${banner}`;
 
     const newContent = content.slice();
