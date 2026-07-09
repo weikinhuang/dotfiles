@@ -18,6 +18,7 @@
 
 import { isAbsolute, resolve } from 'node:path';
 
+import { type CompletionItem } from '../commands/complete.ts';
 import { expandTilde } from '../path-expand.ts';
 import { MARKER } from './extract.ts';
 
@@ -28,14 +29,6 @@ import { MARKER } from './extract.ts';
  * mis-named file completed here just stays as text when sent.
  */
 export const IMAGE_EXTENSIONS: ReadonlySet<string> = new Set(['.jpg', '.jpeg', '.png', '.gif', '.webp']);
-
-/** A completion candidate, shaped like pi-tui's `AutocompleteItem`. */
-export interface CompletionItem {
-  /** Text spliced into the editor (carries the `&` marker + path prefix). */
-  value: string;
-  /** Menu label (basename, with a trailing `/` for directories). */
-  label: string;
-}
 
 /** One directory entry, as the shell hands it in after a `readdir`. */
 export interface DirEntry {
