@@ -23,19 +23,44 @@ function collectTextParts(content: readonly unknown[], out: string[]): void {
   }
 }
 
+/** Options for {@link extractContentText}. */
+export interface ContentTextOptions {
+  /** Separator joining array text parts. Defaults to a newline. */
+  sep?: string;
+  /** Trim the final result. Defaults to `false`. */
+  trim?: boolean;
+}
+
+/**
+ * Canonical `content -> plain text` core. A string is returned as-is; an
+ * array joins its `{ type: 'text', text }` parts with `sep` (default `'\n'`),
+ * dropping any part that is not a text part or whose `text` is not a string;
+ * anything else yields the empty string. The result is trimmed when
+ * `trim` is set.
+ *
+ * All the message-text and message-extract helpers funnel through here so the
+ * walk lives in one tested place.
+ */
+export function extractContentText(content: unknown, opts: ContentTextOptions = {}): string {
+  const sep = opts.sep ?? '\n';
+  let text = '';
+  if (typeof content === 'string') {
+    text = content;
+  } else if (Array.isArray(content)) {
+    const parts: string[] = [];
+    collectTextParts(content, parts);
+    text = parts.join(sep);
+  }
+  return opts.trim ? text.trim() : text;
+}
+
 /**
  * Flatten one message's `content` to plain text. A string is returned
  * as-is; an array joins its text parts with `sep`; anything else yields the
- * empty string.
+ * empty string. Thin wrapper over {@link extractContentText}.
  */
 export function messageContentToText(content: unknown, sep = '\n'): string {
-  if (typeof content === 'string') return content;
-  if (Array.isArray(content)) {
-    const parts: string[] = [];
-    collectTextParts(content, parts);
-    return parts.join(sep);
-  }
-  return '';
+  return extractContentText(content, { sep });
 }
 
 /**

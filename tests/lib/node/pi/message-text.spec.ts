@@ -7,14 +7,45 @@ import { expect, test } from 'vitest';
 import {
   collectRoleMessageTexts,
   concatRecentMessageText,
+  extractContentText,
   latestMessageTextFromEntries,
   messageContentToText,
 } from '../../../../lib/node/pi/message-text.ts';
 
 const textPart = (text: string): unknown => ({ type: 'text', text });
 
+test('extractContentText: string content returned as-is (no trim by default)', () => {
+  expect(extractContentText('  hi ')).toBe('  hi ');
+});
+
+test('extractContentText: array joins text parts, dropping non-text and non-string text', () => {
+  const content = [textPart('a'), { type: 'image' }, { type: 'text' }, textPart('b')];
+  expect(extractContentText(content)).toBe('a\nb');
+  expect(extractContentText(content, { sep: '' })).toBe('ab');
+  expect(extractContentText(content, { sep: ' ' })).toBe('a b');
+});
+
+test('extractContentText: trim option trims the joined result', () => {
+  expect(extractContentText([textPart('  one '), textPart('two  ')], { sep: '', trim: true })).toBe('one two');
+  expect(extractContentText('  spaced  ', { trim: true })).toBe('spaced');
+});
+
+test('extractContentText: empty separator is preserved (not defaulted)', () => {
+  expect(extractContentText([textPart('x'), textPart('y')], { sep: '' })).toBe('xy');
+});
+
+test('extractContentText: non-string/non-array yields empty string', () => {
+  expect(extractContentText(undefined)).toBe('');
+  expect(extractContentText({ foo: 1 })).toBe('');
+  expect(extractContentText(42)).toBe('');
+});
+
 test('messageContentToText: string content returned as-is', () => {
   expect(messageContentToText('hello')).toBe('hello');
+});
+
+test('messageContentToText: empty separator joins with no gap', () => {
+  expect(messageContentToText([textPart('a'), textPart('b')], '')).toBe('ab');
 });
 
 test('messageContentToText: array joins text parts with the separator', () => {
