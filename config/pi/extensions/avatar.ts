@@ -117,6 +117,7 @@ import { piAgentPath, piProjectPath } from '../../../lib/node/pi/pi-paths.ts';
 import { fmtSi } from '../../../lib/node/pi/token-format.ts';
 import { envTruthy } from '../../../lib/node/pi/parse-env.ts';
 import { isModalUiActive, resetModalUi } from '../../../lib/node/pi/ui-activity.ts';
+import { readJsoncOrUndefined } from '../../../lib/node/pi/fs-safe.ts';
 
 // pi-tui's width helpers injected into the pure text renderers in render.ts.
 const textMeasure: TextMeasure = { visibleWidth, truncateToWidth };
@@ -153,18 +154,9 @@ interface UsageEntry {
 // Pure-ish helpers (fs + sprite loading)
 // ──────────────────────────────────────────────────────────────────────
 
-function readJson(path: string): unknown {
-  try {
-    if (!existsSync(path)) return null;
-    return JSON.parse(readFileSync(path, 'utf8')) as unknown;
-  } catch {
-    return null;
-  }
-}
-
 function loadConfig(cwd: string): AvatarConfig {
-  const userLayer = coerceConfigLayer(readJson(piAgentPath('avatar.json')));
-  const projectLayer = coerceConfigLayer(readJson(piProjectPath(cwd, 'avatar.json')));
+  const userLayer = coerceConfigLayer(readJsoncOrUndefined(piAgentPath('avatar.json')));
+  const projectLayer = coerceConfigLayer(readJsoncOrUndefined(piProjectPath(cwd, 'avatar.json')));
   return mergeConfigLayers(userLayer, projectLayer);
 }
 
