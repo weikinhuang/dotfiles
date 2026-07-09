@@ -58,6 +58,7 @@ import {
  */
 type ReadonlySessionManager = Pick<SessionManager, 'getBranch' | 'getSessionId'>;
 
+import { NO_UNSUBSCRIBE, onAbort } from '../../../lib/node/pi/btw/abort.ts';
 import { type BtwFooterStats, formatFooter } from '../../../lib/node/pi/btw/footer.ts';
 import { BTW_USAGE, buildSideQuestionUserContent } from '../../../lib/node/pi/btw/user-message.ts';
 import { isHelpArg } from '../../../lib/node/pi/commands/help.ts';
@@ -89,31 +90,6 @@ type ModelLike = Model<any>;
  * about without dragging in the full pi type.
  */
 type SessionView = Pick<ReadonlySessionManager, 'getBranch' | 'getSessionId'>;
-
-// ──────────────────────────────────────────────────────────────────────
-// Helpers
-// ──────────────────────────────────────────────────────────────────────
-
-/** No-op unsubscribe. Shared so we don't allocate per call. */
-const NO_UNSUBSCRIBE = (): void => {
-  // intentionally empty - nothing to clean up when there was nothing to subscribe.
-};
-
-/**
- * Wire a parent AbortSignal to a child handler, returning an
- * unsubscribe function that removes the listener on successful
- * completion. If the parent is already aborted we run the handler
- * synchronously.
- */
-function onAbort(signal: AbortSignal, handler: () => void): () => void {
-  if (signal.aborted) {
-    handler();
-    return NO_UNSUBSCRIBE;
-  }
-  const listener = (): void => handler();
-  signal.addEventListener('abort', listener, { once: true });
-  return () => signal.removeEventListener('abort', listener);
-}
 
 // ──────────────────────────────────────────────────────────────────────
 // Extension
