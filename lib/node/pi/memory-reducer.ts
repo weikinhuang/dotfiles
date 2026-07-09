@@ -22,6 +22,7 @@ import {
   findLatestStateInBranch,
   stateFromEntryGeneric,
 } from './branch-state.ts';
+import { parseFencedFrontmatter, stripQuotes } from './shared/strict-frontmatter.ts';
 
 // ──────────────────────────────────────────────────────────────────────
 // Types
@@ -207,26 +208,6 @@ export interface ParsedMemoryFile {
 const FENCE = '---';
 
 /**
- * Undo `yamlValue`'s quoting for a frontmatter value. Double-quoted
- * values have their `\\` / `\"` escapes reversed so a roundtrip of a
- * backslash- or quote-bearing value is stable. Single-quoted values
- * are treated as literal - they only appear if a human hand-edits the
- * file, and we never emit them.
- */
-function stripQuotes(raw: string): string {
-  const t = raw.trim();
-  if (t.startsWith('"') && t.endsWith('"') && t.length >= 2) {
-    // Reverse the escapes applied by `yamlValue`. Order matters:
-    // unescape `\\` first so a `\"` next to a `\\` isn't double-counted.
-    return t.slice(1, -1).replace(/\\([\\"])/g, '$1');
-  }
-  if (t.startsWith("'") && t.endsWith("'") && t.length >= 2) {
-    return t.slice(1, -1);
-  }
-  return t;
-}
-
-/**
  * Coerce a raw frontmatter timestamp into a normalised ISO-8601 UTC
  * string, or `undefined` when the value is missing or unparseable.
  * Parsing is deliberately loose: a bad timestamp is treated as absent,
@@ -245,51 +226,33 @@ function parseTimestamp(raw: string | undefined): string | undefined {
  * Parse a memory markdown file. Returns `null` if the frontmatter fence
  * is missing, incomplete, or the three required keys aren't all present.
  *
- * The body starts immediately after the closing fence's newline, so a
- * body can itself contain `---` rules without confusing the parser.
+ * Fence detection, header splitting, and body slicing are delegated to
+ * the shared {@link parseFencedFrontmatter}; this function only layers
+ * memory's domain rules (required `name` / `description` / `type` keys,
+ * `type` validation, loose timestamp coercion) on top. The body starts
+ * immediately after the closing fence's newline, so it can itself
+ * contain `---` rules without confusing the parser.
  */
 export function parseFrontmatter(raw: string): ParsedMemoryFile | null {
-  // Normalise CRLF so the matching stays simple.
-  const src = raw.replace(/\r\n/g, '\n');
-  if (!src.startsWith(`${FENCE}\n`) && !src.startsWith(`${FENCE}\r\n`)) return null;
+  const parsed = parseFencedFrontmatter(raw);
+  if (parsed === null) return null;
+  const { fields, body } = parsed;
 
-  const afterOpen = FENCE.length + 1; // skip the opening `---\n`
-  const closeIdx = src.indexOf(`\n${FENCE}\n`, afterOpen - 1);
-  // Tolerate a file ending exactly with `\n---` (no trailing newline).
-  const closeIdxEof = src.endsWith(`\n${FENCE}`) ? src.length - FENCE.length - 1 : -1;
-  const end = closeIdx !== -1 ? closeIdx : closeIdxEof;
-  if (end === -1) return null;
-
-  const header = src.slice(afterOpen, end);
-  // Step over the closing `\n---` + trailing newline. When the match came
-  // from `closeIdxEof` (no final newline), bodyStart may equal src.length,
-  // and the slice below yields an empty body - fine.
-  const bodyStart = end + FENCE.length + 2;
-  const body = bodyStart <= src.length ? src.slice(bodyStart) : '';
-
-  const partial: Partial<Frontmatter> = {};
-  let createdRaw: string | undefined;
-  let updatedRaw: string | undefined;
-  for (const rawLine of header.split('\n')) {
-    const line = rawLine.replace(/\s+$/, '');
-    if (line.length === 0) continue;
-    const sep = line.indexOf(':');
-    if (sep === -1) return null;
-    const key = line.slice(0, sep).trim();
-    const value = stripQuotes(line.slice(sep + 1));
-    if (key === 'name') partial.name = value;
-    else if (key === 'description') partial.description = value;
-    else if (key === 'type') {
-      if (!(MEMORY_TYPES as readonly string[]).includes(value)) return null;
-      partial.type = value as MemoryType;
-    } else if (key === 'created') createdRaw = value;
-    else if (key === 'updated') updatedRaw = value;
-    // Unknown keys are ignored - allows for forward compatibility.
+  // Unknown keys are ignored - allows for forward compatibility.
+  const name = fields.name !== undefined ? stripQuotes(fields.name) : undefined;
+  const description = fields.description !== undefined ? stripQuotes(fields.description) : undefined;
+  let type: MemoryType | undefined;
+  if (fields.type !== undefined) {
+    const value = stripQuotes(fields.type);
+    if (!(MEMORY_TYPES as readonly string[]).includes(value)) return null;
+    type = value as MemoryType;
   }
+  const createdRaw = fields.created !== undefined ? stripQuotes(fields.created) : undefined;
+  const updatedRaw = fields.updated !== undefined ? stripQuotes(fields.updated) : undefined;
 
-  if (typeof partial.name !== 'string' || partial.name.length === 0) return null;
-  if (typeof partial.description !== 'string') return null;
-  if (partial.type === undefined) return null;
+  if (typeof name !== 'string' || name.length === 0) return null;
+  if (typeof description !== 'string') return null;
+  if (type === undefined) return null;
 
   // Timestamps are loose: an absent or unparseable value is `undefined`,
   // never a reason to reject the file (old three-key files have neither).
@@ -298,13 +261,13 @@ export function parseFrontmatter(raw: string): ParsedMemoryFile | null {
 
   return {
     frontmatter: {
-      name: partial.name,
-      description: partial.description,
-      type: partial.type,
+      name,
+      description,
+      type,
       ...(created !== undefined ? { created } : {}),
       ...(updated !== undefined ? { updated } : {}),
     },
-    body: body.replace(/^\n+/, ''),
+    body,
   };
 }
 
