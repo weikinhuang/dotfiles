@@ -14,6 +14,8 @@
  * satisfies.
  */
 
+import { messageContentToText } from '../message-text.ts';
+
 /** Minimal duck-typed content part - only `text` parts carry scene text. */
 export interface SceneContentPart {
   type: string;
@@ -28,16 +30,6 @@ export interface SceneMessage {
 }
 
 const ROLE_LABEL: Record<string, string> = { user: 'User', assistant: 'Assistant' };
-
-/** Concatenate the text parts of one message's content. */
-function messageText(content: SceneMessage['content']): string {
-  if (typeof content === 'string') return content;
-  if (!Array.isArray(content)) return '';
-  return content
-    .filter((p) => p?.type === 'text' && typeof p.text === 'string')
-    .map((p) => p.text ?? '')
-    .join('\n');
-}
 
 /**
  * Strip ephemeral `<system-reminder …>…</system-reminder>` blocks that
@@ -71,7 +63,7 @@ export function extractSceneContext(messages: readonly SceneMessage[] | undefine
     const m = messages[i];
     const label = ROLE_LABEL[m.role];
     if (label === undefined) continue;
-    const text = clean(messageText(m.content));
+    const text = clean(messageContentToText(m.content));
     if (text.length === 0) continue;
     const line = `${label}: ${text}`;
     const addLen = line.length + (collected.length > 0 ? 1 : 0); // +1 for the join newline
