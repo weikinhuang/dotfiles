@@ -20,6 +20,7 @@
 
 import { findLatestStateInBranch } from '../branch-state.ts';
 import type { BranchEntry } from '../branch-state.ts';
+import { truncate } from '../shared/strings.ts';
 import type { RefineJourney } from './refine.ts';
 
 /** Where a recorded generation came from. */
@@ -144,11 +145,6 @@ export function findGenerationByPrompt(reg: GenerationRegistry, promptId: string
   return reg.generations.find((g) => g.promptId === promptId);
 }
 
-function truncate(text: string, max: number): string {
-  const oneLine = text.replace(/\s+/g, ' ').trim();
-  return oneLine.length <= max ? oneLine : `${oneLine.slice(0, max - 1)}…`;
-}
-
 /**
  * One-line gallery summary of a record, e.g.
  * `[g1] anima · seed 123 · 1024x1024 · 2 images · "a cat on a roof" (foreground)`.
@@ -159,7 +155,7 @@ export function formatGenerationLine(rec: GenerationRecord): string {
   if (rec.width !== undefined && rec.height !== undefined) parts.push(`${rec.width}x${rec.height}`);
   const n = rec.savedPaths.length;
   parts.push(`${n} image${n === 1 ? '' : 's'}`);
-  if (rec.prompt.length > 0) parts.push(`"${truncate(rec.prompt, 60)}"`);
+  if (rec.prompt.length > 0) parts.push(`"${truncate(rec.prompt, 60, { collapseWhitespace: true })}"`);
   parts.push(`(${rec.source})`);
   return `[${rec.id}] ${parts.join(' · ')}`;
 }

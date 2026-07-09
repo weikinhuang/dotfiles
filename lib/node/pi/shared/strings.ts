@@ -14,22 +14,31 @@ export function collapseWhitespace(s: string): string {
 export interface TruncateOptions {
   /** Trim whitespace from `s` before measuring / slicing. Default false. */
   trim?: boolean;
+  /**
+   * Collapse every whitespace run in `s` to a single space (and trim)
+   * before measuring / slicing, via {@link collapseWhitespace}. Default
+   * false. Takes precedence over `trim` when both are set.
+   */
+  collapseWhitespace?: boolean;
 }
 
 /**
  * Cap `s` at `n` characters, appending `…` when the limit is hit. When
  * `trim` is enabled the input is trimmed first so callers don't need a
- * two-step `s.trim()` then `truncate()` dance.
+ * two-step `s.trim()` then `truncate()` dance; `collapseWhitespace`
+ * instead squeezes internal whitespace runs to single spaces (and
+ * trims) before measuring.
  *
  * Guarantees:
- *   - Returns `s` (or the trimmed form) unchanged when it already fits.
+ *   - Returns `s` (or the trimmed / collapsed form) unchanged when it
+ *     already fits.
  *   - When truncating, the returned string is exactly `n` chars long -
  *     `n - 1` original chars plus the `…` ellipsis.
  *   - `n <= 0` yields an empty string; `n === 1` yields just `…` when
  *     the input was longer than 0 chars (otherwise empty).
  */
 export function truncate(s: string, n: number, opts: TruncateOptions = {}): string {
-  const input = opts.trim ? s.trim() : s;
+  const input = opts.collapseWhitespace ? collapseWhitespace(s) : opts.trim ? s.trim() : s;
   if (n <= 0) return '';
   if (input.length <= n) return input;
   if (n === 1) return '…';

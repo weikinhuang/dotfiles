@@ -92,6 +92,20 @@ test('truncate: empty string is returned as-is for any n >= 0', () => {
   expect(truncate('', 5)).toBe('');
 });
 
+test('truncate: { collapseWhitespace: true } squeezes runs before measuring', () => {
+  // 'a   b c' collapses to 'a b c' (5 chars) → fits under 10
+  expect(truncate('a   b\tc', 10, { collapseWhitespace: true })).toBe('a b c');
+});
+
+test('truncate: { collapseWhitespace: true } truncates the collapsed form', () => {
+  // '  hello   world  ' collapses to 'hello world' (11 chars); n=8 → 'hello w…'
+  expect(truncate('  hello   world  ', 8, { collapseWhitespace: true })).toBe('hello w…');
+});
+
+test('truncate: { collapseWhitespace: true } takes precedence over trim', () => {
+  expect(truncate('a\n\nb', 10, { collapseWhitespace: true, trim: true })).toBe('a b');
+});
+
 // ──────────────────────────────────────────────────────────────────────
 // trimOrUndefined
 // ──────────────────────────────────────────────────────────────────────

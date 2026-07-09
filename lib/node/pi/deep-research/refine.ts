@@ -65,6 +65,7 @@ import { type DeepResearchPlan } from '../research/plan.ts';
 import { listRun, type SourceRef } from '../research/sources.ts';
 import { type ResearchSessionLike } from '../research/structured.ts';
 import { type TinyAdapter, type TinyCallContext } from '../research/tiny.ts';
+import { truncate } from '../shared/strings.ts';
 
 // ──────────────────────────────────────────────────────────────────────
 // Public types.
@@ -425,10 +426,4 @@ function composeSectionOutcomes(
 
 function emptyVerdict(): Verdict {
   return { approved: false, score: 0, issues: [], summary: '(no verdict provided)' };
-}
-
-function truncate(s: string | undefined, cap: number): string {
-  if (!s) return '';
-  if (s.length <= cap) return s;
-  return `${s.slice(0, cap - 1)}…`;
 }

@@ -24,6 +24,7 @@
 
 import { formatDuration, parseDuration, parseDurationRange } from './duration.ts';
 import { parseCron } from './cron.ts';
+import { truncate } from '../shared/strings.ts';
 import {
   computeNextFire,
   describeTrigger,
@@ -325,11 +326,6 @@ export function parseScheduleCommand(input: string, now: Date = new Date()): Par
   };
 }
 
-function truncate(text: string, max: number): string {
-  const oneLine = text.replace(/\s+/g, ' ').trim();
-  return oneLine.length <= max ? oneLine : `${oneLine.slice(0, max - 1)}…`;
-}
-
 function formatNextFire(schedule: Schedule, now: number): string {
   if (!schedule.enabled) return 'disabled';
   const at = schedule.nextFireAt ?? computeNextFire(schedule, new Date(now)) ?? undefined;
@@ -352,7 +348,7 @@ export function formatScheduleLine(schedule: Schedule, now: number): string {
   const runs = schedule.maxRuns !== undefined ? `${schedule.runCount}/${schedule.maxRuns}` : `${schedule.runCount}`;
   const meta = `      next: ${formatNextFire(schedule, now)}  runs: ${runs}`;
   const pool = schedule.prompts && schedule.prompts.length > 1 ? ` (+${schedule.prompts.length - 1} more)` : '';
-  const body = `      prompt: ${truncate(schedule.prompt, 80)}${pool}`;
+  const body = `      prompt: ${truncate(schedule.prompt, 80, { collapseWhitespace: true })}${pool}`;
   return `${head}\n${meta}\n${body}`;
 }
 
