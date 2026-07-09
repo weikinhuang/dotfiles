@@ -41,10 +41,29 @@ file covers only the **pi-import policy** specific to this subtree.
   - `ext/` is for logic shared across extensions or extracted to shrink a file, not a second home for one shell. If a
     pure helper grows a pi import, keep it pure if you can, otherwise move it to `ext/`.
 
+### Reuse the shared helpers - don't re-roll
+
+Before writing a small utility, check whether a canonical helper exists; re-rolling one (a second message-to-text walk,
+a hand-built `globalThis` slot, another `truncate`) is a review red flag. When a caller needs a variation, **extend the
+shared helper with an optional parameter (default preserving behaviour)** and keep consumer-specific extras at the call
+site - don't fork a copy. Alongside the atomics in the directory map (and `pi-paths` / `parse-env` / completion helpers
+documented in the extensions guide), reuse:
+
+- **Pure:** [`message-text.ts`](./message-text.ts) `extractContentText` (content → text; `message-extract.ts`
+  re-exports), [`shared.ts`](./shared.ts) `truncate`, [`shared/strict-frontmatter.ts`](./shared/strict-frontmatter.ts)
+  `parseFencedFrontmatter` (domain validation layered on top), [`shared/guards.ts`](./shared/guards.ts) `isTextPart`,
+  [`global-slot.ts`](./global-slot.ts) `createGlobalSlot` (never hand-build a `globalThis[Symbol.for(…)]` slot),
+  [`fuzzy-match.ts`](./fuzzy-match.ts) `fuzzyMatch` (higher = better; not pi-tui's inverted score),
+  [`scroll-window.ts`](./scroll-window.ts) scroll math.
+- **`ext/` glue:** [`ext/pi-session.ts`](./ext/pi-session.ts) `piCreateAgentSession`,
+  [`ext/tool-path.ts`](./ext/tool-path.ts) `getToolCallPathInput`, [`ext/deferred-nudge.ts`](./ext/deferred-nudge.ts)
+  `deliverDeferredNudge`, [`ext/overlay-window.ts`](./ext/overlay-window.ts) `assembleWindowedBody`,
+  [`ext/context-edit-runtime.ts`](./ext/context-edit-runtime.ts).
+
 ## Boundaries
 
 **Always**: keep modules directly under `lib/node/pi/` pure; put pi-importing shared helpers in `ext/` with a mirrored
-spec under `tests/lib/node/pi/ext/`.
+spec under `tests/lib/node/pi/ext/`; reuse a canonical helper (extend it with an optional param) instead of re-rolling.
 
 **Ask first**: promoting a widely-imported pure helper into `ext/` (it gains a pi dependency every caller inherits);
 depending on an `@earendil-works/*` package not already used here.

@@ -45,6 +45,13 @@ import; anything that can stay pure belongs in `lib/node/pi/`. Anchors:
 [`multi-select-list.ts`](../../../lib/node/pi/ext/multi-select-list.ts),
 [`drop-confirm.ts`](../../../lib/node/pi/ext/drop-confirm.ts).
 
+Before writing a helper in an extension shell, check the **"Reuse the shared helpers - don't re-roll"** table in
+[`../../../lib/node/pi/AGENTS.md`](../../../lib/node/pi/AGENTS.md): message-to-text extraction (`message-text.ts`),
+`truncate` (`shared.ts`), `createGlobalSlot` (`global-slot.ts`), `parseFencedFrontmatter`
+(`shared/strict-frontmatter.ts`), env parsing (`parse-env.ts`), pi paths (`pi-paths.ts`), and the `ext/` glue helpers
+(`piCreateAgentSession`, `getToolCallPathInput`, `deliverDeferredNudge`, `context-edit-runtime`) already exist - extend
+the canonical helper rather than forking a copy.
+
 ### `<name>.ts` + `<name>.md` pair
 
 Every extension ships with a deep doc next to it (`bg-bash.ts` ↔ `bg-bash.md`, `deep-research.ts` ↔ `deep-research.md`).
