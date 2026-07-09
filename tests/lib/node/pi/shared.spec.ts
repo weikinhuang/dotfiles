@@ -15,6 +15,7 @@ import {
   isNonEmptyString,
   isRecord,
   isStringArray,
+  isTextPart,
   sha256Hex,
   sha256HexPrefix,
   trimOrUndefined,
@@ -278,6 +279,33 @@ test('isNonEmptyString: false for empty string and non-string values', () => {
   expect(isNonEmptyString(null)).toBe(false);
   expect(isNonEmptyString(0)).toBe(false);
   expect(isNonEmptyString({})).toBe(false);
+});
+
+// ──────────────────────────────────────────────────────────────────────
+// isTextPart
+// ──────────────────────────────────────────────────────────────────────
+
+test('isTextPart: true for a text part with a string text', () => {
+  expect(isTextPart({ type: 'text', text: 'hi' })).toBe(true);
+  expect(isTextPart({ type: 'text', text: '' })).toBe(true);
+});
+
+test('isTextPart: false when type is not text', () => {
+  expect(isTextPart({ type: 'image', text: 'hi' })).toBe(false);
+  expect(isTextPart({ type: 'toolCall', text: 'hi' })).toBe(false);
+});
+
+test('isTextPart: false when text is missing or non-string', () => {
+  expect(isTextPart({ type: 'text' })).toBe(false);
+  expect(isTextPart({ type: 'text', text: 42 })).toBe(false);
+  expect(isTextPart({ type: 'text', text: null })).toBe(false);
+});
+
+test('isTextPart: false for non-record inputs', () => {
+  expect(isTextPart(null)).toBe(false);
+  expect(isTextPart(undefined)).toBe(false);
+  expect(isTextPart('text')).toBe(false);
+  expect(isTextPart(['text'])).toBe(false);
 });
 
 // ──────────────────────────────────────────────────────────────────────

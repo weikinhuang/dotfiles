@@ -50,3 +50,15 @@ export function isNonEmptyString(v: unknown): v is string {
 export function isFiniteNumber(v: unknown): v is number {
   return typeof v === 'number' && Number.isFinite(v);
 }
+
+/**
+ * Type guard for a duck-typed text content part: `{ type: 'text' }`
+ * carrying a string `text`. Shared by the context-edit / context-reminder
+ * walkers that iterate pi's loosely-typed message-part unions and need to
+ * read `.text` off the text parts only. Callers with an extra predicate
+ * (e.g. a reminder block that must also start with a given tag) compose
+ * this with their own check at the call site.
+ */
+export function isTextPart(part: unknown): part is { type: 'text'; text: string } {
+  return isRecord(part) && part.type === 'text' && typeof part.text === 'string';
+}

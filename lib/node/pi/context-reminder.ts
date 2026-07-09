@@ -56,6 +56,8 @@
  * to/from `ReminderMessage`.
  */
 
+import { isTextPart } from './shared/guards.ts';
+
 // ──────────────────────────────────────────────────────────────────────
 // Structural message shapes (duck-typed subset of pi's AgentMessage)
 // ──────────────────────────────────────────────────────────────────────
@@ -131,9 +133,7 @@ export function frameReminder(id: string, body: string): string {
 
 /** Does this content block belong to the given reminder id? */
 function isReminderBlock(block: ReminderContentBlock, id: string): boolean {
-  return block.type === 'text' && typeof (block as ReminderTextBlock).text === 'string'
-    ? (block as ReminderTextBlock).text.startsWith(openTagFor(id))
-    : false;
+  return isTextPart(block) && block.text.startsWith(openTagFor(id));
 }
 
 // ──────────────────────────────────────────────────────────────────────

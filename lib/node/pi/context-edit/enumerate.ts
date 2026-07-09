@@ -18,6 +18,7 @@
  */
 
 import { byteLen, formatCompactBytes } from '../shared/bytes.ts';
+import { isTextPart } from '../shared/guards.ts';
 import { collapseWhitespace, truncate } from '../shared/strings.ts';
 import { countLines, isPlaceholder } from './placeholder.ts';
 import { type LooseMessage, type LoosePart, type Target, toParts } from './target.ts';
@@ -78,9 +79,7 @@ const DEFAULT_SNIPPET_CHARS = 80;
 const SEARCH_CHARS = 512;
 
 function partText(part: LoosePart): string {
-  return part.type === 'text' && typeof (part as { text?: unknown }).text === 'string'
-    ? (part as { text: string }).text
-    : '';
+  return isTextPart(part) ? part.text : '';
 }
 
 function approxImageBytes(part: LoosePart): number {

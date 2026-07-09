@@ -25,6 +25,7 @@
  * caller decide whether to return a changed list at all.
  */
 
+import { isTextPart } from '../shared/guards.ts';
 import { type CollapseDirective, type Directive, type EditDirective, type TrimDirective } from './directive.ts';
 import { collapsePlaceholder, imagePlaceholder, textPlaceholder } from './placeholder.ts';
 import { findToolCall, type LooseMessage, type LoosePart, resolveTarget, type Target, toParts } from './target.ts';
@@ -50,9 +51,7 @@ function copyMessage(m: LooseMessage): LooseMessage {
 }
 
 function partText(part: LoosePart): string {
-  return part.type === 'text' && typeof (part as { text?: unknown }).text === 'string'
-    ? (part as { text: string }).text
-    : '';
+  return isTextPart(part) ? part.text : '';
 }
 
 function approxImageBytes(part: LoosePart): number {
