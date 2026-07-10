@@ -15,6 +15,12 @@
  *   3. Search roots are `cwd` plus any `personaWriteRoots` (per
  *      plan section 9.20). Default depth is 3, configurable via
  *      `flags.linuxRuleDepth`.
+ *   4. Explicit `paths` rules that exist on disk are resolved through
+ *      `realpathSync` so a symlinked deny path (e.g. `~/.ssh` ->
+ *      `/mnt/d/.../.ssh`) is denied at its real location. bwrap cannot
+ *      mount a tmpfs / ro-bind ON a symlink, so emitting the literal
+ *      symlink aborts the whole wrap with `Can't mount tmpfs on ...:
+ *      No such file or directory`.
  *
  * Lossy report: any rule that compiled to ZERO literal paths is
  * surfaced in the result so `/sandbox` can flag the rule as inert. On
@@ -27,7 +33,7 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, realpathSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { resolve, sep } from 'node:path';
 
@@ -274,8 +280,31 @@ export function compileLinuxRules(rules: FilesystemRules, options: CompileLinuxR
     // `~/.ssh` compile to the real home path instead of `<cwd>/~/.ssh`.
     // Mirrors filesystem-policy/classify.ts and config-translate.ts.
     const resolved = resolve(options.cwd, expandTilde(raw, home));
-    if (!existsSync(resolved)) inertPaths.push(raw);
-    paths.add(resolved);
+    if (!existsSync(resolved)) {
+      inertPaths.push(raw);
+      paths.add(resolved);
+      continue;
+    }
+    // Resolve symlinks to the real on-disk location. bwrap's deny
+    // mounts (`--tmpfs` for read-deny, `--ro-bind /dev/null` for
+    // write-deny) operate on the resolved mount target, and bwrap
+    // CANNOT mount on a path that is itself a symlink - it follows the
+    // link and fails with `Can't mount tmpfs on <target>: No such file
+    // or directory` when the target doesn't resolve inside the sandbox
+    // newroot. This bites a common dotfiles pattern where a sensitive
+    // deny path is symlinked to a synced drive (`~/.ssh` ->
+    // `/mnt/d/.../.ssh`). Denying the realpath makes the mount land on
+    // the actual directory; reads through the original symlink still
+    // resolve into the masked target, so the deny is preserved.
+    let target = resolved;
+    try {
+      target = realpathSync(resolved);
+    } catch {
+      // Fall back to the lexically-resolved path if realpath fails
+      // (TOCTOU race, permission). Better an imperfect deny entry than
+      // aborting the whole compile.
+    }
+    paths.add(target);
   }
 
   return {

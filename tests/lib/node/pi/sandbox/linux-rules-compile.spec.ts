@@ -6,7 +6,7 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -118,7 +118,7 @@ describe('compileLinuxRules', () => {
       }),
       { cwd, runRipgrep: stubRg({}).runner },
     );
-    expect(r.paths).toEqual([join(cwd, 'absent'), join(cwd, 'present')].sort());
+    expect(r.paths).toEqual([join(cwd, 'absent'), realpathSync(join(cwd, 'present'))].sort());
     expect(r.inertPaths).toEqual([join(cwd, 'absent')]);
   });
 
@@ -131,7 +131,25 @@ describe('compileLinuxRules', () => {
       runRipgrep: stubRg({}).runner,
     });
     // Must resolve to the real home path, NOT `<cwd>/~/.ssh`.
-    expect(r.paths).toEqual([join(home, '.ssh')]);
+    expect(r.paths).toEqual([realpathSync(join(home, '.ssh'))]);
+    expect(r.inertPaths).toEqual([]);
+  });
+
+  test('a symlinked `paths` deny entry compiles to its realpath (bwrap cannot mount on a symlink)', () => {
+    // Mirrors the real-world dotfiles pattern where ~/.ssh is a symlink
+    // to a synced drive; denying the literal symlink makes bwrap fail
+    // with `Can't mount tmpfs on <target>: No such file or directory`.
+    const home = join(cwd, 'home');
+    const realSsh = join(cwd, 'real-ssh');
+    mkdirSync(home, { recursive: true });
+    mkdirSync(realSsh, { recursive: true });
+    symlinkSync(realSsh, join(home, '.ssh'));
+    const r = compileLinuxRules(rules({ paths: ['~/.ssh'] }), {
+      cwd,
+      homedir: home,
+      runRipgrep: stubRg({}).runner,
+    });
+    expect(r.paths).toEqual([realpathSync(realSsh)]);
     expect(r.inertPaths).toEqual([]);
   });
 
