@@ -89,6 +89,8 @@ Personas are loaded in order, later layers override earlier by persona name:
 1. **Shipped**: `../personas/` (sibling of this extension dir, resolved from `import.meta.url`).
 2. **User-global**: `~/.pi/agent/personas/`.
 3. **Project-local**: `<cwd>/.pi/personas/`.
+4. **`PI_PERSONA_DIRS`**: colon-separated extra dirs, appended last (highest precedence) - see the env-var section
+   below. Handy for test / eval personas that shouldn't live in the standard dirs.
 
 Missing directories are silently skipped; parse errors surface once each via `ctx.ui.notify(..., 'warning')`, de-duped
 by `path + reason` - same UX as `preset.ts` and `subagent/loader.ts`. Files named `README.md` are skipped so a catalog
@@ -262,6 +264,10 @@ it doesn't accidentally route a write through `subagent(...)` to bypass the pare
 - `PI_PERSONA_DISABLED=1` - skip the extension entirely (no flag, command, or shortcut registered).
 - `PI_PERSONA_DEBUG=1` - `ctx.ui.notify` on every internal decision (snapshot taken, persona activated, write violation,
   …).
+- `PI_PERSONA_DIRS=dir1:dir2` - colon-separated list of extra persona directories, searched at **highest precedence**
+  (appended after the project layer, so a same-named persona here overrides the built-in one). Each entry points at a
+  directory that directly contains persona `*.md` files. `~/` expands against `$HOME`; relative entries resolve against
+  the session cwd; absolute paths pass through. Unset = identical behaviour to today. Handy for test / eval personas.
 - `PI_PERSONA_DEFAULT=<name>` - auto-activate at `session_start` when neither `--persona` nor a session-restored persona
   is set.
 - `PI_PERSONA_VIOLATION_DEFAULT=allow` - in non-UI mode, allow writes outside `writeRoots` instead of blocking.

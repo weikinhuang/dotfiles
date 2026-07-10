@@ -23,7 +23,7 @@ import { trimOrUndefined } from '../shared/strings.ts';
 const THINKING_LEVELS = ['off', 'low', 'medium', 'high'] as const;
 export type PersonaThinkingLevel = (typeof THINKING_LEVELS)[number];
 
-export type PersonaSourceLayer = 'shipped' | 'user' | 'project';
+export type PersonaSourceLayer = 'shipped' | 'user' | 'project' | 'env';
 
 /** Raw, untyped frontmatter - every field is `unknown` until validated. */
 export interface PersonaFrontmatterRaw extends Record<string, unknown> {
@@ -110,7 +110,7 @@ export interface ParsedPersona {
   body: string;
   /** Absolute path of the source file. */
   source: string;
-  /** Layered-discovery tag (`shipped` / `user` / `project`). */
+  /** Layered-discovery tag (`shipped` / `user` / `project` / `env`). */
   sourceLayer: PersonaSourceLayer;
 }
 

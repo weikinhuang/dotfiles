@@ -14,13 +14,15 @@
  *   - Optional `bashAllow` / `bashDeny` per-persona policy that
  *     layers on top of `bash-permissions.ts`.
  *
- * Personas are markdown files (frontmatter + body) loaded from three
+ * Personas are markdown files (frontmatter + body) loaded from
  * layered directories - same project → user → repo precedence
  * `agents/` and `presets.json` use:
  *
  *   1. `config/pi/personas/` shipped with the dotfiles repo.
  *   2. `<piAgentDir>/personas/` - user-global (default `~/.pi/agent/personas/`).
  *   3. `<cwd>/.pi/personas/` - project-local.
+ *   4. `PI_PERSONA_DIRS` entries (colon-separated) - highest precedence,
+ *      appended last so they can override built-in personas by name.
  *
  * A persona file may declare `agent: <name>` to inherit `tools`,
  * `model`, `thinkingLevel`, and `body` from an existing
@@ -50,6 +52,10 @@
  * Environment:
  *   PI_PERSONA_DISABLED=1                skip the extension entirely
  *   PI_PERSONA_DEBUG=1                   notify on every internal decision
+ *   PI_PERSONA_DIRS=dir1:dir2            colon-separated extra persona
+ *                                     dirs, searched at highest
+ *                                     precedence (override built-ins by
+ *                                     name); ~/ and relative-to-cwd OK
  *   PI_PERSONA_DEFAULT=<name>            auto-activate at session_start
  *                                     when no --persona flag and no
  *                                     session-restored persona
@@ -92,6 +98,7 @@ import {
 } from '../../../lib/node/pi/persona/info.ts';
 import { type PersonaWarning, parsePersonaFile, type ParsedPersona } from '../../../lib/node/pi/persona/parse.ts';
 import { resolveWriteRoots } from '../../../lib/node/pi/persona/resolve.ts';
+import { buildPersonaEnvDirs, parsePersonaDirsEnv } from '../../../lib/node/pi/persona/env-dirs.ts';
 import { parseModelSpec } from '../../../lib/node/pi/model-spec.ts';
 import { findRestoredPersonaName, selectStartupPersona } from '../../../lib/node/pi/persona/startup.ts';
 import { PERSONA_USAGE } from '../../../lib/node/pi/persona/usage.ts';
@@ -141,6 +148,10 @@ export default function personaExtension(pi: ExtensionAPI): void {
 
   const debug = envTruthy(process.env.PI_PERSONA_DEBUG);
   const violationDefault = process.env.PI_PERSONA_VIOLATION_DEFAULT === 'allow' ? 'allow' : 'deny';
+  // Colon-separated extra persona dirs, searched at highest precedence
+  // (appended after the project layer -> later-wins). Resolved per-cwd
+  // in loadPersonas so relative entries follow the session cwd.
+  const envPersonaDirEntries = parsePersonaDirsEnv(process.env.PI_PERSONA_DIRS);
 
   const extDir = dirname(fileURLToPath(import.meta.url));
   const shippedPersonasDir = join(extDir, '..', 'personas');
@@ -214,10 +225,14 @@ export default function personaExtension(pi: ExtensionAPI): void {
 
   const loadPersonas = (cwd: string): PersonaWarning[] => {
     const warnings: PersonaWarning[] = [];
-    const layers: { source: 'shipped' | 'user' | 'project'; dir: string }[] = [
+    const layers: { source: 'shipped' | 'user' | 'project' | 'env'; dir: string }[] = [
       { source: 'shipped', dir: shippedPersonasDir },
       { source: 'user', dir: join(userPiDir, 'personas') },
       { source: 'project', dir: piProjectPath(cwd, 'personas') },
+      // PI_PERSONA_DIRS entries win over the built-in layers (last = wins).
+      ...buildPersonaEnvDirs(envPersonaDirEntries, { cwd, homedir: homedir() }).map(
+        (dir): { source: 'env'; dir: string } => ({ source: 'env', dir }),
+      ),
     ];
     const knownToolNames = new Set(pi.getAllTools().map((t) => t.name));
     const collected: Record<string, ParsedPersona> = {};
@@ -378,7 +393,7 @@ export default function personaExtension(pi: ExtensionAPI): void {
     if (activeName) {
       ctx.ui.setStatus(STATUS_KEY, `persona:${activeName}`);
     } else {
-      ctx.ui.setStatus(STATUS_KEY, undefined as unknown as string);
+      ctx.ui.setStatus(STATUS_KEY, undefined);
     }
   };
 
