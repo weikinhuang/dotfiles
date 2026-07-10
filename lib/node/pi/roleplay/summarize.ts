@@ -119,23 +119,35 @@ export function planSummarization(
 }
 
 /**
+ * Default EDITABLE guidance for the recap fold: what to cover and how to
+ * shape the recap. A downstream project can replace this via a
+ * `prompts/summary.md` override (see `prompt-override.ts`); the fixed
+ * faithful-only / `null`-sentinel contract and the data below are NOT
+ * overridable, so `validateSummary` stays safe.
+ */
+export const DEFAULT_SUMMARY_GUIDANCE = `Update the running recap into ONE consolidated third-person recap of the roleplay so far: integrate the new span, do not staple it on, and keep the whole thing bounded. Cover who is present, what happened, unresolved threads, and the current emotional tone.`;
+
+/**
  * Build the task prompt for the `roleplay-summarizer` agent. When a
  * `priorSummary` exists, the agent is asked to fold the new span into
  * it (consolidate, not append), so the rolling record stays bounded.
+ *
+ * `guidance` overrides {@link DEFAULT_SUMMARY_GUIDANCE} (what to cover /
+ * how to shape it) when a non-empty string is supplied; the faithful-only
+ * contract, `null` sentinel, and the span / prior-recap data are always
+ * builder-owned, so an override can never break the validator.
  */
-export function buildSummarizeTask(spanText: string, priorSummary?: string): string {
+export function buildSummarizeTask(spanText: string, priorSummary?: string, guidance?: string): string {
+  const g = guidance && guidance.trim().length > 0 ? guidance.trim() : DEFAULT_SUMMARY_GUIDANCE;
   const prior =
     priorSummary && priorSummary.trim().length > 0
       ? `Existing running recap (update it; do not just append):\n${priorSummary.trim()}\n\n`
       : '';
-  return (
-    `${prior}New conversation span to fold into the recap:\n${spanText}\n\n` +
-    'Update the running recap into ONE consolidated third-person recap of the roleplay so far: integrate the new ' +
-    'span, do not staple it on, and keep the whole thing bounded. Cover who is present, what happened, unresolved ' +
-    'threads, and the current emotional tone. Summarize only what is in the span and the prior recap - never invent ' +
-    'events, characters, motivations, or outcomes; if a detail is ambiguous, leave it out. Prose only: no headings, ' +
-    'lists, or meta commentary. If there is nothing substantive to record, reply with the literal string null.'
-  );
+  const contract =
+    'Summarize only what is in the span and the prior recap - never invent events, characters, motivations, or ' +
+    'outcomes; if a detail is ambiguous, leave it out. Prose only: no headings, lists, or meta commentary. If ' +
+    'there is nothing substantive to record, reply with the literal string null.';
+  return `${prior}New conversation span to fold into the recap:\n${spanText}\n\n${g} ${contract}`;
 }
 
 /**
@@ -272,9 +284,15 @@ export interface Summarizer<M = unknown> {
    * Fold `spanText` (+ optional running recap) into an updated recap.
    * Returns the recap string, or `null` on ANY failure (disabled,
    * model-resolution failure, spawn error, non-`completed` stop, empty
-   * / `null` / over-cap response).
+   * / `null` / over-cap response). `guidance` overrides the default recap
+   * guidance (see {@link buildSummarizeTask}) when non-empty.
    */
-  summarize(ctx: SummarizeContext<M>, spanText: string, priorSummary?: string): Promise<string | null>;
+  summarize(
+    ctx: SummarizeContext<M>,
+    spanText: string,
+    priorSummary?: string,
+    guidance?: string,
+  ): Promise<string | null>;
 }
 
 const DEFAULT_MAX_OUTPUT_CHARS = 1500;
@@ -294,7 +312,7 @@ export function createSummarizer<M>(wiring: SummarizerWiring<M>): Summarizer<M> 
   return {
     isEnabled,
 
-    async summarize(ctx, spanText, priorSummary) {
+    async summarize(ctx, spanText, priorSummary, guidance) {
       const agent = wiring.summarizerAgent;
       const settings = wiring.settings;
       if (!agent || !settings) return null;
@@ -307,7 +325,11 @@ export function createSummarizer<M>(wiring: SummarizerWiring<M>): Summarizer<M> 
         label: 'summarizer',
         log: wiring.log,
       });
-      const finalText = await adapter.run(ctx, buildSummarizeTask(spanText, priorSummary), settings.summarizeModel);
+      const finalText = await adapter.run(
+        ctx,
+        buildSummarizeTask(spanText, priorSummary, guidance),
+        settings.summarizeModel,
+      );
       return finalText === null ? null : validateSummary(finalText, maxOutput);
     },
   };

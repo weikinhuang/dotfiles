@@ -46,11 +46,26 @@ export interface EventTaskOpts {
 }
 
 /**
+ * Default EDITABLE guidance for the event generator: what kind of
+ * complication to write and how to pitch it. A downstream project can
+ * replace this via a `prompts/event.md` override (see `prompt-override.ts`);
+ * the fixed `null`-sentinel / no-headings contract below is NOT overridable,
+ * so `validateEvent` stays safe.
+ */
+export const DEFAULT_EVENT_GUIDANCE = `Write ONE short in-world complication or development that fits the current tone, genre, and characters, for the scene partner to weave into their next reply. Introduce it; do NOT resolve it, do NOT railroad the outcome, and do NOT offer options or meta commentary.`;
+
+/**
  * Build the task prompt for the `roleplay-event` agent: hand it the cast,
  * the recent scene, (optionally) the open threads, and any hint, and ask
  * for ONE short complication to introduce - not resolve - next turn.
+ *
+ * `guidance` overrides {@link DEFAULT_EVENT_GUIDANCE} (what complication to
+ * write) when a non-empty string is supplied; the output contract (one or
+ * two prose sentences, `null` sentinel, no headings / OOC) and the cast /
+ * scene / hint data are always builder-owned, so an override can never
+ * break the validator.
  */
-export function buildEventTask(opts: EventTaskOpts): string {
+export function buildEventTask(opts: EventTaskOpts, guidance?: string): string {
   const parts: string[] = [];
   const sheets = opts.sheets.map((s) => s.trim()).filter((s) => s.length > 0);
   if (sheets.length > 0) parts.push(`Cast in this scenario:\n${sheets.map((s) => `- ${s}`).join('\n')}`);
@@ -66,12 +81,11 @@ export function buildEventTask(opts: EventTaskOpts): string {
   parts.push(`Recent scene:\n${scene.length > 0 ? scene : '(the scene has just opened)'}`);
   const hint = opts.hint?.trim();
   if (hint) parts.push(`Steer the complication toward: ${hint}`);
-  parts.push(
-    'Write ONE short in-world complication or development that fits the current tone, genre, and characters, ' +
-      'for the scene partner to weave into their next reply. Introduce it; do NOT resolve it, do NOT railroad the ' +
-      'outcome, and do NOT offer options or meta commentary. One or two sentences of plain prose, no headings, no ' +
-      'OOC. If nothing fits the scene, reply with the literal string null.',
-  );
+  const g = guidance && guidance.trim().length > 0 ? guidance.trim() : DEFAULT_EVENT_GUIDANCE;
+  const contract =
+    'One or two sentences of plain prose, no headings, no OOC. If nothing fits the scene, reply with the ' +
+    'literal string null.';
+  parts.push(`${g} ${contract}`);
   return parts.join('\n\n');
 }
 

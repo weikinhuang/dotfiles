@@ -40,27 +40,33 @@ export const MAX_FACT_DESC_CHARS = 200;
 export const MAX_FACTS_PER_ROLL = 6;
 
 /**
+ * Default EDITABLE guidance for fact extraction: what makes a fact durable
+ * and worth pinning, and what to exclude. A downstream project can replace
+ * this via a `prompts/facts.md` override (see `prompt-override.ts`); the
+ * fixed JSON object shape, `[]` sentinel, and `MAX_*` caps below are NOT
+ * overridable, so `parseFactCandidates` stays safe.
+ */
+export const DEFAULT_FACTS_GUIDANCE = `You are reading a span of a roleplay conversation that is scrolling out of view. Extract only DURABLE facts worth pinning so they survive after this span is gone. Extract only what the span explicitly states - never infer, guess, or invent; if a detail is ambiguous, leave it out.
+
+A fact is durable ONLY if it would still be true and worth knowing in a LATER, SEPARATE scene. Test every candidate: "Would a participant still need this next week?" If it is just what is happening right now, drop it.
+
+INCLUDE (durable): established names and the recurring title or name characters consistently use for each other; relationships; where someone lives or is based; lasting traits, roles, or possessions and their locations; allergies or health constraints; a scheduled future commitment or standing promise (with any stated time).
+EXCLUDE (fleeting - these live in the running recap, never here): what someone ate, ordered, or drank; what a character is doing, wearing, or feeling right now; momentary positions or mood; a one-off tease or pet name used in the moment; the weather; travel or actions in progress; and anything the current scene is simply narrating.`;
+
+/**
  * Build the task prompt for the `roleplay-fact-extractor` agent. The
  * extractor reads ONLY the newly-aged span (never the recap or the
  * accumulated store) and returns a JSON array of durable, self-contained
  * facts, or `[]` when there is nothing worth pinning.
+ *
+ * `guidance` overrides {@link DEFAULT_FACTS_GUIDANCE} (what to include /
+ * exclude) when a non-empty string is supplied; the output contract (JSON
+ * object shape, `[]` sentinel, `MAX_*` caps) and the span itself are
+ * always builder-owned, so an override can never break the parser.
  */
-export function buildFactExtractionTask(spanText: string): string {
-  return (
-    'You are reading a span of a roleplay conversation that is scrolling out of view. Extract only ' +
-    'DURABLE facts worth pinning so they survive after this span is gone. Extract only what the span ' +
-    'explicitly states - never infer, guess, or invent; if a detail is ambiguous, leave it out.\n\n' +
-    'A fact is durable ONLY if it would still be true and worth knowing in a LATER, SEPARATE scene. ' +
-    'Test every candidate: "Would a participant still need this next week?" If it is just what is ' +
-    'happening right now, drop it.\n\n' +
-    'INCLUDE (durable): established names and the recurring title or name characters consistently use for each ' +
-    'other; relationships; where someone lives or is based; lasting traits, roles, or possessions and their ' +
-    'locations; allergies or health constraints; a scheduled future commitment or standing promise (with any ' +
-    'stated time).\n' +
-    'EXCLUDE (fleeting - these live in the running recap, never here): what someone ate, ordered, or drank; what a ' +
-    'character is doing, wearing, or feeling right now; momentary positions or mood; a one-off tease or pet name ' +
-    'used in the moment; the weather; travel or actions in progress; and anything the current scene is simply ' +
-    'narrating.\n\n' +
+export function buildFactExtractionTask(spanText: string, guidance?: string): string {
+  const g = guidance && guidance.trim().length > 0 ? guidance.trim() : DEFAULT_FACTS_GUIDANCE;
+  const contract =
     'For each fact return an object {"name": "...", "description": "..."}:\n' +
     '- "name": ONE short, self-contained claim (subject + what is true), e.g. "User is allergic to ' +
     `shellfish". Keep it brief (under ${MAX_FACT_NAME_CHARS} characters); do NOT cram a list of ` +
@@ -69,9 +75,8 @@ export function buildFactExtractionTask(spanText: string): string {
     `under ${MAX_FACT_DESC_CHARS} characters. State the fact itself - do NOT describe where or how it ` +
     'was mentioned in the text.\n\n' +
     `Return ONLY a JSON array of at most ${MAX_FACTS_PER_ROLL} such objects, and nothing else. If the ` +
-    'span has no durable facts, return exactly [].\n\n' +
-    `Span:\n${spanText}`
-  );
+    'span has no durable facts, return exactly [].';
+  return `${g}\n\n${contract}\n\nSpan:\n${spanText}`;
 }
 
 /**

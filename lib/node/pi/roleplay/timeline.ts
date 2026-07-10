@@ -36,28 +36,36 @@ export const MAX_BEAT_CHARS = 160;
 export const MAX_WHEN_CHARS = 40;
 
 /**
+ * Default EDITABLE guidance for the timeline extractor: what counts as a
+ * notable beat and what to skip. A downstream project can replace this via
+ * a `prompts/timeline.md` override (see `prompt-override.ts`); the fixed
+ * output contract + caps below are NOT overridable, so the parser is safe.
+ */
+export const DEFAULT_TIMELINE_GUIDANCE = `This is a span of a roleplay conversation. Extract the NOTABLE story beats - the events that move the scene forward and would belong on a timeline someone skims later: arrivals and departures, decisions, plans agreed, promises made, state or mode changes, objects changing hands, plot turns. Record only what the span explicitly states; never invent.
+
+Keep it a skeleton, not a play-by-play. Collapse a stretch of minor back-and-forth into ONE beat, and SKIP fleeting detail: individual food or drink orders, single lines of banter, small physical actions (a bite, a sip, pouring, wiping), mood, and pure narration or scene description.`;
+
+/**
  * Build the task prompt for the `roleplay-timeline-extractor` agent. The
  * extractor reads ONLY the newly-aged span and returns a JSON array of
  * chronological beats for notable events / decisions / plans, or `[]` when
  * there is nothing notable.
+ *
+ * `guidance` overrides {@link DEFAULT_TIMELINE_GUIDANCE} (the "what counts /
+ * what to skip" prose) when a non-empty string is supplied; the output
+ * contract (JSON shape, `[]` sentinel, `MAX_*` caps) and the span itself
+ * are always builder-owned, so an override can never break the parser.
  */
-export function buildTimelineExtractionTask(spanText: string): string {
-  return (
-    'This is a span of a roleplay conversation. Extract the NOTABLE story beats - the events that move the ' +
-    'scene forward and would belong on a timeline someone skims later: arrivals and departures, decisions, ' +
-    'plans agreed, promises made, state or mode changes, objects changing hands, plot turns. Record only ' +
-    'what the span explicitly states; never invent.\n\n' +
-    'Keep it a skeleton, not a play-by-play. Collapse a stretch of minor back-and-forth into ONE beat, and ' +
-    'SKIP fleeting detail: individual food or drink orders, single lines of banter, small physical actions ' +
-    '(a bite, a sip, pouring, wiping), mood, and pure narration or scene description.\n\n' +
+export function buildTimelineExtractionTask(spanText: string, guidance?: string): string {
+  const g = guidance && guidance.trim().length > 0 ? guidance.trim() : DEFAULT_TIMELINE_GUIDANCE;
+  const contract =
     'Return a JSON array (and nothing else) of at most ' +
     `${MAX_BEATS_PER_ROLL} objects, each {"when": "...", "summary": "..."}, in chronological order. ` +
     '"summary" is a single terse line naming the beat (under ' +
     `${MAX_BEAT_CHARS} characters). "when" is the in-world date/time if the span states one ` +
     '(e.g. "Thursday 6pm", "the next morning"); OMIT the "when" key entirely when no time is stated. ' +
-    'Do NOT invent times. If the span contains no notable beats, return exactly [].\n\n' +
-    `Span:\n${spanText}`
-  );
+    'Do NOT invent times. If the span contains no notable beats, return exactly [].';
+  return `${g}\n\n${contract}\n\nSpan:\n${spanText}`;
 }
 
 /**

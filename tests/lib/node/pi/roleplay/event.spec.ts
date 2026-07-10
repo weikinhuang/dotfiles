@@ -14,6 +14,7 @@ import { type AgentDef } from '../../../../../lib/node/pi/subagent/loader.ts';
 import {
   buildEventTask,
   createEventGenerator,
+  DEFAULT_EVENT_GUIDANCE,
   type EventGenerator,
   type EventRunResult,
   formatEventDirector,
@@ -36,6 +37,26 @@ test('buildEventTask includes cast, scene, and the closing instruction', () => {
   expect(task).toContain('user: hi');
   expect(task).toContain('ONE short in-world complication');
   expect(task).toContain('reply with the literal string null');
+});
+
+test('buildEventTask uses default guidance, and an override replaces it while keeping the contract', () => {
+  const base = {
+    recentScene: 'user: hi',
+    sheets: ['Exusiai: cheerful courier'],
+    openThreads: [],
+    seedThreads: true,
+  };
+  expect(buildEventTask(base)).toContain(DEFAULT_EVENT_GUIDANCE);
+
+  const overridden = buildEventTask(base, 'Introduce a sudden weather hazard.');
+  expect(overridden).toContain('Introduce a sudden weather hazard.');
+  expect(overridden).not.toContain(DEFAULT_EVENT_GUIDANCE);
+  // Contract + cast data stay builder-owned.
+  expect(overridden).toContain('reply with the literal string null');
+  expect(overridden).toContain('Exusiai: cheerful courier');
+
+  // Blank override falls back to the default.
+  expect(buildEventTask(base, '   ')).toContain(DEFAULT_EVENT_GUIDANCE);
 });
 
 test('buildEventTask omits open threads when seedThreads is false', () => {
@@ -154,7 +175,7 @@ const registry = {
   authStorage: {},
 };
 
-const ctx = { cwd: '/tmp/x', model: { id: 'parent' } as FakeModel, modelRegistry: registry };
+const ctx = { cwd: '/tmp/x', model: { id: 'parent' }, modelRegistry: registry };
 
 test('isEnabled is false only when the agent is missing (model is optional)', () => {
   const noAgent = createEventGenerator<FakeModel>({
@@ -206,7 +227,7 @@ test('generate returns null when model resolution fails', async () => {
   });
   const badCtx = {
     cwd: '/tmp/x',
-    model: { id: 'parent' } as FakeModel,
+    model: { id: 'parent' },
     modelRegistry: { find: () => undefined, authStorage: {} },
   };
   expect(await gen.generate(badCtx, 'task')).toBeNull();

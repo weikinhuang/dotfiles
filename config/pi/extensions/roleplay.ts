@@ -140,6 +140,7 @@ import {
   parseTimelineBeats,
   renderTimelineBlock,
 } from '../../../lib/node/pi/roleplay/timeline.ts';
+import { resolvePromptGuidance } from '../../../lib/node/pi/roleplay/prompt-override.ts';
 import { findSimilarMemories } from '../../../lib/node/pi/memory-search.ts';
 import { type MemoryEntry, renderMemoryMd, serializeMemory } from '../../../lib/node/pi/memory-reducer.ts';
 import {
@@ -944,6 +945,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
         { cwd, model: ctx.model, modelRegistry: ctx.modelRegistry as never, signal },
         plan.spanText,
         prior.trim() ? prior : undefined,
+        resolvePromptGuidance('summary', { cwd }),
       );
     } catch {
       next = null;
@@ -1365,7 +1367,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
         return;
       }
       audit.planned = true;
-      const raw = await extractor(ctx, buildTimelineExtractionTask(plan.spanText));
+      const raw = await extractor(ctx, buildTimelineExtractionTask(plan.spanText, resolvePromptGuidance('timeline', { cwd })));
       if (raw === null) {
         audit.skip = 'extractor-null';
         emit();
@@ -1445,7 +1447,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
         return;
       }
       audit.planned = true;
-      const raw = await extractor(ctx, buildFactExtractionTask(plan.spanText));
+      const raw = await extractor(ctx, buildFactExtractionTask(plan.spanText, resolvePromptGuidance('facts', { cwd })));
       if (raw === null) {
         audit.skip = 'extractor-null';
         emit();
@@ -1864,7 +1866,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
         const insertions = buildInsertions({
           authorNote: persona?.authorNote ? substituteMacros(persona.authorNote, macroCtx()) : undefined,
           authorNoteDepth: persona?.authorNoteDepth,
-          lore: buildDepthLore(concatRecentMessageText(messages as unknown as readonly unknown[], scanDepth)),
+          lore: buildDepthLore(concatRecentMessageText(messages, scanDepth)),
         });
         if (insertions.length > 0) {
           messages = applyInsertions(messages, insertions, (text) => ({
@@ -1883,7 +1885,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
       if (repetitionEnabled)
         reminders.push({
           id: 'roleplay-repetition',
-          body: buildRepetitionNudge(messages as unknown as readonly unknown[]),
+          body: buildRepetitionNudge(messages),
         });
       if (eventsEnabled) {
         reminders.push({ id: 'roleplay-event', body: pendingEvent ? formatEventDirector(pendingEvent) : null });
@@ -1893,7 +1895,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
         let rm = messages as unknown as ReminderMessage[];
         for (const spec of reminders) rm = applyContextReminder(rm, spec);
         if (reminders.some((r) => r.body)) {
-          messages = rm as unknown as readonly Record<string, unknown>[];
+          messages = rm;
           changed = true;
         }
       }
@@ -1941,6 +1943,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
           { cwd, model: ctx.model, modelRegistry: ctx.modelRegistry as never, signal: event.signal },
           plan.spanText,
           prior,
+          resolvePromptGuidance('summary', { cwd }),
         );
         // Collapse guard: never let a degenerate recap clobber a longer prior.
         if (recap === null || !acceptRecap(prior ?? '', recap)) return undefined;
@@ -2387,7 +2390,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
     },
 
     renderCall(args, theme, _context) {
-      const a = args as RoleplayParamsT;
+      const a = args;
       let text = theme.fg('toolTitle', theme.bold('roleplay ')) + theme.fg('muted', a.action);
       if (a.kind) text += ` ${theme.fg('dim', a.kind)}`;
       if (a.id) text += ` ${theme.fg('accent', a.id)}`;
@@ -2529,13 +2532,16 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
         let queued: string | null = null;
         const gen = getEventGenerator(ctx);
         if (gen?.isEnabled()) {
-          const task = buildEventTask({
-            recentScene: concatRecentMessageText(lastMessages, cfg.scanDepth),
-            sheets: characterSummaries(),
-            openThreads: openThreadsForCast(),
-            ...(hint ? { hint } : {}),
-            seedThreads: cfg.eventSeedThreads,
-          });
+          const task = buildEventTask(
+            {
+              recentScene: concatRecentMessageText(lastMessages, cfg.scanDepth),
+              sheets: characterSummaries(),
+              openThreads: openThreadsForCast(),
+              ...(hint ? { hint } : {}),
+              seedThreads: cfg.eventSeedThreads,
+            },
+            resolvePromptGuidance('event', { cwd }),
+          );
           queued = await gen.generate({ cwd, model: ctx.model, modelRegistry: ctx.modelRegistry as never }, task);
         }
         if (queued === null) {

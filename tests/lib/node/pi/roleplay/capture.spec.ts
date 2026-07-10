@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   buildFactExtractionTask,
+  DEFAULT_FACTS_GUIDANCE,
   MAX_FACT_DESC_CHARS,
   MAX_FACT_NAME_CHARS,
   MAX_FACTS_PER_ROLL,
@@ -15,6 +16,22 @@ describe('buildFactExtractionTask', () => {
     expect(task).toContain('JSON array');
     expect(task).toContain(String(MAX_FACTS_PER_ROLL));
     expect(task).toContain('self-contained');
+  });
+
+  it('uses default guidance, and an override replaces it while keeping the contract', () => {
+    expect(buildFactExtractionTask('user: hi')).toContain(DEFAULT_FACTS_GUIDANCE);
+
+    const overridden = buildFactExtractionTask('user: hi', 'Capture ONLY named locations.');
+    expect(overridden).toContain('Capture ONLY named locations.');
+    expect(overridden).not.toContain(DEFAULT_FACTS_GUIDANCE);
+    // JSON object shape + caps + span stay builder-owned.
+    expect(overridden).toContain('JSON array');
+    expect(overridden).toContain('return exactly []');
+    expect(overridden).toContain(String(MAX_FACT_NAME_CHARS));
+    expect(overridden).toContain('user: hi');
+
+    // Blank override falls back to the default.
+    expect(buildFactExtractionTask('user: hi', '   ')).toContain(DEFAULT_FACTS_GUIDANCE);
   });
 });
 

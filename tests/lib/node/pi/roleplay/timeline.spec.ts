@@ -7,6 +7,7 @@ import { expect, test } from 'vitest';
 import {
   appendBeatBody,
   buildTimelineExtractionTask,
+  DEFAULT_TIMELINE_GUIDANCE,
   dedupeNewBeats,
   formatBeatLine,
   formatBeatLines,
@@ -23,6 +24,27 @@ test('buildTimelineExtractionTask embeds the span and the JSON contract', () => 
   expect(task).toContain('user: we meet Thursday');
   expect(task).toContain('JSON array');
   expect(task).toContain('chronological');
+});
+
+test('buildTimelineExtractionTask uses the default guidance when none is given', () => {
+  const task = buildTimelineExtractionTask('user: hi');
+  expect(task).toContain(DEFAULT_TIMELINE_GUIDANCE);
+});
+
+test('buildTimelineExtractionTask substitutes a non-empty guidance override', () => {
+  const task = buildTimelineExtractionTask('user: hi', 'ONLY extract combat and travel beats.');
+  expect(task).toContain('ONLY extract combat and travel beats.');
+  expect(task).not.toContain(DEFAULT_TIMELINE_GUIDANCE);
+  // Contract + caps + span stay builder-owned regardless of the override.
+  expect(task).toContain('JSON array');
+  expect(task).toContain('return exactly []');
+  expect(task).toContain(String(MAX_BEATS_PER_ROLL));
+  expect(task).toContain(String(MAX_BEAT_CHARS));
+  expect(task).toContain('user: hi');
+});
+
+test('buildTimelineExtractionTask falls back to default guidance for a blank override', () => {
+  expect(buildTimelineExtractionTask('user: hi', '   ')).toContain(DEFAULT_TIMELINE_GUIDANCE);
 });
 
 test('parseTimelineBeats parses bare arrays with and without when', () => {

@@ -17,6 +17,7 @@ import {
   buildSummarizeTask,
   composeAutoSummaryRecord,
   createSummarizer,
+  DEFAULT_SUMMARY_GUIDANCE,
   planSummarization,
   renderSpan,
   resolveSummarizeSettings,
@@ -102,6 +103,22 @@ test('buildSummarizeTask folds in a prior recap only when present', () => {
   const without = buildSummarizeTask('NEW SPAN', '   ');
   expect(without).not.toContain('Existing running recap');
   expect(without).toContain('NEW SPAN');
+});
+
+test('buildSummarizeTask uses default guidance, and an override replaces it while keeping the contract', () => {
+  const dflt = buildSummarizeTask('NEW SPAN');
+  expect(dflt).toContain(DEFAULT_SUMMARY_GUIDANCE);
+
+  const overridden = buildSummarizeTask('NEW SPAN', undefined, 'Recap ONLY the combat outcomes.');
+  expect(overridden).toContain('Recap ONLY the combat outcomes.');
+  expect(overridden).not.toContain(DEFAULT_SUMMARY_GUIDANCE);
+  // Faithful-only contract + null sentinel + span stay builder-owned.
+  expect(overridden).toContain('never invent');
+  expect(overridden).toContain('null');
+  expect(overridden).toContain('NEW SPAN');
+
+  // Blank override falls back to the default.
+  expect(buildSummarizeTask('NEW SPAN', undefined, '   ')).toContain(DEFAULT_SUMMARY_GUIDANCE);
 });
 
 test('validateSummary rejects empty, null sentinel, and over-cap; trims otherwise', () => {
@@ -192,7 +209,7 @@ const registry = {
   authStorage: {},
 };
 
-const ctx = { cwd: '/tmp/x', model: { id: 'parent' } as FakeModel, modelRegistry: registry };
+const ctx = { cwd: '/tmp/x', model: { id: 'parent' }, modelRegistry: registry };
 
 function ranOnce(result: SummarizeRunResult): {
   run: (args: { task: string }) => Promise<SummarizeRunResult>;
@@ -255,7 +272,7 @@ test('summarize returns null when model resolution fails', async () => {
   // registry.find returns undefined for every lookup here
   const badCtx = {
     cwd: '/tmp/x',
-    model: { id: 'parent' } as FakeModel,
+    model: { id: 'parent' },
     modelRegistry: { find: () => undefined, authStorage: {} },
   };
   expect(await s.summarize(badCtx, 'span')).toBeNull();
