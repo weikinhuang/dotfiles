@@ -60,8 +60,8 @@ export function shouldSkipStyling(
 // Chosen to match pi-ai's `ThinkingLevel`. Declared locally so this module
 // stays under the lib/AGENTS.md "no @earendil-works imports" rule. Kept in
 // lockstep with `packages/agent/src/types.ts` in the pi repo - currently
-// `"off" | "minimal" | "low" | "medium" | "high" | "xhigh"`.
-export type ThinkingLevel = 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
+// `"off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max"`.
+export type ThinkingLevel = 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 
 /**
  * "still thinking" kicks in this many ms into the *current* thinking

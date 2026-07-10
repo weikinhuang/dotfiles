@@ -466,7 +466,7 @@ export default function extension(pi: ExtensionAPI): void {
   function findLatestUserMessageText(ctx: ExtensionContext): string {
     let entries: readonly { type?: string; message?: unknown }[] = [];
     try {
-      entries = ctx.sessionManager.getEntries() as readonly { type?: string; message?: unknown }[];
+      entries = ctx.sessionManager.getEntries();
     } catch {
       return '';
     }
@@ -684,7 +684,7 @@ export default function extension(pi: ExtensionAPI): void {
     if (suffixState === null) return undefined;
     // Read the level fresh each tick: the user may have changed it via
     // /thinking-level mid-turn and we want the next frame to reflect it.
-    let level: 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' = 'off';
+    let level: 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max' = 'off';
     try {
       level = pi.getThinkingLevel();
     } catch {
@@ -1035,7 +1035,7 @@ export default function extension(pi: ExtensionAPI): void {
         ctx.ui.notify('Usage: /waveform [scroll|spectrum|tokenrate|off|reset]', 'error');
         return;
       }
-      mode = arg === 'reset' ? 'default' : (arg as Mode);
+      mode = arg === 'reset' ? 'default' : arg;
       // Persist before applying so a UI failure mid-apply doesn't leave
       // the file out of sync with the user's expressed intent.
       try {
