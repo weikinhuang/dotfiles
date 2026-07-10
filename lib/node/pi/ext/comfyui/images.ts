@@ -9,7 +9,7 @@
 import type SharpFactory from 'sharp';
 
 import { type Conn, type ImageBlockTransform, uploadImage, uploadImageBuffer } from '../../comfyui/client.ts';
-import { buildMaskPlan, type MaskPlan, maskSvg, type NormalizedBox } from '../../comfyui/mask.ts';
+import { buildMaskPlan, type MaskPlan, maskSvg } from '../../comfyui/mask.ts';
 import { isResizableMime, planDownscale } from '../../comfyui/preview.ts';
 import type { RoleMapping } from '../../comfyui/types.ts';
 import { expandTilde } from '../../path-expand.ts';
@@ -135,7 +135,7 @@ export async function resolveRoleImages(
           if (dims === undefined) {
             throw new Error(`bbox mask for role "${role}" needs an init image or explicit width/height`);
           }
-          const built = buildMaskPlan(src.bbox as NormalizedBox[], dims.width, dims.height, {
+          const built = buildMaskPlan(src.bbox, dims.width, dims.height, {
             invert: src.invert ?? slot.invert,
             ...(src.feather !== undefined ? { feather: src.feather } : {}),
           });

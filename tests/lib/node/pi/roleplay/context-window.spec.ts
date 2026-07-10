@@ -119,7 +119,7 @@ describe('applyContextWindowAt', () => {
     // verbatim tail unchanged
     expect(out.messages[cutoff]).toBe(msgs[cutoff]);
     // condensed head shortened
-    expect(String((out.messages[0] as Msg).content).length).toBeLessThan(String(msgs[0].content).length);
+    expect(String(out.messages[0].content).length).toBeLessThan(String(msgs[0].content).length);
   });
 });
 
@@ -171,14 +171,14 @@ describe('injectRecap', () => {
   it('prefixes the first user message (string content)', () => {
     const msgs: Msg[] = [{ role: 'user', content: 'hello' }];
     const out = injectRecap(msgs, 'the scene so far');
-    expect(String((out[0] as Msg).content)).toContain(RECAP_PREFIX);
-    expect(String((out[0] as Msg).content)).toContain('hello');
+    expect(String(out[0].content)).toContain(RECAP_PREFIX);
+    expect(String(out[0].content)).toContain('hello');
   });
 
   it('prefixes the first text part of array content', () => {
     const msgs: Msg[] = [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }];
     const out = injectRecap(msgs, 'recap');
-    const parts = (out[0] as Msg).content as Record<string, unknown>[];
+    const parts = out[0].content as Record<string, unknown>[];
     expect(parts[0].text).toContain('recap');
     expect(parts[0].text).toContain('hi');
   });
@@ -193,15 +193,15 @@ describe('injectTimeline', () => {
   it('prefixes the first user message with the timeline block', () => {
     const msgs: Msg[] = [{ role: 'user', content: 'hello' }];
     const out = injectTimeline(msgs, '- [Thursday 6pm] Mira visits');
-    expect(String((out[0] as Msg).content)).toContain(TIMELINE_PREFIX);
-    expect(String((out[0] as Msg).content)).toContain('Mira visits');
-    expect(String((out[0] as Msg).content)).toContain('hello');
+    expect(String(out[0].content)).toContain(TIMELINE_PREFIX);
+    expect(String(out[0].content)).toContain('Mira visits');
+    expect(String(out[0].content)).toContain('hello');
   });
 
   it('stacks separately from the recap prefix', () => {
     const msgs: Msg[] = [{ role: 'user', content: 'x' }];
     const out = injectTimeline(injectRecap(msgs, 'recap here'), '- a beat');
-    const content = String((out[0] as Msg).content);
+    const content = String(out[0].content);
     expect(content).toContain(TIMELINE_PREFIX);
     expect(content).toContain(RECAP_PREFIX);
   });

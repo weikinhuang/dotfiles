@@ -136,7 +136,7 @@ export default function streamWatchdog(pi: ExtensionAPI): void {
   let pendingNudge: { silentSec: number; elapsedSec: number } | null = null;
 
   const clearStatus = (ctx: ExtensionContext | undefined): void => {
-    ctx?.ui.setStatus(STATUS_KEY, undefined as unknown as string);
+    ctx?.ui.setStatus(STATUS_KEY, undefined);
   };
 
   const stopPolling = (): void => {

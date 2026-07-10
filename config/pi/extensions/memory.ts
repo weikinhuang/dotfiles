@@ -753,7 +753,7 @@ export default function memoryExtension(pi: ExtensionAPI): void {
     },
 
     renderCall(args, theme, _context) {
-      const a = args as MemoryParamsT;
+      const a = args;
       let text = theme.fg('toolTitle', theme.bold('memory ')) + theme.fg('muted', a.action);
       if (a.type) text += ` ${theme.fg('dim', a.type)}`;
       if (a.scope) text += ` ${theme.fg('dim', `(${a.scope})`)}`;

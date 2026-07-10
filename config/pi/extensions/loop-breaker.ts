@@ -64,7 +64,7 @@ export default function loopBreaker(pi: ExtensionAPI): void {
     if (history.length === 0) return;
     history.length = 0;
     trace(`reset (${reason})`);
-    if (ctx) ctx.ui.setStatus(STATUS_KEY, undefined as unknown as string);
+    if (ctx) ctx.ui.setStatus(STATUS_KEY, undefined);
   };
 
   pi.on('session_start', (_event, ctx) => {

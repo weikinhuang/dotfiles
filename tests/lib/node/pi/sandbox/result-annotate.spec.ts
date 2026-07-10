@@ -76,7 +76,7 @@ describe('annotateBashResult', () => {
     const annotated = `${stderr}\nsandbox: host blocked`;
     const content: BashContentItem[] = [
       { type: 'text', text: stderr },
-      { type: 'image', text: '<base64>' } as BashContentItem,
+      { type: 'image', text: '<base64>' },
     ];
     const result = annotateBashResult(annotated, stderr, content);
     expect(result?.content).toHaveLength(2);
@@ -86,7 +86,7 @@ describe('annotateBashResult', () => {
   test('prepends a new text item when no existing text content exists', () => {
     const stderr = 'EPERM';
     const annotated = `${stderr}\nsandbox: blocked`;
-    const content: BashContentItem[] = [{ type: 'image', text: '<png>' } as BashContentItem];
+    const content: BashContentItem[] = [{ type: 'image', text: '<png>' }];
     const result = annotateBashResult(annotated, stderr, content);
     expect(result).toBeDefined();
     expect(result!.content).toHaveLength(2);

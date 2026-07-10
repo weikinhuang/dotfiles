@@ -171,10 +171,10 @@ export interface ExtractLastAssistantTextOptions extends FindLastAssistantMessag
 
 function unwrapMessageEntry(entry: unknown, opts: FindLastAssistantMessageOptions): LooseMessage | undefined {
   if (!entry || typeof entry !== 'object') return undefined;
-  if (!opts.unwrapMessage) return entry as LooseMessage;
+  if (!opts.unwrapMessage) return entry;
   const wrapped = entry as { message?: unknown };
   const message = wrapped.message ?? entry;
-  return message && typeof message === 'object' ? (message as LooseMessage) : undefined;
+  return message && typeof message === 'object' ? message : undefined;
 }
 
 export function extractAssistantContentText(content: unknown, opts: AssistantTextOptions = {}): string {

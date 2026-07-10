@@ -434,7 +434,7 @@ const refineRegistry = {
   authStorage: {},
 };
 
-const refineCtx = { cwd: '/tmp/x', model: { id: 'parent' } as FakeModel, modelRegistry: refineRegistry };
+const refineCtx = { cwd: '/tmp/x', model: { id: 'parent' }, modelRegistry: refineRegistry };
 const visionAll = (): boolean => true;
 
 const sampleInput = {
@@ -525,7 +525,7 @@ test('createRefiner: critique returns null when model resolution fails', async (
   });
   const badCtx = {
     cwd: '/tmp/x',
-    model: { id: 'parent' } as FakeModel,
+    model: { id: 'parent' },
     modelRegistry: { find: () => undefined, authStorage: {} },
   };
   expect(await refiner.critique(badCtx, sampleInput)).toBeNull();

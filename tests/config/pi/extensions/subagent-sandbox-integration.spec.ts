@@ -152,10 +152,7 @@ describe('subagent + sandbox integration', () => {
   });
 
   test('subagent injection registry surfaces the sandbox factory to spawned children', () => {
-    registerSubagentInjection(
-      'sandbox-test',
-      sandboxHookOnlyMirror as unknown as Parameters<typeof registerSubagentInjection>[1],
-    );
+    registerSubagentInjection('sandbox-test', sandboxHookOnlyMirror);
     const factories = collectSubagentInjections();
     // The exact id list across the suite changes as other specs add
     // their own factories; just assert OURS is present.
@@ -169,10 +166,7 @@ describe('subagent + sandbox integration', () => {
       return Promise.resolve({ command: `WRAP[${cmd}]`, wrapped: true });
     };
     installSandboxWrapper(wrapFn);
-    registerSubagentInjection(
-      'sandbox-test',
-      sandboxHookOnlyMirror as unknown as Parameters<typeof registerSubagentInjection>[1],
-    );
+    registerSubagentInjection('sandbox-test', sandboxHookOnlyMirror);
 
     const child = buildFakeChildWithInjections();
     expect(child.factoryCount).toBeGreaterThanOrEqual(1);
@@ -186,10 +180,7 @@ describe('subagent + sandbox integration', () => {
 
   test('child bash call falls through unchanged when no parent wrap is installed', async () => {
     // No installSandboxWrapper - the slot is empty.
-    registerSubagentInjection(
-      'sandbox-test',
-      sandboxHookOnlyMirror as unknown as Parameters<typeof registerSubagentInjection>[1],
-    );
+    registerSubagentInjection('sandbox-test', sandboxHookOnlyMirror);
 
     const child = buildFakeChildWithInjections();
     const event: FakeBashEvent = { toolName: 'bash', input: { command: 'git log -1' } };
@@ -206,10 +197,7 @@ describe('subagent + sandbox integration', () => {
       wrapCalls++;
       return Promise.resolve({ command: cmd, wrapped: true });
     });
-    registerSubagentInjection(
-      'sandbox-test',
-      sandboxHookOnlyMirror as unknown as Parameters<typeof registerSubagentInjection>[1],
-    );
+    registerSubagentInjection('sandbox-test', sandboxHookOnlyMirror);
 
     const child = buildFakeChildWithInjections();
     const event = { toolName: 'read', input: { command: 'whatever' } } as unknown as FakeBashEvent;

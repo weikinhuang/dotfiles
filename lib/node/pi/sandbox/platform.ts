@@ -97,7 +97,7 @@ export function defaultPlatformProbe(): PlatformProbe {
     commandExists: defaultCommandExists,
     readFile: defaultReadFile,
     fileExists: existsSync,
-    env: process.env as Record<string, string | undefined>,
+    env: process.env,
     osRelease: () => osRelease(),
   };
 }

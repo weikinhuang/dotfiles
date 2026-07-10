@@ -138,7 +138,7 @@ const registry = {
   authStorage: {},
 };
 
-const ctx = { cwd: '/tmp/x', model: { id: 'parent' } as FakeModel, modelRegistry: registry };
+const ctx = { cwd: '/tmp/x', model: { id: 'parent' }, modelRegistry: registry };
 
 test('isEnabled is false only when the agent is missing', () => {
   const noAgent = createEnhancer<FakeModel>({
@@ -193,7 +193,7 @@ test('enhance returns null when model resolution fails', async () => {
   });
   const badCtx = {
     cwd: '/tmp/x',
-    model: { id: 'parent' } as FakeModel,
+    model: { id: 'parent' },
     modelRegistry: { find: () => undefined, authStorage: {} },
   };
   expect(await enh.enhance(badCtx, 'task')).toBeNull();

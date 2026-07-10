@@ -62,7 +62,7 @@ function makeRows(n: number): Row[] {
 }
 
 function makeOverlay(rows: number, fileCount: number): ReviewOverlay {
-  return new ReviewOverlay(theme, makeRows(fileCount) as never, makeTui(rows), noop);
+  return new ReviewOverlay(theme, makeRows(fileCount), makeTui(rows), noop);
 }
 
 const VIEWPORT = (rows: number): number => Math.max(6, rows - 2);

@@ -155,7 +155,7 @@ export default function contextTrimExtension(pi: ExtensionAPI): void {
   // text-only models). Recomputed, never persisted.
   let visionCapable = true;
   const updateVision = (model: { input?: string[] } | undefined): void => {
-    visionCapable = isVisionCapable((model ?? {}) as { input?: string[] });
+    visionCapable = isVisionCapable(model ?? {});
   };
 
   // Subagent definitions (for the image auto-caption fallback), rebuilt

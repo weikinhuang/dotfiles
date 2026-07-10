@@ -117,7 +117,7 @@ export default function presetExtension(pi: ExtensionAPI): void {
     if (activePresetName) {
       ctx.ui.setStatus(STATUS_KEY, `preset:${activePresetName}`);
     } else {
-      ctx.ui.setStatus(STATUS_KEY, undefined as unknown as string);
+      ctx.ui.setStatus(STATUS_KEY, undefined);
     }
   };
 

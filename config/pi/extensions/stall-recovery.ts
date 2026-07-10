@@ -109,7 +109,7 @@ export default function stallRecovery(pi: ExtensionAPI): void {
     // already gone, so swallow the stale-ctx throw rather than letting
     // it escape an event-loop callback and crash the process.
     try {
-      ctx.ui.setStatus(STATUS_KEY, undefined as unknown as string);
+      ctx.ui.setStatus(STATUS_KEY, undefined);
     } catch {
       // ctx went stale between scheduling and now; nothing to clear.
     }

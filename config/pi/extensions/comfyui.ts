@@ -67,7 +67,6 @@ import {
   formatGenerationHint,
 } from '../../../lib/node/pi/comfyui/generations.ts';
 import type { ComfyuiConfig, WorkflowConfig } from '../../../lib/node/pi/comfyui/types.ts';
-import type { JobsAction } from '../../../lib/node/pi/ext/comfyui/details.ts';
 import {
   renderGenerateCall,
   renderGenerateResult,
@@ -232,7 +231,7 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
     parameters: ImageJobsParams,
 
     async execute(_toolCallId, rawParams, signal, _onUpdate, ctx) {
-      const params = rawParams as unknown as { action: JobsAction; id?: string };
+      const params = rawParams;
       switch (params.action) {
         case 'list':
           return actListJobs(rt);

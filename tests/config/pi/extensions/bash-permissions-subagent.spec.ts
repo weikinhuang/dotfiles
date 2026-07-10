@@ -65,7 +65,7 @@ interface FakeExtensionAPI {
 function bashPermissionsFactoryHookOnly(pi: FakeExtensionAPI): void {
   pi.on('tool_call', async (event, ctx) => {
     if (event.toolName !== 'bash') return undefined;
-    const rawCmd = (event.input as { command?: unknown } | undefined)?.command;
+    const rawCmd = event.input?.command;
     const command = (typeof rawCmd === 'string' ? rawCmd : '').trim();
     if (!command) return undefined;
     const decision = await requestBashApproval(command, ctx);

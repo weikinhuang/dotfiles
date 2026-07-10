@@ -947,7 +947,7 @@ export default function iterationLoopExtension(pi: ExtensionAPI): void {
       // All CheckKind variants handled above - if a new kind ever lands
       // without a dispatch branch, this closes the hole loudly.
       const exhaustive: never = spec.kind;
-      return errorReturn('run', task, `unknown check kind "${String(exhaustive as unknown)}"`);
+      return errorReturn('run', task, `unknown check kind "${String(exhaustive)}"`);
     }
 
     // ── Persist verdict JSON alongside the snapshot ───────────────────
@@ -1128,24 +1128,7 @@ export default function iterationLoopExtension(pi: ExtensionAPI): void {
     parameters: CheckParams,
 
     async execute(_toolCallId, rawParams, signal, _onUpdate, ctx) {
-      const params = rawParams as unknown as {
-        action: CheckAction;
-        task?: string;
-        kind?: CheckKind;
-        artifact?: string;
-        cmd?: string;
-        passOn?: string;
-        env?: Record<string, string>;
-        workdir?: string;
-        timeoutMs?: number;
-        rubric?: string;
-        agent?: string;
-        modelOverride?: string;
-        maxIter?: number;
-        maxCostUsd?: number;
-        wallClockSeconds?: number;
-        reason?: StopReason;
-      };
+      const params = rawParams;
       switch (params.action) {
         case 'declare':
           return doDeclare(params, ctx);

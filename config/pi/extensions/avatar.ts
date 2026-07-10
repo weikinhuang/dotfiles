@@ -1080,7 +1080,7 @@ export default function avatar(pi: ExtensionAPI): void {
       const emoteList = emotions.length > 0 ? emotions.join(', ') : '(none)';
       let logged = 0;
       try {
-        logged = collectLoggedEmotes(ctx.sessionManager.getEntries() as never).length;
+        logged = collectLoggedEmotes(ctx.sessionManager.getEntries()).length;
       } catch {
         /* session entries unavailable - omit the count */
       }

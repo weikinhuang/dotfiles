@@ -165,7 +165,7 @@ export function stripReminder<M extends ReminderMessage>(messages: readonly M[],
     if (!Array.isArray(msg.content)) return msg;
     if (!msg.content.some((b) => isReminderBlock(b, id))) return msg;
     const content = msg.content.filter((b) => !isReminderBlock(b, id));
-    return { ...msg, content } as M;
+    return { ...msg, content };
   });
 }
 
@@ -206,6 +206,6 @@ export function applyContextReminder<M extends ReminderMessage>(messages: readon
   blocks.push({ type: 'text', text: frameReminder(spec.id, body) });
 
   const out = stripped.slice();
-  out[target] = { ...msg, content: blocks } as M;
+  out[target] = { ...msg, content: blocks };
   return out;
 }

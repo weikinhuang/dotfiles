@@ -67,16 +67,13 @@ import { type ExtensionAPI, type ExtensionContext } from '@earendil-works/pi-cod
 import { computeInjection } from '../../../lib/node/pi/llama-thinking-budget/inject.ts';
 import { loadProviderInjections, loadSettingsBudgets } from '../../../lib/node/pi/llama-thinking-budget/load-config.ts';
 import { envBudgets } from '../../../lib/node/pi/llama-thinking-budget/resolve-budget.ts';
-import {
-  resolveThinkingLevel,
-  type ThinkingBranchEntry,
-} from '../../../lib/node/pi/llama-thinking-budget/session-thinking-level.ts';
+import { resolveThinkingLevel } from '../../../lib/node/pi/llama-thinking-budget/session-thinking-level.ts';
 import { type Level } from '../../../lib/node/pi/llama-thinking-budget/types.ts';
 import { envTruthy } from '../../../lib/node/pi/parse-env.ts';
 
 function currentThinkingLevel(ctx: ExtensionContext): Level | undefined {
   try {
-    return resolveThinkingLevel(ctx.sessionManager.getBranch() as ThinkingBranchEntry[]);
+    return resolveThinkingLevel(ctx.sessionManager.getBranch());
   } catch {
     return undefined;
   }

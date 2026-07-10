@@ -197,16 +197,6 @@ export const SUBAGENT_SEND_TOOL_DESCRIPTION =
 // Types
 // ──────────────────────────────────────────────────────────────────────
 
-interface SubagentParamsT {
-  agent: string;
-  task: string;
-  modelOverride?: string;
-  maxTurns?: number;
-  returnFormat?: 'text' | 'json';
-  run_in_background?: boolean;
-  fork?: boolean;
-}
-
 interface SubagentSendParamsT {
   to: string;
   action?: 'status' | 'wait' | 'abort';
@@ -878,7 +868,7 @@ export default function subagentExtension(pi: ExtensionAPI): void {
           // bashAllow / bashDeny / writeRoots can override (last
           // tool_call handler wins on the same event).
           ...(collectSubagentInjections() as unknown as ExtensionFactory[]),
-          agentGateFactory as unknown as ExtensionFactory,
+          agentGateFactory,
         ] satisfies ExtensionFactory[],
       });
       await resourceLoader.reload();
@@ -1222,7 +1212,7 @@ export default function subagentExtension(pi: ExtensionAPI): void {
     executionMode: 'parallel',
 
     async execute(_toolCallId, rawParams, signal, _onUpdate, ctx) {
-      const params = rawParams as unknown as SubagentParamsT;
+      const params = rawParams;
       const agent: AgentDef | undefined = loadResult.agents.get(params.agent);
       if (!agent) {
         const available = loadResult.nameOrder.join(', ') || '(none loaded)';
@@ -1420,7 +1410,7 @@ export default function subagentExtension(pi: ExtensionAPI): void {
     },
 
     renderCall(args, theme, _context) {
-      const a = args as SubagentParamsT;
+      const a = args;
       const name = a.agent || '(no agent)';
       const preview = a.task ? (a.task.length > 80 ? `${a.task.slice(0, 80)}…` : a.task) : '';
       let text = `${theme.fg('toolTitle', theme.bold('subagent '))}${theme.fg('accent', name)}`;
@@ -1430,7 +1420,7 @@ export default function subagentExtension(pi: ExtensionAPI): void {
 
     renderResult(result, { expanded }, theme, _context) {
       const details = (result.details ?? {}) as Partial<SubagentDetails>;
-      const stopReason: ScorecardStopReason = (details.stopReason as ScorecardStopReason | undefined) ?? 'spawned';
+      const stopReason: ScorecardStopReason = details.stopReason ?? 'spawned';
       const lead = renderScorecard({
         theme,
         agent: details.agent ?? '(agent)',
@@ -1478,7 +1468,7 @@ export default function subagentExtension(pi: ExtensionAPI): void {
     executionMode: 'parallel',
 
     async execute(_toolCallId, rawParams, signal, _onUpdate, _ctx) {
-      const params = rawParams as unknown as SubagentSendParamsT;
+      const params = rawParams;
       const rawTo = (params.to ?? '').trim();
       if (rawTo.length === 0) {
         return {
@@ -1644,7 +1634,7 @@ export default function subagentExtension(pi: ExtensionAPI): void {
     },
 
     renderCall(args, theme, _context) {
-      const a = args as SubagentSendParamsT;
+      const a = args;
       const to = a.to || '(no handle)';
       const act = a.action ?? (a.text ? 'send' : 'status');
       let text = `${theme.fg('toolTitle', theme.bold('subagent_send '))}${theme.fg('accent', to)}`;
@@ -1680,11 +1670,11 @@ export default function subagentExtension(pi: ExtensionAPI): void {
       } else if (action === 'abort') {
         stopReason = 'aborted';
       } else if (action === 'wait') {
-        stopReason = (details.stopReason as ScorecardStopReason | undefined) ?? 'completed';
+        stopReason = details.stopReason ?? 'completed';
       } else {
         // `send` (steering) keeps today's pi default rendering - mirror
         // it by collapsing to the lead line only.
-        stopReason = (details.stopReason as ScorecardStopReason | undefined) ?? 'running';
+        stopReason = details.stopReason ?? 'running';
       }
       const card = renderScorecard({
         theme,

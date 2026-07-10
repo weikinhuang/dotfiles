@@ -39,7 +39,7 @@ import {
 } from '../../comfyui/generations.ts';
 import { emptyRegistry, formatRunningBlock, type JobRegistry, runningJobs, updateJob } from '../../comfyui/jobs.ts';
 import { type CollectOutcome, pollJobOnce } from '../../comfyui/poll.ts';
-import { extractSceneContext, mergeSceneContext, type SceneMessage } from '../../comfyui/scene-context.ts';
+import { extractSceneContext, mergeSceneContext } from '../../comfyui/scene-context.ts';
 import type { ComfyuiConfig } from '../../comfyui/types.ts';
 
 // Custom session-entry type under which the ephemeral-render collapse set
@@ -297,16 +297,16 @@ export class ComfyuiRuntime {
     // Rebuild the ephemeral-render collapse overlay + generation registry
     // from the persisted branch so `/reload` and exit->resume keep prior
     // ephemeral renders collapsed and the gallery intact.
-    this.ephemeral = reduceBranch(ctx.sessionManager.getBranch() as never, EPHEMERAL_CUSTOM_TYPE);
-    this.generations = reduceGenerations(ctx.sessionManager.getBranch() as never, GENERATIONS_CUSTOM_TYPE);
+    this.ephemeral = reduceBranch(ctx.sessionManager.getBranch(), EPHEMERAL_CUSTOM_TYPE);
+    this.generations = reduceGenerations(ctx.sessionManager.getBranch(), GENERATIONS_CUSTOM_TYPE);
   }
 
   // A branch switch (edit/rewind) replays a different history, so re-derive
   // the ephemeral overlay + generation registry from the new branch's
   // persisted snapshots.
   onSessionTree(ctx: ExtensionContext): void {
-    this.ephemeral = reduceBranch(ctx.sessionManager.getBranch() as never, EPHEMERAL_CUSTOM_TYPE);
-    this.generations = reduceGenerations(ctx.sessionManager.getBranch() as never, GENERATIONS_CUSTOM_TYPE);
+    this.ephemeral = reduceBranch(ctx.sessionManager.getBranch(), EPHEMERAL_CUSTOM_TYPE);
+    this.generations = reduceGenerations(ctx.sessionManager.getBranch(), GENERATIONS_CUSTOM_TYPE);
   }
 
   onShutdown(ctx: ExtensionContext): void {
@@ -388,8 +388,7 @@ export class ComfyuiRuntime {
 
     // 3. Snapshot recent conversation as enhancer scene context (read-only -
     //    does not alter the outgoing payload). Off when the budget is 0.
-    this.recentScene =
-      this.sceneBudget > 0 ? extractSceneContext(messages as unknown as SceneMessage[], this.sceneBudget) : '';
+    this.recentScene = this.sceneBudget > 0 ? extractSceneContext(messages, this.sceneBudget) : '';
 
     return changed ? { messages } : undefined;
   }

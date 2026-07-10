@@ -96,7 +96,7 @@ const registry = {
   authStorage: {},
 };
 
-const ctx = { cwd: '/tmp/x', model: { id: 'parent' } as FakeModel, modelRegistry: registry };
+const ctx = { cwd: '/tmp/x', model: { id: 'parent' }, modelRegistry: registry };
 
 function adapter(
   runOneShot: () => Promise<OneShotRunResult>,
@@ -149,7 +149,7 @@ test('run returns null when model resolution fails', async () => {
   });
   const badCtx = {
     cwd: '/tmp/x',
-    model: { id: 'parent' } as FakeModel,
+    model: { id: 'parent' },
     modelRegistry: { find: () => undefined, authStorage: {} },
   };
   expect(await a.run(badCtx, 'task', 'prov/missing')).toBeNull();

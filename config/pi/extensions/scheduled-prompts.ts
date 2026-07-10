@@ -721,7 +721,7 @@ export default function scheduledPromptsExtension(pi: ExtensionAPI): void {
     },
 
     renderCall(args, theme) {
-      const a = args as ScheduleToolParamsT;
+      const a = args;
       let text = theme.fg('toolTitle', theme.bold('schedule ')) + theme.fg('muted', a.action);
       if (a.id) text += ` ${theme.fg('accent', a.id)}`;
       const trig = a.cron ?? a.every ?? a.in ?? a.at ?? a.after;

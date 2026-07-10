@@ -214,27 +214,26 @@ const cases: Case[] = [
   ['interpolate: no markers', () => interpolateEnv('http://127.0.0.1:8880/v1', ENV), 'http://127.0.0.1:8880/v1'],
 
   // ── resolveBaseUrl ─────────────────────────────────────────────────
-  [
-    'resolveBaseUrl: config wins, trailing slash stripped',
-    () => resolveBaseUrl(cfgBase, {} as NodeJS.ProcessEnv),
-    'http://cfg:8880/v1',
-  ],
+  ['resolveBaseUrl: config wins, trailing slash stripped', () => resolveBaseUrl(cfgBase, {}), 'http://cfg:8880/v1'],
   [
     'resolveBaseUrl: PI_TTS_URL overrides',
-    () => resolveBaseUrl(cfgBase, { PI_TTS_URL: 'http://env:9000/v1/' } as unknown as NodeJS.ProcessEnv),
+    () => resolveBaseUrl(cfgBase, { PI_TTS_URL: 'http://env:9000/v1/' }),
     'http://env:9000/v1',
   ],
   [
     'resolveBaseUrl: ${ENV} interpolated',
     () =>
-      resolveBaseUrl({ ...DEFAULT_CONFIG, baseUrl: 'http://${TTS_HOST}/v1' }, {
-        TTS_HOST: 'h:1',
-      } as unknown as NodeJS.ProcessEnv),
+      resolveBaseUrl(
+        { ...DEFAULT_CONFIG, baseUrl: 'http://${TTS_HOST}/v1' },
+        {
+          TTS_HOST: 'h:1',
+        },
+      ),
     'http://h:1/v1',
   ],
 
   // ── resolveAuthHeaders ─────────────────────────────────────────────
-  ['resolveAuthHeaders: none -> {}', () => resolveAuthHeaders(DEFAULT_CONFIG, {} as NodeJS.ProcessEnv), {}],
+  ['resolveAuthHeaders: none -> {}', () => resolveAuthHeaders(DEFAULT_CONFIG, {}), {}],
   [
     'resolveAuthHeaders: interpolated',
     () =>
@@ -246,11 +245,7 @@ const cases: Case[] = [
   ],
   [
     'resolveAuthHeaders: unset token -> empty value dropped',
-    () =>
-      resolveAuthHeaders(
-        { ...DEFAULT_CONFIG, authHeader: { name: 'Authorization', value: '${NOPE}' } },
-        {} as NodeJS.ProcessEnv,
-      ),
+    () => resolveAuthHeaders({ ...DEFAULT_CONFIG, authHeader: { name: 'Authorization', value: '${NOPE}' } }, {}),
     {},
   ],
 
@@ -293,7 +288,7 @@ const cases: Case[] = [
       resolveVoiceBaseUrl(epCfg, voiceOwnUrl, {
         ...epEnv,
         PI_TTS_URL: 'http://env:9999/v1',
-      } as unknown as NodeJS.ProcessEnv),
+      }),
     'http://voice:8881/v1',
   ],
   [
@@ -302,7 +297,7 @@ const cases: Case[] = [
       resolveVoiceBaseUrl(epCfg, voiceNoUrl, {
         ...epEnv,
         PI_TTS_URL: 'http://env:9999/v1',
-      } as unknown as NodeJS.ProcessEnv),
+      }),
     'http://env:9999/v1',
   ],
   [

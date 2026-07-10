@@ -79,7 +79,7 @@ let asrtCache: AsrtModule | null = null;
  */
 export async function loadAsrtModule(): Promise<AsrtModule> {
   if (asrtCache) return asrtCache;
-  asrtCache = (await import('@anthropic-ai/sandbox-runtime')) as unknown as AsrtModule;
+  asrtCache = await import('@anthropic-ai/sandbox-runtime');
   return asrtCache;
 }
 

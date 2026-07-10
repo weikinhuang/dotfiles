@@ -145,7 +145,7 @@ export function createContextEditRuntime(options: ContextEditRuntimeOptions): Co
       state = next;
     },
     rebuildFromSession: (ctx) => {
-      state = reduceBranch(ctx.sessionManager.getBranch() as never, customType);
+      state = reduceBranch(ctx.sessionManager.getBranch(), customType);
     },
     candidatesFrom,
     refreshCompletion,

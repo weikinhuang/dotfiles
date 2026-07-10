@@ -87,7 +87,7 @@ export default function toolArgRecovery(pi: ExtensionAPI): void {
       // ToolInfo.parameters is a TypeBox TSchema. At runtime these
       // share the JSON-Schema shape our SchemaNode duck-type expects
       // (type, properties, required, items, enum, anyOf/oneOf).
-      return found.parameters as unknown as SchemaNode;
+      return found.parameters;
     } catch {
       return undefined;
     }

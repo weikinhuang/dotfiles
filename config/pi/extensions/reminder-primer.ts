@@ -86,7 +86,7 @@ export default function reminderPrimer(pi: ExtensionAPI): void {
   };
 
   const clearStatus = (ctx: ExtensionContext): void => {
-    ctx.ui.setStatus(STATUS_KEY, undefined as unknown as string);
+    ctx.ui.setStatus(STATUS_KEY, undefined);
   };
 
   pi.on('session_start', (_event, ctx) => {

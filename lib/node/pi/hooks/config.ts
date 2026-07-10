@@ -139,7 +139,7 @@ export function parseHooksLayer(raw: string, scope: HookScope): Record<HookEvent
     return emptyConfig();
   }
   if (!isRecord(parsed)) return emptyConfig();
-  return normalizeHookFile(parsed as HookFile, scope);
+  return normalizeHookFile(parsed, scope);
 }
 
 /** Load + validate a single config file, with the same warn-once

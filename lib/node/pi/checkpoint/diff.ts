@@ -201,7 +201,7 @@ export function unifiedDiffLines(
   const out: DiffLine[] = [];
   // Leading context: last `context` lines of the common prefix.
   const leadFrom = Math.max(0, start - context);
-  if (leadFrom > 0) out.push({ prefix: ' ', text: '@@' } as DiffLine);
+  if (leadFrom > 0) out.push({ prefix: ' ', text: '@@' });
   for (let k = leadFrom; k < start; k++) out.push({ prefix: ' ', oldNo: k, newNo: k, text: a[k] });
 
   out.push(...midOps);

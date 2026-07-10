@@ -33,7 +33,7 @@ import { ContextOverlay } from '../../../lib/node/pi/ext/context-usage-overlay.t
 import { CONTEXT_USAGE_USAGE } from '../../../lib/node/pi/context-usage/usage.ts';
 import { buildBreakdown } from '../../../lib/node/pi/context-usage/estimate.ts';
 import { exportFilename, renderMarkdown } from '../../../lib/node/pi/context-usage/export.ts';
-import type { Breakdown, BreakdownInput, MessageLike } from '../../../lib/node/pi/context-usage/types.ts';
+import type { Breakdown, BreakdownInput } from '../../../lib/node/pi/context-usage/types.ts';
 import { envTruthy } from '../../../lib/node/pi/parse-env.ts';
 
 /**
@@ -56,10 +56,10 @@ function gatherBreakdown(pi: ExtensionAPI, ctx: ExtensionCommandContext, capture
   const input: BreakdownInput = {
     effectiveSystemPrompt,
     baseSystemPrompt,
-    systemPromptOptions: options as unknown as BreakdownInput['systemPromptOptions'],
+    systemPromptOptions: options,
     allTools: pi.getAllTools().map((t) => ({ name: t.name, description: t.description, parameters: t.parameters })),
     activeToolNames: pi.getActiveTools(),
-    messages: messages as unknown as MessageLike[],
+    messages,
     contextWindow: usage?.contextWindow ?? ctx.model?.contextWindow ?? 0,
     realTokens: usage?.tokens ?? null,
     modelId: ctx.model?.id,

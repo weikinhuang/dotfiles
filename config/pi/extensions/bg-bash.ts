@@ -1208,25 +1208,7 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
     parameters: BgBashParams,
 
     async execute(_toolCallId, rawParams, sig, _onUpdate, ctx) {
-      const params = rawParams as unknown as {
-        action: BgBashAction;
-        command?: string;
-        cwd?: string;
-        label?: string;
-        env?: Record<string, string>;
-        id?: string;
-        stream?: StreamName;
-        tail?: number;
-        sinceCursor?: number;
-        grep?: string;
-        maxBytes?: number;
-        timeoutMs?: number;
-        signal?: SignalName;
-        text?: string;
-        eof?: boolean;
-        interactiveStdin?: boolean;
-        nudge?: boolean;
-      };
+      const params = rawParams;
 
       switch (params.action) {
         case 'start':
