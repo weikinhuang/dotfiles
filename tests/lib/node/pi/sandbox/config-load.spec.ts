@@ -120,4 +120,19 @@ describe('loadSandboxConfig', () => {
     const { warnings } = loadSandboxConfig([{ source: 'user', raw: '\n   \n' }]);
     expect(warnings).toEqual([]);
   });
+
+  test('gitExcludeStubs defaults to true and honors a false override', () => {
+    const def = loadSandboxConfig([]);
+    expect(def.config.gitExcludeStubs).toBe(true);
+
+    const off = loadSandboxConfig([{ source: 'user', raw: '{"gitExcludeStubs": false}' }]);
+    expect(off.config.gitExcludeStubs).toBe(false);
+    expect(off.warnings).toEqual([]);
+  });
+
+  test('non-boolean gitExcludeStubs is warned and keeps the default', () => {
+    const { config, warnings } = loadSandboxConfig([{ source: 'user', raw: '{"gitExcludeStubs": "yes"}' }]);
+    expect(config.gitExcludeStubs).toBe(true);
+    expect(warnings.find((w) => w.reason.includes('gitExcludeStubs'))).toBeDefined();
+  });
 });

@@ -33,7 +33,7 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { relative, resolve, sep } from 'node:path';
+import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 
 /**
  * Return the subset of `candidates` (absolute paths under `cwd`) that
@@ -83,4 +83,34 @@ export function gitTrackedSubset(cwd: string, candidates: readonly string[]): Se
     }
   }
   return tracked;
+}
+
+/**
+ * Resolve the absolute path of the git exclude file for `cwd`
+ * (`<git-common-dir>/info/exclude`), or `undefined` when `cwd` is not
+ * inside a git work tree (bare repo, non-repo, git missing, or the
+ * spawn errors / times out).
+ *
+ * Uses `git rev-parse --git-common-dir` rather than assuming
+ * `<cwd>/.git/info/exclude`: in a linked worktree `.git` is a file and
+ * the real `info/exclude` lives under the shared common dir. The
+ * common-dir output can be relative (typically `.git`) - it is
+ * resolved against `cwd`.
+ *
+ * Synchronous with a 2s hard timeout, mirroring {@link gitTrackedSubset}.
+ */
+export function resolveGitExcludeFile(cwd: string): string | undefined {
+  let commonDir: string;
+  try {
+    commonDir = execFileSync('git', ['-C', cwd, 'rev-parse', '--git-common-dir'], {
+      stdio: ['ignore', 'pipe', 'ignore'],
+      timeout: 2_000,
+      encoding: 'utf8',
+    }).trim();
+  } catch {
+    return undefined;
+  }
+  if (commonDir.length === 0) return undefined;
+  const abs = isAbsolute(commonDir) ? commonDir : resolve(cwd, commonDir);
+  return join(abs, 'info', 'exclude');
 }

@@ -31,7 +31,10 @@
 // touch set (`.npmrc`, `.yarnrc*`, `bunfig.toml`, `package.json`,
 // lockfiles) before every `wrapWithSandbox` to avoid a known bwrap
 // mount-point race on concurrent bash tool calls. See
-// `lib/node/pi/sandbox/dangerous-file-stubs.ts`.
+// `lib/node/pi/sandbox/dangerous-file-stubs.ts`. On Linux these stubs
+// are transient host-side bwrap mount points that would otherwise show
+// up as untracked files in `git status`; the `gitExcludeStubs` knob
+// (below, default true) hides them via `<git-common-dir>/info/exclude`.
 {
   "network": {
     // Domain ALLOW-list. Empty = deny all. Sandboxed bash that hits a
@@ -145,5 +148,16 @@
     // on-disk paths via `rg --files --max-depth N`. Default 3 covers
     // most workspaces; raise for deep monorepos. Bounded 1..10.
     "linuxRuleDepth": 3
-  }
+  },
+
+  // Hide the transient dangerous-file stubs (below) from `git status`
+  // by maintaining a marked block in the repo's
+  // `<git-common-dir>/info/exclude` (written on session start, stripped
+  // on session end). Only names that are NOT git-tracked and are absent
+  // or an empty stub are listed, so a real untracked file of the same
+  // name (e.g. an 18-byte `.mcp.json` you authored) is never hidden.
+  // Default true - the extra untracked files confuse weaker models.
+  // Set false to leave the exclude file untouched; the env override
+  // PI_SANDBOX_DISABLE_GIT_EXCLUDE=1 is a hard off-switch on top.
+  "gitExcludeStubs": true
 }

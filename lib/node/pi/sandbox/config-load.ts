@@ -92,6 +92,11 @@ function validateLayer(layer: SandboxConfigLayer): {
     (partial as Record<string, unknown>)[top] = v;
   }
 
+  // Top-level scalar knob; merge validates the type (must be boolean).
+  if (parsed.gitExcludeStubs !== undefined) {
+    partial.gitExcludeStubs = parsed.gitExcludeStubs;
+  }
+
   return { partial, warnings };
 }
 

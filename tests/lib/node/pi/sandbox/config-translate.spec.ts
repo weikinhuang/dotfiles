@@ -176,6 +176,7 @@ describe('translateToASRT - macOS mode', () => {
         allowLocalBinding: true,
         linuxRuleDepth: 3,
       },
+      gitExcludeStubs: true,
     };
     const { config, lossyNotes } = translateToASRT({
       policy: basePolicy(),
@@ -204,6 +205,7 @@ describe('translateToASRT - macOS mode', () => {
         allowLocalBinding: true,
         linuxRuleDepth: 3,
       },
+      gitExcludeStubs: true,
     };
     const { config, lossyNotes } = translateToASRT({
       policy: basePolicy(),
@@ -227,6 +229,7 @@ describe('translateToASRT - macOS mode', () => {
       network: { allow: ['github.com'], deny: [], allowLocalhost: true },
       unixSockets: { allow: [], allowAll: false },
       flags: { weakerNestedSandbox: false, weakerNetworkIsolation: false, allowLocalBinding: false, linuxRuleDepth: 3 },
+      gitExcludeStubs: true,
     };
     const { config, lossyNotes } = translateToASRT({
       policy: basePolicy(),
@@ -246,6 +249,7 @@ describe('translateToASRT - macOS mode', () => {
       network: { allow: ['127.0.0.1'], deny: [], allowLocalhost: true },
       unixSockets: { allow: [], allowAll: false },
       flags: { weakerNestedSandbox: false, weakerNetworkIsolation: false, allowLocalBinding: false, linuxRuleDepth: 3 },
+      gitExcludeStubs: true,
     };
     const { config } = translateToASRT({ policy: basePolicy(), sandbox, cwd, homeDir: HOME, mode: 'darwin' });
     expect(config.network.allowedDomains).toEqual(['127.0.0.1', 'localhost', '::1']);
@@ -256,6 +260,7 @@ describe('translateToASRT - macOS mode', () => {
       network: { allow: [], deny: [], unrestricted: true, allowLocalhost: true },
       unixSockets: { allow: [], allowAll: false },
       flags: { weakerNestedSandbox: false, weakerNetworkIsolation: false, allowLocalBinding: false, linuxRuleDepth: 3 },
+      gitExcludeStubs: true,
     };
     const { config, lossyNotes } = translateToASRT({
       policy: basePolicy(),

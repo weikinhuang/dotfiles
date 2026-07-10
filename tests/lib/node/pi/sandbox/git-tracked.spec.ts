@@ -20,7 +20,7 @@ import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
-import { gitTrackedSubset } from '../../../../../lib/node/pi/sandbox/git-tracked.ts';
+import { gitTrackedSubset, resolveGitExcludeFile } from '../../../../../lib/node/pi/sandbox/git-tracked.ts';
 
 let cwd: string;
 
@@ -106,5 +106,35 @@ describe('gitTrackedSubset', () => {
 
     expect(tracked.has(join(cwd, '.claude/commands.md'))).toBe(true);
     expect(tracked.has(join(cwd, '.claude/agents'))).toBe(false);
+  });
+});
+
+describe('resolveGitExcludeFile', () => {
+  test('resolves <git-common-dir>/info/exclude in a normal repo', () => {
+    git('init', '-q');
+    const p = resolveGitExcludeFile(cwd);
+    expect(p).toBe(join(cwd, '.git', 'info', 'exclude'));
+  });
+
+  test('returns undefined outside a git repo', () => {
+    expect(resolveGitExcludeFile(cwd)).toBeUndefined();
+  });
+
+  test('resolves the shared common dir from inside a linked worktree', () => {
+    git('init', '-q');
+    writeFileSync(join(cwd, 'f'), 'x\n', 'utf8');
+    git('add', 'f');
+    git('commit', '-q', '-m', 'init');
+    const wt = join(cwd, '..', `${cwd.split(/[/\\]/).pop() ?? 'wt'}-linked`);
+    git('worktree', 'add', '-q', wt, '-b', 'wt');
+    try {
+      // From inside the linked worktree, the exclude file must point at
+      // the MAIN repo's .git/info/exclude (the shared common dir), not
+      // the worktree's own .git file.
+      const p = resolveGitExcludeFile(wt);
+      expect(p).toBe(join(cwd, '.git', 'info', 'exclude'));
+    } finally {
+      rmSync(wt, { recursive: true, force: true });
+    }
   });
 });

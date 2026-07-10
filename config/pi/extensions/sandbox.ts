@@ -85,7 +85,7 @@
  * shared).
  */
 
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 
 import { type ExtensionAPI, type ExtensionContext, type ToolResultEvent } from '@earendil-works/pi-coding-agent';
 
@@ -111,7 +111,8 @@ import {
   SANDBOX_VIOLATIONS_USAGE,
 } from '../../../lib/node/pi/sandbox/usage.ts';
 import { parseFsFailures } from '../../../lib/node/pi/sandbox/fs-failures.ts';
-import { gitTrackedSubset } from '../../../lib/node/pi/sandbox/git-tracked.ts';
+import { gitTrackedSubset, resolveGitExcludeFile } from '../../../lib/node/pi/sandbox/git-tracked.ts';
+import { computeExcludableStubs, spliceManagedBlock } from '../../../lib/node/pi/sandbox/git-exclude-block.ts';
 import { buildNetworkAskCallback } from '../../../lib/node/pi/sandbox/network-ask.ts';
 import { annotateBashResult, prependBashHint } from '../../../lib/node/pi/sandbox/result-annotate.ts';
 import { buildSandboxStatusReport } from '../../../lib/node/pi/sandbox/status-report.ts';
@@ -120,6 +121,7 @@ import { prependLocalhostProxyEnv } from '../../../lib/node/pi/sandbox/localhost
 import { type FilesystemPolicyLayer, loadFilesystemPolicy } from '../../../lib/node/pi/filesystem-policy/load.ts';
 import { type FilesystemPolicyWarning } from '../../../lib/node/pi/filesystem-policy/schema.ts';
 import { readTextOrEmpty } from '../../../lib/node/pi/fs-safe.ts';
+import { atomicWriteFile, ensureDirSync } from '../../../lib/node/pi/atomic-write.ts';
 import { JsoncReadError } from '../../../lib/node/pi/jsonc.ts';
 import { createNotifyOnce } from '../../../lib/node/pi/notify-once.ts';
 import { envTruthy } from '../../../lib/node/pi/parse-env.ts';
@@ -363,6 +365,12 @@ interface RuntimeState {
    *  user-authored 0-byte files are never adopted + deleted.
    *  Recomputed on cwd change via {@link refreshDangerousProtected}. */
   dangerousProtected: Set<string>;
+  /** Absolute path of the git exclude file (`<git-common-dir>/info/exclude`)
+   *  we last wrote the pi-sandbox managed block into, so `cleanup()`
+   *  can strip it on session end. Undefined when the git-exclude-stub
+   *  feature is off or `cwd` is not a git work tree. See
+   *  `syncGitExcludeStubs` / `stripGitExcludeStubs`. */
+  gitExcludeFile?: string;
 }
 
 function newState(platform: SandboxPlatformInfo): RuntimeState {
@@ -401,6 +409,61 @@ function refreshDangerousProtected(state: RuntimeState, cwd: string): void {
   state.dangerousProtectedCwd = cwd;
 }
 
+/** True when the git-exclude-stub feature is active: the resolved
+ *  `sandbox.json` knob is on AND the hard env off-switch is not set.
+ *  The env disable wins over the config file (aspect-level disable
+ *  convention), so a stray `PI_SANDBOX_DISABLE_GIT_EXCLUDE=1` always
+ *  turns it off. */
+function gitExcludeEnabled(state: RuntimeState): boolean {
+  if (envTruthy(process.env.PI_SANDBOX_DISABLE_GIT_EXCLUDE)) return false;
+  return state.lastResolved?.sandboxResult.config.gitExcludeStubs ?? true;
+}
+
+/**
+ * Write / refresh the pi-sandbox managed block in `cwd`'s git exclude
+ * file so the transient dangerous-file stubs stay out of `git status`.
+ * No-op when the feature is disabled or `cwd` is not a git work tree.
+ * Records the exclude-file path on {@link RuntimeState.gitExcludeFile}
+ * so {@link stripGitExcludeStubs} can remove the block on shutdown.
+ * Best-effort and never-throwing - a failure here must never break a
+ * bash wrap or session start.
+ */
+function syncGitExcludeStubs(state: RuntimeState, cwd: string): void {
+  if (!gitExcludeEnabled(state)) return;
+  try {
+    const file = resolveGitExcludeFile(cwd);
+    if (!file) return;
+    refreshDangerousProtected(state, cwd);
+    const entries = computeExcludableStubs(cwd, {
+      isTracked: (abs) => state.dangerousProtected.has(abs),
+    });
+    const next = spliceManagedBlock(readTextOrEmpty(file), entries);
+    ensureDirSync(dirname(file));
+    atomicWriteFile(file, next);
+    state.gitExcludeFile = file;
+  } catch {
+    // Best-effort: leave git status noisier rather than crash.
+  }
+}
+
+/**
+ * Remove the pi-sandbox managed block from the exclude file we last
+ * wrote to, so the repo's `info/exclude` is untouched whenever pi is
+ * not running. Idempotent and never-throwing (safe in `cleanup()`).
+ */
+function stripGitExcludeStubs(state: RuntimeState): void {
+  const file = state.gitExcludeFile;
+  if (!file) return;
+  state.gitExcludeFile = undefined;
+  try {
+    const current = readTextOrEmpty(file);
+    if (!current) return;
+    atomicWriteFile(file, spliceManagedBlock(current, []));
+  } catch {
+    // Best-effort teardown.
+  }
+}
+
 /** Compute the effective {@link SandboxMode} for the statusline
  *  badge. Plan section 7 enumerates the five visible states. Thin
  *  wrapper around `lib/node/pi/sandbox/plan.ts::resolveSandboxMode`
@@ -412,7 +475,7 @@ function effectiveMode(state: RuntimeState): { mode: SandboxMode; reason?: strin
     bypassed: state.bypassed,
     initialized: state.initialized,
     reason: state.reason,
-  }) as { mode: SandboxMode; reason?: string };
+  });
 }
 
 function publishStatusline(state: RuntimeState): void {
@@ -766,6 +829,7 @@ export default function sandbox(pi: ExtensionAPI): void {
     state.sessionWriteAllow.clear();
     cleanupDangerousFileStubs(state.stubRefcount.keys());
     state.stubRefcount.clear();
+    stripGitExcludeStubs(state);
     clearActiveSandbox();
     clearActiveUI();
     uninstallSandboxWrapper();
@@ -830,6 +894,13 @@ export default function sandbox(pi: ExtensionAPI): void {
         'info',
       );
     }
+
+    // Hide the transient dangerous-file stubs from `git status` via a
+    // managed block in the repo's git exclude file (default on; see
+    // `gitExcludeStubs` / PI_SANDBOX_DISABLE_GIT_EXCLUDE). Stripped in
+    // `cleanup()` on session end so the exclude file stays clean when
+    // pi is not running.
+    syncGitExcludeStubs(state, ctx.cwd);
   });
 
   pi.on('session_shutdown', () => {

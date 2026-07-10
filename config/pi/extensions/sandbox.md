@@ -38,8 +38,8 @@ Two files, both JSONC, both hot-reloaded per tool call:
 - `~/.pi/agent/filesystem.json` (or `<repo>/.pi/filesystem.json`) - **shared with [`filesystem.ts`](./filesystem.md)**.
   See [`config/pi/filesystem-example.json`](../filesystem-example.json) and the `filesystem.ts` deep doc for the full
   schema; this section only covers what the kernel sandbox does with the unified policy.
-- `~/.pi/agent/sandbox.json` (or `<repo>/.pi/sandbox.json`) - **sandbox-only knobs**: `network`, `unixSockets`, `flags`.
-  See [`config/pi/sandbox-example.json`](../sandbox-example.json).
+- `~/.pi/agent/sandbox.json` (or `<repo>/.pi/sandbox.json`) - **sandbox-only knobs**: `network`, `unixSockets`, `flags`,
+  `gitExcludeStubs`. See [`config/pi/sandbox-example.json`](../sandbox-example.json).
 
 File resolution order, additive within categories:
 
@@ -213,6 +213,7 @@ State is published via [`session-flags.ts`](../../../lib/node/pi/session-flags.t
 | `PI_SANDBOX_ALLOW_LOCALHOST`      | unset   | set `network.allowLocalhost: true` for the session: route loopback through the proxy so host localhost services are reachable, filtering stays on.    |
 | `PI_SANDBOX_NETWORK_UNRESTRICTED` | unset   | set `network.unrestricted: true` for the session: drop network isolation entirely (host network + localhost reachable, NO domain filtering).          |
 | `PI_SANDBOX_ALLOW_ROOT`           | unset   | allow the extension to load when pi runs as root. Off by default per plan section 6.                                                                  |
+| `PI_SANDBOX_DISABLE_GIT_EXCLUDE`  | unset   | hard off-switch for the git-exclude-stub feature (overrides `gitExcludeStubs: true`); leaves `<git-common-dir>/info/exclude` untouched.               |
 | `PI_INSIDE_DOCKER`                | unset   | hint platform.ts that pi is inside a container; surfaces a recommendation to enable `flags.weakerNestedSandbox`.                                      |
 
 ## Running `pi -p` in CI
@@ -339,6 +340,11 @@ actual syscall denial (still requires the model-turn smoke above) but proves the
   policy until they exit.
 
 ## Known limitations (v1)
+
+- **Git-exclude stub-hiding is per-repo and best-effort.** The managed block is written to the exclude file resolved at
+  `session_start` for that cwd; a mid-session `cd` into a different repo is not re-synced (the strip on shutdown still
+  targets the originally-written file). With two pi sessions in the same repo, one session's shutdown-strip removes the
+  block while the other is still live, so its stubs reappear in `git status` until its next `session_start`.
 
 - **Host `localhost` services are unreachable under network isolation (Linux).** ASRT runs bash in an isolated network
   namespace (`bwrap --unshare-net`) whenever any domain allow-list is present, and hardcodes

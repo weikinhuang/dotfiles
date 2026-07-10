@@ -86,6 +86,14 @@ export interface SandboxConfig {
   network: SandboxNetworkConfig;
   unixSockets: SandboxUnixSocketsConfig;
   flags: SandboxFlags;
+  /** When true (default), the extension maintains a marked block in
+   *  the repo's `<git-common-dir>/info/exclude` that hides the
+   *  transient dangerous-file stubs from `git status` (added on
+   *  session start, stripped on session end). Set `false` to leave the
+   *  exclude file untouched. The env override
+   *  `PI_SANDBOX_DISABLE_GIT_EXCLUDE=1` (checked in the extension
+   *  shell) is a hard off-switch on top of this. */
+  gitExcludeStubs: boolean;
 }
 
 export interface SandboxConfigWarning {
@@ -138,6 +146,7 @@ export const DEFAULT_SANDBOX_CONFIG: Readonly<SandboxConfig> = Object.freeze({
     allowLocalBinding: false,
     linuxRuleDepth: LINUX_RULE_DEPTH_DEFAULT,
   },
+  gitExcludeStubs: true,
 });
 
 // ──────────────────────────────────────────────────────────────────────
@@ -154,6 +163,7 @@ export function emptySandboxConfig(): SandboxConfig {
       allowLocalBinding: false,
       linuxRuleDepth: LINUX_RULE_DEPTH_DEFAULT,
     },
+    gitExcludeStubs: true,
   };
 }
 
@@ -176,6 +186,7 @@ export interface PartialSandboxConfig {
     allowLocalBinding?: unknown;
     linuxRuleDepth?: unknown;
   };
+  gitExcludeStubs?: unknown;
 }
 
 function pushStrings(
@@ -233,6 +244,7 @@ export function mergeSandboxConfigs(layers: { source: string; partial: PartialSa
   out.unixSockets.allow.push(...DEFAULT_SANDBOX_CONFIG.unixSockets.allow);
   out.unixSockets.allowAll = DEFAULT_SANDBOX_CONFIG.unixSockets.allowAll;
   out.flags = { ...DEFAULT_SANDBOX_CONFIG.flags };
+  out.gitExcludeStubs = DEFAULT_SANDBOX_CONFIG.gitExcludeStubs;
 
   const warnings: SandboxConfigWarning[] = [];
 
@@ -298,6 +310,7 @@ export function mergeSandboxConfigs(layers: { source: string; partial: PartialSa
         }
       }
     }
+    out.gitExcludeStubs = setBoolean(partial.gitExcludeStubs, out.gitExcludeStubs, source, 'gitExcludeStubs', warnings);
   }
 
   return { config: out, warnings };

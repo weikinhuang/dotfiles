@@ -296,6 +296,17 @@ export function compileLinuxRules(rules: FilesystemRules, options: CompileLinuxR
     // `/mnt/d/.../.ssh`). Denying the realpath makes the mount land on
     // the actual directory; reads through the original symlink still
     // resolve into the masked target, so the deny is preserved.
+    //
+    // NOTE: this is NOT redundant with ASRT 0.0.65's PR #392
+    // ("Resolve symlinks in deny paths before computing bwrap masks").
+    // That fix (`resolveSymlinkDenyDest` in linux-sandbox-utils.js)
+    // only realpaths FILE deny-binds; for DIRECTORY denies it
+    // deliberately leaves the original symlink path (`--tmpfs` on the
+    // symlink), on the assumption "bwrap accepts those". That holds
+    // for same-tree symlinks (usr-merge `/bin -> /usr/bin`) but NOT
+    // for a cross-filesystem directory symlink like `~/.ssh` ->
+    // `/mnt/d/.../.ssh`, which still aborts. Resolving ALL deny paths
+    // (file + directory) here is what covers the directory case.
     let target = resolved;
     try {
       target = realpathSync(resolved);
