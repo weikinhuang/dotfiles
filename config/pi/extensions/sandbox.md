@@ -70,6 +70,15 @@ the unified policy:
   `/sandbox-rescan`. Default depth `3`, override via `flags.linuxRuleDepth` (clamped 1..10).
 - `~/.pi` is auto-added to `filesystem.write.allow.paths` so any extension that ever writes through a wrapped shell
   doesn't EPERM. This is cheap insurance - paths under it are pi-internal session/scratch files anyway.
+- **ASRT's sandbox `TMPDIR` is pre-created on the host before every wrap.** ASRT unconditionally sets
+  `TMPDIR=$CLAUDE_CODE_TMPDIR || $CLAUDE_TMPDIR || /tmp/claude` inside every sandboxed child (whenever a filesystem
+  policy is active) and includes that dir in its default write-allow set. But its Linux binder **skips any write-allow
+  path that doesn't exist on the host**, so an absent `/tmp/claude` is never bound - and any sandboxed process that
+  writes to `$TMPDIR` fails with `No such file or directory` (classic cascade: `mktemp` -> empty output -> `curl -o` "is
+  badly used here", seen with `ai-fetch-web`). ASRT assumes the host tmpdir already exists (Claude Code creates it); pi
+  did not, so [`asrt-tmpdir.ts`](../../../lib/node/pi/sandbox/asrt-tmpdir.ts) `mkdir -p`s it (mode `0o700`) in
+  `performWrap` right before the wrap, alongside the dangerous-file-stub pre-creation. Idempotent + best-effort, and
+  re-running per wrap survives a system tmp-reaper deleting it mid-session.
 - **Unix sockets are platform-split.** `unixSockets.allow` (the path list) is honored **only on macOS**, where
   sandbox-exec can match a socket path. On **Linux** unix-socket access is all-or-nothing: ASRT installs a seccomp-bpf
   filter that blocks every `socket(AF_UNIX, ...)` call, and seccomp cannot inspect the path, so `unixSockets.allow`

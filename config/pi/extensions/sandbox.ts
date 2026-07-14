@@ -136,6 +136,7 @@ import {
   publishActiveSandbox,
 } from '../../../lib/node/pi/sandbox/active.ts';
 import { type AsrtSandboxManager, loadAsrtModule } from '../../../lib/node/pi/sandbox/asrt-manager.ts';
+import { ensureAsrtTmpdir } from '../../../lib/node/pi/sandbox/asrt-tmpdir.ts';
 import { loadSandboxConfig } from '../../../lib/node/pi/sandbox/config-load.ts';
 import { translateToASRT } from '../../../lib/node/pi/sandbox/config-translate.ts';
 import { addNetworkRule, addWriteAllowPath } from '../../../lib/node/pi/sandbox/config-write.ts';
@@ -692,6 +693,13 @@ async function performWrap(
   }
   try {
     await activeReconfigure();
+    // Pre-create ASRT's sandbox TMPDIR on the host. ASRT sets
+    // TMPDIR=/tmp/claude inside every sandboxed child and treats it as
+    // a default write path, but its Linux binder skips write paths
+    // that don't exist on the host - so an absent /tmp/claude is never
+    // bound and any sandboxed `mktemp`/temp-file write fails with
+    // `No such file or directory` (see asrt-tmpdir.ts). Idempotent.
+    ensureAsrtTmpdir();
     // Pre-create empty stubs for ASRT's DANGEROUS_FILES so concurrent
     // bwrap setups don't race on the mount-point `O_CREAT|O_WRONLY`
     // against a 0444 stub (see dangerous-file-stubs.ts module docs).
