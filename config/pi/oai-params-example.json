@@ -1,0 +1,22 @@
+{
+  "qwen3-35b-creative": {
+    "extends": "llama-cpp/qwen3-6-35b-a3b",
+    "name": "Qwen 3.6 35B A3B (creative)",
+    "samplingParams": {
+      "temperature": 1.0,
+      "top_p": 0.95,
+      "min_p": 0.05,
+      "top_k": 40
+    }
+  },
+  "qwen3-35b-precise": {
+    "extends": "llama-cpp/qwen3-6-35b-a3b",
+    "name": "Qwen 3.6 35B A3B (precise)",
+    "samplingParams": {
+      "temperature": 0.2,
+      "top_p": 0.8,
+      "min_p": 0.0,
+      "repetition_penalty": 1.05
+    }
+  }
+}
