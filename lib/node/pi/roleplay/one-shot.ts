@@ -21,7 +21,7 @@ import { parseModelSpec } from '../model-spec.ts';
 import { piAgentDir, piProjectPath } from '../pi-paths.ts';
 import { isRecord } from '../shared.ts';
 import { type AgentDef } from '../subagent/loader.ts';
-import { resolveChildModel, type ModelRegistryLike } from '../subagent/spawn.ts';
+import { agentWithResolvedThinking, resolveChildModel, type ModelRegistryLike } from '../subagent/spawn.ts';
 
 // ──────────────────────────────────────────────────────────────────────
 // Child-model settings resolution
@@ -180,11 +180,15 @@ export function createOneShotSubagentAdapter<M>(wiring: OneShotAdapterWiring<M>)
         return null;
       }
 
+      // A thinking-level suffix on the model override (e.g. `:off`)
+      // overrides the agent def's own thinkingLevel for this run.
+      const runAgent = agentWithResolvedThinking(wiring.agent, resolution.thinkingLevel);
+
       let result: OneShotRunResult;
       try {
         result = await wiring.runOneShot({
           cwd: ctx.cwd,
-          agent: wiring.agent,
+          agent: runAgent,
           model: resolution.model,
           modelRegistry: ctx.modelRegistry,
           task,

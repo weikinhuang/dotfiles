@@ -33,6 +33,7 @@
  */
 
 import { parseModelSpec } from '../model-spec.ts';
+import { type ThinkingLevel, THINKING_LEVELS } from '../preset.ts';
 import { collectSubagentInjections, type SubagentExtensionFactory } from './extension-injection.ts';
 import { type AgentDef } from './loader.ts';
 import { classifyStopReason, extractFinalAssistantText, type AgentMessageLike } from './result.ts';
@@ -60,7 +61,27 @@ export interface ResolveChildModelOptions<M> {
   modelRegistry: ModelRegistryLike<M>;
 }
 
-export type ResolveChildModelResult<M> = { ok: true; model: M } | { ok: false; error: string };
+export type ResolveChildModelResult<M> =
+  | { ok: true; model: M; thinkingLevel?: ThinkingLevel }
+  | { ok: false; error: string };
+
+const THINKING_LEVEL_SET = new Set<string>(THINKING_LEVELS);
+
+/**
+ * Peel a trailing `:<thinking-level>` suffix off a model id, mirroring
+ * pi's own model-pattern parsing (`packages/coding-agent` model-resolver).
+ * Model ids may legitimately contain colons (OpenRouter `:exacto`, Bedrock
+ * inference-profile `...:0`), so callers must try an exact registry match
+ * first and only fall back to this when that misses. Returns `undefined`
+ * when the last colon segment is not a recognised thinking level.
+ */
+function splitThinkingSuffix(modelId: string): { modelId: string; thinkingLevel: ThinkingLevel } | undefined {
+  const idx = modelId.lastIndexOf(':');
+  if (idx <= 0) return undefined;
+  const suffix = modelId.slice(idx + 1);
+  if (!THINKING_LEVEL_SET.has(suffix)) return undefined;
+  return { modelId: modelId.slice(0, idx), thinkingLevel: suffix as ThinkingLevel };
+}
 
 /**
  * Resolve the model to use for a spawned child agent.
@@ -82,9 +103,19 @@ export function resolveChildModel<M>({
   if (override) {
     const parsed = parseModelSpec(override);
     if (!parsed) return { ok: false, error: `invalid modelOverride "${override}" (expected provider/id)` };
-    const resolved = modelRegistry.find(parsed.provider, parsed.modelId);
-    if (!resolved) return { ok: false, error: `model ${parsed.provider}/${parsed.modelId} not registered` };
-    return { ok: true, model: resolved };
+    // Exact match first: model ids may legitimately end in a colon segment
+    // (e.g. `...:0`, `model:exacto`) that is not a thinking level.
+    const exact = modelRegistry.find(parsed.provider, parsed.modelId);
+    if (exact) return { ok: true, model: exact };
+    // Miss: peel a trailing `:<thinking-level>` suffix and retry, so specs
+    // like `llama-cpp/qwen3-6-27b:off` resolve to the registered base model
+    // and carry the requested thinking level back to the caller.
+    const split = splitThinkingSuffix(parsed.modelId);
+    if (split) {
+      const resolved = modelRegistry.find(parsed.provider, split.modelId);
+      if (resolved) return { ok: true, model: resolved, thinkingLevel: split.thinkingLevel };
+    }
+    return { ok: false, error: `model ${parsed.provider}/${parsed.modelId} not registered` };
   }
   if (agent.model !== 'inherit') {
     const resolved = modelRegistry.find(agent.model.provider, agent.model.modelId);
@@ -97,6 +128,20 @@ export function resolveChildModel<M>({
     return { ok: false, error: 'no model available for child session (use /login or configure a default model)' };
   }
   return { ok: true, model: parent };
+}
+
+/**
+ * Return `agent` with its `thinkingLevel` replaced by `thinkingLevel` when a
+ * `resolveChildModel` override peeled a `:<level>` suffix off the model spec
+ * (e.g. `llama-cpp/qwen3-6-27b:off`); otherwise return `agent` unchanged.
+ *
+ * Centralises the merge every `runOneShotAgent` caller applies so a resolved
+ * suffix wins over the agent def's own level, without threading a new option
+ * through each mock-shim + wrapper. `runOneShotAgent` reads `agent.thinkingLevel`
+ * when it creates the session, so passing the adjusted agent is sufficient.
+ */
+export function agentWithResolvedThinking(agent: AgentDef, thinkingLevel: ThinkingLevel | undefined): AgentDef {
+  return thinkingLevel === undefined ? agent : { ...agent, thinkingLevel };
 }
 
 // ──────────────────────────────────────────────────────────────────────

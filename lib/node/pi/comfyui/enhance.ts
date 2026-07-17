@@ -24,7 +24,7 @@ import { parseModelSpec } from '../model-spec.ts';
 import { parseJsonLoose, stripCodeFence } from '../json-loose.ts';
 import { truncate } from '../shared.ts';
 import { type AgentDef } from '../subagent/loader.ts';
-import { resolveChildModel, type ModelRegistryLike } from '../subagent/spawn.ts';
+import { agentWithResolvedThinking, resolveChildModel, type ModelRegistryLike } from '../subagent/spawn.ts';
 
 // ──────────────────────────────────────────────────────────────────────
 // Pure helpers: task builder + tolerant result parse
@@ -305,11 +305,15 @@ export function createEnhancer<M>(wiring: EnhancerWiring<M>): Enhancer<M> {
         return null;
       }
 
+      // A thinking-level suffix on the enhanceModel spec (e.g. `:off`)
+      // overrides the agent def's own thinkingLevel for this run.
+      const runAgent = agentWithResolvedThinking(agent, resolution.thinkingLevel);
+
       let result: EnhanceRunResult;
       try {
         result = await wiring.runOneShot({
           cwd: ctx.cwd,
-          agent,
+          agent: runAgent,
           model: resolution.model,
           modelRegistry: ctx.modelRegistry,
           task,

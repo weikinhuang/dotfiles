@@ -51,7 +51,7 @@ import { type CostEventLike } from './cost-hook.ts';
 import { appendJournal, type JournalLevel } from './journal.ts';
 import { isRecord } from '../shared.ts';
 import { type AgentDef } from '../subagent/loader.ts';
-import { resolveChildModel, type ModelRegistryLike } from '../subagent/spawn.ts';
+import { agentWithResolvedThinking, resolveChildModel, type ModelRegistryLike } from '../subagent/spawn.ts';
 
 // ──────────────────────────────────────────────────────────────────────
 // Settings resolution
@@ -420,7 +420,11 @@ export function createTinyAdapter<M>(wiring: TinyAdapterWiring<M>): TinyAdapter<
       return { ok: false };
     }
 
-    return { ok: true, agent, model: resolution.model };
+    // A thinking-level suffix on the tinyModel spec (e.g. `:off`) overrides
+    // the agent def's own thinkingLevel for the spawned run.
+    const runAgent = agentWithResolvedThinking(agent, resolution.thinkingLevel);
+
+    return { ok: true, agent: runAgent, model: resolution.model };
   };
 
   const runAndValidate = async (

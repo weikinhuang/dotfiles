@@ -11,6 +11,7 @@ import { describe, expect, test } from 'vitest';
 import { type AgentDef } from '../../../../../lib/node/pi/subagent/loader.ts';
 import {
   adaptCreateAgentSession,
+  agentWithResolvedThinking,
   resolveChildModel,
   runOneShotAgent,
   type AgentSessionEventLike,
@@ -98,6 +99,62 @@ describe('resolveChildModel', () => {
     expect(!r.ok && r.error).toMatch(/not registered/);
   });
 
+  test('peels a trailing thinking-level suffix and carries the level back', () => {
+    const registry = mkRegistry({ 'llama-cpp/qwen3-6-27b': { id: 'qwen3-6-27b' } });
+    const r = resolveChildModel<FakeModel>({
+      override: 'llama-cpp/qwen3-6-27b:off',
+      agent: mkAgent(),
+      parent: { id: 'parent' },
+      modelRegistry: registry,
+    });
+
+    expect(r.ok).toBe(true);
+    expect(r.ok && r.model.id).toBe('qwen3-6-27b');
+    expect(r.ok && r.thinkingLevel).toBe('off');
+  });
+
+  test('prefers an exact match over peeling a colon segment', () => {
+    // A model whose id legitimately ends in `:0` (Bedrock inference profile)
+    // must resolve exactly, never by stripping `:0`.
+    const registry = mkRegistry({ 'amazon-bedrock/claude-v1:0': { id: 'claude-v1:0' } });
+    const r = resolveChildModel<FakeModel>({
+      override: 'amazon-bedrock/claude-v1:0',
+      agent: mkAgent(),
+      parent: undefined,
+      modelRegistry: registry,
+    });
+
+    expect(r.ok && r.model.id).toBe('claude-v1:0');
+    expect(r.ok && r.thinkingLevel).toBeUndefined();
+  });
+
+  test('leaves a non-thinking colon suffix as part of the id (no level)', () => {
+    // `:exacto` is not a thinking level, so the whole id stays intact and the
+    // registry miss surfaces as a normal not-registered diagnostic.
+    const r = resolveChildModel<FakeModel>({
+      override: 'openrouter/some-model:exacto',
+      agent: mkAgent(),
+      parent: undefined,
+      modelRegistry: mkRegistry(),
+    });
+
+    expect(r.ok).toBe(false);
+    expect(!r.ok && r.error).toMatch(/openrouter\/some-model:exacto not registered/);
+  });
+
+  test('resolves a base id carrying both a colon segment and a thinking suffix', () => {
+    const registry = mkRegistry({ 'openrouter/some-model:exacto': { id: 'some-model:exacto' } });
+    const r = resolveChildModel<FakeModel>({
+      override: 'openrouter/some-model:exacto:high',
+      agent: mkAgent(),
+      parent: undefined,
+      modelRegistry: registry,
+    });
+
+    expect(r.ok && r.model.id).toBe('some-model:exacto');
+    expect(r.ok && r.thinkingLevel).toBe('high');
+  });
+
   test('falls back to agent model when no override and agent !== inherit', () => {
     const registry = mkRegistry({ 'openai/gpt-x': { id: 'gpt-x' } });
     const agent = mkAgent({ model: { provider: 'openai', modelId: 'gpt-x' } });
@@ -146,6 +203,30 @@ describe('resolveChildModel', () => {
 
     expect(r.ok).toBe(false);
     expect(!r.ok && r.error).toMatch(/no model available/);
+  });
+});
+
+// ──────────────────────────────────────────────────────────────────────
+// agentWithResolvedThinking
+// ──────────────────────────────────────────────────────────────────────
+
+describe('agentWithResolvedThinking', () => {
+  test('overrides the agent thinkingLevel when a level was resolved', () => {
+    const agent = mkAgent({ thinkingLevel: 'low' });
+    const out = agentWithResolvedThinking(agent, 'off');
+
+    expect(out.thinkingLevel).toBe('off');
+    // Original def is left untouched (new object).
+    expect(agent.thinkingLevel).toBe('low');
+    expect(out).not.toBe(agent);
+  });
+
+  test('returns the same agent reference when no level was resolved', () => {
+    const agent = mkAgent({ thinkingLevel: 'low' });
+    const out = agentWithResolvedThinking(agent, undefined);
+
+    expect(out).toBe(agent);
+    expect(out.thinkingLevel).toBe('low');
   });
 });
 

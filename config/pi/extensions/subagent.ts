@@ -875,7 +875,9 @@ export default function subagentExtension(pi: ExtensionAPI): void {
       const created = await createAgentSession({
         cwd: childCwd,
         model: childModel,
-        thinkingLevel: agent.thinkingLevel,
+        // A thinking-level suffix on the model override (e.g. `:off`) wins
+        // over the agent def's own thinkingLevel for this child.
+        thinkingLevel: modelResolution.thinkingLevel ?? agent.thinkingLevel,
         // Fork mode leaves the tool allowlist unset so the child enables
         // pi's default tool set, matching the parent's cached prefix.
         // Fresh mode keeps the agent's curated allowlist. Either way the

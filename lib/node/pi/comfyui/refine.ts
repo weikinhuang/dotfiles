@@ -36,7 +36,7 @@ import { parseJsonLoose, stripCodeFence } from '../json-loose.ts';
 import { parseModelSpec } from '../model-spec.ts';
 import { isFiniteNumber, isNonEmptyString, isRecord } from '../shared.ts';
 import { type AgentDef } from '../subagent/loader.ts';
-import { type ModelRegistryLike, resolveChildModel } from '../subagent/spawn.ts';
+import { agentWithResolvedThinking, type ModelRegistryLike, resolveChildModel } from '../subagent/spawn.ts';
 import type { RefineWith } from './types.ts';
 
 // ──────────────────────────────────────────────────────────────────────
@@ -792,11 +792,15 @@ export function createRefiner<M>(wiring: RefinerWiring<M>): Refiner<M> {
         ...(input.criteria !== undefined ? { criteria: input.criteria } : {}),
       });
 
+      // A thinking-level suffix on the refineModel spec (e.g. `:off`)
+      // overrides the agent def's own thinkingLevel for this run.
+      const runAgent = agentWithResolvedThinking(agent, resolution.thinkingLevel);
+
       let result: CritiqueRunResult;
       try {
         result = await wiring.runOneShot({
           cwd: ctx.cwd,
-          agent,
+          agent: runAgent,
           model: resolution.model,
           modelRegistry: ctx.modelRegistry,
           task,

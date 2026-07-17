@@ -159,7 +159,12 @@ import {
 } from '../../../lib/node/pi/subagent/loader.ts';
 import { piCreateAgentSession } from '../../../lib/node/pi/ext/pi-session.ts';
 import { createPersistedSubagentSessionManager } from '../../../lib/node/pi/subagent/session-dir.ts';
-import { resolveChildModel, runOneShotAgent, type AgentSessionLike } from '../../../lib/node/pi/subagent/spawn.ts';
+import {
+  agentWithResolvedThinking,
+  resolveChildModel,
+  runOneShotAgent,
+  type AgentSessionLike,
+} from '../../../lib/node/pi/subagent/spawn.ts';
 import { truncate } from '../../../lib/node/pi/shared.ts';
 import { envTruthy } from '../../../lib/node/pi/parse-env.ts';
 
@@ -1702,6 +1707,9 @@ function buildPipelineDeps(
         ...(extras.overrides?.planCritModel ? { override: extras.overrides.planCritModel } : {}),
       });
       if (!resolution.ok) return { rawText: '', error: resolution.error };
+      // A thinking-level suffix on the override spec (e.g. `:off`) overrides
+      // the agent def's own thinkingLevel for this run.
+      const runAgent = agentWithResolvedThinking(criticAgent, resolution.thinkingLevel);
       try {
         const costHook =
           extras.onPhase || extras.liveBudget
@@ -1713,7 +1721,7 @@ function buildPipelineDeps(
         const result = await runOneShotAgent({
           deps: { createAgentSession: piCreateAgentSession, DefaultResourceLoader, SessionManager, getAgentDir },
           cwd: ctx.cwd,
-          agent: criticAgent,
+          agent: runAgent,
           model: resolution.model,
           task,
           modelRegistry,
@@ -1819,6 +1827,9 @@ function buildSyncFanoutSpawner<M extends Model<any>>(
     if (!resolution.ok) {
       throw new Error(`fanout spawn: ${resolution.error}`);
     }
+    // A thinking-level suffix on the override spec (e.g. `:off`) overrides
+    // the agent def's own thinkingLevel for this run.
+    const runAgent = agentWithResolvedThinking(agent, resolution.thinkingLevel);
     const progressAt = Date.now();
     let result: FanoutHandleResult;
     try {
@@ -1846,7 +1857,7 @@ function buildSyncFanoutSpawner<M extends Model<any>>(
           runOneShotAgent({
             deps: { createAgentSession: piCreateAgentSession, DefaultResourceLoader, SessionManager, getAgentDir },
             cwd: ctx.cwd,
-            agent,
+            agent: runAgent,
             model: resolution.model,
             task: args.task.prompt,
             modelRegistry: modelRegistry as never,
@@ -2039,6 +2050,9 @@ async function runReviewPhase(args: RunReviewPhaseArgs): Promise<ReviewWireResul
         summary: 'critic model unavailable',
       } satisfies Verdict;
     }
+    // A thinking-level suffix on the criticModel spec (e.g. `:off`) overrides
+    // the agent def's own thinkingLevel for this run.
+    const runAgent = agentWithResolvedThinking(criticAgent, resolution.thinkingLevel);
     const task = buildCriticTask({
       spec: { rubric: rubricSubjective },
       artifactPath: p.report,
@@ -2055,7 +2069,7 @@ async function runReviewPhase(args: RunReviewPhaseArgs): Promise<ReviewWireResul
       const run = await runOneShotAgent({
         deps: { createAgentSession: piCreateAgentSession, DefaultResourceLoader, SessionManager, getAgentDir },
         cwd: ctx.cwd,
-        agent: criticAgent,
+        agent: runAgent,
         model: resolution.model,
         task,
         modelRegistry: ctx.modelRegistry as never,
