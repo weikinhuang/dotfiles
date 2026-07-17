@@ -885,8 +885,10 @@ export default function subagentExtension(pi: ExtensionAPI): void {
         // out further (the runtime depth guard backs this up).
         tools: fork ? undefined : agent.tools,
         excludeTools: [...RECURSIVE_TOOL_NAMES],
-        modelRegistry: ctx.modelRegistry,
-        authStorage: ctx.modelRegistry.authStorage,
+        // pi >= 0.80 builds the child's ModelRuntime from agentDir; it no
+        // longer accepts a modelRegistry / authStorage. Auth resolves from
+        // the same agent dir the resourceLoader above already uses.
+        agentDir,
         resourceLoader,
         sessionManager: childSessionManager,
       });

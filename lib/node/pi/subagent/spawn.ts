@@ -195,20 +195,19 @@ export interface AgentSessionEventLike {
 /**
  * Session creator - matches pi's `createAgentSession` return shape.
  *
- * `authStorage` is intentionally omitted from the args type: pi uses it
- * only to build a default `modelRegistry`, which we always pass in
- * explicitly, so the field is a runtime no-op here. Leaving it out also
- * keeps the dep type assignable from pi's real `createAgentSession`,
- * whose `authStorage` is typed as `AuthStorage | undefined` rather than
- * `unknown` - a mismatch this pure module cannot express without
- * importing pi types.
+ * `modelRegistry` is forwarded for backwards-compat but is a no-op under
+ * pi >= 0.80: `createAgentSession` no longer accepts a registry / auth
+ * store and instead builds its own `ModelRuntime` from `agentDir`
+ * (auth.json + models.json). The registry's only live consumer here is
+ * `resolveChildModel` (via `find`), so the dep only needs the structural
+ * `ModelRegistryLike<M>` - no `authStorage`.
  */
 export type CreateAgentSessionDep<M, S> = (args: {
   cwd: string;
   model: M;
   thinkingLevel: AgentDef['thinkingLevel'];
   tools: string[];
-  modelRegistry: ModelRegistryLike<M> & { authStorage: unknown };
+  modelRegistry: ModelRegistryLike<M>;
   resourceLoader: ResourceLoaderLike;
   sessionManager: S;
 }) => Promise<{ session: AgentSessionLike }>;
@@ -290,8 +289,8 @@ export interface RunOneShotAgentOptions<M, S> {
   model: M;
   /** Prompt given to the child. */
   task: string;
-  /** pi's model registry, threaded into the session for auth / dispatch. */
-  modelRegistry: ModelRegistryLike<M> & { authStorage: unknown };
+  /** pi's model registry, used by `resolveChildModel` to resolve `provider/id`. */
+  modelRegistry: ModelRegistryLike<M>;
   /** Agent search path for `DefaultResourceLoader`. Defaults to `deps.getAgentDir()`. */
   agentDir?: string;
   /** SessionManager to use. Defaults to `deps.SessionManager.inMemory(cwd)`. */

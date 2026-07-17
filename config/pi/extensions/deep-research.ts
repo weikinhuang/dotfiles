@@ -1679,8 +1679,10 @@ function buildPipelineDeps(
         model: parentModel,
         thinkingLevel: 'off',
         tools: [],
-        modelRegistry,
-        authStorage: modelRegistry.authStorage,
+        // pi >= 0.80 builds the ModelRuntime from agentDir; it no longer
+        // takes a modelRegistry / authStorage. Auth resolves from the same
+        // agent dir the resourceLoader above uses.
+        agentDir: getAgentDir(),
         resourceLoader: resource,
         sessionManager: manager,
       });
@@ -1809,7 +1811,6 @@ function buildSyncFanoutSpawner<M extends Model<any>>(
   agent: AgentDef,
   modelRegistry: {
     find: (provider: string, id: string) => unknown;
-    authStorage: unknown;
   },
   parent: M | undefined,
   onPhase: ((event: PhaseEvent) => void) | undefined,
