@@ -112,8 +112,8 @@ turns after the active window), `probability` (an rng gate on each fresh activat
 further turns once fired, no re-roll), and `group` (among fired members of a named group, keep one, weighted by
 `groupWeight`). A fresh fire arms the sticky+cooldown window in one shot; group losers do not arm any window. State is
 in-memory only - it resets when pi restarts or the cast switches (chat-metadata persistence is deferred). The timing
-pass applies to the system-prompt lorebook; depth-injected lore (entries with a `depth`) still uses plain matching in
-v1.
+pass applies to the keyword-fired lorebook (computed once per turn in `before_agent_start`, see below); depth-injected
+lore (entries with a `depth`) still uses plain matching in v1.
 
 > **Phase 2 scan window:** matching runs in `before_agent_start`, which only exposes the _latest user message_, so lore
 > fires on the current prompt. Scanning the recent N turns and inserting at `depth` happens in the `context` event
@@ -121,17 +121,19 @@ v1.
 
 ## Depth injection: author's note + depth-tagged lore
 
-The `before_agent_start` block above appends to the **system prompt** (constant + non-depth lore). The SillyTavern
-"insert at depth N" lever is different: text is spliced into the **message array** near the live turn and recomputed
-every call. The extension does this in the `context` event, which hands a deep copy of the messages and lets the
-extension return a replacement (non-persistent - it never touches the saved session). Two things ride this path:
+The `before_agent_start` block above appends the stable scene + cast index to the **system prompt** and computes the
+turn's keyword-fired lore, which is injected separately on the message tail as an ephemeral reminder (see "Injected
+`## Roleplay` block" below) rather than in the cached prefix. The SillyTavern "insert at depth N" lever is a distinct
+third path: text is spliced into the **message array** near the live turn and recomputed every call. The extension does
+this in the `context` event, which hands a deep copy of the messages and lets the extension return a replacement
+(non-persistent - it never touches the saved session). Two things ride this path:
 
 - **Author's note** - a short standing instruction from the active persona's `authorNote` frontmatter, inserted at
   `authorNoteDepth` (default 4) messages from the end. Use it for tone / style / pacing reminders that should sit close
   to the model's next turn rather than fade at the top of a long system prompt.
-- **Depth-tagged lore** - any `lore` entry with a `depth:` field. These are _excluded_ from the system-prompt lore block
+- **Depth-tagged lore** - any `lore` entry with a `depth:` field. These are _excluded_ from the keyword-fired lore block
   and instead fire against the **recent `scanDepth` messages** (default 10, not just the latest prompt) and splice in at
-  their `depth`. Budgeted by `loreCharBudget` like the system-prompt lore.
+  their `depth`. Budgeted by `loreCharBudget` like the keyword-fired lore.
 
 Depth counts from the end: `depth: 0` appends after the last message, `depth: 1` inserts just before it, and a depth
 larger than the history clamps to the start. Disable the whole path with `PI_ROLEPLAY_DISABLE_DEPTH_INJECT=1`.
@@ -140,11 +142,22 @@ larger than the history clamps to the start. Disable the whole path with `PI_ROL
 
 Each turn (under a roleplay persona) the active cast's **index** - one line per record, names + descriptions only - is
 appended to the system prompt under a `## Roleplay — cast: <slug>` header, capped by `charBudget` (default 3000, floor
-500). Full character bodies are fetched on demand via `roleplay read <id>`. Below the index, any **fired lore** for the
-current turn is injected in full under a `## Roleplay lore` header (capped separately by `loreCharBudget`); this is the
-one case where bodies are injected outright, since the point of keyword triggering is to put the relevant detail
-in-context without a tool call. Once a cap is hit the block stops adding entries and emits a trailer. Returns nothing
-when the cast is empty and no lore fired.
+500). Full character bodies are fetched on demand via `roleplay read <id>`. Any **fired lore** for the current turn is
+injected in full under a `## Roleplay lore` header (capped separately by `loreCharBudget`); this is the one case where
+bodies are injected outright, since the point of keyword triggering is to put the relevant detail in-context without a
+tool call. Once a cap is hit the block stops adding entries and emits a trailer.
+
+The scene block and cast index are **stable head state** and stay in the system prompt (cached prefix). The fired-lore
+block, by contrast, is **volatile per-turn state** - its membership shifts on every topic change - so it is NOT placed
+in the system prompt (where each shift would bust the whole prompt-prefix cache, re-prefilling the conversation on
+llama.cpp). Instead `before_agent_start` computes it once (running the timing pass exactly once per turn) and stashes it
+in a `pendingLore` slot; the `context` event injects that slot as an ephemeral `<system-reminder id="roleplay-lore">` on
+the trailing message via [`context-reminder.ts`](../../../lib/node/pi/context-reminder.ts) - the same cache-friendly
+seam as `roleplay-repetition` / `roleplay-event`. The system prompt stays byte-stable across turns when only lore
+membership changes, and [`cache-breakpoint.ts`](./cache-breakpoint.md) keeps the conversation breakpoint off the
+reminder-bearing tail (a no-op on llama.cpp, which has no such breakpoint). This is the delivery-mechanism rule in
+[`AGENTS.md`](./AGENTS.md) § "Auto-injecting state every turn: `context` hook vs system prompt". Returns nothing when
+the cast is empty and no lore fired.
 
 ## Scene: folding full character sheets (`characters` / `pov` / `pinned`)
 

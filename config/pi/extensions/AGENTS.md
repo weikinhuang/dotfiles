@@ -88,7 +88,9 @@ not a style choice.**
   `before_agent_start` handler also did per-turn side effects (refresh a captured `ctx.ui`, update a statusline), keep a
   side-effect-only `before_agent_start` and move **only** the injection to `context` (see `bg-bash.ts`, `comfyui.ts`).
   The `context`-hook `ctx` is the full `ExtensionContext` (e.g. `getContextUsage()` is available - see
-  `context-budget.ts`). Anchors: `todo`, `bg-bash`, `comfyui`, `scratchpad`, `context-budget`.
+  `context-budget.ts`). Anchors: `todo`, `bg-bash`, `comfyui`, `scratchpad`, `context-budget`, `roleplay` (its
+  keyword-fired lore is computed once per turn in `before_agent_start` but injected here as `roleplay-lore` because its
+  membership is volatile per-turn; the stable scene + cast index stay in the system prompt).
 
 - **Large + stable / always-present state** (e.g. saved memories) and **static prompt addenda** (persona, preset,
   color-tags, small-model addendum, avatar emote prompt) → keep appending to the **system prompt** via

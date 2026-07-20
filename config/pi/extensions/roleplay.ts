@@ -385,6 +385,17 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
   let pendingEvent: string | null = null;
   /** Set once `pendingEvent` has been injected; the next turn boundary clears the event. */
   let eventConsumed = false;
+  /**
+   * Per-turn slot for the keyword-fired lore block. Computed ONCE in
+   * `before_agent_start` (so the timing pass - sticky / cooldown /
+   * probability / delay - advances exactly once per turn) and injected as an
+   * ephemeral `<system-reminder id="roleplay-lore">` tail reminder by the
+   * `context` hook, which may fire several times per turn. Kept off the
+   * system prompt: fired-lore membership shifts topic-to-topic, so on the
+   * cached prefix it would bust the prompt-prefix cache every topic change
+   * (a whole re-prefill on llama.cpp). `null` when nothing fires. Mirrors
+   * the `pendingEvent` slot pattern. */
+  let pendingLore: string | null = null;
   /** Most-recent `context` message array, captured so `/roleplay event` can read the scene. */
   let lastMessages: readonly unknown[] = [];
   /** Memoized character-sheet n-gram exclusion set for repetition detection; rebuilt on state change. */
@@ -743,7 +754,10 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
       eventConsumed = false;
     }
 
-    if (!autoInjectEnabled) return undefined;
+    if (!autoInjectEnabled) {
+      pendingLore = null;
+      return undefined;
+    }
     turnCount += 1;
     // Scan the recent-message window (prior turns, incl. assistant) plus the
     // current prompt for name-keyed character folds; the sticky window covers
@@ -752,8 +766,15 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
     const sceneScanText = `${concatRecentMessageText(lastMessages, sceneScanDepth)}\n${event.prompt ?? ''}`;
     const scene = buildSceneBlock(ctx, sceneScanText);
     const index = formatRoleplayBlock(state, { maxChars: charBudget() });
-    const lore = buildLoreInjection(event.prompt ?? '');
-    const additions = [scene, index, lore].filter((s): s is string => Boolean(s));
+    // Keyword-fired lore is VOLATILE per-turn state (membership shifts on
+    // every topic change), so it does NOT go in the system prompt - it would
+    // bust the prompt-prefix cache on each shift. Compute it here (the timing
+    // pass advances `timingState` exactly once per turn) and stash it in
+    // `pendingLore`; the `context` hook injects it as an ephemeral
+    // `<system-reminder id="roleplay-lore">` on the tail. Only the stable
+    // POV/pinned `scene` block and the cast `index` stay at the head.
+    pendingLore = buildLoreInjection(event.prompt ?? '');
+    const additions = [scene, index].filter((s): s is string => Boolean(s));
     if (additions.length === 0) return undefined;
     return { systemPrompt: [event.systemPrompt, ...additions].join('\n\n') };
   });
@@ -1945,10 +1966,15 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
         }
       }
 
-      // Ephemeral, cache-friendly reminders: the repetition nudge and the
-      // queued scene event, each under a stable id so re-applying is a
-      // fixpoint and stale blocks are stripped when they no longer fire.
+      // Ephemeral, cache-friendly reminders: the keyword-fired lore block, the
+      // repetition nudge and the queued scene event, each under a stable id so
+      // re-applying is a fixpoint and stale blocks are stripped when they no
+      // longer fire. `roleplay-lore` carries the timing-gated lore computed
+      // once this turn in `before_agent_start` (stashed in `pendingLore`); the
+      // context hook only reads that slot, so re-fires within a turn never
+      // re-advance the timing pass.
       const reminders: { id: string; body: string | null }[] = [];
+      if (lorebookEnabled) reminders.push({ id: 'roleplay-lore', body: pendingLore });
       if (repetitionEnabled)
         reminders.push({
           id: 'roleplay-repetition',
