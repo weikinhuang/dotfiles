@@ -60,6 +60,7 @@ import {
   zipQuestionnaireColumns,
 } from '../../../lib/node/pi/questionnaire/layout.ts';
 import {
+  initialCursorIndex,
   multiAnswerFields,
   normalizeQuestions,
   questionRenderOptions,
@@ -83,6 +84,9 @@ const QuestionOptionSchema = Type.Object({
         'Optional multi-line string (ASCII art, code, diff) rendered in a ' +
         'side pane when this option is highlighted. Pre-wrap to ~55 cols.',
     }),
+  ),
+  recommended: Type.Optional(
+    Type.Boolean({ description: 'Render a (recommended) badge on this option. Display hint only.' }),
   ),
 });
 
@@ -110,6 +114,15 @@ const QuestionSchema = Type.Object({
   allowNotes: Type.Optional(Type.Boolean({ description: "Allow 'n' to open a notes editor. Default: true." })),
   minSelect: Type.Optional(Type.Integer({ description: 'Multi only: minimum selections before Next enables.' })),
   maxSelect: Type.Optional(Type.Integer({ description: 'Multi only: maximum selections allowed.' })),
+  default: Type.Optional(
+    Type.Union([Type.String(), Type.Array(Type.String())], {
+      description:
+        'Pre-filled proposed answer the user can accept or change. single/free: ' +
+        'an option value / free string; multi: an array of option values to ' +
+        'pre-check. A valid default marks the question answered on open, so the ' +
+        'user can go straight to Submit.',
+    }),
+  ),
 });
 
 const QuestionnaireParams = Type.Object({
@@ -258,7 +271,15 @@ export default function questionnaire(pi: ExtensionAPI): void {
         function multiListFor(q: Question): MultiSelectList {
           let list = multiLists.get(q.id);
           if (!list) {
-            list = new MultiSelectList(q.options, { minSelect: q.minSelect, maxSelect: q.maxSelect });
+            const items = q.options.map((o) => ({
+              label: o.label,
+              description: o.description,
+              badge: o.recommended ? 'recommended' : undefined,
+            }));
+            const initialSelected = Array.isArray(q.default)
+              ? q.default.map((v) => q.options.findIndex((o) => o.value === v)).filter((i) => i >= 0)
+              : undefined;
+            list = new MultiSelectList(items, { minSelect: q.minSelect, maxSelect: q.maxSelect, initialSelected });
             multiLists.set(q.id, list);
           }
           return list;
@@ -266,6 +287,18 @@ export default function questionnaire(pi: ExtensionAPI): void {
 
         function allAnswered(): boolean {
           return questions.every((q) => answers.has(q.id));
+        }
+
+        function initialOptionIndex(): number {
+          const q = currentQuestion();
+          if (!q) return 0;
+          // Land on the currently-selected option when one is recorded, else on
+          // the proposed default, else the top row.
+          const ans = answers.get(q.id);
+          if (ans?.kind === 'single' && !ans.wasCustom && typeof ans.index === 'number') {
+            return clampCursor(ans.index - 1, currentOptions().length);
+          }
+          return initialCursorIndex(q);
         }
 
         function advanceAfterAnswer(): void {
@@ -278,7 +311,7 @@ export default function questionnaire(pi: ExtensionAPI): void {
           } else {
             currentTab = questions.length; // Submit tab
           }
-          optionIndex = 0;
+          optionIndex = initialOptionIndex();
           refresh();
         }
 
@@ -432,14 +465,14 @@ export default function questionnaire(pi: ExtensionAPI): void {
             // Navigate back to a question tab to change answers.
             if (matchesKey(data, Key.tab) || matchesKey(data, Key.right)) {
               currentTab = (currentTab + 1) % totalTabs;
-              optionIndex = 0;
+              optionIndex = initialOptionIndex();
               loadOtherIfOnRow();
               refresh();
               return;
             }
             if (matchesKey(data, Key.shift('tab')) || matchesKey(data, Key.left)) {
               currentTab = (currentTab - 1 + totalTabs) % totalTabs;
-              optionIndex = 0;
+              optionIndex = initialOptionIndex();
               loadOtherIfOnRow();
               refresh();
               return;
@@ -555,14 +588,14 @@ export default function questionnaire(pi: ExtensionAPI): void {
           if (isMulti) {
             if (matchesKey(data, Key.tab) || matchesKey(data, Key.right)) {
               currentTab = (currentTab + 1) % totalTabs;
-              optionIndex = 0;
+              optionIndex = initialOptionIndex();
               loadOtherIfOnRow();
               refresh();
               return;
             }
             if (matchesKey(data, Key.shift('tab')) || matchesKey(data, Key.left)) {
               currentTab = (currentTab - 1 + totalTabs) % totalTabs;
-              optionIndex = 0;
+              optionIndex = initialOptionIndex();
               loadOtherIfOnRow();
               refresh();
               return;
@@ -761,8 +794,10 @@ export default function questionnaire(pi: ExtensionAPI): void {
 
             const numPrefix = `${i + 1}. `;
             const firstPrefix = prefix + theme.fg(color, numPrefix);
+            const labelContent =
+              theme.fg(color, opt.label) + (opt.recommended ? theme.fg('success', ' (recommended)') : '');
             for (const line of wrapWithPrefix({
-              content: theme.fg(color, opt.label),
+              content: labelContent,
               width,
               firstPrefix,
               wrap: wrapTextWithAnsi,
@@ -994,6 +1029,24 @@ export default function questionnaire(pi: ExtensionAPI): void {
           cachedLines = lines;
           return lines;
         }
+
+        // Seed proposed defaults so the agent can pre-fill answers; a valid
+        // default marks the question answered and positions the cursor.
+        for (const q of questions) {
+          if (q.default === undefined) continue;
+          if (q.kind === 'single' && typeof q.default === 'string') {
+            const idx = q.options.findIndex((o) => o.value === q.default);
+            if (idx >= 0) saveSingleAnswer(q, q.options[idx], idx + 1);
+          } else if (q.kind === 'multi' && Array.isArray(q.default)) {
+            // multiListFor seeds the checked set from q.default; commit it as
+            // the answer only when it already satisfies minSelect.
+            const list = multiListFor(q);
+            if (list.selectedCount() > 0 && list.meetsMinSelect()) saveMultiAnswer(q);
+          } else if (q.kind === 'free' && typeof q.default === 'string' && q.default.trim()) {
+            saveCustomAnswer(q, q.default);
+          }
+        }
+        optionIndex = initialOptionIndex();
 
         return {
           render,

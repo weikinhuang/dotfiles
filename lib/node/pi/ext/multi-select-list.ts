@@ -44,6 +44,8 @@ export interface MultiSelectItem {
   label: string;
   /** Optional muted sub-line rendered below the label. */
   description?: string;
+  /** Optional short badge rendered after the label (e.g. `recommended`). */
+  badge?: string;
 }
 
 export interface MultiSelectListConfig {
@@ -72,6 +74,8 @@ export interface MultiSelectRenderStyle {
   unselectedColor?: string;
   /** Theme color token for the description sub-line. Default `'muted'`. */
   descriptionColor?: string;
+  /** Theme color token for the `badge` suffix. Default `'success'`. */
+  badgeColor?: string;
   /** Prefix drawn before the highlighted row (themed `selectedColor`). Default `'❯ '`. */
   cursorPrefix?: string;
   /** Prefix drawn before non-highlighted rows. Default `'  '`. */
@@ -98,6 +102,7 @@ const DEFAULT_STYLE = {
   selectedColor: 'accent',
   unselectedColor: 'text',
   descriptionColor: 'muted',
+  badgeColor: 'success',
   cursorPrefix: '❯ ',
   blankPrefix: '  ',
 } as const;
@@ -184,6 +189,7 @@ export class MultiSelectList {
     const selectedColor = opts.selectedColor ?? DEFAULT_STYLE.selectedColor;
     const unselectedColor = opts.unselectedColor ?? DEFAULT_STYLE.unselectedColor;
     const descriptionColor = opts.descriptionColor ?? DEFAULT_STYLE.descriptionColor;
+    const badgeColor = opts.badgeColor ?? DEFAULT_STYLE.badgeColor;
     const cursorPrefix = opts.cursorPrefix ?? DEFAULT_STYLE.cursorPrefix;
     const blankPrefix = opts.blankPrefix ?? DEFAULT_STYLE.blankPrefix;
 
@@ -192,7 +198,9 @@ export class MultiSelectList {
     const checked = this.selected.has(index) ? 'x' : ' ';
     const labelText = `${index + 1}. [${checked}] ${item.label}`;
 
-    const lines = [truncateToWidth(prefix + opts.theme.fg(color, labelText), opts.width)];
+    let head = prefix + opts.theme.fg(color, labelText);
+    if (item.badge) head += opts.theme.fg(badgeColor, ` (${item.badge})`);
+    const lines = [truncateToWidth(head, opts.width)];
     if (item.description) {
       lines.push(truncateToWidth(`     ${opts.theme.fg(descriptionColor, item.description)}`, opts.width));
     }

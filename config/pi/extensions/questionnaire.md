@@ -35,23 +35,25 @@ Top-level params:
 
 Per question:
 
-| Field        | Type                            | Notes                                                                    |
-| ------------ | ------------------------------- | ------------------------------------------------------------------------ |
-| `id`         | `string`                        | Required, unique. Used as the answer key and `chatContextId`.            |
-| `prompt`     | `string`                        | Required. Full question text shown above the options.                    |
-| `label`      | `string?`                       | Short tab-bar label. Defaults to `Q1`, `Q2`, …                           |
-| `kind`       | `'single' \| 'multi' \| 'free'` | Default `single`.                                                        |
-| `options`    | `QuestionOption[]?`             | Required for `single` / `multi`, ignored for `free`.                     |
-| `allowOther` | `boolean?`                      | Default `true`. Appends a `Type something.` inline-input row.            |
-| `allowNotes` | `boolean?`                      | Default `true`. Enables `n` to open a notes editor.                      |
-| `minSelect`  | `integer?`                      | Multi only. `Next` stays disabled until `≥ minSelect` boxes are checked. |
-| `maxSelect`  | `integer?`                      | Multi only. Further toggles are ignored once `maxSelect` is reached.     |
+| Field        | Type                            | Notes                                                                                                                                                                     |
+| ------------ | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `id`         | `string`                        | Required, unique. Used as the answer key and `chatContextId`.                                                                                                             |
+| `prompt`     | `string`                        | Required. Full question text shown above the options.                                                                                                                     |
+| `label`      | `string?`                       | Short tab-bar label. Defaults to `Q1`, `Q2`, …                                                                                                                            |
+| `kind`       | `'single' \| 'multi' \| 'free'` | Default `single`.                                                                                                                                                         |
+| `options`    | `QuestionOption[]?`             | Required for `single` / `multi`, ignored for `free`.                                                                                                                      |
+| `allowOther` | `boolean?`                      | Default `true`. Appends a `Type something.` inline-input row.                                                                                                             |
+| `allowNotes` | `boolean?`                      | Default `true`. Enables `n` to open a notes editor.                                                                                                                       |
+| `minSelect`  | `integer?`                      | Multi only. `Next` stays disabled until `≥ minSelect` boxes are checked.                                                                                                  |
+| `maxSelect`  | `integer?`                      | Multi only. Further toggles are ignored once `maxSelect` is reached.                                                                                                      |
+| `default`    | `string \| string[]?`           | Proposed pre-filled answer. `single`/`free`: an option value / string. `multi`: array of option values to pre-check. A valid default marks the question answered on open. |
 
 Per option:
 
 - `value: string` - returned as the answer's `value`.
 - `label: string` - display label.
 - `description?: string` - muted sub-line below the label.
+- `recommended?: boolean` - renders a `(recommended)` badge after the label. Display hint only.
 - `preview?: string` - multi-line; rendered in the side/bottom preview pane when highlighted.
 
 Answer shape returned to the model (one per question in `details.answers`):
@@ -94,6 +96,9 @@ chat-request the `content` is a one-line summary and `details.cancelled` / `deta
   `Submit answers` / `Cancel` picker. `Submit answers` is disabled until all questions are answered. `↑`/`↓` move
   between the two rows and `1`/`2` select them directly; `Tab` / `Shift+Tab` / `←` / `→` navigate back to a question tab
   to change an answer.
+- Defaults - a question `default` pre-fills the proposed answer (single: pre-selected option; multi: pre-checked boxes;
+  free: pre-set text), marks the question answered, and lands the cursor on it, so the user can review and go straight
+  to `Submit` or override. An option `recommended: true` renders a `(recommended)` badge.
 - Text wrapping - question prompts, option labels + descriptions, review answers, and a saved `Type something.` buffer
   word-wrap to the terminal width (continuation lines hang-indent under the label) instead of being truncated. The
   live-editing `Type something.` field stays single-line and scrolls horizontally; multi-line option `preview` strings
@@ -118,9 +123,9 @@ The `.ts` shell owns the pi/TUI event loop (`ctx.ui.custom`), the tab / notes / 
   `meetsMinSelect`, `sortedSelection`. Unit-tested directly.
 - [`../../../lib/node/pi/questionnaire/model.ts`](../../../lib/node/pi/questionnaire/model.ts) -- question/answer
   shapes, `normalizeQuestions`, `questionRenderOptions`, `multiAnswerFields` (builds a multi answer's
-  `values`/`labels`/1-based `indices`), and `validateQuestions` (rejects structurally unanswerable input up front:
-  duplicate ids, a non-`free` question with no selectable row, or `minSelect`/`maxSelect` bounds that can never be
-  satisfied -- the tool returns an error result instead of opening an un-completable modal).
+  `values`/`labels`/1-based `indices`), `validateQuestions` (rejects structurally unanswerable input up front: duplicate
+  ids, a non-`free` question with no selectable row, `minSelect`/`maxSelect` bounds that can never be satisfied, or a
+  `default` that doesn't match its options), and `initialCursorIndex` (default-aware cursor start).
 - [`../../../lib/node/pi/questionnaire/layout.ts`](../../../lib/node/pi/questionnaire/layout.ts) -- preview-pane split /
   stacked layout math, `wrapWithPrefix` (ANSI-aware word-wrap with a first-line prefix and hanging continuation indent),
   and `windowTabSegments` (horizontal windowing that keeps the active tab visible when the tab bar overflows).

@@ -7,6 +7,7 @@
 import { expect, test } from 'vitest';
 
 import {
+  initialCursorIndex,
   multiAnswerFields,
   normalizeQuestions,
   questionRenderOptions,
@@ -172,4 +173,70 @@ test('validateQuestions: flags multi bounds that can never be satisfied', () => 
     'question "b" maxSelect (0) must be at least 1.',
     'question "c" maxSelect (1) is less than minSelect (2).',
   ]);
+});
+
+test('validateQuestions: accepts valid defaults across kinds', () => {
+  const questions = normalizeQuestions([
+    { id: 's', prompt: 'Q', kind: 'single', options: [{ value: 'a', label: 'A' }], default: 'a' },
+    {
+      id: 'm',
+      prompt: 'Q',
+      kind: 'multi',
+      options: [
+        { value: 'a', label: 'A' },
+        { value: 'b', label: 'B' },
+      ],
+      default: ['a', 'b'],
+    },
+    { id: 'f', prompt: 'Q', kind: 'free', default: 'hello' },
+  ]);
+  expect(validateQuestions(questions)).toEqual([]);
+});
+
+test('validateQuestions: flags defaults that do not match options or exceed bounds', () => {
+  const questions = normalizeQuestions([
+    { id: 's', prompt: 'Q', kind: 'single', options: [{ value: 'a', label: 'A' }], default: 'zzz' },
+    {
+      id: 'm',
+      prompt: 'Q',
+      kind: 'multi',
+      options: [
+        { value: 'a', label: 'A' },
+        { value: 'b', label: 'B' },
+      ],
+      default: ['a', 'b'],
+      maxSelect: 1,
+    },
+  ]);
+  expect(validateQuestions(questions)).toEqual([
+    'question "s" default "zzz" does not match any option value.',
+    'question "m" default selects 2 option(s), exceeding maxSelect (1).',
+  ]);
+});
+
+test('initialCursorIndex: lands on a matching single-select default, else the top', () => {
+  const [single] = normalizeQuestions([
+    {
+      id: 's',
+      prompt: 'Q',
+      kind: 'single',
+      options: [
+        { value: 'a', label: 'A' },
+        { value: 'b', label: 'B' },
+        { value: 'c', label: 'C' },
+      ],
+      default: 'c',
+    },
+  ]);
+  expect(initialCursorIndex(single)).toBe(2);
+
+  const [noDefault] = normalizeQuestions([
+    { id: 's', prompt: 'Q', kind: 'single', options: [{ value: 'a', label: 'A' }] },
+  ]);
+  expect(initialCursorIndex(noDefault)).toBe(0);
+
+  const [multi] = normalizeQuestions([
+    { id: 'm', prompt: 'Q', kind: 'multi', options: [{ value: 'a', label: 'A' }], default: ['a'] },
+  ]);
+  expect(initialCursorIndex(multi)).toBe(0);
 });

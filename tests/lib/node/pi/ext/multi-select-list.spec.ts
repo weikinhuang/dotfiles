@@ -77,6 +77,14 @@ test('renderRow: unhighlighted row uses blank prefix, text color, and renders de
   expect(rows).toEqual(['  <text>2. [ ] Beta</text>', '     <muted>second option</muted>']);
 });
 
+test('renderRow: appends a badge suffix in the badge color', () => {
+  const ms = new MultiSelectList([{ label: 'Yes', badge: 'recommended' }, { label: 'No' }]);
+  expect(ms.renderRow(0, { width: 80, highlighted: false, theme })).toEqual([
+    '  <text>1. [ ] Yes</text><success> (recommended)</success>',
+  ]);
+  expect(ms.renderRow(1, { width: 80, highlighted: false, theme })).toEqual(['  <text>2. [ ] No</text>']);
+});
+
 test('render: emits every checkbox row, highlighting the given index', () => {
   const ms = list();
   ms.toggle(1);

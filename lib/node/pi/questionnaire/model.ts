@@ -13,6 +13,8 @@ export interface QuestionOption {
   label: string;
   description?: string;
   preview?: string;
+  /** Render a `(recommended)` badge on this option. Display hint only. */
+  recommended?: boolean;
 }
 
 export type RenderOption = QuestionOption & {
@@ -30,6 +32,12 @@ export interface Question {
   allowNotes: boolean;
   minSelect?: number;
   maxSelect?: number;
+  /**
+   * Pre-filled proposed answer the user can accept or change. single/free: an
+   * option `value` / free string; multi: an array of option `value`s to
+   * pre-check. A valid default marks the question answered on open.
+   */
+  default?: string | string[];
 }
 
 export interface Answer {
@@ -68,6 +76,7 @@ export interface QuestionnaireQuestionInput {
   allowNotes?: boolean;
   minSelect?: number;
   maxSelect?: number;
+  default?: string | string[];
 }
 
 export function normalizeQuestions(input: readonly QuestionnaireQuestionInput[]): Question[] {
@@ -81,6 +90,7 @@ export function normalizeQuestions(input: readonly QuestionnaireQuestionInput[])
     allowNotes: q.allowNotes !== false,
     minSelect: q.minSelect,
     maxSelect: q.maxSelect,
+    default: q.default,
   }));
 }
 
@@ -132,6 +142,31 @@ export function validateQuestions(questions: readonly Question[]): string[] {
     }
     seen.add(q.id);
 
+    if (q.default !== undefined) {
+      if (q.kind === 'free') {
+        if (typeof q.default !== 'string') {
+          errors.push(`${where} free-text default must be a string.`);
+        }
+      } else if (q.kind === 'single') {
+        if (typeof q.default !== 'string') {
+          errors.push(`${where} single-select default must be an option value (string).`);
+        } else if (!q.options.some((o) => o.value === q.default)) {
+          errors.push(`${where} default "${q.default}" does not match any option value.`);
+        }
+      } else if (!Array.isArray(q.default)) {
+        errors.push(`${where} multi-select default must be an array of option values.`);
+      } else {
+        for (const v of q.default) {
+          if (!q.options.some((o) => o.value === v)) {
+            errors.push(`${where} default "${v}" does not match any option value.`);
+          }
+        }
+        if (q.maxSelect !== undefined && q.default.length > q.maxSelect) {
+          errors.push(`${where} default selects ${q.default.length} option(s), exceeding maxSelect (${q.maxSelect}).`);
+        }
+      }
+    }
+
     if (q.kind === 'free') continue;
 
     const selectable = q.options.length + (q.allowOther ? 1 : 0);
@@ -154,4 +189,17 @@ export function validateQuestions(questions: readonly Question[]): string[] {
     }
   }
   return errors;
+}
+
+/**
+ * Initial cursor row for a question when it is first shown or re-entered.
+ * A `single`-select `default` matching an option value lands the cursor on it;
+ * everything else starts at the top.
+ */
+export function initialCursorIndex(q: Pick<Question, 'kind' | 'options' | 'default'>): number {
+  if (q.kind === 'single' && typeof q.default === 'string') {
+    const idx = q.options.findIndex((o) => o.value === q.default);
+    if (idx >= 0) return idx;
+  }
+  return 0;
 }
