@@ -9,6 +9,7 @@ import { expect, test } from 'vitest';
 import {
   padVisibleText,
   selectQuestionnairePreviewLayout,
+  wrapWithPrefix,
   zipQuestionnaireColumns,
 } from '../../../../../lib/node/pi/questionnaire/layout.ts';
 
@@ -51,4 +52,59 @@ test('zipQuestionnaireColumns: pads left rows and preserves taller columns', () 
       gutter: 2,
     }),
   ).toEqual(['A     one', 'Longer  two', '      three']);
+});
+
+// A trivial word-wrap that splits on spaces; good enough to exercise prefixing.
+function fakeWrap(text: string, width: number): string[] {
+  const words = text.split(' ');
+  const lines: string[] = [];
+  let cur = '';
+  for (const w of words) {
+    const next = cur ? `${cur} ${w}` : w;
+    if (next.length > width && cur) {
+      lines.push(cur);
+      cur = w;
+    } else {
+      cur = next;
+    }
+  }
+  lines.push(cur);
+  return lines;
+}
+
+test('wrapWithPrefix: prepends first prefix and space-indents continuation lines', () => {
+  expect(
+    wrapWithPrefix({
+      content: 'one two three four five',
+      width: 12,
+      firstPrefix: '1. ',
+      wrap: fakeWrap,
+    }),
+  ).toEqual(['1. one two', '   three', '   four five']);
+});
+
+test('wrapWithPrefix: honors an explicit continuation prefix and reserves its width', () => {
+  const visibleWidth = (s: string): number => s.replace(/\[[a-z]+\]/g, '').length;
+
+  expect(
+    wrapWithPrefix({
+      content: 'alpha beta gamma',
+      width: 10,
+      firstPrefix: '[red]> ',
+      contPrefix: '  ',
+      wrap: fakeWrap,
+      visibleWidth,
+    }),
+  ).toEqual(['[red]> alpha', '  beta', '  gamma']);
+});
+
+test('wrapWithPrefix: single short line keeps only the first prefix', () => {
+  expect(
+    wrapWithPrefix({
+      content: 'short',
+      width: 40,
+      firstPrefix: ' ',
+      wrap: fakeWrap,
+    }),
+  ).toEqual([' short']);
 });

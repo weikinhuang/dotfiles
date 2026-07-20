@@ -39,6 +39,7 @@ import {
   Text,
   truncateToWidth,
   visibleWidth,
+  wrapTextWithAnsi,
 } from '@earendil-works/pi-tui';
 import { Type } from 'typebox';
 
@@ -54,12 +55,14 @@ import { envTruthy } from '../../../lib/node/pi/parse-env.ts';
 import {
   padVisibleText,
   selectQuestionnairePreviewLayout,
+  wrapWithPrefix,
   zipQuestionnaireColumns,
 } from '../../../lib/node/pi/questionnaire/layout.ts';
 import {
   multiAnswerFields,
   normalizeQuestions,
   questionRenderOptions,
+  validateQuestions,
   type Answer,
   type Question,
   type QuestionnaireResult,
@@ -178,6 +181,13 @@ export default function questionnaire(pi: ExtensionAPI): void {
 
       // Normalize questions with defaults.
       const questions: Question[] = normalizeQuestions(params.questions);
+
+      // Reject structurally unanswerable input up front rather than trapping
+      // the user in an un-completable modal.
+      const validationErrors = validateQuestions(questions);
+      if (validationErrors.length > 0) {
+        return errorResult(`Error: invalid questionnaire:\n- ${validationErrors.join('\n- ')}`, questions);
+      }
 
       const allowChat = params.allowChat !== false;
       const isMulti = questions.length > 1;
@@ -418,12 +428,42 @@ export default function questionnaire(pi: ExtensionAPI): void {
               refresh();
               return;
             }
+            // Navigate back to a question tab to change answers.
+            if (matchesKey(data, Key.tab) || matchesKey(data, Key.right)) {
+              currentTab = (currentTab + 1) % totalTabs;
+              optionIndex = 0;
+              loadOtherIfOnRow();
+              refresh();
+              return;
+            }
+            if (matchesKey(data, Key.shift('tab')) || matchesKey(data, Key.left)) {
+              currentTab = (currentTab - 1 + totalTabs) % totalTabs;
+              optionIndex = 0;
+              loadOtherIfOnRow();
+              refresh();
+              return;
+            }
             if (matchesKey(data, Key.enter)) {
               if (reviewIndex === 1) {
                 submit({ cancelled: true });
                 return;
               }
               if (!allAnswered()) return; // hold the user here
+              submit({ cancelled: false });
+              return;
+            }
+            // Numbered choices (1. Submit / 2. Cancel) accept digit selection.
+            const reviewDigit = digitFromKey(data);
+            if (reviewDigit === 1 || reviewDigit === 2) {
+              reviewIndex = reviewDigit - 1;
+              if (reviewIndex === 1) {
+                submit({ cancelled: true });
+                return;
+              }
+              if (!allAnswered()) {
+                refresh();
+                return;
+              }
               submit({ cancelled: false });
               return;
             }
@@ -692,10 +732,27 @@ export default function questionnaire(pi: ExtensionAPI): void {
               continue;
             }
 
-            const labelText = `${i + 1}. ${opt.label}`;
-            out.push(truncateToWidth(prefix + theme.fg(color, labelText), width));
+            const numPrefix = `${i + 1}. `;
+            const firstPrefix = prefix + theme.fg(color, numPrefix);
+            for (const line of wrapWithPrefix({
+              content: theme.fg(color, opt.label),
+              width,
+              firstPrefix,
+              wrap: wrapTextWithAnsi,
+              visibleWidth,
+            })) {
+              out.push(line);
+            }
             if (opt.description) {
-              out.push(truncateToWidth(`     ${theme.fg('muted', opt.description)}`, width));
+              for (const line of wrapWithPrefix({
+                content: theme.fg('muted', opt.description),
+                width,
+                firstPrefix: '     ',
+                wrap: wrapTextWithAnsi,
+                visibleWidth,
+              })) {
+                out.push(line);
+              }
             }
           }
           return out;
@@ -723,7 +780,15 @@ export default function questionnaire(pi: ExtensionAPI): void {
           const q = currentQuestion();
           if (!q) return;
 
-          lines.push(truncateToWidth(theme.fg('text', ` ${q.prompt}`), width));
+          for (const line of wrapWithPrefix({
+            content: theme.fg('text', q.prompt),
+            width,
+            firstPrefix: ' ',
+            wrap: wrapTextWithAnsi,
+            visibleWidth,
+          })) {
+            lines.push(line);
+          }
           lines.push('');
 
           // Free-text question: editor only (no options).
@@ -746,7 +811,12 @@ export default function questionnaire(pi: ExtensionAPI): void {
 
           if (previewLayout.mode === 'split') {
             const leftLines = renderOptionsList(previewLayout.leftWidth);
-            const rightLines = renderPreviewPane(leftLines.length, previewLayout.rightWidth);
+            // Size the preview box to the taller of the two columns so a long
+            // preview beside a short option list isn't clipped; the column zip
+            // pads whichever side is shorter.
+            const previewRows = activePreview ? activePreview.split('\n').length + 2 : 0;
+            const paneHeight = Math.max(leftLines.length, previewRows);
+            const rightLines = renderPreviewPane(paneHeight, previewLayout.rightWidth);
             const zipped = zipQuestionnaireColumns({
               left: leftLines,
               right: rightLines,
@@ -813,11 +883,19 @@ export default function questionnaire(pi: ExtensionAPI): void {
             } else {
               display = answer.label ?? '';
             }
-            let line = `${theme.fg('muted', ` ${question.label}: `)}${theme.fg('text', display)}`;
+            let content = theme.fg('text', display);
             if (answer.note) {
-              line += theme.fg('dim', `  - note: ${answer.note}`);
+              content += theme.fg('dim', `  - note: ${answer.note}`);
             }
-            lines.push(truncateToWidth(line, width));
+            for (const line of wrapWithPrefix({
+              content,
+              width,
+              firstPrefix: theme.fg('muted', ` ${question.label}: `),
+              wrap: wrapTextWithAnsi,
+              visibleWidth,
+            })) {
+              lines.push(line);
+            }
           }
 
           lines.push('');
@@ -866,7 +944,7 @@ export default function questionnaire(pi: ExtensionAPI): void {
               'Esc cancel',
             );
           } else if (currentTab === questions.length) {
-            helpParts.push('↑↓ navigate', 'Enter confirm');
+            helpParts.push('↑↓ navigate', '1-2 select', 'Enter confirm');
             if (isMulti) helpParts.push('Tab switch');
             helpParts.push('Esc cancel');
           } else {

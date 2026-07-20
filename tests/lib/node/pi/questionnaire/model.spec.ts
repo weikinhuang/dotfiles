@@ -10,6 +10,7 @@ import {
   multiAnswerFields,
   normalizeQuestions,
   questionRenderOptions,
+  validateQuestions,
   type QuestionnaireQuestionInput,
 } from '../../../../../lib/node/pi/questionnaire/model.ts';
 
@@ -119,4 +120,56 @@ test('multiAnswerFields: empty selection yields empty arrays', () => {
     labels: [],
     indices: [],
   });
+});
+
+test('validateQuestions: passes a well-formed question set', () => {
+  const questions = normalizeQuestions([
+    { id: 'scope', prompt: 'Pick', options: [{ value: 'a', label: 'A' }] },
+    { id: 'notes', prompt: 'Notes', kind: 'free' },
+    { id: 'tags', prompt: 'Tags', kind: 'multi', options: [{ value: 'x', label: 'X' }], minSelect: 1, maxSelect: 1 },
+  ]);
+  expect(validateQuestions(questions)).toEqual([]);
+});
+
+test('validateQuestions: flags duplicate ids', () => {
+  const questions = normalizeQuestions([
+    { id: 'dup', prompt: 'One', options: [{ value: 'a', label: 'A' }] },
+    { id: 'dup', prompt: 'Two', options: [{ value: 'b', label: 'B' }] },
+  ]);
+  expect(validateQuestions(questions)).toEqual(['Duplicate question id "dup" (ids must be unique).']);
+});
+
+test('validateQuestions: flags a non-free question with no selectable row', () => {
+  const questions = normalizeQuestions([{ id: 'x', prompt: 'Q', kind: 'single', options: [], allowOther: false }]);
+  expect(validateQuestions(questions)).toEqual([
+    'question "x" has no options and allowOther is false, so it cannot be answered.',
+  ]);
+});
+
+test('validateQuestions: allowOther keeps an option-less question answerable', () => {
+  const questions = normalizeQuestions([{ id: 'x', prompt: 'Q', kind: 'single', options: [] }]);
+  expect(validateQuestions(questions)).toEqual([]);
+});
+
+test('validateQuestions: flags multi bounds that can never be satisfied', () => {
+  const questions = normalizeQuestions([
+    { id: 'a', prompt: 'Q', kind: 'multi', options: [{ value: 'o', label: 'O' }], minSelect: 3 },
+    { id: 'b', prompt: 'Q', kind: 'multi', options: [{ value: 'o', label: 'O' }], maxSelect: 0 },
+    {
+      id: 'c',
+      prompt: 'Q',
+      kind: 'multi',
+      options: [
+        { value: 'o', label: 'O' },
+        { value: 'p', label: 'P' },
+      ],
+      minSelect: 2,
+      maxSelect: 1,
+    },
+  ]);
+  expect(validateQuestions(questions)).toEqual([
+    'question "a" minSelect (3) exceeds the 1 option(s), so Next can never enable.',
+    'question "b" maxSelect (0) must be at least 1.',
+    'question "c" maxSelect (1) is less than minSelect (2).',
+  ]);
 });

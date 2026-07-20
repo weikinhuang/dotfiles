@@ -113,3 +113,45 @@ export function questionRenderOptions(q: Pick<Question, 'kind' | 'options' | 'al
   }
   return opts;
 }
+
+/**
+ * Validate normalized questions for structural soundness. Returns a list of
+ * human-readable error messages (empty when the set is answerable). Catches
+ * inputs that would otherwise trap the user in an un-completable modal:
+ * duplicate ids (answers collide in the id-keyed map), non-free questions
+ * with no selectable row, and `minSelect` / `maxSelect` bounds that can never
+ * be satisfied.
+ */
+export function validateQuestions(questions: readonly Question[]): string[] {
+  const errors: string[] = [];
+  const seen = new Set<string>();
+  for (const q of questions) {
+    const where = `question "${q.id}"`;
+    if (seen.has(q.id)) {
+      errors.push(`Duplicate question id "${q.id}" (ids must be unique).`);
+    }
+    seen.add(q.id);
+
+    if (q.kind === 'free') continue;
+
+    const selectable = q.options.length + (q.allowOther ? 1 : 0);
+    if (selectable === 0) {
+      errors.push(`${where} has no options and allowOther is false, so it cannot be answered.`);
+    }
+
+    if (q.kind === 'multi') {
+      if (q.minSelect !== undefined && q.minSelect > q.options.length) {
+        errors.push(
+          `${where} minSelect (${q.minSelect}) exceeds the ${q.options.length} option(s), so Next can never enable.`,
+        );
+      }
+      if (q.maxSelect !== undefined && q.maxSelect < 1) {
+        errors.push(`${where} maxSelect (${q.maxSelect}) must be at least 1.`);
+      }
+      if (q.minSelect !== undefined && q.maxSelect !== undefined && q.maxSelect < q.minSelect) {
+        errors.push(`${where} maxSelect (${q.maxSelect}) is less than minSelect (${q.minSelect}).`);
+      }
+    }
+  }
+  return errors;
+}

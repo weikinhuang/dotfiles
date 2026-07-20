@@ -89,7 +89,12 @@ chat-request the `content` is a one-line summary and `details.cancelled` / `deta
 - Tab bar - each question renders as `☐ Label` (unanswered, muted) or `■ Label` (answered, success color), with the
   active tab reverse-video; the trailing `✓ Submit` tab lights up once every question has an answer.
 - Review tab - lists every answer (or `(unanswered)`) with notes, warns about missing answers, and offers a
-  `Submit answers` / `Cancel` picker. `Submit answers` is disabled until all questions are answered.
+  `Submit answers` / `Cancel` picker. `Submit answers` is disabled until all questions are answered. `↑`/`↓` move
+  between the two rows and `1`/`2` select them directly; `Tab` / `Shift+Tab` / `←` / `→` navigate back to a question tab
+  to change an answer.
+- Text wrapping - question prompts, option labels + descriptions, and review answers word-wrap to the terminal width
+  (continuation lines hang-indent under the label) instead of being truncated. Multi-line option `preview` strings are
+  shown verbatim and should still be pre-wrapped by the caller.
 - Footer - dynamic help line reflecting the current mode (editor vs options vs review, multi vs single, whether notes /
   chat are enabled).
 
@@ -109,10 +114,13 @@ The `.ts` shell owns the pi/TUI event loop (`ctx.ui.custom`), the tab / notes / 
   selection math shared by the component and the extension: `clampCursor`, `digitToCursor`, `toggleSelection`,
   `meetsMinSelect`, `sortedSelection`. Unit-tested directly.
 - [`../../../lib/node/pi/questionnaire/model.ts`](../../../lib/node/pi/questionnaire/model.ts) -- question/answer
-  shapes, `normalizeQuestions`, `questionRenderOptions`, and `multiAnswerFields` (builds a multi answer's
-  `values`/`labels`/1-based `indices`).
+  shapes, `normalizeQuestions`, `questionRenderOptions`, `multiAnswerFields` (builds a multi answer's
+  `values`/`labels`/1-based `indices`), and `validateQuestions` (rejects structurally unanswerable input up front:
+  duplicate ids, a non-`free` question with no selectable row, or `minSelect`/`maxSelect` bounds that can never be
+  satisfied -- the tool returns an error result instead of opening an un-completable modal).
 - [`../../../lib/node/pi/questionnaire/layout.ts`](../../../lib/node/pi/questionnaire/layout.ts) -- preview-pane split /
-  stacked layout math.
+  stacked layout math plus `wrapWithPrefix` (ANSI-aware word-wrap with a first-line prefix and hanging continuation
+  indent).
 
 ## Environment variables
 

@@ -30,6 +30,36 @@ export function padVisibleText(s: string, width: number, visibleWidth: VisibleWi
   return s + ' '.repeat(width - w);
 }
 
+export interface WrapWithPrefixOptions {
+  /** ANSI-styled content to wrap. */
+  content: string;
+  /** Total line width (prefix included). */
+  width: number;
+  /** Prefix prepended to the first wrapped line (may carry ANSI). */
+  firstPrefix: string;
+  /** Prefix prepended to continuation lines (may carry ANSI). */
+  contPrefix?: string;
+  /** Word-wrap function (ANSI-aware), injected by the caller. */
+  wrap: (text: string, width: number) => string[];
+  visibleWidth?: VisibleWidth;
+}
+
+/**
+ * Word-wrap ANSI-styled `content` to `width`, prepending `firstPrefix` to the
+ * first line and `contPrefix` (default: spaces matching the first prefix's
+ * visible width) to every continuation line. The inner wrap width reserves
+ * room for the widest prefix so no composed line exceeds `width`.
+ */
+export function wrapWithPrefix(opts: WrapWithPrefixOptions): string[] {
+  const visible = opts.visibleWidth ?? ((x) => x.length);
+  const firstW = visible(opts.firstPrefix);
+  const contPrefix = opts.contPrefix ?? ' '.repeat(firstW);
+  const contW = visible(contPrefix);
+  const inner = Math.max(1, opts.width - Math.max(firstW, contW));
+  const wrapped = opts.wrap(opts.content, inner);
+  return wrapped.map((line, i) => (i === 0 ? opts.firstPrefix : contPrefix) + line);
+}
+
 export function zipQuestionnaireColumns(args: {
   left: readonly string[];
   right: readonly string[];
