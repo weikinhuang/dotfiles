@@ -52,6 +52,7 @@ import {
 import { showModal } from '../../../lib/node/pi/ext/show-modal.ts';
 import { MultiSelectList } from '../../../lib/node/pi/ext/multi-select-list.ts';
 import { envTruthy } from '../../../lib/node/pi/parse-env.ts';
+import { computeScrollWindow } from '../../../lib/node/pi/scroll-window.ts';
 import {
   padVisibleText,
   selectQuestionnairePreviewLayout,
@@ -211,6 +212,7 @@ export default function questionnaire(pi: ExtensionAPI): void {
         // ─── State ────────────────────────────────────────────────────
         let currentTab = 0;
         let optionIndex = 0;
+        let optionsScrollTop = 0;
         let reviewIndex = 0; // 0 = Submit answers, 1 = Cancel
         let inputMode: 'free' | 'note' | null = null;
         let inputQuestionId: string | null = null;
@@ -312,6 +314,7 @@ export default function questionnaire(pi: ExtensionAPI): void {
             currentTab = questions.length; // Submit tab
           }
           optionIndex = initialOptionIndex();
+          optionsScrollTop = 0;
           refresh();
         }
 
@@ -466,6 +469,7 @@ export default function questionnaire(pi: ExtensionAPI): void {
             if (matchesKey(data, Key.tab) || matchesKey(data, Key.right)) {
               currentTab = (currentTab + 1) % totalTabs;
               optionIndex = initialOptionIndex();
+              optionsScrollTop = 0;
               loadOtherIfOnRow();
               refresh();
               return;
@@ -473,6 +477,7 @@ export default function questionnaire(pi: ExtensionAPI): void {
             if (matchesKey(data, Key.shift('tab')) || matchesKey(data, Key.left)) {
               currentTab = (currentTab - 1 + totalTabs) % totalTabs;
               optionIndex = initialOptionIndex();
+              optionsScrollTop = 0;
               loadOtherIfOnRow();
               refresh();
               return;
@@ -589,6 +594,7 @@ export default function questionnaire(pi: ExtensionAPI): void {
             if (matchesKey(data, Key.tab) || matchesKey(data, Key.right)) {
               currentTab = (currentTab + 1) % totalTabs;
               optionIndex = initialOptionIndex();
+              optionsScrollTop = 0;
               loadOtherIfOnRow();
               refresh();
               return;
@@ -596,6 +602,7 @@ export default function questionnaire(pi: ExtensionAPI): void {
             if (matchesKey(data, Key.shift('tab')) || matchesKey(data, Key.left)) {
               currentTab = (currentTab - 1 + totalTabs) % totalTabs;
               optionIndex = initialOptionIndex();
+              optionsScrollTop = 0;
               loadOtherIfOnRow();
               refresh();
               return;
@@ -734,15 +741,20 @@ export default function questionnaire(pi: ExtensionAPI): void {
           lines.push('');
         }
 
-        function renderOptionsList(width: number): string[] {
+        function renderOptionsList(width: number): { lines: string[]; activeStart: number; activeEnd: number } {
           const out: string[] = [];
           const opts = currentOptions();
           const q = currentQuestion();
-          if (!q) return out;
+          if (!q) return { lines: out, activeStart: 0, activeEnd: 0 };
 
           const multiList = q.kind === 'multi' ? multiListFor(q) : undefined;
+          // Line offset where each option's rows begin (plus a trailing
+          // sentinel), so the caller can keep the active option in view when
+          // the list is windowed.
+          const rowStarts: number[] = [];
 
           for (let i = 0; i < opts.length; i++) {
+            rowStarts.push(out.length);
             const opt = opts[i];
             const selected = i === optionIndex;
             const prefix = selected ? theme.fg('accent', '❯ ') : '  ';
@@ -817,7 +829,13 @@ export default function questionnaire(pi: ExtensionAPI): void {
               }
             }
           }
-          return out;
+          rowStarts.push(out.length);
+          const clamped = clampCursor(optionIndex, opts.length);
+          return {
+            lines: out,
+            activeStart: rowStarts[clamped] ?? 0,
+            activeEnd: rowStarts[clamped + 1] ?? out.length,
+          };
         }
 
         function renderPreviewPane(height: number, width: number): string[] {
@@ -872,7 +890,7 @@ export default function questionnaire(pi: ExtensionAPI): void {
           const previewLayout = selectQuestionnairePreviewLayout({ width, preview: activePreview });
 
           if (previewLayout.mode === 'split') {
-            const leftLines = renderOptionsList(previewLayout.leftWidth);
+            const leftLines = renderOptionsList(previewLayout.leftWidth).lines;
             // Size the preview box to the taller of the two columns so a long
             // preview beside a short option list isn't clipped; the column zip
             // pads whichever side is shorter.
@@ -888,7 +906,40 @@ export default function questionnaire(pi: ExtensionAPI): void {
             });
             for (const z of zipped) lines.push(z);
           } else {
-            for (const l of renderOptionsList(width)) lines.push(l);
+            const { lines: optLines, activeStart, activeEnd } = renderOptionsList(width);
+            // Vertical budget: rows left after the header already pushed, the
+            // footer render() appends, the notes block, and a stacked preview.
+            // A list that fits renders whole (unchanged); a longer one windows
+            // around the cursor with `↑ N more` / `↓ N more` markers.
+            const termRows = tui.terminal?.rows ?? 0;
+            const stackedPreviewLines = previewLayout.mode === 'stacked' ? previewLayout.previewHeight + 1 : 0;
+            const noteLines =
+              inputMode === 'note' && inputQuestionId === q.id
+                ? 2 + editor.render(width - 2).length
+                : notes.get(q.id)
+                  ? 2
+                  : 0;
+            const footer = 2 + (allowChat ? 2 : 0) + 2;
+            const fullBudget = termRows - lines.length - footer - noteLines - stackedPreviewLines;
+            if (termRows <= 0 || optLines.length <= fullBudget) {
+              for (const l of optLines) lines.push(l);
+            } else {
+              const win = computeScrollWindow({
+                total: optLines.length,
+                rows: Math.max(1, fullBudget - 2), // reserve up to two indicator rows
+                scrollTop: optionsScrollTop,
+                keepStart: activeStart,
+                keepEnd: activeEnd,
+              });
+              optionsScrollTop = win.scrollTop;
+              if (win.hiddenAbove > 0) {
+                lines.push(truncateToWidth(theme.fg('dim', `   ↑ ${win.hiddenAbove} more`), width));
+              }
+              for (let i = win.start; i < win.end; i++) lines.push(optLines[i]);
+              if (win.hiddenBelow > 0) {
+                lines.push(truncateToWidth(theme.fg('dim', `   ↓ ${win.hiddenBelow} more`), width));
+              }
+            }
             if (previewLayout.mode === 'stacked') {
               lines.push('');
               for (const l of renderPreviewPane(previewLayout.previewHeight, previewLayout.previewWidth)) {
@@ -1047,6 +1098,7 @@ export default function questionnaire(pi: ExtensionAPI): void {
           }
         }
         optionIndex = initialOptionIndex();
+        optionsScrollTop = 0;
 
         return {
           render,

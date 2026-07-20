@@ -128,7 +128,9 @@ The `.ts` shell owns the pi/TUI event loop (`ctx.ui.custom`), the tab / notes / 
   `default` that doesn't match its options), and `initialCursorIndex` (default-aware cursor start).
 - [`../../../lib/node/pi/questionnaire/layout.ts`](../../../lib/node/pi/questionnaire/layout.ts) -- preview-pane split /
   stacked layout math, `wrapWithPrefix` (ANSI-aware word-wrap with a first-line prefix and hanging continuation indent),
-  and `windowTabSegments` (horizontal windowing that keeps the active tab visible when the tab bar overflows).
+  and `windowTabSegments` (horizontal windowing that keeps the active tab visible when the tab bar overflows). The
+  vertical option-list windowing reuses [`scroll-window.ts`](../../../lib/node/pi/scroll-window.ts)'
+  `computeScrollWindow`.
 
 ## Environment variables
 
