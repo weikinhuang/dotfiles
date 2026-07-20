@@ -55,6 +55,7 @@ import { envTruthy } from '../../../lib/node/pi/parse-env.ts';
 import {
   padVisibleText,
   selectQuestionnairePreviewLayout,
+  windowTabSegments,
   wrapWithPrefix,
   zipQuestionnaireColumns,
 } from '../../../lib/node/pi/questionnaire/layout.ts';
@@ -660,7 +661,11 @@ export default function questionnaire(pi: ExtensionAPI): void {
 
         // ─── Render ───────────────────────────────────────────────────
         function renderTabBar(width: number, lines: string[]): void {
-          const tabs: string[] = ['← '];
+          // Build every tab (questions + Submit) as a styled string plus its
+          // plain visible width, including the single trailing separator
+          // space, then window them so the active tab is always on screen.
+          const styleds: string[] = [];
+          const widths: number[] = [];
           for (let i = 0; i < questions.length; i++) {
             const isActive = i === currentTab;
             const isAnswered = answers.has(questions[i].id);
@@ -669,7 +674,8 @@ export default function questionnaire(pi: ExtensionAPI): void {
             const color = isAnswered ? 'success' : 'muted';
             const text = ` ${box} ${lbl} `;
             const styled = isActive ? theme.bg('selectedBg', theme.fg('text', text)) : theme.fg(color, text);
-            tabs.push(`${styled} `);
+            styleds.push(`${styled} `);
+            widths.push(visibleWidth(text) + 1);
           }
           const canSubmit = allAnswered();
           const isSubmitTab = currentTab === questions.length;
@@ -677,8 +683,21 @@ export default function questionnaire(pi: ExtensionAPI): void {
           const submitStyled = isSubmitTab
             ? theme.bg('selectedBg', theme.fg('text', submitText))
             : theme.fg(canSubmit ? 'success' : 'dim', submitText);
-          tabs.push(`${submitStyled} →`);
-          lines.push(truncateToWidth(` ${tabs.join('')}`, width));
+          styleds.push(`${submitStyled} `);
+          widths.push(visibleWidth(submitText) + 1);
+
+          // Chrome outside the segments: leading space + left glyph + space,
+          // and a trailing right glyph (the last segment's own trailing space
+          // is the gap before it).
+          const chrome = 4;
+          const win = windowTabSegments({ widths, active: currentTab, avail: Math.max(0, width - chrome) });
+          const leftGlyph = win.hiddenLeft > 0 ? theme.fg('dim', '‹') : theme.fg('dim', '←');
+          const rightGlyph = win.hiddenRight > 0 ? theme.fg('dim', '›') : theme.fg('dim', '→');
+
+          let bar = ` ${leftGlyph} `;
+          for (let i = win.start; i < win.end; i++) bar += styleds[i];
+          bar += rightGlyph;
+          lines.push(truncateToWidth(bar, width));
           lines.push('');
         }
 
@@ -718,7 +737,15 @@ export default function questionnaire(pi: ExtensionAPI): void {
               } else {
                 const saved = otherBuffers.get(q.id) ?? '';
                 const shown = saved.length > 0 ? saved : opt.label;
-                out.push(truncateToWidth(prefixStr + theme.fg(color, shown), width));
+                for (const line of wrapWithPrefix({
+                  content: theme.fg(color, shown),
+                  width,
+                  firstPrefix: prefixStr,
+                  wrap: wrapTextWithAnsi,
+                  visibleWidth,
+                })) {
+                  out.push(line);
+                }
               }
               continue;
             }

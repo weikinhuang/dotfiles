@@ -60,6 +60,62 @@ export function wrapWithPrefix(opts: WrapWithPrefixOptions): string[] {
   return wrapped.map((line, i) => (i === 0 ? opts.firstPrefix : contPrefix) + line);
 }
 
+export interface TabWindowInput {
+  /** Visible width of each tab segment (separators included). */
+  widths: readonly number[];
+  /** Index of the tab that must stay visible. */
+  active: number;
+  /** Width available for segments (chrome/markers already subtracted). */
+  avail: number;
+}
+
+export interface TabWindow {
+  /** First visible segment index (inclusive). */
+  start: number;
+  /** One past the last visible segment index (exclusive). */
+  end: number;
+  /** Segments hidden left of the window (== start). */
+  hiddenLeft: number;
+  /** Segments hidden right of the window (== widths.length - end). */
+  hiddenRight: number;
+}
+
+/**
+ * Compute a contiguous window of variable-width tab segments that fits within
+ * `avail` and always includes `active`. Grows the window right-then-left from
+ * the active tab. When every segment fits, the full range is returned with no
+ * hidden tabs; a single tab wider than `avail` is still shown alone (the
+ * caller truncates it).
+ */
+export function windowTabSegments(input: TabWindowInput): TabWindow {
+  const n = input.widths.length;
+  if (n === 0) return { start: 0, end: 0, hiddenLeft: 0, hiddenRight: 0 };
+  const active = Math.max(0, Math.min(n - 1, Math.floor(input.active)));
+  const avail = Math.max(0, Math.floor(input.avail));
+
+  const total = input.widths.reduce((sum, w) => sum + Math.max(0, w), 0);
+  if (total <= avail) return { start: 0, end: n, hiddenLeft: 0, hiddenRight: 0 };
+
+  let start = active;
+  let end = active + 1;
+  let used = Math.max(0, input.widths[active] ?? 0);
+  let grew = true;
+  while (grew) {
+    grew = false;
+    if (end < n && used + Math.max(0, input.widths[end] ?? 0) <= avail) {
+      used += Math.max(0, input.widths[end] ?? 0);
+      end++;
+      grew = true;
+    }
+    if (start > 0 && used + Math.max(0, input.widths[start - 1] ?? 0) <= avail) {
+      start--;
+      used += Math.max(0, input.widths[start - 1] ?? 0);
+      grew = true;
+    }
+  }
+  return { start, end, hiddenLeft: start, hiddenRight: n - end };
+}
+
 export function zipQuestionnaireColumns(args: {
   left: readonly string[];
   right: readonly string[];

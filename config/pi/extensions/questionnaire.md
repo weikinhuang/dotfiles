@@ -87,14 +87,17 @@ chat-request the `content` is a one-line summary and `details.cancelled` / `deta
 - `Esc` - cancel the questionnaire. On a non-empty `Type something.` row, first press clears the buffer; second press
   cancels.
 - Tab bar - each question renders as `☐ Label` (unanswered, muted) or `■ Label` (answered, success color), with the
-  active tab reverse-video; the trailing `✓ Submit` tab lights up once every question has an answer.
+  active tab reverse-video; the trailing `✓ Submit` tab lights up once every question has an answer. When the tabs are
+  wider than the terminal, the bar windows to keep the active tab on screen and shows `‹` / `›` overflow markers (in
+  place of the `←` / `→` wrap hints) for the hidden tabs.
 - Review tab - lists every answer (or `(unanswered)`) with notes, warns about missing answers, and offers a
   `Submit answers` / `Cancel` picker. `Submit answers` is disabled until all questions are answered. `↑`/`↓` move
   between the two rows and `1`/`2` select them directly; `Tab` / `Shift+Tab` / `←` / `→` navigate back to a question tab
   to change an answer.
-- Text wrapping - question prompts, option labels + descriptions, and review answers word-wrap to the terminal width
-  (continuation lines hang-indent under the label) instead of being truncated. Multi-line option `preview` strings are
-  shown verbatim and should still be pre-wrapped by the caller.
+- Text wrapping - question prompts, option labels + descriptions, review answers, and a saved `Type something.` buffer
+  word-wrap to the terminal width (continuation lines hang-indent under the label) instead of being truncated. The
+  live-editing `Type something.` field stays single-line and scrolls horizontally; multi-line option `preview` strings
+  are shown verbatim and should still be pre-wrapped by the caller.
 - Footer - dynamic help line reflecting the current mode (editor vs options vs review, multi vs single, whether notes /
   chat are enabled).
 
@@ -119,8 +122,8 @@ The `.ts` shell owns the pi/TUI event loop (`ctx.ui.custom`), the tab / notes / 
   duplicate ids, a non-`free` question with no selectable row, or `minSelect`/`maxSelect` bounds that can never be
   satisfied -- the tool returns an error result instead of opening an un-completable modal).
 - [`../../../lib/node/pi/questionnaire/layout.ts`](../../../lib/node/pi/questionnaire/layout.ts) -- preview-pane split /
-  stacked layout math plus `wrapWithPrefix` (ANSI-aware word-wrap with a first-line prefix and hanging continuation
-  indent).
+  stacked layout math, `wrapWithPrefix` (ANSI-aware word-wrap with a first-line prefix and hanging continuation indent),
+  and `windowTabSegments` (horizontal windowing that keeps the active tab visible when the tab bar overflows).
 
 ## Environment variables
 
