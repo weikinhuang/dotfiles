@@ -24,9 +24,9 @@ file covers only the **pi-import policy** specific to this subtree.
 
 ### Pure by default; `ext/` is the carve-out
 
-- **Pure modules (everything directly under `lib/node/pi/`).** Import from `node:*` and peer `lib/node/**` only - never
-  from `@earendil-works/pi-coding-agent`, any pi runtime, or other third-party runtime deps. Keeps them under the root
-  `tsconfig.json` and unit-testable without mocks; reach for `ext/` only when a pure module genuinely can't express it.
+- **Pure modules (directly under `lib/node/pi/`).** Import `node:*` / peer `lib/node/**` only - never
+  `@earendil-works/*`, a pi runtime, or third-party runtime deps (keeps them root-`tsconfig` clean, mock-free). Reach
+  for `ext/` only when a pure module can't express it; sole exception: `shared/strict-frontmatter.ts` imports `yaml`.
 - **`ext/` is the exception (extension-runtime-coupled helpers).** Shared code needing a runtime import a pure module
   can't take - the pi runtime (`@earendil-works/pi-tui` widgets, `pi-coding-agent` dialogs), another runtime-only dep
   (e.g. `sharp`), or logic extracted to shrink an oversized extension `.ts` for a smaller model - lives under

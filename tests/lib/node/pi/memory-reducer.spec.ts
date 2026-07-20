@@ -243,7 +243,9 @@ test('parseFrontmatter: rejects bogus type', () => {
 });
 
 test('parseFrontmatter: allows empty description', () => {
-  const raw = '---\nname: n\ndescription: \ntype: user\n---\n\nbody\n';
+  // The serializer writes an empty description as the quoted form `""`
+  // (a bare `description:` is YAML null, which is treated as absent).
+  const raw = '---\nname: n\ndescription: ""\ntype: user\n---\n\nbody\n';
   const parsed = parseFrontmatter(raw);
 
   expect(parsed).not.toBeNull();
@@ -255,6 +257,18 @@ test('parseFrontmatter: ignores unknown keys', () => {
   const parsed = parseFrontmatter(raw);
 
   expect(parsed).not.toBeNull();
+});
+
+test('parseFrontmatter: reads a description reformatted as a YAML block scalar', () => {
+  // A committed memory file whose long description a formatter rewrote as
+  // a `|` block scalar must still parse (the old line parser choked on the
+  // colon-less continuation lines).
+  const raw =
+    '---\nname: n\ndescription: |\n  first sentence of the note\n  second sentence of the note\ntype: user\n---\n\nbody\n';
+  const parsed = parseFrontmatter(raw);
+
+  expect(parsed).not.toBeNull();
+  expect(parsed!.frontmatter.description).toBe('first sentence of the note\nsecond sentence of the note');
 });
 
 test('serializeMemory: multi-line body is normalised but preserved', () => {

@@ -80,6 +80,46 @@ test('parseFrontmatter rejects an unknown kind and missing fences', () => {
   expect(parseFrontmatter('---\nname: x\nkind: character\n---\nbody')).toBeNull(); // missing description
 });
 
+test('parseFrontmatter reads a description reformatted as a YAML block scalar', () => {
+  // A committed card whose long description a markdown/YAML formatter
+  // rewrote as a `|` block scalar must still parse (the old line parser
+  // rejected the whole file on the colon-less continuation lines).
+  const raw =
+    '---\nname: Kal\ndescription: |\n  first line of lore\n  second line of lore\nkind: character\n---\nbody\n';
+  const parsed = parseFrontmatter(raw);
+  expect(parsed).not.toBeNull();
+  expect(parsed!.frontmatter.description).toBe('first line of lore\nsecond line of lore');
+});
+
+test('parseFrontmatter reads a value wrapped onto indented continuation lines', () => {
+  const raw =
+    '---\nname: Kal\ndescription:\n  a long description that a\n  formatter wrapped for width\nkind: character\n---\nbody\n';
+  const parsed = parseFrontmatter(raw);
+  expect(parsed!.frontmatter.description).toBe('a long description that a formatter wrapped for width');
+});
+
+test('parseFrontmatter reads lore metadata reformatted as a YAML block sequence', () => {
+  // `triggers` re-emitted as a multi-line block list instead of `[a, b]`.
+  const raw = [
+    '---',
+    'name: RI',
+    'description: org',
+    'kind: lore',
+    'triggers:',
+    '  - Rhodes Island',
+    '  - RI',
+    'constant: true',
+    'order: 100',
+    '---',
+    'body',
+    '',
+  ].join('\n');
+  const lore = parseFrontmatter(raw)!.frontmatter.lore!;
+  expect(lore.triggers).toStrictEqual(['Rhodes Island', 'RI']);
+  expect(lore.constant).toBe(true);
+  expect(lore.order).toBe(100);
+});
+
 test('serialize -> parse round-trips a lore entry with all metadata', () => {
   const raw = serializeEntry({
     name: 'Rhodes Island',

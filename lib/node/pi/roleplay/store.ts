@@ -25,7 +25,7 @@
  */
 
 import { slugifyAscii } from '../slugify.ts';
-import { parseFencedFrontmatter, stripQuotes } from '../shared/strict-frontmatter.ts';
+import { parseFencedFrontmatter } from '../shared/strict-frontmatter.ts';
 
 // ──────────────────────────────────────────────────────────────────────
 // Types
@@ -219,103 +219,95 @@ export interface Frontmatter {
 }
 
 /**
- * Split an inline list body on top-level commas, leaving commas that sit
- * inside a `"..."` / `'...'` quoted item intact. Backslash escapes inside a
- * double-quoted span are carried through verbatim so {@link stripQuotes} can
- * later reverse them.
+ * Coerce a native YAML frontmatter value to a trimmed string, or
+ * `undefined` when it is not string-shaped. Numbers / booleans are
+ * stringified; arrays / maps / null land as `undefined`.
  */
-function splitTopLevelCommas(inner: string): string[] {
-  const items: string[] = [];
-  let current = '';
-  let quote: '"' | "'" | null = null;
-  for (let i = 0; i < inner.length; i++) {
-    const ch = inner[i];
-    if (quote !== null) {
-      current += ch;
-      if (ch === '\\' && quote === '"' && i + 1 < inner.length) {
-        current += inner[i + 1];
-        i++;
-        continue;
-      }
-      if (ch === quote) quote = null;
-      continue;
-    }
-    if (ch === '"' || ch === "'") {
-      quote = ch;
-      current += ch;
-      continue;
-    }
-    if (ch === ',') {
-      items.push(current);
-      current = '';
-      continue;
-    }
-    current += ch;
+function asString(v: unknown): string | undefined {
+  if (typeof v === 'string') return v.trim();
+  if (typeof v === 'number' || typeof v === 'boolean') return String(v);
+  return undefined;
+}
+
+/**
+ * Coerce a YAML value to a trimmed string list. A YAML sequence
+ * (`[a, b]` or a block list) arrives as an array; a bare comma-separated
+ * scalar (`a, b, c`, as a hand-edit might spell it) is split on commas
+ * for backward compatibility. Items are stringified, trimmed, and
+ * empties dropped.
+ */
+function asStringArray(v: unknown): string[] {
+  const items = Array.isArray(v) ? v : typeof v === 'string' ? v.split(',') : [];
+  return items.map((x) => (typeof x === 'string' ? x : String(x)).trim()).filter((s) => s.length > 0);
+}
+
+/**
+ * Coerce a YAML value to a boolean. Native booleans pass through; a
+ * number is truthy when non-zero; a string maps `true`/`yes`/`1` and
+ * `false`/`no`/`0`. Anything else falls back.
+ */
+function asBool(v: unknown, fallback: boolean): boolean {
+  if (typeof v === 'boolean') return v;
+  if (typeof v === 'number') return v !== 0;
+  if (typeof v === 'string') {
+    const t = v.trim().toLowerCase();
+    if (t === 'true' || t === 'yes' || t === '1') return true;
+    if (t === 'false' || t === 'no' || t === '0') return false;
   }
-  items.push(current);
-  return items;
-}
-
-/** Split an inline `[a, b, c]` (or bare `a, b, c`) list value into trimmed items. */
-function parseInlineList(raw: string): string[] {
-  const t = raw.trim();
-  const inner = t.startsWith('[') && t.endsWith(']') ? t.slice(1, -1) : t;
-  return splitTopLevelCommas(inner)
-    .map((s) => stripQuotes(s))
-    .filter((s) => s.length > 0);
-}
-
-function parseBool(raw: string, fallback: boolean): boolean {
-  const t = raw.trim().toLowerCase();
-  if (t === 'true' || t === 'yes' || t === '1') return true;
-  if (t === 'false' || t === 'no' || t === '0') return false;
   return fallback;
 }
 
-function parseIntOr(raw: string, fallback: number): number {
-  const n = Number.parseInt(raw.trim(), 10);
-  return Number.isFinite(n) ? n : fallback;
+/**
+ * Coerce a YAML value to an integer. Native numbers are truncated;
+ * strings are parsed. Anything unparseable falls back.
+ */
+function asInt(v: unknown, fallback: number): number {
+  if (typeof v === 'number' && Number.isFinite(v)) return Math.trunc(v);
+  if (typeof v === 'string') {
+    const n = Number.parseInt(v.trim(), 10);
+    if (Number.isFinite(n)) return n;
+  }
+  return fallback;
 }
 
-/** Build lore metadata from the raw frontmatter key->value map. All fields optional. */
-function parseLoreMeta(fields: Readonly<Record<string, string>>): LoreMeta {
+/** Build lore metadata from the parsed frontmatter key->value map. All fields optional. */
+function parseLoreMeta(fields: Readonly<Record<string, unknown>>): LoreMeta {
   const meta = emptyLoreMeta();
-  if (fields.triggers !== undefined) meta.triggers = parseInlineList(fields.triggers);
-  if (fields.secondaryKeys !== undefined) meta.secondaryKeys = parseInlineList(fields.secondaryKeys);
+  if (fields.triggers !== undefined) meta.triggers = asStringArray(fields.triggers);
+  if (fields.secondaryKeys !== undefined) meta.secondaryKeys = asStringArray(fields.secondaryKeys);
   if (fields.secondaryMode !== undefined) {
-    const mode = stripQuotes(fields.secondaryMode).toUpperCase();
+    const mode = (asString(fields.secondaryMode) ?? '').toUpperCase();
     if (mode === 'OR' || mode === 'NOT' || mode === 'AND') meta.secondaryMode = mode;
   }
-  if (fields.constant !== undefined) meta.constant = parseBool(fields.constant, false);
-  if (fields.order !== undefined) meta.order = parseIntOr(fields.order, 0);
-  if (fields.recurse !== undefined) meta.recurse = parseBool(fields.recurse, false);
+  if (fields.constant !== undefined) meta.constant = asBool(fields.constant, false);
+  if (fields.order !== undefined) meta.order = asInt(fields.order, 0);
+  if (fields.recurse !== undefined) meta.recurse = asBool(fields.recurse, false);
   if (fields.depth !== undefined) {
-    const d = Number.parseInt(fields.depth.trim(), 10);
-    if (Number.isFinite(d) && d >= 0) meta.depth = d;
+    const d = asInt(fields.depth, -1);
+    if (d >= 0) meta.depth = d;
   }
-  if (fields.probability !== undefined)
-    meta.probability = Math.min(100, Math.max(0, parseIntOr(fields.probability, 100)));
-  if (fields.sticky !== undefined) meta.sticky = Math.max(0, parseIntOr(fields.sticky, 0));
-  if (fields.cooldown !== undefined) meta.cooldown = Math.max(0, parseIntOr(fields.cooldown, 0));
-  if (fields.delay !== undefined) meta.delay = Math.max(0, parseIntOr(fields.delay, 0));
-  if (fields.group !== undefined) meta.group = stripQuotes(fields.group).trim();
-  if (fields.groupWeight !== undefined) meta.groupWeight = Math.max(0, parseIntOr(fields.groupWeight, 100));
+  if (fields.probability !== undefined) meta.probability = Math.min(100, Math.max(0, asInt(fields.probability, 100)));
+  if (fields.sticky !== undefined) meta.sticky = Math.max(0, asInt(fields.sticky, 0));
+  if (fields.cooldown !== undefined) meta.cooldown = Math.max(0, asInt(fields.cooldown, 0));
+  if (fields.delay !== undefined) meta.delay = Math.max(0, asInt(fields.delay, 0));
+  if (fields.group !== undefined) meta.group = asString(fields.group) ?? '';
+  if (fields.groupWeight !== undefined) meta.groupWeight = Math.max(0, asInt(fields.groupWeight, 100));
   return meta;
 }
 
-/** Build relationship metadata from the raw frontmatter key->value map. All fields optional. */
-function parseRelationshipMeta(fields: Readonly<Record<string, string>>): RelationshipMeta {
+/** Build relationship metadata from the parsed frontmatter key->value map. All fields optional. */
+function parseRelationshipMeta(fields: Readonly<Record<string, unknown>>): RelationshipMeta {
   const meta = emptyRelationshipMeta();
   if (fields.affinity !== undefined) {
-    const n = Number.parseInt(fields.affinity.trim(), 10);
+    const n = asInt(fields.affinity, Number.NaN);
     if (Number.isFinite(n)) meta.affinity = Math.min(100, Math.max(0, n));
   }
-  if (fields.trust !== undefined) meta.trust = stripQuotes(fields.trust);
+  if (fields.trust !== undefined) meta.trust = asString(fields.trust) ?? '';
   if (fields.lastInteraction !== undefined) {
-    const v = stripQuotes(fields.lastInteraction);
-    if (v.length > 0) meta.lastInteraction = v;
+    const v = asString(fields.lastInteraction);
+    if (v !== undefined && v.length > 0) meta.lastInteraction = v;
   }
-  if (fields.openThreads !== undefined) meta.openThreads = parseInlineList(fields.openThreads);
+  if (fields.openThreads !== undefined) meta.openThreads = asStringArray(fields.openThreads);
   return meta;
 }
 
@@ -342,9 +334,9 @@ export function parseFrontmatter(raw: string): ParsedRoleplayFile | null {
   if (parsed === null) return null;
   const { fields, body } = parsed;
 
-  const name = fields.name !== undefined ? stripQuotes(fields.name) : undefined;
-  const description = fields.description !== undefined ? stripQuotes(fields.description) : undefined;
-  const kindRaw = fields.kind !== undefined ? stripQuotes(fields.kind) : undefined;
+  const name = asString(fields.name);
+  const description = asString(fields.description);
+  const kindRaw = asString(fields.kind);
 
   if (typeof name !== 'string' || name.length === 0) return null;
   if (typeof description !== 'string') return null;
@@ -368,7 +360,7 @@ function yamlValue(raw: string): string {
 /**
  * Serialize one inline-list item. Same bare-scalar rule as {@link yamlValue}
  * but also quotes the inline-list metacharacters (comma and brackets) so an
- * item that contains a comma round-trips through {@link parseInlineList}
+ * item that contains a comma round-trips through {@link asStringArray}
  * instead of being split into two.
  */
 function yamlListItem(raw: string): string {

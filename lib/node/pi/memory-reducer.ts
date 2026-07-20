@@ -22,7 +22,7 @@ import {
   findLatestStateInBranch,
   stateFromEntryGeneric,
 } from './branch-state.ts';
-import { parseFencedFrontmatter, stripQuotes } from './shared/strict-frontmatter.ts';
+import { parseFencedFrontmatter } from './shared/strict-frontmatter.ts';
 
 // ──────────────────────────────────────────────────────────────────────
 // Types
@@ -213,6 +213,19 @@ const FENCE = '---';
  * Parsing is deliberately loose: a bad timestamp is treated as absent,
  * never a reason to reject the whole file.
  */
+/**
+ * Coerce a native YAML frontmatter value to a trimmed string, or
+ * `undefined` when it is not string-shaped. YAML hands back typed values
+ * (strings, numbers, booleans); a number/boolean is stringified so a
+ * value like `type: 1` still round-trips through validation, while an
+ * array / map / null lands as `undefined`.
+ */
+function asString(v: unknown): string | undefined {
+  if (typeof v === 'string') return v.trim();
+  if (typeof v === 'number' || typeof v === 'boolean') return String(v);
+  return undefined;
+}
+
 function parseTimestamp(raw: string | undefined): string | undefined {
   if (raw === undefined) return undefined;
   const t = raw.trim();
@@ -239,16 +252,16 @@ export function parseFrontmatter(raw: string): ParsedMemoryFile | null {
   const { fields, body } = parsed;
 
   // Unknown keys are ignored - allows for forward compatibility.
-  const name = fields.name !== undefined ? stripQuotes(fields.name) : undefined;
-  const description = fields.description !== undefined ? stripQuotes(fields.description) : undefined;
+  const name = asString(fields.name);
+  const description = asString(fields.description);
   let type: MemoryType | undefined;
   if (fields.type !== undefined) {
-    const value = stripQuotes(fields.type);
-    if (!(MEMORY_TYPES as readonly string[]).includes(value)) return null;
+    const value = asString(fields.type);
+    if (value === undefined || !(MEMORY_TYPES as readonly string[]).includes(value)) return null;
     type = value as MemoryType;
   }
-  const createdRaw = fields.created !== undefined ? stripQuotes(fields.created) : undefined;
-  const updatedRaw = fields.updated !== undefined ? stripQuotes(fields.updated) : undefined;
+  const createdRaw = asString(fields.created);
+  const updatedRaw = asString(fields.updated);
 
   if (typeof name !== 'string' || name.length === 0) return null;
   if (typeof description !== 'string') return null;
@@ -279,9 +292,9 @@ function yamlValue(raw: string): string {
   const s = raw.replace(/\r?\n/g, ' ').trim();
   if (s.length === 0) return '""';
   // Unquoted form is only safe when none of `"` / `'` / `:` / `#` / `\`
-  // appear and the value has no leading/trailing whitespace. `stripQuotes`
-  // is asymmetric (it only un-escapes when quoted), so a value containing
-  // `\` MUST go through the quoted path.
+  // appear and the value has no leading/trailing whitespace. A value
+  // containing `\` MUST go through the double-quoted path so the escapes
+  // survive a round-trip through the YAML reader.
   if (/^[^"':#\\][^:#\n\\]*$/.test(s) && !s.endsWith(' ')) return s;
   return `"${s.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
 }

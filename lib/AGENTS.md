@@ -60,8 +60,10 @@ before landing.
 dependency that ships to end-user shells; changing a module's public export shape when multiple extensions consume it.
 
 **Never**: import `@earendil-works/*` or any agent-runtime SDK from a module outside `node/pi/ext/` (the lone carve-out,
-see [`node/pi/AGENTS.md`](./node/pi/AGENTS.md)); commit generated artifacts or `.d.ts` bundles; suppress type errors
-with `any` or `@ts-ignore` instead of fixing the type.
+see [`node/pi/AGENTS.md`](./node/pi/AGENTS.md)); import a third-party runtime dep from a pure module - the sole
+sanctioned exception is `node/pi/shared/strict-frontmatter.ts` importing `yaml` (see
+[`node/pi/AGENTS.md`](./node/pi/AGENTS.md)); commit generated artifacts or `.d.ts` bundles; suppress type errors with
+`any` or `@ts-ignore` instead of fixing the type.
 
 ## References
 
