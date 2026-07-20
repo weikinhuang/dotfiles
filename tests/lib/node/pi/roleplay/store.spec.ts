@@ -63,7 +63,21 @@ test('serialize -> parse round-trips a character', () => {
   const raw = serializeEntry({ name: 'Exusiai', description: 'PL sniper', kind: 'character', body: 'Voice: bright.' });
   const parsed = parseFrontmatter(raw);
   expect(parsed).not.toBeNull();
-  expect(parsed!.frontmatter).toEqual({ name: 'Exusiai', description: 'PL sniper', kind: 'character' });
+  expect(parsed!.frontmatter).toEqual({
+    name: 'Exusiai',
+    description: 'PL sniper',
+    kind: 'character',
+    character: {
+      aliases: [],
+      triggers: [],
+      pinned: false,
+      order: 0,
+      sticky: 3,
+      cooldown: 0,
+      probability: 100,
+      delay: 0,
+    },
+  });
   expect(parsed!.body.trim()).toBe('Voice: bright.');
 });
 
@@ -211,6 +225,94 @@ test('lore frontmatter defaults to empty/false when fields are omitted', () => {
 test('character frontmatter carries no lore metadata', () => {
   const raw = serializeEntry({ name: 'Exusiai', description: 'sniper', kind: 'character', body: 'b' });
   expect(parseFrontmatter(raw)!.frontmatter.lore).toBeUndefined();
+});
+
+test('character frontmatter defaults to name-only, unpinned when metadata is omitted', () => {
+  const raw = serializeEntry({ name: 'Exusiai', description: 'sniper', kind: 'character', body: 'b' });
+  // A bare card serializes no `character:` fields (defaults) but parses to the
+  // zero-config meta so the fold keys on the name only.
+  expect(raw).not.toContain('pinned:');
+  expect(raw).not.toContain('aliases:');
+  expect(parseFrontmatter(raw)!.frontmatter.character).toStrictEqual({
+    aliases: [],
+    triggers: [],
+    pinned: false,
+    order: 0,
+    sticky: 3,
+    cooldown: 0,
+    probability: 100,
+    delay: 0,
+  });
+});
+
+test('serialize -> parse round-trips a character entry with fold metadata', () => {
+  const raw = serializeEntry({
+    name: 'Kaltsit',
+    description: 'the doctor',
+    kind: 'character',
+    body: 'Voice: clinical.',
+    character: {
+      aliases: ["Dr. Kal'tsit", 'the surgeon'],
+      triggers: ['chief medical officer'],
+      pinned: true,
+      order: 10,
+      sticky: 5,
+      cooldown: 2,
+      probability: 80,
+      delay: 1,
+    },
+  });
+  const parsed = parseFrontmatter(raw);
+  expect(parsed).not.toBeNull();
+  expect(parsed!.frontmatter.kind).toBe('character');
+  expect(parsed!.frontmatter.character).toStrictEqual({
+    aliases: ["Dr. Kal'tsit", 'the surgeon'],
+    triggers: ['chief medical officer'],
+    pinned: true,
+    order: 10,
+    sticky: 5,
+    cooldown: 2,
+    probability: 80,
+    delay: 1,
+  });
+});
+
+test('character serialize omits a default sticky but round-trips a non-default one', () => {
+  const def = serializeEntry({
+    name: 'A',
+    description: 'd',
+    kind: 'character',
+    body: 'b',
+    character: {
+      aliases: [],
+      triggers: [],
+      pinned: false,
+      order: 0,
+      sticky: 3,
+      cooldown: 0,
+      probability: 100,
+      delay: 0,
+    },
+  });
+  expect(def).not.toContain('sticky:');
+  const custom = serializeEntry({
+    name: 'A',
+    description: 'd',
+    kind: 'character',
+    body: 'b',
+    character: {
+      aliases: [],
+      triggers: [],
+      pinned: false,
+      order: 0,
+      sticky: 0,
+      cooldown: 0,
+      probability: 100,
+      delay: 0,
+    },
+  });
+  expect(custom).toContain('sticky: 0');
+  expect(parseFrontmatter(custom)!.frontmatter.character!.sticky).toBe(0);
 });
 
 test('serialize -> parse round-trips a relationship entry with all metadata', () => {

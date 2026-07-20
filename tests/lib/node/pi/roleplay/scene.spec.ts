@@ -127,3 +127,28 @@ test('first sheet is kept even when it alone exceeds the cap', () => {
   expect(block).toContain(huge);
   expect(block).toMatch(/omitted for length/);
 });
+
+test('the POV sheet is never evicted, even when NPC sheets overflow the cap', () => {
+  const big = (e: RoleplayEntry): string => 'y'.repeat(400) + e.id;
+  const { block } = composeSceneBlock(state, big, {
+    characters: ['Exusiai', 'Lappland'],
+    pov: 'Texas',
+    maxChars: 500,
+  });
+  // Texas is the POV and is reserved first -> always rendered as the player.
+  expect(block).toContain('### Texas (player character)');
+  // The NPC sheets are the ones dropped for length, not the POV.
+  expect(block).toMatch(/character sheet\(s\) omitted for length/);
+});
+
+test('lowest-precedence (listed-last) NPC sheets drop first under budget', () => {
+  const big = (e: RoleplayEntry): string => 'z'.repeat(400) + e.id;
+  // Callers pass NPCs in precedence order; the tail (Lappland) evicts first.
+  const { block } = composeSceneBlock(state, big, {
+    characters: ['Exusiai', 'Texas', 'Lappland'],
+    maxChars: 500,
+  });
+  expect(block).toContain('### Exusiai');
+  expect(block).not.toContain('### Texas');
+  expect(block).not.toContain('### Lappland');
+});

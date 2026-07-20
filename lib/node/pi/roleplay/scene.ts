@@ -65,8 +65,16 @@ interface SceneSection {
  * POV character last tagged `(player character)`. A character listed both
  * in `characters` and as `pov` renders once, tagged as the player.
  *
- * Soft char cap: each section is added whole; once the next would exceed
- * the cap we stop and emit a trailer naming the omitted count.
+ * Callers supply `characters` in **precedence order** (highest first);
+ * the roleplay shell passes persona-declared + `pinned` + name-triggered
+ * folds in that order. Budget eviction respects that precedence:
+ *   - the **POV sheet is never evicted** (highest precedence, `pov` >
+ *     `pinned` > name-triggered) - its cost is reserved before any NPC,
+ *   - NPC sheets are kept greedily in the given order, so the lowest-
+ *     precedence (name-triggered, listed last) are dropped first,
+ *   - when there is no POV sheet the first NPC is always kept, so a
+ *     too-small budget can never blank the whole block.
+ * Omitted NPC sheets are reported via a trailer.
  */
 export function composeSceneBlock(
   state: RoleplayState,
@@ -99,22 +107,23 @@ export function composeSceneBlock(
     return { block: null, missing };
   }
 
-  const sections: SceneSection[] = [];
+  const npcSections: SceneSection[] = [];
   for (const entry of npcs) {
     const body = bodyOf(entry).trim();
     if (body.length === 0) continue;
-    sections.push({ heading: `### ${entry.name}`, body });
+    npcSections.push({ heading: `### ${entry.name}`, body });
   }
+  let povSection: SceneSection | null = null;
   if (povEntry) {
     const body = bodyOf(povEntry).trim();
-    if (body.length > 0) sections.push({ heading: `### ${povEntry.name} (player character)`, body });
+    if (body.length > 0) povSection = { heading: `### ${povEntry.name} (player character)`, body };
   }
 
   const lines: string[] = [HEADER, ''];
   if (povName.length > 0) {
     lines.push(`The user plays **${povEntry ? povEntry.name : povName}**.`, '');
   }
-  if (sections.length === 0) {
+  if (npcSections.length === 0 && !povSection) {
     // POV-only with no foldable body: still announce the POV line.
     if (lines.length <= 2) return { block: null, missing };
     return { block: lines.join('\n').trimEnd(), missing };
@@ -122,17 +131,25 @@ export function composeSceneBlock(
 
   const cap = Math.max(500, opts.maxChars ?? 3000);
   let used = lines.join('\n').length;
+  // Reserve the POV sheet's cost first: it is the highest-precedence fold
+  // (pov > pinned > name-triggered) and is never evicted.
+  const renderCost = (s: SceneSection): number => `${s.heading}\n${s.body}`.length + 2;
+  if (povSection) used += renderCost(povSection);
   let omitted = 0;
-  for (const [i, section] of sections.entries()) {
+  for (const [i, section] of npcSections.entries()) {
     const rendered = `${section.heading}\n${section.body}`;
-    // Always keep the first section even if it alone exceeds the cap.
-    if (i > 0 && used + rendered.length + 2 > cap) {
+    // With no POV sheet, always keep the first NPC even if it alone exceeds
+    // the cap, so the block is never blanked. Otherwise drop overflow (the
+    // lowest-precedence, listed-last NPCs go first).
+    const guaranteed = i === 0 && !povSection;
+    if (!guaranteed && used + rendered.length + 2 > cap) {
       omitted++;
       continue;
     }
     lines.push(rendered, '');
     used += rendered.length + 2;
   }
+  if (povSection) lines.push(`${povSection.heading}\n${povSection.body}`, '');
 
   if (omitted > 0) {
     lines.push(`(${omitted} character sheet(s) omitted for length - raise \`charBudget\` to include them.)`);

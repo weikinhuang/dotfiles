@@ -84,6 +84,7 @@ import { matchLore } from '../../../lib/node/pi/roleplay/match.ts';
 import { formatLoreBlock } from '../../../lib/node/pi/roleplay/prompt.ts';
 import { type MacroContext, substituteMacros } from '../../../lib/node/pi/roleplay/macros.ts';
 import { composeSceneBlock } from '../../../lib/node/pi/roleplay/scene.ts';
+import { planCharacterFold } from '../../../lib/node/pi/roleplay/scene-fold.ts';
 import { expandRecursive } from '../../../lib/node/pi/roleplay/recursion.ts';
 import { applyTiming, type TimingState } from '../../../lib/node/pi/roleplay/timing.ts';
 import {
@@ -173,10 +174,12 @@ import {
   chooseSlug,
   cloneState,
   emptyState,
+  emptyCharacterMeta,
   emptyLoreMeta,
   emptyRelationshipMeta,
   formatRoleplayBlock,
   formatText,
+  type CharacterMeta,
   type LoreMeta,
   type RelationshipMeta,
   type RoleplayEntry,
@@ -235,7 +238,8 @@ const RoleplayParams = Type.Object({
   ),
   triggers: Type.Optional(
     Type.Array(Type.String(), {
-      description: 'Lore only: primary keywords (OR). The entry fires when any appears in the latest message.',
+      description:
+        'Lore + character: extra keywords (OR). Lore fires / a character sheet folds when any appears in the recent window. A character always keys on its own `name` + `aliases`; `triggers` add titles/nicknames.',
     }),
   ),
   secondaryKeys: Type.Optional(
@@ -250,7 +254,7 @@ const RoleplayParams = Type.Object({
     Type.Boolean({ description: 'Lore only: always inject (budget permitting), ignoring triggers. Default false.' }),
   ),
   order: Type.Optional(
-    Type.Number({ description: 'Lore only: priority; higher wins when the char budget evicts. Default 0.' }),
+    Type.Number({ description: 'Lore + character: priority; higher wins when the char budget evicts. Default 0.' }),
   ),
   depth: Type.Optional(
     Type.Number({
@@ -261,6 +265,18 @@ const RoleplayParams = Type.Object({
   recurse: Type.Optional(
     Type.Boolean({
       description: 'Lore only: opt in to having this entry body re-scanned to trigger further lore. Default false.',
+    }),
+  ),
+  aliases: Type.Optional(
+    Type.Array(Type.String(), {
+      description:
+        'Character only: extra names/nicknames the scene fold keys on (the entry `name` is always an implicit key).',
+    }),
+  ),
+  pinned: Type.Optional(
+    Type.Boolean({
+      description:
+        'Character only: always fold this sheet into the `## Roleplay scene` block (budget permitting), like a `constant` lore entry. Default false.',
     }),
   ),
   affinity: Type.Optional(
@@ -290,6 +306,8 @@ interface RoleplayParamsT {
   order?: number;
   depth?: number;
   recurse?: boolean;
+  aliases?: string[];
+  pinned?: boolean;
   affinity?: number;
   trust?: string;
   lastInteraction?: string;
@@ -358,6 +376,8 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
   let turnCount = 0;
   /** Per-entry lorebook timing state, keyed by entry id. Reset on cast switch. */
   let timingState: Record<string, TimingState> = {};
+  /** Per-character scene-fold timing state (sticky/cooldown), keyed by character id. Reset on cast switch. */
+  let sceneTimingState: Record<string, TimingState> = {};
   /** Unsubscribe handle for the comfyui image-generated bus (cleared on shutdown). */
   let unsubscribeImageEvents: (() => void) | null = null;
   const surfacedWarnings = new Set<string>();
@@ -479,6 +499,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
     // A cast switch resets lorebook timing (sticky windows / cooldowns / turn count).
     turnCount = 0;
     timingState = {};
+    sceneTimingState = {};
     excludeCache = null;
     if (cast === null) {
       state = emptyState();
@@ -571,6 +592,19 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
     return meta;
   };
 
+  /** Build character-fold metadata from tool params, layered over an optional base (for updates). */
+  const buildCharacterMeta = (params: RoleplayParamsT, base?: CharacterMeta): CharacterMeta => {
+    const meta: CharacterMeta = base
+      ? { ...base, aliases: [...base.aliases], triggers: [...base.triggers] }
+      : emptyCharacterMeta();
+    const clean = (xs: string[]): string[] => xs.map((x) => x.trim()).filter((x) => x.length > 0);
+    if (params.aliases !== undefined) meta.aliases = clean(params.aliases);
+    if (params.triggers !== undefined) meta.triggers = clean(params.triggers);
+    if (params.pinned !== undefined) meta.pinned = params.pinned;
+    if (params.order !== undefined) meta.order = Math.floor(params.order);
+    return meta;
+  };
+
   /** Build relationship metadata from tool params, layered over an optional base (for updates). */
   const buildRelationshipMeta = (params: RoleplayParamsT, base?: RelationshipMeta): RelationshipMeta => {
     const meta: RelationshipMeta = base ? { ...base, openThreads: [...base.openThreads] } : emptyRelationshipMeta();
@@ -587,16 +621,41 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
   };
 
   /**
-   * Fold the active persona's scene characters (`characters: [...]`) + POV
-   * (`pov:`) full sheets into a `## Roleplay scene` block, above the
-   * lightweight cast index. Returns `null` when the persona declares
-   * neither. Missing character names are warn-dropped (deduped so the
-   * notice fires only when the unresolved set changes).
+   * Fold the scene's character sheets into a `## Roleplay scene` block,
+   * above the lightweight cast index. Three fold sources, in precedence
+   * order (`pov` > `pinned` > name-triggered > index-only):
+   *   - the active persona's declared `characters: [...]` (author's scene
+   *     list) and `pov:` (player character, folded last + never evicted),
+   *   - any `pinned` character (always folds, budget permitting),
+   *   - any character whose name / alias / trigger appears in `scanText`
+   *     (the recent-message + current-prompt window), kept alive by its
+   *     sticky window via {@link planCharacterFold}.
+   * Returns `null` when nothing folds. Missing declared names are
+   * warn-dropped (deduped so the notice fires only when the set changes).
    */
-  const buildSceneBlock = (ctx: ExtensionContext): string | null => {
+  const buildSceneBlock = (ctx: ExtensionContext, scanText: string): string | null => {
     const persona = getActivePersona();
     if (!persona?.roleplay) return null;
-    if ((persona.characters?.length ?? 0) === 0 && !persona.pov) return null;
+    const foldPlan = planCharacterFold(state.entries, {
+      scanText,
+      turn: turnCount,
+      priorTiming: sceneTimingState,
+      rng: Math.random,
+    });
+    sceneTimingState = foldPlan.nextTiming;
+    const byId = new Map(state.entries.map((e) => [e.id, e]));
+    const nameOf = (id: string): string | undefined => byId.get(id)?.name;
+    const pinnedSet = new Set(foldPlan.pinnedIds);
+    const pinnedNames = foldPlan.pinnedIds.map(nameOf).filter((n): n is string => Boolean(n));
+    const triggeredNames = foldPlan.firedIds
+      .filter((id) => !pinnedSet.has(id))
+      .map(nameOf)
+      .filter((n): n is string => Boolean(n));
+    // Precedence order: persona-declared, then pinned, then name-triggered.
+    // composeSceneBlock dedups by resolved id and evicts from the tail, so
+    // the lowest-precedence (name-triggered) sheets drop first under budget.
+    const characters = [...(persona.characters ?? []), ...pinnedNames, ...triggeredNames];
+    if (characters.length === 0 && !persona.pov) return null;
     const bodyCache = new Map<string, string>();
     const bodyOf = (entry: RoleplayEntry): string => {
       const cached = bodyCache.get(entry.id);
@@ -606,7 +665,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
       return body;
     };
     const { block, missing } = composeSceneBlock(state, bodyOf, {
-      characters: persona.characters,
+      characters,
       pov: persona.pov,
       maxChars: charBudget(),
     });
@@ -686,7 +745,12 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
 
     if (!autoInjectEnabled) return undefined;
     turnCount += 1;
-    const scene = buildSceneBlock(ctx);
+    // Scan the recent-message window (prior turns, incl. assistant) plus the
+    // current prompt for name-keyed character folds; the sticky window covers
+    // the one-turn lag in `lastMessages` (captured in the `context` hook).
+    const sceneScanDepth = loadRoleplayConfig(cwd, envCharBudget).scanDepth;
+    const sceneScanText = `${concatRecentMessageText(lastMessages, sceneScanDepth)}\n${event.prompt ?? ''}`;
+    const scene = buildSceneBlock(ctx, sceneScanText);
     const index = formatRoleplayBlock(state, { maxChars: charBudget() });
     const lore = buildLoreInjection(event.prompt ?? '');
     const additions = [scene, index, lore].filter((s): s is string => Boolean(s));
@@ -1367,7 +1431,10 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
         return;
       }
       audit.planned = true;
-      const raw = await extractor(ctx, buildTimelineExtractionTask(plan.spanText, resolvePromptGuidance('timeline', { cwd })));
+      const raw = await extractor(
+        ctx,
+        buildTimelineExtractionTask(plan.spanText, resolvePromptGuidance('timeline', { cwd })),
+      );
       if (raw === null) {
         audit.skip = 'extractor-null';
         emit();
@@ -2129,10 +2196,11 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
 
     const slug = chooseSlug(state.entries, params.name);
     const lore = kind === 'lore' ? buildLoreMeta(params) : undefined;
+    const character = kind === 'character' ? buildCharacterMeta(params) : undefined;
     const relationship = kind === 'relationship' ? buildRelationshipMeta(params) : undefined;
     atomicWriteFile(
       fileFor(state.cast, kind, slug),
-      serializeEntry({ name: params.name.trim(), description, kind, body, lore, relationship }),
+      serializeEntry({ name: params.name.trim(), description, kind, body, lore, character, relationship }),
     );
     const entry: RoleplayEntry = {
       id: slug,
@@ -2140,6 +2208,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
       name: params.name.trim(),
       description,
       ...(lore ? { lore } : {}),
+      ...(character ? { character } : {}),
       ...(relationship ? { relationship } : {}),
     };
     state = { cast: state.cast, entries: upsertEntry(state.entries, entry) };
@@ -2162,6 +2231,12 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
       params.depth !== undefined ||
       params.recurse !== undefined;
     const loreOnly = resolved.kind === 'lore' && loreParamGiven;
+    const characterParamGiven =
+      params.aliases !== undefined ||
+      params.pinned !== undefined ||
+      params.triggers !== undefined ||
+      params.order !== undefined;
+    const characterOnly = resolved.kind === 'character' && characterParamGiven;
     const relationshipParamGiven =
       params.affinity !== undefined ||
       params.trust !== undefined ||
@@ -2173,11 +2248,12 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
       params.description === undefined &&
       params.body === undefined &&
       !loreOnly &&
+      !characterOnly &&
       !relationshipOnly
     ) {
       return fail(
         'update',
-        '`update` requires at least one of `name`, `description`, `body` (or kind-specific fields for a lore/relationship entry)',
+        '`update` requires at least one of `name`, `description`, `body` (or kind-specific fields for a character/lore/relationship entry)',
       );
     }
     const nextName = params.name !== undefined ? params.name.trim() : resolved.name;
@@ -2206,6 +2282,10 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
       removeFileIfExists(fileFor(state.cast, resolved.kind, resolved.id));
     }
     const lore = resolved.kind === 'lore' ? buildLoreMeta(params, resolved.lore ?? emptyLoreMeta()) : undefined;
+    const character =
+      resolved.kind === 'character'
+        ? buildCharacterMeta(params, resolved.character ?? emptyCharacterMeta())
+        : undefined;
     const relationship =
       resolved.kind === 'relationship'
         ? buildRelationshipMeta(params, resolved.relationship ?? emptyRelationshipMeta())
@@ -2218,6 +2298,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
         kind: resolved.kind,
         body: nextBody,
         lore,
+        character,
         relationship,
       }),
     );
@@ -2227,6 +2308,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
       name: nextName,
       description: nextDescription,
       ...(lore ? { lore } : {}),
+      ...(character ? { character } : {}),
       ...(relationship ? { relationship } : {}),
     };
     state = { cast: state.cast, entries: upsertEntry(entries, entry) };
@@ -2344,11 +2426,12 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
     name: 'roleplay',
     label: 'Roleplay',
     description:
-      'Cast-keyed durable store for roleplay scenarios, separate from coding `memory`. Holds character sheets that survive across sessions and workspaces; the active cast is injected each turn under `## Roleplay`. Actions: list, read (id), save ({name, description, body, kind?}), update (id, {name?, description?, body?}), remove (id), search (query).',
+      'Cast-keyed durable store for roleplay scenarios, separate from coding `memory`. Holds character sheets that survive across sessions and workspaces; the active cast is injected each turn under `## Roleplay`. A relevant character sheet also auto-folds into the `## Roleplay scene` block: `pinned` characters every turn, and any character whose name/alias is mentioned in the recent window (precedence `pov` > `pinned` > name-triggered > index-only) - so you rarely need `read`. Actions: list, read (id), save ({name, description, body, kind?}), update (id, {name?, description?, body?}), remove (id), search (query).',
     promptSnippet:
-      'Durable cast-keyed roleplay store: character sheets for the active scenario, injected each turn and fetched in full on demand.',
+      'Durable cast-keyed roleplay store: character sheets for the active scenario, injected each turn (pinned + name-triggered sheets auto-fold into the scene) and fetched in full on demand.',
     promptGuidelines: [
       'Save a `character` (roleplay action `save`) for a recurring character: voice, appearance, speech tics, hard constraints, first message, example dialogue.',
+      'A character sheet auto-folds into the scene when `pinned: true` or when its name/alias appears in the recent messages - prefer that over a `roleplay read` (set `pinned` on always-present leads; add `aliases` for nicknames).',
       'The active cast is derived from the active persona (or `PI_ROLEPLAY_CAST`); switch it with `/roleplay cast <name>`.',
       'Keep scene-level one-off detail in `scratchpad` / drafts; promote only durable cast facts here.',
     ],

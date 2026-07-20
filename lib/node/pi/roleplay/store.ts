@@ -15,7 +15,9 @@
  *   - Strict frontmatter parse + serialize (no external YAML dep). Core
  *     keys `name`, `description`, `kind`; `lore` entries additionally
  *     round-trip `triggers` / `secondaryKeys` / `constant` / `order` /
- *     `depth` / `recurse` via a small inline-list parser.
+ *     `depth` / `recurse` via a small inline-list parser, and `character`
+ *     entries round-trip the fold metadata `aliases` / `triggers` /
+ *     `pinned` / `order` / `sticky` / `cooldown` / `probability` / `delay`.
  *   - Pure index CRUD (callers pair these with disk writes in the shell).
  *   - `INDEX.md` renderer + the injected `## Roleplay` block.
  *
@@ -78,6 +80,62 @@ export interface LoreMeta {
   groupWeight: number;
 }
 
+/**
+ * Character-card injection metadata, present only on `character` entries
+ * (`RoleplayEntry.character`). Gives character sheets the same
+ * constant-vs-keyed fold behaviour that {@link LoreMeta} gives lore
+ * entries, so a relevant character's whole sheet is auto-injected into the
+ * `## Roleplay scene` block instead of relying on a `roleplay read`:
+ *   - `pinned`: always fold this sheet in (budget permitting), regardless
+ *     of triggers. The character-card analogue of lore's `constant`
+ *     (SillyTavern "constant"/blue-circle). Default false.
+ *   - `aliases`: extra names/nicknames the fold keys on. The entry `name`
+ *     is ALWAYS an implicit key (zero-config), so a bare card folds when
+ *     its name is mentioned; `aliases` add titles / nicknames.
+ *   - `triggers`: optional extra keywords, OR'd with name + aliases. For
+ *     the rare case a sheet should also surface on a non-name keyword.
+ *   - `order`: higher wins when the scene budget forces eviction.
+ *   - `sticky`: once folded, stay folded for this many further turns even
+ *     without a re-match, so an NPC named on turn 1 but not turn 3 does
+ *     not flicker out mid-scene (default 3). Mandatory anti-flicker.
+ *   - `cooldown`: after the sticky window ends, cannot fold again for this
+ *     many turns (default 0 = no cooldown).
+ *   - `probability`: 0-100 chance the fold fires on a fresh match
+ *     (default 100 = always).
+ *   - `delay`: not eligible to fold until this many turns into the chat
+ *     (default 0 = eligible immediately).
+ */
+export interface CharacterMeta {
+  aliases: string[];
+  triggers: string[];
+  pinned: boolean;
+  order: number;
+  sticky: number;
+  cooldown: number;
+  probability: number;
+  delay: number;
+}
+
+/** Default character-fold sticky window (turns) applied when none is authored. */
+export const DEFAULT_CHARACTER_STICKY = 3;
+
+export function emptyCharacterMeta(): CharacterMeta {
+  return {
+    aliases: [],
+    triggers: [],
+    pinned: false,
+    order: 0,
+    sticky: DEFAULT_CHARACTER_STICKY,
+    cooldown: 0,
+    probability: 100,
+    delay: 0,
+  };
+}
+
+function cloneCharacterMeta(m: CharacterMeta): CharacterMeta {
+  return { ...m, aliases: [...m.aliases], triggers: [...m.triggers] };
+}
+
 export function emptyLoreMeta(): LoreMeta {
   return {
     triggers: [],
@@ -135,6 +193,8 @@ export interface RoleplayEntry {
   description: string;
   /** Lorebook metadata; present iff `kind === 'lore'`. */
   lore?: LoreMeta;
+  /** Character-fold metadata; present iff `kind === 'character'` (absent = zero-config name-keyed defaults). */
+  character?: CharacterMeta;
   /** Relationship metadata; present iff `kind === 'relationship'`. */
   relationship?: RelationshipMeta;
 }
@@ -152,6 +212,7 @@ export function emptyState(cast = ''): RoleplayState {
 export function cloneEntry(e: RoleplayEntry): RoleplayEntry {
   const copy: RoleplayEntry = { ...e };
   if (e.lore) copy.lore = cloneLoreMeta(e.lore);
+  if (e.character) copy.character = cloneCharacterMeta(e.character);
   if (e.relationship) copy.relationship = cloneRelationshipMeta(e.relationship);
   return copy;
 }
@@ -214,6 +275,8 @@ export interface Frontmatter {
   kind: RoleplayKind;
   /** Present iff `kind === 'lore'`. */
   lore?: LoreMeta;
+  /** Present iff `kind === 'character'`. */
+  character?: CharacterMeta;
   /** Present iff `kind === 'relationship'`. */
   relationship?: RelationshipMeta;
 }
@@ -295,6 +358,20 @@ function parseLoreMeta(fields: Readonly<Record<string, unknown>>): LoreMeta {
   return meta;
 }
 
+/** Build character-fold metadata from the parsed frontmatter key->value map. All fields optional. */
+function parseCharacterMeta(fields: Readonly<Record<string, unknown>>): CharacterMeta {
+  const meta = emptyCharacterMeta();
+  if (fields.aliases !== undefined) meta.aliases = asStringArray(fields.aliases);
+  if (fields.triggers !== undefined) meta.triggers = asStringArray(fields.triggers);
+  if (fields.pinned !== undefined) meta.pinned = asBool(fields.pinned, false);
+  if (fields.order !== undefined) meta.order = asInt(fields.order, 0);
+  if (fields.sticky !== undefined) meta.sticky = Math.max(0, asInt(fields.sticky, DEFAULT_CHARACTER_STICKY));
+  if (fields.cooldown !== undefined) meta.cooldown = Math.max(0, asInt(fields.cooldown, 0));
+  if (fields.probability !== undefined) meta.probability = Math.min(100, Math.max(0, asInt(fields.probability, 100)));
+  if (fields.delay !== undefined) meta.delay = Math.max(0, asInt(fields.delay, 0));
+  return meta;
+}
+
 /** Build relationship metadata from the parsed frontmatter key->value map. All fields optional. */
 function parseRelationshipMeta(fields: Readonly<Record<string, unknown>>): RelationshipMeta {
   const meta = emptyRelationshipMeta();
@@ -345,6 +422,7 @@ export function parseFrontmatter(raw: string): ParsedRoleplayFile | null {
 
   const frontmatter: Frontmatter = { name, description, kind };
   if (kind === 'lore') frontmatter.lore = parseLoreMeta(fields);
+  if (kind === 'character') frontmatter.character = parseCharacterMeta(fields);
   if (kind === 'relationship') frontmatter.relationship = parseRelationshipMeta(fields);
 
   return { frontmatter, body };
@@ -376,6 +454,7 @@ export function serializeEntry(input: {
   kind: RoleplayKind;
   body: string;
   lore?: LoreMeta;
+  character?: CharacterMeta;
   relationship?: RelationshipMeta;
 }): string {
   const body = input.body.replace(/\r\n/g, '\n').replace(/\s+$/, '');
@@ -402,6 +481,17 @@ export function serializeEntry(input: {
     if (m.delay > 0) lines.push(`delay: ${m.delay}`);
     if (m.group.length > 0) lines.push(`group: ${yamlValue(m.group)}`);
     if (m.groupWeight !== 100) lines.push(`groupWeight: ${m.groupWeight}`);
+  }
+  if (input.kind === 'character' && input.character) {
+    const m = input.character;
+    if (m.aliases.length > 0) lines.push(`aliases: [${m.aliases.map(yamlListItem).join(', ')}]`);
+    if (m.triggers.length > 0) lines.push(`triggers: [${m.triggers.map(yamlListItem).join(', ')}]`);
+    if (m.pinned) lines.push('pinned: true');
+    if (m.order !== 0) lines.push(`order: ${m.order}`);
+    if (m.sticky !== DEFAULT_CHARACTER_STICKY) lines.push(`sticky: ${m.sticky}`);
+    if (m.cooldown > 0) lines.push(`cooldown: ${m.cooldown}`);
+    if (m.probability !== 100) lines.push(`probability: ${m.probability}`);
+    if (m.delay > 0) lines.push(`delay: ${m.delay}`);
   }
   if (input.kind === 'relationship' && input.relationship) {
     const m = input.relationship;

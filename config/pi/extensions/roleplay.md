@@ -146,29 +146,61 @@ one case where bodies are injected outright, since the point of keyword triggeri
 in-context without a tool call. Once a cap is hit the block stops adding entries and emits a trailer. Returns nothing
 when the cast is empty and no lore fired.
 
-## Scene: folding full character sheets (`characters` / `pov`)
+## Scene: folding full character sheets (`characters` / `pov` / `pinned`)
 
 The index above is deliberately lightweight (one line per record). To put a character's **whole sheet** in front of the
-model - the SillyTavern "the character card is always in context" behaviour - the active persona declares which cast
-members are on stage:
+model - the SillyTavern "the character card is always in context" behaviour - a sheet folds into a `## Roleplay scene`
+block from any of three sources:
 
-```yaml
-roleplay: true
-characters: [Exusiai, Texas] # full bodies folded into the system prompt, in this order
-pov: Doctor # the character the human plays
-openers: ['Yo, Doctor!', '...'] # greeting lines, surfaced via `/persona opener`
-```
+1. **Persona-declared** - the active persona lists on-stage members + the player POV:
 
-When `characters` or `pov` is set, a `## Roleplay scene` block is appended above the cast index. It folds each named
-character's full body under a `### <Name>` heading (deduped, in declared order), announces `The user plays **<pov>**.`,
-and renders the POV character last tagged `(player character)`. Names are matched by record id, then case-insensitive
-name, then name-slug; **unresolved names are warn-dropped** (a one-time notice naming the missing set). The block is
-capped by `charBudget`: the first sheet is always kept, later sheets that would blow the cap are omitted with a trailer.
-A `pov` that is not in the cast still produces the announcement line (the player may be an off-screen character).
-Matching against names is the same logic the lorebook uses for tool-name handling.
+   ```yaml
+   roleplay: true
+   characters: [Exusiai, Texas] # full bodies folded into the system prompt, in this order
+   pov: Doctor # the character the human plays
+   openers: ['Yo, Doctor!', '...'] # greeting lines, surfaced via `/persona opener`
+   ```
 
-Leave both unset and the extension keeps the index-only behaviour (backward compatible). Author the three fields with
-**inline** arrays (`[a, b]`) - pi's frontmatter parser does not accept block (`- item`) lists.
+2. **`pinned` character** - a card with `pinned: true` in its frontmatter folds **every turn**, no persona list needed
+   (the character-card analogue of a `constant` lore entry - the "always present" lead, e.g. the player's own card).
+3. **Name-triggered fold** - any character whose **name** (always keyed, zero-config), an authored **alias**, or an
+   extra **trigger** keyword appears in the recent-message window folds in for the scene. This is what lets an NPC
+   introduced mid-scene be voiced correctly on a later turn _without_ a `roleplay read`. Keying is **broad** (any
+   mention, not only the active speaker), bounded by the sticky window + budget below.
+
+Each folded character's body renders under a `### <Name>` heading (deduped), the block announces
+`The user plays **<pov>**.`, and the POV character renders last tagged `(player character)`. Names are matched by record
+id, then case-insensitive name, then name-slug; **unresolved persona names are warn-dropped** (a one-time notice naming
+the missing set). A `pov` that is not in the cast still produces the announcement line (the player may be an off-screen
+character).
+
+**Precedence + budget.** The block is capped by `charBudget` (shared with the index). When folds exceed the cap they are
+evicted in reverse precedence: **`pov` > `pinned` > name-triggered > index-only**. The POV sheet is never evicted;
+persona-declared and `pinned` sheets are kept ahead of name-triggered ones; the lowest-precedence (name-triggered)
+sheets drop first, reported with a trailer. When there is no POV sheet the first (highest-precedence) sheet is always
+kept so a too-small budget can never blank the block.
+
+### Character-fold metadata
+
+All fields are optional frontmatter on a `character` record (also settable via the `roleplay` tool's `save` / `update`
+for `aliases` / `pinned` / `triggers` / `order`). A bare card with no metadata still folds on its own **name** - the
+zero-config default. Trigger + timing reuse the same machinery as the lorebook (whole-word case-insensitive matching;
+sticky / cooldown / probability windows).
+
+| Field         | Example              | Meaning                                                                                               |
+| ------------- | -------------------- | ----------------------------------------------------------------------------------------------------- |
+| `pinned`      | `true`/`false`       | Always fold this sheet (budget permitting), ignoring triggers - the card analogue of lore `constant`. |
+| `aliases`     | `[Kal'tsit, Doctor]` | Extra names/nicknames the fold keys on (the entry `name` is always an implicit key).                  |
+| `triggers`    | `[the surgeon]`      | Extra keywords (OR'd with name + aliases) that also fold the sheet in.                                |
+| `order`       | `10`                 | Priority; higher survives budget eviction longer. Default `0`.                                        |
+| `sticky`      | `3`                  | Once folded, stay folded this many further turns without a re-match (anti-flicker). Default `3`.      |
+| `cooldown`    | `0`                  | After the sticky window ends, cannot fold again for this many turns. Default `0`.                     |
+| `probability` | `100`                | 0-100 chance the fold fires on a fresh match. Default `100`.                                          |
+| `delay`       | `0`                  | Not eligible to fold until this many turns into the chat. Default `0`.                                |
+
+Author list fields with **inline** arrays (`[a, b]`) - pi's frontmatter parser does not accept block (`- item`) lists.
+The recent-message scan window is the same `scanDepth` the depth-lore scan uses. Leave everything unset and a character
+folds only when its name is mentioned (or the persona declares it) - backward compatible with pre-`pinned` casts.
 
 `/persona opener [n]` prints the active persona's greeting lines (all numbered, or just entry `n`); see
 [`persona.md`](./persona.md).
@@ -439,7 +471,9 @@ Pure logic lives in [`event.ts`](../../../lib/node/pi/roleplay/event.ts).
 `kind` defaults to `character`; pass `kind: lore` to target / create a lorebook entry. When a slug exists under more
 than one kind, `read` / `update` / `remove` need an explicit `kind` to disambiguate. `save` / `update` of a `lore` entry
 also accept `triggers`, `secondaryKeys`, `secondaryMode`, `constant`, `order`, `depth`, and `recurse` (a `lore` update
-may change only those fields). All actions operate on the **active cast**.
+may change only those fields); `save` / `update` of a `character` entry accept `aliases`, `pinned`, `triggers`, and
+`order` (the scene-fold knobs - see [Scene](#scene-folding-full-character-sheets-characters--pov--pinned)). All actions
+operate on the **active cast**.
 
 ## `/roleplay` command
 
@@ -548,7 +582,7 @@ is optional - with none set the event generator inherits the parent session mode
 - `PI_ROLEPLAY_DISABLE_REPETITION=1` - skip the multi-turn repetition / anti-slop nudge.
 - `PI_ROLEPLAY_DISABLE_EVENTS=1` - disable `/roleplay event` scene complications.
 - `PI_ROLEPLAY_DISABLE_PROMPT_OVERRIDES=1` - ignore every `prompts/<name>.md` guidance override and use the shipped
-  default prompts (see [Prompt overrides](#prompt-overrides-guidance-only-parser-protected)).
+  default prompts.
 - `PI_ROLEPLAY_DISABLE_AVATAR=1` - stop driving the [`avatar`](./avatar.md) face from the active cast (Phase 6).
 - `PI_ROLEPLAY_DISABLE_SCENEGEN=1` - stop mirroring generated scene images into the avatar's `scene` banner (Phase 6C).
 - `PI_ROLEPLAY_MAX_INJECTED_CHARS=N` - soft cap on the injected cast-index block (default 3000, floor 500). Below the
@@ -583,6 +617,8 @@ without the pi runtime; this file holds only the pi-coupled glue + disk I/O.
   for the `context` event.
 - [`scene.ts`](../../../lib/node/pi/roleplay/scene.ts) - resolve + fold full character sheets (`characters` / `pov`)
   into the `## Roleplay scene` block.
+- [`scene-fold.ts`](../../../lib/node/pi/roleplay/scene-fold.ts) - name-keyed character-fold selection (`pinned` +
+  name/alias/trigger match), reusing `hasKeyword` + `applyTiming` for the sticky/cooldown timing.
 - [`macros.ts`](../../../lib/node/pi/roleplay/macros.ts) - `{{user}}` / `{{char}}` / `{{time}}` / `{{random}}` /
   `{{roll}}` substitution over injected text (deterministic via injectable clock + rng).
 - [`relationship.ts`](../../../lib/node/pi/roleplay/relationship.ts) - toward-baseline affinity decay (`decayAffinity`,
