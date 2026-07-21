@@ -132,6 +132,16 @@ describe('parsePersonaFile', () => {
     expect(result?.cast).toBe('penguin-logistics');
   });
 
+  test('avatarSet parsed through; absent → undefined', () => {
+    const set = run({ name: 'm', roleplay: true, cast: 'exusiai-isekai', avatarSet: 'exusiai' });
+    expect(set.warnings).toEqual([]);
+    expect(set.result?.cast).toBe('exusiai-isekai');
+    expect(set.result?.avatarSet).toBe('exusiai');
+
+    const absent = run({ name: 'm', roleplay: true, cast: 'exusiai-isekai' });
+    expect(absent.result?.avatarSet).toBeUndefined();
+  });
+
   test('non-boolean roleplay → warning, defaults to false', () => {
     const { result, warnings } = run({ name: 'm', roleplay: 'yes' });
 

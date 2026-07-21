@@ -132,12 +132,13 @@ describe('active-persona singleton', () => {
     }).toThrow(/read.?only|frozen|not extensible|cannot (add|delete|assign)/i);
   });
 
-  test('copies the roleplay scene fields (cast / characters / pov / openers / authorNote)', () => {
+  test('copies the roleplay scene fields (cast / avatarSet / characters / pov / openers / authorNote)', () => {
     setActivePersona({
       name: 'exusiai',
       resolvedWriteRoots: [],
       roleplay: true,
       cast: 'penguin-logistics',
+      avatarSet: 'exusiai',
       characters: ['Exusiai', 'Texas'],
       pov: 'Doctor',
       openers: ['Hi!'],
@@ -147,6 +148,7 @@ describe('active-persona singleton', () => {
     const snap = getActivePersona();
     expect(snap?.roleplay).toBe(true);
     expect(snap?.cast).toBe('penguin-logistics');
+    expect(snap?.avatarSet).toBe('exusiai');
     expect(snap?.characters).toEqual(['Exusiai', 'Texas']);
     expect(snap?.pov).toBe('Doctor');
     expect(snap?.openers).toEqual(['Hi!']);

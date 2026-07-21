@@ -29,6 +29,8 @@ export interface ActivePersonaSnapshot {
   readonly roleplay: boolean;
   /** Cast slug override for the roleplay store; defaults to the persona name. */
   readonly cast?: string;
+  /** Avatar sprite-set override; decouples the reactive avatar face from the cast slug. */
+  readonly avatarSet?: string;
   /** Character names / ids whose full sheets fold into the scene block. */
   readonly characters?: readonly string[];
   /** The character the human plays; announced + folded last in the scene block. */
@@ -56,6 +58,7 @@ export interface ActivePersonaInput {
   bashDeny?: readonly string[];
   roleplay?: boolean;
   cast?: string;
+  avatarSet?: string;
   characters?: readonly string[];
   pov?: string;
   openers?: readonly string[];
@@ -76,6 +79,7 @@ export function setActivePersona(snapshot: ActivePersonaInput | undefined): void
     bashDeny: Object.freeze([...(snapshot.bashDeny ?? [])]),
     roleplay: snapshot.roleplay ?? false,
     cast: snapshot.cast,
+    avatarSet: snapshot.avatarSet,
     characters: snapshot.characters ? Object.freeze([...snapshot.characters]) : undefined,
     pov: snapshot.pov,
     openers: snapshot.openers ? Object.freeze([...snapshot.openers]) : undefined,

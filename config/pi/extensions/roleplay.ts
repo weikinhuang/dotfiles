@@ -468,14 +468,17 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
 
   /**
    * Slug of the character whose face the avatar should show, or `null`
-   * when dormant. Prefers the first non-POV character (the one the user
-   * is talking to), then the first listed character, then the cast slug;
-   * the slug maps to an avatar sprite-set dir (`avatar/emotes/<slug>/`).
-   * A slug with no sprite art falls back gracefully on the avatar side.
+   * when dormant. Precedence: an explicit persona `avatarSet` wins (it
+   * decouples the avatar face from the cast slug); otherwise the first
+   * non-POV character (the one the user is talking to), then the first
+   * listed character, then the cast slug. The slug maps to an avatar
+   * sprite-set dir (`avatar/emotes/<slug>/`); a slug with no sprite art
+   * falls back gracefully on the avatar side.
    */
   const activeFaceSlug = (): string | null => {
     const persona = getActivePersona();
     if (!persona?.roleplay) return null;
+    if (persona.avatarSet) return slugifyName(persona.avatarSet);
     const chars = persona.characters ?? [];
     const povSlug = persona.pov ? slugifyName(persona.pov) : '';
     const nonPov = chars.find((c) => slugifyName(c) !== povSlug);

@@ -41,6 +41,7 @@ export interface PersonaFrontmatterRaw extends Record<string, unknown> {
   requestOptions?: unknown;
   roleplay?: unknown;
   cast?: unknown;
+  avatarSet?: unknown;
   characters?: unknown;
   pov?: unknown;
   openers?: unknown;
@@ -87,6 +88,15 @@ export interface ParsedPersona {
    * name when `roleplay` is true and `cast` is omitted.
    */
   cast?: string;
+  /**
+   * Optional avatar sprite-set name for the reactive avatar widget. Lets
+   * the avatar face be decoupled from the `cast` slug (whose default is
+   * the persona name): e.g. `cast: exusiai-isekai` + `avatarSet: exusiai`
+   * keeps a distinct scenario store while reusing the `exusiai` sprites.
+   * Inert unless `roleplay` is true; when omitted the avatar falls back to
+   * the first non-POV character slug, then the cast slug.
+   */
+  avatarSet?: string;
   /**
    * Character names / ids (from the active cast) whose full body sheets
    * fold into the system prompt for the scene. Order is preserved. Inert
@@ -251,6 +261,7 @@ export function parsePersonaFile(opts: ParsePersonaOptions): ParsedPersona | nul
     else warnings.push({ path, reason: `\`roleplay\` must be a boolean (got ${typeof fm.roleplay})` });
   }
   const cast = toStringOrUndefined(fm.cast);
+  const avatarSet = toStringOrUndefined(fm.avatarSet);
   const characters =
     fm.characters !== undefined ? toStringArray(fm.characters, 'characters', path, warnings) : undefined;
   const pov = toStringOrUndefined(fm.pov);
@@ -283,6 +294,7 @@ export function parsePersonaFile(opts: ParsePersonaOptions): ParsedPersona | nul
     requestOptions,
     roleplay,
     cast,
+    avatarSet,
     characters,
     pov,
     openers,

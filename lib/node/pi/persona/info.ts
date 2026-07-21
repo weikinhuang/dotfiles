@@ -65,6 +65,7 @@ export interface PersonaInfoInput {
   /** Roleplay activation flag; the fields below render only when true. */
   readonly roleplay?: boolean;
   readonly cast?: string;
+  readonly avatarSet?: string;
   readonly characters?: readonly string[];
   readonly pov?: string;
   readonly openers?: readonly string[];
@@ -107,6 +108,7 @@ export function formatPersonaInfoLines(input: PersonaInfoInput): string[] {
     ...(input.roleplay
       ? [
           `  roleplay:      on (cast: ${input.cast ?? '(persona name)'})`,
+          `  avatarSet:     ${input.avatarSet ?? '(character/cast slug)'}`,
           `  characters:    ${input.characters && input.characters.length > 0 ? input.characters.join(', ') : '(index only)'}`,
           `  pov:           ${input.pov ?? '(none)'}`,
           `  openers:       ${input.openers?.length ?? 0}`,
