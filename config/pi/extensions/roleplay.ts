@@ -88,6 +88,7 @@ import { planCharacterFold } from '../../../lib/node/pi/roleplay/scene-fold.ts';
 import { expandRecursive } from '../../../lib/node/pi/roleplay/recursion.ts';
 import { applyTiming, type TimingState } from '../../../lib/node/pi/roleplay/timing.ts';
 import {
+  clampSummary,
   composeAutoSummaryRecord,
   createSummarizer,
   planSummarization,
@@ -996,6 +997,13 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
 
   interface RecapResult {
     next: string | null;
+    /**
+     * Raw trimmed model text before the over-cap discard - `next` is `null`
+     * when the candidate exceeded the char cap, but `raw` preserves it so the
+     * forced path can salvage it via {@link clampSummary}. `null` on a
+     * spawn/stop failure or an empty / `null`-sentinel response.
+     */
+    raw: string | null;
     applied: boolean;
     spanLen: number;
     priorLen: number;
@@ -1018,7 +1026,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
     const startedAt = Date.now();
     const priorLen = prior.length;
     const sum = getSummarizer(ctx);
-    if (!sum?.isEnabled()) return { next: null, applied: false, spanLen: 0, priorLen, startedAt };
+    if (!sum?.isEnabled()) return { next: null, raw: null, applied: false, spanLen: 0, priorLen, startedAt };
     const cfg = loadRoleplayConfig(cwd, envCharBudget);
     const maxSpanChars = deriveMaxSpanChars({
       contextWindowTokens: info.model?.contextWindow,
@@ -1026,19 +1034,23 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
       charsPerToken,
     });
     const plan = planSummarization(span, { minMessages: cfg.summarizeMinMessages, maxSpanChars });
-    if (!plan) return { next: null, applied: false, spanLen: 0, priorLen, startedAt };
+    if (!plan) return { next: null, raw: null, applied: false, spanLen: 0, priorLen, startedAt };
     let next: string | null = null;
+    let raw: string | null = null;
     try {
-      next = await sum.summarize(
+      const detailed = await sum.summarizeDetailed(
         { cwd, model: ctx.model, modelRegistry: ctx.modelRegistry as never, signal },
         plan.spanText,
         prior.trim() ? prior : undefined,
         resolvePromptGuidance('summary', { cwd }),
       );
+      next = detailed.recap;
+      raw = detailed.raw;
     } catch {
       next = null;
+      raw = null;
     }
-    return { next, applied: acceptRecap(prior, next), spanLen: plan.messageCount, priorLen, startedAt };
+    return { next, raw, applied: acceptRecap(prior, next), spanLen: plan.messageCount, priorLen, startedAt };
   };
 
   /** Snapshot the current session id (`null` under `--no-session`). Read at call sites, never inside an async `.then`. */
@@ -1737,15 +1749,23 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
                     if (gen !== recapGen) return; // stale (reset / branch change): discard
                     // Force-accept a rejected-but-usable candidate once coverage
                     // has lagged past the ceiling, so a persistently collapsing
-                    // summarizer can't wedge coverage forever.
-                    const forced = !result.applied && shouldForceRecap({ candidate: result.next, lag, lagCeiling });
-                    if ((result.applied || forced) && result.next) {
-                      recapText = result.next;
+                    // OR persistently over-cap summarizer can't wedge coverage
+                    // forever. On the FORCED path only we salvage an over-cap
+                    // candidate by clamping the raw text (result.next is null,
+                    // but result.raw preserves it) - the normal path still drops
+                    // a runaway rather than truncating it.
+                    const salvaged = result.applied
+                      ? result.next
+                      : clampSummary(result.raw ?? '', rollCfg.summarizeMaxChars);
+                    const forced = !result.applied && shouldForceRecap({ candidate: salvaged, lag, lagCeiling });
+                    const commit = result.applied ? result.next : forced ? salvaged : null;
+                    if (commit) {
+                      recapText = commit;
                       recapCutoff = spanTo;
-                      writeRecapRecord(result.next, sid);
+                      writeRecapRecord(commit, sid);
                     }
                     writeRecapAudit({ result, model: info.model, spanFrom, spanTo, mode: 'async', forced });
-                    if ((result.applied || forced) && result.next) {
+                    if (commit) {
                       // Capture runs SEQUENTIALLY after the recap, and is
                       // AWAITED inside the chain so `recapInFlight` stays set
                       // until it finishes. Both matter: the fact-extractor
@@ -1773,11 +1793,15 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
               // Blocking (inherited / same endpoint): one llama.cpp instance
               // cannot serve the recap and the main turn concurrently.
               const result = await doRecap(ctx, span, recapText, info, ctx.signal);
-              const forced = !result.applied && shouldForceRecap({ candidate: result.next, lag, lagCeiling });
-              if ((result.applied || forced) && result.next) {
-                recapText = result.next;
+              const salvaged = result.applied
+                ? result.next
+                : clampSummary(result.raw ?? '', rollCfg.summarizeMaxChars);
+              const forced = !result.applied && shouldForceRecap({ candidate: salvaged, lag, lagCeiling });
+              const commit = result.applied ? result.next : forced ? salvaged : null;
+              if (commit) {
+                recapText = commit;
                 recapCutoff = spanTo;
-                writeRecapRecord(result.next, sid);
+                writeRecapRecord(commit, sid);
                 await captureFacts(ctx, span);
                 await captureTimeline(ctx, span, sid);
               }
@@ -1812,7 +1836,20 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
         if (typeof windowTokens === 'number' && windowTokens > 0) {
           const cpt = charsPerToken > 0 ? charsPerToken : DEFAULT_CHARS_PER_TOKEN;
           const sysChars = (typeof ctx.getSystemPrompt === 'function' ? ctx.getSystemPrompt() : '')?.length ?? 0;
-          const injectChars = recapText.length + timelineText.length;
+          // Reserve against what is ACTUALLY injected, not the raw cumulative
+          // stores. `recapText` is bounded by `summarizeMaxChars`, so count it
+          // in full; the timeline, however, is injected through
+          // `renderTimelineBlock` capped at `timelineMaxInjectChars` (~1200),
+          // while `timelineText` is the many-KB cumulative append-log. Counting
+          // the raw log would make the floor believe injection is far more
+          // expensive than it is, shrink `convBudget`, and drop more verbatim
+          // tail than necessary - worst exactly when the timeline is most active.
+          const timelineInjectChars = timelineText
+            ? (renderTimelineBlock(timelineText, {
+                maxChars: loadRoleplayConfig(cwd, envCharBudget).timelineMaxInjectChars,
+              })?.length ?? 0)
+            : 0;
+          const injectChars = recapText.length + timelineInjectChars;
           // Reserve for the model's own output plus injection/formatting slack.
           const RESERVE_TOKENS = 3072;
           const convBudget = windowTokens - Math.round((sysChars + injectChars) / cpt) - RESERVE_TOKENS;

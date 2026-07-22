@@ -23,6 +23,7 @@ import {
   resolveSummarizeSettings,
   type SummarizableMessage,
   type SummarizeRunResult,
+  clampSummary,
   validateSummary,
 } from '../../../../../lib/node/pi/roleplay/summarize.ts';
 
@@ -126,6 +127,30 @@ test('validateSummary rejects empty, null sentinel, and over-cap; trims otherwis
   expect(validateSummary('null', 1000)).toBeNull();
   expect(validateSummary('X'.repeat(50), 10)).toBeNull();
   expect(validateSummary('  a recap.  ', 1000)).toBe('a recap.');
+});
+
+test('clampSummary salvages an over-cap recap at a natural boundary (forced-path only helper)', () => {
+  // Empty / null sentinel: nothing usable, mirrors validateSummary.
+  expect(clampSummary('   ', 1000)).toBeNull();
+  expect(clampSummary('null', 1000)).toBeNull();
+  expect(clampSummary('anything', 0)).toBeNull();
+  // Under cap: returned unchanged (trimmed).
+  expect(clampSummary('  a recap.  ', 1000)).toBe('a recap.');
+  // Over cap with a sentence boundary in the back half: clamp at the sentence.
+  const two = 'First sentence here. Second sentence goes on and on and on.';
+  const clampedSentence = clampSummary(two, 25);
+  expect(clampedSentence).toBe('First sentence here.');
+  expect(clampedSentence!.length).toBeLessThanOrEqual(25);
+  // Over cap, no sentence boundary but a word boundary: clamp on the word.
+  const words = 'alpha beta gamma delta epsilon zeta';
+  const clampedWord = clampSummary(words, 20);
+  expect(clampedWord).toBe('alpha beta gamma');
+  expect(clampedWord!.length).toBeLessThanOrEqual(20);
+  // No usable boundary near the end (one long token): hard clamp to the cap.
+  const long = 'X'.repeat(50);
+  const clampedHard = clampSummary(long, 10);
+  expect(clampedHard).toBe('X'.repeat(10));
+  expect(clampedHard!.length).toBe(10);
 });
 
 test('composeAutoSummaryRecord shapes a rolling auto record with a dated description', () => {
@@ -312,4 +337,40 @@ test('summarize returns null on the null sentinel and on over-cap output', async
     runOneShot: () => Promise.resolve({ finalText: 'X'.repeat(50), stopReason: 'completed' }),
   });
   expect(await overCap.summarize(ctx, 'span')).toBeNull();
+});
+
+test('summarizeDetailed surfaces the raw over-cap text so the forced path can salvage it', async () => {
+  const overCap = createSummarizer<FakeModel>({
+    settings: { summarizeModel: 'p/m', source: 's' },
+    summarizerAgent: fakeAgent(),
+    maxOutputChars: 10,
+    runOneShot: () => Promise.resolve({ finalText: '  a long over-cap recap.  ', stopReason: 'completed' }),
+  });
+  const detailed = await overCap.summarizeDetailed(ctx, 'span');
+  // Validated recap is dropped (over cap), but the raw trimmed text survives.
+  expect(detailed.recap).toBeNull();
+  expect(detailed.raw).toBe('a long over-cap recap.');
+
+  // The null sentinel and a spawn failure yield raw=null (nothing to salvage).
+  const sentinel = createSummarizer<FakeModel>({
+    settings: { summarizeModel: 'p/m', source: 's' },
+    summarizerAgent: fakeAgent(),
+    runOneShot: () => Promise.resolve({ finalText: 'null', stopReason: 'completed' }),
+  });
+  expect(await sentinel.summarizeDetailed(ctx, 'span')).toEqual({ recap: null, raw: null });
+
+  const failed = createSummarizer<FakeModel>({
+    settings: { summarizeModel: 'p/m', source: 's' },
+    summarizerAgent: fakeAgent(),
+    runOneShot: () => Promise.resolve({ finalText: 'partial', stopReason: 'max_turns' }),
+  });
+  expect(await failed.summarizeDetailed(ctx, 'span')).toEqual({ recap: null, raw: null });
+
+  // Under cap: recap and raw agree.
+  const ok = createSummarizer<FakeModel>({
+    settings: { summarizeModel: 'p/m', source: 's' },
+    summarizerAgent: fakeAgent(),
+    runOneShot: () => Promise.resolve({ finalText: '  tidy recap.  ', stopReason: 'completed' }),
+  });
+  expect(await ok.summarizeDetailed(ctx, 'span')).toEqual({ recap: 'tidy recap.', raw: 'tidy recap.' });
 });

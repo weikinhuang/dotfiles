@@ -6,6 +6,7 @@ import {
   estimateChars,
   DEFAULT_WINDOW_OPTIONS,
 } from '../../../../../lib/node/pi/roleplay/context-window.ts';
+import { renderTimelineBlock } from '../../../../../lib/node/pi/roleplay/timeline.ts';
 
 type Msg = Record<string, unknown>;
 
@@ -88,5 +89,73 @@ describe('context-window hard safety floor (Fix B)', () => {
     const recapCutoff = floor + 200;
     const dropCutoff = Math.max(recapCutoff, floor);
     expect(dropCutoff).toBe(recapCutoff); // recap wins; no extra loss
+  });
+});
+
+describe('hard safety floor reserves against the CAPPED timeline block (Bug 2)', () => {
+  const cpt = 4;
+  const windowTokens = 57344;
+  const TIMELINE_MAX_INJECT = 1200; // timelineMaxInjectChars default
+
+  // Build a many-KB cumulative timeline append-log (dated beat lines).
+  function bigTimeline(lines: number): string {
+    const out: string[] = [];
+    for (let i = 0; i < lines; i++) {
+      out.push(`Day ${i}: something notable happened in the scene, beat number ${i} on the running timeline.`);
+    }
+    return out.join('\n');
+  }
+
+  /**
+   * The floor's conversation budget as the extension now computes it: reserve
+   * against `injectChars`, where the timeline term is the RENDERED/CAPPED block
+   * length (Bug 2 fix), not the raw cumulative `timelineText`.
+   */
+  function convBudget(injectChars: number): number {
+    const RESERVE_TOKENS = 3072;
+    const sysTokens = 20000;
+    return windowTokens - sysTokens - RESERVE_TOKENS - Math.round(injectChars / cpt);
+  }
+
+  it('reserves against the rendered block, which is far smaller than the raw log', () => {
+    const timelineText = bigTimeline(400); // many KB cumulative
+    expect(timelineText.length).toBeGreaterThan(10 * TIMELINE_MAX_INJECT);
+
+    const renderedLen = renderTimelineBlock(timelineText, { maxChars: TIMELINE_MAX_INJECT })!.length;
+    expect(renderedLen).toBeLessThanOrEqual(TIMELINE_MAX_INJECT);
+
+    const recapChars = 1500; // recapText bounded by summarizeMaxChars
+    // Fixed (buggy) reservation vs. the corrected one.
+    const buggyBudget = convBudget(recapChars + timelineText.length);
+    const fixedBudget = convBudget(recapChars + renderedLen);
+
+    // The corrected budget is strictly larger (the floor over-reserved before).
+    expect(fixedBudget).toBeGreaterThan(buggyBudget);
+  });
+
+  it('the corrected budget keeps more verbatim tail than the over-reserving one', () => {
+    const msgs = transcript(900, 800);
+    const timelineText = bigTimeline(400);
+    const renderedLen = renderTimelineBlock(timelineText, { maxChars: TIMELINE_MAX_INJECT })!.length;
+    const recapChars = 1500;
+
+    const buggyBudget = convBudget(recapChars + timelineText.length);
+    const fixedBudget = convBudget(recapChars + renderedLen);
+
+    const buggyFloor = computeCutoff(msgs, deriveKeepTurns(msgs, buggyBudget, cpt, 1, 100000));
+    const fixedFloor = computeCutoff(msgs, deriveKeepTurns(msgs, fixedBudget, cpt, 1, 100000));
+
+    // A larger budget drops FEWER messages (a smaller-or-equal drop cutoff), so
+    // more verbatim tail survives - the whole point of Bug 2.
+    expect(fixedFloor).toBeLessThanOrEqual(buggyFloor);
+    expect(msgs.length - fixedFloor).toBeGreaterThan(msgs.length - buggyFloor);
+    // The fixed prompt still fits the window (reserved term is an under-estimate
+    // of nothing - the rendered block is exactly what gets injected).
+    const opts = DEFAULT_WINDOW_OPTIONS;
+    const kept = applyLayeredWindow(msgs, fixedFloor, fixedFloor, opts);
+    const keptTokens = estimateChars(kept.messages) / cpt + (recapChars + renderedLen) / cpt;
+    const RESERVE_TOKENS = 3072;
+    const sysTokens = 20000;
+    expect(keptTokens).toBeLessThanOrEqual(windowTokens - sysTokens - RESERVE_TOKENS + 1);
   });
 });

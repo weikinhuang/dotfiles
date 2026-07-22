@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
+import { clampSummary } from '../../../../../lib/node/pi/roleplay/summarize.ts';
 import {
   acceptRecap,
   applyContextWindowAt,
@@ -311,6 +312,79 @@ describe('shouldForceRecap', () => {
 
   it('lagCeiling <= 0 disables the breaker', () => {
     expect(shouldForceRecap({ candidate: 'short recap', lag: 9999, lagCeiling: 0 })).toBe(false);
+  });
+});
+
+describe('recap wedge regression (persistent over-cap candidate)', () => {
+  // Reproduces the latent wedge: the summarizer keeps overshooting the char
+  // cap, so validateSummary drops the candidate to null every roll. Before the
+  // fix, acceptRecap(prior, null) === false AND shouldForceRecap({ candidate:
+  // null }) === false, so recapCutoff never advanced and the safety floor
+  // silently dropped the uncovered span. The fix surfaces the RAW over-cap
+  // text and, on the forced path only (lag >= ceiling), clamps it so coverage
+  // eventually advances. This simulation mirrors the extension's roll loop
+  // over the pure helpers it composes.
+  const CAP = 1500; // summarizeMaxChars
+  const CEILING = 96; // recapLagCeiling
+  const MAX_ADVANCE = 24; // recapMaxAdvance
+
+  // Model that persistently overshoots the cap: every recap is > CAP chars.
+  const overCapRecap = (): string => 'X'.repeat(CAP + 500);
+
+  it('never wedges: coverage advances once lag passes the ceiling', () => {
+    let recapCutoff = 0;
+    let recapText = '';
+    let natural = 0;
+    const advances: number[] = [];
+
+    // 300 turns of aged messages arrive; a roll fires each iteration.
+    for (let turn = 0; turn < 300; turn++) {
+      natural += 1; // one more aged message each turn
+      const spanTo = boundRollSpanTo(recapCutoff, natural, MAX_ADVANCE);
+      const lag = natural - recapCutoff;
+
+      // doRecap: the raw model text is over-cap, so validateSummary => null.
+      const raw = overCapRecap();
+      const next = raw.length > CAP ? null : raw; // validateSummary behavior
+      const applied = acceptRecap(recapText, next);
+
+      // Forced-path salvage (Option A): clamp the raw over-cap text.
+      const salvaged = applied ? next : clampSummary(raw, CAP);
+      const forced = !applied && shouldForceRecap({ candidate: salvaged, lag, lagCeiling: CEILING });
+      const commit = applied ? next : forced ? salvaged : null;
+      if (commit) {
+        const before = recapCutoff;
+        recapText = commit;
+        recapCutoff = spanTo;
+        advances.push(recapCutoff - before);
+      }
+    }
+
+    // Coverage must have advanced (the pre-fix bug pinned recapCutoff at 0).
+    expect(recapCutoff).toBeGreaterThan(0);
+    expect(advances.length).toBeGreaterThan(0);
+    // Once forced, the committed recap is a clamped (<= cap) non-empty string,
+    // never the discarded null.
+    expect(recapText.length).toBeGreaterThan(0);
+    expect(recapText.length).toBeLessThanOrEqual(CAP);
+    // And the uncovered lag stays bounded by the ceiling (+ one roll stride) -
+    // it can no longer grow without limit.
+    const finalLag = 300 - recapCutoff;
+    expect(finalLag).toBeLessThanOrEqual(CEILING + MAX_ADVANCE);
+  });
+
+  it('normal path still drops a one-off over-cap runaway (no premature clamp)', () => {
+    // Lag below the ceiling: an over-cap candidate is NOT committed - the
+    // "drop a runaway, do not truncate" rule holds until the breaker trips.
+    const raw = overCapRecap();
+    const next = raw.length > CAP ? null : raw;
+    const applied = acceptRecap('a solid prior recap', next);
+    const salvaged = applied ? next : clampSummary(raw, CAP);
+    const forced = !applied && shouldForceRecap({ candidate: salvaged, lag: 10, lagCeiling: CEILING });
+    const commit = applied ? next : forced ? salvaged : null;
+    expect(applied).toBe(false);
+    expect(forced).toBe(false);
+    expect(commit).toBeNull();
   });
 });
 

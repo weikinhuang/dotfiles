@@ -164,6 +164,34 @@ export function validateSummary(raw: string, maxChars: number): string | null {
   return trimmed;
 }
 
+/**
+ * Salvage an over-cap recap by TRUNCATING it to `maxChars` at a natural
+ * boundary - the last sentence end in the back of the slice, else the last
+ * word boundary, else a hard clamp - instead of discarding it the way {@link
+ * validateSummary} does. This is the deliberate exception to the normal path's
+ * "drop a runaway, don't truncate" rule: it exists ONLY for the forced recap
+ * path (coverage lag past the ceiling), where a clamped recap that restores
+ * forward progress beats a permanent wedge plus the safety floor silently
+ * dropping the uncovered span. Returns the clamped text, or `null` when there
+ * is nothing usable (empty / the literal `null` sentinel).
+ */
+export function clampSummary(raw: string, maxChars: number): string | null {
+  const trimmed = raw.trim();
+  if (trimmed.length === 0) return null;
+  if (trimmed === 'null') return null;
+  if (maxChars <= 0) return null;
+  if (trimmed.length <= maxChars) return trimmed;
+  const slice = trimmed.slice(0, maxChars);
+  // Prefer the last sentence boundary in the back half of the slice.
+  const sentence = Math.max(slice.lastIndexOf('. '), slice.lastIndexOf('! '), slice.lastIndexOf('? '));
+  if (sentence >= maxChars * 0.5) return slice.slice(0, sentence + 1).trimEnd();
+  // Else fall back to the last word boundary in the back half.
+  const word = slice.lastIndexOf(' ');
+  if (word >= maxChars * 0.5) return slice.slice(0, word).trimEnd();
+  // No usable boundary near the end: hard clamp.
+  return slice.trimEnd();
+}
+
 export interface AutoSummaryRecord {
   /** Fixed slug - the rolling auto-summary record id. */
   id: string;
@@ -293,6 +321,28 @@ export interface Summarizer<M = unknown> {
     priorSummary?: string,
     guidance?: string,
   ): Promise<string | null>;
+  /**
+   * Like {@link summarize} but ALSO surfaces the raw trimmed model text
+   * before the over-cap discard. `recap` is the validated recap (null on
+   * empty / `null` sentinel / over-cap); `raw` is the trimmed model output
+   * (null only on a spawn/stop failure or empty / `null` sentinel). Lets the
+   * forced recap path salvage an over-cap recap by clamping `raw` (see {@link
+   * clampSummary}) rather than wedging on the discarded `recap`.
+   */
+  summarizeDetailed(
+    ctx: SummarizeContext<M>,
+    spanText: string,
+    priorSummary?: string,
+    guidance?: string,
+  ): Promise<SummarizeResult>;
+}
+
+/** Both halves of one recap pass: the validated recap and the raw model text. */
+export interface SummarizeResult {
+  /** Validated recap; `null` on empty / `null` sentinel / over-cap. */
+  recap: string | null;
+  /** Trimmed model text before the cap check; `null` on failure / empty / sentinel. */
+  raw: string | null;
 }
 
 const DEFAULT_MAX_OUTPUT_CHARS = 1500;
@@ -309,28 +359,36 @@ export function createSummarizer<M>(wiring: SummarizerWiring<M>): Summarizer<M> 
 
   const isEnabled = (): boolean => wiring.settings !== null && wiring.summarizerAgent !== null;
 
+  const summarizeDetailed = async (
+    ctx: SummarizeContext<M>,
+    spanText: string,
+    priorSummary?: string,
+    guidance?: string,
+  ): Promise<SummarizeResult> => {
+    const agent = wiring.summarizerAgent;
+    const settings = wiring.settings;
+    if (!agent || !settings) return { recap: null, raw: null };
+    if (spanText.trim().length === 0) return { recap: null, raw: null };
+
+    const adapter = createOneShotSubagentAdapter<M>({
+      agent,
+      runOneShot: wiring.runOneShot,
+      timeoutMs,
+      label: 'summarizer',
+      log: wiring.log,
+    });
+    const finalText = await adapter.run(ctx, buildSummarizeTask(spanText, priorSummary, guidance), settings.summarizeModel);
+    if (finalText === null) return { recap: null, raw: null };
+    const trimmed = finalText.trim();
+    const raw = trimmed.length === 0 || trimmed === 'null' ? null : trimmed;
+    return { recap: validateSummary(finalText, maxOutput), raw };
+  };
+
   return {
     isEnabled,
-
+    summarizeDetailed,
     async summarize(ctx, spanText, priorSummary, guidance) {
-      const agent = wiring.summarizerAgent;
-      const settings = wiring.settings;
-      if (!agent || !settings) return null;
-      if (spanText.trim().length === 0) return null;
-
-      const adapter = createOneShotSubagentAdapter<M>({
-        agent,
-        runOneShot: wiring.runOneShot,
-        timeoutMs,
-        label: 'summarizer',
-        log: wiring.log,
-      });
-      const finalText = await adapter.run(
-        ctx,
-        buildSummarizeTask(spanText, priorSummary, guidance),
-        settings.summarizeModel,
-      );
-      return finalText === null ? null : validateSummary(finalText, maxOutput);
+      return (await summarizeDetailed(ctx, spanText, priorSummary, guidance)).recap;
     },
   };
 }

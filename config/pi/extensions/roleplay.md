@@ -321,6 +321,13 @@ folded cumulatively into one rolling `summary/auto` record.
 - **Collapse guard.** A degenerate recap (measured in the field: 3456 -> 95 chars) is rejected (`acceptRecap`, keep the
   candidate only when it retains >= 50% of the prior length or there is no prior), so a bad generation can't erase scene
   memory now that the recap is the only in-context record of dropped turns.
+- **Coverage can never wedge permanently.** The cumulative recap hovers near `summarizeMaxChars`, so a consolidation
+  can land over the cap; on the **normal path** an over-cap candidate is still _dropped, not truncated_ (`validateSummary`
+  returns `null` - a one-off runaway never commits). The circuit-breaker keeps that safe rule from stalling coverage
+  forever: once the uncovered lag passes `recapLagCeiling` (`shouldForceRecap`), the **forced path only** salvages the
+  candidate by clamping the raw over-cap text at a sentence/word boundary (`clampSummary`, bounded by `summarizeMaxChars`)
+  and advances `recapCutoff`. A persistently over-cap or persistently collapsing summarizer therefore drains a bounded
+  step per roll instead of pinning coverage while the hard floor silently drops the uncovered span.
 - **Neutral sampler pinned.** The summarizer runs at `temperature: 0.3` / `presence_penalty: 0`
   ([frontmatter `requestOptions`](../../../config/pi/agents/roleplay-summarizer.md), applied via an inline agent-gate
   factory since the child loads with `noExtensions`). Note: the active persona's `temperature: 1.5` /
