@@ -35,6 +35,10 @@
  *   PI_ROLEPLAY_DISABLE_SCENEGEN=1       stop mirroring generated images to the
  *                                        avatar scene banner.
  *   PI_ROLEPLAY_MAX_INJECTED_CHARS=N     soft cap on injected block (default 3000).
+ *   PI_ROLEPLAY_LORE_BUNDLES=a,b          activate optional lore bundles
+ *                                        (`lore/<name>/*.md`), ascending
+ *                                        precedence; each overrides base
+ *                                        lore on an id clash.
  *   PI_ROLEPLAY_ROOT=<path>              override `~/.pi/agent/roleplay`.
  *
  * Activation gate: the tool, cast scan, and `## Roleplay` injection are
@@ -163,6 +167,7 @@ import {
   fileFor,
   listCasts,
   listFactSidecars,
+  parseLoreBundleSelection,
   portraitPath,
   readEntryBody,
   rebuildCast,
@@ -347,6 +352,11 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
   const sceneGenEnabled = !envTruthy(process.env.PI_ROLEPLAY_DISABLE_SCENEGEN);
   const envCharBudget = parseClampedPositiveInt(process.env.PI_ROLEPLAY_MAX_INJECTED_CHARS, 0, 1) || undefined;
 
+  // Activated lore bundles, resolved once at load from the env contract
+  // (`PI_ROLEPLAY_LORE_BUNDLES=nameA,nameB`, ascending precedence). The
+  // scanner stays env-agnostic - it takes the parsed selection.
+  const loreBundles = parseLoreBundleSelection(process.env.PI_ROLEPLAY_LORE_BUNDLES);
+
   // Rolling context-window management. `contextWindowEnabled` runs the
   // per-turn in-context reduction (drop/condense) in the `context` hook.
   // `recapMode` = bounded mode: the summarizer folds the aged prefix into
@@ -523,7 +533,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
       if (avatarDriveEnabled) clearAvatarInput();
       return;
     }
-    const { state: next, warnings } = rebuildCast(cast);
+    const { state: next, warnings } = rebuildCast(cast, roleplayRoot(), { loreBundles });
     state = next;
     syncedCast = cast;
     for (const w of warnings) {
@@ -1793,9 +1803,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
               // Blocking (inherited / same endpoint): one llama.cpp instance
               // cannot serve the recap and the main turn concurrently.
               const result = await doRecap(ctx, span, recapText, info, ctx.signal);
-              const salvaged = result.applied
-                ? result.next
-                : clampSummary(result.raw ?? '', rollCfg.summarizeMaxChars);
+              const salvaged = result.applied ? result.next : clampSummary(result.raw ?? '', rollCfg.summarizeMaxChars);
               const forced = !result.applied && shouldForceRecap({ candidate: salvaged, lag, lagCeiling });
               const commit = result.applied ? result.next : forced ? salvaged : null;
               if (commit) {

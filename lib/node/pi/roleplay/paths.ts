@@ -57,6 +57,11 @@ export function fileFor(cast: string, kind: RoleplayKind, slug: string, root: st
   return join(kindDir(cast, kind, root), `${slug}.md`);
 }
 
+/** Directory holding one named lore bundle (`<cast>/lore/<bundle>/`). See the bundle note below `scanCast`. */
+export function loreBundleDir(cast: string, bundle: string, root: string = roleplayRoot()): string {
+  return join(kindDir(cast, 'lore', root), bundle);
+}
+
 // ──────────────────────────────────────────────────────────────────────
 // Per-cast carry-over + newscene archive layout (recap + timeline)
 //
@@ -222,7 +227,9 @@ export function archiveFacts(cast: string, ts: string, root: string = roleplayRo
 }
 
 export function readEntryBody(cast: string, entry: RoleplayEntry, root: string = roleplayRoot()): string | null {
-  const path = fileFor(cast, entry.kind, entry.id, root);
+  const path = entry.bundle
+    ? join(loreBundleDir(cast, entry.bundle, root), `${entry.id}.md`)
+    : fileFor(cast, entry.kind, entry.id, root);
   if (!existsSync(path)) return null;
   const raw = readTextFile(path);
   if (raw == null) return null;
@@ -235,71 +242,168 @@ export interface ScanWarning {
   reason: string;
 }
 
+// ──────────────────────────────────────────────────────────────────────
+// Optional lore bundles
+//
+// A cast's `lore/` dir holds the always-on BASE lore as top-level
+// `lore/*.md`. It may ALSO hold any number of NAMED bundles as
+// subfolders (`lore/<bundle-name>/*.md`) - interchangeable groups of
+// lore for alternate settings, seasons, story arcs, or any other variant
+// axis. A bundle is INERT unless its name is in the activation selection
+// passed to `scanCast` (resolved from `PI_ROLEPLAY_LORE_BUNDLES` in the
+// extension layer - the scanner stays env-agnostic).
+//
+// Precedence, applied by keying every entry on `<kind>/<id>` and letting
+// later writes win:
+//
+//   base `lore/*.md`  <  bundles[0]  <  bundles[1]  <  …
+//
+// i.e. an activated bundle file OVERRIDES a base file that shares its id,
+// and a bundle later in the selection overrides an earlier one. Bundles
+// only ever contribute `lore` entries; the other kinds have no bundle
+// tier. An activated name with no matching subfolder is reported as a
+// warning and skipped (graceful). Because only explicitly-selected
+// bundle subfolders are read, inert bundles - and any incidental
+// subfolder like `archive/` - are never scanned.
+// ──────────────────────────────────────────────────────────────────────
+
+/** Resolved, scanner-facing bundle selection (env/config parse stays in the extension layer). */
+export interface ScanCastOptions {
+  /**
+   * Activated lore bundle names, in ASCENDING precedence order (later
+   * entries override earlier ones; all override base lore). Empty /
+   * omitted = base lore only.
+   */
+  loreBundles?: string[];
+}
+
+/**
+ * Parse a `PI_ROLEPLAY_LORE_BUNDLES`-style value into an ordered bundle
+ * selection: comma-separated names, trimmed, blanks dropped, duplicates
+ * removed (first occurrence wins to keep precedence order stable). Pure
+ * so the env/config resolution is unit-testable apart from disk I/O.
+ */
+export function parseLoreBundleSelection(raw: string | undefined): string[] {
+  if (!raw) return [];
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const part of raw.split(',')) {
+    const name = part.trim();
+    if (name.length === 0 || seen.has(name)) continue;
+    seen.add(name);
+    out.push(name);
+  }
+  return out;
+}
+
+/**
+ * Parse every `*.md` in one directory as entries of a single `kind`,
+ * appending records into `out` (keyed by `<kind>/<id>` so a later call
+ * overrides an earlier one) and problems into `warnings`. Subdirectories
+ * are skipped (only top-level files are read), so scanning a kind dir
+ * never descends into its bundle / `archive/` subfolders.
+ */
+function scanKindDir(
+  dir: string,
+  kind: RoleplayKind,
+  out: Map<string, RoleplayEntry>,
+  warnings: ScanWarning[],
+  bundle?: string,
+): void {
+  let files: string[];
+  try {
+    files = readdirSync(dir);
+  } catch {
+    return;
+  }
+  for (const name of files) {
+    if (!name.endsWith('.md')) continue;
+    const full = join(dir, name);
+    try {
+      if (!statSync(full).isFile()) continue;
+    } catch {
+      continue;
+    }
+    const raw = readTextFile(full);
+    if (raw == null) {
+      warnings.push({ path: full, reason: 'unreadable' });
+      continue;
+    }
+    const parsed = parseFrontmatter(raw);
+    if (!parsed) {
+      warnings.push({ path: full, reason: 'missing or malformed frontmatter' });
+      continue;
+    }
+    if (parsed.frontmatter.kind !== kind) {
+      warnings.push({
+        path: full,
+        reason: `frontmatter kind "${String(parsed.frontmatter.kind)}" != directory "${String(kind)}"`,
+      });
+      continue;
+    }
+    const id = name.slice(0, -3);
+    out.set(`${kind}/${id}`, {
+      id,
+      kind,
+      name: parsed.frontmatter.name,
+      description: parsed.frontmatter.description,
+      ...(parsed.frontmatter.lore ? { lore: parsed.frontmatter.lore } : {}),
+      ...(parsed.frontmatter.relationship ? { relationship: parsed.frontmatter.relationship } : {}),
+      ...(bundle ? { bundle } : {}),
+    });
+  }
+}
+
 /**
  * Walk `<castDir>/<kind>/*.md` for each known kind and parse frontmatter
  * into `RoleplayEntry` records. Malformed files are skipped with a
  * warning so one bad file doesn't blind the whole cast.
+ *
+ * When `options.loreBundles` is non-empty, each named bundle subfolder
+ * (`lore/<name>/*.md`) is scanned on top of the base lore with
+ * bundle-overrides-base precedence (see the bundle note above). An
+ * activated name with no matching subfolder is reported as a warning.
  */
 export function scanCast(
   cast: string,
   root: string = roleplayRoot(),
+  options: ScanCastOptions = {},
 ): { entries: RoleplayEntry[]; warnings: string[] } {
-  const entries: RoleplayEntry[] = [];
+  const byKey = new Map<string, RoleplayEntry>();
   const warnings: ScanWarning[] = [];
   const base = castDir(cast, root);
 
   for (const kind of ROLEPLAY_KINDS) {
-    const dir = join(base, kind);
-    let files: string[];
-    try {
-      files = readdirSync(dir);
-    } catch {
-      continue;
-    }
-    for (const name of files) {
-      if (!name.endsWith('.md')) continue;
-      const full = join(dir, name);
-      try {
-        if (!statSync(full).isFile()) continue;
-      } catch {
-        continue;
-      }
-      const raw = readTextFile(full);
-      if (raw == null) {
-        warnings.push({ path: full, reason: 'unreadable' });
-        continue;
-      }
-      const parsed = parseFrontmatter(raw);
-      if (!parsed) {
-        warnings.push({ path: full, reason: 'missing or malformed frontmatter' });
-        continue;
-      }
-      if (parsed.frontmatter.kind !== kind) {
-        warnings.push({
-          path: full,
-          reason: `frontmatter kind "${String(parsed.frontmatter.kind)}" != directory "${String(kind)}"`,
-        });
-        continue;
-      }
-      entries.push({
-        id: name.slice(0, -3),
-        kind,
-        name: parsed.frontmatter.name,
-        description: parsed.frontmatter.description,
-        ...(parsed.frontmatter.lore ? { lore: parsed.frontmatter.lore } : {}),
-        ...(parsed.frontmatter.relationship ? { relationship: parsed.frontmatter.relationship } : {}),
-      });
-    }
+    scanKindDir(join(base, kind), kind, byKey, warnings);
   }
 
-  entries.sort((a, b) => `${a.kind}/${a.id}`.localeCompare(`${b.kind}/${b.id}`));
+  for (const bundle of options.loreBundles ?? []) {
+    const dir = loreBundleDir(cast, bundle, root);
+    let isDir = false;
+    try {
+      isDir = statSync(dir).isDirectory();
+    } catch {
+      isDir = false;
+    }
+    if (!isDir) {
+      warnings.push({ path: dir, reason: `lore bundle "${bundle}" not found` });
+      continue;
+    }
+    scanKindDir(dir, 'lore', byKey, warnings, bundle);
+  }
+
+  const entries = [...byKey.values()].sort((a, b) => `${a.kind}/${a.id}`.localeCompare(`${b.kind}/${b.id}`));
 
   return { entries, warnings: warnings.map((w) => `${w.path}: ${w.reason}`) };
 }
 
 /** Rebuild the in-memory state for a cast from disk. */
-export function rebuildCast(cast: string, root: string = roleplayRoot()): { state: RoleplayState; warnings: string[] } {
-  const { entries, warnings } = scanCast(cast, root);
+export function rebuildCast(
+  cast: string,
+  root: string = roleplayRoot(),
+  options: ScanCastOptions = {},
+): { state: RoleplayState; warnings: string[] } {
+  const { entries, warnings } = scanCast(cast, root, options);
   return { state: { cast, entries }, warnings };
 }
 

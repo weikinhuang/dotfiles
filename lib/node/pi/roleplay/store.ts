@@ -197,6 +197,14 @@ export interface RoleplayEntry {
   character?: CharacterMeta;
   /** Relationship metadata; present iff `kind === 'relationship'`. */
   relationship?: RelationshipMeta;
+  /**
+   * Name of the activated lore bundle this record was read from
+   * (`lore/<bundle>/<id>.md`); absent for base top-level records. A
+   * runtime-only annotation the scanner stamps so body reads resolve to
+   * the bundle file (never serialized - it is a function of on-disk
+   * location, not file content).
+   */
+  bundle?: string;
 }
 
 export interface RoleplayState {

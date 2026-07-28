@@ -40,7 +40,8 @@ ${PI_ROLEPLAY_ROOT:-~/.pi/agent/roleplay}/
 └── casts/<cast-slug>/
     ├── INDEX.md            ← one-line-per-record index, tool-rebuilt; don't hand-edit
     ├── character/<slug>.md
-    ├── lore/<slug>.md
+    ├── lore/<slug>.md           ← always-on BASE lore (top-level)
+    ├── lore/<bundle>/<slug>.md  ← optional NAMED lore bundle (inert unless activated)
     ├── relationship/<slug>.md
     ├── summary/
     │   ├── auto.md              ← carry-over recap (scanned entry; cross-session seed for new trees)
@@ -59,7 +60,9 @@ The `summary` and `timeline` kinds are **branch-primary** (see
 coverage boundary), while the top-level `auto.md` is the scanned per-cast **carry-over** - the cross-session seed a
 genuinely new tree inherits - and `archive/` holds newscene archives. `scanCast` reads only top-level `*.md` per kind,
 so the `archive/` subdir - and the whole `facts/` sidecar - are skipped by the scan and never appear in
-`formatRoleplayBlock`.
+`formatRoleplayBlock`. The one exception is `lore/`, which additionally supports optional named **bundle** subfolders
+(see [Optional lore bundles](#optional-lore-bundles) below); a bundle is only read when its name is in the launch-time
+activation selection, so unactivated bundle subfolders stay inert exactly like `archive/`.
 
 Each record is a markdown file with strict three-key frontmatter (`name`, `description`, `kind`) plus a markdown body;
 `lore` records carry extra keyword/injection fields and `relationship` records carry affinity/trust fields (see below).
@@ -118,6 +121,37 @@ lore (entries with a `depth`) still uses plain matching in v1.
 > **Phase 2 scan window:** matching runs in `before_agent_start`, which only exposes the _latest user message_, so lore
 > fires on the current prompt. Scanning the recent N turns and inserting at `depth` happens in the `context` event
 > (Phase 4, below).
+
+### Optional lore bundles
+
+A cast's `lore/` dir is a two-tier store. Top-level `lore/*.md` is the always-on **base** lore. Alongside it, `lore/`
+may hold any number of **named bundles** as subfolders (`lore/<bundle-name>/*.md`) - interchangeable groups of lore for
+alternate settings, seasons, story arcs, or any other variant axis. This is a generic organizational primitive: a bundle
+is just a named group of lore records, with **no** hardcoded domain (e.g. a cast might keep an `apartment-loft` and an
+`apartment-cabin` bundle and swap which is live per playthrough, but that is only one application).
+
+**A bundle is inert unless activated.** Activation happens once at launch via the `PI_ROLEPLAY_LORE_BUNDLES` env var - a
+comma-separated list of bundle names, e.g. `PI_ROLEPLAY_LORE_BUNDLES=apartment-loft,winter-arc`. (A launch flag in an RP
+wrapper sets that env var; this extension only defines the env-var contract.) The extension parses it once with
+[`parseLoreBundleSelection`](../../../lib/node/pi/roleplay/paths.ts) (split on commas, trim, drop blanks, dedupe keeping
+first occurrence) and passes the resolved list into `rebuildCast` / `scanCast` as `options.loreBundles`. The scanner
+itself stays env-agnostic - it takes the already-resolved selection, so the disk layer remains pure and unit-testable.
+
+**Precedence is deterministic and documented.** Every record is keyed on `<kind>/<id>`; the scanner loads base lore
+first, then each activated bundle in listed order, letting later writes win:
+
+```text
+base lore/*.md  <  bundles[0]  <  bundles[1]  <  …
+```
+
+So an activated bundle file **overrides** a base file that shares its id (`lore/setting.md` vs
+`lore/apartment-loft/setting.md`), and a bundle later in the selection overrides an earlier one on the same id. A bundle
+adds its own non-colliding records on top of base. Only the explicitly-selected bundle subfolders are read, so a
+NOT-activated bundle never bleeds in, and an incidental subfolder is never scanned. An activated name with no matching
+subfolder is reported as a scan warning (surfaced once via `ctx.ui.notify`) and skipped - the rest of the cast still
+loads. A record read from a bundle carries a runtime-only `bundle` annotation on its `RoleplayEntry` so body reads
+(`readEntryBody`) resolve to the bundle file rather than the base path; the annotation is never serialized (it is a
+function of on-disk location, not file content).
 
 ## Depth injection: author's note + depth-tagged lore
 
@@ -321,13 +355,14 @@ folded cumulatively into one rolling `summary/auto` record.
 - **Collapse guard.** A degenerate recap (measured in the field: 3456 -> 95 chars) is rejected (`acceptRecap`, keep the
   candidate only when it retains >= 50% of the prior length or there is no prior), so a bad generation can't erase scene
   memory now that the recap is the only in-context record of dropped turns.
-- **Coverage can never wedge permanently.** The cumulative recap hovers near `summarizeMaxChars`, so a consolidation
-  can land over the cap; on the **normal path** an over-cap candidate is still _dropped, not truncated_ (`validateSummary`
+- **Coverage can never wedge permanently.** The cumulative recap hovers near `summarizeMaxChars`, so a consolidation can
+  land over the cap; on the **normal path** an over-cap candidate is still _dropped, not truncated_ (`validateSummary`
   returns `null` - a one-off runaway never commits). The circuit-breaker keeps that safe rule from stalling coverage
   forever: once the uncovered lag passes `recapLagCeiling` (`shouldForceRecap`), the **forced path only** salvages the
-  candidate by clamping the raw over-cap text at a sentence/word boundary (`clampSummary`, bounded by `summarizeMaxChars`)
-  and advances `recapCutoff`. A persistently over-cap or persistently collapsing summarizer therefore drains a bounded
-  step per roll instead of pinning coverage while the hard floor silently drops the uncovered span.
+  candidate by clamping the raw over-cap text at a sentence/word boundary (`clampSummary`, bounded by
+  `summarizeMaxChars`) and advances `recapCutoff`. A persistently over-cap or persistently collapsing summarizer
+  therefore drains a bounded step per roll instead of pinning coverage while the hard floor silently drops the uncovered
+  span.
 - **Neutral sampler pinned.** The summarizer runs at `temperature: 0.3` / `presence_penalty: 0`
   ([frontmatter `requestOptions`](../../../config/pi/agents/roleplay-summarizer.md), applied via an inline agent-gate
   factory since the child loads with `noExtensions`). Note: the active persona's `temperature: 1.5` /
@@ -603,6 +638,10 @@ is optional - with none set the event generator inherits the parent session mode
 - `PI_ROLEPLAY_DISABLE_EVENTS=1` - disable `/roleplay event` scene complications.
 - `PI_ROLEPLAY_DISABLE_PROMPT_OVERRIDES=1` - ignore every `prompts/<name>.md` guidance override and use the shipped
   default prompts.
+- `PI_ROLEPLAY_LORE_BUNDLES=nameA,nameB` - activate optional lore bundles (`lore/<name>/*.md`) at launch,
+  comma-separated in ascending precedence order (later overrides earlier; every bundle overrides base lore on an id
+  clash). Base top-level `lore/*.md` always loads; unlisted bundles stay inert. See
+  [Optional lore bundles](#optional-lore-bundles).
 - `PI_ROLEPLAY_DISABLE_AVATAR=1` - stop driving the [`avatar`](./avatar.md) face from the active cast (Phase 6).
 - `PI_ROLEPLAY_DISABLE_SCENEGEN=1` - stop mirroring generated scene images into the avatar's `scene` banner (Phase 6C).
 - `PI_ROLEPLAY_MAX_INJECTED_CHARS=N` - soft cap on the injected cast-index block (default 3000, floor 500). Below the
