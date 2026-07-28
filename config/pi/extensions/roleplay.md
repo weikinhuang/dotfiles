@@ -128,7 +128,10 @@ A cast's `lore/` dir is a two-tier store. Top-level `lore/*.md` is the always-on
 may hold any number of **named bundles** as subfolders (`lore/<bundle-name>/*.md`) - interchangeable groups of lore for
 alternate settings, seasons, story arcs, or any other variant axis. This is a generic organizational primitive: a bundle
 is just a named group of lore records, with **no** hardcoded domain (e.g. a cast might keep an `apartment-loft` and an
-`apartment-cabin` bundle and swap which is live per playthrough, but that is only one application).
+`apartment-cabin` bundle and swap which is live per playthrough, but that is only one application). Bundles may be flat
+(`lore/<name>/*.md` -> `<name>`) or **nested under grouping dirs** to arbitrary depth (`lore/<group>/<name>/*.md` ->
+`<group>/<name>`); a bundle is any dir under `lore/` that directly holds `*.md`, named by its `/`-separated path
+relative to `lore/`. A pure grouping dir with no `*.md` of its own (e.g. `lore/home/`) is not itself a bundle.
 
 **A bundle is inert unless activated.** Activation happens once at launch via the `PI_ROLEPLAY_LORE_BUNDLES` env var - a
 comma-separated list of bundle names, e.g. `PI_ROLEPLAY_LORE_BUNDLES=apartment-loft,winter-arc`. (A launch flag in an RP
@@ -158,12 +161,14 @@ read at runtime), so it reflects the **complete** on-disk inventory - base lore 
 not just whatever selection is active. `writeIndex` builds it from
 [`scanCastComplete`](../../../lib/node/pi/roleplay/paths.ts) (base records for every kind +
 [`listLoreBundles`](../../../lib/node/pi/roleplay/paths.ts)), which - unlike the runtime `scanCast` - does **no**
-cross-tier dedup, so a base `lore/setting.md` and a bundle's `lore/loft/setting.md` both appear. Base lore lists under
-`## Lore` (linking `lore/<id>.md`); each bundle gets its own `### Lore bundle: <name>` subsection linking the real
-`lore/<bundle>/<id>.md` path (a bundle record never emits a base-path link). Enumerating all bundles for the index does
-**not** change runtime loading - `scanCast` still loads only the active selection into live state; the complete
-inventory is an index-only concern. Regenerate on demand with `/roleplay rescan` (needed for bundles authored by direct
-on-disk edits rather than the `roleplay` tool), and every tool `save` / `update` / `remove` rewrites it too.
+cross-tier dedup, so a base `lore/setting.md` and a bundle's `lore/loft/setting.md` both appear. `listLoreBundles` walks
+`lore/` recursively and returns every leaf bundle (any dir directly holding `*.md`, including nested `<group>/<name>`
+bundles), skipping pure grouping dirs. Base lore lists under `## Lore` (linking `lore/<id>.md`); each bundle gets its
+own `### Lore bundle: <name>` subsection linking the real `lore/<bundle>/<id>.md` path (a bundle record never emits a
+base-path link). Enumerating all bundles for the index does **not** change runtime loading - `scanCast` still loads only
+the active selection into live state; the complete inventory is an index-only concern. Regenerate on demand with
+`/roleplay rescan` (needed for bundles authored by direct on-disk edits rather than the `roleplay` tool), and every tool
+`save` / `update` / `remove` rewrites it too.
 
 ## Depth injection: author's note + depth-tagged lore
 

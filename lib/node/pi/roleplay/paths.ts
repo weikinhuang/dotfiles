@@ -57,7 +57,8 @@ export function fileFor(cast: string, kind: RoleplayKind, slug: string, root: st
   return join(kindDir(cast, kind, root), `${slug}.md`);
 }
 
-/** Directory holding one named lore bundle (`<cast>/lore/<bundle>/`). See the bundle note below `scanCast`. */
+/** Directory holding one named lore bundle (`<cast>/lore/<bundle>/`). `bundle` may be a nested,
+ * `/`-separated name (`home/loft`); `join` resolves it under `lore/`. See the bundle note below `scanCast`. */
 export function loreBundleDir(cast: string, bundle: string, root: string = roleplayRoot()): string {
   return join(kindDir(cast, 'lore', root), bundle);
 }
@@ -246,12 +247,17 @@ export interface ScanWarning {
 // Optional lore bundles
 //
 // A cast's `lore/` dir holds the always-on BASE lore as top-level
-// `lore/*.md`. It may ALSO hold any number of NAMED bundles as
-// subfolders (`lore/<bundle-name>/*.md`) - interchangeable groups of
-// lore for alternate settings, seasons, story arcs, or any other variant
-// axis. A bundle is INERT unless its name is in the activation selection
-// passed to `scanCast` (resolved from `PI_ROLEPLAY_LORE_BUNDLES` in the
-// extension layer - the scanner stays env-agnostic).
+// `lore/*.md`. It may ALSO hold any number of NAMED bundles -
+// interchangeable groups of lore for alternate settings, seasons, story
+// arcs, or any other variant axis. A bundle is a directory under `lore/`
+// that directly contains `*.md`; its NAME is its path relative to
+// `lore/` using `/` separators. Bundles may be flat (`lore/<name>/*.md`
+// -> `<name>`) or nested under grouping dirs to arbitrary depth
+// (`lore/<group>/<name>/*.md` -> `<group>/<name>`); a pure grouping dir
+// with no `*.md` of its own is not itself a bundle. A bundle is INERT
+// unless its name is in the activation selection passed to `scanCast`
+// (resolved from `PI_ROLEPLAY_LORE_BUNDLES` in the extension layer - the
+// scanner stays env-agnostic).
 //
 // Precedence, applied by keying every entry on `<kind>/<id>` and letting
 // later writes win:
@@ -351,30 +357,52 @@ function readKindDir(dir: string, kind: RoleplayKind, warnings: ScanWarning[], b
 }
 
 /**
- * List every lore bundle subfolder present on disk for a cast, sorted.
+ * List every lore bundle present on disk for a cast, sorted. A bundle is
+ * any directory UNDER `lore/` that DIRECTLY contains at least one `*.md`
+ * file, returned by its full relative name using `/` separators - so
+ * both a flat bundle (`lore/foo/*.md` -> `foo`) and a nested/grouped one
+ * (`lore/home/foo/*.md` -> `home/foo`) are found to arbitrary depth. A
+ * pure grouping dir that holds only subdirectories and no `*.md` of its
+ * own (e.g. `lore/home/`) is NOT a bundle and is not listed, though its
+ * children still are.
+ *
  * Index-only inventory: this enumerates the COMPLETE set of bundles
- * (`lore/<name>/`) regardless of the active selection, and does NOT
- * affect runtime loading (that stays gated on `scanCast`'s
- * `options.loreBundles`). Any subfolder counts as a bundle - matching
- * the runtime, which will load any activated subfolder by name.
+ * regardless of the active selection, and does NOT affect runtime
+ * loading (that stays gated on `scanCast`'s `options.loreBundles`, whose
+ * slashed tokens resolve through {@link loreBundleDir}). Top-level
+ * `lore/*.md` are base lore, never a bundle, so the scan starts one
+ * level down.
  */
 export function listLoreBundles(cast: string, root: string = roleplayRoot()): string[] {
-  const dir = kindDir(cast, 'lore', root);
-  let names: string[];
-  try {
-    names = readdirSync(dir);
-  } catch {
-    return [];
-  }
-  return names
-    .filter((name) => {
+  const loreRoot = kindDir(cast, 'lore', root);
+  const out: string[] = [];
+
+  const walk = (dir: string, rel: string): void => {
+    let names: string[];
+    try {
+      names = readdirSync(dir);
+    } catch {
+      return;
+    }
+    let hasMd = false;
+    const subdirs: string[] = [];
+    for (const name of names) {
+      let stat;
       try {
-        return statSync(join(dir, name)).isDirectory();
+        stat = statSync(join(dir, name));
       } catch {
-        return false;
+        continue;
       }
-    })
-    .sort();
+      if (stat.isDirectory()) subdirs.push(name);
+      else if (stat.isFile() && name.endsWith('.md')) hasMd = true;
+    }
+    // rel === '' is the lore root itself: its `*.md` are base lore, not a bundle.
+    if (rel !== '' && hasMd) out.push(rel);
+    for (const sub of subdirs) walk(join(dir, sub), rel === '' ? sub : `${rel}/${sub}`);
+  };
+
+  walk(loreRoot, '');
+  return out.sort();
 }
 
 /**

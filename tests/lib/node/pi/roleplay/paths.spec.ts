@@ -323,3 +323,58 @@ test('writeIndex renders a COMPLETE bundle-aware INDEX.md with correct per-bundl
   // Other kinds are unaffected.
   expect(md).toContain('[Exusiai](character/exusiai.md)');
 });
+
+test('listLoreBundles discovers nested/grouped leaf bundles, skipping pure grouping dirs', () => {
+  // A flat bundle and a two-level group with two variants under it.
+  writeBundleLore('pl', 'seasonal', 'winter', 'Winter', 'flat bundle');
+  writeBundleLore('pl', 'home/brooklyn-brownstone', 'layout', 'Brownstone layout', 'v1');
+  writeBundleLore('pl', 'home/queens-midrise', 'layout', 'Midrise layout', 'v2');
+  // `home/` itself holds no `*.md` - it is a pure grouping dir.
+  expect(listLoreBundles('pl', root)).toEqual(['home/brooklyn-brownstone', 'home/queens-midrise', 'seasonal']);
+});
+
+test('listLoreBundles: a group dir that ALSO holds its own *.md is itself a bundle', () => {
+  writeBundleLore('pl', 'home', 'shared', 'Shared home lore', 'group-level md');
+  writeBundleLore('pl', 'home/loft', 'layout', 'Loft layout', 'nested');
+  // `home` has a direct .md so it counts, and `home/loft` is a distinct bundle.
+  expect(listLoreBundles('pl', root)).toEqual(['home', 'home/loft']);
+});
+
+test('scanCastComplete + INDEX cover nested bundles with real nested paths', () => {
+  writeChar('pl', 'mira', 'Mira', 'char');
+  writeLore('pl', 'city', 'The City', 'base');
+  writeBundleLore('pl', 'home/brooklyn-brownstone', 'layout', 'Brownstone layout', 'v1');
+  writeBundleLore('pl', 'home/queens-midrise', 'layout', 'Midrise layout', 'v2');
+
+  const { entries, warnings } = scanCastComplete('pl', root);
+  expect(warnings).toEqual([]);
+  expect(entries.map((e) => `${e.kind}/${e.bundle ?? ''}/${e.id}`)).toEqual([
+    'character//mira',
+    'lore//city',
+    'lore/home/brooklyn-brownstone/layout',
+    'lore/home/queens-midrise/layout',
+  ]);
+
+  writeIndex({ cast: 'pl', entries: [] }, root);
+  const md = readFileSync(indexFileFor('pl', root), 'utf8');
+  expect(md).toContain('### Lore bundle: home/brooklyn-brownstone');
+  expect(md).toContain('[Brownstone layout](lore/home/brooklyn-brownstone/layout.md)');
+  expect(md).toContain('### Lore bundle: home/queens-midrise');
+  expect(md).toContain('[Midrise layout](lore/home/queens-midrise/layout.md)');
+  // No pure grouping dir subsection, and no base-path link for a nested record.
+  expect(md).not.toContain('### Lore bundle: home\n');
+  expect(md).not.toContain('[Brownstone layout](lore/layout.md)');
+});
+
+test('scanCast (runtime) loads a nested bundle token active-only and stays unchanged', () => {
+  writeLore('pl', 'city', 'The City', 'base');
+  writeBundleLore('pl', 'home/brooklyn-brownstone', 'layout', 'Brownstone layout', 'v1');
+  writeBundleLore('pl', 'home/queens-midrise', 'layout', 'Midrise layout', 'v2');
+
+  // No selection: base only.
+  expect(scanCast('pl', root).entries.map((e) => `${e.bundle ?? ''}/${e.id}`)).toEqual(['/city']);
+  // Active nested token: only that bundle loads; the sibling variant does not bleed in.
+  const active = scanCast('pl', root, { loreBundles: ['home/brooklyn-brownstone'] });
+  expect(active.entries.map((e) => `${e.bundle ?? ''}/${e.id}`)).toEqual(['/city', 'home/brooklyn-brownstone/layout']);
+  expect(active.warnings).toEqual([]);
+});
