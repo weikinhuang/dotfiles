@@ -582,11 +582,54 @@ const KIND_HEADING: Record<RoleplayKind, string> = {
   timeline: 'Timeline',
 };
 
-/** Render the on-disk `INDEX.md` for a cast. Always predictable to skim. */
+/**
+ * Render the `## Lore` section of `INDEX.md`. Base lore (no `bundle`)
+ * lists first with `lore/<id>.md` links; each named bundle then gets its
+ * own `### Lore bundle: <name>` subsection with `lore/<bundle>/<id>.md`
+ * links, so the index makes bundle membership obvious and every link
+ * points at the record's real on-disk path.
+ */
+function renderLoreSection(lines: string[], lore: readonly RoleplayEntry[]): void {
+  lines.push(`## ${KIND_HEADING.lore}`);
+  const base = lore.filter((e) => !e.bundle);
+  for (const e of base) lines.push(`- [${e.name}](lore/${e.id}.md) - ${e.description}`);
+  lines.push('');
+
+  const byBundle = new Map<string, RoleplayEntry[]>();
+  for (const e of lore) {
+    if (!e.bundle) continue;
+    const group = byBundle.get(e.bundle) ?? [];
+    group.push(e);
+    byBundle.set(e.bundle, group);
+  }
+  for (const name of [...byBundle.keys()].sort()) {
+    lines.push(`### Lore bundle: ${name}`);
+    for (const e of byBundle.get(name) ?? []) {
+      lines.push(`- [${e.name}](lore/${name}/${e.id}.md) - ${e.description}`);
+    }
+    lines.push('');
+  }
+}
+
+/** Render the on-disk `INDEX.md` for a cast. Always predictable to skim.
+ *
+ * The index is a human/agent-facing map only (never read at runtime), so
+ * it should be a COMPLETE inventory: callers pass a state whose entries
+ * cover base records plus every lore bundle on disk (see
+ * `scanCastComplete`). Every entry links to its REAL relative path -
+ * bundle-sourced lore (`entry.bundle` set) links to
+ * `lore/<bundle>/<id>.md`, base records to `<kind>/<id>.md` - and lore
+ * bundles get their own `### Lore bundle: <name>` subsection so it is
+ * obvious which records belong to which bundle.
+ */
 export function renderIndexMd(state: RoleplayState): string {
   const lines: string[] = [`# Roleplay cast: ${state.cast || '(none)'}`, ''];
   const grouped = groupByKind(state.entries);
   for (const kind of ROLEPLAY_KINDS) {
+    if (kind === 'lore') {
+      renderLoreSection(lines, grouped.get('lore') ?? []);
+      continue;
+    }
     lines.push(`## ${KIND_HEADING[kind]}`);
     const group = grouped.get(kind) ?? [];
     if (group.length === 0) {

@@ -153,6 +153,18 @@ loads. A record read from a bundle carries a runtime-only `bundle` annotation on
 (`readEntryBody`) resolve to the bundle file rather than the base path; the annotation is never serialized (it is a
 function of on-disk location, not file content).
 
+**`INDEX.md` is a complete, bundle-aware map.** The generated `INDEX.md` is a human/agent-facing artifact only (never
+read at runtime), so it reflects the **complete** on-disk inventory - base lore plus **every** bundle present on disk,
+not just whatever selection is active. `writeIndex` builds it from
+[`scanCastComplete`](../../../lib/node/pi/roleplay/paths.ts) (base records for every kind +
+[`listLoreBundles`](../../../lib/node/pi/roleplay/paths.ts)), which - unlike the runtime `scanCast` - does **no**
+cross-tier dedup, so a base `lore/setting.md` and a bundle's `lore/loft/setting.md` both appear. Base lore lists under
+`## Lore` (linking `lore/<id>.md`); each bundle gets its own `### Lore bundle: <name>` subsection linking the real
+`lore/<bundle>/<id>.md` path (a bundle record never emits a base-path link). Enumerating all bundles for the index does
+**not** change runtime loading - `scanCast` still loads only the active selection into live state; the complete
+inventory is an index-only concern. Regenerate on demand with `/roleplay rescan` (needed for bundles authored by direct
+on-disk edits rather than the `roleplay` tool), and every tool `save` / `update` / `remove` rewrites it too.
+
 ## Depth injection: author's note + depth-tagged lore
 
 The `before_agent_start` block above appends the stable scene + cast index to the **system prompt** and computes the
@@ -540,7 +552,8 @@ operate on the **active cast**.
 - `/roleplay newscene` - start a fresh scene: archive + clear the recap / timeline / captured-fact carry-overs so the
   next turn cold-starts (opt-out of the silent carry-over seed).
 - `/roleplay dir` - print the store root + active cast dir.
-- `/roleplay rescan` - re-read the active cast from disk.
+- `/roleplay rescan` - re-read the active cast from disk and rebuild `INDEX.md` from the complete on-disk inventory
+  (base + every lore bundle). The on-demand reindex path for bundles authored by direct file edits.
 - `/roleplay casts` - list every cast directory on disk.
 - `--help` / `-h` / `?` prints USAGE.
 

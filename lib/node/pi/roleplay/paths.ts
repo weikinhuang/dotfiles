@@ -298,23 +298,19 @@ export function parseLoreBundleSelection(raw: string | undefined): string[] {
 
 /**
  * Parse every `*.md` in one directory as entries of a single `kind`,
- * appending records into `out` (keyed by `<kind>/<id>` so a later call
- * overrides an earlier one) and problems into `warnings`. Subdirectories
- * are skipped (only top-level files are read), so scanning a kind dir
- * never descends into its bundle / `archive/` subfolders.
+ * returning the parsed records (no dedup - callers key/order them) and
+ * pushing problems into `warnings`. Subdirectories are skipped (only
+ * top-level files are read), so scanning a kind dir never descends into
+ * its bundle / `archive/` subfolders. `bundle` stamps the runtime-only
+ * source annotation onto every record read from a bundle subfolder.
  */
-function scanKindDir(
-  dir: string,
-  kind: RoleplayKind,
-  out: Map<string, RoleplayEntry>,
-  warnings: ScanWarning[],
-  bundle?: string,
-): void {
+function readKindDir(dir: string, kind: RoleplayKind, warnings: ScanWarning[], bundle?: string): RoleplayEntry[] {
+  const out: RoleplayEntry[] = [];
   let files: string[];
   try {
     files = readdirSync(dir);
   } catch {
-    return;
+    return out;
   }
   for (const name of files) {
     if (!name.endsWith('.md')) continue;
@@ -341,9 +337,8 @@ function scanKindDir(
       });
       continue;
     }
-    const id = name.slice(0, -3);
-    out.set(`${kind}/${id}`, {
-      id,
+    out.push({
+      id: name.slice(0, -3),
       kind,
       name: parsed.frontmatter.name,
       description: parsed.frontmatter.description,
@@ -352,6 +347,34 @@ function scanKindDir(
       ...(bundle ? { bundle } : {}),
     });
   }
+  return out;
+}
+
+/**
+ * List every lore bundle subfolder present on disk for a cast, sorted.
+ * Index-only inventory: this enumerates the COMPLETE set of bundles
+ * (`lore/<name>/`) regardless of the active selection, and does NOT
+ * affect runtime loading (that stays gated on `scanCast`'s
+ * `options.loreBundles`). Any subfolder counts as a bundle - matching
+ * the runtime, which will load any activated subfolder by name.
+ */
+export function listLoreBundles(cast: string, root: string = roleplayRoot()): string[] {
+  const dir = kindDir(cast, 'lore', root);
+  let names: string[];
+  try {
+    names = readdirSync(dir);
+  } catch {
+    return [];
+  }
+  return names
+    .filter((name) => {
+      try {
+        return statSync(join(dir, name)).isDirectory();
+      } catch {
+        return false;
+      }
+    })
+    .sort();
 }
 
 /**
@@ -374,7 +397,7 @@ export function scanCast(
   const base = castDir(cast, root);
 
   for (const kind of ROLEPLAY_KINDS) {
-    scanKindDir(join(base, kind), kind, byKey, warnings);
+    for (const e of readKindDir(join(base, kind), kind, warnings)) byKey.set(`${kind}/${e.id}`, e);
   }
 
   for (const bundle of options.loreBundles ?? []) {
@@ -389,10 +412,47 @@ export function scanCast(
       warnings.push({ path: dir, reason: `lore bundle "${bundle}" not found` });
       continue;
     }
-    scanKindDir(dir, 'lore', byKey, warnings, bundle);
+    for (const e of readKindDir(dir, 'lore', warnings, bundle)) byKey.set(`lore/${e.id}`, e);
   }
 
   const entries = [...byKey.values()].sort((a, b) => `${a.kind}/${a.id}`.localeCompare(`${b.kind}/${b.id}`));
+
+  return { entries, warnings: warnings.map((w) => `${w.path}: ${w.reason}`) };
+}
+
+/**
+ * Build a COMPLETE, index-only view of a cast: the base records for every
+ * kind PLUS every lore bundle present on disk (`listLoreBundles`), NOT
+ * just the active selection. Unlike {@link scanCast} there is no
+ * cross-tier dedup - a base `lore/setting.md` and a bundle
+ * `lore/loft/setting.md` sharing an id BOTH appear, each carrying its own
+ * `bundle` annotation - so the rendered `INDEX.md` is a stable, complete
+ * map of the cast independent of whatever bundles happened to be active.
+ * This never feeds runtime state; use `scanCast` for that.
+ */
+export function scanCastComplete(
+  cast: string,
+  root: string = roleplayRoot(),
+): { entries: RoleplayEntry[]; warnings: string[] } {
+  const entries: RoleplayEntry[] = [];
+  const warnings: ScanWarning[] = [];
+  const base = castDir(cast, root);
+
+  for (const kind of ROLEPLAY_KINDS) {
+    entries.push(...readKindDir(join(base, kind), kind, warnings));
+  }
+  for (const bundle of listLoreBundles(cast, root)) {
+    entries.push(...readKindDir(loreBundleDir(cast, bundle, root), 'lore', warnings, bundle));
+  }
+
+  entries.sort((a, b) => {
+    const byKind = ROLEPLAY_KINDS.indexOf(a.kind) - ROLEPLAY_KINDS.indexOf(b.kind);
+    if (byKind !== 0) return byKind;
+    // Base ('' bundle) sorts before any named bundle, then by id.
+    const byBundle = (a.bundle ?? '').localeCompare(b.bundle ?? '');
+    if (byBundle !== 0) return byBundle;
+    return a.id.localeCompare(b.id);
+  });
 
   return { entries, warnings: warnings.map((w) => `${w.path}: ${w.reason}`) };
 }
@@ -407,9 +467,16 @@ export function rebuildCast(
   return { state: { cast, entries }, warnings };
 }
 
-/** (Re)write a cast's `INDEX.md` from its current state. */
+/**
+ * (Re)write a cast's `INDEX.md`. The index is a human/agent-facing map
+ * only (never read at runtime), so it always reflects the COMPLETE
+ * on-disk inventory - base lore plus every bundle - via
+ * {@link scanCastComplete}, independent of which bundles are active in
+ * `state`. Only `state.cast` is consumed.
+ */
 export function writeIndex(state: RoleplayState, root: string = roleplayRoot()): void {
-  atomicWriteFile(indexFileFor(state.cast, root), renderIndexMd(state));
+  const { entries } = scanCastComplete(state.cast, root);
+  atomicWriteFile(indexFileFor(state.cast, root), renderIndexMd({ cast: state.cast, entries }));
 }
 
 /** List the cast slugs that currently have a directory under the root. */

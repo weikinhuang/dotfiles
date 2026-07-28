@@ -2767,7 +2767,16 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
       }
       if (verb === 'rescan') {
         resync(ctx);
-        ctx.ui.notify(dormant ? dormantNote : `Rescanned cast "${state.cast}".\n\n${formatText(state)}`, 'info');
+        if (dormant) {
+          ctx.ui.notify(dormantNote, 'info');
+        } else {
+          // Regenerate INDEX.md from the COMPLETE on-disk inventory (base +
+          // every lore bundle, not just the active selection). This is the
+          // on-demand rebuild path for bundles authored by direct file edits
+          // rather than through the `roleplay` tool.
+          writeIndex(state);
+          ctx.ui.notify(`Rescanned cast "${state.cast}" and rebuilt INDEX.md.\n\n${formatText(state)}`, 'info');
+        }
         return;
       }
       if (verb === 'casts') {

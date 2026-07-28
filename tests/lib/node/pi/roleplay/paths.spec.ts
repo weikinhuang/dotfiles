@@ -24,6 +24,7 @@ import {
   indexFileFor,
   listCasts,
   listFactSidecars,
+  listLoreBundles,
   loreBundleDir,
   parseLoreBundleSelection,
   readEntryBody,
@@ -31,6 +32,7 @@ import {
   removeFileIfExists,
   portraitPath,
   scanCast,
+  scanCastComplete,
   writeIndex,
 } from '../../../../../lib/node/pi/roleplay/paths.ts';
 import { serializeEntry } from '../../../../../lib/node/pi/roleplay/store.ts';
@@ -252,4 +254,72 @@ test('listCasts returns sorted cast dir names', () => {
   expect(listCasts(root)).toEqual(['exusiai-cast', 'texas-cast']);
   // sanity: the cast dir actually exists where we expect.
   expect(castDir('pl', root)).toBe(join(root, 'casts', 'pl'));
+});
+
+test('listLoreBundles enumerates every bundle subfolder on disk, sorted (index-only)', () => {
+  expect(listLoreBundles('pl', root)).toEqual([]);
+  writeLore('pl', 'setting', 'Setting', 'base');
+  writeBundleLore('pl', 'loft', 'setting', 'Loft setting', 'loft');
+  writeBundleLore('pl', 'cabin', 'setting', 'Cabin setting', 'cabin');
+  // Every subfolder is a bundle, regardless of the active selection.
+  expect(listLoreBundles('pl', root)).toEqual(['cabin', 'loft']);
+});
+
+test('scanCastComplete includes base + EVERY bundle with no cross-tier dedup', () => {
+  writeChar('pl', 'exusiai', 'Exusiai', 'char body');
+  writeLore('pl', 'setting', 'Setting', 'base');
+  writeBundleLore('pl', 'loft', 'setting', 'Loft setting', 'loft');
+  writeBundleLore('pl', 'loft', 'loft-only', 'Loft only', 'extra');
+  writeBundleLore('pl', 'cabin', 'setting', 'Cabin setting', 'cabin');
+
+  const { entries, warnings } = scanCastComplete('pl', root);
+  expect(warnings).toEqual([]);
+  // Base `setting` and both bundles' `setting` all survive (no dedup),
+  // each tagged with its source bundle (base = undefined).
+  expect(entries.map((e) => `${e.kind}/${e.bundle ?? ''}/${e.id}`)).toEqual([
+    'character//exusiai',
+    'lore//setting',
+    'lore/cabin/setting',
+    'lore/loft/loft-only',
+    'lore/loft/setting',
+  ]);
+});
+
+test('scanCast (runtime) still active-only + deduped after the complete-index refactor', () => {
+  writeLore('pl', 'setting', 'Setting', 'base');
+  writeBundleLore('pl', 'loft', 'setting', 'Loft setting', 'loft');
+  writeBundleLore('pl', 'cabin', 'setting', 'Cabin setting', 'cabin');
+
+  // No selection: base only, one record.
+  expect(scanCast('pl', root).entries.map((e) => `${e.bundle ?? ''}/${e.id}`)).toEqual(['/setting']);
+  // Active `loft`: loft overrides base, cabin does NOT bleed in.
+  const active = scanCast('pl', root, { loreBundles: ['loft'] });
+  expect(active.entries.map((e) => `${e.bundle ?? ''}/${e.id}`)).toEqual(['loft/setting']);
+  expect(active.entries[0].name).toBe('Loft setting');
+});
+
+test('writeIndex renders a COMPLETE bundle-aware INDEX.md with correct per-bundle paths', () => {
+  writeChar('pl', 'exusiai', 'Exusiai', 'char body');
+  writeLore('pl', 'setting', 'Setting', 'base');
+  writeBundleLore('pl', 'loft', 'setting', 'Loft setting', 'loft');
+  writeBundleLore('pl', 'loft', 'loft-only', 'Loft only', 'extra loft');
+  writeBundleLore('pl', 'cabin', 'setting', 'Cabin setting', 'cabin');
+
+  // Even when only `loft` is active in the live state, INDEX is complete.
+  const { state } = rebuildCast('pl', root, { loreBundles: ['loft'] });
+  writeIndex(state, root);
+  const md = readFileSync(indexFileFor('pl', root), 'utf8');
+
+  // Base lore links to the top-level path.
+  expect(md).toContain('[Setting](lore/setting.md)');
+  // Per-bundle subsections with real bundle-relative paths.
+  expect(md).toContain('### Lore bundle: cabin');
+  expect(md).toContain('[Cabin setting](lore/cabin/setting.md)');
+  expect(md).toContain('### Lore bundle: loft');
+  expect(md).toContain('[Loft setting](lore/loft/setting.md)');
+  expect(md).toContain('[Loft only](lore/loft/loft-only.md)');
+  // A bundle-sourced record never emits a base-path link.
+  expect(md).not.toContain('[Loft setting](lore/setting.md)');
+  // Other kinds are unaffected.
+  expect(md).toContain('[Exusiai](character/exusiai.md)');
 });
