@@ -156,7 +156,7 @@
       "file": "~/.dotfiles/config/pi/comfyui/krea2-turbo.api.json",
       "description": "Krea 2 Turbo (12B DiT, Qwen VAE + Qwen3-VL) - fast photoreal text-to-image, natural-language prompts",
       "tags": ["photoreal", "krea2", "turbo"],
-      "promptProtocol": "Natural language, one flowing paragraph: subject > setting > composition > lighting > mood > medium > camera/texture. No negative prompt.",
+      "promptProtocol": "Natural language, one flowing paragraph: subject > setting > composition > lighting > mood > medium > camera/texture. No negative prompt. Read the krea2-prompting skill for the full ruleset.",
       "enhance": true,
       "guidanceFile": "~/.dotfiles/config/pi/comfyui/krea2-enhance.md",
       "inputs": {
@@ -171,7 +171,7 @@
       "file": "~/.dotfiles/config/pi/comfyui/krea2-turbo-2gpu.api.json",
       "description": "Krea 2 Turbo split across 2 GPUs: diffusion model on gpu:0, text encoder + VAE on gpu:1 (SelectCLIPDevice/SelectVAEDevice). Needs the multi-GPU device-selector nodes + a second CUDA device.",
       "tags": ["photoreal", "krea2", "turbo", "multi-gpu"],
-      "promptProtocol": "Natural language, one flowing paragraph: subject > setting > composition > lighting > mood > medium > camera/texture. No negative prompt.",
+      "promptProtocol": "Natural language, one flowing paragraph: subject > setting > composition > lighting > mood > medium > camera/texture. No negative prompt. Read the krea2-prompting skill for the full ruleset.",
       "enhance": true,
       "guidanceFile": "~/.dotfiles/config/pi/comfyui/krea2-enhance.md",
       "inputs": {
