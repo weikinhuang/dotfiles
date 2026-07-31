@@ -7,6 +7,8 @@
   "background": false,
   "ephemeral": false,
   "defaults": { "width": 1024, "height": 1024, "steps": 30, "cfg": 5, "count": 1, "negative": "blurry, lowres" },
+  "usageGuidanceFile": "~/.dotfiles/config/pi/comfyui/usage-guidance.md",
+  "usageGuidanceEnhancedFile": "~/.dotfiles/config/pi/comfyui/usage-guidance-enhanced.md",
   "authHeader": { "name": "Authorization", "value": "Bearer ${PI_COMFYUI_TOKEN}" },
   "workflows": {
     "txt2img": {
@@ -148,6 +150,21 @@
         "width": { "node": "28", "key": "width" },
         "height": { "node": "28", "key": "height" },
         "batch": { "node": "28", "key": "batch_size" }
+      }
+    },
+    "krea2": {
+      "file": "~/.dotfiles/config/pi/comfyui/krea2-turbo.api.json",
+      "description": "Krea 2 Turbo (12B DiT, Qwen VAE + Qwen3-VL) - fast photoreal text-to-image, natural-language prompts",
+      "tags": ["photoreal", "krea2", "turbo"],
+      "promptProtocol": "Natural language, one flowing paragraph: subject > setting > composition > lighting > mood > medium > camera/texture. No negative prompt.",
+      "enhance": true,
+      "guidanceFile": "~/.dotfiles/config/pi/comfyui/krea2-enhance.md",
+      "inputs": {
+        "prompt": { "node": "4", "key": "text" },
+        "seed": { "node": "7", "key": "seed" },
+        "width": { "node": "6", "key": "width" },
+        "height": { "node": "6", "key": "height" },
+        "batch": { "node": "6", "key": "batch_size" }
       }
     },
     "qwen-image-edit": {

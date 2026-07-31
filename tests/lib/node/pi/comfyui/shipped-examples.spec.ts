@@ -53,6 +53,15 @@ const FLUX2_EDIT_INPUTS: Record<string, InputMapping> = {
 
 const SHIPPED: Record<string, ShippedMap> = {
   'txt2img.api.json': { inputs: SHIPPED_WORKFLOW_INPUTS },
+  'krea2-turbo.api.json': {
+    inputs: {
+      prompt: { node: '4', key: 'text' },
+      seed: { node: '7', key: 'seed' },
+      width: { node: '6', key: 'width' },
+      height: { node: '6', key: 'height' },
+      batch: { node: '6', key: 'batch_size' },
+    },
+  },
   'img2img.api.json': {
     inputs: {
       prompt: { node: '6', key: 'text' },

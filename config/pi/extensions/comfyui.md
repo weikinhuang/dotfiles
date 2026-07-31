@@ -740,6 +740,34 @@ fp8 if you have the VRAM to spare.
 `anima` is deliberately left uncompiled: it is a small, sampling-dominated model where `torch.compile` measured
 break-even, so the compile node would only add a cold-start cost for no throughput gain.
 
+### Example: Krea 2 Turbo (natural-language photoreal)
+
+[`krea2-turbo.api.json`](../comfyui/krea2-turbo.api.json) is a minimal text-to-image graph for Krea 2 Turbo, the
+open-weight 12B DiT (Qwen Image VAE + Qwen3-VL text encoder). It is distilled from
+[Krea's official ComfyUI template](https://github.com/Comfy-Org/workflow_templates/blob/main/templates/image_krea2_turbo_t2i.json)
+down to the generation core (`UNETLoader` -> `CLIPLoader` -> `CLIPTextEncode` -> `EmptyLatentImage` -> `KSampler` ->
+`VAEDecode` -> `SaveImage`), dropping the template's in-graph LLM prompt enhancer, LoRA selector, and resolution helper
+so the enhancer lives in the extension instead (see [Prompt enhancement](#prompt-enhancement-enhance)).
+
+Requires ComfyUI >= 0.26.0 and three model files: `krea2_turbo_fp8_scaled.safetensors` in `models/diffusion_models/`,
+`qwen3vl_4b_fp8_scaled.safetensors` in `models/text_encoders/`, and `qwen_image_vae.safetensors` in `models/vae/`.
+
+The graph bakes Krea's recommended Turbo recipe from that template: **8 steps, cfg 1** (Krea 2 uses no classifier-free
+guidance, so the `ConditioningZeroOut` node stands in for the negative), sampler `euler`, scheduler `simple`, at
+1024x1024, with the CLIP loader `type` set to `krea2`. The input map deliberately exposes only `prompt`, `seed`,
+`width`, `height`, and `batch`: `steps` / `cfg` / `negative` stay baked so the model cannot break the 8-step distilled
+recipe or add a negative Krea ignores.
+
+The example config wires krea2 with `enhance: true` and a per-workflow `guidanceFile`
+([`krea2-enhance.md`](../comfyui/krea2-enhance.md)), and points the global
+[usage-guidance](#main-agent-usage-guidance-usageguidancefile) keys at
+[`usage-guidance.md`](../comfyui/usage-guidance.md) and
+[`usage-guidance-enhanced.md`](../comfyui/usage-guidance-enhanced.md). Krea 2 wants one flowing natural-language
+paragraph (subject, setting, composition, lighting, mood, medium, camera/texture), so those files teach the model to
+prompt in prose and to lean on the enhancer for length and detail. Krea's template exports in UI format; this graph is
+the API-format equivalent, so if you re-export from a newer template, save it as API format and re-check the node ids in
+the input map.
+
 ### Generation defaults
 
 `width`, `height`, `steps`, `cfg`, `denoise`, `count`, and `negative` can only be baked per-workflow inside the graph
