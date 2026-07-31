@@ -1,0 +1,68 @@
+{
+  "1": {
+    "class_type": "UNETLoader",
+    "_meta": { "title": "Load Diffusion Model (GPU 0)" },
+    "inputs": { "unet_name": "krea2_turbo_fp8_scaled.safetensors", "weight_dtype": "default" }
+  },
+  "2": {
+    "class_type": "CLIPLoader",
+    "_meta": { "title": "Load CLIP (Qwen3-VL)" },
+    "inputs": { "clip_name": "qwen3vl_4b_fp8_scaled.safetensors", "type": "krea2", "device": "default" }
+  },
+  "3": {
+    "class_type": "VAELoader",
+    "_meta": { "title": "Load VAE" },
+    "inputs": { "vae_name": "qwen_image_vae.safetensors" }
+  },
+  "10": {
+    "class_type": "SelectCLIPDevice",
+    "_meta": { "title": "Text encoder -> GPU 1" },
+    "inputs": { "clip": ["2", 0], "device": "gpu:1" }
+  },
+  "11": {
+    "class_type": "SelectVAEDevice",
+    "_meta": { "title": "VAE -> GPU 1" },
+    "inputs": { "vae": ["3", 0], "device": "gpu:1" }
+  },
+  "4": {
+    "class_type": "CLIPTextEncode",
+    "_meta": { "title": "CLIP Text Encode (Prompt)" },
+    "inputs": { "text": "a fox walking in the snow", "clip": ["10", 0] }
+  },
+  "5": {
+    "class_type": "ConditioningZeroOut",
+    "_meta": { "title": "ConditioningZeroOut (Negative)" },
+    "inputs": { "conditioning": ["4", 0] }
+  },
+  "6": {
+    "class_type": "EmptyLatentImage",
+    "_meta": { "title": "Empty Latent Image" },
+    "inputs": { "width": 1024, "height": 1024, "batch_size": 1 }
+  },
+  "7": {
+    "class_type": "KSampler",
+    "_meta": { "title": "KSampler (GPU 0)" },
+    "inputs": {
+      "seed": 0,
+      "steps": 8,
+      "cfg": 1,
+      "sampler_name": "euler",
+      "scheduler": "simple",
+      "denoise": 1,
+      "model": ["1", 0],
+      "positive": ["4", 0],
+      "negative": ["5", 0],
+      "latent_image": ["6", 0]
+    }
+  },
+  "8": {
+    "class_type": "VAEDecode",
+    "_meta": { "title": "VAE Decode" },
+    "inputs": { "samples": ["7", 0], "vae": ["11", 0] }
+  },
+  "9": {
+    "class_type": "SaveImage",
+    "_meta": { "title": "Save Image" },
+    "inputs": { "filename_prefix": "krea2", "images": ["8", 0] }
+  }
+}

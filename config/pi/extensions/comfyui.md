@@ -768,6 +768,12 @@ prompt in prose and to lean on the enhancer for length and detail. Krea's templa
 the API-format equivalent, so if you re-export from a newer template, save it as API format and re-check the node ids in
 the input map.
 
+A two-GPU variant, [`krea2-turbo-2gpu.api.json`](../comfyui/krea2-turbo-2gpu.api.json) (workflow `krea2-2gpu`), keeps
+the diffusion model on `gpu:0` and pins the text encoder and VAE to `gpu:1` by routing the `CLIPLoader` and `VAELoader`
+through `SelectCLIPDevice` / `SelectVAEDevice` (device `gpu:1`). It needs a multi-GPU device-selector node pack
+installed (the `Select*Device` nodes, category `advanced/multigpu`) plus a second CUDA device; the selectors offer
+`default` / `cpu` / `gpu:0` / `gpu:1`. On a single-GPU host, use the plain `krea2` workflow instead.
+
 ### Generation defaults
 
 `width`, `height`, `steps`, `cfg`, `denoise`, `count`, and `negative` can only be baked per-workflow inside the graph

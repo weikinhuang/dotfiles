@@ -167,6 +167,21 @@
         "batch": { "node": "6", "key": "batch_size" }
       }
     },
+    "krea2-2gpu": {
+      "file": "~/.dotfiles/config/pi/comfyui/krea2-turbo-2gpu.api.json",
+      "description": "Krea 2 Turbo split across 2 GPUs: diffusion model on gpu:0, text encoder + VAE on gpu:1 (SelectCLIPDevice/SelectVAEDevice). Needs the multi-GPU device-selector nodes + a second CUDA device.",
+      "tags": ["photoreal", "krea2", "turbo", "multi-gpu"],
+      "promptProtocol": "Natural language, one flowing paragraph: subject > setting > composition > lighting > mood > medium > camera/texture. No negative prompt.",
+      "enhance": true,
+      "guidanceFile": "~/.dotfiles/config/pi/comfyui/krea2-enhance.md",
+      "inputs": {
+        "prompt": { "node": "4", "key": "text" },
+        "seed": { "node": "7", "key": "seed" },
+        "width": { "node": "6", "key": "width" },
+        "height": { "node": "6", "key": "height" },
+        "batch": { "node": "6", "key": "batch_size" }
+      }
+    },
     "qwen-image-edit": {
       "file": "~/.dotfiles/config/pi/comfyui/qwen-image-edit.api.json",
       "inputs": {

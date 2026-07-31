@@ -62,6 +62,15 @@ const SHIPPED: Record<string, ShippedMap> = {
       batch: { node: '6', key: 'batch_size' },
     },
   },
+  'krea2-turbo-2gpu.api.json': {
+    inputs: {
+      prompt: { node: '4', key: 'text' },
+      seed: { node: '7', key: 'seed' },
+      width: { node: '6', key: 'width' },
+      height: { node: '6', key: 'height' },
+      batch: { node: '6', key: 'batch_size' },
+    },
+  },
   'img2img.api.json': {
     inputs: {
       prompt: { node: '6', key: 'text' },
