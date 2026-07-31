@@ -4,6 +4,18 @@
     "_meta": { "title": "Load Diffusion Model (GPU 0)" },
     "inputs": { "unet_name": "krea2_turbo_fp8_scaled.safetensors", "weight_dtype": "default" }
   },
+  // --- Optional style LoRA (disabled) -----------------------------------
+  // To enable: uncomment node "12" below AND repoint the KSampler (node "7")
+  // "model" input from ["1", 0] to ["12", 0]. The LoRA loads on gpu:0 with
+  // the diffusion model. Drop the .safetensors into ComfyUI/models/loras/,
+  // set lora_name + strength_model, and append its trigger word to your
+  // prompt. Krea 2 style LoRAs + trigger words:
+  // https://huggingface.co/Comfy-Org/Krea-2/tree/main/loras
+  // "12": {
+  //   "class_type": "LoraLoaderModelOnly",
+  //   "_meta": { "title": "Load Style LoRA" },
+  //   "inputs": { "model": ["1", 0], "lora_name": "krea2_darkbrush.safetensors", "strength_model": 1.0 }
+  // },
   "2": {
     "class_type": "CLIPLoader",
     "_meta": { "title": "Load CLIP (Qwen3-VL)" },
