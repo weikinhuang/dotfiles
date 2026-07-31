@@ -341,6 +341,13 @@ export function coerceConfigLayer(raw: unknown): Partial<ComfyuiConfig> {
   const previewMaxDimension = asPositiveNumber(raw.previewMaxDimension);
   if (previewMaxDimension !== undefined) out.previewMaxDimension = Math.round(previewMaxDimension);
 
+  const usageGuidanceFile = asString(raw.usageGuidanceFile);
+  if (usageGuidanceFile !== undefined && usageGuidanceFile.length > 0) out.usageGuidanceFile = usageGuidanceFile;
+
+  const usageGuidanceEnhancedFile = asString(raw.usageGuidanceEnhancedFile);
+  if (usageGuidanceEnhancedFile !== undefined && usageGuidanceEnhancedFile.length > 0)
+    out.usageGuidanceEnhancedFile = usageGuidanceEnhancedFile;
+
   const defaults = asGenerationDefaults(raw.defaults);
   if (defaults !== undefined) out.defaults = defaults;
 
@@ -387,6 +394,9 @@ export function mergeConfigLayers(...overrides: Partial<ComfyuiConfig>[]): Comfy
     if (layer.refineAcceptThreshold !== undefined) result.refineAcceptThreshold = layer.refineAcceptThreshold;
     if (layer.refineGuidanceFile !== undefined) result.refineGuidanceFile = layer.refineGuidanceFile;
     if (layer.previewMaxDimension !== undefined) result.previewMaxDimension = layer.previewMaxDimension;
+    if (layer.usageGuidanceFile !== undefined) result.usageGuidanceFile = layer.usageGuidanceFile;
+    if (layer.usageGuidanceEnhancedFile !== undefined)
+      result.usageGuidanceEnhancedFile = layer.usageGuidanceEnhancedFile;
     if (layer.defaults !== undefined) result.defaults = { ...result.defaults, ...layer.defaults };
     if (layer.authHeader !== undefined) result.authHeader = { ...layer.authHeader };
     if (layer.workflows !== undefined) result.workflows = { ...result.workflows, ...layer.workflows };

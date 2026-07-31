@@ -323,6 +323,29 @@ export interface ComfyuiConfig {
    * images are resized (animated / non-image outputs pass through).
    */
   previewMaxDimension?: number;
+  /**
+   * Optional path to a usage-guidance doc injected into the MAIN agent's
+   * system prompt at `before_agent_start`, teaching it how to drive
+   * `generate_image` for this setup. Unlike {@link enhanceGuidanceFile}
+   * (which feeds the enhancer subagent in a separate context window), this
+   * is eager, in-prompt guidance for a token-constrained local model that
+   * will not pull a lazily-referenced skill on its own. Used when prompt
+   * enhancement is NOT effectively active this session;
+   * {@link usageGuidanceEnhancedFile} replaces it when it is. Resolves like
+   * a workflow `file` (`~` / absolute / relative-to-cwd). Absent -> nothing
+   * injected (byte-identical to no guidance). Optional.
+   */
+  usageGuidanceFile?: string;
+  /**
+   * Optional path to the usage-guidance doc injected in place of
+   * {@link usageGuidanceFile} when prompt enhancement is effectively active
+   * (enhancer agent installed, not env-disabled, and on by default for the
+   * default workflow). Lets the main-agent block shrink to "describe the
+   * scene; the enhancer crafts the prompt" so the heavy protocol lives in
+   * the enhancer's own guidance instead of the hot main context. Resolves
+   * like a workflow `file`. Absent -> nothing injected. Optional.
+   */
+  usageGuidanceEnhancedFile?: string;
   /** Named workflows keyed by the name the model passes to the tool. */
   workflows: Record<string, WorkflowConfig>;
 }

@@ -182,6 +182,33 @@ flag shape, same best-effort / never-block / graceful-no-op contract, same pure-
   model. Acceptance criteria come from the per-call `refineCriteria` arg, else the workflow's `refineCriteria` default,
   else are derived from the prompt.
 
+### Main-agent usage guidance (`usageGuidanceFile`)
+
+Where `enhanceGuidanceFile` / `refineGuidanceFile` feed the enhancer and critic subagents, `usageGuidanceFile` feeds the
+**main** agent: its contents are injected into the system prompt at `before_agent_start`, so the calling model gets
+eager, in-prompt instructions on how to drive `generate_image` for this setup (which workflow to pick, how to phrase a
+prompt, house style). It targets a token-constrained local model that will not open a lazily-referenced skill on its
+own; a capable hosted model rarely needs it.
+
+- **Two files, swapped by enhancer state.** When prompt enhancement is effectively active this session the extension
+  injects `usageGuidanceEnhancedFile` instead of `usageGuidanceFile`. "Effectively active" means the `comfyui-enhance`
+  agent is installed, `PI_COMFYUI_DISABLE_ENHANCE` is unset, and enhancement is on by default for the default workflow
+  (`workflow.enhance ?? config.enhance`). Availability gates the swap: an on-by-default `enhance` with no agent
+  installed silently no-ops, so the base file is used and the model still gets the full protocol.
+- **Why swap.** With the enhancer on, the main model no longer writes the final prompt, so the enhanced file can be a
+  short "describe the scene loosely; the enhancer crafts the tags" block while the heavy per-model protocol lives in the
+  enhancer's own `enhanceGuidanceFile` / `guidanceFile`, which runs in a separate context window. On a small local
+  context that reclaims the difference every turn.
+- **Global, keyed to the default workflow.** The block is injected before the model picks a workflow, so it is not
+  per-workflow; swap the files yourself when you change `defaultWorkflow`. Per-workflow prompting dialect still rides in
+  the capability matrix (`promptProtocol`) and, when enhancing, the workflow's own `guidanceFile`.
+- **Opt-in, never blocks.** Both keys are unset by default, so nothing is injected (byte-identical to before). Each
+  resolves like a workflow `file`; a missing / empty / unreadable file injects nothing. A per-call `enhance` arg can
+  still flip enhancement at tool-call time, which is after the prompt is assembled, so it does not change which guidance
+  was injected.
+- **Kill switch.** `PI_COMFYUI_DISABLE_USAGE_GUIDANCE=1` forces the block off regardless of config, so you can A/B a
+  custom prompt against stock - and against no guidance at all - without editing the config files.
+
 ### Image token economy (`previewMaxDimension`)
 
 Image token cost scales with pixel dimensions, so a large render can dominate a turn's context. When
@@ -304,32 +331,34 @@ shipped [`txt2img.api.json`](../comfyui/txt2img.api.json) is example scaffolding
 `v1-5-pruned-emaonly.safetensors` checkpoint most servers won't have), not a real default. Drop at least one workflow
 into one of the config files to opt in; see [`../comfyui-example.json`](../comfyui-example.json) for a starting point.
 
-| Key                     | Default                  | Meaning                                                                                                                                          |
-| ----------------------- | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `baseUrl`               | `http://127.0.0.1:8188`  | ComfyUI server origin. Supports `${ENV}`. `PI_COMFYUI_URL` overrides it.                                                                         |
-| `authHeader`            | (none)                   | `{ "name", "value" }` sent on every request; `value` supports `${ENV}`.                                                                          |
-| `timeoutMs`             | `180000`                 | Hard cap per generation before it is aborted.                                                                                                    |
-| `saveDir`               | `.pi/comfyui-out`        | Where PNGs are written (relative to cwd, or an absolute path).                                                                                   |
-| `defaultWorkflow`       | `txt2img`                | Workflow used when the tool call omits `workflow`.                                                                                               |
-| `sendToModel`           | `true`                   | Return the image in the tool result (fed to the model next turn). `false` saves to disk only.                                                    |
-| `ephemeral`             | `false`                  | Render images inline this turn, then collapse the call + image out of context afterward. Per-call arg overrides.                                 |
-| `background`            | `false`                  | Submit generations as background jobs by default (collect later via `image_jobs`). Per-call `background` arg overrides.                          |
-| `autoDownload`          | `true`                   | Poll background jobs off-turn and fetch finished PNGs to `saveDir` automatically. `false` reverts to pull-only collect.                          |
-| `pollIntervalMs`        | `3000`                   | How often the auto-download timer polls `/history` per running job (floored at `1000`). Only used when `autoDownload`.                           |
-| `enhance`               | `false`                  | Run the prompt-enhancer subagent by default. Per-call `enhance` arg overrides; `PI_COMFYUI_DISABLE_ENHANCE` kills it.                            |
-| `enhanceModel`          | (inherit)                | `provider/model-id` for the enhancer subagent. Absent = inherit the active session model.                                                        |
-| `enhanceTimeoutMs`      | `30000`                  | Wall-clock cap (ms) per enhancer run. Raise it when an inherited slow model aborts with `timed out after …ms`.                                   |
-| `enhanceContextChars`   | `0` (off)                | Max chars of recent conversation auto-fed to the enhancer as scene context. `0` = off. Costs extra input tokens.                                 |
-| `enhanceGuidanceFile`   | (none)                   | Path to a global prompt-enhancer guidance doc, prepended before any per-workflow `guidanceFile`. `~` / abs / rel-cwd.                            |
-| `autoRefine`            | `false`                  | Run the auto-refine vision-critic loop by default. Per-call `autoRefine` / per-workflow `refine` override; `PI_COMFYUI_DISABLE_REFINE` kills it. |
-| `refineModel`           | (inherit)                | Vision-capable `provider/model-id` for the refine critic. Absent = inherit the session model when it has image input, else no-op.                |
-| `refineTimeoutMs`       | `120000`                 | Wall-clock cap (ms) per refine-critic run.                                                                                                       |
-| `maxRefineIterations`   | `2`                      | Max corrective renders after the initial (total renders <= 1 + N). Also stops on accept, a score plateau, or the cap.                            |
-| `refineAcceptThreshold` | `7`                      | Score (0-10) at / above which the critic verdict is forced to accept, so the loop cannot burn the budget on nits.                                |
-| `refineGuidanceFile`    | (none)                   | Path to a global refine-critic guidance doc, prepended before any per-workflow `refineGuidanceFile`. `~` / abs / rel-cwd.                        |
-| `previewMaxDimension`   | (none)                   | Cap (px) on the longer side of the model-facing image copy; the saved file stays full-res. Absent / `0` = full-res.                              |
-| `defaults`              | (none)                   | Generation-param defaults pre-filled when a call omits them; merge by field. See below.                                                          |
-| `workflows`             | `{ txt2img: <shipped> }` | Named workflows; merge by name across layers.                                                                                                    |
+| Key                         | Default                  | Meaning                                                                                                                                          |
+| --------------------------- | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `baseUrl`                   | `http://127.0.0.1:8188`  | ComfyUI server origin. Supports `${ENV}`. `PI_COMFYUI_URL` overrides it.                                                                         |
+| `authHeader`                | (none)                   | `{ "name", "value" }` sent on every request; `value` supports `${ENV}`.                                                                          |
+| `timeoutMs`                 | `180000`                 | Hard cap per generation before it is aborted.                                                                                                    |
+| `saveDir`                   | `.pi/comfyui-out`        | Where PNGs are written (relative to cwd, or an absolute path).                                                                                   |
+| `defaultWorkflow`           | `txt2img`                | Workflow used when the tool call omits `workflow`.                                                                                               |
+| `sendToModel`               | `true`                   | Return the image in the tool result (fed to the model next turn). `false` saves to disk only.                                                    |
+| `ephemeral`                 | `false`                  | Render images inline this turn, then collapse the call + image out of context afterward. Per-call arg overrides.                                 |
+| `background`                | `false`                  | Submit generations as background jobs by default (collect later via `image_jobs`). Per-call `background` arg overrides.                          |
+| `autoDownload`              | `true`                   | Poll background jobs off-turn and fetch finished PNGs to `saveDir` automatically. `false` reverts to pull-only collect.                          |
+| `pollIntervalMs`            | `3000`                   | How often the auto-download timer polls `/history` per running job (floored at `1000`). Only used when `autoDownload`.                           |
+| `enhance`                   | `false`                  | Run the prompt-enhancer subagent by default. Per-call `enhance` arg overrides; `PI_COMFYUI_DISABLE_ENHANCE` kills it.                            |
+| `enhanceModel`              | (inherit)                | `provider/model-id` for the enhancer subagent. Absent = inherit the active session model.                                                        |
+| `enhanceTimeoutMs`          | `30000`                  | Wall-clock cap (ms) per enhancer run. Raise it when an inherited slow model aborts with `timed out after …ms`.                                   |
+| `enhanceContextChars`       | `0` (off)                | Max chars of recent conversation auto-fed to the enhancer as scene context. `0` = off. Costs extra input tokens.                                 |
+| `enhanceGuidanceFile`       | (none)                   | Path to a global prompt-enhancer guidance doc, prepended before any per-workflow `guidanceFile`. `~` / abs / rel-cwd.                            |
+| `autoRefine`                | `false`                  | Run the auto-refine vision-critic loop by default. Per-call `autoRefine` / per-workflow `refine` override; `PI_COMFYUI_DISABLE_REFINE` kills it. |
+| `refineModel`               | (inherit)                | Vision-capable `provider/model-id` for the refine critic. Absent = inherit the session model when it has image input, else no-op.                |
+| `refineTimeoutMs`           | `120000`                 | Wall-clock cap (ms) per refine-critic run.                                                                                                       |
+| `maxRefineIterations`       | `2`                      | Max corrective renders after the initial (total renders <= 1 + N). Also stops on accept, a score plateau, or the cap.                            |
+| `refineAcceptThreshold`     | `7`                      | Score (0-10) at / above which the critic verdict is forced to accept, so the loop cannot burn the budget on nits.                                |
+| `refineGuidanceFile`        | (none)                   | Path to a global refine-critic guidance doc, prepended before any per-workflow `refineGuidanceFile`. `~` / abs / rel-cwd.                        |
+| `previewMaxDimension`       | (none)                   | Cap (px) on the longer side of the model-facing image copy; the saved file stays full-res. Absent / `0` = full-res.                              |
+| `usageGuidanceFile`         | (none)                   | Main-agent usage-guidance doc injected into the system prompt at turn start (enhancer off). `~` / abs / rel-cwd. See below.                      |
+| `usageGuidanceEnhancedFile` | (none)                   | Replaces `usageGuidanceFile` when prompt enhancement is effectively active this session. `~` / abs / rel-cwd.                                    |
+| `defaults`                  | (none)                   | Generation-param defaults pre-filled when a call omits them; merge by field. See below.                                                          |
+| `workflows`                 | `{ txt2img: <shipped> }` | Named workflows; merge by name across layers.                                                                                                    |
 
 Every scalar above resolves
 `per-call arg > project config (<cwd>/.pi/comfyui.json) > user config (~/.pi/agent/comfyui.json) > built-in default`. So
@@ -506,9 +535,7 @@ the right workflow and sends the right prompt shape:
   "workflows": {
     "anima": {
       "file": "~/.pi/agent/comfyui/anima.api.json",
-      "inputs": {
-        /* ... */
-      },
+      "inputs": {/* ... */},
       "description": "anime / illustration",
       "tags": ["anime", "sdxl"],
       "promptProtocol": "Danbooru tags, comma-separated",
@@ -538,9 +565,7 @@ produced) differs, so per model it is ~2-3 authored graphs.
   "workflows": {
     "anima": {
       "file": "~/.pi/agent/comfyui/anima.api.json",
-      "inputs": {
-        /* ... t2i ... */
-      },
+      "inputs": {/* ... t2i ... */},
       "refine": true,
       "refineWith": {
         "img2img": "anima-img2img",
@@ -725,9 +750,7 @@ workflow graph - e.g. "this project renders 1024x1024 at 30 steps":
 // <cwd>/.pi/comfyui.json
 {
   "defaults": { "width": 1024, "height": 1024, "steps": 30, "cfg": 5, "count": 1 },
-  "workflows": {
-    /* ... */
-  },
+  "workflows": {/* ... */},
 }
 ```
 

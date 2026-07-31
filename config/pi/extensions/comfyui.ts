@@ -78,6 +78,7 @@ import { createRefinerAccess } from '../../../lib/node/pi/ext/comfyui/refiner.ts
 import { runRefineCommand } from '../../../lib/node/pi/ext/comfyui/refine-command.ts';
 import { ComfyuiRuntime } from '../../../lib/node/pi/ext/comfyui/runtime.ts';
 import { buildGenerateParams } from '../../../lib/node/pi/ext/comfyui/params.ts';
+import { resolveUsageGuidance } from '../../../lib/node/pi/ext/comfyui/usage-guidance.ts';
 import { executeGenerate } from '../../../lib/node/pi/ext/comfyui/generate.ts';
 import { actCancel, actCollect, actListJobs } from '../../../lib/node/pi/ext/comfyui/jobs.ts';
 import type { LooseMessage } from '../../../lib/node/pi/context-edit/target.ts';
@@ -170,9 +171,19 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
   // the persisted overlays from the new branch.
   pi.on('session_tree', (_event, ctx) => rt.onSessionTree(ctx));
   pi.on('session_shutdown', (_event, ctx) => rt.onShutdown(ctx));
-  pi.on('before_agent_start', (_event, ctx) => {
+  pi.on('before_agent_start', (event, ctx) => {
     rt.beforeAgentStart(ctx);
-    return undefined;
+    // Inject the main-agent usage-guidance block (empty unless the user set
+    // usageGuidanceFile / usageGuidanceEnhancedFile). Recompute enhancer
+    // availability against the live session cwd so the "enhanced" variant is
+    // picked only when enhancement will actually run (an on-by-default enhance
+    // with no agent installed silently no-ops, so the model still needs the
+    // base protocol). The block is session-stable, so it stays on the
+    // cacheable prompt prefix. See ext/comfyui/usage-guidance.ts.
+    const enhanceAvailable =
+      !envTruthy(process.env.PI_COMFYUI_DISABLE_ENHANCE) && enhancerAccess.isAgentInstalled(ctx.cwd);
+    const block = resolveUsageGuidance({ config: loadConfig(ctx.cwd), enhanceAvailable, fromCwd: ctx.cwd });
+    return block.length > 0 ? { systemPrompt: [event.systemPrompt, block].join('\n\n') } : undefined;
   });
   // Remind the model about pending image jobs each turn, collapse ephemeral
   // renders out of the outgoing payload, and snapshot enhancer scene context
