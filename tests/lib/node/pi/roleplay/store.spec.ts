@@ -10,6 +10,7 @@ import {
   castSlug,
   chooseSlug,
   cloneState,
+  emptyLoreMeta,
   emptyState,
   findEntry,
   formatRoleplayBlock,
@@ -154,6 +155,7 @@ test('serialize -> parse round-trips a lore entry with all metadata', () => {
       delay: 1,
       group: 'org',
       groupWeight: 80,
+      enabled: true,
     },
   });
   const parsed = parseFrontmatter(raw);
@@ -173,6 +175,7 @@ test('serialize -> parse round-trips a lore entry with all metadata', () => {
     delay: 1,
     group: 'org',
     groupWeight: 80,
+    enabled: true,
   });
 });
 
@@ -195,6 +198,7 @@ test('serialize -> parse round-trips lore trigger values that contain commas', (
       delay: 0,
       group: '',
       groupWeight: 100,
+      enabled: true,
     },
   });
   const lore = parseFrontmatter(raw)!.frontmatter.lore!;
@@ -219,7 +223,22 @@ test('lore frontmatter defaults to empty/false when fields are omitted', () => {
     delay: 0,
     group: '',
     groupWeight: 100,
+    enabled: true,
   });
+});
+
+test('serialize omits enabled when true and emits it when false', () => {
+  const on = serializeEntry({ name: 'On', description: 'd', kind: 'lore', body: 'b' });
+  expect(on).not.toMatch(/^enabled:/m);
+  const off = serializeEntry({
+    name: 'Off',
+    description: 'd',
+    kind: 'lore',
+    body: 'b',
+    lore: { ...emptyLoreMeta(), enabled: false },
+  });
+  expect(off).toMatch(/^enabled: false$/m);
+  expect(parseFrontmatter(off)!.frontmatter.lore!.enabled).toBe(false);
 });
 
 test('character frontmatter carries no lore metadata', () => {

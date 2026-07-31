@@ -199,6 +199,7 @@ import {
   upsertEntry,
 } from '../../../lib/node/pi/roleplay/store.ts';
 import { ROLEPLAY_USAGE } from '../../../lib/node/pi/roleplay/usage.ts';
+import { normalizeInjectedBody } from '../../../lib/node/pi/roleplay/text.ts';
 import {
   collectRoleMessageTexts,
   concatRecentMessageText,
@@ -411,6 +412,14 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
   let lastMessages: readonly unknown[] = [];
   /** Memoized character-sheet n-gram exclusion set for repetition detection; rebuilt on state change. */
   let excludeCache: { cast: string; ngram: number; set: Set<string> } | null = null;
+  /**
+   * Memoized ids of lore entries whose stored body is empty after
+   * injection-normalization. Rebuilt on state change. Empty / whitespace-only
+   * lore is dropped BEFORE the match + timing pass so it can never win an
+   * inclusion group (and starve a real sibling) only to be discarded for
+   * having nothing to render.
+   */
+  let loreEmptyCache: { cast: string; ids: Set<string> } | null = null;
   // ── Rolling context-window state (per process; reset on lifecycle) ──
   /** Cumulative scene memory injected as a prefix (mirrors the `summary/auto` record). */
   let recapText = '';
@@ -526,6 +535,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
     timingState = {};
     sceneTimingState = {};
     excludeCache = null;
+    loreEmptyCache = null;
     if (cast === null) {
       state = emptyState();
       syncedCast = null;
@@ -707,10 +717,26 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
    * Phase 2). Returns `null` when the lorebook is disabled or nothing
    * fires. Bodies are loaded from disk for fired entries only.
    */
+  /** Ids of lore entries with an empty (injection-normalized) body, memoized per cast. */
+  const emptyLoreIds = (): Set<string> => {
+    if (loreEmptyCache && loreEmptyCache.cast === state.cast) return loreEmptyCache.ids;
+    const ids = new Set<string>();
+    for (const e of state.entries) {
+      if (e.kind !== 'lore') continue;
+      // Emptiness is a property of the authored body, so check pre-macro:
+      // a body that is only `{{newline}}` etc. is intentional content, not empty.
+      if (normalizeInjectedBody(readEntryBody(state.cast, e) ?? '').length === 0) ids.add(e.id);
+    }
+    loreEmptyCache = { cast: state.cast, ids };
+    return ids;
+  };
+
   const buildLoreInjection = (scanText: string): string | null => {
     if (!lorebookEnabled) return null;
     // Depth-tagged lore is injected at depth via the `context` event, not here.
-    const lore = state.entries.filter((e) => e.kind === 'lore' && e.lore?.depth === undefined);
+    // Empty-bodied lore is dropped up front so it never consumes a timing slot.
+    const empties = emptyLoreIds();
+    const lore = state.entries.filter((e) => e.kind === 'lore' && e.lore?.depth === undefined && !empties.has(e.id));
     if (lore.length === 0) return null;
     const cfg = loadRoleplayConfig(cwd, envCharBudget);
     // Keyword matching decides candidates; the timing pass (delay / probability /
@@ -730,7 +756,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
     const bodyOf = (entry: RoleplayEntry): string => {
       const cached = bodyCache.get(entry.id);
       if (cached !== undefined) return cached;
-      const body = substituteMacros(readEntryBody(state.cast, entry) ?? '', macroCtx());
+      const body = normalizeInjectedBody(substituteMacros(readEntryBody(state.cast, entry) ?? '', macroCtx()));
       bodyCache.set(entry.id, body);
       return body;
     };
@@ -796,12 +822,18 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
   /** Depth-tagged fired lore for the current turn, budgeted, as inject chunks. */
   const buildDepthLore = (scanText: string): LoreDepthChunk[] => {
     if (!lorebookEnabled) return [];
-    const depthLore = state.entries.filter((e) => e.kind === 'lore' && e.lore?.depth !== undefined);
+    const empties = emptyLoreIds();
+    const depthLore = state.entries.filter(
+      (e) => e.kind === 'lore' && e.lore?.depth !== undefined && !empties.has(e.id),
+    );
     if (depthLore.length === 0) return [];
     const fired = matchLore(depthLore, scanText);
     if (fired.length === 0) return [];
     const chunks: LoreChunk[] = fired
-      .map((entry) => ({ entry, body: substituteMacros(readEntryBody(state.cast, entry) ?? '', macroCtx()).trim() }))
+      .map((entry) => ({
+        entry,
+        body: normalizeInjectedBody(substituteMacros(readEntryBody(state.cast, entry) ?? '', macroCtx())),
+      }))
       .filter((c) => c.body.length > 0);
     const { kept } = selectWithinBudget(chunks, loadRoleplayConfig(cwd, envCharBudget).loreCharBudget);
     return kept.map((c) => ({ name: c.entry.name, body: c.body, depth: c.entry.lore?.depth ?? 0 }));
@@ -1902,11 +1934,15 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
             messages = layered.messages;
             changed = true;
           }
-          if (recapText) {
+          // Only inject a recap that has real content: a blank / whitespace-only
+          // `summary/auto` must not splice an empty recap block (nor flip
+          // `changed`). injectRecap double-guards, but gate here so a blank
+          // recap is a true no-op.
+          if (recapText.trim()) {
             messages = injectRecap(messages, recapText);
             changed = true;
           }
-          if (timelineText) {
+          if (timelineText.trim()) {
             const block = renderTimelineBlock(timelineText, {
               maxChars: loadRoleplayConfig(cwd, envCharBudget).timelineMaxInjectChars,
             });
@@ -2214,6 +2250,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
     pendingEvent = null;
     eventConsumed = false;
     excludeCache = null;
+    loreEmptyCache = null;
     resetWindowState();
   });
 
@@ -2258,6 +2295,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
   const persist = (): void => {
     writeIndex(state);
     excludeCache = null;
+    loreEmptyCache = null;
   };
 
   const actSave = (params: RoleplayParamsT): ActionOut => {
@@ -2486,6 +2524,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
     state = { cast: state.cast, entries };
     writeIndex(state);
     excludeCache = null;
+    loreEmptyCache = null;
 
     const lines = [
       `Imported "${plan.characterName}" into cast "${state.cast}": ${plan.records.length} record(s).`,

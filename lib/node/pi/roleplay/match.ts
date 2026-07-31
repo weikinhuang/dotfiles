@@ -53,6 +53,8 @@ function secondaryPasses(meta: LoreMeta, scanText: string): boolean {
 export function loreFires(entry: RoleplayEntry, scanText: string): boolean {
   const meta = entry.lore;
   if (!meta) return false;
+  // Author kill-switch: a disabled entry never fires, not even `constant`.
+  if (meta.enabled === false) return false;
   if (meta.constant) return true;
   if (meta.triggers.length === 0) return false;
   const primary = meta.triggers.some((t) => hasKeyword(scanText, t));

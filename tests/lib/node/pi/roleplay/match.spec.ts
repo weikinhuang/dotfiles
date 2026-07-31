@@ -71,6 +71,13 @@ test('secondary NOT excludes when any key present', () => {
   expect(loreFires(e, 'Rhodes vs Reunion')).toBe(false);
 });
 
+test('enabled:false silences an entry, even a constant one', () => {
+  expect(loreFires(lore('c', { constant: true, enabled: false }), 'anything')).toBe(false);
+  expect(loreFires(lore('ri', { triggers: ['Rhodes'], enabled: false }), 'Rhodes Island')).toBe(false);
+  // Default (enabled omitted / true) still fires.
+  expect(loreFires(lore('ri2', { triggers: ['Rhodes'], enabled: true }), 'Rhodes Island')).toBe(true);
+});
+
 // ── matchLore ────────────────────────────────────────────────────────────
 
 test('matchLore filters to fired lore and ignores non-lore + non-firing', () => {

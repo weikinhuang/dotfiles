@@ -146,6 +146,7 @@ test('maps character_book entries to lore records with metadata', () => {
     delay: 0,
     group: '',
     groupWeight: 100,
+    enabled: true,
   });
 });
 

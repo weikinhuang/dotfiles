@@ -63,6 +63,11 @@ export type SecondaryMode = 'AND' | 'OR' | 'NOT';
  *     only ONE is kept per turn (default '' = ungrouped).
  *   - `groupWeight`: relative weight for the group's weighted-random pick
  *     (default 100).
+ *   - `enabled`: author kill-switch (default true). `false` silences the
+ *     entry entirely - it never fires (keyword OR constant) and never
+ *     injects - so a file can be turned off in place without deleting or
+ *     moving it. File-authored only; deliberately NOT a `roleplay` tool
+ *     param, so the model can't toggle canon on or off.
  */
 export interface LoreMeta {
   triggers: string[];
@@ -78,6 +83,7 @@ export interface LoreMeta {
   delay: number;
   group: string;
   groupWeight: number;
+  enabled: boolean;
 }
 
 /**
@@ -150,6 +156,7 @@ export function emptyLoreMeta(): LoreMeta {
     delay: 0,
     group: '',
     groupWeight: 100,
+    enabled: true,
   };
 }
 
@@ -363,6 +370,7 @@ function parseLoreMeta(fields: Readonly<Record<string, unknown>>): LoreMeta {
   if (fields.delay !== undefined) meta.delay = Math.max(0, asInt(fields.delay, 0));
   if (fields.group !== undefined) meta.group = asString(fields.group) ?? '';
   if (fields.groupWeight !== undefined) meta.groupWeight = Math.max(0, asInt(fields.groupWeight, 100));
+  if (fields.enabled !== undefined) meta.enabled = asBool(fields.enabled, true);
   return meta;
 }
 
@@ -489,6 +497,7 @@ export function serializeEntry(input: {
     if (m.delay > 0) lines.push(`delay: ${m.delay}`);
     if (m.group.length > 0) lines.push(`group: ${yamlValue(m.group)}`);
     if (m.groupWeight !== 100) lines.push(`groupWeight: ${m.groupWeight}`);
+    if (!m.enabled) lines.push('enabled: false');
   }
   if (input.kind === 'character' && input.character) {
     const m = input.character;

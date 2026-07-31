@@ -98,12 +98,20 @@ Lore frontmatter (all optional beyond the core three keys):
 | `delay`         | integer          | Not eligible to fire until this many turns into the chat. Default `0`.                                |
 | `group`         | string           | Inclusion-group name; among fired members of a group only ONE survives per turn. Default `''`.        |
 | `groupWeight`   | integer          | Relative weight for the group's weighted-random pick. Default `100`.                                  |
+| `enabled`       | `true`/`false`   | Author kill-switch. `false` silences the entry (never fires, never injects). Default `true`.          |
 
 Keyword matching is **whole-word** (`RI` matches `RI` / `(RI)` but not `spring`) and case-insensitive; multi-word and
 punctuation-bearing keys (`Northern Outpost`, `Dr. Vance`) match literally between token boundaries. Fired entries are
 ranked by `order` (then name) and kept until `loreCharBudget` is reached - the single highest-priority entry is always
 kept even if it alone exceeds the budget. Recursion is **off by default**, opt-in per entry, and hard-capped at
 `maxRecursion` (ceiling 2) passes.
+
+`enabled: false` is an author kill-switch to silence an entry in place (never fires, never injects) without deleting or
+moving the file - useful for parking a draft or muting canon for a scene. It is **file-authored only**; unlike the core
+`save` / `update` fields it is deliberately not a `roleplay` tool parameter, so the model cannot toggle canon on or off.
+Injected bodies are also whitespace-normalized (per-line trailing whitespace stripped, blank-line runs collapsed), and
+an entry whose body is empty after normalization is dropped **before** the match + timing pass, so it can never win an
+inclusion group and starve a real sibling.
 
 ### Timed effects + inclusion groups
 

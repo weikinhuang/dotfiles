@@ -23,3 +23,19 @@ export function clampWords(s: string, max: number): string {
   }
   return cut.replace(/[\s,;:.-]+$/, '').trimEnd();
 }
+
+/**
+ * Normalize a multi-line body destined for injection: strip trailing
+ * horizontal whitespace from every line, collapse runs of 3+ newlines down
+ * to a single blank line, and trim the ends. Unlike {@link clampWords} this
+ * PRESERVES paragraph structure (single blank lines survive) - it only removes
+ * the bloat that inflates the injected block and the char-budget accounting
+ * (`budget.ts` counts `body.length`). Returns `''` for a whitespace-only body,
+ * which the caller treats as "nothing to inject".
+ */
+export function normalizeInjectedBody(s: string): string {
+  return s
+    .replace(/[^\S\n]+$/gm, '') // drop trailing spaces/tabs on each line
+    .replace(/\n{3,}/g, '\n\n') // collapse blank-line runs to one blank line
+    .trim();
+}
