@@ -197,6 +197,43 @@ this in the `context` event, which hands a deep copy of the messages and lets th
 Depth counts from the end: `depth: 0` appends after the last message, `depth: 1` inserts just before it, and a depth
 larger than the history clamps to the start. Disable the whole path with `PI_ROLEPLAY_DISABLE_DEPTH_INJECT=1`.
 
+### Delivery shape for `depth: 0`: standalone messages (default) or a merged tail block (opt-in)
+
+By default every insertion becomes its **own `user`-role message**. For `depth: 0` that means N instruction-only user
+turns appended _after_ the user's real message, so the model's immediate stimulus before generation is a stack of
+standing instructions with the actual user message several turns back. On a chat template with no mid-conversation
+system role that can read as an instruction handoff to acknowledge: on `llama-cpp/gemma4-31b-fast` a cast with four
+`constant: true, depth: 0` records (~4.6 KB of second-person imperative prose) drew a `// [OOC: I've absorbed …]`
+compliance preamble on 13.4% of replies, and 23 of those 27 preambles named an injected `depth: 0` record. Note also
+that depth lore skips the timing pass (plain `matchLore`, no `applyTiming`), so a `constant` depth record fires on
+**every** turn.
+
+Setting `depthLoreInlineTail: true` in `roleplay.json` changes only the **message structure**: everything resolving to
+depth 0 (the depth-0 lore, in order, plus an author's note whose resolved depth is 0, last) is concatenated into one
+block joined by blank lines and spliced onto the **end of the trailing user / toolResult message** instead of appended
+as new messages. Per-chunk `[Lore — <name>: …]` framing is unchanged, so the prose the model reads is the same;
+`depth > 0` keeps the standalone path untouched. Tradeoffs to weigh before opting in:
+
+- The block is delivered through the same [`context-reminder.ts`](../../../lib/node/pi/context-reminder.ts) seam as
+  `roleplay-lore`, so it gains `<system-reminder id="roleplay-depth">` framing. That is a deliberate behavior change:
+  the text is now inside a reminder envelope (already explained to non-Claude models by the system-prompt primer in
+  [`reminder-primer.ts`](../../../lib/node/pi/reminder-primer.ts)), and it keeps
+  [`cache-breakpoint.ts`](./cache-breakpoint.md) working as before, since that detector puts the conversation breakpoint
+  on the last **non-reminder** block and aggregates any number of reminder blocks past it. A bare text block would have
+  taken the breakpoint instead.
+- **Order on the trailing message is deterministic**: real user content, then the merged depth block (`roleplay-depth`),
+  then `roleplay-lore`, then `roleplay-repetition`, then `roleplay-event`. The depth block is applied before the
+  reminder specs, and each spec strips its own id before re-appending, so re-running the whole `context` transform over
+  its own output is a fixpoint.
+- When the trailing message is **not** injectable (not `user` / `toolResult`) the depth-0 chunks **fall back** to the
+  standalone-message path, so a chunk can never be silently dropped.
+- `PI_ROLEPLAY_DISABLE_DEPTH_INJECT=1` still disables the whole path, flag or no flag, and macro substitution +
+  `loreCharBudget` selection stay upstream of the merge (the merged block obeys the same budget as today).
+- **Re-measure before adopting.** The `depth: 0` tail position is load-bearing for prose-tic suppression on this model
+  (a tail-injected instruction measured 17% -> 3% on one tic and 62% -> 19% on another, where the same wording in the
+  system prompt did nothing). The merged block keeps the text at the tail but moves it _inside_ the user's message,
+  which is a different position in the rendered template. The flag exists so that can be an A/B rather than a leap.
+
 ## Injected `## Roleplay` block
 
 Each turn (under a roleplay persona) the active cast's **index** - one line per record, names + descriptions only - is
@@ -605,6 +642,7 @@ built-in default.
   "loreCharBudget": 4000, // fired-lore section cap (default 3000, floor 500)
   "maxRecursion": 1, // lorebook recursion passes, 0 = off (default 0, ceiling 2)
   "scanDepth": 10, // recent messages scanned for depth-tagged lore (default 10, max 100)
+  "depthLoreInlineTail": false, // merge depth-0 lore into the trailing user message (default false, opt-in)
   "relationshipDecayPerDay": 1, // affinity points drifted toward baseline per idle day (default 1, >=0)
   "relationshipBaseline": 50, // neutral resting affinity decay converges to (default 50, 0-100)
   "summarizeMinMessages": 4, // min evicted messages before auto-summarization fires (default 4, >=1)

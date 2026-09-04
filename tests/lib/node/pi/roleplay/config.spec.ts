@@ -52,6 +52,14 @@ test('coerceConfigLayer accepts scanDepth and clamps to [1, MAX_SCAN_DEPTH]', ()
   expect(coerceConfigLayer({ scanDepth: 7.8 })).toEqual({ scanDepth: 7 });
 });
 
+test('coerceConfigLayer accepts depthLoreInlineTail only as a boolean', () => {
+  expect(coerceConfigLayer({ depthLoreInlineTail: true })).toEqual({ depthLoreInlineTail: true });
+  expect(coerceConfigLayer({ depthLoreInlineTail: false })).toEqual({ depthLoreInlineTail: false });
+  expect(coerceConfigLayer({ depthLoreInlineTail: 'yes' })).toEqual({});
+  // Opt-in: unset must resolve to the standalone-message delivery shape.
+  expect(mergeConfigLayers({}).depthLoreInlineTail).toBe(false);
+});
+
 test('coerceConfigLayer accepts relationship decay knobs and clamps them', () => {
   expect(coerceConfigLayer({ relationshipDecayPerDay: 2.5 })).toEqual({ relationshipDecayPerDay: 2.5 });
   expect(coerceConfigLayer({ relationshipDecayPerDay: -3 })).toEqual({ relationshipDecayPerDay: 0 });

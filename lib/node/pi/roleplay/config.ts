@@ -12,7 +12,8 @@
  * cap). Phase 2 adds `loreCharBudget` (the fired-lore section cap) and
  * `maxRecursion` (bounded lorebook recursion). Phase 4 adds `scanDepth`
  * (recent messages scanned for depth-injected lore in the `context`
- * event). Phase 7 adds `relationshipDecayPerDay` + `relationshipBaseline`
+ * event) plus `depthLoreInlineTail` (opt-in merged depth-0 tail delivery;
+ * see `inject.ts`). Phase 7 adds `relationshipDecayPerDay` + `relationshipBaseline`
  * (the toward-baseline affinity-decay convention; see `relationship.ts`),
  * plus `summarizeMinMessages` + `summarizeMaxChars` (the auto-summarization
  * eviction trigger; see `summarize.ts`).
@@ -34,6 +35,13 @@ export interface RoleplayConfig {
   maxRecursion: number;
   /** Recent messages scanned for depth-injected lore in the `context` event (Phase 4). */
   scanDepth: number;
+  /**
+   * Deliver `depth: 0` lore (and an author's note resolving to depth 0) as ONE
+   * block spliced into the trailing user message instead of N standalone
+   * user-role messages. Opt-in; default `false` keeps today's byte-identical
+   * message array.
+   */
+  depthLoreInlineTail: boolean;
   /** Affinity points a relationship decays toward `relationshipBaseline` per idle day (Phase 7). */
   relationshipDecayPerDay: number;
   /** Neutral resting affinity that decay converges to, 0-100 (Phase 7). */
@@ -86,6 +94,7 @@ export const DEFAULT_CONFIG: RoleplayConfig = {
   loreCharBudget: 3000,
   maxRecursion: 0,
   scanDepth: 10,
+  depthLoreInlineTail: false,
   relationshipDecayPerDay: 1,
   relationshipBaseline: 50,
   summarizeMinMessages: 4,
@@ -161,6 +170,9 @@ export function coerceConfigLayer(raw: unknown): Partial<RoleplayConfig> {
   }
   if (typeof v.scanDepth === 'number' && Number.isFinite(v.scanDepth)) {
     out.scanDepth = Math.max(1, Math.min(MAX_SCAN_DEPTH, Math.floor(v.scanDepth)));
+  }
+  if (typeof v.depthLoreInlineTail === 'boolean') {
+    out.depthLoreInlineTail = v.depthLoreInlineTail;
   }
   if (typeof v.relationshipDecayPerDay === 'number' && Number.isFinite(v.relationshipDecayPerDay)) {
     out.relationshipDecayPerDay = Math.max(0, v.relationshipDecayPerDay);

@@ -12,6 +12,7 @@ import {
   DEFAULT_AUTHOR_NOTE_DEPTH,
   formatAuthorNote,
   formatDepthLore,
+  planDepthTailMerge,
 } from '../../../../../lib/node/pi/roleplay/inject.ts';
 
 // ── Formatters ────────────────────────────────────────────────────────────
@@ -90,4 +91,100 @@ test('multiple insertions land at their respective depths in input order', () =>
 
 test('applies into an empty history at depth 0', () => {
   expect(applyInsertions([], [{ depth: 0, text: 'X' }], wrap)).toStrictEqual(['<X>']);
+});
+
+// ── planDepthTailMerge (opt-in merged depth-0 delivery) ───────────────────
+
+test('planDepthTailMerge on an empty list plans nothing', () => {
+  expect(planDepthTailMerge([])).toStrictEqual({ insertions: [], tailBlock: null });
+});
+
+test('planDepthTailMerge merges only depth-0 entries, blank-line joined, order preserved', () => {
+  const plan = planDepthTailMerge([
+    { depth: 0, text: '[Lore — A: a]' },
+    { depth: 0, text: '[Lore — B: b]' },
+  ]);
+  expect(plan).toStrictEqual({ insertions: [], tailBlock: '[Lore — A: a]\n\n[Lore — B: b]' });
+});
+
+test('planDepthTailMerge leaves a depth-N-only list on the standalone path', () => {
+  const ins = [
+    { depth: 4, text: '[Lore — A: a]' },
+    { depth: 1, text: '[Lore — B: b]' },
+  ];
+  const plan = planDepthTailMerge(ins);
+  expect(plan.tailBlock).toBeNull();
+  expect(plan.insertions).toStrictEqual(ins);
+});
+
+test('planDepthTailMerge splits a mixed list, keeping depth-N order', () => {
+  const plan = planDepthTailMerge([
+    { depth: 0, text: 'T0' },
+    { depth: 2, text: 'N2' },
+    { depth: 0, text: 'T1' },
+    { depth: 5, text: 'N5' },
+  ]);
+  expect(plan.insertions).toStrictEqual([
+    { depth: 2, text: 'N2' },
+    { depth: 5, text: 'N5' },
+  ]);
+  expect(plan.tailBlock).toBe('T0\n\nT1');
+});
+
+test('planDepthTailMerge treats depths that normalize to 0 as tail entries', () => {
+  // `applyInsertions` clamps negative / fractional depths the same way, so
+  // the partition must agree with it or a chunk could change position.
+  const plan = planDepthTailMerge([
+    { depth: -3, text: 'A' },
+    { depth: 0.5, text: 'B' },
+  ]);
+  expect(plan).toStrictEqual({ insertions: [], tailBlock: 'A\n\nB' });
+});
+
+test('planDepthTailMerge puts a depth-0 author note after the lore, matching buildInsertions order', () => {
+  const plan = planDepthTailMerge(
+    buildInsertions({
+      authorNote: 'be cool',
+      authorNoteDepth: 0,
+      lore: [
+        { name: 'A', body: 'a', depth: 0 },
+        { name: 'B', body: 'b', depth: 0 },
+      ],
+    }),
+  );
+  expect(plan.insertions).toStrictEqual([]);
+  expect(plan.tailBlock).toBe("[Lore — A: a]\n\n[Lore — B: b]\n\n[Author's note: be cool]");
+});
+
+test('planDepthTailMerge leaves a default-depth author note on the standalone path', () => {
+  const plan = planDepthTailMerge(
+    buildInsertions({ authorNote: 'be cool', lore: [{ name: 'A', body: 'a', depth: 0 }] }),
+  );
+  expect(plan.insertions).toStrictEqual([{ depth: DEFAULT_AUTHOR_NOTE_DEPTH, text: "[Author's note: be cool]" }]);
+  expect(plan.tailBlock).toBe('[Lore — A: a]');
+});
+
+test('planDepthTailMerge is a pure repartition: no text added, dropped, or rewritten', () => {
+  const ins = buildInsertions({
+    authorNote: 'note',
+    authorNoteDepth: 0,
+    lore: [
+      { name: 'A', body: 'a', depth: 0 },
+      { name: 'B', body: 'b', depth: 3 },
+    ],
+  });
+  const plan = planDepthTailMerge(ins);
+  const rejoined = [...(plan.tailBlock ? plan.tailBlock.split('\n\n') : []), ...plan.insertions.map((i) => i.text)];
+  expect(new Set(rejoined)).toStrictEqual(new Set(ins.map((i) => i.text)));
+  expect(rejoined).toHaveLength(ins.length);
+});
+
+test('planDepthTailMerge does not mutate its input', () => {
+  const ins = [
+    { depth: 0, text: 'A' },
+    { depth: 2, text: 'B' },
+  ];
+  const snapshot = structuredClone(ins);
+  planDepthTailMerge(ins);
+  expect(ins).toStrictEqual(snapshot);
 });

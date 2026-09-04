@@ -83,7 +83,12 @@ import { clearAvatarInput, setAvatarInput } from '../../../lib/node/pi/avatar/in
 import { COMFYUI_IMAGE_CHANNEL, isImageGeneratedEvent } from '../../../lib/node/pi/comfyui/events.ts';
 import { loadRoleplayConfig } from '../../../lib/node/pi/roleplay/config.ts';
 import { selectWithinBudget, type LoreChunk } from '../../../lib/node/pi/roleplay/budget.ts';
-import { applyInsertions, buildInsertions, type LoreDepthChunk } from '../../../lib/node/pi/roleplay/inject.ts';
+import {
+  applyInsertions,
+  buildInsertions,
+  planDepthTailMerge,
+  type LoreDepthChunk,
+} from '../../../lib/node/pi/roleplay/inject.ts';
 import { matchLore } from '../../../lib/node/pi/roleplay/match.ts';
 import { formatLoreBlock } from '../../../lib/node/pi/roleplay/prompt.ts';
 import { type MacroContext, substituteMacros } from '../../../lib/node/pi/roleplay/macros.ts';
@@ -128,7 +133,11 @@ import {
   resolveEventSettings,
 } from '../../../lib/node/pi/roleplay/event.ts';
 import { buildExcludeSet, detectRepetition, formatRepetitionNudge } from '../../../lib/node/pi/roleplay/repetition.ts';
-import { applyContextReminder, type ReminderMessage } from '../../../lib/node/pi/context-reminder.ts';
+import {
+  applyContextReminder,
+  hasInjectableTail,
+  type ReminderMessage,
+} from '../../../lib/node/pi/context-reminder.ts';
 import {
   type AgentDef,
   defaultAgentLayers,
@@ -206,6 +215,13 @@ import {
   messageContentToText,
 } from '../../../lib/node/pi/message-text.ts';
 import { truncate } from '../../../lib/node/pi/shared.ts';
+
+/**
+ * Reminder id for the opt-in merged depth-0 block (`depthLoreInlineTail`).
+ * Distinct from `roleplay-lore` so the two coexist and each strips only its
+ * own block; applied first, so it sits ahead of `roleplay-lore` on the tail.
+ */
+const DEPTH_TAIL_REMINDER_ID = 'roleplay-depth';
 
 // ──────────────────────────────────────────────────────────────────────
 // Tool params
@@ -2034,19 +2050,46 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
       // at depth; reminders below append ephemerally to the trailing message.
       if (depthInjectEnabled) {
         const persona = getActivePersona();
-        const scanDepth = loadRoleplayConfig(cwd, envCharBudget).scanDepth;
+        const cfg = loadRoleplayConfig(cwd, envCharBudget);
         const insertions = buildInsertions({
           authorNote: persona?.authorNote ? substituteMacros(persona.authorNote, macroCtx()) : undefined,
           authorNoteDepth: persona?.authorNoteDepth,
-          lore: buildDepthLore(concatRecentMessageText(messages, scanDepth)),
+          lore: buildDepthLore(concatRecentMessageText(messages, cfg.scanDepth)),
         });
         if (insertions.length > 0) {
-          messages = applyInsertions(messages, insertions, (text) => ({
-            role: 'user' as const,
-            content: text,
-            timestamp: Date.now(),
-          }));
-          changed = true;
+          // Opt-in `depthLoreInlineTail`: deliver everything resolving to
+          // depth 0 as ONE block spliced into the trailing user message
+          // (same seam as the reminders below) instead of N standalone
+          // user-role messages. Depth > 0 keeps the standalone path
+          // untouched. Default off => `standalone` is the whole list and the
+          // outgoing array is byte-identical to before the flag existed.
+          const plan =
+            cfg.depthLoreInlineTail && hasInjectableTail(messages as unknown as ReminderMessage[])
+              ? planDepthTailMerge(insertions)
+              : // Flag off, or the trailing message is not user/toolResult and
+                // so cannot take a spliced block: fall back to the standalone
+                // path so a depth-0 chunk is never silently dropped.
+                { insertions, tailBlock: null };
+          if (plan.insertions.length > 0) {
+            messages = applyInsertions(messages, plan.insertions, (text) => ({
+              role: 'user' as const,
+              content: text,
+              timestamp: Date.now(),
+            }));
+            changed = true;
+          }
+          if (plan.tailBlock) {
+            // Applied BEFORE the reminder specs below, which fixes the tail
+            // order as `roleplay-depth` < `roleplay-lore` <
+            // `roleplay-repetition` < `roleplay-event`; each spec strips its
+            // own id before appending, so re-running the whole transform is
+            // a fixpoint and the order is stable.
+            messages = applyContextReminder(messages as unknown as ReminderMessage[], {
+              id: DEPTH_TAIL_REMINDER_ID,
+              body: plan.tailBlock,
+            });
+            changed = true;
+          }
         }
       }
 

@@ -119,7 +119,7 @@ const TAG_OPEN_PREFIX = `${REMINDER_TAG_MARKER} id="`;
 const TAG_CLOSE = '</system-reminder>';
 
 /** Roles a reminder may be spliced into (what the assistant responds to). */
-const INJECTABLE_ROLES: ReadonlySet<string> = new Set(['user', 'toolResult']);
+export const INJECTABLE_ROLES: ReadonlySet<string> = new Set(['user', 'toolResult']);
 
 /** The opening tag for a given id. A block belongs to this id iff its text starts with it. */
 function openTagFor(id: string): string {
@@ -170,6 +170,18 @@ export function stripReminder<M extends ReminderMessage>(messages: readonly M[],
 }
 
 /**
+ * True when {@link applyContextReminder} would actually splice a non-empty
+ * body into this array, i.e. the trailing message exists and carries an
+ * injectable role. Callers that need a FALLBACK when the tail cannot take a
+ * block (rather than silently injecting nothing) check this first, so the
+ * role rule lives in exactly one place.
+ */
+export function hasInjectableTail(messages: readonly ReminderMessage[]): boolean {
+  const last = messages[messages.length - 1];
+  return last !== undefined && INJECTABLE_ROLES.has(last.role);
+}
+
+/**
  * Strip any prior block of `spec.id`, then (when `spec.body` is non-empty)
  * splice a fresh framed reminder block onto the END of the last
  * user/toolResult message's content.
@@ -198,9 +210,9 @@ export function applyContextReminder<M extends ReminderMessage>(messages: readon
 
   // Inject only into the trailing message, and only when it's the kind
   // the assistant responds to (user / toolResult).
-  const target = stripped.length - 1;
-  if (target < 0 || !INJECTABLE_ROLES.has(stripped[target].role)) return stripped;
+  if (!hasInjectableTail(stripped)) return stripped;
 
+  const target = stripped.length - 1;
   const msg = stripped[target];
   const blocks = toBlocks(msg.content);
   blocks.push({ type: 'text', text: frameReminder(spec.id, body) });

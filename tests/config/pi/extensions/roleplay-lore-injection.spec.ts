@@ -1,5 +1,6 @@
 /**
- * Tests for the roleplay extension's keyword-fired-lore INJECTION SITE.
+ * Tests for the roleplay extension's keyword-fired-lore INJECTION SITE, plus
+ * the DEPTH-INJECTION site that shares the same trailing message.
  *
  * Cache-correctness contract (see
  * `config/pi/extensions/AGENTS.md` § "Auto-injecting state every turn" and
@@ -22,12 +23,32 @@
  * pure helpers - `matchLore`, `applyTiming`, `formatLoreBlock`,
  * `selectWithinBudget`, `applyContextReminder`. If the real shell changes
  * where fired lore is computed or injected, mirror it here.
+ *
+ * The second describe block mirrors the `context`-hook DEPTH-INJECT block
+ * (`buildInsertions` -> `planDepthTailMerge` -> `applyInsertions` /
+ * `applyContextReminder`) and the opt-in `depthLoreInlineTail` config flag,
+ * including the documented tail ORDER of the merged depth block relative to
+ * `roleplay-lore`. One deliberate deviation from the shell: the mirror's
+ * `makeMessage` omits the `timestamp: Date.now()` field, so outgoing arrays
+ * are comparable across runs.
  */
 
 import { describe, expect, test } from 'vitest';
 
 import { selectWithinBudget, type LoreChunk } from '../../../../lib/node/pi/roleplay/budget.ts';
-import { applyContextReminder, type ReminderMessage } from '../../../../lib/node/pi/context-reminder.ts';
+import {
+  applyContextReminder,
+  hasInjectableTail,
+  type ReminderMessage,
+} from '../../../../lib/node/pi/context-reminder.ts';
+import {
+  applyInsertions,
+  buildInsertions,
+  planDepthTailMerge,
+  type LoreDepthChunk,
+} from '../../../../lib/node/pi/roleplay/inject.ts';
+import { coerceConfigLayer, mergeConfigLayers } from '../../../../lib/node/pi/roleplay/config.ts';
+import { envTruthy } from '../../../../lib/node/pi/parse-env.ts';
 import { matchLore } from '../../../../lib/node/pi/roleplay/match.ts';
 import { formatLoreBlock } from '../../../../lib/node/pi/roleplay/prompt.ts';
 import { applyTiming, type TimingState } from '../../../../lib/node/pi/roleplay/timing.ts';
@@ -241,5 +262,224 @@ describe('roleplay fired-lore injection site', () => {
       ? last.content.filter((b) => b.type === 'text' && (b as { text: string }).text.includes('id="roleplay-lore"'))
       : [];
     expect(reminderBlocks).toHaveLength(1);
+  });
+});
+
+// ──────────────────────────────────────────────────────────────────────
+// Depth-injection site + the opt-in `depthLoreInlineTail` delivery shape.
+// ──────────────────────────────────────────────────────────────────────
+
+const DEPTH_REMINDER_ID = 'roleplay-depth';
+
+/** Depth-0 constant records, the shape that motivated the merged delivery. */
+const DEPTH_CHUNKS: LoreDepthChunk[] = [
+  { name: 'Apartment', body: 'The apartment layout: kitchen east, bed nook west.', depth: 0 },
+  { name: 'Narration', body: 'Narration texture: concrete nouns, no dash-phrases.', depth: 0 },
+];
+
+interface DepthOpts {
+  /** Config value under test (`RoleplayConfig.depthLoreInlineTail`). */
+  inlineTail: boolean;
+  authorNote?: string;
+  authorNoteDepth?: number;
+  /** The `pendingLore` slot the reminder pass reads. */
+  pendingLore?: string | null;
+}
+
+/**
+ * Mirror of the `context` hook's depth-inject block. Returns the messages
+ * with depth insertions applied, either as standalone user messages (default)
+ * or with everything at depth 0 merged into the trailing message.
+ */
+function depthPass(
+  messages: readonly ReminderMessage[],
+  chunks: readonly LoreDepthChunk[],
+  opts: DepthOpts,
+): ReminderMessage[] {
+  // Same gate as the shell: the env kill-switch wins over the config flag.
+  const depthInjectEnabled = !envTruthy(process.env.PI_ROLEPLAY_DISABLE_DEPTH_INJECT);
+  let out = messages as ReminderMessage[];
+  if (!depthInjectEnabled) return out;
+  const insertions = buildInsertions({
+    authorNote: opts.authorNote,
+    authorNoteDepth: opts.authorNoteDepth,
+    lore: chunks,
+  });
+  if (insertions.length === 0) return out;
+  const plan =
+    opts.inlineTail && hasInjectableTail(out) ? planDepthTailMerge(insertions) : { insertions, tailBlock: null };
+  if (plan.insertions.length > 0) {
+    out = applyInsertions(out, plan.insertions, (text) => ({ role: 'user' as const, content: text }));
+  }
+  if (plan.tailBlock) {
+    out = applyContextReminder(out, { id: DEPTH_REMINDER_ID, body: plan.tailBlock });
+  }
+  return out;
+}
+
+/** Mirror of the full `context` transform: depth pass, then the reminder specs. */
+function contextPass(
+  messages: readonly ReminderMessage[],
+  chunks: readonly LoreDepthChunk[],
+  opts: DepthOpts,
+): ReminderMessage[] {
+  return applyContextReminder(depthPass(messages, chunks, opts), {
+    id: REMINDER_ID,
+    body: opts.pendingLore ?? null,
+  });
+}
+
+/** A short history whose trailing message is the live user turn. */
+const history = (): ReminderMessage[] => [
+  { role: 'user', content: 'we head home' },
+  { role: 'assistant', content: 'The stairwell light stutters.' },
+  { role: 'user', content: 'I unlock the door' },
+];
+
+/** Every text block on the trailing message, in order. */
+const tailTexts = (messages: readonly ReminderMessage[]): string[] => {
+  const last = messages[messages.length - 1];
+  if (!Array.isArray(last.content)) return typeof last.content === 'string' ? [last.content] : [];
+  return last.content
+    .filter(
+      (b): b is { type: 'text'; text: string } =>
+        b.type === 'text' && typeof (b as { text?: unknown }).text === 'string',
+    )
+    .map((b) => b.text);
+};
+
+describe('roleplay depth-lore delivery shape', () => {
+  test('default-off: the outgoing array is identical with the flag absent and with it explicitly false', () => {
+    const absent = mergeConfigLayers(coerceConfigLayer({}));
+    const explicit = mergeConfigLayers(coerceConfigLayer({ depthLoreInlineTail: false }));
+    expect(absent.depthLoreInlineTail).toBe(false);
+    expect(explicit.depthLoreInlineTail).toBe(false);
+
+    const withAbsent = contextPass(history(), DEPTH_CHUNKS, { inlineTail: absent.depthLoreInlineTail });
+    const withExplicit = contextPass(history(), DEPTH_CHUNKS, { inlineTail: explicit.depthLoreInlineTail });
+
+    // ...and both equal today's expected output: one standalone user message
+    // per depth-0 chunk, appended after the user's real turn.
+    expect(withAbsent).toStrictEqual([
+      ...history(),
+      { role: 'user', content: '[Lore — Apartment: The apartment layout: kitchen east, bed nook west.]' },
+      { role: 'user', content: '[Lore — Narration: Narration texture: concrete nouns, no dash-phrases.]' },
+    ]);
+    expect(withExplicit).toStrictEqual(withAbsent);
+  });
+
+  test('flag on, only depth-0 chunks: one merged block on the trailing message, no added messages', () => {
+    const out = depthPass(history(), DEPTH_CHUNKS, { inlineTail: true });
+    expect(out).toHaveLength(history().length);
+    expect(tailTexts(out)).toStrictEqual([
+      'I unlock the door',
+      [
+        '<system-reminder id="roleplay-depth">',
+        '[Lore — Apartment: The apartment layout: kitchen east, bed nook west.]',
+        '',
+        '[Lore — Narration: Narration texture: concrete nouns, no dash-phrases.]',
+        '</system-reminder>',
+      ].join('\n'),
+    ]);
+  });
+
+  test('flag on, only depth-N chunks: byte-identical to the flag being off', () => {
+    const chunks: LoreDepthChunk[] = [{ name: 'Rhodes', body: 'The org keeps ledgers.', depth: 2 }];
+    expect(depthPass(history(), chunks, { inlineTail: true })).toStrictEqual(
+      depthPass(history(), chunks, { inlineTail: false }),
+    );
+  });
+
+  test('flag on, mixed depths: depth-N keeps the standalone path, depth-0 merges into the tail', () => {
+    const chunks: LoreDepthChunk[] = [
+      { name: 'Apartment', body: 'kitchen east', depth: 0 },
+      { name: 'Rhodes', body: 'ledgers', depth: 2 },
+    ];
+    const out = depthPass(history(), chunks, { inlineTail: true });
+    // The depth-2 chunk is still its own user message, spliced before the
+    // assistant turn; the depth-0 chunk rides the trailing user message.
+    expect(out.map((m) => m.role)).toStrictEqual(['user', 'user', 'assistant', 'user']);
+    expect(out[1].content).toBe('[Lore — Rhodes: ledgers]');
+    expect(tailTexts(out)[1]).toContain('[Lore — Apartment: kitchen east]');
+    expect(tailTexts(out)[1]).not.toContain('ledgers');
+  });
+
+  test("flag on: an author's note at depth 0 joins the merged block after the lore", () => {
+    const out = depthPass(history(), DEPTH_CHUNKS, { inlineTail: true, authorNote: 'stay terse', authorNoteDepth: 0 });
+    expect(out).toHaveLength(history().length);
+    const block = tailTexts(out)[1];
+    expect(block.indexOf('[Lore — Apartment')).toBeLessThan(block.indexOf("[Author's note: stay terse]"));
+    expect(block.indexOf('[Lore — Narration')).toBeLessThan(block.indexOf("[Author's note: stay terse]"));
+  });
+
+  test("flag on: an author's note at its default depth stays a standalone message", () => {
+    const out = depthPass(history(), DEPTH_CHUNKS, { inlineTail: true, authorNote: 'stay terse' });
+    // depth 4 clamps to the start of this 3-message history.
+    expect(out[0].content).toBe("[Author's note: stay terse]");
+    expect(tailTexts(out)[1]).not.toContain("Author's note");
+  });
+
+  test('flag on with a non-injectable trailing message: falls back to standalone messages', () => {
+    const assistantTail: ReminderMessage[] = [
+      { role: 'user', content: 'I unlock the door' },
+      { role: 'assistant', content: 'The lock gives.' },
+    ];
+    const out = depthPass(assistantTail, DEPTH_CHUNKS, { inlineTail: true });
+    // No chunk is dropped: both land as user messages, exactly as with the
+    // flag off.
+    expect(out).toStrictEqual(depthPass(assistantTail, DEPTH_CHUNKS, { inlineTail: false }));
+    expect(out).toHaveLength(assistantTail.length + DEPTH_CHUNKS.length);
+  });
+
+  test('flag on with an empty chunk list is a no-op that preserves array identity', () => {
+    const msgs = history();
+    expect(depthPass(msgs, [], { inlineTail: true })).toBe(msgs);
+    expect(depthPass(msgs, [], { inlineTail: false })).toBe(msgs);
+  });
+
+  test('flag on: the merged depth block precedes the roleplay-lore reminder, and re-applying is a fixpoint', () => {
+    const opts: DepthOpts = { inlineTail: true, pendingLore: '## Roleplay lore\n\nThe reef glows.' };
+    const once = contextPass(history(), DEPTH_CHUNKS, opts);
+    const ids = tailTexts(once).map((t) => /^<system-reminder id="([^"]+)">/.exec(t)?.[1] ?? 'real-content');
+    // Documented order on the trailing message: real user text, then the
+    // merged depth block, then the keyword-fired lore reminder.
+    expect(ids).toStrictEqual(['real-content', DEPTH_REMINDER_ID, REMINDER_ID]);
+
+    // Re-running the whole transform over its own output changes nothing.
+    const twice = contextPass(once, DEPTH_CHUNKS, opts);
+    expect(twice).toStrictEqual(once);
+    expect(contextPass(twice, DEPTH_CHUNKS, opts)).toStrictEqual(once);
+  });
+
+  test('flag on: PI_ROLEPLAY_DISABLE_DEPTH_INJECT=1 still disables the whole depth path', () => {
+    const prev = process.env.PI_ROLEPLAY_DISABLE_DEPTH_INJECT;
+    process.env.PI_ROLEPLAY_DISABLE_DEPTH_INJECT = '1';
+    try {
+      const out = contextPass(history(), DEPTH_CHUNKS, {
+        inlineTail: true,
+        authorNote: 'stay terse',
+        authorNoteDepth: 0,
+      });
+      expect(out).toStrictEqual(history());
+      expect(JSON.stringify(out)).not.toContain('Apartment');
+      expect(JSON.stringify(out)).not.toContain(DEPTH_REMINDER_ID);
+    } finally {
+      if (prev === undefined) delete process.env.PI_ROLEPLAY_DISABLE_DEPTH_INJECT;
+      else process.env.PI_ROLEPLAY_DISABLE_DEPTH_INJECT = prev;
+    }
+  });
+
+  test('flag on: the merged block still obeys loreCharBudget (selection stays upstream of the merge)', () => {
+    // Budgeting happens in `buildDepthLore` before the chunks ever reach the
+    // merge, so the merged block can only shrink with the budget, never grow.
+    const chunks: LoreChunk[] = [
+      { entry: { id: 'a', kind: 'lore', name: 'Apartment', description: 'a' }, body: 'x'.repeat(40) },
+      { entry: { id: 'b', kind: 'lore', name: 'Narration', description: 'b' }, body: 'y'.repeat(4000) },
+    ];
+    const { kept } = selectWithinBudget(chunks, 500);
+    const depthChunks: LoreDepthChunk[] = kept.map((c) => ({ name: c.entry.name, body: c.body, depth: 0 }));
+    const block = tailTexts(depthPass(history(), depthChunks, { inlineTail: true }))[1];
+    expect(block).toContain('Apartment');
+    expect(block).not.toContain('Narration');
   });
 });
