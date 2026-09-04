@@ -38,6 +38,14 @@ while [[ $# -gt 0 ]]; do
     --no-vim)
       DOTFILES__INSTALL_VIMRC=
       ;;
+    --link-only)
+      # Only (re)create the ${HOME} symlinks; skip cloning/updating the
+      # repo and installing vim/nvim plugins. Intended for read-only
+      # dotfiles checkouts (e.g. a container bind-mount) where the repo
+      # is provisioned out of band.
+      DOTFILES__LINK_ONLY=1
+      DOTFILES__INSTALL_VIMRC=
+      ;;
     --dir | -d)
       if [[ $# -lt 2 ]]; then
         echo "Missing value for $1" >&2
@@ -267,7 +275,14 @@ function dotfiles::install::update() {
 }
 
 # make the dotfiles directory
-if [[ ! -d "${DOTFILES_ROOT}" ]]; then
+if [[ -n "${DOTFILES__LINK_ONLY:-}" ]]; then
+  # link-only: skip repo get/update and vim plugin install entirely.
+  if [[ ! -d "${DOTFILES_ROOT}" ]]; then
+    echo "--link-only requires an existing checkout at ${DOTFILES_ROOT}" >&2
+    exit 1
+  fi
+  DOTFILES_EXEC=true
+elif [[ ! -d "${DOTFILES_ROOT}" ]]; then
   # we don't have anything
   DOTFILES_EXEC=dotfiles::install::install
 else
