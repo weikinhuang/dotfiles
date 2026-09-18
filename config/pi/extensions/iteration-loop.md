@@ -43,6 +43,11 @@ nudges when the model edits or claims without verifying. Companion to the
 | `close`                 | -                  | `task`, `reason` (one of the stop reasons; default `user-closed`) - archives the task                 |
 | `list`                  | -                  | - lists active/draft tasks and up to 10 archive entries                                               |
 
+`declare` rejects a no-op bash check - a `cmd` that always exits 0 (`true`, `:`, `exit 0`, a bare `echo`/`printf`) under
+the default `exit-zero` predicate - because a check that cannot fail verifies nothing (`detectNoOpBashCheck` in
+[`iteration-loop/schema.ts`](../../../lib/node/pi/iteration-loop/schema.ts)). A `regex:`/`jq:` predicate inspects
+stdout, so those commands are allowed with it. If there is no failable contract, don't declare a check at all.
+
 ## State layout
 
 Rooted at `<cwd>/.pi/checks/`:

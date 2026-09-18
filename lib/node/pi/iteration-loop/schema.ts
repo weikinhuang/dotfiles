@@ -142,6 +142,46 @@ export interface CheckDeclareParams {
  * when required fields are missing or malformed; callers remain
  * responsible for writing the draft and surfacing the error.
  */
+/**
+ * Detect a `kind=bash` check whose command can never fail under the
+ * resolved predicate, i.e. a no-op that always yields a passing
+ * verdict. Such a "check" verifies nothing - it's the degenerate
+ * `cmd: true` / bare `echo` pattern a model reaches for when it feels
+ * obligated to run a check but has no real contract to assert.
+ *
+ * Only guards the `exit-zero` predicate (default / empty). With a
+ * `regex:` or `jq:` predicate the command's OUTPUT is inspected, so
+ * even `echo foo` is asserting something real and is left alone.
+ *
+ * Returns a human-readable reason string when the command is a
+ * guaranteed-pass no-op, or `null` when it can meaningfully fail.
+ * Conservative by design: only the unambiguous degenerate forms are
+ * flagged, so a real validator is never rejected.
+ */
+export function detectNoOpBashCheck(cmd: string, passOn: string | undefined): string | null {
+  const predicate = (passOn ?? '').trim();
+  // A regex:/jq: predicate asserts on stdout, so the command is not a no-op.
+  if (predicate !== '' && predicate !== 'exit-zero') return null;
+
+  const normalized = cmd.trim();
+  if (normalized === '') return null;
+
+  // Commands that always exit 0 on their own.
+  const alwaysZero = new Set(['true', ':', 'exit', 'exit 0']);
+  if (alwaysZero.has(normalized)) {
+    return `\`cmd: ${normalized}\` always exits 0, so this check can never fail`;
+  }
+
+  // A lone echo/printf (no shell operators chaining it to something
+  // that could fail) always exits 0. `echo x && test ...` is fine.
+  const hasShellOperator = /[|&;]|\n|`|\$\(/.test(normalized);
+  if (!hasShellOperator && /^(echo|printf|:)\b/.test(normalized)) {
+    return `\`${normalized}\` always exits 0, so this check can never fail`;
+  }
+
+  return null;
+}
+
 export function buildCheckSpecFromParams(
   task: string,
   params: CheckDeclareParams,
@@ -165,6 +205,16 @@ export function buildCheckSpecFromParams(
       !passOn.startsWith('jq:')
     ) {
       return { ok: false, error: `invalid passOn "${passOn}" - use exit-zero, regex:<pat>, or jq:<expr>` };
+    }
+    const noOp = detectNoOpBashCheck(cmd, passOn);
+    if (noOp) {
+      return {
+        ok: false,
+        error:
+          `declare kind=bash ${noOp}. A check must be able to fail, or it verifies nothing. ` +
+          `Point \`cmd\` at a real validator / assertion (e.g. \`test\`, a linter, \`jq -e\`), ` +
+          `or if there is no contract to verify, don't declare a check - just do the task.`,
+      };
     }
     const bash: BashCheckSpec = { cmd };
     if (passOn && passOn !== 'exit-zero') bash.passOn = passOn as BashCheckSpec['passOn'];

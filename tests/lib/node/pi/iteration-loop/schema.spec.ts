@@ -13,6 +13,7 @@ import {
   buildCheckSpecFromParams,
   cloneIterationState,
   DEFAULT_BUDGET,
+  detectNoOpBashCheck,
   emptyIterationState,
   resolveBudget,
   type CheckSpec,
@@ -188,12 +189,12 @@ describe('buildCheckSpecFromParams', () => {
   test('omits default bash passOn from the persisted spec', () => {
     const result = buildCheckSpecFromParams(
       'default',
-      { kind: 'bash', artifact: 'out.svg', cmd: 'true', passOn: 'exit-zero' },
+      { kind: 'bash', artifact: 'out.svg', cmd: 'test -s out.svg', passOn: 'exit-zero' },
       '2026-05-01T00:00:00Z',
     );
 
     if (!result.ok) throw new Error(result.error);
-    expect(result.spec.spec).toEqual({ cmd: 'true' });
+    expect(result.spec.spec).toEqual({ cmd: 'test -s out.svg' });
   });
 
   test('builds critic specs with optional agent and model override', () => {
@@ -245,7 +246,7 @@ describe('buildCheckSpecFromParams', () => {
   });
 
   test('rejects non-positive / non-integer budgets that would insta-stop the loop', () => {
-    const base = { kind: 'bash', artifact: 'out.svg', cmd: 'true' } as const;
+    const base = { kind: 'bash', artifact: 'out.svg', cmd: 'test -s out.svg' } as const;
     expect(buildCheckSpecFromParams('default', { ...base, maxIter: 0 }, startedAt)).toMatchObject({
       ok: false,
       error: /maxIter must be a positive integer/,
@@ -262,6 +263,55 @@ describe('buildCheckSpecFromParams', () => {
       ok: false,
       error: /wallClockSeconds must be a positive number/,
     });
+  });
+
+  test('rejects no-op bash checks that can never fail', () => {
+    for (const cmd of ['true', ':', 'exit 0', 'exit', '  true  ', 'echo hi', 'printf done']) {
+      expect(buildCheckSpecFromParams('default', { kind: 'bash', artifact: 'out.svg', cmd }, startedAt)).toMatchObject({
+        ok: false,
+        error: /can never fail/,
+      });
+    }
+  });
+
+  test('allows always-zero-looking commands when a regex/jq predicate inspects output', () => {
+    expect(
+      buildCheckSpecFromParams(
+        'default',
+        { kind: 'bash', artifact: 'out.svg', cmd: 'echo hi', passOn: 'regex:hi' },
+        startedAt,
+      ),
+    ).toMatchObject({ ok: true });
+  });
+
+  test('allows a real assertion even when it starts with echo', () => {
+    expect(
+      buildCheckSpecFromParams(
+        'default',
+        { kind: 'bash', artifact: 'out.svg', cmd: 'echo hi && test -s out.svg' },
+        startedAt,
+      ),
+    ).toMatchObject({ ok: true });
+  });
+});
+
+describe('detectNoOpBashCheck', () => {
+  test('flags always-zero commands under exit-zero', () => {
+    for (const cmd of ['true', ':', 'exit', 'exit 0', 'echo hi', 'printf x']) {
+      expect(detectNoOpBashCheck(cmd, undefined)).toBeTruthy();
+      expect(detectNoOpBashCheck(cmd, 'exit-zero')).toBeTruthy();
+    }
+  });
+
+  test('passes failable commands', () => {
+    for (const cmd of ['test -s out.svg', 'xmllint --noout out.svg', 'echo hi && test -s x', 'grep foo f']) {
+      expect(detectNoOpBashCheck(cmd, 'exit-zero')).toBeNull();
+    }
+  });
+
+  test('ignores always-zero commands when a regex/jq predicate inspects output', () => {
+    expect(detectNoOpBashCheck('echo hi', 'regex:hi')).toBeNull();
+    expect(detectNoOpBashCheck('echo {}', 'jq:.ok')).toBeNull();
   });
 });
 

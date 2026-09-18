@@ -1117,8 +1117,10 @@ export default function iterationLoopExtension(pi: ExtensionAPI): void {
       '`list` (enumerate active/draft/archived tasks). ' +
       'v1 supports a single active task named `default`; bash and critic check kinds only.',
     promptSnippet:
-      'For artifact-producing tasks (rendered image, SVG, generated config, regex output) declare a check up front and iterate until the verdict approves.',
+      'When a task produces an artifact whose correctness you CANNOT confirm by reading the output (a rendered image, an SVG, a generated config/regex, code that must pass a spec), declare a check up front and iterate until the verdict approves. Skip it when there is no failable contract - do not declare a no-op check or use `check run` as a one-shot "ask".',
     promptGuidelines: [
+      'Only declare a check when a real pass/fail contract exists that you cannot just eyeball. If the task has no way to fail a check, or a single tool call / reading the output settles it, do NOT use `check` - just do the task.',
+      'Never declare a bash check whose `cmd` always exits 0 (`true`, `:`, a bare `echo`). The extension rejects these - a check that cannot fail verifies nothing. Point `cmd` at a real validator (`test`, a linter, `jq -e`).',
       'Call `check` with action `declare` before producing the artifact. Pick `kind=bash` for deterministic pass/fail (tests, validators, exit-code commands) or `kind=critic` for subjective or visual verification (images, prose, design).',
       'After declaring, surface the draft JSON to the user and ask them to accept it. Do not call `check run` until the user has accepted via `check accept` (the extension enforces this - drafts cannot run).',
       'Iterate in a tight loop: edit → `check run` → read verdict → edit. Do NOT claim the artifact is done without a passing verdict from `check run` this turn.',

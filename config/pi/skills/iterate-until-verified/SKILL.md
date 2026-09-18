@@ -1,10 +1,12 @@
 ---
 name: iterate-until-verified
 description: >-
-  Use the `check` tool to run a disciplined feedback loop whenever the task is "produce an artifact and confirm it
-  satisfies a verifiable contract" - render an SVG / chart / diagram, generate a config / regex / test / fixture /
-  snippet that has to match a spec, write code that has to pass a test suite, produce prose a critic can rubric-judge,
-  or "make a Y that does Z". Never claim the artifact is done without a passing verdict from `check run` this turn.
+  Use the `check` tool to run a disciplined feedback loop when the task produces an artifact whose correctness you
+  cannot confirm by reading the output and a failable pass/fail contract exists - render an SVG / chart / diagram,
+  generate a config / regex / test / fixture / snippet that has to match a spec, write code that has to pass a test
+  suite, produce prose a critic can rubric-judge, or "make a Y that satisfies Z". Do NOT declare a check with no real
+  contract, a command that always passes (`cmd: true`), or as a one-shot "ask". Never claim the artifact is done without
+  a passing verdict from `check run` this turn.
 ---
 
 # Iterate Until Verified
@@ -30,6 +32,9 @@ Reach for `check` when **all** of these hold:
 
 Skip the check when:
 
+- There is no failable contract. If no plausible `check run` could ever come back failing, there is nothing to verify -
+  don't declare one. A check whose bash `cmd` always exits 0 (`true`, `:`, a bare `echo`) is rejected by the extension
+  for exactly this reason.
 - The deliverable IS the answer to a question ("what does this function do?"). No artifact, nothing to re-render.
 - A single tool call completes the task with deterministic success (`git status`, "read line 40"). The round trip costs
   more than it saves.
@@ -146,6 +151,9 @@ an iteration log - the extension already maintains history.
 
 ## Anti-patterns
 
+- **Don't declare a no-op check to satisfy the ritual.** A bash `cmd` that always exits 0 (`true`, `:`, a bare `echo`),
+  or a rubric so loose nothing could fail it, verifies nothing. The extension rejects always-pass `exit-zero` commands;
+  if you have no failable contract, don't declare a check - just do the task. `check` is a loop, never a one-shot "ask".
 - **Don't skip authorship because "the check is obvious."** Weak models often draft checks that look sensible and subtly
   mis-spec the rubric. The user's review catches that cheaply.
 - **Don't `check run` without editing between iterations.** Wasted spin; every call snapshots the artifact and (for
