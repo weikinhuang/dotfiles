@@ -1,7 +1,7 @@
 // Harness auto-detection from a session-log path + its first JSONL lines.
 // Pure: the CLI reads the file head and the file extension and hands them
-// here. opencode is a SQLite DB (detected by extension); pi / claude / codex
-// are JSONL and are told apart by their record signatures.
+// here. Copilot and opencode use SQLite; pi / claude / codex are JSONL and
+// are told apart by their record signatures.
 // SPDX-License-Identifier: MIT
 
 import { type Harness } from './turn-model.ts';
@@ -38,6 +38,7 @@ function classifyLine(obj: Record<string, unknown>): Harness | undefined {
 // only pass ~10). Returns undefined when nothing matches confidently.
 export function detectHarness(filePath: string, lines: string[]): Harness | undefined {
   const lower = filePath.toLowerCase();
+  if (lower.endsWith('session-store.db')) return 'copilot';
   if (lower.endsWith('.db') || lower.endsWith('.sqlite') || lower.endsWith('opencode.db')) return 'opencode';
 
   for (const line of lines) {

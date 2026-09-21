@@ -1,6 +1,6 @@
 // Provider-neutral per-turn session model for the cost / caching analyzer.
 //
-// Every harness adapter (pi, claude, codex, opencode) parses its native
+// Every harness adapter (pi, claude, codex, copilot, opencode) parses its native
 // session log into a `NormalizedSession`: an ordered series of
 // `NormalizedTurn`s, one per assistant request/response, carrying the token
 // and (optionally precomputed) cost accounting that the detectors reason
@@ -9,7 +9,7 @@
 // TTL-churn / large-context logic works across every harness.
 // SPDX-License-Identifier: MIT
 
-export type Harness = 'pi' | 'claude' | 'codex' | 'opencode';
+export type Harness = 'pi' | 'claude' | 'codex' | 'copilot' | 'opencode';
 
 // Which provider's prompt-cache semantics this turn ran under. Detectors key
 // off this, not the harness:
@@ -56,8 +56,8 @@ export interface NormalizedTurn {
   model?: string;
   cachingModel: CachingModel;
   tokens: TurnTokens;
-  // Present when the log precomputes cost (pi, opencode) or after
-  // `fillTurnCosts` backfills it from a pricing table (claude, codex).
+  // Present when the log precomputes cost (pi) or after `fillTurnCosts`
+  // backfills it from a pricing table (claude, codex, copilot, opencode).
   cost?: TurnCost;
   body?: TurnBody;
   // Wall-clock seconds since the previous turn in the series. Undefined on

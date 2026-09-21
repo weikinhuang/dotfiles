@@ -8,7 +8,7 @@ _dot_ai_cost_doctor() {
 
   case "${prev}" in
     --harness)
-      mapfile -t COMPREPLY < <(compgen -W "pi claude codex opencode" -- "${cur}")
+      mapfile -t COMPREPLY < <(compgen -W "pi claude codex copilot opencode" -- "${cur}")
       return
       ;;
     --user-dir)
@@ -27,12 +27,12 @@ _dot_ai_cost_doctor() {
   local saw_harness="" w
   for w in "${COMP_WORDS[@]:1:COMP_CWORD-1}"; do
     case "${w}" in
-      pi | claude | codex | opencode) saw_harness=1 ;;
+      pi | claude | codex | copilot | opencode) saw_harness=1 ;;
     esac
   done
 
   if [[ -z "${saw_harness}" ]]; then
-    mapfile -t COMPREPLY < <(compgen -W "pi claude codex opencode" -- "${cur}")
+    mapfile -t COMPREPLY < <(compgen -W "pi claude codex copilot opencode" -- "${cur}")
     # Also allow a bare file path in the first position (auto-detect mode).
     mapfile -O "${#COMPREPLY[@]}" -t COMPREPLY < <(compgen -f -- "${cur}")
     return

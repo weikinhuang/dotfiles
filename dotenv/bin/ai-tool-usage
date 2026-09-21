@@ -15,6 +15,7 @@ session-usage.ts script under config/<tool>/ in the dotfiles repo.
 Tools:
   claude                Claude Code sessions (~/.claude/projects)
   codex                 Codex CLI sessions (~/.codex/sessions)
+  copilot               GitHub Copilot CLI sessions (~/.copilot)
   opencode              opencode sessions (~/.local/share/opencode)
 
 Any further args and options are forwarded to the tool script. Run
@@ -23,6 +24,7 @@ Any further args and options are forwarded to the tool script. Run
 Examples:
   ai-tool-usage claude list
   ai-tool-usage codex session 019d4aae
+  ai-tool-usage copilot totals --group-by week
   ai-tool-usage opencode --limit 5 --sort cost --json
   ai-tool-usage claude totals --group-by week
   ai-tool-usage opencode totals -g day --limit 14

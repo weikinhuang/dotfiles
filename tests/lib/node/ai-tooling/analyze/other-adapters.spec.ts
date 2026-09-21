@@ -3,6 +3,10 @@ import { describe, expect, test } from 'vitest';
 import { claudeToNormalized, type ClaudeEntry } from '../../../../../lib/node/ai-tooling/adapters/claude-adapter.ts';
 import { codexToNormalized, type CodexEntry } from '../../../../../lib/node/ai-tooling/adapters/codex-adapter.ts';
 import {
+  copilotToNormalized,
+  type CopilotUsageEvent,
+} from '../../../../../lib/node/ai-tooling/adapters/copilot-adapter.ts';
+import {
   opencodeToNormalized,
   type OpencodeMessage,
 } from '../../../../../lib/node/ai-tooling/adapters/opencode-adapter.ts';
@@ -113,6 +117,68 @@ describe('codexToNormalized', () => {
 
   test('requests a cost backfill (codex logs omit cost)', () => {
     expect(codexToNormalized(entries(), 'x').costNeedsBackfill).toBe(true);
+  });
+});
+
+describe('copilotToNormalized', () => {
+  function events(): CopilotUsageEvent[] {
+    return [
+      {
+        model: 'gpt-5',
+        inputTokens: 14800,
+        outputTokens: 651,
+        cacheReadTokens: 8960,
+        cacheWriteTokens: 0,
+        reasoningTokens: 331,
+        createdAt: '2026-09-20T10:00:00.000Z',
+      },
+      {
+        model: 'claude-sonnet-4.5',
+        inputTokens: 3,
+        outputTokens: 170,
+        cacheReadTokens: 9663,
+        cacheWriteTokens: 5330,
+        reasoningTokens: 0,
+        createdAt: '2026-09-20T10:00:30.000Z',
+      },
+    ];
+  }
+
+  test('maps token, cache, reasoning, and model fields', () => {
+    const s = copilotToNormalized(events(), {
+      sessionId: 'cp-1',
+      startTime: '2026-09-20T09:59:00.000Z',
+      endTime: '2026-09-20T10:01:00.000Z',
+    });
+    expect(s.harness).toBe('copilot');
+    expect(s.turns).toHaveLength(2);
+    expect(s.turns[0].cachingModel).toBe('openai');
+    expect(s.turns[0].tokens).toEqual({
+      input: 14800,
+      output: 982,
+      cacheReadInput: 8960,
+      cacheWriteInput: 0,
+    });
+    expect(s.turns[1].cachingModel).toBe('anthropic');
+    expect(s.turns[1].tokens).toEqual({
+      input: 3,
+      output: 170,
+      cacheReadInput: 9663,
+      cacheWriteInput: 5330,
+    });
+    expect(s.turns[1].gapSecFromPrev).toBe(30);
+  });
+
+  test('requests pricing backfill because Copilot stores quota units, not USD', () => {
+    const s = copilotToNormalized(events(), { sessionId: 'cp-1' });
+    expect(s.costNeedsBackfill).toBe(true);
+    expect(s.turns.every((turn) => turn.cost === undefined)).toBe(true);
+  });
+
+  test('falls back to copilot_usage_model when model is absent', () => {
+    const s = copilotToNormalized([{ copilotUsageModel: 'gpt-4.1', inputTokens: 10 }], { sessionId: 'cp-1' });
+    expect(s.model).toBe('gpt-4.1');
+    expect(s.turns[0].model).toBe('gpt-4.1');
   });
 });
 

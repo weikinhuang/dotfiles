@@ -3,8 +3,8 @@
 // doctor can be pointed at a session by short id instead of a full path.
 //
 // The selection logic (`pickSession`) is pure and unit-tested; the per-harness
-// directory scanning is impure (fs), and opencode resolution lives in the CLI
-// since it queries SQLite. Directory conventions mirror the four
+// directory scanning is impure (fs), and SQLite resolution lives in the CLI.
+// Directory conventions mirror the five
 // config/<tool>/session-usage.ts adapters.
 // SPDX-License-Identifier: MIT
 
@@ -19,6 +19,7 @@ export const DEFAULT_DIRS: Record<Harness, string> = {
   pi: '~/.pi/agent/sessions',
   claude: '~/.claude/projects',
   codex: '~/.codex/sessions',
+  copilot: '~/.copilot',
   opencode: '~/.local/share/opencode',
 };
 

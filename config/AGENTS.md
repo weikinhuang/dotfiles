@@ -1,8 +1,8 @@
 # Config
 
 Non-shell configuration files consumed by third-party tools. Most subdirectories hold static config (`bat`, `ripgrep`,
-`eza`, `tmux`, `vim`, `git`) that the matching plugin points a tool at; the four code-bearing subdirectories (`claude/`,
-`codex/`, `opencode/`, `pi/`) additionally carry their own TypeScript / shell tooling. See root
+`eza`, `tmux`, `vim`, `git`) that the matching plugin points a tool at; the five code-bearing subdirectories (`claude/`,
+`codex/`, `copilot/`, `opencode/`, `pi/`) additionally carry their own TypeScript / shell tooling. See root
 [AGENTS.md](../AGENTS.md) for repo-wide conventions; this file only documents what is different here.
 
 ## Commands
@@ -20,6 +20,7 @@ See [README.md](./README.md) for the full per-directory table; high-level groupi
 | [`bat/`](./bat/), [`eza/`](./eza/), [`git/`](./git/), [`ripgrep/`](./ripgrep/), [`tmux/`](./tmux/), [`vim/`](./vim/) | Static config pointed at by the matching [`../plugins/`](../plugins/) shell plugin or installed by [`../bootstrap.sh`](../bootstrap.sh). |
 | [`claude/`](./claude/)                                                                                               | Claude Code config + custom statusline + session-usage CLI ([AGENTS.md](./claude/AGENTS.md)).                                            |
 | [`codex/`](./codex/)                                                                                                 | Codex CLI config + session-usage CLI.                                                                                                    |
+| [`copilot/`](./copilot/)                                                                                             | GitHub Copilot CLI session-usage CLI.                                                                                                    |
 | [`opencode/`](./opencode/)                                                                                           | opencode config + session-usage CLI.                                                                                                     |
 | [`pi/`](./pi/README.md)                                                                                              | pi config: extensions, skills, subagent defs, themes, session-usage CLI.                                                                 |
 
@@ -34,10 +35,10 @@ See [README.md](./README.md) for the full per-directory table; high-level groupi
 - Keep filenames exactly as the tool expects (`bat/config`, `ripgrep/config`, `eza/solarized-dark.yml`). Renaming breaks
   the plugin.
 
-### Code-bearing subdirs (`claude/`, `codex/`, `opencode/`, `pi/`)
+### Code-bearing subdirs (`claude/`, `codex/`, `copilot/`, `opencode/`, `pi/`)
 
-- `session-usage.ts` is a shared harness: all four adapters render and parse args via
-  [`../lib/node/ai-tooling/`](../lib/node/ai-tooling). When adding a new flag or column, update all four in lockstep so
+- `session-usage.ts` is a shared harness: all five adapters render and parse args via
+  [`../lib/node/ai-tooling/`](../lib/node/ai-tooling). When adding a new flag or column, update all five in lockstep so
   the UX stays identical across providers. Specs live under [`../tests/config/*/`](../tests/config).
 - `settings-baseline.json` (or `config.toml`, `opencode.jsonc`) **mirrors** the live product file under `~/.<tool>/`.
   Keep runtime-only keys (e.g. `lastChangelogVersion`) out of the baseline.

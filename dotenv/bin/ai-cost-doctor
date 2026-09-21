@@ -22,6 +22,7 @@ Harnesses:
   pi        pi sessions (~/.pi/agent/sessions)
   claude    Claude Code sessions (~/.claude/projects)
   codex     Codex CLI sessions (~/.codex/sessions)
+  copilot   GitHub Copilot CLI sessions (~/.copilot, SQLite)
   opencode  opencode sessions (~/.local/share/opencode, SQLite)
 
 Session selector (second argument, optional):
@@ -29,7 +30,7 @@ Session selector (second argument, optional):
                        harness's session store (like
                        `ai-tool-usage <tool> session <id>`). Omit to analyze
                        your latest session.
-  <path>               An explicit path to a .jsonl session log.
+  <path>               An explicit path to a .jsonl log or Copilot database.
 
 Without a harness word, a bare <session-file> path is accepted and the harness
 is auto-detected from the file signature.
@@ -48,6 +49,7 @@ Examples:
   ai-cost-doctor pi                      # your latest pi session
   ai-cost-doctor pi 019f0109             # by id prefix
   ai-cost-doctor claude                  # latest claude session in this project
+  ai-cost-doctor copilot dcc540db --json
   ai-cost-doctor opencode ses_2ee7 --json
   ai-cost-doctor ~/.pi/agent/sessions/<proj>/<ts>_<uuid>.jsonl
 HELPDOC

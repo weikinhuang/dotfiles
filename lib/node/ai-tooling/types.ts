@@ -1,7 +1,7 @@
 // Canonical data types for session-usage adapters.
 // SPDX-License-Identifier: MIT
 //
-// Tools (claude, codex, opencode) parse their native session logs into
+// Tools (claude, codex, copilot, opencode, pi) parse their native session logs into
 // these shared shapes. Common fields are required; tool-specific fields
 // are optional and auto-hidden by the renderer when absent.
 

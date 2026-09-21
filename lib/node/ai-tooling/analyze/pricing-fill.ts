@@ -1,6 +1,6 @@
 // Backfills per-turn cost from token counts for harnesses whose logs do not
-// precompute it (claude, codex). pi and opencode record real cost, so their
-// sessions arrive with `costNeedsBackfill === false` and skip this entirely.
+// carry a full component breakdown (claude, codex, copilot, opencode). pi
+// records the full cost split and skips this entirely.
 //
 // The per-component breakdown (input / output / cacheRead / cacheWrite)
 // mirrors estimateAnthropicCost / estimateOpenAICost in pricing.ts, but keeps

@@ -2,7 +2,7 @@
 // Cross-harness session cost / caching doctor.
 //
 // Ingests a session log from any supported harness (pi, claude, codex,
-// opencode), reconstructs the per-turn token/cost series, and flags cost
+// copilot, opencode), reconstructs the per-turn token/cost series, and flags cost
 // explosions and prompt-caching pathologies (poisoning, TTL-expiry churn,
 // cache-write-dominant spend, large-context carry) with the offending turn
 // range, dollars attributed, and a remediation hint. The detection
@@ -10,6 +10,7 @@
 //
 // Usage:
 //   session-doctor.ts <session.jsonl>                 # pi / claude / codex (auto-detected)
+//   session-doctor.ts --harness copilot <session-id>  # Copilot (SQLite DB)
 //   session-doctor.ts --harness opencode <session-id> # opencode (SQLite DB)
 //
 // Pure logic lives in ./analyze/ + ./adapters/; this file is the I/O shell
@@ -21,6 +22,7 @@ import * as path from 'node:path';
 
 import { claudeToNormalized, type ClaudeEntry } from './adapters/claude-adapter.ts';
 import { codexToNormalized, type CodexEntry } from './adapters/codex-adapter.ts';
+import { copilotToNormalized, type CopilotUsageEvent } from './adapters/copilot-adapter.ts';
 import { opencodeToNormalized, type OpencodeMessage, type OpencodeSessionMeta } from './adapters/opencode-adapter.ts';
 import { piToNormalized, type PiEntry } from './adapters/pi-adapter.ts';
 import { detectHarness } from './analyze/detect-harness.ts';
@@ -44,13 +46,14 @@ Harnesses:
   pi        pi sessions (~/.pi/agent/sessions)
   claude    Claude Code sessions (~/.claude/projects)
   codex     Codex CLI sessions (~/.codex/sessions)
+  copilot   GitHub Copilot CLI sessions (~/.copilot, SQLite)
   opencode  opencode sessions (~/.local/share/opencode, SQLite)
 
 Session selector (second argument, optional):
   <id|prefix>          A session id or unique prefix, resolved within the
                        harness's session store (like \`ai-tool-usage <tool>
                        session <id>\`). Omit to analyze your latest session.
-  <path>               An explicit path to a .jsonl session log.
+  <path>               An explicit path to a .jsonl session log or Copilot DB.
 
 Without a harness word, a bare <session-file> path is accepted and the harness
 is auto-detected from the file signature.
@@ -69,6 +72,7 @@ Examples:
   ai-cost-doctor pi                      # your latest pi session
   ai-cost-doctor pi 019f0109             # by id prefix
   ai-cost-doctor claude                  # latest claude session in this project
+  ai-cost-doctor copilot dcc540db --json
   ai-cost-doctor opencode ses_2ee7 --json
   ai-cost-doctor ~/.pi/agent/sessions/<proj>/<ts>_<uuid>.jsonl`;
 
@@ -90,7 +94,7 @@ function fail(msg: string): never {
   process.exit(1);
 }
 
-const HARNESSES = new Set<Harness>(['pi', 'claude', 'codex', 'opencode']);
+const HARNESSES = new Set<Harness>(['pi', 'claude', 'codex', 'copilot', 'opencode']);
 
 function parseDoctorArgs(argv: string[]): DoctorArgs {
   const args: DoctorArgs = {
@@ -130,7 +134,7 @@ function parseDoctorArgs(argv: string[]): DoctorArgs {
       args.refreshPrices = true;
     } else if (arg === '--harness' || arg.startsWith('--harness=')) {
       const v = takeValue(arg.startsWith('--harness=') ? arg.slice('--harness='.length) : '', '--harness');
-      if (!HARNESSES.has(v as Harness)) fail(`unknown harness "${v}" (pi|claude|codex|opencode)`);
+      if (!HARNESSES.has(v as Harness)) fail(`unknown harness "${v}" (pi|claude|codex|copilot|opencode)`);
       args.harness = v as Harness;
     } else if (arg === '--user-dir' || arg.startsWith('--user-dir=')) {
       args.userDir = takeValue(arg.startsWith('--user-dir=') ? arg.slice('--user-dir='.length) : '', '--user-dir');
@@ -224,6 +228,70 @@ async function loadOpencodeSession(sessionId: string, userDir: string): Promise<
   return opencodeToNormalized(messages, meta);
 }
 
+// Copilot stores usage events alongside session metadata in session-store.db.
+// Child-agent requests have parent_tool_call_id set and are excluded so this
+// matches the parent-session accounting used by every other harness adapter.
+async function loadCopilotSession(
+  sessionId: string,
+  userDir: string,
+  explicitDbPath?: string,
+): Promise<NormalizedSession> {
+  const { DatabaseSync } = await import('node:sqlite');
+  const dbPath = explicitDbPath ?? path.join(expandUserPath(userDir || DEFAULT_DIRS.copilot), 'session-store.db');
+  if (!fs.existsSync(dbPath)) fail(`GitHub Copilot session database not found: ${dbPath}`);
+  const db = new DatabaseSync(dbPath, { readOnly: true });
+
+  interface Row {
+    id: string;
+    created_at?: string;
+    updated_at?: string;
+  }
+
+  let session: Row | undefined;
+  if (sessionId) {
+    const matches = db
+      .prepare('SELECT id, created_at, updated_at FROM sessions WHERE id = ? OR id LIKE ? ORDER BY updated_at DESC')
+      .all(sessionId, `${sessionId}%`) as unknown as Row[];
+    const exact = matches.find((row) => row.id === sessionId);
+    if (exact) {
+      session = exact;
+    } else if (matches.length === 1) {
+      session = matches[0];
+    } else if (matches.length > 1) {
+      fail(`ambiguous GitHub Copilot session prefix "${sessionId}"`);
+    }
+  } else {
+    session = db.prepare('SELECT id, created_at, updated_at FROM sessions ORDER BY updated_at DESC LIMIT 1').get() as
+      | Row
+      | undefined;
+  }
+  if (!session) {
+    fail(sessionId ? `GitHub Copilot session not found: ${sessionId}` : 'no GitHub Copilot sessions found');
+  }
+
+  const events = db
+    .prepare(
+      `SELECT model,
+              copilot_usage_model AS copilotUsageModel,
+              input_tokens AS inputTokens,
+              output_tokens AS outputTokens,
+              cache_read_tokens AS cacheReadTokens,
+              cache_write_tokens AS cacheWriteTokens,
+              reasoning_tokens AS reasoningTokens,
+              created_at AS createdAt
+         FROM assistant_usage_events
+        WHERE session_id = ? AND parent_tool_call_id IS NULL
+        ORDER BY id`,
+    )
+    .all(session.id) as unknown as CopilotUsageEvent[];
+
+  return copilotToNormalized(events, {
+    sessionId: session.id,
+    startTime: session.created_at,
+    endTime: session.updated_at,
+  });
+}
+
 async function loadSession(args: DoctorArgs): Promise<NormalizedSession> {
   const ref = args.sessionRef;
 
@@ -232,8 +300,9 @@ async function loadSession(args: DoctorArgs): Promise<NormalizedSession> {
   if (ref) {
     const refPath = expandUserPath(ref);
     if (fs.existsSync(refPath) && fs.statSync(refPath).isFile()) {
-      const harness = args.harness ?? detectHarness(refPath, readHeadLines(refPath));
-      if (!harness) fail('could not auto-detect harness; pass a harness word (pi|claude|codex|opencode)');
+      const harness = args.harness ?? detectHarness(refPath, []) ?? detectHarness(refPath, readHeadLines(refPath));
+      if (!harness) fail('could not auto-detect harness; pass a harness word (pi|claude|codex|copilot|opencode)');
+      if (harness === 'copilot') return loadCopilotSession('', args.userDir, refPath);
       if (harness === 'opencode') return loadOpencodeSession(ref, args.userDir);
       return loadJsonlSession(harness, refPath);
     }
@@ -245,6 +314,7 @@ async function loadSession(args: DoctorArgs): Promise<NormalizedSession> {
   }
   const harness = args.harness;
 
+  if (harness === 'copilot') return loadCopilotSession(ref, args.userDir);
   if (harness === 'opencode') return loadOpencodeSession(ref, args.userDir);
 
   const userDir = args.userDir || DEFAULT_DIRS[harness];

@@ -1,8 +1,8 @@
 # session cost / caching doctor
 
-A cross-harness diagnostic that ingests one session log from any supported harness (pi, claude, codex, opencode),
-reconstructs the per-turn token/cost series, and flags **cost explosions** and **prompt-caching pathologies** with the
-offending turn range, dollars attributed, and a remediation hint.
+A cross-harness diagnostic that ingests one session log from any supported harness (pi, claude, codex, copilot,
+opencode), reconstructs the per-turn token/cost series, and flags **cost explosions** and **prompt-caching pathologies**
+with the offending turn range, dollars attributed, and a remediation hint.
 
 It is the **detection** counterpart to the pi-only `cache-breakpoint` extension (which _fixes_ the tail-poisoning trap):
 this tool _diagnoses_ any session - including non-pi ones - and tells you _why_ it was expensive.
@@ -16,13 +16,14 @@ ai-cost-doctor pi                      # your latest pi session
 ai-cost-doctor pi 019f0109             # by id prefix, resolved in the pi session store
 ai-cost-doctor pi 019f0109 --turns     # + a per-turn cacheRead/cacheWrite/cost table
 ai-cost-doctor claude                  # latest claude session in this project
+ai-cost-doctor copilot dcc540db --json
 ai-cost-doctor opencode ses_2ee7 --json
 ai-cost-doctor ~/.pi/agent/sessions/<proj>/<ts>_<uuid>.jsonl   # bare path -> harness auto-detected
 ```
 
 Session resolution (`session-locator.ts`): an id/prefix is matched within the harness's session store; with no selector,
-the newest session is used (claude prefers the current project's slug dir). A bare existing path skips resolution and
-auto-detects the harness from the file signature.
+the newest session is used (claude prefers the current project's slug dir). A bare existing JSONL path or Copilot
+`session-store.db` skips resolution and auto-detects the harness from the file signature.
 
 ## Architecture
 
@@ -30,14 +31,14 @@ Reuses the shared `ai-tooling` harness (`pricing.ts`, `jsonl.ts`, `format.ts`, `
 parallel CLI stack. All logic is pure and unit-tested; `session-doctor.ts` is the thin I/O shell (file / DB reading, arg
 parsing, printing).
 
-| Module                                           | Role                                                                                          |
-| ------------------------------------------------ | --------------------------------------------------------------------------------------------- |
-| `analyze/turn-model.ts`                          | Provider-neutral `NormalizedTurn` / `NormalizedSession` model + `classifyCachingModel`.       |
-| `analyze/detectors.ts`                           | The four pure detectors (below) + `runDetectors`. Branch on `cachingModel`, never on harness. |
-| `analyze/pricing-fill.ts`                        | Backfills per-turn cost from tokens (claude/codex/opencode) via the LiteLLM pricing table.    |
-| `analyze/report.ts`                              | Renders the text report + `--json` object.                                                    |
-| `analyze/detect-harness.ts`                      | Auto-detects the harness from the path extension + first JSONL lines.                         |
-| `adapters/{pi,claude,codex,opencode}-adapter.ts` | Raw per-harness records → `NormalizedSession` (pure).                                         |
+| Module                      | Role                                                                                          |
+| --------------------------- | --------------------------------------------------------------------------------------------- |
+| `analyze/turn-model.ts`     | Provider-neutral `NormalizedTurn` / `NormalizedSession` model + `classifyCachingModel`.       |
+| `analyze/detectors.ts`      | The four pure detectors (below) + `runDetectors`. Branch on `cachingModel`, never on harness. |
+| `analyze/pricing-fill.ts`   | Backfills per-turn cost from tokens (claude/codex/copilot/opencode) via LiteLLM pricing.      |
+| `analyze/report.ts`         | Renders the text report + `--json` object.                                                    |
+| `analyze/detect-harness.ts` | Auto-detects the harness from the path extension + first JSONL lines.                         |
+| `adapters/*-adapter.ts`     | Raw per-harness records → `NormalizedSession` (pure).                                         |
 
 ### The normalized model
 
@@ -48,6 +49,8 @@ Adapters absorb every per-harness format difference so detectors see only normal
   `cache_creation_input_tokens` / `cache_read_input_tokens`; no cost → pricing backfill.
 - **codex** (JSONL) is OpenAI-style: `token_count` events carry `info.last_token_usage`; `input_tokens` is the grand
   total, `cached_input_tokens` the cached read; no cache-write line; no cost → backfill.
+- **copilot** (SQLite) stores one `assistant_usage_events` row per model request; root-agent rows are analyzed while
+  child-agent rows are excluded; cache and reasoning fields map directly and USD cost is estimated from LiteLLM.
 - **opencode** (SQLite) records a scalar cost but not the read/write split, so the breakdown is re-derived from tokens;
   caching model comes from `providerID` (local `llama.cpp` → `none`).
 

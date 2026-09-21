@@ -3,6 +3,10 @@ import { describe, expect, test } from 'vitest';
 import { detectHarness } from '../../../../../lib/node/ai-tooling/analyze/detect-harness.ts';
 
 describe('detectHarness', () => {
+  test('detects GitHub Copilot from session-store.db', () => {
+    expect(detectHarness('/home/u/.copilot/session-store.db', [])).toBe('copilot');
+  });
+
   test('detects opencode from a .db / .sqlite path regardless of content', () => {
     expect(detectHarness('/data/opencode.db', [])).toBe('opencode');
     expect(detectHarness('/x/foo.sqlite', [])).toBe('opencode');
